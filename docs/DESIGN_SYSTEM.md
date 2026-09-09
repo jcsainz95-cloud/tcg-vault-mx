@@ -4,7 +4,23 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.7** — **se desbloquea el frontend en las dos cosas que `ARCHITECTURE §9 · D-UX-1` tenía
+> Estado: **v3.8** — dos cosas:
+> **(1) §31 — NUEVA: los OCHO correos, hablando el mismo idioma.** El dueño mandó una propuesta del correo 1
+> (*«adecua con nuestro logo pero algo así»*, *«que todos se hablen»*) y **no es lenguaje nuevo: es nuestro
+> sistema llevado al correo**. Hoy los ocho comparten un `layout()` de nueve líneas con **Arial, un `<h2>` y
+> una raya gris** — cero marca. §31 define la retícula, la escala con **las familias que sí existen en un
+> cliente de correo**, el **bloque de marca con su respaldo** (⭐ el wordmark es **texto vivo**: con las
+> imágenes bloqueadas la marca **sigue ahí**), los patrones, el **pie en tinta**, ⚠ **el modo oscuro de
+> verdad** (tres comportamientos distintos, y el `color-scheme` solo cubre uno) y **qué NO sobrevive al medio
+> con su equivalente exacto**. Más **el único cambio de copy** que pidió el dueño (§31.10). **Once mutaciones
+> en rojo.**
+> **(2) §28.4 — CORREGIDA: `PREMIUM` sale, `VALOR DE MERCADO` ocupa su sitio.** Decisión del dueño
+> (*«quita lo del premium ahí pon mercado»*) ante el aviso de que la octava columna subía el colapso a `xl`.
+> **La tabla se queda en SIETE columnas, el punto de colapso vuelve a `md` y queda ~8 px más estrecha que la
+> de producción de hoy** (§28.4c). ⭐ **Consecuencia: la pantalla ya no calcula NADA.** El único dato que
+> `PREMIUM` portaba en exclusiva —`SIN TARIFA`— **se muda a la celda `TARIFA VIGENTE`** (§28.4d). **`ESTADO`
+> se queda** y tampoco se atenúa (§28.3b).
+> Antes: **v3.7** — **se desbloquea el frontend en las dos cosas que `ARCHITECTURE §9 · D-UX-1` tenía
 > abiertas contra este documento**. Las dos son **de dinero** y las dos son **encargo directo del dueño**:
 > **(1) §30 — NUEVA: la tarjeta del tipo de cambio (M2), contra `API_CONTRACT §M2-F` v1.63.1.** El
 > interruptor **automático ↔ manual** que conserva el número; ⭐ **las dos tasas lado a lado con el salto en %
@@ -9693,6 +9709,13 @@ refuerza—. Queda **una reserva acotada**, para que esté escrita y se pueda me
 
 #### 25.4.0 El medio: papel y tinta en HTML de correo
 
+> **⚠ v3.8 — ABSORBIDA Y AMPLIADA EN §31**, que es ahora la sección canónica del medio «correo» y cubre **los
+> OCHO** (los cinco del ciclo + el rechazo de ítem + verificación + restablecer contraseña). **Todo lo de
+> abajo sigue vigente palabra por palabra**; §31 añade el **bloque de marca**, el **pie en tinta**, el **modo
+> oscuro de verdad** (§31.8), el **presupuesto de peso** y los **patrones nombrados**. ⛔ **Dos correcciones
+> de medio**, y están en §31.2: la **regla punteada** de §25.4.2 y el `text-transform` de las versalitas **no
+> sobreviven a Outlook**.
+
 El correo no es la app y no puede fingir que lo es. Restricciones asumidas como **parte del diseño**:
 
 | | Norma |
@@ -9707,6 +9730,10 @@ El correo no es la app y no puede fingir que lo es. Restricciones asumidas como 
 | **Prohibido en los CINCO** | **CLABE** (ni enmascarada), datos de terceros, montos de otras solicitudes, **cualquier cifra interna de la mesa** (posición, sugerencia, tope del operador, cuánto inventario tenemos), teléfono del vendedor, y cualquier enlace que **ejecute** una acción sin sesión. **En el correo 5 se añade `offerCancelReason`**: el motivo de la cancelación es de la bitácora, no del vendedor |
 
 #### 25.4.1 Esqueleto común
+
+> **⚠ v3.8 — el esqueleto vigente y completo está en §31.3**, y es el de los **ocho**. El de abajo es
+> correcto y **no se contradice**: le faltaban el **bloque de marca** (§31.5), el **preheader** (§31.6a) y el
+> **pie en tinta** (§31.6h). *Se conserva porque §25.4.2–§25.4.4-bis lo citan bloque a bloque.*
 
 ```
 ┌──────────────────────────────────────────────────────────┐  ← papel #F4F1EA, 600px
@@ -12295,16 +12322,46 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 >
 > | Punto | Antes (v3.6) | Ahora (v3.7) — normativo |
 > |---|---|---|
-> | **Columnas** | siete | **ocho**: entra **`VALOR DE MERCADO`** como **tercera**, la primera de las de dinero — §28.4 |
 > | **El caso sin dato** | no existía | **`pending` es estado de primera clase**: `—`, ⛔ nunca `MX$0`, ⛔ nunca el precio de otro acabado — §28.4a |
 > | **De qué se ramifica** | — | **de `market.status`, JAMÁS de la verdad del número** (`!referenceMxnCents` es cierto para `0` y para `null`) — §28.4a |
 > | **La fecha** | — | **`capturedDate` se pinta SIEMPRE**, segunda línea de la celda, y **no cuesta ni un píxel de alto ni de ancho** — §28.4b |
-> | **Anchura** | 0 px de desbordamiento | **sigue 0 px, y se sostiene con un presupuesto medido**: la tabla de ocho columnas vive a partir de `xl`; por debajo manda el colapso de §28.9, que **no se rompe** — §28.4c |
-> | **`<th scope="rowgroup">`** | `colspan="7"` | **`colspan="8"`** — §28.10 |
 >
 > **⛔ Lo que esta ampliación NO hace:** no añade filtro, ni orden, ni acción, ni endpoint (el contrato dice
 > *«es una lectura más, no una función nueva»*); **no calcula ningún porcentaje sobre el mercado**; **no
-> clasifica el dato como «viejo»** (§28.4b); y **no toca §28.3, §28.5, §28.6 ni §28.7**.
+> clasifica el dato como «viejo»** (§28.4b); y **no toca §28.5, §28.6 ni §28.7**.
+>
+> **⚠⚠ CORRECCIÓN v3.8 — `PREMIUM` SALE Y `VALOR DE MERCADO` OCUPA SU SITIO. LA TABLA SE QUEDA EN SIETE
+> COLUMNAS.** Decisión del dueño, literal: ***«quita lo del premium ahí pon mercado»***. Llegó como respuesta
+> a que la v3.7 subiera el punto de colapso de `md` a `xl`; su instinto —*«veamos cómo quitar algo en vez de
+> hacerlo más grande»*— **era el correcto y la medición le da la razón** (§28.4c).
+>
+> | Punto | v3.7 | **v3.8 — vigente** |
+> |---|---|---|
+> | **Columnas** | ocho | **SIETE**: `PREMIUM` **se retira** y `VALOR DE MERCADO` ocupa **su** posición (la quinta) |
+> | **Punto de colapso** | subía a `xl` | ⭐ **`md`, sin cambio.** La tabla queda **~8 px MÁS ESTRECHA que la de producción de hoy**: `MX$ 4,180.00` es más corto que `−MX$ 1,500.00` |
+> | **`colspan` del `<th scope="rowgroup">`** | `8` | **`7`, como siempre** |
+> | **Lo que la pantalla calcula** | una resta | ⭐⭐ **NADA. Cero.** Las siete celdas son **campos del servidor**, sin una sola operación en el navegador |
+> | **`SIN TARIFA`** | vivía en `PREMIUM` | ⚠ **se muda a la celda `TARIFA VIGENTE`** — era el único dato real que `PREMIUM` portaba en exclusiva (§28.4d) |
+>
+> **Por qué su decisión es coherente, y no es solo que quepa.** `PREMIUM` contestaba *«¿cuánto pago por
+> encima de la tarifa?»*. **Con el mercado delante, la pregunta que él quiere contestar es otra** —*«pago X y
+> la carta vale Y»*—, que es **textualmente** para lo que pidió la columna. Y `PREMIUM` era **el único
+> derivado de la tabla**: exactamente el número que yo misma había señalado en §28.4a punto 4 como el más
+> prescindible, *«un derivado de más es un número que puede discrepar de la resta que el humano tiene
+> delante»*. **Quitarlo aplica mi propio argumento a mi propia columna.**
+>
+> **⚠ Y el premium NO se pierde: deja de enunciarse.** `PAGAMOS` y `TARIFA VIGENTE` **se quedan las dos**, así
+> que la diferencia **sigue estando a la vista, en la misma fila y a una columna de distancia**. Lo que se
+> retira es la **aritmética hecha por la pantalla**, no la información. *El hueco real que sí había —
+> `SIN TARIFA`— se resuelve en §28.4d, no se pierde.*
+>
+> **⛔ `ESTADO` NO se retira** *(decisión del orquestador, ratificada aquí con su argumento)*. El instinto del
+> dueño —bajo `ACTIVOS · 6` las seis filas repiten `ACTIVO`— describe una **redundancia visual dentro de un
+> bloque**, no una columna sobrante: la consola **también** lista rebasados, sin precio, completados y
+> apagados, y **con un `sort` distinto de `attention_first` NO hay encabezados de bloque** (§28.2a) ⇒ sin la
+> columna habría filas **sin ninguna vía que diga si están pagando**, que es la ceguera exacta que esta
+> pantalla vino a curar. **Ya no hay presión de ancho que lo obligue** (§28.4c). Ver §28.3b sobre por qué
+> tampoco se atenúa.
 
 ### 28.0 El problema, y las **seis** reglas duras *(v3.4: la sexta es nueva y es la primera)*
 
@@ -12353,31 +12410,31 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 │                                                    [ Buscar carta ]        [ Orden ▾ ]        │
 │ ─────────────────────────────────────────────────────────────────────────────  regla 1px ─── │
 │                                                                                              │
-│ CARTA                  ESTADO     VALOR DE      PAGAMOS  TARIFA VIGENTE  PREMIUM     AVANCE   │
-│                                    MERCADO                                                   │
+│ CARTA                    ESTADO      PAGAMOS  TARIFA VIGENTE   VALOR DE      AVANCE          │
+│                                                                 MERCADO                      │
 │ ═════════════════════════════════════════════════════════════════════ regla fuerte ═════════ │
-│ ▌ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1        ← <th scope="rowgroup" colspan="8">           │
+│ ▌ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1        ← <th scope="rowgroup" colspan="7">           │
 │ ▌ text-xs muted: están encendidos y no pagan premium. Cada uno pide una decisión.            │
-│ ▌ Charizard ex        REBASADO  MX$ 1,020.00  MX$ 900.00   MX$ 950.00  −MX$ 50.00   0 de 2   │
-│ ▌ Obsidian Flames·125            5 sep 2026                              −5.3%     faltan 2  │
+│ ▌ Charizard ex          REBASADO   MX$ 900.00     MX$ 950.00  MX$ 1,020.00    0 de 2         │
+│ ▌ Obsidian Flames·125                                          5 sep 2026    faltan 2        │
 │ ▌ HOLOFOIL                                              [ Editar ]  [ Apagar ]               │
-│ ▌ Gengar VMAX       SIN PRECIO  MX$ 1,150.00       —       MX$ 780.00       —       0 de 2   │
-│ ▌ Fusion Strike·271              5 sep 2026                                        faltan 2  │
+│ ▌ Gengar VMAX         SIN PRECIO        —         MX$ 780.00  MX$ 1,150.00    0 de 2         │
+│ ▌ Fusion Strike·271                                            5 sep 2026    faltan 2        │
 │ ▌ REVERSE                                          [ Poner precio ]  [ Apagar ]              │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   ACTIVOS · 12                                                                               │
-│   Pikachu VMAX          ACTIVO  MX$ 4,180.00 MX$ 2,500.00 MX$ 2,100.00 +MX$ 400.00  1 de 3   │
-│   Vivid Voltage·044              3 sep 2026                             +19.0%     faltan 2  │
-│   Lugia V               ACTIVO       —       MX$ 1,500.00      —       SIN TARIFA   0 de 1   │
-│   Silver Tempest·186                                                                falta 1  │
+│   Pikachu VMAX            ACTIVO MX$ 2,500.00   MX$ 2,100.00  MX$ 4,180.00    1 de 3         │
+│   Vivid Voltage·044                                            3 sep 2026    faltan 2        │
+│   Lugia V                 ACTIVO MX$ 1,500.00    SIN TARIFA         —         0 de 1         │
+│   Silver Tempest·186                                                          falta 1        │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   COMPLETADOS · 2                                                                            │
-│   Mew ex            COMPLETADO  MX$ 1,900.00 MX$ 1,200.00 MX$ 1,050.00      —       2 de 2   │
-│   Paldean Fates·205              5 sep 2026                                                  │
+│   Mew ex              COMPLETADO MX$ 1,200.00   MX$ 1,050.00  MX$ 1,900.00    2 de 2         │
+│   Paldean Fates·205                                            5 sep 2026                    │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   APAGADOS · 4                                                                               │
-│   Snorlax VMAX         APAGADO   MX$ 720.00   MX$ 600.00   MX$ 640.00       —       0 de 2   │
-│   Cosmic Eclipse·131             1 sep 2026                                                  │
+│   Snorlax VMAX           APAGADO   MX$ 600.00     MX$ 640.00   MX$ 720.00     0 de 2         │
+│   Cosmic Eclipse·131                                           1 sep 2026                    │
 │                                                                                              │
 │ pie text-xs muted: el avance sube al PAGAR · el mercado trae su fecha · cambios en bitácora  │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -12395,11 +12452,12 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
   página, la regla del eje se rompería en silencio.
 - **Sin plegado de grupos en v1.** Si con el tiempo los apagados crecen tanto que estorban, la palanca ya
   existe y es el **chip** (des-seleccionar `APAGADOS`), no un acordeón nuevo.
-- **⚠ v3.7 — la tabla tiene OCHO columnas y sigue sin desbordar.** `VALOR DE MERCADO` entra la **tercera**,
-  con la **fecha de captura como segunda línea de la celda** — y esa segunda línea **no alarga la fila**: las
-  celdas de `CARTA` (3 líneas), `PREMIUM` (2) y `AVANCE` (2) ya la habían fijado. **El presupuesto de anchura
-  y el punto de colapso están medidos en §28.4c**; la regla dura no cambia: **0 px de desbordamiento
-  horizontal, y el nombre de la carta no se trunca jamás**.
+- **⚠ v3.8 — la tabla sigue teniendo SIETE columnas y queda MÁS ESTRECHA que hoy.** `VALOR DE MERCADO` entra
+  **en el sitio que deja `PREMIUM`**, con la **fecha de captura como segunda línea de la celda** — y esa
+  segunda línea **no alarga la fila**: las celdas de `CARTA` (3 líneas) y `AVANCE` (2) ya la habían fijado, y
+  es **la misma segunda línea** que `PREMIUM` usaba para su porcentaje. **El presupuesto está medido en
+  §28.4c**; la regla dura no cambia: **0 px de desbordamiento horizontal, el nombre de la carta no se trunca
+  jamás, y el punto de colapso de §28.9 sigue donde estaba.**
 
 **(a) ⚠ Los CINCO chips y los CUATRO bloques — v3.4, y cada decisión tiene su porqué.**
 
@@ -12465,8 +12523,8 @@ cuatro noticias que le importan al dueño y no se cita ningún número de estado
   no debería existir ninguna—, pero quien la ve en pantalla no necesita saber que es rara: necesita saber que
   ese bounty no está pagando y qué hacer con él.)*
 - **⛔ Un `state` que esta tabla no conozca se pinta NEUTRO, nunca `ACTIVO`.** Si el enum creciera y llegara un
-  valor desconocido: versalita con el valor **crudo** en `--color-text-muted`, **sin** marca de fila, **sin**
-  premium calculado, la fila **conserva la posición que le dio el servidor** y sus acciones se limitan a `Editar`
+  valor desconocido: versalita con el valor **crudo** en `--color-text-muted`, **sin** marca de fila, la fila
+  **conserva la posición que le dio el servidor** y sus acciones se limitan a `Editar`
   y `Ver en el binder`. Es el mismo *fallback* neutro de §25.1 (`expirada` sin motivo): **cuando falta el dato,
   se cae al rótulo que no afirma de más** — y en esta pantalla el rótulo que afirma de más es `ACTIVO`, porque
   significa *«se está pagando»*.
@@ -12489,7 +12547,7 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
 |---|---|---|---|---|
 | **1 · Posición** (pre-atento, sin leer) | bloque ② | **bloque ①, arriba de todo, con su conteo en el encabezado** | **bloque ①, junto al rebasado** | bloques ③ y ④ |
 | **2 · Palabra** en versalitas mono (§2.4, el portador del sistema) | `ACTIVO` | `REBASADO` | **`SIN PRECIO`** | `COMPLETADO` · `APAGADO` |
-| **3 · Los números de la fila** | `PAGAMOS` y `TARIFA` con premium **`+MX$ …`** | las dos cifras con premium **`−MX$ …`** | **⚠ `PAGAMOS` vacío (`—`): el hueco ES la señal** — la fila **no tiene** el número que justifica su existencia, y eso se ve antes de leer | premium `—` (no hay premium si no paga) |
+| **3 · Los números de la fila** *(reescrito v3.8)* | **`PAGAMOS` por ENCIMA de `TARIFA`** — las dos cifras crudas, en la misma fila | **`PAGAMOS` por DEBAJO de `TARIFA`** — la misma comparación, al revés | **⚠ `PAGAMOS` vacío (`—`): el hueco ES la señal** — la fila **no tiene** el número que justifica su existencia, y eso se ve antes de leer | las dos cifras siguen ahí (una fila apagada **conserva su precio guardado**, §28.3) |
 | **4 · Tinta y marca de fila** | tinta normal, sin marca | **regla izquierda 2px `--color-accent`**, palabra en `--color-accent` | **regla izquierda 2px `--color-accent`**, palabra en `--color-accent` | renglón `--color-text-muted`, sin marca |
 | **5 · La acción que ofrece** *(canal extra, solo en ① )* | — | `Editar` · `Apagar` | **`Poner precio`** · `Apagar` | `Editar` · `Encender` |
 
@@ -12499,9 +12557,13 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   el `aria-label`, que son cuatro canales sin color. *Duplicar tintas para distinguir dos parientes obligaría a
   meter un par de contraste nuevo en una pantalla de dinero, y a que el ojo aprenda dos rojos.*
 - **El caso normal no grita** — principio que ya rige en §21.9a (`market` no lleva sufijo). Por eso
-  `ACTIVO` va en **tinta**, no en acento, y el premium positivo va en **tinta, no en verde**: así el rojo de
-  la pantalla aparece **solo** donde hay una decisión pendiente, y tres rebasados entre quince filas se ven
-  desde la puerta.
+  `ACTIVO` va en **tinta**, no en acento: así el rojo de la pantalla aparece **solo** donde hay una decisión
+  pendiente, y tres rebasados entre quince filas se ven desde la puerta.
+- **⚠ v3.8 — el canal 3 dejó de ser un derivado y pasó a ser una LECTURA, y la señal no se debilitó.** Antes
+  el canal decía *«premium `+MX$ 400.00`»* (un número que calculaba la pantalla); ahora dice **«`PAGAMOS`
+  está por encima / por debajo de `TARIFA VIGENTE`»**, que es **la misma comparación** hecha por el ojo sobre
+  **dos cifras que el servidor mandó**, alineadas a la derecha y a una columna de distancia. *Se retira la
+  aritmética, no el canal.*
 - **`COMPLETADO` va en tinta, no en verde** — y es una divergencia consciente respecto del rótulo verde del
   cajón (§16.7a), no un descuido: allí la línea vive sola, a 12–14px y sin competencia; aquí compite en una
   tabla de 11px, y el verde del sistema está en **4.4:1**, en el borde de AA (§10). En una pantalla de dinero
@@ -12510,52 +12572,73 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   (§16.3b, *«el sugerido se muestra tachado NO»*): tachar una cifra de dinero es sugerir que ya no vale, y el
   precio de un bounty apagado **sí sigue guardado** y es el que reaparecerá si lo enciendes.
 
-### 28.4 Las columnas, en orden, y por qué ese orden *(ampliada en v3.7: entra `VALOR DE MERCADO`)*
+#### 28.3b ⛔ Por qué `ESTADO` no se retira **y tampoco se atenúa** *(v3.8)*
+
+El dueño observó, con razón, que bajo el encabezado **`ACTIVOS · 6`** las **seis** filas repiten `ACTIVO` en
+su columna, y pensó en voz alta: *«si está ahí está activo»*.
+
+**Eso es verdad DENTRO de ese bloque y falso en la pantalla entera**, y la diferencia **es la razón de ser de
+esta consola**: aquí también viven los rebasados, los que están encendidos sin precio, los completados y los
+apagados. **Y con un `sort` distinto de `attention_first` NO se pintan encabezados de bloque** (§28.2a, y es
+correcto: fingir el grupo mentiría sobre el orden) ⇒ **ordenando por precio o por fecha de edición, la columna
+`ESTADO` es el ÚNICO portador que queda.** Retirarla dejaría filas **sin ninguna vía que diga si están
+pagando**. **`ESTADO` se queda.**
+
+**Y tampoco se atenúa, aunque se consideró:** *«pintar `ACTIVO` en muted cuando coincide con el encabezado del
+bloque»* resuelve una molestia cosmética **retirando fuerza al canal 2, que es el portador** (§2.4: la palabra
+en versalitas es lo que hace que el color sea redundante y no portador). Y en su versión condicional es peor
+todavía: **el mismo valor se renderizaría de dos formas según el orden activo**, es decir, la tabla cambia de
+forma bajo el mismo humano — justo lo que este documento evita en §28.2a.
+
+> **Recomendación: no hacer nada.** La repetición **es el precio del cuarto canal**, cuesta cero y
+> **desaparece sola en el momento en que importa**: al cambiar el orden, o al mirar el bloque ①, donde las
+> filas **no** repiten (`REBASADO` y `SIN PRECIO` conviven). *La redundancia molesta exactamente donde es
+> inofensiva.*
+
+### 28.4 Las columnas, en orden, y por qué ese orden *(ampliada v3.7 · **corregida v3.8: sale `PREMIUM`**)*
 
 | # | Columna | Contenido | Formato |
 |---|---|---|---|
 | 1 | **CARTA** | nombre EN (`lang="en"`, serif 15–17px, **enlace** al cajón del binder) · segunda línea `Set · número` en `text-xs muted` · tercera línea: **`FinishMark`** (§16.6) + acabado en versalitas mono | izquierda |
 | 2 | **ESTADO** | la versalita que el mapa de §28.3 asigna al **`state` que llegó del servidor**, con su `aria-label` largo. ⛔ **No se calcula aquí nada** | izquierda |
-| 3 | **VALOR DE MERCADO** *(v3.7)* | `pricing.market` (`MarketReferenceDTO`) — `referenceMxnCents` **cuando `status === "priced"`**, `—` **cuando `status === "pending"`** · **segunda línea:** `capturedDate` localizada (`5 sep 2026`) en `text-xs muted`, y **solo cuando hay número** | mono `tabular-nums`, **derecha** |
-| 4 | **PAGAMOS** | `bounty.priceCents` — **`—` cuando el bounty es `invalida`** (no hay precio que enseñar) | mono `tabular-nums`, **derecha** |
-| 5 | **TARIFA VIGENTE** | `bounty.curveQuoteCents` (`—` si es `null`) | mono `tabular-nums`, **derecha** |
-| 6 | **PREMIUM** | derivada **de las dos cifras que ya vinieron**: `+MX$ 400.00 · +19.0%` / `−MX$ 50.00 · −5.3%` / `SIN TARIFA` / `—` | mono `tabular-nums`, **derecha** |
-| 7 | **AVANCE** | `1 de 3` + segunda línea `faltan 2` en `text-xs muted` | mono `tabular-nums`, **derecha** |
-| 8 | *(acciones)* | `Editar` · `Apagar` / `Encender` — y **`Poner precio`** en lugar de `Editar` cuando el estado es `invalida` (§28.6g) | derecha, `<th>` oculto para lectores |
+| 3 | **PAGAMOS** | `bounty.priceCents` — **`—` cuando el bounty es `invalida`** (no hay precio que enseñar) | mono `tabular-nums`, **derecha** |
+| 4 | **TARIFA VIGENTE** | `bounty.curveQuoteCents` — **`SIN TARIFA` cuando es `null`** *(v3.8, §28.4d)* | mono `tabular-nums`, **derecha** |
+| 5 | **VALOR DE MERCADO** *(v3.7 · ocupa el sitio de `PREMIUM` en v3.8)* | `pricing.market` (`MarketReferenceDTO`) — `referenceMxnCents` **cuando `status === "priced"`**, `—` **cuando `status === "pending"`** · **segunda línea:** `capturedDate` localizada (`5 sep 2026`) en `text-xs muted`, y **solo cuando hay número** | mono `tabular-nums`, **derecha** |
+| 6 | **AVANCE** | `1 de 3` + segunda línea `faltan 2` en `text-xs muted` | mono `tabular-nums`, **derecha** |
+| 7 | *(acciones)* | `Editar` · `Apagar` / `Encender` — y **`Poner precio`** en lugar de `Editar` cuando el estado es `invalida` (§28.6g) | derecha, `<th>` oculto para lectores |
+
+> ⛔ **`PREMIUM` ya no existe** *(v3.8)*. Era la columna 5 y **`VALOR DE MERCADO` ocupa su sitio**. Ver el
+> bloque de corrección al principio de §28 y §28.4d para el único dato que había que salvar.
 
 - **La carta va primera aunque el estado sea el eje**, y no es contradicción: el **agrupamiento** ya resuelve
   el eje (canal 1), y una tabla cuyo primer campo no es el sujeto de la fila desorienta. Es además el orden
   que ya usa la tabla pública de bounties de la home (§20.7: CARTA · CONDICIÓN · PAGAMOS · BUSCADAS).
-- **⭐ v3.7 — por qué el mercado va ANTES de `PAGAMOS` y no al final.** Las cuatro columnas de dinero se leen
-  como **una frase, de izquierda a derecha**: *«la carta vale **4,180**, pagamos **2,500**, la tarifa vigente
-  es **2,100**, así que ponemos **+400** encima»*. El mercado es **el ancla del valor** —el único número de
-  los cuatro que no decidimos nosotros— y por eso abre la frase; los dos **crudos que el dueño compara para
-  teclear** (`PAGAMOS`, `TARIFA VIGENTE`) quedan **pegados**, y el **derivado** (`PREMIUM`) queda pegado a
-  sus dos operandos. Ponerlo al final lo dejaría a cuatro columnas de distancia de `PAGAMOS`, que es
-  exactamente la comparación que el dueño pidió poder hacer de un vistazo.
-- **Las cuatro columnas de dinero son cuatro y no tres** *(v3.7)*. Antes: «Pagamos» y «Tarifa vigente» son
-  los **dos números que el dueño necesita para teclear el precio nuevo**; «Premium» es el **derivado que hace
-  evidente el rebasado sin comparar mentalmente dos cifras**. **Lo que faltaba** —y es literalmente la queja
-  del dueño— es que `+87 %` **no dice si el bounty es sano**: `+87 %` sobre una tarifa de 1,603 es una ganga
-  si la carta vale 6,000 y un disparate si vale 1,800. **El valor de mercado es el único dato que convierte
-  ese porcentaje en un juicio.** Quitar el derivado obliga a restar en la cabeza quince veces; quitar los
-  crudos obliga a abrir la fila para decidir; **quitar el mercado obliga a irse al binder para saber si lo
-  que se está viendo tiene sentido**, que es el viaje que esta pantalla existe para ahorrar.
-- **⚠ El PREMIUM es lo ÚNICO que esta pantalla calcula, y calcula una resta, no un veredicto.** Se compone con
-  las dos cifras que ya vinieron en la fila y **sirve para leer, no para clasificar**: ⛔ **está prohibido
-  deducir el estado de su signo** (un premium negativo **no** «hace» rebasada a la fila; la fila es `rebasada`
-  porque el servidor lo dijo). *Si algún día el signo del premium y el `state` no coincidieran, manda el
-  `state` y lo que hay es un defecto que reportar — no una fila que repintar.*
-- **`SIN TARIFA` (curva sin resolver, `curveQuoteCents === null`)** no es un rebasado ni un error: el
-  contrato dice que ahí **el bounty explícito sigue siendo efectivo**. Premium `SIN TARIFA` con el texto ya
-  cerrado en §21.9d: *«Sin tarifa de curva — el bounty es el precio explícito.»* **El estado de esa fila es el
-  que mande `state`** (será `activa`; la pantalla no lo presupone). ⚠ Y `—` en `TARIFA VIGENTE` significa **una
-  cosa y solo una: la curva no resuelve** — **nunca** «está apagado»: una fila apagada trae su tarifa vigente
-  igual que una viva, precisamente para poder decidir antes de encenderla.
-- **⚠ Fila `invalida`: hueco en `PAGAMOS`, `—` en `PREMIUM`, y ni una cifra inventada.** No hay precio, así que
-  **no hay premium que calcular**: se pinta `—` con el `aria-label` de `premium.noPriceAria` (§28.12) y ⛔ **no
-  se rellena con la tarifa vigente, ni con un `0`, ni con `−100%`**. El hueco es la señal; taparlo con un número
-  la borra.
+- **⭐ v3.8 — las TRES columnas de dinero son tres, y las tres son CRUDAS.** Se leen como una frase de
+  izquierda a derecha: *«pagamos **2,500**, la tarifa vigente es **2,100**, y la carta vale **4,180**»*.
+  **Nuestro número, nuestro número, el del mundo** — el ancla externa cierra la fila, que es donde el ojo
+  aterriza para juzgar. **Lo que faltaba** —y es literalmente la queja del dueño— es que *«pago MX$3,000 y la
+  tarifa es MX$1,603 (+87 %)»* **no dice si el bounty es sano**: es una ganga si la carta vale 6,000 y un
+  disparate si vale 1,800. **El valor de mercado es el único dato que convierte esa comparación en un
+  juicio**, y sin él hay que irse al binder — el viaje que esta pantalla existe para ahorrar.
+- **Y hay una segunda razón para que `MERCADO` vaya pegado a `TARIFA VIGENTE`, que no es la del dueño y que
+  la medición regaló:** por el invariante del contrato, **`market.status === "pending"` ⇔
+  `curveQuoteCents === null`** ⇒ **las dos celdas se quedan sin número a la vez, siempre**. Juntas, ese par
+  (`SIN TARIFA` + `—`) se lee como **una sola noticia y su causa**: *no hay valor de mercado, por eso la curva
+  no resuelve*. Separadas por `PAGAMOS`, se leerían como **dos averías independientes**.
+- **⚠ El premium sigue siendo visible; lo que se retiró es que lo calculemos nosotros.** `PAGAMOS` y
+  `TARIFA VIGENTE` **son adyacentes y están alineadas a la derecha**: la comparación se hace de un vistazo,
+  sin restar, igual que se hacía antes de mirar la columna del derivado. ⛔ **Y no vuelve por la puerta de
+  atrás**: prohibido reintroducirlo como segunda línea, como color de la celda `PAGAMOS`, como flecha o como
+  `aria-label` (§28.13.28).
+- **⭐⭐ v3.8 — ESTA PANTALLA YA NO CALCULA NADA.** Con `PREMIUM` fuera, **las siete celdas son campos del
+  servidor**: no queda una sola operación aritmética en el navegador. *Es la forma más fuerte de la doctrina
+  que §28 defiende desde v3.4 —«quien decide si un bounty paga es el servidor»— y llegó por la vía de quitar,
+  no de añadir.* ⛔ Sigue prohibido, y ahora sin excepciones que matizar: **deducir el estado comparando
+  `PAGAMOS` con `TARIFA VIGENTE`** (§28.13.1). *Si las cifras y el `state` no cuadraran, manda el `state` y lo
+  que hay es un defecto que reportar — no una fila que repintar.*
+- **⚠ Fila `invalida`: hueco en `PAGAMOS` y ni una cifra inventada.** Se pinta `—` con el `aria-label` de
+  `row.noPriceAria` (§28.12) y ⛔ **no se rellena con la tarifa vigente, ni con un `0`, ni con el valor de
+  mercado**. El hueco es la señal; taparlo con un número la borra.
 - **`SIN OBJETIVO` (`targetQty === null`) se pinta en acento y es un síntoma, no un hueco.** Tras el relleno
   a 2 del despliegue (`PROJECT` D35) **no debería existir ninguna fila así**, y una que aparezca es un bounty
   que **nunca frena la compra** por muchas copias que se acumulen. Se pinta la palabra, con su remedio
@@ -12564,6 +12647,28 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
 - **La nota al pie desactiva un malentendido real**: el avance sube **cuando se paga la compra** (el conteo
   lo incrementa el pago SPEI, por ítem con `priceBasis="bounty"`), **no cuando alguien cotiza**. Sin esa
   frase, un dueño con tres cotizaciones vivas jura que la barra está rota.
+
+#### 28.4d ⚠ El único hueco que dejó `PREMIUM`, y dónde se tapa *(v3.8)*
+
+**Se auditó qué se apoyaba en el premium ENUNCIADO. Hay exactamente un hallazgo, y se resuelve mudándolo.**
+
+| Se apoyaba en `PREMIUM` | ¿Hueco real? | Resolución |
+|---|---|---|
+| **`SIN TARIFA`** (`curveQuoteCents === null`) | ⚠ **SÍ, y es el único.** Era el rótulo que la celda `PREMIUM` pintaba cuando la curva no resuelve, con su texto ya cerrado en §21.9d. Sin esa celda, ese hecho **se quedaba sin sitio**: `TARIFA VIGENTE` solo pintaba `—`, que es más pobre | ⭐ **`SIN TARIFA` se muda a la celda `TARIFA VIGENTE`**, que es donde siempre debió estar: es un hecho **de la tarifa**, no del premium. Clave `rate.noRate` / `rate.noRateAria` (§28.12), **con el texto de §21.9d intacto**: *«Sin tarifa de curva — el bounty es el precio explícito.»* **Mejora neta**: el rótulo pasa de estar en una columna derivada a estar **en la columna del dato** |
+| El canal 3 de §28.3 (*«las dos cifras con premium `−MX$ …`»*) | **No** | Reescrito a *«`PAGAMOS` por encima / por debajo de `TARIFA`»* — la misma comparación, sobre las mismas dos cifras adyacentes (§28.3) |
+| `premium.noPriceAria` (fila `invalida`) | **No** | `row.noPriceAria`, en la celda `PAGAMOS`, ya decía lo mismo y mejor: **dice que el bounty está encendido** |
+| `premium.noneAria` (*«Sin premium: este bounty está apagado»*) | **No** | La versalita `APAGADO` y `state.apagadaAria` ya lo dicen (§28.3) |
+| El orden `attention_first` | **No** | Lo resuelve **el servidor** sobre `bountyPriceCents`; **nunca dependió de nada que la pantalla calculara** |
+| El `state` | **No** | Lo deriva el servidor desde v3.4. *Precisamente la razón por la que el premium era prescindible: no clasificaba nada* |
+
+- **⚠ `SIN TARIFA` NO es un rebasado ni un error:** el contrato dice que ahí **el bounty explícito sigue
+  siendo efectivo**. **El estado de esa fila es el que mande `state`** (será `activa`; la pantalla no lo
+  presupone).
+- ⚠ Y **`SIN TARIFA` en `TARIFA VIGENTE` significa una cosa y solo una: la curva no resuelve** — **nunca**
+  «está apagado». Una fila apagada trae su tarifa vigente igual que una viva, precisamente para poder decidir
+  antes de encenderla (§28.14 caso 9).
+- **Y viene acompañado:** por el invariante del contrato, una fila con `SIN TARIFA` **tiene también `—` en
+  `VALOR DE MERCADO`**, y las dos celdas son vecinas (§28.4). *Se leen como noticia y causa.*
 
 #### 28.4a ⭐ La celda de `VALOR DE MERCADO` — se ramifica por `status`, y por nada más *(v3.7)*
 
@@ -12592,16 +12697,15 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
    distintos son dos precios distintos**, y una de ellas puede ser `pending` mientras la otra no.
 3. **⛔ No se deriva de `TARIFA VIGENTE` ni al revés.** Por el invariante del contrato,
    `market.status === "pending"` ⇔ `bounty.curveQuoteCents === null`, así que en pantalla **las dos celdas
-   enseñarán `—` a la vez**. Eso es una **coincidencia verificable, no una fuente**: cada celda se pinta de
-   **su propio campo**. *Si algún día discreparan, no hay fila que repintar: hay un defecto que reportar* —
-   idéntica doctrina a la del `PREMIUM` y el `state` del bullet de arriba.
-4. **⛔ No se calcula ningún porcentaje sobre el mercado.** Ni *«pagas el 60 % del valor»*, ni una barra, ni
-   un semáforo. **`PREMIUM` sigue siendo lo único que esta pantalla calcula** y sigue siendo una resta entre
-   `PAGAMOS` y `TARIFA VIGENTE`. *(El dueño describió el juicio en esos términos — «pago el 60 % del valor»,
-   «pago el triple»— pero **pidió el número, no el veredicto**; un segundo derivado en una tabla de dinero es
-   un tercer número que puede discrepar de la división que él tiene delante, que es justo lo que §M2-F.3
-   regla 4 razona para el tipo de cambio. **Queda como pregunta abierta al humano en §28.15**, y es aditiva:
-   si la quiere, cabe como segunda línea de `PREMIUM` sin tocar el ancho.)*
+   vecinas se quedan sin número a la vez** (`SIN TARIFA` + `—`). Eso es una **coincidencia verificable, no una
+   fuente**: cada celda se pinta de **su propio campo**. *Si algún día discreparan, no hay fila que repintar:
+   hay un defecto que reportar.*
+4. **⛔ No se calcula ningún porcentaje sobre el mercado** *(y desde v3.8 la regla es absoluta)*. Ni *«pagas el
+   60 % del valor»*, ni una barra, ni un semáforo, ni una flecha. **Esta pantalla no calcula NADA** (§28.4):
+   las siete celdas son campos. *(El dueño describió su juicio en esos términos — «pago el 60 % del valor»,
+   «pago el triple»— pero **pidió el número, no el veredicto**. Y en v3.8 **retiró el único derivado que
+   quedaba**: reintroducir uno por la puerta del mercado sería deshacer su propia decisión. **Queda como
+   pregunta al humano en §28.15(d), con recomendación en contra.**)*
 5. **⛔ La celda `pending` no se omite ni se colapsa**, ni en escritorio ni en móvil (§28.9). El `—` **es la
    señal**; una celda vacía se lee como «no aplica».
 
@@ -12628,7 +12732,8 @@ número.** Las tres razones, en orden de peso:
    diario, **pero una variante cuyo proveedor no respondió conserva la fila anterior**: el número puede tener
    semanas y **se ve idéntico** a uno de hoy.
 2. **Cuesta cero.** El dato ya viaja (`capturedDate`, obligatorio cuando `status: "priced"`), el binder ya lo
-   pinta desde v1.27, **no alarga la fila** (la altura ya la fijan `CARTA`, `PREMIUM` y `AVANCE`) y **no
+   pinta desde v1.27, **no alarga la fila** (la altura ya la fijan `CARTA` y `AVANCE`, y es **la misma segunda
+  línea** que ocupaba el porcentaje de `PREMIUM` antes de v3.8) y **no
    ensancha la columna** (`5 sep 2026` es más estrecho que `MX$ 4,180.00`, que es quien manda el ancho).
 3. **Es la doctrina de este documento:** dar el número crudo y dejar juzgar, en vez de emitir un veredicto
    que el humano no puede contrastar.
@@ -12659,12 +12764,14 @@ número.** Las tres razones, en orden de peso:
     la tarjeta de FX (o su tasa vigente) **en la cabecera de esta consola** sería útil y es **petición al
     arquitecto (`Q-B5`)**, no diseño de esta ampliación.
 
-#### 28.4c 📏 El presupuesto de anchura — cómo la octava columna no desborda *(v3.7)*
+#### 28.4c 📏 El presupuesto de anchura — **el intercambio sale a favor** *(reescrita en v3.8)*
 
 **La regla no cambia y es medible: `document.documentElement.scrollWidth === clientWidth` en la vista de
-bounties, y el nombre de la carta NUNCA se trunca.** El humano **no usa este panel desde el teléfono**
-(contestado), así que el móvil no manda aquí — **pero §28.9 sigue vigente y el colapso no se rompe**: lo que
-cambia es **dónde** ocurre.
+bounties, y el nombre de la carta NUNCA se trunca.**
+
+> **⭐ El resultado de la medición, que es lo que hace correcta la decisión del dueño: la tabla de v3.8 es
+> MÁS ESTRECHA que la que hay en producción hoy.** No «cabe a duras penas»: **sobra sitio respecto del
+> estado actual**, porque la columna que entra es **más angosta que la que sale**.
 
 **Presupuesto (mono 11px para las cifras, versalitas 11px, ES —que es el idioma largo, §9.4—):**
 
@@ -12672,26 +12779,31 @@ cambia es **dónde** ocurre.
 |---|---|---|
 | `CARTA` | **única columna flexible** (`width:auto`) | **220 px** (`Obsidian Flames · 125` + `FinishMark`) |
 | `ESTADO` | `SIN PRECIO` | 88 px |
-| **`VALOR DE MERCADO`** | `MX$ 4,180.00` *(la fecha es más estrecha; el rótulo envuelve a `VALOR DE` / `MERCADO`)* | **96 px** |
 | `PAGAMOS` | `MX$ 2,500.00` | 96 px |
 | `TARIFA VIGENTE` | `MX$ 2,100.00` *(el rótulo envuelve a dos líneas, §28.12d)* | 100 px |
-| `PREMIUM` | `+MX$ 400.00` | 100 px |
+| **`VALOR DE MERCADO`** *(entra)* | `MX$ 4,180.00` *(la fecha es más estrecha; el rótulo envuelve a `VALOR DE` / `MERCADO`)* | **96 px** |
+| ~~`PREMIUM`~~ *(sale)* | ~~`−MX$ 1,500.00`~~ | ~~**104 px**~~ |
 | `AVANCE` | `faltan 2` | 84 px |
 | *(acciones)* | `Poner precio` + `Apagar` | 196 px |
 
-⇒ **fijas ≈ 760 px + `CARTA` 220 px + gutters ≈ 1 010–1 060 px de contenido.**
+⇒ **fijas ≈ 660 px + `CARTA` 220 px + gutters ≈ 910–960 px de contenido** — frente a los ≈ 918–968 px de
+la tabla de hoy. **Diferencia: ≈ −8 px.**
 
-- **A partir de `xl` (1280 px)** el área de contenido del back-office da de sobra ⇒ **tabla de ocho
-  columnas**. **Por debajo de `xl`** se usa el **colapso a cards de §28.9**, que ya existe, ya conserva los
-  encabezados de grupo y ya es la respuesta del sistema a este problema. *El punto de colapso sube de `md` a
-  `xl`; **el colapso no se rediseña**.*
-- **⛔ Las tres salidas fáciles quedan prohibidas, y cada una rompe algo que ya estaba cerrado:** (a)
-  **truncar el nombre de la carta** —es el sujeto de la fila y su enlace al binder—; (b) **scroll horizontal
-  en la tabla** —§7.7 lo prohíbe por escrito: *«no scroll horizontal infinito»*—; (c) **esconder el mercado
-  tras un `hover`/tooltip** —un dato de dinero que hay que descubrir no está en la pantalla.
-- **El número `xl` es un punto de partida medido, no un dogma.** Si el frontend comprueba con las fuentes
-  reales que a `lg` (1024 px) cabe con `CARTA` ≥ 220 px y **cero desbordamiento**, puede bajarlo. **Lo
-  normativo es el resultado** (0 px de desbordamiento, sin truncar la carta), no el token del breakpoint.
+- **⭐ El punto de colapso NO se mueve: `md` sigue siendo `md`.** La v3.7 lo había subido a `xl` para meter una
+  octava columna; **con siete, ese problema no existe**. §28.9 **no se rediseña, no se reajusta y no se vuelve
+  a probar en un breakpoint nuevo**.
+- **Por qué el intercambio sale a favor, y es tipográfico, no suerte:** el contenido más ancho de `PREMIUM`
+  era **`−MX$ 1,500.00`** (13 caracteres, y con el signo delante); el de `VALOR DE MERCADO` es
+  **`MX$ 4,180.00`** (12). **La segunda línea también empata**: donde `PREMIUM` ponía `−5.3%`,
+  `VALOR DE MERCADO` pone `5 sep 2026` — **ni una fila más alta**.
+- **⛔ Las tres salidas fáciles siguen prohibidas, y ahora sin excusa para plantearlas:** (a) **truncar el
+  nombre de la carta** —es el sujeto de la fila y su enlace al binder—; (b) **scroll horizontal en la tabla**
+  —§7.7 lo prohíbe por escrito: *«no scroll horizontal infinito»*—; (c) **esconder el mercado tras un
+  `hover`/tooltip** —un dato de dinero que hay que descubrir no está en la pantalla.
+- **Y la lección, escrita para la próxima vez que alguien quiera una columna más:** el dueño contestó *«veamos
+  cómo quitar algo en vez de hacerlo más grande»* y **la medición le dio la razón**. *Una tabla de siete
+  columnas que necesita una octava casi nunca necesita más pantalla: normalmente tiene un derivado que se
+  puede leer de sus vecinas.*
 
 ### 28.5 El cero que se dice — **y las TRES veces que NO se dice** *(precisada en v3.4 · tercer caso añadido en v3.5)*
 
@@ -13051,39 +13163,39 @@ títulos de sección — el eje sobrevive al colapso, que es lo único innegocia
 ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
 ▌ Charizard ex                            REBASADO
 ▌ Obsidian Flames · 125 · HOLOFOIL
-▌ Mercado      MX$ 1,020.00 · 5 sep 2026
 ▌ Pagamos      MX$ 900.00
 ▌ Tarifa       MX$ 950.00
-▌ Premium      −MX$ 50.00 · −5.3%
+▌ Mercado      MX$ 1,020.00 · 5 sep 2026
 ▌ Avance       0 de 2 · faltan 2
 ▌ [ Editar ]                             [ Apagar ]
 ─────────────────────────────────────────────────
 ▌ Gengar VMAX                           SIN PRECIO
 ▌ Fusion Strike · 271 · REVERSE
-▌ Mercado      MX$ 1,150.00 · 5 sep 2026
 ▌ Pagamos      —
 ▌ Tarifa       MX$ 780.00
-▌ Premium      —
+▌ Mercado      MX$ 1,150.00 · 5 sep 2026
 ▌ Avance       0 de 2 · faltan 2
 ▌ [ Poner precio ]                       [ Apagar ]
 ─────────────────────────────────────────────────
   Lugia V                                  ACTIVO
   Silver Tempest · 186 · NORMAL
-  Mercado      —
   Pagamos      MX$ 1,500.00
-  Tarifa       —
-  Premium      SIN TARIFA
+  Tarifa       SIN TARIFA
+  Mercado      —
   Avance       0 de 1 · falta 1
 ```
 
-- Prioridad de campos si algo tiene que caer: **carta, estado, pagamos, premium, acciones**. La tarifa, el
-  **mercado** *(v3.7)* y el avance **no caen**; se apilan.
-- **⚠ v3.7 — en la card, mercado e importe y fecha van en UNA sola línea** (`MX$ 1,020.00 · 5 sep 2026`), con
-  el separador `·` del sistema: la card ya es alta y aquí el ancho sobra. **Con `pending`, la línea se pinta
-  igual con su `—` y SIN fecha** — misma regla que el hueco de `PAGAMOS`: *una fila a la que le falta un dato
-  de dinero tiene que enseñar que le falta; si se esconde la línea, el hueco se convierte en «no aplica».*
-- **El colapso a cards es ahora también la vista de escritorio pequeño** (por debajo de `xl`, §28.4c). **No
-  se rediseña nada por eso**: es el mismo componente, con más sitio.
+- Prioridad de campos si algo tiene que caer: **carta, estado, pagamos, acciones**. La tarifa, el **mercado**
+  *(v3.7)* y el avance **no caen**; se apilan. *(v3.8: `Premium` desaparece de la card, como de la tabla.)*
+- **⚠ v3.7 — en la card, el importe del mercado y su fecha van en UNA sola línea** (`MX$ 1,020.00 ·
+  5 sep 2026`), con el separador `·` del sistema: la card ya es alta y aquí el ancho sobra. **Con `pending`,
+  la línea se pinta igual con su `—` y SIN fecha** — misma regla que el hueco de `PAGAMOS`: *una fila a la que
+  le falta un dato de dinero tiene que enseñar que le falta; si se esconde la línea, el hueco se convierte en
+  «no aplica».*
+- **⭐ v3.8 — el orden de las líneas de la card es EL MISMO que el de las columnas** (`Pagamos` · `Tarifa` ·
+  `Mercado` · `Avance`). Una card que reordena lo que la tabla ordenó obliga a aprender la pantalla dos veces.
+- **⚠ v3.8 — el punto de colapso vuelve a `md` y NO se toca.** La subida a `xl` de la v3.7 desaparece con la
+  octava columna (§28.4c): **§28.9 queda exactamente como estaba**, salvo estas dos líneas.
 - **El hueco de `PAGAMOS` en una fila `SIN PRECIO` se pinta igual en móvil**: la etiqueta con su `—`, **nunca
   la línea entera omitida**. *Una fila a la que le falta un dato de dinero tiene que enseñar que le falta; si
   se esconde la línea, el hueco se convierte en «no aplica».*
@@ -13096,9 +13208,10 @@ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
 
 - **`<table>` real** con `<caption>` visualmente oculto («Bounties: estado, precio, tarifa vigente y
   avance»), `<th scope="col">` en la cabecera y **un `<tbody>` por grupo**, cada uno abierto por un
-  `<tr><th scope="rowgroup" colspan="8">` *(**ocho** desde v3.7 — la columna de mercado; un `colspan` que se
-  queda corto rompe la asociación de grupo en NVDA/VoiceOver **en silencio**)* con el rótulo y el conteo. Así
-  el grupo **existe para el lector de pantalla**, no solo para el ojo.
+  `<tr><th scope="rowgroup" colspan="7">` *(**siete**, sin cambio: v3.7 lo había subido a 8 y **v3.8 lo
+  devuelve**, porque `PREMIUM` sale y `VALOR DE MERCADO` ocupa su sitio. Un `colspan` que no cuadra con el
+  número de columnas rompe la asociación de grupo en NVDA/VoiceOver **en silencio**)* con el rótulo y el
+  conteo. Así el grupo **existe para el lector de pantalla**, no solo para el ojo.
 - **⚠ v3.7 — la celda de mercado nunca es muda.** Con número, su `aria-label` (`market.valueAria`) dice
   **importe y fecha** en una frase; con `pending`, `market.pendingAria` dice **qué falta y por qué no se
   enseña otro precio**. **Un `—` no se lee**, y una columna de dinero silenciosa se oye como una columna
@@ -13138,6 +13251,11 @@ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
   **⚠ v3.7 — el juego permitido gana `→` (U+2192)**, que usa el eyebrow `USD → MXN` de §30. **La lista
   vigente y completa vive en §30.13** y es una sola para todo el documento:
   `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ≥ ● →`.
+  **⚠ v3.8 — el `−` (U+2212) sigue en la lista blanca aunque la columna `PREMIUM` haya desaparecido**, y su
+  justificación **se re-apunta**: ahora lo usan **la línea del salto de la tarjeta de tipo de cambio**
+  (`−0.7569 · −3.98 %`, §30.3c) y **el desglose de la oferta en el correo** (§31.6e). *Un carácter declarado
+  cuyo único usuario se retira es el que alguien borra de la lista blanca «porque ya no se usa», justo antes
+  de que vuelva a usarse.*
 
 ### 28.11 Contraste — **cero pares nuevos**
 
@@ -13145,9 +13263,9 @@ Todo §28 se compone con pares ya verificados en §10, §17.2, §20.15 y §21.11
 
 | Par usado en §28 | Ratio | Veredicto |
 |---|---|---|
-| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, nombres, `ACTIVO`, `COMPLETADO`, premium positivo, **valor de mercado y su `—`**) | ~15.5:1 | AA/AAA |
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, nombres, `ACTIVO`, `COMPLETADO`, **valor de mercado y su `—`**, **`SIN TARIFA`**) | ~15.5:1 | AA/AAA |
 | Muted `#6E695E` sobre papel (rótulos de columna, `set · número`, **`capturedDate`**, renglón de fila **apagada**, notas) | ~4.8:1 | AA |
-| Rojo `#B31217` sobre papel (`REBASADO`, **`SIN PRECIO` (v3.4)**, premium negativo, `SIN OBJETIVO`, marca de fila) | 6.2:1 | AA |
+| Rojo `#B31217` sobre papel (`REBASADO`, **`SIN PRECIO` (v3.4)**, `SIN OBJETIVO`, marca de fila) | 6.2:1 | AA |
 | Papel sobre tinta (botón primario del diálogo de confirmación) | ~15.5:1 | AA/AAA |
 | Regla 1–2px `--color-border` / `--color-border-strong` / `--color-accent` (marca de fila y separadores) | UI ≥ 3:1 | ok |
 | Anillo de foco rojo sobre papel | 6.2:1 | AA (≥3:1 UI) |
@@ -13167,6 +13285,11 @@ Todo §28 se compone con pares ya verificados en §10, §17.2, §20.15 y §21.11
   `pending` NO se pinta en acento** ni en muted: no es una alarma (no es avería nuestra, §28.4a) y tampoco es
   información secundaria (es un dato de dinero que falta). *Atenuar un hueco de dinero lo convierte en un
   detalle, y el hueco es la señal.*
+- **⚠ v3.8 — retirar `PREMIUM` no deja ningún par huérfano ni cambia ninguna verificación.** El acento sigue
+  teniendo sus cuatro usuarios en esta pantalla (`REBASADO`, `SIN PRECIO`, `SIN OBJETIVO`, marca de fila) y
+  **`SIN TARIFA` se muda a `TARIFA VIGENTE` en TINTA**, que es donde ya estaba el resto de esa columna: **ni
+  un par nuevo, ni uno perdido.** *(`SIN TARIFA` nunca fue de acento: no es una decisión pendiente, es un
+  hecho de la curva — §28.4d.)*
 
 ### 28.12 i18n — cadenas ES/EN (propiedad de frontend; copiar sin interpretar)
 
@@ -13224,7 +13347,7 @@ concatena moneda**.
 | `group.completada` *(v3.4)* | `COMPLETADOS · {count}` | `COMPLETED · {count}` |
 | `group.apagada` | `APAGADOS · {count}` | `OFF · {count}` |
 | `list.truncated` *(v3.4)* | `Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por set, acabado o estado para verlos todos.` | `This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by set, finish or status to see them all.` |
-| `table.caption` *(actualizada v3.7)* | `Bounties: estado, valor de mercado, precio, tarifa vigente y avance` | `Bounties: status, market value, price, current rate and progress` |
+| `table.caption` *(actualizada v3.8)* | `Bounties: estado, precio, tarifa vigente, valor de mercado y avance` | `Bounties: status, price, current rate, market value and progress` |
 | `col.card` | `CARTA` | `CARD` |
 | `col.state` | `ESTADO` | `STATUS` |
 | **`col.market`** *(v3.7)* | **`VALOR DE MERCADO`** | **`MARKET VALUE`** |
@@ -13236,7 +13359,7 @@ concatena moneda**.
 | **`footer.fxLink`** *(v3.7)* | **`Ver el tipo de cambio`** | **`See the exchange rate`** |
 | `col.pay` | `PAGAMOS` | `WE PAY` |
 | `col.rate` | `TARIFA VIGENTE` | `CURRENT RATE` |
-| `col.premium` | `PREMIUM` | `PREMIUM` |
+| ~~`col.premium`~~ *(⛔ RETIRADA v3.8)* | ~~`PREMIUM`~~ | ~~`PREMIUM`~~ |
 | `col.progress` | `AVANCE` | `PROGRESS` |
 | `col.actions` | `Acciones` *(sr-only)* | `Actions` *(sr-only)* |
 | `state.activa` | `ACTIVO` | `ACTIVE` |
@@ -13251,15 +13374,11 @@ concatena moneda**.
 | `state.completadaAria` | `Completado el {date}: se apagó solo al llegar al objetivo.` | `Completed on {date}: it turned itself off when it hit the target.` |
 | `state.apagadaAria` | `Apagado: lo apagó una persona. No se publica ni se paga premium. El contador se conserva.` | `Off: someone turned it off. Not published and no premium paid. The counter is kept.` |
 | `state.unknownAria` *(v3.4)* | `Estado no reconocido por esta pantalla. No se puede afirmar si está pagando; ábrelo en el binder.` | `Status not recognised by this screen. We can't say whether it's paying; open it in the binder.` |
-| `premium.above` | `+{amount} · +{pct}%` | `+{amount} · +{pct}%` |
-| `premium.below` | `−{amount} · −{pct}%` | `−{amount} · −{pct}%` |
-| `premium.none` | `—` | `—` |
-| `premium.noneAria` | `Sin premium: este bounty está apagado.` | `No premium: this bounty is off.` |
-| `premium.noPriceAria` *(v3.4)* | `No se puede calcular el premium: este bounty no tiene precio.` | `Premium can't be worked out: this bounty has no price.` |
+| ~~`premium.above`~~ · ~~`premium.below`~~ · ~~`premium.none`~~ · ~~`premium.noneAria`~~ · ~~`premium.noPriceAria`~~ | ⛔ **RETIRADAS v3.8** — muere la columna. No se traducen, no se añaden al catálogo y **se borran si ya estaban** | — |
 | `row.noPrice` *(v3.4, celda PAGAMOS)* | `—` | `—` |
 | `row.noPriceAria` *(v3.4)* | `Sin precio: este bounty está encendido y no tiene precio de compra.` | `No price: this bounty is on and has no buy price.` |
-| `premium.noRate` | `SIN TARIFA` | `NO RATE` |
-| `premium.noRateAria` | `Sin tarifa de curva — el bounty es el precio explícito.` | `No curve rate — the bounty is the explicit price.` |
+| **`rate.noRate`** *(v3.8 — **renombrada** desde `premium.noRate`; ahora vive en la celda `TARIFA VIGENTE`, §28.4d)* | `SIN TARIFA` | `NO RATE` |
+| **`rate.noRateAria`** *(v3.8 — **renombrada** desde `premium.noRateAria`; **el texto NO cambia**, es el de §21.9d)* | `Sin tarifa de curva — el bounty es el precio explícito.` | `No curve rate — the bounty is the explicit price.` |
 | `progress.value` | `{acquired} de {target}` | `{acquired} of {target}` |
 | `progress.remaining` | `{n, plural, one {falta #} other {faltan #}}` | `{n, plural, one {# to go} other {# to go}}` |
 | `progress.done` | `objetivo cumplido` | `target met` |
@@ -13374,9 +13493,9 @@ y `footer.fxNote` viven en el pie, en `text-xs muted`, y **envuelven**: es su co
 9. **No reordenes filas en el cliente.** El orden llega hecho (`sort`); los bloques son una **partición** de
    ese orden, no una reorganización (§28.2a).
 10. **No pintes `0` mientras carga.** `—` hasta que llegue el dato.
-11. **No hagas aritmética con `null`.** `targetQty`, `curveQuoteCents` y el precio de un `invalida` pueden
-    venir nulos: se pintan sus rótulos (`SIN OBJETIVO`, `SIN TARIFA`, `—`), nunca `NaN`, `0 de null` ni
-    `−100%`.
+11. **No hagas aritmética con `null`.** `targetQty`, `curveQuoteCents`, `market.referenceMxnCents` y el precio
+    de un `invalida` pueden venir nulos: se pintan sus rótulos (`SIN OBJETIVO`, `SIN TARIFA`, `—`), nunca
+    `NaN` ni `0 de null`. *(v3.8: y ya no hay ninguna resta donde meter un `null`.)*
 12. **No pintes optimista el resultado de guardar.** El efectivo lo decide el servidor contra la curva.
 13. **No prellenes el campo de precio con la tarifa vigente** (ni con `tarifa + algo`), tampoco al poner
     precio a un `invalida` (§28.6g). El precio de un bounty es **siempre explícito**.
@@ -13409,8 +13528,19 @@ y `footer.fxNote` viven en el pie, en `text-xs muted`, y **envuelven**: es su co
     la misma falta que derivar el `state` (§28.13.1). Se pinta la fecha cruda (§28.4b).
 26. **⛔ No hagas sitio truncando el nombre de la carta, con scroll horizontal ni escondiendo el mercado tras
     un tooltip** *(v3.7, §28.4c)*. Si no cabe, **se colapsa a cards** (§28.9): ese camino ya existe.
-27. **⛔ No derives `VALOR DE MERCADO` de `TARIFA VIGENTE` ni al revés** *(v3.7)*. Coincidirán en el `—` por el
-    invariante del contrato; **eso es una comprobación, no una fuente** (§28.4a punto 3).
+27. **⛔ No derives `VALOR DE MERCADO` de `TARIFA VIGENTE` ni al revés** *(v3.7)*. Se quedarán sin número a la
+    vez por el invariante del contrato; **eso es una comprobación, no una fuente** (§28.4a punto 3).
+28. **⛔⛔ NO REINTRODUZCAS EL PREMIUM POR LA PUERTA DE ATRÁS** *(v3.8)*. El dueño retiró la columna. **No
+    vuelve** como segunda línea de `PAGAMOS`, ni como color o fondo de esa celda, ni como flecha `▲`/`▼`, ni
+    como porcentaje en el `aria-label`, ni «solo cuando es negativo». **La comparación la hace el ojo sobre
+    dos celdas adyacentes** (§28.4). *Esta pantalla ya no calcula nada, y esa propiedad se pierde con una
+    sola resta.*
+29. **⛔ No retires la columna `ESTADO`, ni la atenúes, ni la hagas condicional al `sort`** *(v3.8, §28.3b)*.
+    Sin `attention_first` **no hay encabezados de bloque**, y entonces `ESTADO` es el único portador que
+    queda. *«Si está ahí está activo» es cierto dentro del bloque `ACTIVOS` y falso en la pantalla entera.*
+30. **⛔ No pintes `—` en `TARIFA VIGENTE` cuando `curveQuoteCents === null`** *(v3.8)*: ahí va la versalita
+    **`SIN TARIFA`** (§28.4d). El `—` de esa celda desaparece del diseño; **el `—` de `PAGAMOS` y el de
+    `VALOR DE MERCADO` se quedan**, y significan otra cosa.
 
 ### 28.14 QA visual sugerido
 
@@ -13420,9 +13550,10 @@ y `footer.fxNote` viven en el pie, en `text-xs muted`, y **envuelven**: es su co
 2. **Empate exacto** (`priceCents === curveQuoteCents`) ⇒ la fila llega con `state: "rebasada"` y se pinta
    `REBASADO`, no `ACTIVO`. **Se verifica el rótulo, no la comparación**: la pantalla no compara nada.
 3. **⭐ El caso que motivó la revisión v3.4 — fila `invalida`:** una fila con el bounty **encendido y sin
-   precio utilizable** ⇒ **`SIN PRECIO`** en acento, en el bloque de atención, **`PAGAMOS` en `—`**, premium
-   `—`, botón **`Poner precio`** y `Apagar`. ⛔ **Rojo si dice `ACTIVO`, si cae en el bloque de activos, si
-   suma en `counts.activa` o si inventa cualquier cifra en `PAGAMOS`/`PREMIUM`.**
+   precio utilizable** ⇒ **`SIN PRECIO`** en acento, en el bloque de atención, **`PAGAMOS` en `—`**, botón
+   **`Poner precio`** y `Apagar`. ⛔ **Rojo si dice `ACTIVO`, si cae en el bloque de activos, si suma en
+   `counts.activa` o si inventa cualquier cifra en `PAGAMOS`.** *(v3.8: ya no hay celda de premium que
+   rellenar — una tentación menos.)*
 4. **⭐ El cero acotado por el estado (§28.5):** `counts.rebasada = 0` **con** `counts.invalida ≥ 1` **y sin
    filtro de identidad puesto** ⇒ se lee
    `zero.outbidButNoPrice`, **nunca** la frase que dice *«todos los encendidos pagan por encima de la tarifa
@@ -13437,9 +13568,10 @@ y `footer.fxNote` viven en el pie, en `text-xs muted`, y **envuelven**: es su co
 8. **Guardar sin arreglar:** subir un rebasado a un precio que **sigue por debajo** ⇒ toast
    `savedStillOutbid` con la tarifa, la fila **se queda en el bloque de atención**, y **ningún** texto dice
    «listo».
-9. **`curveQuoteCents: null`** ⇒ premium `SIN TARIFA`, **sin** banner de rebasado, y el estado que diga la
-   respuesta. Y una fila **apagada** con mercado resoluble **sí** enseña su tarifa vigente (`—` significa
-   *la curva no resuelve*, nunca *está apagado*).
+9. **`curveQuoteCents: null`** ⇒ ⚠ *(v3.8)* **la celda `TARIFA VIGENTE` lee `SIN TARIFA`** —no `—`—, **sin**
+   banner de rebasado, y el estado que diga la respuesta. **Y su vecina `VALOR DE MERCADO` lee `—`** (el
+   invariante del contrato). Y una fila **apagada** con mercado resoluble **sí** enseña su tarifa vigente
+   (`SIN TARIFA` significa *la curva no resuelve*, nunca *está apagado*).
 10. **`targetQty: null`** (fila que se escapó del relleno) ⇒ `SIN OBJETIVO` en acento y **cero excepciones en
     consola**.
 11. **⭐ El cuerpo del `PUT` (§28.6f):** editar **solo** el precio del bounty de una fila y mirar la petición
@@ -13513,18 +13645,41 @@ y `footer.fxNote` viven en el pie, en `text-xs muted`, y **envuelven**: es su co
     importe se lee **esa** fecha localizada. ⛔ **Rojo si se lee la fecha de hoy**, ⛔ **rojo si la fila se
     pinta en acento, con icono o con cualquier rótulo de «vieja»** (§28.13.25: no hay umbral de cliente).
     **Y el `pending` no trae fecha**: con `status: "pending"` **no se pinta ninguna segunda línea**.
-24. **⭐⭐ Cero desbordamiento, medido, en ES.** En `/es/admin/m2/bounties` a **1280 px** con la tabla llena
-    (una fila `SIN PRECIO`, una `SIN TARIFA`, importes de 5 cifras y un nombre de carta largo):
+24. **⭐⭐ Cero desbordamiento, medido, en ES — y ahora con un control que mide la MEJORA** *(reescrito v3.8)*.
+    En `/es/admin/m2/bounties` **al ancho del breakpoint `md`** (el de siempre; v3.8 **no lo mueve**), con la
+    tabla llena (una fila `SIN PRECIO`, una `SIN TARIFA`, importes de 5 cifras y un nombre de carta largo):
     `document.documentElement.scrollWidth === document.documentElement.clientWidth`, **exactamente**. ⛔
-    **Rojo con 1 px de diferencia.** **Y el nombre de la carta no está truncado** (su ancho renderizado es el
-    de su texto completo; ⛔ rojo si hay `text-overflow: ellipsis` recortando). **Control negativo:** a
-    **1279 px** la vista está en **cards** (§28.9) y **sigue sin desbordar**.
+    **Rojo con 1 px de diferencia.** **Y el nombre de la carta no está truncado** (⛔ rojo si hay
+    `text-overflow: ellipsis` recortando).
+    ⭐ **Y el control que prueba que el intercambio salió a favor** (§28.4c): el ancho renderizado de la tabla
+    de v3.8 es **≤** el de la tabla de siete columnas anterior con los mismos datos. ⛔ **Rojo si creció.**
 25. **Lector de pantalla:** con el foco en la celda de mercado de una fila `priced` se oye **importe y
     fecha** (`market.valueAria`); en una `pending` se oye la frase de `market.pendingAria`. ⛔ **Rojo si la
     celda `pending` se oye muda** o si la fecha se oye **dos veces** (la visible es `aria-hidden`). Y el
-    encabezado de grupo sigue asociando **las ocho** columnas (`colspan="8"`).
+    encabezado de grupo sigue asociando **las siete** columnas (`colspan="7"`, §28.10).
 26. **Idioma:** el rótulo `VALOR DE MERCADO` / `MARKET VALUE` **envuelto a dos líneas y sin truncar** en ES y
     EN, **visto en pantalla** (§26.8), y el pie con `market.hint` + `footer.fxNote` en los dos idiomas.
+27. **⭐⭐ NINGUNA FILA SE QUEDA SIN DECIR SU ESTADO — el candado de v3.8, y es de COBERTURA, no de ancho.**
+    *Es el que hay que tener pase lo que pase con las columnas, y el que habría cazado la propuesta de
+    retirar `ESTADO`.*
+    **Se recorre el producto de configuraciones**: los **tres** valores de `sort`
+    (`attention_first`, `price_desc`, `updated_desc`) × **con y sin** chips de estado puestos × **con y sin**
+    filtro de identidad. En **cada** combinación, para **cada `<tr>` de datos** de la tabla, se asierta que
+    **existe una celda de estado cuyo nombre accesible resuelve a una de las SEIS claves**
+    (`state.activa` · `state.rebasada` · `state.invalida` · `state.completada` · `state.apagada` ·
+    `state.unknown`). **La aserción es «todas las filas», no «alguna fila»** — y ésa es la parte que la pone
+    en rojo: un `getByText` de la primera fila pasaría en verde con la columna medio rota.
+    ⛔ **Rojo si en alguna combinación hay una sola fila sin estado legible.**
+    ⭐ **Y la mitad que cierra el argumento de §28.3b:** con **`sort=price_desc`** se asierta además que **NO
+    existe ningún `<th scope="rowgroup">`** (sin `attention_first` no hay encabezados de bloque, §28.2a)
+    **y que aun así las filas siguen diciendo su estado**. *Ahí es donde la columna es el único portador, y
+    ahí es donde el candado tiene sentido.*
+    **Control negativo:** con `attention_first`, los encabezados de bloque **sí** existen **y** la columna
+    sigue estando (⛔ rojo si alguien la esconde «porque el bloque ya lo dice»).
+28. **⛔ El premium no volvió** *(v3.8, verificable POR AUSENCIA)*: en toda la vista **no existe ninguna
+    columna, línea, flecha, color de celda ni `aria-label` que enuncie una diferencia entre `PAGAMOS` y
+    `TARIFA VIGENTE`**, ni en importe ni en porcentaje. Y las claves `premium.*` **no están en el catálogo**
+    (§28.12). ⛔ **Rojo si aparece `col.premium`, `premium.above` o `premium.below` en `es.json`/`en.json`.**
 
 ### 28.15 Peticiones al arquitecto: **todas contestadas** · y las preguntas abiertas del humano *(v3.4)*
 
@@ -13570,7 +13725,8 @@ se implementa hoy.*
 |---|---|---|---|
 | **10** | **arquitecto** | **Un `status` de frescura del mercado derivado en el servidor** (`fresh \| stale \| missing`, como el `automatic.status` del tipo de cambio en §M2-F.3), para poder señalar una referencia vencida **sin un umbral de cliente**. **Hoy la pantalla pinta la fecha cruda y no clasifica** (§28.4b) | ⏸️ **No pedido formalmente.** Solo hace falta **si el dueño dice que la fecha sola no le basta**. ⛔ Mientras no exista, **prohibido derivarlo en el navegador** |
 | **11** | **arquitecto** | **`Q-B5`, ya nombrada en el contrato:** la **tasa de cambio vigente en la cabecera** de esta consola. Hoy el pie solo **dice que existe y enlaza** a §30 (`footer.fxNote`) | ⏸️ **Diferida.** El enlace no cuesta contrato; la cifra en cabecera sí |
-| **12** | **humano** | **¿Quiere el porcentaje sobre el mercado?** (*«pagas el 60 % del valor»*). Él describió su juicio con esas palabras pero **pidió el número, no el veredicto**. Hoy **no se calcula** (§28.4a punto 4) | ⏸️ **Pregunta abierta.** Si dice que sí, cabe como **segunda línea de `PREMIUM`** y **no cambia el ancho ni el contrato** |
+| **12** | **humano** | **¿Quiere el porcentaje sobre el mercado?** (*«pagas el 60 % del valor»*). Él describió su juicio con esas palabras pero **pidió el número, no el veredicto**. Hoy **no se calcula** (§28.4a punto 4) | ⏸️ **Abierta, con recomendación EN CONTRA** *(v3.8)*. En v3.8 él mismo **retiró el único derivado que quedaba** (`PREMIUM`) y con eso la pantalla dejó de calcular nada; **reintroducir un derivado por la puerta del mercado desharía su propia decisión** — y ya no existe la segunda línea de `PREMIUM` donde iba a caber. *Si aun así lo quiere, se rediseña; no se improvisa.* |
+| **13** | **humano** | **¿Molesta de verdad la repetición de `ACTIVO`** bajo el encabezado `ACTIVOS · 6`? Fue su observación al decidir qué columna quitar | ⏸️ **Abierta, con recomendación de NO tocar nada** (§28.3b). La repetición **es el precio del cuarto canal**, cuesta cero y **desaparece sola al cambiar el orden**, que es cuando importa. Atenuar la palabra retira fuerza al **portador**; hacerlo condicional al `sort` cambia la forma de la tabla bajo el mismo humano |
 
 ---
 
@@ -14412,3 +14568,497 @@ pantalla** y **qué sale por la red**.*
 | **frontend** | Las cadenas de §30.15 se **copian sin interpretar**. Y la que más importa: **`ack.whereFrom` no se acorta**. Si alguien la ve larga, eso es que está haciendo su trabajo. |
 | **QA** | Los trece candados de §30.17 están escritos **para poder ponerse rojos**. Los dos ⭐⭐ (`FX-UI-1`, `FX-UI-2`) son los del encargo, y **los dos miden conducta**: uno cuenta **peticiones a la red**, el otro comprueba **qué palancas ofrece la pantalla**. Ninguno se puede satisfacer renombrando una clave. |
 | **product-owner** | **Pregunta abierta al humano, no bloqueante:** ¿quiere que el sistema **refresque solo** desde Banxico (un cron diario)? Hoy **no existe** y el contrato lo deja fuera a propósito. Si lo quiere, **cambia el diseño de `stale`** (pasaría de «alguien tiene que pulsar» a «algo se rompió») y **es un pase nuevo**. |
+
+---
+
+## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.8)
+
+> **Origen:** el dueño mandó una propuesta de diseño del **correo 1** y pidió, literal: *«adecua con nuestro
+> logo pero algo así»* y *«hay que mover el diseño a que todos se hablen con la propuesta que te mandé»*.
+>
+> **Su propuesta NO es lenguaje nuevo: es nuestro sistema llevado al correo.** Papel y tinta, serif para el
+> titular, mono para los metadatos, rojo con avaricia, reglas en vez de cajas, radios 0. **No hay que
+> inventar nada — hay que trasladarlo, y trasladarlo es lo difícil**, porque el correo rompe la mitad de las
+> herramientas con las que este documento está escrito (§31.2).
+>
+> **Punto de partida, medido en el código, no supuesto:** los ocho comparten un `layout()` de nueve líneas
+> —`buylist-mail.templates.ts:54-62` y `mail/mail.templates.ts:33`— que produce **`Arial`, un `<h2>TCG HUNT</h2>`
+> en negritas como único encabezado, una `<hr>` gris y nada más**. Además: `max-width:520px` (no 600),
+> `color:#111` (no la tinta `#1A1A18`) y **`border-radius:6px` en los CTA**, que contradice «radios 0» desde
+> v1.3. **Cero marca.** *No es que el correo esté mal diseñado: es que nunca se diseñó.*
+
+### 31.0 Lo que esta sección NO puede tocar — se lee antes de nada
+
+| # | Regla | Qué significa aquí |
+|---|---|---|
+| **1** | **⛔ El texto VINCULANTE de la oferta no se toca** | Precio por carta, condición y consecuencia salen de **`offerTermsCopy` — un cuerpo, tres lectores**, y el criterio **161(d)** exige que `item.condition` sea *«el MISMO string que usó el correo»*. **Esta sección cambia cómo se ve, jamás qué dice.** *Si alguna vez creo que una frase vinculante debe cambiar, **paro y lo digo**: eso es product-owner, no ux-ui.* |
+| **2** | **⛔ LOS CINCO PROHIBIDOS** (`PROJECT.md §P.3`, criterio **173(h)**) | **(1)** domicilio · **(2)** CLABE, ni enmascarada · **(3)** datos de terceros · **(4)** montos o estado de **otras** solicitudes u **otros** ítems · **(5)** cifras internas de la mesa (posición, sugerencia, topes del operador). Los hace cumplir `test/buylist.cycle-mail-pii.spec.ts`. **Un correo bonito que meta uno de los cinco es peor que el feo de hoy** — y el rediseño es justo el momento en que se cuela uno, porque se toca cada plantilla a la vez. |
+| **3** | **⛔ Prohibido `MX$ 0.00`** para lo que no compramos | Se lista **con nombre y sin monto** (criterio 118). *Misma familia que la regla del mercado de §28.4a: cero es un precio, y ahí no hay precio.* |
+
+**Y una consecuencia de método que vale para todo §31:** el rediseño **no reescribe ni una cadena** salvo la
+única que el dueño pidió expresamente (§31.10). **Todo lo demás es envoltura.** Si al maquetar hace falta
+partir un párrafo, se parte **por donde ya está partido**; si una frase no cabe, **cabe igual** — no se acorta.
+
+### 31.1 Qué supersede esta sección, y qué NO
+
+§25.4 ya diseñó **el contenido, el orden de bloques y el tono** de los cinco correos del ciclo, y esas
+decisiones **siguen vivas y mandando**. Lo que faltaba era el **sistema del medio** aplicado a los **ocho**.
+
+| | Estado |
+|---|---|
+| **§25.4.0 «El medio»** y **§25.4.1 «Esqueleto común»** | ⚠ **ABSORBIDOS AQUÍ Y AMPLIADOS a los ocho.** Todo lo que decían sigue siendo cierto —600px, tablas, estilos en línea, las tres pilas tipográficas, los colores aplanados `#D1CFC8`/`#AEACA7`, radios 0, imágenes casi cero, parte de texto plano obligatoria— **y se conserva palabra por palabra**. §31 añade lo que no tenían: **el bloque de marca**, **el pie en tinta**, **el modo oscuro de verdad** (§31.8), **el presupuesto de peso** y **los patrones nombrados**. ⛔ **Dos correcciones**, y son de medio, no de gusto: la **regla punteada** de §25.4.2 y el **`text-transform` de las versalitas** no sobreviven a Outlook (§31.2) |
+| **§25.4.2–§25.4.4-bis** (los cinco correos, bloque a bloque) | ✅ **INTACTAS.** El orden de bloques, las ocho decisiones del correo 1, el pozo del bloque de consecuencia, la resta, el plazo y las prohibiciones **no se tocan** |
+| **§17.3, fila «Correos»** | ⚠ **ENMENDADA en un punto, y a mejor** (§31.5): decía *«lockup completo (a) como PNG»*. Un lockup **entero como imagen** desaparece cuando el cliente bloquea imágenes — que es el estado **por defecto** de Gmail y Outlook. Pasa a ser **híbrido: la mira es imagen, el wordmark es TEXTO VIVO** |
+| **§7.12a** (cómo se nombra un cobro) | ✅ **Aplica al correo con todas las letras**, y es la norma que justifica el cambio de copy de §31.10 |
+| **§2.x, §3.x, §4.x, §10, §17.2** | ✅ **Fuente de los valores.** §31 **no crea ni un token**: usa los mismos hex, aplanados |
+
+### 31.2 ⚠⚠ Lo que NO sobrevive al correo — y su equivalente exacto
+
+**Esto no es una lista de avisos: es la parte normativa que impide especificar algo que después no se puede
+cumplir.** El correo se maqueta con **tablas anidadas y estilos en línea**; Outlook usa el motor de Word;
+Gmail recorta los mensajes largos. Cada fila dice **qué se pierde** y **qué se pone en su lugar**.
+
+| De este documento | ¿Sobrevive? | Equivalente NORMATIVO en correo |
+|---|---|---|
+| `flex` / `grid` | ⛔ **No** | **`<table role="presentation">` anidadas**, `cellpadding=0 cellspacing=0 border=0`. Una sola columna |
+| Clases CSS y `<style>` | ⚠ **A veces** | **Todo estilo, en línea.** ⭐ **Regla dura: el correo tiene que ser correcto si un cliente BORRA el `<style>` entero.** El `<style>` solo puede llevar **mejoras**, nunca información |
+| `max-width` | ⚠ Outlook lo ignora | `<table width="600">` **como atributo** + `max-width:600px` en línea para los demás. En `<600px` la tabla es fluida al 100 % |
+| `margin` | ⚠ Poco fiable | **`padding` en `<td>`** y **filas espaciadoras** (`<tr><td height="24" style="line-height:24px;font-size:0">&nbsp;</td></tr>`) |
+| **`text-transform: uppercase`** | ⛔ **No en Outlook** | ⭐⭐ **Las versalitas se escriben EN MAYÚSCULAS EN LA CADENA FUENTE.** Consecuencia real: el valor de la cadena ya viene en mayúsculas del catálogo, y **el barrido de homoglifos de §28.10 aplica igual** (una `А` cirílica en `OFERTA DE COMPRA` sería invisible) |
+| `letter-spacing` (el `tracking .18em` del eyebrow) | ⚠ Irregular | Se declara igual: **si se pierde, el eyebrow sigue leyéndose**. ⛔ No es portador de nada |
+| **`font-variant-numeric: tabular-nums`** | ⛔ **No** | ⭐ **La alineación del dinero se consigue con la TABLA**, no con la fuente: importe en su propia `<td align="right">` con ancho fijo. *Toda columna de dinero de §25.4.2 depende de esto* |
+| **Regla punteada** (`border: dotted`) de §25.4.2 | ⛔ **Outlook la rellena o la ignora** | ⭐ **Regla SÓLIDA de 1px en `#D1CFC8`**, hecha con una fila `<td height="1" bgcolor="#D1CFC8" style="line-height:1px;font-size:0">`. **Corrección explícita a §25.4.2**: la separación entre líneas de carta **es sólida** |
+| **`border-left`** (la regla bermellón de la caja de términos) | ⚠ Irregular en Outlook | ⭐ **Una `<td width="3" bgcolor="#B31217">` dedicada**, en una tabla de dos columnas. Es el mismo device `▌` de §21.11/§28, hecho a prueba de balas |
+| `border-radius` | ⛔ No en Outlook | **Da igual: el sistema es radio 0** (§4.2). ⚠ Los CTA de hoy llevan `border-radius:6px` — **se retira**, y no por compatibilidad: **por sistema** |
+| `box-shadow` / `opacity` / `rgba()` | ⛔ No | **Sombras 0** (§4.3). Los bordes translúcidos ya están aplanados a `#D1CFC8` / `#AEACA7` |
+| `background-image`, degradados | ⛔ No | **Ninguno.** El degradado del logo (§17.2) **no va al correo**: la mira va **sólida** en `#B31217` |
+| **SVG** | ⛔ **Bloqueado por Gmail y Outlook** | **PNG @2x**, servido desde `tcghunt.mx` (mismo dominio que el remitente: además ayuda con el filtro de spam) |
+| Webfonts (`@font-face`, `<link>` a Google Fonts) | ⛔ **Gmail las ignora**; es además un vector de rastreo | ⭐ **Se diseña con las pilas de sistema** (§31.4). **Zen Old Mincho, Archivo y JetBrains Mono NO existen en ningún cliente de correo**: se declaran las tres pilas y **el correo tiene que verse bien en Georgia / Arial / Consolas** |
+| `:hover`, `:focus`, transiciones | ⛔ No | **No existen estados interactivos en el correo.** El CTA se diseña **en un solo estado** |
+| Un correo largo | ⚠ **Gmail RECORTA a ~102 KB** | ⭐ **Presupuesto: ≤ 90 KB de HTML** por correo, y **el bloque de montos y el CTA aparecen antes de la mitad del documento**. Sin comentarios en la salida, sin base64, sin CSS muerto |
+| Modo oscuro del cliente | ⚠ **Nos lo imponen** | **§31.8 entero.** Es lo que más trabajo de medio tiene y lo que hoy no está resuelto |
+
+### 31.3 Retícula, ancho y esqueleto de los OCHO
+
+```
+  ← 600px máx, una columna, papel #F4F1EA ─────────────────────────────────┐
+                                                                           │
+  [ preheader oculto — 40–90 car. + relleno &zwnj;&nbsp; ]                  │  §31.6a
+  ────────────────────  ◎  ────────────────────                            │  §31.5 raya–mira–raya
+                    TCG HUNT                                               │  Georgia 30px, TEXTO VIVO
+                       .mx                                                 │  mono 12px muted
+                                                                           │
+  ══════════════════════════════════════════════  regla #AEACA7 1px  ═════  │
+                                                                           │
+  OFERTA DE COMPRA · BL-000123                                             │  §31.6b mono 10px MAYÚSCULAS
+                                                                           │
+  Te compramos 1 de tus 1 cartas                                           │  Georgia 26px/1.15 tinta
+                                                                           │
+  Hola Ana:                                                                │  Arial 15px/1.55 tinta
+  Esta oferta es condicional y así funciona: …                             │  el párrafo de la condición
+  ─────────────────────────────────────────────  regla #D1CFC8  ─────────  │
+  COMPRAMOS (1)                                                            │  §31.6c
+   Charizard VMAX                             MX$ 840.00                   │
+   SWSH03 · 020/189 · RAW · NM · HOLOFOIL                                  │
+   siempre que llegue en Near Mint                                         │
+  ─────────────────────────────────────────────────────────────────────    │
+  ▌ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT                            │  §31.6d caja: pozo + ▌ 3px
+  ▌ No se compra, no se paga y te la devolvemos: …                         │  bermellón a la izquierda
+  ─────────────────────────────────────────────────────────────────────    │
+   Valor de las cartas                        MX$ 1,020.00                 │  §31.6e la resta
+   Envío que ponemos nosotros               − MX$   180.00                 │
+   ───────────────────────────────────────────────────  regla TINTA 1px    │
+   SE TE DEPOSITAN                            MX$   840.00                 │  mono 22px tinta
+                                                                           │
+   Nosotros ponemos la guía… (prosa que repite envío y neto)               │
+                                                                           │
+   Tienes hasta el miércoles 3 de septiembre de 2026, 6:00 p. m.           │  §31.6f la fecha en BERMELLÓN
+   (2 días hábiles). Si no respondes antes, la oferta se cancela sola.     │
+                                                                           │
+          [   VER Y RESPONDER LA OFERTA   ]                                │  §31.7 botón, 44px alto
+          https://tcghunt.mx/es/buylist/…                                  │  mono 12px muted — RESPALDO
+                                                                           │
+   Entrarás con tu cuenta: esta oferta no se acepta desde un enlace…       │  §31.6g letra chica
+  ═════════════════════════════════════════════════════════════════════    │
+  ███ PIE EN TINTA #1A1A18 ████████████████████████████████████████████    │  §31.6h
+  ███  TCG HUNT                                                       ███  │  papel, Georgia 16px
+  ███  Compra, venta y bóveda de cartas Pokémon en México             ███  │  #8A857A Arial 12px
+  ███  tcghunt.mx · soporte@tcghunt.mx                                ███  │  #8A857A mono 12px
+  ███  Recibes este correo porque tienes una solicitud de venta …     ███  │  #8A857A Arial 11px
+  ██████████████████████████████████████████████████████████████████████   │
+```
+
+- **Ancho 600px, una columna, papel de borde a borde.** El fondo **fuera** de la tabla también es papel
+  (`<body bgcolor="#F4F1EA">` **y** una tabla exterior al 100 % con el mismo `bgcolor`): un correo que flota
+  sobre el gris del cliente pierde el papel, que es la marca (§2.1).
+- **Padding lateral: 32px** en escritorio, **20px** por debajo de 480px (una sola `<td>` con `padding`, no
+  media queries: los `padding` sobreviven, las media queries no siempre).
+- **Ritmo vertical: 8 / 16 / 24 / 32 / 40**, subconjunto de la escala de §4.1. Se consigue con **filas
+  espaciadoras**, nunca con `margin`.
+- **⭐ El orden de arriba es el mismo en los OCHO.** Lo que varía es **qué bloques existen**, nunca dónde van
+  (§31.9). *Que «todos se hablen» es exactamente esto: un lector que ya recibió el correo 1 sabe dónde mirar
+  en el 6 sin leer.*
+
+### 31.4 Tipografía de correo — las tres pilas, y el problema de las cifras
+
+**Ninguna de nuestras tres familias existe en un cliente de correo.** Se diseña con los sustitutos y **se
+declara la pila completa**; si la webfont llega, mejora, **no cambia el diseño**.
+
+| Rol | Pila (normativa, ya declarada en §25.4.0) | Sustituto real |
+|---|---|---|
+| **Serif** (titular, wordmark, cifra grande de marca) | `Georgia, 'Times New Roman', serif` | **Georgia** — presente en Windows, macOS, iOS y Android (vía fallback), y es la serif de pantalla con más color de página. *Es el sustituto correcto de Zen Old Mincho: misma voz editorial, misma robustez a 26px* |
+| **Sans** (prosa) | `Archivo, Arial, Helvetica, sans-serif` | **Arial** |
+| **Mono** (cifras, folios, versalitas, fechas, URL) | `'JetBrains Mono', Consolas, Menlo, monospace` | **Consolas / Menlo** |
+
+**⚠⚠ Y el detalle que decide dónde va el dinero: Georgia tiene cifras de estilo antiguo.** Sus dígitos **no
+son de altura uniforme** — el 3, 4, 5, 7 y 9 **bajan de la línea base** y el 6 y el 8 suben. En un titular
+son elegantes; **en una columna de importes son ilegibles y no alinean**.
+
+- ⛔ **NINGÚN IMPORTE VA EN LA SERIF. NUNCA.** Todo el dinero —los tres montos, la resta, el neto de 22px—
+  va en **la pila mono**, que es donde ya lo pone §25.4.1 (*«mono para toda cifra»*). **Aquí queda escrita la
+  razón**, que faltaba, y con ella la regla deja de ser un gusto.
+- **Los enteros pequeños del titular sí pueden ir en serif** («Te compramos **2** de tus **3** cartas»): no
+  son dinero, no se alinean con nada y las cifras de estilo antiguo ahí **son una virtud tipográfica**.
+- **El folio va en mono** (`BL-000123`): es un identificador que alguien va a teclear o copiar.
+
+**Escala de correo (subconjunto de §3.2, en px absolutos porque `rem` no es fiable en Outlook):**
+
+| Rol | Familia | px / line-height | Peso |
+|---|---|---|---|
+| Wordmark de marca | serif | 30 / 1.1 | 400 |
+| Titular | serif | 26 / 1.15 | 400 |
+| Titular largo (correos 3–8) | serif | 22 / 1.2 | 400 |
+| Prosa | sans | 15 / 1.55 | 400 |
+| Nombre de carta | sans | 15 / 1.4 | 500 (`bold` es aceptable: 500 no existe en Arial) |
+| **Neto** | **mono** | **22 / 1.2** | 500 |
+| Importes | mono | 15 / 1.4 | 400 |
+| Eyebrow / versalitas | mono | 10 / 1.2 | 500, MAYÚSCULAS en la cadena |
+| Metadatos de carta, URL, fecha | mono | 12 / 1.4 | 400 |
+| Letra chica | sans | 13 / 1.5 | 400 |
+| Pie | sans/mono | 11–12 / 1.5 | 400 |
+
+- **`mso-line-height-rule: exactly`** junto a cada `line-height`, o Word lo redondea a su gusto.
+- ⛔ **Nada por debajo de 11px**, y la letra chica **no baja de 13px**: *«letra chica» es una jerarquía, no un
+  tamaño ilegible.*
+
+### 31.5 ⭐ El bloque de marca — raya · mira · raya, y su respaldo
+
+**El boceto del dueño es el lockup del sistema**: los anillos concéntricos de su círculo **son la mira de
+caza** (§17.1), no un motivo nuevo. Se compone así:
+
+```
+<tr>  ── raya ──   [ mira 72px ]   ── raya ──        ← tabla de 3 celdas
+<tr>            TCG HUNT                             ← TEXTO VIVO, Georgia 30px, tinta
+<tr>               .mx                               ← TEXTO VIVO, mono 12px, muted
+```
+
+**(a) ⭐⭐ El respaldo, y es la regla que no se negocia.** Gmail y Outlook **bloquean imágenes por defecto**.
+Si la marca entera es una imagen, **el primer golpe de vista del correo es un hueco gris**.
+
+> **Decisión, y es una divergencia deliberada respecto de §17.3 y respecto de la vía «una imagen con el `alt`
+> estilizado»:** ⭐ **la mira es imagen; el wordmark `TCG HUNT` y el `.mx` son TEXTO VIVO.**
+>
+> **Por qué es más fuerte que el `alt` estilizado.** Poner `style="font-family:Georgia;…"` en un `<img>` para
+> que el texto alternativo herede la marca **funciona a medias**: Gmail lo respeta casi siempre, **Outlook de
+> escritorio pinta un recuadro con una cruz roja** y algunos clientes ignoran el estilo del `alt` por
+> completo. Es decir: **la marca dependería del cliente**. Con el wordmark como texto, **la marca se ve
+> siempre, en los ocho, con imágenes o sin ellas** — y lo que se ve sin imágenes es **exactamente el boceto
+> del dueño menos la mira**, que es una composición que ya está bien.
+>
+> ⇒ **La mira lleva `alt=""`** (decorativa: el wordmark de al lado ya porta la marca) **y `width`/`height`
+> explícitos**, para que el hueco reservado sea **aire deliberado** y no un salto de maqueta. ⛔ **Prohibido
+> que `TCG HUNT` sea parte de una imagen.**
+
+**(b) El asset.** `frontend/src/app/apple-icon.png` — **180×180**, 6.785 bytes, la **solo-mira** bermellón
+sobre papel. **180px alcanzan de sobra**: mostrada a **72px** es @2.5x, nítida en retina.
+- **Petición a frontend** (§31.15): copiarla a **`frontend/public/branding/mail-mira-180.png`**, nombre
+  estable, servida desde **`tcghunt.mx`** — el mismo dominio del remitente, lo que además ayuda con el filtro
+  de spam.
+- ⛔ **Sin SVG** (§31.2). ⛔ **Sin degradado**: la mira va **sólida `#B31217`** — el degradado de §17.2 es de
+  marca a tamaño grande y no sobrevive al correo.
+- **Tamaño mínimo:** §17.3 fija **28px** para la solo-mira. A **72px** vamos con holgura sobrada.
+
+**(c) Las dos rayas.** `<td height="1" bgcolor="#AEACA7">` a izquierda y derecha de la celda de la mira, cada
+una al 50 % del espacio restante. **Con imágenes bloqueadas, las rayas siguen ahí** y el bloque se lee como
+una composición, no como algo roto.
+
+**(d) El wordmark va en tinta sólida, no en degradado**, y `.mx` en muted debajo, centrado. *Es la variante
+que §17.2 llama «sólido» y la que §17.3 ya exige por debajo del tamaño de marca.*
+
+### 31.6 Los patrones que se repiten — se nombran una vez y se usan en los ocho
+
+**(a) Preheader (nuevo).** Texto oculto que el cliente enseña junto al asunto en la bandeja.
+`<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all">`
++ **40–90 caracteres** + un relleno de `&zwnj;&nbsp;` repetido, para que **no se cuele el principio del
+cuerpo**. ⚠ **Manda R1 de §25.4: en el correo 1 el preheader lleva el NETO, jamás el bruto.**
+
+**(b) Eyebrow + folio.** `<ETIQUETA EN MAYÚSCULAS> · <FOLIO>`, mono 10px muted, **con el folio siempre
+visible**: es la llave con la que el vendedor escribirá a soporte. **Los correos 7 y 8 no tienen folio** ⇒ el
+eyebrow va solo (`SEGURIDAD DE LA CUENTA`), **sin inventar un identificador** y **sin dejar un `·` huérfano**.
+
+**(c) Línea de carta.** Tabla de 2 columnas: izquierda el nombre (sans 15px/500) + `set · núm · acabado`
+(mono 12px muted) + la condición (§25.4.2, en tinta); derecha el importe (mono 15px, `align="right"`).
+**Separador: regla SÓLIDA 1px `#D1CFC8`** (§31.2). ⛔ En `NO COMPRAMOS`, la celda derecha **existe y va
+vacía**: ⛔ **jamás `MX$ 0.00`** (regla 3 de §31.0).
+
+**(d) Caja de términos.** Fondo **pozo `#EFEBE2`** + **`<td width="3" bgcolor="#B31217">`** a la izquierda +
+padding 20px. **Es el único bloque con tono de fondo del correo** (§25.4.2 decisión 2) y ahora también el
+único con regla de acento. *Combina lo ratificado (el pozo, por hallabilidad dentro de dos semanas) con lo
+que el dueño dibujó (la regla bermellón), y no cuesta ni un par de contraste: acento sobre pozo = 5.9:1.*
+
+**(e) La resta.** Tabla de 2 columnas, importes `align="right"`, ancho fijo en la columna de dinero. La
+**regla de TINTA 1px** encima del neto es **la única regla de tinta del correo**. El signo `−` es **texto
+(U+2212)**, no un borde.
+
+**(f) La fecha límite.** Frase en tinta con **el token de fecha y hora en mono 500 y en `#B31217`** — un
+fragmento en acento dentro de una frase normal, **nunca el párrafo entero**. *Es la misma disciplina de §28.3:
+la palabra es el portador y el color va encima, nunca al revés.*
+
+**(g) CTA + URL de respaldo + letra chica.** El CTA en §31.7. **Debajo, siempre, la URL en texto** (mono 12px
+muted, partible). ⚠ **Deja de ser «para clientes que no pintan botones»: es el respaldo del CTA en modo
+oscuro forzado** (§31.8). La letra chica va **después** del CTA, sans 13px muted.
+
+**(h) Pie en tinta (nuevo).** Banda `bgcolor="#1A1A18"` a todo el ancho, padding 28px, cuatro líneas: marca
+(papel, serif 16px) · descriptor (`#8A857A`) · `tcghunt.mx · soporte@tcghunt.mx` (`#8A857A`, mono) · **la
+línea de por qué recibe esto** (`#8A857A`, 11px).
+- ⭐ **REGLA DURA: en la banda de tinta NO vive nada que el lector necesite.** Es marca y cortesía. *Es la
+  superficie con más riesgo en modo oscuro (§31.8) y por eso se diseña para que, si degrada, **no se pierda
+  información**.* ⛔ Ni el folio, ni un importe, ni un plazo, ni un enlace de acción.
+- **La línea del «por qué» es variable por correo** (la única del pie): *«…porque tienes una solicitud de
+  venta con nosotros»* / *«…porque alguien pidió restablecer la contraseña de esta dirección»*.
+- ⛔ **Sin enlace de baja.** Los ocho son **transaccionales**: no se puede «dar de baja» de la oferta que uno
+  pidió. *Si algún día el negocio manda correo comercial, es **otra familia de plantillas y otro pase** — y
+  se anota para product-owner (§31.15).*
+
+### 31.7 El CTA — cuándo es tinta y cuándo es bermellón
+
+El dueño dibujó un **botón bermellón sólido**. El sistema dice que el primario es **tinta** (§6.1) y que el
+acento se usa **con avaricia** (§2.1). **Las dos cosas son ciertas y la regla que las reconcilia cabe en una
+línea:**
+
+> ⭐ **El CTA va en BERMELLÓN `#B31217` si y solo si no responder cuesta dinero. En los demás, va en TINTA.**
+
+| Correo | CTA | Color |
+|---|---|---|
+| **1 · la oferta** · **2 · el recordatorio** | `VER Y RESPONDER LA OFERTA` | **Bermellón** — hay una **decisión de dinero con fecha límite**, y el silencio también decide |
+| **3, 5, 6** (cancelada, vencida, no perseguida) | `Cotizar de nuevo` / ninguno | **Tinta** |
+| **4** (ítem rechazado) | el de coordinación | **Tinta** |
+| **7, 8** (verificar, restablecer) | `Verificar mi correo` / `Restablecer mi contraseña` | **Tinta** — hay plazo, pero **no hay dinero**: es una acción de cuenta |
+
+*No es una excepción de estilo: es exactamente la semántica del acento en este documento («esto pide una
+decisión»), y hace que el rojo aparezca en **dos de ocho**, que es lo que significa «con avaricia». Y responde
+al dueño donde él lo dibujó: **el correo 1 es su referencia y ahí el botón es rojo**.*
+
+**Construcción, a prueba de Outlook:** `<table><tr><td bgcolor align="center" style="padding:14px 28px">`
+con un `<a>` dentro **con `color` explícito y `text-decoration:none`**, altura útil ≥ 44px, **radio 0**,
+`border:1px solid` del mismo color (le da cuerpo si el `bgcolor` se pierde). **Texto del botón en MAYÚSCULAS
+en la cadena** (§31.2). **Un solo CTA por correo** (§25.4.1); un segundo destino va como enlace de texto.
+
+### 31.8 ⚠⚠ Modo oscuro — lo que hoy no está resuelto
+
+§25.4.0 declara `color-scheme: light` y `bgcolor` explícito. **Es necesario y NO es suficiente**, y conviene
+decir por qué con precisión, porque hay **tres** comportamientos distintos y solo uno se arregla con eso:
+
+| Comportamiento del cliente | Quién | Qué pasa | Qué lo cubre |
+|---|---|---|---|
+| **1 · Respeta `color-scheme`** | Apple Mail, Outlook macOS/iOS | Deja el correo claro | ✅ Las dos `<meta>` + `:root{color-scheme:light}` |
+| **2 · Inversión PARCIAL** | Outlook.com, Outlook Windows | **Oscurece los fondos y deja los colores de texto en línea** ⇒ **tinta sobre tinta: texto invisible** | ⚠ **`bgcolor` + `background-color` en CADA `<td>` con texto** |
+| **3 · Inversión FORZADA total** | Gmail app (Android), Yahoo, Samsung | Recalcula **todo**. Papel → casi negro; tinta → casi blanco | ⚠ **Nada lo impide.** Se diseña **para que la inversión no rompa nada** |
+
+**Las seis reglas, y la cuarta es la que hoy falta:**
+
+1. **`<meta name="color-scheme" content="light">`** + **`<meta name="supported-color-schemes" content="light">`**
+   + `:root { color-scheme: light; }` dentro del `<style>`.
+2. **⭐ `bgcolor` (atributo) Y `background-color` (en línea) en TODA `<td>` que lleve texto.** ⛔ **Ninguna
+   celda transparente.** *Es lo que impide el caso 2, que es el que produce el correo invisible.*
+3. **⛔ Ningún significado depende del fondo.** Un estado se cifra en **la palabra en versalitas** (§2.4) y el
+   color va encima. Con el correo invertido, **las ocho plantillas siguen diciendo lo mismo**.
+4. **⭐⭐ El acento NO puede ser el único portador — y aquí hay un dato duro.** §17.2 mide que **`#B31217`
+   sobre tinta `#1A1A18` da ~2.5:1 y lo declara PROHIBIDO**. Bajo **inversión forzada**, el papel se vuelve
+   casi tinta **y el rojo suele quedarse como está** ⇒ **caemos exactamente en el par prohibido**.
+   ⇒ **Consecuencias normativas:** **(a)** el rojo de la fecha límite **acompaña** a una frase que ya lo dice
+   con palabras (*«Tienes hasta el…»*), nunca lo sustituye; **(b)** la regla bermellón de la caja de términos
+   es **decorativa** — el rótulo en versalitas es el portador; **(c) el CTA bermellón lleva SIEMPRE la URL en
+   texto debajo** (§31.6g), que es **la única ruta a la acción que sobrevive a cualquier inversión**.
+5. **La banda de tinta del pie es la ÚNICA superficie invertida del correo, y no lleva nada necesario**
+   (§31.6h). Si un cliente la aplasta, **no se pierde información**.
+6. **⛔ Las media queries de modo oscuro (`prefers-color-scheme`) son un BONUS, jamás el plan.** Funcionan en
+   Apple Mail y se pierden en Gmail. **Regla de §31.2: el correo tiene que ser correcto con el `<style>`
+   borrado entero.**
+
+### 31.9 Qué cambia y qué NO entre los ocho
+
+**⭐ Constante en los ocho (esto es lo que hace que «se hablen»):** ancho y retícula · bloque de marca ·
+regla `#AEACA7` bajo la marca · eyebrow en versalitas mono · titular serif · prosa sans 15/1.55 · reglas
+`#D1CFC8` entre bloques · construcción del CTA + URL de respaldo · letra chica · **pie en tinta** ·
+preheader · parte de texto plano · pilas tipográficas · paleta · radios 0 · **los cinco prohibidos**.
+
+| # | Función | Eyebrow | Titular | ¿Montos? | ¿Caja de términos? | CTA |
+|---|---|---|---|---|---|---|
+| 1 | `sellOfferTemplate` ⭐ | `OFERTA DE COMPRA · <folio>` | serif 26px | **Sí** (la resta completa) | **Sí** | **Bermellón** |
+| 2 | `sellOfferReminderTemplate` | `LA OFERTA VENCE MAÑANA · <folio>` | serif 26px | **Solo el neto** | No | **Bermellón** |
+| 3 | `sellOfferCancelledTemplate` | `OFERTA CANCELADA · <folio>` | serif 22px | **No** | No | Tinta |
+| 4 | `sellItemRejectedTemplate` | `CARTA NO ACEPTADA · <folio>` | serif 22px | **No** | **Sí** (los dos plazos) | Tinta |
+| 5 | `sellRequestExpiredTemplate` | `SOLICITUD VENCIDA · <folio>` | serif 22px | **No** | No | Tinta |
+| 6 | `sellRequestNotPursuedTemplate` | `SOLICITUD CERRADA · <folio>` | serif 22px | **No** | No | Tinta |
+| 7 | `emailVerificationTemplate` | `SEGURIDAD DE LA CUENTA` *(sin folio)* | serif 22px | **No** | No | Tinta |
+| 8 | `passwordResetTemplate` | `SEGURIDAD DE LA CUENTA` *(sin folio)* | serif 22px | **No** | No | Tinta |
+
+- **⚠ Los asuntos NO se tocan en este pase.** Los seis del ciclo están ratificados con PO y **R1 de §25.4
+  gobierna el del correo 1** (solo el neto, nunca el bruto). Los de 7 y 8 son transaccionales y correctos.
+  *Rediseñar el envoltorio y de paso reescribir los asuntos mezclaría un cambio visual con uno de producto.*
+- **El correo 2 enseña el neto y nada más.** Repetir la resta entera en un recordatorio invita a releerla
+  como si fuera **una oferta nueva**; el neto + el plazo + el CTA es lo que hace falta.
+- **⚠ Los correos 7 y 8 son de OTRO módulo y OTRO work stream** (`mail/mail.templates.ts`, «Cuentas y
+  acceso»). Ver §31.15 antes de planificar.
+
+### 31.10 🟡 El único cambio de copy — correo 6
+
+**Hoy** (`buylist-mail.templates.ts:705`, clave `notPursued.p2` de §25.12):
+
+> ES — «No hay nada pendiente de tu parte: no mandes ninguna carta, no se generó ninguna guía **y no nos debes
+> nada**.»
+> EN — “There is nothing pending on your side: don't send any card, no shipping label was generated **and you
+> owe us nothing**.”
+
+**Queda:**
+
+| Clave | ES | EN |
+|---|---|---|
+| `notPursued.p2` | `No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna guía.` | `There is nothing pending on your side: don't send any card, and no shipping label was generated.` |
+
+**Por qué, y es exactamente la norma de §7.12a:** *«y no nos debes nada»* **introduce la idea de una deuda que
+nunca existió, solo para negarla** — una negación defensiva **nombra el tema** y sigue siendo **una afirmación
+que habría que sostener**. Y es **redundante**: *«no se generó ninguna guía»* ya contesta la única duda real
+(*¿me van a cobrar el envío?*), y la contesta **por un hecho**, no por una promesa.
+
+- ⚠ **Se mantiene el TUTEO.** El dueño lo dictó como *«no requiere acción de su parte»*; **los ocho hablan de
+  tú**, y cambiar a usted en uno solo suena a que lo escribió otra persona. *La idea es suya; el registro es
+  del sistema.*
+- ⛔ **Ninguna otra cadena de los ocho se toca en este pase** (§31.0).
+- **Este cambio es de una línea y no depende del rediseño: puede —y debería— salir antes** (§31.15).
+
+### 31.11 Contraste — **cero pares nuevos**
+
+Todo §31 usa pares ya verificados en §10 y §17.2, con los bordes **aplanados** (mismo valor sin alfa):
+
+| Par | Ratio | Veredicto |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (titular, prosa, importes, neto) | ~15.5:1 | AA/AAA |
+| Muted `#6E695E` sobre papel (eyebrow, metadatos, letra chica, URL) | ~4.8:1 | AA |
+| Tinta sobre pozo `#EFEBE2` (caja de términos) | ~14.7:1 | AA/AAA |
+| Rojo `#B31217` sobre papel (fecha límite) | 6.2:1 | AA |
+| Rojo `#B31217` sobre pozo (regla de 3px de la caja) | 5.9:1 | AA (y es **decorativa**, §31.8 regla 4) |
+| Papel `#F4F1EA` sobre rojo `#B31217` (CTA de los correos 1 y 2) | 6.2:1 | AA |
+| Papel `#F4F1EA` sobre tinta (CTA de los otros seis · marca del pie) | ~15.5:1 | AA/AAA |
+| `#8A857A` sobre tinta (las tres líneas menores del pie) | ~4.75:1 | AA |
+| Reglas `#D1CFC8` / `#AEACA7` sobre papel | — | decorativas (no portan) |
+
+- **⛔ El par prohibido está identificado y evitado por diseño:** `#B31217` sobre tinta = **2.5:1** (§17.2).
+  Nunca se compone a propósito, y §31.8 regla 4 cubre el caso en que **un cliente lo compone por nosotros**.
+- **El verde de éxito no aparece en ningún correo.** Ninguno de los ocho comunica un éxito que necesite
+  color, y es el único par del sistema en el borde de AA.
+
+### 31.12 Accesibilidad y parte de texto plano
+
+- **`<html lang="es">` / `lang="en"`** según `User.locale`, y **`dir="ltr"`**.
+- **Tablas de maqueta con `role="presentation"`**, o el lector las anuncia como tablas de datos. ⚠ **La tabla
+  de líneas de carta y la de la resta SÍ son datos**: llevan `<th>` ocultos o, más simple y más robusto en
+  correo, **cada línea se lee sola** («Charizard VMAX, MX$ 840.00») porque el importe está en la misma fila.
+- **La mira va `alt=""`** (§31.5a). **Todo enlace tiene texto propio**: ⛔ ningún «haz clic aquí».
+- **`<a>` con `color` explícito**: los clientes pintan los enlaces de azul si no se les dice lo contrario, y
+  el azul no está en esta paleta.
+- **Parte de texto plano OBLIGATORIA** (`multipart/alternative`) y **con el mismo contenido sustantivo**:
+  los tres montos, la condición por línea, el plazo y **la URL completa**. ⛔ No es un resumen. *Un correo de
+  dinero sin parte de texto es un correo que algunos clientes enseñan mutilado.*
+- **La versión de texto es también el candado más barato de los cinco prohibidos** (§31.14): lo que no puede
+  aparecer en el HTML **tampoco puede aparecer aquí**, y en texto plano se busca sin ruido de etiquetas.
+
+### 31.13 Qué NO hacer
+
+1. **⛔⛔ NO pongas `TCG HUNT` dentro de una imagen.** El wordmark es **texto vivo** (§31.5a). *Con imágenes
+   bloqueadas —el estado por defecto de media bandeja— un lockup rasterizado deja un hueco donde va la marca.*
+2. **⛔⛔ NO toques el texto vinculante de la oferta.** Sale de `offerTermsCopy` y el criterio 161(d) exige
+   que sea **el mismo string** que ve el portal (§31.0 regla 1).
+3. **⛔⛔ NO metas ninguno de los CINCO PROHIBIDOS** al reordenar bloques. El rediseño es **el momento exacto**
+   en que se cuela uno, porque se tocan las ocho plantillas a la vez (§31.0 regla 2).
+4. **⛔ NO pintes `MX$ 0.00`** en `NO COMPRAMOS`: nombre sí, monto no (§31.0 regla 3).
+5. **⛔ No uses `flex`, `grid`, clases, `margin`, `rgba()`, `opacity`, `box-shadow`, `border-radius`,
+   `background-image` ni SVG** (§31.2).
+6. **⛔ No confíes en `text-transform`.** Las versalitas van **en mayúsculas en la cadena**.
+7. **⛔ No confíes en `tabular-nums`.** El dinero alinea **con la tabla**.
+8. **⛔ No pongas un importe en la serif.** Georgia tiene cifras de estilo antiguo (§31.4).
+9. **⛔ No dejes una `<td>` de texto sin `bgcolor`.** Es lo que produce el correo invisible en Outlook.com
+   (§31.8 regla 2).
+10. **⛔ No pongas nada necesario en la banda de tinta del pie** (§31.6h).
+11. **⛔ No quites la URL en texto bajo el CTA.** Es el respaldo del botón en modo oscuro forzado, no un
+    adorno para clientes viejos (§31.8 regla 4c).
+12. **⛔ No metas dos CTA.** Un solo botón por correo (§25.4.1).
+13. **⛔ No añadas enlace de baja** a un correo transaccional (§31.6h).
+14. **⛔ No cargues webfonts** por `@font-face` ni por `<link>`: no funcionan y son un vector de rastreo.
+15. **⛔ No superes los 90 KB de HTML**, y **no empujes los montos ni el CTA por debajo de la mitad del
+    documento**: Gmail recorta (§31.2).
+16. **⛔ No inventes un identificador** para los correos 7 y 8 solo para que el eyebrow «cuadre» (§31.6b).
+17. **⛔ No reescribas ninguna cadena** salvo `notPursued.p2` (§31.10).
+18. **⛔ No cambies los asuntos** en este pase (§31.9).
+
+### 31.14 Las mutaciones que ponen un test **en rojo**
+
+*Los tres primeros son los que pediste, y los tres miden **conducta**: qué queda en pantalla cuando se
+quitan las imágenes, qué cadenas salen por el cable y de dónde sale el texto que obliga.*
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **ML-1** ⭐⭐ | **que el respaldo de la marca deje un hueco** (volver a meter el wordmark en la imagen, o confiar en un `alt` estilizado) | **El candado del bloque de marca, y la aserción es POR ABLACIÓN, que es lo que lo hace rojo.** Para **los ocho**, en **ES y EN**: se renderiza el HTML, **se eliminan todas las etiquetas `<img …>`** con un `replace` y sobre el resultado se asierta que **la cadena `TCG HUNT` sigue presente en el texto visible**. ⭐ **Y la mitad que mata la mutación disfrazada:** se asierta además que **ningún `<img>` del correo lleva `alt` que contenga `TCG HUNT`** — es decir, que la marca **no está delegada al texto alternativo de nadie**. **Rojo si el wordmark viaja dentro de una imagen, y rojo si alguien lo «arregla» poniéndolo en el `alt`.** **Control positivo:** con las imágenes puestas, existe **exactamente un** `<img>` en el correo y su `src` apunta a `tcghunt.mx`. |
+| **ML-2** ⭐⭐ | **que el rediseño cuele uno de los CINCO PROHIBIDOS** | **El candado que YA existe, extendido — y la extensión es el candado.** `test/buylist.cycle-mail-pii.spec.ts` barre hoy **los cinco correos del ciclo** y tiene una aserción de **exhaustividad** que obliga a clasificar toda plantilla exportada del módulo. **Se amplía en dos ejes:** **(a)** el barrido entra también en **`sellItemRejectedTemplate`** (hoy está en `FUERA_DEL_CICLO`: no es del ciclo, pero **la lista de los cinco es de «todo correo que salga de este fichero»**, según su propia cabecera) y en **los dos de `mail/`**; **(b)** ⭐ el barrido se hace sobre **`subject` + `html` + `text`**, y **la parte de texto plano es donde se caza barato**: sin etiquetas, un domicilio o una CLABE no se pueden esconder entre atributos. **Rojo si cualquiera de los ocho, en cualquiera de los dos idiomas, contiene un dato de los cinco.** **Control negativo, para que el barrido no se pase de listo:** el correo 4 **sí** debe seguir conteniendo sus dos plazos y su canal de coordinación. |
+| **ML-3** ⭐⭐ | **que el texto vinculante deje de salir de un solo cuerpo** | **El candado de `offerTermsCopy`, y mide IDENTIDAD, no parecido.** Para una misma solicitud: se renderiza el correo 1 y se lee el `item.condition` que el portal recibe, y se asierta **igualdad exacta de cadena** (criterio **161(d)**: *«el MISMO string que usó el correo»*), **carácter por carácter, en ES y EN**. **Rojo si el correo maqueta su propia versión de la frase**, aunque diga «lo mismo». ⭐ **Y la mutación que esto existe para cazar es la del rediseño**: acortar la condición «porque no cabía en la línea». *No cabe: cabe igual.* |
+| **ML-4** ⭐ | **que una celda de texto se quede sin fondo** (el correo invisible de Outlook.com) | **Se mide sobre el HTML, no sobre una captura.** Para los ocho: **toda `<td>` que contenga texto visible tiene `bgcolor` Y `background-color` en línea**. **Rojo con una sola celda sin fondo.** *Es el defecto que produce tinta sobre tinta en inversión parcial (§31.8 caso 2), y no se ve nunca desde un cliente en modo claro — por eso tiene que ser un test y no una revisión visual.* |
+| **ML-5** ⭐ | **que el CTA sea la única ruta a la acción** | Para los ocho que tienen CTA: **la URL de destino aparece TAMBIÉN como texto** en el cuerpo (no solo en el `href`), y **aparece igual en la parte de texto plano**. **Rojo si el enlace vive solo dentro del botón** — bajo inversión forzada ese botón puede quedar ilegible (§31.8). |
+| **ML-6** | **que vuelva el `MX$ 0.00`** | Correo 1 con **una carta comprada y una no comprada** ⇒ la línea de `NO COMPRAMOS` **tiene nombre** y **no contiene ninguna cifra de dinero**. **Rojo con `MX$ 0.00`, `MX$0`, `0.00` o `—` con símbolo de moneda.** |
+| **ML-7** | **que la parte de texto plano se convierta en un resumen** | Para el correo 1: la parte `text` contiene **los tres montos**, **la condición por línea**, **el plazo** y **la URL completa**. **Rojo si falta cualquiera de los cuatro.** *Un correo de dinero cuya versión de texto dice menos que el HTML miente a la mitad de los clientes.* |
+| **ML-8** | **que el peso se dispare y Gmail recorte** | Correo 1 con **20 líneas de carta** (el caso realista más pesado) ⇒ **`Buffer.byteLength(html) < 90_000`**, y **el bloque del neto y el CTA aparecen antes del carácter que marca la mitad del documento**. **Rojo por encima de 90 KB o si el CTA cae en la segunda mitad.** |
+| **ML-9** | **que las versalitas dependan de CSS** | Ninguna cadena que se pinte como versalita lleva su valor en minúsculas confiando en `text-transform`: **el valor de la cadena ya está en mayúsculas**. **Rojo si aparece `text-transform:uppercase` en cualquiera de los ocho** (Outlook lo ignora y el eyebrow se lee en minúsculas). **Y el barrido de homoglifos de §28.10 corre también sobre estas cadenas.** |
+| **ML-10** | **que el rediseño rompa el escape de HTML** | Un nombre de vendedor `"><script>alert(1)</script>` ⇒ aparece **escapado** en los ocho. *`escapeHtml` (S15-B1) ya existe y está duplicado (**BE-43**); tocar las ocho plantillas a la vez es exactamente cuando alguien interpola sin escapar.* |
+| **ML-11** | **el idioma** | Los ocho, **en ES y EN**, **vistos renderizados** (§26.8: mirarlo, no `grep`earlo), y **en tres bandejas**: Gmail web con imágenes bloqueadas, Outlook Windows y Gmail app en Android en modo oscuro. **Rojo si en alguna el texto desaparece, la marca desaparece o el CTA no se lee.** |
+
+### 31.15 Estimación honesta, secuenciación y notas a otros roles
+
+**⚠ Primero, el hecho que manda sobre el plan: los ocho correos viven en DOS ficheros de DOS work streams.**
+
+| Fichero | Correos | Work stream (`CLAUDE.md`) |
+|---|---|---|
+| `backend/src/modules/buylist/buylist-mail.templates.ts` | **1–6** | Órdenes y dinero / buylist |
+| `backend/src/modules/mail/mail.templates.ts` | **7–8** | **Cuentas y acceso** |
+
+El `layout()` está **duplicado a propósito** entre los dos: es la deuda **BE-43**, aceptada, y su disparador
+declarado es *«se absorben en `MailService` cuando el stream Cuentas y acceso toque `mail/`»*. **Unificar el
+esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquestador **serializa** la zona
+—dando al stream de buylist propiedad temporal de `mail/mail.templates.ts`— o los correos **7 y 8 esperan**.
+
+**Estimación:**
+
+| Pase | Qué | Quién | Cuánto |
+|---|---|---|---|
+| **0 · ahora, y no depende de nada** | **(a)** el cambio de copy del correo 6 (§31.10) — **una línea, dos idiomas**; **(b)** copiar `apple-icon.png` → `frontend/public/branding/mail-mira-180.png` | backend / **frontend** | **~10 min + ~10 min** |
+| **1 · el pase de verdad** | Esqueleto compartido + los **seis** correos de buylist: marca, pie de tinta, patrones, modo oscuro, parte de texto plano a paridad, y los candados ML-1…ML-10 | **backend** | **~3–4 días** |
+| **2 · cuando la zona esté libre** | Los **dos** de `mail/` sobre el mismo esqueleto (+ absorber BE-43 si el orquestador lo autoriza) | **backend**, stream Cuentas y acceso | **~0.5–1 día** |
+
+- **⭐ Esto es ~95 % backend.** El **frontend hace exactamente una cosa**: copiar un PNG a
+  `public/branding/` con nombre estable. *Lo digo de frente porque el encargo llegó por el lado del diseño y
+  es fácil planificarlo como si fuera trabajo de frontend: no lo es.*
+- **Recomendación: el pase 0 sale YA y solo.** El cambio de copy es de **producto**, tiene su razón escrita
+  (§7.12a) y **no tiene por qué esperar tres días a una maqueta**. Meterlo dentro del rediseño lo convierte en
+  «un detalle del PR grande» y es justo el que hay que poder señalar en la bitácora.
+- **El pase 1 NO se parte más.** El esqueleto y los seis correos **son el mismo trabajo**: hacer el esqueleto
+  sin aplicarlo deja un helper sin usuarios, y hacer los correos de uno en uno multiplica la duplicación que
+  BE-43 ya paga.
+
+**Notas a otros roles:**
+
+| Para | Qué |
+|---|---|
+| **frontend** | Copiar `frontend/src/app/apple-icon.png` → **`frontend/public/branding/mail-mira-180.png`** (mismo binario, nombre estable, servido desde `tcghunt.mx`). ⛔ **Nada más.** No hay componente, no hay ruta, no hay i18n de frontend en este encargo. |
+| **backend** | Las plantillas son suyas. ⚠ **Tres trampas medidas en el código de hoy, y las tres se corrigen de paso**: `max-width:520px` (debe ser **600**), `color:#111` (debe ser **`#1A1A18`**) y **`border-radius:6px` en los CTA** (debe ser **0** — §4.2, y viene siendo falso desde v1.3). Y **`BRAND` está duplicado en cuatro sitios** (deuda **BE-P21-1**): el rediseño lo roza, **no hace falta arreglarlo**, pero conviene no añadir un quinto. |
+| **arquitecto / orquestador** | **Decisión de zonas compartidas, no mía:** los correos 7 y 8 viven en `mail/`, de otro stream (**BE-43**). O se serializa, o el pase 2 espera. **No hay nada que cambiar en el contrato**: ni un campo, ni un endpoint, ni un DTO. |
+| **product-owner** | **(a)** El cambio de `notPursued.p2` (§31.10) es de copy vinculante-adyacente: **lo pidió el dueño y lo ratifico con la norma de §7.12a**, pero **la ratificación formal es tuya**. **(b)** **Pregunta abierta, no bloqueante:** los ocho son **transaccionales** y por eso **no llevan enlace de baja**. El día que el negocio quiera mandar correo **comercial**, eso es **otra familia de plantillas y otro pase** — y ahí sí habrá que resolver baja, preferencias y frecuencia. |
+| **QA** | Los once candados de §31.14 están escritos para poder ponerse rojos. Los tres ⭐⭐ son los del encargo: **ML-1 mide por ablación** (quitar los `<img>` y ver si la marca sigue), **ML-2 extiende un barrido que ya existe** y lo hace sobre **la parte de texto plano**, donde nada se esconde, y **ML-3 asierta igualdad exacta de cadena** contra el portal. ⚠ **ML-11 no se puede automatizar y no se sustituye por un `grep`**: hay que abrir los ocho en **Gmail con imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. |
