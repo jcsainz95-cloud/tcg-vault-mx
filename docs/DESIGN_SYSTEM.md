@@ -4,7 +4,22 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.6** — dos cosas, y la primera **corre prisa**:
+> Estado: **v3.7** — **se desbloquea el frontend en las dos cosas que `ARCHITECTURE §9 · D-UX-1` tenía
+> abiertas contra este documento**. Las dos son **de dinero** y las dos son **encargo directo del dueño**:
+> **(1) §30 — NUEVA: la tarjeta del tipo de cambio (M2), contra `API_CONTRACT §M2-F` v1.63.1.** El
+> interruptor **automático ↔ manual** que conserva el número; ⭐ **las dos tasas lado a lado con el salto en %
+> derivado en la interfaz** (⛔ **sin ellas el interruptor NO es pulsable** — regla del contrato); la rama
+> nueva **`source: "fallback"`**, que corrige una mentira viva (hoy la pantalla escribe *«FUENTE: MANUAL»*
+> sobre un **18 que nadie tecleó**); la frescura `fresh|stale|missing`; los **tres** desenlaces del refresco
+> (**«Tipo de cambio actualizado» pase lo que pase se acaba aquí**); y ⭐⭐ **el diálogo de acuse cuando no hay
+> tasa automática** (`acknowledgeNoAutomaticRate`), escrito para alguien que no programa: qué número regiría,
+> **de dónde sale** y qué le pasa a sus precios. **Trece mutaciones en rojo** en §30.17.
+> **(2) §28.4 — la columna `VALOR DE MERCADO` en la consola de bounties** (contrato `v1.62.2`, ya publicado y
+> funcionando). *«Solo agrégame el precio del mercado»*: sin él, `+87 %` no dice si el bounty es sano.
+> ⛔ **Nunca `MX$0`**, ⛔ **jamás el precio de otro acabado**, **se ramifica por `status` y nunca por la verdad
+> del número**, y **`capturedDate` se dice siempre** — con **0 px de desbordamiento**, presupuesto medido en
+> §28.4c y el colapso de §28.9 intacto.
+> Antes: **v3.6** — dos cosas, y la primera **corre prisa**:
 > **(1) §29 — la línea de comisión del checkout se renombra y su explicación se BORRA y se reescribe.**
 > `Costo de procesamiento` ⇒ **`Comisión de plataforma`** / **`Platform fee`**, y la frase que decía
 > *«cubre la comisión del procesador de pago (Stripe), **trasladada a ti**»* **desaparece**: en superficie de
@@ -2065,7 +2080,7 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | Disputa | `POST /disputes` | Textarea descripción, **DisputeEvidenceContact** (correo `soporte@tcgvault.mx`, §7.11), PipelineStepper — **sin uploader** |
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
 | M1 Inventario | `/admin/inventory/*` | Alta **sin foto** (imagen de catálogo remota); para gradeada captura **`certNumber`**; folio, ubicación CAJA/FILA/SLOT, DataTable |
-| M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, override manual, FX/colchón, rareza→categoría, sync/backfill de sets (super_admin) |
+| M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/fx/mode`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, curva de precio (§21), **consola de bounties (§28)**, **tarjeta de tipo de cambio con interruptor auto/manual (§30)**, colchón, rareza→categoría, sync/backfill de sets (super_admin) |
 | **M2 › Bounties** (v3.4) | `GET /admin/pricing/bounties` (lectura, `super_admin`); escribe en `PUT /admin/pricing/variant-controls/:cardId/:finish` **fila a fila** | `DataTable` agrupada **atención (rebasados + sin precio) → activos → completados → apagados**, con **`counts` de los cinco estados sobre el total**, edición **de una fila a la vez** y confirmación solo cuando **sube** el dinero — **§28** |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
 | M4 Retiros | `/admin/shipments/*` | Cola, picking-list por ubicación, captura de guía, PipelineStepper |
@@ -13691,6 +13706,686 @@ incoherencia interna, no una exposición**: el nombre de la clave **no lo ve nin
 - **⏸️ Revisión legal pendiente.** Este copy está escrito **para afirmar lo mínimo** precisamente porque no hay
   abogado. **Cuando lo haya, esta sección se revisa** — puede que permita decir más, o que exija decir otra
   cosa. Hasta entonces, **§29.3 es la redacción vigente y no se «mejora» por criterio propio**.
+
+---
+
+## 30. M2 › Tipo de cambio — el interruptor, las dos tasas y el número que nadie tecleó (v3.7, `API_CONTRACT §M2-F` v1.63.1)
+
+> **Origen:** encargo directo del dueño, textual: *«quiero conservar el override manual, que sea un toggle
+> para decidir entre automático o manual»*. **No hubo entrega de Claude Design** para esta tarjeta: se
+> construye **desde cero pero sin lenguaje visual nuevo** — se compone entera con componentes, tipografía y
+> **pares de contraste ya verificados** en §10, §17.2 y §28.11, y **hereda literalmente** la disciplina de
+> §28 (el discriminante lo manda el servidor, el color nunca es el canal portador, el caso normal no grita).
+>
+> **Cierra `ARCHITECTURE §9 · D-UX-1` punto 2**, que decía —con razón— que `DESIGN_SYSTEM` solo menciona el
+> FX de pasada (§19.7, §21.7a) y que **el frontend estaba bloqueado**.
+>
+> **⚠⚠ Y hay que decir en voz alta de qué va esto, porque no es una tarjeta de ajustes.** El dueño tiene
+> **19.0000** fijado a mano en producción, pulsó *«Refrescar Banxico»*, la pantalla le dijo **«Tipo de cambio
+> actualizado»** y **no pasó nada**. Las dos causas eran reales: **(a)** el manual gana al automático, y
+> **(b)** ese mensaje salía **aunque el intento hubiera fallado**. Esta sección diseña las dos mitades del
+> arreglo.
+
+### 30.0 La consecuencia que gobierna todo el diseño, y las siete reglas duras
+
+**Mover este interruptor reprecia el catálogo entero, y al instante.** No en el próximo barrido: las
+referencias de mercado en USD se convierten **en cada lectura** con la tasa vigente. Cambiar de modo cambia
+**lo que vendemos y lo que pagamos por comprar** en el siguiente cálculo. **No hay ventana para
+arrepentirse** — y de ahí sale cada decisión de abajo: *todo lo que el humano tiene que entender, tiene que
+entenderlo **antes** de tocar, porque **después** el dinero ya se movió.*
+
+> **Lo que NO se mueve, y se dice para que nadie tema de más:** lo ya **cerrado** —pedidos, ofertas de buylist
+> cotizadas o emitidas, referencias nativas en pesos y los precios que el dueño fijó a mano en MXN— **no se
+> toca**. Solo cambia lo que se **deriva vivo** de un precio en **dólares**. *Esta frase es copy, no una nota:
+> vive en los dos diálogos de §30.8 y §30.9.*
+
+Las reglas se citan **por su nombre**, no por su número (misma disciplina que §28.0):
+
+| Regla | Enunciado |
+|---|---|
+| **R · «Las dos tasas, o no hay interruptor»** *(y es del contrato, no mía)* | `FxStateDTO` trae **siempre** las dos —la manual guardada y la de Banxico vigente— **rija la que rija**. ⛔ **La pantalla NO puede ofrecer el interruptor sin tenerlas delante**: mientras el `GET` no haya resuelto, o si el DTO llega sin alguno de los dos bloques, **el toggle no es pulsable** (§30.4). *No se mueve el tipo de cambio a ciegas.* |
+| **R · «El modo lo dice el servidor»** | Se pinta el `mode` que llegó. ⛔ **No se infiere de que haya una tasa manual guardada** — esa inferencia **era el defecto**: es lo que hacía que «apagar el manual» significara **borrar el número**. Misma doctrina que el `state` de §28.3. |
+| **R · «El manual se conserva, siempre y a la vista»** | Pasar a automático **no borra nada**. El número manual sigue en pantalla, con su cifra completa, **sin marca de que rige**. ⛔ Nunca `—`, nunca la columna vacía, nunca «se perdió». |
+| **R · «El salto se enseña ANTES»** | El % y la diferencia entre las dos tasas están **en la tarjeta, en reposo**, sin abrir nada. *El humano tiene que ver el salto antes, porque después el dinero ya se movió.* |
+| **R · «El fallback no se llama manual»** | El valor de respaldo (**18**) tiene **rama propia, palabra propia y acento**. ⛔ **JAMÁS se pinta `MANUAL`** sobre un número que nadie tecleó. *Hoy eso es exactamente lo que pasa, y es el peor estado posible porque es invisible.* |
+| **R · «Cada acción dice su resultado real»** | El refresco tiene **tres** desenlaces (`updated` · `unchanged` · `failed`) y **cada uno tiene su frase**. ⛔ **«Tipo de cambio actualizado» pase lo que pase se acaba aquí.** Un `200` no es un éxito. |
+| **R · «No existe Deshacer, así que la fricción va delante»** | ⛔ **Ningún toast con `Deshacer` para el cambio de modo.** Volver al modo anterior es **un segundo repreciado**, no una anulación: lo que se cotizó, se vendió o se compró en medio **ya está sellado y no vuelve**. Se ofrece **`Volver a manual` / `Volver a automática`** como acción normal, con su propia confirmación, y **nunca con la palabra «deshacer»**. |
+
+**⚠ Y una divergencia deliberada de §28.0.** Allí *«la fricción va en la dirección del dinero»*: subir el
+gasto confirma, bajarlo no. **Aquí NO hay dirección segura**: la misma tasa mueve a la vez **lo que
+cobramos** y **lo que pagamos**, en sentidos opuestos para el negocio. Bajar la tasa abarata lo que vendemos
+**y** encarece relativamente lo que compramos. ⇒ **Todo cambio de la cifra que rige confirma, en las dos
+direcciones** (§30.9). *No es rigidez: es que no existe la mitad barata de este interruptor.*
+
+### 30.1 Dónde vive, quién entra y qué NO se hace aquí
+
+| | Decisión |
+|---|---|
+| **Módulo y sitio** | **M2 (catálogo y precios)**, en la zona de operaciones, **donde ya vive el bloque de FX** (§19.7, §21.7a: *«entre la cola de precio pendiente / FX / proveedor»*). ⛔ **No es una pantalla nueva**: es **la tarjeta de FX que ya existe, rediseñada**. |
+| **Rol** | **`super_admin` únicamente**, tarjeta entera. Mismo criterio que el editor de curva (§21.1) y que §28.1: *no es «campos deshabilitados»* — es el dial que reprecia los dos lados del negocio. Si la tarjeta llegara a una superficie con `vault_operator`, **el interruptor no se renderiza** (no se deshabilita). |
+| **Componente** | `FxRateCard`. Sin caja, sin sombra, sin radio (§4.2, §4.3): se estructura con **reglas y aire**, como todo el back-office. |
+| **⛔ Lo que NO se hace aquí** | **Editar el colchón.** Se **muestra** (es contexto obligatorio, §30.3) y se dice **dónde se cambia** (Ajustes, `fxBufferPct`). *Diseñar su editor aquí es aditivo y pequeño, pero **no es este encargo**; se anota en §30.18.* |
+| **⛔ Tampoco** | **Historial de tasas, gráfica, cron, correo ni aviso proactivo.** Ni un «programar el cambio». El contrato es explícito: **cero jobs, cero superficies nuevas**. |
+| **⛔ Tampoco** | **Arreglar `D-OPS-1` / P-63.** Falta `BANXICO_SIE_TOKEN` en producción; eso es de **devops + el humano**. Lo que esta tarjeta hace es **decirlo con palabras que el dueño entienda** (§30.7) — *enseñar que la tasa está vieja no la refresca.* |
+
+### 30.2 Anatomía de la tarjeta
+
+```
+┌ M2 › TIPO DE CAMBIO ─────────────────────────────────────────────────────────────────────┐
+│ eyebrow mono   USD → MXN                                                                 │
+│ h2 serif       Tipo de cambio                                                            │
+│ lead text-sm muted (§30.2b)                                                              │
+│ ────────────────────────────────────────────────────────────────────── regla 1px ─────── │
+│                                                                                          │
+│  RIGE AHORA                                                          COLCHÓN   3.0 %     │
+│  19.0000  mono 26px         MXN por USD  text-xs muted                                   │
+│  FUENTE  MANUAL   ← versalita mono 11px                                                  │
+│  ══════════════════════════════════════════════════════════ regla fuerte ═══════════════ │
+│                                                                                          │
+│  ▌ MANUAL                              │   AUTOMÁTICA · BANXICO                          │
+│  ▌ 19.0000                    RIGE     │   18.2431                            AL DÍA     │
+│  ▌ La guardaste tú.                    │   Del 5 sep 2026 · hace 3 días                  │
+│  ▌ [ Cambiar tasa manual ]             │   [ Refrescar desde Banxico ]                   │
+│                          ↑ regla vertical 1px --color-border                             │
+│  ──────────────────────────────────────────────────────────── regla 1px ──────────────── │
+│  SI PASAS A AUTOMÁTICA        −0.7569  ·  −3.98 %                                        │
+│  text-xs muted: cambiaría todo lo que se calcula desde un precio en dólares — lo que      │
+│  vendemos y lo que pagamos por comprar.                                                  │
+│                                                                                          │
+│  QUÉ TASA RIGE     [ ● MANUAL │ ○ AUTOMÁTICA ]   ← radiogroup, 44px de alto              │
+│  text-xs muted: se aplica en la siguiente lectura de precios, no en el próximo barrido.  │
+│                                                                                          │
+│  pie text-xs muted: Solo súper-admin · queda en bitácora                                 │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**(a) Las seis piezas, y por qué están en ese orden.**
+
+| # | Pieza | Por qué ahí |
+|---|---|---|
+| 1 | **`RIGE AHORA` + la cifra grande + `FUENTE`** | Es **la única pregunta que se hace todo el mundo al abrir**: *¿con qué número se están calculando mis precios ahora mismo?* Va arriba, en el tamaño mayor de la tarjeta, y **con su fuente pegada** — porque la cifra sola no basta: 18 puede ser Banxico, puede ser tuyo, y puede ser **un número que nadie tecleó** (§30.5) |
+| 2 | **Las dos tasas lado a lado** | **La precondición del contrato hecha pantalla.** Es lo que el dueño necesita para decidir, y **sin ellas el interruptor de la pieza 5 no es pulsable** |
+| 3 | **El salto** | El derivado que convierte dos números en una decisión (§30.3c) |
+| 4 | **El colchón** | Contexto obligatorio: sin él, alguien creerá que la cifra grande es el multiplicador final (§30.3d) |
+| 5 | **El interruptor** | **Va último a propósito**: se toca **después** de haber leído las dos tasas y el salto, no antes. *El orden de lectura es el orden de la decisión* |
+| 6 | **El pie** | La misma nota que ya usan todas las acciones de dinero saliente del sistema (§7.6) |
+
+**(b) Lead de la tarjeta (microcopy normativo).**
+> ES — «Todo lo que vale en dólares se convierte a pesos con esta tasa. Puedes usar la de Banxico o una tuya;
+> las dos se guardan y cambiar de una a otra no borra ninguna.»
+> EN — “Everything priced in dollars is converted to pesos with this rate. You can use Banxico's or your own;
+> both are kept, and switching between them deletes neither.”
+
+Dice las tres cosas que hay que saber antes de leer una cifra: **para qué sirve la tasa**, **que hay dos** y
+—la que resuelve la queja original— **que elegir una no destruye la otra**.
+
+**(c) El acento se usa con avaricia, y aquí solo en cinco sitios.** `FUENTE SIN RESPALDO REAL` (§30.5),
+`VIEJA` y `NO HAY` (§30.6), el desenlace `NO SE PUDO` del refresco (§30.7) y el **anillo de foco**. **Todo lo
+demás va en tinta o en muted**, incluidos `RIGE` y `AL DÍA`. *Es la regla de §28.3 —«el caso normal no
+grita»— aplicada aquí: si el rojo solo aparece cuando algo no cuadra, el dueño lo ve desde la puerta.*
+
+### 30.3 ⭐ Las dos tasas lado a lado — la pieza que el contrato exige y la que más se puede estropear
+
+**Es norma, no adorno.** `FxStateDTO` trae **siempre** `manual.rate` y `automatic.rate`, **rija la que rija**,
+y en **unidades crudas**. La pantalla las pinta **las dos, completas y con el mismo peso tipográfico**.
+
+**(a) El bloque, columna a columna.**
+
+| | Columna **MANUAL** | Columna **AUTOMÁTICA · BANXICO** |
+|---|---|---|
+| **Rótulo** | eyebrow mono `MANUAL` | eyebrow mono `AUTOMÁTICA · BANXICO` |
+| **Cifra** | `manual.rate` a **4 decimales**, mono 20px `tabular-nums` — o `SIN GUARDAR` si es `null` | `automatic.rate` a **4 decimales**, mono 20px `tabular-nums` — o `NO HAY` si `status: "missing"` |
+| **Segunda línea** | `text-xs muted`: «La guardaste tú.» | `text-xs muted`: `Del {date} · hace {n} días` (de `automatic.effectiveDate` y `automatic.ageDays`) |
+| **Distintivo** | versalita **`RIGE`** + regla izquierda `▌` de 2px **si `manual.applied`** | versalita de frescura (`AL DÍA` / `VIEJA` / `NO HAY`, §30.6) + **`RIGE`** y `▌` **si `automatic.applied`** |
+| **Acción** | `Cambiar tasa manual` (§30.9) | `Refrescar desde Banxico` (§30.7) |
+
+- **⭐ La que NO rige va en tinta plena, igual que la que rige. ⛔ No se atenúa.** Es una decisión, no un
+  descuido: **esa es exactamente la cifra que el dueño tiene que juzgar** para decidir si cambia. Atenuarla
+  la marca como «secundaria» justo cuando es el objeto de la decisión. **Lo único que distingue a la que rige
+  es la versalita `RIGE` y su regla de 2px** — dos canales, ninguno de ellos el color.
+- **`RIGE` y su `▌` van en TINTA, no en acento** (`--color-text` / regla de 2px en `--color-text`). *En este
+  documento el acento significa «esto pide una decisión» (§2.1, §28.3); «esto es lo normal y está mandando»
+  no es una alarma.* El acento queda reservado a las cinco cosas de §30.2c.
+- **⚠⚠ Y hay un estado en el que `RIGE` NO va en NINGUNA de las dos columnas**, y es el que una
+  implementación ingenua rompe: **modo `auto` sin ninguna fila de Banxico**. Ahí `manual.applied === false`
+  **y** `automatic.applied === false` —el contrato lo dice: `automatic.applied ⟺ mode === "auto" ∧ status !==
+  "missing"`— y **quien rige es el valor de respaldo**, que **no es ninguna de las dos columnas**. En ese
+  estado: **ninguna columna lleva `RIGE`**, y la cifra grande de arriba lleva `FUENTE SIN RESPALDO REAL`
+  (§30.5). ⛔ **Rojo si `RIGE` aparece sobre la columna automática.**
+- **⛔ El `applied` se OBEDECE, no se calcula.** Nada de `mode === "manual"` en el navegador para decidir la
+  marca. Los dos booleanos vienen resueltos; se pintan.
+
+**(b) Las unidades: tasa CRUDA, sin colchón, cuatro decimales.**
+- **Cuatro decimales, siempre, en las dos** (`19.0000`, no `19`). El override se guarda a esa precisión y
+  **recortar decimales en una comparación de dinero inventa una igualdad que no existe.**
+- **⛔ El colchón NO se aplica a ninguna de las dos, ni al salto.** Se aplica **aguas abajo** y es **el mismo
+  en las dos ramas**: pintar una con colchón y otra sin él **inventaría un salto que no existe**.
+- **⛔⛔ Y la tarjeta NO calcula ninguna «tasa efectiva»** (`tasa × (1 + colchón)` = `19.57`, ni nada
+  parecido). Sería **un tercer número emitido por la pantalla** que puede discrepar de lo que el motor de
+  precios calcula de verdad. **Prohibido en cualquier superficie de esta tarjeta**, incluidos los diálogos y
+  los `aria-label`.
+
+**(c) ⭐ El salto — lo deriva la interfaz, y NO es un campo del contrato.**
+
+> **Por qué no es campo, y esto es del arquitecto, no mío:** un tercer número emitido por el servidor
+> **podría discrepar de la resta que el humano tiene delante**. Es más honesto que lo componga la misma
+> pantalla que pinta los dos operandos.
+
+**Fórmula normativa, una sola implementación:**
+
+```
+vigente = FxStateDTO.rate                 // la que rige AHORA
+destino = la tasa que regiría tras el cambio de modo
+delta   = destino − vigente               // 4 decimales, signo con U+2212
+pct     = (destino − vigente) / vigente × 100   // 2 decimales, signo con U+2212
+```
+
+- **Rótulo:** `SI PASAS A AUTOMÁTICA` / `SI PASAS A MANUAL` — **siempre nombra el modo de destino**, nunca
+  «si cambias».
+- **Formato:** `−0.7569 · −3.98 %`. El **signo menos es U+2212** (ya declarado en la lista blanca de §28.10)
+  y va con `tabular-nums`. El `+` es el ASCII normal.
+- **⛔ Cero decimales de más y cero de menos:** la diferencia a **4**, el porcentaje a **2**. Redondear el
+  porcentaje a 0 decimales hace que un salto real se lea `−4 %` en dos escenarios distintos.
+- **⛔ Si `destino` no existe, NO se calcula ningún salto.** Con `automatic.status: "missing"`, o con
+  `manual.rate: null`, la línea **no es un número**: es la frase que explica por qué no lo hay y qué pasaría
+  (§30.8). **⛔ Prohibido calcular el salto contra el valor de respaldo en la tarjeta en reposo** — ese
+  número solo aparece **dentro del diálogo de acuse**, donde va **nombrado como lo que es**.
+- **Un salto de `0.00 %`** (las dos tasas idénticas) **se dice tal cual**: «No se movería nada.» ⛔ No se
+  esconde la línea.
+
+**(d) El colchón, como contexto y no como control.** Arriba a la derecha, `COLCHÓN 3.0 %`, mono, muted, **de
+solo lectura**, con esta ayuda: ES «Se aplica **igual con las dos tasas**, así que no cambia el salto de
+abajo. Se edita en Ajustes.» · EN “It applies **the same with either rate**, so it doesn't change the jump
+below. Edit it in Settings.” ⛔ **Sin campo, sin botón de guardar** en esta tarjeta (§30.1).
+
+### 30.4 El interruptor — y las cuatro veces que NO es pulsable
+
+**Forma:** un **radiogroup** de dos opciones, `MANUAL` / `AUTOMÁTICA`, alto 44px, ancho por contenido con
+`min-width` para el ES (§9.4). ⛔ **No es un `Switch`** (§6.4): un `Switch` dice «encendido/apagado» y aquí
+**no hay una opción apagada** — hay dos tasas y una manda. *El nombre del control lo dice: `QUÉ TASA RIGE`.*
+
+**⛔⛔ NO ES PULSABLE en estos cuatro casos, y el primero es la regla del contrato:**
+
+| Caso | Qué se pinta | Por qué |
+|---|---|---|
+| **1. El `GET` no ha resuelto** | radiogroup `disabled` + `aria-busy` + línea muted `fx.toggle.loadingReason` | **Regla de cliente del contrato**: sin las dos tasas en la mano, no se ofrece el interruptor |
+| **2. El `GET` falló** | radiogroup `disabled` + `Banner danger` + `Reintentar` (§30.11) | Sin estado no hay decisión que tomar |
+| **3. ⚠ El DTO llegó SIN `manual` o SIN `automatic`** *(defensivo; contrato violado)* | radiogroup `disabled` + línea **en acento** con `fx.toggle.blockedReason` | *Una precondición que se desactiva sola cuando falta el dato no es una precondición.* **La pantalla no se hace la valiente**: dice que no puede ofrecer el cambio |
+| **4. `manual.rate === null`** (no hay tasa manual guardada) | ⚠ **solo el segmento `MANUAL`** queda `disabled`, con `fx.toggle.noManualReason` **y la palanca `Guardar una tasa manual`** | Evita el viaje al `422 FX_MANUAL_RATE_MISSING`. *La pantalla no ofrece un camino que sabe que termina en error* |
+
+- **⛔ Nunca «optimista».** El radiogroup **jamás** se renderiza habilitado con un esqueleto al lado, ni
+  «mientras llega el dato».
+- **⛔ Ninguno de estos deshabilitados es mudo.** Cada uno lleva **su frase visible en `text-xs`**, no solo un
+  gris. *Un control apagado sin motivo se lee como una avería y produce un tique.*
+- **⭐ La selección visual NO se mueve hasta que el servidor confirma.** Al pulsar el otro segmento se abre el
+  diálogo (§30.8 o §30.9) y **`aria-checked` sigue en el modo actual**. Si el humano cancela, **nada se
+  movió y no salió ninguna petición**. Si confirma, la selección se mueve **cuando llega el `200`**, con la
+  cifra de arriba repintada del `FxStateDTO` de la respuesta. ⛔ **Nada de pintar el nuevo estado y corregir
+  después.**
+- **Pulsar el segmento ya activo no hace nada** (ni petición, ni diálogo): no hay acto que confirmar.
+- **`aria-describedby`** del grupo apunta a la línea de consecuencia (`fx.toggle.consequence`), para que
+  quien navega con lector **oiga que esto reprecia** antes de elegir.
+
+### 30.5 La fuente — cuatro ramas, y una de ellas corrige una mentira viva
+
+**`source` se pinta como versalita mono pegada a la cifra grande. Es un MAPA, no una derivación** (misma
+disciplina que §28.3):
+
+| `source` | Versalita **ES / EN** | Tinta | Segunda línea |
+|---|---|---|---|
+| `manual` | `MANUAL` / `MANUAL` | **tinta** | «La guardaste tú. Rige hasta que pases a automática.» |
+| `banxico` | `BANXICO` / `BANXICO` | **tinta** | «Publicada por Banxico, del {date}.» |
+| **`fallback`** | **`SIN RESPALDO REAL`** / **`NO REAL SOURCE`** | **⚠ acento** | **la frase larga de abajo**, + **dos palancas** |
+| *(desconocido)* | el valor **crudo**, en muted | muted | «Esta pantalla no reconoce esta fuente. No se puede afirmar de dónde sale la tasa.» — **fallback neutro de §28.3**: ⛔ nunca se cae a `MANUAL` |
+
+**⛔⛔ `fallback` NUNCA se pinta como `MANUAL`, y ésta es la razón por la que la rama existe.** Hoy, sin fila
+de Banxico y sin tasa manual, el sistema usa una **constante escondida de 18** y **la reporta como si fuera
+la tasa del dueño**: la pantalla escribe *«FUENTE: MANUAL (OVERRIDE)»* **sobre un 18 que nadie tecleó**. *Es
+el peor estado posible del sistema y hoy es completamente invisible.*
+
+**El copy de la rama `fallback` (normativo, escrito para alguien que no programa):**
+> ES — «Este número **no lo tecleó nadie y no viene de Banxico**: es un valor fijo que el sistema trae escrito
+> para no quedarse sin tipo de cambio. **Todos los precios que salen de un precio en dólares se están
+> calculando con él ahora mismo.**»
+> EN — “**Nobody typed this number and it doesn't come from Banxico**: it's a fixed value the system carries
+> so it's never left without an exchange rate. **Every price derived from a dollar price is being worked out
+> with it right now.**”
+
+Y **dos palancas, en este orden**: `Refrescar desde Banxico` (la que puede arreglarlo de verdad) y `Guardar
+una tasa manual`. ⛔ **Sin botón «Entendido»**: no es un aviso que se descarta, es un estado que se arregla.
+
+**⚠ `modeResolvedFrom: "legacy"` — se dice, y se dice en muted.** Bajo el interruptor, versalita
+`MODO HEREDADO` + una frase: ES «Nadie ha tocado este interruptor en este entorno todavía, así que el modo se
+está deduciendo del valor guardado, como antes. En cuanto lo muevas una vez, deja de deducirse.» ⛔ **No es
+acento, no es `role="alert"`**: en un entorno recién desplegado es **el estado normal**. Pero **se dice
+siempre**, porque es la **única traza visible** de que el modo no está fijado por nadie — el contrato la
+declara como el remedio observable a un riesgo residual aceptado, y **una traza que la pantalla no pinta no
+es una traza**. Desaparece sola en cuanto `modeResolvedFrom` pase a `"setting"`.
+
+### 30.6 Frescura de la automática — `fresh` · `stale` · `missing`
+
+**La deriva el SERVIDOR. La pantalla la obedece.** Misma doctrina que el `state` de §28.3 y el `priceBasis`
+de §21.8.
+
+| `automatic.status` | Versalita **ES / EN** | Tinta | Segunda línea | Palanca |
+|---|---|---|---|---|
+| `fresh` | `AL DÍA` / `UP TO DATE` | **tinta** | `Del {date} · hace {n} días` | — |
+| `stale` | **`VIEJA`** / **`STALE`** | **acento** | `Del {date} · hace {n} días.` + «Banxico publica en días hábiles; ésta lleva más tiempo del normal sin actualizarse.» | `Refrescar desde Banxico` |
+| `missing` | **`NO HAY`** / **`NONE`** | **acento** | «Nunca ha llegado una tasa de Banxico a este sistema.» | `Refrescar desde Banxico` |
+
+- **⛔⛔ El umbral NO se calcula en el cliente.** Nada de `ageDays > 5`. **Se pinta `status`.** *Si algún día
+  el umbral se vuelve un dial configurable, una pantalla que lo tenga cableado empieza a mentir el mismo día
+  y nadie lo nota.*
+- **⛔ Y el número del umbral NO se escribe en ninguna cadena.** Por eso el copy de `stale` dice *«más tiempo
+  del normal»* y **no «más de 5 días»**: hoy son 5, es **constante de código**, y el contrato ya contempla
+  promoverlo a dial. *Una cadena que hornea una constante ajena caduca en silencio.*
+- **`ageDays` viene del servidor y se pinta con plural ICU** (`hace 1 día` / `hace 3 días`). ⛔ No se calcula
+  restando fechas en el navegador.
+- **`AL DÍA` va en TINTA, no en verde**, y es la misma decisión que §28.3: el verde del sistema está en
+  **4.4:1**, en el borde de AA, y aquí iría en mono de 11px **en una pantalla de dinero**. Además, *el caso
+  normal no grita*.
+- **⚠ `stale` NO bloquea nada.** No deshabilita el interruptor, no oculta precios y no despublica la vitrina.
+  *Ocultar dinero que sí tenemos no es money-safe; declararlo sí.* Con `stale` **hay un número real que el
+  humano puede ver y juzgar**, y eso es todo lo que hace falta.
+
+### 30.7 El refresco — tres desenlaces, y aquí se acaba «Tipo de cambio actualizado»
+
+`POST /admin/fx/refresh` devuelve **`200` incluso cuando el fetch falló** —y es deliberado: la llamada
+completó y el estado devuelto es verdadero; lo que falló es la fuente externa—. **La pantalla está OBLIGADA a
+distinguirlo.**
+
+| `refresh.outcome` | Dónde se dice | Copy |
+|---|---|---|
+| `updated` | **toast** `role="status"` + la tarjeta se repinta con el `FxStateDTO` de la respuesta | ES «Banxico devolvió **{rate}**. Es distinta de la que teníamos, así que se guardó.» **Y si `mode === "manual"`, una segunda frase**: «Sigue rigiendo tu tasa manual (**{manual}**); esto solo actualiza la de comparación.» |
+| `unchanged` | **toast** `role="status"` | ES «Banxico devolvió **{rate}**, la misma que ya teníamos. **No cambió nada, y no es un fallo.**» |
+| **`failed`** | ⛔ **NO es un toast: es un `Banner danger` PERSISTENTE dentro de la tarjeta**, `role="alert"`, con `Reintentar` | ES «**No se pudo traer la tasa de Banxico.** Sigue rigiendo **{rate}** ({fuente}).» + **el motivo**, abajo |
+
+**Los cuatro motivos (`refresh.reason`), traducidos a lo que el dueño puede hacer:**
+
+| `reason` | ES |
+|---|---|
+| `no_token` | «Al servidor le falta la credencial de Banxico. **Esto no se arregla desde aquí**: díselo a quien opera el sistema.» ⚠ *Éste es el caso real de producción hoy (**P-63 / `D-OPS-1`**)* |
+| `http_error` | «Banxico contestó con un error. Suele ser temporal: vuelve a intentarlo en unos minutos.» |
+| `invalid_payload` | «Banxico contestó algo que no se pudo leer como una tasa. **No se guardó nada.**» |
+| `network_error` | «No se pudo llegar a Banxico. Revisa la conexión del servidor y reintenta.» |
+| *(motivo desconocido)* | «No se pudo traer la tasa y el sistema no dijo por qué.» — **fallback neutro; ⛔ nunca se cae al copy de éxito** |
+
+- **⛔⛔ PROHIBIDO cualquier mensaje de éxito antes de leer `refresh.outcome`.** Ni «Tipo de cambio
+  actualizado», ni «Listo», ni un check verde. **Un `200` no es un éxito**, y ese mensaje fue **la mitad
+  exacta de la queja del dueño**.
+- **`failed` lleva `role="alert"`, y es una divergencia consciente de §28.10** (donde nada lo lleva). Allí
+  `REBASADO` es un **estado del mercado**; aquí es **el resultado inmediato de un botón que el humano acaba
+  de pulsar** y que **no hizo lo que decía**. *Precisamente el defecto que se está cerrando es que este fallo
+  pasara desapercibido.*
+- **El botón `Refrescar desde Banxico` se ofrece en los dos modos, y en `manual` NO es inútil**: escribe la
+  fila que alimenta `automatic.rate`, es decir **mantiene fresca la cifra contra la que el dueño va a
+  comparar** antes de mover el interruptor. Su ayuda lo dice: ES «Trae la tasa de Banxico. **No cambia cuál
+  rige**; con el interruptor en manual, solo actualiza la de al lado.»
+- **Estado del botón:** `loading` con rótulo persistente (§8.3), doble envío bloqueado. ⛔ **No deshabilita el
+  interruptor mientras corre**: son dos acciones independientes.
+
+### 30.8 ⭐⭐ El acuse cuando NO hay tasa automática — el diálogo que más importa de esta sección
+
+**Cuándo, exactamente:** el humano mueve el interruptor a **AUTOMÁTICA** y `automatic.status === "missing"`.
+El contrato exige entonces `acknowledgeNoAutomaticRate: true`; sin él, **`422 FX_NO_AUTOMATIC_RATE`** y el
+modo **no cambia**.
+
+**⚠⚠ Y la razón de que este diálogo exista, dicha sin rodeos:** pasar a automática sin fila de Banxico lleva
+de **19.0 a 18** ⇒ **≈5 % instantáneo sobre todo el catálogo, en los dos sentidos**. Y ese 18 **ni siquiera
+es una tasa real**: es una **constante escondida**. *Una precondición que se desactiva sola justo en su único
+caso grave no es una precondición.*
+
+**⛔ Y solo aquí. NUNCA con `stale`.** Con una tasa vieja **hay un número real que el humano puede ver y
+juzgar**, que es exactamente lo que aquí falta. Con `stale` se abre el diálogo **normal** de §30.9.
+
+**Forma:** `Modal` de confirmación de dinero (§7.6) — centrado en escritorio, **bottom sheet** en móvil, radio
+0, foco atrapado, `Esc` cierra sin hacer nada. ⛔ **No es un `confirm()` del navegador**, ⛔ **no es un toast**,
+⛔ **no es una casilla dentro de la tarjeta.**
+
+**El cuerpo: cinco párrafos cortos, uno por pregunta, en este orden. El humano no es programador y aquí no
+aparece ningún código de error.**
+
+| # | Contesta | ES (normativo) |
+|---|---|---|
+| — | *(título)* | **«No hay ninguna tasa de Banxico»** |
+| 1 | ¿Qué rige ahora? | «Ahora mismo rige tu tasa manual: **{current} pesos por dólar**.» |
+| 2 | ¿Qué regiría? | «Si pasas a automática, regirían **{fallback} pesos por dólar**.» |
+| 3 | ¿De dónde sale ese número? | «Y ése **no lo tecleó nadie y no viene de Banxico**: es un valor fijo que el sistema trae escrito para no quedarse sin tipo de cambio. **A este sistema nunca ha llegado una tasa de Banxico.**» |
+| 4 | ¿Qué le pasa a mis precios? | «Todo lo que se calcula desde un precio en dólares cambia **{signedPct}** en cuanto guardes: **lo que vendemos y lo que pagamos por comprar**. Y no es en el próximo barrido — es **la siguiente vez que alguien mire un precio**.» |
+| 5 | ¿Qué NO se mueve? | «Lo que ya está cerrado no se toca: pedidos, ofertas de compra ya enviadas y los precios que fijaste a mano en pesos.» |
+
+**Las acciones, en este orden y con estos pesos** *(la salida de verdad va primero, y no es cortesía: es la
+única acción del diálogo que puede dejar al sistema mejor)*:
+
+1. **`Refrescar desde Banxico`** — botón `secondary`. Si trae tasa, **el diálogo se cierra solo**, la tarjeta
+   se repinta con la tasa nueva **y ya no hace falta ningún acuse**: el humano vuelve a decidir con dos
+   números reales delante. *Es la puerta que convierte este diálogo en innecesario, y por eso va primero.*
+2. **`Cancelar`** — `ghost`. Nada se movió.
+3. **`Sí, pasar a {fallback}`** — botón **primario**, con **el número en el rótulo** (precedente vivo:
+   `confirm.cta` de §28.12, *«Sí, pagar {amount}»*). Dispara el `PUT` **con `acknowledgeNoAutomaticRate: true`**.
+
+- **Pie del diálogo:** «Solo súper-admin · queda en bitácora» (cadena ya existente, §7.6, §28.12a).
+- **⛔ Sin casilla «no volver a preguntar».** El acuse es **por acto**, no por sesión.
+- **⛔ El `{fallback}` sale de `details.fallbackRate` del `422`, o del contexto conocido — pero NUNCA se
+  escribe `18` a mano en una cadena.** Va interpolado. *Una constante horneada en el copy es una cifra de
+  dinero que deja de ser cierta sin que nadie se entere.*
+- **⛔ La palabra «error», el código `FX_NO_AUTOMATIC_RATE` y el número `422` no aparecen** en ninguna parte
+  visible. El copy de `error.FX_NO_AUTOMATIC_RATE` **existe igualmente** (§30.10) para la carrera real —que
+  la fila de Banxico desaparezca entre el `GET` y el `PUT`— y **dice lo mismo, en una línea**.
+- **Foco:** al abrir, el foco va al **título**; al cerrar por cualquier vía, **vuelve al segmento del
+  interruptor** que lo abrió.
+
+### 30.9 El diálogo normal, y el aviso de «guardada, todavía no rige»
+
+**(a) Cambio de modo con las dos tasas en la mano.** Se abre siempre, **en las dos direcciones** (§30.0):
+
+- **Título:** «Vas a cambiar el tipo de cambio que rige»
+- **Cuerpo:** «Antes **{before}** ({sourceBefore}) · ahora **{after}** ({sourceAfter}).» + «Todo lo que se
+  calcula desde un precio en dólares cambia **{signedPct}**: lo que vendemos y lo que pagamos por comprar.» +
+  «Se aplica **en la siguiente lectura de precios**, no en el próximo barrido.» + la frase de lo que **no** se
+  mueve (§30.0).
+- **CTA:** **`Sí, pasar a {after}`** · `Cancelar`.
+- **Con `stale`,** el cuerpo gana una línea: «La tasa de Banxico es del **{date}** y lleva **{n} días** sin
+  actualizarse.» **⛔ Y aun así el CTA es el normal**: hay número real, no hace falta acuse.
+
+**(b) Después de guardar: ⛔ NADA de `Deshacer`.** La tarjeta muestra una línea `role="status"`:
+> ES — «Ahora rige **{rate}** ({source}). Puedes volver a **{modoAnterior}** cuando quieras: el otro número
+> sigue guardado.»
+
+**Es deliberadamente distinto de un `Deshacer`** (§28.6 sí lo usa para apagar un bounty). Volver **no anula**
+el repreciado: es **un segundo repreciado**, y lo que se cotizó o se vendió mientras tanto **ya está sellado**.
+*Llamarlo «deshacer» sería la mentira más cara de esta tarjeta.* Y **no es un toast de 5 segundos**: vive en
+la tarjeta hasta la siguiente acción.
+
+**(c) `Cambiar tasa manual` — y aquí la fricción SÍ es asimétrica, porque el efecto lo es.**
+En reposo **la tarjeta no tiene formularios** (regla heredada de §28.0). Se entra a editar por un acto
+explícito, y aparece **un campo inline** (no un modal): `Tasa manual (pesos por dólar)`, `inputmode="decimal"`,
+**4 decimales**, cuerpo ≥16px, con la ayuda `Se guarda siempre. Solo rige si el interruptor está en manual.`
+
+| Modo al guardar | ¿Diálogo? | Qué se dice |
+|---|---|---|
+| **`manual`** (el número **rige**) | **Sí**, el de (a) con los dos importes | Mueve el catálogo exactamente igual que el interruptor |
+| **`auto`** (el número **no rige**) | **No** | ⭐ Línea `role="status"`: ES «**Guardada. Todavía no rige**: seguimos en automática (**{rate}** de Banxico). Regirá en cuanto pases a manual.» |
+
+- **⭐ Ese aviso es obligatorio y no es opcional de estilo.** Sin él, **guardar una tasa en modo automático
+  parece que no guardó nada** —la cifra grande no se mueve— y el dueño la vuelve a teclear, o peor: cree que
+  el sistema la ignoró. *Es la copia que el arquitecto pidió por su nombre (`Q-F3`).*
+- **La columna `MANUAL` se repinta con el número nuevo al instante, y SIN la marca `RIGE`.** Los dos hechos
+  a la vez —está guardado, no manda— son la mitad visual del mismo mensaje.
+- **⛔ Y aquí tampoco: nunca «Tipo de cambio actualizado».** No se actualizó ningún tipo de cambio vigente.
+- **⛔ El campo no se prellena con la tasa de Banxico** ni con «Banxico + algo». La tasa manual es **siempre
+  explícita** (misma regla que el precio de un bounty, §28.13.13). Se prellena con **el valor manual guardado**
+  si lo hay, y **vacío** si no.
+
+### 30.10 Los errores del contrato, traducidos
+
+**Tres códigos, y ninguno se enseña crudo** (§8.1, §26):
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.FX_MANUAL_RATE_MISSING` | `No hay ninguna tasa manual guardada a la que volver. Guarda una primero y luego pasa el interruptor a manual. No se cambió nada.` | `There's no saved manual rate to go back to. Save one first, then flip the switch to manual. Nothing was changed.` |
+| `error.FX_MANUAL_RATE_REQUIRED` | `Para quitar la tasa manual, pasa primero a automática: ahora mismo es la que rige, y borrarla dejaría al sistema sin tipo de cambio propio. No se guardó nada.` | `To remove the manual rate, switch to automatic first: it's the one in force right now, and deleting it would leave the system with no rate of its own. Nothing was saved.` |
+| `error.FX_NO_AUTOMATIC_RATE` | `No hay ninguna tasa de Banxico, así que pasar a automática dejaría rigiendo un valor fijo de respaldo ({fallbackRate}) que nadie tecleó. Confírmalo desde el aviso, o refresca primero. No se cambió nada.` | `There's no Banxico rate, so switching to automatic would leave a fixed fallback value ({fallbackRate}) in force that nobody typed. Confirm it from the notice, or refresh first. Nothing was changed.` |
+
+- **Las tres cumplen las reglas duras de §26:** hablan al lector, **nombran la palanca** y **dicen lo que no
+  pasó** («No se cambió nada» / «No se guardó nada»).
+- **`FX_NO_AUTOMATIC_RATE` existe aunque §30.8 lo evite**, y no es redundancia: es la **carrera real** (la
+  fila de Banxico desaparece entre el `GET` y el `PUT`). *Diseñar solo el camino feliz de una precondición de
+  dinero es dejarla sin la mitad que importa.*
+- **Se pintan `inline` en la tarjeta, no en toast** (§7.5: *«no usar toast para errores de dinero»*).
+
+### 30.11 Estados de carga, vacío y error (obligatorios, §8.1)
+
+| Estado | Qué se pinta |
+|---|---|
+| **Cargando** | Esqueleto que respeta el layout: cifra grande como **`—`**, las dos columnas con barras. ⛔ **Nunca `0.0000`, nunca `18`, nunca la tasa de la última visita.** Interruptor `disabled` + `aria-busy` (§30.4 caso 1) |
+| **Error de carga** | `Banner danger` + `Reintentar`. **⛔ La tarjeta NO pinta ninguna cifra**: media tarjeta de tipo de cambio es peor que ninguna, porque **parece autoritativa**. ⛔ Y no se cae a un valor cacheado |
+| **DTO incompleto** *(sin `manual` o sin `automatic`)* | La cifra grande **sí** se pinta (`rate` y `source` son verdad), pero **el interruptor queda bloqueado** con su motivo en acento (§30.4 caso 3) |
+| **Refresco fallido** | `Banner danger` persistente **dentro** de la tarjeta, con motivo y `Reintentar` (§30.7). **El resto de la tarjeta sigue funcionando**: el estado devuelto es válido |
+| **Guardando (modo o tasa)** | Botón del diálogo en `loading` con rótulo persistente, doble envío bloqueado (§8.3). **La cifra grande no se toca hasta el `200`** |
+| **Vacío** | **No existe**: siempre hay una tasa rigiendo. Lo más parecido es `fallback` (§30.5), que **no es un vacío: es un estado que hay que arreglar** |
+
+### 30.12 Móvil (390px)
+
+El dueño **no usa este panel desde el teléfono** (contestado), pero la tarjeta cumple el sistema:
+
+- Las dos columnas **se apilan**, separadas por una **regla horizontal 1px**, en **orden fijo: MANUAL, luego
+  AUTOMÁTICA** — el mismo orden que los segmentos del interruptor. ⛔ **La que rige NO se sube arriba**: si la
+  posición cambiara según el modo, se convertiría en un quinto canal que contradice a los otros.
+- La línea del salto y la de consecuencia **envuelven**; la cifra grande baja a mono 22px.
+- El interruptor ocupa **el ancho completo**, 44px de alto, con los dos segmentos del mismo ancho.
+- Los diálogos de §30.8 y §30.9 son **bottom sheets** (§7.6); en el de acuse, **los cinco párrafos no se
+  recortan ni se meten en un acordeón** — es el único contenido de esa hoja.
+- El campo de tasa manual: cuerpo **≥16px** (evita el zoom de iOS), `inputmode="decimal"`.
+
+### 30.13 Accesibilidad (además de §8.2)
+
+- **La cifra grande no es solo una cifra.** Lleva `aria-label` con la frase entera (`current.aria`): *«Rige
+  ahora 19.0000 pesos por dólar, fuente manual.»* Una cifra suelta se oye sin contexto.
+- **Las dos tasas van en una `<dl>`**: `<dt>` con el rótulo (`MANUAL`, `AUTOMÁTICA · BANXICO`) y `<dd>` con la
+  cifra y su estado. Así la pareja **existe para el lector**, no solo para el ojo.
+- **El interruptor es `role="radiogroup"`** con `aria-label` = `toggle.label`, dos `role="radio"` con
+  `aria-checked`, `aria-describedby` → la línea de consecuencia. **`aria-checked` no se mueve hasta el `200`**
+  (§30.4).
+- **Deshabilitado con motivo audible:** cuando el grupo va `disabled`, su `aria-describedby` apunta **a la
+  frase del motivo**, no a un genérico. *Un control apagado y mudo es inaccesible aunque el atributo esté bien.*
+- **Anuncios:** `role="status"` (polite) para `updated`, `unchanged`, el cambio de modo y el «guardada, no
+  rige». **`role="alert"` solo para el refresco `failed`** y para los errores del §30.10 (§30.7).
+- **El color nunca es el canal portador.** `RIGE` es **palabra + regla de 2px**; la frescura es **palabra +
+  frase con fecha**; la fuente es **palabra + explicación**. Con la hoja de estilo apagada, la tarjeta **sigue
+  diciendo lo mismo**.
+- **Foco:** los diálogos atrapan el foco y lo devuelven al control que los abrió. `Esc` cierra **sin
+  ejecutar**.
+- **⚠ La lección del homoglifo (§28.10) aplica igual**, y aquí **con más motivo**: las versalitas
+  (`MANUAL`, `BANXICO`, `SIN RESPALDO REAL`, `VIEJA`, `NO HAY`, `RIGE`) **son el portador de accesibilidad**.
+  **(1)** Ningún test teclea la cadena: se compara contra **la clave** del catálogo. **(2)** Los catálogos se
+  barren buscando no-ASCII fuera del juego permitido. **⚠ Se AÑADE `→` (U+2192)** al juego declarado —lo usa
+  el eyebrow `USD → MXN`—, con la misma razón por la que se declararon `−` y `≥`: *un carácter «raro» que
+  nadie declaró es el que después nadie distingue de su gemelo*. Juego vigente:
+  `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ≥ ● →`.
+- **La tarjeta no anima nada**, así que con `prefers-reduced-motion` no hay nada que apagar.
+
+### 30.14 Contraste — **cero pares nuevos**
+
+Toda §30 se compone con pares ya verificados en §10 y §17.2:
+
+| Par usado en §30 | Ratio | Veredicto |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifra grande, las dos tasas, `RIGE`, `AL DÍA`, `MANUAL`, `BANXICO`) | ~15.5:1 | AA/AAA |
+| Muted `#6E695E` sobre papel (rótulos, fechas, ayudas, `MODO HEREDADO`, colchón) | ~4.8:1 | AA |
+| Rojo `#B31217` sobre papel (`SIN RESPALDO REAL`, `VIEJA`, `NO HAY`, `NO SE PUDO`, motivo bloqueante del toggle) | 6.2:1 | AA |
+| Papel `#F4F1EA` sobre tinta (CTA primario de los dos diálogos) | ~15.5:1 | AA/AAA |
+| Regla 1px/2px `--color-border` · `--color-border-strong` · marca `RIGE` en tinta | UI ≥ 3:1 | ok |
+| Anillo de foco `#B31217` sobre papel | 6.2:1 | AA (≥3:1 UI) |
+| Segmento activo del radiogroup: papel sobre tinta | ~15.5:1 | AA/AAA |
+| Overlay de los diálogos `rgba(26,26,24,.5)` (§7.6) | — | ya normado |
+
+- **Ninguna superficie tintada nueva.** Los `*-bg` semánticos siguen `transparent` (§2.1, §2.3): el `Banner
+  danger` del refresco fallido es **texto rojo + regla**, no una caja roja.
+- **El verde de éxito NO aparece en esta tarjeta**, igual que en §28: es el único par del sistema en el borde
+  de AA (4.4:1) y aquí habría ido en mono de 11px, en una superficie de dinero.
+- **`stale` y `missing` comparten el mismo rojo que `fallback`** — a propósito, y por la misma razón que
+  `REBASADO` y `SIN PRECIO` comparten tinta en §28.11: **la distinción va por palabra y por frase**, que son
+  canales sin color y sin coste de contraste. Un segundo rojo obligaría al ojo a aprender dos rojos que
+  significan casi lo mismo.
+
+### 30.15 i18n — cadenas ES/EN (propiedad de frontend; copiar sin interpretar)
+
+**Namespace nuevo: `admin.m2.fx.*`.** ⚠ Las cifras entre llaves **ya vienen formateadas** (§9.3): el copy
+**no concatena moneda, ni signos, ni unidades**. **Convención de claves de §28.12: la clave se llama como el
+valor del contrato; el texto se escribe para el humano** (`source.fallback` → `SIN RESPALDO REAL`).
+
+**(a) Claves REUTILIZADAS — no se crean ni se reescriben:**
+
+| Clave existente | Dónde |
+|---|---|
+| `common.retry` · `common.cancel` · `common.save` | banners, diálogos, editor de tasa |
+| *«Solo súper-admin · queda en bitácora»* (§7.6) | pie de la tarjeta y de los dos diálogos |
+
+**(b) Cadenas NUEVAS:**
+
+| Clave (`admin.m2.fx.` + …) | ES | EN |
+|---|---|---|
+| `eyebrow` | `USD → MXN` | `USD → MXN` |
+| `title` | `Tipo de cambio` | `Exchange rate` |
+| `lead` | `Todo lo que vale en dólares se convierte a pesos con esta tasa. Puedes usar la de Banxico o una tuya; las dos se guardan y cambiar de una a otra no borra ninguna.` | `Everything priced in dollars is converted to pesos with this rate. You can use Banxico's or your own; both are kept, and switching between them deletes neither.` |
+| `current.label` | `RIGE AHORA` | `IN FORCE NOW` |
+| `current.unit` | `MXN por USD` | `MXN per USD` |
+| `current.aria` | `Rige ahora {rate} pesos por dólar, fuente {source}.` | `In force now: {rate} pesos per dollar, source {source}.` |
+| `source.label` | `FUENTE` | `SOURCE` |
+| `source.manual` | `MANUAL` | `MANUAL` |
+| `source.manualBody` | `La guardaste tú. Rige hasta que pases a automática.` | `You saved it. It stays in force until you switch to automatic.` |
+| `source.banxico` | `BANXICO` | `BANXICO` |
+| `source.banxicoBody` | `Publicada por Banxico, del {date}.` | `Published by Banxico, from {date}.` |
+| **`source.fallback`** | **`SIN RESPALDO REAL`** | **`NO REAL SOURCE`** |
+| **`source.fallbackBody`** | **`Este número no lo tecleó nadie y no viene de Banxico: es un valor fijo que el sistema trae escrito para no quedarse sin tipo de cambio. Todos los precios que salen de un precio en dólares se están calculando con él ahora mismo.`** | **`Nobody typed this number and it doesn't come from Banxico: it's a fixed value the system carries so it's never left without an exchange rate. Every price derived from a dollar price is being worked out with it right now.`** |
+| `source.unknown` *(fallback neutro)* | `FUENTE NO RECONOCIDA` | `UNRECOGNISED SOURCE` |
+| `source.unknownBody` | `Esta pantalla no reconoce esta fuente. No se puede afirmar de dónde sale la tasa que rige.` | `This screen doesn't recognise this source. We can't say where the rate in force comes from.` |
+| `manual.label` | `MANUAL` | `MANUAL` |
+| `manual.none` | `SIN GUARDAR` | `NONE SAVED` |
+| `manual.noneBody` | `Todavía no has guardado ninguna tasa tuya.` | `You haven't saved a rate of your own yet.` |
+| `manual.edit` | `Cambiar tasa manual` | `Change manual rate` |
+| `manual.create` | `Guardar una tasa manual` | `Save a manual rate` |
+| `manual.field` | `Tasa manual (pesos por dólar)` | `Manual rate (pesos per dollar)` |
+| `manual.fieldHint` | `Se guarda siempre. Solo rige si el interruptor está en manual.` | `It's always saved. It only takes effect if the switch is on manual.` |
+| **`manual.savedNotRuling`** | **`Guardada. Todavía no rige: seguimos en automática ({rate} de Banxico). Regirá en cuanto pases a manual.`** | **`Saved. Not in force yet: we're still on automatic ({rate} from Banxico). It'll take effect as soon as you switch to manual.`** |
+| `manual.savedRuling` | `Guardada, y ya rige: {rate} pesos por dólar.` | `Saved, and now in force: {rate} pesos per dollar.` |
+| `auto.label` | `AUTOMÁTICA · BANXICO` | `AUTOMATIC · BANXICO` |
+| `auto.dated` | `Del {date} · {n, plural, one {hace # día} other {hace # días}}` | `From {date} · {n, plural, one {# day ago} other {# days ago}}` |
+| `auto.fresh` | `AL DÍA` | `UP TO DATE` |
+| **`auto.stale`** | **`VIEJA`** | **`STALE`** |
+| `auto.staleBody` | `Banxico publica en días hábiles; ésta lleva más tiempo del normal sin actualizarse.` | `Banxico publishes on business days; this one has gone longer than usual without updating.` |
+| **`auto.missing`** | **`NO HAY`** | **`NONE`** |
+| `auto.missingBody` | `Nunca ha llegado una tasa de Banxico a este sistema.` | `No Banxico rate has ever reached this system.` |
+| `ruling.mark` | `RIGE` | `IN FORCE` |
+| `ruling.markAria` | `Ésta es la tasa que rige ahora mismo.` | `This is the rate in force right now.` |
+| `jump.toAuto` | `SI PASAS A AUTOMÁTICA` | `IF YOU SWITCH TO AUTOMATIC` |
+| `jump.toManual` | `SI PASAS A MANUAL` | `IF YOU SWITCH TO MANUAL` |
+| `jump.value` | `{delta} · {pct} %` | `{delta} · {pct} %` |
+| `jump.body` | `Cambiaría todo lo que se calcula desde un precio en dólares: lo que vendemos y lo que pagamos por comprar.` | `It would change everything worked out from a dollar price: what we sell for and what we pay to buy.` |
+| `jump.none` | `No se movería nada: las dos tasas son iguales.` | `Nothing would move: both rates are the same.` |
+| `jump.unavailable` | `No se puede calcular el salto: no hay una segunda tasa con la que comparar.` | `The jump can't be worked out: there's no second rate to compare with.` |
+| `buffer.label` | `COLCHÓN` | `BUFFER` |
+| `buffer.hint` | `Se aplica igual con las dos tasas, así que no cambia el salto de abajo. Se edita en Ajustes.` | `It applies the same with either rate, so it doesn't change the jump below. Edit it in Settings.` |
+| `toggle.label` | `Qué tasa rige` | `Which rate is in force` |
+| `toggle.manual` | `MANUAL` | `MANUAL` |
+| `toggle.auto` | `AUTOMÁTICA` | `AUTOMATIC` |
+| `toggle.consequence` | `Se aplica en la siguiente lectura de precios, no en el próximo barrido.` | `It applies at the next price read, not at the next sweep.` |
+| `toggle.loadingReason` | `Cargando las dos tasas. El interruptor se activa cuando estén las dos en pantalla.` | `Loading both rates. The switch turns on when both are on screen.` |
+| **`toggle.blockedReason`** | **`Esta pantalla no puede ofrecer el cambio: falta una de las dos tasas y no se mueve el tipo de cambio a ciegas.`** | **`This screen can't offer the switch: one of the two rates is missing, and we don't move the exchange rate blind.`** |
+| `toggle.noManualReason` | `No hay ninguna tasa tuya guardada. Guarda una y el interruptor se activa.` | `There's no rate of your own saved. Save one and the switch turns on.` |
+| `mode.legacyLabel` | `MODO HEREDADO` | `INHERITED MODE` |
+| `mode.legacyBody` | `Nadie ha tocado este interruptor en este entorno todavía, así que el modo se está deduciendo del valor guardado, como antes. En cuanto lo muevas una vez, deja de deducirse.` | `Nobody has touched this switch in this environment yet, so the mode is being inferred from the saved value, as before. Once you move it, it stops being inferred.` |
+| `refresh.cta` | `Refrescar desde Banxico` | `Refresh from Banxico` |
+| `refresh.ctaHint` | `Trae la tasa de Banxico. No cambia cuál rige; con el interruptor en manual, solo actualiza la de al lado.` | `Fetches Banxico's rate. It doesn't change which one is in force; with the switch on manual, it only updates the one next to it.` |
+| `refresh.loading` | `Consultando a Banxico…` | `Asking Banxico…` |
+| **`refresh.updated`** | **`Banxico devolvió {rate}. Es distinta de la que teníamos, así que se guardó.`** | **`Banxico returned {rate}. It differs from the one we had, so it was saved.`** |
+| `refresh.updatedWhileManual` | `Sigue rigiendo tu tasa manual ({rate}); esto solo actualiza la de comparación.` | `Your manual rate ({rate}) is still in force; this only updates the one you compare against.` |
+| **`refresh.unchanged`** | **`Banxico devolvió {rate}, la misma que ya teníamos. No cambió nada, y no es un fallo.`** | **`Banxico returned {rate}, the same one we already had. Nothing changed, and it isn't a failure.`** |
+| **`refresh.failedTitle`** | **`No se pudo traer la tasa de Banxico`** | **`Couldn't fetch the rate from Banxico`** |
+| `refresh.failedBody` | `Sigue rigiendo {rate} ({source}).` | `{rate} ({source}) is still in force.` |
+| `refresh.reason.no_token` | `Al servidor le falta la credencial de Banxico. Esto no se arregla desde aquí: díselo a quien opera el sistema.` | `The server is missing the Banxico credential. This can't be fixed from here: tell whoever runs the system.` |
+| `refresh.reason.http_error` | `Banxico contestó con un error. Suele ser temporal: vuelve a intentarlo en unos minutos.` | `Banxico answered with an error. It's usually temporary: try again in a few minutes.` |
+| `refresh.reason.invalid_payload` | `Banxico contestó algo que no se pudo leer como una tasa. No se guardó nada.` | `Banxico answered something that couldn't be read as a rate. Nothing was saved.` |
+| `refresh.reason.network_error` | `No se pudo llegar a Banxico. Revisa la conexión del servidor y reintenta.` | `Banxico couldn't be reached. Check the server's connection and retry.` |
+| `refresh.reason.unknown` | `No se pudo traer la tasa y el sistema no dijo por qué.` | `The rate couldn't be fetched and the system didn't say why.` |
+| `confirm.title` | `Vas a cambiar el tipo de cambio que rige` | `You're changing the exchange rate in force` |
+| `confirm.rates` | `Antes {before} ({sourceBefore}) · ahora {after} ({sourceAfter}).` | `Before {before} ({sourceBefore}) · now {after} ({sourceAfter}).` |
+| `confirm.effect` | `Todo lo que se calcula desde un precio en dólares cambia {pct}: lo que vendemos y lo que pagamos por comprar.` | `Everything worked out from a dollar price changes by {pct}: what we sell for and what we pay to buy.` |
+| `confirm.when` | `Se aplica en la siguiente lectura de precios, no en el próximo barrido.` | `It applies at the next price read, not at the next sweep.` |
+| **`confirm.untouched`** | **`Lo que ya está cerrado no se toca: pedidos, ofertas de compra ya enviadas y los precios que fijaste a mano en pesos.`** | **`What's already closed isn't touched: orders, buy offers already sent, and the prices you set by hand in pesos.`** |
+| `confirm.staleNote` | `La tasa de Banxico es del {date} y lleva {n, plural, one {# día} other {# días}} sin actualizarse.` | `Banxico's rate is from {date} and hasn't updated in {n, plural, one {# day} other {# days}}.` |
+| `confirm.cta` | `Sí, pasar a {rate}` | `Yes, switch to {rate}` |
+| **`ack.title`** | **`No hay ninguna tasa de Banxico`** | **`There is no Banxico rate`** |
+| **`ack.current`** | **`Ahora mismo rige tu tasa manual: {current} pesos por dólar.`** | **`Right now your manual rate is in force: {current} pesos per dollar.`** |
+| **`ack.would`** | **`Si pasas a automática, regirían {fallback} pesos por dólar.`** | **`If you switch to automatic, {fallback} pesos per dollar would be in force.`** |
+| **`ack.whereFrom`** | **`Y ése no lo tecleó nadie y no viene de Banxico: es un valor fijo que el sistema trae escrito para no quedarse sin tipo de cambio. A este sistema nunca ha llegado una tasa de Banxico.`** | **`And nobody typed that one, and it doesn't come from Banxico: it's a fixed value the system carries so it's never left without an exchange rate. No Banxico rate has ever reached this system.`** |
+| **`ack.prices`** | **`Todo lo que se calcula desde un precio en dólares cambia {pct} en cuanto guardes: lo que vendemos y lo que pagamos por comprar. Y no es en el próximo barrido: es la siguiente vez que alguien mire un precio.`** | **`Everything worked out from a dollar price changes by {pct} as soon as you save: what we sell for and what we pay to buy. And it isn't at the next sweep: it's the next time anyone looks at a price.`** |
+| **`ack.cta`** | **`Sí, pasar a {fallback}`** | **`Yes, switch to {fallback}`** |
+| `switched` | `Ahora rige {rate} ({source}). Puedes volver a {previousMode} cuando quieras: el otro número sigue guardado.` | `{rate} ({source}) is now in force. You can go back to {previousMode} whenever you like: the other number is still saved.` |
+| `mode.manualWord` | `manual` | `manual` |
+| `mode.autoWord` | `automática` | `automatic` |
+| `error.load` | `No se pudo cargar el tipo de cambio.` | `We couldn't load the exchange rate.` |
+| `footer` | `Solo súper-admin · queda en bitácora` *(reutilizada, §7.6)* | `Super-admin only · recorded in the audit log` |
+
+**(c) Longitud ES vs EN (§9.4).** `SIN RESPALDO REAL` (17 car.) y `AUTOMÁTICA · BANXICO` (21) son las
+versalitas más largas y **fijan el ancho mínimo de la columna derecha**; `IF YOU SWITCH TO AUTOMATIC` es más
+largo en **EN** que en ES (**única inversión de la tarjeta**) y el rótulo del salto **envuelve a dos líneas
+antes que truncarse**. `ack.whereFrom` es el párrafo más largo del sistema en esta pantalla: va en `text-sm`,
+**envuelve** y ⛔ **no se recorta con «ver más»** — es el párrafo por el que existe el diálogo.
+
+### 30.16 Qué NO hacer
+
+> **Las cuatro primeras son las que el sistema ya hace mal hoy, en producción.**
+
+1. **⛔⛔ NO OFREZCAS EL INTERRUPTOR SIN LAS DOS TASAS.** Ni «mientras carga», ni «para que no se vea gris»,
+   ni con un esqueleto al lado. **Deshabilitado y con su motivo escrito** (§30.4). *No se mueve el tipo de
+   cambio a ciegas.*
+2. **⛔⛔ NO PINTES `fallback` COMO `MANUAL`.** Ni con un `source === 'manual' || source === 'fallback'`, ni
+   con un `default:` que caiga en manual, ni «porque el rótulo ya existía». **Rama propia, palabra propia,
+   acento** (§30.5). *Hoy la pantalla escribe «FUENTE: MANUAL» sobre un 18 que nadie tecleó, y ése es el peor
+   estado del sistema.*
+3. **⛔⛔ NO DIGAS «Tipo de cambio actualizado» SIN LEER `refresh.outcome`.** Ni ninguna otra frase de éxito.
+   **Un `200` no es un éxito** (§30.7).
+4. **⛔ NO DEDUZCAS EL MODO DEL VALOR.** Ni `manual.rate != null ⇒ manual`, ni «solo para el color», ni «solo
+   mientras llega el dato». **Se pinta `mode`** (§30.0). *Esa inferencia ERA el defecto.*
+5. **⛔ No borres, escondas ni atenúes la tasa manual al pasar a automática.** Sigue en pantalla, completa, en
+   tinta plena, sin `RIGE` (§30.3a).
+6. **⛔ No apliques el colchón a las tasas ni al salto**, y **no calcules ninguna «tasa efectiva»**
+   (§30.3b/d). Un producto de dos diales que la pantalla inventa es un número que puede discrepar del motor
+   de precios.
+7. **⛔ No calcules la frescura ni la antigüedad en el cliente.** `status` y `ageDays` vienen resueltos
+   (§30.6). **Y no escribas el número del umbral en ninguna cadena.**
+8. **⛔ No hornees `18` en una cadena.** Va interpolado desde `details.fallbackRate` (§30.8).
+9. **⛔ No pidas el acuse con `stale`.** Ahí hay número real y el diálogo es el normal (§30.8).
+10. **⛔ No ofrezcas `Deshacer` tras un cambio de modo**, ni en un toast, ni en ningún sitio. Se ofrece
+    **volver**, con su confirmación, y no se llama deshacer (§30.0, §30.9b).
+11. **⛔ No muevas la selección del interruptor antes del `200`**, ni pintes optimista la cifra grande.
+12. **⛔ No enseñes códigos de error, ni `422`, ni `FX_NO_AUTOMATIC_RATE` en superficie.** El copy traducido
+    existe para eso (§30.10).
+13. **⛔ No metas un `input`, un `switch` de precio ni un campo editable en la tarjeta en reposo** (§30.9c).
+14. **⛔ No prellenes la tasa manual con la de Banxico** ni con «Banxico + algo» (§30.9c).
+15. **⛔ No pintes una cifra durante la carga ni tras un error de carga**, y **no caigas a un valor cacheado**
+    (§30.11). *Media tarjeta de tipo de cambio parece autoritativa y no lo es.*
+16. **⛔ No uses el verde de éxito** en esta tarjeta (§30.14).
+17. **⛔ No bloquees el pricing ni despubliques nada cuando la tasa esté `stale`.** *Ocultar dinero que sí
+    tenemos no es money-safe; declararlo sí* (§30.6).
+18. **⛔ No añadas historial, gráfica, cron, correo ni aviso proactivo** (§30.1).
+19. **⛔ No teclees las versalitas en un test.** Se comparan contra la clave del catálogo (§30.13).
+
+### 30.17 Las mutaciones que ponen un test **en rojo**
+
+*Un candado que no se puede poner rojo no vale, y **un candado que mide el nombre de un campo no vale nada**.
+En esta casa ya se han cazado **siete** que medían el rótulo y no la cosa. Éstos miden **qué puede hacer la
+pantalla** y **qué sale por la red**.*
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **FX-UI-1** ⭐⭐ | **que la pantalla ofrezca el interruptor sin las dos tasas** (§M2-F.3 regla 2) | **EL candado de la precondición, y la aserción que lo hace rojo es DE RED, no de atributo.** Tres fixtures: **(a)** el `GET /admin/fx` **nunca resuelve**; **(b)** el `GET` responde `500`; **(c)** el `GET` responde `200` **sin el bloque `automatic`**. En los tres: se localiza el `radio` de `toggle.auto` y **se hace clic**. ⇒ **el contador de peticiones a `PUT /admin/fx/mode` tiene que valer `0`** y **no se abre ningún diálogo**. ⭐ **La aserción de conteo es la que mata la mutación**: un `toBeDisabled()` pasa en verde con `aria-disabled="true"` sobre un botón que **sigue disparando el `onClick`** — es exactamente el matcher que deja pasar esto. **Además**, en (c) se lee `toggle.blockedReason` en pantalla. **Control positivo, para que el candado no se pase de listo:** con las dos tasas presentes, **el mismo clic abre el diálogo** y sigue habiendo **`0`** `PUT` hasta confirmar. |
+| **FX-UI-2** ⭐⭐ | **que un `fallback` se pinte como `manual`** | **El candado de la mentira viva.** Fixture: `{ rate: 18, source: "fallback", mode: "auto", modeResolvedFrom: "setting", manual: { rate: null, applied: false }, automatic: { rate: null, effectiveDate: null, ageDays: null, status: "missing", applied: false } }`. ⇒ **(a)** la versalita de fuente resuelve la clave **`source.fallback`** y ⛔ **la clave `source.manual` NO se resuelve en ninguna parte de la tarjeta**; **(b)** ⭐ **la conducta, no el rótulo:** la tarjeta ofrece **`manual.create`** (`Guardar una tasa manual`) y **`refresh.cta`** — es decir, **se comporta como si no tuviera ninguna tasa real**, que es lo que es; **(c)** ⭐⭐ **NINGUNA de las dos columnas lleva `ruling.mark`** (`applied` es `false` en las dos), y la columna automática lee `auto.missing`, ⛔ **nunca `18`**. **Rojo si aparece `MANUAL`, si `RIGE` marca la columna automática, o si el `18` se pinta como «la de Banxico».** |
+| **FX-UI-3** ⭐ | **que el refresco afirme un éxito que no ocurrió** | Stub de `POST /admin/fx/refresh` → **`200`** con `refresh: { outcome: "failed", reason: "no_token", fetchedRate: null }`. ⇒ se lee `refresh.failedTitle` + `refresh.reason.no_token` en un banner **persistente** (sigue ahí a los 10 s: **no es un toast**), y ⛔ **ninguna de `refresh.updated` / `refresh.unchanged` se resuelve**. **Rojo si sobre un `200` aparece cualquier copy de éxito.** **Y el tercer caso, el que se olvida:** `outcome: "unchanged"` ⇒ se lee `refresh.unchanged` y ⛔ **no** el banner de fallo — *«la misma tasa» no es un fallo*. |
+| **FX-UI-4** ⭐ | **quitar el acuse, o pedirlo donde no toca** | **Dos mitades, y las dos tienen que ir.** **(a)** `automatic.status: "missing"`, modo `manual` con `19.0` ⇒ mover a AUTOMÁTICA abre el diálogo de `ack.title`, **`0` peticiones hasta confirmar**, y al pulsar `ack.cta` el `PUT /admin/fx/mode` **contiene `acknowledgeNoAutomaticRate: true`** *(se inspecciona el cuerpo)*. **(b)** `automatic.status: "stale"` con `ageDays: 40` ⇒ mover a AUTOMÁTICA abre el **diálogo normal** (`confirm.title`) y el `PUT` **NO contiene** `acknowledgeNoAutomaticRate`. **Rojo si el acuse aparece con `stale`, o si la bandera viaja cuando no hace falta.** |
+| **FX-UI-5** ⭐ | **pintar el modo optimista** | Con el diálogo abierto: `aria-checked` sigue en el segmento **actual** y la cifra grande **no se ha movido**. Al pulsar `common.cancel`: la selección **sigue igual** y el contador de `PUT` vale **`0`**. **Rojo si el radio se marca antes del `200`.** |
+| **FX-UI-6** ⭐ | **derivar la frescura en el cliente** | Fixture **deliberadamente contradictorio** (imposible desde un servidor correcto, perfecto para un test de componente): `automatic: { ageDays: 40, status: "fresh", … }` ⇒ la tarjeta pinta **`auto.fresh` (`AL DÍA`)**, obedeciendo `status`. **Rojo si pinta `VIEJA`** — eso significa que alguien escribió `ageDays > 5` en el navegador. *(Gemelo exacto de §28.13.1.)* **Y por lo negativo:** el número `5` **no aparece en ninguna cadena** del catálogo de esta tarjeta. |
+| **FX-UI-7** ⭐⭐ | **meter el colchón en el salto** | **El candado de las unidades, y mide una INVARIANZA.** Dos fixtures idénticos salvo `bufferPct`: `{ manual: 19.0, automatic: 18.2431, bufferPct: 3 }` y `{ …, bufferPct: 10 }` ⇒ **la línea del salto dice EXACTAMENTE lo mismo en los dos**: `−0.7569` y `−3.98 %`. **Rojo si el salto cambia al cambiar solo el colchón.** ⭐ **Y por ausencia:** en toda la tarjeta **no aparece ningún producto de tasa × colchón** (`19.57`, `20.07`) — se comprueba que esas cifras **no existen** en el texto renderizado. |
+| **FX-UI-8** ⭐ | **que apagar el manual borre el número en pantalla** | Estado inicial `mode: "manual"`, `manual.rate: 19.0`. Se completa el flip a AUTOMÁTICA (con el `200` correspondiente) ⇒ la columna MANUAL **sigue leyendo `19.0000`**, en tinta, **sin `ruling.mark`**, y su botón sigue siendo `manual.edit`. **Rojo si la columna queda vacía, en `—`, atenuada o con `manual.none`.** *(Mitad de UI del candado **FX-1** del contrato.)* |
+| **FX-UI-9** ⭐ | **que guardar una tasa en modo `auto` parezca que no hizo nada** | `mode: "auto"`; se guarda `25` por `manual.edit` y la respuesta trae `manual: { rate: 25, applied: false }`, `rate` **sin cambiar** ⇒ se lee **`manual.savedNotRuling`**, la columna MANUAL dice **`25.0000` sin `RIGE`**, y **la cifra grande NO se movió**. ⛔ **Rojo si aparece cualquier copy de «actualizado»**, o si la cifra grande cambia. *(Es `Q-F3`.)* |
+| **FX-UI-10** | **silenciar `modeResolvedFrom: "legacy"`** | Fixture con `modeResolvedFrom: "legacy"` ⇒ se lee `mode.legacyLabel` + `mode.legacyBody`, **en muted y sin `role="alert"`**. Con `"setting"` ⇒ **no aparecen**. **Rojo si nunca se pinta** (se perdería la única traza visible del riesgo residual) **o si se pinta en acento/alerta** (un entorno nuevo no tiene ninguna avería). |
+| **FX-UI-11** | **pintar un número mientras carga o tras fallar la carga** | `GET` pendiente ⇒ la cifra grande lee `—` y ⛔ **no aparece `0.0000` ni `18`**. `GET` → `500` ⇒ `Banner danger` + `common.retry` y ⛔ **ninguna cifra de tasa en toda la tarjeta**. **Rojo si se pinta un valor cacheado de una carga anterior.** |
+| **FX-UI-12** | **que el copy prometa un `Deshacer`** | Tras un cambio de modo con `200`: se lee `switched`, y ⛔ **no existe ningún control cuyo nombre accesible sea `common.undo`** en la tarjeta. **Rojo si aparece «Deshacer»/«Undo»** — *volver es un segundo repreciado, no una anulación.* |
+| **FX-UI-13** | **el idioma** | Los **cinco** rótulos de fuente, los **tres** de frescura, los **tres** desenlaces del refresco y **los cinco párrafos del diálogo de acuse**, en **ES y EN**, **vistos en pantalla** (§26.8: mirarlo, no `grep`earlo). El párrafo `ack.whereFrom` **completo, sin recortar y sin «ver más»**, también en móvil. |
+
+### 30.18 Notas a otros roles (derivadas del diseño; **ninguna bloquea**)
+
+| Para | Qué |
+|---|---|
+| **arquitecto** | **Nada que pedir para lo diseñado.** `§M2-F` v1.63.1 trae **todo** lo que esta tarjeta necesita, campo por campo — incluidos los dos `applied`, `modeResolvedFrom` y el bloque `refresh`. *Lo digo explícitamente porque lo normal en este documento ha sido acabar con una lista de peticiones.* |
+| **arquitecto** *(opcional, no pedido)* | Si el dueño quisiera **el editor del colchón dentro de esta tarjeta**, el contrato ya lo permite sin cambios (`PUT /admin/fx { bufferPct }` u `PUT /admin/settings { fxBufferPct }`). **Es diseño mío pendiente, no contrato**: se anota aquí para que nadie lo improvise. |
+| **arquitecto** *(§28.15 pet. 11)* | **`Q-B5`** — la tasa vigente **en la cabecera de la consola de bounties**. Hoy §28 solo **enlaza** aquí (`footer.fxNote`). Sigue siendo suya. |
+| **devops + el humano** | **`D-OPS-1` / `P-63`: falta `BANXICO_SIE_TOKEN` en producción.** Esta tarjeta lo **hace visible por primera vez** —`refresh.reason.no_token`, en castellano y con la instrucción de a quién decírselo— pero **no lo arregla**. *Enseñar que la tasa está vieja no la refresca.* |
+| **frontend** | Las cadenas de §30.15 se **copian sin interpretar**. Y la que más importa: **`ack.whereFrom` no se acorta**. Si alguien la ve larga, eso es que está haciendo su trabajo. |
+| **QA** | Los trece candados de §30.17 están escritos **para poder ponerse rojos**. Los dos ⭐⭐ (`FX-UI-1`, `FX-UI-2`) son los del encargo, y **los dos miden conducta**: uno cuenta **peticiones a la red**, el otro comprueba **qué palancas ofrece la pantalla**. Ninguno se puede satisfacer renombrando una clave. |
+| **product-owner** | **Pregunta abierta al humano, no bloqueante:** ¿quiere que el sistema **refresque solo** desde Banxico (un cron diario)? Hoy **no existe** y el contrato lo deja fuera a propósito. Si lo quiere, **cambia el diseño de `stale`** (pasaría de «alguien tiene que pulsar» a «algo se rompió») y **es un pase nuevo**. |
 - **📌 Para product-owner / arquitecto (observación, no petición de contrato):** las cadenas de **modo demo**
   que nombran a Stripe (§29.4(c)) son andamiaje y **conviene que no sobrevivan al primer release real**. No
   pido ningún campo nuevo ni ningún cambio de contrato: **este pase no necesita nada de nadie.**
