@@ -4,6 +4,148 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §61 · **El interruptor del tipo de cambio no tenía botón** — se construye la tarjeta de `DESIGN_SYSTEM §30` entera (2026-09-09, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> El backend del interruptor (`§M2-F`) llevaba construido desde v1.63, endurecido contra una carrera
+> crítica (`I-FX6`) y documentado hasta el nivel de aislamiento de la base. **Y no había forma de
+> usarlo desde la pantalla**: en todo `frontend/src/` no existía **ni una** llamada a
+> `PUT /admin/fx/mode` — la única ocurrencia del string estaba en un comentario de
+> `types/contract.ts`. El panel tampoco pintaba nunca `mode` ni `modeResolvedFrom`.
+> El pase anterior (§60) lo declaró sin ocultarlo; éste lo construye.
+
+### 1. Qué se construyó (la tarjeta de §30, pieza por pieza)
+
+| Pieza (§30) | Dónde |
+|---|---|
+| **El interruptor** (§30.4) — radiogroup de dos segmentos, 44px, `aria-checked` que **no se mueve hasta el `200`** | `sections/fx/FxRateCard.tsx` |
+| **Las dos tasas lado a lado** (§30.3) — `<dl>`, las dos en tinta plena, `RIGE` = palabra + regla de 2px | idem |
+| **El salto** (§30.3c) — `delta` a 4 decimales y `pct` a 2, con `−` U+2212; `jump.none` y `jump.unavailable` | `sections/fx/fx-format.ts` (puro) |
+| **La frescura** (§30.6) — `AL DÍA` / `VIEJA` / `NO HAY`, obedeciendo `status` | `FxRateCard.tsx` |
+| **La fuente** (§30.5) — cuatro ramas, `SIN RESPALDO REAL` en acento, neutro declarado para lo desconocido | idem |
+| **`MODO HEREDADO`** (§30.5) — se pinta **siempre** con `modeResolvedFrom: "legacy"`, en muted y sin `role="alert"` | idem |
+| **Los dos diálogos** (§30.8 acuse · §30.9a normal) | `sections/fx/FxDialogs.tsx` |
+| **El editor inline de la tasa manual** (§30.9c) + `savedRuling` / `savedNotRuling` | `FxRateCard.tsx` |
+| **Los tres desenlaces del refresco** (§30.7) y los errores traducidos (§30.10) | idem + `messages/{es,en}` |
+| **El colchón** — de **solo lectura** (§30.3d) | idem |
+
+`FxSection.tsx` queda como punto de montaje de tres líneas; `M2View` no cambia.
+
+### 2. Las cinco decisiones que conviene dejar por escrito
+
+1. ⭐⭐ **El acuse de §30.8 necesita un número que el DTO no trae, así que se PIDE al servidor.**
+   `ack.would` / `ack.cta` nombran **el valor de respaldo**, y `FxStateDTO` no lo publica. Las tres
+   salidas posibles eran: hornear el `18` en el cliente (⛔ prohibido, §30.16.8), inventar una
+   variante de copy sin número (⛔ no se inventa copy) o **leerlo de `details.fallbackRate`**, que
+   es de donde §30.8 dice que sale. Se hace lo tercero: al mover el interruptor a AUTOMÁTICA con
+   `status: "missing"` sale **un `PUT` sin acuse**, el servidor contesta su `422` —que **por
+   contrato no cambia el modo** (candado `FX-12`)— y **ese** `422` se convierte en el diálogo, con
+   el número del servidor. Al confirmar sale el segundo `PUT`, ya con `acknowledgeNoAutomaticRate`.
+   ⚠️ **Consecuencia para QA:** `FX-UI-4(a)` dice *«0 peticiones hasta confirmar»*; con el contrato
+   de hoy son **0 peticiones que cambien algo** y **1 consulta de precondición**. El test lo mide
+   así, inspeccionando el cuerpo de las dos. Si se quiere el literal, hace falta que el contrato
+   publique el respaldo en el DTO — **petición al arquitecto**, §5.
+2. **El colchón se va de M2 y VUELVE a M10.** §30.1 lo saca de la tarjeta y §30.3d dice, en copy
+   normativo, *«Se edita en Ajustes»*. M10 lo había retirado en su día **apuntando a M2** («editor
+   canónico = M2 §3 FX»), así que borrarlo aquí dejaba un **dial de dinero sin ningún editor** —
+   sólo `curl`. Se restituye la fila en `DIALS` de M10 (vía `PUT /admin/settings { fxBufferPct }`,
+   la que el contrato recomienda). Ya no hay duplicado: **M2 lo muestra, M10 lo edita.**
+3. **⛔ El verde de éxito desaparece de esta tarjeta** (§30.14, §30.16.16). `refresh.updated` pasa
+   de `Banner success` a `info`. §60 lo había pintado verde; §30 es posterior y manda.
+4. **El mundo por defecto del servidor falso cambia al estado REAL de producción**: `manual: 19.0`,
+   **ninguna** fila de Banxico y `modeResolvedFrom: "legacy"`. El anterior (`auto` + Banxico
+   `stale`) describía un entorno imposible —si el token nunca se configuró, no hay fila que pueda
+   estar vieja— y, sobre todo, **hacía inalcanzables desde el navegador los tres estados que esta
+   tarjeta existe para cubrir**. Con el mundo real, el E2E los recorre **con actos legales de la
+   pantalla**: ⛔ sin `?scenario=`, sin fixture mágico, sin puerta trasera.
+5. **El simulador implementa la 4ª fila de §M2-F.1 (`FX-23`)**: «manual sin número» rige **la fila
+   de Banxico**, y sólo sin ella el respaldo. El backend ya lo implementó; un mock que siguiera
+   cayendo al 18 sería **distinto** del servidor, que es la clase de deriva que costó B-1.
+
+### 3. Los candados, y el rojo de cada uno
+
+`sections/fx/FxRateCard.test.tsx` (**29**) cubre `FX-UI-1 … FX-UI-13` de §30.17 + el de v1.63.3.
+`lib/mock/fx-mock.test.ts` (8 → **17**) y `lib/mock/fx-contract-mirror.test.ts` (14 → **18**).
+
+> **Cómo se midieron:** las 15 mutaciones se aplicaron **sobre una COPIA del árbol** (`tar` a un
+> directorio de scratch con `node_modules` enlazado), **nunca sobre el vivo** — dos veces un respaldo
+> automático capturó código a medias y lo reintrodujo al restaurar. Base verde: **29** (tarjeta) ·
+> **17** (mock) · **3** (E2E).
+
+| # | Mutación (romper esto…) | …pone en rojo | Conteo |
+|---|---|---|---|
+| **M1** ⭐⭐ | el segmento **dispara el `PUT` directamente** (`onClick={() => modeMutation.mutate({mode})}`) y el `disabled` pasa a `aria-disabled` — la implementación ingenua exacta | `FX-UI-1` **a, b, c y el control positivo**, + `FX-UI-4b`, `-5`, `-8`, `-12` y el de v1.63.3 | **9 rojos / 20** |
+| **M2** ⭐⭐ | `source === 'fallback'` cae en el rótulo de `manual` | `FX-UI-2` (a) y (c) | **2 / 27** |
+| **M3** ⭐ | `refreshSucceeded = isSuccess` (un `200` vuelve a ser un éxito) | `FX-UI-3` ×3 | **3 / 26** |
+| **M3b** ⭐ | **sólo** la sustitución `fetchedRate ?? rate` (la deuda 2 de techlead) | `FX-UI-3` › «un `200` sin cifra que afirmar» | **1 / 28** |
+| **M4** ⭐ | pedir el acuse **siempre**, también con `stale` | `FX-UI-4` a+b y tres más que dependen del flip | **5 / 24** |
+| **M5** ⭐ | mover `aria-checked` al abrir el diálogo | `FX-UI-5` | **1 / 28** |
+| **M6** ⭐ | `status` derivado en cliente (`ageDays <= 5`) | `FX-UI-6` (fixture contradictorio) | **1 / 28** |
+| **M7** ⭐⭐ | meter el colchón en el salto (`destino × (1 + buffer)`) | `FX-UI-7` (la invarianza) | **1 / 28** |
+| **M8** ⭐ | la columna MANUAL sólo pinta su número **si rige** | `FX-UI-8` + `FX-UI-9` | **2 / 27** |
+| **M9** ⭐ | el acuse de guardado deja de mirar `applied` (**deuda 1** de techlead) | `FX-UI-9` › «guardada, todavía no rige» | **1 / 28** |
+| **M10** | silenciar `modeResolvedFrom: "legacy"` | `FX-UI-10` | **1 / 28** |
+| **M12** | ofrecer «Deshacer» junto al aviso de cambio de modo | `FX-UI-12` | **1 / 28** |
+| **M13** ⭐ | **derivar `applied` del `mode`** otra vez (las dos columnas) | el candado de v1.63.3 | **1 / 28** |
+| **M14** | el simulador deja de exigir el acuse | `fx-mock` › «el interruptor» | **1 / 16** |
+| **M15** | «manual sin número» vuelve a caer al 18 (`FX-23` revertido) | `fx-mock` › «la 4ª fila» | **1 / 16** |
+| **M16** (E2E) | **saltarse el diálogo de acuse** y mandar la bandera sola | `admin-fx.spec.ts` › «el interruptor» | **1 / 2** |
+
+**E2E (`e2e/admin-fx.spec.ts`, 3 tests, modo mock):** el badge `SIN RESPALDO REAL`, el **banner rojo
+del refresco fallido** (con `waitForTimeout(10 s)` + otra interacción: ⛔ no es un toast) y **el
+interruptor entero** — acuse → cancelar (nada se movió) → confirmar → `SIN RESPALDO REAL` → volver a
+manual **sin reteclear el número**. Es el camino exacto que reportó el dueño.
+
+### 4. Las dos deudas de techlead: **CERRADAS**, no registradas
+
+| Deuda | Cómo se cerró | Candado que lo sujeta |
+|---|---|---|
+| **`fx.saved` miente en modo `auto`** («Tipo de cambio actualizado» sobre un número que no rige) | La clave **ya no existe**. El acuse de guardado lo elige **`manual.applied`** del DTO de la respuesta —⛔ no el `mode`, ⛔ no «hubo un `200`»—: `manual.savedRuling` si rige, `manual.savedNotRuling` si no | `FX-UI-9` (+ el mirror: `saved` es `undefined` y el título de fallo no coincide con ninguno de los dos nuevos) |
+| **`rateText(refresh.fetchedRate ?? refreshed.rate)`** | La sustitución **desaparece**: un desenlace bueno **sin su cifra** ya no es un éxito — `refreshSucceeded` exige `typeof fetchedRate === 'number'` y, sin número que afirmar, se pinta el fallo con el motivo neutro | `FX-UI-3` › «un `200` sin cifra que afirmar tampoco se anuncia como éxito» |
+
+### 5. Lo que NO se construyó, y por qué (⚠️ decisiones que no son mías)
+
+1. 🔴 **`manual.savedNotRuling` sigue sin variante para «no hay Banxico que nombrar».** Dice
+   *«seguimos en automática (**{rate}** de Banxico)»*, y guardar una tasa con `source: "fallback"`
+   **no tiene ninguna tasa de Banxico que interpolar**. La tarjeta **da la mitad visual** (la
+   columna MANUAL se repinta con el número nuevo, **sin** `RIGE`) y **calla la línea** en vez de
+   inventar la frase o de meter ahí el valor de respaldo, que es un número de otra procedencia.
+   Era el hueco que §60.6 elevó a ux-ui y **sigue abierto**.
+2. **La segunda línea de la columna MANUAL cuando el número está guardado pero NO rige.** §30.3a la
+   dibuja («La guardaste tú.») pero §30.15 **no tiene esa clave suelta**: la única disponible
+   (`source.manualBody`) añade *«Rige hasta que pases a automática»*, que ahí sería **falso**. Se
+   pinta sólo cuando `manual.applied`; en el otro caso, nada.
+3. **El editor del colchón dentro de la tarjeta**: §30.18 lo declara *«diseño mío pendiente, no
+   contrato»* y §30.1 lo prohíbe expresamente aquí. Por eso el dial vive en M10 (§2.2 de arriba).
+4. **Móvil (§30.12)** y **contraste (§30.14)** se implementan con las clases del sistema, pero
+   ⛔ **no se han verificado en un navegador a 390px**: no hay E2E de layout de esta tarjeta. Es
+   trabajo pendiente y se dice, no se da por hecho.
+
+### 6. Peticiones al arquitecto (ninguna bloquea; hoy se trabaja con lo que hay)
+
+1. ⭐ **Publicar el valor de respaldo en `FxStateDTO`** (p. ej. `fallbackRate`, o
+   `automatic.fallbackRate`). Es lo único que obliga a la consulta descrita en §2.1: hoy el número
+   que el diálogo de §30.8 tiene que **nombrar antes de tocar nada** sólo existe dentro del `422`.
+   Con el campo, el acuse se compone **sin ninguna petición previa** y `FX-UI-4(a)` se cumple al pie
+   de la letra.
+2. **`error.FX_NO_AUTOMATIC_RATE` tiene dos variantes en el catálogo**: la de §30.10 (con
+   `{fallbackRate}`) como `_WITH_DETAILS`, y una **base idéntica menos el paréntesis** para cuando
+   el `422` llegue sin `details`. No es copy nuevo —es la misma frase sin la interpolación que el
+   servidor no mandó— pero **queda declarado** para que ux-ui lo ratifique o lo reescriba.
+
+### 7. Ficheros tocados
+
+`frontend/src/app/[locale]/(admin)/admin/m2/sections/fx/{FxRateCard,FxDialogs}.tsx`,
+`.../fx/fx-format.ts`, `.../fx/FxRateCard.test.tsx` (nuevo; **sustituye** a `FxSection.test.tsx`),
+`.../sections/FxSection.tsx`, `.../m2/M2View.test.tsx`, `.../m10/M10View.{tsx,test.tsx}`,
+`src/lib/api.ts` (`setFxMode`), `src/lib/mock/fixtures.ts`, `src/lib/mock/fx-mock.test.ts`,
+`src/lib/mock/fx-contract-mirror.test.ts`, `src/types/contract.ts` (comentarios de v1.63.3),
+`messages/{es,en}.json`, `e2e/admin-fx.spec.ts` (nuevo).
+
+### 8. Verificación (números reales)
+
+`npx vitest run` ✓ **125 archivos / 1.448 tests** (antes 125 / 1.418) · `npx tsc --noEmit` limpio ·
+`npx eslint` limpio · `npx playwright test` en modo mock ✓ **156 pasados / 3 saltados** (los `@real` del gancho), incluidos los **3** nuevos de FX.
+
 ## §60 · **El panel de FX no tenía rama para dos cosas que el servidor ya emite** — B-1 (`fallback`) y B-2 (`refresh.outcome`) (2026-09-09, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > QA aprobó el backend de `§M2-F` (el interruptor auto/manual) **y aun así rechazó el merge**: el
