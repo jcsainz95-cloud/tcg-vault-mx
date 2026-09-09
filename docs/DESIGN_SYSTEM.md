@@ -12351,7 +12351,7 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 > delante»*. **Quitarlo aplica mi propio argumento a mi propia columna.**
 >
 > **⚠ Y el premium NO se pierde: deja de enunciarse.** `PAGAMOS` y `TARIFA VIGENTE` **se quedan las dos**, así
-> que la diferencia **sigue estando a la vista, en la misma fila y a una columna de distancia**. Lo que se
+> que la diferencia **sigue estando a la vista, en columnas ADYACENTES y alineadas a la derecha**. Lo que se
 > retira es la **aritmética hecha por la pantalla**, no la información. *El hueco real que sí había —
 > `SIN TARIFA`— se resuelve en §28.4d, no se pierde.*
 >
