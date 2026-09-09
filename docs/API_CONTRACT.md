@@ -2,8 +2,62 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-09 (rev **v1.63.4**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-09 (rev **v1.64**).
 >
+> **Changelog v1.64 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, CON UN DIAL DE TRASLACIÓN QUE NACE NEUTRO
+> (2026-09-09, arquitecto).** Base: **v1.63.3/v1.63.4, vigentes enteras** — este pase **no toca el FX**: es otro
+> frente. Origen: **`PROJECT.md §Q` / D54, APROBADA por el dueño el 2026-09-09**, con las preguntas **52–55**
+> contestadas (*«Solo iva adentro, comision por fuera»*, *«Un dial para todo»*, unidad = **fracción de traslación
+> 0–100 %**, arranque en **100 %**). Razón entera: **`ARCHITECTURE §4.44`**.
+>
+> **⭐⭐ LA GARANTÍA QUE ORDENA TODO: EL DÍA DEL DEPLOY NADIE PAGA DISTINTO.** Con el dial en **100 %** la
+> especificación **reproduce el cobro de hoy al centavo** —verificado contra los diales reales (`16`/`0.036`/`300`)
+> y contra `money.ts`—: base MX$100.00 ⇒ vitrina **MX$116.00**, cobro **MX$124.69**, `ivaCents` **1600**, margen
+> **MX$100.00**. Criterio **185**: *«si alguien paga un centavo distinto, es fallo de release»* ⇒ **candado
+> `IVA-1`, no aspiración**. **Lo único que cambia es que el precio de vitrina deja de mentir.**
+>
+> **1. ⭐⭐ SECCIÓN NUEVA [`§M10-IVA`](#M10-IVA)** — el dial `ivaTransferPct` (entero `[0,100]`, seed **100**,
+> `super_admin`), **DOS endpoints nuevos** (`GET /admin/settings/iva-transfer/preview` y
+> `PUT /admin/settings/iva-transfer`), **DTO nuevo** `IvaTransferPreviewDTO`, **dos códigos de error nuevos**
+> (`IVA_TRANSFER_ACK_REQUIRED` 422, `IVA_TRANSFER_ACK_STALE` 409) y **los OCHO candados `IVA-1…IVA-8`**.
+> **`ivaTransferPct` se LEE en `GET /admin/settings` y se RECHAZA en `PUT /admin/settings`** (`422`, clave
+> desconocida) — **mismo precedente exacto que `fxRateMode`**. El endpoint propio existe porque el criterio **188**
+> dice *«falla si el dial se puede guardar sin que la cifra en pesos se haya mostrado»*, y **una norma que solo vive
+> en la UI no se puede poner roja desde el servidor**: el `PUT` **exige acuse** del delta que el servidor recalcula
+> (patrón de `acknowledgeNoAutomaticRate`, `FX-12`).
+>
+> **2. 🔴 LA IDENTIDAD DEL TOTAL CAMBIA, Y ES LO QUE MÁS ROMPE CLIENTES.** `totalCents = subtotal + iva + fee`
+> **deja de ser cierto**. Pasa a ser **`totalCents = subtotalCents + shippingFeeCents + processingFeeCents`**: el
+> IVA **ya está dentro del subtotal y NO es un sumando**. `BreakdownDTO` gana **`priceConvention`** e
+> **`ivaIncluded`** para que **cada desglose diga bajo qué convención se calculó** — sin eso, una orden de ayer y
+> una de mañana son indistinguibles y **se reinterpretan solas** (criterio **190**). Un cliente que asierte la
+> fórmula vieja **fallará, y debe fallar** (`IVA-2`).
+>
+> **3. ⭐ `salePriceCents` DESAPARECE DE LA SUPERFICIE PÚBLICA; lo sustituye `displayPriceCents` + `ivaIncluded` +
+> `ivaRatePct`.** ⛔ **No se reinterpreta el nombre viejo**: sería el defecto de D54 un nivel más abajo, y un front
+> que no migrara **seguiría pintando la mentira sin que nada fallara**. Con el rename **no compila**. ⛔ **El
+> frontend NUNCA multiplica**: el servidor manda la cifra ya hecha. ⛔ **El dial NO viaja a superficie de cliente**
+> (fuga comercial, misma clase que v2.1.6). **`referenceValue`/`PriceInfo`, el portafolio y el buylist NO CAMBIAN**
+> (supuestos, preguntas **62** y **56**).
+>
+> **4. 🟡 CERO cambios en el gross-up y en el FX.** `processingFeeCents` sigue siendo el gross-up de siempre, sigue
+> rotulado **«Comisión de plataforma»** (D53, **no se reabre**) y **sigue sumándose aparte** (pregunta **52**,
+> contestada). `stripeFeeIvaPct` **sigue derivándose de `ivaPct`** y ⛔ **jamás del dial de traslación** — si se
+> colgara del mismo mando, **mover un precio movería una comisión** (`IVA-7`).
+>
+> **5. ⚠️ TRES COSAS QUE ESTE CONTRATO DECLARA EN VEZ DE ACOMODAR** (`ARCHITECTURE §9`): el criterio **185**
+> (*«idéntico al centavo»*) y el **194** (*«Σ líneas == subtotal»*) **no pueden ser los dos exactos en carritos
+> multi-línea** —contraejemplo: dos piezas de `L=103` ⇒ **613 vs 612 centavos**—, y el candado **`IVA-4`** lo **mide
+> y lo acota (≤ 1 centavo por pieza)** en vez de negarlo (**`D-IVA-7`**, va al product-owner); el criterio **189**
+> **decide de facto la aritmética del envío** mientras la pregunta **60** sigue abierta para el rótulo
+> (**`D-IVA-8`**); y el P&L **no cuenta el ingreso de envío de los pedidos `direct_ship`** desde v1.21, cosa que
+> este contrato manda y el código no hace (**`D-IVA-5`**).
+>
+> **6. SON DOS DEPLOYS Y ⛔ NUNCA UNO** ([`§M10-IVA.6`](#M10-IVA)). El **deploy 1** trae `M-50` y **cero cambios
+> observables de contrato**; el **deploy 2** trae todo lo de arriba y **cero DDL**. **`decks-meta-v1` se desbloquea
+> con el deploy 2 PUBLICADO EN PRODUCCIÓN** — no con la aprobación de D54 ni con el merge (criterio **197**).
+>
+> ---
 > **Changelog v1.63.4 — LA BANDA DE LA TASA GANA PISO, Y EL RESPALDO SE PUBLICA (2026-09-09, arquitecto).** Base:
 > **v1.63.3, vigente entera**. **Las decisiones que eran mías y estaban bloqueando a otros roles** —numeradas
 > abajo; **la cuenta es esa numeración** (§0-B.3 regla 8, ampliación «elimina o nombra»: ⛔ no la repito aquí en
@@ -4530,6 +4584,16 @@
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
 - **Códigos nuevos del módulo `SealedProduct` (v1.39, P-38):** `422 SEALED_PRODUCT_NOT_FOUND` (`BatchInventoryItemInput.sealedProductId` no existe o está `active=false`; money-safe: no se crea inventario contra una identidad inválida). `422 MANUAL_MARKET_NOT_ALLOWED` (`manualMarketMxnCents` enviado cuando el mercado en vivo/caché **ya** resuelve — el override solo aplica al hueco de precio, jamás pisa un mercado vivo). **v1.39.1:** **ya NO** lo dispara el rol — el precio manual lo permite `vault_operator+` (decisión del humano); queda como error **solo** por el caso «mercado ya resuelto». Input de dinero por vault_operator → marcado para la fase de seguridad por release. Reusa: `422 PRICE_PENDING` (sellado sin mercado y sin override manual), `422 VALIDATION_ERROR` (`manualMarketMxnCents ≤ 0`; `sealedProductId` en raw/graded; `sync` sin `setId` ni `all`), `409` (grupo ya enlazado en `sealed-sets/:setId/groups`), `502 UPSTREAM_ERROR` (sync/candidates/marketRef live). Ya en el enum central `common/error-codes.ts`.
+- **Códigos nuevos del DIAL DE TRASLACIÓN DEL IVA (v1.64 — detalle en [`§M10-IVA`](#M10-IVA)):**
+  **`422 IVA_TRANSFER_ACK_REQUIRED`** (`PUT /admin/settings/iva-transfer` **cambiando el valor** y **sin**
+  `acknowledgement`: el criterio **188** de `PROJECT.md` exige que el costo en pesos se haya **mostrado** antes de
+  guardar; **la fila NO se escribe**) y **`409 IVA_TRANSFER_ACK_STALE`** (el `previewedNetDeltaCents` del acuse **no
+  coincide** con el que el servidor recalcula ⇒ el dueño está confirmando una cifra que ya no es la suya;
+  `details: { expectedNetDeltaCents }`; **sin escritura parcial**). **No** introduce ningún otro código: el resto
+  reusa **`422 VALIDATION_ERROR`** (`ivaTransferPct` no entero —p. ej. `37.5`— o fuera de `[0, 100]`, con el
+  `message` **nombrando los dos extremos**; y **`ivaTransferPct` enviado a `PUT /admin/settings`**, que es clave
+  desconocida en **ese** endpoint, mismo precedente que `fxRateMode`). ⛔ **Ninguno de los dos aparece jamás en
+  superficie de cliente**: el dial no viaja fuera de `/admin/*`. Candado `IVA-8`.
 - **Códigos nuevos del MODO del tipo de cambio (v1.63 — detalle en [`§M2-F`](#M2-F)):** `422 FX_MANUAL_RATE_MISSING`
   (`PUT /admin/fx/mode {mode:"manual"}` **sin** tasa manual guardada: no hay número al que volver — `details:
   { savedManualRate: null }`; **el modo NO cambia**) y `422 FX_MANUAL_RATE_REQUIRED`
@@ -4813,6 +4877,18 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
 //   **no puede garantizar** ni `name` ni `cardId`. Tipar el histórico con la forma completa es el MISMO pecado,
 //   invertido: el tipo del cliente volvería a prometer lo que el backend puede no enviar.
 //   Doctrina de qué se congela y qué se resuelve: ARCHITECTURE §5.2 y §5.2.9.
+// ===== ⚠️⚠️ v1.64 (D54 / §Q) — `salePriceCents` DESAPARECE DE LA SUPERFICIE PÚBLICA TRAS EL DEPLOY 2 =====
+//   Lo sustituye `displayPriceCents` (= P, **con el IVA DENTRO**) + `ivaIncluded` + `ivaRatePct`. **NO es un
+//   rename cosmético y NO se reinterpreta el nombre viejo**: dejar `salePriceCents` cambiando su significado es
+//   el defecto de D54 un nivel más abajo, y un front que no migrara seguiría pintando la mentira SIN QUE NADA
+//   FALLARA. Con el rename, un front que no migró **no compila** — misma doctrina que hizo de
+//   `GroupedListingSummaryDTO` un tipo propio en v2.1.9/D2: *el compilador sostiene la diferencia; el test es la red*.
+//   ⛔ `ivaTransferPct` (el dial) **NO viaja a ninguna superficie de cliente**: es una decisión de margen, y
+//   publicarla es la misma clase de fuga que v2.1.6 cerró con `source`/`isManualOverride`. En `/admin/*` viajan
+//   AMBAS (`listPriceCents` = L, `displayPriceCents` = P, `taxBaseCents`, `ivaCents`, neto y dial — `PROJECT §Q.5`).
+//   ⛔ **`referenceValue`/`PriceInfo` NO CAMBIAN**: son VALUACIÓN, no precio que alguien pague (supuesto,
+//   `PROJECT` pregunta 62). Igual el cotizador de buylist (pregunta 56) y el portafolio.
+//   Detalle por DTO: §M10-IVA.3. Razón entera: `ARCHITECTURE §4.44`.
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -6555,6 +6631,15 @@ Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inven
 > cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza (un id por pieza única).
 > **v1.5:** `POST /checkout/session` está bloqueado por `EmailVerifiedGuard` (crear orden = acción sensible). El
 > `POST /checkout/quote` (read-only) **no** se bloquea, para que la UI muestre precios con el banner "verifica tu correo".
+> ⚠️⚠️ **v1.64 — LA NOTA DE ABAJO DESCRIBE LA CONVENCIÓN `IVA_EXCLUSIVE`, QUE ES LA DE HOY Y LA DEL DEPLOY 1.**
+> Tras el **deploy 2** (`ARCHITECTURE §4.44`, [`§M10-IVA`](#M10-IVA)): **`subtotalCents` lleva el IVA DENTRO**,
+> **`ivaCents` pasa a ser RESIDUAL** (`G − round(G/(1+r))`, ⛔ nunca `0`) y —**esto es lo que hay que leer dos
+> veces**— **`totalCents = subtotalCents + ivaCents + processingFeeCents` DEJA DE SER CIERTO**. La identidad
+> vigente pasa a ser **`totalCents = subtotalCents + shippingFeeCents + processingFeeCents`**: el IVA **ya está
+> dentro del subtotal y NO es un sumando del total**. Un cliente que asierte la fórmula vieja **fallará, y debe
+> fallar** (candado `IVA-2`). **El gross-up (`processingFeeCents`) y la derivación de `stripeFeeIvaPct` desde
+> `ivaPct` NO cambian** (candado `IVA-7`).
+
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (**v1.40: derivado de `ivaPct/100`**, fuente única del IVA). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
 ### GET /api/v1/orders — `customer`
@@ -15545,7 +15630,9 @@ Err `403`, `400 VALIDATION_ERROR`.
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48:** `priceProvider` (`price_provider`, enum **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**, valor vigente **`tcgcsv_singles`** desde P-47/v1.44) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy → palanca de **rollback money-safe** del proveedor. Validado contra el enum del backend (**`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`**); `422 VALIDATION_ERROR` si es otro valor. **Semántica de los tres valores (P-47/v1.44, ARCHITECTURE §4.35):** `tcgcsv_singles` = **provider PRIMARIO** del precio **por-acabado** diario (reprecia desde TCGCSV, FX Banxico, respeta `isManualOverride`, no escribe estructura); `pokemontcg_io` = **legacy/rollback money-safe** (fuente previa, congelable sin escritura de estructura); `pokemonpricetracker` (PPT bulk) = **fallback**. **Nota histórica:** el seed original v1.14 era `pokemontcg_io` con flip previsto a `pokemonpricetracker` (decisión abierta v1.14-1/v1.14-4); ese flip quedó **superado** por el switch a `tcgcsv_singles` (P-47/v1.44), hoy el provider primario del barrido. **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- ⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
+  `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**. Ver §M10-IVA.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48:** `priceProvider` (`price_provider`, enum **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**, valor vigente **`tcgcsv_singles`** desde P-47/v1.44) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy → palanca de **rollback money-safe** del proveedor. Validado contra el enum del backend (**`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`**); `422 VALIDATION_ERROR` si es otro valor. **Semántica de los tres valores (P-47/v1.44, ARCHITECTURE §4.35):** `tcgcsv_singles` = **provider PRIMARIO** del precio **por-acabado** diario (reprecia desde TCGCSV, FX Banxico, respeta `isManualOverride`, no escribe estructura); `pokemontcg_io` = **legacy/rollback money-safe** (fuente previa, congelable sin escritura de estructura); `pokemonpricetracker` (PPT bulk) = **fallback**. **Nota histórica:** el seed original v1.14 era `pokemontcg_io` con flip previsto a `pokemonpricetracker` (decisión abierta v1.14-1/v1.14-4); ese flip quedó **superado** por el switch a `tcgcsv_singles` (P-47/v1.44), hoy el provider primario del barrido. **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
 - ⚠️⚠️ **v1.63 (§M2-F) — `fxManualOverrideRate` SIGUE en este DTO, pero ESTE `PUT` ya no decide si la tasa manual
   RIGE.** Desde v1.63 eso lo decide el ajuste **`fx_rate_mode`**, que ⛔ **NO se expone aquí y NO se edita por este
   endpoint** (enviar `fxRateMode` en el body cae en `422 VALIDATION_ERROR` como cualquier clave desconocida, mismo
@@ -15840,6 +15927,206 @@ Err `403`, `400 VALIDATION_ERROR`.
 
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
+
+- ⚠️⚠️ **v1.64 (§M10-IVA) — `ivaTransferPct` ENTRA EN EL `GET` PERO SE RECHAZA EN ESTE `PUT`.** Mismo precedente
+  **exacto** que `fxRateMode` (v1.63): el dial se **lee** aquí junto a los demás, y enviarlo en el cuerpo de
+  `PUT /admin/settings` cae en **`422 VALIDATION_ERROR`** (clave desconocida). **Su única puerta es
+  [`PUT /admin/settings/iva-transfer`](#M10-IVA)**, la que impone el **acuse del costo en pesos** que exige el
+  criterio **188** de `PROJECT.md`. ⛔ `ivaPct` (la **TASA**) **sigue editándose aquí y no cambia**: son **dos diales
+  independientes** y ninguno deriva del otro (`ARCHITECTURE §4.44.g`, candado `IVA-7`).
+
+<a id="M10-IVA"></a>
+#### ⚠️⚠️ §M10-IVA — EL DIAL DE TRASLACIÓN DEL IVA (v1.64, **NORMATIVO, DINERO**; `PROJECT §Q` / **D54**, `ARCHITECTURE §4.44`)
+
+> **El precio exhibido pasa a llevar el IVA dentro en toda superficie de cliente, y el dueño gobierna qué fracción
+> del IVA traslada.** El dial **nace en 100 %**, que es **el neutro**: con `t = 100 %` esta especificación
+> **reproduce el cobro de hoy al centavo** (base MX$100.00 ⇒ vitrina **MX$116.00**, cobro **MX$124.69**, margen
+> **MX$100.00**). Criterio **185**: *«si alguien paga un centavo distinto, es un fallo de release»*.
+> **Razón entera, fórmula, redondeos y despliegue: `ARCHITECTURE §4.44`.** Aquí va **solo la interfaz**.
+
+##### §M10-IVA.1 — El dial
+
+| | |
+|---|---|
+| **Clave / DTO** | `iva_transfer_pct` / **`ivaTransferPct`** |
+| **Tipo** | **entero** en **`[0, 100]`** — **FRACCIÓN DE TRASLACIÓN**, ⛔ **no puntos de IVA** |
+| **Seed** | **`100`** |
+| **Lectura** | `GET /admin/settings` (junto a los demás) y `GET /admin/settings/iva-transfer` |
+| **Escritura** | **SOLO** `PUT /admin/settings/iva-transfer` (`super_admin`) |
+| **Auditoría** | `settings.update` con `before`/`after`, **en la MISMA transacción** que la escritura |
+
+⛔ **`37.5` ⇒ `422 VALIDATION_ERROR`.** El entero **no es gusto: es la columna** — `Order.ivaTransferPct` es `Int` y
+un decimal se truncaría en silencio mientras el precio se calculó con él. Es el mismo defecto que ya cerraron
+`validateIvaPct` y `validateAportacionPct`; la **decisión de columna** que aquellos comentarios dejaron esperando
+está tomada en `ARCHITECTURE §4.44.g`: **sigue siendo `Int`**.
+
+##### §M10-IVA.2 — Los dos endpoints nuevos
+
+**`GET /api/v1/admin/settings/iva-transfer/preview`** — `super_admin`. **READ-ONLY, sin efectos, cacheable: no.**
+
+```
+Query: ?ivaTransferPct=<0..100>&samplePriceCents=<int>=10000
+Res 200: IvaTransferPreviewDTO
+```
+
+```ts
+IvaTransferPreviewDTO = {
+  ivaRatePct: number,                  // la TASA vigente (dial `iva_pct`)
+  samplePriceCents: number,            // el `L` de ejemplo (default 10000 = MX$100.00)
+  current:  IvaTransferPositionDTO,    // con el dial VIGENTE
+  proposed: IvaTransferPositionDTO,    // con el `ivaTransferPct` de la query
+  netDeltaPerUnitCents: number         // proposed.netRevenueCents − current.netRevenueCents  (negativo = margen cedido)
+}
+IvaTransferPositionDTO = {
+  ivaTransferPct: number,
+  displayPriceCents: number,           // P = round(L × (1 + t·r))
+  taxBaseCents: number,                // round(P / (1 + r))
+  ivaCents: number,                    // P − taxBaseCents   (RESIDUAL)
+  netRevenueCents: number,             // = taxBaseCents
+  totalChargedCents: number            // gross-up con los diales de Stripe vigentes (lo que el cliente pagaría)
+}
+```
+
+- ⭐ **La cifra la calcula EL SERVIDOR. ⛔ El frontend no multiplica nada** (`ARCHITECTURE §4.44.i`). Si el front
+  computara el delta, el acuse de abajo probaría que el front sabe multiplicar, **no que el dueño vio el costo real**.
+- **Valores exactos que este endpoint debe devolver** con `ivaRatePct = 16`, `samplePriceCents = 10000` y los diales
+  de Stripe vigentes (`0.036` / `300`) — **son los del criterio 188 y los de `PROJECT §Q.4`**:
+
+| `ivaTransferPct` | `displayPriceCents` | `taxBaseCents` = neto | `ivaCents` | `totalChargedCents` |
+|---|---|---|---|---|
+| **100** | **11600** | **10000** | **1600** | **12469** |
+| **50** | **10800** | **9310** | **1490** | **11634** |
+| **0** | **10000** | **8621** | **1379** | **10799** |
+
+  ⇒ pasar de **100 → 50** da `netDeltaPerUnitCents = −690` (**−MX$6.90 por unidad**), que es literalmente la cifra
+  que el criterio **188** exige mostrar antes de guardar.
+
+**`PUT /api/v1/admin/settings/iva-transfer`** — `super_admin`, auditado, **transaccional**.
+
+```
+Req: { ivaTransferPct: number,
+       acknowledgement: { samplePriceCents: number, previewedNetDeltaCents: number } }
+Res 200: { ivaTransferPct: number, preview: IvaTransferPreviewDTO }
+```
+
+| Código | Cuándo | Efecto |
+|---|---|---|
+| **`422 VALIDATION_ERROR`** | `ivaTransferPct` no entero, o fuera de `[0, 100]`. El `message` **nombra los dos extremos** | ⛔ **no escribe** |
+| **`422 IVA_TRANSFER_ACK_REQUIRED`** | falta `acknowledgement` (o alguno de sus dos campos) **y el valor CAMBIA** | ⛔ **no escribe** |
+| **`409 IVA_TRANSFER_ACK_STALE`** | el `previewedNetDeltaCents` **no coincide** con el que el servidor recalcula para ese `samplePriceCents` y ese `ivaTransferPct`. `details: { expectedNetDeltaCents }` | ⛔ **no escribe** |
+| **`200`** | todo cuadra | escribe **y** audita, **en la misma transacción** |
+
+- **El acuse solo se exige cuando el valor CAMBIA.** Un `PUT` con el mismo valor vigente es idempotente y no pide
+  acuse (no hay margen que ceder).
+- **Por qué endpoint propio y no una key más de `PUT /admin/settings`:** porque el criterio **188** dice *«⛔ falla si
+  el dial se puede guardar sin que esa cifra se haya mostrado»*, y **una norma que solo vive en la UI no se puede
+  poner roja desde el servidor**. Precedente idéntico: `PUT /admin/fx/mode` con `acknowledgeNoAutomaticRate`
+  ([`§M2-F.2`](#M2-F2)). *Un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene guardián.*
+- ⛔ **La pantalla no puede insinuar que absorber IVA reduce el impuesto** (no lo reduce) ni contener **ninguna**
+  afirmación jurídica sobre el IVA, tampoco en negativo (criterio **195**, ratifica **D53** y `DESIGN_SYSTEM §7.12a`).
+
+##### §M10-IVA.3 — Lo que cambia en los DTOs de cliente: ⛔ EL FRONTEND NUNCA MULTIPLICA
+
+**Tres campos, y sustituyen — no acompañan — a `salePriceCents` en superficie pública:**
+
+```ts
+displayPriceCents : number     // = P. La cifra que se pinta y la que se suma. YA lleva el IVA dentro
+ivaIncluded       : boolean    // true bajo IVA_INCLUSIVE
+ivaRatePct        : number     // la TASA, para el rótulo «IVA 16 % incluido». ⛔ NO es el dial
+```
+
+| DTO | Antes | Desde v1.64 (deploy 2) |
+|---|---|---|
+| `ListingDTO` | `salePriceCents?: number` | `displayPriceCents?: number` + `ivaIncluded` + `ivaRatePct` |
+| `GroupedListingDTO` | `salePriceCents: number` | `displayPriceCents: number` (**semántica «desde»**, sin cambio) + `ivaIncluded` + `ivaRatePct` |
+| `GroupedListingSummaryDTO` | `salePriceCents: number` | idem |
+| `SealedGroupDTO` | `fromPriceCents` | `fromPriceCents` **pasa a llevar el IVA dentro** + `ivaIncluded` + `ivaRatePct` |
+| `OrderItemPreview` / `OrderItemDTO` | `unitPriceCents` | `unitPriceCents` **es el `P` congelado**; se acompaña de `ivaIncluded` a nivel de `breakdown` |
+| `BreakdownDTO` | ver §M10-IVA.4 | ver §M10-IVA.4 |
+
+- ⭐ **`salePriceCents` NO se reinterpreta: DESAPARECE de la superficie pública.** Dejar el mismo nombre cambiando
+  su significado es **el defecto de D54 un nivel más abajo**, y además un front que no migrara **seguiría pintando
+  la mentira sin que nada fallara**. Con el rename, **un front que no migró no compila**. *El compilador sostiene la
+  diferencia; el test es la red* — misma doctrina que hizo de `GroupedListingSummaryDTO` un tipo propio en v2.1.9/D2.
+- ⛔ **`ivaTransferPct` NO viaja a NINGUNA superficie de cliente.** Que el cliente pueda leer qué fracción absorbemos
+  es una **fuga comercial** de la misma clase que v2.1.6 cerró retirando `source`/`isManualOverride` de lo público.
+  Viaja **solo** en `/admin/*`.
+- **En `/admin/*` viajan AMBAS y el desglose completo:** `listPriceCents` (el `L`), `displayPriceCents` (el `P`),
+  `taxBaseCents`, `ivaCents`, el neto y el dial. `PROJECT §Q.5`: *«⛔ el admin NO se convierte en superficie
+  solo-con-IVA: ve base, IVA, neto, exhibido y dial. Es donde se toma la decisión de margen.»*
+- **Superficies que NO cambian** (`PROJECT §Q.5`, con el supuesto al lado): **`HoldingDTO`/portafolio y su
+  valuación** (supuesto, pregunta **62**), **`PriceInfo`/`referenceValue` y los estimados PSA** (supuesto,
+  pregunta **62**), **todo el cotizador y las ofertas de buylist y sus cinco correos** (supuesto, pregunta **56**),
+  y **M7/M9**, que siguen en **NETO** (criterio **191**, **decisión**, no supuesto).
+
+##### §M10-IVA.4 — `BreakdownDTO`: la forma NO cambia, el SIGNIFICADO sí, y por eso gana dos campos
+
+```ts
+BreakdownDTO = {
+  subtotalCents: number,          // ⚠️ bajo IVA_INCLUSIVE = Σ displayPriceCents ⇒ YA lleva el IVA dentro
+  ivaCents: number,               // RESIDUAL: G − round(G/(1+r)). ⛔ NUNCA 0, ni con el dial en 0 %
+  ivaRatePct: number,             // sin cambio (la TASA)
+  processingFeeCents: number,     // sin cambio (gross-up; sigue SUMANDO y sigue rotulada «Comisión de plataforma»)
+  totalCents: number,
+  currency: 'MXN',
+  // ---- v1.64, ADITIVOS y NORMATIVOS
+  priceConvention: "IVA_EXCLUSIVE" | "IVA_INCLUSIVE",   // la convención de ESTE desglose
+  ivaIncluded: boolean                                   // = (priceConvention === "IVA_INCLUSIVE")
+}
+DirectShipBreakdownDTO = BreakdownDTO & { shippingFeeCents: number }  // shippingFeeCents = E, con IVA dentro
+```
+
+**Las tres identidades que el cliente puede comprobar, y que son normativas:**
+
+```
+(a)  Σ items[].unitPriceCents            ==  subtotalCents          exacto, sin deriva   ← criterio 194
+(b)  totalCents                          ==  subtotalCents + shippingFeeCents + processingFeeCents
+(c)  ivaCents                            <   subtotalCents          y ⛔ jamás 0
+```
+
+- ⚠️⚠️ **(b) es la identidad que sustituye a la vieja `total = subtotal + iva + fee`.** Bajo `IVA_INCLUSIVE`
+  **el IVA NO es un sumando del total: ya está dentro de `subtotalCents`**. ⇒ **la línea de IVA del checkout
+  INFORMA, no suma** (criterio **189**, decisión de D54). El rótulo exacto —*«IVA 16 % incluido»*— es **supuesto**
+  de la pregunta **60** y lo fija `DESIGN_SYSTEM`; lo normativo aquí es **el importe y que no sume**.
+- ⚠️ **El envío (`shippingFeeCents` / `E`) también lleva su IVA dentro** y **es money-neutral**:
+  `round(17500 × 1.16) = 20300`, que es exactamente lo que hoy aportan `17500 + 2800`. Lo obliga el criterio **189**
+  (*«ningún importe de IVA sumado después del precio exhibido»*). ⚠️ **La pregunta 60 sigue abierta en lo que toca
+  al ROTULADO**: divergencia declarada en `ARCHITECTURE §9 · D-IVA-8`.
+- **Nota que reemplaza a la de §4 (v1.3):** *«`totalCents = subtotalCents + ivaCents + processingFeeCents`»* es
+  cierto **solo bajo `IVA_EXCLUSIVE`**. Bajo `IVA_INCLUSIVE` es **(b)**. Un cliente que asierte la fórmula vieja
+  **fallará, y debe fallar**.
+
+##### §M10-IVA.5 — Las mutaciones que ponen un test **en rojo** *(para QA y para quien escriba los tests)*
+
+*Al estándar de [`§M2-F.6`](#M2-F6): **ninguno mide el nombre de un campo; todos miden qué dinero sale**.*
+
+> ⚠️ **LOS IDS `IVA-<n>` SON DEL CONTRATO Y LOS ASIGNO YO AQUÍ.** Un id `IVA-<n>` **sin fila en esta tabla no
+> existe**; para marcas internas que no son candados de contrato, prefijo propio (**`IVA-R*`**), como hizo backend
+> con `FX-R2`. *Un identificador compartido entre dos espacios de nombres no es un nombre: es una colisión esperando
+> a un incidente.*
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **IVA-1** ⭐⭐ | **que el arranque deje de ser neutral**: cualquier cosa que haga que con el dial en su valor inicial alguien pague distinto de lo que paga hoy | **EL candado de la feature y del criterio 185, y es una IGUALDAD CONTRA EL PASADO, no una aserción de forma.** Fixture: `iva_pct = 16`, `iva_transfer_pct = 100`, `stripe_fee_pct = 0.036`, `stripe_fee_fixed_cents = 300`, **UNA** pieza con `L = 10000`. ⇒ `POST /checkout/quote`: `displayPriceCents == 11600`, `subtotalCents == 11600`, **`ivaCents == 1600`**, `processingFeeCents == 869`, **`totalCents == 12469`**. ⭐ **Y la mitad que importa: `netRevenueCents` de la orden liquidada es `10000`** — el margen no se movió. **Rojo con 12468 o 12470.** ⭐⭐ **Y el viaje completo, que es lo que lo hace un candado y no una constante copiada:** las **tres** posiciones del dial dan `{100 → 11600/1600/12469/neto 10000}`, `{50 → 10800/1490/11634/neto 9310}`, `{0 → 10000/**1379**/10799/neto 8621}`. *Son las cifras que `PROJECT §Q.4` publica; si la implementación no las produce, la implementación está mal* |
+| **IVA-2** ⭐⭐ | **restaurar `grossUpBase = subtotal + iva`** bajo `IVA_INCLUSIVE` (o dejar vivo un identificador `baseCents` a secas que alguien vuelva a alimentar así) | **LA LÍNEA DE MAYOR RIESGO DEL CAMBIO, y se mide en pesos.** Con el fixture de `IVA-1`: la mutación produce `grossUpBase = 13200` ⇒ **`totalCents == 14164`** en vez de **12469** — **+13.6 % a TODOS los clientes, en silencio, sin excepción y sin log**. **Rojo si `totalCents > 12469`.** ⭐ **Y la mitad estructural:** `totalCents == grossUpTotal(subtotalCents + shippingFeeCents, fee)` **como identidad**, en los **tres** breakdowns (cart, shipment, direct-ship) — *rojo si uno solo de los tres suma el IVA aparte* |
+| **IVA-3** ⭐⭐ | **que una orden ya cobrada se reinterprete sola** — sembrar `'IVA_INCLUSIVE'`, poner un `DEFAULT` en la columna, un `?? 'IVA_INCLUSIVE'` en el lector, o backfillear `ivaTransferPct = 100` | **EL candado de la migración y del criterio 190, y son TRES salidas y DOS consultas SQL.** Fixture **sembrado por SQL** (único modo de crear el estado): una `Order` con `subtotalCents=10000`, `ivaCents=1600`, `ivaRatePct=16`, **`priceConvention='IVA_EXCLUSIVE'`**, **`ivaTransferPct IS NULL`**. **(a)** `GET /orders/:id`, **(b)** el correo de confirmación y **(c)** su fila en el CSV de `GET /admin/finance/iva` son **idénticos al centavo** a los de antes del cambio — **y se repite DESPUÉS de mover el dial a 0 %**: *rojo si alguna de las tres cambia*. **(c)** ⭐ **verificable POR LO NEGATIVO, sobre el DDL:** la columna `priceConvention` **no tiene `DEFAULT`** (`information_schema.columns.column_default IS NULL`) **y es `NOT NULL`** — *rojo si la migración usó `ADD COLUMN … NOT NULL DEFAULT`, aunque después hiciera `DROP DEFAULT`*. **(d)** ⭐⭐ `SELECT count(*) FROM "Order" WHERE "ivaTransferPct" IS NOT NULL AND "createdAt" < <fecha del deploy 2>` **== 0** — *nadie backfilleó una mentira*. **(e)** insertar una `Order` **omitiendo** `priceConvention` **LANZA** (violación de `NOT NULL`); rojo si pasa |
+| **IVA-4** ⭐ | **«arreglar» el descuadre re-redondeando el subtotal**, o redondear el IVA por línea y sumarlo | **El candado del criterio 194 y de la doctrina R1/R2/R3.** Carrito de **7 piezas** con `L ∈ {103, 999, 1, 12345, 7, 250, 8888}`, dial 100 %. **(a)** `Σ items[].unitPriceCents == subtotalCents` **exacto**. **(b)** `subtotalCents − ivaCents == taxBase` y `taxBase + ivaCents == subtotalCents` **como identidad** (rojo si difiere en 1 centavo: significa que el IVA se calculó por línea). **(c)** ⭐ **la mitad honesta, que se MIDE y se DECLARA en vez de negarse:** se compara `totalCents` contra `grossUpTotal(round(Σ L × 1.16))` —lo que se habría cobrado hoy— y **la diferencia es `≤ 1` centavo por pieza**. ⚠️ **Que la diferencia NO sea cero no es rojo**: es la consecuencia aritmética declarada en `ARCHITECTURE §9 · D-IVA-7`. **Rojo si excede la cota, y rojo si (a) falla** |
+| **IVA-5** ⭐⭐ | **que el P&L cuente el IVA como ingreso propio** — dejar `incomeCents += o.subtotalCents` tal cual, o netear desde el dial vivo en vez de desde las columnas de la fila | **El candado del criterio 191, y el reporte NO revienta: MIENTE.** Fixture: **dos** órdenes liquidadas, una a dial **100 %** (`subtotal 11600`, `iva 1600`, `IVA_INCLUSIVE`) y otra a dial **0 %** (`subtotal 10000`, `iva 1379`, `IVA_INCLUSIVE`), **más una tercera `IVA_EXCLUSIVE`** (`subtotal 10000`, `iva 1600`) sembrada por SQL. ⇒ `GET /admin/finance/pnl` da `incomeCents == 10000 + 8621 + 10000 == 28621`. **Rojo con 31600** (contó el IVA) **y rojo con 26242** (neteó también la histórica). ⭐ **Y el CSV lo repite** (`GET /admin/finance/pnl?format=csv`). ⭐⭐ **Y el amarre que mata la mutación silenciosa: se mueve el dial a 37 % y se vuelve a pedir el P&L ⇒ las tres cifras NO se mueven** — *el ingreso sale de columnas persistidas, jamás del dial vivo* |
+| **IVA-6** ⭐ | **apilar un importe de IVA después del precio exhibido** en cualquier flujo, típicamente por el envío | **El candado del criterio 189, y el sitio donde se cuela es el ENVÍO.** **(a)** `POST /checkout/guest/quote` con envío: `totalCents == grossUpTotal(subtotalCents + shippingFeeCents)` **y `shippingFeeCents == 20300`** con la tarifa en `17500` y dial 100 % — **rojo con `17500`** (dos convenciones en un mismo total) **y rojo si aparece cualquier cuarto sumando**. **(b)** ⭐ **money-neutral contra el pasado:** ese mismo `totalCents` es **idéntico** al que producía `computeDirectShipBreakdown` antes del cambio con el mismo carrito de UNA pieza. **(c)** `POST /shipments/quote`: misma identidad. **(d)** **por ausencia, sobre el JSON serializado de las tres rutas: no existe ningún campo de IVA que sea sumando del total** |
+| **IVA-7** ⭐⭐ | **colgar el dial nuevo de `iva_pct`** — leer `IVA_TRANSFER_PCT` dentro de `getStripeFee()`, o derivar uno del otro en cualquier dirección | **El candado del hecho 3 de `§Q.2` (pregunta 61), y mide que mover un PRECIO no mueva una COMISIÓN.** **(a)** con `grossUpBase` **fijo** en `11600`, mover `iva_transfer_pct` de `100` a `0` deja `processingFeeCents == 869` **sin moverse** y `getStripeFee().stripeFeeIvaPct == 0.16`. **Rojo si el fee cambia.** **(b)** el espejo: `PUT /admin/settings { ivaPct: 8 }` **no toca** la fila `iva_transfer_pct` (sigue en su valor) — **dos filas `ConfigSetting` independientes**, leídas a pelo. **(c)** ⭐ **por ausencia, sobre el código:** `getStripeFee()` **no contiene ninguna referencia a `IVA_TRANSFER_PCT`** — *rojo en cuanto aparezca, aunque los números cuadren ese día* |
+| **IVA-8** ⭐ | **vaciar el desglose fiscal** o **abrir una segunda puerta al dial** | **El candado del criterio 192 y de la puerta.** **(a)** dial `0 %`, exhibido `10000` ⇒ **`Order.ivaCents == 1379`**, ⛔ **jamás `0`, jamás `null`** — *mover el dial reduce el NETO, nunca el IVA registrado* — y el CSV de `GET /admin/finance/iva` **suma exactamente eso**. **(b)** `PUT /admin/settings { "ivaTransferPct": 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) **y la fila sigue en `100`**. **(c)** `PUT /admin/settings/iva-transfer { "ivaTransferPct": 50 }` **sin `acknowledgement`** ⇒ **`422 IVA_TRANSFER_ACK_REQUIRED`** **y la fila sigue en `100`**; con un `previewedNetDeltaCents` que no cuadra ⇒ **`409 IVA_TRANSFER_ACK_STALE`**, **sin escritura**. **(d)** `37.5` ⇒ `422 VALIDATION_ERROR` cuyo `message` **nombra los dos extremos**; `-1` y `101` también. **(e)** ⭐ **por lo negativo, sobre el seed: `SETTING_DEFAULTS['iva_transfer_pct'] === 100`** y el seed **sigue sin lógica** (el bucle sobre `SETTING_DEFAULTS`) — *rojo si aparece una derivación en `prisma/seed.ts`* |
+
+##### §M10-IVA.6 — Orden de entrega, para el orquestador
+
+**Son DOS deploys y ⛔ nunca uno** (`ARCHITECTURE §4.44.k`). **`decks-meta-v1` se desbloquea con el DEPLOY 2
+PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criterio **197**).
+
+| | Deploy 1 | Deploy 2 |
+|---|---|---|
+| Backend | `M-50` entera + `netRevenueCents` cableado + escribe `IVA_EXCLUSIVE` | deriva `P`, escribe `IVA_INCLUSIVE`, emite los tres campos, abre §M10-IVA.2 |
+| Frontend | **nada** | consume `displayPriceCents` en las **13 superficies**, la pantalla del dial (criterio 188) y arregla el mock (criterio 196) |
+| Contrato observable | **CERO cambios** | §M10-IVA.3 y §M10-IVA.4 |
+| Candados a correr | `IVA-3`, `IVA-5` | los **ocho** |
 
 #### <a id="M10-ops"></a>Ops — disparo manual de jobs internos (`admin/jobs/*`, `super_admin`, auditado)
 > **Superficie interna de operaciones** (no consumida por clientes): permite al súper-admin **disparar a mano** los

@@ -4,6 +4,73 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.64 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, CON UN DIAL DE TRASLACIÓN QUE NACE NEUTRO**
+> (2026-09-09, arquitecto. Base: **v1.63.4, vigente entera** — este pase **no toca el FX**: es otro frente.
+> Origen: **`PROJECT.md §Q` / D54, APROBADA por el dueño el 2026-09-09**, con las preguntas **52–55** contestadas.
+> Contrato en `API_CONTRACT.md` **v1.64**.)
+>
+> **La sección nueva es `§4.44` (justo antes de `§5`) y trae: `M-50` (DDL aditivo + enum + backfill + seed), **un dial nuevo** (`iva_transfer_pct`), **un endpoint
+> nuevo con su preview** (`§M10-IVA`), **ocho candados** (`IVA-1…IVA-8`) y **cinco divergencias** (`§9`,
+> `D-IVA-4…D-IVA-8`).**
+>
+> **⭐⭐ LA GARANTÍA QUE ORDENA TODO EL DISEÑO: EL DÍA DEL DEPLOY NADIE PAGA DISTINTO.** Con el dial en su valor
+> inicial (**100 %**), la fórmula reproduce el cobro de hoy **al centavo** — lo verifiqué contra los diales reales
+> (`16` / `0.036` / `300`) y contra `money.ts`: base MX$100.00 ⇒ vitrina **MX$116.00**, cobro **MX$124.69**, margen
+> **MX$100.00**, `ivaCents` **1600**. **Y las tres posiciones del dial que `§Q.4` publica —MX$124.69 / MX$116.34 /
+> MX$107.99 y netos 100.00 / 93.10 / 86.21— salen exactas de la misma fórmula.** El criterio **185** lo eleva a
+> *«si alguien paga un centavo distinto, es fallo de release»*: **eso es candado (`IVA-1`), no aspiración.**
+> **Lo único que cambia es que el precio de vitrina deja de mentir.**
+>
+> **1. 🔴 LA LÍNEA DE MAYOR RIESGO, y es una sola (§4.44.d).** Hoy `money.ts:385` hace `baseCents = subtotal + iva`,
+> y **ese `base` NO es la base gravable: es la base del gross-up**. Bajo la convención nueva el IVA **ya está dentro
+> del subtotal**, así que `grossUpBase = subtotalCents` (+ envío) **y nada más**. Sumarlo otra vez **cobra un
+> +13.6 % a todos los clientes, en silencio**. ⇒ **norma de nombres obligatoria** (`grossUpBaseCents` /
+> `taxBaseCents`; ⛔ ningún `baseCents` a secas sobrevive) y candado **`IVA-2`**. *Dos conceptos con el mismo nombre
+> en un fichero de dinero es el defecto de D54 un nivel más abajo.*
+>
+> **2. 🔴 EL SNAPSHOT DE CONVENCIÓN, y el «sin default» ES la decisión (§4.44.e).** `Order.priceConvention` /
+> `ShipmentRequest.priceConvention` van **NOT NULL y SIN default de BD**, para que un camino que las olvide
+> **reviente ruidosamente** en vez de archivar bajo una convención lo que cobró bajo otra. **`ivaTransferPct` es
+> nullable y se queda en `NULL` en las filas antiguas: ⛔ no se backfillean a `100`, sería una mentira** — esas
+> órdenes se cobraron cuando el dial no existía. *Un hueco honesto, jamás un dato inventado presentado como
+> probatorio* (misma doctrina que §5.2).
+>
+> **3. 🟡 EL DIAL NO SE CUELGA DE `iva_pct`, Y ESO ES CANDADO (§4.44.g).** `settings.service.ts:259` deriva el IVA de
+> la comisión de Stripe del **mismo** `IVA_PCT` (hecho 3 de §Q.2) ⇒ si el dial nuevo entrara ahí, **mover un precio
+> movería una comisión**. `getStripeFee()` **jamás** lee `IVA_TRANSFER_PCT` (`IVA-7`). El dial es **entero `[0,100]`
+> porque la columna es `Int`** —la decisión de columna que backend dejó esperando en `validateIvaPct`, **tomada aquí**—,
+> **seed `100`**, `super_admin`, auditado en la misma transacción, y con **endpoint propio** que **exige acuse del
+> costo en pesos** antes de guardar (criterio **188** hecho verificable en el servidor, patrón de `FX-12`).
+> **El nombre está elegido para que quepa un segundo dial `commission_transfer_pct`** el día que el dueño decida
+> meter la comisión: **hueco preparado, ⛔ no construido**.
+>
+> **4. 🟡 EL P&L NO PUEDE MENTIR EN SILENCIO (§4.44.j).** `admin.service.ts:821` cuenta `o.subtotalCents` como
+> ingreso; con el IVA dentro **contaría el impuesto como ingreso propio sin que nadie tocara ese fichero**. Se cierra
+> con **un helper único** (`netRevenueCents`) derivado **solo de columnas persistidas** —nunca del dial vivo— y
+> **tres call sites**, con el cuarto (`ivaReport`) listado **para que nadie lo toque**. Candado `IVA-5`.
+>
+> **5. 🟡 SON DOS DEPLOYS, NUNCA UNO (§4.44.k).** D-1 = `M-50` + el helper cableado + escribir `IVA_EXCLUSIVE`
+> ⇒ **cero efecto observable**, y es la única ventana para probar el P&L neutro contra producción real. D-2 = la
+> convención, **cero DDL**, y su rollback **no toca la BD** porque el lector es por fila. En uno solo, revertir deja
+> **órdenes `IVA_INCLUSIVE` en una base cuyo código ya no conoce la columna** ⇒ **el criterio 190 al revés**.
+>
+> **6. ⭐ LO QUE ENCONTRÉ Y NO ACOMODO — `§9 · D-IVA-7`.** El criterio **185** (*«idéntico al centavo»*) y el
+> criterio **194** (*«Σ líneas == subtotal»*) **no pueden ser los dos exactos en carritos multi-línea**, porque
+> `Σ round ≠ round Σ`. Contraejemplo mínimo calculado con los diales reales: **dos piezas de `L=103` ⇒ hoy 613
+> centavos, con §4.44 612**. **Un centavo.** Cota: **≤ 0.53 centavos por pieza**. No se desvían el caso de una sola
+> pieza —que es el que 185 enuncia—, el margen por unidad, ni el envío. **Enmendar un criterio de `PROJECT.md` no es
+> mío**: va al product-owner con mi recomendación escrita, y **⛔ no bloquea a nadie** (la fórmula es la misma se
+> responda lo que se responda; solo cambia **cómo verifica QA el 185**). Las otras cuatro divergencias: el comentario
+> de `settings.constants.ts` que aún llama a D54 *«borrador NO vigente»* (`D-IVA-4`), el ingreso de envío de
+> `direct_ship` que **el P&L no cuenta y el contrato manda desde v1.21** (`D-IVA-5`), una cita de línea desviada
+> (`D-IVA-6`), y **el criterio 189 decidiendo de facto la mitad aritmética de la pregunta 60, que sigue abierta**
+> (`D-IVA-8`).
+>
+> **7. Ocho supuestos, con su mapa.** Las preguntas **56, 57, 59, 60, 61, 62, 63 y 64** siguen abiertas y **ninguna
+> bloquea**. **§4.44.m es la tabla de qué se cae si el dueño responde distinto**, decisión por decisión — para que
+> nadie tenga que releer el pase entero para saber qué reverificar.
+>
+> ---
 > **Rev v1.63.2 — PASE DOCUMENTAL: `§M2-F` ESTÁ IMPLEMENTADO Y APROBADO, Y ESTE DOCUMENTO SEGUÍA DESCRIBIENDO EL BUG
 > QUE ABOLIÓ** (2026-09-09, arquitecto. Base: **v1.63.1, vigente entera**. **⛔ NO rediseña `§M2-F`: no cambia ni un
 > endpoint, ni un DTO, ni un invariante, ni un candado.** **CERO DDL, CERO migración, CERO código nuevo.** Contrato en
@@ -20212,6 +20279,404 @@ caducó dos veces** — §0-B.3 regla 8, ampliación «elimina o nombra»)* — 
 
 ---
 
+### 4.44 EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO + DIAL DE TRASLACIÓN PARCIAL (v1.64-iva-inclusive, `PROJECT §Q` / **D54 APROBADA 2026-09-09**, NORMATIVO, **DINERO**)
+
+> **Fuente y autoridad.** `PROJECT.md §Q` es **alcance vigente** y sus criterios **185–197** son **criterios de
+> aceptación vigentes que QA verifica y el DoD exige**. `PROJECT.md` manda sobre este documento y este documento
+> sobre el código. Lo que §Q fija es el **QUÉ** y el **POR QUÉ**; **el modelo de datos, la fórmula, el orden de las
+> operaciones y los nombres de campo son de este documento**, y aquí quedan.
+>
+> **Alcance de la verificación de este pase — dicho para que nadie lo tome por más de lo que es.** Verifiqué **yo**,
+> contra el árbol de código, los siete hechos de aritmética que sostienen todo lo de abajo: `money.ts:379-457`
+> (los tres breakdowns), `money.ts:476-492` (`grossUpTotal`), `settings.service.ts:259` (`stripeFeeIvaPct` derivado
+> de `IVA_PCT`), `settings.constants.ts:262-265` (seeds `16` / `0.036` / `300`), `admin.service.ts:821` y `:842`
+> (el P&L), `admin.service.ts:980-1001` (`ivaReport` + CSV) y `schema.prisma:1020-1080` (`model Order`). **Las
+> cuatro respuestas del dueño (52–55) y la corrección `D-IVA-1` las tomo de `PROJECT.md`, releído en este pase.**
+
+#### 4.44.a ⭐⭐ La garantía que este diseño existe para dar: EL DÍA DEL DEPLOY NADIE PAGA DISTINTO
+
+Con el dial en su valor inicial (**100 %**), la fórmula de abajo **reproduce el cobro de hoy al centavo**. No es
+aspiración: es **candado** (`IVA-1`), y el criterio **185** lo dice con todas las letras — *«si alguien paga un
+centavo distinto, es un fallo de release»*.
+
+Verificado por mí contra los diales reales (`iva_pct = 16`, `stripe_fee_pct = 0.036`, `stripe_fee_fixed_cents = 300`),
+sobre una pieza de lista **MX$100.00**:
+
+| | Hoy (antes de D54) | Con §4.44, dial `t = 100 %` |
+|---|---|---|
+| Cifra en la ficha | MX$100.00 *(y miente)* | **MX$116.00** |
+| Base gravable | 10000 | **10000** |
+| `Order.ivaCents` | 1600 | **1600** |
+| Base del gross-up | `10000 + 1600` = **11600** | **11600** |
+| `Order.totalCents` | **12469** | **12469** |
+| `processingFeeCents` | 869 | 869 |
+| Ingreso del P&L | 10000 | **10000** |
+
+**Lo único que cambia es que el precio de vitrina deja de mentir.** Y las tres posiciones que `PROJECT §Q.4`
+publica se reproducen también al centavo con esta fórmula — las recalculé una por una:
+
+| Dial `t` | `displayPriceCents` | `Order.ivaCents` | `Order.totalCents` | Neto del negocio |
+|---|---|---|---|---|
+| **100 %** ← inicial | 11600 | 1600 | **12469** ✅ | **10000** (MX$100.00) |
+| **50 %** | 10800 | 1490 | 11634 ✅ | **9310** (MX$93.10) |
+| **0 %** | 10000 | **1379** | 10799 ✅ | **8621** (MX$86.21) |
+
+*(Las tres columnas de la derecha son exactamente las cifras de `§Q.4`, del criterio **188** —«MX$108.00 exhibido,
+MX$93.10 neto, −MX$6.90 por unidad»— y del criterio **191** —«la segunda aporta MX$86.21»— y del criterio **192**
+—«con dial al 0 % el IVA de la orden es MX$13.79, no cero»—. **Si la implementación no produce estas cifras, la
+implementación está mal, no la tabla.**)*
+
+#### 4.44.b LA REGLA MADRE, y de ella cuelga todo lo demás
+
+> **`L` no cambia nunca. `P` se deriva. El dial mueve `P`, jamás `L`.**
+
+- **`L` = precio de lista, en centavos, SIN IVA.** Es lo que hoy resuelve la curva de venta (`§4.36`), el override
+  de variante o `InventoryItem.listPriceCents`, y es **lo que la plataforma se queda**. ⛔ **La curva no se toca.**
+  ⛔ **`listPriceCents` no se toca.** ⛔ **El costo de adquisición, el buylist, la valuación de bóveda y el «valor
+  de mercado» no se tocan** (`PROJECT §Q.5`; supuestos de las preguntas **56** y **62**).
+- **`P` = precio exhibido, en centavos, CON IVA dentro.** Es lo que el cliente ve, lo que suma el carrito y **lo
+  que se cobra**. Se deriva en el servidor, en cada lectura, con el dial vigente.
+
+Corolario que hay que decir en voz alta porque es donde alguien «corregiría» de más: **bajar el dial no baja el
+impuesto, baja `P`**, y esa diferencia **sale del margen** (`PROJECT §Q.4`). El dial de traslación es un **dial de
+margen**, y por eso su pantalla tiene que decirlo en pesos antes de guardar (§4.44.h).
+
+#### 4.44.c ⭐ LA FÓRMULA, y las tres reglas de redondeo con su porqué
+
+```
+r  = ivaPct / 100                         // TASA del impuesto. Entero [0,100] (dial `iva_pct`, sin cambio)
+t  = ivaTransferPct / 100                 // FRACCIÓN TRASLADADA. Entero [0,100] (dial NUEVO `iva_transfer_pct`)
+
+P        = round( L × (1 + t·r) )         // (1) precio exhibido, POR UNIDAD
+S        = Σ P_i                          // (2) subtotal = suma exacta de los precios exhibidos
+E        = round( F × (1 + t·r) )         // (3) tarifa de envío exhibida (F = dial `shipping_fee_cents`, neto)
+G        = S + E                          // (4) BASE DEL GROSS-UP  ⚠️⚠️ NO es `S + E + iva`
+taxBase  = round( G / (1 + r) )           // (5) base gravable, UNA sola vez, sobre el AGREGADO
+iva      = G − taxBase                    // (6) RESIDUAL. Jamás se calcula por su cuenta
+total    = ceil( (G + (1+r)·fija) / (1 − (1+r)·pct) )    // (7) gross-up, SIN CAMBIO (`grossUpTotal`)
+fee      = total − G                                      // (8) comisión de plataforma, SIN CAMBIO
+```
+
+*(En (7) el `(1+r)` es `stripeFeeIvaPct = ivaPct/100`, derivado de `IVA_PCT` desde v1.40 — **no** de
+`iva_transfer_pct`. Ver §4.44.g y el candado `IVA-7`.)*
+
+**R1 — Se redondea UNA sola vez por precio, y ese redondeo es `P`.** `P` se redondea **por unidad**, nunca por
+línea-con-cantidad ni sobre el subtotal. Razón: `P` es **la cifra que el cliente lee**, y una cifra que se lee
+tiene que ser la que se suma. El subtotal es **suma exacta de enteros** ⇒ criterio **194** se cumple *por
+construcción*, no por cuidado del implementador.
+
+**R2 — El IVA es RESIDUAL y se calcula UNA sola vez, sobre el AGREGADO que se persiste.** `iva = G − round(G/(1+r))`
+⇒ **`taxBase + iva ≡ G` es una identidad exacta, no una aproximación**. ⛔ **Prohibido** calcular IVA por línea y
+sumarlo: `Σ round(...)` ≠ `round(Σ ...)` y el CSV de `GET /admin/finance/iva` dejaría de cuadrar contra las
+columnas de la propia orden (criterio **192**). *El agregado es además el status quo: hoy `computeCartBreakdown`
+ya calcula el IVA una vez sobre el subtotal.*
+
+**R3 — El redondeo lo absorbe el RESIDUAL, jamás el precio exhibido.** `P` es autoritativo; `taxBase` e `iva` se
+derivan **de `P`**. ⛔ **Prohibido reconstruir `P` desde `taxBase`** (`taxBase × (1+r)` puede diferir de `P` en un
+centavo, y esa dirección convierte un desglose en un **recobro**). *La flecha va en un solo sentido: precio →
+desglose. Nunca desglose → precio.*
+
+##### 4.44.c.1 ⚠️ LA CONSECUENCIA QUE D54 NO PREVIÓ, Y NO LA ESCONDO: el criterio 185 y el criterio 194 se rozan
+
+`R1` obliga a `S = Σ round(L_i × (1+t·r))`. La aritmética de hoy produce, en cambio, `round(Σ L_i × (1+r))`. **Y
+`Σ round` ≠ `round Σ`.** Contraejemplo mínimo, que calculé con los diales reales — **dos piezas de `L = 103`**:
+
+| | Hoy | Con §4.44 (`t = 100 %`) |
+|---|---|---|
+| Subtotal / base del gross-up | `206` → iva `33` → **239** | `119 + 119` = **238** |
+| `totalCents` | **613** | **612** |
+
+**Un centavo.** No es un defecto de la fórmula: es **la única salida posible** cuando se exige a la vez que (a) el
+cliente vea un precio por pieza y (b) la suma de lo que ve sea el subtotal (criterio **194**, que es absoluto:
+*«un redondeo por línea que se acumule y descuadre el total es un fallo»*). Cualquier variante que redondee sobre
+el agregado descuadraría el recibo.
+
+- **Cota, medida y no supuesta:** la desviación de la base es `≤ 0.5` centavos **por pieza**, y la del total
+  `≤ 0.53` centavos por pieza (`1/(1−0.04176)`). Un carrito de 7 piezas se desvía **como mucho 4 centavos**, en
+  cualquiera de las dos direcciones.
+- **Qué NO se desvía ni un centavo:** el caso de una sola pieza (que es el que el criterio 185 enuncia: base
+  MX$100.00 ⇒ ficha MX$116.00 ⇒ cobro MX$124.69), **el margen por unidad**, `Order.ivaCents` respecto de
+  `Order.subtotalCents`, y el envío.
+- **⚠️ Esto es del product-owner, no mío.** El criterio **185** dice *«idéntico al centavo»* y **enmendar un
+  criterio de `PROJECT.md` no es competencia del arquitecto**. Lo enruto como divergencia **`§9 · D-IVA-7`**, con
+  mi recomendación escrita ahí. **⛔ No bloquea a backend**: la fórmula es la misma se responda lo que se responda;
+  lo único que depende de la respuesta es **cómo verifica QA el criterio 185** (pieza única y margen, o carrito
+  completo). El candado `IVA-4` mide y **declara** la desviación en vez de taparla.
+
+#### 4.44.d ⚠️⚠️ LA LÍNEA DE MAYOR RIESGO DE TODO EL CAMBIO: `G = S + E`, **no** `S + E + iva`
+
+Hoy, en `money.ts:385`, `:409` y `:445`, la variable se llama `baseCents` y vale `subtotal + iva`. **Ese `base` NO
+es la base gravable: es «lo que la plataforma debe recibir íntegro» — la base del gross-up.** Bajo `IVA_INCLUSIVE`
+el IVA **ya está dentro de `S`**, así que sumarlo otra vez **lo cobra dos veces**:
+
+```
+correcto:    G = 11600            → total 12469
+la mutación: G = 11600 + 1600     → total 14164     ⚠️ +13.6 % a TODOS los clientes, en silencio
+```
+
+⇒ **Norma de nombres, y es obligatoria porque el nombre es el defecto:** en el código de §4.44 la variable de (4)
+se llama **`grossUpBaseCents`** y la de (5) **`taxBaseCents`**. ⛔ **Está prohibido que sobreviva un identificador
+`baseCents` a secas** en las rutas tocadas por este pase. *Dos conceptos distintos con el mismo nombre, en un
+fichero de dinero, es exactamente el defecto que D54 vino a matar — un nivel más abajo.* Candado: **`IVA-2`**.
+
+#### 4.44.e EL SNAPSHOT DE CONVENCIÓN — cómo se garantiza que una orden vieja no se reinterprete sola
+
+El riesgo es real y `PROJECT §Q.2` (hecho 8) lo nombra: **`Order.ivaRatePct` congela la TASA, no la CONVENCIÓN**.
+La fila `subtotal=10000, iva=1600` significa hoy *«100 + 16»* y bajo la regla nueva significaría *«100 de los
+cuales 13.79 son IVA»*. **Sin una columna que diga cuál de las dos, el pedido de ayer cambia de significado solo.**
+
+```prisma
+enum PriceConvention { IVA_EXCLUSIVE  IVA_INCLUSIVE }
+
+model Order {
+  // ...
+  priceConvention  PriceConvention        // ⛔ NOT NULL y ⛔ SIN @default
+  ivaTransferPct   Int?                   // NULLABLE. NULL en toda fila anterior al deploy 2
+}
+
+model ShipmentRequest {
+  // ...
+  priceConvention  PriceConvention        // ⛔ NOT NULL y ⛔ SIN @default
+  ivaTransferPct   Int?
+}
+```
+
+- **`priceConvention` NOT NULL y SIN default de BD — y el «sin default» es la decisión, no el `NOT NULL`.** Un
+  `DEFAULT 'IVA_EXCLUSIVE'` haría que **un camino de escritura que olvide el campo cobre bajo una convención y lo
+  archive bajo la otra**, en silencio y para siempre. Sin default, ese camino **revienta con una violación de
+  `NOT NULL` la primera vez que corre**, en desarrollo, con nombre y apellido. *Un fallo ruidoso en una columna de
+  dinero es estrictamente mejor que una fila que se contradice a sí misma.* **⛔ La migración NO puede usar
+  `ADD COLUMN … NOT NULL DEFAULT …`** ni siquiera transitoriamente: el orden obligatorio es **añadir nullable →
+  backfill explícito a `IVA_EXCLUSIVE` → `SET NOT NULL`**, sin que quede ningún `DEFAULT` en el DDL final (M-50).
+- **`ivaTransferPct` nullable y `NULL` en las filas antiguas. ⛔ NO se backfillean a `100`.** Marcarlas `t=100`
+  sería **inventar un hecho**: esas órdenes se cobraron cuando el dial no existía. `NULL` dice la verdad —*«esta
+  orden no tuvo dial»*— y no le hace falta a nadie para reproducir el dinero. **Es la misma doctrina que §5.2 usa
+  con los hechos congelados: un hueco honesto, jamás un dato inventado presentado como probatorio.**
+- **El dinero de una orden se reproduce SOLO desde columnas persistidas**, nunca desde el dial vivo:
+  `subtotalCents`, `shippingFeeCents`, `ivaCents`, `processingFeeCents`, `totalCents`, `ivaRatePct` y
+  `priceConvention`. **`ivaTransferPct` es informativo/auditor** — el dinero ya está en las otras columnas. Por eso
+  su `NULL` no rompe nada, y por eso **mover el dial no puede alterar ni un centavo de una orden existente**
+  (criterio **190**). Candado: **`IVA-3`**.
+- **⛔ Ninguna migración reescribe importes de órdenes existentes.** Ni `subtotalCents`, ni `ivaCents`, ni
+  `totalCents`. La migración M-50 solo **añade** columnas y **escribe la convención que esas filas ya tenían**.
+
+#### 4.44.f El envío — y aquí hay que decir exactamente qué es decisión, qué es supuesto y qué lo obliga
+
+**El estado en `PROJECT.md`:** la pregunta **60** sigue **abierta** y `§Q.5` marca el envío como *«SIN DECIDIR»*,
+con el **supuesto declarado** de que *«se suma aparte»*. **Ese supuesto se respeta al pie: el envío sigue siendo
+una línea propia, visible y separada.**
+
+**Lo que NO es supuesto y sí es criterio vigente:** el **189** exige que
+`total = suma(precios exhibidos) + envío + comisión de plataforma` **y nada más**, y que *«encontrar un solo caso
+donde aparezca un importe de IVA sumado después del precio exhibido es un fallo»*. Hoy `computeShipmentBreakdown`
+y `computeDirectShipBreakdown` **apilan `round(envío × r)` después**. ⇒ **el criterio 189 obliga a que la tarifa de
+envío exhibida lleve su IVA dentro**, exactamente igual que un precio de carta. No es una preferencia mía: es la
+única lectura de 189 que no lo incumple.
+
+⇒ **El envío entra en la regla madre como un `L` más**: `F` (el dial `shipping_fee_cents`, **que sigue siendo
+neto** y **no cambia de valor**) produce `E = round(F × (1+t·r))`, y `E` es lo que se exhibe y lo que se cobra.
+**Es money-neutral por construcción:** con `t = 100 %`, `E = round(17500 × 1.16) = 20300`, que es **exactamente**
+lo que hoy aporta `17500 + round(17500 × 0.16) = 20300`. **Ni un centavo.**
+
+> **⚠️ SUPUESTO SOSTENEDOR — márquese, porque es lo que hay que reverificar si el dueño responde distinto.**
+> Esto descansa en la lectura de que la pregunta **60** decide **el rótulo** del envío, no su aritmética, porque
+> la aritmética ya la fija el criterio **189**. **Si el dueño responde que el envío se muestra sin IVA y el IVA
+> del envío se suma aparte**, hay que reverificar: **§4.44.f entero**, el candado **`IVA-6`**, la fórmula (3)–(4),
+> y **habría que enmendar el criterio 189** — que es del product-owner, no mío. Lo dejo dicho aquí y en
+> **`§9 · D-IVA-8`**. *Mi recomendación de pases anteriores sigue viva y sin cambio: dos convenciones dentro de un
+> mismo total es el defecto que §Q vino a cerrar (hecho 6), no algo que se pueda dejar abierto en el checkout.*
+
+#### 4.44.g EL DIAL — uno solo, global, continuo, en fracción de traslación
+
+| | |
+|---|---|
+| **Clave** | `iva_transfer_pct` (`SettingKey.IVA_TRANSFER_PCT`) |
+| **DTO** | `ivaTransferPct` |
+| **Unidad** | **FRACCIÓN DE TRASLACIÓN**, en puntos porcentuales **enteros**, `[0, 100]`. ⛔ **No son puntos de IVA** (pregunta **54**) |
+| **Seed** | **`100`** (pregunta **55**: arranque neutral) |
+| **Quién** | **`super_admin`**, sin redeploy |
+| **Puerta** | `PUT /api/v1/admin/settings/iva-transfer` (**endpoint propio**; ver §4.44.h y `API_CONTRACT §M10-IVA`) |
+| **Auditoría** | `settings.update` con `before`/`after`, **en la MISMA transacción** que la escritura (ya lo garantiza `SettingsService.update` desde v2.1.6) |
+| **Alcance** | **UNO SOLO Y GLOBAL** (pregunta **53**). ⛔ Cero diales por tipo de producto, por set, por SKU o por carta |
+
+- **⛔ ENTERO, y el «entero» no es gusto: es la COLUMNA.** `Order.ivaTransferPct` es `Int`. Un `37.5` se
+  **truncaría en silencio a `37`** mientras el precio se calculó con `37.5` — **es literalmente el defecto que
+  `TD-IVA-1`/`TD-IVA-2` cerraron** para `iva_pct` y `aportacion_pct`. Backend dejó escrito el orden correcto
+  —*«primero la columna (decisión del arquitecto), después el rango»*— y **la decisión de columna es ésta y la
+  tomo aquí: `Int`, y por tanto el validador es `isInt(v) && 0 <= v <= 100`.** Criterio **187** exige poder
+  guardar `0`, `37`, `50` y `100`: los cuatro son enteros. *Si algún día el negocio necesita medio punto de
+  traslación, se cambia primero la columna y después el rango — nunca al revés.*
+- **⛔⛔ EL DIAL NUEVO NO SE CUELGA DE `iva_pct`, Y ESO ES UN CANDADO.** `settings.service.ts:259` deriva
+  `stripeFeeIvaPct` de `IVA_PCT` (hecho 3): si el dial de traslación entrara ahí, **mover un precio movería una
+  comisión**. ⇒ **`getStripeFee()` NUNCA lee `IVA_TRANSFER_PCT`**, y `IVA_PCT` sigue siendo la fuente única del
+  IVA de la comisión de Stripe. *Son dos filas independientes de `ConfigSetting` y ninguna deriva de la otra.*
+  Candado **`IVA-7`**. *(La pregunta **61** —si `iva_pct` debería dejar de gobernar dos cosas— **sigue abierta y
+  no la toca este pase**: aquí solo se garantiza que el dial **nuevo** no agrava el acoplamiento existente.)*
+- **Por qué el seed `100` NO necesita el sentinel `"legacy"` de `FX-6`.** En el FX el default era peligroso porque
+  `SETTING_DEFAULTS` es **también** el fallback de `get()` cuando la fila no existe, y ahí *«ausente»* y
+  *«elegido»* significaban cosas distintas. **Aquí no:** `100 %` es **la conducta correcta en las dos bases** —en
+  una instalación limpia porque es el valor inicial que el dueño eligió, y en producción antes del backfill porque
+  es el neutro que reproduce el cobro de hoy—. **La ausencia de la fila y el valor por defecto significan lo
+  mismo**, así que no hay decisión que perder. La migración **siembra la fila igualmente** (§11.0, regla de
+  propagación de seeds), para que el dial sea visible y auditable desde el minuto cero.
+- **⚠️ El nombre está elegido a propósito para que quepa un segundo dial.** `iva_transfer_pct` nombra **qué** se
+  traslada, no *«el dial»*. El día que el dueño decida meter la comisión al precio exhibido (`PROJECT §Q.9`,
+  escenario B, **pendiente suyo con carácter temporal explícito**), el hueco es `commission_transfer_pct` y la
+  fórmula (1) crece a `P = round(L × (1 + t·r) × (1 + c·…))` **sin renombrar nada**. ⛔ **El hueco se deja
+  PREPARADO, NO CONSTRUIDO**: en este pase **no** existe la clave, **no** existe el validador, **no** existe el
+  campo en ningún DTO. *Nadie del equipo cierra ese pendiente: es del dueño, con su contador o abogado.*
+
+#### 4.44.h LA PANTALLA DEL DIAL DICE LO QUE CUESTA, Y ESO SE VERIFICA EN EL SERVIDOR (criterio 188)
+
+El criterio **188** es *«el punto entero del requisito»* y termina con *«**⛔ falla si el dial se puede guardar sin
+que esa cifra se haya mostrado**»*. Una norma que solo vive en la UI **no se puede poner roja desde el servidor**,
+así que se ancla con el patrón que este contrato ya usa para el FX (`acknowledgeNoAutomaticRate`, `FX-12`):
+
+1. **`ivaTransferPct` se expone READ-ONLY en `GET /admin/settings` y se RECHAZA en `PUT /admin/settings`**
+   (`422 VALIDATION_ERROR`, clave desconocida) — **mismo precedente exacto que `fxRateMode`**.
+2. **Su única puerta es `PUT /api/v1/admin/settings/iva-transfer`**, y esa puerta **exige el acuse**: el cuerpo
+   trae `acknowledgement: { samplePriceCents, previewedNetDeltaCents }`, el servidor **recalcula** el delta y
+   compara. Sin acuse ⇒ `422 IVA_TRANSFER_ACK_REQUIRED`; con acuse que no cuadra ⇒ `409 IVA_TRANSFER_ACK_STALE`.
+   **En los dos casos la fila NO se escribe.**
+3. **La cifra la calcula el servidor**, en `GET /api/v1/admin/settings/iva-transfer/preview`. ⛔ **El frontend no
+   multiplica nada** (§4.44.i): si el front computara el delta, el acuse probaría que el front sabe multiplicar,
+   no que el dueño vio el costo real.
+4. **La pantalla no puede insinuar que absorber IVA reduce el impuesto**: no lo reduce (`PROJECT §Q.4`). Y ⛔ **cero
+   afirmaciones jurídicas** sobre el IVA en ninguna superficie (criterio **195**, ratifica D53).
+
+*Decisión de arquitecto declarada como tal: el endpoint propio + el acuse son **míos**, no de `PROJECT.md`. §Q fija
+que la pantalla debe decir el costo; el **cómo se hace verificable** es de este documento. El precedente es
+`§M2-F.2` y la razón es idéntica: un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene
+guardián.*
+
+#### 4.44.i LAS SUPERFICIES — el servidor manda la cifra ya hecha; ⛔ EL FRONTEND NUNCA MULTIPLICA
+
+**Norma, no sugerencia.** Toda superficie de cliente recibe **el número que se muestra**, más las dos señales que
+lo describen. Nunca recibe los ingredientes para que los combine.
+
+```
+displayPriceCents : number     // = P. La cifra que se pinta y la que se suma. YA lleva el IVA dentro
+ivaIncluded       : boolean    // true en superficie de cliente bajo IVA_INCLUSIVE
+ivaRatePct        : number     // la TASA, para el rótulo «IVA 16 % incluido». ⛔ NO es el dial
+```
+
+- **⛔ `ivaTransferPct` NO viaja a ninguna superficie de cliente.** Es una decisión de margen del negocio; que el
+  cliente pueda leer qué fracción absorbemos es una **fuga comercial** de la misma clase que v2.1.6 cerró
+  retirando `source`/`isManualOverride` de lo público. Viaja **solo** en `/admin/*`.
+- **⭐ `salePriceCents` NO se reinterpreta: DESAPARECE de la superficie pública y lo sustituye `displayPriceCents`.**
+  Dejar el mismo nombre cambiando su significado es **el defecto de D54 un nivel más abajo**, y además un front
+  que no migrara **seguiría pintando la mentira sin que nada fallara**. Con el rename, un front que no migró
+  **no compila**. *El compilador sostiene la diferencia; el test es la red.* Es la misma doctrina que ya justificó
+  `GroupedListingSummaryDTO` como tipo propio en v2.1.9/D2. Detalle por DTO en `API_CONTRACT §M10-IVA.3`.
+- **En `/admin/*` viajan AMBAS**, más el desglose completo: `listPriceCents` (el `L`), `displayPriceCents` (el `P`),
+  `taxBaseCents`, `ivaCents`, el neto y el dial. `PROJECT §Q.5` lo exige con estas palabras: *«⛔ el admin NO se
+  convierte en superficie solo-con-IVA: ve base, IVA, neto, exhibido y dial. Es donde se toma la decisión de
+  margen.»*
+- **La línea de IVA del checkout INFORMA, no suma** (criterio **189**, decisión de D54). El rótulo exacto
+  —*«IVA 16 % incluido»*— es **SUPUESTO** de la pregunta **60** y lo fija `DESIGN_SYSTEM`; lo normativo aquí es
+  que **el importe que se muestra es el que YA está dentro de `displayPriceCents`**, y que **no existe ningún
+  sumando de IVA después del precio exhibido**.
+- **Las superficies que NO cambian, listadas para que nadie las «arregle»** (`PROJECT §Q.5`, con su supuesto al
+  lado): **valuación de bóveda/portafolio** (supuesto, pregunta **62**), **«valor de mercado»** y **estimados
+  PSA 10/PSA 9** (supuesto, pregunta **62**), **cotizador de buylist, oferta al vendedor y los cinco correos del
+  ciclo de compra** (supuesto, pregunta **56**; hoy el IVA **no participa** en el buylist — hecho 9), y **el P&L
+  de M7 y los informes de M9**, que siguen en **NETO** (criterio **191**, esto es **decisión**, no supuesto).
+- **El mock del frontend** tiene hoy el `16` clavado (`api.ts:765`, hecho 11). Criterio **196**: o **deriva del
+  mismo dial**, o **la pantalla dice que es dato simulado**. Lo que no puede es **parecer real y estar mal**.
+
+#### 4.44.j EL P&L — un helper único, cuatro sitios, y solo columnas persistidas
+
+`admin.service.ts:821` hace `incomeCents += o.subtotalCents`. Si el subtotal pasa a llevar IVA dentro, **el reporte
+no reventaría: mentiría**, contando el IVA como ingreso propio (criterio **191**). El arreglo **no** es tocar cuatro
+sitios a mano:
+
+```ts
+// backend/src/common/money.ts — ÚNICO lugar donde vive esta decisión
+netRevenueCents(row: { subtotalCents: number; ivaCents: number; priceConvention: PriceConvention }): number
+//   IVA_EXCLUSIVE → row.subtotalCents                    (bit a bit lo de hoy)
+//   IVA_INCLUSIVE → row.subtotalCents − row.ivaCents      (el IVA no es ingreso propio)
+```
+
+- **Se deriva SOLO de columnas persistidas de esa fila.** ⛔ Nunca del dial vivo, ⛔ nunca de `ivaTransferPct`,
+  ⛔ nunca recalculando desde `L`. Por eso una orden de hace un año sigue aportando exactamente lo que aportaba.
+- **Los sitios que leen dinero de una orden como INGRESO son TRES, y el cuarto se lista para que nadie lo toque:**
+
+| # | Sitio (verificado por mí) | Qué hace hoy | Qué hace después |
+|---|---|---|---|
+| 1 | `admin.service.ts:821` (`pnl`) | `incomeCents += o.subtotalCents` | `incomeCents += netRevenueCents(o)` |
+| 2 | `admin.service.ts:842` (`pnl`) | `shippingRevenueCents += s.shippingFeeCents` | idem, neteado por la convención de **esa** `ShipmentRequest` |
+| 3 | `pnl`, **el sumando que hoy FALTA** | *(nada)* | `Σ Order.shippingFeeCents` de las órdenes `direct_ship`, **neteado**. Ver **`§9 · D-IVA-6`** |
+| 4 | `admin.service.ts:988` + CSV `:1001` (`ivaReport`) | `Σ o.ivaCents` | **⛔ NO SE TOCA.** Ya es correcto: `ivaCents` sigue siendo el IVA efectivamente cobrado |
+
+- **Criterio 192, dicho como invariante:** mover el dial **reduce el neto, nunca el IVA registrado**. Con `t = 0 %`
+  y exhibido MX$100.00, `Order.ivaCents` vale **1379**, ⛔ jamás `0`. `ivaCents` sigue siendo **la única fuente**
+  del desglose para la factura manual (hecho 10) y el CSV sigue cuadrando **contra las columnas de la propia
+  orden**, que es lo que R2 garantiza por identidad.
+- **El CSV del P&L (`admin.service.ts:996`) no es un quinto sitio**: reserializa `p.incomeCents`, así que queda
+  cubierto por (1). *Se dice para que nadie lo «arregle» por su cuenta y lo netee dos veces.*
+
+#### 4.44.k EL DESPLIEGUE — SON DOS, Y NUNCA UNO
+
+> **Ésta es la parte del diseño que no se puede optimizar. Un solo deploy hace este cambio irreversible en la
+> práctica.**
+
+| | **Deploy 1 — el esqueleto, sin cambiar una cifra** | **Deploy 2 — la convención** |
+|---|---|---|
+| **DDL** | **M-50 completa** (§11): las dos columnas en `Order` y `ShipmentRequest`, backfill a `IVA_EXCLUSIVE`, `SET NOT NULL`, fila del dial sembrada en `100` | **CERO DDL** |
+| **Código** | Escribe **siempre `IVA_EXCLUSIVE`**. Aritmética **la de hoy**. El helper `netRevenueCents` **ya cableado** en los cuatro sitios | Escribe **`IVA_INCLUSIVE`** y deriva `P`. Aparecen `displayPriceCents`/`ivaIncluded`/`ivaRatePct` y la puerta del dial |
+| **Efecto observable** | **NINGUNO.** Ni un centavo, ni un DTO, ni una cifra del P&L | La vitrina deja de mentir |
+| **Qué se verifica ahí** | `IVA-3` y `IVA-5` **contra producción real**, antes de tocar ningún precio | `IVA-1`, `IVA-2`, `IVA-4`, `IVA-6`, `IVA-7`, `IVA-8` |
+| **Rollback** | Revertir código; las columnas quedan (aditivas e inertes) | **Revertir SOLO el código. ⛔ La BD no se toca** |
+
+- **Por qué el rollback del deploy 2 es seguro sin tocar la BD:** el lector es **por fila**. Las órdenes cobradas
+  bajo `IVA_INCLUSIVE` conservan su etiqueta y se siguen leyendo bien; las nuevas vuelven a nacer `IVA_EXCLUSIVE`.
+  **Nada se reinterpreta en ninguna de las dos direcciones** — que es exactamente la lección de `§4.43g-bis`.
+- **⛔ Por qué NUNCA en uno solo:** si el DDL y la convención viajan juntos, revertir deja **órdenes
+  `IVA_INCLUSIVE` en una base cuyo código ya no conoce la columna** ⇒ **se reinterpretan solas**, que es el
+  criterio **190 al revés**. Y además se pierde la única ventana en la que se puede probar que el P&L quedó neutro
+  **antes** de que ninguna cifra se mueva.
+- **`decks-meta-v1` se desbloquea con el DEPLOY 2 PUBLICADO EN PRODUCCIÓN**, no antes (criterio **197**;
+  `docs/specs/DECKS_META_V1.md §12`). ⚠️ **Aprobar D54 no desbloquea nada, y mergear tampoco.**
+
+#### 4.44.l Qué NO hace este pase, dicho porque es justo donde alguien haría de más
+
+- ⛔ **No cambia la TASA del IVA** ni introduce varias tasas, regímenes, exentos o tasa 0 (`PROJECT` fuera de alcance).
+- ⛔ **No mete la comisión de plataforma al precio exhibido** (pregunta **52**, contestada: *«Solo iva adentro,
+  comision por fuera»*). Sigue **sumándose aparte, visible y desglosada**, con el rótulo **«Comisión de
+  plataforma»** que fijó **D53** — que **no se reabre**. **Es decisión del dueño con carácter temporal explícito**
+  (`§Q.9`), **no una omisión**, y **su hueco queda preparado** (§4.44.g), **no construido**.
+- ⛔ **No toca la curva de venta** (§4.36), **ni el buylist** (§4.39), **ni la valuación de bóveda/portafolio**,
+  **ni el «valor de mercado»**, **ni el gancho de grading**.
+- ⛔ **No reabre la pregunta 61** (que `iva_pct` gobierne también el IVA de la comisión de Stripe). Sigue abierta.
+- ⛔ **No responde la pregunta 65** (si el IVA grava la comisión embebida). **Es de contador** y **hoy no aplica**:
+  con la comisión fuera, **no hay comisión embebida que gravar** (`§Q.4`, corrección `D-IVA-1`).
+- ⛔ **No escribe ni una afirmación jurídica sobre el IVA**, ni en positivo ni en negativo (criterio **195**).
+
+#### 4.44.m Mapa de supuestos: qué decisión se cae si el dueño responde distinto
+
+*El criterio **185** convierte esto en obligación: si una respuesta cambia, hay que saber **exactamente** qué
+reverificar, sin releer el pase entero.*
+
+| Pregunta abierta | Supuesto declarado que estoy usando | Qué se cae si la respuesta es otra |
+|---|---|---|
+| **56** buylist / oferta al vendedor | **No cambia** (el IVA no participa hoy, hecho 9) | §4.44.b (la lista de «no se tocan») y §4.44.i. **La fórmula NO cambia** |
+| **57** órdenes viejas | **Se congelan** con su convención | §4.44.e entero y el candado `IVA-3`. Es el supuesto de **más** peso del pase |
+| **59** *(informes / trazabilidad del dial)* | El dial se audita por `settings.update`, sin reporte propio de IVA absorbido | §4.44.g (fila «Auditoría»). No toca aritmética |
+| **60** envío + rótulo de la línea de IVA | **Se suma aparte** (línea propia) **y su cifra lleva el IVA dentro**, porque el criterio **189** lo obliga | **§4.44.f entero**, fórmulas (3)–(4), candado `IVA-6`. ⇒ `§9 · D-IVA-8` |
+| **61** un solo mando `iva_pct` | **No se toca**; solo se garantiza que el dial nuevo no se cuelgue de él | §4.44.g (viñeta 2) y el candado `IVA-7`. Si se separan, es **otro pase** |
+| **62** valuaciones (portafolio, valor de mercado, PSA) | **No cambian**: son valuaciones, no precios que alguien pague | §4.44.i (últimas dos viñetas) |
+| **63/64** *(superficies de menor alcance)* | Siguen la regla general de §4.44.i | Solo §4.44.i |
+| **65** IVA sobre comisión embebida | **No aplica** (la comisión está fuera) | Nada de este pase. Reviviría con el escenario B de `§Q.4` |
+
+#### 4.44.n Candados
+
+**Los ocho candados normativos `IVA-1 … IVA-8` viven en `API_CONTRACT §M10-IVA.5`**, con sus fixtures, sus vectores
+y su caso de conducta, al estándar de `FX-23`/`FX-24`. ⚠️ **Los ids `IVA-<n>` son del contrato y los asigno yo
+allí**: un id `IVA-<n>` **sin fila en esa tabla no existe**; para marcas internas de backend, prefijo propio
+(`IVA-R*`), como hizo backend con `FX-R2`.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -20219,6 +20684,26 @@ caducó dos veces** — §0-B.3 regla 8, ampliación «elimina o nombra»)* — 
 - **P&L (M7) — ingreso y costo de envío son cosas distintas (v1.4-finance):** el envío aporta al P&L por **dos** lados: un **ingreso** (`ShipmentRequest.shippingFeeCents`, lo que el cliente paga) y un **costo** (`ShipmentRequest.shippingCostCents`, lo que la plataforma paga a la paquetería, M-16). El P&L los suma/resta por separado: `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`. Ambos importes de un mismo envío se acotan al periodo por **`pickingAt`** (envíos liquidados: `status ∈ {picking, guia, enviado, entregado}`), garantizando que ingreso y costo del envío caigan en el mismo periodo. Antes de v1.4-finance el P&L solo contaba el ingreso, sobreestimando la ganancia. Response/CSV en `API_CONTRACT §M7` (`shippingCents`→`shippingRevenueCents` + nuevo `shippingCostCents`).
 
 ### 5.1 Cálculo del checkout (precio de venta, IVA y fee gross-up)
+
+> ⚠️⚠️ **v1.64 — ESTA SECCIÓN DESCRIBE LA CONVENCIÓN `IVA_EXCLUSIVE`, QUE ES LA DE HOY Y LA DEL DEPLOY 1. LA NORMA
+> VIGENTE TRAS EL DEPLOY 2 ES `§4.44` (última sección de `§4`, justo antes de esta).**
+> Se conserva **entera y sin tachar** porque **sigue siendo la aritmética exacta de toda orden con
+> `priceConvention = IVA_EXCLUSIVE`** —o sea, de **todas** las órdenes ya cobradas—, y esa aritmética **no se
+> deroga: se congela por fila** (§4.44.e). Lo que cambia bajo `IVA_INCLUSIVE`, y son **tres** cosas:
+>
+> 1. **`subtotalCents` pasa a llevar el IVA DENTRO** (`= Σ displayPriceCents`), y el envío también (`§4.44.f`).
+> 2. **⚠️⚠️ `baseCents = subtotalCents + ivaCents` DEJA DE SER CIERTO.** La base del gross-up pasa a ser
+>    **`grossUpBaseCents = subtotalCents + shippingFeeCents`**, **sin sumar el IVA** — que ya está dentro.
+>    Aplicar la línea de abajo bajo la convención nueva **cobra el IVA dos veces (+13.6 %)**. Es la línea de mayor
+>    riesgo de todo el cambio: `§4.44.d`, candado `IVA-2`.
+> 3. **`ivaCents` deja de ser `round(subtotal × ivaPct/100)` y pasa a ser RESIDUAL**:
+>    `ivaCents = G − round(G/(1+r))`. La **tasa** `ivaPct` y el **gross-up** (7)–(8) **no cambian**, y
+>    `stripeFeeIvaPct` **sigue derivándose de `ivaPct`, jamás del dial de traslación** (candado `IVA-7`).
+>
+> *Se publica aquí, en la ficha donde la gente busca la verdad, y no solo en §4.44: la lección de v1.63.2 fue
+> exactamente ésta — un contrato impecable no salva a una arquitectura que sigue publicando la norma vieja donde
+> se la consulta.*
+
 Orden de compra de cartas:
 ```
 salePriceCents(item) = item.listPriceCents  // = round(referenciaMxn × (1 + salesMarkupPct/100)), o override manual
@@ -20926,6 +21411,82 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+> **⚠️ v1.64 — SOBRE LOS IDS `D-IVA-*`.** El espacio de nombres **ya estaba acuñado fuera de este documento**:
+> `D-IVA-1` (base doble del IVA en `PROJECT §Q.4`, **corregida por el product-owner**), `D-IVA-2` y `D-IVA-3`
+> (los decimales de `aportacion_pct` e `iva_pct`, **cerradas por backend**; su deuda vive como `TD-IVA-1`/`TD-IVA-2`
+> en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
+> nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-4`: EL COMENTARIO QUE GOBIERNA DOS VALIDADORES DE DINERO PUBLICA UN ESTADO FALSO
+  DE D54.** **Dueño del arreglo: backend** (`backend/src/modules/settings/settings.constants.ts`, el bloque de
+  `validateIvaPct`, líneas ~644-653, y su gemelo en `validateAportacionPct`). **⛔ No lo toco yo.**
+  - **Qué dice el código hoy, verbatim:** *«su tipo … es una decisión de arquitectura ligada a D54 (§Q de
+    `PROJECT.md`, **borrador NO vigente**). Cambiarlo ahora la prejuzgaría.»*
+  - **Por qué es falso desde el 2026-09-09:** **§Q es alcance vigente y D54 está aprobada.** El comentario está en
+    el fichero que gobierna qué puede teclear un `super_admin` en **dos diales de dinero**, y quien lo lea concluirá
+    que hay una decisión pendiente que ya no existe.
+  - **Lo que NO cambia, y por eso esto es prosa y no dinero:** **el razonamiento del validador era correcto y sigue
+    siéndolo**, y **la decisión de columna que el comentario esperaba ya está tomada** — `§4.44.g`: la columna sigue
+    siendo `Int` y el rango sigue siendo entero, también para el dial nuevo. **Backend acertó al cerrarlo ahí.**
+  - **Alcance del arreglo: dos comentarios.** ⛔ **Ni una línea de lógica.** Sustituir *«borrador NO vigente»* por
+    la referencia a **`ARCHITECTURE §4.44.g`** y a **D54 (aprobada 2026-09-09)**.
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-5`: EL P&L NO CUENTA EL INGRESO DE ENVÍO DE LOS PEDIDOS `direct_ship`, Y EL
+  CONTRATO LO MANDA DESDE v1.21.** **Pre-existente: NO la causa D54.** La levanto ahora porque **vive en el mismo
+  bucle que el pase de §4.44 va a tocar**, y arreglar el neteo sin arreglar esto dejaría el reporte mal por otra
+  vía. **Dueño del arreglo: backend** (`admin.service.ts`, `pnl()`, líneas 811-856).
+  - **Qué manda el contrato** (`API_CONTRACT`, nota «P&L y guest checkout (v1.21)»):
+    `shippingRevenueCents = Σ ShipmentRequest.shippingFeeCents + Σ Order.shippingFeeCents (órdenes settled del periodo)`.
+  - **Qué hace el código, verificado línea a línea:** solo el primer sumando (`admin.service.ts:842`). **El segundo
+    no aparece en ninguna parte de `pnl()`.**
+  - **Por qué el dinero se pierde entero y no a medias:** el `ShipmentRequest` de fulfillment de un pedido de
+    invitado lleva **`shippingFeeCents = 0` a propósito** (para evitar el doble conteo), y `Order.subtotalCents`
+    **excluye** el envío (columna aparte). ⇒ **el ingreso de envío de TODO pedido `direct_ship` no lo cuenta nadie.**
+    El **costo** (`shippingCostCents`) sí se captura ⇒ **el P&L subestima la ganancia** por ese lado.
+  - **Interacción con §4.44:** cuando se añada, ese sumando **también tiene que netearse** por la convención de la
+    orden (`§4.44.j`, sitio **3**). *Si se añade antes que el neteo, se añade IVA como ingreso de envío; si se añade
+    después sin neteo, igual. Va con el helper desde el primer commit.*
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-6`: LA CITA DE LÍNEA DE `PROJECT §Q.2` (hecho 7) APUNTA UNA LÍNEA ANTES DE LO QUE
+  DESCRIBE.** **Menor, y de documento, no de código.** `PROJECT.md` cita `admin.service.ts:816` para
+  `incomeCents += o.subtotalCents`; **la línea real es la 821** (la `:816` es el cierre del `include` del
+  `findMany`). Misma deriva en `§Q.2` hecho 3 (`settings.service.ts:259` **sí es exacta**, verificada) y en la
+  bandera de la brecha (`money.ts:486` **sí es exacta**, es el `Math.ceil` del gross-up). **Se anota para que QA no
+  busque en el sitio equivocado y concluya que el hecho no existe.** **Dueño: product-owner** (`PROJECT.md`), o
+  simplemente **nadie**, si se acepta que las citas de línea derivan. ⛔ **No es motivo para tocar código.**
+
+- **⚠️ ABIERTA — LA ABRO YO Y NO PUEDO CERRARLA (v1.64) — `D-IVA-7`: EL CRITERIO 185 («idéntico al centavo») Y EL
+  CRITERIO 194 («Σ líneas == subtotal») NO PUEDEN SER LOS DOS EXACTOS EN CARRITOS MULTI-LÍNEA.**
+  **Dueño de la decisión: product-owner** (es una enmienda a un criterio de `PROJECT.md`, y **eso no es mío**).
+  - **La aritmética, con el contraejemplo mínimo que calculé con los diales reales** (`§4.44.c.1`): dos piezas de
+    `L = 103` ⇒ hoy se cobran **613** centavos, con §4.44 se cobran **612**. **Un centavo.** Es
+    `Σ round(L×1.16)` **≠** `round(Σ L ×1.16)`, y no hay fórmula que evite las dos a la vez.
+  - **Por qué no se puede «elegir la otra»:** redondear sobre el agregado descuadra el recibo del cliente, y el
+    criterio **194** es absoluto (*«un redondeo por línea que se acumule y descuadre el total es un fallo»*).
+  - **Cota medida:** `≤ 0.53` centavos **por pieza** en el total; **≤ 4 centavos** en el carrito de 7 piezas del
+    propio criterio 194. **En las dos direcciones.**
+  - **Qué NO se desvía:** el caso de **una sola pieza** —que es el que el criterio 185 **enuncia** (MX$100.00 →
+    MX$116.00 → MX$124.69)—, **el margen por unidad**, **el envío**, y la identidad `taxBase + iva ≡ subtotal`.
+  - **Mi recomendación, para que el product-owner decida sobre algo concreto:** que el criterio **185** se verifique
+    **por pieza y por margen** (que es lo que el dueño realmente decidió: *«el margen sigue en MX$100.00»*), y que
+    la desviación de agregado quede **declarada y acotada** por el candado **`IVA-4`** en vez de negada. **⛔ No la
+    aplico como si estuviera aprobada.**
+  - **⛔ NO BLOQUEA a backend ni a frontend.** La fórmula es la misma se responda lo que se responda. Lo único que
+    depende de la respuesta es **cómo verifica QA el criterio 185**.
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-8`: EL CRITERIO 189 (VIGENTE) DECIDE DE FACTO LA MITAD ARITMÉTICA DE LA PREGUNTA 60
+  (ABIERTA), Y LOS DOS DOCUMENTOS NO LO DICEN JUNTO.** **Dueño: product-owner.**
+  - `PROJECT §Q.5` marca el envío **«SIN DECIDIR — pregunta 60»** con el supuesto *«se suma aparte»*. Pero el
+    criterio **189** —**vigente, y QA lo verifica**— exige `total = Σ(exhibidos) + envío + comisión` **y nada más**,
+    y hoy el código **apila `round(envío × 16 %)` después** (`money.ts:409` y `:445`).
+  - ⇒ **Bajo 189, la tarifa de envío exhibida tiene que llevar su IVA dentro.** No es una preferencia: es la única
+    lectura de 189 que no lo incumple. Lo diseño así (`§4.44.f`) y es **money-neutral al centavo**
+    (`round(17500×1.16) = 20300 = 17500 + 2800`).
+  - **Lo que sigue abierto de verdad es el ROTULADO**, no la aritmética. **Si el dueño responde que el envío se
+    muestra sin IVA y el IVA del envío se suma aparte**, hay que **enmendar el criterio 189** y reverificar
+    `§4.44.f`, las fórmulas (3)–(4) y el candado **`IVA-6`**.
+  - ⛔ **No bloquea.** Con el supuesto declarado, backend implementa; si cambia, se sabe exactamente qué revisar.
 
 - **✅ ABIERTA Y CERRADA EN EL MISMO PASE (v1.63.4) — `D-FX-6`: MI CANDADO NORMATIVO `FX-20` DESCRIBÍA LA CARRERA
   `S-FX-1` AL REVÉS.** **Dueño del arreglo: yo** (es `API_CONTRACT §M2-F.6`, documento mío) ⇒ **corregido en el
@@ -22627,7 +23188,66 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
-Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+Cambios de esquema Prisma que backend debe migrar. ~~Proyecto **greenfield sin backfill de datos** (aún no hay filas
+productivas); las migraciones solo redefinen esquema.~~
+
+> ⛔⛔ **v1.64 — ESA FRASE CADUCÓ Y NO ES UN DETALLE: ES LA PREMISA DE LA QUE CUELGA `M-50`.** §9 de este mismo
+> documento dice, desde el 2026-08-16, *«plataforma **ya en producción**»*, y `PROJECT §Q` está construido entero
+> sobre que **existen órdenes ya cobradas** (criterio **190**: *«se toma una orden creada antes del cambio…»*).
+> **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
+> `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
+> que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.64-iva-inclusive (**M-50**: convención de precio por orden + dial de traslación — **DDL ADITIVO + enum + backfill determinista + seed**, §4.44)
+
+> ⭐ **Va ENTERA en el DEPLOY 1** (§4.44.k), cuando el código todavía escribe `IVA_EXCLUSIVE` y la aritmética es la
+> de hoy. **El deploy 2 no trae DDL.** *La única ventana para probar que el P&L quedó neutro es antes de que
+> ninguna cifra se mueva.*
+
+**1. Enum nuevo**
+
+```prisma
+enum PriceConvention { IVA_EXCLUSIVE  IVA_INCLUSIVE }
+```
+
+**2. `Order` — dos columnas aditivas**
+
+| Columna | Tipo | Nulabilidad | Default de BD | Backfill |
+|---|---|---|---|---|
+| `priceConvention` | `PriceConvention` | **NOT NULL** | ⛔ **NINGUNO** (§4.44.e) | **`IVA_EXCLUSIVE`** en toda fila existente |
+| `ivaTransferPct` | `Int` | **NULL** | ninguno | ⛔ **NINGUNO — se quedan en `NULL`** |
+
+**3. `ShipmentRequest` — las mismas dos columnas, con las mismas reglas** (el envío entra en la convención, §4.44.f).
+
+**4. `ConfigSetting` — la fila del dial**, sembrada en **`100`** (§11.0, regla de propagación de seeds):
+`{ key: 'iva_transfer_pct', valueJson: 100 }`. Más las cuatro estructuras de `settings.constants.ts` —
+**`SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS`, `SETTING_DTO_MAP`**: ⚠️ **en tres de las cuatro compila y
+falla en runtime** (misma advertencia que dejó `kycUploadOrphanHours`).
+
+**5. ⛔ EL ORDEN DEL DDL ES OBLIGATORIO, y el motivo es que un `DEFAULT` transitorio sobrevive a quien lo escribió**
+
+```sql
+-- (a) añadir NULLABLE, sin default
+ALTER TABLE "Order" ADD COLUMN "priceConvention" "PriceConvention";
+ALTER TABLE "Order" ADD COLUMN "ivaTransferPct"  INTEGER;
+-- (b) backfill EXPLÍCITO y determinista (dice la verdad: así se cobraron)
+UPDATE "Order" SET "priceConvention" = 'IVA_EXCLUSIVE' WHERE "priceConvention" IS NULL;
+-- (c) recién ahora, NOT NULL — y SIN dejar DEFAULT
+ALTER TABLE "Order" ALTER COLUMN "priceConvention" SET NOT NULL;
+-- (idem para "ShipmentRequest")
+```
+
+- ⛔ **PROHIBIDO `ADD COLUMN … NOT NULL DEFAULT 'IVA_EXCLUSIVE'`**, aunque después se haga `DROP DEFAULT`. Es más
+  corto y **es exactamente el fallo que §4.44.e existe para evitar**: basta con que el `DROP DEFAULT` se caiga en un
+  rebase para que un camino de escritura que olvide el campo archive bajo una convención lo que cobró bajo la otra,
+  **en silencio y para siempre**. **El fallo ruidoso es la funcionalidad.** Candado `IVA-3(c)`.
+- ⛔ **`ivaTransferPct` NO se backfillea.** `UPDATE … SET "ivaTransferPct" = 100` sobre filas viejas es **inventar un
+  hecho**: esas órdenes se cobraron cuando el dial no existía. Candado `IVA-3(d)`, que lo mide como
+  `SELECT count(*) = 0`.
+- ⛔ **NINGUNA sentencia toca `subtotalCents`, `ivaCents`, `processingFeeCents` ni `totalCents`.** Criterio **190**.
+
+**6. Reversibilidad.** Las cuatro columnas son **aditivas**: revertir el código del deploy 1 las deja **inertes**, no
+rotas. **El `down` no borra nada** (mismo criterio que las migraciones anteriores de dinero).
 
 ### v1.62-bounty-console — **SIN MIGRACIÓN** (§4.42g)
 
