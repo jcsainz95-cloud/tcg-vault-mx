@@ -53,6 +53,21 @@ export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
   APORTACION_PCT: 'aportacion_pct',
   IVA_PCT: 'iva_pct',
+  // ⭐⭐ v1.64-iva-inclusive (M-50, `ARCHITECTURE §4.44.g` / `API_CONTRACT §M10-IVA.1`) — EL DIAL DE
+  // TRASLACIÓN. Es una **FRACCIÓN DE TRASLACIÓN** en puntos porcentuales enteros `[0,100]`,
+  // ⛔ **NO son puntos de IVA** y ⛔ **NO es la tasa**: `iva_pct` sigue siendo la TASA y la fuente
+  // ÚNICA del IVA de la comisión de Stripe. **Son dos filas independientes y ninguna deriva de la
+  // otra** — `getStripeFee()` ⛔ NUNCA lee esta clave (candado `IVA-7`): si el dial de traslación
+  // entrara ahí, **mover un precio movería una comisión**.
+  //
+  // ⚠️ **DEPLOY 1: la fila existe (la siembra M-50) pero NADIE la lee.** No está en
+  // `SETTING_DTO_MAP` a propósito ⇒ ni sale en `GET /admin/settings` ni se puede escribir por
+  // `PUT /admin/settings` (que valida contra ese mapa con `hasOwnProperty` ⇒ `422` clave desconocida;
+  // mismo precedente exacto que `stripeFeeIvaPct` desde v1.40 y que `fxRateMode`). Su única puerta
+  // será `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**, y esa puerta abre en el
+  // **DEPLOY 2** (§M10-IVA.2, candado `IVA-8(b)/(c)`). *Un dial que gobierna dinero y cuyo único
+  // guardián es una pantalla no tiene guardián.*
+  IVA_TRANSFER_PCT: 'iva_transfer_pct',
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
   STRIPE_FEE_FIXED_CENTS: 'stripe_fee_fixed_cents',
@@ -260,6 +275,12 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SHIPPING_FEE_CENTS]: 17500, // MX$175
   [SettingKey.APORTACION_PCT]: 70,
   [SettingKey.IVA_PCT]: 16,
+  // ⭐ v1.64 (M-50, §4.44.g) — seed **100**: EL NEUTRO. Con el dial ahí, la fórmula del deploy 2
+  // reproduce el cobro de hoy AL CENTAVO (§4.44.a). ⛔ Sin lógica y sin sentinel: a diferencia del
+  // FX (`FX-6`), aquí «ausente» y «100» significan **lo mismo** —en instalación limpia porque es el
+  // valor que el dueño eligió, y en producción antes del backfill porque es el neutro—, así que no
+  // hay ninguna decisión que perder por caer al default. Candado `IVA-8(e)`.
+  [SettingKey.IVA_TRANSFER_PCT]: 100,
   [SettingKey.SALES_MARKUP_PCT]: 15, // markup de venta configurable
   [SettingKey.STRIPE_FEE_PCT]: 0.036, // 3.6% tarifa MX Stripe (fracción)
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: 300, // MX$3.00 fija
@@ -642,9 +663,14 @@ export function validateGradingMinUpsidePct(v: unknown): string | null {
  * ese cambio y se equivoca por medio punto. Y el dial lo edita un `super_admin` **sin redeploy**.
  *
  * **Por qué se cierra AQUÍ y no en el esquema.** La cura barata sería volver la columna decimal; **no se
- * hace**: `Order.ivaRatePct` es zona compartida y su tipo (`Int` vs escalado en enteros) es una decisión
- * de arquitectura ligada a D54 (§Q de `PROJECT.md`, **borrador NO vigente**). Cambiarlo ahora la
- * prejuzgaría. El validador, en cambio, solo tiene que **dejar de aceptar lo que la columna no puede
+ * hace**: `Order.ivaRatePct` es zona compartida y su tipo es decisión del arquitecto.
+ * ✅ **v1.64 (`D-IVA-4`) — esa decisión YA ESTÁ TOMADA y este comentario decía lo contrario.** D54 fue
+ * **APROBADA el 2026-09-09** y `PROJECT §Q` es **alcance vigente**; llamarla *«borrador NO vigente»*
+ * mandaba a quien leyera el fichero que gobierna dos diales de dinero a buscar una decisión pendiente
+ * que ya no existe. **`ARCHITECTURE §4.44.g` la fija: la columna SIGUE siendo `Int` y el rango SIGUE
+ * siendo entero**, también para el dial nuevo `iva_transfer_pct`. ⇒ **el razonamiento de abajo no
+ * cambia ni una línea de lógica; lo que cambia es que ya no espera a nadie.**
+ * El validador, en cambio, solo tiene que **dejar de aceptar lo que la columna no puede
  * representar**: un `422` explícito es estrictamente mejor que un truncamiento mudo en una tasa de
  * impuestos. **Nada legítimo se pierde**: las tres tasas mexicanas vigentes —`0`, `8` y `16`— son enteras.
  *
@@ -658,6 +684,38 @@ export function validateIvaPct(v: unknown): string | null {
     : 'must be an integer in [0, 100] (percent). Decimals are rejected because the rate is frozen ' +
         'per order in the integer column `Order.ivaRatePct`, where a value like 8.5 would be ' +
         'silently truncated to 8 while the charged IVA still used 8.5';
+}
+
+/**
+ * ⭐⭐ **`iva_transfer_pct` — LA FRACCIÓN DE IVA QUE SE TRASLADA AL PRECIO EXHIBIDO. ENTERO en [0, 100].**
+ * (v1.64-iva-inclusive, `ARCHITECTURE §4.44.g`, `API_CONTRACT §M10-IVA.1`, D54 aprobada 2026-09-09.)
+ *
+ * ⛔ **NO son puntos de IVA y NO es la tasa.** `t = 100` significa *«traslado el IVA entero»* (el
+ * neutro: reproduce el cobro de hoy al centavo); `t = 0` significa *«lo absorbo entero»*. Bajar el
+ * dial **⛔ no baja el impuesto: baja el precio exhibido**, y esa diferencia **sale del margen**. Es
+ * un **dial de margen**, y por eso su puerta (deploy 2) exige que el servidor haya mostrado el costo
+ * en pesos antes de guardar (criterio 188).
+ *
+ * **Por qué ENTERO, con la misma razón exacta que `iva_pct` y `aportacion_pct`: es la COLUMNA.**
+ * `Order.ivaTransferPct` es `Int` (M-50). Un `37.5` **no revienta: se TRUNCA en silencio a `37`**
+ * mientras el precio exhibido se calculó con `37.5` — una fila que dice *«trasladé 37 %»* junto a un
+ * importe que es de 37.5 %. Es literalmente el defecto que `TD-IVA-1`/`TD-IVA-2` cerraron.
+ * El criterio **187** exige poder guardar `0`, `37`, `50` y `100`: los cuatro son enteros.
+ *
+ * ⚠️ **Si algún día el negocio necesita medio punto de traslación, este validador NO es el sitio donde
+ * relajarlo.** El orden es: (1) la COLUMNA —decisión del arquitecto—, (2) después este rango. Al revés
+ * devuelve el truncamiento mudo tal cual.
+ *
+ * *(El `message` nombra LOS DOS EXTREMOS a propósito: lo exige `API_CONTRACT §M10-IVA.5`, candado
+ * `IVA-8(d)`.)*
+ */
+export function validateIvaTransferPct(v: unknown): string | null {
+  return isInt(v) && v >= 0 && v <= 100
+    ? null
+    : 'must be an integer in [0, 100] (percentage points of IVA TRANSFERRED to the displayed ' +
+        'price; 0 = absorbed, 100 = fully passed through). Decimals are rejected because the value ' +
+        'is frozen per order in the integer column `Order.ivaTransferPct`, where 37.5 would be ' +
+        'silently truncated to 37 while the displayed price still used 37.5';
 }
 
 /**
@@ -690,8 +748,11 @@ export function validateIvaPct(v: unknown): string | null {
  * era el ÚNICO hueco por el que entraba un decimal.
  *
  * **Por qué se cierra AQUÍ y no en el esquema.** `InventoryItem.acquisitionPct` vive en
- * `prisma/schema.prisma`, **zona compartida**, y hay un cambio de contrato en vuelo; su tipo es
- * decisión del arquitecto. El validador, en cambio, solo tiene que **dejar de aceptar lo que la
+ * `prisma/schema.prisma`, **zona compartida**; su tipo es decisión del arquitecto.
+ * ✅ **v1.64 (`D-IVA-4`) — el «cambio de contrato en vuelo» que decía esta línea era D54, y ATERRIZÓ:
+ * aprobada 2026-09-09, `PROJECT §Q` es alcance vigente y `ARCHITECTURE §4.44.g` ratifica el criterio
+ * entero (columna `Int` ⇒ rango entero).** No queda nada en vuelo que justifique esperar aquí.
+ * El validador, en cambio, solo tiene que **dejar de aceptar lo que la
  * columna no puede representar**: un `422` explícito es estrictamente mejor que un truncamiento mudo
  * en la base del costo. **Nada legítimo se pierde**: los porcentajes de aportación que el negocio usa
  * hoy —`70` (default del formulario) y `100` (alta rápida, §4.39 del contrato)— son enteros.
@@ -848,6 +909,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // ⭐ ENTERO, no «número»: la tasa se congela en la columna `Int` `Order.ivaRatePct` y un `8.5` se
   // truncaba a `8` EN SILENCIO mientras el cobro usaba 8.5. Ver el docblock de `validateIvaPct`.
   [SettingKey.IVA_PCT]: validateIvaPct,
+  // ⭐ ENTERO en [0,100], y el «entero» NO es gusto: es la COLUMNA `Order.ivaTransferPct` (`Int`,
+  // M-50). Un `37.5` se truncaría en silencio a `37` mientras el precio se calculó con `37.5` — el
+  // MISMO defecto que cerraron `validateIvaPct` y `validateAportacionPct`. Ver `validateIvaTransferPct`.
+  [SettingKey.IVA_TRANSFER_PCT]: validateIvaTransferPct,
   [SettingKey.SALES_MARKUP_PCT]: (v) => (isNum(v) && v >= 0 ? null : 'must be a number >= 0'),
   // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
   [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),

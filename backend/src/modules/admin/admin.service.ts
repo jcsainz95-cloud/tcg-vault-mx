@@ -11,6 +11,7 @@ import {
   Locale,
   MarketBracket,
   OrderStatus,
+  PriceConvention,
   Prisma,
   ProductType,
   Role,
@@ -221,6 +222,44 @@ function toAdminKycDTO(k: {
     // se sirve por presigned GET dedicado, nunca publicando su object key en un cuerpo de respuesta.
     ineOnFile: Boolean(k.ineFrontKey && k.ineBackKey),
   };
+}
+
+/**
+ * ⭐ **v1.64 (`D-IVA-5` + §4.44.j sitio 3) — el INGRESO DE ENVÍO de una orden `direct_ship`, neteado
+ * por la convención de ESA orden.**
+ *
+ * **En el DEPLOY 1 devuelve `o.shippingFeeCents` tal cual, para toda fila**, porque toda fila es
+ * `IVA_EXCLUSIVE` y bajo esa convención la tarifa persistida ya es NETA (hoy `computeDirectShipBreakdown`
+ * apila el IVA aparte, en `Order.ivaCents`). El neteo es, literalmente, la identidad. *Eso es lo que
+ * hace verificable que este sumando nuevo no reinterpreta nada: solo cuenta lo que ya nadie contaba.*
+ *
+ * ⚠️⚠️ **PUNTO ABIERTO PARA EL DEPLOY 2 — marca interna `IVA-R1` (no es un candado de contrato).**
+ * Bajo `IVA_INCLUSIVE`, `Order.ivaCents` es el **residual del AGREGADO** `G = S + E` (regla R2 de
+ * §4.44.c): el IVA que corresponde a la línea de envío **no está persistido por separado**, así que
+ * repartirlo entre mercancía y envío es una **decisión de asignación** y **no la tomo yo aquí**. Lo que
+ * este helper hace es aplicar al envío la misma regla de base gravable que §4.44.c aplica al agregado
+ * —`taxBase = round(E / (1 + r))`, con `r` leído de la columna congelada `ivaRatePct`—, que es la
+ * lectura más directa de «`E` lleva su IVA dentro» (§4.44.f). **Suma de las dos partes puede diferir
+ * del residual agregado en ±1 centavo**, y ésa es exactamente la clase de detalle que decide el
+ * arquitecto y no el implementador. **Queda enrutado en `BACKEND_NOTES` como pregunta del deploy 2;
+ * en el deploy 1 esta rama es INALCANZABLE** (ninguna fila es `IVA_INCLUSIVE`) y se prueba que lo es.
+ *
+ * ⛔ Igual que `netRevenueCents`, **solo columnas persistidas de esa fila**: nunca el dial vivo.
+ */
+function netShippingRevenueOfOrder(o: {
+  shippingFeeCents: number;
+  ivaRatePct: number;
+  priceConvention: PriceConvention;
+}): number {
+  // El IVA embebido en la línea de envío, derivado de la propia línea y de la TASA congelada.
+  // Bajo IVA_EXCLUSIVE `netRevenueCents` ignora este valor y devuelve `shippingFeeCents` intacto.
+  const shippingIvaCents =
+    o.shippingFeeCents - Math.round(o.shippingFeeCents / (1 + o.ivaRatePct / 100));
+  return netRevenueCents({
+    subtotalCents: o.shippingFeeCents,
+    ivaCents: shippingIvaCents,
+    priceConvention: o.priceConvention,
+  });
 }
 
 /**
