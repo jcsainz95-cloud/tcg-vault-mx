@@ -28,6 +28,138 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.49 — **v1.63.4: el respaldo se publica, la banda gana piso, y el candado de la carrera deja de ser una moneda al aire** (2026-09-09, gate de QA rechazado)
+
+> Propiedad: **backend**. Encargo: los tres hallazgos de la re-verificación de QA. **Cero cambios de
+> contrato** (`FX-24` y `FX-25` estaban ya especificados por el arquitecto en `§M2-F.6`, `§M2-F.8` y
+> `§M2-F.3` regla 6). Ficheros tocados: `src/common/fx-mode.ts`,
+> `src/modules/settings/settings.constants.ts`, `src/modules/pricing/fx.service.ts`,
+> `src/modules/pricing/pricing.controller.ts` y los tres specs del FX.
+
+### 0.49.1 `FX-25` — `fallbackRate`, y por qué al NIVEL SUPERIOR (esto desbloquea al frontend)
+
+`FxStateDTO` gana **`fallbackRate: number`**, obligatorio, en las cuatro rutas y en **todas** las
+respuestas. **Una sola línea de código**, porque `projectFxState()` es la **única** constructora del
+DTO: las cuatro rutas salen de ahí, así que no hubo que tocar ninguna ruta.
+
+**Lo que importa a quien lea esto:**
+- ⛔ **NO va dentro de `automatic`.** Desde v1.63.3 `source:"fallback"` es alcanzable **también con
+  `mode:"manual"`** (4.ª fila de `§M2-F.1`), así que el respaldo es del **estado entero**, no de la
+  rama automática. Anidarlo invitaría al error que la **regla 5** prohíbe: presentar el 18 *«como si
+  fuera la de Banxico»*.
+- **El invariante (i) —`source==="fallback" ⟹ rate===fallbackRate`— se cumple POR CONSTRUCCIÓN**: la
+  rama `else` de `projectFxState` asigna `rate = FX_FALLBACK_RATE`, la misma constante que se emite.
+  No hay dos números que puedan divergir.
+- ⭐ **El `422 FX_NO_AUTOMATIC_RATE` conserva su `details` COMPLETO** y su `fallbackRate` es el mismo.
+  ⛔ No se adelgazó: *«ya viaja en el DTO»* no es razón — ese error es **la carrera real** y tiene que
+  poder explicarse solo.
+- **Para frontend:** con el campo emitido, la deuda de la tarjeta del FX —mandar un `PUT` **sin** acuse
+  sólo para leer `details.fallbackRate` del `422`— se puede cerrar. **El campo viaja también cuando el
+  refresco sale `failed`**, que es justo cuando la pantalla lo necesita.
+
+### 0.49.2 `FX-24` — el piso de la banda, y **UNA sola definición**
+
+La banda pasa de `(0, 1000]` a **`[1, 1000]`**, cerrada en los dos extremos, **idéntica en las dos
+puertas de escritura**. El número lo fijó el arquitecto (`ARCHITECTURE §4.43c-quinquies`,
+`API_CONTRACT §M2-F.8`); aquí sólo se cablea.
+
+**Dónde vive, y por qué ahí:** `common/fx-mode.ts` exporta **`FX_RATE_MIN`**, **`FX_RATE_MAX`**,
+**`isFxRateInBand()`** y **`FX_RATE_BAND_TEXT`**. Las dos puertas —`validateFxManualOverrideRate`
+(settings) y `parseBanxicoRate` (pricing)— **llaman al mismo predicado**. *Dos literales `1` en dos
+ficheros son dos bandas esperando a divergir*, y ésa es la mutación realista porque el arreglo se hace
+en dos módulos que no se importan entre sí. `MAX_FX_MANUAL_OVERRIDE_RATE` sobrevive como **alias** de
+`FX_RATE_MAX` (hay citas vivas en specs y en el controller).
+
+**⚠️ Tres cosas que hay que saber antes de tocar esto:**
+1. **La banda es puerta de ESCRITURA, ⛔ NO de LECTURA.** `parseManualRate` (la resolución legacy)
+   **sigue diciendo `> 0`, literal**. Subirlo a `>= 1` haría que, en un entorno con un valor sub-piso
+   ya guardado, **el modo saltara de `manual` a `auto` en el primer `GET` tras el deploy**. Hay un
+   **control explícito** para eso, y con la mutación `parseManualRate >= 1` se pone rojo (medido).
+2. ⛔ **`parseBanxicoRate` perdió el parámetro `maxRate`.** Era un tope por llamada —una segunda banda
+   con otro nombre— y sólo lo usaba un test que quería separar «formato» de «rango». Esa separación se
+   afirma mejor mirando el `why` (`format` vs `out_of_band`), que el parser ya devuelve.
+3. **El `why` puede diferir del motivo de la puerta tecleada y eso NO es divergencia.** Lo normativo
+   es **el veredicto**, y `FX-24(b)` lo asierta como **identidad**:
+   `parseBanxicoRate(String(v)).ok === (validateFxManualOverrideRate(v) === null)`.
+
+**Divergencia cerrada:** `pricing.controller.ts:113` y `:857` decían *«el rango `[min, MAX]`»*
+nombrando un `min` que **no existía en el código**. Hoy existe.
+
+### 0.49.3 ⭐ `I-QA-4` — el candado de la carrera era sensible al ~70 %, y el arreglo NO es «repetir más»
+
+**Lo que midió QA:** el mutante (`lockFxGate` fuera de `setMode`) salía **7 rojos / 3 verdes** en diez
+tiradas, con el fichero mutado comprobadamente cargado ⇒ los verdes eran **escapes reales**.
+
+**Por qué, medido con una sonda sobre el árbol mutado (12 intentos por ventana):**
+
+| escalonado (ms) | 0 | 1 | 2 | 3 | 5 | 8 | 10 | 12 | **15** | **20** | **25** | 30 | 40 | 50 | 75 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| reproducciones | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **10** | **6** | **1** | 0 | 0 | 0 | 0 |
+
+La ventana de la carrera es el intervalo `(A lee, A commitea)` y aquí mide **~12-25 ms**. La lista fija
+`[0, 5, 20, 20, 50]` **sólo la tocaba con sus dos 20**, cada uno al ~50 % ⇒ `1 − 0.5² = 75 %`. *Cuadra
+con el 7/10 de QA al decimal.*
+
+**⛔ El arreglo NO es repetir más veces el `20`:** ese número es **la duración de la puerta A en esta
+máquina**. En otra, la ventana se mueve, la lista deja de tocarla y el candado se vuelve **verde para
+siempre y en silencio** — la misma familia de defecto que `B-QA-1`. El arreglo tiene **tres piezas**:
+
+1. **Calibrar:** se mide en cada corrida la duración real de la puerta A aislada (`T`, mediana de tres).
+2. **Barrer denso:** 40 escalonados repartidos por `[0, 2T]` × 3 repeticiones = **120 intentos**.
+3. ⭐⭐ **Probar que el barrido no es ciego:** se cuenta cuántos intentos **solaparon de verdad** (B se
+   emitió mientras A seguía en vuelo, medido en el cliente) y se exige un mínimo (20 intentos, sobre
+   ≥5 escalonados distintos). Solapar es la condición **necesaria** de la carrera. Sin esta pieza, un
+   barrido que se pasara de largo pasaría **verde sin haber probado nada**; con ella, se pone **rojo
+   con un mensaje que dice qué recalibrar**.
+
+**Medido, con el método de QA (diez tiradas contra el mismo Postgres):**
+
+| Árbol | Resultado |
+|---|---|
+| **Candidato** (suite `fx-mode.e2e-spec.ts` completa, 19 tests) | **10/10 VERDE** |
+| **Mutante** (`lockFxGate` fuera de `setMode`, con marcador que confirma la carga) | **10/10 ROJO** |
+
+Coste: la carrera pasa de ~0.3 s a **~7-8 s**. *Un gate de dinero que deja pasar 3 de cada 10
+regresiones no vale ocho segundos menos.*
+
+### 0.49.4 Hallazgo colateral: `POST /admin/fx/refresh` devolvía **`201`** contra el `200` que norma el contrato
+
+Apareció al cablear `FX-25(a)` **por HTTP**. `@Post` de Nest responde `201` por defecto y nadie lo
+había mirado: los tres candados del refresco (`FX-8`, `FX-9`, `FX-10`) miran el bloque `refresh`, no el
+status. **Lo delator es que el comentario de esa ruta ya decía *«`200` también con `failed`»***: el
+código no cumplía lo que su propio comentario afirmaba. Se corrige con `@HttpCode(200)` — **manda el
+contrato sobre el código**, mismo arreglo y mismo motivo que `POST /admin/pricing/override` (§0.42).
+
+### 0.49.5 Renombre: el `FX-24` local pasa a `FX-R2`
+
+`test/fx.mode-switch.spec.ts` tenía un bloque llamado `FX-24` que era una **etiqueta local de
+backend** (nació de la condición **R2** del techlead). En v1.63.4 el arquitecto asignó `FX-24` al
+candado de la banda. Dos bloques con el mismo identificador es cómo un hallazgo se enruta al candado
+equivocado ⇒ el local cede el nombre. **Los identificadores de candado los pone el contrato.** (Igual
+para `FX-21`, etiqueta local de `S-FX-2`, hoy absorbida por `FX-24(a)`.)
+
+### 0.49.6 Verificación
+
+| Qué | Resultado |
+|---|---|
+| `npm test` (unitaria completa) | **256 suites / 4120 tests verdes** |
+| `npm run test:integration` (Postgres 16 real, puerto 55432; Redis 56379) | **22 suites / 324 tests verdes** (318 + 6 nuevos) |
+| `fx-mode.e2e-spec.ts` | **19/19** (13 + 4 de `FX-25` + 2 de `FX-24`) |
+| `npm run lint` / `npm run typecheck` | limpio (2 warnings preexistentes, ajenos) |
+
+**Las siete mutaciones, cada una sobre una COPIA del árbol y ninguna sobre el vivo:**
+
+| # | Mutación | Rojo en |
+|---|---|---|
+| M1 | quitar `fallbackRate` del DTO | 5 unitarios + **4 de integración** |
+| M2 | emitirlo **sólo** con `status:"missing"` | 3 unitarios |
+| M3 | quitar el piso en **las dos** puertas | 16 unitarios |
+| M4 | ⭐ el piso **sólo** en la tecleada *(la realista: dos ficheros)* | 7, entre ellos **la PARIDAD como identidad** |
+| M5 | el piso **sólo** en la de Banxico | 10 unitarios |
+| M6 | el `message` deja de nombrar el piso | 2 unitarios |
+| M7 | ⭐ el piso **se cuela en la LECTURA** (`parseManualRate >= 1`) | **el CONTROL de `FX-6`**, y sólo ése |
+| M8 | `lockFxGate` fuera de `setMode` | **10/10 rojos** en diez tiradas |
+
 ## 0.48 — **P-46 (re-verificación 2026-09-08): el arreglo YA estaba; lo que faltaba era el candado que lo defiende**
 
 > Propiedad: **backend**. Encargo: «Sincronizar sellado devuelve 0 presentaciones» en **Pitch Black** y

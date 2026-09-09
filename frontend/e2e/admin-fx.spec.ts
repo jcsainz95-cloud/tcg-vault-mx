@@ -105,7 +105,15 @@ async function openM2(page: Page) {
 /** La tarjeta entera. `<section aria-labelledby>` ⇒ `role="region"` con nombre accesible. */
 const fxCard = (page: Page): Locator => page.getByRole('region', { name: FX('title') });
 
-const segment = (page: Page, mode: Mode): Locator => page.getByRole('radio', { name: FX(`toggle.${mode}`) });
+const segment = (page: Page, mode: Mode): Locator => fxCard(page).getByRole('radio', { name: FX(`toggle.${mode}`) });
+
+/**
+ * ⚠️ **Todo botón de la tarjeta se busca DENTRO de la tarjeta.** `M2` monta varias tarjetas de
+ * ajustes y `Guardar` es el rótulo común del sistema: a nivel de página resuelve a **cuatro**
+ * botones. Lo cazó el control positivo de `I-QA-6` (mover el mundo de partida del simulador), no
+ * una revisión: un ancla ambigua se ve verde mientras el estado de la página no cambie.
+ */
+const cardButton = (page: Page, name: string | RegExp): Locator => fxCard(page).getByRole('button', { name });
 
 /** El modo que el SERVIDOR dice que rige, leído del interruptor (⛔ no se deduce de la cifra). */
 async function currentMode(page: Page): Promise<Mode> {
@@ -144,9 +152,9 @@ async function expectRulingMarkAgreesWithSource(page: Page) {
  * `auto` ⛔ no cambia lo que rige (I-FX2), y el número es el mismo ⇒ no mueve un peso.
  */
 async function saveManualRate(page: Page, rate: string) {
-  await page.getByRole('button', { name: FX('manual.create') }).click();
-  await page.getByLabel(FX('manual.field')).fill(rate);
-  await page.getByRole('button', { name: t('es', 'common.save') }).click();
+  await cardButton(page, FX('manual.create')).click();
+  await fxCard(page).getByLabel(FX('manual.field')).fill(rate);
+  await cardButton(page, t('es', 'common.save')).click();
   await expect(page.getByTestId('fx-manual')).toContainText(rate);
 }
 
@@ -243,7 +251,7 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
     const card = fxCard(page);
     const before = await textOf(page.getByTestId('fx-current'));
 
-    await page.getByRole('button', { name: FX('refresh.cta') }).click();
+    await cardButton(page, FX('refresh.cta')).click();
 
     // El `role="alert"` de la TARJETA (Next monta su propio anunciador de ruta, también `alert`).
     const failure = card.getByRole('alert');
@@ -256,7 +264,7 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
       await expect(failure).toContainText(FX('refresh.failedTitle'));
       // El fallo dice qué SIGUE rigiendo (⛔ no deja al humano adivinando) y ⛔ no se disfraza.
       await expect(failure).toContainText(copyRe('refresh.failedBody', { rate: NUM, source: '.+' }));
-      await expect(page.getByText(/Banxico devolvió/)).toHaveCount(0);
+      await expect(fxCard(page).getByText(/Banxico devolvió/)).toHaveCount(0);
       // ⛔ Un refresco que falló no toca la tasa que rige.
       await expect(page.getByTestId('fx-current')).toHaveText(before);
     } else {
@@ -273,7 +281,7 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
     mockOnly('el desenlace y el MOTIVO del refresco los decide el plan del servidor falso');
     await openM2(page);
 
-    await page.getByRole('button', { name: FX('refresh.cta') }).click();
+    await cardButton(page, FX('refresh.cta')).click();
 
     const alert = fxCard(page).getByRole('alert');
     await expect(alert).toContainText(FX('refresh.failedTitle'));
@@ -286,7 +294,7 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
 
     // ⛔ Y no es un toast: sigue ahí pasados 10 s y tras otra interacción de la tarjeta.
     await page.waitForTimeout(10_000);
-    await page.getByRole('button', { name: FX('manual.edit') }).click();
+    await cardButton(page, FX('manual.edit')).click();
     await expect(alert).toContainText(FX('refresh.failedTitle'));
   });
 
@@ -365,9 +373,9 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
       await page.getByRole('dialog').getByRole('button', { name: ANY_CTA }).click();
 
       await expect(targetSegment).toHaveAttribute('aria-checked', 'true');
-      await expect(page.getByText(copyRe('switched', { rate: NUM, source: '.+', previousMode: '.+' }))).toBeVisible();
+      await expect(fxCard(page).getByText(copyRe('switched', { rate: NUM, source: '.+', previousMode: '.+' }))).toBeVisible();
       // ⛔ Se ofrece VOLVER, nunca «Deshacer»: volver es un SEGUNDO repreciado (§30.0).
-      await expect(page.getByRole('button', { name: /Deshacer|Undo/ })).toHaveCount(0);
+      await expect(cardButton(page, /Deshacer|Undo/)).toHaveCount(0);
       // Y la tarjeta sigue sin contradecirse en el estado nuevo.
       await expectRulingMarkAgreesWithSource(page);
 
