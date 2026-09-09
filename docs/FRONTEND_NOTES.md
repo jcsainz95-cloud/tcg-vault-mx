@@ -4,6 +4,104 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §60 · **El panel de FX no tenía rama para dos cosas que el servidor ya emite** — B-1 (`fallback`) y B-2 (`refresh.outcome`) (2026-09-09, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> QA aprobó el backend de `§M2-F` (el interruptor auto/manual) **y aun así rechazó el merge**: el
+> delta mete **un valor nuevo del enum** (`source: "fallback"`) y **un discriminante de resultado**
+> (`refresh.outcome`) en una superficie de admin **VIVA** que no tenía rama para ninguno de los dos
+> — y el camino que la feature añade **desemboca justo ahí**. Esto es el arreglo de ese panel.
+> ⛔ **No es la tarjeta de `DESIGN_SYSTEM §30`**: eso sigue pendiente y es otro pase.
+
+### 1. Los dos bloqueantes, y por qué eran de dinero y no de estilo
+
+**B-1 · `source: "fallback"` no tenía rama, y el backend ya lo emitía.** Con la tabla `FxRate`
+vacía y el modo en `auto`, `GET /admin/fx` devuelve `source: "fallback"`: el sistema **no tiene
+ninguna tasa real** y está convirtiendo **todo** lo que vale en dólares con un **18 escrito en el
+código**. El panel hacía `t(\`fx.sourceLabel.${fx.data.source}\`)` contra un catálogo de **dos**
+claves ⇒ next-intl (sin `onError` ni `getMessageFallback`) pintaba **la ruta de la clave**. Y peor
+que el texto roto: el tono era `source === 'manual' ? 'accent' : 'info'` ⇒ **badge informativo
+sobre una tasa que nadie tecleó**. Una constante escondida presentada como dato normal.
+
+**B-2 · el refresco fallido se pintaba VERDE, y es el bug que reportó el dueño.** El panel hacía
+`fxRefreshMutation.isSuccess && <Banner variant="success">{t('fx.saved')}</Banner>` ⇒ *«Tipo de
+cambio actualizado.»* **aunque `refresh.outcome === "failed"`**. `POST /admin/fx/refresh` contesta
+`200` a propósito (la llamada completó; lo que falló es la fuente externa), así que **`200` no es
+un éxito** y §M2-F.5 es normativa: *«la UI está OBLIGADA a distinguir `failed` visualmente»*.
+
+### 2. Lo que se implementó (§30.5 y §30.7, sin construir la tarjeta)
+
+| Dónde | Qué |
+|---|---|
+| `FxSection.tsx` | `source` pasa por un **MAPA** (`SOURCE_LABEL_KEY` + `SOURCE_TONE`), no por una clave dinámica. `fallback` → **`SIN RESPALDO REAL`** en **acento** + el párrafo normativo de §30.5. `manual`/`banxico` → su versalita en **tinta** (§30.5: el caso normal no grita). Un valor **desconocido** → `FUENTE NO RECONOCIDA` en muted + «no se puede afirmar de dónde sale la tasa». ⛔ **Jamás `MANUAL`** |
+| `FxSection.tsx` | el refresco **lee `refresh.outcome`**: `updated` (con la cifra que devolvió Banxico, y la aclaración de §30.7 si el modo es `manual`), `unchanged` (info: «no cambió nada, y no es un fallo»), **`failed` → `Banner danger` persistente con `role="alert"`**, título, **motivo traducido** y `Reintentar` |
+| `types/contract.ts` | el espejo del `FxStateDTO` completo: `FX_SOURCES` (tres), `mode`, `modeResolvedFrom`, `manual`, `automatic`, `FX_REFRESH_OUTCOMES`, `FX_REFRESH_REASONS` y los tres guards de runtime |
+| `lib/api.ts` | `refreshFx(): Promise<FxRefreshDTO>` — antes tipaba `FxDTO` **sin el bloque `refresh`**, así que el desenlace no existía ni para la pantalla ni para los tests |
+| `lib/mock/fixtures.ts` | el simulador gana el «mundo» (`MockFxWorld`) y **resuelve como el contrato**: el **MODO** decide, no el valor. Puede llegar a `fallback` y a los **tres** desenlaces |
+| `messages/{es,en}` | `sourceLabel.{fallback,unknown}`, `sourceBody.{fallback,unknown}` y `refresh.*` (los tres desenlaces + los cuatro motivos + el neutro), copiados de §30.15 **sin interpretar** |
+
+### 3. Cuatro decisiones que conviene dejar por escrito
+
+1. **`manual` y `automatic` se tipan REQUERIDOS.** §M2-F.3 regla 1 dice «PROHIBIDO devolver sólo la
+   tasa que rige»; un espejo con esos bloques opcionales volvería a ser **más permisivo que el
+   contrato**, que es exactamente el vehículo de B-1. (Cuando se construya §30.4 caso 3 —«DTO
+   incompleto ⇒ interruptor bloqueado»— ese chequeo es **de runtime**, no de tipos.)
+2. **Un `200` sin bloque `refresh` NO se anuncia como éxito.** Si el bloque no viaja, o si el
+   `outcome` no es uno de los tres, se pinta **el fallo con el motivo neutro** de §30.7. Es la
+   lectura literal de *«⛔ PROHIBIDO cualquier mensaje de éxito antes de leer `refresh.outcome`»*.
+3. **`unchanged` va en `info`, no en `success`.** §30.7 los manda a los dos al mismo sitio
+   (toast `role="status"`); pintar de verde de «actualizado» algo que **no actualizó nada** sería
+   el mismo exceso, más pequeño. `updated` sí es verde.
+4. **El mock de `updateFx` deja de encender el manual solo.** Ponía `source: 'manual'` en cuanto se
+   guardaba un número — **la inferencia por VALOR que este pase deroga** (I-FX2 / candado FX-2). Un
+   simulador que contradice al servidor tapa el defecto justo donde nadie mira.
+
+### 4. Los candados, y las siete mutaciones que se pusieron en rojo
+
+- `FxSection.test.tsx` (13) — las dos ramas de B-1 y B-2 **contra el DOM**: rótulo, **tono**,
+  párrafo, `role="alert"`, ausencia de `.border-success`, y el **control negativo** (`updated` sí
+  es éxito).
+- `lib/mock/fx-mock.test.ts` (8) — que el simulador **puede llegar a los estados malos**:
+  `fallback`, los tres desenlaces, y las reglas que no puede violar (el modo decide; el refresco
+  no cambia cuál rige).
+- `lib/mock/fx-contract-mirror.test.ts` (14) — ⭐ **el candado de la deriva**: lee `§M2-F.3` y
+  `§M2-F.5` **del contrato** y compara el enum, las claves de primer nivel del DTO, los desenlaces
+  y los motivos contra el cliente y contra los **dos** catálogos i18n. Anclado en el contrato y no
+  en `backend/` por `CLAUDE.md` («el contrato manda sobre el código»); **falla cerrado**, igual y
+  por lo mismo que `admin-bounties-mock.test.ts`.
+
+| # | Mutación | Rojo |
+|---|---|---|
+| M1 | quitar `fallback` de `FX_SOURCES` (la deriva original) | mirror · 1 |
+| M2 | que el mock del refresco triunfe siempre | mock · 2 |
+| M3 ⭐ | `refreshSucceeded = isSuccess` (un `200` vuelve a ser un éxito) | FxSection · 3 |
+| M4a ⭐ | `fallback` vuelve a pintarse con el rótulo de `manual` | FxSection · 2 |
+| M4b ⭐ | el 18 que nadie tecleó vuelve al tono informativo | FxSection · 1 |
+| M5 | el mock vuelve a llamar `manual` al fallback (conducta v1.62.2) | mock · 2 |
+| M6 | vuelve *«el override manual tiene prioridad»* | FxSection · 1 |
+| M7 | control negativo: un refresco que **sí** ocurrió deja de avisarlo | FxSection · 2 |
+
+### 5. M-6: la ayuda decía lo contrario de lo que el sistema hace
+
+`admin.m2.fx.hint` afirmaba *«El override manual tiene prioridad sobre el automático del día»* —
+**la regla exacta que §M2-F deroga**. Reescrita para describir lo que hay: **el modo decide, no el
+valor, y la tasa manual se guarda siempre aunque no rija**. Se apoya en §M2-F.1 y en el copy ya
+normativo de §30.15 (`lead`, `manual.fieldHint`); **no promete un interruptor que este panel
+todavía no tiene** (eso es §30).
+
+### 6. Lo que queda abierto (y por qué no se resolvió aquí)
+
+- **La tarjeta de §30 sigue pendiente entera**: interruptor, las dos tasas lado a lado, el salto,
+  la frescura (`AL DÍA`/`VIEJA`/`NO HAY`), los dos diálogos y el acuse de §30.8. Este pase **sólo**
+  quitó las dos mentiras del panel viejo.
+- **`fx.saved` («Tipo de cambio actualizado.») sigue vivo en el guardado manual** y es **impreciso
+  en modo `auto`**: ahí el número se guarda pero **no rige**. §30.15 ya tiene el copy
+  (`manual.savedNotRuling` / `manual.savedRuling`) — pero **le falta la variante de
+  `automatic.status: "missing"`** (dice «seguimos en automática (**{rate}** de Banxico)» y en ese
+  estado **no hay** tasa de Banxico que nombrar). Es una **decisión de copy**, así que se para y se
+  eleva a ux-ui en vez de inventarla.
+- **`modeResolvedFrom: "legacy"`** («MODO HEREDADO», §30.5) **no se pinta todavía**: el panel viejo
+  no tiene dónde, y su sitio es bajo el interruptor. Va con §30.
+
 ## §59 · **A-1: el comodín que nadie miró en dos semanas** — se cierra D-IMG-5, se parchea `next`, y el candado mide el ENDPOINT, no el fichero (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Encargo único de seguridad (hallazgo **A-1** del blue team, cierre de release). **Cero producto**:
