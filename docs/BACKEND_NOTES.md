@@ -17354,3 +17354,126 @@ ni Docker** (`pg_isready` sin respuesta, sin daemon). Por eso **no se añadió**
 verde es entregar un rojo sorpresa. El candado B-14 queda cerrado en la suite **unitaria**, que sí corre
 en CI. Si QA quiere además la versión contra Postgres real (fila `PriceReference` de verdad con
 `priceMxnCents = 0` y un acabado sin fila), es un encargo de una tanda y vuelve a backend.
+
+---
+
+## v1.63.1 · **EL TIPO DE CAMBIO TIENE MODO, Y EL MODO NO ES EL VALOR** (§M2-F, 2026-09-09)
+
+> Propiedad: **backend**. Contrato: `API_CONTRACT §M2-F` (v1.63.1). Diseño: `ARCHITECTURE §4.43`.
+> **CERO DDL, CERO migración, CERO cambios en el ESQUEMA de `FxRate` ni en su ESCRITOR.** Lo que
+> cambia es **el LECTOR**, un ajuste nuevo, un endpoint nuevo, tres códigos de error y tres bloques
+> aditivos en una respuesta que ya existía.
+
+### 1. Qué se entregó (y dónde vive)
+
+| Pieza | Archivo |
+|---|---|
+| `resolveFxMode()`, `projectFxState()`, el lector `latestBanxicoFxRate()` (I-FX5) y las constantes (`FX_RATE_MODE_LEGACY`, `FX_FALLBACK_RATE = 18`, `FX_AUTO_STALE_AFTER_DAYS = 5`) | `backend/src/common/fx-mode.ts` **(nuevo)** |
+| Ajuste `fx_rate_mode`: KEY + default **`"legacy"`** + validador `auto\|manual\|legacy`. ⛔ **NO** entra en `SETTING_DTO_MAP` | `backend/src/modules/settings/settings.constants.ts` |
+| **I-FX2** (el pin) e **I-FX4** (borrar el valor en modo manual ⇒ 422), con el pin en la **misma transacción** que el valor; tercer argumento `extra.fxPin` del `auditWithin` | `backend/src/modules/settings/settings.service.ts` |
+| Entrada `fx.mode.change` cuando el cambio de modo entra por `PUT /admin/settings` (FX-13) | `backend/src/modules/settings/settings.controller.ts` |
+| `FxStateDTO` en las cuatro rutas, `setMode()`, refresco con `outcome/reason/fetchedRate/at`, bitácora transaccional | `backend/src/modules/pricing/fx.service.ts` |
+| `PUT /admin/fx/mode`, `fx.override` normalizada + transaccional, `fx.refresh` con el resultado real | `backend/src/modules/pricing/pricing.controller.ts` (`FxController`) |
+| `FX_MANUAL_RATE_MISSING`, `FX_MANUAL_RATE_REQUIRED`, `FX_NO_AUTOMATIC_RATE` | `backend/src/common/error-codes.ts` |
+| El job `fx-refresh` deja de imprimir la tasa del override como si Banxico la hubiera traído | `backend/src/jobs/fx-refresh.service.ts` |
+| **Los trece candados** (43 tests) | `backend/test/fx.mode-switch.spec.ts` **(nuevo)** |
+
+### 2. Las cuatro decisiones que hay que conocer para no deshacerlas sin querer
+
+1. **El pin se resuelve ANTES de aplicar la escritura, y por eso vive en `SettingsService.update`.**
+   Las **dos** puertas que escriben `fx_manual_override_rate` (`PUT /admin/fx` y `PUT /admin/settings`)
+   pasan por ahí —`FxService.setManual` delega—, así que la regla **existe una sola vez**. Resolverla
+   después haría que la resolución legacy contestara `manual` porque el número ya está: el defecto
+   que I-FX2 cierra. Candado **FX-2(a)**.
+2. **El arreglo es del LECTOR.** `latestBanxicoFxRate()` filtra `source: 'banxico'`. La fila
+   `FxRate { id:'manual-<hoy>', source:'manual' }` que escribe `PUT /admin/fx` **se sigue escribiendo
+   igual** (traza forense) y **ya no rige nunca**. En modo `auto` vale la identidad
+   `rate === automatic.rate`. Candado **FX-11**.
+3. **El default de `fx_rate_mode` es el sentinel `"legacy"`.** Ningún valor de `SETTING_DEFAULTS`
+   puede cambiar la conducta de producción: el 19.0000 vivo sigue rigiendo por construcción, sin
+   runbook, y una instalación limpia nace en automático. El **seed no cambia ni una línea**.
+   Candado **FX-6**.
+4. **El acuse `acknowledgeNoAutomaticRate`** sólo se exige con `automatic.status === "missing"`, nunca
+   con `stale`. Candado **FX-12**.
+
+### 3. Para **frontend** (lo que necesitas saber, sin leerte el contrato entero)
+
+- Las **cuatro** rutas de FX devuelven el mismo `FxStateDTO`; `POST /admin/fx/refresh` añade `refresh`.
+- ⚠️ **`source` gana el valor `"fallback"`**: hoy pintarías *«FUENTE: MANUAL (OVERRIDE)»* sobre un 18
+  que **nadie tecleó**. Hace falta rama para ese valor.
+- `mode` viene **resuelto**: se obedece, no se infiere. `modeResolvedFrom` es informativo (`"legacy"`
+  significa que nadie ha tocado el interruptor en ese entorno; si aparece en un entorno maduro,
+  alguien borró la fila — está declarado como riesgo residual en §M2-F.4).
+- `manual` y `automatic` viajan **siempre**, rija quien rija; las dos en tasa **cruda**, sin colchón.
+  El salto en % **lo deriva la UI**: no es un campo.
+- `refresh.outcome: "failed"` llega con **200** y hay que distinguirlo visualmente.
+- Guardar una tasa **no la enciende**: son dos llamadas (`PUT /admin/fx { rate }` →
+  `PUT /admin/fx/mode { mode: "manual" }`).
+- Errores traducibles: `FX_MANUAL_RATE_MISSING` («no hay tasa manual guardada a la que volver»),
+  `FX_MANUAL_RATE_REQUIRED` («para quitar la tasa manual, pasa primero a automático»),
+  `FX_NO_AUTOMATIC_RATE` (`details: { currentRate, fallbackRate }`).
+
+### 4. Para **QA** y **devops**
+
+- El seed creará la fila `fx_rate_mode = "legacy"` en todos los entornos. **No corras un `UPDATE`
+  masivo «para dejarlo consistente»**: `"legacy"` **es** el estado consistente hasta que un humano
+  toque el interruptor. Y ⛔ **no se toca `fx_manual_override_rate`** en el despliegue.
+- El inventario de arranque (§11.0) incluye la clave: un `fx_rate_mode` corrupto **se grita**.
+- Rollback limpio: el código anterior ignora `fx_rate_mode` y vuelve a la conducta que `"legacy"`
+  resuelve. **La fila no se borra.**
+- `D-OPS-1` sigue abierta: falta `BANXICO_SIE_TOKEN` en producción. Ahora se **ve**
+  (`refresh.outcome: "failed"`, `reason: "no_token"` y un `warn` del job), pero **enseñarlo no lo
+  arregla**.
+
+### 5. Los trece candados y su verificación por MUTACIÓN
+
+`backend/test/fx.mode-switch.spec.ts` — **43 tests, todos verdes**. El arnés monta una tabla en
+memoria (defaults de código cuando la fila no existe, `orderBy effectiveDate desc` con y **sin**
+filtro de fuente, `$transaction` que **revierte de verdad**, y **desempate del mismo día adverso**:
+gana la fila escrita más tarde, que es como se produce el caso de I-FX5) y corre las clases **reales**
+(`SettingsService`, `FxService`, `PricingService`, los dos controllers, `AuditService`).
+
+Los dos ⭐⭐ miden **el peso que sale**: el `referenceMxnCents` de la **misma carta** (`priceUsdCents =
+1000`) antes y después del flip, y la fila `ConfigSetting` **leída a pelo**.
+
+| Mutación introducida (rojo confirmado y **restaurada**) | Candados que se pusieron en rojo |
+|---|---|
+| **FX-1 ⭐⭐** el interruptor **borra** la tasa manual al pasar a `auto` | FX-1, FX-5, FX-12 |
+| **FX-2 ⭐⭐** escribir la tasa **enciende** el manual (I-FX3 roto en la escritura) | FX-2, FX-2(a), FX-5, FX-11, FX-13 |
+| **FX-2(a) ⭐⭐** el pin se resuelve **DESPUÉS** de aplicar la escritura | FX-2(a), FX-13 — *y **FX-2 sigue verde**, tal como el contrato anticipa* |
+| **FX-5 ⭐** la bitácora guarda los **rótulos** y no los números | FX-5 |
+| **FX-6 ⭐⭐** el default de código se siembra en `'auto'` | FX-6, FX-2(a) |
+| **FX-6 ⭐⭐** `?? "auto"` en el lector (basura/ausencia ⇒ automático) | FX-6 |
+| **FX-9 ⭐** devolver **sólo** la tasa que rige | FX-9, FX-1, FX-8 |
+| **FX-11 ⭐** el lector **no filtra** por fuente | FX-11, FX-2, FX-2(a) |
+| **FX-12** se quita el acuse del caso «sin segunda tasa» | FX-12 |
+
+| medición | resultado |
+|---|---|
+| spec nuevo | **43/43 verdes** |
+| **suite unitaria completa** (`npx jest`) | **254 suites / 3.746 tests — 3.746 verdes** |
+| `eslint` + `tsc --noEmit` | limpio (los 2 `warning` preexistentes de `inventory`/`sealed-product` siguen ahí, ajenos a este pase) |
+
+### 6. Las dos cosas que se apartan de la letra del contrato — **declaradas, no escondidas**
+
+1. **`acknowledgedNoAutomaticRate` viaja DENTRO de `after`**, no como campo de primer nivel de la
+   entrada. §M2-F.4 lo dibuja al nivel de `before`/`after`, pero `AuditLog` **no tiene esa columna** y
+   el pase es **CERO DDL**: la única alternativa era una migración, que está explícitamente fuera de
+   alcance. Se lee igual (`after.acknowledgedNoAutomaticRate === true`) y así lo asierta **FX-12**. Si
+   el arquitecto prefiere otra ubicación, es un cambio de una línea.
+2. **`POST /admin/fx/refresh` escribe la fila `FxRate` también cuando el `outcome` es `unchanged`.**
+   El contrato sólo dice «(se escribió fila)» junto a `updated`. Escribir siempre es **la conducta de
+   hoy** (⛔ el escritor no se toca) **y es lo money-safe**: si Banxico confirma hoy el mismo número y
+   no se escribiera la fila del día, `automatic.ageDays` seguiría creciendo y el panel declararía
+   `stale` una tasa que **acabamos de confirmar**. `outcome` habla del **valor**, no de si hubo
+   escritura.
+
+### 7. Lo que NO se hizo (a propósito)
+
+⛔ La pantalla (es de frontend + ux-ui) · ⛔ ningún DDL, ninguna migración, ningún cambio en el
+esquema de `FxRate` ni en su escritor · ⛔ ningún dial nuevo en §M10 (`fx_rate_mode` **no** está en
+`SETTING_DTO_MAP`: enviarlo por `PUT /admin/settings` cae en `422`) · ⛔ nada de `§M2-B` ni de la cara
+`market` · ⛔ no se bloquea el pricing con la tasa `stale` (se **declara**) · ⛔ **no se corrió la
+suite de integración**: en esta sesión no hay Postgres ni Docker (`pg_isready` sin respuesta, sin
+daemon), así que los trece candados viven en la suite **unitaria**, que sí corre en CI. Si QA quiere
+además la versión contra Postgres real, es un encargo aparte y vuelve a backend.
