@@ -644,6 +644,31 @@ roles) y **¿cómo le llama a M5?**.
 - **Estado:** ⛔ **BLOQUEA el merge del interruptor de FX** hasta que el humano decida.
 
 
+#### P-70 · 🃏 Stream `decks-meta-v1` — el spec del humano, en espera de arrancar
+- **Entregado por el humano el 2026-09-09**, con instrucción explícita: *«después de que publiques quiero
+  que empieces con esto»*. Guardado **verbatim** en `docs/specs/DECKS_META_V1.md`; nadie lo edita.
+- **Qué es:** una sección «Decks Meta» que traiga los 10 decks del meta de Limitless TCG, con precio en
+  pesos, disponibilidad real por carta y un botón «Agregar las disponibles», más descuento de bundle
+  (5 % con 60/60, 3 % con las *core* completas), job semanal, correo «Qué cambió» y reporte de faltantes.
+- **Cómo arranca, según el propio spec:** sesión 1 es **solo diseño, sin código de producto** — modelo de
+  datos, las dos preguntas bloqueantes de arquitectura, el diseño del job, y el diff propuesto de
+  `API_CONTRACT.md`, todo para **revisión del arquitecto**. Por el paso 0 de `CLAUDE.md`, antes va
+  **product-owner** aterrizándolo a `PROJECT.md`.
+- 🔴 **BLOQUEANTE QUE HAY QUE RESOLVER ANTES, y no es del spec: `pricing-iva-v2.1` NO EXISTE en este
+  repo.** Lo verifiqué: cero ocurrencias de ese nombre en `docs/` y en `PROJECT.md`. Y lo que sí verifiqué
+  del estado real: `backend/src/common/money.ts:374` calcula `iva = round(subtotal × ivaPct/100)` — o sea
+  que **hoy el motor devuelve base y apila el IVA después**, que es exactamente el estado que el spec dice
+  que hay que resolver antes de publicar la sección (*«si el motor sigue devolviendo base con IVA apilado
+  después, el descuento y el total del bundle salen mal»*). ⇒ **Hay que preguntarle al humano** si
+  `pricing-iva-v2.1` es trabajo de otro contexto, si es un stream por abrir aquí, o si lo que existe bajo
+  otro nombre (P-37, contrato v1.40) ya lo cubre. **No se asume.**
+- ⚠️ **Su propia regla de exclusión:** *«corre solo; no se abre en paralelo con `pricing-iva-v2.1` ni con
+  ningún stream que toque `money.ts` o el contrato»*. El stream de FX que se acaba de cerrar tocaba las
+  dos cosas, así que **esperar al merge era correcto** — ya está hecho.
+- **Zonas compartidas que va a tocar:** catálogo, carrito/checkout (la línea de descuento),
+  `API_CONTRACT.md`, `prisma/schema`, jobs programados y correo transaccional. Por la regla de oro, **solo
+  un stream a la vez** puede tocarlas.
+
 #### P-69 · 📦 El precio de mercado se pierde entre el paso 1 y el paso 2 al subir sellado — reportado por el humano
 - **Lo que dijo, literal (2026-09-09):** *«subiendo producto sellado me aparece el precio de mercado, en la
   siguiente pagina dice que no tiene el precio y no puedo ponerle como aportacion»*. Con captura.
