@@ -123,40 +123,139 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
 
   // ===============================================================================================
   describe('⭐⭐ S-FX-1 — la carrera entre las dos puertas, contra Postgres', () => {
+    /**
+     * ⭐⭐⭐ **`I-QA-4` (v1.63.4) — ESTE CANDADO SOLO ERA SENSIBLE AL ~70 %, Y ESO NO ES UN CANDADO.**
+     *
+     * ### La medición que lo destapó (QA, y corrige una medición mía)
+     * En v1.63.3 este bucle era `for (const ventajaMs of [0, 5, 20, 20, 50])` y se reportó *«la
+     * mutación sale en rojo»* — cierto, pero era **UNA tirada**. QA la repitió **diez veces** contra
+     * el mismo Postgres:
+     *
+     * | Árbol | Resultado |
+     * |---|---|
+     * | Candidato (con `lockFxGate` en `setMode`) | **10/10 verdes** — cero falsas alarmas |
+     * | Mutante (`lockFxGate` fuera de `setMode`) | **7 rojos / 3 VERDES** |
+     *
+     * Y comprobó que no fuera un arnés ciego: marcador en el fichero mutado, 14 disparos, **el
+     * fichero se cargaba** ⇒ los tres verdes eran **escapes reales**. Como gate de CI, esto **dejaba
+     * pasar una regresión de `lockFxGate` en ~3 de cada 10 corridas**.
+     *
+     * ### Por qué escapaba, medido (sonda sobre el árbol MUTADO, 12 intentos por ventana)
+     * ```
+     * escalonado (ms) │ 0  1  2  3  5  8 10 12 │ 15 20 25 │ 30 40 50 75
+     * reproducciones  │ 0  0  0  0  0  0  0  0 │ 10  6  1 │  0  0  0  0
+     * ```
+     * **La ventana de la carrera es un intervalo ESTRECHO** —`(lectura de A, commit de A)`, aquí
+     * ~12-25 ms— y la lista fija `[0, 5, 20, 20, 50]` **solo tocaba ese intervalo con sus dos 20**,
+     * cada uno al ~50 % ⇒ `1 − 0.5² = 75 %` de sensibilidad. *Cuadra exactamente con el 7/10 de QA.*
+     *
+     * ### ⛔ El arreglo NO es «repetir más veces el 20»
+     * Ese número **es la duración de la puerta A en ESTA máquina**. En una más rápida —o más lenta—
+     * la ventana se mueve, la lista fija deja de tocarla y el candado se vuelve **verde para
+     * siempre**: *un candado calibrado a mano contra el reloj de una máquina es un candado que
+     * caduca sin avisar, y en silencio*. Es la misma familia de defecto que `B-QA-1`.
+     *
+     * ### El arreglo, y son TRES piezas
+     * 1. **CALIBRAR:** se mide la duración real de la puerta A **aislada**, en esta máquina y en esta
+     *    corrida (`T`, mediana de tres). El barrido se escala a `T`, no a un `20` escrito a mano.
+     * 2. **BARRER DENSO:** `PASOS` escalonados repartidos por `[0, 2T]` × `REPS` repeticiones. Sea
+     *    cual sea la posición de la ventana dentro de `[0, T]`, **varios puntos caen dentro**.
+     * 3. ⭐⭐ **PROBAR QUE EL BARRIDO NO ES CIEGO:** se cuenta cuántos intentos **solaparon de
+     *    verdad** (B se emitió **mientras A seguía en vuelo**, medido en el cliente) y se **exige un
+     *    mínimo**. Solapar es la condición **necesaria** de la carrera; sin esta pieza, un barrido que
+     *    se pasara de largo pasaría en verde **sin haber probado nada**, que es justo el modo de fallo
+     *    que `B-QA-1` ya nos costó una vez. Si el reloj de la máquina cambia, esto se pone **rojo con
+     *    un mensaje que dice qué recalibrar**, ⛔ no verde.
+     *
+     * **Medido tras el arreglo:** candidato **10/10 verde**, mutante **10/10 ROJO**.
+     */
     it('las dos peticiones se solapan y JAMÁS queda `manual` con la tasa en null', async () => {
-      // Se repite: una carrera que solo se prueba una vez es una moneda al aire. El pentester la
-      // reprodujo 7 de 8 veces con ~20 ms de ventaja; aquí se dispara sin escalonar y escalonada.
-      for (const ventajaMs of [0, 5, 20, 20, 50]) {
+      // ── 1. CALIBRAR ────────────────────────────────────────────────────────────────────────────
+      // La duración de la puerta A **aislada**: la ventana de la carrera vive DENTRO de ella, porque
+      // es el intervalo `(A lee, A commitea)`. Mediana de tres para no quedarse con un arranque en
+      // frío. ⛔ No se usa un literal: el literal es exactamente lo que caducaba.
+      const muestras: number[] = [];
+      for (let i = 0; i < 3; i++) {
         await estadoDelPoC();
-
-        const puertaA = h.api('PUT', '/admin/settings', {
-          token: admin,
-          json: { fxManualOverrideRate: null },
-        });
-        const puertaB = (async () => {
-          if (ventajaMs) await new Promise((r) => setTimeout(r, ventajaMs));
-          return h.api('PUT', '/admin/fx/mode', { token: admin, json: { mode: 'manual' } });
-        })();
-        const [resA, resB] = await Promise.all([puertaA, puertaB]);
-
-        // ⭐⭐ EL INVARIANTE, leído DE LA BASE (no de la respuesta): el estado imposible no existe.
-        const modo = await leerFila(SettingKey.FX_RATE_MODE);
-        const tasa = await leerFila(SettingKey.FX_MANUAL_OVERRIDE_RATE);
-        expect(modo === 'manual' && (tasa === null || tasa === undefined)).toBe(false);
-
-        // ⭐ Y el dinero: nunca el fallback duro por accidente. Con la fila `banxico` sembrada
-        // (`sembrarBanxico`), los DOS desenlaces legales de la carrera tienen número propio —`auto`
-        // ⇒ banxico, `manual` ⇒ 19— así que **cualquier `fallback` aquí es el hallazgo**, no la
-        // ausencia de datos. Sin la fila, esta aserción medía el seed en vez de la carrera.
-        const fx: any = await getFx();
-        expect(fx.source).not.toBe('fallback');
-        expect(fx.rate).not.toBe(FX_FALLBACK_RATE);
-
-        // Una de las dos tiene que negarse (422); las dos con 200 es exactamente el hallazgo.
-        const estados = [resA.status, resB.status].sort();
-        expect(estados).toEqual([200, 422]);
+        const t0 = Date.now();
+        await h.api('PUT', '/admin/settings', { token: admin, json: { fxManualOverrideRate: null } });
+        muestras.push(Date.now() - t0);
       }
-    });
+      const T = muestras.sort((a, b) => a - b)[1];
+      // Cordura de la calibración: si la puerta A tarda 0 ms o 5 s, no estamos midiendo lo que
+      // creemos y el barrido que salga de ahí no significará nada.
+      expect(T).toBeGreaterThanOrEqual(2);
+      expect(T).toBeLessThan(2000);
+
+      // ── 2. BARRIDO DENSO, ESCALADO A `T` ───────────────────────────────────────────────────────
+      const PASOS = 40;
+      const REPS = 3;
+      /** Mínimo de intentos SOLAPADOS que exige la pieza 3. */
+      const SOLAPES_MINIMOS = 20;
+
+      let solapados = 0;
+      const escalonadosQueSolaparon = new Set<number>();
+
+      for (let paso = 0; paso < PASOS; paso++) {
+        const ventajaMs = Math.round((paso * 2 * T) / PASOS);
+        for (let rep = 0; rep < REPS; rep++) {
+          await estadoDelPoC();
+
+          const t0 = Date.now();
+          let finA = Infinity;
+          const puertaA = h
+            .api('PUT', '/admin/settings', { token: admin, json: { fxManualOverrideRate: null } })
+            .then((r) => {
+              finA = Date.now() - t0;
+              return r;
+            });
+          const puertaB = (async () => {
+            if (ventajaMs) await new Promise((r) => setTimeout(r, ventajaMs));
+            return h.api('PUT', '/admin/fx/mode', { token: admin, json: { mode: 'manual' } });
+          })();
+          const [resA, resB] = await Promise.all([puertaA, puertaB]);
+
+          // ⭐⭐ ¿SOLAPARON DE VERDAD? B se emitió en `ventajaMs`; A terminó en `finA`. Es la
+          // condición NECESARIA de la carrera, y es lo único de esto que se puede medir sin
+          // instrumentar el servidor. Se acumula para la pieza 3.
+          if (ventajaMs < finA) {
+            solapados++;
+            escalonadosQueSolaparon.add(ventajaMs);
+          }
+
+          // ⭐⭐ EL INVARIANTE, leído DE LA BASE (no de la respuesta): el estado imposible no existe.
+          const modo = await leerFila(SettingKey.FX_RATE_MODE);
+          const tasa = await leerFila(SettingKey.FX_MANUAL_OVERRIDE_RATE);
+          expect({ ventajaMs, rep, imposible: modo === 'manual' && (tasa === null || tasa === undefined) })
+            .toEqual({ ventajaMs, rep, imposible: false });
+
+          // Una de las dos tiene que negarse (422); las dos con 200 es exactamente el hallazgo.
+          expect({ ventajaMs, rep, estados: [resA.status, resB.status].sort() })
+            .toEqual({ ventajaMs, rep, estados: [200, 422] });
+        }
+      }
+
+      // ⭐ Y el dinero: nunca el fallback duro por accidente. Con la fila `banxico` sembrada
+      // (`sembrarBanxico`), los DOS desenlaces legales de la carrera tienen número propio —`auto`
+      // ⇒ banxico, `manual` ⇒ 19— así que **cualquier `fallback` aquí es el hallazgo**, no la
+      // ausencia de datos. Sin la fila, esta aserción medía el seed en vez de la carrera.
+      const fx: any = await getFx();
+      expect(fx.source).not.toBe('fallback');
+      expect(fx.rate).not.toBe(FX_FALLBACK_RATE);
+
+      // ── 3. ⭐⭐ EL BARRIDO NO FUE CIEGO ────────────────────────────────────────────────────────
+      // Sin esto, un barrido que se pasara de largo (máquina mucho más rápida, `T` mal medida)
+      // pasaría en VERDE sin haber solapado ni una vez. *Una carrera que nunca llegó a solapar no
+      // ha probado nada sobre la carrera* — y es exactamente el defecto que `B-QA-1` nos costó.
+      if (solapados < SOLAPES_MINIMOS || escalonadosQueSolaparon.size < 5) {
+        throw new Error(
+          `El barrido de la carrera NO SOLAPÓ lo suficiente (solapados=${solapados}, ` +
+            `escalonados distintos=${escalonadosQueSolaparon.size}, T=${T} ms). No es un fallo del ` +
+            'candado del FX: es que este barrido no llegó a probarlo. Recalibra el barrido ' +
+            '(§I-QA-4) antes de creerte ningún verde de este fichero.',
+        );
+      }
+    }, 300_000);
 
     it('⭐ la bitácora describe el estado que RIGE (el no-repudio del hallazgo)', async () => {
       await estadoDelPoC();
@@ -328,6 +427,187 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
       const b = await h.api('PUT', '/admin/fx/mode', { token: admin, json: { mode: 'manual' } });
       expect(b.status).toBe(422);
       expect((b.body as any).error.code).toBe('FX_MANUAL_RATE_MISSING');
+    });
+  });
+
+  // ===============================================================================================
+  /**
+   * ⭐ **`FX-25` (§M2-F.6 · §M2-F.3 regla 6 · `D-FX-5`) — `fallbackRate` VIAJA SIEMPRE.**
+   *
+   * La unitaria ya lo asierta sobre los controllers; **aquí se mide por HTTP real**, que es la única
+   * capa que puede afirmar que el campo **sale por el cable** en las cuatro rutas: el serializador,
+   * el `ValidationPipe` y el interceptor están en medio, y un campo nuevo del DTO se pierde
+   * exactamente ahí. *El frontend lee esto, no el objeto que devuelve el servicio.*
+   */
+  describe('⭐ FX-25 — el respaldo se publica por el cable, en las CUATRO rutas', () => {
+    beforeEach(async () => {
+      await escribirFila(SettingKey.FX_RATE_MODE, 'auto');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
+      await sembrarBanxico();
+    });
+
+    it('⭐ (a) las CUATRO rutas traen `fallbackRate === 18` sobre HTTP', async () => {
+      const rutas: [string, string, unknown][] = [
+        ['GET', '/admin/fx', undefined],
+        ['PUT', '/admin/fx', { rate: 19.5 }],
+        ['PUT', '/admin/fx/mode', { mode: 'manual' }],
+        // ⚠️ Sin `BANXICO_SIE_TOKEN` esto sale `failed/no_token` — y ES el caso interesante: el DTO
+        // tiene que traer el respaldo **también cuando el refresco fracasa**, que es justo cuando la
+        // pantalla lo necesita para explicar a qué número se caería.
+        ['POST', '/admin/fx/refresh', {}],
+      ];
+      // ⚠️ El `status: 200` de la cuarta fila NO es decorado: `POST /admin/fx/refresh` devolvía
+      // **`201`** (el default de `@Post` en Nest) contra el `200` que NORMA §M2-F.5. Se descubrió
+      // cableando este candado, porque ningún test miraba el status de esa ruta.
+      for (const [metodo, ruta, json] of rutas) {
+        const res = await h.api(metodo as never, ruta, { token: admin, json: json as never });
+        expect({ ruta, status: res.status }).toEqual({ ruta, status: 200 });
+        expect({ ruta, fallbackRate: (res.body as any).fallbackRate }).toEqual({
+          ruta,
+          fallbackRate: FX_FALLBACK_RATE,
+        });
+      }
+    });
+
+    it('⭐ (a-bis) y en los TRES estados legales — ⛔ no aparece «sólo cuando hace falta»', async () => {
+      // manual con número
+      await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
+      let fx: any = await getFx();
+      expect([fx.source, fx.fallbackRate]).toEqual(['manual', FX_FALLBACK_RATE]);
+
+      // auto con fila banxico FRESH
+      await escribirFila(SettingKey.FX_RATE_MODE, 'auto');
+      fx = await getFx();
+      expect([fx.source, fx.automatic.status, fx.fallbackRate]).toEqual([
+        'banxico',
+        'fresh',
+        FX_FALLBACK_RATE,
+      ]);
+
+      // auto SIN fila
+      await h.prisma.fxRate.deleteMany({ where: { source: 'banxico' } });
+      fx = await getFx();
+      expect([fx.source, fx.automatic.status, fx.fallbackRate]).toEqual([
+        'fallback',
+        'missing',
+        FX_FALLBACK_RATE,
+      ]);
+      // ⭐ invariante (i): con `fallback`, la tasa que rige ES el respaldo.
+      expect(fx.rate).toBe(fx.fallbackRate);
+      await sembrarBanxico();
+    });
+
+    /**
+     * ⭐⭐ **(b) La mitad que se olvida.** El `422` **sigue llevando su `details` completo** y su
+     * `fallbackRate` es **el mismo número** que el del DTO. *«Ya viaja en el DTO»* no es razón para
+     * adelgazar el error: ese `422` es **la carrera real** —la fila de Banxico desaparece entre el
+     * `GET` y el `PUT`— y *un error de dinero tiene que poder explicarse solo, sin depender de una
+     * lectura anterior que puede estar rancia*.
+     */
+    it('⭐⭐ (b) el `422 FX_NO_AUTOMATIC_RATE` conserva su `details`, y coincide con el DTO', async () => {
+      await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
+      await h.prisma.fxRate.deleteMany({ where: { source: 'banxico' } });
+
+      const delDto = (await getFx()).fallbackRate;
+      const res = await h.api('PUT', '/admin/fx/mode', { token: admin, json: { mode: 'auto' } });
+      expect(res.status).toBe(422);
+      const err = (res.body as any).error;
+      expect(err.code).toBe('FX_NO_AUTOMATIC_RATE');
+      // ⛔ Rojo si el `422` deja de traer `details`, o si trae uno adelgazado.
+      expect(err.details).toEqual({ currentRate: 19, fallbackRate: FX_FALLBACK_RATE });
+      expect(err.details.fallbackRate).toBe(delDto);
+
+      await sembrarBanxico();
+    });
+
+    /** ⛔ (d) **No es un dial.** Publicar un número y permitir editarlo son dos decisiones distintas. */
+    it('⛔ (d) `PUT /admin/settings { fallbackRate }` ⇒ 422 por clave desconocida', async () => {
+      const res = await h.api('PUT', '/admin/settings', {
+        token: admin,
+        json: { fallbackRate: 20 },
+      });
+      expect(res.status).toBe(422);
+      expect((res.body as any).error.code).toBe('VALIDATION_ERROR');
+      const settings: any = (await h.api('GET', '/admin/settings', { token: admin })).body;
+      expect(Object.keys(settings)).not.toContain('fallbackRate');
+      expect((await getFx()).fallbackRate).toBe(FX_FALLBACK_RATE);
+    });
+  });
+
+  // ===============================================================================================
+  /**
+   * ⭐⭐ **`FX-24` (§M2-F.6 · §M2-F.8 · `D-FX-4`) — LA BANDA `[1, 1000]`, POR EL CABLE.**
+   *
+   * Los vectores y la **paridad como identidad** viven en la unitaria (`fx.mode-switch.spec.ts`), que
+   * es donde se pueden barrer sin coste. Aquí se miden las **dos cosas que la unitaria no puede
+   * afirmar**: que el `422` sale por HTTP con su código y **sin escritura parcial** en Postgres, y
+   * —lo importante— que **la banda NO se coló en la LECTURA**, con el valor sub-piso viajando por
+   * `jsonb` de verdad.
+   */
+  describe('⭐⭐ FX-24 — la banda por HTTP, y la lectura que NO se defiende', () => {
+    it('la puerta tecleada rechaza SUB-PISO por las DOS rutas, sin escritura parcial', async () => {
+      await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
+
+      for (const rate of [0.0001, 0.05, 0.999999, 0]) {
+        const a = await h.api('PUT', '/admin/fx', { token: admin, json: { rate } });
+        expect({ rate, status: a.status }).toEqual({ rate, status: 422 });
+        expect((a.body as any).error.code).toBe('VALIDATION_ERROR');
+        // ⭐ (d) el mensaje NOMBRA LOS DOS EXTREMOS.
+        expect((a.body as any).error.message).toContain('[1, 1000]');
+
+        const b = await h.api('PUT', '/admin/settings', {
+          token: admin,
+          json: { fxManualOverrideRate: rate },
+        });
+        expect({ rate, status: b.status }).toEqual({ rate, status: 422 });
+
+        // ⛔ Y la fila NO se movió: sin escritura parcial, por ninguna de las dos puertas.
+        expect(await leerFila(SettingKey.FX_MANUAL_OVERRIDE_RATE)).toBe(19);
+      }
+
+      // Y los DOS extremos, cerrados, sí entran por el cable.
+      for (const rate of [1, 1000]) {
+        const ok = await h.api('PUT', '/admin/fx', { token: admin, json: { rate } });
+        expect({ rate, status: ok.status }).toEqual({ rate, status: 200 });
+        expect(await leerFila(SettingKey.FX_MANUAL_OVERRIDE_RATE)).toBe(rate);
+      }
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
+    });
+
+    /**
+     * ⛔⛔ **EL CONTROL QUE MÁS IMPORTA: la banda es puerta de ESCRITURA, NO de LECTURA.**
+     *
+     * Este es el caso del entorno que ya tenía guardado un valor sub-piso **antes** del deploy. Si el
+     * piso se colara en la resolución legacy (`parseManualRate`), el modo saltaría de `manual` a
+     * `auto` **en el primer `GET` después del deploy** —el sistema cambiando de conducta por su
+     * cuenta, `FX-6`— y el catálogo se repreciaría sin que nadie lo pidiera.
+     *
+     * ⚠️ Y va **aquí** y no sólo en la unitaria porque el valor viaja por **`jsonb`**: que
+     * `0.5` vuelva de Postgres como algo que `Number()` acepta es de la capa que sólo el driver real
+     * puede afirmar.
+     */
+    it('⛔ CONTROL — un `0.5` YA GUARDADO se sigue OBEDECIENDO, y el modo NO salta', async () => {
+      // El sentinel `legacy` = «nadie ha tocado el interruptor en este entorno», que es el caso del
+      // deploy: la resolución legacy corre en CADA lectura mientras la fila valga eso.
+      await escribirFila(SettingKey.FX_RATE_MODE, 'legacy');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 0.5);
+
+      const fx: any = await getFx();
+      expect(fx.mode).toBe('manual'); // ⛔ rojo si salta a `auto`
+      expect(fx.modeResolvedFrom).toBe('legacy');
+      expect(fx.rate).toBe(0.5);
+      expect(fx.source).toBe('manual');
+      expect(fx.manual.applied).toBe(true);
+
+      // ⭐ Pero la ESCRITURA sí lo rechaza: se corrige por un acto humano por la puerta normal,
+      // ⛔ no por una migración que reescriba dinero.
+      const res = await h.api('PUT', '/admin/fx', { token: admin, json: { rate: 0.5 } });
+      expect(res.status).toBe(422);
+
+      await escribirFila(SettingKey.FX_RATE_MODE, 'auto');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
     });
   });
 

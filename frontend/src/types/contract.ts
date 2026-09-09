@@ -2709,6 +2709,28 @@ export interface FxDTO {
   bufferPct: number;
   source: FxSource;
   effectiveDate: string;
+  /**
+   * ⭐⭐ **El valor de RESPALDO del servidor** (`FX_FALLBACK_RATE`, hoy `18`) — §M2-F.3 **regla 6**,
+   * campo **ADITIVO de v1.63.4**. Es lo que regiría **si ninguna de las dos ramas puede regir**.
+   *
+   * **Obligatorio, al NIVEL SUPERIOR, en las CUATRO rutas y en TODAS las respuestas, con el mismo
+   * valor siempre.** Se tipa **requerido** (no `number | undefined`) a propósito: un espejo más
+   * permisivo que el contrato es exactamente el hueco de B-1.
+   *
+   * ⛔ **NO va dentro de `automatic`**, y la razón es de dinero: desde v1.63.3 `source: "fallback"`
+   * es alcanzable **también con `mode: "manual"`** (4.ª fila de §M2-F.1) ⇒ el respaldo es del
+   * **estado entero**, no de la rama automática. Anidarlo invitaría al error que la **regla 5**
+   * prohíbe: presentar el 18 **como si fuera «la de Banxico»**.
+   *
+   * **Invariantes verificables (§M2-F.3 regla 6):** (i) `source === 'fallback'` ⟹
+   * `rate === fallbackRate`; (ii) `details.fallbackRate` del `422 FX_NO_AUTOMATIC_RATE` es **este
+   * mismo número** — ⛔ y el campo **NO sustituye a ese `details`**: ese error es la carrera real y
+   * *un error de dinero tiene que poder explicarse solo*.
+   *
+   * ⛔ **No es un dial** (no aparece en el DTO de §M10) y ⛔ **no se pinta como tasa vigente** salvo
+   * con `source === 'fallback'`, ni como tercera columna junto a las dos tasas.
+   */
+  fallbackRate: number;
   /** RESUELTO por el servidor. La UI lo OBEDECE, no lo infiere del valor. */
   mode: FxRateMode;
   modeResolvedFrom: FxModeResolvedFrom;

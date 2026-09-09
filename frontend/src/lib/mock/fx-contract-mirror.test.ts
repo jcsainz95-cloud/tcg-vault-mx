@@ -118,6 +118,107 @@ describe('espejo del `FxStateDTO` contra §M2-F.3', () => {
 
 /*
  * ─────────────────────────────────────────────────────────────────────────────
+ * ⭐⭐ v1.63.4 — `fallbackRate`: LA REGLA 6 DE §M2-F.3, MEDIDA DONDE PUEDE MEDIRSE
+ *
+ * Este campo entró **porque esta pantalla lo pidió**: el diálogo del acuse (`DESIGN_SYSTEM §30.8`)
+ * tiene que **nombrar el número al que se saltaría ANTES de que el humano toque nada**, y hasta
+ * v1.63.3 ese número **sólo existía dentro del `422`** ⇒ la tarjeta mandaba un `PUT` sin acuse
+ * sólo para leerlo (deuda `FX-F1`). Al concederlo, el arquitecto fijó **tres cosas que son
+ * exactamente las que un cliente puede romper sin enterarse**, y por eso cada una tiene su rojo:
+ *
+ *  1. **Al NIVEL SUPERIOR, ⛔ NO dentro de `automatic`** — el respaldo es del **estado entero**
+ *     (con `mode:"manual"` también se puede caer a él, 4.ª fila de §M2-F.1). Anidarlo invitaría al
+ *     error que la **regla 5** prohíbe: presentar el 18 **como si fuera «la de Banxico»**.
+ *  2. **SIEMPRE presente**, no «sólo cuando hace falta»: un campo que aparece y desaparece obliga
+ *     a ramificar por presencia **y parece estado, que no lo es**.
+ *  3. ⛔ **NO sustituye al `details` del `422`** — ese error es la carrera real y *tiene que poder
+ *     explicarse solo*.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe('⭐ espejo de `fallbackRate` (regla 6, v1.63.4) contra §M2-F.3', () => {
+  const body = section('M2-F3', 'M2-F4');
+  const dtoBlock = body.slice(body.indexOf('```jsonc') + 8, body.indexOf('```', body.indexOf('```jsonc') + 8));
+  const flat = (markdown: string) => markdown.replace(/\n\s*>?\s*/g, ' ');
+
+  it('⭐⭐ el contrato lo declara al NIVEL SUPERIOR, y ⛔ NO dentro de `automatic`', () => {
+    // Nivel superior = dos espacios de sangría en el bloque del DTO; anidado = cuatro.
+    expect(dtoBlock).toMatch(/^ {2}"fallbackRate":/m);
+    expect(dtoBlock, '`fallbackRate` aparece ANIDADO: eso es la regla 5 rota').not.toMatch(/^ {4}"fallbackRate":/m);
+    // Y la prohibición, dicha: si el contrato la retirara, este cliente tiene que enterarse.
+    expect(flat(body)).toMatch(/al nivel superior y ⛔ NO dentro de `automatic`/);
+  });
+
+  it('el contrato lo declara OBLIGATORIO y en las CUATRO rutas (⛔ no «sólo cuando hace falta»)', () => {
+    expect(flat(body)).toMatch(/obligatorio, al NIVEL SUPERIOR, en las CUATRO rutas y en TODAS las respuestas/);
+  });
+
+  it('⭐ invariante (i): con `source: "fallback"`, `rate === fallbackRate` — y el simulador lo cumple', () => {
+    expect(flat(body)).toMatch(/`source === "fallback"` ⟹ \*\*`rate === fallbackRate`\*\*/);
+    // El mundo sin ninguna de las dos ramas: ni tasa manual, ni fila de Banxico.
+    const dto = buildMockFxState({
+      ...mockFxWorld,
+      mode: 'auto',
+      manualRate: null,
+      automaticRate: null,
+      automaticEffectiveDate: null,
+      automaticAgeDays: null,
+      automaticStatus: 'missing',
+    });
+    expect(dto.source).toBe('fallback');
+    expect(dto.rate).toBe(dto.fallbackRate);
+  });
+
+  it('⭐ y viaja IGUAL en los estados donde NO rige (rojo si aparece sólo cuando hace falta)', () => {
+    // Los tres estados legales de §M2-F.1, con el MISMO número: `manual` con tasa, `auto` con fila
+    // de Banxico, y `auto` sin ninguna. Un campo condicional pasaría el primer test y este no.
+    const manual = buildMockFxState(mockFxWorld);
+    const auto = buildMockFxState({
+      ...mockFxWorld,
+      mode: 'auto',
+      automaticRate: 18.2431,
+      automaticEffectiveDate: '2026-09-05',
+      automaticAgeDays: 3,
+      automaticStatus: 'fresh',
+    });
+    expect(manual.source).toBe('manual');
+    expect(auto.source).toBe('banxico');
+    expect(typeof manual.fallbackRate).toBe('number');
+    expect(manual.fallbackRate).toBe(auto.fallbackRate);
+  });
+
+  it('⛔ el campo NO sustituye al `details` del `422`: el contrato lo dice, y en las dos mitades', () => {
+    // Mitad (a): §M2-F.3 regla 6, invariante (ii).
+    expect(flat(body)).toMatch(/El campo NO sustituye al `details`/);
+    // Mitad (b) — la que se olvida: la ficha del error, en §M2-F.2, sigue exigiéndolo COMPLETO.
+    const gate = flat(section('M2-F2', 'M2-F3'));
+    expect(gate).toMatch(/`details` sigue siendo OBLIGATORIO y COMPLETO/);
+    expect(gate).toMatch(/`details\.fallbackRate` es EL MISMO número que `FxStateDTO\.fallbackRate`/);
+  });
+
+  /**
+   * ⭐ **RATIFICACIÓN, ⛔ no implementación.** El pase anterior pidió al arquitecto bendecir una
+   * **variante base de `error.FX_NO_AUTOMATIC_RATE` sin `{fallbackRate}`** (§61.6, petición 2).
+   * **Se denegó**, con argumento: *«la frase sin la cifra no es la misma frase menos un paréntesis,
+   * es otro mensaje»*, y §30.8 existe justo para impedir eso. Aquí no se cambia ni una cadena: se
+   * ancla la decisión, para que el día que alguien la reabra se ponga rojo **por el sitio
+   * correcto** — el contrato dejó de permitirlo, o el copy canónico perdió su cifra.
+   */
+  it('⭐ el copy canónico del `422` NOMBRA la cifra, y el contrato prohíbe la variante sin ella', () => {
+    const gate = flat(section('M2-F2', 'M2-F3'));
+    expect(gate).toMatch(/\*\*⛔ NO se crea una variante de copy sin la cifra\*\*/);
+    for (const [locale, catalog] of [
+      ['es', es.error as unknown as Record<string, string>],
+      ['en', en.error as unknown as Record<string, string>],
+    ] as const) {
+      const canonical = catalog.FX_NO_AUTOMATIC_RATE_WITH_DETAILS;
+      expect(canonical, `[${locale}] falta el copy canónico de §30.15`).toBeTruthy();
+      expect(canonical, `[${locale}] el copy canónico dejó de nombrar la cifra`).toContain('{fallbackRate}');
+    }
+  });
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
  * v1.63.3 — LAS DOS COSAS QUE EL CONTRATO CAMBIÓ Y QUE EL CLIENTE TIENE QUE SEGUIR
  *
  * (1) `applied` **se deriva de `source`**, no del `mode` ⇒ `mode: "manual"` con `applied: false`
@@ -145,10 +246,24 @@ describe('espejo de la regla de `applied` (v1.63.3) contra §M2-F', () => {
     expect(dto.automatic.applied).toBe(dto.source === 'banxico');
   });
 
-  it('los invariantes de §M2-F.1 son SEIS, y el sexto es la puerta serializada', () => {
-    const body = flat(section('M2-F1', 'M2-F2'));
-    expect(body).toMatch(/Los SEIS invariantes/);
-    expect(body).toMatch(/I-FX6/);
+  /**
+   * ⚠️ **RE-BENDECIDO en v1.63.4, y el motivo es del propio contrato.** Esta aserción leía el
+   * ordinal en prosa (*«Los SEIS invariantes»*) y v1.63.4 **le quitó el número al encabezado a
+   * propósito**: *«mientras el predicado pueda crecer, un ordinal en prosa es una promesa que el
+   * siguiente pase incumple sin enterarse»* — la cuenta había caducado ya dos veces (v1.63.1 y
+   * v1.63.3). ⛔ **No se acomoda el candado bajando el listón**: se mide lo que el contrato dice
+   * ahora que ES la cuenta —**la NUMERACIÓN de la lista**— y sigue exigiendo el sexto por su
+   * nombre y por lo que hace. Rojo igual si alguien borra `I-FX6` o deja un hueco en la serie.
+   */
+  it('⭐ los invariantes de §M2-F.1 están NUMERADOS sin huecos, y el sexto es la puerta serializada', () => {
+    const raw = section('M2-F1', 'M2-F2');
+    const numbers = [...raw.matchAll(/^- \*\*I-FX(\d+)\b/gm)].map((m) => Number(m[1]));
+    expect(numbers.length, 'no se encontró la lista de invariantes de §M2-F.1').toBeGreaterThanOrEqual(6);
+    // «Su NUMERACIÓN es la cuenta»: 1..n sin saltos ni repetidos.
+    expect(numbers).toEqual(numbers.map((_v, i) => i + 1));
+    const sixth = raw.split('\n').find((l) => l.startsWith('- **I-FX6'));
+    expect(sixth, 'I-FX6 ya no está en la lista').toBeTruthy();
+    expect(sixth as string).toMatch(/SERIALIZADAS/);
   });
 
   it('el interruptor sigue siendo `PUT /admin/fx/mode`, con su acuse y sin aceptar `rate`', () => {

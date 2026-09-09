@@ -243,6 +243,32 @@ describe('mock de FX · el interruptor `PUT /admin/fx/mode` (§M2-F.2)', () => {
     expect(acked.manual.applied).toBe(false);
   });
 
+  /**
+   * ⭐⭐ **La mitad de la regla 6 que se olvida** (invariante (ii) de §M2-F.3, candado `FX-25(b)`).
+   * El campo del DTO ⛔ **no sustituye** al `details` del `422`: ese error es la **carrera real**
+   * —la fila de Banxico desaparece entre el `GET` y el `PUT`— y *un error de dinero tiene que
+   * poder explicarse solo, sin depender de una lectura anterior que puede estar rancia*. Así que
+   * los dos números tienen que existir **y ser el mismo**.
+   *
+   * Rojo en las dos direcciones: si el simulador adelgaza el `422` *«porque ya viaja en el DTO»*,
+   * y si los dos números se separan (que es como se cuela un respaldo distinto en cada superficie).
+   */
+  it('⭐⭐ `details.fallbackRate` del `422` es EL MISMO número que `FxStateDTO.fallbackRate`', async () => {
+    setMockFxWorld({ ...AUTO_WITHOUT_ANY_RATE, mode: 'manual', manualRate: 19 });
+    const published = (await getFx()).fallbackRate;
+    expect(typeof published).toBe('number');
+
+    const error = await setFxMode({ mode: 'auto' }).then(
+      () => null,
+      (e: unknown) => e as { details?: Record<string, unknown> },
+    );
+    expect(error, 'el simulador dejó de exigir el acuse').toBeTruthy();
+    // (a) el `details` sigue COMPLETO: ⛔ no se adelgaza porque el número ya viaje en el DTO.
+    expect(error?.details).toEqual({ currentRate: 19, fallbackRate: published });
+    // (b) y la identidad, dicha aparte para que el rojo señale cuál de las dos se rompió.
+    expect(error?.details?.fallbackRate).toBe(published);
+  });
+
   it('⛔ con `stale` NO se pide acuse: hay número real que el humano puede juzgar', async () => {
     setMockFxWorld({ ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: 19, automaticStatus: 'stale', automaticAgeDays: 40 });
     const dto = await setFxMode({ mode: 'auto' });

@@ -2940,8 +2940,13 @@ export const mockDisputes: DisputeDTO[] = [
 
 /**
  * El fallback duro del servidor (`§M2-F.3`, FX-7): sin fila `FxRate` y sin tasa manual aplicable,
- * el sistema cotiza con este número **que nadie tecleó**. Vive aquí SOLO para que el simulador
- * pueda reproducir `source: "fallback"`. ⛔ Ninguna pantalla lo usa como dato.
+ * el sistema cotiza con este número **que nadie tecleó**.
+ *
+ * ⚠️ **v1.63.4 — deja de ser un secreto del simulador: el contrato lo PUBLICA** (`fallbackRate`,
+ * regla 6 de §M2-F.3). Sigue siendo **una constante de SERVIDOR** y por eso vive en un solo sitio:
+ * el simulador lo emite **en el DTO** y **en el `details` del `422`** desde aquí, que es lo que
+ * hace verificable el invariante (ii) *«`details.fallbackRate === FxStateDTO.fallbackRate`,
+ * siempre»*. ⛔ Ninguna pantalla lo hornea: lo lee del DTO.
  */
 export const MOCK_FX_HARD_FALLBACK_RATE = 18;
 
@@ -3003,6 +3008,12 @@ export function buildMockFxState(world: MockFxWorld): FxDTO {
   return {
     ...ruling,
     bufferPct: world.bufferPct,
+    // ⭐ v1.63.4 (regla 6): el respaldo VIAJA SIEMPRE y con el MISMO valor, esté el sistema en el
+    // estado que esté. ⛔ No se emite «sólo con `status: "missing"`»: un campo que aparece y
+    // desaparece obliga a ramificar por presencia **y parece estado, que no lo es**. Escrito así,
+    // el invariante (i) —`source === 'fallback'` ⟹ `rate === fallbackRate`— se cumple por
+    // construcción, porque la rama del respaldo usa ESTA misma constante.
+    fallbackRate: MOCK_FX_HARD_FALLBACK_RATE,
     mode: world.mode,
     modeResolvedFrom: world.modeResolvedFrom,
     // ⭐ Las DOS tasas viajan SIEMPRE, rija la que rija (§M2-F.3 regla 1).

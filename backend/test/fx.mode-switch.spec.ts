@@ -2,12 +2,23 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { SettingsController } from '../src/modules/settings/settings.controller';
-import { SETTING_DEFAULTS, SettingKey } from '../src/modules/settings/settings.constants';
+import {
+  SETTING_DEFAULTS,
+  SettingKey,
+  validateFxManualOverrideRate,
+} from '../src/modules/settings/settings.constants';
 import { FxService, parseBanxicoRate } from '../src/modules/pricing/fx.service';
 import { FxController } from '../src/modules/pricing/pricing.controller';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { AuditService } from '../src/modules/audit/audit.service';
-import { FX_AUTO_STALE_AFTER_DAYS, FX_FALLBACK_RATE } from '../src/common/fx-mode';
+import {
+  FX_AUTO_STALE_AFTER_DAYS,
+  FX_FALLBACK_RATE,
+  FX_RATE_BAND_TEXT,
+  FX_RATE_MAX,
+  FX_RATE_MIN,
+  isFxRateInBand,
+} from '../src/common/fx-mode';
 
 /**
  * ⭐⭐ **LOS CANDADOS DEL MODO DEL TIPO DE CAMBIO** (API_CONTRACT §M2-F.6 · ARCHITECTURE §4.43 ·
@@ -1395,11 +1406,34 @@ describe('FX-20 ⭐⭐ — S-FX-1: las dos puertas del FX no pueden cruzarse', (
 describe('FX-21 ⭐ — la tasa de Banxico se valida como la tecleada, y el parser no adivina', () => {
   it.each([
     ['18.5000', 18.5],
-    ['1,234.5678', 1234.5678], // formato SIE legítimo… pero fuera de banda, ver abajo
-    ['0.0001', 0.0001],
+    ['1.000000', 1], // el extremo inferior, CERRADO (v1.63.4)
+    ['999.9999', 999.9999],
+    ['1,000.0000', 1000], // coma de millares legítima, y el extremo superior CERRADO
   ] as [string, number][])('formato SIE válido `%s` se lee como %s', (raw, esperado) => {
-    const r = parseBanxicoRate(raw, 100_000);
+    const r = parseBanxicoRate(raw);
     expect(r.ok && r.rate).toBe(esperado);
+  });
+
+  /**
+   * ⚠️ **v1.63.4 (`FX-24`) — este caso se reescribió, y el porqué importa.**
+   *
+   * Antes decía `parseBanxicoRate(raw, 100_000)` con vectores `'1,234.5678'` y `'0.0001'`: subía el
+   * techo **por llamada** para poder afirmar «el formato se entiende» sin que la banda estorbara. Con
+   * el piso puesto, `0.0001` **ya no entra con ningún techo**, y el parámetro `maxRate` desapareció
+   * porque *un tope por llamada es una segunda banda con otro nombre*.
+   *
+   * La afirmación que aquel caso quería hacer —**el formato SIE se entiende aunque el número no
+   * valga**— se hace mejor **sin tocar la banda**: mirando el `why`. `format` significa «no sé qué
+   * número me diste»; `out_of_band` significa «lo leí perfectamente y no es una tasa».
+   */
+  it.each([
+    ['1,234.5678', 'out_of_band'], // formato SIE legítimo, número fuera de banda por arriba
+    ['0.0001', 'out_of_band'], // ⭐ y por ABAJO: el hueco que v1.63.4 cierra
+    ['19,5', 'format'], // coma DECIMAL: no se adivina que quería decir 19.5
+  ] as [string, string][])('`%s` se rechaza por `%s` (leer bien ≠ aceptar)', (raw, why) => {
+    const r = parseBanxicoRate(raw);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.why).toBe(why);
   });
 
   it('el espacio sobrante SÍ se tolera (`" 18.5 "` es 18.5): es ruido de transporte, no formato', () => {
@@ -1416,12 +1450,15 @@ describe('FX-21 ⭐ — la tasa de Banxico se valida como la tecleada, y el pars
     },
   );
 
-  it('⛔ fuera de banda `(0, 1000]`: `9999` se rechaza (×549 en el catálogo, sin desbordar nada)', () => {
+  it('⛔ fuera de banda `[1, 1000]`: `9999` se rechaza (×549 en el catálogo, sin desbordar nada)', () => {
     const r = parseBanxicoRate('9999');
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.why).toBe('out_of_band');
     expect(parseBanxicoRate('1000').ok).toBe(true); // el borde SÍ entra (misma banda que la manual)
     expect(parseBanxicoRate('1000.0001').ok).toBe(false);
+    // ⭐ v1.63.4 — y el otro borde, que hasta v1.63.3 no existía.
+    expect(parseBanxicoRate('1').ok).toBe(true);
+    expect(parseBanxicoRate('0.999999').ok).toBe(false);
   });
 
   it('⭐ LA CONDUCTA: un payload fuera de banda deja `failed/invalid_payload` y NO escribe fila', async () => {
@@ -1537,7 +1574,18 @@ describe('FX-22 ⭐⭐ — la lectura que decide va por el `tx` del candado, no 
   });
 });
 
-// ── FX-24 ⭐⭐ — EL COLCHÓN ES LA CUARTA PUERTA (R2 del techlead, v1.63.3) ────────────────────────
+// ── FX-R2 ⭐⭐ — EL COLCHÓN ES LA CUARTA PUERTA (R2 del techlead, v1.63.3) ───────────────────────
+
+/**
+ * ⚠️ **v1.63.4 — ESTE BLOQUE SE LLAMABA `FX-24`, Y HUBO QUE RENOMBRARLO.**
+ *
+ * `FX-24` era una etiqueta **local de backend** (nació de la condición **R2** del techlead, no del
+ * contrato). En v1.63.4 el **arquitecto** asignó `FX-24` al candado de **la banda `[1, 1000]`**
+ * (§M2-F.6). Dos bloques con el mismo identificador en el mismo fichero es exactamente cómo un
+ * hallazgo se enruta al candado equivocado, así que el local cede el nombre y pasa a `FX-R2`:
+ * **los identificadores de candado los pone el contrato; los locales llevan otro prefijo.**
+ * (Lo mismo vale para `FX-21`, etiqueta local de `S-FX-2`, hoy absorbida por `FX-24(a)`.)
+ */
 
 /**
  * ⭐⭐ **La cuarta puerta, y estaba abierta en la única ruta donde el código prometía que no.**
@@ -1561,7 +1609,7 @@ describe('FX-22 ⭐⭐ — la lectura que decide va por el `tx` del candado, no 
  * tome la puerta»*: si el colchón materializara el modo, mover un colchón en un entorno `legacy`
  * escribiría `fx_rate_mode` sin que nadie tocara el interruptor.
  */
-describe('FX-24 ⭐⭐ — el colchón toma la puerta del FX, lee bajo ella y audita con esa lectura', () => {
+describe('FX-R2 ⭐⭐ — el colchón toma la puerta del FX, lee bajo ella y audita con esa lectura', () => {
   it('`PUT /admin/fx { bufferPct }` (SOLO el colchón) toma el candado y lee TODO por el `tx`', async () => {
     const h = harness({
       settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
@@ -1630,5 +1678,297 @@ describe('FX-24 ⭐⭐ — el colchón toma la puerta del FX, lee bajo ella y au
     // cuarta lectura era exactamente eso.
     const bajoCandado = h.lecturasBajoCandado();
     expect(bajoCandado?.filter((r) => !r.inTx)).toEqual([]);
+  });
+});
+
+// ── FX-24 ⭐⭐ — EL PISO DE LA BANDA: `[1, 1000]`, UNA sola, para las DOS puertas ─────────────────
+
+/**
+ * ⭐⭐ **`FX-24`** (API_CONTRACT `§M2-F.6` · `§M2-F.8` · ARCHITECTURE `§4.43c-quinquies` · `D-FX-4`).
+ *
+ * **La mutación que esto pone en rojo:** *quitar el PISO de cualquiera de las dos puertas* —volver a
+ * `n <= 0` en `parseBanxicoRate` o a `v > 0` en `validateFxManualOverrideRate`—, **o poner el piso en
+ * una sola**. Esa última es la mutación **realista**, porque el arreglo se hace en dos ficheros.
+ *
+ * ### Son TRES cosas, y la que se olvida es la segunda
+ * **(a) La banda**, vector a vector, en las DOS puertas y con el **MISMO veredicto**.
+ * **(b) La PARIDAD, asertada como IDENTIDAD** —`parseBanxicoRate(String(v)).ok ===
+ * (validateFxManualOverrideRate(v) === null)`— y ⛔ **no como dos copias de la misma lista**: dos
+ * listas se pueden actualizar por separado, que es exactamente la divergencia que se quiere impedir.
+ * **(c) La CONDUCTA**, que es lo que mide el dinero: `"0.0001"` de Banxico no puede mover el precio.
+ *
+ * ### Por qué el piso es `1` (y no 5, ni 10)
+ * **El peso nunca ha valido más que el dólar.** El par se cotiza en pesos por dólar y ha vivido entre
+ * ~3 y ~25. Por debajo de `1` el número **no es el par**: es su **inversa** (≈`0.0526`, el vector más
+ * plausible — la fuente publica el par al revés), un error de escala o basura truncada. Y no se
+ * aprieta más porque lo que saca al peso de rango es una crisis, que lo hace **más débil** (número
+ * más alto): un piso apretado nunca serviría para lo que se le pediría.
+ */
+describe('FX-24 ⭐⭐ — la banda `[1, 1000]` es UNA, y las dos puertas la aplican igual', () => {
+  /** (a) Vectores del contrato. `ok` = lo que las DOS puertas deben decir. */
+  const VECTORES: [number, boolean][] = [
+    [1e-7, false],
+    [0.0001, false],
+    [0.05, false], // ⭐ la INVERSA del par: el vector más plausible del hallazgo
+    [0.999999, false],
+    [0, false],
+    [1, true], // ⭐ extremo inferior, CERRADO
+    [18.5, true],
+    [999.9999, true],
+    [1000, true], // extremo superior, CERRADO
+    [1000.0001, false],
+    [9999, false],
+  ];
+
+  describe('(a) la banda, vector a vector, en las DOS puertas', () => {
+    it.each(VECTORES)('la puerta TECLEADA veredicta `%s` como ok=%s', (v, ok) => {
+      expect(validateFxManualOverrideRate(v) === null).toBe(ok);
+    });
+
+    it.each(VECTORES)('la puerta de BANXICO veredicta `%s` como ok=%s', (v, ok) => {
+      expect(parseBanxicoRate(String(v)).ok).toBe(ok);
+    });
+
+    it('la puerta tecleada acepta ADEMÁS `null` (borra el override) y rechaza -1/NaN/Infinity', () => {
+      expect(validateFxManualOverrideRate(null)).toBeNull();
+      for (const malo of [-1, NaN, Infinity, -Infinity]) {
+        expect(validateFxManualOverrideRate(malo)).not.toBeNull();
+      }
+    });
+  });
+
+  /**
+   * ⭐⭐ **(b) LA PARIDAD, Y ES UNA IDENTIDAD.**
+   *
+   * ⛔ No se comparan dos listas escritas a mano: se compara **una puerta contra la otra**, vector a
+   * vector. Ponerle piso a una sola —la mutación realista— la pone roja **de inmediato y en el
+   * extremo que se haya olvidado**, sin que nadie tenga que acordarse de actualizar dos sitios.
+   *
+   * ⚠️ **El MOTIVO puede diferir y eso NO es rojo:** `1e-7` sale `format` (no es expresable en SIE) y
+   * `0.05` sale `out_of_band`. **Lo normativo es el VEREDICTO.**
+   */
+  it('⭐⭐ (b) PARIDAD como IDENTIDAD: ninguna puerta es más permisiva que la otra', () => {
+    const universo = [
+      ...VECTORES.map(([v]) => v),
+      -1, NaN, Infinity, 0.5, 0.9999999, 1.000001, 2, 17, 18, 18.2431, 25, 100, 500, 1001, 1e9,
+    ];
+    for (const v of universo) {
+      expect({ v, ok: parseBanxicoRate(String(v)).ok }).toEqual({
+        v,
+        ok: validateFxManualOverrideRate(v) === null,
+      });
+    }
+  });
+
+  /**
+   * ⭐⭐ **(c) LA CONDUCTA — el mismo patrón que `FX-20(e)`: se mide EL PESO, no el rótulo.**
+   *
+   * Con la banda sin piso, `"0.0001"` entraba, se escribía la fila y una carta de **USD 100** pasaba
+   * de **MX$ 1,879** a **MX$ 0.01** en la siguiente lectura de precio. *No daba error: daba precios.*
+   */
+  it('⭐⭐ (c) `"0.0001"` de Banxico: `failed/invalid_payload`, NI UNA fila, y el precio NO se mueve', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2431)],
+      priceRefs: [{ ...usdCardRef(), priceUsdCents: 100_00 }], // USD 100.00
+      env: { BANXICO_SIE_TOKEN: 'tok' },
+    });
+    const antes = await h.referenceMxnCents();
+    expect(antes).toBe(expectedMxnCents(100_00, 18.2431, 3)); // ≈ MX$ 1,879
+
+    const spy = jest.spyOn(global, 'fetch').mockImplementation(
+      async () =>
+        ({ ok: true, json: async () => ({ bmx: { series: [{ datos: [{ dato: '0.0001' }] }] } }) }) as never,
+    );
+    const res = await h.fx.refreshFromBanxico();
+    spy.mockRestore();
+
+    expect([res.outcome, res.reason]).toEqual(['failed', 'invalid_payload']);
+    expect(res.fetchedRate).toBeNull();
+    // ⛔ Ninguna fila escrita: la tasa anterior se queda EN SU SITIO.
+    expect(h.fxRates.filter((r) => r.source === 'banxico')).toHaveLength(1);
+    expect((await h.fx.getCurrent()).automatic.rate).toBe(18.2431);
+    // ⭐⭐ Y EL DINERO: el precio NO se desploma. Con `0.0001` sería ≈MX$ 0.01.
+    expect(await h.referenceMxnCents()).toBe(antes);
+    expect(await h.referenceMxnCents()).toBeGreaterThan(100_00);
+  });
+
+  /** ⭐ (d) El `message` del `422` NOMBRA LOS DOS EXTREMOS. Hasta v1.63.3 sólo nombraba el techo. */
+  it('⭐ (d) el `422` de la puerta tecleada nombra los DOS extremos de la banda', async () => {
+    const msg = validateFxManualOverrideRate(0.05);
+    expect(msg).not.toBeNull();
+    expect(msg).toContain(String(FX_RATE_MIN));
+    expect(msg).toContain(String(FX_RATE_MAX));
+    expect(msg).toContain(FX_RATE_BAND_TEXT);
+
+    // Y por HTTP, con el código del contrato: `422 VALIDATION_ERROR`, sin escritura parcial.
+    const h = harness({ settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0 } });
+    await expect(
+      h.fxCtrl.setManual({ rate: 0.05 } as never, 'admin-1', 'super_admin' as never),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(h.rawSetting(RATE_KEY)).toBe(19.0); // ⛔ intacto
+
+    await expect(
+      h.settingsCtrl.updateSettings({ fxManualOverrideRate: 0.05 }, 'admin-1', 'super_admin' as never),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(h.rawSetting(RATE_KEY)).toBe(19.0);
+  });
+
+  /**
+   * ⭐ **(e) `1 ≤ FX_FALLBACK_RATE ≤ 1000`.** *Una banda que excluyera la constante que el propio
+   * sistema aplica sería un sistema que rechaza lo que él mismo hace regir.*
+   */
+  it('⭐ (e) el respaldo duro vive DENTRO de la banda', () => {
+    expect(isFxRateInBand(FX_FALLBACK_RATE)).toBe(true);
+    expect(FX_FALLBACK_RATE).toBeGreaterThanOrEqual(FX_RATE_MIN);
+    expect(FX_FALLBACK_RATE).toBeLessThanOrEqual(FX_RATE_MAX);
+  });
+
+  /**
+   * ⛔⛔ **CONTROL — LA BANDA ES PUERTA DE ESCRITURA, NO DE LECTURA (§M2-F.8, normativo).**
+   *
+   * Si el piso se colara en `parseManualRate` (la resolución legacy), en un entorno con un valor
+   * **sub-piso ya guardado** el modo saltaría de `manual` a `auto` **en el primer `GET` tras el
+   * deploy** — el sistema cambiando de conducta por su cuenta, que es lo que `FX-6` existe para poner
+   * en rojo. Y la lectura **tampoco se defiende**, a diferencia de la 4.ª fila de §M2-F.1: allí no
+   * había número; aquí **lo puso un humano**, e ignorarlo sería un **repreciado sin autor**.
+   */
+  it('⛔ CONTROL — un `0.5` YA GUARDADO se sigue OBEDECIENDO: la lectura no aplica la banda', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'legacy', [RATE_KEY]: 0.5, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2431)],
+      priceRefs: [usdCardRef()],
+    });
+    const state = await h.fxCtrl.current();
+    // ⛔ Rojo si el modo salta a `auto`: sería el deploy repreciando el catálogo solo.
+    expect(state.mode).toBe('manual');
+    expect(state.modeResolvedFrom).toBe('legacy');
+    expect(state.rate).toBe(0.5);
+    expect(state.source).toBe('manual');
+    expect(state.manual.applied).toBe(true);
+    // Y el dinero obedece al número del humano, absurdo y todo — ruidoso por construcción.
+    expect(await h.referenceMxnCents()).toBe(expectedMxnCents(1000, 0.5, 3));
+    // ⭐ Pero la ESCRITURA sí lo rechaza: se corrige por la puerta normal, no por una migración.
+    expect(validateFxManualOverrideRate(0.5)).not.toBeNull();
+  });
+});
+
+// ── FX-25 ⭐ — `fallbackRate` viaja SIEMPRE, en las CUATRO rutas ──────────────────────────────────
+
+/**
+ * ⭐ **`FX-25`** (API_CONTRACT `§M2-F.6` · `§M2-F.3` regla 6 · ARCHITECTURE `§4.43d-bis` · `D-FX-5`).
+ *
+ * **La mutación que esto pone en rojo:** que `fallbackRate` **no viaje**, que viaje **sólo a veces**
+ * (p. ej. sólo con `status:"missing"`), o que **discrepe** del que va en el `422`.
+ *
+ * ### Por qué existe el campo (y no es cosmético)
+ * El diálogo del acuse (`DESIGN_SYSTEM §30.8`) tiene que **nombrar este número ANTES de que el humano
+ * toque nada**, y hasta v1.63.3 **sólo existía dentro del `422`** ⇒ la pantalla mandaba un `PUT` sin
+ * acuse **sólo para leer el error**. *Un dato que la norma exige enseñar antes de actuar no puede
+ * vivir sólo en la respuesta a un acto.*
+ *
+ * ⭐ **La mitad que se olvida es la (b):** el `422` **sigue llevando su `details` completo**. *«Ya
+ * viaja en el DTO»* **no** es razón para adelgazarlo: ese error es **la carrera real** —la fila de
+ * Banxico desaparece entre el `GET` y el `PUT`— y *un error de dinero tiene que poder explicarse
+ * solo, sin depender de una lectura anterior que puede estar rancia*.
+ */
+describe('FX-25 ⭐ — el respaldo se publica, y viaja SIEMPRE', () => {
+  const conBanxico = () =>
+    harness({
+      settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2431)],
+      priceRefs: [usdCardRef()],
+      env: { BANXICO_SIE_TOKEN: 'tok' },
+    });
+
+  /**
+   * (a) **LAS CUATRO RUTAS.** ⛔ No se comprueba sólo el `GET`: el punto de que `projectFxState` sea
+   * la única constructora del DTO es que las cuatro salgan iguales, y eso hay que **medirlo**.
+   */
+  it('⭐ (a) las CUATRO rutas traen `fallbackRate === 18`', async () => {
+    const h = conBanxico();
+
+    expect((await h.fxCtrl.current()).fallbackRate).toBe(FX_FALLBACK_RATE);
+    expect(
+      (await h.fxCtrl.setManual({ rate: 21 } as never, 'admin-1', 'super_admin' as never)).fallbackRate,
+    ).toBe(FX_FALLBACK_RATE);
+    expect(
+      (await h.fxCtrl.setMode({ mode: 'manual' }, 'admin-1', 'super_admin' as never)).fallbackRate,
+    ).toBe(FX_FALLBACK_RATE);
+
+    const spy = jest.spyOn(global, 'fetch').mockImplementation(
+      async () =>
+        ({ ok: true, json: async () => ({ bmx: { series: [{ datos: [{ dato: '18.5000' }] }] } }) }) as never,
+    );
+    const refrescado = await h.fxCtrl.refresh('admin-1', 'super_admin' as never);
+    spy.mockRestore();
+    expect(refrescado.fallbackRate).toBe(FX_FALLBACK_RATE);
+    // ⭐ y el bloque `refresh` de §M2-F.5 sigue encima, sin haber desplazado nada.
+    expect(refrescado.refresh.outcome).toBe('updated');
+  });
+
+  /**
+   * (a-bis) **EN LOS TRES ESTADOS LEGALES** — *rojo si aparece sólo cuando hace falta*. Un campo que
+   * aparece y desaparece obliga a ramificar por presencia **y parece estado, que no lo es**.
+   */
+  it('⭐ (a-bis) en los TRES estados legales: manual con número, auto fresh, y auto sin fila', async () => {
+    const manual = harness({ settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 }, fxRates: [banxicoRow(18.2431)] });
+    const s1 = await manual.fxCtrl.current();
+    expect([s1.source, s1.fallbackRate]).toEqual(['manual', FX_FALLBACK_RATE]);
+
+    const auto = conBanxico();
+    const s2 = await auto.fxCtrl.current();
+    expect([s2.source, s2.automatic.status, s2.fallbackRate]).toEqual(['banxico', 'fresh', FX_FALLBACK_RATE]);
+
+    const sinFila = harness({ settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 }, fxRates: [] });
+    const s3 = await sinFila.fxCtrl.current();
+    expect([s3.source, s3.automatic.status, s3.fallbackRate]).toEqual(['fallback', 'missing', FX_FALLBACK_RATE]);
+  });
+
+  /**
+   * ⭐⭐ **(b) LA IDENTIDAD CON EL ERROR, y el `details` NO se adelgaza.**
+   * `details.fallbackRate === (GET /admin/fx).fallbackRate`, siempre y por construcción.
+   */
+  it('⭐⭐ (b) el `422 FX_NO_AUTOMATIC_RATE` sigue trayendo su `details`, y coincide con el DTO', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [],
+      priceRefs: [usdCardRef()],
+    });
+    const delDto = (await h.fxCtrl.current()).fallbackRate;
+
+    const err = await h.fxCtrl
+      .setMode({ mode: 'auto' }, 'admin-1', 'super_admin' as never)
+      .then(() => null, (e) => e as { code: string; details: Record<string, unknown> });
+
+    expect(err).not.toBeNull();
+    expect(err?.code).toBe('FX_NO_AUTOMATIC_RATE');
+    // ⛔ Rojo si el `422` deja de traer `details` COMPLETO: «ya viaja en el DTO» no es razón.
+    expect(err?.details).toEqual({ currentRate: 19.0, fallbackRate: FX_FALLBACK_RATE });
+    expect(err?.details.fallbackRate).toBe(delDto);
+  });
+
+  /** ⭐ (c) `source === "fallback"` ⟹ `rate === fallbackRate`. El invariante (i), medido. */
+  it('⭐ (c) con `source: "fallback"`, `rate === fallbackRate` (y las dos `applied` en false)', async () => {
+    const h = harness({ settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 }, fxRates: [] });
+    const s = await h.fxCtrl.current();
+    expect(s.source).toBe('fallback');
+    expect(s.rate).toBe(s.fallbackRate);
+    expect([s.manual.applied, s.automatic.applied]).toEqual([false, false]);
+  });
+
+  /**
+   * ⛔ **(d) NO ES UN DIAL.** *Publicar un número y permitir editarlo son dos decisiones distintas.*
+   * Mismo género que `FX_AUTO_STALE_AFTER_DAYS`: constante de código, no `SettingKey`.
+   */
+  it('⛔ (d) no es un dial: `PUT /admin/settings { fallbackRate }` es `422` por clave desconocida', async () => {
+    const h = harness({ settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 }, fxRates: [banxicoRow(18.2431)] });
+    await expect(
+      h.settingsCtrl.updateSettings({ fallbackRate: 20 }, 'admin-1', 'super_admin' as never),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    // Y el DTO de §M10 no lo lleva: no hay por dónde leerlo como si fuera un ajuste.
+    expect(Object.keys(await h.settingsCtrl.getSettings())).not.toContain('fallbackRate');
+    // El número no se movió.
+    expect((await h.fxCtrl.current()).fallbackRate).toBe(FX_FALLBACK_RATE);
   });
 });

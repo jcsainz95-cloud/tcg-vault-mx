@@ -35,6 +35,10 @@ function fxState(over: Partial<FxDTO> = {}): FxDTO {
     bufferPct: 3,
     source: 'manual',
     effectiveDate: '2026-09-09',
+    // ⭐ v1.63.4 (regla 6 de §M2-F.3): el respaldo viaja SIEMPRE y al NIVEL SUPERIOR. Está en el
+    // fixture BASE —y no sólo en el del acuse— a propósito: si sólo apareciera «donde hace falta»,
+    // el fixture reproduciría el campo condicional que la regla 6 prohíbe.
+    fallbackRate: 18,
     mode: 'manual',
     modeResolvedFrom: 'setting',
     manual: { rate: 19, applied: true },
@@ -68,9 +72,10 @@ function fallbackState(): FxDTO {
 }
 
 /** Modo `manual` con `19.0` y **ninguna** fila de Banxico — el estado real de producción. */
-function manualWithoutBanxico(): FxDTO {
+function manualWithoutBanxico(over: Partial<FxDTO> = {}): FxDTO {
   return fxState({
     automatic: { rate: null, effectiveDate: null, ageDays: null, status: 'missing', applied: false },
+    ...over,
   });
 }
 
@@ -291,8 +296,81 @@ describe('FX-UI-3 ⭐ · el refresco no afirma un éxito que no ocurrió', () =>
 });
 
 describe('FX-UI-4 ⭐ · el acuse: donde toca, y sólo donde toca', () => {
-  it('(a) sin ninguna tasa de Banxico ⇒ diálogo de acuse, y el `PUT` final LLEVA la bandera', async () => {
+  /**
+   * ⭐⭐ **v1.63.4 — este candado cambió de forma, y el cambio ES la deuda `FX-F1` cerrada.**
+   *
+   * Hasta v1.63.3 el número que el acuse tiene que **nombrar antes de tocar nada** sólo existía
+   * dentro del `422`, así que la tarjeta mandaba un `PUT` sin acuse **sólo para leerlo** y
+   * `FX-UI-4(a)` medía *«0 peticiones que cambien algo + 1 consulta de precondición»*. Con
+   * `fallbackRate` publicado en el DTO (regla 6 de §M2-F.3), el literal de §30.17 se cumple:
+   * **CERO peticiones hasta que el humano confirma**.
+   */
+  it('(a) ⭐ sin ninguna tasa de Banxico ⇒ acuse con CERO peticiones, y el `PUT` final LLEVA la bandera', async () => {
     vi.spyOn(api, 'getFx').mockResolvedValue(manualWithoutBanxico());
+    const put = vi.spyOn(api, 'setFxMode').mockResolvedValue(fallbackState());
+    renderWithProviders(<FxRateCard />, 'es');
+    await ready();
+
+    await userEvent.click(segment('AUTOMÁTICA'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(T.ack.title);
+    // Los cinco párrafos, con el número que NOMBRÓ el servidor (⛔ nunca un 18 horneado).
+    expect(dialog).toHaveTextContent('Ahora mismo rige tu tasa manual: 19.0000 pesos por dólar.');
+    expect(dialog).toHaveTextContent('Si pasas a automática, regirían 18.0000 pesos por dólar.');
+    expect(dialog).toHaveTextContent(T.ack.whereFrom);
+    expect(dialog).toHaveTextContent('cambia −5.26 %');
+    expect(dialog).toHaveTextContent(T.confirm.untouched);
+    // ⛔ Ni la palabra «error», ni el código, ni el 422.
+    expect(dialog.textContent).not.toMatch(/FX_NO_AUTOMATIC_RATE|422|[Ee]rror/);
+    // ⭐⭐ **El literal de FX-UI-4(a), por fin al pie de la letra**: ni una sola petición hasta que
+    // el humano confirma. Rojo el día que alguien reintroduzca la vía de sondeo.
+    expect(put).toHaveBeenCalledTimes(0);
+    expect(segment('MANUAL')).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(screen.getByRole('button', { name: /Sí, pasar a 18\.0000/ }));
+
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    // Se inspecciona **el cuerpo** (react-query añade su propio 2.º argumento; se mira el 1.º).
+    expect(put.mock.calls[0][0]).toEqual({ mode: 'auto', acknowledgeNoAutomaticRate: true });
+  });
+
+  /**
+   * ⭐ **El acuse nombra `dto.fallbackRate`, ⛔ no un `18` horneado** (§30.16.8). Es el candado que
+   * hace inútil la tentación barata de cerrar `FX-F1` escribiendo la constante en el cliente: con
+   * un servidor que diga otro número, el diálogo tiene que decir **ese**, y el salto tiene que
+   * recalcularse contra **ese**.
+   */
+  it('(a-bis) ⭐ el número del diálogo sale del DTO: con `fallbackRate: 17.5` el acuse dice 17.5000', async () => {
+    vi.spyOn(api, 'getFx').mockResolvedValue(manualWithoutBanxico({ fallbackRate: 17.5 }));
+    const put = vi.spyOn(api, 'setFxMode').mockResolvedValue(fallbackState());
+    renderWithProviders(<FxRateCard />, 'es');
+    await ready();
+
+    await userEvent.click(segment('AUTOMÁTICA'));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Si pasas a automática, regirían 17.5000 pesos por dólar.');
+    // Y el salto es contra ESE número: (17.5 − 19) / 19 = −7.89 %, no el −5.26 % del 18.
+    expect(dialog).toHaveTextContent('cambia −7.89 %');
+    expect(dialog.textContent).not.toMatch(/18\.0000/);
+    expect(put).toHaveBeenCalledTimes(0);
+    // El CTA también, que es el botón que el humano pulsa para mover el dinero.
+    await userEvent.click(screen.getByRole('button', { name: /Sí, pasar a 17\.5000/ }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+  });
+
+  /**
+   * ⚠️ **La DEGRADACIÓN, y por qué se prueba en vez de darla por imposible.** `fallbackRate` es
+   * obligatorio en las cuatro rutas, pero *«el contrato dice que siempre viaja»* es exactamente la
+   * clase de precondición que se desactiva sola cuando falta el dato. Si el servidor no lo emite
+   * —hoy: uno anterior a `FX-25`—, la tarjeta ⛔ **no se queda muda**: pide el número por la puerta
+   * que la regla 6 (ii) garantiza que sigue abierta, el `422` **con su `details` completo**.
+   */
+  it('(a-ter) ⚠️ DTO sin `fallbackRate` (servidor no conforme) ⇒ el acuse se compone del `422`, sin acuse en el 1.er `PUT`', async () => {
+    const incomplete = manualWithoutBanxico() as Partial<FxDTO>;
+    delete incomplete.fallbackRate;
+    vi.spyOn(api, 'getFx').mockResolvedValue(incomplete as FxDTO);
     const put = vi
       .spyOn(api, 'setFxMode')
       .mockRejectedValueOnce(
@@ -310,23 +388,14 @@ describe('FX-UI-4 ⭐ · el acuse: donde toca, y sólo donde toca', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent(T.ack.title);
-    // Los cinco párrafos, con el número que NOMBRÓ el servidor (⛔ nunca un 18 horneado).
-    expect(dialog).toHaveTextContent('Ahora mismo rige tu tasa manual: 19.0000 pesos por dólar.');
     expect(dialog).toHaveTextContent('Si pasas a automática, regirían 18.0000 pesos por dólar.');
-    expect(dialog).toHaveTextContent(T.ack.whereFrom);
-    expect(dialog).toHaveTextContent('cambia −5.26 %');
-    expect(dialog).toHaveTextContent(T.confirm.untouched);
-    // ⛔ Ni la palabra «error», ni el código, ni el 422.
     expect(dialog.textContent).not.toMatch(/FX_NO_AUTOMATIC_RATE|422|[Ee]rror/);
-    // Hasta aquí NO ha viajado ningún acuse, y el modo no se ha movido.
+    // La consulta de precondición ⛔ NO lleva el acuse, y por contrato no cambia el modo (`FX-12`).
     expect(put).toHaveBeenCalledTimes(1);
-    // ⭐ Se inspecciona **el cuerpo**: la primera llamada es la consulta de la precondición y
-    // ⛔ NO lleva el acuse (react-query añade su propio segundo argumento; se mira el primero).
     expect(put.mock.calls[0][0]).toEqual({ mode: 'auto' });
     expect(segment('MANUAL')).toHaveAttribute('aria-checked', 'true');
 
     await userEvent.click(screen.getByRole('button', { name: /Sí, pasar a 18\.0000/ }));
-
     await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
     expect(put.mock.calls[1][0]).toEqual({ mode: 'auto', acknowledgeNoAutomaticRate: true });
   });
@@ -563,13 +632,9 @@ describe('FX-UI-13 · el idioma (visto en pantalla, no `grep`eado)', () => {
     unknown.unmount();
 
     vi.spyOn(api, 'getFx').mockResolvedValue(manualWithoutBanxico());
-    vi.spyOn(api, 'setFxMode').mockRejectedValue(
-      new ApiClientError(422, {
-        code: 'FX_NO_AUTOMATIC_RATE',
-        message: 'no automatic rate',
-        details: { currentRate: 19, fallbackRate: 18 },
-      }),
-    );
+    // v1.63.4: el acuse se compone del DTO ⇒ abrirlo ⛔ no manda nada. El espía está para que un
+    // `PUT` de más se vea, no para contestarlo.
+    const put = vi.spyOn(api, 'setFxMode');
     renderWithProviders(<FxRateCard />, 'en');
     await ready();
     expect(screen.getByTestId('fx-source')).toHaveTextContent('MANUAL');
@@ -584,6 +649,7 @@ describe('FX-UI-13 · el idioma (visto en pantalla, no `grep`eado)', () => {
     expect(dialog).toHaveTextContent('No Banxico rate has ever reached this system.');
     expect(dialog).toHaveTextContent('changes by −5.26 %');
     expect(dialog).toHaveTextContent("What's already closed isn't touched");
+    expect(put).toHaveBeenCalledTimes(0);
   });
 });
 

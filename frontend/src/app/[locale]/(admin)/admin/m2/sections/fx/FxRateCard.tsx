@@ -18,7 +18,7 @@ import { FxAckDialog, FxConfirmDialog } from './FxDialogs';
 import { computeFxJump, formatBufferPct, formatRate } from './fx-format';
 
 /**
- * ⭐⭐ **M2 › TIPO DE CAMBIO — la tarjeta de `DESIGN_SYSTEM §30`** (contrato `§M2-F`, v1.63.3).
+ * ⭐⭐ **M2 › TIPO DE CAMBIO — la tarjeta de `DESIGN_SYSTEM §30`** (contrato `§M2-F`, v1.63.4).
  *
  * *«Quiero conservar el override manual, que sea un toggle para decidir entre automático o
  * manual»* — encargo textual del dueño. El backend lleva construido desde v1.63 y **no había forma
@@ -49,6 +49,14 @@ import { computeFxJump, formatBufferPct, formatRate } from './fx-format';
  * calcula ninguno de los dos, y ⛔ no da por hecho el arreglo pendiente de `FX-23` (se pinta lo que
  * el DTO diga, no lo que vaya a decir).
  *
+ * ## ⭐ v1.63.4 y `fallbackRate`
+ * El contrato **publica el valor de respaldo** en el DTO (regla 6 de §M2-F.3), que es justo el
+ * número que el diálogo de §30.8 tiene que **nombrar antes de que el humano toque nada** ⇒ el
+ * acuse se compone **sin ninguna petición previa** y desaparece la vía de sondeo que quedó
+ * registrada como `FX-F1` en `TECH_DEBT.md`. ⛔ **No se pinta como una tercera columna** ni como
+ * tasa vigente salvo con `source === "fallback"` (donde ya lo es, por el invariante (i)): la
+ * tarjeta lo usa **sólo** para componer el acuse.
+ *
  * ## ⛔ Lo que esta tarjeta NO hace
  * Editar el colchón (§30.1: se **muestra** y se dice dónde se cambia — el dial vive en **M10 ·
  * Ajustes**), historial, gráfica, cron, correo, aviso proactivo, y **nada de `Deshacer`** (§30.0).
@@ -61,8 +69,8 @@ import { computeFxJump, formatBufferPct, formatRate } from './fx-format';
 
 /** Lo que el `POST /admin/fx/refresh` devuelve de más; la caché guarda `FxStateDTO` a secas. */
 function stripRefresh(dto: FxRefreshDTO): FxDTO {
-  const { rate, bufferPct, source, effectiveDate, mode, modeResolvedFrom, manual, automatic } = dto;
-  return { rate, bufferPct, source, effectiveDate, mode, modeResolvedFrom, manual, automatic };
+  const { rate, bufferPct, source, effectiveDate, fallbackRate, mode, modeResolvedFrom, manual, automatic } = dto;
+  return { rate, bufferPct, source, effectiveDate, fallbackRate, mode, modeResolvedFrom, manual, automatic };
 }
 
 /**
@@ -126,13 +134,21 @@ export function FxRateCard() {
   const modeMutation = useMutation({
     mutationFn: setFxMode,
     /**
-     * ⭐⭐ **El `422 FX_NO_AUTOMATIC_RATE` de la consulta SIN acuse no es un error que se le
-     * enseñe al humano: es la precondición diciendo A QUÉ NÚMERO se saltaría.** Se consume aquí y
-     * se convierte en el diálogo de §30.8 —⛔ sin la palabra «error», sin el código y sin el
-     * `422`— con `details.fallbackRate` **tal cual lo nombró el servidor**.
+     * ⭐⭐ **Un `422 FX_NO_AUTOMATIC_RATE` sobre un `PUT` que NO llevaba acuse no es un error que
+     * se le enseñe al humano: es la precondición diciendo A QUÉ NÚMERO se saltaría.** Se consume
+     * aquí y se convierte en el diálogo de §30.8 —⛔ sin la palabra «error», sin el código y sin
+     * el `422`— con `details.fallbackRate` **tal cual lo nombró el servidor**.
      *
-     * Si el acuse **ya viajaba** (la carrera real de §30.10: la fila de Banxico desaparece entre
-     * el `GET` y el `PUT`), el error **sí** se pinta, traducido y en una línea.
+     * ⚠️ **v1.63.4 — esto ya NO es la vía normal del acuse** (`FX-F1`): con `fallbackRate` en el
+     * DTO, el diálogo se compone sin pedir nada. Quedan **dos** caminos hasta aquí, y los dos son
+     * de verdad:
+     *  1. **La carrera real de §30.10** — el humano confirma el diálogo NORMAL (había fila de
+     *     Banxico en el `GET`) y la fila **desaparece antes del `PUT`**. Ese `PUT` no lleva acuse
+     *     porque no hacía falta cuando se compuso; el servidor lo exige y **aquí se pide**.
+     *  2. **Un servidor sin `fallbackRate`** (no conforme con la regla 6): la degradación descrita
+     *     en `chooseMode`.
+     *
+     * Si el acuse **ya viajaba**, el error **sí** se pinta, traducido y en una línea (§30.10).
      */
     onError: (error, variables) => {
       if (variables.acknowledgeNoAutomaticRate === true) return;
@@ -263,10 +279,31 @@ export function FxRateCard() {
     if (next === 'manual' && dto.manual?.rate == null) return;
     setNotice(null);
     if (next === 'auto' && dto.automatic?.status === 'missing') {
-      // §30.8: el acuse necesita NOMBRAR el número al que se saltaría, y ese número **lo pone el
-      // servidor** (`details.fallbackRate` del `422`). Se pide **sin** el acuse: por contrato esa
-      // llamada **no cambia el modo** —es la precondición contestando, no un cambio a medias— y
-      // ⛔ es la única forma de no hornear el `18` en una cadena.
+      /**
+       * ⭐⭐ **§30.8 — el acuse se compone SIN NINGUNA PETICIÓN** (v1.63.4, deuda `FX-F1` cerrada).
+       *
+       * El diálogo tiene que **NOMBRAR el número al que se saltaría antes de que el humano toque
+       * nada**, y ese número ⛔ no se hornea (§30.16.8: *«una constante horneada en el copy es una
+       * cifra de dinero que deja de ser cierta sin que nadie se entere»*). Hasta v1.63.3 sólo
+       * existía dentro del `422`, así que la tarjeta mandaba **un `PUT` sin acuse** para leerlo.
+       * Desde v1.63.4 el contrato lo **publica** en el DTO (`fallbackRate`, regla 6 de §M2-F.3) ⇒
+       * la vía de sondeo **sobra** y `FX-UI-4(a)` se cumple al pie de la letra: **0 peticiones**
+       * hasta que el humano confirma.
+       */
+      if (typeof dto.fallbackRate === 'number') {
+        setAck({ fallbackRate: dto.fallbackRate });
+        return;
+      }
+      /**
+       * ⚠️ **Degradación, ⛔ no la vía normal.** `fallbackRate` es **obligatorio en las cuatro
+       * rutas** (regla 6); un DTO sin él es **un servidor que no cumple el contrato** —hoy: uno
+       * anterior a `FX-25`—. Ahí quedan dos salidas y sólo una es aceptable: **callar el
+       * interruptor** (el humano no puede pasar a automática y no se le dice por qué) o **pedirle
+       * el número al servidor por la puerta que el contrato garantiza que sigue abierta** — el
+       * `422` con su `details` **completo**, que la regla 6 (ii) ⛔ prohíbe adelgazar *«porque el
+       * número ya viaje en el DTO»*. Se hace lo segundo. La llamada **no cambia el modo** (`FX-12`)
+       * y ⛔ **no lleva el acuse**: es la precondición contestando, no un cambio a medias.
+       */
       modeMutation.mutate({ mode: 'auto' });
       return;
     }

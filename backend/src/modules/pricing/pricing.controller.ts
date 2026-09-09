@@ -917,6 +917,16 @@ export class FxController {
   }
 
   @Post('refresh')
+  // ⚠️ **v1.63.4 — divergencia MEDIDA al cablear `FX-25(a)` por HTTP, y era vieja.** El contrato
+  // NORMA `200` (§M2-F.5: *«Res `200`: `FxStateDTO` + un bloque `refresh`»*) y `@Post` de Nest
+  // responde **`201`** por defecto ⇒ esta ruta llevaba devolviendo `201` desde siempre. Lo delator es
+  // que el comentario de abajo YA decía *«`200` también con `failed`»*: **el código no cumplía lo que
+  // su propio comentario afirmaba**, y nadie lo vio porque ningún test miraba el status de esta ruta
+  // —los tres candados del refresco (`FX-8`, `FX-9`, `FX-10`) miran el bloque `refresh`—.
+  // Manda el contrato sobre el código (regla de conflicto), y `200` es además lo correcto en
+  // semántica: **no se crea ningún recurso direccionable** (con `failed` no se escribe ni fila) y no
+  // hay `Location` que devolver. Mismo arreglo y mismo motivo que `POST /admin/pricing/override`.
+  @HttpCode(200)
   async refresh(@CurrentUser('id') userId: string, @CurrentUser('role') role?: Role) {
     const refresh = await this.fx.refreshFromBanxico();
     // §M2-F.5: la bitácora registra el RESULTADO REAL, no el valor de vuelta. Antes, sin token, se
