@@ -5662,7 +5662,7 @@ las marcadas **NO** abajo con su razón.
 | **P&L de M7 e informes de M9** | **NO — siguen en NETO** | Criterio **191**. El IVA **no es ingreso propio** |
 | **«Valor de mercado»** (§N.7) y **estimados PSA 10 / PSA 9** (§O) | **NO** *(SUPUESTO, pregunta 62)* | Son **referencias externas / ilustrativas**, no precios nuestros |
 | **Comisión de plataforma** | **NO — se queda FUERA** *(pregunta **52**, contestada 2026-09-09)* | *«Solo iva adentro, comision por fuera»*. Sigue **sumándose aparte**, **visible y desglosada** (D53). **Decisión con carácter temporal: ver §Q.9** |
-| **Envío** | **SIN DECIDIR — pregunta 60, sigue abierta** | **No se asume.** Es dinero de cliente. Hoy se **suma aparte**, y así se queda hasta que el dueño diga otra cosa |
+| **Envío** | ~~**SIN DECIDIR — pregunta 60, sigue abierta**~~ → **SÍ, su cifra exhibida lleva el IVA dentro** *(lo fija el **criterio 189**, vigente — **enmienda `D-IVA-8`**, 2026-09-09)*; **abierto SOLO el RÓTULO** (pregunta **60**) | ~~**No se asume.** Es dinero de cliente. Hoy se **suma aparte**, y así se queda hasta que el dueño diga otra cosa~~ **Este renglón decía «SIN DECIDIR» mientras el criterio 189 —aprobado— ya prohibía apilar IVA después del precio exhibido: el documento se contradecía.** El envío **sigue siendo una línea propia, visible y separada**; lo que cambia es que **su cifra ya trae el IVA dentro**. **Es money-neutral al centavo y está medido**: `round(17500×1.16) = 20300 = 17500 + round(17500×0.16)` *(orquestador, 2026-09-09; generalizado a cualquier tarifa entera)*. **Lo único que el dueño decide es cómo se rotula** |
 | **Decks Meta** (`decks-meta-v1`) | **SÍ, cuando exista** | **Bloqueada** hasta que esto esté **implementado y publicado** (§Q.8) |
 
 #### Q.6 El dial, en términos de negocio (no de implementación)
@@ -8295,6 +8295,20 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
 > tuviera forma verificable**; **el dueño aprobó el 2026-09-09** y quedaron activos. Ninguno dice *«el precio
 > se ve bien»*: todos se miden **al centavo**. Donde un criterio dependía de una respuesta del dueño, **se
 > indica si ya está contestada (52–55) o si se verifica con su supuesto declarado (57, 60)**.
+>
+> **⚠ ENMENDADOS EL 2026-09-09 (product-owner) — LEER ANTES DE VERIFICAR: criterios 185, 189 y 194.**
+> Las divergencias **`D-IVA-7`** y **`D-IVA-8`** (las levantó el **arquitecto** en `ARCHITECTURE §9`, v1.64)
+> demostraron que **185 y 194 no podían ser los dos exactos** en carritos multi-línea (`Σ round ≠ round Σ`) y
+> que **189 decidía de facto la aritmética del envío** mientras la pregunta **60** seguía marcada como abierta.
+> **⛔ NINGUNA enmienda cambia D54 ni ninguna decisión del dueño: cambian SOLO cómo se verifican.**
+> **La regla que las ordena a las tres — y es la que QA debe aplicar:** *lo que es exacto se exige EXACTO y sin
+> tolerancia; lo que el redondeo por línea impide que sea exacto se MIDE y se ACOTA, nunca se niega ni se
+> afloja.* En concreto: **una pieza, el margen por unidad y el envío son EXACTOS al centavo** (medido: cero
+> desviación en `L = 1..1999`, y demostrado para todo `L` entero); **el agregado multi-línea se mide con el
+> candado `IVA-4`** y se compara contra la cota del arquitecto. **⛔ QA no puede leer estas enmiendas como
+> permiso para tolerar un centavo en el caso de una pieza.**
+> **⚠ Queda ABIERTO y reportado, sin enmendar**: el criterio **191** hereda la misma deriva de agregado
+> (**pregunta 67**), y la cota de 185(A.2) está **acotada, no medida** (**pregunta 66**).
 
 185. **La cifra de la ficha y la que se cobra, con la BRECHA DECLARADA** *(la **pregunta 52** quedó contestada
    el **2026-09-09**: **«Solo iva adentro, comision por fuera»** ⇒ **se verifica el caso (A)**; el caso (B)
@@ -8304,10 +8318,47 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    **MX$124.69** — **y por eso este criterio NO se llama «idéntico al centavo», sino «brecha declarada»**: la
    diferencia de **MX$8.69** es **la comisión de plataforma**, va **desglosada** (D53), y **la ficha no
    promete** que MX$116.00 sea el total.
-   **Se verifica además en el arranque neutral**: con el dial en su valor inicial (**100 %**), **el total
+   ~~**Se verifica además en el arranque neutral**: con el dial en su valor inicial (**100 %**), **el total
    cobrado es idéntico al que se cobraba antes de D54** —**MX$124.69**— y **el neto del negocio sigue siendo
    MX$100.00**. **⛔ Si al encender esto alguien paga un centavo distinto, es un fallo de release**, no un
-   efecto esperado.
+   efecto esperado.~~
+   **⚠ ENMIENDA `D-IVA-7` (2026-09-09, product-owner; la levantó el arquitecto en `ARCHITECTURE §9`, v1.64).
+   ⛔ NO CAMBIA D54 NI LA PROMESA DEL DUEÑO: cambia DÓNDE es exacta y DÓNDE se mide.** El párrafo tachado exigía
+   exactitud **también** en carritos multi-línea, y ahí es **aritméticamente imposible**: `§4.44` redondea el
+   precio **por pieza** (para que la cifra que el cliente lee sea la que se suma, criterio **194**) y hoy se
+   redondea **sobre la suma**, y **`Σ round ≠ round Σ`**. *Un criterio que exige lo imposible se incumple
+   siempre y acaba ignorándose; eso es peor que uno honesto con su cota.* **El arranque neutral se verifica
+   ahora en dos mitades separadas:**
+   **(A.1) PIEZA ÚNICA Y MARGEN POR UNIDAD — EXACTO AL CENTAVO, Y AQUÍ LA PROMESA DEL DUEÑO SE MANTIENE
+   ENTERA.** Con el dial en **100 %**: base MX$100.00 ⇒ ficha **MX$116.00** ⇒ cobro **MX$124.69** ⇒ neto
+   **MX$100.00**, **idénticos al centavo a lo que se cobraba antes de D54**. **⛔ Si en el caso de una pieza
+   alguien paga un centavo distinto, sigue siendo un fallo de release** — sin cota, sin tolerancia y sin
+   *«puede variar un poquito»*.
+   **Está MEDIDO, y por eso es exigible**: barrido de **una pieza sola sobre todo el rango `L = 1..1999`**,
+   **desviación CERO exacto** en los 1 999 casos *(medición del **orquestador**, 2026-09-09)*. **El
+   product-owner lo generalizó algebraicamente a TODO `L` entero** (no solo a 1..1999): `round(L × 1.16) =
+   L + round(L × 0.16)` porque sumar un entero conmuta con el redondeo, y **no existe empate en `.5`** —haría
+   falta `16L ≡ 50 (mod 100)`, y `16L mod 100` es siempre múltiplo de 4 mientras que 50 no lo es—, así que la
+   parte fraccionaria dista **≥ 0.02** del punto de corte y **ni siquiera el error de coma flotante puede
+   voltearla**. ⇒ **el caso que este criterio 185 enuncia no se desvía nunca.**
+   **Tampoco se desvían**, y también se verifican al centavo: **el margen por unidad** y **el envío**
+   (ver criterio **189** y pregunta **60**).
+   **(A.2) CARRITO MULTI-LÍNEA — LA DESVIACIÓN SE MIDE Y SE DECLARA, NO SE NIEGA.** Al agregar varias líneas,
+   el total puede diferir del que producía la aritmética anterior a D54. **Contraejemplo medido con los diales
+   reales**: dos piezas de `L = 103` ⇒ antes `206 + round(206×0.16)=33` ⇒ **239**; con `§4.44`
+   `round(103×1.16)=119` ×2 ⇒ **238**. **Un centavo.**
+   **Qué exige este criterio aquí**: que el candado **`IVA-4`** (contrato, `§M10-IVA.5`) **mida la desviación y
+   la reporte**, y que **quede dentro de la cota publicada**. **⛔ Falla si `IVA-4` no mide, si no reporta, o si
+   la desviación observada excede la cota.**
+   **⚠ La cota es COTA, no medición, y es del ARQUITECTO**: `≤ 0.53` centavos **por pieza** en el total
+   (`≤ 4` centavos en el carrito de 7 piezas del criterio **194**), en ambas direcciones
+   (`ARCHITECTURE §4.44.c.1`). **Lo observado es más apretado que la cota** — el barrido de una pieza da cero—,
+   así que **QA registra la desviación MEDIDA en cada corrida**, y la cota solo actúa como techo que no debe
+   rebasarse. *(**SUPUESTO**: se toma la cota del arquitecto tal cual, sin estrecharla, porque estrecharla sin
+   un barrido multi-línea propio sería inventar precisión. Ver **pregunta 66**.)*
+   **⛔ Lo que esta enmienda NO autoriza**: no autoriza que el caso de una pieza se desvíe, no autoriza
+   desviación en el margen por unidad ni en el envío, y **no convierte la promesa del arranque neutral en una
+   tolerancia general**. La promesa sigue siendo exacta donde es exacta.
    ~~**(B)** si el dueño elige *«el precio exhibido es lo que se paga»*: ficha, carrito y cobro dicen
    **MX$124.69**, **idénticos al centavo**, y **no aparece ningún importe nuevo después de la ficha** salvo
    **envío**.~~ **— CAMINO NO TOMADO (pregunta 52, 2026-09-09). Se conserva tachado**: si el dueño mueve
@@ -8342,6 +8393,21 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    queda fuera del precio exhibido** — pregunta **52**, contestada el 2026-09-09)*. **Encontrar un solo caso
    donde aparezca un importe de IVA sumado después del precio exhibido es un fallo**, y **el importe de IVA
    que el checkout muestra tiene que ser el que YA está dentro del precio exhibido**, no uno adicional.
+   **⚠ ACLARACIÓN `D-IVA-8` (2026-09-09, product-owner; la levantó el arquitecto en `ARCHITECTURE §9`, v1.64).
+   ⛔ NO CAMBIA EL CRITERIO NI CAMBIA D54: dice en voz alta lo que este criterio YA exigía y que el documento
+   no tenía escrito junto.** Este criterio **alcanza también al ENVÍO**. Hoy `money.ts` apila
+   `round(envío × 16 %)` **después** del precio exhibido ⇒ **eso lo incumple**. ⇒ **la tarifa de envío exhibida
+   lleva su IVA dentro**, exactamente igual que el precio de una carta: `E = round(F × (1 + t·r))`.
+   **La aritmética NO está en disputa — es money-neutral al centavo, y está medido**:
+   `round(17500 × 1.16) = 20300`, idéntico a `17500 + round(17500 × 0.16) = 20300` *(medición del
+   **orquestador**, 2026-09-09)*. **El product-owner lo generalizó a CUALQUIER tarifa `F` entera** por la misma
+   identidad del criterio **185(A.1)** ⇒ **meter el IVA dentro del envío no mueve ni un centavo del cobro,
+   con ninguna tarifa.**
+   **⛔ Lo que este criterio NO decide, y sigue siendo del dueño**: **el RÓTULO** — cómo se le dice al cliente
+   que la tarifa de envío ya trae el IVA dentro. **Eso es la pregunta 60, que sigue abierta** y que quedó
+   enmendada para reflejar exactamente esta partición. *(Si el dueño responde que el envío se muestra **sin**
+   IVA y su IVA se suma aparte, **entonces sí hay que enmendar este criterio 189** — y con él
+   `ARCHITECTURE §4.44.f`, las fórmulas (3)–(4) y el candado `IVA-6`.)*
 190. **⚠ Las órdenes ya cobradas NO se reinterpretan — verificable, no buena intención** *(riesgo real: hoy
    `Order.ivaRatePct` congela **la tasa**, no **la convención**, hecho 8 de §Q.2, así que la fila
    `subtotal=10000, iva=1600` cambiaría de significado sola)* *(sujeto a la **pregunta 57**)*: se toma una
@@ -8363,9 +8429,24 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    no cero.
 193. **Los correos dicen lo mismo que la pantalla**: el **correo de confirmación de pedido** repite **al
    centavo** las cifras del checkout de esa orden. Igual el correo *«Qué cambió»* de Decks Meta cuando exista.
-194. **La suma de las líneas es el total, sin deriva de redondeo**: en un carrito de **al menos 7 líneas con
-   cantidades distintas**, `suma(líneas exhibidas) == subtotal mostrado`, al centavo. **Un redondeo por línea
-   que se acumule y descuadre el total es un fallo.**
+194. **La suma de las líneas es el total** ~~**, sin deriva de redondeo**~~: en un carrito de **al menos 7 líneas
+   con cantidades distintas**, `suma(líneas exhibidas) == subtotal mostrado`, al centavo. ~~**Un redondeo por
+   línea que se acumule y descuadre el total es un fallo.**~~
+   **⚠ ENMIENDA `D-IVA-7` (2026-09-09, product-owner; origen `ARCHITECTURE §9`, v1.64). ⛔ NO CAMBIA D54.**
+   La frase tachada mezclaba **dos derivas distintas** y, leída al pie, **prohibía el redondeo por línea que
+   `§4.44` justamente obliga**. Se separan, y **la parte exacta sigue siendo exacta**:
+   **(a) DENTRO DEL RECIBO — EXACTO, ABSOLUTO, SIN COTA.** `suma(líneas exhibidas) == subtotal mostrado`, **al
+   centavo**, y `subtotal + envío + comisión == total cobrado`, **al centavo**. **⛔ Un recibo cuyas cifras no
+   suman es un fallo, y aquí no hay tolerancia de ningún tipo.** *(Bajo `§4.44` esto se cumple **por
+   construcción** —el subtotal ES la suma exacta de enteros exhibidos—, y por eso se puede exigir absoluto.)*
+   **(b) CONTRA LA ARITMÉTICA ANTERIOR A D54 — ESPERADO Y ACOTADO, NO UN FALLO.** El redondeo **por pieza** que
+   `§4.44` obliga **sí se acumula** frente al cálculo agregado de antes: `Σ round ≠ round Σ`. **Eso es la
+   consecuencia elegida, no un defecto**, porque la alternativa —redondear sobre el agregado— **descuadraría el
+   recibo del cliente**, que es lo que (a) prohíbe. Se verifica con el candado **`IVA-4`**, que **mide y
+   declara** la desviación; cota del **arquitecto**: `≤ 0.53` centavos por pieza (**≤ 4** centavos en este
+   carrito de 7). **⛔ Falla si `IVA-4` no la mide o si excede la cota** — no falla por existir.
+   **El caso de una pieza no entra en (b)**: está **medido en cero exacto** sobre `L = 1..1999` y demostrado
+   para todo `L` entero (ver criterio **185(A.1)**).
 195. **Cero afirmaciones jurídicas sobre el IVA en superficie de cliente** *(ratifica **D53** y
    `DESIGN_SYSTEM §7.12a`; **hoy no hay abogado en el proyecto**)*: se corre el test de copy contra las
    superficies de cliente y **no aparece** ninguna variante de *«trasladado»*, *«conforme a la ley»*, *«no es
@@ -11684,23 +11765,45 @@ ese frente:**
    **Qué confirmar**: **(a)** el supuesto; **(b)** ambos sobre la cifra con IVA; **o (c)** ambos sobre la base.
    *(Cómo se implemente el orden de las operaciones es del **arquitecto**; lo que usted decide es **qué cifra
    tiene que quedar redonda** y **contra qué se compara el piso**.)*
-60. **[⚠ PARCIALMENTE CONTESTADA — 2026-09-09 — sigue abierta en ENVÍO y en el RÓTULO] ¿El ENVÍO y la COMISIÓN
+60. **[⚠ PARCIALMENTE CONTESTADA — 2026-09-09 — ~~sigue abierta en ENVÍO y en el RÓTULO~~ → tras la enmienda
+   `D-IVA-8`: SIGUE ABIERTA SOLO EN EL RÓTULO; la aritmética del envío ya la fija el criterio 189 y es
+   money-neutral al centavo] ¿El ENVÍO y la COMISIÓN
    DE PLATAFORMA reciben el mismo tratamiento? Y la línea de IVA del checkout, ¿desaparece o pasa a decir
    «IVA incluido»?**
    **✅ Lo que quedó contestado por la pregunta 52**: **la COMISIÓN se queda FUERA** del precio exhibido y
    **se sigue sumando aparte** *(«comision por fuera»)*. **Eso ya no está en duda.**
    **✅ Lo que quedó decidido por D54**: la línea de IVA **pasa de SUMAR a INFORMAR** —con el IVA dentro del
    precio, una línea que suma **cobraría el impuesto dos veces**—.
-   **⚠ Lo que SIGUE ABIERTO**: **(1)** el **ENVÍO** —hoy se **suma aparte** y así se queda por defecto—; y
-   **(2)** el **rótulo exacto** del importe de IVA en el checkout.
+   ~~**⚠ Lo que SIGUE ABIERTO**: **(1)** el **ENVÍO** —hoy se **suma aparte** y así se queda por defecto—; y
+   **(2)** el **rótulo exacto** del importe de IVA en el checkout.~~
+   **⚠ ENMIENDA `D-IVA-8` (2026-09-09, product-owner; la levantó el arquitecto en `ARCHITECTURE §9`, v1.64).
+   ⛔ NO CAMBIA D54.** La redacción tachada dejaba el envío abierto **en bloque**, y eso **contradecía al
+   criterio 189, que está VIGENTE y que QA verifica**: 189 exige que **ningún importe de IVA se sume después
+   del precio exhibido**, y hoy el código apila `round(envío × 16 %)` justo ahí. **El documento se contradecía
+   consigo mismo.** Se parte en dos, y solo una mitad sigue abierta:
+   **✅ MITAD ARITMÉTICA — DECIDIDA (por el criterio 189, no por esta pregunta) Y MEDIDA.** La **tarifa de
+   envío exhibida lleva su IVA dentro**. **No se le pide al dueño que decida esto, porque no hay nada que
+   decidir: DA EXACTAMENTE LO MISMO.** `round(17500 × 1.16) = 20300` = `17500 + round(17500 × 0.16) = 20300`
+   *(medición del **orquestador**, 2026-09-09; generalizada por el product-owner a cualquier tarifa entera —
+   ver criterio **185(A.1)**)*. **Money-neutral al centavo, con cualquier tarifa.** *El envío **sigue siendo una
+   línea propia, visible y separada**: que su IVA vaya dentro **no** lo funde con el subtotal.*
+   **⚠ MITAD ABIERTA — EL RÓTULO, Y ESO SÍ ES DEL DUEÑO.** Cómo se le **dice al cliente**: **(1)** cómo se
+   rotula la línea de envío ahora que su cifra trae el IVA dentro; y **(2)** el **rótulo exacto** del importe
+   de IVA en el checkout. **Es decisión de negocio y de trato con el cliente, no de aritmética.**
    **Supuesto tomado** *(el equipo avanza con él)*: la línea de IVA **no desaparece, cambia de papel**
-   (*«IVA 16 % incluido: MX$16.00»*), **sin mover el total ni un centavo**; y el **envío sigue sumándose
-   aparte**.
+   (*«IVA 16 % incluido: MX$16.00»*), **sin mover el total ni un centavo**; y el **envío sigue siendo una línea
+   propia y separada**, con su cifra ya con IVA dentro.
    **Por qué ése es el lado seguro**: **borrar el desglose es más difícil de deshacer que dejarlo**, y el
    importe de IVA es **el dato que alimenta su factura manual** (pregunta 58). Un desglose que **informa** no
    contradice un precio que **incluye**.
-   **Qué confirmar**: **(a)** el supuesto; **(b)** que la línea **desaparezca** del checkout; **o (c)** que
-   solo aparezca **si el cliente pide factura**.
+   **Qué confirmar** *(reescrito por la enmienda `D-IVA-8`: **ya solo se le pregunta por el RÓTULO**)*:
+   **(a)** el supuesto tal cual; **(b)** que la línea de IVA **desaparezca** del checkout; **o (c)** que solo
+   aparezca **si el cliente pide factura**. Y **por separado**, para el envío: **(d)** su línea se rotula tal
+   cual está hoy, **(e)** se rotula diciendo que ya incluye IVA, **o (f)** usted quiere otra cosa.
+   **⛔ Lo que ya NO se le pregunta**: si la cifra de envío lleva el IVA dentro. **Eso lo fija el criterio 189,
+   que usted ya aprobó, y da exactamente lo mismo al centavo** (ver la enmienda arriba). **Si aun así quiere
+   que el envío se muestre SIN IVA y su IVA se sume aparte, dígalo** — es su derecho, pero **ya no es un
+   rótulo: obliga a enmendar el criterio 189** y a reverificar el diseño del envío.
 61. **[ABIERTA — no bloqueante, pero conviene saberlo] ¿`iva_pct` y el IVA de la comisión de Stripe siguen
    siendo UN SOLO MANDO, o se separan?**
    **El hecho, que usted no tenía por qué saber**: hoy **son el mismo dial**. `settings.service.ts:259` deriva
@@ -11752,3 +11855,36 @@ ese frente:**
    dentro** (escenario B de §Q.4).
    **Qué confirmar**: **la respuesta de su contador**, y **llevarla junto con la pregunta 58** cuando haga la
    consulta. **⛔ Nadie del equipo la responde** — misma disciplina que D53.
+66. **[ABIERTA — NO BLOQUEA — ES DE VERIFICACIÓN, NO DE NEGOCIO] La COTA de desviación multi-línea del criterio
+   185(A.2): ¿se publica la del arquitecto, o se mide antes de fijarla?** *(NUEVA — enmienda `D-IVA-7`,
+   2026-09-09, product-owner)*
+   **El estado**: **lo exacto ya está medido** —una pieza sola se desvía **CERO** sobre `L = 1..1999`, y el
+   product-owner lo demostró para todo `L` entero—. **Lo agregado NO está medido: está ACOTADO**, y la cota
+   (`≤ 0.53` centavos por pieza) **es del arquitecto y es analítica**. El contrato, por su parte, publica
+   *«≤ 1 centavo por pieza»* (`API_CONTRACT`, punto 5 del encabezado v1.64) — **dos cifras distintas para la
+   misma cota, en dos documentos**.
+   **Por qué se pregunta en vez de asumirse**: **estrechar la cota sin un barrido multi-línea propio sería
+   inventar precisión**, y **aflojarla sería justo lo que esta enmienda vino a evitar**. Hoy el criterio
+   185(A.2) usa la del arquitecto **como techo** y obliga a QA a **registrar la desviación medida**.
+   **Qué confirmar** *(o delegar, porque no es decisión de negocio)*: **(a)** se deja la cota del arquitecto
+   como techo y QA reporta lo medido —**supuesto vigente**—; **(b)** se le pide al **arquitecto** que unifique
+   `ARCHITECTURE` y `API_CONTRACT` en **una sola cifra**; **o (c)** se le pide a **QA/backend** un barrido
+   multi-línea que fije la cota **medida**, y entonces el criterio 185(A.2) se estrecha a esa.
+67. **[⚠ ABIERTA — LA LEVANTA EL PRODUCT-OWNER AL ENMENDAR `D-IVA-7` — NO BLOQUEA, PERO ES EL MISMO DEFECTO EN
+   OTRO CRITERIO] El criterio 191 (P&L = ingreso NETO) hereda la deriva de agregado: su EJEMPLO es exacto, su
+   REGLA GENERAL no.** *(NUEVA — 2026-09-09, product-owner. **⛔ No lo enmendé**: el mandato de esta ronda era
+   185, 194 y la pregunta 60. **Lo reporto para que se decida.**)*
+   **El hecho, verificado por el product-owner contra `ARCHITECTURE §4.44.c` R2**: el neto se deriva de
+   `taxBase = round(G / (1+r))`, **sobre el AGREGADO**. Por unidad la recuperación es **exacta** —`round(P/1.16)
+   = L` siempre, y por eso el margen por unidad **no se desvía**—, **pero sobre una orden multi-línea no**:
+   dos piezas de `L = 103` ⇒ `G = 238` ⇒ `taxBase = round(205.17) = 205`, cuando `Σ L_i = 206`. **Un centavo
+   menos de ingreso neto reportado.**
+   **Por qué importa y por qué NO es urgente**: el criterio 191 **enuncia un ejemplo de una sola pieza**
+   (MX$116.00 ⇒ MX$100.00) que **es exacto**, así que **QA no lo verá fallar con el caso escrito**. Pero su
+   frase de fondo —*«el IVA no aparece como ingreso en ningún informe»*— **sigue siendo cierta**; lo que se
+   desvía es **un centavo por orden multi-línea**, no la naturaleza del reporte. **⛔ No es dinero cobrado de
+   más al cliente: es la cifra del informe interno.**
+   **Qué confirmar**: **(a)** se enmienda 191 con la misma doctrina que 185 —ejemplo exacto, agregado acotado y
+   medido por `IVA-4`—; **(b)** se deja como está y se registra en `docs/TECH_DEBT.md`; **o (c)** se le pide al
+   **arquitecto** que evalúe persistir el neto **por línea** en vez de derivarlo del agregado (**eso es
+   rediseño y abre trabajo**, por eso no se asume).
