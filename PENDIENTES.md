@@ -590,6 +590,35 @@ roles) y **¿cómo le llama a M5?**.
   Lo que sí se corrige ya es que hable de «beta cerrada» estando en producción.
 - **Rol dueño:** arquitecto/backend (inventario, solo lectura) → product-owner → ux-ui → frontend.
 
+#### P-68 · 💱 Una consulta de UNA fila antes de publicar el interruptor del tipo de cambio (I-1)
+- **El escenario, en lenguaje de dinero:** existe un estado en el que **publicar el interruptor de FX,
+  sin que nadie apriete nada, movería los precios ~5 %** (de 19.00 a 18.00, el fallback duro). Es
+  exactamente el movimiento que el acuse de confirmación existe para impedir — y ahí ocurriría sin un
+  solo clic. QA lo clasificó como **«no aceptable sin decisión explícita del humano»**.
+- **Qué lo dispara, verificado en el código** (`backend/src/common/fx-mode.ts:157` y
+  `backend/src/modules/pricing/fx.service.ts:85`), no supuesto:
+  1. Al desplegar, la fila `fx_rate_mode` todavía no existe (o vale el centinela `"legacy"`), así que
+     `resolveFxMode()` **infiere** el modo en lugar de leerlo. Esa inferencia corre **una sola vez por
+     entorno** y deja de correr en cuanto un humano toca el interruptor.
+  2. La inferencia mira **un solo valor**: el ajuste `fx_manual_override_rate`.
+     - Si **tiene número** ⇒ resuelve `manual` ⇒ rige ese número. **Nada se mueve.** ✅
+     - Si está **vacío/nulo** ⇒ resuelve `auto` ⇒ rige la última fila `FxRate` de origen **`banxico`**,
+       y si no hay ninguna, el **fallback duro de 18**. ⚠️ Ahí está el −5 %.
+- ⚠️ **Corrección a lo que dije antes:** dije que «el 19.0000 puesto» protege producción. Es cierto
+  **solo si ese 19.0000 vive en el ajuste `fx_manual_override_rate`**. La pantalla de admin escribe
+  las dos cosas a la vez (`setManual()` guarda el ajuste **y** una fila `FxRate` de origen `manual`),
+  así que si el número se puso por la pantalla, está protegido. Pero **la fila `FxRate` manual NO rige
+  nunca** (I-FX5, es solo traza forense): si ese 19.0000 llegó por un script o una migración vieja y
+  el ajuste quedó vacío, la protección **no existe**. No es una cosa que se pueda razonar desde el
+  código: **depende de un valor que solo está en la base de producción.**
+- **La cura, que cuesta un minuto:** antes de promover, correr en **cada entorno** (staging y prod) una
+  consulta de solo lectura sobre `ConfigSetting` — ¿existe `fx_rate_mode`? ¿qué vale
+  `fx_manual_override_rate`? Con el ajuste lleno, se publica sin riesgo. Vacío ⇒ **no se publica**
+  hasta fijarlo a mano.
+- **Rol dueño:** devops (la consulta previa al deploy) · backend (la tercera fixture FX-6 que cubre el
+  estado) · arquitecto (declarar el riesgo residual si se decide publicar sin la consulta).
+- **Estado:** ⛔ **BLOQUEA el merge del interruptor de FX** hasta que el humano decida.
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
