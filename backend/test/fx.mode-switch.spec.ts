@@ -107,7 +107,18 @@ function harness(seed: SeedOpts = {}) {
   const priceRefs: PriceRefRow[] = [...(seed.priceRefs ?? [])];
   const auditEntries: Record<string, unknown>[] = [];
 
-  const client = {
+  /**
+   * ⭐⭐ **v1.63.2 — cada escritura se anota con SI VINO POR EL HANDLE DE LA TRANSACCIÓN.**
+   *
+   * QA rompió `settings.service.ts:353` (`tx.` → `this.prisma.`) y **los 43 tests siguieron verdes**:
+   * el arnés revertía por instantánea, así que daba igual por qué handle se hubiera escrito. Una
+   * transaccionalidad que el arnés no puede distinguir **no está medida**. Ahora el `$transaction`
+   * entrega un cliente **distinto**, y quien escriba por el de fuera queda marcado.
+   */
+  const writes: { key: string; inTx: boolean }[] = [];
+  const auditWrites: { action: unknown; inTx: boolean }[] = [];
+
+  const makeClient = (inTx: boolean) => ({
     configSetting: {
       findUnique: async ({ where }: { where: { key: string } }) => settingRows.get(where.key) ?? null,
       findMany: async () => [...settingRows.values()],
@@ -121,6 +132,7 @@ function harness(seed: SeedOpts = {}) {
         update: { valueJson: unknown; updatedBy?: string | null };
       }) => {
         if (seed.failOnSettingKey === where.key) throw new Error('boom: fallo al escribir el ajuste');
+        writes.push({ key: where.key, inTx });
         const existing = settingRows.get(where.key);
         settingRows.set(where.key, {
           key: where.key,
@@ -170,12 +182,18 @@ function harness(seed: SeedOpts = {}) {
     auditLog: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         auditEntries.push(data);
+        auditWrites.push({ action: data.action, inTx });
         return data;
       },
       findMany: async () => [...auditEntries],
       count: async () => auditEntries.length,
     },
-  };
+  });
+
+  /** El cliente de FUERA de la transacción: `this.prisma`. */
+  const client = makeClient(false);
+  /** El que entrega `$transaction`: `tx`. **Es otro objeto a propósito.** */
+  const txClient = makeClient(true);
 
   const prisma = {
     ...client,
@@ -186,7 +204,7 @@ function harness(seed: SeedOpts = {}) {
       const snapAudit = auditEntries.length;
       const snapFx = fxRates.length;
       try {
-        return await cb(client);
+        return await cb(txClient);
       } catch (e) {
         settingRows.clear();
         for (const [k, v] of snapSettings) settingRows.set(k, v);
@@ -214,6 +232,10 @@ function harness(seed: SeedOpts = {}) {
     settingsCtrl,
     auditEntries,
     fxRates,
+    /** ⭐ Las escrituras de `ConfigSetting`, con la marca de si fueron transaccionales. */
+    writes,
+    /** ⭐ Las entradas de bitácora, con la misma marca. */
+    auditWrites,
     /** ⭐ Lee la fila `ConfigSetting` A PELO (no por el DTO): la mutación con disfraz vive aquí. */
     rawSetting: (key: string) => (settingRows.has(key) ? settingRows.get(key)!.valueJson : undefined),
     settingExists: (key: string) => settingRows.has(key),
