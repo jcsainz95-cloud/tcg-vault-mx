@@ -18337,3 +18337,112 @@ de `0.001 %` de colchón y no cambia dinero al centavo. Se anota por completitud
 
 Los demás diales que aterrizan en columnas enteras (todos los `*_cents`, los de días hábiles y los
 topes) **ya usan `isInt`**: no hay más casos.
+
+---
+
+## ⭐⭐ `aportacion_pct` — el gemelo del defecto del IVA, cerrado (el dial rechaza decimales)
+
+**Es el hallazgo colateral de la sección anterior, ahora cerrado con autorización del dueño.** Mismo
+patrón, otro dial, y —esto es lo que lo hace peor— sobre **el costo de adquisición**, que es la base
+del P&L y del margen.
+
+### Lo que estaba vivo, MEDIDO (no deducido del tipo)
+
+El validador era `isNum(v) && 0 <= v <= 100` (`typeof v === 'number'`, decimales dentro). El pct se
+congela por pieza en **`InventoryItem.acquisitionPct`, que es `Int?`**. Sonda con
+`prisma.inventoryItem.create` contra **Postgres 16 real**:
+
+| Escrito | ¿Revienta? | Guardado |
+|---|---|---|
+| `70.5` | ✅ aceptado | **`70`** |
+| `70.9` | ✅ aceptado | **`70`** |
+| `99.999` | ✅ aceptado | **`99`** |
+| `0.5` | ✅ aceptado | **`0`** |
+| `100.0001` | ✅ aceptado | **`100`** |
+
+**Trunca hacia cero, en silencio.** No lanza, no avisa, no deja bitácora — idéntico al IVA.
+
+### ⭐ El agravante: el cálculo usa el decimal VIVO mientras la fila archiva el entero
+
+En `inventory.service.ts` (rama `aportacion_en_especie`) la **misma variable** alimenta las dos cosas:
+
+```ts
+const pct = dto.acquisitionPct ?? (await this.settings.getNumber(SettingKey.APORTACION_PCT)); // 70.5
+...
+acquisitionPct       = pct;                                        // → columna Int  ⇒ archiva 70
+acquisitionCostCents = computeAportacionCostCents(referenceCents, pct); // usa 70.5   ⇒ archiva 70500
+```
+
+Medido con `computeAportacionCostCents`, sobre una referencia de **MX$1,000.00** (100 000 centavos):
+
+| Dial | Costo que se GUARDA | Pct que archiva la columna | Costo que ESE pct reproduce | Brecha |
+|---|---|---|---|---|
+| `70.5` | **70 500** | `70` | 70 000 | **500 centavos** |
+| `70.9` | **70 900** | `70` | 70 000 | **900 centavos** |
+| `99.999` | **99 999** | `99` | 99 000 | **999 centavos** |
+
+⭐ **La pieza se contradice a sí misma**: *el porcentaje guardado no reproduce el costo guardado*, y
+las dos mitades de la contradicción **viajan juntas en el mismo DTO de inventario**
+(`acquisitionCostCents` y `acquisitionPct` salen ambas en el detalle de back-office). No hace falta un
+reporte externo para verla.
+
+**Y falla hacia el lado caro**: quien audite y recalcule el costo desde el pct archivado obtiene
+**menos costo del real** ⇒ **margen inflado**. En aportación en especie, `acquisitionCostCents` es
+además **lo que se le acredita a quien aportó**.
+
+⚠️ **No es un valor de laboratorio.** `70` es el default del formulario clásico y `100` lo manda el
+alta rápida (§4.39 del contrato); `70.5` es el medio punto de quien afina la política de aportación.
+El dial lo edita un `super_admin` **sin redeploy**. Y el camino del **DTO ya estaba blindado**
+(`acquisitionPct` con `@IsInt() @Min(0) @Max(100)` en los tres DTOs de alta): **el dial era el ÚNICO
+hueco** por el que entraba un decimal. `PUT /admin/settings` no tiene DTO por-campo — `SETTING_VALIDATORS`
+es la puerta entera.
+
+### La cura: por el validador, NO por el esquema
+
+`aportacion_pct` pasa de `isNum` a **`isInt` en `[0, 100]`**, en un validador nombrado
+(**`validateAportacionPct`**) para que el porqué viva pegado a la regla y la tabla apunte a él (nada de
+un lambda paralelo que pueda divergir). El `422` **nombra el motivo** («integer… frozen in the integer
+column `InventoryItem.acquisitionPct` … the stored percentage would no longer reproduce the stored
+cost»): un genérico deja al admin reintentando `70.5` hasta rendirse.
+
+⛔ **Deliberadamente NO se tocó `prisma/schema.prisma`.** Es zona compartida y hay un cambio de
+contrato en vuelo; el tipo de la columna es decisión del **arquitecto**. **Medí si la cura correcta
+exigía tocarla y no: no existe hoy ningún pct de aportación fraccionario en el negocio**, así que
+rechazar decimales no bloquea ningún caso real.
+
+⭐ **Nada legítimo se pierde**: los dos pct que el negocio usa —**70** (default) y **100** (alta
+rápida)— son **enteros**. Si algún día hace falta una fracción (p. ej. 72.5 %), el orden correcto es
+**(1) la COLUMNA** —decisión del arquitecto: decimal o escalada en enteros— y **(2) DESPUÉS** este
+rango. Relajar solo el validador reabre el truncamiento tal cual, y así queda escrito en el docblock.
+
+### Candado y su mutación
+
+`test/settings.aportacion-pct-integer.spec.ts` (**14 tests**). Mutación sobre una **COPIA** del árbol
+(`validateAportacionPct` relajado al `isNum` de antes, mismo rango) ⇒ **5 rojos de 14**: los tres del
+validador puro y los dos de la puerta `PUT /admin/settings` (el `422` y el «no se escribe la fila»).
+Los otros **nueve pasan en los dos mundos a propósito** y están **etiquetados como tales** —cinco
+contra-candados (70/100/0 siguen aceptándose, `NaN`/strings siguen fuera, `[0,100]` sigue vigente, la
+tabla apunta al validador nombrado: el arreglo no cierra de más), un **tripwire** que cae si
+`InventoryItem.acquisitionPct` deja de ser `Int?`, y **dos que documentan el daño en centavos**
+(70 500 ≠ 70 000)— para que nadie los cuente como cobertura del bug.
+
+| Verificación | Resultado |
+|---|---|
+| Sonda de truncamiento contra **Postgres 16 real** | 🟢 medida (trunca hacia cero, sin excepción) |
+| Candado nuevo, con el arreglo | 🟢 **14/14** |
+| Mutación (validador relajado a `isNum`) | 🔴 **5/14 rojos**. Restaurado 🟢 |
+| `typecheck` + `eslint` de los ficheros tocados | 🟢 limpio |
+| Suite unitaria completa | 🟢 **258 suites / 4 147 tests** (antes 257 / 4 133) |
+| Integración contra **Postgres 16 real** | 🟢 **22 suites / 324 tests** (1 flake de timing en `fx-mode`, ver abajo) |
+
+*Flake de integración, ajeno a este cambio:* `fx-mode.e2e-spec.ts › «las dos peticiones se solapan»*
+falló una vez con su **propio** mensaje de auto-calibración («el barrido NO SOLAPÓ lo suficiente…
+**no es un fallo del candado del FX**»); en re-ejecución aislada pasa. Toca `fx_manual_override_rate`,
+no `aportacion_pct`.
+
+### Estado del barrido de diales tras este cierre
+
+`iva_pct` ✅ cerrado · `aportacion_pct` ✅ cerrado (aquí) · **`fx_buffer_pct` sigue correctamente
+descartado** (cae en `Decimal(6, 3)`: redondea a la milésima, ahí las fracciones son legítimas y no
+cambia dinero al centavo). Los demás diales que aterrizan en columnas enteras ya usaban `isInt`.
+**No quedan casos de «validador más laxo que la columna que lo persiste».**

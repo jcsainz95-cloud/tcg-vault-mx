@@ -22,32 +22,45 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
-> **ESTADO AL 2026-09-09 (16ª ronda del bloque v2.1 — ⚠️⚠️ BORRADOR DEL PRODUCT-OWNER, **NO ES DECISIÓN
-> TOMADA**, ESPERANDO RESPUESTA DEL DUEÑO — LEER PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 15ª (D53,
-> nombrado de la comisión) ni ninguna anterior: es OTRO FRENTE —**qué cifra se exhibe: la base o lo que se
-> paga**—):**
-> **D54 (BORRADOR) — EL PRECIO EXHIBIDO PASARÍA A LLEVAR EL IVA DENTRO, EN TODA SUPERFICIE DE CLIENTE, CON UN
-> DIAL DE TRASLACIÓN PARCIAL (CONTINUO, NO UN INTERRUPTOR) EDITABLE DESDE ADMIN.**
-> **⛔ NADA DE ESTE BLOQUE ES EJECUTABLE. No hay decisión: hay borrador.** Ni arquitecto, ni backend, ni
-> frontend, ni QA actúan sobre §Q ni sobre los criterios **185–197** hasta que **el dueño apruebe**. Los
-> criterios nuevos nacen marcados **⛔ NO VIGENTES** justamente para que **no ocurra lo de D53 al revés**: allá
-> el daño fue una instrucción viva que nadie marcó; aquí sería una instrucción **no aprobada** que alguien
-> ejecuta por estar escrita en el documento de mayor autoridad.
+> **ESTADO AL 2026-09-09 (16ª ronda del bloque v2.1 — ✅ DECISIÓN DEL DUEÑO, **APROBADA Y VIGENTE** — LEER
+> PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 15ª (D53, nombrado de la comisión) ni ninguna anterior: es OTRO
+> FRENTE —**qué cifra se exhibe: la base o lo que se paga**—):**
+> **D54 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, EN TODA SUPERFICIE DE CLIENTE, CON UN DIAL DE TRASLACIÓN
+> PARCIAL (CONTINUO, NO UN INTERRUPTOR), **UNO SOLO Y GLOBAL**, EXPRESADO COMO **FRACCIÓN DE TRASLACIÓN
+> 0–100 %**, EDITABLE DESDE ADMIN, QUE **ARRANCA EN 100 %**. LA **COMISIÓN DE PLATAFORMA SE QUEDA FUERA** DEL
+> PRECIO EXHIBIDO Y SIGUE APARECIENDO APARTE.**
+> **✅ ESTO YA ES EJECUTABLE.** §Q es **alcance vigente**, los criterios **185–197** son **criterios de
+> aceptación vigentes que QA verifica y el DoD exige**, y el **arquitecto arranca**. El estado de borrador
+> —que duró desde la mañana del 2026-09-09 hasta la aprobación del dueño el mismo día— **queda cerrado**.
 > **De dónde sale**: el **2026-09-09 el dueño pidió** *«lo del IVA hay que meterlo al precio […] déjamelo
 > dinámico en admin»*, precisó que **«aplica para todo»**, y cerró el requisito con *«presiento que nos deja
 > muy fuera de mercado y no podré trasladar todo, déjalo dinámico por si no logro trasladarlo completo, que
-> sea parcial»*. **Se registra el HECHO de que lo pidió, con su fecha.** La razón legal que él invoca es **la
-> misma que originó D53**, y **este documento no sostiene ninguna postura jurídica propia** (la disciplina de
-> D53 sigue vigente palabra por palabra: **hoy no hay abogado en el proyecto**).
-> **⭐⭐ LO QUE CAMBIA LA DECISIÓN, Y EL DUEÑO NO LO SABE: LA BRECHA NO ES 16 %, ES 24.69 %.** El inventario
-> técnico lo siguió de punta a punta y está comprobado: sobre una ficha de **MX$100.00**, el checkout cobra
-> **MX$124.69** —IVA **16.00** y **comisión 8.69**, porque la comisión se calcula **sobre subtotal + IVA**
-> (`money.ts:486`), no sobre el subtotal—. **El cliente ya paga 24.69 % por encima de lo publicado, hoy.**
-> ⇒ *«trasladar todo»* **no significa subir 16 %**, y —esto es lo duro— **ninguna posición del dial deja la
-> vitrina en MX$100.00 siendo verdad**: absorbiendo **el IVA completo**, la cifra honesta seguiría siendo
-> **MX$107.99**. Toda la aritmética, con tabla, en **§Q.3**.
+> sea parcial»*. **Ese mismo día, con las tres lecturas y sus cifras delante, resolvió las tres preguntas
+> bloqueantes**: *«Solo iva adentro, comision por fuera»* (**52**), *«Un dial para todo»* (**53**), y
+> **eligió arrancar en traslación 100 %** (**55**), con lo que la **unidad** queda fijada como **fracción
+> 0–100 %** (**54**). **Se registra el HECHO de que lo decidió, con su fecha.** La razón legal que él invoca es
+> **la misma que originó D53**, y **este documento no sostiene ninguna postura jurídica propia** (la disciplina
+> de D53 sigue vigente palabra por palabra: **hoy no hay abogado en el proyecto**).
+> **⭐⭐ LA DECISIÓN MÁS IMPORTANTE QUE TOMÓ: EL ARRANQUE ES NEUTRAL POR DISEÑO. EL DÍA DEL DEPLOY NO CAMBIA LO
+> QUE NADIE PAGA.** Con el dial en **100 %**, una carta de base **MX$100.00** pasa a **exhibirse en MX$116.00**
+> y el cliente **paga MX$124.69 — exactamente lo que paga hoy**. **El margen sigue en MX$100.00.** Lo único que
+> cambia es que **el precio de vitrina deja de mentir**: el 16 % ya está a la vista, y la comisión sigue
+> apareciendo aparte, como hoy.
+> **Por qué esto es lo que hace publicable el cambio**: separa **«dejar de mentir en la vitrina»** de
+> **«regalar margen»**. Son dos decisiones distintas y el dueño solo tomó la primera. **Bajar el dial —absorber
+> IVA— es una decisión POSTERIOR, DELIBERADA Y REVERSIBLE**, que se toma dial en mano y viendo el costo en
+> pesos (criterio **188**). **⛔ Nadie la toma por él, ni «para probar».**
+> **⭐⭐ LA BRECHA REAL NO ES 16 %, ES 24.69 % — y el dueño ya la conoce.** Está comprobado contra el código:
+> sobre una ficha de **MX$100.00**, el checkout cobra **MX$124.69** —IVA **16.00** y **comisión 8.69**, porque
+> la comisión se calcula **sobre subtotal + IVA** (`money.ts:486`), no sobre el subtotal—. Toda la aritmética,
+> con tabla, en **§Q.3**.
+> **⚠ CONSECUENCIA VIGENTE DE DEJAR LA COMISIÓN FUERA, dicha sin adornos**: **ninguna posición del dial deja la
+> vitrina en MX$100.00 siendo verdad.** Absorbiendo **el IVA completo** (dial 0 %), la cifra honesta más baja
+> alcanzable es **MX$107.99**, porque **la comisión se sigue sumando después**. Quien espere que bajar el dial
+> devuelva la vitrina a MX$100.00 **va a esperar en vano**, y eso **no es un defecto: es la decisión 52**.
 > **⚠ Y son UN SOLO MANDO**: `settings.service.ts:259` deriva el **IVA de la comisión de Stripe** del **mismo
-> dial `iva_pct`** ⇒ **mover el IVA mueve también la comisión**. El dueño tampoco sabía esto (**pregunta 61**).
+> dial `iva_pct`** ⇒ **mover el IVA mueve también la comisión**. El dueño tampoco sabía esto (**pregunta 61**,
+> **sigue abierta**). **El dial nuevo NO se cuelga de `iva_pct`** (§Q.6).
 > **⚠ QUÉ SE ROMPERÍA EN SILENCIO, y por eso son criterios y no notas**: **(a)** el **P&L de M7** hace
 > `incomeCents += o.subtotalCents` (`admin.service.ts:816`); si el subtotal pasa a llevar IVA dentro, el
 > reporte **contaría el IVA como ingreso propio sin que nadie toque ese fichero** — **no reventaría: mentiría**
@@ -57,17 +70,27 @@
 > pedido viejo se reinterpretaría solo** (criterio **190**); **(c)** hoy conviven **dos convenciones dentro de
 > la misma ficha** (el precio grande lleva la nota «sin IVA», las filas de variante no) — **eso ya es un
 > defecto hoy**, antes de este cambio (criterio **186**).
-> **Lo que este documento NO decide, a propósito**: **el valor por defecto del dial** (es del dueño), **si el
-> dial es uno global o por tipo de producto**, **si la comisión de plataforma también entra al precio
-> exhibido**, y **el modelo de datos y la fórmula** (del **arquitecto**, después de la aprobación).
-> **Bloqueo declarado**: mientras esto no cierre, **`decks-meta-v1` no se publica** — su propio spec lo dice
-> (`docs/specs/DECKS_META_V1.md` §12) y aquí queda ratificado (criterio **197**).
-> **Preguntas: se abren la 52 a la 64.** Tres son **bloqueantes** (**52**, **53**, **55**) y una es **de
-> contador/abogado, no nuestra** (**58**).
-> Ver **§Q** (cuerpo del requisito), los criterios **185–197** (⛔ no vigentes), las banderas **«Negocio — el
-> dial de IVA es un dial de MARGEN»** y **«Fiscal/Legal — desglose de IVA en factura»**, y los cinco sitios
-> marcados **⚠ EN CONFLICTO CON §Q**: **§B** (dos puntos), **Restricciones técnicas** (Impuestos) y el
-> **criterio 2**. **⛔ Esos cinco NO quedan derogados**: siguen **vigentes y son lo que QA verifica hoy**.
+> **Lo que este documento SIGUE sin decidir, a propósito**: **el modelo de datos, la fórmula y los nombres de
+> campo** (del **arquitecto**), y lo que cuelga de las **preguntas que siguen abiertas** (**56, 57, 59, 60,
+> 61, 62, 63, 64**, más **58** y **65**, que son **de contador/abogado y NO las responde el equipo**).
+> **⚠ LA COMISIÓN DE PLATAFORMA QUEDA FUERA — CON RAZÓN ESCRITA Y CARÁCTER TEMPORAL.** Palabras del dueño:
+> ***«La comisión déjalo de momento igual»***. **No es descuido ni olvido: es decisión suya**, y **el «de
+> momento» es parte de la decisión**. Queda como **pendiente ABIERTO con dueño** —**él**, con **contador o
+> abogado cuando lo tenga—**, no como asunto cerrado. Ver la bandera **«Negocio — la comisión sigue fuera del
+> precio exhibido»**.
+> **Bloqueo declarado — y no se afloja por estar aprobado**: **`decks-meta-v1` NO se publica hasta que D54 esté
+> IMPLEMENTADO Y PUBLICADO**, no solo aprobado. Su propio spec lo dice (`docs/specs/DECKS_META_V1.md` §12) y
+> aquí queda ratificado (criterio **197**).
+> **Preguntas: 52, 53, 54 y 55 quedan CONTESTADAS (2026-09-09).** Siguen **abiertas** la **56, 57, 59, 60
+> (parcial), 61, 62, 63 y 64**; y son **de contador/abogado, no nuestras**, la **58** y la **65** (nueva:
+> corrección **D-IVA-1**).
+> Ver **§Q** (cuerpo del requisito, **vigente**), los criterios **185–197** (**vigentes**), las banderas
+> **«Negocio — el dial de IVA es un dial de MARGEN»**, **«Negocio — la comisión sigue fuera del precio
+> exhibido»** y **«Fiscal/Legal — desglose de IVA en factura»**, y **decisión 116**.
+> **⚠ Los cinco sitios que estaban marcados «EN CONFLICTO CON §Q» quedan ahora TACHADOS Y REESCRITOS** —no
+> borrados, doctrina de D51/D52/D53—: **§B** (dos puntos: precios *«sin IVA»* y *«IVA 16 % desglosado»*),
+> **Restricciones técnicas** (Impuestos), el **criterio 2** (inciso *«(sin IVA)»*) y el **criterio 4** (línea
+> de IVA que suma). **Eso es lo que QA verifica a partir de ahora.**
 >
 > **ESTADO AL 2026-09-08 (15ª ronda del bloque v2.1 — CORRECCIÓN DE PRODUCTO A PETICIÓN DEL DUEÑO — LEER
 > PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 14ª (D52, bounties) ni la 13ª (D51, KYC): es OTRO FRENTE
@@ -1255,11 +1278,16 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       bóveda requiere cuenta**. Reglas completas, flujos y límites en **§J**.
 - [ ] Carrito y checkout con **Stripe**. El **precio de venta** que se cobra es **referencia + markup**
       (el markup es un dial configurable en M10); el "valor de mercado" mostrado sigue siendo la referencia.
-- [ ] Precios en catálogo/ficha se muestran **sin IVA**.
-      **⚠ EN CONFLICTO CON EL BORRADOR §Q (D54, 16ª ronda) — pero SIGUE VIGENTE**: §Q **no está aprobado** y
-      **no deroga nada todavía**. Es **el punto que §Q sustituiría** si el dueño aprueba (precio exhibido
-      **con IVA dentro** en catálogo, ficha, filas de variante, carrito y checkout). **Se marca, no se
-      corrige**: la lección de D53 es que **un punto vivo sin marcar es lo que se ejecuta al pie**.
+- [ ] ~~Precios en catálogo/ficha se muestran **sin IVA**.~~
+      **⚠⚠ DEROGADO (16ª ronda, 2026-09-09, D54). Se conserva TACHADO, no borrado**, porque **era una
+      instrucción viva y es exactamente lo que D54 invierte**. **Lo sustituye el punto de abajo.**
+- [ ] **Precios en catálogo/ficha se muestran CON EL IVA DENTRO** *(**D54**, 16ª ronda)*: la cifra exhibida en
+      **catálogo, ficha (precio grande **y** filas de variante), ficha de sellado, carrito y checkout** ya
+      **lleva el IVA incluido** según la posición del **dial de traslación** (global, fracción **0–100 %**,
+      **arranca en 100 %**). Con el dial en **100 %** y base MX$100.00, la vitrina dice **MX$116.00**.
+      **⛔ Ninguna superficie de cliente vuelve a apilar IVA sobre el precio exhibido** (criterio **189**).
+      **⛔ Una sola convención por pantalla**: se acabó que el precio grande diga *«sin IVA»* y las filas de
+      variante no (criterio **186**). Alcance completo por superficie en **§Q.5**; criterios **185–197**.
 - [ ] ~~**Costo de procesamiento trasladado al comprador**: línea visible y desglosada en el checkout.~~
       **⚠⚠ DEROGADO (15ª ronda, 2026-09-08, D53). Se conserva TACHADO, no borrado**, porque **era un criterio
       de aceptación vigente y sin marcar**: leído al pie habría hecho que QA exigiera —y el DoD verificara—
@@ -1274,10 +1302,25 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       *(Rótulos y hint normativos: `DESIGN_SYSTEM §29`; la norma de nombrado que este punto ratifica:
       **`DESIGN_SYSTEM §7.12a`**. El campo del contrato **sigue llamándose `processingFeeCents`** a
       propósito — es nombre **interno**, no un rótulo.)*
-- [ ] **IVA 16% desglosado como línea aparte** en el checkout; el total cobrado lo incluye.
-      **⚠ EN CONFLICTO CON EL BORRADOR §Q (D54, 16ª ronda) — pero SIGUE VIGENTE**. Bajo §Q esta línea pasaría
-      de **sumar** a **informar** (*«IVA 16 % incluido»*), sin cambiar el total — **y eso es SUPUESTO, no
-      decisión** (**pregunta 60**). **Nada se toca hasta que el dueño apruebe.**
+- [ ] ~~**IVA 16% desglosado como línea aparte** en el checkout; el total cobrado lo incluye.~~
+      **⚠⚠ DEROGADO EN SU PAPEL DE LÍNEA QUE SUMA (16ª ronda, 2026-09-09, D54). TACHADO, no borrado.** Con el
+      IVA **dentro** del precio exhibido, una línea que **suma** IVA sobre ese precio **cobraría el impuesto
+      dos veces**. **Lo sustituye el punto de abajo.**
+- [ ] **El IVA del checkout INFORMA, no suma** *(**D54**, 16ª ronda; **el rótulo exacto es SUPUESTO —
+      pregunta 60**, que sigue abierta)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
+      incluido: MX$16.00»*— pero **ya está dentro del precio exhibido y NO mueve el total ni un centavo**.
+      **⛔ El importe de IVA no desaparece**: es **la única fuente del desglose** para la factura manual
+      (`Order.ivaCents` → `GET /admin/finance/iva` → CSV), y **borrarlo es más difícil de deshacer que
+      dejarlo** (criterio **192**). **⛔ El rótulo es de IMPORTE, nunca una afirmación jurídica** (D53,
+      criterio **195**).
+- [ ] **La comisión de plataforma se queda FUERA del precio exhibido y se sigue sumando aparte**
+      *(**D54**, respuesta literal del dueño a la pregunta 52: **«Solo iva adentro, comision por fuera»**)*:
+      con la vitrina en **MX$116.00**, el checkout cobra **MX$124.69** y la diferencia de **MX$8.69** es la
+      **«Comisión de plataforma»**, **visible y desglosada** (D53, sin cambio).
+      **⛔ La ficha NO promete que el precio exhibido sea el total**: la brecha **existe, es de MX$8.69 sobre
+      MX$116.00, y tiene que estar enunciada antes de pagar** (criterio **185(A)**, *«brecha declarada»*).
+      **⚠ Consecuencia que nadie debe reportar como defecto**: mientras la comisión siga fuera, **ninguna
+      posición del dial deja la vitrina en MX$100.00 siendo verdad** — lo más bajo alcanzable es **MX$107.99**.
 - [ ] **Facturación (CFDI) manual por correo en el MVP** (sin timbrado con PAC, eso es fase 2): en el
       checkout y/o FAQ/términos se muestra un **mensaje** indicando que **para solicitar factura el cliente
       debe enviar un correo con sus datos fiscales**. El IVA cobrado se guarda para M7 Finanzas.
@@ -2293,9 +2336,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       default MX$175). Aplican las mismas reglas de §D: solo direcciones en **México**.
 - [ ] **Mismo precio, mismos impuestos, mismas políticas** que un usuario con cuenta: precio de venta =
       referencia + markup, ~~**línea de costo de procesamiento**~~ **línea de «Comisión de plataforma»**
-      *(**D53**, 15ª ronda)*, **IVA 16% desglosado**, aviso de **ventas
+      *(**D53**, 15ª ronda)*, ~~**IVA 16% desglosado**~~ **IVA 16 % YA INCLUIDO en el precio exhibido, con su
+      importe INFORMADO —no sumado— en el checkout** *(**D54**, 16ª ronda, 2026-09-09)*, aviso de **ventas
       finales**, enlace a términos y el mensaje de **factura CFDI manual por correo**. Comprar como invitado
-      **no** cambia condiciones comerciales.
+      **no** cambia condiciones comerciales — **y eso incluye la convención del precio: el invitado ve
+      exactamente la misma cifra que un usuario con cuenta**.
 - [ ] **Seguimiento de su pedido por enlace tokenizado** (ver abajo).
 - [ ] **Disputa de condición y errores de plataforma**: aplican **igual** que a un usuario con cuenta
       (ventana de **7 días desde la entrega**, evidencia **por correo a soporte** citando el **número de
@@ -2369,9 +2414,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > 2. En el checkout elige **"continuar como invitado"** (no inicia sesión ni se registra).
 > 3. Captura **correo válido** y **dirección de envío nacional**; el sistema valida el formato del correo y
 >    que la dirección sea de México.
-> 4. Ve el desglose: subtotal, ~~**costo de procesamiento**~~ **«Comisión de plataforma»** *(**D53**)*,
->    **IVA 16%**, **envío MX$175** y total; ve el
->    aviso de **ventas finales** y el mensaje de **factura por correo**.
+> 4. Ve el desglose: subtotal **(con IVA dentro — D54)**, ~~**costo de procesamiento**~~ **«Comisión de
+>    plataforma»** *(**D53**)*, **IVA 16 % informado, que NO suma al total** *(**D54**)*, **envío MX$175** y
+>    total; ve el aviso de **ventas finales** y el mensaje de **factura por correo**.
 > 5. Paga con **Stripe** con éxito.
 > 6. Llega a la **confirmación** con su **número de pedido** y la oferta de **crear cuenta con ese correo**.
 > 7. **Recibe el correo** de confirmación con el **enlace de seguimiento tokenizado**.
@@ -3194,9 +3239,17 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       carta **no se promociona en ninguna superficie de promoción** —no entra a la teja de la rejilla ni a la
       vitrina, y **su teja en destacadas no lleva burbuja**— (no se infiere, no se interpola, no se aproxima el
       PSA 9 a partir del PSA 10). *(En la **ficha** sí puede mostrarse el PSA 10 que sí existe — ver §O.3.)*
-- [ ] *(SUPUESTO: el cálculo usa el **precio de venta raw sin IVA** —el mismo número que ve el comprador en la
-      ficha, §B— y **no** incluye el envío de la carta ni el IVA en `precioVentaRaw`. Confirmar con el humano
-      si quiere una curaduría aún más conservadora incluyendo esos conceptos; ver preguntas abiertas v2.0.)*
+- [ ] *(SUPUESTO: el cálculo usa el **precio de venta raw sin IVA** ~~—el mismo número que ve el comprador en
+      la ficha, §B—~~ y **no** incluye el envío de la carta ni el IVA en `precioVentaRaw`. Confirmar con el
+      humano si quiere una curaduría aún más conservadora incluyendo esos conceptos; ver preguntas abiertas
+      v2.0.)*
+      **⚠ AVISO D54 (16ª ronda, 2026-09-09) — este supuesto tenía DOS cláusulas que hasta hoy describían el
+      MISMO número y ya no**: desde D54, **el número que ve el comprador en la ficha LLEVA EL IVA DENTRO**, así
+      que *«sin IVA»* y *«el mismo que ve el comprador»* **dejaron de coincidir**. **Se tacha la segunda, no la
+      primera**: el gate de ROI es un **cálculo interno de negocio**, y **el supuesto vigente sigue siendo la
+      BASE (sin IVA)** — que es además la lectura conservadora. **⛔ No es decisión nueva ni alcance nuevo**:
+      es el mismo supuesto de siempre, dicho ahora sin ambigüedad. **Sigue pendiente de confirmación del
+      humano en la pregunta abierta 2 de v2.0**, donde ya estaba.
 
 **O.3 — Las cuatro superficies (SIMPLIFICADAS — ACTUALIZADO 2026-08-31)**
 > **Decisión del humano (cita textual)**: *«no hay que mostrarlo así mejor. Solo pongamos cuánto vale en
@@ -5430,15 +5483,40 @@ ronda por D31**)**
       **corto, no inflado** —que es el lado seguro del error— y la alerta existe para que **alguien lo
       corrija pronto** en vez de que se quede corto indefinidamente.
 
-### Q. Precio exhibido con IVA dentro + dial de traslación parcial (transversal — ⚠️ BORRADOR v2.1, D54, 16ª ronda)
+### Q. Precio exhibido con IVA dentro + dial de traslación parcial (transversal — ✅ VIGENTE v2.1, D54, 16ª ronda)
 
-> **⛔⛔ ESTA SECCIÓN ES UN BORRADOR PARA APROBACIÓN DEL DUEÑO. NO ES ALCANCE VIGENTE.**
-> Ningún rol implementa, diseña ni verifica nada de aquí hasta que **el dueño apruebe**. El **arquitecto** no
-> abre `ARCHITECTURE.md` ni `API_CONTRACT.md` por esto todavía. Lo que sigue fija el **QUÉ** y el **POR QUÉ**;
-> el **DÓNDE** lo trae el **inventario técnico** (ya cerrado, citado aquí) y el **CÓMO** —modelo de datos,
-> fórmula, nombres de campo— es del **arquitecto**, después.
+> **✅ ESTA SECCIÓN ES ALCANCE VIGENTE. El dueño la aprobó el 2026-09-09** y contestó las tres preguntas
+> bloqueantes. **El arquitecto arranca**: `ARCHITECTURE.md` y `API_CONTRACT.md` se abren por esto.
+> Lo que sigue fija el **QUÉ** y el **POR QUÉ**; el **DÓNDE** lo trae el **inventario técnico** (ya cerrado,
+> citado aquí) y el **CÓMO** —modelo de datos, fórmula, orden de las operaciones, nombres de campo— **es del
+> arquitecto**, ahora sí.
 > **Regla de conflicto (`CLAUDE.md`)**: `PROJECT.md` manda sobre el contrato y el contrato sobre el código.
-> Por eso lo ambiguo se queda **como pregunta al dueño**, no como supuesto silencioso.
+> Por eso lo que **sigue** sin responder se queda **como pregunta al dueño**, no como supuesto silencioso.
+
+#### Q.0 ⭐ La decisión, y por qué el arranque es NEUTRAL
+
+**Lo que el dueño decidió el 2026-09-09**, con las cifras de cada lectura delante:
+
+| Pregunta | Respuesta | Literal / valor |
+|---|---|---|
+| **52** ¿qué entra al precio exhibido? | **Solo el IVA.** La comisión se queda **fuera** | *«Solo iva adentro, comision por fuera»* |
+| **53** ¿un dial o varios? | **Uno solo, global** | *«Un dial para todo»* |
+| **54** ¿en qué unidad? | **Fracción de traslación, 0–100 %** *(no puntos de IVA)* | su *«16 %»* era **la tasa**, no el tope del dial |
+| **55** ¿valor inicial? | **100 % — traslación total** | eligió el arranque **neutral** |
+
+**⭐⭐ EL DÍA DEL DEPLOY NO CAMBIA LO QUE NADIE PAGA. Esa es la decisión más importante que tomó.**
+Una carta de base **MX$100.00** pasa a **mostrarse en MX$116.00** y el cliente **paga MX$124.69 — exactamente
+lo que paga hoy**. **El margen sigue en MX$100.00.** Lo único que cambia es que **el precio de vitrina deja de
+mentir**: el **16 % ya está a la vista**, y **la comisión sigue apareciendo aparte, como hoy**.
+
+**Por qué esto importa y no es un detalle de rollout**: **separa «dejar de mentir en la vitrina» de «regalar
+margen»**. Son dos decisiones distintas, y **el dueño tomó solo la primera**. Es lo que hace que este cambio
+**se pueda publicar sin sobresaltos** —no hay cliente que pague distinto, no hay margen que se mueva, no hay
+que avisar de una subida— y lo que deja la segunda decisión **para después: deliberada, con el costo en pesos
+a la vista (criterio 188), y reversible en cualquier momento porque el dial es dinámico**.
+
+**⛔ Corolario para todos los roles**: **nadie mueve el dial de 100 % «para probar» en un entorno con clientes
+reales.** Bajarlo **no es una configuración: es ceder margen** (§Q.4).
 
 #### Q.1 El problema, en una frase
 
@@ -5494,17 +5572,36 @@ cerrar es de **16 %**. **No lo es.**
 **Absorber IVA no reduce ni un peso lo que se le debe al SAT.** El impuesto se paga completo **pase lo que
 pase**. Absorberlo significa **bajar el precio efectivo**, y ese dinero **sale del margen**.
 
-**Escenario A — solo el IVA entra al precio exhibido (la comisión se sigue sumando después).**
-Base MX$100.00, IVA 16 %, dial `t` = fracción del IVA trasladada al cliente:
+> **⚠️ CONVENCIÓN DE BASE DE ESTA SECCIÓN — léase antes que las tablas (corrección `D-IVA-1`, 2026-09-09).**
+> Todas las cifras de abajo calculan el **IVA sobre el precio exhibido `P`**, que **excluye la comisión de
+> plataforma**: `IVA = P × 16/116`, y la **comisión se calcula encima** (gross-up sobre `P`, tal como
+> `money.ts:486` hace hoy sobre `subtotal + IVA`). Por eso `t = 0 %` da **neto MX$86.21** y no otra cosa.
+> **Esta es la convención que D54 adopta** y es coherente con lo que el código ya hace.
+> **⚠ Hasta hoy este documento usaba DOS bases distintas en párrafos contiguos** —lo detectó el arquitecto—:
+> las tablas usaban ésta, y el párrafo de *«que la vitrina siga diciendo MX$100.00»* calculaba el IVA sobre
+> **el total cobrado completo, comisión incluida**. **Queda corregido abajo, con las dos cifras y su
+> diferencia**, y la duda de fondo **se manda a contador** (**pregunta 65**). **No afecta a D54**: bajo D54 la
+> comisión **está fuera del precio exhibido**, así que **la porción de comisión embebida no existe**.
+
+**✅ Escenario A — ELEGIDO (pregunta 52, 2026-09-09): solo el IVA entra al precio exhibido; la comisión se
+sigue sumando después.**
+Base MX$100.00, IVA 16 %, dial `t` = fracción del IVA trasladada al cliente. **`t` arranca en 100 %
+(pregunta 55) ⇒ la fila vigente el día del deploy es la primera**:
 
 | Dial `t` | Precio exhibido (ficha) | Total cobrado en checkout* | Neto del negocio | Brecha ficha → cobro |
 |---|---|---|---|---|
-| **100 %** (traslada todo) | MX$116.00 | **MX$124.69** ✅ verificado | MX$100.00 | +MX$8.69 |
+| **100 %** (traslada todo) **← VALOR INICIAL** | MX$116.00 | **MX$124.69** ✅ verificado | MX$100.00 | +MX$8.69 |
 | **50 %** | MX$108.00 | MX$116.34* | MX$ 93.10 | +MX$8.34 |
 | **0 %** (absorbe todo) | MX$100.00 | MX$107.99* | MX$ 86.21 | +MX$7.99 |
 
-**Escenario B — el precio exhibido ES lo que se cobra (IVA *y* comisión dentro).** Es la única lectura en la
-que *«lo que ves es lo que pagas»* es cierto:
+**⭐ Lea la primera fila dos veces: el total cobrado (MX$124.69) y el neto (MX$100.00) son EXACTAMENTE los de
+hoy.** El arranque **no mueve dinero de nadie**; mueve **la cifra que se publica**. Las filas de abajo son
+**decisiones futuras del dueño**, y **cada peso de la columna «neto» que baja sale de su margen** (§Q.0).
+
+**~~Escenario B~~ — CAMINO NO TOMADO (pregunta 52, contestada el 2026-09-09: *«comision por fuera»*). Se
+conserva, no se borra**, porque es el escenario al que habría que volver si algún día el dueño decide meter
+también la comisión. **Hoy NO es alcance.** Era: el precio exhibido ES lo que se cobra (IVA *y* comisión
+dentro) — la única lectura en la que *«lo que ves es lo que pagas»* sería cierto:
 
 | Dial `t` | Precio exhibido **= total cobrado**\* | Neto del negocio | vs. la cifra publicada hoy (MX$100.00) |
 |---|---|---|---|
@@ -5512,16 +5609,29 @@ que *«lo que ves es lo que pagas»* es cierto:
 | **50 %** | MX$116.34* | MX$ 93.10 | +16.34 % |
 | **0 %** | MX$107.99* | MX$ 86.21 | +7.99 % |
 
-**⭐ Y el escenario que el dueño probablemente tiene en la cabeza —«que la vitrina siga diciendo MX$100.00»—
-tiene precio, y es este:** si MX$100.00 debe ser **el total cobrado**, recibimos 100.00, la comisión se lleva
-**MX$7.66**, el IVA debido es **MX$13.79**, y **el neto baja a MX$78.55**. **Cede 21.45 de cada 100 pesos de
-margen.**
+**⭐ Y el escenario que el dueño tenía en la cabeza —«que la vitrina siga diciendo MX$100.00»— tiene precio.
+⚠️ CORREGIDO (`D-IVA-1`, 2026-09-09): este párrafo usaba una base distinta de la de las tablas.** Si
+MX$100.00 debe ser **el total cobrado**, la comisión se lleva **MX$7.66** y el precio efectivo queda en
+**MX$92.34**. A partir de ahí, **el neto depende de sobre qué se calcule el IVA, y son dos cifras distintas**:
 
-**⇒ La conclusión incómoda, dicha sin adornos: NO EXISTE UNA POSICIÓN DEL DIAL DE IVA QUE DEJE LA VITRINA EN
-MX$100.00 SIENDO VERDAD.** Ni absorbiendo el IVA completo: la cifra honesta más baja alcanzable moviendo
-**solo** ese dial es **MX$107.99**, porque **la comisión ya se suma hoy y no está en la cifra publicada**.
-Bajar de ahí exige **absorber también la comisión** — y eso es **decisión del dueño** (**pregunta 52**), no
-nuestra.
+| Base del cálculo del IVA | IVA | Neto del negocio | Margen cedido por cada 100 |
+|---|---|---|---|
+| **Sobre `P` = MX$92.34, excluyendo la comisión** — **la convención de las tablas de arriba y la que D54 adopta** | MX$12.74 | **MX$79.60** | 20.40 |
+| Sobre los MX$100.00 **completos, comisión embebida incluida** — la que usaba este párrafo hasta hoy | MX$13.79 | **MX$78.55** | 21.45 |
+
+**La diferencia es de MX$1.05 por cada 100 pesos**, y **cuál de las dos es la correcta depende de si el IVA
+grava la porción de comisión embebida en el precio — que es pregunta de CONTADOR, no de este equipo**
+(**pregunta 65**, nueva, misma disciplina que D53: **nadie del equipo escribe una postura fiscal**).
+**⛔ Esto NO bloquea D54 ni al arquitecto**: bajo D54 **la comisión está FUERA del precio exhibido**, así que
+**no hay comisión embebida que gravar** y **la convención vigente es la primera fila, sin ambigüedad**. La
+pregunta 65 solo haría falta **si algún día se mete la comisión dentro** (escenario B).
+
+**⇒ La conclusión incómoda, y sigue vigente palabra por palabra: NO EXISTE UNA POSICIÓN DEL DIAL DE IVA QUE
+DEJE LA VITRINA EN MX$100.00 SIENDO VERDAD.** Ni absorbiendo el IVA completo: la cifra honesta más baja
+alcanzable moviendo **solo** ese dial es **MX$107.99**, porque **la comisión se suma después y no está en la
+cifra publicada**. Bajar de ahí exigiría **absorber también la comisión**, y **el dueño decidió que la
+comisión se queda fuera *«de momento»*** (**pregunta 52**, contestada). **Es consecuencia asumida de su
+decisión, no un defecto que nadie deba «arreglar».**
 
 > \* **Precisión sobre las cifras.** Las columnas **«precio exhibido»** y **«neto del negocio»** son aritmética
 > de IVA pura y **no dependen de ningún supuesto**. La columna **«total cobrado»** sale del **gross-up de la
@@ -5542,7 +5652,7 @@ las marcadas **NO** abajo con su razón.
 | **Ficha de carta** (raw y gradeada) — precio grande **y filas de variante** | **SÍ** | Hoy conviven **dos convenciones en la misma pantalla** (hecho 6). Se unifican. |
 | **Ficha de sellado** | **SÍ** | |
 | **Carrito** (líneas y total) | **SÍ** | |
-| **Checkout** (líneas y total) | **SÍ** | La línea de IVA pasaría de **sumar** a **informar**: *«IVA 16 % incluido»* — **SUPUESTO, pregunta 60** |
+| **Checkout** (líneas y total) | **SÍ** | La línea de IVA pasa de **sumar** a **informar**: *«IVA 16 % incluido»*. **Que informe en vez de sumar es DECISIÓN (D54); el rótulo exacto sigue siendo SUPUESTO — pregunta 60** |
 | **Bóveda** — precio de venta de una pieza publicada | **SÍ** | |
 | **Bóveda / portafolio** — **valuación** del portafolio | **NO** *(SUPUESTO, pregunta 62)* | Es una **valuación**, no un precio que alguien pague |
 | **Cotizador de buylist** y **oferta al vendedor** | **NO** *(SUPUESTO, pregunta 56)* | Es lo que **pagamos**, no lo que cobramos; hoy el IVA **no participa** (hecho 9) |
@@ -5551,8 +5661,9 @@ las marcadas **NO** abajo con su razón.
 | **Panel de admin / back-office** | **SÍ, pero mostrando AMBAS** | **⛔ El admin NO se convierte en superficie «solo con IVA»**: ve **base, IVA, neto, exhibido y dial**. Es donde se toma la decisión de margen. |
 | **P&L de M7 e informes de M9** | **NO — siguen en NETO** | Criterio **191**. El IVA **no es ingreso propio** |
 | **«Valor de mercado»** (§N.7) y **estimados PSA 10 / PSA 9** (§O) | **NO** *(SUPUESTO, pregunta 62)* | Son **referencias externas / ilustrativas**, no precios nuestros |
-| **Envío** y **comisión de plataforma** | **SIN DECIDIR — pregunta 60** | **No se asume.** Es dinero de cliente y toca D53 |
-| **Decks Meta** (`decks-meta-v1`) | **SÍ, cuando exista** | **Bloqueada** hasta que esto cierre (§Q.8) |
+| **Comisión de plataforma** | **NO — se queda FUERA** *(pregunta **52**, contestada 2026-09-09)* | *«Solo iva adentro, comision por fuera»*. Sigue **sumándose aparte**, **visible y desglosada** (D53). **Decisión con carácter temporal: ver §Q.9** |
+| **Envío** | **SIN DECIDIR — pregunta 60, sigue abierta** | **No se asume.** Es dinero de cliente. Hoy se **suma aparte**, y así se queda hasta que el dueño diga otra cosa |
+| **Decks Meta** (`decks-meta-v1`) | **SÍ, cuando exista** | **Bloqueada** hasta que esto esté **implementado y publicado** (§Q.8) |
 
 #### Q.6 El dial, en términos de negocio (no de implementación)
 
@@ -5563,10 +5674,14 @@ las marcadas **NO** abajo con su razón.
 - **La pantalla que lo edita tiene que decir lo que cuesta, en pesos, ANTES de guardar** (criterio **188**).
   **No es un adorno de UX: es el punto entero del requisito.** El dueño va a estar tomando **la decisión de
   Q.4 cada vez que mueva ese dial**, y tiene que **verla**, no deducirla.
-- **⛔ NO se decide aquí su valor por defecto** — es del dueño (**pregunta 55**).
-- **⛔ NO se decide aquí si es uno global o por tipo de producto** (**pregunta 53**).
-- **⛔ NO se decide aquí su unidad** —fracción del IVA trasladada (0–100 %) o puntos de IVA (0–16 pp)—
-  (**pregunta 54**). El dueño dijo *«que suba hasta 16 %»* y esa frase **admite las dos lecturas**.
+- **✅ Es UNO SOLO Y GLOBAL** *(pregunta **53**, contestada el 2026-09-09: **«Un dial para todo»**)*. **No hay
+  dial por tipo de producto, ni por set, ni por SKU.** ~~*(estaba «sin decidir»)*~~
+- **✅ Su unidad es la FRACCIÓN DE TRASLACIÓN, 0–100 %** *(pregunta **54**, contestada)*. **No son puntos de
+  IVA.** El *«16 %»* que el dueño dijo era **la tasa del impuesto**, no el tope del dial —**ésa era justo la
+  ambigüedad**—. Ventaja de la fracción: **si algún día cambia la tasa, «traslado la mitad» sigue
+  significando lo mismo**; un dial en puntos quedaría **fuera de rango o mintiendo en silencio**.
+- **✅ Su valor inicial es 100 % — traslación total** *(pregunta **55**, contestada)*. **Arranque neutral: ver
+  §Q.0.** ~~*(estaba «sin decidir — es del dueño»)*~~
 - **⛔ El dial de traslación NO puede quedar enganchado a `iva_pct`.** Hoy `iva_pct` gobierna **también** el IVA
   de la comisión (hecho 3); si el nuevo dial se cuelga del mismo mando, **mover un precio movería una
   comisión** (**pregunta 61**).
@@ -5585,7 +5700,10 @@ las marcadas **NO** abajo con su razón.
 
 #### Q.8 Bloqueo declarado sobre `decks-meta-v1`
 
-**`decks-meta-v1` no se publica hasta que este requisito esté aprobado, implementado y cerrado.** No es una
+**`decks-meta-v1` NO se publica hasta que este requisito esté IMPLEMENTADO Y PUBLICADO. ⚠ La aprobación del
+2026-09-09 NO levanta el bloqueo**: lo que bloquea no es la falta de decisión, es que **el motor todavía
+devuelve base con el IVA apilado después**. Mientras eso siga así, **Decks Meta no sale a producción aunque
+D54 esté aprobada y aunque el código de Decks Meta esté listo**. No es una
 preferencia de este documento: **es lo que dice el propio spec del stream** (`docs/specs/DECKS_META_V1.md`
 §12 y su tabla de decisiones: *«Precio exhibido: final, con IVA incluido […] depende de `pricing-iva-v2.1`»*).
 La razón es concreta y no es cosmética: esa sección exhibe **precios finales** y aplica un **descuento de
@@ -5594,8 +5712,28 @@ bundle con un piso contra el costo de adquisición**; con el motor devolviendo b
 publica antes**. Ratificado en el criterio **197**.
 
 > **Nota de nombre**: en `docs/specs/` y en `PENDIENTES.md` este trabajo se llama **`pricing-iva-v2.1`**, y
-> hasta hoy **no existía en `PROJECT.md`** —era un nombre huérfano que bloqueaba un stream sin tener cuerpo—.
-> **§Q es ese requisito.** Si el dueño lo aprueba, **queda como decisión 116 (D54)** en «Decisiones tomadas».
+> hasta la 16ª ronda **no existía en `PROJECT.md`** —era un nombre huérfano que bloqueaba un stream sin tener
+> cuerpo—. **§Q es ese requisito**, y **quedó como decisión 116 (D54)** en «Decisiones tomadas».
+
+#### Q.9 ⚠ La comisión de plataforma queda FUERA — decisión del dueño, con carácter TEMPORAL
+
+**Palabras del dueño (2026-09-09): *«La comisión déjalo de momento igual»*, y *«Solo iva adentro, comision por
+fuera»*.**
+
+**Esto NO es un descuido ni un olvido del alcance: es una decisión suya**, tomada **después** de ver que la
+brecha real es de **24.69 %** y que meter la comisión dentro llevaría la vitrina a **MX$124.69**. **Y el «de
+momento» es parte de la decisión**, no un adorno: **queda como PENDIENTE ABIERTO, no como asunto cerrado.**
+
+- **Qué queda decidido hoy**: la comisión de plataforma **no entra al precio exhibido**. Se **suma aparte**,
+  **visible y desglosada**, con el rótulo **«Comisión de plataforma»** que fijó **D53** —que **no se reabre**.
+- **Dueño del pendiente**: **el dueño**, **con su contador o abogado cuando lo tenga**. **⛔ Ningún rol del
+  equipo lo cierra**, ni proponiendo una cifra ni «adelantando» la migración.
+- **⚠ La consecuencia, escrita para que nadie la reporte como defecto**: **con la comisión fuera, ninguna
+  posición del dial deja la vitrina en MX$100.00 siendo verdad. Lo más bajo alcanzable es MX$107.99.** Quien
+  espere que el dial 0 % devuelva la vitrina a MX$100.00 **está esperando algo que esta decisión excluye**.
+- **Qué habría que reabrir el día que cambie**: el **escenario B** de §Q.4 (conservado tachado, no borrado),
+  el caso **(B)** del criterio **185**, y la **pregunta 65** (base del IVA sobre la comisión embebida), que
+  **hoy no aplica precisamente porque la comisión está fuera**.
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
@@ -5819,9 +5957,9 @@ publica antes**. Ratificado en el criterio **197**.
   después: **es bloqueante en la creación**, igual que el **celular** (D11) y el **mínimo** (D18) — porque
   **sin domicilio no hay etiqueta**, y **la etiqueta la ponemos nosotros siempre** (D31).
 
-**⚠️ Fuera de alcance del BORRADOR §Q (D54, 16ª ronda) — aplica solo si el dueño lo aprueba; hoy §Q entero
-está fuera de alcance por no estar aprobado.** Se escribe ahora para que la aprobación **no arrastre alcance
-que nadie pidió**:
+**⚠️ Fuera de alcance de §Q (D54, 16ª ronda — APROBADA el 2026-09-09).** §Q **ya es alcance vigente**; esta
+lista es lo que **la aprobación NO arrastra**. Se escribió antes de aprobar, a propósito, para que **nadie
+metiera de contrabando alcance que nadie pidió** amparándose en un «ya que estamos»:
 - **Cambiar la TASA del IVA, o soportar varias tasas / regímenes / productos exentos o a tasa 0.** §Q mueve
   **dónde vive el impuesto en la cifra exhibida** y **quién lo absorbe**. La tasa sigue siendo el dial
   `iva_pct` que ya existe.
@@ -5830,8 +5968,10 @@ que nadie pidió**:
 - **Timbrado CFDI con PAC.** Ya estaba fuera y **sigue fuera**: la factura sigue siendo **manual por correo**.
 - **Recalcular, migrar o reinterpretar órdenes históricas.** Lo contrario: **que NO se reinterpreten es un
   criterio** (**190**). Ninguna migración toca importes ya cobrados.
-- **Un dial por SKU, por carta o por set.** Lo máximo que §Q contempla es **global o por tipo de producto**, y
-  **eso está sin decidir** (**pregunta 53**). Por debajo de esa granularidad, **fuera**.
+- **Cualquier dial que no sea EL dial.** ~~Lo máximo que §Q contempla es **global o por tipo de producto**, y
+  **eso está sin decidir** (**pregunta 53**).~~ **RESUELTO (2026-09-09, pregunta 53: *«Un dial para todo»*)**:
+  hay **UNO SOLO Y GLOBAL**. **Por tipo de producto, por set, por SKU o por carta: FUERA**, y ya no como
+  «pendiente de decidir», sino **decidido que no**.
 - **Programar el dial en el tiempo** (agendar cambios, campañas, vigencias, promociones con IVA absorbido por
   temporada). El dial se mueve **a mano** y **toma efecto al guardarse**.
 - **Pantallas nuevas de análisis del impacto fiscal / de margen** (serie histórica del dial, simuladores,
@@ -5839,24 +5979,29 @@ que nadie pidió**:
   cambio que se está guardando** (criterio **188**). Cualquier reporte más allá de eso es **alcance nuevo** y
   **se pregunta** (**pregunta 63**).
 - **Multi-moneda o precios en USD.** Sin cambio.
-- **Redefinir la comisión de plataforma, su importe o su nombre.** D53 manda y **no se reabre**. Lo único
-  abierto sobre ella es **si entra o no al precio exhibido** (**pregunta 52**) y **si se separa del mando
-  `iva_pct`** (**pregunta 61**) — ninguna de las dos cambia **cuánto** cobra.
+- **Redefinir la comisión de plataforma, su importe o su nombre.** D53 manda y **no se reabre**. **Si entra o
+  no al precio exhibido quedó CONTESTADO (pregunta 52, 2026-09-09): NO entra, se queda fuera** —con carácter
+  **temporal** y **dueño asignado**, §Q.9—. Lo único que sigue abierto es **si se separa del mando `iva_pct`**
+  (**pregunta 61**), que **no cambia cuánto cobra**.
 
 ## Restricciones y preferencias técnicas
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
 - **Pagos**: **Stripe**; **sin balance/saldo** de dinero en la plataforma (liquidación por transacción).
-- **Impuestos**: precios mostrados **sin IVA**; **IVA 16%** se desglosa como **línea aparte en checkout** y
-  se incluye en el total. **Facturación CFDI manual por correo** en el MVP (sin PAC): el cliente solicita
+- **Impuestos**: ~~precios mostrados **sin IVA**; **IVA 16%** se desglosa como **línea aparte en checkout** y
+  se incluye en el total.~~ **Facturación CFDI manual por correo** en el MVP (sin PAC): el cliente solicita
   factura enviando sus datos fiscales; el IVA cobrado se guarda para M7.
-  **⚠ EN CONFLICTO CON EL BORRADOR §Q (D54, 16ª ronda).** **Este punto SIGUE VIGENTE y es lo que QA verifica
-  hoy**; §Q **no está aprobado** y no deroga nada. Si el dueño aprueba §Q, **este punto se tacha y se
-  reescribe** (precio exhibido **con IVA dentro** + **dial de traslación parcial**), y con él el
-  **criterio 2** y los **dos puntos de §B**. Se marca aquí, y no se corrige de más, por **la lección de
-  D53**: lo peligroso no fue el texto viejo, fue **el texto vivo que nadie había marcado**.
-- **Preferencia del dueño registrada (2026-09-09, dato, no decisión de diseño)**: quiere el **IVA dentro del
-  precio exhibido** y un **dial de traslación PARCIAL, dinámico desde admin**. **El modelo de datos, la
-  fórmula y los nombres de campo son del arquitecto**, después de que el dueño apruebe §Q. Contexto técnico
+  **⚠⚠ LA PRIMERA MITAD QUEDA DEROGADA (16ª ronda, 2026-09-09, D54); TACHADA, no borrada. La facturación
+  manual NO cambia.** **Lo vigente es**: **precios mostrados CON IVA DENTRO** en toda superficie de cliente,
+  con **un dial de traslación parcial ÚNICO Y GLOBAL**, en **fracción 0–100 %**, **arrancando en 100 %**;
+  el **IVA del checkout INFORMA en vez de sumar** (rótulo pendiente de la **pregunta 60**); la **comisión de
+  plataforma se queda FUERA** del precio exhibido y se sigue sumando aparte. **La TASA no cambia: sigue siendo
+  16 % y sigue viviendo en el dial `iva_pct`.** `Order.ivaCents` **sigue siendo la única fuente del desglose**
+  para la factura manual. Ver **§Q** y criterios **185–197**.
+- **Decisión del dueño registrada (2026-09-09, D54 — dato de producto, no decisión de diseño)**: quiere el
+  **IVA dentro del precio exhibido** y un **dial de traslación PARCIAL, dinámico desde admin**; lo cerró con
+  **un dial global** *(«Un dial para todo»)*, **solo el IVA dentro** *(«Solo iva adentro, comision por
+  fuera»)*, unidad **fracción 0–100 %** y **valor inicial 100 %**. **El modelo de datos, la fórmula, el orden
+  de las operaciones y los nombres de campo son del arquitecto.** Contexto técnico
   ya verificado que el arquitecto necesitará: el dial **`iva_pct` ya existe** (M10, `super_admin`, auditado,
   snapshot por orden en `Order.ivaRatePct`), **el de traslación parcial no**; la **comisión se calcula sobre
   `subtotal + IVA`** (`money.ts:486`) y su **IVA se deriva del mismo `iva_pct`** (`settings.service.ts:259`)
@@ -6033,13 +6178,16 @@ que nadie pidió**:
 > **los estados terminales vuelven a ser CUATRO** (criterio 169): `caducada` **no existe como estado** —QA
 > no debe buscarlo—, la caducidad es **`expirada` con motivo `no_offer`**. **162/163 siguen vigentes tal
 > cual.**
-> **⛔⛔ Aviso para QA — 16ª ronda (2026-09-09, D54 BORRADOR):** los criterios **185–197** están **⛔ NO
-> VIGENTES**. Son el **borrador de §Q** y **el dueño todavía no lo aprueba**. **QA NO los verifica y el DoD NO
-> los exige** hasta que exista aprobación explícita. Mientras tanto **lo vigente es lo de siempre**: **precios
-> mostrados sin IVA** y **IVA 16 % como línea aparte** (criterios **2** y **4**, §B, Restricciones). Los sitios
-> que §Q sustituiría quedan marcados **⚠ EN CONFLICTO CON §Q** **sin derogarse**. Esto es **el reverso exacto
-> de D53**: allá el daño fue **una instrucción viva que nadie marcó**; aquí el daño sería **una instrucción no
-> aprobada que alguien ejecuta** por estar escrita en el documento de mayor autoridad del proyecto.
+> **✅ Aviso para QA — 16ª ronda (2026-09-09, D54 APROBADA):** los criterios **185–197** están **VIGENTES**.
+> **QA los verifica y el DoD los exige.** El aviso anterior —que los declaraba «⛔ NO VIGENTES» mientras §Q
+> era borrador— **queda retirado**: el dueño aprobó §Q el **2026-09-09** y contestó las tres preguntas
+> bloqueantes. **Lo que cambió respecto de lo que QA verificaba hasta ayer**: los precios se muestran **con
+> IVA dentro** (no *«sin IVA»*), la línea de IVA del checkout **informa** en vez de **sumar**, y la **comisión
+> de plataforma sigue fuera** del precio exhibido. Los sitios que §Q sustituye quedan **TACHADOS Y
+> REESCRITOS** —criterios **2** y **4**, los dos puntos de **§B** y **Restricciones técnicas**—, no borrados.
+> **⚠ Dos criterios dependen de preguntas que siguen abiertas y se verifican con su supuesto declarado**: el
+> **190** (pregunta **57**, órdenes congeladas — la regla propuesta es la que se verifica) y el rótulo exacto
+> del importe de IVA del checkout (pregunta **60**). **Si el dueño responde distinto, se reverifican.**
 
 **Catálogo y precio**
 1. En la sección **Compra**, un visitante navega **nuestro inventario publicado a la venta** y filtra por
@@ -6048,15 +6196,17 @@ que nadie pidió**:
    Rare, Radiant, etc.), **tipo de producto** (raw, gradeadas, sellado) y **condición**.
 1b. En **Compra** solo aparece inventario con **precio de venta fijado**; **nunca** se muestra "precio
    pendiente" al comprador (ese estado vive solo en adquisición/buylist/back-office).
-2. Una ficha muestra el precio de referencia en MXN (sin IVA) según la fuente que corresponde a
+2. Una ficha muestra el precio de referencia en MXN ~~(sin IVA)~~ **(CON EL IVA DENTRO, según la posición del
+   dial de traslación — D54, 16ª ronda, 2026-09-09; ver criterio 185)** según la fuente que corresponde a
    su tipo de producto —pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas (con
    override manual como respaldo); el **sellado** lleva **precio de venta DERIVADO de TCGCSV por spread**
    *(actualizado v1.6)* con la precedencia `override manual > spread por presentación > spread global >
    PRICE_PENDING` (fórmula en §K)—, con fecha del último refresco; el refresco (cache diario) ocurre al menos
    una vez al día y solo cubre las cartas/ítems en bóveda.
-   **⚠ EN CONFLICTO CON EL BORRADOR §Q (D54, 16ª ronda) en su inciso «(sin IVA)» — pero SIGUE VIGENTE y QA lo
-   verifica tal cual.** §Q **no está aprobado**. Si se aprueba, el «(sin IVA)» de este criterio se **tacha** y
-   lo sustituye el criterio **185**. **El resto del criterio 2 no cambia** (fuentes, refresco, cache diario).
+   **⚠⚠ EL INCISO «(sin IVA)» QUEDA DEROGADO (16ª ronda, 2026-09-09, D54). TACHADO, no borrado**, porque
+   **era la instrucción viva que QA verificaba** y que **reproducía el patrón de D53**: un punto vivo sin
+   marcar es lo que se ejecuta al pie. **Lo sustituye el criterio 185.** **El resto del criterio 2 NO cambia**
+   (fuentes, refresco, cache diario, precedencia del sellado).
 2b. La ficha de Compra muestra la **imagen de catálogo de pokemontcg.io** (remota) y **no muestra fotos
    propias** de la carta; no existe subida de imágenes de producto en ningún flujo del MVP.
 2c. Una carta **gradeada (PSA/CGC)** muestra **empresa + grado + número de certificado** (verificable en la
@@ -6089,8 +6239,14 @@ que nadie pidió**:
 4. Un comprador puede pagar con Stripe; el checkout muestra una ~~**línea explícita de costo de
    procesamiento trasladado**~~ **línea explícita de «Comisión de plataforma»** *(**D53**, 15ª ronda: es
    **nuestra comisión por operar la compra**; **la pantalla del cliente no nombra al procesador de pago ni
-   describe un traslado de costo**, y **no lleva ninguna afirmación jurídica**)* y una **línea explícita de
-   IVA 16%** (además del subtotal), y el total cobrado incluye ambas.
+   describe un traslado de costo**, y **no lleva ninguna afirmación jurídica**)* y ~~una **línea explícita de
+   IVA 16%** (además del subtotal), y el total cobrado incluye ambas~~ **una línea de IVA 16 % que INFORMA, no
+   que suma** *(**D54**, 16ª ronda, 2026-09-09: el IVA **ya está dentro** del precio exhibido, así que esa
+   línea **no mueve el total**; la **comisión de plataforma SÍ se suma aparte** y es la única que lo mueve)*.
+   **Con base MX$100.00 y dial al 100 %: exhibido MX$116.00, IVA informado MX$16.00, comisión MX$8.69, total
+   cobrado MX$124.69.** *(Lo tachado queda como registro, no borrado. El importe de IVA **sigue existiendo**
+   y **sigue alimentando la factura manual** — criterio **192**; el rótulo exacto de esa línea depende de la
+   **pregunta 60**, abierta.)*
 5. Tras un pago exitoso, la carta aparece en la bóveda del comprador con titularidad `pending` y
    cambia a `settled` cuando el pago se liquida.
 6. Un usuario NO tiene saldo/wallet en ninguna vista; todo se maneja por transacción.
@@ -6363,8 +6519,10 @@ que nadie pidió**:
     checkout**, **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
     flujo continúa; si descarta el upsell, sigue con envío directo.
 48b. El checkout de invitado muestra **el mismo desglose y los mismos avisos** que el de un usuario con
-    cuenta: subtotal sin IVA, ~~**costo de procesamiento**~~ **«Comisión de plataforma»** *(**D53**)*,
-    **IVA 16%**, **envío fijo (default MX$175)**,
+    cuenta: ~~subtotal sin IVA~~ **subtotal CON IVA DENTRO** *(**D54**, 16ª ronda, 2026-09-09)*,
+    ~~**costo de procesamiento**~~ **«Comisión de plataforma»** *(**D53**)*,
+    ~~**IVA 16%**~~ **IVA 16 % informado, ya incluido en el precio exhibido (no suma al total)** *(**D54**)*,
+    **envío fijo (default MX$175)**,
     aviso de **ventas finales** con enlace a términos y mensaje de **factura CFDI manual por correo**; el
     precio de venta cobrado es el mismo (referencia + markup) que para un usuario registrado. Una dirección
     **fuera de México** se rechaza (criterio 31).
@@ -8131,31 +8289,43 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     concluye que hace falta un campo o una columna, **eso es una pregunta para el arquitecto**, no una licencia
     de este criterio.)*
 
-**IVA dentro del precio exhibido — ⛔ CRITERIOS NO VIGENTES (borrador §Q / D54, 16ª ronda, 2026-09-09)**
+**IVA dentro del precio exhibido — ✅ CRITERIOS VIGENTES (§Q / D54, 16ª ronda, 2026-09-09, APROBADA)**
 
-> **⛔ QA NO VERIFICA NADA DE 185–197.** Existen para que **la aprobación del dueño tenga forma verificable**,
-> no para ejecutarse. Se activan **solo** si el dueño aprueba §Q, y varios **dependen de respuestas suyas**
-> (se indica cuál en cada uno). Ninguno dice *«el precio se ve bien»*: todos se miden **al centavo**.
+> **✅ QA VERIFICA 185–197 y el DoD los exige.** Nacieron como borrador para que **la aprobación del dueño
+> tuviera forma verificable**; **el dueño aprobó el 2026-09-09** y quedaron activos. Ninguno dice *«el precio
+> se ve bien»*: todos se miden **al centavo**. Donde un criterio dependía de una respuesta del dueño, **se
+> indica si ya está contestada (52–55) o si se verifica con su supuesto declarado (57, 60)**.
 
-185. **La cifra de la ficha es la cifra que se cobra, AL CENTAVO** *(depende de la **pregunta 52**, que fija
-   cuál de las dos formas se verifica)*:
-   **(A)** si el dueño elige *«solo el IVA entra al precio exhibido»*: con base **MX$100.00**, IVA **16 %** y
+185. **La cifra de la ficha y la que se cobra, con la BRECHA DECLARADA** *(la **pregunta 52** quedó contestada
+   el **2026-09-09**: **«Solo iva adentro, comision por fuera»** ⇒ **se verifica el caso (A)**; el caso (B)
+   queda **tachado como camino no tomado**, no borrado)*:
+   **(A) VIGENTE — solo el IVA entra al precio exhibido**: con base **MX$100.00**, IVA **16 %** y
    dial al **100 %**, la ficha dice **MX$116.00**, el carrito **MX$116.00** y el checkout cobra
-   **MX$124.69** — **y entonces este criterio NO se llama «idéntico al centavo», sino «brecha declarada»**: la
+   **MX$124.69** — **y por eso este criterio NO se llama «idéntico al centavo», sino «brecha declarada»**: la
    diferencia de **MX$8.69** es **la comisión de plataforma**, va **desglosada** (D53), y **la ficha no
    promete** que MX$116.00 sea el total.
-   **(B)** si el dueño elige *«el precio exhibido es lo que se paga»*: ficha, carrito y cobro dicen
+   **Se verifica además en el arranque neutral**: con el dial en su valor inicial (**100 %**), **el total
+   cobrado es idéntico al que se cobraba antes de D54** —**MX$124.69**— y **el neto del negocio sigue siendo
+   MX$100.00**. **⛔ Si al encender esto alguien paga un centavo distinto, es un fallo de release**, no un
+   efecto esperado.
+   ~~**(B)** si el dueño elige *«el precio exhibido es lo que se paga»*: ficha, carrito y cobro dicen
    **MX$124.69**, **idénticos al centavo**, y **no aparece ningún importe nuevo después de la ficha** salvo
-   **envío**.
-   **⛔ Lo que falla en ambos casos**: que la ficha diga una cifra, el checkout cobre otra, y **la diferencia no
-   esté enunciada en ninguna parte antes de pagar**.
+   **envío**.~~ **— CAMINO NO TOMADO (pregunta 52, 2026-09-09). Se conserva tachado**: si el dueño mueve
+   algún día la comisión al precio exhibido, **esto es lo que habría que verificar** y no hay que reinventarlo.
+   **⛔ Lo que falla en cualquier caso**: que la ficha diga una cifra, el checkout cobre otra, y **la diferencia
+   no esté enunciada en ninguna parte antes de pagar**.
 186. **Una sola convención por pantalla, en las 13 superficies** *(cierra un defecto que **ya existe hoy**,
    hecho 6 de §Q.2)*: se recorren **las 13 superficies** que el inventario listó y, en cada una, **todas** las
    cifras de precio de venta siguen **la misma convención**. **El caso concreto que hoy falla y tiene que
    pasar**: en la **ficha de carta**, el **precio grande** y **las filas de variante de abajo** dicen lo mismo
    —hoy el primero lleva la nota *«sin IVA»* y las segundas no—. **Verificación por ausencia**: **cero**
    pantallas con dos convenciones conviviendo.
-187. **El dial es CONTINUO, dinámico y auditado**: se puede guardar **cualquier** valor del rango (se prueban
+187. **El dial es UNO SOLO, GLOBAL, CONTINUO, en FRACCIÓN 0–100 %, dinámico y auditado, y NACE EN 100 %**
+   *(preguntas **53**, **54** y **55**, contestadas el **2026-09-09**: **«Un dial para todo»**, unidad
+   **fracción de traslación**, valor inicial **100 %**)*: **existe exactamente UN dial** —**cero** diales por
+   tipo de producto, por set, por SKU o por carta—, su unidad es **la fracción del IVA que se traslada al
+   cliente (0–100 %)** y **NO son puntos de IVA**; **el sistema arranca con el dial en 100 %** y **eso se
+   verifica en una instalación limpia**. Se puede guardar **cualquier** valor del rango (se prueban
    al menos **0 %, 37 %, 50 % y 100 %** — un dial que solo acepta los extremos **falla**), **sin redeploy**,
    solo por **`super_admin`**, y cada cambio deja **quién, cuándo, valor anterior → valor nuevo**. Tras
    guardar, **todas** las superficies de venta muestran el valor nuevo **en la misma corrida**: **no coexisten
@@ -8168,9 +8338,10 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    cifra se haya mostrado**, y falla si la pantalla insinúa que absorber IVA reduce el impuesto a pagar:
    **no lo reduce**.
 189. **Ninguna superficie de cliente vuelve a APILAR IVA sobre el precio exhibido**: en cualquier flujo de
-   compra, `total ≤ suma(precios exhibidos) + envío + comisión` (con la comisión según lo que responda la
-   **pregunta 52**). **Encontrar un solo caso donde aparezca un importe de IVA sumado después del precio
-   exhibido es un fallo.**
+   compra, `total = suma(precios exhibidos) + envío + comisión de plataforma` **y nada más** *(la **comisión
+   queda fuera del precio exhibido** — pregunta **52**, contestada el 2026-09-09)*. **Encontrar un solo caso
+   donde aparezca un importe de IVA sumado después del precio exhibido es un fallo**, y **el importe de IVA
+   que el checkout muestra tiene que ser el que YA está dentro del precio exhibido**, no uno adicional.
 190. **⚠ Las órdenes ya cobradas NO se reinterpretan — verificable, no buena intención** *(riesgo real: hoy
    `Order.ivaRatePct` congela **la tasa**, no **la convención**, hecho 8 de §Q.2, así que la fila
    `subtotal=10000, iva=1600` cambiaría de significado sola)* *(sujeto a la **pregunta 57**)*: se toma una
@@ -8204,38 +8375,61 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    clavado**, `api.ts:765`, hecho 11)*: con el dial en un valor distinto del default, el modo mock **no muestra
    una cifra que el sistema real no produciría**. Basta con que **derive del mismo dial** o que **la pantalla
    diga que es dato simulado**; lo que **no** puede es **parecer real y estar mal**.
-197. **`decks-meta-v1` no se publica antes que esto** *(ratifica `docs/specs/DECKS_META_V1.md` §12)*: mientras
-   §Q no esté **aprobado, implementado y cerrado**, la sección **Decks Meta** —índice, fichas, módulo del home
-   y chip de Compra— **no está accesible en producción**. Puede existir **en rama**. **⛔ Un deploy que exponga
+197. **`decks-meta-v1` no se publica antes que esto** *(ratifica `docs/specs/DECKS_META_V1.md` §12)*:
+   **⚠ APROBAR D54 NO DESBLOQUEA NADA.** Mientras §Q no esté **implementado Y PUBLICADO en producción** —no
+   basta con que esté aprobado, ni con que esté mergeado—, la sección **Decks Meta** —índice, fichas, módulo
+   del home y chip de Compra— **no está accesible en producción**. Puede existir **en rama**. **⛔ Un deploy que exponga
    Decks Meta con el motor devolviendo base + IVA apilado es un fallo de release**, porque su **piso de
    descuento compara contra costo de adquisición** y con dos convenciones mezcladas **compara mal**.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
-- **⭐ Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREE QUE LA BRECHA ES 16 %**
-  *(NUEVA 16ª ronda, 2026-09-09, D54 borrador; la levanta el **inventario técnico** y está **comprobada contra
-  el código**)*: sobre una ficha de **MX$100.00**, el checkout cobra **MX$124.69** —IVA **16.00** + comisión
+- **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
+  QUE LA BRECHA ERA 16 %** *(abierta y cerrada en la 16ª ronda, 2026-09-09; la levantó el **inventario
+  técnico**, está **comprobada contra el código**, y **se le enseñó al dueño antes de que decidiera**)*: sobre
+  una ficha de **MX$100.00**, el checkout cobra **MX$124.69** —IVA **16.00** + comisión
   **8.69**, porque la comisión se calcula **sobre `subtotal + IVA`** (`money.ts:486`)—.
-  **Por qué es bandera y no solo un dato**: el dueño está a punto de tomar una decisión de precio **con una
+  **Por qué fue bandera y no solo un dato**: el dueño estaba a punto de tomar una decisión de precio **con una
   cifra equivocada en la cabeza**. Pidió el dial *«por si no logro trasladarlo completo»* **creyendo que lo
-  que tiene que trasladar son 16 puntos**. Son **24.69**. Y **ninguna posición del dial de IVA deja la vitrina
-  en MX$100.00 siendo verdad**: absorbiendo el IVA **completo**, la cifra honesta seguiría siendo
-  **MX$107.99**; para que la vitrina diga **MX$100.00** y sea el total cobrado, el **neto cae a MX$78.55**
-  —**cede 21.45 de cada 100 pesos de margen**—.
-  **Qué hay que hacer con esto, y NO es corregir el código todavía**: **enseñársela y dejar que decida**
-  (**pregunta 52**). **⛔ Ningún rol elige por él entre «solo IVA dentro» y «IVA + comisión dentro».**
-  **Quién la cierra**: **el dueño**, respondiendo la pregunta 52.
+  que tenía que trasladar eran 16 puntos**. Son **24.69**.
+  **Cómo se cerró**: **se le enseñó, con las tres lecturas y su cifra delante, y decidió** — *«Solo iva
+  adentro, comision por fuera»* y **arrancar el dial en 100 %** (**preguntas 52 y 55**, 2026-09-09).
+  **⛔ Lo que NO se cerró y por eso vive ahora en su propia bandera**: **ninguna posición del dial deja la
+  vitrina en MX$100.00 siendo verdad** — ver la bandera de abajo.
+  *(Corrección `D-IVA-1`, 2026-09-09: esta bandera decía **«el neto cae a MX$78.55 — cede 21.45»** para el
+  caso de vitrina en MX$100.00 como total cobrado. Esa cifra **calcula el IVA sobre el total completo,
+  comisión embebida incluida**; bajo la convención de las tablas de §Q.4 —IVA sobre el precio excluyendo la
+  comisión, que es **la que D54 adopta**— el resultado es **MX$79.60**, cede **20.40**. **Cuál aplica es
+  pregunta de contador (65)**, y **no afecta a D54 porque la comisión quedó fuera del precio exhibido**.)*
+- **⚠ Negocio — LA COMISIÓN SIGUE FUERA DEL PRECIO EXHIBIDO: DECISIÓN DEL DUEÑO, «DE MOMENTO», CON PENDIENTE
+  ABIERTO** *(NUEVA 16ª ronda, 2026-09-09, **D54 vigente**; **pendiente DEL DUEÑO**)*: sus palabras fueron
+  ***«La comisión déjalo de momento igual»***. **No es descuido: es decisión suya, tomada con la cifra de
+  24.69 % delante**, y **el «de momento» es parte de la decisión**.
+  **⚠ La consecuencia, dicha sin adornos, para que nadie la reporte como defecto ni la «arregle»**: **con la
+  comisión fuera, NINGUNA posición del dial deja la vitrina en MX$100.00 siendo verdad. Lo más bajo alcanzable
+  es MX$107.99**, aun absorbiendo el IVA completo. Y con el dial en su valor inicial (100 %), **la vitrina dice
+  MX$116.00 y el cobro es MX$124.69**: **una brecha de MX$8.69 que el cliente sigue encontrando en el
+  checkout**, ahora **declarada y desglosada** (criterio **185(A)**) en vez de silenciosa.
+  **Qué la cerraría**: que el dueño decida meter la comisión al precio exhibido (escenario B de §Q.4,
+  conservado tachado) — lo que **subiría la vitrina a MX$124.69**, o **cedería margen** si la absorbe.
+  **Quién la cierra**: **el dueño, con contador o abogado cuando lo tenga.** **⛔ Ningún rol del equipo la
+  cierra**, y **nadie mueve la comisión al precio exhibido sin decisión suya escrita aquí**. Ver **§Q.9**.
 - **⚠ Negocio — el dial de IVA es un dial de MARGEN, y hay que impedir que se use como si no lo fuera**
-  *(NUEVA 16ª ronda, 2026-09-09, D54 borrador)*: **absorber IVA no reduce ni un peso lo que se le debe al
+  *(NUEVA 16ª ronda, 2026-09-09, **D54 vigente**)*: **absorber IVA no reduce ni un peso lo que se le debe al
   SAT**. El impuesto se paga completo **pase lo que pase**; absorberlo es **bajar el precio efectivo**, y sale
   **del margen**. Con base MX$100.00: dial **100 % → neto MX$100.00**; **50 % → MX$93.10**; **0 % → MX$86.21**.
   **El riesgo concreto**: un dial que se mueve en dos clics, sin ver el costo, **erosiona el margen de todo el
   catálogo en una tarde y sin dejar rastro de por qué**. La contención está en el **criterio 188** (la pantalla
   dice el costo **antes** de guardar) y en el **187** (auditoría). **Es contención, no cierre**: la decisión de
   **cuánto margen se cede** es del dueño, **cada vez**.
+  **⚠ ACTUALIZADO (2026-09-09, decisión del dueño)**: **el dial arranca en 100 %**, o sea **cediendo cero
+  margen**. **El arranque es neutral por diseño y esa neutralidad hay que protegerla**: **⛔ nadie —ni QA, ni
+  devops, ni un seed, ni un entorno «de prueba» con clientes reales— mueve el dial de 100 % sin decisión
+  escrita del dueño.** Bajarlo **no es configurar: es regalar margen**, y a dial 0 % son **MX$13.79 de cada
+  MX$100.00 de vitrina**.
 - **⚠ Fiscal/Legal — ¿el desglose de IVA en la factura sigue siendo obligatorio si el precio se muestra con
-  IVA incluido? SIN RESPUESTA, Y NO ES NUESTRA** *(NUEVA 16ª ronda, 2026-09-09, D54 borrador; **pendiente DEL
-  DUEÑO**, hereda el disparador de la bandera «Legal — copy de dinero de cara al cliente»)*: **hoy no hay
+  IVA incluido? SIN RESPUESTA, Y NO ES NUESTRA** *(NUEVA 16ª ronda, 2026-09-09, **D54 vigente**; **pendiente
+  DEL DUEÑO**, hereda el disparador de la bandera «Legal — copy de dinero de cara al cliente»)*: **hoy no hay
   abogado NI contador en el proyecto**, y este requisito toca **el impuesto y el comprobante**, no solo el
   copy. **Este documento no responde la pregunta y nadie del equipo puede responderla** — **preguntarla dentro
   del equipo solo invitaría a que alguien la escribiera**.
@@ -8248,7 +8442,15 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   **Contención mientras tanto**: el **criterio 192** obliga a que `ivaCents` **siga existiendo y cuadrando**
   aunque el precio se muestre con IVA dentro. **⛔ Eso es contención, NO es la respuesta**: garantiza que el
   dato **no se pierda**, no que la práctica **sea correcta**.
-  **Quién la cierra**: **el dueño**, con asesoría (**pregunta 58**). **Ningún rol del equipo puede cerrarla.**
+  **⚠ SE AÑADE UNA SEGUNDA PREGUNTA A LA MISMA CONSULTA (2026-09-09, corrección `D-IVA-1`)**: **¿el IVA grava
+  la porción de COMISIÓN embebida en el precio, o solo el precio neto de comisión?** (**pregunta 65**). Salió
+  de que este documento **usaba dos bases distintas en párrafos contiguos** —lo detectó el arquitecto—: sobre
+  una vitrina de MX$100.00 como total cobrado, una base da **neto MX$78.55** y la otra **MX$79.60**, **MX$1.05
+  de diferencia por cada 100 pesos**. **⛔ No bloquea D54** —la comisión quedó **fuera** del precio exhibido,
+  así que **no hay comisión embebida**—, pero **hay que llevarla el día que se consulte al contador**, porque
+  es exactamente la pregunta que decide si algún día se puede meter la comisión dentro.
+  **Quién la cierra**: **el dueño**, con asesoría (**preguntas 58 y 65**). **Ningún rol del equipo puede
+  cerrarlas.**
 - **Negocio — el vendedor cerca del mínimo se entera del ~36% HASTA el correo de oferta** *(NUEVA 8ª ronda,
   consecuencia directa de **D43**; objeción levantada por ux-ui y **asumida**)*: al sacar la cifra del
   cotizador, un vendedor que cotiza cerca de **MX$500** ve **MX$180 de envío por primera vez** en el momento
@@ -8562,8 +8764,13 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 ## Decisiones tomadas (antes preguntas abiertas)
 > Las 9 preguntas del borrador previo quedaron resueltas por el humano y ya están integradas arriba.
 > Se conservan aquí como registro de decisión.
-1. **Impuestos/IVA** → precios **sin IVA**; **IVA 16%** como línea aparte en checkout, incluido en el total;
-   **factura CFDI manual por correo** en el MVP (timbrado con PAC = fase 2), registrando IVA en M7.
+1. **Impuestos/IVA** → ~~precios **sin IVA**; **IVA 16%** como línea aparte en checkout, incluido en el
+   total~~; **factura CFDI manual por correo** en el MVP (timbrado con PAC = fase 2), registrando IVA en M7.
+   **⚠⚠ LA PRIMERA MITAD QUEDA DEROGADA (2026-09-09, D54): TACHADA, no borrada.** Hoy los **precios se
+   muestran CON IVA DENTRO** y la línea de IVA del checkout **informa en vez de sumar** (§Q, criterios
+   185–197). **La facturación manual NO cambia.** *(Se marca aquí, aunque esta lista sea «registro de
+   decisiones resueltas», por **la lección de D53**: un registro que se lee como autoridad y no está marcado
+   **es exactamente lo que alguien ejecuta al pie**.)*
 2. **Alcance geográfico** → **solo nacional (todo México)** en MVP; internacional es fase 2.
 3. **Almacenamiento en bóveda** → **sin límite explícito** en MVP; solo se declara en términos el derecho
    genérico a cobrar custodia en fase 2.
@@ -9794,6 +10001,53 @@ promesa:**
    supuesto**; el número sí.
    Ver **§B** (criterio de checkout, tachado y reescrito), **§J**, **§J.1** (flujo crítico del invitado) y
    criterios **4** y **48b**.
+116. **D54 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, EN TODA SUPERFICIE DE CLIENTE, CON UN DIAL DE TRASLACIÓN
+   PARCIAL ÚNICO Y GLOBAL (FRACCIÓN 0–100 %) QUE ARRANCA EN 100 %. LA COMISIÓN DE PLATAFORMA SE QUEDA FUERA.
+   ⚠ DEROGA «precios mostrados sin IVA» y «IVA como línea que SUMA» en todo este documento, incluidos DOS
+   CRITERIOS DE ACEPTACIÓN VIGENTES (2 y 4).**
+   **De dónde sale**: el **2026-09-09 el dueño pidió** *«lo del IVA hay que meterlo al precio […] déjamelo
+   dinámico en admin»*, con **«aplica para todo»** y *«déjalo dinámico por si no logro trasladarlo completo,
+   que sea parcial»*. **Ese mismo día**, con las tres lecturas y sus cifras delante, cerró las bloqueantes:
+   ***«Solo iva adentro, comision por fuera»*** (52), ***«Un dial para todo»*** (53), y **arrancar en
+   traslación 100 %** (55) — lo que fija la unidad en **fracción 0–100 %** (54). **Queda registrado el HECHO
+   de que lo decidió, con su fecha.** La razón legal que invoca es **la misma que originó D53**, y **este
+   documento no sostiene ninguna postura jurídica propia**: **hoy no hay abogado ni contador en el proyecto**.
+   **⭐⭐ QUÉ LO HACE PUBLICABLE, Y ES LO MÁS IMPORTANTE DE LA DECISIÓN: EL ARRANQUE ES NEUTRAL POR DISEÑO.**
+   Con el dial en **100 %**, una carta de base **MX$100.00** pasa a **exhibirse en MX$116.00** y el cliente
+   **paga MX$124.69 — exactamente lo que paga hoy**; **el margen sigue en MX$100.00**. **El día del deploy no
+   cambia lo que nadie paga**: lo único que cambia es que **el precio de vitrina deja de mentir**.
+   **Por qué se decidió así**: **separa «dejar de mentir en la vitrina» de «regalar margen»**. El dueño tomó
+   **solo la primera**. **Absorber IVA es una decisión POSTERIOR, DELIBERADA Y REVERSIBLE**, que se toma dial
+   en mano y con el costo en pesos a la vista (criterio **188**). **⛔ Nadie la toma por él.**
+   **⚠ Qué cuesta bajar el dial, para que nadie lo mueva creyendo que configura**: **absorber IVA no reduce ni
+   un peso lo que se le debe al SAT**; sale **del margen**. Base MX$100.00: **100 % → neto 100.00**;
+   **50 % → 93.10**; **0 % → 86.21**.
+   **⚠ Consecuencia asumida de dejar la comisión fuera**: **ninguna posición del dial deja la vitrina en
+   MX$100.00 siendo verdad**; lo más bajo alcanzable es **MX$107.99**. **Es consecuencia de la decisión 52, no
+   un defecto.** La comisión es **pendiente ABIERTO del dueño** —*«déjalo de momento igual»*— con **contador o
+   abogado cuando lo tenga (§Q.9)**.
+   **⛔ Qué NO toca esta decisión**: **(1)** **D53 intacto** —rótulo «Comisión de plataforma», nada de nombrar
+   al procesador, **cero afirmaciones jurídicas, tampoco sobre el IVA y tampoco en negativo** (criterio 195)—;
+   **(2)** **la TASA no cambia**: sigue en **16 %** y sigue viviendo en `iva_pct`; **(3)** `Order.ivaCents`
+   **sigue siendo la única fuente del desglose** de la factura manual (criterio 192); **(4)** el **P&L de M7
+   sigue midiendo NETO** (criterio 191); **(5)** **las órdenes ya cobradas NO se reinterpretan** (criterio
+   190); **(6)** la **facturación CFDI sigue manual por correo**.
+   **⚠ Corrección `D-IVA-1` incorporada (la levantó el arquitecto)**: §Q.4 usaba **dos bases distintas de IVA
+   en párrafos contiguos**. **Queda unificada la convención** —**IVA sobre el precio exhibido, que excluye la
+   comisión; la comisión se calcula encima**— y el párrafo discrepante queda **corregido con las dos cifras y
+   su diferencia** (**MX$79.60** bajo la convención vigente vs. **MX$78.55** bajo la otra). **Cuál aplica es
+   pregunta de contador (65)** y **no bloquea nada**, porque la comisión quedó fuera del precio exhibido.
+   **Bloqueo que NO se afloja**: **`decks-meta-v1` no se publica hasta que D54 esté IMPLEMENTADA Y PUBLICADA**
+   —**aprobarla no basta** (criterio **197**).
+   **Doctrina de redacción (la de D51, D52 y D53)**: **lo derogado queda TACHADO con su cuerpo intacto**, no
+   borrado. Aquí aplica a **cinco sitios**: los **dos puntos de §B**, **Restricciones técnicas** (Impuestos),
+   el **criterio 2** (*«(sin IVA)»*) y el **criterio 4** (línea de IVA que sumaba); y también al **escenario B
+   de §Q.4** y al **caso (B) del criterio 185**, conservados como **camino no tomado**.
+   **Preguntas: 52, 53, 54 y 55 CONTESTADAS (2026-09-09).** Siguen abiertas **56, 57, 59, 60 (parcial), 61,
+   62, 63 y 64**; y son **de contador/abogado, no nuestras**, la **58** y la **65** (nueva).
+   Ver **§Q** (vigente, con **Q.0** y **Q.9** nuevas), criterios **185–197** (vigentes), **Fuera de alcance de
+   §Q**, y las banderas **«la comisión sigue fuera del precio exhibido»**, **«el dial de IVA es un dial de
+   MARGEN»** y **«Fiscal/Legal — desglose de IVA en factura»**.
 
 ---
 
@@ -10157,9 +10411,13 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    *(Contexto que juega a favor en esa revisión: con la fuente automática la cifra son **ventas cerradas
    reales de eBay por grado**, así que «dato de referencia de mercado sobre ese modelo ya gradeado por
    terceros» es **literalmente exacta**. El texto no cambió; solo es más defendible.)*
-2. **Base de comparación del gate**: el supuesto es comparar contra el **precio de venta raw sin IVA** (el
-   número que ya ve el comprador), **sin** sumar IVA ni envío al lado del costo. ¿Confirmas, o prefieres un
+2. **Base de comparación del gate**: el supuesto es comparar contra el **precio de venta raw sin IVA** ~~(el
+   número que ya ve el comprador)~~, **sin** sumar IVA ni envío al lado del costo. ¿Confirmas, o prefieres un
    gate **aún más conservador** que incluya IVA y/o el envío de MX$175 en `precioVentaRaw`?
+   **⚠ ACTUALIZADO (2026-09-09, D54)**: el paréntesis tachado **ya no es cierto** — desde D54 **el número que
+   ve el comprador lleva el IVA dentro**. **El supuesto no cambia** (se sigue comparando contra **la base, sin
+   IVA**, que es la lectura conservadora); lo que cambia es que **ya no coincide con la cifra de vitrina**, y
+   por eso **hay que decirlo al confirmar**. Ver §O y **§Q**.
 3. ~~**Costo de gradeo plano vs. por nivel de servicio**~~ — **RESUELTA (2026-08-23)**: el humano eligió
    **escalones por valor declarado**. El costo plano de MX$600 queda **eliminado** del documento y sustituido
    por la tabla **`gradingCostTiers`** (**§O.2.1**), que además debe **incluir envío internacional y retorno a
@@ -11281,23 +11539,37 @@ ese frente:**
    **Costo de equivocarse**: es **el único punto de esta ronda donde el equipo puso un número que el dueño no
    dio**. Está marcado aquí y en la bandera para que **se vea, no para que se herede en silencio**.
 
-## Preguntas abiertas — IVA dentro del precio exhibido (v2.1, 16ª ronda, D54 BORRADOR)
+## Preguntas — IVA dentro del precio exhibido (v2.1, 16ª ronda, D54 — ✅ APROBADA; quedan preguntas abiertas)
 
-> **⛔ Este bloque no es un trámite: §Q ENTERO está esperando estas respuestas.** A diferencia de rondas
-> anteriores, aquí **el requisito no está aprobado**, así que **no hay «lo que no está en duda»** más allá de
-> dos cosas que el dueño ya dijo con todas sus letras: **quiere el IVA dentro del precio exhibido**, y **quiere
-> que la traslación sea PARCIAL y dinámica desde admin** (*«por si no logro trasladarlo completo»*).
-> **Numeración**: sigue la serie del bloque v2.1 (la 51 fue la última).
-> **Bloqueantes: 52, 53 y 55.** Sin esas tres, **el arquitecto no puede empezar**.
-> **⚠ La 58 NO es para el dueño solo: es para su contador/abogado.** No la responda el equipo, y **no la
-> responda él de memoria**.
+> **✅ ESTADO AL 2026-09-09: §Q está APROBADO y las tres bloqueantes están contestadas.** El arquitecto
+> **arranca**. Lo que queda abierto **afina**, no bloquea.
+> **CONTESTADAS el 2026-09-09**: **52** (*«Solo iva adentro, comision por fuera»*), **53** (*«Un dial para
+> todo»*), **54** (unidad = **fracción de traslación 0–100 %**; su *«16 %»* era **la tasa**, no el tope del
+> dial) y **55** (**arranca en 100 %**, traslación total, **arranque neutral**).
+> **SIGUEN ABIERTAS, y son del DUEÑO**: **56** (buylist), **57** (órdenes congeladas), **59** (piso y
+> redondeo), **60** (envío + rótulo de la línea de IVA — **su mitad de comisión ya quedó contestada por la
+> 52**), **61** (`iva_pct` y el IVA de la comisión, un solo mando), **62** (superficies de valuación), **63**
+> (ver el IVA absorbido en M7) y **64** (¿viene cambio de tasa?). **Todas tienen supuesto declarado y el
+> equipo avanza con él**; si el dueño responde distinto, **se reverifica lo que toque**.
+> **SON DE CONTADOR / ABOGADO, NO DEL EQUIPO NI DE ÉL DE MEMORIA**: la **58** (desglose de IVA en factura) y
+> la **65** (base del IVA sobre la comisión embebida, corrección `D-IVA-1`). **⛔ Nadie del equipo las
+> responde** — misma disciplina que D53.
+> **Numeración**: sigue la serie del bloque v2.1 (la 51 fue la última antes de este bloque).
 > **⚠ Lo que este bloque NO pregunta, a propósito**: **no se pregunta si mostrar el precio con IVA incluido es
 > legal**. **Nadie del equipo puede responder eso** y preguntarlo invitaría a que alguien lo escribiera. Va
 > como **bandera** («Fiscal/Legal — desglose de IVA en factura»), no como duda de redacción — **misma
 > disciplina que D53**.
 
-52. **⭐⭐ [ABIERTA — BLOQUEANTE — SIN SUPUESTO, Y NO LO VA A HABER] Ya sabiendo que la brecha real es 24.69 %
-   y no 16 %: ¿qué entra al precio exhibido — solo el IVA, o el IVA Y la comisión de plataforma?**
+52. **⭐⭐ [✅ CONTESTADA — 2026-09-09 — «Solo iva adentro, comision por fuera»] Ya sabiendo que la brecha real
+   es 24.69 % y no 16 %: ¿qué entra al precio exhibido — solo el IVA, o el IVA Y la comisión de plataforma?**
+   **RESPUESTA DEL DUEÑO, literal: *«Solo iva adentro, comision por fuera»*** ⇒ **opción (a)**. Y sobre la
+   comisión: ***«La comisión déjalo de momento igual»*** — **el «de momento» es parte de la decisión**: queda
+   como **pendiente abierto con dueño** (él, **con contador o abogado cuando lo tenga**), **no como cerrado**
+   (**§Q.9** y bandera *«la comisión sigue fuera del precio exhibido»*).
+   **⚠ Consecuencia vigente, aceptada a ojos abiertos**: **ninguna posición del dial deja la vitrina en
+   MX$100.00 siendo verdad; lo más bajo alcanzable es MX$107.99.** La brecha de **MX$8.69** sobre una vitrina
+   de MX$116.00 **sigue existiendo**, pero ahora va **declarada y desglosada** (criterio **185(A)**).
+   *(Se conserva el planteamiento original abajo, no se borra: es lo que el dueño tuvo delante al decidir.)*
    **Por qué se pregunta antes que nada**: usted pidió esto **creyendo que tenía que trasladar 16 puntos**.
    **Son 24.69**, y está **comprobado en el código**: sobre una ficha de MX$100.00 el checkout cobra
    **MX$124.69** (IVA 16.00 + comisión 8.69, porque la comisión se calcula sobre `subtotal + IVA`).
@@ -11312,12 +11584,22 @@ ese frente:**
    **⚠ El dato duro que cambia la conversación**: **ninguna posición del dial de IVA deja la vitrina en
    MX$100.00 siendo verdad.** Absorbiendo el **IVA completo**, lo honesto sería **MX$107.99**. Para que la
    vitrina diga **MX$100.00** y ése sea el total, hay que **absorber también la comisión**, y entonces el
-   **neto cae a MX$78.55**: **cede 21.45 de cada 100 pesos**.
+   **neto cae a ~~MX$78.55~~ MX$79.60**: **cede ~~21.45~~ 20.40 de cada 100 pesos**.
+   *(**Corrección `D-IVA-1`, 2026-09-09**: la cifra original calculaba el IVA sobre los MX$100.00 completos,
+   **comisión embebida incluida**; la convención de las tablas de §Q.4 —**la que D54 adopta**— lo calcula
+   sobre el precio **excluyendo la comisión**, y da **MX$79.60**. **Cuál es la fiscalmente correcta es
+   pregunta de contador: la 65.** **No cambia la decisión que el dueño tomó**, porque en ambas lecturas el
+   golpe al margen es de ~20 pesos por cada 100 y **la comisión quedó fuera**.)*
    **⛔ Por qué NO hay supuesto aquí**: cualquiera de las dos opciones **fija su posición de precio en el
    mercado**. **No es una decisión que el equipo pueda tomar por usted en ningún sentido**, y elegir «la
    segura» sería inventarle una estrategia comercial.
-53. **[ABIERTA — BLOQUEANTE] ¿El dial de traslación es UNO GLOBAL, o uno POR TIPO DE PRODUCTO (cartas sueltas
-   / sellado / gradeadas)?**
+53. **[✅ CONTESTADA — 2026-09-09 — «Un dial para todo»] ¿El dial de traslación es UNO GLOBAL, o uno POR TIPO
+   DE PRODUCTO (cartas sueltas / sellado / gradeadas)?**
+   **RESPUESTA DEL DUEÑO, literal: *«Un dial para todo»*** ⇒ **opción (a): UNO SOLO Y GLOBAL.** **Cero diales
+   por tipo de producto, por set, por SKU o por carta** — y eso pasa de *«sin decidir»* a **decidido que no**
+   («Fuera de alcance de §Q»). **Consecuencia asumida**: el producto de margen más apretado —el **sellado**—
+   **queda bajo la misma política que el resto**; si algún día duele, **es alcance nuevo y se pregunta**.
+   *(Planteamiento original conservado abajo.)*
    **Por qué importa y no es un detalle de pantalla**: los tres tipos **no tienen el mismo margen ni el mismo
    competidor**. El **sellado** se compara contra tienda física y su margen es más delgado; una **gradeada**
    cara aguanta otra cosa. Un dial **global** obliga a que el producto más apretado dicte la política de todo
@@ -11326,8 +11608,12 @@ ese frente:**
    estados que QA tiene que probar— y `CLAUDE.md` dice que **ante duda de alcance se pregunta**.
    **Qué confirmar**: **(a)** uno global; **(b)** uno por tipo de producto (**tres diales**); **(c)** uno
    global **con excepción** por tipo. **La opción (c) no es gratis**: es la que más superficie de admin añade.
-54. **[ABIERTA — con SUPUESTO TOMADO] ¿En qué UNIDAD se expresa el dial: fracción del IVA trasladada (0–100 %)
-   o puntos de IVA (0–16 pp)?**
+54. **[✅ CONTESTADA — 2026-09-09 — fracción de traslación 0–100 %, que era el supuesto] ¿En qué UNIDAD se
+   expresa el dial: fracción del IVA trasladada (0–100 %) o puntos de IVA (0–16 pp)?**
+   **RESPUESTA: (a) FRACCIÓN DE TRASLACIÓN, 0–100 %** — **confirmado al elegir «arrancar en traslación
+   100 %»** (pregunta 55). **Queda aclarado el equívoco que originó esta pregunta**: el *«16 %»* que el dueño
+   dijo era **la TASA del impuesto**, **no el tope del dial**. **⛔ El dial NO se expresa en puntos de IVA.**
+   *(Planteamiento original conservado abajo, incluida la razón por la que la fracción es el lado seguro.)*
    **De dónde sale la duda, literal**: usted dijo *«hazlo ahora que suba hasta 16 %»*, y **esa frase admite las
    dos lecturas** — *«ahora que la tasa sube a 16»* o *«que el dial pueda llegar hasta 16 puntos»*.
    **Supuesto tomado**: **fracción del IVA trasladada, 0–100 %**.
@@ -11335,8 +11621,15 @@ ese frente:**
    significando lo mismo (*«traslado la mitad»*); un dial en **puntos** quedaría **fuera de rango o mintiendo**
    en silencio. **Y son el mismo número visto de dos formas**: 50 % de 16 puntos = 8 puntos.
    **Qué confirmar**: **(a)** fracción 0–100 % —**supuesto**—; **o (b)** puntos de IVA.
-55. **[ABIERTA — BLOQUEANTE — ⛔ EL EQUIPO NO LO DECIDE] ¿Cuál es el VALOR POR DEFECTO del dial el día que se
+55. **[✅ CONTESTADA — 2026-09-09 — ARRANCA EN 100 %] ¿Cuál es el VALOR POR DEFECTO del dial el día que se
    encienda?**
+   **RESPUESTA DEL DUEÑO: traslación 100 %.** Eligió **con esta descripción a la vista**:
+   > *«El dial nace trasladando TODO el IVA. Una carta de base MX$100 pasa a mostrarse a MX$116.00 y el
+   > cliente paga MX$124.69 — exactamente lo que paga hoy. Tu margen sigue en MX$100. El precio deja de mentir
+   > (el 16 % ya está a la vista) y tú bajas el dial cuando decidas cuánto absorber.»*
+   **⭐ Es el arranque NEUTRAL: el día del deploy nadie paga distinto y el margen no se mueve.** Ver **§Q.0**
+   y la **decisión 116**. **⛔ Y por eso mismo, nadie mueve ese 100 % sin decisión escrita del dueño.**
+   *(Planteamiento original conservado abajo.)*
    **Por qué no lo ponemos nosotros**: el default **no es una configuración técnica, es su precio de venta el
    primer día**. Poner **100 %** por parecer «lo que ya se hacía» **subiría la vitrina 16 % de golpe**; poner
    **0 %** le **regalaría 13.79 de cada 100 pesos** sin que usted lo haya elegido.
@@ -11391,11 +11684,18 @@ ese frente:**
    **Qué confirmar**: **(a)** el supuesto; **(b)** ambos sobre la cifra con IVA; **o (c)** ambos sobre la base.
    *(Cómo se implemente el orden de las operaciones es del **arquitecto**; lo que usted decide es **qué cifra
    tiene que quedar redonda** y **contra qué se compara el piso**.)*
-60. **[ABIERTA — con SUPUESTO TOMADO] ¿El ENVÍO y la COMISIÓN DE PLATAFORMA reciben el mismo tratamiento? Y la
-   línea de IVA del checkout, ¿desaparece o pasa a decir «IVA incluido»?**
-   **Supuesto tomado**: la línea de IVA **no desaparece, cambia de papel**: pasa de **sumar** a **informar**
-   (*«IVA 16 % incluido: MX$16.00»*), **sin mover el total ni un centavo**. **Envío y comisión quedan
-   pendientes de la pregunta 52.**
+60. **[⚠ PARCIALMENTE CONTESTADA — 2026-09-09 — sigue abierta en ENVÍO y en el RÓTULO] ¿El ENVÍO y la COMISIÓN
+   DE PLATAFORMA reciben el mismo tratamiento? Y la línea de IVA del checkout, ¿desaparece o pasa a decir
+   «IVA incluido»?**
+   **✅ Lo que quedó contestado por la pregunta 52**: **la COMISIÓN se queda FUERA** del precio exhibido y
+   **se sigue sumando aparte** *(«comision por fuera»)*. **Eso ya no está en duda.**
+   **✅ Lo que quedó decidido por D54**: la línea de IVA **pasa de SUMAR a INFORMAR** —con el IVA dentro del
+   precio, una línea que suma **cobraría el impuesto dos veces**—.
+   **⚠ Lo que SIGUE ABIERTO**: **(1)** el **ENVÍO** —hoy se **suma aparte** y así se queda por defecto—; y
+   **(2)** el **rótulo exacto** del importe de IVA en el checkout.
+   **Supuesto tomado** *(el equipo avanza con él)*: la línea de IVA **no desaparece, cambia de papel**
+   (*«IVA 16 % incluido: MX$16.00»*), **sin mover el total ni un centavo**; y el **envío sigue sumándose
+   aparte**.
    **Por qué ése es el lado seguro**: **borrar el desglose es más difícil de deshacer que dejarlo**, y el
    importe de IVA es **el dato que alimenta su factura manual** (pregunta 58). Un desglose que **informa** no
    contradice un precio que **incluye**.
@@ -11435,3 +11735,20 @@ ese frente:**
    eso es **otro requisito**, con **otro momento** y con efecto sobre **órdenes en vuelo**.
    **Qué confirmar**: **(a)** 16 % es la tasa vigente y no viene cambio —lo que este documento asume hoy—;
    **o (b)** viene un cambio, y entonces **díganos cuándo**.
+65. **[ABIERTA — ⚠ ES PREGUNTA DE CONTADOR, NO SUYA DE MEMORIA NI NUESTRA — NO BLOQUEA] ¿El IVA grava la
+   porción de COMISIÓN embebida en un precio, o solo el precio neto de comisión?** *(NUEVA — corrección
+   `D-IVA-1`, 2026-09-09; la levantó el **arquitecto** y el **product-owner** la corrigió en el documento)*
+   **De dónde sale, y es un error nuestro que se corrige, no una duda nueva del negocio**: **§Q.4 usaba dos
+   bases distintas en párrafos contiguos**. Las tablas calculan el IVA **sobre el precio exhibido `P`,
+   excluyendo la comisión** (por eso `t = 0 %` da neto **MX$86.21**); el párrafo de *«que la vitrina siga
+   diciendo MX$100.00»* lo calculaba **sobre los MX$100.00 completos, comisión embebida incluida**.
+   **La diferencia, en pesos**: sobre una vitrina de MX$100.00 como total cobrado, una base da neto
+   **MX$78.55** y la otra **MX$79.60** — **MX$1.05 por cada 100 pesos**.
+   **Qué se hizo ya**: **se unificó la convención del documento** —**IVA sobre el precio exhibido, comisión
+   encima**, que es **lo que el código hace hoy** y **lo que D54 adopta**— y **el párrafo discrepante quedó
+   corregido con ambas cifras y su razón**.
+   **⛔ Por qué NO bloquea**: bajo D54 **la comisión está FUERA del precio exhibido**, así que **no existe
+   comisión embebida que gravar**. Esta pregunta **solo haría falta el día que se decida meter la comisión
+   dentro** (escenario B de §Q.4).
+   **Qué confirmar**: **la respuesta de su contador**, y **llevarla junto con la pregunta 58** cuando haga la
+   consulta. **⛔ Nadie del equipo la responde** — misma disciplina que D53.

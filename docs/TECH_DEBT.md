@@ -6044,22 +6044,29 @@ buscando el patrón «el dial acepta lo que la columna no sabe representar».
   `test/settings.iva-pct-integer.spec.ts`, mutación 5/13 rojos). Se anota solo como cabecera del
   barrido; el detalle está en `BACKEND_NOTES.md`.
 
-#### ⚠️ TD-IVA-2 · `aportacion_pct` tiene la MISMA asimetría, y **NO se tocó** (Media, backend — módulo `inventory`)
-- **Lo que hay:** `SETTING_VALIDATORS[APORTACION_PCT]` es `isNum(v) && 0 <= v <= 100` — **decimales
+#### TD-IVA-2 · `aportacion_pct` tenía la MISMA asimetría — **CERRADA en el pase siguiente**
+- **Estado: CERRADA** (2026-09-09, misma rama, con autorización explícita del dueño: *«misma cura que
+  el IVA: el dial rechaza decimales con un mensaje que explica el porqué, en vez de truncarlos en
+  silencio»*).
+- **Lo que había:** `SETTING_VALIDATORS[APORTACION_PCT]` era `isNum(v) && 0 <= v <= 100` — **decimales
   dentro**. `inventory.service.ts` lo lee como **fallback** del alta
   (`dto.acquisitionPct ?? getNumber(APORTACION_PCT)`) y lo persiste en **`InventoryItem.acquisitionPct`,
-  que es `Int?`**.
-- **Por qué es el mismo bug y no un parecido:** el camino del **DTO** sí exige entero (`@IsInt()` en
-  `inventory.dto.ts`); **el camino del dial no lo exige nadie**. Con `aportacion_pct = 70.5`,
-  `computeAportacionCostCents(referenceCents, 70.5)` calcula el costo **con el decimal** y la pieza
-  archiva **`70`**: el `acquisitionPct` guardado **no reproduce** el `acquisitionCostCents` guardado.
-  Es la misma clase de mentira que `iva_pct`, sobre el costo de adquisición en vez de sobre el IVA.
-- **Diferencia de gravedad:** afecta al **P&L y al costo histórico de la pieza**, no a un importe
-  cobrado a un cliente ni a un desglose fiscal. Por eso es Media y no Alta.
-- **⛔ Por qué NO se arregló en este pase:** el encargo era `iva_pct`, y esto toca el módulo
-  **`inventory`** — otro work stream. Corregirlo de paso sería exactamente el «un rol arregla el
-  código de otro frente» que `CLAUDE.md` prohíbe. **Queda escalado al orquestador/arquitecto**: la
-  cura es simétrica (mismo cambio `isNum` → `isInt` con su candado y su mutación) y es barata.
+  que es `Int?`**. El camino del **DTO** sí exigía entero (`@IsInt()` en `inventory.dto.ts`); **el del
+  dial no lo exigía nadie**.
+- **Confirmado al medirlo (Postgres 16 real, `prisma.inventoryItem.create`):** `70.5` **no revienta —
+  trunca en silencio a `70`** (`70.9`→`70`, `99.999`→`99`, `0.5`→`0`, hacia cero). Y el **agravante
+  quedó cuantificado**: el costo se calcula con el **decimal vivo** mientras la fila archiva el
+  entero ⇒ sobre una referencia de MX$1,000.00, la pieza archiva `acquisitionCostCents = 70500` junto
+  a `acquisitionPct = 70`, cuyo 70 % son **70 000**: **500 centavos de brecha** por cada MX$1,000, y
+  hacia el lado que **infla el margen**.
+- **Cómo se cerró:** `isNum` → `isInt` en un validador nombrado **`validateAportacionPct`**, con `422`
+  que explica el motivo y docblock que fija el orden si algún día hace falta una fracción (**primero
+  la columna —arquitecto—, después el rango**). Candado
+  `test/settings.aportacion-pct-integer.spec.ts` (**14 tests**), mutación sobre una copia del árbol
+  ⇒ **5/14 rojos**. Detalle en `docs/BACKEND_NOTES.md`.
+- **⛔ NO se tocó `prisma/schema.prisma`** (zona compartida, cambio de contrato en vuelo). Se midió si
+  la cura correcta lo exigía: **no** — los dos pct del negocio (`70` default, `100` alta rápida) son
+  enteros, así que rechazar decimales no bloquea ningún caso real.
 
 #### TD-IVA-3 · `fx_buffer_pct` (`isNum`) cae en columnas `Decimal(6, 3)` (Baja/informativa, backend)
 - **No es el mismo defecto.** `Decimal(6, 3)` **redondea a la milésima**, no trunca a entero, y el

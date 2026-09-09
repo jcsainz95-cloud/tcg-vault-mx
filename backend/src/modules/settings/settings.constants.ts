@@ -660,6 +660,56 @@ export function validateIvaPct(v: unknown): string | null {
         'silently truncated to 8 while the charged IVA still used 8.5';
 }
 
+/**
+ * ⭐⭐ **`aportacion_pct` — ENTERO en [0, 100]. Mismo defecto que `iva_pct`, otro dial, otra columna.**
+ *
+ * **El defecto que cierra (medido contra Postgres 16 real, no deducido del tipo).** El validador
+ * anterior era `isNum(v) && 0 <= v <= 100` — `typeof v === 'number'`, o sea **decimales incluidos**.
+ * Pero el porcentaje se **congela por pieza** en `InventoryItem.acquisitionPct`, que es **`Int`**
+ * (`prisma/schema.prisma`). Medido con `prisma.inventoryItem.create`: **`70.5` no revienta — se
+ * TRUNCA en silencio a `70`** (`70.9`→`70`, `99.999`→`99`, `0.5`→`0`: truncamiento hacia cero, no
+ * redondeo). Sin excepción, sin aviso, sin bitácora.
+ *
+ * **El agravante, que es el que convierte esto en dinero.** El truncamiento ocurre **solo en la
+ * fila**, no en la aritmética. En `inventory.service.ts` el costo se calcula con el **float vivo**
+ * (`computeAportacionCostCents(referenceCents, pct)`) y la MISMA variable se escribe en la columna
+ * `Int`. Con el dial en `70.5` y una referencia de MX$1,000.00 la pieza archiva
+ * `acquisitionCostCents = 70500` junto a `acquisitionPct = 70`, y **el 70 % de MX$1,000.00 son
+ * 70,000 centavos, no 70,500**: *el porcentaje guardado NO reproduce el costo guardado*, y falla
+ * **500 centavos por cada MX$1,000 de referencia** (con `70.9`, 900; con `99.999`, 999).
+ *
+ * **Por qué duele más que en el IVA.** `acquisitionCostCents` es **lo que la pieza dice que costó**:
+ * la base del P&L y del margen, y —en aportación en especie— lo que se le acredita a quien aportó.
+ * Quien audite y recalcule el costo desde el porcentaje archivado obtiene **menos costo del real**
+ * ⇒ **margen inflado**. La fila no se contradice con un reporte externo: se contradice **consigo
+ * misma**, y las dos mitades de la contradicción viajan juntas en el mismo DTO de inventario.
+ *
+ * **No es un valor de laboratorio.** `70` es el default y `100` lo manda el alta rápida; un `70.5`
+ * es el medio punto de quien afina la política de aportación. El dial lo edita un `super_admin`
+ * **sin redeploy**, y el camino del DTO (`acquisitionPct` con `@IsInt()`) **ya está blindado**: este
+ * era el ÚNICO hueco por el que entraba un decimal.
+ *
+ * **Por qué se cierra AQUÍ y no en el esquema.** `InventoryItem.acquisitionPct` vive en
+ * `prisma/schema.prisma`, **zona compartida**, y hay un cambio de contrato en vuelo; su tipo es
+ * decisión del arquitecto. El validador, en cambio, solo tiene que **dejar de aceptar lo que la
+ * columna no puede representar**: un `422` explícito es estrictamente mejor que un truncamiento mudo
+ * en la base del costo. **Nada legítimo se pierde**: los porcentajes de aportación que el negocio usa
+ * hoy —`70` (default del formulario) y `100` (alta rápida, §4.39 del contrato)— son enteros.
+ *
+ * ⚠️ **Si algún día el negocio necesita una aportación fraccionaria (p. ej. 72.5 %), este validador
+ * NO es el sitio donde relajarlo. El orden es: (1) la COLUMNA —decisión del arquitecto: decimal o
+ * escalada en enteros—, (2) DESPUÉS este rango.** Relajarlo solo aquí devuelve, tal cual, el
+ * truncamiento silencioso y la fila que se contradice a sí misma.
+ */
+export function validateAportacionPct(v: unknown): string | null {
+  return isInt(v) && v >= 0 && v <= 100
+    ? null
+    : 'must be an integer in [0, 100] (percent). Decimals are rejected because the percentage is ' +
+        'frozen per piece in the integer column `InventoryItem.acquisitionPct`, where a value like ' +
+        '70.5 would be silently truncated to 70 while the acquisition cost was still computed with ' +
+        '70.5 — the stored percentage would no longer reproduce the stored cost';
+}
+
 /** v1.44 (I6): `graded_estimate_freshness_days` = entero en [1, 365]. */
 export function validateGradedEstimateFreshnessDays(v: unknown): string | null {
   return isInt(v) && v >= GRADED_ESTIMATE_FRESHNESS_DAYS_MIN && v <= GRADED_ESTIMATE_FRESHNESS_DAYS_MAX
@@ -791,7 +841,10 @@ export function validateBuylistCrossDials(
  */
 export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string | null> = {
   [SettingKey.SHIPPING_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
-  [SettingKey.APORTACION_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
+  // ⭐ ENTERO, no «número»: el pct se congela en la columna `Int` `InventoryItem.acquisitionPct` y un
+  // `70.5` se truncaba a `70` EN SILENCIO mientras el COSTO se calculaba con 70.5 — la fila dejaba de
+  // reproducir su propio costo. Ver el docblock de `validateAportacionPct`.
+  [SettingKey.APORTACION_PCT]: validateAportacionPct,
   // ⭐ ENTERO, no «número»: la tasa se congela en la columna `Int` `Order.ivaRatePct` y un `8.5` se
   // truncaba a `8` EN SILENCIO mientras el cobro usaba 8.5. Ver el docblock de `validateIvaPct`.
   [SettingKey.IVA_PCT]: validateIvaPct,
