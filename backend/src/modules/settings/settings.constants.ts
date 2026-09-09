@@ -34,6 +34,20 @@ import {
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
 import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricing-curve';
+// v1.63 (§M2-F.1, §4.43c): la regla de resolución del MODO de la FX vive en `common/` (mismo motivo
+// que la curva: la comparten `FxService` y este módulo, y `FxService` ya depende de éste). Aquí solo
+// se declaran su KEY, su DEFAULT (el sentinel) y su validador de puerta.
+// v1.63.4 (§M2-F.8, `FX-24`): y la BANDA de la tasa viene del mismo sitio, por la misma razón
+// elevada al cuadrado — la comparten las DOS puertas de escritura (esta y el parser de la SIE), así
+// que aquí ⛔ NO se escribe ningún literal `1` ni `1000`.
+import {
+  FX_RATE_BAND_TEXT,
+  FX_RATE_MAX,
+  FX_RATE_MIN,
+  FX_RATE_MODE_LEGACY,
+  FX_RATE_MODE_STORED_VALUES,
+  isFxRateInBand,
+} from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
@@ -51,6 +65,13 @@ export const SettingKey = {
   REPO_CAP_PER_CARD_CENTS: 'repo_cap_per_card_cents',
   FX_BUFFER_PCT: 'fx_buffer_pct',
   FX_MANUAL_OVERRIDE_RATE: 'fx_manual_override_rate',
+  // ⭐ v1.63 (§M2-F.1 / §4.43) — EL MODO del tipo de cambio, **separado del VALOR**. Hasta v1.62.2 el
+  // modo se INFERÍA de si `fx_manual_override_rate` estaba o no estaba, así que «apagar el manual»
+  // significaba BORRAR el número. Esa inferencia ERA el defecto.
+  // ⛔ NO está en `SETTING_DTO_MAP`: no se lee ni se edita por `PUT /admin/settings` (enviarlo cae en
+  // 422 «unknown setting key», igual que `pricing_curve` o `sealed_spread_*`). Su ÚNICA puerta es
+  // `PUT /admin/fx/mode`, que es la que impone las precondiciones y la bitácora dedicada.
+  FX_RATE_MODE: 'fx_rate_mode',
   PRICING_PROVIDER_RAW: 'pricing_provider_raw',
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
@@ -249,6 +270,14 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.REPO_CAP_PER_CARD_CENTS]: 5000000, // tope de reposición por carta (editable)
   [SettingKey.FX_BUFFER_PCT]: 3, // colchón FX (%)
   [SettingKey.FX_MANUAL_OVERRIDE_RATE]: null, // sin override por defecto
+  // ⭐⭐ v1.63.1 (§4.43g, candado FX-6(c)) — el default es el SENTINEL `"legacy"`, y ⛔ JAMÁS `"auto"`
+  // ni `"manual"`. Un default de código se aplica en la PRIMERA LECTURA, antes de que corra ningún
+  // seed (hecho F4): sembrar `"auto"` sería, literalmente, el mecanismo por el que producción —que
+  // hoy tiene un override de 19.0000 vivo— se pasaría sola a Banxico al desplegar. Con `"legacy"`
+  // NO EXISTE NINGÚN VALOR DE ESTE MAPA QUE PUEDA CAMBIAR LA CONDUCTA DE PRODUCCIÓN: significa
+  // «resuelve como lo hacía v1.62.2». Y por tener default, la clave ENTRA en el inventario de
+  // arranque (§11.0) ⇒ un valor corrupto SÍ se grita (sin default, `logConfigInventory` la saltaría).
+  [SettingKey.FX_RATE_MODE]: FX_RATE_MODE_LEGACY,
   [SettingKey.PRICING_PROVIDER_RAW]: 'pokemontcg_io',
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
@@ -525,24 +554,38 @@ export function validateSealedSpreadFallback(v: unknown): string | null {
 }
 
 /**
- * FX-B1: cota SUPERIOR del override manual `fx_manual_override_rate`. El tipo de cambio real
- * MXN/USD ronda 15-25; 1000 deja ~40-65x de holgura (escenarios extremos) pero ACOTA la valuación:
- * sin techo, un override absurdo (p.ej. 1e9) desborda la columna `Int priceMxnCents` (~2.1e9) en el
- * job `price-ingest` (excepción Prisma = DoS). Mismo patrón que SALES_PCT_MAX / SEALED_SPREAD_PCT_MAX.
+ * FX-B1: cota SUPERIOR del override manual `fx_manual_override_rate`.
+ *
+ * ⚠️ **v1.63.4 (`FX-24`, §M2-F.8): ES UN ALIAS, no una segunda definición.** La banda de la tasa
+ * —piso **y** techo— vive en **un solo sitio**, `common/fx-mode.ts` ({@link FX_RATE_MIN},
+ * {@link FX_RATE_MAX}, {@link isFxRateInBand}), porque la comparten las **dos** puertas de escritura
+ * y *dos literales en dos ficheros son dos bandas esperando a divergir*. Este nombre se conserva
+ * porque hay citas vivas (specs, `pricing.controller`) y renombrarlo no aporta nada.
  */
-export const MAX_FX_MANUAL_OVERRIDE_RATE = 1000;
+export const MAX_FX_MANUAL_OVERRIDE_RATE = FX_RATE_MAX;
 
 /**
  * FX-B2: validador ÚNICO del dial `fx_manual_override_rate`, compartido por las DOS puertas que lo
- * escriben (`PUT /admin/settings` vía SETTING_VALIDATORS y `PUT /admin/fx` vía FxController). Regla
- * unificada: `null` (borra el override) o un tipo de cambio FINITO en `(0, MAX_FX_MANUAL_OVERRIDE_RATE]`.
- * Fraccional es válido porque la columna `FxRate.rate` es `Decimal(12,6)`. Ambas puertas aplican
- * EXACTAMENTE este rango; ninguna queda más permisiva que la otra.
+ * escriben (`PUT /admin/settings` vía SETTING_VALIDATORS y `PUT /admin/fx` vía FxController).
+ *
+ * ### ⭐⭐ v1.63.4 (`FX-24`, §M2-F.8) — LA BANDA GANA PISO: `(0, 1000]` → **`[1, 1000]`**
+ * Regla: `null` (borra el override) **o** un número FINITO en la banda `[1, 1000]`, **extremos
+ * incluidos**. Fraccional es válido porque `FxRate.rate` es `Decimal(12,6)`.
+ *
+ * **El veredicto lo da {@link isFxRateInBand}, que es el MISMO cuerpo que aplica el parser de la
+ * SIE** ({@link parseBanxicoRate}): ninguna puerta queda más permisiva que la otra **en ninguno de
+ * los dos extremos**, y la paridad se asierta como **identidad** (`FX-24(b)`), no como dos copias de
+ * la misma lista. *El peso nunca ha valido más que el dólar: por debajo de `1` el número no es el
+ * par, es su inversa, un error de escala o basura truncada.*
+ *
+ * ⚠️ El `message` **nombra los DOS extremos** (`FX-24(d)`): hasta v1.63.3 sólo nombraba el techo, así
+ * que quien tecleaba `0.05` recibía un error que no explicaba nada de lo que acababa de pasar.
  */
 export function validateFxManualOverrideRate(v: unknown): string | null {
-  return v === null || (isNum(v) && v > 0 && v <= MAX_FX_MANUAL_OVERRIDE_RATE)
+  return v === null || (isNum(v) && isFxRateInBand(v))
     ? null
-    : `must be null or a number in (0, ${MAX_FX_MANUAL_OVERRIDE_RATE}]`;
+    : `must be null or a number in ${FX_RATE_BAND_TEXT} (USD→MXN is quoted in pesos per dollar: ` +
+        `below ${FX_RATE_MIN} the number is not the pair — it is its inverse, a scale error or truncated garbage)`;
 }
 
 /** v1.23-sealed-sales (§4.23h): valores válidos de los feature flags del sellado (on|off). */
@@ -723,6 +766,14 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // override de FX: null (sin override) o un tipo de cambio en (0, MAX] (FX-B1/FX-B2, validador
   // compartido con PUT /admin/fx para que ambas puertas apliquen el mismo rango).
   [SettingKey.FX_MANUAL_OVERRIDE_RATE]: validateFxManualOverrideRate,
+  // v1.63.1 (§4.43g punto 3): acepta los TRES valores ALMACENABLES y nada más. `"legacy"` es el
+  // seed, NO un modo de API. Un `true` o un `"AUTO"` en esta fila no puede quedar guardado
+  // pareciendo un modo — y si aparece por escritura directa a la BD, `resolveFxMode()` lo trata
+  // como legacy (no cambia lo que está pasando) y el inventario de arranque lo grita.
+  [SettingKey.FX_RATE_MODE]: (v) =>
+    typeof v === 'string' && (FX_RATE_MODE_STORED_VALUES as readonly string[]).includes(v)
+      ? null
+      : `must be one of ${FX_RATE_MODE_STORED_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_RAW]: (v) =>
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_GRADED]: (v) =>

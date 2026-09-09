@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { expectCreditsFigureQualified } from '@/test/grading';
 import * as api from '@/lib/api';
@@ -51,13 +52,27 @@ describe('M10View · Config y bitácora', () => {
     expect((await screen.findAllByText('order.refund')).length).toBeGreaterThan(0);
   });
 
-  it('ya NO muestra los diales dedup de dinero (salesMarkupPct / fxBufferPct)', async () => {
+  it('ya NO muestra el dial MUERTO de venta (salesMarkupPct)', async () => {
     renderWithProviders(<M10View />, 'es');
     // Espera a que carguen los diales.
     await screen.findByLabelText(/Tarifa de envío/);
-    // salesMarkupPct (dial MUERTO) y fxBufferPct (duplicado de M2 §3 FX) se quitaron del UI.
+    // salesMarkupPct: el precio de venta lo deriva la curva, no un markup global.
     expect(screen.queryByLabelText(/Markup de venta/)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Colchón FX/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * ⭐ **El colchón del FX se edita AQUÍ, y ahora es la única puerta** (`DESIGN_SYSTEM §30.1` y
+   * §30.3d). La tarjeta de M2 lo **muestra** de solo lectura y su copy —normativo— dice *«Se edita
+   * en Ajustes»*. Este candado es el que hace verdadera esa frase: **rojo si un dial de dinero se
+   * queda sin ningún editor en el back-office**, que es como se llega a moverlo con `curl`.
+   */
+  it('v1.63.3 · el colchón del tipo de cambio SÍ se edita aquí (§30.1: M2 lo muestra, M10 lo edita)', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const field = (await screen.findByLabelText(/Colchón del tipo de cambio/)) as HTMLInputElement;
+    expect(field).toBeEnabled();
+    await userEvent.clear(field);
+    await userEvent.type(field, '5');
+    expect(screen.getByRole('button', { name: /Guardar 1/ })).toBeEnabled();
   });
 
   /**

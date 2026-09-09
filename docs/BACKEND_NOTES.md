@@ -28,6 +28,138 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.49 — **v1.63.4: el respaldo se publica, la banda gana piso, y el candado de la carrera deja de ser una moneda al aire** (2026-09-09, gate de QA rechazado)
+
+> Propiedad: **backend**. Encargo: los tres hallazgos de la re-verificación de QA. **Cero cambios de
+> contrato** (`FX-24` y `FX-25` estaban ya especificados por el arquitecto en `§M2-F.6`, `§M2-F.8` y
+> `§M2-F.3` regla 6). Ficheros tocados: `src/common/fx-mode.ts`,
+> `src/modules/settings/settings.constants.ts`, `src/modules/pricing/fx.service.ts`,
+> `src/modules/pricing/pricing.controller.ts` y los tres specs del FX.
+
+### 0.49.1 `FX-25` — `fallbackRate`, y por qué al NIVEL SUPERIOR (esto desbloquea al frontend)
+
+`FxStateDTO` gana **`fallbackRate: number`**, obligatorio, en las cuatro rutas y en **todas** las
+respuestas. **Una sola línea de código**, porque `projectFxState()` es la **única** constructora del
+DTO: las cuatro rutas salen de ahí, así que no hubo que tocar ninguna ruta.
+
+**Lo que importa a quien lea esto:**
+- ⛔ **NO va dentro de `automatic`.** Desde v1.63.3 `source:"fallback"` es alcanzable **también con
+  `mode:"manual"`** (4.ª fila de `§M2-F.1`), así que el respaldo es del **estado entero**, no de la
+  rama automática. Anidarlo invitaría al error que la **regla 5** prohíbe: presentar el 18 *«como si
+  fuera la de Banxico»*.
+- **El invariante (i) —`source==="fallback" ⟹ rate===fallbackRate`— se cumple POR CONSTRUCCIÓN**: la
+  rama `else` de `projectFxState` asigna `rate = FX_FALLBACK_RATE`, la misma constante que se emite.
+  No hay dos números que puedan divergir.
+- ⭐ **El `422 FX_NO_AUTOMATIC_RATE` conserva su `details` COMPLETO** y su `fallbackRate` es el mismo.
+  ⛔ No se adelgazó: *«ya viaja en el DTO»* no es razón — ese error es **la carrera real** y tiene que
+  poder explicarse solo.
+- **Para frontend:** con el campo emitido, la deuda de la tarjeta del FX —mandar un `PUT` **sin** acuse
+  sólo para leer `details.fallbackRate` del `422`— se puede cerrar. **El campo viaja también cuando el
+  refresco sale `failed`**, que es justo cuando la pantalla lo necesita.
+
+### 0.49.2 `FX-24` — el piso de la banda, y **UNA sola definición**
+
+La banda pasa de `(0, 1000]` a **`[1, 1000]`**, cerrada en los dos extremos, **idéntica en las dos
+puertas de escritura**. El número lo fijó el arquitecto (`ARCHITECTURE §4.43c-quinquies`,
+`API_CONTRACT §M2-F.8`); aquí sólo se cablea.
+
+**Dónde vive, y por qué ahí:** `common/fx-mode.ts` exporta **`FX_RATE_MIN`**, **`FX_RATE_MAX`**,
+**`isFxRateInBand()`** y **`FX_RATE_BAND_TEXT`**. Las dos puertas —`validateFxManualOverrideRate`
+(settings) y `parseBanxicoRate` (pricing)— **llaman al mismo predicado**. *Dos literales `1` en dos
+ficheros son dos bandas esperando a divergir*, y ésa es la mutación realista porque el arreglo se hace
+en dos módulos que no se importan entre sí. `MAX_FX_MANUAL_OVERRIDE_RATE` sobrevive como **alias** de
+`FX_RATE_MAX` (hay citas vivas en specs y en el controller).
+
+**⚠️ Tres cosas que hay que saber antes de tocar esto:**
+1. **La banda es puerta de ESCRITURA, ⛔ NO de LECTURA.** `parseManualRate` (la resolución legacy)
+   **sigue diciendo `> 0`, literal**. Subirlo a `>= 1` haría que, en un entorno con un valor sub-piso
+   ya guardado, **el modo saltara de `manual` a `auto` en el primer `GET` tras el deploy**. Hay un
+   **control explícito** para eso, y con la mutación `parseManualRate >= 1` se pone rojo (medido).
+2. ⛔ **`parseBanxicoRate` perdió el parámetro `maxRate`.** Era un tope por llamada —una segunda banda
+   con otro nombre— y sólo lo usaba un test que quería separar «formato» de «rango». Esa separación se
+   afirma mejor mirando el `why` (`format` vs `out_of_band`), que el parser ya devuelve.
+3. **El `why` puede diferir del motivo de la puerta tecleada y eso NO es divergencia.** Lo normativo
+   es **el veredicto**, y `FX-24(b)` lo asierta como **identidad**:
+   `parseBanxicoRate(String(v)).ok === (validateFxManualOverrideRate(v) === null)`.
+
+**Divergencia cerrada:** `pricing.controller.ts:113` y `:857` decían *«el rango `[min, MAX]`»*
+nombrando un `min` que **no existía en el código**. Hoy existe.
+
+### 0.49.3 ⭐ `I-QA-4` — el candado de la carrera era sensible al ~70 %, y el arreglo NO es «repetir más»
+
+**Lo que midió QA:** el mutante (`lockFxGate` fuera de `setMode`) salía **7 rojos / 3 verdes** en diez
+tiradas, con el fichero mutado comprobadamente cargado ⇒ los verdes eran **escapes reales**.
+
+**Por qué, medido con una sonda sobre el árbol mutado (12 intentos por ventana):**
+
+| escalonado (ms) | 0 | 1 | 2 | 3 | 5 | 8 | 10 | 12 | **15** | **20** | **25** | 30 | 40 | 50 | 75 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| reproducciones | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **10** | **6** | **1** | 0 | 0 | 0 | 0 |
+
+La ventana de la carrera es el intervalo `(A lee, A commitea)` y aquí mide **~12-25 ms**. La lista fija
+`[0, 5, 20, 20, 50]` **sólo la tocaba con sus dos 20**, cada uno al ~50 % ⇒ `1 − 0.5² = 75 %`. *Cuadra
+con el 7/10 de QA al decimal.*
+
+**⛔ El arreglo NO es repetir más veces el `20`:** ese número es **la duración de la puerta A en esta
+máquina**. En otra, la ventana se mueve, la lista deja de tocarla y el candado se vuelve **verde para
+siempre y en silencio** — la misma familia de defecto que `B-QA-1`. El arreglo tiene **tres piezas**:
+
+1. **Calibrar:** se mide en cada corrida la duración real de la puerta A aislada (`T`, mediana de tres).
+2. **Barrer denso:** 40 escalonados repartidos por `[0, 2T]` × 3 repeticiones = **120 intentos**.
+3. ⭐⭐ **Probar que el barrido no es ciego:** se cuenta cuántos intentos **solaparon de verdad** (B se
+   emitió mientras A seguía en vuelo, medido en el cliente) y se exige un mínimo (20 intentos, sobre
+   ≥5 escalonados distintos). Solapar es la condición **necesaria** de la carrera. Sin esta pieza, un
+   barrido que se pasara de largo pasaría **verde sin haber probado nada**; con ella, se pone **rojo
+   con un mensaje que dice qué recalibrar**.
+
+**Medido, con el método de QA (diez tiradas contra el mismo Postgres):**
+
+| Árbol | Resultado |
+|---|---|
+| **Candidato** (suite `fx-mode.e2e-spec.ts` completa, 19 tests) | **10/10 VERDE** |
+| **Mutante** (`lockFxGate` fuera de `setMode`, con marcador que confirma la carga) | **10/10 ROJO** |
+
+Coste: la carrera pasa de ~0.3 s a **~7-8 s**. *Un gate de dinero que deja pasar 3 de cada 10
+regresiones no vale ocho segundos menos.*
+
+### 0.49.4 Hallazgo colateral: `POST /admin/fx/refresh` devolvía **`201`** contra el `200` que norma el contrato
+
+Apareció al cablear `FX-25(a)` **por HTTP**. `@Post` de Nest responde `201` por defecto y nadie lo
+había mirado: los tres candados del refresco (`FX-8`, `FX-9`, `FX-10`) miran el bloque `refresh`, no el
+status. **Lo delator es que el comentario de esa ruta ya decía *«`200` también con `failed`»***: el
+código no cumplía lo que su propio comentario afirmaba. Se corrige con `@HttpCode(200)` — **manda el
+contrato sobre el código**, mismo arreglo y mismo motivo que `POST /admin/pricing/override` (§0.42).
+
+### 0.49.5 Renombre: el `FX-24` local pasa a `FX-R2`
+
+`test/fx.mode-switch.spec.ts` tenía un bloque llamado `FX-24` que era una **etiqueta local de
+backend** (nació de la condición **R2** del techlead). En v1.63.4 el arquitecto asignó `FX-24` al
+candado de la banda. Dos bloques con el mismo identificador es cómo un hallazgo se enruta al candado
+equivocado ⇒ el local cede el nombre. **Los identificadores de candado los pone el contrato.** (Igual
+para `FX-21`, etiqueta local de `S-FX-2`, hoy absorbida por `FX-24(a)`.)
+
+### 0.49.6 Verificación
+
+| Qué | Resultado |
+|---|---|
+| `npm test` (unitaria completa) | **256 suites / 4120 tests verdes** |
+| `npm run test:integration` (Postgres 16 real, puerto 55432; Redis 56379) | **22 suites / 324 tests verdes** (318 + 6 nuevos) |
+| `fx-mode.e2e-spec.ts` | **19/19** (13 + 4 de `FX-25` + 2 de `FX-24`) |
+| `npm run lint` / `npm run typecheck` | limpio (2 warnings preexistentes, ajenos) |
+
+**Las siete mutaciones, cada una sobre una COPIA del árbol y ninguna sobre el vivo:**
+
+| # | Mutación | Rojo en |
+|---|---|---|
+| M1 | quitar `fallbackRate` del DTO | 5 unitarios + **4 de integración** |
+| M2 | emitirlo **sólo** con `status:"missing"` | 3 unitarios |
+| M3 | quitar el piso en **las dos** puertas | 16 unitarios |
+| M4 | ⭐ el piso **sólo** en la tecleada *(la realista: dos ficheros)* | 7, entre ellos **la PARIDAD como identidad** |
+| M5 | el piso **sólo** en la de Banxico | 10 unitarios |
+| M6 | el `message` deja de nombrar el piso | 2 unitarios |
+| M7 | ⭐ el piso **se cuela en la LECTURA** (`parseManualRate >= 1`) | **el CONTROL de `FX-6`**, y sólo ése |
+| M8 | `lockFxGate` fuera de `setMode` | **10/10 rojos** en diez tiradas |
+
 ## 0.48 — **P-46 (re-verificación 2026-09-08): el arreglo YA estaba; lo que faltaba era el candado que lo defiende**
 
 > Propiedad: **backend**. Encargo: «Sincronizar sellado devuelve 0 presentaciones» en **Pitch Black** y
@@ -17354,3 +17486,754 @@ ni Docker** (`pg_isready` sin respuesta, sin daemon). Por eso **no se añadió**
 verde es entregar un rojo sorpresa. El candado B-14 queda cerrado en la suite **unitaria**, que sí corre
 en CI. Si QA quiere además la versión contra Postgres real (fila `PriceReference` de verdad con
 `priceMxnCents = 0` y un acabado sin fila), es un encargo de una tanda y vuelve a backend.
+
+---
+
+## v1.63.1 · **EL TIPO DE CAMBIO TIENE MODO, Y EL MODO NO ES EL VALOR** (§M2-F, 2026-09-09)
+
+> Propiedad: **backend**. Contrato: `API_CONTRACT §M2-F` (v1.63.1). Diseño: `ARCHITECTURE §4.43`.
+> **CERO DDL, CERO migración, CERO cambios en el ESQUEMA de `FxRate` ni en su ESCRITOR.** Lo que
+> cambia es **el LECTOR**, un ajuste nuevo, un endpoint nuevo, tres códigos de error y tres bloques
+> aditivos en una respuesta que ya existía.
+
+### 1. Qué se entregó (y dónde vive)
+
+| Pieza | Archivo |
+|---|---|
+| `resolveFxMode()`, `projectFxState()`, el lector `latestBanxicoFxRate()` (I-FX5) y las constantes (`FX_RATE_MODE_LEGACY`, `FX_FALLBACK_RATE = 18`, `FX_AUTO_STALE_AFTER_DAYS = 5`) | `backend/src/common/fx-mode.ts` **(nuevo)** |
+| Ajuste `fx_rate_mode`: KEY + default **`"legacy"`** + validador `auto\|manual\|legacy`. ⛔ **NO** entra en `SETTING_DTO_MAP` | `backend/src/modules/settings/settings.constants.ts` |
+| **I-FX2** (el pin) e **I-FX4** (borrar el valor en modo manual ⇒ 422), con el pin en la **misma transacción** que el valor; tercer argumento `extra.fxPin` del `auditWithin` | `backend/src/modules/settings/settings.service.ts` |
+| Entrada `fx.mode.change` cuando el cambio de modo entra por `PUT /admin/settings` (FX-13) | `backend/src/modules/settings/settings.controller.ts` |
+| `FxStateDTO` en las cuatro rutas, `setMode()`, refresco con `outcome/reason/fetchedRate/at`, bitácora transaccional | `backend/src/modules/pricing/fx.service.ts` |
+| `PUT /admin/fx/mode`, `fx.override` normalizada + transaccional, `fx.refresh` con el resultado real | `backend/src/modules/pricing/pricing.controller.ts` (`FxController`) |
+| `FX_MANUAL_RATE_MISSING`, `FX_MANUAL_RATE_REQUIRED`, `FX_NO_AUTOMATIC_RATE` | `backend/src/common/error-codes.ts` |
+| El job `fx-refresh` deja de imprimir la tasa del override como si Banxico la hubiera traído | `backend/src/jobs/fx-refresh.service.ts` |
+| **Los trece candados** (43 tests) | `backend/test/fx.mode-switch.spec.ts` **(nuevo)** |
+
+### 2. Las cuatro decisiones que hay que conocer para no deshacerlas sin querer
+
+1. **El pin se resuelve ANTES de aplicar la escritura, y por eso vive en `SettingsService.update`.**
+   Las **dos** puertas que escriben `fx_manual_override_rate` (`PUT /admin/fx` y `PUT /admin/settings`)
+   pasan por ahí —`FxService.setManual` delega—, así que la regla **existe una sola vez**. Resolverla
+   después haría que la resolución legacy contestara `manual` porque el número ya está: el defecto
+   que I-FX2 cierra. Candado **FX-2(a)**.
+2. **El arreglo es del LECTOR.** `latestBanxicoFxRate()` filtra `source: 'banxico'`. La fila
+   `FxRate { id:'manual-<hoy>', source:'manual' }` que escribe `PUT /admin/fx` **se sigue escribiendo
+   igual** (traza forense) y **ya no rige nunca**. En modo `auto` vale la identidad
+   `rate === automatic.rate`. Candado **FX-11**.
+3. **El default de `fx_rate_mode` es el sentinel `"legacy"`.** Ningún valor de `SETTING_DEFAULTS`
+   puede cambiar la conducta de producción: el 19.0000 vivo sigue rigiendo por construcción, sin
+   runbook, y una instalación limpia nace en automático. El **seed no cambia ni una línea**.
+   Candado **FX-6**.
+4. **El acuse `acknowledgeNoAutomaticRate`** sólo se exige con `automatic.status === "missing"`, nunca
+   con `stale`. Candado **FX-12**.
+
+### 3. Para **frontend** (lo que necesitas saber, sin leerte el contrato entero)
+
+- Las **cuatro** rutas de FX devuelven el mismo `FxStateDTO`; `POST /admin/fx/refresh` añade `refresh`.
+- ⚠️ **`source` gana el valor `"fallback"`**: hoy pintarías *«FUENTE: MANUAL (OVERRIDE)»* sobre un 18
+  que **nadie tecleó**. Hace falta rama para ese valor.
+- `mode` viene **resuelto**: se obedece, no se infiere. `modeResolvedFrom` es informativo (`"legacy"`
+  significa que nadie ha tocado el interruptor en ese entorno; si aparece en un entorno maduro,
+  alguien borró la fila — está declarado como riesgo residual en §M2-F.4).
+- `manual` y `automatic` viajan **siempre**, rija quien rija; las dos en tasa **cruda**, sin colchón.
+  El salto en % **lo deriva la UI**: no es un campo.
+- `refresh.outcome: "failed"` llega con **200** y hay que distinguirlo visualmente.
+- Guardar una tasa **no la enciende**: son dos llamadas (`PUT /admin/fx { rate }` →
+  `PUT /admin/fx/mode { mode: "manual" }`).
+- Errores traducibles: `FX_MANUAL_RATE_MISSING` («no hay tasa manual guardada a la que volver»),
+  `FX_MANUAL_RATE_REQUIRED` («para quitar la tasa manual, pasa primero a automático»),
+  `FX_NO_AUTOMATIC_RATE` (`details: { currentRate, fallbackRate }`).
+
+### 4. Para **QA** y **devops**
+
+- El seed creará la fila `fx_rate_mode = "legacy"` en todos los entornos. **No corras un `UPDATE`
+  masivo «para dejarlo consistente»**: `"legacy"` **es** el estado consistente hasta que un humano
+  toque el interruptor. Y ⛔ **no se toca `fx_manual_override_rate`** en el despliegue.
+- El inventario de arranque (§11.0) incluye la clave: un `fx_rate_mode` corrupto **se grita**.
+- Rollback limpio: el código anterior ignora `fx_rate_mode` y vuelve a la conducta que `"legacy"`
+  resuelve. **La fila no se borra.**
+- `D-OPS-1` sigue abierta: falta `BANXICO_SIE_TOKEN` en producción. Ahora se **ve**
+  (`refresh.outcome: "failed"`, `reason: "no_token"` y un `warn` del job), pero **enseñarlo no lo
+  arregla**.
+
+### 5. Los trece candados y su verificación por MUTACIÓN
+
+`backend/test/fx.mode-switch.spec.ts` — **43 tests, todos verdes**. El arnés monta una tabla en
+memoria (defaults de código cuando la fila no existe, `orderBy effectiveDate desc` con y **sin**
+filtro de fuente, `$transaction` que **revierte de verdad**, y **desempate del mismo día adverso**:
+gana la fila escrita más tarde, que es como se produce el caso de I-FX5) y corre las clases **reales**
+(`SettingsService`, `FxService`, `PricingService`, los dos controllers, `AuditService`).
+
+Los dos ⭐⭐ miden **el peso que sale**: el `referenceMxnCents` de la **misma carta** (`priceUsdCents =
+1000`) antes y después del flip, y la fila `ConfigSetting` **leída a pelo**.
+
+| Mutación introducida (rojo confirmado y **restaurada**) | Candados que se pusieron en rojo |
+|---|---|
+| **FX-1 ⭐⭐** el interruptor **borra** la tasa manual al pasar a `auto` | FX-1, FX-5, FX-12 |
+| **FX-2 ⭐⭐** escribir la tasa **enciende** el manual (I-FX3 roto en la escritura) | FX-2, FX-2(a), FX-5, FX-11, FX-13 |
+| **FX-2(a) ⭐⭐** el pin se resuelve **DESPUÉS** de aplicar la escritura | FX-2(a), FX-13 — *y **FX-2 sigue verde**, tal como el contrato anticipa* |
+| **FX-5 ⭐** la bitácora guarda los **rótulos** y no los números | FX-5 |
+| **FX-6 ⭐⭐** el default de código se siembra en `'auto'` | FX-6, FX-2(a) |
+| **FX-6 ⭐⭐** `?? "auto"` en el lector (basura/ausencia ⇒ automático) | FX-6 |
+| **FX-9 ⭐** devolver **sólo** la tasa que rige | FX-9, FX-1, FX-8 |
+| **FX-11 ⭐** el lector **no filtra** por fuente | FX-11, FX-2, FX-2(a) |
+| **FX-12** se quita el acuse del caso «sin segunda tasa» | FX-12 |
+
+| medición | resultado |
+|---|---|
+| spec nuevo | **43/43 verdes** |
+| **suite unitaria completa** (`npx jest`) | **254 suites / 3.746 tests — 3.746 verdes** |
+| `eslint` + `tsc --noEmit` | limpio (los 2 `warning` preexistentes de `inventory`/`sealed-product` siguen ahí, ajenos a este pase) |
+
+### 6. Las dos cosas que se apartan de la letra del contrato — **declaradas, no escondidas**
+
+1. **`acknowledgedNoAutomaticRate` viaja DENTRO de `after`**, no como campo de primer nivel de la
+   entrada. §M2-F.4 lo dibuja al nivel de `before`/`after`, pero `AuditLog` **no tiene esa columna** y
+   el pase es **CERO DDL**: la única alternativa era una migración, que está explícitamente fuera de
+   alcance. Se lee igual (`after.acknowledgedNoAutomaticRate === true`) y así lo asierta **FX-12**. Si
+   el arquitecto prefiere otra ubicación, es un cambio de una línea.
+2. **`POST /admin/fx/refresh` escribe la fila `FxRate` también cuando el `outcome` es `unchanged`.**
+   El contrato sólo dice «(se escribió fila)» junto a `updated`. Escribir siempre es **la conducta de
+   hoy** (⛔ el escritor no se toca) **y es lo money-safe**: si Banxico confirma hoy el mismo número y
+   no se escribiera la fila del día, `automatic.ageDays` seguiría creciendo y el panel declararía
+   `stale` una tasa que **acabamos de confirmar**. `outcome` habla del **valor**, no de si hubo
+   escritura.
+
+### 7. Lo que NO se hizo (a propósito)
+
+⛔ La pantalla (es de frontend + ux-ui) · ⛔ ningún DDL, ninguna migración, ningún cambio en el
+esquema de `FxRate` ni en su escritor · ⛔ ningún dial nuevo en §M10 (`fx_rate_mode` **no** está en
+`SETTING_DTO_MAP`: enviarlo por `PUT /admin/settings` cae en `422`) · ⛔ nada de `§M2-B` ni de la cara
+`market` · ⛔ no se bloquea el pricing con la tasa `stale` (se **declara**) · ⛔ **no se corrió la
+suite de integración**: en esta sesión no hay Postgres ni Docker (`pg_isready` sin respuesta, sin
+daemon), así que los trece candados viven en la suite **unitaria**, que sí corre en CI. Si QA quiere
+además la versión contra Postgres real, es un encargo aparte y vuelve a backend.
+
+---
+
+## v1.63.3 · **LA CUARTA PUERTA, LA PRUEBA QUE NUNCA PROBÓ, Y EL 18 QUE DEJA DE REGIR** (FX · 2026-09-09)
+
+> **Qué entra:** **B-QA-1** (bloqueante), **R2** (condición del veredicto del techlead), **D-FX-1 /
+> D-FX-2 / D-FX-3** (contrato v1.63.3) y la deuda registrada en `TECH_DEBT.md`.
+> ⚠️ **Lo que NO decido yo:** **I-QA-1** (el piso de la banda) — ver §4.
+
+### 1. 🔴 B-QA-1 (BLOQUEANTE) — la prueba de la carrera nunca había probado la carrera
+
+`test/integration/fx-mode.e2e-spec.ts` **daba por sembrada una fila `FxRate` de origen `banxico` que
+nadie sembraba**: `prisma/seed-e2e.ts` no escribe ni una (confirmado, cero ocurrencias). Con
+`mode:"auto"` y sin fila `banxico`, el sistema cotiza **`18/fallback` con toda la razón**, así que
+`expect(fx.source).not.toBe('fallback')` reventaba.
+
+**Y lo grave no es el fallo: es DÓNDE.** Reventaba en la **primera** vuelta de
+`for (const ventajaMs of [0, 5, 20, 20, 50])` — el escalonado de **0 ms**, que es **el único valor con
+el que la carrera no se reproduce**. El bucle abortaba ahí. ⇒ **los escalonados de 20 ms, los únicos
+que reproducen `S-FX-1`, no se habían ejecutado jamás.** *La prueba que existe para afirmar que la
+carrera está cerrada no había afirmado nada sobre la carrera.*
+
+**Arreglo (dos, y el segundo es de una línea):**
+1. `sembrarBanxico()` en `beforeAll` (18.2431, fecha de hoy) + limpieza en `afterAll` **restaurando lo
+   que había**: el resto de la suite valúa en MXN y esta fila cambia lo que cotiza en `auto`. *«Deja la
+   BD como la encontró» incluye lo que uno mismo siembra.* Con la fila puesta, **los dos desenlaces
+   legales de la carrera tienen número propio**, así que cualquier `fallback` ahí **es el hallazgo**.
+2. `b.body.code` ⇒ **`b.body.error.code`**: el sobre del sistema es `{ error: { code, message,
+   details } }`. **El endpoint cumplía el contrato; el que leía la clave equivocada era el spec.**
+
+**⭐ Verificado contra Postgres real, no por la unitaria** —que es precisamente la prueba cuya razón de
+existir es no fiarse de ella—. Postgres 16 efímero (`initdb` como `ubuntu`, TCP en 55432, base
+desechable, `prisma migrate deploy` + `seed-e2e.ts`) y Redis propio en 56379:
+
+| Qué | Resultado |
+|---|---|
+| `fx-mode.e2e-spec.ts` | **13/13 verde** (9 antes de FX-23) |
+| **Suite de integración COMPLETA** | **22 suites / 318 tests verdes** |
+| **Mutación: quitar `lockFxGate(tx)`**, contra Postgres real | 🔴 **el invariante de la línea 145** — o sea **la carrera se reprodujo**, que es la prueba de que el bucle ahora **sí llega** a las ventanas de 20 ms |
+
+### 2. R2 (condición del veredicto) — **el colchón es la CUARTA puerta del FX**
+
+`tocaElFx` solo miraba `fx_manual_override_rate` ⇒ un `PUT` que **solo movía el colchón** **no tomaba
+`lockFxGate`** y auditaba con una foto leída **fuera de toda transacción**. Y el colchón no es un dial
+cualquiera: **el precio convertido es `tasa × (1 + colchón)`** — `FxAuditState` lo lleva justamente
+porque *sin él la entrada no permite reconstruir el precio de aquel día*.
+
+⚠️ **Elegí cerrar la ruta, no corregir el comentario.** El jsdoc afirmaba que en esa rama *«no hay nada
+que pueda haber cambiado debajo»*; **era falso**, y *un comentario que dice «aquí no puede pasar nada»
+es peor que el hueco porque detiene al siguiente que mire*.
+
+**Y hacen falta las TRES mitades, ninguna basta sola:**
+1. **`tocaElFx` incluye `FX_BUFFER_PCT`** ⇒ la puerta se toma.
+2. **`prepareFxModePin` proyecta también con solo el colchón** ⇒ el `before`/`after` de `fx.override`
+   sale de **dentro** del candado. *Serializar sin releer commitea el mismo estado imposible, solo que
+   más tarde.*
+3. **`setManual` deja de leer NADA fuera de la puerta**: desaparecen su `loadInputs()` previo y el
+   `beforeState` de respaldo — que era justo el caso que resultó no estar cerrado. Si el hook de
+   auditoría llegara sin proyección, **se revienta la transacción** (revierte el dial): *en dinero, un
+   cambio sin bitácora reconstruible es peor que un 500.*
+
+⛔ **Y la mitad que impide arreglarlo de más:** tomar la puerta **NO** convierte el `PUT` del colchón en
+una escritura del modo (`materialized: entry != null && …`). I-FX2 dice *«toda escritura DEL VALOR
+pinnea»*, no *«toda llamada que tome la puerta»*: si el colchón materializara, mover un colchón en un
+entorno `legacy` **escribiría `fx_rate_mode` a espaldas del dueño**.
+
+**De paso, el detalle relacionado de techlead:** `setManual` leía el colchón una **cuarta** vez por
+`this.prisma`, fuera de la transacción, solo para congelarlo en la fila forense `FxRate`. Ahora congela
+**el que rigió bajo la puerta**.
+
+**Candado `FX-24` + mutaciones (sobre copia del árbol):**
+
+| Mutación | Rojo |
+|---|---|
+| `tocaElFx` vuelve a mirar solo la tasa (la cuarta puerta se reabre) | **1** |
+| se deja la puerta pero **no se proyecta bajo ella** | **4** |
+| tomar la puerta **pinnea** el modo (el «arreglo» de más) | **2** |
+
+### 3. D-FX-1 / D-FX-3 — «manual sin número» rige por Banxico (contrato v1.63.3)
+
+Implementada la **cuarta fila de §M2-F.1**, que es **decisión del arquitecto** sobre el punto que
+elevé: la lectura **se defiende**. `manual` sin número ⇒ **la última fila `banxico`**; solo si no hay
+ninguna, el 18. ⛔ **El modo no se corrige ni se reescribe: la lectura elige mejor, NO repara.**
+
+En el código es **una condición retirada** —`resolved.mode === 'auto' &&` sale de la segunda rama— más
+el reordenado de `projectFxState` para decidir `source` **antes** de construir el bloque `automatic`,
+porque **D-FX-3** hace que `applied` se derive de `source` y no del `mode`.
+
+⭐ **La equivalencia se comprobó sola:** las dos definiciones viejas de `applied` son equivalentes a la
+nueva **en todo estado alcanzable por API**, y la suite completa (**256 suites / 4081 tests**) quedó
+verde sin tocar ni un test existente. Lo único que cambia es el estado ilegal, donde el DTO emitía
+`source:"fallback"` **junto con** `manual.applied:true` — *«el número del dueño está aplicado» sobre un
+número que no existe*.
+
+**Candado `FX-23`** (e2e, fixture **sembrado por SQL** porque es el único modo de crear ese estado),
+**con sus dos mitades**, y la segunda es la que se olvida:
+
+| Mitad | Aserción |
+|---|---|
+| **con** fila `banxico` | `rate == 18.2431` · `source == "banxico"` · `mode == "manual"` · `manual.rate == null` · **`manual.applied == false`** · `automatic.applied == true` |
+| **sin** fila `banxico` | `rate == 18` · `source == "fallback"` · **las DOS `applied` en `false`** |
+
+Más la **regla mecánica de `applied`** en los tres estados legales, y un **control de que I-FX4 no se
+relaja**: las dos puertas siguen devolviendo `422`. *«Elegir mejor» no es «permitirlo»* — sin ese
+control, un arreglo de lectura se podría haber convertido en una autorización para crear el estado
+ilegal por HTTP.
+
+**Mutaciones, contra Postgres real:** volver a exigir `mode === 'auto'` ⇒ 🔴 **1**; derivar `applied`
+del `mode` otra vez ⇒ 🔴 **2**.
+
+### 4. ⚠️⚠️ I-QA-1 — **NO LO CIERRO YO: el piso de la banda es CONTRACTUAL**
+
+QA tiene razón y lo he medido con el parser real:
+
+| Vector | `parseBanxicoRate` | `validateFxManualOverrideRate` |
+|---|---|---|
+| `"9999"`, `"1000.0001"` | rechaza `out_of_band` | rechaza |
+| `"999.9999"`, `"18.5000"` | acepta | acepta |
+| **`"0.0001"`** | ⚠️ **ACEPTA** | ⚠️ **ACEPTA** |
+| **`"0.0000001"`** | ⚠️ **ACEPTA `1e-7`** | ⚠️ **ACEPTA** |
+
+**El efecto es el espejo exacto del `9999` que motivó el hallazgo:** con `0.0001`, una carta de USD 100
+pasa de **MX$ 1,957.00** a **MX$ 0.0103**. Todo lo que la plataforma vende vale ~MX$ 0 en la siguiente
+lectura, **sin desbordar ningún clamp y sin error**: no da error, da precios.
+
+**Por qué paro:** la banda **`(0, MAX_FX_MANUAL_OVERRIDE_RATE]` está escrita en `API_CONTRACT.md`
+(dos veces: `:4490` y `:10353`) y viaja en el `message` del `422`** que la API emite. Subir el piso
+cambia **el límite de rechazo de dos endpoints** y **la cadena que el cliente recibe** ⇒ **es cambio de
+contrato, y el contrato no se cambia desde backend.** Y `parseBanxicoRate` usa esa banda **por decisión
+declarada** (FX-B1/FX-B2: *«el mismo dial no se valida distinto según la puerta»*), así que **arreglar
+solo el lado de Banxico rompería una simetría que también es normativa**: sería media cura y una
+divergencia nueva.
+
+⛔ **Y deliberadamente NO he escrito un test de caracterización** que asierte que `0.0001` se acepta:
+sería **bendecir el hueco** y pondría en rojo al arquitecto el día que lo cierre.
+
+**Lo que necesito del arquitecto (una decisión, tres palabras):** cuál es el piso. Sugerencia con la
+razón, no con el gusto: **la misma familia que el techo** — un FIX USD/MXN por debajo de `1` no es una
+tasa, es un cambio de formato o un fallo, igual que uno por encima de `1000`. En cuanto haya número,
+esto es **una constante, dos validadores y un candado con sus vectores**: horas, no días.
+
+### 5. D-FX-2 — un jsdoc mío que mentía, en el peor sitio posible
+
+`resolveFxMode` (`common/fx-mode.ts`) seguía afirmando que la resolución legacy *«ocurre como mucho una
+vez por entorno (deja de correr en cuanto un humano toca el interruptor)»*. **§4.43(c) I-FX1 lo declaró
+falso en v1.63.2.** El código se comporta bien; **mentía el comentario**, justo donde el siguiente viene
+a razonar sobre esto. Corregido con la distinción que se confundía:
+
+- **la INFERENCIA corre en CADA LECTURA** mientras la fila valga `"legacy"` — es **pura, no escribe
+  nada**, y un entorno que nunca toca la FX resuelve `legacy` **para siempre y legítimamente**;
+- **lo que ocurre una vez es la MATERIALIZACIÓN**, y por **dos** vías: el interruptor **o** el pin de
+  I-FX2.
+
+*«La inferencia corre una vez» y «la transición pasa una vez» no son la misma frase*, y la primera
+invita a concluir que este camino está muerto en producción — que es exactamente el razonamiento por el
+que alguien dejaría de mirar la rama que decide el modo en cada `GET /admin/fx`.
+⛔ **Sin candado, y a propósito: es un comentario.** Un test que asierta prosa es un test que envejece
+peor que la prosa.
+
+### 6. Verificación
+
+| Qué | Resultado |
+|---|---|
+| Suite **unitaria** completa | **256 suites / 4081 tests verdes** |
+| Suite de **integración** completa (Postgres 16 + Redis reales) | **22 suites / 318 tests verdes** |
+| `tsc --noEmit` · `eslint src test scripts` | limpios (siguen los **2 warnings preexistentes y ajenos**: `inventory.service.ts:638`, `sealed-product.service.ts:11`) |
+| Mutaciones | **13**, todas en rojo, **todas sobre una copia desechable del árbol** |
+
+---
+
+## v1.63.3 · **LOS SEIS CORREOS DE BUYLIST HABLAN EL MISMO IDIOMA** (§31 pase 1, parte B · 2026-09-09)
+
+> **Qué entra:** los **cinco correos que faltaban** (2, 3, 4, 5 y 6 de `§31.9`) montados sobre
+> `mail-shell.ts`, **dos patrones nuevos en el esqueleto**, **nueve candados nuevos (N1…N9)** y la
+> **eliminación del `layout()` viejo**, que se quedó sin llamadores.
+> ⛔ **Qué NO entra:** los correos **7 y 8** (`mail/mail.templates.ts`, stream «Cuentas y acceso»,
+> deuda **BE-43**) · ⛔ ningún asunto (§31.9) · ⛔ ninguna cadena de negocio nueva · ⛔ nada del contrato.
+
+### 1. Cuáles faltaban — establecido leyendo el código, no el conteo de nadie
+
+`buylist-mail.templates.ts` exporta **seis** plantillas. El pase anterior migró **una** (el correo 1) y
+tocó **el copy** del 6 sin migrarlo. ⇒ **faltaban cinco**, y son éstas (numeración de **§31.9**, que
+**no** coincide con la de los comentarios del código ni con la de §25.4 — ver el aviso de abajo):
+
+| §31.9 | Función | Eyebrow | Titular | Montos | Caja | CTA |
+|---|---|---|---|---|---|---|
+| **2** | `sellOfferReminderTemplate` (2 variantes) | `LA OFERTA VENCE MAÑANA` / ⚠️ ver §3 | serif 26px | **solo el neto** | no | **bermellón** |
+| **3** | `sellOfferCancelledTemplate` | `OFERTA CANCELADA` | serif 22px | no | no | tinta |
+| **4** | `sellItemRejectedTemplate` | `CARTA NO ACEPTADA` | serif 22px | no | **sí (los dos plazos)** | ⚠️ **ninguno** — ver §3 |
+| **5** | `sellRequestExpiredTemplate` (2 variantes) | `SOLICITUD VENCIDA` | serif 22px | no | no | tinta |
+| **6** | `sellRequestNotPursuedTemplate` | `SOLICITUD CERRADA` | serif 22px | no | no | tinta |
+
+> ⚠️ **TRES NUMERACIONES VIVAS PARA LOS MISMOS SEIS CORREOS, y hay que decirlo porque cuesta una hora
+> cada vez.** §31.9 numera 1–6 en el orden de la tabla de arriba; **§25.4 numera distinto** (su «correo
+> 3» es la expiración y su «correo 5» es la cancelación, §25.4.4-bis); y **los comentarios del código
+> heredaron la de §25.4** («CORREO 5 — CANCELAMOS LA OFERTA» sobre `sellOfferCancelledTemplate`). **Se
+> ha seguido §31.9**, que es la sección canónica del medio «correo», y ⛔ **no se han renumerado los
+> comentarios de §25.4 que siguen siendo correctos en su propio marco**. *Si alguien quiere una sola
+> numeración, es del arquitecto y es un pase de documentos, no de código.*
+
+### 2. Lo que se añadió AL ESQUELETO (y no dentro de una plantilla)
+
+El punto entero de `mail-shell.ts` es que los ocho se hablen. Los dos huecos que aparecieron se
+cerraron **en el patrón**, no improvisando dentro del correo que los necesitaba:
+
+| Patrón | Por qué | Quién lo usa |
+|---|---|---|
+| **`monoRow(text)`** *(nuevo)* | §25.4.3 pide *«el número de guía en mono seleccionable»*. Es el rol del folio —un identificador que alguien va a **teclear**— pero dentro del cuerpo: mono 12px en **tinta**, no muted. En la sans no se distingue un `0` de una `O` justo en el dato que se copia a la web de la paquetería | correo 2b |
+| **`termsBoxRows(label, string \| string[])`** *(ampliado)* | §31.9 le da al correo 4 caja de términos *«(los dos plazos)»*, y **los dos plazos son dos frases**. Una caja con un solo plazo es una decisión que no se puede tomar. ⛔ Sigue emitiendo **un solo rótulo**: el portador es uno (§31.8 regla 4b) | correo 4 |
+| **`isSafeMailUrl(url)`** *(nuevo, seguridad)* | ver §6 | `ctaRows` |
+
+**Y una asimetría que se cerró: `mailShell()` emite ahora también el bloque de marca** (R3 del
+techlead, disparador «el correo 2»). Antes emitía **el pie** y dejaba que cada plantilla se acordara
+de `brandRows()`; eso **falla en silencio** —el correo que la olvida se manda sin marca— y se pagaba
+seis veces. Coste real: **una línea menos por plantilla**; ⛔ no obligó a rehacer el correo 1.
+
+### 3. ⚠️⚠️ LO QUE NO ES MÍO — dos huecos de §31 que NO he rellenado
+
+**(a) 🔴 El eyebrow de la variante 2b (recordatorio de ENVÍO) no existe en §31.**
+§31.9 le da al correo 2 **un** eyebrow, `LA OFERTA VENCE MAÑANA`, y es cierto **solo en 2a**. En 2b la
+oferta **ya se aceptó** y lo que vence es el plazo de **envío** (§25.4.3). Poner ahí «la oferta vence
+mañana» sería **afirmar un hecho falso en versalitas** — exactamente lo que §25.4.4-bis separó del
+correo 3 para no hacer. Y traducir el titular a versalitas (`EL PAQUETE DEBE SALIR MAÑANA`) sería
+**escribir copy de negocio**, que no es mío (§31.0).
+⇒ **Puesto en pie, sin inventar:** 2b usa `TU OFERTA · <folio>` / `YOUR OFFER · <folio>`, que es **el
+rótulo que el propio bloque congelado ya trae** (§25.4.3), cadena viva, ya en mayúsculas y **cierta en
+las dos variantes**. **Decisión de ux-ui: es una línea el día que §31.9 diga cuál es.**
+
+**(b) 🔴 El CTA del correo 4 está nombrado pero no definido.**
+§31.7 le asigna *«el de coordinación»*, en tinta. **§31 no dice qué dice ese botón ni a dónde apunta**,
+y este módulo **no tiene URL de coordinación**: el canal es el buzón de soporte, que ya viaja **dentro
+de la opción de devolución**, en las dos mitades del correo. Inventarle un rótulo (`ESCRIBIR A
+SOPORTE`) sería copy de negocio.
+⇒ **El correo 4 sale SIN botón**, que es su conducta de hoy y no pierde nada. **Decisión de ux-ui** (el
+rótulo) **y del arquitecto** si hace falta un destino (`mailto:` vs. una pantalla del portal).
+
+**(c) 🟡 Cadenas NUEVAS que sí he escrito, todas de bloques que antes no existían**, ⛔ ninguna
+reescribe copy vivo: los **eyebrows** (los de §31.9 tal cual, más su traducción al inglés — mismo
+precedente que `OFERTA DE COMPRA` → `PURCHASE OFFER` del pase anterior), los **preheaders** y la
+**línea del «por qué» del pie**. ⭐ **Y la regla que me impuse para el preheader, porque es la
+superficie por la que se cuela una frase nueva: se compone SIEMPRE de cadenas vivas del propio
+correo** (titular + «qué sigue»), nunca redactando. *Para product-owner: ratificar los seis preheaders
+es leer seis líneas.*
+
+**(d) 🟡 Sigue en pie lo que levantó el pase anterior y nadie ha resuelto:** ML-8(b) es imposible con
+§25.4.2 R2 intacta · ML-1 necesitaba «en los primeros 200 caracteres visibles» (ya implementado así) ·
+«todo el dinero en mono» no es literal. ⛔ Y el menor preexistente del plazo en ES
+(`…6:00 p.m.. Si no respondes…`) **no se ha tocado**: es copy vivo.
+
+### 4. Paridad HTML ↔ texto plano: qué GANÓ la mitad de texto
+
+§31.12 exige que la parte de texto **diga lo mismo**, no un resumen. Al migrar aparecieron tres
+asimetrías, y las tres se cerraron **añadiendo a texto**, ⛔ nunca quitando del HTML:
+
+- **la URL completa** en los correos 2, 3, 5 y 6 (ML-5/ML-7). Antes **no llevaban ninguna**: había
+  lectores para los que **no existía ruta a la acción**;
+- **el eyebrow con el folio** en lugar del folio a pelo (los correos 3, 5 y 6 imprimían `sr-1` suelto);
+- en el correo **4**, el **folio** (que no llevaba), el **titular** y el **aviso de cierre**
+  (*«esta decisión solo afecta a la carta indicada…»*), que vivían solo en el HTML.
+
+⚠️ **El bloque congelado del correo 2 se parte en cuatro para maquetarlo y se vuelve a juntar byte a
+byte** para la parte de texto: `frozen` es **exactamente la misma cadena de siempre**. Se parte **por
+donde ya estaba partido** —sus `\n`— que es lo que manda §31.0.
+
+### 5. `layout()` — ELIMINADO, y **NO** cierra BE-43
+
+Con los seis correos migrados se quedó **sin un solo llamador** (`eslint` lo cazó). Una función de
+maqueta muerta en un fichero de plantillas es **la rampa por la que vuelve el correo sin marca**: el
+siguiente correo se escribe copiando al de al lado.
+⚠️ **Esto NO cierra BE-43 y no debe leerse así.** BE-43 es la **copia** del layout y del escape entre
+`buylist/` y `mail/`; lo que desaparece es **una de las dos**. La otra —`mail/mail.templates.ts`, con
+los correos 7 y 8— **sigue intacta, es de otro stream y su disparador sigue siendo el pase 2 de
+§31.15**. La deuda ya no tiene dos deudores: tiene uno.
+
+### 6. Los NUEVE candados nuevos, con su mutación y su rojo
+
+⚠️ **Todas las mutaciones se corrieron sobre una COPIA del árbol** (`tar` a un directorio desechable
+con `node_modules` enlazado), ⛔ nunca sobre el árbol vivo.
+
+| # | Candado | Mutación | Rojo |
+|---|---|---|---|
+| **N1** ⭐ | **R3** — la marca la emite el shell: ninguna plantilla nombra `brandRows` **y** cada correo lleva **exactamente un** wordmark de cabecera *(la 2ª mitad mata el «arreglo» que deja la llamada y produce **dos marcas**)* | devolver `brandRows()` al correo 3 | **4** |
+| **N2** ⭐ | **§31.6h en LOS SEIS** — el pie en tinta no lleva folio, importe, fecha, enlace ni baja *(sólo lo tenía el correo 1)* | el folio dentro de `footerWhy` | **9** |
+| **N3** ⭐ | **el preheader** — existe, mide 40–90 y de dinero **solo el neto** (R1) *(superficie oculta: ninguna revisión visual la ve)* | el **bruto** en el preheader del correo 2 | **8** |
+| **N4** ⭐⭐ | **el correo 2 lleva el neto y NADA más** — ni bruto ni envío, y **una sola cifra de dinero** en todo el correo, en las dos mitades | copiar la resta del correo 1 al recordatorio | **4** |
+| **N5** ⭐⭐ | **R2 de §25.4** — la condición NM viaja **pegada al conteo**, en las dos mitades | «aligerar» el recordatorio quitándole la condición | **4** |
+| **N6** ⭐⭐ | **el correo 6 (§25.4.5)** — ni fecha, ni monto, ni «venció», ni «N días», en `subject+html+text` | un plazo **por el preheader** (la superficie nueva) | **2** |
+| **N7** ⭐ | **el correo 3 (§25.4.4-bis)** — sin «venció», sin montos, CTA en **tinta** y **«ver mi solicitud»**, ⛔ jamás «cotizar de nuevo» *(mandaría a duplicar una solicitud viva)* | `LA OFERTA VENCIÓ` en el eyebrow | **2** |
+| **N8** ⭐ | **el correo 4** — la caja de términos lleva **los DOS plazos** (dos fechas distintas) y el canal, dentro del pozo | dejar la caja con **un** plazo | **2** |
+| **N9** ⭐ | **`ctaRows` acota el esquema del `href`** (allowlist `http(s)`) | quitar la allowlist | **2** |
+
+**Y la cobertura que crece sola, demostrada también por mutación** (los candados viejos ahora corren
+sobre las seis plantillas, no sobre una):
+
+| Candado | Mutación sobre una plantilla NUEVA | Rojo |
+|---|---|---|
+| **ML-2** (los cinco prohibidos) | **domicilio en el preheader del correo 3** | **8**, incluidos los dos ejes nuevos y **el test de productor** |
+| **ML-4** (ninguna celda de texto sin fondo) | una `<td>` sin `bgcolor` dentro del pozo | **6** |
+
+⭐ **Y la extensión de ML-2 que este pase añade (`(2-ter)`): las dos superficies que el rediseño
+CREÓ, barridas por su nombre** — el **preheader oculto** y la **banda de tinta del pie**, aisladas y
+barridas solas. Con su **control**: los dos extractores tienen que devolver algo en los doce renders,
+porque *una aserción de ausencia sobre una cadena vacía pasa siempre*.
+
+### 7. Vista previa — lo que hay en `backend/tmp/mail-preview/`
+
+```bash
+cd backend && npm run mail:preview
+```
+
+**33 ficheros: 16 HTML + 16 texto plano + `index.html`.** Son **los SEIS correos de buylist en OCHO
+renders × 2 idiomas** — el recordatorio y la expiración tienen dos variantes cada uno y **las dos se
+escriben**, porque son justo donde mirar una sola deja media plantilla sin ver:
+
+`correo-1-oferta` · `correo-2a-recordatorio-aceptar` · `correo-2b-recordatorio-enviar` (con la guía en
+mono) · `correo-3-oferta-cancelada` · `correo-4-carta-no-aceptada` · `correo-5a-vencida-no-respondio` ·
+`correo-5b-vencida-no-envio` · `correo-6-solicitud-cerrada`.
+
+⚠️ **La mira no cargará hasta que frontend copie `apple-icon.png` → `frontend/public/branding/
+mail-mira-180.png`** — y que el correo se vea bien igual **es justo lo que ML-1 exige**, así que esa
+prueba también sirve. ⛔ **ML-11 sigue sin poder automatizarse**: hay que abrir los ocho en **Gmail con
+imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**.
+
+---
+
+## v1.63.2 · **EL CORREO 1 HABLA EL IDIOMA DE LA CASA** (§31 pase 1, parte A · 2026-09-09)
+
+> **Qué entra:** el **esqueleto compartido de los ocho** (`DESIGN_SYSTEM §31.0–§31.15`), **el correo 1
+> (`sellOfferTemplate`)** maquetado sobre él, y **el único cambio de copy del rediseño** (§31.10, el
+> correo 6). ⛔ **Qué NO entra:** los otros cinco de buylist (siguiente empujón del pase 1) y los dos
+> de `mail/` (pase 2, otro work stream, deuda **BE-43** sin tocar).
+
+### 1. Ficheros
+
+| Fichero | Qué |
+|---|---|
+| `backend/src/modules/buylist/mail-shell.ts` | **NUEVO.** La retícula, la escala y los siete patrones nombrados de §31. No conoce ni una cadena de negocio |
+| `backend/src/modules/buylist/buylist-mail.templates.ts` | `sellOfferTemplate` reescrito sobre el esqueleto; `sellRequestNotPursuedTemplate` con el copy de §31.10; `escapeHtml` local eliminado (se importa del esqueleto) |
+| `backend/scripts/render-mail-preview.ts` + `npm run mail:preview` | **NUEVO.** Escribe el HTML y el texto plano a fichero para **mirarlos en un teléfono de verdad** (ML-11) |
+| `backend/test/buylist.mail-shell.spec.ts` | **NUEVO.** ML-1, ML-3…ML-10 + la retícula y §31.10. 109 casos |
+| `backend/test/buylist.cycle-mail-pii.spec.ts` | **AMPLIADO** con ML-2: barrido `(2-bis)` sobre **los ocho** y **sobre la parte de texto plano sola** |
+
+### 2. Para el dueño: cómo se ve esto en un teléfono
+
+```bash
+cd backend && npm run mail:preview          # → backend/tmp/mail-preview/*.html + *.txt + index.html
+```
+Un fichero por (correo × idioma), más la **parte de texto plano** aparte (que no es un resumen: §31.12).
+Se autoenvía el `.html` y se abre en el teléfono. ⚠️ **Desde aquí no hay salida a internet: Gmail y
+Outlook no se pueden probar, y ML-11 no se sustituye por un `grep`** — hay que abrirlo en **Gmail con
+imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. **La mira no cargará
+hasta que frontend copie `apple-icon.png` → `frontend/public/branding/mail-mira-180.png`**; que el
+correo se vea bien igual **es justo lo que ML-1 exige**, así que esa prueba también sirve.
+
+### 3. Las tres reglas de contenido: qué se hizo para que no se rompieran
+
+| Regla | Cómo queda anclada |
+|---|---|
+| ⛔ **El texto vinculante no se toca** | La condición se pinta **tal cual sale de `offerTermsCopy`**. **ML-3** compara **igualdad exacta** y además rechaza cualquier fragmento que sea **prefijo propio** de la frase — que es la forma que tiene «no cabía en la línea» en un diff |
+| ⛔ **Los cinco prohibidos** | **ML-2** barre ahora **los ocho** (entran `sellItemRejectedTemplate` y los dos de `mail/`) y lo hace **también sobre `text` solo**, donde nada se esconde entre atributos. Control negativo incluido: el correo del ítem rechazado **conserva** sus dos plazos y su canal |
+| ⛔ **Nada de `MX$ 0.00`** | La celda del importe de una línea no comprada **existe y va vacía** (`amount: null`, sin default). **ML-6** |
+
+### 4. Decisiones de implementación que otros roles deben conocer
+
+1. **El esqueleto vive en `buylist/`, no en `common/`.** Es compartido por los ocho, pero moverlo a la
+   zona común —y absorber el `layout()` duplicado— **es el pase 2 y su disparador es que `mail/` quede
+   libre** (§31.15, BE-43). Colocar un helper en la zona compartida desde un stream que no la tiene
+   asignada es pisar a otro con buenos modales. **`layout()` sigue igual y sin tocar.**
+2. **`escapeHtml` ya no se duplica dentro de buylist**: lo exporta el esqueleto y la plantilla lo
+   importa. ⚠️ **No es el arreglo de BE-43** (esa deuda es entre `buylist/` y `mail/`, y sigue viva):
+   es **no crear una tercera copia**. Los builders reciben **texto plano y nunca HTML**, así que ML-10
+   no depende de que ocho plantillas se acuerden de escapar.
+3. **Cadenas NUEVAS, y son todas de bloques que antes no existían** (⛔ ninguna reescribe copy vivo):
+   el **preheader** (§31.6a, lleva el **neto** — R1), el **rótulo de la caja de términos**
+   (`QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT`, que §25.4.2 y §31.3 ya dibujaban), el **descriptor
+   y la línea del «por qué»** del pie (§31.6h) y el **texto del botón en mayúsculas** (§31.7/§31.2).
+   *Si product-owner quiere ratificar la redacción del preheader y del pie, es de una línea cada uno.*
+4. **El texto plano gana la URL completa** (ML-5/ML-7). Antes no llevaba ninguna: había lectores para
+   los que **no existía ruta a la acción**.
+5. **`MAIL_ASSET_ORIGIN`** (opcional, default `https://tcghunt.mx`) permite mirar la mira desde otro
+   origen en local. **Devops:** si se quiere, va a `.env.example`; **no es obligatoria** y sin ella el
+   comportamiento es el de producción.
+6. **Las tres trampas medidas por §31.15 quedan corregidas en el correo migrado**: `max-width:520px`
+   ⇒ **600**, `color:#111` ⇒ **`#1A1A18`**, `border-radius:6px` ⇒ **0**. En los otros cinco siguen,
+   porque siguen con el `layout()` viejo.
+
+### 5. ⚠️ HALLAZGOS — dos cosas de §31 que NO sobrevivieron al medio, y una que se afinó
+
+**(a) 🔴 `ML-8`, segunda mitad — es imposible de cumplir, y no por cómo se maquetó.** ML-8 pide
+`< 90 KB` **y** que *«el neto y el CTA aparezcan antes del carácter que marca la mitad del documento»*.
+Lo primero se cumple con holgura (**53.7 KB** con 20 líneas). Lo segundo **no puede cumplirse mientras
+el correo respete §25.4.2 R2** —*la condición se lee antes del dinero y dentro de cada línea*—, que
+§31.1 declara **INTACTA**: con 20 líneas la lista ocupa ~85 % del documento **por definición**, así que
+todo lo que va detrás cae en la segunda mitad. Cumplirlo exigiría **subir los montos por encima de las
+líneas**, que es exactamente lo que §25.4.2 consideró **y decidió NO hacer**. ⇒ **El test asierta lo
+que la regla protege**: el CTA aparece **~50 KB por debajo** del umbral real de recorte de Gmail
+(~102 KB). **Decisión de ux-ui/arquitecto**, no mía: o ML-8(b) se reformula contra el umbral absoluto,
+o hay que revisar R2. *No lo «arreglé» reordenando bloques: el orden es de diseño.*
+
+**(b) 🟡 `ML-1`, tal como está redactada, la aprueba el pie.** «Se borran los `<img>` y `TCG HUNT`
+sigue en el texto» **pasa en verde aunque la marca de la cabecera se meta dentro de la imagen**,
+porque el **wordmark del pie** (§31.6h) la sigue diciendo. Lo descubrí **corriendo la mutación**: la
+primera versión del candado se quedó verde con la marca metida en un `alt`. ⇒ El candado añade la
+mitad que faltaba: la marca tiene que estar **en los primeros 200 caracteres del texto visible**, es
+decir **en el primer golpe de vista**, que es donde estaría el hueco gris. *Con esa mitad, la mutación
+pone 5 aserciones en rojo; sin ella, 3.*
+
+**(c) 🟡 «Ningún importe en la serif» se cumple; «todo el dinero en mono» no es literal.** Las cifras
+que §25.4.2 (decisiones 5 y 8) obliga a repetir **dentro de la prosa** —el envío y el neto— van en la
+**sans**, con la frase. Sacarlas a mono partiría la frase en tres trozos por un problema que no
+tienen: **no son una columna y no alinean con nada**. La regla dura —**jamás la serif**— se cumple sin
+excepción, y **la columna de dinero es mono sin excepción**. El test lo dice así explícitamente.
+
+**(d) Menor, preexistente:** el plazo en español se lee `…6:00 p.m.. Si no respondes…` (el `Intl`
+cierra en punto y la frase añade el suyo). **No lo toco**: la frase es copy vivo y §31.0 prohíbe
+reescribirla. *Si ux-ui quiere el punto fuera, es una cadena y es suya.*
+
+### 6. Verificación
+
+| Qué | Resultado |
+|---|---|
+| Suite unitaria completa | **255 suites / 3 889 tests verdes** |
+| `buylist.mail-shell.spec.ts` | **109 verdes** (ML-1, ML-3…ML-10 + retícula + §31.10) |
+| `buylist.cycle-mail-pii.spec.ts` | **56 verdes** (los 5 del ciclo + `(2-bis)` con los ocho y el texto plano) |
+| `tsc --noEmit` · `eslint` | limpios (siguen los 2 `warning` preexistentes, ajenos) |
+| **Mutación ML-1** (marca al `alt` + wordmark vacío) | 🔴 **5 aserciones** (ablación es+en, `alt` es+en, control positivo) → restaurada 🟢 |
+| **Mutación ML-2a** (domicilio en el correo del ítem rechazado) | 🔴 **1** — y es **la plantilla que el barrido viejo NO miraba**: la extensión *es* el candado → restaurada 🟢 |
+| **Mutación ML-2b** (CLABE enmascarada en la parte de texto) | 🔴 **8**, entre ellas las dos del eje nuevo (`limpio en la parte de TEXTO PLANO`) → restaurada 🟢 |
+| **Mutación ML-3** (condición recortada a 22 caracteres + `…`) | 🔴 **2** (es+en): igualdad exacta **y** la aserción de «ningún prefijo propio» → restaurada 🟢 |
+| Peso, caso realista más pesado (20 líneas) | **53 685 bytes** (< 90 KB) |
+
+### 7. Lo que NO se hizo (a propósito)
+
+⛔ Los otros cinco correos de buylist (2, 3, 4, 5, 6 siguen con el `layout()` viejo: **migrar medio
+correo es peor que migrar uno entero**) · ⛔ `mail/mail.templates.ts` y **BE-43** (otro stream, pase 2)
+· ⛔ ningún asunto (§31.9) · ⛔ ninguna otra cadena (§31.0) · ⛔ nada del contrato: **ni un campo, ni un
+endpoint, ni un DTO** · ⛔ el PNG de la mira (es el `cp` de frontend).
+
+---
+
+## v1.63.2 · **LA PUERTA ÚNICA DEL TIPO DE CAMBIO** (S-FX-1 crítica + S-FX-2 alta · 2026-09-09)
+
+> **Qué entra:** el arreglo de los dos hallazgos de FX del pentester, la condición bloqueante del
+> techlead (`dataHealth.lastFxAt`) y los siete candados que QA rompió sin que nadie se enterara.
+> ⚠️ **Toco `fx.service.ts`, `settings.service.ts`, `common/fx-mode.ts` y `admin.service.ts`** — hay
+> un agente de frontend en `FxSection.tsx` y el pentester en `PENTEST_NOTES.md`; no chocan, pero queda
+> dicho.
+
+### 1. S-FX-1 (CRÍTICA) — la carrera entre las dos puertas
+
+**El estado del dinero no vive en una fila: vive en dos** (`fx_rate_mode` y
+`fx_manual_override_rate`), y el invariante que las ata (**I-FX4**) lo comprobaban **dos rutas
+distintas, cada una sobre su propia lectura previa**. Filas distintas ⇒ Postgres no las hacía
+colisionar ⇒ **las dos commiteaban**. Resultado medido en vivo: `mode:"manual"` con tasa `null` ⇒
+**fallback duro de 18** ⇒ **−5.26 % sobre todo lo que compramos y vendemos**, con **200 en las dos
+respuestas**, **sin acuse**, con **la bitácora afirmando 19/manual** y **pegado hasta que un humano
+teclea una tasa**.
+
+**El arreglo, y son tres piezas — el candado solo es una:**
+
+| # | Pieza | Dónde |
+|---|---|---|
+| 1 | **`lockFxGate(tx)`** — `pg_advisory_xact_lock` **por transacción** (se suelta con el commit o el rollback; no hay forma de olvidarlo) | `common/fx-mode.ts` |
+| 2 | ⭐ **Releer DENTRO**: estado, precondiciones y proyección auditada se calculan **después** del candado y **por el mismo `tx`** | `fx.service.ts` (`setMode`), `settings.service.ts` (`prepareFxModePin`) |
+| 3 | La bitácora sale de esa lectura (`fxPin.previousState`), no de la de fuera | `fx.service.ts` (`setManual`) |
+
+**⭐ La pieza 2 es la que arregla, no la 1.** Una transacción que espera su turno y luego escribe con
+la lectura de antes de esperar **commitea el mismo estado imposible, veinte milisegundos más tarde**.
+
+**Y el candado se toma SOLO cuando el `PUT` toca el valor del FX**: los otros veinte diales no
+comparten invariante con nadie y serializarlos entre sí sería pagar contención por costumbre.
+
+### 2. S-FX-2 (ALTA) — la tasa de Banxico no se validaba como la tecleada
+
+La tasa **tecleada** estaba acotada a `(0, 1000]` desde FX-B1; la que llega de Banxico —**la que en
+modo `auto` rige sin que ningún humano la mire**— solo se comprobaba `isFinite && > 0`. Y el parser
+(`parseFloat(raw.replace(',', ''))`) quitaba **solo la primera coma**: `"19,5"` → **195**.
+
+⇒ **`parseBanxicoRate()`** (exportada y probada aparte): **formato SIE estricto** (punto decimal, coma
+solo como millares en grupos de tres) **+ la misma banda `(0, 1000]`**. Lo que no se entiende **no se
+aproxima**: se rechaza, sale `failed/invalid_payload` y **la tasa anterior sigue rigiendo**.
+
+⚠️ **`out_of_band` NO es un `reason` nuevo**: se mapea a `invalid_payload` porque **§M2-F.5 fija ese
+enum y el contrato no se cambia desde backend**. Se distingue en el log. *Si el arquitecto quiere un
+`reason` propio, es de él.*
+
+### 3. 🔴 DOS COSAS QUE NO ARREGLO Y SON DE OTROS — van al arquitecto (regla 9)
+
+1. **⚠️ El contrato dice que el estado imposible es inalcanzable, y ya no lo es.** §M2-F/§4.43 razonan
+   que *«manual sin número» solo se alcanza editando la BD a mano* — por eso la lectura cae al
+   fallback y lo etiqueta `fallback` en vez de defenderse. **La carrera lo alcanzaba por HTTP con dos
+   200.** Mi pase **cierra esa vía**, pero la suposición sigue apoyada en «nadie más puede crearlo», y
+   una migración o un `psql` lo crean. **Si la LECTURA debe defenderse (p. ej. `manual` sin número ⇒
+   seguir con la de Banxico en vez de caer a 18) eso es cambio de contrato y lo decide el arquitecto.**
+   ⛔ No lo toco.
+2. **Los dos 422 enmascaran la causa.** Quien intenta deshacerlo recibe «no hay tasa manual guardada»
+   y «no hay tasa automática», y **ninguno le dice que está cotizando 5 % abajo**. Es del lado del
+   mensaje: **coordinación con frontend + ux-ui**, no motor. ⛔ No cambio los mensajes.
+
+### 4. ⭐ La consulta que el dueño puede correr UNA VEZ (detección de entornos ya afectados)
+
+**Serializar previene el estado nuevo; no rescata a quien ya cayó.** Un entorno afectado se detecta
+con una consulta de una fila:
+
+```sql
+SELECT m."valueJson" AS mode, r."valueJson" AS manual_rate
+  FROM "ConfigSetting" m
+  LEFT JOIN "ConfigSetting" r ON r.key = 'fx_manual_override_rate'
+ WHERE m.key = 'fx_rate_mode'
+   AND m."valueJson" #>> '{}' = 'manual'
+   AND (r."valueJson" IS NULL OR r."valueJson" = 'null'::jsonb);
+```
+
+**Una fila ⇒ ese entorno está cotizando con el fallback duro de 18 ahora mismo.** Se sana con un
+`PUT /admin/fx { rate: <la tasa buena> }` (rellena el `null`); ⛔ **no** con `{mode:"auto"}` sin acuse
+(da 422) ni con `{bufferPct}` (200 y sigue en 18). La consulta va también en el spec de integración
+(`fx-mode.e2e-spec.ts`), donde **se comprueba que detecta y que deja de detectar**.
+
+### 5. La condición bloqueante del techlead — `dataHealth.lastFxAt`
+
+`admin.service.ts` leía `fxRate.findFirst({ orderBy: { createdAt } })` **sin filtro de fuente**: desde
+I-FX5 esa fila puede ser la `manual-<hoy>` que **no rige nunca**, así que el tablero afirmaba frescura
+**apoyándose en una fila declarada inerte** — y con **D-OPS-1** abierta podía decir «FX de hoy»
+durante semanas mientras el panel decía `missing`.
+
+⇒ **Mismo predicado y mismo orden que el lector canónico**, extraídos a `BANXICO_FX_WHERE` /
+`BANXICO_FX_ORDER` (el patrón de `MONEY_REF_WHERE`, que es de donde vino la comparación del techlead).
+
+**Y la etiqueta queda NOMBRADA, que era la otra mitad del encargo:** **`lastFxAt` = cuándo se escribió
+la fila de Banxico QUE HOY RIGE.** No es «el último HTTP 200 a Banxico»: si el refresco corre dos veces
+el mismo día el `upsert` actualiza la fila y `createdAt` no se mueve (`FxRate` **no tiene**
+`updatedAt`, y este pase sigue siendo CERO DDL). Es lo que la tabla sabe, y hace **imposible** que las
+dos pantallas se contradigan: sin fila de Banxico ⇒ `null` aquí y `missing` allá, siempre.
+
+### 6. Los candados que QA rompió y siguieron verdes
+
+| Candado | Qué cierra |
+|---|---|
+| **FX-14** | Los dos números del contrato (**18** y **5 días**) se afirman **con literales**. `FX-7`/`FX-12` importaban `FX_FALLBACK_RATE` y `FX-10` derivaba sus fixtures del umbral: **se comparaban consigo mismos** |
+| **FX-15** ⭐ | El pin del modo va **dentro** de la transacción del valor. Se mide con el **handle**: el arnés entrega un `tx` distinto y marca toda escritura que venga por fuera |
+| **FX-16** ⭐ | La bitácora de `PUT /admin/fx/mode` es **transaccional** (FX-5 solo cubría la puerta de `settings`) |
+| **FX-17** ⭐ | Basura en `fx_rate_mode` (`"AUTO"`, `true`, `1`, `{}`) cae a **legacy**, jamás a `auto` — con la conducta de dinero comprobada, no solo el rótulo |
+| **FX-18** ⭐ | Un refresco `unchanged` **escribe la fila de hoy igual**: si no, `automatic.ageDays` sigue creciendo y el panel declara vieja **una tasa que acabamos de confirmar** |
+| **FX-19** ⭐ | `before.bufferPct` y `after.bufferPct` son **números distintos** cuando el colchón cambia (antes se comprobaba que la clave estaba, no que valiera) |
+| **FX-20** ⭐⭐ | **S-FX-1**: la carrera, con exclusión mutua de verdad en el arnés |
+| **FX-21** ⭐ | **S-FX-2**: banda de cordura + parser estricto, con la conducta (`19,5` ya no entra como 195) |
+
+**El arnés cambió para poder ponerse rojo**, y esa es la parte que importa: `$transaction` entrega
+**un cliente por transacción** con su propio estado de candado, `$executeRaw` implementa **exclusión
+mutua por transacción** (la semántica de `pg_advisory_xact_lock`), el snapshot de rollback se toma en
+la **primera escritura** (si se tomara al abrir, revertir desharía lo que la otra puerta commiteó
+mientras esperábamos: un artefacto que taparía justo lo que se mide) y un gancho `onWrite` congela a
+una puerta **dentro** de su transacción. *Sin eso, «las dos puertas se serializan» y «las dos
+commitean» se ven igual desde el test.*
+
+### 7. Verificación
+
+| Qué | Resultado |
+|---|---|
+| Suite unitaria completa | **256 suites / 3 933 tests verdes** |
+| `fx.mode-switch.spec.ts` | **83 verdes** (los 13 originales + FX-14…FX-21) |
+| `admin.dashboard-fx-health.spec.ts` | **4 verdes** |
+| `tsc --noEmit` · `eslint` | limpios (los 2 `warning` preexistentes siguen) |
+| **⭐ Mutación de S-FX-1** (quitar `lockFxGate` + releer fuera, en las DOS puertas) | 🔴 **FX-20 en rojo**, y falla **exactamente donde el pentester midió**: `mode:"manual"` + `rate:null`. Restaurado 🟢 |
+| **Mutación de `lastFxAt`** (volver a `findFirst({orderBy:{createdAt}})`) | 🔴 **3 de 4** en rojo. Restaurada 🟢 |
+| `npm audit --omit=dev --audit-level=high` | **exit 0** (0 high/critical; quedan 5 moderate: `qs`/`body-parser`/`@nestjs`, fuera de este release por decisión de devops) |
+| **Integración (`test/integration/fx-mode.e2e-spec.ts`)** | ⚠️ **ESCRITO, NO CORRIDO**: en esta sesión no hay Postgres (`pg_isready` sin respuesta). **Lo corre QA** con el stack levantado |
+
+### 8. `npm update multer js-yaml --package-lock-only`
+
+Hecho. **`backend/package.json` queda byte-idéntico** (verificado con `diff` contra la copia previa);
+solo cambia el lockfile: `multer` 2.2.0 → **2.3.0**, `js-yaml` 3.15.1 → 3.15.2 y 4.3.1 → 4.3.2.
+`npm audit --omit=dev --audit-level=high` ⇒ **exit 0**. ⛔ No se tocó `qs`/`body-parser`. ⚠️ **No
+commiteé nada** (el encargo de esta sesión lo prohíbe): el lockfile queda modificado en el árbol.
+
+### 9. La suite de integración de FX (M-7)
+
+`test/integration/fx-mode.e2e-spec.ts` — **nueve casos** que la unitaria **no puede** afirmar: la
+carrera contra el **advisory lock real** (repetida con cinco escalonados), `FxRate.rate` como
+`Decimal(12,6)` emitido como número, el centinela `"legacy"` por `jsonb`, I-FX5 con el driver real, el
+rollback de verdad, la consulta de detección de entornos afectados y que el tablero y el panel nombren
+la misma fila. ⛔ **No corrido aquí** (sin Postgres).
+
+### 10. ⚠️ v1.63.2b — **el arnés medía el ORDEN y no el HANDLE, y por ahí se me coló un defecto**
+
+El coordinador verificó el pase y encontró que la mutación *«`prepareFxModePin(validated, tx)` ⇒
+`this.prisma`»* **dejaba los 83 candados en verde**. Tenía razón en el hueco. Lo que midió después
+mueve una parte del diagnóstico, y va con el dato:
+
+**(a) Lo que SÍ estaba medido, y se comprobó:** la mutación del **orden** —devolver la lectura y las
+precondiciones a **antes** de la transacción, dejando el candado puesto— **pone FX-20 en rojo** (2
+fallos, el invariante `manual`+`null` y la bitácora mintiendo). *La mitad que arregla —leer **después**
+del candado— sí tenía candado.*
+
+**(b) Lo que NO estaba medido:** el **handle** de esa lectura. Y aquí hay que ser preciso, porque la
+explicación de por qué el arnés se quedaba verde **no es que el arnés esté mal**: en **Postgres READ
+COMMITTED** —el nivel por defecto, y el que usa `$transaction` si no se pide otro— una lectura por otra
+conexión hecha **después** de adquirir el candado ve **el mismo estado commiteado** que una por el
+`tx`. Cambiar solo el handle, **conservando el orden**, no reabre S-FX-1 con ese nivel de aislamiento.
+
+**(c) ⛔ Por eso NO falseé el arnés como se me sugirió** (servir las lecturas de fuera desde una
+instantánea tomada al abrir la transacción): eso modela **REPEATABLE READ**, que no es lo que este
+sistema corre, y dejaría un candado que se pone rojo por un fallo **que el motor no comete**. *Un arnés
+que miente en la otra dirección cuesta lo mismo que uno que no mide.* En su lugar se mide lo que sí es
+cierto y sí importa: **bajo el candado, el estado del FX se lee por el mismo handle que lo escribe**
+(`FX-22`), instrumentando las **lecturas** con su handle igual que ya se instrumentaban las escrituras.
+Se justifica solo, y por dos caminos que este código alcanza sin avisar: **(1) lecturas propias** — en
+cuanto una ruta lea el estado *después* de escribir en su transacción, `this.prisma` **no ve su propia
+escritura**; hoy no pasa **por el orden de las líneas**, que es una garantía frágil; y **(2)
+aislamiento** — un `isolationLevel: 'Serializable'` (una línea, y suena a mejora) parte lectura y
+escritura en snapshots distintos.
+
+**(d) ⭐ Y el candado nuevo cazó un defecto REAL, mío, en el primer intento.** `prepareFxModePin`
+leía `fx_rate_mode` y `fx_manual_override_rate` por el `tx`… **pero `fx_buffer_pct` y la fila de
+Banxico seguían saliendo por `this.prisma`**: dos de las cuatro lecturas que alimentan **la proyección
+que se audita** (y el colchón es la mitad de «reconstruir el precio de aquel día», §M2-F.4). Estaban
+así porque una sustitución no aplicó y **ningún test lo notaba**. Corregido: las cuatro van por el
+`tx`.
+
+| Verificación | Resultado |
+|---|---|
+| Mutación **B** (handle: `tx` ⇒ `this.prisma`) contra **FX-22** | 🔴 **roja** (21 lecturas bajo el candado por el handle de fuera). Restaurada 🟢 |
+| Mutación **C** (orden: leer antes de la transacción, candado puesto) contra **FX-20** | 🔴 **roja**, 2 fallos. Restaurada 🟢 |
+| Suite completa tras el arreglo de (d) | **256 suites / 3 936 tests verdes** |
+
+⚠️ **Sigue en pie lo dicho en §7:** `test/integration/fx-mode.e2e-spec.ts` está **escrito y no
+corrido** (aquí no hay Postgres). El candado real de `pg_advisory_xact_lock` **solo lo puede afirmar
+QA con el stack levantado**; lo que la unitaria afirma es la semántica, no el motor.

@@ -6648,6 +6648,9 @@ export class BuylistService implements OnModuleInit {
   private async sendItemRejectedMail(
     item: {
       id: string;
+      // §31.6b — el folio del eyebrow del correo 4. Es la llave con la que el vendedor escribe a
+      // soporte, y este correo es justo el que le pide escribir a soporte.
+      sellRequestId: string;
       finish: Finish;
       sellRequest?: { user?: { email: string; name: string; locale: string | null } | null } | null;
       card?: { name: string; number: string; set?: { name: string } | null } | null;
@@ -6666,6 +6669,7 @@ export class BuylistService implements OnModuleInit {
       const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
       const msg = sellItemRejectedTemplate(
         {
+          folio: item.sellRequestId,
           cardName: item.card?.name ?? '',
           setName: item.card?.set?.name ?? '',
           cardNumber: item.card?.number ?? '',

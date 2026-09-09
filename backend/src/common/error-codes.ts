@@ -502,6 +502,24 @@ export const ErrorCode = {
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',
 
+  // ── MODO del tipo de cambio (v1.63/v1.63.1 · API_CONTRACT §M2-F · ARCHITECTURE §4.43) ──
+  // Las DOS mitades del invariante I-FX4 («no existe manual sin número»), disparadas por la MISMA
+  // regla cruzada en las DOS puertas que escriben la tasa:
+  //  · `PUT /admin/fx/mode {mode:"manual"}` SIN tasa manual guardada — no hay número al que volver.
+  //    `details: { savedManualRate: null }`. **El modo NO cambia.** 422.
+  FX_MANUAL_RATE_MISSING: 'FX_MANUAL_RATE_MISSING',
+  //  · `PUT /admin/settings {"fxManualOverrideRate": null}` con el modo RESUELTO en `manual` —
+  //    borrarlo dejaría «manual sin número», que caería al fallback duro de 18 por la puerta de
+  //    atrás. **Sin escritura parcial.** 422.
+  FX_MANUAL_RATE_REQUIRED: 'FX_MANUAL_RATE_REQUIRED',
+  // v1.63.1 (hallazgo de seguridad) — `PUT /admin/fx/mode {mode:"auto"}` con
+  // `automatic.status === "missing"` y SIN `acknowledgeNoAutomaticRate: true`. Es el ÚNICO caso en
+  // que el resultado del interruptor lo elige una CONSTANTE ESCONDIDA (el fallback de 18): sin fila
+  // de Banxico, un clic lleva de 19.0 a 18 — ~5% instantáneo sobre todo el catálogo, en los DOS
+  // sentidos. `details: { currentRate, fallbackRate: 18 }`. **El modo NO cambia.** 422.
+  // ⛔ NO se pide con `stale`: ahí hay un número real que el humano puede ver y juzgar.
+  FX_NO_AUTOMATIC_RATE: 'FX_NO_AUTOMATIC_RATE',
+
   // Sellado / producto cerrado (v1.23-sealed-sales) — endpoints FEATURE-FLAGGED de §2-S.
   // El dial que gobierna el endpoint (`sealed_value_trend` / `sealed_restock_alerts`) está en `off`.
   // Se sirve como 404 (el recurso no existe públicamente hasta encender el flag). API_CONTRACT §2-S.

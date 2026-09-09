@@ -14,7 +14,19 @@ describe('SettingsService.update — validación de diales (fix #2)', () => {
   beforeEach(() => {
     // v2.1.6 (P48-B1): `update()` escribe DENTRO de una `$transaction` (el «todo o nada» que su
     // comentario prometía y no cumplía). El mock la ejecuta con el mismo cliente.
-    prisma = { configSetting: { upsert: jest.fn().mockResolvedValue({}) } };
+    // v1.63 (I-FX2/I-FX4, §M2-F.5): escribir `fxManualOverrideRate` obliga a `update()` a LEER el
+    // estado previo (la fila del modo, la de la tasa y la última `FxRate` de Banxico) para pinnear
+    // el modo ANTES de aplicar la escritura. El mock devuelve «tabla vacía» ⇒ los defaults de
+    // código (`fx_rate_mode = "legacy"`, sin override) ⇒ resolución legacy ⇒ `auto`.
+    // v1.63.2 (S-FX-1): escribir el valor del FX toma además la **puerta única** con
+    // `pg_advisory_xact_lock` DENTRO de la transacción (`lockFxGate`), y relee el estado por el mismo
+    // handle. El mock lo acepta como un no-op: aquí no hay concurrencia que serializar — la carrera
+    // se mide, con exclusión mutua de verdad, en `test/fx.mode-switch.spec.ts` (FX-20).
+    prisma = {
+      configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
+      fxRate: { findFirst: jest.fn().mockResolvedValue(null) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+    };
     prisma.$transaction = jest.fn(async (cb: (tx: unknown) => unknown) => cb(prisma));
     service = new SettingsService(prisma as unknown as PrismaService);
   });

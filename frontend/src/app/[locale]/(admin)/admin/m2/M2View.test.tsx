@@ -44,8 +44,10 @@ describe('M2View · Catálogo y precios', () => {
     expect(screen.getByRole('heading', { name: /Catálogo \(cartas nuevas/ })).toBeInTheDocument();
     // «Avanzado» es un <summary> plegado por defecto.
     expect(screen.getByText(/Avanzado — operaciones pesadas/)).toBeInTheDocument();
-    // FX carga async desde el mock.
-    expect(await screen.findByText('18.4200')).toBeInTheDocument();
+    // FX carga async desde el mock. El servidor falso arranca en el estado REAL de producción
+    // (§30: 19.0000 fijado a mano y ninguna fila de Banxico), así que la cifra que RIGE es ésa.
+    // (la cifra sale DOS veces a propósito: la que rige arriba y la columna MANUAL de §30.3)
+    expect((await screen.findAllByText('19.0000')).length).toBeGreaterThan(0);
   });
 
   it('lista la cola de precio pendiente desde la API', async () => {
@@ -473,34 +475,22 @@ describe('M2View · Catálogo y precios', () => {
   });
 
 
-  // ---- FX · guardar SOLO el colchón (#13, v1.14-price-ingest) ----
-  it('guardar solo el colchón (buffer) llama a updateFx SIN rate y muestra el mensaje claro', async () => {
-    const spy = vi.spyOn(api, 'updateFx').mockResolvedValue({
-      rate: 18.42,
-      bufferPct: 5,
-      source: 'banxico',
-      effectiveDate: '2026-08-17',
-    });
+  // ---- FX · el colchón se MUESTRA aquí y se EDITA en Ajustes (§30.1, §30.3d) ----
+  /**
+   * La tarjeta de §30 saca el editor del colchón de M2: *«se muestra y se dice dónde se
+   * cambia»*, y ⛔ en reposo la tarjeta **no tiene formularios**. El editor no desapareció del
+   * producto —eso dejaría un dial de DINERO sólo tocable con `curl`—: volvió a **M10 · Ajustes**,
+   * donde su candado vive (`M10View.test.tsx`, «el colchón del tipo de cambio SÍ se edita aquí»).
+   */
+  it('§30.1: M2 muestra el colchón de SOLO LECTURA y dice dónde se edita (⛔ sin campo ni guardar)', async () => {
     renderWithProviders(<M2View />, 'es');
-    // La sección FX carga async; el input del colchón aparece cuando llega el mock.
-    const bufferInput = await screen.findByLabelText('Nuevo colchón %');
-    // Ambos vacíos → el botón está deshabilitado.
-    expect(screen.getByRole('button', { name: 'Fijar override' })).toBeDisabled();
-
-    fireEvent.change(bufferInput, { target: { value: '5' } });
-    // Con la tasa vacía pero el colchón capturado, el botón se habilita (antes exigía ambos).
-    const saveBtn = screen.getByRole('button', { name: 'Fijar override' });
-    expect(saveBtn).toBeEnabled();
-    fireEvent.click(saveBtn);
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    // Manda SOLO el colchón: sin `rate` en el payload.
-    expect(spy).toHaveBeenCalledWith({ bufferPct: 5 });
-    expect(spy.mock.calls[0][0]).not.toHaveProperty('rate');
-
-    expect(
-      await screen.findByText('Colchón actualizado; se conservó la tasa vigente.'),
-    ).toBeInTheDocument();
+    // El colchón vigente se pinta…
+    expect(await screen.findByText('3.0 %')).toBeInTheDocument();
+    // …y la ayuda dice dónde se cambia.
+    expect(screen.getByText(/Se edita en Ajustes/)).toBeInTheDocument();
+    // ⛔ Y aquí ya no hay ni campo ni botón de guardar para el colchón.
+    expect(screen.queryByLabelText('Nuevo colchón %')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fijar override' })).not.toBeInTheDocument();
   });
 
   // ---- P-33: el selector de «proveedor de respaldo» se RETIRÓ del panel ----

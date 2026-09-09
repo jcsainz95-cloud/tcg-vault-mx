@@ -3,6 +3,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SettingsService } from './settings.service';
+import { SettingKey } from './settings.constants';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -37,7 +38,7 @@ export class SettingsController {
     // no dejaba entrada en la bitácora — en el endpoint que gobierna IVA, comisiones, topes AML y el
     // umbral de INE. Con el `auditWithin`, efecto y bitácora **commitean o revierten juntos**: es
     // imposible que exista uno sin el otro, en cualquier orden de fallo.
-    await this.settings.update(body, userId, async (tx, applied) => {
+    await this.settings.update(body, userId, async (tx, applied, extra) => {
       await this.audit.log(
         {
           actorUserId: userId,
@@ -49,6 +50,25 @@ export class SettingsController {
         },
         tx,
       );
+      // ⭐ v1.63 (§M2-F.4, candado FX-13) — si esta escritura MATERIALIZÓ o CAMBIÓ `fx_rate_mode`
+      // (I-FX2: escribir la tasa manual pinnea el modo), deja ADEMÁS la entrada `fx.mode.change`,
+      // en esta MISMA transacción. Sin ella, auditar por `action=fx.mode.change` no sería completo:
+      // los cambios de modo entrados por esta puerta quedarían escondidos dentro de un
+      // `settings.update`, y habría que saber por dónde entró el cambio para encontrarlo.
+      if (extra?.fxPin?.materialized) {
+        await this.audit.log(
+          {
+            actorUserId: userId,
+            actorRole: role,
+            action: 'fx.mode.change',
+            entityType: 'ConfigSetting',
+            entityId: SettingKey.FX_RATE_MODE,
+            before: extra.fxPin.before,
+            after: extra.fxPin.after,
+          },
+          tx,
+        );
+      }
     });
     return this.settings.getAllDto();
   }

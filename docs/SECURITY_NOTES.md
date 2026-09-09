@@ -7564,3 +7564,446 @@ gate de dependencias y la configuración del optimizador de imágenes se verifiq
 y no por delta de código — de otro modo, el mismo hueco vuelve a colarse en la próxima ronda.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-08 · delta `f04f2dc..fdec257` · **APROBADO-CON-CONDICIONES**
+
+---
+
+# PASE BLUE TEAM FOCALIZADO — §M2-F v1.63.1 «el interruptor del tipo de cambio» · candidato `97f3bcf` · 2026-09-09
+
+## VEREDICTO: **APROBADO-CON-CONDICIONES**
+
+> **Del delta en sí: 0 críticos, 0 altos.** El acuse que yo mismo pedí en la revisión de diseño
+> **está implementado y aguanta**: no encontré **ninguna** petición única que lo esquive. Lo que sí
+> encontré es **una** vía que lo esquiva con **dos peticiones a la vez** (§3.1, **Media**), más tres
+> cosas menores.
+>
+> **La condición NO viene del delta.** Viene de las dependencias del backend: el **gate de seguridad
+> del propio repo está en rojo hoy** (`security/scripts/audit-npm.sh` ⇒ *«vulnerabilidades que
+> bloquean el gate»*, 2 altas por herramienta). Y no lo provocó este cambio: el delta **no toca ni
+> una línea de `package.json`**. Es exactamente la lección de proceso que dejé escrita el pase
+> pasado —*auditar dependencias por calendario, no por delta de código*— y que **no quedó enrutada**
+> (§3.6, §3.7).
+>
+> **¿Hace falta el red team? SÍ. Recomiendo lanzarlo antes de publicar** (§6). La lectura del
+> orquestador es correcta y la suscribo con un motivo medido, no de principio.
+
+---
+
+## 0. Para quien decide si esto se publica *(sin tecnicismos)*
+
+Este cambio añade **un interruptor** en el panel del dueño: *«el precio en pesos, ¿lo saco de
+Banxico (automático) o del número que yo tecleé (manual)?»*. Antes ese interruptor **no existía**:
+el sistema adivinaba el modo mirando si había un número guardado, y por eso «apagar el manual»
+obligaba a **borrar** la tasa del dueño.
+
+Por qué importa: **ese interruptor mueve el precio de todo el catálogo en la siguiente lectura**, lo
+que vendemos **y** lo que compramos. Medido por mí sobre una carta de referencia de **USD 10.00**
+con el colchón del 3 %:
+
+| Tasa que rige | Lo que vale esa carta |
+|---|---|
+| manual **19.0000** | **MX$195.70** |
+| Banxico **18.2000** | **MX$187.46** |
+| **fallback escondido 18** (nadie lo tecleó) | **MX$185.40** |
+
+Un clic entre la primera y la tercera fila es **−5.26 % sobre el catálogo entero**, en los dos
+sentidos. Por eso, en la revisión de diseño, exigí que el sistema **pida una confirmación explícita**
+cuando el interruptor va a caer en ese 18 inventado. **Verifiqué que esa confirmación existe y que
+funciona**: probé **diez** formas de saltármela (mandar `false`, no mandar nada, mandar el texto
+`"true"`, el número `1`, un objeto, una lista, `null`…) y **las diez fallan cerradas**: el modo no
+cambia y el precio no se mueve. También probé **seis** formas de entrar por la otra puerta
+(`PUT /admin/settings`) y ninguna llega al interruptor.
+
+**Lo único que sí lo esquiva** son **dos peticiones simultáneas** de un administrador máximo, una
+por cada puerta (§3.1). El sistema queda en un estado que el propio contrato declara imposible
+(«manual sin número»), el precio cae al 18 escondido **sin la confirmación**, y —esto es lo grave—
+**la bitácora escribe un número falso**: dice que quedó en 19.0000 cuando el sistema está cotizando
+a 18. La bitácora es el mecanismo oficial para reconstruir «qué precio regía aquel día»; ahí mentiría.
+No es un ataque de alguien de fuera: hacen falta credenciales de **administrador máximo**, las de
+mayor confianza del negocio. Por eso es **Media** y no bloquea, pero hay que arreglarlo.
+
+**Lo demás del cambio está bien hecho, y lo comprobé pieza por pieza:** el interruptor solo lo toca
+el administrador máximo (el rol de bóveda no llega por ninguna de las dos puertas), cada movimiento
+queda firmado con **quién, cuándo y los dos números** (incluido el colchón, sin el cual el precio de
+aquel día no se puede reconstruir), y el 18 escondido **ya no se firma como si lo hubiera tecleado
+el dueño** —ahora dice `fallback`, que era una mentira que yo mismo mandé arreglar—. **Cero secretos
+filtrados** en las líneas nuevas (el token de Banxico está en juego y el repo es público).
+
+---
+
+## 1. Alcance, modo y **lo que NO medí**
+
+- **Candidato:** `97f3bcf`, copia **congelada** en `…/scratchpad/rev`. Delta revisado:
+  `75841f6..97f3bcf` (9 commits) = **8 ficheros de código backend** + 4 de test + 4 documentos.
+  **Backend puro:** ni una línea de `frontend/src`. Ni `package.json`, ni Prisma, ni migraciones.
+- **Modo:** lectura dirigida del código; **ejecución de la suite del delta**
+  (`backend/test/fx.mode-switch.spec.ts` ⇒ **43/43 verde**); **tres sondas adversarias propias**
+  que escribí para este pase (30 casos, fuera del repo, en el scratchpad) sobre las clases
+  **reales** (`FxService`, `SettingsService`, los dos controllers, `AuditService`) contra la base en
+  memoria del arnés; una **sonda aparte del `ValidationPipe` real** de Nest con cuerpos hostiles;
+  `npm audit --omit=dev` en backend y frontend + el **gate propio del repo**; barrido de secretos
+  sobre todas las líneas añadidas.
+- ⛔ **NO levanté el stack HTTP.** Los puertos `:3000`/`:3111` son de otros stacks y no se tocan.
+  Consecuencia honesta: **todo lo que digo sobre concurrencia es una simulación**, no una medición
+  contra Postgres. La carrera de §3.1 la reproduje con latencia simulada en el arnés; **su ventana
+  real en Postgres no la medí** (ver §6).
+- ⛔ **No medí la pantalla.** La tarjeta del FX (§30 del sistema de diseño) **no está implementada**
+  en este delta. Lo que el dueño *verá* —incluido el aviso de `modeResolvedFrom: "legacy"`— hoy
+  **solo existe en el JSON**. Es relevante y lo digo en §5.
+- ⛔ **No hay `PENTEST_NOTES` de este delta**: el red team no ha corrido sobre §M2-F. Este pase **no
+  consolida hallazgos ofensivos ajenos**, los produce por su cuenta. Ver §6.
+
+---
+
+## 2. Lo que verifiqué **yo**, y cómo *(con evidencia)*
+
+### 2.1 ⭐ El acuse (`acknowledgeNoAutomaticRate`) — **AGUANTA**
+
+Implementación: `backend/src/modules/pricing/fx.service.ts:240-248` (la precondición) y
+`backend/src/modules/pricing/pricing.controller.ts:894-905` (el tipado del campo).
+
+- **Diez cuerpos hostiles** contra `PUT /admin/fx/mode {mode:"auto"}` con la tasa de Banxico
+  ausente, partiendo de manual 19.0: `ausente`, `false`, `"true"`, `"1"`, `1`, `{}`, `[true]`,
+  `null`, `"TRUE"`, `new Boolean(true)`. **Los diez fallan cerrados** (`422 FX_NO_AUTOMATIC_RATE` o
+  `422 VALIDATION_ERROR`), la fila `fx_rate_mode` **sigue en `"manual"`**, la tasa vigente sigue en
+  **19.0** y el peso de la carta **no se movió** (MX$195.70 antes y después). Cero entradas
+  `fx.mode.change`.
+- **El `ValidationPipe` real** (`whitelist: true, transform: true`) probado aparte con los mismos
+  cuerpos: el texto `"true"` **llega como texto** (y el handler lo rechaza con 422, no lo coerciona),
+  y **`__proto__` / `constructor` no contaminan nada** (ni el DTO ni `Object.prototype`).
+- **Con `true` de verdad:** `200`, `source: "fallback"`, `rate: 18`, y la bitácora trae
+  `after.acknowledgedNoAutomaticRate: true`. El salto medido: **MX$195.70 → MX$185.40 (−5.26 %)**,
+  ahora **con** un humano firmándolo.
+- **La otra puerta no llega:** `PUT /admin/settings` con `fxRateMode`, `fx_rate_mode`, `fxMode`,
+  `mode`, `__proto__` y `constructor` ⇒ **422 «unknown setting key»** en los seis, modo intacto.
+  La lista blanca usa `hasOwnProperty` y el acumulador de errores es `Object.create(null)`
+  (`settings.service.ts:311-323`): las dos puntas de la contaminación de prototipo están cerradas.
+- **Y no se pide con `stale`** (correcto según contrato): ahí hay un número real que el humano puede
+  juzgar. Verificado por la suite del delta.
+
+### 2.2 ⭐ Autorización — **las dos puertas cerradas**
+
+- `PUT /admin/fx/mode` vive en `FxController` (`pricing.controller.ts:827-828`), con
+  `@Roles(Role.super_admin)` **a nivel de clase**; `PUT /admin/settings` igual
+  (`settings.controller.ts:13-14`). `RolesGuard` resuelve con `getAllAndOverride([handler, class])`
+  ⇒ **el decorador de clase aplica al método nuevo**; sin `@Roles` propio no hay hueco.
+- Guardas globales y **en el orden correcto**: throttler → JWT → roles → email → money-out
+  (`app.module.ts:74-78`). Sin token ⇒ 401 **antes** de cualquier efecto.
+- **`vault_operator` no llega por ninguna de las dos**: `Role` tiene tres valores
+  (`customer | vault_operator | super_admin`) y ambos controllers exigen el tercero.
+- **Re-probadas las vías de escalada del pase anterior**, sobre este árbol: no hay ruta que
+  solape `admin/fx/mode` (un solo controller la declara); JWT fijado a **HS256** al verificar
+  (`jwt-auth.guard.ts:52`, anti *algorithm-confusion*); revocación por `tokenVersion` + estado de
+  cuenta en cada petición; `PUT /users/me` **no** es mass-assignment (`UpdateMeDto` solo declara
+  `name/phone/locale`, y el `whitelist` borra `role` — reprobado en este pase); **no existe ningún
+  endpoint que cambie el rol de un usuario**, así que la ventana de «rol viejo dentro del token»
+  no es alcanzable desde la API; CORS con lista de orígenes (nunca `origin: true`); secretos JWT
+  obligatorios y con longitud mínima (`config/env.validation.ts:32-65`), sin default en código.
+
+### 2.3 ⭐ La bitácora — **los tres matices entraron, y los tres funcionan**
+
+- **`bufferPct` dentro de `before`/`after`:** sí (`common/fx-mode.ts:281-297`). Comprobado en tres
+  flips consecutivos: las tres entradas traen `actorUserId`, `effectiveRate` numérico y `bufferPct`
+  en las dos mitades. La idempotente (pedir el modo que ya rige) **también deja entrada**, como
+  manda la regla 2.
+- **`fx.mode.change` venga de la puerta que venga (FX-13):** sí. `PUT /admin/settings` que
+  materializa el modo emite **además** la entrada dedicada, en la misma transacción
+  (`settings.controller.ts:53-70` + `settings.service.ts:410-465`). Y **no la inventa** cuando no
+  hubo cambio de modo (solo colchón, o reescribir la tasa con el modo ya explícito): verificado.
+- **`fx.override` transaccional:** sí. Forcé el fallo del `upsert` del ajuste ⇒
+  **0 entradas de bitácora, 0 filas escritas, `fx_rate_mode` sin materializar**. No queda efecto sin
+  entrada ni entrada sin efecto.
+- **El borrado de la fila `fx_rate_mode` (mi riesgo residual): SÍ quedó visible.** Medido con el
+  mismo estado y sin la fila: con fila `{mode:auto, rate:18, modeResolvedFrom:"setting"}`; sin fila
+  `{mode:manual, rate:19.0, modeResolvedFrom:"legacy"}`. **El dinero se mueve y el único testigo es
+  `modeResolvedFrom` + la contradicción con la última entrada `fx.mode.change`.** Es lo que se
+  aceptó por escrito y **es la mitigación correcta**, con un pero de §5: hoy ese testigo **solo
+  viaja en el JSON**, porque la tarjeta que lo pinta no existe todavía.
+
+### 2.4 La mentira del 18 — **cerrada**
+
+Recorrí las cinco ramas de `projectFxState()` (`common/fx-mode.ts:213-229`): `manual` con número ⇒
+`manual`; `auto` con fila de Banxico ⇒ `banxico`; `auto` sin fila ⇒ **`fallback`**; `manual` sin
+número (solo alcanzable por BD directa o por §3.1) ⇒ **`fallback`**; fila de Banxico con valor no
+finito ⇒ `missing` ⇒ **`fallback`**. **No encontré ningún camino donde el 18 inventado salga
+firmado como `manual` o como `banxico`.** Además, la fila `FxRate {source:'manual'}` que escribe
+`PUT /admin/fx` **ya no rige nunca** (I-FX5, lector con filtro en un solo sitio,
+`common/fx-mode.ts:267-272`) — verificado por la vía real: guardar 25 en modo `auto` y volver a leer
+sigue dando 18.2. *Excepción teórica, §3.4: una fila de Banxico con valor `0` o negativo **sí** se
+firmaría como `banxico`; solo se alcanza escribiendo en la BD a mano.*
+
+### 2.5 Integridad del refresco — **cerrada**
+
+`updated | unchanged | failed` + motivo, y la bitácora registra **el resultado**, no la tasa de
+vuelta (`pricing.controller.ts:920-931`). Probado: mismo valor ⇒ `unchanged`; valor distinto ⇒
+`updated`; sin token ⇒ `failed/no_token` con `fetchedRate: null`. **Ya no se audita como refresco un
+fetch que no ocurrió.** *No se puede ensuciar el rastro «a voluntad»* en el sentido de hacerle decir
+algo falso: el discriminante lo fija el servidor a partir del fetch. Lo que sí se puede es
+**ruido** (§3.5) y lo que no tiene freno es **el número que llegue** (§3.2).
+
+### 2.6 Secretos — **cero**
+
+Barrido sobre **todas** las líneas del delta (`sk_live|sk_test|whsec_|AKIA|BEGIN …|api_key|secret|
+password|token=…`): **ninguna coincidencia con valor real**. Solo aparecen **nombres** de variable
+(`BANXICO_SIE_TOKEN`, `FX_API_KEY`) y un `'tok'` de prueba en el test. El token viaja en la cabecera
+`Bmx-Token` hacia `https://www.banxico.org.mx` (host **fijo en el código**, sin SSRF) y **no se
+imprime en ningún log ni en ninguna respuesta** —los tres `logger.warn` del camino de fallo escriben
+el código HTTP o el mensaje de red, nunca el token—. `.env` sigue fuera del repo (`git ls-files`
+solo devuelve `.env.example`; `.gitignore:3-10`).
+
+### 2.7 Mi pendiente **A-1** — **confirmado cerrado**
+
+Lo verifiqué yo, no lo di por bueno: `frontend/package.json` ⇒ `next: 15.5.24`, `sharp: ^0.35.4`;
+`frontend/next.config.mjs:47-50` ⇒ **dos** hosts (`images.pokemontcg.io`, `images.scrydex.com`),
+ambos con `protocol: 'https'` **y `port: ''`**, sin comodín; y
+`cd frontend && npm audit --omit=dev` ⇒ **`found 0 vulnerabilities`**. **A-1 cerrada.**
+⚠️ **Pero la lección de proceso que iba con ella NO quedó enrutada** — §3.6 y §3.7.
+
+---
+
+## 3. Hallazgos, por severidad
+
+### 3.1 · **MEDIA** — `S-FX-1`: dos peticiones a la vez esquivan el acuse y **la bitácora escribe un número falso**
+
+- **Dónde:** `backend/src/modules/pricing/fx.service.ts:227-252` (lee el estado y decide **fuera** de
+  su `$transaction`) y `backend/src/modules/settings/settings.service.ts:350,410-424`
+  (`prepareFxModePin` lee y valida I-FX4 **fuera** de la transacción, por diseño declarado).
+- **Qué es:** las dos puertas hacen *comprobar-y-luego-actuar* sin candado ni relectura dentro de la
+  transacción. Cada una es correcta en solitario; **juntas no**.
+- **PoC (reproducido, con latencia de commit simulada de 0/1/3 ms — las tres iguales):** estado
+  `mode:"auto"`, tasa manual guardada `19.0`. En paralelo:
+  1. `PUT /admin/fx/mode {"mode":"manual"}` — ve que hay tasa guardada ⇒ permitido.
+  2. `PUT /admin/settings {"fxManualOverrideRate": null}` — ve que el modo es `auto` ⇒ permitido.
+
+  **Las dos devuelven `200`.** Estado final medido: fila `fx_rate_mode = "manual"`, fila de la tasa
+  `= null` ⇒ `{ rate: 18, source: "fallback", mode: "manual", manual: { rate: null, applied: true } }`.
+  Es **exactamente** el estado que I-FX4 declara imposible («no existe manual sin número») y el
+  **único** que cae al 18 escondido, **sin el acuse que este pase añadió para ese salto**.
+- **Y lo peor, que es la bitácora:** la entrada `fx.mode.change` de ese momento dice
+  `after: { mode:"manual", effectiveRate: 19, source:"manual" }` mientras el sistema **está cotizando
+  a 18 con `source: fallback`**. El registro que el contrato declara **mecanismo oficial de
+  reconstrucción** (§M2-F.4) queda con **un número que nunca rigió**.
+- **Impacto en dinero:** el catálogo entero queda **~5 % por debajo** de lo que el operador creyó
+  fijar (MX$195.70 esperados → **MX$185.40** reales por la carta de USD 10), en lo que vendemos **y**
+  en lo que pagamos por comprar. No sale dinero de ninguna cuenta por sí solo: **cotiza mal**, en los
+  dos sentidos, hasta que alguien lo note. **En datos de cliente: ningún impacto.**
+- **Quién puede hacerlo:** solo con credenciales de **`super_admin`** (dos peticiones, o dos
+  administradores, o un panel que dispare las dos a la vez). **No es alcanzable desde fuera.** Por
+  eso es Media y **no bloquea** por mi propia regla (bloqueo = crítico/alto).
+- **Rol dueño: backend.** *Dirección, no receta:* que la comprobación y la escritura vivan en la
+  **misma** transacción con la fila bloqueada (`SELECT … FOR UPDATE` sobre `fx_rate_mode` y
+  `fx_manual_override_rate`, o un *advisory lock* único para toda escritura de FX), de modo que la
+  segunda petición **relea** el estado ya cambiado. Si toca el contrato, pasa por **arquitecto**.
+- **Candado sugerido (para que no vuelva):** un `FX-14` que lance las dos puertas en paralelo y exija
+  que el estado final **nunca** sea `mode:"manual"` con `manual.rate: null`.
+
+### 3.2 · **MEDIA** — `S-FX-2`: la tasa que **llega de Banxico** no tiene ni tope ni banda de cordura, y la que teclea el humano sí
+
+- **Dónde:** `backend/src/modules/pricing/fx.service.ts:338-343`. Única validación:
+  `isFinite(parsed) && parsed > 0`.
+- **La asimetría:** la tasa **tecleada** por el dueño está acotada a `(0, 1000]` desde el pase
+  `FX-B1` (`settings.constants.ts:552-564`, cierre de un hallazgo mío anterior). La tasa **fetcheada**
+  no tiene techo — y **desde este delta esa fila es lo único que rige en modo `auto`** (I-FX5), así
+  que su peso aumentó.
+- **PoC (medido):** con la respuesta de Banxico devolviendo `"9999"` ⇒ `outcome: "updated"`,
+  `state.rate: 9999`, `source: "banxico"`, y la misma carta pasa de **MX$187.46 a MX$102,989.70**
+  (**×549**), sin acuse, sin alarma y sin tope. Segundo caso: `"1,234.5"` entra como **1234.5**
+  (`raw.replace(',', '')` quita **solo la primera** coma) — o sea, **un cambio de formato en el
+  origen** (por ejemplo una coma decimal, `"19,5"` → **195**) **multiplica el catálogo por diez sin
+  que nada lo frene**.
+- **Impacto:** en `auto`, un dato corrupto de la fuente externa reprecia todo el catálogo hacia
+  arriba (compramos y vendemos a precios absurdos) o hacia abajo. Aguas abajo, `fxSnapshotSafe`
+  (`pricing.service.ts:691-703`) solo descarta `NaN`/`≤0`: **una tasa absurda pero positiva pasa
+  entera**. Riesgo adicional de desbordar el `Int` de `priceMxnCents` en la ingesta, que es
+  literalmente el motivo por el que se puso el techo de 1000 en la puerta humana.
+- **Preexistente**, no lo introduce el delta — pero el delta lo hace **más consecuente** y es el
+  momento de cerrarlo. **Rol dueño: backend** (banda de cordura al parsear: rechazar fuera de
+  `(0, MAX_FX_MANUAL_OVERRIDE_RATE]` y, mejor aún, avisar si se desvía >X % de la última fila; el
+  `outcome` ya tiene sitio para `invalid_payload`). Si la banda debe normarse, pasa por
+  **arquitecto**.
+
+### 3.3 · **BAJA** — `S-FX-3`: el interruptor **puede** escribir sin bitácora si alguien lo llama sin el hook
+
+- **Dónde:** `fx.service.ts:223-226,263` — `audit` es **opcional** en `FxWriteContext`; si no se pasa,
+  el modo se escribe igual y **no queda entrada**.
+- **Medido:** `fx.setMode('auto', {})` ⇒ fila `fx_rate_mode = "auto"`, **0 entradas** de bitácora.
+- **Hoy no es explotable:** el único llamante es `FxController`, que siempre pasa `auditWithin()`.
+  Pero el contrato promete que *«es imposible que exista un cambio de modo sin su entrada»*, y esa
+  promesa **la sostiene una convención, no el tipo**. El día que un job o un script de soporte llame
+  a `setMode`, el modo cambia sin autor.
+- **Rol dueño: backend** (hacer el hook obligatorio en la firma, o que el servicio escriba la entrada
+  por sí mismo).
+
+### 3.4 · **BAJA** — `S-FX-4`: una tasa de Banxico `0` o negativa **regiría y se firmaría como `banxico`**
+
+- **Dónde:** `common/fx-mode.ts:192-193` y `:221` — la rama `auto` solo exige `autoRate != null`
+  y finito; no exige `> 0`, al contrario que `parseManualRate` (`:137-141`), que sí.
+- **Alcance real:** el escritor del job rechaza `≤ 0`, así que **solo se alcanza escribiendo la fila
+  en la BD a mano**. Aguas abajo degrada bien (`fxSnapshotSafe` descarta `≤0` y usa el precio
+  congelado), pero el panel mostraría `rate: 0` etiquetado **`banxico`**, que es la clase de mentira
+  que este pase vino a quitar.
+- **Rol dueño: backend** (defensa en profundidad: la rama `auto` debería exigir `> 0` y, si no,
+  caer a `fallback`).
+
+### 3.5 · **BAJA** — `S-FX-5`: `POST /admin/fx/refresh` sin freno propio y con su bitácora fuera de la transacción
+
+- Sin `@Throttle` específico: aplica el global de **300/min** (`app.module.ts:44`). Un `super_admin`
+  (o un token robado suyo) puede disparar **300 llamadas por minuto a la API de Banxico** desde
+  nuestra IP: quema de cuota, posible bloqueo del proveedor y 300 entradas de bitácora de ruido.
+- La entrada `fx.refresh` se escribe **después** del `upsert` de la fila y **fuera** de transacción
+  (`pricing.controller.ts:920-931`): si falla el `audit.log`, queda la fila sin registro. Es el
+  patrón viejo, no lo empeora el delta; se anota por contraste con `fx.override`, que este pase **sí**
+  volvió transaccional.
+- **Rol dueño: backend** (throttle dedicado) con apoyo de **devops** si se prefiere en el borde.
+
+### 3.6 · **ALTA por herramienta / efectiva BAJA** — `S-DEP-1`: el gate de dependencias del propio repo **está en rojo**
+
+- **Medido hoy (2026-09-09) sobre el candidato:** `cd backend && npm audit --omit=dev` ⇒
+  **6 vulnerabilidades: 4 moderadas + 2 ALTAS**. Y el gate propio del repo,
+  `AUDIT_LEVEL=high ./security/scripts/audit-npm.sh`, imprime:
+  `✗ backend/: vulnerabilidades >= high detectadas` … `✗ npm audit encontró vulnerabilidades que
+  bloquean el gate`. `frontend/` ⇒ **0**.
+- **Qué son:** las dos **altas** son **`multer`** (4 avisos de denegación de servicio:
+  GHSA-wc9g-mqfw-jrwm, GHSA-qfvm-cv95-jqjf, GHSA-qvfw-j98x-7q72, GHSA-535w-7cp7-47q4), que entra como
+  dependencia **dura** de `@nestjs/platform-express@10.4.22`. Las moderadas son `qs` (dos avisos, vía
+  `express`/`body-parser`) y `@nestjs/core` GHSA-36xv-jgw5-4q75, ya registrada como `R-1`/`SEC-V-4` en
+  pases anteriores. **El fix que propone npm es `@nestjs/platform-express@12` — cambio mayor.**
+- **Riesgo efectivo, medido:** **bajo**. Busqué la superficie: **no hay una sola ruta multipart** en
+  el backend (`grep` de `FileInterceptor`/`multer` en `src/` ⇒ nada; las subidas van por **URL
+  prefirmada**, `uploads.controller.ts:23-26`), así que los avisos de `multer` **no son alcanzables
+  hoy**. Los de `qs` sí tocan el parseo de query de cualquier petición, y son **moderados**.
+- **Pero el hecho de proceso es duro:** *el gate bloqueante del repo, que devops declaró **required
+  check**, está rojo en el candidato que se quiere publicar*, y **este delta no tocó dependencias**.
+  Aparecieron por calendario.
+- **Rol dueño: devops** (ventana de mantenimiento: subir NestJS, o registrar la excepción
+  justificada en `docs/TECH_DEBT.md` como el propio script indica) con **backend** para el bump.
+
+### 3.7 · **PROCESO** — `S-PROC-1`: mi lección de calendario **no quedó enrutada**
+
+Cerré el pase anterior pidiendo que *«el gate de dependencias se verifique **por calendario** y no
+por delta de código»*. **Verificado hoy: no está.** `.github/workflows/security-scheduled.yml`
+(cron semanal, lunes 06:00 UTC) contiene **solo DAST** (ZAP + nuclei contra staging); el `npm audit`
+vive únicamente en `security-sast.yml`, que corre **por push/PR**. Un repo en pausa —o un delta que
+no toca `package.json`, como éste— **no vuelve a mirar sus dependencias**. §3.6 es la demostración.
+**Rol dueño: devops** — añadir el job de `npm audit --omit=dev` (y `trivy fs`) al cron semanal, con
+aviso que abra tarea aunque no bloquee el cron.
+
+---
+
+## 4. Deuda de seguridad **aceptada** (no bloqueante)
+
+| # | Qué | Impacto si se materializa | Disparador para abordarla |
+|---|---|---|---|
+| `D-FX-1` | **Borrar a mano la fila `fx_rate_mode`** re-arma la resolución legacy: el modo cambia en la siguiente lectura, **sin autor y sin evento** | El precio del catálogo se mueve (medido: 18 → 19.0, +5.5 %) y nadie firma el cambio | Ya declarado y **mitigado con `modeResolvedFrom`**. Se cierra del todo cuando exista **acceso auditado a la BD** (o una alerta de «entorno maduro que resuelve *legacy*»). Ver §5.2 |
+| `D-FX-2` | La fila `FxRate {source:'manual'}` se sigue escribiendo aunque **ya no rige nunca** | Ninguno hoy (traza forense útil). Riesgo: que un lector futuro vuelva a mirarla sin filtro | Cuando se toque el escritor por cualquier otro motivo. El candado `FX-11` protege el lector |
+| `D-FX-3` | `BANXICO_SIE_TOKEN` **falta en producción** (`D-OPS-1`/`P-63`); además `.env.example:616` trae el literal `CHANGE_ME`, que **no** es vacío ⇒ el refresco reportaría `http_error` en vez de `no_token` | La tasa automática nunca se refresca; hoy **por fin se ve** (`refresh.outcome: failed`) | **devops + humano**: cargar el token en el secret manager antes de operar en `auto` |
+| `R-1` / `SEC-V-4` | `@nestjs/core` GHSA-36xv-jgw5-4q75 y `qs` (moderadas) | Aviso de inyección no alcanzable hoy (sin SSE); DoS de parseo de query | Ventana de mantenimiento junto con §3.6 |
+| `SEC-B62-2` | `vitest`/`vite` con avisos críticos **solo en devDependencies** | No viajan al sitio del cliente (`--omit=dev` ⇒ 0) | Próximo mantenimiento |
+
+---
+
+## 5. 🚩 Banderas para el humano
+
+1. 🚩 **El testigo de §2.3 hoy no lo ve nadie.** `modeResolvedFrom` es la mitigación aceptada del
+   riesgo `D-FX-1`, y **viaja correctamente en cada respuesta** — pero **la tarjeta que lo pinta no
+   existe todavía** (este delta es backend puro; §30 del sistema de diseño está diseñado, no
+   construido). Hasta que **frontend** la construya, «se ve en el panel» significa *«se ve leyendo el
+   JSON a mano»*. **No es un fallo del delta**: es una condición para dar por buena la mitigación.
+2. 🚩 **Antes de operar con dinero real: pentest de tercero + bug bounty.** Sin cambios respecto a
+   pases anteriores, y este delta **añade el primer endpoint de escritura que reprecia todo el
+   catálogo**: entra en el alcance de ese pentest.
+3. 🚩 **Validación legal pendiente (sin cambios):** custodia de bienes de terceros y tratamiento de
+   PII (INE/CLABE) bajo la LFPDPPP siguen sin revisión de un abogado. **Este delta no toca PII**: no
+   añade, no lee y no registra ni un dato de cliente (la bitácora solo guarda tasas, colchón y el id
+   del administrador que actuó).
+4. 🚩 **Decisión de negocio, no de seguridad:** el fallback duro **18** es un número inventado que
+   nadie tecleó y que hoy solo se alcanza con un acuse explícito. Vale la pena preguntarse si la
+   conducta correcta no sería **no cotizar** en vez de cotizar con una constante — pero eso es del
+   **arquitecto** y del dueño, y §M2-F ya lo decidió al revés a propósito (*«ocultar dinero que sí
+   tenemos no es money-safe; declararlo sí»*). Lo dejo dicho, no lo reabro.
+
+---
+
+## 6. ⭐ ¿Hace falta el red team? — **SÍ. Lánzalo.**
+
+**Suscribo la lectura del orquestador, y añado el motivo medido.** El pase anterior no necesitó red
+team porque **no había superficie nueva**. Aquí sí la hay, y de la peor clase:
+
+1. **Un endpoint de escritura nuevo** (`PUT /admin/fx/mode`) cuyo efecto es **reprecio inmediato de
+   todo el catálogo**, en los dos sentidos. La regla de la casa es que el dinero se prueba **atacando**,
+   no leyendo.
+2. **Mi hallazgo `S-FX-1` es precisamente lo que un blue team no puede cerrar solo.** Lo reproduje
+   con **latencia simulada en una base en memoria**; **cuál es la ventana real contra Postgres bajo
+   carga —y si hay otras combinaciones de las dos puertas que rompan otro invariante— exige un
+   target vivo.** Yo digo *«es posible»*; el red team tiene que decir *«es así de fácil»*.
+3. **Nada de lo que probé pasó por HTTP de verdad**: ni guardas encadenadas en vivo, ni throttler, ni
+   `body-parser`, ni el filtro de excepciones. Mis 10 payloads hostiles y mis 6 claves alternas los
+   probé contra el `ValidationPipe` aislado y contra los controllers directamente. **Es fuerte, pero
+   no es una prueba de extremo a extremo.**
+4. El contrato promete cosas **verificables solo atacando**: que el `422` no deje escritura parcial,
+   que el modo no cambie cuando la precondición falla, y que **auditar por `fx.mode.change` sea
+   completo**.
+
+**Alcance que le pediría al red team** (staging o local; nunca producción sin ventana):
+`PUT /admin/fx/mode` y `PUT /admin/settings` con los **tres roles** y sin token · el acuse bajo
+**concurrencia real** · **la carrera de §3.1 contra Postgres** (y variantes: dos flips simultáneos,
+flip + `PUT /admin/fx`, flip + refresco) · completitud de la bitácora con inyección de fallos ·
+abuso de `POST /admin/fx/refresh` y **respuesta hostil de Banxico** (§3.2) · y la vieja pregunta que
+sigue viva: **una orden en curso mientras el interruptor se mueve** (que el importe cobrado sea el
+congelado).
+
+---
+
+## 7. Ruteo por rol *(nadie corrige fuera de su carpeta)*
+
+| Rol | Qué le toca |
+|---|---|
+| **backend** | `S-FX-1` **(Media, el importante)** · `S-FX-2` (Media) · `S-FX-3`, `S-FX-4`, `S-FX-5` (Bajas). Ninguno exige cambio de contrato salvo que se quiera **normar** la banda de cordura de §3.2 ⇒ entonces **arquitecto** primero. |
+| **devops** | `S-DEP-1` (gate rojo: bump de NestJS o excepción justificada en `TECH_DEBT.md`) · `S-PROC-1` (**`npm audit --omit=dev` al cron semanal**, no solo por PR) · `D-FX-3` (`BANXICO_SIE_TOKEN` en el secret manager). |
+| **frontend** | Que la tarjeta §30 **pinte `modeResolvedFrom: "legacy"`** y distinga `source: "fallback"` de `manual`/`banxico`: es la mitigación aceptada de `D-FX-1` (§5.1). |
+| **arquitecto** | Solo si se norma la banda de §3.2, o si el arreglo de `S-FX-1` necesita tocar la redacción de I-FX4. |
+| **pentester** | El alcance de §6. |
+
+---
+
+## 8. VEREDICTO
+
+### **APROBADO-CON-CONDICIONES**
+
+**El delta `75841f6..97f3bcf` no tiene hallazgos críticos ni altos.** El acuse que devolvió este
+diseño la vez pasada **está implementado y resiste**: probé diez formas de esquivarlo por su puerta y
+seis por la puerta alterna, y **las dieciséis fallan cerradas, con el peso del catálogo sin moverse**.
+La autorización está cerrada en las dos puertas (`vault_operator` no llega por ninguna), la bitácora
+lleva los tres matices que pedí y los cumple —incluido el `fx.mode.change` **venga de la puerta que
+venga**—, el 18 escondido **dejó de firmarse como del dueño**, el refresco ya no afirma fetches que
+no ocurrieron, y **no hay un solo secreto en las líneas nuevas**. Mi pendiente **A-1** está cerrado y
+lo verifiqué yo.
+
+**Las condiciones, en orden de importancia:**
+
+1. **Lanzar el red team sobre §M2-F antes de publicar** (§6). Es un endpoint de escritura nuevo que
+   mueve el precio de todo el catálogo, y mi hallazgo de concurrencia **está simulado, no medido
+   contra la base real**.
+2. **`S-DEP-1`: poner verde el gate del repo** —o registrar la excepción justificada en
+   `docs/TECH_DEBT.md`, que es lo que el propio script propone—. Hoy `audit-npm.sh` **bloquea**, y
+   la regla 10 de `CLAUDE.md` dice que devops solo despliega con el gate de seguridad en verde. El
+   riesgo efectivo es **bajo** (las dos altas son de `multer`, y **no hay ninguna ruta multipart** en
+   el backend); lo que no es defendible es publicar con el gate en rojo **sin decirlo**.
+3. **`S-FX-1` con dueño y fecha** (backend). No bloquea —hacen falta credenciales de administrador
+   máximo y dos peticiones a la vez— pero deja el sistema en un estado que el contrato declara
+   imposible **y mete un número falso en el registro que sirve para reconstruir precios**. Que no se
+   quede en «anotado».
+4. **`S-PROC-1`** (devops): el `npm audit` al **calendario**. Es la segunda vez que lo pido, y §3.6
+   es la prueba de que hacía falta.
+
+**Si el humano prefiere publicar ya:** es defendible **solo** si (2) se registra como excepción
+explícita y (1) corre inmediatamente después contra staging — pero mi recomendación, y la razón por
+la que este veredicto no es un APROBADO limpio, es que **el red team corra antes**: este delta es la
+primera vez que un clic del panel puede mover el precio de todo el inventario, y eso se verifica
+atacándolo.
+
+**Lo que no diré es que aquí hay «0 hallazgos»:** hay **2 Medias** (una de ellas defeteando la
+protección que este mismo pase añadió), 3 Bajas, y un gate de dependencias en rojo que nadie provocó
+y que nadie estaba mirando.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-09 · candidato `97f3bcf` · §M2-F v1.63.1 ·
+**APROBADO-CON-CONDICIONES**

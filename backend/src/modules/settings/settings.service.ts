@@ -12,6 +12,21 @@ import {
   SettingKeyType,
   validateBuylistCrossDials,
 } from './settings.constants';
+// v1.63 (§M2-F.1/§M2-F.5, §4.43c) — la regla del MODO de la FX. Se importa la función PURA de
+// `common/` (no `FxService`, que depende de este servicio): I-FX2 e I-FX4 aplican a las DOS puertas
+// que escriben `fx_manual_override_rate`, y ésta es una de las dos.
+import {
+  FxAuditState,
+  FxRateMode,
+  FxStateDTO,
+  FxReadHandle,
+  SettingRowReader,
+  latestBanxicoFxRate,
+  lockFxGate,
+  projectFxState,
+  resolveFxMode,
+  toFxAuditState,
+} from '../../common/fx-mode';
 
 /** Cuánto de un valor se imprime en el inventario de arranque (un dial puede ser una tabla). */
 const INVENTORY_VALUE_TRUNCATE = 160;
@@ -192,14 +207,20 @@ export class SettingsService implements OnModuleInit {
   }
 
   /** Lee un dial; si no existe fila, devuelve el default. */
-  async get<T = unknown>(key: SettingKeyType): Promise<T> {
-    const row = await this.prisma.configSetting.findUnique({ where: { key } });
+  /**
+   * ⚠️ **v1.63.2 (S-FX-1) — el segundo parámetro es el HANDLE de lectura.** Por defecto, el cliente
+   * normal. Cuando quien llama está **dentro de la transacción que tomó `lockFxGate`**, pasa el `tx`:
+   * validar el estado del dinero contra una lectura hecha por otra conexión **es validar el estado de
+   * antes del candado**, que es el defecto entero de S-FX-1.
+   */
+  async get<T = unknown>(key: SettingKeyType, db: SettingRowReader = this.prisma): Promise<T> {
+    const row = await db.configSetting.findUnique({ where: { key } });
     if (row) return row.valueJson as T;
     return SETTING_DEFAULTS[key] as T;
   }
 
-  async getNumber(key: SettingKeyType): Promise<number> {
-    return Number(await this.get<number>(key));
+  async getNumber(key: SettingKeyType, db: SettingRowReader = this.prisma): Promise<number> {
+    return Number(await this.get<number>(key, db));
   }
 
   async getString(key: SettingKeyType): Promise<string> {
@@ -276,7 +297,15 @@ export class SettingsService implements OnModuleInit {
     actorUserId?: string,
     // v2.1.6 (P48-B1): la auditoría entra a la MISMA transacción. Se pasa como callback para no
     // acoplar `SettingsService` a `AuditService` (el módulo de settings no lo importa hoy).
-    auditWithin?: (tx: Prisma.TransactionClient, applied: Record<string, unknown>) => Promise<void>,
+    //
+    // v1.63 (§M2-F.4): el callback recibe un TERCER argumento con el pin del modo de la FX cuando
+    // esta escritura lo materializó o lo cambió, para que el llamante emita ADEMÁS la entrada
+    // `fx.mode.change` DENTRO de esta misma transacción. Los callers de 2 argumentos siguen valiendo.
+    auditWithin?: (
+      tx: Prisma.TransactionClient,
+      applied: Record<string, unknown>,
+      extra: SettingsUpdateExtra,
+    ) => Promise<void>,
   ): Promise<Record<string, unknown>> {
     // ⚠️ `Object.create(null)` y NO `{}`. El acumulador de errores se indexa con claves CONTROLADAS
     // POR EL ATACANTE, y sobre un objeto normal `errors['__proto__'] = 'unknown setting key'` **no
@@ -323,8 +352,57 @@ export class SettingsService implements OnModuleInit {
     // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
     await this.assertBuylistCrossDials(validated);
 
+    // ⚠️ **v1.63.2 · S-FX-1 — el pin y su precondición se movieron DENTRO de la transacción.**
+    // Estaban fuera «a propósito» (para no escribir nada si la precondición falla), y esa razón
+    // **sigue siendo cierta pero ya se cumple sola**: lanzar dentro revierte. Lo que la versión
+    // anterior no podía cumplir es lo otro: la comprobación de I-FX4 se evaluaba sobre una lectura
+    // hecha **antes** de la transacción, y la otra puerta (`PUT /admin/fx/mode`) escribe **otra
+    // fila**, así que las dos commiteaban y quedaba «manual sin número» ⇒ **fallback duro de 18**.
+    // ⭐⭐ **v1.63.3 · R2 (techlead) — EL COLCHÓN ES LA CUARTA PUERTA DEL FX, y hasta aquí no lo era.**
+    //
+    // `tocaElFx` solo miraba `FX_MANUAL_OVERRIDE_RATE`, así que un `PUT` que **solo** mueve el colchón
+    // **no tomaba el candado**. Y el colchón no es un dial cualquiera: el precio convertido es
+    // **`tasa × (1 + colchón)`** — `FxAuditState` lleva `bufferPct` justamente porque *sin el colchón
+    // la entrada no permite reconstruir el precio de aquel día*, que es la única pregunta que se le va
+    // a hacer a ese registro.
+    //
+    // ⇒ Con la puerta abierta, un `PUT /admin/fx/mode` concurrente commitea en esa ventana y la
+    // entrada `fx.override` queda afirmando un `mode`/`effectiveRate`/`source` **que nunca
+    // coexistieron con ese colchón**. Es `S-FX-1` en miniatura, por la cuarta puerta, y **en la única
+    // ruta donde el código prometía por escrito que no podía pasar**.
+    // *Un comentario que afirma «aquí no puede pasar nada» es peor que el hueco: detiene al siguiente
+    // que mire.* Por eso se cierra la ruta en vez de corregir la frase.
+    const tocaElFx = validated.some(
+      (v) =>
+        v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE || v.settingKey === SettingKey.FX_BUFFER_PCT,
+    );
+
     // TODO O NADA DE VERDAD: los upserts y la bitácora, en una sola transacción.
     return this.prisma.$transaction(async (tx) => {
+      // ⭐⭐ La puerta única del FX. Se toma **solo** cuando este `PUT` toca el valor del tipo de
+      // cambio: los otros veinte diales no comparten invariante con nadie y no tienen por qué
+      // serializarse entre sí.
+      if (tocaElFx) await lockFxGate(tx);
+
+      // ⭐⭐ Y **se lee DESPUÉS del candado, por el mismo `tx`**: es la mitad que hace que el candado
+      // sirva. Con la lectura fuera, la transacción que espera su turno entra y escribe el estado
+      // que vio antes de esperar — el mismo estado imposible, veinte milisegundos más tarde.
+      const fxPin = await this.prepareFxModePin(validated, tx);
+
+      // ⭐ El pin va DENTRO de la misma transacción que el valor: es imposible que quede el número
+      // nuevo sin su modo materializado (que es, exactamente, el estado en el que la resolución
+      // legacy volvería a inferir `manual` del valor).
+      if (fxPin?.materialized) {
+        await tx.configSetting.upsert({
+          where: { key: SettingKey.FX_RATE_MODE },
+          create: {
+            key: SettingKey.FX_RATE_MODE,
+            valueJson: fxPin.pinnedMode as unknown as object,
+            updatedBy: actorUserId,
+          },
+          update: { valueJson: fxPin.pinnedMode as unknown as object, updatedBy: actorUserId },
+        });
+      }
       const applied: Record<string, unknown> = {};
       for (const { dtoKey, settingKey, value } of validated) {
         await tx.configSetting.upsert({
@@ -336,13 +414,113 @@ export class SettingsService implements OnModuleInit {
       }
       // Dentro del alcance del fallo: si esto revienta, los diales revierten; si un dial revienta,
       // no queda bitácora de un cambio que no ocurrió.
-      if (auditWithin) await auditWithin(tx, applied);
+      if (auditWithin) await auditWithin(tx, applied, { fxPin: fxPin ?? undefined });
       return applied;
     });
   }
 
-  async getRaw(key: SettingKeyType): Promise<unknown> {
-    return this.get(key);
+  /**
+   * ⭐⭐ **I-FX2 — el «pin del statu quo», y el ORDEN ES LA REGLA** (§M2-F.1, ARCHITECTURE §4.43c).
+   *
+   * Toda escritura de `fx_manual_override_rate` **materializa** `fx_rate_mode` con el modo resuelto
+   * **ANTES** de aplicar esa escritura. Aplica a las DOS puertas (hecho F5) porque las dos pasan por
+   * `update()`: `PUT /admin/settings` directamente y `PUT /admin/fx` vía `FxService.setManual`.
+   *
+   * ### ⚠️ Por qué «antes» no es un detalle de implementación
+   * Resolver **después** de escribir el valor hace que la resolución legacy conteste `manual`
+   * —porque el número **ya está**— y el pin escriba `"manual"`: **exactamente el defecto que I-FX2
+   * cierra**. El camino es real, no teórico: entorno en `"legacy"` **y sin tasa manual** (el estado
+   * de producción tras el deploy en cualquier entorno que nunca fijó override) ⇒ el **primer**
+   * `PUT /admin/fx { rate: 25 }` pondría el 25 a regir y **repreciaría el catálogo al instante**
+   * (la conversión USD→MXN es VIVA, hecho F3). Candado: **FX-2(a)**.
+   *
+   * ### I-FX4, mitad «borrar el número»
+   * `fxManualOverrideRate: null` con el modo RESUELTO en `manual` ⇒ `422 FX_MANUAL_RATE_REQUIRED`,
+   * **sin escritura parcial**. *«Manual sin número» es el único estado que reintroduciría el fallback
+   * duro de 18 por la puerta de atrás.*
+   * ⚠️ **v1.63.2 (S-FX-1): esto se evalúa DENTRO de la transacción y DESPUÉS de `lockFxGate`.** Antes
+   * corría fuera, sobre una lectura previa, y la otra puerta podía invalidarla entre la comprobación
+   * y el commit — con las dos peticiones devolviendo `200` y el dinero cayendo al fallback.
+   *
+   * ### Cuándo NO pinnea
+   * Si el `PUT` no trae `fxManualOverrideRate` (p. ej. solo el colchón, fix #13), no se toca el modo:
+   * la regla es *«toda escritura DEL VALOR pinnea»*, no *«toda llamada al endpoint»*.
+   */
+  private async prepareFxModePin(
+    validated: { dtoKey: string; settingKey: SettingKeyType; value: unknown }[],
+    /** ⭐ v1.63.2 (S-FX-1): el handle de la transacción que YA tomó `lockFxGate`. */
+    tx: FxReadHandle,
+  ): Promise<FxModePin | null> {
+    const entry = validated.find((v) => v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE);
+    const bufferEntry = validated.find((v) => v.settingKey === SettingKey.FX_BUFFER_PCT);
+    // ⭐ v1.63.3 · R2 — se proyecta también cuando el `PUT` **solo** mueve el colchón. Tomar el
+    // candado no basta: el `PUT /admin/fx` audita con la lectura que hizo **antes** de entrar, así que
+    // sin esta proyección de dentro el `before`/`after` de `fx.override` siguen describiendo un
+    // instante que la otra puerta ya movió. *Serializar sin releer commitea el mismo estado imposible,
+    // solo que más tarde* — es la mitad de I-FX6 que no es el lock.
+    if (!entry && !bufferEntry) return null;
+
+    // ⚠️ ESTADO PREVIO. Se lee ANTES de cualquier upsert de esta llamada **y DESPUÉS del candado**.
+    const rawModeBefore = await this.get<unknown>(SettingKey.FX_RATE_MODE, tx);
+    const rawManualBefore = await this.get<unknown>(SettingKey.FX_MANUAL_OVERRIDE_RATE, tx);
+    const resolved = resolveFxMode(rawModeBefore, rawManualBefore);
+
+    if (entry?.value === null && resolved.mode === 'manual') {
+      throw BusinessException.validation(
+        'FX_MANUAL_RATE_REQUIRED',
+        'Cannot clear the manual FX rate while the FX mode is manual: switch to automatic first ' +
+          '(PUT /admin/fx/mode { mode: "auto" }).',
+        { mode: resolved.mode, modeResolvedFrom: resolved.from, savedManualRate: rawManualBefore },
+      );
+    }
+
+    // El colchón RESULTANTE (puede venir en el mismo `PUT`): sin él, la entrada de bitácora no
+    // permite reconstruir el precio de aquel día (§M2-F.4).
+    // ⚠️ v1.63.2b — **por el `tx`, como las otras dos.** Estas dos lecturas se me quedaron en
+    // `this.prisma` en el primer pase de S-FX-1, y **alimentan la proyección que se AUDITA** (el
+    // colchón es la mitad de «reconstruir el precio de aquel día»). Lo cazó FX-22, que es el candado
+    // que el coordinador pidió: *el arnés medía el orden, no el handle*.
+    const bufferBefore = Number(await this.get<number>(SettingKey.FX_BUFFER_PCT, tx));
+    const bufferAfter = bufferEntry ? Number(bufferEntry.value) : bufferBefore;
+    const latestBanxico = await latestBanxicoFxRate(tx);
+
+    const before = projectFxState({
+      rawMode: rawModeBefore,
+      rawManualRate: rawManualBefore,
+      bufferPct: bufferBefore,
+      latestBanxico,
+    });
+    // Estado RESULTANTE, proyectado con la MISMA función pura (no hay segunda cuenta): el modo ya
+    // pinneado + el valor nuevo. Se usa para la bitácora y para `applied` de `fx.override`.
+    // ⚠️ v1.63.3 · R2 — **sin `entry` el valor manual NO cambia**: `rawManualBefore`. Escribir aquí
+    // `entry.value` con `entry` ausente proyectaría `undefined` y el «después» del colchón afirmaría
+    // que alguien borró la tasa.
+    const after = projectFxState({
+      rawMode: resolved.mode,
+      rawManualRate: entry ? entry.value : rawManualBefore,
+      bufferPct: bufferAfter,
+      latestBanxico,
+    });
+
+    return {
+      pinnedMode: resolved.mode,
+      // Se escribe la fila solo si NO estaba ya en ese valor explícito: «materializar» es convertir
+      // una resolución legacy (o basura, o la ausencia de fila) en un modo escrito. Reescribir el
+      // mismo valor explícito no materializa ni cambia nada, y emitiría una entrada de bitácora que
+      // afirmaría un cambio de modo que no ocurrió.
+      // ⚠️ v1.63.3 · R2 — **solo la escritura DEL VALOR pinnea** (I-FX2). Un `PUT` que únicamente
+      // mueve el colchón entra aquí a proyectar bajo el candado, pero ⛔ **no materializa el modo**:
+      // la regla es *«toda escritura del valor pinnea»*, no *«toda llamada que tome la puerta»*.
+      materialized: entry != null && rawModeBefore !== resolved.mode,
+      before: toFxAuditState(before),
+      after: toFxAuditState(after),
+      previousState: before,
+      resultingState: after,
+    };
+  }
+
+  async getRaw(key: SettingKeyType, db: SettingRowReader = this.prisma): Promise<unknown> {
+    return this.get(key, db);
   }
 
   /**
@@ -413,6 +591,38 @@ export class SettingsService implements OnModuleInit {
       minimumRequestCents: problem.minimumRequestCents,
     });
   }
+}
+
+/**
+ * v1.63 (§M2-F.4) — lo que `update()` le cuenta al llamante sobre el pin del modo de la FX, para que
+ * emita la entrada `fx.mode.change` en la MISMA transacción.
+ *
+ * ⚠️⚠️ **UNA SOLA ACCIÓN LO CUBRE TODO.** Por I-FX2, `PUT /admin/settings` **también** escribe la
+ * fila del modo, y su entrada natural es `settings.update` ⇒ quien auditara por
+ * `action=fx.mode.change` no vería todos los cambios de modo. NORMATIVO: toda escritura que
+ * MATERIALICE o CAMBIE `fx_rate_mode` —venga de la puerta que venga— emite ADEMÁS una entrada
+ * `fx.mode.change`. *Una bitácora sobre la que hay que saber por dónde entró el cambio no es una
+ * bitácora: es un acertijo.*
+ */
+export interface FxModePin {
+  pinnedMode: FxRateMode;
+  /** `true` si esta escritura convirtió una resolución legacy/ausente/corrupta en un modo escrito. */
+  materialized: boolean;
+  before: FxAuditState;
+  after: FxAuditState;
+  /**
+   * ⭐ v1.63.2 (S-FX-1 · FX-D4) — estado PREVIO completo, **leído bajo el candado**. `PUT /admin/fx`
+   * audita con éste en vez de con su propia lectura de antes de entrar: dos cuentas del «mismo»
+   * instante son dos instantes distintos en cuanto hay otra puerta escribiendo.
+   */
+  previousState: FxStateDTO;
+  /** Estado RESULTANTE completo (lo usa `PUT /admin/fx` para `applied` y para su respuesta). */
+  resultingState: FxStateDTO;
+}
+
+/** Tercer argumento del `auditWithin` de `update()`. Aditivo: los callers viejos lo ignoran. */
+export interface SettingsUpdateExtra {
+  fxPin?: FxModePin;
 }
 
 /**

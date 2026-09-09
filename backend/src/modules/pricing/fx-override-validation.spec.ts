@@ -7,12 +7,18 @@ import {
   SettingKey,
   validateFxManualOverrideRate,
 } from '../settings/settings.constants';
+import { FX_RATE_BAND_TEXT, FX_RATE_MIN } from '../../common/fx-mode';
 
 /**
  * FX-B1 / FX-B2 (pentest, hallazgos BAJOS): el dial `fx_manual_override_rate` debe estar acotado
  * arriba (evita overflow de `Int priceMxnCents` en price-ingest → DoS) y validado con la MISMA regla
  * en las DOS puertas que lo escriben: `PUT /admin/settings` (SETTING_VALIDATORS) y `PUT /admin/fx`
  * (FxController). Ninguna puede quedar más permisiva que la otra.
+ *
+ * ⚠️ **v1.63.4 (`FX-24`, §M2-F.8): la banda gana PISO y pasa a `[1, 1000]`.** Este fichero cubre la
+ * puerta TECLEADA; la **paridad con el parser de la SIE** —que es donde la mutación realista vive,
+ * porque el arreglo se hace en dos ficheros— la asierta `FX-24(b)` en `test/fx.mode-switch.spec.ts`
+ * como **identidad**, no como dos copias de esta lista.
  */
 
 const ABSURD = 1e9; // override absurdo que desbordaría la columna Int priceMxnCents (~2.1e9).
@@ -44,9 +50,30 @@ describe('FX-B1/B2 — validateFxManualOverrideRate (helper compartido)', () => 
     expect(validateFxManualOverrideRate(Infinity)).not.toBeNull();
   });
 
-  it('el mensaje de error nombra el rango claro (0, MAX]', () => {
+  /**
+   * ⭐⭐ **v1.63.4 (`FX-24`) — EL PISO, que hasta v1.63.3 no existía.**
+   * `0.05` es la **inversa del par** (dólares por peso), el vector que produce que la fuente publique
+   * el par al revés; con él, una carta de USD 100 pasa de MX$ 1,879 a MX$ 0.01.
+   */
+  it('⭐ rechaza SUB-PISO: la inversa del par, el ÷1000 y el `0.999999`', () => {
+    expect(validateFxManualOverrideRate(1e-7)).not.toBeNull();
+    expect(validateFxManualOverrideRate(0.0001)).not.toBeNull();
+    expect(validateFxManualOverrideRate(0.05)).not.toBeNull();
+    expect(validateFxManualOverrideRate(0.999999)).not.toBeNull();
+  });
+
+  it('⭐ acepta el valor EN el piso `1` (extremo inferior CERRADO)', () => {
+    expect(validateFxManualOverrideRate(FX_RATE_MIN)).toBeNull();
+  });
+
+  it('el mensaje de error nombra los DOS extremos de la banda `[1, 1000]` (FX-24(d))', () => {
     const msg = validateFxManualOverrideRate(ABSURD);
     expect(msg).toContain(String(MAX_FX_MANUAL_OVERRIDE_RATE));
+    // ⚠️ Hasta v1.63.3 sólo nombraba el techo: quien tecleaba `0.05` recibía un error que no
+    // explicaba nada de lo que acababa de pasar.
+    expect(msg).toContain(String(FX_RATE_MIN));
+    expect(msg).toContain(FX_RATE_BAND_TEXT);
+    expect(validateFxManualOverrideRate(0.05)).toContain(FX_RATE_BAND_TEXT);
   });
 });
 
@@ -80,20 +107,25 @@ describe('FX-B2 — PUT /admin/fx (FxController.setManual) aplica el MISMO rango
     expect(setManualSpy).not.toHaveBeenCalled();
   });
 
-  it('rechaza 0 y negativos', async () => {
+  it('rechaza 0, negativos y SUB-PISO (FX-24: la banda es la misma en las dos puertas)', async () => {
     await expect(controller.setManual({ rate: 0 } as never, 'admin-1')).rejects.toBeDefined();
     await expect(controller.setManual({ rate: -5 } as never, 'admin-1')).rejects.toBeDefined();
+    await expect(controller.setManual({ rate: 0.05 } as never, 'admin-1')).rejects.toBeDefined();
+    await expect(controller.setManual({ rate: 0.999999 } as never, 'admin-1')).rejects.toBeDefined();
     expect(setManualSpy).not.toHaveBeenCalled();
   });
 
-  it('acepta override en el límite y fraccional (persiste)', async () => {
+  it('acepta override en los DOS límites y fraccional (persiste)', async () => {
     await controller.setManual({ rate: MAX_FX_MANUAL_OVERRIDE_RATE } as never, 'admin-1');
+    await controller.setManual({ rate: FX_RATE_MIN } as never, 'admin-1'); // ⭐ el piso, CERRADO
     await controller.setManual({ rate: 18.5 } as never, 'admin-1');
-    expect(setManualSpy).toHaveBeenCalledTimes(2);
+    expect(setManualSpy).toHaveBeenCalledTimes(3);
   });
 
   it('acepta solo bufferPct sin pinnear la tasa (rate omitido)', async () => {
     await controller.setManual({ bufferPct: 5 } as never, 'admin-1');
-    expect(setManualSpy).toHaveBeenCalledWith(undefined, 5);
+    // v1.63 (§M2-F.4): el 3er argumento es el contexto de actor+bitácora TRANSACCIONAL. Lo que este
+    // candado mide sigue siendo lo mismo: `rate` viaja `undefined` ⇒ no se pinnea la tasa.
+    expect(setManualSpy).toHaveBeenCalledWith(undefined, 5, expect.objectContaining({ actorUserId: 'admin-1' }));
   });
 });

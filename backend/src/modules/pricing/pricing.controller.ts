@@ -13,7 +13,8 @@ import {
   INVENTORY_PUBLISH_PORT,
   InventoryPublishPort,
 } from '../inventory/inventory-publish.port';
-import { FxService } from './fx.service';
+import { FxAuditHook, FxService } from './fx.service';
+import { FxRateMode } from '../../common/fx-mode';
 import { SettingsService } from '../settings/settings.service';
 import {
   SettingKey,
@@ -109,11 +110,30 @@ class OverrideDto {
  * opcionales pero el controller exige al menos uno (422 si el body no trae ninguno).
  */
 class FxDto {
-  // FX-B2: fraccional permitido (FxRate es Decimal(12,6)); el rango [min, MAX] lo aplica el
+  // FX-B2: fraccional permitido (FxRate es Decimal(12,6)); la BANDA `[1, 1000]` la aplica el
   // validador compartido `validateFxManualOverrideRate` en setManual(), MISMA regla que
   // PUT /admin/settings. Aquí solo se exige que sea número finito (rechaza strings/NaN).
+  // ⚠️ v1.63.4 (`FX-24`): estas dos líneas decían «el rango `[min, MAX]`» nombrando un `min` que **no
+  // existía en el código** — la banda era `(0, MAX]`, sin piso. Ya no es una promesa: el piso es `1`
+  // y lo aplica `isFxRateInBand` (§M2-F.8), el mismo predicado que la puerta de Banxico.
   @IsOptional() @IsNumber() rate?: number;
   @IsOptional() @IsInt() @Min(0) bufferPct?: number;
+}
+
+/**
+ * v1.63 (§M2-F.2) — body de `PUT /admin/fx/mode`. ⛔ **No lleva `rate`.**
+ *
+ * ⚠️ Los dos campos van con `@Allow()` y se validan **en el handler**: el `ValidationPipe` global
+ * corre con `whitelist: true` (sin `@Allow()` las claves se BORRARÍAN antes de llegar) y devuelve
+ * **400**, mientras que el contrato exige **422 VALIDATION_ERROR** para un `mode` ausente o fuera
+ * del enum. Mismo patrón que el `rate` de `FxDto`.
+ *
+ * `acknowledgeNoAutomaticRate` **NO es una tasa: es un ACUSE** (§M2-F.3 regla 5), así que I-FX3
+ * sigue intacto — este endpoint sigue sin poder escribir un número.
+ */
+class FxModeDto {
+  @Allow() mode?: unknown;
+  @Allow() acknowledgeNoAutomaticRate?: unknown;
 }
 
 /**
@@ -801,6 +821,11 @@ export class PricingController {
 
 /**
  * M2 — FX (super_admin). Separado por prefijo de ruta.
+ *
+ * ### v1.63 (§M2-F) — las CUATRO rutas devuelven el MISMO `FxStateDTO`
+ * `GET /admin/fx`, `PUT /admin/fx`, `PUT /admin/fx/mode` y `POST /admin/fx/refresh` (ésta con el
+ * bloque `refresh` encima). **Un solo DTO para las cuatro**, por el mismo motivo que
+ * `VariantPricingDTO` es uno solo: que ninguna superficie pueda discrepar sobre el mismo dinero.
  */
 @Controller('admin/fx')
 @Roles(Role.super_admin)
@@ -810,37 +835,111 @@ export class FxController {
     private readonly audit: AuditService,
   ) {}
 
+  /** Callback de bitácora TRANSACCIONAL que el servicio invoca dentro de su `$transaction`. */
+  private auditWithin(): FxAuditHook {
+    return async (tx, entries) => {
+      for (const entry of entries) await this.audit.log(entry, tx);
+    };
+  }
+
   @Get()
   current() {
     return this.fx.getCurrent();
   }
 
   @Put()
-  async setManual(@Body() dto: FxDto, @CurrentUser('id') userId: string) {
+  async setManual(
+    @Body() dto: FxDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role?: Role,
+  ) {
     // #13: al menos uno de rate/bufferPct. Omitir `rate` guarda SOLO el colchón (no pinnea tasa).
     if (dto.rate == null && dto.bufferPct == null) {
       throw BusinessException.validation('VALIDATION_ERROR', 'Provide rate and/or bufferPct');
     }
-    // FX-B1/FX-B2: mismo validador compartido que PUT /admin/settings → rango [min, MAX] idéntico
-    // en ambas puertas (esta NO queda más permisiva). Rechaza overrides absurdos que desbordarían
-    // `Int priceMxnCents` en price-ingest. `null`/omitido = no pinnea la tasa (solo colchón).
+    // FX-B1/FX-B2: mismo validador compartido que PUT /admin/settings → banda `[1, 1000]` IDÉNTICA
+    // en ambas puertas (esta NO queda más permisiva). Rechaza por arriba overrides absurdos que
+    // desbordarían `Int priceMxnCents` en price-ingest, y desde v1.63.4 (`FX-24`) también **por
+    // abajo**: `0.05` es la INVERSA del par, no el par. `null`/omitido = no pinnea (solo colchón).
     if (dto.rate != null) {
       const err = validateFxManualOverrideRate(dto.rate);
       if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'rate' });
     }
-    await this.fx.setManual(dto.rate, dto.bufferPct);
-    await this.audit.log({
+    // ⚠️ v1.63.1 (§M2-F.4): la bitácora de `fx.override` pasa a ir DENTRO de la transacción que
+    // escribe el ajuste — en modo `manual`, escribir el valor mueve el catálogo exactamente igual
+    // que el interruptor. Y la entrada la construye el servicio, que es quien conoce los DOS
+    // números y si el valor guardado RIGE (`applied`).
+    return this.fx.setManual(dto.rate, dto.bufferPct, {
       actorUserId: userId,
-      action: 'fx.override',
-      after: { rate: dto.rate ?? null, bufferPct: dto.bufferPct ?? null },
+      actorRole: role,
+      audit: this.auditWithin(),
     });
-    return this.fx.getCurrent();
+  }
+
+  /**
+   * ⭐⭐ `PUT /admin/fx/mode` — **el interruptor** (§M2-F.2). Req `{ mode, acknowledgeNoAutomaticRate? }`.
+   *
+   * ⛔ **No acepta `rate`, y es deliberado:** el punto de todo el pase es que el modo y el valor sean
+   * dos cosas; un endpoint que acepte los dos sería la quinta forma de volver a atarlos. Para poner
+   * una tasa **y** activarla son dos llamadas: `PUT /admin/fx { rate }` → `PUT /admin/fx/mode`.
+   *
+   * `mode` se valida **aquí y a mano** (no por `class-validator`) porque el contrato exige
+   * **422 VALIDATION_ERROR**, y el `ValidationPipe` global responde 400.
+   */
+  @Put('mode')
+  async setMode(
+    @Body() dto: FxModeDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') role?: Role,
+  ) {
+    const mode = dto.mode as FxRateMode;
+    if (mode !== 'auto' && mode !== 'manual') {
+      throw BusinessException.validation('VALIDATION_ERROR', 'mode must be one of auto|manual', {
+        field: 'mode',
+      });
+    }
+    if (
+      dto.acknowledgeNoAutomaticRate !== undefined &&
+      typeof dto.acknowledgeNoAutomaticRate !== 'boolean'
+    ) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'acknowledgeNoAutomaticRate must be a boolean',
+        { field: 'acknowledgeNoAutomaticRate' },
+      );
+    }
+    return this.fx.setMode(mode, {
+      acknowledgeNoAutomaticRate: dto.acknowledgeNoAutomaticRate === true,
+      actorUserId: userId,
+      actorRole: role,
+      audit: this.auditWithin(),
+    });
   }
 
   @Post('refresh')
-  async refresh(@CurrentUser('id') userId: string) {
-    const r = await this.fx.refreshFromBanxico();
-    await this.audit.log({ actorUserId: userId, action: 'fx.refresh', after: r });
-    return this.fx.getCurrent();
+  // ⚠️ **v1.63.4 — divergencia MEDIDA al cablear `FX-25(a)` por HTTP, y era vieja.** El contrato
+  // NORMA `200` (§M2-F.5: *«Res `200`: `FxStateDTO` + un bloque `refresh`»*) y `@Post` de Nest
+  // responde **`201`** por defecto ⇒ esta ruta llevaba devolviendo `201` desde siempre. Lo delator es
+  // que el comentario de abajo YA decía *«`200` también con `failed`»*: **el código no cumplía lo que
+  // su propio comentario afirmaba**, y nadie lo vio porque ningún test miraba el status de esta ruta
+  // —los tres candados del refresco (`FX-8`, `FX-9`, `FX-10`) miran el bloque `refresh`—.
+  // Manda el contrato sobre el código (regla de conflicto), y `200` es además lo correcto en
+  // semántica: **no se crea ningún recurso direccionable** (con `failed` no se escribe ni fila) y no
+  // hay `Location` que devolver. Mismo arreglo y mismo motivo que `POST /admin/pricing/override`.
+  @HttpCode(200)
+  async refresh(@CurrentUser('id') userId: string, @CurrentUser('role') role?: Role) {
+    const refresh = await this.fx.refreshFromBanxico();
+    // §M2-F.5: la bitácora registra el RESULTADO REAL, no el valor de vuelta. Antes, sin token, se
+    // auditaba el override como si Banxico lo hubiera traído.
+    await this.audit.log({
+      actorUserId: userId,
+      actorRole: role,
+      action: 'fx.refresh',
+      entityType: 'FxRate',
+      after: { outcome: refresh.outcome, reason: refresh.reason, fetchedRate: refresh.fetchedRate },
+    });
+    // `200` también con `failed`: la llamada completó y el estado devuelto es verdadero; lo que
+    // falló es la fuente externa. La UI está OBLIGADA a distinguirlo visualmente.
+    return { ...(await this.fx.getCurrent()), refresh };
   }
 }

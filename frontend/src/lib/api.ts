@@ -114,6 +114,8 @@ import type {
   IneUploadKeys,
   KycInfoDTO,
   FxDTO,
+  FxRateMode,
+  FxRefreshDTO,
   PriceIngestResponse,
   PendingPriceEntryDTO,
   PendingPriceQueueResponse,
@@ -3876,24 +3878,69 @@ export async function getFx(): Promise<FxDTO> {
  */
 export async function updateFx(input: { rate?: number; bufferPct?: number }): Promise<FxDTO> {
   if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx', { method: 'PUT', body: input });
-  // MOCK: si se omite `rate`, conserva la tasa vigente y la fuente (solo cambia el colchón);
-  // el override manual (`source=manual`) solo se marca cuando SÍ se fija una tasa.
-  const next: FxDTO = {
-    rate: input.rate ?? fx.mockFx.rate,
-    bufferPct: input.bufferPct ?? fx.mockFx.bufferPct,
-    source: input.rate != null ? 'manual' : fx.mockFx.source,
-    effectiveDate: new Date().toISOString().slice(0, 10),
-  };
-  fx.setMockFx(next);
-  return delay(next);
+  // MOCK (§M2-F.5 regla 1 · I-FX2): el número se GUARDA en `manual.rate`, pero ⛔ **guardar una
+  // tasa NO enciende el manual**: el modo lo decide `fx_rate_mode`, no el valor. En `auto`, la
+  // tasa que rige sigue siendo la de Banxico y `manual.applied` sigue en `false`.
+  // (Antes este mock ponía `source: 'manual'` al fijar un número: era la conducta v1.62.2, la
+  //  que el interruptor vino a derogar, y dejaba al simulador mintiendo distinto que el server.)
+  fx.setMockFxWorld({
+    ...fx.mockFxWorld,
+    manualRate: input.rate ?? fx.mockFxWorld.manualRate,
+    bufferPct: input.bufferPct ?? fx.mockFxWorld.bufferPct,
+  });
+  return delay(fx.mockFx);
 }
 
-/** Fuerza el fetch de FX a Banxico (contrato POST /admin/fx/refresh). */
-export async function refreshFx(): Promise<FxDTO> {
-  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx/refresh', { method: 'POST' });
-  const next: FxDTO = { ...fx.mockFx, source: 'banxico', effectiveDate: new Date().toISOString().slice(0, 10) };
-  fx.setMockFx(next);
-  return delay(next);
+/**
+ * ⭐ **EL INTERRUPTOR** — `PUT /admin/fx/mode` (contrato §M2-F.2, `super_admin`, DINERO).
+ *
+ * Cambia **el MODO**, y sólo el modo: ⛔ no acepta `rate` y ⛔ no escribe la tasa manual (I-FX3).
+ * Poner una tasa **y** activarla son **dos llamadas**, en este orden: `updateFx({ rate })` (guarda,
+ * no aplica) → `setFxMode({ mode: 'manual' })` (aplica). *Ese orden es money-safe por
+ * construcción: el paso intermedio no mueve un peso.*
+ *
+ * `acknowledgeNoAutomaticRate` **NO es una tasa: es un ACUSE** (§M2-F.3 regla 5). Sólo se manda
+ * cuando el humano confirmó el diálogo de §30.8 —pasar a automática **sin ninguna fila de
+ * Banxico**, que lleva a regir el valor de respaldo—; sin él, el servidor contesta
+ * `422 FX_NO_AUTOMATIC_RATE` y **el modo no cambia**.
+ */
+export async function setFxMode(input: {
+  mode: FxRateMode;
+  acknowledgeNoAutomaticRate?: true;
+}): Promise<FxDTO> {
+  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx/mode', { method: 'PUT', body: input });
+  try {
+    return await delay(fx.applyMockFxMode(input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Fuerza el fetch de FX a Banxico (contrato `POST /admin/fx/refresh`, §M2-F.5).
+ *
+ * ⚠️ Devuelve `FxRefreshDTO` = el `FxStateDTO` **+ el bloque `refresh`**, que es el que dice si
+ * el fetch OCURRIÓ. La firma anterior (`Promise<FxDTO>`) omitía ese bloque, así que ninguna
+ * pantalla ni ningún test podían distinguir un refresco fallido de uno bueno: es la mitad
+ * tipada del bloqueante B-2.
+ *
+ * El mock reproduce los TRES desenlaces (ver `setMockFxRefreshPlan`) y respeta las dos reglas
+ * del contrato: con `failed` **no se toca nada** del estado, y un refresco **no cambia el modo**
+ * ni la tasa manual — en `manual` sólo refresca la cifra de comparación.
+ */
+export async function refreshFx(): Promise<FxRefreshDTO> {
+  if (!config.useMocks) return apiRequest<FxRefreshDTO>('/admin/fx/refresh', { method: 'POST' });
+  const refresh = fx.mockFxRefreshBlock();
+  if (refresh.outcome === 'updated' && refresh.fetchedRate != null) {
+    fx.setMockFxWorld({
+      ...fx.mockFxWorld,
+      automaticRate: refresh.fetchedRate,
+      automaticEffectiveDate: refresh.at.slice(0, 10),
+      automaticAgeDays: 0,
+      automaticStatus: 'fresh',
+    });
+  }
+  return delay({ ...fx.mockFx, refresh });
 }
 
 /**

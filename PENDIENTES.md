@@ -590,6 +590,156 @@ roles) y **¿cómo le llama a M5?**.
   Lo que sí se corrige ya es que hable de «beta cerrada» estando en producción.
 - **Rol dueño:** arquitecto/backend (inventario, solo lectura) → product-owner → ux-ui → frontend.
 
+#### P-68 · 💱 Una consulta de UNA fila antes de publicar el interruptor del tipo de cambio (I-1)
+- **El escenario, en lenguaje de dinero:** existe un estado en el que **publicar el interruptor de FX,
+  sin que nadie apriete nada, movería los precios ~5 %** (de 19.00 a 18.00, el fallback duro). Es
+  exactamente el movimiento que el acuse de confirmación existe para impedir — y ahí ocurriría sin un
+  solo clic. QA lo clasificó como **«no aceptable sin decisión explícita del humano»**.
+- **Qué lo dispara, verificado en el código** (`backend/src/common/fx-mode.ts:157` y
+  `backend/src/modules/pricing/fx.service.ts:85`), no supuesto:
+  1. Al desplegar, la fila `fx_rate_mode` todavía no existe (o vale el centinela `"legacy"`), así que
+     `resolveFxMode()` **infiere** el modo en lugar de leerlo. Esa inferencia corre **una sola vez por
+     entorno** y deja de correr en cuanto un humano toca el interruptor.
+  2. La inferencia mira **un solo valor**: el ajuste `fx_manual_override_rate`.
+     - Si **tiene número** ⇒ resuelve `manual` ⇒ rige ese número. **Nada se mueve.** ✅
+     - Si está **vacío/nulo** ⇒ resuelve `auto` ⇒ rige la última fila `FxRate` de origen **`banxico`**,
+       y si no hay ninguna, el **fallback duro de 18**. ⚠️ Ahí está el −5 %.
+- ⚠️ **Corrección a lo que dije antes:** dije que «el 19.0000 puesto» protege producción. Es cierto
+  **solo si ese 19.0000 vive en el ajuste `fx_manual_override_rate`**. La pantalla de admin escribe
+  las dos cosas a la vez (`setManual()` guarda el ajuste **y** una fila `FxRate` de origen `manual`),
+  así que si el número se puso por la pantalla, está protegido. Pero **la fila `FxRate` manual NO rige
+  nunca** (I-FX5, es solo traza forense): si ese 19.0000 llegó por un script o una migración vieja y
+  el ajuste quedó vacío, la protección **no existe**. No es una cosa que se pueda razonar desde el
+  código: **depende de un valor que solo está en la base de producción.**
+- **La cura, y ya está escrita: UNA consulta de solo lectura que emite su propio veredicto.**
+  Se corre en **cada entorno** (staging y producción) antes de promover. No modifica nada.
+
+  ```sql
+  SELECT
+    COALESCE((SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_rate_mode'), '(no existe)') AS modo_guardado,
+    COALESCE((SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate'), '(vacio)') AS tasa_manual,
+    (SELECT count(*) FROM "FxRate" WHERE source = 'banxico') AS filas_banxico,
+    CASE
+      WHEN (SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_rate_mode') IN ('auto','manual')
+        THEN 'SEGURO — el modo esta puesto explicitamente, publicar no lo cambia'
+      WHEN (SELECT "valueJson" FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate') IS NOT NULL
+       AND (SELECT "valueJson" FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate') <> 'null'::jsonb
+        THEN 'SEGURO — hay tasa manual guardada: al publicar resuelve a MANUAL y rige ese numero'
+      ELSE 'PELIGRO — sin modo y sin tasa manual: al publicar resuelve a AUTOMATICO'
+    END AS veredicto;
+  ```
+
+- ⭐ **La consulta SE PUEDE PONER EN ROJO — verificado por el orquestador (2026-09-09), no supuesto.**
+  Se probó contra una base desechable en los tres estados, porque una consulta que solo sabe decir
+  «seguro» no sirve de nada, igual que un candado que no puede ponerse rojo:
+  | Estado sembrado | Veredicto que emitió |
+  |---|---|
+  | `fx_rate_mode = 'auto'` | ✅ SEGURO — el modo está puesto explícitamente |
+  | sin fila de modo, **con** `19.0` guardado | ✅ SEGURO — resuelve a MANUAL y rige ese número |
+  | sin fila de modo y **sin** tasa manual | 🔴 **PELIGRO** — resuelve a AUTOMÁTICO |
+- **Qué hacer con cada resultado:** `SEGURO` ⇒ se publica sin riesgo. `PELIGRO` ⇒ **no se publica**
+  hasta fijar el modo a mano (o guardar la tasa manual), y entonces se vuelve a correr.
+- **Rol dueño:** devops (la consulta previa al deploy) · backend (la tercera fixture FX-6 que cubre el
+  estado) · arquitecto (declarar el riesgo residual si se decide publicar sin la consulta).
+- **Estado:** ⛔ **BLOQUEA el merge del interruptor de FX** hasta que el humano decida.
+
+
+#### P-70 · 🃏 Stream `decks-meta-v1` — el spec del humano, en espera de arrancar
+- **Entregado por el humano el 2026-09-09**, con instrucción explícita: *«después de que publiques quiero
+  que empieces con esto»*. Guardado **verbatim** en `docs/specs/DECKS_META_V1.md`; nadie lo edita.
+- **Qué es:** una sección «Decks Meta» que traiga los 10 decks del meta de Limitless TCG, con precio en
+  pesos, disponibilidad real por carta y un botón «Agregar las disponibles», más descuento de bundle
+  (5 % con 60/60, 3 % con las *core* completas), job semanal, correo «Qué cambió» y reporte de faltantes.
+- **Cómo arranca, según el propio spec:** sesión 1 es **solo diseño, sin código de producto** — modelo de
+  datos, las dos preguntas bloqueantes de arquitectura, el diseño del job, y el diff propuesto de
+  `API_CONTRACT.md`, todo para **revisión del arquitecto**. Por el paso 0 de `CLAUDE.md`, antes va
+  **product-owner** aterrizándolo a `PROJECT.md`.
+- 🔴 **BLOQUEANTE QUE HAY QUE RESOLVER ANTES, y no es del spec: `pricing-iva-v2.1` NO EXISTE en este
+  repo.** Lo verifiqué: cero ocurrencias de ese nombre en `docs/` y en `PROJECT.md`. Y lo que sí verifiqué
+  del estado real: `backend/src/common/money.ts:374` calcula `iva = round(subtotal × ivaPct/100)` — o sea
+  que **hoy el motor devuelve base y apila el IVA después**, que es exactamente el estado que el spec dice
+  que hay que resolver antes de publicar la sección (*«si el motor sigue devolviendo base con IVA apilado
+  después, el descuento y el total del bundle salen mal»*). ⇒ **Hay que preguntarle al humano** si
+  `pricing-iva-v2.1` es trabajo de otro contexto, si es un stream por abrir aquí, o si lo que existe bajo
+  otro nombre (P-37, contrato v1.40) ya lo cubre. **No se asume.**
+- ⚠️ **Su propia regla de exclusión:** *«corre solo; no se abre en paralelo con `pricing-iva-v2.1` ni con
+  ningún stream que toque `money.ts` o el contrato»*. El stream de FX que se acaba de cerrar tocaba las
+  dos cosas, así que **esperar al merge era correcto** — ya está hecho.
+- **Zonas compartidas que va a tocar:** catálogo, carrito/checkout (la línea de descuento),
+  `API_CONTRACT.md`, `prisma/schema`, jobs programados y correo transaccional. Por la regla de oro, **solo
+  un stream a la vez** puede tocarlas.
+
+#### P-69 · 📦 El precio de mercado se pierde entre el paso 1 y el paso 2 al subir sellado — reportado por el humano
+- **Lo que dijo, literal (2026-09-09):** *«subiendo producto sellado me aparece el precio de mercado, en la
+  siguiente pagina dice que no tiene el precio y no puedo ponerle como aportacion»*. Con captura.
+- **El síntoma, con el dato de la captura:** en el diálogo «Agregar producto sellado», **paso 1 de 2 ·
+  ELIGE PRODUCTO**, con el set *Phantasmal Flames (2025)*, la tarjeta seleccionada
+  («Phantasmal Flames Elite Trainer Box») muestra **`MX$2,981.67 MERCADO`**. En el **paso 2**, ese
+  **mismo** producto aparece **sin precio**, y por eso **no se puede registrar como «aportación»**.
+- ⚠️ **Lo que hace esto distinto de «falta un precio»:** el paso 1 **sí sabe** distinguir los dos casos, y
+  lo hace bien — la cabecera dice *«25 presentaciones · 23 con precio · 2 pendientes de precio»* y otra
+  tarjeta muestra **`SIN PRECIO DE MERCADO`** en rojo. Así que no es que el catálogo no tenga el dato:
+  **es que los dos pasos no coinciden sobre el mismo producto.** Uno de los dos miente.
+- **Por qué importa y no es cosmético:** bloquea **meter inventario**, que es la operación diaria del
+  negocio. Y si el que miente resultara ser el **paso 1**, sería peor que el síntoma reportado — el dueño
+  estaría viendo un número en el que confía para decidir cuánto paga.
+- **Hipótesis a descartar CON CÓDIGO, ninguna confirmada todavía:** (a) dos fuentes distintas — el paso 1
+  pinta un campo del listado y el paso 2 lo vuelve a pedir por otra ruta; (b) el acabado/variante — el
+  precio del paso 1 cuelga de una variante y el paso 2 pregunta por otra (⚠️ regla dura del proyecto:
+  **nunca se copia el precio de un acabado a otro**); (c) se pierde el identificador entre pasos;
+  (d) semántica de omisión — el paso 2 lee «ausente» como «sin precio» cuando significa «no pedido»;
+  (e) una condición extra del paso 2 (frescura, moneda, fila de referencia de hoy).
+- **Segunda pregunta abierta:** ¿el bloqueo de «aportación» sin precio es **regla de negocio deliberada**
+  (no se aporta lo que no está valuado) o efecto colateral? Si es deliberada, la regla está bien y el bug
+  es solo que el precio se pierde.
+- **Estado:** ✅ **DIAGNOSTICADO (2026-09-09). El que miente es el PASO 1.**
+- **La causa, medida en código:** son **dos campos distintos que viajan en la MISMA respuesta del MISMO
+  endpoint** — no se pierde ningún id, no se re-pide nada, no hay acabado de por medio.
+  - **Paso 1** pinta `SealedProductDTO.marketRef` (`SealedProductPicker.tsx:216-217`): lectura **viva/caché
+    de TCGCSV**, **sin gatear** por el dial y **sin respaldo en una fila `PriceReference`**.
+  - **Paso 2** pinta `SealedProductDTO.effectiveMarketCents` (`SealedAddFlow.tsx:172`): el mercado
+    **autoritativo**, ya pasado por `gateSealedMarketCents` (`pricing.service.ts:1763-1780`) con el dial
+    `sealedPriceSource`.
+  - ⇒ **El paso 2 dice la verdad: es lo que el backend aceptaría. El paso 1 enseña un número que el
+    backend rechazaría** — inerte a efectos de dinero: no valúa la aportación, no publica, no fija venta.
+- ⚠️ **Y es una regresión conocida a medio aplicar:** este es el mismo «dead-end de IMP-1» que se corrigió
+  en v1.41 (`BACKEND_NOTES.md:14867-14884`, `FRONTEND_NOTES.md:8121-8145`, con test de regresión en
+  `SealedAddFlow.test.tsx:221-257`). **Ese arreglo se aplicó al paso 2 y NO al paso 1.** La teja del picker
+  se quedó en la semántica vieja — y `DESIGN_SYSTEM.md:3212-3213` todavía la respalda así, o sea que la
+  especificación también quedó desalineada con la doctrina.
+- **El bloqueo de «aportación» NO es el bug — es regla deliberada y correcta.** «Aportación» es
+  `acquisitionType:'aportacion_en_especie'` con `pct:100`: el dueño no paga la pieza y el sistema le
+  acredita un costo **valuado contra la referencia de mercado**. Sin referencia no hay número con el que
+  acreditarla, y `inventory.service.ts:729-761` responde `422 PRICE_PENDING` en vez de valuar en $0. Eso es
+  la doctrina money-safe funcionando. **El bug es que el paso 1 promete un valor que el backend no
+  reconoce, y el operador llega al paso 2 sin entender por qué se le cerró la puerta.**
+- **Agravante medido:** `SealedProductListResponse.sealedPriceSource` **ya llega al frontend**
+  (`sealed-product.service.ts:63`, `:246`) y **el flujo no lo usa en ninguna parte**. El dato para
+  explicarle al operador «la fuente automática está apagada, estos números son informativos» ya está en la
+  respuesta, sin consumir.
+- **El arreglo — rol dueño principal: `frontend`.**
+  1. `SealedProductPicker.tsx:216-217`: la teja se keyea en `product.effectiveMarketCents`, igual que el
+     paso 2. Con eso los dos pasos coinciden **por construcción** y desaparece el número que engaña.
+  2. Si se quiere conservar el informativo, que sea **explícitamente secundario** (otra etiqueta, no
+     «MERCADO»), nunca el número principal de la teja. ⛔ Y jamás $0: sin valor va «—» o «pendiente».
+  3. `SealedProductPicker.tsx:219-226`: el `aria-label` arrastra el mismo error para lectores de pantalla.
+  4. Consumir `sealedPriceSource === 'off'` para un aviso honesto **en el paso 1**.
+- **Secundario, `backend` (no es la causa de esta captura, pero cierra la misma familia):** unificar el
+  ancla del ingest con la del listado/alta (`sealed-price-ingest.service.ts:134-147` vs
+  `sealed-product.service.ts:260` e `inventory.service.ts:822`). Es la deuda **D-2** de
+  `TECH_DEBT.md:4519`, y es el **único** camino por el que el paso 2 diría «sin precio» con el dial
+  encendido y precio ya ingerido. Y `pricedCount` (`sealed-product.service.ts:417-418`) cuenta hoy la
+  fuente **sin gatear**: o cuenta gateado, o se renombra.
+- **Lo que NO se pudo medir desde el código y hay que mirar en la instalación:** el valor real del dial
+  `sealedPriceSource` (`GET /admin/settings`), si el job `sealed-price-ingest` ha corrido, y si esa ETB
+  tiene fila `PriceReference` bajo el ancla del set. La hipótesis que explica la captura entera sin
+  residuos es **dial en `off`** (el seed es `'off'`, `settings.constants.ts:294`), pero **es inferencia,
+  no medición**.
+- ⚠️ **Encender el dial NO cierra este pendiente:** aunque se prenda, el paso 1 seguiría mintiendo en
+  cualquier producto sin fila. El arreglo de frontend hace falta igual.
+- **Work stream:** inventario y vault — **distinto** del stream de FX que está en curso, así que no compite
+  por las mismas rutas.
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.

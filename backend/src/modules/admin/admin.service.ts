@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { SELL_REQUEST_LIVE_STATES } from '../../common/sell-request-states';
+import { BANXICO_FX_ORDER, BANXICO_FX_WHERE } from '../../common/fx-mode';
 import {
   AuthProvider,
   DisputeStatus,
@@ -1204,7 +1205,23 @@ export class AdminService {
         // todo el catálogo raw publicado— haría que el tablero reporte el feed de MERCADO como recién
         // sincronizado cuando no lo está. Mismo modo de fallo, y mismo remedio, que `hasRecentIngest`.
         this.prisma.priceReference.findFirst({ where: MONEY_REF_WHERE, orderBy: { createdAt: 'desc' } }),
-        this.prisma.fxRate.findFirst({ orderBy: { createdAt: 'desc' } }),
+        // ⚠️⚠️ **I-FX5 · el mismo predicado y el mismo modo de fallo que la línea de arriba.**
+        // Esto **decía `findFirst` a secas**, sin filtro de fuente y ordenando por `createdAt`.
+        // Antes de v1.63.1 era defendible —la fila `manual-<hoy>` SÍ regía—; **desde I-FX5 no rige
+        // nunca**, así que el tablero estaba afirmando la frescura del tipo de cambio **apoyándose
+        // en una fila declarada inerte**, y `PUT /admin/fx { rate }` escribe justo esa fila. Con
+        // `D-OPS-1` abierta (sin `BANXICO_SIE_TOKEN` el refresco **no escribe fila**) el tablero
+        // podía decir «FX de hoy» durante semanas mientras el panel de §M2-F decía `missing`/`stale`:
+        // **dos superficies de admin contestando distinto sobre el mismo dinero.**
+        //
+        // ⇒ **`lastFxAt` significa: cuándo se escribió la fila de Banxico QUE HOY RIGE.** Se nombra
+        // la MISMA fila que `projectFxState` (mismo `where`, mismo `orderBy`), así que las dos
+        // superficies no pueden divergir: sin fila de Banxico ⇒ `null` aquí y `missing` allá.
+        // ⚠️ Si el refresco corre **dos veces el mismo día**, el `upsert` actualiza la fila y
+        // `createdAt` **no se mueve** (`FxRate` no tiene `updatedAt` y este pase es CERO DDL): el
+        // valor es *«cuándo apareció la fila vigente»*, no *«el último HTTP 200 a Banxico»*. Es la
+        // lectura honesta de lo que la tabla sabe.
+        this.prisma.fxRate.findFirst({ where: BANXICO_FX_WHERE, orderBy: BANXICO_FX_ORDER }),
         this.prisma.user.count({ where: { role: 'customer' } }),
         this.prisma.order.count({ where: { status: 'settled' } }),
         this.prisma.sellRequest.count({ where: { status: 'pagada' } }),

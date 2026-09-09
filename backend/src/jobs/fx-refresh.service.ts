@@ -11,9 +11,19 @@ export class FxRefreshJobService {
 
   constructor(private readonly fx: FxService) {}
 
+  /**
+   * v1.63 (§M2-F.5): `refreshFromBanxico()` devuelve el RESULTADO REAL del fetch
+   * (`updated | unchanged | failed` + `reason`), no la tasa de vuelta. El job lo registra tal cual:
+   * antes, sin `BANXICO_SIE_TOKEN`, esta línea imprimía la tasa del override manual y el refresco
+   * parecía haber ido bien (hecho F7). Un `failed` aquí es la señal de D-OPS-1 (falta el token).
+   */
   async run() {
     const r = await this.fx.refreshFromBanxico();
-    this.logger.log(`fx-refresh: rate=${r.rate} source=${r.source}`);
+    if (r.outcome === 'failed') {
+      this.logger.warn(`fx-refresh: outcome=failed reason=${r.reason} (NO se consultó a Banxico o falló)`);
+    } else {
+      this.logger.log(`fx-refresh: outcome=${r.outcome} fetchedRate=${r.fetchedRate}`);
+    }
     return r;
   }
 }

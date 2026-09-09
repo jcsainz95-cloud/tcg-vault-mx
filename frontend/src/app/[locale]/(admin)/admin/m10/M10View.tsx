@@ -69,12 +69,19 @@ const PRICE_PROVIDER_INGEST_OPTIONS = [
 
 // Diales editables (contrato §M10). El PUT es parcial: solo se envían las keys tocadas.
 // `salesMarkupPct` (dial MUERTO: el precio de venta lo deriva SALES_PRICE_RULES+fallback
-// de M2 §5, contrato lo marca DEPRECADO) y `fxBufferPct` (DUPLICADO del mismo
-// `fx_buffer_pct`; editor canónico = M2 §3 FX) se quitaron del UI de M10 para dedup de la
-// config de DINERO. Las keys siguen en el backend/SettingsDTO como rollback; solo dejan de
-// editarse desde aquí.
+// de M2 §5, contrato lo marca DEPRECADO) se quitó del UI de M10 para dedup de la config de
+// DINERO. La key sigue en el backend/SettingsDTO como rollback; solo deja de editarse aquí.
+//
+// ⚠️ **`fxBufferPct` VUELVE (v1.63.3, `DESIGN_SYSTEM §30`).** Se había quitado por duplicado
+// —«editor canónico = M2 §3 FX»—, y ese argumento **se invirtió**: §30.1 saca el colchón de la
+// tarjeta de FX («⛔ sin campo, sin botón de guardar») y §30.3d dice, en copy normativo que la
+// tarjeta pinta, que **se edita en Ajustes**. Sin esta fila, ese copy sería falso y un dial de
+// DINERO sólo se podría mover con `curl` — el mismo defecto que ya se pagó con el segundo dial
+// del gancho de grading. Ya no hay duplicado: M2 lo **muestra**, M10 lo **edita**, que es la vía
+// que el propio contrato recomienda (`PUT /admin/settings { fxBufferPct }`, §M10 · §M2-F.5).
 const DIALS: DialSpec[] = [
   { key: 'shippingFeeCents', kind: 'cents' },
+  { key: 'fxBufferPct', kind: 'pct' },
   { key: 'aportacionPct', kind: 'pct' },
   { key: 'ivaPct', kind: 'pct' },
   { key: 'buylistCapPerRequestCents', kind: 'cents' },

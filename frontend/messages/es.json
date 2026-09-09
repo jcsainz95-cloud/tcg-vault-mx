@@ -1640,23 +1640,115 @@
         "countUnknown": "{count} sin motivo"
       },
       "fx": {
-        "title": "Tipo de cambio USD→MXN",
-        "rate": "Tasa",
-        "buffer": "Colchón",
-        "source": "Fuente",
-        "sourceLabel": {
-          "banxico": "Banxico (automático)",
-          "manual": "Manual (override)"
+        "eyebrow": "USD → MXN",
+        "title": "Tipo de cambio",
+        "lead": "Todo lo que vale en dólares se convierte a pesos con esta tasa. Puedes usar la de Banxico o una tuya; las dos se guardan y cambiar de una a otra no borra ninguna.",
+        "current": {
+          "label": "RIGE AHORA",
+          "unit": "MXN por USD",
+          "aria": "Rige ahora {rate} pesos por dólar, fuente {source}."
         },
-        "effectiveDate": "Vigencia",
-        "newRate": "Nueva tasa",
-        "newBuffer": "Nuevo colchón %",
-        "saveOverride": "Fijar override",
-        "refreshBanxico": "Refrescar Banxico",
-        "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). El override manual tiene prioridad sobre el automático del día.",
-        "bufferOnlyHint": "Puedes guardar solo el colchón: deja la tasa vacía y se conserva la tasa vigente.",
-        "saved": "Tipo de cambio actualizado.",
-        "savedBufferOnly": "Colchón actualizado; se conservó la tasa vigente."
+        "source": {
+          "label": "FUENTE",
+          "manual": "MANUAL",
+          "manualBody": "La guardaste tú. Rige hasta que pases a automática.",
+          "banxico": "BANXICO",
+          "banxicoBody": "Publicada por Banxico, del {date}.",
+          "fallback": "SIN RESPALDO REAL",
+          "fallbackBody": "Este número no lo tecleó nadie y no viene de Banxico: es un valor fijo que el sistema trae escrito para no quedarse sin tipo de cambio. Todos los precios que salen de un precio en dólares se están calculando con él ahora mismo.",
+          "unknown": "FUENTE NO RECONOCIDA",
+          "unknownBody": "Esta pantalla no reconoce esta fuente. No se puede afirmar de dónde sale la tasa que rige."
+        },
+        "manual": {
+          "label": "MANUAL",
+          "none": "SIN GUARDAR",
+          "noneBody": "Todavía no has guardado ninguna tasa tuya.",
+          "edit": "Cambiar tasa manual",
+          "create": "Guardar una tasa manual",
+          "field": "Tasa manual (pesos por dólar)",
+          "fieldHint": "Se guarda siempre. Solo rige si el interruptor está en manual.",
+          "savedNotRuling": "Guardada. Todavía no rige: seguimos en automática ({rate} de Banxico). Regirá en cuanto pases a manual.",
+          "savedRuling": "Guardada, y ya rige: {rate} pesos por dólar."
+        },
+        "auto": {
+          "label": "AUTOMÁTICA · BANXICO",
+          "dated": "Del {date} · {n, plural, one {hace # día} other {hace # días}}",
+          "fresh": "AL DÍA",
+          "stale": "VIEJA",
+          "staleBody": "Banxico publica en días hábiles; ésta lleva más tiempo del normal sin actualizarse.",
+          "missing": "NO HAY",
+          "missingBody": "Nunca ha llegado una tasa de Banxico a este sistema."
+        },
+        "ruling": {
+          "mark": "RIGE",
+          "markAria": "Ésta es la tasa que rige ahora mismo."
+        },
+        "jump": {
+          "toAuto": "SI PASAS A AUTOMÁTICA",
+          "toManual": "SI PASAS A MANUAL",
+          "value": "{delta} · {pct} %",
+          "body": "Cambiaría todo lo que se calcula desde un precio en dólares: lo que vendemos y lo que pagamos por comprar.",
+          "none": "No se movería nada: las dos tasas son iguales.",
+          "unavailable": "No se puede calcular el salto: no hay una segunda tasa con la que comparar."
+        },
+        "buffer": {
+          "label": "COLCHÓN",
+          "hint": "Se aplica igual con las dos tasas, así que no cambia el salto de abajo. Se edita en Ajustes."
+        },
+        "toggle": {
+          "label": "Qué tasa rige",
+          "manual": "MANUAL",
+          "auto": "AUTOMÁTICA",
+          "consequence": "Se aplica en la siguiente lectura de precios, no en el próximo barrido.",
+          "loadingReason": "Cargando las dos tasas. El interruptor se activa cuando estén las dos en pantalla.",
+          "blockedReason": "Esta pantalla no puede ofrecer el cambio: falta una de las dos tasas y no se mueve el tipo de cambio a ciegas.",
+          "noManualReason": "No hay ninguna tasa tuya guardada. Guarda una y el interruptor se activa."
+        },
+        "mode": {
+          "legacyLabel": "MODO HEREDADO",
+          "legacyBody": "Nadie ha tocado este interruptor en este entorno todavía, así que el modo se está deduciendo del valor guardado, como antes. En cuanto lo muevas una vez, deja de deducirse.",
+          "manualWord": "manual",
+          "autoWord": "automática"
+        },
+        "refresh": {
+          "cta": "Refrescar desde Banxico",
+          "ctaHint": "Trae la tasa de Banxico. No cambia cuál rige; con el interruptor en manual, solo actualiza la de al lado.",
+          "loading": "Consultando a Banxico…",
+          "updated": "Banxico devolvió {rate}. Es distinta de la que teníamos, así que se guardó.",
+          "updatedWhileManual": "Sigue rigiendo tu tasa manual ({rate}); esto solo actualiza la de comparación.",
+          "unchanged": "Banxico devolvió {rate}, la misma que ya teníamos. No cambió nada, y no es un fallo.",
+          "failedTitle": "No se pudo traer la tasa de Banxico",
+          "failedBody": "Sigue rigiendo {rate} ({source}).",
+          "reason": {
+            "no_token": "Al servidor le falta la credencial de Banxico. Esto no se arregla desde aquí: díselo a quien opera el sistema.",
+            "http_error": "Banxico contestó con un error. Suele ser temporal: vuelve a intentarlo en unos minutos.",
+            "invalid_payload": "Banxico contestó algo que no se pudo leer como una tasa. No se guardó nada.",
+            "network_error": "No se pudo llegar a Banxico. Revisa la conexión del servidor y reintenta.",
+            "unknown": "No se pudo traer la tasa y el sistema no dijo por qué."
+          }
+        },
+        "confirm": {
+          "title": "Vas a cambiar el tipo de cambio que rige",
+          "rates": "Antes {before} ({sourceBefore}) · ahora {after} ({sourceAfter}).",
+          "effect": "Todo lo que se calcula desde un precio en dólares cambia {pct}: lo que vendemos y lo que pagamos por comprar.",
+          "when": "Se aplica en la siguiente lectura de precios, no en el próximo barrido.",
+          "untouched": "Lo que ya está cerrado no se toca: pedidos, ofertas de compra ya enviadas y los precios que fijaste a mano en pesos.",
+          "staleNote": "La tasa de Banxico es del {date} y lleva {n, plural, one {# día} other {# días}} sin actualizarse.",
+          "cta": "Sí, pasar a {rate}"
+        },
+        "ack": {
+          "title": "No hay ninguna tasa de Banxico",
+          "current": "Ahora mismo rige tu tasa manual: {current} pesos por dólar.",
+          "would": "Si pasas a automática, regirían {fallback} pesos por dólar.",
+          "whereFrom": "Y ése no lo tecleó nadie y no viene de Banxico: es un valor fijo que el sistema trae escrito para no quedarse sin tipo de cambio. A este sistema nunca ha llegado una tasa de Banxico.",
+          "prices": "Todo lo que se calcula desde un precio en dólares cambia {pct} en cuanto guardes: lo que vendemos y lo que pagamos por comprar. Y no es en el próximo barrido: es la siguiente vez que alguien mire un precio.",
+          "cta": "Sí, pasar a {fallback}"
+        },
+        "switched": "Ahora rige {rate} ({source}). Puedes volver a {previousMode} cuando quieras: el otro número sigue guardado.",
+        "error": {
+          "load": "No se pudo cargar el tipo de cambio."
+        },
+        "footer": "Solo súper-admin · queda en bitácora"
       },
       "priceIngest": {
         "trigger": "Actualizar precios ahora",
@@ -2339,6 +2431,7 @@
           "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
           "catalogSyncFromDate": "Frontera de sync de catálogo",
+          "fxBufferPct": "Colchón del tipo de cambio (USD→MXN)",
           "gradingHookEnabled": "Gancho de grading — publica y trae datos"
         },
         "units": {
@@ -2940,6 +3033,10 @@
     "CONFLICT": "Hubo un conflicto con el estado actual.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {Esta solicitud ya está cerrada (quedó en «{status}»), así que esta acción ya no aplica.} other {Esta acción no aplica al estado actual de la solicitud («{status}»).}} No es un fallo de la aplicación y reintentar no lo cambia: actualiza la vista para ver el estado real.",
     "RATE_LIMITED": "Demasiadas solicitudes, intenta más tarde.",
+    "FX_MANUAL_RATE_MISSING": "No hay ninguna tasa manual guardada a la que volver. Guarda una primero y luego pasa el interruptor a manual. No se cambió nada.",
+    "FX_MANUAL_RATE_REQUIRED": "Para quitar la tasa manual, pasa primero a automática: ahora mismo es la que rige, y borrarla dejaría al sistema sin tipo de cambio propio. No se guardó nada.",
+    "FX_NO_AUTOMATIC_RATE": "No hay ninguna tasa de Banxico, así que pasar a automática dejaría rigiendo un valor fijo de respaldo que nadie tecleó. Confírmalo desde el aviso, o refresca primero. No se cambió nada.",
+    "FX_NO_AUTOMATIC_RATE_WITH_DETAILS": "No hay ninguna tasa de Banxico, así que pasar a automática dejaría rigiendo un valor fijo de respaldo ({fallbackRate}) que nadie tecleó. Confírmalo desde el aviso, o refresca primero. No se cambió nada.",
     "INTERNAL": "Error del servidor. Intenta de nuevo.",
     "PRICE_PENDING": "Esta carta tiene precio pendiente y aún no se puede comprar.",
     "ITEM_UNAVAILABLE": "Esta carta ya no está disponible.",
