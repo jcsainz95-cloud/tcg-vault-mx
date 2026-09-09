@@ -20,11 +20,23 @@
  *
  * Los datos son de ejemplo y **cubren el caso que más se rompe**: una carta que **sí** compramos, una
  * que **no** (con nombre y **sin monto** — §31.0 regla 3), y **los tres montos** con su resta.
+ *
+ * ⭐ **Salen los SEIS correos de buylist, en ocho renders**: el recordatorio y la expiración tienen
+ * dos variantes cada uno y **las dos se escriben**, porque son justo donde un vistazo a una sola deja
+ * media plantilla sin mirar. ⛔ Los correos **7 y 8** no están: viven en `mail/mail.templates.ts`, de
+ * otro work stream (§31.15, BE-43).
  */
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
-import { sellOfferTemplate, sellRequestNotPursuedTemplate } from '../src/modules/buylist/buylist-mail.templates';
+import {
+  sellItemRejectedTemplate,
+  sellOfferCancelledTemplate,
+  sellOfferReminderTemplate,
+  sellOfferTemplate,
+  sellRequestExpiredTemplate,
+  sellRequestNotPursuedTemplate,
+} from '../src/modules/buylist/buylist-mail.templates';
 
 const OUT = resolve(process.argv[2] ?? join(__dirname, '..', 'tmp', 'mail-preview'));
 
@@ -66,17 +78,119 @@ const OFERTA = {
 
 const NOMBRE = 'Ana Torres';
 
-const CORREOS: { archivo: string; titulo: string; render: (locale: 'es' | 'en') => { subject: string; html: string; text: string } }[] = [
+const DEADLINE = new Date('2026-09-16T18:00:00-06:00');
+const CERRADA = new Date('2026-09-18T12:00:00-06:00');
+
+/** El portal, con el prefijo de idioma que le toca: un correo tiene UN idioma y el botón lo comparte. */
+const portal = (locale: 'es' | 'en') => PORTAL.replace('/es/', `/${locale}/`);
+
+/**
+ * ⭐ **Los OCHO renders de los SEIS correos de buylist.** Dos tienen dos variantes que son el mismo
+ * correo con otra acción (§25.4.3 y §25.4.4) y **las dos se escriben a fichero**: el dueño tiene que
+ * poder mirar el recordatorio de envío, que es el único con guía en mono, y las dos expiraciones.
+ * ⛔ Los correos **7 y 8** no están: viven en `mail/`, son de otro work stream y este pase no los
+ * migra (§31.15, BE-43).
+ */
+const CORREOS: {
+  archivo: string;
+  titulo: string;
+  render: (locale: 'es' | 'en') => { subject: string; html: string; text: string };
+}[] = [
   {
     archivo: 'correo-1-oferta',
-    titulo: '1 · La oferta (§31 aplicado)',
-    render: (locale) => sellOfferTemplate({ ...OFERTA, portalUrl: PORTAL.replace('/es/', `/${locale}/`) }, NOMBRE, locale),
+    titulo: '1 · La oferta — la resta completa, la caja de términos y el CTA en bermellón',
+    render: (locale) => sellOfferTemplate({ ...OFERTA, portalUrl: portal(locale) }, NOMBRE, locale),
+  },
+  {
+    archivo: 'correo-2a-recordatorio-aceptar',
+    titulo: '2a · Recordatorio (responder) — SOLO el neto, CTA en bermellón',
+    render: (locale) =>
+      sellOfferReminderTemplate(
+        {
+          kind: 'accept',
+          folio: OFERTA.folio,
+          buyLineCount: 2,
+          netCents: OFERTA.netCents,
+          deadlineAt: DEADLINE,
+          portalUrl: portal(locale),
+        },
+        NOMBRE,
+        locale,
+      ),
+  },
+  {
+    archivo: 'correo-2b-recordatorio-enviar',
+    titulo: '2b · Recordatorio (enviar) — el mismo, con la guía en mono seleccionable',
+    render: (locale) =>
+      sellOfferReminderTemplate(
+        {
+          kind: 'ship',
+          folio: OFERTA.folio,
+          buyLineCount: 2,
+          netCents: OFERTA.netCents,
+          deadlineAt: DEADLINE,
+          carrier: 'Estafeta',
+          trackingNumber: '7712 3456 7890',
+          portalUrl: portal(locale),
+        },
+        NOMBRE,
+        locale,
+      ),
+  },
+  {
+    archivo: 'correo-3-oferta-cancelada',
+    titulo: '3 · Oferta cancelada — sin montos, sin plazos, CTA en tinta («ver mi solicitud»)',
+    render: (locale) =>
+      sellOfferCancelledTemplate(
+        { folio: OFERTA.folio, offerSentAt: new Date('2026-09-10T18:00:00-06:00'), portalUrl: portal(locale) },
+        NOMBRE,
+        locale,
+      ),
+  },
+  {
+    archivo: 'correo-4-carta-no-aceptada',
+    titulo: '4 · Carta no aceptada — caja de términos con LOS DOS plazos, y sin CTA (ver notas)',
+    render: (locale) =>
+      sellItemRejectedTemplate(
+        {
+          folio: OFERTA.folio,
+          cardName: 'Snorlax V',
+          setName: 'Sword & Shield',
+          cardNumber: '141/202',
+          finish: 'reverse_holo',
+          reason: 'No llegó en Near Mint: bordes con desgaste visible y una marca en la cara.',
+          returnDeadlineAt: DEADLINE,
+          abandonDeadlineAt: new Date('2026-10-16T18:00:00-06:00'),
+        },
+        NOMBRE,
+        locale,
+      ),
+  },
+  {
+    archivo: 'correo-5a-vencida-no-respondio',
+    titulo: '5a · Solicitud vencida (no respondió) — CTA en tinta',
+    render: (locale) =>
+      sellRequestExpiredTemplate(
+        { kind: 'no_response', folio: OFERTA.folio, closedAt: CERRADA, portalUrl: portal(locale) },
+        NOMBRE,
+        locale,
+      ),
+  },
+  {
+    archivo: 'correo-5b-vencida-no-envio',
+    titulo: '5b · Solicitud vencida (no salió el paquete) — CTA en tinta',
+    render: (locale) =>
+      sellRequestExpiredTemplate(
+        { kind: 'not_shipped', folio: OFERTA.folio, closedAt: CERRADA, portalUrl: portal(locale) },
+        NOMBRE,
+        locale,
+      ),
   },
   {
     archivo: 'correo-6-solicitud-cerrada',
-    titulo: '6 · Solicitud cerrada (cambio de copy §31.10 — esqueleto viejo todavía)',
+    titulo: '6 · Solicitud cerrada — ni un plazo, ni un monto (§25.4.5) + el copy de §31.10',
     render: (locale) =>
-      sellRequestNotPursuedTemplate({ folio: OFERTA.folio, portalUrl: PORTAL.replace('/es/', `/${locale}/`) }, NOMBRE, locale),
+      sellRequestNotPursuedTemplate({ folio: OFERTA.folio, portalUrl: portal(locale) }, NOMBRE, locale),
   },
 ];
 

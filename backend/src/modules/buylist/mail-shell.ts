@@ -455,7 +455,10 @@ export interface MailShellOptions {
   title: string;
   /** §31.6a — 40–90 caracteres. En el correo 1, el NETO (R1). */
   preheader: string;
-  /** Los `<tr>` del cuerpo, en el orden de §31.3 — que es **el mismo en los ocho**. */
+  /**
+   * Los `<tr>` del **cuerpo**, en el orden de §31.3 — que es **el mismo en los ocho**.
+   * ⚠️ **Aquí NO va el bloque de marca ni el pie**: los emite el propio shell (ver {@link mailShell}).
+   */
   blocks: string[];
   /** §31.6h — **la única línea variable del pie**; el resto es idéntico en los ocho. */
   footerWhy: string;
@@ -481,11 +484,22 @@ export function footerDescriptor(locale: 'es' | 'en'): string {
  * ⚠️ El `<style>` lleva **exclusivamente mejoras** y el correo es correcto sin él (§31.2): el
  * `color-scheme` (que solo obedece el grupo 1 de §31.8) y el padding de 20px por debajo de 480px. ⛔
  * Ninguna clase porta información, ⛔ ninguna media query es «el plan» para el modo oscuro.
+ *
+ * ### ⭐ **R3 (techlead) — la marca la emite el shell, igual que el pie**
+ * Hasta el correo 1, `mailShell` emitía **el pie solo** y dejaba que cada plantilla se acordara de
+ * poner `brandRows()` como primer bloque. Esa asimetría **se paga ocho veces** y, peor, **falla en
+ * silencio**: un correo que olvide la marca no rompe nada — se manda sin marca, que es exactamente lo
+ * que §31 vino a arreglar, y **ML-1 lo cazaría después de mandarlo**. Ahora el shell emite las **tres
+ * partes fijas de §31.3** —preheader, bloque de marca y pie en tinta— y `blocks` es **solo el
+ * cuerpo**. *Lo que es igual en los ocho lo pone el sitio que sabe que son ocho.*
  */
 export function mailShell(opts: MailShellOptions): string {
   const contacto = `${BRAND_SITE} · ${supportEmail()}`;
   const cuerpo = table(
-    opts.blocks.join('') + spacerRow(32) + footerRows(footerDescriptor(opts.locale), contacto, opts.footerWhy),
+    brandRows() +
+      opts.blocks.join('') +
+      spacerRow(32) +
+      footerRows(footerDescriptor(opts.locale), contacto, opts.footerWhy),
     `width="600" style="width:100%;max-width:600px"`,
   );
   return (

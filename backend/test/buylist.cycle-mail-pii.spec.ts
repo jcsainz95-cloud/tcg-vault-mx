@@ -286,6 +286,8 @@ const TODO_CORREO: Record<string, Renderizador> = {
   'fuera del ciclo · carta no aceptada': (locale) => [
     templates.sellItemRejectedTemplate(
       {
+        // v3.8 · §31.6b — el correo 4 ya lleva folio en el eyebrow: el barrido lo ve con él puesto.
+        folio: FOLIO,
         cardName: 'Snorlax V',
         setName: 'Sword & Shield',
         cardNumber: '141/202',
@@ -326,6 +328,50 @@ describe('⚠️⚠️ (2-bis) ML-2 — lo prohibido, barrido en LOS OCHO y tamb
       });
     }
   }
+
+  /**
+   * ⭐⭐ **(2-ter) LAS DOS SUPERFICIES QUE EL REDISEÑO AÑADIÓ, barridas por su nombre.**
+   *
+   * Montar los correos 2–6 sobre el esqueleto de §31 les añade **dos superficies que antes no
+   * existían** y que **ninguna revisión visual puede mirar**:
+   * - el **preheader** (§31.6a), que va en un `<div>` oculto y es **lo primero que lee la bandeja**;
+   * - la **banda de tinta del pie** (§31.6h), que es la única superficie ya invertida del correo.
+   *
+   * El barrido de `(2-bis)` las cubre —están dentro del `html`— pero **no las nombra**, y una lista de
+   * prohibidos vale lo que vale su capacidad de decir *dónde* miró. Aquí se aíslan y se barren solas,
+   * que es la misma disciplina por la que ML-2 barre la parte de texto plano aparte: **sin etiquetas
+   * alrededor, un domicilio no se puede esconder entre atributos.**
+   */
+  const preheaderDe = (html: string) =>
+    (/<div style="display:none[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? '').replace(
+      /(&zwnj;|&nbsp;)+/g,
+      '',
+    );
+  const pieDe = (html: string) => html.slice(html.lastIndexOf('padding:28px'));
+
+  for (const [correo, render] of Object.entries(TODO_CORREO)) {
+    for (const locale of LOCALES) {
+      it(`⭐ ${correo} [${locale}]: limpio en el PREHEADER oculto y en la BANDA DE TINTA del pie`, () => {
+        for (const msg of render(locale)) {
+          expect(prohibidosEn(preheaderDe(msg.html))).toEqual([]);
+          expect(prohibidosEn(pieDe(msg.html))).toEqual([]);
+        }
+      });
+    }
+  }
+
+  it('⚠️ CONTROL: las dos superficies EXISTEN en los seis migrados (un barrido sobre la nada no vale)', () => {
+    // Una aserción de ausencia sobre una cadena vacía pasa siempre. Los seis correos de buylist ya
+    // están migrados ⇒ los dos extractores tienen que devolver algo en los doce renders.
+    for (const clave of Object.keys(CICLO).concat('fuera del ciclo · carta no aceptada')) {
+      for (const locale of LOCALES) {
+        for (const msg of TODO_CORREO[clave](locale)) {
+          expect(preheaderDe(msg.html).length).toBeGreaterThanOrEqual(40);
+          expect(pieDe(msg.html)).toContain('TCG HUNT');
+        }
+      }
+    }
+  });
 
   it('⚠️ CONTROL NEGATIVO: el barrido no se pasa de listo — el rechazo conserva lo suyo', () => {
     // Un barrido que borrara información legítima «por si acaso» sería peor que el defecto. El correo

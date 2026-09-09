@@ -2,14 +2,13 @@ import { Finish } from '@prisma/client';
 import { envOr } from '../mail/mail-env.util';
 import { MailMessage } from '../mail/mail.port';
 import {
-  brandRows,
   cardLineRows,
   ctaRows,
   deadlineRow,
-  escapeHtml,
   eyebrowRow,
   headingRow,
   mailShell,
+  monoRow,
   proseRow,
   ruleRow,
   sectionLabelRow,
@@ -59,6 +58,21 @@ function normalizeLocale(locale?: string | null): Locale {
 }
 
 /**
+ * §31.6h — **la línea del «por qué recibes esto»**, que es la ÚNICA variable del pie en tinta.
+ *
+ * Los seis correos de este fichero comparten el hecho que los origina —*hay una solicitud de venta*—
+ * así que comparten línea. Vive en una función y no repetida seis veces por la misma razón por la que
+ * el descriptor de marca vive en el esqueleto: **si dos correos del mismo ciclo explicaran distinto
+ * por qué llegan, «que todos se hablen» dejaría de ser cierto justo en la línea que no cambia nunca.**
+ * ⛔ Y nada más vive en la banda de tinta: ni folio, ni importe, ni plazo, ni enlace de acción.
+ */
+function sellRequestFooterWhy(en: boolean): string {
+  return en
+    ? 'You are receiving this email because you have a sell request with us.'
+    : 'Recibes este correo porque tienes una solicitud de venta con nosotros.';
+}
+
+/**
  * S15-B1 — el escape de HTML **ya no se define aquí**: se importa de `mail-shell.ts`, que es donde
  * viven los builders de §31 y donde tiene que estar para que **el llamador no pueda olvidarlo**.
  * *No es el arreglo de BE-43* —el `layout()` de abajo sigue duplicado con `mail/`, y su disparador
@@ -66,23 +80,21 @@ function normalizeLocale(locale?: string | null): Locale {
  */
 
 /**
- * ⚠️ **`layout()` — el esqueleto VIEJO, y solo lo usan los correos 2, 3, 4, 5 y el de rechazo.**
- * El correo 1 ya migró al esqueleto de §31 (`mail-shell.ts`). Los otros cinco de este fichero son el
- * **resto del pase 1** y salen en el siguiente empujón; hasta entonces conviven, porque migrar medio
- * correo es peor que migrar uno entero. ⛔ **No se le añaden funciones nuevas**: lo que este layout no
- * sabe hacer (marca, pie en tinta, modo oscuro, preheader) es exactamente lo que §31 vino a resolver.
+ * ⛔⛔ **`layout()` — EL ESQUELETO VIEJO, ELIMINADO. Se anota aquí porque su ausencia es el hecho.**
+ *
+ * Era el `<div>` de nueve líneas que producía `Arial`, un `<h2>TCG HUNT</h2>` en negritas, una `<hr>`
+ * gris y nada más —`max-width:520px`, `color:#111`, `border-radius:6px` en los CTA—, y lo usaban los
+ * seis correos de este fichero. Con **los seis ya montados sobre `mail-shell.ts`** (§31 pase 1) se
+ * quedó **sin un solo llamador**, y una función de maqueta muerta en un fichero de plantillas es la
+ * rampa por la que vuelve el correo sin marca: *el siguiente correo se escribe copiando al de al
+ * lado.*
+ *
+ * ⚠️ **Esto NO cierra BE-43 y no se debe leer como si lo cerrara.** BE-43 es la **copia** del layout
+ * y del escape entre `buylist/` y `mail/`; lo que desaparece aquí es **una de las dos copias**, y la
+ * otra —`mail/mail.templates.ts`, con los correos 7 y 8— **sigue intacta, es de otro work stream y su
+ * disparador declarado sigue siendo el pase 2 de §31.15**. Lo que este pase cambia es que la deuda ya
+ * no tiene dos deudores: tiene uno.
  */
-function layout(title: string, bodyHtml: string): string {
-  return [
-    `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#111">`,
-    `<h2 style="margin:0 0 16px">${BRAND}</h2>`,
-    `<h3 style="margin:0 0 12px">${title}</h3>`,
-    bodyHtml,
-    `<hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>`,
-    `<p style="font-size:12px;color:#888">${BRAND}</p>`,
-    `</div>`,
-  ].join('');
-}
 
 /** Etiquetas legibles del acabado (los datos de catálogo van en inglés por diseño, ARCHITECTURE §6). */
 const FINISH_LABELS: Record<Finish, string> = {
@@ -174,7 +186,6 @@ export function sellItemRejectedTemplate(
   const eyebrowText = params.folio ? `${eyebrow} · ${params.folio}` : eyebrow;
 
   const blocks = [
-    brandRows(),
     eyebrowRow(eyebrow, params.folio ?? null),
     // §31.9 — titular serif **22px**: los 26px son de los correos 1 y 2, que piden una decisión.
     headingRow(title, 22),
@@ -437,7 +448,8 @@ export function sellOfferTemplate(
     : `Se te depositan ${money(params.netCents, l)}. Esta oferta tiene fecha límite.`;
 
   const blocks = [
-    brandRows(),
+    // ⭐ R3 — el bloque de marca ya NO lo pone la plantilla: lo emite `mailShell`, igual que el pie.
+    // Lo que es idéntico en los ocho lo pone el sitio que sabe que son ocho.
     eyebrowRow(en ? 'PURCHASE OFFER' : 'OFERTA DE COMPRA', params.folio),
     headingRow(title, 26),
     spacerRow(24),
@@ -533,9 +545,7 @@ export function sellOfferTemplate(
       preheader,
       blocks,
       // §31.6h — la única línea variable del pie. ⛔ Nada necesario vive en la banda de tinta.
-      footerWhy: en
-        ? 'You are receiving this email because you have a sell request with us.'
-        : 'Recibes este correo porque tienes una solicitud de venta con nosotros.',
+      footerWhy: sellRequestFooterWhy(en),
     }),
     text,
   };
@@ -566,29 +576,61 @@ export function sellOfferCancelledTemplate(
   const en = l === 'en';
   const sentOn = formatDate(params.offerSentAt, l);
   const title = en ? 'We cancelled the offer we sent you' : 'Cancelamos la oferta que te mandamos';
+  // El cuerpo se parte **por donde ya estaba partido** (§31.0): son dos frases, y la segunda —la que
+  // quita la culpa— es la que sirve de preheader. `body1` se recompone byte a byte.
+  const notYourFault = en ? 'It is nothing on your side.' : 'No es nada de tu parte.';
   const body1 = en
-    ? `The offer from ${sentOn} is no longer valid: we cancelled it ourselves. It is nothing on your side.`
-    : `La oferta del ${sentOn} ya no es válida: la cancelamos nosotros. No es nada de tu parte.`;
+    ? `The offer from ${sentOn} is no longer valid: we cancelled it ourselves. ${notYourFault}`
+    : `La oferta del ${sentOn} ya no es válida: la cancelamos nosotros. ${notYourFault}`;
   const body2 = en
     ? 'Your request is still active and we are reviewing it again; we will write to you with a new offer or with our answer.'
     : 'Tu solicitud sigue viva y volvemos a revisarla; te escribiremos con una oferta nueva o con nuestra respuesta.';
-  const ctaLabel = en ? 'View my request' : 'Ver mi solicitud';
-  const cta = params.portalUrl
-    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
-    : `<p style="margin:20px 0"><strong>${escapeHtml(en ? 'Sign in to your account to see your request.' : 'Entra a tu cuenta para ver tu solicitud.')}</strong></p>`;
+  // §31.7/§31.2 — mismas palabras, en mayúsculas en la cadena. ⛔ **NO** es «cotizar de nuevo»: la
+  // solicitud está VIVA y ese botón mandaría al vendedor a duplicarla (§25.4.4-bis).
+  const ctaLabel = en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD';
+  const eyebrow = en ? 'OFFER CANCELLED' : 'OFERTA CANCELADA';
+
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    // §31.9 — titular serif 22px (los 26px son de los dos correos que piden decisión de dinero).
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
+    spacerRow(16),
+    proseRow(body1),
+    spacerRow(16),
+    proseRow(body2),
+    spacerRow(32),
+    ...(params.portalUrl
+      ? // §31.7 — **TINTA**: aquí no hay decisión de dinero ni reloj corriendo. El bermellón es de
+        // los correos 1 y 2, y por eso aparece en dos de ocho: eso es «con avaricia».
+        [ctaRows(params.portalUrl, ctaLabel, 'ink')]
+      : [
+          proseRow(
+            en ? 'Sign in to your account to see your request.' : 'Entra a tu cuenta para ver tu solicitud.',
+          ),
+        ]),
+  ];
 
   return {
     to: '',
+    // ⚠️ §25.4.7 — el asunto del 5 es el único de los cierres que NO puede empezar por «Tu oferta
+    // venció…»: «Cancelamos» pone el sujeto de la acción en nosotros en la primera palabra. NO se toca.
     subject: en ? 'We cancelled the offer we sent you' : 'Cancelamos la oferta que te mandamos',
-    html: layout(
+    html: mailShell({
+      locale: l,
       title,
-      `<p style="font-size:12px;color:#888">${escapeHtml(params.folio)}</p>` +
-        `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
-        `<p>${escapeHtml(body1)}</p><p>${escapeHtml(body2)}</p>` +
-        cta,
-    ),
+      // §31.6a — el titular + la frase que quita la culpa, que es lo que este vendedor necesita leer
+      // en la bandeja antes de abrir nada. Las dos son cadenas vivas del correo.
+      preheader: `${title}. ${notYourFault}`,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
     text:
-      `${en ? 'Hi' : 'Hola'} ${name}:\n\n${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${BRAND}`,
+      `${en ? 'Hi' : 'Hola'} ${name}:\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n` +
+      // ML-5/ML-7 — la URL completa también en la mitad de texto.
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
+      `\n${BRAND}`,
   };
 }
 
@@ -725,10 +767,29 @@ export function sellOfferReminderTemplate(
     : en
       ? 'Your package needs to ship tomorrow'
       : 'Tu paquete debe salir mañana';
-  // ⚠️ La condición NM viaja PEGADA al conteo de cartas, en una línea corta.
-  const frozen = en
-    ? `YOUR OFFER · ${params.folio}\n${params.buyLineCount} card(s), only if they arrive Near Mint\nDEPOSITED TO YOU: ${money(params.netCents, l)}\nExpires ${deadline}`
-    : `TU OFERTA · ${params.folio}\n${params.buyLineCount} carta(s), siempre que lleguen en Near Mint\nSE TE DEPOSITAN: ${money(params.netCents, l)}\nVence el ${deadline}`;
+
+  // ===============================================================================================
+  // §31 — **EL BLOQUE CONGELADO, PARTIDO EN SUS CUATRO RENGLONES.**
+  //
+  // §25.4.3 lo dibuja con cuatro renglones y §31 los reparte entre **tres patrones nombrados** (el
+  // eyebrow, la resta reducida al neto y la fecha límite). Se parte **por donde ya estaba partido**
+  // —los `\n` de la cadena de siempre— y se vuelve a juntar, byte a byte, para la parte de texto
+  // plano: `frozen` es **exactamente la misma cadena que antes**. *Si al maquetar hace falta partir
+  // un párrafo, se parte por donde ya está partido* (§31.0).
+  // ===============================================================================================
+  const frozenHead = en ? `YOUR OFFER · ${params.folio}` : `TU OFERTA · ${params.folio}`;
+  // ⚠️ R2, la regla que más fácil se rompe: la condición NM viaja PEGADA al conteo de cartas. Un
+  // recordatorio que repite el neto SIN decir «siempre que lleguen en Near Mint» degrada la condición
+  // a letra chica por omisión, que es lo que D30 vino a impedir.
+  const frozenCount = en
+    ? `${params.buyLineCount} card(s), only if they arrive Near Mint`
+    : `${params.buyLineCount} carta(s), siempre que lleguen en Near Mint`;
+  const netLabel = en ? 'DEPOSITED TO YOU' : 'SE TE DEPOSITAN';
+  const netAmount = money(params.netCents, l);
+  // §31.6f — la frase del plazo, partida en tres para pintar el token en bermellón **sin reescribirla**.
+  const expiresPre = en ? 'Expires ' : 'Vence el ';
+  const frozen = `${frozenHead}\n${frozenCount}\n${netLabel}: ${netAmount}\n${expiresPre}${deadline}`;
+
   const ask = accept
     ? en
       ? 'You still have to respond to the offer.'
@@ -748,33 +809,85 @@ export function sellOfferReminderTemplate(
         ? `Carrier: ${params.carrier ?? ''} · Tracking: ${params.trackingNumber}`
         : `Paquetería: ${params.carrier ?? ''} · Guía: ${params.trackingNumber}`
       : '';
+  // §31.7/§31.2 — el rótulo del botón va **en mayúsculas en la cadena**. Son las mismas palabras.
   const ctaLabel = accept
     ? en
-      ? 'View and respond to the offer'
-      : 'Ver y responder la oferta'
+      ? 'VIEW AND RESPOND TO THE OFFER'
+      : 'VER Y RESPONDER LA OFERTA'
     : en
-      ? 'Go to my request'
-      : 'Ir a mi solicitud';
-  const cta = params.portalUrl
-    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
-    : `<p style="margin:20px 0"><strong>${escapeHtml(en ? 'Sign in to your account to continue.' : 'Entra a tu cuenta para continuar.')}</strong></p>`;
+      ? 'GO TO MY REQUEST'
+      : 'IR A MI SOLICITUD';
+  /**
+   * ⚠️⚠️ **EL EYEBROW DE LA VARIANTE 2b NO ESTÁ EN §31, y no me lo invento.**
+   *
+   * §31.9 da a este correo **un** eyebrow, `LA OFERTA VENCE MAÑANA`, y es cierto **solo en 2a**: en
+   * 2b la oferta ya se aceptó y lo que vence es el plazo de **envío** (§25.4.3). Poner ahí «la oferta
+   * vence mañana» sería **afirmar un hecho falso en versalitas**, que es justo lo que §25.4.4-bis
+   * separó del correo 3 para no hacer. Y traducir el titular a versalitas («EL PAQUETE DEBE SALIR
+   * MAÑANA») sería **escribir copy de negocio**, que no es mío (§31.0).
+   * ⇒ **2b usa el rótulo que el propio bloque congelado ya trae** —`TU OFERTA · <folio>`, cadena viva,
+   * ya en mayúsculas y cierta en las dos variantes—, y **la decisión queda escalada a ux-ui** en
+   * `BACKEND_NOTES`. *Es una línea el día que §31 diga cuál es.*
+   */
+  const eyebrow = accept
+    ? en
+      ? 'THE OFFER EXPIRES TOMORROW'
+      : 'LA OFERTA VENCE MAÑANA'
+    : en
+      ? 'YOUR OFFER'
+      : 'TU OFERTA';
+
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    // §31.9 — **26px**, como el correo 1: los dos piden una decisión de dinero con fecha límite.
+    headingRow(title, 26),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
+    spacerRow(16),
+    proseRow(ask),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(24),
+    proseRow(frozenCount),
+    spacerRow(8),
+    // ⚠️ §31.9 — **SOLO EL NETO**: la resta entera en un recordatorio invita a releerlo como una
+    // oferta NUEVA, y la propiedad que este ciclo más protege es que hay **una** oferta y no se
+    // edita. Es el mismo patrón de la resta con la lista de sustraendos vacía: el neto conserva su
+    // regla de tinta, que es la única del correo.
+    totalsRows([], { label: netLabel, amount: netAmount }),
+    spacerRow(24),
+    deadlineRow(expiresPre, deadline, ''),
+    // §25.4.3 — «2b lleva el número de guía en mono seleccionable»: el dato que se copia.
+    ...(guide ? [spacerRow(24), monoRow(guide)] : []),
+    ...(alreadySent ? [spacerRow(24), proseRow(alreadySent)] : []),
+    spacerRow(32),
+    ...(params.portalUrl
+      ? // §31.7 — **bermellón: no responder cuesta dinero**, y en 2b tampoco enviar. `ctaRows` emite
+        // SIEMPRE la URL en texto debajo (§31.8 regla 4c).
+        [ctaRows(params.portalUrl, ctaLabel, 'accent')]
+      : [proseRow(en ? 'Sign in to your account to continue.' : 'Entra a tu cuenta para continuar.')]),
+  ];
 
   return {
     to: '',
+    // ⚠️ §31.9 — el asunto NO se toca en este pase.
     subject: title,
-    html: layout(
+    html: mailShell({
+      locale: l,
       title,
-      `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
-        `<p>${escapeHtml(ask)}</p>` +
-        `<div style="background:#EFEBE2;padding:12px;margin:16px 0"><p style="margin:0;font-size:13px;white-space:pre-line">${escapeHtml(frozen)}</p></div>` +
-        (guide ? `<p style="font-family:monospace">${escapeHtml(guide)}</p>` : '') +
-        (alreadySent ? `<p>${escapeHtml(alreadySent)}</p>` : '') +
-        cta,
-    ),
+      // §31.6a — el titular + lo que hay que hacer, las dos cadenas vivas del correo. ⛔ Ningún monto
+      // salvo el neto podría ir aquí (R1) y aquí no va ninguno: el neto ya está en el cuerpo.
+      preheader: `${title}. ${ask}`,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
     text:
       `${en ? 'Hi' : 'Hola'} ${name}:\n\n${title}\n\n${ask}\n\n${frozen}\n` +
       (guide ? `\n${guide}\n` : '') +
       (alreadySent ? `\n${alreadySent}\n` : '') +
+      // ML-5/ML-7 — la URL **completa** también aquí: el botón puede quedar ilegible bajo inversión
+      // forzada, y hay clientes que solo enseñan esta mitad.
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
       `\n${BRAND}`,
   };
 }
@@ -817,21 +930,43 @@ export function sellRequestExpiredTemplate(
   const body2 = en
     ? 'If you still want to sell, you can get a new quote whenever you like.'
     : 'Si sigues queriendo vender, puedes cotizar de nuevo cuando quieras.';
-  const ctaLabel = en ? 'Get a new quote' : 'Cotizar de nuevo';
-  const cta = params.portalUrl
-    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
-    : '';
+  // §31.7/§31.2 — mismas palabras, en mayúsculas en la cadena.
+  const ctaLabel = en ? 'GET A NEW QUOTE' : 'COTIZAR DE NUEVO';
+  const eyebrow = en ? 'REQUEST EXPIRED' : 'SOLICITUD VENCIDA';
+
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
+    spacerRow(16),
+    proseRow(body1),
+    spacerRow(16),
+    proseRow(body2),
+    spacerRow(32),
+    // §31.7 — TINTA: la solicitud ya está cerrada, no hay reloj ni decisión de dinero.
+    // ⚠️ Sin portal no hay bloque: **jamás un botón muerto** (BL-21). El correo sale igual.
+    ...(params.portalUrl ? [ctaRows(params.portalUrl, ctaLabel, 'ink')] : []),
+  ];
+
   return {
     to: '',
+    // ⚠️ §31.9 — el asunto NO se toca en este pase.
     subject: title,
-    html: layout(
+    html: mailShell({
+      locale: l,
       title,
-      `<p style="font-size:12px;color:#888">${escapeHtml(params.folio)}</p>` +
-        `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
-        `<p>${escapeHtml(body1)}</p><p>${escapeHtml(body2)}</p>` +
-        cta,
-    ),
-    text: `${en ? 'Hi' : 'Hola'} ${name}:\n\n${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${BRAND}`,
+      // §31.6a — «qué sigue», cadena viva del correo. ⛔ No se antepone el titular (como en el 3 y el
+      // 6) porque **las dos variantes de este correo tienen titulares de largo distinto** y una de las
+      // dos se saldría de los 40–90 caracteres. El asunto ya dice el hecho; el preheader dice qué sigue.
+      preheader: body2,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    text:
+      `${en ? 'Hi' : 'Hola'} ${name}:\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n` +
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
+      `\n${BRAND}`,
   };
 }
 
@@ -876,24 +1011,51 @@ export function sellRequestNotPursuedTemplate(
   const body2 = en
     ? "There is nothing pending on your side: don't send any card, and no shipping label was generated."
     : 'No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna guía.';
+  // Se parte por donde ya estaba partido (§31.0): la segunda frase es la que sirve de preheader.
+  const inviteBack = en
+    ? 'You can get a new quote whenever you like.'
+    : 'Puedes volver a cotizar cuando quieras.';
   const body3 = en
-    ? 'Prices move all the time. You can get a new quote whenever you like.'
-    : 'Los precios se mueven todo el tiempo. Puedes volver a cotizar cuando quieras.';
-  const ctaLabel = en ? 'Get a new quote' : 'Cotizar de nuevo';
-  const cta = params.portalUrl
-    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
-    : '';
+    ? `Prices move all the time. ${inviteBack}`
+    : `Los precios se mueven todo el tiempo. ${inviteBack}`;
+  // §31.7/§31.2 — mismas palabras, en mayúsculas en la cadena.
+  const ctaLabel = en ? 'GET A NEW QUOTE' : 'COTIZAR DE NUEVO';
+  const eyebrow = en ? 'REQUEST CLOSED' : 'SOLICITUD CERRADA';
+
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
+    spacerRow(16),
+    proseRow(body1),
+    spacerRow(16),
+    proseRow(body2),
+    spacerRow(16),
+    proseRow(body3),
+    spacerRow(32),
+    // §31.7 — TINTA. Y ⛔ **ni un plazo, ni un monto, ni una fecha** en todo el correo (§25.4.5): si
+    // aparece una fecha límite, un «7 días» o un «venció», el correo está mal. El rediseño no añade
+    // ninguno — ni siquiera en el preheader, que es la superficie nueva por la que se colarían.
+    ...(params.portalUrl ? [ctaRows(params.portalUrl, ctaLabel, 'ink')] : []),
+  ];
+
   return {
     to: '',
+    // ⚠️ §31.9 — el asunto NO se toca en este pase.
     subject: title,
-    html: layout(
+    html: mailShell({
+      locale: l,
       title,
-      `<p style="font-size:12px;color:#888">${escapeHtml(params.folio)}</p>` +
-        `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
-        `<p>${escapeHtml(body1)}</p><p>${escapeHtml(body2)}</p><p>${escapeHtml(body3)}</p>` +
-        cta,
-    ),
-    text: `${en ? 'Hi' : 'Hola'} ${name}:\n\n${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${body3}\n\n${BRAND}`,
+      // §31.6a — el titular + la puerta abierta. Las dos, cadenas vivas del correo.
+      preheader: `${title}. ${inviteBack}`,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    text:
+      `${en ? 'Hi' : 'Hola'} ${name}:\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${body3}\n` +
+      (params.portalUrl ? `\n${params.portalUrl}\n` : '') +
+      `\n${BRAND}`,
   };
 }
 
