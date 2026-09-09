@@ -12226,7 +12226,7 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 
 ---
 
-## 28. M2 › Bounties — todos los bounties en un sitio, y el rebasado como eje (v3.3 · **revisada v3.4** · **§28.5 precisada v3.5**)
+## 28. M2 › Bounties — todos los bounties en un sitio, y el rebasado como eje (v3.3 · **revisada v3.4** · **§28.5 precisada v3.5** · **§28.4 gana la columna de MERCADO en v3.7**)
 
 > **Origen:** encargo directo del dueño («una pantalla con todos los bounties: verlos y editarlos»).
 > **No hubo entrega de Claude Design para esta pantalla**: el diseño se construye **desde cero** pero
@@ -12261,6 +12261,26 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 > su mutación en rojo (§28.14, caso 19). De paso se alinea `filters.searchLabel` con el rótulo real
 > —**`Buscar carta`**, **BNT-D10**— en §28.12 y en el wireframe de §28.2. **§28.9, §28.10 y el resto quedan
 > intactos.**
+>
+> **⚠⚠ Ampliación v3.7 — LA COLUMNA DE VALOR DE MERCADO (contrato `v1.62.2`, cierra `ARCHITECTURE §9 · D-UX-1`
+> punto 1).** El dueño la pidió con estas palabras: *«solo agrégame el precio del mercado»*, y su razón fija el
+> requisito: hoy la fila dice *«pago MX$3,000, la tarifa vigente es MX$1,603 (+87 %)»* y **con eso no se puede
+> juzgar si el bounty es sano**. El dato **ya viaja y ya funciona** (`pricing.market`, `MarketReferenceDTO`);
+> lo que faltaba era la columna. `API_CONTRACT` apuntaba a **§28.4** como si estuviera normada y **no lo
+> estaba**: §28.4 tenía siete columnas y ninguna era el mercado. **Se cierra aquí.** Lo que cambia:
+>
+> | Punto | Antes (v3.6) | Ahora (v3.7) — normativo |
+> |---|---|---|
+> | **Columnas** | siete | **ocho**: entra **`VALOR DE MERCADO`** como **tercera**, la primera de las de dinero — §28.4 |
+> | **El caso sin dato** | no existía | **`pending` es estado de primera clase**: `—`, ⛔ nunca `MX$0`, ⛔ nunca el precio de otro acabado — §28.4a |
+> | **De qué se ramifica** | — | **de `market.status`, JAMÁS de la verdad del número** (`!referenceMxnCents` es cierto para `0` y para `null`) — §28.4a |
+> | **La fecha** | — | **`capturedDate` se pinta SIEMPRE**, segunda línea de la celda, y **no cuesta ni un píxel de alto ni de ancho** — §28.4b |
+> | **Anchura** | 0 px de desbordamiento | **sigue 0 px, y se sostiene con un presupuesto medido**: la tabla de ocho columnas vive a partir de `xl`; por debajo manda el colapso de §28.9, que **no se rompe** — §28.4c |
+> | **`<th scope="rowgroup">`** | `colspan="7"` | **`colspan="8"`** — §28.10 |
+>
+> **⛔ Lo que esta ampliación NO hace:** no añade filtro, ni orden, ni acción, ni endpoint (el contrato dice
+> *«es una lectura más, no una función nueva»*); **no calcula ningún porcentaje sobre el mercado**; **no
+> clasifica el dato como «viejo»** (§28.4b); y **no toca §28.3, §28.5, §28.6 ni §28.7**.
 
 ### 28.0 El problema, y las **seis** reglas duras *(v3.4: la sexta es nueva y es la primera)*
 
@@ -12309,28 +12329,33 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 │                                                    [ Buscar carta ]        [ Orden ▾ ]        │
 │ ─────────────────────────────────────────────────────────────────────────────  regla 1px ─── │
 │                                                                                              │
-│ CARTA                        ESTADO       PAGAMOS   TARIFA VIGENTE   PREMIUM       AVANCE     │
+│ CARTA                  ESTADO     VALOR DE      PAGAMOS  TARIFA VIGENTE  PREMIUM     AVANCE   │
+│                                    MERCADO                                                   │
 │ ═════════════════════════════════════════════════════════════════════ regla fuerte ═════════ │
-│ ▌ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1                  ← <th scope="rowgroup">             │
+│ ▌ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1        ← <th scope="rowgroup" colspan="8">           │
 │ ▌ text-xs muted: están encendidos y no pagan premium. Cada uno pide una decisión.            │
-│ ▌ Charizard ex              REBASADO   MX$ 900.00     MX$ 950.00   −MX$ 50.00      0 de 2     │
-│ ▌ Obsidian Flames · 125                                              −5.3%       faltan 2    │
+│ ▌ Charizard ex        REBASADO  MX$ 1,020.00  MX$ 900.00   MX$ 950.00  −MX$ 50.00   0 de 2   │
+│ ▌ Obsidian Flames·125            5 sep 2026                              −5.3%     faltan 2  │
 │ ▌ HOLOFOIL                                              [ Editar ]  [ Apagar ]               │
-│ ▌ Gengar VMAX             SIN PRECIO       —          MX$ 780.00        —          0 de 2     │
-│ ▌ Fusion Strike · 271                                                            faltan 2    │
+│ ▌ Gengar VMAX       SIN PRECIO  MX$ 1,150.00       —       MX$ 780.00       —       0 de 2   │
+│ ▌ Fusion Strike·271              5 sep 2026                                        faltan 2  │
 │ ▌ REVERSE                                          [ Poner precio ]  [ Apagar ]              │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   ACTIVOS · 12                                                                               │
-│   Pikachu VMAX               ACTIVO   MX$ 2,500.00   MX$ 2,100.00  +MX$ 400.00     1 de 3     │
-│   Vivid Voltage · 044                                               +19.0%        faltan 2   │
+│   Pikachu VMAX          ACTIVO  MX$ 4,180.00 MX$ 2,500.00 MX$ 2,100.00 +MX$ 400.00  1 de 3   │
+│   Vivid Voltage·044              3 sep 2026                             +19.0%     faltan 2  │
+│   Lugia V               ACTIVO       —       MX$ 1,500.00      —       SIN TARIFA   0 de 1   │
+│   Silver Tempest·186                                                                falta 1  │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   COMPLETADOS · 2                                                                            │
-│   Mew ex                  COMPLETADO  MX$ 1,200.00   MX$ 1,050.00       —          2 de 2     │
+│   Mew ex            COMPLETADO  MX$ 1,900.00 MX$ 1,200.00 MX$ 1,050.00      —       2 de 2   │
+│   Paldean Fates·205              5 sep 2026                                                  │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   APAGADOS · 4                                                                               │
-│   Snorlax VMAX               APAGADO    MX$ 600.00     MX$ 640.00       —          0 de 2     │
+│   Snorlax VMAX         APAGADO   MX$ 720.00   MX$ 600.00   MX$ 640.00       —       0 de 2   │
+│   Cosmic Eclipse·131             1 sep 2026                                                  │
 │                                                                                              │
-│ nota al pie text-xs muted: el avance sube al PAGAR · cambios en bitácora                     │
+│ pie text-xs muted: el avance sube al PAGAR · el mercado trae su fecha · cambios en bitácora  │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -12346,6 +12371,11 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
   página, la regla del eje se rompería en silencio.
 - **Sin plegado de grupos en v1.** Si con el tiempo los apagados crecen tanto que estorban, la palanca ya
   existe y es el **chip** (des-seleccionar `APAGADOS`), no un acordeón nuevo.
+- **⚠ v3.7 — la tabla tiene OCHO columnas y sigue sin desbordar.** `VALOR DE MERCADO` entra la **tercera**,
+  con la **fecha de captura como segunda línea de la celda** — y esa segunda línea **no alarga la fila**: las
+  celdas de `CARTA` (3 líneas), `PREMIUM` (2) y `AVANCE` (2) ya la habían fijado. **El presupuesto de anchura
+  y el punto de colapso están medidos en §28.4c**; la regla dura no cambia: **0 px de desbordamiento
+  horizontal, y el nombre de la carta no se trunca jamás**.
 
 **(a) ⚠ Los CINCO chips y los CUATRO bloques — v3.4, y cada decisión tiene su porqué.**
 
@@ -12456,25 +12486,37 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   (§16.3b, *«el sugerido se muestra tachado NO»*): tachar una cifra de dinero es sugerir que ya no vale, y el
   precio de un bounty apagado **sí sigue guardado** y es el que reaparecerá si lo enciendes.
 
-### 28.4 Las columnas, en orden, y por qué ese orden
+### 28.4 Las columnas, en orden, y por qué ese orden *(ampliada en v3.7: entra `VALOR DE MERCADO`)*
 
 | # | Columna | Contenido | Formato |
 |---|---|---|---|
 | 1 | **CARTA** | nombre EN (`lang="en"`, serif 15–17px, **enlace** al cajón del binder) · segunda línea `Set · número` en `text-xs muted` · tercera línea: **`FinishMark`** (§16.6) + acabado en versalitas mono | izquierda |
 | 2 | **ESTADO** | la versalita que el mapa de §28.3 asigna al **`state` que llegó del servidor**, con su `aria-label` largo. ⛔ **No se calcula aquí nada** | izquierda |
-| 3 | **PAGAMOS** | `bounty.priceCents` — **`—` cuando el bounty es `invalida`** (no hay precio que enseñar) | mono `tabular-nums`, **derecha** |
-| 4 | **TARIFA VIGENTE** | `bounty.curveQuoteCents` (`—` si es `null`) | mono `tabular-nums`, **derecha** |
-| 5 | **PREMIUM** | derivada **de las dos cifras que ya vinieron**: `+MX$ 400.00 · +19.0%` / `−MX$ 50.00 · −5.3%` / `SIN TARIFA` / `—` | mono `tabular-nums`, **derecha** |
-| 6 | **AVANCE** | `1 de 3` + segunda línea `faltan 2` en `text-xs muted` | mono `tabular-nums`, **derecha** |
-| 7 | *(acciones)* | `Editar` · `Apagar` / `Encender` — y **`Poner precio`** en lugar de `Editar` cuando el estado es `invalida` (§28.6g) | derecha, `<th>` oculto para lectores |
+| 3 | **VALOR DE MERCADO** *(v3.7)* | `pricing.market` (`MarketReferenceDTO`) — `referenceMxnCents` **cuando `status === "priced"`**, `—` **cuando `status === "pending"`** · **segunda línea:** `capturedDate` localizada (`5 sep 2026`) en `text-xs muted`, y **solo cuando hay número** | mono `tabular-nums`, **derecha** |
+| 4 | **PAGAMOS** | `bounty.priceCents` — **`—` cuando el bounty es `invalida`** (no hay precio que enseñar) | mono `tabular-nums`, **derecha** |
+| 5 | **TARIFA VIGENTE** | `bounty.curveQuoteCents` (`—` si es `null`) | mono `tabular-nums`, **derecha** |
+| 6 | **PREMIUM** | derivada **de las dos cifras que ya vinieron**: `+MX$ 400.00 · +19.0%` / `−MX$ 50.00 · −5.3%` / `SIN TARIFA` / `—` | mono `tabular-nums`, **derecha** |
+| 7 | **AVANCE** | `1 de 3` + segunda línea `faltan 2` en `text-xs muted` | mono `tabular-nums`, **derecha** |
+| 8 | *(acciones)* | `Editar` · `Apagar` / `Encender` — y **`Poner precio`** en lugar de `Editar` cuando el estado es `invalida` (§28.6g) | derecha, `<th>` oculto para lectores |
 
 - **La carta va primera aunque el estado sea el eje**, y no es contradicción: el **agrupamiento** ya resuelve
   el eje (canal 1), y una tabla cuyo primer campo no es el sujeto de la fila desorienta. Es además el orden
   que ya usa la tabla pública de bounties de la home (§20.7: CARTA · CONDICIÓN · PAGAMOS · BUSCADAS).
-- **Las tres columnas de dinero son tres y no dos.** «Pagamos» y «Tarifa vigente» son los **dos números que
-  el dueño necesita para teclear el precio nuevo**; «Premium» es el **derivado que hace evidente el
-  rebasado sin comparar mentalmente dos cifras**. Quitar el derivado obliga a restar en la cabeza quince
-  veces; quitar los crudos obliga a abrir la fila para decidir.
+- **⭐ v3.7 — por qué el mercado va ANTES de `PAGAMOS` y no al final.** Las cuatro columnas de dinero se leen
+  como **una frase, de izquierda a derecha**: *«la carta vale **4,180**, pagamos **2,500**, la tarifa vigente
+  es **2,100**, así que ponemos **+400** encima»*. El mercado es **el ancla del valor** —el único número de
+  los cuatro que no decidimos nosotros— y por eso abre la frase; los dos **crudos que el dueño compara para
+  teclear** (`PAGAMOS`, `TARIFA VIGENTE`) quedan **pegados**, y el **derivado** (`PREMIUM`) queda pegado a
+  sus dos operandos. Ponerlo al final lo dejaría a cuatro columnas de distancia de `PAGAMOS`, que es
+  exactamente la comparación que el dueño pidió poder hacer de un vistazo.
+- **Las cuatro columnas de dinero son cuatro y no tres** *(v3.7)*. Antes: «Pagamos» y «Tarifa vigente» son
+  los **dos números que el dueño necesita para teclear el precio nuevo**; «Premium» es el **derivado que hace
+  evidente el rebasado sin comparar mentalmente dos cifras**. **Lo que faltaba** —y es literalmente la queja
+  del dueño— es que `+87 %` **no dice si el bounty es sano**: `+87 %` sobre una tarifa de 1,603 es una ganga
+  si la carta vale 6,000 y un disparate si vale 1,800. **El valor de mercado es el único dato que convierte
+  ese porcentaje en un juicio.** Quitar el derivado obliga a restar en la cabeza quince veces; quitar los
+  crudos obliga a abrir la fila para decidir; **quitar el mercado obliga a irse al binder para saber si lo
+  que se está viendo tiene sentido**, que es el viaje que esta pantalla existe para ahorrar.
 - **⚠ El PREMIUM es lo ÚNICO que esta pantalla calcula, y calcula una resta, no un veredicto.** Se compone con
   las dos cifras que ya vinieron en la fila y **sirve para leer, no para clasificar**: ⛔ **está prohibido
   deducir el estado de su signo** (un premium negativo **no** «hace» rebasada a la fila; la fila es `rebasada`
@@ -12498,6 +12540,125 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
 - **La nota al pie desactiva un malentendido real**: el avance sube **cuando se paga la compra** (el conteo
   lo incrementa el pago SPEI, por ítem con `priceBasis="bounty"`), **no cuando alguien cotiza**. Sin esa
   frase, un dueño con tres cotizaciones vivas jura que la barra está rota.
+
+#### 28.4a ⭐ La celda de `VALOR DE MERCADO` — se ramifica por `status`, y por nada más *(v3.7)*
+
+> **Regla madre, y es la del contrato palabra por palabra:** *«El frontend ramifica por `status`, JAMÁS por
+> la verdad/falsedad del número.»* **`!referenceMxnCents` es verdadero para `0` y para `null`**, y el
+> `BACKEND_NOTES` ya lo dejó avisado. Un `??` o un `||` sobre el importe **es la mutación**, no una
+> abreviatura. *Misma doctrina que `state` (§28.3) y `priceBasis` (§21.8): la UI obedece el discriminante,
+> no lo infiere.*
+
+| `market.status` | Qué se pinta | Segunda línea | `aria-label` |
+|---|---|---|---|
+| `"priced"` | `MX$ 4,180.00` (mono, derecha, §9.3) | **`capturedDate` localizada**, `text-xs muted` | `market.valueAria` — importe **y** fecha |
+| `"pending"` | **`—`** (tinta normal, no muted: es un dato que falta, no un dato secundario) | **ninguna** — sin número, la frescura no informa | `market.pendingAria` |
+| *(cualquier otra cosa, defensivo)* | **`—`** | ninguna | `market.pendingAria` |
+
+**Las cinco prohibiciones de esta celda — son de dinero, no de estilo:**
+
+1. **⛔ Nunca `MX$0`, nunca «gratis», nunca `0`.** El contrato garantiza que el emisor **no emite `0`**: una
+   fila corrupta (`priceMxnCents = 0`, un restore a medias) sale como `status: "pending"`. **Y aun así la
+   pantalla se defiende**: si llegara `status: "priced"` con `referenceMxnCents` nulo, ausente o `<= 0`
+   —contrato violado— **se pinta `—`**, jamás el cero. *Un cero en una columna de valor de mercado dice
+   «esta carta no vale nada», y eso es una afirmación de dinero que nadie hizo.*
+2. **⛔ Jamás el precio de otro acabado.** La celda lee **`row.pricing.market` de SU fila** y de ninguna otra.
+   Prohibido caer al acabado base, a «el precio de la carta», al `marketReferenceMxnCents` de otra variante o
+   a un valor cacheado del binder para el mismo `cardId`. **Dos filas de la misma carta con acabados
+   distintos son dos precios distintos**, y una de ellas puede ser `pending` mientras la otra no.
+3. **⛔ No se deriva de `TARIFA VIGENTE` ni al revés.** Por el invariante del contrato,
+   `market.status === "pending"` ⇔ `bounty.curveQuoteCents === null`, así que en pantalla **las dos celdas
+   enseñarán `—` a la vez**. Eso es una **coincidencia verificable, no una fuente**: cada celda se pinta de
+   **su propio campo**. *Si algún día discreparan, no hay fila que repintar: hay un defecto que reportar* —
+   idéntica doctrina a la del `PREMIUM` y el `state` del bullet de arriba.
+4. **⛔ No se calcula ningún porcentaje sobre el mercado.** Ni *«pagas el 60 % del valor»*, ni una barra, ni
+   un semáforo. **`PREMIUM` sigue siendo lo único que esta pantalla calcula** y sigue siendo una resta entre
+   `PAGAMOS` y `TARIFA VIGENTE`. *(El dueño describió el juicio en esos términos — «pago el 60 % del valor»,
+   «pago el triple»— pero **pidió el número, no el veredicto**; un segundo derivado en una tabla de dinero es
+   un tercer número que puede discrepar de la división que él tiene delante, que es justo lo que §M2-F.3
+   regla 4 razona para el tipo de cambio. **Queda como pregunta abierta al humano en §28.15**, y es aditiva:
+   si la quiere, cabe como segunda línea de `PREMIUM` sin tocar el ancho.)*
+5. **⛔ La celda `pending` no se omite ni se colapsa**, ni en escritorio ni en móvil (§28.9). El `—` **es la
+   señal**; una celda vacía se lee como «no aplica».
+
+**Y el `pending` no es un error.** No lleva `role="alert"`, ni acento, ni icono: significa *«el proveedor no
+tiene precio para esta variante»*, que es un hecho del mercado, no una avería nuestra. Su remedio es el mismo
+que el de la cola de precio pendiente (§21.7c, `SIN MERCADO`): **el siguiente barrido, solo**.
+
+#### 28.4b 🕐 `capturedDate` — se dice SIEMPRE, y no se clasifica NUNCA *(v3.7)*
+
+**Decisión: la fecha se pinta, en crudo y sin juicio, como segunda línea de la celda, siempre que haya
+número.** Las tres razones, en orden de peso:
+
+1. **Enseñar un valor de mercado sin decir de cuándo es, en la pantalla que existe para que nada mienta
+   sobre dinero, es el defecto que este documento lleva toda la semana cerrando.** El barrido escribe a
+   diario, **pero una variante cuyo proveedor no respondió conserva la fila anterior**: el número puede tener
+   semanas y **se ve idéntico** a uno de hoy.
+2. **Cuesta cero.** El dato ya viaja (`capturedDate`, obligatorio cuando `status: "priced"`), el binder ya lo
+   pinta desde v1.27, **no alarga la fila** (la altura ya la fijan `CARTA`, `PREMIUM` y `AVANCE`) y **no
+   ensancha la columna** (`5 sep 2026` es más estrecho que `MX$ 4,180.00`, que es quien manda el ancho).
+3. **Es la doctrina de este documento:** dar el número crudo y dejar juzgar, en vez de emitir un veredicto
+   que el humano no puede contrastar.
+
+- **⛔⛔ Y NO se clasifica como «vieja» en el cliente.** Nada de `hoy − capturedDate > N ⇒ acento`. **No
+  existe ningún `status` de frescura para el mercado en el contrato** (a diferencia del tipo de cambio, donde
+  `automatic.status` lo **deriva el servidor** — §30.6), así que un umbral en el navegador sería **la quinta
+  implementación de un predicado de dinero y la única que nadie puede probar**: exactamente lo que §28.13.1
+  prohíbe para el `state`. **Se pinta la fecha; el humano juzga.**
+  > **Si el dueño quiere que la pantalla señale las viejas, es una petición al arquitecto** —un `status`
+  > derivado en el servidor, como el de FX— y **no un umbral de front**. Queda anotada en §28.15. *Mientras
+  > tanto, la fecha cruda ya le permite verlo, que es más de lo que tenía.*
+- **Formato §9.3:** `Intl.DateTimeFormat` — ES `5 sep 2026`, EN `Sep 5, 2026`. **Sin prefijo visible** («del»,
+  «capturado el»): la columna ya se llama `VALOR DE MERCADO` y la frase entera va en el `aria-label`
+  (`market.valueAria`), que es donde tiene que estar para quien no ve la columna.
+- **⛔ `capturedDate` NO es la fecha de la última venta observada**, y ninguna cadena lo insinúa: es **el día
+  en que bajamos el archivo del proveedor**. Prohibido escribir «visto por última vez», «última venta» o
+  cualquier variante. *(El dato de evidencia existe en el esquema, no lo escribe nadie y es deuda **GU-9** del
+  backend; aproximarlo aquí sería poner una antigüedad falsa junto a una decisión de dinero — misma razón por
+  la que §28.13.16 prohíbe inventar «desde cuándo está rebasado».)*
+- **⚠ Y lo que la fecha NO dice, y por eso hay una nota al pie.** El importe está en **MXN convertido con el
+  tipo de cambio vigente**; `capturedDate` es la fecha **del precio**, no la **de la tasa**. Con el token de
+  Banxico ausente en producción (**P-63 / `D-OPS-1`**), un precio USD reciente puede estar convertido con una
+  tasa vieja **y la fecha no lo delataría**. Por eso el **pie de la pantalla** gana una frase
+  (`footer.fxNote`, §28.12) que lo dice y **enlaza a la tarjeta de tipo de cambio (§30)**, que es donde eso
+  se ve y se arregla.
+  - ⛔ **Pero NO se añade frescura de FX por fila**: la tasa es **una** por respuesta, no por variante. Poner
+    la tarjeta de FX (o su tasa vigente) **en la cabecera de esta consola** sería útil y es **petición al
+    arquitecto (`Q-B5`)**, no diseño de esta ampliación.
+
+#### 28.4c 📏 El presupuesto de anchura — cómo la octava columna no desborda *(v3.7)*
+
+**La regla no cambia y es medible: `document.documentElement.scrollWidth === clientWidth` en la vista de
+bounties, y el nombre de la carta NUNCA se trunca.** El humano **no usa este panel desde el teléfono**
+(contestado), así que el móvil no manda aquí — **pero §28.9 sigue vigente y el colapso no se rompe**: lo que
+cambia es **dónde** ocurre.
+
+**Presupuesto (mono 11px para las cifras, versalitas 11px, ES —que es el idioma largo, §9.4—):**
+
+| Columna | Contenido que manda el ancho | Mín. |
+|---|---|---|
+| `CARTA` | **única columna flexible** (`width:auto`) | **220 px** (`Obsidian Flames · 125` + `FinishMark`) |
+| `ESTADO` | `SIN PRECIO` | 88 px |
+| **`VALOR DE MERCADO`** | `MX$ 4,180.00` *(la fecha es más estrecha; el rótulo envuelve a `VALOR DE` / `MERCADO`)* | **96 px** |
+| `PAGAMOS` | `MX$ 2,500.00` | 96 px |
+| `TARIFA VIGENTE` | `MX$ 2,100.00` *(el rótulo envuelve a dos líneas, §28.12d)* | 100 px |
+| `PREMIUM` | `+MX$ 400.00` | 100 px |
+| `AVANCE` | `faltan 2` | 84 px |
+| *(acciones)* | `Poner precio` + `Apagar` | 196 px |
+
+⇒ **fijas ≈ 760 px + `CARTA` 220 px + gutters ≈ 1 010–1 060 px de contenido.**
+
+- **A partir de `xl` (1280 px)** el área de contenido del back-office da de sobra ⇒ **tabla de ocho
+  columnas**. **Por debajo de `xl`** se usa el **colapso a cards de §28.9**, que ya existe, ya conserva los
+  encabezados de grupo y ya es la respuesta del sistema a este problema. *El punto de colapso sube de `md` a
+  `xl`; **el colapso no se rediseña**.*
+- **⛔ Las tres salidas fáciles quedan prohibidas, y cada una rompe algo que ya estaba cerrado:** (a)
+  **truncar el nombre de la carta** —es el sujeto de la fila y su enlace al binder—; (b) **scroll horizontal
+  en la tabla** —§7.7 lo prohíbe por escrito: *«no scroll horizontal infinito»*—; (c) **esconder el mercado
+  tras un `hover`/tooltip** —un dato de dinero que hay que descubrir no está en la pantalla.
+- **El número `xl` es un punto de partida medido, no un dogma.** Si el frontend comprueba con las fuentes
+  reales que a `lg` (1024 px) cabe con `CARTA` ≥ 220 px y **cero desbordamiento**, puede bajarlo. **Lo
+  normativo es el resultado** (0 px de desbordamiento, sin truncar la carta), no el token del breakpoint.
 
 ### 28.5 El cero que se dice — **y las TRES veces que NO se dice** *(precisada en v3.4 · tercer caso añadido en v3.5)*
 
@@ -12840,7 +13001,7 @@ alcance que se apruebe — *cadenas muertas en un catálogo de dinero son una in
 
 | Estado | Qué se pinta |
 |---|---|
-| **Cargando** | Skeleton de 8 filas respetando el layout (§7.7). Chips con `—`, **nunca `0`** (§28.5). La cabecera y los rótulos de columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla. |
+| **Cargando** | Skeleton de 8 filas respetando el layout (§7.7). Chips con `—`, **nunca `0`** (§28.5). La cabecera y los rótulos de columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla. ⚠ *v3.7:* el esqueleto tiene **ocho** columnas, y la de mercado **nunca arranca en `MX$0`** — barra gris, como las demás. |
 | **Vacío total** (no hay ningún bounty en el sistema) | Título «Todavía no hay bounties» + una frase que **explica qué es** («…pagas por encima de tu tarifa hasta juntar las piezas que quieras») + CTA **«Ir al binder»**. Es la única pantalla que enseña el concepto: quien llega aquí y no tiene ninguno probablemente no sabe qué es. |
 | **Vacío por filtro** ⚠ *(acotado en v3.6)* | «Ningún bounty coincide» + «Limpiar filtros» (§8.1) — **solo cuando NO hay filtro de identidad activo** (es decir: el conjunto quedó vacío por chips de estado y/o paginación). ⛔ **Con un filtro de identidad puesto este bloque NO se pinta**: el bloque ① ya dice `VISTA FILTRADA` y ya trae la palanca, y **la palanca es una sola** (§28.5b). |
 | **Bloque ① sin filas** | **No es un vacío: es una de las cuatro frases de §28.5**, y cuál de ellas depende de `counts.invalida`, de `truncated` y de **si hay un filtro de identidad puesto** (v3.5). Cuando pinta `VISTA FILTRADA`, **manda sobre el vacío por filtro y lo suprime** (§28.5b). |
@@ -12857,6 +13018,7 @@ títulos de sección — el eje sobrevive al colapso, que es lo único innegocia
 ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
 ▌ Charizard ex                            REBASADO
 ▌ Obsidian Flames · 125 · HOLOFOIL
+▌ Mercado      MX$ 1,020.00 · 5 sep 2026
 ▌ Pagamos      MX$ 900.00
 ▌ Tarifa       MX$ 950.00
 ▌ Premium      −MX$ 50.00 · −5.3%
@@ -12865,15 +13027,30 @@ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
 ─────────────────────────────────────────────────
 ▌ Gengar VMAX                           SIN PRECIO
 ▌ Fusion Strike · 271 · REVERSE
+▌ Mercado      MX$ 1,150.00 · 5 sep 2026
 ▌ Pagamos      —
 ▌ Tarifa       MX$ 780.00
 ▌ Premium      —
 ▌ Avance       0 de 2 · faltan 2
 ▌ [ Poner precio ]                       [ Apagar ]
+─────────────────────────────────────────────────
+  Lugia V                                  ACTIVO
+  Silver Tempest · 186 · NORMAL
+  Mercado      —
+  Pagamos      MX$ 1,500.00
+  Tarifa       —
+  Premium      SIN TARIFA
+  Avance       0 de 1 · falta 1
 ```
 
-- Prioridad de campos si algo tiene que caer: **carta, estado, pagamos, premium, acciones**. La tarifa y el
-  avance **no caen**; se apilan.
+- Prioridad de campos si algo tiene que caer: **carta, estado, pagamos, premium, acciones**. La tarifa, el
+  **mercado** *(v3.7)* y el avance **no caen**; se apilan.
+- **⚠ v3.7 — en la card, mercado e importe y fecha van en UNA sola línea** (`MX$ 1,020.00 · 5 sep 2026`), con
+  el separador `·` del sistema: la card ya es alta y aquí el ancho sobra. **Con `pending`, la línea se pinta
+  igual con su `—` y SIN fecha** — misma regla que el hueco de `PAGAMOS`: *una fila a la que le falta un dato
+  de dinero tiene que enseñar que le falta; si se esconde la línea, el hueco se convierte en «no aplica».*
+- **El colapso a cards es ahora también la vista de escritorio pequeño** (por debajo de `xl`, §28.4c). **No
+  se rediseña nada por eso**: es el mismo componente, con más sitio.
 - **El hueco de `PAGAMOS` en una fila `SIN PRECIO` se pinta igual en móvil**: la etiqueta con su `—`, **nunca
   la línea entera omitida**. *Una fila a la que le falta un dato de dinero tiene que enseñar que le falta; si
   se esconde la línea, el hueco se convierte en «no aplica».*
@@ -12886,8 +13063,14 @@ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
 
 - **`<table>` real** con `<caption>` visualmente oculto («Bounties: estado, precio, tarifa vigente y
   avance»), `<th scope="col">` en la cabecera y **un `<tbody>` por grupo**, cada uno abierto por un
-  `<tr><th scope="rowgroup" colspan="7">` con el rótulo y el conteo. Así el grupo **existe para el lector de
-  pantalla**, no solo para el ojo.
+  `<tr><th scope="rowgroup" colspan="8">` *(**ocho** desde v3.7 — la columna de mercado; un `colspan` que se
+  queda corto rompe la asociación de grupo en NVDA/VoiceOver **en silencio**)* con el rótulo y el conteo. Así
+  el grupo **existe para el lector de pantalla**, no solo para el ojo.
+- **⚠ v3.7 — la celda de mercado nunca es muda.** Con número, su `aria-label` (`market.valueAria`) dice
+  **importe y fecha** en una frase; con `pending`, `market.pendingAria` dice **qué falta y por qué no se
+  enseña otro precio**. **Un `—` no se lee**, y una columna de dinero silenciosa se oye como una columna
+  normal — misma regla que ya rige el hueco de `PAGAMOS`. **La fecha visible es `aria-hidden`** para no
+  oírla dos veces.
 - **La celda de estado lleva el texto largo** en `aria-label`, **uno por cada uno de los cinco `state`**
   (§28.12) — («Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no
   aparece en Top Bounties.»). La versalita corta es para el ojo; el lector recibe la consecuencia completa.
@@ -12926,8 +13109,8 @@ Todo §28 se compone con pares ya verificados en §10, §17.2, §20.15 y §21.11
 
 | Par usado en §28 | Ratio | Veredicto |
 |---|---|---|
-| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, nombres, `ACTIVO`, `COMPLETADO`, premium positivo) | ~15.5:1 | AA/AAA |
-| Muted `#6E695E` sobre papel (rótulos de columna, `set · número`, renglón de fila **apagada**, notas) | ~4.8:1 | AA |
+| Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, nombres, `ACTIVO`, `COMPLETADO`, premium positivo, **valor de mercado y su `—`**) | ~15.5:1 | AA/AAA |
+| Muted `#6E695E` sobre papel (rótulos de columna, `set · número`, **`capturedDate`**, renglón de fila **apagada**, notas) | ~4.8:1 | AA |
 | Rojo `#B31217` sobre papel (`REBASADO`, **`SIN PRECIO` (v3.4)**, premium negativo, `SIN OBJETIVO`, marca de fila) | 6.2:1 | AA |
 | Papel sobre tinta (botón primario del diálogo de confirmación) | ~15.5:1 | AA/AAA |
 | Regla 1–2px `--color-border` / `--color-border-strong` / `--color-accent` (marca de fila y separadores) | UI ≥ 3:1 | ok |
@@ -12943,6 +13126,11 @@ Todo §28 se compone con pares ya verificados en §10, §17.2, §20.15 y §21.11
   par de contraste nuevo en la pantalla más cargada de dinero del back-office** y habría obligado al ojo a
   aprender dos rojos que significan casi lo mismo. **La distinción va por palabra, hueco y botón** (§28.3),
   que son canales sin color y sin coste de contraste.
+- **⚠ v3.7 — la columna de mercado tampoco trae par nuevo, y también fue decisión.** El importe y su `—` van
+  en **tinta** (15.5:1) y la fecha en **muted** (4.8:1), los dos pares más usados del documento. **El
+  `pending` NO se pinta en acento** ni en muted: no es una alarma (no es avería nuestra, §28.4a) y tampoco es
+  información secundaria (es un dato de dinero que falta). *Atenuar un hueco de dinero lo convierte en un
+  detalle, y el hueco es la señal.*
 
 ### 28.12 i18n — cadenas ES/EN (propiedad de frontend; copiar sin interpretar)
 
@@ -13000,9 +13188,16 @@ concatena moneda**.
 | `group.completada` *(v3.4)* | `COMPLETADOS · {count}` | `COMPLETED · {count}` |
 | `group.apagada` | `APAGADOS · {count}` | `OFF · {count}` |
 | `list.truncated` *(v3.4)* | `Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por set, acabado o estado para verlos todos.` | `This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by set, finish or status to see them all.` |
-| `table.caption` | `Bounties: estado, precio, tarifa vigente y avance` | `Bounties: status, price, current rate and progress` |
+| `table.caption` *(actualizada v3.7)* | `Bounties: estado, valor de mercado, precio, tarifa vigente y avance` | `Bounties: status, market value, price, current rate and progress` |
 | `col.card` | `CARTA` | `CARD` |
 | `col.state` | `ESTADO` | `STATUS` |
+| **`col.market`** *(v3.7)* | **`VALOR DE MERCADO`** | **`MARKET VALUE`** |
+| **`market.pending`** *(v3.7, celda sin dato)* | **`—`** | **`—`** |
+| **`market.valueAria`** *(v3.7)* | **`Valor de mercado {amount}, del {date}.`** | **`Market value {amount}, from {date}.`** |
+| **`market.pendingAria`** *(v3.7)* | **`Sin valor de mercado para este acabado. No se enseña ningún precio porque no hay ninguno para esta variante; nunca se usa el de otro acabado.`** | **`No market value for this finish. No price is shown because there is none for this variant; we never use another finish's price.`** |
+| **`market.hint`** *(v3.7, pie de la pantalla)* | **`El valor de mercado es lo que vale la carta según la fuente de precios, con la fecha en que se capturó. No es a lo que la vendemos.`** | **`Market value is what the card is worth according to the price source, with the date it was captured. It is not what we sell it for.`** |
+| **`footer.fxNote`** *(v3.7, pie; enlaza a §30)* | **`Los importes en pesos salen de precios en dólares convertidos con el tipo de cambio vigente. Revisa cuál rige.`** | **`Peso amounts come from dollar prices converted with the exchange rate in force. Check which one is in force.`** |
+| **`footer.fxLink`** *(v3.7)* | **`Ver el tipo de cambio`** | **`See the exchange rate`** |
 | `col.pay` | `PAGAMOS` | `WE PAY` |
 | `col.rate` | `TARIFA VIGENTE` | `CURRENT RATE` |
 | `col.premium` | `PREMIUM` | `PREMIUM` |
@@ -13105,6 +13300,11 @@ líneas**, el conteo nunca se trunca) son **~30–45% más largos**
 que su EN. Los rótulos de columna **envuelven a dos líneas antes que truncarse**; los chips de conteo tienen
 ancho por contenido con `min-width` para el ES; y `Guardar · pagaremos {amount}` es el botón más largo de la
 pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea propia.
+**⚠ v3.7 — `VALOR DE MERCADO` (16 car.) es +33 % sobre `MARKET VALUE` (12 car.) y es el segundo rótulo más
+largo de la cabecera.** Envuelve a dos líneas (`VALOR DE` / `MERCADO`) **antes que truncarse**, exactamente
+como `TARIFA VIGENTE`; **la palabra más ancha, `MERCADO`, es más estrecha que `MX$ 4,180.00`**, así que
+**quien manda el ancho de esa columna es la cifra, no el rótulo, en los dos idiomas** (§28.4c). `market.hint`
+y `footer.fxNote` viven en el pie, en `text-xs muted`, y **envuelven**: es su comportamiento normal.
 
 ### 28.13 Qué NO hacer
 
@@ -13160,6 +13360,21 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
     tabulación consecutivos son un fallo de accesibilidad, no un detalle estético (§8.2, §28.10). ⛔ **Y no se
     resuelve al revés** (quitándole la palanca al bloque ①): *el recorte se nombra arriba y la salida se
     ofrece arriba.*
+22. **⛔⛔ NO RAMIFIQUES LA CELDA DE MERCADO POR EL NÚMERO** *(v3.7)*. Ni `!referenceMxnCents`, ni
+    `referenceMxnCents ?? 0`, ni `referenceMxnCents || '—'`, ni `> 0 ? … : …`. **Se ramifica por
+    `market.status`** (§28.4a). *`!referenceMxnCents` es verdadero para `0` **y** para `null`, y está avisado
+    por escrito en `BACKEND_NOTES`: es la mutación, no un atajo.*
+23. **⛔ No pintes `MX$0`, `0`, «gratis» ni un porcentaje** en `VALOR DE MERCADO` *(v3.7)*. Sin dato ⇒ **`—`**.
+    Una fila corrupta que llegara con `priced` y un importe `<= 0` **también** sale `—`.
+24. **⛔ No caigas al precio de otro acabado, ni al «precio de la carta», ni a un valor cacheado del binder**
+    *(v3.7)*. La celda lee `pricing.market` **de su fila** y de ninguna otra (§28.4a).
+25. **⛔ No clasifiques `capturedDate` como «vieja» en el cliente** *(v3.7)*, ni con acento, ni con icono, ni
+    con un umbral de días. **No existe un `status` de frescura de mercado en el contrato**; derivarlo aquí es
+    la misma falta que derivar el `state` (§28.13.1). Se pinta la fecha cruda (§28.4b).
+26. **⛔ No hagas sitio truncando el nombre de la carta, con scroll horizontal ni escondiendo el mercado tras
+    un tooltip** *(v3.7, §28.4c)*. Si no cabe, **se colapsa a cards** (§28.9): ese camino ya existe.
+27. **⛔ No derives `VALOR DE MERCADO` de `TARIFA VIGENTE` ni al revés** *(v3.7)*. Coincidirán en el `—` por el
+    invariante del contrato; **eso es una comprobación, no una fuente** (§28.4a punto 3).
 
 ### 28.14 QA visual sugerido
 
@@ -13240,6 +13455,40 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
     **Y la vuelta:** al limpiar el filtro, las filas reaparecen y **no queda ninguna** palanca `Limpiar
     filtros` en pantalla.
     *(Mismo test compara **claves**, nunca cadenas tecleadas — §28.13.20.)*
+21. **⭐⭐ La celda de mercado se ramifica por `status`, no por el número — y ES la mutación de v3.7.**
+    **Dos fixtures, los dos ilegales para un servidor correcto y los dos legales para un test de
+    componente**, que es justo lo que los hace útiles:
+    **(a)** `market = { status: "priced", referenceMxnCents: 0, capturedDate: "2026-09-05", source: "tcgcsv_singles" }`
+    ⇒ la celda lee **`market.pending`** (`—`). ⛔ **Rojo si aparece `MX$ 0.00`, `MX$0` o un `0` de cualquier
+    forma.**
+    **(b)** `market = { status: "pending", referenceMxnCents: 1234, capturedDate: null, source: null }` ⇒ la
+    celda lee **`market.pending`** (`—`) **y el `1234` no se pinta en ninguna parte**. ⛔ **Rojo si aparece
+    `MX$ 12.34`.**
+    **Por qué estos dos y no uno:** (a) mata `!referenceMxnCents` y `?? 0`; (b) mata `referenceMxnCents != null
+    ? … : …`. **Ninguna de las dos implementaciones tramposas pasa las dos a la vez**, y ninguna se puede tapar
+    renombrando un campo. **Control positivo:** `{ status:"priced", referenceMxnCents: 418000, capturedDate:
+    "2026-09-03" }` ⇒ `MX$ 4,180.00` con `3 sep 2026` debajo.
+22. **⭐ Jamás el precio de otro acabado — y se mide en la pantalla, no en el DTO.** Una carta con **dos
+    filas** (`HOLOFOIL` con `market.status: "priced"` = `MX$ 1,020.00`, `REVERSE` con `market.status:
+    "pending"`) ⇒ la fila `REVERSE` lee **`—`**. ⛔ **Rojo si lee `MX$ 1,020.00`** (caída al hermano), ⛔
+    **rojo si lee cualquier importe**. *(Es la regla del dueño puesta a prueba donde se rompería: dos filas de
+    la misma carta, adyacentes, una con dato y otra sin él.)*
+23. **⭐ La fecha es la de la fila, no `hoy()`.** Una fila con `capturedDate` de **hace 40 días** ⇒ bajo el
+    importe se lee **esa** fecha localizada. ⛔ **Rojo si se lee la fecha de hoy**, ⛔ **rojo si la fila se
+    pinta en acento, con icono o con cualquier rótulo de «vieja»** (§28.13.25: no hay umbral de cliente).
+    **Y el `pending` no trae fecha**: con `status: "pending"` **no se pinta ninguna segunda línea**.
+24. **⭐⭐ Cero desbordamiento, medido, en ES.** En `/es/admin/m2/bounties` a **1280 px** con la tabla llena
+    (una fila `SIN PRECIO`, una `SIN TARIFA`, importes de 5 cifras y un nombre de carta largo):
+    `document.documentElement.scrollWidth === document.documentElement.clientWidth`, **exactamente**. ⛔
+    **Rojo con 1 px de diferencia.** **Y el nombre de la carta no está truncado** (su ancho renderizado es el
+    de su texto completo; ⛔ rojo si hay `text-overflow: ellipsis` recortando). **Control negativo:** a
+    **1279 px** la vista está en **cards** (§28.9) y **sigue sin desbordar**.
+25. **Lector de pantalla:** con el foco en la celda de mercado de una fila `priced` se oye **importe y
+    fecha** (`market.valueAria`); en una `pending` se oye la frase de `market.pendingAria`. ⛔ **Rojo si la
+    celda `pending` se oye muda** o si la fecha se oye **dos veces** (la visible es `aria-hidden`). Y el
+    encabezado de grupo sigue asociando **las ocho** columnas (`colspan="8"`).
+26. **Idioma:** el rótulo `VALOR DE MERCADO` / `MARKET VALUE` **envuelto a dos líneas y sin truncar** en ES y
+    EN, **visto en pantalla** (§26.8), y el pie con `market.hint` + `footer.fxNote` en los dos idiomas.
 
 ### 28.15 Peticiones al arquitecto: **todas contestadas** · y las preguntas abiertas del humano *(v3.4)*
 
@@ -13277,6 +13526,15 @@ que quien vuelva sepa qué se preguntó; el **detalle vive en el contrato**, y n
 **(c) Lo que este diseño necesitaría si algo de lo anterior cambiara** — y va escrito para que **no se asuma
 en el código**: cualquier dato o pantalla que §28 no tenga hoy (antigüedad del rebasado, exposición, alta,
 lote) **pasa por el arquitecto antes** (regla 9 de `CLAUDE.md`). **Este documento no inventa campos.**
+
+**(d) v3.7 — lo que deja abierto la columna de mercado.** *Ninguna bloquea; las tres son aditivas y ninguna
+se implementa hoy.*
+
+| # | Para quién | Qué se pide | Estado |
+|---|---|---|---|
+| **10** | **arquitecto** | **Un `status` de frescura del mercado derivado en el servidor** (`fresh \| stale \| missing`, como el `automatic.status` del tipo de cambio en §M2-F.3), para poder señalar una referencia vencida **sin un umbral de cliente**. **Hoy la pantalla pinta la fecha cruda y no clasifica** (§28.4b) | ⏸️ **No pedido formalmente.** Solo hace falta **si el dueño dice que la fecha sola no le basta**. ⛔ Mientras no exista, **prohibido derivarlo en el navegador** |
+| **11** | **arquitecto** | **`Q-B5`, ya nombrada en el contrato:** la **tasa de cambio vigente en la cabecera** de esta consola. Hoy el pie solo **dice que existe y enlaza** a §30 (`footer.fxNote`) | ⏸️ **Diferida.** El enlace no cuesta contrato; la cifra en cabecera sí |
+| **12** | **humano** | **¿Quiere el porcentaje sobre el mercado?** (*«pagas el 60 % del valor»*). Él describió su juicio con esas palabras pero **pidió el número, no el veredicto**. Hoy **no se calcula** (§28.4a punto 4) | ⏸️ **Pregunta abierta.** Si dice que sí, cabe como **segunda línea de `PREMIUM`** y **no cambia el ancho ni el contrato** |
 
 ---
 
