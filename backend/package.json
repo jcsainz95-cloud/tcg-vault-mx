@@ -20,6 +20,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "seed": "ts-node prisma/seed.ts",
+    "mail:preview": "ts-node scripts/render-mail-preview.ts",
     "seed:synthetic": "ts-node prisma/seed-e2e.ts"
   },
   "prisma": {
