@@ -2,6 +2,8 @@ import { ConfigService } from '@nestjs/config';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as templates from '../src/modules/buylist/buylist-mail.templates';
+// ⚠️ SOLO LECTURA: `mail/` es del stream «Cuentas y acceso». ML-2 barre sus dos correos, no los toca.
+import * as accountTemplates from '../src/modules/mail/mail.templates';
 import { MailMessage, MailPort } from '../src/modules/mail/mail.port';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -188,6 +190,9 @@ const CICLO: Record<string, Renderizador> = {
 /**
  * Plantillas del módulo que **NO** son del ciclo. Están declaradas —y no simplemente ignoradas—
  * porque la exhaustividad de abajo exige clasificar **todo** lo que exporte el módulo.
+ * ⚠️ **v3.8 · ML-2:** «fuera del ciclo» ya no significa «fuera del barrido». Sigue sin ser del ciclo
+ * —eso es un hecho de producto— pero **lo prohibido se le busca igual**, en `(2-bis)`: la lista de
+ * los cinco es de *«todo correo que salga de este fichero»*, no de los cinco correos del ciclo.
  */
 const FUERA_DEL_CICLO = ['sellItemRejectedTemplate'];
 
@@ -255,6 +260,85 @@ describe('⚠️⚠️ (2) LO PROHIBIDO, BUSCADO EN LOS CINCO (criterio 173h)', 
     expect(es.text).toContain('corrígela antes de aceptar');
     const en = CICLO['1 · oferta']('en')[0];
     expect(en.text).toContain('correct it before accepting');
+  });
+});
+
+// =============================================================================================
+/**
+ * ⚠️⚠️ **(2-bis) ML-2 (`DESIGN_SYSTEM §31.14`) — LA EXTENSIÓN, Y LA EXTENSIÓN ES EL CANDADO.**
+ *
+ * El barrido de arriba mira **los cinco del ciclo**. §31 rediseña **los ocho**, y el rediseño es
+ * **el momento exacto en que se cuela uno de los cinco prohibidos**, porque se toca cada plantilla a
+ * la vez. Se amplía en dos ejes, que son los que pide ML-2:
+ *
+ * **(a) Entran los tres que faltaban.** `sellItemRejectedTemplate` sigue **fuera del ciclo** —no lo
+ * es— pero **la lista de los cinco es de «todo correo que salga de este fichero»**, según la cabecera
+ * del propio módulo; y los **dos de `mail/`** (verificar correo y restablecer contraseña) salen del
+ * mismo producto al mismo buzón. ⚠️ Se **leen**, no se tocan: son de otro work stream (§31.15).
+ *
+ * **(b) ⭐ El barrido corre TAMBIÉN sobre la parte de TEXTO PLANO, sola.** Es donde se caza barato:
+ * **sin etiquetas, un domicilio o una CLABE no se pueden esconder entre atributos** — ni en un
+ * `alt`, ni en un `title`, ni en un `href`. *La versión de texto es el candado más barato de los
+ * cinco prohibidos (§31.12).*
+ */
+const TODO_CORREO: Record<string, Renderizador> = {
+  ...CICLO,
+  'fuera del ciclo · carta no aceptada': (locale) => [
+    templates.sellItemRejectedTemplate(
+      {
+        cardName: 'Snorlax V',
+        setName: 'Sword & Shield',
+        cardNumber: '141/202',
+        finish: 'reverse_holo',
+        reason: 'No llegó en Near Mint',
+        returnDeadlineAt: new Date('2026-09-16T18:00:00Z'),
+        abandonDeadlineAt: new Date('2026-10-16T18:00:00Z'),
+      },
+      NOMBRE,
+      locale,
+    ),
+  ],
+  'cuentas · verificar correo': (locale) => [
+    accountTemplates.emailVerificationTemplate('https://tcghunt.mx/es/verify?token=t', NOMBRE, locale),
+  ],
+  'cuentas · restablecer contraseña': (locale) => [
+    accountTemplates.passwordResetTemplate('https://tcghunt.mx/es/reset?token=t', NOMBRE, locale),
+  ],
+};
+
+describe('⚠️⚠️ (2-bis) ML-2 — lo prohibido, barrido en LOS OCHO y también en el texto plano', () => {
+  it('el registro son los OCHO: los cinco del ciclo, el rechazo de ítem y los dos de cuentas', () => {
+    expect(Object.keys(TODO_CORREO)).toHaveLength(8);
+  });
+
+  for (const [correo, render] of Object.entries(TODO_CORREO)) {
+    for (const locale of LOCALES) {
+      it(`${correo} [${locale}]: limpio en subject + html + text`, () => {
+        for (const msg of render(locale)) {
+          expect(prohibidosEn(msg.subject, msg.html, msg.text)).toEqual([]);
+        }
+      });
+
+      it(`⭐ ${correo} [${locale}]: limpio en la parte de TEXTO PLANO, donde nada se esconde`, () => {
+        for (const msg of render(locale)) {
+          expect(prohibidosEn(msg.text)).toEqual([]);
+        }
+      });
+    }
+  }
+
+  it('⚠️ CONTROL NEGATIVO: el barrido no se pasa de listo — el rechazo conserva lo suyo', () => {
+    // Un barrido que borrara información legítima «por si acaso» sería peor que el defecto. El correo
+    // del ítem rechazado **debe** seguir llevando sus DOS plazos y su canal de coordinación: son
+    // exactamente lo que el vendedor necesita para decidir entre devolución y abandono.
+    const [es] = TODO_CORREO['fuera del ciclo · carta no aceptada']('es');
+    expect(es.text).toMatch(/Devoluci[óo]n/);
+    expect(es.text).toMatch(/Abandono/);
+    expect(es.text).toContain('@'); // el canal de coordinación (buzón de soporte)
+    expect(es.text).toMatch(/2026/); // los dos plazos, con fecha
+    const [en] = TODO_CORREO['fuera del ciclo · carta no aceptada']('en');
+    expect(en.text).toMatch(/Return/);
+    expect(en.text).toMatch(/Abandonment/);
   });
 });
 

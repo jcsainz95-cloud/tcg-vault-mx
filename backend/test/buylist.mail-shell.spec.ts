@@ -148,17 +148,28 @@ const LOS_OCHO: Record<string, Render> = {
  */
 describe('⚠️⚠️ ML-1 — la marca sobrevive a que el cliente bloquee las imágenes (§31.5a)', () => {
   const sinImagenes = (html: string) => html.replace(/<img\b[^>]*>/gi, '');
+  /**
+   * El texto que una persona VE: sin `<head>`, sin `<style>` y **sin el preheader**, que está oculto
+   * y no cuenta como marca en pantalla.
+   */
   const soloTexto = (html: string) =>
     html
       .replace(/<style[\s\S]*?<\/style>/gi, '')
       .replace(/<head[\s\S]*?<\/head>/gi, '')
-      .replace(/<[^>]*>/g, ' ');
+      .replace(/<div style="display:none[\s\S]*?<\/div>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
   for (const [correo, render] of Object.entries(LOS_OCHO)) {
     for (const locale of LOCALES) {
       it(`${correo} [${locale}]: quitados TODOS los <img>, «TCG HUNT» sigue en el texto visible`, () => {
-        const html = render(locale).html;
-        expect(soloTexto(sinImagenes(html))).toContain('TCG HUNT');
+        const texto = soloTexto(sinImagenes(render(locale).html));
+        expect(texto).toContain('TCG HUNT');
+        // ⭐ Y **en el PRIMER GOLPE DE VISTA**, no solo en el pie. Sin esta mitad, la aserción la
+        // aprueba el wordmark del pie y la mutación —meter la marca de la cabecera dentro de la
+        // imagen— pasaría en verde: el hueco gris estaría arriba, que es donde se mira.
+        expect(texto.slice(0, 200)).toContain('TCG HUNT');
       });
 
       it(`${correo} [${locale}]: NINGÚN <img> lleva la marca en su alt (la marca no se delega)`, () => {
@@ -523,9 +534,17 @@ describe('§31.3/§31.4 — la retícula y la escala, medidas sobre el correo mi
     const celdas = html().match(/<td\b[^>]*>[^<]*\$[\d,.]+[^<]*</g) ?? [];
     expect(celdas.length).toBeGreaterThan(0);
     for (const celda of celdas) {
-      expect(celda).toContain('JetBrains Mono');
+      // La regla es sobre **la serif**: el 3, 4, 5, 7 y 9 de Georgia bajan de la línea base.
       expect(celda).not.toContain('Georgia');
     }
+    // Y la COLUMNA de dinero —la que tiene que alinear, y que alinea por tabla y no por fuente
+    // (`tabular-nums` no existe en correo)— es mono sin excepción.
+    const columna = celdas.filter((c) => c.includes('align="right"'));
+    expect(columna.length).toBeGreaterThanOrEqual(3); // bruto, envío y neto
+    for (const celda of columna) expect(celda).toContain('JetBrains Mono');
+    // ⚠️ Las cifras que van DENTRO de la prosa (§25.4.2 decisión 5/8: el envío y el neto se dicen
+    // dos veces, en la tabla y en el texto) van en la sans y **así debe ser**: no son una columna,
+    // no alinean con nada, y sacarlas de la prosa para meterlas en mono partiría la frase.
   });
 
   it('el wordmark SÍ va en serif y en texto vivo, y el `.mx` en mono', () => {

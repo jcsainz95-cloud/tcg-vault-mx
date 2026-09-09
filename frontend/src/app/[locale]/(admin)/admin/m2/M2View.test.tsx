@@ -475,11 +475,23 @@ describe('M2View · Catálogo y precios', () => {
 
   // ---- FX · guardar SOLO el colchón (#13, v1.14-price-ingest) ----
   it('guardar solo el colchón (buffer) llama a updateFx SIN rate y muestra el mensaje claro', async () => {
+    // `FxStateDTO` COMPLETO (contrato §M2-F.3): las dos tasas viajan siempre y el modo viaja
+    // resuelto. Aquí: modo `auto`, rige la de Banxico, y no hay tasa manual guardada.
     const spy = vi.spyOn(api, 'updateFx').mockResolvedValue({
       rate: 18.42,
       bufferPct: 5,
       source: 'banxico',
       effectiveDate: '2026-08-17',
+      mode: 'auto',
+      modeResolvedFrom: 'setting',
+      manual: { rate: null, applied: false },
+      automatic: {
+        rate: 18.42,
+        effectiveDate: '2026-08-17',
+        ageDays: 0,
+        status: 'fresh',
+        applied: true,
+      },
     });
     renderWithProviders(<M2View />, 'es');
     // La sección FX carga async; el input del colchón aparece cuando llega el mock.

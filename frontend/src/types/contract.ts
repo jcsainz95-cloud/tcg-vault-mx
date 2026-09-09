@@ -2634,14 +2634,113 @@ export interface ClientDisputeDTO {
 
 // ---- M2: Catálogo y precios (contrato §M2) ----
 // v1.1: fuente del tipo de cambio, separada de PriceSource.
-export type FxSource = 'banxico' | 'manual';
+//
+// ⚠️ v1.63 (contrato §M2-F.3): `FxSource` gana un TERCER valor, `fallback`. El espejo de dos
+// valores que vivía aquí es la causa directa del bloqueante B-1: el servidor ya emitía
+// `"fallback"` (tabla `FxRate` vacía + modo `auto`) y el tipo del cliente afirmaba que eso era
+// imposible, así que ninguna rama de UI ni ningún test podían existir para él. Se declara como
+// TUPLA (`FX_SOURCES`) y no como unión suelta para que exista un guard en runtime
+// (`isKnownFxSource`): el enum viaja por la red y un valor futuro NO puede caer al rótulo de
+// otro (DESIGN_SYSTEM §30.5, fallback neutro de §28.3).
+export const FX_SOURCES = ['banxico', 'manual', 'fallback'] as const;
+export type FxSource = (typeof FX_SOURCES)[number];
 
-// GET/PUT /admin/fx (+ POST /admin/fx/refresh): tipo de cambio USD→MXN con colchón.
+/** El MODO resuelto (§M2-F.1). ⚠️ NO se deriva del valor de la tasa manual: viaja resuelto. */
+export type FxRateMode = 'auto' | 'manual';
+
+/**
+ * De dónde salió el modo (§M2-F.1). `"legacy"` NO es un modo: es la condición inicial de un
+ * entorno donde nadie ha tocado el interruptor todavía y el modo se está DEDUCIENDO del valor
+ * guardado, como antes. Es la única traza visible de ese riesgo residual (DESIGN_SYSTEM §30.5).
+ */
+export type FxModeResolvedFrom = 'setting' | 'legacy';
+
+/** Frescura de la tasa de Banxico (§M2-F.3). ⛔ La DERIVA EL SERVIDOR; el cliente la obedece. */
+export type FxAutomaticStatus = 'fresh' | 'stale' | 'missing';
+
+/** El número manual GUARDADO, rija o no (§M2-F.3 regla 1). `applied` ⟺ `mode === 'manual'`. */
+export interface FxManualBlock {
+  /** `null` si nunca se ha guardado ninguna. ⛔ No es «no hay tasa»: es «no hay tasa TUYA». */
+  rate: number | null;
+  applied: boolean;
+}
+
+/** La tasa de Banxico VIGENTE, rija o no (§M2-F.3 regla 1). */
+export interface FxAutomaticBlock {
+  /** `null` ⟺ `status === 'missing'`: nunca ha llegado nada de Banxico. ⛔ No se inventa. */
+  rate: number | null;
+  /** La de la fila `FxRate`, NO `today()`. `null` si `rate` es `null`. */
+  effectiveDate: string | null;
+  /** Lo calcula el servidor. `null` si `rate` es `null`. ⛔ No se resta en el navegador. */
+  ageDays: number | null;
+  status: FxAutomaticStatus;
+  /** ⟺ `mode === 'auto'` ∧ `status !== 'missing'`. */
+  applied: boolean;
+}
+
+/**
+ * `FxStateDTO` del contrato §M2-F.3 — lo devuelven las CUATRO rutas de FX (`GET /admin/fx`,
+ * `PUT /admin/fx`, `PUT /admin/fx/mode`, `POST /admin/fx/refresh`).
+ *
+ * ⚠️ `manual` y `automatic` son OBLIGATORIOS y viajan SIEMPRE, rija la que rija (§M2-F.3
+ * regla 1: «PROHIBIDO devolver sólo la tasa que rige»). Se tipan requeridos a propósito: si
+ * fueran opcionales, el espejo volvería a ser más permisivo que el contrato y volveríamos al
+ * hueco de B-1.
+ */
 export interface FxDTO {
+  /** La tasa que RIGE ahora mismo. */
   rate: number;
   bufferPct: number;
   source: FxSource;
   effectiveDate: string;
+  /** RESUELTO por el servidor. La UI lo OBEDECE, no lo infiere del valor. */
+  mode: FxRateMode;
+  modeResolvedFrom: FxModeResolvedFrom;
+  manual: FxManualBlock;
+  automatic: FxAutomaticBlock;
+}
+
+/** El desenlace REAL del fetch a Banxico (§M2-F.5). Antes: fallo silencioso con `200`. */
+export const FX_REFRESH_OUTCOMES = ['updated', 'unchanged', 'failed'] as const;
+export type FxRefreshOutcome = (typeof FX_REFRESH_OUTCOMES)[number];
+
+/** Sólo viaja con `outcome: 'failed'` (§M2-F.5). `no_token` es el caso real de producción hoy. */
+export const FX_REFRESH_REASONS = ['no_token', 'http_error', 'invalid_payload', 'network_error'] as const;
+export type FxRefreshReason = (typeof FX_REFRESH_REASONS)[number];
+
+export interface FxRefreshBlock {
+  outcome: FxRefreshOutcome;
+  reason: FxRefreshReason | null;
+  /** Lo que DEVOLVIÓ Banxico; `null` si falló. */
+  fetchedRate: number | null;
+  at: string;
+}
+
+/**
+ * `POST /admin/fx/refresh` → `FxStateDTO` + el bloque `refresh` (§M2-F.5).
+ *
+ * ⚠️ Sigue siendo `200` aunque el fetch falle —la llamada completó y el estado devuelto es
+ * verdadero—, así que **la UI está OBLIGADA a distinguir `failed` visualmente**. El bloque es
+ * REQUERIDO en el tipo: sin él no se puede afirmar nada, y afirmar éxito sin leerlo fue
+ * exactamente el bloqueante B-2.
+ */
+export interface FxRefreshDTO extends FxDTO {
+  refresh: FxRefreshBlock;
+}
+
+/** ¿El `source` que llegó es uno de los TRES del enum? Si no, se pinta NEUTRO, jamás `MANUAL`. */
+export function isKnownFxSource(source: string): source is FxSource {
+  return (FX_SOURCES as readonly string[]).includes(source);
+}
+
+/** ¿El `outcome` que llegó es uno de los TRES? Si no, ⛔ NUNCA se cae al copy de éxito. */
+export function isKnownFxRefreshOutcome(outcome: string): outcome is FxRefreshOutcome {
+  return (FX_REFRESH_OUTCOMES as readonly string[]).includes(outcome);
+}
+
+/** ¿El `reason` que llegó es uno de los CUATRO? Si no, se pinta el motivo neutro (§30.7). */
+export function isKnownFxRefreshReason(reason: string): reason is FxRefreshReason {
+  return (FX_REFRESH_REASONS as readonly string[]).includes(reason);
 }
 
 // v1.14-price-ingest: proveedor de la ingesta MASIVA de precios (dial `price_provider`, §M10).

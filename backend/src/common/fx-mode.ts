@@ -268,8 +268,28 @@ export function latestBanxicoFxRate(db: FxRateReader): Promise<FxRateRowLike | n
   // PROJECTION-EXEMPT (S49-R4): helper INTERNO de lectura. La fila NO se devuelve por ninguna ruta:
   // sus dos campos (`rate`, `effectiveDate`) los consume `projectFxState()`, que emite el
   // `FxStateDTO` declarado en §M2-F.3. Ningún endpoint entrega esta entidad.
-  return db.fxRate.findFirst({ where: { source: 'banxico' }, orderBy: { effectiveDate: 'desc' } });
+  return db.fxRate.findFirst({ where: BANXICO_FX_WHERE, orderBy: BANXICO_FX_ORDER });
 }
+
+/**
+ * ⭐ **I-FX5, como PREDICADO REUTILIZABLE — el mismo patrón que `MONEY_REF_WHERE`.**
+ *
+ * *«Una fila `FxRate` con `source='manual'` no rige nunca»* dejó de ser una regla del lector de
+ * `projectFxState` en el momento en que **otra superficie** —el `dataHealth` del tablero— también
+ * afirma algo sobre la frescura de la FX. Con la regla escrita **dos veces**, la siguiente lectura
+ * que alguien añada la escribirá **tres**, y una de las tres se olvidará del filtro: que es
+ * exactamente el defecto que I-FX5 vino a cerrar.
+ *
+ * ⛔ **Ningún lector de `FxRate` fuera de tests puede hacer `findFirst` sin este predicado.**
+ */
+export const BANXICO_FX_WHERE = { source: 'banxico' } as const;
+
+/**
+ * Y el ORDEN va con el predicado, porque **también es parte de la regla**: la fila que rige es la de
+ * **`effectiveDate` más reciente**, no la escrita más tarde. Separarlos deja abierta la mitad del
+ * defecto — dos superficies que filtran igual y ordenan distinto **pueden nombrar filas distintas**.
+ */
+export const BANXICO_FX_ORDER = { effectiveDate: 'desc' } as const;
 
 /**
  * Instantánea AUDITABLE del estado de la FX: **los dos números, no los dos rótulos** (§M2-F.4).

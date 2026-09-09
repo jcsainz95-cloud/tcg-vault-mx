@@ -1645,18 +1645,38 @@
         "buffer": "Colchón",
         "source": "Fuente",
         "sourceLabel": {
-          "banxico": "Banxico (automático)",
-          "manual": "Manual (override)"
+          "banxico": "BANXICO",
+          "manual": "MANUAL",
+          "fallback": "SIN RESPALDO REAL",
+          "unknown": "FUENTE NO RECONOCIDA"
+        },
+        "sourceBody": {
+          "fallback": "Este número no lo tecleó nadie y no viene de Banxico: es un valor fijo que el sistema trae escrito para no quedarse sin tipo de cambio. Todos los precios que salen de un precio en dólares se están calculando con él ahora mismo.",
+          "unknown": "Esta pantalla no reconoce esta fuente. No se puede afirmar de dónde sale la tasa que rige."
         },
         "effectiveDate": "Vigencia",
         "newRate": "Nueva tasa",
         "newBuffer": "Nuevo colchón %",
         "saveOverride": "Fijar override",
         "refreshBanxico": "Refrescar Banxico",
-        "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). El override manual tiene prioridad sobre el automático del día.",
+        "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). Cuál de las dos tasas rige lo decide el modo del sistema (automática o manual), no el último valor guardado: la tasa manual se guarda siempre, y solo rige cuando el modo está en manual.",
         "bufferOnlyHint": "Puedes guardar solo el colchón: deja la tasa vacía y se conserva la tasa vigente.",
         "saved": "Tipo de cambio actualizado.",
-        "savedBufferOnly": "Colchón actualizado; se conservó la tasa vigente."
+        "savedBufferOnly": "Colchón actualizado; se conservó la tasa vigente.",
+        "refresh": {
+          "updated": "Banxico devolvió {rate}. Es distinta de la que teníamos, así que se guardó.",
+          "updatedWhileManual": "Sigue rigiendo tu tasa manual ({rate}); esto solo actualiza la de comparación.",
+          "unchanged": "Banxico devolvió {rate}, la misma que ya teníamos. No cambió nada, y no es un fallo.",
+          "failedTitle": "No se pudo traer la tasa de Banxico",
+          "failedBody": "Sigue rigiendo {rate} ({source}).",
+          "reason": {
+            "no_token": "Al servidor le falta la credencial de Banxico. Esto no se arregla desde aquí: díselo a quien opera el sistema.",
+            "http_error": "Banxico contestó con un error. Suele ser temporal: vuelve a intentarlo en unos minutos.",
+            "invalid_payload": "Banxico contestó algo que no se pudo leer como una tasa. No se guardó nada.",
+            "network_error": "No se pudo llegar a Banxico. Revisa la conexión del servidor y reintenta.",
+            "unknown": "No se pudo traer la tasa y el sistema no dijo por qué."
+          }
+        }
       },
       "priceIngest": {
         "trigger": "Actualizar precios ahora",

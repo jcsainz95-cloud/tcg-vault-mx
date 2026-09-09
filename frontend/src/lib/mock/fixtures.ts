@@ -62,6 +62,12 @@ import type {
   SetValueRange,
   KycInfoDTO,
   FxDTO,
+  FxAutomaticStatus,
+  FxRateMode,
+  FxModeResolvedFrom,
+  FxRefreshBlock,
+  FxRefreshOutcome,
+  FxRefreshReason,
   PendingPriceEntryDTO,
   PendingPriceContext,
   PendingPriceQueueResponse,
@@ -2931,15 +2937,139 @@ export const mockDisputes: DisputeDTO[] = [
 ];
 
 // ---- M2: Catálogo y precios ----
-/** Tipo de cambio USD→MXN con colchón (contrato GET /admin/fx). */
-export let mockFx: FxDTO = {
-  rate: 18.42,
+
+/**
+ * El fallback duro del servidor (`§M2-F.3`, FX-7): sin fila `FxRate` y sin tasa manual aplicable,
+ * el sistema cotiza con este número **que nadie tecleó**. Vive aquí SOLO para que el simulador
+ * pueda reproducir `source: "fallback"`. ⛔ Ninguna pantalla lo usa como dato.
+ */
+export const MOCK_FX_HARD_FALLBACK_RATE = 18;
+
+/** La fecha «de hoy» del simulador (fija: un fixture que se mueve solo no es un fixture). */
+const MOCK_TODAY = '2026-09-09';
+
+/**
+ * El «mundo» del tipo de cambio que simula el mock: los DOS números guardados + el MODO, que es
+ * exactamente lo que el servidor tiene en la mano antes de resolver (§M2-F.1).
+ *
+ * ⚠️ `automaticStatus` se declara, NO se calcula: el umbral (`FX_AUTO_STALE_AFTER_DAYS`) es una
+ * constante de SERVIDOR y DESIGN_SYSTEM §30.6 prohíbe expresamente derivarla en el cliente. Un
+ * mock que la replicara sería la primera copia de esa regla en el navegador.
+ */
+export interface MockFxWorld {
+  mode: FxRateMode;
+  modeResolvedFrom: FxModeResolvedFrom;
+  bufferPct: number;
+  /** El número manual GUARDADO, rija o no. `null` = nunca se guardó ninguno. */
+  manualRate: number | null;
+  /** La última fila `FxRate` de origen `banxico`. `null` = nunca llegó ninguna. */
+  automaticRate: number | null;
+  automaticEffectiveDate: string | null;
+  automaticAgeDays: number | null;
+  automaticStatus: FxAutomaticStatus;
+}
+
+/**
+ * Resuelve el `FxStateDTO` observable a partir del mundo, con la regla del contrato y **sólo**
+ * con ella (§M2-F.1): **el MODO decide, no el valor**.
+ *
+ *  - `manual` + hay número  ⇒ rige el manual (`source: "manual"`)
+ *  - `auto`   + hay Banxico ⇒ rige el de Banxico (`source: "banxico"`)
+ *  - en cualquier otro caso ⇒ rige el fallback duro de 18 (`source: "fallback"`, FX-7)
+ *
+ * ⛔ Un mock que nunca puede devolver `"fallback"` no puede probar la rama que el servidor YA
+ * emite — es la misma familia del hallazgo del buscador de bounties (simulador más permisivo que
+ * el servidor), y es la razón por la que B-1 llegó vivo a una pantalla de dinero.
+ */
+export function buildMockFxState(world: MockFxWorld): FxDTO {
+  const manualApplied = world.mode === 'manual' && world.manualRate != null;
+  const automaticApplied = world.mode === 'auto' && world.automaticStatus !== 'missing' && world.automaticRate != null;
+  const ruling: Pick<FxDTO, 'rate' | 'source' | 'effectiveDate'> = manualApplied
+    ? { rate: world.manualRate as number, source: 'manual', effectiveDate: MOCK_TODAY }
+    : automaticApplied
+      ? {
+          rate: world.automaticRate as number,
+          source: 'banxico',
+          effectiveDate: world.automaticEffectiveDate ?? MOCK_TODAY,
+        }
+      : { rate: MOCK_FX_HARD_FALLBACK_RATE, source: 'fallback', effectiveDate: MOCK_TODAY };
+  return {
+    ...ruling,
+    bufferPct: world.bufferPct,
+    mode: world.mode,
+    modeResolvedFrom: world.modeResolvedFrom,
+    // ⭐ Las DOS tasas viajan SIEMPRE, rija la que rija (§M2-F.3 regla 1).
+    manual: { rate: world.manualRate, applied: manualApplied },
+    automatic: {
+      rate: world.automaticRate,
+      effectiveDate: world.automaticEffectiveDate,
+      ageDays: world.automaticAgeDays,
+      status: world.automaticStatus,
+      applied: automaticApplied,
+    },
+  };
+}
+
+/**
+ * Estado por defecto: modo `auto` con una tasa de Banxico vieja y **sin** tasa manual guardada —
+ * que es el estado real más común hoy (falta `BANXICO_SIE_TOKEN` en producción, `D-OPS-1`).
+ */
+export let mockFxWorld: MockFxWorld = {
+  mode: 'auto',
+  modeResolvedFrom: 'setting',
   bufferPct: 3,
-  source: 'banxico',
-  effectiveDate: '2026-08-14',
+  manualRate: null,
+  automaticRate: 18.42,
+  automaticEffectiveDate: '2026-08-14',
+  automaticAgeDays: 26,
+  automaticStatus: 'stale',
 };
+
+/** Tipo de cambio USD→MXN con colchón (contrato `GET /admin/fx`, `FxStateDTO` §M2-F.3). */
+export let mockFx: FxDTO = buildMockFxState(mockFxWorld);
+
+export function setMockFxWorld(next: MockFxWorld) {
+  mockFxWorld = next;
+  mockFx = buildMockFxState(next);
+}
+
 export function setMockFx(next: FxDTO) {
   mockFx = next;
+}
+
+/**
+ * Lo que el mock va a contestar en el PRÓXIMO `POST /admin/fx/refresh`. Se puede pinchar a los
+ * **tres** desenlaces (`updated` · `unchanged` · `failed`) y a los cuatro motivos de fallo: un
+ * simulador que **siempre triunfa** no puede poner en rojo el candado de B-2.
+ *
+ * Por defecto `no_token`+`failed` — el caso REAL de producción hoy (`D-OPS-1` / P-63): el mock
+ * miente menos si su defecto es el estado del sistema, no el estado feliz.
+ */
+export let mockFxRefreshPlan: { outcome: FxRefreshOutcome; reason: FxRefreshReason | null; fetchedRate: number | null } =
+  { outcome: 'failed', reason: 'no_token', fetchedRate: null };
+
+export function setMockFxRefreshPlan(next: {
+  outcome: FxRefreshOutcome;
+  reason?: FxRefreshReason | null;
+  fetchedRate?: number | null;
+}) {
+  mockFxRefreshPlan = {
+    outcome: next.outcome,
+    reason: next.reason ?? null,
+    fetchedRate: next.fetchedRate ?? null,
+  };
+}
+
+/** El bloque `refresh` (§M2-F.5) del próximo refresco, ya materializado. */
+export function mockFxRefreshBlock(): FxRefreshBlock {
+  const plan = mockFxRefreshPlan;
+  return {
+    outcome: plan.outcome,
+    // `reason` SÓLO viaja con `failed` (§M2-F.5); `fetchedRate` es `null` si falló.
+    reason: plan.outcome === 'failed' ? (plan.reason ?? null) : null,
+    fetchedRate: plan.outcome === 'failed' ? null : (plan.fetchedRate ?? mockFxWorld.automaticRate),
+    at: `${MOCK_TODAY}T17:04:11Z`,
+  };
 }
 
 /** Cola de precio pendiente (contrato GET /admin/pricing/pending). v1.8: POR ACABADO. */

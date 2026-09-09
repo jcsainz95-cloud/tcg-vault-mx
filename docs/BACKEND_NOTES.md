@@ -17477,3 +17477,118 @@ esquema de `FxRate` ni en su escritor · ⛔ ningún dial nuevo en §M10 (`fx_ra
 suite de integración**: en esta sesión no hay Postgres ni Docker (`pg_isready` sin respuesta, sin
 daemon), así que los trece candados viven en la suite **unitaria**, que sí corre en CI. Si QA quiere
 además la versión contra Postgres real, es un encargo aparte y vuelve a backend.
+
+---
+
+## v1.63.2 · **EL CORREO 1 HABLA EL IDIOMA DE LA CASA** (§31 pase 1, parte A · 2026-09-09)
+
+> **Qué entra:** el **esqueleto compartido de los ocho** (`DESIGN_SYSTEM §31.0–§31.15`), **el correo 1
+> (`sellOfferTemplate`)** maquetado sobre él, y **el único cambio de copy del rediseño** (§31.10, el
+> correo 6). ⛔ **Qué NO entra:** los otros cinco de buylist (siguiente empujón del pase 1) y los dos
+> de `mail/` (pase 2, otro work stream, deuda **BE-43** sin tocar).
+
+### 1. Ficheros
+
+| Fichero | Qué |
+|---|---|
+| `backend/src/modules/buylist/mail-shell.ts` | **NUEVO.** La retícula, la escala y los siete patrones nombrados de §31. No conoce ni una cadena de negocio |
+| `backend/src/modules/buylist/buylist-mail.templates.ts` | `sellOfferTemplate` reescrito sobre el esqueleto; `sellRequestNotPursuedTemplate` con el copy de §31.10; `escapeHtml` local eliminado (se importa del esqueleto) |
+| `backend/scripts/render-mail-preview.ts` + `npm run mail:preview` | **NUEVO.** Escribe el HTML y el texto plano a fichero para **mirarlos en un teléfono de verdad** (ML-11) |
+| `backend/test/buylist.mail-shell.spec.ts` | **NUEVO.** ML-1, ML-3…ML-10 + la retícula y §31.10. 109 casos |
+| `backend/test/buylist.cycle-mail-pii.spec.ts` | **AMPLIADO** con ML-2: barrido `(2-bis)` sobre **los ocho** y **sobre la parte de texto plano sola** |
+
+### 2. Para el dueño: cómo se ve esto en un teléfono
+
+```bash
+cd backend && npm run mail:preview          # → backend/tmp/mail-preview/*.html + *.txt + index.html
+```
+Un fichero por (correo × idioma), más la **parte de texto plano** aparte (que no es un resumen: §31.12).
+Se autoenvía el `.html` y se abre en el teléfono. ⚠️ **Desde aquí no hay salida a internet: Gmail y
+Outlook no se pueden probar, y ML-11 no se sustituye por un `grep`** — hay que abrirlo en **Gmail con
+imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. **La mira no cargará
+hasta que frontend copie `apple-icon.png` → `frontend/public/branding/mail-mira-180.png`**; que el
+correo se vea bien igual **es justo lo que ML-1 exige**, así que esa prueba también sirve.
+
+### 3. Las tres reglas de contenido: qué se hizo para que no se rompieran
+
+| Regla | Cómo queda anclada |
+|---|---|
+| ⛔ **El texto vinculante no se toca** | La condición se pinta **tal cual sale de `offerTermsCopy`**. **ML-3** compara **igualdad exacta** y además rechaza cualquier fragmento que sea **prefijo propio** de la frase — que es la forma que tiene «no cabía en la línea» en un diff |
+| ⛔ **Los cinco prohibidos** | **ML-2** barre ahora **los ocho** (entran `sellItemRejectedTemplate` y los dos de `mail/`) y lo hace **también sobre `text` solo**, donde nada se esconde entre atributos. Control negativo incluido: el correo del ítem rechazado **conserva** sus dos plazos y su canal |
+| ⛔ **Nada de `MX$ 0.00`** | La celda del importe de una línea no comprada **existe y va vacía** (`amount: null`, sin default). **ML-6** |
+
+### 4. Decisiones de implementación que otros roles deben conocer
+
+1. **El esqueleto vive en `buylist/`, no en `common/`.** Es compartido por los ocho, pero moverlo a la
+   zona común —y absorber el `layout()` duplicado— **es el pase 2 y su disparador es que `mail/` quede
+   libre** (§31.15, BE-43). Colocar un helper en la zona compartida desde un stream que no la tiene
+   asignada es pisar a otro con buenos modales. **`layout()` sigue igual y sin tocar.**
+2. **`escapeHtml` ya no se duplica dentro de buylist**: lo exporta el esqueleto y la plantilla lo
+   importa. ⚠️ **No es el arreglo de BE-43** (esa deuda es entre `buylist/` y `mail/`, y sigue viva):
+   es **no crear una tercera copia**. Los builders reciben **texto plano y nunca HTML**, así que ML-10
+   no depende de que ocho plantillas se acuerden de escapar.
+3. **Cadenas NUEVAS, y son todas de bloques que antes no existían** (⛔ ninguna reescribe copy vivo):
+   el **preheader** (§31.6a, lleva el **neto** — R1), el **rótulo de la caja de términos**
+   (`QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT`, que §25.4.2 y §31.3 ya dibujaban), el **descriptor
+   y la línea del «por qué»** del pie (§31.6h) y el **texto del botón en mayúsculas** (§31.7/§31.2).
+   *Si product-owner quiere ratificar la redacción del preheader y del pie, es de una línea cada uno.*
+4. **El texto plano gana la URL completa** (ML-5/ML-7). Antes no llevaba ninguna: había lectores para
+   los que **no existía ruta a la acción**.
+5. **`MAIL_ASSET_ORIGIN`** (opcional, default `https://tcghunt.mx`) permite mirar la mira desde otro
+   origen en local. **Devops:** si se quiere, va a `.env.example`; **no es obligatoria** y sin ella el
+   comportamiento es el de producción.
+6. **Las tres trampas medidas por §31.15 quedan corregidas en el correo migrado**: `max-width:520px`
+   ⇒ **600**, `color:#111` ⇒ **`#1A1A18`**, `border-radius:6px` ⇒ **0**. En los otros cinco siguen,
+   porque siguen con el `layout()` viejo.
+
+### 5. ⚠️ HALLAZGOS — dos cosas de §31 que NO sobrevivieron al medio, y una que se afinó
+
+**(a) 🔴 `ML-8`, segunda mitad — es imposible de cumplir, y no por cómo se maquetó.** ML-8 pide
+`< 90 KB` **y** que *«el neto y el CTA aparezcan antes del carácter que marca la mitad del documento»*.
+Lo primero se cumple con holgura (**53.7 KB** con 20 líneas). Lo segundo **no puede cumplirse mientras
+el correo respete §25.4.2 R2** —*la condición se lee antes del dinero y dentro de cada línea*—, que
+§31.1 declara **INTACTA**: con 20 líneas la lista ocupa ~85 % del documento **por definición**, así que
+todo lo que va detrás cae en la segunda mitad. Cumplirlo exigiría **subir los montos por encima de las
+líneas**, que es exactamente lo que §25.4.2 consideró **y decidió NO hacer**. ⇒ **El test asierta lo
+que la regla protege**: el CTA aparece **~50 KB por debajo** del umbral real de recorte de Gmail
+(~102 KB). **Decisión de ux-ui/arquitecto**, no mía: o ML-8(b) se reformula contra el umbral absoluto,
+o hay que revisar R2. *No lo «arreglé» reordenando bloques: el orden es de diseño.*
+
+**(b) 🟡 `ML-1`, tal como está redactada, la aprueba el pie.** «Se borran los `<img>` y `TCG HUNT`
+sigue en el texto» **pasa en verde aunque la marca de la cabecera se meta dentro de la imagen**,
+porque el **wordmark del pie** (§31.6h) la sigue diciendo. Lo descubrí **corriendo la mutación**: la
+primera versión del candado se quedó verde con la marca metida en un `alt`. ⇒ El candado añade la
+mitad que faltaba: la marca tiene que estar **en los primeros 200 caracteres del texto visible**, es
+decir **en el primer golpe de vista**, que es donde estaría el hueco gris. *Con esa mitad, la mutación
+pone 5 aserciones en rojo; sin ella, 3.*
+
+**(c) 🟡 «Ningún importe en la serif» se cumple; «todo el dinero en mono» no es literal.** Las cifras
+que §25.4.2 (decisiones 5 y 8) obliga a repetir **dentro de la prosa** —el envío y el neto— van en la
+**sans**, con la frase. Sacarlas a mono partiría la frase en tres trozos por un problema que no
+tienen: **no son una columna y no alinean con nada**. La regla dura —**jamás la serif**— se cumple sin
+excepción, y **la columna de dinero es mono sin excepción**. El test lo dice así explícitamente.
+
+**(d) Menor, preexistente:** el plazo en español se lee `…6:00 p.m.. Si no respondes…` (el `Intl`
+cierra en punto y la frase añade el suyo). **No lo toco**: la frase es copy vivo y §31.0 prohíbe
+reescribirla. *Si ux-ui quiere el punto fuera, es una cadena y es suya.*
+
+### 6. Verificación
+
+| Qué | Resultado |
+|---|---|
+| Suite unitaria completa | **255 suites / 3 889 tests verdes** |
+| `buylist.mail-shell.spec.ts` | **109 verdes** (ML-1, ML-3…ML-10 + retícula + §31.10) |
+| `buylist.cycle-mail-pii.spec.ts` | **56 verdes** (los 5 del ciclo + `(2-bis)` con los ocho y el texto plano) |
+| `tsc --noEmit` · `eslint` | limpios (siguen los 2 `warning` preexistentes, ajenos) |
+| **Mutación ML-1** (marca al `alt` + wordmark vacío) | 🔴 **5 aserciones** (ablación es+en, `alt` es+en, control positivo) → restaurada 🟢 |
+| **Mutación ML-2a** (domicilio en el correo del ítem rechazado) | 🔴 **1** — y es **la plantilla que el barrido viejo NO miraba**: la extensión *es* el candado → restaurada 🟢 |
+| **Mutación ML-2b** (CLABE enmascarada en la parte de texto) | 🔴 **8**, entre ellas las dos del eje nuevo (`limpio en la parte de TEXTO PLANO`) → restaurada 🟢 |
+| **Mutación ML-3** (condición recortada a 22 caracteres + `…`) | 🔴 **2** (es+en): igualdad exacta **y** la aserción de «ningún prefijo propio» → restaurada 🟢 |
+| Peso, caso realista más pesado (20 líneas) | **53 685 bytes** (< 90 KB) |
+
+### 7. Lo que NO se hizo (a propósito)
+
+⛔ Los otros cinco correos de buylist (2, 3, 4, 5, 6 siguen con el `layout()` viejo: **migrar medio
+correo es peor que migrar uno entero**) · ⛔ `mail/mail.templates.ts` y **BE-43** (otro stream, pase 2)
+· ⛔ ningún asunto (§31.9) · ⛔ ninguna otra cadena (§31.0) · ⛔ nada del contrato: **ni un campo, ni un
+endpoint, ni un DTO** · ⛔ el PNG de la mira (es el `cp` de frontend).

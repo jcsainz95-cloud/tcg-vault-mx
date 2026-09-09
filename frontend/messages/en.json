@@ -1645,18 +1645,38 @@
         "buffer": "Buffer",
         "source": "Source",
         "sourceLabel": {
-          "banxico": "Banxico (automatic)",
-          "manual": "Manual (override)"
+          "banxico": "BANXICO",
+          "manual": "MANUAL",
+          "fallback": "NO REAL SOURCE",
+          "unknown": "UNRECOGNISED SOURCE"
+        },
+        "sourceBody": {
+          "fallback": "Nobody typed this number and it doesn't come from Banxico: it's a fixed value the system carries so it's never left without an exchange rate. Every price derived from a dollar price is being worked out with it right now.",
+          "unknown": "This screen doesn't recognise this source. We can't say where the rate in force comes from."
         },
         "effectiveDate": "Effective",
         "newRate": "New rate",
         "newBuffer": "New buffer %",
         "saveOverride": "Set override",
         "refreshBanxico": "Refresh Banxico",
-        "hint": "MXN price = USD price × rate × (1 + buffer/100). The manual override takes priority over the day's automatic rate.",
+        "hint": "MXN price = USD price × rate × (1 + buffer/100). Which of the two rates is in force is decided by the system's mode (automatic or manual), not by the last value saved: the manual rate is always kept, and it is only in force when the mode is manual.",
         "bufferOnlyHint": "You can save just the buffer: leave the rate empty to keep the current rate.",
         "saved": "Exchange rate updated.",
-        "savedBufferOnly": "Buffer updated; kept the current rate."
+        "savedBufferOnly": "Buffer updated; kept the current rate.",
+        "refresh": {
+          "updated": "Banxico returned {rate}. It differs from the one we had, so it was saved.",
+          "updatedWhileManual": "Your manual rate ({rate}) is still in force; this only updates the one you compare against.",
+          "unchanged": "Banxico returned {rate}, the same one we already had. Nothing changed, and it isn't a failure.",
+          "failedTitle": "Couldn't fetch the rate from Banxico",
+          "failedBody": "{rate} ({source}) is still in force.",
+          "reason": {
+            "no_token": "The server is missing the Banxico credential. This can't be fixed from here: tell whoever runs the system.",
+            "http_error": "Banxico answered with an error. It's usually temporary: try again in a few minutes.",
+            "invalid_payload": "Banxico answered something that couldn't be read as a rate. Nothing was saved.",
+            "network_error": "Banxico couldn't be reached. Check the server's connection and retry.",
+            "unknown": "The rate couldn't be fetched and the system didn't say why."
+          }
+        }
       },
       "priceIngest": {
         "trigger": "Refresh prices now",
