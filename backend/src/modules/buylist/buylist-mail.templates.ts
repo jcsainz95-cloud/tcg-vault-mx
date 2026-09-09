@@ -1,6 +1,23 @@
 import { Finish } from '@prisma/client';
 import { envOr } from '../mail/mail-env.util';
 import { MailMessage } from '../mail/mail.port';
+import {
+  brandRows,
+  cardLineRows,
+  ctaRows,
+  deadlineRow,
+  escapeHtml,
+  eyebrowRow,
+  headingRow,
+  mailShell,
+  proseRow,
+  ruleRow,
+  sectionLabelRow,
+  smallPrintRow,
+  spacerRow,
+  termsBoxRows,
+  totalsRows,
+} from './mail-shell';
 
 /**
  * Plantilla LOCAL al módulo buylist del correo de RECHAZO de ítem (v1.18-buylist-rejects,
@@ -41,16 +58,20 @@ function normalizeLocale(locale?: string | null): Locale {
   return locale === 'en' ? 'en' : 'es';
 }
 
-/** S15-B1: escapa metacaracteres HTML de todo valor dinámico antes de interpolarlo (el `&` primero). */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+/**
+ * S15-B1 — el escape de HTML **ya no se define aquí**: se importa de `mail-shell.ts`, que es donde
+ * viven los builders de §31 y donde tiene que estar para que **el llamador no pueda olvidarlo**.
+ * *No es el arreglo de BE-43* —el `layout()` de abajo sigue duplicado con `mail/`, y su disparador
+ * declarado es el pase 2—: es no crear una **tercera** copia del mismo escape en el mismo módulo.
+ */
 
+/**
+ * ⚠️ **`layout()` — el esqueleto VIEJO, y solo lo usan los correos 2, 3, 4, 5 y el de rechazo.**
+ * El correo 1 ya migró al esqueleto de §31 (`mail-shell.ts`). Los otros cinco de este fichero son el
+ * **resto del pase 1** y salen en el siguiente empujón; hasta entonces conviven, porque migrar medio
+ * correo es peor que migrar uno entero. ⛔ **No se le añaden funciones nuevas**: lo que este layout no
+ * sabe hacer (marca, pie en tinta, modo oscuro, preheader) es exactamente lo que §31 vino a resolver.
+ */
 function layout(title: string, bodyHtml: string): string {
   return [
     `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#111">`,
@@ -270,57 +291,86 @@ export function sellOfferTemplate(
   });
   const condition = terms.perLineConditionLabel;
   const deadline = formatDateTime(params.acceptDeadlineAt, l);
-  const safeName = escapeHtml(name);
   const idOf = (x: OfferMailLine) =>
     `${x.cardName} · ${x.setName} · #${x.cardNumber} · ${FINISH_LABELS[x.finish] ?? x.finish}`;
 
-  const buyHtml = buy
-    .map(
-      (x) =>
-        `<p style="margin:10px 0"><strong>${escapeHtml(idOf(x))}</strong><br/>` +
-        `<span style="color:#555">${escapeHtml(condition)}</span> — ` +
-        `<strong>${escapeHtml(money(x.offeredPriceCents as number, l))}</strong></p>`,
-    )
-    .join('');
-  // Sin monto y sin motivo: cero es un precio, y el porqué es deliberación interna.
-  const skipHtml = skip
-    .map(
-      (x) =>
-        `<p style="margin:8px 0;color:#666">${escapeHtml(idOf(x))} — ` +
-        `${escapeHtml(en ? 'Not included in this offer' : 'No entra en esta oferta')}</p>`,
-    )
-    .join('');
+  // =============================================================================================
+  // §31 — EL CUERPO, BLOQUE A BLOQUE.
+  //
+  // **El orden es el de §31.3 y es el MISMO en los ocho**; el CONTENIDO y el orden de §25.4.2 los
+  // declara **intactos** §31.1: la condición **antes** del dinero y **dentro** de cada línea, los
+  // montos **antes** del CTA y el plazo **pegado** al CTA. *Esto es envoltura nueva sobre texto que
+  // no se toca: lo único que cambia aquí es cómo se ve.*
+  // =============================================================================================
+  const metaOf = (x: OfferMailLine) =>
+    `${x.setName} · #${x.cardNumber} · ${FINISH_LABELS[x.finish] ?? x.finish}`;
   const consequence = terms.consequence;
-  const totalsHtml =
-    `<p style="margin:16px 0">` +
-    `${escapeHtml(en ? 'Value of the cards' : 'Valor de las cartas')}: <strong>${escapeHtml(money(params.grossCents, l))}</strong><br/>` +
-    `${escapeHtml(en ? 'Shipping we cover' : 'Envío que ponemos nosotros')}: − ${escapeHtml(money(params.shippingFeeCents, l))}<br/>` +
-    `<strong style="font-size:18px">${escapeHtml(en ? 'DEPOSITED TO YOU' : 'SE TE DEPOSITAN')}: ${escapeHtml(money(params.netCents, l))}</strong></p>`;
   const shippingProse = terms.rule;
-  const deadlineProse = en
-    ? `You have until ${deadline}. If you don't respond before that time, the offer cancels itself.`
-    : `Tienes hasta el ${deadline}. Si no respondes antes de esa hora, la oferta se cancela sola.`;
+  const notIncluded = en ? 'Not included in this offer' : 'No entra en esta oferta';
+
+  /**
+   * §31.6c — cada línea con su regla SÓLIDA de separación (§31.2: la punteada de §25.4.2 no
+   * sobrevive a Outlook). ⛔ En las que NO compramos, `amount` va **`null`**: la celda del importe
+   * existe y va vacía — **jamás `MX$ 0.00`** (§31.0 regla 3, criterio 118).
+   */
+  const linesBlock = (items: OfferMailLine[], comprada: boolean) =>
+    items
+      .map(
+        (x, i) =>
+          (i ? spacerRow(16) + ruleRow() + spacerRow(16) : spacerRow(16)) +
+          cardLineRows({
+            title: x.cardName,
+            meta: metaOf(x),
+            // ⛔ La condición sale de `offerTermsCopy` **tal cual**: es el string que el criterio
+            // 161(d) obliga a que sea el MISMO que ve el portal. No se acorta «porque no cabe».
+            note: comprada ? condition : null,
+            amount: comprada ? money(x.offeredPriceCents as number, l) : null,
+            aside: comprada ? null : notIncluded,
+          }),
+      )
+      .join('');
+
+  // §31.6d — el rótulo de la caja es **el portador** (§31.8 regla 4b: la regla bermellón es
+  // decorativa). Va EN MAYÚSCULAS en la cadena: `text-transform` no existe en Outlook (§31.2).
+  const consequenceLabel = en
+    ? "WHAT HAPPENS IF A CARD DOESN'T ARRIVE NEAR MINT"
+    : 'QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT';
+
+  // §31.6f — la frase del plazo, **partida en tres para poder pintar el token sin reescribirla**:
+  // `deadlinePre + deadline + deadlinePost` es, carácter por carácter, la misma frase de siempre, y
+  // es la que viaja a la parte de texto plano. El rojo **acompaña** a la palabra, nunca la sustituye.
+  const deadlinePre = en ? 'You have until ' : 'Tienes hasta el ';
+  const deadlinePost = en
+    ? ". If you don't respond before that time, the offer cancels itself."
+    : '. Si no respondes antes de esa hora, la oferta se cancela sola.';
+  const deadlineProse = `${deadlinePre}${deadline}${deadlinePost}`;
   const ctaProse = en
     ? 'You will sign in with your account: this offer cannot be accepted from an email link.'
     : 'Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo.';
-  const cta = params.portalUrl
-    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(en ? 'View and respond to the offer' : 'Ver y responder la oferta')}</a></p>`
-    : `<p style="margin:20px 0"><strong>${escapeHtml(en ? 'Sign in to your account and open your sell request to respond.' : 'Entra a tu cuenta y abre tu solicitud para responder.')}</strong></p>`;
+  // §31.7 — **bermellón, porque no responder cuesta dinero** (correos 1 y 2; los otros seis en
+  // tinta). El texto del botón va en MAYÚSCULAS en la cadena (§31.2). `ctaRows` emite **siempre** la
+  // URL en texto debajo: es el respaldo del botón bajo inversión forzada, no un adorno (§31.8.4c).
+  const ctaBlocks = params.portalUrl
+    ? [ctaRows(params.portalUrl, en ? 'VIEW AND RESPOND TO THE OFFER' : 'VER Y RESPONDER LA OFERTA', 'accent')]
+    : [
+        proseRow(
+          en
+            ? 'Sign in to your account and open your sell request to respond.'
+            : 'Entra a tu cuenta y abre tu solicitud para responder.',
+        ),
+      ];
   // ⚠️ v1.54 · **B-1 (PII): EL AVISO SE QUEDA, EL DOMICILIO NO.**
-  // Este párrafo llevaba el domicilio del vendedor interpolado (`Sale desde: Av. …, CDMX, 01000`).
-  // `PROJECT.md` §P.3 lo prohíbe **en los cinco** correos del ciclo, en la misma frase que la CLABE:
-  // *«nada de CLABE (ni enmascarada), nada de datos de terceros … y nada de domicilio. La regla nunca
-  // dependió del número»*, y el criterio **173(h)** ordena verificarlo *«buscando esos datos en los
-  // cinco, no en cuatro»*.
-  // **Que sea SU domicilio en SU correo no lo autoriza**: la prohibición es sobre el dato en el canal,
-  // no sobre a quién pertenece — un correo se reenvía, se imprime y vive en un buzón de terceros.
-  // **Lo que el párrafo hacía útil sí se conserva**: el aviso de que la etiqueta sale con la dirección
-  // congelada en ESTA solicitud y de que corregirla es AHORA. Eso no necesita el dato: el vendedor lo
-  // consulta en su cuenta, que es superficie autenticada. *Se retira el domicilio, no la advertencia.*
+  // Este párrafo llevaba el domicilio del vendedor interpolado. `PROJECT.md` §P.3 lo prohíbe **en los
+  // cinco** correos del ciclo, en la misma frase que la CLABE, y el criterio **173(h)** ordena
+  // verificarlo *«buscando esos datos en los cinco, no en cuatro»*.
+  // **Que sea SU domicilio en SU correo no lo autoriza**: la prohibición es sobre el dato en el
+  // canal, no sobre a quién pertenece — un correo se reenvía, se imprime y vive en un buzón ajeno.
+  // **Lo que el párrafo hacía útil sí se conserva**: el aviso de que la etiqueta sale con la
+  // dirección congelada en ESTA solicitud y de que corregirla es AHORA. *Se retira el dato, no la
+  // advertencia.*
   const pickupProse = en
     ? 'When you accept we send you the label: it uses the pickup address saved on this request. If you moved, check it in your account and correct it before accepting.'
     : 'Al aceptar te mandamos la guía: sale con la dirección de origen que guardaste en esta solicitud. Si te mudaste, revísala en tu cuenta y corrígela antes de aceptar.';
-  const pickup = `<p style="font-size:13px;color:#555">${escapeHtml(pickupProse)}</p>`;
 
   const title = en
     ? `We're buying ${buy.length} of your ${params.lines.length} cards`
@@ -329,6 +379,70 @@ export function sellOfferTemplate(
     ? 'This offer is conditional, and this is how it works: we buy each card at the price below AS LONG AS IT ARRIVES NEAR MINT.'
     : 'Esta oferta es condicional y así funciona: compramos cada carta al precio de abajo SIEMPRE QUE LLEGUE EN NEAR MINT.';
 
+  // §31.6a — **el preheader lleva el NETO, jamás el bruto** (R1 de §25.4). Es lo primero que se lee
+  // en la bandeja, y la primera cifra que este vendedor ve en su vida sobre esta venta tiene que ser
+  // **la que va a recibir**.
+  const preheader = en
+    ? `We deposit ${money(params.netCents, l)} to you. This offer has a deadline.`
+    : `Se te depositan ${money(params.netCents, l)}. Esta oferta tiene fecha límite.`;
+
+  const blocks = [
+    brandRows(),
+    eyebrowRow(en ? 'PURCHASE OFFER' : 'OFERTA DE COMPRA', params.folio),
+    headingRow(title, 26),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}:`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(24),
+    sectionLabelRow(`${en ? 'WE BUY' : 'COMPRAMOS'} (${buy.length})`),
+    linesBlock(buy, true),
+    ...(skip.length
+      ? [
+          spacerRow(24),
+          ruleRow(),
+          spacerRow(24),
+          sectionLabelRow(`${en ? "WE DON'T BUY" : 'NO COMPRAMOS'} (${skip.length})`),
+          linesBlock(skip, false),
+        ]
+      : []),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(24),
+    termsBoxRows(consequenceLabel, consequence),
+    spacerRow(32),
+    totalsRows(
+      [
+        { label: en ? 'Value of the cards' : 'Valor de las cartas', amount: money(params.grossCents, l) },
+        {
+          label: en ? 'Shipping we cover' : 'Envío que ponemos nosotros',
+          amount: money(params.shippingFeeCents, l),
+          minus: true,
+        },
+      ],
+      {
+        label: en ? 'DEPOSITED TO YOU' : 'SE TE DEPOSITAN',
+        amount: money(params.netCents, l),
+      },
+    ),
+    spacerRow(24),
+    proseRow(shippingProse),
+    spacerRow(24),
+    deadlineRow(deadlinePre, deadline, deadlinePost),
+    spacerRow(32),
+    ...ctaBlocks,
+    spacerRow(24),
+    smallPrintRow(ctaProse),
+    spacerRow(16),
+    smallPrintRow(pickupProse),
+  ];
+
+  // §31.12 — **la parte de texto plano dice lo MISMO**, no un resumen: los tres montos, la condición
+  // por línea, el plazo y **la URL completa**. Un correo de dinero cuya versión de texto dice menos
+  // que el HTML miente a la mitad de los clientes. Es además el candado más barato de los cinco
+  // prohibidos (ML-2): aquí nada se esconde entre atributos.
   const text =
     `${en ? 'Hi' : 'Hola'} ${name}:\n\n` +
     `${en ? 'PURCHASE OFFER' : 'OFERTA DE COMPRA'} · ${params.folio}\n\n` +
@@ -341,11 +455,16 @@ export function sellOfferTemplate(
       ? `\n\n${en ? "WE DON'T BUY" : 'NO COMPRAMOS'} (${skip.length})\n` +
         skip.map((x) => `- ${idOf(x)}`).join('\n')
       : '') +
-    `\n\n${consequence}\n\n` +
+    `\n\n${consequenceLabel}\n${consequence}\n\n` +
     `${en ? 'Value of the cards' : 'Valor de las cartas'}: ${money(params.grossCents, l)}\n` +
     `${en ? 'Shipping we cover' : 'Envío que ponemos nosotros'}: -${money(params.shippingFeeCents, l)}\n` +
     `${en ? 'DEPOSITED TO YOU' : 'SE TE DEPOSITAN'}: ${money(params.netCents, l)}\n\n` +
-    `${shippingProse}\n\n${deadlineProse}\n${ctaProse}\n\n` +
+    `${shippingProse}\n\n${deadlineProse}\n` +
+    // ML-5/ML-7: la URL **completa**, también aquí. El botón puede quedar ilegible bajo inversión
+    // forzada (§31.8 regla 4) y hay clientes que solo enseñan esta mitad: si la URL vive únicamente
+    // dentro del `href`, hay lectores para los que **no existe ruta a la acción**.
+    (params.portalUrl ? `${params.portalUrl}\n` : '') +
+    `${ctaProse}\n\n` +
     // B-1: la versión de texto llevaba la MISMA fuga que el HTML (`Sale desde: <domicilio>`). Las dos
     // mitades del correo se arreglan juntas: un cliente que solo renderiza texto plano leía el
     // domicilio igual.
@@ -355,24 +474,19 @@ export function sellOfferTemplate(
   return {
     to: '', // lo fija el llamador
     subject: en ? 'We have an offer for your cards' : 'Tenemos una oferta por tus cartas',
-    html: layout(
+    // ⚠️ §31.9 — **los asuntos NO se tocan en este pase**: R1 gobierna el del correo 1 (solo el neto,
+    // nunca el bruto) y está ratificado con PO. Rediseñar el envoltorio y de paso reescribir el
+    // asunto mezclaría un cambio visual con uno de producto.
+    html: mailShell({
+      locale: l,
       title,
-      `<p style="font-size:12px;color:#888">${escapeHtml(en ? 'PURCHASE OFFER' : 'OFERTA DE COMPRA')} · ${escapeHtml(params.folio)}</p>` +
-        `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${safeName}:</p>` +
-        `<p>${escapeHtml(intro)}</p>` +
-        `<p style="font-size:11px;color:#888;letter-spacing:.06em">${escapeHtml(en ? 'WE BUY' : 'COMPRAMOS')} (${buy.length})</p>` +
-        buyHtml +
-        (skip.length
-          ? `<p style="font-size:11px;color:#888;letter-spacing:.06em">${escapeHtml(en ? "WE DON'T BUY" : 'NO COMPRAMOS')} (${skip.length})</p>${skipHtml}`
-          : '') +
-        `<div style="background:#EFEBE2;padding:12px;margin:16px 0"><p style="margin:0;font-size:13px">${escapeHtml(consequence)}</p></div>` +
-        totalsHtml +
-        `<p>${escapeHtml(shippingProse)}</p>` +
-        `<p>${escapeHtml(deadlineProse)}</p>` +
-        cta +
-        `<p style="font-size:13px;color:#555">${escapeHtml(ctaProse)}</p>` +
-        pickup,
-    ),
+      preheader,
+      blocks,
+      // §31.6h — la única línea variable del pie. ⛔ Nada necesario vive en la banda de tinta.
+      footerWhy: en
+        ? 'You are receiving this email because you have a sell request with us.'
+        : 'Recibes este correo porque tienes una solicitud de venta con nosotros.',
+    }),
     text,
   };
 }
@@ -700,9 +814,18 @@ export function sellRequestNotPursuedTemplate(
     ? `About your sell request ${params.folio}: we will not proceed with the offer.`
     : `Sobre tu solicitud ${params.folio}: no vamos a proceder con la oferta.`;
   // Lo único que de verdad le sirve saber: que no tiene nada que hacer.
+  //
+  // ⚠️ **§31.10 — se retira «y no nos debes nada» / «and you owe us nothing», en los dos idiomas.**
+  // Es el ÚNICO cambio de copy del rediseño y lo pidió el dueño. La razón está escrita y es la norma
+  // de **§7.12a**: una negación defensiva **nombra el tema** —mete la idea de una deuda que nunca
+  // existió, solo para negarla— y sigue siendo **una afirmación que habría que sostener**. Y es
+  // **redundante**: *«no se generó ninguna guía»* ya contesta la única duda real (*¿me van a cobrar el
+  // envío?*), y la contesta **por un hecho**, no por una promesa.
+  // ⛔ **Se mantiene el TUTEO** (§31.10): los ocho hablan de tú, y cambiar a usted en uno solo suena a
+  // que lo escribió otra persona.
   const body2 = en
-    ? "There is nothing pending on your side: don't send any card, no shipping label was generated and you owe us nothing."
-    : 'No hay nada pendiente de tu parte: no mandes ninguna carta, no se generó ninguna guía y no nos debes nada.';
+    ? "There is nothing pending on your side: don't send any card, and no shipping label was generated."
+    : 'No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna guía.';
   const body3 = en
     ? 'Prices move all the time. You can get a new quote whenever you like.'
     : 'Los precios se mueven todo el tiempo. Puedes volver a cotizar cuando quieras.';
