@@ -299,6 +299,42 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
   });
 
   /**
+   * ⭐ El estado que la tarjeta existe para hacer visible, alcanzado **con actos legales de la
+   * pantalla**: sin tasa de Banxico, pasar a automática deja rigiendo **un número que nadie
+   * tecleó**. Sigue siendo `mockOnly` porque el ENTORNO de partida (ninguna fila `FxRate`, y
+   * ninguna en absoluto) es del servidor falso; contra el stack real el par lo cubre el caso de
+   * arriba, en el estado que haya.
+   */
+  test('⭐ sin tasa de Banxico, confirmar el acuse deja el sistema en SIN RESPALDO REAL', async ({ page }) => {
+    mockOnly('el entorno de partida —ninguna fila `FxRate`— es dato del servidor falso');
+    await openM2(page);
+
+    await segment(page, 'auto').click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: FX('ack.cta', { fallback: '18.0000' }) })
+      .click();
+
+    await expect(segment(page, 'auto')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('fx-current')).toHaveText('18.0000');
+    // ⭐ El peor estado del sistema, por fin visible: un número que nadie tecleó, con su nombre.
+    await expect(page.getByTestId('fx-source')).toHaveText(FX('source.fallback'));
+    await expect(page.getByText(FX('source.fallbackBody'))).toBeVisible();
+    // ⛔ Y NINGUNA de las dos columnas rige: quien manda no es ninguna de ellas.
+    await expect(page.getByText(FX('ruling.mark'), { exact: true })).toHaveCount(0);
+    // El interruptor ya no se deduce de nada: se movió una vez.
+    await expect(page.getByText(FX('mode.legacyLabel'))).toHaveCount(0);
+    await expect(page.getByText('Ahora rige 18.0000', { exact: false })).toBeVisible();
+    // El manual se CONSERVA: sigue completo, en pantalla y sin marca de que rige.
+    await expect(page.getByTestId('fx-manual')).toContainText('19.0000');
+    await expect(page.getByTestId('fx-manual')).not.toContainText(FX('ruling.mark'));
+  });
+  // ⚠️ ORDEN DELIBERADO: el caso del interruptor va **el último** del archivo. Este `describe` corre
+  // en SERIE (el interruptor es uno solo y el estado es del entorno), y en modo serie un fallo
+  // **salta** todo lo que venga detrás: poner el caso más largo al final evita que su rojo esconda
+  // los de los demás. Medido — con la mutación «el segmento cambia el modo sin diálogo», antes se
+  // perdía un caso por salto y ahora se ven los dos rojos.
+  /**
    * ⭐⭐ **EL CASO QUE `I-QA-2` PEDÍA Y QUE HASTA HOY NADIE PODÍA CORRER CONTRA UN SERVIDOR.**
    *
    * Mide el **par cliente↔servidor del interruptor**, y lo mide por conducta:
@@ -402,35 +438,4 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
     }
   });
 
-  /**
-   * ⭐ El estado que la tarjeta existe para hacer visible, alcanzado **con actos legales de la
-   * pantalla**: sin tasa de Banxico, pasar a automática deja rigiendo **un número que nadie
-   * tecleó**. Sigue siendo `mockOnly` porque el ENTORNO de partida (ninguna fila `FxRate`, y
-   * ninguna en absoluto) es del servidor falso; contra el stack real el par lo cubre el caso de
-   * arriba, en el estado que haya.
-   */
-  test('⭐ sin tasa de Banxico, confirmar el acuse deja el sistema en SIN RESPALDO REAL', async ({ page }) => {
-    mockOnly('el entorno de partida —ninguna fila `FxRate`— es dato del servidor falso');
-    await openM2(page);
-
-    await segment(page, 'auto').click();
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: FX('ack.cta', { fallback: '18.0000' }) })
-      .click();
-
-    await expect(segment(page, 'auto')).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByTestId('fx-current')).toHaveText('18.0000');
-    // ⭐ El peor estado del sistema, por fin visible: un número que nadie tecleó, con su nombre.
-    await expect(page.getByTestId('fx-source')).toHaveText(FX('source.fallback'));
-    await expect(page.getByText(FX('source.fallbackBody'))).toBeVisible();
-    // ⛔ Y NINGUNA de las dos columnas rige: quien manda no es ninguna de ellas.
-    await expect(page.getByText(FX('ruling.mark'), { exact: true })).toHaveCount(0);
-    // El interruptor ya no se deduce de nada: se movió una vez.
-    await expect(page.getByText(FX('mode.legacyLabel'))).toHaveCount(0);
-    await expect(page.getByText('Ahora rige 18.0000', { exact: false })).toBeVisible();
-    // El manual se CONSERVA: sigue completo, en pantalla y sin marca de que rige.
-    await expect(page.getByTestId('fx-manual')).toContainText('19.0000');
-    await expect(page.getByTestId('fx-manual')).not.toContainText(FX('ruling.mark'));
-  });
 });
