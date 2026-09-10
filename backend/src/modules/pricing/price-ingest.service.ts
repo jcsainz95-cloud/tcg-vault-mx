@@ -231,7 +231,7 @@ export interface PriceSyncStatus {
   dailyLimited: boolean;
   /** Sets que quedaron pendientes si se detuvo por límite diario. */
   pending: number;
-  /** Proveedor de la corrida (`pokemonpricetracker`/`pokemontcg_io`). */
+  /** Proveedor de la corrida (un valor del enum de `API_CONTRACT §M10-PP`), o null. */
   provider: string | null;
 }
 
@@ -332,7 +332,14 @@ export class PriceIngestService {
     private readonly inventoryPublish?: InventoryPublishPort,
   ) {}
 
-  /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
+  /**
+   * Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER`. El enum, la semántica de cada valor y
+   * el SEED los fija `API_CONTRACT §M10-PP` (se citan, no se transcriben: §0-B.3 regla 8).
+   * ⚠️ El `fallback` de abajo NO es «el default»: es la red para un valor que la validación del dial
+   * debería haber impedido (ver el PIN de `PRICE_PROVIDER_VALUES` en `test/settings.validation.spec.ts`,
+   * que existe precisamente porque este `find` fallido reprecia el catálogo entero desde el legacy
+   * dejando sólo un `warn`).
+   */
   async providerFor(): Promise<BulkPriceProvider> {
     const wanted = await this.settings.getString(SettingKey.PRICE_PROVIDER);
     // v1.44 (§4.35): `tcgcsv_singles` entra como opción PRIMARIA del barrido. Se filtra `undefined`

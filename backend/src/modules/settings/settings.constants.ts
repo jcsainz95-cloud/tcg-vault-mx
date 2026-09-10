@@ -90,10 +90,11 @@ export const SettingKey = {
   PRICING_PROVIDER_RAW: 'pricing_provider_raw',
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
-  // v1.14-price-ingest (WS-A, §4.15h): proveedor de la INGESTA MASIVA de precios (BulkPriceProvider).
-  // Distinto de los `pricing_provider_*` per-carta de arriba. Palanca de rollback money-safe: seed
-  // `pokemontcg_io` (legacy, sin cambio de fuente al desplegar); el humano flipa a
-  // `pokemonpricetracker` tras verificar el esquema del proveedor de paga en la 1ª corrida.
+  // Proveedor de la INGESTA MASIVA de precios (`BulkPriceProvider`), distinto de los
+  // `pricing_provider_*` per-carta de arriba. ⚠️ v1.65 (D-PP-1): enum, semántica, seed y rollback los
+  // fija `API_CONTRACT §M10-PP` (`I-PP1`…`I-PP5`); aquí se CITA y no se transcribe (§0-B.3 regla 8).
+  // *El texto anterior describía el seed y el flip previsto, y fue una de las cinco copias del
+  // literal que produjeron la contradicción de `ARCHITECTURE §4.35a(a)`.*
   PRICE_PROVIDER: 'price_provider',
   // v1.19-sealed-tcgcsv (§4.19e): dial FAIL-CLOSED de la ingesta de la referencia de mercado
   // del SELLADO vía TCGCSV (job `sealed-price-ingest`). Valores `tcgcsv | off`, seed `off`:
@@ -302,9 +303,28 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.PRICING_PROVIDER_RAW]: 'pokemontcg_io',
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
-  // v1.14-price-ingest (WS-A): SEED `pokemontcg_io` por seguridad (rollout money-safe). El flip a
-  // `pokemonpricetracker` lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h).
-  [SettingKey.PRICE_PROVIDER]: 'pokemontcg_io',
+  // ⚠️⚠️ v1.65 (D-PP-1) — **SEED DEL PROVEEDOR DE PRECIO. NORMA: `API_CONTRACT §M10-PP`, invariante
+  // `I-PP1` («el seed ES el primario»); razón entera en `ARCHITECTURE §4.35a`.**
+  //
+  // ⛔ Este comentario **CITA y no transcribe** (§0-B.3 regla 8): no repite el enum, ni la semántica de
+  // cada valor, ni afirma qué valor corre en ningún entorno (eso es `I-PP2`: el VIGENTE se LEE de
+  // `GET /admin/settings`, no de un comentario). La línea de abajo **es** el literal del seed — el
+  // único sitio del proyecto donde ese literal vive (§M10-PP, hecho 2).
+  //
+  // Lo que este comentario SÍ debe dejar dicho, porque es la corrección que motivó el cambio: la
+  // versión anterior sembraba el proveedor LEGACY y lo llamaba *«money-safe»*, y eso **era falso**. Un
+  // seed money-safe tiene que ser **INERTE** (no escribe dinero — como `SEALED_PRICE_SOURCE: 'off'`,
+  // unas líneas más abajo) **o el PRIMARIO validado**. El legacy no es ninguno de los dos: **corre el
+  // barrido y ESCRIBE `PriceReference` con un `market` aplanado** (un precio por carta, invariante al
+  // printing) ⇒ `reverse_holo` y `holofoil` quedaban al precio de la `normal`. Es la regresión exacta
+  // que cerró P-47, y por `PROJECT §N.0` cae del lado irrecuperable del sesgo de error.
+  // ⇒ El seed legacy no era el candado money-safe: era el riesgo con el nombre del candado.
+  //
+  // ⚠️ Cambiar esta línea NO es un rollback y un rollback NO cambia esta línea (`I-PP3`): la palanca de
+  // rollback es `PUT /admin/settings { "priceProvider": … }` (super_admin, auditado, sin redeploy), y
+  // mueve el VIGENTE de UN entorno. Este `DEFAULT` sólo se consulta cuando **no existe la fila**
+  // `ConfigSetting.price_provider` ⇒ no puede alterar un entorno ya sembrado.
+  [SettingKey.PRICE_PROVIDER]: 'tcgcsv_singles',
   // v1.19-sealed-tcgcsv (§4.19e / §4.23e / API_CONTRACT §M10): SEED `off` (FAIL-CLOSED, por contrato).
   // Un seed FRESCO (BD nueva: CI/dev/prod) arranca con el autoprecio del sellado APAGADO — la ingesta
   // TCGCSV no corre hasta que devops valide el esquema real en staging (§4.23f) y flipee el dial. El
@@ -453,12 +473,20 @@ export const RETIRED_SETTING_KEYS = [
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
 
 /**
- * v1.14-price-ingest (WS-A, §4.15h): valores válidos del dial `price_provider` (BulkPriceProvider).
- * Proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
+ * Valores válidos del dial `price_provider` (`BulkPriceProvider` del ingest MASIVO; NO `poketrace`/
+ * `manual`, que son del pricing per-carta).
  *
- * v1.44 (P-47, §4.38): += `tcgcsv_singles` — PRIMARIO del barrido de singles por-acabado desde TCGCSV
- * (reverse_holo/holofoil con SU marketPrice). El default sigue en `pokemontcg_io` (seed); devops flipea
- * el dial a `tcgcsv_singles` en staging→prod (config/env es de devops, §4.38e). PPT queda como fallback.
+ * ⚠️⚠️ **v1.65 — el ENUM y la SEMÁNTICA de cada valor los fija `API_CONTRACT §M10-PP`**
+ * (`<!-- CANON: proveedor-de-precio -->`). Este bloque lo **CITA y no lo transcribe** (§0-B.3 regla 8):
+ * ni describe qué hace cada proveedor, ni cuál es el seed (eso es `I-PP1` y su literal vive en
+ * `SETTING_DEFAULTS`, arriba — §M10-PP lo nombra `DEFAULT_SETTINGS`, mismo mapa), ni qué valor corre
+ * en ningún entorno (`I-PP2`: el VIGENTE se LEE).
+ * La versión anterior de este comentario afirmaba un seed, y ésa fue una de las cinco copias que
+ * produjeron la contradicción medida en `ARCHITECTURE §4.35a(a)`.
+ *
+ * ⛔ **Nada se retira de esta lista sin pasar por el arquitecto** (regla 9): `pokemontcg_io` sigue aquí
+ * porque es la palanca de rollback operativo (`I-PP3`), y el contenido EXACTO está pineado contra el
+ * contrato en `test/settings.validation.spec.ts`.
  */
 export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'tcgcsv_singles'];
 
@@ -940,7 +968,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_SEALED]: (v) =>
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
-  // v1.14-price-ingest (WS-A): IsIn(['pokemontcg_io','pokemonpricetracker']) → 422 si otro valor.
+  // Fuera del enum de `API_CONTRACT §M10-PP` ⇒ `422 VALIDATION_ERROR`. La lista vive en
+  // `PRICE_PROVIDER_VALUES` (arriba) y NO se re-escribe aquí: este comentario llegó a transcribir un
+  // enum de DOS valores que ya no era el del contrato (§0-B.3 regla 8).
   [SettingKey.PRICE_PROVIDER]: (v) =>
     typeof v === 'string' && PRICE_PROVIDER_VALUES.includes(v)
       ? null
