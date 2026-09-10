@@ -167,13 +167,30 @@ cmd_scan() {
   local zap_script zap_extra=()
   if [ "${SCAN_PROFILE}" = "full" ]; then
     zap_script="zap-full-scan.py"
-    # Tope duro del escaneo ACTIVO. Sin esto, un full scan puede irse a horas
-    # y el cron semanal se vuelve impagable (y, peor, se acaba desactivando).
-    zap_extra+=(-z "-config ascan.maxScanDurationInMins=${ACTIVE_MAX_MINS} -config ascan.maxRuleDurationInMins=3")
+    # ---------------------------------------------------------------------
+    # TOPE DEL ESCANEO ACTIVO. Sin él, un full scan se va a horas y el cron
+    # semanal se vuelve impagable — y lo que es impagable se acaba apagando.
+    #
+    # ⚠️ OJO CON EL PREFIJO. La primera versión usaba `ascan.max…`, que NO
+    # existe: las opciones del escáner activo de ZAP viven bajo `scanner.`
+    # (org.zaproxy.zap.extension.ascan.ScannerParam). ZAP ignora en silencio
+    # una clave desconocida, así que el tope era INERTE y no se notaba: se
+    # midió en la corrida 34434882197, donde el paso de escaneo pasó de 36
+    # min con un "tope" de 10. Un límite mal escrito es indistinguible de no
+    # tener límite, que es la misma familia de error que P-77.
+    # ---------------------------------------------------------------------
+    zap_extra+=(-z "-config scanner.maxScanDurationInMins=${ACTIVE_MAX_MINS} -config scanner.maxRuleDurationInMins=2")
   else
     zap_script="zap-baseline.py"
   fi
   [ "${AJAX_SPIDER}" = "1" ] && zap_extra+=(-j)
+
+  # CINTURÓN, ADEMÁS DEL TIRANTE: pared de reloj que no depende de que una
+  # clave de config de ZAP esté bien escrita. Si ZAP se pasa, se le corta.
+  # Un escaneo cortado NO deja informe ⇒ el candado lo lee como ROJO (ver
+  # dast-gate.py), que es la lectura correcta: un escáner que no terminó no
+  # es un verde.
+  local pared=$(( (SPIDER_MINS * 2 + ACTIVE_MAX_MINS + 6) * 60 ))
 
   local rc_total=0
   for target in ${ZAP_TARGETS}; do
@@ -184,6 +201,7 @@ cmd_scan() {
     # esto, "localhost" dentro del contenedor de ZAP es el propio ZAP.
     # -I: los WARN no deciden el veredicto. El veredicto lo da dast-gate.py
     #     leyendo el JSON con la política de baseline.conf — una sola verdad.
+    timeout --signal=INT "${pared}s" \
     docker run --rm --network host \
       -v "${SEC_DIR}/zap:/zap/wrk/conf:ro" \
       -v "${REPORT_DIR}:/zap/wrk/out:rw" \
@@ -195,11 +213,21 @@ cmd_scan() {
         -r "/zap/wrk/out/zap-${name}.html" \
         -m "${SPIDER_MINS}" -T 5 -I "${zap_extra[@]}"
     local rc=$?
-    printf 'ZAP %s %s -> rc=%s  (%ss)\n' "${SCAN_PROFILE}" "${target}" "${rc}" "$(( $(date +%s) - t0 ))" \
-      | tee -a "${REPORT_DIR}/timings.txt"
-    # rc 1/2 = ZAP encontró cosas; el candado lo decide dast-gate.py. rc>=3 =
-    # el escáner reventó, y eso SÍ es un rojo: un escáner caído no es un verde.
-    [ "${rc}" -ge 3 ] && { err "ZAP terminó con rc=${rc} (fallo del escáner, no hallazgo)."; rc_total=1; }
+    printf 'ZAP %s %s -> rc=%s  (%ss, pared %ss)\n' "${SCAN_PROFILE}" "${target}" "${rc}" \
+      "$(( $(date +%s) - t0 ))" "${pared}" | tee -a "${REPORT_DIR}/timings.txt"
+    # rc 1/2 = ZAP encontró cosas; el candado lo decide dast-gate.py.
+    # rc 124  = se comió la pared de reloj: el presupuesto está mal calibrado.
+    # rc>=3   = el escáner reventó. Los dos son ROJO: un escáner que no terminó
+    #           no es un verde (y además no deja informe, que el candado ya lee
+    #           como rojo por su cuenta).
+    if [ "${rc}" = "124" ]; then
+      err "ZAP superó la pared de ${pared}s contra ${target} y se cortó."
+      err "Esto NO es un hallazgo: es presupuesto mal calibrado. Sube ACTIVE_MAX_MINS o reduce blancos."
+      rc_total=1
+    elif [ "${rc}" -ge 3 ]; then
+      err "ZAP terminó con rc=${rc} (fallo del escáner, no hallazgo)."
+      rc_total=1
+    fi
   done
 
   log "nuclei → ${NUCLEI_TARGETS}"

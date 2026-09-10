@@ -54,6 +54,9 @@ if [ "${SCAN_PROFILE}" = "full" ]; then ZAP_SCRIPT="zap-full-scan.py"; else ZAP_
 
 log "ZAP ${SCAN_PROFILE} contra el canario (misma imagen, misma política que el barrido semanal)"
 T0="$(date +%s)"
+# Pared de reloj + tope del escaneo activo. `scanner.` es el prefijo correcto
+# (no `ascan.`, que ZAP ignora en silencio — ver dast-ephemeral.sh).
+timeout --signal=INT 900s \
 docker run --rm --network host \
   -v "${SEC_DIR}/zap:/zap/wrk/conf:ro" \
   -v "${REPORT_DIR}:/zap/wrk/out:rw" \
@@ -63,7 +66,7 @@ docker run --rm --network host \
     -J /zap/wrk/out/zap-canary.json \
     -w /zap/wrk/out/zap-canary.md \
     -m 1 -T 5 -I \
-    -z "-config ascan.maxScanDurationInMins=4 -config ascan.maxRuleDurationInMins=1"
+    -z "-config scanner.maxScanDurationInMins=4 -config scanner.maxRuleDurationInMins=1"
 echo "ZAP sobre el canario: $(( $(date +%s) - T0 ))s"
 
 log "Veredicto invertido: se EXIGE rojo"

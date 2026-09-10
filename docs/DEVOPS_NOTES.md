@@ -8530,8 +8530,42 @@ Tres formas posibles y por qué se descartaron dos:
    independencia de cadencia, de tiempo límite y de veredicto.
 
 Confirmado en la primera corrida real (`34432408600`, rama `devops/dast-p77`): levantar + sembrar +
-verificar procedencia + verificar paridad del dial = **143 s**. Es decir, todo el trabajo extra que
-añade el DAST sobre lo que ya hacía el nocturno cuesta **4 segundos**.
+verificar procedencia + verificar paridad del dial = **143 s** (133 s en la segunda corrida). Es decir,
+todo el trabajo extra que añade el DAST sobre lo que ya hacía el nocturno cuesta **~4 segundos**.
+
+#### El presupuesto del escaneo, y el tope que era inerte
+
+Lo caro no es el stack: es el escaneo. Dos mediciones y una corrección:
+
+| Corrida | Configuración | Paso de escaneo |
+|---|---|---|
+| `34432408600` | `full` + araña AJAX, **2 blancos** (vitrina + base de la API), "tope activo 12 min" | **> 32 min** sin terminar |
+| `34434882197` | `full` + araña AJAX, **1 blanco** (vitrina), "tope activo 10 min" | **> 36 min** sin terminar |
+
+Dos hallazgos distintos ahí dentro:
+
+1. **El segundo blanco no compraba nada.** El backend NestJS **no expone OpenAPI**, así que la araña de
+   ZAP no tiene qué recorrer en la base de la API (su raíz es un 404) y se gasta el presupuesto entero
+   sin descubrir superficie. ZAP apunta ahora **solo a la vitrina** —la araña **AJAX** conduce un
+   navegador real, así que las XHR de la SPA sí entran en el árbol con sus parámetros— y **nuclei**,
+   que es rápido y no depende de enumerar enlaces, apunta a las dos. Lo que queda fuera está declarado
+   en §44.4, no disimulado.
+2. **🔴 Mi propio tope estaba inerte, y es la misma enfermedad que P-77.** El script pasaba
+   `-config ascan.maxScanDurationInMins=…`. Ese prefijo **no existe**: las opciones del escáner activo
+   de ZAP viven bajo **`scanner.`** (`ScannerParam`). ZAP **ignora en silencio** una clave desconocida,
+   así que el "tope de 10 minutos" no topaba nada — y no se notaba, porque un límite mal escrito es
+   indistinguible de no tener límite. Que la segunda corrida siguiera 36 minutos con un tope de 10 es
+   lo que lo delató.
+
+**Corregido con cinturón y tirantes**, a propósito, porque la lección de este pase es justamente que un
+solo mecanismo silencioso no basta:
+
+- **Tirante:** el prefijo correcto, `-config scanner.maxScanDurationInMins` / `scanner.maxRuleDurationInMins`.
+- **Cinturón:** una **pared de reloj** con `timeout` alrededor del `docker run`, calculada como
+  `(araña×2 + activo + 6) min` (hoy **20 min**). No depende de que ninguna clave de config esté bien
+  escrita. Si se la come, el paso sale **ROJO** con el mensaje «esto no es un hallazgo: es presupuesto
+  mal calibrado» — y como un ZAP cortado no deja informe, el candado también lo lee como rojo por su
+  cuenta (**sin informe = ROJO**). Las dos mitades apuntan al mismo sitio.
 
 #### Cadencia
 
