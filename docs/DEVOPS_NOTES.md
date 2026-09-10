@@ -4713,7 +4713,7 @@ el dummy y un aviso claro, que es lo correcto para un repo sin el secret configu
 
 | # | Condición | Estado tras este pase |
 |---|---|---|
-| 1 | Tres flujos de dinero sin verificar en navegador | **En curso, con dueño claro.** El camino está cableado y es un gate duro; **falta que el humano cree `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`**. Se cierra cuando `e2e-real.yml` pase en verde con clave real. |
+| 1 | Tres flujos de dinero sin verificar en navegador | **En curso, con dueño claro.** El camino está cableado y es un gate duro; **falta que el humano cree `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`**. Se cierra cuando `e2e-real.yml` pase en verde con clave real. | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 | 2 | Disparador duro de R1 / S49-M1 | **Deja de aplicar a estas dos.** Backend las **corrigió** en vez de aceptarlas (y encontró que S49-M1 eran **cinco** rutas, no cuatro: faltaba la salida idempotente de `pay-spei`). **Pendiente de que `seguridad` confirme la re-verificación**; hasta entonces no lo doy por cerrado yo. La propuesta de §30.5 **no se tira**: sigue siendo el mecanismo para deuda aceptada futura, pero **hoy no hay nada que disparar**. |
 | 3 | `@nestjs/core` GHSA-36xv-jgw5-4q75 | Sin cambio: deuda **no bloqueante**, registrada y aceptada. Dueño **backend**. |
 
@@ -5037,7 +5037,7 @@ navegador.**
 
 | # | Hueco | Qué bloquea | Dueño | Estado |
 |---|---|---|---|---|
-| 1 | **Falta `STRIPE_TEST_SECRET_KEY`** (+ `STRIPE_TEST_PUBLISHABLE_KEY`) en los secrets de GitHub | **3 smokes**: `checkout`, `guest-checkout`, `shipments`. Sin clave, el backend cae a `sk_test_dummy`, `paymentIntents.create` falla y devuelve **503 `PAYMENT_PROVIDER_UNAVAILABLE`** (degrada money-safe: libera la reserva). | **HUMANO** — solo él puede crear la clave | **ABIERTO.** §31.1 sigue siendo la instrucción exacta. La fontanería ya existe (`docker-compose.staging.yml:171-173,206`) y el preflight de `e2e-real.yml` ya es gate duro en la ruta de promoción (§31.4). **No falta cableado: falta la clave.** |
+| 1 | **Falta `STRIPE_TEST_SECRET_KEY`** (+ `STRIPE_TEST_PUBLISHABLE_KEY`) en los secrets de GitHub | **3 smokes**: `checkout`, `guest-checkout`, `shipments`. Sin clave, el backend cae a `sk_test_dummy`, `paymentIntents.create` falla y devuelve **503 `PAYMENT_PROVIDER_UNAVAILABLE`** (degrada money-safe: libera la reserva). | **HUMANO** — solo él puede crear la clave | **ABIERTO.** §31.1 sigue siendo la instrucción exacta. La fontanería ya existe (`docker-compose.staging.yml:171-173,206`) y el preflight de `e2e-real.yml` ya es gate duro en la ruta de promoción (§31.4). **No falta cableado: falta la clave.** | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 | 2 | **`scripts/stack-native.sh` no levanta MinIO/R2** | **1 smoke**: la **subida del INE del buylist** (sobre el tope AML) — el flujo `uploads` no se ejercita por la ruta nativa. | **devops** (asumido, no bloqueante) | **ABIERTO y ACEPTADO.** Documentado desde §30 (línea «Sin MinIO/R2») y avisado por el propio script al terminar. Alternativas: ruta Docker (`docker-compose.staging.yml`) o levantar MinIO aparte. |
 
 **Nota honesta sobre el hueco 1, que ya estaba en §31.3 y no ha cambiado:** aunque la clave llegue, esos
@@ -6142,7 +6142,7 @@ resuelto.
 | Acción | Efecto | ¿Bloquea algo hoy? |
 |---|---|---|
 | **Nada, si la decisión sigue siendo no configurar Stripe** | El nightly queda **verde parcial declarado**: corre los flujos no monetarios y dice en el resumen que saltó 3 y por qué | No. Es el estado esperado y estable. |
-| Crear los secrets `STRIPE_TEST_SECRET_KEY` (`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) en *Settings > Secrets and variables > Actions* (§31.1) | Los tres smokes de dinero **se activan solos** y vuelven a ser obligatorios. Sin tocar código ni quitar banderas. | Es lo único que separa el gate de dinero de existir |
+| Crear los secrets `STRIPE_TEST_SECRET_KEY` (`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) en *Settings > Secrets and variables > Actions* (§31.1) | Los tres smokes de dinero **se activan solos** y vuelven a ser obligatorios. Sin tocar código ni quitar banderas. | Es lo único que separa el gate de dinero de existir | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 | **Decidir con el coordinador qué hacer con §33.4** | Hoy ningún deploy real pasa por gate alguno | **Sí — es el hueco grande de este pase**, y no lo cierra devops en solitario |
 
 **Lo que sigue sin ser cierto, y no lo declaro cerrado:** los tres flujos de dinero **siguen sin
@@ -6724,7 +6724,7 @@ Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es jus
 |---|---|---|
 | **SAST en cada PR** | `security-sast.yml` (semgrep · gitleaks · npm-audit · trivy-fs · trivy-image → `sast-ok`) | ✅ **Cableado y corriendo** en `push` y `pull_request`. |
 | **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales, **deploy-blocking**) + `frontend-e2e` (mock, **informativo** por decisión §24) | ✅ **Cableado.** El mock es soft-gate **a propósito**; el gate real de UI es `e2e-real.yml`. |
-| **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). |
+| **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 | **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-staging` (ZAP baseline) con `promote-production-*` condicionado a `dast-staging.outputs.critical == 'false'` | ⚠️ **Cableado y correctamente condicionado… en un camino que no se usa.** `deploy.yml` es **`workflow_dispatch` only**; los deploys reales van por push-to-deploy de Vercel/Railway, que **no pasan por este DAST**. Es el hueco estructural de §32.11, ahora con nombre. |
 | **DAST programado semanal** | `security-dast.yml` (lunes 06:00 UTC) | ✅ **CORREGIDO en P-77 (§44).** Antes: no-op silencioso en `security-scheduled.yml` — el preflight comprobaba `STAGING_BASE_URL`, faltaba, emitía un `::notice::` y se saltaba todo **saliendo en verde**; el DAST no se ejecutó nunca. Ahora levanta su propio stack efímero y **bloquea**, con autoprueba del candado. |
 | **Que los gates sean `required checks`** | Protección de rama en GitHub | ❓ **No verificable desde aquí** (no hay `gh` en este entorno). `ci-ok`, `sast-ok` y `e2e-ok` están **diseñados** como required checks, pero si nadie los marcó como tales en *Settings → Branches*, **no bloquean nada**. Comprobación del humano: `gh api repos/<org>/<repo>/branches/main/protection`. |
@@ -6883,7 +6883,7 @@ cerrado por construcción y comentado en el propio script.
 
 | Qué | Por qué | Síntoma esperado |
 |---|---|---|
-| Cobrar de verdad (checkout, guest-checkout, envíos) | **Sin egress a `api.stripe.com`** (CONNECT → 403) y sin `STRIPE_TEST_SECRET_KEY`. No se inventó ninguna clave. | 503 `PAYMENT_PROVIDER_UNAVAILABLE`, se libera la reserva (**money-safe**) |
+| Cobrar de verdad (checkout, guest-checkout, envíos) | **Sin egress a `api.stripe.com`** (CONNECT → 403) y sin `STRIPE_TEST_SECRET_KEY`. No se inventó ninguna clave. | 503 `PAYMENT_PROVIDER_UNAVAILABLE`, se libera la reserva (**money-safe**) | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 | Subir el INE del buylist (sobre el tope AML) | **No hay MinIO/R2** nativo; `uploads` no lo cubre esta ruta | el spec de infra lo **salta** con aviso |
 | Correo real (Resend) | Sin `RESEND_API_KEY` ⇒ `NoopMailAdapter` (degradación de LOCAL_ENVS) | no sale correo; el flujo no se bloquea |
 | Precios frescos de proveedor | Sin egress a `pokemontcg.io` / `tcgcsv.com` (403) | precios **STALE**; no borra, no escribe $0 |
@@ -7297,7 +7297,7 @@ clave, porque ponerla no habría cambiado nada.
      falso verde (§33 es exactamente esa historia).
    - **salida de red a `api.stripe.com`** — porque una clave buena sin egress muere igual en el modal.
 3. **`up --gate` pasó de avisar a fallar.** Antes, el final de `up` imprimía tres `warn` («SIN MinIO…»,
-   «falta STRIPE_TEST_SECRET_KEY…») y **salía 0**. Un aviso que no cambia el código de salida no gatea
+   «falta STRIPE_TEST_SECRET_KEY…») y **salía 0**. Un aviso que no cambia el código de salida no gatea **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
    nada: lo lee quien ya lo sabía. Ahora `up --gate` termina en **exit 1** con el veredicto, y **deja el
    stack arriba** — el rojo dice «esta corrida no puede ejercitar X», no «no tienes stack». `up` a secas
    (modo de trabajo) sigue saliendo 0 y solo **informa**.
@@ -9358,7 +9358,7 @@ con un `LEEME-EL-DINERO-NO-SE-PROBO.md` dentro que dice qué **no** se ejecutó,
 aprobado**, y cómo desaparece. El **nombre es el mensaje**: aparece en la portada del run, junto al
 reporte de Playwright, sin abrir un solo log. No se puede leer como «pasó».
 
-**⚠️ Esto NO sustituye a la clave.** Mientras no existan los secrets `STRIPE_TEST_SECRET_KEY`
+**⚠️ Esto NO sustituye a la clave.** Mientras no existan los secrets `STRIPE_TEST_SECRET_KEY` **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 (`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`), los tres flujos siguen sin medir. Es
 una **petición al dueño** (§31.1), no un problema de infraestructura, y ninguna cantidad de tooling
 la resuelve.
@@ -9667,7 +9667,7 @@ Y para quien necesita un **código de salida** y no un matiz: **`verify:head --g
 
 ### 48.4 El hueco de dinero: lo que se hizo para que sea más difícil de ignorar
 
-**No es mío de resolver** —hacen falta `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`, y solo
+**No es mío de resolver** —hacen falta `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`, y solo **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 el dueño del repo puede crearlas (§31.1)—, pero sí lo es que **el hueco no se vuelva invisible por
 costumbre**. Hasta hoy había dos señales, y las dos esperan a que alguien entre: el `::warning` + la
 tabla del step summary de `e2e-real.yml`, y el artefacto `SIN-MEDIR-comprar-invitado-retirar` (§46.4).
@@ -9931,3 +9931,259 @@ un **major** y es decisión suya (ficha hasta **2026-10-10**).
 | **`NODE_ENV` real del deploy de Railway** (Root Directory, builder, Variables) | **humano (dueño)** | ⏳ **ABIERTO** — §49.1. No cambia el arreglo; decide si la tienda estuvo expuesta |
 | `P-DEP-1`: `js-yaml` (lockfile) y `vitest` 2→5 (major) | **frontend** | ⏳ fichado hasta 2026-09-24 / 2026-10-10; el trinquete se pone rojo solo al vencer |
 | Los tres flujos de dinero a través de Stripe, medidos | **humano (dueño)** | ⏳ sigue abierto (quinto pase; `money-gap-nag.yml` hace ruido semanal) |
+
+---
+
+## 50. `S-88-1` — la cirugía había ido a UNA variable, no a la clase. Y el gate de dinero que mi propio fail-closed frenó (2026-09-10, hallazgo ALTO de seguridad, bloqueante del release)
+
+### 50.0 · El hallazgo, con sus mediciones
+
+`P-WH-1` se cerró para `STRIPE_WEBHOOK_SECRET` (§49). Seguridad midió lo que quedaba
+**tres líneas más arriba, en el mismo fichero**:
+
+| `docker-compose.staging.yml` | variable |
+|---|---|
+| `:166` / `:167` | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` |
+| `:160` / `:161` | `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` |
+| `:204` | `SEED_ADMIN_PASSWORD` (`StagingAdmin123!`) |
+| `:42` / `:86` | Postgres, MinIO |
+
+Y midió que **el repositorio es público** (`"private": false`, HTTP 200 sin credenciales).
+Con el secreto JWT publicado firmó un `super_admin` ⇒ las tres rutas `@MoneyOut`. Con la
+clave PII publicada descifró una CLABE sintética **usando solo el literal del repo**.
+
+Su frase es el diagnóstico entero, y es la que decidió el diseño de todo lo de abajo:
+
+> **la cirugía fue a una variable, no a la clase.**
+
+**No era explotable hoy** (no hay staging levantado) y **no hubo ventana con dinero real**
+(el dueño confirmó que la tienda siempre estuvo en modo prueba). Lo que sí es cierto, y es
+lo que hay que arreglar: **el literal gana por defecto, y gana justo en el error del
+operador** — el día que exista un staging, el valor público es el que se usa cuando alguien
+creyó configurarlo y no lo hizo.
+
+### 50.1 · Por qué el arreglo NO son «siete `:?`»
+
+Porque el **octavo secreto que alguien añada mañana nace con el defecto**. Poner `:?` siete
+veces es hacer la misma cirugía siete veces: sigue sin ir a la clase. La clase se cierra con
+cuatro piezas que se sostienen entre sí, y **ninguna de ellas contiene una lista de
+variables**:
+
+| Pieza | Fichero | Qué impide, y cómo lo hace sin listas |
+|---|---|---|
+| **1. Los compose ya no pueden llevar valores** | `docker-compose*.yml` | Todo secreto es `${VAR:?mensaje}`. Desaparece el sitio donde escribir el literal. |
+| **2. Un resolutor que satisface esa exigencia** | `scripts/secrets-preflight.sh` | **Deriva el catálogo del propio compose** (los `${VAR:?}`), no lo lleva escrito. En entorno DESECHABLE genera aleatorios; en entorno REAL exige y **aborta** si falta. El secreto nuevo de mañana queda cubierto con solo nacer `:?`. |
+| **3. El lado del VALOR** | `security/secretos-publicados.sha256` + `scripts/gen-published-secrets-manifest.sh` | El `sha256` de **cada literal que el repo publica**. Los preflights rechazan por **identidad**, no por heurística. Cubre lo que aún no existe (se regenera) y lo que no es mío (`backend/test/`). |
+| **4. El candado + su canario** | `scripts/check-secret-defaults.sh` · `-canary.sh` | El candado **no conoce ninguna variable**: conoce una FORMA DE NOMBRE y una FORMA DE ASIGNACIÓN prohibida. El canario lo demuestra **con secretos inventados que este repo nunca ha tenido**. |
+
+La regla, en una frase: **un valor que sirva como secreto no puede estar escrito en un
+fichero versionado de un repositorio público.** Formas admitidas: `${VAR:?}` (obligatoria),
+`${VAR:-}` (vacío declarado = incapacitación), y en `.env.example` un placeholder
+auto-delator (`CHANGE_ME…`).
+
+### 50.2 · Lo que el candado encontró al escribirlo: 24 incumplimientos, no 7
+
+La primera corrida sobre el árbol dio **24** en 8 ficheros. Los 7 del informe eran una
+muestra:
+
+| Fichero | Cuántos | Qué eran |
+|---|---|---|
+| `docker-compose.staging.yml` | 10 vars (13 usos) | los 7 del informe + operador, `STRIPE_TEST_SECRET_KEY`, `RESEND_API_KEY` |
+| `docker-compose.yml` (local) | 3 | Postgres, MinIO, S3 |
+| `.github/workflows/ci.yml` | 5 | `tcg_ci`, dos JWT, `sk_test_ci_dummy`, `ci_dummy` |
+| `.github/workflows/e2e.yml` | 6 | Postgres, MinIO, dos JWT, S3, `\|\| 'sk_test_e2e_dummy'` |
+| `e2e-real.yml` · `security-dast.yml` | 2 | `\|\| 'sk_test_e2e_dummy'` |
+| `scripts/stack-native.sh` | 3 | dos JWT + S3 |
+| `scripts/price-provider-parity.sh` | 1 | `StagingAdmin123!` |
+| `.env.example` | 7 | valores usables que se copian a `.env` tal cual |
+
+Y **dos más** que una regla basada en NOMBRES no puede ver nunca, encontradas al añadir una
+regla por FORMA DEL VALOR: `DATABASE_URL=postgresql://tcg:tcg_local_dev_password@…` en
+`.env.example` y en `scripts/purge-synthetic-poc-data.sh` (un script que **borra datos** y
+adivinaba a qué base apuntar).
+
+### 50.3 · El punto ciego del preflight del webhook (lado del VALOR)
+
+Seguridad midió que esto **PASABA**:
+
+```
+STRIPE_SECRET_KEY=sk_live_…   +   STRIPE_WEBHOOK_SECRET=whsec_e2e_test_secret
+```
+
+`whsec_e2e_test_secret` no contiene ninguna palabra de `PATRONES_PUBLICOS` (`dummy`,
+`change_me`…) — pero estaba **commiteado** en `backend/test/integration/setup.ts:32`. Una
+lista de palabras **adivina**; el hecho que importa es comprobable: *¿está ese valor escrito
+en este repositorio?* Ahora `es_publico()` consulta primero el manifiesto (identidad) y solo
+después la lista. **Medido: rc=1, aborta.**
+
+**Una vez publicado, publicado para siempre.** El manifiesto se deriva del árbol; si backend
+borra su literal, el valor desaparecería del manifiesto pero **no del historial de git ni de
+los forks**. Por eso `security/secretos-retirados.sha256` es **append-only** y el manifiesto
+es la unión de ambos. Verificado: `whsec_e2e_test_secret` sigue rechazándose **después** de
+que backend lo quitara (lo quitó en paralelo, S-88-4).
+
+Y por eso el `--check` del manifiesto es **de una sola dirección**: falla si al árbol le
+sobra un literal que el manifiesto no cubre (el agujero), y **no** falla si al manifiesto le
+sobran hashes (limpiar código no puede poner el CI en rojo — si lo pusiera, la gente dejaría
+de limpiar).
+
+### 50.4 · El gate de dinero que mi propio fail-closed frenó — y lo que eso enseñó
+
+`e2e-real.yml` **run `34498068945`** falló en 13 s. Medido en la API de Actions, **no
+supuesto**: falló en el **paso 3, «Resolver STRIPE_TEST_WEBHOOK_SECRET»**; el paso 9
+(«Levantar stack real») quedó **`skipped`**. El error de interpolación de compose que se vio
+venía de los pasos 22/23 (`Logs del stack…` / `Apagar stack`, que corren con `always()`).
+
+O sea: **el resolver SÍ estaba cableado** y el fallo fue del preflight abortando. Causa real:
+hay clave `sk_test_` REAL en los secrets y **no existe el secret `STRIPE_TEST_WEBHOOK_SECRET`**.
+
+Eso obligó a mirar qué defendía la regla «clave real ⇒ secreto de webhook propio». Defiende
+**dos cosas distintas**: (a) que nadie firme con un valor público —seguridad—, y (b) que el
+operador no crea que los webhooks funcionan cuando no —correctitud. En el **stack efímero de
+CI**, (a) se satisface **mejor** con un secreto generado (irrepetible) que con uno real
+compartido, y (b) no aplica: ese stack vive en el runner, **sin endpoint público, Stripe no
+puede entregarle nada**. Ahí —y solo ahí— se genera uno efímero y se avisa a gritos de que
+**ningún webhook entrante se aceptará en esa corrida**.
+
+La excepción **no se concede por accidente**: exige `STRIPE_WEBHOOK_UNREACHABLE=1` explícito
+**y** runner de CI (o `SECRETS_ENV=desechable`) **y** ausencia de marcas de plataforma.
+Medido en las tres direcciones: sin la marca → `rc=1`; con la marca en CI → resuelve; con la
+marca **dentro de Railway** → `rc=1` igualmente.
+
+**Dos defectos más, del mismo día y de la misma familia:**
+
+1. **`echo "VAR=$(preflight resolve)" >> "$GITHUB_ENV"` traga el abort.** Medido: el
+   `echo` sale **0** aunque la sustitución aborte, y exporta un valor **vacío**; el rojo
+   aparece 8 pasos más tarde, en el `compose`, apuntando al sitio equivocado. Es la ausencia
+   degradando en silencio, otra vez. Sustituido en los 4 workflows por capturar-y-comprobar.
+2. **Consumidores del compose sin resolver.** Hacer fail-closed el compose obliga a que
+   **cada** consumidor resuelva antes. Enumerados —no descubiertos a base de runs rojos—:
+
+   | Consumidor | Estado |
+   |---|---|
+   | `.github/workflows/e2e-real.yml` | ✅ resolvía; ampliado a la clase |
+   | `.github/workflows/security-dast.yml` | ✅ ampliado a la clase |
+   | `scripts/dev-up.sh` | ✅ cableado en este pase |
+   | `security/scripts/dast-ephemeral.sh` (**ruta local del DAST**) | ❌ **no resolvía** — cerrado en este pase |
+   | `security/scripts/dast-selftest.sh` | n/a: su compose no exige secretos |
+   | `scripts/seed-synthetic.sh`, `scripts/e2e-capability-gate.sh` | n/a: solo imprimen instrucciones |
+
+   Y —lo que importa— **es ahora un invariante comprobado**, bloque (G) del candado: *quien
+   levanta un compose con `${VAR:?}`, resuelve antes*. Un consumidor nuevo que no lo haga
+   nace rojo.
+
+### 50.5 · El canario: la única prueba de que esto es una clase y no siete líneas
+
+`scripts/check-secret-defaults-canary.sh`. Su regla propia:
+
+> ★ **Todas las mutaciones usan nombres de secreto que NO EXISTEN en este repo.** Ni uno de
+> los ocho conocidos. El canario **comprueba esa precondición** (`grep -r`) antes de empezar:
+> si alguno apareciera en el árbol, volvería a ser el canario de una variable.
+
+`HSM_UNSEAL_KEY`, `VAULT_ROOT_TOKEN`, `SENDGRID_API_KEY`, `PAYOUT_SIGNING_SECRET`,
+`KYC_PROVIDER_PASSWORD`, `LEDGER_HMAC`, `TWILIO_AUTH_TOKEN`, `DB_REPLICA_PASSWORD`.
+
+**32/32, 5/5 tiradas.** Incluye el caso que se nos escapó (bloque G) y tres rojos que el
+propio canario descubrió mientras se escribía y que valen más que los otros veintinueve:
+
+- **Amputar `FORMA_SECRETO`** dejaba el candado verde con el árbol lleno de literales. Ahora
+  el candado **se muerde a sí mismo** primero (bloque 0): 8 sondas que tiene que reconocer y
+  5 no-secretos que tiene que descartar.
+- **Un COMENTARIO con `:?`** hacía creer al bloque (G) que el compose seguía siendo exigente
+  cuando ya no lo era ⇒ bloque sin blanco, verde silencioso.
+- **El canario de `P-WH-1` tenía una mutación NO-OP**: anclaba en el título de un paso que yo
+  mismo había renombrado. Una mutación que no muta no prueba nada — y encima se lee como rojo.
+  (Por eso ahora comprueba que la sustitución ocurrió.) `31/31 → 5/5` tras arreglarla.
+
+### 50.6 · Cómo se levanta cada cosa ahora
+
+```bash
+# Local (una orden, igual que antes; los secretos se generan solos)
+./scripts/dev-up.sh                       # env-file + preflight del webhook + up
+
+# Staging a mano
+./scripts/secrets-preflight.sh env-file .env
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+
+# Ver qué exige el repo / si un valor está publicado
+./scripts/secrets-preflight.sh catalogo
+./scripts/secrets-preflight.sh publicado "el_valor_que_dudas"
+
+# Los candados (ambos en `ci.yml`, job `stripe-webhook-failclosed`)
+./scripts/check-secret-defaults.sh          # la clase
+./scripts/check-secret-defaults-canary.sh   # …y que muerde
+```
+
+**En la imagen de producción** (`Dockerfile.backend`), el `CMD` corre **los dos** preflights
+antes de migrar y arrancar. Con una precaución que aquí ya costó cara una vez: dentro de la
+imagen **no hay ficheros de compose**, así que `assert` no tendría blanco y **saldría 0 sin
+mirar nada** (§44). Por eso el catálogo viaja materializado en
+`security/secretos-exigidos.txt` —generado desde los mismos `${VAR:?}`, verificado al día por
+el candado— y `assert` **falla ruidoso si el catálogo sale vacío**.
+
+### 50.7 · Rollback
+
+| Si… | Qué hacer | Coste |
+|---|---|---|
+| Un entorno no arranca por un `:?` | `./scripts/secrets-preflight.sh env-file .env` (desechable) o cargar el secreto en el gestor (real). El mensaje del `:?` lo dice literalmente. | segundos |
+| El candado bloquea un PR legítimo | **No se desactiva.** Si el valor es un placeholder, que se delate (`CHANGE_ME…`); si es un secreto, que salga del repo. | minutos |
+| Un secreto propio coincide con uno publicado | Es correcto que aborte: rótalo. `openssl rand -hex 48` / `openssl rand -base64 32`. | minutos |
+| Hay que revertir la clase entera | `git revert` de este commit. **Vuelve el hallazgo ALTO**: siete secretos publicados y el punto ciego del preflight. | — |
+
+### 50.8 · Lo que NO está medido aquí
+
+| Afirmación | Estado |
+|---|---|
+| Que los compose renderizan con secretos resueltos y **fallan sin ellos** | ✅ medido: `docker compose config` (cliente, sin demonio) — falla con el mensaje del `:?`; `rc=0` con el env-file generado |
+| Que el `CMD` de la imagen corre los dos preflights | ⏳ **NO MEDIDO aquí**: no hay demonio Docker en este entorno. Lo mide la primera corrida de CI que construya la imagen |
+| Que `e2e-real.yml` pasa el paso 3 con la excepción nueva | ⏳ **NO MEDIDO**: requiere una corrida en Actions. La lógica del preflight sí está medida en las 3 direcciones |
+| Que las variables existen en Railway/Vercel | ⏳ no es medible desde el repo (§49.1). Lo mide el preflight al arrancar |
+
+---
+
+## 51. CORRECCIÓN — «las claves de prueba de Stripe no están configuradas» era FALSO, y lo medí en el sitio equivocado (2026-09-10)
+
+**Esta sección corrige afirmaciones mías repartidas por §31, §32.7, §39 y §49 de este mismo
+fichero.** Se escribe aparte y con fecha, en vez de reescribir la historia, porque es
+exactamente la clase de nota que manda a alguien a rehacer trabajo ya hecho (O-5).
+
+### Lo que yo afirmé
+Que faltaban los secrets `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`, que por eso
+los tres smokes de dinero se saltaban, y que **el hueco era del humano**.
+
+### Cómo lo medí, y por qué la medición no valía
+Corriendo `scripts/stripe-test-key-preflight.sh` **en la máquina local**. Ahí los secrets de
+GitHub Actions **no existen por definición**: el script no podía ver otra cosa que «ausente».
+Medí en el sitio donde la respuesta estaba garantizada de antemano. No era un dato: era el
+eco de mi propia suposición.
+
+### Lo que está medido de verdad
+| Hecho | Medición |
+|---|---|
+| Las dos claves de prueba **están** en los secrets de GitHub | Llevan **tres días** puestas |
+| El nocturno corrió los flujos críticos en modo **REAL** | run **`34477885121`**, con `MONEY_SKIPPED` **vacío** |
+| Las claves se leen bien en el job | Aparecen enmascaradas (`***`) en el entorno del job (run `34498068945`) |
+| El dueño **nunca** transaccionó dinero real | La tienda siempre estuvo en modo prueba ⇒ **no hubo ventana de exposición con dinero real** |
+
+### Lo que sí falta (y esto sí está medido)
+El secret **`STRIPE_TEST_WEBHOOK_SECRET`** — que es distinto de las dos claves — **no existe**.
+Medición: `e2e-real.yml` run `34498068945`, **paso 3** en `failure` (el preflight del webhook,
+con una clave `sk_test_` real presente). **Ya no bloquea el gate de dinero**: §50.4 explica por
+qué un secreto generado es, en un stack efímero sin endpoint público, estrictamente más seguro
+que uno compartido, y el preflight lo genera avisando. Sigue siendo cierto que **sin ese secret
+no se pueden probar webhooks REALES de Stripe en CI** — pero eso no es lo mismo que «el gate no
+puede correr».
+
+### Peticiones al humano que se RETIRAN
+- ~~«Crea los secrets `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`»~~ — **hecho hace
+  tres días**. Cualquier lista de pendientes que la repita está desfasada.
+- ~~«Los tres flujos de dinero siguen sin medirse por falta de clave»~~ — **el nocturno
+  `34477885121` los corrió en REAL**. Lo que quede abierto de ese punto ya no es «falta la
+  clave».
+
+### La petición que queda (opcional, no bloqueante)
+Crear `STRIPE_TEST_WEBHOOK_SECRET` en *Settings > Secrets and variables > Actions* **solo si**
+se quieren ejercitar webhooks REALES de Stripe contra el stack de CI. Sin él, CI genera uno
+efímero y los webhooks entrantes se rechazan por firma — que es el comportamiento correcto para
+un stack que Stripe no puede alcanzar.
+

@@ -106,7 +106,11 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: tcg
-          POSTGRES_PASSWORD: tcg_e2e
+          # S-88-1 (antes `tcg_e2e`): el `env:` de un service container se evalúa
+          # ANTES del primer paso, así que no puede venir de `$GITHUB_ENV`. Una
+          # expresión de workflow sí, y da un valor distinto por corrida que no
+          # está escrito en ningún fichero de este repo público.
+          POSTGRES_PASSWORD: e2e_${{ github.run_id }}_${{ github.run_attempt }}
           POSTGRES_DB: tcg_e2e
         ports: ["5432:5432"]
         options: >-
@@ -131,7 +135,8 @@ jobs:
         image: bitnamilegacy/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin_e2e
+          # S-88-1 (antes `minioadmin_e2e`). Mismo motivo que Postgres arriba.
+          MINIO_ROOT_PASSWORD: e2e_${{ github.run_id }}_${{ github.run_attempt }}
           MINIO_DEFAULT_BUCKETS: tcg-photos:download
         ports: ["9000:9000", "9001:9001"]
         # SIN --health-cmd a propósito: la imagen (minideb) NO trae `curl`, así que
@@ -142,12 +147,15 @@ jobs:
         # Postgres/Redis sí traen sus binarios (pg_isready/redis-cli) y conservan
         # su healthcheck.
     env:
-      DATABASE_URL: postgresql://tcg:tcg_e2e@localhost:5432/tcg_e2e?schema=public
+      DATABASE_URL: postgresql://tcg:e2e_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_e2e?schema=public
       REDIS_URL: redis://localhost:6379
-      JWT_ACCESS_SECRET: e2e_access_secret_dummy
-      JWT_REFRESH_SECRET: e2e_refresh_secret_dummy
-      # Stripe en modo TEST para E2E (claves de prueba, nunca live).
-      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
+      # S-88-1 — aquí había dos literales JWT y un respaldo `|| 'sk_test_e2e_dummy'`.
+      # El respaldo tiene el defecto justo al revés de como parece: el valor público
+      # gana **cuando el secret NO está cargado**, o sea exactamente cuando alguien
+      # creyó configurarlo y no lo hizo. Ahora los tres los resuelve
+      # `scripts/secrets-preflight.sh` en el paso «Resolver secretos» (abajo):
+      # respeta el valor del secret store si existe, y si no genera uno aleatorio
+      # por corrida en vez de heredar el del repo.
       STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       # RESIDUAL DE P-WH-1 — el literal público desapareció de aquí.
       # Decía `${{ secrets.X || 'whsec_e2e_dummy' }}`. Esa forma tiene el defecto
@@ -162,7 +170,7 @@ jobs:
       S3_REGION: us-east-1
       S3_BUCKET: tcg-photos
       S3_ACCESS_KEY_ID: minioadmin
-      S3_SECRET_ACCESS_KEY: minioadmin_e2e
+      S3_SECRET_ACCESS_KEY: e2e_${{ github.run_id }}_${{ github.run_attempt }}
       S3_PUBLIC_BASE_URL: http://localhost:9000/tcg-photos
       S3_FORCE_PATH_STYLE: "true"
       DEFAULT_LOCALE: es
@@ -207,13 +215,25 @@ jobs:
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
       # contenedor (`Dockerfile.backend`) y en el arnés nativo.
       # -----------------------------------------------------------------------
-      - name: Resolver STRIPE_WEBHOOK_SECRET sin literales públicos
+      - name: Resolver secretos sin literales públicos (P-WH-1 + S-88-1)
         env:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # Si el secret store los trae, se respetan; si no, se generan aleatorios.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
         run: |
           ./scripts/webhook-secret-preflight.sh assert
-          echo "STRIPE_WEBHOOK_SECRET=$(./scripts/webhook-secret-preflight.sh resolve)" >> "$GITHUB_ENV"
+          # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que
+          # `echo` sale 0 aunque la sustitución aborte, y entonces se exporta un
+          # valor VACÍO y el rojo aparece 8 pasos más tarde, en el `compose`, con un
+          # mensaje que apunta al sitio equivocado. Es el mismo patrón que
+          # perseguimos: la ausencia degradaba en silencio. Aquí se captura y se
+          # comprueba, así que el fallo sale donde se produce.
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          ./scripts/secrets-preflight.sh github-env \
+            JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY >> "$GITHUB_ENV"
       - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
         run: ./scripts/check-e2e-provider-incapacitation.sh
         working-directory: ${{ github.workspace }}

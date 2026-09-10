@@ -87,6 +87,30 @@ slug() { printf '%s' "$1" | sed -e 's#^https\?://##' -e 's#[^A-Za-z0-9]#-#g' -e 
 # ---------------------------------------------------------------------------
 cmd_up() {
   log "Levantando stack efímero (${COMPOSE_FILE}, perfil apps)"
+
+  # --- RESOLVER ANTES DE LEVANTAR (S-88-1) -----------------------------------
+  # `docker-compose.staging.yml` ya no trae literales de respaldo: sus secretos son
+  # `${VAR:?}`. Un consumidor que no resuelva antes muere en la interpolación, sin
+  # haber levantado nada. Este script es la ruta LOCAL del DAST (la de CI resuelve
+  # en su propio paso), así que necesita su propia resolución.
+  # Se marca el stack como inalcanzable: vive en esta máquina, sin endpoint público.
+  # Sin esta llamada, `./security/scripts/dast-ephemeral.sh up` fallaba con
+  # «required variable STAGING_… is missing a value» — enumerado y cerrado, no
+  # descubierto a base de runs rojos.
+  export STRIPE_WEBHOOK_UNREACHABLE=1
+  log "Resolviendo secretos del stack (ninguno puede venir escrito en el repo)"
+  ./scripts/webhook-secret-preflight.sh assert || { err "preflight del webhook"; return 1; }
+  WH="$(./scripts/webhook-secret-preflight.sh resolve)" || { err "preflight del webhook"; return 1; }
+  [ -n "${WH}" ] || { err "el preflight del webhook no devolvió valor"; return 1; }
+  export STRIPE_TEST_WEBHOOK_SECRET="${WH}"
+  export STRIPE_WEBHOOK_SECRET="${WH}"
+  # Y el resto de la clase: el fichero es efímero y va al scratch del script.
+  SECRETOS_TMP="$(mktemp)"
+  ./scripts/secrets-preflight.sh env-file "${SECRETOS_TMP}" >/dev/null || {
+    err "no pude resolver los secretos del stack"; rm -f "${SECRETOS_TMP}"; return 1; }
+  set -a; . "${SECRETOS_TMP}"; set +a
+  rm -f "${SECRETOS_TMP}"
+
   STACK_UP_EPOCH="$(date +%s)"
   export STACK_UP_EPOCH
   echo "STACK_UP_EPOCH=${STACK_UP_EPOCH}" >> "${GITHUB_ENV:-/dev/null}" 2>/dev/null || true

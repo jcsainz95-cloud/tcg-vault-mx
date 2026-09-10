@@ -101,6 +101,16 @@ COPY --from=build --chown=nestjs:nodejs /app/tsconfig.json ./tsconfig.json
 # observable es el arranque del proceso, y este CMD es el arranque de TODOS los
 # entornos que usan esta imagen — compose local, staging y Railway.
 COPY --chown=nestjs:nodejs scripts/webhook-secret-preflight.sh ./scripts/webhook-secret-preflight.sh
+# S-88-1 — la misma comprobación, para la CLASE entera de secretos y no solo para
+# el del webhook. `secrets-preflight.sh assert` mira TODOS los secretos que los
+# compose exigen y aborta si alguno trae un valor que este repositorio publica.
+# El manifiesto viaja con él: es lo que convierte «¿parece un dummy?» (heurística
+# que dejaba pasar `whsec_e2e_test_secret`) en «¿está escrito en el repo?» (hecho).
+COPY --chown=nestjs:nodejs scripts/secrets-preflight.sh ./scripts/secrets-preflight.sh
+COPY --chown=nestjs:nodejs security/secretos-publicados.sha256 ./security/secretos-publicados.sha256
+# Y el CATÁLOGO: dentro de la imagen no hay compose, así que sin este fichero el
+# `assert` del CMD no tendría nada que mirar y saldría 0 (candado sin blanco, §44).
+COPY --chown=nestjs:nodejs security/secretos-exigidos.txt ./security/secretos-exigidos.txt
 # GUARD del CMD: sin npx, el arranque depende de esta ruta exacta del CLI de Prisma.
 # Si un bump de `prisma` la moviera, mejor fallar el BUILD aquí que crash-loopear en
 # Railway al arrancar. (En prisma 5.x: bin.prisma = "build/index.js".)
@@ -119,4 +129,4 @@ EXPOSE 3001
 # deliberadamente ruidoso: el modo de fallo alternativo es servir una API que acepta
 # webhooks forjados, y ése no avisa de nada. Rollback: redeploy del anterior mientras
 # se pone el `whsec_…` real (DEVOPS_NOTES §49.3).
-CMD ["sh", "-c", "sh ./scripts/webhook-secret-preflight.sh assert && node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "sh ./scripts/webhook-secret-preflight.sh assert && sh ./scripts/secrets-preflight.sh assert && node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]

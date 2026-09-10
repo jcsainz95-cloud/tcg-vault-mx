@@ -18,30 +18,32 @@ if [[ ! -f .env ]]; then
   echo "→ No existe .env; creándolo desde .env.example."
   echo "  RECUERDA rellenar las claves reales (Stripe, APIs de precio) antes de usarlas."
   cp .env.example .env
-
-  # --- P-WH-1: el secreto del webhook NO puede ser un valor que esté en el repo -
-  # `.env.example` trae `whsec_CHANGE_ME`. Es no vacío (bien: la firma se verifica
-  # en vez de degradar a cero), pero es un literal PÚBLICO: cualquiera que lea el
-  # repo puede firmar un `payment_intent.succeeded` válido contra este stack. El
-  # pentester hizo exactamente eso —con la clave vacía— y liquidó un pedido con la
-  # carta movida a la bóveda del comprador, sin cobro (ALTA, LIVE-DB).
-  # Aquí se sustituye por uno ALEATORIO de esta máquina: el stack levanta sin
-  # Stripe y todo webhook entrante se rechaza porque nadie conoce la clave.
-  # Si vas a probar webhooks de verdad, pon tu `whsec_…` de `stripe listen` en .env.
-  if grep -q '^STRIPE_WEBHOOK_SECRET=whsec_CHANGE_ME$' .env; then
-    if command -v openssl >/dev/null 2>&1; then
-      NUEVO="whsec_local_$(openssl rand -hex 24)"
-    else
-      NUEVO="whsec_local_$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-    fi
-    # `sed -i` con sufijo vacío no es portable entre GNU/BSD: se hace con fichero temporal.
-    sed "s|^STRIPE_WEBHOOK_SECRET=whsec_CHANGE_ME$|STRIPE_WEBHOOK_SECRET=${NUEVO}|" .env > .env.tmp && mv .env.tmp .env
-    echo "  · STRIPE_WEBHOOK_SECRET: se generó uno ALEATORIO para este .env (P-WH-1)."
-    echo "    El stack levanta sin Stripe y RECHAZA todo webhook: 'sin Stripe' ya no"
-    echo "    significa 'acepto cualquier firma'. Sustitúyelo por tu whsec_… real si"
-    echo "    vas a probar webhooks."
-  fi
 fi
+
+# --- Secretos: generados aquí, NUNCA heredados del repo (S-88-1) -------------
+# Antes, `.env.example` traía valores USABLES (`tcg_local_dev_password`,
+# `minioadmin_local_dev`, `whsec_CHANGE_ME`…) y esta copia los daba por buenos. El
+# argumento de que «son de desarrollo local» es el que seguridad refutó midiendo:
+# el repositorio es PÚBLICO, y un valor de respaldo gana justo en el momento del
+# ERROR del operador —cuando creyó haberlo cambiado y no lo hizo—, nunca en el
+# momento cómodo. Con el JWT publicado se firma un `super_admin`; con la clave PII
+# se descifra una CLABE. Seguridad hizo las dos cosas.
+#
+# `secrets-preflight.sh env-file`:
+#   · rellena las que falten con valores ALEATORIOS de esta máquina;
+#   · sustituye las que traigan un valor que el repo PUBLICA (identidad, no
+#     heurística: `security/secretos-publicados.sha256`);
+#   · respeta las que ya tengas puestas de verdad — es idempotente y no rota nada.
+echo "→ Secretos locales (S-88-1): ninguno puede venir escrito en el repo."
+./scripts/secrets-preflight.sh env-file .env
+
+# P-WH-1: el webhook conserva ADEMÁS su preflight propio, porque es el único
+# secreto cuya exigencia depende de un EMPAREJAMIENTO (si hay una clave de Stripe
+# real, no vale cualquier valor). `env-file` de arriba ya le puso uno generado si
+# faltaba o si el `.env` traía el `whsec_CHANGE_ME` publicado; esto comprueba el
+# par y aborta si alguien metió una clave real de Stripe con un secreto público.
+set -a; . ./.env; set +a
+./scripts/webhook-secret-preflight.sh assert
 
 # --- Elegir perfil ----------------------------------------------------------
 PROFILE_ARGS=()

@@ -73,7 +73,12 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: tcg
-          POSTGRES_PASSWORD: tcg_ci
+          # S-88-1: aquí decía `tcg_ci`, un literal en un repo PÚBLICO. Un service
+          # container de Actions recibe su `env:` ANTES del primer paso, así que no
+          # puede leerse de `$GITHUB_ENV`: la única vía sin literal es una expresión
+          # que se evalúe en el workflow. `run_id`+`run_attempt` da un valor distinto
+          # en cada corrida y que NO está escrito en ningún fichero del repo.
+          POSTGRES_PASSWORD: ci_${{ github.run_id }}_${{ github.run_attempt }}
           POSTGRES_DB: tcg_ci
         ports: ["5432:5432"]
         options: >-
@@ -86,12 +91,15 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgresql://tcg:tcg_ci@localhost:5432/tcg_ci?schema=public
+      DATABASE_URL: postgresql://tcg:ci_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_ci?schema=public
       REDIS_URL: redis://localhost:6379
-      # Secretos dummy para que la app arranque en tests (no se usan de verdad):
-      JWT_ACCESS_SECRET: ci_access_secret_dummy
-      JWT_REFRESH_SECRET: ci_refresh_secret_dummy
-      STRIPE_SECRET_KEY: sk_test_ci_dummy
+      # S-88-1 — aquí había cuatro literales (`ci_access_secret_dummy`, …). El
+      # motivo de que estuvieran no era malo (la app tiene que arrancar en tests) y
+      # el motivo de que ya no estén tampoco es teórico: un literal commiteado en un
+      # repo PÚBLICO es, para un HMAC, una clave válida — con el secreto JWT de
+      # staging publicado, seguridad firmó un `super_admin`. Ahora los genera
+      # `scripts/secrets-preflight.sh` en el paso «Resolver secretos» (abajo):
+      # aleatorios por corrida, irrepetibles, y nadie puede firmar contra ellos.
       STRIPE_PUBLISHABLE_KEY: pk_test_ci_dummy
       # RESIDUAL DE P-WH-1 — aquí decía `STRIPE_WEBHOOK_SECRET: whsec_ci_dummy`.
       # Un literal commiteado en un repo PÚBLICO es, para un HMAC, una clave
@@ -104,7 +112,6 @@ jobs:
       S3_REGION: us-east-1
       S3_BUCKET: tcg-photos
       S3_ACCESS_KEY_ID: ci_dummy
-      S3_SECRET_ACCESS_KEY: ci_dummy
       S3_PUBLIC_BASE_URL: http://localhost:9000/tcg-photos
       DEFAULT_LOCALE: es
       NODE_ENV: test
@@ -112,11 +119,22 @@ jobs:
       - uses: actions/checkout@v4
       # Residual de P-WH-1: el secreto de webhook se RESUELVE, no se escribe.
       # `working-directory` del job es `backend/`, por eso la ruta sube un nivel.
-      - name: Resolver STRIPE_WEBHOOK_SECRET sin literales públicos
+      - name: Resolver secretos sin literales públicos (S-88-1)
         working-directory: ${{ github.workspace }}
         run: |
           ./scripts/webhook-secret-preflight.sh assert
-          echo "STRIPE_WEBHOOK_SECRET=$(./scripts/webhook-secret-preflight.sh resolve)" >> "$GITHUB_ENV"
+          # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que
+          # `echo` sale 0 aunque la sustitución aborte, y entonces se exporta un
+          # valor VACÍO y el rojo aparece 8 pasos más tarde, en el `compose`, con un
+          # mensaje que apunta al sitio equivocado. Es el mismo patrón que
+          # perseguimos: la ausencia degradaba en silencio. Aquí se captura y se
+          # comprueba, así que el fallo sale donde se produce.
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          ./scripts/secrets-preflight.sh github-env \
+            JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY S3_SECRET_ACCESS_KEY \
+            >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -416,6 +434,22 @@ jobs:
       - name: Y el candado tiene que saber morder (canario en ROJO)
         if: ${{ !cancelled() }}
         run: ./scripts/check-stripe-webhook-failclosed-canary.sh
+      # -----------------------------------------------------------------------
+      # S-88-1 — LA CLASE, no la variable.
+      # Seguridad midió que el arreglo de P-WH-1 tocó UNA variable y dejó otras
+      # siete con la misma forma tres líneas más arriba, en el mismo fichero. Los
+      # dos pasos de abajo son lo que impide que eso vuelva a pasar sin que nadie
+      # se entere: el candado prohíbe la FORMA (para cualquier nombre de secreto,
+      # incluidos los que aún no existen) y el canario demuestra que muerde
+      # plantando secretos INVENTADOS que este repo nunca ha tenido.
+      # DEVOPS_NOTES §50.
+      # -----------------------------------------------------------------------
+      - name: Ningún secreto puede tener un valor escrito en el repo (S-88-1)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-secret-defaults.sh
+      - name: Y muerde con secretos que NUNCA ha visto (canario de la clase)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-secret-defaults-canary.sh
 
   # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).

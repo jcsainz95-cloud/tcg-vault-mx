@@ -248,11 +248,15 @@ login() {
 }
 if [ -z "$TOKEN" ]; then
   # Orden: credenciales explícitas > fixture sintético (seed:synthetic) > compose de staging.
+  # S-88-1: ninguna de las tres lleva ya contraseña escrita (decían `Admin123!` y
+  # `StagingAdmin123!`, ambas publicadas en este repo público). Las contraseñas
+  # vienen del entorno; los pares con contraseña vacía se saltan más abajo, así que
+  # la ausencia se nota como «no pude entrar» en vez de colarse con la del repo.
   # Máximo 3 intentos: `/auth/login` está limitado a 5/min por IP (SEC-C1).
   for pair in \
     "${ADMIN_EMAIL:-}|${ADMIN_PASSWORD:-}" \
-    "admin@e2e.local|Admin123!" \
-    "${SEED_ADMIN_EMAIL:-admin@staging.local}|${SEED_ADMIN_PASSWORD:-StagingAdmin123!}"
+    "admin@e2e.local|${E2E_ADMIN_PASSWORD:-}" \
+    "${SEED_ADMIN_EMAIL:-admin@staging.local}|${SEED_ADMIN_PASSWORD:-}"
   do
     E="${pair%%|*}"; P="${pair#*|}"
     [ -n "$E" ] && [ -n "$P" ] || continue

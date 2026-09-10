@@ -81,7 +81,7 @@
 #                           lista. No es celo: el 2026-09-06 una resiembra se llevó dos
 #                           filas que probaban un hallazgo abierto. Ver DEVOPS_NOTES §38.4.
 #   PG_CLUSTER     16/main
-#   DATABASE_URL   postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace
+#   DATABASE_URL   postgresql://tcg:<generada en .native-stack/secrets.env>@localhost:5432/tcg_marketplace
 #                  (credenciales de DESARROLLO LOCAL, las mismas de `.env.example`; jamás
 #                   se pone aquí un secreto real — ver DEVOPS_NOTES §11)
 # =============================================================================
@@ -180,7 +180,25 @@ psql_as_postgres() {
 # en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
-export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace?schema=public}"
+# --- Secretos del arnés nativo: generados, nunca escritos en el repo (S-88-1) --
+# Aquí había literales: `tcg_local_dev_password` dentro del DATABASE_URL, dos
+# secretos JWT y la clave de S3. Eran «de desarrollo local», y ese es justo el
+# argumento que seguridad refutó con una medición: el repositorio es PÚBLICO, y un
+# literal de respaldo GANA en el momento del error del operador —cuando creyó
+# haber configurado el entorno y no lo hizo—, no en el momento cómodo.
+#
+# Se persisten en `.native-stack/secrets.env` (ya ignorado por git) en vez de
+# regenerarse en cada arranque: el rol de Postgres se crea con esta contraseña y
+# la base sobrevive entre corridas, así que un valor nuevo por arranque dejaría el
+# arnés sin poder entrar a sus propios datos. Aleatorio por MÁQUINA, no por repo.
+NATIVE_SECRETS="$RUN_DIR/secrets.env"
+mkdir -p "$RUN_DIR"
+"$SCRIPT_DIR/secrets-preflight.sh" env-file "$NATIVE_SECRETS" \
+  NATIVE_DB_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET S3_SECRET_ACCESS_KEY >/dev/null
+# shellcheck disable=SC1090
+. "$NATIVE_SECRETS"
+
+export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:$NATIVE_DB_PASSWORD@localhost:5432/tcg_marketplace?schema=public}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
 # CTA de los correos del buylist (v1.51). MISMA URL que APP_BASE_URL, leída con otro nombre por
@@ -188,8 +206,8 @@ export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
 # existe y se midió viva (DEVOPS_NOTES §35.4-bis). Espeja a APP_BASE_URL para que no puedan
 # divergir. Para volver al degrade (botón -> instrucción de texto): APP_PUBLIC_URL= ./scripts/...
 export APP_PUBLIC_URL="${APP_PUBLIC_URL:-http://localhost:$FRONTEND_PORT}"
-export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-local_dev_only_access_secret_at_least_32_chars_long}"
-export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local_dev_only_refresh_secret_at_least_32_chars_different}"
+export JWT_ACCESS_SECRET   # generado arriba en .native-stack/secrets.env (S-88-1)
+export JWT_REFRESH_SECRET  # idem
 
 # --- Object storage (§39.2) --------------------------------------------------
 # Hasta hoy la ruta nativa NO tenía object storage y la cabecera de este script lo
@@ -204,7 +222,7 @@ export S3_ENDPOINT="${S3_ENDPOINT:-http://127.0.0.1:9000}"
 export S3_REGION="${S3_REGION:-us-east-1}"
 export S3_BUCKET="${S3_BUCKET:-tcg-photos}"
 export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-minioadmin}"
-export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-minioadmin_local_dev}"
+export S3_SECRET_ACCESS_KEY  # generado arriba en .native-stack/secrets.env (S-88-1)
 export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"
 export S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-$S3_ENDPOINT/$S3_BUCKET}"
 S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
@@ -466,7 +484,14 @@ SELECT count(*) FROM pg_roles WHERE rolname = :'u';
 SQL
   )" || die "psql no respondió al comprobar el rol (¿Postgres arriba?)."
   if [ "$role_n" != "0" ]; then
-    ok "rol '$db_user' ya existe."
+    # S-88-1: la contraseña ya no es un literal fijo del repo, sino una generada por
+    # máquina. Un rol creado por una corrida ANTERIOR conserva la contraseña vieja y
+    # el arnés no podría entrar a su propia base. Se realinea (idempotente, no toca
+    # los datos). Sin esto, cerrar la clase habría roto el arnés de QA en silencio.
+    psql_as_postgres "$db_user" "$db_pass" "$db_name" >/dev/null <<'SQL'
+ALTER ROLE :"u" WITH LOGIN PASSWORD :'p';
+SQL
+    ok "rol '$db_user' ya existe (contraseña realineada con .native-stack/secrets.env)."
   else
     psql_as_postgres "$db_user" "$db_pass" "$db_name" >/dev/null <<'SQL'
 CREATE ROLE :"u" LOGIN PASSWORD :'p';

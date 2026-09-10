@@ -166,7 +166,15 @@ m_staging_default_literal() {
   sed -i 's|STRIPE_WEBHOOK_SECRET: "${STRIPE_TEST_WEBHOOK_SECRET:?[^}]*}"|STRIPE_WEBHOOK_SECRET: ${STRIPE_TEST_WEBHOOK_SECRET:-whsec_staging_dummy}|' "$1/docker-compose.staging.yml"
 }
 m_workflow_respaldo_publico() { # `|| 'whsec_e2e_dummy'` — el literal gana en ausencia
-  sed -i "s|^      - name: Resolver STRIPE_WEBHOOK_SECRET.*|      STRIPE_WEBHOOK_SECRET: \${{ secrets.STRIPE_TEST_WEBHOOK_SECRET \|\| 'whsec_e2e_dummy' }}|" "$1/.github/workflows/e2e.yml"
+  # Se ancla en `- name: Resolver` (no en el título completo del paso): el título
+  # cambió al ampliar el paso a S-88-1 y la mutación se volvió un NO-OP silencioso.
+  # Un canario cuya mutación no muta no prueba nada — y encima se lee como rojo.
+  # Se comprueba que la sustitución OCURRIÓ; si no, el canario lo dice.
+  sed -i "s|^      - name: Resolver .*|      STRIPE_WEBHOOK_SECRET: \${{ secrets.STRIPE_TEST_WEBHOOK_SECRET \|\| 'whsec_e2e_dummy' }}|" "$1/.github/workflows/e2e.yml"
+  grep -q "whsec_e2e_dummy" "$1/.github/workflows/e2e.yml" || {
+    printf '\033[1;31m  ✗ la mutación no se aplicó a e2e.yml (¿cambió la forma del paso?)\033[0m\n'
+    return 1
+  }
 }
 m_workflow_literal_pelado() {   # `STRIPE_WEBHOOK_SECRET: whsec_ci_dummy`
   printf '      %s\n' "STRIPE_WEBHOOK_SECRET: whsec_ci_dummy" >> "$1/.github/workflows/e2e.yml"

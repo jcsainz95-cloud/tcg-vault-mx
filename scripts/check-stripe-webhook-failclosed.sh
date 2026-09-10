@@ -82,6 +82,14 @@ printf '\n\033[1m== ¿Puede la firma del webhook de Stripe verificarse con una c
 AUTOEXCLUIDOS=(
   "scripts/check-stripe-webhook-failclosed.sh"
   "scripts/check-stripe-webhook-failclosed-canary.sh"
+  # S-88-1: el canario de la CLASE le da al preflight, como DATO de prueba, el
+  # valor publicado exacto que seguridad usó para demostrar el punto ciego
+  # (`sk_live_… + whsec_e2e_test_secret`). Sin esta línea, el candado del webhook
+  # se pone rojo por el fichero que demuestra que el candado del webhook funciona.
+  "scripts/check-secret-defaults-canary.sh"
+  "scripts/check-secret-defaults.sh"
+  "scripts/secrets-preflight.sh"
+  "scripts/gen-published-secrets-manifest.sh"
 )
 es_autoexcluido() {
   local f="$1" x

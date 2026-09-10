@@ -171,7 +171,11 @@ jobs:
       E2E_GRADING_PROVIDER_INCAPACITATED: '1'
       # Stripe SIEMPRE en modo TEST. El DAST no ejecuta flujos de pago, pero el
       # backend exige forma de clave para arrancar los módulos de dinero.
-      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
+      # S-88-1 — aquí decía `${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}`.
+      # El respaldo literal gana EN AUSENCIA del secret: justo cuando alguien creyó
+      # haber cargado Stripe y no lo hizo. Sin respaldo, la ausencia se nota; el
+      # valor efímero para levantar el stack lo pone el paso «Resolver secretos».
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       # RESIDUAL DE P-WH-1 — el literal público desapareció de aquí.
       # Decía `${{ secrets.X || 'whsec_e2e_dummy' }}`. Esa forma tiene el defecto
@@ -193,9 +197,28 @@ jobs:
         env:
           STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # El stack de staging de este job vive en el RUNNER: no tiene endpoint
+          # público y Stripe no puede entregarle un webhook. Con clave de Stripe
+          # real y sin `STRIPE_TEST_WEBHOOK_SECRET` en los secrets, el preflight
+          # abortaba (medido: run 34498068945, paso 3) y con él moría el gate de
+          # DINERO entero. Aquí un secreto GENERADO es estrictamente más seguro
+          # que uno compartido: nadie puede firmar contra él. Los webhooks
+          # entrantes se rechazan — que es lo correcto para un stack inalcanzable.
+          STRIPE_WEBHOOK_UNREACHABLE: "1"
         run: |
           ./scripts/webhook-secret-preflight.sh assert
-          echo "STRIPE_TEST_WEBHOOK_SECRET=$(./scripts/webhook-secret-preflight.sh resolve)" >> "$GITHUB_ENV"
+          # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que
+          # `echo` sale 0 aunque la sustitución aborte, y entonces se exporta un
+          # valor VACÍO y el rojo aparece 8 pasos más tarde, en el `compose`, con un
+          # mensaje que apunta al sitio equivocado. Es el mismo patrón que
+          # perseguimos: la ausencia degradaba en silencio. Aquí se captura y se
+          # comprueba, así que el fallo sale donde se produce.
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_TEST_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          # S-88-1: el resto de secretos del stack de staging, sin literales. Respeta
+          # los del secret store si existen; si no, aleatorios por corrida.
+          ./scripts/secrets-preflight.sh github-env >> "$GITHUB_ENV"
 
       - name: Guarda — el entorno no puede escribir contra el proveedor de paga
         run: ./scripts/check-e2e-provider-incapacitation.sh

@@ -101,6 +101,18 @@ if [ "$AWK_RC" -ne 0 ] || [ -s "$SANDBOX/awk.err" ]; then
   exit 1
 fi
 chmod +x "$SANDBOX/scripts/stack-native.sh"
+
+# S-88-1: el arnés real resuelve sus secretos ANTES de exportar nada (ya no hay
+# literales en el repo que heredar). Ese bloque corre a nivel superior, así que la
+# copia neutralizada también lo ejecuta — y sin estos ficheros moría con rc=127,
+# tumbando los 9 casos de este canario por una razón que no es la paridad.
+# Se copian tal cual (no se falsean): lo que el canario ejercita es el arnés real.
+mkdir -p "$SANDBOX/security"
+for aux in scripts/secrets-preflight.sh scripts/webhook-secret-preflight.sh \
+           security/secretos-publicados.sha256 security/secretos-exigidos.txt; do
+  [ -f "$ROOT_DIR/$aux" ] && cp "$ROOT_DIR/$aux" "$SANDBOX/$aux"
+done
+chmod +x "$SANDBOX/scripts/secrets-preflight.sh" "$SANDBOX/scripts/webhook-secret-preflight.sh" 2>/dev/null || true
 bash -n "$SANDBOX/scripts/stack-native.sh" \
   || { bad "La copia neutralizada no es sintácticamente válida."; exit 1; }
 ok "copia neutralizada del script real (stubs: $STUBBED)"
