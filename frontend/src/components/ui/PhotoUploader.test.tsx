@@ -52,6 +52,16 @@ describe('PhotoUploader (IneUploader §7.10) — validación cliente + presign',
       contentType: 'image/jpeg',
       contentLength: img.size,
     });
+
+    // DRENAJE OBLIGATORIO: este test valida los ARGUMENTOS del presign, y `waitFor` se
+    // satisface en cuanto `presignUpload` es *invocado* — pero el pipeline del componente
+    // sigue vivo (el presign mock resuelve ~120ms después y encadena `uploadToPresignedUrl`,
+    // ~200ms más). Si el test terminara aquí, esa llamada huérfana (de un componente ya
+    // desmontado por el cleanup de RTL) aterrizaba DENTRO del test siguiente y quedaba
+    // registrada en su `vi.spyOn(api, 'uploadToPresignedUrl')`, rompiéndolo por
+    // contaminación cuando la máquina va cargada (corrida completa). Esperamos el estado
+    // terminal para que la cadena se agote dentro de ESTE test.
+    await screen.findByText('Subida ✓');
   });
 
   it('rechaza por tamaño usando maxBytes del presign (fuente única de verdad)', async () => {

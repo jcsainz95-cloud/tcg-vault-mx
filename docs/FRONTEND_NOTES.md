@@ -15277,3 +15277,70 @@ ve en la misma pantalla que el dueño estaba mirando. **Es de backend** (`mail-s
 
 `tsc --noEmit` limpio · `next lint` sin avisos · `npm test` **1457/1457** (125 archivos). El cambio es
 **un binario en `public/`**: no hay código que probar, y por eso no se añadió test.
+
+---
+
+## MENOR-1 (QA) — el rojo de `PhotoUploader.test.tsx:76` era contaminación de un test que no drenaba
+
+**Síntoma que reportó QA:** corrida completa 1456/1457; el único rojo,
+`PhotoUploader.test.tsx:76` (`expect(uploadSpy).not.toHaveBeenCalled()`). En aislado, 5/5.
+
+### Qué era (medido, no deducido)
+
+**No es contaminación entre archivos.** Vitest corre con `pool: forks` e `isolate` por defecto:
+cada archivo de test tiene su propio proceso, su propio jsdom y su propio registro de módulos.
+Ningún `URL.createObjectURL` stubbeado ni `fetch` interceptado de otro archivo puede cruzar. **El
+orden tampoco es aleatorio**: no hay `sequence.shuffle`; el orden dentro de un archivo es el de
+declaración.
+
+El origen estaba **dentro del propio `PhotoUploader.test.tsx`**, entre dos tests vecinos:
+
+1. El test `envía contentLength=file.size en el presign` (el 3º) hace
+   `await waitFor(() => expect(presignSpy).toHaveBeenCalled())`. Esa espera se satisface en
+   cuanto `presignUpload` es **invocado** — a los pocos ms. Pero el pipeline de `handleFile`
+   sigue vivo: el presign mock resuelve a ~120ms (`delay()` de `lib/api.ts`) y encadena
+   `uploadToPresignedUrl` (otros ~200ms de mock).
+2. RTL desmonta el componente en su `cleanup`, pero **una promesa no se desmonta**: la cadena
+   huérfana sigue corriendo.
+3. El test 4 arranca e instala `vi.spyOn(api, 'uploadToPresignedUrl')`. Si sigue vivo cuando la
+   cadena del test 3 llega a su paso de subida, **esa llamada ajena queda registrada en su spy**
+   → `expect(uploadSpy).not.toHaveBeenCalled()` falla.
+
+Instrumentado con una sonda temporal, el mecanismo quedó explícito: en el test 4, a los +400ms,
+`uploadSpy.mock.calls.length === 1`, con `file.size === 8` (los `'imgbytes'` del test 3, no los
+10 bytes del test 4) y `uploadUrl === 'mock://storage/kyc_ine/nhejfdni'` — la URL del presign
+**real** del test 3, no la `.../x` que el test 4 mockeó. La huella es del test 3, sin ambigüedad.
+
+Por eso pasa en aislado y falla en la corrida completa: es una **carrera contra el reloj**. Con la
+máquina descargada el test 4 termina antes de los ~320ms y el fantasma aterriza en tierra de nadie.
+
+### Qué se tocó
+
+- `frontend/src/components/ui/PhotoUploader.test.tsx` — **en el origen (test 3), no en la víctima**:
+  tras verificar los argumentos del presign, el test espera el estado terminal (`Subida ✓`) para
+  **drenar** la cadena dentro de su propio test. El test 4 quedó intacto: parchearlo para aguantar
+  la suciedad habría escondido el defecto para el siguiente test que aterrizara ahí.
+- `frontend/vitest.setup.ts` — `configure({ asyncUtilTimeout: 5000 })` (ver abajo).
+- `frontend/vitest.config.ts` — `testTimeout`/`hookTimeout` 20s, por encima del anterior.
+
+### Hallazgo aparte: fragilidad por reloj en `findBy*` (no es contaminación)
+
+Al validar el arreglo, una corrida completa cayó en **otro** test (`M2View.test.tsx`, «single-flight
+del ingest»), y bajo carga artificial de CPU cayeron **otros dos** del mismo archivo. El error real
+es siempre `Unable to find an element with the text: ...`: el default de RTL para `findBy*`/`waitFor`
+es **1000ms**, y vistas grandes como M2 ya gastan ~600-900ms de reloj en verde. Con 125 archivos en
+forks paralelos sobre 4 núcleos, esas esperas se pasan del segundo y caen por **reloj**, no por
+defecto de producto — y el test que cae **cambia de corrida a corrida**.
+
+El arreglo es universal y va en el setup compartido (`asyncUtilTimeout: 5000`), no test por test.
+**No esconde nada**: si el elemento no aparece nunca, el test sigue fallando; solo tarda más en
+rendirse. `testTimeout` sube a 20s para que el error que se lea sea el de Testing Library (que dice
+qué elemento faltó y pinta el DOM) y no un «test timed out» opaco. Ningún test de la suite depende de
+que un `findBy*` **rechace** (se verificó: cero `.rejects` sobre `findBy*`, cero
+`waitForElementToBeRemoved`), así que el techo más alto no cuesta nada en verde.
+
+### Números
+
+`tsc --noEmit` limpio · dos corridas completas seguidas: **1457/1457 (125 archivos)** y
+**1457/1457 (125 archivos)**. Además, `M2View` + `PhotoUploader` bajo 6 procesos quemando CPU en una
+máquina de 4 núcleos (la condición que los rompía antes del cambio): **70/70**.
