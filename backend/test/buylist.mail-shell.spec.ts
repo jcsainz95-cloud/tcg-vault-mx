@@ -1022,3 +1022,76 @@ describe('⭐ N9 — `ctaRows` acota el esquema del href: allowlist http(s), no 
     }
   });
 });
+
+// =================================================================================================
+// N9 🔴 — §31.5(c): LA RAYA VA **SOLA** EN SU FILA, O NO ES UNA RAYA
+// =================================================================================================
+/**
+ * **El defecto que este candado congela, medido antes de arreglarlo (Chromium, imágenes bloqueadas):
+ * cada «raya» del bloque de marca medía `216 × 72`.** Compartía fila con la celda de la mira, y en una
+ * tabla **`height` es un MÍNIMO**: la celda se estira a la altura de la fila y **su fondo con ella**.
+ * Donde el boceto del dueño pide un filete salían **dos bloques grises**.
+ *
+ * ⭐ **Lo que hace medible el invariante — y por qué es de FORMA y no de píxeles:** la regla de debajo
+ * del wordmark ({@link ruleRow}) **siempre midió `536 × 1`**, con el mismo color y el mismo
+ * `height="1"`. La única diferencia era estructural: **va sola en su fila**. ⇒ el invariante que hay
+ * que defender no es «mide 1px en Chromium» —eso no se puede asertar aquí, y en Outlook lo pinta otro
+ * motor— sino **«ninguna celda que pinte una regla comparte fila con nada»**, que es lo que causa el
+ * defecto en CUALQUIER motor de tablas.
+ *
+ * ⛔ **Y no basta con mirar `brandRows()`**: la trampa es copiar-pegar una celda de fondo dentro de una
+ * fila que ya tiene contenido, así que se barre **el HTML entero de los ocho correos**.
+ */
+describe('🔴 N9 — §31.5(c): ninguna celda que pinte una regla comparte fila con otra celda', () => {
+  /** Las celdas de regla: fondo de rótulo/tinta + `height="1"`. Son las únicas que pintan filetes. */
+  const REGLA = /<td[^>]*height="1"[^>]*>/g;
+
+  /**
+   * La fila de una celda dada. La celda de regla **no contiene tablas anidadas** (solo un `&nbsp;`),
+   * así que su `<tr>` es el `<tr>` abierto más cercano hacia atrás y el `</tr>` más cercano hacia
+   * delante — sin ambigüedad de anidamiento.
+   */
+  function filaDe(html: string, posCelda: number): string {
+    const ini = html.lastIndexOf('<tr>', posCelda);
+    const fin = html.indexOf('</tr>', posCelda);
+    return html.slice(ini, fin);
+  }
+
+  for (const correo of Object.keys(TODOS_LOS_CORREOS)) {
+    for (const locale of LOCALES) {
+      it(`${correo} [${locale}]: cada regla es la ÚNICA celda de su fila`, () => {
+        const html = TODOS_LOS_CORREOS[correo](locale).html;
+        const reglas = [...html.matchAll(REGLA)];
+        // ⚠️ El control de que el barrido encuentra algo se exige SOLO a los migrados, y la primera
+        // versión de este test lo exigía a los ocho: salió rojo en el 7 y el 8 **con razón y sin
+        // defecto** — no tienen ni una regla porque **no usan el esqueleto de §31** (viven en
+        // `mail/mail.templates.ts`, otro work stream, deuda BE-43). El invariante de arriba sí se
+        // les aplica —se cumple en vacío— y **empezará a morder solo** el día que se migren, que es
+        // exactamente la propiedad que se quiere. *Un control que confunde «no aplica» con «está
+        // mal» enseña a ignorar el rojo.*
+        if (correo in MIGRADOS) expect(reglas.length).toBeGreaterThan(0);
+        for (const m of reglas) {
+          const celdas = filaDe(html, m.index!).match(/<td[\s>]/g) ?? [];
+          // Rojo con 3 — que es lo que había: `raya · mira · raya` en una sola fila ⇒ dos bloques
+          // grises de 216×72 en lugar de dos filetes.
+          expect(celdas).toHaveLength(1);
+        }
+      });
+    }
+  }
+
+  it('⭐ CONTROL — el bloque de marca sigue siendo `raya · mira · raya`: tres celdas en su fila', () => {
+    // ⛔ El arreglo NO es quitar una raya ni sacar la mira de la composición: §31.5 pide las tres
+    // cosas en la misma línea visual. Lo que cambió es de qué FILA cuelga cada filete.
+    const html = MIGRADOS['1 · oferta']('es').html;
+    const posMira = html.indexOf('<img');
+    const filaMira = filaDe(html, posMira);
+    // Tres celdas en la fila de la mira: raya · mira · raya. (Las reglas de dentro de las dos rayas
+    // van en su propia tabla anidada, así que no cuentan como celdas de ESTA fila.)
+    expect((filaMira.match(/<td[\s>]/g) ?? []).length).toBe(3);
+    // Y las dos rayas siguen siendo del color que prescribe §31.5(c), UNA A CADA LADO de la mira.
+    const relMira = filaMira.indexOf('<img');
+    expect(filaMira.indexOf('#AEACA7')).toBeLessThan(relMira); // la de la izquierda
+    expect(filaMira.lastIndexOf('#AEACA7')).toBeGreaterThan(relMira); // la de la derecha
+  });
+});
