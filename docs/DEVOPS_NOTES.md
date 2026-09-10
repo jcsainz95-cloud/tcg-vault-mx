@@ -630,7 +630,7 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. Desde §38: **garantiza que lo vivo es el árbol de ahora** (`up` comprueba-o-reinicia; `verify:head` lo verifica sin tocar nada). |
 | `scripts/assert-serving-head.sh` | **SEC-OPS-1.** ¿El binario VIVO es el commit que se va a auditar? Solo lee; exit 1 ruidoso si no. Datar el proceso sale del `uptime` de `/health` (`process.uptime()`), no de un fichero. Lo usan `stack-native.sh`, `e2e-real.yml` y `deploy.yml`. §38.2. |
 | `scripts/check-provenance-gate.sh` | Guarda **estática** de que el comprobador de procedencia **sigue cableado** en los tres puntos. Cableada en `ci.yml` (cada push/PR). Sin ella, borrar el arreglo de SEC-OPS-1 no daría un rojo: daría un verde que no significa nada. §38.5. |
-| `scripts/price-provider-parity.sh` | **Paridad del dial `price_provider` (`I-PP5`).** `--ensure` fija el dial del entorno por `PUT /admin/settings` (auditado; **solo local/staging**, ⛔ nunca por env ni por SQL) — **INTERINO, muere con `D-PP-1`**; `--assert` lo MIDE (gate del DAST, permanente); `--check-expiry` se pone rojo cuando el apaño caduca y sigue cableado. §43.2. |
+| `scripts/price-provider-parity.sh` | **Paridad del dial `price_provider` (`I-PP5`).** `--assert` **MIDE** el dial vigente (gates de `deploy.yml`, `e2e-real.yml`, `security-dast.yml`, `stack-native.sh up` y `seed-synthetic.sh`) — **permanente**. `--ensure` (escribía el dial por `PUT /admin/settings`) fue **RETIRADO el 2026-09-10** con el merge de `D-PP-1`: hoy es un **no-op sin call sites**. `--check-expiry` vigila que no vuelva. §43.2 (historia) · **§45.1 (retiro)**. |
 | `scripts/purge-synthetic-poc-data.sh` | Purga de los datos sembrados por el red team y los PoC (ARCHITECTURE §9 «purgar antes de cualquier snapshot»). **Simulacro por defecto**, `--apply` para borrar. Idempotente, transaccional, lista blanca de objetivo. **No lo llama nadie automáticamente.** §38.7. |
 
 > Los Dockerfiles viven en la **raíz** (no dentro de `backend/`/`frontend/`) para respetar la propiedad
@@ -8250,7 +8250,16 @@ corre X»*. El vigente es **por entorno** y **se lee** (`GET /api/v1/admin/setti
 activación de §28, y el 2026-09-10 el dueño leyó el dial en el panel M10 de producción*. Eso es historial,
 no una afirmación sobre el ahora.
 
-### 43.2 ⏳ MEDIDA INTERINA — paridad del proveedor en los entornos que se aprovisionan solos
+### 43.2 ~~⏳ MEDIDA INTERINA~~ → ✅ **RETIRADA el 2026-09-10** — paridad del proveedor en los entornos que se aprovisionan solos
+
+> 🔻 **ESTADO: la parte interina (`--ensure`) está RETIRADA desde el 2026-09-10.** `D-PP-1` aterrizó en
+> `46d76cc` (el seed del código ya es el primario), el job `price-provider-interim-expiry` se puso rojo
+> como estaba escrito, y el cableado se quitó de los tres sitios. **Detalle del retiro: §45.1.**
+>
+> **Lo que NO se retiró:** el `--assert` de los gates (candado `I-PP5`) — **sigue vivo y sigue haciendo
+> falta**, por el motivo del punto «Lo que el merge de `D-PP-1` NO arregla», más abajo en esta misma
+> sección. El resto de este §43.2 se conserva **como registro histórico** del problema que la medida tapó;
+> léelo sabiendo que la columna «Dónde corre» de `--ensure` ya no describe el árbol.
 
 **El agujero, medido, no supuesto** (`ARCHITECTURE §4.35a(d)`): mientras el seed del código no sea el
 primario, **toda BD fresca —CI, dev, staging— arranca en el proveedor legacy**. Consecuencia: **la suite
@@ -8816,3 +8825,167 @@ completa sin esperar al lunes.
 con `down -v` en cada corrida; lo único que escribe fuera del runner es el issue de hallazgos (que se
 cierra a mano) y el dial `price_provider` de ese stack efímero, que muere con él. Quitar
 `security-dast.yml` devuelve el DAST a cero cobertura — con el agujero de P-77 intacto.
+
+---
+
+## 45. Poner CI en verde en el candidato de release, sin apagar nada (2026-09-10)
+
+> **Propiedad: devops.** Pase acotado a los **dos únicos jobs rojos** del run `34441149856` (HEAD
+> `2d19cae`): `price-provider-interim-expiry` y `e2e-harness-gaps`. El código del producto ya estaba verde.
+>
+> **Regla que gobernó el pase:** ningún job se silencia, se borra, se condiciona ni se marca
+> `continue-on-error`. Los dos rojos se apagaron **quitando su causa**, no su interruptor.
+
+### 45.1 `price-provider-interim-expiry` — el rojo era el disparador de retiro funcionando
+
+**No era un fallo.** Era el mecanismo de caducidad que `§43.2` dejó armado: `--check-expiry` se pone rojo
+**el día que `D-PP-1` aterriza y el cableado interino sigue puesto**. `D-PP-1` aterrizó en `46d76cc` —
+verificado leyendo el **artefacto**, no un párrafo:
+
+```
+backend/src/modules/settings/settings.constants.ts:327
+  [SettingKey.PRICE_PROVIDER]: 'tcgcsv_singles',   ← ya es el PRIMARIO
+```
+
+**Qué se quitó** — las tres llamadas a `--ensure`, que es lo que el propio script listaba:
+
+| Fichero | Antes | Ahora |
+|---|---|---|
+| `scripts/seed-synthetic.sh` | `--ensure` (auto-corregía el dial) | **`--assert`** — rojo duro si no hay paridad |
+| `scripts/stack-native.sh` (verbo `up`) | `--ensure` | **`--assert`** — deja el rojo dicho, no tumba el stack |
+| `.github/workflows/e2e-real.yml` | `--ensure` | **`--assert`** — rojo duro |
+
+`./scripts/price-provider-parity.sh --check-expiry` → **exit 0**: *«Medida interina RETIRADA y seed al día»*.
+El rojo se apaga solo, sin bandera que nadie tenga que acordarse de bajar.
+
+#### ⭐ Por qué el cambio es `--ensure` → `--assert` y **no** un borrado
+
+Porque `--ensure`, **desde el merge de `D-PP-1`, era un no-op que salía `0` sin mirar nada**:
+
+```bash
+# scripts/price-provider-parity.sh
+if [ "$MODE" = "--ensure" ] && expired; then ... exit 0; fi
+```
+
+⇒ el paso de `e2e-real.yml`, anunciado como **«rojo duro»**, llevaba desde entonces **sin verificar
+absolutamente nada**. Sustituirlo por `--assert` **no es una rebaja del gate: le devuelve la verificación que
+el no-op se había comido.** Borrarlo a secas habría dejado el hueco callado.
+
+#### ⛔ Lo que se queda, y **dónde**, y por qué (esto no es inercia)
+
+El `--assert` **no es interino**: es el candado `I-PP5`. Hace falta porque **los seeds materializan la fila**
+(`configSetting.upsert({ create: …, update: {} })`) ⇒ **un entorno ya sembrado conserva el valor viejo aunque
+el seed del código cambie** (§32.1, `ARCHITECTURE §11.0`). «Paridad por construcción» **solo alcanza a las BD
+frescas**. Sitio por sitio:
+
+| Dónde | ¿BD fresca? | ¿Se queda el `--assert`? |
+|---|---|---|
+| `stack-native.sh up` | **NO** — el directorio de datos de Postgres **sobrevive entre `up`** | **SÍ, imprescindible.** Es el caso donde el puente tapaba de verdad el problema |
+| `seed-synthetic.sh` (staging) | **NO** — staging hospedado / volumen de compose sin `down -v` | **SÍ, imprescindible.** Mismo motivo |
+| `e2e-real.yml`, `security/scripts/dast-ephemeral.sh` | **SÍ** — `down -v` al final de cada corrida | **SÍ, pero como red de seguridad**: aquí la paridad se cumple sola; el `--assert` es lo que detecta que el **seed de backend** deje de fijar el primario |
+| `deploy.yml` › `staging-provider-parity` | staging real | **SÍ.** Bloquea DAST y promoción |
+
+**El arreglo cuando el `--assert` salga rojo ya no es «corre `--ensure`»** (comando muerto). El mensaje del
+script se corrigió para decir la vía real: **`PUT /admin/settings` por el panel M10** (auditado, `I-PP3`), o
+recrear la BD desde cero en un entorno desechable. ⛔ Nunca por env (`PRICE_PROVIDER` no flipea el dial,
+§23.8) ni por SQL directo (§32.4).
+
+### 45.2 `e2e-harness-gaps` — la causa registrada era **falsa**; el guardarraíl se inventaba el rojo
+
+La causa que veníamos arrastrando —*«`start_infra` de `stack-native.sh` ya no levanta object storage, así que
+el PUT presignado del INE se salta»*— **es falsa, y conviene decirlo con todas las letras porque estuvo a
+punto de costarnos una declaración de no-cobertura sobre un documento de identidad.**
+
+**Medido:** `start_s3` **sí está** dentro de `start_infra`, en `2d19cae` y hoy. Los **6 puntos** del check
+pasan. Se verificó extrayendo el árbol **exacto** que corrió CI (`git archive 2d19cae`) y contrastando los
+cinco ficheros implicados contra los blobs que devuelve la API de GitHub para ese SHA: **idénticos byte a
+byte**. Mismo contenido, verde en local y rojo en CI.
+
+#### La causa real: `set -o pipefail` + `grep -q` = carrera SIGPIPE
+
+`grep -q` **sale en cuanto encuentra el patrón** y cierra el pipe. Si el escritor (`awk`) aún tenía cola por
+volcar, se lleva un **SIGPIPE ⇒ 141**; con `pipefail`, **el estado del pipeline pasa a 141 aunque el patrón
+SÍ estuviera**, el `if` toma la rama `else` y **la guarda inventa un rojo**.
+
+No es teórico. El bloque del check 2 son **4 483 B** y `start_s3` cae en el byte **747**: `mawk` vuelca un
+primer bloque de 4 096 B —que **ya contiene el match**—, `grep -q` sale, y el segundo `write` muere.
+
+```
+fallos con  grep -q  (pipeline): 31 / 400   ← 7,8 % de falsos rojos
+fallos con  grep >/dev/null   :  0 / 400
+```
+
+**El arreglo:** `grep PATRÓN >/dev/null` en vez de `grep -q PATRÓN`. Sin `-q`, grep **consume toda la
+entrada** antes de salir, así que el escritor nunca escribe contra un pipe cerrado. **Mismo código de salida,
+misma semántica, sin carrera.** No se relajó ni un solo criterio: los 6 puntos siguen midiendo lo mismo.
+`./scripts/check-e2e-harness-gaps.sh` → **8/8 corridas en verde**.
+
+> ⚠️ **El check 5 conserva `grep -qE` a propósito**: no está en un pipeline (`grep -qE … "$E2E_WF"`), así que
+> no hay escritor al que matar. La regla es *«no `grep -q` **al final de un pipeline**»*, no *«no `grep -q`»*.
+
+#### 🚩 Lo que esto significa para el arnés E2E (la frase que hay que citar, no la otra)
+
+**La subida del INE SÍ está cubierta y el cobro SÍ está cubierto.** No hay nada que declarar como no cubierto
+por este motivo: no hubo hueco de cobertura, hubo un **guardarraíl intermitente**. Cualquiera que cite
+*«el arnés no prueba la subida del INE»* está citando un diagnóstico que **se midió y resultó falso**.
+
+**Una guarda intermitente es tan mala como una que nunca falla:** enseña al equipo a re-lanzar hasta que
+salga verde — y el día que el rojo sea de verdad, también se re-lanza. Es la misma enfermedad que `P-77`.
+
+### 45.3 El mismo defecto en otras dos guardas de CI — **corregido**, y por qué se salió del alcance
+
+**Dueño: devops.** El alcance del pase eran **dos jobs**. Esto los excede y **se declara para que el dueño
+pueda objetarlo**, no se cuela en silencio.
+
+Al buscar la firma del defecto (`pipefail` + `grep -q` al final de un pipeline) aparecieron **dos guardas más
+del propio CI** con la construcción **idéntica**, sobre el **mismo** bloque de `stack-native.sh`:
+
+| Fichero | Línea | Bloque del escritor | Falsos rojos medidos |
+|---|---|---|---|
+| `scripts/check-provenance-gate.sh` | 90 | `up)` = **5 493 B**, `verify_head` en el byte **3 885** | **73 / 400 (18 %)** |
+| `scripts/check-dast-gate-live.sh` | 130 | `grep -v` sobre cada workflow | misma clase, tasa menor |
+
+**Por qué no se dejó declarado y ya:** `provenance-gate` es **bloqueante duro** de `ci-ok` en `ci.yml`
+(*«si el comprobador de SEC-OPS-1 deja de estar cableado, el resto de gates dejan de significar lo que
+dicen»*). Con un 18 % por corrida, **~1 de cada 5 verificaciones del candidato de release se cae por un
+motivo inexistente** — y entonces el «run verde» que se pide como prueba **no sería una prueba**, sería una
+tirada de dados que salió bien. Arreglar el rojo medido y dejar al lado un rojo aleatorio del **mismo
+defecto** en un bloqueante habría sido entregar CI en verde *de mentira*.
+
+**El cambio es el mismo y es semánticamente nulo:** `grep -q X` → `grep X >/dev/null`. **Mismo código de
+salida, mismos criterios, ningún check relajado.** Es lo contrario de silenciar: **quita un falso rojo, no un
+rojo.** Verificado tras el cambio:
+
+```
+check-provenance-gate.sh  →  fallos 0 / 400   (antes 73 / 400)
+```
+
+#### 🚩 Lo que queda ABIERTO (no se tocó)
+
+Mismo patrón, **fuera de CI** (son scripts de aprovisionamiento, no guardas de gate). Riesgo real pero menor;
+en `seed.sh` / `seed-synthetic.sh` el escritor es `npm run`, **cuya salida sí puede pasar del buffer del
+pipe**, así que la carrera es posible y el efecto sería *elegir otra ruta de seed en silencio*:
+
+- `scripts/seed.sh:34` · `scripts/seed-synthetic.sh:64,67` — `npm run | grep -qE`
+- `scripts/check-graded-estimate-dials.sh:318` · `scripts/stripe-test-key-preflight.sh:122,126,127` —
+  escritor `printf` de una cadena corta ⇒ **sin riesgo práctico** (nunca hay un segundo `write`).
+
+**Propuesta:** un pase propio de una línea por sitio. Pendiente de autorización del orquestador/dueño.
+
+### 45.4 Lo que NO verifiqué en este pase
+
+- **No levanté el stack.** Los dos jobs son **estáticos** (leen ficheros, sin red y sin stack); eso es todo lo
+  que este pase demuestra. Que el `--assert` se entienda con el backend real lo confirma la primera corrida
+  de `e2e-real.yml`, no este documento.
+- **No leí los logs de CI del run `34441149856`.** El proxy de egress deniega (403) el host de artefactos de
+  Actions y **no se rodeó**. El diagnóstico se hizo reproduciendo el árbol exacto del SHA y midiendo la
+  carrera en local; la API sí confirmó **qué paso** falló y con qué código.
+- **No toqué `backend/` ni `frontend/`**, ni producción.
+- **No arreglé los `grep -q` de los scripts de aprovisionamiento** (`seed.sh`, `seed-synthetic.sh`,
+  `check-graded-estimate-dials.sh`, `stripe-test-key-preflight.sh`): medidos y declarados en §45.3,
+  **no corregidos**. Solo se corrigieron las guardas que gatean el candidato de release.
+- **No demostré que la tasa de falsos rojos sea idéntica en el runner de GitHub.** Las cifras (73/400,
+  31/400, 0/400) se midieron **en este entorno**, con `mawk 1.3.4` y `bash 5.2` — los mismos que
+  `ubuntu-latest`, pero el reparto exacto de la carrera depende del planificador. Lo que sí está
+  demostrado es la **dirección**: el pipeline sin `-q` no puede producir el 141, porque no hay pipe que
+  cerrar antes de tiempo.

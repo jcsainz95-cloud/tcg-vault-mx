@@ -127,7 +127,10 @@ while IFS= read -r f; do
   # Se busca el USO, no la mención: se descartan las líneas de comentario. Los
   # comentarios que explican POR QUÉ ya no se usa son parte del arreglo, no la
   # recaída — y un uso real nunca vive en una línea comentada.
-  grep -vE '^[[:space:]]*#' "$f" | grep -qE 'secrets\.STAGING_BASE_URL' \
+  # Sin `-q`: con `pipefail`, `grep -q` sale al primer match, cierra el pipe y el
+  # `grep -v` de delante muere con SIGPIPE (141) -> falso negativo intermitente.
+  # Medido en este repo al cerrar P-77 (ver check-e2e-harness-gaps.sh).
+  grep -vE '^[[:space:]]*#' "$f" | grep -E 'secrets\.STAGING_BASE_URL' >/dev/null \
     && CULPABLES="${CULPABLES} $f"
 done < <(find .github/workflows -name '*.yml')
 if [ -z "${CULPABLES}" ]; then

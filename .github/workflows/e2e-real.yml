@@ -330,11 +330,24 @@ jobs:
       #
       # ROJO DURO: si el dial no queda en el primario, este job para. Un E2E que
       # mide otro sistema es peor que no correrlo, porque su verde se cita.
-      # `--ensure` es la parte INTERINA (muere con `D-PP-1`); ver DEVOPS_NOTES §43.2.
+      #
+      # RETIRO DE `--ensure` (2026-09-10, DEVOPS_NOTES §45.1). Aquí había
+      # `--ensure`, el puente INTERINO de `D-PP-2`. `D-PP-1` aterrizó (46d76cc):
+      # el seed del código ya es el primario, así que el puente caducó — y desde
+      # ese día `--ensure` era un **no-op que salía 0 sin mirar nada**. O sea que
+      # este paso, anunciado como «rojo duro», llevaba desde entonces sin
+      # verificar absolutamente nada. Cambiarlo a `--assert` no es una rebaja:
+      # es lo contrario, DEVUELVE la verificación que el no-op se había comido.
+      #
+      # Este stack nace FRESCO en cada corrida (`down -v` al final del job), así
+      # que el seed primario basta y `--assert` pasa solo — verificado en el run
+      # 34440267283, donde el mismo `--assert` corre contra este mismo compose.
+      # Si algún día sale rojo, el hallazgo es del rol **backend** (su seed dejó
+      # de fijar el primario); NO se parchea desde devops.
       # -----------------------------------------------------------------------
       - name: Paridad del dial price_provider (I-PP5) — el smoke mide el barrido que se promueve
         run: |
-          ./scripts/price-provider-parity.sh --ensure --api-base "http://localhost:3011/api/v1"
+          ./scripts/price-provider-parity.sh --assert --api-base "http://localhost:3011/api/v1"
           {
             echo "### Proveedor de precio del stack E2E"
             echo ""

@@ -79,28 +79,42 @@ fi
 echo "✓ Datos sintéticos cargados en staging."
 
 # -----------------------------------------------------------------------------
-# PARIDAD DE PROVEEDOR DE PRECIO (`I-PP5`) — medida interina `D-PP-2`, §43.2.
+# PARIDAD DE PROVEEDOR DE PRECIO (`I-PP5`) — §43.2, con el puente RETIRADO §45.1.
 #
 # El seed MATERIALIZA la fila `ConfigSetting.price_provider` (prisma/seed.ts y
-# seed-e2e.ts hacen `upsert(... update:{})`). Mientras el seed del código no sea
-# el PRIMARIO (`D-PP-1` abierta), este staging acaba de nacer en el proveedor
-# LEGACY, que **no es inerte**: barre y escribe precios APLANADOS. Los E2E y el
-# DAST que corran encima medirían un barrido distinto del que se promueve.
+# seed-e2e.ts hacen `upsert(... update:{})`). Si el dial no está en el PRIMARIO,
+# el entorno barre y escribe precios APLANADOS con el proveedor LEGACY —que no es
+# inerte— y los E2E y el DAST que corran encima medirían un barrido distinto del
+# que se promueve.
 #
-# Se corrige AQUÍ, pegado al seed, y no en un paso del runbook que alguien tenga
-# que recordar: si la paridad hay que recordarla, no es una paridad.
-# Retiro: ver la cabecera de scripts/price-provider-parity.sh.
+# RETIRO de `--ensure` (2026-09-10): `D-PP-1` aterrizó y el seed del código ya es
+# el primario, así que el puente interino caducó — y desde ese día `--ensure` era
+# un no-op que salía 0 sin mirar nada. Queda `--assert`, que NO es interino: es el
+# candado `I-PP5` y MIDE el valor vigente.
+#
+# ⚠️ Lo que el puente tapaba y ahora se ve: una BD sembrada ANTES de `D-PP-1`
+# conserva la fila LEGACY aunque el seed del código haya cambiado (§32.1). Eso es
+# precisamente lo que hay que ver, no autocorregir: el arreglo es un
+# `PUT /admin/settings` por el panel M10 (auditado), con un humano delante.
 # -----------------------------------------------------------------------------
 PARITY_API_BASE="${PARITY_API_BASE:-http://localhost:${STAGING_BACKEND_PORT:-3011}/api/v1}"
-echo "=== paridad del dial price_provider (D-PP-2) ==="
+echo "=== paridad del dial price_provider (I-PP5) ==="
 if curl -sf --max-time 5 "${PARITY_API_BASE%/}/health" >/dev/null 2>&1; then
-  "${SCRIPT_DIR}/price-provider-parity.sh" --ensure --api-base "$PARITY_API_BASE"
+  if ! "${SCRIPT_DIR}/price-provider-parity.sh" --assert --api-base "$PARITY_API_BASE"; then
+    echo "✗ Este entorno NO evalúa el proveedor de precio PRIMARIO."
+    echo "  Causa típica: la BD se sembró ANTES de D-PP-1 y conserva la fila legacy"
+    echo "  (los seeds hacen upsert(... update:{}): cambiar el seed NO cambia lo ya sembrado)."
+    echo "  Arreglo: panel M10 > proveedor de precio (PUT /admin/settings, auditado)."
+    echo "  Desde cero:  docker compose -f docker-compose.staging.yml --profile apps down -v"
+    echo "  NO declares este staging apto para E2E/DAST hasta verlo en verde (DEVOPS_NOTES §43.2)."
+    exit 1
+  fi
 else
   echo "✗ La API de staging no responde en $PARITY_API_BASE."
-  echo "  El dial vive en la BD y se fija por PUT /admin/settings (auditado): sin API no se puede."
+  echo "  El dial vive en la BD y se LEE por GET /admin/settings: sin API no se puede medir."
   echo "  Levanta las apps y repite:"
   echo "     docker compose -f docker-compose.staging.yml --profile apps up -d --build"
-  echo "     ./scripts/price-provider-parity.sh --ensure --api-base $PARITY_API_BASE"
+  echo "     ./scripts/price-provider-parity.sh --assert --api-base $PARITY_API_BASE"
   echo "  NO declares este staging apto para E2E/DAST hasta verlo en verde (DEVOPS_NOTES §43.2)."
   exit 1
 fi

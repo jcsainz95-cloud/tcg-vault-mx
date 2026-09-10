@@ -293,7 +293,16 @@ if [ "$MODE" = "--assert" ]; then
   log "vigente en $API_BASE: '$VIGENTE'   ·   primario: '$PRIMARY_PROVIDER'"
   log "Los E2E / el smoke / el DAST que corran aquí miden OTRO barrido: su verde no es citable"
   log "como gate del sistema que se promueve (ARCHITECTURE §4.35a(d))."
-  log "Arreglo: ./scripts/price-provider-parity.sh --ensure --api-base $API_BASE"
+  # ⚠️ Este remedio decía «corre `--ensure`». Desde el retiro de la medida
+  # interina (2026-09-10, §45.1) `--ensure` es un NO-OP que sale 0 sin tocar
+  # nada, así que ese consejo mandaba a ejecutar un comando muerto — y encima
+  # en el único momento en que alguien lee este mensaje: cuando el gate está
+  # rojo. Ahora dice la vía real, que es la auditada.
+  log "Causa típica: la BD se sembró ANTES de \`D-PP-1\` y conserva la fila legacy."
+  log "  (los seeds hacen \`upsert(... update:{})\`: cambiar el seed NO cambia lo ya sembrado)"
+  log "Arreglo: panel M10 > proveedor de precio (PUT /admin/settings, auditado, I-PP3)."
+  log "  Entorno desechable: recrea la BD desde cero (p. ej. \`compose ... down -v\`) y resiembra."
+  log "  ⛔ NUNCA por env (\`PRICE_PROVIDER\` no flipea el dial) ni por SQL directo (§32.4)."
   exit 20
 fi
 

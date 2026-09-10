@@ -32,6 +32,17 @@
 # =============================================================================
 set -uo pipefail
 
+
+# -----------------------------------------------------------------------------
+# ⚠️ NO USAR `grep -q` AL FINAL DE UN PIPELINE AQUÍ (medido, 2026-09-10)
+# `set -o pipefail` + `grep -q` = carrera SIGPIPE: grep sale al primer match y
+# cierra el pipe; si el escritor aún tenía cola, muere con 141 y `pipefail`
+# convierte el pipeline en fallo AUNQUE el patrón SÍ estuviera. Medido en este
+# repo: 30 falsos rojos de 200 corridas (15 %) de esta misma guarda.
+# Una guarda intermitente enseña a re-lanzar hasta el verde — y entonces el rojo
+# de verdad también se re-lanza. Arreglo: `grep PATRÓN >/dev/null` (sin `-q`
+# grep consume toda la entrada, así que nadie escribe contra un pipe cerrado).
+# -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
@@ -62,7 +73,7 @@ fi
 # mención en un comentario de otra parte del fichero.
 if [ -f "$STACK" ]; then
   BODY="$(awk '/^start_backend\(\)/,/^}/' "$STACK")"
-  if printf '%s' "$BODY" | grep -q 'ASSERT_HEAD'; then
+  if printf '%s' "$BODY" | grep 'ASSERT_HEAD' >/dev/null; then
     ok "start_backend() comprueba la procedencia antes de reutilizar un backend vivo."
   else
     bad "start_backend() de $STACK reutiliza el backend vivo SIN comprobar qué sirve.
@@ -70,7 +81,7 @@ if [ -f "$STACK" ]; then
      y falla en la dirección peligrosa (aprobar lo que no se probó).
      Restaura la llamada a \$ASSERT_HEAD en la rama de reutilización."
   fi
-  if printf '%s' "$BODY" | grep -q 'write_stamp'; then
+  if printf '%s' "$BODY" | grep 'write_stamp' >/dev/null; then
     ok "start_backend() deja constancia del commit servido (sello de procedencia)."
   else
     bad "start_backend() ya no escribe el sello: el arranque deja de decir QUÉ commit
@@ -87,7 +98,7 @@ else
   bad "$STACK ya no expone 'verify:head'. Es el comando que un auditor corre ANTES
      de su primera medición; sin él vuelve a depender de acordarse."
 fi
-if awk '/^  up\)/,/^  test:integration\)/' "$STACK" 2>/dev/null | grep -q 'verify_head'; then
+if awk '/^  up\)/,/^  test:integration\)/' "$STACK" 2>/dev/null | grep 'verify_head' >/dev/null; then
   ok "'up' termina PROBANDO que el stack sirve el árbol de ahora (no lo afirma)."
 else
   bad "'up' ya no corre 'verify_head' al final: vuelve a AFIRMAR que el stack está
@@ -113,7 +124,7 @@ fi
 # la propia DEFINICIÓN del job `staging-serves-head` haría pasar el check aunque el
 # DAST no lo esperase — verde por mencionar, que es el modo de fallo que este script
 # existe para no repetir.
-if grep -A6 '^  dast-staging:' "$DEPLOY_WF" 2>/dev/null | grep -E '^    needs:' | grep -q 'staging-serves-head'; then
+if grep -A6 '^  dast-staging:' "$DEPLOY_WF" 2>/dev/null | grep -E '^    needs:' | grep 'staging-serves-head' >/dev/null; then
   ok "'dast-staging' depende de 'staging-serves-head' (escanea un binario identificado)."
 else
   bad "'dast-staging' ya NO depende de 'staging-serves-head'. Aunque el job exista,

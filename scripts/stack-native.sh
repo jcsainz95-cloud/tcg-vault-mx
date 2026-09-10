@@ -954,15 +954,28 @@ case "${1:-up}" in
     # HTTP (`PUT /admin/settings`, auditado): `PRICE_PROVIDER` como env NO flipea
     # nada (§23.8, verificado en `providerFor()`). Va ANTES del frontend y de los
     # gates para que lo que se mida sea el barrido que se promueve.
-    # `--ensure` es la parte INTERINA (muere con D-PP-1); el `--assert` de los
-    # gates no lo es. Un fallo aquí NO tumba el stack: deja el rojo dicho.
+    # RETIRO de `--ensure` (2026-09-10, §45.1): `D-PP-1` aterrizó, el seed del
+    # código ya es el primario y el puente interino caducó — desde ese día
+    # `--ensure` era un no-op que salía 0 sin mirar nada. Queda `--assert`, que
+    # NO es interino: es el candado `I-PP5`, y MIDE el valor vigente.
+    #
+    # Ojo con la diferencia, que aquí importa más que en CI: este stack usa un
+    # directorio de datos de Postgres que SOBREVIVE entre `up`. Un stack sembrado
+    # ANTES de `D-PP-1` conserva la fila LEGACY aunque el seed del código haya
+    # cambiado (los seeds hacen `upsert(... update:{})`, §32.1). Antes eso lo
+    # tapaba el puente; ahora sale a la luz, que es lo que se quiere. El arreglo
+    # es un `PUT /admin/settings` por el panel M10 (auditado), no un script de
+    # arranque. Un fallo aquí NO tumba el stack: deja el rojo dicho.
     # -------------------------------------------------------------------------
     log "Paridad del proveedor de precio (I-PP5, §43.2)"
-    if ! "$SCRIPT_DIR/price-provider-parity.sh" --ensure \
+    if ! "$SCRIPT_DIR/price-provider-parity.sh" --assert \
            --api-base "http://localhost:$BACKEND_PORT/api/v1"; then
-      warn "El dial NO quedó en el proveedor primario: este stack evalúa OTRO barrido.
+      warn "El dial NO está en el proveedor primario: este stack evalúa OTRO barrido.
      Un E2E/DAST verde aquí NO es citable como gate del sistema que se promueve
-     (ARCHITECTURE §4.35a(d)). Arréglalo antes de declarar nada verde."
+     (ARCHITECTURE §4.35a(d)). Arréglalo antes de declarar nada verde.
+     Causa típica: BD sembrada ANTES de D-PP-1 (la fila sobrevive al cambio de seed).
+     Arreglo: panel M10 > proveedor de precio (PUT /admin/settings, auditado).
+     Desde cero: para el stack, borra el directorio de datos y vuelve a sembrar."
     fi
     start_frontend
     # -------------------------------------------------------------------------
