@@ -4,6 +4,44 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED «MONEY-SAFE» ERA EL QUE APLANA**
+> (2026-09-10, arquitecto. Base: **v1.64(4), vigente entera**. Escalada **regla 9** desde QA, **BLOQUEANTE-1 sobre
+> P-47**. ⛔ **Sin migración, sin endpoint, sin cambio de shape.** Contrato en `API_CONTRACT.md` **v1.65**, sección
+> nueva **§M10-PP**. Detalle en **§4.35a**; desviaciones **`D-PP-1`** (backend) y **`D-PP-2`** (devops) en **§9**.)
+>
+> **1. ⭐⭐ EL DEFECTO NO ERA «QUÉ VALOR GANA»: ERA QUE «EL PROVIDER ES X» SON TRES AFIRMACIONES.** **PRIMARIO**
+> (norma, la fija el contrato), **SEED** (con qué arranca una BD fresca) y **VIGENTE** (la fila `ConfigSetting` de
+> **un** entorno, que **se lee**, no se cita). El contrato hablaba del **vigente**, `§4.36(d)` del **seed**,
+> `DEVOPS_NOTES §28` **operaba** el vigente — **cinco textos, ninguno falso, y una contradicción irresoluble.**
+> **Medido el 2026-09-10:** producción `tcgcsv_singles`, seed `pokemontcg_io`. *Divergen de verdad, y esa medición
+> es el diagnóstico, no la respuesta.*
+>
+> **2. 🔴 DECISIÓN — CEDE EL CÓDIGO. `I-PP1`: EL SEED ES EL PRIMARIO.** El criterio, que faltaba y ahora es norma:
+> **un seed money-safe debe ser INERTE o el PRIMARIO validado; ⛔ nunca un SEGUNDO escritor con semántica distinta.**
+> `sealed_price_source='off'` es inerte y por eso **sí** es candado. **`pokemontcg_io` no lo es: escribe, y escribe
+> APLANADO** (un `market` por carta ⇒ reverse/holo al precio de la normal) — **el lado irrecuperable de
+> `PROJECT §N.0`**. **El seed legacy no era el candado money-safe: era el riesgo con el nombre del candado.**
+> *La razón de v1.14 era buena y su objeto —un proveedor de paga sin verificar— ya no existe. No es antigüedad del
+> texto: es que el peligro que nombraba se fue.*
+>
+> **3. `I-PP2`/`I-PP3` — Y POR ESO EL RUNBOOK DE DEVOPS NO ERA ARGUMENTO EN CONTRA.** Ningún documento afirma el
+> **vigente** de un entorno (se lee; lo que se escribe es un **evento fechado**). Y **el rollback mueve el VIGENTE,
+> nunca el SEED** ⇒ **`§28.6` sobrevive intacto**. Que el flip de agosto funcionara prueba que **la palanca**
+> funciona — **una vez, en el único entorno con un humano mirando**. ⚠️ **El otro lado nunca se midió:** el entorno
+> que se queda en el legacy **no falla, publica más barato y no avisa**.
+>
+> **4. ⚠️ LA BRECHA, NOMBRADA: EL GATE VALIDA UN BARRIDO QUE NO ES EL DE PRODUCCIÓN.** E2E, smoke y **DAST contra
+> staging** corren sobre el proveedor que aplana. **`I-PP5`** la cierra **por construcción** (el seed ya no diverge).
+> ⛔ **Rechazo la alternativa** de sembrar el legacy y hacer del flip un paso obligatorio del arranque: es el mismo
+> mecanismo de divergencia con un humano en medio, *y si la paridad hay que recordarla, no es una paridad*. Ventana
+> de transición y medida **interina con fecha de retiro** en `D-PP-2`.
+>
+> **5. FUENTE ÚNICA + ampliación de §0-B.3 regla 8.** Enum, semántica y seed vivían **repetidos en cinco sitios con
+> dos valores**; quedan **sólo** en `API_CONTRACT §M10-PP` (`<!-- CANON: proveedor-de-precio -->`). La ampliación:
+> **la marca canónica cubre el HECHO, no el literal** — *cinco frases que usan el mismo literal para tres hechos
+> distintos no las encuentra ningún grep, y son las que llegan a un gate como contradicción.*
+>
+> ---
 > **Rev v1.64(4) — EL DUEÑO CONTESTA 68, 69 Y 70. UNA CONTRADICE MI RECOMENDACIÓN Y TIENE RAZÓN**
 > (2026-09-10, arquitecto. Base: **v1.64(3), vigente entera**. **⚠️ REABRE `M-50` con UNA columna aditiva**, y
 > ⛔ **no cambia la promesa de D-1**. Contrato en `API_CONTRACT.md` **v1.64(4)**.)
@@ -2976,6 +3014,16 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **La PRECEDENCIA de la tasa** (qué rige en cada estado, incluida la 4.ª fila ilegal) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.1**, tabla de precedencia | `<!-- CANON: precedencia-de-la-tasa -->` |
      | **El ESTADO del tipo de cambio** (forma del `FxStateDTO`, `applied`, `fallbackRate`) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.3** | `<!-- CANON: estado-del-tipo-de-cambio -->` |
      | **La BANDA de una tasa USD→MXN** (`[1, 1000]`, sus dos extremos y las dos puertas) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.8** | `<!-- CANON: banda-de-la-tasa-usd-mxn -->` |
+     | **El PROVEEDOR DE PRECIO** (`price_provider`: enum, semántica de cada valor, **SEED**, y la prohibición de afirmar el **VIGENTE** de un entorno) *(v1.65)* | **`API_CONTRACT.md` §M10-PP** *(razón entera, que no se transcribe allí: `ARCHITECTURE §4.35a`)* | `<!-- CANON: proveedor-de-precio -->` |
+   - **⭐⭐ AMPLIACIÓN v1.65 — «EL VALOR NO CADUCA SOLO: CADUCA EL HECHO QUE EL VALOR NOMBRABA». La regla 8 también
+     gobierna los valores de clase (B) que se afirman con VERBOS DISTINTOS.** El caso que la origina no fue una
+     cuenta: fueron **dos frases sobre el mismo dial** —*«el **seed** debe dejar `tcgcsv_singles`»* (§4.36(d)) y
+     *«**valor vigente** = `tcgcsv_singles`»* (`API_CONTRACT §M10`)— que **parecían decir lo mismo y no lo decían**.
+     Ningún barrido por texto las habría cotejado: no discrepan en el valor, discrepan en **qué hecho afirman**.
+     ⇒ **Cuando un valor de configuración se menciona, la marca canónica debe cubrir el HECHO, no el literal**, y el
+     hecho se **nombra** (**PRIMARIO** / **SEED** / **VIGENTE**), como se nombran los términos en la ampliación
+     v1.63.4. *Un literal repetido en cinco sitios se detecta con grep; cinco frases que usan el mismo literal para
+     tres hechos distintos, no — y ésas son las que llegan a un gate como contradicción irresoluble.*
    - **⭐⭐ AMPLIACIÓN v1.63.4 — «ELIMINA O NOMBRA»: un número PELADO junto a un ENLACE es lo PEOR de las dos
      opciones, y es como esta regla se rompió TRES veces seguidas en una sola feature.** Medido en `§M2-F`: el
      resumen de cabecera decía *«**Cuatro** invariantes»* **y enlazaba a la lista que ya declaraba seis**; otro decía
@@ -12153,6 +12201,179 @@ implementado), sin migración, sin cambio de forma de contrato.
 
 ---
 
+### 4.35a EL SEED DEL DIAL `price_provider` — «SEED» y «VIGENTE» NO SON LA MISMA FRASE, y el seed «money-safe» era el que APLANA (v1.65, NORMATIVO, **DINERO**)
+
+> **Escalada regla 9 (QA → arquitecto), BLOQUEANTE-1 sobre P-47, 2026-09-10.** Contrato en `API_CONTRACT.md`
+> **v1.65**, sección nueva **§M10-PP** (fuente única). **⛔ Sin migración, sin endpoint nuevo, sin cambio de shape.**
+> **⛔ El arquitecto no toca código:** el arreglo de `settings.constants.ts` y del test es de **backend**, registrado
+> como desviación **`D-PP-1`** en §9.
+
+#### (a) El hecho que nadie estaba mirando: «el provider es X» son TRES afirmaciones, no una
+
+QA reportó una contradicción documento↔documento↔código y **tenía razón en los cinco sitios a la vez** — que es
+justo la señal de que el defecto no era ninguno de ellos. Puestos en fila, los textos dicen esto:
+
+| Sitio | Frase | Qué hecho afirma **de verdad** |
+|---|---|---|
+| `API_CONTRACT §M10` (v1.48) | *«valor **vigente** `tcgcsv_singles`»* | **VIGENTE** de producción |
+| `ARCHITECTURE §4.36(d)` bandera 3 | *«el **seed** debe dejar `tcgcsv_singles`»* | **SEED** |
+| `settings.constants.ts:307` | `PRICE_PROVIDER: 'pokemontcg_io'` | **SEED** (el literal que corre) |
+| `settings.validation.spec.ts:152` | *«default seed (`pokemontcg_io`)»* | **SEED** (fijado por test) |
+| `DEVOPS_NOTES §28/§28.6` | runbook de flip y de flip inverso | **VIGENTE**, y cómo se mueve |
+
+**Ninguna es falsa por sí sola. Lo falso es que se leyeran como la misma.** Un dial de configuración tiene tres
+hechos con dueños distintos, y el proyecto sólo tenía vocabulario para uno:
+
+1. **PRIMARIO** — qué proveedor es, **por norma**, la fuente del precio por-acabado. **Clase (A)**: lo decide el
+   contrato. Es lo que `§4.35` fijó en P-47.
+2. **SEED** — qué valor toma el dial en una **BD fresca** (CI, dev, staging recién aprovisionado, un restore de DR)
+   mientras nadie lo edite. **Es una decisión (A) cuyo literal vive en el código (B).**
+3. **VIGENTE** — qué valor tiene el dial **en un entorno concreto, hoy**. **Clase (B) pura, y además por entorno**:
+   no existe «el vigente» a secas, existe «el vigente de producción», «el de staging»…
+
+⚠️ **Por qué esto es peor que una copia rancia y por qué la regla 8 no lo atrapaba.** Las cinco frases **no
+discrepan en el literal**: discrepan en el **verbo**. Un barrido por `tcgcsv_singles` las encuentra todas y las
+declara coherentes. Sólo se rompe cuando alguien **ejecuta** el documento —levantar CI— y descubre que el sistema
+que se valida no es el que corre. ⇒ ampliación **v1.65** de §0-B.3 regla 8: *la marca canónica cubre el **hecho**,
+no el literal*.
+
+#### (b) La decisión: **CEDE EL CÓDIGO**. `I-PP1` — el SEED es el PRIMARIO (hoy ⇒ `tcgcsv_singles`)
+
+**Se me pidió argumentar por money-safe y no por antigüedad del texto. El argumento money-safe es exactamente el que
+invierte la conclusión heredada.**
+
+**La razón de v1.14 (2026-08-17) era buena y su objeto ya no existe.** El seed `pokemontcg_io` se eligió cuando el
+candidato a primario era **`pokemonpricetracker`**, un proveedor **de paga con esquema sin verificar**. Sembrar el
+legacy protegía contra *«desplegar contra un esquema que nadie ha visto»*. **`tcgcsv_singles` no es ese riesgo**: es
+el primario **desde P-47/v1.44**, con el gate operativo de §28.7 (*≥2 corridas programadas sin fallo*) consumado y
+un régimen diario estable observado en producción. **La premisa caducó; la frase, no.** *Esto no es antigüedad del
+texto: es que el peligro que el candado nombraba dejó de estar ahí.*
+
+**Y la razón decisiva, que va en el otro sentido: `pokemontcg_io` no es un seed money-safe. Es un ESCRITOR.**
+Aquí está el criterio que faltaba, y conviene enunciarlo como norma porque el proyecto ya tiene el contraejemplo
+correcto delante:
+
+> **Un seed money-safe debe ser INERTE —no escribe dinero— o el PRIMARIO validado. ⛔ Nunca un SEGUNDO escritor con
+> semántica distinta del primario.**
+
+- **`sealed_price_source = 'off'` es inerte** y por eso su seed **sí** es un candado: con `off` el job es no-op y
+  **no se escribe nada** (§4.19e). Fallar hacia «no hay dato» es fail-closed.
+- **`price_provider = 'pokemontcg_io'` no es inerte:** corre el barrido y **escribe `PriceReference`** — con un
+  `market` **único por carta, invariante al printing** (§4.35 preámbulo/(d)) ⇒ `normal`, `reverse_holo` y
+  `holofoil` reciben **el mismo precio**. Eso es **la regresión exacta que P-47 cerró**, y por `PROJECT §N.0`
+  (*precio de menos = carta perdida, irrecuperable*) es **el lado malo del sesgo de error**: la reverse y la holo
+  —las caras— se cotizan y se publican al precio de la normal.
+
+⇒ **El seed legacy no era el candado money-safe: era el riesgo llevando el nombre del candado.** Un entorno fresco
+no arrancaba «sin precios hasta que un humano decida»; arrancaba **con precios silenciosamente aplanados**.
+
+**Tres comprobaciones de que la decisión no mueve dinero de producción** (§0-B.3 regla 2 — se verifica contra el
+artefacto, no contra este párrafo; **el `DEFAULT` sólo se consulta cuando NO hay fila**):
+
+1. ✅ **MEDIDO, ya no deducido (2026-09-10):** el humano **leyó el dial en el panel M10 de producción** y devuelve
+   **`tcgcsv_singles`**. ⇒ producción **tiene fila** `ConfigSetting.price_provider` (con `DEFAULT = pokemontcg_io`,
+   ninguna otra cosa produce esa lectura) ⇒ **cambiar el `DEFAULT` no puede alterar producción**. *La deducción
+   previa —28,559 filas/día con `source='tcgcsv_singles'`— apuntaba al mismo sitio; se conserva porque son
+   evidencias independientes: una dice qué **está configurado**, la otra qué **está ocurriendo**, y coinciden.*
+   ⚠️ **Esto es un registro FECHADO, no una afirmación viva** (`I-PP2`): mañana lo autoritativo vuelve a ser la
+   lectura, no esta línea.
+2. El upsert del seed **no pisa un valor ya editado** (misma garantía que `pricing_curve`, §4.36.2/M-41.7).
+3. **Aun en el caso imposible** de que producción no tuviera fila, el cambio la llevaría **al primario**, que es la
+   norma vigente desde P-47. **No hay rama de este cambio que termine en un precio más bajo.**
+
+⚠️ **La medición NO mueve la decisión, y conviene decir por qué, porque parece que debería.** Confirma que
+`API_CONTRACT §M10` decía **verdad** al hablar del **vigente** —nunca estuvo en discusión que fuera rezagado— y
+confirma que **seed y vigente divergen legítimamente hoy**: `pokemontcg_io` sembrado, `tcgcsv_singles` corriendo.
+**Eso es exactamente el diagnóstico de (a), medido en vez de sospechado.** Lo que no hace es responder la pregunta
+de (b), que es **otra**: *¿con qué debe NACER un entorno nuevo?* Una divergencia que existe **no se justifica sola
+por existir**; la medición dice **que** divergen, y §4.35a(d) dice **por qué eso es un defecto** — es la brecha que
+QA midió.
+
+#### (c) Lo que la decisión **NO** rompe: `DEVOPS_NOTES §28` opera otro hecho
+
+El tercer documento parecía argumentar a favor del código, y **es el que más limpio queda al separar los hechos**:
+
+- **`I-PP3` — el rollback mueve el VIGENTE, nunca el SEED.** La palanca sigue siendo
+  `PUT /admin/settings { "priceProvider": "pokemontcg_io" }` (`super_admin`, auditado, sin redeploy, efecto en la
+  siguiente corrida). **Esa palanca no depende de qué valor se siembre**, y **§28.6 sobrevive intacto**.
+- **§28 (activación) es el registro fechado de una migración del VIGENTE en un entorno que ya existía** — 2026-08-24,
+  sobre una BD con historia. **Un runbook de flip nunca fue argumento sobre el seed:** describe cómo se mueve el
+  hecho 3. *Que exista un procedimiento para encender algo no dice nada sobre cómo debe nacer un entorno nuevo.*
+- **Lo que sí caduca es el adjetivo, no el procedimiento:** las frases de `DEVOPS_NOTES` que llaman al seed
+  *«money-safe»* (§19.5, §19.6 paso 3, §28.2) quedan **desactualizadas** — enrutado a devops en §9 (`D-PP-2`), y
+  **no las corrijo yo** (regla 5 de §0-B.3).
+
+⚠️⚠️ **El argumento más fuerte del otro lado, contestado de frente: *«seed legacy + flip deliberado ya se ejecutó
+con éxito una vez (2026-08-28); no es una hipótesis»*.** Es cierto, y **no sostiene la conclusión**, por dos razones
+que la propia medición deja a la vista:
+
+1. **Lo que el flip de agosto demostró es que la PALANCA funciona (`I-PP3`), que es cosa distinta de que el SEED
+   deba ser el legacy.** Se ejecutó **una vez**, **en el único entorno que tiene un humano mirándolo**, **con un
+   runbook escrito para él** y **sobre una BD que ya existía**. Ninguna de esas cuatro condiciones se cumple en un
+   `docker compose up` de CI. *Generalizar «funcionó en producción con un humano al mando» a «así deben nacer los
+   entornos» es justo el paso que produjo la brecha.*
+2. **El éxito no es simétrico: sólo se midió el lado bueno.** El flip que salió bien es el que iba **del legacy al
+   primario**. **Nadie ha medido el otro lado** — un entorno que se queda en el legacy porque nadie se acordó de
+   flipearlo—, **y ése es exactamente el que no avisa**: no falla, no alerta, **publica un número más bajo**. Un
+   mecanismo cuyo modo de fallo es *silencio con precio aplanado* no gana confianza por haber salido bien la vez
+   que alguien lo estaba mirando. **Y hoy hay una medición de ese lado: es la brecha de (d).**
+
+#### (d) LA BRECHA, con nombre: **el gate de release valida un barrido que no es el de producción**
+
+El daño que QA midió no es el valor del dial: es que **CI, dev y staging evalúan un proveedor distinto al de
+producción**. Con la medición del 2026-09-10 la brecha deja de ser potencial y queda **cuantificada**: producción
+`tcgcsv_singles`, todo entorno fresco `pokemontcg_io`. **Y alcanza al gate de seguridad y al de QA**, que es lo que
+la vuelve BLOQUEANTE y no una molestia de dev:
+
+- **La suite E2E y el smoke por-stream** ejercitan la capa REFERENCIA con el proveedor **que aplana**. Un test que
+  afirme *«reverse_holo con precio propio»* **no puede pasar** en CI, o —peor— **se escribió para pasar con el
+  aplanado**, y entonces el candado money-safe de §4.35(e)(4) está verde contra la conducta equivocada.
+- **El DAST contra staging** recorre superficies de dinero (cotizador, vitrina) alimentadas por un barrido que
+  **no es el de producción**. *Un gate que aprueba un sistema distinto del que se promueve no es un gate: es una
+  ceremonia.* ⇒ va a `DEVOPS_NOTES` (`D-PP-2`) y **debe verse en la fase de seguridad por release**.
+
+**Cómo se cierra, de forma permanente: `I-PP5` por construcción.** Con `I-PP1` la paridad **se cumple sin que nadie
+haga nada** — que es la única forma en que una paridad sobrevive. La alternativa que se me pidió evaluar (*«conservar
+el seed legacy y hacer del flip un paso obligatorio del arranque de staging»*) **la rechazo, y por una razón
+concreta, no por gusto**: es **el mismo mecanismo de divergencia con más pasos y un humano en medio**, y su modo de
+fallo —olvidarlo— **no produce ningún error**, produce **precios más bajos en silencio**. Añadir un paso obligatorio
+a un runbook es la clase de arreglo que funciona hasta el primer día con prisa. *Si la paridad hay que recordarla,
+no es una paridad: es una deuda con calendario.*
+
+**Si algún entorno necesitara de verdad otro proveedor** (p. ej. un staging sin salida a `tcgcsv.com`), se fija
+**explícitamente por el hecho 3** —`PUT /admin/settings`, auditado— y **se declara en `DEVOPS_NOTES`** como
+desviación consciente de ese entorno. ⛔ **Nunca por divergencia del seed**, que es una decisión sin autor y sin
+registro.
+
+⚠️ **La ventana de transición existe y hay que decirla, porque es donde vive la brecha AHORA.** Entre este dictamen
+y el aterrizaje de `D-PP-1`, CI y staging **siguen divergiendo**. Medida interina de **devops**: fijar el dial
+explícitamente en el aprovisionamiento de staging (hecho 3), **marcada como interina y con fecha de retiro = el
+merge de `D-PP-1`**. ⚠️ **Y se retira de verdad**: un apaño de provisión que sobrevive a la causa que lo justificó
+se convierte en la explicación de por qué el seed «no importa» — la misma doctrina que §0-B.3 regla 9(b), *un parche
+provisional sobre una ambigüedad no es provisional, porque nadie vuelve a quitarlo*.
+
+**Y el seed nuevo es MÁS fail-closed que el viejo, no menos:** si TCGCSV no responde en un entorno sin red, el
+barrido **no produce precio** y la celda queda `PRICE_PENDING`/«—» (`I-PP4`, §4.35(e)(4)). ⛔ **No hay caída
+automática a otro proveedor.** *Con el seed legacy, el mismo entorno no fallaba: publicaba un número equivocado —
+y un número equivocado no dispara ninguna alarma.*
+
+#### (e) Fuente única y reparto
+
+- **Fuente única del dial: `API_CONTRACT §M10-PP`** (`<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Allí
+  viven **enum, semántica, `I-PP1`…`I-PP5`**. **Este documento lleva la RAZÓN y no transcribe el enum**; §4.36(d)
+  bandera 3 pasa a **citar**. *El literal del seed no se re-escribe en ningún documento: `I-PP1` está enunciada como
+  **igualdad** (`seed = primario`) precisamente para que no pueda caducar cuando el primario cambie.*
+- **backend** (WS «Catálogo y precios»): ejecuta `D-PP-1` (§9) — seed, dos comentarios y un test. **Toca dinero y
+  zona compartida (`settings.constants.ts`) ⇒ triple veredicto**; el cambio es de **una línea de valor**, pero su
+  gate no es menor por ser pequeño.
+- **devops**: `D-PP-2` (§9) — la prosa de `DEVOPS_NOTES` que llama «money-safe» al seed legacy, y la verificación de
+  paridad de `I-PP5` en CI/staging.
+- **QA**: BLOQUEANTE-1 se cierra **cuando el test refleje `I-PP1`** y una BD fresca de CI arranque en el primario;
+  no antes, y no con un cambio sólo documental. ⚠️ **Mientras `D-PP-1` siga abierta, el literal que corre es
+  `pokemontcg_io`** y este documento es la norma que lo obliga, no su descripción.
+
+---
+
 ### 4.36 Fusión pricing v2 — DOS CAPAS ORTOGONALES: REFERENCIA (`tcgcsv_singles`, P-47) × REGLA (curva v2) (v1.49, DICTAMEN DE FUSIÓN, NORMATIVO)
 
 > **Escalada regla 9 (backend) — dictamen de fusión de la rama v2 `origin/claude/card-pricing-rules-2e537m`.** La rama v2
@@ -12233,8 +12454,15 @@ retirado. Backend/QA deben barrer y RESTABLECER en el merge:
    `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`. Si v2 lo redujo a dos valores, **restaurar** `tcgcsv_singles`.
 2. **`enum PriceSource`** (Prisma / `common/`): debe conservar el valor `tcgcsv_singles` (M-31). Si v2 lo eliminó del enum
    o de su union TS, **restaurar** (borrarlo rompería la lectura de `PriceReference` históricas y §4.27f).
-3. **Seed / `ConfigSetting`**: el seed de `PRICE_PROVIDER` debe dejar `tcgcsv_singles` como primario (§4.35/§M10). Si el
-   seed v2 lo cambió a `pokemontcg_io`/`pokemonpricetracker`, **restaurar**.
+3. **Seed / `ConfigSetting`**: ⚠️⚠️ **v1.65 — ESTA BANDERA SE REESCRIBE PARA CITAR, NO PARA AFIRMAR.** Decía *«el seed
+   de `PRICE_PROVIDER` debe dejar `tcgcsv_singles` como primario … si el seed v2 lo cambió a `pokemontcg_io`,
+   restaurar»*, y **fue la mitad documental de la BLOQUEANTE-1 de QA**: afirmaba un **SEED** apoyándose en secciones
+   que hablaban del **VIGENTE**, y describía como «restaurar» un valor que **el código nunca tuvo** *(el seed
+   `pokemontcg_io` es de v1.14, anterior a la rama v2: no lo introdujo ninguna fusión)*. **La norma del seed vive en
+   `API_CONTRACT §M10-PP` (`I-PP1`: el seed ES el primario) y la razón en §4.35a. Aquí se cita y no se transcribe**
+   (§0-B.3 regla 8). **Para el merge, lo exigible es:** que la fusión **no reduzca el enum** ni retire el primario
+   (banderas 1 y 2), y que **cualquier toque al seed cumpla `I-PP1`**. ⛔ **El literal del seed no se decide en esta
+   lista.**
 4. **Registro de providers** (módulo NestJS / factory de `providerFor`): el proveedor debe estar en el array de providers
    inyectables; si v2 lo quitó del módulo, **re-registrarlo**.
 5. **Tests**: cualquier test v2 que asserte `providerFor()` == `[pptBulk, tcgIoBulk]` o que `tcgcsv_singles` ya no existe
@@ -21864,6 +22092,43 @@ Riesgos técnicos:
 > en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
 > nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
 
+- **🔴 ABIERTA (v1.65) — `D-PP-1`: EL SEED DE `price_provider` CONTRADICE LA NORMA `I-PP1`, Y UN TEST LO FIJA.**
+  **Dueño del arreglo: backend** (WS «Catálogo y precios»). **⛔ No lo toco yo** (regla 8 de `CLAUDE.md`). Razón
+  entera: **§4.35a**; norma: **`API_CONTRACT §M10-PP`**. **Toca dinero + zona compartida ⇒ triple veredicto.**
+  - **Qué dice el código hoy, verificado:** `backend/src/modules/settings/settings.constants.ts:307` →
+    `[SettingKey.PRICE_PROVIDER]: 'pokemontcg_io'`, con el comentario *«SEED `pokemontcg_io` por seguridad (rollout
+    money-safe)»*; el comentario de `PRICE_PROVIDER_VALUES` (`:461`) repite *«el default sigue en `pokemontcg_io`»*;
+    y `backend/test/settings.validation.spec.ts:152` **fija** ese literal (*«returns priceProvider with its default
+    seed (pokemontcg_io) when no DB row exists»*).
+  - **Por qué es un defecto y no una preferencia:** `pokemontcg_io` **escribe** `PriceReference` con un `market`
+    **aplanado** (mismo precio a `normal`/`reverse_holo`/`holofoil`) ⇒ toda BD fresca —CI, dev, staging— arranca en
+    **el lado irrecuperable** del sesgo de error (`PROJECT §N.0`) y **valida un barrido distinto al de producción**
+    (medido: producción corre el primario, §4.35a(b)(1)). *El adjetivo «money-safe» del comentario es hoy falso: el
+    seed money-safe sería uno INERTE, y éste no lo es.*
+  - **Alcance del arreglo — pequeño y money-crítico a la vez:** (1) el literal del seed pasa a **`tcgcsv_singles`**;
+    (2) los **dos comentarios** dejan de llamar «money-safe» al legacy y **citan `§M10-PP`/`I-PP1`** en vez de
+    repetir el valor; (3) el **test** se reescribe para asertar **`I-PP1`** *(seed == primario)* — ⚠️ **preferible a
+    cambiar `'pokemontcg_io'` por `'tcgcsv_singles'` en la cadena**, que sólo mueve la copia de sitio. ⛔ **Ni una
+    línea del `providerFor()` ni del enum**: no se retira `pokemontcg_io` del enum (`I-PP3`, sigue siendo la palanca
+    de rollback).
+  - **Precondición de verificación antes del merge** (§4.35a(b)): confirmar que producción **tiene** la fila
+    `ConfigSetting.price_provider`. ✅ **Leída el 2026-09-10 en el panel M10** ⇒ el cambio del `DEFAULT` **no puede**
+    alterar producción. Si en el merge apareciera **ausente**, **se reporta antes de tocar nada**.
+
+- **⚠️ ABIERTA (v1.65) — `D-PP-2`: `DEVOPS_NOTES` LLAMA «MONEY-SAFE» AL SEED QUE APLANA, Y EL GATE DE STAGING
+  VALIDA OTRO BARRIDO.** **Dueño del arreglo: devops.** **⛔ No escribo en `DEVOPS_NOTES.md`.** Razón: **§4.35a(c)/(d)**.
+  - **Prosa a corregir (no procedimiento):** las frases de §19.5, §19.6 (paso 3, *«sembrar `PRICE_PROVIDER=pokemontcg_io`
+    (money-safe)»*) y §28.2 que presentan el **seed** legacy como candado. **§28.6 (rollback) NO se toca: sigue
+    íntegro y correcto** — opera el **VIGENTE** (`I-PP3`), que es otro hecho. §28 queda como **registro fechado** de
+    una activación consumada, no como norma sobre cómo nace un entorno.
+  - **Brecha operativa, que es la parte que no se arregla sola:** **el DAST contra staging y la suite E2E validan un
+    barrido que no es el de producción** mientras `D-PP-1` siga abierta. **Medida interina:** fijar el dial
+    explícitamente en el aprovisionamiento de staging (hecho 3), **marcada como interina y con retiro atado al merge
+    de `D-PP-1`** — ⚠️ y **retirada de verdad entonces** (§0-B.3 regla 9(b)).
+  - **Aviso a `.env.example`:** ⚠️ **`PRICE_PROVIDER` como variable de entorno NO flipea nada** (`DEVOPS_NOTES §23.8`,
+    ya documentado por devops); la autoridad es el `ConfigSetting`. **Esa trampa no la toca este pase** y conviene
+    releerla al aplicar la medida interina, para no «fijar» el dial en un sitio que nadie lee.
+
 - **⚠️ ABIERTA (v1.64) — `D-IVA-4`: EL COMENTARIO QUE GOBIERNA DOS VALIDADORES DE DINERO PUBLICA UN ESTADO FALSO
   DE D54.** **Dueño del arreglo: backend** (`backend/src/modules/settings/settings.constants.ts`, el bloque de
   `validateIvaPct`, líneas ~644-653, y su gemelo en `validateAportacionPct`). **⛔ No lo toco yo.**
@@ -23593,9 +23858,14 @@ este documento y con `API_CONTRACT.md`.
   *required* en prod (recomendado cuando `PRICE_PROVIDER=pokemonpricetracker`).
 - **v1.14-3 (devops) — cadencia y horarios del `price-ingest` (1–2×/día).** Default propuesto: **2×/día** alineado con
   el `fx-refresh` (FX fresco antes de convertir). ¿Confirmar horas? ¿1×/día basta para el negocio? Scheduling = **devops**.
-- **v1.14-4 (rollout, money-safe) — seed del dial `PRICE_PROVIDER`.** Default recomendado: **`pokemontcg_io`** al
+- **v1.14-4 (rollout, money-safe) — seed del dial `PRICE_PROVIDER`.** ~~Default recomendado: **`pokemontcg_io`** al
   desplegar (sin cambio de fuente; el job ya es robusto) y **flip a `pokemonpricetracker`** tras verificar v1.14-1.
-  Alternativa: sembrar `pokemonpricetracker` desde el arranque (la key ya está en Railway). Confirmar la secuencia.
+  Alternativa: sembrar `pokemonpricetracker` desde el arranque (la key ya está en Railway). Confirmar la secuencia.~~
+  ⛔ **CERRADA y SUPERSEDIDA por v1.65 (§4.35a):** la norma del seed es **`I-PP1` — el seed ES el primario**, y vive
+  en **`API_CONTRACT §M10-PP`** (fuente única). ⚠️ **La recomendación tachada era correcta EN SU CONTEXTO** —el
+  candidato a primario era entonces un proveedor **de paga sin esquema verificado**— y **dejó de serlo cuando el
+  primario pasó a ser `tcgcsv_singles`** (P-47/v1.44), que **no** es ese riesgo. *Este párrafo es la fuente que se
+  citaba de buena fe para sostener el seed legacy; se deja tachado y no borrado para que se vea de dónde venía.*
 - **v1.14-5 (alcance) — ¿el proveedor de paga precia también GRADEADAS (PSA) en WS-A?** La respuesta bulk trae eBay/**PSA**.
   WS-A se acota a **raw market + variantes** (`raw:NM`, el barrido que hoy se cae). Preciar gradeadas (`graded:PSA:<grade>`)
   con el mismo proveedor es una **extensión natural** (misma respuesta bulk) pero **fuera del core de WS-A**; queda como

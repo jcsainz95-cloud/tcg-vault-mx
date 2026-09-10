@@ -2,8 +2,42 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.64(4)**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.65**).
 >
+> **Changelog v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED MONEY-SAFE ERA EL QUE APLANA
+> (2026-09-10, arquitecto).** Base: **v1.64(4), vigente entera**. **⛔ CERO DDL, cero endpoints nuevos, cero cambios
+> de shape de DTO.** Resuelve la **BLOQUEANTE-1 de QA sobre P-47** (regla 9). Razón entera: `ARCHITECTURE §4.35a`.
+>
+> **1. ⭐⭐ SECCIÓN NUEVA [`§M10-PP`](#M10-PP), FUENTE ÚNICA del dial `price_provider`**
+> (`<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). El enum, la semántica de cada valor y el seed **estaban
+> repetidos en cinco sitios con dos valores distintos** (§M10, Changelog v1.14, Changelog v1.48,
+> `ARCHITECTURE §4.36(d)`, y el código). **Se retiran de los cuatro documentos y quedan en uno**; los demás citan.
+>
+> **2. ⭐ EL DEFECTO NO ERA «QUÉ VALOR», ERA QUE «EL PROVIDER ES X» SON TRES AFIRMACIONES.** **PRIMARIO** (norma,
+> clase A, la fija este contrato), **SEED** (arranque de BD fresca) y **VIGENTE** (fila `ConfigSetting` de UN entorno,
+> clase B, **se lee, no se cita**). El contrato decía *«valor vigente `tcgcsv_singles`»*, `ARCHITECTURE` leyó *«seed
+> `tcgcsv_singles`»* y `DEVOPS_NOTES` operaba el **vigente**: **tres roles con razón y un solo texto**.
+>
+> **3. 🔴 DECISIÓN — CEDE EL CÓDIGO: `I-PP1`, EL SEED ES EL PRIMARIO.** Un seed money-safe debe ser **INERTE** o
+> **el PRIMARIO validado**; **`pokemontcg_io` no es ninguna de las dos**: **escribe** —y escribe **aplanado**
+> (un `market` por carta ⇒ reverse/holo al precio del normal)—, que por `PROJECT §N.0` es **el lado irrecuperable**
+> del sesgo de error. **Sembrar el legacy no era el candado: era el riesgo con el nombre del candado.**
+> ⇒ **Backend cambia el seed y el test** (desviación **`D-PP-1`**, `ARCHITECTURE §9`); ⛔ **el arquitecto no toca código**.
+>
+> **4. `I-PP2` — ⛔ NINGÚN DOCUMENTO AFIRMA EL VIGENTE DE UN ENTORNO;** y **`I-PP3` — el rollback mueve el VIGENTE,
+> nunca el SEED**, así que el runbook de `DEVOPS_NOTES §28` **no es argumento a favor del seed legacy**: opera otro
+> hecho. **§28.6 (rollback) sobrevive intacto**; §28 pasa a ser **registro fechado** de una activación consumada.
+> ⚠️ **Medido el 2026-09-10** (panel M10 de producción): **seed y vigente divergen de verdad**. Eso confirma el
+> diagnóstico —son dos hechos— y **no responde** la pregunta del seed, que es *«¿con qué NACE un entorno nuevo?»*.
+>
+> **5. ⚠️ `I-PP5` — LA BRECHA QUE QA MIDIÓ, Y QUE ALCANZA AL GATE DE SEGURIDAD.** E2E, smoke y **DAST contra
+> staging** ejercitan hoy **el proveedor que aplana**, no el de producción: *un gate que aprueba un sistema distinto
+> del que se promueve no es un gate*. `I-PP1` cierra la paridad **por construcción**. ⛔ Se **rechaza** la alternativa
+> de sembrar el legacy y volver el flip un paso obligatorio del arranque de staging: mismo mecanismo de divergencia
+> con un humano en medio, y su modo de fallo es **precio más bajo en silencio**. Ventana de transición y medida
+> **interina con fecha de retiro**: `ARCHITECTURE §9`, `D-PP-2` (devops).
+>
+> ---
 > **Changelog v1.64(4) — EL DUEÑO CONTESTA 68, 69 Y 70; UNA CONTRADICE MI RECOMENDACIÓN Y TIENE RAZÓN
 > (2026-09-10, arquitecto).** Base: **v1.64(3), vigente entera**. Razón entera: `ARCHITECTURE §4.44.f-ter`.
 > ⚠️ **Reabre `M-50` con UNA columna aditiva** y ⛔ **no cambia la promesa de D-1**.
@@ -2906,7 +2940,8 @@
 >
 > **— DOS CAPAS DE PRECIO (NORMATIVO). —** El precio de un single se produce en dos capas independientes que no se pisan:
 > 1. **Capa REFERENCIA (per-acabado):** el **precio de mercado por `(carta, finish, cardProductId)`** lo puebla el barrido
->    diario desde **TCGCSV `tcgcsv_singles`** (§4.35, P-47), provider **PRIMARIO**. `tcgcsv_singles` **PERMANECE** como
+>    diario desde **TCGCSV `tcgcsv_singles`** (§4.35, P-47), provider **PRIMARIO** *(⚠️ v1.65: enum, semántica y seed
+>    del dial ya no se transcriben en ningún changelog — fuente única [`§M10-PP`](#M10-PP))*. `tcgcsv_singles` **PERMANECE** como
 >    fuente per-acabado **precisamente porque PPT/pokemontcg.io aplanan** —exponen UN solo `market` a nivel carta,
 >    invariante al printing (§4.35(d))—; retirarlo re-aplana normal/reverse/holo al mismo precio (la regresión que P-47
 >    cerró). Ancla: **§4.35** (referencia per-acabado, `tcgcsv_singles` primario) + **§4.27f-2** (override manual = tier
@@ -2942,6 +2977,14 @@
 > money-safe**; `pokemonpricetracker` = **fallback**. **No cambia la forma del DTO** (el campo ya existe en `GET/PUT
 > /admin/settings`), no añade endpoint ni migración; solo alinea §M10 con las secciones P-47 y con `PRICE_PROVIDER_VALUES`.
 > **Base previa:** v1.47-manual-override-perennial-candidate.
+>
+> > ⚠️⚠️ **NOTA DE VIGENCIA (v1.65) — ESTA ENTRADA ES EL EJEMPLO DE LO QUE [`§M10-PP`](#M10-PP) PROHÍBE, Y SE DEJA
+> > ESCRITA POR ESO.** v1.48 acertó el diagnóstico (§M10 estaba desactualizada) y erró el método: **volvió a copiar el
+> > enum y la semántica en un sitio más** en lugar de dejarlos en uno solo. Diecisiete días después, este mismo párrafo
+> > —junto con `ARCHITECTURE §4.36(d)`— era la evidencia que se citaba para afirmar un **SEED** que el código nunca
+> > tuvo; y «vigente» aquí nunca quiso decir «sembrado». **Enum, semántica y seed viven ahora SOLO en §M10-PP**
+> > (`<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). *La corrección de v1.48 sigue siendo cierta como historia;
+> > su método, no.*
 >
 > **Changelog v1.47-manual-override-perennial-candidate (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementa BACKEND.
 > Re-gate seguridad + techlead sobre P47-2, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
@@ -4114,11 +4157,13 @@
 >   el ingest masivo (fan-out BullMQ **un job por set**; reanudable). Acepta **`setId?`** opcional (excepción al body-vacío
 >   de la familia, justificada: verificar el esquema del proveedor en la 1ª corrida con un solo set). **Toca dinero**
 >   (mueve precios de referencia). Equivale a la corrida programada 1–2×/día.
-> - **M10 settings (NUEVO dial):** `GET/PUT /api/v1/admin/settings` gana **`priceProvider`** (`price_provider`,
->   ~~`pokemonpricetracker | pokemontcg_io`~~ **enum vigente `tcgcsv_singles | pokemonpricetracker | pokemontcg_io`
->   — actualizado v1.48; ver §M10 y Changelog v1.48**) — selecciona el proveedor de ingest **sin redeploy** (palanca de
->   rollback money-safe). ~~Seed recomendado `pokemontcg_io` … flip a `pokemonpricetracker`~~ *(superado por P-47/v1.44:
->   provider primario vigente = `tcgcsv_singles`)*. Editable por `PUT /admin/settings` parcial; auditado (`settings.update`).
+> - **M10 settings (NUEVO dial):** `GET/PUT /api/v1/admin/settings` gana **`priceProvider`** (`price_provider`) —
+>   selecciona el proveedor de ingest **sin redeploy**. Editable por `PUT /admin/settings` parcial; auditado
+>   (`settings.update`). ⚠️⚠️ **v1.65: el enum, la semántica y el SEED que esta entrada describía se han RETIRADO de
+>   aquí y viven en [`§M10-PP`](#M10-PP)** (`<!-- CANON: proveedor-de-precio -->`). *Lo que esta entrada registra —y
+>   sigue siendo cierto **como historia de 2026-08-17**— es que el dial NACIÓ con seed `pokemontcg_io` y flip previsto
+>   a `pokemonpricetracker`. ⛔ **No es afirmación sobre el ahora** (§0-B.3 regla 8, excepción del changelog); el ahora
+>   lo fija `I-PP1` y el vigente de cada entorno se LEE (`I-PP2`), no se cita de un changelog.*
 > - **FX / colchón (#13):** `PUT /api/v1/admin/fx` gana **`rate?` opcional** — si se omite `rate`, actualiza **solo** el
 >   colchón (`bufferPct`) y **NO** ~~pinnea~~ **FIJA** el override manual de tasa (~~hoy exige ambos y congela la tasa auto de Banxico~~).
 >   *(⚠️ **v1.63.2:** el verbo se corrige —desde v1.63.1 **«pinnear» está reservado al MODO**, I-FX2— y *«hoy exige
@@ -15723,7 +15768,7 @@ Err `403`, `400 VALIDATION_ERROR`.
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
 - ⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
   `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**. Ver §M10-IVA.
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48:** `priceProvider` (`price_provider`, enum **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**, valor vigente **`tcgcsv_singles`** desde P-47/v1.44) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy → palanca de **rollback money-safe** del proveedor. Validado contra el enum del backend (**`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`**); `422 VALIDATION_ERROR` si es otro valor. **Semántica de los tres valores (P-47/v1.44, ARCHITECTURE §4.35):** `tcgcsv_singles` = **provider PRIMARIO** del precio **por-acabado** diario (reprecia desde TCGCSV, FX Banxico, respeta `isManualOverride`, no escribe estructura); `pokemontcg_io` = **legacy/rollback money-safe** (fuente previa, congelable sin escritura de estructura); `pokemonpricetracker` (PPT bulk) = **fallback**. **Nota histórica:** el seed original v1.14 era `pokemontcg_io` con flip previsto a `pokemonpricetracker` (decisión abierta v1.14-1/v1.14-4); ese flip quedó **superado** por el switch a `tcgcsv_singles` (P-47/v1.44), hoy el provider primario del barrido. **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
 - ⚠️⚠️ **v1.63 (§M2-F) — `fxManualOverrideRate` SIGUE en este DTO, pero ESTE `PUT` ya no decide si la tasa manual
   RIGE.** Desde v1.63 eso lo decide el ajuste **`fx_rate_mode`**, que ⛔ **NO se expone aquí y NO se edita por este
   endpoint** (enviar `fxRateMode` en el body cae en `422 VALIDATION_ERROR` como cualquier clave desconocida, mismo
@@ -16025,6 +16070,67 @@ Err `403`, `400 VALIDATION_ERROR`.
   [`PUT /admin/settings/iva-transfer`](#M10-IVA)**, la que impone el **acuse del costo en pesos** que exige el
   criterio **188** de `PROJECT.md`. ⛔ `ivaPct` (la **TASA**) **sigue editándose aquí y no cambia**: son **dos diales
   independientes** y ninguno deriva del otro (`ARCHITECTURE §4.44.g`, candado `IVA-7`).
+
+<a id="M10-PP"></a>
+#### ⚠️⚠️ §M10-PP — EL PROVEEDOR DE PRECIO: **PRIMARIO**, **SEED** y **VIGENTE** son hechos DISTINTOS (v1.65, **NORMATIVO, DINERO**, FUENTE ÚNICA; razón entera en `ARCHITECTURE §4.35a`)
+
+<!-- CANON: proveedor-de-precio · única fuente · ver ARCHITECTURE §0-B.3 regla 8 · razón entera en ARCHITECTURE §4.35a -->
+
+> ⛔ **Ésta es la ÚNICA sección del proyecto que afirma algo sobre el dial `price_provider`.** §M10 (arriba), el
+> Changelog v1.14, el Changelog v1.48, `ARCHITECTURE §4.35/§4.36`, `DEVOPS_NOTES §19/§23/§28`, los comentarios de
+> `settings.constants.ts` y cualquier test **la CITAN y no la transcriben** (§0-B.3 regla 8). *Nace de una
+> contradicción medida en tres documentos y el código a la vez, con dos valores distintos repetidos en cinco
+> sitios; el arreglo no es elegir el valor bueno y volver a copiarlo cinco veces.*
+
+**El defecto de fondo, dicho con precisión: «el provider es X» no es UNA afirmación, son TRES**, con dueños de verdad
+distintos. Mezclarlas en una frase es lo que hizo que un documento y el código pudieran ser ambos «correctos» a la vez:
+
+| # | Hecho | Qué afirma | Fuente de verdad | Clase (§0-B.2) |
+|---|---|---|---|---|
+| **1** | **PRIMARIO** | Qué proveedor es, **por norma**, la fuente del precio de mercado **por-acabado** | **Este contrato** (bloque «Enum y semántica», abajo) | **(A) Decisión** |
+| **2** | **SEED** | Qué valor tiene el dial en una BD **fresca** (CI, dev, staging recién aprovisionado, DR) mientras nadie lo edite | **La REGLA `I-PP1` de abajo**; el **literal** se lee en `backend/src/modules/settings/settings.constants.ts` (`DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]`) | REGLA **(A)** + literal **(B)** |
+| **3** | **VIGENTE** | Qué valor tiene el dial **en un entorno concreto, hoy** | **La fila `ConfigSetting.price_provider` de ESE entorno**, leída por `GET /api/v1/admin/settings` | **(B) Descripción** |
+
+**Enum y semántica (hecho 1 — DECISIÓN de este contrato).** Enum válido:
+**`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**. Un valor fuera del enum ⇒ **`422 VALIDATION_ERROR`**.
+- **`tcgcsv_singles` — PROVIDER PRIMARIO.** Es la **única** fuente del proyecto que produce un precio **distinto por
+  acabado** (por `cardProductId`; reprecia a diario desde TCGCSV con FX Banxico, respeta `isManualOverride`, **no**
+  escribe estructura). `ARCHITECTURE §4.35` / §4.36 (capa REFERENCIA).
+- **`pokemontcg_io` — LEGACY.** ⚠️ **Aplana:** expone **un solo `market` a nivel carta**, invariante al printing ⇒ con
+  este valor, `normal`/`reverse_holo`/`holofoil` reciben **el mismo precio**. Sigue siendo un valor **válido** del enum
+  (palanca de rollback operativo, `I-PP3`), pero **⛔ ya no se describe como «el seed money-safe»**: ver `I-PP1`.
+- **`pokemonpricetracker` (PPT bulk) — FALLBACK.** Aplana igual (API v2, un `market` por carta).
+
+**Invariantes del dial (v1.65). Se citan por su id; no se re-escriben fuera de aquí.**
+- **`I-PP1` — EL SEED ES EL PRIMARIO.** El valor sembrado en una BD fresca **es, por norma, el provider PRIMARIO**
+  (hoy ⇒ `tcgcsv_singles`). ⛔ **No existe un «seed money-safe distinto del primario».** *La regla se escribe como
+  IGUALDAD y no como literal a propósito: así no puede caducar cuando el primario cambie, y ningún documento
+  necesita volver a copiar el valor.* **Razón money-safe completa en `ARCHITECTURE §4.35a(b)`**; en una línea: un
+  seed money-safe debe ser **INERTE** (no escribe dinero, p. ej. `sealed_price_source = off`) **o el PRIMARIO
+  validado** — **nunca un SEGUNDO escritor con semántica distinta**, que es lo que `pokemontcg_io` es hoy.
+- **`I-PP2` — ⛔ NINGÚN DOCUMENTO AFIRMA EL VALOR VIGENTE DE UN ENTORNO.** Frases como *«el valor vigente es X»* o
+  *«producción corre X»* están **prohibidas** en `API_CONTRACT.md`, `ARCHITECTURE.md` y las `*_NOTES.md`: el vigente
+  es clase (B) **por entorno** y se **lee** de `GET /api/v1/admin/settings` (o de la fila `ConfigSetting`). Lo que sí
+  se registra es un **evento fechado** (*«el 2026-08-24 se flipeó producción a `tcgcsv_singles`»*) — historial, no
+  afirmación sobre el ahora; misma excepción que el changelog en §0-B.3 regla 8.
+- **`I-PP3` — EL ROLLBACK MUEVE EL VIGENTE, NUNCA EL SEED.** `PUT /api/v1/admin/settings { "priceProvider": … }`
+  (`super_admin`, auditado `settings.update`, sin redeploy, efecto en la siguiente corrida del job) es la palanca de
+  rollback. **Cambiar el seed no es un rollback** y **un rollback no cambia el seed**. *Corolario: que exista un
+  runbook de flip no es argumento para sembrar el legacy — el runbook opera el hecho 3, el seed es el hecho 2.*
+- **`I-PP4` — SIN DATO ⇒ PENDIENTE, JAMÁS EL PRECIO DE OTRO ACABADO.** Si el primario no produce precio para un
+  acabado, la celda es `PRICE_PENDING`/«—» (`ARCHITECTURE §4.35(e)(4)`). ⛔ **No hay caída automática a otro
+  proveedor**: fallar es fail-closed; aplanar es una pérdida irrecuperable (`PROJECT §N.0`, sesgo de error).
+- **`I-PP5` — PARIDAD DE ENTORNOS.** CI, dev y staging **evalúan el mismo proveedor que producción**. Con `I-PP1` eso
+  se cumple **sin acción de nadie**; si algún entorno necesita otro valor, se fija **explícitamente** por el hecho 3
+  y **se dice en `DEVOPS_NOTES`**, nunca por divergencia del seed.
+
+⚠️ **Nota de vigencia (v1.65).** `I-PP1` **describe la norma, no necesariamente el literal que hoy corre**: el
+backend fue notificado de que `DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]` aún dice `pokemontcg_io` y de que hay un
+test que lo fija (`ARCHITECTURE §9`, desviación **`D-PP-1`**). **Mientras esa desviación siga abierta, el literal del
+código es el hecho observable y este contrato es la norma que lo obliga** — y el modo de comprobarlo es leer el
+fichero, no releer este párrafo (§0-B.3 regla 2).
+
+<!-- /CANON: proveedor-de-precio -->
 
 <a id="M10-IVA"></a>
 #### ⚠️⚠️ §M10-IVA — EL DIAL DE TRASLACIÓN DEL IVA (v1.64, **NORMATIVO, DINERO**; `PROJECT §Q` / **D54**, `ARCHITECTURE §4.44`)
