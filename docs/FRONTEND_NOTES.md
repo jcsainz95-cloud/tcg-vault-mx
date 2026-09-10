@@ -15182,3 +15182,98 @@ candado nuevo, **rojo** después.
 **No medido, y por lo tanto no afirmado:** nada de esto corrió contra el **backend real** — la capa de
 API va en modo fixtures. Es fiel para todo lo que se afirma aquí (copy, ramas de render, conteo de
 controles, foco), pero no ejercita el desglose que compone el servidor.
+
+---
+
+## P-XX · `mail-mira-180.png`: el asset que los ocho correos pedían y nunca se dejó
+
+### 1. El síntoma y la causa
+
+El dueño no veía el logo en la previsualización de los correos. `mail-shell.ts` (backend) resuelve
+`MAIL_MIRA_URL` a `https://tcghunt.mx/branding/mail-mira-180.png` y ese fichero **no existía**:
+`frontend/public/branding/` solo tenía `og-tcg-hunt.svg`. La petición estaba escrita en
+**DESIGN_SYSTEM §31.5(b)** («Petición a frontend») y nunca se ejecutó. Es un asset que faltaba, no
+un bug de código: **no se tocó ni una línea de TS** en este pase.
+
+### 2. ⭐ Por qué NO se copió `apple-icon.png` tal cual
+
+§31.5(b) se contradice a sí mismo y hay que leerlo entero:
+
+- dice **«El asset: `frontend/src/app/apple-icon.png` … copiarla a `public/branding/`»**, y
+- dice **«⛔ Sin degradado: la mira va sólida `#B31217` — el degradado de §17.2 es de marca a tamaño
+  grande y no sobrevive al correo»**.
+
+**`apple-icon.png` lleva degradado.** Se midió píxel a píxel: la tinta va de **`#991114`**
+(arriba-izquierda) a **`#630E0F`** (abajo-derecha) y **ningún píxel del fichero es `#B31217`**. Es lo
+correcto para lo que ese fichero es —§17.3 fila «Favicon» pide para apple-touch la solo-mira **«con
+degradado» sobre papel**— y es exactamente lo que el correo prohíbe. Copiar sin mirar habría metido
+en los ocho correos la variante que §31.5(b) veta.
+
+Manda la regla concreta del correo (§31.5b) sobre la frase de conveniencia de la misma sección.
+
+### 3. Lo que sí se hizo: **recolorear**, no redibujar
+
+Se conserva la geometría **exacta** del ráster existente (la solo-mira §17.1b, `LogoTcgHunt`
+variante `mark`) y se sustituye solo el color. Método: el canal **verde** es un estimador limpio de
+cobertura, porque a lo largo del degradado el verde de la tinta plena vive en **14–16** (rango de
+2/255) mientras el rojo se mueve de 99 a 153. Con `alfa = (241 − G) / (241 − 15)` se recompone
+`alfa · #B31217` sobre `#F4F1EA`.
+
+⛔ **No se redibujó la mira** y no se tocó `LogoTcgHunt.tsx`: rehacer la retícula desde el vector
+habría cambiado el rasterizado (arcos, antialias) sin que nadie lo pidiera, y **rediseñar es de
+ux-ui**, no de frontend.
+
+**Verificado sobre el fichero producido:**
+
+| Comprobación | Resultado |
+|---|---|
+| Dimensiones | **180×180**, lo que pide §31.5(b) (@2.5x sobre los 72px de uso) |
+| Geometría | bbox `18,19 → 158,156` — **idéntica** a la de `apple-icon.png` |
+| Tinta plena | **`#B31217`** exacto (4029 px) |
+| ¿Degradado? | **No.** Los 195 colores del fichero caen a **≤0.78/255** de la recta papel→`#B31217`: es bitono con antialias |
+| Fondo | `#F4F1EA` opaco == token `PAPER` de `mail-shell.ts` |
+| Alfa | **eliminado** (el original era RGBA con 0 px translúcidos: un canal inútil que solo da ocasión a que un cliente lo componga contra blanco o negro) |
+| Peso | 4.227 bytes (el original pesaba 6.785) |
+
+### 4. Fondo opaco a propósito (y qué pasa en modo oscuro)
+
+El PNG lleva **papel opaco**, no transparencia. Es deliberado: la `<td>` que lo envuelve ya es
+`bgcolor="#F4F1EA"`, así que sobre papel la costura es invisible; y si el fichero fuese transparente,
+un cliente que invierta a oscuro pintaría **bermellón sobre tinta**, que es justo el par prohibido de
+§17.2 (2.5:1) — la mira desaparecería. Con papel opaco la mira se ve **siempre**. El coste conocido y
+aceptado es que en un cliente que fuerce oscuro queda un cuadro claro de 72px; el correo declara
+`color-scheme:light` (§31.8), así que el cliente que respeta la señal no llega a ese caso.
+
+### 5. Contraste
+
+Sobre papel `#F4F1EA`, `#B31217` da **6.17:1** (el tono más claro del degradado original daba
+**3.63:1**). El recoloreado no solo cumple §31.5(b): **se ve mejor** que el candidato que se iba a
+copiar.
+
+### 6. Con imágenes BLOQUEADAS (§31.5a / candado ML-1)
+
+Se miró la previsualización con el `src` roto a propósito. **El correo no queda decapitado**: siguen
+el wordmark `TCG HUNT` (Georgia 30px, texto vivo), el `.mx`, las dos rayas del lockup y la regla — que
+es literalmente lo que §31.5(a) promete («el boceto del dueño menos la mira»).
+
+⭐ **El `alt=""` de `mail-shell.ts:171` es CORRECTO y no se pide cambiarlo.** §31.5(a) lo exige
+(«la mira lleva `alt=""`, decorativa») y **ML-1 caza por ablación** precisamente la mutación de meter
+`TCG HUNT` en el `alt`, porque Outlook de escritorio pinta el `alt` estilizado como un recuadro con
+una cruz roja y la marca pasaría a depender del cliente. **Poner texto en ese `alt` sería el bug, no
+el arreglo.**
+
+### 7. Lo que se vio de paso y NO es de frontend
+
+En la previsualización, las **dos rayas** del bloque de marca no son rayas: se renderizan como
+**bloques grises de 216×72** (medido con Playwright), no como el filete de 1px que dibuja §31.5(c) y
+el boceto `──── ◎ ────` de §31.5. La causa es de maqueta de tablas: la `<td height="1"
+bgcolor="#AEACA7">` comparte fila con la celda de la mira (72px) y en una tabla `height` es un
+**mínimo**, no un máximo, así que la celda se estira a la altura de la fila y su fondo con ella. Se
+ve en la misma pantalla que el dueño estaba mirando. **Es de backend** (`mail-shell.ts`,
+`brandRows()`) y aquí solo se reporta. Contraste con la `ruleRow` de debajo del wordmark, que sí mide
+536×1 porque va sola en su fila.
+
+### 8. Números
+
+`tsc --noEmit` limpio · `next lint` sin avisos · `npm test` **1457/1457** (125 archivos). El cambio es
+**un binario en `public/`**: no hay código que probar, y por eso no se añadió test.
