@@ -669,6 +669,42 @@ roles) y **¿cómo le llama a M5?**.
   `API_CONTRACT.md`, `prisma/schema`, jobs programados y correo transaccional. Por la regla de oro, **solo
   un stream a la vez** puede tocarlas.
 
+#### P-72 · 💸 «Listas para publicar»: dos piezas SIN PRECIO RESOLUBLE que sí tenían mercado — reportado por el humano
+- **Lo que dijo, literal (2026-09-10):** *«porque no saco el precio de mercado si aparecia ?? en inventario»*.
+  Con captura de la pantalla **«Listas para publicar»** (9 pendientes).
+- **Las dos que fallan, y lo que tienen en común según la captura:**
+  | Folio | Pieza | Set · nº · acabado | Origen | Fecha |
+  |---|---|---|---|---|
+  | INV-001201 | Dudunsparce ex | JOURNEY TOGETHER · 121 · HOLOFOIL | `aportacion_en_especie` | 9 sep 2026 |
+  | INV-001202 | Salamence ex | JOURNEY TOGETHER · 114 · HOLOFOIL | `aportacion_en_especie` | 9 sep 2026 |
+
+  Las dos dicen **`SIN PRECIO RESOLUBLE` · «Ver en la cola de precio pendiente»**, y les falta `UBICACIÓN` **y**
+  `PRECIO`. Comparten **las cuatro** variables: mismo origen, mismo set, mismo acabado y misma fecha.
+- ⭐ **La observación que puede valer más que el síntoma reportado:** las **siete** piezas que SÍ tienen precio
+  son todas de origen `compra`, del set ASCENDED HEROES, del 10 sep… **y todas muestran exactamente
+  `MX$25.00`** — Dustox, Team Rocket's Spidops, Charmander (×3, incluido un REVERSE_HOLO) y Charmeleon.
+  **Siete cartas distintas, con acabados distintos, al mismo precio al centavo.** Eso no parece un precio de
+  mercado: **parece un piso**. ⇒ Puede que el problema no sea «dos sin precio» sino **«nueve sin precio de
+  mercado, y siete lo disimulan cayendo al piso»**, que sería mucho peor porque **se publican solas**.
+  ⚠️ **Es observación de la captura, NO está medido.** Hay que confirmarlo antes de afirmarlo.
+- **Hipótesis a descartar CON CÓDIGO, ninguna confirmada:**
+  1. **El origen.** `aportacion_en_especie` resuelve el mercado por un camino distinto al de `compra`
+     (`inventory.service.ts:730` y siguientes). Es la coincidencia más fuerte de la captura.
+  2. **El acabado.** Las dos que fallan son `HOLOFOIL` de cartas `ex`. ⚠️ Regla dura del proyecto: **nunca se
+     copia el precio de un acabado a otro** — así que si el proveedor solo trae `normal`, lo correcto ES no
+     resolver. En ese caso **el sistema se está portando bien** y lo que falta es decirlo mejor.
+  3. **El set.** JOURNEY TOGETHER podría no estar barrido, o no mapeado en el proveedor de pago.
+  4. **La fecha.** Son del 9 sep y las demás del 10: ¿el barrido de precios corrió entre medias?
+  5. **El piso**, la de arriba: que la curva esté cayendo al mínimo en vez de resolver mercado.
+- **Cruce con P-69:** aquel es el mismo síntoma —precio de mercado que está en un lado y no en otro— pero en
+  el alta de **sellado**, entre el paso 1 y el paso 2. **Conviene diagnosticarlos juntos**: si la causa es
+  común, se arregla una vez.
+- **Por qué importa:** una pieza sin precio **no se publica**, así que es inventario comprado que no está a la
+  venta. Y si la hipótesis del piso se confirma, es peor: serían piezas **publicándose a un precio que no es
+  el suyo**.
+- **Estado:** anotado, sin diagnosticar. Sin rol dueño hasta saber si el hueco está en el resolutor de precios
+  (`pricing`) o en el alta de inventario (`inventory`).
+
 #### P-71 · 🔤 Mostrar el código corto del set junto a las imágenes — pedido por el humano
 - **Lo que dijo, literal (2026-09-09):** *«quiero que en los sets cuando estamos viendo las imagenes
   pongamos el codigo chico que viene en las cartas perfect order POR, pitch plack PF etc»*.
