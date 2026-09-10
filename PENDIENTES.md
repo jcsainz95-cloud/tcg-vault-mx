@@ -669,6 +669,63 @@ roles) y **¿cómo le llama a M5?**.
   `API_CONTRACT.md`, `prisma/schema`, jobs programados y correo transaccional. Por la regla de oro, **solo
   un stream a la vez** puede tocarlas.
 
+#### P-73 · 👤 Entrar con Google: un nombre inventado que nadie puede corregir, y envíos SIN destinatario
+- **Lo que preguntó (2026-09-10):** *«cuando ingresan con google puede que no venga el telefono ni el nombre
+  completo que hacemos»*. Era pregunta **preventiva**; el diagnóstico encontró **dos problemas vivos hoy**.
+
+##### 🔴 A · El sistema FABRICA un nombre, y es irreparable
+- `backend/src/modules/auth/auth.service.ts:339` — `name: identity.name ?? email.split('@')[0]`. Si Google no
+  manda el nombre, se inventa uno con el trozo del correo antes de la arroba. **Verificado literal.**
+- ⚠️ **Es la regla dura del proyecto rota de frente:** «nunca se inventa un dato» — el equivalente de mostrar
+  `$0` en vez de `—`. Y peor que un `$0`, porque **parece real**: la columna queda indistinguible de un nombre
+  tecleado por el usuario, sin marca de que sea derivado.
+- 🔴 **No se puede corregir por ninguna vía. Medido:** no existe pantalla de perfil (`frontend/src/app/[locale]/`
+  solo tiene `(admin)`, `(auth)`, `(storefront)` y `pedido`); el único llamador de `updateMe` es
+  `BuylistKycForm.tsx:234` y **manda solo `phone`**; y el admin tampoco puede — `admin.service.ts` expone
+  `createUser`, `updateUserKyc`, `updateUserStatus` y reset de contraseña, **ninguna toca `User.name`**.
+- **Dónde se ve ese nombre inventado — 16 sitios medidos:** al menos **10 correos al cliente**
+  (`mail.templates.ts:70,72,97,99`; `buylist.service.ts:4358,4383,5392,6681`; `buylist-sweep.service.ts:129,177,250,443`)
+  y **6 superficies de back-office** (`buylist.service.ts:2455,5186`; `admin-vaults.service.ts:55`;
+  `master-set.service.ts:587`; `admin.service.ts:426`; `users.service.ts:74,92`).
+- ⭐ **Y es criterio de BÚSQUEDA del operador** (`API_CONTRACT.md:12025` y `:13817`): buscar «Juan Pérez» **no
+  encuentra** a quien el sistema bautizó «jcsainz95».
+- ✅ **La facturación NO se ve afectada:** el CFDI sale de `BillingProfile` (razón social y RFC propios),
+  `User.name` no entra.
+
+##### 🔴 B · NINGÚN envío de usuario con sesión lleva destinatario — y no es cosa de Google
+- `shipments.service.ts:183-192` escribe el `addressSnapshot` con **ocho campos** y **ninguno es un nombre**.
+  No puede haberlo: `Address` (`schema.prisma:482-498`) **no tiene columna de nombre**.
+- ⇒ `shipments.service.ts:405`, `recipientName: snapshot.recipientName ?? undefined`, evalúa a **`undefined`
+  en TODO retiro de bóveda**.
+- **El checkout de invitado SÍ lo pide** y es obligatorio (`guest-checkout.dto.ts:44`). ⇒ **la asimetría es
+  literal**, y el contrato la razona como si fuera intencional (`API_CONTRACT.md:6803`: *«el invitado no tiene
+  `User.name`»*) — pero **la implicación de que para el usuario con sesión `User.name` cumple ese papel NO
+  ESTÁ IMPLEMENTADA en ninguna línea.** Es una premisa del contrato que el código no honra.
+- ✅ **Desmentido lo que yo temía:** el paquete **no** sale a nombre de «jcsainz95». `User.name` no se copia a
+  ningún snapshot de envío (verificado por los tres constructores y por grep). Sale **sin nombre**.
+- **No hay integración con paquetería:** `carrier` y `trackingNumber` los teclea un operador
+  (`admin-shipments.controller.ts:74-75`). ⚠️ **No confirmado:** de dónde saca el operador el destinatario —
+  la pantalla M4 **no pinta la dirección ni ningún nombre** (`M4View.tsx`, grep sin resultados; muestra el
+  `userId` crudo en `:201`), aunque el `addressSnapshot` sí viaja en el payload.
+
+##### El teléfono: ya estaba gestionado, y no es hueco de Google
+- `User.phone` es opcional y **el registro local tampoco lo exige** (`auth.dto.ts:17-18`).
+- **Buylist es el flujo que lo necesita sin domicilio, y ya tiene puerta:** `buylist.service.ts:1366-1378`
+  lanza `PHONE_REQUIRED`, con el caso nombrado en el comentario (`:1321`): *«las cuentas de Google y las
+  viejas la tienen vacía ⇒ vendedores incontactables»*. Remedio en línea en `BuylistKycForm.tsx:302`.
+- ⚠️ **Son dos teléfonos distintos** y el código lo dice (`buylist.service.ts:4447`): el de la **etiqueta** es
+  `Address.phone`; `User.phone` es *«el nuestro, para llamarle»*.
+- **No confirmado:** disputas y verificación.
+
+##### ✅ Lo que está bien y no hay que tocar
+El **enlace** de una cuenta local con Google **no pisa el nombre existente** (`auth.service.ts:315-322`
+escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta el que ya había).
+
+- **Rol dueño:** product-owner aterriza el **qué** (¿se pide el nombre al entrar? ¿pantalla de perfil?
+  ¿destinatario en el domicilio?) → arquitecto el contrato → backend y frontend.
+- **Prioridad:** **B afecta a todos los clientes con cuenta, no solo a los de Google.** Es el más grande de los
+  dos y el que el caso de Google solo hizo visible.
+
 #### P-72 · 💸 «Listas para publicar»: dos piezas SIN PRECIO RESOLUBLE que sí tenían mercado — reportado por el humano
 - **Lo que dijo, literal (2026-09-10):** *«porque no saco el precio de mercado si aparecia ?? en inventario»*.
   Con captura de la pantalla **«Listas para publicar»** (9 pendientes).
