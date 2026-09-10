@@ -53,6 +53,17 @@ export class CardProductResolverService {
     // previo del resolver (solo se cuenta lo que ya se OMITÍA por money-safe).
     pricesPending: number;
     unjoined: number;
+    /**
+     * D2 (v1.64) — CARTAS que ESTA corrida tocó de verdad: `Card` DISTINTAS a las que se les
+     * upserteó al menos un `CardProduct` y a las que, por tanto, se les recomputó
+     * `availableFinishes` (`touched`, el mismo conjunto que se pasa al `FinishReconciler`).
+     *
+     * NO es «cuántas cartas tiene el set» (eso es el universo local, `cardsInSet` en el llamador):
+     * son dos predicados distintos y por eso llevan nombres distintos (ARCHITECTURE §0-B.3 regla 8
+     * aplicada al código). Un set de 191 cartas del que TCGCSV no reconoce ninguna da
+     * `cardsTouched: 0` — que es el hecho que el operador necesita ver, no un 191 tranquilizador.
+     */
+    cardsTouched: number;
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
@@ -73,7 +84,15 @@ export class CardProductResolverService {
         `card-product: grupo ${groupId} (set ${set.name}) no produjo ningún producto con acabado ` +
           `mapeable. No se toca ningún CardProduct (money-safe).`,
       );
-      return { groupId, joined: 0, products: 0, pricesWritten: 0, pricesPending: 0, unjoined: 0 };
+      return {
+        groupId,
+        joined: 0,
+        products: 0,
+        pricesWritten: 0,
+        pricesPending: 0,
+        unjoined: 0,
+        cardsTouched: 0, // MEDIDO: no se tocó ninguna carta (no hay producto mapeable).
+      };
     }
 
     const localCards = await this.prisma.card.findMany({
@@ -148,9 +167,18 @@ export class CardProductResolverService {
     await this.finishReconciler.reconcile([...touched]);
     this.logger.log(
       `card-product: set ${set.name} (grupo ${groupId}) — products=${derived.length}, joined=${joined}, ` +
-        `pricesWritten=${pricesWritten}, unjoined=${unjoined} (conservan su valor previo, money-safe).`,
+        `cardsTouched=${touched.size}, pricesWritten=${pricesWritten}, unjoined=${unjoined} ` +
+        `(conservan su valor previo, money-safe).`,
     );
-    return { groupId, joined, products: derived.length, pricesWritten, pricesPending, unjoined };
+    return {
+      groupId,
+      joined,
+      products: derived.length,
+      pricesWritten,
+      pricesPending,
+      unjoined,
+      cardsTouched: touched.size, // cartas DISTINTAS tocadas por ESTA corrida (D2)
+    };
   }
 
   /**

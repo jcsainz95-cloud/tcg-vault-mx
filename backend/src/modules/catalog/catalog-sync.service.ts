@@ -14,6 +14,135 @@ import { CardProductResolverService } from './card-product-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/**
+ * D1 (v1.64) — RESULTADO REAL de importar UN set. Tres hechos DISTINTOS que antes viajaban
+ * fundidos en un `imported: true` **literal** (`importSet`/`importSetByExternalId` lo devolvían
+ * escrito a mano, así que el llamador contaba «1 set importado» hubiera importado uno, ninguno o
+ * nada en absoluto; la pantalla de M2 lo pintaba en verde igual).
+ *
+ * Los tres hechos, y por qué NO son el mismo:
+ *  - **`imported`** — el set NO tenía ninguna carta local antes de esta corrida y ahora sí.
+ *    Es «cuántos sets importé».
+ *  - **`refreshed`** — el set YA tenía cartas; esta corrida las re-upserteó (re-sync). NO es un
+ *    import: es «cuántos ya estaban».
+ *  - **`noop`** — esta corrida no escribió NINGUNA carta (el remoto no devolvió datos). No se
+ *    importó ni se refrescó nada; contarlo como cualquiera de los dos anteriores es la mentira
+ *    exacta que motivó D1.
+ *
+ * `cardsUpserted` es lo que ESTA corrida escribió (no lo que hay en el set). `cardsBefore` es el
+ * universo previo, y es `null` cuando no se llegó a consultar (ausente ⇒ «—»; nunca un 0 de
+ * relleno, misma norma que los precios sin mercado).
+ */
+export type SetImportOutcome = {
+  outcome: 'imported' | 'refreshed' | 'noop';
+  cardsUpserted: number;
+  cardsBefore: number | null;
+};
+
+/** Conteo agregado de una corrida de import sobre N sets (D1). Sin literales: todo se cuenta. */
+export type SetImportTally = {
+  /** sets que NO tenían cartas y ahora sí (import nuevo REAL). */
+  setsImported: number;
+  /** sets que YA estaban (con cartas) y se re-upsertearon. */
+  setsRefreshed: number;
+  /** sets en los que esta corrida no escribió ninguna carta. */
+  setsNoop: number;
+  /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
+  cardsUpserted: number;
+};
+
+/**
+ * ⭐ PREDICADO «¿ESTE SET ENTRA POR FECHA?» — el corte del catálogo (`catalog_sync_from_date`,
+ * dial editable en M10). FUENTE ÚNICA del criterio: lo llaman `sync()` (modo from_date) y
+ * `syncAll()`. No se copia la comparación en ningún otro sitio (§0-B.3 regla 8 llevada al código:
+ * el día que el corte deje de ser «>= por string» hay UNA línea que cambiar, no dos que se
+ * desincronizan en silencio).
+ *
+ * Detalle que NO es accidental: un set **sin `releaseDate`** queda FUERA (`'' >= '2024/01/01'` es
+ * falso). Es el comportamiento que `sync()` ya tenía; no se adivina una fecha para colar un set de
+ * fecha desconocida. Para lo viejo o lo sin fecha está `backfill` (explícito, por lotes).
+ *
+ * El formato `yyyy/MM/dd` hace que la comparación lexicográfica sea la cronológica — por eso se
+ * compara como string y no se parsea (mismo formato en que lo emite pokemontcg.io y en que lo
+ * valida el dial).
+ */
+export function isWithinCatalogFromDate(
+  set: { releaseDate?: string | null },
+  fromReleaseDate: string,
+): boolean {
+  return (set.releaseDate ?? '') >= fromReleaseDate;
+}
+
+/**
+ * ⭐ PREDICADO «¿ESTE SET ENTRA AL BARRIDO `sync-all`?» — fuente ÚNICA de la selección del barrido
+ * (D3). Reúne en un solo sitio las dos preguntas que antes vivían sueltas en `syncAll()`:
+ * «¿ya lo tengo?» y «¿cae dentro del corte?».
+ *
+ * Reglas, y por qué cada una:
+ *  - **Set NUEVO (sin cartas locales) dentro del corte ⇒ ENTRA.** Es literalmente el botón
+ *    «Importar sets nuevos» de M2.
+ *  - **Set NUEVO fuera del corte ⇒ NO ENTRA** (`outOfRange`). Es el arreglo de D3: antes el
+ *    barrido se traía *todo* lo que faltara, de cualquier año. La vía para lo viejo sigue siendo
+ *    `backfill` (explícita, por lotes, con `untilYear`).
+ *  - **Set YA IMPORTADO con `force` ⇒ ENTRA, sin mirar el corte.** `force` NO es «importar»: es
+ *    **reparar lo que ya tenemos** (re-upsert de metadata + resolver estructural TCGCSV). Aplicarle
+ *    el corte encogería la reparación justo donde más falta hace —los sets viejos son los del
+ *    `normal` fantasma— y un set ya importado no puede «traer catálogo viejo»: ya está aquí.
+ *    Lo que `force` deja de hacer es arrastrar sets viejos que NO teníamos, que era el susto real.
+ *  - **Set YA IMPORTADO sin `force` ⇒ NO ENTRA** (comportamiento de siempre: no reprocesar).
+ */
+export function selectSyncAllCandidates(
+  remote: RemoteCardSet[],
+  opts: { importedWithCards: ReadonlySet<string>; force: boolean; fromReleaseDate: string },
+): { queue: RemoteCardSet[]; outOfRange: RemoteCardSet[]; undated: RemoteCardSet[] } {
+  const queue: RemoteCardSet[] = [];
+  const outOfRange: RemoteCardSet[] = [];
+  const undated: RemoteCardSet[] = [];
+  for (const s of remote) {
+    const alreadyImported = opts.importedWithCards.has(s.id);
+    if (alreadyImported) {
+      if (opts.force) queue.push(s); // reparación de lo que YA tenemos: el corte no aplica
+      continue;
+    }
+    // Set SIN `releaseDate`: NO se decide aquí qué hacer con él (nadie lo ha decidido). Lo único
+    // que cambia respecto de antes es que deja de ser INVISIBLE: sale en su propio cubo y el
+    // llamador lo reporta y lo loguea. Sigue quedando fuera del barrido, como hasta hoy.
+    if (s.releaseDate == null || s.releaseDate === '') {
+      undated.push(s);
+      continue;
+    }
+    if (isWithinCatalogFromDate(s, opts.fromReleaseDate)) queue.push(s);
+    else outOfRange.push(s); // set nuevo pero anterior al corte ⇒ es trabajo de `backfill`
+  }
+  return { queue, outOfRange, undated };
+}
+
+/** Resumen agregado de un barrido `sync-all` (lo lee `GET /admin/catalog/sync-status`). */
+export type SyncAllSummary = SetImportTally & {
+  /** sets encolados en el barrido. */
+  setsTotal: number;
+  /** sets cuyo import lanzó excepción (no aportan a ningún otro contador). */
+  setsFailed: number;
+  failures: { setId: string; message: string }[];
+};
+
+/** Suma los resultados por-set en el agregado que se reporta al operador (D1). */
+export function tallyImports(results: SetImportOutcome[]): SetImportTally {
+  const tally: SetImportTally = {
+    setsImported: 0,
+    setsRefreshed: 0,
+    setsNoop: 0,
+    cardsUpserted: 0,
+  };
+  for (const r of results) {
+    if (r.outcome === 'imported') tally.setsImported += 1;
+    else if (r.outcome === 'refreshed') tally.setsRefreshed += 1;
+    else tally.setsNoop += 1;
+    tally.cardsUpserted += r.cardsUpserted;
+  }
+  return tally;
+}
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 /**
@@ -265,26 +394,37 @@ export class CatalogSyncService {
         throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
       }
       const res = await this.importSetByExternalId(setId, { force });
+      const tally = tallyImports([res]);
       return {
         jobId: `catalog-sync-${Date.now()}`,
-        setsQueued: res.imported ? 1 : 0,
+        // Sets que esta llamada REALMENTE procesó (escribió cartas). Antes era `res.imported ? 1 : 0`
+        // con `imported` literal `true` ⇒ SIEMPRE 1. Ahora sale de lo que se contó (D1).
+        setsQueued: tally.setsImported + tally.setsRefreshed,
         mode: 'single' as const,
+        // Desglose HONESTO (aditivo): «importé» y «ya estaba» son hechos distintos y viajan
+        // separados. La UI de M2 lee hoy `setsQueued` y lo rotula «set(s) importado(s)»: con un
+        // re-sync eso es falso, y sólo se puede arreglar leyendo `setsImported`.
+        ...tally,
       };
     }
 
-    const from =
-      fromReleaseDate ?? (await this.settings.getString(SettingKey.CATALOG_SYNC_FROM_DATE));
-    if (!DATE_PATTERN.test(from)) {
-      throw BusinessException.validation('VALIDATION_ERROR', 'fromReleaseDate must be yyyy/MM/dd');
-    }
+    // Corte por la fuente ÚNICA (dial o `fromReleaseDate` explícito del request).
+    const from = await this.resolveCatalogFromDate(fromReleaseDate);
     const remote = await this.client.getSets();
-    const toImport = remote.filter((s) => (s.releaseDate ?? '') >= from);
-    let setsQueued = 0;
+    const toImport = remote.filter((s) => isWithinCatalogFromDate(s, from));
+    const results: SetImportOutcome[] = [];
     for (const s of toImport) {
-      const res = await this.importSet(s, { force });
-      if (res.imported) setsQueued += 1;
+      results.push(await this.importSet(s, { force }));
     }
-    return { jobId: `catalog-sync-${Date.now()}`, setsQueued, mode: 'from_date' as const };
+    const tally = tallyImports(results);
+    return {
+      jobId: `catalog-sync-${Date.now()}`,
+      // Sets REALMENTE procesados (los que dejaron cartas escritas). Los que el remoto devolvió
+      // vacíos son `setsNoop` y NO se cuentan como procesados (D1).
+      setsQueued: tally.setsImported + tally.setsRefreshed,
+      mode: 'from_date' as const,
+      ...tally,
+    };
   }
 
   /**
@@ -321,7 +461,16 @@ export class CatalogSyncService {
   ): Promise<{
     ok: boolean;
     setId: string;
-    cardsProcessed: number;
+    /**
+     * D2 — cartas que ESTA corrida tocó de verdad (`Card` distintas con `CardProduct` upserteado y
+     * `availableFinishes` recomputado), tal como las contó el resolver. `null` = **no se pudo
+     * saber** ⇒ la UI pinta «—». JAMÁS el total del set (era el bug: un set de 191 cartas del que
+     * no se resolvió nada reportaba «191 cartas procesadas · 0 precios», en verde) y jamás un 0 de
+     * relleno para tapar un dato ausente — la misma norma que ya rige para los precios sin mercado.
+     */
+    cardsProcessed: number | null;
+    /** Universo local del set (cuántas cartas HAY). El otro predicado, con su propio nombre. */
+    cardsInSet: number;
     cardProductsUpserted: number;
     pricesUpserted: number;
     pending: number;
@@ -334,9 +483,12 @@ export class CatalogSyncService {
     // El set DEBE existir en BD y tener cartas: este camino NO importa desde pokemontcg.io.
     const localSet = await this.prisma.cardSet.findUnique({
       where: { externalId: setId },
-      select: { id: true, _count: { select: { cards: true } } },
+      select: { id: true },
     });
-    if (!localSet || localSet._count.cards === 0) {
+    // Universo local por la fuente ÚNICA del predicado (`countLocalCardsInSet`), no por un
+    // `_count` paralelo: la cuenta de «cartas del set» vive en un solo sitio (§0-B.3 regla 8).
+    const cardsInSet = localSet == null ? 0 : await this.countLocalCardsInSet(localSet.id);
+    if (!localSet || cardsInSet === 0) {
       // 409 (no 404) a propósito: el front trata 404/405 como "endpoint no desplegado"
       // (`isEndpointMissing`); un SET_NOT_IMPORTED real con 404 se confundiría con eso.
       throw new BusinessException(
@@ -363,26 +515,33 @@ export class CatalogSyncService {
       this.cardProductResolver!.resolveCardProductsForSet(localSet.id),
     );
 
-    const cardsProcessed = localSet._count.cards;
     if (result == null) {
       // TCGCSV respondió, pero no se resolvió un groupId ÚNICO ⇒ no se tocó nada (money-safe).
       this.logger.warn(
-        `refresh-variants: set ${setId} sin groupId TCGCSV ÚNICO; no se tocó ningún CardProduct.`,
+        `refresh-variants: set ${setId} sin groupId TCGCSV ÚNICO; no se tocó ningún CardProduct ` +
+          `(cardsProcessed=0 de ${cardsInSet} cartas del set).`,
       );
       return {
         ok: true,
         setId,
-        cardsProcessed,
+        // 0 MEDIDO, no de relleno: se sabe con certeza que no se tocó ninguna carta.
+        cardsProcessed: 0,
+        cardsInSet,
         cardProductsUpserted: 0,
         pricesUpserted: 0,
         pending: 0,
         tcgcsvReachable: true,
       };
     }
+    // `cardsTouched` lo cuenta el resolver (fuente única de ese hecho). Si un resolver no lo
+    // reporta, el dato es DESCONOCIDO ⇒ `null` («—»): no se sustituye por el universo del set
+    // (D2) ni por un 0 que afirmaría, falsamente, que se sabe que no se tocó nada.
+    const cardsTouched: number | undefined = (result as { cardsTouched?: number }).cardsTouched;
     return {
       ok: true,
       setId,
-      cardsProcessed,
+      cardsProcessed: cardsTouched ?? null,
+      cardsInSet,
       cardProductsUpserted: result.joined,
       pricesUpserted: result.pricesWritten,
       pending: result.pricesPending,
@@ -420,8 +579,10 @@ export class CatalogSyncService {
   async backfill(batchSize = 10, untilYear?: number, force = false) {
     const size = batchSize > 0 ? batchSize : 10;
     const remote = await this.client.getSets();
-    const localSets = await this.prisma.cardSet.findMany({ select: { externalId: true } });
-    const importedIds = new Set(localSets.map((s) => s.externalId));
+    // Predicado «el set existe localmente» (fila CardSet, con o sin cartas) — el criterio
+    // histórico de los candidatos de backfill; se conserva TAL CUAL (cambiarlo es una decisión de
+    // alcance, no de honestidad de contadores).
+    const importedIds = await this.localSetExternalIds();
 
     // Candidatos = sets remotos (con force NO se filtran los importados; sin force, solo los NO
     // importados), opcionalmente acotados por untilYear (no más antiguos que ese año), ordenados
@@ -432,14 +593,28 @@ export class CatalogSyncService {
       .sort((a, b) => (a.releaseDate ?? '').localeCompare(b.releaseDate ?? ''));
 
     const batch = candidates.slice(0, size);
+    // D1: `imported` son SOLO los sets que de verdad se importaron por primera vez. Antes entraba
+    // aquí todo lote procesado (porque `res.imported` era el literal `true`), así que un backfill
+    // `force:true` sobre sets ya importados los listaba como recién importados.
     const imported: { id: string; name: string; releaseDate: string | null; cardCount: number }[] = [];
+    /** Aditivo: sets que YA estaban y esta corrida sólo re-upserteó (no son imports). */
+    const refreshed: { id: string; name: string; releaseDate: string | null; cardCount: number }[] = [];
+    const results: SetImportOutcome[] = [];
     for (const s of batch) {
       // v1.26 (§4.24a): con force se re-resuelve también la composición estructural (repara).
       const res = await this.importSet(s, { force });
-      if (res.imported) {
-        imported.push({ id: s.id, name: s.name, releaseDate: s.releaseDate ?? null, cardCount: res.cardCount });
-      }
+      results.push(res);
+      const row = {
+        id: s.id,
+        name: s.name,
+        releaseDate: s.releaseDate ?? null,
+        // cartas que ESTA corrida escribió para el set (no las que tiene).
+        cardCount: res.cardsUpserted,
+      };
+      if (res.outcome === 'imported') imported.push(row);
+      else if (res.outcome === 'refreshed') refreshed.push(row);
     }
+    const tally = tallyImports(results);
 
     // newBoundary = releaseDate del set más ANTIGUO ya importado tras el lote.
     const allImported = await this.prisma.cardSet.findMany({
@@ -449,8 +624,11 @@ export class CatalogSyncService {
       take: 1,
     });
     const newBoundary = allImported[0]?.releaseDate ?? null;
-    const remaining = candidates.length - imported.length;
-    return { imported, newBoundary, remaining };
+    // Candidatos que siguen sin atender: los que no entraron en el lote MÁS los que se intentaron
+    // y no dejaron nada escrito (`noop`). Antes se restaba `imported.length`, que con el literal
+    // `imported:true` era siempre el tamaño del lote — la resta salía bien por accidente.
+    const remaining = candidates.length - (tally.setsImported + tally.setsRefreshed);
+    return { imported, refreshed, newBoundary, remaining, ...tally };
   }
 
   /**
@@ -468,11 +646,50 @@ export class CatalogSyncService {
     done: number;
     startedAt: string | null;
     finishedAt: string | null;
-  } = { running: false, jobId: null, total: 0, done: 0, startedAt: null, finishedAt: null };
+    /**
+     * D1 — RESULTADO del barrido, que antes se tiraba a la basura: `runSyncAll` llamaba a
+     * `importSet` y descartaba lo que devolvía, así que del barrido sólo se sabía «cuántos
+     * intenté», nunca «cuántos importé de verdad». `null` hasta que arranca el primer barrido
+     * (mismo criterio que `refreshVariantsAllStatus.summary`: sin barrido no se pinta un
+     * «Listo — 0/0» falso).
+     */
+    summary: SyncAllSummary | null;
+  } = {
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    summary: null,
+  };
 
-  /** GET /admin/catalog/sync-status — progreso del barrido en curso (o del último). */
+  /** Resumen agregado en ceros (arranque de un barrido `sync-all`). */
+  private static emptySyncAllSummary(): SyncAllSummary {
+    return {
+      setsTotal: 0,
+      setsImported: 0,
+      setsRefreshed: 0,
+      setsNoop: 0,
+      setsFailed: 0,
+      cardsUpserted: 0,
+      failures: [],
+    };
+  }
+
+  /**
+   * GET /admin/catalog/sync-status — progreso del barrido en curso (o del último).
+   *
+   * El `202` de `sync-all` NO puede decir cuántos sets se importaron (el barrido acaba de
+   * arrancar): ese hecho es DESCONOCIDO en ese instante y por eso no se inventa allí. Vive aquí,
+   * en `summary`, y aparece conforme el barrido avanza.
+   */
   getSyncStatus() {
-    return { ...this.syncAllStatus };
+    const { summary } = this.syncAllStatus;
+    return {
+      ...this.syncAllStatus,
+      summary: summary == null ? null : { ...summary, failures: [...summary.failures] },
+    };
   }
 
   /**
@@ -581,24 +798,51 @@ export class CatalogSyncService {
    */
   async syncAll(
     options: { force?: boolean } = {},
-  ): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
+  ): Promise<{
+    jobId: string;
+    setsQueued: number;
+    remaining: number;
+    /** corte de fecha APLICADO en esta llamada (hoy, el dial `catalog_sync_from_date`). */
+    fromReleaseDate: string;
+    /** sets remotos que NO tenemos y que el corte dejó fuera (para ésos: `backfill`). */
+    setsSkippedOutOfRange: number;
+    /** sets remotos que NO tenemos y que vienen SIN `releaseDate` (caso sin decidir; se reporta). */
+    setsSkippedUndated: number;
+  }> {
     const force = options.force ?? false;
+    // D3 — CORTE DE FECHA: el barrido honra el dial `catalog_sync_from_date` (el mismo que ya
+    // honraba `sync()` en modo from_date), a través del predicado ÚNICO `selectSyncAllCandidates`.
+    // El dial es la manija «movible» del dueño: se edita en M10 sin redeploy.
+    const fromReleaseDate = await this.resolveCatalogFromDate();
     const remote = await this.client.getSets();
-    const local = await this.prisma.cardSet.findMany({
-      select: { externalId: true, _count: { select: { cards: true } } },
-    });
     // "Importado" = set local con al menos una carta (evita reprocesar sets ya poblados).
-    const importedWithCards = new Set(
-      local.filter((s) => s._count.cards > 0).map((s) => s.externalId),
-    );
-    // force=true → reprocesa TODOS los sets remotos (no filtra los ya poblados) para refrescar
-    // availableFinishes; force=false (default) → solo los pendientes (comportamiento hoy).
-    const pending = force ? [...remote] : remote.filter((s) => !importedWithCards.has(s.id));
+    const importedWithCards = new Set(await this.localSetExternalIdsWithCards());
+    const {
+      queue: pending,
+      outOfRange,
+      undated,
+    } = selectSyncAllCandidates(remote, { importedWithCards, force, fromReleaseDate });
+    if (undated.length > 0) {
+      // Caso que nadie ha decidido: un set remoto sin `releaseDate` cae fuera del corte por
+      // comparación de cadena vacía. Se sigue quedando fuera, pero ahora se VE.
+      this.logger.warn(
+        `sync-all: ${undated.length} set(s) remotos NO importados vienen SIN releaseDate y quedan ` +
+          `fuera del corte (${undated.map((s) => s.id).join(', ')}). Nadie ha decidido este caso: ` +
+          `hoy sólo entran por backfill.`,
+      );
+    }
     const jobId = `catalog-sync-all-${Date.now()}`;
 
     if (this.syncAllStatus.running) {
       // Ya hay un barrido en curso → no lanzamos otro; reportamos lo que falta.
-      return { jobId, setsQueued: 0, remaining: pending.length };
+      return {
+        jobId,
+        setsQueued: 0,
+        remaining: pending.length,
+        fromReleaseDate,
+        setsSkippedOutOfRange: outOfRange.length,
+        setsSkippedUndated: undated.length,
+      };
     }
 
     const batch = [...pending];
@@ -612,30 +856,65 @@ export class CatalogSyncService {
       done: 0,
       startedAt: new Date().toISOString(),
       finishedAt: null,
+      // Arranca el resumen (ya no null): `setsTotal` se fija aquí; el resto lo suma `runSyncAll`
+      // con lo que cada import REALMENTE hizo. El 202 de abajo no anticipa ninguno de esos números.
+      summary: { ...CatalogSyncService.emptySyncAllSummary(), setsTotal: batch.length },
     };
     // Fire-and-forget: el request NO espera a que se importen todos los sets.
     void this.runSyncAll(batch, force).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
     });
+    this.logger.log(
+      `sync-all: ${batch.length} sets encolados (corte ${fromReleaseDate}, force=${force}); ` +
+        `${outOfRange.length} sets remotos NO importados quedan fuera por ser anteriores al corte ` +
+        `(para esos, backfill).`,
+    );
     // `setsQueued` = sets encolados en esta llamada; `remaining` = sets aún sin importar que
     // NO se encolaron (0: encolamos todos los pendientes).
-    return { jobId, setsQueued: batch.length, remaining: 0 };
+    // `setsSkippedOutOfRange` (aditivo, D3) = sets remotos que NO tenemos y que el corte dejó
+    // fuera: sin este número, "0 sets encolados" no distingue "ya está todo al día" de "hay 200
+    // sets que no te traje porque son viejos". `fromReleaseDate` es el corte que se aplicó.
+    // Ninguno de estos campos anticipa cuántos sets se importarán: eso no se sabe todavía y vive
+    // en el `summary` de `sync-status` cuando el barrido avanza.
+    return {
+      jobId,
+      setsQueued: batch.length,
+      remaining: 0,
+      fromReleaseDate,
+      setsSkippedOutOfRange: outOfRange.length,
+      setsSkippedUndated: undated.length,
+    };
   }
 
   /** Barrido en segundo plano de `sync-all`: importa cada set secuencialmente (rate-limit). */
   async runSyncAll(sets: RemoteCardSet[], force = false): Promise<void> {
+    // Normalmente lo arranca `syncAll`; si se invoca el barrido directamente (tests, job interno)
+    // se inicializa en ceros para no operar sobre null.
+    const summary = (this.syncAllStatus.summary ??= CatalogSyncService.emptySyncAllSummary());
     for (const s of sets) {
       try {
-        await this.importSet(s, { force });
+        const res = await this.importSet(s, { force });
+        // D1: lo que el import devuelve YA NO se descarta — es la única forma de saber cuántos
+        // sets se importaron de verdad y cuántos sólo se re-sincronizaron.
+        if (res.outcome === 'imported') summary.setsImported += 1;
+        else if (res.outcome === 'refreshed') summary.setsRefreshed += 1;
+        else summary.setsNoop += 1;
+        summary.cardsUpserted += res.cardsUpserted;
       } catch (e) {
+        summary.setsFailed += 1;
+        summary.failures.push({ setId: s.id, message: (e as Error).message });
         this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
       } finally {
         // Avanza el progreso por set intentado (éxito o fallo) → barra honesta done/total.
         this.syncAllStatus.done += 1;
       }
     }
-    this.logger.log(`sync-all: barrido de ${sets.length} sets completado.`);
+    this.logger.log(
+      `sync-all: barrido de ${sets.length} sets completado (importados=${summary.setsImported}, ` +
+        `re-sync=${summary.setsRefreshed}, sin cartas=${summary.setsNoop}, ` +
+        `fallidos=${summary.setsFailed}, cartas escritas=${summary.cardsUpserted}).`,
+    );
   }
 
   /**
@@ -673,12 +952,7 @@ export class CatalogSyncService {
   ): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
     const force = options.force ?? false;
     // Lista de sets IMPORTADOS desde BD LOCAL (jamás pokemontcg.io): set con ≥1 carta.
-    const local = await this.prisma.cardSet.findMany({
-      select: { externalId: true, _count: { select: { cards: true } } },
-    });
-    const importedExternalIds = local
-      .filter((s) => s._count.cards > 0)
-      .map((s) => s.externalId);
+    const importedExternalIds = await this.localSetExternalIdsWithCards();
     const jobId = `catalog-refresh-variants-all-${Date.now()}`;
 
     if (this.refreshVariantsAllStatus.running) {
@@ -772,19 +1046,34 @@ export class CatalogSyncService {
   private async importSet(
     rs: RemoteCardSet,
     opts: { force?: boolean } = {},
-  ): Promise<{ imported: boolean; cardCount: number }> {
+  ): Promise<SetImportOutcome> {
     const localSet = await this.upsertSet(rs);
-    // first-import = el set local no tenía NINGUNA carta antes de este import. Solo se calcula
-    // cuando el resolver está cableado (los tests de sync/metadata lo construyen sin él).
-    const firstImport =
-      this.cardProductResolver != null
-        ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
-        : false;
-    const cardCount = await this.importCardsForSet(rs.id, localSet.id);
+    // Universo PREVIO del set (predicado «cartas locales de un set», fuente ÚNICA
+    // `countLocalCardsInSet`). Se calcula SIEMPRE porque de él salen DOS hechos distintos: el gate
+    // estructural (first-import) y el veredicto import-nuevo vs re-sync (D1). Antes solo se
+    // calculaba si el resolver estaba cableado y, si no, se fabricaba un `false`: un valor
+    // inventado gobernando una rama.
+    const cardsBefore = await this.countLocalCardsInSet(localSet.id);
+    const firstImport = cardsBefore === 0;
+    const cardsUpserted = await this.importCardsForSet(rs.id, localSet.id);
     if (firstImport || opts.force === true) {
       await this.runCardProductResolver(localSet.id, rs.id);
     }
-    return { imported: true, cardCount };
+    return CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted);
+  }
+
+  /**
+   * D1 — traduce los DOS hechos medidos (universo previo, cartas escritas por esta corrida) al
+   * resultado real. No hay ningún literal: si esta corrida no escribió una sola carta, el
+   * resultado es `noop` (ni importado ni refrescado), y el llamador NO puede reportar un import.
+   */
+  private static outcomeOf(cardsBefore: number, cardsUpserted: number): SetImportOutcome {
+    if (cardsUpserted === 0) return { outcome: 'noop', cardsUpserted: 0, cardsBefore };
+    return {
+      outcome: cardsBefore === 0 ? 'imported' : 'refreshed',
+      cardsUpserted,
+      cardsBefore,
+    };
   }
 
   /**
@@ -797,26 +1086,26 @@ export class CatalogSyncService {
   private async importSetByExternalId(
     setId: string,
     opts: { force?: boolean } = {},
-  ): Promise<{ imported: boolean; cardCount: number }> {
+  ): Promise<SetImportOutcome> {
     const first = await this.withUpstreamGuard(() => this.client.getCardsBySet(setId, 1));
     if (!first.data || first.data.length === 0) {
-      return { imported: false, cardCount: 0 };
+      // El remoto no trae cartas ⇒ no se escribió NADA. `cardsBefore: null` porque ni siquiera se
+      // consultó el universo local (dato AUSENTE, no 0 de relleno).
+      return { outcome: 'noop', cardsUpserted: 0, cardsBefore: null };
     }
     const localSet = await this.upsertSet(first.data[0].set);
-    // first-import = el set local no tenía NINGUNA carta antes de este import (mismo criterio que
-    // `importSet`); solo se calcula cuando el resolver está cableado (tests de metadata sin él).
-    const firstImport =
-      this.cardProductResolver != null
-        ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
-        : false;
-    let cardCount = await this.upsertCards(first.data, localSet.id);
-    cardCount += await this.withUpstreamGuard(() =>
+    // Universo PREVIO (mismo predicado y misma fuente ÚNICA que `importSet`): gate estructural
+    // (first-import) + veredicto import-nuevo vs re-sync (D1). Se calcula SIEMPRE.
+    const cardsBefore = await this.countLocalCardsInSet(localSet.id);
+    const firstImport = cardsBefore === 0;
+    let cardsUpserted = await this.upsertCards(first.data, localSet.id);
+    cardsUpserted += await this.withUpstreamGuard(() =>
       this.importRemainingPages(setId, localSet.id, first),
     );
     if (firstImport || opts.force === true) {
       await this.runCardProductResolver(localSet.id, setId);
     }
-    return { imported: true, cardCount };
+    return CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted);
   }
 
   /**
@@ -1139,6 +1428,80 @@ export class CatalogSyncService {
   }
 
   /** Conteo de cartas locales agrupado por externalId del set (para remote-sets). */
+  /**
+   * ⭐ RESOLVER ÚNICO DEL CORTE DE FECHA — «¿desde qué fecha importa este catálogo?».
+   *
+   * Hoy el corte sale del dial `catalog_sync_from_date` (editable en M10, seed `2024/01/01`), y
+   * ésta es la ÚNICA función que lo lee: la usan `sync()` (modo from_date, donde el request puede
+   * pasar un `fromReleaseDate` explícito que manda sobre el dial) y `syncAll()`.
+   *
+   * ⚠️ **Es una costura deliberada.** El dueño pidió que el corte deje de ser un valor que alguien
+   * mueve a mano («estar moviendo cosas manuales deja a que se rompa algo por falta de cuidado o
+   * supervisión») y el ARQUITECTO está decidiendo el mecanismo automático (ventana rodante u otro).
+   * Cuando ese mecanismo llegue, aterriza **aquí dentro** y ningún llamador cambia. NO se decide
+   * aquí: hoy esta función sólo lee el dial y valida su formato.
+   *
+   * Formato inválido ⇒ `VALIDATION_ERROR` accionable en vez de adivinar: adivinar un corte
+   * significa, en la práctica, o barrer el catálogo entero o no barrer nada — dos silencios caros.
+   */
+  private async resolveCatalogFromDate(explicit?: string): Promise<string> {
+    const from =
+      explicit ?? (await this.settings.getString(SettingKey.CATALOG_SYNC_FROM_DATE));
+    if (!DATE_PATTERN.test(from)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        explicit != null
+          ? 'fromReleaseDate must be yyyy/MM/dd'
+          : `El dial catalog_sync_from_date tiene un valor inválido ("${from}"); se espera ` +
+            `yyyy/MM/dd. Corrígelo en Ajustes (M10) y reintenta.`,
+      );
+    }
+    return from;
+  }
+
+  /**
+   * ⭐ PREDICADO «CARTAS LOCALES DE UN SET» — fuente ÚNICA por-set (ARCHITECTURE §0-B.3 regla 8
+   * llevada al código: una cuenta vive en UN sitio).
+   *
+   * Cuenta filas `Card` cuyo `setId` es el set local dado. Es el **universo** del set, y NO tiene
+   * nada que ver con «cuántas cartas tocó esta corrida» — ése es otro predicado, con otro nombre
+   * (`cardsUpserted` en el import, `cardsProcessed`/`cardsTouched` en `refresh-variants`).
+   * Confundirlos es exactamente D2: se reportaba el universo bajo la etiqueta «procesadas».
+   *
+   * Implementaciones vivas de este MISMO predicado y por qué existen:
+   *  - ésta (por-set, la canónica): gate de first-import y universo de `refresh-variants`;
+   *  - `localCardCountsByExternalSetId()` (forma EN LOTE, un `groupBy` implícito por set) para
+   *    `remote-sets`, donde hace falta el conteo de TODOS los sets en una sola consulta.
+   * Si el predicado cambia, cambian las dos — no hay una tercera.
+   */
+  private async countLocalCardsInSet(localSetId: string): Promise<number> {
+    return this.prisma.card.count({ where: { setId: localSetId } });
+  }
+
+  /**
+   * PREDICADO «EL SET EXISTE LOCALMENTE» — hay fila `CardSet` con ese `externalId`, **con o sin
+   * cartas**. Es el criterio de `remote-sets.imported` y el de los candidatos de `backfill`.
+   * NO es el mismo que «set importado de verdad» (abajo): un `CardSet` vacío existe pero no tiene
+   * ni una carta. Llevan nombres distintos justamente porque son predicados distintos.
+   */
+  /**
+   * PREDICADO «SET IMPORTADO DE VERDAD» — existe fila `CardSet` **y** tiene al menos una `Card`.
+   * Fuente ÚNICA: lo usan `sync-all` (qué sets saltar) y `refresh-variants-all` (qué sets barrer),
+   * que antes lo calculaban cada uno por su cuenta con el mismo `findMany` copiado.
+   * Distinto de `localSetExternalIds()` (existencia a secas) — otro nombre, otro criterio.
+   */
+  private async localSetExternalIdsWithCards(): Promise<string[]> {
+    const sets = await this.prisma.cardSet.findMany({
+      select: { externalId: true, _count: { select: { cards: true } } },
+    });
+    return sets.filter((s) => s._count.cards > 0).map((s) => s.externalId);
+  }
+
+  private async localSetExternalIds(): Promise<Set<string>> {
+    const sets = await this.prisma.cardSet.findMany({ select: { externalId: true } });
+    return new Set(sets.map((s) => s.externalId));
+  }
+
   private async localCardCountsByExternalSetId(): Promise<Map<string, number>> {
     const sets = await this.prisma.cardSet.findMany({
       select: { externalId: true, _count: { select: { cards: true } } },

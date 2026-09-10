@@ -52,7 +52,15 @@ function prismaMock(sets: { externalId: string; cards: number }[]) {
       ),
       findUnique: jest.fn(async (args: any) => {
         const s = byExternalId.get(args.where.externalId);
-        return s ? { id: `local-${s.externalId}`, _count: { cards: s.cards } } : null;
+        return s ? { id: `local-${s.externalId}` } : null;
+      }),
+    },
+    // Universo por set (fuente ÚNICA del predicado «cartas locales de un set»): la clave es el id
+    // LOCAL (`local-<externalId>`), que es con lo que el servicio consulta.
+    card: {
+      count: jest.fn(async (args: any) => {
+        const ext = String(args.where.setId).replace(/^local-/, '');
+        return byExternalId.get(ext)?.cards ?? 0;
       }),
     },
   } as unknown as PrismaService;
@@ -66,6 +74,7 @@ function resolverOk(overrides: Partial<Record<string, number>> = {}) {
     pricesWritten: 10,
     pricesPending: 2,
     unjoined: 1,
+    cardsTouched: 5,
     ...overrides,
   };
 }

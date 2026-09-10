@@ -76,7 +76,7 @@ describe('CatalogSyncService — import robusto por carta', () => {
   function prismaWithCardUpsert(upsertImpl: (args: any) => Promise<any>) {
     return {
       cardSet: { upsert: jest.fn(async () => ({ id: 'local-sv8', externalId: 'sv8' })) },
-      card: { upsert: jest.fn(upsertImpl) },
+      card: { upsert: jest.fn(upsertImpl), count: jest.fn(async () => 0) },
     } as any;
   }
 
@@ -98,9 +98,9 @@ describe('CatalogSyncService — import robusto por carta', () => {
     } as unknown as PokemonTcgIoClient;
     const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
-    // importSet devuelve el cardCount REAL importado (2), no aborta en la 1ª.
+    // importSet devuelve las cartas REALMENTE escritas por esta corrida (2), no aborta en la 1ª.
     const res = await (svc as any).importSet({ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' });
-    expect(res.cardCount).toBe(2);
+    expect(res.cardsUpserted).toBe(2);
     expect(prisma.card.upsert).toHaveBeenCalledTimes(3); // intentó las 3 (no abortó)
   });
 
@@ -117,7 +117,7 @@ describe('CatalogSyncService — import robusto por carta', () => {
     } as unknown as PokemonTcgIoClient;
     const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
     const res = await (svc as any).importSet({ id: 'sv8', name: 'S', releaseDate: '2024/11/08' });
-    expect(res.cardCount).toBe(2); // la carta inválida se omite; las otras 2 entran
+    expect(res.cardsUpserted).toBe(2); // la carta inválida se omite; las otras 2 entran
     expect(prisma.card.upsert).toHaveBeenCalledTimes(2);
   });
 
@@ -134,6 +134,6 @@ describe('CatalogSyncService — import robusto por carta', () => {
 
     const res = await (svc as any).importSet({ id: 'sv8', name: 'S', releaseDate: '2024/11/08' });
     expect(getCardsBySet).toHaveBeenCalledTimes(2); // page 1 y page 2
-    expect(res.cardCount).toBe(3); // todas las cartas de ambas páginas
+    expect(res.cardsUpserted).toBe(3); // todas las cartas de ambas páginas
   });
 });
