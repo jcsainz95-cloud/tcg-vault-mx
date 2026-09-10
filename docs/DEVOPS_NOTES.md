@@ -8573,13 +8573,20 @@ solo mecanismo silencioso no basta:
 |---|---|
 | autoprueba del candado (job `selftest`, en paralelo) | 152 s |
 | levantar + sembrar + procedencia + paridad | 148 s |
-| **ZAP full + araña AJAX** (pared 1200 s) | **643 s** |
-| nuclei (2 blancos) | 47 s |
+| **ZAP full + araña AJAX** (pared 1200 s) | **643 s** · 541 s en el run de verificación |
+| nuclei (2 blancos) | 47 s · 30 s |
 | candado + resumen + apagar | 13 s |
-| **total del job `dast`** | **≈ 855 s (14 min)** |
+| **total del job `dast`** | **855 s (14 min)** · **697 s (11,6 min)** en el de verificación |
 
-De **> 39 min sin terminar** a **14 min con veredicto**. Para un cron semanal es un coste
-perfectamente pagable, que era la condición para que nadie lo apague.
+De **> 39 min sin terminar** a **12-14 min con veredicto** en el job del barrido. A eso hay que sumarle
+el `selftest`, que **NO corre en paralelo**: `dast` lo declara en `needs`, así que el barrido espera a
+que la autoprueba termine. **Reloj de pared del workflow completo: ≈ 855 s (14,3 min)** en el run de
+verificación (158 s de autoprueba + 697 s de barrido).
+
+Los 158 s de la autoprueba son el precio de saber que el candado cierra, y se pagan **una vez por
+semana**. Serializarlos es deliberado: si el candado no sabe cerrarse, no quiero que el barrido llegue
+siquiera a emitir un verde. Para un cron semanal, 14 min es perfectamente pagable — que era la
+condición para que nadie lo apague.
 
 #### Cadencia
 
@@ -8619,18 +8626,26 @@ tres.
 verifica es la cadena escáner → política → candado, que es donde estaba el agujero; que el stack real
 levanta ya lo mide `e2e-real.yml` cada noche.
 
-#### La demostración, con los números del run `34437760891`
+#### La demostración: run de calibración `34437760891` y run de VERIFICACIÓN `34439124190`
 
-| | Canario (vulnerabilidades plantadas) | Stack real |
+El segundo corre **con la política ya calibrada** (§44.5) y es el que vale como prueba:
+
+| | Canario (vulnerabilidades PLANTADAS) | Stack real (mismo run, misma política, mismo candado) |
 |---|---|---|
-| Reglas `FAIL` disparadas | **3** — `40012` XSS reflejado, `6` Path Traversal, `90022` Application Error Disclosure | **0** |
+| Reglas `FAIL` disparadas | **5** — `40012` XSS reflejado · `40026` XSS DOM · `6` Path Traversal · `43` Source Code Disclosure · `90022` Application Error Disclosure | **0** |
 | Veredicto del candado | **🔴 ROJO** | **🟢 VERDE** |
-| Resultado del job | ✅ (rojo esperado) | ✅ |
+| Resultado del job | ✅ *(el rojo era lo esperado)* | ✅ |
+| Duración | 158 s | 697 s |
 
-Eso es lo que había que demostrar y no se había demostrado nunca: **la política discrimina**. No es
-verde-siempre (habría dado verde sobre el canario) ni rojo-siempre (habría dado rojo sobre el stack).
-Y el barrido del stack real **sí encontró cosas** —23 reglas con hallazgos, ninguna bloqueante— así que
-tampoco es que el escáner no esté mirando.
+**Esto es lo que había que demostrar y nunca se había demostrado: la política DISCRIMINA.** No es
+verde-siempre —habría dado verde sobre el canario— ni rojo-siempre —habría dado rojo sobre el stack—.
+Y el barrido del stack real **sí encontró cosas**: 22 reglas con hallazgos (cookie sin `HttpOnly`, CORS
+permisivo, fuga de `X-Powered-By`, CSP sin fallback, cabeceras de endurecimiento…), ninguna bloqueante.
+El escáner mira de verdad; lo que pasa es que hoy no hay nada de gravedad bloqueante en esa superficie.
+
+Nota lateral que confirma el diseño: en ese run apareció una regla **no listada** en la política
+(`120000`, información en `localStorage`). El candado la trató como **`WARN`**, no como `FAIL` — una
+firma nueva de ZAP no puede poner rojo el gate por sorpresa; se ve en el informe y se clasifica a mano.
 
 #### La segunda mitad: la guarda estática, en cada push
 
