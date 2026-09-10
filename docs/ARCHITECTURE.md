@@ -8,7 +8,9 @@
 > EL SET ROTO, Y EL CORTE QUE SE MUEVE SOLO**
 > (2026-09-10, arquitecto. Base: **v1.65, vigente entera**. Origen: `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui) +
 > **decisión del dueño** del 2026-09-10 (**R6**). Contrato en `API_CONTRACT.md` **v1.66**, sección nueva **§M2-CS**.
-> Detalle en **§4.45**. Migración **`M-51`** (§11). Desviaciones **`D-CS-1`**, **`D-CS-2`** y **`D-CS-3`** en **§9**.)
+> Detalle en **§4.45**. Migración **`M-51`** (§11). Desviaciones **`D-CS-1`**…**`D-CS-4`** en **§9**. **Amplía
+> §0-B.3 regla 8**: la marca canónica es un **par** —sin cierre no hay bloque—, norma nacida de un defecto **mío**
+> que el orquestador encontró al revisar esta misma rev.)
 >
 > **1. ⭐⭐ EL CRITERIO ÚNICO, Y ES EL LADO SERVIDOR DE `§32.4`: una cifra sólo se emite si ESTA corrida la CONTÓ; lo
 > que no se midió viaja AUSENTE, jamás como `0`.** *Una pantalla no puede ser más honesta que su DTO.* Las tres
@@ -3053,6 +3055,30 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **El REPARTO de un barrido de sets** (qué se le pasó a cada set encolado: los términos, sus invariantes, y **el único nombre de «cuántos toqué»**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.0** *(razón: `ARCHITECTURE §4.45.1`)* | `<!-- CANON: reparto-del-barrido -->` |
      | **La VARIANTE DE PRECIO** (la unidad de cobertura: qué se cuenta, qué **no** es denominador, y cuándo el universo es **desconocido** en vez de cero) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.3** *(razón: `ARCHITECTURE §4.45.2`)* | `<!-- CANON: variante-de-precio -->` |
      | **El CORTE DE CATÁLOGO** (desde cuándo un set cuenta como **nuevo**: la fórmula derivada, la semántica del `releaseDate` ausente, y que **ya no hay dial**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.4** *(razón: `ARCHITECTURE §4.45.3`)* | `<!-- CANON: corte-de-catalogo -->` |
+   - **⭐⭐ AMPLIACIÓN v1.66 — LA MARCA CANÓNICA ES UN PAR: SIN CIERRE, NO HAY BLOQUE.** Toda marca
+     `<!-- CANON: x -->` **abre** un bloque y **debe cerrarse** con `<!-- /CANON: x -->`. **No es cosmética:** la
+     regla 8 dice *«la cuenta vive en UN sitio»*, y **un bloque abierto y nunca cerrado no delimita ese sitio** —
+     nadie puede decir dónde acaba la fuente única y dónde empieza prosa que **sí** puede repetirse, discutirse y
+     envejecer. *Sin cierre, la fuente única se convierte en «de aquí para abajo, más o menos», que es
+     exactamente la ambigüedad que la regla existe para eliminar.*
+     - **Qué va DENTRO:** el predicado — definición, forma, invariantes, prohibiciones. **Qué va FUERA:** razón,
+       costo, compuertas de un merge concreto, ayudas de lectura y todo lo que **deba** poder citarse desde otros
+       documentos. *La utilidad del cierre se ve al escribirlo: obliga a decidir qué es norma y qué es comentario,
+       que es la decisión que se estaba saltando.*
+     - **Verificable de un vistazo y `grep`-able** (sugerencia a devops, mismo límite que las reglas 7 y 8:
+       **yo normo, no cableo**): **cada `x` debe tener exactamente UNA apertura y UNA cierre como marcas REALES**
+       —las que empiezan línea— y una apertura sin su `/CANON` es un fallo de documentación, no un descuido de
+       formato. ⚠️ **Una marca CITADA entre acentos graves (`` `<!-- CANON: x -->` ``) es una referencia, no una
+       apertura**, y es la forma correcta de nombrarla desde otro sitio; por eso el conteo se hace sobre marcas a
+       principio de línea y no sobre apariciones del texto.
+     - **⚠️ Estado medido el 2026-09-10, y no lo maquillo:** la convención se cumplía **a medias**. Cerrados:
+       `mercado-de-la-variante`, `semantica-de-omision`, `estado-de-bounty`, `predicado-de-pagabilidad`,
+       `proveedor-de-precio`. **Abiertos sin cerrar: los cuatro bloques FX** (`invariantes-del-modo-fx`,
+       `precedencia-de-la-tasa`, `estado-del-tipo-de-cambio`, `banda-de-la-tasa-usd-mxn`). Los tres de v1.66
+       nacieron igual de rotos y **se cerraron en el mismo pase**; los cuatro de FX quedan registrados como
+       **`D-CS-4`** (§9, dueño: **arquitecto**) porque fijar sus límites exige releer §M2-F entero y **eso no se
+       hace de paso en una rev de catálogo**. *Detectado por el orquestador al revisar v1.66: la norma nace de que
+       el defecto se repitió en cuanto alguien —yo— escribió tres marcas nuevas sin fijarse.*
    - **⭐⭐ AMPLIACIÓN v1.65 — «EL VALOR NO CADUCA SOLO: CADUCA EL HECHO QUE EL VALOR NOMBRABA». La regla 8 también
      gobierna los valores de clase (B) que se afirman con VERBOS DISTINTOS.** El caso que la origina no fue una
      cuenta: fueron **dos frases sobre el mismo dial** —*«el **seed** debe dejar `tcgcsv_singles`»* (§4.36(d)) y
@@ -22348,6 +22374,20 @@ Riesgos técnicos:
   - **Alcance:** añadir `setsWritten` y `setsNoop` al `summary`; **⛔ NO redefinir `setsOk`** (queda deprecado con
     su significado congelado, `setsOk === setsWritten + setsNoop`, y se retira en la rev siguiente cuando frontend
     confirme cero consumidores). *Redefinir un campo vivo es peor que retirarlo: nadie se entera.*
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-4`: LOS CUATRO BLOQUES CANÓNICOS DE FX ESTÁN ABIERTOS Y SIN CERRAR.**
+  **Dueño del arreglo: arquitecto (yo).** Norma nueva: **§0-B.3 regla 8, ampliación v1.66** (la marca canónica es
+  un par).
+  - **Qué se midió:** `invariantes-del-modo-fx`, `precedencia-de-la-tasa`, `estado-del-tipo-de-cambio` y
+    `banda-de-la-tasa-usd-mxn` abren bloque en `API_CONTRACT §M2-F` y **ninguno lo cierra** ⇒ **el límite de la
+    fuente única de cuatro predicados de DINERO está indefinido**.
+  - **Por qué no se arregla en esta rev:** fijar dónde acaba cada bloque exige releer §M2-F entero y **decidir qué
+    de esa sección es norma y qué es razón** — es un pase propio, y hacerlo «de paso» en una rev de catálogo es
+    justo cómo se cuela un error en una zona de dinero. **Se cierra en la próxima rev que toque §M2-F**; hasta
+    entonces, **manda el texto de §M2-F tal como está** (la ambigüedad es de límite, no de contenido).
+  - **Nota de honestidad:** los tres bloques de v1.66 nacieron con el mismo defecto y **se cerraron en el mismo
+    pase**. *La norma no la escribí porque lo hicieran mal otros: la escribí porque lo hice mal yo y alguien lo
+    revisó.*
 
 - **⚠️ ABIERTA (v1.66) — `D-CS-3`: `IMPORTANTE-3` SIGUE SIENDO DE BACKEND, Y LA COLUMNA NUEVA NO LO CIERRA.**
   **Dueño del arreglo: backend** (`tcgcsv-singles-bulk.provider.ts`, `resolveGroupId` → `null` con nombres

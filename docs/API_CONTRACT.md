@@ -43,6 +43,17 @@
 > fecha»* e *«ignora `catalog_sync_from_date`»*. Backend ya cerró **D3** (el botón de rutina se traía sets de
 > cualquier año) y **el contrato no se enteró**. *Eran ciertas en v1.3; el hecho que nombraban se fue.*
 >
+> **6. ⭐ CORRECCIÓN DENTRO DE LA PROPIA v1.66 (revisión del orquestador, mismo día).** Dos defectos **de la clase
+> que esta rev existe para eliminar**, y por eso se corrigen aquí y no «en la siguiente»: **(a)** la nota de §M10
+> derogaba `catalogSyncFromDate` **mientras la enumeración autoritativa del DTO seguía nombrándolo, con default y
+> con «editable sin redeploy»** — *una nota que corrige y una enumeración que no cede son dos autoridades, y el
+> implementador mira la enumeración* (es el diagnóstico literal de §M10-PP, cometido trece líneas más abajo). **La
+> enumeración cede: el campo sale y su semántica se cita, no se repite.** **(b)** Las **tres marcas `CANON` nuevas
+> se abrían y nunca se cerraban** ⇒ **el límite de la fuente única quedaba indefinido**. Cerradas las tres, con la
+> frontera declarada (dentro: predicado, forma, invariantes; fuera: razón, costo y compuertas). **La convención
+> pasa a ser NORMA en `ARCHITECTURE §0-B.3` regla 8** (ampliación v1.66), y los **cuatro bloques de FX que están
+> abiertos sin cerrar** quedan registrados en `D-CS-4` — **no se cierran de paso en una rev de catálogo.**
+>
 > ---
 >
 > **Changelog v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED MONEY-SAFE ERA EL QUE APLANA
@@ -11469,7 +11480,7 @@ se mueven en el mismo cambio o no se mueve ninguna**: media banda es una diverge
 <a id="M2-CS0"></a>
 ##### §M2-CS.0 — CANON: **el reparto de un barrido de sets** *(vocabulario ÚNICO de «cuántos toqué»)*
 
-<!-- CANON: reparto-del-barrido -->
+<!-- CANON: reparto-del-barrido · única fuente · ver ARCHITECTURE §0-B.3 regla 8 · razón entera en ARCHITECTURE §4.45.1 -->
 
 Los dos barridos de catálogo (`sync-all` y `refresh-variants-all`) reportan **el mismo tipo de hecho** —*qué le
 pasó a cada set del universo encolado*—, así que **reportan con la misma forma**. Lo que legítimamente difiere es
@@ -11498,6 +11509,11 @@ pasó a cada set del universo encolado*—, así que **reportan con la misma for
 **⛔ Prohibido: un segundo vocabulario para «cuántos toqué».** `setsOk` queda **deprecado** (§M2-CS.2) y no nace
 ningún `setsProcessed`, `setsHandled` ni `setsDone`. Si un barrido necesita **más** granularidad, la añade como
 **desglose de `setsWritten`** —con la invariante de suma escrita— y **nunca como un total paralelo**.
+
+<!-- /CANON: reparto-del-barrido -->
+
+*(Fuera del bloque canónico: lo de abajo es **ayuda de lectura**, no fuente. El algoritmo del veredicto y su copy
+son de `DESIGN_SYSTEM §32.4`, que manda sobre este párrafo.)*
 
 **Cómo se lee un veredicto de aquí** *(informativo; el copy y el algoritmo son de `DESIGN_SYSTEM §32.4`, que
 manda)*: `summary == null` ⇒ `NO SE SABE`. `running:true` ⇒ **estado `EN CURSO`, jamás veredicto** (el `summary`
@@ -11600,7 +11616,7 @@ conserva sus cifras de escritura propias, que son las que legítimamente lo dist
 <a id="M2-CS3"></a>
 ##### §M2-CS.3 — CANON: **la variante de precio**, y la cobertura por set en `remote-sets` *(cierra R5)*
 
-<!-- CANON: variante-de-precio -->
+<!-- CANON: variante-de-precio · única fuente · ver ARCHITECTURE §0-B.3 regla 8 · razón entera en ARCHITECTURE §4.45.2 -->
 
 **La pregunta que la columna contesta es «¿a este set le faltan precios?», no «cuántas filas tiene».** Para eso
 hace falta fijar el **denominador una sola vez**, porque un set tiene **más variantes que cartas** (normal /
@@ -11673,6 +11689,12 @@ reverse holo / holofoil) y aplanar ese eje es **la falla de origen de P-47**:
 - **`I-PC7`** — ⛔ **`remote-sets` NO filtra por el corte de catálogo** (§M2-CS.4). Devuelve **todos** los sets
   remotos. Con corte móvil esto **deja de ser un detalle** y pasa a ser **la escotilla de escape** del diseño.
 
+<!-- /CANON: variante-de-precio -->
+
+*(Fuera del bloque canónico: **la unidad, el shape y los invariantes** de arriba son fuente única y no se
+transcriben en ningún otro sitio. Lo de abajo —costo, presupuesto, compuerta y alcance frente a `IMPORTANTE-3`— es
+**razón y operación**: se puede citar, discutir y ampliar sin tocar la fuente.)*
+
 **Costo, y cómo se paga** *(medido antes de decidir la forma, no después)*:
 
 1. **Denominador** — un agregado sobre `CardProduct ⋈ Card` sumando la cardinalidad de `finishes` por `setId`.
@@ -11709,7 +11731,7 @@ con nombres ambiguos y sólo deja un `warn`)*:
 <a id="M2-CS4"></a>
 ##### §M2-CS.4 — CANON: **el corte de catálogo se mueve solo** *(cierra R6; deroga el dial `catalogSyncFromDate`)*
 
-<!-- CANON: corte-de-catalogo -->
+<!-- CANON: corte-de-catalogo · única fuente · ver ARCHITECTURE §0-B.3 regla 8 · razón entera en ARCHITECTURE §4.45.3 -->
 
 **Decisión del dueño (2026-09-10):** *«el corte de fecha, que automático. Estar moviendo cosas manuales deja a que
 se rompa algo por falta de cuidado o supervisión»*.
@@ -11763,6 +11785,12 @@ se rompa algo por falta de cuidado o supervisión»*.
   es el defecto que estamos cerrando, con otra cara. *La irregularidad del ritmo de lanzamientos —el argumento a
   favor del eje de series— no hace daño aquí: importar es acumulativo, y que una ventana traiga 4 sets un año y 12
   el siguiente no rompe nada; lo único que la ventana gobierna es qué ofrece el botón de rutina.*
+
+<!-- /CANON: corte-de-catalogo -->
+
+*(Fuera del bloque canónico: la compuerta de abajo es **operación de un merge concreto**, no la definición del
+corte. Cuando se consuma, se marca como consumada; la definición de arriba no se toca.)*
+
 - **⭐ COMPUERTA DE MEDICIÓN ANTES DEL CAMBIO** *(dueño: backend; bloquea el merge, no el diseño)*. La semilla de
   24 meses es **más restrictiva** que el corte vigente. Antes de activar, contar:
   > sets remotos con **`imported: false`** y **`releaseDate ∈ [ valor vigente del dial , CORTE EFECTIVO )`**.
@@ -16148,12 +16176,13 @@ Err `403`, `400 VALIDATION_ERROR`.
   queda «deprecada e inerte»**: un mando muerto que sobrevive en la base es leído por alguien que cree que manda.
   **Dónde se lee ahora el corte vigente:** `catalogWindow` de `GET /admin/catalog/remote-sets` (para la pantalla,
   **antes** de apretar) y `summary.fromReleaseDate` de `GET /admin/catalog/sync-status` (para el aviso, **después**
-  de correr). ⚠️ **La frase de la lista de abajo que describe `catalogSyncFromDate` como «editable sin redeploy»
-  queda MUERTA en v1.66** y se retira con la implementación; se deja visible aquí en vez de borrarla en silencio,
-  porque frontend M10 tiene que ver qué desaparece de su pantalla.
+  de correr). ⚠️ **La enumeración de abajo YA NO lo nombra**, y esa es la mitad que importa: *una nota que corrige
+  conviviendo con una enumeración que no cede deja dos textos con voz de autoridad, y el implementador mira la
+  enumeración* (es el defecto exacto que `§M10-PP` documentó en v1.65 — **aquí se corrige en el mismo pase, no en
+  el siguiente**). **Qué desaparece de la pantalla de frontend M10:** el campo `catalogSyncFromDate` y su editor.
 - ⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
   `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**. Ver §M10-IVA.
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** **v1.66: `catalogSyncFromDate` queda RETIRADO de este DTO y de este `PUT`** (mismo trato que `stripeFeeIvaPct` y `fxRateMode`: enviarlo cae en `422 VALIDATION_ERROR` como cualquier clave desconocida). ⛔ **Su semántica no se repite aquí y su antiguo default no se cita en ninguna parte**: el corte del sync de catálogo **ya no es un dial** sino un valor derivado, y **vive entero en [`§M2-CS.4`](#M2-CS4)** (`<!-- CANON: corte-de-catalogo -->`, §0-B.3 regla 8). *La frase que esta línea tenía —«frontera por defecto … editable sin redeploy … `ConfigSetting` de primera clase», con un literal de fecha— describía un mando que dejó de existir: **se retira, no se anota**.* Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
 - ⚠️⚠️ **v1.63 (§M2-F) — `fxManualOverrideRate` SIGUE en este DTO, pero ESTE `PUT` ya no decide si la tasa manual
   RIGE.** Desde v1.63 eso lo decide el ajuste **`fx_rate_mode`**, que ⛔ **NO se expone aquí y NO se edita por este
   endpoint** (enviar `fxRateMode` en el body cae en `422 VALIDATION_ERROR` como cualquier clave desconocida, mismo
