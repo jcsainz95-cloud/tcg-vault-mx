@@ -147,6 +147,17 @@ Al encargar trabajo que use el scratchpad, doy **una ruta con nombre único**. N
 **Comprobación:** el encargo nombra la ruta. Y ningún resultado de mutación se acepta sin saber sobre qué árbol
 corrió.
 
+### O-10 · «Terminado» incluye commiteado, y lo compruebo yo
+Cuando un agente reporta que terminó, **miro el árbol** antes de creerle: qué commiteó, qué dejó suelto y si el
+mensaje describe el diff. Un informe no es un commit.
+
+> *De dónde viene:* un agente backend entregó un informe completo —con mediciones, mutaciones y números— y **no
+> había commiteado ni un fichero**. Cuatro ficheros sueltos en el árbol. Si el contenedor se recicla, ese trabajo
+> se pierde entero y el informe queda describiendo algo que ya no existe.
+
+**Comprobación:** tras cada informe, `git status` y `git log`. Lo que quedó suelto lo verifico y lo cierro yo, con
+un mensaje que diga que lo escribió el agente y que lo verifiqué yo.
+
 ### O-9 · Verifico yo; no acepto reportes
 Corro las suites y **repito al menos una mutación por pase**, sobre una **copia**, nunca sobre el árbol vivo. Esto
 ya era doctrina del proyecto y se escribe aquí porque es la que sostiene a todas las demás.
