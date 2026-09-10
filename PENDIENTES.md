@@ -858,6 +858,55 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 - ✅ **Acción disponible hoy, y sigue siendo la correcta — pero por otra razón que la que dije:** el sync
   TCGCSV `tcgcsv_singles` de **JOURNEY TOGETHER** (per-acabado, gana por precedencia,
   `pricing.service.ts:904`). **No porque falte el precio: porque el que hay es malo.**
+##### ⭐ Por qué «corrí el sync y no pasó nada» (diagnosticado 2026-09-10)
+- 🔴 **No hay UN sync: hay CUATRO acciones en M2, y el botón obvio NO ESCRIBE NINGÚN PRECIO.**
+  Verificado por el orquestador en `catalog-sync.service.ts:784`:
+  ```ts
+  if (firstImport || opts.force === true) { await this.runCardProductResolver(...); }
+  ```
+  **«Re-sincronizar»** (el botón de la fila) manda `sync` **sin `force`** (`useCatalogSync.ts:139`). JOURNEY
+  TOGETHER ya está importado ⇒ **el resolver ni se invoca, no se escribe una sola `PriceReference`** — y el
+  banner responde *«Sync encolado: 1 set(s)»*, **que parece éxito**.
+  | Botón | ¿Escribe precio per-acabado? |
+  |---|---|
+  | **«Re-sincronizar»** (fila) | ⛔ **NO escribe ningún precio** |
+  | **«Variantes + precios»** (fila) | ✅ **SÍ, siempre** — `catalog-sync.service.ts:330`, `void force` |
+  | «Actualizar precios ahora» | ⚠️ solo si el dial lo permite |
+  | «Sync completo» (menú «…») | ✅ fase 1; fase 2 depende del dial |
+- 🔴 **Causa #2, independiente y también viva: el barrido diario NO puede tocar un holofoil hoy.** El
+  proveedor lo elige el dial `price_provider`, y el seed es **`pokemontcg_io`** (`settings.constants.ts:307`).
+  Ponerlo en `tcgcsv_singles` es **la Parte 4 de `P-47`, «(después, devops)», que sigue SIN MARCAR COMO
+  HECHA**. Con PPT y la Parte 1 ya en producción, **solo se escribe la impresión primaria** ⇒ para la clave
+  holofoil no se escribe fila nueva y la vieja sobrevive. **Un sync que corre, reporta bien, y
+  estructuralmente no puede tocar ese acabado.**
+- **Refutada la hipótesis de que el sync respeta la fila vieja:** los dos escritores son **upsert
+  incondicional** (`card-product-resolver.service.ts:197`, `pricing.service.ts:2186`). El **único** freno es
+  un **override manual**, que además gana en la lectura para siempre. ⇒ **Si alguien puso un override
+  manual bajo en esas claves, ningún sync lo moverá jamás.** No se puede descartar leyendo.
+- **Refutado el cruce con `P-46`:** sellado y singles resuelven el grupo TCGCSV por **caminos distintos**
+  (`sealed-product.service.ts:777` vs `card-product-resolver.service.ts:209`), así que el bug del prefijo de
+  P-46 **no alcanza a singles**.
+- ✅ **LA ACCIÓN QUE SÍ CIERRA EL CASO, sin depender de ninguna incógnita:**
+  **M2 → «Cola de precio pendiente» → pestaña «Venta (inventario)» → las dos filas → «Fijar precio» →
+  teclear el MERCADO real en pesos → «Guardar precio».** Escribe una referencia **manual**, cuyo tier es
+  **absoluto y durable** (`pricing.service.ts:361`), **ningún sync futuro la pisa**, y el endpoint
+  **re-dispara la publicación** al guardar. ⚠️ Se teclea **el mercado, no el precio de venta**; para salir
+  del piso tiene que ser **> MX$15.62**.
+- ⛔ **Lo que NO va a poder hacer, y hay que decírselo antes:** en el binder, el campo **«Fijar mercado»
+  solo aparece cuando NO hay mercado** (`VariantPriceConsole.tsx:431`, `marketRefCents != null`). **Estas dos
+  SÍ tienen** ⇒ verá el número y su fecha, **sin campo para corregirlo**. El único sitio es el modal de M2.
+- 🔬 **El dato que decide qué hipótesis queda viva, y solo se ve en pantalla: LA FECHA del mercado.**
+  M1 → binder → teja del **holofoil** → cajón → «Precios» → renglón «Mercado» (monto · fecha).
+  **Fecha ≠ día del sync** ⇒ el sync no escribió esa clave. **Fecha = día del sync y monto sigue bajo** ⇒
+  TCGCSV reporta ese número y **solo el override manual lo arregla**.
+- ⚠️ **Trampa de pantalla que hay que avisarle:** tras «Variantes + precios», si el set **no resuelve su
+  grupo**, el banner sale **VERDE** con **todo en cero** — el estado «parcial» solo se activa con
+  `!tcgcsvReachable || pending > 0` (`CatalogSyncSection.tsx:282`). **Que lea los NÚMEROS, no el color.**
+- 🔴 **Y lo que ninguna pantalla enseña, que es justo lo que falta: la FUENTE de la fila vigente.** El
+  historial por fecha/fuente existe (`GET /admin/pricing/card/:cardId`) y hasta hay cliente en
+  `lib/api.ts:3859`, pero **ningún componente lo consume**. ⇒ Desde la interfaz **no se distingue** «la
+  escribió tcgcsv hoy» de «es un residuo aplanado de PPT de agosto» ni de «es un override manual».
+
 - **Rol dueño:** **frontend + arquitecto** (que la cola de M1 lleve la razón) · **arquitecto** (si el
   guardarraíl debe cubrir el eje de costo) · **backend** (P-47 parte 3, que cura el dato de origen).
 
