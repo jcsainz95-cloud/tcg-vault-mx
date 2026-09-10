@@ -28,6 +28,222 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.52 — **§31.5(c): las dos rayas del bloque de marca eran dos bloques grises de 216×72** (2026-09-10)
+
+> Propiedad: **backend** (`src/modules/buylist/mail-shell.ts`). Lo levantó **frontend** midiendo con
+> Playwright; **lo verifiqué yo antes de tocarlo**, que es lo que se me pidió. ⛔ **Nada que ver con el
+> pase del IVA**: es un fichero distinto, un cambio distinto y se puede revertir por separado.
+
+**El defecto.** En `brandRows()`, la celda que pinta la raya **compartía fila** con la celda de la mira
+(72 px). En una tabla, **`height` es un MÍNIMO, no un máximo**: la celda se estira a la altura de su
+fila **y su fondo con ella**. Donde `§31.5(c)` pide un filete salían **dos rectángulos grises**.
+
+**Medido por mí, Chromium sobre el correo renderizado y con las imágenes BLOQUEADAS** (`route.abort`
+de todo `*.png`, para descartar que lo causara el PNG nuevo de la mira — no lo causa: el `<img>` con
+`width`/`height` explícitos reserva su caja igual):
+
+| | antes | después |
+|---|---|---|
+| cada raya del bloque de marca | **216 × 72** | **216 × 1** |
+| `ruleRow()` de debajo del wordmark (**control**) | 536 × 1 | 536 × 1 |
+| centro vertical de la raya vs. centro de la mira | 68 vs 68 | **68 vs 68** |
+
+⭐ **El control es lo que convierte la hipótesis en diagnóstico.** La regla de debajo del wordmark
+**siempre midió 1 px**, con el mismo color y el mismo `height="1"`; lo único que la diferencia es que
+**va sola en su fila**. ⇒ el arreglo es darle a cada raya **su propia fila** (tabla anidada de una
+celda), que es literalmente lo que ya hacía `ruleRow()`. El centrado sale gratis: el `valign` por
+defecto de una celda es `middle`.
+
+**⛔ Es mecánica de tablas, no una peculiaridad de Chromium.** Que un fondo llene su celda y que la
+altura de fila la marque la celda más alta es común a todos los motores; el de Word/Outlook —que es el
+que manda (§31.2)— **infla las celdas más, no menos**. Y las tablas anidadas son el recurso que este
+mismo shell usa en todas partes. *Aun así, `ML-11` (mirarlo en Gmail/Outlook de verdad) sigue siendo
+de un humano: `npm run mail:preview`.*
+
+### ⚠️ Para ux-ui: `DESIGN_SYSTEM §31.5(c)` **sigue cumplido al pie de la letra** — no hay que cambiarlo
+
+El documento prescribe `<td height="1" bgcolor="#AEACA7">` a izquierda y derecha de la celda de la
+mira. **Ese `<td>` sigue ahí, idéntico, a los dos lados**; lo único que cambió es **de qué fila
+cuelga**, que §31.5(c) no prescribe. La composición tampoco cambia: la fila de la mira sigue teniendo
+**tres celdas** (`raya · mira · raya`), y hay un control que lo asierta. ⇒ **no es un caso de
+«el documento está mal»**, sino el otro: **había una forma de cumplirlo que sí renderiza como filete**.
+*Lo único que le pediría a ux-ui es añadir el PORQUÉ al documento —una celda con fondo pinta toda su
+fila— para que el siguiente que lo lea no lo repita.*
+
+### El candado, con su mutación
+
+`test/buylist.mail-shell.spec.ts` → **N9**: *ninguna celda que pinte una regla comparte fila con otra
+celda*, barrido sobre el HTML de **los ocho correos × dos idiomas**. ⛔ **No asierta píxeles** —eso no
+se puede medir en jest y en Outlook lo pinta otro motor—: asierta **la forma que causa el defecto en
+cualquier motor de tablas**. Más un **control positivo** de que el bloque sigue siendo `raya · mira ·
+raya`, para que «arreglarlo» quitando una raya o sacando la mira también sea rojo.
+
+| Mutación (sobre una COPIA) | Rojos |
+|---|---|
+| volver a la raya que comparte fila con la mira (el defecto original) | **16** (los 16 renders de los seis correos migrados), y el control **sigue verde**: la composición no cambia, solo la fila |
+
+**Dos errores míos que el propio candado cazó, dichos porque enseñan dónde está la línea:**
+
+1. Exigí *«el barrido encuentra al menos una regla»* a **los ocho** correos ⇒ **4 rojos con razón y
+   sin defecto**: el **7 y el 8** no tienen ni una regla porque **no usan el esqueleto de §31** (viven
+   en `mail/mail.templates.ts`, otro work stream, deuda **BE-43**). El invariante se les aplica igual
+   —se cumple en vacío— y **empezará a morder solo** el día que se migren; el *control* de no-vacío se
+   exige solo a los migrados. *Un control que confunde «no aplica» con «está mal» enseña a ignorar el
+   rojo.*
+2. Buscar la fila con `lastIndexOf('<tr>')` **miente en cuanto hay tablas anidadas**: para la celda de
+   la mira, el `<tr>` más cercano hacia atrás es el de la raya izquierda **ya cerrada**. Se recorre con
+   una pila y se toma la fila abierta más interna; y las celdas se cuentan **directas** (vaciando las
+   tablas anidadas), o la fila de la mira cuenta 5 en vez de 3.
+
+## 0.51 — **v1.64(4): `ShipmentRequest.shippingCostIvaCents` — una columna más en M-50, y D-1 sigue sin cambiar nada** (2026-09-10)
+
+> Propiedad: **backend**. Encargo: `ARCHITECTURE §4.44.f-ter` y **§11 M-50 punto 3-bis**;
+> `API_CONTRACT §M10-IVA.8` y candado `IVA-11` (ambos rev **v1.64(4)**).
+> **Alcance:** UNA columna aditiva, `@default(0)`, **sin backfill**, más la enumeración del candado de
+> texto. ⛔ **No toca `Order`, ni el enum, ni el backfill de `priceConvention`, ni el seed.**
+> ⛔ **No implementa D-2.** Ficheros: `prisma/schema.prisma`, la migración M-50,
+> `test/migration.m50-no-default.spec.ts`, `test/shipments.cost-iva-column-inert.spec.ts` (nuevo) y
+> `test/integration/iva-price-convention.e2e-spec.ts`.
+
+### 0.51.1 Qué es y por qué entra ahora
+
+El dueño decidió (2026-09-10, preguntas 68 y 69) que **`shippingCostCents` se captura BRUTO** —es la
+cifra que trae la factura de la paquetería— y que **el envío no lleva margen**. Netear al leer con
+`costo/(1+r)` exigiría **la tasa**, y **`ShipmentRequest` no tiene `ivaRatePct`** (solo `Order`) ⇒
+habría que leer **el dial vivo**, y entonces **un P&L histórico cambiaría el día que alguien mueva
+`iva_pct`** — que es justo lo que prohíbe `IVA-5`, ya publicado y **verde**. Con esta columna el neto
+es **una resta**: sin división, sin tasa al leer, y **sobrevive intacto a un cambio de tasa**.
+
+| Columna | Tipo | Nulabilidad | Default de BD | Backfill |
+|---|---|---|---|---|
+| `ShipmentRequest.shippingCostIvaCents` | `Int` | **NOT NULL** | **`0`** (y es correcto) | ⛔ **NINGUNO** |
+
+### 0.51.2 ⭐ Por qué aquí el `@default(0)` SÍ es honesto — y no me lo creí por obediencia
+
+Se me pidió explícitamente que parara si la distinción no me cuadraba. **Cuadra, y es el mismo
+criterio que yo mismo dejé escrito, aplicado dos veces con resultados distintos porque las dos
+ausencias significan cosas distintas:** *un default vale cuando la ausencia **de verdad significa** ese
+valor*.
+
+- En **`priceConvention`**, la ausencia significa *«nadie dijo con qué regla se cobró»*. Un default
+  **convierte un hueco en una afirmación falsa**, y encima silenciosa.
+- En **`shippingCostIvaCents`**, la ausencia significa **cero de verdad**: en las filas históricas
+  **nunca se capturó el IVA de un costo**. `0` dice *«no consta crédito»* ⇒ `net = bruto`.
+
+Y hay una segunda prueba, independiente del significado, que a mí me acaba de convencer: **la
+dirección del error**. `net = bruto` **subestima la ganancia**; el default equivocado de
+`priceConvention` la habría reinterpretado en cualquier dirección, en silencio. *Cuando un default
+tiene que equivocarse, que se equivoque contra la casa.*
+
+⛔ **Y por eso mismo, prohibido backfillear `costo × 16/116`:** ése sí es un invento que **infla** la
+ganancia — un crédito fiscal sobre facturas que nadie miró. Misma doctrina que `ivaTransferPct`.
+
+⛔ **No es nullable, y la razón es lo que NO se puede saber:** para las filas existentes «costó cero» y
+«no se capturó» son **indistinguibles**, y un `NULL` exigiría un backfill que **inventa** esa
+distinción. La ambigüedad se **hace visible** (contador, §0.51.3), no se resuelve falsamente.
+
+### 0.51.3 ⚠️ `shippingCostMissingCount` **NO entra en D-1** — va a D-2, y la razón es medible
+
+El contador es correcto y lo quiero; **pero no cabe en este pase sin romper su única promesa**.
+`API_CONTRACT §M10-IVA.8` lo pone en la **respuesta** de `GET /admin/finance/pnl` **y en su CSV**, y
+ese CSV tiene cabecera fija:
+
+```
+report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents
+```
+
+Añadir una clave al objeto **es** un cambio observable, y añadir una columna al CSV **rompe la
+igualdad contra el pasado** que `test/admin.pnl-iva-neutral.spec.ts` asierta. El propio contrato marca
+`§M10-IVA.8` como **deploy 2**. ⇒ **entra con el neteo, en D-2, con `IVA-11(a)(b)(c)` enteros.** *Un
+contador que hace visible una ambigüedad es bueno; hacerlo visible en el deploy que prometió no
+cambiar nada visible sería cambiar la promesa por la mitad de la funcionalidad.*
+
+**Lo que sí queda hecho para D-2:** la columna existe, arranca en `0` desde el minuto cero y
+`IVA-11(d)` ya está verde.
+
+### 0.51.4 «Nadie la lee hasta D-2», medido — y el riesgo real de una columna nueva
+
+El riesgo de una columna nueva en una tabla de dinero **no es que alguien la use: es que se publique
+sola**. Antes de `S49-R4`, `setTracking` devolvía la entidad Prisma cruda; con ese código, esta columna
+habría aparecido en la respuesta de M4 **sin que nadie escribiera una línea**. La lista blanca
+`toAdminShipmentRow` ya lo impide; `test/shipments.cost-iva-column-inert.spec.ts` lo **mide**:
+
+- ⛔ **ni un fichero de `src/` menciona `shippingCostIvaCents`** (barrido, con control de que barre);
+- ⛔ no sale por **`setTracking`** (back-office) ni por **`getMine`/`listMine`** (cliente), **aunque la
+  fila cruda la traiga**;
+- ⛔ el **DTO de captura de M4 no gana el campo**: con `whitelist: true`, hoy un cliente que lo mande
+  recibe 200 y el campo **se descarta**; añadirlo lo persistiría — y eso es observable. La captura y su
+  rótulo («importe TOTAL de la factura, IVA incluido», obligación de ux-ui) son de **D-2**;
+- el P&L **sigue sumando el bruto** y ⛔ no aparece ninguna división por `(1+r)`.
+
+⚠️ **El primer bloque de ese fichero CADUCA en D-2, a propósito**: se pone rojo en cuanto el P&L lea la
+columna, que es lo que `§M10-IVA.8` manda hacer. **Ese rojo es la señal**: quien haga D-2 borra **ese
+bloque** y escribe en su lugar `IVA-11(a)(b)(c)`. El resto (que no se publique en ninguna respuesta)
+**no caduca**.
+
+### 0.51.5 El candado de texto de M-50: por qué pasó de global a acotado
+
+`test/migration.m50-no-default.spec.ts` prohibía `NOT NULL DEFAULT` **en toda la migración**. Hasta hoy
+eso no costaba nada porque M-50 no tenía ninguno; el PASO 3-BIS obliga a elegir, y **la elección ya
+estaba escrita en el mismo fichero**, en el test que barre todas las migraciones: **§4.44.e no prohíbe
+los defaults, prohíbe ÉSTE**. Dejarlo global habría dado un rojo **sobre una sentencia correcta**, y el
+primero que lo viera lo habría borrado entero.
+
+⇒ La prohibición se acota a `priceConvention`/`ivaTransferPct`, **y se paga el acotamiento con una
+enumeración**: *el único `NOT NULL DEFAULT` de M-50 es el de `shippingCostIvaCents`*. Un segundo tiene
+que pasar por ese test. **`DROP DEFAULT` sigue prohibido globalmente** y ahora es más fuerte que antes:
+si alguien «arregla» este default quitándolo después, se entera ahí.
+*(La enumeración de defaults legítimos sobre `Order`/`ShipmentRequest` pasa de **cuatro** a **cinco**.)*
+
+### 0.51.6 ⚠️⚠️ AVISO A QA Y DEVOPS — M-50 **cambió después de aplicarse** en bases locales
+
+**Staging y producción NO la tienen** (D-1 está sin publicar) — por eso el arquitecto reabrió M-50 en
+vez de crear una migración aparte, y por eso esta ventana era barata. **Pero una base local que ya
+corrió M-50 no recibe la columna, y `prisma migrate deploy` NO lo detecta: dice «No pending
+migrations» y sigue.** El síntoma aparece luego, en la suite de integración, como
+`column "shippingCostIvaCents" does not exist`.
+
+- **Lo limpio:** `npx prisma migrate reset` (base de desarrollo).
+- **Sin perder datos** (lo que hice yo en la base local de este equipo, ya aplicado):
+  ```sql
+  ALTER TABLE "ShipmentRequest" ADD COLUMN IF NOT EXISTS "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;
+  UPDATE _prisma_migrations SET checksum = '<sha256 del migration.sql>'
+   WHERE migration_name = '20260909120000_m50_price_convention';
+  ```
+- **CI no se ve afectado**: el job de e2e levanta Postgres como *service container*, base nueva en cada
+  corrida.
+
+### 0.51.7 Verificación
+
+| Qué | Referencia (pase anterior) | Ahora |
+|---|---|---|
+| `npm test` (unitaria completa) | 262 suites / 4243 | **263 suites / 4281 verdes** |
+| `npm run test:integration` (Postgres 16 real + Redis) | 23 / 354 | **23 suites / 357 verdes** |
+| `npm run typecheck` | limpio | **limpio** |
+| `eslint` sobre lo tocado | — | **limpio** |
+| ⭐⭐ `admin.pnl-iva-neutral.spec.ts` (**la prueba de que D-1 no mueve el P&L**) | verde | **verde CON la columna puesta** |
+| `fx-mode.e2e-spec.ts` (flake conocido del barrido) | — | **verde en la corrida completa; no hizo falta aislarlo** |
+
+*(+38 unitarios: 10 del fichero nuevo, 7 en el candado de texto de M-50 y 21 del N9 del correo, §0.52.
++3 de integración: `IVA-11(d)`.)*
+
+**Las mutaciones, cada una sobre una COPIA del árbol** (`tar` del árbol + `node_modules` enlazado),
+**ninguna sobre el vivo**:
+
+| # | Mutación | Rojos |
+|---|---|---|
+| **C1** ⭐⭐ | la columna se hace **nullable y sin default** (`INTEGER;` + `Int?`) — la variante que exigiría inventar el backfill | **5** |
+| **C2** ⭐⭐ | el backfill prohibido: `UPDATE … SET "shippingCostIvaCents" = "shippingCostCents" * 16 / 116` | **4**, uno de ellos el contra-candado estructural de M-50 (*los únicos `UPDATE` son los dos de convención*) |
+| **C3** ⭐⭐ | **D-1 la lee**: el P&L netea (`s.shippingCostCents - s.shippingCostIvaCents`) | **11 en 3 suites** — y las que importan son **las de neutralidad del P&L**: la promesa de D-1 se rompe **en la prueba que la enuncia** |
+| **C4** ⭐ | la columna se publica: `toAdminShipmentRow` la expone | **2** |
+| **C5** | el DTO de captura de M4 gana el campo (contrato observable) | **2** |
+| **C6** ⭐⭐ | **REGRESIÓN**: vuelve `ADD COLUMN "priceConvention" … NOT NULL DEFAULT 'IVA_EXCLUSIVE'` | **4** — *el candado acotado sigue cazando la forma prohibida* |
+| **C7** ⭐⭐ | **REGRESIÓN**: lo mismo **+ `DROP DEFAULT`** (la variante que el candado de DDL no puede ver) | **7** — *sigue siendo el caso que justifica el candado de texto, y ahora con más rojos que antes* |
+
+⭐ **C6 y C7 son la mitad que hacía falta:** acotar un candado sin volver a correr las mutaciones que
+justificaban su forma original es cómo se afloja una defensa sin enterarse. **No se aflojó: pasó de 3 y
+5 rojos a 4 y 7.**
+
 ## 0.50 — **v1.64-iva-inclusive · DEPLOY 1 (M-50): el esqueleto de D54, sin mover un centavo** (2026-09-09)
 
 > Propiedad: **backend**. Encargo: el **primer** deploy del cambio de IVA (`ARCHITECTURE §4.44` rev

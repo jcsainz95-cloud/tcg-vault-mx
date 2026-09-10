@@ -1047,14 +1047,45 @@ describe('🔴 N9 — §31.5(c): ninguna celda que pinte una regla comparte fila
   const REGLA = /<td[^>]*height="1"[^>]*>/g;
 
   /**
-   * La fila de una celda dada. La celda de regla **no contiene tablas anidadas** (solo un `&nbsp;`),
-   * así que su `<tr>` es el `<tr>` abierto más cercano hacia atrás y el `</tr>` más cercano hacia
-   * delante — sin ambigüedad de anidamiento.
+   * La fila que CONTIENE una posición dada, **respetando el anidamiento**.
+   *
+   * ⚠️ La primera versión hacía `lastIndexOf('<tr>')` + `indexOf('</tr>')`, y eso vale para una celda
+   * de regla (no contiene tablas) pero **miente para la celda de la mira**: el `<tr>` más cercano
+   * hacia atrás es el de la tabla anidada de la raya izquierda, **ya cerrada**, así que la «fila»
+   * salía descuadrada y contaba 4 celdas. Se recorren los tokens `<tr>`/`</tr>` con una pila y se
+   * toma **la fila abierta más interna** en esa posición, que es lo que la palabra «su fila»
+   * significa en los dos casos.
    */
-  function filaDe(html: string, posCelda: number): string {
-    const ini = html.lastIndexOf('<tr>', posCelda);
-    const fin = html.indexOf('</tr>', posCelda);
-    return html.slice(ini, fin);
+  function filaDe(html: string, pos: number): string {
+    const pila: number[] = [];
+    for (const t of html.matchAll(/<tr>|<\/tr>/g)) {
+      if (t.index! > pos) break;
+      if (t[0] === '<tr>') pila.push(t.index!);
+      else pila.pop();
+    }
+    const ini = pila[pila.length - 1];
+    let prof = 0;
+    for (const t of html.matchAll(/<tr>|<\/tr>/g)) {
+      if (t.index! < ini) continue;
+      prof += t[0] === '<tr>' ? 1 : -1;
+      if (prof === 0) return html.slice(ini, t.index!);
+    }
+    throw new Error('fila sin cerrar');
+  }
+
+  /**
+   * Las celdas **DIRECTAS** de una fila: se vacían las tablas anidadas antes de contar. Sin esto, la
+   * fila `raya · mira · raya` cuenta 5 (las 3 suyas + las 2 reglas de dentro de las rayas) y el
+   * control diría que la composición cambió cuando no cambió.
+   */
+  function celdasDirectas(fila: string): number {
+    let s = fila;
+    let antes: string;
+    do {
+      antes = s;
+      s = s.replace(/<table\b[^>]*>(?:(?!<table\b)[\s\S])*?<\/table>/g, '');
+    } while (s !== antes);
+    return (s.match(/<td[\s>]/g) ?? []).length;
   }
 
   for (const correo of Object.keys(TODOS_LOS_CORREOS)) {
@@ -1071,10 +1102,10 @@ describe('🔴 N9 — §31.5(c): ninguna celda que pinte una regla comparte fila
         // mal» enseña a ignorar el rojo.*
         if (correo in MIGRADOS) expect(reglas.length).toBeGreaterThan(0);
         for (const m of reglas) {
-          const celdas = filaDe(html, m.index!).match(/<td[\s>]/g) ?? [];
+          const celdas = celdasDirectas(filaDe(html, m.index!));
           // Rojo con 3 — que es lo que había: `raya · mira · raya` en una sola fila ⇒ dos bloques
           // grises de 216×72 en lugar de dos filetes.
-          expect(celdas).toHaveLength(1);
+          expect(celdas).toBe(1);
         }
       });
     }
@@ -1088,7 +1119,7 @@ describe('🔴 N9 — §31.5(c): ninguna celda que pinte una regla comparte fila
     const filaMira = filaDe(html, posMira);
     // Tres celdas en la fila de la mira: raya · mira · raya. (Las reglas de dentro de las dos rayas
     // van en su propia tabla anidada, así que no cuentan como celdas de ESTA fila.)
-    expect((filaMira.match(/<td[\s>]/g) ?? []).length).toBe(3);
+    expect(celdasDirectas(filaMira)).toBe(3);
     // Y las dos rayas siguen siendo del color que prescribe §31.5(c), UNA A CADA LADO de la mira.
     const relMira = filaMira.indexOf('<img');
     expect(filaMira.indexOf('#AEACA7')).toBeLessThan(relMira); // la de la izquierda
