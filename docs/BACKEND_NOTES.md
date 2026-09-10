@@ -19629,3 +19629,95 @@ Ya no lo es, y esto es lo que hay en el árbol hoy (`buylist.service.ts:6497`):
 invariante que faltaba en dos verbos, y el segundo SPEI que salía por ahí»*), verificado con
 `git log -S` sobre el literal del aviso. Ese commit es **ancestro del merge-base** (`5f05b08`) de la
 rama actual ⇒ **el cierre es anterior a todo el trabajo de este stream** y no depende de él.
+
+---
+
+## §v2.2-SEC.1 — `P-WH-1`: la firma del webhook de Stripe **falla CERRADA** en todos los entornos (backend, 2026-09-10)
+
+**Hallazgo (pentester, ALTA, explotado LIVE-DB).** `stripe.service.ts:constructEvent` hacía
+`config.get('STRIPE_WEBHOOK_SECRET') ?? ''`. Con el secreto ausente eso **no apaga** la verificación:
+la **degrada a una clave vacía**, que cualquiera puede computar. El pentester forjó un
+`payment_intent.succeeded`, dejó el pedido `settled` y movió la carta a `in_custody` /
+`ownershipStatus='settled'` en la bóveda del comprador — **sin cobro**. El guard H1 de monto/moneda no
+frena nada: el forjador **escribe el payload**. Y el fail-fast de arranque solo miraba
+`NODE_ENV==='production'`, así que **cualquier otro entorno con Stripe cableado era forjable**.
+
+Es exactamente la familia que este proyecto persigue: **un candado que no se puede poner rojo**. No
+había excepción, ni log, ni 4xx — había un **200** y un pedido liquidado.
+
+### La distinción que gobierna el arreglo
+
+Son **dos hechos distintos** y confundirlos rompe el arnés sin cerrar el agujero:
+
+| Hecho | ¿Permitido? | Dónde se decide |
+|---|---|---|
+| **«No hay proveedor de pago»** (local/CI sin Stripe) | **SÍ.** La app arranca; todo lo que no cobra funciona. | `onModuleInit` (avisa y sigue) |
+| **«Acepto cualquier firma»** | **NUNCA**, en ningún entorno. | `constructEvent` (lanza) |
+
+### Qué cambió
+
+1. **`constructEvent` — fail-closed incondicional (la barrera real).** Sin secreto utilizable
+   (`undefined`, `''` o **solo espacios** — `!config.get(k)` no veía el tercero) **no se llama al SDK**:
+   se lanza `StripeWebhookSecretMissingError`. Sin entornos exentos: ni dev, ni test, ni CI. Si algún
+   día hace falta un webhook en un entorno sin Stripe, la respuesta es **poner un secreto ahí**, no
+   bajar el listón.
+2. **`webhooks.controller` — 503, no 400.** Se distingue **por clase**, no por mensaje (el texto de
+   `StripeSignatureVerificationError` lo controla el SDK):
+   - firma inválida ⇒ **400** (contrato §9, sin cambio);
+   - **secreto ausente ⇒ 503**. Un 400 mentiría dos veces: marcaría un defecto de configuración
+     **nuestro** como error del cliente —enterrándolo justo entre el ruido de firmas forjadas— y
+     clasificaría como basura un `payment_intent.succeeded` **legítimo** que llegara con la config
+     rota. Con 5xx, **Stripe reintenta hasta 3 días**: el evento **sobrevive** al arreglo y la orden se
+     liquida cuando aparece el secreto. Sí, eso es un **bucle de reintentos** mientras la config esté
+     mal — es el modo de fallo **querido**: ruidoso, retenido y reversible, frente a silencioso y con
+     el dinero perdido. El mensaje al cable es **genérico** (no se le confirma a un atacante el estado
+     de nuestra config); el detalle va al log de `StripeService` en `ERROR`.
+3. **Arranque: fail-fast por «hay Stripe», no por «es producción».** `onModuleInit` ya **no** se
+   condiciona a `NODE_ENV`, sino a `STRIPE_SECRET_KEY` presente. Con Stripe cableado, el secreto de
+   webhook es obligatorio en **staging/dev/CI igual que en producción**.
+   **¿Por qué no basta con el punto de uso, y por qué no basta con el arranque?** El punto de uso es la
+   **barrera** (decide en el instante en que se acepta o no dinero, y cubre el entorno sin Stripe, que
+   el arranque deja pasar a propósito). El arranque es **feedback**: convierte un fallo que se
+   descubriría con el primer pago real en un fallo de despliegue. Ninguno sustituye al otro; el
+   arranque **solo**, que es lo que había, es justo lo que falló.
+
+### Medición (⚠️ todo sobre **copia**, `…/scratchpad/backend-pwh1/mut`; producción del árbol vivo intacta)
+
+| Mutación (restaurada sobre la copia) | Rojos |
+|---|---|
+| `constructEvent` → `?? ''` (el defecto original) | **11/34** unitarios · **1/3** E2E |
+| `onModuleInit` → `if (!this.isProduction()) return;` | **11/34** unitarios |
+
+Con la mutación `?? ''`, el E2E **reprodujo el exploit**: `HTTP 200` y pedido liquidado con firma de
+clave vacía. Con el árbol arreglado, **503** y la BD sin moverse (2 corridas verdes, la segunda partiendo
+del estado que dejó la corrida explotada ⇒ el spec es idempotente vía `seedE2E`).
+
+**El caso que importa no es la línea, es el ataque.** `test/integration/webhook-empty-secret-forge.e2e-spec.ts`
+repite el PoC del pentester contra la app real por HTTP real y Postgres real: checkout real ⇒ orden
+`pending`; se apaga el secreto en el `ConfigService` **vivo**; se manda el evento de dinero firmado con
+**clave vacía**; se asevera 503 **y** que la BD no se movió (`pending`/`reserved`, cero movimientos
+`settle`, sin fila en `ProcessedStripeEvent`). El paso 4 manda **el MISMO payload bien firmado** y **sí**
+liquida: eso es lo que hace honesto al paso 3 — prueba que lo único que separaba al atacante del dinero
+era la firma.
+
+**Ciclo completo verificado (no solo la suite), sobre la app compilada:**
+- arnés **sin Stripe** (`NODE_ENV=development`, sin ninguna `STRIPE_*`): **arranca** (`/health` `db:up`,
+  `redis:up`) con aviso explícito, y el PoC de clave vacía por HTTP real ⇒
+  `503 {"error":{"code":"INTERNAL",…}}` sin filtrar el nombre de la variable;
+- `NODE_ENV=development` **con** `STRIPE_SECRET_KEY` y **sin** secreto de webhook ⇒ **no arranca**
+  (`exit=1`, `Missing required Stripe env … STRIPE_WEBHOOK_SECRET`) — el hueco exacto del hallazgo;
+- `NODE_ENV=staging` en el mismo caso ⇒ **no arranca** (lo caza antes `env.validation.ts`, capa S-B4).
+
+Suites: **4382/4382** unitarios y **360/360** integración/E2E en verde; `tsc` limpio; lint 0 errores
+(2 warnings preexistentes, ajenos a este cambio).
+
+### ⚠️ Residual que este arreglo **NO** cierra — dueño: **devops**
+
+El backend puede exigir que el secreto **exista y no esté vacío**; **no puede distinguir un secreto de
+un no-secreto** (para un HMAC, cualquier cadena es una clave válida). Por eso queda vivo esto, medido
+hoy en el repo: `docker-compose.staging.yml:173` resuelve a `whsec_staging_dummy` y los workflows a
+`whsec_ci_dummy` / `whsec_e2e_dummy` — **literales commiteados y públicos**. Un entorno con Stripe
+**real** y uno de esos valores arranca en verde y **sigue siendo forjable por quien lea el repo**.
+Cerrarlo es de config, no de código: exigir el secreto real en todo entorno con Stripe real y que el
+gate no promueva sin él. (El candado estático de devops
+`scripts/check-stripe-webhook-failclosed.sh` cubre justo esa mitad; corrido contra este árbol: **2/2**.)
