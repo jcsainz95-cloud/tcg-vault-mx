@@ -63,9 +63,13 @@ printf '\033[1mPrecondición — los nombres del canario son DESCONOCIDOS para e
 # cazó porque este canario se puso rojo al escribirse la nota que lo explica.
 YA=0
 for nombre in "${INVENTADOS[@]}"; do
-  if grep -rqI --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs \
+  # `^[^#]*` = el nombre aparece en CÓDIGO, no en un comentario. Sin esto, la nota
+  # que explica de dónde salen estos ocho nombres —dentro de `gen-…-manifest.sh`—
+  # bastaba para poner rojo el canario. Es la tercera vez hoy que explicar el bug
+  # rompe el candado del bug: se comprueba lo que EJECUTA, no lo que se lee.
+  if grep -rqIE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=docs \
        --exclude='*.md' --exclude="$(basename "${BASH_SOURCE[0]}")" \
-       "$nombre" "$ROOT_DIR" 2>/dev/null; then
+       "^[^#]*$nombre" "$ROOT_DIR" 2>/dev/null; then
     bad "\`$nombre\` YA aparece en la CONFIG o el CÓDIGO del árbol: el canario dejaría de probar «un secreto nuevo»."
     nota "Elige otro nombre inventado. (En docs/ sí puede aparecer: ahí no hay secretos que cerrar.)"
     YA=$((YA+1))

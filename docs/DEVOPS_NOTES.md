@@ -10091,6 +10091,15 @@ propio canario descubrió mientras se escribía y que valen más que los otros v
   5 no-secretos que tiene que descartar.
 - **Un COMENTARIO con `:?`** hacía creer al bloque (G) que el compose seguía siendo exigente
   cuando ya no lo era ⇒ bloque sin blanco, verde silencioso.
+- **El generador no tenía la guarda de autorreferencia que sí tenía el candado.** Se vio en
+  cuanto los ficheros nuevos pasaron de «sin trackear» a **trackeados**: los ocho secretos
+  inventados del canario entraron al manifiesto como si fueran credenciales publicadas.
+  No lo son —son el dato de prueba— y registrarlos obligaba a regenerar el manifiesto cada
+  vez que se toca un canario: fricción que acaba con alguien apagando el candado.
+- **Un COMENTARIO que nombra los ocho** (el que explica de dónde salen, en el generador)
+  bastaba para poner rojo el canario por su precondición. **Tercera vez en el mismo pase**
+  en que explicar el bug rompe el candado del bug. La precondición mira ahora `^[^#]*`:
+  lo que se EJECUTA, no lo que se lee.
 - **El canario de `P-WH-1` tenía una mutación NO-OP**: anclaba en el título de un paso que yo
   mismo había renombrado. Una mutación que no muta no prueba nada — y encima se lee como rojo.
   (Por eso ahora comprueba que la sustitución ocurrió.) `31/31 → 5/5` tras arreglarla.

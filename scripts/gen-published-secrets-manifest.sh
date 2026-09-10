@@ -100,7 +100,32 @@ listar_ficheros() {
     find . -type f -not -path './.git/*' -not -path '*/node_modules/*' | sed 's|^\./||'
   fi
 }
-mapfile -t TODOS < <(listar_ficheros 2>/dev/null | grep -v '^security/secretos-publicados\.sha256$')
+# --- Ficheros que HABLAN de los secretos, y por eso los contienen -------------
+# El candado tiene esta guarda desde el principio; el generador NO la tenía, y se
+# notó en cuanto los ficheros nuevos pasaron de «sin trackear» a trackeados: los
+# ocho secretos INVENTADOS del canario (`HSM_UNSEAL_KEY: ${HSM_UNSEAL_KEY:-…}`) y
+# las propias expresiones del generador (`NO_SECRETO='(PUBLISHABLE|…)'`) entraron
+# al manifiesto como si fueran credenciales publicadas. No lo son: son el DATO DE
+# PRUEBA con el que se demuestra que el candado muerde. Registrarlos no protegía
+# nada y obligaba a regenerar el manifiesto cada vez que se toca un canario —
+# fricción que acaba con alguien apagando el candado.
+es_autoreferente_gen() {
+  case "$1" in
+    scripts/gen-published-secrets-manifest.sh|scripts/secrets-preflight.sh) return 0 ;;
+    scripts/webhook-secret-preflight.sh) return 0 ;;
+    scripts/check-secret-defaults.sh|scripts/check-secret-defaults-canary.sh) return 0 ;;
+    scripts/check-stripe-webhook-failclosed.sh|scripts/check-stripe-webhook-failclosed-canary.sh) return 0 ;;
+    security/secretos-publicados.sha256|security/secretos-retirados.sha256) return 0 ;;
+    security/secretos-exigidos.txt) return 0 ;;
+  esac
+  return 1
+}
+mapfile -t TODOS < <(listar_ficheros 2>/dev/null)
+FILTRADOS=()
+for f in "${TODOS[@]}"; do
+  es_autoreferente_gen "$f" || FILTRADOS+=("$f")
+done
+TODOS=("${FILTRADOS[@]}")
 
 hash_de() {  # $1 = valor  → sha256 en minúsculas
   if command -v sha256sum >/dev/null 2>&1; then
