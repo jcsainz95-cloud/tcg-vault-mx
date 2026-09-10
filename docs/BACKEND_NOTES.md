@@ -18898,3 +18898,142 @@ no `aportacion_pct`.
 descartado** (cae en `Decimal(6, 3)`: redondea a la milésima, ahí las fracciones son legítimas y no
 cambia dinero al centavo). Los demás diales que aterrizan en columnas enteras ya usaban `isInt`.
 **No quedan casos de «validador más laxo que la columna que lo persiste».**
+
+---
+
+## v1.65 — Contadores HONESTOS del sync de catálogo (D1 · D2) + corte de fecha del barrido (D3)
+
+**Alcance:** `backend/src/modules/catalog/` (`catalog-sync.service.ts`, `card-product-resolver.service.ts`)
+y sus specs. **No** se tocó `frontend/`, `docs/API_CONTRACT.md`, `pricing/`, `settings/` ni
+`src/jobs/`.
+
+### El problema, en una frase
+
+El dueño pulsó «sincronizar», la pantalla le dijo **éxito en verde**, y no se había hecho nada. Las dos
+cifras que sostenían ese verde estaban **rellenadas**, no medidas.
+
+### D1 — «cuántos sets importé» ≠ «cuántos ya estaban»
+
+`importSet`/`importSetByExternalId` devolvían `{ imported: true, cardCount }` con `imported`
+**literal**. Todo llamador contaba un import: `sync()` («1 set(s) importado(s)» aunque fuera un re-sync
+o un no-op), `backfill()` (listaba como recién importados sets que ya tenía) y `runSyncAll()` (que
+directamente **descartaba** el resultado, así que del barrido no se sabía nada).
+
+Ahora ambos devuelven `SetImportOutcome` = **tres hechos distintos**, todos medidos:
+
+| Hecho | Significa | Cómo se mide |
+|---|---|---|
+| `outcome: 'imported'` | el set **no tenía** ninguna carta local y ahora sí | `cardsBefore === 0` y se escribió ≥1 carta |
+| `outcome: 'refreshed'` | el set **ya estaba** con cartas; esta corrida las re-upserteó | `cardsBefore > 0` y se escribió ≥1 carta |
+| `outcome: 'noop'` | esta corrida **no escribió ni una carta** | `cardsUpserted === 0` |
+| `cardsUpserted` | cartas que **esta corrida** escribió (≠ las que el set tiene) | contador de `upsertCards` |
+| `cardsBefore` | universo previo; `null` si **no se llegó a consultar** (ausente, no 0) | `countLocalCardsInSet` |
+
+`sync()` y `backfill()` exponen el desglose (`setsImported`, `setsRefreshed`, `setsNoop`,
+`cardsUpserted`); `backfill` además separa `imported[]` de `refreshed[]`. `setsQueued` (campo del
+contrato) pasa a significar lo que dice —sets **procesados**— y ya no sale de un literal.
+
+`runSyncAll` deja de tirar el resultado: lo acumula en **`sync-status.summary`**
+(`setsTotal/setsImported/setsRefreshed/setsNoop/setsFailed/cardsUpserted/failures[]`), `null` hasta
+que arranca el primer barrido — mismo criterio que `refresh-variants-status.summary`, para no pintar
+un «Listo — 0/0» que parece un resultado. El `202` de `sync-all` **no anticipa** cuántos sets se
+importarán: en ese instante no se sabe, y un número inventado ahí es exactamente el bug de origen.
+
+**Efecto secundario reparado:** el gate de first-import (`firstImport`) se calculaba **solo si el
+resolver estructural estaba cableado** y, si no, se fabricaba `false`. Un valor inventado gobernando
+una rama. Ahora el pre-conteo se hace siempre.
+
+### D2 — «cartas procesadas» era el total de la base
+
+`refreshVariants` devolvía `cardsProcessed = localSet._count.cards`: **cuántas cartas existen**, no
+cuántas tocó la corrida. De ahí el «**191 cartas procesadas · 0 precios**», en verde, en un set donde
+no se resolvió nada.
+
+- `CardProductResolverService` ahora **cuenta y devuelve `cardsTouched`** (`touched.size`: las `Card`
+  distintas con `CardProduct` upserteado y `availableFinishes` recomputado). Ese conjunto ya existía
+  —es el que se pasa al `FinishReconciler`—, solo que no se reportaba.
+- `refreshVariants.cardsProcessed` = ese número. **`number | null`**: `null` = *no se pudo saber* ⇒
+  «—» en la UI. Jamás el total, jamás un `0` de relleno (misma norma que ya rige para los precios sin
+  mercado). Cuando sí se sabe que no se tocó nada (sin `groupId` TCGCSV único) el `0` es **medido**.
+- El universo del set viaja aparte y con su propio nombre: **`cardsInSet`**.
+
+### Regla del censo (§0-B.3 regla 8) llevada al código
+
+Dos predicados distintos se llamaban igual y uno se reportaba con la etiqueta del otro. Cada uno tiene
+ahora **una** implementación y un nombre propio:
+
+| Predicado | Fuente ÚNICA | Se llama |
+|---|---|---|
+| cartas locales de un set (universo) | `countLocalCardsInSet()` (+ su forma en lote `localCardCountsByExternalSetId()` para `remote-sets`) | `cardsInSet`, `cardsBefore` |
+| cartas que una corrida tocó | `CardProductResolver.cardsTouched` / `upsertCards` | `cardsProcessed`, `cardsUpserted` |
+| el set existe localmente (fila `CardSet`) | `localSetExternalIds()` | candidatos de `backfill`, `remote-sets.imported` |
+| set importado de verdad (fila **con** cartas) | `localSetExternalIdsWithCards()` | `sync-all`, `refresh-variants-all` |
+| ¿entra por fecha? | `isWithinCatalogFromDate()` | `sync()` from_date y `sync-all` |
+| ¿entra al barrido? | `selectSyncAllCandidates()` | `sync-all` |
+| ¿desde qué fecha? | `resolveCatalogFromDate()` | `sync()` y `sync-all` |
+
+### D3 — el barrido ya honra el corte de fecha
+
+`syncAll()` no filtraba por fecha: se traía **todo** lo que faltara, de cualquier año, y es el que
+está detrás del botón «Importar sets nuevos». Ahora el criterio de admisión vive en
+`selectSyncAllCandidates()` con cuatro ramas explícitas:
+
+- set **nuevo dentro del corte** ⇒ entra (es el botón, literalmente);
+- set **nuevo anterior al corte** ⇒ **no** entra; se reporta en `setsSkippedOutOfRange` (para eso está
+  `backfill`, explícito y por lotes);
+- set **ya importado con `force`** ⇒ entra **sin mirar el corte**. `force` no es «importar»: es
+  **reparar lo que ya tenemos** (re-upsert + resolver estructural TCGCSV). Aplicarle el corte encogería
+  la reparación justo donde más falta hace (los sets viejos son los del `normal` fantasma) y un set ya
+  importado no puede «traer catálogo viejo»: ya está aquí. Lo que `force` **deja** de hacer es
+  arrastrar cientos de sets viejos que **no** teníamos;
+- set **ya importado sin `force`** ⇒ se salta (comportamiento de siempre).
+
+**De dónde sale la fecha está aislado en `resolveCatalogFromDate()`** — hoy lee el dial
+`catalog_sync_from_date` (seed `2024/01/01`, editable en M10) y valida su formato (`VALIDATION_ERROR`
+accionable si es inválido; no se adivina un corte). Esa función es **la costura**: cuando el arquitecto
+entregue el mecanismo **automático** que pidió el dueño (ventana rodante u otro eje), aterriza ahí
+dentro y **ningún llamador cambia**.
+
+**`releaseDate` ausente:** el filtro es `(releaseDate ?? '') >= from`, así que un set **sin fecha**
+queda fuera. Se conserva ese comportamiento (no se adivina una fecha) pero **deja de ser invisible**:
+sale en su propio cubo `undated`, se loguea con los ids y se reporta como `setsSkippedUndated`. Es un
+caso que **nadie ha decidido**; queda sobre la mesa del arquitecto.
+
+### Candado y su mutación
+
+`test/catalog-sync.honest-counters.spec.ts` (**16 tests**: 7 de D1, 4 de D2, 5 de D3). Mutación sobre
+una **COPIA** del árbol en el scratchpad (nunca el árbol vivo), restaurando los dos defectos exactos
+—`outcomeOf` devolviendo el literal `'imported'`, y `cardsProcessed = cardsInSet`— ⇒ **7 rojos de 16**;
+copia eliminada. Muestras del diff: `setsImported` esperado 0 / recibido 1; `cardsProcessed` esperado
+3 / recibido **191** (el número exacto del síntoma del dueño).
+
+| Verificación | Resultado |
+|---|---|
+| Candado nuevo, con el arreglo | 🟢 **16/16** |
+| Mutación (literal fijo + total de la base) | 🔴 **7/16 rojos**. Copia borrada |
+| `typecheck` + `eslint` de lo tocado | 🟢 limpio |
+| Suite unitaria completa | 🟢 **264 suites / 4 307 tests** |
+
+### Pendientes que NO se resolvieron aquí (van al arquitecto)
+
+1. **Contrato vs. `cardsProcessed`.** `API_CONTRACT §M2` define hoy `cardsProcessed` como «# de `Card`
+   locales del set (universo procesado)» — que es justo la cifra que el dueño reportó como mentira. El
+   campo pasa a significar «cartas tocadas» y admite `null`; el universo se emite como `cardsInSet`.
+   Necesita ratificación.
+2. **Contrato vs. corte en `sync-all`.** `API_CONTRACT §M2` dice que `sync-all` importa «TODO el
+   catálogo … **sin frontera de fecha**» y que «**ignora `catalog_sync_from_date`**». Ambas frases son
+   falsas desde este pase. También queda tocada su justificación («Opción 1 del cotizador: poder cotizar
+   cualquier carta»), que ahora depende de `backfill`.
+3. **Campos aditivos por ratificar:** `setsImported`/`setsRefreshed`/`setsNoop`/`cardsUpserted` en
+   `sync` y `backfill`; `refreshed[]` en `backfill`; `cardsInSet` en `refresh-variants`;
+   `fromReleaseDate`/`setsSkippedOutOfRange`/`setsSkippedUndated` en `sync-all`; `summary` en
+   `sync-status`.
+4. **Copy de M2 (frontend).** La UI rotula `setsQueued` como «set(s) importado(s)»: con un re-sync eso
+   sigue siendo falso aunque el backend ya diga la verdad. Debe leer `setsImported`/`setsRefreshed`, y
+   pintar «—» cuando `cardsProcessed` sea `null`.
+5. **`src/jobs/catalog-price-sync.service.ts` quedó con prosa stale** (dice que importa «los sets que
+   aún no existían localmente»; ahora, solo los que caen dentro del corte). No se tocó: está fuera de
+   `modules/catalog/`.
+6. **`PokemonTcgIoClient.getSets()` pide `/sets?pageSize=250` y NO pagina** (usa `body.data` a secas).
+   Con ≤250 sets remotos hoy no se nota; el día que se pase, el barrido dejará de ver el resto **en
+   silencio**. No se tocó (cambia comportamiento de import).
