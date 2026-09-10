@@ -821,6 +821,50 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 - **Y una decisión para el humano:** ¿`mustChangePassword` debe **seguir sin bloquear** —una advertencia—
   o debe **forzar de verdad** el cambio antes de dejar operar? Lo segundo es lo que el texto promete hoy.
 
+#### P-77 · 🔴 La mitad del gate de seguridad nunca ha corrido: **no hay staging** — ABIERTO (medido por el orquestador, 2026-09-10)
+
+**Dato del humano (2026-09-10):** *«no tengo staging, solo producción»*.
+
+**Lo que eso significa, medido en los workflows (no supuesto):**
+
+| Verificación | Cuándo corre | Estado real |
+|---|---|---|
+| **CI** (unitarios + contrato) | cada push y PR (`ci.yml`) | ✅ corre de verdad |
+| **SAST** (revisa el código) | cada push y PR (`security-sast.yml`) | ✅ corre de verdad |
+| **E2E con mocks** | cada push y PR (`e2e.yml`) | ✅ corre de verdad |
+| **E2E real** | nocturno 08:00 UTC + manual (`e2e-real.yml`) | ⚠️ levanta stack propio |
+| **DAST** (ataca la app corriendo) | semanal, lunes 06:00 UTC (`security-scheduled.yml`) | 🔴 **apunta a staging ⇒ sin blanco** |
+| **Pipeline de deploy entero** (`deploy.yml`) | 🔴 **solo `workflow_dispatch`, y `secrets-gate` lo salta si faltan secrets** | 🔴 **nunca corre** |
+
+`deploy.yml:36-38` lo dice literal: *«CD por GitHub Actions DESACTIVADO por defecto… los deploys reales van por
+integraciones NATIVAS Vercel/Railway (push-to-deploy)»*. ⇒ **Todo el tramo de staging es decorativo**: el gate de
+procedencia (`staging-serves-head`), el DAST (`dast-staging`) y el flamante gate de paridad de proveedor
+(`staging-provider-parity`, `D-PP-2`) **cuelgan de un pipeline apagado que apunta a un entorno inexistente**.
+
+**Consecuencia contra el DoD de `CLAUDE.md`:** el DoD exige que *«el gate de seguridad (SAST + DAST staging) y el
+harness E2E estén cableados en CI»*. **La mitad SAST se cumple; la mitad DAST nunca ha corrido contra nada.**
+Publicar hoy va `main` → `production` → vivo, **sin entorno intermedio**.
+
+⚠️ **Esto NO invalida la fase de seguridad ya aprobada.** `CLAUDE.md` autoriza como blanco **«staging (o local)»**, y
+el pentester trabajó sobre el código y sobre local. Lo que falta es el **DAST automático y recurrente**, no la
+revisión humana.
+
+**Tres salidas, y la barata es la buena:**
+- **(A) Crear un staging de verdad** en Railway + Vercel. Es lo que el pipeline asume. Cuesta dinero y
+  mantenimiento, y duplica la base de datos.
+- **(B) ⭐ DAST contra un stack efímero levantado en el propio CI.** Ya existen las piezas: `scripts/stack-native.sh`
+  y `e2e-real.yml` levantan la plataforma completa. Apuntar el DAST ahí es gratis, no necesita credenciales de
+  ningún entorno vivo, y **cumple el DoD por la vía «o local»** que `CLAUDE.md` ya autoriza. También vuelve
+  ejecutable el gate de paridad de `D-PP-2` sin los secrets que el dueño no puede dar.
+- **(C) Aceptar y registrar** que el DAST no corre, con la deuda escrita en `SECURITY_NOTES.md`.
+
+**Recomendación del orquestador: (B).** Enrutar a **devops**. No urge —no hay incidente— pero mientras no se haga,
+`D-PP-2` y el gate de procedencia son candados que **no se pueden poner rojos**, y un candado así no es un candado.
+
+**Consecuencia inmediata que SÍ se cierra hoy:** los secrets `STAGING_ADMIN_EMAIL` / `STAGING_ADMIN_PASSWORD` que
+devops pidió al humano **quedan sin objeto**. No se crean. Si se creara un usuario admin apuntando a producción para
+satisfacerlos, sería exactamente lo que la guarda anti-producción del script existe para impedir.
+
 #### P-76 · 🔁 Ocho botones de sincronizar, y el más visible miente — ✅ EVALUADO (ux-review, 2026-09-10) · **VEREDICTO: RECHAZADO**
 
 > **DECISIÓN DEL HUMANO (2026-09-10), literal:** *«Backfill nunca forzar si varias veces, importar
