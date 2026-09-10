@@ -8567,6 +8567,20 @@ solo mecanismo silencioso no basta:
   mal calibrado» — y como un ZAP cortado no deja informe, el candado también lo lee como rojo por su
   cuenta (**sin informe = ROJO**). Las dos mitades apuntan al mismo sitio.
 
+**Resultado tras la corrección** (run `34437760891`, un blanco, perfil `full` + araña AJAX):
+
+| Paso | Tiempo |
+|---|---|
+| autoprueba del candado (job `selftest`, en paralelo) | 152 s |
+| levantar + sembrar + procedencia + paridad | 148 s |
+| **ZAP full + araña AJAX** (pared 1200 s) | **643 s** |
+| nuclei (2 blancos) | 47 s |
+| candado + resumen + apagar | 13 s |
+| **total del job `dast`** | **≈ 855 s (14 min)** |
+
+De **> 39 min sin terminar** a **14 min con veredicto**. Para un cron semanal es un coste
+perfectamente pagable, que era la condición para que nadie lo apague.
+
 #### Cadencia
 
 **Semanal, lunes 06:00 UTC** — exactamente la que ya tenía el cron muerto que sustituye — **más
@@ -8587,7 +8601,7 @@ aplicación; no se despliega, no se importa, vive segundos en su propio compose)
 | `/boom` | HTTP 500 + traza y error de motor SQL | `90022` Application Error Disclosure (**pasiva**) |
 | `/search?q=` | reflejo crudo del parámetro en HTML | `40012` XSS reflejado (activa) |
 | `/download?file=` | lectura de fichero sin sanear | `6` Path Traversal (activa) |
-| formulario sin token | — | `10202` (informativo; ver §44.5) |
+| formulario sin token | — | `10202` — **no cuenta como disparo**: se reclasificó a `WARN` en §44.5 (esta app usa JWT Bearer, no sesión por cookie) |
 
 El job `selftest` lo escanea con **el mismo ZAP, la misma política (`security/zap/baseline.conf`) y el
 mismo candado (`security/scripts/dast-gate.py`)** que el barrido de verdad, y corre el candado con
@@ -8596,13 +8610,27 @@ mismo candado (`security/scripts/dast-gate.py`)** que el barrido de verdad, y co
 Y `dast` declara `needs: [selftest]`: **si el candado no sabe cerrarse, el barrido no llega a emitir un
 verde**. Eso es estructural, no una convención que alguien deba recordar.
 
-Dos rutas de plantado a propósito (dos pasivas y dos activas) para que el selftest siga valiendo con el
-perfil `baseline` y no se vuelva frágil si ZAP cambia una firma: se afirma *«el gate se puso rojo»*, no
-*«esta regla concreta disparó»*.
+Varias rutas de plantado a propósito —`90022` es **pasiva** y `40012`/`6` son **activas**— para que el
+selftest siga valiendo con el perfil `baseline` y no se vuelva frágil si ZAP cambia una firma: se afirma
+*«el gate se puso rojo»*, no *«esta regla concreta disparó»*. En la corrida `34437760891` dispararon las
+tres.
 
-**Coste medido:** 165 s (el canario arranca en segundos frente a los 143 s del stack real). Lo que
+**Coste medido:** 152-170 s (el canario arranca en segundos frente a los ~140 s del stack real). Lo que
 verifica es la cadena escáner → política → candado, que es donde estaba el agujero; que el stack real
 levanta ya lo mide `e2e-real.yml` cada noche.
+
+#### La demostración, con los números del run `34437760891`
+
+| | Canario (vulnerabilidades plantadas) | Stack real |
+|---|---|---|
+| Reglas `FAIL` disparadas | **3** — `40012` XSS reflejado, `6` Path Traversal, `90022` Application Error Disclosure | **0** |
+| Veredicto del candado | **🔴 ROJO** | **🟢 VERDE** |
+| Resultado del job | ✅ (rojo esperado) | ✅ |
+
+Eso es lo que había que demostrar y no se había demostrado nunca: **la política discrimina**. No es
+verde-siempre (habría dado verde sobre el canario) ni rojo-siempre (habría dado rojo sobre el stack).
+Y el barrido del stack real **sí encontró cosas** —23 reglas con hallazgos, ninguna bloqueante— así que
+tampoco es que el escáner no esté mirando.
 
 #### La segunda mitad: la guarda estática, en cada push
 
@@ -8650,17 +8678,55 @@ Lo que **sí** cubre, y no es poco: la superficie web servida por el código de 
 verificada (SEC-OPS-1) y con el dial de precio verificado en paridad (`I-PP5`). Es la diferencia entre
 cero escaneos y un escaneo semanal real.
 
-### 44.5 El ruido: qué se silenció y por qué
+### 44.5 El ruido: qué se silenció, con qué evidencia y por qué
 
-Un escaneo semanal que escupe falsos positivos que nadie revisa se ignora en un mes, y entonces
-tenemos un verde que no protege. Reglas de la política (`security/zap/baseline.conf`), y el porqué:
+Un escaneo semanal que escupe falsos positivos que nadie revisa se ignora en un mes, y entonces tenemos
+un verde que no protege. `security/zap/baseline.conf` **existía desde el principio pero nunca había
+visto un hallazgo** — decía literalmente «la lista es de referencia; ajústala tras el primer barrido
+real», y ese barrido nunca ocurrió. Ahora sí: todo lo de abajo está calibrado contra el run
+**`34437760891`**, que produjo **23 reglas con hallazgos y CERO bloqueantes** en el stack real.
 
-*(la tabla de reclasificación y su evidencia se cierran en §44.7, con el informe del primer barrido)*
+#### Reclasificaciones, una por una
+
+| Regla | Antes | Ahora | Motivo |
+|---|---|---|---|
+| `10202` Ausencia de tokens Anti-CSRF | **FAIL** | **WARN** | Esta app autentica con **JWT Bearer**, no con sesión por cookie: un token anti-CSRF no es la defensa que le toca, y la regla marcaría **todos** los formularios como bloqueantes. En FAIL era un **rojo permanente por diseño** — y un rojo que sale siempre no es una alarma, es ruido (§33.2). Si algún día se introduce sesión por cookie, vuelve a FAIL. |
+| `40026` XSS DOM-Based | WARN | **FAIL** | Riesgo **Alto**. Disparó **x2 contra el canario** y **0 contra el stack real** ⇒ es severa y hoy no es ruido. |
+| `43` Source Code Disclosure - File Inclusion | (no listada ⇒ WARN) | **FAIL** | Ídem: **Alto**, disparó solo contra el canario. |
+| `90022` Application Error Disclosure | FAIL | **FAIL** (confirmado) | Ahora con evidencia: dispara contra el canario, **no** contra el stack real. |
+| `10035` HSTS | WARN | WARN (sin cambio, pero anotado) | Contra el stack efímero **no puede dispararse** (el blanco es HTTP en localhost). Se deja en WARN, no en IGNORE, porque sí importa en la prueba puntual contra prod (§14.3). |
+
+#### Reglas SILENCIADAS (`IGNORE`) — las ocho, con su porqué
+
+Todas son **informativas**, todas dispararon en el barrido real y todas juntas eran **~40 % del volumen
+del informe**:
+
+| Regla | Veces | Por qué se silencia |
+|---|---|---|
+| `10096` Timestamp Disclosure - Unix | x3 | Casa con **cualquier número de 10 dígitos** dentro de los bundles de Next.js. Falso positivo puro. |
+| `10049` Storable / Non-Storable Content | x10 | Informativa; dispara en casi toda respuesta. |
+| `10050` Retrieved from Cache | x3 | Informativa. |
+| `10104` User Agent Fuzzer | x5 | Informativa **por construcción**: siempre sale en un full scan. |
+| `10109` Modern Web Application | x4 | Dice literalmente «esto es una SPA». Es un hecho conocido de la arquitectura, no un hallazgo. |
+| `90027` Cookie Slack Detector | x5 | Informativa. |
+| `10111` Authentication Request Identified | x2 | Informativa: «hay un formulario de login». |
+| `10015` Re-examine Cache-control | x1 | Informativa; el caso accionable de caché ya lo cubría `10049`, y el borde real no existe en este blanco. |
+
+**Silenciar ≠ ocultar.** El candado cuenta los hallazgos silenciados y publica **una línea al pie**:
+`🔇 N hallazgo(s) de M regla(s) silenciada(s) por política: …`. Si mañana `10096` empieza a disparar
+500 veces, se ve.
+
+#### Lo que queda ARRIBA porque sí es accionable
+
+El informe corto que sale del barrido real no es vacío: `10010` cookie sin `HttpOnly` (x5), `10024`
+información sensible en la URL (x5), `10098` **CORS permisivo** (x3, riesgo Medio), `10037` fuga de
+`X-Powered-By` (x5), `10055` CSP sin fallback, y el bloque de cabeceras de endurecimiento (`10038`,
+`10020`, `10021`, `10063`, `90004`). **Dueño: frontend/backend** — devops mantiene el gate, no corrige
+código de aplicación (`CLAUDE.md`).
 
 El candado además **agrega**: lo bloqueante sale arriba con URL de ejemplo; lo demás se colapsa a una
-línea por regla dentro de un `<details>`; y lo silenciado **se cuenta en una línea al pie** —
-«silenciado» nunca puede volverse «invisible». Prefiero un informe corto y creíble a uno exhaustivo
-que nadie lea.
+línea por regla dentro de un `<details>`; y lo silenciado se cuenta al pie. Prefiero un informe corto y
+creíble a uno exhaustivo que nadie lea.
 
 ### 44.6 Los gates huérfanos de `deploy.yml`: **declarados INERTES**
 
