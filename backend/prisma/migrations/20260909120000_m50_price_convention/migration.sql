@@ -20,6 +20,9 @@
 -- en ningún instante. Un `ADD … NOT NULL DEFAULT` + `DROP DEFAULT` produce el mismo DDL final pero
 -- basta con que el `DROP` se caiga en un rebase para reintroducir el defecto entero.
 -- Candado `IVA-3(c)`, que lo verifica POR LO NEGATIVO sobre `information_schema`.
+-- ⚠️ La prohibición es de ESTAS DOS COLUMNAS, no de la sintaxis: el PASO 3-BIS (v1.64(4)) añade
+-- `shippingCostIvaCents` CON `NOT NULL DEFAULT 0` y es correcto — ahí la ausencia de verdad
+-- significa cero. La razón entera está en su propio bloque, y no se resume aquí a propósito.
 --
 -- ⛔ `ivaTransferPct` NO SE BACKFILLEA. No hay ningún `UPDATE … SET "ivaTransferPct" = 100` aquí y no
 -- debe haberlo: esas órdenes se cobraron cuando el dial no existía y marcarlas `t=100` sería inventar
@@ -30,7 +33,8 @@
 -- `processingFeeCents`, `totalCents` ni `shippingFeeCents`. Esta migración solo AÑADE columnas y
 -- ESCRIBE LA CONVENCIÓN QUE ESAS FILAS YA TENÍAN. Criterio 190.
 --
--- ADITIVA Y REVERSIBLE SIN CEREMONIA: revertir el código del deploy 1 deja las cuatro columnas
+-- ADITIVA Y REVERSIBLE SIN CEREMONIA: revertir el código del deploy 1 deja las CINCO columnas
+-- (las cuatro de convención + `shippingCostIvaCents` del PASO 3-BIS, v1.64(4))
 -- INERTES, no rotas. **El `down` no borra nada** (mismo criterio que el resto de migraciones de
 -- dinero). Sin ventana, sin congelación, sin cut-over.
 
@@ -50,6 +54,44 @@ ALTER TABLE "Order" ADD COLUMN "ivaTransferPct"  INTEGER;
 -- =============================================================================
 ALTER TABLE "ShipmentRequest" ADD COLUMN "priceConvention" "PriceConvention";
 ALTER TABLE "ShipmentRequest" ADD COLUMN "ivaTransferPct"  INTEGER;
+
+-- =============================================================================
+-- PASO 3-BIS (M-50.3-bis) — `shippingCostIvaCents`: EL IVA ACREDITABLE DEL COSTO DE ENVÍO,
+-- CONGELADO AL CAPTURAR. Añadida en v1.64(4) (ARCHITECTURE §11 M-50 punto 3-bis / §4.44.f-ter;
+-- API_CONTRACT §M10-IVA.8, candado `IVA-11`).
+--
+-- POR QUÉ EXISTE, Y NO ES PREFERENCIA. El dueño decidió (2026-09-10, preguntas 68 y 69) que
+-- `shippingCostCents` se captura **BRUTO** —es la cifra que trae la factura de la paquetería— y que
+-- el envío **no lleva margen**. Netear al leer con `costo/(1+r)` exigiría la TASA, y esta tabla
+-- **NO TIENE `ivaRatePct`** (solo `Order`): habría que leer el **dial vivo**, y entonces un P&L
+-- histórico cambiaría el día que alguien mueva `iva_pct` — que es exactamente lo que prohíbe el
+-- candado `IVA-5`, ya publicado y verde. Con esta columna el neto es **una RESTA**, sin división,
+-- sin tasa al leer y sobreviviendo intacto a un cambio de tasa.
+--
+-- ⚠️⚠️ SÍ, ESTO ES UN `NOT NULL DEFAULT` DOS LÍNEAS DEBAJO DEL «⛔⛔ PROHIBIDO `NOT NULL DEFAULT`»
+-- DE ARRIBA, Y LA DISTINCIÓN ES EL PUNTO ENTERO — es de SIGNIFICADO, no de sintaxis:
+--   · en `priceConvention` la ausencia significa «NADIE DIJO con qué regla se cobró» ⇒ un default
+--     convierte un hueco en una AFIRMACIÓN FALSA, y encima silenciosa (§4.44.e);
+--   · aquí la ausencia **de verdad significa cero**: en las filas históricas NUNCA se capturó el IVA
+--     de un costo ⇒ `0` dice la verdad («no consta crédito») y `net = bruto`, que es la dirección
+--     **CONSERVADORA**: subestima la ganancia, no la infla.
+-- Es la misma frontera que ya defiende `test/migration.m50-no-default.spec.ts` (y por la que ese
+-- fichero acota su prohibición a las dos columnas de convención en vez de vetar todo `DEFAULT`).
+--
+-- ⛔ SIN BACKFILL, Y ESTO NO ES PEREZA: un `UPDATE … SET "shippingCostIvaCents" = "shippingCostCents"
+-- * 16 / 116` inventaría un CRÉDITO FISCAL que nadie verificó, sobre facturas que nadie miró. Misma
+-- doctrina que `ivaTransferPct` (M-50.5): un hueco honesto, jamás un dato inventado.
+-- `IVA-11(d)` lo mide: `count(*) WHERE "shippingCostIvaCents" <> 0` = 0 en las filas anteriores.
+--
+-- ⛔ NO ES NULLABLE, y el arquitecto lo razonó por lo que NO se puede saber: en las filas existentes
+-- es IMPOSIBLE distinguir «costó cero» de «no se capturó», y un `NULL` exigiría un backfill que
+-- INVENTA esa distinción. La ambigüedad se hace VISIBLE (contador `shippingCostMissingCount` del
+-- P&L, D-2) en vez de resolverse falsamente.
+--
+-- ⚠️ EN EL DEPLOY 1 NADIE LA LEE. Se escribe (por el default) desde el minuto cero, y el primer
+-- lector es el P&L del DEPLOY 2 (`§M10-IVA.8`). ⇒ D-1 conserva su promesa: CERO cambios observables.
+-- =============================================================================
+ALTER TABLE "ShipmentRequest" ADD COLUMN "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;
 
 -- =============================================================================
 -- PASO 4 (M-50.4) — BACKFILL EXPLÍCITO Y DETERMINISTA.
