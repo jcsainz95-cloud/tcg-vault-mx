@@ -58,6 +58,25 @@ corre en cada PR dentro del job `trivy-fs`; planta un lockfile con `dicer@0.3.0`
 `minimist@1.2.0` **dentro de `scripts/s3-local/`** y exige que el gate se ponga ROJO
 con esos CVE por su nombre. Si alguien excluyera esa ruta o silenciara ese CVE, el
 self-test falla.
+
+**Segundo registro, con dueño y fecha: `security/npm-audit-dev-fichas.tsv` (P-DEP-1,
+2026-09-10).** Es el equivalente de este bloque para el `npm audit` de
+**devDependencies**. Antes ese audit corría con `continue-on-error: true` y un
+`|| true` dentro: reportaba y **no podía cambiar el color de nada**, así que la
+crítica de `vitest` y las dos altas (`vite`, `js-yaml`) llevaban ahí sin dueño ni
+fecha hasta que el pentester las nombró. Ahora cada alto/crítico de tooling necesita
+ficha con **dueño, fecha de revisión y el motivo medido**; sin ficha o con la fecha
+vencida, `security/scripts/audit-npm-dev.sh` **falla** (por PR y en el barrido
+semanal). El umbral de **runtime** no se toca ni admite fichas
+(`security/scripts/audit-npm.sh`, `high`). El detalle está en `DEVOPS_NOTES §49.5`.
+
+**Tercer candado que conviene conocer (P-WH-1, 2026-09-10):**
+`scripts/check-stripe-webhook-failclosed.sh` + su canario. No es un escáner de
+dependencias, pero vive en la misma familia de decisiones: prohíbe que la firma del
+webhook de Stripe se verifique con una clave **vacía** o **publicada en este repo**, y
+comprueba que `scripts/webhook-secret-preflight.sh` siga cableado en el arranque del
+contenedor, en el arnés nativo y en CI. `DEVOPS_NOTES §49`.
+
 <!-- REGISTRO:FIN -->
 
 ---

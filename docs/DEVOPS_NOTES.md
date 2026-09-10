@@ -9697,3 +9697,237 @@ dinero se promueven **sin haberse ejecutado nunca**, con esa firma, y borrar el 
 | `verify:head` no concluye «puedes medir» en `dev`; `--gate` lo pone rojo | devops | ✅ §48.3 |
 | **Correr `e2e-real.yml` con secrets de Stripe y citar el run** | **humano (dueño del repo)** | ⏳ **ABIERTO — bloquea el veredicto de RELEASE.** Cuatro pases sin respuesta; ahora con rojo semanal + issue (§48.4) |
 | Veredicto de release de QA | qa | ⏳ condicionado a la línea anterior |
+
+---
+
+## 49. `P-WH-1` — el webhook de Stripe se verificaba con **clave vacía**, y después con **claves publicadas**. Las dos mitades de config, el preflight y su canario (2026-09-10, hallazgo ALTA del pentester)
+
+> **Origen:** `docs/PENTEST_NOTES.md` → `P-WH-1` (ALTA, **explotado en vivo contra Postgres real**).
+> `constructEvent` hacía `config.get('STRIPE_WEBHOOK_SECRET') ?? ''`. Con el secreto ausente, la
+> verificación **no se apagaba: degradaba a clave VACÍA**, que cualquiera computa. El pentester firmó
+> un `payment_intent.succeeded` con clave vacía y dejó un pedido **`settled` con la carta movida a la
+> bóveda del comprador, sin cobro**.
+>
+> **Reparto:** el fail-closed del código lo cerró **backend** (`stripe.service.ts`: lanza con
+> `undefined`, `''` **y solo espacios**; `onModuleInit` deja de mirar `NODE_ENV` y pasa a mirar el
+> hecho relevante — *si hay `STRIPE_SECRET_KEY`, el secreto de webhook es obligatorio*; responde
+> **503**, no 400, para que Stripe reintente hasta 3 días y un evento legítimo sobreviva a una config
+> rota). Lo de esta sección es **todo lo demás**: la configuración, el preflight de runtime y el
+> candado que impide que vuelva.
+
+### 49.1 Lo que **NO** se puede determinar desde el repo: el `NODE_ENV` real del deploy
+
+La pregunta importaba mucho antes del arreglo de backend (decidía si el agujero llegaba a la tienda del
+dueño o se quedaba en entornos de trabajo). Con el fail-closed incondicional ya **no cambia el arreglo**,
+pero **sí decide si la tienda estuvo expuesta**, así que queda escrita con precisión.
+
+**Lo que está MEDIDO en el repo (2026-09-10):**
+
+| Hecho | Dónde se comprueba |
+|---|---|
+| `railway.json` en la RAÍZ declara `builder: DOCKERFILE`, `dockerfilePath: Dockerfile.backend` | `railway.json` (4 líneas de `build`) |
+| **No existe** `nixpacks.toml` ni `railway.toml` en ninguna parte del árbol | `find . -iname '*nixpacks*' -o -iname '*railway*'` → solo `railway.json` y un `.md` |
+| `Dockerfile.backend` fija `ENV NODE_ENV=production` en la etapa `base` (:32) y en `runtime` (:58) | `Dockerfile.backend` |
+| `backend/package.json` → `start:prod` = `node dist/main.js` (**sin** `migrate deploy`) | `backend/package.json` |
+| El CMD del Dockerfile **sí** corre `migrate deploy` antes de arrancar | `Dockerfile.backend` (última línea) |
+| El checklist §11.D pide al humano fijar `NODE_ENV=production` en Railway **y repetir el bloque en `staging`** | §11.D `[RW]` |
+| En esta sesión **no hay** CLI ni token de Railway (`which railway` → nada; `env` sin variables suyas) | reproducible |
+
+**Lo que NO se puede saber desde aquí, y por qué:**
+
+1. **El *Root Directory* del servicio `backend` en Railway.** Railway lee la config-as-code desde el
+   *root directory del servicio*, no desde la raíz del repo. Si ese ajuste fuese `backend/`, Railway
+   buscaría `backend/railway.json` — que **no existe** (medido) — y caería a **detección automática
+   (Nixpacks/Railpack), que no fija `NODE_ENV`**. Este documento afirma el ajuste de Vercel
+   (`Root Directory = frontend`) en tres sitios porque el humano lo confirmó; del de **Railway no hay
+   ninguna confirmación equivalente**. §11.A dice «Railway detecta `railway.json`»: eso es una
+   **expectativa del runbook, no una medición**.
+2. **Si hay una variable `NODE_ENV` puesta en el servicio.** Una variable de servicio **gana sobre el
+   `ENV` de la imagen**. Aunque el Dockerfile se use, un `NODE_ENV=staging` en el entorno `staging`
+   dejaría ese despliegue fuera de la guarda vieja.
+3. Las **build logs** de Railway (que dirían «Using Detected Dockerfile» o «Nixpacks») **no** están en el
+   repo. Las que aportó el PO el 2026-08-18 (§23.2) son logs de **runtime** (rutas de Nest, scheduler):
+   prueban qué binario corre, **no con qué builder se construyó ni con qué `NODE_ENV`**.
+4. `GET /api/v1/health` **no** expone el entorno (`health.service.ts` no devuelve `env` ni `version`), así
+   que tampoco se puede inferir desde fuera. Y no hay ninguna otra conducta observable que dependa de
+   `NODE_ENV`: las demás (`throttler`, scheduler, `pii-crypto`) discriminan `test` o `local`, no `production`.
+
+**Indicio, con su fuerza declarada (NO es una medición):** el prod del 2026-08-18 tenía el esquema al día
+y `start:prod` no aplica migraciones — solo el CMD del Dockerfile lo hace. Eso *sugiere* que el deploy usa
+`Dockerfile.backend`, pero **no lo prueba**: las migraciones también pueden haberse aplicado a mano con
+`railway run`. Se deja como indicio, no como hecho.
+
+> **PREGUNTA PARA EL DUEÑO (30 segundos, en el dashboard):** Railway → servicio `backend` → **Settings →
+> Source**: ¿*Root Directory* es la raíz del repo o `backend/`? Y en el último deploy, ¿las **Build Logs**
+> dicen `Dockerfile` o `Nixpacks/Railpack`? Y en **Variables**: ¿existe `NODE_ENV` y qué vale, en
+> `production` y en `staging`? Con eso se cierra si la tienda estuvo expuesta o no. **No lo supongas en
+> ninguna dirección**: hoy no está medido.
+
+### 49.2 La primera mitad: «sin Stripe» dejó de significar «acepto cualquier firma»
+
+Dos sitios de **devops** entregaban el secreto **vacío** al backend, que es el insumo exacto del exploit:
+
+| Sitio | Antes | Ahora |
+|---|---|---|
+| `docker-compose.yml` | `STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}` (sin default ⇒ compose lo pasa **vacío**) | `${STRIPE_WEBHOOK_SECRET:?…}` — falla **ruidoso** con instrucciones |
+| `scripts/stack-native.sh` | `[ -z "${…:-}" ] \|\| export …` ⇒ **si venía vacío, NO se exportaba** | resuelve con el preflight y exporta **siempre**, con valor |
+| `.env.example` | «Secreto de firma… en local se obtiene con `stripe listen`» | **OBLIGATORIA en todo entorno con Stripe cableado**, con el porqué medido |
+| `scripts/dev-up.sh` | copiaba `.env.example` tal cual (`whsec_CHANGE_ME`) | además **sustituye el placeholder por uno aleatorio** en el `.env` que crea |
+
+Medido tras el cambio: `docker compose --profile apps config` sin la variable → `rc=1` con el mensaje
+accionable; con la variable → gana el valor del operador.
+
+### 49.3 La segunda mitad (el **residual**): un secreto que EXISTE pero está **publicado**
+
+El arreglo de backend cierra «vacío o en blanco». No puede cerrar esto, y su frase marca el límite exacto:
+
+> «el backend puede exigir que el secreto **exista** y no esté vacío; **no puede distinguir un secreto de
+> un no-secreto**.»
+
+Para un HMAC **cualquier cadena es una clave válida**. Y este repo es **público** y tenía commiteados
+`whsec_ci_dummy`, `whsec_e2e_dummy` (×3 workflows), `whsec_staging_dummy` y un
+`whsec_local_placeholder_…` que yo mismo había puesto una hora antes. Un entorno con Stripe **real** y
+cualquiera de esos valores arranca en verde, pasa el fail-closed… y sigue siendo forjable por quien sepa
+leer. Peor: cuatro de ellos estaban como **respaldo** (`|| 'whsec_e2e_dummy'`, `:-whsec_staging_dummy`), o
+sea que **el valor público ganaba justo cuando alguien creía haber configurado Stripe y no lo había
+hecho**. Es el `?? ''` otra vez, una capa más arriba.
+
+**La asimetría que se respeta:** CI y el arnés local **deben** poder correr sin Stripe — eso es legítimo y
+no se toca. Lo prohibido es que un entorno con Stripe **real** herede un valor público. Antes compartían
+mecanismo (un literal por defecto); ahora se separan.
+
+**`scripts/webhook-secret-preflight.sh`** (POSIX sh; corre también dentro de la imagen, donde no hay bash):
+
+| Situación | Qué hace |
+|---|---|
+| Secreto propio presente | lo usa |
+| Sin secreto y **sin** Stripe real | **genera uno EFÍMERO aleatorio** por corrida: el stack levanta y **rechaza todo webhook** (nadie puede firmar contra él, tampoco quien lea el repo) |
+| Stripe **real** y sin secreto | **ABORTA** el arranque, con las instrucciones de dónde sacar el `whsec_…` |
+| Stripe **real** y secreto **público** (patrón de no-secreto) | **ABORTA** |
+
+`sk_test_` **cuenta como Stripe real**: staging habla con Stripe de verdad y recibe webhooks de verdad; un
+forjador liquida pedidos ahí igual que el pentester lo hizo en local. Los `sk_test_*_dummy` del repo no
+cuentan (los reconoce la misma lista de patrones).
+
+**Dónde está cableado** — los tres caminos por los que arranca este backend:
+
+| Camino | Cable |
+|---|---|
+| Contenedor (compose local, staging y **Railway**) | `Dockerfile.backend`: `COPY` del preflight + `CMD` lo corre **antes** de `migrate deploy` |
+| Arnés nativo (el que usan QA y el pentester) | `scripts/stack-native.sh` → `preflight resolve` |
+| CI | `ci.yml`, `e2e.yml`, `e2e-real.yml`, `security-dast.yml`: un paso resuelve a `$GITHUB_ENV`. **Ya no hay ningún literal `whsec_…` en un workflow.** |
+
+⚠️ **Modo de fallo y rollback.** Si un entorno queda con clave real + secreto público, **el contenedor no
+arranca** (Railway: `ON_FAILURE`, motivo en las deploy logs). Es deliberadamente ruidoso: la alternativa es
+servir una API que acepta webhooks forjados, y **ésa no avisa de nada**. Rollback: *Redeploy* del deploy
+anterior desde Railway mientras se pone el `whsec_…` real en Variables (§11.G). **No pongas otro literal.**
+
+**Lo que sigue SIN medir aquí:** que el `COPY` del preflight entra al contexto de build. En esta sesión
+**no hay demonio Docker** (`docker build` → *cannot connect to the docker daemon*), así que la excepción
+`!scripts/webhook-secret-preflight.sh` de `.dockerignore` está razonada pero **no ejercitada**. La medición
+que lo cierra ya está cableada y corre sola: el job `trivy-image` de `security-sast.yml` **construye** la
+imagen del backend; si la excepción estuviera mal, ese build **falla en el `COPY`**. Primera corrida de CI
+tras este push = la medición.
+
+**Lo que NO se cambió, y por qué:** `STRIPE_SECRET_KEY: ${{ … || 'sk_test_e2e_dummy' }}` sigue igual. La
+asimetría es real: una clave de API falsa **no autentica nada** (degrada a «sin Stripe», que es lo que el
+preflight ya trata bien); una clave de **verificación** falsa **acepta todo**. Son riesgos distintos y no
+se tratan igual.
+
+### 49.4 El candado, y la demostración de que se pone rojo
+
+`scripts/check-stripe-webhook-failclosed.sh` — job **`stripe-webhook-failclosed`** de `ci.yml`
+(required en `ci-ok`; `skipped` **no** es verde). Tres bloques, y la razón de cada uno:
+
+- **(A) Código.** Prohíbe que la clave de verificación caiga a **cualquier** literal (`?? ''`, `|| ""`, y
+  también `?? 'whsec_dev'`, que no es mejor: es una clave publicada). Es el bloque **principal** porque es
+  el único que vale para entornos que **no puedo inspeccionar** — Railway incluido (§49.1).
+- **(B) Config.** En los entornos que el repo **sí** define, el secreto no puede resolver a vacío **ni ser
+  un literal commiteado**. En un workflow no hay forma segura de escribirlo: `${{ secrets.X }}` a secas se
+  resuelve a **cadena vacía** cuando el secret no está cargado (y en este repo **no lo está**), y
+  `|| 'whsec_…'` tapa ese vacío con un valor público. Única forma aceptada: resolverlo con el preflight.
+- **(C) Cableado.** El residual es un hecho de **runtime** («este entorno tiene clave real Y secreto
+  publicado») y ningún análisis estático puede verlo. Lo ve el preflight — así que se comprueba que el
+  preflight **existe y lo invocan** el `CMD` del Dockerfile, el arnés nativo y CI. Es la avería de §44 (el
+  DAST sin blanco): borrar la llamada deja el repo con buen aspecto y la protección desaparecida.
+
+`scripts/check-stripe-webhook-failclosed-canary.sh` — **la demostración**, mismo criterio que el self-test
+de `trivy-fs` (§47) y el canario de paridad (§48.1). Copia el árbol, planta cada mutación y exige el color:
+
+```
+✓ 31/31 — el candado de P-WH-1 y su preflight: rojos donde toca, verdes donde toca.   (5/5 tiradas)
+```
+
+Cubre, entre otros: el bug histórico byte a byte; `|| ""`; fallback a literal no vacío; el fallback
+escondido tras un `//`; el bug **mudado a otro fichero**; `backend/src` desaparecido (candado sin blanco);
+compose sin default / con default vacío / con default literal; `whsec_staging_dummy`; `|| 'whsec_e2e_dummy'`;
+literal pelado en workflow; `${{ secrets.X }}` en un fichero sin preflight; el `CMD` del Dockerfile sin la
+llamada; `.dockerignore` sin la excepción; el arnés nativo sin la llamada; el preflight borrado; y un
+`.env.example` cuyo placeholder **parece** un secreto de verdad. Y **en verde** (que importa igual): el
+árbol íntegro, **documentar el bug en un comentario** —un candado que castiga explicarlo hace que nadie lo
+explique— y la forma correcta en un workflow.
+
+El **bloque D** ejercita el preflight de verdad, no lo lee: Stripe LIVE + `whsec_staging_dummy` → aborta;
+Stripe TEST real + `whsec_e2e_dummy` → aborta; LIVE sin secreto → aborta; LIVE con secreto **de solo
+espacios** → aborta; LIVE con secreto propio → **deja arrancar**; sin Stripe → deja arrancar; y dos
+`resolve` seguidos devuelven **valores distintos**.
+
+> **Dos cazas del propio canario, anotadas porque son la razón de que exista:** (1) (C) usaba `grep` del
+> *nombre* del preflight, y daba **verde** con el `COPY` y los comentarios intactos y la **llamada
+> borrada** — ahora exige la invocación en `CMD`/`ENTRYPOINT` y en línea no comentada. (2) Mi primera
+> versión del bloque (A) se ponía **roja por el JSDoc de backend que cita el bug**. Las dos las encontró
+> el canario, no yo.
+
+### 49.5 `P-DEP-1` — el audit de devDependencies: decisión y trinquete
+
+**Medido hoy** (`npm audit`, 2026-09-10): frontend **runtime 0/0**, backend **runtime 0 altos/críticos**;
+con devDependencies, frontend tiene **1 crítica y 2 altas**, todas de tooling:
+
+| Advisory | Paquete (instalado) | Por qué no es alcanzable aquí | Arreglo |
+|---|---|---|---|
+| `GHSA-5xrq-8626-4rwp` (crítica 9.8) | `vitest` 2.1.9 | requiere el servidor **`vitest --ui` escuchando**. Medido: `frontend/package.json` corre `vitest run`, y `--ui` no aparece en ningún script ni workflow | `vitest` 5 (**major**) |
+| `GHSA-fx2h-pf6j-xcff` (alta 7.5) | `vite` 5.4.21 | bypass de `server.fs.deny` en rutas alternativas de **Windows**; runners y equipo son Linux | `vitest` 5 (arrastra `vite`) |
+| `GHSA-2883-xcg3-v3hh` (alta 7.5) | `js-yaml` 4.3.1 (vía `eslint`) | DoS por CPU en merge keys, dentro del lint | **`fixAvailable: true`** → bump de **lockfile** a `js-yaml >= 4.3.2`, sin cambio de API |
+
+**Decisión, y por qué no es «se queda así»:** el arreglo no me pertenece —`frontend/package.json` y su
+lockfile son del rol **frontend** (CLAUDE.md)— así que lo que decido es lo que **sí** es mío: cómo se
+comporta el escáner. Lo que había era un paso `continue-on-error: true` con un `|| true` dentro: **un
+escáner que no puede cambiar el color de nada**, o sea una excepción sin dueño, sin fecha y sin revisor.
+Eso no se sostiene y **no se silencia nada**: se sustituye por un **trinquete**.
+
+`security/scripts/audit-npm-dev.sh` + `security/npm-audit-dev-fichas.tsv` (dueño y fecha por hallazgo):
+
+- alto/crítico de tooling **sin ficha** → **ROJO**;
+- ficha con `revisar_antes_de` **pasado** → **ROJO**;
+- ficha que ya **no** corresponde a nada (alguien lo arregló) → **aviso**, no rojo (un candado no puede
+  castigar a quien arregla; la ficha se poda).
+
+Hoy queda **verde** (está todo fichado y en fecha) y se pone rojo **por empeoramiento o por el paso del
+tiempo**. Corre en `security-sast.yml` (por PR) **y en `security-scheduled.yml`** — esto último no es
+adorno: una caducidad que solo se evalúa cuando alguien empuja código no es una caducidad. El gate de
+**runtime** no cambia: `security/scripts/audit-npm.sh`, umbral `high`, **sin fichas posibles**.
+
+`security/scripts/audit-npm-dev-selftest.sh` demuestra que muerde: **6/6** — verde con lo fichado, **rojo**
+con un hallazgo nuevo, **rojo** con ficha vencida, **rojo si desaparece la tabla de fichas**, verde (con
+aviso) con ficha obsoleta, y las `moderate` no entran.
+
+> El propio trinquete corrigió mi tabla en su primera corrida: yo había fichado de más tres advisories
+> `moderate` y me pidió podarlas. La tabla no puede afirmar más de lo que el audit dice.
+
+**Enrutado (no lo arregla devops):** → **frontend**. (a) `js-yaml` es el barato: `npm audit fix` en
+`frontend/` sube el lockfile a `>= 4.3.2` sin tocar API (ficha hasta **2026-09-24**). (b) `vitest` 2 → 5 es
+un **major** y es decisión suya (ficha hasta **2026-10-10**).
+
+### 49.6 Estado y quién tiene la pelota
+
+| Punto | Dueño | Estado |
+|---|---|---|
+| Fail-closed incondicional en `constructEvent` + `onModuleInit` (503, no 400) | backend | ✅ hecho (verificado por el orquestador; mi candado 3/3 sobre su árbol) |
+| Config: ningún entorno del repo entrega el secreto vacío | devops | ✅ §49.2, medido con `docker compose config` |
+| Residual: ningún literal `whsec_…` vivo en compose/workflows/scripts | devops | ✅ §49.3 (los que quedan son comentarios que explican el bug) |
+| Preflight de emparejamiento cableado en contenedor + nativo + CI | devops | ✅ §49.3 |
+| Candado + canario en `ci.yml`, `skipped` ≠ verde | devops | ✅ 31/31, 5/5 tiradas |
+| `COPY` del preflight entra al contexto de build | devops | ⏳ **NO MEDIDO aquí** (sin demonio Docker); lo mide `trivy-image` en la primera corrida de CI |
+| **`NODE_ENV` real del deploy de Railway** (Root Directory, builder, Variables) | **humano (dueño)** | ⏳ **ABIERTO** — §49.1. No cambia el arreglo; decide si la tienda estuvo expuesta |
+| `P-DEP-1`: `js-yaml` (lockfile) y `vitest` 2→5 (major) | **frontend** | ⏳ fichado hasta 2026-09-24 / 2026-10-10; el trinquete se pone rojo solo al vencer |
+| Los tres flujos de dinero a través de Stripe, medidos | **humano (dueño)** | ⏳ sigue abierto (quinto pase; `money-gap-nag.yml` hace ruido semanal) |

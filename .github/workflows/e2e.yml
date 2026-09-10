@@ -149,7 +149,15 @@ jobs:
       # Stripe en modo TEST para E2E (claves de prueba, nunca live).
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
       STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
-      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || 'whsec_e2e_dummy' }}
+      # RESIDUAL DE P-WH-1 — el literal público desapareció de aquí.
+      # Decía `${{ secrets.X || 'whsec_e2e_dummy' }}`. Esa forma tiene el defecto
+      # justo al revés de como parece: **el valor público gana cuando el secret NO
+      # está cargado**, o sea, exactamente cuando alguien creyó configurar Stripe y
+      # no lo hizo. Y `whsec_e2e_dummy` está commiteado en un repo público: para un
+      # HMAC es una clave perfectamente válida con la que cualquiera puede firmar.
+      # Ahora lo resuelve `scripts/webhook-secret-preflight.sh` en un paso (abajo):
+      # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
+      # propio, ABORTA el job en vez de correr sobre algo forjable.
       S3_ENDPOINT: http://localhost:9000
       S3_REGION: us-east-1
       S3_BUCKET: tcg-photos
@@ -194,6 +202,18 @@ jobs:
       POKEMONPRICETRACKER_API_KEY: ''
     steps:
       - uses: actions/checkout@v4
+      # -----------------------------------------------------------------------
+      # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
+      # Un hecho, un sitio: la misma resolución que corre en el arranque del
+      # contenedor (`Dockerfile.backend`) y en el arnés nativo.
+      # -----------------------------------------------------------------------
+      - name: Resolver STRIPE_WEBHOOK_SECRET sin literales públicos
+        env:
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: |
+          ./scripts/webhook-secret-preflight.sh assert
+          echo "STRIPE_WEBHOOK_SECRET=$(./scripts/webhook-secret-preflight.sh resolve)" >> "$GITHUB_ENV"
       - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
         run: ./scripts/check-e2e-provider-incapacitation.sh
         working-directory: ${{ github.workspace }}

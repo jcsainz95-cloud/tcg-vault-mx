@@ -176,7 +176,42 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      # ⚠️ P-WH-1 (ALTA, explotado EN VIVO por el pentester — PENTEST_NOTES).
+      # Esta línea decía `${STRIPE_WEBHOOK_SECRET}` SIN default. Cuando la variable
+      # no estaba, compose la pasaba VACÍA, el backend hacía `?? ''` y la firma del
+      # webhook se verificaba con CLAVE VACÍA — que cualquiera puede computar. Con
+      # eso se forjó un `payment_intent.succeeded`, se liquidó un pedido y se movió
+      # una carta a la bóveda del comprador SIN COBRO.
+      #
+      # El `:-` no es cosmético (mismo criterio que POKEMONPRICETRACKER_API_KEY,
+      # DEVOPS_NOTES §32.12): «levantar SIN Stripe» y «aceptar cualquier firma» son
+      # cosas distintas y aquí dejaron de ser la misma. Con este default declarado
+      # el stack levanta sin claves y TODO webhook entrante se RECHAZA por firma
+      # inválida — que es exactamente lo que debe pasar sin Stripe.
+      #
+      # RESIDUAL DECLARADO: este literal está en un repo público, así que quien lo
+      # lea puede firmar contra TU stack local. Por eso `scripts/dev-up.sh` escribe
+      # un valor ALEATORIO en el `.env` que crea, y ese gana sobre este default.
+      # Si vas a exponer el stack local a una red, exporta un secreto propio.
+      # Candado: `scripts/check-stripe-webhook-failclosed.sh` (job `stripe-webhook-failclosed`).
+      # ⚠️ P-WH-1 y su RESIDUAL. Esta línea ha tenido tres formas y las dos primeras
+      # eran explotables:
+      #   1. `${STRIPE_WEBHOOK_SECRET}` (sin default) -> compose la pasaba VACÍA y el
+      #      backend verificaba la firma con clave vacía. Con eso el pentester forjó
+      #      un `payment_intent.succeeded`, liquidó un pedido y movió una carta a la
+      #      bóveda del comprador SIN COBRO. Explotado en vivo, no deducido.
+      #   2. `${STRIPE_WEBHOOK_SECRET:-whsec_local_placeholder…}` (default literal)
+      #      -> ya no degradaba a cero, pero el valor está en un repo PÚBLICO: quien
+      #      lo lea puede firmar contra este stack. Y por la forma del `:-`, ese
+      #      literal ganaba justo cuando alguien creía tener Stripe configurado y no
+      #      lo tenía. Misma avería que el `?? ''`, una capa más arriba.
+      #   3. (esta) `:?` -> compose FALLA RUIDOSO si la variable no está.
+      #
+      # Y falla de una forma que se arregla sola por el camino normal: `scripts/dev-up.sh`
+      # escribe un secreto ALEATORIO en el `.env` que crea, y compose lee ese `.env`.
+      # Levantar sin Stripe sigue siendo legítimo y sigue funcionando; lo que ya no se
+      # puede es heredar en silencio un valor que está publicado.
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:?falta STRIPE_WEBHOOK_SECRET. Levanta con ./scripts/dev-up.sh (te genera uno aleatorio en .env) o exporta el tuyo. NO pongas un literal, este repo es publico y cualquier valor escrito aqui es una clave que el atacante tambien tiene (P-WH-1).}"
       # Login con Google (v1.2): mismo OAuth Client ID que el front (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
       # Si va vacío, el backend rechaza el login con Google (email/password sigue OK).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

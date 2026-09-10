@@ -170,7 +170,16 @@ services:
       # Stripe en modo TEST siempre en staging (nunca claves live).
       STRIPE_SECRET_KEY: ${STRIPE_TEST_SECRET_KEY:-sk_test_staging_dummy}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_TEST_PUBLISHABLE_KEY:-pk_test_staging_dummy}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_TEST_WEBHOOK_SECRET:-whsec_staging_dummy}
+      # ⚠️ RESIDUAL DE P-WH-1 — aquí pesaba MÁS que en el compose local. Staging usa
+      # claves de Stripe de TEST, o sea que habla con Stripe de verdad y recibe
+      # webhooks de verdad; el default `whsec_staging_dummy` estaba commiteado en un
+      # repo PÚBLICO y, por la forma del `:-`, ganaba exactamente cuando el operador
+      # creía haber cargado el secreto y no lo había hecho. Un forjador con ese valor
+      # liquida pedidos en staging igual que el pentester lo hizo en local.
+      # Ahora falla ruidoso. Quien levanta staging (e2e-real.yml, security-dast.yml y
+      # el operador a mano) resuelve la variable con `scripts/webhook-secret-preflight.sh`,
+      # que genera un EFÍMERO cuando no hay Stripe y aborta cuando sí lo hay y falta.
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_TEST_WEBHOOK_SECRET:?falta STRIPE_TEST_WEBHOOK_SECRET. Resuelvela con ./scripts/webhook-secret-preflight.sh resolve (sin Stripe te da uno efimero). NO pongas un literal, el repo es publico (P-WH-1).}"
       # Login con Google (v1.2): mismo OAuth Client ID que el front. Vacío = login Google deshabilitado.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       # Disputas (v1.2): correo de contacto de evidencia. Vacío ⇒ el backend cae a su

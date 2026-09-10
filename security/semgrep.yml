@@ -69,6 +69,15 @@ rules:
     # manejo de error, no un control de seguridad. La firma YA se verifica ahí.
     # NOTA schema: `pattern-not-inside`/`pattern-not` NO cuelgan de un
     # `pattern-either` (solo admite patrones positivos); van bajo `patterns:`.
+    #
+    # LÍMITE CONOCIDO (P-WH-1, 2026-09-10) — dicho aquí para que nadie confíe de más:
+    # esta regla mira que `constructEvent` se LLAME BIEN (3 argumentos). NO mira qué
+    # VALE el tercero. `constructEvent(raw, sig, secret)` con `secret = get(...) ?? ''`
+    # cumple esta regla y aun así verifica la firma con clave VACÍA — que es
+    # exactamente el bypass de pago que el pentester explotó en vivo. Ese otro hecho
+    # lo vigila `scripts/check-stripe-webhook-failclosed.sh` (job
+    # `stripe-webhook-failclosed` de ci.yml). Son dos hechos distintos y cada uno
+    # tiene UN dueño: no se duplican aquí.
     patterns:
       - pattern: $STRIPE.webhooks.constructEvent(...)
       - pattern-not: $STRIPE.webhooks.constructEvent($PAYLOAD, $SIG, $SECRET)

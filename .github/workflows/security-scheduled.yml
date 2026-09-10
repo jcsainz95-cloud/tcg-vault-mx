@@ -98,6 +98,17 @@ jobs:
             echo "_Barrido por calendario (S-PROC-1). Corre aunque nadie toque el repo._"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # TRINQUETE DE devDependencies (P-DEP-1). Aquí, y no solo en el gate por
+      # PR, por un motivo concreto: las fichas de
+      # `security/npm-audit-dev-fichas.tsv` CADUCAN POR FECHA. Una caducidad que
+      # solo se evalúa cuando alguien empuja código no es una caducidad — es una
+      # lotería. Este barrido corre aunque nadie toque el repo, así que es el que
+      # de verdad hace sonar la fecha.
+      - name: npm audit devDependencies — trinquete con fichas (P-DEP-1)
+        id: audit_dev
+        continue-on-error: true      # el rojo se decide al final, tras publicar
+        run: AUDIT_SUMMARY_FILE="$GITHUB_STEP_SUMMARY" ./security/scripts/audit-npm-dev.sh
+
       # VISIBILIDAD 2: el JSON crudo queda descargable para seguridad.
       - name: Subir reportes npm audit
         if: always()
@@ -161,6 +172,15 @@ jobs:
         if: steps.audit.outcome == 'failure'
         run: |
           echo "::error::npm audit semanal encontró vulnerabilidades high/critical en runtime. Ver el resumen del run y el issue con label 'security'."
+          exit 1
+
+      # Rojo INDEPENDIENTE del de runtime: un hallazgo de tooling sin ficha, o una
+      # ficha vencida, no puede quedar tapado por el hecho de que runtime esté
+      # limpio. Son dos hechos distintos y se reportan por separado.
+      - name: Marcar el run en rojo si el trinquete de devDependencies falló
+        if: steps.audit_dev.outcome == 'failure'
+        run: |
+          echo "::error::El trinquete de devDependencies (P-DEP-1) está rojo: hay un alto/crítico de tooling sin ficha, o una ficha de security/npm-audit-dev-fichas.tsv pasó su fecha de revisión. Dueño del arreglo: el rol propietario del package.json; dueño de la ficha: devops. Ver DEVOPS_NOTES §49.4."
           exit 1
 
 

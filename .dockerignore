@@ -14,4 +14,10 @@
 docs
 .github
 scripts
+# EXCEPCIÓN (residual de P-WH-1): `Dockerfile.backend` copia este único fichero de
+# `scripts/` a la imagen y lo corre ANTES de arrancar el proceso. Sin esta línea el
+# COPY falla el build — que es preferible a que el preflight desaparezca en
+# silencio, pero mejor aún es que esté. No abras la excepción a `scripts/` entero:
+# el resto no tiene por qué viajar en la imagen de producción.
+!scripts/webhook-secret-preflight.sh
 *.md

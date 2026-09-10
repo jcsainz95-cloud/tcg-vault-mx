@@ -93,7 +93,13 @@ jobs:
       JWT_REFRESH_SECRET: ci_refresh_secret_dummy
       STRIPE_SECRET_KEY: sk_test_ci_dummy
       STRIPE_PUBLISHABLE_KEY: pk_test_ci_dummy
-      STRIPE_WEBHOOK_SECRET: whsec_ci_dummy
+      # RESIDUAL DE P-WH-1 — aquí decía `STRIPE_WEBHOOK_SECRET: whsec_ci_dummy`.
+      # Un literal commiteado en un repo PÚBLICO es, para un HMAC, una clave
+      # perfectamente válida: quien lo lea puede firmar eventos que cualquier
+      # entorno con ese valor aceptará. Lo resuelve el paso «Resolver
+      # STRIPE_WEBHOOK_SECRET» (abajo) con `scripts/webhook-secret-preflight.sh`:
+      # sin Stripe real genera uno EFÍMERO por corrida — irrepetible y no
+      # publicado— y los tests siguen pudiendo firmar sus propios payloads.
       S3_ENDPOINT: http://localhost:9000
       S3_REGION: us-east-1
       S3_BUCKET: tcg-photos
@@ -104,6 +110,13 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+      # Residual de P-WH-1: el secreto de webhook se RESUELVE, no se escribe.
+      # `working-directory` del job es `backend/`, por eso la ruta sube un nivel.
+      - name: Resolver STRIPE_WEBHOOK_SECRET sin literales públicos
+        working-directory: ${{ github.workspace }}
+        run: |
+          ./scripts/webhook-secret-preflight.sh assert
+          echo "STRIPE_WEBHOOK_SECRET=$(./scripts/webhook-secret-preflight.sh resolve)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -371,11 +384,45 @@ jobs:
         run: ./scripts/check-gate-parity-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 P-WH-1 — LA FIRMA DEL WEBHOOK DE STRIPE NO PUEDE VERIFICARSE CON UNA CLAVE
+  # QUE EL ATACANTE CONOCE.  2026-09-10, hallazgo ALTA del pentester, EXPLOTADO EN
+  # VIVO contra Postgres real (docs/PENTEST_NOTES.md).
+  #
+  # Qué falló, medido: `stripe.service.ts` verificaba con
+  # `config.get('STRIPE_WEBHOOK_SECRET') ?? ''`. Con el secreto ausente la
+  # verificación no se apagaba: **degradaba a clave VACÍA**, que cualquiera
+  # computa. El pentester forjó un `payment_intent.succeeded` y dejó un pedido
+  # `settled` con la carta en la bóveda del comprador, **sin cobro**. La guarda de
+  # arranque solo miraba `NODE_ENV==='production'` ⇒ cualquier otro entorno con
+  # Stripe cableado era forjable. Y por el lado de config, `docker-compose.yml`
+  # pasaba `${STRIPE_WEBHOOK_SECRET}` sin default y `stack-native.sh` NO exportaba
+  # la variable cuando venía vacía: las dos mitades del mismo agujero.
+  #
+  # Por qué un job en `ci.yml` y no en `deploy.yml`: los deploys reales van por las
+  # integraciones nativas de Railway/Vercel y NO pasan por `deploy.yml` (§16.4).
+  # Un candado ahí no vería la mayoría de los cambios. Éste corre en cada push.
+  #
+  # El canario NO es opcional: este defecto es de la familia «degrada en silencio a
+  # cero» (como §44 y §48.1). Un candado contra eso que nunca se ha visto rojo es
+  # el mismo problema una capa más arriba. Barato: sin red, sin Docker, ~2 s.
+  # Ver DEVOPS_NOTES §49.
+  # ---------------------------------------------------------------------------
+  stripe-webhook-failclosed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: La verificación de la firma no puede degradar a una clave conocida
+        run: ./scripts/check-stripe-webhook-failclosed.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-stripe-webhook-failclosed-canary.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -391,6 +438,7 @@ jobs:
           echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
           echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
           echo "candado de paridad I-PP5: ${{ needs.parity-gate-canary.result }}"
+          echo "webhook Stripe fail-closed: ${{ needs.stripe-webhook-failclosed.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -444,6 +492,15 @@ jobs:
           # promueve, y nadie se entera al leer el resumen.
           if [ "${{ needs.parity-gate-canary.result }}" != "success" ]; then
             echo "::error::El candado de paridad I-PP5 no está vivo: un \`up --gate\` sin paridad podría salir 0 (resultado: ${{ needs.parity-gate-canary.result }}). Dueño: devops. Ver DEVOPS_NOTES §48.1."
+            exit 1
+          fi
+          # 💸 Mismo criterio que las seis anteriores, y aquí es el que más caro sale
+          # si se relaja: lo que este job vigila se explotó EN VIVO y terminó con un
+          # pedido `settled` y una carta movida a la bóveda del comprador SIN COBRO
+          # (P-WH-1). `skipped` no es verde: si el candado no corre, el agujero puede
+          # volver sin que nada se ponga rojo — que es literalmente cómo llegó.
+          if [ "${{ needs.stripe-webhook-failclosed.result }}" != "success" ]; then
+            echo "::error::La firma del webhook de Stripe puede volver a verificarse con una clave conocida (resultado: ${{ needs.stripe-webhook-failclosed.result }}). Dueños: backend (el fail-closed) y devops (la config y el candado). Ver DEVOPS_NOTES §49 y docs/PENTEST_NOTES.md P-WH-1."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

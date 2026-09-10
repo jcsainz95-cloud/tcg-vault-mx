@@ -230,7 +230,29 @@ if [ -n "${STRIPE_TEST_WEBHOOK_SECRET:-}" ] && [ -z "${STRIPE_WEBHOOK_SECRET:-}"
 fi
 [ -z "${STRIPE_SECRET_KEY:-}" ]      || export STRIPE_SECRET_KEY
 [ -z "${STRIPE_PUBLISHABLE_KEY:-}" ] || export STRIPE_PUBLISHABLE_KEY
-[ -z "${STRIPE_WEBHOOK_SECRET:-}" ]  || export STRIPE_WEBHOOK_SECRET
+
+# --- P-WH-1 + su residual: el secreto del webhook, resuelto por el preflight ---
+# Esta línea decía `[ -z "${STRIPE_WEBHOOK_SECRET:-}" ] || export STRIPE_WEBHOOK_SECRET`,
+# es decir: **si venía vacío, NO se exportaba**. El backend lo veía ausente, hacía
+# `?? ''` y verificaba la firma del webhook con CLAVE VACÍA. El pentester forjó un
+# `payment_intent.succeeded` contra este mismo arnés y liquidó un pedido con la
+# carta movida a la bóveda del comprador, sin cobro (ALTA, LIVE-DB).
+#
+# La resolución NO se escribe aquí: la hace `scripts/webhook-secret-preflight.sh`,
+# que es la MISMA que corre dentro del contenedor (`Dockerfile.backend`) y en CI.
+# Un hecho, un sitio. Lo que hace, resumido:
+#   · secreto propio presente            -> se usa;
+#   · sin secreto y SIN Stripe real      -> genera uno EFÍMERO (el arnés levanta y
+#                                            rechaza todo webhook: correcto sin Stripe);
+#   · con Stripe REAL y sin secreto, o
+#     con un literal público del repo    -> ABORTA (ese es el caso forjable).
+if ! STRIPE_WEBHOOK_SECRET="$(sh "$SCRIPT_DIR/webhook-secret-preflight.sh" resolve)"; then
+  echo "✗ El preflight del webhook de Stripe abortó el arranque (ver el motivo arriba)." >&2
+  exit 1
+fi
+# Con VALOR explícito: un `export VAR` pelado propaga lo que haya —incluida la
+# ausencia— y es el idioma exacto del que vino P-WH-1. El candado lo prohíbe.
+export STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET"
 # La clave PÚBLICA se hornea en el bundle de Next (`frontend/src/lib/config.ts` lee
 # `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`). Sin ella el modal de Stripe no monta en el
 # navegador AUNQUE el backend cree la sesión de pago — y el rojo resultante parece un

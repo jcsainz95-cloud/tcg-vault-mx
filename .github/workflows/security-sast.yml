@@ -142,19 +142,32 @@ jobs:
         run: ./security/scripts/audit-npm.sh
         env:
           AUDIT_LEVEL: high
-      # VISIBILIDAD NO BLOQUEANTE (SEC-C2): reporta también criticals de
-      # devDependencies (p. ej. vitest). No bloquea el pipeline —son supply-chain
-      # de tooling, deuda aceptada— pero deja el hallazgo en el log del PR.
-      - name: npm audit (informativo — incluye devDependencies)
-        if: always()
-        continue-on-error: true
-        run: |
-          for app in backend frontend; do
-            if [ -f "$app/package.json" ]; then
-              echo "== npm audit (con dev) en $app =="
-              ( cd "$app" && npm audit --audit-level=critical || true )
-            fi
-          done
+      # TRINQUETE DE devDependencies (P-DEP-1, pentester 2026-09-10).
+      #
+      # Aquí había un paso `continue-on-error: true` con un `|| true` dentro del
+      # bucle: reportaba las críticas de tooling y NO podía cambiar el color de
+      # nada. Resultado medido: 1 crítica (`vitest`) y 2 altas (`vite`, `js-yaml`)
+      # llevaban ahí sin dueño, sin fecha y sin revisor hasta que el pentester las
+      # nombró. Un escáner que nadie lee es un escáner apagado con más pasos.
+      #
+      # NO se sube el umbral ni se silencia nada. Cambia QUIÉN responde: cada
+      # alto/crítico de tooling necesita una FICHA en
+      # `security/npm-audit-dev-fichas.tsv` con dueño, fecha de revisión y el
+      # motivo MEDIDO por el que no es alcanzable. Sin ficha -> rojo. Ficha
+      # vencida -> rojo. Ficha que sobra porque ya se arregló -> aviso.
+      #
+      # Sigue SIN bloquear por el estado de hoy (está fichado): bloquea por
+      # EMPEORAMIENTO y por el paso del tiempo. El gate de RUNTIME es el paso de
+      # arriba y no admite fichas.
+      - name: npm audit devDependencies — trinquete con fichas (P-DEP-1)
+        if: ${{ !cancelled() }}
+        run: AUDIT_SUMMARY_FILE="$GITHUB_STEP_SUMMARY" ./security/scripts/audit-npm-dev.sh
+
+      # Y el trinquete tiene que saber morder: mismo criterio que el self-test de
+      # `trivy-fs`. Si esto se cae, lo de arriba puede haberse vuelto decorativo.
+      - name: Self-test del trinquete (rojo ante hallazgo nuevo y ante ficha vencida)
+        if: ${{ !cancelled() }}
+        run: ./security/scripts/audit-npm-dev-selftest.sh
 
   # ---------------------------------------------------------------------------
   # Trivy filesystem — CVEs de dependencias. ACTIVO.
