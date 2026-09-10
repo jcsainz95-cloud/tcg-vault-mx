@@ -745,55 +745,57 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 - **Prioridad:** **B afecta a todos los clientes con cuenta, no solo a los de Google.** Es el más grande de los
   dos y el que el caso de Google solo hizo visible.
 
-#### P-72 · 💸 «Listas para publicar»: dos piezas SIN PRECIO RESOLUBLE que sí tenían mercado — reportado por el humano
-- **Lo que dijo, literal (2026-09-10):** *«porque no saco el precio de mercado si aparecia ?? en inventario»*.
-  Con captura de la pantalla **«Listas para publicar»** (9 pendientes).
-- **Las dos que fallan, y lo que tienen en común según la captura:**
-  | Folio | Pieza | Set · nº · acabado | Origen | Fecha |
-  |---|---|---|---|---|
-  | INV-001201 | Dudunsparce ex | JOURNEY TOGETHER · 121 · HOLOFOIL | `aportacion_en_especie` | 9 sep 2026 |
-  | INV-001202 | Salamence ex | JOURNEY TOGETHER · 114 · HOLOFOIL | `aportacion_en_especie` | 9 sep 2026 |
+#### P-72 · 💸 «SIN PRECIO RESOLUBLE» dice DOS cosas opuestas con la misma frase — ✅ DIAGNOSTICADO (2026-09-10)
+- **Reportado por el humano** con captura, y luego el dato que lo desatascó: *«me sale con precio de mercado
+  en inventario»*.
+- **Veredicto: NO es que el inventario mienta.** Las dos pantallas leen **la misma tabla, con la misma clave
+  por-acabado, con los mismos predicados** — las dos llaman a `PricingService.getReferencesBatch`
+  (`pricing.service.ts:877`), sin ningún fallback entre acabados: `finish` entra al `where` (`:892`) y a la
+  clave del `Map` (`:884`). **Un holofoil sin fila NUNCA hereda la del normal.**
+- ⭐ **La causa, con nombre: el guardarraíl `premium_at_floor`.** Verificado en
+  `backend/src/common/pricing-curve.ts:566`. Su comentario dice literal: *«Una carta de rareza canónica
+  premium que aterriza en el PISO NO se publica ni se cotiza: **su dato de mercado está mal (ausente,
+  aplanado o absurdo)**»*. Las dos piezas son `ex` premium; el piso es **MX$25.00** (`pricing-curve.ts:111`,
+  `floorCents: 2500`, dial editable). ⇒ **Tienen mercado, es implausiblemente bajo, y el sistema lo retiene
+  a propósito.**
+- 🔬 **La prueba que cierra el caso sin mirar la base:** el alta de `aportacion_en_especie`
+  (`inventory.service.ts:739-755`) **exige referencia con el `finish` REAL de la pieza** y lanza 422
+  `PRICE_PENDING` si falta — la pieza **no se crea**. ⇒ **Si INV-001201 y INV-001202 existen, el 9 de
+  septiembre había mercado para su clave exacta.** No pudieron nacer de otro modo. Y las `PriceReference`
+  **no caducan**.
+- ✅ **Los siete a MX$25.00: es el piso, y NO disimulan nada.** Mi hipótesis queda **refutada por código**:
+  una carta **sin** mercado **no puede** salir al piso — `pricing-curve.ts:476` la manda a `pending`, e
+  `inventory.service.ts:1615` lo dice con todas las letras (*«el PISO NO gana — decisión LOCKED»*). ⇒ Los
+  siete **sí tienen mercado**, solo que ≲ MX$15.62. Son bulk (Dustox, Charmander, Charmeleon, Spidops), y
+  están en la cola por **UBICACIÓN**, no por precio. **Nueve piezas, un fenómeno, dos desenlaces por rareza:
+  los siete se publican porque no son premium; las dos no porque sí lo son.**
+- 🔴 **EL DEFECTO REAL, y es de pantalla:** `PendingPublishRowDTO` **no lleva la razón**
+  (`inventory.service.ts:1805-1822`: hay `priceBasis`, `missing`, `pendingPriceEntryId`… y ninguna `reason`).
+  ⇒ La cola de M1 **no distingue «no hay mercado» de «hay mercado y lo estoy reteniendo»**, y las dice con
+  la misma frase. **Por eso el humano y yo leímos lo mismo de dos hechos opuestos.** La razón **sí** existe
+  y **sí** se persiste (`:1516`), y **M2 sí la pinta** (`PendingQueueSection.tsx:116-126`), igual que el
+  binder con su marcador `·!` (`VariantPriceConsole.tsx:120`). **Solo M1 la pierde.**
+- 🔴 **Y la asimetría que más me preocupa, que no estaba anotada:** el guardarraíl vive **solo en el eje de
+  venta/compra** (`decideSalePrice`). **El alta NO pasa por él** ⇒ `inventory.service.ts:761` **ya usó ese
+  mismo número sospechoso para valuar la aportación**. **El eje de venta se negó a publicar con ese dato, y
+  el eje de costo ya lo había aceptado.**
+- ✅ **Acción disponible hoy, y sigue siendo la correcta — pero por otra razón que la que dije:** el sync
+  TCGCSV `tcgcsv_singles` de **JOURNEY TOGETHER** (per-acabado, gana por precedencia,
+  `pricing.service.ts:904`). **No porque falte el precio: porque el que hay es malo.**
+- **Rol dueño:** **frontend + arquitecto** (que la cola de M1 lleve la razón) · **arquitecto** (si el
+  guardarraíl debe cubrir el eje de costo) · **backend** (P-47 parte 3, que cura el dato de origen).
 
-  Las dos dicen **`SIN PRECIO RESOLUBLE` · «Ver en la cola de precio pendiente»**, y les falta `UBICACIÓN` **y**
-  `PRECIO`. Comparten **las cuatro** variables: mismo origen, mismo set, mismo acabado y misma fecha.
-- ⭐ **La observación que puede valer más que el síntoma reportado:** las **siete** piezas que SÍ tienen precio
-  son todas de origen `compra`, del set ASCENDED HEROES, del 10 sep… **y todas muestran exactamente
-  `MX$25.00`** — Dustox, Team Rocket's Spidops, Charmander (×3, incluido un REVERSE_HOLO) y Charmeleon.
-  **Siete cartas distintas, con acabados distintos, al mismo precio al centavo.** Eso no parece un precio de
-  mercado: **parece un piso**. ⇒ Puede que el problema no sea «dos sin precio» sino **«nueve sin precio de
-  mercado, y siete lo disimulan cayendo al piso»**, que sería mucho peor porque **se publican solas**.
-  ⚠️ **Es observación de la captura, NO está medido.** Hay que confirmarlo antes de afirmarlo.
-- **Hipótesis a descartar CON CÓDIGO, ninguna confirmada:**
-  1. **El origen.** `aportacion_en_especie` resuelve el mercado por un camino distinto al de `compra`
-     (`inventory.service.ts:730` y siguientes). Es la coincidencia más fuerte de la captura.
-  2. **El acabado.** Las dos que fallan son `HOLOFOIL` de cartas `ex`. ⚠️ Regla dura del proyecto: **nunca se
-     copia el precio de un acabado a otro** — así que si el proveedor solo trae `normal`, lo correcto ES no
-     resolver. En ese caso **el sistema se está portando bien** y lo que falta es decirlo mejor.
-  3. **El set.** JOURNEY TOGETHER podría no estar barrido, o no mapeado en el proveedor de pago.
-  4. **La fecha.** Son del 9 sep y las demás del 10: ¿el barrido de precios corrió entre medias?
-  5. **El piso**, la de arriba: que la curva esté cayendo al mínimo en vez de resolver mercado.
-- **Cruce con P-69:** aquel es el mismo síntoma —precio de mercado que está en un lado y no en otro— pero en
-  el alta de **sellado**, entre el paso 1 y el paso 2. **Conviene diagnosticarlos juntos**: si la causa es
-  común, se arregla una vez.
-- **Por qué importa:** una pieza sin precio **no se publica**, así que es inventario comprado que no está a la
-  venta. Y si la hipótesis del piso se confirma, es peor: serían piezas **publicándose a un precio que no es
-  el suyo**.
-- ⭐ **RESPUESTA PROBABLE, y está en `P-47`: el sistema se está portando BIEN.** La **Parte 1 de `P-47`, ya
-  en producción (`9c3eb3e`)**, dice literal: *«PPT ya no copia el market a las 3 impresiones — solo escribe
-  la impresión primaria real; **los demás acabados quedan pendiente/«—», nunca el precio de otro**»*.
-  ⇒ Las dos que fallan son **HOLOFOIL**. Antes de ese arreglo habrían mostrado el precio del **normal**, que
-  es **el precio de otra carta en la práctica**. Ahora dice que no lo sabe. **Eso es la cura funcionando, no
-  un defecto** — y encaja con la hipótesis 2 que ya estaba escrita arriba.
-- ✅ **Y hay acción disponible HOY**, del propio `P-47`: *«el refresh/sync TCGCSV por set (per-acabado, gana
-  sobre PPT) da los precios correctos por acabado ya»*. ⇒ **Correr la sincronización de JOURNEY TOGETHER**
-  debería resolver esas dos piezas sin tocar código. **No medido: hay que probarlo.**
-- 🔴 **Lo que P-47 NO explica y sigue abierto: los siete a MX$25.00.** Son **cartas distintas** (Dustox,
-  Spidops, Charmander, Charmeleon) con **acabados distintos**, todas al mismo precio al centavo. El
-  aplanamiento por acabado no produce eso — cartas distintas darían precios distintos. **Sigue oliendo a
-  piso**, y sigue sin medir.
-- **Estado:** parcialmente explicado por `P-47`. Falta (a) probar que el sync del set cura las dos, y
-  (b) medir de dónde salen los siete MX$25.00 idénticos.
-- **Rol dueño:** el de `P-47` para lo primero (backend, Parte 3 EN CURSO); sin asignar para lo de los siete.
+##### Hallazgos de paso del mismo diagnóstico, sin pendiente propio
+- 🔴 **La forma (A) que yo temía SÍ EXISTE, en otra familia de piezas.** `loadPublishPricingCtx:1406` solo
+  usa `getReferencesBatch`, que **excluye** las filas de `promo`/`deck_exclusive` (`BASE_CARD_REF_WHERE`,
+  `pricing.service.ts:150`). Existe la hermana que sí las lee (`getReferencesByCardProductBatch`, `:937`) y
+  **nadie la llama desde publicación**, mientras el binder **sí** las pinta (`MasterSetBinder.tsx:346`).
+  ⇒ Para una **promo o deck-exclusive**, el binder enseña mercado y la publicación dice «sin precio
+  resoluble». **No aplica a estas dos**, pero es real.
+- 🔴 **El alta de aportación acepta un mercado de `0`.** `getReference` marca `status:'priced'` para
+  cualquier fila (`pricing.service.ts:782`, sin filtro `> 0`) y el candado solo comprueba `!= null`
+  (`:741`) ⇒ `computeAportacionCostCents(0, pct) = 0`. El resto del sistema **sí** trata `<= 0` como
+  pendiente. Una aportación puede quedar **valuada en MX$0**.
 
 #### P-71 · 🔤 Mostrar el código corto del set junto a las imágenes — pedido por el humano
 - **Lo que dijo, literal (2026-09-09):** *«quiero que en los sets cuando estamos viendo las imagenes
