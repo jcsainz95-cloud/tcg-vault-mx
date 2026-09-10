@@ -3144,14 +3144,32 @@ export interface RemoteSetDTO {
   cardCount: number;
 }
 
-// POST /admin/catalog/sync
+// POST /admin/catalog/sync — §M2-CS.0/§M2-CS.1.
+// ⚠️ `setsQueued` NO es «cuántos toqué»: el contrato lo conserva por compatibilidad y vale
+// exactamente lo mismo que `setsWritten`, que es el ÚNICO nombre canónico de ese hecho. Un
+// veredicto se calcula con `setsWritten` (§DESIGN_SYSTEM §32.4), nunca con `setsQueued`.
 export interface CatalogSyncResponse {
   jobId: string;
+  /** @deprecated eco de `setsWritten`; no abre la frase de un aviso (§32.4 H3). */
   setsQueued: number;
+  /** ⭐ sets en los que ESTA corrida escribió algo (≥1 escritura real). «Cuántos toqué». */
+  setsWritten: number;
+  /** desglose de `setsWritten` — sets que NO tenían cartas y ahora sí. */
+  setsImported: number;
+  /** desglose de `setsWritten` — sets que YA tenían cartas y se re-escribieron. */
+  setsRefreshed: number;
+  /** sets intentados, sin error y sin escribir nada (cero MEDIDO). */
+  setsNoop: number;
+  /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
+  cardsUpserted: number;
   mode: 'single' | 'from_date';
 }
 
-// POST /admin/catalog/backfill
+// POST /admin/catalog/backfill — ⛔ **RETIRADO de la UI** (`DESIGN_SYSTEM §32.1`, «backfill
+// nunca»). El endpoint sigue vivo en backend, pero **ninguna pantalla lo llama**: era un lote **a
+// ciegas** (el dueño no elegía qué entraba ni sabía qué había entrado). Lo reemplaza «Sincronizar
+// este set» sobre una fila NO importada: un lote opaco por una elección visible.
+// El tipo se conserva como espejo del contrato, sin consumidor en `frontend/src/lib/api.ts`.
 export interface CatalogBackfillResponse {
   imported: { id: string; name: string; releaseDate?: string; cardCount: number }[];
   newBoundary: string;
@@ -3159,10 +3177,28 @@ export interface CatalogBackfillResponse {
 }
 
 // POST /admin/catalog/sync-all (v1.3 — puede no existir aún en backend; se usa condicional).
+// v1.66/§M2-CS.4: el barrido HONRA el corte de catálogo y hace ECO de la selección que lo rigió
+// (`fromReleaseDate` + lo que quedó fuera). ⛔ Ninguna de esas tres es una cifra de escritura y
+// ninguna puede abrir la frase de un aviso (§32.4 H3): describen la SELECCIÓN, no el trabajo.
 export interface CatalogSyncAllResponse {
   jobId: string;
+  /**
+   * Sets encolados por ESTA llamada. ⚠️ `0` es AMBIGUO: significa «no había nada que encolar»
+   * y también «se rechazó la corrida porque ya había un barrido en curso». Por eso no basta
+   * para emitir `SIN CAMBIOS`: se cruza con `remaining` (y si sigue sin poder demostrarse,
+   * el veredicto honesto es `NO SE SABE`, §32.4).
+   */
   setsQueued: number;
+  /** sets remotos aún sin importar que NO se encolaron en esta llamada. */
   remaining: number;
+  /**
+   * Corte de catálogo VIGENTE que rigió esta corrida (`yyyy/MM/dd`), §M2-CS.4. El contrato lo
+   * declara presente en el `202`; la pantalla igual lo trata como pintable-o-«—» (H4), porque un
+   * despliegue anterior a v1.66 no lo manda y un `undefined` impreso sería peor que un «—».
+   */
+  fromReleaseDate: string;
+  /** sets remotos descartados por ser anteriores al corte (SELECCIÓN, no escritura). */
+  setsSkippedOutOfRange: number;
 }
 
 // POST /admin/catalog/refresh-variants — refresca variantes + precios de UN set existente usando
@@ -3173,8 +3209,16 @@ export interface CatalogSyncAllResponse {
 export interface RefreshVariantsResponse {
   ok: boolean;
   setId: string;
-  /** cartas del set procesadas (ya presentes en BD; no se importan cartas nuevas). */
-  cardsProcessed: number;
+  /**
+   * ⭐ D2 — cartas que ESTA corrida TOCÓ (`Card` con `CardProduct` upserteado), tal como las contó
+   * el resolver. **`null` = no se pudo saber ⇒ la pantalla pinta «—»** (§32.4 H4), jamás `0` de
+   * relleno. ⛔ NO es el total del set: ése viaja aparte en `cardsInSet` y es contexto (H3).
+   * *Era el bug: un set de 191 cartas del que no se resolvió nada reportaba «191 cartas
+   * procesadas · 0 precios», en verde.*
+   */
+  cardsProcessed: number | null;
+  /** Universo local del set (cuántas cartas HAY). Contexto: nunca abre la frase de un aviso (H3). */
+  cardsInSet: number;
   /** productos de carta (variantes/acabados) insertados o actualizados desde TCGCSV. */
   cardProductsUpserted: number;
   /** precios de referencia insertados o actualizados desde TCGCSV. */
@@ -3203,8 +3247,12 @@ export interface RefreshVariantsAllResponse {
 export interface RefreshVariantsAllFailure {
   /** id del set que falló. */
   setId: string;
-  /** código de error del contrato (p. ej. UPSTREAM_ERROR, SET_NOT_IMPORTED). */
-  code: string;
+  /**
+   * Código de la `BusinessException` que lanzó (p. ej. UPSTREAM_ERROR, SET_NOT_IMPORTED), o
+   * **`null`** si el fallo no traía ninguno (§M2-CS.0). ⛔ El backend NO inventa un `"UNKNOWN"`
+   * de relleno y la pantalla tampoco: sin código se pinta solo el mensaje.
+   */
+  code: string | null;
   /** mensaje legible del fallo (para pintarlo tal cual). */
   message: string;
 }
@@ -3212,9 +3260,21 @@ export interface RefreshVariantsAllFailure {
 // Resumen AGREGADO del batch (dentro del status, presente al terminar). Money-safe: `pending` y
 // `failures` reflejan honestamente lo que TCGCSV no trajo / los sets que fallaron.
 export interface RefreshVariantsSummary {
-  /** sets procesados en el batch (todos los importados). */
+  /** sets ENCOLADOS en el barrido. Contexto: nunca abre la frase de un aviso (§32.4 H3). */
   setsTotal: number;
-  /** sets refrescados con éxito. */
+  /** ⭐ sets en los que la corrida escribió algo (≥1 escritura real). «Cuántos toqué» (§M2-CS.0). */
+  setsWritten: number;
+  /** sets intentados, sin error y **sin escribir nada** — el set que no empareja con TCGCSV. */
+  setsNoop: number;
+  /**
+   * ⛔ **DEPRECADO, significado CONGELADO** (§M2-CS.2): `setsOk === setsWritten + setsNoop`, es
+   * decir «sets que no lanzaron excepción» — incluye los que corrieron sin escribir ni un precio.
+   * Era D2 a escala de barrido. ⛔ **Ningún consumidor puede usarlo para un veredicto**; el
+   * veredicto se calcula con `setsWritten`/`setsNoop`/`setsFailed`. Se retira del shape en la rev
+   * siguiente, cuando frontend confirme cero consumidores.
+   *
+   * @deprecated usa `setsWritten` (§M2-CS.2).
+   */
   setsOk: number;
   /** sets que fallaron (detalle en `failures`). */
   setsFailed: number;
@@ -3256,6 +3316,40 @@ export interface CatalogSyncStatusResponse {
   done: number;
   startedAt: string | null;
   finishedAt: string | null;
+  /**
+   * Resumen del barrido (§M2-CS.1). **`null` = «no lo medí»** (sin barrido aún, o el proceso se
+   * reinició y perdió el estado, DEV-1) ⇒ veredicto `NO SE SABE` + «—» (§32.4). ⛔ Nunca un
+   * summary en ceros de relleno: un objeto lleno de `0` afirma que se contó.
+   */
+  summary: CatalogSyncSummary | null;
+}
+
+/**
+ * Resumen agregado del barrido `sync-all` (§M2-CS.1). Adopta el REPARTO canónico de §M2-CS.0
+ * (`setsTotal`/`setsWritten`/`setsNoop`/`setsFailed`/`failures`), igual que su hermano de
+ * variantes, y añade sus cifras de escritura propias: **cartas**.
+ *
+ * ⭐⭐ **No lleva ninguna cifra de precios, y es deliberado** (§M2-CS.1): desde v1.14 este barrido
+ * no escribe ni un precio, así que emitir `pricesWritten: 0` sería un cero cierto y engañoso.
+ * ⇒ La acción «Importar sets nuevos» **no puede prometer precios escritos**.
+ */
+export interface CatalogSyncSummary {
+  /** sets ENCOLADOS. Contexto: nunca abre la frase de un aviso (H3). */
+  setsTotal: number;
+  /** ⭐ sets en los que la corrida escribió algo. «Cuántos toqué». */
+  setsWritten: number;
+  /** desglose de `setsWritten` — set que NO tenía cartas y ahora sí (`I-CS5`). */
+  setsImported: number;
+  /** desglose de `setsWritten` — set que YA tenía cartas y se re-escribió (`I-CS5`). */
+  setsRefreshed: number;
+  /** sets intentados, sin error y sin escribir nada (cero MEDIDO). */
+  setsNoop: number;
+  /** sets cuyo intento lanzó (detalle en `failures`). */
+  setsFailed: number;
+  /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
+  cardsUpserted: number;
+  /** un renglón por set fallido; `code: null` si el fallo no traía código (§M2-CS.0). */
+  failures: RefreshVariantsAllFailure[];
 }
 
 // GET /admin/pricing/sync-status — progreso del barrido MASIVO de precios (price-ingest) en curso

@@ -36,7 +36,16 @@
       "quarter": "This quarter",
       "year": "This year"
     },
-    "undo": "Undo"
+    "undo": "Undo",
+    "verdict": {
+      "done": "Done",
+      "failed": "Failed",
+      "inProgress": "In progress",
+      "noChanges": "No changes",
+      "notDone": "Nothing done",
+      "partial": "Partial",
+      "unknown": "Unknown"
+    }
   },
   "nav": {
     "catalog": "Shop",
@@ -1579,25 +1588,6 @@
         "title": "Update prices",
         "subtitle": "Refresh reference prices across the whole catalog. This is the module's primary action; it runs 1–2 times a day and you can also trigger it by hand here."
       },
-      "groups": {
-        "data": {
-          "eyebrow": "Data",
-          "title": "Data (fast · TCGCSV)",
-          "subtitle": "Refresh variants, finishes and prices from TCGCSV. Always work, even if the catalog source (pokemontcg.io) is down. This is what you need to fix missing variants or prices on an already imported set."
-        },
-        "catalog": {
-          "eyebrow": "Catalog",
-          "title": "Catalog (new cards · uses catalog source)",
-          "subtitle": "The only way to create new cards: import sets and cards from the catalog source (pokemontcg.io).",
-          "sourceWarning": "These actions import new cards from the catalog source (pokemontcg.io). If the source is down or rate limited, they may fail or import nothing — use the Data group to refresh variants and prices in the meantime.",
-          "sourceDownReroute": "pokemontcg.io did not respond; the prices and variants you can still update are in the Data group, above."
-        },
-        "advanced": {
-          "eyebrow": "Advanced",
-          "summary": "Advanced — heavy operations (full re-sync)",
-          "subtitle": "Rarely needed: they reprocess the whole catalog or chain a set's cards + prices. Heavy and dependent on pokemontcg.io."
-        }
-      },
       "unifyRarities": {
         "button": "Merge rarities",
         "hint": "Groups the fragmented rarities of the catalog into their canonical form. It changes no price, but it can change which cards are held by the guardrail, since the guardrail looks at premium rarity.",
@@ -1762,74 +1752,86 @@
         "dailyRemaining": "Remaining budget today: {remaining}."
       },
       "catalog": {
-        "title": "Catalog sync (pokemontcg.io)",
-        "subtitle": "Import sets and cards from the reference catalog. Default sets 2024+; backfill older collections in batches.",
         "set": "Set",
         "releaseDate": "Release",
         "imported": "Imported",
         "yes": "Yes",
         "no": "No",
         "cardCount": "Cards",
-        "setsEmpty": "No sets yet. Use \"Import new sets\" (Catalog group) as the first step.",
+        "setsEmpty": "No set is in the list yet.",
         "busyReason": "Wait for the running sweep to finish.",
-        "import": "Import",
-        "resync": "Re-sync",
-        "backfill": "Backfill (next batch)",
-        "syncAll": "Import new sets",
-        "syncAllHint": "\"Import new sets\" brings newly released sets that aren't imported yet (light operation); the system also does this automatically twice a day. \"Re-sync everything (force)\" reprocesses the ENTIRE catalog: metadata, cards and variants/finishes (heavy operation). It does NOT repopulate prices: use \"Update prices now\" or the per-set \"Full sync\" for that.",
-        "fullSync": "Full sync",
-        "fullSyncMenuItem": "Full sync (cards + prices)",
-        "rowMoreAria": "More actions for {name}",
-        "refreshVariantsShort": "Variants + prices",
-        "refreshVariantsAllShort": "Refresh variants + prices (all)",
-        "fullSyncAria": "Full sync of {name}: cards, variants and prices",
-        "fullSyncHint": "Per set: \"Import\"/\"Re-sync\" only brings metadata and cards (it doesn't refresh variants or touch prices). \"Full sync\" chains two phases: first the set's cards + variants/finishes, then the prices for that entire set.",
-        "fullSyncPhaseCatalog": "Full sync of {name} — phase 1/2: syncing cards and variants…",
-        "fullSyncPhasePrices": "Full sync of {name} — cards and variants done · phase 2/2: queueing the set's prices…",
-        "fullSyncDone": "Full sync of {name}: cards and variants updated; set prices queued (running in the background — progress shows in the \"Update prices\" bar).",
-        "fullSyncPricesAlreadyRunning": "Full sync of {name}: cards and variants updated, but a price sweep was already running and this set's prices were NOT queued. Once it finishes, trigger \"Update prices now\" or repeat the full sync.",
-        "fullSyncCatalogError": "Full sync of {name}: the cards/variants phase failed; no prices were queued.",
-        "fullSyncPricesError": "Full sync of {name}: cards and variants updated, but queueing prices failed. Retry with \"Update prices now\".",
-        "refreshVariants": "Variants + prices (TCGCSV only)",
-        "refreshVariantsAria": "Refresh variants and prices for {name} using TCGCSV only",
-        "refreshVariantsHint": "\"Variants + prices (TCGCSV only)\" refreshes an ALREADY imported set's variants/finishes and prices using TCGCSV alone: it does NOT re-import cards and does NOT depend on pokemontcg.io. Use it to fix a set's missing variants or prices when pokemontcg.io is unavailable.",
-        "refreshVariantsNeedsImport": "Import the set first (it must exist in the database).",
-        "refreshVariantsRunning": "Refreshing {name}'s variants and prices from TCGCSV… it does not re-import cards or use pokemontcg.io. This may take a few seconds.",
-        "refreshVariantsSummary": "{cards} card(s) processed · {products} product(s)/variant(s) updated · {prices} price(s) updated.",
-        "refreshVariantsDone": "{name}'s variants + prices refreshed from TCGCSV.",
-        "refreshVariantsPartial": "{name}'s variants + prices refreshed from TCGCSV (partial result).",
-        "refreshVariantsUnreachable": "TCGCSV did not respond fully, so the refresh is partial; retry when TCGCSV is available.",
-        "refreshVariantsPending": "{pending} product(s) were left without a price and remain in the pending queue.",
-        "refreshVariantsError": "Could not refresh {name}'s variants and prices from TCGCSV.",
-        "syncHint": "Import, resync and backfill run synchronously: they may take a while and the result appears when they finish. Don't leave this screen.",
-        "syncRunning": "Syncing with pokemontcg.io… this may take a few seconds.",
-        "syncDone": "Sync queued: {count} set(s) (job {jobId}).",
-        "backfillDone": "Backfill: {count} sets imported, {remaining} remaining.",
-        "syncAllQueued": "Sweep queued: {count} set(s) — importing in the background; the list updates on its own.",
-        "syncAllNothing": "Nothing pending to import (the catalog is up to date).",
-        "syncAllUnavailable": "Full sync isn't available on the backend; use per-set sync or backfill.",
-        "syncAllForce": "Re-sync everything (force)",
-        "sweepRunning": "Importing catalog… {done}/{total} sets.",
-        "sweepRunningHint": "Runs in the background; you can keep working. Progress and the list update automatically.",
-        "sweepDone": "Sync complete: {total} set(s) processed.",
-        "syncAllForceConfirmTitle": "Re-sync the entire catalog (force)",
-        "syncAllForceConfirmBody": "This reprocesses the ENTIRE catalog, including already imported sets, to repopulate metadata, cards and variants/finishes. It does NOT repopulate prices (use \"Update prices now\" or the per-set \"Full sync\"). It's a heavy operation that may take a while. Continue?",
-        "syncAllForceConfirmCta": "Yes, re-sync everything",
-        "refreshVariantsAll": "Refresh variants + prices for EVERYTHING (TCGCSV only)",
-        "refreshVariantsAllHint": "\"Refresh variants + prices for EVERYTHING (TCGCSV only)\" runs the same refresh as the per-set action, but across the ENTIRE already-imported catalog: it repopulates variants/finishes and prices using TCGCSV alone. It does NOT re-import cards and does NOT depend on pokemontcg.io. Use it to backfill the whole catalog's composition and prices when pokemontcg.io is unavailable. Progress shows in the catalog sync bar.",
-        "refreshVariantsAllRunning": "Refreshing the ENTIRE catalog's variants and prices from TCGCSV… it does not re-import cards or use pokemontcg.io. It runs in the background; progress shows in the bar below and may take several minutes.",
-        "refreshVariantsAllSweepRunning": "Refreshing catalog from TCGCSV… {done}/{total} sets.",
-        "refreshVariantsAllSweepRunningHint": "Runs in the background; you can keep working. Progress and the list update automatically.",
-        "refreshVariantsAllSweepDone": "Variants + prices refresh complete: {total} set(s) processed.",
-        "refreshVariantsAllSummary": "{setsOk}/{setsTotal} set(s) refreshed · {products} product(s)/variant(s) updated · {prices} price(s) updated.",
-        "refreshVariantsAllDone": "The entire catalog's variants + prices were refreshed from TCGCSV.",
-        "refreshVariantsAllPartial": "Full-catalog refresh from TCGCSV finished with a partial result.",
+        "syncAllForceConfirmTitle": "Sync the whole catalog (force)",
+        "syncAllForceConfirmBody": "Reprocesses every set, including already imported ones, in two phases: first cards and images, then variants and prices. Nothing is deleted: it is rewritten. It can take several minutes and it is best to leave this screen open. Continue?",
+        "syncAllForceConfirmCta": "Yes, sync everything",
         "refreshVariantsAllPending": "{pending} product(s) were left without a price and remain in the pending queue.",
         "refreshVariantsAllFailuresTitle": "{count} set(s) failed and were NOT refreshed:",
         "refreshVariantsAllError": "Could not refresh the entire catalog from TCGCSV.",
-        "refreshVariantsAllConfirmTitle": "Refresh variants + prices for the ENTIRE catalog (TCGCSV only)",
-        "refreshVariantsAllConfirmBody": "This refreshes the variants/finishes and prices of ALL already-imported sets using TCGCSV alone. It does NOT re-import cards and does NOT use pokemontcg.io. It's a massive operation that may take several minutes and runs across the whole catalog. Continue?",
-        "refreshVariantsAllConfirmCta": "Yes, refresh the whole catalog"
+        "setsEmptyCutoff": "The ones released on or after {date} will be brought in.",
+        "section": {
+          "eyebrow": "Catalog sync",
+          "title": "Catalog sync",
+          "subtitle": "Bring in what is new, and repair what looks wrong.",
+          "repairLead": "If one set looks wrong, repair it from its row."
+        },
+        "importNew": {
+          "label": "Import new sets",
+          "cutoffUnknown": "Anything released on or after the cutoff date counts as new, and today that date cannot be read before launching: —. The run does report it when it finishes. Earlier sets are not included; bring those in from their row."
+        },
+        "forceAll": {
+          "label": "Sync everything (force)",
+          "subtitle": "Two phases: first cards and images, then variants and prices. Nothing is deleted: it is rewritten.",
+          "phase1": "Phase 1 of 2 — cards and images… {done}/{total} sets.",
+          "phase2": "Phase 2 of 2 — variants and prices… {done}/{total} sets.",
+          "phaseHint": "It runs in the background. Do not close this screen: the second half starts on its own as soon as the first one finishes.",
+          "secondHalfMissing": "Second half missing",
+          "secondHalfBody": "The cards were brought in, but prices were not updated: the second half never ran.",
+          "secondHalfCta": "Finish the second half"
+        },
+        "repairSet": {
+          "label": "Sync this set",
+          "aria": "Sync {name}: cards, images and prices",
+          "phase1": "{name} — phase 1 of 2: bringing in cards and images…",
+          "phase2": "{name} — phase 2 of 2: variants and prices…"
+        },
+        "figure": {
+          "context": "of {n} in the set",
+          "contextSets": "of {n} sets queued",
+          "progress": "{done}/{total} sets"
+        },
+        "technicalDetail": "Technical detail",
+        "result": {
+          "importNew": {
+            "running": "Importing {done}/{total} sets… It runs in the background; you can keep working.",
+            "noChanges": "No set released on or after {date} was missing. Nothing was imported.",
+            "noChangesUnknownDate": "No new set was missing. Nothing was imported. The cutoff date that governed this run: —, the system did not report it.",
+            "ambiguous": "No set was queued and {remaining} are still not imported. The system cannot say what happened: —. A sweep may have already been running. Check the list below.",
+            "unknownSummary": "The sweep finished. How many sets were imported and how many cards were written: — — the system does not report it yet. The list below is up to date: check it.",
+            "lostState": "The system lost track of this sweep and cannot say how it ended: —. Check the set list; if one is missing, repair it from its row.",
+            "done": "<b>{written} sets updated</b> · <b>{cards} cards written</b> <c>of {total} sets queued</c>.",
+            "partial": "<b>{written} sets updated</b> · <b>{cards} cards written</b>. <b>{failed} sets failed</b> and were not imported.",
+            "notDone": "<b>{total} sets</b> were attempted and <b>none</b> ended up imported. The catalog stayed as it was.",
+            "failed": "The catalog source did not respond, so no new set was imported. Prices of what you already have were not touched. Try again in a few minutes."
+          },
+          "forceAll": {
+            "done": "<b>{variants} variants updated</b> · <b>{prices} prices written</b> · <b>{cards} cards written</b> <c>of {sets} sets queued</c>.",
+            "partial": "<b>{variants} variants updated</b> · <b>{prices} prices written</b>.",
+            "notDone": "The sweep finished and <b>not one price and not one variant were written</b>. Everything stayed as it was.",
+            "unknown": "The system lost track and cannot say what was written: <b>—</b>. Check the set list; if one looks wrong, repair it from its row.",
+            "catalogPhaseFailed": "<b>New cards could not be brought in</b>: the catalog source did not respond. Prices and variants were updated.",
+            "failed": "The sync could not be started, so nothing was written. Prices and cards stayed as they were."
+          },
+          "repairSet": {
+            "done": "<b>{name}</b>: <b>{variants} variants updated</b> · <b>{prices} prices written</b> · <b>{cards} cards touched</b> ",
+            "pending": "<b>{name}</b>: <b>{prices} prices written</b> · <b>{variants} variants updated</b>. <b>{pending} variants got no price</b> and stay in the pending queue.",
+            "notDone": "<b>{name}</b>: <b>no price and no variant were written.</b> This set could not be matched against the price source (TCGCSV). <b>Its prices stay as they were.</b>",
+            "unreachable": "<b>{name}</b>: <b>{prices} prices written</b>, but the price source did not respond fully. Repeat when it is available.",
+            "catalogPhaseFailed": "<b>{name}</b>: <b>new cards</b> could not be brought in (the catalog source did not respond), but <b>{prices} prices written</b> and <b>{variants} variants updated</b>.",
+            "pricePhaseFailed": "<b>{name}</b>: cards were brought in, but <b>prices could not be updated</b>: <b>—</b>. Its prices stay as they were.",
+            "failed": "<b>{name}</b>: <b>no card was imported and no price was touched.</b> The catalog source and the price source did not respond.",
+            "unknown": "<b>{name}</b>: the system cannot say what was written: <b>—</b>. Check the set before calling it repaired.",
+            "unknownFigure": "<b>{name}</b>: <b>{variants} variants updated</b> · <b>{prices} prices written</b>. How many cards this run touched: <b>—</b>, the system could not measure it."
+          }
+        }
       },
       "sealedSpreads": {
         "title": "Sealed sale spreads",

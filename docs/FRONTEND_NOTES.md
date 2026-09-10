@@ -15344,3 +15344,175 @@ que un `findBy*` **rechace** (se verificó: cero `.rejects` sobre `findBy*`, cer
 `tsc --noEmit` limpio · dos corridas completas seguidas: **1457/1457 (125 archivos)** y
 **1457/1457 (125 archivos)**. Además, `M2View` + `PhotoUploader` bajo 6 procesos quemando CPU en una
 máquina de 4 núcleos (la condición que los rompía antes del cambio): **70/70**.
+
+---
+
+## §63 · **M2 › Sincronización del catálogo: TRES acciones y un aviso que no puede afirmar más de lo que pasó** (`DESIGN_SYSTEM §32`, `API_CONTRACT §M2-CS`) — 2026-09-10, rama `claude/tcg-hunt-orchestration-ai2vma`
+
+> El dueño apretó «Re-sincronizar», la pantalla le dijo **«191 cartas procesadas · 0 precios» en
+> verde**, y no se había escrito nada. Backend ya dejó de mentir (D1/D2). Esto es la pantalla.
+>
+> ⚠️ El aviso verde falso **no estaba en una superficie: estaba en las tres**. Techlead lo midió y
+> por eso este pase reescribe la sección entera en vez de parchear la fila.
+
+### 1. Las TRES acciones (§32.2) — y las cuatro que desaparecen como FASES
+
+| # | Acción | Sitio | Fases | Confirmación |
+|---|---|---|---|---|
+| 1 | **Importar sets nuevos** | global | `POST /admin/catalog/sync-all` (barrido observable) | no |
+| 2 | **Sincronizar todo (forzar)** | global | `sync-all {force:true}` **→** `refresh-variants-all` | **sí** (§32.7) |
+| 3 | **Sincronizar este set** | **una por fila** | `sync {setId, force:true}` **→** `refresh-variants {setId}` | no |
+
+- ⛔ **Muere el menú ⋯ de esta tabla.** Ahí vivía escondida la única acción que traía precios,
+  mientras la grande y obvia no los tocaba. `RowMoreMenu` **se queda en el sistema** (§32.15 R6) y
+  hoy no tiene consumidor; queda dicho en su propio JSDoc para que no se lea como olvido.
+- ⛔ **«Backfill» retirado** («backfill nunca»): lo reemplaza la acción 3 sobre una fila **no
+  importada**, que por eso **no** está deshabilitada. Se retiró también `backfillCatalog()` de
+  `src/lib/api.ts` (el endpoint sigue vivo en backend; ninguna pantalla lo llama).
+- **Regla dura 4 implementada de verdad:** en la acción 3 la **fase 2 corre aunque la 1 falle** —
+  son fuentes distintas (pokemontcg.io vs TCGCSV) y el aviso nombra la que cayó.
+
+### 2. ⭐⭐ El veredicto: `src/lib/verdict.ts` (§32.4, **transversal**, no de M2)
+
+`computeVerdict(facts)` implementa el algoritmo de §32.4a **en su orden exacto** (el paso 2 —«no lo
+medí»— **antes** del 4 —«fue cero»—, que es lo que impide colapsar D2 otra vez). Seis veredictos,
+**uno solo verde**; `verdictTone`/`verdictRole` derivan color y semántica accesible.
+
+⭐ **Lo que hace imposible la regresión no es el algoritmo, es dónde vive.** `VerdictFacts` no tiene
+`isSuccess`, ni `status`, ni `ok`: **la vista no tiene de dónde sacar un verde que no venga de una
+cifra** (H10). Las tres «vistas puras» (`importNewView`, `forceAllView`, `repairSetView`) están
+fuera del componente, sin acceso al estado de la mutación.
+
+**H3/H4/H8/H10 en la práctica:** la primera cifra de cada frase es de **escritura** (el total sólo
+tras «de», en `text-muted`, vía `t.rich` con `<b>`/`<c>`); `cardsProcessed: null` ⇒ **«—»** y
+veredicto degradado; «procesad\*» está prohibida y hay un candado que barre todos los avisos;
+`jobId` sale de la frase y vive en un `<details>` «Detalle técnico».
+
+**Dos lecturas de §32 que tomé y conviene que ux-ui ratifique** (razón escrita en el código):
+1. En las acciones de **dos fases**, las cifras que **deciden** el veredicto son las de la **fase 2**
+   (variantes y precios), que es lo que la acción promete. La fase 1 entra por su **fallo** (⇒
+   PARCIAL) y por sus cartas en la frase. Sin esto, «fase 2 escribió 0 y 0 ⇒ NO SE HIZO» (§32.5b) es
+   contradictorio con un `HECHO` sacado de las cartas de la fase 1.
+2. Si la fase 1 no dejó resumen, un `HECHO` se **degrada a PARCIAL**: H1 exige que ninguna cifra sea
+   desconocida, y sus cartas se pintan «—».
+
+### 3. La tercera superficie: `setsQueued: 0` **es ambiguo**
+
+`POST /admin/catalog/sync-all` devuelve `setsQueued: 0` tanto cuando **no había nada que traer**
+como cuando **se rechazó la corrida porque ya había un barrido en curso**. El copy viejo decía «el
+catálogo está al día» en los dos casos. Ahora: `remaining === 0` ⇒ `SIN CAMBIOS` **demostrable**
+(y la frase nombra el corte que reportó la corrida); `remaining > 0` ⇒ **`NO SE SABE`** con «—».
+⚠️ La ambigüedad del campo es **de contrato** y está con el arquitecto; aquí sólo se deja de emitir
+un veredicto que las cifras no sostienen.
+
+### 4. El espejo del contrato y las fixtures (lo que hacía inauditable el defecto)
+
+`src/types/contract.ts` estaba congelado en la semántica vieja y `src/lib/mock/fixtures.ts`
+**modelaba la mentira**: el espejo concordaba consigo mismo y ningún test podía cazar nada.
+
+| Fichero | Cambio |
+|---|---|
+| `types/contract.ts` | `RefreshVariantsSummary` gana `setsWritten`/`setsNoop`; `setsOk` queda **`@deprecated`** con su significado congelado escrito · `CatalogSyncStatusResponse.summary` (nuevo `CatalogSyncSummary`) · `RefreshVariantsResponse.cardsProcessed: number \| null` + `cardsInSet` · `failures[].code: string \| null` · `CatalogSyncResponse` gana el reparto · `CatalogSyncAllResponse` gana el eco de la selección |
+| `lib/mock/fixtures.ts` | el barrido de variantes reparte `setsWritten`/`setsNoop` y **modela el set que no empareja** (un `noop`); `setsOk` se emite **derivado** |
+| `lib/api.ts` | mocks alineados: `cardsProcessed ≠ cardsInSet`, `summary: null` en `sync-status`, eco de `fromReleaseDate` |
+
+### 5. i18n (§32.6): **las cinco `*Hint` muertas, BORRADAS** en `es.json` **y** `en.json`
+
+`syncAllHint · fullSyncHint · refreshVariantsHint · refreshVariantsAllHint · syncHint`. Su contenido
+vivo se mudó a **subtítulo permanente** bajo cada botón global y al **cuerpo de la confirmación**.
+⛔ Ni `title` ni tooltip: no cuentan como mostrado. Se retiraron además las claves de las acciones
+absorbidas, las de `groups.*`, `catalog.syncDone` (pintaba el `jobId`) y `syncAllUnavailable` (su
+texto mandaba al backfill, que ya no existe ⇒ era copia **falsa**, no sólo muerta).
+
+⭐ **Candado nuevo (CS-8, `src/lib/i18n-parity.test.ts`):** toda clave `*Hint` debe tener consumidor
+en `src/**`. **Se puso rojo al escribirlo** y cazó una clave que yo mismo acababa de crear
+(`importNew.cutoffHint`, sin consumidor porque el dato no existe todavía): se borró. Deuda heredada
+declarada y acotada: `admin.m1.sealedConditionHint` y `admin.m1.listPriceOptionalHint` (M1, otro
+work stream) siguen huérfanas; van en una lista explícita que sólo puede encoger.
+
+### 6. Lo que NO se implementó, por falta de dato — y **no se inventó** (H4)
+
+| §32 pide | Falta | Qué hace hoy la pantalla |
+|---|---|---|
+| Columna **`PRECIOS` `N/M`** (§32.15 R5) | `pricedVariants`/`variants` en `remote-sets` (§M2-CS.3) | **no se pinta**. ⛔ No se deriva de `cardCount` |
+| **Corte a la vista antes de apretar** (§32.3) | `catalogWindow` en `remote-sets` (§M2-CS.4) | subtítulo permanente que dice que **no se pudo leer: «—»**; la fecha sí se nombra en el aviso, leída del `202` de la corrida. ⛔ **Sin enlace «Cambiar la fecha» a M10**: §M2-CS.4 derogó ese dial |
+| `{p} precios escritos` en la acción 1 (§32.5a) | — | **imposible por contrato**: §M2-CS.1 rechaza `pricesWritten` en ese barrido. El aviso no promete precios ahí |
+
+### 7. Candados (§32.13) y **la mutación**
+
+`CatalogSyncSection.test.tsx` (25) + `verdict.test.ts` (13) + CS-8/CS-9 en `i18n-parity`. Cada uno
+afirma **lo que el dueño lee** (versalita, frase, ausencia de la cifra de contexto) y el **token de
+color**, no un detalle interno.
+
+**Demostración de que el candado puede ponerse rojo** — sobre una copia se restauró el verde-con-ceros
+en **cada** superficie y se contaron los muertos:
+
+| Mutación (comportamiento viejo restaurado) | Superficie | Tests que mueren |
+|---|---|---|
+| **M-A** — la fila pinta `HECHO` si la llamada no lanzó (el viejo `variant={isSuccess…}`) | acción 3 | **4** |
+| **M-B** — titular desde `setsOk` y tono desde `setsFailed>0 \|\| pending>0` | fase 2 de la acción 2 | **2** |
+| **M-C** — `setsQueued===0` ⇒ «al día», y barrido terminado ⇒ verde | acción 1 | **2** |
+
+⚠️ M-B mata **2** porque el comportamiento viejo y el nuevo **sólo divergen** cuando
+`setsWritten:0 · setsNoop>0 · setsFailed:0 · pending:0` (más el control positivo, que fija que la
+cifra de cartas sale de `cardsUpserted` y **no** de `setsOk`). Es el tamaño real de la diferencia,
+no un candado flojo.
+
+### 8. Falso rojo de CI: `CheckoutUnavailable.test.tsx:169` — **causa medida, arreglo en el origen**
+
+**No es presupuesto de espera** (subir el reloj no arregla esto) y **no es contaminación**.
+
+**La causa, medida con una sonda:** la poda quita el id muerto del `localStorage` ⇒ cambia
+`cart.ids` ⇒ **cambia la `queryKey`** (`['guest-checkout-quote', cart.ids]`) ⇒ cotización nueva sin
+caché ⇒ `QueryState` pinta su carga y **el subárbol de renglones se desmonta y vuelve**. La sonda lo
+enseña sin ambigüedad: **5 ms después de que `findByText('Charizard')` resuelva,
+`document.body.contains(nodo) === false` mientras hay 1 nodo «Charizard» en el DOM** — o sea, el
+`findBy*` había atrapado el nodo **transitorio**. Según cuál atrape (contención de CPU mediante), la
+aserción cae con el mensaje exacto de CI: *«element could not be found in the document»*.
+
+**Reproducido**: con 6 procesos quemando CPU en 4 núcleos, **1 fallo en 6 corridas** del fichero.
+
+**Arreglo, en el origen (el test, no la víctima ni el setup):** los renglones se comprueban
+**después** de que la re-cotización aterrice —que es el estado que el test quiere describir—, y no
+se sostiene una referencia a un nodo a través de un `await` que puede remontar el subárbol. Aplica
+a las **dos** pruebas con esa forma (invitado y con cuenta). ⛔ Nada que cambiar en el producto: que
+el aviso viva **fuera** de `QueryState` es precisamente lo que lo hace sobrevivir a esa ventana, y
+eso se sigue comprobando. **Verificado: 14/14 bajo la misma carga que lo rompía.**
+
+**¿Cuántos más hay? (censo, no impresión):**
+
+| Familia | Medida | Riesgo |
+|---|---|---|
+| Nodo capturado sostenido a través de un `await` | **17** llamadas en 9 ficheros | **0 expuestas hoy**: sólo remonta solo un subárbol cuyo componente **cambia su propia `queryKey`**, y eso lo hacen **2** componentes (`CheckoutView`, `GuestCheckoutView`), cuyos 2 tests son los ya arreglados. Las otras 17 capturan diálogos/cajones que sólo cambian por interacción |
+| Esperas con **reloj propio por debajo** del presupuesto compartido (`timeout: 3000` < `asyncUtilTimeout: 5000`) | **12** llamadas en **2** ficheros: `(storefront)/page.test.tsx` (2) y `admin/m2/bounties/BountiesView.test.tsx` (10) | ⚠️ **Ésta es la pared siguiente**: no obedecen el endurecimiento de CI y se rinden **antes** que el resto. Se reporta, no se toca (fuera del encargo) |
+
+### 9. Peticiones al arquitecto (no las resuelvo yo)
+
+1. ⭐⭐ **`remote-sets` necesita `pricedVariants`/`variants`** (§M2-CS.3, R5) — sin ellos el dueño no
+   puede **ver** qué set está roto, que es el flujo entero de la acción de reparación.
+2. ⭐ **`remote-sets` necesita `catalogWindow`** (§M2-CS.4): hoy el corte sólo se puede leer
+   **después** de lanzar la importación, y §32.3 lo exige **antes**.
+3. ⚠️ **`setsSkippedUnknownDate` vs `setsSkippedUndated`**: el contrato (§M2-CS.1) nombra el campo
+   `setsSkippedUnknownDate`; `catalog-sync.service.ts` emite **`setsSkippedUndated`**. No lo consumo
+   hasta que los dos nombres sean uno.
+4. **`setsQueued` carga tres hechos distintos** según el endpoint (ya en su mesa): mientras tanto la
+   pantalla emite `NO SE SABE` en vez de un veredicto que no puede sostener.
+
+### 10. Hallazgos para **ux-ui** (§32 tal como está escrita no se puede cumplir al pie de la letra)
+
+1. **§32.5b abre su frase de `HECHO` con «{s} sets revisados»**, que es vocabulario de **LECTURA**
+   (H8) en la **primera** posición, y **H3 exige** que la primera cifra sea de **escritura**. Se
+   implementó respetando H3 (primero variantes y precios). **Conflicto interno de §32.**
+2. **§32.5a promete «{p} precios escritos» en la acción 1**, y §M2-CS.1 **rechaza** esa cifra ahí
+   (ese barrido no escribe precios). Se implementó sin ella. *(El contrato ya enruta el choque.)*
+3. **§32.2 cita `POST /admin/catalog/sync` sin `setId`** para la acción 1, pero el barrido
+   **asíncrono observable** por `sync-status` —que es lo que §32.5a describe— es `sync-all`, que
+   además es el que honra el corte (§M2-CS.4). Se implementó con `sync-all`.
+4. **§32.14 conserva `catalog.refreshVariantsNeedsImport`** («primero importa el set») como motivo
+   de deshabilitado, pero §32.1 dice que la acción de fila sobre un set **no importado** es lo que
+   reemplaza al backfill ⇒ el botón **no puede estar deshabilitado** y la clave se quedó sin
+   consumidor. **Borrada** por §32.6.
+5. **Cuarta superficie, fuera de §32 y no la toco:** `PriceIngestSection` («Actualizar precios
+   ahora», acción A) pinta `Banner variant="success"` desde `ingestMutation.isSuccess` sobre un
+   **encolado**. §32.4 H6 dice que «encolado» se reporta como **estado**, nunca como veredicto
+   verde. §32 excluye la acción A de su alcance, así que queda **reportado**, no arreglado.

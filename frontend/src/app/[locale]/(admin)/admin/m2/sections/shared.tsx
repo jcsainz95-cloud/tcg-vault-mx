@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { ApiClientError } from '@/lib/api-client';
 
 // ⛔ v2.0 (P-48): `RULE_MODES` / `SALES_RULE_MODES` retirados con el editor de reglas — no hay
 // modos fixed/pct, hay UNA CURVA por eje (§21.0).
@@ -44,15 +43,6 @@ export function isSaveableRuleValue(raw: string): boolean {
 }
 
 /**
- * El endpoint `sync-all` puede no existir aún en el backend (contrato v1.3, condicional).
- * Un 404/405 se trata como "no disponible" (warning); cualquier otro error real (rate limit,
- * timeout, 5xx) se muestra como error con su código/mensaje.
- */
-export function isEndpointMissing(error: unknown): boolean {
-  return error instanceof ApiClientError && (error.status === 404 || error.status === 405);
-}
-
-/**
  * Barra de progreso del barrido de catálogo (sync-all). Mientras corre pinta done/total en
  * SETS y avisa —honestamente— que sigue en segundo plano; al terminar muestra el éxito.
  * `role="status"` + `aria-live` para que un lector de pantalla anuncie el avance.
@@ -66,7 +56,13 @@ export function SyncProgress({
   running: boolean;
   done: number;
   total: number;
-  labels: { running: string; runningHint: string; done: string };
+  /**
+   * `srLabel` (opcional, `DESIGN_SYSTEM §32.10`): NOMBRE ACCESIBLE de la barra cuando el rótulo
+   * visible es una cifra corta («3/12 sets») pero el nombre tiene que llevar la fase completa
+   * («Fase 1 de 2 — cartas e imágenes…»). Sirve para no duplicar la misma frase en el aviso vivo
+   * y en la barra: el lector de pantalla la oiría dos veces. Sin él, el nombre es el rótulo.
+   */
+  labels: { running: string; runningHint: string; done: string; srLabel?: string };
 }) {
   const pct = total > 0 ? Math.min(100, Math.round((Math.min(done, total) / total) * 100)) : 0;
   const value = running ? pct : 100;
@@ -85,8 +81,8 @@ export function SyncProgress({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={value}
-        aria-valuetext={running ? `${labels.running} ${pct}%` : labels.done}
-        aria-label={running ? labels.running : labels.done}
+        aria-valuetext={running ? `${labels.srLabel ?? labels.running} ${pct}%` : labels.done}
+        aria-label={running ? (labels.srLabel ?? labels.running) : labels.done}
       >
         <div
           className={`h-full rounded-full transition-all ${running ? 'bg-accent' : 'bg-success'}`}
@@ -99,10 +95,15 @@ export function SyncProgress({
 }
 
 /**
- * §19.4 / §19.9: menú «Más ▾» por-fila que esconde la acción AVANZADA H («Sync completo») fuera del
- * renglón principal para no invitarla por default. Accesible: disparador `aria-haspopup="menu"` +
- * `aria-expanded`; el panel es `role="menu"` con `menuitem`s; `Esc` cierra y devuelve el foco al
- * disparador; un clic fuera también cierra. El icono del kebab es el ÚNICO icono con `aria-label`.
+ * Menú «Más ▾» por-fila: esconde acciones avanzadas fuera del renglón principal. Accesible:
+ * disparador `aria-haspopup="menu"` + `aria-expanded`; el panel es `role="menu"` con `menuitem`s;
+ * `Esc` cierra y devuelve el foco al disparador; un clic fuera también cierra.
+ *
+ * ⛔ **NO se usa en la tabla de sincronización de catálogo** (`DESIGN_SYSTEM §32.2` regla 2 y
+ * §32.15 R6): ahí vivía escondida la única acción que traía precios mientras la grande y obvia no
+ * los tocaba, y §32 lo prohíbe expresamente. **El componente se queda en el sistema** para otras
+ * tablas —por eso no se borra— pero hoy no tiene consumidor: es una pieza disponible, no una
+ * advertencia muerta (que es lo que §32.6 manda borrar).
  */
 export function RowMoreMenu({
   triggerLabel,
