@@ -72,19 +72,48 @@ MODO="${1:-assert}"
 # nadie puede firmar contra un valor que no existía hace un minuto.
 #
 # Se acierta hacia «NO desechable»: ante la duda, exigimos secretos de verdad.
+#
+# CÓMO SE DECIDE, Y POR QUÉ ASÍ (corregido tras el run 34512132641)
+# ---------------------------------------------------------------------------
+# La primera versión de esta función preguntaba `hay_stripe_real`. La heredé del
+# preflight del webhook, donde ESA pregunta significa algo preciso: si hay una
+# clave de Stripe real, **se puede mover dinero**, y un webhook forjado cuesta
+# cartas. Aquí no significa nada de eso. Que exista una clave `sk_test_` no dice
+# absolutamente nada sobre si la contraseña de Postgres de un stack que vive diez
+# minutos en un runner tiene que salir de un gestor de secretos. Copié la señal
+# con su nombre pero sin su significado, y el resultado fue que el gate de dinero
+# —que SÍ tiene clave de Stripe real— se declaraba «entorno real» y abortaba.
+#
+# La regla nueva no ADIVINA si el entorno es desechable: **se lo tienen que
+# decir**, o tiene que ser un runner de CI. Todo lo demás falla cerrado.
+#
+#   1. `SECRETS_ENV=real|prod|production|staging` → NO. Lo explícito manda siempre.
+#   2. Marca de plataforma de despliegue (Railway/Vercel/Render/Fly/Heroku/K8s)
+#      → NO, **aunque `CI` esté puesto**. Ésta es la trampa que hay que dejar
+#      cerrada: un job de CI que despliega a Railway no puede inventarse secretos.
+#   3. `SECRETS_ENV=desechable|ephemeral|local|ci` → SÍ. Lo declara el script cuyo
+#      trabajo ES levantar un stack de usar y tirar (dev-up, stack-native,
+#      dast-ephemeral). Una declaración del que sabe, no una corazonada del que mira.
+#   4. Runner de CI (`GITHUB_ACTIONS`/`CI`) sin marcas de plataforma → SÍ: volúmenes
+#      nuevos cada corrida y todo muere con el job.
+#   5. Cualquier otra cosa → NO. Una máquina pelada sin declarar es un servidor
+#      hasta que se demuestre lo contrario.
 es_desechable() {
-  # Marca explícita del operador, en cualquiera de los dos sentidos.
+  # (1) Lo explícito, en el sentido de «esto es real», manda por encima de todo.
   case "${SECRETS_ENV:-}" in
     real|prod|production|staging) return 1 ;;
-    desechable|ephemeral|local|ci) return 0 ;;
   esac
-  # Plataformas de despliegue: si estamos dentro de una, esto es un entorno real.
+  # (2) Plataformas de despliegue: aquí no se genera nada, pase lo que pase.
   [ -n "${RAILWAY_ENVIRONMENT:-}${RAILWAY_SERVICE_ID:-}${RAILWAY_PROJECT_ID:-}" ] && return 1
   [ -n "${VERCEL_ENV:-}${RENDER:-}${FLY_APP_NAME:-}${DYNO:-}${KUBERNETES_SERVICE_HOST:-}" ] && return 1
-  # Una clave de Stripe DE VERDAD convierte cualquier entorno en real: habla con
-  # Stripe, recibe webhooks de verdad y mueve pedidos. (P-WH-1.)
-  hay_stripe_real && return 1
-  return 0
+  # (3) Declaración explícita del entrypoint que levanta el stack desechable.
+  case "${SECRETS_ENV:-}" in
+    desechable|ephemeral|local|ci) return 0 ;;
+  esac
+  # (4) Runner de CI: efímero por construcción.
+  [ -n "${GITHUB_ACTIONS:-}${CI:-}" ] && return 0
+  # (5) Ante la duda, NO.
+  return 1
 }
 
 # =============================================================================
@@ -137,6 +166,9 @@ huele_a_publico() {
   return 1
 }
 
+# Sigue aquí porque el MENSAJE de aborto la usa para dar contexto, y porque el
+# preflight del webhook —donde la pregunta sí es la correcta— comparte idioma.
+# Lo que ya NO hace es decidir si el entorno es desechable: ver es_desechable().
 hay_stripe_real() {
   k="${STRIPE_SECRET_KEY:-}"
   [ -n "$k" ] || k="${STRIPE_TEST_SECRET_KEY:-}"

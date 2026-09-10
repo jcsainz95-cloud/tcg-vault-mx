@@ -82,7 +82,11 @@ FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_K
 # «es secreto»: una variable de más en el manifiesto no rompe nada; una de menos
 # es el agujero entero.
 # INICIO_NO_SECRETO
-NO_SECRETO='(PUBLISHABLE|NEXT_PUBLIC_|PUBLIC_KEY|_LENGTH$|_TTL$|_DAYS$|_BYTES$|_PATH$|_FILE$|_NAME$|_ID$|GITHUB_TOKEN|GH_TOKEN|_ROTATED|_EXPIRES)'
+# `SECRETS_ENV` y compañía contienen «SECRET» y NO son secretos: son el SELECTOR de
+# modo y las rutas del propio preflight. Sin esta excepción, el candado se pone rojo
+# sobre `export SECRETS_ENV=desechable` — la línea con la que un entrypoint DECLARA
+# que su stack es de usar y tirar. Un candado que suena por lo que no es, se apaga.
+NO_SECRETO='(PUBLISHABLE|NEXT_PUBLIC_|PUBLIC_KEY|_LENGTH$|_TTL$|_DAYS$|_BYTES$|_PATH$|_FILE$|_NAME$|_ID$|GITHUB_TOKEN|GH_TOKEN|_ROTATED|_EXPIRES|^SECRETS_ENV$|^SECRETS_MANIFEST$|^SECRETS_CATALOG$|^SECRETS_PROFILE$)'
 # FIN_NO_SECRETO
 
 # --- Prefijos de secreto reconocibles ---------------------------------------

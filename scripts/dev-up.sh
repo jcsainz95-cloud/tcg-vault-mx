@@ -34,6 +34,10 @@ fi
 #   · sustituye las que traigan un valor que el repo PUBLICA (identidad, no
 #     heurística: `security/secretos-publicados.sha256`);
 #   · respeta las que ya tengas puestas de verdad — es idempotente y no rota nada.
+# El resolutor no ADIVINA que esto es un entorno desechable: se lo decimos. Este
+# script existe para levantar el stack local de un dev — el que sabe que es de
+# usar y tirar es él, no una corazonada del resolutor mirando variables sueltas.
+export SECRETS_ENV=desechable
 echo "→ Secretos locales (S-88-1): ninguno puede venir escrito en el repo."
 ./scripts/secrets-preflight.sh env-file .env
 

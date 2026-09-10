@@ -246,6 +246,27 @@ login() {
     printf ''
   fi
 }
+# --- La contraseña del usuario SEMBRADO no es un secreto mío, y no se copia ---
+# S-88-1 dejó este bloque sin ninguna contraseña utilizable, y con eso rompí el
+# login de este script: el único par que funcionaba era el literal `Admin123!`, que
+# coincidía con la FIXTURE de `backend/prisma/e2e-fixtures.ts` — el usuario
+# `admin@e2e.local` que crea `seed:synthetic`.
+#
+# La solución NO es volver a copiar el literal aquí (dos fuentes para un hecho: el
+# día que backend cambie su fixture, este script fallaría con «credenciales
+# inválidas» y nadie sabría por qué). Se LEE de su única fuente. No es un secreto:
+# es el usuario de pruebas de un stack sintético, está publicado en el repo y por
+# eso mismo el manifiesto lo rechaza en cualquier entorno real.
+#
+# Si el fichero o su forma cambian, `FIXTURE_E2E_PASS` queda vacío, el par se salta
+# y el script dice «no pude entrar» — en vez de intentarlo con un valor caducado.
+FIXTURE_E2E="${FIXTURE_E2E:-backend/prisma/e2e-fixtures.ts}"
+FIXTURE_E2E_PASS=""
+if [ -f "$FIXTURE_E2E" ]; then
+  FIXTURE_E2E_PASS="$(sed -n "s/.*email: *'admin@e2e\.local' *, *password: *'\([^']*\)'.*/\1/p" \
+                       "$FIXTURE_E2E" | head -1)"
+fi
+
 if [ -z "$TOKEN" ]; then
   # Orden: credenciales explícitas > fixture sintético (seed:synthetic) > compose de staging.
   # S-88-1: ninguna de las tres lleva ya contraseña escrita (decían `Admin123!` y
@@ -255,7 +276,7 @@ if [ -z "$TOKEN" ]; then
   # Máximo 3 intentos: `/auth/login` está limitado a 5/min por IP (SEC-C1).
   for pair in \
     "${ADMIN_EMAIL:-}|${ADMIN_PASSWORD:-}" \
-    "admin@e2e.local|${E2E_ADMIN_PASSWORD:-}" \
+    "admin@e2e.local|${E2E_ADMIN_PASSWORD:-$FIXTURE_E2E_PASS}" \
     "${SEED_ADMIN_EMAIL:-admin@staging.local}|${SEED_ADMIN_PASSWORD:-}"
   do
     E="${pair%%|*}"; P="${pair#*|}"

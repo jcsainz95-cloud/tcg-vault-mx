@@ -224,7 +224,18 @@ jobs:
           echo "STRIPE_TEST_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
           # S-88-1: el resto de secretos del stack de staging, sin literales. Respeta
           # los del secret store si existen; si no, aleatorios por corrida.
-          ./scripts/secrets-preflight.sh github-env >> "$GITHUB_ENV"
+          RESUELTOS="$(./scripts/secrets-preflight.sh github-env)"
+          printf '%s\n' "$RESUELTOS" >> "$GITHUB_ENV"
+          # EMPAREJAMIENTO runner ↔ contenedor. El contenedor recibe `STAGING_SEED_*`
+          # (el compose los mapea a `SEED_*`), pero los scripts que corren en el RUNNER
+          # —`price-provider-parity.sh`— leen `SEED_*`. Antes coincidían por ACCIDENTE:
+          # ambos eran el mismo literal público del repo. Al quitar el literal (S-88-1)
+          # el accidente desaparece, así que el emparejamiento se hace explícito.
+          SEED_PASS="$(printf '%s\n' "$RESUELTOS" | sed -n 's/^STAGING_SEED_ADMIN_PASSWORD=//p')"
+          if [ -n "$SEED_PASS" ]; then
+            echo "SEED_ADMIN_PASSWORD=$SEED_PASS" >> "$GITHUB_ENV"
+            echo "SEED_ADMIN_EMAIL=${STAGING_SEED_ADMIN_EMAIL:-admin@staging.local}" >> "$GITHUB_ENV"
+          fi
 
       # -----------------------------------------------------------------------
       # GUARDA DE DINERO Nº0 — antes que el preflight de Stripe, porque este no

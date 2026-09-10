@@ -98,6 +98,8 @@ cmd_up() {
   # «required variable STAGING_… is missing a value» — enumerado y cerrado, no
   # descubierto a base de runs rojos.
   export STRIPE_WEBHOOK_UNREACHABLE=1
+  # Se llama «efímero» en el nombre del fichero: que lo diga también donde importa.
+  export SECRETS_ENV="${SECRETS_ENV:-desechable}"
   log "Resolviendo secretos del stack (ninguno puede venir escrito en el repo)"
   ./scripts/webhook-secret-preflight.sh assert || { err "preflight del webhook"; return 1; }
   WH="$(./scripts/webhook-secret-preflight.sh resolve)" || { err "preflight del webhook"; return 1; }

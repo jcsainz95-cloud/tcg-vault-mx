@@ -10072,6 +10072,91 @@ marca **dentro de Railway** → `rc=1` igualmente.
    levanta un compose con `${VAR:?}`, resuelve antes*. Un consumidor nuevo que no lo haga
    nace rojo.
 
+### 50.4-bis · CI me refutó: mi «medido en 3 direcciones» había medido DOS comandos de un paso de CUATRO
+
+Reporté que el gate de dinero ya no bloqueaba, «medido en tres direcciones». El
+orquestador relanzó sobre mi propio commit `715e4af`: **run `34512132641`, paso 3 en
+`failure`, 10 s, pasos 4-17 `skipped`**. Los tres flujos de dinero no corrieron.
+
+**Quién midió mal: yo.** Reproducido en local con el entorno exacto del job:
+
+| Comando del paso 3 | ¿Lo probé antes? | rc |
+|---|---|---|
+| `webhook-secret-preflight.sh assert` | sí | 0 |
+| `webhook-secret-preflight.sh resolve` | sí | 0 |
+| `secrets-preflight.sh github-env` | **NO** | **1 — `Falta MINIO_ROOT_PASSWORD y este entorno NO es desechable`** |
+
+Probé dos comandos de un paso que tiene cuatro, y el que no probé era **el que añadí
+en ese mismo pase**. Mi medición en verde con el sistema sin arrancar: exactamente el
+defecto que este trabajo persigue, cometido por mí, con el canario en 32/32.
+
+**La causa.** `es_desechable()` preguntaba `hay_stripe_real()`. Heredé la señal del
+preflight del webhook, donde significa algo preciso —*hay clave real ⇒ se puede mover
+dinero ⇒ un webhook forjado cuesta cartas*— y la usé donde no significa nada de eso:
+que exista una `sk_test_` **no dice nada** sobre si la contraseña de Postgres de un
+stack que vive diez minutos en un runner debe salir de un gestor de secretos. Copié la
+señal con su nombre y sin su significado. Resultado: el gate de dinero, que **sí** tiene
+clave de Stripe real, se declaraba «entorno real» y abortaba.
+
+#### La decisión de diseño: ¿abortar o generar?
+
+**Generar**, y el argumento es que el secreto que falta sirve para **verificar webhooks
+ENTRANTES**. En un stack efímero de CI **no hay ningún webhook entrante real que
+verificar**: vive en el localhost del runner y Stripe no puede alcanzarlo. Abortar ahí
+no protege nada — solo impide medir los tres flujos de dinero. Y un secreto **generado**
+es *estrictamente más seguro* que uno real compartido: es irrepetible y nadie, ni quien
+lea el repo, puede firmar contra él.
+
+Lo que cambia es **de dónde sale la decisión**: el resolutor ya no ADIVINA si el entorno
+es desechable. **Se lo dicen, o es un runner de CI.** Todo lo demás falla cerrado.
+
+| # | Condición | Desechable |
+|---|---|---|
+| 1 | `SECRETS_ENV=real\|prod\|production\|staging` | **NO** (lo explícito manda) |
+| 2 | Marca de plataforma (Railway/Vercel/Render/Fly/Heroku/K8s) | **NO**, *aunque `CI` esté puesto* |
+| 3 | `SECRETS_ENV=desechable\|ephemeral\|local\|ci` | SÍ — lo declara el entrypoint que levanta el stack (`dev-up.sh`, `stack-native.sh`, `dast-ephemeral.sh`) |
+| 4 | Runner de CI sin marcas de plataforma | SÍ |
+| 5 | Cualquier otra cosa | **NO** — una máquina pelada sin declarar es un servidor hasta que se demuestre |
+
+**La línea, MEDIDA — bloque H del canario, 8 direcciones, 5/5 tiradas.** Y no mide
+comandos sueltos: **extrae el `run:` del paso real de `e2e-real.yml` y lo ejecuta
+entero**. Si mañana alguien añade un quinto comando al paso, queda ejercitado sin que
+nadie actualice el canario — que es justo lo que falló aquí y lo que había fallado con
+la mutación NO-OP del canario de P-WH-1.
+
+| Entorno | Paso completo |
+|---|---|
+| runner CI + clave Stripe REAL + sin whsec *(el run `34512132641`)* | **rc=0** ✔ |
+| runner CI + clave REAL + whsec propio | rc=0 ✔ |
+| runner CI sin claves de Stripe | rc=0 ✔ |
+| runner CI **+ `RAILWAY_ENVIRONMENT`** | rc=1 ✔ |
+| runner CI **+ `SECRETS_ENV=real`** | rc=1 ✔ |
+| máquina pelada, sin CI ni declaración | rc=1 ✔ |
+| runner CI + `VERCEL_ENV` | rc=1 ✔ |
+| runner CI + whsec **publicado por el repo** | rc=1 ✔ |
+
+#### Y un daño colateral de S-88-1 que este pase también cierra
+
+Al quitar los literales, **el login de `price-provider-parity.sh` dejó de funcionar**
+(paso 13 del mismo gate). Funcionaba por un **accidente**: su literal `Admin123!`
+coincidía con la fixture de `backend/prisma/e2e-fixtures.ts:21`, y `StagingAdmin123!`
+con el default del compose. Quitados los dos, ningún par tenía contraseña.
+
+- La fixture **se LEE de su única fuente** (`e2e-fixtures.ts`), no se copia: dos fuentes
+  para un hecho es cómo se rompe esto en silencio dentro de tres semanas. Si el fichero
+  cambia de forma, el par queda vacío y el script dice «no pude entrar».
+- El admin **sembrado** se empareja explícitamente: el paso resolver exporta
+  `SEED_ADMIN_PASSWORD`/`SEED_ADMIN_EMAIL` al runner desde el mismo valor que recibe el
+  contenedor. **Verificado: `STAGING_SEED_ADMIN_PASSWORD == SEED_ADMIN_PASSWORD`.**
+
+#### Lo que NO hace falta pedirle al humano
+
+**Nada.** `STRIPE_TEST_WEBHOOK_SECRET` **no** es necesario para que el gate de dinero
+corra: sin él, CI genera uno efímero y los webhooks entrantes se rechazan por firma —
+que es el comportamiento correcto para un stack que Stripe no puede alcanzar. Solo haría
+falta si algún día se quisieran ejercitar **webhooks REALES de Stripe** contra CI, y eso
+hoy no lo pide ningún criterio de aceptación.
+
 ### 50.5 · El canario: la única prueba de que esto es una clase y no siete líneas
 
 `scripts/check-secret-defaults-canary.sh`. Su regla propia:
@@ -10190,9 +10275,11 @@ puede correr».
   `34477885121` los corrió en REAL**. Lo que quede abierto de ese punto ya no es «falta la
   clave».
 
-### La petición que queda (opcional, no bloqueante)
-Crear `STRIPE_TEST_WEBHOOK_SECRET` en *Settings > Secrets and variables > Actions* **solo si**
-se quieren ejercitar webhooks REALES de Stripe contra el stack de CI. Sin él, CI genera uno
-efímero y los webhooks entrantes se rechazan por firma — que es el comportamiento correcto para
-un stack que Stripe no puede alcanzar.
+### Peticiones al humano que quedan: NINGUNA
+`STRIPE_TEST_WEBHOOK_SECRET` **no hace falta** para que el gate de dinero corra — medido:
+run `34512132641` reproducido en local, rc=0 tras el arreglo de §50.4-bis. Sin ese secret, CI
+genera uno efímero y los webhooks entrantes se rechazan por firma, que es lo correcto para un
+stack que Stripe **no puede alcanzar**. Solo tendría sentido pedirlo el día que un criterio de
+aceptación exija ejercitar **webhooks REALES de Stripe** contra CI. Hoy ninguno lo exige, así
+que **no se pide**.
 

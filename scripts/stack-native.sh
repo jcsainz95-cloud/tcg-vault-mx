@@ -193,6 +193,8 @@ export PORT="$BACKEND_PORT"
 # arnés sin poder entrar a sus propios datos. Aleatorio por MÁQUINA, no por repo.
 NATIVE_SECRETS="$RUN_DIR/secrets.env"
 mkdir -p "$RUN_DIR"
+# El arnés nativo declara lo que es: un stack local de usar y tirar (S-88-1).
+export SECRETS_ENV="${SECRETS_ENV:-desechable}"
 "$SCRIPT_DIR/secrets-preflight.sh" env-file "$NATIVE_SECRETS" \
   NATIVE_DB_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET S3_SECRET_ACCESS_KEY >/dev/null
 # shellcheck disable=SC1090

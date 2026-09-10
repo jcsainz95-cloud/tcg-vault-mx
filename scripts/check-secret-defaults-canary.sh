@@ -416,6 +416,111 @@ else
   ok "Entorno REAL + secreto NUEVO cuyo valor está publicado — ABORTA (identidad, no heurística)."
 fi
 
+# =============================================================================
+# ★★ BLOQUE H — EL PASO COMPLETO DEL GATE DE DINERO, EXTRAÍDO DEL WORKFLOW
+# =============================================================================
+# DE DÓNDE VIENE, y es la lección más cara del pase:
+#
+#   Medí `webhook-secret-preflight.sh` «en tres direcciones» y reporté que en CI
+#   resolvía. El paso real tiene CUATRO comandos y yo había probado DOS. El cuarto
+#   —`secrets-preflight.sh github-env`, que añadí en este mismo pase— abortaba,
+#   porque `es_desechable` preguntaba `hay_stripe_real` y el gate de dinero SÍ
+#   tiene clave de Stripe real. Run `34512132641`: paso 3 en FAILURE, 10 s, los
+#   tres flujos de dinero sin correr.
+#
+#   Mi medición estaba en verde y el sistema no arrancaba. Es exactamente el
+#   defecto que este canario existe para cazar, cometido POR el canario.
+#
+# Por eso este bloque no prueba comandos sueltos: **extrae el `run:` del paso real
+# del workflow y lo ejecuta entero**. Si mañana alguien añade un quinto comando al
+# paso, este bloque lo ejercita sin que nadie lo actualice — que es justo lo que
+# falló antes (el canario de P-WH-1 tenía una mutación anclada a un título viejo).
+printf '\n\033[1m★★ Bloque H — el PASO ENTERO del gate de dinero, tal como está en el workflow\033[0m\n'
+
+WF="$ROOT_DIR/.github/workflows/e2e-real.yml"
+PASO="$BASE/paso-gate-dinero.sh"
+if ! command -v python3 >/dev/null 2>&1; then
+  bad "sin python3 no puedo extraer el paso real del workflow: este bloque probaría una copia, y una copia es lo que ya falló."
+else
+  python3 - "$WF" "$PASO" <<'PYEOF' || true
+import sys, yaml
+wf, destino = sys.argv[1], sys.argv[2]
+d = yaml.safe_load(open(wf, encoding='utf-8'))
+paso = None
+for j in d['jobs'].values():
+    for s in (j.get('steps') or []):
+        r = str(s.get('run', ''))
+        if 'webhook-secret-preflight' in r and 'GITHUB_ENV' in r:
+            paso = s
+            break
+    if paso:
+        break
+if paso is None:
+    sys.exit(1)
+# El `env:` del paso que NO viene de `secrets.*` se conserva tal cual (p. ej.
+# STRIPE_WEBHOOK_UNREACHABLE): es parte del paso, no del entorno de prueba.
+fijas = []
+for k, v in (paso.get('env') or {}).items():
+    v = str(v)
+    if '${{' not in v:
+        fijas.append(f'export {k}={v!r}'.replace("'", '"'))
+open(destino, 'w', encoding='utf-8').write(
+    '#!/usr/bin/env bash\nset -eo pipefail\n' + '\n'.join(fijas) + '\n' + paso['run'] + '\n')
+PYEOF
+
+  if [ ! -s "$PASO" ]; then
+    bad "no encontré el paso del resolver en e2e-real.yml: o cambió de forma, o desapareció."
+    nota "Si desapareció, el gate de dinero levanta el stack sin resolver y muere en la interpolación."
+  else
+    ok "paso extraído del workflow real ($(grep -cE '^[^#[:space:]]' "$PASO") comandos), no una copia escrita a mano."
+    chmod +x "$PASO"
+
+    # `paso_en <esperado> <nombre> [VAR=valor…]` — corre el PASO ENTERO.
+    paso_en() {
+      local esperado="$1" nombre="$2"; shift 2
+      local out rc
+      out="$(cd "$ROOT_DIR" && env -i PATH="$PATH" HOME="$HOME" \
+              GITHUB_ENV="$BASE/gh_env_$$.txt" "$@" bash "$PASO" 2>&1)"; rc=$?
+      : > "$BASE/gh_env_$$.txt"
+      if [ "$esperado" = "OK" ]; then
+        if [ "$rc" -eq 0 ]; then ok "$nombre — el paso COMPLETO pasa (rc=0)."
+        else
+          bad "$nombre — el paso completo FALLA (rc=$rc). El gate de dinero no arrancaría."
+          nota "$(grep -E '✗|Falta|error' <<< "$out" | head -3)"
+        fi
+      else
+        if [ "$rc" -ne 0 ]; then ok "$nombre — el paso completo ABORTA, como debe (rc=$rc)."
+        else bad "$nombre — el paso completo pasó y NO debía: se inventarían secretos donde no toca."
+        fi
+      fi
+    }
+
+    CLAVE_TEST="sk_test_51QrEaLtEsTkEyDeLdUeNo00000000000000000000000000000000000"
+
+    # ── La línea que separa «efímero de CI» de «entorno real», MEDIDA ──────────
+    paso_en OK      "runner de CI + clave Stripe REAL + sin whsec  (el run 34512132641)" \
+            CI=true GITHUB_ACTIONS=true STRIPE_TEST_SECRET_KEY="$CLAVE_TEST" STRIPE_TEST_WEBHOOK_SECRET=""
+    paso_en OK      "runner de CI + clave Stripe REAL + CON whsec propio" \
+            CI=true GITHUB_ACTIONS=true STRIPE_TEST_SECRET_KEY="$CLAVE_TEST" \
+            STRIPE_TEST_WEBHOOK_SECRET=whsec_9f2b7c1d4e5a6b8c9d0e1f
+    paso_en OK      "runner de CI sin ninguna clave de Stripe" \
+            CI=true GITHUB_ACTIONS=true
+    paso_en ABORTA  "runner de CI pero desplegando a RAILWAY" \
+            CI=true GITHUB_ACTIONS=true RAILWAY_ENVIRONMENT=production STRIPE_TEST_SECRET_KEY="$CLAVE_TEST"
+    paso_en ABORTA  "runner de CI pero con SECRETS_ENV=real" \
+            CI=true GITHUB_ACTIONS=true SECRETS_ENV=real STRIPE_TEST_SECRET_KEY="$CLAVE_TEST"
+    paso_en ABORTA  "máquina pelada, sin CI y sin declarar nada" \
+            STRIPE_TEST_SECRET_KEY="$CLAVE_TEST"
+    paso_en ABORTA  "runner de CI + VERCEL_ENV (otra plataforma)" \
+            CI=true VERCEL_ENV=production STRIPE_TEST_SECRET_KEY="$CLAVE_TEST"
+
+    # Y que un secreto PUBLICADO no se cuele ni siquiera en el caso permisivo.
+    paso_en ABORTA  "runner de CI + whsec PUBLICADO por el repo" \
+            CI=true GITHUB_ACTIONS=true STRIPE_TEST_SECRET_KEY="$CLAVE_TEST" \
+            STRIPE_TEST_WEBHOOK_SECRET=whsec_e2e_test_secret
+  fi
+fi
+
 TOTAL=$((PASADAS+FALLOS))
 printf '\n'
 if [ "$FALLOS" -gt 0 ]; then
