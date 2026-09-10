@@ -1,0 +1,36 @@
+# =============================================================================
+# docker-compose.dast-selftest.yml — BLANCO VULNERABLE para autoprobar el DAST
+# Propiedad: devops
+# =============================================================================
+# ⚠️  NO forma parte del stack de la aplicación. No lo levanta ningún flujo de
+#     desarrollo, ni el E2E, ni ningún deploy. Lo levanta EXCLUSIVAMENTE el job
+#     `selftest` de .github/workflows/security-dast.yml, vive segundos y muere.
+#
+# QUÉ PRUEBA: que el candado del DAST puede ponerse ROJO. Un gate que nunca ha
+# fallado y no puede fallar es indistinguible de un gate roto — y este repo ya
+# tenía uno (el DAST apuntaba a un staging inexistente y jamás escaneó nada).
+# Aquí se planta una vulnerabilidad conocida, se escanea con el MISMO ZAP, la
+# MISMA política (security/zap/baseline.conf) y el MISMO dast-gate.py, y se
+# EXIGE rojo. Si sale verde, el job falla: significa que el candado está inerte.
+#
+# Puerto 8088 en el host para no chocar con nada del stack (3010/3011/5433/...).
+# =============================================================================
+
+name: tcg-dast-selftest
+
+services:
+  canary:
+    image: python:3.12-alpine
+    command: ["python", "/canary/canary.py"]
+    environment:
+      CANARY_PORT: "8080"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./security/dast-selftest:/canary:ro
+    ports:
+      - "${DAST_CANARY_PORT:-8088}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/')"]
+      interval: 3s
+      timeout: 3s
+      retries: 10

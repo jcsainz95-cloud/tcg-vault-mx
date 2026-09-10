@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+#
+# dast-ephemeral.sh — DAST contra un stack EFÍMERO levantado aquí mismo. devops.
+# =============================================================================
+# P-77. Hasta hoy el DAST de este repo apuntaba a `STAGING_BASE_URL`, un secret
+# que nunca existió porque el dueño NUNCA TUVO STAGING: solo producción. El
+# resultado medido era un gate sin blanco — ni un solo escaneo en toda la vida
+# del proyecto — mientras el tablero decía "DAST semanal: cableado".
+#
+# CLAUDE.md autoriza como blanco «staging (o local)». Este script toma la vía
+# local: levanta el MISMO `docker-compose.staging.yml` que ya usa el gate de
+# E2E real (29 corridas, la última en verde), lo siembra con datos sintéticos,
+# lo escanea y aplica el candado. Sin secrets, sin infraestructura nueva, sin
+# depender de que nadie provisione nada.
+#
+#   ⚠️ ALCANCE DECLARADO: un stack efímero de CI con datos sintéticos NO es
+#   producción. No tiene su configuración, ni sus datos, ni su superficie de
+#   red, ni su CDN/WAF/DNS. Este gate NO puede citarse como "producción
+#   escaneada". El párrafo largo está en docs/DEVOPS_NOTES.md §44.4.
+#
+# SUBCOMANDOS (cada uno corre a mano; nada vive solo dentro del YAML)
+#   up      levanta stack + espera salud + procedencia + seed + paridad I-PP5
+#   scan    ZAP (+ nuclei) contra los blancos; deja informes en security/reports
+#   gate    aplica security/scripts/dast-gate.py sobre los informes
+#   down    apaga y borra volúmenes
+#   all     up && scan && gate  (down queda a cargo de quien llama; en CI, always())
+#
+# VARIABLES
+#   SCAN_PROFILE=baseline|full   (def. full)  full = escaneo ACTIVO
+#   ACTIVE_MAX_MINS=<n>          (def. 12)    tope duro del escaneo activo
+#   SPIDER_MINS=<n>              (def. 3)     tope del araña
+#   AJAX_SPIDER=1|0              (def. 1 en full) araña con navegador: es lo
+#                                único que mete las llamadas XHR de la SPA en
+#                                el árbol de ZAP.
+#   DAST_TARGETS="url1 url2"     (def. vitrina + API)
+#   REPORT_ONLY=1                mide y publica, no bloquea (calibración)
+# =============================================================================
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SEC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(cd "${SEC_DIR}/.." && pwd)"
+cd "${ROOT_DIR}"
+
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
+FRONTEND_URL="${FRONTEND_URL:-http://localhost:3010}"
+API_BASE="${API_BASE:-http://localhost:3011/api/v1}"
+BACKEND_HEALTH="${BACKEND_HEALTH:-${API_BASE}/health}"
+DAST_TARGETS="${DAST_TARGETS:-${FRONTEND_URL} ${API_BASE}}"
+
+SCAN_PROFILE="${SCAN_PROFILE:-full}"
+ACTIVE_MAX_MINS="${ACTIVE_MAX_MINS:-12}"
+SPIDER_MINS="${SPIDER_MINS:-3}"
+AJAX_SPIDER="${AJAX_SPIDER:-$([ "${SCAN_PROFILE}" = "full" ] && echo 1 || echo 0)}"
+REPORT_DIR="${REPORT_DIR:-${ROOT_DIR}/security/reports}"
+ZAP_IMAGE="${ZAP_IMAGE:-ghcr.io/zaproxy/zaproxy:stable}"
+NUCLEI_IMAGE="${NUCLEI_IMAGE:-projectdiscovery/nuclei:latest}"
+
+log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m⚠  %s\033[0m\n' "$*"; }
+err()  { printf '\033[1;31m✗  %s\033[0m\n' "$*" >&2; }
+
+# Nombre de fichero estable a partir de una URL (para un informe por blanco).
+slug() { printf '%s' "$1" | sed -e 's#^https\?://##' -e 's#[^A-Za-z0-9]#-#g' -e 's#-\+#-#g' -e 's#-$##'; }
+
+# ---------------------------------------------------------------------------
+# up
+# ---------------------------------------------------------------------------
+cmd_up() {
+  log "Levantando stack efímero (${COMPOSE_FILE}, perfil apps)"
+  STACK_UP_EPOCH="$(date +%s)"
+  export STACK_UP_EPOCH
+  echo "STACK_UP_EPOCH=${STACK_UP_EPOCH}" >> "${GITHUB_ENV:-/dev/null}" 2>/dev/null || true
+
+  docker compose -f "${COMPOSE_FILE}" --profile apps up -d --build || { err "compose up falló"; return 1; }
+
+  log "Esperando salud del backend (${BACKEND_HEALTH})"
+  for i in $(seq 1 60); do
+    if curl -sf "${BACKEND_HEALTH}" >/dev/null 2>&1; then echo "backend arriba (intento $i)"; break; fi
+    [ "$i" = "60" ] && { err "El backend no respondió tras ~5min."
+                         docker compose -f "${COMPOSE_FILE}" logs --tail=200 backend || true
+                         err "Si es un fallo de ARRANQUE del backend, el hallazgo es del rol backend, no de devops."
+                         return 1; }
+    sleep 5
+  done
+
+  # PROCEDENCIA (SEC-OPS-1): el binario que responde tiene que haber nacido de
+  # ESTE arranque. Es el mismo gate que corre el E2E real; aquí importa igual,
+  # porque un contenedor superviviente haría que el informe describa otro commit.
+  log "Procedencia: ¿el backend vivo nació de este arranque?"
+  ./scripts/assert-serving-head.sh \
+      --url "${BACKEND_HEALTH}" \
+      --label "backend (compose efímero, commit ${GITHUB_SHA:-local})" \
+      --newer-than "${STACK_UP_EPOCH}" \
+      --remedy "Hay un stack superviviente. Bájalo (docker compose -f ${COMPOSE_FILE} down -v) y repite. NO interpretes este informe." \
+    || return 1
+
+  log "Esperando readiness del frontend (${FRONTEND_URL}/es)"
+  for i in $(seq 1 40); do
+    curl -sf "${FRONTEND_URL}/es" >/dev/null 2>&1 && { echo "frontend arriba (intento $i)"; break; }
+    [ "$i" = "40" ] && { err "El frontend no respondió tras ~3min."
+                         docker compose -f "${COMPOSE_FILE}" logs --tail=200 frontend || true; return 1; }
+    sleep 5
+  done
+
+  log "Seed sintético (superficie que el escáner va a recorrer)"
+  SEED_CMD="$(docker compose -f "${COMPOSE_FILE}" exec -T backend \
+      node -e "process.stdout.write((require('./package.json').scripts||{})['seed:synthetic']||'')" 2>/dev/null)"
+  if [ -z "${SEED_CMD}" ]; then
+    warn "backend no expone 'seed:synthetic'; se escanea un stack VACÍO (mucho menos superficie)."
+  else
+    docker compose -f "${COMPOSE_FILE}" exec -T backend \
+      sh -c "export PATH=/app/node_modules/.bin:\$PATH; ${SEED_CMD}" || { err "seed sintético falló"; return 1; }
+  fi
+
+  # ------------------------------------------------------------------------
+  # PARIDAD DEL PROVEEDOR DE PRECIO (I-PP5 / D-PP-2).
+  #
+  # Este es el gate que en deploy.yml dependía de STAGING_ADMIN_EMAIL /
+  # STAGING_ADMIN_PASSWORD: secrets que el dueño no puede dar porque no hay
+  # staging al que apuntarlos. Contra el stack efímero SÍ se puede leer el
+  # dial, porque el admin lo crea el seed sintético y el script ya cae a esas
+  # credenciales por defecto. El gate deja de "depender de secrets" y pasa a
+  # "se comprueba solo". D-PP-2 queda EJECUTABLE por esta vía.
+  #
+  # Importa para el DAST y no es burocracia: el escáner recorre superficies de
+  # DINERO (vitrina, cotizador). Si el dial apunta al barrido LEGACY, el
+  # informe describe otro sistema del que se promueve.
+  # ------------------------------------------------------------------------
+  log "Paridad del dial price_provider (I-PP5 / D-PP-2)"
+  ./scripts/price-provider-parity.sh --ensure --api-base "${API_BASE}" || {
+    err "El stack efímero NO evalúa el proveedor de precio primario: el informe DAST describiría otro barrido."
+    return 1; }
+  ./scripts/price-provider-parity.sh --assert --api-base "${API_BASE}" || {
+    err "--assert falló tras --ensure: el dial no quedó en el primario."
+    return 1; }
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# scan
+# ---------------------------------------------------------------------------
+cmd_scan() {
+  mkdir -p "${REPORT_DIR}"
+  # ZAP corre como uid 1000 dentro del contenedor y escribe los informes.
+  chmod 777 "${REPORT_DIR}" 2>/dev/null || true
+
+  local zap_script zap_extra=()
+  if [ "${SCAN_PROFILE}" = "full" ]; then
+    zap_script="zap-full-scan.py"
+    # Tope duro del escaneo ACTIVO. Sin esto, un full scan puede irse a horas
+    # y el cron semanal se vuelve impagable (y, peor, se acaba desactivando).
+    zap_extra+=(-z "-config ascan.maxScanDurationInMins=${ACTIVE_MAX_MINS} -config ascan.maxRuleDurationInMins=3")
+  else
+    zap_script="zap-baseline.py"
+  fi
+  [ "${AJAX_SPIDER}" = "1" ] && zap_extra+=(-j)
+
+  local rc_total=0
+  for target in ${DAST_TARGETS}; do
+    local name; name="$(slug "${target}")"
+    log "ZAP ${SCAN_PROFILE} → ${target}  (araña ${SPIDER_MINS}min · activo ≤${ACTIVE_MAX_MINS}min)"
+    local t0; t0="$(date +%s)"
+    # --network host: el stack escucha en puertos del HOST (3010/3011). Sin
+    # esto, "localhost" dentro del contenedor de ZAP es el propio ZAP.
+    # -I: los WARN no deciden el veredicto. El veredicto lo da dast-gate.py
+    #     leyendo el JSON con la política de baseline.conf — una sola verdad.
+    docker run --rm --network host \
+      -v "${SEC_DIR}/zap:/zap/wrk/conf:ro" \
+      -v "${REPORT_DIR}:/zap/wrk/out:rw" \
+      "${ZAP_IMAGE}" "${zap_script}" \
+        -t "${target}" \
+        -c /zap/wrk/conf/baseline.conf \
+        -J "/zap/wrk/out/zap-${name}.json" \
+        -w "/zap/wrk/out/zap-${name}.md" \
+        -r "/zap/wrk/out/zap-${name}.html" \
+        -m "${SPIDER_MINS}" -T 5 -I "${zap_extra[@]}"
+    local rc=$?
+    printf 'ZAP %s %s -> rc=%s  (%ss)\n' "${SCAN_PROFILE}" "${target}" "${rc}" "$(( $(date +%s) - t0 ))" \
+      | tee -a "${REPORT_DIR}/timings.txt"
+    # rc 1/2 = ZAP encontró cosas; el candado lo decide dast-gate.py. rc>=3 =
+    # el escáner reventó, y eso SÍ es un rojo: un escáner caído no es un verde.
+    [ "${rc}" -ge 3 ] && { err "ZAP terminó con rc=${rc} (fallo del escáner, no hallazgo)."; rc_total=1; }
+  done
+
+  log "nuclei → ${DAST_TARGETS}"
+  local t0; t0="$(date +%s)"
+  : > "${REPORT_DIR}/nuclei.jsonl"
+  for target in ${DAST_TARGETS}; do
+    docker run --rm --network host -v "${REPORT_DIR}:/out:rw" -v "${SEC_DIR}/nuclei:/tpl:ro" \
+      "${NUCLEI_IMAGE}" \
+        -u "${target}" \
+        -tags "$(grep -vE '^\s*#|^\s*$' "${SEC_DIR}/nuclei/templates.txt" | paste -sd, -)" \
+        -severity low,medium,high,critical \
+        -rate-limit 50 -timeout 5 -retries 1 \
+        -jsonl -o "/out/nuclei-$(slug "${target}").jsonl" >/dev/null 2>&1 || true
+    cat "${REPORT_DIR}/nuclei-$(slug "${target}").jsonl" >> "${REPORT_DIR}/nuclei.jsonl" 2>/dev/null || true
+  done
+  printf 'nuclei -> (%ss)\n' "$(( $(date +%s) - t0 ))" | tee -a "${REPORT_DIR}/timings.txt"
+  return "${rc_total}"
+}
+
+# ---------------------------------------------------------------------------
+# gate
+# ---------------------------------------------------------------------------
+cmd_gate() {
+  local args=()
+  for target in ${DAST_TARGETS}; do
+    args+=(--zap-json "${REPORT_DIR}/zap-$(slug "${target}").json")
+  done
+  [ "${REPORT_ONLY:-0}" = "1" ] && args+=(--report-only)
+  python3 "${SCRIPT_DIR}/dast-gate.py" \
+    "${args[@]}" \
+    --nuclei-jsonl "${REPORT_DIR}/nuclei.jsonl" \
+    --policy "${SEC_DIR}/zap/baseline.conf" \
+    --nuclei-ignore "${SEC_DIR}/nuclei/ignore.txt" \
+    --summary "${REPORT_DIR}/dast-summary.md" \
+    --label "DAST semanal — stack efímero de CI" \
+    --target "${DAST_TARGETS}"
+}
+
+cmd_down() {
+  log "Apagando stack efímero"
+  docker compose -f "${COMPOSE_FILE}" --profile apps down -v || true
+}
+
+case "${1:-all}" in
+  up)   cmd_up ;;
+  scan) cmd_scan ;;
+  gate) cmd_gate ;;
+  down) cmd_down ;;
+  all)  cmd_up && cmd_scan; cmd_gate ;;
+  *)    err "Uso: $0 {up|scan|gate|down|all}"; exit 64 ;;
+esac
