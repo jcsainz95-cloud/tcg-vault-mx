@@ -732,6 +732,41 @@ export class PriceIngestService {
         `${result.requestOk ? '' : ' [fetch FALLÓ → 0 filas, precios previos STALE]'}. ` +
         `Estructura NO re-resuelta (§4.35).`,
     );
+
+    // ⚠️⚠️ v1.65 (QA IMPORTANTE-3) — **LA SEÑAL VISIBLE de «este set no se repreció».**
+    //
+    // El provider no pudo mapear el set a su grupo remoto ⇒ **NINGUNA** de sus cartas se ha
+    // repreciado, y seguirá así **en cada corrida** hasta que alguien lo arregle. Es money-safe (no
+    // se inventa ni se borra un precio: se CONGELAN los previos) pero **silencioso**, que para el
+    // dueño es peor: un set entero puede quedarse meses con precios de otro mercado sin que nada lo
+    // grite. Hasta ahora el único rastro era un `warn` en los logs del servidor.
+    //
+    // Se deja en `AuditLog` porque es la **única superficie ya existente** donde un humano lo ve sin
+    // abrir logs (`GET /api/v1/admin/audit-log?action=pricing.set_unresolved`, §M10) y **no requiere
+    // tocar el contrato**: `AuditLogDTO` no cambia de shape y `action` es texto libre.
+    // ⚠️ Deliberadamente **una fila por set y por corrida**, no una sola agregada: así el filtro por
+    // `entityId` responde *«¿desde cuándo lleva este set sin repreciarse?»*, que es la pregunta real.
+    // Si el volumen molestara, la respuesta es arreglar los sets, no callar la señal.
+    // ⛔ Best-effort: un fallo de bitácora **no** puede tumbar el barrido (mismo criterio que §4.38h.4).
+    if (result.setUnresolved && this.audit) {
+      try {
+        await this.audit.log({
+          action: 'pricing.set_unresolved',
+          entityType: 'CardSet',
+          entityId: set.id,
+          after: {
+            provider: provider.source,
+            setExternalId: set.externalId,
+            ...result.setUnresolved,
+          },
+        });
+      } catch (e) {
+        this.logger.warn(
+          `price-ingest-set(${set.externalId}): no se pudo dejar la señal "pricing.set_unresolved" ` +
+            `en la bitácora: ${(e as Error).message}. El set SIGUE sin repreciarse.`,
+        );
+      }
+    }
     // §4.36(c) — COEXISTENCIA de las DOS CAPAS ortogonales (ESCRIBIR-luego-LEER): la capa REFERENCIA
     // (P-47, `tcgcsv_singles`) acaba de upsertear las `PriceReference` per-acabado del set; ahora la
     // capa REGLA (curva v2) LEE esas mismas filas para re-resolver el precio de venta de las piezas

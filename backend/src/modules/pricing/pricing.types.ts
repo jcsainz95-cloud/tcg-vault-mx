@@ -250,6 +250,37 @@ export interface BulkPriceRow {
   forcedPrinting?: boolean;
 }
 
+/**
+ * ⚠️ **v1.65 (QA IMPORTANTE-3) — «este set NO se repreció, y hay que MIRARLO».**
+ *
+ * Un `BulkPriceResult` vacío es ambiguo: puede ser *«el proveedor no tiene precios nuevos»* (normal,
+ * aburrido) o *«no supe ni a qué grupo remoto corresponde este set»* (un set entero **congelado**
+ * indefinidamente). Los dos casos son money-safe —no se inventa ni se borra ningún precio— pero el
+ * segundo **necesita a un humano** y hasta ahora sólo dejaba un `warn` en logs, que nadie lee.
+ *
+ * Esta señal viaja en el resultado para que `PriceIngestService` la convierta en una fila de
+ * `AuditLog` (`pricing.set_unresolved`), visible en `GET /api/v1/admin/audit-log?action=…` **sin
+ * abrir los logs del servidor**. ⛔ NO cambia ninguna decisión de dinero: es puramente observabilidad.
+ */
+export interface SetUnresolvedSignal {
+  /** En qué paso se perdió el set. Hoy sólo hay uno; nombrarlo evita que el siguiente lo reutilice mal. */
+  stage: 'group_id';
+  /**
+   * `ambiguous`     — hubo varios grupos candidatos y NO se adivina (money-safe).
+   * `no_match`      — ningún grupo remoto empató con el nombre del set.
+   * `lookup_failed` — el upstream falló al listar grupos (TRANSITORIO: se reintenta solo).
+   */
+  reason: 'ambiguous' | 'no_match' | 'lookup_failed';
+  /** Nombre LOCAL del set (lo que el operador ve en el catálogo). */
+  setName: string;
+  /** Nº de candidatos del peldaño que quedó ambiguo (ausente si no aplica). */
+  candidates?: number;
+  /** Hasta 5 nombres de los grupos candidatos: es lo que permite arreglarlo sin depurar. */
+  candidateNames?: string[];
+  /** Mensaje del fallo cuando `reason='lookup_failed'`. */
+  detail?: string;
+}
+
 export interface BulkPriceResult {
   /** Filas VÁLIDAS por (carta, acabado). */
   rows: BulkPriceRow[];
@@ -278,6 +309,12 @@ export interface BulkPriceResult {
    * reportó o no aplica (proveedor legacy).
    */
   dailyRemaining?: number | null;
+  /**
+   * v1.65 (QA IMPORTANTE-3) — el set **no se pudo mapear** a su fuente remota ⇒ no se repreciará
+   * hasta que alguien lo arregle. Ausente = el set sí se mapeó (aunque haya devuelto 0 filas).
+   * El llamador la convierte en señal VISIBLE (AuditLog); ver `SetUnresolvedSignal`.
+   */
+  setUnresolved?: SetUnresolvedSignal;
 }
 
 /**

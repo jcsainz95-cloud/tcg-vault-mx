@@ -3,6 +3,8 @@ import { CardSet, PriceSource } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceResult, BulkPriceRow } from '../pricing.types';
 import { TcgcsvCatalogClient, deriveCardProductsFromTcgcsv } from './tcgcsv-singles.provider';
+import { SetUnresolvedSignal } from '../pricing.types';
+import { TcgcsvGroupMatchFailure, matchTcgcsvGroupByName } from './tcgcsv-group-match';
 
 /**
  * TcgcsvSinglesBulkPriceProvider (v1.44, P-47, ARCHITECTURE §4.35) — PROVEEDOR PRIMARIO del barrido
@@ -60,17 +62,34 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
     const { set } = input;
     const empty: BulkPriceResult = { rows: [], fetchedRaw: 0, skipped: 0, requestOk: false };
 
-    let groupId: number | null;
+    let resolved: GroupIdResolution;
     try {
-      groupId = await this.resolveGroupId(set);
+      resolved = await this.resolveGroupId(set);
     } catch (e) {
+      // El upstream falló al listar grupos: es un fallo TRANSITORIO, no un set sin mapeo. Se reporta
+      // como tal (`lookup_failed`) para que la señal visible no acuse al catálogo de algo que fue red.
       this.logger.warn(
         `tcgcsv_singles: no se pudo resolver el groupId de "${set.name}": ${(e as Error).message}. ` +
           `Se devuelven 0 filas (precios previos quedan STALE, money-safe).`,
       );
-      return empty;
+      return {
+        ...empty,
+        setUnresolved: {
+          stage: 'group_id',
+          reason: 'lookup_failed',
+          setName: set.name,
+          detail: (e as Error).message,
+        },
+      };
     }
-    if (groupId == null) return empty;
+    if (resolved.groupId == null) {
+      // ⚠️ AQUÍ ESTABA EL AGUJERO (QA IMPORTANTE-3): antes esto era `return empty` y el ÚNICO rastro
+      // era un `warn`. Un set puede quedarse SIN REPRECIAR indefinidamente —precios congelados, no
+      // inventados— y nadie enterarse. Ahora el resultado LLEVA la señal, y `PriceIngestService` la
+      // convierte en una fila de `AuditLog` que el dueño ve en `GET /admin/audit-log`.
+      return { ...empty, setUnresolved: resolved.signal };
+    }
+    const groupId = resolved.groupId;
 
     let products, prices;
     try {
@@ -176,43 +195,61 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
   }
 
   /**
-   * Resuelve el `groupId` TCGCSV del set (misma lógica S-D3/§4.27d que `CardProductResolverService`):
-   * `pptSetId` entero == groupId; si no, match ÚNICO por nombre (exacto preferido) vía `listGroups()`.
-   * `null` (con log) si no hay match ÚNICO ⇒ el llamador no toca ningún precio (money-safe).
+   * Resuelve el `groupId` TCGCSV del set (lógica S-D3/§4.27d): `pptSetId` entero == groupId; si no,
+   * match ÚNICO por nombre vía `listGroups()`. Sin match único ⇒ `groupId: null` **con su señal**, y
+   * el llamador no toca ningún precio (money-safe).
+   *
+   * ⚠️ **La escalera de match NO vive aquí** (QA IMPORTANTE-3): vive en `matchTcgcsvGroupByName`
+   * (`./tcgcsv-group-match`), que es el único sitio donde se decide qué nombre empata con qué grupo.
+   * Estaba copiada literalmente en este provider y en `CardProductResolverService`, y por eso el
+   * arreglo del **prefijo de código de colección** (`"SV08: Pitch Black"` vs `"Pitch Black"`) que ya
+   * existía en el mapeo de PPT y en el sellado nunca llegó a la ruta de PRECIO. Ver la cabecera de
+   * ese archivo para el bug entero.
    */
-  private async resolveGroupId(set: CardSet): Promise<number | null> {
+  private async resolveGroupId(set: CardSet): Promise<GroupIdResolution> {
     const cached = this.groupIdCache.get(set.id);
-    if (cached != null) return cached;
+    if (cached != null) return { groupId: cached };
 
     if (set.pptSetId && /^\d+$/.test(set.pptSetId)) {
       const groupId = parseInt(set.pptSetId, 10);
       this.groupIdCache.set(set.id, groupId);
-      return groupId;
+      return { groupId };
     }
 
     const groups = await this.tcgcsv.listGroups();
-    const target = normalizeName(set.name);
-    const exact = groups.filter((g) => normalizeName(g.name) === target);
-    const matches =
-      exact.length > 0
-        ? exact
-        : groups.filter((g) => {
-            const gn = normalizeName(g.name);
-            return gn.includes(target) || target.includes(gn);
-          });
-    if (matches.length === 1) {
-      this.groupIdCache.set(set.id, matches[0].groupId);
-      return matches[0].groupId;
+    const match = matchTcgcsvGroupByName(set.name, groups);
+    if (match.groupId != null) {
+      this.groupIdCache.set(set.id, match.groupId);
+      return { groupId: match.groupId };
     }
+
     this.logger.warn(
-      `tcgcsv_singles: no se resolvió un groupId ÚNICO para "${set.name}" (${matches.length} candidatos; ` +
-        `pptSetId="${set.pptSetId ?? ''}"). No se toca ningún precio (money-safe).`,
+      `tcgcsv_singles: no se resolvió un groupId ÚNICO para "${set.name}" (${match.failure}, ` +
+        `${match.candidates} candidatos${match.candidateNames.length ? `: ${match.candidateNames.join(' | ')}` : ''}; ` +
+        `pptSetId="${set.pptSetId ?? ''}"). No se toca ningún precio (money-safe) — y el set NO se ` +
+        `reprecia hasta que alguien lo arregle, por eso además va a AuditLog.`,
     );
-    return null;
+    return {
+      groupId: null,
+      signal: {
+        stage: 'group_id',
+        reason: FAILURE_TO_REASON[match.failure],
+        setName: set.name,
+        candidates: match.candidates,
+        ...(match.candidateNames.length ? { candidateNames: match.candidateNames } : {}),
+      },
+    };
   }
 }
 
-/** Normaliza un nombre de set/grupo para el match S-D3: minúsculas, solo alfanuméricos. */
-function normalizeName(raw: string): string {
-  return (raw ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
+/** Resultado interno de `resolveGroupId`: el id, o el motivo con el que se avisa a un humano. */
+type GroupIdResolution =
+  | { groupId: number; signal?: undefined }
+  | { groupId: null; signal: SetUnresolvedSignal };
+
+/** Motivo del matcher → motivo de la señal visible (vocabularios distintos a propósito). */
+const FAILURE_TO_REASON: Record<TcgcsvGroupMatchFailure, SetUnresolvedSignal['reason']> = {
+  empty_name: 'no_match',
+  no_match: 'no_match',
+  ambiguous: 'ambiguous',
+};

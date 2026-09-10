@@ -256,4 +256,98 @@ describe('TcgcsvSinglesBulkPriceProvider.fetchPricesForSet', () => {
     await provider.fetchPricesForSet({ set: { ...SET, pptSetId: null } as unknown as CardSet });
     expect(client.getProducts).toHaveBeenCalledWith(24688);
   });
+
+  /**
+   * ⚠️⚠️ **QA IMPORTANTE-3 — el bug de P-46, en la ruta de PRECIO (money-critical).**
+   *
+   * TCGCSV nombra sus grupos CON prefijo de código de colección (`"SV08: Pitch Black"`); nuestro
+   * catálogo (pokemontcg.io) NO (`"Pitch Black"`). La versión anterior comparaba con `===` sobre el
+   * nombre completo —nunca empataba— y caía a un `includes()` bidireccional que la salvaba **sólo
+   * mientras hubiera un candidato**. En cuanto TCGCSV publica un segundo grupo que también contiene
+   * el nombre (los `… Promos` de casi todos los sets), había DOS candidatos ⇒ `null` ⇒ el set
+   * **entero jamás se reprecia**, y lo único que quedaba era un `warn`.
+   *
+   * ⛔ Este test FALLA con el código anterior (devolvía `null` y no llamaba a `getProducts`) y es la
+   * razón de que la escalera de match se extrajera a `tcgcsv-group-match.ts`.
+   */
+  it('AMBIGÜEDAD por PREFIJO de código: "SV08: Pitch Black" + "Pitch Black Promos" ⇒ gana el exacto sin prefijo', async () => {
+    const client = catalogClient({
+      groups: [
+        { groupId: 24688, name: 'SV08: Pitch Black' }, // el de verdad, prefijado por TCGCSV
+        { groupId: 999, name: 'Pitch Black Promos' }, // contiene el nombre ⇒ empataba por includes()
+      ],
+      products: [],
+      prices: [],
+    });
+    const { prisma } = prismaWithCardProducts([]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+
+    const res = await provider.fetchPricesForSet({
+      set: { ...SET, pptSetId: null } as unknown as CardSet,
+    });
+
+    expect(client.getProducts).toHaveBeenCalledWith(24688);
+    expect(res.setUnresolved).toBeUndefined(); // se resolvió ⇒ NO hay señal de alarma
+  });
+
+  it('ambigüedad REAL (dos grupos igual de buenos) ⇒ sigue devolviendo 0 filas Y ahora deja SEÑAL', async () => {
+    // Money-safe intacto: ante duda de verdad NO se adivina. Lo que cambia es que el hecho deja de
+    // vivir sólo en los logs — `PriceIngestService` convierte esta señal en una fila de AuditLog.
+    const client = catalogClient({
+      groups: [
+        { groupId: 1, name: 'SV08: Pitch Black' },
+        { groupId: 2, name: 'ME05: Pitch Black' }, // mismo nombre, otro prefijo ⇒ indistinguibles
+      ],
+      products: [],
+      prices: [],
+    });
+    const { prisma } = prismaWithCardProducts([]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+
+    const res = await provider.fetchPricesForSet({
+      set: { ...SET, pptSetId: null } as unknown as CardSet,
+    });
+
+    expect(client.getProducts).not.toHaveBeenCalled();
+    expect(res.rows).toHaveLength(0);
+    expect(res.requestOk).toBe(false);
+    expect(res.setUnresolved).toMatchObject({
+      stage: 'group_id',
+      reason: 'ambiguous',
+      setName: 'Pitch Black',
+      candidates: 2,
+      candidateNames: ['SV08: Pitch Black', 'ME05: Pitch Black'],
+    });
+  });
+
+  it('ningún grupo empata ⇒ 0 filas + señal `no_match` (el set NO se reprecia, y se dice)', async () => {
+    const client = catalogClient({
+      groups: [{ groupId: 7, name: 'Surging Sparks' }],
+      products: [],
+      prices: [],
+    });
+    const { prisma } = prismaWithCardProducts([]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+
+    const res = await provider.fetchPricesForSet({
+      set: { ...SET, pptSetId: null } as unknown as CardSet,
+    });
+
+    expect(res.rows).toHaveLength(0);
+    expect(res.setUnresolved).toMatchObject({ reason: 'no_match', setName: 'Pitch Black' });
+  });
+
+  it('listGroups LANZA ⇒ señal `lookup_failed` (transitorio), no se acusa al catálogo', async () => {
+    const client = catalogClient({ products: [], prices: [] });
+    (client.listGroups as jest.Mock).mockRejectedValueOnce(new Error('HTTP 503'));
+    const { prisma } = prismaWithCardProducts([]);
+    const provider = new TcgcsvSinglesBulkPriceProvider(client, prisma);
+
+    const res = await provider.fetchPricesForSet({
+      set: { ...SET, pptSetId: null } as unknown as CardSet,
+    });
+
+    expect(res.rows).toHaveLength(0);
+    expect(res.setUnresolved).toMatchObject({ reason: 'lookup_failed', detail: 'HTTP 503' });
+  });
 });
