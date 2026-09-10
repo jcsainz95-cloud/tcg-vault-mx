@@ -19168,3 +19168,107 @@ incidente se reutiliza. Copia = `HEAD 6518694` + estos cambios ⇒ **base 4319/4
   silencioso allí: corre bajo import/`--force`, donde el operador ve los contadores de la respuesta).
   **Follow-up de una línea**: sustituir el bloque por `matchTcgcsvGroupByName`. Lo enruta el
   orquestador cuando ese fichero quede libre.
+
+---
+
+## Cierre del follow-up P-47/IMPORTANTE-3: la ruta de ESTRUCTURA adopta `matchTcgcsvGroupByName` (2026-09-10)
+
+> Cierra el **PENDIENTE DECLARADO** de la sección anterior («`CardProductResolverService.resolveGroupId`
+> conserva su copia de la escalera vieja»). El fichero quedó libre y se hizo lo que decía el pendiente:
+> **adoptar** la escalera compartida, **no** volver a copiar el arreglo.
+
+### 1. Qué se hizo (y qué NO)
+
+- **Reuso, no copia.** `CardProductResolverService.resolveGroupId` (`backend/src/modules/catalog/`)
+  llama ahora a **`matchTcgcsvGroupByName`** (`backend/src/modules/pricing/providers/tcgcsv-group-match.ts`).
+  ⇒ **Ya no existen dos implementaciones** del match set↔grupo: ARCHITECTURE dice que las dos rutas son
+  *«la misma lógica S-D3/§4.27d»* y ahora el código también lo dice.
+- **Se retira `normalizeName`** (exportada desde `card-product-resolver.service.ts`). Era la última
+  pieza local del match por nombre; dejarla exportada es la invitación a reconstruir la escalera aquí.
+  `normalizeCardNumber` (join por NÚMERO de carta) **se queda**: es otro predicado.
+- ⛔ **No se tocó** el atajo `pptSetId` entero == `groupId`, ni el `groupIdCache`, ni el contrato de
+  `resolveCardProductsForSet` (mismos campos, mismos contadores). ⛔ Nada en `docs/API_CONTRACT.md`.
+
+### 2. Impacto en DATOS (medido antes de cambiar, no supuesto)
+
+**Qué le pasa HOY a un set cuyo `groupId` no resuelve por esta vía** — medido leyendo los tres caminos:
+
+| Camino | Qué pasa hoy | ¿Lo ve el dueño? |
+|---|---|---|
+| `POST /admin/catalog/sync` (first-import o `--force`) y `sync-all` | `runCardProductResolver` **se traga** el `null`; la respuesta (`outcomeOf`) sólo habla de cartas de pokemontcg.io. Las cartas conservan su `structuralFinishes`/`availableFinishes` **seed/previo** (el `FinishReconciler` ni se llama) | **NO** — sólo un `warn` en logs |
+| `POST /admin/catalog/refresh-variants` (M-34) | `200 ok:true` con `cardsProcessed: 0` de `cardsInSet: N` y todos los contadores en 0 | **A medias**: ve ceros, pero **el shape es idéntico** al del grupo que sí resolvió y no trajo producto mapeable ⇒ no distingue la causa |
+| `POST /admin/catalog/refresh-variants-all` (M-35) | `refreshVariants` no lanza ⇒ **`summary.setsOk += 1`** con ceros; **no** entra en `failures` | **NO** — el set sin match se cuenta como «bien» |
+
+**Blast radius del cambio (por fuerza bruta, `test/card-product-resolver.spec.ts`):**
+
+- Régimen limpio (nombres con ≥1 alfanumérico): **512 pares** (128 subconjuntos × 4 nombres locales) ⇒
+  `legacy ≠ null ⇒ nuevo === legacy` **sin excepciones**, y **24** pares pasan de `null → groupId`.
+- Régimen sucio (se añaden nombres que normalizan a VACÍO en los dos lados): **1536 pares** ⇒
+  **`groupId → OTRO groupId`: 0 casos**, `null → groupId`: 148, `groupId → null`: 342 — **todas** con un
+  lado vacío (ver §3).
+- ⇒ **Lo único que puede cambiar en BD es lo que hoy NO se escribe.** Un set que ya resolvía sigue
+  resolviendo al MISMO grupo, así que **ningún `CardProduct`/`PriceReference` existente se re-apunta**
+  (`CardProduct` sólo lo escribe este resolver — verificado: es el único `cardProduct.upsert` del repo).
+- **Sí cambia datos existentes en un sentido**: para un set que *empieza* a resolver, se upsertean sus
+  `CardProduct` y se **recomputa `Card.availableFinishes`** desde ellos (§4.27c) — el valor seed deja
+  paso al medido, que es exactamente el propósito de §4.27d. Ocurre **sólo** bajo import/`--force`,
+  nunca en price-ingest. Efecto de segundo orden deseado: con `CardProduct` ya persistido, el barrido
+  de precio deja de omitir esas variantes (§4.35b).
+- ⚠️ **Cuántos sets REALES cambian: no medible desde este entorno** (egress a `tcgcsv.com` y
+  `api.pokemontcg.io` bloqueado por política, y no hay BD levantada). El predicado exacto de los sets
+  afectados es: *`pptSetId` no entero* **y** *≥2 grupos candidatos por contención* **y** *exactamente 1
+  candidato empatando módulo prefijo de un lado*. Se mide en staging corriendo `refresh-variants-all`
+  antes/después — con la salvedad de §4 (hoy el `summary` no sabe decirlo).
+
+### 3. La ÚNICA desviación (declarada, no escondida)
+
+La monotonía cruda (`legacy ≠ null ⇒ nuevo === legacy`) **no se cumple** para nombres que normalizan a
+vacío, y es a propósito: el algoritmo viejo, con `target = ''`, hacía `gn.includes('')` ⇒ **true para
+todo grupo**, así que si la fuente traía **un solo** grupo le colgaba ESE grupo al set. Simétrico: un
+grupo con nombre basura (`"---"`, normaliza a vacío) era candidato de **cualquier** set. Eso no era un
+match, era un accidente de `includes`. Ahora es `empty_name`/`no_match` ⇒ `null` ⇒ **no se escribe
+nada**. Los 342 `groupId → null` del régimen sucio son **exactamente** esa clase (270 por nombre local
+vacío + 72 por grupo basura), y el test lo **afirma caso a caso**, no de palabra.
+
+### 4. La señal: **NO se añade `AuditLog` en esta ruta** (decisión, con motivo)
+
+La ruta de PRECIO sí escribe `AuditLog action='pricing.set_unresolved'`. Aquí **no**, y no por asimetría
+descuidada:
+
+1. **Un set que no resuelve por NOMBRE aquí, tampoco resuelve allá**: las dos rutas usan el MISMO atajo
+   (`pptSetId` entero), el MISMO `listGroups()` y ahora la MISMA escalera. ⇒ el hecho *«este set no tiene
+   grupo»* **ya deja una fila diaria** en `pricing.set_unresolved`. Una segunda `action` para el mismo
+   hecho da dos respuestas a la misma pregunta y envejece peor.
+2. **Este camino no corre desatendido**: sólo bajo import/`--force`, con un humano que acaba de pulsar.
+   El barrido de precio corre solo, cada día, sin nadie mirando — que es por lo que allí la bitácora era
+   la pieza que faltaba.
+3. **Lo que aquí falta ya está normado en el contrato y NO está implementado** (ver §5): el `summary` de
+   `refresh-variants-status` debe repartir `setsWritten`/`setsNoop` (§M2-CS.2). Inventar una bitácora
+   nueva mientras `setsOk` sigue contando como «bien» al set que no escribió nada sería tapar el
+   síntoma dejando el instrumento roto.
+
+Lo que **sí** se hizo, por ser gratis y sin superficie nueva: el `warn` de esta ruta ahora lleva
+`failure` (`empty_name`/`no_match`/`ambiguous`), `candidates` y hasta 5 `candidateNames` — antes sólo
+decía «N candidatos» sin decir cuáles ni por qué.
+
+### 5. Discrepancia contrato ⇄ código detectada (NO se corrige aquí — es de otro alcance)
+
+`docs/API_CONTRACT.md` §M2-CS.2 declara **normativo** que el `summary` de
+`GET /admin/catalog/refresh-variants-status` incluya **`setsWritten`** y **`setsNoop`**, con `setsOk`
+**deprecado y congelado** (`setsOk === setsWritten + setsNoop`). El código
+(`CatalogSyncService.runRefreshVariantsAll` / `emptyRefreshVariantsSummary`) **sólo tiene `setsOk`**.
+Regla de conflicto: **manda el contrato**. No se implementa en este pase porque (a) cambia el shape que
+consume el front (coordinación) y (b) excede el follow-up de una línea que se encargó. **Queda como
+petición al orquestador/arquitecto.** Es, además, el instrumento que mediría el §2 de esta nota.
+
+### 6. Mutaciones (prueba de que los candados se pueden poner rojos)
+
+Copia aislada en ruta propia **`scratchpad/be-resolver-p47-structure-2026-09-10/`** (nombre único por el
+incidente de scratchpads borrados entre agentes), **borrada al terminar**. Base de la copia: **4326/4326
+en verde** (idéntica al repo).
+
+| # | Mutación | Rojos | Quién muere |
+|---|---|---|---|
+| **M-A** | **revertir este cambio**: devolver a `resolveGroupId` la escalera copiada (+ su `normalizeName`) | **7 / 4326** | los 7 de `card-product-resolver.spec.ts`: delegación, caso del prefijo, punta-a-punta, las 2 desviaciones y **las 2 PROPIEDADES**. ⚠️ `tcgcsv-group-match.spec.ts` sigue **verde** — que es la demostración de que el spec del matcher **nunca** cubrió esta ruta |
+| **M-B** | pelar el prefijo de **los dos lados** (la trampa que ya cazó la propiedad del matcher) | **4 / 4326** | 2 del matcher + **2 míos**; mi propiedad reporta **178 casos `groupId → OTRO groupId`** (p. ej. local `"SV08: Pitch Black"` → grupo `"ME05: Pitch Black"`, otra colección) |
+| **M-C** | retirar el peldaño `exact_unprefixed` | **8 / 4326** (antes de este pase eran 3) | los 3 de antes + **5 de la ruta de estructura**: el defecto P-46 ya no puede volver por el lado de la estructura sin que algo se ponga rojo |

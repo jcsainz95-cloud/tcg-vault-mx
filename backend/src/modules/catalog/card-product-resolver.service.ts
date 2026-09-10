@@ -8,6 +8,10 @@ import {
   TcgcsvCatalogClient,
   deriveCardProductsFromTcgcsv,
 } from '../pricing/providers/tcgcsv-singles.provider';
+// FUENTE ÚNICA del match set local ↔ grupo TCGCSV (S-D3 / §4.27d). Ver `resolveGroupId`: esta
+// escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
+// de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
+import { matchTcgcsvGroupByName } from '../pricing/providers/tcgcsv-group-match';
 
 /**
  * CardProductResolverService (v1.29, ARCHITECTURE §4.27d) — REEMPLAZA a `StructuralFinishResolverService`.
@@ -230,9 +234,30 @@ export class CardProductResolverService {
   }
 
   /**
-   * §4.27d paso 1 — resuelve el `groupId` TCGCSV del set (misma lógica S-D3, sin cambios): `pptSetId`
-   * entero == groupId; si no, match ÚNICO por nombre (exacto preferido) vía `listGroups()`. `null`
-   * (con log) si no hay match ÚNICO ⇒ no se toca nada (money-safe).
+   * §4.27d paso 1 — resuelve el `groupId` TCGCSV del set: `pptSetId` entero == groupId; si no, match
+   * ÚNICO por nombre vía `listGroups()`. `null` (con log) si no hay match ÚNICO ⇒ no se toca nada
+   * (money-safe).
+   *
+   * ⚠️ **La escalera de match NO vive aquí** (QA IMPORTANTE-3 / P-47): vive en
+   * `matchTcgcsvGroupByName` (`../pricing/providers/tcgcsv-group-match`), el ÚNICO sitio donde se
+   * decide qué set empata con qué grupo. Estaba **copiada literalmente** en este servicio (ruta de
+   * ESTRUCTURA) y en `TcgcsvSinglesBulkPriceProvider` (ruta de PRECIO) pese a que ARCHITECTURE las
+   * declara *«la misma lógica S-D3/§4.27d»* — y esa duplicación es exactamente por lo que el arreglo
+   * del **prefijo de código de colección** (`"SV08: Pitch Black"` de TCGCSV vs `"Pitch Black"`
+   * nuestro, P-46) llegó al mapeo de PPT y al sellado y **nunca aquí**. Ver la cabecera de ese
+   * archivo para el bug entero y para por qué el prefijo se pela **de un solo lado**.
+   *
+   * **Efecto de adoptarla en ESTA ruta** (medido, `test/card-product-resolver.spec.ts`): el único
+   * cambio posible es `null → groupId` — sets que hoy **no escriben nada** empiezan a resolverse.
+   * ⛔ Ningún `CardProduct`/`PriceReference` existente puede re-apuntarse a OTRO grupo
+   * (`groupId → OTRO groupId` = 0 casos por fuerza bruta). La única desviación es que un nombre que
+   * normaliza a VACÍO (en el set local o en el grupo remoto) ya no empata con «lo que sea»: la
+   * versión vieja lo ataba al primer grupo que hubiera vía `includes('')`, que era basura, no match.
+   *
+   * **Señal**: se deja en `warn` con el motivo y los candidatos. Este camino NO escribe su propio
+   * `AuditLog` (a diferencia de la ruta de precio, `pricing.set_unresolved`) — la razón, medida, en
+   * `docs/BACKEND_NOTES.md`: no corre desatendido (import/`--force`) y un set que no resuelve por
+   * NOMBRE aquí tampoco resuelve en el barrido diario de precio, que ya deja esa fila cada día.
    */
   private async resolveGroupId(set: {
     id: string;
@@ -249,26 +274,17 @@ export class CardProductResolverService {
     }
 
     const groups = await this.tcgcsv.listGroups();
-    const target = normalizeName(set.name);
-    const exact = groups.filter((g) => normalizeName(g.name) === target);
-    if (exact.length === 1) {
-      this.groupIdCache.set(set.id, exact[0].groupId);
-      return exact[0].groupId;
+    const match = matchTcgcsvGroupByName(set.name, groups);
+    if (match.groupId != null) {
+      this.groupIdCache.set(set.id, match.groupId);
+      return match.groupId;
     }
-    const matches =
-      exact.length === 0
-        ? groups.filter((g) => {
-            const gn = normalizeName(g.name);
-            return gn.includes(target) || target.includes(gn);
-          })
-        : exact;
-    if (matches.length === 1) {
-      this.groupIdCache.set(set.id, matches[0].groupId);
-      return matches[0].groupId;
-    }
+
     this.logger.warn(
-      `card-product: no se resolvió un groupId ÚNICO para "${set.name}" (${matches.length} candidatos; ` +
-        `pptSetId="${set.pptSetId ?? ''}"). No se toca ningún CardProduct (money-safe).`,
+      `card-product: no se resolvió un groupId ÚNICO para "${set.name}" (${match.failure}, ` +
+        `${match.candidates} candidatos${match.candidateNames.length ? `: ${match.candidateNames.join(' | ')}` : ''}; ` +
+        `pptSetId="${set.pptSetId ?? ''}"). No se toca ningún CardProduct (money-safe) — el set ` +
+        `conserva su estructura previa/seed hasta que alguien lo arregle.`,
     );
     return null;
   }
@@ -291,7 +307,11 @@ export function normalizeCardNumber(raw: string): string {
   return beforeSlash.toUpperCase();
 }
 
-/** Normaliza un nombre de set/grupo para el match: minúsculas, solo alfanuméricos. */
-export function normalizeName(raw: string): string {
-  return (raw ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
+/*
+ * ⛔ AQUÍ VIVÍA `normalizeName` (minúsculas + alfanuméricos), la normalización de nombres de
+ * set/grupo. Se RETIRA con la escalera duplicada: era la última pieza local del match por nombre y,
+ * mientras siguiera exportada, invitaba a reconstruir la escalera aquí — que es exactamente cómo
+ * P-46 acabó arreglado en tres rutas y no en la de dinero. La normalización vive DENTRO de
+ * `matchTcgcsvGroupByName` / `setNameCandidates`. `normalizeCardNumber` (join por NÚMERO de carta,
+ * arriba) es otro predicado y se queda.
+ */

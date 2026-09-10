@@ -15,14 +15,15 @@ import { setNameCandidates } from '../ppt-set-mapper.service';
  * (`setNameCandidates`, `matchSet`) y en el sellado (`SealedProductService.matchScore`) pero **no**
  * aquí. Ahora la regla vive en UN sitio.
  *
- * ⚠️ **PENDIENTE DECLARADO, no olvido:** hoy sólo la consume el provider de PRECIO
- * (`TcgcsvSinglesBulkPriceProvider`). `CardProductResolverService.resolveGroupId` **conserva su
- * copia** porque ese fichero estaba siendo editado por otro pase en paralelo cuando se hizo este
- * cambio, y dos agentes sobre el mismo fichero es exactamente lo que la propiedad de archivos de
- * `CLAUDE.md` existe para evitar. La adopción allí es un follow-up de UNA línea (sustituir el bloque
- * por `matchTcgcsvGroupByName`) y está anotada en `docs/BACKEND_NOTES.md`; hasta entonces, la ruta de
- * ESTRUCTURA sigue teniendo el mismo defecto que esta ruta ya no tiene. *Se dice en vez de
- * arreglarse a medias.*
+ * ✅ **PENDIENTE CERRADO (2026-09-10):** la consumen **las DOS** rutas —
+ * `TcgcsvSinglesBulkPriceProvider.resolveGroupId` (PRECIO, barrido diario) y
+ * `CardProductResolverService.resolveGroupId` (ESTRUCTURA, import/`--force`). La copia que quedaba en
+ * la ruta de estructura (el fichero estaba ocupado por otro pase cuando se extrajo esta escalera) ya
+ * no existe: **no quedan dos implementaciones de esta regla**. La adopción se midió y se blindó con
+ * su propia propiedad de monotonía en `test/card-product-resolver.spec.ts` — ver
+ * `docs/BACKEND_NOTES.md` para las cifras y la única desviación declarada (nombres que normalizan a
+ * vacío). ⚠️ Si aparece una tercera ruta que necesite este match, **llama a esta función**; copiarla
+ * es cómo P-46 llegó a tres sitios y nunca al que movía dinero.
  *
  * ## El bug que cierra (dinero, y silencioso)
  *
