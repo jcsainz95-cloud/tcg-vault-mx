@@ -466,12 +466,46 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   **debe revisarse con abogado antes de crecer en volumen**. Ni el equipo ni el orquestador escriben
   afirmaciones jurídicas mientras tanto.
 
+#### ~~P-63 · 💱 Falta `BANXICO_SIE_TOKEN`~~ — ✅ CERRADO (el humano lo midió, 2026-09-10)
+
+**El humano reporta: «ya actualiza solo».** Su sistema, su observación — y hay mecanismo que la explica,
+verificado por el orquestador en el árbol:
+
+`backend/src/modules/pricing/fx.service.ts:437`
+```ts
+const token = this.config.get('BANXICO_SIE_TOKEN') || this.config.get('FX_API_KEY');
+```
+
+⇒ **El código acepta DOS nombres de variable.** Con `FX_API_KEY` puesta, el refresco consulta a Banxico
+con normalidad y `BANXICO_SIE_TOKEN` no hace falta.
+
+> ⚠️ **La lección, y es más fina que las cinco anteriores:** este pendiente **no afirmaba algo falso —
+> afirmaba media verdad**. Nombraba una sola de las dos variables que el código acepta, así que
+> cualquiera que hiciera `grep BANXICO_SIE_TOKEN` en la configuración concluía «falta» **y tenía razón
+> sobre esa cadena**. El defecto no era el dato: era el **predicado**. Un pendiente que dice «falta X»
+> cuando la condición real es «falta X **o** Y» manda a alguien a resolver un problema que no existe.
+>
+> **Regla que se lleva a O-5:** un pendiente que afirma la ausencia de una variable, una clave o un
+> fichero **nombra el predicado completo**, no un ejemplo de él. Se comprueba leyendo el código que lo
+> consume, no la lista de configuración.
+
+**Sexto pendiente rancio de la semana** (tras P-45, P-74, P-47, el corte de fecha del catálogo, y las
+claves de prueba de Stripe que llevaban tres días puestas).
+
+**Queda vivo, y es otra cosa:** `admin.service.ts:1289` cita `D-OPS-1` como abierta con la premisa
+*«sin `BANXICO_SIE_TOKEN` el refresco no escribe fila»*. Esa premisa arrastra el mismo predicado
+incompleto ⇒ **hay que re-medirla antes de enrutar trabajo desde ella**. Dueño: backend.
+
+<details><summary>texto original (falso desde 2026-09-10)</summary>
+
 #### P-63 · 💱 Falta `BANXICO_SIE_TOKEN` — el tipo de cambio no se actualiza
 - **Medido en los logs de producción**, repetido: *«Sin `BANXICO_SIE_TOKEN`: fx-refresh no puede
   consultar; usa override/último valor»*. Los precios de mercado vienen en USD y se convierten a
   MXN: **sin token el tipo de cambio se congela** en el último valor o en el manual.
 - No rompe nada hoy, pero **si el peso se mueve, cotizas compra y venta con un tipo viejo**.
 - **Rol dueño:** devops (variable de entorno) — el token lo obtiene el humano de Banxico.
+
+</details>
 
 </details>
 
