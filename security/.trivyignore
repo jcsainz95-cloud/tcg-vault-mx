@@ -28,3 +28,30 @@
 # no hay node-tar que reportar: los ignores dejaron de tener sentido y se
 # retiraron. Si un futuro cambio reintrodujera npm en el runtime, el gate volverá
 # a fallar — y eso es lo correcto: se corrige la imagen, no este archivo.
+#
+# -----------------------------------------------------------------------------
+# HISTÓRICO — dicer CVE-2022-24434 (2026-09-10): NUNCA SE IGNORÓ
+# -----------------------------------------------------------------------------
+# Este CVE (HIGH, `dicer@0.3.0`, DoS por payload multipart manipulado, **sin
+# versión corregida** — dicer está sin mantener) puso `trivy-fs` en rojo en toda
+# la rama del release. Venía de `scripts/s3-local/`, la maqueta S3 de la ruta
+# nativa (`s3rver@3.7.1 → busboy@^0.3.1 → dicer@0.3.0`), no de la app.
+#
+# Se consideró y se DESCARTÓ meterlo aquí. Aunque la exposición real fuese nula
+# (una maqueta que sólo escucha en 127.0.0.1 durante las corridas del arnés), una
+# entrada en este archivo apaga el aviso para SIEMPRE y para cualquier ruta.
+# También se descartó acotar el escaneo con `skip-dirs`: excluir
+# `scripts/s3-local/` habría dejado ciego a Trivy sobre TODO lo que apareciese
+# ahí en el futuro, no sólo sobre este CVE.
+#
+# Lo que se hizo (DEVOPS_NOTES §47): ELIMINAR el componente. `overrides` de
+# `busboy` a `1.6.0` en `scripts/s3-local/package.json` — busboy 1.x absorbió el
+# parser multipart y ya no depende de dicer, así que dicer desaparece del árbol
+# (`npm ls dicer` → vacío, 0 apariciones en el lockfile). Es la regla de arriba
+# aplicada: preferencia siempre por eliminar antes que por ignorar.
+#
+# Y para que este archivo no se convierta en el sitio donde se apagan los
+# candados sin que nadie lo note: `security/scripts/trivy-fs-selftest.sh` corre
+# en cada PR, planta `dicer@0.3.0` dentro de `scripts/s3-local/` y EXIGE que el
+# gate se ponga rojo nombrando CVE-2022-24434. Si alguien añadiera aquí ese CVE,
+# o excluyera esa ruta, el self-test falla y lo delata.

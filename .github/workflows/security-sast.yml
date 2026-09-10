@@ -242,6 +242,52 @@ jobs:
           # cualquier excepción futura quede en un único sitio auditable.
           trivyignores: security/.trivyignore
 
+      # -----------------------------------------------------------------------
+      # SELF-TEST: ¿el paso de arriba SABE ponerse rojo? (DEVOPS_NOTES §47.3)
+      #
+      # Un gate que sólo se ha visto en verde no está verificado, está sin
+      # observar. Este paso planta un lockfile con `dicer@0.3.0`
+      # (CVE-2022-24434 — el hallazgo que bloqueó este release) y
+      # `minimist@1.2.0` DENTRO de `scripts/s3-local/`, corre EL MISMO comando
+      # con LA MISMA config y EL MISMO ignorefile, y EXIGE rojo. Si alguien
+      # "apagara" un rojo futuro excluyendo esa ruta o ese CVE, este paso se
+      # pone en rojo y lo delata. El canario se borra siempre (trap).
+      #
+      # `!cancelled()` en vez de `always()`: queremos el diagnóstico también
+      # cuando el gate real ha fallado (ahí el self-test dirá "ya está rojo por
+      # hallazgos REALES"), pero no gastar runner en una cancelación.
+      # -----------------------------------------------------------------------
+      - name: Self-test de trivy-fs (el candado tiene que saber morder)
+        if: ${{ !cancelled() }}
+        run: ./security/scripts/trivy-fs-selftest.sh
+
+      # -----------------------------------------------------------------------
+      # El registro de decisiones/excepciones de escáner, VISIBLE en cada
+      # corrida. Motivo (§47.4): una excepción que sólo vive en un fichero de
+      # configuración es una excepción que nadie revisa. Esto la pone delante
+      # de quien mire el run — en particular del rol `seguridad` en la fase de
+      # release. Fuente única: security/README.md entre los marcadores.
+      # -----------------------------------------------------------------------
+      - name: Publicar el registro de decisiones de escáner en el resumen
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          REGISTRO="$(sed -n '/<!-- REGISTRO:INICIO -->/,/<!-- REGISTRO:FIN -->/p' security/README.md \
+                      | grep -v 'REGISTRO:INICIO\|REGISTRO:FIN' || true)"
+          # Si el bloque desaparece, el paso FALLA a propósito: borrar el registro
+          # es exactamente la forma de que una excepción vuelva a quedar invisible.
+          if [ -z "${REGISTRO//[[:space:]]/}" ]; then
+            echo "::error title=Registro de decisiones de escáner vacío::No encuentro el bloque entre <!-- REGISTRO:INICIO --> y <!-- REGISTRO:FIN --> en security/README.md. Ese bloque es lo que el rol seguridad audita en el release (DEVOPS_NOTES §47.4); sin él, cualquier excepción de Trivy queda sin revisor."
+            exit 1
+          fi
+          {
+            echo "## Registro de decisiones de escáner (Trivy)"
+            echo
+            echo "${REGISTRO}"
+            echo
+            echo "_Fuente: \`security/README.md\`. Excepciones activas de Trivy: \`security/.trivyignore\`._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ---------------------------------------------------------------------------
   # Trivy image — CVEs de las imágenes Docker. ACTIVO si existen los Dockerfiles.
   # Construye backend/frontend y escanea. Se salta si falta la app.

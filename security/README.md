@@ -14,6 +14,54 @@ Todo es **automatizable** y está cableado en CI (ver `.github/workflows/`).
 
 ---
 
+## Registro de decisiones de escáner — **LEER EN LA FASE DE SEGURIDAD**
+
+> Este bloque lo publica el job `trivy-fs` de `security-sast.yml` en el **resumen de
+> cada corrida** (`$GITHUB_STEP_SUMMARY`), extraído literalmente de aquí entre los
+> marcadores. Motivo: *una excepción de escáner que sólo vive en un fichero de
+> configuración es una excepción que nadie revisa.* Rol **seguridad**: esto es lo que
+> hay que auditar al revisar el release; si algo de aquí te parece mal, el hallazgo va
+> a **devops**, no lo corrijas tú.
+
+<!-- REGISTRO:INICIO -->
+**Excepciones ACTIVAS del gate Trivy (`security/.trivyignore`): NINGUNA.**
+Ni por CVE, ni por ruta, ni por severidad. `trivy-fs` y `trivy-image` fallan en
+cualquier HIGH/CRITICAL, con `ignore-unfixed: false` (también los que *no* tienen
+parche disponible).
+
+**Alcance del escaneo `trivy fs`: el repositorio COMPLETO (`scan-ref: .`).** No hay
+`skip-dirs` de código ni de herramienta de desarrollo; los únicos `skip-dirs` de
+`security/trivy.yaml` son directorios de *artefactos de build* (`**/node_modules/.cache`,
+`**/.next/cache`, `**/coverage`, `**/dist/tmp`), que no contienen manifiestos de
+dependencias.
+
+**Decisión abierta que conviene conocer (2026-09-10, DEVOPS_NOTES §47):**
+`CVE-2022-24434` (`dicer@0.3.0`, HIGH, **sin versión corregida**) bloqueó el release.
+Venía de `scripts/s3-local/` (maqueta S3 de la ruta nativa, sin Docker), cadena
+`s3rver@3.7.1 → busboy@^0.3.1 → dicer@0.3.0`. **No** se acotó el escáner y **no** se
+ignoró el CVE: se **eliminó el componente** con un `overrides` de `busboy` a `1.6.0`
+en `scripts/s3-local/package.json` (busboy 1.x absorbió el parser y no depende de
+dicer). `npm ls dicer` → vacío.
+
+*Riesgo residual declarado, para tu veredicto:* **`s3rver@3.7.1` está sin mantenimiento**
+(y el `server.js` usa su API interna `lib/models/account`, a sabiendas y con la versión
+clavada). Hoy no tiene ningún HIGH/CRITICAL abierto, pero es tooling de desarrollo que
+no viaja a producción: no está en `backend/` ni en `frontend/`, no entra en ninguna
+imagen Docker (`Dockerfile.backend`/`Dockerfile.frontend` no lo copian) y sólo escucha
+en `127.0.0.1` durante las corridas del arnés nativo. Se declara **aquí** y en
+`docs/DEVOPS_NOTES.md §47.5`; **no** está en `docs/TECH_DEBT.md` (esa entrada la escribe
+el rol dueño a petición del techlead — si seguridad o techlead la quieren allí, el
+apunte es de **devops**, que es quien posee `scripts/`).
+
+**El candado está verificado, no supuesto:** `security/scripts/trivy-fs-selftest.sh`
+corre en cada PR dentro del job `trivy-fs`; planta un lockfile con `dicer@0.3.0` +
+`minimist@1.2.0` **dentro de `scripts/s3-local/`** y exige que el gate se ponga ROJO
+con esos CVE por su nombre. Si alguien excluyera esa ruta o silenciara ese CVE, el
+self-test falla.
+<!-- REGISTRO:FIN -->
+
+---
+
 ## Estructura
 
 ```
@@ -37,6 +85,7 @@ security/
     audit-npm.sh            npm audit backend+frontend (gate high/critical)
     trivy-fs.sh             Trivy filesystem (deps)
     trivy-image.sh          Trivy sobre imágenes Docker construidas
+    trivy-fs-selftest.sh    ⭐ ¿trivy-fs sabe ponerse ROJO? (canario de lockfile vulnerable)
     dast-zap-baseline.sh    ZAP baseline (pasivo) — gate de promoción a prod
     dast-zap-full.sh        ZAP full scan (activo) — cron / prueba autorizada
     dast-nuclei.sh          nuclei con la selección de templates
@@ -69,10 +118,16 @@ GITLEAKS_MODE=git ./security/scripts/sast-gitleaks.sh   # + historial
 
 # Trivy sobre las imágenes Docker (requiere daemon Docker)
 ./security/scripts/trivy-image.sh
+
+# ¿El gate de trivy-fs SABE ponerse rojo? Planta un lockfile vulnerable en
+# scripts/s3-local/ y exige ROJO. Corre en cada PR dentro del job `trivy-fs`.
+./security/scripts/trivy-fs-selftest.sh
 ```
 
 **En CI:** `.github/workflows/security-sast.yml` corre los cinco en cada PR/push
-y **bloquea** el merge si hay hallazgos high/critical.
+y **bloquea** el merge si hay hallazgos high/critical. El job `trivy-fs` corre
+además `trivy-fs-selftest.sh` (el candado tiene que saber morder) y publica el
+**registro de decisiones de escáner** de este README en el resumen del run.
 
 ---
 

@@ -7328,6 +7328,12 @@ check estático de §39.3). Lo que hace falta del humano son **los dos secrets d
 
 ### 39.2 SUBIDA — el smoke que se saltaba a sí mismo, y el interruptor que nadie había encendido
 
+> **Actualización 2026-09-10 (§47):** el árbol de dependencias de `scripts/s3-local/` cambió — hay un
+> `overrides` de `busboy` a `1.6.0` en su `package.json` para sacar `dicer@0.3.0` (CVE-2022-24434,
+> HIGH, sin parche) del lockfile. **No cambia nada de lo que describe esta sección**: el round-trip
+> presignado, la verificación SigV4 y la guarda anti-anónima se midieron antes y después y son
+> idénticos. El detalle y las mediciones, en **§47.2**.
+
 **El hueco, con su mecanismo exacto.** `backend/test/integration/infra-smoke.e2e-spec.ts` es quien cubre
 `POST /uploads/presign` + el PUT real del objeto — o sea, **la subida del INE del buylist**
 (`purpose: 'kyc_ine'`), que es la única subida del producto **y es PII**. El spec trae, desde siempre:
@@ -9366,3 +9372,165 @@ la resuelve.
 | **Clave de PRUEBA de Stripe** (3 flujos de dinero) | **HUMANO/dueño** | ⏳ **sin ella no hay E2E de dinero** |
 | **Ejecutar el rollback** (si hiciera falta) | **HUMANO** con egress a prod | ⏳ devops no tiene acceso a los dashboards |
 | Limpiar sets pre-2024 arrastrados (§46.2b) | PO/arquitecto | ⏳ decisión de producto, no de rollback |
+
+---
+
+## 47. `trivy-fs` rojo en toda la rama por **un** CVE sin parche — y por qué no se acotó el escáner (2026-09-10, último bloqueante del release)
+
+`Security SAST` llevaba rojo toda la rama. De los cinco jobs, cuatro en verde (`semgrep`,
+`gitleaks`, `npm-audit`, `trivy-image`) y **uno** en rojo, `trivy-fs`, con **exactamente una**
+vulnerabilidad:
+
+```
+Library: dicer · CVE-2022-24434 · HIGH · affected
+Installed: 0.3.0 · Fixed Version: (VACÍO)
+dicer: nodejs service crash by sending a crafted payload
+```
+
+`sast-ok` caía en cascada detrás. Diagnóstico previo (medido, no mío): `npm ls dicer` vacío en
+`backend/` y en `frontend/`; única aparición en **`scripts/s3-local/`** — la maqueta S3 de la ruta
+nativa (§39), propiedad de devops. Cadena: `s3rver@3.7.1 → busboy@^0.3.1 → dicer@0.3.0`.
+
+### 47.1 La decisión: **eliminar el componente**, no acotar el escáner ni ignorar el CVE
+
+Había tres salidas sobre la mesa. La elegida es la primera, en su forma barata.
+
+| Opción | Veredicto | Por qué |
+|---|---|---|
+| **Sustituir `s3rver` entero** por algo mantenido | ❌ | No hay equivalente. MinIO no se puede descargar en esta máquina (`dl.min.io` → `CONNECT tunnel failed, 403` a través del proxy, §39); LocalStack necesita daemon Docker y aquí **no hay** (`/var/run/docker.sock` no existe). Y `server.js` engancha la API interna de s3rver (`lib/models/account`) para registrar credenciales y verificar SigV4: reescribirlo el día del cierre cambia el arnés bajo los pies de QA. |
+| **Acotar `trivy-fs`** con `skip-dirs: scripts/s3-local/` | ❌ | Apaga el escáner sobre **todo lo que aparezca ahí mañana**, no sobre este CVE. Compra un verde a cambio de un punto ciego permanente. |
+| **Aceptarla como riesgo declarado** en `.trivyignore` | ❌ | Un ignore por ID vale para **cualquier ruta**, y no caduca. La exposición real era ~nula, pero eso no justifica dejar el aviso apagado para siempre. |
+| **✅ Quitar la dependencia vulnerable del árbol** | ✅ | `overrides: { "busboy": "1.6.0" }` en `scripts/s3-local/package.json`. busboy 1.x absorbió el parser multipart (`streamsearch`) y **ya no depende de dicer**: el paquete desaparece del árbol entero. Cero excepciones, cero recorte de alcance, el gate conserva todos los dientes. |
+
+Resultado medido tras el cambio:
+
+```
+$ cd scripts/s3-local && npm ls dicer
+tcg-s3-local@1.0.0
+`-- (empty)
+$ grep -c dicer package-lock.json
+0
+$ rm -rf node_modules && npm ci     # es lo que hace stack-native.sh
+added 113 packages   ·  busboy 1.6.0  ·  node_modules/dicer: no existe
+```
+
+### 47.2 Por qué el override es seguro aquí — **medido, no supuesto**
+
+busboy 1.x rompe la API de 0.x (`new Busboy(cfg)` → `busboy(cfg)`; `finish` → `close`; firma del
+evento `file`). Eso importaría si algo usara busboy. Lo que se comprobó:
+
+1. **Único consumidor en s3rver:** `lib/controllers/object.js::postObject` — la subida por
+   **formulario HTML** (`POST /bucket`, POST-policy). Ninguna otra línea de la librería lo toca.
+2. **Esa ruta ya era inalcanzable en este stand-in ANTES del override.** La guarda anti-anónima de
+   `server.js` (§39.2.2) exige firma en la cabecera `Authorization` o en la query `X-Amz-Signature`;
+   un POST de formulario lleva su firma en los **campos del form**. Medido en los dos árboles:
+
+   | Petición | busboy 0.3.1 (antes) | busboy 1.6.0 (después) |
+   |---|---|---|
+   | `POST /tcg-photos` multipart sin firma | **403** | **403** |
+   | ídem + `Authorization:` sin `x-amz-content-sha256` | **400** `InvalidRequest` | **400** `InvalidRequest` |
+   | ídem con `x-amz-content-sha256` y fecha vieja | **403** `RequestTimeTooSkewed` | **403** `RequestTimeTooSkewed` |
+
+3. **El backend tampoco la usa:** `backend/src/modules/uploads/uploads.service.ts` firma
+   `PutObjectCommand` con `getSignedUrl` (**PUT presignado**). No hay `createPresignedPost` en todo
+   `backend/` (grep vacío).
+4. **Round-trip completo del arnés, idéntico antes y después** (contra el `server.js` real, con las
+   credenciales de `.env.example`):
+
+   | Comprobación | Esperado | 0.3.1 | 1.6.0 |
+   |---|---|---|---|
+   | PUT presignado, firma buena | 200 | ✅ | ✅ |
+   | PUT presignado, **secreto equivocado** | 403 | ✅ | ✅ |
+   | GET presignado, firma buena | 200 | ✅ | ✅ |
+   | GET presignado devuelve el objeto íntegro | igual | ✅ | ✅ |
+   | GET **anónimo** (sin firma) | 403 | ✅ | ✅ |
+
+   Es decir: la verificación SigV4 de §39.2.2 y la guarda anti-anónima siguen funcionando exactamente
+   igual. Lo que se probaba con el arnés se sigue probando.
+
+El porqué del cambio está escrito **dentro** de `scripts/s3-local/package.json` (clave `"//overrides"`),
+para que quien lea el manifiesto no tenga que buscarlo.
+
+### 47.3 El candado tiene que **saber morder**: `security/scripts/trivy-fs-selftest.sh`
+
+Este es el tercer candado del proyecto que se verifica en vez de creerse (los otros dos:
+`dast-selftest.sh` §P-77, y el arnés E2E §46.4). Motivo: **poner verde un gate quitando el hallazgo
+es indistinguible de poner verde un gate dejando de mirar.** Si el rojo desaparece, hay que demostrar
+que el rojo todavía es posible.
+
+```bash
+./security/scripts/trivy-fs-selftest.sh
+```
+
+Qué hace, en tres pasos:
+
+1. Corre **el gate real** (mismo binario, misma `security/trivy.yaml`, mismo
+   `security/.trivyignore`, mismo `--severity HIGH,CRITICAL --ignore-unfixed=false --exit-code 1`,
+   mismo `scan-ref .`) sobre el árbol limpio → **exige VERDE**.
+2. Planta `scripts/s3-local/.trivy-selftest-canary/package-lock.json` con **`dicer@0.3.0`**
+   (CVE-2022-24434, *el* CVE de este release) y **`minimist@1.2.0`** (CVE-2021-44906, testigo
+   independiente) y repite **el mismo comando** → **exige ROJO**, exige los dos CVE **por su nombre**
+   en el informe, y exige que el informe **atribuya** el hallazgo a la ruta del canario.
+3. Borra el canario (`trap`, también en fallo) y comprueba que no quedó nada en el árbol.
+
+El canario se planta **dentro de `scripts/s3-local/`** a propósito: es el directorio del que se
+sospechó, así que es el directorio del que hay que demostrar que sigue en alcance. Si alguien
+"arreglara" un rojo futuro con un `skip-dirs` de esa ruta o con una entrada de ese CVE en
+`.trivyignore`, este self-test se pone en rojo y lo delata.
+
+**Verificado en los dos sentidos antes de cablearlo** (con un `trivy` de mentira en el `PATH`, para
+poder forzar cada resultado):
+
+| Escáner simulado | Resultado esperado del self-test | Obtenido |
+|---|---|---|
+| Ve el canario y reporta los dos CVE | **exit 0** («verde en limpio, rojo con canario») | ✅ exit 0 |
+| **Ciego** a `scripts/s3-local/` (siempre verde) | **exit 1** con `::error` explicando el punto ciego | ✅ exit 1, y el canario borrado igualmente |
+
+Cableado: paso **`Self-test de trivy-fs (el candado tiene que saber morder)`** dentro del job
+`trivy-fs` de `.github/workflows/security-sast.yml`, con `if: ${{ !cancelled() }}` (queremos el
+diagnóstico también cuando el gate real ya está rojo). Usa el mismo binario que instaló el paso de
+apt del job, así que no añade minutos de instalación.
+
+### 47.4 Dónde lo lee **seguridad** — una excepción que sólo vive en un config es una excepción que nadie revisa
+
+Aunque aquí **no quedó ninguna excepción**, el mecanismo se deja montado, porque el problema no era
+esta excepción concreta sino que las decisiones de escáner viven donde nadie las mira:
+
+- **`security/README.md` → «Registro de decisiones de escáner — LEER EN LA FASE DE SEGURIDAD»**,
+  entre los marcadores `<!-- REGISTRO:INICIO -->` / `<!-- REGISTRO:FIN -->`. Fuente única. Dice, hoy:
+  excepciones activas **ninguna**, alcance del `trivy fs` **el repo completo**, la decisión de §47 con
+  su porqué, el riesgo residual, y el self-test que la amarra.
+- **El job `trivy-fs` publica ese bloque en `$GITHUB_STEP_SUMMARY` en CADA corrida** (paso
+  `Publicar el registro de decisiones de escáner en el resumen`). Quien abra el run lo ve sin
+  buscarlo; si mañana alguien mete una excepción y no toca el registro, el resumen seguirá diciendo
+  «ninguna» y la contradicción con `.trivyignore` salta a la vista.
+- **`security/.trivyignore`** conserva el histórico: qué se consideró, qué se descartó y por qué.
+
+### 47.5 Riesgo residual declarado
+
+**`s3rver@3.7.1` no tiene mantenimiento**, y `scripts/s3-local/server.js` usa su API interna
+(`lib/models/account`) a sabiendas, con la versión clavada sin `^` para que un cambio falle
+ruidosamente al arrancar. Hoy **no tiene ningún HIGH/CRITICAL abierto** (era `dicer`, y ya no está).
+Lo que acota el riesgo:
+
+- Es **tooling de desarrollo**: no está en `backend/` ni en `frontend/`, no lo copia
+  `Dockerfile.backend` ni `Dockerfile.frontend`, no viaja a ningún deploy.
+- Sólo escucha en `127.0.0.1` (`S3_LOCAL_HOST` por defecto) y sólo durante las corridas del arnés
+  nativo, que es la ruta *sin* Docker; en CI y en Docker el object storage es MinIO, y en producción R2.
+- Sigue **dentro del alcance del escáner**: cualquier CVE HIGH/CRITICAL que aparezca en su árbol
+  vuelve a poner `trivy-fs` en rojo, y el self-test de §47.3 demuestra que ese rojo es alcanzable.
+
+Está declarado en el registro de §47.4 para el veredicto del rol **seguridad**. **No** se anotó en
+`docs/TECH_DEBT.md`: esa entrada la escribe el rol dueño a petición del techlead, y aquí el dueño es
+devops — si seguridad o techlead la quieren allí, el apunte lo pone devops.
+
+### 47.6 Qué queda para quién
+
+| Punto | Dueño | Estado |
+|---|---|---|
+| `dicer`/CVE-2022-24434 fuera del árbol (override de busboy) | devops | ✅ `npm ls dicer` vacío, `npm ci` reproducible |
+| Round-trip del arnés S3 intacto (SigV4 + anti-anónimo) | devops | ✅ 5/5 idéntico antes y después |
+| Self-test de `trivy-fs` + cableado en CI | devops | ✅ probado en verde **y en rojo** |
+| Registro de decisiones visible en cada run | devops | ✅ `security/README.md` → step summary |
+| Revisar el riesgo residual de `s3rver` sin mantenimiento | **seguridad** | ⏳ declarado en §47.5 / registro §47.4 |
+| Sustituir el stand-in por MinIO en la ruta nativa | devops | ⏳ bloqueado por egress (`dl.min.io` 403) — no es deuda de código |

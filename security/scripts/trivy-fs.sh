@@ -10,6 +10,11 @@
 #
 # Requiere: trivy en PATH (https://aquasecurity.github.io/trivy) o Docker:
 #   docker run --rm -v "$PWD:/src" aquasec/trivy fs /src ...
+#
+# ¿Y cómo sabes que este verde es un verde de verdad? Córrele el self-test:
+#   ./security/scripts/trivy-fs-selftest.sh
+# planta un lockfile vulnerable dentro del árbol y EXIGE que este mismo gate se
+# ponga rojo. Va en cada PR dentro del job `trivy-fs`. Ver DEVOPS_NOTES §47.3.
 # =============================================================================
 set -euo pipefail
 
