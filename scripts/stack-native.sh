@@ -948,6 +948,22 @@ case "${1:-up}" in
       exit 0
     fi
     start_backend
+    # -------------------------------------------------------------------------
+    # PARIDAD DEL DIAL `price_provider` (`I-PP5`) — D-PP-2, DEVOPS_NOTES §43.2.
+    # Va DESPUÉS de `start_backend` porque el dial vive en la BD y se opera por
+    # HTTP (`PUT /admin/settings`, auditado): `PRICE_PROVIDER` como env NO flipea
+    # nada (§23.8, verificado en `providerFor()`). Va ANTES del frontend y de los
+    # gates para que lo que se mida sea el barrido que se promueve.
+    # `--ensure` es la parte INTERINA (muere con D-PP-1); el `--assert` de los
+    # gates no lo es. Un fallo aquí NO tumba el stack: deja el rojo dicho.
+    # -------------------------------------------------------------------------
+    log "Paridad del proveedor de precio (I-PP5, §43.2)"
+    if ! "$SCRIPT_DIR/price-provider-parity.sh" --ensure \
+           --api-base "http://localhost:$BACKEND_PORT/api/v1"; then
+      warn "El dial NO quedó en el proveedor primario: este stack evalúa OTRO barrido.
+     Un E2E/DAST verde aquí NO es citable como gate del sistema que se promueve
+     (ARCHITECTURE §4.35a(d)). Arréglalo antes de declarar nada verde."
+    fi
     start_frontend
     # -------------------------------------------------------------------------
     # AUTOCOMPROBACIÓN DE CIERRE (SEC-OPS-1). `up` no AFIRMA que sirve el árbol de

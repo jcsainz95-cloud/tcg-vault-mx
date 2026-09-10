@@ -265,11 +265,34 @@ jobs:
         run: ./scripts/check-e2e-harness-gaps.sh
 
   # ---------------------------------------------------------------------------
+  # ⏳ DISPARADOR DE RETIRO de la medida interina `D-PP-2` (DEVOPS_NOTES §43.2).
+  #
+  # No verifica nada del producto: verifica que un APAÑO no sobreviva a su causa.
+  # Mientras el seed del código no sea el proveedor primario (`D-PP-1`, de backend),
+  # el aprovisionamiento de staging/CI fija el dial a mano y eso es legítimo. El día
+  # que `D-PP-1` mergee, ese cableado deja de tener motivo — y un parche provisional
+  # que nadie retira acaba convertido en la explicación de por qué «el seed no
+  # importa» (ARCHITECTURE §0-B.3 regla 9(b) / §4.35a(d)).
+  #
+  # POR QUÉ EN ROJO Y NO EN AVISO: el modo de fallo de esta clase de deuda es que
+  # nadie la mire. Un `::warning::` lo lee quien ya lo sabía. El rojo sale UNA vez,
+  # trae el comando exacto en el mensaje, y se apaga solo en cuanto el cableado se
+  # quita — no hay bandera que alguien tenga que acordarse de apagar.
+  # Estático y barato: lee dos ficheros, sin red y sin stack.
+  # ---------------------------------------------------------------------------
+  price-provider-interim-expiry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: La medida interina del dial de precio no puede sobrevivir a su causa
+        run: ./scripts/price-provider-parity.sh --check-expiry
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -281,6 +304,7 @@ jobs:
           echo "guarda proveedor de paga: ${{ needs.e2e-provider-guard.result }}"
           echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
           echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
+          echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -301,6 +325,13 @@ jobs:
           # decirlo; si ella misma se salta, el candado desaparece exactamente igual.
           if [ "${{ needs.e2e-harness-gaps.result }}" != "success" ]; then
             echo "::error::La guarda de huecos del arnés E2E no terminó en verde (resultado: ${{ needs.e2e-harness-gaps.result }}). Ver DEVOPS_NOTES §39."
+            exit 1
+          fi
+          # ⏳ Mismo criterio que las otras dos guardas: `skipped` NO es verde. Este
+          # rojo NO dice «el producto está roto», dice «hay un apaño de devops que ya
+          # cumplió y sigue puesto». El mensaje del script trae qué quitar y de dónde.
+          if [ "${{ needs.price-provider-interim-expiry.result }}" != "success" ]; then
+            echo "::error::La medida interina D-PP-2 caducó y sigue cableada (resultado: ${{ needs.price-provider-interim-expiry.result }}). Dueño: devops. Ver DEVOPS_NOTES §43.2."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

@@ -324,8 +324,63 @@ jobs:
   # Corre DESPUÉS de `staging-serves-head`: sin saber QUÉ binario hay enfrente, un
   # DAST verde no significa nada (SEC-OPS-1).
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # PARIDAD DEL PROVEEDOR DE PRECIO EN STAGING (`I-PP5`, API_CONTRACT §M10-PP).
+  #
+  # EL AGUJERO QUE CIERRA (medido el 2026-09-10, ARCHITECTURE §4.35a(d)): el DAST
+  # de abajo recorre superficies de DINERO (vitrina, cotizador) alimentadas por el
+  # barrido de precios de staging. Si ese barrido no es el que corre en producción,
+  # el gate aprueba un sistema distinto del que promueve — «un gate que aprueba
+  # otro sistema no es un gate: es una ceremonia».
+  #
+  # Es la hermana de `staging-serves-head`: aquella pregunta «¿qué BINARIO hay
+  # enfrente?», ésta pregunta «¿con qué DATO DE DINERO está alimentado?». Las dos
+  # tienen el mismo modo de fallo si faltan: un verde que no significa nada.
+  #
+  # ⚠️ POR QUÉ NO SE ARREGLA SOLO, aunque `D-PP-1` mergee: los seeds MATERIALIZAN
+  # la fila `ConfigSetting` (`upsert(... update:{})`), así que un entorno YA
+  # SEMBRADO —el staging hospedado lo está— conserva su valor viejo aunque el seed
+  # del código cambie (ARCHITECTURE §11.0, DEVOPS_NOTES §32.1). Por eso aquí se
+  # MIDE (`--assert`, solo lectura) en cada corrida y NO se escribe: staging es un
+  # entorno de verdad y su dial se mueve con un humano delante (`I-PP3`).
+  #
+  # SECRETS (los carga el humano — DEVOPS_NOTES §43.2):
+  #   STAGING_API_URL              (ya usado por staging-serves-head)
+  #   STAGING_ADMIN_EMAIL / STAGING_ADMIN_PASSWORD  (super_admin de STAGING, datos
+  #   sintéticos; ⛔ jamás credenciales de producción).
+  # Sin ellos NO se puede leer el dial (la ruta es @Roles(super_admin)): se AVISA,
+  # y si se está promoviendo a prod, FALLA — mismo criterio que §38.5.
+  # ---------------------------------------------------------------------------
+  staging-provider-parity:
+    needs: [staging-serves-head]
+    runs-on: ubuntu-latest
+    env:
+      STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+      ADMIN_EMAIL: ${{ secrets.STAGING_ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_PASSWORD }}
+      PROMOTING: ${{ github.event_name == 'workflow_run' || inputs.promote_to_prod == true }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: ¿Staging evalúa el MISMO proveedor de precio que producción?
+        run: |
+          if [ -z "$STAGING_API_URL" ] || [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+            MSG="Sin STAGING_API_URL + STAGING_ADMIN_EMAIL/PASSWORD no se puede LEER el dial price_provider de staging (GET /admin/settings es @Roles(super_admin))."
+            if [ "$PROMOTING" = "true" ]; then
+              echo "::error::$MSG El DAST de abajo escanearía precios de procedencia DESCONOCIDA. Se ABORTA la promoción (I-PP5). Carga los secrets — DEVOPS_NOTES §43.2."
+              exit 1
+            fi
+            echo "::warning::$MSG No bloquea porque no se promueve a prod, pero el DAST NO es citable como gate del barrido que se promueve."
+            echo "- ⚠️ paridad del proveedor de precio **no verificada** (faltan secrets)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Solo lectura. Un rojo aquí NO es «staging está roto»: es «staging no
+          # está midiendo lo mismo que producción», y el arreglo es un PUT auditado
+          # por el panel M10, no un cambio de código.
+          ./scripts/price-provider-parity.sh --assert --api-base "$STAGING_API_URL"
+          echo "- ✅ staging evalúa el proveedor de precio PRIMARIO (\`I-PP5\`)" >> "$GITHUB_STEP_SUMMARY"
+
   dast-staging:
-    needs: [deploy-staging-backend, deploy-staging-frontend, staging-serves-head]
+    needs: [deploy-staging-backend, deploy-staging-frontend, staging-serves-head, staging-provider-parity]
     runs-on: ubuntu-latest
     outputs:
       critical: ${{ steps.gate.outputs.critical }}

@@ -285,9 +285,10 @@ antes de usar esas funciones:
 
 > Los **diales de negocio** (tarifa MX$175, IVA 16%, topes MX$3,000/10,000, aportación 70%, markup de
 > venta, tarifa Stripe MX del gross-up, `PricingProvider` por tipo, **`PRICE_PROVIDER`/`price_provider`**
-> — proveedor del ingest masivo WS-A, `pokemonpricetracker | pokemontcg_io`, **se flipea por el panel M10,
-> no por env/Railway**; seed money-safe `pokemontcg_io`, ver §19) **no son env**: viven en la tabla
-> `ConfigSetting` (M10), editables sin redeploy. Los siembra `seed.sh`.
+> — proveedor del ingest masivo WS-A, **se flipea por el panel M10, no por env/Railway**; su enum, su
+> semántica y su **seed** viven **solo** en [`API_CONTRACT §M10-PP`](API_CONTRACT.md#M10-PP)
+> (`CANON: proveedor-de-precio`) y aquí **se citan, no se transcriben** — ver §43.1) **no son env**:
+> viven en la tabla `ConfigSetting` (M10), editables sin redeploy. Los siembra `seed.sh`.
 
 ---
 
@@ -629,6 +630,7 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. Desde §38: **garantiza que lo vivo es el árbol de ahora** (`up` comprueba-o-reinicia; `verify:head` lo verifica sin tocar nada). |
 | `scripts/assert-serving-head.sh` | **SEC-OPS-1.** ¿El binario VIVO es el commit que se va a auditar? Solo lee; exit 1 ruidoso si no. Datar el proceso sale del `uptime` de `/health` (`process.uptime()`), no de un fichero. Lo usan `stack-native.sh`, `e2e-real.yml` y `deploy.yml`. §38.2. |
 | `scripts/check-provenance-gate.sh` | Guarda **estática** de que el comprobador de procedencia **sigue cableado** en los tres puntos. Cableada en `ci.yml` (cada push/PR). Sin ella, borrar el arreglo de SEC-OPS-1 no daría un rojo: daría un verde que no significa nada. §38.5. |
+| `scripts/price-provider-parity.sh` | **Paridad del dial `price_provider` (`I-PP5`).** `--ensure` fija el dial del entorno por `PUT /admin/settings` (auditado; **solo local/staging**, ⛔ nunca por env ni por SQL) — **INTERINO, muere con `D-PP-1`**; `--assert` lo MIDE (gate del DAST, permanente); `--check-expiry` se pone rojo cuando el apaño caduca y sigue cableado. §43.2. |
 | `scripts/purge-synthetic-poc-data.sh` | Purga de los datos sembrados por el red team y los PoC (ARCHITECTURE §9 «purgar antes de cualquier snapshot»). **Simulacro por defecto**, `--apply` para borrar. Idempotente, transaccional, lista blanca de objetivo. **No lo llama nadie automáticamente.** §38.7. |
 
 > Los Dockerfiles viven en la **raíz** (no dentro de `backend/`/`frontend/`) para respetar la propiedad
@@ -1727,12 +1729,26 @@ El ingest convierte USD→MXN con el **FX del día**; el FX debe estar fresco **
 - `FxService.getCurrent()` **degrada** al último `FxRate` conocido si el `fx-refresh` no corrió, así que el
   orden es **suave** pero recomendado. Regla para quien edite los crons: mantener `price-ingest` **después**
   de las 00:00 CDMX (después del `fx-refresh`). Cualquier hora diurna CDMX cumple.
+- ⚠️ **DECISIÓN 2026-09-10 (`§43.3`) — los crons se QUEDAN en `0 0` y `0 12` UTC.** La norma de
+  `ARCHITECTURE §4.35(e)` punto 3 (barrido **tras la ventana de TCGCSV**, como el sellado) se declara
+  **cumplida en sustancia** —la corrida de las 00:00 UTC lee el fichero publicado ~20:00 UTC, **4 h antes**,
+  más margen que las 1,5 h del sellado— y **derogada en su literal de FX**, porque el FX de ESCRITURA es
+  **traza**: la conversión a pesos se **recalcula en la lectura** con el FX vivo (verificado en
+  `pricing.service.ts`). **Con su disparador de revisión escrito** — ver §43.3 antes de mover estos crons.
 
 ### 19.5 Flip a `pokemonpricetracker` — runbook money-safe con `POKEMONPRICETRACKER_MARKET_FORMAT` (CRÍTICO)
 
 Dos palancas gobiernan el proveedor de paga y **AMBAS** son necesarias para que escriba precios:
-- **Dial `PRICE_PROVIDER`** (`price_provider`, ConfigSetting M10, **no env**): selecciona el proveedor. Seed
-  **`pokemontcg_io`** (money-safe); se flipea a `pokemonpricetracker` **desde el panel M10** (sin redeploy).
+- **Dial `PRICE_PROVIDER`** (`price_provider`, ConfigSetting M10, **no env**): selecciona el proveedor. Se
+  flipea a `pokemonpricetracker` **desde el panel M10** (sin redeploy).
+  ⚠️ **Corrección v1.65 (`D-PP-2`, 2026-09-10).** Aquí decía *«seed `pokemontcg_io` (money-safe)»*, y **eso
+  ya no es cierto**: el seed vive en [`API_CONTRACT §M10-PP`](API_CONTRACT.md#M10-PP) y su norma es **`I-PP1`
+  — el SEED es el PRIMARIO**. El criterio que faltaba: *un seed money-safe debe ser **INERTE** (no escribe
+  dinero — como `sealed_price_source='off'`) **o el PRIMARIO validado**; nunca un **segundo escritor** con
+  semántica distinta*. El legacy **escribe** —y escribe aplanado—, así que no era el candado: era el riesgo
+  con el nombre del candado (razón entera en `ARCHITECTURE §4.35a(b)`; ver §43.1).
+  ⛔ **El valor no se transcribe aquí**: la divergencia nació justo de tener el literal repetido en cinco
+  sitios. Se cita `§M10-PP`. **Lo que este runbook opera es el VIGENTE, no el SEED** (`I-PP3`).
 - **Env `POKEMONPRICETRACKER_MARKET_FORMAT`** (Railway, **sin default**): moneda + unidad del `market`.
   **Candado fail-closed** — sin ella el proveedor de paga corre en **sample-only** (fetch + log de muestra,
   **persiste NADA**). Es lo que hace seguro el flip: aunque flipees el dial, el proveedor **no escribe** hasta
@@ -1844,7 +1860,12 @@ Enrutadas en su momento al rol **backend** (dueño de `backend/src/**`); WS-A la
 2. **`env.validation.ts`:** decidir la política de `POKEMONPRICETRACKER_API_KEY` en no-local — **required**
    solo si `PRICE_PROVIDER=pokemonpricetracker`, **o** opcional con degradación a "no escribe / stale +
    alerta". Money-safe: nunca fallback silencioso a otra fuente (§4.15h).
-3. **Seed del dial:** sembrar `PRICE_PROVIDER=pokemontcg_io` (money-safe) en `ConfigSetting`.
+3. **Seed del dial:** sembrar `price_provider` en `ConfigSetting`.
+   ⚠️ **Corregido v1.65 (`D-PP-2`, 2026-09-10):** esta línea pedía sembrar el **legacy** *«(money-safe)»*.
+   La norma es hoy la contraria — **`I-PP1`: el SEED es el PRIMARIO**, en
+   [`API_CONTRACT §M10-PP`](API_CONTRACT.md#M10-PP) — y el cambio del literal es **de backend**
+   (desviación **`D-PP-1`**, `ARCHITECTURE §9`), no de devops. **Este punto queda CERRADO como solicitud
+   de devops**: lo que devops sostiene mientras tanto es la **paridad de entornos** (§43.2). Ver §43.1.
 4. **Log de ejemplo (1ª corrida):** que `price-ingest-set` **logee un ejemplo** del payload crudo del
    proveedor + `finish`/`currency` detectados + `marketCents` + `priceMxnCents`, para la verificación
    USD-vs-MXN de §19.5. **Sin este log, la verificación de moneda es a ciegas** — es un requisito para poder
@@ -3129,6 +3150,25 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 
 ## 28. Runbook de ACTIVACIÓN en PROD — precio automático diario POR-ACABADO (P-47, dial `tcgcsv_singles`) — 2026-08-24
 
+> ⚠️⚠️ **ACTUALIZADO EL 2026-09-10 — LÉEME ANTES DE SEGUIR ESTOS PASOS (IMPORTANTE-1 de QA, `D-PP-2`).**
+> Este runbook se escribió el **2026-08-24**, **antes de la fusión de la curva v2**. Desde entonces el
+> barrido hace **dos cosas más** que la versión original no menciona —**reprecia lo ya publicado** y
+> **auto-publica piezas**— y su verificación **no cruzaba con `P-53`** (disco/WAL). Quien lo siguiera al
+> pie de la letra **no sabría qué mirar después del flip**. Se corrigió **§28.4(e)**, que ahora tiene
+> **seis** comprobaciones en vez de tres. Lo demás se conserva como **registro fechado** de una activación
+> consumada (`ARCHITECTURE §4.35a(c)`).
+>
+> ⚠️ **Dos avisos de lectura, para que nadie ejecute un literal caduco:**
+> 1. **Todo «seed money-safe = legacy» de esta sección está SUPERSEDIDO** por
+>    [`API_CONTRACT §M10-PP`](API_CONTRACT.md#M10-PP) — **`I-PP1`: el SEED es el PRIMARIO** (§43.1). Este
+>    runbook **opera el VIGENTE** (`I-PP3`), que es **otro hecho**: por eso el **procedimiento** sigue
+>    siendo válido aunque el adjetivo ya no lo sea. **§28.6 se conserva ÍNTEGRO y sin tocar** por decisión
+>    de `D-PP-2`; su paréntesis sobre el seed se lee bajo esta nota.
+> 2. 🔴 **El literal del body de los `PUT` de §28.2, §28.4(c) y §28.6 estaba MAL** — ver **§43.4**: la
+>    clave es **`priceProvider`** (camelCase), y `price_provider` cae en **`422 VALIDATION_ERROR`**.
+>    Corregido en §28.2 y §28.4(c). **En §28.6 NO se toca ni una letra** (`D-PP-2` lo congela): al
+>    ejecutar su rollback, usa la clave de §43.4.
+>
 > **Autorización:** el humano (super_admin, dueño) APROBÓ activar en **PRODUCCIÓN** el precio automático
 > diario por-acabado (P-47). **Gate completo — triple veredicto APROBADO** sobre la rama
 > `fix/variant-composition-regression`: **QA aprobado + techlead APROBADO-CON-DEUDA + seguridad CERRADA**
@@ -3158,13 +3198,24 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 ### 28.2 Mecanismo EXACTO del flip (verificado en código, NO asumido)
 
 - **El dial `PRICE_PROVIDER` (`price_provider`) es un ConfigSetting en BD, NO un env var.**
-  - Seed: `pokemontcg_io` (`backend/src/modules/settings/settings.constants.ts:94`, `DEFAULTS[SettingKey.PRICE_PROVIDER]`).
-  - Valores válidos: `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']` (`settings.constants.ts:203`, `PRICE_PROVIDER_VALUES`; validador en `:490` → 422 si otro valor).
-  - Lectura en runtime: `PriceIngestService.providerFor()` (`backend/src/modules/pricing/price-ingest.service.ts:158-174`) hace `this.settings.getString(SettingKey.PRICE_PROVIDER)` y elige el `BulkPriceProvider` cuyo `.source` casa. Con `tcgcsv_singles` selecciona `TcgcsvSinglesBulkPriceProvider`. **Surte efecto en la siguiente corrida del job, SIN redeploy.**
+  - **Seed:** ⚠️ **corregido v1.65** — aquí decía *«`pokemontcg_io`»* con el sentido de candado money-safe.
+    El seed **no se afirma en este documento**: su norma es **`I-PP1`** en
+    [`API_CONTRACT §M10-PP`](API_CONTRACT.md#M10-PP) (*el SEED es el PRIMARIO*), y **el literal que corre se
+    LEE del artefacto** — `DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]` en
+    `backend/src/modules/settings/settings.constants.ts`, no de esta línea (§0-B.3 regla 2). Ver §43.1.
+  - Valores válidos: **el enum vive en `§M10-PP`**; en el código, `PRICE_PROVIDER_VALUES` +
+    `SETTING_VALIDATORS[SettingKey.PRICE_PROVIDER]` (`settings.constants.ts`) → **422** si otro valor.
+    *(Las referencias `:94` / `:203` / `:490` de la versión original ya no apuntan a donde decían: se citan
+    por SÍMBOLO a propósito, que es lo único que no se desplaza con cada edición.)*
+  - Lectura en runtime: `PriceIngestService.providerFor()` (`backend/src/modules/pricing/price-ingest.service.ts`) hace `this.settings.getString(SettingKey.PRICE_PROVIDER)` y elige el `BulkPriceProvider` cuyo `.source` casa. Con `tcgcsv_singles` selecciona `TcgcsvSinglesBulkPriceProvider`. **Surte efecto en la siguiente corrida del job, SIN redeploy.** *(Y es la razón exacta por la que `PRICE_PROVIDER` como env no flipea nada — §23.8.)*
 - **Flip = un solo request HTTP autenticado (super_admin), auditado:**
-  - **`PUT https://<API_BASE>/api/v1/admin/settings`** (`SettingsController.updateSettings`, `@Roles(super_admin)`, `settings.controller.ts:26`). Registra `settings.update` en el audit log (before/after).
-  - **Body:** `{ "price_provider": "tcgcsv_singles" }`
-  - Alternativa equivalente: el **panel de admin M10** (misma ruta por detrás).
+  - **`PUT https://<API_BASE>/api/v1/admin/settings`** (`SettingsController.updateSettings`, `@Roles(super_admin)`). Registra `settings.update` en el audit log (before/after), **dentro de la misma transacción** que la escritura.
+  - **Body:** `{ "priceProvider": "tcgcsv_singles" }` — 🔴 **camelCase, corregido el 2026-09-10.** La versión
+    original decía `{ "price_provider": … }`, que el backend rechaza con **`422 VALIDATION_ERROR`**
+    (`unknown setting key`): el body se valida contra `SETTING_DTO_MAP`, que solo declara `priceProvider`.
+    Verificado leyendo `SettingsService.update()`. Detalle en **§43.4**.
+  - Alternativa equivalente: el **panel de admin M10** (misma ruta por detrás) — **y es la vía recomendada**,
+    porque no depende de acertar la clave del body.
 - **`tcgcsv_singles` NO necesita env nuevos:** el provider usa `TcgcsvCatalogClient` (host FIJO
   `https://tcgcsv.com/tcgplayer`, **sin API key**, anti-SSRF heredado). Único requisito operativo: **egress
   a `tcgcsv.com` desde Railway**, que **ya está en uso** por el job del sellado (§19/§21). No hay
@@ -3225,9 +3276,11 @@ Estado de ramas (verificado con git, 2026-08-24):
       (servicio `backend` → Variables). Si estuviera en `true`, ponerla `false` y redeploy. *(Verificado
       2026-08-24: no está en `.env` local; el default de código es `false`.)*
   12. **Flip:** `PUT https://<API_BASE>/api/v1/admin/settings` con `Authorization: Bearer <JWT super_admin>`,
-      `Content-Type: application/json`, body `{ "price_provider": "tcgcsv_singles" }`. Respuesta = el DTO de
-      settings ya con `price_provider: "tcgcsv_singles"`. Queda auditado (`settings.update`).
-  13. Verificar: `GET /api/v1/admin/settings` → `price_provider` = `tcgcsv_singles`.
+      `Content-Type: application/json`, body **`{ "priceProvider": "tcgcsv_singles" }`** (🔴 **camelCase** —
+      corregido 2026-09-10; con `price_provider` el backend responde **422** `unknown setting key`, §43.4).
+      Respuesta = el DTO de settings ya con `priceProvider: "tcgcsv_singles"`. Queda auditado
+      (`settings.update`).
+  13. Verificar: `GET /api/v1/admin/settings` → `priceProvider` = `tcgcsv_singles`.
 
 **(d) Primer barrido `tcgcsv_singles` + orden del scheduler** — *[HUMANO/orquestador con JWT super_admin]*
   - **Orden natural del scheduler (sin intervención):** `fx-refresh` (06:00 UTC) → `price-ingest` **2×/día
@@ -3244,6 +3297,12 @@ Estado de ramas (verificado con git, 2026-08-24):
     Repetible/idempotente (upsert por día).
 
 **(e) Verificación post-activación** — *[HUMANO/quien tenga egress a prod]*
+
+> ⚠️ **AMPLIADA EL 2026-09-10 (IMPORTANTE-1 de QA, `D-PP-2`).** Las tres comprobaciones originales (1–3)
+> miran **el precio**. Están bien y se conservan. Lo que faltaba es que, desde la **fusión de la curva v2**,
+> el barrido **hace dos cosas más** y **cuesta disco**: hoy no basta con mirar que la reverse tenga su
+> precio. **4, 5 y 6 son obligatorias**, y las tres se miran **en las 24 h siguientes al flip**, no una
+> sola vez a los cinco minutos: la primera corrida programada es la que enseña el régimen estable.
   1. **Precio por-acabado DISTINTO por acabado:** elegir un set con reverse/holo (forzarlo con el `--force`
      del paso (d) si hace falta) y consultar el catálogo/cotizador o la BD:
      ```sql
@@ -3262,6 +3321,55 @@ Estado de ramas (verificado con git, 2026-08-24):
      la capa de lectura (v1.47 §4.27f-3).
   3. Frontend: la carta muestra los colores por-acabado (reverse rojo / holofoil azul, DS §16.6) con precios
      coherentes.
+  4. 🔴 **LA COLA DE REVISIÓN, porque el barrido REPRECIA LO YA PUBLICADO.** Tras cada corrida,
+     `reconcilePublishedPrices` re-deriva el precio de venta de **todas** las piezas `listed` del set (barre
+     el **set completo**, no solo lo que trajo fila: el caso feo es el acabado que el proveedor **dejó de
+     reportar**) y **abre o cierra** entradas de la cola. ⛔ **No cambia el `status`**: la pieza sigue
+     `listed`; **la señal es la entrada en la cola**, y si nadie la mira no hay ninguna otra alarma.
+     ```
+     GET /api/v1/admin/pricing/pending?reason=premium_at_floor    # y ?reason=no_market
+     ```
+     **Qué es normal y qué no:** `no_market` **la cura sola** la siguiente corrida; **`premium_at_floor`
+     necesita que el dueño mire** (una *chase* aterrizando en el piso solo puede significar dato de mercado
+     malo, o piso mal calibrado). **Criterio de lectura:** compara `counts.premium_at_floor` **antes y
+     después** del flip. Si sube y `no_market` se queda plano, **no es el flip: es el piso** (§4.36.5c).
+     ⚠️ Esto **no existía** cuando se escribió este runbook: llegó con la curva v2.
+  5. 🔴 **LAS PIEZAS QUE EL BARRIDO PUBLICA SOLO** (`triggerPublishForVariants`, commit `debb0c3`,
+     2026-09-01). El barrido, tras repreciar, **re-evalúa para publicación** las variantes que acaba de
+     escribir: una pieza `in_stock` que ya cumple sus guardas **pasa a `listed` sin que nadie pulse nada**.
+     Es deliberado (`ARCHITECTURE §4.39m`, disparador (c) de BL-25) y es **dinero visible al cliente**, así que se verifica:
+     ```
+     # En los logs del backend, tras la primera corrida post-flip:
+     #   "price-ingest → auto-publicadas N pieza(s) tras repreciar M variante(s)"
+     ```
+     y se contrasta con el inventario (`GET /api/v1/admin/inventory/items?status=listed&pageSize=1` →
+     el `total` de la paginación) **antes/después**.
+     **Qué se está comprobando de verdad:** que el salto de piezas publicadas sea **explicable** por el
+     inventario que estaba esperando precio — no una avalancha. Si no cuadra, **la palanca es el dial**
+     (§28.6: el barrido deja de correr con el proveedor nuevo), no despublicar a mano.
+     ⚠️ **Aviso de gate, no de operación:** el triple veredicto de §28.1 es del **2026-08-24** y `debb0c3`
+     es **posterior** ⇒ **este comportamiento no está cubierto por aquel veredicto**. Decidir si se re-gatea
+     **no es de devops** (está enrutado al humano/orquestador en `PENDIENTES.md`); lo que sí es de devops es
+     que quien ejecute este runbook **sepa que ocurre**.
+  6. 🔴 **DISCO Y WAL — `P-53`, que es el riesgo VIVO de este barrido.** El barrido escribe **una fila por
+     producto y por día, se muevan o no los precios**: medido en producción, **28,559 filas/día ≈ 13 MB/día**
+     (el 2026-08-28 el ritmo saltó ×14 y **llenó el volumen de Postgres una vez**, alerta de Railway al 77 %).
+     **Ninguna de las verificaciones originales lo mira, y es la que puede tumbar la plataforma entera**: con
+     el disco lleno Postgres **deja de aceptar escrituras** (sin pedidos, sin altas, sin capturas).
+     ```sql
+     -- ritmo real de los últimos días (esto es lo que se proyecta, no el tamaño de hoy)
+     SELECT "capturedDate", count(*) FROM "PriceReference" GROUP BY 1 ORDER BY 1 DESC LIMIT 7;
+     -- peso de la tabla y de la base
+     SELECT pg_size_pretty(pg_total_relation_size('"PriceReference"'));
+     ```
+     Y en la consola de Railway: `du -sh /var/lib/postgresql/data/pgdata/*` (mirar **`pg_wal`** aparte:
+     llegó a ser **46 %** de lo ocupado, con **cero** replication slots).
+     **Criterio de corte:** con el ritmo medido, **días de margen = (libre − 100 MB de holgura para compactar) ÷ 13 MB**.
+     Si el margen baja de **30 días**, es una acción, no una nota: ampliar volumen (mitigación ya aplicada
+     una vez), **bajar `max_wal_size`** (devops, exige reinicio con respaldo y ventana) y **escribir menos**
+     (palanca de fondo: solo escribir ante cambio — **arquitecto → backend**, money-crítico, triple
+     veredicto). ⚠️ **Una retención por antigüedad NO resuelve esto**: el problema es el **ritmo diario**,
+     no la basura vieja. Detalle en `PENDIENTES.md` › **P-53**.
 
 ### 28.5 Qué requiere al HUMANO vs. qué preparó/ejecuta devops
 
@@ -8078,3 +8186,265 @@ Cuidado con dos trampas al repetirlo: (1) `grep -rh ... backend` **sí entra en 
 ~200 falsos positivos (`BROWSERSLIST`, `PRISMA_*`, `AWS_*`…) — hay que excluir el directorio, no filtrar
 la salida; (2) contar solo `process.env` deja fuera la mayoría de las variables, porque el grueso del
 backend lee por `ConfigService`.
+
+---
+
+## 43. `D-PP-2` — el seed que llamábamos «money-safe» era el que aplana, la paridad de entornos y el orden del scheduler (2026-09-10)
+
+> **Origen:** dictamen del arquitecto **v1.65** — `API_CONTRACT §M10-PP` (fuente única del dial
+> `price_provider`, marca `CANON: proveedor-de-precio`), razón entera en `ARCHITECTURE §4.35a`, desviaciones
+> **`D-PP-1`** (backend) y **`D-PP-2`** (devops) en `ARCHITECTURE §9`. Se cierran además dos hallazgos de QA
+> del 2026-09-10: **IMPORTANTE-1** (el runbook §28 es anterior a la curva v2) e **IMPORTANTE-2** (orden del
+> scheduler sin decisión).
+>
+> **Alcance devops, y nada más:** prosa de este documento, `.env.example`, `scripts/`, `.github/workflows/`.
+> ⛔ **Ni una línea de `backend/` ni de `frontend/`.** El cambio del **seed** es `D-PP-1` y **es de backend**;
+> aquí no se toca ni se adelanta.
+
+### 43.1 La prosa que estaba mal, y por qué se sustituye por una CITA y no por otro literal
+
+**Qué decía este documento —en cuatro sitios— y su gemelo de `.env.example`:** que el seed del dial era el
+proveedor **legacy** y que eso era el **candado money-safe**. **Ya no es cierto**, y el criterio que faltaba es de `ARCHITECTURE §4.35a(b)`:
+
+> **Un seed money-safe debe ser INERTE —no escribe dinero— o el PRIMARIO validado. ⛔ Nunca un SEGUNDO
+> escritor con semántica distinta del primario.**
+
+`sealed_price_source='off'` **sí** es un candado: con `off` el job es **no-op** y no se escribe nada. El
+proveedor legacy **no es inerte**: corre el barrido y **escribe** `PriceReference` con **un solo `market`
+por carta**, invariante al printing ⇒ `normal`, `reverse_holo` y `holofoil` reciben **el mismo precio**. Por
+`PROJECT §N.0` (*precio de menos = carta perdida, irrecuperable*) ése es **el lado malo del sesgo de error**.
+**El seed legacy no era el candado: era el riesgo con el nombre del candado.**
+
+**Dónde vive ahora la verdad, y por qué no se copia aquí.** Enum, semántica, **seed** e invariantes
+`I-PP1`…`I-PP5` viven **solo** en [`API_CONTRACT §M10-PP`](API_CONTRACT.md#M10-PP). Este documento **cita**.
+*El defecto de fondo no fue elegir mal el valor: fue que «el provider es X» son **TRES** afirmaciones con
+dueños distintos —**PRIMARIO** (norma), **SEED** (con qué nace una BD fresca) y **VIGENTE** (la fila
+`ConfigSetting` de UN entorno)— y el proyecto solo tenía vocabulario para una.* Por eso cinco textos podían
+ser todos verdaderos y contradecirse a la vez; y por eso **volver a escribir el literal aquí sería repetir el
+mecanismo del defecto**, no arreglarlo.
+
+| Sitio | Qué decía | Qué dice ahora |
+|---|---|---|
+| **§4** (tabla de variables) | *«seed money-safe `pokemontcg_io`»* | cita a `§M10-PP`; el seed no se afirma aquí |
+| **§19.5** (flip al proveedor de paga) | *«Seed `pokemontcg_io` (money-safe)»* | cita a `I-PP1` + por qué el adjetivo era falso |
+| **§19.10 punto 3** (solicitud a backend) | *«sembrar `PRICE_PROVIDER=pokemontcg_io` (money-safe)»* | **CERRADA** como solicitud de devops; el literal lo mueve `D-PP-1` (backend) |
+| **§28.2** (mecanismo del flip) | *«Seed: `pokemontcg_io` (`…:94`)»* | el seed **se lee del artefacto**, no de este párrafo (§0-B.3 regla 2) |
+| **`.env.example`** (bloque del dial) | *«Seed money-safe = `pokemontcg_io`»* | cita a `§M10-PP`/`I-PP1` |
+
+⛔ **`§28.6` NO SE TOCA — y conviene decir por qué, porque parece una omisión.** El rollback de §28.6 **opera
+el VIGENTE** (`I-PP3`: `PUT /admin/settings`, `super_admin`, auditado, sin redeploy), que es **otro hecho**
+que el seed. **La palanca sigue siendo válida entera**, así que se conserva **íntegra y sin editar** por
+decisión de `D-PP-2`. Su paréntesis *«el seed … money-safe es `pokemontcg_io`»* queda **superseded** por
+`I-PP1` — leerlo bajo el aviso del encabezado de §28. *Un runbook de flip nunca fue argumento sobre el seed:
+describe cómo se MUEVE el dial, no con qué NACE un entorno.*
+
+⚠️ **Lo que este documento NO va a afirmar nunca más** (`I-PP2`): *«el valor vigente es X»* o *«producción
+corre X»*. El vigente es **por entorno** y **se lee** (`GET /api/v1/admin/settings`, panel M10, o la fila
+`ConfigSetting`). Lo que sí se registra es un **evento fechado**: *el 2026-08-24 se ejecutó el runbook de
+activación de §28, y el 2026-09-10 el dueño leyó el dial en el panel M10 de producción*. Eso es historial,
+no una afirmación sobre el ahora.
+
+### 43.2 ⏳ MEDIDA INTERINA — paridad del proveedor en los entornos que se aprovisionan solos
+
+**El agujero, medido, no supuesto** (`ARCHITECTURE §4.35a(d)`): mientras el seed del código no sea el
+primario, **toda BD fresca —CI, dev, staging— arranca en el proveedor legacy**. Consecuencia: **la suite
+E2E, el smoke por-stream y el DAST contra staging ejercitan un barrido distinto del que corre en
+producción.** *Un gate que aprueba un sistema distinto del que se promueve no es un gate: es una ceremonia.*
+
+**Lo que se rechazó, y por qué.** La alternativa evaluada —*dejar el seed legacy y volver el flip un paso
+obligatorio del arranque de staging*— **está rechazada por el arquitecto**: es el mismo mecanismo de
+divergencia con un humano en medio, y **su modo de fallo no produce ningún error**, produce **precios más
+bajos en silencio**. *Si la paridad hay que recordarla, no es una paridad.* Por eso lo de abajo **no es un
+paso de runbook**: es código que corre solo en el aprovisionamiento y un gate que lo mide.
+
+**El mecanismo:** `scripts/price-provider-parity.sh` (nuevo, propiedad devops).
+
+| Modo | Qué hace | Dónde corre |
+|---|---|---|
+| `--ensure` | Lee el dial y, si no es el primario, lo fija con `PUT /admin/settings` (**validado + auditado**, sin redeploy). **INTERINO.** | `scripts/seed-synthetic.sh`, `scripts/stack-native.sh up`, `.github/workflows/e2e-real.yml` |
+| `--assert` | **Solo lectura.** `0` con paridad, `20` sin ella. **PERMANENTE** (candado `I-PP5`). | `.github/workflows/deploy.yml` › job `staging-provider-parity` (**bloquea** el DAST y la promoción) · `.github/workflows/security-scheduled.yml` › DAST semanal (**informativo**: anota en el resumen sobre qué barrido corrió) |
+| `--check-expiry` | ⏳ Se pone **rojo** cuando `D-PP-1` aterrizó **y** el cableado interino sigue puesto. | `.github/workflows/ci.yml` › job `price-provider-interim-expiry` (cada push/PR) |
+
+**⛔ Lo que NO se hizo, y es la trampa que había que esquivar:** **fijar una variable de entorno**.
+`PRICE_PROVIDER` como env **no flipea nada** (§23.8, verificado otra vez en este pase). Si esta medida
+hubiera pasado por env, no habría funcionado **y este documento estaría mintiendo**. Por eso el script habla
+HTTP contra la puerta normal, y **⛔ jamás `UPDATE` directo a la BD** (§32.3: sin auditoría, sin validación).
+
+```bash
+# Local / staging de compose (lo corre solo `seed-synthetic.sh`; a mano si hace falta):
+./scripts/price-provider-parity.sh --ensure --api-base http://localhost:3011/api/v1
+# Stack nativo (lo corre solo `stack-native.sh up`):
+./scripts/price-provider-parity.sh --ensure --api-base http://localhost:3099/api/v1
+# Un entorno de verdad (staging hospedado) — SOLO LECTURA, nunca escribe:
+ADMIN_EMAIL=… ADMIN_PASSWORD=… \
+  ./scripts/price-provider-parity.sh --assert --api-base https://<api-staging>/api/v1
+```
+
+> **Guarda dura:** `--ensure` **se niega** contra cualquier host que no sea local o de staging. Un entorno de
+> verdad mueve su dial con un humano delante (`I-PP3`), no con un script de arranque. **Producción no se
+> toca desde aquí, ni por accidente.**
+
+#### 🔴 CONDICIÓN DE RETIRO — exacta, y verificada por máquina
+
+**Se retira cuando `DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]` (en
+`backend/src/modules/settings/settings.constants.ts`) sea el proveedor PRIMARIO**, es decir **con el merge de
+`D-PP-1`**. Ese día la paridad de una BD **fresca** se cumple **por construcción** (`I-PP1`/`I-PP5`) y el
+puente sobra.
+
+**Cómo se entera el equipo sin que nadie se acuerde:** el job `price-provider-interim-expiry` de `ci.yml`
+corre `--check-expiry` en **cada push y PR** y **se pone rojo** el día del merge, con la lista exacta de los
+archivos de los que hay que quitar la llamada a `--ensure`. **El rojo se apaga solo** en cuanto se quitan;
+no hay bandera que alguien tenga que acordarse de apagar. *(§0-B.3 regla 9(b): un parche provisional sobre
+una ambigüedad no es provisional, porque nadie vuelve a quitarlo. Aquí lo quita un rojo.)*
+
+**Al retirarla:** quitar las tres llamadas a `--ensure`, marcar este §43.2 como **RETIRADA con la fecha**, y
+**⛔ NO borrar los `--assert`**: ver el punto siguiente.
+
+> ⚠️ **Estado medido al escribir esto (2026-09-10, 
+> rama `claude/tcg-hunt-orchestration-ai2vma`):** el cambio de `D-PP-1` **ya está en el árbol de trabajo, sin
+> commitear** (backend lo estaba ejecutando en paralelo a este pase). ⇒ **En cuanto backend comitee, el job
+> `price-provider-interim-expiry` se pondrá rojo, y eso es exactamente lo esperado, no un fallo del pase de
+> backend.** El rojo es de **devops** y se apaga quitando las tres llamadas a `--ensure`. *Se deja escrito
+> para que nadie lo diagnostique dos veces ni lo silencie por no entenderlo.*
+
+#### ⚠️ Lo que el merge de `D-PP-1` **NO** arregla (medido en este pase, y por eso el `--assert` se queda)
+
+**Los seeds MATERIALIZAN la fila.** `backend/prisma/seed.ts` y `backend/prisma/seed-e2e.ts` hacen
+`configSetting.upsert({ create: …, update: {} })` **para todos los diales** ⇒ un entorno **ya sembrado**
+conserva su fila **vieja** aunque el seed del código cambie. Es exactamente la regla de `ARCHITECTURE §11.0`
+/ §32.1 de este documento: **los seeds nuevos no se propagan solos a entornos ya sembrados.**
+
+Consecuencia práctica, dicha sin adornos: **el staging hospedado y cualquier volumen de compose que nadie
+haya borrado con `down -v` seguirán en el proveedor viejo después de `D-PP-1`**, hasta que alguien haga el
+`PUT`. Por eso:
+
+1. El **`--assert` del gate de deploy no es interino**: es lo que impide que el DAST vuelva a certificar un
+   barrido que no es el que se promueve, y **lo mide en cada corrida** en vez de confiar en la memoria.
+2. Cuando `D-PP-1` se despliegue, el staging hospedado necesita **un paso de propagación de una sola vez**,
+   con el mismo criterio de §32.1–§32.3: **`PUT /admin/settings` por el panel M10** (auditado, validado),
+   ⛔ **nunca `UPDATE` directo**. Si el dial de ese entorno estuviera en un valor que **no** es ni el viejo
+   ni el primario, **la decisión no es de devops** (§32.4): se pregunta.
+
+#### Qué necesita el humano (bloqueo declarado)
+
+Para que el `--assert` del gate de deploy **pueda medir** el staging hospedado hacen falta **dos secrets
+nuevos** en GitHub (más `STAGING_API_URL`, que ya se usa en §38.5):
+
+| Secret | Qué es |
+|---|---|
+| `STAGING_ADMIN_EMAIL` | correo del `super_admin` **de STAGING** (datos sintéticos) |
+| `STAGING_ADMIN_PASSWORD` | su contraseña |
+
+⛔ **Nunca credenciales de producción**, y ⛔ nunca en el repo. Sin ellas el job **avisa** y, **si se está
+promoviendo a prod, FALLA** — mismo criterio que `staging-serves-head` (§38.5): *un DAST que no puede decir
+sobre qué precios corrió no puede ser la puerta de prod*.
+
+### 43.3 🔴 DECISIÓN — el orden del scheduler (IMPORTANTE-2 de QA): **los crons NO se mueven; la norma se cumple en sustancia y su literal de FX se DEROGA, con motivo escrito**
+
+**El hallazgo:** `ARCHITECTURE §4.35(e)` (reparto, punto 3 de **devops**) pide `fx-refresh` → **barrido de singles TCGCSV** *(tras la
+ventana de actualización de TCGCSV, «como `sealed-price-ingest`, ~20:00 UTC»)* → `portfolio-snapshot`. Hoy:
+
+| Job | Cron (UTC) | Ajustable |
+|---|---|---|
+| `fx-refresh` | `0 6 * * *` | ⛔ **no** (hardcodeado en backend) |
+| `price-ingest` #1 | `0 0 * * *` | ✅ `PRICE_INGEST_CRON_1` |
+| `price-ingest` #2 | `0 12 * * *` | ✅ `PRICE_INGEST_CRON_2` |
+| `sealed-price-ingest` (el patrón a copiar) | `30 21 * * *` | ✅ `SEALED_PRICE_INGEST_CRON` |
+| `portfolio-snapshot` | `0 7 * * *` | ⛔ no |
+
+**DECISIÓN (devops, 2026-09-10): los crons se QUEDAN en `0 0` y `0 12` UTC.** No es «no lo miré»: es una
+decisión con tres hechos detrás, y con su propio disparador de revisión.
+
+1. **La flecha del FX es COSMÉTICA en este barrido, y está verificada en el código —no repetida de QA.**
+   `PricingService` re-calcula la conversión a pesos **en la LECTURA** con el FX vivo cuando la fila tiene
+   `priceUsdCents` y no es override manual (el bloque de recálculo de `pricing.service.ts`, ~líneas 709-724).
+   El FX del momento de ESCRITURA sobrevive solo como **traza** (`fxRate`, `fxBufferPct`, `priceMxnCents`).
+   ⇒ mover el barrido detrás de `fx-refresh` **no cambia ni un centavo de lo que ve el cliente**. Es la misma
+   medición que hizo QA («impacto acotado»), hecha contra el artefacto.
+   ⚠️ Y `FxService.getCurrent()` **degrada** al último `FxRate` conocido: el orden ya era **suave**, no duro.
+2. **La flecha que SÍ tiene contenido —correr después de la ventana de TCGCSV— YA SE CUMPLE, y con más
+   margen que el patrón que se me pedía copiar.** La ventana que el proyecto declara para TCGCSV es
+   **~20:00 UTC** (`ARCHITECTURE §4.19d`, citada en el comentario del `sealed-price-ingest`); la corrida de
+   **`00:00 UTC` consume ese fichero 4 h después**. El sellado, que es el patrón, corre a las **21:30 UTC**:
+   **1,5 h**. *Copiar el patrón por su hora concreta habría EMPEORADO el margen que el patrón existe para
+   dar.* ⚠️ **La ventana de ~20:00 UTC es un dato del proveedor que este proyecto no ha medido** — por eso
+   «TCGCSV mueve su ventana» está en el disparador de revisión de abajo.
+3. **La segunda corrida (12:00 UTC) es la PASADA DE REPARACIÓN del día, y no cuesta disco.** Lee el mismo
+   fichero diario, pero el upsert es **por (carta, acabado, día)** ⇒ **no añade filas** (`P-53` no empeora) y
+   **repara** el día si la corrida de 00:00 falló a medias o si entraron sets a media jornada.
+
+**Y la razón de peso para NO moverlo, que es nueva desde que se escribió la norma:** el barrido **ya no solo
+escribe precios** — **reprecia lo publicado y auto-publica piezas** (§28.4(e) puntos 4 y 5). Llevarlo a la
+ventana 20:00–07:00 UTC lo metería en **las 16:00 CDMX**, o sea **precios y publicaciones moviéndose en la
+tarde de un día hábil**, y encima costaría la pasada de reparación. **Sería mover un efecto sobre el cliente
+para ganar una flecha que ya no mueve dinero.**
+
+⇒ **La norma `§4.35(e)` punto 3 se declara CUMPLIDA EN SUSTANCIA (arrow de TCGCSV) y DEROGADA EN SU LITERAL
+(arrow de FX dentro del mismo día UTC), por devops, el 2026-09-10.** Queda **decidido y escrito**, que es lo
+que faltaba. ⚠️ **La derogación no es de la norma para todos los jobs**: `sealed-price-ingest` **sí** depende
+de su ventana y no se toca.
+
+**🔔 DISPARADOR DE REVISIÓN (para que esta decisión no sea eterna por inercia).** Vuelve a abrirse **sola**
+si pasa cualquiera de estas tres, y entonces el barrido se mueve a la ventana `22:00 UTC`:
+
+- el recálculo de MXN en la lectura **desaparece** (el precio pasa a servirse desde `priceMxnCents`
+  congelado) ⇒ el FX de escritura deja de ser cosmético **y pasa a ser dinero**;
+- TCGCSV **mueve su ventana** de publicación, o se mide que el fichero de las 00:00 UTC llega incompleto;
+- se decide **una sola corrida diaria** (p. ej. por coste de egress): entonces la única corrida **debe** ser
+  la posterior a la ventana, porque ya no habría pasada de reparación que la cubra.
+
+**Cómo se cambiaría, si toca** (env, sin redeploy de código; siempre en **UTC**, y ⛔ **nunca cadena vacía**
+—§19.3—): `PRICE_INGEST_CRON_1` / `PRICE_INGEST_CRON_2` en **Railway → `backend` → Variables**.
+
+### 43.4 Dos trampas con el mismo nombre — la env que no flipea, y la clave del body que devuelve 422
+
+**(a) `PRICE_PROVIDER` como variable de entorno NO flipea el proveedor.** Ya estaba dicho en **§23.8** y se
+**re-verificó en este pase** antes de escribir la medida de §43.2: `PriceIngestService.providerFor()` lee
+`settings.getString(SettingKey.PRICE_PROVIDER)` —la fila `ConfigSetting`— y el **único** consumidor de
+`process.env.PRICE_PROVIDER` es `backend/src/config/env.validation.ts` (*hint de arranque*: si vale
+`pokemonpricetracker`, exige la key del proveedor de paga y falla rápido). **La autoridad en runtime es el
+ConfigSetting.**
+
+**(b) 🔴 EL BODY DEL `PUT` LLEVA `priceProvider`, NO `price_provider`** — hallazgo de este pase, **verificado
+leyendo el código**, no ejecutado contra prod. `SettingsService.update()` valida cada clave del body contra
+`SETTING_DTO_MAP` (`settings.constants.ts`), que declara **`priceProvider`** (camelCase, como todo §M10);
+una clave que no esté ahí cae en **`422 VALIDATION_ERROR` › `unknown setting key`** y **no se escribe nada**.
+
+```bash
+# ✅ correcto
+curl -X PUT "$API_BASE/admin/settings" -H "Authorization: Bearer $JWT" \
+     -H 'Content-Type: application/json' -d '{"priceProvider":"tcgcsv_singles"}'
+# ⛔ 422 — la clave no existe en el DTO
+#    -d '{"price_provider":"tcgcsv_singles"}'
+```
+
+**Dónde estaba el literal malo:** **§28.2**, **§28.4(c) paso 12** (ambos **corregidos**) y **§28.6**, que por
+decisión de `D-PP-2` **se conserva sin tocar** ⇒ **al ejecutar el rollback de §28.6, usa la clave de aquí**.
+*Money-safe por accidente: la clave mala **no escribe** (422), así que nadie flipeó nada sin querer. Pero
+habría hecho fallar un rollback en el peor momento posible — el momento en que se necesita un rollback.*
+**El panel M10 no tiene este problema** (arma el body él), y por eso es la vía recomendada.
+
+### 43.5 Rollback de este pase
+
+| Qué | Cómo |
+|---|---|
+| **La medida de paridad** | `git revert` del commit, o quitar las llamadas a `price-provider-parity.sh`. **No deja estado**: lo único que escribe es el dial de un entorno local/staging, y eso se revierte con el mismo `PUT` (auditado). |
+| **El job `staging-provider-parity`** | Es un `needs` de `dast-staging`. Quitarlo devuelve el pipeline al estado anterior — con su agujero: el DAST vuelve a no saber sobre qué barrido corrió. |
+| **El job `price-provider-interim-expiry`** | Quitarlo apaga el disparador de retiro. Si se apaga, la medida interina **queda huérfana** — que es justo lo que no se quiere. |
+| **La prosa y los crons** | La prosa es documental. **Los crons NO se tocaron en este pase**: no hay nada que revertir. |
+
+### 43.6 Lo que NO verifiqué (dicho para que nadie lo cuente como verificado)
+
+- **No levanté el stack real.** `price-provider-parity.sh` se probó **contra un servidor HTTP de mentira**
+  que imita `/auth/login`, `GET/PUT /admin/settings` y el **422** de clave desconocida: se verificaron las
+  cinco rutas (login, lectura, escritura con la clave correcta, re-lectura y la guarda anti-producción) y el
+  disparador de caducidad **en sus dos estados**. **Lo que eso NO prueba** es el trato con el backend real
+  (forma exacta del `TokenPair`, throttler de `/auth/login`, latencias). La primera corrida de
+  `e2e-real.yml` o de `stack-native.sh up --seed` es la que lo confirma.
+- **No toqué producción ni la leí.** No tengo egress; el dial de prod lo leyó el dueño el 2026-09-10 en el
+  panel M10 y así queda registrado (evento fechado, `I-PP2`).
+- **No re-gateé `debb0c3`.** Que el barrido auto-publique **está fuera del triple veredicto del 2026-08-24**;
+  decidir si se re-gatea **no es de devops** — está enrutado al humano/orquestador. Lo que hice fue que el
+  runbook **lo diga**.
+- **No medí el disco de prod en este pase.** Los números de `P-53` (28,559 filas/día ≈ 13 MB/día) son la
+  medición del 2026-09-01, y el §28.4(e)(6) trae las consultas para **rehacerla**, no para citarla.

@@ -77,3 +77,30 @@ else
 fi
 
 echo "✓ Datos sintéticos cargados en staging."
+
+# -----------------------------------------------------------------------------
+# PARIDAD DE PROVEEDOR DE PRECIO (`I-PP5`) — medida interina `D-PP-2`, §43.2.
+#
+# El seed MATERIALIZA la fila `ConfigSetting.price_provider` (prisma/seed.ts y
+# seed-e2e.ts hacen `upsert(... update:{})`). Mientras el seed del código no sea
+# el PRIMARIO (`D-PP-1` abierta), este staging acaba de nacer en el proveedor
+# LEGACY, que **no es inerte**: barre y escribe precios APLANADOS. Los E2E y el
+# DAST que corran encima medirían un barrido distinto del que se promueve.
+#
+# Se corrige AQUÍ, pegado al seed, y no en un paso del runbook que alguien tenga
+# que recordar: si la paridad hay que recordarla, no es una paridad.
+# Retiro: ver la cabecera de scripts/price-provider-parity.sh.
+# -----------------------------------------------------------------------------
+PARITY_API_BASE="${PARITY_API_BASE:-http://localhost:${STAGING_BACKEND_PORT:-3011}/api/v1}"
+echo "=== paridad del dial price_provider (D-PP-2) ==="
+if curl -sf --max-time 5 "${PARITY_API_BASE%/}/health" >/dev/null 2>&1; then
+  "${SCRIPT_DIR}/price-provider-parity.sh" --ensure --api-base "$PARITY_API_BASE"
+else
+  echo "✗ La API de staging no responde en $PARITY_API_BASE."
+  echo "  El dial vive en la BD y se fija por PUT /admin/settings (auditado): sin API no se puede."
+  echo "  Levanta las apps y repite:"
+  echo "     docker compose -f docker-compose.staging.yml --profile apps up -d --build"
+  echo "     ./scripts/price-provider-parity.sh --ensure --api-base $PARITY_API_BASE"
+  echo "  NO declares este staging apto para E2E/DAST hasta verlo en verde (DEVOPS_NOTES §43.2)."
+  exit 1
+fi

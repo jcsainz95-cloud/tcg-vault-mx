@@ -185,6 +185,36 @@ jobs:
             *staging*) : ;;
             *) echo "::error::El cron solo debe apuntar a staging. TARGET_URL no contiene 'staging'."; exit 1 ;;
           esac
+      # -----------------------------------------------------------------------
+      # ¿Sobre qué PRECIOS va a correr este DAST? (`I-PP5`, API_CONTRACT §M10-PP)
+      # El escaneo recorre superficies de DINERO (vitrina, cotizador) alimentadas
+      # por el barrido de precios de staging. Si ese barrido no es el de
+      # producción, el informe describe otro sistema. Aquí NO bloquea —este cron
+      # reporta, no gatea (mismo criterio que el `fail_action: false` de abajo)—
+      # pero queda ANOTADO en el resumen, para que nadie cite el verde sin saberlo.
+      # Solo lectura; sin credenciales de staging simplemente lo dice.
+      # Detalle y secrets: DEVOPS_NOTES §43.2.
+      # -----------------------------------------------------------------------
+      - name: ¿Staging evalúa el proveedor de precio PRIMARIO? (informativo)
+        if: steps.pf.outputs.run == 'true'
+        continue-on-error: true
+        env:
+          STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+          ADMIN_EMAIL: ${{ secrets.STAGING_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$STAGING_API_URL" ] || [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+            echo "::warning::Sin STAGING_API_URL + STAGING_ADMIN_EMAIL/PASSWORD no se puede saber con qué proveedor de precio corrió este DAST (DEVOPS_NOTES §43.2)."
+            echo "- ⚠️ proveedor de precio de staging **no verificado**" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ./scripts/price-provider-parity.sh --assert --api-base "$STAGING_API_URL"; then
+            echo "- ✅ staging evalúa el proveedor de precio PRIMARIO (\`I-PP5\`)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Staging NO evalúa el proveedor primario: este informe DAST describe un barrido distinto del que corre en producción."
+            echo "- 🔴 staging **NO** evalúa el proveedor primario — el informe de abajo no es citable como gate del barrido que se promueve (§43.2)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: ZAP full scan (activo) contra staging
         if: steps.pf.outputs.run == 'true'
         uses: zaproxy/action-full-scan@v0.12.0

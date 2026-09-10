@@ -311,6 +311,36 @@ jobs:
           docker compose -f "$COMPOSE" exec -T backend \
             sh -c "export PATH=/app/node_modules/.bin:\$PATH; $SEED_CMD"
 
+      # -----------------------------------------------------------------------
+      # PARIDAD DEL PROVEEDOR DE PRECIO (`I-PP5`, API_CONTRACT §M10-PP).
+      #
+      # Va DESPUÉS del seed a propósito: el seed MATERIALIZA la fila
+      # `ConfigSetting.price_provider` (`upsert(... update:{})`), así que antes de
+      # él no hay nada que corregir y después de él la fila ya existe.
+      #
+      # QUÉ SE EVITA, medido: mientras el seed del código no sea el proveedor
+      # PRIMARIO (`D-PP-1`, backend), este stack nace en el LEGACY — que no es
+      # inerte: barre y escribe precios APLANADOS (mismo `market` a normal /
+      # reverse_holo / holofoil). Un smoke verde contra ese barrido no dice nada
+      # del que se promueve a producción (ARCHITECTURE §4.35a(d)).
+      #
+      # ⛔ NO se hace con una env var: `PRICE_PROVIDER` en el entorno NO flipea el
+      # dial (DEVOPS_NOTES §23.8, verificado en `providerFor()`), y «fijarlo» ahí
+      # dejaría este workflow mintiendo.
+      #
+      # ROJO DURO: si el dial no queda en el primario, este job para. Un E2E que
+      # mide otro sistema es peor que no correrlo, porque su verde se cita.
+      # `--ensure` es la parte INTERINA (muere con `D-PP-1`); ver DEVOPS_NOTES §43.2.
+      # -----------------------------------------------------------------------
+      - name: Paridad del dial price_provider (I-PP5) — el smoke mide el barrido que se promueve
+        run: |
+          ./scripts/price-provider-parity.sh --ensure --api-base "http://localhost:3011/api/v1"
+          {
+            echo "### Proveedor de precio del stack E2E"
+            echo ""
+            echo "- dial \`price_provider\` verificado contra el PRIMARIO (\`I-PP5\`, API_CONTRACT §M10-PP)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Esperar readiness del frontend real
         run: |
           for i in $(seq 1 40); do
