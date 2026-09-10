@@ -4508,7 +4508,7 @@ que el DoD **sí** toca. Las dejo anotadas aquí para que no se pierdan cuando s
 
 | # | Condición abierta | Por qué toca el DoD | Dueño |
 |---|---|---|---|
-| 1 | *(→ **RESUELTA la vía**: el dueño eligió la clave de prueba. Ejecución y estado en **§31**.)* **Los tres flujos de dinero (comprar · comprar como invitado · retirar) NO se verificaron por navegador.** Sin clave de Stripe el backend devuelve `503 PAYMENT_PROVIDER_UNAVAILABLE` y **libera la reserva** (degrada money-safe, que es el comportamiento correcto). Están cubiertos **en integración** con el doble de Stripe. | El DoD exige los **criterios de aceptación de `PROJECT.md`** cumplidos y la **suite E2E de flujos críticos contra el stack corriendo**. «Cubierto en integración» no es «verificado de punta a punta». | **dueño** (clave de prueba con egress en staging) **o** aceptación formal escrita. Sin una de las dos, esto **no se cierra**. |
+| 1 | *(→ **RESUELTA la vía**: el dueño eligió la clave de prueba. Ejecución y estado en **§31**.)* **Los tres flujos de dinero (comprar · comprar como invitado · retirar) NO se verificaron por navegador.** Sin clave de Stripe el backend degrada a `sk_test_dummy`, la llamada al proveedor falla y entonces devuelve `503 PAYMENT_PROVIDER_UNAVAILABLE` **liberando la reserva** (cadena exacta en §48.2) (degrada money-safe, que es el comportamiento correcto). Están cubiertos **en integración** con el doble de Stripe. | El DoD exige los **criterios de aceptación de `PROJECT.md`** cumplidos y la **suite E2E de flujos críticos contra el stack corriendo**. «Cubierto en integración» no es «verificado de punta a punta». | **dueño** (clave de prueba con egress en staging) **o** aceptación formal escrita. Sin una de las dos, esto **no se cierra**. |
 | 2 | *(→ **DEJA DE APLICAR**: backend las corrigió en vez de aceptarlas; ver **§31.5**.)* **Disparador duro de R1 / S49-M1 sin cablear** — vive sólo en prosa. | El DoD exige que los hallazgos aceptados queden **registrados**; una aceptación cuya condición nadie puede detectar no es verificable. | **devops** (propuesta en §30.5, pendiente de OK) |
 | 3 | **`@nestjs/core` GHSA-36xv-jgw5-4q75 (2 moderate)** pendiente de bump mayor. | Deuda **no bloqueante**: el DoD la admite **si está registrada y aceptada**. Ya lo está. | **backend** (bump mayor) |
 
@@ -4540,10 +4540,13 @@ condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.
 > condición abierta en **tarea de entorno**, y ésta es la sección que la ejecuta.
 
 **Estado de partida (verificado, no supuesto).** El backend del stack nativo **no tiene
-`STRIPE_SECRET_KEY`** en su entorno: `scripts/stack-native.sh` no la exporta, y `stripe.service.ts:47-54`
+`STRIPE_SECRET_KEY`** en su entorno salvo que el humano la exporte (§39.1), y `stripe.service.ts:53-55`
 cae al literal `sk_test_dummy` con un `warn` (solo fuera de producción; en producción
-`onModuleInit` aborta el arranque). Con eso, `paymentIntents.create` falla, `orders.service.ts:428-431`
-**libera la reserva** y `toRetryError` devuelve **503 `PAYMENT_PROVIDER_UNAVAILABLE`**. Degrada
+`onModuleInit` aborta el arranque). Con eso, `paymentIntents.create` falla, `orders.service.ts:495-496`
+**libera la reserva** (la orden queda `failed`, `:462`) y `toRetryError` devuelve **503
+`PAYMENT_PROVIDER_UNAVAILABLE`**. Ese ORDEN importa y se documenta entero en **§48.2**: el 503 es la
+CONSECUENCIA de que la llamada falle, no una guarda por «falta la clave» — el primer síntoma en el log
+es el `warn` del degradado. Degrada
 money-safe, que es el comportamiento correcto — pero deja los tres smokes en rojo.
 
 La suite arreglada por frontend da **48 verdes / 3 rojos / 35 saltados**, y los 3 rojos son exactamente
@@ -9534,3 +9537,163 @@ devops — si seguridad o techlead la quieren allí, el apunte lo pone devops.
 | Registro de decisiones visible en cada run | devops | ✅ `security/README.md` → step summary |
 | Revisar el riesgo residual de `s3rver` sin mantenimiento | **seguridad** | ⏳ declarado en §47.5 / registro §47.4 |
 | Sustituir el stand-in por MinIO en la ruta nativa | devops | ⏳ bloqueado por egress (`dl.min.io` 403) — no es deuda de código |
+
+---
+
+## 48. Tres candados que avisaban sin gatear — y el hueco de dinero, más difícil de ignorar (2026-09-10, hallazgos de QA)
+
+> **Origen.** QA corrió el candidato de release contra el stack nativo y reportó tres cosas mías. La
+> primera es de las que **invalidan mediciones ya hechas**, así que va primero. Las tres son la misma
+> familia, y es una familia que este repo ya conoce: **S-PROC-1** (npm audit que no corría), **P-77**
+> (DAST sin blanco, §44), **§45.2** (el rojo que defendía la conducta prohibida). El patrón:
+> *una verificación que técnicamente corre, no puede cambiar ningún desenlace, y la lee quien ya lo sabía.*
+
+### 48.1 🔴 `up --gate` daba por bueno un stack cuya paridad `I-PP5` HABÍA FALLADO
+
+**Lo que QA vivió** (no dedujo): su `./scripts/stack-native.sh up --seed --gate` imprimió, literal,
+`✗ SIN PARIDAD (I-PP5)` —el dial vivo era `pokemontcg_io`, el proveedor **legacy que aplana los
+acabados**, en vez del primario `tcgcsv_singles`— **y el script siguió adelante**. El `rc=1` que
+recibió no venía de ahí: venía del **gate de capacidades** (§39), que en esta máquina falla por no
+haber claves de Stripe.
+
+**La consecuencia exacta, que es lo grave:** con claves de Stripe presentes (o sea, en cuanto el
+humano cree los secrets), ese mismo `up --gate` habría salido **0** sobre un stack que el propio
+script declara no citable — *«Un E2E/DAST verde aquí NO es citable como gate del sistema que se
+promueve»* (ARCHITECTURE §4.35a(d)). Y era **mi propio principio aplicado a una cosa y no a la otra**:
+veinte líneas más abajo, en el gate de capacidades, el script decía ya *«Un aviso que no cambia el
+código de salida no gatea nada: lo lee quien ya lo sabía»*.
+
+QA lo corrigió a mano por la vía documentada (`PUT /admin/settings`, auditado) y **re-asertó antes de
+medir**, así que sus 37 E2E verdes **sí** son con paridad. Su frase es la que importa: *«si no llego a
+mirar el log, no lo eran»*.
+
+**El arreglo** (`scripts/stack-native.sh`):
+
+| Situación | Antes | Ahora |
+|---|---|---|
+| paridad falla + `up --gate` | `warn`, sigue, **exit 0** si lo demás va bien | `gate_fail` + `gate_verdict` ⇒ **exit 1** |
+| paridad falla + `up` a secas | `warn`, exit 0 | **igual** (informe: `up` a secas es un stack de trabajo, no un gate) |
+| capacidades fallan | `exit 1` inmediato | `gate_fail` y veredicto al final (**los motivos ya no se tapan entre sí**) |
+
+Dos decisiones deliberadas:
+
+- **El stack sigue quedando ARRIBA en los dos casos.** Lo que cambia es el veredicto, no la
+  disponibilidad — y tiene que ser así, porque la vía de arreglo (`PUT /admin/settings`) **necesita el
+  backend vivo**. El rojo dice «esta corrida no es citable», no «no tienes stack».
+- **`FRONTEND_MODE=build` sin `--gate` aplica el mismo listón** (`GATE_MODE=1`). Quien pide un
+  frontend horneado está pidiendo un artefacto de gate.
+
+**«Sin paridad» y «no pude medir la paridad» ya no se narran igual.** Lo destapó la propia
+demostración de abajo: al repetir el gate varias veces seguidas, el login del asertor chocó con el
+límite de **5/min de `/auth/login`** (SEC-C1) y devolvió `30` — *no pude leer el dial*. El mensaje,
+sin embargo, afirmaba «el dial NO está en el primario», un hecho que nadie había medido. Ahora:
+`rc=20` ⇒ «PARIDAD I-PP5 EN ROJO» con el arreglo del panel M10; **cualquier otro `rc≠0`** ⇒ «PARIDAD
+I-PP5 **SIN MEDIR** (asertor rc=N)» con el arreglo que toca (credenciales / `ADMIN_JWT` / backend
+caído). Los dos siguen siendo **rojos** en `--gate`: *fail-closed, «no medido» jamás es verde* — pero
+ninguno afirma más de lo que pasó.
+
+#### La demostración, en vivo y contra el stack real
+
+Se hizo lo que pidió QA: **poner el dial en el legacy y medir el código de salida**. Sin reiniciar el
+stack (había otro rol trabajando en `frontend/` contra él), así que se ejecutó el bloque de decisión
+**real** de `stack-native.sh` —copia con los *lanzadores de procesos* neutralizados, nada de la lógica
+de gate tocada— contra el **backend vivo de :3099**, con el **asertor de paridad real** y el gate de
+capacidades forzado a VERDE a propósito, para aislar la paridad (= el escenario «con claves de Stripe
+presentes» que describió QA). El dial se movió y se restauró **por la vía auditada** (`PUT
+/admin/settings`, HTTP 200 las dos veces).
+
+| Caso | dial vivo | código de `stack-native.sh` | `up --gate` |
+|---|---|---|---|
+| A | `tcgcsv_singles` (primario) | **nuevo** | **rc=0** |
+| B | `pokemontcg_io` (legacy) | **el previo — el que corrió QA** | **rc=0** ← el defecto, reproducido |
+| C | `pokemontcg_io` (legacy) | **nuevo** | **rc=1** ← `✖ GATE ROJO: PARIDAD I-PP5 EN ROJO` |
+| D | `tcgcsv_singles` (restaurado) | **nuevo** | **rc=0** |
+
+B y C son **el mismo dial y el mismo backend**: lo único que cambia es el código. Y A/D demuestran lo
+otro que hay que demostrar de un candado: **que sabe abrirse**. El stack quedó como se encontró —
+`price-provider-parity.sh --assert` en verde (rc=0) al terminar.
+
+#### El candado, probado en cada push: `scripts/check-gate-parity-canary.sh`
+
+La demostración de arriba vale para hoy. Para mañana está el canario, en `ci.yml`
+(job `parity-gate-canary`, y `ci-ok` lo trata como los otros cinco: **`skipped` NO es verde**).
+Ejercita el bloque de decisión **real** (copiado byte a byte; el propio canario **verifica que la copia
+conserva las líneas que deciden** y se pone rojo si alguien las cambia) con dobles de los dos hijos, y
+exige los **seis desenlaces**: paridad roja ⇒ rojo · `up` a secas ⇒ verde con aviso · todo bien ⇒
+**verde** (un candado que siempre cierra no es un candado) · capacidades rojas ⇒ rojo (no-regresión de
+§39) · las dos rojas ⇒ rojo **nombrando las dos** · paridad **sin medir** ⇒ rojo **sin afirmar** nada
+del dial. **12 comprobaciones, ~1 s, sin red ni Postgres.**
+
+Y se probó **en rojo**, como manda §44/§47: revirtiendo el arreglo a mano, el canario cayó con
+**4 comprobaciones en rojo**; restaurado, verde.
+
+### 48.2 🟠 El script se contradecía sobre qué pasa sin Stripe — y lo observado es la otra rama
+
+`stack-native.sh` decía en un sitio *«sin `STRIPE_SECRET_KEY` el backend responde 503
+`PAYMENT_PROVIDER_UNAVAILABLE` y libera la reserva»* (como si hubiera una guarda por clave ausente) y
+en otro *«degrada a `sk_test_dummy`»*. **Lo que QA observó es lo segundo**: `WARN [StripeService]
+STRIPE_SECRET_KEY ausente; usando sk_test_dummy`. Corregido **el texto**, no el sistema. La cadena
+real, verificada en el código:
+
+1. `backend/src/modules/payments/stripe.service.ts:53-55` — **degrada**: `warn` y cliente con
+   `sk_test_dummy`. **Aquí no hay ningún 503.** (En `NODE_ENV=production` esta rama no existe:
+   `onModuleInit` aborta el arranque — B6.)
+2. `createPaymentIntent` **llama a Stripe** con esa clave falsa y falla (aquí, además, sin egress:
+   CONNECT → 403).
+3. `backend/src/modules/orders/orders.service.ts:495-496` compensa: `releaseReservation()` devuelve
+   las piezas a `listed` y deja la orden en `failed` (`:462`), y `toRetryError()` traduce a **503
+   `PAYMENT_PROVIDER_UNAVAILABLE`**.
+
+O sea: el 503 y la liberación **sí ocurren** (money-safe), pero como **consecuencia** de que la llamada
+al proveedor falla, no de una comprobación de «falta la clave». Importa porque **el primer síntoma en
+el log es el WARN del paso 1**: quien busque `PAYMENT_PROVIDER_UNAVAILABLE` al arrancar no lo va a
+encontrar. Coincide con lo que ya decía `e2e-capability-gate.sh:120`. Lo observado por QA encaja
+exactamente: `TCG-001101` y `TCG-001102`, ambas `failed`, **sin payment intent y sin reservas
+colgadas**.
+
+### 48.3 🟠 `verify:head` concluía «puedes medir» sobre un artefacto que él mismo descartaba
+
+En modo `dev` imprimía `⚠ modo dev: … NO es un artefacto de gate` y **acto seguido**
+`✔ VERIFICADO: … Puedes medir.` El segundo mensaje borra al primero. Ahora hay **tres** desenlaces:
+
+| Situación | Antes | Ahora |
+|---|---|---|
+| coincide, frontend **horneado** | `✔ VERIFICADO … Puedes medir.` | igual |
+| coincide, frontend en `next dev` | `⚠ …` + `✔ … Puedes medir.` | **`⚠ VERIFICADO A MEDIAS`**: el backend sirve el árbol de ahora, la procedencia del frontend **no es fechable**; *sirve para trabajar, no es artefacto de gate*. exit 0, **sin «puedes medir»** |
+| no coincide | `✖ NO VERIFICADO` (die) | igual |
+
+Y para quien necesita un **código de salida** y no un matiz: **`verify:head --gate`** (y todo
+`up --gate`) exige evidencia de calidad de gate — con el frontend en `dev`, **rojo**.
+
+### 48.4 El hueco de dinero: lo que se hizo para que sea más difícil de ignorar
+
+**No es mío de resolver** —hacen falta `STRIPE_TEST_SECRET_KEY` y `STRIPE_TEST_PUBLISHABLE_KEY`, y solo
+el dueño del repo puede crearlas (§31.1)—, pero sí lo es que **el hueco no se vuelva invisible por
+costumbre**. Hasta hoy había dos señales, y las dos esperan a que alguien entre: el `::warning` + la
+tabla del step summary de `e2e-real.yml`, y el artefacto `SIN-MEDIR-comprar-invitado-retirar` (§46.4).
+Faltaba lo único que **sale a buscar** a la persona:
+
+**`.github/workflows/money-gap-nag.yml`** — «Dinero SIN MEDIR (falta la clave de PRUEBA de Stripe)».
+Semanal (lunes 07:00 UTC) + `workflow_dispatch`. Comprueba **presencia, nunca el valor**, de los dos
+secrets. Si faltan: resumen en la portada, **issue con label `release-blocker`** (idempotente: comenta
+en vez de duplicar) y **el run en ROJO** — que es lo único que **GitHub notifica solo** al dueño del
+repositorio. Si están: comenta y **cierra el issue**, y recuerda que el paso que *mide* sigue siendo
+lanzar `e2e-real.yml` con `require_real_stripe=true`.
+
+Mismo razonamiento —y mismo coste cero— que el `deps-audit` de `security-scheduled.yml`: es un cron,
+no puede ser required check, no hay PR ni deploy colgando de él, así que **el rojo no frena a nadie**.
+Se apaga **solo**; no hay bandera que acordarse de quitar. Y si el dueño decide que **no** va a poner
+la clave, la salida no es silenciarlo: es registrar en `docs/TECH_DEBT.md` que los tres flujos de
+dinero se promueven **sin haberse ejecutado nunca**, con esa firma, y borrar el workflow.
+
+### 48.5 Qué queda para quién
+
+| Punto | Dueño | Estado |
+|---|---|---|
+| La paridad `I-PP5` tumba `up --gate` | devops | ✅ probado **en vivo** (B rc=0 → C rc=1, mismo dial) y **en rojo** (canario) |
+| `parity-gate-canary` en `ci.yml`, `skipped` ≠ verde | devops | ✅ 12 comprobaciones, ~1 s |
+| «sin paridad» ≠ «no pude medir la paridad» | devops | ✅ rc=20 vs rc≠0, los dos rojos en `--gate` |
+| Texto del degradado de Stripe = lo que hace el sistema | devops | ✅ §48.2 |
+| `verify:head` no concluye «puedes medir» en `dev`; `--gate` lo pone rojo | devops | ✅ §48.3 |
+| **Correr `e2e-real.yml` con secrets de Stripe y citar el run** | **humano (dueño del repo)** | ⏳ **ABIERTO — bloquea el veredicto de RELEASE.** Cuatro pases sin respuesta; ahora con rojo semanal + issue (§48.4) |
+| Veredicto de release de QA | qa | ⏳ condicionado a la línea anterior |

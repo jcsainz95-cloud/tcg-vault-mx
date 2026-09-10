@@ -345,11 +345,37 @@ jobs:
         run: ./scripts/check-daemon-stdout-leak.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 ¿LA PARIDAD `I-PP5` TUMBA EL GATE? (§48.1) — 2026-09-10, hallazgo de QA.
+  #
+  # Qué falló, medido: `stack-native.sh up --seed --gate` imprimió «✗ SIN PARIDAD
+  # (I-PP5)» —el dial vivo era el proveedor LEGACY, el que aplana los acabados— y
+  # SIGUIÓ ADELANTE. El rc=1 que recibió QA venía del gate de capacidades (§39),
+  # no de la paridad: con claves de Stripe presentes, ese mismo `up --gate` habría
+  # salido **0** sobre un stack que el propio script declara no citable. QA lo vio
+  # de milagro, leyendo el log: «si no llego a mirar, mis 37 E2E verdes no eran
+  # con paridad».
+  #
+  # Por qué un job y no una revisión: es la misma familia que §44 (candado DAST
+  # sin blanco) y §32.12 — un aviso que no cambia el código de salida no gatea
+  # nada. El arreglo (que la paridad tiña de rojo en `--gate`) sólo vale mientras
+  # nadie lo deshaga; esto lo ejercita en cada push, en rojo Y en verde.
+  #
+  # Barato y hermético: copia el script real con los lanzadores de procesos
+  # neutralizados y le dicta el rc de sus dos hijos. Sin red, sin Postgres, ~1 s.
+  # ---------------------------------------------------------------------------
+  parity-gate-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Un fallo de paridad I-PP5 tumba `up --gate`
+        run: ./scripts/check-gate-parity-canary.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -364,6 +390,7 @@ jobs:
           echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
           echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
           echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
+          echo "candado de paridad I-PP5: ${{ needs.parity-gate-canary.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -408,6 +435,15 @@ jobs:
           # síntoma vuelve a ser «CI tarda mucho hoy» (§46.2).
           if [ "${{ needs.daemon-stdout-leak.result }}" != "success" ]; then
             echo "::error::Hay un script que deja un daemon con el stdout del invocador: un \`| tail\` sobre él se cuelga en silencio (resultado: ${{ needs.daemon-stdout-leak.result }}). Dueño: devops. Ver DEVOPS_NOTES §46.2."
+            exit 1
+          fi
+          # 🔒 Mismo criterio que las cinco anteriores: `skipped` NO es verde. Si este
+          # canario desaparece, `up --gate` puede volver a salir 0 sobre un stack sin
+          # paridad — y esa es de las averías que INVALIDAN MEDICIONES YA HECHAS: un
+          # E2E o un DAST verdes contra el proveedor legacy no miden el sistema que se
+          # promueve, y nadie se entera al leer el resumen.
+          if [ "${{ needs.parity-gate-canary.result }}" != "success" ]; then
+            echo "::error::El candado de paridad I-PP5 no está vivo: un \`up --gate\` sin paridad podría salir 0 (resultado: ${{ needs.parity-gate-canary.result }}). Dueño: devops. Ver DEVOPS_NOTES §48.1."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."
