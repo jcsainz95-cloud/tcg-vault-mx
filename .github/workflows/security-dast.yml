@@ -93,6 +93,19 @@ on:
   # volver a probar el candado cuando se toque la política o el escáner.
   push:
     branches: ["devops/dast-**"]
+    # Solo cuando cambia el TOOLING del DAST. Sin este filtro, un commit de prosa
+    # en la rama-taller quemaba 14 min de barrido para no verificar nada nuevo —
+    # y un gate caro que salta sin motivo es un gate que alguien acaba apagando.
+    paths:
+      - ".github/workflows/security-dast.yml"
+      - "security/scripts/dast-*"
+      - "security/zap/**"
+      - "security/nuclei/**"
+      - "security/dast-selftest/**"
+      - "docker-compose.staging.yml"
+      - "docker-compose.dast-selftest.yml"
+      - "scripts/price-provider-parity.sh"
+      - "scripts/assert-serving-head.sh"
 
 permissions:
   contents: read

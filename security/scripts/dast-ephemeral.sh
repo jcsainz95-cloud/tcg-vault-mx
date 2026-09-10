@@ -146,12 +146,17 @@ cmd_up() {
   # DINERO (vitrina, cotizador). Si el dial apunta al barrido LEGACY, el
   # informe describe otro sistema del que se promueve.
   # ------------------------------------------------------------------------
-  log "Paridad del dial price_provider (I-PP5 / D-PP-2)"
-  ./scripts/price-provider-parity.sh --ensure --api-base "${API_BASE}" || {
-    err "El stack efímero NO evalúa el proveedor de precio primario: el informe DAST describiría otro barrido."
-    return 1; }
+  # ⛔ SOLO `--assert`, NUNCA `--ensure`. El puente interino de `--ensure` ya
+  # CADUCÓ: `D-PP-1` aterrizó y el seed del código es el primario, así que en una
+  # BD FRESCA —y la de este stack lo es siempre, porque cada corrida hace
+  # `down -v`— la paridad se cumple sola. Añadir aquí un cuarto call site de
+  # `--ensure` sería resucitar un apaño el mismo día que su disparador de retiro
+  # se puso rojo. `--assert` NO es interino: es el candado `I-PP5`, y se queda.
+  log "Paridad del dial price_provider (I-PP5) — solo lectura"
   ./scripts/price-provider-parity.sh --assert --api-base "${API_BASE}" || {
-    err "--assert falló tras --ensure: el dial no quedó en el primario."
+    err "El stack efímero NO evalúa el proveedor de precio primario."
+    err "El informe DAST describiría un barrido distinto del que se promueve: se ABORTA."
+    err "Si el seed dejó el dial en LEGACY, el hallazgo es del rol backend (D-PP-1)."
     return 1; }
   return 0
 }

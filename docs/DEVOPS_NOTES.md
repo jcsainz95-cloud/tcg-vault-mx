@@ -8778,6 +8778,12 @@ a esas credenciales (`admin@staging.local`). El gate pasa de «depende de secret
 dar» a «se comprueba solo», y además es **rojo duro**: si el stack efímero no evalúa el proveedor
 primario, el barrido para, porque un informe DAST sobre otro barrido describe otro sistema.
 
+⛔ **Solo `--assert`, nunca `--ensure`.** El puente interino de `--ensure` ya **caducó** (`D-PP-1`
+aterrizó: el seed del código es el primario), y el stack efímero nace **fresco** en cada corrida
+(`down -v`), así que la paridad se cumple sola. Añadir aquí un cuarto call site de `--ensure` habría
+sido resucitar un apaño el mismo día que su disparador de retiro se puso rojo. Si el `--assert` falla,
+el hallazgo es del rol **backend**, no se parchea desde devops.
+
 > ✅ **PETICIÓN RETIRADA.** `STAGING_ADMIN_EMAIL` y `STAGING_ADMIN_PASSWORD` **ya no se piden al humano**.
 > Tampoco `STAGING_BASE_URL` ni `STAGING_API_URL` para el DAST. Quedan sin objeto mientras no exista un
 > staging desplegado, y su ausencia ya no deja ningún gate ciego. Ver §11.D.
