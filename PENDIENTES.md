@@ -1112,7 +1112,49 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
-#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — ⚠️ ESTA NOTA ESTÁ DESACTUALIZADA (QA, 2026-09-10)
+#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — ✅ CERRADO (confirmado por el humano, 2026-09-10)
+
+> ## ✅ MEDIDO Y CERRADO — el dial en producción dice `tcgcsv_singles`
+>
+> **2026-09-10.** El humano leyó el dial en el panel **M10** («proveedor de la ingesta masiva de
+> precios») y reporta **`tcgcsv_singles`**. Es **lectura directa, no inferencia**: cierra la duda que
+> QA dejó abierta.
+>
+> **Consecuencia:** el barrido de precios **por-acabado** (normal / reverse holo / holofoil, cada uno
+> con SU precio de mercado) **lleva corriendo en producción desde el 2026-08-28**, unas dos semanas.
+> El aplanamiento que este pendiente describía **ya no ocurre**. Las Partes 1, 2, 3 y 4 están todas
+> hechas y desplegadas.
+>
+> **Lo que este cierre NO cierra — dos cosas quedan abiertas y se mueven a su propio sitio:**
+>
+> 1. 🔴 **P-53 (disco/WAL) es ahora el riesgo vivo, no P-47.** Las **28,559 filas/día** que escribe el
+>    barrido son los ~13 MB/día que llenaron la base. Ya no es una hipótesis sobre quién escribe:
+>    sabemos que es el barrido y sabemos que seguirá escribiendo todos los días. La columna
+>    `evidenceDate` ya existe en el esquema y **nadie la escribe ni la lee** — es el sitio natural
+>    para distinguir «el precio no cambió» de «el proveedor no respondió», que es lo que permitiría
+>    dejar de escribir una fila diaria por producto aunque el precio sea idéntico.
+> 2. 🟠 **La brecha de gate de `debb0c3` (BL-25) ya no es hipotética.** Ese commit añadió
+>    `triggerPublishForVariants` a `ingestSinglesForSet` el 2026-09-01: **el barrido auto-publica
+>    piezas**. Está en producción y corriendo AHORA, y el triple veredicto de `DEVOPS_NOTES.md` §28.1
+>    es del **2026-08-24**, anterior. `grep BL-25` en `PENDIENTES.md`, `SECURITY_NOTES.md` y
+>    `TECH_DEBT.md` = 0 resultados. Decisión pendiente del humano: **¿se re-gatea a posteriori?** No
+>    es «¿aprobamos el deploy?» — el deploy ya pasó.
+>
+> **Lo que ya no aplica de lo escrito abajo:** el análisis de «riesgo del flip» (qué pasaría el día
+> que se active) es **retrospectivo**: el flip ya ocurrió y no consta incidente. Se conserva por dos
+> razones: (a) documenta que el rollback **no es máquina del tiempo** —las filas `tcgcsv_singles` no
+> se borran, y para reverse_holo/holofoil son las únicas candidatas desde `9c3eb3e`, así que ganan
+> para siempre congeladas en su último valor—; y (b) porque los cuatro `SELECT` que QA dejó siguen
+> siendo la forma de medir la cobertura real del barrido, que **nadie ha medido todavía**.
+>
+> **Los seis hallazgos de QA siguen abiertos y enrutados** (ver abajo). Dos cambian de urgencia con
+> esta confirmación:
+> - **BLOQUEANTE-1** sube de prioridad: con seed legacy en CI/staging y `tcgcsv_singles` en
+>   producción, **el DAST y los E2E de staging validan un barrido distinto al que corre en prod**.
+>   Enviado al arquitecto como dato medido.
+> - **IMPORTANTE-3** (`resolveGroupId` devuelve `null` con nombres de set ambiguos) deja de ser
+>   teórico: **si hoy hay un set así, lleva dos semanas sin repreciarse y solo dejó un `warn` en
+>   logs**. Nadie se enteraría. Backend lo tiene.
 
 > **QA midió el 2026-09-10 y esta nota afirma un estado que ya no es cierto. Tercer caso de la
 > semana, tras P-45 y P-74.**
