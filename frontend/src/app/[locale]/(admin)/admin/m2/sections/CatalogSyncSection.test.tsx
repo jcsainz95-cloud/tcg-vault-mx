@@ -241,6 +241,93 @@ describe('§32.5c · «Sincronizar este set» — la superficie que quemó al du
 /* ══════════════════ SUPERFICIE 2 · «Importar sets nuevos» (§32.5a) ══════════════════ */
 
 describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
+  /**
+   * ⭐⭐ **§M2-CS.4 — «no entra, pero SE CUENTA; nunca excluido en silencio».**
+   *
+   * El `202` trae TRES cifras de selección y la pantalla sólo sabía leer dos: `setsSkippedUnknownDate`
+   * —los sets remotos **sin fecha de lanzamiento**— no tenía **ni una aparición** en `frontend/`
+   * aunque el backend lo emite. El DTO era más honesto de lo que la pantalla podía ser, que es la
+   * inversión exacta del principio.
+   */
+  it('⭐⭐ §M2-CS.4: la selección se PINTA entera — corte, fuera-de-corte y SIN FECHA', async () => {
+    vi.spyOn(api, 'syncAllCatalog').mockResolvedValue({
+      jobId: 'catalog-sync-all-sel',
+      setsQueued: 4,
+      remaining: 0,
+      fromReleaseDate: '2024/01/01',
+      setsSkippedOutOfRange: 140,
+      setsSkippedUnknownDate: 2,
+    });
+    renderWithProviders(<Harness />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
+
+    const notice = await findNotice(/sin fecha de lanzamiento/i);
+    expect(notice.textContent).toMatch(/2024\/01\/01/);
+    expect(notice.textContent).toMatch(/140 set\(s\) fuera del corte/);
+    expect(notice.textContent).toMatch(/2 sin fecha de lanzamiento/);
+    // H3 — son cifras de SELECCIÓN, no de escritura: jamás abren la frase. La versalita va primera.
+    const text = (notice.textContent ?? '').trim();
+    expect(text.indexOf('140')).toBeGreaterThan(text.indexOf('Selección de esta corrida'));
+    expect(text.indexOf('Selección de esta corrida')).toBeGreaterThan(0);
+  });
+
+  /**
+   * ⭐ **H4 sobre las tres cifras de selección**: un despliegue anterior a v1.66 no las manda.
+   * Lo que no viaja se pinta **«—»**; ⛔ **jamás `0`** —un cero afirma que se contó y salió cero—
+   * y ⛔ jamás omitido (omitir también miente: el lector asume que no aplicaba).
+   */
+  it('⭐ H4: si la cifra de sets SIN FECHA no viaja, se pinta «—» y NUNCA un 0', async () => {
+    vi.spyOn(api, 'syncAllCatalog').mockResolvedValue({
+      jobId: 'catalog-sync-all-sel2',
+      setsQueued: 4,
+      remaining: 0,
+      fromReleaseDate: '2024/01/01',
+      setsSkippedOutOfRange: 140,
+      // Despliegue viejo: el campo NO viaja. El tipo lo declara presente, la red no lo garantiza.
+    } as unknown as import('@/types/contract').CatalogSyncAllResponse);
+    renderWithProviders(<Harness />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
+
+    const notice = await findNotice(/Selección de esta corrida/);
+    expect(notice.textContent).toMatch(/— sin fecha de lanzamiento/);
+    expect(notice.textContent).not.toMatch(/0 sin fecha de lanzamiento/);
+  });
+
+  /**
+   * La fuente CANÓNICA de la selección es el `summary` (§M2-CS.1): el `202` la dice al arrancar,
+   * el `summary` al terminar. Y sólo cuenta el `summary` del barrido que ESTA corrida lanzó.
+   */
+  it('§M2-CS.1: al terminar, la selección se lee del `summary` (misma corrida), no del eco', async () => {
+    vi.spyOn(api, 'syncAllCatalog').mockResolvedValue({
+      jobId: 'catalog-sync-all-sel3',
+      setsQueued: 4,
+      remaining: 0,
+      fromReleaseDate: '2024/01/01',
+      setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
+    });
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
+      running: false,
+      jobId: 'catalog-sync-all-sel3',
+      total: 4,
+      done: 4,
+      startedAt: '2026-09-10T18:00:00.000Z',
+      finishedAt: '2026-09-10T18:04:00.000Z',
+      summary: {
+        setsTotal: 4, setsWritten: 3, setsImported: 2, setsRefreshed: 1, setsNoop: 1,
+        setsFailed: 0, cardsUpserted: 431, failures: [],
+        fromReleaseDate: '2023/06/06', setsSkippedOutOfRange: 7, setsSkippedUnknownDate: 5,
+      },
+    });
+    renderWithProviders(<Harness />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
+
+    const notice = await findNotice(/Selección de esta corrida/);
+    await waitFor(() => expect(notice.textContent).toMatch(/2023\/06\/06/));
+    expect(notice.textContent).toMatch(/7 set\(s\) fuera del corte/);
+    expect(notice.textContent).toMatch(/5 sin fecha de lanzamiento/);
+  });
+
   /** ⭐ CS-4 — el cero DEMOSTRABLE: `SIN CAMBIOS`, tono neutro, y la frase nombra el corte. */
   it('⭐ CS-4: sin nada nuevo ⇒ SIN CAMBIOS (neutro, NO verde) y la frase nombra la fecha de corte', async () => {
     vi.spyOn(api, 'syncAllCatalog').mockResolvedValue({
@@ -249,6 +336,7 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 3,
+      setsSkippedUnknownDate: 0,
     });
     renderWithProviders(<Harness />, 'es');
     fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
@@ -272,6 +360,7 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
       remaining: 7,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     renderWithProviders(<Harness />, 'es');
     fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
@@ -291,6 +380,7 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
       running: false,
@@ -307,6 +397,9 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
         setsNoop: 1,
         setsFailed: 0,
         cardsUpserted: 431,
+        fromReleaseDate: '2024/01/01',
+        setsSkippedOutOfRange: 0,
+        setsSkippedUnknownDate: 0,
         failures: [],
       },
     });
@@ -333,6 +426,7 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
       running: false,
@@ -349,6 +443,9 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
         setsNoop: 12,
         setsFailed: 0,
         cardsUpserted: 0,
+        fromReleaseDate: '2024/01/01',
+        setsSkippedOutOfRange: 0,
+        setsSkippedUnknownDate: 0,
         failures: [],
       },
     });
@@ -368,6 +465,7 @@ describe('§32.5a · «Importar sets nuevos» — la acción de rutina', () => {
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
       running: false,
@@ -417,6 +515,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     renderWithProviders(<Harness />, 'es');
     fireEvent.click(await screen.findByRole('button', { name: /Sincronizar todo \(forzar\)/ }));
@@ -442,6 +541,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     vi.spyOn(api, 'refreshVariantsAll').mockResolvedValue({ jobId: 'rv-7', setsQueued: 37, remaining: 0 });
     vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
@@ -454,6 +554,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       summary: {
         setsTotal: 37, setsWritten: 5, setsImported: 0, setsRefreshed: 5, setsNoop: 32,
         setsFailed: 0, cardsUpserted: 120, failures: [],
+        fromReleaseDate: '2024/01/01', setsSkippedOutOfRange: 0, setsSkippedUnknownDate: 0,
       },
     });
     vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({
@@ -500,6 +601,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     vi.spyOn(api, 'refreshVariantsAll').mockResolvedValue({ jobId: 'rv-11', setsQueued: 37, remaining: 0 });
     vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
@@ -512,6 +614,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       summary: {
         setsTotal: 37, setsWritten: 37, setsImported: 4, setsRefreshed: 33, setsNoop: 0,
         setsFailed: 0, cardsUpserted: 900, failures: [],
+        fromReleaseDate: '2024/01/01', setsSkippedOutOfRange: 0, setsSkippedUnknownDate: 0,
       },
     });
     vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({
@@ -545,6 +648,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       remaining: 0,
       fromReleaseDate: '2024/01/01',
       setsSkippedOutOfRange: 0,
+      setsSkippedUnknownDate: 0,
     });
     vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
       running: false,
@@ -556,6 +660,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       summary: {
         setsTotal: 12, setsWritten: 12, setsImported: 3, setsRefreshed: 9, setsNoop: 0,
         setsFailed: 0, cardsUpserted: 900, failures: [],
+        fromReleaseDate: '2024/01/01', setsSkippedOutOfRange: 0, setsSkippedUnknownDate: 0,
       },
     });
     const phase2 = vi
@@ -583,6 +688,7 @@ describe('§32.5b · «Sincronizar todo (forzar)» — dos fases, un veredicto',
       summary: {
         setsTotal: 12, setsWritten: 12, setsImported: 3, setsRefreshed: 9, setsNoop: 0,
         setsFailed: 0, cardsUpserted: 900, failures: [],
+        fromReleaseDate: '2024/01/01', setsSkippedOutOfRange: 0, setsSkippedUnknownDate: 0,
       },
     });
     const phase2 = vi

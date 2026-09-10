@@ -1594,10 +1594,13 @@
         "confirmTitle": "Unificar rarezas del catálogo",
         "confirmBody": "Reasigna la rareza canónica de todas las cartas para colapsar duplicados y variantes de escritura en una sola rareza. Es una operación local de una sola pasada: no consulta fuentes externas. No cambia ningún precio, pero sí puede cambiar qué cartas quedan retenidas por el guardarraíl, porque este mira la rareza premium.",
         "confirmCta": "Unificar rarezas",
-        "running": "Unificando…",
-        "done": "Rarezas unificadas. La lista ya refleja las rarezas canónicas.",
-        "summary": "{updated} de {processed} carta(s) actualizadas · {distinct} rareza(s) canónica(s) distintas.",
-        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para que el guardarraíl las reconozca):"
+        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para que el guardarraíl las reconozca):",
+        "result": {
+          "done": "<b>{updated} cartas actualizadas</b> <c>de {processed} revisadas · {distinct} rarezas canónicas distintas</c>. La lista ya refleja las rarezas canónicas.",
+          "noChanges": "Ninguna carta necesitaba corrección: las <c>{processed} revisadas</c> ya tenían asignada su rareza canónica <c>({distinct} distintas)</c>. No se reescribió ninguna.",
+          "notDone": "El barrido terminó y <b>no reescribió ninguna rareza</b>, y no puede demostrar que no hiciera falta: recorrió cartas y no reconoció ni una rareza canónica. Las rarezas del catálogo <b>siguen como estaban</b> y el guardarraíl sigue mirando las de antes.",
+          "unknown": "La acción terminó y el sistema no puede decir cuántas rarezas reescribió: <b>—</b>. Comprueba la lista de abajo antes de darla por unificada."
+        }
       },
       "pending": {
         "title": "Cola de precio pendiente",
@@ -1775,7 +1778,8 @@
         },
         "importNew": {
           "label": "Importar sets nuevos",
-          "cutoffUnknown": "Cuenta como nuevo todo lo lanzado desde la fecha de corte, que hoy no se puede leer antes de lanzar: —. La corrida sí la dice al terminar. Los anteriores no entran; se traen desde su fila."
+          "cutoffUnknown": "Cuenta como nuevo todo lo lanzado desde la fecha de corte, que hoy no se puede leer antes de lanzar: —. La corrida sí la dice al terminar. Los anteriores no entran; se traen desde su fila.",
+          "selection": "Selección de esta corrida: corte {date} · {outOfRange} set(s) fuera del corte · {unknownDate} sin fecha de lanzamiento (no entran, pero se cuentan)."
         },
         "forceAll": {
           "label": "Sincronizar todo (forzar)",

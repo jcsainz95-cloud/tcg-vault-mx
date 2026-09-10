@@ -1594,10 +1594,13 @@
         "confirmTitle": "Merge catalog rarities",
         "confirmBody": "Reassigns the canonical rarity of every card to collapse duplicates and spelling variants into a single rarity. It is a local one-pass operation: it queries no external source. It changes no price, but it can change which cards are held by the guardrail, since the guardrail looks at premium rarity.",
         "confirmCta": "Merge rarities",
-        "running": "Merging…",
-        "done": "Rarities unified. The list now reflects the canonical rarities.",
-        "summary": "{updated} of {processed} card(s) updated · {distinct} distinct canonical rarit(y/ies).",
-        "unmappedTitle": "{count} raw rarity(ies) unmapped (add them to the canonical catalog so the guardrail recognises them):"
+        "unmappedTitle": "{count} raw rarity(ies) unmapped (add them to the canonical catalog so the guardrail recognises them):",
+        "result": {
+          "done": "<b>{updated} cards updated</b> <c>of {processed} reviewed · {distinct} distinct canonical rarities</c>. The list now reflects the canonical rarities.",
+          "noChanges": "No card needed fixing: the <c>{processed} reviewed</c> already had their canonical rarity assigned <c>({distinct} distinct)</c>. None was rewritten.",
+          "notDone": "The run finished and <b>rewrote no rarity</b>, and it cannot show that none was needed: it went through cards and recognised not a single canonical rarity. The catalog rarities <b>stay as they were</b> and the guardrail still looks at the old ones.",
+          "unknown": "The action finished and the system cannot say how many rarities it rewrote: <b>—</b>. Check the list below before calling it merged."
+        }
       },
       "pending": {
         "title": "Pending-price queue",
@@ -1775,7 +1778,8 @@
         },
         "importNew": {
           "label": "Import new sets",
-          "cutoffUnknown": "Anything released on or after the cutoff date counts as new, and today that date cannot be read before launching: —. The run does report it when it finishes. Earlier sets are not included; bring those in from their row."
+          "cutoffUnknown": "Anything released on or after the cutoff date counts as new, and today that date cannot be read before launching: —. The run does report it when it finishes. Earlier sets are not included; bring those in from their row.",
+          "selection": "This run's selection: cutoff {date} · {outOfRange} set(s) outside the cutoff · {unknownDate} with no release date (they do not enter, but they are counted)."
         },
         "forceAll": {
           "label": "Sync everything (force)",

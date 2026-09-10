@@ -15516,3 +15516,122 @@ eso se sigue comprobando. **Verificado: 14/14 bajo la misma carga que lo rompía
    ahora», acción A) pinta `Banner variant="success"` desde `ingestMutation.isSuccess` sobre un
    **encolado**. §32.4 H6 dice que «encolado» se reporta como **estado**, nunca como veredicto
    verde. §32 excluye la acción A de su alcance, así que queda **reportado**, no arreglado.
+
+## §64 · **El verde falso seguía vivo diez líneas más allá**, el tercer campo que el DTO traía y la pantalla no veía, y el intermitente de M10 — 2026-09-10, rama `claude/tcg-hunt-orchestration-ai2vma`
+
+> Tres hallazgos: dos de techlead (bloqueantes) y uno de QA. Cierre del §63, que se había declarado
+> cerrado **sin serlo**.
+
+### 1. ⭐⭐ `RarityHealthSection`: el mismo panel, el mismo defecto, otra sección
+
+`unifyMutation.isSuccess` pintaba `Banner variant="success"` con «**Rarezas unificadas. La lista ya
+refleja las rarezas canónicas.**» + «{updated} de {processed} carta(s) actualizadas» — es decir,
+**verde con `cardsUpdated: 0` sobre `cardsProcessed: 191`**: la frase que el docstring de
+`lib/verdict.ts` cita como el defecto de origen, en el mismo panel, diez líneas más abajo. Y no era
+cosmético: el `hint` de la acción promete que *puede cambiar qué cartas quedan retenidas por el
+guardarraíl*, así que un verde falso ahí manda a revisar un guardarraíl que nadie movió.
+
+**Arreglo** — `unifyRaritiesView()`, función **pura** y exportada, con `computeVerdict`:
+
+| Campo del contrato | Papel | Por qué |
+|---|---|---|
+| `cardsUpdated` | ⭐ **la única cifra de ESCRITURA** | cartas cuyo `rarityCanonical` **difería** y se corrigió |
+| `cardsProcessed` | **contexto** — ⛔ no entra en `writes` (H3) | «recorridas», no tocadas: es literalmente el «191 cartas procesadas» de D2 |
+| `distinctCanonical` | contexto | rarezas canónicas resultantes |
+| `unmapped[]` | lista de HECHOS aparte | ⛔ **no degrada el veredicto**: no es trabajo que esta corrida pudiera hacer (añadir entradas al catálogo canónico es código). Se conserva íntegra en **todos** los desenlaces |
+
+`hadWork` es donde se juega `SIN CAMBIOS` vs `NO SE HIZO`: la acción es un **censo completo** —el
+contrato dice «0 en 2ª corrida»—, así que `cardsUpdated: 0` sobre un censo que **clasificó**
+(`distinctCanonical > 0`) es un cero **demostrable** ⇒ `SIN CAMBIOS` (neutro). Si recorrió cartas y
+**no clasificó ninguna**, no hay nada que demuestre que no hiciera falta ⇒ en la duda `NO SE HIZO`.
+⛔ Ninguno de los dos es verde. **`unifyRarities.result.done` sólo es alcanzable con veredicto
+`done`**, que exige `cardsUpdated > 0`: ésa es la mecánica del candado.
+
+**Copia:** `unifyRarities.done` y `unifyRarities.summary` **RETIRADAS** en `es.json` **y** `en.json`
+(eran la frase que encabezaba sin mirar la cifra), más `unifyRarities.running`, que ya no tenía
+consumidor (CS-8). Nuevas: `unifyRarities.result.{done,noChanges,notDone,unknown}`.
+
+**Y la forma dejó de ser de M2:** `ResultNotice` vivía dentro de `CatalogSyncSection`, así que
+adoptar §32.4 en otro panel costaba copiar-pegar. Ahora es **`components/ui/VerdictNotice.tsx`**
+(`VerdictNotice` + `VerdictBanner`, que deriva tono y `role` del **veredicto**). `CatalogSyncSection`
+la consume y sólo conserva lo suyo: el rótulo del `<details>` técnico.
+
+#### El barrido que pidió techlead: ¿era el último o hay cola?
+
+**39 superficies con tono de éxito en 25 ficheros** (31 `Banner variant="success"` + 8
+toasts/feedback), de las cuales **22 cuelgan del desenlace de una mutación**. Resultado:
+
+| Veredicto | Cuántas | Cuáles |
+|---|---|---|
+| **Defecto real, arreglado aquí** | **1** | `RarityHealthSection` (unify-rarities) |
+| **Defecto real, EN COLA** (no es de este stream) | **1** (2 sitios de render) | `SealedAddFlow` — `sync.resultSummary` / `resultSummary` pintan verde por **la mera presencia** de `SealedSyncResultDTO`: con `productsUpserted: 0` y `pricedCount: 0` sigue verde, y con `pendingPriceCount > 0` (trabajo pendiente) también. Es §32.4 H1/H2 + regla 3 del algoritmo ⇒ debería ser `NO SE HIZO`/`PARCIAL`. **Es del stream «Inventario y vault»** |
+| **Limítrofe, ya reportado** (§63 nota 10.5) | **1** | `PriceIngestSection`: verde sobre un **encolado** (H6 dice «estado, nunca veredicto verde»). No afirma trabajo ⇒ no miente, pero usa el token de éxito para un no-`done` |
+| **Limítrofe menor** | **2** | `QuickRemove` (`{count}` de `removed`) y `GradedEstimateReviewSection` (`deletedCount`): verde derivado de la **presencia** del DTO, no de la cifra. Hoy no pueden valer 0 por construcción del endpoint (el 404 ya tiene su rama `gone`), pero el tono no lo comprueba |
+| **Sanas** | **17** | Confirmaciones de `PUT`/`POST` de formulario (200 = escrito: M10 diales, M6 KYC, curva, spreads, graded), recibos con folio/etiqueta del propio DTO (`AddGradedModal`, `LocationsModal`, `QuickAdd`, `ItemDetailModal`, `CellDrawer`, M3/M4/M5/M8) y `FxRateCard`, que ya deriva de `outcome`, no de `isSuccess` |
+
+⇒ **La cola es de UNA superficie real** (`SealedAddFlow`, 2 sitios) más las tres limítrofes. No es
+una plaga; es lo que queda.
+
+### 2. ⭐ `setsSkippedUnknownDate`: el dato viajaba y la pantalla no podía verlo
+
+`CatalogSyncAllResponse` declaraba `fromReleaseDate` y `setsSkippedOutOfRange` y **no** el tercero:
+**0 apariciones en `frontend/`** frente a 4 en backend, que lo emite. La decisión de §M2-CS.4 —*«no
+entra, pero **se cuenta**; nunca excluido en silencio»*— era **inalcanzable en la UI**.
+
+- **`CatalogSyncAllResponse`** gana `setsSkippedUnknownDate`.
+- **`CatalogSyncSummary`** gana las **tres** (`fromReleaseDate`, `setsSkippedOutOfRange`,
+  `setsSkippedUnknownDate`): el `summary` es la fuente **canónica** (§M2-CS.1) y le faltaban todas.
+- **`selectionOf()`** (pura): prefiere el `summary` **del mismo `jobId`** y cae al eco del `202`.
+  Atribuirle a una corrida la selección de otra es la misma familia de mentira que §32 corrige.
+- **Se pinta** en un renglón `text-muted` dentro del aviso —`importNew.selection`—, también
+  **mientras corre** (el `202` ya la trae; callarla hasta el final sería volver a excluir en
+  silencio). H3: son cifras de **selección**, jamás abren la frase. **H4: lo que no viaja se pinta
+  «—», nunca `0`** (`figureOrUnknown`, ⛔ nunca `?? 0`).
+- **La petición 9.3 del §63 queda CERRADA**: backend ya emite `setsSkippedUnknownDate` (el nombre
+  del contrato), no `setsSkippedUndated`. Verificado en `catalog-sync.service.ts`.
+
+**`CatalogSyncResponse` (`POST /admin/catalog/sync`) se revisó y NO se toca, a propósito:** el
+contrato fija su `202` en `{ jobId, setsQueued, mode }` («shape sin cambios») y el backend devuelve
+`jobId + setsQueued + tally + mode` — **ninguna** de las tres cifras de selección. Ese endpoint no
+tiene fase de selección que reportar (con `setId` es un set puntual; con `from_date` el corte llega
+por argumento). Añadirlas sería inventar respuesta. **Va como pregunta al arquitecto**, no como
+código.
+
+### 3. Intermitente de `M10View.test.tsx:221` — **causa medida, y no es la familia del reloj**
+
+**Medido por QA: 1 rojo / 6 corridas de la suite completa; aislado 15/15.** Aislado **bajo carga**
+(6 procesos quemando CPU en 4 núcleos): **10/10 verde** ⇒ no es presupuesto de espera.
+
+**La causa, reproducida a mano** (sonda que retrasa 300 ms `getGradedEstimateConfig`): el aviso del
+gancho **se pinta dos veces con dos árboles distintos**. Mientras la segunda query —el tope de M2—
+está en vuelo, la variante es `onNoFigures`; cuando resuelve pasa a `on` y React **desmonta** el
+`<strong>Y gasta.</strong>` de la primera para montar el de la segunda. `findByText` resuelve
+legítimamente con el nodo viejo y la aserción corre sobre un nodo ya **desprendido** ⇒
+`closest('[role="status"]')` devuelve `null` ⇒ *«expected null to be truthy»*. Con la sonda, el
+patrón viejo **falla siempre** y el nuevo **pasa siempre**.
+
+**Familia:** la del **nodo transitorio** (§63 nota 8, `CheckoutUnavailable`), no la del reloj. ⛔ **No
+es** una de las 12 llamadas con `timeout: 3000` propio: ese censo sigue en pie, intacto, en
+`(storefront)/page.test.tsx` (2) y `BountiesView.test.tsx` (10) — esta prueba no usa reloj propio.
+**Diferencia con `CheckoutUnavailable`:** allí remontaba el subárbol porque el componente **cambiaba
+su propia `queryKey`**; aquí no hay remonte de subárbol sino **swap de variante de copy** disparado
+por una **segunda query independiente**. Tercera causa distinta, tercera vez.
+
+**Arreglo (en el test, no en el producto):** la espera se pone sobre la **aserción entera** —
+`waitFor` re-consulta el DOM en cada intento y acaba agarrando el nodo asentado. Si el aviso nunca
+fuera `status`, el `waitFor` agota su presupuesto y el test sigue rojo: no se esconde ninguna
+regresión.
+
+### 4. Peticiones al arquitecto (siguen abiertas / nuevas)
+
+1. ⭐⭐ **`remote-sets` necesita `pricedVariants`/`variants`** (§M2-CS.3, R5) — **sigue abierta**.
+2. ⭐ **`remote-sets` necesita `catalogWindow`** (§M2-CS.4) — **sigue abierta**.
+3. ✅ **`setsSkippedUnknownDate` vs `setsSkippedUndated`** — **cerrada**: backend emite el nombre del
+   contrato.
+4. **`setsQueued` carga tres hechos distintos** según el endpoint — **sigue abierta**.
+5. 🆕 **`POST /admin/catalog/sync` (`CatalogSyncResponse`): ¿la selección también, o no aplica?** Su
+   `202` normativo es `{ jobId, setsQueued, mode }`, pero el backend ya devuelve además el reparto de
+   §M2-CS.0 (`setsWritten`/`setsImported`/`setsRefreshed`/`setsNoop`/`cardsUpserted`) y **el contrato
+   no lo documenta**. Dos preguntas para el arquitecto: (a) ¿se formaliza ese reparto en el `202` de
+   `sync`?; (b) en modo `from_date`, ¿debe hacer eco de `fromReleaseDate`/`setsSkipped*` como
+   `sync-all`? Mientras tanto **no pinto ninguna de las dos cosas**.

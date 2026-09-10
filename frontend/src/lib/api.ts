@@ -4102,7 +4102,13 @@ export async function syncAllCatalog(
     remaining: 0,
     // Eco de la SELECCIÓN que rigió la corrida (§M2-CS.4). ⛔ No es una cifra de escritura.
     fromReleaseDate: '2024/01/01',
-    setsSkippedOutOfRange: fx.mockRemoteSets.filter((s) => (s.releaseDate ?? '') < '2024/01/01').length,
+    setsSkippedOutOfRange: fx.mockRemoteSets
+      .filter((s) => s.releaseDate != null && s.releaseDate < '2024/01/01').length,
+    // ⭐ Los remotos SIN fecha NO caen en `setsSkippedOutOfRange` (que compara fechas): tienen su
+    // propia cuenta, que es justo la decisión de §M2-CS.4 —«no entra, pero se CUENTA»—. El espejo
+    // la modela aparte a propósito: si el mock los sumara al otro cubo, ningún test podría cazar
+    // que la pantalla los está callando.
+    setsSkippedUnknownDate: fx.mockRemoteSets.filter((s) => s.releaseDate == null).length,
   });
 }
 

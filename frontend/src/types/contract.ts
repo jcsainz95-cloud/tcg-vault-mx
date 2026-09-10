@@ -3199,6 +3199,15 @@ export interface CatalogSyncAllResponse {
   fromReleaseDate: string;
   /** sets remotos descartados por ser anteriores al corte (SELECCIÓN, no escritura). */
   setsSkippedOutOfRange: number;
+  /**
+   * ⭐ sets remotos **sin `releaseDate`**: no entran en la corrida, **pero se cuentan** (§M2-CS.4).
+   * Es la mitad que faltaba de la decisión «nunca excluido en silencio»: sin este campo la pantalla
+   * no puede decir que quedaron fuera, y omitir también miente (H4).
+   * ⚠ Mismo trato que `fromReleaseDate`: el contrato lo declara presente en el `202`, pero un
+   * despliegue anterior a v1.66 no lo manda ⇒ se pinta **«—»** cuando no viaja, ⛔ **jamás `0`**
+   * (un cero afirma que se contó y salió cero).
+   */
+  setsSkippedUnknownDate: number;
 }
 
 // POST /admin/catalog/refresh-variants — refresca variantes + precios de UN set existente usando
@@ -3348,6 +3357,17 @@ export interface CatalogSyncSummary {
   setsFailed: number;
   /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
   cardsUpserted: number;
+  /**
+   * SELECCIÓN — corte VIGENTE que rigió esta corrida (`yyyy/MM/dd`), §M2-CS.4/§M2-CS.1.
+   * ⚠ Éste es el registro **canónico** de la selección: el `202` de `sync-all` la hace **eco** al
+   * arrancar y este `summary` la guarda al terminar (un solo cálculo, dos momentos).
+   * ⛔ No es cifra de escritura: no puede abrir la frase de un aviso (H3).
+   */
+  fromReleaseDate: string;
+  /** SELECCIÓN — remotos descartados por el corte. ⛔ No entra en `setsTotal` (nunca se encolaron). */
+  setsSkippedOutOfRange: number;
+  /** SELECCIÓN — remotos **sin `releaseDate`**: no entran, pero **se cuentan** (§M2-CS.4). */
+  setsSkippedUnknownDate: number;
   /** un renglón por set fallido; `code: null` si el fallo no traía código (§M2-CS.0). */
   failures: RefreshVariantsAllFailure[];
 }

@@ -481,9 +481,13 @@ describe('M2 · «Unificar rarezas» (§19.5)', () => {
     // Endpoint sin parámetros (backfill local money-safe).
     expect(spy).toHaveBeenCalledWith();
 
-    // Resumen honesto: éxito + cuántas actualizó + lista de rarezas sin mapear (accionable).
-    expect(await screen.findByText(/Rarezas unificadas/)).toBeInTheDocument();
-    expect(screen.getByText(/3400 de 12000 carta\(s\) actualizadas/)).toBeInTheDocument();
+    // Resumen honesto (§32.4, v2.1): **versalita primero** —y sólo `HECHO` porque `cardsUpdated`
+    // es > 0—, la cifra de ESCRITURA delante, el contexto detrás tras «de», y la lista de rarezas
+    // sin mapear (accionable). ⛔ La frase «Rarezas unificadas…» dejó de existir como encabezado:
+    // afirmaba el trabajo sin mirar la cifra. Los candados del caso `0` viven en
+    // `RarityHealthSection.test.tsx`.
+    expect(await screen.findByText(/3400 cartas actualizadas/)).toBeInTheDocument();
+    expect(screen.getByText(/de 12000 revisadas/)).toBeInTheDocument();
     expect(screen.getByText(/sin mapear/)).toBeInTheDocument();
     expect(screen.getByText('Galaxy Foil')).toBeInTheDocument();
   });

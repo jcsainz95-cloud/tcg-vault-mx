@@ -16,6 +16,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { VerdictNotice } from '@/components/ui/VerdictNotice';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   computeVerdict,
@@ -25,6 +26,7 @@ import {
   UNKNOWN_FIGURE,
   type Verdict,
   type VerdictTone,
+  type WriteFigure,
 } from '@/lib/verdict';
 import { SyncProgress } from './shared';
 import type { CatalogSync, RepairSetResult } from './useCatalogSync';
@@ -56,7 +58,13 @@ const RICH = {
   c: (chunks: ReactNode) => <span className="tabular text-muted">{chunks}</span>,
 };
 
-/** Un aviso de resultado: **versalita primero**, frase después, color al final (§32.4a). */
+/**
+ * Un aviso de resultado: **versalita primero**, frase después, color al final (§32.4a).
+ *
+ * La FORMA ya no vive aquí: es `components/ui/VerdictNotice`, porque §32.4 es transversal y M2 es
+ * donde se descubrió, no donde acaba. Lo único que queda en M2 es lo que es de M2: el rótulo del
+ * `<details>` técnico, que sale de su propio espacio de nombres.
+ */
 function ResultNotice({
   label,
   tone,
@@ -74,25 +82,46 @@ function ResultNotice({
 }) {
   const t = useTranslations('admin.m2.catalog');
   return (
-    <Banner variant={tone} role={role} action={action}>
-      {/*
-        §32.10: la versalita va DENTRO de la región viva y **primera** — es el portador del
-        significado y lo primero que se anuncia. §32.9: en móvil ocupa su propia línea.
-        ⛔ Nunca se trunca con elipsis: un veredicto truncado es un veredicto distinto.
-      */}
-      <span className="block font-mono text-xs uppercase tracking-[0.18em] text-text sm:inline">
-        {label}
-      </span>{' '}
-      <span>{children}</span>
-      {technical != null && (
-        // §32.4c: `jobId` e ids crudos NO van en la frase que lee el dueño. Si hacen falta para
-        // soporte, van aquí, plegados.
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer">{t('technicalDetail')}</summary>
-          <div className="mt-1 break-all font-mono text-muted">{technical}</div>
-        </details>
-      )}
-    </Banner>
+    <VerdictNotice
+      label={label}
+      tone={tone}
+      role={role}
+      action={action}
+      // §32.4c: `jobId` e ids crudos NO van en la frase que lee el dueño; van aquí, plegados.
+      technical={technical != null ? { label: t('technicalDetail'), value: technical } : undefined}
+    >
+      {children}
+    </VerdictNotice>
+  );
+}
+
+/**
+ * ⭐ El renglón de **SELECCIÓN** del aviso de «Importar sets nuevos» (§M2-CS.4).
+ *
+ * Va **después** de la frase del veredicto, en `text-muted` y sin negrita: son cifras de contexto y
+ * H3 les prohíbe la primera posición. Su razón de ser es la mitad callada de la decisión: *«no
+ * entra, pero se cuenta»* — un set remoto **sin fecha de lanzamiento** queda fuera de la corrida, y
+ * hasta hoy la pantalla no tenía cómo decirlo.
+ *
+ * H4 manda en las tres: lo que no viajó se pinta **«—»**, ⛔ nunca `0` y ⛔ nunca omitido.
+ */
+function SelectionLine({
+  selection,
+  text,
+}: {
+  selection: { date: string | null; outOfRange: WriteFigure; unknownDate: WriteFigure };
+  text: (vars: { date: string; outOfRange: string; unknownDate: string }) => string;
+}) {
+  return (
+    <p className="mt-2 text-xs text-muted">
+      <span className="tabular">
+        {text({
+          date: selection.date ?? UNKNOWN_FIGURE,
+          outOfRange: formatFigure(selection.outOfRange),
+          unknownDate: formatFigure(selection.unknownDate),
+        })}
+      </span>
+    </p>
   );
 }
 
@@ -137,6 +166,44 @@ type Vars = Record<string, string | number>;
 export type ActionView =
   | { state: 'running'; phraseKey: string; vars: Vars; done: number; total: number }
   | { state: 'result'; verdict: Verdict; phraseKey: string; vars: Vars; jobId?: string | null };
+
+/**
+ * Una cifra que llega de la red **puede no llegar**, por mucho que el tipo la declare presente: un
+ * despliegue anterior a v1.66 no manda las cifras de selección. `undefined` ⇒ `null` = «no viajó»
+ * ⇒ se pinta «—» (H4). ⛔ Nunca `?? 0`: ese cero afirma que se contó.
+ */
+function figureOrUnknown(value: number | undefined): WriteFigure {
+  return typeof value === 'number' ? value : null;
+}
+
+/**
+ * ⭐ **La SELECCIÓN que rigió la corrida** (§M2-CS.4 · §M2-CS.1): el corte, lo que quedó fuera por
+ * fecha y **lo que quedó fuera por no tener fecha**. Las tres son cifras de **contexto**: ⛔ no son
+ * escrituras, no entran en `computeVerdict` y **no pueden abrir la frase** del aviso (H3).
+ *
+ * Existe porque la decisión de §M2-CS.4 es *«no entra, pero **se cuenta**; nunca excluido en
+ * silencio»* — y esa decisión es **inalcanzable** si la pantalla no puede leer el tercer campo.
+ *
+ * **Dos fuentes, una sola verdad:** el `202` hace **eco** al arrancar y el `summary` es el registro
+ * **canónico** al terminar. Se prefiere el `summary`, pero **sólo si es el del barrido que ESTA
+ * corrida lanzó** (mismo `jobId`): atribuirle a una corrida la selección de otra es la misma
+ * familia de mentira que §32 corrige.
+ */
+export function selectionOf(args: {
+  launched: CatalogSyncAllResponse | null;
+  status: CatalogSyncStatusResponse | undefined;
+}): { date: string | null; outOfRange: WriteFigure; unknownDate: WriteFigure } | null {
+  const { launched, status } = args;
+  if (launched == null) return null;
+  const summary = status != null && status.jobId === launched.jobId ? status.summary : null;
+  const src = summary ?? launched;
+  return {
+    // El corte es una FECHA, no una cifra: vacío o ausente ⇒ «—», jamás una fecha inventada.
+    date: typeof src.fromReleaseDate === 'string' && src.fromReleaseDate !== '' ? src.fromReleaseDate : null,
+    outOfRange: figureOrUnknown(src.setsSkippedOutOfRange),
+    unknownDate: figureOrUnknown(src.setsSkippedUnknownDate),
+  };
+}
 
 /** ¿Terminó el barrido que ESTA acción lanzó? Se compara por `jobId`: el estado vive en memoria. */
 type SweepPhase = 'pending' | 'running' | 'finished' | 'lost';
@@ -491,6 +558,11 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
     started: forceAllMutation.isSuccess || refreshVariantsAllMutation.isSuccess,
   });
   const repairView = repairSetMutation.data ? repairSetView(repairSetMutation.data) : null;
+  /** La selección que rigió ESTA corrida de «Importar sets nuevos» (§M2-CS.4). Contexto, no trabajo. */
+  const importSelection = selectionOf({
+    launched: importNewMutation.data ?? null,
+    status: syncStatus.data,
+  });
 
   const renderNotice = (view: ActionView, extra?: ReactNode, action?: ReactNode) => {
     if (view.state === 'running') {
@@ -504,6 +576,9 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
         <>
           <ResultNotice label={tv('inProgress')} tone="info" role="status">
             {phrase}
+            {/* El contexto de la corrida (p. ej. su SELECCIÓN) vale igual mientras corre: es lo
+                que ya se sabe del `202`, y esperar al final para decirlo no lo haría más cierto. */}
+            {extra}
           </ResultNotice>
           {/* La frase de fase vive en el aviso (aria-live) y en el NOMBRE de la barra; el rótulo
               visible de la barra es la cifra corta, para no decir dos veces lo mismo (§32.10). */}
@@ -645,15 +720,25 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
       {importView != null &&
         renderNotice(
           importView,
-          importView.state === 'result' && syncStatus.data?.summary?.failures?.length ? (
-            <FailureList
-              failures={syncStatus.data.summary.failures}
-              sets={remoteSets.data}
-              title={t('refreshVariantsAllFailuresTitle', {
-                count: syncStatus.data.summary.setsFailed,
-              })}
-            />
-          ) : undefined,
+          <>
+            {/* La selección acompaña al aviso en TODOS sus estados (también «en curso»): el `202`
+                ya la trae y callarla hasta el final sería volver a excluir en silencio. */}
+            {importSelection != null && (
+              <SelectionLine
+                selection={importSelection}
+                text={(vars) => t('importNew.selection', vars)}
+              />
+            )}
+            {importView.state === 'result' && syncStatus.data?.summary?.failures?.length ? (
+              <FailureList
+                failures={syncStatus.data.summary.failures}
+                sets={remoteSets.data}
+                title={t('refreshVariantsAllFailuresTitle', {
+                  count: syncStatus.data.summary.setsFailed,
+                })}
+              />
+            ) : null}
+          </>,
         )}
       {importNewMutation.isError && (
         <Banner variant="danger" role="alert" title={tc('errorTitle')}>
