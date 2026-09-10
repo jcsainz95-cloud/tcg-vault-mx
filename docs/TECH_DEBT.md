@@ -6213,6 +6213,57 @@ topes de posición) ya validan con `isInt`.
 - **Disparador:** el primer pase que toque el avance de `done` o el reparto de `runSyncAll`; y de forma
   natural, el pase de CS-D2 (que va a mover exactamente ese código).
 
+#### ~~CS-D8~~ · `providerFor()` **caía automáticamente al proveedor que APLANA** con solo un `warn` — ⛔ **CERRADA el 2026-09-10** (fail-closed + señal). *La ficha original se conserva íntegra debajo porque su medición es la que justifica el cierre.*
+
+> ⚠️⚠️ **CERRADA — el `warn` es ahora un `throw`, y el `throw` viaja con señal.** Dos agentes
+> independientes señalaron esta ficha el mismo día (backend al anotarla; **QA la elevó** al medir que
+> el test que la cubría **defendía la conducta prohibida**), así que dejó de ser una duda. Lo que
+> cambió, en `backend/src/modules/pricing/price-ingest.service.ts`:
+>
+> 1. **`providerFor()` LANZA `UnknownPriceProviderError`** en vez de `return this.tcgIoBulk`. Es
+>    `I-PP4` literal: *fallar es fail-closed; aplanar es una pérdida irrecuperable*.
+> 2. **El `throw` estampa `syncStatus.lastError`** (`markProviderFailure`), que es lo que
+>    `GET /admin/pricing/sync-status` ya exponía y nadie poblaba en este camino. **Sin esto el cierre
+>    habría sido un cambio de modo de fallo, no una mejora** — ver la medición de abajo.
+> 3. **El test que lo blindaba al revés se invirtió.** Se llamaba *«dial desconocido → fallback
+>    money-safe a pokemontcg_io (legacy)»* — **la misma frase que `D-PP-1` retiró de
+>    `settings.constants.ts`**, viva en el test que guarda la ruta del dinero. `§M10-PP · I-PP1`
+>    declara que `pokemontcg_io` ⛔ *«ya no se describe como el seed money-safe»*.
+>
+> **⚠️ MEDICIÓN DEL MODO DE FALLO DEL `throw` EN PRODUCCIÓN** (la pregunta era: *¿muere solo ese set,
+> muere el job entero, hay reintento?*). Respuesta corta: **muere el barrido entero, antes de encolar
+> un solo set, y en dos de los tres disparos moría MUDO** — por eso el `throw` no va solo:
+>
+> | Disparo | Dónde sale el `throw` | Qué muere | Reintento | Señal ANTES del arreglo |
+> |---|---|---|---|---|
+> | **cron 2×/día con Redis** (prod) | `run()` → `enqueueAllSets()` → `listSetIdsForIngest()` (`price-ingest.service.ts:410`) | **el barrido ENTERO**, y **ni un child se encola** (el `throw` precede al `queue.add`) | ⛔ **ninguno**: el job repetible se añade con `repeat()`, que **no fija `attempts`** ⇒ BullMQ usa **1**. Siguiente intento = **el siguiente cron (12 h)** | 1 línea `error` del listener `failed` del worker. **`sync-status` seguía mostrando la corrida BUENA anterior con `lastError: null`** |
+> | **`run()` sin Redis** (local/CI) | `ingestAll()` (`:456`) | el barrido entero | ninguno | ⛔ **ninguna**: el `throw` ocurre **antes** de reinicializar `syncStatus` (`:460`), así que el `catch` que puebla `lastError` **no se alcanza** |
+> | **`runBackground()`** — botón «sincronizar ahora» (N-11) | `ingestAll()` dentro de un `void … .catch(logger.error)` | el barrido entero | ninguno | ⛔ **la peor**: el operador ya recibió **`200 { background: true }`** y la barra de progreso **nunca se mueve**. **Cero señal en la UI** |
+> | **child `price-ingest-set`** (solo si la fila se ensucia a media corrida) | `ingestForSet()` (`:520`) | ese set | **sí**: `attempts: 3` + backoff exponencial ⇒ 3 intentos × N sets | ruidosa (N×3 `failed`) |
+> | **`POST /admin/jobs/price-ingest { setId }`** | `ingestSetByExternalId()` → `ingestForSet()` | ese request | n/a | ruidosa: `500 INTERNAL` por el filtro global |
+> | **catch-up al boot** | encola `price-ingest` → misma rama del cron | el barrido entero | **de facto sí**: `hasRecentIngest()` seguirá en `false`, así que **cada arranque vuelve a encolarlo** (dedup por día) | la del cron |
+>
+> ⇒ **Conclusión de la medición, dicha entera:** el `throw` a secas cambiaba *«escritura silenciosa y
+> MALA»* por *«NO-escritura silenciosa»*. Mejor para el dinero —no se escribe un solo precio aplanado—
+> pero **igual de muda**, y con el agravante de que el barrido nocturno se caería sin avisar a nadie
+> durante 12 h por ciclo. **Ése es el «algo» que el `throw` necesitaba, y es el estampado en
+> `sync-status`** (punto 2), que aterriza en la superficie que el operador ya pollea. ⛔ **No se añadió
+> aislamiento por set**: no aplica — el fallo es de la **fila de config**, es idéntico para los N sets,
+> y aislar por set solo convertiría un fallo en N fallos del mismo.
+>
+> **Verificado por mutación sobre copia (`npm test`, 266 suites):** base **4348/4348 verde**.
+> Restaurando el `warn` + `return this.tcgIoBulk` ⇒ **3 rojos**. Dejando el `throw` pero quitando
+> `markProviderFailure` ⇒ **1 rojo** (el candado de la señal existe y es independiente del candado de
+> la conducta). ⚠️ **Alcanzabilidad: sin cambio.** La medición (d)/(e) de la ficha original sigue
+> valiendo — **ningún camino de código de este repo alcanza la rama**, luego **este cierre no altera
+> ninguna conducta observable hoy**; convierte el día que deje de serlo en un fallo ruidoso.
+> **Residual que NO cierra este pase** (y por eso la reserva de la ficha original sigue de pie): **la
+> LECTURA de los diales sigue sin validar** (`SettingsService.get()` devuelve `row.valueJson` tal
+> cual). Se recomienda como follow-up validar en la lectura los diales de clase (A); **no es de este
+> pase** y no tiene dueño asignado.
+
+<details><summary>Ficha original (techlead, 2026-09-10) — se conserva porque su medición es la que justifica el cierre</summary>
+
 #### CS-D8 · `providerFor()` **cae automáticamente al proveedor que APLANA** con solo un `warn` — contradice `I-PP4`, y hoy está **cerrado por una guarda que vive en OTRO módulo** (techlead, 2026-09-10)
 - **Dueño:** **backend** (`pricing` — `price-ingest.service.ts:354-357`). **Severidad: Media** hoy /
   **Alta** el día que la guarda se mueva. **No bloqueante** — con la reserva escrita abajo, que es el
@@ -6260,3 +6311,60 @@ topes de posición) ya validan con `isInt`.
   **cualquier runbook que toque `price_provider` fuera de `PUT /admin/settings`**. Ref:
   `API_CONTRACT §M10-PP` (`I-PP1`…`I-PP5`), `test/settings.validation.spec.ts` (PIN del enum),
   `scripts/price-provider-parity.sh`, `DEVOPS_NOTES §43.2`.
+
+</details>
+
+---
+
+### Deuda anotada a petición de QA con el rechazo del release — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-10 (dueño: **backend**)
+
+#### PNL-D1 · El P&L y el tablero suman `approvedTotalCents` **a secas**; el control ANTILAVADO del mismo dinero usa la cascada `brutoConsumado` — **dos aritméticas para el mismo peso** (QA, 2026-09-10)
+- **Dueño:** **backend** (`admin` — `admin.service.ts:1276` y `:1321`). **Severidad: Baja hoy** /
+  **Media el día que se mueva el disparador de abajo**. **No bloqueante**, y la razón está medida.
+- **La asimetría, literal.** Las dos superficies miden *«cuánto bruto de buylist consumimos en este
+  periodo»* y **no lo miden con la misma columna**:
+  - **Tablero / P&L** (`:1276`): `sellRequest.aggregate({ where: { status:'pagada', paidAt: period }, _sum: { approvedTotalCents: true } })`, servido en `:1321` como
+    `buylistPeriod.amountCents = agg._sum.approvedTotalCents ?? 0` — **suma plana de UNA columna**.
+  - **Control AML** (`buylist.service.ts:1752` `monthCommittedGrossPaidCentsTx` → `:1786`):
+    `rows.reduce((acc, r) => acc + brutoConsumado(r), 0)` con
+    `brutoConsumado = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`
+    (`src/common/buylist-aml.ts:153`, **`ARCHITECTURE §4.39i.4-bis`, NORMATIVO/DINERO/AML**).
+  - ⇒ En toda fila `pagada` con `approvedTotalCents = null`, **el AML cuenta el bruto ofertado y el
+    tablero cuenta 0**. Se llama **subreporte del P&L**, y va en la dirección de reportar **de menos**.
+- **⚠️ POR QUÉ ES DEUDA Y NO BLOQUEANTE — la acotación, medida, no supuesta.** Ninguna fila `pagada`
+  **nueva** puede tener `approvedTotalCents = null`, y el candado está en el `where` del pago:
+  `payableWhere()` (`buylist.service.ts:5846`) incluye **`approvedTotalCents: { not: null }`** (V-a,
+  §M5-V), y ese fragmento **llega al motor por `AND`, no por spread** — `buylist.service.ts:7157-7161`
+  lo mete como elemento de `AND: [ this.payableWhere(), … ]` **precisamente porque el spread se lo
+  comía** (`B1`, v1.61.1: *«en un objeto literal de JavaScript la clave posterior gana sobre el
+  spread»*, con el `count === 1` y `payoutNetCents = 72000` por CERO cartas ya reproducidos). ⇒ **la
+  cascada y la suma plana coinciden en toda fila pagada del ciclo vivo**, y la divergencia solo puede
+  venir de **filas históricas pre-M-46** (donde `approvedTotalCents` es `null` y manda
+  `quotedTotalCents`) o de una fila fabricada fuera del verbo.
+- **⚠️ Y EL MATIZ QUE HAY QUE LLEVARSE, porque es la mitad del hallazgo (QA):** el test que
+  *supuestamente* blinda esto **no puede distinguirlo**.
+  `test/integration/buylist-pay-verdicts.e2e-spec.ts`, **assert 7** (*«amountCents ES EL BRUTO
+  CONSUMADO»*), corre sobre **dos fixtures en las que `approvedTotalCents` es NO-NULO** ⇒ la cascada
+  y la suma plana **dan el mismo número**, y el assert pasa **con y sin el defecto**. *Un test que no
+  puede separar las dos conductas no está blindando ninguna* — es la misma familia que `B1-D3` y que
+  el `?? []` de `BL45-D1`: cobertura que **certifica** el pase sin poder decir «no».
+- **Coste si no se paga:** el tablero de `super_admin` y el AML contestan **cifras distintas sobre el
+  mismo dinero** en cuanto entre al periodo una fila con el aprobado en `null`. Es una superficie de
+  **decisión del dueño**, no de cobro: nadie paga con esta cifra, pero se decide con ella.
+- **Cura (una, barata, y con un orden):** **(1)** darle al assert 7 una tercera fixture en la que
+  `approvedTotalCents` sea `null` y `offerGrossCents` no — sin eso, cualquier arreglo se declara bueno
+  contra un test que no lo mide; **(2)** entonces sustituir la agregación plana por la cascada. ⚠️ **El
+  paso (2) no es un `_sum` de Prisma**: `brutoConsumado` es un `COALESCE` de tres columnas y por eso
+  el AML **suma en memoria** (`buylist.service.ts:1739`); replicarlo aquí cambia el perfil de la
+  consulta del tablero y debe medirse. ⛔ **Y no se «unifica» con `monthCommittedGrossCents`**: son
+  dos cascadas distintas a propósito (`buylist-aml.ts`, *«POR QUÉ HAY DOS CASCADAS Y NO SE UNIFICAN»*).
+- **⚠️ Por qué NO se arregla en este pase:** `admin.service.ts` es del stream **«Admin y auditoría»** y
+  este pase corre en **«Catálogo y precios»**; además la cura (1) toca la suite de **integración**,
+  que ejecuta QA. *No se corrige a mano ajena, y menos con el release rechazado.*
+- **Disparador:** ⚠️ **la primera fila `pagada` con `approvedTotalCents = null` que caiga dentro de un
+  periodo reportado** — hoy solo alcanzable por dato histórico pre-M-46 o por escritura fuera del
+  verbo. **También** cualquier pase que relaje `payableWhere()` o que vuelva a componer ese `where`
+  por spread: **en ese momento la acotación de esta ficha deja de ser cierta y esto pasa a Media**.
+  Ref: `ARCHITECTURE §4.39i.4-bis`, `API_CONTRACT §M5-V` (V-a), `src/common/buylist-aml.ts:153`,
+  `buylist.service.ts:5846`/`:7157`, `test/buylist.pay-spei-where-composition.spec.ts`,
+  `test/integration/buylist-pay-verdicts.e2e-spec.ts` (assert 7).

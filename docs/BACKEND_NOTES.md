@@ -19472,3 +19472,160 @@ respuesta. ⇒ el renombrado **no rompe a frontend** y no hubo que enrutar nada.
   no cabe en un arreglo de nombre. `resolveCatalogFromDate()` sigue siendo la costura donde aterriza.
 - El **`fromReleaseDate` del `summary` ya está cableado**, así que cuando el corte pase a automático la
   corrida ya reporta **cuál corte la rigió** sin tocar ningún llamador.
+
+---
+
+## §v2.2-PP.1 — `providerFor()` pasa a **FAIL-CLOSED**, y el `throw` **no viaja solo** (backend, 2026-09-10; CS-D8 · `API_CONTRACT §M10-PP · I-PP4`)
+
+> ⚠️ **Dos agentes independientes señalaron esto el mismo día**: backend lo anotó como `CS-D8` en
+> `docs/TECH_DEBT.md`, y **QA lo elevó** al medir que el test que lo cubría **defendía la conducta
+> prohibida**. Dejó de ser una duda.
+
+### Qué decía el contrato y qué hacía el código
+
+`API_CONTRACT §M10-PP · I-PP4`: *«⛔ **No hay caída automática a otro proveedor**: fallar es
+fail-closed; aplanar es una pérdida irrecuperable»*. `price-ingest.service.ts` hacía, ante un dial
+fuera del enum, `logger.warn(...)` **+ `return this.tcgIoBulk`** — caída automática **al proveedor que
+APLANA** (un `market` por carta ⇒ `normal`/`reverse_holo`/`holofoil` al mismo precio). ⇒ la conducta
+que el `warn` defendía era **repreciar el catálogo entero a la baja, en silencio, con un `200`**.
+
+**Y el test era la mitad peor del hallazgo.** `test/price-ingest.service.spec.ts` tenía un caso
+llamado *«dial desconocido → **fallback money-safe** a pokemontcg_io (**legacy**)»*: **la misma frase
+que `D-PP-1` acaba de retirar de `settings.constants.ts`**, porque `§M10-PP · I-PP1` declara que
+`pokemontcg_io` ⛔ *«ya no se describe como el seed money-safe»* — precisamente por escribir precios
+aplanados. La frase sobrevivía en el test que guarda la ruta del dinero, que es el peor sitio donde
+puede sobrevivir una afirmación falsa: **un rojo que defiende el defecto le cuesta al siguiente mucho
+más caro que el defecto solo.**
+
+### Qué se hizo
+
+1. **`providerFor()` lanza `UnknownPriceProviderError`** (exportada desde el mismo módulo) en vez de
+   devolver el legacy. El mensaje nombra **el valor corrupto** y **la palanca de corrección**
+   (`PUT /api/v1/admin/settings { priceProvider }`, `I-PP3`).
+2. **Es un `Error` pelado, ⛔ no una `BusinessException`, y es deliberado.** Ningún código de
+   `API_CONTRACT §0` nombra este caso; tomar uno prestado (`GRADED_CONFIG_INVALID` está a un palmo y
+   es de **otra** clave) sería ampliar por mi cuenta el alcance de un código del contrato. **Si el
+   arquitecto decide que este fallo merece `code` propio, se añade allí primero (regla 9).** El único
+   camino HTTP que lo alcanza —`POST /admin/jobs/price-ingest { setId }`— lo sirve el filtro global
+   como **`500 INTERNAL`**, que es la verdad: la fila de config está corrupta y el operador no puede
+   corregirlo desde ese request.
+3. **⭐ El `throw` estampa `syncStatus.lastError`** (`markProviderFailure`) — ver el apartado siguiente,
+   que es la razón de que este punto exista.
+4. **El test se invirtió** y ganó dos hermanos: uno en negativo (*no devuelve **ningún** proveedor*) y
+   otro sobre **la señal**.
+
+### ⚠️ La medición que obligó al punto 3: qué pasa en PRODUCCIÓN si esa rama se alcanza con un `throw`
+
+La pregunta era *¿muere solo ese set, muere el job entero, hay reintento?*. Medido sobre el código que
+corre:
+
+| Disparo | Dónde sale el `throw` | Qué muere | Reintento | Señal **sin** el punto 3 |
+|---|---|---|---|---|
+| **cron 2×/día con Redis** (prod) | `run()` → `enqueueAllSets()` → `listSetIdsForIngest()` | **el barrido ENTERO**, y **ni un child se encola** | ⛔ **ninguno**: el job repetible se añade con `repeat()`, que **no fija `attempts`** ⇒ BullMQ usa **1**. Siguiente intento = **el siguiente cron, 12 h después** | 1 línea `error` del listener `failed`; **`sync-status` seguía mostrando la corrida BUENA anterior con `lastError: null`** |
+| **`run()` sin Redis** | `ingestAll()` | el barrido entero | ninguno | ⛔ **ninguna**: el `throw` precede a la reinicialización de `syncStatus`, así que el `catch` que puebla `lastError` **no se alcanza** |
+| **`runBackground()`** — botón «sincronizar ahora» (N-11) | `ingestAll()` dentro de `void … .catch(logger.error)` | el barrido entero | ninguno | ⛔ **la peor**: el operador ya tiene su **`200 { background: true }`** y **la barra nunca se mueve**. Cero señal en la UI |
+| **child `price-ingest-set`** | `ingestForSet()` | ese set | **sí**: `attempts: 3` + backoff exponencial | ruidosa |
+| **`POST /admin/jobs/price-ingest { setId }`** | `ingestSetByExternalId()` | ese request | n/a | ruidosa (`500`) |
+| **catch-up al boot** | encola `price-ingest` → rama del cron | el barrido entero | **de facto sí**: `hasRecentIngest()` sigue en `false` ⇒ **cada arranque vuelve a encolarlo** (dedup por día) | la del cron |
+
+⇒ **Conclusión, dicha entera:** el `throw` **a secas** cambiaba *«escritura silenciosa y MALA»* por
+*«NO-escritura silenciosa»*. Mejor para el dinero —no se escribe un solo precio aplanado— pero **igual
+de muda**, y tumbando el barrido nocturno sin avisar a nadie durante 12 h por ciclo. **Eso es un modo
+de fallo distinto, no necesariamente mejor**, y por eso el `throw` va acompañado del estampado en
+`syncStatus.lastError`, que aterriza en `GET /admin/pricing/sync-status` — **la superficie que el
+operador ya pollea**. ⛔ **No se añadió aislamiento por set**: no aplica. El fallo es de la **fila de
+config**, es idéntico para los N sets, y aislar por set convertiría un fallo en N fallos del mismo.
+
+### Alcanzabilidad: **sin cambio**, y por eso el cierre es barato
+
+La medición (d)/(e) de `CS-D8` sigue valiendo: **ningún camino de código de este repo** puede dejar un
+valor fuera del enum en `ConfigSetting.price_provider` (la puerta de **escritura** la guarda
+`SETTING_VALIDATORS`). ⇒ **este cambio no altera ninguna conducta observable hoy**; convierte el día
+que deje de serlo en un fallo ruidoso. **Residual que este pase NO cierra:** la **lectura** de los
+diales sigue sin validar (`SettingsService.get()` devuelve `row.valueJson` tal cual). Queda
+recomendado como follow-up (validar en la lectura los diales de clase (A)); **sin dueño asignado**.
+
+### Candados y su mutación (sobre copia, `npm test`, 266 suites)
+
+Base: **4348/4348 verde**.
+
+| Mutación | Rojos |
+|---|---|
+| Restaurar `logger.warn(...) + return this.tcgIoBulk` (la conducta que `I-PP4` prohíbe) | **3** |
+| Dejar el `throw` pero **quitar** `markProviderFailure` (fail-closed **mudo**) | **1** |
+
+Los dos candados son **independientes**: uno afirma la conducta, el otro afirma que se ve.
+
+---
+
+## §v2.2-CS.1 — MUT9 (`sweepFailureCode`): **el candado ya existía; lo que sobrevivía era un mutante EQUIVALENTE** (backend, 2026-09-10, medido)
+
+**Refutación con medición, no opinión.** QA reportó que mutar
+`backend/src/modules/catalog/set-sweep-tally.ts:103` para inventar `'UNKNOWN'` dejaba **4343/4343 en
+verde**, es decir *«la norma está escrita y el candado no existe»*. **Medido dos veces, la segunda con
+`npx jest --clearCache`: no reproduce.**
+
+| Mutación | Rama | Resultado |
+|---|---|---|
+| `… ? String(error.code) : 'UNKNOWN'` | **`else`** (el error **sin** código — la que la norma vigila) | 🔴 **3 rojos / 2 suites**, ya **antes** de este pase (`test/catalog-sweep-reparto.spec.ts` y `test/catalog-sync.honest-counters.spec.ts`) |
+| `… ? String(error.code ?? 'UNKNOWN') : null` | **`then`** (la `BusinessException`) | 🟢 **4344/4344 verde** |
+
+⇒ **La que sobrevivía es la del `then`, y sobrevive porque es un MUTANTE EQUIVALENTE**:
+`BusinessException.code` es `public readonly code: ErrorCodeType`, **parámetro requerido del
+constructor** (`src/common/business.exception.ts:11`) ⇒ **nunca es nullish** y el `??` **no puede
+dispararse jamás**. Ningún test puede matarla, y **ninguno debería intentarlo**: hacerlo exigiría
+fabricar una `BusinessException` ilegal. *Un mutante equivalente que sobrevive no es un candado que
+falta; es un mutante que no debió contarse.* (La cifra `4343` vs. las `4344` de mi árbol es un commit
+de deriva: el candado entró en `59ff97f`, once commits atrás.)
+
+⚠️ **Y por eso ese `?? 'UNKNOWN'` NO se queda en el código**, aunque sea inalcanzable: planta **el
+literal exacto que la norma prohíbe** dos líneas debajo del comentario que dice `⛔ No se inventa un
+código (§M2-CS.0)`, y el siguiente que lo lea concluye que inventar `'UNKNOWN'` es la conducta de la
+casa. Se usó **solo como sonda de medición sobre copia** y se revirtió.
+
+**Lo que sí se hizo: reforzar el candado del `else`**, que era correcto pero estrecho.
+`test/catalog-sweep-reparto.spec.ts` gana dos casos:
+
+- **el ayudante** con los seis errores planos que separan las dos conductas —`Error`, **`TypeError`**
+  (el que llega de una librería), un `throw` de string, un objeto, `null` y `undefined`— aseverando
+  `null` **y** enumerando los rellenos por su literal: los dos que la norma nombra (`'UNKNOWN'`,
+  `'UPSTREAM_ERROR'`) **más `'undefined'`**, que no nombra nadie y es el que saldría solo de un
+  `String(...)` descuidado, rematado con `typeof !== 'string'` (mata **cualquier** relleno, incluido
+  uno que a nadie se le ha ocurrido);
+- **el llamador** (`recordSweepFailure`), porque el relleno puede reaparecer ahí
+  (`code: sweepFailureCode(e) ?? 'UNKNOWN'`) sin tocar el ayudante.
+
+⚠️ **La trampa que estos casos existen para evitar:** en el camino feliz —una `BusinessException` con
+su `code`— la norma y el defecto **dan el mismo resultado**, así que un test que solo mire ese camino
+pasa con y sin el defecto y **no blinda nada**. **El caso que las separa es un error PLANO.**
+
+**Mutación (sobre copia), con el candado reforzado:** base **4348/4348**.
+
+| Mutación | Rojos |
+|---|---|
+| `else` → `'UNKNOWN'` (ayudante) | **5** (eran 3) |
+| `code: sweepFailureCode(error) ?? 'UNKNOWN'` (llamador) | **4** |
+
+⛔ **Producción NO se tocó**: `set-sweep-tally.ts` sale de este pase **byte a byte como entró**. Lo que
+faltaba era cobertura, no conducta.
+
+---
+
+## §v2.2-BL.1 — `recomputeApprovedTotal` **YA ESTABA CERRADO**: confirmado con la medición y con fecha (backend, 2026-09-10)
+
+**Veredicto: CERRADO. Que nadie más lo persiga.** Se venía citando como defecto vivo *(«reescribe
+`approvedTotalCents` sobre una fila ya pagada y mueve el acumulado AML retroactivamente a la baja»)*.
+Ya no lo es, y esto es lo que hay en el árbol hoy (`buylist.service.ts:6497`):
+
+- la escritura es un **`updateMany` con `this.liveRequestWhere()`** —⛔ no un `update({ where: { id } })`—
+  así que **no puede tocar una fila cerrada**;
+- si el guard no casa (`guard.count !== 1`) **deja aviso** (`recomputeApprovedTotal: … ya no está
+  viva; el total aprobado NO se reescribe`), de modo que la carrera es **visible** en vez de silenciosa;
+- **⚠️ no lanza, y es deliberado**: es un derivado *best-effort* **post-commit** de una decisión que ya
+  prosperó legítimamente. El **no-op ES el resultado correcto** — en una solicitud cerrada el total
+  congelado es exactamente el que se pagó (§4.18f ancla la norma de `brutoConsumado` justo ahí).
+
+**Fecha y lugar del cierre, medidos con `git`:** entró en **`3b2fc87`, 2026-09-06** (*«fix(backend): la
+invariante que faltaba en dos verbos, y el segundo SPEI que salía por ahí»*), verificado con
+`git log -S` sobre el literal del aviso. Ese commit es **ancestro del merge-base** (`5f05b08`) de la
+rama actual ⇒ **el cierre es anterior a todo el trabajo de este stream** y no depende de él.

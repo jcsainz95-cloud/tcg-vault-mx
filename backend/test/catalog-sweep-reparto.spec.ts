@@ -149,6 +149,62 @@ describe('§M2-CS.0 — el reparto de un barrido: fuente única (unitarios del c
     ]);
   });
 
+  /**
+   * ⭐⭐ **MUT9 — EL CANDADO DE LA RAMA `else` DE `sweepFailureCode`.**
+   *
+   * `§M2-CS.0` es normativo aquí: *«⛔ No se inventa un `"UNKNOWN"` ni se sustituye por un
+   * `UPSTREAM_ERROR` de relleno — atribuirle al fallo un código que nadie emitió es la misma familia
+   * de mentira que contar un `noop` como bueno»*. La rama que **puede** mentir es la `else`: el error
+   * que **no** es `BusinessException` y por tanto **no trae código**.
+   *
+   * ⚠️ **La trampa que este test existe para evitar:** en el camino feliz (una `BusinessException`
+   * con su `code`) la norma y el defecto **dan el mismo resultado**, así que un test que sólo mire
+   * ese camino pasa con y sin el defecto — no separa las dos conductas y no blinda nada. **El caso
+   * que las separa es un error PLANO**, y por eso aquí van los cinco: `Error`, `TypeError` (el que
+   * llega de una librería), un `throw` de string, un objeto cualquiera y `null`/`undefined`.
+   *
+   * La aserción no se queda en `toBeNull()`: enumera los rellenos **por su literal** —los dos que la
+   * norma nombra, más `'undefined'`, que no lo nombra nadie y es el que saldría solo de un
+   * `String(...)` descuidado— y remata con `typeof !== 'string'`, que mata **cualquier** relleno,
+   * incluido uno que a nadie se le ha ocurrido todavía.
+   */
+  it('⭐ MUT9: un error SIN código produce `null` y ⛔ NINGÚN relleno inventado (rama `else`)', () => {
+    const planos: unknown[] = [
+      new Error('se cayó y no dijo por qué'),
+      new TypeError("Cannot read properties of undefined (reading 'id')"),
+      'ni siquiera un Error',
+      { message: 'un objeto cualquiera' },
+      null,
+      undefined,
+    ];
+
+    for (const e of planos) {
+      const code = sweepFailureCode(e);
+      expect(code).toBeNull();
+      // ⛔ Ningún relleno, dicho uno por uno (los dos de la norma + el del `String()` descuidado).
+      for (const relleno of ['UNKNOWN', 'UPSTREAM_ERROR', 'undefined', 'null', '']) {
+        expect(code).not.toBe(relleno);
+      }
+      // …y el candado general: «no lo sé» viaja como `null`, JAMÁS como un string cualquiera.
+      expect(typeof code).not.toBe('string');
+    }
+  });
+
+  it('⭐ MUT9 (de punta a punta): el relleno tampoco entra por `recordSweepFailure`', () => {
+    // El ayudante aislado ya está blindado arriba; esto asevera que el renglón que de verdad se
+    // publica en `failures[]` llega con el `null` intacto — el defecto podría reaparecer en el
+    // llamador (`code: sweepFailureCode(e) ?? 'UNKNOWN'`) sin tocar el ayudante.
+    const t = emptySetSweepTally(3);
+    recordSweepFailure(t, 'plain', new Error('boom'));
+    recordSweepFailure(t, 'typeerror', new TypeError('x is not a function'));
+    recordSweepFailure(t, 'no-error', 'un string pelado'); // `throw` de algo que no es Error
+
+    expect(t.setsFailed).toBe(3);
+    expect(t.failures.map((f) => f.code)).toEqual([null, null, null]);
+    // Y el `message` de un no-`Error` se estampa tal cual: tampoco ahí se inventa un texto.
+    expect(t.failures[2].message).toBe('un string pelado');
+  });
+
   it('I-CS4: setsNoop NO se suma a setsWritten «para redondear» un total', () => {
     const t = emptySetSweepTally(10);
     for (let i = 0; i < 7; i++) recordSweepAttempt(t, false); // siete sets que no escribieron nada
