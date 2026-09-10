@@ -822,6 +822,28 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
   o debe **forzar de verdad** el cambio antes de dejar operar? Lo segundo es lo que el texto promete hoy.
 
 #### P-76 · 🔁 Ocho botones de sincronizar, y el más visible miente — ✅ EVALUADO (ux-review, 2026-09-10) · **VEREDICTO: RECHAZADO**
+
+> **DECISIÓN DEL HUMANO (2026-09-10), literal:** *«Backfill nunca forzar si varias veces, importar
+> sets nuevos deberia de traer los nuevos no los viejos y es movible conforme vaya pasando el tiempo,
+> sincornizar set deberia hacer las dos imagenes y precios solo se ocupa si se ve un error en algun
+> set especifico»*.
+>
+> Cierra las tres preguntas de ux-review. Quedan **tres acciones**, no ocho:
+> 1. **Importar sets nuevos** — solo los nuevos, con corte de fecha **móvil** (el mecanismo del corte
+>    lo decide el **arquitecto**; ¿ventana rodante interna o dial editable en admin?). Hoy
+>    `catalog-sync.service.ts:594` importa TODO lo que falte, sin filtro.
+> 2. **Sincronizar todo (forzar)** — se conserva: la usa varias veces.
+> 3. **Sincronizar este set** (por fila) — hace **imágenes Y precios**, siempre las dos. Es
+>    herramienta de **reparación**, para cuando un set específico se ve mal. Hoy esa acción existe
+>    (`catalog.fullSyncMenuItem`) pero está **escondida en el menú ⋯**, mientras el botón grande de la
+>    fila es el que no escribe precios.
+> 4. **«Backfill» se elimina** — nunca la ha usado.
+>
+> **Enrutado el 2026-09-10:** **ux-ui** (patrón de §19 + norma de honestidad del aviso + resolver la
+> copia muerta de los `*Hint`) · **backend/catalog** (los dos contadores mentirosos D1/D2 + MEDIR el
+> corte de fecha, sin implementarlo) · **arquitecto** (decidir el mecanismo del corte, pendiente:
+> está ocupado con la contradicción del seed del dial) · **frontend** (implementar tras ux-ui).
+
 - **Pedido del humano (2026-09-10):** *«revisar tambien cuantos botones tenemos de sincronizar, valdría la
   pena dejar meter nuevas colecciones, sincronizar set específico y sincronizar todo, evalúalo»*. Nace de
   que **`P-72` le costó un intento real**: corrió «el sync» y no pasó nada.
@@ -1090,7 +1112,85 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
-#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — EN CURSO
+#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — ⚠️ ESTA NOTA ESTÁ DESACTUALIZADA (QA, 2026-09-10)
+
+> **QA midió el 2026-09-10 y esta nota afirma un estado que ya no es cierto. Tercer caso de la
+> semana, tras P-45 y P-74.**
+>
+> - **Parte 3 (el provider por-acabado): TERMINADA y YA EN PRODUCCIÓN.** Su historial completo son
+>   dos commits, `73f0fa4` + `03f0e02`, ambos contenidos en `production`. Verificado por el
+>   orquestador: `git diff origin/production..HEAD -- backend/src/modules/pricing/` = **vacío**. El
+>   código del flip es idéntico al que ya está sirviendo.
+> - **Parte 4 (el runbook de activación): TAMBIÉN EXISTE**, desde el 2026-08-24 —
+>   `docs/DEVOPS_NOTES.md` §28, «Runbook de ACTIVACIÓN en PROD». Y `.env.example:444` ya trae
+>   `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`.
+> - 🔴 **Y hay una señal fuerte de que el dial YA ESTÁ FLIPEADO en producción desde el 2026-08-28**,
+>   o sea que **el automático lleva ~2 semanas corriendo por-acabado**. Razonamiento por exclusión
+>   sobre una medición de prod ya registrada en P-53: prod escribe **28,559 filas/día con
+>   `source='tcgcsv_singles'`**, y el ritmo saltó ×14 el 2026-08-28. Solo hay dos escritores posibles
+>   de esa fuente, y el orquestador descartó el otro midiendo: las dos llamadas a
+>   `runCardProductResolver` (`catalog-sync.service.ts:785` y `:817`) están **ambas** detrás de
+>   `firstImport || opts.force === true`, y el cron diario corre con `force:false` ⇒ el resolver no
+>   corre a diario y no puede producir ese volumen. Queda el barrido con el dial en `tcgcsv_singles`.
+> - ⚠️ **Es inferencia, no lectura.** Lo cierra **una** pantalla: **M10 → dial «proveedor de la
+>   ingesta masiva de precios»** (`M10View.tsx:172`), o `GET /api/v1/admin/settings` → `priceProvider`,
+>   o `SELECT "valueJson" FROM "ConfigSetting" WHERE key='price_provider'`.
+> - **Si está flipeado, lo que queda abierto no es P-47 sino P-53** (disco/WAL): esas 28.5k filas/día
+>   son los ~13 MB/día que llenaron el disco.
+>
+> **Riesgo de dinero del flip, si resultara NO estar hecho (medido por QA):**
+> - **Ninguna carta pasa de «con precio» a «pendiente» por falta de dato.** `getReference` y
+>   `getReferencesBatch` no tienen cota de fecha: una carta sin cobertura se **congela** (queda stale),
+>   no se queda sin precio.
+> - El peor caso real es **entrar a la cola de revisión**: tras cada barrido,
+>   `reconcilePublishedPrices` re-deriva el precio de venta de todas las piezas `listed` del set; si
+>   una carta `premium` aterriza en el piso, `premiumFloorGuard` la marca `premium_at_floor`. No se
+>   despublica; aparece en la cola.
+> - **El rollback no es máquina del tiempo.** Las filas `tcgcsv_singles` no se borran nunca. Para
+>   reverse_holo/holofoil, PPT ya no escribe (Parte 1, `9c3eb3e`) ⇒ esas filas **ganan para siempre**,
+>   congeladas en el último valor del barrido. Es el residuo *bueno* (precio real por-acabado, no
+>   aplanado), pero hay que decirlo antes, no después.
+>
+> **Estado de los candados (mutaciones de QA sobre copia aislada): 4 de 5 mueren en rojo** — incluida
+> la que reintroduce el aplanamiento y la que desregistra el provider. **1 hueco real**, ver abajo.
+>
+> **Hallazgos enrutados el 2026-09-10:**
+> - 🔴 **BLOQUEANTE-1 → arquitecto.** El contrato (`API_CONTRACT.md:4118-4121`) y `ARCHITECTURE.md`
+>   §4.36(d) bandera 3 (NORMATIVO) afirman que el seed del dial es `tcgcsv_singles`; el código dice
+>   `pokemontcg_io` (`settings.constants.ts:307`) **y hay un test que lo fija**
+>   (`settings.validation.spec.ts:152`). Verificado por el orquestador. Consecuencia: toda BD fresca
+>   (CI, dev, staging) arranca en el proveedor legacy ⇒ **staging valida un barrido distinto al de
+>   prod**. Ojo: `DEVOPS_NOTES.md` §28.6 argumenta que el seed money-safe *debe* ser el legacy para
+>   que el rollback funcione, así que no es obvio cuál cede.
+> - 🔴 **BLOQUEANTE-2 → backend.** Borrar `'tcgcsv_singles'` de `PRICE_PROVIDER_VALUES`
+>   (`settings.constants.ts:463`) deja **4281/4281 tests en verde**, y el dial pasaría a ser
+>   infliqueable (422). Verificado por el orquestador: las 37 menciones de `tcgcsv_singles` en
+>   `backend/test/` son **todas** literales de `source` en fixtures; ninguna asserta que sea un valor
+>   aceptado del dial. Es la bandera nº1 de §4.36(d), la que la fusión de la curva v2 ya intentó
+>   llevarse por delante una vez.
+> - 🟠 **IMPORTANTE-1 → devops.** El runbook §28 es del 2026-08-24, **anterior a la curva v2**. Hoy el
+>   barrido además reprecia piezas `listed`, puede abrir entradas en la cola (`premium_at_floor`) y
+>   **auto-publica** piezas (`debb0c3`). Su paso de verificación no lo contempla, ni cruza con P-53.
+> - 🟠 **IMPORTANTE-2 → devops.** Orden del scheduler sin ajustar (§4.35(e)(3)):
+>   `scheduler.service.ts:183-185` deja el barrido a 00:00/12:00 UTC contra `fx-refresh` a las 06:00;
+>   la norma pide el patrón del sellado (21:30 UTC, tras la ventana TCGCSV **y** tras FX). Impacto
+>   acotado (la MXN se recalcula al vuelo en lectura), pero la norma sigue incumplida sin decisión.
+> - 🟠 **IMPORTANTE-3 → backend.** `resolveGroupId`
+>   (`tcgcsv-singles-bulk.provider.ts:194-206`) no tolera el prefijo de código de set — misma familia
+>   que el bug de P-46 (`«SV08: Pitch Black»` vs `«Pitch Black»`). El `includes()` lo salva salvo con
+>   más de un candidato ⇒ `null` ⇒ **un set entero que nunca se reprecia y no grita** (solo un `warn`
+>   en logs). Ya existe `setNameCandidates` (`ppt-set-mapper:145`) que lo resuelve.
+> - 🟡 **MENOR-1 → frontend.** `PhotoUploader.test.tsx:76` falla en la corrida completa (1456/1457) y
+>   pasa 5/5 en aislado ⇒ contaminación entre tests. **La suite de frontend no está verde hoy.**
+>
+> **Brecha de gate que QA encontró y hay que decidir:** el triple veredicto de §28.1 es del
+> **2026-08-24**, pero `ingestSinglesForSet` **cambió después**: `debb0c3` (2026-09-01, BL-25) le
+> añadió `triggerPublishForVariants` — el barrido ahora **auto-publica piezas**. Ese commit está en
+> `production` y trae sus propios tests, pero `grep BL-25` en `PENDIENTES.md`, `SECURITY_NOTES.md` y
+> `TECH_DEBT.md` = **0 resultados**: no consta triple veredicto emitido sobre él como cambio de
+> dinero. Si el dial ya está flipeado, la pregunta deja de ser «¿aprobamos el deploy?» y pasa a ser
+> «¿re-gateamos `debb0c3` a posteriori?».
+
 - **Reportado por el humano:** en el binder, Normal/Reverse Holo/Holofoil de la misma carta muestran el
   **mismo MERCADO** (Dartrix 1.14=1.14; Luxray reverse 2.47=holofoil 2.47). El proveedor manda precio
   distinto por acabado; se está aplanando.
