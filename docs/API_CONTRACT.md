@@ -2,8 +2,40 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-09 (rev **v1.64(2)**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.64(3)**).
 >
+> **Changelog v1.64(3) — DOS DECISIONES DEL DUEÑO (D55), `IVA-R1` RESUELTO, Y UN DEFECTO MÍO QUE ESO DESTAPÓ
+> (2026-09-10, arquitecto).** Base: **v1.64(2), vigente entera**. **⛔ CERO DDL — `M-50` no se toca. ⛔ D-1 no se
+> reabre.** Razón entera: `ARCHITECTURE §4.44.f-bis`, `§4.44.j.1` y `§4.44.o`.
+>
+> **1. 🔴🔴 LA FÓRMULA DE `netRevenueCents` QUE ESTE CONTRATO Y `§4.44.j` PUBLICARON ERA FALSA PARA
+> `direct_ship`.** Decía `subtotalCents − ivaCents`; pero `ivaCents` es el residual del **agregado** `G = S + E`
+> ⇒ **incluye el IVA del envío**. Medido: `S=11600`, `E=20300`, `ivaCents=4400` ⇒ daba **7 200** de ingreso de
+> mercancía **donde son 10 000**: **−2 800 por pedido de invitado en el criterio 191**. **Corregida a
+> `round(subtotalCents / (1 + ivaRatePct/100))`.** *No se veía porque los dos ejemplos del criterio 191 son de
+> pedidos a bóveda (`E = 0`), donde las dos fórmulas coinciden* — por eso **`IVA-9(e)` obliga a probar el caso
+> `E = 0`**. ⛔ **En D-1 la rama es inalcanzable ⇒ backend no tiene rework.**
+>
+> **2. ⭐⭐ `IVA-R1` RESUELTO — candado nuevo `IVA-9`.** El IVA del envío es **el residual del residual**
+> (`ivaEnvío := ivaCents − ivaMercancía`), no un `round(E/(1+r))` por su cuenta ⇒ la identidad
+> **`netRevenue + netShipping + ivaCents ≡ subtotal + shippingFee` es EXACTA**, sin el ±1 centavo que backend
+> había declarado al elevarlo. ⛔ **Y la regla que manda: PROHIBIDO recalcular `Order.ivaCents` desde las partes** —
+> la flecha va `ivaCents → partes`, porque `ivaCents` es **fiscal** y es la única fuente de la factura del cliente
+> (criterio 192). `IVA-9(d)` lo asierta por lo negativo.
+>
+> **3. ⭐ D55(a) — EL ENVÍO ES COSTO OPERATIVO TRASLADADO, NO UNA VENTA (dueño, 2026-09-10).** ⛔ **CERO cambios en
+> este contrato por esta decisión**: su regla *«el IVA es el 16 % de lo que yo pague»* es **IVA ACREDITABLE
+> (impuesto de ENTRADA)** y vive en el P&L, mientras `Order.ivaCents` es **IVA TRASLADADO (de SALIDA)**. **No
+> hablan de la misma columna** ⇒ `R2` no cambia, `BreakdownDTO` no cambia, **y la pregunta 60 NO se reabre por el
+> lado aritmético**. ⚠️ **Tratamiento contable sin contador ⇒ pregunta 68** (familia de 58 y 65).
+>
+> **4. ⭐ D55(b) — NUEVA [`§M10-IVA.7`](#M10-IVA): el tablero muestra VENTAS BRUTAS **Y** NETAS.** `salesPeriod`
+> pierde `amountCents` y gana **`grossAmountCents` + `netAmountCents` + tres términos de puente**, con identidad
+> exacta. **`netAmountCents` sale del MISMO helper que `pnl.incomeCents`** ⇒ **no pueden divergir**; `IVA-10(b)` lo
+> asierta como igualdad entre los dos endpoints. ⛔ Se **rechaza** «bruto − IVA» (dejaría la comisión dentro ⇒ un
+> **tercer** número). **Rompe al front y debe romperlo.** **Deploy 2.** **Supuesto ⇒ pregunta 70.**
+>
+> ---
 > **Changelog v1.64(2) — DOS CORRECCIONES A v1.64, LAS DOS SOBRE DEFECTOS MÍOS (2026-09-09, arquitecto).**
 > **⛔ No rediseña nada: ni un endpoint, ni un DTO, ni un código de error, ni la fórmula. CERO DDL.** Base:
 > **v1.64, vigente entera**. Razón entera: `ARCHITECTURE §4.44.c.1-bis`, `§4.44.c.1-ter` y `§4.44.c.2`.
@@ -16142,7 +16174,41 @@ DirectShipBreakdownDTO = BreakdownDTO & { shippingFeeCents: number }  // shippin
 | **IVA-5** ⭐⭐ | **que el P&L cuente el IVA como ingreso propio** — dejar `incomeCents += o.subtotalCents` tal cual, o netear desde el dial vivo en vez de desde las columnas de la fila | **El candado del criterio 191, y el reporte NO revienta: MIENTE.** Fixture: **dos** órdenes liquidadas, una a dial **100 %** (`subtotal 11600`, `iva 1600`, `IVA_INCLUSIVE`) y otra a dial **0 %** (`subtotal 10000`, `iva 1379`, `IVA_INCLUSIVE`), **más una tercera `IVA_EXCLUSIVE`** (`subtotal 10000`, `iva 1600`) sembrada por SQL. ⇒ `GET /admin/finance/pnl` da `incomeCents == 10000 + 8621 + 10000 == 28621`. **Rojo con 31600** (contó el IVA) **y rojo con 26242** (neteó también la histórica). ⭐ **Y el CSV lo repite** (`GET /admin/finance/pnl?format=csv`). ⭐⭐ **Y el amarre que mata la mutación silenciosa: se mueve el dial a 37 % y se vuelve a pedir el P&L ⇒ las tres cifras NO se mueven** — *el ingreso sale de columnas persistidas, jamás del dial vivo*. ⭐⭐ **(c) v1.64(2) — CASO MULTI-LÍNEA OBLIGATORIO, y sin él este candado ESCONDE un defecto** *(pregunta **67**; lo levantó el product-owner)*: **las tres órdenes de arriba son de UNA pieza, y sobre una pieza la recuperación `round(P/1.16) = L` es EXACTA POR DEMOSTRACIÓN** ⇒ la desviación del criterio 191 **nunca se vería fallar con el fixture de este candado**. ⇒ **se añade una cuarta orden de DOS piezas de `L = 103`** (`subtotalCents == 238`, `ivaCents == 33`, `IVA_INCLUSIVE`, dial 100 %) y se asierta que aporta **`205`** al `incomeCents`, **⛔ NO `206`** (`= Σ L_i`). **Rojo con 206**, porque significaría que alguien cambió `R2` para que el P&L cuadre contra el precio de lista **rompiendo el invariante de reconciliación**. ⭐ **Y ése es el invariante que se asierta, y es el que manda: `netRevenueCents + ivaCents == subtotalCents` EXACTO** (`205 + 33 == 238`) — *un informe cuyo ingreso más su impuesto no da lo que se cobró es un informe que no cuadra consigo mismo*. La desviación de **1 centavo** contra `Σ L_i` es **la consecuencia declarada** en `ARCHITECTURE §4.44.c.2`, con la misma cota `⌊(n+1)/2⌋` de `IVA-4`: **no es rojo; ocultarla sí lo era** |
 | **IVA-6** ⭐ | **apilar un importe de IVA después del precio exhibido** en cualquier flujo, típicamente por el envío | **El candado del criterio 189, y el sitio donde se cuela es el ENVÍO.** **(a)** `POST /checkout/guest/quote` con envío: `totalCents == grossUpTotal(subtotalCents + shippingFeeCents)` **y `shippingFeeCents == 20300`** con la tarifa en `17500` y dial 100 % — **rojo con `17500`** (dos convenciones en un mismo total) **y rojo si aparece cualquier cuarto sumando**. **(b)** ⭐ **money-neutral contra el pasado:** ese mismo `totalCents` es **idéntico** al que producía `computeDirectShipBreakdown` antes del cambio con el mismo carrito de UNA pieza. **(c)** `POST /shipments/quote`: misma identidad. **(d)** **por ausencia, sobre el JSON serializado de las tres rutas: no existe ningún campo de IVA que sea sumando del total** |
 | **IVA-7** ⭐⭐ | **colgar el dial nuevo de `iva_pct`** — leer `IVA_TRANSFER_PCT` dentro de `getStripeFee()`, o derivar uno del otro en cualquier dirección | **El candado del hecho 3 de `§Q.2` (pregunta 61), y mide que mover un PRECIO no mueva una COMISIÓN.** **(a)** con `grossUpBase` **fijo** en `11600`, mover `iva_transfer_pct` de `100` a `0` deja `processingFeeCents == 869` **sin moverse** y `getStripeFee().stripeFeeIvaPct == 0.16`. **Rojo si el fee cambia.** **(b)** el espejo: `PUT /admin/settings { ivaPct: 8 }` **no toca** la fila `iva_transfer_pct` (sigue en su valor) — **dos filas `ConfigSetting` independientes**, leídas a pelo. **(c)** ⭐ **por ausencia, sobre el código:** `getStripeFee()` **no contiene ninguna referencia a `IVA_TRANSFER_PCT`** — *rojo en cuanto aparezca, aunque los números cuadren ese día* |
+| **IVA-9** ⭐⭐ *(v1.64(3) — resuelve `IVA-R1`)* | **recalcular `Order.ivaCents` a partir de las partes**, o repartir el IVA del envío por su cuenta (`round(E/(1+r))`) en vez de por el residual | **El candado de la ASIGNACIÓN, y son una IDENTIDAD y una FLECHA.** Fixture: pedido `direct_ship` **`IVA_INCLUSIVE`** con `subtotalCents = 11600`, `shippingFeeCents = 20300`, `ivaRatePct = 16`, `ivaCents = 4400`. **(a)** ⭐⭐ **la identidad, EXACTA, cero centavos de deriva:** `netRevenueCents + netShippingRevenueCents + ivaCents == subtotalCents + shippingFeeCents` (`10000 + 17500 + 4400 == 31900`). **Rojo con ±1 centavo** — *es lo que separa «resuelto» de «declarado»*. **(b)** ⭐ **la mercancía, contra el criterio 191:** `netRevenueCents == 10000`. **⛔ Rojo con `7200`**, que es lo que da `subtotalCents − ivaCents` — **la fórmula que este contrato publicó en v1.64 y que era falsa** (`ARCHITECTURE §9 · D-IVA-10`): *le resta a la mercancía el IVA del envío*. **(c)** **el envío absorbe el residuo:** `netShippingRevenueCents == 20300 − (4400 − 1600) == 17500`. **(d)** ⭐⭐ **la FLECHA, por lo negativo:** se altera `ivaCents` a `4401` **a pelo en la BD** ⇒ **`netShippingRevenueCents` cambia y `Order.ivaCents` NO se recalcula ni se "corrige"** — *rojo si algún camino reescribe `ivaCents` desde las partes: es un número FISCAL y es la única fuente de la factura del cliente*. **(e)** **caso bóveda** (`E = 0`): `netShippingRevenueCents == 0` y `netRevenueCents == round(S/1.16)` — *rojo si el caso `E = 0` no se prueba: **es el que escondía el defecto**, porque ahí las dos fórmulas coinciden* |
+| **IVA-10** ⭐ *(v1.64(3) — D55(b), tablero)* | que el tablero y el P&L tengan **dos definiciones de «neto»**, o que la diferencia bruto↔neto deje de ser explicable | **El candado de la coherencia POR CONSTRUCCIÓN.** **(a)** ⭐⭐ **la identidad del puente, exacta:** `grossAmountCents == netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents`, sobre un periodo con **al menos una orden `vault` y una `direct_ship`**, y en las **dos** convenciones. **(b)** ⭐ **contra el P&L, como IGUALDAD y no como dos cálculos parecidos:** para el **mismo periodo**, `salesPeriod.netAmountCents == GET /admin/finance/pnl → incomeCents`. **Rojo si difieren en un centavo** — *es la mutación realista, porque son dos endpoints y dos ficheros*. **(c)** **`amountCents` YA NO EXISTE** en el DTO (se renombró a `grossAmountCents`): rojo si sobrevive, aunque valga lo mismo — *un «amount» que convive con otro «amount» distinto es la ambigüedad que este pase existe para matar*. **(d)** **`grossAmountCents == Σ Order.totalCents`** sigue siendo *«lo que el cliente pagó»*, con comisión y envío dentro: rojo si alguien lo netea |
 | **IVA-8** ⭐ | **vaciar el desglose fiscal** o **abrir una segunda puerta al dial** | **El candado del criterio 192 y de la puerta.** **(a)** dial `0 %`, exhibido `10000` ⇒ **`Order.ivaCents == 1379`**, ⛔ **jamás `0`, jamás `null`** — *mover el dial reduce el NETO, nunca el IVA registrado* — y el CSV de `GET /admin/finance/iva` **suma exactamente eso**. **(b)** `PUT /admin/settings { "ivaTransferPct": 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) **y la fila sigue en `100`**. **(c)** `PUT /admin/settings/iva-transfer { "ivaTransferPct": 50 }` **sin `acknowledgement`** ⇒ **`422 IVA_TRANSFER_ACK_REQUIRED`** **y la fila sigue en `100`**; con un `previewedNetDeltaCents` que no cuadra ⇒ **`409 IVA_TRANSFER_ACK_STALE`**, **sin escritura**. **(d)** `37.5` ⇒ `422 VALIDATION_ERROR` cuyo `message` **nombra los dos extremos**; `-1` y `101` también. **(e)** ⭐ **por lo negativo, sobre el seed: `SETTING_DEFAULTS['iva_transfer_pct'] === 100`** y el seed **sigue sin lógica** (el bucle sobre `SETTING_DEFAULTS`) — *rojo si aparece una derivación en `prisma/seed.ts`* |
+
+##### §M10-IVA.7 — El tablero: **ventas brutas Y netas** (v1.64(3), D55(b), **deploy 2**)
+
+**Decisión del dueño (2026-09-10):** *«Hagamos ventas brutas con iva y ventas netas sin iva»* · *«Ingreso bruto y
+neto»*. **Razón entera y supuestos: `ARCHITECTURE §4.44.o`.**
+
+```ts
+// Dashboard (`GET /api/v1/admin/dashboard`) — la tarjeta de ventas del periodo
+salesPeriod = {
+  count: number,
+  grossAmountCents: number,          // Σ Order.totalCents   ← «lo que el cliente pagó» (comisión y envío DENTRO)
+  netAmountCents: number,            // Σ netRevenueCents(o)  ← ⭐ MISMO helper que `pnl.incomeCents`
+  ivaCents: number,                  // Σ Order.ivaCents
+  netShippingRevenueCents: number,   // Σ netShippingRevenueCents(o)   (§M10-IVA / ARCHITECTURE §4.44.j.1)
+  processingFeeCents: number         // Σ Order.processingFeeCents
+}
+```
+
+- ⛔ **`amountCents` DESAPARECE del DTO** (se renombra a `grossAmountCents`). **Rompe al front — y debe
+  romperlo**: la tarjeta pasa de una cifra a dos. *Un campo «amount» conviviendo con otro «amount» distinto es la
+  ambigüedad que este pase entero existe para matar.*
+- ⭐ **Identidad NORMATIVA y exacta**, que es lo que hace la diferencia **explicable** en vez de sospechosa:
+  ```
+  grossAmountCents ≡ netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents
+  ```
+- ⛔ **Se RECHAZA definir el neto como «bruto − IVA»**: dejaría la comisión de plataforma dentro y **no coincidiría
+  con `incomeCents` del P&L** ⇒ **tres números**, que es peor que el problema que el dueño quiso cerrar.
+- **Coherencia por CONSTRUCCIÓN:** `netAmountCents` sale **del mismo helper** que el P&L ⇒ **no pueden divergir**.
+  Candado **`IVA-10(b)`** lo asierta como **igualdad entre los dos endpoints**.
+- **Rol:** la tarjeta ya es de campos financieros ⇒ **`super_admin`**; `vault_operator` no la recibe (sin cambio).
+- ⚠️ **SUPUESTO DECLARADO (pregunta **70**):** que su *«neto»* es **su ingreso** = el del P&L (mercancía, sin IVA,
+  **sin comisión y sin envío**). Es lectura, no palabra suya.
 
 ##### §M10-IVA.6 — Orden de entrega, para el orquestador
 
@@ -16152,9 +16218,14 @@ PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criter
 | | Deploy 1 | Deploy 2 |
 |---|---|---|
 | Backend | `M-50` entera + `netRevenueCents` cableado + escribe `IVA_EXCLUSIVE` | deriva `P`, escribe `IVA_INCLUSIVE`, emite los tres campos, abre §M10-IVA.2 |
-| Frontend | **nada** | consume `displayPriceCents` en las **13 superficies**, la pantalla del dial (criterio 188) y arregla el mock (criterio 196) |
-| Contrato observable | **CERO cambios** | §M10-IVA.3 y §M10-IVA.4 |
-| Candados a correr | `IVA-3`, `IVA-5` | los **ocho** |
+| Frontend | **nada** | consume `displayPriceCents` en las **13 superficies**, la pantalla del dial (criterio 188), la tarjeta **bruto/neto** (§M10-IVA.7) y arregla el mock (criterio 196) |
+| Contrato observable | **CERO cambios** | §M10-IVA.3, §M10-IVA.4 y §M10-IVA.7 |
+| Candados a correr | `IVA-3`, `IVA-5` | los **diez** |
+
+⚠️ **v1.64(3) — lo que entra en D-2 y NO estaba en la lista de v1.64:** la fórmula corregida de `netRevenueCents`
+(`ARCHITECTURE §9 · D-IVA-10`), la asignación del IVA del envío (`§4.44.j.1`, candado **`IVA-9`**) y la tarjeta
+**bruto/neto** del tablero (§M10-IVA.7, candado **`IVA-10`**). ⛔ **Nada de esto toca D-1**, que sigue con su
+promesa intacta de **cero cambios de contrato observable** y sus candados en verde.
 
 #### <a id="M10-ops"></a>Ops — disparo manual de jobs internos (`admin/jobs/*`, `super_admin`, auditado)
 > **Superficie interna de operaciones** (no consumida por clientes): permite al súper-admin **disparar a mano** los
