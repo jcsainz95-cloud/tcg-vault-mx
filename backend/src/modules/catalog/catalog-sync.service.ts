@@ -2,6 +2,13 @@ import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
+import {
+  SetSweepTally,
+  deprecatedSetsOk,
+  emptySetSweepTally,
+  recordSweepAttempt,
+  recordSweepFailure,
+} from './set-sweep-tally';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
@@ -42,9 +49,15 @@ export type SetImportOutcome = {
 
 /** Conteo agregado de una corrida de import sobre N sets (D1). Sin literales: todo se cuenta. */
 export type SetImportTally = {
-  /** sets que NO tenían cartas y ahora sí (import nuevo REAL). */
+  /**
+   * ⭐ sets en los que esta corrida escribió cartas. **«Cuántos toqué», con el ÚNICO nombre que
+   * §M2-CS.0 permite para ese hecho.** Existe para que la fórmula viva en UN sitio: antes se
+   * recalculaba a mano como `setsImported + setsRefreshed` en tres llamadores distintos.
+   */
+  setsWritten: number;
+  /** desglose de `setsWritten` — sets que NO tenían cartas y ahora sí (import nuevo REAL). */
   setsImported: number;
-  /** sets que YA estaban (con cartas) y se re-upsertearon. */
+  /** desglose de `setsWritten` — sets que YA estaban (con cartas) y se re-upsertearon. */
   setsRefreshed: number;
   /** sets en los que esta corrida no escribió ninguna carta. */
   setsNoop: number;
@@ -118,18 +131,51 @@ export function selectSyncAllCandidates(
   return { queue, outOfRange, undated };
 }
 
-/** Resumen agregado de un barrido `sync-all` (lo lee `GET /admin/catalog/sync-status`). */
-export type SyncAllSummary = SetImportTally & {
-  /** sets encolados en el barrido. */
-  setsTotal: number;
-  /** sets cuyo import lanzó excepción (no aportan a ningún otro contador). */
-  setsFailed: number;
-  failures: { setId: string; message: string }[];
+/**
+ * Resumen agregado de un barrido `sync-all` (lo lee `GET /admin/catalog/sync-status`).
+ *
+ * El **reparto** (`setsTotal`/`setsWritten`/`setsNoop`/`setsFailed`/`failures`) NO se declara aquí:
+ * se hereda de `SetSweepTally`, la fuente única de §M2-CS.0 que comparte con `refresh-variants-all`.
+ * Lo propio de este barrido son sus cifras de ESCRITURA —cartas— y el desglose de `setsWritten`.
+ */
+export type SyncAllSummary = SetSweepTally & {
+  /** desglose de `setsWritten` — set que NO tenía cartas y ahora sí (`I-CS5`). */
+  setsImported: number;
+  /** desglose de `setsWritten` — set que YA tenía cartas y se re-escribió (`I-CS5`). */
+  setsRefreshed: number;
+  /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
+  cardsUpserted: number;
+};
+
+/**
+ * Resumen agregado de un barrido `refresh-variants-all` (lo lee
+ * `GET /admin/catalog/refresh-variants-status`). §M2-CS.2.
+ *
+ * Mismo reparto que el hermano —heredado de `SetSweepTally`, no reescrito— y cifras de escritura
+ * propias: `cardProductsUpserted`/`pricesUpserted` cuentan **variantes** y **precios**, no cartas.
+ * ⛔ No se igualan con `cardsUpserted` del otro barrido: un nombre común para dos hechos distintos
+ * es el error simétrico al de `setsOk` (§M2-CS.2).
+ *
+ * ⚠️ `setsOk` NO vive aquí: está DEPRECADO y se emite **derivado** en el getter
+ * (`deprecatedSetsOk`), para que su significado congelado no pueda desviarse.
+ */
+export type RefreshVariantsSummary = SetSweepTally & {
+  /** variantes (`CardProduct`) escritas por ESTA corrida. */
+  cardProductsUpserted: number;
+  /** precios de referencia escritos por ESTA corrida. */
+  pricesUpserted: number;
+  /**
+   * variantes que quedaron SIN precio (TCGCSV no lo trajo) ⇒ «—»/`PRICE_PENDING`, jamás 0.
+   * ⛔ NO entra al reparto de sets: cuenta **variantes**, no sets (§M2-CS.2). Dos unidades
+   * distintas nunca comparten prefijo en este contrato.
+   */
+  pending: number;
 };
 
 /** Suma los resultados por-set en el agregado que se reporta al operador (D1). */
 export function tallyImports(results: SetImportOutcome[]): SetImportTally {
   const tally: SetImportTally = {
+    setsWritten: 0,
     setsImported: 0,
     setsRefreshed: 0,
     setsNoop: 0,
@@ -139,6 +185,9 @@ export function tallyImports(results: SetImportOutcome[]): SetImportTally {
     if (r.outcome === 'imported') tally.setsImported += 1;
     else if (r.outcome === 'refreshed') tally.setsRefreshed += 1;
     else tally.setsNoop += 1;
+    // `setsWritten` sale del MISMO predicado que usan los dos barridos («¿escribió algo?»), no de
+    // una suma repetida en cada llamador. `I-CS5`: setsImported + setsRefreshed === setsWritten.
+    if (r.outcome !== 'noop') tally.setsWritten += 1;
     tally.cardsUpserted += r.cardsUpserted;
   }
   return tally;
@@ -399,7 +448,7 @@ export class CatalogSyncService {
         jobId: `catalog-sync-${Date.now()}`,
         // Sets que esta llamada REALMENTE procesó (escribió cartas). Antes era `res.imported ? 1 : 0`
         // con `imported` literal `true` ⇒ SIEMPRE 1. Ahora sale de lo que se contó (D1).
-        setsQueued: tally.setsImported + tally.setsRefreshed,
+        setsQueued: tally.setsWritten,
         mode: 'single' as const,
         // Desglose HONESTO (aditivo): «importé» y «ya estaba» son hechos distintos y viajan
         // separados. La UI de M2 lee hoy `setsQueued` y lo rotula «set(s) importado(s)»: con un
@@ -421,7 +470,7 @@ export class CatalogSyncService {
       jobId: `catalog-sync-${Date.now()}`,
       // Sets REALMENTE procesados (los que dejaron cartas escritas). Los que el remoto devolvió
       // vacíos son `setsNoop` y NO se cuentan como procesados (D1).
-      setsQueued: tally.setsImported + tally.setsRefreshed,
+      setsQueued: tally.setsWritten,
       mode: 'from_date' as const,
       ...tally,
     };
@@ -627,7 +676,7 @@ export class CatalogSyncService {
     // Candidatos que siguen sin atender: los que no entraron en el lote MÁS los que se intentaron
     // y no dejaron nada escrito (`noop`). Antes se restaba `imported.length`, que con el literal
     // `imported:true` era siempre el tamaño del lote — la resta salía bien por accidente.
-    const remaining = candidates.length - (tally.setsImported + tally.setsRefreshed);
+    const remaining = candidates.length - tally.setsWritten;
     return { imported, refreshed, newBoundary, remaining, ...tally };
   }
 
@@ -667,13 +716,10 @@ export class CatalogSyncService {
   /** Resumen agregado en ceros (arranque de un barrido `sync-all`). */
   private static emptySyncAllSummary(): SyncAllSummary {
     return {
-      setsTotal: 0,
+      ...emptySetSweepTally(),
       setsImported: 0,
       setsRefreshed: 0,
-      setsNoop: 0,
-      setsFailed: 0,
       cardsUpserted: 0,
-      failures: [],
     };
   }
 
@@ -713,15 +759,7 @@ export class CatalogSyncService {
     done: number;
     startedAt: string | null;
     finishedAt: string | null;
-    summary: {
-      setsTotal: number;
-      setsOk: number;
-      setsFailed: number;
-      cardProductsUpserted: number;
-      pricesUpserted: number;
-      pending: number;
-      failures: { setId: string; code: string; message: string }[];
-    } | null;
+    summary: RefreshVariantsSummary | null;
   } = {
     running: false,
     jobId: null,
@@ -732,24 +770,13 @@ export class CatalogSyncService {
     summary: null,
   };
 
-  /** Resumen agregado en ceros (arranque de un barrido). */
-  private static emptyRefreshVariantsSummary(): {
-    setsTotal: number;
-    setsOk: number;
-    setsFailed: number;
-    cardProductsUpserted: number;
-    pricesUpserted: number;
-    pending: number;
-    failures: { setId: string; code: string; message: string }[];
-  } {
+  /** Resumen agregado en ceros (arranque de un barrido). Reparto por §M2-CS.0. */
+  private static emptyRefreshVariantsSummary(): RefreshVariantsSummary {
     return {
-      setsTotal: 0,
-      setsOk: 0,
-      setsFailed: 0,
+      ...emptySetSweepTally(),
       cardProductsUpserted: 0,
       pricesUpserted: 0,
       pending: 0,
-      failures: [],
     };
   }
 
@@ -765,7 +792,19 @@ export class CatalogSyncService {
       // null hasta que arranca el primer barrido (contrato): sin batch disparado NO se expone un
       // summary en ceros (evita el banner "Listo — 0/0" falso en M2 con el backend recién levantado).
       summary:
-        summary == null ? null : { ...summary, failures: [...summary.failures] },
+        summary == null
+          ? null
+          : {
+              ...summary,
+              // ⛔ `setsOk` DEPRECADO (§M2-CS.2), significado CONGELADO: `setsWritten + setsNoop`.
+              // Se emite DERIVADO y no como contador propio: un campo que se calcula no puede
+              // desviarse de su definición congelada, por mucho que el barrido cambie. Sigue
+              // sumando los `noop` a los buenos —congelar no es arreglar—, así que ⛔ ningún
+              // consumidor lo usa para un veredicto. Se retira del shape en la rev siguiente,
+              // cuando frontend confirme cero consumidores.
+              setsOk: deprecatedSetsOk(summary),
+              failures: [...summary.failures],
+            },
     };
   }
 
@@ -897,13 +936,16 @@ export class CatalogSyncService {
         const res = await this.importSet(s, { force });
         // D1: lo que el import devuelve YA NO se descarta — es la única forma de saber cuántos
         // sets se importaron de verdad y cuántos sólo se re-sincronizaron.
+        //
+        // El reparto lo hace la fuente única (§M2-CS.0): `imported`/`refreshed` son DESGLOSE de
+        // `setsWritten` (`I-CS5`), no un vocabulario paralelo, así que se suman aparte y el
+        // «¿escribió?» lo decide `recordSweepAttempt` con el mismo criterio que el otro barrido.
         if (res.outcome === 'imported') summary.setsImported += 1;
         else if (res.outcome === 'refreshed') summary.setsRefreshed += 1;
-        else summary.setsNoop += 1;
+        recordSweepAttempt(summary, res.outcome !== 'noop');
         summary.cardsUpserted += res.cardsUpserted;
       } catch (e) {
-        summary.setsFailed += 1;
-        summary.failures.push({ setId: s.id, message: (e as Error).message });
+        recordSweepFailure(summary, s.id, e);
         this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
       } finally {
         // Avanza el progreso por set intentado (éxito o fallo) → barra honesta done/total.
@@ -911,9 +953,10 @@ export class CatalogSyncService {
       }
     }
     this.logger.log(
-      `sync-all: barrido de ${sets.length} sets completado (importados=${summary.setsImported}, ` +
-        `re-sync=${summary.setsRefreshed}, sin cartas=${summary.setsNoop}, ` +
-        `fallidos=${summary.setsFailed}, cartas escritas=${summary.cardsUpserted}).`,
+      `sync-all: barrido de ${sets.length} sets completado (escritos=${summary.setsWritten} ` +
+        `[importados=${summary.setsImported}, re-sync=${summary.setsRefreshed}], ` +
+        `sin escribir=${summary.setsNoop}, fallidos=${summary.setsFailed}, ` +
+        `cartas escritas=${summary.cardsUpserted}).`,
     );
   }
 
@@ -1000,22 +1043,33 @@ export class CatalogSyncService {
       const setId = setExternalIds[i];
       try {
         const res = await this.refreshVariants(setId, force);
-        summary.setsOk += 1;
+        // ⭐ EL REPARTO (§M2-CS.0, fuente única en `set-sweep-tally.ts`).
+        //
+        // Aquí vivía el defecto: `summary.setsOk += 1` para TODO set que no lanzara. El set que no
+        // empareja con TCGCSV corre limpio y escribe cero variantes y cero precios ⇒ sumaba a los
+        // buenos y NO aparecía en `failures`. En un lote de cien, el resumen decía «todo bien» y
+        // había sets sin tocar. Ahora la pregunta se hace SIEMPRE y el cero es MEDIDO: `setsNoop`.
+        //
+        // Predicado de escritura de ESTE barrido (§M2-CS.2: «sets con ≥1 escritura, variante o
+        // precio»). ⛔ `pending` NO cuenta: son variantes que se quedaron SIN precio, es decir
+        // justo lo que NO se escribió — meterlo aquí resucitaría el defecto con otro nombre.
+        const wrote = res.cardProductsUpserted > 0 || res.pricesUpserted > 0;
+        recordSweepAttempt(summary, wrote);
         summary.cardProductsUpserted += res.cardProductsUpserted;
         summary.pricesUpserted += res.pricesUpserted;
         summary.pending += res.pending;
+        if (!wrote) {
+          this.logger.warn(
+            `refresh-variants-all: set ${setId} corrió SIN escribir nada (0 variantes, 0 precios) ` +
+              `⇒ setsNoop. No es un fallo (no lanzó) y NO cuenta como set tocado.`,
+          );
+        }
       } catch (e) {
-        const code =
-          e instanceof BusinessException ? String(e.code) : String(ErrorCode.UPSTREAM_ERROR);
-        summary.setsFailed += 1;
-        summary.failures.push({
-          setId,
-          code,
-          message: (e as Error).message,
-        });
+        recordSweepFailure(summary, setId, e);
         this.logger.warn(
-          `refresh-variants-all: set ${setId} falló (${code}): ${(e as Error).message} — ` +
-            `NO aborta el barrido, sigue con el siguiente (money-safe).`,
+          `refresh-variants-all: set ${setId} falló ` +
+            `(${summary.failures[summary.failures.length - 1].code ?? 'sin code'}): ` +
+            `${(e as Error).message} — NO aborta el barrido, sigue con el siguiente (money-safe).`,
         );
       } finally {
         // Avanza el progreso por set intentado (éxito o fallo) → barra honesta done/total.
@@ -1028,7 +1082,8 @@ export class CatalogSyncService {
     }
     this.logger.log(
       `refresh-variants-all: barrido de ${setExternalIds.length} sets completado ` +
-        `(ok=${summary.setsOk}, failed=${summary.setsFailed}).`,
+        `(escritos=${summary.setsWritten}, sin escribir=${summary.setsNoop}, ` +
+        `fallidos=${summary.setsFailed}).`,
     );
   }
 

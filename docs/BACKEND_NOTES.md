@@ -19272,3 +19272,118 @@ en verde** (idéntica al repo).
 | **M-A** | **revertir este cambio**: devolver a `resolveGroupId` la escalera copiada (+ su `normalizeName`) | **7 / 4326** | los 7 de `card-product-resolver.spec.ts`: delegación, caso del prefijo, punta-a-punta, las 2 desviaciones y **las 2 PROPIEDADES**. ⚠️ `tcgcsv-group-match.spec.ts` sigue **verde** — que es la demostración de que el spec del matcher **nunca** cubrió esta ruta |
 | **M-B** | pelar el prefijo de **los dos lados** (la trampa que ya cazó la propiedad del matcher) | **4 / 4326** | 2 del matcher + **2 míos**; mi propiedad reporta **178 casos `groupId → OTRO groupId`** (p. ej. local `"SV08: Pitch Black"` → grupo `"ME05: Pitch Black"`, otra colección) |
 | **M-C** | retirar el peldaño `exact_unprefixed` | **8 / 4326** (antes de este pase eran 3) | los 3 de antes + **5 de la ruta de estructura**: el defecto P-46 ya no puede volver por el lado de la estructura sin que algo se ponga rojo |
+
+## v1.66 — **EL REPARTO DEL BARRIDO: `setsOk` deja de contar como bueno al set que no escribió nada** (§M2-CS.0 / §M2-CS.2 · 2026-09-10)
+
+> Cierra la discrepancia contrato⇄código que la sección anterior dejó **abierta y nombrada** (§5 del
+> pase P-47/IMPORTANTE-3: «el contrato declara `setsWritten`/`setsNoop` y el código sólo tiene
+> `setsOk`»). Alcance de este pase: `backend/src/modules/catalog/` + `backend/test/`.
+
+### 1. El defecto, y por qué era peor que su hermano
+
+`GET /admin/catalog/refresh-variants-status` emitía un `summary` cuyo único total era **`setsOk`**, y
+`setsOk` se incrementaba **por cada set que no lanzara excepción**. Un set cuyo nombre **no empareja**
+con TCGCSV corre limpio: el resolver no resuelve grupo, se escriben **cero** variantes y **cero**
+precios, no hay error ⇒ **sumaba a `setsOk` y no aparecía en `failures`**.
+
+Es **D2 a escala de lote**: en un barrido de cien sets, el resumen decía «todo bien» y había sets sin
+tocar. Y a escala de lote es peor que a escala de set, porque **en un lote nadie revisa renglón por
+renglón** — el resumen *es* la única lectura.
+
+### 2. ⭐ Fuente ÚNICA del reparto: `backend/src/modules/catalog/set-sweep-tally.ts` (NUEVO)
+
+`sync-all` ya contaba sus `setsNoop`; `refresh-variants-all` no. **Dos implementaciones del mismo
+reparto es exactamente cómo uno de los dos acaba mintiendo** (`ARCHITECTURE §0-B.3 regla 8`), así que
+el reparto ya no se escribe en ningún barrido: sale del módulo nuevo, y **los dos lo consumen**.
+
+| Export | Qué es |
+|---|---|
+| `SetSweepTally` | el reparto de §M2-CS.0: `setsTotal`/`setsWritten`/`setsNoop`/`setsFailed`/`failures[]` |
+| `recordSweepAttempt(tally, wrote)` | intento **sin error**: `wrote` decide `setsWritten` vs `setsNoop` |
+| `recordSweepFailure(tally, setId, err)` | intento que **lanzó**: `setsFailed` + renglón en `failures[]` |
+| `sweepFailureCode(err)` | `code` de la `BusinessException`, o **`null`** (⛔ no se inventa) |
+| `sweepAttempted(tally)` | `I-CS1`: `setsWritten + setsNoop + setsFailed` |
+| `deprecatedSetsOk(tally)` | ⛔ `setsOk` congelado: `setsWritten + setsNoop` |
+
+Los dos `summary` se componen igual: **reparto heredado** (`SetSweepTally`) **+ cifras de escritura
+propias**. Lo que legítimamente difiere sigue difiriendo: `cardsUpserted` (cartas) en `sync-all`;
+`cardProductsUpserted`/`pricesUpserted`/`pending` (variantes y precios) en `refresh-variants-all`.
+⛔ **No se igualaron**: un nombre común para dos hechos distintos es el error simétrico al de `setsOk`.
+
+### 3. ⭐ El set que NO empareja es `setsNoop` — decisión, y por qué NO es un `failures[]`
+
+Lo manda el contrato y **no había margen**: §M2-CS.2 anota literalmente el campo con el caso
+(`"setsNoop": 8, // corrieron, no escribieron nada (el set que no empareja)`), y §M2-CS.0 define
+`setsFailed` como «sets cuyo intento **lanzó**» y `failures[]` como «por set **fallido**». El set sin
+emparejar **no lanza**. Darle un `code` propio en `failures[]` habría exigido, además, **inventar un
+código** que ninguna excepción emitió — la prohibición explícita de §M2-CS.0.
+
+⚠️ **La necesidad legítima detrás de la pregunta sigue en pie y NO la resuelve este pase.** «No escribí
+porque ya estaba al día» y «no escribí porque no encontré el set» son **hechos distintos** y ambos caen
+hoy en el mismo `setsNoop`. **El contrato ya decidió dónde se distinguen: NO en el resumen del lote,
+sino por set** — es la columna de cobertura de §M2-CS.3, cuyo `I-PC4` le da al set sin estructura
+resuelta su **propia cara** (`pricedVariants: 0`, `variants: null` ⇒ «0 de —», «el set más roto del
+catálogo»). Si se quisiera además **en el `summary`**, sería un **desglose de `setsNoop`**, y §M2-CS.0
+sólo autoriza desglosar **`setsWritten`** ⇒ **cambio de contrato, decisión del arquitecto** (regla 9).
+Mientras tanto el `warn` por set ya lo dice en log (`corrió SIN escribir nada … ⇒ setsNoop`).
+
+### 4. Predicado de escritura de cada barrido
+
+- `refresh-variants-all`: `cardProductsUpserted > 0 || pricesUpserted > 0` (§M2-CS.2: «≥1 escritura,
+  variante o precio»). ⛔ **`pending` NO cuenta**: son variantes que quedaron **sin** precio, es decir
+  justo lo que **no** se escribió. Meterlo ahí resucitaría el defecto con otro nombre (hay candado).
+- `sync-all`: `outcome !== 'noop'`. `setsImported`/`setsRefreshed` quedan como **desglose** de
+  `setsWritten` (`I-CS5`), no como vocabulario paralelo.
+
+### 5. `setsOk` — DEPRECADO, congelado, y ahora **derivado**
+
+`setsOk === setsWritten + setsNoop`. Se emite **calculado en el getter**, no como contador propio: un
+campo congelado que se **deriva** no puede desviarse de su definición por mucho que el barrido cambie.
+**Congelar no es arreglar** — sigue sumando los `noop` a los buenos. ⛔ **Ningún consumidor puede
+usarlo para un veredicto**; el veredicto se calcula con `setsWritten`/`setsNoop`/`setsFailed`. Se
+**retira del shape en la rev siguiente**, cuando frontend confirme cero consumidores.
+
+### 6. ⚠️ Delta de shape para **frontend** (`docs/FRONTEND_NOTES.md` / `types/contract.ts`)
+
+**`GET /admin/catalog/refresh-variants-status` → `summary`** *(`RefreshVariantsSummary`)*
+- **GANA** `setsWritten: number` — ⭐ «cuántos toqué». **La cifra del veredicto.**
+- **GANA** `setsNoop: number` — corrieron sin escribir nada.
+- **CONSERVA** `setsOk: number` — ⛔ deprecado/congelado; **no usar para veredicto**; se retira en la rev siguiente.
+- **CAMBIA** `failures[].code: string` → **`string | null`** (`null` = el fallo no traía código; ⛔ no se inventa `UNKNOWN`). En la práctica esta ruta envuelve casi todo en `UPSTREAM_ERROR`, pero el tipo debe admitir `null`.
+- **PIERDE**: nada.
+
+**`GET /admin/catalog/sync-status` → `summary`** *(`SyncAllSummary`)*
+- **GANA** `setsWritten: number` (`I-CS5`: `setsImported + setsRefreshed === setsWritten`).
+- **CAMBIA** `failures[]` de `{setId, message}` a **`{setId, code, message}`** con `code: string | null`.
+- **PIERDE**: nada. ⛔ **No gana `setsOk`** (no se propaga el campo deprecado al hermano).
+
+**`POST /admin/catalog/sync` (respuesta de `sync` single/from_date) y `backfill`**
+- **GANAN** `setsWritten: number` (aditivo). `setsQueued` se conserva y ahora vale exactamente `setsWritten` — antes se recalculaba a mano como `setsImported + setsRefreshed` en **tres** llamadores.
+
+### 7. Tests
+
+- **NUEVO** `backend/test/catalog-sweep-reparto.spec.ts` — **17 tests**, el candado: el set que no
+  escribe no cuenta como tocado; `I-CS1` **con datos** (las tres categorías ≠ 0 en una sola corrida y
+  la suma cuadra con `done`); `I-CS3` (ninguna cifra `null`); `I-CS4`; `I-CS5`; `setsOk` congelado;
+  `failures[].code` nullable sin inventar; y **los dos barridos exponen las mismas claves de reparto**.
+- **ACTUALIZADO** `catalog-refresh-variants-all.spec.ts` — el test se llamaba *«resolver ⇒ null cuenta
+  como OK con ceros»* y afirmaba **sólo** `setsOk: 1`. **Ese nombre era el defecto**: ahora se llama
+  *«es setsNoop, NO un set tocado»* y afirma el reparto entero.
+- **ACTUALIZADO** `catalog-sync.honest-counters.spec.ts` — `failures[]` con `code`, más `I-CS1`/`I-CS5`.
+- **Suite completa: 266 suites / 4343 tests en verde.**
+
+### 8. Mutaciones (prueba de que el candado se puede poner rojo)
+
+Copia aislada en ruta propia **`scratchpad/backend-catalog-reparto-jcs/mutant-backend/`** (nombre único
+por el incidente de scratchpads borrados entre agentes), **borrada al terminar**. Base de la copia:
+**26/26 en verde** en las dos suites de catálogo afectadas.
+
+| # | Mutación (restaura el defecto) | Rojos | Quién muere |
+|---|---|---|---|
+| **M-1** | `refresh-variants-all`: `const wrote = true` — *el defecto original*: «no lanzó» ⇒ «salió bien», el noop vuelve a contar como tocado | **5 / 26** | el candado, `pending`-no-es-escritura, `I-CS1` con datos, «el resumen ya no puede decir todo bien», y el barrido completo |
+| **M-2** | `sync-all`: `recordSweepAttempt(summary, true)` — el mismo defecto, en el barrido **hermano** | **2 / 26** | el reparto simétrico de `sync-all` e `I-CS5` |
+
+⚠️ **El dato que importa de M-1:** `catalog-refresh-variants-all.spec.ts` —la suite que **ya existía**
+para este endpoint— se quedó **entera en verde** con el defecto restaurado. Es la demostración de que
+esa suite **nunca pudo cazar** este defecto: afirmaba `setsOk`, y `setsOk` vale lo mismo con el defecto
+y sin él (justo por estar congelado). El candado nuevo es lo único que lo detiene.

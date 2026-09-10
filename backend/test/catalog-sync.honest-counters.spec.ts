@@ -245,13 +245,22 @@ describe('D1 — «cuántos sets importé» ≠ «cuántos ya estaban» (nada de
     const { summary, done } = svc.getSyncStatus();
     expect(done).toBe(4); // intentados (barra honesta)
     expect(summary).toMatchObject({
+      // ⭐ «cuántos toqué» tiene UN solo nombre (§M2-CS.0): `setsWritten`. `setsImported` y
+      // `setsRefreshed` sobreviven como DESGLOSE suyo (`I-CS5`), no como vocabulario paralelo.
+      setsWritten: 2,
       setsImported: 1,
       setsRefreshed: 1,
       setsNoop: 1,
       setsFailed: 1,
       cardsUpserted: 201,
     });
-    expect(summary?.failures).toEqual([{ setId: 'd', message: 'boom' }]);
+    // I-CS1: setsWritten + setsNoop + setsFailed === done (las tres categorías ≠ 0 aquí).
+    expect(summary!.setsWritten + summary!.setsNoop + summary!.setsFailed).toBe(done);
+    // I-CS5: el desglose suma exactamente el total del que cuelga.
+    expect(summary!.setsImported + summary!.setsRefreshed).toBe(summary!.setsWritten);
+    // `failures[]` con la forma única del canon: {setId, code, message}. `code: null` porque el
+    // error no era una BusinessException — ⛔ no se inventa un código (§M2-CS.0).
+    expect(summary?.failures).toEqual([{ setId: 'd', code: null, message: 'boom' }]);
   });
 
   it('sin barrido disparado, el summary es AUSENTE (null) — no un «0/0» que parece un resultado', async () => {

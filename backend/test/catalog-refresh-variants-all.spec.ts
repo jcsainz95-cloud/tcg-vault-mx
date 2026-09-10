@@ -16,7 +16,10 @@ import { SettingsService } from '../src/modules/settings/settings.service';
  *  2. single-flight (segundo disparo no lanza otro barrido);
  *  3. el barrido itera N sets reusando `refreshVariants`; un set que falla NO aborta el resto,
  *     se acumula en `summary.failures` y se sigue — sin llamar pokemontcg.io;
- *  4. resumen agregado correcto (setsOk/setsFailed/cardProductsUpserted/pricesUpserted/pending);
+ *  4. resumen agregado correcto: reparto de §M2-CS.0
+ *     (setsWritten/setsNoop/setsFailed) + cifras de escritura propias
+ *     (cardProductsUpserted/pricesUpserted/pending). `setsOk` aparece sólo como campo DEPRECADO
+ *     de significado congelado; el candado del reparto vive en `catalog-sweep-reparto.spec.ts`;
  *  5. delay entre sets (respeto a tcgcsv.com);
  *  6. progreso observable (done por set, running→false, finishedAt);
  *  7. money-safe: variante sin precio ⇒ se acumula en `pending` (jamás 0).
@@ -268,7 +271,7 @@ describe('CatalogSyncService.refreshVariantsAll (M-35) — BATCH solo-TCGCSV, ja
     expectPokemonNotCalled(client);
   });
 
-  it('resolver ⇒ null (groupId no resuelto) cuenta como OK con ceros, sin pokemontcg.io', async () => {
+  it('resolver ⇒ null (groupId no resuelto) es setsNoop, NO un set tocado (§M2-CS.2)', async () => {
     const prisma = prismaMock([{ externalId: 'ambig', cards: 10 }]);
     const client = pokemonClientSpy();
     const resolver = { resolveCardProductsForSet: jest.fn(async () => null) };
@@ -278,8 +281,15 @@ describe('CatalogSyncService.refreshVariantsAll (M-35) — BATCH solo-TCGCSV, ja
 
     const { summary } = svc.getRefreshVariantsAllStatus();
     expect(summary).not.toBeNull();
-    expect(summary!.setsOk).toBe(1);
+    // ⭐ Este test se llamaba «cuenta como OK con ceros» y afirmaba SÓLO `setsOk: 1`. Ese nombre
+    // ERA el defecto: un set que no escribió nada no «sale bien», sólo «no revienta». El reparto
+    // ahora lo dice con todas las letras (candado completo en catalog-sweep-reparto.spec.ts).
+    expect(summary!.setsWritten).toBe(0);
+    expect(summary!.setsNoop).toBe(1);
     expect(summary!.setsFailed).toBe(0);
+    // `setsOk` sigue valiendo 1 — DEPRECADO y CONGELADO (`setsWritten + setsNoop`). Se afirma aquí
+    // para dejar constancia de que congelarlo NO lo arregla: sigue contando el noop como bueno.
+    expect(summary!.setsOk).toBe(1);
     expect(summary!.cardProductsUpserted).toBe(0);
     expect(summary!.pricesUpserted).toBe(0);
     expect(summary!.pending).toBe(0);
