@@ -61,10 +61,18 @@ cd "${BACKEND_DIR}"
 
 # Prefiere un script npm dedicado "seed:synthetic"; si no, cae a seed normal
 # con SEED_MODE=synthetic; si tampoco, avisa qué debe exponer backend.
-if npm run 2>/dev/null | grep -qE '^\s*seed:synthetic'; then
+#
+# ⚠️ `grep -E … >/dev/null` y NO `grep -qE` (2026-09-10, §45.3). Este script corre
+# con `set -o pipefail` (arriba): `grep -q` sale al primer match y cierra el pipe,
+# `npm run` se lleva un SIGPIPE (141) y el PIPELINE se evalúa como FALSO aunque el
+# script SÍ exista. Aquí la consecuencia no es un rojo de CI, es peor y silenciosa:
+# la rama equivocada ⇒ este entorno se siembra con el seed que no toca, o se
+# declara «el backend no expone seed» y NO se siembra — y encima sale exit 0.
+# Sin `-q`, grep consume toda la entrada y nadie escribe contra un pipe cerrado.
+if npm run 2>/dev/null | grep -E '^\s*seed:synthetic' >/dev/null; then
   echo "→ npm run seed:synthetic"
   npm run seed:synthetic
-elif npm run 2>/dev/null | grep -qE '^\s*seed'; then
+elif npm run 2>/dev/null | grep -E '^\s*seed' >/dev/null; then
   echo "→ npm run seed  (SEED_MODE=synthetic)"
   npm run seed
 elif [[ -f prisma/schema.prisma ]]; then
