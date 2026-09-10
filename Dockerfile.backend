@@ -110,7 +110,10 @@ COPY --chown=nestjs:nodejs scripts/secrets-preflight.sh ./scripts/secrets-prefli
 COPY --chown=nestjs:nodejs security/secretos-publicados.sha256 ./security/secretos-publicados.sha256
 # Y el CATÁLOGO: dentro de la imagen no hay compose, así que sin este fichero el
 # `assert` del CMD no tendría nada que mirar y saldría 0 (candado sin blanco, §44).
-COPY --chown=nestjs:nodejs security/secretos-exigidos.txt ./security/secretos-exigidos.txt
+# El catálogo del CONTENEDOR (nombres tal como los ve este proceso), no el del host:
+# confundirlos hizo que el entrypoint exigiera `STAGING_*` aquí dentro, abortara, y
+# el contenedor muriera sin llegar a `node` (run 34531002011).
+COPY --chown=nestjs:nodejs security/secretos-exigidos-contenedor.txt ./security/secretos-exigidos-contenedor.txt
 # GUARD del CMD: sin npx, el arranque depende de esta ruta exacta del CLI de Prisma.
 # Si un bump de `prisma` la moviera, mejor fallar el BUILD aquí que crash-loopear en
 # Railway al arrancar. (En prisma 5.x: bin.prisma = "build/index.js".)

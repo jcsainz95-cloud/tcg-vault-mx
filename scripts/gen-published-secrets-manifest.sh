@@ -58,6 +58,17 @@ RETIRADOS="security/secretos-retirados.sha256"
 # esto, `secrets-preflight.sh assert` correría en el arranque de Railway sin nada
 # que mirar y saldría 0. Un candado sin blanco es el bug de §44 otra vez.
 CATALOGO="security/secretos-exigidos.txt"
+# Y el catálogo del CONTENEDOR, que NO es el mismo — y confundirlos tumbó el gate
+# de dinero (run 34531002011, 5 min de espera a un contenedor ya muerto):
+#
+#     JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:?…}
+#     └── nombre DENTRO del contenedor   └── nombre en el HOST (interpolación)
+#
+# El preflight del entrypoint corre DENTRO, donde `STAGING_JWT_ACCESS_SECRET` no
+# existe: solo existe `JWT_ACCESS_SECRET`. Con el catálogo del host metido en la
+# imagen, 12 de 15 variables «faltaban», el `assert` abortaba, el `&&` cortaba y
+# `node` no llegaba a ejecutarse — un contenedor que muere sin servir nada.
+CATALOGO_CONT="security/secretos-exigidos-contenedor.txt"
 MODO="${1:-write}"
 
 # --- UNA VEZ PUBLICADO, PUBLICADO PARA SIEMPRE ------------------------------
@@ -286,6 +297,26 @@ CAB
 
 TOTAL="$(grep -c '^[0-9a-f]' "$TMP" || true)"
 
+# Las claves del servicio `backend` cuyo valor referencia un `${VAR:?}`: los nombres
+# tal como los ve el proceso DENTRO del contenedor. Se define ANTES del bloque
+# `--check` porque ese bloque la usa — definida después, `--check` moría con
+# «command not found» y declaraba desfasado un catálogo que estaba bien.
+contenedor_exigidos() {
+  for f in docker-compose*.yml; do
+    [ -f "$f" ] || continue
+    awk '
+      /^  [A-Za-z_][A-Za-z0-9_-]*:[ \t]*$/ { svc = $1; sub(/:$/, "", svc); inenv = 0 }
+      /^    environment:[ \t]*$/            { if (svc == "backend") inenv = 1; next }
+      /^    [A-Za-z_]/                      { inenv = 0 }
+      inenv && /^      [A-Za-z_][A-Za-z0-9_]*:/ {
+        if ($0 ~ /\$\{[A-Za-z_][A-Za-z0-9_]*:\?/) {
+          k = $1; sub(/:$/, "", k); print k
+        }
+      }
+    ' "$f"
+  done | LC_ALL=C sort -u
+}
+
 if [ "$MODO" = "--check" ]; then
   if [ ! -f "$DESTINO" ]; then
     printf '\033[1;31m✗ Falta %s. Genéralo con ./scripts/gen-published-secrets-manifest.sh\033[0m\n' "$DESTINO" >&2
@@ -323,8 +354,21 @@ if [ "$MODO" = "--check" ]; then
     diff <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$ESPERADO") | head -10 >&2
     exit 1
   fi
-  printf '\033[1;32m✓ %s al día (%s valores publicados); %s secretos exigidos en %s.\033[0m\n' \
-    "$DESTINO" "$TOTAL" "$(printf '%s\n' "$ACTUAL" | grep -c .)" "$CATALOGO"
+  # El catálogo del CONTENEDOR es el que decide si el backend ARRANCA. Si está
+  # desfasado, el entrypoint exige variables que no existen ahí dentro (o deja de
+  # exigir las que sí) y el contenedor muere sin servir nada.
+  ESP_C="$(contenedor_exigidos)"
+  ACT_C="$(grep -v '^#' "$CATALOGO_CONT" 2>/dev/null | grep -v '^$' | LC_ALL=C sort -u)"
+  if [ "$ESP_C" != "$ACT_C" ]; then
+    printf '\033[1;31m✗ %s no coincide con las claves del servicio backend.\033[0m\n' "$CATALOGO_CONT" >&2
+    printf '  Ese fichero es el ÚNICO blanco del preflight DENTRO de la imagen, y sus nombres\n' >&2
+    printf '  son los del CONTENEDOR, no los del host. Desfasado ⇒ el backend no arranca.\n' >&2
+    printf '  Arreglo:  ./scripts/gen-published-secrets-manifest.sh\n' >&2
+    diff <(printf '%s\n' "$ACT_C") <(printf '%s\n' "$ESP_C") | head -10 >&2
+    exit 1
+  fi
+  printf '\033[1;32m✓ %s al día (%s valores publicados); %s exigidos en el host, %s en el contenedor.\033[0m\n' \
+    "$DESTINO" "$TOTAL" "$(printf '%s\n' "$ACTUAL" | grep -c .)" "$(printf '%s\n' "$ACT_C" | grep -c .)"
   exit 0
 fi
 
@@ -377,5 +421,21 @@ cp "$TMP" "$DESTINO"
     sed -n 's/.*\${\([A-Z][A-Z0-9_]*\):?.*/\1/p' "$f"
   done | LC_ALL=C sort -u
 } > "$CATALOGO"
+
+# --- Catálogo del CONTENEDOR -------------------------------------------------
+# Las claves del servicio `backend` cuyo valor referencia un `${VAR:?}`. Son las
+# que, si el host resolvió bien, llegan al contenedor con valor; y si alguna llega
+# vacía, el arranque tiene que fallar ruidoso en vez de servir una API a medias.
+{
+  echo "# security/secretos-exigidos-contenedor.txt — GENERADO. No editar a mano."
+  echo "#   Regenerar: ./scripts/gen-published-secrets-manifest.sh"
+  echo "#"
+  echo "# Los nombres tal como los ve el proceso DENTRO del contenedor, que NO son los"
+  echo "# del host. En \`JWT_ACCESS_SECRET: \${STAGING_JWT_ACCESS_SECRET:?…}\` el de la"
+  echo "# izquierda es el del contenedor y el de la derecha el del host. Meter la lista"
+  echo "# del host en la imagen hizo que 12 de 15 «faltaran», el entrypoint abortara y"
+  echo "# el backend muriera sin emitir nada (run 34531002011)."
+  contenedor_exigidos
+} > "$CATALOGO_CONT"
 printf '\033[1;32m✓ %s regenerado: %s valores publicados por el repo.\033[0m\n' "$DESTINO" "$TOTAL"
 exit 0

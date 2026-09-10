@@ -187,12 +187,22 @@ hay_stripe_real() {
 # Si tuviera una lista de variables, el octavo secreto de mañana no estaría en
 # ella y volveríamos al mismo sitio. En vez de eso: **lo que el compose exige con
 # `${VAR:?}` es exactamente lo que este script resuelve.** Nace cubierto.
-CATALOGO_FICHERO="${SECRETS_CATALOG:-$RAIZ/security/secretos-exigidos.txt}"
+# DENTRO de la imagen los nombres son los del CONTENEDOR, no los del host:
+# `JWT_ACCESS_SECRET`, no `STAGING_JWT_ACCESS_SECRET`. Apuntar aquí al catálogo del
+# host hizo que 12 de 15 «faltaran», que el entrypoint abortara y que el backend
+# muriera sin emitir nada (run 34531002011: 5 minutos esperando a un muerto).
+CATALOGO_FICHERO="${SECRETS_CATALOG:-$RAIZ/security/secretos-exigidos-contenedor.txt}"
+# Se calcula UNA vez, a nivel de script. Estaba dentro de `catalogo()`, y como esa
+# función se invoca con `$(catalogo)` —subshell— la asignación no volvía al padre:
+# el mensaje final moría con «HAY_COMPOSE: parameter not set» y el entrypoint salía
+# con rc=2. Lo cazó el bloque I del canario a los cinco minutos de escribirlo, que
+# es justo lo que ese bloque existe para hacer.
+HAY_COMPOSE=0
+for _f in "$RAIZ"/docker-compose*.yml; do
+  [ -f "$_f" ] && HAY_COMPOSE=1
+done
+
 catalogo() {
-  HAY_COMPOSE=0
-  for f in "$RAIZ"/docker-compose*.yml; do
-    [ -f "$f" ] && HAY_COMPOSE=1
-  done
   if [ "$HAY_COMPOSE" = "1" ]; then
     for f in "$RAIZ"/docker-compose*.yml; do
       [ -f "$f" ] || continue
@@ -363,7 +373,7 @@ case "$MODO" in
       echo "  ($CATALOGO_FICHERO). Sin blanco, esta comprobación saldría en VERDE" >&2
       echo "  sin haber mirado nada — que es peor que no tenerla." >&2
       echo "" >&2
-      echo "  En la imagen: revisa el COPY de security/secretos-exigidos.txt" >&2
+      echo "  En la imagen: revisa el COPY de security/secretos-exigidos-contenedor.txt" >&2
       echo "  (Dockerfile.backend) y la excepción de .dockerignore." >&2
       exit 1
     fi
@@ -381,10 +391,14 @@ case "$MODO" in
         GEN=$((GEN+1))
       fi
     done
+    # De dónde salió la lista importa: dentro de la imagen no hay composes, y decir
+    # «exigidos por los compose» ahí sería mentir sobre qué se acaba de comprobar.
+    FUENTE="los compose"
+    [ "$HAY_COMPOSE" = "1" ] || FUENTE="$CATALOGO_FICHERO (catálogo del contenedor)"
     if es_desechable; then
-      echo "· preflight de secretos: OK — $N exigidos por los compose; $GEN sin valor propio (entorno DESECHABLE: se generan aleatorios)."
+      echo "· preflight de secretos: OK — $N exigidos por $FUENTE; $GEN sin valor propio (entorno DESECHABLE: se generan aleatorios)."
     else
-      echo "· preflight de secretos: OK — $N exigidos por los compose, todos con valor propio y ninguno publicado por el repo."
+      echo "· preflight de secretos: OK — $N exigidos por $FUENTE, todos con valor propio y ninguno publicado por el repo."
     fi
     ;;
 

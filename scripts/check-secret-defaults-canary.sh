@@ -521,6 +521,123 @@ PYEOF
   fi
 fi
 
+# =============================================================================
+# ★★★ BLOQUE I — EL ENTRYPOINT DE LA IMAGEN, EJERCITADO SIN DOCKER
+# =============================================================================
+# LA PREGUNTA DE MÉTODO QUE ORIGINA ESTE BLOQUE
+# ---------------------------------------------------------------------------
+# Durante dos pases escribí «que el CMD de la imagen corra los preflights» en la
+# lista de NO MEDIDO, con la excusa de que aquí no hay demonio de Docker. Y la
+# causa del run 34531002011 estaba **exactamente ahí**: el catálogo que metí en la
+# imagen llevaba los nombres del HOST (`STAGING_JWT_ACCESS_SECRET`) y dentro del
+# contenedor solo existen los del CONTENEDOR (`JWT_ACCESS_SECRET`). 12 de 15
+# «faltaban», el `assert` abortaba, el `&&` cortaba y `node` no llegaba a correr:
+# un contenedor que muere sin servir nada y un job esperando 5 minutos.
+#
+# La excusa era falsa. **Para probar el entrypoint no hace falta un demonio:**
+#   · el sistema de ficheros de la imagen se reconstruye leyendo los `COPY` del
+#     PROPIO Dockerfile (así no puede quedarse desfasado si alguien añade uno);
+#   · el entorno del contenedor sale de `docker compose config`, que es CLIENTE
+#     puro y no necesita demonio;
+#   · el comando a ejecutar se extrae del `CMD` del PROPIO Dockerfile, quedándose
+#     con la parte de preflights (lo de antes del primer `node`).
+# Lo único que no se prueba así es que la imagen construya — eso sí necesita
+# demonio, y lo mide el `build` de CI.
+printf '\n\033[1m★★★ Bloque I — el entrypoint de la imagen (el camino que «no se podía medir»)\033[0m\n'
+
+if ! command -v docker >/dev/null 2>&1; then
+  bad "no hay CLI de docker: no puedo renderizar el entorno del contenedor."
+  nota "Este bloque NO se salta en silencio: sin él, el arranque del contenedor vuelve a ser un camino que ningún candado mira."
+else
+  IMGDIR="$BASE/imagen"; ENVSH="$BASE/env-contenedor.sh"; ENVFILE="$BASE/env.host"
+  rm -rf "$IMGDIR"; mkdir -p "$IMGDIR"
+  ( cd "$ROOT_DIR" && ./scripts/secrets-preflight.sh env-file "$ENVFILE" >/dev/null 2>&1 )
+
+  # (1) El sistema de ficheros de la imagen, según los COPY del propio Dockerfile.
+  COPIADOS=0
+  while read -r rel; do
+    [ -n "$rel" ] || continue
+    [ -f "$ROOT_DIR/$rel" ] || continue
+    mkdir -p "$IMGDIR/$(dirname "$rel")"
+    cp "$ROOT_DIR/$rel" "$IMGDIR/$rel"
+    COPIADOS=$((COPIADOS+1))
+  done < <(grep -oE '^COPY --chown=[^ ]+ [^ ]+' "$ROOT_DIR/Dockerfile.backend" | awk '{print $3}' | grep -E '^(scripts|security)/')
+
+  # (2) El entorno del contenedor, renderizado por el cliente de compose.
+  ( cd "$ROOT_DIR" && env -i PATH="$PATH" HOME="$HOME" \
+      docker compose -f docker-compose.staging.yml --profile apps --env-file "$ENVFILE" config 2>/dev/null ) \
+    | python3 -c "
+import sys, yaml, shlex
+d = yaml.safe_load(sys.stdin)
+e = d['services']['backend']['environment']
+print('\n'.join('export %s=%s' % (k, shlex.quote('' if v is None else str(v))) for k, v in e.items()))
+" > "$ENVSH" 2>/dev/null
+
+  # (3) El comando: la parte de preflights del CMD real.
+  CMD_PRE="$(grep -E '^CMD ' "$ROOT_DIR/Dockerfile.backend" \
+             | sed -E 's/^CMD \[[^,]*, *"-c", *"//; s/"\]$//' \
+             | awk -F' && node' '{print $1}')"
+
+  if [ "$COPIADOS" -eq 0 ] || [ ! -s "$ENVSH" ] || [ -z "$CMD_PRE" ]; then
+    bad "no pude reconstruir la imagen simulada (copias=$COPIADOS, env=$( [ -s "$ENVSH" ] && echo sí || echo no ), cmd='${CMD_PRE:0:40}')."
+    nota "Si esto falla, el bloque no está probando el entrypoint: es un candado sin blanco."
+  else
+    ok "imagen simulada desde los COPY del Dockerfile ($COPIADOS ficheros) y CMD extraído del propio Dockerfile."
+
+    # `entrypoint <OK|ABORTA> <nombre> [mutación del env]`
+    entrypoint() {
+      local esperado="$1" nombre="$2" mut="${3:-}"
+      local dir="$BASE/img$((PASADAS+FALLOS))" rc
+      rm -rf "$dir"; cp -a "$IMGDIR" "$dir"
+      cp "$ENVSH" "$dir/.env.sh"
+      [ -n "$mut" ] && printf '%s\n' "$mut" >> "$dir/.env.sh"
+      ( cd "$dir" && env -i PATH="$PATH" HOME="$HOME" \
+          sh -c ". ./.env.sh; $CMD_PRE" ) >/dev/null 2>&1
+      rc=$?
+      if [ "$esperado" = "OK" ]; then
+        if [ "$rc" -eq 0 ]; then ok "$nombre — el entrypoint pasa (rc=0): \`node\` llegaría a arrancar."
+        else bad "$nombre — el entrypoint ABORTA (rc=$rc): el contenedor muere sin servir nada."
+             nota "Es el run 34531002011: 5 minutos esperando salud de un proceso que nunca existió."
+        fi
+      else
+        if [ "$rc" -ne 0 ]; then ok "$nombre — el entrypoint aborta, como debe (rc=$rc)."
+        else bad "$nombre — el entrypoint PASA y no debía: arrancaría con la configuración mal."
+        fi
+      fi
+    }
+
+    entrypoint OK     "entorno real del contenedor (el que entrega el compose)"
+    entrypoint ABORTA "le falta un secreto que el catálogo del contenedor exige" \
+               'export JWT_ACCESS_SECRET=""'
+    entrypoint ABORTA "un secreto del contenedor con valor PUBLICADO por el repo" \
+               'export JWT_ACCESS_SECRET=e2e_access_secret'
+    entrypoint ABORTA "el secreto del webhook, en blanco" \
+               'export STRIPE_WEBHOOK_SECRET="   "'
+
+    # Y el catálogo que NO viaja: el `assert` no puede salir verde sin blanco.
+    dir_sin="$BASE/img-sin-catalogo"; rm -rf "$dir_sin"; cp -a "$IMGDIR" "$dir_sin"
+    rm -f "$dir_sin"/security/secretos-exigidos-contenedor.txt
+    cp "$ENVSH" "$dir_sin/.env.sh"
+    if ( cd "$dir_sin" && env -i PATH="$PATH" HOME="$HOME" sh -c ". ./.env.sh; $CMD_PRE" ) >/dev/null 2>&1; then
+      bad "sin catálogo en la imagen, el entrypoint sale VERDE: candado sin blanco (§44) en el arranque."
+    else
+      ok "sin catálogo en la imagen, el entrypoint ABORTA en vez de aprobar sin mirar nada."
+    fi
+
+    # El error concreto de este pase: meter el catálogo del HOST en la imagen.
+    dir_host="$BASE/img-catalogo-host"; rm -rf "$dir_host"; cp -a "$IMGDIR" "$dir_host"
+    if [ -f "$ROOT_DIR/security/secretos-exigidos.txt" ]; then
+      cp "$ROOT_DIR/security/secretos-exigidos.txt" "$dir_host/security/secretos-exigidos-contenedor.txt"
+      cp "$ENVSH" "$dir_host/.env.sh"
+      if ( cd "$dir_host" && env -i PATH="$PATH" HOME="$HOME" sh -c ". ./.env.sh; $CMD_PRE" ) >/dev/null 2>&1; then
+        bad "con el catálogo del HOST en la imagen el entrypoint pasa: el canario no vería el bug del run 34531002011."
+      else
+        ok "con el catálogo del HOST metido en la imagen — ABORTA (es el bug exacto del run 34531002011)."
+      fi
+    fi
+  fi
+fi
+
 TOTAL=$((PASADAS+FALLOS))
 printf '\n'
 if [ "$FALLOS" -gt 0 ]; then

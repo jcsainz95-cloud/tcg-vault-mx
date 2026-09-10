@@ -31,5 +31,5 @@ scripts
 !security
 !security/secretos-publicados.sha256
 !security/secretos-retirados.sha256
-!security/secretos-exigidos.txt
+!security/secretos-exigidos-contenedor.txt
 *.md

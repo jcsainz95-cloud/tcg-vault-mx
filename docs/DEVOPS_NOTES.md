@@ -10157,6 +10157,78 @@ que es el comportamiento correcto para un stack que Stripe no puede alcanzar. So
 falta si algún día se quisieran ejercitar **webhooks REALES de Stripe** contra CI, y eso
 hoy no lo pide ningún criterio de aceptación.
 
+### 50.4-ter · El backend arrancaba y moría en silencio: metí en la imagen el catálogo del HOST
+
+Run `34531002011` (`d2df320`): pasos 1-9 en verde —resolver **✅**, stack levantado **✅**—
+y **paso 10 en timeout tras 5 minutos**. Del contenedor `backend` no se veía una línea.
+
+**Causa, medida sin demonio de Docker** (§50.4-quater explica cómo):
+
+```
+JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:?…}
+└── nombre DENTRO del contenedor   └── nombre en el HOST (interpolación)
+```
+
+Materialicé el catálogo del entrypoint desde el **lado izquierdo equivocado**: metí en la
+imagen los nombres del **host**. Dentro del contenedor `STAGING_JWT_ACCESS_SECRET` no
+existe — solo existe `JWT_ACCESS_SECRET`. Medido: **12 de 15 «ausentes»**, `assert`
+abortaba, el `&&` del `CMD` cortaba y **`node` no llegaba a ejecutarse**. Un contenedor
+que muere en tres segundos y un job esperando salud durante cinco minutos.
+
+**Arreglo:** el generador emite ahora **dos** catálogos y el candado verifica los dos:
+
+| Fichero | Nombres | Quién lo usa |
+|---|---|---|
+| `security/secretos-exigidos.txt` | del **host** (15) | `env-file` / `github-env` en el runner |
+| `security/secretos-exigidos-contenedor.txt` | del **contenedor** (11) | el `assert` del entrypoint, **dentro de la imagen** |
+
+El del contenedor se deriva de las claves del servicio `backend` cuyo valor referencia un
+`${VAR:?}` — no es una lista escrita a mano. **Verificado de punta a punta:** resolver
+`rc=0` → `docker compose config` `rc=0` → entrypoint `rc=0` (`node` arrancaría).
+
+### 50.4-quater · «Ese camino no se puede medir sin Docker» era una excusa, y era falsa
+
+Durante **dos pases** escribí en mi lista de NO MEDIDO: *«que el `CMD` de la imagen corre
+los preflights (no hay demonio Docker aquí)»*. La causa de `34531002011` estaba
+**exactamente ahí**. Un no-medido que se repite dos veces no es una limitación: es un
+agujero con una excusa encima.
+
+Y la excusa era falsa. Para probar el entrypoint **no hace falta un demonio** — bloque I
+del canario, **48/48 en 5/5 tiradas**:
+
+- el **sistema de ficheros de la imagen** se reconstruye leyendo los `COPY` del **propio
+  `Dockerfile.backend`** (si alguien añade uno, entra solo);
+- el **entorno del contenedor** sale de `docker compose config`, que es **cliente puro**;
+- el **comando** se extrae del **`CMD` del propio Dockerfile**, quedándose con los
+  preflights (lo anterior al primer `node`).
+
+Lo único que sigue necesitando demonio es que la imagen **construya**, y eso lo mide el
+`build` de CI. Casos del bloque: entorno real → `rc=0`; falta un secreto del contenedor →
+aborta; secreto **publicado** → aborta; webhook en blanco → aborta; **sin catálogo en la
+imagen** → aborta (nunca verde sin blanco); y **el catálogo del HOST metido en la imagen →
+aborta**, que es el bug exacto de este run, ya con su canario.
+
+**El bloque se ganó el sueldo a los cinco minutos de existir:** cazó un `HAY_COMPOSE:
+parameter not set` que yo acababa de introducir —la variable se fijaba dentro de
+`$(catalogo)`, una subshell, y no volvía al padre— y que habría hecho salir el entrypoint
+con `rc=2` en el siguiente deploy.
+
+### 50.4-quinquies · Que el job diga POR QUÉ: `scripts/diagnose-stack-failure.sh`
+
+Coste medido de no tenerlo: **tres relanzamientos de 8 minutos** para una causa que el
+propio job tenía delante. Y el orquestador es el único que puede leer esos logs (a mí el
+proxy me bloquea el blob storage de Actions), así que cada ida y vuelta cuesta una corrida.
+
+| Antes | Ahora |
+|---|---|
+| Espera 5 min aunque el contenedor haya muerto a los 3 s | **Corta en cuanto `ps -a` dice `exited`/`dead`** |
+| `docker compose logs` ordenado **alfabéticamente**: el backend enterrado tras `createbuckets`, `postgres`, `redis` | El log del **servicio que falló, primero, solo y con cabecera** |
+| «no respondió» y punto | **Causa clasificada + ROL dueño** por firma conocida (preflight de secretos, preflight de webhook, sin blanco, `Missing required env vars`, migraciones, `EADDRINUSE`, módulo ausente…) |
+| Solo en el log del job (blob storage, inaccesible por el proxy) | Además en **`::error::`** (se lee **por API**, sin descargar el log) y en **`$GITHUB_STEP_SUMMARY`** (se ve en la página) |
+
+Usa `ps -a` y no `ps` a secas: un contenedor **muerto no sale** en `ps`, y el diagnóstico
+diría «no hay nada raro» justo sobre lo que falló.
+
 ### 50.5 · El canario: la única prueba de que esto es una clase y no siete líneas
 
 `scripts/check-secret-defaults-canary.sh`. Su regla propia:
@@ -10229,7 +10301,8 @@ el candado— y `assert` **falla ruidoso si el catálogo sale vacío**.
 | Afirmación | Estado |
 |---|---|
 | Que los compose renderizan con secretos resueltos y **fallan sin ellos** | ✅ medido: `docker compose config` (cliente, sin demonio) — falla con el mensaje del `:?`; `rc=0` con el env-file generado |
-| Que el `CMD` de la imagen corre los dos preflights | ⏳ **NO MEDIDO aquí**: no hay demonio Docker en este entorno. Lo mide la primera corrida de CI que construya la imagen |
+| Que el `CMD` de la imagen corre los dos preflights | ✅ **MEDIDO** — bloque I del canario, sin demonio: imagen reconstruida desde los `COPY` del Dockerfile, entorno desde `docker compose config`, comando desde el `CMD`. 48/48 en 5/5. Ver §50.4-quater |
+| Que la imagen **construya** | ⏳ NO MEDIDO: eso sí necesita demonio. Lo mide el `build` de CI |
 | Que `e2e-real.yml` pasa el paso 3 con la excepción nueva | ⏳ **NO MEDIDO**: requiere una corrida en Actions. La lógica del preflight sí está medida en las 3 direcciones |
 | Que las variables existen en Railway/Vercel | ⏳ no es medible desde el repo (§49.1). Lo mide el preflight al arrancar |
 

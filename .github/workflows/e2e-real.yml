@@ -307,14 +307,24 @@ jobs:
 
       - name: Esperar salud del backend (migrate deploy + API escuchando)
         run: |
+          # NO se esperan 5 minutos a un contenedor que YA murió. Run 34531002011: el
+          # backend salió a los pocos segundos y este bucle siguió preguntando 300 s más
+          # para acabar diciendo «no respondió» — que es verdad y no sirve de nada.
           for i in $(seq 1 60); do
             if curl -sf "$BACKEND_HEALTH" >/dev/null 2>&1; then
               echo "Backend arriba ($BACKEND_HEALTH)."; exit 0
             fi
+            ESTADO_BK="$(docker compose -f "$COMPOSE" ps -a --format '{{.Service}} {{.State}}' 2>/dev/null | awk '$1=="backend"{print $2}')"
+            case "$ESTADO_BK" in
+              exited|dead)
+                echo "::warning::El contenedor del backend ya NO corre (estado: $ESTADO_BK) tras $((i*5))s. Seguir esperando no aporta nada."
+                ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
+                exit 1 ;;
+            esac
             echo "Esperando backend... ($i)"; sleep 5
           done
-          echo "::error::El backend real no respondió en $BACKEND_HEALTH tras ~5min. Revisa arranque/migrate. Si es fallo de arranque del backend, el finding es del rol backend."
-          docker compose -f "$COMPOSE" logs --tail=200 backend || true
+          ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
+          echo "::error::El backend real no respondió en $BACKEND_HEALTH tras ~5min. La causa y el DUEÑO van en la anotación de arriba y en el resumen del job."
           exit 1
 
       # -----------------------------------------------------------------------
@@ -612,7 +622,13 @@ jobs:
 
       - name: Logs del stack si algo falló
         if: failure()
-        run: docker compose -f "$COMPOSE" logs --tail=300
+        run: |
+          # `docker compose logs` ordena POR SERVICIO alfabéticamente: las líneas
+          # del backend salen enterradas detrás de `createbuckets`, `postgres` y
+          # `redis` — los tres que sí arrancaron. Primero el que falló, y solo él.
+          ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
+          echo "--- resto de servicios (contexto) ---"
+          docker compose -f "$COMPOSE" logs --no-color --tail=300 postgres redis minio createbuckets frontend || true
 
       - name: Apagar stack
         if: always()
