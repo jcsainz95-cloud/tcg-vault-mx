@@ -19632,6 +19632,186 @@ rama actual ⇒ **el cierre es anterior a todo el trabajo de este stream** y no 
 
 ---
 
+## §v2.2-SEC.2 — `P-UP-1` + `S-88-2` + `S-88-4`: el tope que elegía el cliente, la clave que estaba en el repo, y los dos literales del arnés (backend, 2026-09-10)
+
+> **Las dos condiciones de backend del veredicto RECHAZADO de seguridad (`SECURITY_NOTES` §7.2 y §7.3),
+> más el residual `S-88-4` que era mío.** El hilo común es el mismo de `P-WH-1` (§v2.2-SEC.1):
+> **la protección colgaba de algo que puede faltar, y la ausencia degradaba en silencio a algo que no
+> protege.** Aquí la ausencia era, respectivamente, un campo del cuerpo, una variable de entorno y un
+> secreto de CI.
+
+### 1. `P-UP-1` — el tope de tamaño del presign lo elegía quien lo quería evadir
+
+**Hallazgo (pentester MEDIA, confirmado por seguridad §3.4).** `uploads.service.ts` validaba contra
+`KYC_UPLOAD_MAX_BYTES` **solo si el cliente mandaba `contentLength`**, y firmaba con
+`...(contentLength !== undefined ? { ContentLength } : {})`. **Omitiendo el campo** salía una URL
+prefirmada con `UNSIGNED-PAYLOAD` y **sin cota**: PUT de tamaño arbitrario al bucket que guarda fotos
+de INE. *El candado lo activaba el atacante.*
+
+**Lo que medí ANTES de elegir el mecanismo** (la pregunta era: ¿obligatorio rompe algún cliente?):
+
+| Llamador | ¿Manda `contentLength`? | Evidencia |
+|---|---|---|
+| **Frontend (único cliente de producción)** | **SIEMPRE** | `frontend/src/components/ui/PhotoUploader.tsx:149-153` lo calcula del blob YA comprimido y lo manda en las tres ramas |
+| `frontend/src/lib/api.ts:1893` (`presignUpload`) | lo expone como opcional, pero su **único** llamador es el de arriba | `git grep presignUpload frontend/src` → 1 llamador real |
+| `backend/test/uploads.presign.spec.ts` | lo omitía en 6 llamadas | mías; actualizadas |
+| `backend/test/integration/infra-smoke.e2e-spec.ts` (smoke de MinIO) | lo omitía | mío; actualizado |
+
+⇒ **Ningún cliente de producción se rompe.** Los únicos que omitían el campo eran mis propios tests.
+
+**Alternativa descartada: cota del lado del almacenamiento.** La condición `s3:content-length-range`
+existe para el **POST-policy de formulario**, no para un **PUT prefirmado**, que es el método que
+declara el contrato §8; y la política del bucket es de **devops**. No sirve como candado *de este
+endpoint*. **`[NO MEDIDO]` contra R2**: no lo probé contra el bucket real — pero el arreglo no depende
+de ello.
+
+**Qué cambió.** `contentLength` pasa a **obligatorio** y la cota se **fija SIEMPRE** en la firma:
+- ausente/`null` ⇒ `422 VALIDATION_ERROR` (misma forma que `purpose`, contrato §8; se deja
+  `@IsOptional()` en el DTO **a propósito** para que el 422 lo emita el servicio y no el `400` del
+  `ValidationPipe`);
+- no entero, `<= 0`, o `> maxBytes` ⇒ `422` (como antes, pero ahora sin rama que lo esquive);
+- todo presign que **sí** sale lleva `ContentLength` en el `PutObjectCommand` **y** el header
+  `Content-Length` exacto en la respuesta ⇒ S3/R2 rechaza cualquier cuerpo de otro tamaño.
+
+> ### ⚠️ DISCREPANCIA CON EL CONTRATO — no la arreglo yo (regla 9)
+> `docs/API_CONTRACT.md:8767` declara `Req: { purpose: "kyc_ine", contentType: string }`.
+> **`contentLength` no aparece en el contrato**, ni como opcional. Con este arreglo, un cliente
+> literal al contrato recibe `422`. **La corrección del documento le toca al arquitecto**; yo no
+> toco el contrato. Lo que hay que decidir ahí (dos cosas, ambas drift preexistente):
+> 1. `Req` pasa a `{ purpose: "kyc_ine", contentType: string, contentLength: number }` + el `422` por
+>    ausencia;
+> 2. `Res 200` ya devuelve **`maxBytes`** (y `headers` poblado con `Content-Type`/`Content-Length`),
+>    que el contrato tampoco documenta — el frontend ya lo consume como fuente de verdad del tope
+>    (`PhotoUploader.tsx:155`, `presign.maxBytes ?? maxBytes`).
+
+### 2. `S-88-2` — las claves de PII colgaban de `NODE_ENV`, y la ausencia degradaba a una clave del repo
+
+**Hallazgo (seguridad, MEDIA→ALTA).** `PiiCryptoService`, sin `PII_ENCRYPTION_KEY` y con `NODE_ENV`
+∈ {`development`, `test`, `local`, **ausente**}, derivaba `sha256('local-dev-pii-encryption-key')` y
+seguía con un `warn`. Esa cadena **está en este repositorio, que es público**: seguridad descifró una
+CLABE sintética usando solo el literal. Idéntico para `PII_HMAC_KEY` (el blind index dejaba de ser
+ciego). Y `env.validation` **entera** no exigía **nada** con `NODE_ENV` ausente — que es justamente lo
+que hace `npm run start:prod` (`node dist/main.js`).
+
+**Es la misma clase que `P-WH-1`, y se arregla con la misma cirugía**, manteniendo la asimetría que
+importa (confundir estos dos casos rompe el arnés sin cerrar nada):
+
+| Hecho | ¿Permitido? | Dónde se decide |
+|---|---|---|
+| **«Este proceso no tiene claves de verdad»** (arnés local/CI, datos sintéticos y desechables) | **SÍ.** Arranca sin configurar nada. | `keysRequired()` devuelve `false` ⇒ clave efímera |
+| **«Protejo PII con una clave derivable de un repo público»** | **NUNCA**, en ningún entorno. | Ya **no existe** esa clave |
+
+**Dos mecanismos independientes:**
+
+1. **El respaldo dejó de ser derivable.** Sin claves configuradas se genera `randomBytes(32)`
+   **efímera por PROCESO** (estática, compartida por todas las instancias del proceso: el arnés
+   construye una `PiiCryptoService` por spec y tiene que entenderse consigo mismo). Ninguna cadena
+   del repo abre nada, **con cualquier `NODE_ENV`**. Y como muere con el proceso, un entorno con
+   datos **reales** que olvide las claves **falla ruidoso** al leer la primera fila existente (GCM no
+   autentica) en vez de seguir «cifrando» con una clave publicada.
+2. **La exigencia cuelga del HECHO, no de `NODE_ENV`.** Las claves son obligatorias si:
+   (a) `NODE_ENV` es no-local; (b) **`NODE_ENV` falta** — la ausencia ya no relaja: solo los tres
+   valores locales **explícitos** cuentan como arnés; o (c) hay una clave Stripe **LIVE**
+   (`sk_live_`/`rk_live_`): si se cobra dinero real hay personas reales, y su CLABE/RFC no puede
+   depender de qué diga `NODE_ENV`. *(Este es el gemelo exacto del «¿hay `STRIPE_SECRET_KEY`?» de
+   §v2.2-SEC.1, ajustado al hecho relevante aquí.)*
+
+**Por qué (c) mira `sk_live_` y no «hay Stripe»** — medido antes de escribirlo: `ci.yml` exporta una `STRIPE_SECRET_KEY` de **prueba** (`sk_test_…`) y `e2e.yml` usa la clave de
+**prueba** real de Stripe, y **ninguno de los dos carga claves PII** (`git grep PII_ .github/` → **0
+resultados**, medido hoy). Un «hay Stripe ⇒ exige PII» habría puesto en rojo los dos gates de CI sin
+cerrar nada. Esa era la trampa de la asimetría.
+
+**`env.validation.ts`, misma familia:** `isLocal` pasa de `nodeEnv === undefined || LOCAL_ENVS.has(...)`
+a `nodeEnv !== undefined && LOCAL_ENVS.has(...)`. **La ausencia falla CERRADA.** Medido antes de
+cambiarlo: **todos** los arranques del arnés fijan `NODE_ENV` explícitamente — `ci.yml`/`e2e.yml` → `NODE_ENV: test`,
+`docker-compose.yml`/`scripts/stack-native.sh` → `development`, `Dockerfile.backend` → `production`,
+jest → `test` por defecto. Ninguno se rompe. Y `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` entran a la lista
+de requeridas en no-local: **esto no añade ningún fallo nuevo** (`PiiCryptoService` ya abortaba solo en
+no-local — ver el test *«en NO-local, FALLA claro si faltan las claves»*, que es anterior a este pase),
+solo lo adelanta al arranque y nombra las dos de una vez.
+
+**Verificación del ciclo, no solo de la suite.** `ts-node -e "require('./test/integration/helpers/e2e-app')"`
+**sin `NODE_ENV`** hoy aborta con
+`Missing required env vars: DATABASE_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, STRIPE_SECRET_KEY, APP_BASE_URL, RESEND_API_KEY, PII_ENCRYPTION_KEY, PII_HMAC_KEY`.
+Ese arranque —el de `npm run start:prod`— es exactamente el que antes pasaba **sin exigir nada**.
+
+> ### ⚠️ Para devops / el dueño, antes del próximo deploy
+> **Esto NO cambia el comportamiento de un `NODE_ENV=production` bien configurado**, ni añade una
+> exigencia que no existiera ya (`PiiCryptoService` abortaba igual, solo que más tarde y de una en
+> una). **Lo que sí cambia**: un servicio desplegado **sin `NODE_ENV`** ahora **no arranca** hasta
+> tener el set completo. Es el fallo que se pidió. Ref: `SECURITY_NOTES` §6.2 — las Variables de
+> Railway (¿`NODE_ENV`? ¿`PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` cargadas?) siguen siendo una pregunta
+> abierta del dueño, y ahora la respuesta se manifiesta como *«arranca o no arranca»* en vez de como
+> *«arranca y no cifra»*.
+
+### 3. `S-88-4` — los dos `whsec_…` con la forma `|| 'literal'` eran míos: **se retiran**
+
+`test/integration/setup.ts` y `test/integration/helpers/e2e-app.ts` tenían
+`process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e_test_secret'`. No viajan al artefacto —severidad
+BAJA, y no cambian `P-WH-1`— **pero son el patrón exacto** (*el literal público gana cuando falta el
+de verdad*) **en el fichero que decide si un test de dinero es válido**, y seguridad midió que el
+preflight de devops **no los caza** (`sk_live_…` + `whsec_e2e_test_secret` → **PASA**).
+
+**Decisión: se retiran. Ninguna razón para quedarse.** Lo único que aportaban era estabilidad del
+secreto dentro de la corrida, y eso se consigue sin publicar nada:
+- `setup.ts` genera un secreto **EFÍMERO ALEATORIO por corrida** (`whsec_${randomBytes(24).hex}`) si
+  no hay uno real. Irrepetible, nunca publicado, y **estable dentro del proceso** — que es todo lo que
+  la suite necesita: `maxWorkers: 1` y la app se levanta **en ese mismo proceso** desde `e2e-app.ts`,
+  así que firmante y verificador comparten `process.env`. Es la misma solución que devops ya aplicó en
+  `ci.yml`/`e2e.yml` con `webhook-secret-preflight.sh`.
+- `webhookSecret()` **lanza** si no hay secreto, en vez de devolver el literal. La ausencia ahí solo
+  puede significar que alguien usó el helper fuera de la suite de integración; eso debe explotar, no
+  firmar con una clave commiteada. Verificado: sin la variable ⇒ `Error: STRIPE_WEBHOOK_SECRET no está
+  definido…`; con ella ⇒ la devuelve tal cual.
+
+**Lo que NO se retira, y por qué.** `git grep whsec_ backend/` deja `whsec_un_secreto_de_verdad_para_la_suite`
+(`test/payments.webhook-empty-secret.spec.ts`) y `whsec_x` (mismo fichero y `test/env.validation.spec.ts`).
+**No son la misma forma:** son constantes locales que el mismo test usa para **firmar Y verificar**, o
+un relleno para comprobar que una variable «está presente». Nunca se leen del entorno, así que
+**no existe el caso «el literal gana porque falta el de verdad»** — que es el defecto, no la cadena.
+Retirarlas no cerraría nada y le quitaría al test su control positivo.
+
+### Medición (⚠️ toda la mutación sobre **COPIA**, `…/scratchpad/be-sec-uploads-pii/mut`; el árbol vivo nunca se mutó)
+
+Línea base de la copia, verificada antes de mutar: **267/267 suites, 4419/4419 tests** — idéntica al
+árbol vivo *(con `docs/` y `backend/prisma/` enlazados en la copia: sin eso, 5 tests de paridad
+documental fallan **por la copia**, no por el código, y habrían contaminado cada cuenta)*.
+
+| Mutación (restaurada sobre la copia) | Rojos |
+|---|---|
+| **M-UP-1** · el defecto original completo: `contentLength` opcional en validación, firma y header | **2** / 4419 |
+| **M-UP-2** · se quita `ContentLength` de la firma (validación intacta) | **4** / 4419 |
+| **M-UP-3** · se quita el chequeo contra `maxBytes` | **4** / 4419 |
+| **M-PII-1** · `process.env.NODE_ENV ?? 'development'` (la ausencia vuelve a ser local) | **2** / 4419 |
+| **M-PII-2** · vuelve el respaldo **derivable del repo** (`sha256('local-dev-pii-…')`) | **2** / 4419 |
+| **M-PII-3** · se cae la señal de Stripe **LIVE** | **1** / 4419 |
+| **M-ENV-1** · `env.validation`: `NODE_ENV` ausente vuelve a ser local | **3** / 4419 |
+| **M-ENV-2** · las claves PII salen de la lista de requeridas | **3** / 4419 |
+
+Tests nuevos: **+37** (`uploads.presign` 20→32 incl. una **invariante barrida** de 12 formas de
+`contentLength` que exige *«o 422, o firma acotada»*; `pii-crypto` 10→24; `env.validation` 9→15), más
+el candado extremo-a-extremo de `P-UP-1` en `test/integration/infra-smoke.e2e-spec.ts` (omitir
+`contentLength` ⇒ **422** por HTTP real, atravesando DTO + controller + servicio).
+
+**Suites:** unitarios **4419/4419 verde** (267 suites); `tsc --noEmit` **limpio**; `lint` **0 errores**
+(2 warnings preexistentes en `inventory.service.ts`/`sealed-product.service.ts`, ajenos).
+**`[NO MEDIDO]`: la suite de integración/E2E.** No hay Postgres ni Redis en este entorno
+(`pg_isready` → *no response*, `redis-cli ping` → *connection refused*); la corre CI/QA. Los tres
+ficheros que toqué ahí compilan (`tsc` cubre `test/**/*`) y el helper se probó por separado.
+
+### Nota de estado, con su fecha de medición (para que nadie mande a rehacer lo hecho)
+
+- **Las claves de PRUEBA de Stripe SÍ están cargadas.** `[REPORTADO por el orquestador el 2026-09-10,
+  no medido por mí]`: llevan tres días en los secrets de GitHub y el gate de dinero corrió **hoy en
+  modo REAL** (run `34477885121`, `MONEY_SKIPPED` **vacío**). Y `[MEDIDO por mí, 2026-09-10]`:
+  **este documento nunca afirmó que faltaran** — `grep -i "clave de prueba\|STRIPE_TEST\|MONEY_SKIPPED"
+  docs/BACKEND_NOTES.md` → **0 coincidencias**. No hay nada que corregir aquí; se deja escrito para que
+  la próxima lectura no lo dé por pendiente.
+- **El dueño confirmó que su tienda SIEMPRE ha estado en modo prueba y NUNCA ha transaccionado**
+  `[REPORTADO, no medido por mí]` ⇒ no hubo ventana de exposición con dinero real por `P-WH-1`.
+
+---
+
 ## §v2.2-SEC.1 — `P-WH-1`: la firma del webhook de Stripe **falla CERRADA** en todos los entornos (backend, 2026-09-10)
 
 **Hallazgo (pentester, ALTA, explotado LIVE-DB).** `stripe.service.ts:constructEvent` hacía

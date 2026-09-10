@@ -101,16 +101,28 @@ describe('E2E — Infraestructura real (Postgres / Redis / MinIO)', () => {
 
   it('MinIO/S3: presign + PUT real de un objeto (o se salta si no está disponible)', async () => {
     const token = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    const tinyPng = Buffer.from('89504e470d0a1a0a', 'hex'); // firma PNG mínima
+
+    // P-UP-1: omitir `contentLength` ya NO devuelve una URL sin cota — devuelve 422. Este assert
+    // es el candado del agujero EXTREMO A EXTREMO (DTO + controller + servicio), no solo unitario.
+    const unbounded = await h.api('POST', '/uploads/presign', {
+      token,
+      json: { purpose: 'kyc_ine', contentType: 'image/png' },
+    });
+    expect(unbounded.status).toBe(422);
+    expect(unbounded.body.error?.code ?? unbounded.body.code).toBe('VALIDATION_ERROR');
+
     // v1.2: el único propósito de upload válido es `kyc_ine` (INE del buylist).
     const presign = await h.api('POST', '/uploads/presign', {
       token,
-      json: { purpose: 'kyc_ine', contentType: 'image/png' },
+      json: { purpose: 'kyc_ine', contentType: 'image/png', contentLength: tinyPng.length },
     });
     expect(presign.status).toBe(200);
     expect(typeof presign.body.uploadUrl).toBe('string');
     expect(typeof presign.body.uploadKey).toBe('string');
+    // La firma va ATADA al tamaño: el header exacto que debe enviar el PUT.
+    expect(presign.body.headers['Content-Length']).toBe(String(tinyPng.length));
 
-    const tinyPng = Buffer.from('89504e470d0a1a0a', 'hex'); // firma PNG mínima
     let status: number;
     try {
       status = await httpPut(presign.body.uploadUrl, tinyPng, 'image/png');

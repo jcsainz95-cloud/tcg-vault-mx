@@ -10,8 +10,10 @@ class PresignDto {
   // (regla de negocio del contrato §8), no con el 400 del ValidationPipe.
   @IsString() purpose!: string;
   @IsString() contentType!: string;
-  // S-B3: tamaño declarado (bytes). Opcional (aditivo al contrato §8): si viene, el servicio lo
-  // valida contra el tope y lo FIJA en la firma para acotar el PUT.
+  // S-B3 / P-UP-1: tamaño declarado (bytes). **OBLIGATORIO** desde P-UP-1 — omitirlo era la vía
+  // de evasión del tope (ver `uploads.service.ts`). Se deja `@IsOptional()` A PROPÓSITO para que la
+  // AUSENCIA la rechace el servicio con `422 VALIDATION_ERROR` (misma forma de error que `purpose`,
+  // contrato §8) y no con el `400` del ValidationPipe; el TIPO sí lo valida aquí cuando viene.
   @IsOptional() @IsInt() @Min(1) contentLength?: number;
 }
 
