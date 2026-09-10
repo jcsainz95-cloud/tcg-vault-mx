@@ -745,6 +745,26 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 - **Prioridad:** **B afecta a todos los clientes con cuenta, no solo a los de Google.** Es el más grande de los
   dos y el que el caso de Google solo hizo visible.
 
+#### P-74 · 👥 Crear operadores y cambiar su contraseña desde admin — ✅ YA EXISTE (verificado 2026-09-10)
+- **Lo que pidió el humano (2026-09-10):** *«que super admin pueda cambiar contraseña de operador y agregar
+  mas usuarios operadores desde admin»*.
+- ✅ **Las dos cosas están construidas y funcionando. Medido antes de anotar nada:**
+
+  | Lo que pidió | Dónde está | Qué hace |
+  |---|---|---|
+  | **Crear operadores** | **M6 → «Crear usuario»** (`M6View.tsx:148` y `:468`) · `POST /admin/users` (`admin.controller.ts:86`) | Alta por rol, con selector que ofrece los **tres** roles del sistema — `customer`, **`vault_operator`** y `super_admin` (`M6View.tsx:55`, `CREATE_ROLES`). La contraseña temporal se enseña **una sola vez**. |
+  | **Cambiar su contraseña** | **M6 → botón con icono de llave** (`M6View.tsx:425`) · `POST /admin/users/:id/reset-password` (`admin.controller.ts:193`) | Genera una temporal de **alta entropía** (18 bytes → 24 caracteres, `admin.service.ts`), marca `mustChangePassword` y **revoca las sesiones vigentes** — el guard y `/auth/refresh` rechazan la versión previa. |
+
+- ⇒ **No hay nada que construir.** Y la contraseña **no la elige el súper-admin**: el sistema genera una
+  temporal y obliga a cambiarla al entrar. Eso es **mejor** que lo que se pidió, no peor: el súper-admin
+  nunca llega a conocer la contraseña definitiva del operador.
+- 🔴 **Pero el hallazgo real es que el humano no sabía que existía**, y eso NO es un detalle: es
+  **descubribilidad**, y es exactamente lo que **`P-66`** encontró al revisar el panel («zombies y temas de
+  navegabilidad», veredicto RECHAZADO). ⇒ **Se anota como munición de `P-66`, no como trabajo nuevo.**
+  Una función que existe, funciona, está bien hecha y **nadie encuentra** rinde lo mismo que una que no
+  existe.
+- **Rol dueño:** ninguno para construir. **ux-ui/frontend dentro de `P-66`** para que se encuentre.
+
 #### P-72 · 💸 «SIN PRECIO RESOLUBLE» dice DOS cosas opuestas con la misma frase — ✅ DIAGNOSTICADO (2026-09-10)
 - **Reportado por el humano** con captura, y luego el dato que lo desatascó: *«me sale con precio de mercado
   en inventario»*.
@@ -960,10 +980,17 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 
 <details><summary>original</summary>
 
-#### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
-- Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
-  acabado con 0 piezas (Reverse Holo). Solo display (el dato es correcto, el otro acabado está en 0). Fix
-  frontend en curso: cada teja muestra el conteo de SU acabado. Money-safe.
+#### P-45 · Badge «N EN TOTAL» del binder — ✅ HECHO (verificado 2026-09-10, la nota decía «EN CURSO» y no lo estaba)
+- **El síntoma original:** dar de alta 2 piezas de un acabado pintaba «2 EN TOTAL» también en la teja de
+  otro acabado con 0 piezas. Solo display; el dato siempre fue correcto.
+- ✅ **Medido, no supuesto:** `MasterSetBinder.tsx:703-705` pinta `finishOnHandCount` con el conteo del
+  acabado de SU teja, y el candado existe y pasa —
+  `MasterSetBinder.test.tsx:185`, *«la teja %s enseña SU conteo y ninguno de los ajenos»*, recorriendo los
+  cuatro acabados. **13/13 verdes, corridos por el orquestador.** Y su parte (b) es la que convierte el caso
+  reportado en regla: asierta que **ningún número ajeno** aparece en ninguna de las dos superficies.
+- ⚠️ **Lección, la misma de la nota de la razón social que está justo debajo:** esta entrada llevaba días
+  diciendo «EN CURSO» sobre un trabajo terminado. **Una nota que afirma un estado que nadie ha medido manda
+  a alguien a rehacer lo que ya está.**
 
 </details>
 
