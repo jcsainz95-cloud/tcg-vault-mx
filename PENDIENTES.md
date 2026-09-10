@@ -778,8 +778,22 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 - **Por qué importa:** una pieza sin precio **no se publica**, así que es inventario comprado que no está a la
   venta. Y si la hipótesis del piso se confirma, es peor: serían piezas **publicándose a un precio que no es
   el suyo**.
-- **Estado:** anotado, sin diagnosticar. Sin rol dueño hasta saber si el hueco está en el resolutor de precios
-  (`pricing`) o en el alta de inventario (`inventory`).
+- ⭐ **RESPUESTA PROBABLE, y está en `P-47`: el sistema se está portando BIEN.** La **Parte 1 de `P-47`, ya
+  en producción (`9c3eb3e`)**, dice literal: *«PPT ya no copia el market a las 3 impresiones — solo escribe
+  la impresión primaria real; **los demás acabados quedan pendiente/«—», nunca el precio de otro**»*.
+  ⇒ Las dos que fallan son **HOLOFOIL**. Antes de ese arreglo habrían mostrado el precio del **normal**, que
+  es **el precio de otra carta en la práctica**. Ahora dice que no lo sabe. **Eso es la cura funcionando, no
+  un defecto** — y encaja con la hipótesis 2 que ya estaba escrita arriba.
+- ✅ **Y hay acción disponible HOY**, del propio `P-47`: *«el refresh/sync TCGCSV por set (per-acabado, gana
+  sobre PPT) da los precios correctos por acabado ya»*. ⇒ **Correr la sincronización de JOURNEY TOGETHER**
+  debería resolver esas dos piezas sin tocar código. **No medido: hay que probarlo.**
+- 🔴 **Lo que P-47 NO explica y sigue abierto: los siete a MX$25.00.** Son **cartas distintas** (Dustox,
+  Spidops, Charmander, Charmeleon) con **acabados distintos**, todas al mismo precio al centavo. El
+  aplanamiento por acabado no produce eso — cartas distintas darían precios distintos. **Sigue oliendo a
+  piso**, y sigue sin medir.
+- **Estado:** parcialmente explicado por `P-47`. Falta (a) probar que el sync del set cura las dos, y
+  (b) medir de dónde salen los siete MX$25.00 idénticos.
+- **Rol dueño:** el de `P-47` para lo primero (backend, Parte 3 EN CURSO); sin asignar para lo de los siete.
 
 #### P-71 · 🔤 Mostrar el código corto del set junto a las imágenes — pedido por el humano
 - **Lo que dijo, literal (2026-09-09):** *«quiero que en los sets cuando estamos viendo las imagenes
