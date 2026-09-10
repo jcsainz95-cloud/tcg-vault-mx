@@ -821,6 +821,62 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 - **Y una decisión para el humano:** ¿`mustChangePassword` debe **seguir sin bloquear** —una advertencia—
   o debe **forzar de verdad** el cambio antes de dejar operar? Lo segundo es lo que el texto promete hoy.
 
+#### P-76 · 🔁 Ocho botones de sincronizar, y el más visible miente — ✅ EVALUADO (ux-review, 2026-09-10) · **VEREDICTO: RECHAZADO**
+- **Pedido del humano (2026-09-10):** *«revisar tambien cuantos botones tenemos de sincronizar, valdría la
+  pena dejar meter nuevas colecciones, sincronizar set específico y sincronizar todo, evalúalo»*. Nace de
+  que **`P-72` le costó un intento real**: corrió «el sync» y no pasó nada.
+- **Medido: son OCHO acciones manuales de sync en M2** (más una en M1 › Sellado), y **dos de las ocho ya
+  corren solas** (el barrido de metadata diario y el de precios 2×/día). La celda de acciones ocupa
+  **459 de 926 px** de la tabla: **la mitad de la tabla es botonera**.
+- 🔴 **B1 · El botón visible de la fila no hace lo que el operador necesita, y su éxito lo oculta.**
+  «Re-sincronizar» no escribe precios (`catalog-sync.service.ts:816`, la compuerta `firstImport || force`) y
+  responde en **verde** *«Sync encolado: 1 set(s) (job job-7911)»*. Cuatro defectos, **tres verificados por
+  el orquestador**:
+  1. **No se encoló nada:** `sync({setId})` es **síncrono**; cuando el banner aparece el trabajo ya terminó.
+  2. **El «1» no cuenta nada:** `return { imported: true, cardCount }` (`:819`) — `imported` es un **literal
+     fijo**. ⇒ **siempre dice 1**, se haya escrito algo o no.
+  3. El `jobId` es un `Date.now()` **sin ningún sitio donde consultarlo**.
+  4. El banner aparece **675 px por debajo del botón, en otro grupo**: tras el clic, el operador **no ve
+     ningún feedback en su viewport**.
+- 🔴 **B2 · Verde con TODO EN CERO.** Si el set no resuelve su grupo TCGCSV, el backend devuelve
+  `ok:true, 0 productos, 0 precios, pending:0, reachable:true` ⇒ el banner sale **verde**. Y peor:
+  `cardsProcessed = localSet._count.cards` (`catalog-sync.service.ts:366`) — **el total en la base, no lo
+  tocado** ⇒ se lee *«191 cartas procesadas · 0 precios»* como trabajo hecho. **Verificado.**
+- 🔴 **B3 · La explicación EXISTE y no se pinta.** `fullSyncHint` dice literal *«Importar/Re-sincronizar solo
+  trae metadata y cartas (no refresca variantes ni toca precios)»* — la frase que habría evitado el
+  incidente. **Verificado: las claves `*Hint` están en `es.json` y tienen CERO consumidores en
+  `frontend/src/`.** Es copy muerto. **Mismo patrón que `P-74` invertido:** allá lo construido no se
+  encuentra; aquí **lo visible engaña y la verdad está escrita donde nadie la ve**.
+- ✅ **Sobre la propuesta de tres: SÍ, CON CAMBIOS.** Las tres intenciones son las correctas —traer
+  colección · actualizar este set · actualizar precios de todo— más **una de rescate plegada**. De 8 a 4.
+  **Tres condiciones sin las cuales tres botones fallan igual que ocho:**
+  1. **La acción por set debe DEGRADAR, no abortar.** Hoy «Sync completo» aborta en fase 1 si pokemontcg.io
+     no responde y **nunca llega a precios**; «Variantes + precios» existe justo para ese caso. Un solo botón
+     tiene que hacer cartas→acabados→precios y, si falta una fuente, **seguir con el resto y decirlo**. Es
+     composición de contrato ⇒ **arquitecto**.
+  2. **El camino de precios debe escribir POR ACABADO** — si no, el botón consolidado repite el silencio de
+     hoy. Es la **Parte 4 de `P-47`**, sin marcar hecha.
+  3. **Cada resultado debe decir números y quedar JUNTO al botón.** Con **cero escrito ⇒ advertencia, nunca
+     verde**.
+- ⚠️ **Lo que NO se debe perder al consolidar** (ux-review lo enumeró y es la parte que importa): la
+  **elección del set** en la fila; la **reparación con pokemontcg.io caída**; y las **cartas nuevas y logos**
+  que solo trae el camino de catálogo. **Una consolidación que quita una capacidad usada es peor que ocho
+  botones.**
+- 🔗 **Cruce con `P-66`:** aquel midió M2 como «7.986 px, 11 secciones y 61 botones» pero **no entró a la
+  zona de sync**. Esto es el zoom sobre esos últimos ~1.000 px. ⚠️ **Y cambia el rol dueño respecto a
+  `P-66`·I5:** aquí `CatalogSyncSection.tsx` **CUMPLE `DESIGN_SYSTEM §19` al pie de la letra**. El problema
+  **no es que frontend se desviara: es que la especificación §19 produce esta experiencia.** ⇒ **El dueño
+  del arreglo es ux-ui, no frontend.**
+- **Tres preguntas al humano antes de mover nada:** (1) ¿ha usado alguna vez «Backfill» o «Re-sincronizar
+  todo (forzar)»? (2) ¿quiere sets anteriores a 2024 en el catálogo? (3) cuando dice «sincronizar el set»,
+  ¿espera que cambien nombres e imágenes, los precios, o las dos cosas?
+- ⚠️ **Riesgo destapado que NO es de UX:** «Importar sets nuevos» **no importa los nuevos: importa TODO lo
+  que falte**, sin filtro de fecha (`catalog-sync.service.ts:594`). Con el catálogo parcial, un clic dispara
+  la historia completa del proveedor. **Decisión de alcance ⇒ product-owner/arquitecto.**
+- **Rol dueño:** **ux-ui** (redefinir §19 por intención) → **frontend** · **backend** (el DTO de resultado:
+  `imported` fijo, `cardsProcessed` engañoso, jobId ficticio) · **arquitecto** (la degradación y el alcance
+  de «importar todo»).
+
 #### P-72 · 💸 «SIN PRECIO RESOLUBLE» dice DOS cosas opuestas con la misma frase — ✅ DIAGNOSTICADO (2026-09-10)
 - **Reportado por el humano** con captura, y luego el dato que lo desatascó: *«me sale con precio de mercado
   en inventario»*.
