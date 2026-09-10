@@ -839,6 +839,40 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 >    fila es el que no escribe precios.
 > 4. **«Backfill» se elimina** — nunca la ha usado.
 >
+> **AMPLIACIÓN DEL HUMANO (2026-09-10), literal:** *«el corte de fecha que automático, estar moviendo
+> cosas manuales deja a que se rompa algo por falta de cuidado o supervisión»*. ⇒ El corte **no es un
+> dial que alguien mueve**: se mueve solo. Mismo criterio que el arquitecto aplicó hoy en `I-PP5`
+> («si la paridad hay que recordarla, no es una paridad»), al que el dueño llegó por su cuenta.
+>
+> ⚠️ **Hallazgo del orquestador que corrige lo que le dije al dueño:** el corte de fecha **ya existe y
+> ya funciona** — `SettingKey.CATALOG_SYNC_FROM_DATE`, seed `'2024/01/01'`, validador `yyyy/MM/dd`,
+> expuesto como `catalogSyncFromDate` en `GET/PUT /admin/settings` y editable sin redeploy. **Cuarto
+> caso de la semana** de algo dado por pendiente que ya estaba hecho (tras P-45, P-74 y P-47).
+> El defecto real es mucho más chico: hay **dos** caminos de import masivo y **solo uno honra el
+> dial** — `sync()` (`catalog-sync.service.ts:346-351`) **sí** filtra; `syncAll()` (`:736`) **no**, y
+> `syncAll()` es justo el que está detrás del botón «Importar sets nuevos» que usa el dueño.
+> `backfill()` (`:516`) es un tercer camino y ux-ui lo retira.
+>
+> **Enrutado como `R6` al arquitecto (2026-09-10)** junto con R2 y R5. Cuatro cosas que debe resolver
+> y que NO se pueden asumir:
+> - **El modo de fallo nuevo:** un corte fijo es estable y auditable; **uno móvil deja caer sets fuera
+>   de rango en silencio**. Un set publicado hace N+1 meses y nunca importado se vuelve inalcanzable
+>   por el botón de rutina, sin aviso. La escotilla existe (`DESIGN_SYSTEM §32` permite importar un
+>   set individual desde su renglón aunque no esté importado) **pero solo funciona si el renglón se
+>   sigue viendo** — hay que verificar que el corte no oculte también la fila.
+> - **`releaseDate` ausente:** el filtro es `(s.releaseDate ?? '') >= from` ⇒ un set **sin fecha
+>   compara como cadena vacía y queda SIEMPRE fuera**, en silencio. Nadie ha decidido esa semántica;
+>   simplemente cae. Por la regla 9 del §0-B.3 hay que declararla una vez.
+> - **¿Sobrevive el dial?** Si `CATALOG_SYNC_FROM_DATE` queda como anulación manual sobre la ventana
+>   automática, habría **dos** fuentes para «desde cuándo es nuevo» ⇒ regla 8: decir cuál gana, una
+>   vez, en un sitio.
+> - **Que se vea:** `§32.3` ya exige que la fecha del corte sea visible. Con corte automático sigue
+>   siendo obligatorio — un automático invisible es peor que un manual visible.
+>
+> **Y `force`:** hoy se lleva `[...remote]` entero, sin filtro. Backend debe **declarar** si «forzar»
+> respeta el corte o lo ignora. El dueño usa «forzar» varias veces; si empieza a arrastrar sets de
+> 2010 se va a notar.
+>
 > **Enrutado el 2026-09-10:** **ux-ui** (patrón de §19 + norma de honestidad del aviso + resolver la
 > copia muerta de los `*Hint`) · **backend/catalog** (los dos contadores mentirosos D1/D2 + MEDIR el
 > corte de fecha, sin implementarlo) · **arquitecto** (decidir el mecanismo del corte, pendiente:
