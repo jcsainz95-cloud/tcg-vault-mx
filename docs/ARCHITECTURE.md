@@ -4,6 +4,58 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.66.1 — UN `CANON` DECLARA SI YA EXISTE: LA REV ANTERIOR ESCRIBIÓ, DENTRO DE LA NORMA HECHA PARA
+> IMPEDIRLO, LA INSTANCIA MÁS GRANDE DEL DEFECTO QUE VENÍA A CURAR**
+> (2026-09-10, arquitecto. Base: **v1.66**. Origen: **bloqueante nº1 del veredicto de techlead**, verificado punto
+> por punto por el orquestador. Contrato en `API_CONTRACT.md` **v1.66.1**, sección nueva **§M2-GT**. Reglas nuevas
+> **§0-B.3 regla 10** (estado de un `CANON`) y **regla 11** (vocabulario cerrado). Detalle del predicado nuevo en
+> **§4.46**. Desviaciones **`D-CS-5`**, **`D-CS-6`** y **`D-GT-1`** en **§9**; **`D-PP-1` CERRADA**.)
+>
+> **1. 🔴 EL BLOQUEANTE, y la parte incómoda dicha entera.** `API_CONTRACT §M2-CS.3` y `§M2-CS.4` eran bloques
+> `CANON` **cerrados** —la fuente única del proyecto para esos predicados— y **afirmaban en indicativo cinco
+> hechos falsos contra el árbol**: `pricedVariants`/`priceCoverage`/`catalogWindow`/`CATALOG_SYNC_WINDOW_MONTHS`
+> con **cero ocurrencias** en `backend/` y `frontend/`, **`M-51` inexistente**, y `catalogSyncFromDate` **vivo en
+> el DTO y editable en la pantalla**. Por la regla de conflicto de `CLAUDE.md` eso ponía al backend **fuera de
+> contrato en dos secciones canónicas enteras sin haber hecho nada mal**. **El defecto era mío y era del
+> documento.**
+>
+> **2. ⭐⭐⭐ POR QUÉ UNA NORMA Y NO UN PARCHE — §0-B.3 REGLA 10.** Nada impedía que un `CANON` describiera en
+> indicativo un sistema inexistente, **y a todo el equipo se le ha dicho que cite un `CANON` sin verificar**: la
+> promesa de la marca era el vehículo del error. ⇒ **toda apertura lleva un token `estado: VIGENTE |
+> PROYECTADA`** (sin token se lee `PROYECTADA`, fail-closed), **`PROYECTADA` no gobierna ningún gate**, nace con
+> banner + dueño + compuerta + desviación en §9, y **⛔ cero afirmaciones de clase (B) dentro de un bloque
+> canónico**. *Si el mecanismo no distingue «esto es la norma» de «esto es la norma **y ya está construida**»,
+> vuelve a pasar.*
+>
+> **3. ⚠️ EL PRECEDENTE HABÍA FALLADO Y SE DICE POR QUÉ ANTES DE REUSARLO.** La «nota de vigencia» de `§M10-PP`
+> llevaba días **caduca** (`D-PP-1` cerró) y seguía en presente **dentro** del bloque, con tres frases gemelas en
+> este documento. Falló por no ser `grep`-able, por no atar su retiro a un evento y —lo de fondo— **por ser
+> clase (B) dentro de un `CANON`**. Los tres agujeros los cierra la regla 10. **Las cuatro frases: corregidas.**
+>
+> **4. ⭐ LA DEFINICIÓN DE «MARCA REAL» INVALIDABA DOS BLOQUES DE DINERO, y se corrige.** v1.66 dijo *«las que
+> empiezan línea»*: medido, **dos de las doce no empiezan línea** (`mercado-de-la-variante`, dentro de un bloque
+> de código; `semantica-de-omision`, indentada). **La propiedad es el ENTRECOMILLADO, no la columna**, y el lint
+> queda especificado con sus cuatro invariantes —incluido `L3` **bidireccional**, el único que caza una marca
+> acuñada fuera del censo—. **Y la enumeración manual de bloques abiertos/cerrados se retira: era, ella misma,
+> una infracción de la regla 8.**
+>
+> **5. ⭐ REGLA 11 — VOCABULARIO CERRADO.** Nació en código un segundo tipo de marca (`CANON-IMPL`, sin censo, sin
+> par, sin dueño). **Estatuto: se retira** (`D-CS-6`, backend, **una línea**). ⛔ **Cero marcas en `backend/` y
+> `frontend/`**: el código cita el **anchor**. *La fuente única de un predicado está en el contrato; un fichero
+> que se declara «única fuente en código» del mismo predicado **es la segunda fuente**.*
+>
+> **6. ⭐ `§M2-GT` — «EL GRUPO TCGCSV DE UN SET» ENTRA AL CENSO (DINERO).** Hallazgo de techlead: **dos columnas
+> persistidas y tres escaleras** para un hecho. Se decide qué manda, ⛔ que **`pptSetId` NO es un groupId**
+> (juego de tipos; su escalera **no tiene monotonía** y **corre ANTES** que la canónica ⇒ el blindaje no cubre el
+> camino normal), una sola resolución para las tres rutas, y **`I-GT5`: dos fuentes que difieren ⇒ señal, jamás
+> una elección silenciosa**. Razón en **§4.46**.
+>
+> **7. ⭐ DOS MAGNITUDES RENOMBRADAS ANTES DE EXISTIR.** El contrato tuvo que escribir *«⛔ `windowDays` y
+> `windowMonths` NO son la misma ventana»* — **y necesitar esa frase ES la señal**, la misma que precedió a
+> PRIMARIO/SEED/VIGENTE. ⇒ **VIGENCIA** de un precio (`freshnessDays`) vs **NOVEDAD** de un set (`recencyMonths`,
+> `catalogCutoff`, `CATALOG_RECENCY_MONTHS`); ⛔ «ventana»/`window` prohibida en ambos. **Coste medido: cero.**
+>
+> ---
 > **Rev v1.66 — UNA CIFRA SÓLO SE EMITE SI ESTA CORRIDA LA CONTÓ: EL `summary` QUE FALTABA, LA COLUMNA QUE REVELA
 > EL SET ROTO, Y EL CORTE QUE SE MUEVE SOLO**
 > (2026-09-10, arquitecto. Base: **v1.65, vigente entera**. Origen: `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui) +
@@ -3055,6 +3107,7 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **El REPARTO de un barrido de sets** (qué se le pasó a cada set encolado: los términos, sus invariantes, y **el único nombre de «cuántos toqué»**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.0** *(razón: `ARCHITECTURE §4.45.1`)* | `<!-- CANON: reparto-del-barrido -->` |
      | **La VARIANTE DE PRECIO** (la unidad de cobertura: qué se cuenta, qué **no** es denominador, y cuándo el universo es **desconocido** en vez de cero) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.3** *(razón: `ARCHITECTURE §4.45.2`)* | `<!-- CANON: variante-de-precio -->` |
      | **El CORTE DE CATÁLOGO** (desde cuándo un set cuenta como **nuevo**: la fórmula derivada, la semántica del `releaseDate` ausente, y que **ya no hay dial**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.4** *(razón: `ARCHITECTURE §4.45.3`)* | `<!-- CANON: corte-de-catalogo -->` |
+     | **⭐ El GRUPO TCGCSV DE UN SET** (qué entero es «el grupo» de un `CardSet`: qué columna manda, qué escalera la escribe, y qué hace un lector cuando dos fuentes existen y **difieren**) *(v1.66.1, **DINERO**)* | **`API_CONTRACT.md` §M2-GT** *(razón: `ARCHITECTURE §4.46`)* | `<!-- CANON: grupo-tcgcsv-del-set -->` |
    - **⭐⭐ AMPLIACIÓN v1.66 — LA MARCA CANÓNICA ES UN PAR: SIN CIERRE, NO HAY BLOQUE.** Toda marca
      `<!-- CANON: x -->` **abre** un bloque y **debe cerrarse** con `<!-- /CANON: x -->`. **No es cosmética:** la
      regla 8 dice *«la cuenta vive en UN sitio»*, y **un bloque abierto y nunca cerrado no delimita ese sitio** —
@@ -3065,20 +3118,49 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
        costo, compuertas de un merge concreto, ayudas de lectura y todo lo que **deba** poder citarse desde otros
        documentos. *La utilidad del cierre se ve al escribirlo: obliga a decidir qué es norma y qué es comentario,
        que es la decisión que se estaba saltando.*
-     - **Verificable de un vistazo y `grep`-able** (sugerencia a devops, mismo límite que las reglas 7 y 8:
-       **yo normo, no cableo**): **cada `x` debe tener exactamente UNA apertura y UNA cierre como marcas REALES**
-       —las que empiezan línea— y una apertura sin su `/CANON` es un fallo de documentación, no un descuido de
-       formato. ⚠️ **Una marca CITADA entre acentos graves (`` `<!-- CANON: x -->` ``) es una referencia, no una
-       apertura**, y es la forma correcta de nombrarla desde otro sitio; por eso el conteo se hace sobre marcas a
-       principio de línea y no sobre apariciones del texto.
-     - **⚠️ Estado medido el 2026-09-10, y no lo maquillo:** la convención se cumplía **a medias**. Cerrados:
-       `mercado-de-la-variante`, `semantica-de-omision`, `estado-de-bounty`, `predicado-de-pagabilidad`,
-       `proveedor-de-precio`. **Abiertos sin cerrar: los cuatro bloques FX** (`invariantes-del-modo-fx`,
-       `precedencia-de-la-tasa`, `estado-del-tipo-de-cambio`, `banda-de-la-tasa-usd-mxn`). Los tres de v1.66
-       nacieron igual de rotos y **se cerraron en el mismo pase**; los cuatro de FX quedan registrados como
-       **`D-CS-4`** (§9, dueño: **arquitecto**) porque fijar sus límites exige releer §M2-F entero y **eso no se
-       hace de paso en una rev de catálogo**. *Detectado por el orquestador al revisar v1.66: la norma nace de que
-       el defecto se repitió en cuanto alguien —yo— escribió tres marcas nuevas sin fijarse.*
+     - **⭐⭐ QUÉ ES UNA «MARCA REAL» — LA PROPIEDAD ES EL ENTRECOMILLADO, NO LA COLUMNA (corregido v1.66.1).**
+       **Cada `x` debe tener exactamente UNA apertura y UN cierre como marcas REALES**, y una apertura sin su
+       `/CANON` es un fallo de documentación, no un descuido de formato. **Una marca es REAL salvo que esté
+       CITADA**, y **CITADA** significa **una sola cosa**: aparecer entre **acentos graves simples en la misma
+       línea** (`` `<!-- CANON: x -->` ``), que es la forma correcta de nombrarla desde otro sitio.
+       ⛔ **Ni la indentación ni un prefijo de comentario del lenguaje del bloque (`// `, `* `, `# `) convierten
+       una marca en cita.**
+       > ⚠️⚠️ **Esta definición REEMPLAZA a la de v1.66 (*«las que empiezan línea»*), que era FALSA y peligrosa.**
+       > Medido el 2026-09-10 sobre el censo entero: **de las marcas reales del proyecto, DOS no empiezan
+       > línea** — `mercado-de-la-variante` (dentro de un bloque de código, prefijada con `// `) y
+       > `semantica-de-omision` (indentada dos espacios dentro de un bullet). **Las dos delimitan predicados de
+       > DINERO.** Un lint escrito literalmente contra *«empieza línea»* **no las contaría ni las protegería**:
+       > para él, esos dos bloques no existen. *Un guardián que declara inexistente lo que debe guardar es peor
+       > que no tenerlo, porque además emite un verde.* **La marca dentro de un bloque de código es
+       > DELIBERADA** (`API_CONTRACT` línea siguiente a la de `mercado-de-la-variante` lo dice: la fuente única
+       > **es la declaración**, no una prosa aparte) ⇒ la convención tenía que ceder, no el bloque.
+     - **Especificación del lint, para que devops no tenga que inferirla** *(sugerencia, mismo límite que las
+       reglas 7 y 8: **yo normo, no cableo**; alcance devops, `security/` o `scripts/`)*:
+       1. **Candidata:** cualquier línea que case `<!--\s*/?CANON:\s*([a-z0-9-]+)`, **en cualquier columna**.
+       2. **Es CITA** si y sólo si la ocurrencia va entre acentos graves simples en esa misma línea. Todo lo
+          demás es **marca REAL**.
+       3. **`L1` (par):** por cada `x`, exactamente **1** apertura y **1** cierre reales, **en el mismo fichero**
+          y en ese orden.
+       4. **`L2` (estado):** toda apertura real lleva su **token de estado** (regla 10). Sin token ⇒ se lee
+          **`PROYECTADA`** (fail-closed) y el lint lo reporta.
+       5. **`L3` (censo, BIDIRECCIONAL):** todo `x` del censo de esta regla tiene su par, **y todo par tiene su
+          `x` en el censo**. La segunda mitad es la que importa y es la que faltaba: **es la única que caza una
+          marca normativa acuñada fuera de este censo** — que ya pasó una vez (regla 11).
+       6. **`L4` (fuera de `docs/`):** ⛔ **cero marcas reales en `backend/` y `frontend/`** (regla 11). **En
+          código, el texto de una marca sólo es legítimo DENTRO DE UN LITERAL DE CADENA o entre acentos graves en
+          un comentario** —una **cita** o una **búsqueda**—, nunca como marca desnuda. ⚠️ **Ese carve-out no es
+          una comodidad: es un patrón que el proyecto quiere.** `backend/test/settings.validation.spec.ts`
+          **localiza el bloque `proveedor-de-precio` en `docs/API_CONTRACT.md` y compara la norma con el literal
+          del código**: un test que **lee el contrato como fuente** en vez de copiarlo. *Un lint que le pidiera a
+          backend borrar eso estaría atacando el único mecanismo que hoy ata una marca a un aserto ejecutable.*
+     - **Estado de cumplimiento: NO SE ENUMERA AQUÍ** *(corregido v1.66.1 — la enumeración era, ella misma, una
+       infracción de esta regla)*. La v1.66 listó a mano *«cerrados: … / abiertos: …»*: **una cuenta viva,
+       mantenida a mano, lejos del artefacto que la decide** — exactamente lo que esta regla prohíbe, escrita
+       dentro de la propia regla. Era correcta el día que se escribió y **caducaba en el primer bloque que
+       alguien cerrara**, sin diff, sin test y sin que nadie la mencionara (que es el argumento de la regla 8
+       contra la regla 7). ⇒ **El estado se MIDE** (el lint de arriba) y **lo que está abierto vive donde viven
+       las cosas abiertas: §9**, con dueño y fecha. Los bloques de FX sin cerrar están en **`D-CS-4`**.
+       *Detectado por el orquestador al revisar v1.66.*
    - **⭐⭐ AMPLIACIÓN v1.65 — «EL VALOR NO CADUCA SOLO: CADUCA EL HECHO QUE EL VALOR NOMBRABA». La regla 8 también
      gobierna los valores de clase (B) que se afirman con VERBOS DISTINTOS.** El caso que la origina no fue una
      cuenta: fueron **dos frases sobre el mismo dial** —*«el **seed** debe dejar `tcgcsv_singles`»* (§4.36(d)) y
@@ -3154,6 +3236,81 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
    - **Cómo se comprueba (mitad de cliente):** el body emitido **no contiene la clave** del campo no editado —una
      aserción sobre la petición, no sobre la respuesta—. La mitad de servidor se prueba **donde vive el endpoint** y
      **no se re-asierta** en la pantalla (regla 8).
+
+10. **⭐⭐⭐ REGLA DEL ESTADO DE UN CANON — «ESTO ES LA NORMA» Y «ESTO ES LA NORMA Y YA ESTÁ CONSTRUIDO» SON DOS
+    AFIRMACIONES, Y HASTA HOY LA MARCA NO LAS DISTINGUÍA (añadida 2026-09-10, v1.66.1).**
+    **Toda apertura `<!-- CANON: x -->` lleva un TOKEN DE ESTADO obligatorio:**
+    | Token | Qué afirma | Qué autoriza |
+    |---|---|---|
+    | **`estado: VIGENTE`** | El predicado **está construido**: existe el código que lo implementa | Se cita como norma **y** se usa para leer el sistema. La **conformidad al detalle** la miden QA/techlead; lo que discrepe vive en §9 |
+    | **`estado: PROYECTADA`** | El predicado **es la norma y el código NO lo implementa todavía** | Se cita **sólo** como norma del pase que lo implementará. ⛔ **No describe el sistema y no gobierna ningún gate** |
+    - **Sintaxis:** `<!-- CANON: x · estado: VIGENTE · única fuente · … -->`. **Una apertura sin token se lee
+      `PROYECTADA`** (fail-closed): el error barato es no citar un bloque que ya existe; el caro es citar como
+      descripción uno que no.
+    - **`PROYECTADA` obliga a TRES cosas, y las tres en el mismo pase que escribe el bloque:**
+      1. **Un banner NO IMPLEMENTADA como primera línea DENTRO del bloque**, con **dueño** (rol) y **compuerta**
+         (el hecho observable en el artefacto que, al cumplirse, permite el paso a `VIGENTE`).
+      2. **Una desviación en §9** con id, dueño y esa misma compuerta. *El bloque no se vigila solo; §9 es donde
+         este proyecto mira lo que está abierto.*
+      3. **⛔ Nada en indicativo presente sobre el mundo.** *«el `PUT` la rechaza»*, *«la fila se BORRA»*,
+         *«`remote-sets` gana X — siempre presente»* son **descripciones**; la forma correcta es **deóntica**:
+         *«el `PUT` DEBERÁ rechazarla»*, *«la migración BORRARÁ la fila»*. La definición del predicado
+         (*«VARIANTE DE PRECIO := …»*) **sí** va en presente: es una definición, no una descripción.
+    - **El paso `PROYECTADA → VIGENTE` lo hace el ARQUITECTO, en la rev que registra la compuerta cumplida —
+      nunca el pase que escribe el código** (regla 5: el dueño del código no edita este documento ni el contrato).
+      *Si el token lo moviera quien implementa, sería el implementador certificándose a sí mismo.*
+    - **⭐ POR QUÉ ESTA REGLA Y NO UN PARCHE A LAS DOS SECCIONES QUE FALLARON.** El defecto no fue un descuido:
+      **fue estructural, y el mecanismo lo amplificó.** Las reglas 1 y 2 prohíben afirmar un valor de clase (B)
+      y exigen verificar contra el artefacto; la regla 8 promete que dentro de un `CANON` vive **la** verdad del
+      predicado, **y a todo el equipo se le ha dicho que lo cite sin volver a verificar**. Un `CANON` que
+      describe en indicativo un sistema que no existe **usa esa promesa para propagar exactamente lo que las
+      reglas 1 y 2 prohíben, en el sitio del proyecto donde más caro sale**. Medido en v1.66: **§M2-CS.3 y
+      §M2-CS.4 afirmaban CINCO hechos falsos contra el árbol** (0 ocurrencias de `pricedVariants`,
+      `priceCoverage`, `catalogWindow` y `CATALOG_SYNC_WINDOW_MONTHS` en `backend/` y `frontend/`; la migración
+      `M-51` inexistente; `catalogSyncFromDate` vivo en el DTO **y editable en la pantalla**). *La rev que venía
+      a curar «un documento que hace tomar decisiones equivocadas a los roles que lo respetan» fabricó, dentro
+      de la norma escrita para impedirlo, la instancia más grande de ese defecto.*
+    - **⚠️ POR QUÉ EL PRECEDENTE FALLÓ, y qué cambia aquí — la pregunta hay que contestarla antes de reusar el
+      mecanismo.** El proyecto ya tenía una «nota de vigencia»: la de `§M10-PP` (v1.65), que decía *«`I-PP1`
+      describe la norma, no necesariamente el literal que hoy corre… mientras esa desviación siga abierta…»*.
+      **El 2026-09-10 esa nota llevaba días caduca** (`D-PP-1` cerró; el seed del código es el primario) **y
+      seguía en presente dentro del bloque `CANON`**, junto con tres frases gemelas de este documento. Tres
+      defectos de diseño, y los tres se cierran arriba:
+      1. **Era prosa libre, no un token.** No se podía `grep`ear, no tenía forma fija y nadie sabía que existía
+         una convención. ⇒ **el estado vive en la marca de apertura, en UN sitio, y el lint lo lee.**
+      2. **Su retiro no estaba atado a un evento.** *«Mientras siga abierta»* deja el trabajo a que alguien
+         recuerde volver: es la regla 7 pidiendo memoria, que es justo lo que la regla 8 declaró insuficiente.
+         ⇒ **el token es un DATO, y su cambio es un paso obligado de la rev que cierra la desviación.**
+      3. **⛔⛔ Y el fallo de raíz: era una afirmación de clase (B) DENTRO de un bloque `CANON`.** «Qué dice hoy
+         el literal del código» y «qué desviación sigue abierta» son hechos del mundo, que envejecen. **Dentro
+         de un bloque canónico no va NADA de clase (B)** —ni un literal vigente, ni el estado de una desviación,
+         ni *«verificado el {fecha} contra el código»*—: eso va **fuera**, junto a la razón y las compuertas, o
+         en §9. *El único dato del mundo que el bloque lleva dentro es su propio token, y se elige de modo que
+         equivocarse por defecto sea inofensivo.*
+    - **Qué NO cambia:** la regla 8 (una cuenta, un sitio) y su ampliación del **par** siguen enteras. El token
+      no dice **dónde acaba** el bloque —eso lo dice el cierre— sino **si lo que hay dentro existe**.
+
+11. **⭐⭐ REGLA DEL VOCABULARIO CERRADO — NADIE ACUÑA UNA MARCA NORMATIVA FUERA DE ESTE CENSO, Y NINGUNA MARCA
+    VIVE EN CÓDIGO (añadida 2026-09-10, v1.66.1).**
+    - **(a) El espacio de marcas normativas es CERRADO y lo declara la regla 8.** ⛔ Ningún rol inventa una marca
+      nueva —ni una variante «parecida pero distinta»— en su módulo, su documento o su comentario. Quien la
+      necesite **la pide al arquitecto** (regla 9 de `CLAUDE.md`).
+    - **(b) ⛔ Cero marcas `CANON` reales en `backend/` y `frontend/`.** El código **cita el ANCHOR**
+      (`API_CONTRACT §M2-CS.0`), nunca la marca. **Dos razones, y la segunda es la que decide:** una marca en
+      código o abre un segundo bloque o rompe el conteo del par (`L1`); y, sobre todo, **la marca delimita la
+      FUENTE ÚNICA del predicado, que por la regla de conflicto de `CLAUDE.md` está en el CONTRATO** — un
+      fichero de código que se declara «única fuente **en código**» del mismo predicado **es la segunda fuente**,
+      con otras palabras. ✅ **Sí es legítimo** el texto de la marca **dentro de una cadena o entre acentos
+      graves**: una **cita** en un comentario, o la **búsqueda** con la que un test de contrato localiza el
+      bloque en `docs/API_CONTRACT.md` (ver `L4`). *La intención («si necesitas este reparto, llama aquí; no lo copies») es correcta y
+      valiosa: se escribe en prosa y se blinda con un test, que es donde una regla sobre código se hace
+      cumplir — no con una marca que compite con la del contrato.*
+    - **Caso que la origina, medido el 2026-09-10:** `backend/src/modules/catalog/set-sweep-tally.ts:4` acuñó
+      `<!-- CANON-IMPL: reparto-del-barrido · única fuente EN CÓDIGO · … -->` — **un segundo vocabulario de
+      marcas, sin censo, sin par de cierre y sin dueño**, en el mismo pase en que nacía la norma del par.
+      **Estatuto decidido: se RETIRA** (desviación **`D-CS-6`**, dueño **backend**; es **una línea**, ⛔ ni una
+      de lógica). *La intención era buena; el mecanismo, no. Que un rol acuñe marcas normativas en su módulo es
+      el arranque del siguiente incidente, y esta vez se cazó a la primera.*
 
 ### 0-B.4 Consecuencia para `API_CONTRACT.md`: forma y origen, no valor
 
@@ -12409,12 +12566,22 @@ no es una paridad: es una deuda con calendario.*
 desviación consciente de ese entorno. ⛔ **Nunca por divergencia del seed**, que es una decisión sin autor y sin
 registro.
 
-⚠️ **La ventana de transición existe y hay que decirla, porque es donde vive la brecha AHORA.** Entre este dictamen
-y el aterrizaje de `D-PP-1`, CI y staging **siguen divergiendo**. Medida interina de **devops**: fijar el dial
-explícitamente en el aprovisionamiento de staging (hecho 3), **marcada como interina y con fecha de retiro = el
-merge de `D-PP-1`**. ⚠️ **Y se retira de verdad**: un apaño de provisión que sobrevive a la causa que lo justificó
-se convierte en la explicación de por qué el seed «no importa» — la misma doctrina que §0-B.3 regla 9(b), *un parche
-provisional sobre una ambigüedad no es provisional, porque nadie vuelve a quitarlo*.
+✅ **LA VENTANA DE TRANSICIÓN SE CERRÓ (actualizado 2026-09-10, v1.66.1).** ~~*«Entre este dictamen y el
+aterrizaje de `D-PP-1`, CI y staging siguen divergiendo»*~~ — **`D-PP-1` aterrizó**: medido en el artefacto que
+corre (§0-B.3 regla 2), `settings.constants.ts` siembra **el primario**. ⇒ **la paridad `I-PP5` se cumple ya por
+construcción en toda BD fresca**, que era el objetivo entero.
+**Y la medida interina de devops —fijar el dial en el aprovisionamiento de staging— DEBE ESTAR RETIRADA**, porque
+su fecha de retiro era exactamente este merge. ✅ **Verificado, y devops llegó antes que este documento**:
+`DEVOPS_NOTES §44.7` ya declara caducado el puente `--ensure` y deja **sólo `--assert`** (la medición, que es
+permanente y sigue siendo el gate del DAST). *Lo anoto porque es el sistema funcionando: devops **verificó contra
+el artefacto** en vez de contra este párrafo, que es la regla 2 haciendo su trabajo — y la consecuencia es que el
+texto muerto que quedaba era el mío.* ⚠️ **Lo que sí queda para devops:** barrer las frases que aún describen el
+puente como vigente (p. ej. la fila de `scripts/price-provider-parity.sh` en `DEVOPS_NOTES §43.2`,
+*«INTERINO, muere con `D-PP-1`»*) — **`D-PP-2` sigue abierta por eso**.
+**La doctrina que motivaba el aviso no se deroga y por eso se conserva la frase:** un apaño de provisión que
+sobrevive a la causa que lo justificó **se convierte en la explicación de por qué el seed «no importa»** —misma
+familia que §0-B.3 regla 9(b), *un parche provisional sobre una ambigüedad no es provisional, porque nadie vuelve
+a quitarlo*—. Aquí sí se quitó, y a tiempo.
 
 **Y el seed nuevo es MÁS fail-closed que el viejo, no menos:** si TCGCSV no responde en un entorno sin red, el
 barrido **no produce precio** y la celda queda `PRICE_PENDING`/«—» (`I-PP4`, §4.35(e)(4)). ⛔ **No hay caída
@@ -12427,14 +12594,19 @@ y un número equivocado no dispara ninguna alarma.*
   viven **enum, semántica, `I-PP1`…`I-PP5`**. **Este documento lleva la RAZÓN y no transcribe el enum**; §4.36(d)
   bandera 3 pasa a **citar**. *El literal del seed no se re-escribe en ningún documento: `I-PP1` está enunciada como
   **igualdad** (`seed = primario`) precisamente para que no pueda caducar cuando el primario cambie.*
-- **backend** (WS «Catálogo y precios»): ejecuta `D-PP-1` (§9) — seed, dos comentarios y un test. **Toca dinero y
-  zona compartida (`settings.constants.ts`) ⇒ triple veredicto**; el cambio es de **una línea de valor**, pero su
-  gate no es menor por ser pequeño.
-- **devops**: `D-PP-2` (§9) — la prosa de `DEVOPS_NOTES` que llama «money-safe» al seed legacy, y la verificación de
-  paridad de `I-PP5` en CI/staging.
-- **QA**: BLOQUEANTE-1 se cierra **cuando el test refleje `I-PP1`** y una BD fresca de CI arranque en el primario;
-  no antes, y no con un cambio sólo documental. ⚠️ **Mientras `D-PP-1` siga abierta, el literal que corre es
-  `pokemontcg_io`** y este documento es la norma que lo obliga, no su descripción.
+- **backend** (WS «Catálogo y precios»): ✅ **`D-PP-1` EJECUTADA Y CERRADA** (§9) — seed, comentarios y test. Tocó
+  dinero y zona compartida (`settings.constants.ts`); el cambio fue de **una línea de valor** y su gate no fue
+  menor por ser pequeño.
+- **devops**: `D-PP-2` (§9) — **sigue abierta**: la prosa de `DEVOPS_NOTES` que llama «money-safe» al seed legacy
+  y las frases que aún presentan como vigente el puente interino ya retirado. La verificación de paridad de
+  `I-PP5` **ya está cableada** (`--assert`, gate del DAST).
+- **QA**: ✅ **BLOQUEANTE-1 CERRADA.** El criterio era *«cuando el test refleje `I-PP1`** y una BD fresca de CI
+  arranque en el primario»*, y se cumple. ⚠️⚠️ **Y aquí murió una frase que este documento mantuvo viva de más:**
+  ~~*«Mientras `D-PP-1` siga abierta, el literal que corre es `pokemontcg_io`»*~~ **es falsa desde que cerró.**
+  Se deja tachada, no borrada, porque es **el segundo caso medido** de lo que originó §0-B.3 regla 10: un texto
+  que describe el mundo en presente y **no tiene ningún disparador que lo despierte cuando el mundo cambia**.
+  *La frase correcta nunca fue ésa, sino: **el literal se lee del fichero** (regla 2), y este documento sólo
+  afirma la norma que lo obliga.*
 
 ---
 
@@ -21421,6 +21593,12 @@ allí**: un id `IVA-<n>` **sin fila en esa tabla no existe**; para marcas intern
 > `corte-de-catalogo`). **Aquí vive la RAZÓN; allí, la forma.** ⛔ Las cifras y los shapes **no se transcriben** en
 > esta sección (§0-B.3 regla 8).
 >
+> 🚧🚧 **ESTADO (v1.66.1, y va aquí arriba a propósito): de las tres marcas, SÓLO `reparto-del-barrido` está
+> CONSTRUIDA.** `variante-de-precio` (§4.45.2) y `corte-de-catalogo` (§4.45.3) están **`estado: PROYECTADA`**
+> (§0-B.3 regla 10): **son la norma del pase que las construirá y ⛔ no describen el sistema de hoy.** Medición,
+> dueños, orden y compuertas: **§9, `D-CS-5`**. *v1.66 escribió las tres en indicativo, y dos de ellas eran
+> falsas contra el árbol; la corrección no es sólo el tiempo verbal, es que el estado ahora **se declara**.*
+>
 > **Origen — tres peticiones, dos autores, un solo panel:** `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui, al
 > rediseñar M2 contra la norma de honestidad de `§32.4`) y una **decisión del dueño del 2026-09-10**: *«el corte de
 > fecha, que automático. Estar moviendo cosas manuales deja a que se rompa algo por falta de cuidado o
@@ -21539,8 +21717,8 @@ que rechacé, en `v1.65`, dejar el seed legacy y volver el flip un paso manual d
 paridad hay que recordarla, no es una paridad**. Aplicado aquí: **si el corte hay que moverlo a mano, no es un
 corte: es una tarea pendiente con aspecto de configuración.**
 
-**Decisión: `CORTE EFECTIVO := hoy − VENTANA`** (`API_CONTRACT §M2-CS.4`), y **el dial muere** — ⛔ no sobrevive
-como «anulación manual por encima de la ventana automática»: eso serían **dos fuentes para «desde cuándo es
+**Decisión: `CORTE EFECTIVO := hoy − NOVEDAD`** (`API_CONTRACT §M2-CS.4`), y **el dial muere** — ⛔ no sobrevive
+como «anulación manual por encima del corte automático»: eso serían **dos fuentes para «desde cuándo es
 nuevo»**, que es §0-B.3 regla 8, y **la lectura de la frase del dueño es que quiere dejar de administrarlo, no
 tener dos palancas**. La **única** anulación que queda es **por llamada y explícita** (`fromReleaseDate` en el body
 de `sync`), que no persiste, no la lee nadie más y **la corrida la reporta**: *un argumento de una llamada no
@@ -21550,12 +21728,12 @@ compite con una norma, la acompaña y queda registrado.*
 **`CardSet.series` es nullable y lo controla el proveedor**: un set con `series: null` sería **inclasificable** y
 volvería a caerse **en silencio** — el mismo defecto que estamos cerrando, con otra cara. Y el argumento a favor
 del eje de series —*los sets no salen a ritmo constante*— **no hace daño aquí**: importar es **acumulativo**, lo ya
-importado no se va, y lo único que la ventana gobierna es **qué ofrece el botón de rutina**. Que traiga 4 sets un
+importado no se va, y lo único que el corte gobierna es **qué ofrece el botón de rutina**. Que traiga 4 sets un
 año y 12 el siguiente no rompe nada.
 
 **⚠️ EL MODO DE FALLO QUE HAY QUE NOMBRAR, porque el manual no lo tenía: «la caída silenciosa del borde trasero».**
 Un corte fijo es estable y auditable; **uno que se mueve deja caer sets por detrás sin avisar**. Un set lanzado
-hace `VENTANA + 1` meses que **nunca se importó** queda fuera del alcance del botón de rutina, para siempre. **Tres
+hace `NOVEDAD + 1` meses que **nunca se importó** queda fuera del alcance del botón de rutina, para siempre. **Tres
 candados, y el primero es una dependencia que había que VERIFICAR, no suponer:**
 
 1. **El renglón sigue visible.** `remote-sets` **no filtra por el corte** — **verificado el 2026-09-10 contra el
@@ -21584,7 +21762,7 @@ no se estima en un documento** (§0-B.3 reglas 1 y 2). Queda como **compuerta de
 
 `DESIGN_SYSTEM §32.3` («la fecha se ve, o la acción no se entiende») **sigue vigente y se vuelve más exigente**: el
 dueño ya no controla el corte, así que **leerlo es su único modo de predecir qué hará el botón**. El dato se sirve
-en la **misma respuesta que dibuja la tabla** (`catalogWindow` de `remote-sets`), y no en `GET /admin/settings`,
+en la **misma respuesta que dibuja la tabla** (`catalogCutoff` de `remote-sets`), y no en `GET /admin/settings`,
 por una razón de diseño: **el subtítulo y la tabla no pueden discrepar si salen de la misma petición.**
 
 **Y la frase debe nombrar la REGLA además de la FECHA** («lo lanzado en los últimos *N* meses — desde *{fecha}*»):
@@ -21596,13 +21774,80 @@ pregunta era *«¿se edita el corte desde M2 o desde M10?»* y la respuesta es *
 #### 4.45.5 Orden de trabajo, y qué bloquea a qué
 
 1. **R2 y R5 son lo que desbloquea la pantalla** y pueden ir en paralelo (payloads distintos).
-2. **R6 comparte payload con los dos** (`summary.fromReleaseDate`, `catalogWindow`) ⇒ **misma rev de contrato**,
+2. **R6 comparte payload con los dos** (`summary.fromReleaseDate`, `catalogCutoff`) ⇒ **misma rev de contrato**,
    pero su **activación** está detrás de la compuerta de medición de §4.45.3. **No bloquea a R2 ni a R5.**
 3. **`M-51` es una migración en dos partes** (§11): **`M-51a`** índice `PriceReference(capturedDate)` —el costo de
    la columna— y **`M-51b`** borrado de la fila `ConfigSetting.catalog_sync_from_date` —el mando muerto—.
    **`M-51b` va DESPUÉS de que el código deje de leerla**, no antes.
 4. **Nada de esto cierra `IMPORTANTE-3`** (§4.45.2e) ni **`DEV-1`** (estado del barrido en memoria): siguen
    abiertas, con sus dueños, y **el diseño de §32 ya está escrito para convivir con las dos** (`NO SE SABE` + «—»).
+
+---
+
+### 4.46 EL GRUPO TCGCSV DE UN SET — un hecho, dos columnas y tres escaleras (v1.66.1, **NORMATIVO, DINERO**)
+
+> **Contrato: `API_CONTRACT §M2-GT`** (`<!-- CANON: grupo-tcgcsv-del-set -->`, **`estado: PROYECTADA`**).
+> **Aquí vive la RAZÓN; allí, la forma.** Desviación y reparto: **§9, `D-GT-1`**. **Hallazgo: techlead.**
+
+#### 4.46.1 Qué se midió, y por qué no es una duplicación cosmética
+
+El sistema contesta *«¿contra qué grupo de TCGCSV se precia este set?»* por **tres caminos distintos**, dos de
+ellos **persistidos**:
+
+| Portador | Escritor | Contra qué fuente | Lector |
+|---|---|---|---|
+| `CardSet.pptSetId` — **si es numérico, se usa COMO groupId** | empate por nombre + año | **PPT** (`/v2/sets`) | ruta de **precio** de singles y ruta de **estructura** |
+| `CardSet.tcgcsvGroupId` | match por nombre (o curación) | **TCGCSV** | **sellado** → `marketRef` |
+| `SealedSetGroup.kind='set_main'` | `linkGroup` (humano, auditado) | curación | sellado |
+
+**Y hay una cuarta escalera, la buena, que es la que menos se ejecuta:** `matchTcgcsvGroupByName` —la que se
+extrajo precisamente para que *«la misma regla no viva copiada en dos sitios»*, con **propiedad de monotonía
+probada por fuerza bruta** (`null → groupId` sí; ⛔ nunca `groupId → null` ni `groupId → OTRO groupId`)—.
+
+#### 4.46.2 Las dos consecuencias, y por qué la primera es la grave
+
+1. **⭐⭐ El blindaje no cubre el camino que se toma.** Las dos `resolveGroupId` **cortocircuitan primero** en
+   `pptSetId` numérico y **sólo bajan a la escalera canónica si no lo hay**. ⇒ **para todo set que PPT ya mapeó
+   —o sea, el caso normal— el groupId que gobierna el precio lo decidió OTRA escalera, contra OTRA fuente, sin la
+   propiedad de monotonía.** *Se invirtió esfuerzo real en probar que una escalera no puede degradar, y el
+   camino habitual no pasa por ella. Un invariante que protege la rama fría es un invariante decorativo.*
+2. **Nada obliga a `pptSetId == tcgcsvGroupId`.** Son dos empates independientes, contra dos catálogos, con dos
+   algoritmos. **El día que discrepen, singles y sellado del mismo set se prician contra grupos distintos** — sin
+   excepción, sin log y sin ninguna pantalla que lo enseñe. *No hay «modo degradado»: hay dos respuestas
+   correctas-a-su-manera para una pregunta que sólo admite una.*
+
+**El defecto de fondo tiene nombre y es de la familia de §M10-PP: un JUEGO DE TIPOS.** *«Si el string parsea como
+entero, entonces es el groupId de TCGCSV»* **infiere identidad en un espacio de nombres a partir de la forma
+sintáctica de un valor de otro**. Y el valor de `pptSetId` **se elige por preferencia entre tres cosas distintas**
+(id numérico de TCGplayer → slug → id interno de PPT): la misma función devuelve `'1407'`, `'sv-prismatic-evolutions'`
+o un hexadecimal. **Que hoy el numérico coincida es una propiedad del proveedor, no una garantía del modelo** —
+exactamente la clase de coincidencia que este proyecto ya declaró inaceptable cuando `(releaseDate ?? '') >= corte`
+excluía al set sin fecha *«por accidente aritmético»* (§M2-CS.4).
+
+#### 4.46.3 La decisión, y por qué ésta y no otra
+
+- **Manda el `set_main`** (`SealedSetGroup`), porque **es el único portador que modela el hecho de verdad**: un
+  set tiene **un** grupo principal y **N** de promos, y esa forma ya existe. `CardSet.tcgcsvGroupId` queda como
+  **espejo de lectura** con invariante de igualdad — ⛔ no como segunda opinión.
+- **`pptSetId` se conserva y deja de leerse como groupId.** ⛔ **No se borra la columna:** PPT la necesita como
+  `setId` y borrarla rompería el barrido de graded. **El arreglo es retirar UNA RAMA**, no migrar datos.
+- **Una sola función de resolución para las tres rutas** (`I-GT3`). *Este proyecto ya pagó dos veces por «la misma
+  lógica copiada»: el arreglo del prefijo de código de colección llegó a tres rutas y **no** a la que movía
+  dinero. Volver a tener tres resolutores del mismo entero es reservar el mismo billete.*
+- **`I-GT5` — discrepancia ⇒ fail-closed y RUIDOSO.** Cuando dos fuentes existen y difieren, **el lector no
+  elige**: aplica la precedencia y **emite señal**. *Elegir en silencio convierte un hallazgo en una preferencia,
+  y una preferencia no la revisa nadie.*
+- **`I-GT6` — un lector no repara datos.** ⛔ La consulta no escribe la columna «para dejarlo arreglado»: reparar
+  es un acto explícito y auditado. *Una escritura de reparación disparada por una lectura es una migración
+  silenciosa por cada request.*
+
+#### 4.46.4 Una premisa del reporte, corregida con la medición (y abarata el arreglo)
+
+El hallazgo decía que el groupId derivado de `pptSetId` queda **cacheado en la BD**. **Medido: no.** El caché de
+las dos rutas es un **`Map` en memoria por instancia**, que se recalcula en cada arranque; lo persistido es
+`pptSetId`. ⇒ **no hace falta migración de datos ni invalidación de caché**: retirar la rama corrige el
+comportamiento **desde el primer deploy**. *Lo anoto porque una premisa falsa **a favor** del arreglo es tan mala
+como una en contra: habría justificado una migración que nadie necesita.*
 
 ---
 
@@ -22389,6 +22634,67 @@ Riesgos técnicos:
     pase**. *La norma no la escribí porque lo hicieran mal otros: la escribí porque lo hice mal yo y alguien lo
     revisó.*
 
+- **🔴 ABIERTA (v1.66.1) — `D-CS-5`: `§M2-CS.3` Y `§M2-CS.4` SON NORMA **NO IMPLEMENTADA**, Y HASTA v1.66.1 EL
+  CONTRATO LAS AFIRMABA EN INDICATIVO.** **Dueños del arreglo: backend** (WS «Catálogo y precios») **y frontend**
+  (el editor de M10). Norma: `API_CONTRACT §M2-CS.3` / `§M2-CS.4`, ambas con **`estado: PROYECTADA`** (§0-B.3
+  regla 10). ⚠️ **Toca zona compartida** (`settings.constants.ts`, `prisma/`) ⇒ **un solo stream a la vez**.
+  - **Qué se midió el 2026-09-10 contra el árbol** (§0-B.3 regla 2), y por qué era bloqueante: `pricedVariants`,
+    `priceCoverage`, `catalogWindow` y `CATALOG_SYNC_WINDOW_MONTHS` ⇒ **cero ocurrencias** en `backend/` y
+    `frontend/`; **`M-51` no existe** (la última migración es `20260909120000_m50_price_convention`);
+    `catalogSyncFromDate` **sigue en el mapa del DTO** de `settings.constants.ts` **y sigue teniendo editor** en
+    `M10View.tsx`. **Cinco hechos, cinco falsos, dentro de dos bloques `CANON` cerrados.**
+  - **Por qué el bloqueante era del ARQUITECTO y no de backend:** por la regla de conflicto de `CLAUDE.md` —*el
+    contrato manda sobre el código*—, esos dos bloques declaraban al backend **fuera de contrato en dos secciones
+    canónicas enteras** sin que backend hubiera hecho nada mal. **El defecto era del documento.**
+  - **Alcance, en orden** *(no es una lista de deseos: es la compuerta de cada bloque)*:
+    1. **backend** — `M-51a` (índice `PriceReference(capturedDate)`, `CONCURRENTLY`) y la columna de cobertura
+       (`pricedVariants` / `variants` / `priceCoverage.freshnessDays`) con `I-PC1..I-PC7`. **Corre la compuerta
+       de medición y la reporta** *antes* de publicar la columna.
+    2. **backend** — el corte **derivado** (`CATALOG_RECENCY_MONTHS`), `catalogCutoff` en `remote-sets`,
+       `catalogSyncFromDate` fuera del DTO y rechazado en el `PUT`.
+    3. **frontend** — retirar el campo `catalogSyncFromDate` y su editor de M10, y el enlace «Cambiar la fecha»
+       de M2. ⚠️ **Después de (2), nunca antes**: quitar la superficie de un dial que sigue vivo lo deja
+       gobernando en la sombra, que es peor que el estado de hoy.
+    4. **backend** — `M-51b` (borrado de la fila), **después** del deploy que dejó de leerla.
+  - **El token `estado:` lo mueve el ARQUITECTO** cuando cada compuerta se registre cumplida (regla 10). ⛔ No lo
+    mueve el pase que escribe el código.
+
+- **⚠️ ABIERTA (v1.66.1) — `D-CS-6`: UN SEGUNDO VOCABULARIO DE MARCAS NORMATIVAS NACIÓ EN CÓDIGO.**
+  **Dueño del arreglo: backend** (WS «Catálogo y precios»). Norma: **§0-B.3 regla 11**.
+  - **Qué se midió:** `backend/src/modules/catalog/set-sweep-tally.ts:4` abre
+    `<!-- CANON-IMPL: reparto-del-barrido · única fuente EN CÓDIGO · … -->` — **fuera del censo, sin par de
+    cierre, sin dueño declarado**, y con una semántica que **compite** con `CANON`.
+  - **Estatuto decidido: se RETIRA la marca.** ⛔ **Ni una línea de lógica ni del docblock**: lo que sobra es
+    **la marca**, no la explicación. **El resto del comentario es exactamente lo que debe quedar** —*«este
+    reparto vive en un solo sitio; si aparece una tercera ruta, llama a esta función»*— y **se cita el ANCHOR**
+    (`API_CONTRACT §M2-CS.0`), como ya hace el resto del fichero.
+  - **Por qué no se «declara» en el censo, que era la otra salida:** la fuente única de un predicado normativo
+    está en el **contrato** (regla de conflicto de `CLAUDE.md`). Un fichero que se declara «única fuente **en
+    código**» del **mismo** predicado **es la segunda fuente**, con otras palabras — el defecto que la regla 8
+    existe para eliminar. *La intención («no copies esto») es correcta y valiosa; se hace cumplir con un test,
+    que es donde una regla sobre código se hace cumplir.*
+
+- **🔴 ABIERTA (v1.66.1) — `D-GT-1`: DOS COLUMNAS Y TRES ESCALERAS AFIRMAN «EL GRUPO TCGCSV DE UN SET», Y NADA
+  OBLIGA A QUE COINCIDAN.** **Hallazgo: techlead.** **Dueño del arreglo: backend** —WS «Catálogo y precios»
+  (precio + estructura) y WS «Inventario y vault» (sellado)—. Norma: **`API_CONTRACT §M2-GT`**
+  (`estado: PROYECTADA`); razón entera: **§4.46**. **DINERO + dos work streams ⇒ el orquestador SERIALIZA, y
+  triple veredicto.**
+  - **Qué se midió el 2026-09-10:** `CardSet.pptSetId` (escrito contra **PPT**, leído como groupId por la ruta de
+    **precio** y la de **estructura**), `CardSet.tcgcsvGroupId` (escrito contra **TCGCSV**, leído por **sellado**
+    → `marketRef`) y `SealedSetGroup.kind='set_main'` (escrito a mano por `linkGroup`).
+  - **Las dos consecuencias que nadie había escrito:** **(a)** las dos `resolveGroupId` **cortocircuitan en
+    `pptSetId` numérico ANTES** de llamar a la escalera canónica ⇒ **en el caso normal el groupId que gobierna el
+    precio lo decidió otra escalera, contra otra fuente, sin la propiedad de monotonía**; **(b)** nada garantiza
+    `pptSetId == tcgcsvGroupId` ⇒ el día que discrepen, **singles y sellado del mismo set se prician contra
+    grupos distintos, en silencio**.
+  - **Alcance del arreglo, y es más barato de lo que parece:** (1) **retirar la rama de `pptSetId`** de las dos
+    `resolveGroupId` —⛔ **no se borra la columna**: PPT la necesita—; (2) **una** función de resolución para las
+    tres rutas (`I-GT3`); (3) `I-GT5` (discrepancia ⇒ señal, nunca elección) con su test; (4) `groupSource` en la
+    respuesta del catálogo de sellado.
+  - **⚠️ Premisa del reporte corregida, medida:** el groupId derivado de `pptSetId` **no está cacheado en la
+    base** — el caché es un `Map` **en memoria por instancia**. ⇒ **no hace falta migración de datos ni
+    invalidación**: retirar la rama corrige desde el primer deploy.
+
 - **⚠️ ABIERTA (v1.66) — `D-CS-3`: `IMPORTANTE-3` SIGUE SIENDO DE BACKEND, Y LA COLUMNA NUEVA NO LO CIERRA.**
   **Dueño del arreglo: backend** (`tcgcsv-singles-bulk.provider.ts`, `resolveGroupId` → `null` con nombres
   ambiguos ⇒ 0 filas y sólo un `warn`). **Se registra aquí para que la columna de `§M2-CS.3` no se lea como el
@@ -22397,39 +22703,50 @@ Riesgos técnicos:
     da cara propia a su variante peor (estructura nunca resuelta, `I-PC4`). **No avisa el día 1** (detector, no
     alarma) y **no toca la causa**. *Ver el síntoma no cura la enfermedad.*
 
-- **🔴 ABIERTA (v1.65) — `D-PP-1`: EL SEED DE `price_provider` CONTRADICE LA NORMA `I-PP1`, Y UN TEST LO FIJA.**
-  **Dueño del arreglo: backend** (WS «Catálogo y precios»). **⛔ No lo toco yo** (regla 8 de `CLAUDE.md`). Razón
-  entera: **§4.35a**; norma: **`API_CONTRACT §M10-PP`**. **Toca dinero + zona compartida ⇒ triple veredicto.**
-  - **Qué dice el código hoy, verificado:** `backend/src/modules/settings/settings.constants.ts:307` →
-    `[SettingKey.PRICE_PROVIDER]: 'pokemontcg_io'`, con el comentario *«SEED `pokemontcg_io` por seguridad (rollout
-    money-safe)»*; el comentario de `PRICE_PROVIDER_VALUES` (`:461`) repite *«el default sigue en `pokemontcg_io`»*;
-    y `backend/test/settings.validation.spec.ts:152` **fija** ese literal (*«returns priceProvider with its default
-    seed (pokemontcg_io) when no DB row exists»*).
-  - **Por qué es un defecto y no una preferencia:** `pokemontcg_io` **escribe** `PriceReference` con un `market`
-    **aplanado** (mismo precio a `normal`/`reverse_holo`/`holofoil`) ⇒ toda BD fresca —CI, dev, staging— arranca en
-    **el lado irrecuperable** del sesgo de error (`PROJECT §N.0`) y **valida un barrido distinto al de producción**
-    (medido: producción corre el primario, §4.35a(b)(1)). *El adjetivo «money-safe» del comentario es hoy falso: el
-    seed money-safe sería uno INERTE, y éste no lo es.*
-  - **Alcance del arreglo — pequeño y money-crítico a la vez:** (1) el literal del seed pasa a **`tcgcsv_singles`**;
-    (2) los **dos comentarios** dejan de llamar «money-safe» al legacy y **citan `§M10-PP`/`I-PP1`** en vez de
-    repetir el valor; (3) el **test** se reescribe para asertar **`I-PP1`** *(seed == primario)* — ⚠️ **preferible a
-    cambiar `'pokemontcg_io'` por `'tcgcsv_singles'` en la cadena**, que sólo mueve la copia de sitio. ⛔ **Ni una
-    línea del `providerFor()` ni del enum**: no se retira `pokemontcg_io` del enum (`I-PP3`, sigue siendo la palanca
-    de rollback).
-  - **Precondición de verificación antes del merge** (§4.35a(b)): confirmar que producción **tiene** la fila
-    `ConfigSetting.price_provider`. ✅ **Leída el 2026-09-10 en el panel M10** ⇒ el cambio del `DEFAULT` **no puede**
-    alterar producción. Si en el merge apareciera **ausente**, **se reporta antes de tocar nada**.
+- **✅ CERRADA (v1.65 → cerrada 2026-09-10, v1.66.1) — `D-PP-1`: EL SEED DE `price_provider` CONTRADECÍA LA NORMA
+  `I-PP1`, Y UN TEST LO FIJABA.** **La ejecutó backend** (WS «Catálogo y precios»). Razón entera: **§4.35a**;
+  norma: **`API_CONTRACT §M10-PP`**.
+  - **Cierre verificado en el artefacto que corre** (§0-B.3 regla 2, 2026-09-10):
+    `backend/src/modules/settings/settings.constants.ts` siembra **el provider PRIMARIO** en
+    `DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]` ⇒ **`I-PP1` se cumple** y **`I-PP5` (paridad de entornos) se
+    cumple por construcción** en toda BD fresca. ⛔ **El literal no se transcribe aquí** (`I-PP2` / §0-B.3 regla 1):
+    se lee del fichero.
+  - **⚠️ Lo que este cierre dejó abierto durante días, y es el motivo de la regla 10:** **cuatro textos** de la
+    documentación siguieron afirmando en presente que la desviación estaba abierta —la nota de vigencia dentro del
+    bloque `CANON` de `API_CONTRACT §M10-PP` y tres frases de §4.35a de este documento—. **Ninguna se disparó
+    sola**: cerrar la desviación no toca los textos que hablan de ella. ⇒ **`ARCHITECTURE §0-B.3` regla 10**: el
+    estado es un **token** en la marca, cambiarlo es un paso obligado de la rev que cierra la desviación, y ⛔
+    **cero clase (B) dentro de un bloque canónico**.
+  - **Registro histórico de qué se arregló** *(no es una afirmación sobre el ahora)*: el seed decía
+    `pokemontcg_io` con el comentario *«money-safe»*, el comentario de `PRICE_PROVIDER_VALUES` lo repetía, y
+    `backend/test/settings.validation.spec.ts` fijaba el literal. Se reescribieron los tres, y el test asserta
+    **`I-PP1` como IGUALDAD** (`seed == primario`), que es lo que impide que vuelva a caducar.
+  - **Por qué era un defecto y no una preferencia** *(se conserva: es la razón, y sigue siendo válida)*:
+    `pokemontcg_io` **escribe** `PriceReference` con un `market` **aplanado** (mismo precio a
+    `normal`/`reverse_holo`/`holofoil`) ⇒ toda BD fresca —CI, dev, staging— arrancaba en **el lado irrecuperable**
+    del sesgo de error (`PROJECT §N.0`) y **validaba un barrido distinto al de producción**. *El adjetivo
+    «money-safe» del comentario era falso: el seed money-safe sería uno INERTE, y éste no lo es.*
+  - **Lo que el arreglo NO tocó, y sigue siendo norma:** ⛔ **ni una línea del `providerFor()` ni del enum** —
+    `pokemontcg_io` **permanece** como valor válido (`I-PP3`, es la palanca de rollback del **VIGENTE**).
+  - **Precondición verificada antes del merge** (§4.35a(b)): producción **tiene** la fila
+    `ConfigSetting.price_provider` (leída el 2026-09-10 en el panel M10) ⇒ el cambio del `DEFAULT` **no pudo**
+    alterar producción.
 
-- **⚠️ ABIERTA (v1.65) — `D-PP-2`: `DEVOPS_NOTES` LLAMA «MONEY-SAFE» AL SEED QUE APLANA, Y EL GATE DE STAGING
-  VALIDA OTRO BARRIDO.** **Dueño del arreglo: devops.** **⛔ No escribo en `DEVOPS_NOTES.md`.** Razón: **§4.35a(c)/(d)**.
+- **⚠️ ABIERTA, REDUCIDA (v1.65; actualizada v1.66.1) — `D-PP-2`: PROSA DE `DEVOPS_NOTES` QUE LLAMA «MONEY-SAFE»
+  AL SEED QUE APLANA, Y FRASES QUE AÚN DESCRIBEN COMO VIGENTE UN PUENTE YA RETIRADO.** **Dueño del arreglo:
+  devops.** **⛔ No escribo en `DEVOPS_NOTES.md`.** Razón: **§4.35a(c)/(d)**.
   - **Prosa a corregir (no procedimiento):** las frases de §19.5, §19.6 (paso 3, *«sembrar `PRICE_PROVIDER=pokemontcg_io`
     (money-safe)»*) y §28.2 que presentan el **seed** legacy como candado. **§28.6 (rollback) NO se toca: sigue
     íntegro y correcto** — opera el **VIGENTE** (`I-PP3`), que es otro hecho. §28 queda como **registro fechado** de
     una activación consumada, no como norma sobre cómo nace un entorno.
-  - **Brecha operativa, que es la parte que no se arregla sola:** **el DAST contra staging y la suite E2E validan un
-    barrido que no es el de producción** mientras `D-PP-1` siga abierta. **Medida interina:** fijar el dial
-    explícitamente en el aprovisionamiento de staging (hecho 3), **marcada como interina y con retiro atado al merge
-    de `D-PP-1`** — ⚠️ y **retirada de verdad entonces** (§0-B.3 regla 9(b)).
+  - **➕ v1.66.1, y es la mitad que queda viva:** con `D-PP-1` **cerrada**, las frases que presentan el puente
+    interino como **vigente** ya no describen nada — p. ej. la fila de `scripts/price-provider-parity.sh` en
+    **§43.2** (*«`--ensure` … INTERINO, muere con `D-PP-1`»*). ⚠️ **Es prosa, no procedimiento:** el
+    procedimiento **ya lo corrigió devops** en **§44.7** (*«Solo `--assert`, nunca `--ensure`; el puente
+    caducó»*), y esa decisión **es correcta y no se toca**. Lo pendiente es que las dos secciones digan lo mismo.
+  - **✅ Brecha operativa CERRADA:** el DAST contra staging y la suite E2E validaban un barrido distinto al de
+    producción **mientras `D-PP-1` estaba abierta**. Ya no: la paridad se cumple por construcción (`I-PP1`) y el
+    `--assert` la **mide** en cada corrida — esa medición es **permanente** y ⛔ no se retira con el puente.
   - **Aviso a `.env.example`:** ⚠️ **`PRICE_PROVIDER` como variable de entorno NO flipea nada** (`DEVOPS_NOTES §23.8`,
     ya documentado por devops); la autoridad es el `ConfigSetting`. **Esa trampa no la toca este pase** y conviene
     releerla al aplicar la medida interina, para no «fijar» el dial en un sitio que nadie lee.
@@ -24289,8 +24606,13 @@ productivas); las migraciones solo redefinen esquema.~~
 
 ### v1.66-catalog-honesty (**M-51**: el índice que paga la columna de cobertura + el mando muerto que se borra — **SIN DDL de tablas**, §4.45)
 
+> 🚧 **`M-51` NO EXISTE TODAVÍA** *(medido el 2026-09-10: la última migración del árbol es
+> `20260909120000_m50_price_convention`)*. Esta entrada es **la especificación de una migración pendiente**, no
+> el registro de una aplicada — y se dice porque **v1.66 la citó en presente desde dos documentos**. Dueño:
+> **backend**; compuerta y orden: **§9, `D-CS-5`**.
+>
 > **Dos partes independientes, y su ORDEN importa.** Ninguna toca dinero: `M-51a` es un índice de lectura y
-> `M-51b` borra una fila de configuración que ya no decide nada.
+> `M-51b` borra una fila de configuración que para entonces ya no decidirá nada.
 
 **`M-51a` — índice `PriceReference(capturedDate)`.** Es **el costo declarado** de la columna `PRECIOS` de M2
 (`API_CONTRACT §M2-CS.3`): sin él, contar variantes con precio vigente degrada a barrido de tabla completa sobre la
@@ -24300,8 +24622,8 @@ está **fuera de la ruta de dinero del checkout**, así que el B-tree extra es a
 `(capturedDate, cardProductId)`— **midiendo el plan**, y **lo reporta**: la decisión de forma es suya, la de que el
 índice existe es de esta sección.
 
-**`M-51b` — `DELETE FROM "ConfigSetting" WHERE key = 'catalog_sync_from_date'`.** El corte pasa a **derivarse**
-(§4.45.3), así que esa fila deja de decidir. ⛔ **No se deja «deprecada e inerte»**: un mando muerto que sobrevive
+**`M-51b` — `DELETE FROM "ConfigSetting" WHERE key = 'catalog_sync_from_date'`.** El corte **pasará a derivarse**
+(§4.45.3), y entonces esa fila dejará de decidir — ⚠️ **hoy todavía decide** (`D-CS-5`). ⛔ **No se deja «deprecada e inerte»**: un mando muerto que sobrevive
 en la base **lo lee alguien y cree que manda** — es la misma norma de `DESIGN_SYSTEM §32.6` (*«la copia muerta se
 muestra o se borra; no existe se queda por si acaso»*) aplicada a configuración.
 
