@@ -19037,3 +19037,134 @@ copia eliminada. Muestras del diff: `setsImported` esperado 0 / recibido 1; `car
 6. **`PokemonTcgIoClient.getSets()` pide `/sets?pageSize=250` y NO pagina** (usa `body.data` a secas).
    Con ≤250 sets remotos hoy no se nota; el día que se pase, el barrido dejará de ver el resto **en
    silencio**. No se tocó (cambia comportamiento de import).
+
+---
+
+## v1.65 — El dial `price_provider` gana su candado, el seed pasa al PRIMARIO (`D-PP-1`), y el match de grupo TCGCSV deja de ser silencioso (QA BLOQUEANTE-2 · IMPORTANTE-3)
+
+**Norma que manda aquí:** `API_CONTRACT §M10-PP` (`<!-- CANON: proveedor-de-precio -->`, invariantes
+`I-PP1`…`I-PP5`) y `ARCHITECTURE §4.35a` / `§4.36(d)` / desviación `D-PP-1` (§9).
+**Money-critical + zona compartida ⇒ triple veredicto antes de producción. NO está cerrado.**
+
+### 1. BLOQUEANTE-2 — el valor del dial no tenía candado
+
+**Lo que QA midió y yo reproduje:** borrar `'tcgcsv_singles'` de `PRICE_PROVIDER_VALUES` deja la suite
+**entera en verde**. Reproducido sobre copia aislada de `HEAD` (`6518694`): **4297/4297 pasan** con el
+valor borrado. Las 37 menciones de `tcgcsv_singles` en `test/` eran literales de `source` en fixtures
+de `PriceReference` — la **fila que escribe** el provider, nunca el **dial que lo selecciona**.
+
+**Consecuencia real:** `PUT /admin/settings {"priceProvider":"tcgcsv_singles"}` empieza a devolver
+`422`, el dueño pierde a la vez el flip al primario **y su rollback** (`I-PP3`), y nada se pone rojo.
+
+**Candado añadido** (`backend/test/settings.validation.spec.ts`), en dos mitades que cubren
+direcciones distintas:
+
+| Test | Qué garantiza | Qué fallo atrapa |
+|---|---|---|
+| `it.each([...tres valores])` — acepta y **PERSISTE** en la fila `price_provider` | «ni MENOS» | borrar un valor del enum |
+| `PIN: PRICE_PROVIDER_VALUES es EXACTAMENTE el enum de §M10-PP` | «ni MÁS» | **añadir** un cuarto valor |
+
+⭐ **El PIN no es redundante, y se midió:** `providerFor()` hace
+`providers.find(p => p.source === wanted)` y, si no encuentra el valor, **cae a `pokemontcg_io`
+dejando sólo un `warn`**. Un cuarto valor en la lista se aceptaría con `200`, el dueño creería haber
+flipeado el provider y **el catálogo entero se repreciaría desde el legacy**. La mutación que añade un
+valor mata **sólo** el PIN (ver tabla de mutaciones): ningún otro test lo ve.
+
+### 2. `D-PP-1` — el seed pasa a `tcgcsv_singles`, y el test asserta `I-PP1` como IGUALDAD
+
+`SETTING_DEFAULTS[SettingKey.PRICE_PROVIDER]` = **`tcgcsv_singles`**. Los comentarios de
+`settings.constants.ts` dejan de llamar *«money-safe»* al legacy y **citan** `§M10-PP`/`I-PP1` en vez
+de repetir el valor.
+
+**Cómo se expresó `I-PP1` sin volver a clavar un literal** — y por qué así:
+- ⛔ Cambiar la cadena `'pokemontcg_io'` por `'tcgcsv_singles'` sólo **mueve la copia de sitio**.
+- ⛔ Derivar los dos lados de la misma constante (`expect(SEED).toBe(SEED)`) es la **tautología** que
+  `test/enum-values-parity.spec.ts` ya documenta: un test que no puede fallar.
+- ✅ `§M10-PP` dice que son **dos fuentes distintas**: el PRIMARIO es **(A), del contrato**; el SEED es
+  el **literal de este repo**. Así que el test **lee el primario del bloque canónico de
+  `docs/API_CONTRACT.md`** (regex sobre `- **`x`` — PROVIDER PRIMARIO.**` dentro de
+  `<!-- CANON: proveedor-de-precio -->`, exigiendo **exactamente uno**) y lo compara con el literal.
+  Mismo patrón y mismo fichero-fuente que `enum-values-parity.spec.ts`.
+
+Atrapa las dos direcciones y **no caduca**: si el arquitecto nombra otro primario, el test se pone
+rojo hasta que backend aterrice el seed — que es el trabajo, no un falso positivo. **Ningún nombre de
+proveedor está escrito en el test para este hecho.**
+
+⚠️ **Dos hechos, dos tests, a propósito:** «el `PUT` ACEPTA `tcgcsv_singles`» (hecho 1) y «una BD
+fresca NACE con él» (hecho 2) se assertan **por separado**. Confundirlos es la causa raíz de §4.35a(a).
+
+**Copias rancias del literal barridas en el mismo pase** (la divergencia nació de tener el valor en
+cinco sitios; no se recrea): `settings.constants.ts` (comentario de `SettingKey`, doc de
+`PRICE_PROVIDER_VALUES`, comentario del validador que aún transcribía un enum de **dos** valores),
+`price-ingest.service.ts` (`providerFor` decía *«default legacy pokemontcg_io»*; `PriceSyncStatus`)
+y `scheduler.service.ts` — que además **imprimía en el log de arranque `dial pokemontcg_io`**, una
+afirmación sobre el VIGENTE prohibida por `I-PP2`. Ahora se cita la sección, no el valor.
+
+**Ningún test dependía del seed viejo salvo el que se reescribió.** Medido: la mutación que devuelve
+el seed al legacy mata exactamente los **dos** tests de `I-PP1` y nada más.
+
+### 3. IMPORTANTE-3 — `resolveGroupId` y el prefijo de código de set
+
+**Decisión: no era «reusar `setNameCandidates` aquí».** `setNameCandidates` es la primitiva correcta
+(ya es el único hogar de la regla del prefijo, y la usan `matchSet` de PPT y `matchScore` del
+sellado), pero **la escalera de match entera estaba duplicada literalmente** entre
+`TcgcsvSinglesBulkPriceProvider.resolveGroupId` (precio) y `CardProductResolverService.resolveGroupId`
+(estructura), pese a que ARCHITECTURE las declara *«la misma lógica S-D3/§4.27d»*. Por eso el arreglo
+de P-46 llegó a PPT y al sellado y **nunca a la ruta de precio**. ⇒ La escalera se extrajo a
+**`backend/src/modules/pricing/providers/tcgcsv-group-match.ts`** (`matchTcgcsvGroupByName`), que ahora
+es el único sitio donde se decide qué set empata con qué grupo.
+
+**La escalera** (money-safe: sigue exigiendo match ÚNICO; el peldaño ambiguo **no** cae al siguiente):
+`exact` → `exact_unprefixed` → `contains`.
+
+⚠️ **`exact_unprefixed` pela el prefijo de UN SOLO lado**, y esa restricción la obligó la propiedad de
+monotonía (la primera versión no la tenía y **el test la cazó**): pelando los dos, `"SV08: Pitch
+Black"` y `"ME05: Pitch Black"` pasan a ser «el mismo nombre» y son **dos colecciones distintas** —
+se perdía un set que el algoritmo viejo sí resolvía.
+
+⭐ **Propiedad probada por fuerza bruta** (`test/tcgcsv-group-match.spec.ts`, contra una
+reimplementación literal del algoritmo viejo que se conserva como oráculo): sobre **todos** los
+subconjuntos de un universo de nombres realistas, `legacy ≠ null ⇒ nuevo === legacy`. Sólo puede pasar
+`null → groupId`; **nunca** `groupId → null` ni `groupId → OTRO groupId`.
+
+**La señal visible (b).** El caso «no resolví el groupId» ya no vive sólo en un `warn`:
+`BulkPriceResult` gana `setUnresolved` (`stage`, `reason ∈ {ambiguous, no_match, lookup_failed}`,
+`setName`, `candidates`, hasta 5 `candidateNames`) y `PriceIngestService.ingestSinglesForSet` lo
+convierte en una fila de **`AuditLog action='pricing.set_unresolved'`, `entityType='CardSet'`**,
+legible en **`GET /api/v1/admin/audit-log?action=pricing.set_unresolved`** (§M10).
+- **Sin cambio de contrato:** `AuditLogDTO` no cambia de shape y `action` es texto libre.
+- **Una fila por set y por corrida**, a propósito: el filtro por `entityId` contesta *«¿desde cuándo
+  lleva este set sin repreciarse?»*.
+- **Best-effort**: un fallo de bitácora no tumba el barrido. **Contra-caso obligatorio en la suite**:
+  un set que SÍ se mapeó (aunque devuelva 0 filas) **no** escribe nada — una señal que salta en el
+  caso normal deja de ser señal a la tercera corrida.
+- ⚠️ **Lo que esto NO es:** una superficie de UI. Si el dueño debe verlo en el dashboard de M10 (una
+  tarjeta *«sets sin repreciar»*), **eso es contrato + frontend y NO lo invento aquí**: queda como
+  petición al arquitecto. Lo que existe hoy es la bitácora, que es la superficie ya normada.
+
+### 4. Mutaciones (prueba de que los candados sirven)
+
+Todas sobre **copia aislada** en ruta propia (`scratchpad/be-p47-mutation/`), **después** del
+incidente en que otro agente borró un directorio de scratchpad homónimo; ninguna cifra de antes del
+incidente se reutiliza. Copia = `HEAD 6518694` + estos cambios ⇒ **base 4319/4319 en verde**.
+
+| # | Mutación | Antes (sin candado) | Después | Tests que mueren |
+|---|---|---|---|---|
+| M1 | borrar `'tcgcsv_singles'` de `PRICE_PROVIDER_VALUES` | **4297/4297 verde** (HEAD limpio) | **3 rojos** | `accepts priceProvider="tcgcsv_singles"…`, `PIN: …ni uno más ni uno menos`, `I-PP1: SETTING_DEFAULTS…` |
+| M2 | **añadir** un cuarto valor (`'tcgcsv'`) | — | **1 rojo** | sólo el `PIN` (⇒ no es redundante) |
+| M3 | devolver el seed a `'pokemontcg_io'` | — | **2 rojos** | los dos `I-PP1` |
+| M4 | retirar el peldaño `exact_unprefixed` | — | **3 rojos** | el caso del prefijo en el provider, el del matcher, y la **PROPIEDAD** de monotonía |
+| M5 | apagar la escritura de `AuditLog` | — | **1 rojo** | `SEÑAL VISIBLE: set sin groupId ⇒ fila en AuditLog` |
+
+### 5. Lo que NO se tocó (y por qué)
+
+- ⛔ **`providerFor()` y el contenido del enum**: `pokemontcg_io` **sigue** en `PRICE_PROVIDER_VALUES`
+  (`I-PP3`, palanca de rollback).
+- ⛔ **`docs/API_CONTRACT.md`** y **`docs/ARCHITECTURE.md`**: sólo se citan.
+- ⛔ **`CardProductResolverService.resolveGroupId` conserva su copia de la escalera vieja.** El fichero
+  estaba siendo editado por otro pase backend en paralelo mientras se hacía este cambio, y dos agentes
+  sobre el mismo fichero es justo lo que la propiedad de archivos existe para evitar. ⇒ **La ruta de
+  ESTRUCTURA sigue teniendo el defecto del prefijo que la ruta de PRECIO ya no tiene** (es menos
+  silencioso allí: corre bajo import/`--force`, donde el operador ve los contadores de la respuesta).
+  **Follow-up de una línea**: sustituir el bloque por `matchTcgcsvGroupByName`. Lo enruta el
+  orquestador cuando ese fichero quede libre.
