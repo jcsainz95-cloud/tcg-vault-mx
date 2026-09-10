@@ -496,8 +496,31 @@ start_backend() {
   fi
 
   [ -d "$BACKEND_DIR/node_modules" ] || die "Falta $BACKEND_DIR/node_modules. Corre: cd backend && npm ci"
-  ( cd "$BACKEND_DIR" && nohup npx ts-node --transpile-only src/main.ts \
-      > "$RUN_DIR/backend.log" 2>&1 & echo $! > "$RUN_DIR/backend.pid" )
+  # -------------------------------------------------------------------------
+  # ⚠️ `setsid env -C … &` A NIVEL DE FUNCIÓN, **SIN** `( … )` ENVOLVENTE.
+  # Esto es EL MISMO defecto que ya se arregló en `start_s3` (ver el bloque de
+  # allí) y que aquí se quedó sin arreglar hasta 2026-09-10. Lo que costó: QA
+  # perdió ~36 min con `up --seed | tail` sin UN SOLO BYTE de salida (§46.2).
+  #
+  # MEDIDO, con `sleep 45` de maqueta y `timeout 10 script | cat`:
+  #   ( cd X && nohup CMD > log 2>&1 & echo $! > pid )   → 45 s, pidfile = `bash`
+  #   ( cd X && setsid CMD > log 2>&1 </dev/null & … )   → 45 s, pidfile = `bash`
+  #   setsid env -C X CMD > log 2>&1 </dev/null & …      →  1 s, pidfile = el daemon
+  # ⇒ el culpable NO es `nohup` vs `setsid`: es el **subshell envolvente**, que
+  # sobrevive como padre del daemon y HEREDA el stdout del script. Si alguien
+  # invoca `stack-native.sh up | tail`, ese subshell mantiene la tubería ABIERTA
+  # mientras viva el backend ⇒ `tail` nunca ve EOF.
+  #
+  # ⚠️⚠️ Y EL `timeout` NO SALVA (medido en el mismo experimento): `timeout 10
+  # script | cat` devolvió **rc=0 a los 45 s**. `timeout` mata al SCRIPT, no al
+  # lector del pipe; el pipeline siguió bloqueado hasta que murió el daemon y
+  # encima reportó ÉXITO. Un `timeout N … | tail` en CI no acota nada.
+  # Si de verdad hay que acotar un pipeline entero: `timeout N bash -c 'a | b'`.
+  # El candado que impide que esto vuelva: `scripts/check-daemon-stdout-leak.sh`.
+  # -------------------------------------------------------------------------
+  setsid env -C "$BACKEND_DIR" npx ts-node --transpile-only src/main.ts \
+      > "$RUN_DIR/backend.log" 2>&1 < /dev/null &
+  echo $! > "$RUN_DIR/backend.pid"
   # El arranque compila TS en caliente: dale margen (observado ~45-60s en frío).
   for i in $(seq 1 60); do
     curl -sf -m 3 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 && break
@@ -615,18 +638,25 @@ start_frontend() {
      este script (\`env | grep NODE_ENV\`) — ver DEVOPS_NOTES §32.10."
     fi
     ok "build listo (NODE_ENV=$NEXT_NODE_ENV, sin aviso de NODE_ENV no estándar)."
-    ( cd "$FRONTEND_DIR" \
-      && NODE_ENV="$NEXT_NODE_ENV" \
+    # `setsid env -C … &` sin subshell envolvente — misma razón MEDIDA que en
+    # `start_backend` (fuga del stdout del script + pidfile apuntando al `bash`).
+    setsid env -C "$FRONTEND_DIR" \
+         NODE_ENV="$NEXT_NODE_ENV" \
          NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
-         nohup npx next start -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+         npx next start -p "$FRONTEND_PORT" \
+      > "$RUN_DIR/frontend.log" 2>&1 < /dev/null &
+    echo $! > "$RUN_DIR/frontend.pid"
   else
     NEXT_NODE_ENV=development
-    ( cd "$FRONTEND_DIR" \
-      && NODE_ENV="$NEXT_NODE_ENV" \
+    # Idem `next start`: sin subshell envolvente (§46.2).
+    setsid env -C "$FRONTEND_DIR" \
+         NODE_ENV="$NEXT_NODE_ENV" \
          NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
-         nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+         npx next dev -p "$FRONTEND_PORT" \
+      > "$RUN_DIR/frontend.log" 2>&1 < /dev/null &
+    echo $! > "$RUN_DIR/frontend.pid"
   fi
 
   # Instante de lanzamiento del servidor (para el sello). El frontend NO expone un

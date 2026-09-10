@@ -315,11 +315,41 @@ jobs:
         run: ./scripts/check-dast-gate-live.sh
 
   # ---------------------------------------------------------------------------
+  # GUARDA DEL CUELGUE SILENCIOSO DEL ARNÉS (§46.2) — 2026-09-10.
+  #
+  # Qué protege, con el coste ya pagado: `stack-native.sh` lanzaba backend y
+  # frontend dentro de un `( … )` envolvente, y ese subshell se quedaba con el
+  # STDOUT del script. Resultado: `./scripts/stack-native.sh up --seed | tail`
+  # NUNCA terminaba. QA perdió ~36 minutos con el pipeline bloqueado, sin un
+  # solo byte de salida, antes de que Playwright llegara a arrancar.
+  #
+  # Por qué merece un job propio y no un comentario: esto NO se manifiesta como
+  # rojo. Se manifiesta como un job que **parece «corriendo»** y no está midiendo
+  # nada. Es la misma familia que los falsos verdes de §44 y los falsos rojos de
+  # §45, pero peor de detectar: un falso rojo se mira, un falso verde se audita
+  # — un falso «en curso» NO SE VE NUNCA. No hay artefacto que revisar.
+  #
+  # Y ojo con el reflejo de «pues le pongo un timeout»: está MEDIDO en el MODO 1
+  # del propio script que `timeout N cmd | tail` devuelve **rc=0** tras la vida
+  # entera del daemon. El timeout mata al primer eslabón, no al pipeline, y
+  # encima reporta éxito. Si hay que acotar un pipeline: `timeout N bash -c '…'`.
+  #
+  # El script se AUTOPRUEBA antes de juzgar a nadie (MODO 1): si dejara de poder
+  # reproducir la fuga, sale ≠0 declarándose NO CONCLUYENTE en vez de verde.
+  # ---------------------------------------------------------------------------
+  daemon-stdout-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ningún script deja un daemon con el stdout del invocador
+        run: ./scripts/check-daemon-stdout-leak.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -333,6 +363,7 @@ jobs:
           echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
           echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
           echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
+          echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -368,6 +399,15 @@ jobs:
           # viene P-77 y el que costó meses de falso verde.
           if [ "${{ needs.dast-gate-live.result }}" != "success" ]; then
             echo "::error::El candado del DAST no está vivo (resultado: ${{ needs.dast-gate-live.result }}). Dueño: devops. Ver DEVOPS_NOTES §44."
+            exit 1
+          fi
+          # 🔇 Mismo criterio que las cuatro anteriores: `skipped` NO es verde. Y
+          # aquí el criterio pesa MÁS que en las otras, no menos: el defecto que
+          # esta guarda vigila no produce rojo ni verde, produce un job colgado en
+          # silencio. Si la guarda se salta, lo único que avisaba desaparece y el
+          # síntoma vuelve a ser «CI tarda mucho hoy» (§46.2).
+          if [ "${{ needs.daemon-stdout-leak.result }}" != "success" ]; then
+            echo "::error::Hay un script que deja un daemon con el stdout del invocador: un \`| tail\` sobre él se cuelga en silencio (resultado: ${{ needs.daemon-stdout-leak.result }}). Dueño: devops. Ver DEVOPS_NOTES §46.2."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

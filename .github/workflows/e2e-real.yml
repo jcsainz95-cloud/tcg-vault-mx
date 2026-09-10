@@ -484,6 +484,67 @@ jobs:
             echo "::warning title=Verde PARCIAL — $CORRIDOS $PLURAL corridos, $SALTADOS de dinero SALTADOS::Este run NO probó comprar, comprar-como-invitado ni retirar: no hay credencial de Stripe (ausencia deliberada, DEVOPS_NOTES 33.2). El verde de este workflow NO es un verde de dinero."
           fi
 
+      # -----------------------------------------------------------------------
+      # QUE EL HUECO SE VEA SIN ABRIR NADA (§46.4) — 2026-09-10.
+      #
+      # El problema que queda cuando falta la clave de Stripe NO es que el aviso
+      # no exista: existe, y es bueno (tabla en el step summary + `::warning`).
+      # El problema es que el run TERMINA VERDE y en la LISTA de Actions se ve
+      # idéntico a uno que sí midió el dinero. Quien pasa revista a diez runs no
+      # abre diez step summaries: mira diez puntos verdes.
+      #
+      # Un artefacto SÍ se ve en la portada del run, junto al reporte. Se llama
+      # como lo que falta, en mayúsculas, para que sea imposible leerlo como
+      # «pasó». No cambia el veredicto —la decisión del dueño (§33.2) se respeta
+      # tal cual— sólo lo hace IMPOSIBLE DE CONFUNDIR.
+      #
+      # ⚠️ Esto NO sustituye a la clave: mientras no exista el secret, comprar,
+      # comprar-como-invitado y retirar siguen SIN MEDIR. Es una petición al
+      # dueño, no un problema de infraestructura (DEVOPS_NOTES §31.1, §46.4).
+      # -----------------------------------------------------------------------
+      - name: Escribir el marcador del hueco de dinero
+        if: always() && env.MONEY_GATE == 'off'
+        run: |
+          mkdir -p /tmp/hueco-dinero
+          {
+            echo "# ESTE RUN NO MIDIÓ NINGÚN FLUJO DE DINERO"
+            echo
+            echo "El job terminó **verde**. Ese verde NO cubre:"
+            echo
+            echo "  - comprar (checkout.spec.ts)"
+            echo "  - comprar como invitado (guest-checkout.spec.ts)"
+            echo "  - retirar / envíos (shipments.spec.ts)"
+            echo
+            echo "No se ejecutaron. **No están aprobados.** No hay evidencia de que funcionen."
+            echo
+            echo "Motivo: no hay credencial de PRUEBA de Stripe en este repositorio."
+            echo "Se saltan a propósito (DEVOPS_NOTES 33.2) en vez de correr un job vacío"
+            echo "en verde, que sería un falso verde. Saltarlos es lo correcto; lo que NO"
+            echo "es correcto es leer este run como si el dinero estuviera probado."
+            echo
+            echo "## Cómo desaparece este fichero"
+            echo
+            echo "Crear los secrets en Settings > Secrets and variables > Actions:"
+            echo "  - STRIPE_TEST_SECRET_KEY       (sk_test_...)"
+            echo "  - STRIPE_TEST_PUBLISHABLE_KEY  (pk_test_...)"
+            echo
+            echo "Nada más que tocar: no hay bandera que quitar. Nunca una clave live."
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "Commit: ${GITHUB_SHA}"
+          } > /tmp/hueco-dinero/LEEME-EL-DINERO-NO-SE-PROBO.md
+
+      - name: Subir el marcador del hueco de dinero
+        if: always() && env.MONEY_GATE == 'off'
+        uses: actions/upload-artifact@v4
+        with:
+          # El NOMBRE es el mensaje: aparece en la portada del run, en la lista
+          # de artefactos, sin abrir un solo log.
+          name: SIN-MEDIR-comprar-invitado-retirar
+          path: /tmp/hueco-dinero
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Subir reporte Playwright
         if: always()
         uses: actions/upload-artifact@v4

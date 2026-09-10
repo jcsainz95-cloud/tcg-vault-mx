@@ -2949,7 +2949,25 @@ Notas para frontend (importantes):
      branch observado (§26.3, discrepancia).
   5. Verificar salud (§26.5) **antes** de disparar el sync por-set.
 
-### 26.4 Rollback (la migración es aditiva → rollback = redeploy del commit anterior)
+### 26.4 Rollback de M-31/M-32 — ⚠️ **NO es la regla general** (ver §46.3)
+
+> ⛔⛔ **ESTE TÍTULO DECÍA «la migración es aditiva → rollback = redeploy del commit anterior» Y ESA
+> REGLA, ENUNCIADA ASÍ, ES FALSA.** Corregido el 2026-09-10 (§46). **«Aditiva» NO implica
+> «reversible»:** aditiva mira hacia atrás (¿destruye datos?), reversible mira hacia adelante (¿el
+> código anterior puede seguir **escribiendo**?). **M-50 es aditiva y aun así revertir el código a
+> pelo tumba el checkout**, porque añade `priceConvention` como `NOT NULL` **sin default** y el
+> código anterior no la escribe nunca (medido: `null value in column "priceConvention" … violates
+> not-null constraint` sobre un checkout de invitado real).
+>
+> **ANTES DE EJECUTAR NADA DE ESTA SECCIÓN, COMPRUÉBALO — es un comando, no un juicio:**
+> ```bash
+> export DATABASE_URL='<la BD que se va a operar>'
+> ./scripts/rollback-safety-probe.sh <sha-del-deploy-anterior>
+> ```
+> **Verde** ⇒ lo de abajo vale tal cual: redeploy y ya. **Rojo** ⇒ **hay un paso de DATOS antes del
+> redeploy**; no sigas por aquí, ve a **§46.1** (runbook de M-50) y **§46.3** (la regla general).
+> Lo de abajo sigue siendo correcto **para las migraciones que nombra** (M-31/M-32/M-39/M-40/M-41,
+> todas nullable o con default), no como doctrina universal.
 
 | Escenario | Acción |
 |---|---|
@@ -3086,7 +3104,25 @@ deploy técnico pero sí completan el release (4 y 6 son manuales/egress; 5 es d
 - **Money-safety del reshape P-34:** el script sólo reemplaza tablas que coinciden **byte-a-byte** con los
   defaults «pristine» sembrados en su día (nunca editadas a mano). Si una diverge, **no la toca** y escala.
 
-### 27.4 Rollback (migraciones aditivas ⇒ rollback = redeploy del commit anterior)
+### 27.4 Rollback de M-39/M-40 — ⚠️ **NO es la regla general** (ver §46.3)
+
+> ⛔⛔ **ESTE TÍTULO DECÍA «la migración es aditiva → rollback = redeploy del commit anterior» Y ESA
+> REGLA, ENUNCIADA ASÍ, ES FALSA.** Corregido el 2026-09-10 (§46). **«Aditiva» NO implica
+> «reversible»:** aditiva mira hacia atrás (¿destruye datos?), reversible mira hacia adelante (¿el
+> código anterior puede seguir **escribiendo**?). **M-50 es aditiva y aun así revertir el código a
+> pelo tumba el checkout**, porque añade `priceConvention` como `NOT NULL` **sin default** y el
+> código anterior no la escribe nunca (medido: `null value in column "priceConvention" … violates
+> not-null constraint` sobre un checkout de invitado real).
+>
+> **ANTES DE EJECUTAR NADA DE ESTA SECCIÓN, COMPRUÉBALO — es un comando, no un juicio:**
+> ```bash
+> export DATABASE_URL='<la BD que se va a operar>'
+> ./scripts/rollback-safety-probe.sh <sha-del-deploy-anterior>
+> ```
+> **Verde** ⇒ lo de abajo vale tal cual: redeploy y ya. **Rojo** ⇒ **hay un paso de DATOS antes del
+> redeploy**; no sigas por aquí, ve a **§46.1** (runbook de M-50) y **§46.3** (la regla general).
+> Lo de abajo sigue siendo correcto **para las migraciones que nombra** (M-31/M-32/M-39/M-40/M-41,
+> todas nullable o con default), no como doctrina universal.
 
 | Escenario | Acción |
 |---|---|
@@ -3392,7 +3428,21 @@ Estado de ramas (verificado con git, 2026-08-24):
 | Verificación post-activación | **HUMANO** | SQL + UI (§28.4e). |
 | Rollback si algo sale mal | **HUMANO** | Flip inverso (§28.6). |
 
-### 28.6 ROLLBACK — reversible SIN migración
+### 28.6 ROLLBACK — reversible SIN migración ⚠️ **cierto para P-47, NO como doctrina** (ver §46.3)
+
+> ⛔ **AVISO AÑADIDO 2026-09-10 (§46). No se ha tocado ni una letra del cuerpo de §28.6** —`D-PP-2`
+> congela su literal, incluido el del `PUT`— pero el encabezado necesitaba esto:
+>
+> **«reversible sin migración» aquí es una afirmación sobre P-47, que efectivamente NO añadió
+> migración** (§28.3: `git diff … -- backend/prisma/migrations` = 0). **NO es una regla general**, y
+> leída como tal es peligrosa: **M-50 sí añade migración, es aditiva, y aun así el rollback
+> sólo-código tumba el checkout** (`priceConvention` es `NOT NULL` sin default). Si el release que
+> estás revirtiendo trae migraciones, **§28.6 no te cubre**: comprueba con
+> `./scripts/rollback-safety-probe.sh <sha-destino>` y ve a **§46.1/§46.3**.
+>
+> **Y una asimetría de esta misma sección que sí conviene leer aquí (§46.2a):** el flip inverso del
+> dial **hay que hacerlo A MANO**. El seed **no corre en el deploy** (comentado a propósito en
+> `deploy.yml:254`), así que **revertir el commit NO revierte `price_provider`**. Es `I-PP3`.
 
 - **Rollback del comportamiento de pricing (lo esperado si algo sale mal):** volver a flipear el dial.
   - `PUT /api/v1/admin/settings` body `{ "price_provider": "pokemontcg_io" }` (o `pokemonpricetracker` si ese
@@ -3849,7 +3899,17 @@ editó la fila a mano y quedó corrupta: el backend **no apaga el catálogo** (c
 `PUT /admin/pricing/curve`. **Alerta pendiente sobre ese patrón en el log drain** (§8) — es la deuda
 **S48-I4** de `SECURITY_NOTES §5`, dueño **devops**, disparador «con el primer alerting real».
 
-### 29.7 Rollback
+### 29.7 Rollback de P-48/M-41 — ⚠️ **cierto para M-41, NO como doctrina** (ver §46.3)
+
+> ⛔ **AVISO AÑADIDO 2026-09-10 (§46).** La frase de abajo es correcta **para M-41** y la fila
+> «¿Y las columnas de M-41?» explica exactamente por qué: **«las 8 columnas nullable … son
+> inertes»**. Ése —*nullable*— es el criterio de verdad, no el adjetivo «aditiva». Enunciada sin él,
+> la regla es falsa: **M-50 es aditiva y su rollback sólo-código tumba el checkout**
+> (`priceConvention` es `NOT NULL` **sin default**).
+>
+> Antes de aplicar esta sección a un release que no sea P-48:
+> `./scripts/rollback-safety-probe.sh <sha-destino>` — **verde** ⇒ vale tal cual; **rojo** ⇒ hay paso
+> de datos, ve a **§46.1/§46.3**.
 
 **Rollback = redeploy del commit anterior. No se restaura la DB para revertir código.**
 
@@ -8999,3 +9059,310 @@ los "arregle" por parecido):
   `ubuntu-latest`, pero el reparto exacto de la carrera depende del planificador. Lo que sí está
   demostrado es la **dirección**: el pipeline sin `-q` no puede producir el 141, porque no hay pipe que
   cerrar antes de tiempo.
+
+## 46. El rollback de M-50, la doctrina que era falsa, y el cuelgue mudo del arnés (2026-09-10, bloqueante de QA)
+
+> **Origen:** QA **rechazó** el candidato de release. Uno de los dos bloqueantes es **mío**, no del
+> producto: el release **no es reversible sólo con código** y mi runbook afirmaba que sí, en tres
+> sitios distintos. Esta sección corrige eso y cablea lo que faltaba.
+>
+> **Lo que NO se toca, y conviene decirlo primero:** el `NOT NULL` sin default de M-50 es **correcto
+> por diseño** (§4.44.e: el fallo ruidoso ES la funcionalidad) y aquí no se debilita ni un poco. El
+> defecto no estaba en la migración: estaba en que **el runbook no la conocía**.
+
+### 46.1 ⛔ BLOQUEANTE — M-50 NO se revierte sólo con código
+
+**El agravante, medido:** `grep M-50 docs/DEVOPS_NOTES.md` daba **0 coincidencias** antes de este
+pase. La migración de dinero más peligrosa del release no aparecía en mis notas, mientras §26.4,
+§27.4, §28.6 y §29.7 repetían *«aditiva ⇒ rollback = redeploy del commit anterior»*.
+
+**Qué pasa exactamente.** `20260909120000_m50_price_convention` añade cinco columnas. Tres son
+inofensivas al revertir; **dos no**:
+
+| columna | forma final | tras revertir el código |
+|---|---|---|
+| `Order.ivaTransferPct` | NULLABLE | inerte ✅ |
+| `ShipmentRequest.ivaTransferPct` | NULLABLE | inerte ✅ |
+| `ShipmentRequest.shippingCostIvaCents` | `NOT NULL DEFAULT 0` | inerte ✅ |
+| **`Order.priceConvention`** | **`NOT NULL` SIN default** | ⛔ **todo `INSERT` LANZA** |
+| **`ShipmentRequest.priceConvention`** | **`NOT NULL` SIN default** | ⛔ **todo `INSERT` LANZA** |
+
+El código anterior al candidato tiene **0 referencias** a `priceConvention` en `orders/`,
+`shipments/` y `payments/` (contado por QA); el candidato lo escribe en 4 sitios. El propio fichero
+de migración lo avisa en su línea 118: *«a partir de aquí, un `INSERT` que omita `priceConvention`
+LANZA (candado `IVA-3(e)`)»*.
+
+**MEDIDO** (2026-09-10, Postgres 16 con M-50 aplicada; todo dentro de una transacción con `ROLLBACK`,
+la base de QA quedó intacta — 7 filas antes y después). Se reprodujo el `INSERT` del código viejo
+copiando una fila real de `Order`:
+
+```
+A) sin paso de datos:
+   ERROR:  null value in column "priceConvention" of relation "Order"
+           violates not-null constraint
+   DETAIL: Failing row contains (…, invitado@dominio.com, TCG-000209, direct_ship, …)
+                                      ↑ un checkout de INVITADO real
+
+B) tras SET DEFAULT 'IVA_EXCLUSIVE', el MISMO INSERT:
+    orderNumber    | priceConvention | ivaTransferPct
+   ----------------+-----------------+----------------
+    ROLLBACK-PROBE | IVA_EXCLUSIVE   |  (null)
+   INSERT 0 1
+```
+
+⇒ **Alcance del daño si alguien ejecuta la doctrina vieja:** checkout registrado, checkout de
+invitado y creación de envíos. El negocio entero, en silencio hasta la primera compra.
+
+#### ✅ SÍ HAY ROLLBACK SEGURO — y exige un PASO DE DATOS ANTES del redeploy
+
+**No es «revertir la migración».** No se borra ninguna columna, no se pierde el backfill y el enum se
+queda. Se le **da un default temporal** a las dos columnas de convención, y se le quita después.
+
+**¿No es eso reintroducir justo lo que §4.44.e prohíbe?** No, y la distinción es la misma que la
+propia M-50 usa para permitir el PASO 3-BIS: es de **significado**, no de sintaxis.
+
+- §4.44.e prohíbe el default porque, **bajo el régimen nuevo**, un camino de escritura que olvide el
+  campo cobraría bajo una convención y archivaría bajo la otra. El default convierte un hueco en una
+  **afirmación falsa**.
+- En una **ventana de rollback no existe régimen nuevo**: el único código vivo es el anterior, cuya
+  aritmética **es** la exclusiva. Ahí `IVA_EXCLUSIVE` no es una suposición: es lo que de verdad pasó.
+
+**⚠️ Y por eso mismo el default es TEMPORAL Y OBLIGATORIO DE QUITAR.** En cuanto se vuelva a
+desplegar el candidato, el régimen nuevo existe y el default recupera toda su capacidad de mentir.
+
+**⛔ Y no confíes en que lo atrape otro candado.** `IVA-3(c)`
+(`backend/test/migration.m50-no-default.spec.ts`) lee **el TEXTO de la migración en el repo**: un
+`SET DEFAULT` aplicado a mano en producción le es **invisible**. La mitad que sí mira
+`information_schema` vive en `test/integration/iva-price-convention.e2e-spec.ts`, que corre contra la
+BD de **CI** y jamás contra producción. Sin la herramienta de abajo, **ese default no tiene ningún
+vigilante en prod**.
+
+#### RUNBOOK — orden DATOS → CÓDIGO (regla de oro §7)
+
+```bash
+# ── 0. Snapshot/PITR de la Postgres de prod. Siempre, y ANTES de nada.
+#      (Railway → Postgres → Backups → Create backup)
+
+# ── 1. Comprobar que de verdad hace falta el paso de datos (no lo asumas):
+export DATABASE_URL='<url de la BD que se va a operar>'
+./scripts/rollback-safety-probe.sh <sha-del-deploy-anterior>
+#    → lista las columnas obligatorias que el commit destino NO conoce.
+#      Con M-50 aplicada y destino sin M-50, salen exactamente:
+#         · Order            priceConvention
+#         · ShipmentRequest  priceConvention
+
+# ── 2. PASO DE DATOS. Primero en simulacro (no escribe nada), luego de verdad:
+./scripts/m50-rollback-gate.sh --prepare-rollback          # imprime el SQL y sale
+./scripts/m50-rollback-gate.sh --prepare-rollback --yes    # lo aplica
+#    SQL exacto que corre (no toca ni un importe, no reescribe ninguna fila):
+#      ALTER TABLE "Order"           ALTER COLUMN "priceConvention" SET DEFAULT 'IVA_EXCLUSIVE';
+#      ALTER TABLE "ShipmentRequest" ALTER COLUMN "priceConvention" SET DEFAULT 'IVA_EXCLUSIVE';
+
+# ── 3. AHORA sí, revertir el código.
+#      Railway (backend → Deployments → Redeploy el deploy previo bueno) y
+#      Vercel (Deployments → Promote to Production el build previo).
+
+# ── 4. Verificar que el dinero volvió a fluir (no basta con /health):
+#      hacer UN pedido de prueba, o:
+#      SELECT count(*) FROM "Order" WHERE "createdAt" > now() - interval '10 min';
+```
+
+**Y AL VOLVER HACIA ADELANTE (esto es lo que se olvida):**
+
+```bash
+./scripts/m50-rollback-gate.sh --assert-forward-safe   # ROJO si queda el default → NO despliegues
+./scripts/m50-rollback-gate.sh --finish-rollforward --yes
+./scripts/m50-rollback-gate.sh --assert-forward-safe   # ahora VERDE
+# recién ahora: desplegar el candidato otra vez
+```
+
+**Verificado de punta a punta** (2026-09-10, base local con M-50): `--assert-forward-safe` verde →
+`--prepare-rollback --yes` → el `INSERT` del código viejo **pasa** y graba `IVA_EXCLUSIVE` →
+`--assert-forward-safe` **rojo** con los dos defaults nombrados → `--finish-rollforward --yes` →
+idempotente a la segunda → `--assert-forward-safe` verde → el `INSERT` viejo **vuelve a lanzar**
+(`IVA-3(e)` rearmado). La base quedó como estaba.
+
+### 46.2 Lo que el rollback **NO** devuelve — dos asimetrías que hay que conocer ANTES
+
+Revertir el código **no** devuelve el sistema a su estado anterior. Dos cosas persisten, y quien
+ejecute el rollback tiene que saberlo o creerá que terminó cuando no terminó.
+
+**(a) 💰 El proveedor de precios NO vuelve solo — hay que moverlo A MANO (`I-PP3`).**
+El seed **no corre en el deploy**: está comentado a propósito en `deploy.yml:254` (es una acción de
+una sola vez, §11.D). Consecuencia directa: **revertir el commit NO revierte el dial
+`price_provider`.** Si alguna vez se sembró o se movió esa fila, ahí sigue. El dial es un
+`ConfigSetting` de BD y sólo se mueve por su puerta:
+
+```
+PUT /api/v1/admin/settings   { "price_provider": "pokemontcg_io" }
+```
+super_admin, auditado. **⛔ Nunca por env** (`PRICE_PROVIDER` no flipea nada, §23.8) **ni por SQL
+directo** (§32.4). Surte efecto en la siguiente corrida del `price-ingest`.
+
+*Evidencia viva de que esto pasa de verdad:* el stack local de hoy reporta
+`vigente: 'pokemontcg_io' · primario: 'tcgcsv_singles'` — una base sembrada antes de `D-PP-1` que
+conserva la fila legacy, porque los seeds hacen `upsert(… update:{})` y **no llegan a una base ya
+sembrada** (§32.1). Es exactamente el mismo mecanismo.
+
+**(b) 📚 El corte de fecha de `syncAll` es de ida y no de vuelta.**
+Al revertir, `syncAll` deja de honrar el corte y **vuelve a arrastrar sets anteriores a 2024**. Esas
+filas **persisten**: el sync hace upserts y no borra. Reaplicar el candidato filtra las **futuras**
+corridas pero **no limpia lo ya escrito**. No es dinero y no bloquea, pero si alguien compara el
+catálogo antes/después del ciclo y ve sets de más, **es esto y no un bug**. Limpiarlo, si se
+quisiera, es una decisión de producto (PO/arquitecto), no un paso de rollback.
+
+### 46.3 La doctrina corregida: «aditiva» ⇏ «reversible» — y cómo se comprueba cuál es cuál
+
+La frase *«la migración es aditiva ⇒ rollback = redeploy del commit anterior»* aparecía en **§26.4,
+§27.4, §28.6 y §29.7** — cuatro sitios, no tres: al corregir los tres que QA señaló apareció el
+cuarto. Era verdad para M-31/32/39/40/41 y **falsa para M-50**. El problema no era el
+adjetivo: era que la regla dependía del criterio de quien estuviera de guardia.
+
+**Son dos propiedades distintas y hay que dejar de confundirlas:**
+
+| | qué mira | qué garantiza |
+|---|---|---|
+| **aditiva** | hacia **atrás**: ¿destruye datos existentes? | que no se pierde nada |
+| **reversible sólo con código** | hacia **adelante**: ¿el código anterior puede seguir **escribiendo**? | que el rollback no rompe nada |
+
+**Sólo la segunda importa en un rollback**, y M-50 es la prueba de que se puede ser aditiva sin ser
+reversible.
+
+**LA REGLA, enunciada para que no haga falta criterio:**
+
+> Un release es **reversible-sólo-con-código** ⟺ para **toda** columna `NOT NULL` **sin default** de
+> la base, el commit al que se revierte **la conoce**. Si el destino no la conoce, su cliente Prisma
+> nunca la incluirá en el `INSERT`, Postgres rechazará la fila, y esa tabla queda **muerta para
+> escritura**.
+
+**CÓMO SE COMPRUEBA — un comando, no una lectura:**
+
+```bash
+export DATABASE_URL='<la BD que se va a operar>'
+./scripts/rollback-safety-probe.sh <ref-destino>     # p. ej. origin/main
+```
+
+Pregunta a la **BD viva** qué columnas son `NOT NULL` sin default, lee el `schema.prisma` **del
+commit destino** (`git show <ref>:…`) y cruza. Verde ⇒ redeploy y ya. Rojo ⇒ **hay paso de datos**.
+
+*Discriminación medida (2026-09-10):* sobre **153** columnas `NOT NULL` sin default de esta base,
+con destino `origin/main` señaló **exactamente 2** — `Order.priceConvention` y
+`ShipmentRequest.priceConvention` — y **cero falsos positivos**: dejó fuera `shippingCostIvaCents`
+(tiene `DEFAULT 0`) y los dos `ivaTransferPct` (nullable). Control negativo con destino `HEAD`:
+verde. Es decir, sabe distinguir, no dice que sí a todo.
+
+**⚠️ Límite declarado, sin adornos:** cubre el modo de fallo `NOT NULL`-sin-default, que es el que
+nos mordió y el más común. **No** cubre CHECK constraints nuevos, triggers, valores de enum que el
+código viejo no sabe mapear, ni cambios de tipo. Un verde ahí significa «no hay columnas
+obligatorias huérfanas», **no** «revertir es gratis».
+
+**Y si el probe sale rojo sobre una columna que NO es de M-50: no improvises un `DEFAULT`.** Un
+default sólo es honesto si el código destino escribe de verdad bajo esa semántica. Si no puedes
+afirmarlo, **no hay rollback seguro por esta vía** — escala al arquitecto y valora restaurar del
+snapshot (§7). *Decir «no hay rollback seguro» es una respuesta legítima; inventar uno falso no.*
+
+### 46.4 El arnés E2E se colgaba en SILENCIO — y el `timeout` no salvaba
+
+**Síntoma medido por QA:** `./scripts/stack-native.sh up --seed | tail` **nunca terminaba**. ~36
+minutos con el pipeline bloqueado, **sin un solo byte de salida**, antes de que Playwright arrancara.
+
+**Causa raíz, y es mía.** `start_backend` (`:499`) y `start_frontend` (`:622`, `:629`) lanzaban el
+daemon así:
+
+```bash
+( cd "$DIR" && nohup CMD > log 2>&1 & echo $! > pid )
+```
+
+El `( … )` envolvente **sobrevive como padre del daemon y hereda el stdout del script**. Con
+`script | tail`, ese subshell mantiene la tubería abierta mientras viva el servidor ⇒ `tail` no ve
+EOF jamás. **Yo ya había diagnosticado y arreglado este defecto en `start_s3`** (el bloque de
+comentarios de `:319` lo explica entero) y **no lo apliqué a los otros dos lanzadores**.
+
+**MEDIDO con `sleep` de maqueta y `timeout 10 script | cat`:**
+
+| patrón | cierra la tubería en | `$!` apunta a |
+|---|---|---|
+| `( cd X && nohup CMD > log 2>&1 & echo $! )` | **45 s** (la vida del daemon) | `bash` ⛔ |
+| `( cd X && setsid CMD > log 2>&1 </dev/null & … )` | **45 s** | `bash` ⛔ |
+| `setsid env -C X CMD > log 2>&1 </dev/null &` | **1 s** ✅ | el daemon ✅ |
+
+⇒ El culpable **no es `nohup` vs `setsid`: es el subshell envolvente.** Poner `setsid` sin sacar el
+`( … )` no arregla nada — y es la «corrección» que parece obvia. Para cambiar de directorio sin
+subshell: **`env -C "$DIR"`**.
+
+**⚠️⚠️ Y EL `timeout` NO SALVA — esto es lo más importante de aquí.** En el mismo experimento,
+`timeout 10 script | cat` devolvió **`rc=0` a los 45 segundos**. No `rc=124`, no a los 10: `timeout`
+mata al **primer eslabón**, no al pipeline; el lector siguió esperando EOF y el pipeline acabó
+reportando **ÉXITO**. Un `timeout N cmd | tail` en un workflow **no acota nada y encima miente**.
+Si hay que acotar un pipeline entero, el idioma es:
+
+```bash
+timeout N bash -c 'cmd | tail'
+```
+
+**Arreglado** en `stack-native.sh`: los tres lanzadores usan `setsid env -C … > log 2>&1 < /dev/null &`
+a nivel de función, sin `( … )`. Efecto colateral igual de valioso: el pidfile guarda **el daemon** y
+no un `bash` intermediario, así que `down` apaga lo que dice apagar.
+
+**Verificado sobre el arnés real:** `timeout 900 bash -c './scripts/stack-native.sh up 2>&1 | tail -25'`
+→ **9 s y 22 s** en dos corridas, con salida completa. Antes: nunca.
+
+**Candado:** `scripts/check-daemon-stdout-leak.sh`, job `daemon-stdout-leak` en `ci.yml` (y `skipped`
+**no** es verde en `ci-ok`, mismo criterio que §39/§43/§44). Dos modos:
+
+- **MODO 1 — autoprueba.** Monta los tres patrones y **mide** cuál fuga. Si dejara de reproducir la
+  fuga, sale ≠0 declarándose **NO CONCLUYENTE** en vez de verde: un candado que ya no detecta lo que
+  vigila es un candado roto, no un candado verde (mismo criterio que §44).
+- **MODO 2 — barrido estático** de `scripts/*.sh` con la regla que el MODO 1 acaba de justificar:
+  (a) sin `( … )` envolvente, (b) las tres redirecciones.
+
+*Mutación probada:* reintroduciendo el patrón viejo en `start_backend`, el barrido lo mata
+(`1 de 4 lanzamientos con fuga`, rc=1). Y el barrido se excluye **a sí mismo**, con motivo escrito:
+contiene los patrones malos a propósito como maqueta del MODO 1.
+
+> **Por qué esto merecía un job y no un comentario.** Este defecto **no produce rojo**. Produce un
+> job que *parece «corriendo»* y no está midiendo nada. Es la misma familia que los falsos verdes de
+> §44 y los falsos rojos de §45, pero **peor de detectar**: un falso rojo se mira, un falso verde se
+> audita — **un falso «en curso» no se ve nunca**. No hay artefacto que revisar, no hay línea de log
+> que leer. El síntoma es «CI va lento hoy».
+
+### 46.5 El hueco de Stripe: que no se pueda confundir con «pasó»
+
+**Estado, sin maquillar:** los **tres flujos de dinero de punta a punta** —comprar, comprar como
+invitado, retirar/envíos— están **SIN MEDIR**. No hay clave de prueba de Stripe en el repositorio.
+`scripts/stripe-test-key-preflight.sh` lo detecta y, en la ruta de **promoción a prod**, **aborta en
+rojo** (§33). Eso está bien y **no se cambia**: un job vacío en verde sería un falso verde.
+
+El problema que quedaba es otro: en las corridas que **no** promueven, el preflight salta los tres
+smokes, avisa con `::warning` + tabla en el step summary… y **el run termina verde**. En la lista de
+Actions se ve **idéntico** a uno que sí midió el dinero. Quien pasa revista a diez runs no abre diez
+step summaries: mira diez puntos verdes.
+
+**Lo que se añadió** (`e2e-real.yml`, sin tocar el veredicto): cuando `MONEY_GATE=off`, el run sube
+un artefacto llamado
+
+```
+SIN-MEDIR-comprar-invitado-retirar
+```
+
+con un `LEEME-EL-DINERO-NO-SE-PROBO.md` dentro que dice qué **no** se ejecutó, que **no está
+aprobado**, y cómo desaparece. El **nombre es el mensaje**: aparece en la portada del run, junto al
+reporte de Playwright, sin abrir un solo log. No se puede leer como «pasó».
+
+**⚠️ Esto NO sustituye a la clave.** Mientras no existan los secrets `STRIPE_TEST_SECRET_KEY`
+(`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`), los tres flujos siguen sin medir. Es
+una **petición al dueño** (§31.1), no un problema de infraestructura, y ninguna cantidad de tooling
+la resuelve.
+
+### 46.6 Qué queda para quién
+
+| Punto | Dueño | Estado |
+|---|---|---|
+| Runbook de rollback de M-50 (datos→código) + herramienta | devops | ✅ escrito y **probado end-to-end** |
+| Doctrinas §26.4 / §27.4 / §28.6 **y §29.7** corregidas | devops | ✅ las **cuatro** apuntan a §46.3 (§29.7 apareció al revisar las otras tres) |
+| Regla mecánica «reversible ⇔ …» + `rollback-safety-probe.sh` | devops | ✅ con discriminación medida (2 de 153) |
+| Cuelgue del arnés + candado en CI | devops | ✅ arreglado y verificado sobre el arnés real |
+| Marcador del hueco de dinero en `e2e-real` | devops | ✅ |
+| **Clave de PRUEBA de Stripe** (3 flujos de dinero) | **HUMANO/dueño** | ⏳ **sin ella no hay E2E de dinero** |
+| **Ejecutar el rollback** (si hiciera falta) | **HUMANO** con egress a prod | ⏳ devops no tiene acceso a los dashboards |
+| Limpiar sets pre-2024 arrastrados (§46.2b) | PO/arquitecto | ⏳ decisión de producto, no de rollback |
