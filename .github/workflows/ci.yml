@@ -288,11 +288,38 @@ jobs:
         run: ./scripts/price-provider-parity.sh --check-expiry
 
   # ---------------------------------------------------------------------------
+  # 🔒 ¿EL CANDADO DEL DAST SIGUE SIENDO UN CANDADO? (P-77, DEVOPS_NOTES §44)
+  #
+  # Misma familia que las tres guardas de arriba: estática, barata (lee ficheros
+  # y corre el candado contra dos informes de juguete; sin red, sin Docker) y en
+  # el workflow que corre en CADA push y PR.
+  #
+  # La medición que la originó: el gate DAST de este repo NUNCA escaneó nada.
+  # Apuntaba a `STAGING_BASE_URL`, un secret que nunca existió porque el dueño
+  # nunca tuvo staging. El job detectaba la ausencia, imprimía «modo plantilla
+  # (no-op)» y salía en VERDE — durante meses, con el DoD contándolo como
+  # «SAST + DAST cableados en CI». Arreglar el hoy fue apuntar el escáner a un
+  # stack efímero; esto impide que vuelva a quedarse sin blanco sin que nadie
+  # se entere.
+  #
+  # Lo más importante que comprueba: que el candado PUEDE PONERSE ROJO. Le pasa
+  # un informe con un SQLi de manual y exige exit≠0. Si alguien vacía las reglas
+  # FAIL de `security/zap/baseline.conf` para «quitar ruido», este job lo dice
+  # en el PR, no seis meses después.
+  # ---------------------------------------------------------------------------
+  dast-gate-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El gate de seguridad dinámica tiene blanco y sabe ponerse rojo
+        run: ./scripts/check-dast-gate-live.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -305,6 +332,7 @@ jobs:
           echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
           echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
           echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
+          echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -332,6 +360,14 @@ jobs:
           # cumplió y sigue puesto». El mensaje del script trae qué quitar y de dónde.
           if [ "${{ needs.price-provider-interim-expiry.result }}" != "success" ]; then
             echo "::error::La medida interina D-PP-2 caducó y sigue cableada (resultado: ${{ needs.price-provider-interim-expiry.result }}). Dueño: devops. Ver DEVOPS_NOTES §43.2."
+            exit 1
+          fi
+          # 🔒 Mismo criterio que las tres anteriores: `skipped` NO es verde. Si la
+          # guarda del candado DAST desaparece, el gate de seguridad dinámica puede
+          # volver a quedarse sin blanco en silencio — que es el estado del que
+          # viene P-77 y el que costó meses de falso verde.
+          if [ "${{ needs.dast-gate-live.result }}" != "success" ]; then
+            echo "::error::El candado del DAST no está vivo (resultado: ${{ needs.dast-gate-live.result }}). Dueño: devops. Ver DEVOPS_NOTES §44."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

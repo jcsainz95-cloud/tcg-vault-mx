@@ -32,6 +32,42 @@
 
 name: Deploy (staging -> prod)
 
+# =============================================================================
+# ⚠️ TRES GATES DE ESTE ARCHIVO ESTÁN **INERTES** (P-77, 2026-09-10)
+# =============================================================================
+# Este workflow no corre: solo `workflow_dispatch`, y aun así `secrets-gate` lo
+# salta si faltan secrets. Los deploys reales van por las integraciones NATIVAS
+# de Vercel/Railway (push-to-deploy). Eso se mantiene: **NO se reactiva el CD**.
+#
+# Pero de eso se sigue algo que hasta hoy no estaba escrito, y por no estarlo se
+# contaba como cobertura: los gates que viven aquí dentro **no gatean nada**.
+# Cuelgan de un pipeline apagado que además apunta a un entorno inexistente —
+# el dueño nunca tuvo staging, solo producción.
+#
+#   | Gate (aquí)                | Estado  | Dónde vive el que SÍ corre                    |
+#   |----------------------------|---------|-----------------------------------------------|
+#   | `staging-serves-head`      | INERTE  | e2e-real.yml (nightly) y security-dast.yml:    |
+#   |  (procedencia SEC-OPS-1)   |         | `assert-serving-head.sh` contra el stack       |
+#   |                            |         | efímero, en cada corrida.                      |
+#   | `staging-provider-parity`  | INERTE  | security-dast.yml y e2e-real.yml:              |
+#   |  (`I-PP5` / `D-PP-2`)      |         | `price-provider-parity.sh --assert` contra el  |
+#   |                            |         | stack efímero. **Sin secrets**: el admin lo    |
+#   |                            |         | crea el seed sintético.                        |
+#   | `dast-staging`             | INERTE  | security-dast.yml: ZAP+nuclei contra el stack  |
+#   |  (ZAP + nuclei)            |         | efímero, semanal, con autoprueba del candado.  |
+#
+# POR QUÉ NO SE BORRAN: son el esqueleto del día que exista un staging
+# desplegado, y esa decisión es del dueño, no de devops. Lo que NO puede pasar
+# es que alguien los cite como cobertura activa — que es exactamente lo que
+# pasó durante meses. Por eso quedan MARCADOS aquí y `scripts/check-dast-gate-live.sh`
+# (job `dast-gate-live` de ci.yml) comprueba en cada push que la marca sigue puesta.
+#
+# ⛔ SI ALGÚN DÍA SE REACTIVA ESTE CD: los tres dejan de ser inertes solo cuando
+#    exista un staging DESPLEGADO y sus secrets estén cargados. Reactivar el
+#    workflow sin eso devuelve el pipeline al estado de P-77 (gates en verde que
+#    no miraron nada). Detalle y decisión completa: DEVOPS_NOTES §44.6.
+# =============================================================================
+
 # -----------------------------------------------------------------------------
 # CD por GitHub Actions DESACTIVADO por defecto (solo `workflow_dispatch`).
 # Los deploys reales van por integraciones NATIVAS Vercel/Railway (push-to-deploy
@@ -277,6 +313,9 @@ jobs:
   # y si se está promoviendo a producción, FALLA. Un DAST que no puede decir qué
   # binario escaneó no puede ser la puerta de prod.
   # ---------------------------------------------------------------------------
+  # ⚠️ INERTE (P-77): este job no corre nunca — el pipeline está apagado y no hay
+  # staging desplegado. El gate de procedencia que SÍ corre está en e2e-real.yml y
+  # en security-dast.yml, contra el stack efímero. Ver la tabla de la cabecera.
   staging-serves-head:
     needs: [deploy-staging-backend, deploy-staging-frontend]
     runs-on: ubuntu-latest
@@ -351,6 +390,9 @@ jobs:
   # Sin ellos NO se puede leer el dial (la ruta es @Roles(super_admin)): se AVISA,
   # y si se está promoviendo a prod, FALLA — mismo criterio que §38.5.
   # ---------------------------------------------------------------------------
+  # ⚠️ INERTE (P-77): no corre. Su versión viva —y ya EJECUTABLE, sin necesidad de
+  # STAGING_ADMIN_EMAIL/PASSWORD— corre contra el stack efímero en security-dast.yml
+  # y e2e-real.yml: allí el admin lo crea el seed sintético. Ver §44.5.
   staging-provider-parity:
     needs: [staging-serves-head]
     runs-on: ubuntu-latest
@@ -379,6 +421,9 @@ jobs:
           ./scripts/price-provider-parity.sh --assert --api-base "$STAGING_API_URL"
           echo "- ✅ staging evalúa el proveedor de precio PRIMARIO (\`I-PP5\`)" >> "$GITHUB_STEP_SUMMARY"
 
+  # ⚠️ INERTE (P-77): NUNCA ejecutó un escaneo. Apunta a `STAGING_BASE_URL`, un
+  # secret que jamás existió. El DAST que SÍ corre está en security-dast.yml,
+  # semanal, contra el stack efímero, y con autoprueba del candado. Ver §44.
   dast-staging:
     needs: [deploy-staging-backend, deploy-staging-frontend, staging-serves-head, staging-provider-parity]
     runs-on: ubuntu-latest

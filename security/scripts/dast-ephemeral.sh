@@ -32,7 +32,8 @@
 #   AJAX_SPIDER=1|0              (def. 1 en full) araña con navegador: es lo
 #                                único que mete las llamadas XHR de la SPA en
 #                                el árbol de ZAP.
-#   DAST_TARGETS="url1 url2"     (def. vitrina + API)
+#   ZAP_TARGETS="url…"           (def. SOLO la vitrina — ver la nota de abajo)
+#   NUCLEI_TARGETS="url…"        (def. vitrina + API)
 #   REPORT_ONLY=1                mide y publica, no bloquea (calibración)
 # =============================================================================
 set -uo pipefail
@@ -46,11 +47,29 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:3010}"
 API_BASE="${API_BASE:-http://localhost:3011/api/v1}"
 BACKEND_HEALTH="${BACKEND_HEALTH:-${API_BASE}/health}"
-DAST_TARGETS="${DAST_TARGETS:-${FRONTEND_URL} ${API_BASE}}"
+# ------------------------------------------------------------------------
+# BLANCOS. Medido en la corrida 34432408600: con ZAP `full` + araña AJAX contra
+# DOS blancos, el paso de escaneo pasó de 30 minutos. El segundo blanco (la
+# base de la API) es el que sale casi gratis en hallazgos y carísimo en tiempo:
+# el backend NestJS NO expone OpenAPI, así que la araña no tiene NADA que
+# recorrer ahí — su raíz es un 404 — y se lleva su presupuesto completo de
+# araña + escaneo activo para no descubrir superficie.
+#
+# La API sí se cubre, pero por la vía que funciona: la araña AJAX conduce un
+# navegador real contra la vitrina, así que las llamadas XHR de la SPA entran
+# en el árbol de ZAP con sus parámetros. Y nuclei —que es rápido y no depende
+# de enumerar enlaces— sí apunta a los dos.
+#
+# Lo que esto NO cubre queda DECLARADO en DEVOPS_NOTES §44.4: los endpoints
+# administrativos y los de webhook, que no cuelgan de la vitrina, no se
+# enumeran. El cierre sería que backend exponga un spec OpenAPI.
+# ------------------------------------------------------------------------
+ZAP_TARGETS="${ZAP_TARGETS:-${FRONTEND_URL}}"
+NUCLEI_TARGETS="${NUCLEI_TARGETS:-${FRONTEND_URL} ${API_BASE}}"
 
 SCAN_PROFILE="${SCAN_PROFILE:-full}"
-ACTIVE_MAX_MINS="${ACTIVE_MAX_MINS:-12}"
-SPIDER_MINS="${SPIDER_MINS:-3}"
+ACTIVE_MAX_MINS="${ACTIVE_MAX_MINS:-10}"
+SPIDER_MINS="${SPIDER_MINS:-2}"
 AJAX_SPIDER="${AJAX_SPIDER:-$([ "${SCAN_PROFILE}" = "full" ] && echo 1 || echo 0)}"
 REPORT_DIR="${REPORT_DIR:-${ROOT_DIR}/security/reports}"
 ZAP_IMAGE="${ZAP_IMAGE:-ghcr.io/zaproxy/zaproxy:stable}"
@@ -157,7 +176,7 @@ cmd_scan() {
   [ "${AJAX_SPIDER}" = "1" ] && zap_extra+=(-j)
 
   local rc_total=0
-  for target in ${DAST_TARGETS}; do
+  for target in ${ZAP_TARGETS}; do
     local name; name="$(slug "${target}")"
     log "ZAP ${SCAN_PROFILE} → ${target}  (araña ${SPIDER_MINS}min · activo ≤${ACTIVE_MAX_MINS}min)"
     local t0; t0="$(date +%s)"
@@ -183,10 +202,10 @@ cmd_scan() {
     [ "${rc}" -ge 3 ] && { err "ZAP terminó con rc=${rc} (fallo del escáner, no hallazgo)."; rc_total=1; }
   done
 
-  log "nuclei → ${DAST_TARGETS}"
+  log "nuclei → ${NUCLEI_TARGETS}"
   local t0; t0="$(date +%s)"
   : > "${REPORT_DIR}/nuclei.jsonl"
-  for target in ${DAST_TARGETS}; do
+  for target in ${NUCLEI_TARGETS}; do
     docker run --rm --network host -v "${REPORT_DIR}:/out:rw" -v "${SEC_DIR}/nuclei:/tpl:ro" \
       "${NUCLEI_IMAGE}" \
         -u "${target}" \
@@ -197,6 +216,12 @@ cmd_scan() {
     cat "${REPORT_DIR}/nuclei-$(slug "${target}").jsonl" >> "${REPORT_DIR}/nuclei.jsonl" 2>/dev/null || true
   done
   printf 'nuclei -> (%ss)\n' "$(( $(date +%s) - t0 ))" | tee -a "${REPORT_DIR}/timings.txt"
+  # Los tiempos, en la portada del run. Sin esto había que bajar un artefacto
+  # para saber cuánto costó el barrido — y lo que no se ve no se calibra.
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    printf '::notice title=Tiempos del barrido DAST (perfil %s)::%s\n' "${SCAN_PROFILE}" \
+      "$(sed 's/$/%0A/' "${REPORT_DIR}/timings.txt" | tr -d '\n')"
+  fi
   return "${rc_total}"
 }
 
@@ -205,7 +230,7 @@ cmd_scan() {
 # ---------------------------------------------------------------------------
 cmd_gate() {
   local args=()
-  for target in ${DAST_TARGETS}; do
+  for target in ${ZAP_TARGETS}; do
     args+=(--zap-json "${REPORT_DIR}/zap-$(slug "${target}").json")
   done
   [ "${REPORT_ONLY:-0}" = "1" ] && args+=(--report-only)
@@ -216,7 +241,7 @@ cmd_gate() {
     --nuclei-ignore "${SEC_DIR}/nuclei/ignore.txt" \
     --summary "${REPORT_DIR}/dast-summary.md" \
     --label "DAST semanal — stack efímero de CI" \
-    --target "${DAST_TARGETS}"
+    --target "ZAP: ${ZAP_TARGETS}  ·  nuclei: ${NUCLEI_TARGETS}"
 }
 
 cmd_down() {

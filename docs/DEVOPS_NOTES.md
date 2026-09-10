@@ -8448,3 +8448,237 @@ habría hecho fallar un rollback en el peor momento posible — el momento en qu
   runbook **lo diga**.
 - **No medí el disco de prod en este pase.** Los números de `P-53` (28,559 filas/día ≈ 13 MB/día) son la
   medición del 2026-09-01, y el §28.4(e)(6) trae las consultas para **rehacerla**, no para citarla.
+
+---
+
+## 44. P-77 — El DAST nunca escaneó nada. Blanco efímero en CI, y un candado que se prueba a sí mismo (2026-09-10)
+
+> **Propiedad: devops.** Qué se cambió, con qué números se decidió, qué NO cubre, y qué pasa con los
+> gates que quedaron huérfanos en `deploy.yml`.
+
+### 44.1 El hallazgo: la mitad DAST del gate de seguridad era decorativa
+
+El DoD de `CLAUDE.md` pide «el **gate de seguridad (SAST + DAST staging)** y el harness E2E cableados en
+CI». La mitad SAST se cumplía de verdad (`security-sast.yml` corre en cada push/PR). La mitad DAST **no
+había corrido nunca contra nada**, en toda la vida del proyecto. Medido, no supuesto:
+
+| Verificación | Cuándo | Estado real medido |
+|---|---|---|
+| CI (unitarios + contrato) | cada push/PR | ✅ corre |
+| SAST (`security-sast.yml`) | cada push/PR | ✅ corre |
+| E2E con mocks (`e2e.yml`) | cada push/PR | ✅ corre |
+| E2E real (`e2e-real.yml`) | nocturno 08:00 UTC | ✅ **29 corridas**, última `34352287999` (2026-09-09 12:39 UTC) en verde |
+| **DAST** (`security-scheduled.yml > scheduled-dast`) | semanal lun 06:00 UTC | 🔴 **0 escaneos**: apuntaba a `STAGING_BASE_URL` |
+| **DAST** (`deploy.yml > dast-staging`) | nunca | 🔴 pipeline apagado + mismo secret inexistente |
+
+La causa raíz no es un bug: **el dueño nunca tuvo staging. Solo producción.** `STAGING_BASE_URL` no
+estaba «pendiente de cargar»: no había ningún entorno al que apuntarlo. El preflight del cron detectaba
+la ausencia, imprimía `::notice:: modo plantilla (no-op)` y **el job salía en VERDE**.
+
+Es el mismo modo de fallo que ya nos mordió tres veces —S-PROC-1 (`npm audit` que no corría sin push),
+el falso verde del preflight de Stripe (§33), SEC-OPS-1 (§38: el gate auditaba un binario viejo)—:
+**una verificación que técnicamente corre, no puede fallar, y nadie lee.** Un candado que no se puede
+poner rojo no es un candado; es peor que nada, porque produce confianza falsa.
+
+Arrastraba con él tres gates más, todos colgando del mismo pipeline apagado: `staging-serves-head`
+(procedencia SEC-OPS-1), `staging-provider-parity` (`D-PP-2` / `I-PP5`) y el propio `dast-staging`.
+Y dejaba sin objeto los secrets `STAGING_ADMIN_EMAIL`/`STAGING_ADMIN_PASSWORD` que devops había pedido
+al humano: no hay staging al que apuntarlos, y apuntarlos a producción es justo lo que la guardia
+anti-producción de `security/scripts/_guard.sh` prohíbe.
+
+### 44.2 La salida elegida: blanco EFÍMERO levantado en el propio CI
+
+`CLAUDE.md` §7 autoriza expresamente como blanco «**staging (o local)**». Se toma la vía local.
+
+**No se construyó ningún stack nuevo.** `e2e-real.yml` ya levanta `docker-compose.staging.yml` completo
+(Postgres 16 + Redis 7 + MinIO + backend NestJS + frontend con `NEXT_PUBLIC_USE_MOCKS=false`) y lleva
+29 corridas haciéndolo. El trabajo fue **apuntar el escáner a ese stack**.
+
+#### El número que decidió la forma
+
+Perfilado del nocturno `e2e-real.yml` run `34352287999` (API de GitHub, tiempos por paso):
+
+| Paso | Tiempo |
+|---|---|
+| `docker compose up -d --build` (stack completo) | **139 s** |
+| salud backend + procedencia + seed + frontend | 10 s |
+| `npm ci` + Chromium + Playwright smoke | 46 s |
+| apagar stack | 12 s |
+| **total del job** | **224 s (3 min 44 s)** |
+
+Tres formas posibles y por qué se descartaron dos:
+
+1. **Colgar el DAST del job de `e2e-real`** — ahorra los 139 s de levantar el stack, pero multiplica por
+   ~8-10 la corrida que el equipo mira cada mañana, y mezcla dos veredictos distintos («¿funciona?» vs
+   «¿es atacable?») en un solo rojo ambiguo. **Descartada**: 139 s es un precio barato por mantenerlos
+   separados, y el nocturno tiene que seguir siendo legible.
+2. **`workflow_call` a `e2e-real.yml`** — mismo problema: un solo job, un solo veredicto.
+3. **Job propio que levanta el mismo compose** ✅ **elegida**. Cuesta 139 s de duplicación y compra
+   independencia de cadencia, de tiempo límite y de veredicto.
+
+Confirmado en la primera corrida real (`34432408600`, rama `devops/dast-p77`): levantar + sembrar +
+verificar procedencia + verificar paridad del dial = **143 s**. Es decir, todo el trabajo extra que
+añade el DAST sobre lo que ya hacía el nocturno cuesta **4 segundos**.
+
+#### Cadencia
+
+**Semanal, lunes 06:00 UTC** — exactamente la que ya tenía el cron muerto que sustituye — **más
+`workflow_call`** para el barrido previo a publicar, **más** disparo manual. **No en cada push**: el
+escaneo activo tarda demasiado (ver §44.4) y castigar el día a día es la vía rápida a que alguien lo
+apague.
+
+### 44.3 ⭐ El candado se prueba a sí mismo: `selftest`
+
+Esta es la parte que distingue el gate nuevo del que sustituye. No basta con que el DAST corra: hay que
+poder **demostrar que sabe ponerse rojo**.
+
+`security/dast-selftest/canary.py` es un blanco deliberadamente vulnerable (no es código de la
+aplicación; no se despliega, no se importa, vive segundos en su propio compose). Planta cuatro cosas:
+
+| Ruta | Vulnerabilidad plantada | Regla de ZAP que debe cazarla |
+|---|---|---|
+| `/boom` | HTTP 500 + traza y error de motor SQL | `90022` Application Error Disclosure (**pasiva**) |
+| `/search?q=` | reflejo crudo del parámetro en HTML | `40012` XSS reflejado (activa) |
+| `/download?file=` | lectura de fichero sin sanear | `6` Path Traversal (activa) |
+| formulario sin token | — | `10202` (informativo; ver §44.5) |
+
+El job `selftest` lo escanea con **el mismo ZAP, la misma política (`security/zap/baseline.conf`) y el
+mismo candado (`security/scripts/dast-gate.py`)** que el barrido de verdad, y corre el candado con
+`--expect-red`: **veredicto invertido, un gate VERDE sobre el canario es el FALLO**.
+
+Y `dast` declara `needs: [selftest]`: **si el candado no sabe cerrarse, el barrido no llega a emitir un
+verde**. Eso es estructural, no una convención que alguien deba recordar.
+
+Dos rutas de plantado a propósito (dos pasivas y dos activas) para que el selftest siga valiendo con el
+perfil `baseline` y no se vuelva frágil si ZAP cambia una firma: se afirma *«el gate se puso rojo»*, no
+*«esta regla concreta disparó»*.
+
+**Coste medido:** 165 s (el canario arranca en segundos frente a los 143 s del stack real). Lo que
+verifica es la cadena escáner → política → candado, que es donde estaba el agujero; que el stack real
+levanta ya lo mide `e2e-real.yml` cada noche.
+
+#### La segunda mitad: la guarda estática, en cada push
+
+`scripts/check-dast-gate-live.sh` (job `dast-gate-live` de `ci.yml`, junto a las otras tres guardas
+estáticas). Sin red y sin Docker, en menos de un segundo, comprueba:
+
+1. Existe un workflow de DAST con cadencia propia (`schedule`).
+2. Tiene job de autoprueba que escanea el canario.
+3. El barrido **depende** de la autoprueba (`needs: [selftest]`).
+4. El barrido aplica el **candado**, no solo el escáner.
+5. **El candado funciona**: se le pasa un informe limpio (exige verde), uno con un SQLi de manual
+   (exige **rojo**) y uno inexistente (exige **rojo** — un escáner que no corrió no es un verde).
+6. Ningún workflow activo cuelga su DAST de `secrets.STAGING_BASE_URL`, y `deploy.yml` sigue marcando
+   sus gates como INERTES.
+
+Es el arreglo del *mañana*: si alguien vacía las reglas `FAIL` de `baseline.conf` para «quitar ruido»,
+sale en el PR, no seis meses después.
+
+### 44.4 ⚠️ ALCANCE DECLARADO — lo que este DAST **NO** cubre
+
+**Este párrafo es parte del entregable. Nadie puede citar este gate como si cubriera producción.**
+
+El blanco es un stack **efímero de CI con datos sintéticos**. Se parece a producción en el código que
+ejecuta, y en poco más. En concreto **NO** cubre:
+
+- **La configuración de producción.** Variables de entorno, diales `ConfigSetting` reales, límites del
+  throttler, orígenes CORS, claves y modos de Stripe (aquí siempre TEST, y sin credencial utilizable).
+  Un fallo de configuración de prod —el tipo de fallo más común en incidentes reales— es invisible aquí.
+- **Los datos de producción.** El seed es sintético y determinista. No hay volumen, ni distribuciones
+  reales, ni los casos raros que produce el uso real. Un fallo de autorización que solo se manifiesta
+  con datos de varios clientes no aparece.
+- **La superficie de red de producción.** No hay Vercel ni Railway, ni su CDN, ni WAF, ni reglas de DNS,
+  ni el TLS real, ni los redirects 301 del rebrand a `tcghunt.mx`. Todo lo que ZAP diría sobre
+  cabeceras HSTS, certificados o cacheado de borde **describe a `localhost`, no a `tcghunt.mx`**.
+- **Las integraciones vivas.** Webhooks de Stripe reales, proveedores de precio de paga (declarados
+  incapacitados a propósito), correo saliente, object storage gestionado.
+- **La superficie de la API que no cuelga de la vitrina.** El backend NestJS **no expone OpenAPI**, así
+  que la araña de ZAP solo alcanza los endpoints que el navegador llama desde el front. Los endpoints
+  administrativos y los que solo se invocan por webhook **no se enumeran**. *(Cierre posible: que
+  backend exponga un spec; queda dicho aquí, no cableado.)*
+- **Producción, punto.** Contra prod no hay ni habrá cron. Sigue vigente el procedimiento de **prueba
+  puntual autorizada** de §14.3 (`ALLOW_PROD_DAST=1`, ventana escrita, plan de aborto).
+
+Lo que **sí** cubre, y no es poco: la superficie web servida por el código de `HEAD`, con procedencia
+verificada (SEC-OPS-1) y con el dial de precio verificado en paridad (`I-PP5`). Es la diferencia entre
+cero escaneos y un escaneo semanal real.
+
+### 44.5 El ruido: qué se silenció y por qué
+
+Un escaneo semanal que escupe falsos positivos que nadie revisa se ignora en un mes, y entonces
+tenemos un verde que no protege. Reglas de la política (`security/zap/baseline.conf`), y el porqué:
+
+*(la tabla de reclasificación y su evidencia se cierran en §44.7, con el informe del primer barrido)*
+
+El candado además **agrega**: lo bloqueante sale arriba con URL de ejemplo; lo demás se colapsa a una
+línea por regla dentro de un `<details>`; y lo silenciado **se cuenta en una línea al pie** —
+«silenciado» nunca puede volverse «invisible». Prefiero un informe corto y creíble a uno exhaustivo
+que nadie lea.
+
+### 44.6 Los gates huérfanos de `deploy.yml`: **declarados INERTES**
+
+`deploy.yml` **sigue apagado y debe seguir así**: los deploys reales van por las integraciones nativas
+de Vercel/Railway (push-to-deploy). **No se reactiva.**
+
+Pero de eso se sigue algo que hasta hoy no estaba escrito, y por no estarlo se contaba como cobertura.
+Decisión tomada, gate por gate:
+
+| Gate en `deploy.yml` | Decisión | Dónde vive el que SÍ corre |
+|---|---|---|
+| `staging-serves-head` (procedencia SEC-OPS-1) | **INERTE, se conserva** | `e2e-real.yml` (nocturno) y `security-dast.yml`: `assert-serving-head.sh` contra el stack efímero, en cada corrida |
+| `staging-provider-parity` (`D-PP-2` / `I-PP5`) | **MOVIDO** — ahora ejecutable | `security-dast.yml` y `e2e-real.yml`: `price-provider-parity.sh --assert` contra el stack efímero |
+| `dast-staging` (ZAP + nuclei) | **MOVIDO** | `security-dast.yml`, semanal, con autoprueba del candado |
+| `scheduled-dast` (`security-scheduled.yml`) | **RETIRADO** (no desactivado: movido) | `security-dast.yml` |
+
+**Por qué se conservan los tres de `deploy.yml` en vez de borrarlos:** son el esqueleto del día que
+exista un staging desplegado, y esa decisión es del dueño, no de devops. Lo que no puede pasar es que
+alguien los cite como cobertura activa. Por eso: (a) hay un bloque de cabecera en `deploy.yml` que lo
+dice con una tabla, (b) cada uno de los tres jobs lleva su marca `⚠️ INERTE (P-77)` encima, y (c)
+`check-dast-gate-live.sh` **comprueba en cada push que la marca sigue puesta**. Una decisión escrita
+que nadie verifica se erosiona; ésta se verifica.
+
+⛔ Si algún día se reactiva el CD: los tres dejan de ser inertes **solo** cuando exista un staging
+desplegado *y* sus secrets estén cargados. Reactivar el workflow sin eso devuelve el pipeline al estado
+de P-77.
+
+### 44.7 `D-PP-2` deja de depender de secrets que nadie puede dar
+
+`staging-provider-parity` exigía `STAGING_ADMIN_EMAIL` + `STAGING_ADMIN_PASSWORD` para poder **leer**
+el dial `price_provider` (`GET /admin/settings` es `@Roles(super_admin)`). Contra el stack efímero eso
+ya no hace falta: **el admin lo crea el seed sintético**, y `price-provider-parity.sh` cae por defecto
+a esas credenciales (`admin@staging.local`). El gate pasa de «depende de secrets que el dueño no puede
+dar» a «se comprueba solo», y además es **rojo duro**: si el stack efímero no evalúa el proveedor
+primario, el barrido para, porque un informe DAST sobre otro barrido describe otro sistema.
+
+> ✅ **PETICIÓN RETIRADA.** `STAGING_ADMIN_EMAIL` y `STAGING_ADMIN_PASSWORD` **ya no se piden al humano**.
+> Tampoco `STAGING_BASE_URL` ni `STAGING_API_URL` para el DAST. Quedan sin objeto mientras no exista un
+> staging desplegado, y su ausencia ya no deja ningún gate ciego. Ver §11.D.
+
+### 44.8 Cómo se corre y cómo se apaga
+
+```bash
+# Barrido completo a mano (necesita Docker):
+./security/scripts/dast-ephemeral.sh up      # stack + salud + procedencia + seed + paridad
+./security/scripts/dast-ephemeral.sh scan    # ZAP (+ nuclei) contra vitrina y API
+./security/scripts/dast-ephemeral.sh gate    # el candado: 0 verde / 1 ROJO
+./security/scripts/dast-ephemeral.sh down    # apaga y borra volúmenes
+
+# ¿El candado sabe ponerse rojo? (canario con vulnerabilidades plantadas)
+./security/scripts/dast-selftest.sh
+
+# El candado sobre informes ya guardados (sin Docker, sin red):
+python3 security/scripts/dast-gate.py --zap-json security/reports/zap-*.json
+
+# La guarda estática que corre en cada push:
+./scripts/check-dast-gate-live.sh
+```
+
+En CI: `.github/workflows/security-dast.yml` — semanal (lun 06:00 UTC), `workflow_dispatch` (con perfil
+`full`/`baseline`, tope del escaneo activo y modo `report_only` para calibrar), `workflow_call` para el
+barrido previo a publicar, y **empujar a una rama `devops/dast-**`** para reproducir la demostración
+completa sin esperar al lunes.
+
+**Rollback de este pase:** `git revert` del commit. No deja estado: el stack es efímero y se destruye
+con `down -v` en cada corrida; lo único que escribe fuera del runner es el issue de hallazgos (que se
+cierra a mano) y el dial `price_provider` de ese stack efímero, que muere con él. Quitar
+`security-dast.yml` devuelve el DAST a cero cobertura — con el agujero de P-77 intacto.

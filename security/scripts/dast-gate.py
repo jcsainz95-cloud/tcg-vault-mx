@@ -140,6 +140,22 @@ def load_ignore_ids(path):
     return ids
 
 
+def anotar(titulo, lineas):
+    """Publica un digest como ANOTACIÓN de GitHub.
+
+    Por qué no basta con el step summary y el artefacto: los dos viven detrás de
+    una descarga. Las anotaciones salen en la portada del run y en la API de
+    checks, así que el resultado del barrido es legible SIN abrir logs ni bajar
+    un zip — que es la diferencia entre un informe que se lee y uno que no.
+    Fuera de Actions no imprime nada (no ensucia la salida local).
+    """
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    cuerpo = "%0A".join(x.replace("\n", " ").replace("%", "%25").replace("\r", "")
+                        for x in lineas)[:3500]
+    print("::notice title=%s::%s" % (titulo.replace("::", ":"), cuerpo))
+
+
 def main():
     p = argparse.ArgumentParser(description="Candado del DAST: informes -> veredicto.")
     p.add_argument("--zap-json", action="append", default=[],
@@ -258,6 +274,11 @@ def main():
         if args.summary:
             with open(args.summary, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(L) + "\n")
+        dig = ["Canario: %s" % args.target,
+               "Gate sobre el canario: %s" % ("ROJO (correcto)" if red else "VERDE (FALLO)")]
+        for rule, name, risk, n, _uri in (zap or []):
+            dig.append("%-6s %-6s %-5s x%-4d %s" % (pol.get(rule, "WARN"), rule, risk, n, name[:70]))
+        anotar("Autoprueba del candado DAST — %s" % ("OK" if ok else "FALLO"), dig)
         if not ok:
             print("::error title=El candado del DAST no puede ponerse rojo::"
                   "El canario con vulnerabilidades plantadas pasó el gate en VERDE. "
@@ -275,6 +296,20 @@ def main():
     if args.summary:
         with open(args.summary, "w", encoding="utf-8") as fh:
             fh.write("\n".join(L) + "\n")
+
+    # Digest legible sin abrir logs ni bajar artefactos.
+    dig = ["Blanco: %s" % args.target,
+           "Veredicto: %s" % ("ROJO" if red else "VERDE")]
+    if zap is not None:
+        agg = OrderedDict()
+        for rule, name, risk, n, _uri in zap:
+            k = (pol.get(rule, "WARN"), rule, name, risk)
+            agg[k] = agg.get(k, 0) + n
+        for (act, rule, name, risk), n in sorted(agg.items(), key=lambda kv: (kv[0][0] != "FAIL", -kv[1])):
+            dig.append("%-6s %-6s %-5s x%-4d %s" % (act, rule, risk, n, name[:70]))
+    if nuc:
+        dig.append("nuclei: %d hallazgo(s)" % len(nuc))
+    anotar("DAST %s — %s" % (args.label[:60], "ROJO" if red else "VERDE"), dig)
 
     if red and not args.report_only:
         for m in missing_input:

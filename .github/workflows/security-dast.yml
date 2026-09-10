@@ -22,11 +22,20 @@
 #
 # NÚMERO QUE DECIDIÓ LA FORMA (job propio en vez de colgarlo del E2E nocturno):
 #   e2e-real.yml, run 34352287999: total 224 s, de los cuales 139 s son
-#   `compose up --build`. El escaneo ACTIVO tiene un tope de 12 min por blanco.
-#   Colgarlo del nocturno ahorraría esos 139 s pero multiplicaría por ~8 la corrida
-#   que el equipo mira cada mañana, y mezclaría dos veredictos distintos ("¿funciona?"
-#   vs "¿es atacable?") en un solo rojo ambiguo. 139 s es un precio barato por
-#   mantenerlos separados: se separan.
+#   `compose up --build`. Aquí, levantar + sembrar + procedencia + paridad del dial
+#   cuesta 143 s (medido, run 34432408600): el DAST añade 4 s sobre lo que el
+#   nocturno ya hacía. Colgarlo del nocturno ahorraría esos 139 s pero multiplicaría
+#   por ~6 la corrida que el equipo mira cada mañana, y mezclaría dos veredictos
+#   distintos ("¿funciona?" vs "¿es atacable?") en un solo rojo ambiguo. 139 s es un
+#   precio barato por mantenerlos separados: se separan.
+#
+#   SEGUNDA MEDICIÓN, la que fijó el presupuesto del escaneo: con perfil `full` +
+#   araña AJAX contra DOS blancos (vitrina y base de la API), el paso de escaneo
+#   pasó de 30 min sin terminar. El culpable es el segundo blanco: el backend no
+#   expone OpenAPI, así que la araña no tiene nada que recorrer ahí y se gasta su
+#   presupuesto entero sin descubrir superficie. ZAP apunta ahora SOLO a la vitrina
+#   (la araña AJAX sí mete las XHR de la SPA en el árbol) y nuclei —rápido— a las
+#   dos. Lo que eso deja fuera está DECLARADO en DEVOPS_NOTES §44.4.
 #
 # CADENCIA: semanal (lunes 06:00 UTC, la misma que ya tenía el cron muerto que
 #   sustituye) + `workflow_call` para el barrido previo a publicar + manual.
@@ -63,7 +72,7 @@ on:
       active_max_mins:
         description: "Tope duro del escaneo activo por blanco (minutos)"
         type: string
-        default: "12"
+        default: "10"
   # Barrido previo a publicar: invocable desde cualquier ruta de release.
   workflow_call:
     inputs:
@@ -74,7 +83,7 @@ on:
       active_max_mins:
         type: string
         required: false
-        default: "12"
+        default: "10"
     outputs:
       blocking:
         description: "true si el DAST encontró hallazgos bloqueantes."
@@ -94,7 +103,7 @@ concurrency:
 
 env:
   SCAN_PROFILE: ${{ inputs.scan_profile || 'full' }}
-  ACTIVE_MAX_MINS: ${{ inputs.active_max_mins || '12' }}
+  ACTIVE_MAX_MINS: ${{ inputs.active_max_mins || '10' }}
 
 jobs:
   # ---------------------------------------------------------------------------
