@@ -36,20 +36,52 @@ const sentencias = sql
   .filter((l) => !l.trimStart().startsWith('--'))
   .join('\n');
 
+/** Las DOS columnas cuyo «sin default» ES la decisión de `§4.44.e`. La prohibición es de ÉSTAS. */
+const SIN_DEFAULT = /"(priceConvention|ivaTransferPct)"/;
+
 describe('M-50 — el DDL sin default, verificado sobre la FORMA de la migración (`IVA-3(c)`)', () => {
   describe('⭐⭐ ⛔ la forma prohibida no aparece, ni con `DROP DEFAULT` de coartada', () => {
-    it('⛔ ninguna sentencia usa `NOT NULL DEFAULT`', () => {
-      expect(sentencias).not.toMatch(/NOT\s+NULL\s+DEFAULT/i);
+    /**
+     * ⚠️ **v1.64(4) — ESTE ASSERT SE ACOTA A LAS DOS COLUMNAS DE CONVENCIÓN, y el acotarlo es la
+     * norma, no una concesión.** Hasta v1.64(3) M-50 no tenía ni un `NOT NULL DEFAULT`, así que la
+     * prohibición global y la correcta daban lo mismo y no había que elegir. El **PASO 3-BIS**
+     * (`shippingCostIvaCents INTEGER NOT NULL DEFAULT 0`) obliga a elegir, y la elección ya estaba
+     * escrita cuatro asserts más abajo, en el test que barre TODAS las migraciones: **§4.44.e no
+     * prohíbe los defaults, prohíbe ÉSTE**. Dejarlo global habría dado un rojo sobre una sentencia
+     * correcta, y el primero que lo viera lo habría borrado entero — llevándose por delante el que
+     * sí importa. *Un candado que grita ante conducta correcta se desactiva solo.*
+     */
+    it('⛔ ninguna sentencia da `NOT NULL DEFAULT` a `priceConvention` ni a `ivaTransferPct`', () => {
+      for (const stmt of sentencias.match(/ALTER TABLE[^;]+;/gi) ?? []) {
+        if (SIN_DEFAULT.test(stmt)) expect(stmt).not.toMatch(/NOT\s+NULL\s+DEFAULT/i);
+      }
+    });
+
+    /**
+     * ⭐ **Y el contra-candado de haber acotado el anterior: la EXCEPCIÓN está ENUMERADA.** Acotar
+     * sin enumerar sería abrir la puerta: cualquier `NOT NULL DEFAULT` nuevo sobre cualquier otra
+     * columna entraría mudo en una migración de dinero. Aquí hay **exactamente uno**, y añadir un
+     * segundo obliga a pasar por este test y a justificarlo.
+     */
+    it('⭐ el ÚNICO `NOT NULL DEFAULT` de toda M-50 es el de `shippingCostIvaCents` (PASO 3-BIS)', () => {
+      const conDefault = (sentencias.match(/ALTER TABLE[^;]+;/gi) ?? [])
+        .filter((s) => /NOT\s+NULL\s+DEFAULT/i.test(s))
+        .map((s) => s.replace(/\s+/g, ' ').trim());
+      expect(conDefault).toEqual([
+        'ALTER TABLE "ShipmentRequest" ADD COLUMN "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;',
+      ]);
     });
 
     it('⛔ ninguna sentencia usa `DROP DEFAULT` (si no se puso, no hay que quitarlo)', () => {
       // ⭐ ÉSTE es el assert que mata la mutación que el candado de DDL no puede ver. Un `DROP
       // DEFAULT` en esta migración solo puede significar una cosa: que antes hubo un `DEFAULT`.
+      // Sigue siendo GLOBAL —sin acotar— y con el PASO 3-BIS es más fuerte que antes: si alguien
+      // «arregla» ese default quitándolo después, se entera aquí.
       expect(sentencias).not.toMatch(/DROP\s+DEFAULT/i);
     });
 
-    it('⛔ ni siquiera aparece la palabra `DEFAULT` en un `ALTER TABLE` de estas dos tablas', () => {
-      const alters = sentencias.match(/ALTER TABLE[^;]+;/gi) ?? [];
+    it('⛔ ni la palabra `DEFAULT` aparece en un `ALTER TABLE` de las dos columnas de convención', () => {
+      const alters = (sentencias.match(/ALTER TABLE[^;]+;/gi) ?? []).filter((a) => SIN_DEFAULT.test(a));
       expect(alters.length).toBeGreaterThan(0); // control: el regex encuentra algo
       for (const a of alters) expect(a).not.toMatch(/DEFAULT/i);
     });
@@ -81,6 +113,73 @@ describe('M-50 — el DDL sin default, verificado sobre la FORMA de la migració
     it('la columna se añade y ahí se queda (nullable, sin tocar)', () => {
       expect(sentencias).toMatch(/ALTER TABLE "Order" ADD COLUMN "ivaTransferPct"\s+INTEGER;/i);
       expect(sentencias).not.toMatch(/"ivaTransferPct"[^;]*NOT NULL/i);
+    });
+  });
+
+  /**
+   * ⭐⭐ **M-50.3-BIS (v1.64(4), `§4.44.f-ter`, candado `IVA-11(c)(d)`) — `shippingCostIvaCents`.**
+   *
+   * El IVA acreditable del costo de envío, **congelado al capturar**, para que netear sea **una
+   * resta**. Existe porque `ShipmentRequest` **no tiene `ivaRatePct`**: derivar el neto con
+   * `costo/(1+r)` obligaría a leer el **dial vivo** y un P&L histórico cambiaría al mover `iva_pct`
+   * — incumpliendo `IVA-5`, que ya está verde.
+   *
+   * **Lo que este bloque defiende es el `@default(0)` HONESTO y su frontera con el prohibido.** No
+   * son dos criterios: es uno solo aplicado dos veces —*un default vale cuando la ausencia de
+   * verdad significa ese valor*—, y da respuestas distintas porque las dos ausencias significan
+   * cosas distintas. Aquí «no se capturó el IVA de ese costo» **es** cero (`net = bruto`, la
+   * dirección conservadora: subestima la ganancia). En `priceConvention`, «nadie dijo con qué regla
+   * se cobró» **no es** `IVA_EXCLUSIVE`.
+   */
+  describe('⭐⭐ M-50.3-bis — `shippingCostIvaCents`: aditiva, con default HONESTO y ⛔ sin backfill', () => {
+    it('se añade una sola vez, entera, `NOT NULL DEFAULT 0`', () => {
+      const adds = sentencias.match(/ALTER TABLE "ShipmentRequest" ADD COLUMN "shippingCostIvaCents"[^;]*;/gi) ?? [];
+      expect(adds).toHaveLength(1);
+      expect(adds[0]).toMatch(/INTEGER\s+NOT\s+NULL\s+DEFAULT\s+0;/i);
+    });
+
+    /**
+     * ⛔ **La mitad que carga el dinero.** `costo × 16/116` sobre las filas existentes inventaría un
+     * **crédito fiscal** que nadie verificó, sobre facturas que nadie miró — y a diferencia de casi
+     * todo lo demás, sería un invento que **infla la ganancia**. Misma doctrina que `ivaTransferPct`.
+     */
+    it('⛔ NO se backfillea: ninguna sentencia escribe `shippingCostIvaCents`', () => {
+      expect(sentencias).not.toMatch(/UPDATE[\s\S]*?"shippingCostIvaCents"\s*=/i);
+      expect(sentencias).not.toMatch(/SET\s+"shippingCostIvaCents"/i);
+    });
+
+    it('⭐ y la ÚNICA sentencia que la nombra en toda M-50 es ese `ADD COLUMN`', () => {
+      // Contra-candado: cierra la puerta a que el crédito se derive en cualquier otra forma
+      // (`INSERT … SELECT`, `UPDATE` disfrazado, expresión aritmética) sin que nadie lo lea.
+      const nombran = (sentencias.match(/[^;]*"shippingCostIvaCents"[^;]*;/gi) ?? []).map((s) =>
+        s.replace(/\s+/g, ' ').trim(),
+      );
+      expect(nombran).toEqual([
+        'ALTER TABLE "ShipmentRequest" ADD COLUMN "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;',
+      ]);
+      // ⛔ y por si alguien la derivara sin nombrarla: en M-50 no hay aritmética de tasa, ninguna.
+      expect(sentencias).not.toMatch(/\b116\b|\/\s*1\.16|\*\s*16\s*\//);
+    });
+
+    it('⛔ NO es nullable — un `NULL` exigiría un backfill que INVENTA «costó cero» vs «no consta»', () => {
+      const [add] = sentencias.match(/ALTER TABLE "ShipmentRequest" ADD COLUMN "shippingCostIvaCents"[^;]*;/i) ?? [];
+      expect(add).toMatch(/NOT\s+NULL/i);
+      // La ambigüedad se hace VISIBLE (contador `shippingCostMissingCount` del P&L, D-2), ⛔ no se
+      // resuelve falsamente. `API_CONTRACT §M10-IVA.8` e `IVA-11(b)`.
+    });
+
+    it('⛔ vive SOLO en M-50: ninguna otra migración la menciona', () => {
+      const otras = readdirSync(DIR, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && d.name !== M50)
+        .map((d) => d.name)
+        .filter((n) => /shippingCostIvaCents/i.test(readFileSync(join(DIR, n, 'migration.sql'), 'utf8')));
+      expect(otras).toEqual([]);
+    });
+
+    it('⛔ y NO toca la columna que ya existía: `shippingCostCents` sigue como estaba (M-16)', () => {
+      // El bruto es el dato PRIMARIO (`R3`): la factura del carrier. M-50 no lo netea, no lo
+      // reescribe y no lo renombra — el neteo ocurre al LEER, en el P&L del D-2.
+      expect(sentencias).not.toMatch(/"shippingCostCents"/);
     });
   });
 
@@ -130,7 +229,12 @@ describe('M-50 — el DDL sin default, verificado sobre la FORMA de la migració
      * MAL por no acotarlo.** Lo escribí como *«ninguna migración usa `NOT NULL DEFAULT` sobre `Order`
      * o `ShipmentRequest`»* y salió rojo con **cuatro** sentencias **legítimas y correctas**
      * (`chargebackNeedsManual false`, `shippingCostCents 0`, `fulfillmentMode 'vault'`,
-     * `shippingFeeCents 0`). **§4.44.e no prohíbe los defaults: prohíbe ÉSTE.** La diferencia es de
+     * `shippingFeeCents 0`). **⭐ v1.64(4): ya son CINCO** — se les suma
+     * **`shippingCostIvaCents 0`** (M-50 PASO 3-BIS), y es la primera que cae **dentro de la propia
+     * M-50**: por eso el primer assert de este fichero pasó de global a acotado. *Que la excepción
+     * honesta aterrizara en el mismo fichero que la prohibición es lo que obligó a escribir la
+     * frontera en código y no solo en un comentario.* **§4.44.e no prohíbe los defaults: prohíbe
+     * ÉSTE.** La diferencia es de
      * significado, no de sintaxis: en `shippingCostCents` la ausencia **de verdad significa cero**,
      * así que el default dice la verdad; en `priceConvention` la ausencia significa *«nadie dijo con
      * qué regla se cobró»*, y **ahí un default convierte un hueco en una afirmación falsa**. Un test

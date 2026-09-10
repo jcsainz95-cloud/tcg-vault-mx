@@ -210,6 +210,62 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
   });
 
   // =============================================================================================
+  // ⭐ `IVA-11(d)` (mitad de D-1) — LA COLUMNA NUEVA EXISTE, ESTÁ EN CERO, Y NADIE LA INVENTÓ
+  // =============================================================================================
+  /**
+   * v1.64(4) (`M-50` PASO 3-BIS, `§4.44.f-ter`). Las otras tres mitades de `IVA-11` —la identidad
+   * `netShippingRevenue − netShippingCost == 0`, el contador `shippingCostMissingCount` y el neteo
+   * por resta— **son del DEPLOY 2 y no se pueden asertar aquí**: en D-1 el P&L ni siquiera lee esta
+   * columna, que es la promesa entera del pase. Lo que **sí** es exigible hoy es la mitad `(d)`: que
+   * el DDL diga lo que debe decir y que **nadie haya backfilleado un crédito fiscal**.
+   */
+  describe('⭐ `IVA-11(d)` — `shippingCostIvaCents`: entera, NOT NULL, `DEFAULT 0` y ⛔ sin backfill', () => {
+    it('el DDL: `integer`, `is_nullable = NO`, `column_default = 0`', async () => {
+      const [col] = await h.prisma.$queryRawUnsafe<
+        { is_nullable: string; column_default: string | null; data_type: string }[]
+      >(
+        `SELECT is_nullable, column_default, data_type
+           FROM information_schema.columns
+          WHERE table_name = 'ShipmentRequest' AND column_name = 'shippingCostIvaCents'`,
+      );
+      expect(col).toBeDefined();
+      expect(col.data_type).toBe('integer');
+      // ⛔ NO nullable: para las filas existentes «costó cero» y «no se capturó» son
+      // indistinguibles, y un `NULL` exigiría un backfill que INVENTA esa distinción.
+      expect(col.is_nullable).toBe('NO');
+      // ⭐ Y aquí el default SÍ debe estar — es la diferencia con `priceConvention`, medida sobre el
+      // mismo catálogo y en el mismo fichero: la ausencia de verdad significa cero.
+      expect(col.column_default).toBe('0');
+    });
+
+    it('⛔ CERO filas con crédito distinto de 0: nadie backfilleó `costo × 16/116`', async () => {
+      // El candado del contrato lo acota a las filas anteriores al deploy; en D-1 **ninguna** ruta
+      // escribe esta columna, así que la cota es TODA la tabla — más fuerte, no menos.
+      const [s] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "ShipmentRequest" WHERE "shippingCostIvaCents" <> 0`,
+      );
+      expect(Number(s.n)).toBe(0);
+    });
+
+    it('⭐ y el default se aplica de verdad: un INSERT que la omite deja `0`, no `NULL`', async () => {
+      const id = `iva-e2e-${RUN}-costiva`;
+      await h.prisma.$executeRawUnsafe(
+        `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "priceConvention", "shippingCostCents")
+         VALUES ('${id}', '{}'::jsonb, 'solicitado', 17500, 'IVA_EXCLUSIVE', 20300)`,
+      );
+      aLimpiar.shipmentIds.push(id);
+      const [fila] = await h.prisma.$queryRawUnsafe<
+        { shippingCostCents: number; shippingCostIvaCents: number }[]
+      >(`SELECT "shippingCostCents", "shippingCostIvaCents" FROM "ShipmentRequest" WHERE id = '${id}'`);
+      // El BRUTO entra tal cual (es la factura del carrier, dato primario, `R3`)…
+      expect(fila.shippingCostCents).toBe(20300);
+      // …y el crédito arranca en 0 ⇒ `net = bruto`: la dirección CONSERVADORA (subestima la
+      // ganancia). ⛔ Rojo si aparece un `2800` derivado por alguien: nadie verificó esa factura.
+      expect(fila.shippingCostIvaCents).toBe(0);
+    });
+  });
+
+  // =============================================================================================
   // ⭐⭐ `IVA-3(e)` — EL CANDADO QUE MÁS IMPORTA: OLVIDAR LA CONVENCIÓN **REVIENTA**
   // =============================================================================================
   describe('⭐⭐ `IVA-3(e)` — un camino de escritura que OLVIDE la convención FALLA (no hereda nada)', () => {

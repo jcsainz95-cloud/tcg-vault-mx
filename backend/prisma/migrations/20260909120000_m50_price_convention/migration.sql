@@ -90,6 +90,16 @@ ALTER TABLE "ShipmentRequest" ADD COLUMN "ivaTransferPct"  INTEGER;
 --
 -- ⚠️ EN EL DEPLOY 1 NADIE LA LEE. Se escribe (por el default) desde el minuto cero, y el primer
 -- lector es el P&L del DEPLOY 2 (`§M10-IVA.8`). ⇒ D-1 conserva su promesa: CERO cambios observables.
+--
+-- ⚠️⚠️ PARA QUIEN TENGA UNA BASE LOCAL CON M-50 YA APLICADA (staging y producción NO la tienen: D-1
+-- está SIN PUBLICAR, y por eso este paso entra aquí y no en una migración aparte). Este fichero
+-- CAMBIÓ después de aplicarse en esas bases, y `prisma migrate deploy` NO lo detecta: dice
+-- «No pending migrations» y la columna NO aparece. Se arregla con `npx prisma migrate reset`, o a
+-- mano si hay datos que salvar:
+--   ALTER TABLE "ShipmentRequest" ADD COLUMN IF NOT EXISTS "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;
+--   UPDATE _prisma_migrations SET checksum = '<sha256 de este fichero>'
+--    WHERE migration_name = '20260909120000_m50_price_convention';
+-- El síntoma si no se hace: la suite de integración revienta con «column … does not exist».
 -- =============================================================================
 ALTER TABLE "ShipmentRequest" ADD COLUMN "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;
 
