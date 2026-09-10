@@ -331,6 +331,12 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   estado de solicitudes en un solo sitio, y **mover los retiros a la bóveda** (un retiro es una
   acción sobre la bóveda). ⚠️ Matiz de nombre: «orden» se lee como *compra*; si ahí van las ventas,
   hacen falta **pestañas explícitas** o un nombre neutro, o el vendedor no las busca ahí.
+- ⭐ **v2026-09-10 — `P-73` le añade munición al apartado (a), medida:** el nombre de una cuenta de Google
+  no solo falta, **el sistema lo FABRICA** con el trozo del correo antes de la arroba
+  (`auth.service.ts:339`), **nadie puede corregirlo** —ni el cliente ni el admin— y se ve en **16 sitios**,
+  entre ellos **10 correos al cliente** y **los buscadores del back-office**. ⇒ La pantalla de perfil deja
+  de ser «comodidad para el cliente» y pasa a ser **la única cura de un dato inventado que hoy es
+  permanente**. Sube de prioridad dentro de este pendiente.
 - **Rol dueño:** ux-ui (rediseño de navegación) → frontend. **Cero backend**: los endpoints existen.
 
 #### P-58 · 🔴 «Marcar recibida» se ofrece desde CUALQUIER estado — se salta el pacto
@@ -721,8 +727,21 @@ roles) y **¿cómo le llama a M5?**.
 El **enlace** de una cuenta local con Google **no pisa el nombre existente** (`auth.service.ts:315-322`
 escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta el que ya había).
 
-- **Rol dueño:** product-owner aterriza el **qué** (¿se pide el nombre al entrar? ¿pantalla de perfil?
-  ¿destinatario en el domicilio?) → arquitecto el contrato → backend y frontend.
+- ⚠️ **CRUCE OBLIGATORIO CON P-57 — el humano me lo recordó y yo debí cruzarlo antes de abrir esto.**
+  `P-57(a)` ya tenía anotado que **no existe pantalla de perfil**, con el caso de Google nombrado y todo
+  («una cuenta de Google quedaba bloqueada sin salida, paliado con captura inline»). Y `CLAUDE.md:49` ya
+  lista **«perfil»** como superficie del work stream *Cuentas y acceso*. ⇒ **No es un frente nuevo.**
+  **El apartado A de aquí NO se trabaja por separado: es munición para `P-57(a)`.**
+- **Lo que este pendiente SÍ añade y `P-57` no tenía** — por eso no lo fusiono del todo:
+  1. El nombre no está *ausente*: **está INVENTADO**, y eso es peor porque parece real.
+  2. **Tampoco el admin puede corregirlo** — `P-57(a)` decía «el cliente no puede»; medido, **nadie** puede.
+  3. **Los 16 sitios** donde se ve, incluidos los **buscadores del operador**.
+  4. ⭐ **Todo el apartado B**, que no está en `P-57` y **no es un problema de la cuenta del cliente**:
+     ningún envío de usuario con sesión lleva destinatario. Eso vive en el domicilio y en el envío, no en
+     el perfil, así que **sobrevive aunque `P-57` se cierre entero**.
+- **Rol dueño:** **A** → se pliega a `P-57` (ux-ui → frontend; **cero backend**, los endpoints existen).
+  **B** → product-owner aterriza el qué (¿el destinatario vive en `Address` o se pide por envío?) →
+  arquitecto (es cambio de contrato y de esquema) → backend + frontend.
 - **Prioridad:** **B afecta a todos los clientes con cuenta, no solo a los de Google.** Es el más grande de los
   dos y el que el caso de Google solo hizo visible.
 
