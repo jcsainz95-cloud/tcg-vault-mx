@@ -4,7 +4,20 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.8** — dos cosas:
+> Estado: **v3.9** — **§31.10 reescrita: el pase de COPY que pidió el dueño sobre los correos ya renderizados**
+> (2026-09-10). ⛔ **No se toca la maqueta**: son cinco valores de cadena, ES y EN, listos para cablear.
+> **(a) El correo de cancelación deja de decir dos veces lo mismo y deja de prometer lo que el sistema no
+> cumple.** Medido en el código: la cancelación es **una acción manual del operador** —*«la ÚNICA vía para
+> corregir una oferta equivocada»*— y **el motivo NUNCA viaja al vendedor**; y desde `cotizada` hay **tres**
+> salidas, **solo una es una oferta nueva** ⇒ ⛔ *«te escribiremos con una oferta nueva»* **se retira**, y en
+> su sitio van **las dos salidas reales**, que es lo único garantizado. **(b) El correo de expiración** gana
+> la frase que el dueño dictó (*«La solicitud queda cerrada y no se compró ninguna carta.»*) y pierde la
+> negación defensiva — ⚠ **con textos DISTINTOS en sus dos variantes**, porque en `not_shipped` el vendedor
+> aceptó y **puede mandar el paquete igual**. **(c) `notPursued.p2` se comprime de 15 palabras a 9**: se va el
+> marco defensivo, **se queda la instrucción operativa**. **(d) Se cierran DOS huecos abiertos de §31**: el
+> **eyebrow de 2b** (§31.10d) y el **CTA del correo 4** — que **no lleva, y es deliberado** (§31.10e).
+> **Dos candados nuevos: ML-12 y ML-13.**
+> Antes: **v3.8** — dos cosas:
 > **(1) §31 — NUEVA: los OCHO correos, hablando el mismo idioma.** El dueño mandó una propuesta del correo 1
 > (*«adecua con nuestro logo pero algo así»*, *«que todos se hablen»*) y **no es lenguaje nuevo: es nuestro
 > sistema llevado al correo**. Hoy los ocho comparten un `layout()` de nueve líneas con **Arial, un `<h2>` y
@@ -14571,7 +14584,7 @@ pantalla** y **qué sale por la red**.*
 
 ---
 
-## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.8)
+## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.9)
 
 > **Origen:** el dueño mandó una propuesta de diseño del **correo 1** y pidió, literal: *«adecua con nuestro
 > logo pero algo así»* y *«hay que mover el diseño a que todos se hablen con la propuesta que te mandé»*.
@@ -14595,9 +14608,18 @@ pantalla** y **qué sale por la red**.*
 | **2** | **⛔ LOS CINCO PROHIBIDOS** (`PROJECT.md §P.3`, criterio **173(h)**) | **(1)** domicilio · **(2)** CLABE, ni enmascarada · **(3)** datos de terceros · **(4)** montos o estado de **otras** solicitudes u **otros** ítems · **(5)** cifras internas de la mesa (posición, sugerencia, topes del operador). Los hace cumplir `test/buylist.cycle-mail-pii.spec.ts`. **Un correo bonito que meta uno de los cinco es peor que el feo de hoy** — y el rediseño es justo el momento en que se cuela uno, porque se toca cada plantilla a la vez. |
 | **3** | **⛔ Prohibido `MX$ 0.00`** para lo que no compramos | Se lista **con nombre y sin monto** (criterio 118). *Misma familia que la regla del mercado de §28.4a: cero es un precio, y ahí no hay precio.* |
 
-**Y una consecuencia de método que vale para todo §31:** el rediseño **no reescribe ni una cadena** salvo la
-única que el dueño pidió expresamente (§31.10). **Todo lo demás es envoltura.** Si al maquetar hace falta
-partir un párrafo, se parte **por donde ya está partido**; si una frase no cabe, **cabe igual** — no se acorta.
+**Y una consecuencia de método que vale para todo §31:** el rediseño **no reescribe ni una cadena** salvo las
+que el dueño pidió expresamente y que §31.10 escribe **una por una**. **Todo lo demás es envoltura.** Si al
+maquetar hace falta partir un párrafo, se parte **por donde ya está partido**; si una frase no cabe, **cabe
+igual** — no se acorta.
+
+> ⚠ **v3.9 — y aquí conviene ser exacto sobre quién decide qué.** El pase de copy de §31.10 **es del dueño**:
+> él pidió los tres cambios y una de sus frases entra **carácter por carácter**. Lo que aporta §31 es **el
+> control de verdad**: comprobar en el código qué puede afirmar cada correo antes de escribirlo. ⭐ **De ahí
+> salió el único hallazgo que cambió una decisión suya: la cancelación NO garantiza una oferta nueva**, así
+> que la frase que lo prometía **no se puede escribir por bonita que sea** (§31.10a). *Regla, no caso: el copy
+> de un correo no puede afirmar un estado que el sistema no cumple ni un dato que no llega hasta la
+> plantilla.*
 
 ### 31.1 Qué supersede esta sección, y qué NO
 
@@ -14607,7 +14629,7 @@ decisiones **siguen vivas y mandando**. Lo que faltaba era el **sistema del medi
 | | Estado |
 |---|---|
 | **§25.4.0 «El medio»** y **§25.4.1 «Esqueleto común»** | ⚠ **ABSORBIDOS AQUÍ Y AMPLIADOS a los ocho.** Todo lo que decían sigue siendo cierto —600px, tablas, estilos en línea, las tres pilas tipográficas, los colores aplanados `#D1CFC8`/`#AEACA7`, radios 0, imágenes casi cero, parte de texto plano obligatoria— **y se conserva palabra por palabra**. §31 añade lo que no tenían: **el bloque de marca**, **el pie en tinta**, **el modo oscuro de verdad** (§31.8), **el presupuesto de peso** y **los patrones nombrados**. ⛔ **Dos correcciones**, y son de medio, no de gusto: la **regla punteada** de §25.4.2 y el **`text-transform` de las versalitas** no sobreviven a Outlook (§31.2) |
-| **§25.4.2–§25.4.4-bis** (los cinco correos, bloque a bloque) | ✅ **INTACTAS.** El orden de bloques, las ocho decisiones del correo 1, el pozo del bloque de consecuencia, la resta, el plazo y las prohibiciones **no se tocan** |
+| **§25.4.2–§25.4.4-bis** (los cinco correos, bloque a bloque) | ✅ **INTACTAS en estructura**: el orden de bloques, las ocho decisiones del correo 1, el pozo del bloque de consecuencia, la resta, el plazo, los CTA y **todas las prohibiciones** siguen mandando. ⚠ **v3.9 — enmendadas SOLO en el valor de cinco cadenas**, y §31.10 es el sitio donde viven: `offerCancelled.p1`/`p2` (§25.4.4-bis), `expiry.noResponse.p1` y `expiry.notShipped.p1` (§25.4.4) y `notPursued.p2` (§25.4.5). **Lo que §25 dice de esos correos —qué afirma cada uno, qué CTA lleva y qué tiene prohibido— no cambia ni una coma**; cambia cómo lo dicen |
 | **§17.3, fila «Correos»** | ⚠ **ENMENDADA en un punto, y a mejor** (§31.5): decía *«lockup completo (a) como PNG»*. Un lockup **entero como imagen** desaparece cuando el cliente bloquea imágenes — que es el estado **por defecto** de Gmail y Outlook. Pasa a ser **híbrido: la mira es imagen, el wordmark es TEXTO VIVO** |
 | **§7.12a** (cómo se nombra un cobro) | ✅ **Aplica al correo con todas las letras**, y es la norma que justifica el cambio de copy de §31.10 |
 | **§2.x, §3.x, §4.x, §10, §17.2** | ✅ **Fuente de los valores.** §31 **no crea ni un token**: usa los mismos hex, aplanados |
@@ -14841,8 +14863,9 @@ línea:**
 | Correo | CTA | Color |
 |---|---|---|
 | **1 · la oferta** · **2 · el recordatorio** | `VER Y RESPONDER LA OFERTA` | **Bermellón** — hay una **decisión de dinero con fecha límite**, y el silencio también decide |
-| **3, 5, 6** (cancelada, vencida, no perseguida) | `Cotizar de nuevo` / ninguno | **Tinta** |
-| **4** (ítem rechazado) | el de coordinación | **Tinta** |
+| **3** (oferta cancelada) | `VER MI SOLICITUD` / `VIEW MY REQUEST` — ⛔ **no** «cotizar de nuevo»: la solicitud sigue viva y ese botón la duplicaría | **Tinta** |
+| **5, 6** (vencida, no perseguida) | `COTIZAR DE NUEVO` / `GET A NEW QUOTE` | **Tinta** |
+| **4** (ítem rechazado) | ⛔ **NINGUNO, y es deliberado** — resuelto en **§31.10e**: la acción es escribir a `soporte@tcghunt.mx`, que ya viaja dos veces en el cuerpo; un `mailto:` no puede cumplir el respaldo en texto de §31.6g, y el portal no tiene pantalla de devolución | — |
 | **7, 8** (verificar, restablecer) | `Verificar mi correo` / `Restablecer mi contraseña` | **Tinta** — hay plazo, pero **no hay dinero**: es una acción de cuenta |
 
 *No es una excepción de estilo: es exactamente la semántica del acento en este documento («esto pide una
@@ -14852,7 +14875,8 @@ al dueño donde él lo dibujó: **el correo 1 es su referencia y ahí el botón 
 **Construcción, a prueba de Outlook:** `<table><tr><td bgcolor align="center" style="padding:14px 28px">`
 con un `<a>` dentro **con `color` explícito y `text-decoration:none`**, altura útil ≥ 44px, **radio 0**,
 `border:1px solid` del mismo color (le da cuerpo si el `bgcolor` se pierde). **Texto del botón en MAYÚSCULAS
-en la cadena** (§31.2). **Un solo CTA por correo** (§25.4.1); un segundo destino va como enlace de texto.
+en la cadena** (§31.2). **Un solo CTA por correo** (§25.4.1) —**y CERO en el correo 4** (§31.10e)—; un
+segundo destino va como enlace de texto.
 
 ### 31.8 ⚠⚠ Modo oscuro — lo que hoy no está resuelto
 
@@ -14896,9 +14920,9 @@ preheader · parte de texto plano · pilas tipográficas · paleta · radios 0 �
 | # | Función | Eyebrow | Titular | ¿Montos? | ¿Caja de términos? | CTA |
 |---|---|---|---|---|---|---|
 | 1 | `sellOfferTemplate` ⭐ | `OFERTA DE COMPRA · <folio>` | serif 26px | **Sí** (la resta completa) | **Sí** | **Bermellón** |
-| 2 | `sellOfferReminderTemplate` | `LA OFERTA VENCE MAÑANA · <folio>` | serif 26px | **Solo el neto** | No | **Bermellón** |
+| 2 | `sellOfferReminderTemplate` | ⭐ **DOS, uno por variante** (§31.10d): **2a** `LA OFERTA VENCE MAÑANA · <folio>` · **2b** `EL PLAZO PARA ENVIAR VENCE MAÑANA · <folio>` | serif 26px | **Solo el neto** | No | **Bermellón** |
 | 3 | `sellOfferCancelledTemplate` | `OFERTA CANCELADA · <folio>` | serif 22px | **No** | No | Tinta |
-| 4 | `sellItemRejectedTemplate` | `CARTA NO ACEPTADA · <folio>` | serif 22px | **No** | **Sí** (los dos plazos) | Tinta |
+| 4 | `sellItemRejectedTemplate` | `CARTA NO ACEPTADA · <folio>` | serif 22px | **No** | **Sí** (los dos plazos) | ⛔ **Ninguno** (§31.10e) |
 | 5 | `sellRequestExpiredTemplate` | `SOLICITUD VENCIDA · <folio>` | serif 22px | **No** | No | Tinta |
 | 6 | `sellRequestNotPursuedTemplate` | `SOLICITUD CERRADA · <folio>` | serif 22px | **No** | No | Tinta |
 | 7 | `emailVerificationTemplate` | `SEGURIDAD DE LA CUENTA` *(sin folio)* | serif 22px | **No** | No | Tinta |
@@ -14912,31 +14936,217 @@ preheader · parte de texto plano · pilas tipográficas · paleta · radios 0 �
 - **⚠ Los correos 7 y 8 son de OTRO módulo y OTRO work stream** (`mail/mail.templates.ts`, «Cuentas y
   acceso»). Ver §31.15 antes de planificar.
 
-### 31.10 🟡 El único cambio de copy — correo 6
+### 31.10 🟡 Los cambios de copy — DOS pases, y éste es el segundo
 
-**Hoy** (`buylist-mail.templates.ts:705`, clave `notPursued.p2` de §25.12):
+**Pase 1 (v3.8, ya implementado y visible en los renders).** `notPursued.p2` perdió *«y no nos debes nada»* /
+*"and you owe us nothing"*. La razón sigue vigente y es la norma de **§7.12a**: una negación defensiva
+**nombra el tema** —mete la idea de una deuda que nunca existió, solo para negarla— y sigue siendo **una
+afirmación que habría que sostener**. Se mantuvo el **tuteo**: los ocho hablan de tú.
 
-> ES — «No hay nada pendiente de tu parte: no mandes ninguna carta, no se generó ninguna guía **y no nos debes
-> nada**.»
-> EN — “There is nothing pending on your side: don't send any card, no shipping label was generated **and you
-> owe us nothing**.”
+**Pase 2 (v3.9, éste).** El dueño revisó los seis del ciclo **ya renderizados** (`backend/tmp/mail-preview/`,
+2026-09-10) y pidió tres cosas. **Las tres son de copy y ninguna toca la maqueta**: la retícula, los patrones,
+el pie y el modo oscuro de §31.2–§31.9 se quedan **exactamente como están**. Lo que sigue es el texto
+**definitivo, ES y EN**: backend lo cablea **sin interpretar nada**.
+
+> ⚠⚠ **Aviso de numeración, porque aquí es donde se cometen los errores caros.** Los comentarios del código
+> usan la numeración de **§25** (donde «correo 3» es la expiración, «correo 4» el *no procederemos* y
+> «correo 5» la cancelación) y **§31 usa la de los OCHO** (3 = cancelada, 4 = carta no aceptada, 5 = vencida,
+> 6 = cerrada). **Por eso cada bloque de abajo se identifica por FUNCIÓN y por CLAVE, nunca por número.**
+
+#### 31.10a `sellOfferCancelledTemplate` — `offerCancelled.p1` / `p2` (§31.9 fila 3)
+
+El dueño preguntó **«¿en qué parte se detona la cancelación?»** antes de decidir el texto. **La respuesta está
+medida en el código, no supuesta, y cambia el correo:**
+
+| Lo medido | Dónde |
+|---|---|
+| **Un solo productor, y es MANUAL:** `POST /admin/buylist/:id/offer/cancel` sobre una oferta `sent`. ⛔ **Ningún barrido la dispara** | `admin-buylist.controller.ts:333` · `buylist.service.ts:3939`, `4035` |
+| **Para qué existe:** *«la ÚNICA vía para corregir una oferta equivocada. No existe "corregir un número" sobre una oferta que el vendedor ya tiene en su bandeja: se cancela y se emite otra»* | `admin-buylist.controller.ts:325-332` (criterio 145, **D38**) |
+| ⚠ **El motivo se captura y NO VIAJA.** El endpoint recibe `reason`, se guarda en `offerCancelReason` y en la bitácora; al vendedor *«viaja EL CUÁNDO Y NADA MÁS: ni el motivo (interno), ni los montos de la oferta cancelada»* | `buylist.service.ts:3991` · `buylist.service.ts:1979` |
+| **La solicitud vuelve VIVA:** `status='cotizada'`, `closedAt` intacto y el reloj de emisión repuesto entero | `buylist.service.ts:3960-4006` |
+
+⇒ **La cancelación NO es «ya no te compramos»: es «el número estaba mal y volvemos a la fila».** Eso es lo que
+el texto de hoy insinúa y no consigue decir. ⇒ **Y el correo no puede explicar POR QUÉ, porque el motivo no
+llega hasta él.** No se finge que sí.
+
+**⛔ La verificación que impide escribir la frase bonita.** *¿Está garantizado que después de cancelar siempre
+llega otra oferta?* **NO.** Desde `cotizada` hay **tres** salidas y solo una es una oferta:
+
+| Salida desde `cotizada` | Qué le llega al vendedor |
+|---|---|
+| Se prepara y se autoriza otra oferta | **`sellOfferTemplate`** (§31.9 fila 1) |
+| Un operador **declina** (`POST …/decline`) | **`sellRequestNotPursuedTemplate`** (§31.9 fila 6) |
+| El **barrido** la cierra por la **regla 7** (nuestro plazo de emisión se agotó) | **`sellRequestNotPursuedTemplate`**, el mismo correo y el mismo texto |
+
+⇒ ⛔ **«te escribiremos con una oferta nueva» es una promesa que el sistema no cumple**, y por eso no se
+escribe. **Lo que SÍ está garantizado —las tres salidas mandan correo— es exactamente lo que se dice.**
+*Volver a escribir, sí. Volver a ofertar, no.*
+
+**Los dos defectos del texto de hoy, y su arreglo:**
+
+1. *«la cancelamos nosotros. **No es nada de tu parte.**»* — **dice el mismo hecho dos veces**, y la segunda en
+   negación defensiva. El pronombre enfático `nosotros` **ya asigna el agente**; *«no es nada de tu parte»* solo
+   repite eso poniendo al vendedor en el sitio del sospechoso. **Es literalmente la norma de §7.12a que el
+   dueño ya aceptó para `notPursued.p2`.** ⇒ **se retira.**
+2. *«una oferta nueva **o con nuestra respuesta**»* — **«nuestra respuesta» no significa nada para quien lo
+   lee**, y deja al vendedor sin saber qué esperar. La alternativa honesta existe: **nombrar las dos salidas
+   reales**, que son exhaustivas y las dos llegan por correo.
 
 **Queda:**
 
 | Clave | ES | EN |
 |---|---|---|
-| `notPursued.p2` | `No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna guía.` | `There is nothing pending on your side: don't send any card, and no shipping label was generated.` |
+| `offerCancelled.p1` | `La oferta del {fecha} ya no es válida: la cancelamos nosotros.` | `The offer from {date} is no longer valid: we cancelled it ourselves.` |
+| `offerCancelled.p2` | `Tu solicitud sigue abierta y no tienes que hacer nada. Te escribiremos otra vez: con una oferta nueva o con el cierre de la solicitud.` | `Your request is still open and there's nothing for you to do. We'll write to you again, either with a new offer or to close the request.` |
 
-**Por qué, y es exactamente la norma de §7.12a:** *«y no nos debes nada»* **introduce la idea de una deuda que
-nunca existió, solo para negarla** — una negación defensiva **nombra el tema** y sigue siendo **una afirmación
-que habría que sostener**. Y es **redundante**: *«no se generó ninguna guía»* ya contesta la única duda real
-(*¿me van a cobrar el envío?*), y la contesta **por un hecho**, no por una promesa.
+- **⚠ El preheader CAMBIA, porque su cadena se fue.** Hoy es `${title}. ${notYourFault}` y `notYourFault` deja
+  de existir. **Pasa a ser la PRIMERA frase de `p2`** —cadena viva del correo, dentro de los 40–90 caracteres
+  de §31.6a— y es lo más útil que se puede leer en la bandeja sin abrir:
+  **ES `Tu solicitud sigue abierta y no tienes que hacer nada.`** (53 car.) ·
+  **EN `Your request is still open and there's nothing for you to do.`** (60 car.).
+- **⛔ El asunto NO se toca** (`Cancelamos la oferta que te mandamos` / `We cancelled the offer we sent you`):
+  §25.4.7 lo ratificó y es el único cierre que pone **el sujeto de la acción en nosotros en la primera
+  palabra**, que es justo lo que este correo necesita.
+- **⛔ El CTA NO se toca** (`VER MI SOLICITUD` / `VIEW MY REQUEST`, **tinta**, §31.7): la solicitud **está
+  viva** y `COTIZAR DE NUEVO` mandaría al vendedor a **duplicarla** (§25.4.4-bis).
+- **⛔ Sigue prohibido aquí, y ahora con el dato que lo respalda:** el **motivo** (no viaja), **cualquier
+  monto** (se limpiaron de la fila y no se resucitan), la palabra **«venció»** (aquí no venció nada suyo) y
+  **cualquier fecha de vuelta** — `offerIssueDeadlineAt` es *«un SLA nuestro que a propósito no se
+  comunica»* (`buylist.service.ts:391`). ⛔ **No se le pone plazo a la próxima carta.**
+- **🟠 Decisión del DUEÑO, no mía.** `p2` **nombra el cierre como posibilidad**, y el texto de hoy lo esconde.
+  Ése es el precio de no prometer una oferta. Si prefiere no nombrarlo, la única alternativa honesta es
+  ES `Te escribiremos otra vez en cuanto lo revisemos.` / EN `We'll write to you again once we've reviewed it.`
+  — **honesta, pero vuelve exactamente a la vaguedad que él mismo señaló**. **Recomiendo la de la tabla.**
 
-- ⚠ **Se mantiene el TUTEO.** El dueño lo dictó como *«no requiere acción de su parte»*; **los ocho hablan de
-  tú**, y cambiar a usted en uno solo suena a que lo escribió otra persona. *La idea es suya; el registro es
-  del sistema.*
-- ⛔ **Ninguna otra cadena de los ocho se toca en este pase** (§31.0).
-- **Este cambio es de una línea y no depende del rediseño: puede —y debería— salir antes** (§31.15).
+#### 31.10b `sellRequestExpiredTemplate` — `expiry.noResponse.*` y `expiry.notShipped.*` (§31.9 fila 5)
+
+**Lo que pidió:** más conciso · que aparezca **«La solicitud queda cerrada y no se compró ninguna carta.»** ·
+que **termine** en el cierre **+ la invitación** a hacer una solicitud nueva.
+
+**⭐ Y la pregunta que hay que contestar antes de escribir: ¿el texto debe ser idéntico en las dos variantes?
+NO, y la diferencia no es de tono: es operativa.**
+
+| | **5a `no_response`** | **5b `not_shipped`** |
+|---|---|---|
+| ¿Aceptó la oferta? | **No** | **Sí** |
+| ¿Hubo guía? | **Nunca** — la guía solo existe después de aceptar | **Puede haberla**, y puede estar en su mano |
+| ¿Puede el vendedor mandar cartas HOY, por error? | **No**: nadie le pidió nunca que mandara nada | **SÍ**, y es el riesgo real: llegan cartas de una solicitud cerrada |
+| ⇒ ¿Necesita instrucción? | **No** | **Sí, una frase corta** |
+
+**Queda:**
+
+| Clave | ES | EN |
+|---|---|---|
+| `expiry.noResponse.p1` | `El plazo para responder terminó el {fecha}. La solicitud queda cerrada y no se compró ninguna carta.` | `The deadline to respond ended on {date}. The request is closed and no card was purchased.` |
+| `expiry.noResponse.p2` | `Si sigues queriendo vender, puedes cotizar de nuevo cuando quieras.` *(sin cambios)* | `If you still want to sell, you can get a new quote whenever you like.` *(sin cambios)* |
+| `expiry.notShipped.p1` | `Aceptaste la oferta, pero el paquete no salió antes del {fecha}. Ya no lo mandes: la solicitud queda cerrada y no se compró ninguna carta.` | `You accepted the offer, but the package did not ship by {date}. Don't send it now: the request is closed and no card was purchased.` |
+| `expiry.notShipped.p2` | `Si sigues queriendo vender, puedes cotizar de nuevo cuando quieras.` *(sin cambios)* | `If you still want to sell, you can get a new quote whenever you like.` *(sin cambios)* |
+
+- **Qué se fue en 5a, y por qué:** *«y la oferta ya no es válida»* (**redundante**: si el plazo terminó y la
+  solicitud queda cerrada, la oferta no puede estar viva) y *«y no tienes nada pendiente»* (**la misma
+  negación defensiva** del pase 1: «cerrada» ya lo dice). **De 24 a 16 palabras**, y la frase que el dueño
+  dictó entra **carácter por carácter**.
+- **Qué se fue en 5b:** *«dentro del plazo, que terminó el»* ⇒ *«antes del»*. **Entra `Ya no lo mandes:`**,
+  cuatro palabras, **pegadas al hecho** para que la frase dictada siga cerrando el párrafo.
+- **El orden que pidió se respeta en las dos: el último párrafo del correo es la invitación, y el
+  penúltimo remate es el cierre.**
+- **🟠 Decisión del DUEÑO (a):** dijo *«invitamos a hacer una **solicitud nueva**»* y el texto dice *«cotizar
+  de nuevo»*. **Lo dejo como está a propósito**, porque el botón de este correo dice `COTIZAR DE NUEVO` y
+  **el cuerpo y el botón tienen que nombrar el mismo acto**. Si quiere su palabra, el cambio son **dos**
+  líneas y van juntas: cuerpo `puedes hacer una solicitud nueva cuando quieras` + CTA
+  `HACER UNA SOLICITUD NUEVA` / `START A NEW REQUEST`, **en 5a, 5b y en el 6**. ⛔ **Nunca una sola de las
+  dos.**
+- **🟠 Decisión del DUEÑO (b) — y hay una petición de dato detrás.** §25.4.4 tenía para 5b una frase que **el
+  código nunca implementó**: *«Si la guía que te mandamos sigue sin usar, ya no es válida.»* **No la escribo**,
+  y la razón es la regla de §31.0: `SellRequestExpiredParams` recibe `{kind, folio, closedAt, portalUrl}` y
+  **no sabe si hubo guía** ⇒ afirmarlo sería inventar un estado. Por eso `Ya no lo mandes` es **una
+  instrucción**, no una afirmación sobre una guía que quizá no existe. **Si el dueño quiere nombrar la guía,
+  es una petición al arquitecto** (§31.15): pasar la presencia de `shipmentTrackingNumber` al parámetro.
+
+#### 31.10c `sellRequestNotPursuedTemplate` — `notPursued.p2` (§31.9 fila 6)
+
+**Lo que pidió:** quitar *«No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna
+guía.»*, porque **«cerrada» ya implica que no hay nada pendiente** y repetirlo es ruido. **Su instinto
+editorial es correcto y se respeta.**
+
+**🔴 Pero antes de borrarlo hay que pesar una cosa, y se pesa aquí en vez de borrarla en silencio:**
+*«no mandes ninguna carta y no se generó ninguna guía»* **no es solo tranquilizar — es una instrucción
+operativa**. Si alguien manda las cartas igual, llegan a la bodega piezas de una solicitud cerrada.
+
+**Lo medido, que es lo que decide cuánta instrucción hace falta:** este correo tiene **dos productores**
+(`POST …/decline` y el barrido, regla 7) y **los dos exigen `status='cotizada'`** (`buylist.service.ts:5337`).
+⇒ **En este correo nunca hubo una oferta aceptada, y por lo tanto nunca hubo guía ni instrucción de enviar
+nada.** *El riesgo de que el vendedor mande cartas es real en 5b —donde aceptó y tiene guía— y es
+**marginal** aquí, donde nadie le pidió nunca que mandara nada.*
+
+⇒ **Veredicto: sí se puede decir en menos palabras sin perder la instrucción. De 15 palabras a 9.** Lo que se
+va es **el marco defensivo** (*«No hay nada pendiente de tu parte:»*), que es el ruido que el dueño señaló;
+lo que se queda son **los dos hechos**, fundidos en una frase.
+
+| Clave | ES | EN |
+|---|---|---|
+| `notPursued.p2` | `No se generó ninguna guía y no hay nada que mandar.` | `No shipping label was generated and there is nothing to send.` |
+
+- ⭐ **Esto NO contradice el pase anterior, y conviene decirlo porque es el error fácil.** Aquella vez el dueño
+  quiso que el correo dijera que **no requiere ninguna acción de su parte**; *«no hay nada que mandar»* es
+  exactamente eso **dicho como hecho**, que es más fuerte que decirlo como tranquilización. **Borrar `p2`
+  entero sí lo habría contradicho**: el correo se quedaría sin ninguna frase de «no tienes que hacer nada».
+- *«No se generó ninguna guía»* **se queda porque contesta la única duda real** (*¿me van a cobrar un
+  envío?*) **por un hecho**, no por una promesa (§7.12a).
+- **⛔ No se tocan `p1` ni `p3`, ni el asunto, ni el CTA, ni el preheader** (que sale de `p3`).
+- **🟠 Observación al DUEÑO / product-owner, no un cambio:** `p3` empieza con *«Los precios se mueven todo el
+  tiempo»*. Puesto justo después de *«no vamos a proceder»*, **roza la primera prohibición de §25.4.5**
+  (*decir POR QUÉ no ofertamos*): se puede leer como *«no ofertamos por precio»*. **No lo cambio** —no lo
+  pidió y es copy ratificada—, pero **queda señalado**: si algún día molesta, la cura es dejar `p3` en
+  `Puedes volver a cotizar cuando quieras.`
+
+#### 31.10d ⭐ Resuelto: el eyebrow de la variante **2b** (hueco abierto de §31.9)
+
+§31.9 daba al correo 2 **un** eyebrow, `LA OFERTA VENCE MAÑANA`, y backend lo escaló con razón: **en 2b es
+falso** —la oferta ya se aceptó y lo que vence es el **plazo de envío**—, así que puso provisionalmente
+`TU OFERTA`. **Un eyebrow que no dice qué vence no hace su trabajo**, y uno que afirma un hecho falso en
+versalitas es peor. **El correo 2 tiene DOS eyebrows, uno por variante:**
+
+| Variante | Eyebrow ES | Eyebrow EN |
+|---|---|---|
+| **2a** `accept` | `LA OFERTA VENCE MAÑANA` *(sin cambios)* | `THE OFFER EXPIRES TOMORROW` *(sin cambios)* |
+| **2b** `ship` ⭐ | `EL PLAZO PARA ENVIAR VENCE MAÑANA` | `THE DEADLINE TO SHIP IS TOMORROW` |
+
+- **Es cierto en 2b y es paralelo a 2a**: mismo patrón *«X vence mañana»*, y el titular del correo
+  (*«Tu paquete debe salir mañana»*) **ya afirma el mañana**, así que el eyebrow no añade ninguna promesa
+  nueva.
+- **Cabe:** `EL PLAZO PARA ENVIAR VENCE MAÑANA · BL-000123` son 45 caracteres en **mono 10px** ≈ **270 px**
+  sobre los 536 px de contenido (600 − 2×32). **Holgura de sobra**, también en el ES, que es el más largo.
+- **En MAYÚSCULAS en la cadena** (§31.2), y **el folio detrás con su `·`** como en los seis del ciclo
+  (§31.6b). ⛔ Nada de `text-transform`.
+
+#### 31.10e ⭐ Resuelto: el CTA del correo 4 — **no lleva** (hueco abierto de §31.7)
+
+§31.7 le asignaba *«el de coordinación»* **sin decir qué rótulo ni a dónde apunta**, y backend lo envió **sin
+botón**, escalándolo. **Ratifico el sin botón, y ahora con la razón escrita para que no vuelva a abrirse:**
+
+1. **La acción que pide este correo es escribir a `soporte@tcghunt.mx`** — un **buzón**, no una URL. Un CTA
+   `mailto:` en un correo transaccional **falla en webmail sin cliente por defecto**, y **no puede cumplir
+   §31.6g** (la URL en texto debajo del botón, que es el respaldo obligatorio en modo oscuro forzado, §31.8
+   regla 4c). Un botón cuyo respaldo no existe **es exactamente lo que §31.8 prohíbe**.
+2. **La dirección ya viaja dos veces**, dentro de la opción de devolución, **en el HTML y en la parte de
+   texto** — y ahí está pegada a su plazo, que es donde sirve.
+3. **Mandarlo al portal sería un botón medio muerto:** el portal **no tiene** pantalla de coordinación de
+   devolución, así que `VER MI SOLICITUD` llevaría a un sitio que **no puede hacer lo que el correo pide**
+   (el espíritu de **BL-21**: ⛔ jamás un botón que no lleve a la acción).
+
+⇒ **§31.7 queda enmendada: el correo 4 es el único de los ocho SIN CTA, y es deliberado.** ⛔ No es un hueco
+pendiente y **no se le inventa uno**. *El día que exista una pantalla de devolución en el portal, ese día se
+reabre — y será un cambio de producto, no de diseño.*
+
+**Y lo que este pase NO resuelve, porque no es §31:** la variante de copy de *«guardada pero no rige»* cuando
+**no hay tasa de Banxico que nombrar** (`fallback`) vive en **§30.9c / §30.15** (`manual.savedNotRuling`) y en
+`TECH_DEBT` como hueco abierto. **No se toca aquí**: cambiarla es un pase de §30 y este encargo es de correos.
+La cadena está redactada y entregada en el resumen de este pase, lista para pegar en cuanto se autorice.
+
+**Y el resto sigue igual:** ⛔ **ninguna otra cadena de los ocho se toca** (§31.0). Los cinco cambios de arriba
+son **de valor de cadena**: no mueven un bloque, no añaden un patrón y no crean ni un par de contraste
+(§31.11).
 
 ### 31.11 Contraste — **cero pares nuevos**
 
@@ -14999,8 +15209,14 @@ Todo §31 usa pares ya verificados en §10 y §17.2, con los bordes **aplanados*
 15. **⛔ No superes los 90 KB de HTML**, y **no empujes los montos ni el CTA por debajo de la mitad del
     documento**: Gmail recorta (§31.2).
 16. **⛔ No inventes un identificador** para los correos 7 y 8 solo para que el eyebrow «cuadre» (§31.6b).
-17. **⛔ No reescribas ninguna cadena** salvo `notPursued.p2` (§31.10).
-18. **⛔ No cambies los asuntos** en este pase (§31.9).
+17. **⛔ No reescribas ninguna cadena** salvo **las que §31.10 escribe una por una**: `notPursued.p2`,
+    `offerCancelled.p1`/`p2` (+ su preheader), `expiry.noResponse.p1`, `expiry.notShipped.p1` y el **eyebrow
+    de 2b**. **Todo lo demás sigue congelado**, incluidos `p2`/`p3` de las que sí cambian.
+18. **⛔ No cambies los asuntos.** Los ocho siguen intactos, también en el pase 2 (§31.9, §25.4.7).
+19. **⛔ No prometas una oferta nueva** en el correo de cancelación, ni le pongas fecha a la próxima carta:
+    desde `cotizada` hay **tres** salidas y solo una es una oferta, y el plazo de emisión **no se comunica**
+    (§31.10a).
+20. **⛔ No le inventes un CTA al correo 4** ni un `mailto:` que haga de botón (§31.10e).
 
 ### 31.14 Las mutaciones que ponen un test **en rojo**
 
@@ -15019,6 +15235,8 @@ quitan las imágenes, qué cadenas salen por el cable y de dónde sale el texto 
 | **ML-8** | **que el peso se dispare y Gmail recorte** | Correo 1 con **20 líneas de carta** (el caso realista más pesado) ⇒ **`Buffer.byteLength(html) < 90_000`**, y **el bloque del neto y el CTA aparecen antes del carácter que marca la mitad del documento**. **Rojo por encima de 90 KB o si el CTA cae en la segunda mitad.** |
 | **ML-9** | **que las versalitas dependan de CSS** | Ninguna cadena que se pinte como versalita lleva su valor en minúsculas confiando en `text-transform`: **el valor de la cadena ya está en mayúsculas**. **Rojo si aparece `text-transform:uppercase` en cualquiera de los ocho** (Outlook lo ignora y el eyebrow se lee en minúsculas). **Y el barrido de homoglifos de §28.10 corre también sobre estas cadenas.** |
 | **ML-10** | **que el rediseño rompa el escape de HTML** | Un nombre de vendedor `"><script>alert(1)</script>` ⇒ aparece **escapado** en los ocho. *`escapeHtml` (S15-B1) ya existe y está duplicado (**BE-43**); tocar las ocho plantillas a la vez es exactamente cuando alguien interpola sin escapar.* |
+| **ML-12** ⭐ **(v3.9)** | **que el correo de cancelación vuelva a prometer una oferta** | **Se mide sobre `subject` + `html` + `text`, en ES y EN.** El render de `sellOfferCancelledTemplate` **no contiene** `oferta nueva` / `new offer` **como promesa aislada**: la aserción operativa es que **si aparece la cadena de una oferta futura, aparece dentro de la frase que también nombra el cierre** (`o con el cierre de la solicitud` / `or to close the request`). **Rojo si alguien «suaviza» el correo quitando la segunda salida.** *La mutación que esto caza es la amable: borrar «o con el cierre» porque suena feo. Eso convierte una disyunción cierta en una promesa falsa* (§31.10a). **Control adicional, ya vigente:** ⛔ ni `offerCancelReason`, ni ningún monto, ni la palabra `venció`/`expired`, ni ninguna fecha que no sea `offerSentAt`. |
+| **ML-13** **(v3.9)** | **que la instrucción operativa de `not_shipped` se pierda al «hacerlo conciso»** | El render de `sellRequestExpiredTemplate` con `kind:'not_shipped'`, en ES y EN, **contiene la instrucción de no enviar** (`Ya no lo mandes` / `Don't send it now`) **y** la frase de cierre dictada por el dueño (`La solicitud queda cerrada y no se compró ninguna carta.` / `The request is closed and no card was purchased.`), **carácter por carácter**. **Control negativo:** con `kind:'no_response'` **NO** aparece ninguna instrucción de envío — ahí nunca hubo guía y decirlo sería ruido (§31.10b). ⛔ **Y en ninguna de las dos aparece la palabra «guía» / "label"**: el parámetro no sabe si existió. |
 | **ML-11** | **el idioma** | Los ocho, **en ES y EN**, **vistos renderizados** (§26.8: mirarlo, no `grep`earlo), y **en tres bandejas**: Gmail web con imágenes bloqueadas, Outlook Windows y Gmail app en Android en modo oscuro. **Rojo si en alguna el texto desaparece, la marca desaparece o el CTA no se lee.** |
 
 ### 31.15 Estimación honesta, secuenciación y notas a otros roles
@@ -15042,6 +15260,7 @@ esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquest
 | **0 · ahora, y no depende de nada** | **(a)** el cambio de copy del correo 6 (§31.10) — **una línea, dos idiomas**; **(b)** copiar `apple-icon.png` → `frontend/public/branding/mail-mira-180.png` | backend / **frontend** | **~10 min + ~10 min** |
 | **1 · el pase de verdad** | Esqueleto compartido + los **seis** correos de buylist: marca, pie de tinta, patrones, modo oscuro, parte de texto plano a paridad, y los candados ML-1…ML-10 | **backend** | **~3–4 días** |
 | **2 · cuando la zona esté libre** | Los **dos** de `mail/` sobre el mismo esqueleto (+ absorber BE-43 si el orquestador lo autoriza) | **backend**, stream Cuentas y acceso | **~0.5–1 día** |
+| **3 · el copy del dueño (v3.9)** ⭐ | **§31.10 entero, y son SOLO valores de cadena**: `offerCancelled.p1`/`p2` **+ su preheader** (⚠ se borra la constante `notYourFault` y el preheader deja de componerse con ella), `expiry.noResponse.p1`, `expiry.notShipped.p1`, `notPursued.p2` y el **eyebrow de 2b** (pasa a ramificar por `kind`, como el titular). **Y una cosa que NO es código:** el escalado del **CTA del correo 4** queda **cerrado en §31.10e** — sigue **sin botón**, así que el comentario de `sellItemRejectedTemplate` deja de decir *«queda escalado a ux-ui»* y pasa a citar §31.10e. ⛔ **Cero bloques nuevos, cero patrones nuevos, cero pares de contraste nuevos** | **backend** | **~40 min**, tests incluidos |
 
 - **⭐ Esto es ~95 % backend.** El **frontend hace exactamente una cosa**: copiar un PNG a
   `public/branding/` con nombre estable. *Lo digo de frente porque el encargo llegó por el lado del diseño y
@@ -15052,6 +15271,9 @@ esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquest
 - **El pase 1 NO se parte más.** El esqueleto y los seis correos **son el mismo trabajo**: hacer el esqueleto
   sin aplicarlo deja un helper sin usuarios, y hacer los correos de uno en uno multiplica la duplicación que
   BE-43 ya paga.
+- **⭐ El pase 3 es independiente de los otros tres y se puede hacer YA**, con la maqueta que ya está en
+  producción: **no toca ni un bloque**. Y por la misma razón que el pase 0, **sale solo**: es copy que el
+  dueño pidió y que hay que poder señalar en la bitácora sin buscarlo dentro de un PR grande.
 
 **Notas a otros roles:**
 
@@ -15059,6 +15281,6 @@ esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquest
 |---|---|
 | **frontend** | Copiar `frontend/src/app/apple-icon.png` → **`frontend/public/branding/mail-mira-180.png`** (mismo binario, nombre estable, servido desde `tcghunt.mx`). ⛔ **Nada más.** No hay componente, no hay ruta, no hay i18n de frontend en este encargo. |
 | **backend** | Las plantillas son suyas. ⚠ **Tres trampas medidas en el código de hoy, y las tres se corrigen de paso**: `max-width:520px` (debe ser **600**), `color:#111` (debe ser **`#1A1A18`**) y **`border-radius:6px` en los CTA** (debe ser **0** — §4.2, y viene siendo falso desde v1.3). Y **`BRAND` está duplicado en cuatro sitios** (deuda **BE-P21-1**): el rediseño lo roza, **no hace falta arreglarlo**, pero conviene no añadir un quinto. |
-| **arquitecto / orquestador** | **Decisión de zonas compartidas, no mía:** los correos 7 y 8 viven en `mail/`, de otro stream (**BE-43**). O se serializa, o el pase 2 espera. **No hay nada que cambiar en el contrato**: ni un campo, ni un endpoint, ni un DTO. |
-| **product-owner** | **(a)** El cambio de `notPursued.p2` (§31.10) es de copy vinculante-adyacente: **lo pidió el dueño y lo ratifico con la norma de §7.12a**, pero **la ratificación formal es tuya**. **(b)** **Pregunta abierta, no bloqueante:** los ocho son **transaccionales** y por eso **no llevan enlace de baja**. El día que el negocio quiera mandar correo **comercial**, eso es **otra familia de plantillas y otro pase** — y ahí sí habrá que resolver baja, preferencias y frecuencia. |
-| **QA** | Los once candados de §31.14 están escritos para poder ponerse rojos. Los tres ⭐⭐ son los del encargo: **ML-1 mide por ablación** (quitar los `<img>` y ver si la marca sigue), **ML-2 extiende un barrido que ya existe** y lo hace sobre **la parte de texto plano**, donde nada se esconde, y **ML-3 asierta igualdad exacta de cadena** contra el portal. ⚠ **ML-11 no se puede automatizar y no se sustituye por un `grep`**: hay que abrir los ocho en **Gmail con imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. |
+| **arquitecto / orquestador** | **(a) Decisión de zonas compartidas, no mía:** los correos 7 y 8 viven en `mail/`, de otro stream (**BE-43**). O se serializa, o el pase 2 espera. **No hay nada que cambiar en el contrato**: ni un campo, ni un endpoint, ni un DTO. **(b) ⚠ v3.9 — la ÚNICA petición de dato de todo §31, y es opcional:** si el dueño quiere que el correo de expiración **nombre la guía** en la variante `not_shipped` (*«si la guía sigue sin usar, ya no es válida»*, la frase que §25.4.4 tenía y el código nunca implementó), `SellRequestExpiredParams` necesita **saber si hubo guía** (la presencia de `shipmentTrackingNumber`, **no el número**). **Sin ese dato NO se escribe la frase** (§31.10b) y el correo sale igual, con `Ya no lo mandes`. ⛔ **No es un bloqueo y no pido el número de guía**: solo un booleano, y solo si se decide que la frase entra. |
+| **product-owner** | **(a)** Los cambios de copy de §31.10 —los del pase 1 y **los cinco del pase 2 (v3.9)**— son **copy vinculante-adyacente**: **los pidió el dueño y los ratifico con las normas de §7.12a y §25.4.4-bis**, pero **la ratificación formal es tuya**. ⚠ **Tres de ellos son decisiones del DUEÑO, no mías, y están marcadas 🟠 en §31.10**: **(1)** que el correo de cancelación **nombre el cierre** como posible desenlace (el precio de no prometer una oferta que el sistema no garantiza); **(2)** si la invitación de los correos 5 y 6 dice *«cotizar de nuevo»* o *«hacer una solicitud nueva»* —y si cambia, **el cuerpo y el CTA cambian juntos, en los tres correos**—; **(3)** si la frase de la guía entra en la variante `not_shipped` (necesita el dato de (b) del arquitecto). **(b)** **Observación, no cambio:** `notPursued.p3` empieza con *«Los precios se mueven todo el tiempo»* y, pegado a *«no vamos a proceder»*, roza la primera prohibición de §25.4.5 (*decir por qué no ofertamos*). **(c)** **Pregunta abierta, no bloqueante:** los ocho son **transaccionales** y por eso **no llevan enlace de baja**. El día que el negocio quiera mandar correo **comercial**, eso es **otra familia de plantillas y otro pase** — y ahí sí habrá que resolver baja, preferencias y frecuencia. |
+| **QA** | Los **trece** candados de §31.14 están escritos para poder ponerse rojos (**ML-12 y ML-13 son de v3.9 y cubren el copy nuevo**: que la cancelación no vuelva a prometer una oferta, y que la instrucción de no enviar sobreviva a la concisión). Los tres ⭐⭐ son los del encargo: **ML-1 mide por ablación** (quitar los `<img>` y ver si la marca sigue), **ML-2 extiende un barrido que ya existe** y lo hace sobre **la parte de texto plano**, donde nada se esconde, y **ML-3 asierta igualdad exacta de cadena** contra el portal. ⚠ **ML-11 no se puede automatizar y no se sustituye por un `grep`**: hay que abrir los ocho en **Gmail con imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. |
