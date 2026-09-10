@@ -1,3 +1,65 @@
+# SIGUIENTE RELEASE — «LA CUENTA DEL CLIENTE» (aprobado por el humano, 2026-09-10)
+
+> Arranca **en cuanto se publique el release actual**. Tres work streams **disjuntos** por el mapa de
+> módulos de `CLAUDE.md`, así que corren **en paralelo** sin pisarse. Una sesión = un stream = una rama.
+
+## 🥇 Stream A — «La cuenta del cliente» (el principal)
+**Módulos:** backend `auth`, `users`, `settings`, `mail` · frontend `(auth)` y perfil.
+**Rama sugerida:** `claude/cuenta-del-cliente`
+
+| Pendiente | Qué le pasa hoy al cliente |
+|---|---|
+| **P-57(a)** | **No existe pantalla de perfil.** No puede ver ni cambiar correo, direcciones, facturación ni estado de verificación. ⭐ **El servidor YA lo expone todo** (`GET`/`PATCH /users/me`, direcciones, facturación, KYC): **falta solo la pantalla.** |
+| **P-57(b)** | ⭐⭐ **Cada compra de invitado no reclamada en el momento se queda FUERA DE LA BÓVEDA PARA SIEMPRE.** El mecanismo existe entero y bien hecho; `GET /orders/claimable` **no lo consume nadie**. Ubicación decidida con el humano: aviso **en la bóveda** y en pedidos. |
+| **P-73** | Entrar con Google **inventa un nombre** que nadie puede corregir, y los envíos salen **sin destinatario**. |
+| **P-75** | Se le dice *«debes cambiar tu contraseña»* **y no hay dónde hacerlo**. El ciclo no cierra. |
+| **P-55** | Arma el carrito de venta, inicia sesión, **y lo pierde**. |
+
+**Por qué juntos y por qué primero:** son cinco síntomas de **una sola ausencia** —no hay «mi cuenta»—, y
+P-57(b) cuesta bóvedas todos los días. La bóveda es la propuesta de valor.
+
+## 🥈 Stream B — «Lo que se rompe con el dinero»
+**Módulos:** backend `orders`, `shipments` · frontend `(storefront)` pedidos.
+**Rama sugerida:** `claude/ordenes-pacto`
+
+| Pendiente | Qué |
+|---|---|
+| **P-58** | 🔴 «Marcar recibida» se ofrece desde **cualquier estado** — se salta el pacto con el vendedor. |
+| **P-59** | La reserva propia **bloquea el reintento del mismo cliente**. |
+
+## 🥉 Stream C — «El disco»
+**Módulos:** backend `pricing` · devops.
+**Rama sugerida:** `claude/disco-pricing`
+
+**P-53** — 28,559 filas/día (~13 MB/día) que en su mayoría **no cambian nada**. La cura está
+identificada y no se ha implementado: la columna **`evidenceDate`** existe en el esquema y **nadie la
+escribe ni la lee** — es el sitio para distinguir «el precio no cambió» de «el proveedor no respondió».
+⚠️ Antes de tocar, re-medir: `sealed-catalog.service.ts:334` (gráfica por ventana) y
+`hasRecentIngest()` (`price-ingest.service.ts:344`) **sí dependen** de que haya filas de hoy.
+
+---
+
+## ⛔ Lo que NO entra, y por qué
+
+- **P-70 · Decks Meta.** Funcionalidad nueva y grande. **Su propio spec exige correr sola**, sin nada que
+  toque `money.ts` ni el contrato. Mezclarla con arreglos hace que un problema en cualquiera detenga a
+  los dos. **Va sola, después.** ⚠️ Y arrastra un bloqueante ya verificado: el spec cita
+  `pricing-iva-v2.1`, que **no existe en este repo** — hay que preguntarle al humano qué es antes de
+  arrancar.
+- **P-60 · DMARC.** No es un release: son **diez minutos del humano** en el panel de su dominio. Sin eso
+  los correos siguen cayendo en spam.
+- **`D-GT-1` / `§M2-GT`** (el grupo TCGCSV de un set): techlead lo dejó fuera del release actual **en
+  primera posición del siguiente**, serializado. **Cruza dos streams y toca dinero** ⇒ el orquestador lo
+  serializa **antes** de que A, B o C toquen `catalog`/`pricing`/`inventory`, y va con triple veredicto.
+
+## Zonas compartidas — serializar, no paralelizar
+`backend/src/common/`, `backend/src/config/`, `backend/prisma/` (schema), `frontend/src/components/`,
+`frontend/src/lib/`, `frontend/src/hooks/`, `docs/API_CONTRACT.md`. **Un solo stream a la vez**, y todo
+cambio de contrato o de schema pasa por el arquitecto primero (regla 9).
+⚠️ Aviso concreto: **A y B comparten `frontend/src/lib/verdict.ts` y `components/ui/VerdictNotice.tsx`**
+si alguno toca avisos de resultado. Y **A toca `shipments` en P-73** (el destinatario), que es módulo de
+**B** ⇒ **serializar ese punto**: lo hace A, y B no entra a `shipments` hasta que aterrice.
+
 # HECHOS DEL NEGOCIO — ESTABLECIDOS POR EL HUMANO, NO SE VUELVEN A PREGUNTAR
 
 > Esta sección existe porque el orquestador preguntó **cinco veces** lo mismo. Un hecho que el dueño ya
