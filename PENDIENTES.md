@@ -765,6 +765,40 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
   existe.
 - **Rol dueño:** ninguno para construir. **ux-ui/frontend dentro de `P-66`** para que se encuentre.
 
+#### P-75 · 🔑 «Debes cambiarla» — y no hay dónde. El ciclo del reset no cierra — reportado por el humano
+- **Lo que dijo (2026-09-10):** *«el tema es que dentro de la plataforma no hay lugar donde el operador
+  cambie la contraseña»*. **Tiene razón, y verifiqué que es peor que un hueco.**
+- 🔴 **La plataforma le PIDE al usuario algo que no le deja hacer.** Medido de punta a punta:
+  1. El admin resetea → temporal de alta entropía + `mustChangePassword: true` (`admin.service.ts:733`).
+  2. El usuario entra y ve un aviso, textual (`messages/es.json:929`): *«Iniciaste sesión con una contraseña
+     temporal. **Debes cambiarla** para proteger tu cuenta.»*
+  3. El único botón del aviso dice **«Continuar»** (`AuthForm.tsx:113`, `redirectByRole`) — **lo lleva a su
+     destino y ya. No hay ningún enlace a cambiarla.**
+  4. **No existe la pantalla.** `frontend/src/app/[locale]/(auth)/` contiene **solo** `login`, `register`,
+     `forgot-password`, `reset-password` y `verify-email`. Ninguna es «cambiar mi contraseña estando dentro».
+  5. **Y tampoco existe el endpoint.** `auth.controller.ts` solo expone `POST /auth/forgot-password` (`:90`)
+     y `POST /auth/reset-password` (`:99`), **que consume un token que llega por CORREO**. No hay ninguna
+     ruta de «cambiar la mía con la actual».
+- ⚠️ **`mustChangePassword` NO BLOQUEA NADA.** Grep sobre `backend/src/modules/auth/` y `backend/src/common/`:
+  **ningún guard lo lee**. Solo se escribe (`admin.service.ts`) y se limpia al usar el enlace del correo
+  (`auth.service.ts:249`). ⇒ El operador **no queda atrapado** — puede seguir usando la temporal
+  indefinidamente. **Es una advertencia sin consecuencia.**
+- **El único camino real hoy:** cerrar sesión → «olvidé mi contraseña» → **esperar el correo** → enlace.
+  Absurdo para alguien que **ya está dentro**, y peor para un **operador** cuyo correo puede ser compartido
+  o de empresa — y si no tiene acceso a ese buzón, **no hay camino ninguno**.
+- ⚠️ **Corrección a lo que le dije al humano.** Le dije que el reset era «mejor de lo que pediste». **La
+  parte del reset sí es buena** —alta entropía, el súper-admin nunca conoce la definitiva, revoca sesiones—
+  **pero el ciclo no cierra**, y eso yo no lo verifiqué antes de afirmarlo. Él lo cazó.
+- 🔗 **Cruce con `P-57(a)`:** «cambiar mi contraseña» es una sección natural de **la pantalla de perfil que
+  no existe**. Pero ⚠️ **no basta con plegarlo ahí**: `P-57` es del **cliente**, y esto lo necesita el
+  **operador**, que ni siquiera navega por el storefront. Hay que decidir si la pantalla es una sola para
+  todos o si el panel de admin necesita la suya.
+- **Rol dueño:** **arquitecto** (el endpoint no existe: es contrato nuevo — «cambiar la propia contraseña
+  con la actual», con su propia política de revocación de sesiones) → **backend** → **frontend** + ux-ui
+  (dónde vive, y que el aviso del login enlace ahí en vez de decir «Continuar»).
+- **Y una decisión para el humano:** ¿`mustChangePassword` debe **seguir sin bloquear** —una advertencia—
+  o debe **forzar de verdad** el cambio antes de dejar operar? Lo segundo es lo que el texto promete hoy.
+
 #### P-72 · 💸 «SIN PRECIO RESOLUBLE» dice DOS cosas opuestas con la misma frase — ✅ DIAGNOSTICADO (2026-09-10)
 - **Reportado por el humano** con captura, y luego el dato que lo desatascó: *«me sale con precio de mercado
   en inventario»*.
