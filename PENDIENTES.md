@@ -337,7 +337,17 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   entre ellos **10 correos al cliente** y **los buscadores del back-office**. ⇒ La pantalla de perfil deja
   de ser «comodidad para el cliente» y pasa a ser **la única cura de un dato inventado que hoy es
   permanente**. Sube de prioridad dentro de este pendiente.
-- **Rol dueño:** ux-ui (rediseño de navegación) → frontend. **Cero backend**: los endpoints existen.
+- ⭐ **v2026-09-10 — `P-75` ENTRA AQUÍ por decisión del humano** (*«ligalo al perfil de usuario que
+  necesitamos ahi mismo lo atacamos»*): **cambiar la propia contraseña** es una sección de esta pantalla.
+  ⚠️ **Y rompe el «cero backend» de este pendiente:** el endpoint **no existe** — `auth.controller.ts` solo
+  tiene `forgot-password` y `reset-password`, que consume un token **del correo**. Hay que crear «cambiar la
+  mía con la actual», y eso es **contrato nuevo ⇒ pasa por el arquitecto** (regla 9).
+  ⚠️ **Y amplía el alcance a un rol que este pendiente no contemplaba:** el **operador de bóveda** aterriza
+  en `/admin` y **nunca pisa el storefront** (`AuthForm.tsx:22`), y el panel **no tiene zona de «mi cuenta»**.
+  Una pantalla de perfil solo en el storefront **no lo alcanza**. Decidir antes de empezar: una compartida
+  para los dos, o también en el panel.
+- **Rol dueño:** ux-ui (rediseño de navegación) → frontend. **Cero backend PARA (a), (b) y (c)** — los
+  endpoints existen. **`P-75` sí trae backend y contrato.**
 
 #### P-58 · 🔴 «Marcar recibida» se ofrece desde CUALQUIER estado — se salta el pacto
 - **Encontrado por el humano** mirando la pantalla; **seguridad lo había visto por el código** en su
@@ -793,9 +803,21 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
   no existe**. Pero ⚠️ **no basta con plegarlo ahí**: `P-57` es del **cliente**, y esto lo necesita el
   **operador**, que ni siquiera navega por el storefront. Hay que decidir si la pantalla es una sola para
   todos o si el panel de admin necesita la suya.
+- ✅ **DECISIÓN DEL HUMANO (2026-09-10): se ataca DENTRO de `P-57`.** Sus palabras: *«ligalo al perfil de
+  usuario que necesitamos ahi mismo lo atacamos»*. ⇒ **No es un frente aparte**: «cambiar mi contraseña» es
+  una sección de la pantalla de perfil, y las dos se construyen en el mismo pase.
+- 🔴 **PERO hay un hecho medido que el diseño tiene que resolver ANTES de empezar, o se descubre tarde:**
+  - El operador de bóveda **aterriza en `/admin` y nunca pisa el storefront** — `AuthForm.tsx:22`:
+    `role === 'super_admin' || role === 'vault_operator' ? '/admin' : '/'`.
+  - Y **el panel de admin NO TIENE ninguna zona de «mi cuenta»**: `frontend/src/app/[locale]/(admin)/admin/`
+    contiene `m1`…`m10`, `vaults` y el tablero. **Nada más.**
+  - ⇒ **Una pantalla de perfil colgada del storefront NO la alcanza el operador.** Hay que decidir: **una
+    sola pantalla compartida** a la que lleguen los dos, **o** la sección de cuenta también en el panel.
+    **Es decisión de arquitectura + ux-ui, no de implementación.**
 - **Rol dueño:** **arquitecto** (el endpoint no existe: es contrato nuevo — «cambiar la propia contraseña
-  con la actual», con su propia política de revocación de sesiones) → **backend** → **frontend** + ux-ui
-  (dónde vive, y que el aviso del login enlace ahí en vez de decir «Continuar»).
+  con la actual», con su política de revocación de sesiones — **y dónde vive la pantalla para los dos
+  roles**) → **backend** → **frontend** + ux-ui (que el aviso del login **enlace ahí** en vez de decir
+  «Continuar»).
 - **Y una decisión para el humano:** ¿`mustChangePassword` debe **seguir sin bloquear** —una advertencia—
   o debe **forzar de verdad** el cambio antes de dejar operar? Lo segundo es lo que el texto promete hoy.
 
