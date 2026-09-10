@@ -2,7 +2,48 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.65**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.66**).
+>
+> **Changelog v1.66 — UNA CIFRA SÓLO SE EMITE SI ESTA CORRIDA LA CONTÓ: el `summary` que faltaba, la columna que
+> revela el set roto, y el corte que se mueve solo (2026-09-10, arquitecto).** Base: **v1.65, vigente entera**.
+> Sección nueva **[`§M2-CS`](#M2-CS)** (fuente única, tres marcas `CANON`). Razón entera: `ARCHITECTURE §4.45`.
+> Origen: dos peticiones de ux-ui (`DESIGN_SYSTEM §32.15` **R2** y **R5**) + una **decisión del dueño** del
+> 2026-09-10 (**R6**). **Toca DDL** (un índice y el borrado de una fila de config), **ningún endpoint nuevo**.
+>
+> **1. ⭐⭐ `GET /admin/catalog/sync-status` gana `summary` ([`§M2-CS.1`](#M2-CS1), R2).** Sin él, **la acción que
+> el dueño usa a diario no podía emitir `HECHO` NUNCA** (`DESIGN_SYSTEM §32.5a`: se quedaba en `NO SE SABE` con
+> «—»). Y al mirar al hermano `refresh-variants-status` para copiar su forma, apareció el defecto de verdad: los
+> dos usaban **vocabularios distintos para «cuántos toqué»**, y **el del hermano estaba mal** — **`setsOk` cuenta
+> como bueno al set que corrió sin escribir nada**, que es **D2 a escala de barrido**. ⇒ **[`§M2-CS.0`](#M2-CS0)
+> fija UN reparto** (`setsTotal` / `setsWritten` / `setsNoop` / `setsFailed` / `failures[]`) para los dos, y
+> **`setsOk` queda deprecado con su significado congelado** ([`§M2-CS.2`](#M2-CS2)).
+>
+> **2. ⛔ RECHAZADA la mitad de R2 que pedía `pricesWritten` en `sync-status`.** El barrido de catálogo **no
+> escribe precios desde v1.14**: un `pricesWritten: 0` sería un cero cierto y engañoso —«no escribió» y «no
+> escribe» son hechos distintos— y rehabilitaría la trampa de `fullSyncHint`. **Consecuencia enrutada a ux-ui:**
+> `§32.5a` no puede prometer «{p} precios escritos» en la acción 1, ni decir «cartas **nuevas**» (el `upsert` no
+> distingue creada de re-escrita ⇒ la palabra es «**escritas**»).
+>
+> **3. ⭐⭐ `remote-sets` gana `pricedVariants` / `variants` ([`§M2-CS.3`](#M2-CS3), R5)** — la columna `PRECIOS`
+> que le faltaba al dueño para poder **ver** el set que hay que reparar (hoy `Cartas` sube aunque no se escriba ni
+> un precio). Con **denominador definido una sola vez**: la **VARIANTE DE PRECIO** = par (`CardProduct`, `Finish`),
+> ⛔ **no la carta** (aplanar el acabado es el origen de P-47). Siete invariantes `I-PC1..I-PC7`, entre ellas
+> **`variants` nunca vale `0`** (un `0/0` se lee «completo» del set más roto que hay) y **⛔ prohibida una columna
+> cacheada** (sólo la escriben los escritores que tuvieron éxito ⇒ el set que deja de repreciarse diría «completo»
+> para siempre).
+>
+> **4. ⭐⭐ El corte de catálogo **se mueve solo** y el dial MUERE ([`§M2-CS.4`](#M2-CS4), R6, decisión del dueño:
+> *«el corte de fecha, que automático»*).** `CORTE EFECTIVO := hoy − VENTANA`; **`catalogSyncFromDate` sale del DTO
+> de §M10** y su fila de config **se borra** (dos fuentes para «desde cuándo es nuevo» es §0-B.3 regla 8). Se nombra
+> el modo de fallo que el manual no tenía —**la caída silenciosa del borde trasero**— con sus tres candados, y se
+> declara **por primera vez** qué pasa con un set **sin `releaseDate`**: **no entra, pero se cuenta**
+> (`setsSkippedUnknownDate`). ⇒ **La petición R3 de `§32.15` queda sin objeto**: no se edita en ninguna superficie.
+>
+> **5. Dos frases de este contrato eran FALSAS y quedan tachadas, no borradas:** *«`sync-all` … sin frontera de
+> fecha»* e *«ignora `catalog_sync_from_date`»*. Backend ya cerró **D3** (el botón de rutina se traía sets de
+> cualquier año) y **el contrato no se enteró**. *Eran ciertas en v1.3; el hecho que nombraban se fue.*
+>
+> ---
 >
 > **Changelog v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED MONEY-SAFE ERA EL QUE APLANA
 > (2026-09-10, arquitecto).** Base: **v1.64(4), vigente entera**. **⛔ CERO DDL, cero endpoints nuevos, cero cambios
@@ -11410,6 +11451,325 @@ se mueven en el mismo cambio o no se mueve ninguna**: media banda es una diverge
   - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.sales_rules.update`, con
     `before`/`after`). **Surte efecto sin redeploy.** Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
 
+#### <a id="M2-CS"></a>⚠️⚠️ §M2-CS — LO QUE M2 PUEDE AFIRMAR DE UN BARRIDO DE CATÁLOGO: **reparto**, **cobertura de precio** y **corte** (v1.66 — NORMATIVA, FUENTE ÚNICA; razón entera en `ARCHITECTURE §4.45`)
+
+> **Por qué existe esta sección.** `DESIGN_SYSTEM §32.4` fijó una norma transversal —*un aviso de resultado puede
+> afirmar exactamente lo que la corrida midió*— y al aplicarla a M2, ux-ui midió que **el contrato no da los datos
+> para cumplirla**: la acción de rutina no puede emitir `HECHO` (petición **R2**) y la tabla no tiene ninguna
+> columna que revele el set roto que el dueño debe reparar (petición **R5**). El **2026-09-10** el dueño añadió una
+> tercera: *«el corte de fecha, que automático»* (**R6**). Las tres tocan **los mismos dos payloads**, así que se
+> norman juntas y **en un solo sitio**: los endpoints de abajo **citan** esta sección y **no transcriben** sus
+> cifras (§0-B.3 regla 8).
+>
+> **La regla que gobierna las tres, y de la que todo lo demás se deriva:** ⭐ **una cifra sólo se emite si esta
+> corrida la CONTÓ.** Lo que no se midió viaja **ausente** (`null` / objeto ausente), **jamás como `0`** — porque
+> un `0` que en realidad es un «no lo sé» es exactamente el defecto **D2** que originó todo esto (*«191 cartas
+> procesadas · 0 precios», en verde, sin haber tocado nada*).
+
+<a id="M2-CS0"></a>
+##### §M2-CS.0 — CANON: **el reparto de un barrido de sets** *(vocabulario ÚNICO de «cuántos toqué»)*
+
+<!-- CANON: reparto-del-barrido -->
+
+Los dos barridos de catálogo (`sync-all` y `refresh-variants-all`) reportan **el mismo tipo de hecho** —*qué le
+pasó a cada set del universo encolado*—, así que **reportan con la misma forma**. Lo que legítimamente difiere es
+**qué escribe cada uno** (§M2-CS.1 y §M2-CS.2); el reparto de sets **no difiere y no puede diferir**.
+
+| Término | Qué cuenta | Naturaleza |
+|---|---|---|
+| **`setsTotal`** | Sets **encolados** en el barrido. | **contexto** — nunca es la primera cifra de un aviso (`§32.4` H3). |
+| **`setsWritten`** | ⭐ Sets en los que la corrida **escribió algo** (≥ 1 escritura real). **Ésta es «cuántos toqué».** | **escritura** |
+| **`setsNoop`** | Sets **intentados, sin error y sin escribir nada**. | escritura (cero **medido**) |
+| **`setsFailed`** | Sets cuyo intento **lanzó**. | fallo |
+| **`failures[]`** | `{ setId, code, message }` por set fallido. `code` = `code` de la `BusinessException`; **`null`** si el fallo no traía uno (⛔ no se inventa un `"UNKNOWN"`). | fallo |
+
+**Invariantes (normativos, verificables en un test de contrato):**
+
+- **`I-CS1`** — `setsWritten + setsNoop + setsFailed === done`. *(El reparto cubre exactamente lo intentado.)*
+- **`I-CS2`** — `done <= setsTotal`. La diferencia son **sets no intentados** (barrido cortado a media). **Se
+  DERIVA de `total - done`; ⛔ no se emite como campo** (§0-B.3 regla 8: la cuenta ya vive en `total`/`done`).
+- **`I-CS3`** — ⭐ **ninguna cifra del `summary` es `null`.** Lo desconocido se transmite por **otras dos vías, y
+  sólo por ellas**: `summary: null` (no se midió nada) e `I-CS2` (se midió una parte). *Si un día alguna cifra
+  pudiera faltar de verdad, se declara aquí como nullable y se dice por qué; hasta entonces, un `null` suelto en
+  este objeto es un defecto, no una ausencia honesta.*
+- **`I-CS4`** — ⛔ **`setsNoop` no se suma a nada para «redondear» un total.** Un set intentado que no escribió
+  **no es un set hecho**, y ése es el error exacto que `setsOk` cometía (§M2-CS.2).
+
+**⛔ Prohibido: un segundo vocabulario para «cuántos toqué».** `setsOk` queda **deprecado** (§M2-CS.2) y no nace
+ningún `setsProcessed`, `setsHandled` ni `setsDone`. Si un barrido necesita **más** granularidad, la añade como
+**desglose de `setsWritten`** —con la invariante de suma escrita— y **nunca como un total paralelo**.
+
+**Cómo se lee un veredicto de aquí** *(informativo; el copy y el algoritmo son de `DESIGN_SYSTEM §32.4`, que
+manda)*: `summary == null` ⇒ `NO SE SABE`. `running:true` ⇒ **estado `EN CURSO`, jamás veredicto** (el `summary`
+de un barrido vivo es **parcial por construcción**; el veredicto sólo se calcula con `running:false` **y**
+`finishedAt != null`). `total > done` con `running:false` ⇒ `PARCIAL`. Todas las cifras de escritura en `0` con
+`setsTotal > 0` ⇒ `NO SE HIZO`. `setsTotal === 0` ⇒ `SIN CAMBIOS` **demostrable** (y la frase nombra el corte,
+§M2-CS.4, que es la única explicación útil de ese cero).
+
+<a id="M2-CS1"></a>
+##### §M2-CS.1 — `GET /admin/catalog/sync-status` **gana `summary`** *(cierra R2)*
+
+**Shape normativo** (sustituye a la respuesta documentada más abajo, que queda como forma **previa a v1.66**):
+
+```jsonc
+{
+  "running": false,
+  "jobId": "catalog-sync-all-1690000000000",
+  "total": 12,
+  "done": 12,
+  "startedAt": "2026-09-10T18:00:00.000Z",
+  "finishedAt": "2026-09-10T18:04:00.000Z",
+  "summary": {
+    "setsTotal": 12,               // §M2-CS.0
+    "setsWritten": 3,              // ⭐ «cuántos toqué»
+    "setsImported": 2,             //   desglose de setsWritten — set que NO tenía cartas y ahora sí
+    "setsRefreshed": 1,            //   desglose de setsWritten — set que YA tenía cartas y se re-escribió
+    "setsNoop": 8,
+    "setsFailed": 1,
+    "cardsUpserted": 431,          // cartas que ESTA corrida escribió (≠ cartas que existen en los sets)
+    "fromReleaseDate": "2024/09/10",   // corte VIGENTE en esta corrida (§M2-CS.4)
+    "setsSkippedOutOfRange": 140,      // remotos descartados por el corte (selección, no escritura)
+    "setsSkippedUnknownDate": 2,       // remotos sin `releaseDate` (§M2-CS.4) — se cuentan, no se callan
+    "failures": [
+      { "setId": "base1", "code": "UPSTREAM_ERROR", "message": "pokemontcg.io no respondió (502)" }
+    ]
+  }
+}
+```
+
+- **`summary`: `null`** hasta que arranca el **primer** barrido del proceso, y tras un reinicio (**DEV-1**, estado
+  en memoria). `null` significa **«no lo medí»** ⇒ `NO SE SABE` + «—». ⛔ **Nunca un `summary` en ceros para
+  rellenar**: un objeto lleno de `0` afirma que se contó.
+- **`setsImported + setsRefreshed === setsWritten`** (`I-CS5`). Es un **desglose**, no un vocabulario paralelo:
+  el aviso puede decir «**2 sets importados** · **1 actualizado**», pero *«cuántos toqué»* es `setsWritten` y sale
+  de un solo campo.
+- **`cardsUpserted` es «escritas», no «nuevas».** El `upsert` **no puede distinguir** creada de re-escrita, así
+  que **la distinción no se emite** (H5/H8: no se convierte en cifra lo que no se contó). ⇒ ⚠️ **`DESIGN_SYSTEM
+  §32.5a` no puede decir «{c} cartas nuevas»**: la palabra normativa es **«cartas escritas»**.
+- **⭐⭐ Este `summary` NO lleva ninguna cifra de precios, y es deliberado.** Desde v1.14 (§4.15g) el barrido de
+  catálogo **no escribe ni un precio**: emitir `pricesWritten: 0` sería un cero perfectamente cierto y
+  perfectamente engañoso —«no escribió precios» y «no escribe precios» son hechos distintos— y **rehabilitaría la
+  trampa de `fullSyncHint`** que §32 acaba de desmontar. ⇒ **Se RECHAZA `pricesWritten` en este endpoint**
+  (petición R2 de ux-ui, parcialmente denegada) y la consecuencia se enruta: **`DESIGN_SYSTEM §32.5a` no puede
+  prometer «{p} precios escritos» en la acción 1**. *El hueco que eso deja —un set recién importado no tiene
+  precios— es exactamente lo que la columna de §M2-CS.3 vuelve visible, y se repara desde su renglón.*
+- **`fromReleaseDate` / `setsSkippedOutOfRange` / `setsSkippedUnknownDate` son cifras de SELECCIÓN**, no de
+  escritura: ⛔ no pueden abrir la frase de un aviso (H3) y **no entran en `setsTotal`** (nunca se encolaron).
+  El `202` de `POST /admin/catalog/sync-all` **hace eco** de las mismas tres; **la fuente canónica del registro de
+  la corrida es este `summary`** (el `202` las dice al arrancar, éste al terminar; mismo cálculo, un solo origen).
+- **Auditoría/roles/polling: sin cambio** (`super_admin`, read-only, no auditado, no llama a ningún upstream).
+
+<a id="M2-CS2"></a>
+##### §M2-CS.2 — `GET /admin/catalog/refresh-variants-status`: **`setsOk` mentía en el mismo sitio, y se retira**
+
+La asimetría que ux-ui reportó era real, pero **el hermano «bueno» también estaba roto**, y por la misma causa:
+
+> **`setsOk` cuenta «sets que no lanzaron excepción»** — e incluye los sets que corrieron **sin escribir ni un
+> precio ni una variante** (el set que no empareja con TCGCSV: `pricesUpserted: 0`, `cardProductsUpserted: 0`, sin
+> error). ⇒ **`setsOk` es D2 a escala de barrido**: convierte «no reventó» en «salió bien», que es la definición
+> exacta de lo que `§32.4` H1 prohíbe.
+
+**Decisión:** el `summary` de este endpoint adopta **§M2-CS.0 entero** —gana **`setsWritten`** y **`setsNoop`**— y
+conserva sus cifras de escritura propias, que son las que legítimamente lo distinguen del hermano:
+
+```jsonc
+"summary": {
+  "setsTotal": 37,
+  "setsWritten": 27,             // NUEVO — sets con ≥1 escritura (variante o precio)
+  "setsNoop": 8,                 // NUEVO — corrieron, no escribieron nada (el set que no empareja)
+  "setsFailed": 2,
+  "setsOk": 35,                  // ⛔ DEPRECADO — ver abajo
+  "cardProductsUpserted": 1234,
+  "pricesUpserted": 2100,
+  "pending": 180,                // variantes sin precio ⇒ «—»/PRICE_PENDING (jamás 0)
+  "failures": [{ "setId": "base1", "code": "UPSTREAM_ERROR", "message": "…" }]
+}
+```
+
+- **`setsOk` queda DEPRECADO, con su significado CONGELADO**: `setsOk === setsWritten + setsNoop`. **⛔ No se
+  redefine** (redefinir un campo vivo es peor que retirarlo) y **⛔ ningún consumidor puede usarlo para un
+  veredicto**. Se **retira del shape en la rev siguiente**, cuando frontend confirme cero consumidores.
+- **`pending` sigue siendo `pending`** y **no** entra al reparto de sets: cuenta **variantes**, no sets. *Dos
+  unidades distintas nunca comparten prefijo en este contrato.*
+- **Qué NO se unifica, y por qué:** `cardsUpserted` (catálogo) vs `cardProductsUpserted`/`pricesUpserted`
+  (variantes) **son hechos distintos y conservan nombres distintos** — uno cuenta **cartas** escritas y los otros
+  **variantes** y **precios**. Igualarlos sería el error simétrico al de `setsOk`: **un nombre común para dos
+  hechos**. La regla general: **el reparto de sets se unifica siempre; las cifras de escritura se nombran por lo
+  que escriben.**
+
+<a id="M2-CS3"></a>
+##### §M2-CS.3 — CANON: **la variante de precio**, y la cobertura por set en `remote-sets` *(cierra R5)*
+
+<!-- CANON: variante-de-precio -->
+
+**La pregunta que la columna contesta es «¿a este set le faltan precios?», no «cuántas filas tiene».** Para eso
+hace falta fijar el **denominador una sola vez**, porque un set tiene **más variantes que cartas** (normal /
+reverse holo / holofoil) y aplanar ese eje es **la falla de origen de P-47**:
+
+> **VARIANTE DE PRECIO** *(unidad canónica de cobertura)* **:= el par (`CardProduct`, `Finish`) con
+> `Finish ∈ CardProduct.finishes`**, para los `CardProduct` de las `Card` del set.
+>
+> **Por qué ésa y no otra:** es **exactamente** la unidad que lleva precio propio (la `@@unique` de
+> `PriceReference` incluye `cardProductId` **y** `finish`) y **exactamente** la que cuenta `pending` en
+> `refresh-variants`. ⛔ **No es la carta** (aplana el acabado, P-47), ⛔ **no es `printedTotal`** (es del
+> proveedor y cuenta cartón impreso), ⛔ **no es `Card.availableFinishes`** (es la afirmación del catálogo sobre
+> qué acabados existen — se **reconcilia desde** `CardProduct`, así que usarla como denominador mediría una cosa
+> con la regla de otra).
+
+**Shape normativo de `GET /admin/catalog/remote-sets`:**
+
+```jsonc
+{
+  "data": [
+    { "id": "sv08", "name": "…", "series": "…", "releaseDate": "2024/11/08", "printedTotal": 191,
+      "imported": true, "cardCount": 191,
+      "pricedVariants": 184,        // NUEVO — variantes de precio CON precio vigente
+      "variants": 191 },            // NUEVO — variantes de precio del set (denominador)
+    { "id": "base1", "imported": false, "cardCount": 0,
+      "pricedVariants": null, "variants": null },
+    { "id": "me05", "imported": true, "cardCount": 191,
+      "pricedVariants": 0, "variants": null }        // estructura sin resolver ⇒ «0 de —»
+  ],
+  "degraded": false,
+  "source": "remote",
+  "priceCoverage": { "windowDays": 7, "measuredAt": "2026-09-10T18:00:00.000Z" }
+}
+```
+
+- **`pricedVariants`** — variantes de precio con **precio VIGENTE**: existe una `PriceReference` de naturaleza
+  dinero (`MONEY_REF_WHERE`) para ese `(cardProductId, finish)` con **`capturedDate >= hoy − windowDays`**.
+- **`variants`** — variantes de precio del set (el denominador de arriba).
+- **`priceCoverage`** *(nivel de respuesta, no de fila)* — **cómo se midió**: `windowDays` (la ventana de
+  vigencia, **eco del valor vigente en backend**; §0-B.3 regla 1: se lee de ahí, no se cita de aquí) y
+  `measuredAt`. **La definición viaja UNA vez** y las 150 filas traen sólo cifras.
+
+> **⛔ `priceCoverage.windowDays` y `catalogWindow.windowMonths` NO son la misma ventana, y no se comparan.** La
+> primera es **«desde cuándo un precio sigue siendo vigente»** (§M2-CS.3, días); la segunda es **«desde cuándo un
+> set cuenta como nuevo»** (§M2-CS.4, meses). Comparten la palabra «ventana» y **nada más**: unidades distintas,
+> hechos distintos, dueños distintos. *Se dice aquí porque dos magnitudes parecidas en el mismo payload es
+> exactamente el terreno donde alguien las cruza «para simplificar».*
+
+**Invariantes (normativos):**
+
+- **`I-PC1`** — ⭐ **`variants` NUNCA vale `0`.** O el set tiene ≥ 1 variante de precio, o **su universo es
+  desconocido** y entonces es `null`. *Un `0/0` en pantalla se lee «completo», y es la peor lectura posible del
+  set más roto que hay.*
+- **`I-PC2`** — `pricedVariants <= variants` cuando ambos son número.
+- **`I-PC3`** — **set no importado** (`imported: false` **o** `cardCount: 0`) ⇒ **ambos `null`**. El hecho «no
+  está importado» ya viaja en `imported`; ⛔ no se duplica como un par de ceros (§0-B.3 regla 8).
+- **`I-PC4`** — ⭐ **set importado, con cartas y con CERO `CardProduct`** ⇒ **`pricedVariants: 0`, `variants:
+  null`** («**0 de —**»). Es un hecho medido —no hay ni una variante con precio— **más** un universo desconocido:
+  la estructura del set nunca se resolvió contra TCGCSV. **Es el set más roto del catálogo y tiene su propia
+  cara**, distinta de «le faltan 7».
+- **`I-PC5`** — **`priceCoverage: null`** (nivel de respuesta) ⇒ **todas** las filas traen `pricedVariants` y
+  `variants` en `null`. Es la salida **legítima y prevista** cuando la medición no se pudo pagar (timeout o
+  circuito abierto, ver presupuesto abajo): la tabla se sirve igual y la columna entera se pinta «—» (H4).
+  ⛔ **Jamás se sirve una cobertura a medias sin decirlo.**
+- **`I-PC6`** — ⭐ **la cifra es VIVA: se calcula en la petición.** ⛔ **Prohibida una columna derivada/persistida
+  en `CardSet`.** Razón, y es la que decide: un contador cacheado **sólo lo escriben los escritores que tuvieron
+  éxito** ⇒ el set que **deja de repreciarse** (`IMPORTANTE-3`) conservaría para siempre su último valor bueno y
+  **la columna diría «completo» del único set que hay que reparar**. *Una cifra vieja que dice «completo» es peor
+  que no tener columna.*
+- **`I-PC7`** — ⛔ **`remote-sets` NO filtra por el corte de catálogo** (§M2-CS.4). Devuelve **todos** los sets
+  remotos. Con corte móvil esto **deja de ser un detalle** y pasa a ser **la escotilla de escape** del diseño.
+
+**Costo, y cómo se paga** *(medido antes de decidir la forma, no después)*:
+
+1. **Denominador** — un agregado sobre `CardProduct ⋈ Card` sumando la cardinalidad de `finishes` por `setId`.
+   Decenas de miles de filas, índice `CardProduct(cardId)` ya existe. **Barato.**
+2. **Numerador** — **por eso la ventana es obligatoria, y no es un adorno de honestidad**: contar pares
+   *«con precio alguna vez»* obligaría a recorrer **toda** `PriceReference` (una fila por variante **por día**),
+   que crece sin techo. Acotado a `capturedDate >= hoy − windowDays` el universo es ~`variantes × windowDays`.
+   **Precio a pagar: un índice por `capturedDate` en `PriceReference`** (migración, dueño **backend**). Es una
+   tabla de escritura por lotes, no de ruta de dinero: aceptable, y **se declara aquí porque es el costo real de
+   la columna**.
+3. **Presupuesto y degradación:** el añadido sobre `remote-sets` **no debe superar ~300 ms p95**. Si los supera,
+   backend **degrada a `priceCoverage: null`** (`I-PC5`) — ⛔ **jamás sirve la tabla lenta ni una cifra a medias**
+   — y **lo reporta al arquitecto** para re-decidir la forma (p. ej. endpoint aparte con carga diferida, hoy
+   **rechazado**: la cifra decora **la fila** y un segundo endpoint la haría envejecer respecto de la fila que
+   decora).
+4. **Compuerta de medición ANTES de publicar la columna** *(dueño: backend)*: con la ventana semilla, medir
+   **cuántos sets importados quedan en `pricedVariants === 0`** y la distribución de `pricedVariants/variants`.
+   **Si más de ~⅓ de los sets importados sale en cero**, la semilla está mal **o el barrido diario no cubre el
+   catálogo** —y ese segundo caso **es el hallazgo, no un ajuste**—: vuelve al arquitecto **antes** de que la
+   columna se publique. *Una columna que pinta en rojo 150 renglones enseña al dueño a ignorarla, y eso es peor
+   que no tenerla.*
+
+**Qué cubre y qué NO de `IMPORTANTE-3`** *(el set que deja de repreciarse porque `resolveGroupId` devuelve `null`
+con nombres ambiguos y sólo deja un `warn`)*:
+
+- ✅ **Lo hace visible**, y era invisible: pasada la ventana, ese set cae a `0/191` mientras sus vecinos siguen en
+  `184/191`. **Es la primera superficie del producto donde ese defecto se ve sin leer logs.**
+- ✅ **Cubre también su variante peor** (estructura nunca resuelta) con cara propia: `I-PC4`, «0 de —».
+- ⚠️ **No lo detecta el día 1**: hay hasta `windowDays` de retraso. Es un **detector**, no una **alarma**.
+- ⛔ **No lo diagnostica ni lo arregla**, y esta columna **no cierra `IMPORTANTE-3`**: la causa raíz sigue siendo
+  del dueño del código (**backend**, `tcgcsv-singles-bulk.provider.ts`). *Ver un síntoma no es curar la
+  enfermedad; lo que esta columna quita es la parte de «durante semanas y nadie se entera».*
+
+<a id="M2-CS4"></a>
+##### §M2-CS.4 — CANON: **el corte de catálogo se mueve solo** *(cierra R6; deroga el dial `catalogSyncFromDate`)*
+
+<!-- CANON: corte-de-catalogo -->
+
+**Decisión del dueño (2026-09-10):** *«el corte de fecha, que automático. Estar moviendo cosas manuales deja a que
+se rompa algo por falta de cuidado o supervisión»*.
+
+> **CORTE EFECTIVO := `hoy − VENTANA`**, formateado `yyyy/MM/dd`. **`VENTANA`** es la única perilla que queda
+> (`CATALOG_SYNC_WINDOW_MONTHS`, **valor semilla 24 meses**, configuración de despliegue **no expuesta en M10**;
+> §0-B.3 regla 1: el valor **vigente se lee de la fuente ejecutable**, este contrato no lo afirma).
+> **Un set entra al universo de la acción de rutina si `releaseDate >= CORTE EFECTIVO`.**
+
+- **⛔ El dial `catalog_sync_from_date` DEJA DE DECIDIR y se retira.** `catalogSyncFromDate` **sale del DTO de
+  `GET /admin/settings`** y el `PUT` la rechaza como clave desconocida (mismo trato que los diales retirados de
+  §M10). **La fila `ConfigSetting` se BORRA** en la misma migración: un mando muerto que sigue en la base es una
+  copia muerta con voz de autoridad — *mientras exista, alguien la lee y cree que manda*. **Dos fuentes para
+  «desde cuándo es nuevo» es justamente lo que §0-B.3 regla 8 prohíbe, y la lectura del dueño es que quiere dejar
+  de administrarlo, no tener dos palancas.**
+- **La ÚNICA anulación que sobrevive es POR LLAMADA y explícita:** `POST /admin/catalog/sync { fromReleaseDate }`
+  sigue aceptando su parámetro. **No es un segundo dial**: no persiste, no lo lee nadie más, y **la corrida lo
+  reporta** en `summary.fromReleaseDate` (§M2-CS.1). *Un argumento de una llamada no compite con una norma: la
+  acompaña y queda registrado.*
+- **⚠️ EL MODO DE FALLO QUE HAY QUE NOMBRAR — «la caída silenciosa del borde trasero».** Un corte fijo es estable
+  y auditable; **uno que se mueve deja caer sets por detrás sin avisar**: un set lanzado hace `VENTANA + 1` meses
+  que **nunca se importó** queda fuera del alcance del botón de rutina, para siempre y en silencio. **Tres
+  candados, y ninguno es opcional:**
+  1. **`I-PC7` — el renglón sigue visible.** `remote-sets` **no filtra por el corte**; el set fuera de ventana se
+     ve en la tabla con `imported: false` y **se importa desde su propia fila** (la elección visible que
+     `DESIGN_SYSTEM §32.1` puso en lugar del `backfill` a ciegas). *Verificado el 2026-09-10 contra el código: hoy
+     no filtra. Lo que era un accidente feliz pasa a ser norma, porque la ventana móvil se apoya en él.*
+  2. **Se cuenta lo que se descartó:** `summary.setsSkippedOutOfRange` (§M2-CS.1). El descarte deja de ser
+     silencioso y pasa a ser una cifra que el aviso puede nombrar.
+  3. **La ventana se lee antes de apretar**, no después: ver el punto de visibilidad, abajo.
+- **⭐ `releaseDate` ausente o futura — semántica declarada UNA vez** (§0-B.3 regla 9; hoy **nadie lo ha
+  decidido**: `(releaseDate ?? '') >= corte` deja fuera al set sin fecha **por accidente aritmético**):
+  - **Sin `releaseDate` ⇒ NO entra** al universo de la rutina. ⛔ **No se adivina una fecha** para colarlo ni para
+    excluirlo: no se sabe cuándo salió.
+  - **⭐ Pero NO se calla: se cuenta** en `summary.setsSkippedUnknownDate`, y su renglón **sigue visible** con su
+    botón de reparación. *Ausente ⇒ «—» + reportado; nunca «excluido en silencio», que es H4 aplicado a la
+    selección en vez de a un aviso.*
+  - **`releaseDate` futura ⇒ entra** (`>= corte` se cumple). Es correcto: un set anunciado con fecha futura **es**
+    lo más nuevo que hay, y el proveedor no publica sus cartas hasta que existen ⇒ a lo sumo produce un
+    `setsNoop`, que es un cero **medido**.
+- **Que se vea (§32.3 sigue siendo obligatorio, y con más razón).** `GET /admin/catalog/remote-sets` gana, a nivel
+  de respuesta, **`catalogWindow: { fromReleaseDate, windowMonths, computedAt }`** — **siempre presente** (es un
+  valor derivado: no puede fallar). Es la fuente del subtítulo permanente de M2. **La frase debe nombrar la REGLA
+  y la FECHA**, no sólo la fecha: una fecha derivada sin su regla es un número mágico que el dueño no puede
+  predecir. *(Un automático invisible es peor que un manual visible.)* ⇒ **`DESIGN_SYSTEM §32.3` cambia**: la
+  fecha ya no se lee de `GET /admin/settings` y **el enlace «Cambiar la fecha» → M10 debe RETIRARSE** (apunta a un
+  mando que dejará de existir). **Con esto, la petición R3 de §32.15 —«¿se edita el corte desde M2?»— queda sin
+  objeto: no se edita en ninguna superficie.**
+- **⛔ Ejes rechazados, con razón escrita:** *«las últimas N series/bloques»* — **`CardSet.series` es nullable y lo
+  controla el proveedor**: un set con `series: null` sería inclasificable y **volvería a caerse en silencio**, que
+  es el defecto que estamos cerrando, con otra cara. *La irregularidad del ritmo de lanzamientos —el argumento a
+  favor del eje de series— no hace daño aquí: importar es acumulativo, y que una ventana traiga 4 sets un año y 12
+  el siguiente no rompe nada; lo único que la ventana gobierna es qué ofrece el botón de rutina.*
+- **⭐ COMPUERTA DE MEDICIÓN ANTES DEL CAMBIO** *(dueño: backend; bloquea el merge, no el diseño)*. La semilla de
+  24 meses es **más restrictiva** que el corte vigente. Antes de activar, contar:
+  > sets remotos con **`imported: false`** y **`releaseDate ∈ [ valor vigente del dial , CORTE EFECTIVO )`**.
+  - **= 0 ⇒ higiene**: nadie pierde alcance, se activa sin más.
+  - **> 0 ⇒ cambio de comportamiento**: esos sets **salen del alcance del botón de rutina** al activar. Se
+    **importan antes** (o se abandonan a conciencia), **y el número se reporta**. ⛔ No se activa «a ver qué pasa».
+
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
 > **v1.52 (M-47) — el sync ahora persiste también las IMÁGENES DEL SET** (`CardSet.logoUrl` / `symbolUrl`, ARCHITECTURE
@@ -11430,11 +11790,18 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 >   son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next (§5.3.4, §4.41.7). *La conclusión
 >   sobrevive; el argumento que la sostenía, no.*
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
-  Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
+  Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number, pricedVariants, variants }], degraded: boolean, source: "remote" | "local", priceCoverage, catalogWindow }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
+  - **v1.66 — `pricedVariants` / `variants` / `priceCoverage` (cobertura de precio por set) y `catalogWindow` (el corte vigente): forma, invariantes `I-PC1..I-PC7`, costo y degradación en [`§M2-CS.3`](#M2-CS3) y [`§M2-CS.4`](#M2-CS4).** ⛔ **Este endpoint NO filtra por el corte** (`I-PC7`): devolver **todos** los sets remotos es la escotilla de escape del corte móvil, no un detalle de implementación.
+  - **`degraded` / `source`:** `source: "local"` + `degraded: true` cuando pokemontcg.io no responde y la lista se sirve desde los sets **locales** (⇒ `imported` es `true` en todas las filas **por construcción**, no por medición). La **cobertura** (`priceCoverage`) es local y **se mide igual** en ese modo: son dos degradaciones independientes.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
   Req: `{ setId?: string, fromReleaseDate?: string, force?: boolean = false }`.
   - `setId` (opcional) → importa ese set puntual. **Debe cumplir `^[a-z0-9]+(-[a-z0-9]+)*$`** (anti-inyección en `q=set.id:`); si no, `422 VALIDATION_ERROR`.
-  - sin `setId` → importa sets con `releaseDate >= fromReleaseDate`. **Default `fromReleaseDate` = dial `catalog_sync_from_date` (`"2024/01/01"`)**, editable sin redeploy vía `GET/PUT /admin/settings` (`catalogSyncFromDate`, §M10). Formato `yyyy/MM/dd`.
+  - sin `setId` → importa sets con `releaseDate >= fromReleaseDate`. Formato `yyyy/MM/dd`.
+    ⚠️ **v1.66 — el DEFAULT cambia de fuente:** era el dial `catalog_sync_from_date` (editable en §M10); pasa a ser
+    el **CORTE EFECTIVO derivado** de [`§M2-CS.4`](#M2-CS4), que **se mueve solo** y **ya no se administra a mano**.
+    El `fromReleaseDate` del body **sobrevive como anulación POR LLAMADA** (explícita, sin estado) y la corrida lo
+    reporta en `summary.fromReleaseDate`. La semántica de un set **sin `releaseDate`** —no entra, **pero se
+    cuenta**— también vive en §M2-CS.4, y **no se decide aquí**.
   - **`force` (v1.27 / P-12, opcional, default `false`, aditivo):** con `true`, para **cada set procesado por la
     llamada** se corre además el **resolver estructural TCGCSV** (`resolveStructuralFinishesForSet`, ARCHITECTURE
     §4.24a) aunque el set NO sea first-import — misma semántica que el `force` de `sync-all` (cierra la asimetría:
@@ -11453,13 +11820,13 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 - `POST /api/v1/admin/catalog/backfill` — importa el **siguiente lote de sets más antiguos aún no importados** (colecciones previas a la frontera). Repetible.
   Req: `{ batchSize?: number = 10, untilYear?: number }`.
   Res `200`: `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary: string, remaining: number }`. `newBoundary` = `releaseDate` del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar. Se repite hasta `remaining=0` (o hasta `untilYear`).
-- `POST /api/v1/admin/catalog/sync-all` — **(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, sin frontera de fecha) — soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9). **Admin-only** (`super_admin`).
-  Req: `{ force?: boolean = false }` (sin otros campos; ignora `catalog_sync_from_date`).
+- `POST /api/v1/admin/catalog/sync-all` — ~~**(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, **sin frontera de fecha**)~~ ⚠️ **v1.66 — CORREGIDO: SÍ tiene frontera.** Este barrido **honra el corte** (era el defecto **D3**: el botón «Importar sets nuevos» del dueño se traía sets de cualquier año) y desde v1.66 el corte es el **CORTE EFECTIVO derivado** de [`§M2-CS.4`](#M2-CS4), no un dial. *La frase tachada era cierta en v1.3 y dejó de serlo sin que este documento se enterara — se conserva tachada, no se borra.* Soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9). **Admin-only** (`super_admin`).
+  Req: `{ force?: boolean = false }` (sin otros campos). ~~ignora `catalog_sync_from_date`~~ ⚠️ **v1.66: falso — el corte se aplica** ([`§M2-CS.4`](#M2-CS4)). Con **`force: true`** el corte **no** se aplica a los sets **ya importados**: `force` no es «importar», es **reparar lo que ya está aquí**, y acotarlo por fecha encogería la reparación justo en los sets viejos, que son los que la necesitan.
     - **`force` (v1.6-finish, opcional, default `false`, admin-only):** controla si se reprocesan los sets **ya importados**.
       - `false` (default): **comportamiento actual** — se **saltan** los sets ya importados; solo se encolan los sets remotos aún no presentes.
       - `true`: **no filtra** por sets ya importados — se encolan **TODOS** los sets (incluidos los ya importados) para **repoblar** `Card.availableFinishes` ~~y los precios por acabado~~ tras la **migración M-18** (v1.6-finish). Usar tras el deploy que requiere RE-SYNC (ver Changelog v1.6-finish, criterio 24). **⛔ Corrección v1.27:** desde v1.14 (WS-A §4.15g) este endpoint **NO repuebla precios** — solo metadata, cartas y (con `force`) variantes estructurales TCGCSV + reconcile; los precios se ingieren únicamente vía `price-ingest` (§M10-ops).
     - **Retrocompatible:** omitir `force` (o enviar `false`) preserva el contrato y la semántica previos; ningún consumidor existente se rompe. El campo es aditivo y opcional.
-  Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
+  Res `202`: `{ jobId: string, setsQueued: number, remaining: number, fromReleaseDate: string, setsSkippedOutOfRange: number, setsSkippedUnknownDate: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). **Las tres últimas son ECO de la selección** —el corte que rigió esta corrida y lo que dejó fuera— y su **fuente canónica es `summary`** ([`§M2-CS.1`](#M2-CS1)): el `202` las dice **al arrancar**, el `summary` **al terminar**; un solo cálculo, dos momentos. ⛔ **Ninguna de las tres es una cifra de escritura** y no puede abrir la frase de un aviso. Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
   > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
   > **Uso en Fase 1 (v1.12-catalog-pricing, ARCHITECTURE §4.13):** este endpoint **cubre 1.3 y 1.4 sin variantes nuevas** — (1.4, frontend) botón **"Importar sets nuevos"** en M2 = `sync-all {force:false}` (solo sets no importados) + polling `sync-status` + refrescar `remote-sets`; (1.3, disparo manual del refresco de precios) = `sync-all {force:true}` (re-sync completo que repuebla `PriceReference` por acabado). El job automático `catalog-price-sync` 2×/día ejecuta internamente la misma lógica de `force:true`.
   > **⛔ Corrección v1.27 al párrafo anterior (la mitad 1.3 quedó STALE desde v1.14/WS-A §4.15g):** `sync-all` **ya NO
@@ -11469,6 +11836,10 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
   > 1.4 ("Importar sets nuevos") sigue vigente tal cual. El copy de frontend en M2 debe reflejarlo (`es.json` decía
   > "repuebla precios": mentira desde v1.14; corregir en este stream).
 - `GET /api/v1/admin/catalog/sync-status` — **(v1.10-sync-status, NUEVO)** devuelve el **progreso** del barrido `sync-all` **en curso** (o del **último** ejecutado) → permite a M2 **pollear** (cada ~3s mientras `running`) y saber **cuándo** terminó (antes `sync-all` era fire-and-forget "a ciegas"). **Read-only**, **NO auditado** (es de polling), **NO llama a pokemontcg.io** (lee estado **en memoria del proceso**; **no** consume rate-limit ni la cola BullMQ). **Admin-only** (`super_admin`, hereda de `@Roles(Role.super_admin)` del controller). El shape corresponde **exactamente** a `CatalogSyncStatusResponse` (`frontend/src/types/contract.ts`).
+  > **⚠️ v1.66 — ESTE SHAPE ES LA FORMA PREVIA.** El endpoint **gana `summary`** y su forma normativa vive en
+  > [`§M2-CS.1`](#M2-CS1) (reparto en [`§M2-CS.0`](#M2-CS0)). **Sin `summary`, la acción de rutina del dueño nunca
+  > podía emitir `HECHO`** y se quedaba en `NO SE SABE` con «—» (`DESIGN_SYSTEM §32.5a`, petición R2). Lo de abajo
+  > se conserva como registro de la forma v1.10-sync-status; **⛔ no se implementa contra él.**
   Res `200` (`CatalogSyncStatusResponse`):
   ```json
   {
@@ -11553,6 +11924,9 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
     "startedAt": "2026-08-22T18:00:00.000Z",
     "finishedAt": "2026-08-22T18:04:00.000Z",  // null mientras running=true; se fija al terminar
     "summary": {
+      // ⚠️ v1.66: este summary adopta el reparto canónico de §M2-CS.0 (gana `setsWritten` y `setsNoop`)
+      // y `setsOk` queda DEPRECADO con su significado congelado — ver §M2-CS.2. NO se implementa
+      // un veredicto contra `setsOk`: cuenta como «bien» al set que corrió sin escribir nada.
       "setsTotal": 37,
       "setsOk": 35,
       "setsFailed": 2,
@@ -15766,6 +16140,17 @@ Err `403`, `400 VALIDATION_ERROR`.
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
+- ⛔⛔ **v1.66 — `catalogSyncFromDate` SALE DE ESTE DTO Y DE ESTE `PUT`.** El corte del sync de catálogo **deja de
+  ser un dial y pasa a ser un valor DERIVADO que se mueve solo** ([`§M2-CS.4`](#M2-CS4), `<!-- CANON:
+  corte-de-catalogo -->`; decisión del dueño, 2026-09-10). Enviar `catalogSyncFromDate` en el body cae en
+  **`422 VALIDATION_ERROR`** como cualquier clave desconocida (mismo precedente que `stripeFeeIvaPct` y
+  `fxRateMode`), y **la fila `ConfigSetting` `catalog_sync_from_date` se BORRA** en la misma migración — ⛔ **no
+  queda «deprecada e inerte»**: un mando muerto que sobrevive en la base es leído por alguien que cree que manda.
+  **Dónde se lee ahora el corte vigente:** `catalogWindow` de `GET /admin/catalog/remote-sets` (para la pantalla,
+  **antes** de apretar) y `summary.fromReleaseDate` de `GET /admin/catalog/sync-status` (para el aviso, **después**
+  de correr). ⚠️ **La frase de la lista de abajo que describe `catalogSyncFromDate` como «editable sin redeploy»
+  queda MUERTA en v1.66** y se retira con la implementación; se deja visible aquí en vez de borrarla en silencio,
+  porque frontend M10 tiene que ver qué desaparece de su pantalla.
 - ⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
   `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**. Ver §M10-IVA.
 - `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.

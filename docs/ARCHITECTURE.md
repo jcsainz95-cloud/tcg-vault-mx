@@ -4,6 +4,41 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.66 — UNA CIFRA SÓLO SE EMITE SI ESTA CORRIDA LA CONTÓ: EL `summary` QUE FALTABA, LA COLUMNA QUE REVELA
+> EL SET ROTO, Y EL CORTE QUE SE MUEVE SOLO**
+> (2026-09-10, arquitecto. Base: **v1.65, vigente entera**. Origen: `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui) +
+> **decisión del dueño** del 2026-09-10 (**R6**). Contrato en `API_CONTRACT.md` **v1.66**, sección nueva **§M2-CS**.
+> Detalle en **§4.45**. Migración **`M-51`** (§11). Desviaciones **`D-CS-1`**, **`D-CS-2`** y **`D-CS-3`** en **§9**.)
+>
+> **1. ⭐⭐ EL CRITERIO ÚNICO, Y ES EL LADO SERVIDOR DE `§32.4`: una cifra sólo se emite si ESTA corrida la CONTÓ; lo
+> que no se midió viaja AUSENTE, jamás como `0`.** *Una pantalla no puede ser más honesta que su DTO.* Las tres
+> peticiones salen de ahí y por eso se resuelven juntas: tocan **los mismos dos payloads**.
+>
+> **2. R2 — el `summary` de `sync-status`, y el defecto que apareció al mirar al hermano.** Sin `summary`, **la
+> acción que el dueño usa a diario no podía emitir `HECHO` nunca**. Al comparar con `refresh-variants-status` para
+> copiar su forma, **la forma buena no lo era**: **`setsOk` cuenta como bueno al set que corrió sin escribir nada**
+> — **D2 a escala de barrido**. ⇒ **un solo reparto para los dos** (`setsWritten` es «cuántos toqué»), `setsOk`
+> **deprecado con su significado congelado**. Regla que queda: **el reparto de sets se unifica siempre; las cifras
+> de escritura se nombran por lo que escriben.**
+>
+> **3. ⛔ RECHAZO la mitad de R2 que pedía `pricesWritten`.** El barrido de catálogo **no escribe precios desde
+> v1.14**. **Un DTO no emite la cifra de una capacidad que la acción no tiene**: «cero de algo que no hago» no es
+> una medición, es una invitación a prometerlo en pantalla — y es la trampa de `fullSyncHint` otra vez.
+>
+> **4. ⭐⭐ R5 — la columna `PRECIOS`, con el eje de acabado tomado en serio.** Denominador definido **una vez**: la
+> **VARIANTE DE PRECIO** = par (`CardProduct`, `Finish`). ⛔ **No la carta** (aplanarlo es el origen de **P-47**), y
+> ⛔ **no `SetValueSnapshot.pricedCardCount`**, que ya existe y **mide con el eje aplanado** — *reusarlo por barato
+> habría sido cometer P-47 otra vez*. **El costo decidió la forma**: el numerador **no cabe** sin ventana ⇒ se acota,
+> y esa restricción **mejora** la respuesta. **⛔ Prohibida la columna cacheada:** sólo la escriben los escritores que
+> tuvieron éxito ⇒ el set que deja de repreciarse diría **«completo» para siempre**.
+>
+> **5. R6 — el corte se deriva y el dial MUERE** (*«el corte de fecha, que automático»*). ⛔ No sobrevive como
+> anulación manual: serían **dos fuentes** para «desde cuándo es nuevo» (regla 8). Se **nombra el modo de fallo que
+> el manual no tenía** —**la caída silenciosa del borde trasero**— y se **verifica** (no se supone) que la escotilla
+> de escape existe: `remote-sets` **no filtra por el corte**, y eso **pasa a ser norma**. Y se decide, por primera
+> vez, el set **sin `releaseDate`**: **no entra, pero se cuenta**. ⇒ **R3 queda sin objeto.**
+>
+> ---
 > **Rev v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED «MONEY-SAFE» ERA EL QUE APLANA**
 > (2026-09-10, arquitecto. Base: **v1.64(4), vigente entera**. Escalada **regla 9** desde QA, **BLOQUEANTE-1 sobre
 > P-47**. ⛔ **Sin migración, sin endpoint, sin cambio de shape.** Contrato en `API_CONTRACT.md` **v1.65**, sección
@@ -3015,6 +3050,9 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **El ESTADO del tipo de cambio** (forma del `FxStateDTO`, `applied`, `fallbackRate`) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.3** | `<!-- CANON: estado-del-tipo-de-cambio -->` |
      | **La BANDA de una tasa USD→MXN** (`[1, 1000]`, sus dos extremos y las dos puertas) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.8** | `<!-- CANON: banda-de-la-tasa-usd-mxn -->` |
      | **El PROVEEDOR DE PRECIO** (`price_provider`: enum, semántica de cada valor, **SEED**, y la prohibición de afirmar el **VIGENTE** de un entorno) *(v1.65)* | **`API_CONTRACT.md` §M10-PP** *(razón entera, que no se transcribe allí: `ARCHITECTURE §4.35a`)* | `<!-- CANON: proveedor-de-precio -->` |
+     | **El REPARTO de un barrido de sets** (qué se le pasó a cada set encolado: los términos, sus invariantes, y **el único nombre de «cuántos toqué»**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.0** *(razón: `ARCHITECTURE §4.45.1`)* | `<!-- CANON: reparto-del-barrido -->` |
+     | **La VARIANTE DE PRECIO** (la unidad de cobertura: qué se cuenta, qué **no** es denominador, y cuándo el universo es **desconocido** en vez de cero) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.3** *(razón: `ARCHITECTURE §4.45.2`)* | `<!-- CANON: variante-de-precio -->` |
+     | **El CORTE DE CATÁLOGO** (desde cuándo un set cuenta como **nuevo**: la fórmula derivada, la semántica del `releaseDate` ausente, y que **ya no hay dial**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.4** *(razón: `ARCHITECTURE §4.45.3`)* | `<!-- CANON: corte-de-catalogo -->` |
    - **⭐⭐ AMPLIACIÓN v1.65 — «EL VALOR NO CADUCA SOLO: CADUCA EL HECHO QUE EL VALOR NOMBRABA». La regla 8 también
      gobierna los valores de clase (B) que se afirman con VERBOS DISTINTOS.** El caso que la origina no fue una
      cuenta: fueron **dos frases sobre el mismo dial** —*«el **seed** debe dejar `tcgcsv_singles`»* (§4.36(d)) y
@@ -21351,6 +21389,197 @@ allí**: un id `IVA-<n>` **sin fila en esa tabla no existe**; para marcas intern
 
 ---
 
+### 4.45 M2 · SINCRONIZACIÓN DE CATÁLOGO — el `summary` que faltaba, la columna que revela el set roto, y el corte que se mueve solo (v1.66-catalog-honesty, NORMATIVO)
+
+> **Contrato: `API_CONTRACT §M2-CS`** (tres marcas `CANON`: `reparto-del-barrido`, `variante-de-precio`,
+> `corte-de-catalogo`). **Aquí vive la RAZÓN; allí, la forma.** ⛔ Las cifras y los shapes **no se transcriben** en
+> esta sección (§0-B.3 regla 8).
+>
+> **Origen — tres peticiones, dos autores, un solo panel:** `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui, al
+> rediseñar M2 contra la norma de honestidad de `§32.4`) y una **decisión del dueño del 2026-09-10**: *«el corte de
+> fecha, que automático. Estar moviendo cosas manuales deja a que se rompa algo por falta de cuidado o
+> supervisión»* (**R6**). **Se resuelven juntas porque tocan los mismos dos payloads** (`sync-status` y
+> `remote-sets`) y porque separarlas habría dejado dos revs pisándose la misma zona compartida.
+
+#### 4.45.0 El criterio único del que salen las tres decisiones
+
+> ⭐⭐ **Una cifra sólo se emite si esta corrida la CONTÓ. Lo que no se midió viaja AUSENTE, jamás como `0`.**
+
+No es una preferencia de estilo: es la generalización de **D2** —*«191 cartas procesadas · 0 precios», en verde,
+sobre un set que nadie tocó*— y ya está escrita como norma de presentación en `DESIGN_SYSTEM §32.4`. Lo que esta
+sección hace es **llevarla al lado del servidor**, donde tiene que empezar: *una pantalla no puede ser más honesta
+que su DTO*. De ahí salen, mecánicamente, las tres decisiones:
+
+| Petición | Lo que la norma obliga | Decisión |
+|---|---|---|
+| **R2** | El aviso no puede afirmar «hecho» sin cifras de escritura de **esta** corrida | `sync-status` gana `summary`, y **el reparto de sets se unifica** (§4.45.1) |
+| **R5** | La tabla no puede pedirle al dueño que detecte lo que no muestra | cobertura de precio **por set**, con denominador definido **una vez** (§4.45.2) |
+| **R6** | Un mando que hay que acordarse de mover es un defecto silencioso esperando | el corte se **deriva**; el dial **muere** (§4.45.3) |
+
+#### 4.45.1 R2 — el `summary`, y el defecto que apareció al mirar al hermano
+
+**La petición era de simetría** (`refresh-variants-status` tiene `summary`; `sync-status` no ⇒ la acción de rutina
+del dueño **nunca** podría emitir `HECHO`). **Al comparar los dos para copiar la forma buena, apareció que la forma
+buena no lo era:**
+
+> **`setsOk` cuenta «sets que no lanzaron excepción»**, e incluye a los sets que corrieron **sin escribir ni una
+> variante ni un precio** (el set que no empareja con TCGCSV). ⇒ **`setsOk` es D2 a escala de barrido**: convierte
+> *«no reventó»* en *«salió bien»*. **Copiar la forma del hermano habría propagado el defecto en vez de cerrarlo.**
+
+**Decisión — un solo reparto para los dos barridos** (`setsTotal` / `setsWritten` / `setsNoop` / `setsFailed` /
+`failures[]`, `API_CONTRACT §M2-CS.0`), con **`setsWritten` como el único nombre de «cuántos toqué»** y `setsOk`
+**deprecado con su significado congelado**. La regla general que queda, y que gobierna el próximo barrido que
+alguien añada:
+
+> **El reparto de sets se unifica SIEMPRE; las cifras de escritura se nombran por LO QUE ESCRIBEN.** Un barrido de
+> catálogo escribe **cartas**; uno de variantes escribe **variantes** y **precios**. Igualar esos nombres sería el
+> error simétrico al de `setsOk`: **un nombre común para dos hechos distintos**.
+
+**Lo que RECHACÉ de R2, y por qué importa.** ux-ui pidió el `summary` *«análogo»*, con `pricesWritten`. **El barrido
+de catálogo no escribe precios desde v1.14 (§4.15g).** Un `pricesWritten: 0` sería un cero **perfectamente cierto y
+perfectamente engañoso** —*«no escribió precios»* y *«no escribe precios»* son hechos distintos, y la pantalla no
+puede distinguirlos— y **rehabilitaría exactamente la trampa de `fullSyncHint`** que §32 acaba de desmontar. La
+regla, transversal:
+
+> **⛔ Un DTO no emite una cifra de una capacidad que la acción NO TIENE.** «Cero de algo que no hago» no es una
+> medición: es una invitación a prometerlo en la pantalla.
+
+⇒ **Consecuencia enrutada a ux-ui** (§0-B.3 regla 7, en el mismo pase): `§32.5a` **no puede prometer «{p} precios
+escritos»** en la acción 1, ni decir **«cartas nuevas»** (el `upsert` no distingue creada de re-escrita, así que la
+distinción **no se emite** y la palabra normativa es **«escritas»**). *El hueco que eso deja —un set recién
+importado no tiene precios— no se tapa con copy: se vuelve visible en la columna de §4.45.2 y se repara desde el
+renglón.*
+
+#### 4.45.2 R5 — «¿a este set le faltan precios?», que no es «cuántas filas tiene»
+
+**El flujo del dueño no se podía ejecutar:** su regla es *«solo se ocupa si se ve un error en algún set
+específico»*, y **la tabla no tenía ninguna columna que revelara el error** — `Cartas` sube aunque no se escriba ni
+un precio, que es justo el set que él querría reparar.
+
+**(a) El denominador se fija UNA vez, y no es la carta.** Un set tiene **más variantes que cartas** (normal /
+reverse holo / holofoil). La unidad canónica es la **VARIANTE DE PRECIO** = par (`CardProduct`, `Finish`), que es
+**exactamente** la que lleva precio propio (la `@@unique` de `PriceReference` incluye `cardProductId` **y**
+`finish`) y **exactamente** la que ya cuenta `pending`. ⛔ **No la carta** —aplanar el eje de acabado es el origen
+de **P-47**—, ⛔ no `printedTotal`, ⛔ no `Card.availableFinishes` (que se **reconcilia desde** `CardProduct`: usarla
+mediría una cosa con la regla de otra). *Precedente en contra, y por eso lo digo en voz alta:*
+**`SetValueSnapshot.pricedCardCount` ya existe y NO sirve aquí** — cuenta **cartas** bajo `SET_VALUE_RULE`
+(`raw:NM`, acabado `normal`), que es el eje aplanado. **Reusarlo por barato habría sido cometer P-47 otra vez.**
+
+**(b) El costo decidió la forma, no al revés.** Medido sobre el modelo: el **denominador** es un agregado barato
+sobre `CardProduct ⋈ Card`; el **numerador** no. Contar *«variantes con precio alguna vez»* obliga a recorrer
+**toda** `PriceReference` —una fila por variante **por día**, creciendo sin techo—, lo que **no cabe en la carga de
+una tabla de ~150 renglones**. ⇒ **el numerador se acota por ventana de vigencia**, y esa restricción **no es una
+concesión: mejora la respuesta**, porque *«tiene precios de hace tres semanas»* es exactamente uno de los modos de
+estar roto. **Precio a pagar, declarado: un índice por `capturedDate` (`M-51a`)** en una tabla de escritura por
+lotes, fuera de la ruta de dinero.
+
+**(c) Qué se rompe si el número queda stale — y por eso la cifra es VIVA.** Consideré y **rechacé** una columna
+derivada/persistida en `CardSet`:
+
+> **Un contador cacheado sólo lo escriben los escritores que TUVIERON ÉXITO.** El set que **deja de repreciarse**
+> —`IMPORTANTE-3`— conservaría **para siempre su último valor bueno**, y la columna diría **«completo»** justo del
+> único set que hay que reparar. **Una cifra vieja que dice «completo» es peor que no tener columna.**
+
+La cifra se calcula **en la petición**, con un **presupuesto declarado** y una **degradación honesta**: si no se
+puede pagar, la respuesta dice *«no medí la cobertura»* y la columna entera se pinta **«—»** (`I-PC5`) — ⛔ **jamás
+una tabla lenta ni media cobertura sin avisar**.
+
+**(d) El `0/0` que se lee «completo».** El caso peor no es *«le faltan 7»*: es el set **importado cuya estructura
+nunca se resolvió** contra TCGCSV, que **no tiene ni una variante** ⇒ un cociente `0/0` que en pantalla se lee
+**«nada que hacer»**. Por eso `variants` **nunca vale `0`** (`I-PC1`) y ese caso tiene **cara propia**: *«0 de —»*
+(`I-PC4`). *Es la misma disciplina del precio pendiente (§7.3 del sistema de diseño): un universo desconocido se
+dice, no se rellena con el número que casualmente cuadra.*
+
+**(e) `IMPORTANTE-3`: qué cubre esta columna y qué NO** *(lo digo en los dos sentidos, porque se me pidió así)*.
+**✅ Cubre**: el set que deja de repreciarse cae a `0/N` mientras sus vecinos siguen altos — **es la primera
+superficie del producto donde ese defecto se ve sin leer logs**, y también aparece su variante peor (estructura
+nunca resuelta, `I-PC4`). **⚠️ No cubre**: no avisa el día 1 (hay hasta una ventana de retraso) — es un
+**detector**, no una **alarma**. **⛔ Y no lo cierra**: la causa raíz (`resolveGroupId` → `null` con nombres
+ambiguos, `tcgcsv-singles-bulk.provider.ts`, que devuelve 0 filas y deja un `warn`) **sigue siendo de backend**.
+*Ver el síntoma no cura la enfermedad; lo que esta columna quita es la parte de «durante semanas y nadie se
+entera».*
+
+**(f) La compuerta que evita una columna que cría lobo.** Si la ventana semilla deja **más de ~⅓ de los sets
+importados en cero**, hay dos explicaciones y **ninguna se arregla ajustando la pantalla**: o la semilla está mal,
+**o el barrido diario no cubre el catálogo** — y **ese segundo caso es el hallazgo**, no un parámetro. Vuelve al
+arquitecto **antes** de publicar la columna. *Una columna que pinta 150 renglones en rojo enseña al dueño a
+ignorarla, y una columna ignorada es peor que ninguna.*
+
+#### 4.45.3 R6 — el corte se mueve solo (decisión del dueño, 2026-09-10)
+
+**El defecto que el dueño nombró es de la peor clase: el que no falla.** Un dial que hay que acordarse de mover no
+avisa cuando nadie lo mueve; simplemente va acumulando sets viejos que él no quiere. *Es el mismo criterio con el
+que rechacé, en `v1.65`, dejar el seed legacy y volver el flip un paso manual del arranque de staging:* **si la
+paridad hay que recordarla, no es una paridad**. Aplicado aquí: **si el corte hay que moverlo a mano, no es un
+corte: es una tarea pendiente con aspecto de configuración.**
+
+**Decisión: `CORTE EFECTIVO := hoy − VENTANA`** (`API_CONTRACT §M2-CS.4`), y **el dial muere** — ⛔ no sobrevive
+como «anulación manual por encima de la ventana automática»: eso serían **dos fuentes para «desde cuándo es
+nuevo»**, que es §0-B.3 regla 8, y **la lectura de la frase del dueño es que quiere dejar de administrarlo, no
+tener dos palancas**. La **única** anulación que queda es **por llamada y explícita** (`fromReleaseDate` en el body
+de `sync`), que no persiste, no la lee nadie más y **la corrida la reporta**: *un argumento de una llamada no
+compite con una norma, la acompaña y queda registrado.*
+
+**El eje: TIEMPO, y por qué no «las últimas N series».** El eje de series es más estable en contenido, pero
+**`CardSet.series` es nullable y lo controla el proveedor**: un set con `series: null` sería **inclasificable** y
+volvería a caerse **en silencio** — el mismo defecto que estamos cerrando, con otra cara. Y el argumento a favor
+del eje de series —*los sets no salen a ritmo constante*— **no hace daño aquí**: importar es **acumulativo**, lo ya
+importado no se va, y lo único que la ventana gobierna es **qué ofrece el botón de rutina**. Que traiga 4 sets un
+año y 12 el siguiente no rompe nada.
+
+**⚠️ EL MODO DE FALLO QUE HAY QUE NOMBRAR, porque el manual no lo tenía: «la caída silenciosa del borde trasero».**
+Un corte fijo es estable y auditable; **uno que se mueve deja caer sets por detrás sin avisar**. Un set lanzado
+hace `VENTANA + 1` meses que **nunca se importó** queda fuera del alcance del botón de rutina, para siempre. **Tres
+candados, y el primero es una dependencia que había que VERIFICAR, no suponer:**
+
+1. **El renglón sigue visible.** `remote-sets` **no filtra por el corte** — **verificado el 2026-09-10 contra el
+   código que corre** (§0-B.3 regla 2): lista **todos** los sets remotos y marca `imported`. **Si los ocultara, la
+   ventana móvil se tragaría la escotilla de escape y el rediseño de §32 se rompería.** Lo que hasta hoy era un
+   accidente feliz **pasa a ser norma** (`I-PC7`), precisamente porque la ventana móvil se apoya en él.
+2. **Se cuenta lo que se descartó** (`setsSkippedOutOfRange`): el descarte deja de ser silencioso.
+3. **La ventana se lee ANTES de apretar** (§4.45.4), no después.
+
+**⭐ `releaseDate` ausente — hoy nadie lo había decidido, y se decide aquí, una vez.** El filtro vigente
+(`(releaseDate ?? '') >= corte`) deja fuera al set sin fecha **por accidente aritmético**, no por decisión: la
+cadena vacía nunca gana la comparación. **Norma: sin `releaseDate` NO entra** —⛔ no se adivina una fecha, ni para
+colarlo ni para excluirlo— **pero NO se calla: se cuenta** (`setsSkippedUnknownDate`) y su renglón sigue visible.
+*Es H4 aplicado a la SELECCIÓN en vez de a un aviso: ausente ⇒ reportado, nunca «excluido en silencio».*
+**`releaseDate` futura sí entra**: un set anunciado **es** lo más nuevo que hay, y a lo sumo produce un `setsNoop`,
+que es un cero **medido**.
+
+**⭐ La compuerta de medición, y por qué no la contesto yo.** La semilla de 24 meses es **más restrictiva** que el
+corte vigente, así que el cambio **puede** ser de comportamiento. El número que lo decide —**sets remotos NO
+importados en el tramo que la ventana deja fuera**— **es un valor de clase (B): se mide contra el catálogo real,
+no se estima en un documento** (§0-B.3 reglas 1 y 2). Queda como **compuerta de merge de backend**: **0 ⇒ higiene**;
+**>0 ⇒ cambio de comportamiento**, se importan (o se abandonan a conciencia) **antes**, y el número se reporta.
+⛔ **No se activa «a ver qué pasa».**
+
+#### 4.45.4 Que se vea: el corte automático **no** puede ser invisible
+
+`DESIGN_SYSTEM §32.3` («la fecha se ve, o la acción no se entiende») **sigue vigente y se vuelve más exigente**: el
+dueño ya no controla el corte, así que **leerlo es su único modo de predecir qué hará el botón**. El dato se sirve
+en la **misma respuesta que dibuja la tabla** (`catalogWindow` de `remote-sets`), y no en `GET /admin/settings`,
+por una razón de diseño: **el subtítulo y la tabla no pueden discrepar si salen de la misma petición.**
+
+**Y la frase debe nombrar la REGLA además de la FECHA** («lo lanzado en los últimos *N* meses — desde *{fecha}*»):
+*una fecha derivada sin su regla es un número mágico que el dueño no puede predecir*, y sería un automático
+invisible, que es **peor que un manual visible**. ⇒ **`§32.3` cambia y el enlace «Cambiar la fecha» → M10 se
+retira** (apuntaría a un mando que dejará de existir). **Con esto, la petición R3 de `§32.15` queda sin objeto:** la
+pregunta era *«¿se edita el corte desde M2 o desde M10?»* y la respuesta es **«en ninguna de las dos»**.
+
+#### 4.45.5 Orden de trabajo, y qué bloquea a qué
+
+1. **R2 y R5 son lo que desbloquea la pantalla** y pueden ir en paralelo (payloads distintos).
+2. **R6 comparte payload con los dos** (`summary.fromReleaseDate`, `catalogWindow`) ⇒ **misma rev de contrato**,
+   pero su **activación** está detrás de la compuerta de medición de §4.45.3. **No bloquea a R2 ni a R5.**
+3. **`M-51` es una migración en dos partes** (§11): **`M-51a`** índice `PriceReference(capturedDate)` —el costo de
+   la columna— y **`M-51b`** borrado de la fila `ConfigSetting.catalog_sync_from_date` —el mando muerto—.
+   **`M-51b` va DESPUÉS de que el código deje de leerla**, no antes.
+4. **Nada de esto cierra `IMPORTANTE-3`** (§4.45.2e) ni **`DEV-1`** (estado del barrido en memoria): siguen
+   abiertas, con sus dueños, y **el diseño de §32 ya está escrito para convivir con las dos** (`NO SE SABE` + «—»).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -22091,6 +22320,42 @@ Riesgos técnicos:
 > (los decimales de `aportacion_pct` e `iva_pct`, **cerradas por backend**; su deuda vive como `TD-IVA-1`/`TD-IVA-2`
 > en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
 > nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-1`: EL CONTRATO NO SABÍA QUE `sync-all` YA TENÍA CORTE, NI QUE `sync-status` YA
+  TENÍA `summary`.** **Dueño del arreglo: arquitecto — CERRADA EN ESTE MISMO PASE** en cuanto a la prosa
+  (`API_CONTRACT §M2-CS` + dos frases tachadas); **queda abierta la parte de proceso, que va a techlead.**
+  - **Qué se midió el 2026-09-10** (§0-B.3 regla 2, leído el artefacto que corre): `catalog-sync.service.ts` ya
+    expone `summary` en `getSyncStatus()`, ya tiene el predicado único `isWithinCatalogFromDate` /
+    `selectSyncAllCandidates`, y el `202` de `syncAll` ya devuelve `fromReleaseDate` y `setsSkippedOutOfRange`.
+    **Nada de eso estaba en el contrato**, que además seguía afirmando lo contrario (*«sin frontera de fecha»*,
+    *«ignora `catalog_sync_from_date`»*).
+  - **Por qué NO es una anécdota:** **ux-ui leyó el contrato, como debe, y concluyó que el `summary` no existía**
+    (`§32.15 R2`). Un contrato atrasado **no es un documento incompleto: es un documento que hace tomar decisiones
+    equivocadas a los roles que lo respetan.** *Aquí el daño fue barato —una petición redundante—; el mismo
+    mecanismo, en una ruta de dinero, es un incidente.*
+  - **Lo que queda abierto (a techlead):** el shape del `summary` entró en `main` **por delante de una rev de
+    contrato**. La regla 9 de `CLAUDE.md` no admite excepción por «es aditivo». **Yo normo la forma final aquí; el
+    procedimiento lo revisa techlead.** ⚠️ Y donde el código difiera de `§M2-CS.0` (faltan `setsWritten` y
+    `setsNoop`; `failures[]` sin `code`), **manda el contrato** — es un delta pequeño porque el trabajo está en
+    vuelo, no una reescritura.
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-2`: `setsOk` DE `refresh-variants-status` CUENTA COMO BUENO AL SET QUE NO ESCRIBIÓ
+  NADA.** **Dueño del arreglo: backend** (WS «Catálogo y precios»). Norma: `API_CONTRACT §M2-CS.0/§M2-CS.2`; razón:
+  **§4.45.1**.
+  - **Qué hace hoy:** el barrido acumula en `setsOk` todo set que no lanzó excepción — **incluido el set que no
+    empareja con TCGCSV** y devuelve `cardProductsUpserted: 0`, `pricesUpserted: 0`. **Es D2 a escala de barrido**,
+    y alimentaría el veredicto de «Sincronizar todo (forzar)».
+  - **Alcance:** añadir `setsWritten` y `setsNoop` al `summary`; **⛔ NO redefinir `setsOk`** (queda deprecado con
+    su significado congelado, `setsOk === setsWritten + setsNoop`, y se retira en la rev siguiente cuando frontend
+    confirme cero consumidores). *Redefinir un campo vivo es peor que retirarlo: nadie se entera.*
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-3`: `IMPORTANTE-3` SIGUE SIENDO DE BACKEND, Y LA COLUMNA NUEVA NO LO CIERRA.**
+  **Dueño del arreglo: backend** (`tcgcsv-singles-bulk.provider.ts`, `resolveGroupId` → `null` con nombres
+  ambiguos ⇒ 0 filas y sólo un `warn`). **Se registra aquí para que la columna de `§M2-CS.3` no se lea como el
+  arreglo.**
+  - **Qué aporta la columna y qué no:** vuelve el defecto **visible** (el set cae a `0/N` pasada la ventana) y le
+    da cara propia a su variante peor (estructura nunca resuelta, `I-PC4`). **No avisa el día 1** (detector, no
+    alarma) y **no toca la causa**. *Ver el síntoma no cura la enfermedad.*
 
 - **🔴 ABIERTA (v1.65) — `D-PP-1`: EL SEED DE `price_provider` CONTRADICE LA NORMA `I-PP1`, Y UN TEST LO FIJA.**
   **Dueño del arreglo: backend** (WS «Catálogo y precios»). **⛔ No lo toco yo** (regla 8 de `CLAUDE.md`). Razón
@@ -23981,6 +24246,29 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.66-catalog-honesty (**M-51**: el índice que paga la columna de cobertura + el mando muerto que se borra — **SIN DDL de tablas**, §4.45)
+
+> **Dos partes independientes, y su ORDEN importa.** Ninguna toca dinero: `M-51a` es un índice de lectura y
+> `M-51b` borra una fila de configuración que ya no decide nada.
+
+**`M-51a` — índice `PriceReference(capturedDate)`.** Es **el costo declarado** de la columna `PRECIOS` de M2
+(`API_CONTRACT §M2-CS.3`): sin él, contar variantes con precio vigente degrada a barrido de tabla completa sobre la
+tabla que más crece del sistema (una fila por variante **por día**). `PriceReference` se escribe **por lotes** y
+está **fuera de la ruta de dinero del checkout**, así que el B-tree extra es aceptable. ⚠️ **Se crea
+`CONCURRENTLY`** (tabla grande, producción viva). Backend elige la forma final —simple o compuesta
+`(capturedDate, cardProductId)`— **midiendo el plan**, y **lo reporta**: la decisión de forma es suya, la de que el
+índice existe es de esta sección.
+
+**`M-51b` — `DELETE FROM "ConfigSetting" WHERE key = 'catalog_sync_from_date'`.** El corte pasa a **derivarse**
+(§4.45.3), así que esa fila deja de decidir. ⛔ **No se deja «deprecada e inerte»**: un mando muerto que sobrevive
+en la base **lo lee alguien y cree que manda** — es la misma norma de `DESIGN_SYSTEM §32.6` (*«la copia muerta se
+muestra o se borra; no existe se queda por si acaso»*) aplicada a configuración.
+
+> ⭐ **`M-51b` va DESPUÉS del deploy que deja de leer la clave, nunca antes.** Si se borra primero, la lectura
+> vigente cae al seed del código y **el corte se movería solo, en silencio y en la dirección equivocada**, entre un
+> paso y el otro. *Rollback: re-insertar la fila NO restaura el comportamiento si el código nuevo ya no la lee — el
+> rollback real es el del artefacto.*
 
 ### v1.64-iva-inclusive (**M-50**: convención de precio por orden + dial de traslación — **DDL ADITIVO + enum + backfill determinista + seed**, §4.44)
 
