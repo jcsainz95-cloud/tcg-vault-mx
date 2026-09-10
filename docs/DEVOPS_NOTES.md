@@ -8960,17 +8960,27 @@ rojo.** Verificado tras el cambio:
 check-provenance-gate.sh  →  fallos 0 / 400   (antes 73 / 400)
 ```
 
-#### 🚩 Lo que queda ABIERTO (no se tocó)
+#### ✅ CERRADO — los dos scripts de seed también, en el mismo pase
 
-Mismo patrón, **fuera de CI** (son scripts de aprovisionamiento, no guardas de gate). Riesgo real pero menor;
-en `seed.sh` / `seed-synthetic.sh` el escritor es `npm run`, **cuya salida sí puede pasar del buffer del
-pipe**, así que la carrera es posible y el efecto sería *elegir otra ruta de seed en silencio*:
+Lo anterior quedó abierto unas horas y **se cerró antes de entregar** (commit `e735aa4`). El motivo de
+cerrarlo en vez de dejarlo propuesto: en las guardas de CI este defecto produce un **rojo falso**, que al
+menos se ve; en los seeds produce **silencio**, que es peor. La rama equivocada significa que el entorno se
+siembra con el seed que no toca —o **no se siembra**— y el script **sale con `exit 0`**. Un entorno mal
+sembrado que se anuncia como bien sembrado invalida cualquier E2E o DAST que corra encima, y este pase va
+justo de eso.
 
-- `scripts/seed.sh:34` · `scripts/seed-synthetic.sh:64,67` — `npm run | grep -qE`
+- `scripts/seed.sh:34` · `scripts/seed-synthetic.sh:64,67` — **CORREGIDOS** (`npm run | grep -E … >/dev/null`).
+  El escritor es `npm run`, cuya salida sí puede pasar del buffer del pipe, así que la carrera era alcanzable.
+
+**Sin riesgo práctico, verificado y NO tocados** (se dejan como están, con el motivo escrito para que nadie
+los "arregle" por parecido):
+
 - `scripts/check-graded-estimate-dials.sh:318` · `scripts/stripe-test-key-preflight.sh:122,126,127` —
-  escritor `printf` de una cadena corta ⇒ **sin riesgo práctico** (nunca hay un segundo `write`).
+  usan `grep -Eq` y el escritor es `printf '%s' "$VAR_CORTA"`: **un solo `write`** de pocos bytes en un
+  buffer de 64 KB vacío. Nunca hay un segundo `write`, así que no existe el `write` contra pipe cerrado que
+  causa el SIGPIPE. *(Nota: llevan las banderas juntas, `-Eq`, por eso no aparecen buscando `grep -q`.)*
 
-**Propuesta:** un pase propio de una línea por sitio. Pendiente de autorización del orquestador/dueño.
+**Estado final: CERO `| grep -q` terminales en `scripts/` y `security/scripts/`. 11 pipelines corregidos.**
 
 ### 45.4 Lo que NO verifiqué en este pase
 
