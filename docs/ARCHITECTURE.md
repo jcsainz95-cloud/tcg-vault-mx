@@ -4,6 +4,46 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.64(4) — EL DUEÑO CONTESTA 68, 69 Y 70. UNA CONTRADICE MI RECOMENDACIÓN Y TIENE RAZÓN**
+> (2026-09-10, arquitecto. Base: **v1.64(3), vigente entera**. **⚠️ REABRE `M-50` con UNA columna aditiva**, y
+> ⛔ **no cambia la promesa de D-1**. Contrato en `API_CONTRACT.md` **v1.64(4)**.)
+>
+> **1. 🔴 ME EQUIVOQUÉ EN LA 68, Y ES ÚTIL DECIR EN QUÉ.** Yo recomendé capturar `shippingCostCents` **NETO**.
+> El dueño decidió **BRUTO** — *«el costo de envio con el iva que yo pague»* — **y su decisión es mejor que mi
+> recomendación**: el bruto es **la cifra que trae la factura de la paquetería**, y pedirle que reste el IVA antes
+> de teclear es **pedirle aritmética fiscal en cada captura**, justo donde se cuela un error mudo. **Y hay un
+> argumento de doctrina que yo mismo había escrito y no apliqué: `R3` — la flecha va del dato PRIMARIO al
+> DERIVADO.** El bruto es verificable contra un papel; el neto es derivado. **Guardar el neto habría sido perder
+> el primario**, que es exactamente lo que `R3` prohíbe. ⚠️ **Mi advertencia del descuadre NO era falsa: estaba en
+> el sitio equivocado.** El descuadre existe y **se cura al LEER** (netear en el P&L), no al capturar.
+>
+> **2. ⚠️ REABRO `M-50` — UNA columna — Y DIGO POR QUÉ, porque en v1.64(3) escribí «CERO DDL».**
+> `ShipmentRequest.shippingCostIvaCents Int @default(0)`: el **IVA acreditable congelado al capturar**, para que el
+> neto sea **una resta**. **El hecho que lo decide, verificado: `ShipmentRequest` NO tiene `ivaRatePct`** (solo
+> `Order`, `:1071`) ⇒ netear con `costo/(1+r)` obligaría a leer **el dial VIVO**, y entonces **un P&L histórico
+> cambiaría el día que alguien mueva `iva_pct`** — **incumpliendo el candado `IVA-5` que ya está publicado y
+> verde**. **No es preferencia: sin la columna, D-2 no puede cumplir una norma que ya escribí.** Y **es la última
+> ventana barata** (D-1 verificado, **sin publicar**). **Alcance acotado:** columna aditiva, `@default(0)`, **sin
+> backfill**, ⛔ sin tocar `Order`, el enum, el backfill ni el seed. **D-1 conserva su «cero cambios observables»**:
+> la columna se escribe desde el día uno y **nadie la lee hasta D-2**.
+>
+> **3. ⭐ LA 69 DA EL MEJOR INVARIANTE DEL PASE — Y ⛔ NO LO CONVIERTO EN IDENTIDAD GLOBAL.**
+> *«Trátalo como si no hubiera margen»* ⇒ `ingresoNetoEnvío − costoNetoEnvío ≈ 0`. **Asertarlo siempre sería un
+> candado que rechaza conducta correcta — el error de `FX-20`, que ya pagué una vez**: la tarifa se fija **por
+> tabla** y el costo real del carrier **varía por destino y peso**, así que un no-cero es legítimo. ⇒ el candado
+> **`IVA-11`** va sobre lo exigible: **que un `0` no signifique dos cosas** (`shippingCostMissingCount`) y la
+> identidad **exacta pero CONDICIONADA al fixture** (cobrado == factura ⇒ línea neta **0**). ⛔ **No hago nullable
+> la columna**: para las filas existentes es **imposible** distinguir «costó cero» de «no se capturó», y un `NULL`
+> exigiría un backfill que **inventa** esa distinción — *la lección de `ivaTransferPct`*.
+>
+> **4. ✅ LA 70 CONFIRMA MI SUPUESTO Y LO ASCIENDE A DECISIÓN.** *«si me refiero al mismo numero»* ⇒ el neto del
+> tablero **es** `pnl.incomeCents`. **La coherencia tablero↔P&L deja de ser deseable y pasa a ser mandato**, así
+> que **`IVA-10(b)` tiene respaldo del dueño**. Ratifica el rechazo de *«bruto − IVA»*.
+>
+> ⚠️ **Las tres van como DECISIÓN SUYA CON FECHA (2026-09-10), sin ratificar por contador** (familia de **58** y
+> **65**). **⛔ Cero postura fiscal de este documento.** **Que él acredite el IVA del envío es afirmación SUYA.**
+>
+> ---
 > **Rev v1.64(3) — DOS DECISIONES DEL DUEÑO (D55), `IVA-R1` RESUELTO, Y UN DEFECTO MÍO QUE ESO DESTAPÓ**
 > (2026-09-10, arquitecto. Base: **v1.64(2), vigente entera**. **⛔ CERO DDL — `M-50` NO SE TOCA.** **⛔ D-1 no se
 > reabre.** Contrato en `API_CONTRACT.md` **v1.64(3)**.)
@@ -20718,6 +20758,82 @@ reabre por el lado aritmético.**
 **⛔ Y LO QUE NO HAY QUE CONSTRUIR: `Order` NO necesita `shippingCostCents`. NO HAY HUECO DE DATOS.** Ver
 `§9 · D-IVA-9`, punto 2 — **lo verifiqué y el dato ya existe**.
 
+#### 4.44.f-ter ⭐ EL COSTO DEL ENVÍO SE CAPTURA **BRUTO** Y SE NETEA AL LEER (D55(c)+(d), dueño 2026-09-10)
+
+**Sus palabras, literales:** *«el costo de envio con el iva que yo pague, tratalo como si no hubiera margen»*
+⇒ **pregunta 68: BRUTO** (con IVA) · **pregunta 69: sin margen** (cobra lo que paga).
+
+> ⚠️⚠️ **Mismo trato que D53/D54/D55(a): se registra el HECHO de que el dueño lo decidió, con su fecha. ⛔ Este
+> documento no sostiene ninguna postura fiscal propia.** **Que él acredite ese IVA es AFIRMACIÓN SUYA**, no algo que
+> este equipo verifique ni recomiende. **Sigue sin contador** ⇒ ratificación pendiente, familia de **58** y **65**.
+
+##### 🔴 Me equivoqué, y es útil decir en qué exactamente
+
+**Yo recomendé capturar `shippingCostCents` NETO. El dueño decidió BRUTO, y su decisión es mejor que mi
+recomendación.** La razón, que él no dijo y es evidente: **el bruto es la cifra que trae la factura de la
+paquetería**. Pedirle que reste el IVA antes de teclear es **pedirle aritmética fiscal en cada captura**, que es
+justo donde se cuela un error mudo — la misma razón por la que `iva_pct` rechaza decimales.
+
+**Y hay un argumento de doctrina que yo mismo ya había escrito y no apliqué aquí:** el bruto es el **dato
+primario**, verificable contra un papel; el neto es **derivado**. **`R3` dice que la flecha va primario →
+derivado y jamás al revés.** Guardar el neto y perder el bruto habría sido **reconstruir el primario desde el
+derivado** — exactamente lo que `R3` prohíbe. *Mi advertencia no era falsa: estaba en el sitio equivocado. El
+descuadre que describí es real y sigue ahí; lo que cambia es DÓNDE se cura — al LEER, no al CAPTURAR.*
+
+##### La norma que queda
+
+| | |
+|---|---|
+| **`ShipmentRequest.shippingCostCents`** | **BRUTO — IVA INCLUIDO.** Es el **importe total de la factura de la paquetería**. Hoy su semántica **no está declarada en ninguna parte** (`§9 · D-IVA-9`) |
+| **`ShipmentRequest.shippingCostIvaCents`** *(NUEVA, M-50)* | El **IVA acreditable** de esa factura, **congelado al capturar**. `net = shippingCostCents − shippingCostIvaCents` |
+| **Neteo** | **Al LEER, en el P&L.** ⛔ Nunca al capturar |
+| **Rótulo de M4** | Debe decir **«importe TOTAL de la factura, IVA incluido»** — ⛔ *un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas* |
+
+- **⭐⭐ POR QUÉ UNA COLUMNA Y NO UNA DIVISIÓN AL LEER — y es el hecho que decide, lo verifiqué:**
+  **`ShipmentRequest` NO TIENE `ivaRatePct`.** Solo `Order` lo tiene (`schema.prisma:1071`). ⇒ netear con
+  `costo/(1+r)` obligaría a leer **el dial VIVO**, y entonces **un P&L histórico cambiaría el día que alguien
+  mueva `iva_pct`** — que es **exactamente lo que el candado `IVA-5` prohíbe** (*«se mueve el dial y las cifras NO
+  se mueven»*). **Sin columna, D-2 no puede cumplir un candado que ya publiqué.** ⛔ Y recuperar `r` invirtiendo
+  `ivaCents/shippingFeeCents` **falla justo donde importa**: las filas de fulfillment de `direct_ship` llevan
+  `shippingFeeCents = 0` a propósito.
+- **Por qué `shippingCostIvaCents` y no `ivaRatePct`:** es **la misma doctrina del residual**, un nivel más abajo.
+  Se guarda el **primario** (`shippingCostCents`, lo que dice el papel) y su **acompañante congelado**; el neto es
+  **una resta**, sin división ni búsqueda de tasa al leer, y **sobrevive intacto a un cambio de tasa**. Además
+  **nombra el concepto que el dueño nombró** (*«el iva que yo pague»* = IVA acreditable), así que la pantalla de M4
+  puede enseñárselo con la palabra que él reconoce de su factura.
+- **`@default(0)` es honesto aquí, y por la razón que backend dejó escrita** (`migration.m50-no-default.spec.ts`):
+  un default vale cuando **la ausencia de verdad significa ese valor**. En las filas históricas **nunca se capturó
+  el IVA de un costo**, así que `0` dice la verdad: *«no consta crédito»* ⇒ `net = bruto`. **Es la dirección
+  CONSERVADORA** (subestima la ganancia, no la infla). ⛔ **Y no se backfillea a `costo×16/116`**: sería inventar
+  un crédito que nadie verificó — misma doctrina que `ivaTransferPct`.
+- **⚠️ SUPUESTO DECLARADO:** que **toda** factura de paquetería captada lleva IVA a la tasa estándar. Si alguna vez
+  se captura un costo **sin** IVA y el operador teclea un crédito, **se infla la ganancia**. Por eso el crédito
+  **se captura, no se deriva de una división ciega**.
+
+##### El invariante de la 69 — y ⛔ NO lo convierto en identidad global
+
+Su regla da un invariante comprobable: **`ingresoNetoEnvío − costoNetoEnvío ≈ 0`**. Pero **asertarlo siempre
+sería un candado que rechaza conducta correcta** — el error de `FX-20`, que ya pagué una vez. Hay **tres** razones
+legítimas de no-cero: **(1)** redondeo; **(2)** costo aún no capturado; **(3)** **la tarifa se fija por tabla
+(`shipping_fee_cents`) y el costo real del carrier varía por destino y peso** — *«trátalo como si no hubiera
+margen»* es una **intención**, no una garantía por envío.
+
+⇒ **El candado va sobre lo que sí es exigible, que es lo que el coordinador identificó bien: que un `0` no
+signifique dos cosas.**
+
+```
+shippingCostCents          // Σ NETO de los envíos del periodo
+shippingCostMissingCount   // nº de envíos LIQUIDADOS del periodo con `shippingCostCents = 0`
+```
+
+- **⛔ No hago nullable la columna.** Para las filas existentes **es imposible distinguir «costó cero» de «no se
+  capturó»**, y un `NULL` exigiría un backfill que **inventa** esa distinción. *Misma lección que `ivaTransferPct`:
+  un hueco honesto, jamás un dato inventado.* ⇒ **el contador hace visible la ambigüedad en vez de resolverla
+  falsamente**, y **es una señal para un humano, no una afirmación fiscal**.
+- **Lo que SÍ se asierta como identidad exacta, porque está condicionado al fixture:** cuando **lo cobrado iguala
+  a la factura del carrier**, la línea neta de envío da **exactamente 0**. Ésa es su regla, hecha verificable.
+  Candado **`IVA-11`**.
+
 #### 4.44.g EL DIAL — uno solo, global, continuo, en fracción de traslación
 
 | | |
@@ -20937,9 +21053,9 @@ reverificar, sin releer el pase entero.*
 | **57** órdenes viejas | **Se congelan** con su convención | §4.44.e entero y el candado `IVA-3`. Es el supuesto de **más** peso del pase |
 | **59** *(informes / trazabilidad del dial)* | El dial se audita por `settings.update`, sin reporte propio de IVA absorbido | §4.44.g (fila «Auditoría»). No toca aritmética |
 | **60** envío + rótulo de la línea de IVA | **Se suma aparte** (línea propia) **y su cifra lleva el IVA dentro**, porque el criterio **189** lo obliga. ✅ **NO la reabre D55**: su regla es del lado del COSTO (§4.44.f-bis) | **§4.44.f entero**, fórmulas (3)–(4), candado `IVA-6`. ⇒ `§9 · D-IVA-8` |
-| **68** *(NUEVA, **DE CONTADOR** — familia de 58 y 65)* ¿el IVA del envío se acredita, y `shippingCostCents` se captura NETO? | **Sí a las dos** — **decisión del dueño 2026-09-10**, registrada como hecho suyo, ⛔ **sin postura fiscal de este documento** | **§4.44.f-bis** y **§9 · D-IVA-9**. ⛔ **No toca `Order.ivaCents` ni la aritmética de cliente** ⇒ **no bloquea** |
-| **69** *(NUEVA)* ¿cobra al cliente **más** de lo que paga a la paquetería? | **No se asume.** El diseño **no depende** de la respuesta (el P&L resta costo de ingreso pase lo que pase) | Solo el **RÓTULO** de la tarjeta: *«recuperación de costo»* es falso si hay margen (§4.44.f-bis) |
-| **70** *(NUEVA)* ¿el «neto» del tablero es **su ingreso** (= el del P&L, sin comisión ni envío)? | **Sí** — es la única lectura que no crea una tercera definición de «neto» | **§4.44.o** entero, la identidad del puente y el candado `IVA-10` |
+| ✅ **68 CONTESTADA** (2026-09-10) — ¿cómo se captura el costo del envío? | **BRUTO, con IVA** — *«el costo de envio con el iva que yo pague»*. **Ya NO es supuesto: es decisión.** ⚠️ **De contador, sin ratificar** (familia 58/65) | **§4.44.f-ter**, `M-50` punto **3-bis**, candado `IVA-11`. ⛔ **No toca `Order.ivaCents` ni la aritmética de cliente** |
+| ✅ **69 CONTESTADA** (2026-09-10) — ¿hay margen en el envío? | **No hay** — *«trátalo como si no hubiera margen»*: cobra lo que paga | **§4.44.f-ter**, invariante de la 69 y candado `IVA-11`. ⛔ **No se aserta como identidad global**: la tarifa es por tabla y el costo real varía |
+| ✅ **70 CONTESTADA** (2026-09-10) — ¿el «neto» del tablero es su ingreso? | **Sí, el MISMO número que el P&L** — *«si me refiero al mismo numero»*. **Mi supuesto era correcto y pasa a decisión** | **§4.44.o**. La coherencia tablero↔P&L deja de ser deseable y pasa a ser **mandato**: candado `IVA-10(b)` |
 | **61** un solo mando `iva_pct` | **No se toca**; solo se garantiza que el dial nuevo no se cuelgue de él | §4.44.g (viñeta 2) y el candado `IVA-7`. Si se separan, es **otro pase** |
 | **62** valuaciones (portafolio, valor de mercado, PSA) | **No cambian**: son valuaciones, no precios que alguien pague | §4.44.i (últimas dos viñetas) |
 | **63/64** *(superficies de menor alcance)* | Siguen la regla general de §4.44.i | Solo §4.44.i |
@@ -20987,11 +21103,13 @@ salesPeriod = {
 - ⛔ **`amountCents` se RENOMBRA a `grossAmountCents`; no se conserva el nombre viejo.** Un campo llamado
   *«amount»* que ahora convive con otro *«amount»* distinto es la clase de ambigüedad que este pase entero existe
   para matar. Rompe al front — **y debe romperlo**: la tarjeta cambia de una cifra a dos.
-- **⚠️ SUPUESTO DECLARADO:** que su *«neto»* es **su ingreso**, o sea **lo mismo que el P&L llama ingreso**
-  (mercancía, sin IVA, **sin comisión y sin envío**). Es la lectura más coherente de *«ingreso bruto y neto»* y la
-  única que no crea una tercera definición — **pero es lectura, no palabra suya**. **Pregunta 70**, para el dueño.
-  *Si respondiera que quiere «bruto − IVA» (con comisión dentro), se cae `netAmountCents` y la identidad de arriba,
-  ⛔ y habría dos definiciones de «neto» que habría que declarar.*
+- ✅ **v1.64(4) — YA NO ES SUPUESTO: ES DECISIÓN DEL DUEÑO (pregunta 70, contestada 2026-09-10).** Se le preguntó
+  si al decir *«ventas netas»* se refería a su ingreso, el mismo número del P&L, y respondió: ***«si me refiero al
+  mismo numero»***. ⇒ **el neto del tablero ES `pnl.incomeCents`** (mercancía, sin IVA, **sin comisión y sin
+  envío**). **La coherencia tablero↔P&L deja de ser una propiedad deseable del diseño y pasa a ser lo que el dueño
+  pidió**, así que **`IVA-10(b)` —la igualdad asertada entre los dos endpoints— tiene mandato detrás**. Y ratifica
+  el rechazo de *«bruto − IVA»*: habría dejado la comisión dentro y producido **un tercer número que no es ninguno
+  de los dos que él quiere ver**.
 - **Entra en el DEPLOY 2, no en el 1.** Es aditivo y funcionaría igual bajo `IVA_EXCLUSIVE` (donde
   `netRevenueCents` es la identidad), **pero D-1 prometió CERO cambios de contrato observable** y ese candado ya
   está verde con 4.243 unitarios. **⛔ No se reabre D-1 por una tarjeta de tablero.**
@@ -21862,9 +21980,17 @@ Riesgos técnicos:
     Si el costo se captura **bruto** (`20300`) y el ingreso de envío se reporta **neto** (`17500`), **el P&L
     muestra una pérdida de 2 800 en cada envío que no existe**. **Neto contra neto ⇒ margen 0**, que es justo lo
     que él describe con *«no se lo vendemos»*.
-  - **Norma que fija este documento:** **`shippingCostCents` se captura NETO de IVA acreditable.** El rótulo de M4
-    tiene que decirlo; **⛔ un campo de dinero que no dice si lleva impuesto dentro es un campo que se captura de
-    las dos formas**. ⚠️ **Sujeto a ratificación de contador** (**pregunta 68**).
+  - ~~**Norma que fija este documento:** **`shippingCostCents` se captura NETO de IVA acreditable.**~~
+    🔴 **DEROGADO EN v1.64(4) POR DECISIÓN DEL DUEÑO (pregunta 68, contestada 2026-09-10):
+    *«el costo de envio con el iva que yo pague»* ⇒ SE CAPTURA **BRUTO**.** **Mi recomendación era la contraria y
+    su decisión es mejor:** el bruto es **la cifra que trae la factura del carrier**, y pedirle que reste el IVA
+    antes de teclear es **pedirle aritmética fiscal en cada captura**. Además es **`R3`, que yo mismo escribí y no
+    apliqué aquí**: se guarda el **primario** y se deriva el resto — guardar el neto habría sido perder el dato
+    verificable contra el papel. **⚠️ Mi advertencia no era falsa: estaba en el sitio equivocado.** El descuadre
+    sigue existiendo y **se cura al LEER** (netear en el P&L), no al capturar. **Norma vigente: `§4.44.f-ter`**,
+    con la columna nueva `shippingCostIvaCents` (M-50, punto 3-bis) y el rótulo de M4 diciendo **«importe TOTAL de
+    la factura, IVA incluido»**. ⚠️ **Sujeto a ratificación de contador**; **que él acredite ese IVA es afirmación
+    SUYA**, no nuestra.
   - **⭐⭐ 2. Y LO QUE NO HAY QUE CONSTRUIR — CORRIJO EL REPORTE QUE ME LLEGÓ: `Order` NO NECESITA
     `shippingCostCents`. NO HAY HUECO DE DATOS.** Se me elevó como *«en los pedidos `direct_ship` no existe el dato
     de lo que yo pagué»*, con propuesta de meter DDL en `M-50` aprovechando que D-1 no está publicado.
@@ -23606,6 +23732,37 @@ enum PriceConvention { IVA_EXCLUSIVE  IVA_INCLUSIVE }
 | `ivaTransferPct` | `Int` | **NULL** | ninguno | ⛔ **NINGUNO — se quedan en `NULL`** |
 
 **3. `ShipmentRequest` — las mismas dos columnas, con las mismas reglas** (el envío entra en la convención, §4.44.f).
+
+**3-bis. ⚠️ `ShipmentRequest.shippingCostIvaCents` — TERCERA columna, AÑADIDA en v1.64(4) (§4.44.f-ter)**
+
+```prisma
+model ShipmentRequest {
+  shippingCostCents     Int  @default(0)   // ya existía. BRUTO: importe TOTAL de la factura del carrier
+  shippingCostIvaCents  Int  @default(0)   // NUEVA. IVA acreditable de esa factura, CONGELADO al capturar
+}
+```
+
+> 🔴 **REVIERTO MI PROPIO «CERO DDL — `M-50` NO SE TOCA» de v1.64(3), y digo por qué, porque un cambio de criterio
+> sin razón escrita es ruido.** Cuando lo dije, la semántica de `shippingCostCents` era **indefinida** y yo
+> recomendaba capturar neto. **La decisión 69 del dueño la volvió un hecho que carga dinero** (*«trátalo como si no
+> hubiera margen»* ⇒ la línea de envío tiene que poder cuadrar), y **la 68 fijó que se captura BRUTO** ⇒ **hay que
+> netear al leer**. Y al ir a hacerlo encontré el hecho que lo decide: **`ShipmentRequest` NO tiene `ivaRatePct`**
+> (solo `Order`, `:1071`) ⇒ netear exigiría **el dial vivo**, y entonces **un P&L histórico cambiaría al mover
+> `iva_pct`**, incumpliendo el candado **`IVA-5`** que ya está publicado y verde. **No es preferencia: sin esta
+> columna, D-2 no puede cumplir una norma que ya escribí.**
+>
+> **Es el momento barato y es la última oportunidad barata:** `D-1` está **implementado y verificado pero SIN
+> PUBLICAR**. Después es una migración aparte sobre una tabla con filas productivas.
+>
+> **Alcance del reproceso para backend, acotado:** **una columna aditiva**, `@default(0)`, **sin backfill**, más la
+> enumeración de `migration.m50-no-default.spec.ts`. ⛔ **No toca `Order`, ni el enum, ni el backfill de
+> `priceConvention`, ni el seed del dial.** ⛔ **Y NO cambia la promesa de D-1**: la columna se **escribe** desde el
+> día uno pero **nadie la lee hasta D-2** ⇒ **cero cambios de contrato observable**, el candado de D-1 sigue válido.
+>
+> **`@default(0)` es HONESTO aquí** por el criterio que el propio backend dejó escrito: la ausencia **de verdad
+> significa cero** —en las filas históricas nunca se capturó el IVA de un costo— y es la **dirección conservadora**
+> (`net = bruto` ⇒ subestima la ganancia). ⛔ **Prohibido backfillear `costo × 16/116`**: inventaría un crédito
+> fiscal que nadie verificó, misma doctrina que `ivaTransferPct`.
 
 **4. `ConfigSetting` — la fila del dial**, sembrada en **`100`** (§11.0, regla de propagación de seeds):
 `{ key: 'iva_transfer_pct', valueJson: 100 }`. Más las cuatro estructuras de `settings.constants.ts` —
