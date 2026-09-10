@@ -752,7 +752,10 @@ Validaciones estáticas corridas (reales):
 - [ ] `VERCEL_TOKEN`
 - [ ] `VERCEL_ORG_ID`
 - [ ] `VERCEL_PROJECT_ID`
-- [ ] `STAGING_BASE_URL` (p. ej. `https://staging.tudominio.com` — objetivo del DAST)
+- [ ] ~~`STAGING_BASE_URL`~~ — ✅ **PETICIÓN RETIRADA (P-77, §44.7).** Era el objetivo del DAST, pero
+      **no hay staging desplegado** al que apuntarlo. El DAST semanal levanta su propio blanco efímero
+      en el runner (`security-dast.yml`). Sigue listado aquí solo porque `deploy.yml` —**INERTE**— lo
+      nombra; si algún día se despliega un staging de verdad, vuelve a hacer falta.
 - [ ] `PROD_BASE_URL` (p. ej. `https://app.tudominio.com`)
 - [ ] *(opcional)* `STRIPE_TEST_*` si corres E2E/DAST con Stripe test en CI.
 
@@ -933,7 +936,8 @@ El tooling (config/infra) vive en `security/` (propiedad devops). La **metodolog
 | `security-sast.yml` | cada PR/push | semgrep + gitleaks + npm audit + trivy (fs+image) | sí, en high/critical. **ACTIVO ya.** |
 | `e2e.yml` | cada PR/push | boota Postgres/Redis/MinIO + `test:integration` (backend) y `test:e2e` (frontend) | sí, si falla una suite. **Activo cuando existan los scripts.** |
 | `deploy.yml` | **solo `workflow_dispatch`** (manual). El `workflow_run` de CI quedó **comentado**; ver §16.4 | `secrets-gate` → deploy staging (Railway+Vercel) → DAST (ZAP baseline + nuclei) → promoción a prod | promoción a prod **bloqueada** si hay críticos + Environment `production`. **CD redundante** (los deploys van por integraciones nativas); si faltan secrets, se **salta limpio** (no falla). Reactivación en §16.4. |
-| `security-scheduled.yml` | cron semanal (lun 06:00 UTC) | ZAP full + nuclei contra staging | reporta/alarma; no bloquea. **Plantilla (pendiente `STAGING_BASE_URL`).** |
+| ~~`security-scheduled.yml` (DAST)~~ | — | — | ⛔ **RETIRADO (P-77)**: era una plantilla que salía en VERDE sin escanear nada. Ver §44.1. |
+| **`security-dast.yml`** | **cron semanal (lun 06:00 UTC)** + `workflow_call` antes de publicar + manual | **autoprueba del candado** (canario vulnerable, exige rojo) → **ZAP full + nuclei contra el stack EFÍMERO** del runner | **BLOQUEA** ante reglas `FAIL` de `baseline.conf` o ante ausencia de informe. Abre issue con label `security` en las corridas programadas. ⚠️ alcance declarado en **§44.4**. |
 
 Todos los escáneres están parametrizados por `TARGET_URL` y tienen **guardia anti-producción**
 (`ALLOW_PROD_DAST=1` requerido, ver §14.3). Ejecutables local con los scripts de `security/scripts/`
@@ -983,7 +987,8 @@ Fuera de la ventana: `ALLOW_PROD_DAST=0` (o sin definir). Los scripts abortan so
   reactivarlo como CD por Actions: cargar los 6 secrets (`RAILWAY_TOKEN`, `VERCEL_TOKEN`,
   `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `STAGING_BASE_URL`, `PROD_BASE_URL`), proteger el Environment
   `production` con *required reviewers* (§11.D–E) y, opcional, descomentar el `workflow_run` del `on:`.
-- `security-scheduled.yml`: cargar `STAGING_BASE_URL` para el DAST full semanal.
+- ~~`security-scheduled.yml`: cargar `STAGING_BASE_URL` para el DAST full semanal.~~ ✅ **Ya no hace
+  falta (P-77, §44)**: el DAST vive en `security-dast.yml` y levanta su propio blanco efímero.
 
 ---
 
@@ -6658,7 +6663,7 @@ Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es jus
 | **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales, **deploy-blocking**) + `frontend-e2e` (mock, **informativo** por decisión §24) | ✅ **Cableado.** El mock es soft-gate **a propósito**; el gate real de UI es `e2e-real.yml`. |
 | **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). |
 | **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-staging` (ZAP baseline) con `promote-production-*` condicionado a `dast-staging.outputs.critical == 'false'` | ⚠️ **Cableado y correctamente condicionado… en un camino que no se usa.** `deploy.yml` es **`workflow_dispatch` only**; los deploys reales van por push-to-deploy de Vercel/Railway, que **no pasan por este DAST**. Es el hueco estructural de §32.11, ahora con nombre. |
-| **DAST programado semanal** | `security-scheduled.yml` (lunes 06:00 UTC) | ⚠️ **No-op silencioso**: su preflight comprueba `STAGING_BASE_URL` y, si falta, emite un `::notice::` y **se salta todo**. Hoy falta ⇒ **el DAST no se ha ejecutado nunca**. |
+| **DAST programado semanal** | `security-dast.yml` (lunes 06:00 UTC) | ✅ **CORREGIDO en P-77 (§44).** Antes: no-op silencioso en `security-scheduled.yml` — el preflight comprobaba `STAGING_BASE_URL`, faltaba, emitía un `::notice::` y se saltaba todo **saliendo en verde**; el DAST no se ejecutó nunca. Ahora levanta su propio stack efímero y **bloquea**, con autoprueba del candado. |
 | **Que los gates sean `required checks`** | Protección de rama en GitHub | ❓ **No verificable desde aquí** (no hay `gh` en este entorno). `ci-ok`, `sast-ok` y `e2e-ok` están **diseñados** como required checks, pero si nadie los marcó como tales en *Settings → Branches*, **no bloquean nada**. Comprobación del humano: `gh api repos/<org>/<repo>/branches/main/protection`. |
 
 **Resumen honesto del tamaño:** no falta *construir* casi nada — **falta encender**. Dos secretos
@@ -8031,7 +8036,8 @@ mano, no el pipeline.
 semanal (lunes 06:00 UTC) + `workflow_dispatch`. El workflow pasa a llamarse
 **"Security Scheduled (deps audit + DAST)"**.
 
-A diferencia del job DAST (plantilla hasta que exista `STAGING_BASE_URL`), **`deps-audit` está ACTIVO
+*(Nota P-77: cuando se escribió esto, el job DAST era una plantilla inerte. Ya no — ver §44.)*
+**`deps-audit` está ACTIVO
 ya**: no necesita secrets ni staging. Y **no corre `npm ci` ni ningún build** — `npm audit` resuelve
 desde el lockfile, así que no instala nada ni ensucia el árbol (importante: un `next build` con
 `E2E_MOCK_DIST_DIR` no-default reescribe `frontend/tsconfig.json`).
@@ -8325,19 +8331,26 @@ haya borrado con `down -v` seguirán en el proveedor viejo después de `D-PP-1`*
    ⛔ **nunca `UPDATE` directo**. Si el dial de ese entorno estuviera en un valor que **no** es ni el viejo
    ni el primario, **la decisión no es de devops** (§32.4): se pregunta.
 
-#### Qué necesita el humano (bloqueo declarado)
+#### ~~Qué necesita el humano (bloqueo declarado)~~ → ✅ **PETICIÓN RETIRADA (P-77, 2026-09-10)**
 
-Para que el `--assert` del gate de deploy **pueda medir** el staging hospedado hacen falta **dos secrets
-nuevos** en GitHub (más `STAGING_API_URL`, que ya se usa en §38.5):
+> **Esta petición queda sin objeto y se retira.** Pedía `STAGING_ADMIN_EMAIL` + `STAGING_ADMIN_PASSWORD`
+> (más `STAGING_API_URL`) para que el `--assert` del gate pudiera **leer** el dial `price_provider` de
+> un staging hospedado. El problema no era que el humano no los hubiera cargado: **no hay staging al que
+> apuntarlos** — el dueño solo tiene producción. Y crear un admin apuntando a producción es justo lo que
+> la guardia anti-producción de `security/scripts/_guard.sh` prohíbe.
+>
+> **Cómo se comprueba ahora, sin secrets:** contra el **stack efímero** de `security-dast.yml` y
+> `e2e-real.yml`, donde **el `super_admin` lo crea el seed sintético** y `price-provider-parity.sh` cae
+> por defecto a esas credenciales. `D-PP-2` pasa de «depende de secrets que el dueño no puede dar» a
+> «se comprueba solo», y con **rojo duro**: si el stack no evalúa el proveedor primario, el barrido para.
+> Detalle en **§44.7**.
+>
+> El texto original se conserva tachado arriba porque describe lo que haría falta **el día que exista un
+> staging desplegado**. Mientras no exista, no se pide nada.
 
-| Secret | Qué es |
-|---|---|
-| `STAGING_ADMIN_EMAIL` | correo del `super_admin` **de STAGING** (datos sintéticos) |
-| `STAGING_ADMIN_PASSWORD` | su contraseña |
-
-⛔ **Nunca credenciales de producción**, y ⛔ nunca en el repo. Sin ellas el job **avisa** y, **si se está
-promoviendo a prod, FALLA** — mismo criterio que `staging-serves-head` (§38.5): *un DAST que no puede decir
-sobre qué precios corrió no puede ser la puerta de prod*.
+*(Original, para ese día: dos secrets nuevos —`STAGING_ADMIN_EMAIL`, correo del `super_admin` de STAGING
+con datos sintéticos, y `STAGING_ADMIN_PASSWORD`, su contraseña— más `STAGING_API_URL` (§38.5).
+⛔ **Nunca credenciales de producción**, ⛔ nunca en el repo.)*
 
 ### 43.3 🔴 DECISIÓN — el orden del scheduler (IMPORTANTE-2 de QA): **los crons NO se mueven; la norma se cumple en sustancia y su literal de FX se DEROGA, con motivo escrito**
 
