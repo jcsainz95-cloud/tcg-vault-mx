@@ -4,6 +4,32 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.66.2 — LA AUSENCIA DE UN CAMPO NUNCA COMPRA UNA GARANTÍA MENOR: EL CONTRATO DESCRIBÍA UNA SUPERFICIE
+> INSEGURA Y OBEDECERLO REPRODUCÍA EL AGUJERO**
+> (2026-09-10, arquitecto. Base: **v1.66.1, vigente entera**. Origen: `P-UP-1` (pentester/seguridad §3.4) +
+> `UP-C1` (`TECH_DEBT.md`), **enrutado por backend sin tocar el contrato** — regla 9 de `CLAUDE.md`, aplicada como
+> debe. Contrato en `API_CONTRACT.md` **v1.66.2**, sección **§8**. Ampliación **§0-B.3 regla 9(c)**; marca nueva
+> **`cota-de-tamano-del-presign`** en el censo de la regla 8. Desviación **`D-UP-1`** en **§9**.)
+>
+> **1. ✅ RATIFICADO CONTRA EL ÁRBOL, no contra el informe.** `contentLength` es **obligatorio** en
+> `POST /uploads/presign` y la firma fija `ContentLength` **siempre** (`uploads.service.ts:100-136`); la respuesta
+> lleva `maxBytes` y un `headers` **poblado**. El contrato decía `{ purpose, contentType }`. **Manda el código en
+> este caso concreto porque la forma insegura era la DOCUMENTADA:** ratificar el documento viejo habría sido
+> mandar a backend a reabrir el hallazgo.
+>
+> **2. ⭐⭐ LA PREGUNTA DE FONDO: no era el campo, era que el CONTRATO AUTORIZABA el agujero.** Quien hubiera
+> implementado exactamente §8 habría reproducido `P-UP-1` **y habría tenido razón** (regla de conflicto:
+> el contrato manda sobre el código). Misma familia que §0-B.4. ⇒ **§0-B.3 regla 9 gana la mitad (c)**: si un
+> campo del cliente sostiene una guarda del servidor, **su ausencia se RECHAZA o produce el caso más estricto**
+> (`c1`), y **el contrato declara qué pasa cuando falta**, no solo que el campo existe (`c2`).
+>
+> **3. ⛔ Y lo que decidí NO crear: un vocabulario de marcas «de seguridad».** Un censo de secciones sensibles
+> poblado a mano **es exhaustivo el día que se escribe y nunca más**, y su daño no es el hueco: es el **verde que
+> emite sobre todo lo que nadie marcó** — el defecto de v1.66.1 otra vez, y la regla 11 cerró el vocabulario hace
+> una rev. Se usa el mecanismo que ya existe y ya tiene lint (`CANON` + token `VIGENTE`), y la lección se escribe
+> **como norma**, que sí alcanza al endpoint que aún no existe.
+>
+> ---
 > **Rev v1.66.1 — UN `CANON` DECLARA SI YA EXISTE: LA REV ANTERIOR ESCRIBIÓ, DENTRO DE LA NORMA HECHA PARA
 > IMPEDIRLO, LA INSTANCIA MÁS GRANDE DEL DEFECTO QUE VENÍA A CURAR**
 > (2026-09-10, arquitecto. Base: **v1.66**. Origen: **bloqueante nº1 del veredicto de techlead**, verificado punto
@@ -3108,6 +3134,7 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **La VARIANTE DE PRECIO** (la unidad de cobertura: qué se cuenta, qué **no** es denominador, y cuándo el universo es **desconocido** en vez de cero) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.3** *(razón: `ARCHITECTURE §4.45.2`)* | `<!-- CANON: variante-de-precio -->` |
      | **El CORTE DE CATÁLOGO** (desde cuándo un set cuenta como **nuevo**: la fórmula derivada, la semántica del `releaseDate` ausente, y que **ya no hay dial**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.4** *(razón: `ARCHITECTURE §4.45.3`)* | `<!-- CANON: corte-de-catalogo -->` |
      | **⭐ El GRUPO TCGCSV DE UN SET** (qué entero es «el grupo» de un `CardSet`: qué columna manda, qué escalera la escribe, y qué hace un lector cuando dos fuentes existen y **difieren**) *(v1.66.1, **DINERO**)* | **`API_CONTRACT.md` §M2-GT** *(razón: `ARCHITECTURE §4.46`)* | `<!-- CANON: grupo-tcgcsv-del-set -->` |
+     | **⭐ La COTA DE TAMAÑO DE UN PRESIGN** (qué ata la URL prefirmada a un tamaño, qué pasa cuando el campo **falta**, y quién sostiene el tope) *(v1.66.2, **SEGURIDAD**)* | **`API_CONTRACT.md` §8**, bloque de `POST /uploads/presign` *(razón: fuera del bloque, en esa misma sección)* | `<!-- CANON: cota-de-tamano-del-presign -->` |
    - **⭐⭐ AMPLIACIÓN v1.66 — LA MARCA CANÓNICA ES UN PAR: SIN CIERRE, NO HAY BLOQUE.** Toda marca
      `<!-- CANON: x -->` **abre** un bloque y **debe cerrarse** con `<!-- /CANON: x -->`. **No es cosmética:** la
      regla 8 dice *«la cuenta vive en UN sitio»*, y **un bloque abierto y nunca cerrado no delimita ese sitio** —
@@ -3236,6 +3263,33 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
    - **Cómo se comprueba (mitad de cliente):** el body emitido **no contiene la clave** del campo no editado —una
      aserción sobre la petición, no sobre la respuesta—. La mitad de servidor se prueba **donde vive el endpoint** y
      **no se re-asierta** en la pantalla (regla 8).
+   - **⭐⭐ (c) AMPLIACIÓN v1.66.2 — LA AUSENCIA DE UN CAMPO NUNCA COMPRA UNA GARANTÍA MENOR; y el CONTRATO debe
+     decir qué pasa cuando falta.** Las mitades (a) y (b) gobiernan *qué significa* omitir. Ésta gobierna **hacia
+     qué lado se equivoca el servidor cuando el campo no viene**, y son dos obligaciones:
+     - **(c1) Fail-closed, siempre.** Si un campo del cliente **sostiene una guarda del servidor** (una cota, un
+       binding, una verificación), su **ausencia se RECHAZA** o produce **el caso más estricto**. ⛔ Prohibida la
+       tercera vía —*«si viene lo aplico, si no viene lo salto»*—: eso **le entrega el candado a quien tiene el
+       motivo para no mandarlo**. *Un tope que se evade omitiendo un campo no es un tope: es una sugerencia.*
+     - **(c2) El contrato declara la ausencia, no solo el campo.** Marcar el campo obligatorio **no basta**: un
+       `Req` es una lista de nombres y tipos, y **de ella no se deduce si faltar es un `422` o una firma más
+       laxa**. La sección declara **qué invariante sostiene el campo y qué ocurre al faltar**; si el invariante
+       merece fuente única, entra al censo de la regla 8 con su marca y su token (regla 10).
+     **De dónde viene, medido:** `P-UP-1`. `POST /uploads/presign` traía `contentLength` **opcional**; omitirlo
+     saltaba el chequeo contra el tope **y** emitía la URL prefirmada **sin `ContentLength`** (`UNSIGNED-PAYLOAD`)
+     ⇒ subida de tamaño arbitrario al bucket que guarda **fotos de INE**. **Y el contrato era cómplice, que es la
+     mitad cara del hallazgo:** `API_CONTRACT §8` declaraba `{ purpose, contentType }` y **ni mencionaba el
+     campo** ⇒ por la regla de conflicto de `CLAUDE.md`, **una implementación fiel al contrato reproducía el
+     agujero y estaba en su derecho**. Cerrado en contrato **v1.66.2** (`<!-- CANON: cota-de-tamano-del-presign -->`).
+     - **Por qué es NORMA y no una etiqueta de «sección sensible».** La salida tentadora era marcar las secciones
+       peligrosas del contrato. **Se descartó**: un censo de sensibilidad poblado a mano **es exhaustivo el día que
+       se escribe y nunca más**, y su daño es el **verde que emite sobre lo que nadie marcó** — el mismo defecto
+       que la regla 10 vino a cerrar. *Una norma se aplica al endpoint que aún no existe; una etiqueta solo cubre
+       lo que alguien ya recordó etiquetar.*
+     - **Cómo se comprueba (y ya existe el precedente):** una **invariante barrida** sobre las formas posibles del
+       campo —ausente, `null`, `0`, negativo, no numérico, sobre el tope— que exija **una** de dos salidas:
+       **rechazo**, o **garantía completa aplicada**. ⛔ Ninguna tercera. Se prueba **donde vive el endpoint**, y
+       **al menos una** de esas formas se ejercita **por HTTP real** (DTO + controller + servicio), porque el
+       reparto entre el `400` del pipe y el `422` de negocio **no se ve desde un unitario del servicio**.
 
 10. **⭐⭐⭐ REGLA DEL ESTADO DE UN CANON — «ESTO ES LA NORMA» Y «ESTO ES LA NORMA Y YA ESTÁ CONSTRUIDO» SON DOS
     AFIRMACIONES, Y HASTA HOY LA MARCA NO LAS DISTINGUÍA (añadida 2026-09-10, v1.66.1).**
@@ -22694,6 +22748,26 @@ Riesgos técnicos:
   - **⚠️ Premisa del reporte corregida, medida:** el groupId derivado de `pptSetId` **no está cacheado en la
     base** — el caché es un `Map` **en memoria por instancia**. ⇒ **no hace falta migración de datos ni
     invalidación**: retirar la rama corrige desde el primer deploy.
+
+- **⚠️ ABIERTA (v1.66.2) — `D-UP-1`: EL CLIENTE DE `POST /uploads/presign` SIGUE TIPADO CONTRA EL CONTRATO
+  VIEJO.** **Dueño del arreglo: frontend** (WS «Cuentas y acceso»). Norma: **`API_CONTRACT §8` v1.66.2**
+  (`<!-- CANON: cota-de-tamano-del-presign -->`, `estado: VIGENTE`). **No es una fuga viva** — se registra porque
+  es divergencia código⇄contrato, que es lo que este documento vigila.
+  - **Qué medí el 2026-09-10 contra el árbol** (§0-B.3 regla 2), tres sitios y ningún incidente:
+    (1) `frontend/src/types/contract.ts:390` declara **`maxBytes?: number`** *«opcional por compat»* — el contrato
+    lo declara **siempre presente**; (2) `frontend/src/lib/api.ts:1896` tipa **`contentLength?: number`** y su
+    docblock (`:1889`) afirma *«es **opcional** en el contrato»* — **frase muerta**: era cierta hasta v1.66.1 y hoy
+    es lo contrario; (3) el **mock** de `presignUpload` (`api.ts:1907`) devuelve **`headers: {}`**, que el contrato
+    ya no admite.
+  - **Por qué no rompe hoy, y por qué aun así se arregla:** el **único** llamador real
+    (`PhotoUploader.tsx:149-153`) **siempre** manda `contentLength` (lo calcula del blob ya comprimido) ⇒ **cero
+    clientes rotos**, medido. Lo que queda mal es **el tipo y la frase**: un `?` invita al siguiente llamador a
+    omitirlo —y ese llamador **se estrellará contra un `422`**, no contra el compilador, que es el sitio caro— y un
+    mock con `headers: {}` **entrena a la pantalla a no reenviarlos**. *El `?? maxBytes` de `PhotoUploader:155` es
+    un fallback correcto y **no** hay que quitarlo: lo que sobra es la opcionalidad del TIPO.*
+  - **Alcance (pequeño, y ⛔ ninguna línea de lógica):** `maxBytes` y `contentLength` **requeridos** en los tipos,
+    el docblock reescrito, y el mock devolviendo `headers` poblado. **Cabe en el pase de cierre o en el siguiente;
+    no bloquea la publicación.**
 
 - **⚠️ ABIERTA (v1.66) — `D-CS-3`: `IMPORTANTE-3` SIGUE SIENDO DE BACKEND, Y LA COLUMNA NUEVA NO LO CIERRA.**
   **Dueño del arreglo: backend** (`tcgcsv-singles-bulk.provider.ts`, `resolveGroupId` → `null` con nombres

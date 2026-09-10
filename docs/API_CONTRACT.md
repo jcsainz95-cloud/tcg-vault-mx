@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.66.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.66.2**).
+>
+> **Changelog v1.66.2 — EL CONTRATO DESCRIBÍA UNA SUPERFICIE INSEGURA, Y OBEDECERLO AL PIE DE LA LETRA
+> REPRODUCÍA EL AGUJERO (2026-09-10, arquitecto).** Base: **v1.66.1, vigente entera**. **⛔ Cero endpoints nuevos,
+> cero DDL.** Toca **una** sección: [§8 Uploads](#8-uploads-solo-ine-de-kyc). Origen: `P-UP-1` (pentester/seguridad
+> §3.4) + `UP-C1` (`TECH_DEBT.md`), enrutado por backend **sin tocar el contrato** (regla 9 de `CLAUDE.md` —
+> correcto).
+>
+> **1. ✅ RATIFICADO: `contentLength` es OBLIGATORIO en `POST /uploads/presign`, y la `Res 200` documenta
+> `maxBytes` y un `headers` POBLADO.** Medido por mí contra el árbol, no relayado: `uploads.service.ts:100-136`
+> (rechazo por ausencia, `ContentLength` incondicional en la firma, `headers` con `Content-Type` +
+> `Content-Length`, `maxBytes` en la respuesta) y `uploads.controller.ts:13-17` (el DTO deja la **ausencia** al
+> servicio a propósito, para que salga `422` de negocio y no el `400` del pipe). **Ratifico el código y corrijo el
+> documento** — no al revés: la forma insegura era la documentada.
+>
+> **2. ⭐⭐ MARCA NUEVA `<!-- CANON: cota-de-tamano-del-presign · estado: VIGENTE -->` (§8), y el token es
+> `VIGENTE` porque el predicado ESTÁ CONSTRUIDO** (regla 10; lo verifiqué en el artefacto, no en un informe).
+> Lo que se marca **no es el campo: es el invariante que el campo sostiene** (`I-UP1..I-UP4`). *Un campo se borra
+> por «simplificar» sin que nadie note qué se llevó consigo; un invariante nombrado, no.*
+>
+> **3. ⛔ LO QUE DECIDÍ NO HACER, y la razón importa más que la decisión: NO se acuña un vocabulario de marcas
+> «de seguridad».** Un censo de secciones marcadas «esto es sensible» **solo vale si es exhaustivo**, y uno
+> poblado a mano **emite un verde sobre todo lo que nadie marcó** — que es literalmente el defecto de v1.66.1 (un
+> guardián que declara inexistente lo que debe guardar). Además la regla 11 cerró el vocabulario **hace una rev**.
+> ⇒ Se usa el mecanismo que ya existe y ya tiene lint (`CANON` + token), y la lección generalizable se escribe
+> **como norma, no como etiqueta**: `ARCHITECTURE §0-B.3` **regla 9 gana la mitad (c)** — *la AUSENCIA de un campo
+> del cliente nunca produce una garantía MENOR del servidor*, y **el contrato declara qué pasa cuando falta**.
+>
+> ---
 >
 > **Changelog v1.66.1 — UN `CANON` DECLARA SI YA EXISTE: la rev anterior escribió, dentro de la norma hecha para
 > impedirlo, la instancia más grande del defecto que venía a curar (2026-09-10, arquitecto).** Base: **v1.66**.
@@ -8764,12 +8792,60 @@ Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW`
 ### POST /api/v1/uploads/presign — `customer`  (solo `kyc_ine`)
 Genera un presign para subir la imagen del INE. El objeto vive en **bucket privado** (no público); su lectura
 por back-office es vía presign **GET** de vida corta (no URL pública). Retención según `INE_RETENTION_DAYS`.
-Req: `{ purpose: "kyc_ine", contentType: string }`
-Res `200`: `{ uploadKey, uploadUrl, method: "PUT", headers: {}, expiresAt }`
+Req: `{ purpose: "kyc_ine", contentType: string, contentLength: number }`
+Res `200`: `{ uploadKey, uploadUrl, method: "PUT", headers: { "Content-Type": string, "Content-Length": string }, maxBytes: number, expiresAt }`
+- **`contentLength`** — **OBLIGATORIO**, entero de **bytes** del cuerpo **exacto** que se va a subir (el ya
+  comprimido, no el archivo original que el humano eligió). Su razón —y qué pasa si falta— está en el bloque
+  canónico de abajo; **no es un dato informativo**.
+- **`headers`** — **poblado, nunca `{}`**: los headers que el `PUT` al storage **debe** enviar, con esos valores
+  **exactos**. Van firmados; cambiar uno invalida la firma. El cliente los reenvía tal cual, sin recalcularlos.
+- **`maxBytes`** — tope de tamaño **del servidor**, en bytes, **resuelto server-side desde configuración** (§0: el
+  contrato norma forma y origen, **no** el valor). **Siempre presente.** Es la **fuente única de verdad del límite
+  para el cliente**: una constante local solo cabe como fallback de mocks/offline.
+
 El cliente hace `PUT` directo al object storage privado; luego envía la `uploadKey` al endpoint de KYC
 (`PUT /users/me/kyc` como `ineFrontUploadKey`/`ineBackUploadKey`). Captura móvil vía navegador.
-Err: `422 VALIDATION_ERROR` si `purpose != "kyc_ine"` (los propósitos `inventory_photo`/`dispute_claim` ya no
-son válidos).
+
+Err:
+- `401` — sin sesión.
+- `422 VALIDATION_ERROR` — `purpose != "kyc_ine"` (los propósitos `inventory_photo`/`dispute_claim` ya no son
+  válidos); `contentType` fuera de `image/*` (`details.contentType`) — **el INE es una FOTO**, y la allow-list es
+  lo que impide depositar HTML/PDF/binarios en el bucket; **`contentLength` ausente** (`details.maxBytes`);
+  `contentLength > maxBytes` (`details.contentLength`, `details.maxBytes`).
+- `400 VALIDATION_ERROR` — `contentLength` presente pero **mal formado** (no entero, o `< 1`). Es el `400` de
+  esquema de §«Códigos comunes», no una regla de negocio; la **ausencia** es lo que se trata como regla de negocio.
+
+<!-- CANON: cota-de-tamano-del-presign · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8, 9 y 10 -->
+**LA COTA DE TAMAÑO DE UN PRESIGN — qué la sostiene.**
+
+**Invariante `I-UP1` (el único que importa): toda URL prefirmada que este endpoint emite sale ATADA A UN TAMAÑO
+EXACTO. ⛔ No existe rama que produzca una URL sin cota.** El tamaño se fija **en la firma**, de modo que el
+almacenamiento rechaza por sí mismo cualquier cuerpo que no lo respete: la cota **no depende de que el cliente se
+porte bien** ni de una comprobación posterior.
+
+- **`I-UP2` — la ausencia del campo es un RECHAZO, jamás una firma más laxa.** Un `contentLength` opcional
+  convierte el tope en una **sugerencia**: quien quiere pasarse es exactamente quien no lo declara, y así **el
+  candado lo elegiría el atacante**. Por eso el campo es obligatorio y la falta se rechaza (código en el `Err:` de
+  este endpoint) en vez de degradar a una firma sin `Content-Length`.
+- **`I-UP3` — el tope lo pone el SERVIDOR y viaja en la respuesta (`maxBytes`).** El cliente puede **mostrarlo** y
+  puede cortar antes para dar mejor mensaje, pero **no lo sostiene**: un cliente que no comprueba nada no puede
+  superar el tope. ⛔ Ningún otro documento, pantalla, test ni mensaje de error **transcribe la cifra**: se lee de
+  la respuesta.
+- **`I-UP4` — `headers` es normativo, no informativo.** Lo que va firmado es el par `Content-Type` +
+  `Content-Length`; enviarlos distintos (o omitirlos) **debe** fallar en el storage, no colarse.
+- ⛔ **Prohibido "acotar del lado del bucket" como sustituto.** Una política de tamaño en el almacenamiento es
+  propiedad de devops y **no** cubre un `PUT` prefirmado; puede sumarse como defensa en profundidad, **nunca como
+  la cota de este endpoint**.
+<!-- /CANON: cota-de-tamano-del-presign -->
+
+> **Por qué este endpoint lleva bloque canónico y casi ningún otro lo lleva** *(fuera del bloque: es razón, no
+> norma)*. En v1.66.1 este `Req` decía `{ purpose, contentType }` **y nada más**. No era una omisión cosmética:
+> **describía una superficie insegura**, y por la regla de conflicto de `CLAUDE.md` —*el contrato manda sobre el
+> código*— **autorizaba** la implementación con la cota evadible que el pentester encontró (`P-UP-1`). *Quien
+> hubiera implementado exactamente lo escrito habría reproducido el agujero, y habría tenido razón.* Es la misma
+> familia que §0-B.4 (mientras el contrato transcribiera un dominio muerto, obedecerlo lo reintroducía
+> **legítimamente**). ⇒ Lo que se marca **no es el campo, es el invariante que el campo sostiene**: un campo se
+> borra por «simplificar» sin que nadie note qué se llevó consigo; un invariante nombrado, no.
 
 ---
 
