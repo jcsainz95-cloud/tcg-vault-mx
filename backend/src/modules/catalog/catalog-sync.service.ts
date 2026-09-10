@@ -108,10 +108,10 @@ export function isWithinCatalogFromDate(
 export function selectSyncAllCandidates(
   remote: RemoteCardSet[],
   opts: { importedWithCards: ReadonlySet<string>; force: boolean; fromReleaseDate: string },
-): { queue: RemoteCardSet[]; outOfRange: RemoteCardSet[]; undated: RemoteCardSet[] } {
+): { queue: RemoteCardSet[]; outOfRange: RemoteCardSet[]; unknownDate: RemoteCardSet[] } {
   const queue: RemoteCardSet[] = [];
   const outOfRange: RemoteCardSet[] = [];
-  const undated: RemoteCardSet[] = [];
+  const unknownDate: RemoteCardSet[] = [];
   for (const s of remote) {
     const alreadyImported = opts.importedWithCards.has(s.id);
     if (alreadyImported) {
@@ -122,13 +122,13 @@ export function selectSyncAllCandidates(
     // que cambia respecto de antes es que deja de ser INVISIBLE: sale en su propio cubo y el
     // llamador lo reporta y lo loguea. Sigue quedando fuera del barrido, como hasta hoy.
     if (s.releaseDate == null || s.releaseDate === '') {
-      undated.push(s);
+      unknownDate.push(s);
       continue;
     }
     if (isWithinCatalogFromDate(s, opts.fromReleaseDate)) queue.push(s);
     else outOfRange.push(s); // set nuevo pero anterior al corte ⇒ es trabajo de `backfill`
   }
-  return { queue, outOfRange, undated };
+  return { queue, outOfRange, unknownDate };
 }
 
 /**
@@ -136,7 +136,18 @@ export function selectSyncAllCandidates(
  *
  * El **reparto** (`setsTotal`/`setsWritten`/`setsNoop`/`setsFailed`/`failures`) NO se declara aquí:
  * se hereda de `SetSweepTally`, la fuente única de §M2-CS.0 que comparte con `refresh-variants-all`.
- * Lo propio de este barrido son sus cifras de ESCRITURA —cartas— y el desglose de `setsWritten`.
+ * Lo propio de este barrido son sus cifras de ESCRITURA —cartas—, el desglose de `setsWritten` y
+ * las **cifras de SELECCIÓN** (§M2-CS.1).
+ *
+ * ⭐ **Las tres cifras de SELECCIÓN viven AQUÍ, no sueltas en el `202`.** §M2-CS.1 las declara
+ * dentro de `summary` y dice por qué: *«la fuente canónica del registro de la corrida es este
+ * `summary`»* — el `202` de `sync-all` las **hace eco** al arrancar, este objeto las guarda al
+ * terminar; **un solo cálculo, dos momentos**. Emitirlas sólo en el `202` dejaba el registro de la
+ * corrida sin el corte que la rigió: quien lee `sync-status` no podía saber **desde cuándo** se
+ * barrió ni **qué quedó fuera**, que es justo lo que explica un `setsTotal: 0`.
+ *
+ * ⛔ **No son cifras de escritura** (§M2-CS.1): no abren la frase de un aviso (H3) y **no entran en
+ * `setsTotal`** —esos sets nunca se encolaron—.
  */
 export type SyncAllSummary = SetSweepTally & {
   /** desglose de `setsWritten` — set que NO tenía cartas y ahora sí (`I-CS5`). */
@@ -145,6 +156,24 @@ export type SyncAllSummary = SetSweepTally & {
   setsRefreshed: number;
   /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
   cardsUpserted: number;
+  /** SELECCIÓN — corte VIGENTE en esta corrida, `yyyy/MM/dd` (§M2-CS.4). */
+  fromReleaseDate: string;
+  /** SELECCIÓN — remotos descartados por el corte (para ésos: `backfill`). */
+  setsSkippedOutOfRange: number;
+  /** SELECCIÓN — remotos SIN `releaseDate`: no entran, pero **se cuentan** (§M2-CS.4). */
+  setsSkippedUnknownDate: number;
+};
+
+/**
+ * Las tres cifras de SELECCIÓN de una corrida, calculadas **una sola vez** en `syncAll()` y
+ * emitidas en dos sitios: el `202` (eco, al arrancar) y `summary` (canónico, al terminar).
+ * Que sea **un tipo** y no tres parámetros sueltos es lo que impide que los dos sitios se
+ * desincronicen (§0-B.3 regla 8).
+ */
+export type SyncAllSelection = {
+  fromReleaseDate: string;
+  setsSkippedOutOfRange: number;
+  setsSkippedUnknownDate: number;
 };
 
 /**
@@ -714,12 +743,27 @@ export class CatalogSyncService {
   };
 
   /** Resumen agregado en ceros (arranque de un barrido `sync-all`). */
-  private static emptySyncAllSummary(): SyncAllSummary {
+  /**
+   * Resumen en ceros para ARRANCAR un barrido, con la **selección ya decidida** dentro.
+   *
+   * La selección no se «suma» durante el barrido: se conoce **antes** de encolar nada, así que
+   * entra aquí de una vez y no vuelve a tocarse. Los ceros del reparto sí son ceros que el barrido
+   * va a contar (§M2-CS.1: «⛔ Nunca un `summary` en ceros para rellenar»; el «no lo medí» se dice
+   * con `summary: null`, y esa decisión la toma `syncAll`).
+   */
+  private static emptySyncAllSummary(selection?: SyncAllSelection): SyncAllSummary {
     return {
       ...emptySetSweepTally(),
       setsImported: 0,
       setsRefreshed: 0,
       cardsUpserted: 0,
+      // Camino sin selección: `runSyncAll` invocado DIRECTAMENTE (job interno / test), nunca desde
+      // el endpoint —`syncAll` siempre publica el summary con su selección antes de lanzar—. Ahí no
+      // hubo fase de selección que reportar, y `''` lo dice sin inventar una fecha (§M2-CS.4:
+      // ⛔ no se adivina un corte).
+      fromReleaseDate: selection?.fromReleaseDate ?? '',
+      setsSkippedOutOfRange: selection?.setsSkippedOutOfRange ?? 0,
+      setsSkippedUnknownDate: selection?.setsSkippedUnknownDate ?? 0,
     };
   }
 
@@ -837,17 +881,7 @@ export class CatalogSyncService {
    */
   async syncAll(
     options: { force?: boolean } = {},
-  ): Promise<{
-    jobId: string;
-    setsQueued: number;
-    remaining: number;
-    /** corte de fecha APLICADO en esta llamada (hoy, el dial `catalog_sync_from_date`). */
-    fromReleaseDate: string;
-    /** sets remotos que NO tenemos y que el corte dejó fuera (para ésos: `backfill`). */
-    setsSkippedOutOfRange: number;
-    /** sets remotos que NO tenemos y que vienen SIN `releaseDate` (caso sin decidir; se reporta). */
-    setsSkippedUndated: number;
-  }> {
+  ): Promise<{ jobId: string; setsQueued: number; remaining: number } & SyncAllSelection> {
     const force = options.force ?? false;
     // D3 — CORTE DE FECHA: el barrido honra el dial `catalog_sync_from_date` (el mismo que ya
     // honraba `sync()` en modo from_date), a través del predicado ÚNICO `selectSyncAllCandidates`.
@@ -859,14 +893,22 @@ export class CatalogSyncService {
     const {
       queue: pending,
       outOfRange,
-      undated,
+      unknownDate,
     } = selectSyncAllCandidates(remote, { importedWithCards, force, fromReleaseDate });
-    if (undated.length > 0) {
+    // ⭐ UN SOLO CÁLCULO de la selección, DOS momentos (§M2-CS.1): el `202` la hace eco al
+    // arrancar y `summary` la guarda al terminar. Se arma aquí, una vez, y ambos la copian: es lo
+    // que impide que el eco y el registro canónico se desincronicen (§0-B.3 regla 8).
+    const selection: SyncAllSelection = {
+      fromReleaseDate,
+      setsSkippedOutOfRange: outOfRange.length,
+      setsSkippedUnknownDate: unknownDate.length,
+    };
+    if (unknownDate.length > 0) {
       // Caso que nadie ha decidido: un set remoto sin `releaseDate` cae fuera del corte por
       // comparación de cadena vacía. Se sigue quedando fuera, pero ahora se VE.
       this.logger.warn(
-        `sync-all: ${undated.length} set(s) remotos NO importados vienen SIN releaseDate y quedan ` +
-          `fuera del corte (${undated.map((s) => s.id).join(', ')}). Nadie ha decidido este caso: ` +
+        `sync-all: ${unknownDate.length} set(s) remotos NO importados vienen SIN releaseDate y quedan ` +
+          `fuera del corte (${unknownDate.map((s) => s.id).join(', ')}). Nadie ha decidido este caso: ` +
           `hoy sólo entran por backfill.`,
       );
     }
@@ -874,14 +916,7 @@ export class CatalogSyncService {
 
     if (this.syncAllStatus.running) {
       // Ya hay un barrido en curso → no lanzamos otro; reportamos lo que falta.
-      return {
-        jobId,
-        setsQueued: 0,
-        remaining: pending.length,
-        fromReleaseDate,
-        setsSkippedOutOfRange: outOfRange.length,
-        setsSkippedUndated: undated.length,
-      };
+      return { jobId, setsQueued: 0, remaining: pending.length, ...selection };
     }
 
     const batch = [...pending];
@@ -895,9 +930,10 @@ export class CatalogSyncService {
       done: 0,
       startedAt: new Date().toISOString(),
       finishedAt: null,
-      // Arranca el resumen (ya no null): `setsTotal` se fija aquí; el resto lo suma `runSyncAll`
-      // con lo que cada import REALMENTE hizo. El 202 de abajo no anticipa ninguno de esos números.
-      summary: { ...CatalogSyncService.emptySyncAllSummary(), setsTotal: batch.length },
+      // Arranca el resumen (ya no null): `setsTotal` y las TRES cifras de selección se fijan aquí
+      // (se conocen ya); el resto lo suma `runSyncAll` con lo que cada import REALMENTE hizo. El
+      // 202 de abajo no anticipa ninguno de esos números.
+      summary: { ...CatalogSyncService.emptySyncAllSummary(selection), setsTotal: batch.length },
     };
     // Fire-and-forget: el request NO espera a que se importen todos los sets.
     void this.runSyncAll(batch, force).finally(() => {
@@ -916,14 +952,10 @@ export class CatalogSyncService {
     // sets que no te traje porque son viejos". `fromReleaseDate` es el corte que se aplicó.
     // Ninguno de estos campos anticipa cuántos sets se importarán: eso no se sabe todavía y vive
     // en el `summary` de `sync-status` cuando el barrido avanza.
-    return {
-      jobId,
-      setsQueued: batch.length,
-      remaining: 0,
-      fromReleaseDate,
-      setsSkippedOutOfRange: outOfRange.length,
-      setsSkippedUndated: undated.length,
-    };
+    // ⚠️ Las tres de `selection` son ECO (§M2-CS.1): la fuente canónica del registro de la corrida
+    // es `summary` (arriba), que lleva las MISMAS tres por construcción — aquí se copian, no se
+    // recalculan.
+    return { jobId, setsQueued: batch.length, remaining: 0, ...selection };
   }
 
   /** Barrido en segundo plano de `sync-all`: importa cada set secuencialmente (rate-limit). */

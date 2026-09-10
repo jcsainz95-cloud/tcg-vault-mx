@@ -18996,8 +18996,13 @@ dentro y **ningún llamador cambia**.
 
 **`releaseDate` ausente:** el filtro es `(releaseDate ?? '') >= from`, así que un set **sin fecha**
 queda fuera. Se conserva ese comportamiento (no se adivina una fecha) pero **deja de ser invisible**:
-sale en su propio cubo `undated`, se loguea con los ids y se reporta como `setsSkippedUndated`. Es un
-caso que **nadie ha decidido**; queda sobre la mesa del arquitecto.
+sale en su propio cubo (`unknownDate`), se loguea con los ids y se reporta como
+`setsSkippedUnknownDate`. Es un caso que **nadie ha decidido**; queda sobre la mesa del arquitecto.
+> ⚠️ **Corregido el 2026-09-10** (§v1.66-CS.1, al final de este documento): este pase emitió el campo
+> como **`setsSkippedUndated`** —nombre inventado por el backend— durante varias revisiones. El nombre
+> del contrato es **`setsSkippedUnknownDate`** (§M2-CS.1/§M2-CS.4) y es el que se emite hoy. El texto de
+> arriba ya está actualizado; se deja constancia porque **el candado de esta misma sección fijaba el
+> nombre equivocado**.
 
 ### Candado y su mutación
 
@@ -19026,8 +19031,10 @@ copia eliminada. Muestras del diff: `setsImported` esperado 0 / recibido 1; `car
    cualquier carta»), que ahora depende de `backfill`.
 3. **Campos aditivos por ratificar:** `setsImported`/`setsRefreshed`/`setsNoop`/`cardsUpserted` en
    `sync` y `backfill`; `refreshed[]` en `backfill`; `cardsInSet` en `refresh-variants`;
-   `fromReleaseDate`/`setsSkippedOutOfRange`/`setsSkippedUndated` en `sync-all`; `summary` en
-   `sync-status`.
+   `fromReleaseDate`/`setsSkippedOutOfRange`/`setsSkippedUnknownDate` en `sync-all`; `summary` en
+   `sync-status`. *(Ratificados por el contrato en v1.66 §M2-CS.1, con el nombre
+   `setsSkippedUnknownDate` y con las tres cifras de selección DENTRO de `summary` — ver §v1.66-CS.1
+   al final de este documento.)*
 4. **Copy de M2 (frontend).** La UI rotula `setsQueued` como «set(s) importado(s)»: con un re-sync eso
    sigue siendo falso aunque el backend ya diga la verdad. Debe leer `setsImported`/`setsRefreshed`, y
    pintar «—» cuando `cardsProcessed` sea `null`.
@@ -19387,3 +19394,81 @@ por el incidente de scratchpads borrados entre agentes), **borrada al terminar**
 para este endpoint— se quedó **entera en verde** con el defecto restaurado. Es la demostración de que
 esa suite **nunca pudo cazar** este defecto: afirmaba `setsOk`, y `setsOk` vale lo mismo con el defecto
 y sin él (justo por estar congelado). El candado nuevo es lo único que lo detiene.
+
+---
+
+## §v1.66-CS.1 — El backend emitía `setsSkippedUndated` y el contrato manda `setsSkippedUnknownDate`; y las tres cifras de SELECCIÓN viajaban FUERA del `summary` (backend, 2026-09-10, bloqueante nº3 del techlead)
+
+**Rama:** `claude/tcg-hunt-orchestration-ai2vma`. **Ficheros:**
+`backend/src/modules/catalog/catalog-sync.service.ts`, `backend/test/catalog-sync.honest-counters.spec.ts`.
+⛔ **Cero DDL, cero endpoints nuevos, cero cambios de política.** Manda el contrato
+(`CLAUDE.md`, regla de conflicto).
+
+### Qué estaba mal, y por qué el candado era parte del problema
+
+1. **El nombre.** El backend emitía **`setsSkippedUndated`** (`catalog-sync.service.ts`, tres sitios).
+   `API_CONTRACT §M2-CS.1` y **§M2-CS.4** declaran **`setsSkippedUnknownDate`**. Ningún consumidor del
+   contrato podía leer el campo que el backend emitía: la cifra existía y era **invisible** — que es,
+   con otra cara, el defecto que §M2-CS.4 vino a cerrar (*«no se calla: se cuenta»*).
+2. **⚠️ Y el test fijaba el nombre equivocado** (`catalog-sync.honest-counters.spec.ts`, caso
+   *«syncAll lee el corte del dial y lo reporta junto a lo que dejó fuera»*). La suite de contrato
+   **aprobaba la divergencia**. Es la misma familia del candado que hoy se encontró bendiciendo
+   *«resolver ⇒ null cuenta como OK con ceros»*: **un candado que protege el defecto** no es cobertura,
+   es una firma. Por eso el arreglo del código y el del test van **en el mismo pase**: separarlos deja
+   una ventana en la que la suite sigue certificando lo contrario del contrato.
+3. **La colocación.** `fromReleaseDate` / `setsSkippedOutOfRange` / `setsSkippedUnknownDate` viajaban
+   **sólo** en el `202` de `POST /admin/catalog/sync-all`. §M2-CS.1 las declara **dentro de `summary`**
+   y dice por qué: *«la fuente canónica del registro de la corrida es este `summary`»* — el `202` las
+   **hace eco** al arrancar, el `summary` las guarda al terminar; **un cálculo, dos momentos**.
+   `SyncAllSummary` no las declaraba, así que quien leía `GET /admin/catalog/sync-status` **no podía
+   saber desde cuándo se barrió ni qué quedó fuera**, que es justamente la única explicación útil de un
+   `setsTotal` pequeño (y de un `SIN CAMBIOS`, §M2-CS.0).
+
+### Qué se hizo
+
+- **Renombrado en el emisor y en el cubo interno**: `undated` → `unknownDate`, `setsSkippedUndated` →
+  `setsSkippedUnknownDate` (`selectSyncAllCandidates`, el `warn`, el `202` y el `summary`). El nombre
+  interno se alineó **a propósito**: un cubo que se llama distinto del campo que produce es el desnivel
+  por el que el nombre inventado sobrevivió tres revisiones.
+- **`SyncAllSummary` gana las tres cifras de SELECCIÓN**, documentadas como tales (⛔ no son cifras de
+  escritura: no abren la frase de un aviso —H3— y **no entran en `setsTotal`**).
+- **`SyncAllSelection`**: tipo nuevo, calculado **una sola vez** en `syncAll()` y copiado a los dos
+  sitios (`202` y `summary`). Que sea **un tipo** y no tres parámetros sueltos es lo que impide que el
+  eco y el registro canónico se desincronicen (`ARCHITECTURE §0-B.3` regla 8). El `202` ya no recalcula
+  nada: hace `...selection`.
+- **`emptySyncAllSummary(selection?)`**: la selección entra al arrancar (se conoce antes de encolar).
+  El parámetro es opcional **sólo** para el camino en que `runSyncAll` se invoca **directamente** (job
+  interno / test) sin pasar por `syncAll` — camino **no alcanzable desde el endpoint** —, y ahí
+  `fromReleaseDate` queda `''`: **no hubo selección que reportar y no se inventa una fecha**
+  (§M2-CS.4).
+
+### Candado y su mutación
+
+`test/catalog-sync.honest-counters.spec.ts` — el caso existente corregido al nombre del contrato, más
+`Object.keys(res)).not.toContain('setsSkippedUndated')` (⛔ el nombre viejo no vuelve como «alias de
+compatibilidad»), más un caso nuevo: *«las TRES cifras de selección viven DENTRO del summary, y el 202
+es su ECO exacto»*.
+
+Mutación sobre **COPIA** del árbol en el scratchpad (ruta única de este pase; el árbol vivo no se toca):
+
+| Mutación | Resultado |
+|---|---|
+| **A** — volver a emitir `setsSkippedUndated` (nombre del defecto) | 🔴 la suite **no compila**: `TS2551` en dos aserciones, *«Did you mean 'setsSkippedUndated'?»* |
+| **B** — reintroducir el nombre viejo como **alias** en el `202` (tipos válidos) | 🔴 **1 rojo**: *«syncAll lee el corte del dial…»* — lo caza el `Object.keys` |
+| **C** — devolver la selección **sólo** al `202` (`summary` sin ella) | 🔴 **1 rojo**: `summary.fromReleaseDate` esperado `2024/01/01`, recibido `""` |
+| Con el arreglo | 🟢 **17/17** en el fichero |
+
+### Frontend: NO consume el nombre viejo (medido)
+
+`grep -rn "setsSkipped\|SyncAllSummary" frontend/src` ⇒ **cero apariciones**. La única coincidencia
+cercana es `frontend/src/lib/api.ts:4053`, que es el **`fromReleaseDate` de entrada** de
+`syncCatalog({ fromReleaseDate })` (el parámetro de `POST /admin/catalog/sync`), **no** el campo de
+respuesta. ⇒ el renombrado **no rompe a frontend** y no hubo que enrutar nada.
+
+### Lo que este pase NO hizo, a propósito
+
+- **§M2-CS.4 entero** (corte automático `hoy − VENTANA`, retiro del dial `catalog_sync_from_date` y su
+  fila) **sigue pendiente**: es un cambio de política con migración y compuerta de medición propia, y
+  no cabe en un arreglo de nombre. `resolveCatalogFromDate()` sigue siendo la costura donde aterriza.
+- El **`fromReleaseDate` del `summary` ya está cableado**, así que cuando el corte pase a automático la
+  corrida ya reporta **cuál corte la rigió** sin tocar ningún llamador.

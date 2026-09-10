@@ -372,7 +372,7 @@ describe('D3 — el criterio de admisión al barrido vive en UNA función', () =
   const importedWithCards = new Set(['sv8']);
 
   it('sin force: entra lo nuevo dentro del corte; lo viejo sale aparte; lo ya importado se salta', () => {
-    const { queue, outOfRange, undated } = selectSyncAllCandidates(remote, {
+    const { queue, outOfRange, unknownDate } = selectSyncAllCandidates(remote, {
       importedWithCards,
       force: false,
       fromReleaseDate: '2024/01/01',
@@ -381,7 +381,7 @@ describe('D3 — el criterio de admisión al barrido vive en UNA función', () =
     expect(queue.map((s) => s.id)).toEqual(['sv9']);
     expect(outOfRange.map((s) => s.id)).toEqual(['base1']);
     // El set SIN fecha sigue quedando fuera, pero ya no en silencio: tiene su propio cubo.
-    expect(undated.map((s) => s.id)).toEqual(['me05']);
+    expect(unknownDate.map((s) => s.id)).toEqual(['me05']);
   });
 
   it('con force: se repara lo YA importado aunque sea viejo, pero NO se arrastra lo viejo que no tenemos', () => {
@@ -420,7 +420,53 @@ describe('D3 — el criterio de admisión al barrido vive en UNA función', () =
     expect(res.fromReleaseDate).toBe('2024/01/01');
     expect(res.setsQueued).toBe(2); // sv9 + sv8 (sv8 no está importado en este fixture)
     expect(res.setsSkippedOutOfRange).toBe(1); // base1
-    expect(res.setsSkippedUndated).toBe(1); // me05, sin releaseDate
+    // ⭐ El NOMBRE es del contrato, no del código: §M2-CS.1/§M2-CS.4 dicen
+    // `setsSkippedUnknownDate`. Este test fijaba `setsSkippedUndated` —el nombre que el backend
+    // había inventado— y con ello BENDECÍA la divergencia: la suite aprobaba un campo que ningún
+    // consumidor del contrato podía leer. Se corrige el código y el candado en el mismo pase.
+    expect(res.setsSkippedUnknownDate).toBe(1); // me05, sin releaseDate
+    // ⛔ Y el nombre viejo no vuelve por la puerta de atrás como «alias de compatibilidad»: dos
+    // nombres para la misma cifra son dos verdades que se desincronizan (§0-B.3 regla 8).
+    expect(Object.keys(res)).not.toContain('setsSkippedUndated');
+  });
+
+  it('las TRES cifras de selección viven DENTRO del summary, y el 202 es su ECO exacto', async () => {
+    // §M2-CS.1: `fromReleaseDate` / `setsSkippedOutOfRange` / `setsSkippedUnknownDate` se declaran
+    // DENTRO de `summary` —«la fuente canónica del registro de la corrida es este summary»— y el
+    // 202 las «hace eco» al arrancar. Viajaban SÓLO en el 202: quien leía `sync-status` no podía
+    // saber desde cuándo se barrió ni qué quedó fuera, que es justo lo que explica un setsTotal
+    // pequeño. Un solo cálculo, dos momentos: si divergen, este test muere.
+    const prisma = prismaMock([]);
+    const client = {
+      getSets: jest.fn(async () => remote),
+    } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(
+      prisma as PrismaService,
+      client,
+      settings('2024/01/01'),
+      reconciler(),
+    );
+    jest.spyOn(svc as any, 'runSyncAll').mockResolvedValue(undefined);
+
+    const res = await svc.syncAll();
+    const { summary } = svc.getSyncStatus();
+
+    expect(summary).not.toBeNull();
+    expect(summary!.fromReleaseDate).toBe('2024/01/01');
+    expect(summary!.setsSkippedOutOfRange).toBe(1);
+    expect(summary!.setsSkippedUnknownDate).toBe(1);
+    // ECO === CANÓNICO, campo por campo.
+    expect({
+      fromReleaseDate: summary!.fromReleaseDate,
+      setsSkippedOutOfRange: summary!.setsSkippedOutOfRange,
+      setsSkippedUnknownDate: summary!.setsSkippedUnknownDate,
+    }).toEqual({
+      fromReleaseDate: res.fromReleaseDate,
+      setsSkippedOutOfRange: res.setsSkippedOutOfRange,
+      setsSkippedUnknownDate: res.setsSkippedUnknownDate,
+    });
+    // ⛔ Selección ≠ escritura (§M2-CS.1): los descartados NO entran en `setsTotal`.
+    expect(summary!.setsTotal).toBe(2);
   });
 
   it('dial con formato inválido ⇒ VALIDATION_ERROR accionable (no se adivina un corte)', async () => {
