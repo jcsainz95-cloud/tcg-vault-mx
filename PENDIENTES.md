@@ -1197,7 +1197,23 @@ escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta e
 > la que reintroduce el aplanamiento y la que desregistra el provider. **1 hueco real**, ver abajo.
 >
 > **Hallazgos enrutados el 2026-09-10:**
-> - 🔴 **BLOQUEANTE-1 → arquitecto.** El contrato (`API_CONTRACT.md:4118-4121`) y `ARCHITECTURE.md`
+> - ✅ **BLOQUEANTE-1 — RESUELTO por el arquitecto (2026-09-10, rev v1.65).** Cede el **código**: el
+>   seed pasa a `tcgcsv_singles`. El criterio que faltaba: *un seed money-safe debe ser **inerte** (no
+>   escribe dinero) o el **primario validado**; nunca un segundo escritor con semántica distinta*.
+>   `sealed_price_source='off'` es inerte y por eso su seed sí es candado; `pokemontcg_io` **corre el
+>   barrido y escribe precios aplanados** ⇒ **el seed legacy no era el candado money-safe, era el
+>   riesgo con el nombre del candado**. Fuente única nueva: `API_CONTRACT.md §M10-PP` (`CANON:
+>   proveedor-de-precio`), invariantes `I-PP1`…`I-PP5`; razón en `ARCHITECTURE.md §4.35a`; decisiones
+>   `D-PP-1` (backend) y `D-PP-2` (devops) en §9. El diagnóstico de fondo: «el provider es X» eran
+>   **tres** afirmaciones con dueños distintos —PRIMARIO (norma), SEED (arranque de BD fresca) y
+>   VIGENTE (fila de `ConfigSetting` de un entorno, se lee y no se cita)— y el proyecto solo tenía
+>   vocabulario para una; por eso los cinco textos eran todos verdaderos y la contradicción,
+>   irresoluble. Cambiar el `DEFAULT` **no puede alterar producción**: la fila ya existe allí y
+>   `SettingsService.get()` solo cae al default cuando no hay fila. Enrutado: **backend** (`D-PP-1`,
+>   money + zona compartida ⇒ triple veredicto) y **devops** (`D-PP-2` + runbook §28 + cron).
+>   QA cierra este hallazgo solo cuando el test refleje `I-PP1` **y** una BD fresca de CI arranque en
+>   el primario — no con un cambio solo documental.
+> - 🔴 **BLOQUEANTE-1 (texto original) → arquitecto.** El contrato (`API_CONTRACT.md:4118-4121`) y `ARCHITECTURE.md`
 >   §4.36(d) bandera 3 (NORMATIVO) afirman que el seed del dial es `tcgcsv_singles`; el código dice
 >   `pokemontcg_io` (`settings.constants.ts:307`) **y hay un test que lo fija**
 >   (`settings.validation.spec.ts:152`). Verificado por el orquestador. Consecuencia: toda BD fresca
