@@ -8005,3 +8005,76 @@ sintaxis de los cuatro bloques `run:` (`bash -n`). Sin cambios en `backend/` ni 
    una corrida verde de tests. **Esa corrida le toca a backend** (§41.4).
 3. **Que el label `security` exista.** El workflow lo crea con `gh label create ... || true`; no pude
    listar los labels del repo.
+
+---
+
+## 42. Censo de variables de entorno: `MAIL_ASSET_ORIGIN` declarada y auditoría completa código ↔ `.env.example` (2026-09-10)
+
+**Disparador.** El dueño reportó que *no se ve el logo en los correos*. Investigando salió una
+variable huérfana: `MAIL_ASSET_ORIGIN` (`backend/src/modules/buylist/mail-shell.ts:94`) existía en el
+código, con default razonable, y **no estaba declarada en ningún `.env.example`**. Una variable que
+vive solo en el código es una que nadie configura hasta que algo se rompe y nadie sabe por qué.
+
+**Qué se declaró.** `MAIL_ASSET_ORIGIN` queda documentada en el bloque de *Correo transaccional* de
+`.env.example` (junto a `RESEND_API_KEY`/`MAIL_FROM`), como **OPCIONAL y comentada**, siguiendo la
+convención del fichero para variables con default de código. Default: `https://tcghunt.mx` — el mismo
+dominio del remitente, a propósito, porque servir la imagen desde otro host penaliza en los filtros de
+spam. En staging/prod **no hace falta fijarla**; existe para previsualizar correos en local.
+
+**Censo (auditoría completa, no solo la variable del incidente).** Se cruzó todo lo que lee el backend
+—`process.env.X` **y** `ConfigService.get('X')`, que es como se lee la mayoría— contra los nombres
+declarados en `.env.example`. Resultado: **61 variables leídas, 15 no declaradas**, y **0 declaradas
+sin uso** (todas las 98 declaradas se consumen en código o en infra: compose, workflows, scripts).
+
+Las 15 no declaradas, con su default:
+
+| Variable | Dónde se lee | Default | Riesgo |
+|---|---|---|---|
+| `MAIL_ASSET_ORIGIN` | `modules/buylist/mail-shell.ts:94` | `https://tcghunt.mx` | **DECLARADA en este pase** |
+| `PORT` | `main.ts:65` | `3001` | Nulo (la inyecta la plataforma) |
+| `SCHEDULER_SHUTDOWN_TIMEOUT_MS` | `jobs/scheduler.service.ts:323` | constante de código | Bajo |
+| `GUEST_ORDER_SWEEP_CRON` | `jobs/scheduler.service.ts:172` | `*/15 * * * *` | Bajo |
+| `CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS` | `modules/catalog/catalog-sync.service.ts:647` | `250` | Bajo |
+| `POKEMONPRICETRACKER_PARTIAL_MIN_PRICE` | `modules/pricing/price-ingest.service.ts:977` | vacío = sin filtro | Bajo (dial de dinero) |
+| `POKEMONPRICETRACKER_GRADED_FORMAT` | `…/pokemonpricetracker-bulk.provider.ts:1063` | `auto` | Bajo (dial de dinero) |
+| `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT` | `…/pokemonpricetracker-bulk.provider.ts:811` | cae a `…_MARKET_FORMAT` | Bajo (dial de dinero) |
+| `POKEMONPRICETRACKER_GRADED_FIELD` | `…/pokemonpricetracker-bulk.provider.ts:1089` | `null` (sin override) | Bajo (dial de dinero) |
+| `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD` | `…/pokemonpricetracker-bulk.provider.ts:1082` | constante de código | Bajo (dial de dinero) |
+| `E2E_ENABLE_THROTTLER` | `config/test-env.ts:37` | `false` | Nulo (solo tests) |
+| `E2E_ENABLE_SCHEDULER` | `config/test-env.ts:46` | `false` | Nulo (solo tests) |
+| `ADMIN_EMAIL` | `prisma/reset-admin-password.ts:30` | cae a `SEED_ADMIN_EMAIL` | Nulo (script manual) |
+| `NEW_ADMIN_PASSWORD` | `prisma/reset-admin-password.ts:31` | **sin default** — aborta con mensaje claro | Nulo (fail-closed) |
+| `CONFIRM_RESET` | `prisma/reset-db-keep-users.ts:179` | **sin default** — sin el token no borra nada | Nulo (fail-closed, es el seguro) |
+
+**Conclusión operativa: ninguna de las 15 puede romper producción en silencio.** Las 13 de runtime
+tienen default; las 2 sin default son scripts manuales que **fallan cerrado** con mensaje explícito
+(`NEW_ADMIN_PASSWORD`) o son el propio seguro de un borrado (`CONFIRM_RESET`). Las 7 variables que sí
+tumbarían prod si faltaran (`DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`,
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `APP_BASE_URL`, `RESEND_API_KEY`) están **todas
+declaradas** y además hacen *fail-fast* al arranque en no-local vía `config/env.validation.ts`.
+
+**Lo que el censo NO arregla (va a otros roles).**
+- La causa raíz del logo era otra y **no es de infra**: `frontend/public/branding/mail-mira-180.png`
+  existe en el árbol de trabajo pero está **sin commitear** (untracked) y **no está en el commit de
+  producción `e117441`**. No lo bloquea `.gitignore` (`git check-ignore` no da match): simplemente
+  falta el commit. Mientras no se comitee, la imagen sale 404 en prod **con cualquier valor** de
+  `MAIL_ASSET_ORIGIN`. Enrutado a **frontend**.
+- Las otras 14 variables no se declararon en este pase por decisión de alcance (censo primero,
+  declaración después). Son deuda de documentación **no bloqueante**, no un defecto de runtime.
+
+**Cómo reproducir el censo** (útil como chequeo periódico; hoy manual, no cableado en CI):
+
+```bash
+# nombres leídos por el backend (las dos formas de leer env)
+grep -rnoE "process\.env\.[A-Za-z_][A-Za-z0-9_]*" backend/src backend/prisma backend/test \
+  --include="*.ts" --exclude-dir=node_modules
+grep -rnoE "config(Service)?\.get(<[^>]*>)?\(\s*['\"][A-Z_][A-Z0-9_]*['\"]" backend/src \
+  --include="*.ts" --exclude-dir=node_modules
+# nombres declarados (incluye las comentadas, que también cuentan como documentadas)
+grep -ohE "^[[:space:]]*#?[[:space:]]*[A-Z_][A-Z0-9_]*=" .env.example
+```
+
+Cuidado con dos trampas al repetirlo: (1) `grep -rh ... backend` **sí entra en `node_modules`** y mete
+~200 falsos positivos (`BROWSERSLIST`, `PRISMA_*`, `AWS_*`…) — hay que excluir el directorio, no filtrar
+la salida; (2) contar solo `process.env` deja fuera la mayoría de las variables, porque el grueso del
+backend lee por `ConfigService`.
