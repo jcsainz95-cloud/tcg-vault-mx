@@ -5,41 +5,44 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-11** (orquestador, tras publicar `c13f417`). Cuerpos de los ítems: **verbatim**, sin reescribir.
 
-## Índice de abiertos (medido 2026-09-11 desde los cuerpos de abajo; «—» = el cuerpo no lo dice)
+## Índice de abiertos (re-medido 2026-09-11 ~03:20 UTC por la sesión 2 sobre `17ce9a9`, tres agentes de solo lectura; «—» = el cuerpo no lo dice)
+
+> Sesión 2, 2026-09-11: se re-midió **cada fila** contra el árbol (O-5). Punteros a línea corregidos donde envejecieron.
+> Cerrado en código en esta re-medición: **P-46** (fix `47c97c1`, dentro de `c13f417`; falta solo la verificación en producción, ver fila).
+> Frentes abiertos por esta sesión el 2026-09-11: **«Andamiaje de CI»** (devops) y **Stream A** (ux-ui + arquitecto → backend + frontend), en `claude/tcg-hunt-orchestration-2`.
 
 | ID | Qué | Dueño | Medido el | Comprobación (por dónde empezar) |
 |---|---|---|---|---|
-| **Stream A** | La cuenta del cliente (P-57 + P-73-A + P-75 + P-66) | ux-ui → frontend · arquitecto → backend | 2026-09-10 | ver sección «SIGUIENTE RELEASE» |
-| **Stream B** | Lo que se rompe con el dinero (P-58, P-59, P-68, disputas) | arquitecto → backend | 2026-09-10 | ídem |
-| **Stream C** | El disco (P-53) | backend | 2026-09-09 | ídem |
-| P-IVA-INCL | Precio con IVA incluido, sin línea aparte | product-owner → arquitecto → frontend+backend | 2026-09-11 | `AmountBreakdown.tsx:82`, `orders.service.ts:586` |
-| P-GL-FP | gitleaks rojo en `main` por los canarios (falso positivo) | devops | 2026-09-11 | run `34554095125`; `security/gitleaks.toml` `[allowlist] paths` |
-| P-CI | «Andamiaje de CI» — lote de 11 puntos (backend-e2e ya verde 2/2; gitleaks Node 20; canarios sin cablear; `check-candidate-checks.sh` pasa el JSON por argv y revienta con >~40 checks; ramas sin protección) | devops | 2026-09-11 | `docs/DEVOPS_NOTES.md` §55; `./scripts/check-candidate-checks.sh <sha>` |
-| P-BL | Stream buylist v1.59/v1.60 (traspaso 2026-09-07: §M5-D, §M5-A, §M5-I, boundary atómico, BL-42, D50) — **NO MEDIDO desde entonces** | backend (arquitecto para D50) | 2026-09-07 | `HISTORIAL.md` → «HANDOFF … (2026-09-07)» §1 y §2; `grep -n BUYLIST_CAP_PER_REQUEST_CENTS backend/src/modules/settings/settings.constants.ts` |
-| P-53 | Disco de Postgres: `PriceReference` ~28.559 filas/día | backend | 2026-09-09 | `card-product-resolver.service.ts:197`; columna `evidenceDate` sin uso |
-| P-55 | El carrito de venta no sobrevive al inicio de sesión | frontend | 2026-08-23 | — (re-medir en el cotizador con sesión) |
-| P-56 | Wishlist «dime qué buscas y te la consigo» (money-critical) | arquitecto → backend+frontend | — | falta alcance (product-owner) |
-| P-57 | La cuenta del cliente: perfil, reclamar pedidos de invitado, navegación | ux-ui → frontend · backend | 2026-09-10 | `auth.service.ts:339`, `AuthForm.tsx:22` |
-| P-58 | «Marcar recibida» desde cualquier estado | frontend (mitad 1) · arquitecto → backend | 2026-09-08 | `buylist.service.ts:5488` |
-| P-59 | La reserva propia bloquea el reintento del mismo cliente | arquitecto → backend | — | — |
+| **Stream A** | La cuenta del cliente (P-57 + P-73 + P-75 + P-55; P-66 después, mismo módulo frontend) — **EN CURSO sesión 2** | ux-ui → frontend · arquitecto → backend | 2026-09-11 | ver sección «SIGUIENTE RELEASE»; todo abierto, cero backend salvo P-75 (endpoint) y P-73-B (esquema) |
+| **Stream B** | Lo que se rompe con el dinero (P-58, P-59, P-68, disputas) | arquitecto → backend | 2026-09-11 | ídem; P-58/P-59 re-medidos abajo |
+| **Stream C** | El disco (P-53) | backend | 2026-09-11 | ídem |
+| P-IVA-INCL | Precio con IVA incluido, sin línea aparte. **DEPLOY 2 SÍ está especificado** en contrato (§M10-IVA.6, `docs/API_CONTRACT.md:17107-17121`); falta implementarlo y la decisión de «cómo se muestra» | product-owner → arquitecto → frontend+backend | 2026-09-11 | `AmountBreakdown.tsx:82`, `orders.service.ts:592` (`IVA_EXCLUSIVE`); cero escritores de `IVA_INCLUSIVE` en producción |
+| P-GL-FP | gitleaks: causa **abierta** (`security/gitleaks.toml:75-81` sin `paths` de los canarios); síntoma **latente** (verde en `17ce9a9` porque el rango del push ya no incluye `5f0928f`/`88c48c7`) — **EN CURSO devops** | devops | 2026-09-11 | run rojo `34554095125`; secretos falsos en `check-secret-defaults-canary.sh:355,375,498` y `check-stripe-webhook-failclosed-canary.sh:200,274,298` |
+| P-CI | «Andamiaje de CI»: **8 de 11 abiertos** (#1, #2, #6, #11 cerrados). `check-candidate-checks.sh` **reproducido roto**: `node: Argument list too long` con 47 check-runs y **emite el diagnóstico falso** «sin check-runs» — **EN CURSO devops** | devops | 2026-09-11 | `docs/DEVOPS_NOTES.md:10634-10680` (§55.5); `scripts/check-candidate-checks.sh:47-54`; ramas sin protección (`/rulesets` = `[]`) |
+| P-BL | Stream buylist v1.59/v1.60: **1 de 7 cerrado** (`legalName`, `admin.service.ts:47,55-68`). §M5-D abierto (las 4 estructuras siguen); §M5-A **desalineado**: backend emite `scope: per_request`/`per_request_offer` (`buylist.service.ts:1585,3587`) y el frontend ya los retiró (`error-audience.ts:42`); §M5-I, boundary, BL-42, D50 abiertos | backend (arquitecto para D50) | 2026-09-11 | `grep -n BUYLIST_CAP_PER_REQUEST_CENTS backend/src/modules/settings/settings.constants.ts` → `:77,289,949,1058`; `HISTORIAL.md:110-166` |
+| P-53 | Disco: `PriceReference` una fila/producto/día; `evidenceDate` **ni se escribe ni se lee** (9/9 hits son el DTO de un proveedor) | backend | 2026-09-11 | `backend/src/modules/catalog/card-product-resolver.service.ts:201,218-233`; `schema.prisma:967` |
+| P-55 | Carrito de venta se pierde al iniciar sesión — **DIAGNOSTICADO sin levantar la app**: vive en memoria (`useSellCart.ts:106`, sin storage) y el login manda a `/` sin `next` — **EN CURSO Stream A** | frontend | 2026-09-11 | `(storefront)/buylist/useSellCart.ts:106`; contraste `lib/cart.ts:5,31`; `AuthForm.tsx:48-50` |
+| P-56 | Wishlist (money-critical) — cero rastro en el árbol | arquitecto → backend+frontend | 2026-09-11 | `grep -rni wishlist backend/src frontend/src docs` → 0; falta alcance (product-owner) |
+| P-57 | La cuenta del cliente: (a) sin ruta de perfil, backend completo; (b) `getClaimableOrders` (`api.ts:4855`) sin ningún llamador; (c) menú con 5 entradas (no 7), ventas sin entrada — **EN CURSO Stream A** | ux-ui → frontend · backend | 2026-09-11 | `users.controller.ts:24-83`; `orders.controller.ts:61`; `StorefrontHeader.tsx:88-99` |
+| P-58 | «Marcar recibida»: el botón vive **solo en `cotizada`** (el paso equivocado, `M5View.tsx:991`), no «en cualquier estado»; el servidor sí acepta desde cualquier estado vivo (`buylist.service.ts:5492` → `liveRequestWhere()` `:5654`) | frontend (mitad 1) · arquitecto → backend | 2026-09-11 | `buylist.service.ts:5492,5654`; `M5View.tsx:991-1001` |
+| P-59 | La reserva no conoce a su dueño: `where` sin eje de usuario/sesión; invitado ni escribe titularidad | arquitecto → backend | 2026-09-11 | `orders.service.ts:431,436`; `guest-checkout.service.ts:141`; TTL `guest-checkout.constants.ts:43` |
 | P-60 | Entregabilidad: falta DMARC | **HUMANO** (DNS) | — | registro DMARC en el DNS de `tcghunt.mx` |
-| P-61 | Catálogo de Vender se ve chico — carrito a pop-up | ux-ui → frontend | — | — |
-| P-65 | Fotos tardan 5–10 s (cuatro eslabones en serie) | frontend; arquitecto si toca API | 2026-09-08 | `FeaturedCarousel.tsx:708` |
-| P-66 | Panel de admin: zombis y navegación — diagnosticado, sin construir | ux-ui → frontend | 2026-09-08 | cuerpo del ítem (bloqueantes/importantes) |
-| P-67 | Inventario de datos para analytics (solo lectura, antes de diseñar) | arquitecto/backend → product-owner | 2026-09-08 | — |
-| P-68 | Consulta de UNA fila antes de publicar el interruptor de FX | devops (consulta) · backend | 2026-09-09 | `fx-mode.ts:157`, `fx.service.ts:85` |
-| P-69 | El precio de mercado se pierde entre paso 1 y 2 al subir sellado | backend/frontend | 2026-09-09 | `SealedAddFlow.tsx:172`, `sealed-product.service.ts:63` |
-| P-70 | Stream `decks-meta-v1` (spec del dueño; bloqueado por el IVA) | product-owner → … | 2026-09-09 | `docs/specs/DECKS_META_V1.md`; `money.ts:374` |
-| P-71 | Código corto del set junto a las imágenes | backend (ingesta) + frontend | 2026-09-09 | `schema.prisma:497`, `catalog-sync.service.ts:918` |
-| P-72 | «SIN PRECIO RESOLUBLE» dice dos cosas opuestas — diagnosticado; **causas del sync cerradas en `c13f417`**, el copy NO MEDIDO | frontend + arquitecto | 2026-09-10 | `pricing.service.ts:877`, `pricing-curve.ts:566` |
-| P-73 | Entrar con Google: nombre inventado (→ P-57) y envíos sin destinatario | ux-ui → frontend · backend | 2026-09-10 | `auth.service.ts:339`, `BuylistKycForm.tsx:234` |
-| P-75 | El operador no tiene dónde cambiar su contraseña (ciclo del reset no cierra) | arquitecto (endpoint) → backend + frontend | 2026-09-10 | `admin.service.ts:733`, `AuthForm.tsx:113`, `auth.service.ts:249` |
-| P-77 | No hay staging: DAST corre contra stack efímero (opción B, «dale»); falta que corra sobre el SHA publicado y cableado a `production` | devops | 2026-09-10 | `.github/workflows/security-dast.yml`; condición C2 de seguridad |
-| P-46 | Sincronizar sellado devuelve «0 presentaciones» (grupo TCGCSV) | backend | 2026-08-23 | `sealed-product.service.ts:777`; re-medir tras `c13f417` (match de grupo cambió) |
-| Razón social | Footer: razón social — decisión del dueño pendiente | **HUMANO** | 2026-09-10 | cuerpo del ítem |
-| Seguridad C1–C5 | Condiciones del veredicto (bloquean **dinero real**, no modo prueba) | devops / backend | 2026-09-11 | `docs/SECURITY_NOTES.md` bloque superior §7 |
-| Node 20 EOL | Actions y runtime en Node 20 (EOL 2026-04-30); gitleaks-action rompe 2026-09-16 | devops | 2026-09-10 | `docs/DEVOPS_NOTES.md` §55 |
-
+| P-61 | Catálogo de Vender se ve chico: carrito lateral fijo de 360 px en escritorio; drawer solo móvil | ux-ui → frontend | 2026-09-11 | `BuylistView.tsx:323,350-352,386-387` |
+| P-65 | Fotos 5–10 s: los cuatro eslabones siguen en serie; cuál pesa NO MEDIBLE sin levantar la app | frontend; arquitecto si toca API | 2026-09-11 | `(storefront)/page.tsx:1`; `(storefront)/_home/FeaturedCarousel.tsx:708`; `CardImage.tsx:72-78` |
+| P-66 | Panel de admin: **8 de 9 puntos abiertos** (B2 requiere navegador); ni el copy «beta cerrada» aprobado por el dueño se corrigió (`es.json:2539`) | ux-ui → frontend | 2026-09-11 | cuerpo del ítem; `git diff --stat 9ff373f..HEAD -- "(admin)"` = solo M10 y M2 |
+| P-67 | Inventario de datos para analytics — no existe doc ni sección | arquitecto/backend → product-owner | 2026-09-11 | `ls docs/`; `grep -rni analytics docs/ PROJECT.md` → 0 |
+| P-68 | FX: modo por defecto = centinela `legacy`; lo decide `fx_manual_override_rate`; fallback duro 18 | devops (consulta) · backend | 2026-09-11 | `fx-mode.ts:285-293` (antes `:157`), `:56,380`; `fx.service.ts:153-154,340` (antes `:85`); la SQL vive solo en el cuerpo |
+| P-69 | Precio de mercado se pierde entre paso 1 y 2 al subir sellado; `sealedPriceSource` viaja y nadie lo consume | backend/frontend | 2026-09-11 | `SealedAddFlow.tsx:172`; `sealed-product.service.ts:65` (antes `:63`); `grep sealedPriceSource SealedAddFlow.tsx` → 0 |
+| P-70 | Decks Meta — **bloqueante CAMBIÓ**: `pricing-iva-v2.1` ya tiene cuerpo (= `PROJECT.md` §Q / D54, `:5708-5714`); encadenado a P-IVA-INCL DEPLOY 2 publicado | product-owner → … | 2026-09-11 | `docs/specs/DECKS_META_V1.md:14`; `money.ts:379` (antes `:374`); `API_CONTRACT.md:17109` |
+| P-71 | Código corto del set: `ptcgoCode` se guarda y **nadie lo lee** (cero en `frontend/src` y en el contrato) | backend (ingesta) + frontend | 2026-09-11 | `schema.prisma:510` (antes `:497`); `catalog-sync.service.ts:1294,1304` (antes `:918`) |
+| P-72 | «SIN PRECIO RESOLUBLE» dice dos cosas: el DTO de la cola no lleva `pendingReason` (`contract.ts:2396-2414`); copy único `es.json:1232` | frontend + arquitecto | 2026-09-11 | `pricing.service.ts:877`; `pricing-curve.ts:566-574`; `inventory.service.ts:359-360` |
+| P-73 | Google inventa el nombre (`auth.service.ts:339`; **cura barata**: `PATCH /users/me` ya acepta `name`, `users.dto.ts:12`); retiros de bóveda sin destinatario (`Address` sin nombre) — **EN CURSO Stream A** (B toca `shipments`: serializado con Stream B) | ux-ui → frontend · arquitecto → backend | 2026-09-11 | `shipments.service.ts:183-191,405`; `schema.prisma:482-498`; `guest-checkout.dto.ts:44` |
+| P-75 | Cambiar la propia contraseña: ni endpoint (`auth.controller.ts`, 9 rutas) ni pantalla; `mustChangePassword` sin guard; el aviso solo dice «Continuar» — **EN CURSO Stream A**; **decisión del dueño pendiente**: ¿bloquear o solo avisar? | arquitecto (endpoint) → backend + frontend | 2026-09-11 | `AuthForm.tsx:109-116,21-23`; `auth.service.ts:249`; `admin.service.ts:746` |
+| P-77 | DAST: cron/dispatch/call/push a `devops/dast-**`; checkout sin `ref:`; **nadie lo invoca**; 6 runs, todos push a `devops/dast-p77`; ahora el cron sí vive en `main` (=`17ce9a9`) pero mira `main`, no lo publicado — **EN CURSO devops** | devops | 2026-09-11 | `security-dast.yml:63,65,80,97,141,190,303`; `deploy.yml:424-438` (`dast-staging` inerte) |
+| P-46 | Sincronizar sellado «0 presentaciones»: **CERRADO EN CÓDIGO** (`47c97c1`, dentro de `c13f417`: match tolerante al prefijo, `sealed-product.service.ts:777-798`). **Falta verificar en producción** (sync de Pitch Black / Chaos Rising) y el follow-up de frontend (guiar al linker cuando da 0). Singles siguen sin el arreglo (`card-product-resolver.service.ts:225-238`) | HUMANO/orquestador (verificar) · frontend (follow-up) | 2026-09-11 | correr la sync en producción y contar presentaciones |
+| Razón social | Footer imprime «TCG HUNT · tcghunt.mx · © 2026» sin placeholder (`layout.tsx:58-65`, `footer.ts:13-18`); falta el dato del dueño | **HUMANO** | 2026-09-11 | `es.json:11` / `en.json:11` |
+| Seguridad C1–C5 | **Todas abiertas.** C1: script solo `${VAR:-}` (`check-secret-defaults.sh:208,283`), `FORMA_SECRETO` sin PASS/PIN/PEPPER; C2 ≡ P-77; C3 no medible desde el árbol; C4: `gitleaks.toml:65` sin estrechar, sin canario; C5: el instrumento está roto (ver P-CI) — C1/C2/C4/C5 **EN CURSO devops** | devops / backend / humano (C3) | 2026-09-11 | `docs/SECURITY_NOTES.md:237-249` |
+| Node 20 EOL | **10 sitios** en Node 20 (8 `node-version` en workflows + 2 Dockerfiles); sin `engines` ni `.nvmrc`; `gitleaks-action@v2`; runners dejan Node 20 el **2026-09-16** — **EN CURSO devops** | devops | 2026-09-11 | `ci.yml:140,182,214`, `e2e.yml:274,426`, `e2e-real.yml:286`, `security-sast.yml:137`, `security-scheduled.yml:73`, `Dockerfile.backend:22`, `Dockerfile.frontend:22` |
 ---
 
 # SIGUIENTE RELEASE — «LA CUENTA DEL CLIENTE» (aprobado por el humano, 2026-09-10)
