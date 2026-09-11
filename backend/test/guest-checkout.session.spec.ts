@@ -39,7 +39,10 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     get user() {
       throw new Error('INVARIANTE VIOLADO: el checkout de invitado consultó la tabla User');
     },
+    // v1.68 (§4-R.3): puerta por cliente (advisory lock) + pre-scan de reservas propias (vacío).
+    $executeRaw: jest.fn(async () => 1),
     inventoryItem: {
+      findMany: jest.fn(async () => []),
       updateMany: jest.fn(async ({ where, data }: any) => {
         itemUpdates.push({ where, data });
         if (data.status === 'reserved') {
@@ -181,7 +184,12 @@ describe('GuestCheckoutService.createSession', () => {
     const { svc, itemUpdates } = buildService();
     await svc.createSession(validDto() as never);
     const reserve = itemUpdates.find((u) => u.data.status === 'reserved');
-    expect(reserve.data).toEqual({ status: 'reserved' });
+    // v1.68 (M-53): la reserva lleva DUEÑO (la orden) y VENCIMIENTO; sigue sin titularidad.
+    expect(reserve.data).toEqual({
+      status: 'reserved',
+      reservedByOrderId: 'order-guest-1',
+      reservedUntil: expect.any(Date),
+    });
     expect(reserve.data).not.toHaveProperty('ownerType');
     expect(reserve.data).not.toHaveProperty('ownerUserId');
     expect(reserve.data).not.toHaveProperty('ownershipStatus');
@@ -431,7 +439,8 @@ describe('GuestCheckoutService.quote', () => {
     await svc.createSession(validDto() as never);
     // La poda vive SOLO en el quote. Crear un pedido con una pieza muerta DEBE seguir fallando
     // con 404/409 globales (anti double-sell, caso v de ARCHITECTURE §4.21h-1).
-    expect(orders.priceCartForOrder).toHaveBeenCalledWith(['item-1']);
+    // v1.68 (§4-R.2): se precia DENTRO de la transacción que tiene la puerta (segundo arg = `tx`).
+    expect(orders.priceCartForOrder).toHaveBeenCalledWith(['item-1'], expect.anything());
     expect(orders.priceCartForQuote).not.toHaveBeenCalled();
   });
 });

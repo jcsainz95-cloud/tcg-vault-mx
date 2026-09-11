@@ -38,9 +38,14 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
   function build(rows: Record<string, unknown>[]) {
     const db = new Map(rows.map((r) => [(r as { id: string }).id, r]));
     const prisma: any = {
+      // v1.68 (§4-R.2): puerta por cliente (advisory lock); el pre-scan de reservas propias
+      // (`status:'reserved'`) no encuentra nada en este fixture.
+      $executeRaw: jest.fn(async () => 1),
       inventoryItem: {
         findMany: jest.fn(async ({ where }: any) =>
-          (where.id.in as string[]).map((id) => db.get(id)).filter(Boolean),
+          where.status === 'reserved'
+            ? []
+            : (where.id.in as string[]).map((id) => db.get(id)).filter(Boolean),
         ),
       },
       // Session estricta: si el flujo llegara a crear la Order con una pieza muerta, el test truena.

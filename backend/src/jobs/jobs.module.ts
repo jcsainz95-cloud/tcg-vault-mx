@@ -3,7 +3,7 @@ import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { IneRetentionJobService } from './ine-retention.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
-import { GuestOrderSweepJobService } from './guest-order-sweep.service';
+import { OrderReservationSweepJobService } from './order-reservation-sweep.service';
 import { SchedulerService } from './scheduler.service';
 import { AdminJobsController } from './admin-jobs.controller';
 import { PricingModule } from '../modules/pricing/pricing.module';
@@ -21,15 +21,16 @@ import { OrdersModule } from '../modules/orders/orders.module';
  * solo se activa si hay REDIS_URL (ver scheduler.service).
  */
 @Module({
-  // OrdersModule: `guest-order-sweep` delega en GuestCheckoutService (dueño del ciclo del
-  // pedido de invitado). Sin ciclo: OrdersModule no importa JobsModule.
+  // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
+  // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
+  // importa JobsModule.
   imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,
     IneRetentionJobService,
     AuthTokenSweepJobService,
-    GuestOrderSweepJobService,
+    OrderReservationSweepJobService,
     SchedulerService,
   ],
   controllers: [AdminJobsController],
@@ -38,7 +39,7 @@ import { OrdersModule } from '../modules/orders/orders.module';
     DisputeDeadlineJobService,
     IneRetentionJobService,
     AuthTokenSweepJobService,
-    GuestOrderSweepJobService,
+    OrderReservationSweepJobService,
     PricingModule,
   ],
 })

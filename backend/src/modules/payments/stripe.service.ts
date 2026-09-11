@@ -164,7 +164,7 @@ export class StripeService implements OnModuleInit {
 
   /**
    * v1.21-guest-checkout (T9): cancela un PaymentIntent aún no pagado. Lo usa el barrido de
-   * reservas de pedidos de invitado (`guest-order-sweep`) ANTES de liberar el inventario. NO es
+   * reservas vencidas (`order-reservation-sweep`) y la SUSTITUCIÓN del reintento (§4-R.2) ANTES de liberar el inventario. NO es
    * money-out (un PI cancelado nunca se capturó).
    *
    * **B3 (v1.21.2):** devuelve el `status` resultante en vez de `void`. El barrido lo NECESITA:
@@ -175,6 +175,22 @@ export class StripeService implements OnModuleInit {
   async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
     const pi = await this.stripe.paymentIntents.cancel(paymentIntentId);
     return { status: pi.status };
+  }
+
+  /**
+   * v1.68 (§4-R.2 fila REUSO) — relee un PaymentIntent para devolver el MISMO `client_secret` al
+   * cliente que reintenta (no se persiste). No crea nada. Un fallo se propaga tal cual: el caller
+   * decide (la reserva queda intacta).
+   */
+  async retrievePaymentIntent(
+    paymentIntentId: string,
+  ): Promise<{ id: string; status: string; clientSecret: string }> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      return { id: pi.id, status: pi.status, clientSecret: pi.client_secret ?? '' };
+    } catch (e) {
+      throw this.mapStripeError(e);
+    }
   }
 
   /**

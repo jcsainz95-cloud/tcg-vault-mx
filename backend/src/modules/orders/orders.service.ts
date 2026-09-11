@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { InventoryItem, Card, CardSet, Finish, MarketBracket, MovementReason, Prisma } from '@prisma/client';
+import { Injectable, Logger } from '@nestjs/common';
+import { InventoryItem, Card, CardSet, Finish, MarketBracket, MovementReason, Order, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -7,6 +7,13 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
+import {
+  RESERVATION_TX_OPTIONS,
+  lockReservationGate,
+  releaseReservationData,
+  reservationGuard,
+  reservedUntilFrom,
+} from './reservation';
 import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf, hasManualPrice } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import {
@@ -59,6 +66,46 @@ interface SaleDecision {
 }
 
 /** Línea de orden lista para persistir: el snapshot de dinero + su instrumentación. */
+/**
+ * v1.68 (§4-R.2) — respuesta de `POST /checkout/session` (forma ÚNICA para `201` y `200 reused`,
+ * aditiva sobre la de §4). El controller fija el código HTTP a partir de `reused`.
+ */
+export interface CheckoutSessionResult {
+  orderId: string;
+  orderNumber: string | null;
+  breakdown: BreakdownDTO;
+  stripe: { paymentIntentId: string; clientSecret: string };
+  /** `true` SOLO en el `200` de reuso (misma orden, mismo PaymentIntent, TTL renovado). */
+  reused: boolean;
+  /** Hasta cuándo es tuya la reserva. */
+  reservedUntil: Date;
+  /** Órdenes PROPIAS sustituidas (carrito distinto); `[]` si ninguna. */
+  supersededOrderIds: string[];
+}
+
+/**
+ * v1.68 (§4-R.1) — una RESERVA PROPIA que interseca el carrito, leída BAJO la puerta por cliente y
+ * por el mismo `tx`. `heldItemIds` son las piezas que HOY siguen `reserved` por esa orden (dueño =
+ * orden); `heldAlive` dice si TODAS tienen `reservedUntil > now`.
+ */
+export interface OwnReservation {
+  order: Order & { items: { inventoryItemId: string }[] };
+  heldItemIds: string[];
+  heldAlive: boolean;
+}
+
+/** v1.68 — qué decidió la transacción de checkout bajo la puerta (§4-R.2). */
+type SessionOutcome =
+  | { kind: 'reused'; order: Order; reservedUntil: Date }
+  | {
+      kind: 'created';
+      order: Order;
+      breakdown: BreakdownDTO;
+      itemIds: string[];
+      supersededOrderIds: string[];
+      reservedUntil: Date;
+    };
+
 type OrderLineData = {
   inventoryItemId: string;
   /**
@@ -76,6 +123,8 @@ type OrderLineData = {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -188,8 +237,8 @@ export class OrdersService {
     return instrument(sale.priceCents, sale.basis, sale.marketMxnCents);
   }
 
-  private async loadItems(ids: string[]) {
-    const items = await this.prisma.inventoryItem.findMany({
+  private async loadItems(ids: string[], db: Prisma.TransactionClient = this.prisma) {
+    const items = await db.inventoryItem.findMany({
       where: { id: { in: ids } },
       include: { card: { include: { set: true } } },
     });
@@ -247,12 +296,17 @@ export class OrdersService {
    * v1.21.3-quote-prune: session se queda estricta A PROPÓSITO (anti double-sell, caso v de
    * ARCHITECTURE §4.21h-1); la resolución por ítem vive SOLO en `priceCartForQuote` (quotes).
    */
-  async priceCartForOrder(inventoryItemIds: string[]): Promise<{
+  async priceCartForOrder(
+    inventoryItemIds: string[],
+    // v1.68 (§4-R.2): en la SUSTITUCIÓN las piezas del pedido viejo se liberan y se vuelven a leer
+    // DENTRO de la misma transacción; una lectura por otra conexión no vería esa liberación.
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
     lines: OrderLineData[];
   }> {
-    const items = await this.loadItems(inventoryItemIds);
+    const items = await this.loadItems(inventoryItemIds, db);
     for (const item of items) {
       if (!this.isSellable(item)) {
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
@@ -421,16 +475,26 @@ export class OrdersService {
    *    plataforma durante todo el ciclo — invariante §4-G.0-1 (un invitado no tiene bóveda).
    *  - `{ownerType:'customer', ownerUserId, ownershipStatus:'pending'}` (bóveda): la pieza pasa a
    *    la bóveda del comprador con titularidad pendiente hasta el settle.
+   *
+   * v1.68 (§4-R, M-53) — `reservation` es el DUEÑO y el VENCIMIENTO: toda reserva nueva escribe
+   * `reservedByOrderId = <orden>` y `reservedUntil = now + TTL`. La orden se crea ANTES en la misma
+   * transacción (la FK exige que exista); si esta reserva falla, la transacción entera se deshace.
    */
   async reserveItems(
     tx: Prisma.TransactionClient,
     items: { id: string; folio: string }[],
     ownership: ReservationOwnership,
+    reservation: { orderId: string; reservedUntil: Date },
   ): Promise<void> {
     for (const item of items) {
       const reserved = await tx.inventoryItem.updateMany({
         where: { id: item.id, ownerType: 'platform', status: { in: ['listed', 'in_stock'] } },
-        data: { status: 'reserved', ...(ownership ?? {}) },
+        data: {
+          status: 'reserved',
+          reservedByOrderId: reservation.orderId,
+          reservedUntil: reservation.reservedUntil,
+          ...(ownership ?? {}),
+        },
       });
       if (reserved.count !== 1) {
         // Otro checkout ya reservó/vendió esta pieza (o cambió de estado/titularidad).
@@ -441,8 +505,12 @@ export class OrdersService {
 
   /**
    * A2 — compensación de la reserva ante fallo del PaymentIntent (fuente ÚNICA, T2). Devuelve cada
-   * pieza a estado vendible y de plataforma, y marca la orden `failed`. La guardia
-   * `status: 'reserved'` evita liberar items que otro flujo ya movió.
+   * pieza a estado vendible y de plataforma, y marca la orden `failed`.
+   *
+   * v1.68 (§4-R.2 regla 2) — la guardia es `reservationGuard(orderId)`: `status:'reserved'` **y**
+   * `reservedByOrderId = <esta orden>` (o `NULL`, reserva legada). Solo el DUEÑO libera: tras una
+   * sustitución O1→O2, la compensación o el webhook de O1 NO pueden soltar la pieza que O2 acaba de
+   * reservar. El `data` limpia dueño y vencimiento (`releaseReservationData`).
    *
    * Escribe la titularidad de plataforma SIEMPRE, también en el envío directo: ahí es un no-op
    * (la pieza nunca dejó de ser de la plataforma) y evita tener dos cuerpos que puedan divergir.
@@ -451,17 +519,289 @@ export class OrdersService {
     await this.prisma
       .$transaction(async (tx) => {
         await tx.inventoryItem.updateMany({
-          where: { id: { in: itemIds }, status: 'reserved' },
-          data: {
-            status: 'listed',
-            ownerType: 'platform',
-            ownerUserId: null,
-            ownershipStatus: null,
-          },
+          where: { id: { in: itemIds }, ...reservationGuard(orderId) },
+          data: releaseReservationData,
         });
         await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * v1.68 (B3 unificado, §4-R.2/§4-R.4) — cierra la vía de cobro de una orden antes de soltar su
+   * reserva. `closed: true` SOLO si el PaymentIntent quedó efectivamente `canceled` (o ya lo estaba);
+   * si no, `status` trae lo que Stripe reporta (`processing`/`succeeded`/…) o `null` si no se pudo
+   * determinar. **Ante la duda, `closed:false`**: no liberar es un coste acotado; liberar con el pago
+   * vivo es un double-sell. Vivía en `GuestCheckoutService` (solo invitado); ahora la usan el barrido
+   * de las DOS rutas y la SUSTITUCIÓN del reintento.
+   */
+  async closePaymentIntent(paymentIntentId: string): Promise<{ closed: boolean; status: string | null }> {
+    try {
+      const { status } = await this.stripe.cancelPaymentIntent(paymentIntentId);
+      return { closed: status === 'canceled', status };
+    } catch (e) {
+      // Stripe lanza tanto si el PI YA estaba cancelado (inocuo, se puede liberar) como si ya se
+      // PAGÓ (jamás liberar). Se desambigua consultando el estado real.
+      const status = await this.stripe.getPaymentIntentStatus(paymentIntentId);
+      if (status === 'canceled') return { closed: true, status };
+      this.logger.error(
+        `reservation: cancelación del PI ${paymentIntentId} falló (${(e as Error).message}); ` +
+          `estado observado: ${status ?? 'desconocido'}.`,
+      );
+      return { closed: false, status };
+    }
+  }
+
+  /**
+   * ⭐⭐ v1.68 (§4-R.2) — PRE-SCAN de reservas PROPIAS y VIVAS que intersecan el carrito. Se llama
+   * SIEMPRE bajo `lockReservationGate` y por el MISMO `tx` (candado → releer → decidir → escribir).
+   * «Propia» = reservada por una orden `pending` cuyo cliente es quien llama: `userId` (con cuenta)
+   * o la orden que el `retryOfCheckoutToken` resolvió (invitado). «Viva» = `reservedUntil > now`.
+   * El eje es la ORDEN (`reservedByOrderId`), nunca el `userId`/`guestEmail` de la pieza: un hecho,
+   * un sitio (candado R-1).
+   */
+  async findOwnLiveReservations(
+    tx: Prisma.TransactionClient,
+    cartIds: string[],
+    owner: { userId: string } | { orderId: string },
+    now: Date,
+  ): Promise<OwnReservation[]> {
+    const ids = [...new Set(cartIds)];
+    const held = await tx.inventoryItem.findMany({
+      where: {
+        id: { in: ids },
+        status: 'reserved',
+        reservedUntil: { gt: now },
+        reservedByOrder:
+          'userId' in owner
+            ? { userId: owner.userId, status: 'pending' }
+            : { id: owner.orderId, status: 'pending' },
+      },
+      select: { reservedByOrderId: true },
+    });
+    const orderIds = [
+      ...new Set(held.map((h) => h.reservedByOrderId).filter((x): x is string => x != null)),
+    ];
+    if (orderIds.length === 0) return [];
+    const orders = await tx.order.findMany({
+      where: { id: { in: orderIds } },
+      include: {
+        items: { select: { inventoryItemId: true } },
+        reservedItems: { where: { status: 'reserved' }, select: { id: true, reservedUntil: true } },
+      },
+    });
+    return orders.map(({ reservedItems, ...order }) => ({
+      order,
+      heldItemIds: reservedItems.map((i) => i.id),
+      heldAlive: reservedItems.every(
+        (i) => i.reservedUntil != null && i.reservedUntil.getTime() > now.getTime(),
+      ),
+    }));
+  }
+
+  /**
+   * v1.68 (§4-R.2 fila REUSO) — ¿la orden propia retiene EXACTAMENTE el carrito (como conjuntos) y
+   * todas sus piezas siguen reservadas por ella y vivas? Un carrito con ids repetidos NO reusa: cae a
+   * la conducta de hoy (`loadItems` ⇒ 404), igual que antes de v1.68.
+   */
+  isReusable(own: OwnReservation, cartIds: string[]): boolean {
+    const cart = new Set(cartIds);
+    if (cart.size !== cartIds.length) return false;
+    const orderItems = new Set(own.order.items.map((i) => i.inventoryItemId));
+    if (cart.size !== orderItems.size) return false;
+    for (const id of cart) if (!orderItems.has(id)) return false;
+    const held = new Set(own.heldItemIds);
+    for (const id of orderItems) if (!held.has(id)) return false;
+    return own.heldAlive;
+  }
+
+  /** v1.68 (§4-R.2 regla 4) — el reuso RENUEVA el TTL de las piezas de la orden. No escribe nada más. */
+  async renewReservation(tx: Prisma.TransactionClient, orderId: string, now: Date): Promise<Date> {
+    const reservedUntil = reservedUntilFrom(now);
+    await tx.inventoryItem.updateMany({
+      where: { reservedByOrderId: orderId, status: 'reserved' },
+      data: { reservedUntil },
+    });
+    return reservedUntil;
+  }
+
+  /**
+   * ⭐⭐ v1.68 (§4-R.2 fila SUSTITUCIÓN) — sustituye UNA orden propia, EN ESTE ORDEN: (1) cancelar su
+   * PaymentIntent en Stripe y comprobar que quedó `canceled` (B3); (2) liberar sus piezas guardadas
+   * por `reservedByOrderId = vieja.id` y marcar la orden `failed`. Todo dentro del `tx` que tiene la
+   * puerta: si (1) no confirma, se LANZA y la transacción se deshace ⇒ **cero escritura**.
+   *  - `processing` | `succeeded` | `requires_capture` ⇒ `409 PAYMENT_IN_PROGRESS` (el pago puede o ya
+   *    se consumó; el front lleva al cliente a ese pedido).
+   *  - estado indeterminable ⇒ `503 PAYMENT_PROVIDER_UNAVAILABLE` (reintentar; nada cambió).
+   * ⛔ El PI NUEVO se crea DESPUÉS del commit (`attachPaymentIntent`): «cancelar antes de crear»
+   * (candado R-4).
+   */
+  async supersedeOwnOrder(tx: Prisma.TransactionClient, own: OwnReservation): Promise<void> {
+    const { order } = own;
+    if (order.stripePaymentIntentId) {
+      const closed = await this.closePaymentIntent(order.stripePaymentIntentId);
+      if (!closed.closed) {
+        if (
+          closed.status === 'processing' ||
+          closed.status === 'succeeded' ||
+          closed.status === 'requires_capture'
+        ) {
+          throw BusinessException.conflict(
+            'PAYMENT_IN_PROGRESS',
+            `The payment of order ${order.orderNumber ?? order.id} is in progress; nothing was changed.`,
+            { orderId: order.id, orderNumber: order.orderNumber },
+          );
+        }
+        throw BusinessException.retriable(
+          'PAYMENT_PROVIDER_UNAVAILABLE',
+          'Could not confirm the cancellation of the previous PaymentIntent; nothing was changed. Please retry.',
+        );
+      }
+    }
+    await tx.inventoryItem.updateMany({
+      where: {
+        id: { in: order.items.map((i) => i.inventoryItemId) },
+        ...reservationGuard(order.id),
+      },
+      data: releaseReservationData,
+    });
+    await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
+  }
+
+  /**
+   * v1.68 (§4-R.2 fila REUSO) — el MISMO PaymentIntent de la orden reusada: se relee de Stripe (el
+   * `clientSecret` no se persiste). ⛔ No crea PI. Única excepción: una orden `pending` SIN PI (Stripe
+   * falló al crearlo y la compensación no llegó): se crea ahora con la MISMA clave server-side
+   * (`pi-order-<id>`) ⇒ sigue siendo UN PI por orden. Un fallo de red aquí NO libera nada: la reserva
+   * queda intacta y se responde 503 para reintentar.
+   */
+  async paymentIntentForReuse(
+    order: Order,
+    metadata: Record<string, string>,
+    inventoryItemIds: string[],
+  ): Promise<{ paymentIntentId: string; clientSecret: string }> {
+    if (!order.stripePaymentIntentId) {
+      // VENTANA de la carrera (medida: 1/10 corridas sin esto): el que esperaba la puerta entra
+      // justo tras el commit del ganador, cuando éste AÚN está en `attachPaymentIntent`. Antes de
+      // recurrir al `attach` se relee la orden unas veces: si el PI aparece, es ÉSE (cero PI nuevos).
+      for (let i = 0; i < 20 && !order.stripePaymentIntentId; i += 1) {
+        await new Promise((r) => setTimeout(r, 100));
+        const fresh = await this.prisma.order.findUnique({
+          where: { id: order.id },
+          select: { stripePaymentIntentId: true },
+        });
+        if (fresh?.stripePaymentIntentId) order = { ...order, stripePaymentIntentId: fresh.stripePaymentIntentId };
+      }
+    }
+    if (!order.stripePaymentIntentId) {
+      const created = await this.attachPaymentIntent({
+        orderId: order.id,
+        amountCents: order.totalCents,
+        metadata,
+        inventoryItemIds,
+      });
+      return { paymentIntentId: created.id, clientSecret: created.clientSecret };
+    }
+    try {
+      const pi = await this.stripe.retrievePaymentIntent(order.stripePaymentIntentId);
+      return { paymentIntentId: pi.id, clientSecret: pi.clientSecret };
+    } catch (e) {
+      if (e instanceof BusinessException) throw e;
+      throw BusinessException.retriable(
+        'PAYMENT_PROVIDER_UNAVAILABLE',
+        'Payment provider unavailable; your reservation is intact. Please retry.',
+      );
+    }
+  }
+
+  /** El desglose CONGELADO de una orden (lo que su PaymentIntent cobra). El reuso no re-precia (§4-R.2 regla 5). */
+  breakdownOf(order: Order): BreakdownDTO {
+    return {
+      subtotalCents: order.subtotalCents,
+      ivaCents: order.ivaCents,
+      ivaRatePct: order.ivaRatePct,
+      processingFeeCents: order.processingFeeCents,
+      totalCents: order.totalCents,
+      currency: 'MXN',
+    };
+  }
+
+  /**
+   * ⭐ v1.68 (§4-R.4, D-SB-1) — BARRIDO ÚNICO por vencimiento para las DOS rutas (bóveda e invitado):
+   * piezas `reserved` con `reservedUntil < now`, agrupadas por `reservedByOrderId`. Por orden: **B3
+   * primero** (cancelar el PI y comprobar `canceled`; si no, NO se libera, se registra y se reintenta
+   * en la próxima pasada), luego liberar con `reservationGuard(orden)` y `Order → failed` (si seguía
+   * `pending`). Cambio de conducta declarado: una orden de BÓVEDA `pending` también expira a los
+   * `ORDER_RESERVATION_TTL_MIN` (hoy quedaba reservada hasta que Stripe cancelara el PI, que no cancela
+   * solo). La rama LEGADA (invitado con piezas `reservedByOrderId IS NULL`) sigue en
+   * `GuestCheckoutService.sweepStaleGuestOrders`; el job las encadena.
+   */
+  async sweepExpiredReservations(now = new Date()): Promise<{ swept: number; skipped: number }> {
+    const expired = await this.prisma.inventoryItem.findMany({
+      where: { status: 'reserved', reservedByOrderId: { not: null }, reservedUntil: { lt: now } },
+      select: { id: true, reservedByOrderId: true },
+    });
+    const byOrder = new Map<string, string[]>();
+    for (const row of expired) {
+      if (!row.reservedByOrderId) continue;
+      byOrder.set(row.reservedByOrderId, [...(byOrder.get(row.reservedByOrderId) ?? []), row.id]);
+    }
+    let swept = 0;
+    let skipped = 0;
+    for (const [orderId, itemIds] of byOrder) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { id: true, orderNumber: true, status: true, stripePaymentIntentId: true },
+      });
+      if (!order) continue;
+      if (order.stripePaymentIntentId) {
+        const closed = await this.closePaymentIntent(order.stripePaymentIntentId);
+        if (!closed.closed) {
+          this.logger.error(
+            `order-reservation-sweep: NO se pudo cancelar el PaymentIntent ${order.stripePaymentIntentId} ` +
+              `del pedido ${order.orderNumber ?? order.id} (estado ${closed.status ?? 'desconocido'}); ` +
+              'la reserva NO se libera (el pago aún puede confirmarse). Se reintentará en la próxima pasada.',
+          );
+          skipped += 1;
+          continue;
+        }
+      }
+      await this.prisma.$transaction(async (tx) => {
+        await tx.inventoryItem.updateMany({
+          where: { id: { in: itemIds }, ...reservationGuard(orderId) },
+          data: releaseReservationData,
+        });
+        if (order.status === 'pending') {
+          await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
+        }
+      });
+      swept += 1;
+    }
+    if (skipped > 0) {
+      this.logger.warn(`order-reservation-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
+    }
+    if (swept > 0) this.logger.log(`order-reservation-sweep: ${swept} reservas vencidas liberadas.`);
+    return { swept, skipped };
+  }
+
+  /**
+   * v1.68 (§4-R.5) — `reservedUntil` por orden para `GET /orders` y `GET /orders/:id`: el MENOR
+   * vencimiento de las piezas que la orden retiene (todas se escriben juntas; el mínimo es el
+   * conservador). Solo tiene sentido con `status:'pending'`; una `pending` legada (sin dueño) no trae
+   * nada.
+   */
+  private async reservedUntilByOrder(orderIds: string[]): Promise<Map<string, Date>> {
+    if (orderIds.length === 0) return new Map();
+    const rows = await this.prisma.inventoryItem.groupBy({
+      by: ['reservedByOrderId'],
+      where: { reservedByOrderId: { in: orderIds }, status: 'reserved' },
+      _min: { reservedUntil: true },
+    });
+    const out = new Map<string, Date>();
+    for (const r of rows) {
+      if (r.reservedByOrderId && r._min.reservedUntil) out.set(r.reservedByOrderId, r._min.reservedUntil);
+    }
+    return out;
   }
 
   /**
@@ -540,38 +880,61 @@ export class OrdersService {
   /**
    * Checkout session: reserva items, crea Order pending y PaymentIntent Stripe.
    * ARCHITECTURE §3.3, §5.1. Concurrencia: reserva con status=reserved (pieza única).
+   *
+   * ⭐⭐ v1.68 (§4-R.2, ARCHITECTURE §4.48.2) — EL REINTENTO DEL MISMO CLIENTE. Bajo la PUERTA POR
+   * CLIENTE (`lockReservationGate`, misma ceremonia que `lockFxGate`: candado → releer por el mismo
+   * `tx` → decidir → escribir) se buscan las reservas PROPIAS y VIVAS que intersecan el carrito:
+   *  - ninguna ⇒ como hoy: orden `pending` + reserva CON DUEÑO + PI ⇒ `201`;
+   *  - exactamente una y su conjunto de piezas == el carrito ⇒ **REUSO**: misma orden, mismo PI, TTL
+   *    renovado, breakdown CONGELADO (no se re-precia) ⇒ `200 reused:true`;
+   *  - carrito distinto o más de una ⇒ **SUSTITUCIÓN**: por cada vieja, cancelar su PI y comprobar
+   *    `canceled` ANTES de liberar+reservar+crear (todo en el `tx`); PI nuevo tras el commit ⇒ `201`
+   *    con `supersededOrderIds`. Si el PI viejo no se puede cancelar ⇒ `409 PAYMENT_IN_PROGRESS`, cero
+   *    escritura.
+   *  - reservada por OTRO cliente ⇒ `409 ITEM_UNAVAILABLE`, como hoy (`reserveItems`/`isSellable`).
+   * Idempotencia observable: N llamadas iguales, concurrentes o no ⇒ UNA orden `pending` y UN PI.
    */
   async createSession(
     userId: string,
     inventoryItemIds: string[],
     billingProfileId: string | undefined,
-  ) {
-    const { items, subtotalCents: subtotal, lines: orderItemsData } =
-      await this.priceCartForOrder(inventoryItemIds);
+  ): Promise<CheckoutSessionResult> {
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
-    // MS-2 (BE-27): un agregado no representable en Int32 → 422 AMOUNT_TOO_LARGE (nunca se persiste
-    // un overflow ni se clampa el total). El mapeo es la fuente única `representableOrThrow`.
-    const breakdown = this.representableOrThrow(() => computeCartBreakdown(subtotal, ivaPct, fee));
 
     const billingSnapshot = billingProfileId
       ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
       : await this.prisma.billingProfile.findUnique({ where: { userId } });
 
-    // v1.21 (M-25): el número legible se reserva ANTES de la transacción (nextval es
-    // no transaccional; un hueco en la secuencia es inocuo, un número duplicado no).
-    const orderNumber = await this.nextOrderNumber();
+    const outcome = await this.prisma.$transaction(async (tx): Promise<SessionOutcome> => {
+      await lockReservationGate(tx, { userId });
+      const now = new Date();
+      const own = await this.findOwnLiveReservations(tx, inventoryItemIds, { userId }, now);
+      if (own.length === 1 && this.isReusable(own[0], inventoryItemIds)) {
+        const reservedUntil = await this.renewReservation(tx, own[0].order.id, now);
+        return { kind: 'reused', order: own[0].order, reservedUntil };
+      }
+      const supersededOrderIds: string[] = [];
+      for (const o of own) {
+        await this.supersedeOwnOrder(tx, o);
+        supersededOrderIds.push(o.order.id);
+      }
 
-    // Reserva ATÓMICA de cada pieza única (helper compartido, T2) + creación de la Order pending
-    // (ARCHITECTURE §8). Transición: listed/in_stock → reserved (aquí) → in_custody (settle) |
-    // listed (pago falla / contracargo).
-    const order = await this.prisma.$transaction(async (tx) => {
-      // Bóveda: la pieza pasa a la bóveda del comprador con titularidad `pending`.
-      await this.reserveItems(tx, items, {
-        ownerType: 'customer',
-        ownerUserId: userId,
-        ownershipStatus: 'pending',
-      });
+      // Se precia DENTRO del `tx`: en la sustitución las piezas viejas acaban de liberarse aquí.
+      const { items, subtotalCents: subtotal, lines: orderItemsData } =
+        await this.priceCartForOrder(inventoryItemIds, tx);
+      // MS-2 (BE-27): un agregado no representable en Int32 → 422 AMOUNT_TOO_LARGE (nunca se persiste
+      // un overflow ni se clampa el total). El mapeo es la fuente única `representableOrThrow`.
+      const breakdown = this.representableOrThrow(() => computeCartBreakdown(subtotal, ivaPct, fee));
+      // v1.21 (M-25): el número legible sale de la secuencia (nextval es no transaccional; un hueco
+      // en la secuencia es inocuo, un número duplicado no). Solo se consume si se crea orden.
+      const orderNumber = await this.nextOrderNumber();
+      const reservedUntil = reservedUntilFrom(now);
+
+      // Creación de la Order pending ANTES de reservar (M-53: la FK del dueño exige que exista) +
+      // reserva ATÓMICA de cada pieza única con dueño y vencimiento (helper compartido, T2).
+      // Transición: listed/in_stock → reserved (aquí) → in_custody (settle) | listed (pago falla /
+      // contracargo / barrido / sustitución).
       const created = await tx.order.create({
         data: {
           userId,
@@ -595,21 +958,57 @@ export class OrdersService {
           items: { create: orderItemsData },
         },
       });
-      return created;
-    });
+      // Bóveda: la pieza pasa a la bóveda del comprador con titularidad `pending`.
+      await this.reserveItems(
+        tx,
+        items,
+        { ownerType: 'customer', ownerUserId: userId, ownershipStatus: 'pending' },
+        { orderId: created.id, reservedUntil },
+      );
+      return {
+        kind: 'created',
+        order: created,
+        breakdown,
+        itemIds: orderItemsData.map((oi) => oi.inventoryItemId),
+        supersededOrderIds,
+        reservedUntil,
+      };
+    }, RESERVATION_TX_OPTIONS);
+
+    if (outcome.kind === 'reused') {
+      const stripe = await this.paymentIntentForReuse(
+        outcome.order,
+        { orderId: outcome.order.id, userId, kind: 'order' },
+        inventoryItemIds,
+      );
+      return {
+        orderId: outcome.order.id,
+        orderNumber: outcome.order.orderNumber,
+        breakdown: this.breakdownOf(outcome.order),
+        stripe,
+        reused: true,
+        reservedUntil: outcome.reservedUntil,
+        supersededOrderIds: [],
+      };
+    }
 
     // A2 (cierra BE-7): crear PI + compensar si falla + persistir el id (helper compartido, T2).
+    // R-4: el PI NUEVO se crea DESPUÉS de haber cancelado y confirmado el viejo (dentro del tx).
     const pi = await this.attachPaymentIntent({
-      orderId: order.id,
-      amountCents: breakdown.totalCents,
-      metadata: { orderId: order.id, userId, kind: 'order' },
-      inventoryItemIds: orderItemsData.map((oi) => oi.inventoryItemId),
+      orderId: outcome.order.id,
+      amountCents: outcome.breakdown.totalCents,
+      metadata: { orderId: outcome.order.id, userId, kind: 'order' },
+      inventoryItemIds: outcome.itemIds,
     });
 
     return {
-      orderId: order.id,
-      breakdown,
+      orderId: outcome.order.id,
+      orderNumber: outcome.order.orderNumber,
+      breakdown: outcome.breakdown,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
+      reused: false,
+      reservedUntil: outcome.reservedUntil,
+      supersededOrderIds: outcome.supersededOrderIds,
     };
   }
 
@@ -814,6 +1213,10 @@ export class OrdersService {
       }),
       this.prisma.order.count({ where: { userId } }),
     ]);
+    // v1.68 (§4-R.5, ADITIVO): `orderNumber` siempre; `reservedUntil` SOLO con `status:'pending'`.
+    const reservedUntil = await this.reservedUntilByOrder(
+      orders.filter((o) => o.status === 'pending').map((o) => o.id),
+    );
     const data = orders.map((o) => ({
       id: o.id,
       userId: o.userId,
@@ -821,6 +1224,10 @@ export class OrdersService {
       totalCents: o.totalCents,
       createdAt: o.createdAt,
       settledAt: o.settledAt,
+      orderNumber: o.orderNumber,
+      ...(o.status === 'pending' && reservedUntil.has(o.id)
+        ? { reservedUntil: reservedUntil.get(o.id) }
+        : {}),
     }));
     return { data, page, pageSize, total };
   }
@@ -883,14 +1290,12 @@ export class OrdersService {
     });
     if (!order) throw BusinessException.notFound();
     if (!isAdmin && order.userId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    const breakdown: BreakdownDTO = {
-      subtotalCents: order.subtotalCents,
-      ivaCents: order.ivaCents,
-      ivaRatePct: order.ivaRatePct,
-      processingFeeCents: order.processingFeeCents,
-      totalCents: order.totalCents,
-      currency: 'MXN',
-    };
+    const breakdown: BreakdownDTO = this.breakdownOf(order);
+    // v1.68 (§4-R.5, ADITIVO): `reservedUntil` SOLO con `status:'pending'`.
+    const reservedUntil =
+      order.status === 'pending'
+        ? (await this.reservedUntilByOrder([order.id])).get(order.id)
+        : undefined;
     // §5.2.4/§5.2.5 — ÉSTA es la superficie que lee del HISTÓRICO. Los hechos congelados salen del
     // JSON tal cual se escribieron al cobrar (NO se re-derivan nunca); `imageSmallUrl` NO se lee de
     // ahí —ni aunque estuviera— sino que se resuelve uniendo por el `cardId` congelado. Por eso el
@@ -903,6 +1308,9 @@ export class OrdersService {
       status: order.status,
       createdAt: order.createdAt,
       settledAt: order.settledAt,
+      // v1.68 (§4-R.5): número legible en el detalle del cliente (antes solo lo emitía el admin).
+      orderNumber: order.orderNumber,
+      ...(reservedUntil ? { reservedUntil } : {}),
       breakdown,
       items: this.toHistoricItemPreviews(order.items, facts, cardsById),
       cfdiStatus: order.cfdiStatus,

@@ -96,5 +96,15 @@ export async function lockReservationGate(
   identity: ReservationGateIdentity,
 ): Promise<void> {
   const key = reservationGateKey(identity);
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RESERVATION_GATE_NAMESPACE}, hashtext(${key}))`;
+  // `::int` explícito: Prisma vincula un `number` como `bigint`, y la firma de dos claves es (int4, int4).
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RESERVATION_GATE_NAMESPACE}::int, hashtext(${key}))`;
 }
+
+/**
+ * Opciones de la transacción interactiva del checkout (§4-R.2). La transacción SOSTIENE la puerta
+ * por cliente mientras (a) espera al que la tenía, (b) precia el carrito y (c) —en la sustitución—
+ * cancela el PaymentIntent viejo en Stripe. El default de Prisma (5 s) es corto para eso; ninguna
+ * de las tres es lenta en condiciones normales, pero un timeout aquí aborta con rollback (cero
+ * escritura), nunca deja medio estado.
+ */
+export const RESERVATION_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;

@@ -1,4 +1,5 @@
-import { Body, Controller, Header, HttpCode, Ip, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Header, HttpCode, Ip, Post, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { GuestCheckoutService } from './guest-checkout.service';
@@ -40,18 +41,22 @@ export class GuestOrdersController {
    * §4-G.2 — crea el pedido de invitado + UN PaymentIntent (cartas + envío + IVA + fee).
    * Límite 5/h por IP: es la superficie más cara (reserva inventario y crea un PI).
    */
+  // v1.68 (§4-R.3): `200` en el REUSO (con `retryOfCheckoutToken`), `201` en el resto. El límite 5/h
+  // se conserva y un reuso CUENTA como llamada (superficie de dinero).
   @Public()
   @UseGuards(RejectAuthenticatedGuard)
   @Throttle({ default: { ttl: HOUR_MS, limit: 5 } })
   @Post('checkout/guest/session')
-  @HttpCode(201)
-  session(
+  async session(
     @Body() dto: GuestSessionDto,
     @Ip() ip: string,
+    @Res({ passthrough: true }) res: Response,
   ) {
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
-    return this.guest.createSession(dto, ip);
+    const result = await this.guest.createSession(dto, ip);
+    res.status(result.reused ? 200 : 201);
+    return result;
   }
 
   /**
