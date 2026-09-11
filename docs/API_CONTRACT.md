@@ -2,7 +2,57 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.67.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.68**).
+>
+> **Changelog v1.68 — STREAM B «LO QUE SE ROMPE CON EL DINERO»: la recepción que respeta el pacto, la reserva que
+> conoce a su dueño, el tipo de cambio que no inventa un 18 y la disputa que no se resuelve dos veces (2026-09-11,
+> arquitecto).** Base: **v1.67.1, vigente entera**. **Cero endpoints nuevos.** **Dos códigos nuevos**
+> (`409 INVALID_TRANSITION`, `409 PAYMENT_IN_PROGRESS`). **DDL ADITIVO** (`M-53`: `InventoryItem.reservedByOrderId`,
+> `InventoryItem.reservedUntil`; nullable, **sin backfill**). **Un campo de request nuevo** (`retryOfCheckoutToken?`,
+> §4-G.2). **Un DTO que cambia de forma** (`FxStateDTO`: `rate` nullable, `source` gana `none` y pierde `fallback`,
+> `fallbackRate` se retira — §M2-F.9). Origen: `PENDIENTES.md` P-58 / P-59 / P-68 + `HISTORIAL.md:413` (disputas).
+> Todo **medido por mí contra el árbol** (`buylist.service.ts:5488-5512,5654`, `orders.service.ts:425-465,544-614`,
+> `guest-checkout.service.ts:141,319-363`, `payments.service.ts:372-393`, `fx-mode.ts:46,56,285-293,364-383`,
+> `fx.service.ts:325-369`, `pricing.service.ts:691-726`, `disputes.service.ts:208-238`,
+> `dispute-deadline.service.ts:16-21`, `M5View.tsx:991-1001`). Razón entera y reparto: `ARCHITECTURE §4.48`.
+> Desviaciones **`D-SB-1..5`** en `ARCHITECTURE §9`. **Dinero ⇒ triple veredicto** (QA + techlead + seguridad).
+>
+> **1. ⭐⭐ [§M5-S](#M5-S) — `receive` y `verify` exigen el PASO CORRECTO, no solo «fila viva» (P-58).** `receive`
+> solo desde `en_transito` (idempotente en `recibida`); `verify` solo desde `recibida` (idempotente en
+> `verificacion`). Cualquier otro estado **vivo** ⇒ **`409 INVALID_TRANSITION`** con
+> `details: { verb, from, allowedFrom, idempotentOn }`. **§M5-T no cambia y sigue ganando**: terminal/cerrada ⇒
+> `409 CONFLICT`. La cadena `confirm-shipment → receive → verify` de la mesa **sigue pasando** (cada verbo parte de su
+> predecesor); la cadena **invertida** (`verify` antes que `receive`), que hoy deja `recibida` con `verifiedAt`
+> sellado, **deja de pasar**. Qué ofrece M5 en cada estado: tabla en §M5-S.
+>
+> **2. ⭐⭐ [§4-R](#4-R) — LA RESERVA TIENE DUEÑO (P-59).** Una pieza `reserved` lleva `reservedByOrderId` y
+> `reservedUntil` (`M-53`). El **mismo cliente** que reintenta `POST /checkout/session` sobre su propia reserva **la
+> recupera**: mismo carrito ⇒ **`200` con la MISMA orden y el MISMO PaymentIntent** (`reused: true`); carrito distinto
+> ⇒ se **cancela primero el PI viejo** y se crea la orden nueva (`201`, `supersededOrderIds`); si el PI viejo ya no se
+> puede cancelar ⇒ **`409 PAYMENT_IN_PROGRESS`**. Otro cliente ⇒ `409 ITEM_UNAVAILABLE`, como hoy. **Invariante de
+> dinero: nunca dos PaymentIntents vivos por la misma pieza.** Toda salida de `reserved` lleva el eje de la orden en el
+> `where`. El barrido pasa a ser **por `reservedUntil`, para las DOS rutas** (hoy solo barre invitados:
+> `guest-checkout.service.ts:324`). Invitado: recupera **solo con `retryOfCheckoutToken`** (§4-G.2, §4-R.3).
+> `POST /checkout/session` y `GET /orders[/:id]` ganan `orderNumber` y `reservedUntil` (aditivo; cierra la petición
+> post-A de `FRONTEND_NOTES §68.4` sobre `orderNumber`).
+>
+> **3. ⭐ [§M2-F.9](#M2-F9) — EL 18 DEJA DE REGIR (P-68).** El interruptor **ya existe e implementado**
+> (`PUT /admin/fx/mode`, `fx.service.ts:325`); ⛔ **no** se crea `GET/PUT /admin/settings/fx` y `legacy` sigue sin
+> salir por la API (`modeResolvedFrom`). Cambia: **(a)** `mode:"auto"` con `automatic.status:"missing"` ⇒
+> `422 FX_NO_AUTOMATIC_RATE` **sin acuse que lo abra** (`acknowledgeNoAutomaticRate` se retira); `stale` sigue
+> permitido y declarado. **(b)** Cuando ninguna rama puede regir, **no rige un literal**: `FxStateDTO.rate: null`,
+> `source: "none"`; `fallback` y `fallbackRate` **se retiran**. La valuación cae a la cifra **persistida con su FX de
+> origen** (`priceMxnCents`, `pricing.service.ts:719-726`, doctrina ya vigente) y **la ingesta no convierte USD** hasta
+> que haya tasa. **(c)** La consulta de P-68 sigue siendo puerta de despliegue (devops). ⚠️ **Implementación
+> SERIALIZADA** fuera de la ventana paralela de Stream B (toca `pricing`/`catalog`/`inventory`/`jobs`/`common`):
+> `ARCHITECTURE §4.48.3`, desviación `D-SB-3`.
+>
+> **4. §M8 — `resolve` obedece la doctrina de §M5-T y el job de deadline no revive resueltas.**
+> `POST /admin/disputes/:id/resolve` con guarda `status ∈ {abierta, en_revision}` en el `where` (`count===1`); segunda
+> resolución ⇒ `409 CONFLICT` `details: { status, resolvedAt }`. El job `dispute-deadline` pasa a un solo `updateMany`
+> con `status:'abierta'` en el `where`. Sin DDL, sin endpoint nuevo, sin frontend.
+>
+> ---
 >
 > **Changelog v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y BACKEND Y FRONTEND RESOLVIERON CADA UNO POR SU LADO
 > (2026-09-11, arquitecto).** Base: **v1.67, vigente entera**. **⛔ Cero endpoints nuevos, cero códigos nuevos, cero
@@ -7165,8 +7215,159 @@ Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inven
 
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (**v1.40: derivado de `ivaPct/100`**, fuente única del IVA). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
+<a id="4-R"></a>
+### 4-R. La reserva tiene DUEÑO — reintento del mismo cliente, un solo cobro por pieza (v1.68, NORMATIVA, **DINERO**; P-59)
+
+> **Lo medido (2026-09-11):** `reserveItems` (`orders.service.ts:425-440`) reserva con
+> `where { id, ownerType:'platform', status ∈ {listed,in_stock} }` — **sin eje de usuario, sesión ni PaymentIntent**;
+> el invitado ni siquiera escribe titularidad (`guest-checkout.service.ts:141` pasa `null`). Un reintento del **mismo**
+> cliente choca contra **su propia** reserva y recibe `409 ITEM_UNAVAILABLE` (`:436`); el front re-cotiza y **poda la
+> pieza del carrito** (`CheckoutView.tsx:171-183`, `GuestCheckoutView.tsx:182`) — «la carta ya no estaba». La reserva
+> se libera solo por compensación (`releaseReservation` `:450-465`, guardada por `status:'reserved'` **a secas**), por
+> webhook (`payments.service.ts:379-391`, misma guarda) o por el barrido de **invitados**
+> (`guest-checkout.service.ts:319-363`, `guestEmail: {not:null}`), TTL 60 min (`guest-checkout.constants.ts:43`), cada
+> 15 min (`scheduler.service.ts:172`). **Una orden `pending` de bóveda (con cuenta) no se barre nunca** (`D-SB-1`).
+> PROJECT §B (`PROJECT.md:1327-1330`) fija que la pieza queda *«reservada al pedido»* y **no fija plazo**. Razón
+> entera: `ARCHITECTURE §4.48.2`.
+
+#### 4-R.1 Definiciones
+
+- **Reserva** = `InventoryItem.status = 'reserved'` **∧** `reservedByOrderId = <Order.id>` **∧** `reservedUntil =
+  <instante>` (`M-53`, §4-R.6). Una pieza `reserved` con `reservedByOrderId IS NULL` es una **reserva legada**
+  (anterior a `M-53`): se libera por los caminos de siempre y **no es recuperable por nadie**.
+- **Dueño de la reserva** = la `Order` que la creó. **Cliente de la orden** = `Order.userId` (con cuenta) o
+  `Order.guestEmail` **+ posesión de un `checkoutToken` vivo de esa orden** (invitado, §4-G.7a). *Un correo solo no
+  es identidad: cualquiera puede teclearlo.*
+- **Reserva propia y viva** = orden `pending` del cliente que llama, con al menos una pieza reservada por ella y
+  `reservedUntil > now()`.
+- **TTL** = `ORDER_RESERVATION_TTL_MIN` (**60**; es `GUEST_ORDER_RESERVATION_TTL_MIN` renombrada; aplica a las
+  **dos** rutas).
+
+#### 4-R.2 `POST /api/v1/checkout/session` — conducta con reserva propia (`customer`)
+
+Request **sin cambios** (`{ inventoryItemIds, billingProfileId? }`). El servidor, **bajo una puerta por cliente**
+(`pg_advisory_xact_lock` sobre `userId`; misma ceremonia que `lockFxGate`: candado → releer **por el mismo `tx`** →
+decidir → escribir; `ARCHITECTURE §5.5`), busca las **reservas propias y vivas** que intersecan el carrito y decide:
+
+| Caso | Condición | Respuesta |
+|---|---|---|
+| **Sin reserva propia** | ninguna orden `pending` propia tiene piezas del carrito | **Como hoy**: reserva, `Order` `pending`, PI (`pi-order-<id>`) ⇒ **`201`** |
+| **REUSO** ⭐ | **exactamente una** orden propia viva, y su conjunto de piezas **== el carrito** (como conjuntos) | **`200`** — **la misma orden y el mismo PaymentIntent**. `reservedUntil` de sus piezas se **renueva** a `now()+TTL`. **No se escribe nada más**: ni orden, ni PI, ni precio. El `breakdown` es el **congelado** de esa orden (lo que el PI cobra), aunque el catálogo haya cambiado: eso es lo que significa «reservada» |
+| **SUSTITUCIÓN** | hay reservas propias vivas pero el carrito **difiere** (más/menos piezas), o hay **más de una** orden propia solapada | Por cada orden vieja, **en este orden**: (1) cancelar su PI en Stripe **y comprobar que quedó `canceled`** (B3, `guest-checkout.service.ts:333-350`); (2) en **una** transacción: liberar sus piezas (guardadas por `reservedByOrderId = vieja.id`), marcar la orden `failed`, **reservar el carrito nuevo** y crear la orden nueva; (3) PI nuevo. ⇒ **`201`** con `supersededOrderIds: [...]` |
+| **PI viejo no cancelable** | en (1) Stripe responde `processing` o `succeeded` (el pago **puede** o **ya** se consumó) | **`409 PAYMENT_IN_PROGRESS`** `details: { orderId, orderNumber }`. **Cero escritura.** El front lleva al cliente a ese pedido |
+| **Reserva ajena** | la pieza está `reserved` por una orden de **otro** cliente, o en cualquier estado no vendible | **`409 ITEM_UNAVAILABLE`**, **como hoy** (`details` sin datos del otro cliente) |
+
+**Res `201` / `200`** (forma única, **aditiva** sobre la de §4):
+```jsonc
+{ "orderId": "…", "orderNumber": "TCG-000123",          // orderNumber: NUEVO aquí (ya viajaba en §4-G.2)
+  "breakdown": { "…": "BreakdownDTO" },
+  "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" },
+  "reused": false,                                      // NUEVO: true SOLO en el 200 de reuso
+  "reservedUntil": "2026-09-11T13:05:00Z",              // NUEVO: hasta cuándo es tuya la reserva
+  "supersededOrderIds": [] }                            // NUEVO: órdenes propias sustituidas ([] si ninguna)
+```
+Err: los de §4 + **`409 PAYMENT_IN_PROGRESS`**.
+
+**Reglas:**
+1. ⛔ **Un cobro por pieza.** En ningún instante existen **dos PaymentIntents no cancelados** cuyas órdenes reserven
+   la misma pieza. El reuso no crea PI; la sustitución **cancela antes de crear**; si no puede cancelar, **no crea**
+   (`PAYMENT_IN_PROGRESS`).
+2. ⛔ **La liberación solo libera lo propio.** Toda transición que sale de `reserved` —compensación
+   (`releaseReservation`), webhook `payment_failed|canceled` (`failAndRelease`), contracargo, barrido **y** liquidación
+   (`reserved → in_custody|picking`)— lleva **`reservedByOrderId = <la orden que la dispara>`** en el `where` de su
+   `updateMany` y **limpia** `reservedByOrderId`/`reservedUntil` en el `data`. *Sin esto, el webhook
+   `payment_intent.canceled` del PI viejo liberaría la pieza que la orden nueva acaba de reservar.* **Transitorio
+   `M-53`:** el `where` admite además `reservedByOrderId IS NULL` (reserva legada); esa rama se retira cuando
+   `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL` sea `0` en
+   producción (deuda con comprobación, `ARCHITECTURE §4.48.7`).
+3. **Idempotencia observable:** N llamadas del mismo cliente con el mismo carrito, **concurrentes o no**, terminan con
+   **una** orden `pending` suya y **un** PI; responden `201` (la primera) o `200 reused` (las demás). *La puerta por
+   cliente es lo que lo garantiza; sin ella, dos llamadas simultáneas pasan el pre-scan sin ver la orden de la otra.*
+4. **Renovar el TTL en el reuso** es deliberado: el reintento es un acto real del mismo cliente, y la seguridad de
+   dinero la da la puerta del PI, no la longitud del TTL.
+5. **El reuso no re-precia.** Si el precio de catálogo se movió dentro del TTL, el PI cobra lo congelado. Es el mismo
+   hecho de hoy (el PI no cambia de importe), dicho en voz alta.
+6. **No hay `POST /orders/:id/cancel`** en este pase: las tres vías de liberación son TTL, webhook de PI y sustitución
+   por reintento. Si el dueño pide «cancelar pedido» explícito, es una rev aparte.
+
+#### 4-R.3 `POST /api/v1/checkout/guest/session` — el invitado recupera con su `checkoutToken` (§4-G.2)
+
+Mismas cinco filas de §4-R.2, con **una** diferencia de identidad: **la reserva propia existe solo si el body trae
+`retryOfCheckoutToken`** (el `checkoutToken` que §4-G.2 devolvió al crear el pedido) **y** ese token es válido (vivo,
+no revocado), resuelve a una orden `pending` **y** `order.guestEmail == normalizeEmail(body.email)`. Token
+inválido/caducado o correo distinto ⇒ **no hay reclamo de propiedad** ⇒ la pieza es «ajena» ⇒ `409 ITEM_UNAVAILABLE`
+(**estado de hoy**, no un error nuevo; `details` **no distingue** token malo de pieza vendida). Sin el campo ⇒
+**conducta de hoy, literal**.
+
+- **Por qué token y no correo:** con solo el correo, quien conozca el correo de otra persona obtendría (en reuso) el
+  `clientSecret` de **su** PI y un `checkoutToken` de **su** pedido — es decir, **su dirección de envío** (§4-G.3). El
+  token ya es «la llave de ese pedido» (§4-G.7a); exigirlo **no abre nada nuevo**. *Un invitado que perdió el token
+  espera el TTL, como hoy.*
+- **Res `200` (reuso):** misma forma que el `201` de §4-G.2 **más** `reused: true`, `reservedUntil`,
+  `supersededOrderIds: []`, y **un `checkoutToken` recién emitido** (`rotate: false`: el presentado sigue valiendo
+  hasta su `expiresAt`).
+- **Rate limit:** el `@Throttle` de 5/h por IP **se conserva** (superficie de dinero); un reuso **cuenta** como
+  llamada. Es el límite vigente y se declara; relajarlo es de la fase de seguridad, no de este pase.
+- **Frontend:** conservar `checkoutToken` en **`sessionStorage`** (ámbito pestaña) para el reintento; ⛔
+  `localStorage` compartido sigue prohibido (§4-G.2). Se envía **solo** en el body de
+  `POST /checkout/guest/session`, nunca en URL.
+
+#### 4-R.4 Expiración — un solo barrido para las dos rutas
+
+Job **`order-reservation-sweep`** (sustituye a `guest-order-sweep`; cron `*/15 * * * *`; la env
+`GUEST_ORDER_SWEEP_CRON` **se conserva** por compatibilidad con devops): selecciona `InventoryItem` con
+`status='reserved' ∧ reservedUntil < now()`, agrupa por `reservedByOrderId`, y por orden: **B3 primero** (cancelar
+el PI y comprobar `canceled`; si no, **no se libera**, se registra y se reintenta en la siguiente pasada —
+`guest-checkout.service.ts:333-350`, sin cambio de doctrina), luego liberar con la guarda de la regla 2 y
+`Order → failed`. **Rama legada, un release:** las órdenes de invitado `pending` con piezas
+`reservedByOrderId IS NULL` y `createdAt < now()-TTL` se barren como hoy; se retira junto con la rama de la regla 2.
+
+⚠️ **Cambio de conducta declarado:** una orden **de bóveda** `pending` **también expira** a los 60 min y sus piezas
+vuelven a `listed` / `ownerType='platform'` (hoy quedan reservadas hasta que Stripe cancele el PI, que **no cancela
+solo**). `ARCHITECTURE §4.21` ya lo prometía (*«el barrido también beneficia a los pedidos con cuenta»*,
+`ARCHITECTURE.md:6345`) y el código no lo hacía (`D-SB-1`). Decisión del arquitecto; PROJECT no fija plazo.
+
+#### 4-R.5 Lo que ven `GET /orders` y `GET /orders/:orderId` (aditivo)
+
+`OrderSummaryDTO` y `OrderDetailDTO` ganan **`orderNumber: string | null`** (hoy solo lo emite el admin y el front lo
+pinta si viene: `types/contract.ts:893-900`) y **`reservedUntil?: string`** (presente **solo** con
+`status: 'pending'`). Con eso `/orders` puede ofrecer **«Reanudar pago»** en un pedido `pending`: el front vuelve a
+`/checkout` con los `items[].inventoryItemId` de ese pedido y `POST /checkout/session` responde `200 reused`
+(§4-R.2). *No hay endpoint de «reanudar»: reanudar ES reintentar.*
+
+#### 4-R.6 Impacto en el esquema — `M-53` (ADITIVO, nullable, **sin backfill**)
+
+> ⚠️ `backend/prisma/schema.prisma` es **zona compartida**: el arquitecto especifica, backend aplica, el orquestador
+> serializa. DDL y notas en `ARCHITECTURE §11` (M-53).
+
+| Modelo | Campo | Tipo | Nota |
+|---|---|---|---|
+| `InventoryItem` | `reservedByOrderId` | `String?` + `reservedByOrder Order? @relation("ReservedByOrder", fields:[reservedByOrderId], references:[id], onDelete: SetNull)` | Dueño de la reserva. `NULL` = sin reserva **o** reserva legada |
+| `InventoryItem` | `reservedUntil` | `DateTime?` | Vencimiento. Solo tiene sentido con `status='reserved'` (regla de aplicación, no constraint) |
+| `InventoryItem` | `@@index([reservedByOrderId])`, `@@index([status, reservedUntil])` | — | El primero sirve la guarda de liberación y el pre-scan; el segundo, el barrido |
+| `Order` | `reservedItems InventoryItem[] @relation("ReservedByOrder")` | relación inversa | Solo Prisma; sin DDL propio |
+
+⛔ Sin backfill (no hay de dónde sacar un `reservedUntil` sin inventarlo). ⛔ Sin cambio en `OrderStatus`.
+Rollback: el artefacto anterior ignora las columnas.
+
+#### 4-R.7 Candados (para QA; detalle y proporciones exigidas en `ARCHITECTURE §4.48.9`)
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **R-1** ⭐⭐ | quitar `reservedByOrderId` del pre-scan de reserva propia (o comparar solo por `userId`/`guestEmail`) | Cliente **D** reintenta sobre la reserva de **C** ⇒ `409 ITEM_UNAVAILABLE` **5/5**; rojo si D obtiene `200`/`201` |
+| **R-2** ⭐⭐ | quitar `reservedByOrderId` del `where` de `failAndRelease`/`releaseReservation`/barrido | Tras una **sustitución** (O1→O2), inyectar el webhook `payment_intent.canceled` de **PI1** ⇒ la pieza **sigue** `reserved` por **O2**; rojo si vuelve a `listed` |
+| **R-3** ⭐ | quitar la puerta por cliente | **N=5** llamadas concurrentes del mismo cliente, mismo carrito ⇒ exactamente **una** orden `pending` y **un** PI; se corre **10 veces** y se reporta la proporción; rojo con `>1` orden `pending` en cualquier corrida |
+| **R-4** ⭐⭐ | crear el PI nuevo **antes** de cancelar el viejo, o seguir cuando la cancelación no confirmó `canceled` | Stub de Stripe que responde `processing` ⇒ `409 PAYMENT_IN_PROGRESS` y **cero** órdenes nuevas; rojo si existe O2 |
+| **R-5** | que el reuso re-precie o cree PI | Subir el precio de la pieza entre la 1ª y la 2ª llamada ⇒ el `200` trae el `breakdown` **de O1** y `stripe.paymentIntentId === PI1` |
+| **R-6** | que la orden de bóveda no expire | Orden `pending` con cuenta, `reservedUntil` en el pasado ⇒ tras el barrido: pieza `listed`, `ownerType='platform'`, orden `failed`, PI cancelado |
+| **R-7** | aceptar el reclamo de invitado por correo | Invitado con el mismo `email` y **sin** `retryOfCheckoutToken` (o con uno de otro pedido) ⇒ `409 ITEM_UNAVAILABLE`; rojo si obtiene `200` |
+
+---
+
 ### GET /api/v1/orders — `customer`
 Res `200`: `{ data: OrderSummaryDTO[], page, pageSize, total }`.
+> **v1.68 (§4-R.5):** cada fila trae `orderNumber: string | null` y, **solo** con `status: 'pending'`,
+> `reservedUntil: string`. `GET /orders/:orderId` ídem (aditivo sobre el ejemplo de abajo).
 
 ### GET /api/v1/orders/:orderId — `customer`
 Res `200`:
@@ -7381,7 +7582,10 @@ GuestCheckoutSessionRequest = {
   shippingAddress: GuestAddressInput,  // OBLIGATORIO
   locale?: Locale,                     // idioma del correo de confirmación (default `es`; PROJECT pregunta abierta v1.5-8)
   acceptedTerms: true,                 // aceptación explícita de ventas finales + aviso de privacidad
-  fulfillmentMode?: FulfillmentMode    // si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT
+  fulfillmentMode?: FulfillmentMode,   // si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT
+  retryOfCheckoutToken?: string        // v1.68 (§4-R.3): el `checkoutToken` de un intento anterior ⇒ el invitado
+                                       // RECUPERA su propia reserva (200 reused / 201 con sustitución). Sin él,
+                                       // conducta de hoy, literal. Nunca en URL; solo en este body.
 }
 ```
 - **Validación del correo (criterio 47):** formato RFC-5322 simplificado + longitud ≤ 254. La **doble captura /
@@ -7417,7 +7621,11 @@ de seguimiento.
 Err: `400 VALIDATION_ERROR` (correo inválido/vacío, dirección incompleta, `acceptedTerms` ausente, carrito
 vacío/`>20`), `422 ADDRESS_NOT_MX` (criterio 48b / 31), `422 VAULT_REQUIRES_ACCOUNT`, `422 PRICE_PENDING`,
 `409 ITEM_UNAVAILABLE`, `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`, `503 PAYMENT_PROVIDER_UNAVAILABLE`
-(mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`).
+(mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`),
+**`409 PAYMENT_IN_PROGRESS`** *(v1.68, §4-R.2: el PI del intento anterior ya no se puede cancelar)*.
+> **v1.68 — respuesta con `retryOfCheckoutToken` (§4-R.3):** puede ser **`200`** (reuso: misma orden, mismo PI,
+> `reused: true`, `reservedUntil`, `checkoutToken` nuevo) o `201` con `supersededOrderIds`. La forma es la de arriba
+> **más** `reused`, `reservedUntil` y `supersededOrderIds` (aditivo).
 > **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** igual que `POST /checkout/session` (§4),
 > este endpoint **no deduplica**: `inventoryItemIds` duplicados o no resolubles producen el `404 NOT_FOUND` /
 > `409 ITEM_UNAVAILABLE` estricto vigente. El cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza.
@@ -10784,8 +10992,8 @@ de cada invariante, que el contrato no lleva— y **se mantiene en paridad a man
 |---|---|---|
 | `manual` **con número guardado** | **`fx_manual_override_rate`** (el ajuste). ⛔ **No** la fila `FxRate` | `manual` |
 | `auto` | **la última fila `FxRate` con `source = 'banxico'`** | `banxico` |
-| `auto` y **no hay ninguna fila `banxico`** | el **fallback duro (18)** | `fallback` |
-| ⚠️ **`manual` SIN número** — estado **ILEGAL** por I-FX4, alcanzable **sólo** por SQL/migración *(fila NUEVA en v1.63.3)* | **la última fila `banxico`**; si tampoco la hay, el **fallback duro (18)**. ⛔ El `mode` **no** se corrige ni se reescribe: la lectura elige mejor, **no repara** | `banxico` / `fallback` |
+| `auto` y **no hay ninguna fila `banxico`** | ~~el **fallback duro (18)**~~ ⚠️ **v1.68: NADA** — `rate: null` ([`§M2-F.9`](#M2-F9)) | ~~`fallback`~~ **`none`** |
+| ⚠️ **`manual` SIN número** — estado **ILEGAL** por I-FX4, alcanzable **sólo** por SQL/migración *(fila NUEVA en v1.63.3)* | **la última fila `banxico`**; si tampoco la hay, ~~el **fallback duro (18)**~~ ⚠️ **v1.68: NADA** — `rate: null`. ⛔ El `mode` **no** se corrige ni se reescribe: la lectura elige mejor, **no repara** | `banxico` / ~~`fallback`~~ **`none`** |
 
 > ⭐ **La cuarta fila es un CAMBIO DE CONTRATO de v1.63.3, y su razón está escrita entera en
 > `ARCHITECTURE §4.43c-quater`.** En corto: hasta v1.63.2 el contrato **razonaba** que ese estado era inalcanzable y
@@ -10834,7 +11042,7 @@ sigue sin poder escribir un número. Ver la razón en la regla 5 de [`§M2-F.3`]
 |---|---|
 | `422 VALIDATION_ERROR` | `mode` ausente o distinto de `auto`/`manual` |
 | `422 FX_MANUAL_RATE_MISSING` | `mode: "manual"` y **no hay** `fx_manual_override_rate` válido `> 0` guardado *(⚠️ **v1.63.4: este `> 0` es de LECTURA y NO se sube al piso de la banda**, por la misma razón que el de la resolución legacy — [`§M2-F.1`](#M2-F1), [`§M2-F.8`](#M2-F8))*. **El modo NO cambia.** `details: { savedManualRate: null }`. *Mensaje que el front debe poder traducir: «no hay tasa manual guardada a la que volver — guárdala primero».* |
-| **`422 FX_NO_AUTOMATIC_RATE`** *(v1.63.1)* | `mode: "auto"`, `automatic.status === "missing"` y **falta** `acknowledgeNoAutomaticRate: true`. **El modo NO cambia.** `details: { currentRate, fallbackRate: 18 }` — *el front tiene que poder decir a qué número se va a saltar*. ⚠️ **v1.63.4: `details` sigue siendo OBLIGATORIO y COMPLETO** —⛔ no se adelgaza porque el número ya viaje en el DTO— y **`details.fallbackRate` es EL MISMO número que `FxStateDTO.fallbackRate`** (regla 6 de [`§M2-F.3`](#M2-F3), invariante (ii)). *Este error es la **carrera real**: un error de dinero tiene que explicarse solo.* ⇒ **⛔ NO se crea una variante de copy sin la cifra**: el número está garantizado por **dos** vías independientes |
+| **`422 FX_NO_AUTOMATIC_RATE`** *(v1.63.1; ⚠️ **v1.68: INCONDICIONAL con `missing` — el acuse se retira y el `details` cambia**, [`§M2-F.9`](#M2-F9))* | `mode: "auto"` y `automatic.status === "missing"` — ~~y **falta** `acknowledgeNoAutomaticRate: true`~~ *(v1.68: ningún campo del body lo abre)*. **El modo NO cambia.** *(v1.68: `details: { currentRate, automatic: { status: "missing" } }`; lo que sigue en esta fila describe v1.63.x)* `details: { currentRate, fallbackRate: 18 }` — *el front tiene que poder decir a qué número se va a saltar*. ⚠️ **v1.63.4: `details` sigue siendo OBLIGATORIO y COMPLETO** —⛔ no se adelgaza porque el número ya viaje en el DTO— y **`details.fallbackRate` es EL MISMO número que `FxStateDTO.fallbackRate`** (regla 6 de [`§M2-F.3`](#M2-F3), invariante (ii)). *Este error es la **carrera real**: un error de dinero tiene que explicarse solo.* ⇒ **⛔ NO se crea una variante de copy sin la cifra**: el número está garantizado por **dos** vías independientes |
 | `403 FORBIDDEN` | cualquier rol que no sea `super_admin` |
 
 **Cinco reglas de conducta:**
@@ -10861,13 +11069,13 @@ motivo que `VariantPricingDTO` es uno solo: que ninguna superficie pueda discrep
 ```jsonc
 {
   // ── Las CUATRO claves de v1.62.2, con EXACTAMENTE el mismo significado (cambio ADITIVO) ──
-  "rate": 19.0,                 // la tasa que RIGE ahora mismo
+  "rate": 19.0,                 // la tasa que RIGE ahora mismo — ⚠️ v1.68: `number | null`; null ⟺ source "none" (§M2-F.9)
   "bufferPct": 3,               // colchón; se aplica AGUAS ABAJO, idéntico en las dos ramas
-  "source": "manual",           // FxSource — ⚠️ gana el valor "fallback", ver abajo
-  "effectiveDate": "2026-09-08",
+  "source": "manual",           // FxSource — ⚠️ v1.68: "banxico" | "manual" | "none" ("fallback" RETIRADO, §M2-F.9)
+  "effectiveDate": "2026-09-08", // ⚠️ v1.68: `string | null`; null ⟺ source "none"
 
-  // ── v1.63.4 ── ⭐ el valor de RESPALDO del servidor. CONSTANTE, no estado. SIEMPRE presente.
-  "fallbackRate": 18,           // lo que regiría si NINGUNA de las dos ramas puede regir. Ver la nota
+  // ── v1.63.4 ── ⛔ v1.68: RETIRADO (§M2-F.9). No hay número de respaldo que publicar: no existe.
+  "fallbackRate": 18,           // ⛔ v1.68: NO viaja. Hasta que backend lo retire (D-SB-3) ningún cliente lo lee
 
   // ── v1.63 ──
   "mode": "manual",                   // FxRateMode, RESUELTO (§M2-F.1). La UI lo OBEDECE, no lo infiere
@@ -10964,7 +11172,7 @@ citas vivas a «regla 2» y «regla 5» en este documento, en `ARCHITECTURE §4.
 |---|---|---|
 | `banxico` | rige una fila `FxRate` de origen Banxico | — |
 | `manual` | rige **un número que un humano tecleó** (`fx_manual_override_rate` con `mode: "manual"`) | — |
-| **`fallback`** *(v1.63)* | rige el **fallback duro (18)**: no hay `FxRate` y no hay tasa manual aplicable | ⭐ **NUEVO, y corrige una MENTIRA VIVA**: hoy ese caso se reporta como **`"manual"`** (`fx.service.ts:58`), es decir, el contrato publica la etiqueta **MANUAL** sobre un número que **nadie tecleó**. **Frontend: hace falta rama para este valor** — hoy pintaría *«FUENTE: MANUAL (OVERRIDE)»* sobre un 18 inventado |
+| ~~**`fallback`**~~ → **`none`** *(v1.63; ⚠️ **v1.68: RENOMBRADO y SIN NÚMERO**, [`§M2-F.9`](#M2-F9))* | ~~rige el **fallback duro (18)**~~ **no rige NADA**: no hay `FxRate` banxico y no hay tasa manual aplicable ⇒ `rate: null`, `effectiveDate: null`, las dos `applied: false` | ⭐ **NUEVO, y corrige una MENTIRA VIVA**: hoy ese caso se reporta como **`"manual"`** (`fx.service.ts:58`), es decir, el contrato publica la etiqueta **MANUAL** sobre un número que **nadie tecleó**. **Frontend: hace falta rama para este valor** — hoy pintaría *«FUENTE: MANUAL (OVERRIDE)»* sobre un 18 inventado |
 
 **`FxAutomaticStatus` — lo deriva el SERVIDOR, no la pantalla** (misma doctrina que `state` en §M2-B.1 y
 `priceBasis` en §N.7: derivarlo en cliente sería la enésima implementación, y la única que nadie puede probar):
@@ -11181,12 +11389,12 @@ miden **qué dinero sale**.*
 | **FX-5** ⭐ | que la bitácora registre **los rótulos y no los números**, o que se pierda el actor | Tras el flip de **FX-1(a)**: la última entrada `action == "fx.mode.change"` tiene `actorUserId` = el llamante, `entityId == "fx_rate_mode"`, **`before.effectiveRate == 19.0`** y **`after.effectiveRate == 18.2`**. **Rojo si `before`/`after` sólo traen `mode`, o si `actorUserId` es `null`.** Segundo caso (transaccionalidad): forzar el fallo de la escritura del ajuste ⇒ **no queda entrada** (ni entrada sin efecto, ni efecto sin entrada) |
 | **FX-6** ⭐⭐ | **que el despliegue cambie de conducta solo** — sembrar `'auto'`, un `?? "auto"` en el lector, o un `UPDATE` de migración | **EL candado de la migración, y son DOS bases de datos.** **(a) «Producción»**: `fx_manual_override_rate = 19.0` **y la fila de modo en `"legacy"` (y, en un segundo caso, AUSENTE)** ⇒ arrancar ⇒ modo resuelto **`"manual"`**, `rate == 19.0`, `modeResolvedFrom == "legacy"`. **Rojo si sale `"auto"`** — *ése es, literalmente, el sistema cambiando de comportamiento por su cuenta*. **(b) «Instalación limpia»**: sin override, fila en `"legacy"`, con una `FxRate` banxico ⇒ modo **`"auto"`** y la tasa de Banxico. **(c)** ⭐ **verificable POR LO NEGATIVO, y REESCRITO en v1.63.1**: **`SETTING_DEFAULTS[fx_rate_mode] === "legacy"`**, y ⛔ **nunca `"auto"` ni `"manual"`**. *(La v1.63 exigía que la clave **no estuviera** en `SETTING_DEFAULTS` — **imposible**: el `Record` es total y no compilaría, así que el candado habría empujado al implementador al único camino que compila, que es el que rompe la migración. El sentinel lo hace **compilable y verificable a la vez**.)* **(d)** el seed **no tiene lógica**: sigue siendo el bucle sobre `SETTING_DEFAULTS` — rojo si aparece una derivación en `prisma/seed.ts` |
 | **FX-11** ⭐ *(v1.63.1)* | **que una fila `FxRate` de fuente `manual` pueda regir** (leer la última fila **sin filtrar por fuente**) | **El candado de I-FX5, y es UNA identidad.** Fixture: `fx_rate_mode = "auto"`, `FxRate` banxico `18.2` **de hoy**, y **además** una fila `FxRate { source:'manual', rate: 25 }` **de hoy** (la que `PUT /admin/fx` escribe). ⇒ `GET /admin/fx`: **`rate == 18.2`**, `source == "banxico"`, **y `rate === automatic.rate`**. **Rojo si vale 25 o si `source == "manual"`.** ⭐ **Y por la vía real, que es como se produce:** partiendo de `auto` sin tasa manual, `PUT /admin/fx { "rate": 25 }` (que **escribe esa fila**) y **después** `GET` ⇒ sigue rigiendo 18.2. *Sin esta segunda mitad, un implementador que arregle el pin pero no el lector pasa FX-2 y sigue repreciando el catálogo* |
-| **FX-12** *(v1.63.1)* | quitar el acuse del caso «sin segunda tasa» | `FxRate` **vacío** (⇒ `automatic.status == "missing"`), modo `manual` con `19.0` ⇒ `PUT /admin/fx/mode {mode:"auto"}` **sin** `acknowledgeNoAutomaticRate` ⇒ **`422 FX_NO_AUTOMATIC_RATE`** **y el modo SIGUE en `"manual"`** (`rate == 19.0`). Con `acknowledgeNoAutomaticRate: true` ⇒ `200`, `source == "fallback"`, `rate == 18`, **y la entrada de bitácora trae `after.acknowledgedNoAutomaticRate === true`** *(ubicación **normativa** desde v1.63.2 — §M2-F.4; ⚠️ **el candado NO cambia**, sólo se explicita dónde mira, que es donde ya miraba)*. **Rojo si el `422` no existe, o si se exige también con `status: "stale"`** (ahí hay número real y **no** se pide) |
+| **FX-12** *(v1.63.1; ⚠️ **v1.68: SUPERSEDIDO por `FX-31`** — ya no hay acuse, [`§M2-F.9`](#M2-F9))* | quitar el acuse del caso «sin segunda tasa» | `FxRate` **vacío** (⇒ `automatic.status == "missing"`), modo `manual` con `19.0` ⇒ `PUT /admin/fx/mode {mode:"auto"}` **sin** `acknowledgeNoAutomaticRate` ⇒ **`422 FX_NO_AUTOMATIC_RATE`** **y el modo SIGUE en `"manual"`** (`rate == 19.0`). Con `acknowledgeNoAutomaticRate: true` ⇒ `200`, `source == "fallback"`, `rate == 18`, **y la entrada de bitácora trae `after.acknowledgedNoAutomaticRate === true`** *(ubicación **normativa** desde v1.63.2 — §M2-F.4; ⚠️ **el candado NO cambia**, sólo se explicita dónde mira, que es donde ya miraba)*. **Rojo si el `422` no existe, o si se exige también con `status: "stale"`** (ahí hay número real y **no** se pide) |
 | **FX-13** *(v1.63.1)* | que un cambio de modo entrado por `PUT /admin/settings` **no** deje entrada `fx.mode.change` | `PUT /admin/settings { "fxManualOverrideRate": 30 }` estando en `"legacy"` sin tasa ⇒ además del `settings.update`, **existe una entrada `action == "fx.mode.change"`** con `actorUserId` y con `before`/`after` **incluyendo `bufferPct`**. *Rojo si sólo hay `settings.update`: auditar por `fx.mode.change` dejaría de ser completo* |
 | **FX-20** ⭐⭐ *(v1.63.3 — `S-FX-1`, CRÍTICA, medida LIVE-DB por el pentester; ⚠️ **DIRECCIÓN CORREGIDA en v1.63.4**, ver la nota bajo la tabla)* | **quitar la puerta del FX**: borrar `lockFxGate(tx)`, **o** devolver la lectura/las precondiciones a **antes** de la transacción dejando el candado puesto | **EL candado de I-FX6, y es una CARRERA, no una aserción.** **Fixture (el del PoC, y la dirección IMPORTA):** `fx_rate_mode = "auto"` **con** `fx_manual_override_rate = 19.0` guardado *(el estado normal de «tengo el 19 guardado pero cotizo en automático», exactamente lo que deja `PUT /admin/fx { rate: 19 }`)*, **más una fila `FxRate` de origen `banxico`** — ⭐ **sembrarla NO es decorado**: sin ella, los dos desenlaces legales caen en `fallback` por ausencia de datos y la aserción de dinero **mediría el seed en vez de la carrera**. **Se lanzan SOLAPADAS**, en este orden: **puerta B** `PUT /admin/settings { "fxManualOverrideRate": null }` y, con **~20 ms de ventaja**, **puerta A** `PUT /admin/fx/mode { mode: "manual" }` *(se repite con varios escalonados —0, 5, 20, 50 ms— porque una carrera probada una sola vez es una moneda al aire; el pentester la reprodujo **7 de 8** con ~20 ms)*. ⇒ **`[200, 422]` SIEMPRE, en los dos órdenes posibles, y con la puerta puesta está GARANTIZADO:** si B commitea primero, A relee bajo el candado, encuentra la tasa en `null` y sale `FX_MANUAL_RATE_MISSING`; si A commitea primero, B relee, encuentra el modo en `manual` y sale `FX_MANUAL_RATE_REQUIRED`. **Las dos con `200` es exactamente el hallazgo.** ⭐⭐ **El invariante se lee DE LA BASE, no de las respuestas:** `fx_rate_mode === "manual"` **∧** `fx_manual_override_rate` nulo/ausente **es imposible**. ⭐ **Y la conducta, que es lo que mide el dinero:** tras el par de llamadas, `GET /admin/fx` **jamás** sale con `source: "fallback"` ni `rate: 18`, y el `referenceMxnCents` de una carta en USD nunca queda convertido a **18** *(−5.26 % sobre 19.0, en todo lo que se compra y se vende)*. ⭐ **Y la bitácora:** la última entrada `fx.mode.change` describe **el estado que quedó**, no uno que se deshizo. ⚠️ **Exige Postgres real** (`ARCHITECTURE §5.4`, disparadores 1 y 2): el candado es del motor |
 | **FX-22** ⭐⭐ *(v1.63.3)* | **subir el nivel de aislamiento** de cualquiera de las dos `$transaction` del FX (`isolationLevel: 'RepeatableRead'` / `'Serializable'`), **o** leer bajo el candado por el cliente de fuera en vez de por el `tx` | **La regresión que NO se ve.** Bajo `REPEATABLE READ` la instantánea se fija en la **primera sentencia** —que es el propio `pg_advisory_xact_lock`— ⇒ la relectura devuelve **el estado de antes de esperar** y **`S-FX-1` vuelve entero, con `200` en las dos respuestas**. **Rojo por dos vías: (a)** el mismo par concurrente de **FX-20** vuelve a producir `manual` + `null`; **(b)** unitariamente, **toda lectura del estado FX bajo el candado va por el `tx` que escribe** (≥3 lecturas: modo + tasa + colchón + la fila `banxico`), y **ninguna por el cliente de fuera**. ⛔ **No se falsea el arnés** para simular datos rancios en (b): eso modelaría un motor que no corremos. Doctrina completa: `ARCHITECTURE §4.43c-ter.5` y **§5.5** |
 | **FX-23** ⭐ *(v1.63.3 — ~~PENDIENTE~~ ✅ **IMPLEMENTADO y verificado contra Postgres real en v1.63.4**; `D-FX-1` cerrada)* | que **«manual sin número» siga cayendo al fallback duro de 18** en vez de a la tasa de Banxico, o que `applied` se siga derivando del `mode` | **El candado de la cuarta fila de [`§M2-F.1`](#M2-F1).** Fixture **sembrado por SQL** (es el único modo de crearlo): `fx_rate_mode = "manual"` y `fx_manual_override_rate = null`, **con** una fila `FxRate` banxico `18.2431`. ⇒ `GET /admin/fx`: **`rate == 18.2431`**, `source == "banxico"`, `mode == "manual"`, `manual.rate == null`, **`manual.applied == false`**, `automatic.applied == true`. **Rojo si `rate == 18` o si `source == "fallback"`** (el número que nadie tecleó rigiendo el catálogo entero), **y rojo si `manual.applied == true`** con `manual.rate == null`. **Segundo caso, sin fila banxico:** `rate == 18`, `source == "fallback"`, **y las DOS `applied` en `false`** |
-| **FX-7** | que el fallback duro siga llamándose `manual` | `FxRate` **vacío**, **sin** tasa manual, modo `auto` ⇒ `source == "fallback"`, `rate == 18`, `automatic.status == "missing"`, `automatic.rate == null`. **Rojo si `source == "manual"`** (la conducta de v1.62.2) |
+| **FX-7** *(⚠️ **v1.68: SUPERSEDIDO por `FX-30`**, [`§M2-F.9`](#M2-F9))* | que el fallback duro siga llamándose `manual` | `FxRate` **vacío**, **sin** tasa manual, modo `auto` ⇒ `source == "fallback"`, `rate == 18`, `automatic.status == "missing"`, `automatic.rate == null`. **Rojo si `source == "manual"`** (la conducta de v1.62.2) |
 | **FX-8** | que el refresco siga afirmando un fetch que no ocurrió | Sin `BANXICO_SIE_TOKEN` (o con el fetch forzado a fallar) ⇒ `POST /admin/fx/refresh` ⇒ `refresh.outcome == "failed"`, `refresh.reason == "no_token"`, `refresh.fetchedRate == null`, **y la entrada `fx.refresh` de `AuditLog` dice `failed`**. **Rojo si `outcome == "updated"`, si el bloque `refresh` no viaja, o si la bitácora guarda el valor del override como si lo hubiera traído** |
 | **FX-9** ⭐ | **devolver sólo la tasa que rige** (la mutación «para qué mando la que no aplica») | **El candado de la precondición de dinero.** Modo `manual` con `19.0` **y** una `FxRate` banxico de `18.2` ⇒ `GET /admin/fx` trae **`manual.rate == 19.0` Y `automatic.rate == 18.2`**, con `automatic.effectiveDate` y `ageDays`. **Rojo si `automatic` viene `null`, ausente, o igual a `rate`.** Simétrico en `auto`: `manual.rate` **sigue viajando** con el número guardado |
 | **FX-10** | que la frescura se selle con `today()` | La única `FxRate` banxico tiene `effectiveDate` de **hace 40 días** ⇒ `automatic.effectiveDate` **es esa fecha**, `ageDays == 40`, `status == "stale"`. **Rojo si `ageDays == 0` o si `status == "fresh"`** |
@@ -11248,6 +11456,83 @@ producción, es de **devops + el humano**, y **enseñar que la tasa está vieja 
 > verificación** están en **`ARCHITECTURE §4.43(g-bis)`**, y son **lectura obligatoria antes del primer deploy con el
 > interruptor vivo**. El **procedimiento operativo** (comandos, ventana, quién autoriza) lo escribe **devops** en
 > `docs/DEVOPS_NOTES.md`.
+
+---
+
+<a id="M2-F9"></a>
+##### M2-F.9 ⭐⭐ **EL 18 DEJA DE REGIR: `auto` sin Banxico NO es una tasa, y ningún acuse lo convierte en una** *(v1.68, NORMATIVA, **DINERO**; P-68)*
+
+> **Lo medido (2026-09-11):** el interruptor **existe y corre** (`pricing.controller.ts:830-943`,
+> `fx.service.ts:325-369`); el modo sembrado es el centinela `legacy` (`settings.constants.ts:302`, `fx-mode.ts:46`),
+> la resolución legacy mira **solo** `fx_manual_override_rate` (`fx-mode.ts:285-293`) y, cuando ninguna rama puede
+> regir, **rige el literal 18** (`fx-mode.ts:56,378-383`) con `source:"fallback"`. Con el acuse,
+> `PUT /admin/fx/mode {mode:"auto"}` **publica ese 18** (`fx.service.ts:360-369`). `pricing.service.ts:691-703`
+> (`fxSnapshotSafe`) ya trata una tasa inválida como `null`, y `liveMxnCents` (`:719-726`) cae entonces al
+> **`priceMxnCents` persistido con su FX de origen** (`PriceReference.fxRate/fxBufferPct`,
+> `pricing.service.ts:2268-2269`): **la costura para no inventar ya existe**; lo que falta es que el 18 deje de ser
+> «válido». PROJECT.md no menciona Banxico ni fallback de FX (grep `Banxico` ⇒ 0 líneas; solo *«tipo de cambio
+> USD→MXN con colchón»*, `PROJECT.md:1787,6411`) ⇒ decisión del arquitecto. Razón entera: `ARCHITECTURE §4.48.3`.
+> ⛔ Rutas **sin cambio**: `GET /admin/fx`, `PUT /admin/fx`, `PUT /admin/fx/mode`, `POST /admin/fx/refresh`. No existe
+> ni se crea `GET/PUT /admin/settings/fx`; `legacy` sigue sin salir por la API (`modeResolvedFrom`).
+
+**Qué cambia — y es TODO lo que cambia:**
+
+1. ⛔ **El acuse se retira.** `PUT /admin/fx/mode { mode: "auto" }` con `automatic.status === "missing"` ⇒
+   **`422 FX_NO_AUTOMATIC_RATE`, incondicional.** `details: { currentRate, automatic: { status: "missing" } }` (⛔ ya
+   **no** lleva `fallbackRate`: no hay número al que «saltar»). El body **deja de aceptar** `acknowledgeNoAutomaticRate`;
+   mandarlo no abre nada (si el `ValidationPipe` global rechaza claves desconocidas, es `422 VALIDATION_ERROR`; si las
+   ignora, es el mismo `422 FX_NO_AUTOMATIC_RATE`). **`stale` sigue permitido** sin acuse: ahí hay un número real,
+   fechado y declarado (`automatic.ageDays`, `status`). *Un acuse que autoriza aplicar un literal no es un acuse: es
+   la forma de que el literal llegue al catálogo con firma.* [`§M2-F.4`](#M2-F4): `after.acknowledgedNoAutomaticRate`
+   desaparece de la bitácora (no hay acto que registrar).
+2. ⛔ **`source: "fallback"` desaparece; entra `source: "none"`.** `FxSource = "banxico" | "manual" | "none"`.
+   **`none` ⟺ `rate: null`** ⟺ ninguna rama puede regir (ni manual con número, ni fila `banxico`). Filas 3 y 4 de la
+   tabla de [`§M2-F.1`](#M2-F1) **superadas** (ya tachadas allí): `auto` sin fila `banxico` ⇒ `none`/`null`; «`manual`
+   sin número» sin fila `banxico` ⇒ `none`/`null` (con fila ⇒ `banxico`, **sin cambio**, D-FX-1).
+3. ⛔ **`FxStateDTO.rate: number | null`** y **`effectiveDate: string | null`** (`null` ⟺ `source: "none"`).
+   **`fallbackRate` se retira** del DTO (la regla 6 de [`§M2-F.3`](#M2-F3) **queda superada**: existía para nombrar el
+   número del acuse, y ya no hay acuse). `applied`: **las dos en `false` ⟺ `source: "none"`** (misma regla mecánica
+   de D-FX-3). El resto del DTO **no cambia**: `manual`/`automatic` siguen viajando **siempre y completos** (regla 1).
+4. ⭐ **Qué rige el dinero con `none` — NADA NUEVO, y ésa es la decisión:** la valuación al vuelo (`fxSnapshotSafe`
+   ⇒ `null`) usa **la cifra persistida en la `PriceReference`, calculada con la FX real de su día** (`priceMxnCents`,
+   `fxRate`, `fxBufferPct`); es un hecho fechado, **no un literal**. Lo que **no** tiene cifra persistida es pendiente
+   (`{ status: 'pending' }`), como hoy. ⛔ **La ingesta no convierte USD sin tasa**: con `rate: null`,
+   `price-ingest`/`sealed-price-ingest` **saltan las filas en USD** y reportan `fxUnavailable: true` (no escriben
+   `priceMxnCents` nuevos), en vez de escribir precios con un 18. *Entre «el número que Banxico publicó tal día y que
+   ya convertimos» y «—», rige el primero: ocultar dinero que sí tenemos no es money-safe ([`§M2-F.7`](#M2-F7));
+   inventarlo tampoco.*
+5. **La resolución legacy no cambia** (I-FX1..I-FX6 intactos). Un entorno en `legacy` sin tasa manual y sin fila
+   `banxico` resuelve `auto` + `none`: **no se mueve un solo precio** al desplegar. El **PELIGRO** de la consulta de
+   P-68 deja de significar «−5 %» y pasa a significar «las conversiones USD se congelan en el último valor real hasta
+   que alguien fije la FX»: **sigue siendo puerta de despliegue** (devops), con un tercer conteo:
+   `SELECT count(*) FROM "FxRate" WHERE source='banxico'`.
+6. ⛔ **`FX_FALLBACK_RATE` se borra del código.** Candado por lo negativo:
+   `grep -rn "FX_FALLBACK_RATE\|fallbackRate\|'fallback'" backend/src frontend/src` ⇒ **0** (fuera de tests
+   históricos marcados como supersedidos).
+
+**Candados que cambian** ([`§M2-F.6`](#M2-F6); los ids son de contrato):
+
+| # | Estado | Enunciado nuevo |
+|---|---|---|
+| **FX-7** | **SUPERSEDIDO por FX-30** | — |
+| **FX-30** ⭐⭐ | nuevo | `FxRate` vacío, sin tasa manual, modo `auto` ⇒ `source == "none"`, **`rate == null`**, `effectiveDate == null`, `automatic.status == "missing"`, las dos `applied == false`. ⭐ **Conducta:** una carta con `PriceReference` USD 100 persistida a `fxRate 19.0` ⇒ `referenceMxnCents` **== el persistido**, ⛔ **jamás** ≈ USD 100 × 18. Y una corrida de `price-ingest` en ese estado ⇒ **cero** filas USD escritas, `fxUnavailable: true` |
+| **FX-12** | **SUPERSEDIDO por FX-31** | — |
+| **FX-31** ⭐ | nuevo | Fixture de FX-12 (`FxRate` vacío, `manual` con 19.0) ⇒ `PUT /admin/fx/mode {mode:"auto"}` ⇒ **`422 FX_NO_AUTOMATIC_RATE` con y sin `acknowledgeNoAutomaticRate: true`**, modo sigue `manual`, `rate == 19.0`, `details.automatic.status == "missing"`, sin `details.fallbackRate`. Con una fila `banxico` **`stale`** (40 días) ⇒ `200`, `source == "banxico"`, `automatic.status == "stale"` (no se pide nada) |
+| **FX-23** | **segundo caso reescrito** | «manual sin número» **sin** fila banxico ⇒ `rate == null`, `source == "none"`, las dos `applied == false` (antes: `18`/`fallback`). Primer caso **sin cambio** |
+| **FX-25** | **SUPERSEDIDO** en (a), (b), (c) | `fallbackRate` **no viaja** en ninguna ruta (rojo si aparece); el `422 FX_NO_AUTOMATIC_RATE` trae `details.currentRate` y `details.automatic.status`. (d) se conserva por lo negativo. El `200` de las cuatro rutas **no cambia** |
+| **FX-24 (e)** | **retirado** | no hay constante de respaldo que caiga en la banda |
+| **FX-4** | sin cambio de enunciado | el paréntesis «o si aplicó el fallback de 18» se lee «o si `rate` dejó de ser 19.0» |
+
+**Frontend (M2, panel de FX; `DESIGN_SYSTEM §30`):** rama `source: "none"` (**«SIN TASA — no rige ninguna»**, nunca
+compartida con `manual`/`banxico`), `rate: null` pintado como «—», el diálogo del acuse (§30.8) **se retira** y el
+`422` se muestra con su `details`. El test espejo `frontend/src/lib/mock/fx-contract-mirror.test.ts` deja de exigir
+`fallback` y exige `none`.
+
+⚠️ **Implementación SERIALIZADA** (`ARCHITECTURE §4.48.3`): toca `common/fx-mode.ts`, `pricing/fx.service.ts`,
+`pricing/pricing.service.ts:1896-1900`, `jobs/price-ingest*`, `catalog/card-product-resolver.service.ts:117`,
+`inventory/sealed-catalog-admin.service.ts:137`, `inventory/sealed-product.service.ts:215` y `(admin)/admin/m2` —
+fuera de la ventana paralela de Stream B. **El contrato rige desde v1.68**; hasta que aterrice, la diferencia está
+declarada como `D-SB-3` (`ARCHITECTURE §9`).
 
 ---
 
@@ -15100,6 +15385,78 @@ lleva `@HttpCode` explícito en cada ruta.
   `cotizada`/`precio_pendiente` pasan a `recibida`. Req: body vacío `{}`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`. Sella **`verifiedAt`**; los
   ítems en `recibida` pasan a `verificacion`. Req: body vacío `{}`.
+  > <a id="M5-S"></a>
+  > ### ⚠️⚠️ §M5-S — INVARIANTE S: **`receive` y `verify` exigen el PASO CORRECTO** (v1.68 — NORMATIVA, **MERCANCÍA AJENA + DINERO SALIENTE**; cierre de P-58)
+  >
+  > **Lo medido (2026-09-11):** la guarda de `receive` (`buylist.service.ts:5488-5512`) y de `verify` (`:5520-5541`)
+  > es `liveRequestWhere()` (`:5654` = no-terminal ∧ `closedAt IS NULL`): **exige fila viva, no paso correcto**. Desde
+  > `cotizada`, `receive` salta al paso 5 **sin precio pactado ni aceptación** (PROJECT §P.1, pasos 2-3); desde
+  > `ofertada` **le cierra la ventana al vendedor**; desde `verificacion`/`aprobada` **retrocede** (`aprobada →
+  > recibida` deshace un veredicto). El front cablea el botón **solo en `cotizada`** (`M5View.tsx:991-1001`), que es
+  > el paso equivocado. **El pacto, en PROJECT** (`PROJECT.md:3875-3884`, §P.1): el paso 4 `en_transito` lo escribe
+  > **solo** el operador con `confirm-shipment` desde `aceptada` (D20; `409 NOT_ACCEPTED`); el paso 5 `recibida` =
+  > *«recibimos, conciliando contra la guía»*; regla dura (`:3917-3919`): nada llega a `en_transito` sin `ofertada` y
+  > `aceptada`. ⇒ **El único predecesor legítimo de `recibida` es `en_transito`; el único de `verificacion` es
+  > `recibida`.** Razón entera: `ARCHITECTURE §4.48.1`.
+  >
+  > **La regla:**
+  > ```
+  > receive : allowedFrom = { en_transito }   idempotentOn = recibida       ⇒ status := recibida,     sella receivedAt (1ª vez)
+  > verify  : allowedFrom = { recibida }      idempotentOn = verificacion   ⇒ status := verificacion, sella verifiedAt  (1ª vez)
+  > ```
+  > - **Guarda en el motor, un solo `updateMany`:** `where { id, status: { in: [...allowedFrom, idempotentOn] },
+  >   closedAt: null }`, `count === 1`. **Los dos términos de T siguen dentro** (`closedAt: null` explícito; el
+  >   término de estado ya excluye los terminales) — **§M5-T no se relaja**: S es *T dicha con más precisión*, como
+  >   `NOT_ACCEPTED` lo es para `confirm-shipment`.
+  > - **`count !== 1` ⇒ releer (dentro de la `tx`) y distinguir:** terminal ∨ `closedAt ≠ null` ⇒ **`409 CONFLICT`**
+  >   `details: { status, closedAt }` (**sin cambio**, §M5-T; **T gana**); en otro caso ⇒ **`409 INVALID_TRANSITION`**
+  >   `details: { verb: "receive" | "verify", from: <status>, allowedFrom: string[], idempotentOn: string }`.
+  >   **Cero escritura** en ambos (la guarda va primero; los ítems no se mueven, `:5497`).
+  > - **Idempotencia sin cambio:** `status === idempotentOn` ⇒ `200`, estado actual, **la fecha no se re-sella**
+  >   (`sealOnceTx`).
+  > - **Código:** `INVALID_TRANSITION` es **nuevo y genérico** (`details.verb` lo especializa): un solo rótulo y un
+  >   solo mensaje traducible para los dos verbos, con los estados en `details` (*«Esta solicitud está en {from};
+  >   “{verb}” solo aplica en {allowedFrom}»*). ⛔ No se acuñan `NOT_IN_TRANSIT`/`NOT_RECEIVED`: dos nombres para una
+  >   misma clase de rechazo. Audiencia: **operador** (`useErrorMessage('operator')`).
+  >
+  > **Por qué NO rompe la cadena de 20 ms de la mesa** (la evidencia que el bloque de `receive` deja escrita,
+  > `:5451-5457`): esa cadena es `confirm-shipment → receive → verify`, **secuencial**, y **cada verbo parte de su
+  > predecesor** (`aceptada → en_transito → recibida → verificacion`). Pasa **igual** con S. Lo que S **sí** corta es la
+  > cadena **invertida** (`verify` 20 ms antes que `receive`), que hoy termina en `recibida` con `verifiedAt` sellado —
+  > un estado que ningún paso del pacto produce. *S no inventa una máquina de estados: es la de §P.1, la misma que ya
+  > rige `confirm-shipment`, `offer-response` y `declare-shipped`.*
+  >
+  > **El paquete que llega sin `confirm-shipment`** (el vendedor declaró «ya lo mandé», nadie confirmó): `receive`
+  > desde `aceptada` ⇒ `409 INVALID_TRANSITION`. **No es un agujero: es un clic.** `confirm-shipment` **no exige
+  > guía** (`guideMissing: true` en bitácora, fail-visible) y deja el hecho registrado (`shipmentConfirmedAt/By`, «en
+  > camino» de la mesa). *Negar la recepción no devuelve el paquete; registrar el envío antes de recibirlo tampoco lo
+  > retrasa.*
+  >
+  > **Filas legadas** (anteriores a `M-46`, sin ciclo de oferta): una `cotizada` viva **ya no puede saltar** a
+  > `recibida` (`M5View.tsx:978-981` lo dice desde v1.51). Antes de publicar se **cuentan** (`ARCHITECTURE §4.48.7`);
+  > si existen, pasan por el ciclo (`offer → offer-response → confirm-shipment → receive`) o se declinan. **No se abre
+  > excepción.**
+  >
+  > **Qué ofrece M5 en cada estado** (normativo para `(admin)/admin/m5`; la representación es de ux-ui):
+  >
+  > | `status` | Acción principal | Otras acciones | ⛔ No se ofrece |
+  > |---|---|---|---|
+  > | `cotizada` | Mesa de decisión (`offer`) | `decline`, `pickup-address` | **Marcar recibida** |
+  > | `ofertada` | — (espera del vendedor) | `offer/cancel` | Marcar recibida, Verificar |
+  > | `aceptada` | Guía + **Confirmar envío** (`BuylistShipmentActions`) | `pickup-address` (abre tarea de guía muerta) | Marcar recibida (hasta confirmar) |
+  > | `en_transito` | ⭐ **Marcar recibida** (`receive`) | ver guía y `sellerShippedDeclaredAt` | Verificar |
+  > | `recibida` | **Verificar** (`verify`) | — | Marcar recibida (idempotente: el botón desaparece) |
+  > | `verificacion` | Decisión por ítem (`items/:itemId/decision`) | `pay-spei` cuando `isPayable` (`super_admin`) | Recibir, Verificar |
+  > | `aprobada` | `pay-spei` (`super_admin`) | — | Recibir, Verificar |
+  > | terminales (4) | — (motivo visible) | `guide/cancellation-done` si hay tarea abierta | ningún verbo de transición |
+  >
+  > **Candados:**
+  >
+  > | # | Mutación (romper esto…) | …pone en rojo |
+  > |---|---|---|
+  > | **S-1** ⭐⭐ | volver a `liveRequestWhere()` (o quitar el término de estado) | Matriz **11 × 2**: `receive` desde cada `SellRequestStatus` ⇒ `en_transito` → `200 recibida`; `recibida` → `200` sin re-sellar `receivedAt`; `cotizada|ofertada|aceptada|verificacion|aprobada` → **`409 INVALID_TRANSITION`** con `details.from` = ese estado y `allowedFrom == ["en_transito"]`; los 4 terminales → `409 CONFLICT`. Ídem `verify` (`recibida` → `200`; `verificacion` → `200` sin re-sellar; resto vivo → `INVALID_TRANSITION` con `allowedFrom == ["recibida"]`). **Y la fila de P1** (`status='verificacion'`, `closedAt` sellado) ⇒ `409 CONFLICT`, no `INVALID_TRANSITION` |
+  > | **S-2** ⭐ | «arreglar» la cadena permitiendo `verify` desde `en_transito` | `confirm-shipment → receive → verify` con 20 ms ⇒ `200 · 200 · 200`, estado final `verificacion` con las dos fechas; `confirm-shipment → verify → receive` ⇒ `200 · 409 INVALID_TRANSITION · 200`, estado final `recibida` **sin** `verifiedAt` |
+  > | **S-3** | cablear el botón en otro paso | `M5View`: «Marcar recibida» se renderiza **solo** con `status === 'en_transito'`; «Verificar» solo con `recibida` (test de render por estado, los 11) |
   > ### ⚠️⚠️ v1.56 — LOS DOS GANAN **GUARDA DE ESTADO** E **IDEMPOTENCIA DECLARADA**. Cierre de la CRÍTICA **P1**. Desviación **BL-35** (ARCHITECTURE §9).
   > *(Estos dos eran los **únicos** verbos de transición del ciclo sin guarda atómica: escribían con
   > `update({where:{id}})` mientras todos sus hermanos usan `updateMany` con el estado en el `where` + `count===1`.
@@ -16774,6 +17131,23 @@ Err `403`, `400 VALIDATION_ERROR`.
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `Dispute.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: string }` (mismo campo y misma norma que §7: **resuelto server-side desde configuración**, valor no fijado por el contrato). **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
+  > ⚠️ **v1.68 — `resolve` obedece la doctrina de §M5-T (guarda en el motor) y el job de deadline no revive
+  > resueltas.** Medido 2026-09-11: `disputes.service.ts:208-238` hace `findUnique` + `update({ where:{ id } })`
+  > **sin término de estado** ⇒ una disputa `resuelta_recompra` se puede «resolver» otra vez (`reject` la pasa a
+  > `rechazada` y el `status` pierde el rastro de la recompra); `dispute-deadline.service.ts:16-21` hace `findMany` +
+  > `update` por fila (**read-then-write**) ⇒ una disputa resuelta entre la lectura y la escritura **vuelve a
+  > `en_revision`**. No desembolsa (el importe solo se interpola en `resolution`), por eso es Media
+  > (`HISTORIAL.md:413`) — pero es el registro de un money-out. Razón: `ARCHITECTURE §4.48.4`.
+  > - `POST /admin/disputes/:id/resolve`: `updateMany({ where: { id, status: { in: ['abierta','en_revision'] } },
+  >   data })`, `count === 1`; si no ⇒ **`409 CONFLICT`** `details: { status, resolvedAt }`, **cero escritura**.
+  >   ⛔ **No es idempotente a propósito**: resolver dos veces es registrar dos veces un money-out. Res `200` (la fila
+  >   proyectada, `toAdminDisputeRow`), sin cambio de forma.
+  > - Job `dispute-deadline`: **un solo** `updateMany({ where: { status: 'abierta', deadlineAt: { lte: now } },
+  >   data: { status: 'en_revision' } })`; devuelve `{ expired: count }`. Cero `findMany` previo.
+  > - **Candado D-1:** `repurchase` y luego `reject` sobre la misma disputa ⇒ `200` · `409 CONFLICT`, `status` sigue
+  >   `resuelta_recompra`. **Candado D-2:** disputa `abierta` con `deadlineAt` vencido; resolverla **y** correr el job
+  >   (en ese orden) ⇒ sigue resuelta; rojo si queda `en_revision`.
+  > - Sin DDL, sin endpoint nuevo, sin frontend. Módulo `disputes` (Stream B).
 
 ### M9 — Reportes (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`AdminReportsController` + `AdminService.launchMetrics/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M9 es `ModuleTodo` en UI).
@@ -17605,7 +17979,10 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 
 ## 11. DTOs de administración (referencia)
 ```ts
-OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, settledAt? }
+OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, settledAt?,
+                     orderNumber: string | null, reservedUntil?: string }
+// v1.68 (§4-R.5): `orderNumber` y `reservedUntil` son ADITIVOS; `reservedUntil` viaja SOLO con status 'pending'.
+// `OrderDetailDTO` (§4, ejemplo de GET /orders/:orderId) gana los dos mismos campos.
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity` + `appliedRule`. `category` deprecado (puede
 // venir null en filas legacy; no lo consuma el front nuevo).
 // v1.6-finish: `finish` = acabado snapshot de la cotización/solicitud (default "normal"). Determina la regla
