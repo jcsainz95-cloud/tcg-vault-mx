@@ -490,8 +490,17 @@ export class OrdersService {
     let frozenOrder: Order | null = null;
     if (ownOrders.length > 0) {
       const { reservedItems, items: orderItems, ...order } = ownOrders[0];
-      const untils = reservedItems.map((r) => r.reservedUntil?.getTime() ?? 0);
-      const reservedUntil = untils.length ? new Date(Math.min(...untils)) : null;
+      // ⚠ SB-D7 — **aquí decía `?? 0`, y `new Date(0)` es «1970-01-01», una cifra INVENTADA.** Una
+      // pieza LEGADA (reservada antes de M-53) no tiene `reservedUntil`: su vencimiento es
+      // **desconocido**, no «hace 56 años». El DTO lo publica (`ownReservation.reservedUntil`, §4-R.5)
+      // y el front lo pinta, así que el `?? 0` ponía una fecha falsa en pantalla. Ahora: si CUALQUIER
+      // pieza no tiene vencimiento, el vencimiento de la orden es `null` (desconocido).
+      // El veredicto NO cambia: `expired` ya trataba `null` como vencida, igual que trataba el 0.
+      const untils = reservedItems.map((r) => r.reservedUntil?.getTime() ?? null);
+      const reservedUntil =
+        untils.length > 0 && untils.every((t): t is number => t !== null)
+          ? new Date(Math.min(...untils.filter((t): t is number => t !== null)))
+          : null;
       const expired = reservedUntil == null || reservedUntil.getTime() <= now.getTime();
       const orderSet = new Set(orderItems.map((i) => i.inventoryItemId));
       const held = new Set(reservedItems.map((r) => r.id));
@@ -967,6 +976,7 @@ export class OrdersService {
     }
     let swept = 0;
     let skipped = 0;
+    let noop = 0;
     for (const [orderId, itemIds] of byOrder) {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
@@ -985,16 +995,30 @@ export class OrdersService {
           continue;
         }
       }
-      await this.prisma.$transaction(async (tx) => {
-        await tx.inventoryItem.updateMany({
+      // ⚠ SB-D7 — `swept` cuenta RESERVAS LIBERADAS, no vueltas del bucle. Antes sumaba `1`
+      // aunque el `updateMany` tocara **cero** filas (la carrera normal: el webhook o una
+      // sustitución liberaron esas piezas entre el `findMany` de arriba y esta transacción). Un
+      // contador que sube sin haber liberado nada **miente en la única métrica** con la que se
+      // vigila el barrido: no se puede distinguir «barrí 40 reservas» de «no había nada que barrer
+      // 40 veces».
+      const released = await this.prisma.$transaction(async (tx) => {
+        const { count } = await tx.inventoryItem.updateMany({
           where: { id: { in: itemIds }, ...reservationGuard(orderId) },
           data: releaseReservationData,
         });
         if (order.status === 'pending') {
           await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
         }
+        return count;
       });
-      swept += 1;
+      if (released > 0) swept += 1;
+      else noop += 1;
+    }
+    if (noop > 0) {
+      this.logger.log(
+        `order-reservation-sweep: ${noop} pedidos sin nada que liberar (otra ruta se les adelantó); ` +
+          'la orden `pending` sí quedó `failed`.',
+      );
     }
     if (skipped > 0) {
       this.logger.warn(`order-reservation-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);

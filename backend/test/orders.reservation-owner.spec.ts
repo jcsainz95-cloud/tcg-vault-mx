@@ -261,3 +261,116 @@ describe('OrdersService.sweepExpiredReservations — barrido ÚNICO por reserved
     expect(prisma.order.update).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * ⚠ **SB-D7 — `swept` cuenta RESERVAS LIBERADAS, no vueltas del bucle.**
+ *
+ * El contador sumaba `1` aunque el `updateMany` guardado tocara **cero** filas, que es la carrera
+ * normal: el webhook (o una sustitución) liberó esas piezas entre el `findMany` de arriba y la
+ * transacción. Un contador que sube sin haber liberado nada miente en la ÚNICA métrica con la que
+ * se vigila el barrido: no se puede distinguir «barrí 40 reservas» de «no había nada que barrer,
+ * 40 veces». Mutación: volver a `swept += 1` incondicional ⇒ estos casos rojos.
+ */
+describe('SB-D7 · sweepExpiredReservations: `swept` solo cuenta lo REALMENTE liberado', () => {
+  function buildSweep(count: number) {
+    const { svc, prisma } = buildOrders({
+      cancelPaymentIntent: jest.fn(async () => ({ status: 'canceled' })),
+      getPaymentIntentStatus: jest.fn(async () => 'canceled'),
+    });
+    prisma.inventoryItem.findMany.mockResolvedValue([{ id: 'a', reservedByOrderId: 'o1' }]);
+    prisma.inventoryItem.updateMany.mockResolvedValue({ count });
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      orderNumber: 'TCG-1',
+      status: 'pending',
+      stripePaymentIntentId: null,
+    });
+    return { svc, prisma };
+  }
+
+  it('el `updateMany` tocó 0 filas (otra ruta se adelantó) ⇒ `swept: 0`, NO 1', async () => {
+    const { svc } = buildSweep(0);
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 0, skipped: 0 });
+  });
+
+  it('liberó de verdad ⇒ `swept: 1` (conducta intacta)', async () => {
+    const { svc } = buildSweep(1);
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 0 });
+  });
+
+  it('aunque no libere nada, la orden `pending` SÍ queda `failed` (no se deja a medias)', async () => {
+    const { svc, prisma } = buildSweep(0);
+    await svc.sweepExpiredReservations();
+    expect(prisma.order.update).toHaveBeenCalledWith({
+      where: { id: 'o1' },
+      data: { status: 'failed' },
+    });
+  });
+});
+
+/**
+ * ⚠ **SB-D7 — `ownReservation.reservedUntil` no inventa un 1970.**
+ *
+ * Una pieza LEGADA (reservada antes de M-53) no tiene `reservedUntil`: su vencimiento es
+ * DESCONOCIDO. El `?? 0` lo convertía en `new Date(0)` y el DTO de §4-R.5 publicaba
+ * «1970-01-01T00:00:00.000Z» como fecha de vencimiento de la reserva — una cifra inventada que el
+ * front pinta tal cual. Ahora es `null`. El VEREDICTO no cambia: `expired` ya trataba `null` como
+ * vencida, igual que trataba el 0.
+ */
+describe('SB-D7 · priceCartForQuote: `reservedUntil` desconocido es `null`, no 1970', () => {
+  function buildQuote(reservedUntil: Date | null) {
+    const prisma: any = {
+      inventoryItem: {
+        findMany: jest.fn(async () => [
+          { id: 'x', status: 'reserved', ownerType: 'platform', card: { name: 'Pikachu' } },
+        ]),
+      },
+      order: { findMany: jest.fn() },
+    };
+    // Una pieza sin grado capturable ⇒ `PRICE_PENDING`: es justo la rama que cae al precio
+    // congelado, así que el caso llega a construir el `ownReservation` sin tocar el catálogo.
+    const pricing: any = { tryGradeKeyFor: jest.fn(() => null) };
+    const svc = new OrdersService(
+      prisma as PrismaService,
+      pricing,
+      {} as SettingsService,
+      {} as StripeService,
+      {} as never,
+    );
+    prisma.order.findMany = jest.fn(async () => [
+      {
+        id: 'o1',
+        orderNumber: 'TCG-000001',
+        status: 'pending',
+        subtotalCents: 100,
+        items: [
+          {
+            inventoryItemId: 'x',
+            unitPriceCents: 100,
+            marketMxnCents: null,
+            priceBasis: 'market',
+            marketBracket: null,
+            finish: 'normal',
+          },
+        ],
+        reservedItems: [{ id: 'x', reservedUntil }],
+      },
+    ]);
+    return svc;
+  }
+
+  it('pieza LEGADA sin `reservedUntil` ⇒ `reservedUntil: null` y `expired: true` (nada de 1970)', async () => {
+    const svc = buildQuote(null);
+    const out = await svc.priceCartForQuote(['x'], { userId: 'u1' });
+    expect(out.ownReservation).toMatchObject({ reservedUntil: null, expired: true });
+    // La regresión exacta: el DTO NO puede llevar la época Unix como fecha de vencimiento.
+    expect(JSON.stringify(out.ownReservation)).not.toContain('1970');
+  });
+
+  it('con vencimiento real, se publica ese vencimiento (conducta intacta)', async () => {
+    const until = new Date(Date.now() + 600_000);
+    const svc = buildQuote(until);
+    const out = await svc.priceCartForQuote(['x'], { userId: 'u1' });
+    expect(out.ownReservation).toMatchObject({ reservedUntil: until, expired: false });
+  });
+});
