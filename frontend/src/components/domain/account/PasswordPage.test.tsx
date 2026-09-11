@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { setStoredUser, getStoredUser } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
 import { PasswordPage } from './PasswordPage';
+import { ApiClientError } from '@/lib/api-client';
 
 const push = vi.fn();
 const replace = vi.fn();
@@ -94,6 +95,24 @@ describe('PasswordPage · modos cambiar / crear / bloqueo', () => {
     expect(await screen.findByText('ENLACE ENVIADO')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enviar otra vez' })).toBeInTheDocument();
     expect(changePassword).not.toHaveBeenCalled();
+  });
+
+  it('modo crear: 429 RATE_LIMITED ⇒ account.password.rateLimited; otro fallo ⇒ account.password.resendError (claves propias, F2-8)', async () => {
+    const google = { ...base, authProvider: 'google' as const, hasPassword: false };
+    setStoredUser(google);
+    getMe.mockResolvedValue(google);
+    forgotPassword.mockRejectedValueOnce(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'slow down' }));
+    renderWithProviders(<PasswordPage surface="storefront" />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Enviarme el enlace' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Demasiados intentos. Espera un minuto.');
+
+    forgotPassword.mockRejectedValueOnce(new Error('network'));
+    fireEvent.click(screen.getByRole('button', { name: 'Enviarme el enlace' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('No pudimos enviar el enlace. Intenta de nuevo.'),
+    );
+    // Nada del namespace prestado: el copy de verifyEmail no aparece.
+    expect(screen.queryByText('No pudimos reenviar el correo. Intenta de nuevo.')).not.toBeInTheDocument();
   });
 
   it('BLOQUEO (mustChangePassword=true, reason=required): banner con foco, h1 «Crea tu contraseña definitiva», campo «Contraseña temporal», sin «← Mi cuenta», sin «Continuar», con «Cerrar sesión»', async () => {

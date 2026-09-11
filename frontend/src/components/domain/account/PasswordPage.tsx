@@ -37,11 +37,16 @@ type Phase = 'form' | 'done';
  * - **Cambiar** (`hasPassword === true`): variante A de §33.7 con «← Mi cuenta».
  * - **Crear** (`hasPassword === false`, solo-Google): SIN campos — explica y «Enviarme el enlace»
  *   (`POST /auth/forgot-password` con el correo de la sesión). ⛔ Nunca `change-password` aquí.
+ *
+ * i18n (F2-8): el BLOQUEO vive bajo `auth.changePassword.*` (es copy del flujo de autenticación —
+ * la temporal la emitió el admin y la pantalla se comporta como un paso más del login: sin «Mi
+ * cuenta», con banner `requiredNotice`); cambiar/crear viven bajo `account.password.*` (sección de
+ * «Mi cuenta»). Los errores de `forgot-password` del modo crear son claves propias de
+ * `account.password.*` (`rateLimited`, `resendError`), no préstamos de `verifyEmail.*`.
  */
 export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
   const t = useTranslations('account.password');
   const tc = useTranslations('auth.changePassword');
-  const tv = useTranslations('verifyEmail');
   const tnav = useTranslations('nav');
   const router = useRouter();
   const qc = useQueryClient();
@@ -169,14 +174,16 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
               {sendState === 'sending' ? t('createSending') : t('createSend')}
             </Button>
           )}
+          {/* Claves PROPIAS de la variante B (§33.7 v4.1.2; techlead F2-8): `rateLimited` es la misma
+              de la variante A y `resendError` es nueva. Nada prestado de `verifyEmail.*`. */}
           {sendState === 'rateLimited' && (
             <p role="alert" className="font-mono text-xs text-accent">
-              {tv('rateLimited')}
+              {t('rateLimited')}
             </p>
           )}
           {sendState === 'error' && (
             <p role="alert" className="font-mono text-xs text-accent">
-              {tv('resendError')}
+              {t('resendError')}
             </p>
           )}
         </div>
