@@ -25,7 +25,9 @@ import * as argon2 from 'argon2';
 import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
 import { deriveNumberParts } from '../src/common/card-order';
 import {
+  E2E_ACCOUNT_FIXTURES,
   E2E_CARDS,
+  E2E_GUEST_ORDER,
   E2E_ORDER_CARDS,
   E2E_ORDER_SET,
   E2E_FOLIOS,
@@ -727,6 +729,161 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
             marketMxnCents: E2E_CARDS.charizard.refNmCents,
             quotedPriceCents: offered.grossCents,
             itemStatus: 'cotizada',
+          },
+        ],
+      },
+    },
+  });
+
+  // 10. ⚠️ v1.67.1 — LOS TRES ACTORES DE CUENTA (ARCHITECTURE §4.47.10.4 (a); condición de release de
+  // Stream A). Ver el porqué de cada uno en `E2E_ACCOUNT_FIXTURES` / `E2E_GUEST_ORDER`.
+  //
+  // 10a. Contraseña TEMPORAL (cliente y operador). El `update` RESTAURA hash + flag en cada siembra:
+  // el E2E que cambia la contraseña la deja cambiada y `mustChangePassword=false`; sin esto, la
+  // segunda corrida no tendría temporal que probar (E2E-1: un fixture que solo funciona la primera
+  // vez es un test que se apaga solo).
+  for (const u of [E2E_ACCOUNT_FIXTURES.temporalCustomer, E2E_ACCOUNT_FIXTURES.temporalOperator]) {
+    const passwordHash = await argon2.hash(u.password);
+    await prisma.user.upsert({
+      where: { email: u.email },
+      create: {
+        email: u.email,
+        passwordHash,
+        name: u.name,
+        nameSource: 'user',
+        role: u.role,
+        locale: 'es',
+        phone: u.phone,
+        authProvider: 'local',
+        emailVerified: true,
+        mustChangePassword: true,
+      },
+      update: {
+        passwordHash,
+        name: u.name,
+        nameSource: 'user',
+        role: u.role,
+        phone: u.phone,
+        authProvider: 'local',
+        status: 'active',
+        emailVerified: true,
+        mustChangePassword: true,
+      },
+    });
+  }
+  // 10b. Cuenta SOLO-GOOGLE: sin contraseña, nombre derivado del correo y MARCADO `derived`.
+  {
+    const g = E2E_ACCOUNT_FIXTURES.googleOnly;
+    await prisma.user.upsert({
+      where: { email: g.email },
+      create: {
+        email: g.email,
+        passwordHash: null,
+        name: g.name,
+        nameSource: 'derived',
+        role: 'customer',
+        locale: 'es',
+        phone: g.phone,
+        authProvider: 'google',
+        googleId: g.googleId,
+        emailVerified: true,
+      },
+      update: {
+        // Un E2E que le cree contraseña (forgot-password) o le edite el nombre deja la fila cambiada;
+        // la siembra la devuelve al caso que existe para probar.
+        passwordHash: null,
+        name: g.name,
+        nameSource: 'derived',
+        role: 'customer',
+        phone: g.phone,
+        authProvider: 'google',
+        googleId: g.googleId,
+        status: 'active',
+        emailVerified: true,
+        mustChangePassword: false,
+      },
+    });
+  }
+
+  // 11. Pedido de INVITADO sin reclamar con el correo del `customer` (tercer actor de §4.47.10.4).
+  //
+  // Borra-y-declara por `orderNumber` (único): si una corrida lo RECLAMÓ, el paso 3 ya lo borró
+  // (pasó a `userId = customer`); si no, sigue aquí con `userId = null` y hay que borrarlo a mano
+  // (el reset por-usuario no lo alcanza). Sin envío asociado (no se siembra `ShipmentRequest`), así
+  // que el `delete` no choca con el `Restrict` de `ShipmentRequest.orderId`.
+  const prevGuest = await prisma.order.findUnique({
+    where: { orderNumber: E2E_GUEST_ORDER.orderNumber },
+    select: { id: true },
+  });
+  if (prevGuest) {
+    await prisma.shipmentRequest.deleteMany({ where: { orderId: prevGuest.id } });
+    await prisma.order.delete({ where: { id: prevGuest.id } }); // cascada a OrderItem y OrderAccessToken
+  }
+  // La pieza VENDIDA de ese pedido: propia del fixture, plataforma (un invitado nunca tiene bóveda,
+  // §4-G.0-1), `delivered` y sin ubicación. El reset la devuelve a ese estado en cada siembra.
+  await upsertItem(
+    E2E_GUEST_ORDER.folio,
+    {
+      cardId: charizardId,
+      productType: 'raw',
+      rawCondition: 'NM',
+      finish: 'normal',
+      ownerType: 'platform',
+      status: 'delivered',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 70000,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'delivered', locationId: null, listPriceCents: null },
+  );
+  const guestItem = await prisma.inventoryItem.findUniqueOrThrow({
+    where: { folio: E2E_GUEST_ORDER.folio },
+    select: { id: true },
+  });
+  await prisma.order.create({
+    data: {
+      userId: null,
+      // `guestEmail` va NORMALIZADO (trim + lowercase), como lo escribe el checkout de invitado.
+      guestEmail: E2E_GUEST_ORDER.guestEmail.trim().toLowerCase(),
+      orderNumber: E2E_GUEST_ORDER.orderNumber,
+      fulfillmentMode: 'direct_ship',
+      // Misma forma que `GuestAddressSnapshot` (9 campos, `recipientName` DENTRO del snapshot: canónico).
+      shippingAddressSnapshot: {
+        ...E2E_PICKUP_ADDRESS,
+        line2: null,
+        recipientName: E2E_GUEST_ORDER.recipientName,
+      },
+      shippingFeeCents: E2E_GUEST_ORDER.shippingFeeCents,
+      locale: 'es',
+      status: 'settled',
+      subtotalCents: E2E_GUEST_ORDER.subtotalCents,
+      processingFeeCents: E2E_GUEST_ORDER.processingFeeCents,
+      ivaCents: E2E_GUEST_ORDER.ivaCents,
+      totalCents: E2E_GUEST_ORDER.totalCents,
+      ivaRatePct: 16,
+      priceConvention: 'IVA_EXCLUSIVE',
+      cfdiStatus: 'registrado',
+      paymentMethodBrand: 'visa',
+      paymentMethodLast4: '4242',
+      createdAt: new Date(E2E_GUEST_ORDER.createdAt),
+      settledAt: new Date(E2E_GUEST_ORDER.settledAt),
+      claimedAt: null,
+      items: {
+        create: [
+          {
+            inventoryItemId: guestItem.id,
+            // `FrozenCardFacts` (§5.2): los 8 hechos congelados, sin presentación.
+            cardSnapshot: {
+              cardId: charizardId,
+              name: E2E_CARDS.charizard.name,
+              setName: E2E_SET.name,
+              number: E2E_CARDS.charizard.number,
+              productType: 'raw',
+              rawCondition: 'NM',
+              gradingCompany: null,
+              gradeValue: null,
+            },
+            unitPriceCents: E2E_GUEST_ORDER.subtotalCents,
+            finish: 'normal',
           },
         ],
       },
