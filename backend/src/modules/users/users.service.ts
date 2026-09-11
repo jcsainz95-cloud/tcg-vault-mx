@@ -220,8 +220,15 @@ export class UsersService {
     postalCode: string;
     email: string;
   }): BillingProfileDTO {
+    // N2 (2026-09-11): un RFC que descifra a vacío es una fila corrupta (el DTO exige 12-13 chars al
+    // escribir). NO se convierte en `''` en silencio: se lanza (⇒ 500) para que se vea y se repare;
+    // `pii.decrypt` ya lanza si el blob no descifra (clave distinta / blob dañado).
+    const rfcMasked = maskRfc(this.pii.decrypt(bp.rfcEnc));
+    if (!rfcMasked) {
+      throw new Error('BillingProfile.rfcEnc decrypts to an empty RFC (corrupt row); refusing to project it');
+    }
     return {
-      rfcMasked: maskRfc(this.pii.decrypt(bp.rfcEnc)) ?? '',
+      rfcMasked,
       razonSocial: bp.razonSocial,
       regimenFiscal: bp.regimenFiscal,
       usoCfdi: bp.usoCfdi,

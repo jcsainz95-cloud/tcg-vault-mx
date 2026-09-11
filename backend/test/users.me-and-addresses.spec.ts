@@ -357,3 +357,55 @@ describe('UsersService billing-profile — 404 sin perfil y BillingProfileDTO de
     expect(prisma.billingProfile.findUnique).not.toHaveBeenCalled();
   });
 });
+
+describe('BillingProfileDto — cotas y formato (N2, v1.67.1); misma forma de error (pipe)', () => {
+  const ok = { rfc: 'XAXX010101000', razonSocial: 'Ash Ketchum', regimenFiscal: '612', usoCfdi: 'G03', postalCode: '06600', email: 'ash@example.com' };
+  async function errorsFor(body: Record<string, unknown>) {
+    const dto = plainToInstance(BillingProfileDto, body);
+    const errs = await validate(dto, { whitelist: true });
+    return { dto, fields: errs.map((e) => e.property).sort() };
+  }
+
+  it('el cuerpo válido pasa; RFC/régimen/uso se normalizan a MAYÚSCULAS y se recortan (el front manda `xaxx010101000`)', async () => {
+    const { dto, fields } = await errorsFor({ ...ok, rfc: ' xaxx010101000 ', usoCfdi: 'g03', razonSocial: '  Ash  ' });
+    expect(fields).toEqual([]);
+    expect(dto.rfc).toBe('XAXX010101000');
+    expect(dto.usoCfdi).toBe('G03');
+    expect(dto.razonSocial).toBe('Ash');
+  });
+
+  it('RFC de persona moral (12) también pasa', async () => {
+    expect((await errorsFor({ ...ok, rfc: 'ABC010101XY9' })).fields).toEqual([]);
+  });
+
+  it.each([
+    ['rfc corto', { rfc: 'XAXX01010' }],
+    ['rfc con símbolos', { rfc: 'XAXX-010101-00' }],
+    ['rfc de 14', { rfc: 'XAXX0101010000' }],
+    ['razonSocial vacía', { razonSocial: '   ' }],
+    ['razonSocial > 254', { razonSocial: 'x'.repeat(255) }],
+    ['regimenFiscal no numérico', { regimenFiscal: 'ABC' }],
+    ['regimenFiscal de 4', { regimenFiscal: '6012' }],
+    ['usoCfdi libre', { usoCfdi: 'GASTOS' }],
+    ['postalCode de 4', { postalCode: '0660' }],
+    ['postalCode con letras', { postalCode: '0660A' }],
+    ['email inválido', { email: 'no-es-correo' }],
+    ['email > 254', { email: `${'a'.repeat(250)}@x.mx` }],
+  ])('%s ⇒ falla en ese campo y solo en ése', async (_l, over) => {
+    const { fields } = await errorsFor({ ...ok, ...over });
+    expect(fields).toEqual(Object.keys(over).sort());
+  });
+
+  it('un RFC cifrado que descifra a vacío NO se proyecta como `""`: se lanza (fila corrupta)', async () => {
+    const pii = new PiiCryptoService(new ConfigService({}));
+    const prisma: any = {
+      billingProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'bp1', userId: 'u1', rfcEnc: pii.encrypt(''), razonSocial: 'X', regimenFiscal: '612', usoCfdi: 'G03', postalCode: '06600', email: 'a@b.mx',
+        }),
+      },
+    };
+    const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+    await expect(svc.getBillingProfile('u1')).rejects.toThrow(/decrypts to an empty RFC/);
+  });
+});
