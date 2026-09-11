@@ -147,6 +147,29 @@ type OrderLineData = {
   finish: Finish;
 };
 
+/**
+ * ⭐⭐ **COND-1 (techlead, 2026-09-11) — el único fallo de precio que cae al precio CONGELADO.**
+ *
+ * Las dos rutas que recuperan una pieza reservada por el propio cliente (`priceCartForOrder` y
+ * `priceCartForQuote`) atrapaban **toda** la clase `BusinessException` y caían a la línea congelada.
+ * Hoy `salePriceOf` solo puede lanzar `PRICE_PENDING`, así que la conducta es idéntica — **el riesgo
+ * es futuro y es de dinero**: `PricingService.computeSalePriceForItem` es el **seam único donde vive
+ * el guardarraíl de venta** (§4.36.5b), y el día que ese seam emita otro código (una premium en el
+ * piso, un override degenerado, un veredicto nuevo), una pieza reservada por el propio cliente lo
+ * **esquivaría en silencio** y se cobraría al precio congelado. Un guardarraíl que un `catch` ancho
+ * puede saltarse no es un guardarraíl.
+ *
+ * Con este predicado, **solo** `PRICE_PENDING` («el catálogo dejó de resolver el precio») justifica
+ * el respaldo congelado de §4-R.2 regla 5; **cualquier otro código propaga** tal cual, con su status
+ * HTTP, hasta el cliente.
+ *
+ * ⛔ Si alguien vuelve a ensanchar esto a `e instanceof BusinessException`, el caso
+ * «propaga cualquier otro código» de `cond1-frozen-price-only-price-pending.spec.ts` se pone rojo.
+ */
+function isPricePending(e: unknown): e is BusinessException {
+  return e instanceof BusinessException && e.code === 'PRICE_PENDING';
+}
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -352,7 +375,8 @@ export class OrdersService {
       } catch (e) {
         // Una pieza ya reservada por mí conserva su precio congelado: no se re-precia ni se rompe
         // el reintento porque el catálogo dejó de resolver (§4-R.2 regla 5).
-        if (!(e instanceof BusinessException) || !frozen) throw e;
+        // ⚠ COND-1: SOLO `PRICE_PENDING`. Ver {@link isPricePending}.
+        if (!isPricePending(e) || !frozen) throw e;
         line = this.frozenLine(item, frozen);
       }
       subtotalCents += line.unitPriceCents;
@@ -509,7 +533,8 @@ export class OrdersService {
           line = (await this.buildLines([item])).lines[0];
         } catch (e) {
           const own = ownOrders.flatMap((o) => o.items).find((oi) => oi.inventoryItemId === item.id);
-          if (!(e instanceof BusinessException) || !own) throw e;
+          // ⚠ COND-1: SOLO `PRICE_PENDING`. Ver {@link isPricePending}.
+          if (!isPricePending(e) || !own) throw e;
           line = this.frozenLine(item, own);
         }
       } else {
