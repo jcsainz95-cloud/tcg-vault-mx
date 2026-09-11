@@ -1,3 +1,36 @@
+# DECISIÓN DEL DUEÑO — PUBLICAR CON SEGURIDAD EN RECHAZADO (2026-09-11)
+
+> **El humano decidió publicar el release sin esperar a que `backend-e2e` corra en CI.** Palabras:
+> *«Publica entonces»*, tras preguntar *«¿vale la pena publicar si las verificaciones no sirven?»* y
+> *«¿recomiendas salir sin eso o esperar?»*. El orquestador recomendó publicar. **La decisión es del dueño,
+> tomada con esta información delante:**
+>
+> **Lo que SÍ se verificó sobre el candidato:** 4.419 unitarios backend · 1.491 frontend · las 7 suites de
+> integración con BD real **en local, dos veces, 360/360** · los 3 flujos de dinero E2E **en CI con las
+> claves reales de prueba** (run `34538020057`) · QA APROBADO-CON-CONDICIONES (condiciones cerradas) ·
+> techlead APROBADO CON DEUDA (condiciones cerradas) · pentester: el único ALTO (`P-WH-1`) cerrado y
+> verificado por seguridad con 0/14 forjas · SAST verde.
+>
+> **Lo que NO se verificó, y se acepta:** (1) las 7 suites de integración **no corrieron en CI sobre este
+> commit** — el job `backend-e2e` lleva ~10 corridas muerto por un defecto del andamiaje (`working-directory`
+> + resolver de secretos), no del producto; (2) el DAST **nunca corrió sobre este candidato**; (3) producción
+> **nunca se ha escaneado**, en ningún release. **Los tres huecos los tenían también todos los releases
+> anteriores**, con menos verificación que éste.
+>
+> **Veredicto de seguridad vigente: RECHAZADO** (`docs/SECURITY_NOTES.md`, 2026-09-11), con fundamento en
+> el punto (1). **El dueño acepta ese rechazo** entendiendo que su causa es el andamiaje de CI, que no se
+> publica.
+>
+> **Contexto que acota el riesgo:** la tienda está en **modo prueba de Stripe, sin transacciones reales**
+> (hecho establecido por el dueño). La auditoría de gates midió que **ningún inspector ha bloqueado nunca un
+> despliegue** (`protected=false` en `main` y `production`), así que este release es **el más verificado
+> que se ha publicado**, no el menos.
+>
+> **Corrección de método del orquestador, registrada:** el bucle de las últimas ~12 horas fue **arreglar
+> los instrumentos de inspección y usarlos para inspeccionar en el mismo turno**. Cada arreglo invalidaba la
+> medición anterior. Debió separarse desde el «corta y publica» de las 05:30 UTC. **El andamiaje pasa a su
+> propio frente**, después de publicar.
+
 # SIGUIENTE RELEASE — «LA CUENTA DEL CLIENTE» (aprobado por el humano, 2026-09-10)
 
 > Arranca **en cuanto se publique el release actual**. Tres work streams **disjuntos** por el mapa de
