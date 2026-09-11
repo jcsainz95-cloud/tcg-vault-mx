@@ -8,6 +8,256 @@
 
 ---
 
+# ✅ FUSIONADO EN `main` — Stream A «La cuenta del cliente» + «Andamiaje de CI» (2026-09-11, sesión 2)
+
+> Rama `claude/tcg-hunt-orchestration-2` (79 commits sobre `17ce9a9`) fusionada a `main` con `--no-ff` tras doble veredicto
+> por frente (QA + techlead, dos rondas cada uno) y CI/SAST/E2E verdes en `22ce2a4`. **NO publicado**: `production` sigue en
+> `c13f417`. Medido por el orquestador: `check-format-mix.sh 17ce9a9 HEAD` rc=0; manifiesto de secretos `--check` rc=0;
+> `gitleaks git .` historial completo 0 hallazgos; canario gitleaks 11/11 (3/3); canario secretos por defecto 66/66 (2/2);
+> DAST `workflow_dispatch` sobre `c13f4179…` perfil `full` `report_only=false` → run `34561010792` **verde**.
+>
+> **Cerrado aquí:** P-57 (a, b, c), P-73 (A y B), P-75 (la temporal OBLIGA, decisión del dueño), P-55, P-77 (cableado a
+> `production` vía `dast-release`; el run real lo mide el primer push: DO-D2), P-GL-FP, P-CI (los 11 puntos + C5 arreglado),
+> Node 20 EOL (Node 24 en 9 sitios + 2 Dockerfiles + `engines >=24`), seguridad C1 (canario 48→66), C2 (parte medible),
+> C4 (regex estrechada + canario). **Sigue abierto:** C3 (humano), H1 (dueño), DO-D4 (seguridad), deuda con comprobación de
+> cierre en `docs/TECH_DEBT.md`, peticiones al arquitecto (`PENDIENTES.md`).
+> Notas de cada rol: `docs/BACKEND_NOTES.md` (v1.67 A1/A2, v1.67.1 gates, mini-ronda), `docs/FRONTEND_NOTES.md` §66–§68,
+> `docs/DEVOPS_NOTES.md` §56, `docs/DESIGN_SYSTEM.md` §33 (v4.1.2), `docs/API_CONTRACT.md` v1.67.1, `docs/ARCHITECTURE.md` §4.47.
+
+## Cuerpos verbatim de los pendientes cerrados
+
+#### P-57 · 👤 LA CUENTA DEL CLIENTE — el hueco más grande, y son tres cosas del mismo frente
+Encontrado por el humano probando en producción. Las tres se sirven juntas o ninguna funciona bien.
+
+- **(a) No existe pantalla de perfil.** Verificado: no hay ninguna ruta de perfil ni de cuenta. El
+  cliente **no puede ver ni cambiar** su correo, sus direcciones, sus datos de facturación ni el
+  estado de su verificación. **El servidor YA lo expone todo** (`GET`/`PATCH /users/me`, direcciones,
+  facturación, KYC): falta solo la pantalla. ⚠️ Consecuencia medida: `PHONE_REQUIRED` bloquea vender
+  y el contrato manda «pedir el dato y reintentar» — **sin perfil no había dónde**, así que una
+  cuenta de Google quedaba bloqueada sin salida (paliado con captura inline en el diálogo de venta).
+- **(b) Los pedidos de invitado no se pueden reclamar desde la cuenta.** El mecanismo existe entero y
+  está bien hecho (prueba de titularidad = correo verificado; el enlace de seguimiento sirve para
+  LEER, nunca para APROPIARSE; `GET /orders/claimable` no es un oráculo). Pero **solo se ofrece en la
+  confirmación de compra y en el seguimiento público**: si el cliente cierra esa pestaña, **no hay
+  pantalla que se lo vuelva a ofrecer**. `GET /orders/claimable` **no lo consume nadie**.
+  ⇒ Cada compra de invitado no reclamada en el momento **se queda fuera de la bóveda para siempre**,
+  y la bóveda es la propuesta de valor. **Dónde ponerlo (decidido con el humano):** aviso en **la
+  bóveda** (es donde se nota la ausencia) **y** en pedidos (los enviados a domicilio nunca pasan por
+  la bóveda). Que desaparezca al reclamar y que no aparezca vacío.
+- **(c) La navegación está partida en siete.** Hoy el menú tiene catálogo, compra, sellado, vender,
+  órdenes, envíos y bóveda — y **las solicitudes de venta no están**: solo se llega por dentro de
+  Vender o por el correo. Propuesta del humano, que suscribo: **consolidar** compras + ventas +
+  estado de solicitudes en un solo sitio, y **mover los retiros a la bóveda** (un retiro es una
+  acción sobre la bóveda). ⚠️ Matiz de nombre: «orden» se lee como *compra*; si ahí van las ventas,
+  hacen falta **pestañas explícitas** o un nombre neutro, o el vendedor no las busca ahí.
+- ⭐ **v2026-09-10 — `P-73` le añade munición al apartado (a), medida:** el nombre de una cuenta de Google
+  no solo falta, **el sistema lo FABRICA** con el trozo del correo antes de la arroba
+  (`auth.service.ts:339`), **nadie puede corregirlo** —ni el cliente ni el admin— y se ve en **16 sitios**,
+  entre ellos **10 correos al cliente** y **los buscadores del back-office**. ⇒ La pantalla de perfil deja
+  de ser «comodidad para el cliente» y pasa a ser **la única cura de un dato inventado que hoy es
+  permanente**. Sube de prioridad dentro de este pendiente.
+- ⭐ **v2026-09-10 — `P-75` ENTRA AQUÍ por decisión del humano** (*«ligalo al perfil de usuario que
+  necesitamos ahi mismo lo atacamos»*): **cambiar la propia contraseña** es una sección de esta pantalla.
+  ⚠️ **Y rompe el «cero backend» de este pendiente:** el endpoint **no existe** — `auth.controller.ts` solo
+  tiene `forgot-password` y `reset-password`, que consume un token **del correo**. Hay que crear «cambiar la
+  mía con la actual», y eso es **contrato nuevo ⇒ pasa por el arquitecto** (regla 9).
+  ⚠️ **Y amplía el alcance a un rol que este pendiente no contemplaba:** el **operador de bóveda** aterriza
+  en `/admin` y **nunca pisa el storefront** (`AuthForm.tsx:22`), y el panel **no tiene zona de «mi cuenta»**.
+  Una pantalla de perfil solo en el storefront **no lo alcanza**. Decidir antes de empezar: una compartida
+  para los dos, o también en el panel.
+- **Rol dueño:** ux-ui (rediseño de navegación) → frontend. **Cero backend PARA (a), (b) y (c)** — los
+  endpoints existen. **`P-75` sí trae backend y contrato.**
+
+
+#### P-73 · 👤 Entrar con Google: un nombre inventado que nadie puede corregir, y envíos SIN destinatario
+- **Lo que preguntó (2026-09-10):** *«cuando ingresan con google puede que no venga el telefono ni el nombre
+  completo que hacemos»*. Era pregunta **preventiva**; el diagnóstico encontró **dos problemas vivos hoy**.
+
+##### 🔴 A · El sistema FABRICA un nombre, y es irreparable
+- `backend/src/modules/auth/auth.service.ts:339` — `name: identity.name ?? email.split('@')[0]`. Si Google no
+  manda el nombre, se inventa uno con el trozo del correo antes de la arroba. **Verificado literal.**
+- ⚠️ **Es la regla dura del proyecto rota de frente:** «nunca se inventa un dato» — el equivalente de mostrar
+  `$0` en vez de `—`. Y peor que un `$0`, porque **parece real**: la columna queda indistinguible de un nombre
+  tecleado por el usuario, sin marca de que sea derivado.
+- 🔴 **No se puede corregir por ninguna vía. Medido:** no existe pantalla de perfil (`frontend/src/app/[locale]/`
+  solo tiene `(admin)`, `(auth)`, `(storefront)` y `pedido`); el único llamador de `updateMe` es
+  `BuylistKycForm.tsx:234` y **manda solo `phone`**; y el admin tampoco puede — `admin.service.ts` expone
+  `createUser`, `updateUserKyc`, `updateUserStatus` y reset de contraseña, **ninguna toca `User.name`**.
+- **Dónde se ve ese nombre inventado — 16 sitios medidos:** al menos **10 correos al cliente**
+  (`mail.templates.ts:70,72,97,99`; `buylist.service.ts:4358,4383,5392,6681`; `buylist-sweep.service.ts:129,177,250,443`)
+  y **6 superficies de back-office** (`buylist.service.ts:2455,5186`; `admin-vaults.service.ts:55`;
+  `master-set.service.ts:587`; `admin.service.ts:426`; `users.service.ts:74,92`).
+- ⭐ **Y es criterio de BÚSQUEDA del operador** (`API_CONTRACT.md:12025` y `:13817`): buscar «Juan Pérez» **no
+  encuentra** a quien el sistema bautizó «jcsainz95».
+- ✅ **La facturación NO se ve afectada:** el CFDI sale de `BillingProfile` (razón social y RFC propios),
+  `User.name` no entra.
+
+##### 🔴 B · NINGÚN envío de usuario con sesión lleva destinatario — y no es cosa de Google
+- `shipments.service.ts:183-192` escribe el `addressSnapshot` con **ocho campos** y **ninguno es un nombre**.
+  No puede haberlo: `Address` (`schema.prisma:482-498`) **no tiene columna de nombre**.
+- ⇒ `shipments.service.ts:405`, `recipientName: snapshot.recipientName ?? undefined`, evalúa a **`undefined`
+  en TODO retiro de bóveda**.
+- **El checkout de invitado SÍ lo pide** y es obligatorio (`guest-checkout.dto.ts:44`). ⇒ **la asimetría es
+  literal**, y el contrato la razona como si fuera intencional (`API_CONTRACT.md:6803`: *«el invitado no tiene
+  `User.name`»*) — pero **la implicación de que para el usuario con sesión `User.name` cumple ese papel NO
+  ESTÁ IMPLEMENTADA en ninguna línea.** Es una premisa del contrato que el código no honra.
+- ✅ **Desmentido lo que yo temía:** el paquete **no** sale a nombre de «jcsainz95». `User.name` no se copia a
+  ningún snapshot de envío (verificado por los tres constructores y por grep). Sale **sin nombre**.
+- **No hay integración con paquetería:** `carrier` y `trackingNumber` los teclea un operador
+  (`admin-shipments.controller.ts:74-75`). ⚠️ **No confirmado:** de dónde saca el operador el destinatario —
+  la pantalla M4 **no pinta la dirección ni ningún nombre** (`M4View.tsx`, grep sin resultados; muestra el
+  `userId` crudo en `:201`), aunque el `addressSnapshot` sí viaja en el payload.
+
+##### El teléfono: ya estaba gestionado, y no es hueco de Google
+- `User.phone` es opcional y **el registro local tampoco lo exige** (`auth.dto.ts:17-18`).
+- **Buylist es el flujo que lo necesita sin domicilio, y ya tiene puerta:** `buylist.service.ts:1366-1378`
+  lanza `PHONE_REQUIRED`, con el caso nombrado en el comentario (`:1321`): *«las cuentas de Google y las
+  viejas la tienen vacía ⇒ vendedores incontactables»*. Remedio en línea en `BuylistKycForm.tsx:302`.
+- ⚠️ **Son dos teléfonos distintos** y el código lo dice (`buylist.service.ts:4447`): el de la **etiqueta** es
+  `Address.phone`; `User.phone` es *«el nuestro, para llamarle»*.
+- **No confirmado:** disputas y verificación.
+
+##### ✅ Lo que está bien y no hay que tocar
+El **enlace** de una cuenta local con Google **no pisa el nombre existente** (`auth.service.ts:315-322`
+escribe solo `googleId`, `emailVerified` y `avatarUrl`, y este último respeta el que ya había).
+
+- ⚠️ **CRUCE OBLIGATORIO CON P-57 — el humano me lo recordó y yo debí cruzarlo antes de abrir esto.**
+  `P-57(a)` ya tenía anotado que **no existe pantalla de perfil**, con el caso de Google nombrado y todo
+  («una cuenta de Google quedaba bloqueada sin salida, paliado con captura inline»). Y `CLAUDE.md:49` ya
+  lista **«perfil»** como superficie del work stream *Cuentas y acceso*. ⇒ **No es un frente nuevo.**
+  **El apartado A de aquí NO se trabaja por separado: es munición para `P-57(a)`.**
+- **Lo que este pendiente SÍ añade y `P-57` no tenía** — por eso no lo fusiono del todo:
+  1. El nombre no está *ausente*: **está INVENTADO**, y eso es peor porque parece real.
+  2. **Tampoco el admin puede corregirlo** — `P-57(a)` decía «el cliente no puede»; medido, **nadie** puede.
+  3. **Los 16 sitios** donde se ve, incluidos los **buscadores del operador**.
+  4. ⭐ **Todo el apartado B**, que no está en `P-57` y **no es un problema de la cuenta del cliente**:
+     ningún envío de usuario con sesión lleva destinatario. Eso vive en el domicilio y en el envío, no en
+     el perfil, así que **sobrevive aunque `P-57` se cierre entero**.
+- **Rol dueño:** **A** → se pliega a `P-57` (ux-ui → frontend; **cero backend**, los endpoints existen).
+  **B** → product-owner aterriza el qué (¿el destinatario vive en `Address` o se pide por envío?) →
+  arquitecto (es cambio de contrato y de esquema) → backend + frontend.
+- **Prioridad:** **B afecta a todos los clientes con cuenta, no solo a los de Google.** Es el más grande de los
+  dos y el que el caso de Google solo hizo visible.
+
+
+
+#### P-75 · 🔑 «Debes cambiarla» — y no hay dónde. El ciclo del reset no cierra — reportado por el humano
+- **Lo que dijo (2026-09-10):** *«el tema es que dentro de la plataforma no hay lugar donde el operador
+  cambie la contraseña»*. **Tiene razón, y verifiqué que es peor que un hueco.**
+- 🔴 **La plataforma le PIDE al usuario algo que no le deja hacer.** Medido de punta a punta:
+  1. El admin resetea → temporal de alta entropía + `mustChangePassword: true` (`admin.service.ts:733`).
+  2. El usuario entra y ve un aviso, textual (`messages/es.json:929`): *«Iniciaste sesión con una contraseña
+     temporal. **Debes cambiarla** para proteger tu cuenta.»*
+  3. El único botón del aviso dice **«Continuar»** (`AuthForm.tsx:113`, `redirectByRole`) — **lo lleva a su
+     destino y ya. No hay ningún enlace a cambiarla.**
+  4. **No existe la pantalla.** `frontend/src/app/[locale]/(auth)/` contiene **solo** `login`, `register`,
+     `forgot-password`, `reset-password` y `verify-email`. Ninguna es «cambiar mi contraseña estando dentro».
+  5. **Y tampoco existe el endpoint.** `auth.controller.ts` solo expone `POST /auth/forgot-password` (`:90`)
+     y `POST /auth/reset-password` (`:99`), **que consume un token que llega por CORREO**. No hay ninguna
+     ruta de «cambiar la mía con la actual».
+- ⚠️ **`mustChangePassword` NO BLOQUEA NADA.** Grep sobre `backend/src/modules/auth/` y `backend/src/common/`:
+  **ningún guard lo lee**. Solo se escribe (`admin.service.ts`) y se limpia al usar el enlace del correo
+  (`auth.service.ts:249`). ⇒ El operador **no queda atrapado** — puede seguir usando la temporal
+  indefinidamente. **Es una advertencia sin consecuencia.**
+- **El único camino real hoy:** cerrar sesión → «olvidé mi contraseña» → **esperar el correo** → enlace.
+  Absurdo para alguien que **ya está dentro**, y peor para un **operador** cuyo correo puede ser compartido
+  o de empresa — y si no tiene acceso a ese buzón, **no hay camino ninguno**.
+- ⚠️ **Corrección a lo que le dije al humano.** Le dije que el reset era «mejor de lo que pediste». **La
+  parte del reset sí es buena** —alta entropía, el súper-admin nunca conoce la definitiva, revoca sesiones—
+  **pero el ciclo no cierra**, y eso yo no lo verifiqué antes de afirmarlo. Él lo cazó.
+- 🔗 **Cruce con `P-57(a)`:** «cambiar mi contraseña» es una sección natural de **la pantalla de perfil que
+  no existe**. Pero ⚠️ **no basta con plegarlo ahí**: `P-57` es del **cliente**, y esto lo necesita el
+  **operador**, que ni siquiera navega por el storefront. Hay que decidir si la pantalla es una sola para
+  todos o si el panel de admin necesita la suya.
+- ✅ **DECISIÓN DEL HUMANO (2026-09-10): se ataca DENTRO de `P-57`.** Sus palabras: *«ligalo al perfil de
+  usuario que necesitamos ahi mismo lo atacamos»*. ⇒ **No es un frente aparte**: «cambiar mi contraseña» es
+  una sección de la pantalla de perfil, y las dos se construyen en el mismo pase.
+- 🔴 **PERO hay un hecho medido que el diseño tiene que resolver ANTES de empezar, o se descubre tarde:**
+  - El operador de bóveda **aterriza en `/admin` y nunca pisa el storefront** — `AuthForm.tsx:22`:
+    `role === 'super_admin' || role === 'vault_operator' ? '/admin' : '/'`.
+  - Y **el panel de admin NO TIENE ninguna zona de «mi cuenta»**: `frontend/src/app/[locale]/(admin)/admin/`
+    contiene `m1`…`m10`, `vaults` y el tablero. **Nada más.**
+  - ⇒ **Una pantalla de perfil colgada del storefront NO la alcanza el operador.** Hay que decidir: **una
+    sola pantalla compartida** a la que lleguen los dos, **o** la sección de cuenta también en el panel.
+    **Es decisión de arquitectura + ux-ui, no de implementación.**
+- **Rol dueño:** **arquitecto** (el endpoint no existe: es contrato nuevo — «cambiar la propia contraseña
+  con la actual», con su política de revocación de sesiones — **y dónde vive la pantalla para los dos
+  roles**) → **backend** → **frontend** + ux-ui (que el aviso del login **enlace ahí** en vez de decir
+  «Continuar»).
+- **Y una decisión para el humano:** ¿`mustChangePassword` debe **seguir sin bloquear** —una advertencia—
+  o debe **forzar de verdad** el cambio antes de dejar operar? Lo segundo es lo que el texto promete hoy.
+
+
+#### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
+- **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
+  cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
+- **Por qué importa, y no es cosmético:** el cotizador es la puerta de entrada del vendedor. Rehacer el
+  carrito es fricción **justo en el paso donde ya decidió vendernos**, y el abandono ahí se lleva la
+  venta entera. Es el mismo patrón que ya se curó del lado de la compra con el checkout de invitado.
+- **Estado:** **pendiente, sin diagnosticar.** No se ha medido si el carrito vive en memoria, en
+  `localStorage`, o si se pierde por el remonte del árbol tras autenticar.
+- **Rol dueño:** frontend (y arquitecto si resulta que hay que persistirlo server-side).
+- **Aplazado por decisión del humano**: lo reportó y pidió explícitamente dejarlo anotado.
+
+
+#### P-77 · 🔴 La mitad del gate de seguridad nunca ha corrido: **no hay staging** — ABIERTO (medido por el orquestador, 2026-09-10)
+
+**Dato del humano (2026-09-10):** *«no tengo staging, solo producción»*.
+
+**Lo que eso significa, medido en los workflows (no supuesto):**
+
+| Verificación | Cuándo corre | Estado real |
+|---|---|---|
+| **CI** (unitarios + contrato) | cada push y PR (`ci.yml`) | ✅ corre de verdad |
+| **SAST** (revisa el código) | cada push y PR (`security-sast.yml`) | ✅ corre de verdad |
+| **E2E con mocks** | cada push y PR (`e2e.yml`) | ✅ corre de verdad |
+| **E2E real** | nocturno 08:00 UTC + manual (`e2e-real.yml`) | ⚠️ levanta stack propio |
+| **DAST** (ataca la app corriendo) | semanal, lunes 06:00 UTC (`security-scheduled.yml`) | 🔴 **apunta a staging ⇒ sin blanco** |
+| **Pipeline de deploy entero** (`deploy.yml`) | 🔴 **solo `workflow_dispatch`, y `secrets-gate` lo salta si faltan secrets** | 🔴 **nunca corre** |
+
+`deploy.yml:36-38` lo dice literal: *«CD por GitHub Actions DESACTIVADO por defecto… los deploys reales van por
+integraciones NATIVAS Vercel/Railway (push-to-deploy)»*. ⇒ **Todo el tramo de staging es decorativo**: el gate de
+procedencia (`staging-serves-head`), el DAST (`dast-staging`) y el flamante gate de paridad de proveedor
+(`staging-provider-parity`, `D-PP-2`) **cuelgan de un pipeline apagado que apunta a un entorno inexistente**.
+
+**Consecuencia contra el DoD de `CLAUDE.md`:** el DoD exige que *«el gate de seguridad (SAST + DAST staging) y el
+harness E2E estén cableados en CI»*. **La mitad SAST se cumple; la mitad DAST nunca ha corrido contra nada.**
+Publicar hoy va `main` → `production` → vivo, **sin entorno intermedio**.
+
+⚠️ **Esto NO invalida la fase de seguridad ya aprobada.** `CLAUDE.md` autoriza como blanco **«staging (o local)»**, y
+el pentester trabajó sobre el código y sobre local. Lo que falta es el **DAST automático y recurrente**, no la
+revisión humana.
+
+**Tres salidas, y la barata es la buena:**
+- **(A) Crear un staging de verdad** en Railway + Vercel. Es lo que el pipeline asume. Cuesta dinero y
+  mantenimiento, y duplica la base de datos.
+- **(B) ⭐ DAST contra un stack efímero levantado en el propio CI.** Ya existen las piezas: `scripts/stack-native.sh`
+  y `e2e-real.yml` levantan la plataforma completa. Apuntar el DAST ahí es gratis, no necesita credenciales de
+  ningún entorno vivo, y **cumple el DoD por la vía «o local»** que `CLAUDE.md` ya autoriza. También vuelve
+  ejecutable el gate de paridad de `D-PP-2` sin los secrets que el dueño no puede dar.
+- **(C) Aceptar y registrar** que el DAST no corre, con la deuda escrita en `SECURITY_NOTES.md`.
+
+**Recomendación del orquestador: (B).** Enrutar a **devops**. No urge —no hay incidente— pero mientras no se haga,
+`D-PP-2` y el gate de procedencia son candados que **no se pueden poner rojos**, y un candado así no es un candado.
+
+**Consecuencia inmediata que SÍ se cierra hoy:** los secrets `STAGING_ADMIN_EMAIL` / `STAGING_ADMIN_PASSWORD` que
+devops pidió al humano **quedan sin objeto**. No se crean. Si se creara un usuario admin apuntando a producción para
+satisfacerlos, sería exactamente lo que la guarda anti-producción del script existe para impedir.
+
+
+
+#### P-GL-FP (verbatim del bloque «Añadidos 2026-09-11 02:35 UTC»)
+- **P-GL-FP · gitleaks pinta rojo `main`/`production` por los scripts-canario (falso positivo).** Medido
+  2026-09-11 02:18 UTC: run `34554095125` (SAST sobre `main`, push `c9ba265`), 9 hallazgos, **los 9 en
+  `scripts/check-secret-defaults-canary.sh` (8) y `scripts/check-stripe-webhook-failclosed-canary.sh` (1)** —
+  secretos falsos por construcción. En la rama sale verde porque escanea 1 commit; en `main` escaneó el rango
+  de 20 (`--log-opts ... 88c48c7^..c9ba265`). Dueño: **devops**. Arreglo: allowlist **por ruta** de los
+  canarios en `security/gitleaks.toml` `[allowlist] paths` (NO ensanchar regex — ver S-GL-1 de seguridad, que
+  pide lo contrario: estrechar `sk_test_`). Verificar con gitleaks v8.24.3 (la versión de la action) sobre el
+  mismo rango. Entra en el stream «andamiaje de CI».
+
+---
+
 # ✅ PUBLICADO — release `c13f417` (2026-09-11 02:31:46 UTC)
 
 - **Qué:** `production` = `c13f417` (merge `--no-ff` de `main`=`d0c79b9`; árbol idéntico a `26b2c58`, el candidato con
