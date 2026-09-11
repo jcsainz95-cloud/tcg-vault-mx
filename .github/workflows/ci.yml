@@ -243,9 +243,21 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      # F1-3: el canario devuelve rc=2 cuando NO PUDO MEDIR (sin prettier 3.9.6
+      # local ni por red). Sigue siendo rojo —un canario que no midió no es un
+      # verde— pero el mensaje dice «no concluyente», no «BL-27 no muerde».
       - name: Y el comparador sabe morder (canario BL-27)
         if: ${{ !cancelled() }}
-        run: ./scripts/check-format-mix-canary.sh
+        run: |
+          set +e
+          ./scripts/check-format-mix-canary.sh
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) echo "::error title=format-mix canario::El canario NO PUDO MEDIR (rc=2: prettier 3.9.6 no disponible en el runner, ¿red?). No es un fallo del comparador: es un canario sin instrumento. Se marca ROJO porque un canario que no midió no es un verde."; exit 1 ;;
+            *) echo "::error title=format-mix canario::El comparador BL-27 NO muerde como debe (rc=$rc). Ver los casos fallidos arriba. Dueño: devops."; exit 1 ;;
+          esac
 
   format-mix:
     needs: [format-mix-base]
