@@ -118,6 +118,17 @@ declare -A SKIPPED_ESPERADOS=(
   [promote-production-frontend]="solo con dispatch promote_to_prod=true (deploy.yml); en push se salta por construcción"
 )
 
+# N4 (techlead, 2026-09-11): la lista no puede desfasarse en silencio. Cada
+# clave tiene que existir HOY como job de deploy.yml; si no, rc=2 «lista
+# desfasada» (no se finge verde con una lista que describe otro workflow).
+# Ámbito por workflow NO se hace: la API de check-runs no trae el nombre del
+# workflow sin una llamada más por check_suite (DO-D9 en TECH_DEBT).
+DEPLOY_YML="${DEPLOY_YML:-.github/workflows/deploy.yml}"
+[ -f "$DEPLOY_YML" ] || { echo "::error::no existe $DEPLOY_YML: no puedo validar SKIPPED_ESPERADOS. NO concluyente."; exit 2; }
+for k in "${!SKIPPED_ESPERADOS[@]}"; do
+  grep -qE "^  ${k}:$" "$DEPLOY_YML" || { echo "::error::SKIPPED_ESPERADOS lleva \`$k\`, que ya no es un job de $DEPLOY_YML: lista desfasada. NO concluyente hasta corregirla."; exit 2; }
+done
+
 MAL=0; TOTAL=0; PENDIENTES=0; SALTADOS=0; SALTADOS_ESPERADOS=0
 while IFS=$'\t' read -r nombre estado concl id url; do
   [ -n "$nombre" ] || continue

@@ -51,6 +51,8 @@ git -C "$REPO" init -q
 git -C "$REPO" -c user.email=c@c -c user.name=c commit -q --allow-empty -m "x"
 git -C "$REPO" remote add origin https://github.com/ejemplo/repo.git
 cp "$SCRIPT" "$REPO/scripts/check-candidate-checks.sh"; chmod +x "$REPO/scripts/check-candidate-checks.sh"
+# N4: el script valida SKIPPED_ESPERADOS contra deploy.yml; el repo de juguete lleva el real.
+mkdir -p "$REPO/.github/workflows"; cp "$ROOT_DIR/.github/workflows/deploy.yml" "$REPO/.github/workflows/deploy.yml"
 
 # `curl` de mentira: sirve el fichero de $RESP que toque según la URL.
 #   …/check-runs?…page=N  -> $RESP/pageN   (si no existe, $RESP/page1)
@@ -172,6 +174,19 @@ caso 0 "esperado:" "SIN motivo" "skipped de SKIPPED_ESPERADOS (promote-*, deploy
 limpiar; fabricar "$RESP/page1" 2 2 completed skipped
 renombrar "$RESP/page1" 0 promote-production-frontend
 caso 3 "SIN motivo escrito" "-" "un skipped esperado + uno sin motivo ⇒ rc=3"
+
+# 13) N4: una clave de SKIPPED_ESPERADOS que no es job de deploy.yml ⇒ rc=2 «lista desfasada»
+limpiar; fabricar "$RESP/page1" 3 3 completed success
+cp "$REPO/scripts/check-candidate-checks.sh" "$BASE/orig.sh"
+sed -i 's/^  \[deploy-ci-gate\]=/  [job-que-ya-no-existe]="x"\n  [deploy-ci-gate]=/' "$REPO/scripts/check-candidate-checks.sh"
+grep -q 'job-que-ya-no-existe' "$REPO/scripts/check-candidate-checks.sh" || bad "la mutación N4 no se aplicó"
+caso 2 "lista desfasada" "están en verde" "clave de SKIPPED_ESPERADOS sin job en deploy.yml ⇒ rc=2, nunca verde"
+cp "$BASE/orig.sh" "$REPO/scripts/check-candidate-checks.sh"
+
+# 14) N4: sin deploy.yml ⇒ rc=2
+mv "$REPO/.github/workflows/deploy.yml" "$BASE/deploy.bak"
+caso 2 "no puedo validar" "están en verde" "sin deploy.yml ⇒ rc=2"
+mv "$BASE/deploy.bak" "$REPO/.github/workflows/deploy.yml"
 
 TOTAL=$((PASADAS+FALLOS))
 printf '\n'
