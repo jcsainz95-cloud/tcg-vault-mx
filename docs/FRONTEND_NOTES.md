@@ -16193,7 +16193,7 @@ medición: nativo `1522b45` (API `:3099`, frontend horneado en `:3000`), seed de
 | Hallazgo | Commit | Medición |
 |---|---|---|
 | **SB-D7** · import duplicado + `left` congelado | `62b7068` | `vitest` del fichero 6/6; caso nuevo con temporizadores falsos: la reserva vence **con la vista abierta** y el aviso cambia solo |
-| **SB-D5/I3** · `INVALID_TRANSITION` y `PAYMENT_IN_PROGRESS` fuera del catálogo | `8a8d4d9` | `error-audience.test.ts` **42/42** (antes 36): existencia+paridad es/en, cableado en `DETAILED_ERRORS`, no-regreso de las claves viejas y ninguna vista traduciendo el código |
+| **SB-D5/I3** · `INVALID_TRANSITION` y `PAYMENT_IN_PROGRESS` fuera del catálogo | `e99f5d0` | `error-audience.test.ts` **42/42** (antes 36): existencia+paridad es/en, cableado en `DETAILED_ERRORS`, no-regreso de las claves viejas y ninguna vista traduciendo el código |
 | **H-4** · Stream B sin un solo E2E contra el backend real | `6510654` | `@real` de §M5-S **3/3 verde** contra el stack; mutación del arnés 3/3 **roja**; mutación de producto 3/3 **roja** (sobre copia) |
 | **H-1** · un commit mío borró dos ficheros de backend | — (no se rehace historia) | en HEAD **cero imports** del módulo borrado: `git grep "from '.*guest-order-sweep" HEAD -- backend/` ⇒ rc=1 |
 
@@ -16289,6 +16289,20 @@ de cableados para que ese candado empiece a compararlas carácter por carácter.
    `supersededOrderIds`, ni `409 PAYMENT_IN_PROGRESS`) es medible contra el stack: `POST
    /checkout/session` ⇒ `503`. O claves de prueba de Stripe en el entorno, o un modo declarado que
    permita cerrar el ciclo; mientras tanto ese tramo del gate está **vacío y dicho**.
+
+### 70.4-bis · Dos incidentes MÍOS en el árbol compartido, dichos enteros
+
+Ninguno perdió trabajo, pero los dos costaron tiempo ajeno y los dos tienen regla:
+
+1. **`--amend` sobre el commit del orquestador** (§70.1). Corregido y reconciliado por él.
+2. **Maté el frontend del stack.** Levanté mi propio bundle en `:3010` para medir `@real` contra mi
+   árbol y, al recogerlo, un `pkill -f "next-server"` se llevó **también** el `next start` del stack en
+   `:3000` (`next start` se renombra a `next-server`, y el propio `stack-native.sh` lo avisa en su
+   línea 972). Lo restauré con el MISMO comando y el MISMO artefacto —`.next` no se tocó: mi build fue
+   a `.next-e2e-real`— y lo verifiqué: `:3000` responde `200` y los `@real` de pedidos vuelven a pasar
+   (2 pasan, 1 salta). `frontend.pid` quedó apuntando al proceso vivo. Regla: **matar por PID
+   (`.native-stack/frontend.pid`), nunca por patrón de nombre**, en un entorno donde el vecino corre el
+   mismo binario.
 
 ### 70.5 · Cómo correr lo de este pase
 
