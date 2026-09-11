@@ -16011,3 +16011,43 @@ Playwright mock de los specs tocados **12/12** (dos pases) · `git status` limpi
   pedido sembrado, ni `requestBlob` con un 403 real). Todo lo de arriba es unitario + Playwright en mock.
 - Que el workflow `e2e-real` / `stack-native.sh` re-siembre antes de cada corrida (GA-D3 lo da por hecho
   por lectura del seed idempotente, no por ejecución).
+
+### 6. Re-verificación de QA (QA2-1) y techlead N6 — 2026-09-11, HEAD `a24c516`
+
+| Hallazgo | Commit | Medición |
+|---|---|---|
+| **QA2-1** «Cerrar sesión» aterrizaba en `/login?next=<ruta recién cerrada>` (FE-34 extendida a `/account`; QA 6/6 real) | `ff4f58b` | Señal de logout intencional (`lib/session.ts`: `markIntentionalLogout` en `logout()` ANTES de la red y del vaciado; `isLogoutInProgress`, ventana 10 s) y los dos guards no redirigen mientras dura. Unitario: `PrivateRouteGuard.test`/`AdminShell.test` (caso QA2-1) + `session.logout-signal.test.ts` 4/4; **mutación 3/3 roja** (quitar el check en `PrivateRouteGuard`), control 3/3 verde. **Real** (stack reconstruido con mi árbol, `up --gate`): el caso `@real … «Cerrar sesión» sale a /login` **1/1 verde** contra `http://localhost:3000`. |
+| **N6** `requoting \|\| requoteFailed` ×3 | `f669151` | `noFreshPrice` const del componente; `BuylistView.test` 63/63 |
+| TECH_DEBT «Comprobación de cierre» GA-D1..D7 + FE-34 cerrada | `a24c516` | — |
+
+**Corrida real completa de `account.spec.ts` + `claimable-orders.spec.ts`** (`E2E_BASE_URL=http://localhost:3000
+E2E_REAL=1`, BD re-sembrada con `up --seed --gate`, luego `down` + `up --gate` porque el `:3000` de QA no se
+reutiliza en gate): **6/8 verdes** — los dos flujos de temporal (cliente y operador, consumiendo la temporal
+contra el backend real), rebote + «Cerrar sesión» (QA2-1), cambio normal con la definitiva, header con sesión y
+**reclamables con el pedido sembrado `TCG-E2E-GUEST-0001`** (aparece → vincular → desaparece → no vuelve tras
+recargar). Los dos rojos, clasificados:
+
+1. **Facturación — `GET /users/me/billing-profile` ⇒ `500`** para `customer@e2e.local` (medido con `curl` y
+   Bearer: `{"error":{"code":"INTERNAL"}}`; `backend.log`: `PiiCryptoService.decrypt` → `Unsupported state or
+   unable to authenticate data` desde `UsersService.toBillingProfileDTO`). La fila `BillingProfile` del customer
+   la escribió una corrida anterior (la de QA sobre `ba5fd4b` corrió este mismo caso) y **el proceso actual no
+   puede descifrar su `rfcEnc`**: la clave PII cambió entre procesos (creo: `4f27d2f` «la clave PII no cuelga de
+   NODE_ENV» / `5f0928f`; el seed no toca `BillingProfile`, así que el residuo sobrevive a `--seed`). **No es del
+   front** (la sección pinta su error «Algo salió mal · Reintentar», que es lo correcto ante un 500) y el test
+   **debe seguir rojo** ante un 500. Va a **backend/devops**: o el seed borra/re-escribe `BillingProfile` del
+   customer, o la clave PII del stack nativo es estable entre reinicios. Comprobación: el `curl` de arriba ⇒ `404`
+   (o `200` con `rfcMasked`).
+2. **Topbar del panel — timeout 60 s con página en blanco** en la corrida completa; **1/1 verde (20 s) corriendo
+   solo** (`--grep topbar`). Creo (no lo registra el log del backend): es el throttler de `POST /auth/login`
+   (5/min por IP) — la corrida hace 6 canjes (customerTemp por API y dos por formulario, operatorTemp por
+   formulario, customer y operator por API) y el sexto entra en el backoff de `loginViaApi` (hasta 63 s), que
+   supera el timeout del test. Es del **arnés**, no del producto; lo cerraría subir `timeout` de los `@real` de
+   cuenta o bajar canjes (p. ej. el cambio «normal» por API en vez de por formulario). Lo anoto sin arreglar en
+   este pase para no mezclar.
+
+**Caveat SEC-OPS-1 (lo digo tal cual lo imprimió `stack-native.sh`):** la autocomprobación marcó el stack como
+**NO VERIFICADO** porque el **backend** arrancó sirviendo `557113` y HEAD ya era `28767d9` (commits de otros
+agentes entre el arranque del backend y el del frontend; `backend/package.json` más nuevo que el proceso). El
+árbol de **frontend** servido sí es idéntico al esperado (`26d5dc841ca5` en ambos). Para lo que mide este
+frente (guards + logout) el backend no cambió; para el gate formal, QA debe re-medir sobre un stack cuyo
+backend sea HEAD.
