@@ -74,6 +74,8 @@ function buildAdmin() {
         orders: [],
         sellRequests: [],
         disputes: [],
+        // v1.69 (P-78, §M6-K.3): el `include` de `getUser` trae los 5 últimos envíos para el cotejo.
+        shipmentRequests: [],
         ownedItems: [],
       }),
     },
@@ -91,7 +93,7 @@ function buildAdmin() {
 
 function buildUsers() {
   const prisma: any = { address: { findMany: jest.fn().mockResolvedValue(ROWS) } };
-  return new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+  return new UsersService(prisma as PrismaService, {} as SettingsService, pii, {} as never);
 }
 
 describe('AddressDTO — paridad users ↔ admin (una sola proyección, v1.67.1)', () => {

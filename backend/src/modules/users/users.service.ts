@@ -7,6 +7,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { monthCommittedGrossCents } from '../../common/buylist-aml';
+import { UploadsService } from '../uploads/uploads.service';
 import {
   AddressDto,
   BillingProfileDto,
@@ -40,6 +41,9 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly pii: PiiCryptoService,
+    // ⭐ v1.69 (P-78, BK-4 · §M6-K.4.1): borrar del bucket la imagen de INE **sustituida**, en el
+    // mismo flujo que la sustituye. Sin esto, cada re-subida deja PII que ninguna purga alcanza.
+    private readonly uploads: UploadsService,
   ) {}
 
   /**
@@ -289,17 +293,38 @@ export class UsersService {
 
   // ---------------- KYC ----------------
 
-  async getKyc(userId: string) {
+  /**
+   * `GET /users/me/kyc` (contrato §1, §M6-K.5/K.7).
+   *
+   * ⛔⛔ **v1.69 (P-78) — LOS TRES NÚMEROS DE POLÍTICA SALIERON DE ESTA RESPUESTA.** Decisión (c) del
+   * dueño, literal: *«los topes dejan de mostrarse al cliente — pantalla y mensaje de error»*. Se
+   * retiran `capPerRequestCents`, `capPerMonthCents` y `monthUsedCents`. ⛔ **No se dejan alias ni se
+   * marcan «no expuestos»: se retiran.** Son **política interna**; publicarlos es publicar el manual
+   * de cómo quedarse justo por debajo.
+   *
+   * ⭐ **Y la capacidad no se pierde, cambia de lado:** el front ya no compara, **pregunta**. Con
+   * `?quotedTotalCents=N` la respuesta trae **`ineRequiredForTotal: boolean`** — un **veredicto, no
+   * un dial**. Eso es lo que conserva §P.2.2 de `PROJECT.md` (pedir el INE **en el mismo paso de la
+   * dirección**), que manda sobre el contrato y por tanto no podía perderse.
+   * ⛔ El umbral **no se revela en ninguna forma**, ni en `details`. **Residual conocido y aceptado**
+   * (§1): un vendedor autenticado puede *acotar* el umbral repitiendo la llamada — estrictamente
+   * **menos** de lo que v1.68.1 le entregaba impreso, autenticado y con el rate limit general.
+   * ⛔ **No hay booleano equivalente para el tope MENSUAL**: ése rechaza y no se remedia subiendo
+   * nada, así que un booleano solo serviría para inferirlo.
+   *
+   * ⭐ **`rejectionReason` — presente SI Y SOLO SI `kycStatus === 'rejected'`.** Es lo que cierra el
+   * ciclo (decisión (b) del dueño): sin él el cliente ve «rechazada» y no sabe qué corregir.
+   */
+  async getKyc(userId: string, quotedTotalCents?: number) {
     const kyc = await this.prisma.kycProfile.findUnique({ where: { userId } });
-    const capPerRequestCents =
-      kyc?.capPerRequestCentsOverride ??
-      (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS));
-    const capPerMonthCents =
-      kyc?.capPerMonthCentsOverride ??
-      (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_MONTH_CENTS));
-    const monthUsedCents = await this.monthUsedCents(userId);
+    const kycStatus = kyc?.kycStatus ?? 'none';
+    // El umbral se lee SOLO si hay algo que comparar: sin `?quotedTotalCents` no se toca `Setting`.
+    const ineRequiredForTotal =
+      quotedTotalCents === undefined
+        ? undefined
+        : quotedTotalCents >= (await this.settings.getNumber(SettingKey.INE_THRESHOLD_CENTS));
     return {
-      kycStatus: kyc?.kycStatus ?? 'none',
+      kycStatus,
       // CLABE cifrada en reposo → se devuelve ENMASCARADA (`****1234`), nunca en claro.
       // Contrato GET /users/me/kyc: la clave es `clabeMasked` (el resto del sistema —
       // contrato, admin.service, frontend— usa ese nombre; `clabe` rompía clabeOnFile).
@@ -309,9 +334,15 @@ export class UsersService {
       // Sin PII nueva (la CLABE sigue enmascarada en `clabeMasked`).
       clabeOnFile: Boolean(kyc?.clabeEnc),
       ineOnFile: Boolean(kyc?.ineFrontKey && kyc?.ineBackKey),
-      capPerRequestCents,
-      capPerMonthCents,
-      monthUsedCents,
+      // ⭐ v1.69 (P-78, §M6-K.7): el motivo del rechazo, y SOLO mientras el estado sea `rejected`.
+      // ⛔ Nunca `null` residual de un rechazo anterior: la clave **no viaja** en los otros estados.
+      // (Una fila `rejected` anterior a M-54 no tiene motivo que enseñar: se omite la clave en vez
+      // de fabricar un texto. Es la misma doctrina que `recipientName: null` de M-52.)
+      ...(kycStatus === 'rejected' && kyc?.rejectionReason
+        ? { rejectionReason: kyc.rejectionReason }
+        : {}),
+      // ⭐ v1.69 (P-78, §M6-K.5): el VEREDICTO, presente solo si preguntaron por un total.
+      ...(ineRequiredForTotal === undefined ? {} : { ineRequiredForTotal }),
     };
   }
 
@@ -328,6 +359,36 @@ export class UsersService {
     return monthCommittedGrossCents(this.prisma, userId);
   }
 
+  /**
+   * `PUT /users/me/kyc` (contrato §1, §M6-K.6) — **la vuelta del ciclo**.
+   *
+   * ### ⭐ El defecto A6, medido y cerrado (`users.service.ts:343-347` de v1.68.1)
+   * **Toda** llamada escribía `kycStatus: 'pending'`, también una que solo traía `clabe` ⇒ **un
+   * cliente ya verificado que corregía su CLABE se tiraba al suelo su propia verificación de
+   * identidad**, que no tiene nada que ver con la CLABE. Norma v1.69, y es la que hace que «volver a
+   * subir» signifique algo:
+   * - **`kycStatus` pasa a `pending` SI Y SOLO SI la llamada trae al menos una key de INE.** Una
+   *   llamada solo con `clabe` **no toca** `kycStatus`, ni `rejectionReason`, ni el sello de
+   *   revisión.
+   * - Al (re)subir INE: `pending`, **`rejectionReason → null`** y `reviewedAt`/`reviewedBy → null`.
+   *   *El motivo de un rechazo anterior no puede sobrevivir a la corrección que lo responde.*
+   * - `rejected` **y** `verified` son estados re-subibles (foto vencida). No hay estado terminal ni
+   *   límite de reintentos (v1.69).
+   *
+   * ### ⭐ El objeto HUÉRFANO (§M6-K.4.1, ARCHITECTURE §3.4.d)
+   * Sustituir `ineFrontKey` **abandonaba el objeto anterior en el bucket**, donde **ninguna purga lo
+   * alcanza**: la retención de D46/BL-42 recorre las keys que están en `KycProfile`, y esa key ya no
+   * está en ninguna fila ⇒ **PII sin reloj, para siempre**. Ahora, al sustituir, el objeto viejo se
+   * borra en el mismo flujo.
+   * - **Se borra DESPUÉS de persistir la nueva key**, nunca antes: si la escritura fallara tras un
+   *   borrado, el cliente se quedaría sin INE ninguno.
+   * - **Un fallo del borrado NO tumba la petición**: la subida del cliente ya está guardada y él no
+   *   puede hacer nada al respecto. Se registra `error` (queda un huérfano, exactamente como antes
+   *   de v1.69) en vez de devolverle un `500` por una tarea de limpieza nuestra.
+   * - ⛔ **El RECHAZO no borra nada** (la otra mitad, §M6-K.4.1): conservar la imagen rechazada es la
+   *   evidencia de **por qué** rechazamos, justo mientras el cliente tiene un rechazo que discutir.
+   *   Se borra **cuando llega la sustitución**, que es lo que aquí ocurre.
+   */
   async putKyc(userId: string, dto: UpdateKycDto) {
     if (dto.clabe && !isValidClabe(dto.clabe)) {
       throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
@@ -338,13 +399,52 @@ export class UsersService {
       data.clabeEnc = this.pii.encrypt(dto.clabe);
       data.clabeHmac = this.pii.clabeBlindIndex(dto.clabe);
     }
-    if (dto.ineFrontUploadKey) data.ineFrontKey = dto.ineFrontUploadKey;
-    if (dto.ineBackUploadKey) data.ineBackKey = dto.ineBackUploadKey;
+
+    // ⚠️ Se lee ANTES de escribir: las keys que van a ser sustituidas solo se conocen aquí.
+    const existing = await this.prisma.kycProfile.findUnique({
+      where: { userId },
+      select: { ineFrontKey: true, ineBackKey: true },
+    });
+    /** Keys que quedan huérfanas por esta llamada (solo si REALMENTE cambian). */
+    const supersededKeys: string[] = [];
+    if (dto.ineFrontUploadKey) {
+      data.ineFrontKey = dto.ineFrontUploadKey;
+      if (existing?.ineFrontKey && existing.ineFrontKey !== dto.ineFrontUploadKey) {
+        supersededKeys.push(existing.ineFrontKey);
+      }
+    }
+    if (dto.ineBackUploadKey) {
+      data.ineBackKey = dto.ineBackUploadKey;
+      if (existing?.ineBackKey && existing.ineBackKey !== dto.ineBackUploadKey) {
+        supersededKeys.push(existing.ineBackKey);
+      }
+    }
+
+    // ⭐ v1.69 (A6): SOLO una subida de INE mueve el estado de la identidad.
+    const touchesIne = Boolean(dto.ineFrontUploadKey || dto.ineBackUploadKey);
+    const ineSubmission = touchesIne
+      ? { kycStatus: 'pending' as const, rejectionReason: null, reviewedAt: null, reviewedBy: null }
+      : {};
+
     await this.prisma.kycProfile.upsert({
       where: { userId },
-      create: { userId, ...data, kycStatus: 'pending' },
-      update: { ...data, kycStatus: 'pending' },
+      // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
+      // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
+      create: { userId, ...data, ...ineSubmission },
+      update: { ...data, ...ineSubmission },
     });
+
+    for (const key of supersededKeys) {
+      try {
+        await this.uploads.deleteObject(key);
+      } catch (err) {
+        this.logger.error(
+          `No se pudo borrar la imagen de INE sustituida (queda huérfana en el bucket; user=${userId}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
     return this.getKyc(userId);
   }
 }

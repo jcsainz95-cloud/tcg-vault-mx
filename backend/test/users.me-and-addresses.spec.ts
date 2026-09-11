@@ -55,7 +55,7 @@ function build(user: Record<string, unknown>, addresses: Record<string, unknown>
       update: jest.fn(async ({ where, data }: any) => ({ ...addresses.find((a) => a.id === where.id), ...data })),
     },
   };
-  const svc = new UsersService(prisma as PrismaService, {} as SettingsService, {} as PiiCryptoService);
+  const svc = new UsersService(prisma as PrismaService, {} as SettingsService, {} as PiiCryptoService, {} as never);
   return { svc, prisma };
 }
 
@@ -306,7 +306,7 @@ describe('UsersService billing-profile — 404 sin perfil y BillingProfileDTO de
         upsert: jest.fn(async ({ create, update }: any) => row(existing ? update : create)),
       },
     };
-    const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+    const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii, {} as never);
     return { svc, prisma };
   }
 
@@ -410,7 +410,7 @@ describe('BillingProfileDto — cotas y formato (N2, v1.67.1); misma forma de er
     };
     const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     try {
-      const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+      const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii, {} as never);
       await expect(svc.getBillingProfile('u1')).rejects.toThrow(/BillingProfile bp-stale \(userId u1\).*does not decrypt.*Unsupported state|BillingProfile bp-stale \(userId u1\).*does not decrypt/);
       expect(errorSpy).toHaveBeenCalledTimes(1);
       expect(String(errorSpy.mock.calls[0][0])).toMatch(/bp-stale.*userId u1.*PII_ENCRYPTION_KEY/);
@@ -428,7 +428,7 @@ describe('BillingProfileDto — cotas y formato (N2, v1.67.1); misma forma de er
         }),
       },
     };
-    const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+    const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii, {} as never);
     await expect(svc.getBillingProfile('u1')).rejects.toThrow(/decrypts to an empty RFC/);
   });
 });

@@ -47,6 +47,8 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
           orders: [],
           sellRequests: [],
           disputes: [],
+          // v1.69 (P-78, §M6-K.3): el `include` de `getUser` trae los 5 últimos envíos para el cotejo.
+          shipmentRequests: [],
           ownedItems: [
             {
               // Fila cruda de InventoryItem tal cual la trae Prisma (con la relación `card` + `set`).
@@ -140,8 +142,19 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     expect(res.kycProfile.clabeEnc).toBeUndefined();
     expect(res.kycProfile.rfcEnc).toBeUndefined();
     expect(res.kycProfile.clabeHmac).toBeUndefined();
-    // INE keys visibles al super_admin (para servir la imagen por presigned GET).
-    expect(res.kycProfile.ineFrontKey).toBe('kyc_ine/2026/front.jpg');
+    // ⛔⛔ **v1.69 (P-78, §M6-K.8 e invariante K.1.1) — ESTE ASERTO SE INVIERTE, Y ES UN ARREGLO.**
+    // Aquí decía `expect(res.kycProfile.ineFrontKey).toBe('kyc_ine/2026/front.jpg')` con el motivo
+    // «visibles al super_admin (para servir la imagen por presigned GET)». **Ese motivo ya no
+    // existe**: el presigned GET lo resuelve el servidor desde `:id`
+    // (`GET /admin/users/:id/kyc/ine-links`), así que **la key no necesita viajar** — y el contrato
+    // la prohíbe *para siempre*, con cualquier rol y en cualquier ruta.
+    // *Un test que fija una fuga como si fuera una decisión la conserva hasta que alguien relee el
+    // contrato: ésta llevaba viva desde v1.2 y la cazó el candado K-2 llamando al endpoint.*
+    expect(res.kycProfile.ineFrontKey).toBeUndefined();
+    expect(res.kycProfile.ineBackKey).toBeUndefined();
+    expect(JSON.stringify(res)).not.toMatch(/kyc_ine\//);
+    // Lo único que sale del INE es el booleano.
+    expect(res.kycProfile.ineOnFile).toBe(true);
     // Billing con RFC enmascarado (rfcMasked), sin rfcEnc crudo ni `rfc` plano.
     expect(res.billingProfile.rfcMasked).toBe(maskRfc(RFC));
     expect(res.billingProfile.rfc).toBeUndefined();

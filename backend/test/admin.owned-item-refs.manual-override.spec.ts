@@ -50,6 +50,8 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
           orders: [],
           sellRequests: [],
           disputes: [],
+          // v1.69 (P-78, §M6-K.3): el `include` de `getUser` trae los 5 últimos envíos para el cotejo.
+          shipmentRequests: [],
           ownedItems: [
             {
               id: 'inv1',

@@ -260,6 +260,19 @@ export const ErrorCode = {
   BUYLIST_LINE_NOT_KEYABLE: 'BUYLIST_LINE_NOT_KEYABLE',
   BUYLIST_LIMIT_EXCEEDED: 'BUYLIST_LIMIT_EXCEEDED',
   INE_REQUIRED: 'INE_REQUIRED',
+  // ⭐ v1.69 (P-78, API_CONTRACT §M6-K.2.2) — 422. `GET /admin/users/:id/kyc/ine-links` sobre un
+  // usuario que EXISTE y NO tiene INE completo: sin `KycProfile`, o con UNA SOLA de las dos keys.
+  // ⛔ NO es 404 y la diferencia importa: el recurso *usuario* existe y la respuesta es ACCIONABLE
+  // («pídeselo»), no «te equivocaste de URL». `details: { frontOnFile, backOnFile }` le dice al
+  // revisor CUÁL falta, que es justo lo que va a tener que pedirle al cliente.
+  INE_NOT_ON_FILE: 'INE_NOT_ON_FILE',
+  // ⭐ v1.69 (P-78, API_CONTRACT §M6-K.4) — 422. `PATCH /admin/users/:id/kyc` con
+  // `kycStatus:'rejected'` y SIN motivo (ausente o vacío tras `trim()`).
+  // `details: { field: 'rejectionReason' }`. El motivo LE LLEGA AL CLIENTE (`GET /users/me/kyc`):
+  // sin él, el cliente ve «rechazado» y no sabe qué corregir — un rechazo que no se puede corregir
+  // no es un rechazo, es un callejón. ⚠️ El caso inverso (motivo SIN rechazar) es
+  // `VALIDATION_ERROR`, no éste: no es «falta un dato», es «este dato aquí no significa nada».
+  KYC_REJECTION_REASON_REQUIRED: 'KYC_REJECTION_REASON_REQUIRED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',
   CLABE_INVALID: 'CLABE_INVALID',
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
@@ -553,6 +566,14 @@ export const ErrorCode = {
   // El dial que gobierna el endpoint (`sealed_value_trend` / `sealed_restock_alerts`) está en `off`.
   // Se sirve como 404 (el recurso no existe públicamente hasta encender el flag). API_CONTRACT §2-S.
   FEATURE_DISABLED: 'FEATURE_DISABLED',
+
+  // ⭐⭐ v1.69 (P-78, API_CONTRACT §M6-K.2.2/K.2.4) — **500, y es el código del FALLO CERRADO.**
+  // La bitácora de `user.kyc.reveal_ine` NO pudo escribirse ⇒ **los enlaces firmados se descartan y
+  // el cuerpo no sale**. Una URL prefirmada que nadie recibió no es una fuga; una mirada a una
+  // identidad que no dejó fila SÍ es un agujero en la promesa de «queda constancia de quién miró».
+  // ⛔ Es 500 y no 422 a propósito (doctrina de `BusinessException.internal`): el actor no hizo nada
+  // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
+  AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

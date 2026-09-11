@@ -20915,3 +20915,159 @@ exacto: lo cerraría correr esa suite sola sobre la BD sucia y capturar `body.er
 paralelo), `backend/src/jobs/` (el job encadena `sweepExpiredReservations` sin cambios: la cobertura
 nueva entra por dentro, no por el envoltorio) y `frontend/` entero. Ninguna migración de datos,
 ninguna petición a producción, ningún secreto.
+
+---
+
+## P-78 · §M6-K — LA VERIFICACIÓN DE IDENTIDAD (backend · contrato **v1.69 + las tres correcciones de v1.70/C10** · 2026-09-11, medido)
+
+> **Frente de PII.** Es la primera vez que una imagen de identidad **sale** de este servidor. Lo que
+> sigue está escrito para que `seguridad` lo revise **leyéndolo**: cada candado con su motivo, y cada
+> hueco declarado como hueco. Contrato: `API_CONTRACT §M6-K` (+ `§M6-K.2.0/.2.1/.2.3/.2.5` de v1.70).
+> Reparto: `ARCHITECTURE §4.49.6` (**BK-1…BK-6**).
+
+### P78.1 — Qué quedó implementado, tarea por tarea
+
+| # | Qué | Dónde |
+|---|---|---|
+| **BK-1** | `GET /api/v1/admin/users/:id/kyc/ine-links` — `super_admin` only, TTL 120 (techo 300), `403/404/422 INE_NOT_ON_FILE/429/500 AUDIT_WRITE_FAILED`, **auditado con fallo cerrado** | `admin.controller.ts` (`ineLinks`), `admin.service.ts` (`ineLinksUnaudited`), `actor-throttler.guard.ts` |
+| **BK-2** | `PATCH …/kyc` acepta `rejectionReason` (3–500 tras `trim()`, **obligatorio si y solo si** `rejected`), sella `reviewedAt`/`reviewedBy`, limpia `verifiedAt` al rechazar y el motivo en todo estado ≠ `rejected`; el motivo va en el `after` del `user.kyc.update` | `admin.controller.ts`, `admin.service.ts` |
+| **BK-3** | `GET /users/me/kyc`: **+`rejectionReason`** (solo en `rejected`), **+`?quotedTotalCents=N` ⇒ `ineRequiredForTotal`**, y **−`capPerRequestCents`/`capPerMonthCents`/`monthUsedCents`** | `users.controller.ts`, `users.service.ts` |
+| **BK-4** | `PUT /users/me/kyc`: `pending` **solo** si vienen keys de INE (**defecto A6**), limpia `rejectionReason`/`reviewedAt`/`reviewedBy`, y **borra en R2 la key sustituida** | `users.service.ts`, `users.module.ts` |
+| **BK-5** | Ficha M6: `nameSource` (los **dos** DTOs) + `recentShipmentRecipients` (lista blanca sobre `addressSnapshot`, últimos 5, **solo** `super_admin`) | `admin.service.ts` |
+| **BK-6** | `422 INE_REQUIRED` del intake con **`details: {}`** | `buylist.service.ts` (una línea) |
+| **M-54** | `KycProfile.rejectionReason` / `reviewedAt` / `reviewedBy` — aditiva, nullable, sin backfill, sin índices, **serializada tras M-53** | `prisma/migrations/20260911140000_m54_kyc_review_decision/` |
+
+**Las tres correcciones de `seguridad` (C10), ya dentro:** (a) el tope de 10/min **cuelga de
+`actorUserId`** (`ActorThrottlerGuard`), (b) la respuesta lleva **`Cache-Control: no-store`** +
+`X-Robots-Tag: noindex, nofollow`, (c) la bitácora graba el **TTL EFECTIVO** y, si hubo recorte,
+`ttlClamped: true` + `ttlRequested`.
+
+### P78.2 — ⭐⭐ FUGA REAL ENCONTRADA Y CERRADA: `GET /admin/users/:id` devolvía las object keys del INE
+
+**Lo cazó el candado K-2 llamando al endpoint** (`test/integration/kyc-ine-links.e2e-spec.ts`), **no**
+la lectura del código, y contradice la medición 2 de `ARCHITECTURE §4.49.0` («ninguna ruta las
+expone»): esa medición miró `ADMIN_KYC_SELECT` + `toAdminKycDTO`, que son **el camino del `PATCH`**.
+La ficha 360° **no usa ninguno de los dos**: proyecta con `...rest` sobre la fila **cruda** del
+`include`, así que devolvía `"ineFrontKey": "kyc_ine/…"` y `"ineBackKey"` a `super_admin`.
+
+- **Tercera vez que esta misma puerta filtra por el mismo motivo:** `clabeSnapshotEnc` (S49-M1-R),
+  `legalName` (D51) y ahora las keys del INE. **Lo que se proyecta por resto publica cada columna del
+  schema por omisión.**
+- **Y estaba fijado como si fuera una decisión:** `test/admin.pii.spec.ts` afirmaba
+  `expect(res.kycProfile.ineFrontKey).toBe('kyc_ine/2026/front.jpg')` con el comentario «visibles al
+  super_admin (para servir la imagen por presigned GET)». Ese motivo **ya no existe** (el presigned
+  GET resuelve la key desde `:id`) y §M6-K.8 lo retira del contrato. **El aserto se invirtió.**
+  *Un test que fija una fuga como decisión la conserva hasta que alguien relee el contrato.*
+- Candado nuevo en las dos capas: unitario (`admin.user-detail-identity.spec.ts`, los **dos** roles) e
+  integración (K-2 por HTTP).
+
+### P78.3 — Decisiones de implementación que otros roles necesitan saber
+
+1. **La auditoría del revelado vive en el CONTROLLER** (`admin.controller.ts`), no en el servicio —
+   misma forma que el precedente `buylist.reveal_clabe`. El servicio se llama
+   **`ineLinksUnaudited`**: el nombre es el candado que queda cuando el comentario deja de leerse.
+   El `try/catch` **no traga**: convierte el fallo en `500 AUDIT_WRITE_FAILED` y **vuelve a lanzar**.
+2. **`@Throttle({ default: … })` + guard propio, y NO `@Throttle({ kycIneLinks: … })`.** El bloque de
+   `§M6-K.2.0` sugiere un limitador **con nombre**; **no se puede usar con la configuración actual**:
+   `ThrottlerModule.forRoot([{ name: 'default', … }])` solo itera los limitadores **registrados**, así
+   que un metadato bajo `kycIneLinks` **lo ignorarían los dos guards** (el global y el mío) y la ruta
+   quedaría con el global de 300/min. Registrar `kycIneLinks` en el módulo sería **peor**: ese
+   limitador se aplicaría a **todas** las rutas con su propio `limit: 10`. La conducta normativa
+   (10/min **por actor**) se cumple con el `default` del handler + `getTracker` por `req.user.id`.
+   ⚠️ **Pregunta al arquitecto:** si se quiere el limitador con nombre, hace falta decidir la
+   configuración del módulo — **no la cambio yo por mi cuenta**.
+3. **Un solo TTL efectivo por petición.** `UploadsService.resolveIneViewUrlTtl()` se llama **una vez**
+   y su `seconds` alimenta los tres sitios (firma de las dos URLs, cuerpo, fila de bitácora). ⛔ Nadie
+   re-lee el env: dos lecturas del mismo dial serían dos fuentes para un hecho.
+4. **`ResponseContentDisposition: 'attachment'` se CONSERVA** y el porqué está escrito en el
+   call-site con la medición (Chromium real, 3/3): **no impide** pintar la imagen en un `<img>`;
+   impide **navegar** a ella. ⛔ No se construyó ningún endpoint proxy.
+5. **Borrado del objeto sustituido:** ocurre **después** de persistir la key nueva (si se borrara
+   antes y la escritura fallara, el cliente se queda sin INE) y **un fallo del borrado no tumba la
+   petición** (se registra `error`; queda un huérfano, exactamente como antes de v1.69 — devolverle
+   un `500` al cliente por una tarea de limpieza nuestra sería peor). ⛔ El **rechazo no borra nada**.
+6. **`verifiedBy` ya solo se escribe al VERIFICAR.** Antes se escribía en **cualquier** `PATCH`, así
+   que «quién verificó» acababa nombrando a quien **rechazó**. Al rechazar se anula `verifiedAt`
+   (lo que manda §M6-K.4) y `verifiedBy` **no se toca**.
+7. **`after` del `user.kyc.update`** es `{ kycStatus, rejectionReason? }` **más los topes cuando el
+   admin los tocó** (superset deliberado: el `after` anterior volcaba el DTO entero y los topes son
+   una decisión comercial auditada). El motivo se toma de la **fila persistida**, ya `trim`ada.
+
+### P78.4 — ⚠️ Discrepancias con lo que me llegó, y lo que hice con cada una (regla 9: no las decido yo)
+
+| # | Discrepancia | Qué hice |
+|---|---|---|
+| **D-1** | El encargo pedía **`POST …/kyc/verify` y `…/kyc/reject`** y que `PATCH …/kyc` **dejara de aceptar `kycStatus`**. El contrato **dice lo contrario**: §M6-K.4 mantiene el `PATCH` con `kycStatus` + `rejectionReason`, y `DESIGN_SYSTEM §34.6` lo confirma con su historia («v4.2 pedía dos endpoints nuevos; el arquitecto resolvió con el que ya estaba») | **Implementé el contrato.** Si se quieren los dos endpoints, **pasa por el arquitecto** |
+| **D-2** | El encargo nombraba las columnas de M-54 como `kycRejectionReason` e **`ineSubmittedAt`**. `ARCHITECTURE §4.49.3` fija **tres**: `rejectionReason`, `reviewedAt`, `reviewedBy`. `ineSubmittedAt` **no existe en el contrato**: es una **petición abierta** al arquitecto (`DESIGN_SYSTEM §34.15 A3-res`) | M-54 = las **tres** del arquitecto. **No añadí `ineSubmittedAt`** |
+| **D-3** | §11 dice que `recentShipmentRecipients` ordena por **`ShipmentRequest.createdAt`**, y **esa columna no existe**: la tabla sella su alta en **`requestedAt`** | Ordeno y leo `requestedAt`, y lo emito bajo la clave `createdAt` que declara el DTO. **Sin migración** — no se añade una segunda columna de fecha para que cuadre un nombre |
+| **D-4** | El candado **K-2** dice «el JSON de `/kyc/ine-links` **no** matchea `/kyc_ine\//`». **Es insatisfacible por construcción**: la URL prefirmada **es** el path del objeto, y la key va dentro | Implementé el espíritu de §M6-K.2.3: **ninguna key como dato estructurado**, ni el bucket. El test lo dice con todas las letras y verifica el JSON **con las `url` vaciadas**. **Para K-2 el enunciado literal solo se puede exigir a `GET /admin/users` y `GET /admin/users/:id`** (ahí sí se cumple, medido) |
+| **D-5** | El contrato declara `?quotedTotalCents=N` «entero ≥ 0» pero **no dice qué código da una entrada mal formada** | `422 VALIDATION_ERROR` + `details.field` (patrón de `AdminService.range`). ⛔ **No se ignora en silencio**: omitir la clave ante `?quotedTotalCents=abc` haría que el cotizador concluyera «no hace falta INE» por un dedazo |
+| **D-6** | El **DEPLOY 2** de `§4.49.4` (retirar los tres números del DTO del cliente + `details: {}` del intake) **se entrega en el mismo commit** que el deploy 1, porque así me lo encargaron | **⚠️ Aviso a devops/frontend:** con este commit, `KycSection.tsx:115-130` y `useSellRequirements.ts:62-66` **dejan de recibir los tres campos**. Si el frontend de FE-3/FE-4 no entra en el mismo despliegue, el cliente ve huecos donde había cifras. **El orden de merge lo decide el orquestador** |
+
+### P78.5 — Gates: qué medí, sobre qué árbol, y qué NO medí
+
+Todas las mutaciones corrieron sobre una **copia del árbol ENTERO** en mi scratchpad
+(`scratchpad/backend-P78/tree`, `node_modules` enlazado, nunca el árbol vivo), **3 tiradas cada una**,
+con base verde y revertido verde:
+
+| Mutación | Spec que la caza | Proporción |
+|---|---|---|
+| M-1 · la auditoría se traga el error (fallo **abierto**) | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-2 · defecto **A6**: todo `PUT` vuelve a `pending` | `users.kyc-cycle` | **ROJO 3/3** |
+| M-3 · rechazar sin motivo se acepta | `admin.kyc-review` | **ROJO 3/3** |
+| M-4 · la key sustituida se queda **huérfana** en R2 | `users.kyc-cycle` | **ROJO 3/3** |
+| M-5 · el TTL pierde el techo duro | `uploads.ine-view-url` | **ROJO 3/3** |
+| M-6 · un tope vuelve a la vista del cliente | `users.kyc-cycle` | **ROJO 3/3** |
+| M-7 · el tope vuelve al eje de la **IP** | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-8 · la respuesta pierde `Cache-Control: no-store` | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-9 · el motivo **residual** se le enseña al cliente ya verificado | `users.kyc-cycle` | **ROJO 3/3** |
+| M-10 · el `addressSnapshot` **entero** viaja a la ficha | `admin.user-detail-identity` | **ROJO 3/3** |
+| M-11 · el intake vuelve a imprimir el umbral | `buylist.ine-pending` | **ROJO 3/3** |
+| M-12 · la bitácora graba el TTL como **constante** | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-13 · las object keys del INE vuelven a salir por la ficha 360° | `admin.user-detail-identity` **y** `admin.pii` | **ROJO 3/3 y 3/3** |
+| M-14 · la bitácora oculta que hubo **recorte** del TTL | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-15 · el TTL del `after` se re-deriva como constante | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-16 · el clamp pierde el valor **pedido** | `uploads.ine-view-url` | **ROJO 3/3** |
+
+| Gate | Resultado |
+|---|---|
+| `npm run lint` | **0 errores** (2 *warnings* preexistentes en `inventory`, ajenos) |
+| `npm run typecheck` | **exit 0** |
+| `npx jest` (unitarios) | **287 suites / 4717 pruebas, verde** |
+| Integración — spec nuevo (`kyc-ine-links.e2e-spec.ts`) | **13/13 verde** |
+| Integración — suite completa | **30/33 suites · 463/478** |
+| **Línea base** de la misma suite sobre `HEAD` **sin mis cambios** (árbol de `git archive HEAD`, misma BD) | **28/31 · 443/458** — **los MISMOS 3 rojos y los MISMOS 15 tests**: `buylist-cycle`, `graded-estimate`, `pricing-visibility` ⇒ **preexistentes, no son de P-78** (y `buylist-cycle` pasa **70/70 corriendo sola**: es acoplamiento de estado entre suites) |
+
+**⚠️ NO MEDIDO, con la medición que lo cerraría:**
+
+1. **El `429` real del tope por actor** (candado de §M6-K.2.0: *«11 llamadas con la misma sesión y
+   `X-Forwarded-For` distinto ⇒ `429` en la 11.ª»*). Bajo `NODE_ENV=test` **el throttler se omite a
+   propósito** (`AppThrottlerGuard`/`isThrottlerDisabled`), así que la suite de integración **no puede
+   verlo**. Lo que sí está medido es el **eje**: `getTracker` da el mismo cubo para dos IPs distintas
+   del mismo actor y cubos distintos para dos actores en la misma IP (unitario, mutación M-7 roja
+   3/3). **Lo cerraría:** un arnés con el throttler **encendido** (`NODE_ENV` ≠ `test`) que lance 11
+   peticiones con el mismo token rotando `X-Forwarded-For` y exija `429` en la 11.ª — es el mismo
+   arnés que pide `C7` para `change-password`, y **no existe todavía**.
+2. **Si el bucket de producción es privado de verdad** (`ARCHITECTURE §4.49.0(a)`). Sigue siendo de
+   `seguridad`: un `GET` anónimo sin firma a una key de `kyc_ine/` debe dar `403`. **Con un bucket
+   público-lectura, todo este frente es teatro.**
+3. **Cuántos objetos huérfanos hay YA en R2** por sobrescrituras pasadas. Esta entrega evita los
+   **futuros**; **no limpia los existentes**. Lo cerraría: listar el prefijo `kyc_ine/` y restar las
+   keys presentes en `KycProfile` (devops + ventana del dueño).
+4. **Cuántas filas de `KycProfile` tienen UNA sola key** (rama del `422 INE_NOT_ON_FILE` parcial).
+   Necesita consulta contra producción.
+5. **El TTL de punta a punta con el dial movido.** El candado de C10(c) («con `=240` la fila dice
+   240; con `=3600`, 300 + `ttlClamped`») está medido **en unitario** con `ConfigService` real y
+   mutaciones (M-12/M-14/M-15/M-16). **No** lo medí por HTTP: la suite de integración levanta la app
+   una vez por proceso y no re-lee el env por petición.
+
+### P78.6 — Fuera de alcance (explícitamente NO tocado)
+
+⛔ `inventory` y `pricing` (otro agente backend) · ⛔ `frontend/` entero · ⛔ el régimen de la CLABE
+(`reveal-clabe` intacto) y el del RFC · ⛔ `BUYLIST_LIMIT_EXCEEDED (per_month)` sigue emitiendo
+`capCents`/`wouldBeCents` (§M6-K.5 lo serializa a la revisión siguiente) · ⛔ `legalName` y
+`capPerRequestCentsOverride` siguen **inertes** (la deuda de DDL de §4.49.3 queda **disparada y sin
+ejecutar**: borrar columnas y publicar imágenes de identidad en la misma migración mezcla dos riesgos
+que se revisan distinto — **la decide backend con techlead**) · ⛔ ningún correo nuevo (el «noveno
+correo» de `DESIGN_SYSTEM §34.7` **no está en el contrato**) · ⛔ ninguna consulta a producción,
+ningún secreto, ningún dato real de cliente.
