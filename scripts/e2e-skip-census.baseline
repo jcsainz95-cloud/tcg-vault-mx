@@ -1,0 +1,7 @@
+# Baseline del censo de salvaguardas E2E (scripts/check-e2e-skip-census.sh).
+# Formato: clave ocurrencias ficheros. Se regenera SOLO con --update --motivo, en el mismo diff que el cambio.
+# 2026-09-11 · baseline inicial (N7, techlead 2026-09-11): primer censo con este método; 20 ficheros con alguna salvaguarda
+mockOnly 78 17
+needsSeed 30 7
+harnessLimit 4 2
+skipIfSeedMissing 8 3

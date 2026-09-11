@@ -3,6 +3,7 @@ import {
   apiRequest,
   ApiClientError,
   getToken,
+  requestBlob,
   setToken,
   getRefreshToken,
   setRefreshToken,
@@ -47,6 +48,53 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+/** Response binaria mínima (blob + cabeceras) para `requestBlob`. */
+function makeBlobRes(status: number, bytes: string, filename?: string) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => ({ error: { code: 'UNAUTHENTICATED', message: 'Access token expired' } }),
+    blob: async () => new Blob([bytes]),
+    headers: { get: (h: string) => (h === 'Content-Disposition' && filename ? `attachment; filename="${filename}"` : null) },
+  } as unknown as Response;
+}
+
+describe('api-client · requestBlob comparte el núcleo de sesión (techlead F2-9)', () => {
+  it('401 → refresh → reintenta UNA vez con el token nuevo y devuelve blob + filename', async () => {
+    setToken('old.token');
+    setRefreshToken('refresh.1');
+    setStoredUser(mockUser);
+    fetchMock
+      .mockResolvedValueOnce(makeBlobRes(401, ''))
+      .mockResolvedValueOnce(makeRes(200, { accessToken: 'new.token', refreshToken: 'refresh.2' }))
+      .mockResolvedValueOnce(makeBlobRes(200, 'xlsx-bytes', 'inventario.xlsx'));
+
+    const out = await requestBlob('/admin/inventory/export.xlsx', { query: { status: 'listed' } });
+    expect(out.blob).toBeInstanceOf(Blob);
+    expect(out.blob.size).toBe('xlsx-bytes'.length);
+    expect(out.filename).toBe('inventario.xlsx');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Sin Content-Type JSON en la descarga; el reintento lleva el token NUEVO y la misma query.
+    const [firstUrl, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(firstUrl).toContain('/admin/inventory/export.xlsx?status=listed');
+    expect((firstInit.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+    const [, retryInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect((retryInit.headers as Record<string, string>).Authorization).toBe('Bearer new.token');
+    expect(getToken()).toBe('new.token');
+    expect(getRefreshToken()).toBe('refresh.2');
+  });
+
+  it('refresh falla → limpia la sesión y propaga el 401 como ApiClientError', async () => {
+    setToken('old.token');
+    setRefreshToken('refresh.dead');
+    setStoredUser(mockUser);
+    fetchMock.mockResolvedValueOnce(makeBlobRes(401, '')).mockResolvedValueOnce(makeRes(401, UNAUTH));
+    await expect(requestBlob('/admin/inventory/export.xlsx')).rejects.toMatchObject({ status: 401 });
+    expect(getToken()).toBeNull();
+    expect(getStoredUser()).toBeNull();
+  });
 });
 
 describe('api-client · interceptor de refresh (WS-B)', () => {

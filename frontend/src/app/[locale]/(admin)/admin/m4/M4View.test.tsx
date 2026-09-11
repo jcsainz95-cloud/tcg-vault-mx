@@ -4,6 +4,28 @@ import { renderWithProviders } from '@/test/render';
 import { M4View } from './M4View';
 import * as api from '@/lib/api';
 
+// «Ver ficha» → M6 usa Link de next-intl con href de objeto; en jsdom se aplana a <a href>.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({
+    href,
+    children,
+    ...props
+  }: {
+    href: string | { pathname: string; query?: Record<string, string> };
+    children: React.ReactNode;
+  }) => {
+    const flat =
+      typeof href === 'string'
+        ? href
+        : `${href.pathname}${href.query ? `?${new URLSearchParams(href.query).toString()}` : ''}`;
+    return (
+      <a href={flat} {...props}>
+        {children}
+      </a>
+    );
+  },
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -129,5 +151,139 @@ describe('M4View · cambio de estado manual (F4)', () => {
     expect(screen.queryByRole('button', { name: 'Marcar entregado' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * §33.10d / D-CTA-6 (contrato §M4 v1.67): la fila pinta DESTINATARIO + dirección del
+ * `addressSnapshot` y el bloque «Cliente», nunca el `userId` crudo. Sin destinatario (retiro
+ * anterior a v1.67) lo dice en mono rojo — jamás sustituye con `User.name`.
+ */
+describe('M4View · destinatario y dirección (F9)', () => {
+  const base = {
+    status: 'picking' as const,
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-09-10T09:30:00Z',
+    items: [{ inventoryItemId: 'inv-1001' }],
+  };
+
+  it('pinta «Para {nombre} · ciudad, estado · CP · Tel» del snapshot y «Cliente … Ver ficha», sin el userId', async () => {
+    vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
+      data: [
+        {
+          id: 'shp-9001',
+          userId: 'u-777',
+          ...base,
+          // Suelto deprecado (v1.67.1) + snapshot canónico con el MISMO valor (invariante del contrato).
+          recipientName: 'Misty Waterflower',
+          addressSnapshot: {
+            recipientName: 'Misty Waterflower',
+            line1: 'Calle Falsa 123',
+            city: 'Guadalajara',
+            state: 'JAL',
+            postalCode: '44100',
+            country: 'MX',
+            phone: '3331234567',
+          },
+        } as never,
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    renderWithProviders(<M4View />, 'es');
+
+    const parties = await screen.findByTestId('shipment-parties-shp-9001');
+    expect(parties).toHaveTextContent('Para Misty Waterflower · Guadalajara, JAL · CP 44100 · Tel 3331234567');
+    // Sin `customer` en el DTO: «—» (nunca omitido en silencio), y el enlace a la ficha por id.
+    expect(parties).toHaveTextContent('Cliente — · —');
+    expect(within(parties).getByRole('link', { name: 'Ver ficha' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('/admin/m6?user=u-777'),
+    );
+    expect(screen.queryByText('u-777')).not.toBeInTheDocument();
+    expect(parties).not.toHaveTextContent('SIN DESTINATARIO');
+  });
+
+  it('v1.67.1 (D-CTA-9): el destinatario sale del SNAPSHOT aunque el suelto deprecado no venga; y si SOLO viene el suelto (legado), se tolera', async () => {
+    vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
+      data: [
+        {
+          id: 'shp-9003',
+          userId: 'u-779',
+          ...base,
+          addressSnapshot: { recipientName: 'Brock Harrison', line1: 'x', city: 'Pewter', state: 'KAN', postalCode: '10000', country: 'MX', phone: '5550000001' },
+        },
+        {
+          id: 'shp-9004',
+          userId: 'u-780',
+          ...base,
+          // Fila legado: solo la proyección suelta (sin snapshot). Se tolera, después del snapshot.
+          recipientName: 'Erika Celadon',
+          addressSnapshot: null,
+        },
+        {
+          id: 'shp-9005',
+          userId: 'u-781',
+          ...base,
+          // Si ambos vienen, gana el snapshot (canónico), no el suelto.
+          recipientName: 'VIEJO',
+          addressSnapshot: { recipientName: 'Sabrina Saffron', line1: 'y', city: 'Saffron', state: 'KAN', postalCode: '10001', country: 'MX', phone: '5550000002' },
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 3,
+    });
+    renderWithProviders(<M4View />, 'es');
+    expect(await screen.findByTestId('shipment-parties-shp-9003')).toHaveTextContent('Para Brock Harrison');
+    expect(screen.getByTestId('shipment-parties-shp-9004')).toHaveTextContent('Para Erika Celadon');
+    const both = screen.getByTestId('shipment-parties-shp-9005');
+    expect(both).toHaveTextContent('Para Sabrina Saffron');
+    expect(both).not.toHaveTextContent('VIEJO');
+  });
+
+  it('retiro anterior a v1.67 (snapshot de ocho campos): «SIN DESTINATARIO» en mono rojo, resto igual, sin User.name', async () => {
+    vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
+      data: [
+        {
+          id: 'shp-9002',
+          userId: 'u-778',
+          ...base,
+          addressSnapshot: {
+            line1: 'Av. Reforma 222',
+            city: 'Ciudad de México',
+            state: 'CDMX',
+            postalCode: '06600',
+            country: 'MX',
+            phone: '5555123456',
+          },
+          customer: { id: 'u-778', name: 'jcsainz95', email: 'jcsainz95@example.com' },
+        } as never,
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    renderWithProviders(<M4View />, 'es');
+
+    const parties = await screen.findByTestId('shipment-parties-shp-9002');
+    const missing = within(parties).getByText('SIN DESTINATARIO (retiro anterior a v1.67)');
+    expect(missing.className).toContain('text-accent');
+    expect(missing.className).toContain('font-mono');
+    expect(parties).toHaveTextContent('Ciudad de México, CDMX · CP 06600 · Tel 5555123456');
+    // El nombre del cliente va en SU línea; nunca ocupa el lugar del destinatario.
+    expect(parties).toHaveTextContent('Cliente jcsainz95 · jcsainz95@example.com');
+    expect(parties).not.toHaveTextContent('Para jcsainz95');
+    expect(screen.queryByText('u-778')).not.toBeInTheDocument();
+  });
+
+  it('sin snapshot ni destinatario (fixture actual): cada dato ausente es «—» y nunca el userId', async () => {
+    renderWithProviders(<M4View />, 'es');
+    const parties = await screen.findByTestId('shipment-parties-shp-7001');
+    expect(parties).toHaveTextContent('SIN DESTINATARIO');
+    expect(parties).toHaveTextContent('—, — · CP — · Tel —');
+    expect(screen.queryByText('u-777')).not.toBeInTheDocument();
   });
 });

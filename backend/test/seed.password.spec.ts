@@ -24,8 +24,8 @@ describe('seed — SEC-C1 política de contraseñas', () => {
 
   it('en entorno NO-local, usa el valor de la env cuando está presente', () => {
     process.env.NODE_ENV = 'staging';
-    process.env.SEED_ADMIN_PASSWORD = 'A-Strong-Secret-123';
-    expect(requiredSeedPassword('SEED_ADMIN_PASSWORD', 'weak')).toBe('A-Strong-Secret-123');
+    process.env.SEED_ADMIN_PASSWORD = 'Fuerte-Desde-Env-1';
+    expect(requiredSeedPassword('SEED_ADMIN_PASSWORD', 'weak')).toBe('Fuerte-Desde-Env-1');
   });
 
   it('en local (development/test), permite fallback SOLO para desarrollo', () => {

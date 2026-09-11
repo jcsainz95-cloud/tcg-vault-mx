@@ -606,12 +606,13 @@ describe('BuylistView · acabado (finish, raw)', () => {
 });
 
 /**
- * "Mis solicitudes": sin sesión NUNCA muestra estado de error — la sección invita a
- * iniciar sesión en tono informativo y no consulta el endpoint. Con sesión, el
- * pendiente sigue siendo honesto (sin MX$0.00).
+ * §33.3 (Stream A): «Mis solicitudes» se MUDÓ a la pestaña Ventas de «Compras y ventas». En
+ * /buylist queda UNA línea con sesión y, sin sesión, la invitación neutra de siempre — que
+ * NUNCA consulta el endpoint ni muestra error. El enlace de entrar lleva `?next=/buylist`
+ * (§33.11): el carrito de venta persiste y el usuario vuelve al cotizador.
  */
-describe('BuylistView · Mis solicitudes', () => {
-  it('sin sesión: invita a iniciar sesión, NO consulta el endpoint y NO muestra error', async () => {
+describe('BuylistView · Mis solicitudes (enlace a Ventas)', () => {
+  it('sin sesión: invita a iniciar sesión con next=/buylist, NO consulta el endpoint y NO muestra error', async () => {
     const spy = vi.spyOn(api, 'getSellRequests').mockRejectedValue(new Error('401'));
     renderWithProviders(<BuylistView />, 'es');
 
@@ -620,150 +621,207 @@ describe('BuylistView · Mis solicitudes', () => {
     ).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // El primer «Iniciar sesión» es el de la invitación (el del carrito vive en el drawer).
+    const invite = screen
+      .getAllByRole('link', { name: 'Iniciar sesión' })
+      .find((a) => a.getAttribute('href') === '/login?next=/buylist');
+    expect(invite).toBeDefined();
   });
 
-  it('un item sin precio muestra "Precio pendiente" (no MX$0.00) y una nota explica el total', async () => {
+  it('con sesión: NO lista solicitudes aquí; enlaza «Ver el estado de mis solicitudes» → /orders?tab=ventas', async () => {
     asVerifiedCustomer();
-    const card: CardDTO = {
-      id: 'c-zapdos',
-      externalId: 'base1-16',
-      name: 'Zapdos',
-      number: '16',
-      rarity: 'Rare Holo',
-      supertype: 'Pokémon',
-      subtypes: [],
-      setId: 'base1',
-      setName: 'Base Set',
-      imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
-      imageLargeUrl: 'https://images.pokemontcg.io/base1/16_hires.png',
-      availableFinishes: ['normal'],
-    };
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-pend-1',
-        status: 'cotizada',
-        quotedTotalCents: 0,
-        ineRequired: false,
-        items: [
-          {
-            id: 'sri-1',
-            card,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'normal',
-            rarity: 'Rare Holo',
-            itemStatus: 'precio_pendiente',
-          },
-        ],
-        createdAt: '2026-08-17T10:00:00Z',
-      }),
-    ]);
+    const spy = vi.spyOn(api, 'getSellRequests').mockResolvedValue([]);
     renderWithProviders(<BuylistView />, 'es');
 
-    expect(await screen.findByText('sr-pend-1')).toBeInTheDocument();
-    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
-    expect(
-      screen.getByText('El total mostrado no incluye las cartas con precio pendiente.'),
-    ).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: /Ver el estado de mis solicitudes/ });
+    expect(link).toHaveAttribute('href', '/orders?tab=ventas');
+    expect(screen.queryByRole('heading', { name: 'Mis solicitudes' })).not.toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
 /**
- * F5 · Responder ajuste de venta. El bloque de aceptar/rechazar aparece SOLO cuando hay ítems
- * `ajustada` (item-level), y "Aceptar" llama a respondSellRequest(id,'accept').
+ * §33.11 / ARCHITECTURE §4.47.6 (P-55): el carrito de venta sobrevive al login y, al restaurarlo,
+ * SUS PRECIOS SE VUELVEN A PEDIR. El precio persistido NO es autoridad («nunca inventes un
+ * precio»): hasta que el batch vuelve, el total es «—» y el CTA está apagado con `aria-busy`.
  */
-describe('BuylistView · responder ajuste (F5)', () => {
-  const adjustedCard: CardDTO = {
-    id: 'c-charizard',
-    externalId: 'base1-4',
-    name: 'Charizard',
-    number: '4',
-    rarity: 'Rare Holo',
-    supertype: 'Pokémon',
-    subtypes: [],
-    setId: 'base1',
-    setName: 'Base Set',
-    imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
-    imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png',
-    availableFinishes: ['holofoil'],
-  };
+describe('BuylistView · carrito de venta restaurado (P-55)', () => {
+  const storedLine = (cents: number) => ({
+    id: 'line-1',
+    card: { id: 'c-charizard', name: 'Charizard', number: '4' },
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    quote: {
+      rarity: 'Rare Holo',
+      finish: 'normal',
+      priceBasis: 'market',
+      quote: { status: 'cotizada', quotedPriceCents: cents, currency: 'MXN' },
+      referencePrice: { status: 'priced', priceMxnCents: cents * 2 },
+      paymentNotice: 'PAY_AFTER_RECEIPT',
+    },
+    quantity: 1,
+  });
 
-  function withAdjustedRequest() {
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-adj-1',
-        status: 'verificacion',
-        quotedTotalCents: 60000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [
-          {
-            id: 'sri-adj-1',
-            card: adjustedCard,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'holofoil',
-            rarity: 'Rare Holo',
-            quotedPriceCents: 60000,
-            approvedPriceCents: 45000,
-            itemStatus: 'ajustada',
-          },
-        ],
-      }),
-    ]);
+  function batchWith(cents: number, gate?: Promise<void>) {
+    return vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => {
+      if (gate) await gate;
+      return {
+        results: items.map((it, index) => ({
+          index,
+          cardId: it.cardId,
+          ok: true as const,
+          rarity: 'Rare Holo',
+          finish: it.finish ?? ('normal' as const),
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada' as const, quotedPriceCents: cents, currency: 'MXN' as const },
+          referencePrice: { status: 'priced' as const, priceMxnCents: cents * 2 },
+          paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        })),
+      };
+    });
   }
 
-  it('el bloque de ajuste aparece solo con ítems `ajustada` y muestra el precio ajustado', async () => {
+  it('mientras recotiza: «se conservó», total «—», CTA deshabilitado con aria-busy; luego el precio es el NUEVO', async () => {
     asVerifiedCustomer();
-    withAdjustedRequest();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 1000 }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const batch = batchWith(125000, gate);
     renderWithProviders(<BuylistView />, 'es');
 
-    expect(await screen.findByText('sr-adj-1')).toBeInTheDocument();
-    expect(screen.getByText('Ajuste de precio propuesto')).toBeInTheDocument();
-    // El precio ajustado (MX$450.00) se muestra; el original queda tachado.
-    expect(screen.getByText('Aceptar ajuste')).toBeInTheDocument();
-    expect(screen.getByText('Rechazar')).toBeInTheDocument();
+    expect(await screen.findByText('Tu lista de venta se conservó: 1 carta(s).')).toBeInTheDocument();
+    await waitFor(() => expect(batch).toHaveBeenCalled());
+    openCart();
+    // Lo desconocido no se afirma: «—», no la cifra vieja (MX$1,000.00 no aparece como total).
+    expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
+    // §33.11.2 (v4.1.2): tampoco POR LÍNEA — subtotal y «Estimado c/u» son «—», el <ul> está aria-busy,
+    // y la cifra persistida no aparece en NINGÚN sitio del drawer. Un solo aria-label (en el total).
+    const lines = screen.getByTestId('sell-cart-lines');
+    expect(lines).toHaveAttribute('aria-busy', 'true');
+    expect(within(lines).getByTestId('sell-cart-line-subtotal-dash')).toHaveTextContent('—');
+    expect(within(lines).getByTestId('sell-cart-line-unit-dash')).toHaveTextContent('—');
+    expect(lines).not.toHaveTextContent('MX$');
+    expect(screen.getAllByLabelText('Actualizando los precios de tu lista')).toHaveLength(1);
+    const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
+    expect(cta).toBeDisabled();
+    expect(cta).toHaveAttribute('aria-busy', 'true');
+
+    release();
+    // Al volver el batch: el total es el precio de HOY (1,250.00), el CTA vive y se explica el cambio.
+    await waitFor(() => expect(screen.queryByTestId('sell-cart-total-requoting')).not.toBeInTheDocument());
+    const money = screen.getByTestId('sell-cart-money');
+    expect(money).toHaveTextContent('MX$1,250.00');
+    // Las líneas vuelven a pintar cifra (la de hoy) y el <ul> deja de estar ocupado.
+    expect(lines).toHaveTextContent('MX$1,250.00');
+    expect(lines).not.toHaveAttribute('aria-busy');
+    expect(within(lines).queryByTestId('sell-cart-line-subtotal-dash')).not.toBeInTheDocument();
+    expect(money).not.toHaveTextContent('MX$1,000.00');
+    await waitFor(() => expect(cta).toBeEnabled());
+    expect(cta).not.toHaveAttribute('aria-busy');
+    expect(
+      screen.getByText('Actualizamos tu lista con los precios de hoy: antes MX$1,000.00, ahora MX$1,250.00.'),
+    ).toBeInTheDocument();
   });
 
-  it('el bloque NO aparece cuando ningún ítem está `ajustada`', async () => {
+  it('el batch se pide con las MISMAS (cardId, finish) guardadas y una línea caída se quita con aviso', async () => {
     asVerifiedCustomer();
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-plain-1',
-        status: 'verificacion',
-        quotedTotalCents: 50000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [
-          {
-            id: 'sri-1',
-            card: adjustedCard,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'holofoil',
-            rarity: 'Rare Holo',
-            quotedPriceCents: 50000,
-            itemStatus: 'verificacion',
-          },
-        ],
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({
+        lines: [storedLine(100000), { ...storedLine(3000), id: 'line-2', card: { id: 'c-gone', name: 'Missingno', number: '0' } }],
+        updatedAt: Date.now() - 1000,
       }),
-    ]);
+    );
+    const batch = vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
+      results: items.map((it, index) =>
+        it.cardId === 'c-gone'
+          ? { index, cardId: it.cardId, ok: false as const, error: { code: 'NOT_FOUND' as const, message: 'nope' } }
+          : {
+              index,
+              cardId: it.cardId,
+              ok: true as const,
+              rarity: 'Rare Holo',
+              finish: it.finish ?? ('normal' as const),
+              priceBasis: 'market' as const,
+              quote: { status: 'cotizada' as const, quotedPriceCents: 100000, currency: 'MXN' as const },
+              referencePrice: { status: 'priced' as const, priceMxnCents: 200000 },
+              paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+            },
+      ),
+    }));
     renderWithProviders(<BuylistView />, 'es');
 
-    expect(await screen.findByText('sr-plain-1')).toBeInTheDocument();
-    expect(screen.queryByText('Ajuste de precio propuesto')).not.toBeInTheDocument();
+    expect(await screen.findByText('Quitamos 1 carta(s) que ya no podemos cotizar.')).toBeInTheDocument();
+    expect(batch).toHaveBeenCalledWith([
+      { cardId: 'c-charizard', productType: 'raw', rawCondition: 'NM', finish: 'normal' },
+      { cardId: 'c-gone', productType: 'raw', rawCondition: 'NM', finish: 'normal' },
+    ]);
+    openCart();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
+    expect(screen.queryByText('Missingno')).not.toBeInTheDocument();
   });
 
-  it('"Aceptar ajuste" llama respondSellRequest(id, "accept")', async () => {
+  it('si el batch falla: la lista se conserva, el CTA sigue apagado con motivo y «Reintentar» lo recupera', async () => {
     asVerifiedCustomer();
-    withAdjustedRequest();
-    const spy = vi
-      .spyOn(api, 'respondSellRequest')
-      .mockResolvedValue({ id: 'sr-adj-1', status: 'aprobada' });
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 1000 }),
+    );
+    const batch = vi.spyOn(api, 'batchQuote').mockRejectedValueOnce(new Error('network'));
     renderWithProviders(<BuylistView />, 'es');
+    await screen.findByText('Tu lista de venta se conservó: 1 carta(s).');
+    openCart();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Aceptar ajuste' }));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-adj-1', 'accept'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos actualizar los precios. Reintenta.');
+    const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
+    expect(cta).toBeDisabled();
+    expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-requote-failed');
+    expect(screen.getByText('Charizard')).toBeInTheDocument();
+    // §33.11.2 caso 5: la lista se conserva en memoria, pero NO se pinta ninguna cifra (total ni líneas)
+    // hasta que «Reintentar» traiga precios frescos. El <ul> no está aria-busy (nada en vuelo).
+    expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
+    const lines = screen.getByTestId('sell-cart-lines');
+    expect(lines).not.toHaveAttribute('aria-busy');
+    expect(within(lines).getByTestId('sell-cart-line-subtotal-dash')).toHaveTextContent('—');
+    expect(within(lines).getByTestId('sell-cart-line-unit-dash')).toHaveTextContent('—');
+    expect(lines).not.toHaveTextContent('MX$');
+
+    batch.mockRestore();
+    batchWith(100000);
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(cta).toBeEnabled());
+    expect(lines).toHaveTextContent('MX$1,000.00');
+    expect(screen.queryByTestId('sell-cart-total-requoting')).not.toBeInTheDocument();
+  });
+
+  it('caducada (> 30 días): se vacía y lo dice; sin batch', async () => {
+    asVerifiedCustomer();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 31 * 24 * 3600 * 1000 }),
+    );
+    const batch = vi.spyOn(api, 'batchQuote');
+    renderWithProviders(<BuylistView />, 'es');
+    expect(
+      await screen.findByText('Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas.'),
+    ).toBeInTheDocument();
+    expect(batch).not.toHaveBeenCalled();
+    openCart();
+    expect(screen.queryByRole('button', { name: /Enviar solicitud/ })).not.toBeInTheDocument();
+  });
+
+  it('los CTAs sin sesión del carrito llevan ?next=/buylist', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+    const links = screen.getAllByRole('link', { name: 'Iniciar sesión' }).map((a) => a.getAttribute('href'));
+    expect(links).toContain('/login?next=/buylist');
+    const registers = screen.getAllByRole('link', { name: 'Crear cuenta' }).map((a) => a.getAttribute('href'));
+    expect(registers).toContain('/register?next=/buylist');
   });
 });
 
@@ -1365,104 +1423,5 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
     // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
     expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
-  });
-});
-
-/**
- * v1.51 (M-46) · el portal del vendedor tenía su propia derivación del desenlace:
- * `errored={r.status === 'rechazada' || r.status === 'abandonada'}` — dos literales que, con
- * `expirada` en el enum, dejaban de reconocer un cierre real. Ahora sale de `isTerminal`
- * (server-derived) menos el único terminal FELIZ.
- *
- * Y §23.1d: `expirada` se pinta por su MOTIVO. Aquí es donde más importa, porque es la pantalla
- * del propio vendedor: un `no_offer` (no ofertamos NOSOTROS) pintado como `not_shipped` le
- * imputaría un incumplimiento que nunca cometió.
- */
-describe('BuylistView · «Mis solicitudes» y los estados nuevos (v1.51 · M-46)', () => {
-  const card: CardDTO = {
-    id: 'c-exp',
-    externalId: 'c-exp',
-    name: 'Charizard',
-    number: '4',
-    rarity: 'Rare Holo',
-    supertype: 'Pokémon',
-    subtypes: [],
-    setId: 'base1',
-    setName: 'Base Set',
-    imageSmallUrl: '',
-    imageLargeUrl: '',
-    availableFinishes: ['holofoil'],
-  };
-
-  function withExpired(expiredReason: 'no_offer' | 'not_shipped') {
-    asVerifiedCustomer();
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-exp-1',
-        status: 'expirada',
-        expiredReason,
-        quotedTotalCents: 60000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [
-          {
-            id: 'sri-exp-1',
-            card,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'holofoil',
-            rarity: 'Rare Holo',
-            quotedPriceCents: 60000,
-            itemStatus: 'cotizada',
-          },
-        ],
-      }),
-    ]);
-  }
-
-  it('una `expirada` por `no_offer` dice «No procedió» y NO acusa al vendedor', async () => {
-    withExpired('no_offer');
-    renderWithProviders(<BuylistView />, 'es');
-
-    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
-    const badge = screen.getByText('No procedió');
-    expect(badge).toBeInTheDocument();
-    expect(badge.className).toContain('text-muted');
-    // Ni el rótulo genérico ni la versión acusatoria.
-    expect(screen.queryByText('Expirada')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sin envío')).not.toBeInTheDocument();
-  });
-
-  it('una `expirada` por `not_shipped` sí dice «Sin envío» (los dos motivos NO se colapsan)', async () => {
-    withExpired('not_shipped');
-    renderWithProviders(<BuylistView />, 'es');
-
-    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
-    expect(screen.getByText('Sin envío')).toBeInTheDocument();
-    expect(screen.queryByText('No procedió')).not.toBeInTheDocument();
-  });
-
-  it('el pipeline del vendedor tiene los OCHO pasos del contrato, no los cinco viejos', async () => {
-    asVerifiedCustomer();
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-tr-1',
-        status: 'en_transito',
-        quotedTotalCents: 60000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [],
-      }),
-    ]);
-    renderWithProviders(<BuylistView />, 'es');
-    await screen.findByText('sr-tr-1');
-
-    // `en_transito` ES un paso alcanzable: antes caía fuera de la lista de cinco y el stepper
-    // no marcaba NINGÚN paso como actual (`currentIdx === -1`).
-    const current = document.querySelector('li[aria-current="step"]');
-    expect(current).not.toBeNull();
-    expect(current!.textContent).toContain('En tránsito');
-    // El stepper (el `<ol>` que contiene ese paso; la página tiene otras listas) es de OCHO.
-    expect(current!.parentElement!.children).toHaveLength(8);
   });
 });

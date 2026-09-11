@@ -5,7 +5,7 @@
 > Se edita solo cuando el dueño cambia un hecho o una medición nueva lo refuta (regla O-2). Un hecho sin fecha
 > ni fuente no entra aquí: va a `PENDIENTES.md` como «NO MEDIDO».
 >
-> Última revisión: 2026-09-11 (orquestador). Origen: sección «HECHOS DEL NEGOCIO» de `PENDIENTES.md`, movida aquí.
+> Última revisión: 2026-09-11 (orquestador, sesión 2: añadida la decisión sobre la contraseña temporal). Origen: sección «HECHOS DEL NEGOCIO» de `PENDIENTES.md`, movida aquí.
 
 > Esta sección existe porque el orquestador preguntó **cinco veces** lo mismo. Un hecho que el dueño ya
 > estableció y que un agente vuelve a preguntar **le gasta su tiempo y le hace repetirse**. Antes de
@@ -17,6 +17,7 @@
 | **No hay staging. Solo producción.** | 2026-09-10 | ⛔ No se piden credenciales de staging. El blanco de seguridad es **local**. |
 | **Las claves de PRUEBA de Stripe YA ESTÁN en los secrets de GitHub** (`STRIPE_TEST_SECRET_KEY`, `STRIPE_TEST_PUBLISHABLE_KEY`), desde el **2026-09-07**. | 2026-09-10, con captura | ⛔ **NO se le vuelven a pedir.** El gate de dinero **puede correr**. Ver el error de medición abajo. |
 | **El repositorio es PÚBLICO.** | briefing original | Ningún secreto, ni de mentira, puede vivir en el árbol. |
+| **La contraseña temporal (reseteo por el admin) OBLIGA a cambiarla antes de dejar operar.** Decisión textual: «Que obligue a cambiarla». | 2026-09-11 (sesión 2, al presentarle P-75) | `mustChangePassword` pasa de aviso sin consecuencia a **bloqueo**: el contrato define el guard y el error (`docs/API_CONTRACT.md`, Stream A); el frontend lleva al usuario a la pantalla de cambio y no le deja esquivarla. No se vuelve a preguntar. |
 
 ## ⚠️ ERROR DE MEDICIÓN DEL EQUIPO — «los tres flujos de dinero nunca se han ejecutado»
 

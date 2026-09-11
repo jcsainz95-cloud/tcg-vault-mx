@@ -45,7 +45,7 @@ set -uo pipefail
 # -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 
 ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 bad()  { printf '\033[1;31m  ✖ %s\033[0m\n' "$*" >&2; FAILED=1; }
@@ -57,6 +57,8 @@ ASSERT="scripts/assert-serving-head.sh"
 STACK="scripts/stack-native.sh"
 E2E_WF=".github/workflows/e2e-real.yml"
 DEPLOY_WF=".github/workflows/deploy.yml"
+DAST_WF=".github/workflows/security-dast.yml"
+DAST_EPH="security/scripts/dast-ephemeral.sh"
 
 # --- 1. El comprobador existe -------------------------------------------------
 if [ -x "$ASSERT" ]; then
@@ -120,15 +122,26 @@ else
   bad "$DEPLOY_WF ya no define 'staging-serves-head': el DAST puede volver a escanear
      la revisión ANTERIOR de staging y promover a prod un commit que nadie escaneó."
 fi
-# El `needs:` de `dast-staging`, no el fichero entero: si se mira el fichero entero,
-# la propia DEFINICIÓN del job `staging-serves-head` haría pasar el check aunque el
-# DAST no lo esperase — verde por mencionar, que es el modo de fallo que este script
-# existe para no repetir.
-if grep -A6 '^  dast-staging:' "$DEPLOY_WF" 2>/dev/null | grep -E '^    needs:' | grep 'staging-serves-head' >/dev/null; then
-  ok "'dast-staging' depende de 'staging-serves-head' (escanea un binario identificado)."
+# §56 (2026-09-11): el DAST de la ruta de release ya no es `dast-staging` (que
+# escaneaba un dominio estable y necesitaba `staging-serves-head` para saber QUÉ
+# binario tenía enfrente): es `dast-release`, que llama a security-dast.yml con
+# el SHA de ESTE run, y ese workflow levanta el stack efímero desde ese mismo
+# checkout y le exige procedencia con `assert-serving-head.sh` antes de escanear.
+# Se comprueba el BLOQUE del job `dast-release`, no el fichero entero (mencionar
+# no es cablear): que llame al workflow del DAST y que le pase `ref: github.sha`.
+BLOQUE="$(awk '/^  dast-release:/{f=1} f&&/^  [a-z][a-z0-9-]*:$/&&!/^  dast-release:/{f=0} f' "$DEPLOY_WF" 2>/dev/null)"
+if grep -qE '^\s*uses: \./\.github/workflows/security-dast\.yml' <<<"$BLOQUE" \
+   && grep -qE '^\s*ref: \$\{\{ *github\.sha *\}\}' <<<"$BLOQUE"; then
+  ok "'dast-release' llama a security-dast.yml con 'ref: github.sha' (escanea el commit de este run, no un binario desconocido)."
 else
-  bad "'dast-staging' ya NO depende de 'staging-serves-head'. Aunque el job exista,
-     si el DAST no lo espera, no protege nada."
+  bad "'dast-release' ya NO llama a security-dast.yml con 'ref: github.sha'. Un DAST que no
+     sabe qué commit escanea puede aprobar un binario que nadie auditó (SEC-OPS-1)."
+fi
+if grep -qE 'dast-ephemeral\.sh up' "$DAST_WF" 2>/dev/null && grep -qE 'assert-serving-head\.sh' "$DAST_EPH" 2>/dev/null; then
+  ok "$DAST_WF levanta el stack con dast-ephemeral.sh, que exige procedencia (assert-serving-head.sh) antes de escanear."
+else
+  bad "El stack efímero del DAST ya no exige procedencia: o $DAST_WF no llama a 'dast-ephemeral.sh up',
+     o $DAST_EPH ya no invoca assert-serving-head.sh."
 fi
 
 echo ""

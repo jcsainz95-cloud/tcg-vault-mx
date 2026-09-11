@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pesosToCents } from './M4View';
+import { pesosToCents } from './pesosToCents';
 
 // Cobertura del helper que alimenta el input de costo de envío (M4, v1.4-finance).
 // El costo se envía a POST /admin/shipments/:id/tracking como shippingCostCents (entero ≥ 0).

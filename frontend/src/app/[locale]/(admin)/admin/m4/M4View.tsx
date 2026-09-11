@@ -22,6 +22,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useShipmentSteps } from '@/lib/pipelines';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
+import { Link } from '@/i18n/navigation';
 import type {
   AdminShipmentDTO,
   PickingListEntryDTO,
@@ -29,14 +30,48 @@ import type {
   ShipmentTrackingRequest,
 } from '@/types/contract';
 
-/** Convierte pesos (texto) a centavos enteros. Vacío/invalid → null (no se envía). */
-export function pesosToCents(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed.replace(/,/g, ''));
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * 100);
+// `pesosToCents` vive en su propio módulo (función pura, sin React) para que su test no arrastre
+// el árbol de la vista (que importa `Link` de next-intl, no cargable en jsdom sin mock).
+import { pesosToCents } from './pesosToCents';
+export { pesosToCents };
+
+/**
+ * Campo string del `addressSnapshot` (contrato §M4 v1.67.1: forma de `AddressDTO` sin id/isDefault/
+ * createdAt; los snapshots anteriores a M-52 traen 8 campos y `AddressSnapshotDTO` es de forma abierta).
+ * Vacío/ausente ⇒ `undefined`.
+ */
+function snap(row: AdminShipmentDTO, key: string): string | undefined {
+  const v = row.addressSnapshot?.[key];
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
 }
+
+/**
+ * Destinatario del paquete — UNA fuente canónica: `addressSnapshot.recipientName` (contrato §M4
+ * v1.67.1, D-CTA-9). El `recipientName` suelto de la raíz es legado v1.21 DEPRECADO con invariante
+ * `recipientName === addressSnapshot.recipientName`; se lee DESPUÉS, solo para que su retiro en una rev
+ * futura sea gratis. ⛔ Nunca `User.name` (puede ser el fabricado) ni el `userId`.
+ */
+function recipientOf(row: AdminShipmentDTO): string | undefined {
+  return snap(row, 'recipientName') ?? row.recipientName?.trim() ?? undefined;
+}
+
+/**
+ * Cliente de la fila (R5 de §33.16, PROYECTADO): `customer { id, name, email }` NO está en el contrato
+ * §M4 (medido en v1.67.1) — se lee de forma defensiva y se pinta «—» cuando falta.
+ * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
+ */
+function customerOf(row: AdminShipmentDTO): { name?: string; email?: string } | null {
+  const c = (row as { customer?: unknown }).customer;
+  if (!c || typeof c !== 'object') return null;
+  const { name, email } = c as { name?: unknown; email?: unknown };
+  return {
+    ...(typeof name === 'string' && name.trim() ? { name: name.trim() } : {}),
+    ...(typeof email === 'string' && email.trim() ? { email: email.trim() } : {}),
+  };
+}
+
+/** §32.4: lo desconocido es «—», nunca omitido en silencio. */
+const DASH = '—';
 
 const STATUS_FILTERS: ShipmentStatus[] = [
   'solicitado',
@@ -65,6 +100,7 @@ export function M4View() {
   const ts = useTranslations('shipments');
   const tStatus = useTranslations('status.shipment');
   const tc = useTranslations('common');
+  const tm6 = useTranslations('admin.m6');
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
   const qc = useQueryClient();
@@ -192,13 +228,12 @@ export function M4View() {
           {shipments.data && shipments.data.data.length === 0 ? (
             <EmptyState title={t('queueEmpty')} />
           ) : (
-            (shipments.data?.data ?? []).map((s) => (
+            (shipments.data?.data ?? []).map((s: AdminShipmentDTO) => (
               <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="tabular text-sm font-medium">{s.id}</span>
                     <StatusBadge domain="shipment" value={s.status} />
-                    {s.userId && <span className="tabular text-xs text-muted">{s.userId}</span>}
                     {s.items && (
                       <span className="text-xs text-muted">
                         {t('itemCount', { count: s.items.length })}
@@ -238,6 +273,41 @@ export function M4View() {
                       ),
                     )}
                   </div>
+                </div>
+                {/* §33.10d / D-CTA-6 (contrato §M4 v1.67): el operador ve A QUIÉN va el paquete y a
+                    DÓNDE, no un id (P-66 B3). Sin `recipientName` en el snapshot (retiro anterior a
+                    v1.67): «SIN DESTINATARIO (…)» en mono rojo — nunca `User.name` (puede ser el
+                    fabricado) ni el `userId`. Cada dato ausente es «—» (§32.4). */}
+                <div className="flex flex-col gap-1 text-sm text-muted" data-testid={`shipment-parties-${s.id}`}>
+                  <p>
+                    <span className="font-medium text-text">{t('recipient')}</span>{' '}
+                    {recipientOf(s) ? (
+                      <span className="text-text">{recipientOf(s)}</span>
+                    ) : (
+                      <span className="font-mono text-xs uppercase text-accent">{t('recipientMissing')}</span>
+                    )}
+                    {' · '}
+                    {snap(s, 'city') ?? DASH}, {snap(s, 'state') ?? DASH}
+                    {' · '}
+                    {t('postalCode')} <span className="tabular">{snap(s, 'postalCode') ?? DASH}</span>
+                    {' · '}
+                    {t('phone')} <span className="tabular">{snap(s, 'phone') ?? DASH}</span>
+                  </p>
+                  <p>
+                    <span className="font-medium text-text">{t('customer')}</span>{' '}
+                    {customerOf(s)?.name ?? DASH} · {customerOf(s)?.email ?? DASH}
+                    {s.userId && (
+                      <>
+                        {' · '}
+                        <Link
+                          href={{ pathname: '/admin/m6', query: { user: s.userId } }}
+                          className="font-mono text-xs uppercase text-accent hover:text-text"
+                        >
+                          {tm6('view')}
+                        </Link>
+                      </>
+                    )}
+                  </p>
                 </div>
                 {(s.carrier || s.trackingNumber) && (
                   <p className="text-sm text-muted">

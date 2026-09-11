@@ -22,6 +22,77 @@ export const E2E_USERS = {
 } as const;
 
 /**
+ * v1.67.1 (ARCHITECTURE §4.47.10.4, condición de release de Stream A · techlead F2-1 / QA) — **los tres
+ * actores de cuenta que la suite necesitaba y el seed no tenía.** Viven APARTE de `E2E_USERS` a
+ * propósito: el bucle del seed y el reset transaccional por-usuario recorren `E2E_USERS`, y ningún
+ * spec debe encontrarse de pronto con un «customer» que no puede operar (temporal) o no puede hacer
+ * login (solo-Google). Credenciales de FIXTURE de una BD efímera/sintética: no son secretos.
+ *
+ *  - `temporalCustomer` / `temporalOperator`: `authProvider='local'`, `mustChangePassword=true`,
+ *    contraseña temporal DETERMINISTA. Cada siembra **restaura** hash y flag (el E2E que la cambia
+ *    la deja cambiada; la siguiente siembra la devuelve). Playwright: login ⇒ `/account/password` o
+ *    `/admin/account/password` (§33.8) ⇒ cambio ⇒ aterrizaje por rol.
+ *  - `googleOnly`: `passwordHash=NULL`, `authProvider='google'`, `googleId` ficticio,
+ *    `name` derivado del correo y `nameSource='derived'`. **No puede hacer login por contraseña**
+ *    (ése es el caso): `GET /users/me` ⇒ `hasPassword:false` + `nameSource:'derived'`;
+ *    `change-password` ⇒ `422 PASSWORD_NOT_SET`. Backend la ejercita emitiendo el par con
+ *    `AuthService.issueTokens`; en Playwright hace falta una sesión inyectada (no hay ID token de Google
+ *    en CI).
+ */
+export const E2E_ACCOUNT_FIXTURES = {
+  temporalCustomer: {
+    email: 'temporal.customer@e2e.local',
+    password: 'Temporal123!',
+    name: 'E2E Temporal Customer',
+    role: 'customer' as const,
+    phone: '5511110005',
+  },
+  temporalOperator: {
+    email: 'temporal.operator@e2e.local',
+    password: 'Temporal123!',
+    name: 'E2E Temporal Operator',
+    role: 'vault_operator' as const,
+    phone: '5511110006',
+  },
+  googleOnly: {
+    email: 'google.only@e2e.local',
+    googleId: 'e2e-google-only-sub-0001',
+    /** = `email.split('@')[0]`: la regla de derivación de `auth.service.ts` y del backfill M-52b. */
+    name: 'google.only',
+    phone: '5511110007',
+  },
+} as const;
+
+/**
+ * v1.67.1 (§4.47.10.4 (a), tercer actor) — **el pedido de invitado SIN reclamar cuyo `guestEmail` es el
+ * del `customer` del seed** (`emailVerified=true`). Es lo que hace que `GET /orders/claimable` devuelva
+ * algo para ese cliente: sin él, `ClaimableOrdersNotice` (F7) solo era medible «con [] no hay nodo».
+ *
+ * Es un pedido **liquidado y entregado** (`status='settled'`, `direct_ship`): el caso real de quien
+ * compró como invitado y luego se registró con el mismo correo. Reclamable = `userId IS NULL AND
+ * claimedAt IS NULL AND guestEmail = correo verificado` (`order-claim.service.ts`); el estado no filtra.
+ * Su pieza (`folio`) es PROPIA del fixture (no toca ninguna `E2E-LST-*`): plataforma, `delivered`, sin
+ * ubicación (salió de la bóveda). Idempotencia: la siembra borra el pedido por `orderNumber` (reclamado
+ * o no) y lo vuelve a declarar; el reclamo de una corrida no sobrevive a la siguiente siembra.
+ *
+ * Las cifras son del FIXTURE (congeladas, IVA_EXCLUSIVE): ninguna suite las recalcula. No se siembra
+ * `stripePaymentIntentId` (columna única, nullable): no hubo cobro real.
+ */
+export const E2E_GUEST_ORDER = {
+  orderNumber: 'TCG-E2E-GUEST-0001',
+  folio: 'E2E-GST-SEED-0001',
+  guestEmail: E2E_USERS.customer.email,
+  recipientName: 'Invitado Del Seed',
+  subtotalCents: 120000,
+  shippingFeeCents: 18000,
+  processingFeeCents: 0,
+  ivaCents: 19200,
+  totalCents: 157200,
+  createdAt: '2026-01-08T15:00:00Z',
+  settledAt: '2026-01-08T15:05:00Z',
+} as const;
+
+/**
  * v1.51.20 (D36/D37) — **la dirección de ORIGEN del vendedor, sembrada para los DOS customers.**
  * Sin ella `POST /buylist/requests` responde `422 PICKUP_ADDRESS_REQUIRED` y el ciclo no arranca.
  * `phone` es el del DOMICILIO (va impreso en la etiqueta), distinto de `User.phone`.

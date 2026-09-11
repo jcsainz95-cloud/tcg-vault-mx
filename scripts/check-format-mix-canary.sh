@@ -17,7 +17,13 @@
 #   4. BASE_REF inexistente                                    -> rc=2 (nunca 0)
 #
 # Uso:  ./scripts/check-format-mix-canary.sh
-# Sale 0 si los 4 casos salen como deben. Sin red si hay prettier local.
+# Sale 0 si los 4 casos salen como deben; 1 si alguno no; 2 si NO PUDO MEDIR
+# (sin prettier 3.9.6 local ni por red). Sin red si hay prettier local.
+#
+# rc=2 y no 1 (techlead F1-3, 2026-09-11): antes «no hay prettier» salía con
+# `exit 1` y cara de BL-27 — un fallo de red del runner se leía como «el
+# comparador no muerde». El comparador ya distingue «no concluyo» (rc=2) de
+# «mezcla» (rc=1); el canario ahora también, y ci.yml lo imprime como tal.
 # =============================================================================
 set -uo pipefail
 
@@ -30,10 +36,21 @@ bad() { printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; FALLOS=$((FALLOS+1)); }
 printf '\n\033[1m== ¿El comparador BL-27 (format-mix) muerde? ==\033[0m\n\n'
 [ -x "$GATE" ] || { bad "No existe/ejecuta $GATE"; exit 1; }
 
-# prettier: el mismo que usa el comparador. Si no hay uno local con la versión
-# exacta, el comparador cae a `npx prettier@<ver>` (red). Aquí se acepta lo mismo.
+# prettier: el MISMO que usa el comparador, con la MISMA versión clavada
+# (check-format-mix.sh: PRETTIER_VERSION). Local si existe con esa versión;
+# si no, `npx prettier@<ver>` (red) — y si tampoco, rc=2: el canario no midió.
+PRETTIER_VERSION="$(sed -n 's/^PRETTIER_VERSION="\([0-9.]*\)"$/\1/p' "$GATE")"
+[ -n "$PRETTIER_VERSION" ] || { echo "✗ no leo PRETTIER_VERSION de $GATE: no sé qué prettier exige el comparador."; exit 2; }
 PRETTIER_LOCAL="$ROOT_DIR/backend/node_modules/.bin/prettier"
-if [ -x "$PRETTIER_LOCAL" ]; then export PRETTIER_BIN="$PRETTIER_LOCAL"; fi
+if [ -x "$PRETTIER_LOCAL" ] && [ "$("$PRETTIER_LOCAL" --version 2>/dev/null)" = "$PRETTIER_VERSION" ]; then
+  export PRETTIER_BIN="$PRETTIER_LOCAL"
+elif timeout 120s npx --yes "prettier@$PRETTIER_VERSION" --version >/dev/null 2>&1; then
+  export PRETTIER_BIN="npx --yes prettier@$PRETTIER_VERSION"
+else
+  printf '\033[1;33m  ? prettier %s no disponible: ni %s con esa versión ni `npx prettier@%s` (¿sin red?). El canario NO PUEDE MEDIR — no es un rojo de BL-27, es rc=2.\033[0m\n' "$PRETTIER_VERSION" "${PRETTIER_LOCAL#"$ROOT_DIR"/}" "$PRETTIER_VERSION"
+  exit 2
+fi
+printf '   prettier: %s (v%s)\n' "${PRETTIER_BIN#"$ROOT_DIR"/}" "$PRETTIER_VERSION"
 
 BASE="$(mktemp -d -t formatmix-canary-XXXXXX)"
 trap 'rm -rf "$BASE"' EXIT
@@ -45,12 +62,17 @@ SIN_FORMATO='export function total(a: number,b: number){
 }
 '
 # El mismo fichero, formateado por prettier con la config por defecto.
-fmt() { ${PRETTIER_BIN:-npx --yes prettier@3.9.6} --stdin-filepath src/a.ts; }
+fmt() { $PRETTIER_BIN --stdin-filepath src/a.ts; }
 # OJO: `$(…)` recorta el salto de línea final y entonces HEAD deja de ser
 # «prettier-limpio»: el comparador lo SALTA en silencio (no lo evalúa) y el caso
 # sale verde sin medir. Se conserva el `\n` final a propósito.
-CON_FORMATO="$(printf '%s' "$SIN_FORMATO" | fmt; echo x)" || { bad "prettier no disponible: el canario no puede medir"; exit 1; }
+# El `|| …` de un `$(cmd; echo x)` mira el rc de `echo`, nunca el de prettier:
+# por eso se comprueba el RESULTADO (que hay salida y es distinta de la entrada).
+CON_FORMATO="$(printf '%s' "$SIN_FORMATO" | fmt; echo x)"
 CON_FORMATO="${CON_FORMATO%x}"
+if [ -z "$CON_FORMATO" ] || [ "$CON_FORMATO" = "$SIN_FORMATO" ]; then
+  printf '\033[1;33m  ? prettier no devolvió un fichero formateado distinto del de entrada. El canario NO PUEDE MEDIR (rc=2).\033[0m\n'; exit 2
+fi
 
 # repo <dir> : crea un repo con el fichero base commiteado en `base`
 repo() {

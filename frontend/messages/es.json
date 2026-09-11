@@ -54,7 +54,6 @@
     "buylist": "Vender",
     "vault": "Mi bóveda",
     "orders": "Mis órdenes",
-    "shipments": "Mis retiros",
     "account": "Cuenta",
     "login": "Iniciar sesión",
     "register": "Registrarse",
@@ -65,7 +64,114 @@
     "terms": "Términos y política",
     "sealed": "Sellado",
     "buy": "Comprar",
-    "myAccount": "Mi cuenta"
+    "myAccount": "Mi cuenta",
+    "ordersAndSales": "Compras y ventas"
+  },
+  "account": {
+    "eyebrow": "CUENTA",
+    "title": "Mi cuenta",
+    "index": {
+      "label": "Secciones"
+    },
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "saved": "GUARDADO",
+    "required": "Campo requerido",
+    "profile": {
+      "title": "Datos personales",
+      "name": {
+        "label": "Nombre",
+        "hint": "Así te llamamos en los correos y en tus envíos.",
+        "required": "Escribe tu nombre.",
+        "tooLong": "Máximo 120 caracteres.",
+        "derivedFromEmail": "Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos."
+      },
+      "phone": {
+        "label": "Celular",
+        "hint": "10 dígitos. Es para contactarte. El teléfono de cada dirección es para la paquetería.",
+        "invalid": "Escribe un celular de 10 dígitos.",
+        "missing": "Sin celular. Lo necesitas para vender."
+      },
+      "locale": {
+        "label": "Idioma"
+      }
+    },
+    "email": {
+      "title": "Correo",
+      "verified": "VERIFICADO",
+      "unverified": "SIN VERIFICAR",
+      "unverifiedBody": "Verifica tu correo para comprar, vender y retirar.",
+      "changeNote": "Para cambiar tu correo escríbenos a {contact}."
+    },
+    "addresses": {
+      "title": "Direcciones de envío"
+    },
+    "billing": {
+      "title": "Facturación (CFDI)",
+      "emptyTitle": "Sin datos de facturación",
+      "emptyBody": "Guárdalos para solicitar factura de tus compras.",
+      "add": "Agregar datos de facturación",
+      "edit": "Editar",
+      "cancel": "Cancelar",
+      "rfc": "RFC",
+      "rfcHint": "Escríbelo completo",
+      "razonSocial": "Razón social",
+      "regimenFiscal": "Régimen fiscal (clave SAT)",
+      "usoCfdi": "Uso de CFDI (clave SAT)",
+      "satHint": "Clave del catálogo del SAT",
+      "postalCode": "Código postal fiscal",
+      "email": "Correo para la factura"
+    },
+    "kyc": {
+      "title": "Verificación de identidad",
+      "status": "Estado",
+      "clabe": "CLABE para pagos",
+      "clabeNone": "Sin CLABE registrada",
+      "clabeChange": "Cambiar CLABE",
+      "clabeHint": "18 dígitos, a tu nombre. Ahí te pagamos tus ventas.",
+      "clabeInvalid": "La CLABE debe tener 18 dígitos.",
+      "ine": "INE",
+      "ineOnFile": "INE en archivo",
+      "ineMissing": "Sin INE. Se pide solo cuando una venta supera el tope.",
+      "ineFront": "INE — frente",
+      "ineBack": "INE — reverso",
+      "capPerRequest": "Tope por solicitud",
+      "capPerMonth": "Tope por mes"
+    },
+    "password": {
+      "title": "Contraseña",
+      "summaryHas": "Cámbiala cuando quieras; cerraremos tus otras sesiones.",
+      "summaryNone": "Entras con Google y tu cuenta no tiene contraseña.",
+      "goChange": "Cambiar contraseña",
+      "goCreate": "Crear contraseña",
+      "back": "Mi cuenta",
+      "changeTitle": "Cambiar contraseña",
+      "current": "Contraseña actual",
+      "new": "Contraseña nueva",
+      "confirm": "Confirmar contraseña nueva",
+      "policy": "Mínimo 8 caracteres.",
+      "weak": "La contraseña debe tener al menos 8 caracteres.",
+      "mismatch": "Las contraseñas no coinciden.",
+      "sameAsCurrent": "La contraseña nueva debe ser distinta de la actual.",
+      "submit": "Cambiar contraseña",
+      "submitting": "Cambiando…",
+      "successTitle": "CONTRASEÑA ACTUALIZADA",
+      "successOtherSessions": "Cerramos la sesión en tus otros dispositivos. Esta sigue abierta.",
+      "rateLimited": "Demasiados intentos. Espera un minuto.",
+      "resendError": "No pudimos enviar el enlace. Intenta de nuevo.",
+      "changeAgain": "Cambiar otra vez",
+      "createTitle": "Crear contraseña",
+      "createBody": "Entras con Google y tu cuenta no tiene contraseña. Para crear una te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google.",
+      "createSend": "Enviarme el enlace",
+      "createSending": "Enviando…",
+      "createSentTitle": "ENLACE ENVIADO",
+      "createSentBody": "Revisa tu correo. El enlace caduca; si no llega, pide otro.",
+      "createResend": "Enviar otra vez"
+    },
+    "session": {
+      "title": "Sesión",
+      "body": "Cierra tu sesión en este dispositivo."
+    }
   },
   "storeTabs": {
     "label": "Tienda",
@@ -469,7 +575,13 @@
     "tabs": {
       "pieces": "Piezas",
       "masterSet": "Master set",
-      "sealed": "Sellado"
+      "sealed": "Sellado",
+      "withdrawals": "Retiros"
+    },
+    "requestWithdrawal": "Solicitar retiro",
+    "withdrawalRequested": "Retiro solicitado. Aquí verás su avance.",
+    "claimable": {
+      "body": "Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento."
     }
   },
   "masterSet": {
@@ -624,7 +736,15 @@
     }
   },
   "shipments": {
-    "title": "Retiro / envío",
+    "title": "Solicitar retiro",
+    "backToVault": "Mi bóveda",
+    "shipTo": "Envío a: {name} · {city}, {state}",
+    "recipient": {
+      "required": "Completa el nombre de quien recibe en la dirección elegida para continuar.",
+      "label": "Nombre de quien recibe",
+      "hint": "Va en la etiqueta del paquete.",
+      "save": "Guardar nombre"
+    },
     "subtitle": "Solicita el envío de tus cartas liquidadas a una dirección en México.",
     "shippingFee": "Tarifa de envío (con seguro)",
     "flatFeeNotice": "Tarifa fija por paquete, pagada antes de generar la solicitud.",
@@ -636,7 +756,7 @@
     "tracking": "Guía",
     "carrier": "Paquetería",
     "noShipments": "Aún no tienes retiros.",
-    "backToList": "Volver a mis retiros",
+    "backToList": "Mis retiros",
     "detailTitle": "Retiro {id}",
     "itemsInWithdrawal": "Cartas en este retiro",
     "shippingAddress": "Dirección de envío",
@@ -680,6 +800,8 @@
     "pricePendingNotice": "Esta carta no tiene precio de referencia; entrará a la cola de precio pendiente y la cotizaremos a mano.",
     "myRequests": "Mis solicitudes",
     "noRequests": "Aún no tienes solicitudes de venta.",
+    "viewMyRequests": "Ver el estado de mis solicitudes",
+    "backToSales": "Mis ventas",
     "requestsLoginInvite": "Inicia sesión para ver el estado de tus solicitudes de venta.",
     "requirementsTitle": "Requisitos para cobrar",
     "loginToSellTitle": "Inicia sesión o crea cuenta para vender",
@@ -819,8 +941,7 @@
       "notFoundBody": "Revisa el enlace del correo, o entra con la cuenta con la que creaste la solicitud.",
       "loginTitle": "Entra con tu cuenta para ver tu oferta",
       "loginBody": "Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo.",
-      "viewRequestCta": "Ver esta solicitud",
-      "backToBuylist": "Ver mis solicitudes"
+      "viewRequestCta": "Ver esta solicitud"
     },
     "adjust": {
       "title": "Ajuste de precio propuesto",
@@ -876,13 +997,35 @@
     "understood": "Ya lo entendí"
   },
   "orders": {
-    "title": "Mis órdenes",
-    "orderNumber": "Orden {id}",
+    "title": "Compras y ventas",
+    "orderNumber": "Pedido {id}",
     "date": "Fecha",
     "status": "Estado",
     "total": "Total",
-    "noOrders": "Aún no tienes órdenes.",
-    "detailTitle": "Detalle de la orden",
+    "noOrders": "Aún no tienes compras.",
+    "emptyCta": "Explorar el catálogo",
+    "back": "Compras y ventas",
+    "detailTitle": "Detalle del pedido",
+    "tabs": {
+      "label": "Compras y ventas",
+      "purchases": "Compras",
+      "sales": "Ventas"
+    },
+    "sales": {
+      "emptyCta": "Cotizar mis cartas"
+    },
+    "claimable": {
+      "title": "{count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo",
+      "body": "Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido.",
+      "more": "y {count} más",
+      "cta": "Vincular a mi cuenta",
+      "claiming": "Vinculando…",
+      "later": "Ahora no",
+      "success": "{count, plural, one {PEDIDO EN TU HISTORIAL} other {PEDIDOS EN TU HISTORIAL}}",
+      "successLink": "Ver mis compras",
+      "partialFail": "{count, plural, one {No fue posible vincular # pedido.} other {No fue posible vincular # pedidos.}} Escríbenos a {contact} citando el número de pedido.",
+      "errorTitle": "No se pudieron vincular los pedidos"
+    },
     "items": "Artículos",
     "requestInvoice": "Solicitar factura",
     "invoiceRequested": "Factura solicitada",
@@ -935,9 +1078,15 @@
       "cta": "Continuar con Google",
       "connecting": "Conectando…"
     },
-    "mustChangePassword": "Iniciaste sesión con una contraseña temporal. Debes cambiarla para proteger tu cuenta.",
-    "mustChangeContinue": "Continuar",
-    "forgotPassword": "¿Olvidaste tu contraseña?"
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "changePassword": {
+      "title": "Crea tu contraseña definitiva",
+      "body": "Entraste con una contraseña temporal. Para continuar, elige una nueva.",
+      "requiredNotice": "Antes de continuar tienes que cambiar tu contraseña temporal.",
+      "temporaryLabel": "Contraseña temporal",
+      "submit": "Guardar y continuar",
+      "done": "Listo"
+    }
   },
   "verifyEmail": {
     "title": "Verificar correo",
@@ -1281,6 +1430,11 @@
       "statusAll": "Todos los estados",
       "queueEmpty": "Sin envíos con ese filtro.",
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
+      "recipient": "Para",
+      "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "customer": "Cliente",
+      "postalCode": "CP",
+      "phone": "Tel",
       "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
       "pickingEmpty": "Nada que preparar por ahora.",
       "picking": {
@@ -3034,6 +3188,11 @@
   "error": {
     "VALIDATION_ERROR": "Revisa los datos ingresados.",
     "UNAUTHENTICATED": "Inicia sesión para continuar.",
+    "CURRENT_PASSWORD_INCORRECT": "La contraseña actual no es correcta.",
+    "PASSWORD_SAME_AS_CURRENT": "La contraseña nueva debe ser distinta de la actual.",
+    "PASSWORD_NOT_SET": "Tu cuenta no tiene contraseña. Crea una desde «Mi cuenta».",
+    "PASSWORD_CHANGE_REQUIRED": "Tu cuenta tiene una contraseña temporal. Cámbiala para continuar.",
+    "RECIPIENT_NAME_REQUIRED": "Esta dirección no tiene el nombre de quien recibe. Complétalo para continuar.",
     "FORBIDDEN": "No tienes permiso para esta acción.",
     "NOT_FOUND": "No encontramos lo que buscabas.",
     "CONFLICT": "Hubo un conflicto con el estado actual.",
@@ -3155,7 +3314,14 @@
     "phone": "Teléfono",
     "country": "País",
     "countryMx": "México (MX)",
-    "makeDefault": "Usar como predeterminada"
+    "makeDefault": "Usar como predeterminada",
+    "recipientName": "Nombre de quien recibe",
+    "recipientNameHint": "Va en la etiqueta del paquete.",
+    "recipientLine": "Recibe: {name}",
+    "recipientMissing": "Falta el nombre de quien recibe",
+    "complete": "Completar",
+    "edit": "Editar",
+    "editTitle": "Editar dirección"
   },
   "track": {
     "title": "Seguimiento de tu pedido",
@@ -3284,5 +3450,14 @@
     "rarity": "Rareza",
     "estimate": "Estimado",
     "pending": "Precio pendiente"
+  },
+  "sellCart": {
+    "restored": "Tu lista de venta se conservó: {count} carta(s).",
+    "repriced": "Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}.",
+    "linesDropped": "Quitamos {count} carta(s) que ya no podemos cotizar.",
+    "expired": "Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas.",
+    "requoteFailed": "No pudimos actualizar los precios. Reintenta.",
+    "retry": "Reintentar",
+    "requoting": "Actualizando los precios de tu lista"
   }
 }

@@ -17,6 +17,8 @@ export interface MyRequestsSectionProps {
   /** `false` durante SSR/hidratación (patrón useSession): no consultar ni pintar gating aún. */
   ready: boolean;
   isAuthenticated: boolean;
+  /** CTA del vacío (§33.3, pestaña Ventas: «Cotizar mis cartas» → `/buylist`). Opcional. */
+  emptyAction?: React.ReactNode;
 }
 
 /**
@@ -26,7 +28,7 @@ export interface MyRequestsSectionProps {
  * ajuste (F5). Sin sesión NUNCA muestra error: invita a iniciar sesión en tono informativo
  * (y no consulta el endpoint).
  */
-export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionProps) {
+export function MyRequestsSection({ ready, isAuthenticated, emptyAction }: MyRequestsSectionProps) {
   const t = useTranslations('buylist');
   const locale = useLocale() as AppLocale;
   const buylistSteps = useBuylistSteps();
@@ -58,8 +60,9 @@ export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionP
         {!ready ? null : !isAuthenticated ? (
           <div className="max-w-[560px]">
             <p className="text-[13px] leading-[1.7] text-muted">{t('requestsLoginInvite')}</p>
+            {/* §33.11: vuelve a /buylist tras entrar (el carrito de venta ya persiste). */}
             <Link
-              href="/login"
+              href="/login?next=/buylist"
               className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
             >
               {t('loginCta')}
@@ -73,7 +76,7 @@ export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionP
             onRetry={() => requests.refetch()}
           >
             {(requests.data?.length ?? 0) === 0 ? (
-              <EmptyState title={t('noRequests')} />
+              <EmptyState title={t('noRequests')} action={emptyAction} />
             ) : (
               requests.data!.map((r) => {
                 const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);

@@ -2,11 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Link, usePathname, useRouter } from '@/i18n/navigation';
+import { Link, usePathname } from '@/i18n/navigation';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import { useSession } from '@/lib/session';
 import { useCart } from '@/lib/cart';
-import { logout as apiLogout } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 
@@ -41,13 +40,11 @@ export function StorefrontHeader() {
   const t = useTranslations('nav');
   const tc = useTranslations('common');
   const pathname = usePathname();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   // Sesión de cliente (reactiva). `ready` evita mismatch de hidratación: mientras
   // sea false pintamos el estado deslogueado, idéntico al render de servidor.
-  const { user, isAuthenticated, ready } = useSession();
+  const { isAuthenticated, ready } = useSession();
   const authed = ready && isAuthenticated;
-  const displayName = user?.name || user?.email || '';
   const { count } = useCart();
 
   // P-28: en el flujo de VENTA (`/buylist`) coexisten DOS carritos distintos —el de COMPRA
@@ -80,29 +77,30 @@ export function StorefrontHeader() {
     };
   }, []);
 
-  // Nav por sesión (P-13) en el orden del makeover 1a: «Comprar / Vender / Mi cuenta».
-  // El público ve Comprar, Vender y Mi cuenta (→ /login); con sesión, "Mi cuenta" se
-  // sustituye por las áreas privadas (Mi bóveda / Mis órdenes / Mis retiros) + el bloque
-  // de perfil. Como `authed` depende de `ready`, en SSR/hidratación se pinta el nav
-  // público —idéntico al render de servidor— y las pestañas privadas aparecen al montar.
-  const links: { href: string; label: string; match?: string[] }[] = [
+  /**
+   * Nav por sesión (P-13), tabla de DESIGN_SYSTEM §33.1 (v1.67, supersede §7.15/§20.1):
+   * - Sin sesión: Comprar · Vender · Mi cuenta (→ /login).
+   * - Con sesión: Comprar · Vender · Mi bóveda · Compras y ventas · Mi cuenta (→ /account).
+   *   **Cinco entradas, ni una más**: salen el nombre (vitrina del nombre inventado, regla 2) y
+   *   «Cerrar sesión» (vive en «Mi cuenta», regla 8). «Envíos» sale del menú: los retiros viven en
+   *   la pestaña «Retiros» de la bóveda (§33.4) y `nav.vault` se activa también en `/shipments*`.
+   * ⭐ «Mi cuenta» ocupa el MISMO hueco con el MISMO rótulo en los dos estados; solo cambia el destino.
+   * Como `authed` depende de `ready`, en SSR/hidratación se pinta el nav público —idéntico al render
+   * de servidor— y las entradas privadas aparecen al montar.
+   */
+  const links: { href: string; label: string; match?: string[]; exclude?: string[] }[] = [
     // "Comprar" agrupa Cartas sueltas (/catalog) y Producto sellado (/sellado): activa en ambas.
     { href: '/catalog', label: t('buy'), match: ['/catalog', '/sellado', '/compra'] },
-    { href: '/buylist', label: t('buylist') },
+    // Vender: activa en /buylist EXCEPTO el portal de una solicitud (/buylist/requests/*), que es «ventas».
+    { href: '/buylist', label: t('buylist'), exclude: ['/buylist/requests'] },
     ...(authed
       ? [
-          { href: '/vault', label: t('vault') },
-          { href: '/orders', label: t('orders') },
-          { href: '/shipments', label: t('shipments') },
+          { href: '/vault', label: t('vault'), match: ['/vault', '/shipments'] },
+          { href: '/orders', label: t('ordersAndSales'), match: ['/orders', '/buylist/requests'] },
+          { href: '/account', label: t('myAccount') },
         ]
       : [{ href: '/login', label: t('myAccount') }]),
   ];
-
-  async function onLogout() {
-    setOpen(false);
-    await apiLogout();
-    router.push('/');
-  }
 
   return (
     <header ref={headerRef} className="sticky top-0 z-40 border-b border-border bg-bg">
@@ -121,7 +119,9 @@ export function StorefrontHeader() {
 
         <nav className="hidden items-center gap-[26px] lg:flex">
           {links.map((l) => {
-            const active = (l.match ?? [l.href]).some((p) => pathname.startsWith(p));
+            const active =
+              (l.match ?? [l.href]).some((p) => pathname.startsWith(p)) &&
+              !(l.exclude ?? []).some((p) => pathname.startsWith(p));
             return (
               <Link
                 key={l.href}
@@ -146,25 +146,8 @@ export function StorefrontHeader() {
             <LocaleToggle />
           </div>
 
-          {/* Makeover 1a: el acceso anónimo vive en el nav como "Mi cuenta" (→ /login);
-              con sesión se conserva el bloque de perfil (nombre + Cerrar sesión). */}
-          {authed && (
-            <div className="hidden items-center gap-5 lg:flex">
-              <span
-                className="max-w-[12rem] truncate text-[11px] font-medium uppercase tracking-label text-text"
-                title={displayName}
-              >
-                {displayName}
-              </span>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="text-[11px] font-medium uppercase tracking-label text-muted hover:text-text"
-              >
-                {t('logout')}
-              </button>
-            </div>
-          )}
+          {/* §33.1: sin bloque de perfil (nombre + Cerrar sesión) en el header. «Mi cuenta» vive en
+              el nav en los dos estados; el nombre no es rótulo y «Cerrar sesión» está en /account. */}
 
           {/* P-28: oculto en el flujo de venta (ver `onSellFlow`). */}
           {!onSellFlow && (
@@ -213,19 +196,8 @@ export function StorefrontHeader() {
                 <span className="tabular font-mono text-muted">{count}</span>
               </Link>
             )}
-            {/* Anónimo: "Mi cuenta" ya vive en `links` (→ /login); no se duplica aquí. */}
-            {authed && (
-              <>
-                <span className="truncate border-b border-border py-4 text-sm text-muted">{displayName}</span>
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="border-b border-border py-4 text-left text-sm font-medium uppercase tracking-label text-text"
-                >
-                  {t('logout')}
-                </button>
-              </>
-            )}
+            {/* «Mi cuenta» ya vive en `links` en los dos estados (→ /login | /account); el nombre y
+                «Cerrar sesión» se retiran del drawer (§33.1): viven en «Mi cuenta», a un toque. */}
             <div className="py-4">
               <LocaleToggle />
             </div>

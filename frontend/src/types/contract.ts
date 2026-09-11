@@ -299,6 +299,16 @@ export interface BreakdownDTO {
 }
 
 // ---- Auth / usuarios (contrato §1) ----
+/**
+ * v1.67 (Stream A, ARCHITECTURE §4.47.5): de dónde salió `User.name`.
+ * - `user`    → tecleado por una persona (registro, alta admin, `PATCH /users/me`).
+ * - `google`  → vino en el ID token de Google.
+ * - `derived` → **el sistema lo fabricó** con el trozo del correo antes de la arroba
+ *               (`auth.service.ts:339`). El front lo sigue mostrando, pero lo marca como
+ *               inventado (DESIGN_SYSTEM §33.6a) y NUNCA lo copia a un destinatario de envío.
+ */
+export type NameSource = 'user' | 'google' | 'derived';
+
 export interface UserDTO {
   id: string;
   email: string;
@@ -312,9 +322,25 @@ export interface UserDTO {
   authProvider?: AuthProvider;
   emailVerified?: boolean;
   avatarUrl?: string;
-  // v1.3.1: lo activa el reset de contraseña por admin (M6). Si viene true tras el
-  // login, el front dirige al usuario a cambiar su contraseña (o muestra aviso).
+  /**
+   * v1.67 (contrato §1 «Contraseña temporal OBLIGATORIA»): `true` tras un reset por admin (M6)
+   * o un alta admin sin contraseña. **Bloquea**: todo endpoint autenticado fuera de la allowlist
+   * (`change-password`, `logout`, `GET /users/me`) responde `403 PASSWORD_CHANGE_REQUIRED`. El
+   * front navega directo a `/account/password` | `/admin/account/password` (§4.47.7).
+   * Opcional en el tipo porque una sesión guardada en `localStorage` puede venir de un login
+   * anterior a v1.67; `GET /users/me` lo trae SIEMPRE.
+   */
   mustChangePassword?: boolean;
+  /**
+   * v1.67: `passwordHash IS NOT NULL`. **Es lo único que decide la sección de contraseña**
+   * (⛔ retira la heurística por `authProvider`): `true` ⇒ «Cambiar contraseña»
+   * (`POST /auth/change-password`); `false` ⇒ «Crear contraseña» (dispara `forgot-password`
+   * con el correo de la sesión; el enlace del correo la fija). Opcional por la misma razón
+   * que `mustChangePassword` (sesiones guardadas pre-v1.67); `GET /users/me` lo trae SIEMPRE.
+   */
+  hasPassword?: boolean;
+  /** v1.67: ver `NameSource`. `GET /users/me` y `PATCH /users/me` lo traen SIEMPRE. */
+  nameSource?: NameSource;
 }
 
 export interface AuthResponse {
@@ -343,8 +369,41 @@ export interface ResetPasswordSelfResponse {
   ok: true;
 }
 
+// ---- Cambiar la propia contraseña, desde dentro (contrato §1, v1.67 · Stream A · P-75) ----
+/**
+ * POST /auth/change-password — autenticado, cualquier rol; **exento** del 403
+ * PASSWORD_CHANGE_REQUIRED (allowlist). `currentPassword` es SIEMPRE obligatoria (no hay «modo
+ * crear» para solo-Google: §4.47.3). `newPassword` MinLength 8 — la misma constante que register
+ * y reset-password; ⛔ ninguna regla de complejidad que el servidor no exija.
+ */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+/**
+ * 200: el servidor hizo `tokenVersion +1` y emite un par NUEVO ⇒ las demás sesiones mueren y
+ * ÉSTA continúa con estos tokens (el front DEBE reemplazar los dos almacenados). Errores:
+ * `422 PASSWORD_NOT_SET` (sin contraseña: solo-Google), `422 CURRENT_PASSWORD_INCORRECT`
+ * (`details.field='currentPassword'`; es 422 y NO 401 a propósito — un 401 cerraría la sesión),
+ * `422 PASSWORD_SAME_AS_CURRENT` (`details.field='newPassword'`), `400 VALIDATION_ERROR`,
+ * `429 RATE_LIMITED` (5/min/IP, paridad con login).
+ */
+export interface ChangePasswordResponse {
+  ok: true;
+  accessToken: string;
+  refreshToken: string;
+}
+
 export interface AddressDTO {
   id: string;
+  /**
+   * v1.67 (`M-52`, Stream A · P-73-B): nombre de quien recibe — **dato de etiqueta**, vive en la
+   * dirección (como en `GuestAddressInput`). `null` SOLO en filas anteriores a `M-52`; el
+   * servidor responde `422 RECIPIENT_NAME_REQUIRED` en `POST /shipments[/quote]` con una
+   * dirección así, y el remedio es `PATCH /users/me/addresses/:id { recipientName }`.
+   * ⛔ Nunca se rellena con `User.name` en silencio (puede ser `nameSource='derived'`).
+   */
+  recipientName: string | null;
   line1: string;
   line2?: string;
   neighborhood?: string;
@@ -354,6 +413,30 @@ export interface AddressDTO {
   country: string;
   phone: string;
   isDefault?: boolean;
+}
+
+// ---- Perfil de facturación CFDI (contrato §1 «Perfil de facturación») ----
+/**
+ * GET /users/me/billing-profile → el RFC viene **enmascarado** (`rfcMasked`, ej. `XAX**********`),
+ * nunca en claro por este endpoint. 404 NOT_FOUND cuando el usuario aún no lo ha guardado
+ * (se pinta el vacío de §33.6d, no un error).
+ */
+export interface BillingProfileDTO {
+  rfcMasked: string;
+  razonSocial: string;
+  regimenFiscal: string;
+  usoCfdi: string;
+  postalCode: string;
+  email: string;
+}
+/** PUT /users/me/billing-profile — el RFC se manda en claro y el backend lo cifra en reposo. */
+export interface BillingProfileInput {
+  rfc: string;
+  razonSocial: string;
+  regimenFiscal: string;
+  usoCfdi: string;
+  postalCode: string;
+  email: string;
 }
 
 export interface KycInfoDTO {
@@ -807,6 +890,14 @@ export interface CheckoutSessionResponse {
 export interface OrderSummaryDTO {
   id: string;
   userId?: string;
+  /**
+   * Folio legible (`TCG-000123`, columna `Order.orderNumber` desde v1.21). El contrato v1.67.1 NO lo
+   * declara en `OrderSummaryDTO` (`API_CONTRACT §11`: `{ id, userId, status, totalCents, createdAt,
+   * settledAt? }`) ni el backend lo emite en `GET /orders` (`orders.service.ts:listOrders`, medido
+   * 2026-09-11). La columna PEDIDO lo pinta si viene y cae al `id` si no (QA, ronda de gates).
+   * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
+   */
+  orderNumber?: string;
   status: OrderStatus;
   totalCents: number;
   createdAt: string;
@@ -895,9 +986,53 @@ export interface ShipmentDTO {
  * El backend devuelve la fila cruda de ShipmentRequest (incluye `requestedAt` en vez de
  * `createdAt` y `userId`); los items del listado NO traen carta/folio (solo ids).
  */
+/**
+ * Snapshot de dirección congelado en cada envío (contrato §5 v1.67: NUEVE campos, M-52).
+ * `recipientName` viene poblado en toda fila nueva; `undefined`/`null` SOLO en retiros anteriores a
+ * v1.67 (M4 pinta «Sin destinatario…», nunca `User.name` como sustituto).
+ */
+export interface AddressSnapshotDTO {
+  /** Forma abierta (snapshots anteriores a M-52 traen 8 campos; M4 lee por clave). */
+  [key: string]: unknown;
+  recipientName?: string | null;
+  line1: string;
+  line2?: string | null;
+  neighborhood?: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+}
+
+/** Tipo de envío en la cola de M4 (contrato §M4 v1.21.2: se deriva de `Order.fulfillmentMode`). */
+export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship';
+
 export interface AdminShipmentDTO {
   id: string;
-  userId?: string;
+  /** `null` en el envío directo de un invitado (contrato §M4 v1.21). */
+  userId?: string | null;
+  /**
+   * v1.21 (aditivo): `vault_withdrawal` (`orderId == null`) | `guest_direct_ship` (resuelto por
+   * `Order.fulfillmentMode`). Opcional en el tipo por tolerancia a filas antiguas; el backend lo
+   * serializa siempre.
+   */
+  kind?: AdminShipmentKind;
+  orderId?: string | null;
+  orderNumber?: string;
+  guestEmail?: string;
+  /**
+   * @deprecated Contrato §M4 v1.67.1 (D-CTA-9): la fuente canónica del destinatario es
+   * `addressSnapshot.recipientName`; este campo suelto es una proyección legado (v1.21, invitados) con
+   * invariante `recipientName === addressSnapshot.recipientName`, y se retirará en una rev futura.
+   * Ningún consumidor nuevo lo lee; M4 lo consulta DESPUÉS del snapshot.
+   */
+  recipientName?: string | null;
+  /**
+   * v1.67 (D-CTA-6): la pantalla M4 pinta destinatario + dirección desde aquí — canónico (v1.67.1). Misma tolerancia
+   * de forma que `ClientShipmentDTO.addressSnapshot` (snapshots anteriores a M-52 traen 8 campos).
+   */
+  addressSnapshot?: AddressSnapshotDTO | null;
   status: ShipmentStatus;
   carrier?: string | null;
   trackingNumber?: string | null;

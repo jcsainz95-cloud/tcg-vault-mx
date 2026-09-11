@@ -67,10 +67,10 @@ jobs:
       contents: read
       issues: write        # solo para abrir/actualizar el issue de dependencias
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
       # OJO: NO se corre `npm ci` ni ningún build a propósito. `npm audit`
       # resuelve desde el lockfile, así que este job no instala dependencias ni
@@ -112,7 +112,7 @@ jobs:
       # VISIBILIDAD 2: el JSON crudo queda descargable para seguridad.
       - name: Subir reportes npm audit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: npm-audit-scheduled
           path: |

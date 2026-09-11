@@ -1,74 +1,59 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
-import { Link } from '@/i18n/navigation';
+import { Link, useRouter } from '@/i18n/navigation';
 import { formatMoneyCents } from '@/lib/format';
-import {
-  createDispute,
-  createShipment,
-  getDisputes,
-  getHoldings,
-  getShipmentQuote,
-  getShipments,
-  listAddresses,
-} from '@/lib/api';
+import { createShipment, getHoldings, getShipmentQuote, listAddresses, updateAddress } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type {
-  CreateDisputeResponse,
-  ShipmentCreateResponse,
-  ShipmentDTO,
-} from '@/types/contract';
-import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { useSession } from '@/lib/session';
+import type { ShipmentCreateResponse } from '@/types/contract';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { Modal } from '@/components/ui/Modal';
-import { Banner } from '@/components/ui/Banner';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { AddressManager } from '@/components/domain/AddressManager';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
-import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
 import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
-import { useShipmentSteps } from '@/lib/pipelines';
+import { VAULT_WITHDRAWALS_HREF, WITHDRAWAL_REQUESTED_KEY } from '../vault/vaultTabs';
 
-/** Ventana de 7 días (desde `entregado`) para abrir disputa (contrato §7). */
-const DISPUTE_WINDOW_MS = 7 * 24 * 3600 * 1000;
-
-/** Item de un envío entregado marcado para disputa (identidad + productType para el UI-gate). */
-type DisputeTargetItem = ShipmentDTO['items'][number];
+/** Contrato §1 (v1.67): `recipientName` trim 1..120. */
+const RECIPIENT_MAX = 120;
 
 /**
  * 6h — Selección de cartas liquidadas con casilla y folio; las no elegibles se
- * apartan tras una regla bermellón en vez de encerrarlas en una caja de color, y
- * el stepper del envío es una línea de tiempo tipográfica (ver PipelineStepper).
+ * apartan tras una regla bermellón en vez de encerrarlas en una caja de color.
  *
- * WS-F · F3 — Retiro REAL: el selector de país + `addr-mock` se reemplaza por un picker real de
- * direcciones (`AddressManager`), la cotización y la creación usan el `address.id` seleccionado, y
- * "Solicitar retiro" crea la `ShipmentRequest` (`POST /shipments`) → cobra por Stripe con el
- * `StripePaymentModal`. La regla MX-only sale de `address.country` (el backend valida
- * `ADDRESS_NOT_MX`). Maneja `403 EMAIL_NOT_VERIFIED` y `422 ITEM_NOT_SETTLED`.
+ * WS-F · F3 — Retiro REAL: picker real de direcciones (`AddressManager`), la cotización y la
+ * creación usan el `address.id` seleccionado, y "Pagar envío y solicitar" crea la `ShipmentRequest`
+ * (`POST /shipments`) → cobra por Stripe con el `StripePaymentModal`. La regla MX-only sale de
+ * `address.country` (el backend valida `ADDRESS_NOT_MX`). Maneja `403 EMAIL_NOT_VERIFIED` y
+ * `422 ITEM_NOT_SETTLED`.
+ *
+ * §33.4 (Stream A): esta pantalla es SOLO «Solicitar retiro». «Mis retiros» y «Mis disputas» se
+ * mudaron a la pestaña «Retiros» de la bóveda (`vault/WithdrawalsList`), y tras pagar se navega a
+ * `/vault?tab=retiros` — donde el usuario va a mirar de ahora en adelante.
+ *
+ * §33.10b / F10 (contrato v1.67, `M-52`): ningún envío sale sin destinatario. Si la dirección
+ * elegida no tiene `recipientName` (fila anterior a M-52), el CTA queda deshabilitado con motivo y
+ * se captura el nombre INLINE → `PATCH /users/me/addresses/:id { recipientName }` → la cotización
+ * se pide sola y el CTA se habilita. Si aun así el servidor responde `422 RECIPIENT_NAME_REQUIRED`
+ * (quote o create), se abre la misma captura para ESA `addressId` y se reintenta — hermano de
+ * `PHONE_REQUIRED`. ⛔ Nunca se manda `User.name` por el usuario (puede ser el fabricado).
  */
-/** Resumen de una línea de la dirección del snapshot del retiro (ciudad, estado). */
-function addressSummary(snapshot: ShipmentDTO['addressSnapshot']): string {
-  if (!snapshot) return '';
-  const rec = snapshot as Record<string, unknown>;
-  return [rec.city, rec.state].filter((v): v is string => typeof v === 'string').join(', ');
-}
-
 export function ShipmentsView() {
   const t = useTranslations('shipments');
-  const ts = useTranslations('shipmentStage');
   const locale = useLocale() as AppLocale;
   const getMessage = useErrorMessage();
-  const shipmentSteps = useShipmentSteps();
+  const router = useRouter();
   const searchParams = useSearchParams();
-  // VaultView "Retirar" por-fila preselecciona el ítem vía ?item=<inventoryItemId>.
+  const { user } = useSession();
+  // VaultView "Retirar" por-pieza preselecciona el ítem vía ?item=<inventoryItemId>.
   const preselected = searchParams.get('item');
   const [selected, setSelected] = useState<string[]>(preselected ? [preselected] : []);
   const [addressId, setAddressId] = useState<string | undefined>(undefined);
@@ -80,65 +65,7 @@ export function ShipmentsView() {
 
   const queryClient = useQueryClient();
   const holdingsQuery = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
-  const shipmentsQuery = useQuery({ queryKey: ['shipments'], queryFn: getShipments });
   const addressesQuery = useQuery({ queryKey: ['addresses'], queryFn: listAddresses });
-  // F6 · Disputas del cliente (contrato §7 · GET /disputes). Cruza contra los envíos entregados
-  // para (a) no ofrecer "Abrir disputa" en un ítem que ya tiene una abierta y (b) listar "Mis disputas".
-  const disputesQuery = useQuery({ queryKey: ['disputes'], queryFn: getDisputes });
-
-  // Ids con disputa ACTIVA (abierta/en_revision): oculta el botón para evitar duplicar.
-  const activeDisputeItemIds = useMemo(
-    () =>
-      new Set(
-        (disputesQuery.data ?? [])
-          .filter((d) => d.status === 'abierta' || d.status === 'en_revision')
-          .map((d) => d.inventoryItemId),
-      ),
-    [disputesQuery.data],
-  );
-
-  // --- Modal de creación de disputa (F6) ---
-  const [disputeItem, setDisputeItem] = useState<DisputeTargetItem | null>(null);
-  const [disputeDesc, setDisputeDesc] = useState('');
-  const [disputeCreated, setDisputeCreated] = useState<CreateDisputeResponse | null>(null);
-
-  const disputeMutation = useMutation({
-    mutationFn: (item: DisputeTargetItem) =>
-      createDispute({ inventoryItemId: item.inventoryItemId, description: disputeDesc.trim() }),
-    onSuccess: (res) => {
-      setDisputeCreated(res);
-      void queryClient.invalidateQueries({ queryKey: ['disputes'] });
-    },
-  });
-
-  function openDispute(item: DisputeTargetItem) {
-    setDisputeItem(item);
-    setDisputeDesc('');
-    setDisputeCreated(null);
-    disputeMutation.reset();
-  }
-  function closeDispute() {
-    setDisputeItem(null);
-    setDisputeDesc('');
-    setDisputeCreated(null);
-  }
-
-  /**
-   * UI-gate de elegibilidad para abrir disputa (contrato §7), para no chocar contra un 403/422 como
-   * primer feedback. El backend sigue siendo la autoridad. Gate: envío `entregado`, dentro de la
-   * ventana de 7 días (si hay `deliveredAt`), ítem NO gradeado (si se conoce el productType), y sin
-   * disputa activa. Cuando falta el dato (`deliveredAt`/`productType`), no bloqueamos por ese eje:
-   * la guarda server-side decide.
-   */
-  function canOpenDispute(shipment: ShipmentDTO, item: DisputeTargetItem): boolean {
-    if (shipment.status !== 'entregado') return false;
-    if (item.productType === 'graded') return false;
-    if (activeDisputeItemIds.has(item.inventoryItemId)) return false;
-    if (shipment.deliveredAt && Date.now() > new Date(shipment.deliveredAt).getTime() + DISPUTE_WINDOW_MS) {
-      return false;
-    }
-    return true;
-  }
 
   // v1.17: `withdrawable` es la fuente ÚNICA de verdad (settled && sin envío activo). Un item settled
   // pero ya EN RETIRO no es seleccionable (evita el 409 ITEM_IN_ANOTHER_SHIPMENT); cae en "no elegibles".
@@ -158,11 +85,52 @@ export function ShipmentsView() {
   );
   const isMx = selectedAddress?.country === 'MX';
 
+  // --- F10 · destinatario de la dirección elegida ---------------------------------------------
+  // `serverSaysMissing` = el servidor respondió RECIPIENT_NAME_REQUIRED para ESA dirección aunque el
+  // DTO local dijera otra cosa (caché vieja): manda el servidor.
+  const [serverSaysMissing, setServerSaysMissing] = useState<string | null>(null);
+  const recipientOnFile = (selectedAddress?.recipientName ?? '').trim();
+  const recipientMissing =
+    !!selectedAddress && (recipientOnFile === '' || serverSaysMissing === selectedAddress.id);
+  const [recipientDraft, setRecipientDraft] = useState('');
+  // Prellenado permitido SOLO en el front y SOLO si el nombre no es el fabricado por el sistema
+  // (contrato §1 «Pre-relleno permitido»: `nameSource !== 'derived'`). Una sesión guardada sin
+  // `nameSource` (anterior a v1.67) no puede saberlo ⇒ no se prellena: el usuario lo teclea.
+  useEffect(() => {
+    if (!recipientMissing) return;
+    const source = user?.nameSource;
+    const proposable = source === 'user' || source === 'google';
+    setRecipientDraft(proposable && user?.name ? user.name : '');
+    // Solo al cambiar de dirección (o al descubrir que falta): no pisa lo que el usuario teclea.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAddress?.id, recipientMissing]);
+  const recipientClean = recipientDraft.trim();
+  const recipientValid = recipientClean.length >= 1 && recipientClean.length <= RECIPIENT_MAX;
+
+  const saveRecipient = useMutation({
+    mutationFn: ({ id, recipientName }: { id: string; recipientName: string }) =>
+      updateAddress(id, { recipientName }),
+    onSuccess: (_saved, vars) => {
+      setServerSaysMissing((cur) => (cur === vars.id ? null : cur));
+      // El picker y `selectedAddress` se refrescan; la cotización se pide sola al habilitarse.
+      void queryClient.invalidateQueries({ queryKey: ['addresses'] });
+    },
+  });
+
   const quoteQuery = useQuery({
     queryKey: ['shipment-quote', selected, addressId],
     queryFn: () => getShipmentQuote(selected, addressId!),
-    enabled: selected.length > 0 && !!addressId && isMx,
+    // No se pide una cotización que el servidor va a rechazar por falta de destinatario.
+    enabled: selected.length > 0 && !!addressId && isMx && !recipientMissing,
+    retry: false,
   });
+  // El servidor manda: si la cotización vuelve 422 RECIPIENT_NAME_REQUIRED, se abre la captura.
+  useEffect(() => {
+    const e = quoteQuery.error;
+    if (e instanceof ApiClientError && e.code === 'RECIPIENT_NAME_REQUIRED' && addressId) {
+      setServerSaysMissing(addressId);
+    }
+  }, [quoteQuery.error, addressId]);
 
   function toggle(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -179,6 +147,13 @@ export function ShipmentsView() {
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setEmailNotVerified(true);
+      } else if (e instanceof ApiClientError && e.code === 'RECIPIENT_NAME_REQUIRED') {
+        // Hermano de PHONE_REQUIRED: captura inline del destinatario de ESA dirección y reintento.
+        const detailId =
+          typeof e.details?.addressId === 'string' ? (e.details.addressId as string) : addressId;
+        setServerSaysMissing(detailId);
+        void queryClient.invalidateQueries({ queryKey: ['addresses'] });
+        setReqError(t('recipient.required'));
       } else {
         // Incluye 422 ITEM_NOT_SETTLED / ADDRESS_NOT_MX / 409 ITEM_IN_ANOTHER_SHIPMENT.
         setReqError(getMessage(e));
@@ -189,20 +164,35 @@ export function ShipmentsView() {
   }
 
   function onConfirmed() {
-    // El cobro quedó autorizado; la solicitud avanza a picking cuando el webhook liquida. Limpiamos
-    // la selección y refrescamos "mis envíos" para ver la nueva solicitud en `solicitado`.
+    // El cobro quedó autorizado; la solicitud avanza a picking cuando el webhook liquida. §33.4: el
+    // usuario aterriza en la pestaña «Retiros» de su bóveda con «Retiro solicitado. Aquí verás su
+    // avance.» (marca de una sola lectura en sessionStorage).
     setShipment(null);
     setSelected([]);
-    shipmentsQuery.refetch();
-    holdingsQuery.refetch();
+    void queryClient.invalidateQueries({ queryKey: ['shipments'] });
+    void queryClient.invalidateQueries({ queryKey: ['holdings'] });
+    try {
+      window.sessionStorage.setItem(WITHDRAWAL_REQUESTED_KEY, '1');
+    } catch {
+      /* sin sessionStorage: se navega igual, sin el aviso */
+    }
+    router.push(VAULT_WITHDRAWALS_HREF);
   }
 
-  const canRequest = isMx && selected.length > 0 && !!addressId;
+  const canRequest = isMx && selected.length > 0 && !!addressId && !recipientMissing;
+  const shipToName = recipientMissing ? '' : recipientOnFile;
 
   return (
     <div>
       <div className="gutter pb-6 pt-10 lg:pt-[46px]">
-        <h1 className="font-serif text-[28px] leading-[1.12] text-text lg:text-[40px]">{t('title')}</h1>
+        {/* §33.4: se llega desde la bóveda y se vuelve a ella. */}
+        <Link
+          href={VAULT_WITHDRAWALS_HREF}
+          className="font-mono text-[11px] uppercase tracking-label text-muted hover:text-text"
+        >
+          ← {t('backToVault')}
+        </Link>
+        <h1 className="mt-4 font-serif text-[28px] leading-[1.12] text-text lg:text-[40px]">{t('title')}</h1>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted">{t('subtitle')}</p>
       </div>
 
@@ -275,12 +265,51 @@ export function ShipmentsView() {
             </p>
           )}
 
+          {/* F10 · destinatario que falta en la dirección elegida: motivo + captura inline + PATCH. */}
+          {selectedAddress && isMx && recipientMissing && (
+            <div className="rule-note mt-5" data-testid="recipient-capture">
+              <p id="recipient-required" className="font-mono text-[11px] leading-[1.6] text-accent">
+                {t('recipient.required')}
+              </p>
+              <div className="mt-4">
+                <Input
+                  label={t('recipient.label')}
+                  hint={t('recipient.hint')}
+                  autoComplete="name"
+                  maxLength={RECIPIENT_MAX}
+                  required
+                  value={recipientDraft}
+                  onChange={(e) => setRecipientDraft(e.target.value)}
+                  error={saveRecipient.isError ? getMessage(saveRecipient.error) : undefined}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-3"
+                disabled={!recipientValid}
+                loading={saveRecipient.isPending}
+                onClick={() =>
+                  saveRecipient.mutate({ id: selectedAddress.id, recipientName: recipientClean })
+                }
+              >
+                {t('recipient.save')}
+              </Button>
+            </div>
+          )}
+
           <p className="mt-5 text-xs leading-[1.65] text-muted">
             {t('flatFeeNotice')} {t('onlyMx')}
           </p>
 
           {canRequest && (
             <div className="mt-6 border-t border-border pt-4">
+              {/* §33.10b: el mismo dato que va a la etiqueta, leído una última vez antes de pagar. */}
+              {shipToName && selectedAddress && (
+                <p className="mb-3 font-mono text-[11px] text-muted" data-testid="ship-to">
+                  {t('shipTo', { name: shipToName, city: selectedAddress.city, state: selectedAddress.state })}
+                </p>
+              )}
               <QueryState
                 isLoading={quoteQuery.isLoading}
                 isError={quoteQuery.isError}
@@ -309,6 +338,8 @@ export function ShipmentsView() {
             variant="accent"
             loading={creating}
             disabled={!canRequest}
+            // §15.9: ningún control apagado y mudo — el motivo está enlazado cuando falta el destinatario.
+            aria-describedby={selectedAddress && isMx && recipientMissing ? 'recipient-required' : undefined}
             onClick={requestWithdrawal}
             className="mt-6 w-full"
           >
@@ -316,206 +347,6 @@ export function ShipmentsView() {
           </Button>
         </aside>
       </div>
-
-      <section className="gutter border-t border-border pb-14 pt-10">
-        <h2 className="font-serif text-[20px] leading-tight text-text lg:text-[28px]">{t('myShipments')}</h2>
-        <div className="mt-5">
-          <QueryState
-            isLoading={shipmentsQuery.isLoading}
-            isError={shipmentsQuery.isError}
-            error={shipmentsQuery.error}
-            onRetry={() => shipmentsQuery.refetch()}
-          >
-            {(shipmentsQuery.data?.length ?? 0) === 0 ? (
-              <EmptyState title={t('noShipments')} />
-            ) : (
-              shipmentsQuery.data!.map((s) => (
-                <div key={s.id} className="border-t border-border pt-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className="flex flex-wrap items-center gap-3">
-                      {/* Deep-link al detalle/rastreo del retiro (contrato §5 · GET /shipments/:id). */}
-                      <Link
-                        href={`/shipments/${s.id}`}
-                        className="tabular font-mono text-[13px] text-text underline decoration-dotted underline-offset-4 hover:text-accent focus-visible:shadow-focus"
-                      >
-                        {s.id}
-                      </Link>
-                      <StatusBadge domain="shipment" value={s.status} />
-                      {/* Etapa legible (tabla cliente §5), segundo canal textual del estado. */}
-                      <span className="font-mono text-[11px] text-muted">{ts(s.status)}</span>
-                    </span>
-                    {s.trackingNumber && (
-                      <span className="font-mono text-[11px] text-muted">
-                        {s.carrier} · {t('tracking')} {s.trackingNumber}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Dirección + total del retiro (contrato §5: addressSnapshot / montos). */}
-                  {(addressSummary(s.addressSnapshot) || s.totalCents != null) && (
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
-                      {addressSummary(s.addressSnapshot) && <span>{addressSummary(s.addressSnapshot)}</span>}
-                      {addressSummary(s.addressSnapshot) && s.totalCents != null && <span aria-hidden>·</span>}
-                      {s.totalCents != null && (
-                        <span className="tabular">
-                          {t('withdrawalTotal')}: {formatMoneyCents(s.totalCents, locale)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-5">
-                    <PipelineStepper steps={shipmentSteps} current={s.status} />
-                  </div>
-
-                  {/* Cartas incluidas en el retiro (folio, nombre, set): visibles en TODA etapa
-                      (rastreo, contrato §5). En un envío ENTREGADO, cada ítem elegible ofrece
-                      "Abrir disputa" inline (F6); un ítem con disputa activa muestra "Disputa abierta". */}
-                  {(s.items?.length ?? 0) > 0 && (
-                    <ul className="mt-5">
-                      {s.items.map((it) => {
-                        const isDelivered = s.status === 'entregado';
-                        const eligible = isDelivered && canOpenDispute(s, it);
-                        const disputed = activeDisputeItemIds.has(it.inventoryItemId);
-                        return (
-                          <li
-                            key={it.inventoryItemId}
-                            className="flex items-center gap-3 border-t border-border py-3 text-[13px] first:border-t-0"
-                          >
-                            <span className="tabular font-mono text-[11px] text-muted">{it.folio}</span>
-                            <span className="min-w-0 flex-1 truncate text-text" lang="en">
-                              {it.card.name}
-                            </span>
-                            <span
-                              className="hidden truncate font-mono text-[11px] text-muted sm:block"
-                              lang="en"
-                            >
-                              {it.card.setName}
-                            </span>
-                            {eligible ? (
-                              <Button size="sm" variant="ghost" onClick={() => openDispute(it)}>
-                                {t('dispute.open')}
-                              </Button>
-                            ) : isDelivered && disputed ? (
-                              <span className="font-mono text-[11px] text-muted">
-                                {t('dispute.alreadyOpen')}
-                              </span>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              ))
-            )}
-          </QueryState>
-        </div>
-      </section>
-
-      {/* F6: Mis disputas */}
-      <section className="gutter border-t border-border pb-14 pt-10">
-        <h2 className="font-serif text-[20px] leading-tight text-text lg:text-[28px]">
-          {t('dispute.myDisputes')}
-        </h2>
-        <div className="mt-5">
-          <QueryState
-            isLoading={disputesQuery.isLoading}
-            isError={disputesQuery.isError}
-            error={disputesQuery.error}
-            onRetry={() => disputesQuery.refetch()}
-          >
-            {(disputesQuery.data?.length ?? 0) === 0 ? (
-              <EmptyState title={t('dispute.noDisputes')} />
-            ) : (
-              disputesQuery.data!.map((d) => (
-                <div
-                  key={d.id}
-                  className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-4"
-                >
-                  <span className="flex items-center gap-3">
-                    <span className="tabular font-mono text-[13px] text-text">{d.id}</span>
-                    <StatusBadge domain="dispute" value={d.status} />
-                  </span>
-                  {d.deadlineAt && (
-                    <span className="font-mono text-[11px] text-muted">
-                      {t('dispute.deadline')} {new Date(d.deadlineAt).toLocaleDateString(locale)}
-                    </span>
-                  )}
-                </div>
-              ))
-            )}
-          </QueryState>
-        </div>
-      </section>
-
-      {/* F6: modal de creación de disputa */}
-      <Modal
-        open={disputeItem !== null}
-        onClose={closeDispute}
-        title={t('dispute.title')}
-        footer={
-          disputeCreated ? (
-            <Button onClick={closeDispute}>{t('dispute.done')}</Button>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={closeDispute}>
-                {t('dispute.cancel')}
-              </Button>
-              <Button
-                loading={disputeMutation.isPending}
-                disabled={disputeDesc.trim().length < 10}
-                onClick={() => disputeItem && disputeMutation.mutate(disputeItem)}
-              >
-                {t('dispute.submit')}
-              </Button>
-            </>
-          )
-        }
-      >
-        <div className="flex flex-col gap-4">
-          {disputeItem && (
-            <p className="text-sm text-muted">
-              <span className="tabular font-mono text-xs">{disputeItem.folio}</span>{' '}
-              <span lang="en" className="text-text">
-                {disputeItem.card.name}
-              </span>
-            </p>
-          )}
-          {disputeCreated ? (
-            // Tras el 201: contacto de soporte (evidenceContact) + plazo de la disputa.
-            <div className="flex flex-col gap-3">
-              <DisputeEvidenceContact
-                email={disputeCreated.evidenceContact}
-                reference={disputeCreated.disputeId}
-              />
-              <p className="text-xs text-muted">
-                {t('dispute.deadline')}{' '}
-                {new Date(disputeCreated.deadlineAt).toLocaleDateString(locale)}
-              </p>
-            </div>
-          ) : (
-            <>
-              <label className="flex flex-col">
-                <span className="eyebrow">{t('dispute.descLabel')}</span>
-                <textarea
-                  rows={4}
-                  value={disputeDesc}
-                  onChange={(e) => setDisputeDesc(e.target.value)}
-                  placeholder={t('dispute.descPlaceholder')}
-                  className="mt-3 w-full resize-none border-b border-border-strong bg-transparent pb-3 text-base text-text outline-none placeholder:text-muted focus:border-text focus:shadow-focus"
-                />
-              </label>
-              <p className="font-mono text-[11px] leading-[1.6] text-muted">{t('dispute.descHint')}</p>
-              {disputeMutation.isError && (
-                <Banner variant="danger" role="alert" title={t('dispute.errorTitle')}>
-                  {getMessage(disputeMutation.error)}
-                </Banner>
-              )}
-            </>
-          )}
-        </div>
-      </Modal>
 
       <StripePaymentModal
         open={!!shipment}

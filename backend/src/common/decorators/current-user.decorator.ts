@@ -6,6 +6,9 @@ export interface AuthUser {
   role: string;
   // v1.5: poblado por JwtAuthGuard desde BD; lo consume EmailVerifiedGuard (gating sensible).
   emailVerified?: boolean;
+  // v1.67: poblado por JwtAuthGuard desde BD (mismo `select`, cero consultas extra); lo consume
+  // PasswordChangeRequiredGuard (403 PASSWORD_CHANGE_REQUIRED fuera de la allowlist).
+  mustChangePassword?: boolean;
 }
 
 /** Inyecta el usuario autenticado (poblado por JwtAuthGuard). */

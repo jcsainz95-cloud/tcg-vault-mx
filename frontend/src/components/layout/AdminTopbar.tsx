@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useRole } from '@/lib/role';
-import { useRouter } from '@/i18n/navigation';
+import { Link, useRouter } from '@/i18n/navigation';
 import { logout as apiLogout } from '@/lib/api';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import type { Role } from '@/types/contract';
@@ -74,11 +74,20 @@ export function AdminTopbar({ onMenu }: { onMenu?: () => void }) {
         <div className="hidden sm:block">
           <LocaleToggle />
         </div>
+        {/* §33.2: «Mi cuenta» → /admin/account con la misma piel que «Cerrar sesión», área táctil
+            44px (P-66 I5) y orden de tabulación rol → idioma → Mi cuenta → Cerrar sesión. En `< sm`
+            los dos bajan al pie del drawer (AdminShell). */}
+        <Link
+          href="/admin/account"
+          className="hidden min-h-[44px] items-center text-[11px] font-medium uppercase tracking-label text-muted hover:text-text focus-visible:shadow-focus sm:inline-flex"
+        >
+          {tnav('myAccount')}
+        </Link>
         <button
           type="button"
           onClick={onLogout}
           // Anillo bermellón (--shadow-focus) en foco de teclado; sombras 0 salvo el foco.
-          className="text-[11px] font-medium uppercase tracking-label text-muted hover:text-text focus-visible:shadow-focus"
+          className="hidden min-h-[44px] items-center text-[11px] font-medium uppercase tracking-label text-muted hover:text-text focus-visible:shadow-focus sm:inline-flex"
         >
           {tnav('logout')}
         </button>

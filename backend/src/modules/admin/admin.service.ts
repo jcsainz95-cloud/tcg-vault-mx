@@ -25,6 +25,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { toAddressDTO } from '../users/address-dto';
 import { netRevenueCents } from '../../common/money';
 import {
   MIN_PASSWORD_LENGTH,
@@ -159,33 +160,6 @@ function toAdminUserOrderRef(o: {
     totalCents: o.totalCents,
     createdAt: o.createdAt,
     settledAt: o.settledAt,
-  };
-}
-
-/** `AddressDTO` (§DTOs) — misma lista blanca que `UsersService.toAddressDTO`. */
-function toAdminUserAddressRef(a: {
-  id: string;
-  line1: string;
-  line2: string | null;
-  neighborhood: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  phone: string;
-  isDefault: boolean;
-}) {
-  return {
-    id: a.id,
-    line1: a.line1,
-    line2: a.line2,
-    neighborhood: a.neighborhood,
-    city: a.city,
-    state: a.state,
-    postalCode: a.postalCode,
-    country: a.country,
-    phone: a.phone,
-    isDefault: a.isDefault,
   };
 }
 
@@ -488,7 +462,9 @@ export class AdminService {
     // pieza pasa por su propia lista BLANCA (ver los proyectores del encabezado de este archivo).
     const safe = {
       ...toAdminUserHeader(user),
-      addresses: user.addresses.map(toAdminUserAddressRef),
+      // v1.67.1 (F2-2, D-CTA-8, contrato §M6): LA MISMA proyección que `/users/me/addresses` —
+      // `AddressDTO` completa, con `recipientName`. Prohibida una segunda copia de la lista blanca.
+      addresses: user.addresses.map(toAddressDTO),
       orders: user.orders.map(toAdminUserOrderRef),
       sellRequests: user.sellRequests.map(toAdminUserSellRequestRef),
       disputes: user.disputes.map(toAdminUserDisputeRef),

@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { AdminShell } from './AdminShell';
 import { useRole } from '@/lib/role';
-import { setStoredUser } from '@/lib/session';
+import { setStoredUser, markIntentionalLogout, resetIntentionalLogoutForTests } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
 
 // Modo REAL: el back-office exige sesión (requireAuth = !config.useMocks).
@@ -43,9 +43,24 @@ const admin: UserDTO = {
 describe('AdminShell — gate de sesión (modo real)', () => {
   beforeEach(() => {
     replace.mockClear();
+    resetIntentionalLogoutForTests();
     push.mockClear();
     setStoredUser(null);
     window.localStorage.clear();
+  });
+
+  it('QA2-1 / FE-34: sesión vaciada por «Cerrar sesión» explícito → el guard NO impone /login?next=/admin (deja navegar al llamador)', async () => {
+    markIntentionalLogout();
+    renderWithIntl(
+      <AdminShell>
+        <RoleProbe />
+      </AdminShell>,
+      'es',
+    );
+    expect(screen.queryByText(/role:/)).not.toBeInTheDocument();
+    expect(screen.getByText('Verificando sesión…')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it('sin sesión NO renderiza el back-office y redirige a /login con next', async () => {

@@ -329,6 +329,7 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
   it('CRUD de direcciones: list → create (MX) → set default → delete (contrato §1)', async () => {
     const before = await listAddresses();
     const created = await createAddress({
+      recipientName: 'Ana López',
       line1: 'Calle 5 de Mayo 10',
       city: 'Puebla',
       state: 'Puebla',
@@ -354,6 +355,7 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
   it('createAddress rechaza país != MX (422 ADDRESS_NOT_MX)', async () => {
     await expect(
       createAddress({
+        recipientName: 'Ana López',
         line1: '5th Ave 1',
         city: 'NYC',
         state: 'NY',
@@ -528,7 +530,7 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/users/me/addresses');
 
     fetchMock.mockResolvedValueOnce(makeRes(201, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' }));
-    await createAddress({ line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
+    await createAddress({ recipientName: 'Ana', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
     expect(fetchMock.mock.calls[1][1].method).toBe('POST');
 
     fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111', isDefault: true }));

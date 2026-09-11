@@ -75,12 +75,13 @@ async function openRequestWhere(
   what: string,
   matches: (page: Page) => Promise<boolean>,
 ): Promise<void> {
-  await page.goto('/es/buylist');
+  // §33.3 (Stream A): «Mis solicitudes» vive en la pestaña Ventas de «Compras y ventas».
+  await page.goto('/es/orders?tab=ventas');
   await expect(requestLinks(page).first()).toBeVisible();
   const total = await requestLinks(page).count();
   for (let i = 0; i < total; i++) {
     if (i > 0) {
-      await page.goto('/es/buylist');
+      await page.goto('/es/orders?tab=ventas');
       await expect(requestLinks(page).first()).toBeVisible();
     }
     await requestLinks(page).nth(i).click();

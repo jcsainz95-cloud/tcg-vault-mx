@@ -49,7 +49,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 
 DESTINO="security/secretos-publicados.sha256"
 RETIRADOS="security/secretos-retirados.sha256"
@@ -87,17 +87,22 @@ MODO="${1:-write}"
 # Fuente ÚNICA de la forma. `check-secret-defaults.sh` la LEE de aquí (no la copia):
 # un hecho, un sitio. Si mañana añadimos `PASSPHRASE`, lo añadimos una vez.
 # INICIO_FORMA_SECRETO
-FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|SIGNING|UNSEAL|HMAC|SALT|CREDENTIAL|_KEY$|_KEYS$|_PWD$)'
+FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|SIGNING|UNSEAL|HMAC|SALT|CREDENTIAL|PEPPER|CIPHER|_KEY$|_KEYS$|_PWD$|_PASS$|_PIN$|_SEED$|_CODE$)'
 # FIN_FORMA_SECRETO
 # Nombres que CONTIENEN esas palabras y NO son secretos. Se acierta por defecto a
 # «es secreto»: una variable de más en el manifiesto no rompe nada; una de menos
 # es el agujero entero.
+# S-CLASE-1 (2026-09-11): + PEPPER, CIPHER, `_PASS$`, `_PIN$`, `_SEED$`, `_CODE$`
+# (seguridad plantó SMTP_PASS, ADMIN_PIN, MASTER_PEPPER, SESSION_SEED,
+# RECOVERY_CODE y CLABE_CIPHER y ninguno era «secreto» para esta forma). Las
+# familias no-secretas que esos sufijos arrastran (`HTTP_CODE`, `DO_SEED`…)
+# van en NO_SECRETO, abajo.
 # INICIO_NO_SECRETO
 # `SECRETS_ENV` y compañía contienen «SECRET» y NO son secretos: son el SELECTOR de
 # modo y las rutas del propio preflight. Sin esta excepción, el candado se pone rojo
 # sobre `export SECRETS_ENV=desechable` — la línea con la que un entrypoint DECLARA
 # que su stack es de usar y tirar. Un candado que suena por lo que no es, se apaga.
-NO_SECRETO='(PUBLISHABLE|NEXT_PUBLIC_|PUBLIC_KEY|_LENGTH$|_TTL$|_DAYS$|_BYTES$|_PATH$|_FILE$|_NAME$|_ID$|GITHUB_TOKEN|GH_TOKEN|_ROTATED|_EXPIRES|^SECRETS_ENV$|^SECRETS_MANIFEST$|^SECRETS_CATALOG$|^SECRETS_PROFILE$)'
+NO_SECRETO='(PUBLISHABLE|NEXT_PUBLIC_|PUBLIC_KEY|_LENGTH$|_TTL$|_DAYS$|_BYTES$|_PATH$|_FILE$|_NAME$|_ID$|GITHUB_TOKEN|GH_TOKEN|_ROTATED|_EXPIRES|^SECRETS_ENV$|^SECRETS_MANIFEST$|^SECRETS_CATALOG$|^SECRETS_PROFILE$|(HTTP|STATUS|ERROR|EXIT|COUNTRY|CURRENCY|LOCALE|LANG|LANGUAGE|ZIP|POSTAL|AREA|DIAL|ISO|REGION|STATE|SKU|CONDITION|GRADE|RETURN|RESULT|REASON|EVENT|TYPE|COLOR|COLOUR|HEX)_CODE$|^(DO|RUN|AUTO|SKIP|NO|WITH|FORCE|RANDOM|FAKER|TEST|DEMO|SYNTHETIC|O)_SEED$|(OUTLINE|FIRST|SECOND|SINGLE|MULTI|RENDER|EACH|PER)_PASS$)'
 # FIN_NO_SECRETO
 
 # --- Prefijos de secreto reconocibles ---------------------------------------

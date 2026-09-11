@@ -7,6 +7,7 @@ import type { AppLocale } from '@/i18n/routing';
 import type { AddressDTO, BreakdownDTO, ShipmentDTO } from '@/types/contract';
 import { formatDate } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
+import { VAULT_WITHDRAWALS_HREF } from '../../vault/vaultTabs';
 import { CardImage } from '@/components/ui/CardImage';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
@@ -62,7 +63,11 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
   return (
     <div>
       <div className="gutter pb-5 pt-10 lg:pt-[46px]">
-        <Link href="/shipments" className="font-mono text-[11px] uppercase tracking-label text-muted hover:text-text">
+        {/* §33.4: la lista de retiros vive en la pestaña «Retiros» de la bóveda. */}
+        <Link
+          href={VAULT_WITHDRAWALS_HREF}
+          className="font-mono text-[11px] uppercase tracking-label text-muted hover:text-text"
+        >
           ← {t('backToList')}
         </Link>
       </div>
@@ -141,6 +146,11 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
                 <address className="mt-3 not-italic text-[13px] leading-relaxed text-text">
                   {addrField(query.data.addressSnapshot, 'line1') ? (
                     <>
+                      {/* §33.10c: el destinatario antecede a la calle; un snapshot anterior a v1.67
+                          (sin nombre) no marca nada al cliente (no puede arreglar un envío creado). */}
+                      {addrField(query.data.addressSnapshot, 'recipientName') && (
+                        <div className="font-medium">{addrField(query.data.addressSnapshot, 'recipientName')}</div>
+                      )}
                       <div>{addrField(query.data.addressSnapshot, 'line1')}</div>
                       {addrField(query.data.addressSnapshot, 'line2') && (
                         <div>{addrField(query.data.addressSnapshot, 'line2')}</div>

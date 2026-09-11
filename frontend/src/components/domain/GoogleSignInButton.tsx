@@ -7,7 +7,7 @@ import { config } from '@/lib/config';
 import { loginWithGoogle } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Banner } from '@/components/ui/Banner';
-import type { Role } from '@/types/contract';
+import type { Role, UserDTO } from '@/types/contract';
 
 /** Logo "G" multicolor oficial de Google (SVG, no se recolorea). */
 function GoogleG({ size = 18 }: { size?: number }) {
@@ -47,8 +47,12 @@ declare global {
 }
 
 export interface GoogleSignInButtonProps {
-  /** Se invoca tras un login exitoso con el `role` del usuario (para redirigir). */
-  onSuccess: (role?: Role) => void;
+  /**
+   * Se invoca tras un login exitoso con el `role` y el `user` devueltos (para redirigir).
+   * v1.67 (§33.8 paso 2): el `user` trae `mustChangePassword` — una cuenta local que el admin
+   * reseteó puede entrar por Google y debe aterrizar igualmente en la página de contraseña.
+   */
+  onSuccess: (role?: Role, user?: UserDTO) => void;
 }
 
 /**
@@ -78,7 +82,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   async function exchange(idToken: string) {
     try {
       const res = await loginWithGoogle(idToken);
-      onSuccess(res.user.role);
+      onSuccess(res.user.role, res.user);
     } catch (e) {
       const code = e instanceof ApiClientError ? e.code : 'GOOGLE_TOKEN_INVALID';
       setErrorCode(code);

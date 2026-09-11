@@ -54,6 +54,16 @@ id = "generic-api-key-assignment"
 description = "Asignación de API key genérica en código"
 regex = '''(?i)(pokemontcg_io_api_key|pokemonpricetracker_api_key|poketrace_api_key)\s*[:=]\s*['"][0-9a-zA-Z_\-]{16,}['"]'''
 keywords = ["api_key"]
+# Esta regla captura como «secreto» el NOMBRE de la clave (grupo 1), así que
+# la allowlist GLOBAL (que mira el secreto) no puede eximirla por valor. La
+# excepción del historial (§56.3, commit 46d76cc: mock `SUPER-SECRETO-123` en
+# backend/test/graded-estimate.ingest.spec.ts) va aquí, acotada a ESTA regla y
+# a ESE literal, mirando la línea completa (`regexTarget = "match"`).
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  '''POKEMONPRICETRACKER_API_KEY:\s*'SUPER-SECRETO-123'''',
+]
 
 # --- Allowlist: placeholders y valores de prueba NO son hallazgos ------------
 [allowlist]
@@ -62,8 +72,15 @@ regexes = [
   '''CHANGE_ME''',
   '''_dummy''',
   '''_change_me''',
-  '''sk_test_[0-9a-zA-Z_]*''',
-  '''pk_test_[0-9a-zA-Z_]*''',
+  # S-GL-1 / C4 (seguridad, 2026-09-11): antes decía `sk_test_[0-9a-zA-Z_]*`,
+  # que —sin anclas y con `*`— casaba CUALQUIER `sk_test_…`, incluida la clave
+  # de prueba REAL de la tienda (`sk_test_51` + alfanumérico). Ahora solo pasa
+  # un placeholder que se DELATA: sin un solo dígito (`sk_test_dummy`,
+  # `sk_test_xxx…`, `sk_test_algo`) o con una palabra auto-delatora dentro
+  # (`sk_test_e2e_dummy`, `sk_test_CHANGE_ME`). Una clave real siempre lleva
+  # dígitos y nunca lleva esas palabras. Anclado (`^…$`) sobre el secreto.
+  # Lo demuestra security/scripts/sast-gitleaks-canary.sh.
+  '''^(sk|pk|rk)_test_(?:[A-Za-z_]+|[A-Za-z0-9_]*(?:dummy|DUMMY|CHANGE_ME|change_me|placeholder|PLACEHOLDER)[A-Za-z0-9_]*)$''',
   '''whsec_(ci|staging|test)_''',
   '''minioadmin''',
   '''tcg_local_dev_password''',
@@ -71,11 +88,43 @@ regexes = [
   '''ChangeMe123!''',
   '''StagingAdmin123!''',
   '''Operador123!''',
+  # HISTORIAL de `backend/` (§56.3; backend los neutralizó en el árbol en
+  # a454178, pero `gitleaks git .` sigue viendo los commits viejos fbb66e1,
+  # 46d76cc y e504466). Los tres son FICCIÓN de tests o un falso positivo, y
+  # por eso se permiten POR VALOR EXACTO (anclado), no por ruta ni por commit:
+  #   · `SUPER-SECRETO-123`  → POKEMONPRICETRACKER_API_KEY de un spec (mock);
+  #                             su regla expone el NOMBRE como secreto, así que
+  #                             va en `[rules.allowlist]` de esa regla, no aquí.
+  #   · `A-Strong-Secret-123` → SEED_ADMIN_PASSWORD de un spec (mock).
+  #   · `asB64.length`       → un trozo de código (`const key = asB64.length`),
+  #                             no un valor: falso positivo de generic-api-key.
+  # Medido tras añadirlos: `gitleaks git .` (historial completo) 0 hallazgos.
+  # CI escanea el RANGO del push (security-sast.yml), así que estos nunca
+  # ponían rojo un run: esto deja limpio el modo `git` manual/local.
+  '''^A-Strong-Secret-123$''',
+  '''^asB64\.length$''',
 ]
 paths = [
   '''\.env\.example$''',
+  # P-GL-FP (2026-09-11): los dos canarios PLANTAN secretos falsos por
+  # construcción (una `sk_live_`, un `whsec_`, una `sk_test_51…` de ficción)
+  # para exigir que los candados muerdan. Run rojo de referencia: 34554095125
+  # (9 hallazgos, todos en estos dos ficheros). Se permiten POR RUTA —no
+  # ensanchando ninguna regex—: cualquier otro fichero con el mismo contenido
+  # sigue siendo rojo (el canario lo comprueba copiándolo a otra ruta).
+  '''^scripts/check-secret-defaults-canary\.sh$''',
+  '''^scripts/check-stripe-webhook-failclosed-canary\.sh$''',
   '''(^|/)docs/.*\.md$''',
   '''security/.*\.(md|toml|yml|yaml)$''',
   '''docker-compose.*\.yml$''',
-  '''\.github/workflows/.*\.yml$''',
+  # F1-4 (techlead, 2026-09-11): aquí estaba `\.github/workflows/.*\.yml$`, que
+  # eximía los workflows ENTEROS. Retirada: medido con el mismo binario
+  # (v8.30.1) sobre `gitleaks dir .` y `gitleaks git .` (historial completo)
+  # con y sin la línea, el conjunto de hallazgos es IDÉNTICO (0 en
+  # .github/workflows/ en ambos modos). La exención no evitaba ningún falso
+  # positivo: solo abría un hueco. Control compensatorio que sigue vigente y
+  # cubre lo que gitleaks no ve (respaldos `${{ secrets.X || 'literal' }}` y
+  # literales en claves con nombre de secreto): scripts/check-secret-defaults.sh
+  # bloque (B). Si un workflow futuro dispara un falso positivo, se exime ESA
+  # regla o ESA ruta con motivo, no la carpeta.
 ]

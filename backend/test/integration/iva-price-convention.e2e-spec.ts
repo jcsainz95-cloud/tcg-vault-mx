@@ -431,6 +431,12 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
         },
       });
       const addr = await h.prisma.address.findFirst({ where: { userId: customerId } });
+      // v1.67 (M-52): la dirección del seed nace sin destinatario y `POST /shipments` lo exige
+      // (422 RECIPIENT_NAME_REQUIRED, cubierto en vault-shipments). Aquí se prueba la CONVENCIÓN de
+      // IVA, no el destinatario: se garantiza uno sin pisar el que otra suite haya dejado.
+      if (!addr!.recipientName) {
+        await h.prisma.address.update({ where: { id: addr!.id }, data: { recipientName: 'E2E Destinatario' } });
+      }
       const res = await h.api('POST', '/shipments', {
         token: customerToken,
         json: { inventoryItemIds: [pieza.id], addressId: addr!.id },

@@ -25,6 +25,8 @@
 # en el árbol antes de esta corrida):
 #     HSM_UNSEAL_KEY   VAULT_ROOT_TOKEN   SENDGRID_API_KEY   PAYOUT_SIGNING_SECRET
 #     KYC_PROVIDER_PASSWORD   LEDGER_HMAC   TWILIO_AUTH_TOKEN   DB_REPLICA_PASSWORD
+#     SMTP_RELAY_PASS  VAULT_ADMIN_PIN  MASTER_PEPPER  SESSION_SEED  RECOVERY_CODE  CLABE_CIPHER
+#     (los seis últimos: S-CLASE-1, sufijos que la forma vieja no reconocía)
 #
 # QUÉ SE COMPRUEBA
 #   Bloques A–F: el candado estático, sobre una COPIA del árbol, mutada.
@@ -55,7 +57,9 @@ printf '\n\033[1m== ¿El candado de la CLASE (S-88-1) muerde con secretos que no
 # Si alguno existiera, el canario estaría probando un caso conocido y volvería a
 # ser el canario de una variable. Se comprueba, no se supone.
 INVENTADOS=(HSM_UNSEAL_KEY VAULT_ROOT_TOKEN SENDGRID_API_KEY PAYOUT_SIGNING_SECRET
-            KYC_PROVIDER_PASSWORD LEDGER_HMAC TWILIO_AUTH_TOKEN DB_REPLICA_PASSWORD)
+            KYC_PROVIDER_PASSWORD LEDGER_HMAC TWILIO_AUTH_TOKEN DB_REPLICA_PASSWORD
+            # S-CLASE-1 (seguridad, 2026-09-11): nombres FUERA de la forma vieja.
+            SMTP_RELAY_PASS VAULT_ADMIN_PIN MASTER_PEPPER SESSION_SEED RECOVERY_CODE CLABE_CIPHER)
 printf '\033[1mPrecondición — los nombres del canario son DESCONOCIDOS para el repo\033[0m\n'
 # Se busca SOLO donde el candado mira (config y código), no en `docs/`. Documentar
 # el canario —§50.5 nombra estos ocho— no puede romperlo: es la misma trampa que ya
@@ -325,6 +329,113 @@ caso ROJO  "e2e-real deja de resolver antes del \`up\`"       "e2e-real.yml"    
 caso ROJO  "la ruta local del DAST deja de resolver"         "dast-ephemeral.sh" m_consumidor_local_sin_resolver
 caso ROJO  "un consumidor NUEVO que no resuelve"             "levantar-nuevo.sh" m_consumidor_nuevo_sin_resolver
 caso ROJO  "se revierte el \`:?\` (el bloque sin blanco)"     "-"                m_compose_sin_exigencias
+
+# =============================================================================
+# ★ BLOQUE S-CLASE-1 — LOS 7 CASOS QUE SEGURIDAD MIDIÓ ESCAPANDO (2026-09-11)
+# =============================================================================
+# «19 mutaciones: muerde 3, escapan 16». El candado cubría UNA grafía del
+# default (`:-`), una forma de asignación (`export`) y una lista de sufijos.
+# Estos casos son literalmente los suyos, con nombres que el repo no ha tenido.
+m_default_un_guion() {          # 1. `${VAR-lit}`: un solo guion, sin `:` (Compose lo soporta)
+  sed -i 's|^      NODE_ENV: .*|      HSM_UNSEAL_KEY: ${HSM_UNSEAL_KEY-unseal_un_guion_2026}\n&|' "$1/docker-compose.staging.yml"
+  regenerar "$1"
+}
+m_default_asigna() {            # 2. `${VAR:=lit}`: asignar-por-defecto
+  sed -i 's|^      NODE_ENV: .*|      HSM_UNSEAL_KEY: ${HSM_UNSEAL_KEY:=unseal_asigna_2026}\n&|' "$1/docker-compose.staging.yml"
+  regenerar "$1"
+}
+m_script_colon_asigna() {       # 3. `: "${VAR:=lit}"` en un .sh
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' ': "${KYC_PROVIDER_PASSWORD:=kyc_asigna_2026}"' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_nombre_pass() {               # 4a. `SMTP_RELAY_PASS` (sufijo _PASS)
+  sed -i 's|^      NODE_ENV: .*|      SMTP_RELAY_PASS: ${SMTP_RELAY_PASS:-relay_2026_secreto}\n&|' "$1/docker-compose.staging.yml"
+  regenerar "$1"
+}
+m_nombre_pin() {                # 4b. `VAULT_ADMIN_PIN` escrito a pelo en compose
+  sed -i 's|^      NODE_ENV: .*|      VAULT_ADMIN_PIN: 482913\n&|' "$1/docker-compose.yml"
+  regenerar "$1"
+}
+m_nombre_pepper() {             # 4c. `MASTER_PEPPER` con default en script
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'MASTER_PEPPER="${MASTER_PEPPER:-pepper_maestro_2026}"' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_nombre_seed() {               # 4d. `SESSION_SEED` exportado en script
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'export SESSION_SEED="semilla_de_sesion_2026"' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_nombre_code() {               # 4e. `RECOVERY_CODE` usable en .env.example
+  printf '\n%s\n' 'RECOVERY_CODE=7731-9902-4410' >> "$1/.env.example"
+  regenerar "$1"
+}
+m_nombre_cipher() {             # 4f. `CLABE_CIPHER` con respaldo `|| '…'` en un workflow
+  printf '      %s\n' "CLABE_CIPHER: \${{ secrets.CLABE_CIPHER || 'clabe_cifra_2026' }}" >> "$1/.github/workflows/ci.yml"
+  regenerar "$1"
+}
+m_env_staging_versionado() {    # 5. `.env.staging` versionado con un secreto
+  printf '%s\n' 'NODE_ENV=production' 'HSM_UNSEAL_KEY=unseal_env_staging_2026' > "$1/.env.staging"
+  regenerar "$1"
+}
+m_dockerfile_fabrica_env() {    # 6. `RUN echo "VAR=lit" >> /app/.env` en el Dockerfile
+  printf '%s\n' 'RUN echo "HSM_UNSEAL_KEY=unseal_desde_dockerfile_2026" >> /app/.env' >> "$1/Dockerfile.backend"
+  regenerar "$1"
+}
+m_compose_lista() {             # 7. `environment:` en forma de LISTA
+  sed -i 's|^      NODE_ENV: .*|      - HSM_UNSEAL_KEY=unseal_en_lista_2026\n&|' "$1/docker-compose.staging.yml"
+  regenerar "$1"
+}
+m_asignacion_sin_export() {     # 8a. `LEDGER_HMAC=lit` sin `export`
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'LEDGER_HMAC=hmac_sin_export_2026' 'echo "$LEDGER_HMAC"' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_declare_x() {                 # 8b. `declare -x VAR=lit`
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/bash' 'declare -x VAULT_ROOT_TOKEN=hvs.declarado_2026' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+# Controles en VERDE de esta familia: lo legítimo que las formas nuevas rozan.
+m_default_un_guion_vacio() {    # `${VAR-}`: vacío declarado con un guion
+  sed -i 's|^      NODE_ENV: .*|      HSM_UNSEAL_KEY: ${HSM_UNSEAL_KEY-}\n&|' "$1/docker-compose.staging.yml"
+  regenerar "$1"
+}
+m_sufijos_no_secretos() {       # HTTP_CODE / DO_SEED / EXIT_CODE: suenan y no son
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'HTTP_CODE=200' 'DO_SEED=1' 'EXIT_CODE=0' 'export COUNTRY_CODE=MX' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_array_y_referencia() {        # `KEYS=(…)` es un array; `echo "VAR=$X" >> .env` es una referencia
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/bash' 'PENDING_KEYS=(a b c)' 'echo "HSM_UNSEAL_KEY=$HSM_UNSEAL_KEY" >> .env' 'printf "LEDGER_HMAC=%s\n" "$V"' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_env_staging_placeholder() {   # un .env.* versionado SOLO con placeholders no es un secreto publicado
+  printf '%s\n' 'HSM_UNSEAL_KEY=CHANGE_ME' > "$1/.env.staging"
+  regenerar "$1"
+}
+
+printf '\n\033[1m★ Bloque S-CLASE-1 — las grafías y sufijos que escapaban (los 7 casos de seguridad)\033[0m\n'
+caso ROJO  "1. \`\${HSM_UNSEAL_KEY-lit}\` (un guion, sin dos puntos)"      "HSM_UNSEAL_KEY"        m_default_un_guion
+caso ROJO  "2. \`\${HSM_UNSEAL_KEY:=lit}\` (asignar-por-defecto)"         "HSM_UNSEAL_KEY"        m_default_asigna
+caso ROJO  "3. \`: \"\${KYC_PROVIDER_PASSWORD:=lit}\"\` en un .sh"          "KYC_PROVIDER_PASSWORD" m_script_colon_asigna
+caso ROJO  "4a. SMTP_RELAY_PASS (sufijo _PASS) con \`:-literal\`"          "SMTP_RELAY_PASS"       m_nombre_pass
+caso ROJO  "4b. VAULT_ADMIN_PIN (sufijo _PIN) escrito a pelo"              "VAULT_ADMIN_PIN"       m_nombre_pin
+caso ROJO  "4c. MASTER_PEPPER (PEPPER) con \`:-literal\` en script"        "MASTER_PEPPER"         m_nombre_pepper
+caso ROJO  "4d. SESSION_SEED (sufijo _SEED) exportado con literal"         "SESSION_SEED"          m_nombre_seed
+caso ROJO  "4e. RECOVERY_CODE (sufijo _CODE) usable en .env.example"       "RECOVERY_CODE"         m_nombre_code
+caso ROJO  "4f. CLABE_CIPHER (CIPHER) con respaldo \`|| '…'\` en workflow"  "CLABE_CIPHER"          m_nombre_cipher
+caso ROJO  "5. .env.staging VERSIONADO con HSM_UNSEAL_KEY=literal"         ".env.staging"          m_env_staging_versionado
+caso ROJO  "6. Dockerfile: RUN echo \"HSM_UNSEAL_KEY=lit\" >> /app/.env"    "Dockerfile.backend"    m_dockerfile_fabrica_env
+caso ROJO  "7. environment en forma de LISTA: - HSM_UNSEAL_KEY=lit"        "HSM_UNSEAL_KEY"        m_compose_lista
+caso ROJO  "8a. LEDGER_HMAC=lit SIN export"                                "LEDGER_HMAC"           m_asignacion_sin_export
+caso ROJO  "8b. declare -x VAULT_ROOT_TOKEN=lit"                           "VAULT_ROOT_TOKEN"      m_declare_x
+caso VERDE "\`\${HSM_UNSEAL_KEY-}\` (vacío declarado, un guion)"            "-" m_default_un_guion_vacio
+caso VERDE "HTTP_CODE / DO_SEED / EXIT_CODE / COUNTRY_CODE (suenan, no son)"  "-" m_sufijos_no_secretos
+caso VERDE "array \`KEYS=(…)\`, \`echo \"VAR=\$X\"\` y \`printf VAR=%s\` (referencias)" "-" m_array_y_referencia
+caso VERDE ".env.staging versionado SOLO con CHANGE_ME (no es un valor usable)" "-" m_env_staging_placeholder
 
 printf '\n\033[1mControles en verde — el candado tiene que dejar pasar lo legítimo\033[0m\n'
 caso VERDE "Árbol íntegro"                                   "-" m_nada

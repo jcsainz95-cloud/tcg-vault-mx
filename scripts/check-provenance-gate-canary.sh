@@ -11,6 +11,7 @@
 #   1. copia intacta                                                    -> VERDE
 #   2. start_backend() de stack-native.sh sin ASSERT_HEAD                -> ROJO
 #   3. deploy.yml sin el job staging-serves-head                         -> ROJO
+#   7-9. dast-release sin ref: github.sha / sin el job / stack efímero sin assert-serving-head -> ROJO
 #   4. e2e-real.yml sin --newer-than                                     -> ROJO
 #   5. stack-native.sh sin el subcomando verify:head                     -> ROJO
 #   6. sin scripts/assert-serving-head.sh                                -> ROJO
@@ -32,9 +33,10 @@ BASE="$(mktemp -d -t provenance-canary-XXXXXX)"
 trap 'rm -rf "$BASE"' EXIT
 
 copia() {  # copia <dir>: la guarda + los ficheros que lee
-  local d="$1"; rm -rf "$d"; mkdir -p "$d/scripts" "$d/.github/workflows"
+  local d="$1"; rm -rf "$d"; mkdir -p "$d/scripts" "$d/.github/workflows" "$d/security/scripts"
   cp "$ROOT_DIR/scripts/check-provenance-gate.sh" "$ROOT_DIR/scripts/assert-serving-head.sh" "$ROOT_DIR/scripts/stack-native.sh" "$d/scripts/"
-  cp "$ROOT_DIR/.github/workflows/e2e-real.yml" "$ROOT_DIR/.github/workflows/deploy.yml" "$d/.github/workflows/"
+  cp "$ROOT_DIR/.github/workflows/e2e-real.yml" "$ROOT_DIR/.github/workflows/deploy.yml" "$ROOT_DIR/.github/workflows/security-dast.yml" "$d/.github/workflows/"
+  cp "$ROOT_DIR/security/scripts/dast-ephemeral.sh" "$d/security/scripts/"
 }
 caso() {  # caso <ROJO|VERDE> <nombre> <dir> [<texto esperado>]
   local esperado="$1" nombre="$2" dir="$3"; shift 3
@@ -74,6 +76,20 @@ caso ROJO "stack-native.sh sin el subcomando verify:head" "$D" "verify:head"
 
 D="$BASE/c6"; copia "$D"; rm -f "$D/scripts/assert-serving-head.sh"
 caso ROJO "Sin scripts/assert-serving-head.sh" "$D" "FALTA"
+
+# §56: la ruta de release. `dast-release` tiene que llamar al DAST con el SHA de
+# este run, y el stack efímero tiene que exigir procedencia antes de escanear.
+D="$BASE/c7"; copia "$D"
+sed -i '/^  dast-release:/,/^  [a-z][a-z0-9-]*:$/{s/^\(\s*\)ref: \${{ github.sha }}$/\1ref: main/}' "$D/.github/workflows/deploy.yml"
+caso ROJO "deploy.yml: dast-release sin 'ref: github.sha' (escanearía otro commit)" "$D" "dast-release"
+
+D="$BASE/c8"; copia "$D"
+sed -i 's/^  dast-release:$/  dast-release-renombrado:/' "$D/.github/workflows/deploy.yml"
+caso ROJO "deploy.yml sin el job dast-release" "$D" "dast-release"
+
+D="$BASE/c9"; copia "$D"
+sed -i 's|assert-serving-head\.sh|assert-serving-head-quitado.sh|g' "$D/security/scripts/dast-ephemeral.sh"
+caso ROJO "dast-ephemeral.sh sin assert-serving-head (el stack efímero no exige procedencia)" "$D" "procedencia"
 
 echo
 if [ "$FALLOS" -ne 0 ]; then
