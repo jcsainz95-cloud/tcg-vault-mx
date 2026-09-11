@@ -814,6 +814,15 @@ model InventoryItem {
   // como SNAPSHOT por-pieza congelado al alta (estabilidad money-safe del display/valuación).
   sealedProductId         String?
   sealedProduct           SealedProduct?   @relation(fields: [sealedProductId], references: [id], onDelete: SetNull)
+  // v1.68 (M-53, ARCHITECTURE §4.48.2 / API_CONTRACT §4-R): DUEÑO y VENCIMIENTO de la reserva. Ambos
+  // nullable: NULL = no reservada, o reserva LEGADA (anterior a M-53; se libera por los caminos de
+  // siempre y no es recuperable por nadie). El CLIENTE de la reserva se lee de la Order
+  // (`userId` | `guestEmail`): un hecho, un sitio. `onDelete: SetNull` es defensivo (las órdenes no se
+  // borran); una pieza «reservada por nadie» cae en la rama legada y la aplicación sabe liberarla.
+  // ⛔ SIN backfill: un `reservedUntil` para las piezas en vuelo al desplegar sería un instante inventado.
+  reservedByOrderId       String?
+  reservedByOrder         Order?           @relation("ReservedByOrder", fields: [reservedByOrderId], references: [id], onDelete: SetNull)
+  reservedUntil           DateTime?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -841,6 +850,10 @@ model InventoryItem {
   // v1.39 (M-39, P-38): sirve la resolución de display en cascada (SealedProduct vivo) y el reporte
   // de reconciliación (sellado con sealedProductId IS NULL) sin barrer la tabla.
   @@index([sealedProductId])
+  // v1.68 (M-53): el primero sirve el pre-scan de reserva propia y la guarda de liberación (igualdad
+  // por orden); el segundo, el barrido `order-reservation-sweep` (`status='reserved' ∧ reservedUntil < now()`).
+  @@index([reservedByOrderId])
+  @@index([status, reservedUntil])
 }
 
 model InventoryMovement {
@@ -1115,6 +1128,8 @@ model Order {
   refundedAt              DateTime?
 
   items            OrderItem[]
+  // v1.68 (M-53, §4-R): piezas cuya reserva VIVA pertenece a esta orden (relación inversa; sin DDL propio).
+  reservedItems    InventoryItem[]    @relation("ReservedByOrder")
   // v1.21 (M-25): enlaces de seguimiento del pedido de invitado (solo SHA-256 del claro).
   accessTokens     OrderAccessToken[]
   // v1.21 (M-25): envíos que fulfillan esta orden (envío directo). Vacío en pedidos a bóveda.
