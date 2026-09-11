@@ -6,8 +6,10 @@ import {
   decideMockSession,
   liveMockReservations,
   mockOrderSuperseded,
+  mockOwnReservation,
   mockReservationFor,
   mockReservedByOthers,
+  mockReservedByYou,
   resetMockReservations,
   settleMockReservation,
   type MockCaller,
@@ -104,6 +106,37 @@ describe('lib/mock/reservation · tabla de §4-R.2 (cuenta)', () => {
     // …pero un invitado o D no la ven como ajena (fidelidad acotada, documentada en el módulo).
     expect(mockReservedByOthers(['inv-1002'], { kind: 'guest', email: 'x@y.z' })).toEqual([]);
     expect(decideMockSession(['inv-1002'], D).kind).toBe('new');
+  });
+
+  it('la reserva de fixtures NO existe hasta que la cuenta pasa por GET /orders (el quote plano no la ve)', () => {
+    expect(mockReservedByYou(['inv-1002'], C)).toEqual([]);
+    expect(mockOwnReservation(['inv-1002'], C)).toBeNull();
+    expect(decideMockSession(['inv-1002'], C).kind).toBe('new');
+  });
+
+  it('v1.68.1 §4-R.5: el quote reporta `reservedByYou` y `ownReservation` (coversCart / expired)', () => {
+    const o1 = create(C, ['x']).created!;
+    expect(mockReservedByYou(['x', 'z'], C)).toEqual(['x']);
+    expect(mockReservedByYou(['x'], D)).toEqual([]);
+    const own = mockOwnReservation(['x'], C);
+    expect(own).toMatchObject({ orderId: o1.orderId, orderNumber: o1.orderNumber, expired: false, coversCart: true });
+    expect(mockOwnReservation(['x', 'y'], C)?.coversCart).toBe(false);
+    expect(mockOwnReservation(['z'], C)).toBeNull();
+    expect(mockOwnReservation(['x'], D)).toBeNull();
+  });
+
+  it('v1.68.1 R-9: la reserva PROPIA VENCIDA se SUSTITUYE (nunca reuso ni ajena) y el quote la sigue cotizando con expired: true', () => {
+    const now = Date.now();
+    const o1 = create(C, ['x']).created!;
+    const later = now + 61 * 60_000; // pasado el TTL, sin barrer
+    const same = decideMockSession(['x'], C, later);
+    expect(same.kind).toBe('supersede');
+    if (same.kind === 'supersede') expect(same.superseded.map((r) => r.orderId)).toEqual([o1.orderId]);
+    expect(mockReservedByYou(['x'], C, later)).toEqual(['x']);
+    expect(mockOwnReservation(['x'], C, later)).toMatchObject({ orderId: o1.orderId, expired: true, coversCart: true });
+    // Para D la vencida ya no bloquea (solo las vivas son «ajenas»).
+    expect(decideMockSession(['x'], D, later).kind).toBe('new');
+    expect(mockReservedByOthers(['x'], D, later)).toEqual([]);
   });
 
   it('settle: tras pagar, la reserva deja de ser viva', () => {

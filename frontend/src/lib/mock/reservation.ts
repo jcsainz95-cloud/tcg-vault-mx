@@ -12,6 +12,9 @@
  *  · **Reserva AJENA** (`409 ITEM_UNAVAILABLE`, como hoy): una pieza reservada por otra orden que
  *    el llamador no puede reclamar. Para el invitado eso incluye «perdí el `checkoutToken`»
  *    (§4-R.3 / R-7): sin token no hay reclamo de propiedad.
+ *  · **Propia VENCIDA** (v1.68.1, R-9): `reservedUntil <= now()` y aún no barrida ⇒ **SUSTITUCIÓN
+ *    siempre** (`201`), nunca reuso ni «ajena». El quote la sigue cotizando (`reservedByYou`) con
+ *    `ownReservation.expired: true`.
  *
  * El estado vive en **`sessionStorage`** (ámbito pestaña) y no en memoria del módulo: la rama mock
  * corre en el navegador y una navegación (`page.goto` de Playwright, «Reanudar pago» → `/checkout`)
@@ -71,6 +74,15 @@ export type MockCaller =
   | { kind: 'customer'; userId: string }
   | { kind: 'guest'; email: string; retryOfCheckoutToken?: string };
 
+/** v1.68.1 (§4-R.5): lo que el QUOTE dice de la reserva propia sobre este carrito. */
+export interface MockOwnReservation {
+  orderId: string;
+  orderNumber: string;
+  reservedUntil: string;
+  expired: boolean;
+  coversCart: boolean;
+}
+
 export type MockSessionDecision =
   | { kind: 'new' }
   | { kind: 'reuse'; reservation: MockReservation }
@@ -121,6 +133,14 @@ function isLive(r: MockReservation, now: number): boolean {
   return Number.isFinite(until) && until > now;
 }
 
+/**
+ * Una reserva PROPIA cuenta aunque haya vencido (hasta que el barrido la libere); una ajena solo
+ * mientras está viva. El simulador no barre: `settleMockReservation` hace de barrido en tests.
+ */
+function isPresent(r: MockReservation, caller: MockCaller, now: number): boolean {
+  return ownedBy(r, caller) ? true : isLive(r, now);
+}
+
 function sameSet(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
@@ -130,41 +150,22 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean {
 function ownedBy(r: MockReservation, caller: MockCaller): boolean {
   if (caller.kind === 'customer') return r.userId === caller.userId;
   // §4-R.3: el invitado SOLO reclama con el token vivo de esa orden Y el mismo correo. Un correo
-  // solo no es identidad (cualquiera puede teclearlo). `email: ''` = reclamo solo por token: lo usa
-  // el QUOTE de invitado, que no lleva correo (ver `readMockGuestRetryToken`).
+  // solo no es identidad (cualquiera puede teclearlo). v1.68.1: el quote también lleva los dos.
   return (
     r.userId === null &&
     !!caller.retryOfCheckoutToken &&
     r.checkoutToken === caller.retryOfCheckoutToken &&
-    (caller.email === '' || r.guestEmail === caller.email)
+    r.guestEmail === caller.email
   );
 }
 
-/**
- * MOCK — espejo de `checkout/guest-retry-token.ts` (misma clave y mismo sobre; la paridad la
- * vigila `guest-retry-token.test.ts`). El quote de invitado (§4-G.1) **no lleva
- * `retryOfCheckoutToken`**, así que un backend literal listaría la reserva PROPIA del invitado en
- * `unavailableItems` y la vista la podaría antes de poder reintentar. El simulador lee el token de
- * la pestaña para que el quote reconozca lo propio — que es lo que §4-R necesita del quote y lo que
- * se pide al arquitecto (FRONTEND_NOTES §69).
- */
-export function readMockGuestRetryToken(): string | undefined {
-  try {
-    const raw = storage()?.getItem('tcg.guestCheckoutRetry');
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as { token?: unknown; expiresAt?: unknown };
-    const exp = typeof parsed.expiresAt === 'string' ? new Date(parsed.expiresAt).getTime() : NaN;
-    if (typeof parsed.token !== 'string' || !Number.isFinite(exp) || exp <= Date.now()) return undefined;
-    return parsed.token;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Siembra, una vez por pestaña, el pedido `pending` de fixtures como reserva viva de la cuenta que
  * lo mira. Así «Reanudar pago» desde `/orders` termina en un `200 reused` real del simulador y no
- * en una orden nueva. Solo aplica a llamadores con cuenta.
+ * en una orden nueva. Solo aplica a llamadores con cuenta, y **solo la dispara `GET /orders[/:id]`**
+ * (`mockReservationFor`): un quote/session que nunca pasó por «Pedidos» no ve esta reserva, para que
+ * el resto de fixtures (`inv-1002` en catálogo, invitado, forma del quote) no cambie de conducta.
  */
 function ensureFixtureSeeded(state: MockReservationState, userId: string, now: number): void {
   if (state.seededFixture) return;
@@ -212,10 +213,38 @@ export function mockOrderSuperseded(orderId: string): boolean {
  */
 export function mockReservedByOthers(ids: readonly string[], caller: MockCaller, now = Date.now()): string[] {
   const state = readState();
-  if (caller.kind === 'customer') ensureFixtureSeeded(state, caller.userId, now);
-  writeState(state);
   const foreign = foreignTo(state.reservations, caller, now);
   return ids.filter((id) => foreign.some((r) => r.inventoryItemIds.includes(id)));
+}
+
+/** Piezas del carrito reservadas por una orden PROPIA (viva o vencida sin barrer) ⇒ `reservedByYou`. */
+export function mockReservedByYou(ids: readonly string[], caller: MockCaller, now = Date.now()): string[] {
+  const own = readState().reservations.filter((r) => ownedBy(r, caller) && isPresent(r, caller, now));
+  return ids.filter((id) => own.some((r) => r.inventoryItemIds.includes(id)));
+}
+
+/**
+ * `ownReservation` de §4-R.5: la orden propia (más reciente si hay varias) que pesa sobre el
+ * carrito, con `expired` y `coversCart`; `null` si ninguna.
+ */
+export function mockOwnReservation(
+  ids: readonly string[],
+  caller: MockCaller,
+  now = Date.now(),
+): MockOwnReservation | null {
+  const state = readState();
+  const own = state.reservations.filter(
+    (r) => ownedBy(r, caller) && isPresent(r, caller, now) && r.inventoryItemIds.some((id) => ids.includes(id)),
+  );
+  if (own.length === 0) return null;
+  const latest = own[own.length - 1];
+  return {
+    orderId: latest.orderId,
+    orderNumber: latest.orderNumber,
+    reservedUntil: latest.reservedUntil,
+    expired: !isLive(latest, now),
+    coversCart: own.length === 1 && sameSet(latest.inventoryItemIds, ids),
+  };
 }
 
 function piUncancelable(): boolean {
@@ -236,15 +265,17 @@ export function decideMockSession(
   now = Date.now(),
 ): MockSessionDecision {
   const state = readState();
-  if (caller.kind === 'customer') ensureFixtureSeeded(state, caller.userId, now);
-  writeState(state);
-  const live = state.reservations.filter((r) => isLive(r, now));
-  const blocking = foreignTo(live, caller, now);
+  const blocking = foreignTo(state.reservations, caller, now);
   const foreign = ids.filter((id) => blocking.some((r) => r.inventoryItemIds.includes(id)));
   if (foreign.length > 0) return { kind: 'unavailable', inventoryItemIds: foreign };
-  const own = live.filter((r) => ownedBy(r, caller) && r.inventoryItemIds.some((id) => ids.includes(id)));
+  // Propias: vivas Y vencidas sin barrer (v1.68.1, R-9: la vencida se sustituye, nunca se reusa).
+  const own = state.reservations.filter(
+    (r) => ownedBy(r, caller) && isPresent(r, caller, now) && r.inventoryItemIds.some((id) => ids.includes(id)),
+  );
   if (own.length === 0) return { kind: 'new' };
-  if (own.length === 1 && sameSet(own[0].inventoryItemIds, ids)) return { kind: 'reuse', reservation: own[0] };
+  if (own.length === 1 && isLive(own[0], now) && sameSet(own[0].inventoryItemIds, ids)) {
+    return { kind: 'reuse', reservation: own[0] };
+  }
   if (piUncancelable()) return { kind: 'payment_in_progress', order: own[0] };
   return { kind: 'supersede', superseded: own };
 }

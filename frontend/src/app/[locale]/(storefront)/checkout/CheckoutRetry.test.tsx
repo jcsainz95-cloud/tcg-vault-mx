@@ -19,10 +19,19 @@ vi.mock('@/i18n/navigation', () => ({
 // la rama mock real (fixtures), que es la que ejercita el resto de la vista.
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, createCheckoutSession: vi.fn(), createGuestCheckoutSession: vi.fn() };
+  return {
+    ...actual,
+    createCheckoutSession: vi.fn(),
+    createGuestCheckoutSession: vi.fn(),
+    // Los quotes conservan la rama mock por defecto; cada test los redefine cuando dicta la forma.
+    getCheckoutQuote: vi.fn(actual.getCheckoutQuote),
+    getGuestCheckoutQuote: vi.fn(actual.getGuestCheckoutQuote),
+  };
 });
 
-import { createCheckoutSession, createGuestCheckoutSession } from '@/lib/api';
+import { createCheckoutSession, createGuestCheckoutSession, getCheckoutQuote, getGuestCheckoutQuote } from '@/lib/api';
+import { mockListings, orderItemCard } from '@/lib/mock/fixtures';
+import type { CheckoutQuoteResponse } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 import { CheckoutView } from './CheckoutView';
 import { GuestCheckoutView } from './GuestCheckoutView';
@@ -82,12 +91,30 @@ function guestSession(over: Partial<GuestCheckoutSessionResponse> = {}): GuestCh
   };
 }
 
+function storedIds(): string[] {
+  return JSON.parse(window.localStorage.getItem('tcg.cart')!).ids;
+}
+
+/** Quote `customer` (§4 + v1.68.1 §4-R.5) construido a mano para dictar `reservedByYou` / `ownReservation`. */
+function customerQuote(over: Partial<CheckoutQuoteResponse> = {}): CheckoutQuoteResponse {
+  const l = mockListings.find((x) => x.inventoryItemId === 'inv-1002')!;
+  return {
+    items: [{ inventoryItemId: 'inv-1002', card: orderItemCard(l), unitPriceCents: l.salePriceCents ?? 0 }],
+    breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 1160, currency: 'MXN' },
+    unavailableItems: [],
+    ownReservation: null,
+    ...over,
+  };
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   clearUnavailableNotice();
   vi.mocked(createCheckoutSession).mockReset();
   vi.mocked(createGuestCheckoutSession).mockReset();
+  vi.mocked(getCheckoutQuote).mockReset();
+  vi.mocked(getGuestCheckoutQuote).mockReset();
   seedCart(['inv-1002']);
 });
 
@@ -204,6 +231,80 @@ describe('checkout con cuenta · reintento sobre la propia reserva (§4-R.2)', (
   });
 });
 
+describe('checkout con cuenta · el QUOTE conoce la reserva propia (v1.68.1 §4-R.5)', () => {
+  beforeEach(() => setStoredUser(user));
+
+  it('⭐ NO poda una pieza `reservedByYou` aunque el servidor la liste también como no disponible', async () => {
+    vi.mocked(getCheckoutQuote).mockResolvedValue(
+      customerQuote({
+        items: [{ ...customerQuote().items[0], reservedByYou: true }],
+        unavailableItems: [{ inventoryItemId: 'inv-1002', cardName: 'Blastoise' }],
+        ownReservation: { orderId: 'ord-own', orderNumber: 'TCG-000777', reservedUntil: IN_30_MIN(), expired: false, coversCart: true },
+      }),
+    );
+    renderWithProviders(<CheckoutView />, 'es');
+
+    expect(await screen.findByTestId('own-reservation-active')).toHaveTextContent('reservado a tu nombre (TCG-000777)');
+    // Sigue en el carrito y en pantalla; ningún aviso de poda.
+    expect(screen.getByText('Blastoise')).toBeInTheDocument();
+    expect(storedIds()).toEqual(['inv-1002']);
+    expect(screen.queryByTestId('unavailable-notice')).toBeNull();
+    // Y la cuenta atrás sale del `reservedUntil` de la reserva propia, antes de pagar.
+    expect(screen.getByTestId('reservation-countdown')).toHaveTextContent(/Reservado para ti hasta las \d{1,2}:\d{2}/);
+  });
+
+  it('una pieza muerta de verdad SÍ se poda aunque otra sea `reservedByYou`', async () => {
+    seedCart(['inv-1002', 'inv-dead']);
+    vi.mocked(getCheckoutQuote).mockImplementation(async (ids) =>
+      customerQuote({
+        items: ids.includes('inv-1002') ? [{ ...customerQuote().items[0], reservedByYou: true }] : [],
+        unavailableItems: ids.includes('inv-dead') ? [{ inventoryItemId: 'inv-dead', cardName: null }] : [],
+        ownReservation: { orderId: 'ord-own', orderNumber: 'TCG-000777', reservedUntil: IN_30_MIN(), expired: false, coversCart: false },
+      }),
+    );
+    renderWithProviders(<CheckoutView />, 'es');
+    await waitFor(() => expect(storedIds()).toEqual(['inv-1002']));
+    expect(await screen.findByTestId('unavailable-notice')).toBeInTheDocument();
+  });
+
+  it('reserva propia VENCIDA (`expired: true`): «tu reserva venció: al pagar se renovará», sin cuenta atrás', async () => {
+    vi.mocked(getCheckoutQuote).mockResolvedValue(
+      customerQuote({
+        items: [{ ...customerQuote().items[0], reservedByYou: true }],
+        ownReservation: { orderId: 'ord-own', orderNumber: 'TCG-000777', reservedUntil: new Date(Date.now() - 60_000).toISOString(), expired: true, coversCart: true },
+      }),
+    );
+    renderWithProviders(<CheckoutView />, 'es');
+    expect(await screen.findByTestId('own-reservation-expired')).toHaveTextContent('venció');
+    expect(screen.queryByTestId('reservation-countdown')).toBeNull();
+    expect(screen.queryByTestId('reservation-expired')).toBeNull();
+    expect(storedIds()).toEqual(['inv-1002']);
+  });
+
+  it('`ownReservation: null` (o ausente, backend anterior): no pinta nada', async () => {
+    vi.mocked(getCheckoutQuote).mockResolvedValue(customerQuote({ ownReservation: null }));
+    renderWithProviders(<CheckoutView />, 'es');
+    await screen.findByText('Blastoise');
+    expect(screen.queryByTestId('checkout-retry-notice')).toBeNull();
+  });
+
+  it('tras pagar, el desenlace de la SESSION manda sobre el aviso del quote (un solo aviso)', async () => {
+    const usr = userEvent.setup();
+    vi.mocked(getCheckoutQuote).mockResolvedValue(
+      customerQuote({
+        items: [{ ...customerQuote().items[0], reservedByYou: true }],
+        ownReservation: { orderId: 'ord-own', orderNumber: 'TCG-000777', reservedUntil: IN_30_MIN(), expired: false, coversCart: true },
+      }),
+    );
+    vi.mocked(createCheckoutSession).mockResolvedValue(customerSession({ reused: true, orderId: 'ord-own', orderNumber: 'TCG-000777' }));
+    renderWithProviders(<CheckoutView />, 'es');
+    await screen.findByTestId('own-reservation-active');
+    await usr.click(screen.getByRole('button', { name: /Pagar/ }));
+    expect(await screen.findByText(/Recuperamos tu reserva anterior \(TCG-000777\)/)).toBeInTheDocument();
+    expect(screen.queryByTestId('own-reservation-active')).toBeNull();
+  });
+});
+
 describe('checkout de invitado · el token es la llave del reintento (§4-R.3)', () => {
   async function fillGuestForm(usr: ReturnType<typeof userEvent.setup>) {
     await usr.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
@@ -235,7 +336,7 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     // Intento caído: cierra el modal y vuelve a pagar.
     await usr.click(within(dialog).getByRole('button', { name: /Close|Cerrar/ }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await usr.click(screen.getByRole('button', { name: /Pagar/ }));
+    await usr.click(await screen.findByRole('button', { name: /Pagar/ }));
 
     await waitFor(() => expect(vi.mocked(createGuestCheckoutSession)).toHaveBeenCalledTimes(2));
     expect(vi.mocked(createGuestCheckoutSession).mock.calls[1][0].retryOfCheckoutToken).toBe('tok-first');
@@ -244,6 +345,33 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
       expect(JSON.parse(window.sessionStorage.getItem(GUEST_RETRY_TOKEN_KEY)!).token).toBe('tok-second'),
     );
     expect(await screen.findByText(/Recuperamos tu reserva anterior \(TCG-000123\)/)).toBeInTheDocument();
+  });
+
+  it('v1.68.1: tras el primer intento el QUOTE viaja con `retryOfCheckoutToken` + `email` (y antes, sin ellos)', async () => {
+    const usr = userEvent.setup();
+    vi.mocked(createGuestCheckoutSession).mockResolvedValueOnce(guestSession({ checkoutToken: 'tok-first' }));
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await fillGuestForm(usr);
+    // Antes de la sesión: sin token (aunque el correo ya esté confirmado).
+    await waitFor(() => expect(vi.mocked(getGuestCheckoutQuote)).toHaveBeenCalled());
+    expect(vi.mocked(getGuestCheckoutQuote).mock.calls.every(([, , retry]) => retry === undefined)).toBe(true);
+
+    await usr.click(screen.getByRole('button', { name: /Pagar/ }));
+    await screen.findByRole('dialog');
+    // Con token y correo confirmado, el quote se re-pide con los dos (normalizados).
+    await waitFor(() =>
+      expect(vi.mocked(getGuestCheckoutQuote).mock.calls.at(-1)?.[2]).toEqual({
+        retryOfCheckoutToken: 'tok-first',
+        email: 'juan@dominio.com',
+      }),
+    );
+  });
+
+  it('v1.68.1: al montar con token en sessionStorage pero correo SIN confirmar, el quote no manda el token (token sin email ⇒ 400)', async () => {
+    window.sessionStorage.setItem(GUEST_RETRY_TOKEN_KEY, JSON.stringify({ token: 'tok-old', expiresAt: new Date(Date.now() + 60_000).toISOString() }));
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await screen.findByTestId('amount-breakdown');
+    expect(vi.mocked(getGuestCheckoutQuote).mock.calls.every(([, , retry]) => retry === undefined)).toBe(true);
   });
 
   it('tras pagar (simulado) el token de reintento se borra: un pedido pagado no se reintenta', async () => {

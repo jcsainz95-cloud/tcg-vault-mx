@@ -544,7 +544,9 @@
       "paymentInProgress": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
       "paymentInProgressGuest": "Your previous attempt with this email already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check your email or wait a moment before retrying.",
       "viewOrder": "View order {orderNumber}",
-      "retrySoon": "Retry in a moment"
+      "retrySoon": "Retry in a moment",
+      "ownActive": "This cart is already reserved for you ({orderNumber}): paying resumes that same order, with no double charge.",
+      "ownExpired": "Your previous reservation ({orderNumber}) expired: paying renews it with a new order and cancels the previous attempt."
     }
   },
   "vault": {
@@ -1048,7 +1050,7 @@
     "resume": {
       "cta": "Resume payment",
       "reservedUntil": "Reserved until {time} (Mexico City time)",
-      "expired": "The reservation expired",
+      "expired": "The reservation expired: resuming renews it with a new order.",
       "cartReplaced": "Your cart is replaced with the pieces of this order.",
       "loading": "Recovering…",
       "error": "We could not recover the pieces of this order. Please try again."

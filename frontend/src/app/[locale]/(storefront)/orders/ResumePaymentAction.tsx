@@ -19,8 +19,9 @@ import {
  * donde `POST /checkout/session` responde `200 reused` (misma orden, mismo PaymentIntent).
  *
  * Se ofrece SOLO si `status === 'pending'` **y** el servidor mandó `reservedUntil` parseable:
- * sin ese dato no se promete nada (la reserva podría no ser suya, o haber vencido). Vencida
- * (`reservedUntil <= now`) se dice que venció y no se ofrece: el barrido la va a liberar.
+ * sin ese dato no se promete nada. Vencida (`reservedUntil <= now`, v1.68.1 §4-R.2 «propia
+ * VENCIDA»): se dice que venció y **se sigue ofreciendo** — la sesión la SUSTITUYE (`201`), nunca
+ * la trata como ajena; si el barrido ya la liberó, la sesión crea una orden nueva igual.
  *
  * El carrito se SUSTITUYE (no se fusiona): el reuso exige que el conjunto sea exactamente el del
  * pedido; fusionar produciría una SUSTITUCIÓN (`201`) y cancelaría el intento que se quería
@@ -44,14 +45,6 @@ export function ResumePaymentAction({ order, className }: { order: ResumableOrde
   const left = remainingMs(order.reservedUntil);
   if (left === null) return null;
 
-  if (left <= 0) {
-    return (
-      <p className={`font-mono text-[11px] text-muted ${className ?? ''}`} data-testid="resume-expired">
-        {t('expired')}
-      </p>
-    );
-  }
-
   async function resume() {
     setLoading(true);
     setFailed(false);
@@ -68,10 +61,11 @@ export function ResumePaymentAction({ order, className }: { order: ResumableOrde
     }
   }
 
+  const expired = left <= 0;
   return (
     <div className={className} data-testid="resume-payment">
-      <p className="font-mono text-[11px] text-muted">
-        {t('reservedUntil', { time: formatReservationTime(order.reservedUntil, locale) })}
+      <p className="font-mono text-[11px] text-muted" data-testid={expired ? 'resume-expired' : undefined}>
+        {expired ? t('expired') : t('reservedUntil', { time: formatReservationTime(order.reservedUntil, locale) })}
       </p>
       <Button
         size="sm"

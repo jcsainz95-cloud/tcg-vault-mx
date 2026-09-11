@@ -544,7 +544,9 @@
       "paymentInProgress": "Tu intento anterior ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa ese pedido antes de reintentar.",
       "paymentInProgressGuest": "Tu intento anterior con este correo ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa tu correo o espera un momento antes de reintentar.",
       "viewOrder": "Ver pedido {orderNumber}",
-      "retrySoon": "Reintentar en un momento"
+      "retrySoon": "Reintentar en un momento",
+      "ownActive": "Este carrito ya está reservado a tu nombre ({orderNumber}): al pagar recuperas ese mismo pedido, sin cobro doble.",
+      "ownExpired": "Tu reserva anterior ({orderNumber}) venció: al pagar se renovará con un pedido nuevo y el intento anterior se cancela."
     }
   },
   "vault": {
@@ -1048,7 +1050,7 @@
     "resume": {
       "cta": "Reanudar pago",
       "reservedUntil": "Reservado hasta las {time} (hora de la Ciudad de México)",
-      "expired": "La reserva venció",
+      "expired": "La reserva venció: al reanudar se renovará con un pedido nuevo.",
       "cartReplaced": "Tu carrito se sustituye por las piezas de este pedido.",
       "loading": "Recuperando…",
       "error": "No pudimos recuperar las piezas de este pedido. Inténtalo de nuevo."

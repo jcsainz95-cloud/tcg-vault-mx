@@ -847,6 +847,26 @@ export interface OrderItemPreview {
   inventoryItemId: string;
   card: OrderItemCardDTO;
   unitPriceCents: number;
+  /**
+   * v1.68.1 (§4-R.5): la pieza está `reserved` por una orden `pending` PROPIA (viva o vencida sin
+   * barrer). **Omitido cuando es falso.** ⛔ El front NUNCA la poda: es justo la que `session`
+   * reutiliza (`200 reused`) o sustituye (`201`).
+   */
+  reservedByYou?: true;
+}
+
+/**
+ * v1.68.1 (§4-R.5): la reserva propia que pesa sobre el carrito, o `null`. SIEMPRE presente en los
+ * dos quotes. Con `coversCart: true` y `expired: false` los precios del quote son los CONGELADOS de
+ * esa orden (lo que el PI cobra); con `coversCart: false` o `expired: true`, precios en lectura (la
+ * sesión sustituirá y re-preciará). `expired` = `reservedUntil <= now()` y aún no barrida.
+ */
+export interface OwnReservationDTO {
+  orderId: string;
+  orderNumber: string | null;
+  reservedUntil: string;
+  expired: boolean;
+  coversCart: boolean;
 }
 
 /**
@@ -879,6 +899,11 @@ export interface CheckoutQuoteResponse {
   breakdown: BreakdownDTO;
   /** SIEMPRE presente (v1.21.3); `[]` cuando todo el carrito resuelve. */
   unavailableItems: UnavailableCartItemDTO[];
+  /**
+   * v1.68.1: SIEMPRE presente en el contrato (`null` sin reserva propia). Opcional en el tipo solo
+   * mientras B-1e aterriza: contra un backend anterior no se pinta nada (misma norma que `reused`).
+   */
+  ownReservation?: OwnReservationDTO | null;
 }
 
 export interface CheckoutSessionResponse {
@@ -4072,6 +4097,8 @@ export interface GuestCheckoutQuoteResponse {
   items: OrderItemPreview[];
   fulfillmentMode: FulfillmentMode;
   breakdown: BreakdownDTO;
+  /** v1.68.1 (§4-R.5): ver `CheckoutQuoteResponse.ownReservation`. Solo se puebla con token + correo válidos. */
+  ownReservation?: OwnReservationDTO | null;
   /**
    * v1.21.4-dual-breakdown (contrato §4-G.1, N-12): SEGUNDO desglose, SIEMPRE presente en
    * el `200` (incl. carrito 100 % podado, en ceros). Es el resumen del destino BÓVEDA:

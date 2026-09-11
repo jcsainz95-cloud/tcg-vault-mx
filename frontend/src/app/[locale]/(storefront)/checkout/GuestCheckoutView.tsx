@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createGuestCheckoutSession, getGuestCheckoutQuote } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -21,8 +21,8 @@ import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
 import { InlineAuthPanel } from './InlineAuthPanel';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
-import { pushUnavailableNotice } from './unavailable-notice';
-import { CheckoutRetryNotice, PaymentInProgressNotice } from './CheckoutRetryNotice';
+import { pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
+import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
 import { clearGuestRetryToken, readGuestRetryToken, saveGuestRetryToken } from './guest-retry-token';
 import {
   EMPTY_GUEST_ADDRESS,
@@ -84,10 +84,26 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
 
+  /**
+   * v1.68.1 (§4-R.5): el quote reconoce la reserva PROPIA solo con `retryOfCheckoutToken` + `email`.
+   * El token vive en sessionStorage (no es reactivo): se lee al montar y tras cada session. El correo
+   * viaja SOLO cuando el invitado lo confirmó (§15.3): así el quote no se re-pide por cada tecla y
+   * nunca se manda un token con un correo a medias (token sin email ⇒ 400).
+   */
+  const [retryToken, setRetryToken] = useState<string | null>(null);
+  useEffect(() => {
+    setRetryToken(readGuestRetryToken());
+  }, []);
+  const quoteEmail = form.emailConfirmed ? form.email.trim().toLowerCase() : '';
+  const quoteRetry =
+    retryToken && quoteEmail ? { retryOfCheckoutToken: retryToken, email: quoteEmail } : undefined;
   const query = useQuery({
-    queryKey: ['guest-checkout-quote', cart.ids],
-    queryFn: () => getGuestCheckoutQuote(cart.ids),
+    queryKey: ['guest-checkout-quote', cart.ids, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null],
+    queryFn: () => getGuestCheckoutQuote(cart.ids, undefined, quoteRetry),
     enabled: cart.ids.length > 0,
+    // Al aparecer el token (tras la primera session) la clave cambia: se conserva el quote anterior
+    // mientras llega el nuevo para no desmontar formulario y botón en plena re-cotización.
+    placeholderData: keepPreviousData,
   });
 
   /**
@@ -98,12 +114,23 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
    * trae `unavailableItems: []` y el efecto es no-op.
    */
   const unavailable = query.data?.unavailableItems;
+  const quoteItems = query.data?.items;
   const { prune } = cart; // estable (useCallback sin deps)
   useEffect(() => {
     if (!unavailable || unavailable.length === 0) return;
-    pushUnavailableNotice(unavailable);
-    prune(unavailable.map((u) => u.inventoryItemId));
-  }, [unavailable, prune]);
+    // v1.68.1 §4-R.5: `reservedByYou` nunca se poda (ver `CheckoutView`).
+    const dead = pruneCandidates(unavailable, quoteItems);
+    if (dead.length === 0) return;
+    pushUnavailableNotice(dead);
+    prune(dead.map((u) => u.inventoryItemId));
+  }, [unavailable, quoteItems, prune]);
+
+  const own = query.data?.ownReservation ?? null;
+  const notice: CheckoutRetryOutcome | null =
+    outcome ??
+    (own
+      ? { orderId: own.orderId, orderNumber: own.orderNumber, reservedUntil: own.reservedUntil, own: { expired: own.expired } }
+      : null);
 
   const errors: GuestErrors = useMemo(() => validateGuestForm(form), [form]);
   // `shippingFeeLabel` sale SIEMPRE del `breakdown` de envío directo (la tarifa REAL): alimenta
@@ -189,6 +216,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       // El token recién emitido (también en el `200` de reuso) sustituye al anterior: es la
       // llave del reintento siguiente, con su propio vencimiento.
       saveGuestRetryToken(res.checkoutToken, res.checkoutTokenExpiresAt);
+      setRetryToken(res.checkoutToken);
       setOutcome(res);
       setSession(res);
     } catch (e) {
@@ -230,6 +258,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setOutcome(null);
     // Pedido pagado: ya no hay reserva que reintentar; el token de reintento se retira.
     clearGuestRetryToken();
+    setRetryToken(null);
     onPaid();
     cart.clear();
     setPaid(created);
@@ -365,7 +394,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                 </p>
               )}
               {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R.3). */}
-              <CheckoutRetryNotice outcome={outcome} className="mt-6" />
+              <CheckoutRetryNotice outcome={notice} className="mt-6" />
               {paymentInProgress && (
                 <PaymentInProgressNotice guest retrying={creating} onRetry={pay} className="mt-6" />
               )}

@@ -819,7 +819,11 @@ export const MOCK_QUOTE_CARD_KEYS = [
   'imageSmallUrl',
 ] as const;
 
-/** Llaves EXACTAS de un `OrderItemPreview` (§4). El pin de que nada se cuela al nivel del ítem. */
+/**
+ * Llaves EXACTAS de un `OrderItemPreview` (§4). El pin de que nada se cuela al nivel del ítem.
+ * v1.68.1: `reservedByYou: true` es la única llave adicional posible y viaja SOLO cuando la pieza está
+ * reservada por una orden propia (omitida cuando es falso) — no está aquí a propósito.
+ */
 export const MOCK_QUOTE_ITEM_KEYS = ['inventoryItemId', 'card', 'unitPriceCents'] as const;
 
 export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<CheckoutQuoteResponse> {
@@ -835,12 +839,14 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
     .map((id) => ({ inventoryItemId: id, cardName: null }));
   // v1.68 (§4-R): una pieza `reserved` por la orden de OTRO cliente no es vendible ⇒ el quote la
   // lista (con nombre: existe, pero está fuera de {listed, in_stock}) y la vista la poda. La
-  // reserva PROPIA no aparece aquí: es justo la que `createCheckoutSession` reutiliza.
-  const reservedByOthers = mockReservation.mockReservedByOthers(inventoryItemIds, mockCallerCustomer());
+  // reserva PROPIA (v1.68.1 §4-R.5) va en `items[]` con `reservedByYou: true` y en `ownReservation`.
+  const caller = mockCallerCustomer();
+  const reservedByOthers = mockReservation.mockReservedByOthers(inventoryItemIds, caller);
   for (const id of reservedByOthers) {
     const listing = fx.mockListings.find((l) => l.inventoryItemId === id);
     unavailableItems.push({ inventoryItemId: id, cardName: listing?.card.name ?? null });
   }
+  const reservedByYou = new Set(mockReservation.mockReservedByYou(inventoryItemIds, caller));
   const items = inventoryItemIds
     .filter((id) => !reservedByOthers.includes(id))
     .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
@@ -857,9 +863,13 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
       unitPriceCents: l.salePriceCents ?? 0,
+      ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     })),
+    // MOCK: el simulador no guarda el desglose congelado de la orden; con `coversCart` el backend real
+    // devuelve los precios de la orden (§4-R.5), aquí salen los del catálogo (misma cifra en fixtures).
     breakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
     unavailableItems,
+    ownReservation: mockReservation.mockOwnReservation(inventoryItemIds, caller),
   });
 }
 
@@ -5006,11 +5016,21 @@ function computeGuestBreakdown(subtotalCents: number, shippingFeeCents: number):
 export async function getGuestCheckoutQuote(
   inventoryItemIds: string[],
   shippingAddress?: GuestAddressInput,
+  /**
+   * v1.68.1 (§4-R.5): el `checkoutToken` del intento anterior + el correo con el que se creó. Solo
+   * con los dos válidos el quote reconoce la reserva PROPIA (`reservedByYou`, `ownReservation`);
+   * token sin `email` ⇒ `400`, así que aquí viajan juntos o no viaja ninguno.
+   */
+  retry?: { retryOfCheckoutToken: string; email: string },
 ): Promise<GuestCheckoutQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<GuestCheckoutQuoteResponse>('/checkout/guest/quote', {
       method: 'POST',
-      body: { inventoryItemIds, shippingAddress },
+      body: {
+        inventoryItemIds,
+        shippingAddress,
+        ...(retry ? { retryOfCheckoutToken: retry.retryOfCheckoutToken, email: retry.email } : {}),
+      },
     });
   }
   // MOCK v1.21.3-quote-prune: MISMA poda por ítem que getCheckoutQuote (§4-G.1 comparte
@@ -5018,19 +5038,19 @@ export async function getGuestCheckoutQuote(
   const unavailableItems: UnavailableCartItemDTO[] = inventoryItemIds
     .filter((id) => !fx.mockListings.some((l) => l.inventoryItemId === id))
     .map((id) => ({ inventoryItemId: id, cardName: null }));
-  // v1.68 (§4-R.3): el quote de invitado NO lleva `retryOfCheckoutToken` en el contrato; el
-  // simulador lee el token de la pestaña para reconocer la reserva PROPIA (si no, la podaría antes
-  // del reintento). Es la conducta que §4-R necesita del quote — petición al arquitecto en
-  // FRONTEND_NOTES §69. Sin token (perdido / otra pestaña) la reserva propia es «ajena» (R-7).
-  const reservedByOthers = mockReservation.mockReservedByOthers(inventoryItemIds, {
+  // v1.68.1 (§4-R.5): la reserva PROPIA se reconoce SOLO con `retryOfCheckoutToken` + `email`
+  // válidos; sin ellos (token perdido / otra pestaña) es «ajena» y va a `unavailableItems` (R-7).
+  const guestCaller: mockReservation.MockCaller = {
     kind: 'guest',
-    email: '',
-    retryOfCheckoutToken: mockReservation.readMockGuestRetryToken(),
-  });
+    email: retry?.email.trim().toLowerCase() ?? '',
+    retryOfCheckoutToken: retry?.retryOfCheckoutToken,
+  };
+  const reservedByOthers = mockReservation.mockReservedByOthers(inventoryItemIds, guestCaller);
   for (const id of reservedByOthers) {
     const listing = fx.mockListings.find((l) => l.inventoryItemId === id);
     unavailableItems.push({ inventoryItemId: id, cardName: listing?.card.name ?? null });
   }
+  const reservedByYou = new Set(mockReservation.mockReservedByYou(inventoryItemIds, guestCaller));
   const items = inventoryItemIds
     .filter((id) => !reservedByOthers.includes(id))
     .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
@@ -5045,8 +5065,10 @@ export async function getGuestCheckoutQuote(
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
       unitPriceCents: l.salePriceCents ?? 0,
+      ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     })),
     fulfillmentMode: 'direct_ship' as const,
+    ownReservation: mockReservation.mockOwnReservation(inventoryItemIds, guestCaller),
     breakdown:
       items.length === 0 ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
     // v1.21.4-dual-breakdown (§4-G.1, N-12): SEGUNDO desglose para el destino BÓVEDA — solo

@@ -60,13 +60,16 @@ describe('ResumePaymentAction · «Reanudar pago» (§4-R.5)', () => {
     expect(storedIds()).toEqual(['inv-1002', 'inv-1001']);
   });
 
-  it('reservedUntil YA pasado: dice que venció y NO ofrece el botón', () => {
+  it('reservedUntil YA pasado (v1.68.1, propia VENCIDA): dice que venció y SIGUE ofreciendo reanudar (la sesión sustituye)', async () => {
+    const usr = userEvent.setup();
+    vi.spyOn(api, 'getOrder').mockResolvedValue({ ...mockOrderDetail, id: 'ord-9002', status: 'pending' });
     renderWithProviders(
       <ResumePaymentAction order={{ id: 'ord-9002', status: 'pending', reservedUntil: new Date(Date.now() - 1000).toISOString() }} />,
       'es',
     );
-    expect(screen.getByTestId('resume-expired')).toHaveTextContent('La reserva venció');
-    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByTestId('resume-expired')).toHaveTextContent('La reserva venció: al reanudar se renovará');
+    await usr.click(screen.getByRole('button', { name: 'Reanudar pago' }));
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/checkout'));
   });
 
   it('sin reservedUntil (backend anterior a v1.68) o no `pending`: no pinta nada', () => {

@@ -22,7 +22,8 @@ import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { clearUnavailableNotice, pushUnavailableNotice } from './unavailable-notice';
-import { CheckoutRetryNotice, PaymentInProgressNotice } from './CheckoutRetryNotice';
+import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
+import { pruneCandidates } from './unavailable-notice';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -56,6 +57,10 @@ import { CheckoutRetryNotice, PaymentInProgressNotice } from './CheckoutRetryNot
  *  - `409 PAYMENT_IN_PROGRESS` ⇒ `PaymentInProgressNotice`: bloqueo explicado, enlace al pedido
  *    (`details.orderId`) y «Reintentar en un momento». El botón «Pagar» se apaga mientras tanto;
  *  - `409 ITEM_UNAVAILABLE` ⇒ **otro** cliente la tiene: la poda de abajo SE CONSERVA.
+ *
+ * v1.68.1 (§4-R.5) — el QUOTE conoce la reserva propia: `items[].reservedByYou` **no se poda nunca**
+ * (es la pieza que la sesión reutiliza) y `ownReservation` se pinta ANTES de pagar: cuenta atrás con
+ * su `reservedUntil`, o «tu reserva venció: al pagar se renovará» si `expired` (la sesión sustituye).
  */
 export function CheckoutView() {
   const t = useTranslations('checkout');
@@ -101,12 +106,25 @@ export function CheckoutView() {
    * a esa re-cotización.
    */
   const unavailable = query.data?.unavailableItems;
+  const quoteItems = query.data?.items;
   const { prune } = cart; // estable (useCallback sin deps)
   useEffect(() => {
     if (!unavailable || unavailable.length === 0) return;
-    pushUnavailableNotice(unavailable);
-    prune(unavailable.map((u) => u.inventoryItemId));
-  }, [unavailable, prune]);
+    // v1.68.1 §4-R.5: una pieza `reservedByYou` NUNCA se poda, aunque un servidor la listara a la
+    // vez como no disponible: podarla es perder la reserva que `session` iba a reutilizar.
+    const dead = pruneCandidates(unavailable, quoteItems);
+    if (dead.length === 0) return;
+    pushUnavailableNotice(dead);
+    prune(dead.map((u) => u.inventoryItemId));
+  }, [unavailable, quoteItems, prune]);
+
+  // v1.68.1: la reserva propia que el quote reporta, pintada antes de pagar (si aún no hay desenlace).
+  const own = query.data?.ownReservation ?? null;
+  const notice: CheckoutRetryOutcome | null =
+    outcome ??
+    (own
+      ? { orderId: own.orderId, orderNumber: own.orderNumber, reservedUntil: own.reservedUntil, own: { expired: own.expired } }
+      : null);
 
   // Al salir del checkout el aviso caduca: solo lo conserva la sesión de compra actual.
   useEffect(() => () => clearUnavailableNotice(), []);
@@ -345,7 +363,7 @@ export function CheckoutView() {
                 </p>
               )}
               {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R). */}
-              <CheckoutRetryNotice outcome={outcome} className="mt-6" />
+              <CheckoutRetryNotice outcome={notice} className="mt-6" />
               {paymentInProgress && (
                 <PaymentInProgressNotice
                   orderId={paymentInProgress.orderId}

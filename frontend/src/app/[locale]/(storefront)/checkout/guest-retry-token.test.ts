@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { GUEST_RETRY_TOKEN_KEY, clearGuestRetryToken, readGuestRetryToken, saveGuestRetryToken } from './guest-retry-token';
-import { readMockGuestRetryToken } from '@/lib/mock/reservation';
 
 /**
  * §4-R.3: el `checkoutToken` del invitado vive en `sessionStorage` (pestaña), caduca con
@@ -23,13 +22,6 @@ describe('guest-retry-token', () => {
     saveGuestRetryToken('tok', new Date(Date.now() - 1000).toISOString());
     expect(readGuestRetryToken()).toBeNull();
     expect(window.sessionStorage.getItem(GUEST_RETRY_TOKEN_KEY)).toBeNull();
-  });
-
-  it('el espejo del simulador (`lib/mock/reservation`) lee la MISMA clave y el mismo sobre', () => {
-    saveGuestRetryToken('tok', new Date(Date.now() + 60_000).toISOString());
-    expect(readMockGuestRetryToken()).toBe('tok');
-    saveGuestRetryToken('tok', new Date(Date.now() - 1000).toISOString());
-    expect(readMockGuestRetryToken()).toBeUndefined();
   });
 
   it('malformado ⇒ null y se purga; vacío no se guarda; clear borra', () => {

@@ -1,7 +1,22 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import type { UnavailableCartItemDTO } from '@/types/contract';
+import type { OrderItemPreview, UnavailableCartItemDTO } from '@/types/contract';
+
+/**
+ * v1.68.1 (§4-R.5) — qué SÍ se poda: lo que el quote lista como no disponible **menos** cualquier
+ * pieza que ese mismo quote devuelva en `items[]` con `reservedByYou: true`. Esa pieza está
+ * reservada por una orden PROPIA (viva o vencida sin barrer) y es exactamente la que
+ * `POST /checkout/session` reutiliza (`200`) o sustituye (`201`): podarla del carrito es perder la
+ * reserva por un dato contradictorio. Candado: `CheckoutRetry.test.tsx` («no poda `reservedByYou`»).
+ */
+export function pruneCandidates(
+  unavailable: UnavailableCartItemDTO[],
+  items: Pick<OrderItemPreview, 'inventoryItemId' | 'reservedByYou'>[] | undefined,
+): UnavailableCartItemDTO[] {
+  const keep = new Set((items ?? []).filter((i) => i.reservedByYou === true).map((i) => i.inventoryItemId));
+  return keep.size === 0 ? unavailable : unavailable.filter((u) => !keep.has(u.inventoryItemId));
+}
 
 /**
  * Aviso de piezas podadas del carrito (v1.21.3-quote-prune, contrato §4/§4-G.1).

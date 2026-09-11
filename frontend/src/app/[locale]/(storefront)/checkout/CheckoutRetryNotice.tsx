@@ -21,10 +21,16 @@ import { formatRemaining, formatReservationTime, remainingMs } from './reservati
  */
 export interface CheckoutRetryOutcome {
   orderId: string;
-  orderNumber?: string;
+  orderNumber?: string | null;
   reused?: boolean;
   reservedUntil?: string;
   supersededOrderIds?: string[];
+  /**
+   * v1.68.1 (§4-R.5): el desenlace viene del QUOTE (`ownReservation`), antes de pagar: «este carrito
+   * ya está reservado a tu nombre» (viva) o «tu reserva venció: al pagar se renovará» (vencida sin
+   * barrer ⇒ la sesión SUSTITUYE, nunca la trata como ajena).
+   */
+  own?: { expired: boolean };
 }
 
 export function CheckoutRetryNotice({ outcome, className }: { outcome: CheckoutRetryOutcome | null; className?: string }) {
@@ -32,13 +38,24 @@ export function CheckoutRetryNotice({ outcome, className }: { outcome: CheckoutR
   if (!outcome) return null;
   const superseded = outcome.supersededOrderIds?.length ?? 0;
   const showReused = outcome.reused === true;
-  const showCountdown = remainingMs(outcome.reservedUntil) !== null;
-  if (!showReused && superseded === 0 && !showCountdown) return null;
+  const showOwn = !!outcome.own;
+  const showCountdown = !outcome.own?.expired && remainingMs(outcome.reservedUntil) !== null;
+  if (!showReused && !showOwn && superseded === 0 && !showCountdown) return null;
+  const folio = outcome.orderNumber ?? outcome.orderId;
   return (
     <div className={className} data-testid="checkout-retry-notice">
       {showReused && (
         <p role="status" className="text-sm leading-relaxed text-text">
-          {t('reused', { orderNumber: outcome.orderNumber ?? outcome.orderId })}
+          {t('reused', { orderNumber: folio })}
+        </p>
+      )}
+      {showOwn && (
+        <p
+          role="status"
+          className="text-sm leading-relaxed text-text"
+          data-testid={outcome.own!.expired ? 'own-reservation-expired' : 'own-reservation-active'}
+        >
+          {outcome.own!.expired ? t('ownExpired', { orderNumber: folio }) : t('ownActive', { orderNumber: folio })}
         </p>
       )}
       {superseded > 0 && (
