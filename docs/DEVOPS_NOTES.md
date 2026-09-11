@@ -11341,3 +11341,108 @@ operador no se ensucia con algo que ahí no significa nada.
   su cuenta (un `openssl rand` suelto en un `run:`), este candado **no lo ve**. Queda
   anotado como lo que es: **NO MEDIDO**, y se cerraría extendiendo el candado a un barrido de
   `openssl rand|/dev/urandom` en `.github/workflows/`.
+
+---
+
+## 60. El DAST colgaba de una imagen ajena, y nadie lo vigilaba (2026-09-11)
+
+> **Causa raíz del rojo de `C5`. Dueño: devops.** Diagnóstico del orquestador sobre el
+> paso 6 del run `34650494939`; la causa es **externa** y no es de nadie de este equipo.
+
+### 60.1 · Qué pasó, con el log
+
+```
+21:56:43  minio Error pull access denied for minio/minio, repository does not exist
+                or may require 'docker login': denied
+21:56:43  createbuckets  Interrupted
+21:56:43  postgres  Interrupted
+21:56:43  redis  Interrupted
+21:56:43  ✗  compose up falló
+```
+
+**Docker Hub dejó de servir `minio/minio` sin autenticación.** `postgres`, `redis` y
+`createbuckets` salen `Interrupted` solo porque compose aborta el lote cuando uno falla:
+no tienen nada. **Re-medido desde este entorno** (no me fío del log ajeno):
+
+| Imagen | Resultado anónimo |
+|---|---|
+| `library/postgres:16-alpine` | **HTTP 200** (control: el registro y mi salida funcionan) |
+| `minio/minio:latest` | **HTTP 401 UNAUTHORIZED** (a nivel de REPOSITORIO: `tags/list` también 401) |
+| `minio/mc:latest` | **HTTP 401 UNAUTHORIZED** |
+| `hub.docker.com/v2/repositories/minio/minio/tags` | `{"message":"object not found"}` |
+
+Esto explica lo que me desconcertaba con razón: **nuestro árbol era byte a byte idéntico**
+al de la release que pasó (`c8bee65`, con `dast-release` en `success`). No cambió nuestro
+código: **cambió lo que hay al otro lado.** Y como la etiqueta era `:latest` —**móvil**— no
+había ni siquiera un número al que volver.
+
+### 60.2 · La lección, que es más grande que MinIO
+
+**La única puerta que mira la aplicación CORRIENDO** llevaba meses colgando de que una
+imagen ajena siguiera siendo descargable, **y nadie lo vigilaba**. Es la clase de §56 con
+otro disfraz: cobertura que se cree viva y depende de algo que nadie mide.
+
+| Artefacto | Qué hace |
+|---|---|
+| `scripts/check-compose-images.sh` | Enumera **todas** las imágenes externas de **todos** los `docker-compose*.yml` (no una lista a mano: un compose nuevo entra solo) y exige que cada una esté **clavada** por versión o `@sha256:`. Rechaza `:latest`, `:stable`/`:main`/`:edge`/…, la etiqueta **implícita** y `${VAR}` sin resolver. Estático, **sin red**. |
+| `… --resolve` | Modo **con red**: comprueba que cada imagen clavada **existe y se descarga anónimamente**. Es lo que habría cazado esto **el día que pasó**, no en el deploy siguiente. Fuera del candado estático a propósito: un candado de PR no puede depender de que un registro ajeno esté de buenas. |
+| `scripts/check-compose-images-canary.sh` | 6 mutaciones **sobre copia**: `:latest` · etiqueta implícita · `${VAR}` · etiqueta que no es versión (`:alpine`) · **un compose NUEVO** con imagen móvil (prueba que la enumeración no es una lista) · y un **control inverso** con digest que debe seguir VERDE. |
+
+**Mediciones (2026-09-11):** candado **9 imágenes, 5 clavadas, 4 sin clavar** (las cuatro de
+MinIO) ⇒ rojo correcto. `--resolve` confirma `postgres`/`redis`/`python` en **200**.
+Canario **7/7**, con **m1…m5 ROJAS 3/3** y **m6 VERDE 3/3**.
+
+### 60.3 · «No medí nada» ≠ «medí y no encontré nada» — y hoy se parecían demasiado
+
+**La consecuencia que hay que escribir:** mientras esto estuvo roto, **el DAST no escaneó ni
+una petición** en el último push a producción, y el run salió verde salvo por ese job.
+
+**¿Es correcto?** En una mitad sí y en la otra no, y conviene separarlas:
+
+- **Lo que SÍ estaba bien (y es fail-closed):** la salida `blocking` queda **VACÍA** cuando el
+  candado no corre, y `deploy.yml` exige `blocking == 'false'` — un vacío **no promueve**.
+  Eso es `F1-1` y funcionó: nadie promovió nada apoyándose en un DAST que no midió.
+- **Lo que estaba MAL:** el hueco de medición se anunciaba con un `::warning::` discreto
+  («El candado no llegó a escribir resumen; revisa el log») entre cientos de líneas, y en la
+  portada del run no aparecía nada. Un job rojo llamado «DAST» se lee como «el DAST
+  encontró algo», no como «el DAST no existió». **No son lo mismo: uno es un hallazgo, el
+  otro es un agujero de cobertura**, y el segundo es más peligroso porque se cierra solo en
+  la cabeza del que lo lee.
+
+**Arreglado** (`security-dast.yml`): si no hay informe, ya no es un warning sino un
+**`::error::`** explícito —«EL DAST NO MIDIÓ NADA … Esto NO es "sin hallazgos": es "sin
+medición"»— y un bloque en la **portada del run** que lo dice con todas las letras, nombra el
+fail-closed y apunta al candado de imágenes como causa habitual.
+
+### 60.4 · Lo que queda ABIERTO y por qué (NO MEDIDO, con honestidad)
+
+**Las cuatro imágenes de MinIO siguen sin clavar**, así que el candado de §60.2 está **en rojo
+a propósito** y **todavía no cableado en `ci.yml`**: cablearlo antes de arreglar el pin
+pondría en rojo los PR de los tres agentes que están trabajando ahora mismo, por un defecto
+que ya está diagnosticado. **El cableado entra en el MISMO commit que el pin.**
+
+**Mi criterio sobre el origen** (decidido, no delegado): **se queda MinIO y se mueve a
+`quay.io`, su registro oficial, clavado a una `RELEASE.…` concreta.** Razones:
+- Es un cambio de **registro**, no de **stack**: mismo software, misma configuración
+  (`MINIO_ROOT_USER`/`PASSWORD`, puerto 9000, `mc` para los buckets). No cambia lo que el
+  DAST escanea, que es justo lo que no quiero mover en un gate de seguridad.
+- **Descartado `bitnamilegacy/minio`** (sí se descarga anónimamente, medido HTTP 200): es un
+  espacio **archivado**, sin actualizaciones de seguridad, y con convenciones de arranque
+  distintas. Cambiar una rotura externa por una imagen sin mantenimiento es mal negocio en
+  la dependencia de una puerta de seguridad.
+- **Descartado sustituir MinIO por `scripts/s3-local/`** (el S3 propio de la ruta nativa):
+  sería un **cambio de stack**, no de devops — pasa por el **arquitecto** primero.
+
+**Lo que me falta y no puedo medir desde aquí:** la etiqueta `RELEASE.…` exacta y su digest.
+**Medido:** `quay.io` → proxy **403 CONNECT**; `dl.min.io` y `min.io` → **403**;
+`mirror.gcr.io`/`ghcr.io` → no lo sirven; API de GitHub para `minio/minio` → no habilitada en
+esta sesión. **No voy a commitear una etiqueta adivinada** en el único gate que ya está roto.
+Se cierra con **una** orden desde un entorno con salida a `quay.io`:
+
+```
+curl -s 'https://quay.io/api/v1/repository/minio/minio/tag/?limit=5&onlyActiveTags=true'
+curl -s 'https://quay.io/api/v1/repository/minio/mc/tag/?limit=5&onlyActiveTags=true'
+```
+
+y con el `name` + `manifest_digest` que devuelva, el pin se clava **por digest** (inmutable) y
+se verifica con `./scripts/check-compose-images.sh --resolve`.
