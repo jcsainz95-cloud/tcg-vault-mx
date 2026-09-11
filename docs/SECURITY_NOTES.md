@@ -1,3 +1,343 @@
+# VEREDICTO BLUE TEAM — release «Stream A + andamiaje de CI» · candidato `main`=`abecf73` (árbol ≡ `22ce2a4`; rama `claude/tcg-hunt-orchestration-2` en `c1a945c`) · 2026-09-11
+
+> ## ⭐ VEREDICTO: **APROBADO CON CONDICIONES** para publicar Stream A + andamiaje de CI en **modo prueba de Stripe**
+>
+> **Críticos abiertos: 0. Altos abiertos: 0.** El único hallazgo con filo del pentester, **`P-RL-1`** (bypass del
+> rate-limit rotando `X-Forwarded-For`), lo **reproduje LIVE** en local y lo **desmonté por mecanismo**: con
+> `trust proxy = 1` el tracker del throttler es la **última** entrada de `X-Forwarded-For`, no la que el cliente
+> elija. Medido 2/2: si a un XFF rotatorio se le añade una última entrada fija (lo que hace un proxy que
+> *appendea*), el 6.º intento es **429**. El bypass solo existe cuando **nadie** appendea —es decir, en local sin
+> proxy—. En producción, detrás del edge de Railway, no es explotable **si** Railway appendea/fija la IP real
+> como última entrada, que es lo que dicen sus fuentes y lo que es coherente con el incidente de prod
+> `6e21a0c` (2026-08-23). **Eso no lo he medido** (egress bloqueado a `docs.railway.com`; producción
+> prohibida). Por eso `P-RL-1` queda en **Media (provisional) en producción, ALTA en local por construcción**,
+> con la medición que la cierra o la sube (**C6**, devops) y un backstop por cuenta (**C7**, backend) — ambas
+> **bloquean dinero real, no la publicación en modo prueba**. Y un dato que pesa: `main.ts` y
+> `app-throttler.guard.ts` son **idénticos** entre producción `c13f417` y `abecf73` (`git diff --stat` vacío):
+> este release **no introduce ni empeora** la exposición; solo añade `change-password`, que exige sesión
+> válida y comparte exactamente la misma clase que `login`.
+>
+> **Condiciones anteriores (`d6aca64`):** **C1 CERRADA** (66/66 en 3/3, medido por mí), **C4 CERRADA** (canario
+> gitleaks 11/11 en 3/3 + historial 1.094 commits sin fugas, medido), **C5 CUMPLIDA** para `abecf73` (27/27
+> check-runs verdes, 0 rojos, 0 sin terminar, 08:57 UTC), **C2 CERRADA en su parte técnica** (run
+> `34561010792` `success` con autoprueba verde, verificado por API; `dast-release` cableado en `push` a
+> `production`) y **decido hoy retirar `report_only: true`** (C2-bis, fecha límite **2026-09-25**). **C3 sigue
+> abierta** (humano). Lo demás del pentester: **5 bajos/info confirmados** (dos de ellos los medí yo hasta el
+> extremo que él no pudo: `P-SEED-1` —Prisma **sí** honra `?host=`— y `P-GL-2` —una `sk_live_` en `docs/*.md`
+> **no** se caza—), **2 regresiones cerradas** (`P-WH-1`, `P-DEP-1`), 12 positivos.
+
+---
+
+## 0. Alcance y procedencia
+
+- **HEAD local:** `c1a945c` (informe del pentester sobre `abecf73`). Candidato: `main` = `abecf73`; producción =
+  `c13f417`. `git status --short` vacío antes de este fichero. **Delta del release** `c13f417..abecf73`: 189
+  ficheros, +17.783/−2.731, de los que 134 son código/scripts/workflows.
+- **Blanco:** SOLO el stack local nativo (`backend :3099`, `GET /api/v1/health` → 200; el pentester lo dejó
+  sirviendo `backend/`≡`3fe3d58`≡`abecf73`). **Producción: ni una petición.** Stripe en modo prueba (sin
+  `STRIPE_SECRET_KEY` cargada en local, como reporta el pentester).
+- **Herramientas:** `gitleaks` del scratchpad de devops (`…/devops-ci/bin/gitleaks`, 23,4 MB; el binario **no
+  imprime versión** —«version is set by build process»—; devops lo reporta 8.30.1: `[REPORTADO]`). API de
+  GitHub con el token de la sesión (lee runs/jobs/artifacts; **los logs siguen bloqueados**: `http=000`).
+  **Egress bloqueado** a `docs.railway.com`, `docs.railway.app`, `station.railway.com`, `answeroverflow.com`:
+  el comportamiento del edge de Railway solo lo tengo por resúmenes de búsqueda, no por la página.
+- **Procedencia del árbol durante el pase (O-8):** al terminar (09:08 UTC) `git status` mostraba **cuatro ficheros de
+  `backend/src` modificados que NO son míos** (`error-codes.ts`, `jobs/dispute-deadline.service.ts`,
+  `buylist.service.ts`, `disputes.service.ts`; mtime 09:06–09:08 UTC; un `tsc --noEmit` ajeno corriendo: trabajo
+  «v1.68 §M5-S / P-58» de otro agente backend sobre el mismo worktree). **Fuera del alcance de `abecf73`.** Mis
+  series LIVE (§2.1) corrieron ~08:50 UTC contra el proceso `:3099` arrancado a las 08:35 (`.native-stack/backend.pid`,
+  `ts-node --transpile-only`, sin recarga) ⇒ midieron el árbol que dejó el pentester (`backend/`≡`abecf73`). Todo
+  lo demás lo medí sobre objetos de git (`git diff c13f417..abecf73`, `git show abecf73:…`) o sobre copias.
+- **No escribí una línea de código.** Único fichero: éste. Scratchpad: `scratchpad/seguridad-release2/`
+  (logs de canarios, JSON de la API, informes de gitleaks, script de la prueba de `?host=`).
+
+Convención: `[MEDIDO]` lo disparé yo · `[DERIVADO]` conclusión forzada por datos medidos · `[REPORTADO]`
+lo dijo otro rol o una fuente externa y lo cito como tal · `[NO MEDIDO]` no lo llamo «seguro».
+
+---
+
+## 1. Las condiciones del veredicto anterior, re-medidas sobre el árbol actual
+
+| Cond. | Estado | Medición (2026-09-11, 08:4x–09:05 UTC) |
+|---|---|---|
+| **C1** `S-CLASE-1` (devops) | **CERRADA** `[MEDIDO]` | `./scripts/check-secret-defaults.sh` → rc=0 («Clase S-88-1 cerrada»). Canario `check-secret-defaults-canary.sh` → **66/66 en 3/3 tiradas** (era 48/48). Los 7 casos que faltaban están en el canario (`grep -c`): `${VAR-…}` 6, `:=` 6, `_PASS` 13, `_PIN` 5, `_PEPPER` 5, `environment:` 1, `.env.staging` 5, `RUN echo` 3. Coincide con lo que reportaron devops (66/66) y el orquestador (66/66 en 2/2). |
+| **C2** `S-DAST-1` (devops+humano) | **CERRADA (técnica)** `[MEDIDO]` + **C2-bis nueva** | API `actions/runs/34561010792` → `workflow_dispatch`, `status=completed`, **`conclusion=success`**, 2026-09-11 04:07 UTC, run #8 de `security-dast.yml`. Jobs: «Autoprueba del candado (canario vulnerable)» **success** (el gate se puso rojo contra el canario), «DAST contra el stack efímero» **success** (pasos 3–9 y 11–12 success; «Logs si algo falló» skipped), «Abrir issue» **skipped** (no hubo hallazgo bloqueante). Artefactos: `dast-ephemeral-reports` (43.524 B), `dast-selftest-reports` (22.028 B). **Qué SHA escaneó:** `head_sha` del run es `c1ed4cd` (tip de la rama al disparar); el SHA pedido (`c13f4179…`, producción) viaja en `inputs.ref` → `SCAN_REF` → `checkout ref: ${{ env.SCAN_REF }}` (así estaba el workflow en `c1ed4cd`, líneas 143/167/218). La API no expone `inputs` y los logs están bloqueados ⇒ **que escaneó `c13f4179` es `[REPORTADO]` por devops; que el workflow escanea lo que se le pide es `[MEDIDO]` leyendo el YAML.** Cableado de release: `deploy.yml:477-485` `dast-release: uses: ./.github/workflows/security-dast.yml` con `ref: ${{ github.sha }}`, `scan_profile: full`, `report_only: true`, en `push` a `production` (`:109`); `promote-production-*` exige `needs.dast-release.outputs.blocking == 'false'` (`:497-500`) — el vacío no promueve (F1-1). Caducidad `scripts/check-dast-report-only-expiry.sh` → `FECHA_LIMITE="2026-10-06"`. |
+| **C3** (humano/QA) | **ABIERTA** `[NO MEDIDO]` | Sin cambio: `gh run view 34538020057 --log \| grep -m1 "Smoke (real) specs:"`. No bloquea modo prueba; sí dinero real. |
+| **C4** `S-GL-1` (devops) | **CERRADA** `[MEDIDO]` | `security/gitleaks.toml:75-84`: la allowlist de `sk_test_` exige placeholder auto-delator (sin dígitos o con `dummy`/`CHANGE_ME`/…); `sk_live_`/`rk_live_`/`whsec_` con reglas propias (`:25,:31,:37`). Canario `security/scripts/sast-gitleaks-canary.sh` → **11/11 en 3/3**. `gitleaks git . --config security/gitleaks.toml` sobre el historial completo → **1.094 commits, 54,69 MB, 0 hallazgos, rc=0**. |
+| **C5** (devops, cada deploy) | **CUMPLIDA para `abecf73`** `[MEDIDO]` | `./scripts/check-candidate-checks.sh abecf73` → **«check-runs: 27 · en rojo: 0 · sin terminar: 0 · saltados sin motivo: 0»**, rc=0 (08:57 UTC). Canario `check-candidate-checks-canary.sh` → **14/14** (1/1; el orquestador lo midió también). **Se re-mide sobre el SHA que se publique** si hay commits encima. |
+
+### Decisión sobre `report_only` (me la encargaron a mí)
+
+`report_only: true` **solo cambia el color del run**: `dast-gate.py` publica `blocking=true|false` en todos
+los modos y `promote-*` ya lo exige (`deploy.yml:459-466`, F1-1). Con un barrido `full` verde sobre el SHA de
+producción y `report_only=false` (run `34561010792`), **mantenerlo en `true` no protege nada y esconde el
+único rojo que importaría**. **Decido retirarlo: C2-bis [devops] — poner `report_only: false` (o borrar la
+línea) en `deploy.yml > dast-release` en el mismo commit de publicación de este release, y en cualquier caso
+antes del 2026-09-25** (antes de que `DO-D4` caduque el 2026-10-06). Comprobación: `grep -n "report_only" .github/workflows/deploy.yml`
+sin `true`, y el **primer run de `dast-release` sobre `production`** citado por número con
+`blocking=false`. Si ese primer run sale rojo por un hallazgo real, el hallazgo va a su dueño; **no** se
+vuelve a `report_only`.
+
+---
+
+## 2. Consolidación del pase del pentester (`PENTEST_NOTES` § PASE RELEASE 2)
+
+### 2.1 `P-RL-1` — bypass del rate-limit por `X-Forwarded-For` · **CONFIRMADO en local · recalificado**
+
+**Lo que reproduje `[MEDIDO LIVE]`** contra `:3099`, `POST /api/v1/auth/login` con contraseña errónea,
+correos distintos por serie para no compartir el cubo por-email:
+
+| serie | cabecera | resultado (10 intentos) |
+|---|---|---|
+| A (PoC del pentester) | `X-Forwarded-For: 203.0.113.$i` (rotatorio, 1 valor) | `401 ×10`, **cero 429** — bypass reproducido |
+| B (control) | `X-Forwarded-For: 198.51.100.7` (fijo) | `401 ×5`, **429 desde el 6.º** |
+| C (simula proxy que appendea) | `X-Forwarded-For: 203.0.113.$i, 198.51.100.8` (rotatorio **+ última fija**) | `401 ×5`, **429 desde el 6.º** |
+| C' (repetición, O-3) | `…, 198.51.100.9` | `401 ×5`, **429 desde el 6.º** → **2/2** |
+| D | `X-Real-IP` rotatorio + XFF fijo | `401 ×5`, **429 desde el 6.º** (el tracker ignora `X-Real-IP`) |
+
+**Por qué pasa exactamente eso `[MEDIDO en código]`:** `@nestjs/throttler 6.5.0` `getTracker` → `req.ip`
+(`throttler.guard.js:141-142`; `AppThrottlerGuard` no lo sobreescribe: solo `shouldSkip` bajo `NODE_ENV=test`).
+Express 4.22.2 compila `trust proxy = 1` como `(addr, i) => i < 1` (`lib/utils.js:223-225`) y `proxy-addr 2.0.7`
+recorre `[socket, xff_último, xff_penúltimo, …]` parando en el primer no confiable (`index.js:56-78`): con
+`1`, el socket es el único confiable y **`req.ip` = última entrada de XFF** (o el socket si no hay XFF).
+Consecuencia: **un valor elegido por el cliente solo cuenta si llega como última entrada**, es decir, si
+**ningún proxy** appendea ni reescribe. En local nadie lo hace ⇒ bypass. Detrás de un proxy que appendea la IP
+real ⇒ serie C ⇒ no hay bypass. Con **dos** saltos (p. ej. un CDN delante) ⇒ `req.ip` sería la IP del segundo
+salto para todos ⇒ **cubo compartido (429 para todos: DoS de disponibilidad), no bypass**.
+
+**Qué hace Railway `[REPORTADO, no verificable desde aquí]`:** los resúmenes de búsqueda de
+`station.railway.com` («Security-Critical Questions on Edge Proxy Header Handling and Hop Count», «Which
+header should I rely on for real client IP?») dicen que Railway **appendea la IP real al final de XFF, no
+elimina los valores del cliente, «solo la última entrada es fiable», sus proxies están en `100.0.0.0/8` y
+recomienda `trust proxy: 1`**. No pude abrir ninguna de esas páginas (egress bloqueado). Es coherente con el
+incidente de producción del 2026-08-23 (`BACKEND_NOTES` §0.1, commit `6e21a0c`): sin `trust proxy` todos los
+clientes caían en un cubo; se puso `1` **para producción**. **Que ese fix funcionó en prod no está
+documentado como medido** (`[NO MEDIDO]`; lo busqué en `BACKEND_NOTES`, `DEVOPS_NOTES`, `HISTORIAL`).
+
+**Severidad final:** **ALTA en local por construcción (blanco sin proxy), Media (provisional) en producción.**
+No bloquea la publicación en modo prueba: (1) el código de `trust proxy` y del guard del throttler es
+**idéntico** al que ya está en producción (`git diff --stat c13f417 abecf73 -- backend/src/main.ts
+backend/src/common/guards/app-throttler.guard.ts` → vacío); (2) la superficie nueva (`change-password`, 5/min)
+exige sesión válida y pertenece a la misma clase que `login`; (3) el modo prueba no expone dinero.
+**Bloquea dinero real** hasta C6 y C7. Si C6 muestra que el valor del cliente llega como última entrada,
+**sube a ALTA** y bloquea también el deploy siguiente.
+
+- **C6 [devops] — medir el edge de Railway, sin secretos.** En **ventana autorizada** (CLAUDE.md, paso 7),
+  desde UNA IP: 6× `POST /api/v1/auth/login` a producción con un correo inexistente y `X-Forwarded-For:
+  203.0.113.$i` rotatorio → **debe haber 429 en el 6.º**. Y/o leer en los HTTP logs de Railway (o en
+  `AuthToken.requestIp` tras un login propio con XFF falso) que la IP registrada es la pública real, no la
+  falsa ni una `100.x`. Anotar en `DEVOPS_NOTES` qué cabeceras llegan (`x-forwarded-for`, `x-real-ip`) para
+  una petición con XFF falso. Comprobación de cierre: la proporción (`6/6` con 429 al 6.º) citada con fecha.
+- **C7 [backend] — backstop que no dependa de la IP.** Un throttler adicional **por identidad**: `login` y
+  `google` por correo normalizado (p. ej. 10/15 min), `change-password` por `userId` (5/min), `register` por
+  correo; `forgot-password` ya lleva 3/h/email (`auth.service.ts:199-200`). Y un test que **fije** `trust
+  proxy = 1` y asevere que el tracker es la última entrada de XFF (para que nadie lo suba a `true` «para
+  arreglar» algo). Comprobación: re-correr la serie A contra local → 429 antes del 11.º intento **con XFF
+  rotatorio**; mutar el límite por identidad y ver el test en rojo.
+
+### 2.2 `P-SEED-1` — la guarda de siembra mira `URL.hostname` e ignora `?host=` · **CONFIRMADO hasta el extremo** · BAJA · backend (+devops paridad)
+
+El pentester no pudo medir si Prisma honra `?host=`. Yo sí, en local `[MEDIDO]` (`scratchpad/…/seed-host.js`,
+`@prisma/client` 5.20 del backend, contra el Postgres local, `connect_timeout=4`):
+
+| `DATABASE_URL` | resultado |
+|---|---|
+| `…@localhost:5432/tcg_marketplace` | **CONECTA** (`inet_server_addr()=127.0.0.1`, 61 ms) |
+| `…@localhost:5432/…?host=10.255.255.1` (no enrutable) | **FALLA a los 4.050 ms** (el timeout de conexión): la conexión TCP fue a `10.255.255.1`, no a `localhost` |
+| `…@localhost:5432/…?host=127.0.0.1` | **CONECTA** (58 ms) |
+
+Y `isRecognizedSeedTarget('postgresql://u:p@localhost:5432/db?host=prod-host.railway.app')` → **`true`**
+(`ts-node`, `backend/prisma/seed-target-guard.ts`). ⇒ **El hueco es real:** un `DATABASE_URL` con
+`localhost` en la autoridad y `?host=<prod>` pasa la guarda y Prisma conecta a `<prod>`. Precondición: una
+URL **construida** así (el error típico —exportar la URL de prod entera— sí lo caza la guarda), por eso
+**Baja**. Corrección: `assertSeedTarget` rechaza si la query lleva `host` u `options` (Prisma honra ambas);
+paridad en `scripts/seed-synthetic.sh`. Comprobación: test unitario con esa URL → `SeedTargetRefusedError`.
+
+### 2.3 `P-GL-2` — gitleaks exime `docs/*.md` y `security/*.{toml,yml}` por ruta · **CONFIRMADO** · BAJA · devops
+
+`[MEDIDO]` sobre una copia en el scratchpad (nunca en el árbol): planté una `sk_live_` + 28 alfanuméricos
+aleatorios en `docs/NOTA.md`, `security/x.toml` y `backend/src/x.ts` y corrí `gitleaks dir . --config
+security/gitleaks.toml` → **rc=1, hallazgos SOLO en `backend/src/x.ts`** (2). Las otras dos rutas están
+eximidas por `[allowlist].paths` (`gitleaks.toml:117-118`). Compensatorios: `check-secret-defaults.sh`
+**salta `*.md`** (`:145`) y las tres rutas de `security/` (`:144`); `gen-published-secrets-manifest.sh` sí
+inventaría `sk_live_` sobre `git ls-files` (`:109,:118`) ⇒ el preflight rechazaría **usar** ese valor, pero
+**no evita la fuga** en un repo público. Corrección: sustituir la exención por ruta de `docs/*.md` y
+`security/*` por una allowlist **por valor** (los prefijos de prosa que hoy dan falso positivo) o, si se
+mantiene la ruta, un paso compensatorio que escanee esas rutas con las reglas `sk_live_`/`rk_live_`/`whsec_`
+sin exención. Comprobación: repetir mi prueba y exigir hallazgo en las tres rutas. **Disparador duro: antes
+de cualquier `sk_live_`.**
+
+### 2.4 `P-NAME-1` — nombre almacenado sin escapar · INFO · aceptado (con una medición más)
+
+`[MEDIDO]` `grep -rn dangerouslySetInnerHTML frontend/src` → **0 ocurrencias**; el pentester verificó
+`escapeHtml` en los correos `[REPORTADO]`. React escapa por defecto. Sin sink de HTML crudo no hay XSS
+almacenado; queda como defensa en profundidad ausente. Va a deuda **D-10** (frontend/backend): si aparece un
+sink de HTML/PDF/CSV, rechazar `<`/`>` en `assertPersonName` o escapar en el sink. No bloquea.
+
+### 2.5 `P-REDIR-1` — `safeNext` acepta `/\evil.com` · BAJA · frontend
+
+`[MEDIDO]` `account-routes.ts:50-54` (no cubre `\`); consumidor único de un `next` externo:
+`PasswordPage.tsx:66` → `router.replace(dest)` (`:141`), navegación SPA mismo-origen; el `location.assign` del
+interceptor (`api-client.ts:182,196`) recibe el path **actual** de la víctima, no un `?next=`. Sin sink
+cross-origin. Corrección: rechazar `\`, caracteres de control y `%2F`/`%5C` decodificados + casos en
+`account-routes.test.ts`. No bloquea.
+
+### 2.6 `P-BILL-DoS` — `rfcEnc` corrupto ⇒ 500 · INFO · aceptado
+
+`[MEDIDO en código]` `users.service.ts:217-250`: lanza `Error` (⇒ `INTERNAL` genérico al cliente, verificado
+LIVE por el pentester) con `id`/`userId`/causa **solo en el log; el RFC no se loguea**. Autoinfligido
+(el upsert está acotado por `userId`). Va a deuda **D-9** (devops: procedimiento de rotación de
+`PII_ENCRYPTION_KEY` con re-cifrado; backend: code propio en vez de `INTERNAL`, cosmético).
+
+### 2.7 Regresiones y positivos
+
+- **`P-WH-1` CERRADO** `[REPORTADO LIVE por el pentester: 400 con firma de clave vacía]` + `[MEDIDO en pases
+  anteriores: `nonBlank('STRIPE_WEBHOOK_SECRET')` + spec `webhook-empty-secret-forge.e2e-spec.ts` en la suite de CI]`.
+- **`P-DEP-1` CERRADO** `[MEDIDO hoy]`: `npm audit --json` → **frontend 0/0/0/0/0**; backend completo
+  `{critical:0, high:0, moderate:12, low:1}`; backend `--omit=dev` `{critical:0, high:0, moderate:5}`.
+- Los **12 positivos** del pentester los doy por válidos como `[REPORTADO LIVE]`; re-medí por mi cuenta el
+  del throttler (§2.1) y el de `resolver-ref` (§3.9). No los duplico.
+
+---
+
+## 3. Revisión propia del código nuevo del stream (lente de defensa) `[MEDIDO leyendo]`
+
+1. **`PasswordChangeRequiredGuard`** (`common/guards/password-change-required.guard.ts`): orden correcto en
+   `app.module.ts:80-85` (throttler → Jwt → **contraseña temporal** → roles → correo verificado → dinero
+   saliente); lee `req.user.mustChangePassword`, que `JwtAuthGuard` puebla **desde BD en cada request**
+   (`jwt-auth.guard.ts:64`, mismo `select` que `tokenVersion`) ⇒ ni el JWT viejo ni `refresh` lo esquivan;
+   las `@Public()` no tienen `req.user` (`jwt-auth.guard.ts:28-32`); allowlist medida = **3 handlers**
+   (`users.controller.ts:37`, `auth.controller.ts:63,75`). Sin hallazgo.
+2. **`changePassword`** (`auth.service.ts:281-343`): orden normativo (activo → `PASSWORD_NOT_SET` → argon2
+   `verify` → `PASSWORD_SAME_AS_CURRENT` solo tras verificar → UNA escritura con `tokenVersion +1` y
+   `mustChangePassword=false` → par nuevo con el `tokenVersion` **ya** incrementado → `AuditLog
+   auth.password_changed` sin secretos). `argon2id`; `@Throttle 5/min` por IP (`auth.controller.ts:74`) —
+   sujeto a §2.1 ⇒ C7. `newPassword` sin `MaxLength` propio (política compartida BE-9): con `json()` a 100 kB
+   y argon2 acotado por memoria, no lo elevo a hallazgo.
+3. **`users.service.ts` / PII:** `toBillingProfileDTO` proyecta seis campos, `rfcMasked` (3 + `*`), nunca
+   `rfcEnc` ni RFC en claro; `putBillingProfile` cifra con `pii.encrypt` y construye `data` a mano (sin
+   `...dto`). `clabeMasked` en KYC igual (`:306`). Sin hallazgo.
+4. **`users/address-dto.ts`:** única proyección de `Address` (`userId`, `createdAt`, `updatedAt` fuera);
+   `ADDRESS_DTO_KEYS` con test de paridad. Sin hallazgo.
+5. **`shipments.service.ts:157-225`:** `recipientName` se copia de `Address` server-side (nunca del body ni
+   de `User.name`), snapshot de **9 campos fijos**, anti-doble-envío dentro de la tx serializable. Sin hallazgo.
+6. **`prisma/seed-target-guard.ts`:** ver §2.2 (`P-SEED-1` confirmado).
+7. **`frontend/src/lib/session.ts:45-70`:** la «señal de logout» de 10 s solo inhibe el redirect
+   `login?next=` de los guards de UI durante un logout intencional; **no** afecta a la autenticación
+   (el 401 sigue vaciando la sesión sin marcar nada). Sin hallazgo.
+8. **`scripts/stack-native.sh` + `.native-stack/secrets.env`:** las claves PII se persisten ahí (`:198-210`),
+   el directorio está en `.gitignore:50` (`git check-ignore` lo confirma; `git ls-files .native-stack` vacío).
+   **Hallazgo propio `S-NAT-1` (BAJA, devops):** el fichero queda con **`0644`** (`stat`) y el script no
+   fija `umask`/`chmod` (grep vacío). Es local y de un solo usuario, pero guarda `JWT_*`, `S3_*` y las claves
+   PII: `umask 077` al crearlo / `chmod 600`. Comprobación: `stat -c %a .native-stack/secrets.env` → `600`.
+9. **`.github/workflows/security-dast.yml` `resolver-ref`:** `inputs.ref` entra como env `REF`, se usa
+   entrecomillado en la URL de la API y el SHA se valida `^[0-9a-f]{40}$` antes del `checkout` (`:163-176`,
+   `:200-204`). Patrón anti-inyección correcto. **`deploy.yml` `dast-release`:** §1 (C2).
+10. **Secretos en el delta:** `git diff c13f417..abecf73` filtrado por patrones reales (`sk_live_`,
+    `rk_live_`, `whsec_…{20,}`, `AKIA…`, claves privadas, `password: '…'`) → solo contraseñas de **fixtures de
+    test** (`Temporal123!`, `Original123!`, …). `gitleaks git .` historial completo → 0 (§1, C4).
+11. **CORS/helmet/`ValidationPipe`:** sin cambio respecto a producción (`main.ts` idéntico).
+
+---
+
+## 4. Hallazgos priorizados (consolidado pentester + blue team)
+
+| ID | Sev. | Hallazgo | Ubicación | Dueño | Comprobación de cierre | Bloquea |
+|---|---|---|---|---|---|---|
+| `P-RL-1` | **Media (prov.) en prod / ALTA en local** | tracker del throttler = última entrada de XFF; bypass si nadie appendea | `main.ts:39`, `app-throttler.guard.ts`, `throttler.guard.js:141` | **devops (C6)** + **backend (C7)** | C6: `6/6` con 429 al 6.º en prod (ventana autorizada) + cabeceras anotadas · C7: serie A local → 429 con XFF rotatorio; test que fija `trust proxy=1` | **dinero real** (no modo prueba) |
+| `P-SEED-1` | Baja | la guarda de seed ignora `?host=`/`?options=` (Prisma **sí** los honra, medido) | `prisma/seed-target-guard.ts:38-56` | **backend** (+devops paridad `seed-synthetic.sh`) | test: URL `localhost…?host=x.railway.app` → `SEED_E2E_REFUSED` | no |
+| `P-GL-2` | Baja | `sk_live_` en `docs/*.md` o `security/*.toml` no se caza (medido) y el compensatorio salta `*.md` | `security/gitleaks.toml:117-118`, `check-secret-defaults.sh:144-145` | **devops** | repetir la plantación en las 3 rutas → hallazgo en las 3 | **antes de `sk_live_`** |
+| `S-NAT-1` | Baja | `.native-stack/secrets.env` `0644` con claves JWT/S3/PII (local) | `scripts/stack-native.sh:194-210` | **devops** | `stat -c %a` → `600` | no |
+| `P-REDIR-1` | Baja | `safeNext` acepta `/\host` (sin sink cross-origin hoy) | `frontend/src/lib/account-routes.ts:50-54` | **frontend** | tests `\`, control chars, `%5C` → `undefined` | no |
+| `P-NAME-1` | Info | nombre/`recipientName` sin escapar en reposo; sin sink HTML crudo (grep 0) | `users/person-name.ts` | frontend/backend (deuda D-10) | — | no |
+| `P-BILL-DoS` | Info | `rfcEnc` indescifrable ⇒ `INTERNAL` (fail-closed, sin PII en log) | `users.service.ts:217-250` | backend (cosmético) / devops (D-9) | — | no |
+| `S-CLASE-1` (C1) | — | **CERRADO** | — | — | 66/66 en 3/3 | — |
+| `S-GL-1` (C4) | — | **CERRADO** | — | — | 11/11 en 3/3, historial 0 | — |
+| `S-DAST-1` (C2) | — | **CERRADO (técnico)**; queda C2-bis | `deploy.yml:477-485` | devops | `report_only` retirado + 1.er run en `production` citado | **dinero real** |
+| `P-WH-1`, `P-DEP-1` | — | **CERRADOS** (regresión re-medida) | — | — | — | — |
+
+---
+
+## 5. Deuda de seguridad ACEPTADA (no bloqueante)
+
+| # | Deuda | Estado hoy | Disparador | Dueño |
+|---|---|---|---|---|
+| D-2 | `P-CFG-1` diales sin re-validar | sin cambio | nuevo escritor de `ConfigSetting` con clave dinámica | backend |
+| D-3 | `S3_* ?? 'minioadmin'` | sin cambio | bucket de INE en MinIO propio | backend |
+| D-4 | webhook público sin throttle | sin cambio | primer incidente de ruido / backend sin WAF | backend/devops |
+| D-5 | preflight heurístico | sin cambio | cambio de formato de claves Stripe | devops |
+| D-6 | el gate DAST escanea un stack efímero, no producción | sin cambio (ahora sí corre sobre el SHA publicado) | antes de dinero real | devops + humano |
+| D-7 | `S-ENV-1` `NODE_ENV ?? 'development'` en `stripe.service.ts` | sin cambio | algo que no sea el cliente Stripe cuelgue de `isProduction()` | backend |
+| D-8 | `PII-E1` clave PII efímera en dev local | **mitigada** en el arnés nativo (`stack-native.sh` persiste las claves) | — | — |
+| **D-9** | rotación de `PII_ENCRYPTION_KEY` sin procedimiento de re-cifrado (`P-BILL-DoS`) | nueva | primera rotación de clave / primer perfil de facturación real | devops (+backend code propio) |
+| **D-10** | nombres de persona sin filtro de `<`/`>` (`P-NAME-1`) | nueva | primer sink de HTML crudo, PDF de etiqueta o export CSV | backend + frontend |
+| **D-11** | throttler in-memory por instancia | sin cambio; coherente con `numReplicas: 1` (`DEVOPS_NOTES` §20.3) | `numReplicas > 1` ⇒ storage Redis **obligatorio** (si no, cada réplica tiene su cubo) | devops + backend |
+
+---
+
+## 6. Lo que sigue SIN MEDIR
+
+1. **Comportamiento real del edge de Railway con `X-Forwarded-For`** (C6) — egress bloqueado y producción prohibida.
+2. **Que el fix `6e21a0c` (trust proxy) funcionó en producción** — no está documentado como medido en ninguna nota.
+3. **El SHA exacto que escaneó el run `34561010792`** — logs bloqueados; el YAML garantiza que escanea `inputs.ref`.
+4. **C3**: qué specs corrió `E2E real` `34538020057`.
+5. **Frontend renderizado** (`:3000` con build atrasado, como el pentester): XSS/redirect ejercitados solo en estático.
+6. **Los 3 flujos de dinero a través de Stripe end-to-end en local** (sin `sk_test` local; en CI corren, `HECHOS.md`).
+7. **Versión del binario `gitleaks`** del scratchpad (no imprime versión; devops dice 8.30.1).
+
+---
+
+## 7. 🚩 Banderas para el humano
+
+1. **Antes del primer peso real:** pentest de tercero + bug bounty; C6/C7/C2-bis/C3 cerradas; `P-GL-2` cerrado
+   antes de que exista cualquier `sk_live_`.
+2. **`P-RL-1` es una propiedad del despliegue, no del código:** si algún día se pone un CDN/Cloudflare delante
+   del backend de Railway, `trust proxy = 1` pasa a ser **incorrecto** (cubo compartido para todos). Que ese
+   cambio no ocurra sin revisar `main.ts:39` (dejo la nota en C6/C7 y en D-11).
+3. **Validaciones legales** (sin cambio): custodia de bienes de terceros, LFPDPPP (INE/CLABE/RFC —ahora también
+   RFC cifrado en reposo—, retención `INE_RETENTION_DAYS=180` sin aval registrado), AML si crece la dispersión SPEI.
+4. **El repositorio sigue siendo público**: las exenciones por ruta de gitleaks (`P-GL-2`) son una superficie
+   ciega hasta que devops las cierre.
+
+---
+
+## 8. VEREDICTO
+
+> # **APROBADO CON CONDICIONES**
+>
+> **Para publicar Stream A + andamiaje de CI en modo prueba de Stripe: APROBADO.**
+> Críticos: 0 · Altos: 0 (P-RL-1 recalificado a Media provisional en producción; el código implicado es
+> idéntico al ya publicado) · Medios: 1 (`P-RL-1`) · Bajos: 4 (`P-SEED-1`, `P-GL-2`, `S-NAT-1`, `P-REDIR-1`) ·
+> Info: 2. El DoD («sin críticos/altos abiertos») **se cumple** sobre `abecf73`.
+>
+> **Para operar con dinero real: RECHAZADO hasta cerrar** C6, C7, C2-bis, C3, `P-GL-2`, y las banderas 1–2.
+
+**Condiciones (todas verificables; ninguna bloquea el push a `production` en modo prueba):**
+
+- **C2-bis [devops, ≤ 2026-09-25]** retirar `report_only: true` de `deploy.yml > dast-release` (§1) y citar el
+  primer run de `dast-release` sobre `production` con `blocking=false`.
+- **C3 [humano/QA]** sin cambio (`gh run view 34538020057 --log | grep -m1 "Smoke (real) specs:"`).
+- **C5 [devops, en cada deploy]** `./scripts/check-candidate-checks.sh <sha publicado>` → rc=0. `abecf73` lo
+  cumple hoy (27/27).
+- **C6 [devops, antes de dinero real]** medir el edge de Railway (§2.1). Si el valor del cliente llega como
+  última entrada de XFF ⇒ `P-RL-1` sube a **ALTA** y bloquea el siguiente deploy hasta C7.
+- **C7 [backend, antes de dinero real]** backstop por identidad en `login`/`google`/`register`/`change-password`
+  + test que fija `trust proxy = 1` (§2.1).
+- **Bajos [backend/devops/frontend, sin fecha dura salvo `P-GL-2`]**: `P-SEED-1`, `S-NAT-1`, `P-REDIR-1` al
+  siguiente toque de su módulo; **`P-GL-2` antes de cualquier `sk_live_`**.
+
+**Qué medí yo y qué no.** Medido por mí: C1 (rc=0, 66/66 ×3, 7 casos), C2 (run/jobs/artefactos por API;
+YAML de `deploy.yml`/`security-dast.yml`), C4 (11/11 ×3, historial 1.094 commits), C5 (27/27, canario 14/14),
+`P-RL-1` (mecanismo en `express`/`proxy-addr`/`throttler` + 5 series LIVE, la decisiva 2/2), `P-SEED-1`
+(Prisma honra `?host=`: 3 URLs), `P-GL-2` (plantación en 3 rutas), `P-REDIR-1`/`P-NAME-1` (sinks por grep),
+`npm audit` ×3, secretos en el delta, permisos de `secrets.env`, diff `c13f417..abecf73` de `main.ts`/guards.
+Reportado y no reproducido: el comportamiento del edge de Railway (fuentes comunitarias), el SHA escaneado
+por el DAST (devops), los positivos LIVE del pentester, la versión del binario gitleaks. No medido: §6.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-11 · candidato `abecf73` · **APROBADO CON CONDICIONES** (modo prueba) · dinero real: bloqueado por C6/C7/C2-bis/C3/`P-GL-2`
+
+---
+
 # RE-VEREDICTO BLUE TEAM — candidato `d6aca64` (≡ tip remoto `26b2c58`) · 2026-09-11 · re-medición del RECHAZADO de `0417da1`
 
 > ## ⭐ VEREDICTO: **APROBADO CON CONDICIONES**
