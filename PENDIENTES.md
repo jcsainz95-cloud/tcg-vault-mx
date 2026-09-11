@@ -39,6 +39,23 @@
 
 # SIGUIENTE RELEASE — «LA CUENTA DEL CLIENTE» (aprobado por el humano, 2026-09-10)
 
+### Añadidos 2026-09-11 02:35 UTC (durante la publicación de `c9ba265`)
+
+- **P-IVA-INCL · Precio con IVA incluido, sin línea aparte (`IVA_INCLUSIVE`).** Decisión del dueño 2026-09-11:
+  «ponlo como pendiente». Hoy el cliente ve «MXN sin IVA» en catálogo y una línea «IVA 16%» en checkout
+  (`frontend/src/components/ui/AmountBreakdown.tsx:82`, `frontend/messages/es.json:315`); M-50 ya deja cada
+  pedido marcado con su convención (`orders.service.ts:586`, `guest-checkout.service.ts:163`). Falta: el
+  DEPLOY 2 de M-50 (contrato §M10-IVA) — decisión de product-owner/arquitecto sobre cómo se muestra, y
+  frontend+backend. **Dinero ⇒ triple veredicto.** No medido: qué dice el contrato hoy sobre DEPLOY 2.
+- **P-GL-FP · gitleaks pinta rojo `main`/`production` por los scripts-canario (falso positivo).** Medido
+  2026-09-11 02:18 UTC: run `34554095125` (SAST sobre `main`, push `c9ba265`), 9 hallazgos, **los 9 en
+  `scripts/check-secret-defaults-canary.sh` (8) y `scripts/check-stripe-webhook-failclosed-canary.sh` (1)** —
+  secretos falsos por construcción. En la rama sale verde porque escanea 1 commit; en `main` escaneó el rango
+  de 20 (`--log-opts ... 88c48c7^..c9ba265`). Dueño: **devops**. Arreglo: allowlist **por ruta** de los
+  canarios en `security/gitleaks.toml` `[allowlist] paths` (NO ensanchar regex — ver S-GL-1 de seguridad, que
+  pide lo contrario: estrechar `sk_test_`). Verificar con gitleaks v8.24.3 (la versión de la action) sobre el
+  mismo rango. Entra en el stream «andamiaje de CI».
+
 > Arranca **en cuanto se publique el release actual**. Tres work streams **disjuntos** por el mapa de
 > módulos de `CLAUDE.md`, así que corren **en paralelo** sin pisarse. Una sesión = un stream = una rama.
 
