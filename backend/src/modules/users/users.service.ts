@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AuthProvider, KycStatus, NameSource, Prisma, Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
@@ -13,6 +14,7 @@ import {
   UpdateKycDto,
   UpdateMeDto,
 } from './dto/users.dto';
+import { assertPersonName } from './person-name';
 
 /** Valida CLABE mexicana (18 dígitos numéricos). Validación estructural. */
 export function isValidClabe(clabe: string): boolean {
@@ -30,6 +32,7 @@ export function isValidClabe(clabe: string): boolean {
  */
 function toAddressDTO(a: {
   id: string;
+  recipientName: string | null;
   line1: string;
   line2: string | null;
   neighborhood: string | null;
@@ -42,6 +45,8 @@ function toAddressDTO(a: {
 }) {
   return {
     id: a.id,
+    // v1.67 (M-52): `null` SOLO en filas anteriores a la migración (contrato §11 `AddressDTO`).
+    recipientName: a.recipientName,
     line1: a.line1,
     line2: a.line2,
     neighborhood: a.neighborhood,
@@ -62,38 +67,84 @@ export class UsersService {
     private readonly pii: PiiCryptoService,
   ) {}
 
+  /**
+   * v1.67 (contrato §1 `GET /users/me`) — la ÚNICA proyección del perfil propio; `GET` y `PATCH`
+   * devuelven exactamente esta forma (D-CTA-2: el PATCH respondía 6 campos y el front necesitaba
+   * `nameSource`/`hasPassword` de vuelta sin segunda llamada).
+   *
+   * - `hasPassword = passwordHash != null`. ⛔ Retira la heurística de v1.1 («ocultar "cambiar
+   *   contraseña" cuando `authProvider=google`»): es falsa tras un reset admin o un `forgot-password`
+   *   sobre una cuenta Google, y falsa al revés para una cuenta `local` enlazada a Google. Es lo único
+   *   que decide la sección de contraseña del perfil.
+   * - `nameSource`: `user` | `google` | `derived` (§4.47.5). Con `derived` el front pinta «Revisa tu
+   *   nombre»; el dato se sigue mostrando.
+   * - `mustChangePassword`: banner persistente de la pantalla de cambio. `GET /users/me` está en la
+   *   allowlist del `PasswordChangeRequiredGuard`; el `PATCH` no.
+   * El hash NUNCA sale: se reduce a un booleano aquí mismo.
+   */
+  private toMeDTO(user: {
+    id: string;
+    email: string;
+    name: string;
+    nameSource: NameSource;
+    phone: string | null;
+    role: Role;
+    locale: string;
+    status: UserStatus;
+    authProvider: AuthProvider;
+    emailVerified: boolean;
+    avatarUrl: string | null;
+    passwordHash: string | null;
+    mustChangePassword: boolean;
+    kycProfile: { kycStatus: KycStatus } | null;
+  }) {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      nameSource: user.nameSource,
+      phone: user.phone,
+      role: user.role,
+      locale: user.locale,
+      kycStatus: user.kycProfile?.kycStatus ?? 'none',
+      status: user.status,
+      authProvider: user.authProvider,
+      emailVerified: user.emailVerified,
+      avatarUrl: user.avatarUrl ?? undefined,
+      hasPassword: user.passwordHash != null,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
+
   async me(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { kycProfile: true },
     });
     if (!user) throw BusinessException.notFound();
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      phone: user.phone,
-      role: user.role,
-      locale: user.locale,
-      kycStatus: user.kycProfile?.kycStatus ?? 'none',
-      status: user.status,
-      // v1.1: el front oculta "cambiar contraseña" cuando authProvider=google sin passwordHash.
-      authProvider: user.authProvider,
-      emailVerified: user.emailVerified,
-      avatarUrl: user.avatarUrl ?? undefined,
-    };
+    return this.toMeDTO(user);
   }
 
+  /**
+   * v1.67 (contrato §1 `PATCH /users/me`): `name` editable por el propio usuario, cualquier rol.
+   * Trim + 1..120 (`assertPersonName`, 400 `VALIDATION_ERROR` `details.field='name'`) y, SIEMPRE
+   * que venga `name`, `nameSource='user'` server-side — es la cura del nombre fabricado (P-73-A).
+   * El `data` se construye a mano: nunca `data: dto` (un campo nuevo del DTO no debe escribirse solo).
+   */
   async updateMe(userId: string, dto: UpdateMeDto) {
-    const user = await this.prisma.user.update({ where: { id: userId }, data: dto });
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      phone: user.phone,
-      role: user.role,
-      locale: user.locale,
-    };
+    const data: Prisma.UserUpdateInput = {};
+    if (dto.name !== undefined) {
+      data.name = assertPersonName(dto.name, 'name');
+      data.nameSource = NameSource.user;
+    }
+    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.locale !== undefined) data.locale = dto.locale;
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      include: { kycProfile: true },
+    });
+    return this.toMeDTO(user);
   }
 
   // ---------------- Addresses (solo MX) ----------------
@@ -109,22 +160,40 @@ export class UsersService {
     }
   }
 
+  /**
+   * v1.67 (M-52, contrato §1 «Direcciones»): `recipientName` OBLIGATORIO al crear (trim, 1..120;
+   * 400 `VALIDATION_ERROR` `details.field='recipientName'`). ⛔ El servidor NO lo deriva de
+   * `User.name` (puede ser fabricado, y «cómo te llamas» ≠ «a nombre de quién va el paquete»); el
+   * pre-relleno es cosa del front y solo con `nameSource !== 'derived'` (ARCHITECTURE §4.47.4).
+   */
   async createAddress(userId: string, dto: AddressDto) {
+    const recipientName = assertPersonName(dto.recipientName, 'recipientName');
     this.assertMx(dto.country);
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return toAddressDTO(await this.prisma.address.create({ data: { ...dto, userId } })); // S49-R4
+    return toAddressDTO(
+      await this.prisma.address.create({ data: { ...dto, recipientName, userId } }),
+    ); // S49-R4
   }
 
+  /**
+   * v1.67: `recipientName?` con la misma validación si viene; ⛔ **no vaciable** (ni `null` ni `""`):
+   * una dirección que ya tiene destinatario no vuelve a no tenerlo. Es el remedio de
+   * `422 RECIPIENT_NAME_REQUIRED` (`PATCH { recipientName }` y reintentar el retiro).
+   */
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
+    const data: Prisma.AddressUpdateInput = { ...dto };
+    if (dto.recipientName !== undefined) {
+      data.recipientName = assertPersonName(dto.recipientName, 'recipientName');
+    }
     if (dto.country) this.assertMx(dto.country);
     const existing = await this.prisma.address.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) throw BusinessException.notFound();
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return toAddressDTO(await this.prisma.address.update({ where: { id }, data: dto })); // S49-R4
+    return toAddressDTO(await this.prisma.address.update({ where: { id }, data })); // S49-R4
   }
 
   async deleteAddress(userId: string, id: string) {

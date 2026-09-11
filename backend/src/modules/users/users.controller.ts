@@ -12,6 +12,7 @@ import {
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AllowPasswordChangeRequired } from '../../common/decorators/allow-password-change-required.decorator';
 import { UsersService } from './users.service';
 import {
   AddressDto,
@@ -26,7 +27,14 @@ import {
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
+  /**
+   * v1.67 — en la allowlist CERRADA del `PasswordChangeRequiredGuard` (contrato §1): la pantalla de
+   * cambio necesita `hasPassword`/`mustChangePassword` y la hidratación de sesión del front lo llama.
+   * Se aplica por HANDLER: el `PATCH` de abajo NO está exento (un usuario con temporal no edita su
+   * perfil hasta cambiarla — decisión del dueño 2026-09-11).
+   */
   @Get()
+  @AllowPasswordChangeRequired()
   me(@CurrentUser('id') userId: string) {
     return this.users.me(userId);
   }

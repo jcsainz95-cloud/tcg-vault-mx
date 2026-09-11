@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
@@ -8,13 +9,28 @@ import {
   MinLength,
 } from 'class-validator';
 
+/** Recorta espacios ANTES de validar (el contrato manda `trim` server-side para nombres). */
+const trim = () => Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
+
 export class UpdateMeDto {
-  @IsOptional() @IsString() name?: string;
+  /**
+   * v1.67 (contrato §1 `PATCH /users/me`, D-CTA-2): antes `@IsString()` a secas y aceptaba `""`.
+   * Ahora: trim + string; la cota **1..120** y el `details.field='name'` los impone
+   * `assertPersonName` en el servicio (ver `person-name.ts`). Al escribir `name` el servicio pone
+   * `nameSource='user'` SIEMPRE (una key `nameSource` en el body la descarta el `whitelist`).
+   */
+  @IsOptional() @trim() @IsString() name?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsIn(['es', 'en']) locale?: 'es' | 'en';
 }
 
 export class AddressDto {
+  /**
+   * v1.67 (M-52, contrato §1 «Direcciones»): quien recibe en ESTA dirección. **OBLIGATORIO** al
+   * crear; trim + 1..120 (`assertPersonName`). Misma forma que `GuestAddressInput.recipientName`.
+   * El servidor NUNCA lo deriva de `User.name` (ARCHITECTURE §4.47.4).
+   */
+  @trim() @IsString() recipientName!: string;
   @IsString() @MinLength(1) line1!: string;
   @IsOptional() @IsString() line2?: string;
   @IsOptional() @IsString() neighborhood?: string;
@@ -27,6 +43,13 @@ export class AddressDto {
 }
 
 export class UpdateAddressDto {
+  /**
+   * v1.67: opcional, **no vaciable**. `@IsOptional()` deja pasar `null` a propósito: el servicio lo
+   * rechaza con `400 VALIDATION_ERROR details.field='recipientName'` (igual que `""`), en vez de
+   * escribir `NULL` sobre una dirección que ya tenía destinatario. Es el remedio de
+   * `422 RECIPIENT_NAME_REQUIRED`.
+   */
+  @IsOptional() @trim() @IsString() recipientName?: string;
   @IsOptional() @IsString() line1?: string;
   @IsOptional() @IsString() line2?: string;
   @IsOptional() @IsString() neighborhood?: string;
