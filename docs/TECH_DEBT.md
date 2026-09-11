@@ -6383,3 +6383,60 @@ topes de posición) ya validan con `isInt`.
   Ref: `ARCHITECTURE §4.39i.4-bis`, `API_CONTRACT §M5-V` (V-a), `src/common/buylist-aml.ts:153`,
   `buylist.service.ts:5846`/`:7157`, `test/buylist.pay-spei-where-composition.spec.ts`,
   `test/integration/buylist-pay-verdicts.e2e-spec.ts` (assert 7).
+
+## Backend · 2026-09-11 · gates Stream A
+
+> Ronda de correcciones tras los veredictos de QA y techlead (2026-09-11). Lo cerrado está en
+> `docs/BACKEND_NOTES.md` §«v1.67.1 — gates Stream A»; aquí SOLO lo que se deja, con dueño, impacto y
+> disparador. Medido el 2026-09-11 sobre `claude/tcg-hunt-orchestration-2`.
+
+### BE-76 · `details.field` no existe cuando el nombre de persona viene AUSENTE o no-string (Baja)
+- **Qué:** `POST /users/me/addresses` sin `recipientName` (o `PATCH /users/me { name: 42 }`) lo corta el
+  `ValidationPipe` global (`@IsString()`) con `400 VALIDATION_ERROR` y `message[]` de class-validator,
+  **sin `details.field`**. `assertPersonName` (`users/person-name.ts`) solo ve `""`, `null` y `>120`, y
+  ésos sí llevan `details.field`. El docblock ya lo dice tal cual (techlead F2-6).
+- **Impacto:** el front no puede marcar el campo en ese caso concreto; hoy pinta el mensaje genérico.
+- **Cura:** `exceptionFactory` en `main.ts:56` que traduzca el primer `ValidationError` a
+  `{ code: 'VALIDATION_ERROR', details: { field } }` (y el mismo en `helpers/e2e-app.ts`, réplica de
+  `main.ts`). Es transversal a TODOS los DTOs: cambio de contrato de forma de error ⇒ pasa por el
+  arquitecto (regla 9).
+- **Disparador:** la primera pantalla que necesite `details.field` en un 400 del pipe.
+
+### BE-77 · Los 3 literales viejos de gitleaks siguen en el HISTORIAL (Baja · dueño del remedio: devops)
+- **Qué:** backend neutralizó en HEAD los tres hallazgos de `DEVOPS_NOTES §56.3`
+  (`pii-crypto.service.ts:152` `key`→`material`; `seed.password.spec.ts:27` y
+  `graded-estimate.ingest.spec.ts:504` con literales que no disparan). **Medido:** gitleaks 8.30.1
+  `dir backend` con `security/gitleaks.toml` (HEAD y árbol) → **3 → 0**. Pero el modo `git` (historial
+  completo) los seguirá viendo en los commits antiguos: eso solo lo cierra una **allowlist por valor**
+  en `security/gitleaks.toml` (fichero de devops). Ninguno de los tres valores está en
+  `security/secretos-publicados.sha256` (sha256 comprobado): el manifiesto no cambia por esto.
+- **Disparador:** el día que `sast-gitleaks.sh` en modo `git` entre en `needs` de `sast-ok`.
+
+### BE-78 · `engines.node` es `>=22` en backend y `>=24` en frontend (Baja)
+- **Qué:** backend declara el rango **medido** (local 22.22.2 en `/opt/node22`, CI e imagen en 24);
+  frontend declara `>=24`. Sin `engine-strict` en ningún sitio (medido: `grep` en workflows, scripts,
+  Dockerfiles, `.npmrc`) es solo un aviso, pero son dos afirmaciones distintas sobre el mismo repo.
+- **Disparador:** cuando el entorno local suba a 24, backend sube a `>=24` en un commit de una línea.
+
+### BE-79 · La cuenta solo-Google del seed no tiene vía de sesión en Playwright (Baja · informa a frontend/QA)
+- **Qué:** `google.only@e2e.local` (`E2E_ACCOUNT_FIXTURES.googleOnly`) no puede hacer `POST /auth/login`
+  (no hay contraseña: ése es el caso). Backend la ejercita con `AuthService.issueTokens` en
+  `seed-account-fixtures.e2e-spec.ts`; en el arnés de frontend hace falta una **sesión inyectada** (el
+  `loginAs` real no sirve) o un endpoint de test que no existe ni debe existir en producción.
+- **Disparador:** si QA exige el flujo solo-Google `@real` de punta a punta; decisión con el arquitecto
+  (un verificador de ID token falso SOLO bajo `NODE_ENV=test` sería la vía).
+
+### BE-80 · El pedido de invitado sembrado es `settled`/`direct_ship` SIN `ShipmentRequest` ni `stripePaymentIntentId` (Baja)
+- **Qué:** `E2E_GUEST_ORDER` (`TCG-E2E-GUEST-0001`) existe para `GET /orders/claimable`; se siembra
+  liquidado y su pieza `delivered`, pero sin envío asociado ni PI. Es una simplificación deliberada
+  (menos filas que borrar-y-declarar; sin `Restrict` de `ShipmentRequest.orderId`). **Medido:** la
+  integración completa (27 suites / 395) no lo nota.
+- **Disparador:** si M4 o alguna suite pasa a exigir «todo `direct_ship` liquidado tiene envío» o
+  cruza `settled` con `stripePaymentIntentId`, el fixture gana su `ShipmentRequest` `entregado`.
+
+### BE-81 · El test reflexivo de la allowlist carga los controladores con `require` por ruta de fichero (Baja)
+- **Qué:** `test/password-change-allowlist.reflect.spec.ts` recorre `src/**/*.controller.ts` y lee
+  `METHOD_METADATA`/`PATH_METADATA` de `@nestjs/common/constants` (API interna, estable en Nest 10).
+  Un controlador que viva en un fichero sin sufijo `.controller.ts` no entraría en el recorrido (hoy
+  no hay ninguno: 10+ controladores y 50+ handlers vistos, aserción de sanidad en el propio test).
+- **Disparador:** subir de Nest 10 (revisar las constantes) o cambiar la convención de nombres.

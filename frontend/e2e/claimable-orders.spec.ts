@@ -1,17 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, IS_REAL } from './utils/auth';
+import { loginAs, IS_REAL, skipIfSeedMissing } from './utils/auth';
 
 /**
  * Stream A · F7 (DESIGN_SYSTEM §33.9, contrato v1.67 «nota de consumo» de GET /orders/claimable):
  * el aviso de pedidos reclamables NUNCA se pinta vacío ni en error, aparece solo con datos y
  * desaparece al reclamar.
  *
- * ⚠️ En modo MOCK `getClaimableOrders()` devuelve `[]` (rama mock de `lib/api.ts`, zona de A1),
- * así que aquí solo es medible «con [] no hay nodo». El «aparece → vincular → desaparece» se mide
- * contra el stack real cuando el seed tenga un pedido de invitado sin reclamar con el correo del
- * cliente; si no lo tiene, el test se SALTA con la razón (no un rojo que no significa nada). La
- * unidad `ClaimableOrdersNotice.test.tsx` cubre el ciclo completo con el endpoint espiado.
+ * Segundo caso AGNÓSTICO (techlead F2-1): en mock los reclamables del fixture se sirven solo con
+ * `localStorage['tcg.mock.claimable']='1'` (§67.6 de FRONTEND_NOTES: el default sigue `[]` porque el
+ * primer caso mide precisamente «con [] no hay nodo»); contra el backend real el dato es el pedido de
+ * invitado SIN reclamar con el correo del cliente que siembra `seed-e2e.ts` — si no está, se salta con
+ * la razón. La unidad `ClaimableOrdersNotice.test.tsx` cubre el ciclo con el endpoint espiado.
  */
 test.describe('pedidos reclamables · aviso (F7)', () => {
   test('con [] (nada que ofrecer) no hay ningún nodo del aviso en /vault ni en /orders', async ({ page }) => {
@@ -31,15 +31,19 @@ test.describe('pedidos reclamables · aviso (F7)', () => {
   });
 
   test('@real aparece con pedidos del correo verificado, «Vincular a mi cuenta» lo reclama y desaparece', async ({ page }) => {
-    test.skip(!IS_REAL, 'solo-real: la rama mock de GET /orders/claimable devuelve [] (fixture de lib/, zona A1)');
     await loginAs(page, 'customer');
+    if (!IS_REAL) {
+      // Rama mock: enciende el pool de reclamables del fixture (los reclamados se anotan en
+      // `tcg.mock.claimed` y no vuelven tras recargar, como el backend).
+      await page.addInitScript(() => window.localStorage.setItem('tcg.mock.claimable', '1'));
+    }
     await page.goto('/es/vault');
     await expect(page.getByRole('heading', { name: t('es', 'vault.title') })).toBeVisible();
 
     const notice = page.getByTestId('claimable-orders-notice');
-    // Dato del seed: si no hay reclamables para este cliente, se salta con la razón.
+    // Dato del seed (real): si no hay reclamables para este cliente, se salta con la razón.
     const present = await notice.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false);
-    test.skip(!present, 'falta dato en el seed real: un pedido de invitado SIN reclamar con el correo del cliente');
+    skipIfSeedMissing(!present, 'un pedido de invitado SIN reclamar con el correo del customer (seed-e2e.ts)');
 
     // Cuerpo de la bóveda: dice que NO entran a la bóveda (regla 5 de §33.0).
     await expect(notice.getByText(t('es', 'vault.claimable.body'))).toBeVisible();
