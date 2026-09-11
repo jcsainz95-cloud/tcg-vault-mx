@@ -2307,17 +2307,24 @@
 - **Disparador:** al tocar el resultado del alta masiva. Acción: incluir en cada línea OK el acabado asignado
   (badge `FinishBadge`), destacando cuando difiere del elegido en el formulario.
 
-### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético)
-- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` (guard de sesión) vs. el `router.replace('/login')`
-  del logout.
-- **Estado actual:** al cerrar sesión, el guard de `AdminShell` **gana la carrera** y redirige a
-  `/login?next=/admin/m1` (con el `?next=`/flash) antes de que el `router.replace('/login')` limpio tome
-  efecto. El usuario acaba en login con un `next` que apunta de vuelta a la ruta admin recién cerrada.
-- **Impacto:** cosmético. No hay fuga (el guard protege igual); solo el query param sobra tras un logout
-  explícito.
-- **Disparador:** aceptado; **no arreglar ahora** salvo que resulte trivial y sin riesgo para el guard.
-  Acción posible: que el logout señale un "logout intencional" para que el guard omita el `?next=` en esa
-  transición.
+### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético) — **CERRADA 2026-09-11 (`ff4f58b`)**
+- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` y `PrivateRouteGuard.tsx` (guards de sesión) vs. el
+  `router.replace('/login')` / `push('/')` del logout.
+- **Estado (histórico):** al cerrar sesión, el guard **ganaba la carrera** y redirigía a `/login?next=<ruta recién
+  cerrada>` antes de que el `router.replace('/login')` limpio tomara efecto. En 2026-09-11 QA la re-midió **6/6
+  contra el stack real** extendida a `/account` (QA2-1: cliente desde `/es/account` → `login?next=%2Faccount`;
+  operador desde `/es/admin` → `login?next=%2Fadmin`), en contradicción con DS §33.8 («Cerrar sesión» → `/login`)
+  y con `e2e/account.spec.ts` — dejó de ser cosmética: rojo determinista del gate.
+- **Cierre:** la «acción posible» de esta ficha, tal cual: `logout()` (`lib/api.ts`) marca un **logout
+  intencional** (`lib/session.ts` · `markIntentionalLogout` / `isLogoutInProgress`, ventana de 10 s, no consumo)
+  ANTES de tocar la red y de vaciar la sesión, y ambos guards, al ver `ready && !isAuthenticated` con la señal
+  encendida, **no redirigen** (pintan carga y dejan aterrizar al llamador: `/login` en panel y página de
+  contraseña, `/` en la sección «Sesión» de la tienda, DS §33.6g). Un vaciado por 401 no marca nada.
+- **Comprobación de cierre:** unitario `PrivateRouteGuard.test.tsx` / `AdminShell.test.tsx` (caso QA2-1: con la
+  señal, `replace` no se llama) + `session.logout-signal.test.ts` (4/4); mutación sobre copia (quitar el check en
+  `PrivateRouteGuard`) 3/3 roja, control 3/3 verde; contra el stack real: `E2E_BASE_URL=http://localhost:3000
+  E2E_REAL=1 npx playwright test e2e/account.spec.ts` ⇒ el caso «Cerrar sesión» aterriza en `/es/login` sin `next`
+  (ver `FRONTEND_NOTES §68.6` para el N/N medido).
 
 
 ### P-5 (v1.25 paginación+filtros) — deuda del delta frontend (2026-08-20, no bloqueante)
@@ -6397,6 +6404,9 @@ topes de posición) ya validan con `isInt`.
   PROYECTADO) y el contrato v1.67.1 **no lo declara** en `AdminShipmentDTO` (medido: `API_CONTRACT §M4`,
   «`guestEmail?`, `orderId?`, `orderNumber?` y `kind` no están en cuestión» — `customer` no aparece). Se
   lee de forma defensiva en `customerOf()` marcado `// MOCK: pendiente de contrato`; sin él, «—» · «—».
+- **Comprobación de cierre:** `grep -n "MOCK: pendiente de contrato" frontend/src/app/\[locale\]/\(admin\)/admin/m4/M4View.tsx`
+  devuelve 0 líneas y `AdminShipmentDTO` en `types/contract.ts` tipa `customer?` (o la línea «Cliente …» ya no
+  existe en M4 y `M4View.test.tsx` no la asserta); `vitest run m4` verde.
 - **Disparador:** que el contrato publique `customer?` en la fila de M4 (o lo rechace ⇒ se retira la línea
   y el operador entra por «Ver ficha» al M6, que ya existe). Petición en `FRONTEND_NOTES §68.4`.
 
@@ -6407,6 +6417,10 @@ topes de posición) ya validan con `isInt`.
   `backend/src/modules/orders/orders.service.ts:listOrders` proyecta exactamente eso ⇒ **contra el backend
   real la columna sigue mostrando el UUID**. `orderNumber?` en `types/contract.ts` va marcado `// MOCK:
   pendiente de contrato`; el fixture `ord-9001` lo trae y `ord-9002` no (el fallback es visible en demo).
+- **Comprobación de cierre:** `grep -n "MOCK: pendiente de contrato" frontend/src/types/contract.ts` no menciona
+  `orderNumber`; contra el stack real `GET /orders` (customer del seed) trae `orderNumber` en cada fila y
+  `/es/orders` pinta `TCG-…` en la columna PEDIDO (medible con `curl` + Playwright real), y `OrdersView.test.tsx`
+  sigue verde con el fixture sin el campo (fallback).
 - **Disparador:** `orderNumber` en `OrderSummaryDTO` (y `OrderDetailDTO`, `OrderDetailView.tsx:46` pinta el
   id en el título) — la columna `Order.orderNumber` ya existe desde v1.21. Petición en `§68.4`.
 
@@ -6421,6 +6435,9 @@ topes de posición) ya validan con `isInt`.
 - **Por qué no se «restaura» desde el test:** no hay endpoint del contrato para volver a poner una
   temporal salvo el reseteo de admin (`POST /admin/users/:id/reset-password`), que fabrica OTRA temporal
   aleatoria que el arnés no conoce. Restaurar sería modelar un flujo que el producto no tiene.
+- **Comprobación de cierre:** dos corridas reales SEGUIDAS de `e2e/account.spec.ts` con `./scripts/stack-native.sh
+  up --seed` entre ambas ⇒ ambas N/N sin ningún `falta dato en el seed real` en el reporte; la misma segunda
+  corrida SIN `--seed` ⇒ los dos flujos de temporal aparecen como *skipped* con esa razón (no rojos).
 - **Disparador:** ninguno — es la cadencia: **sembrar antes de cada corrida real** (ya es lo que hace
   `scripts/stack-native.sh` / el workflow `e2e-real`; NO MEDIDO por mí en esta ronda).
 
@@ -6431,13 +6448,20 @@ topes de posición) ya validan con `isInt`.
   sesión por el contrato. El caso queda `harnessLimit(...)` (tercera clasificación, `e2e/utils/auth.ts`),
   medido en mock, y la unidad `PasswordPage.test.tsx` cubre los tres modos con `getMe` espiado.
 - **Lo que NO se acepta como remedio:** un endpoint de «sesión para E2E» — es una puerta trasera de
-  autenticación en el producto. **Disparador:** ninguno previsto.
+  autenticación en el producto.
+- **Comprobación de cierre:** (solo si aparece una vía legítima de sesión para la cuenta solo-Google) el caso
+  «cuenta solo-Google» de `e2e/account.spec.ts` deja de llevar `harnessLimit` y corre `@real` verde; hasta
+  entonces la unidad `PasswordPage.test.tsx` (modo crear, 429 y fallo) sigue verde.
+- **Disparador:** ninguno previsto.
 
 #### GA-D5 · El aviso «nombre derivado» no tiene actor sembrado autenticable (Baja, frontend — bloqueada por DATO de seed)
 - **Dueño:** frontend (el test), **desbloquea:** backend (`seed-e2e.ts`). **Severidad:** Baja.
 - **Qué pasa:** el único usuario con `nameSource='derived'` del seed es el solo-Google (GA-D4). El caso
   «con nombre derivado el aviso existe y desaparece al guardar» queda `needsSeed` (estático). En mock se
   inyecta en la sesión local; en real `GET /users/me` mandaría y lo desmentiría.
+- **Comprobación de cierre:** el caso «nombre derivado» de `e2e/account.spec.ts` sin `needsSeed`, con las
+  credenciales del actor en `e2e/utils/env.ts`, verde contra el stack real re-sembrado (1/1) y el `PATCH` deja
+  `nameSource='user'` (`GET /users/me` tras el test).
 - **Disparador:** un usuario **local** (`passwordHash` + `nameSource='derived'`) en el seed; el test no cambia
   salvo por tomar sus credenciales de `utils/env.ts`.
 
@@ -6447,6 +6471,9 @@ topes de posición) ya validan con `isInt`.
   es un perfil (sin `rfcMasked` string) como «sin perfil». Existe porque el backend anterior (`3402466`
   lo corrige) respondía `200` vacío y la sección pintaba seis «—» con «Editar». No es una segunda lectura
   del contrato; es no afirmar un perfil que no existe.
+- **Comprobación de cierre:** `curl -H 'Authorization: Bearer <token de un usuario sin perfil>' <prod>/api/v1/users/me/billing-profile`
+  ⇒ `404`; entonces se borra `isBillingProfile` de `lib/api.ts` y el caso «D-CTA-7» de
+  `api.billing-profile.test.ts`, y el resto del fichero (404⇒null, 200 DTO, 500, PUT) sigue verde.
 - **Disparador para retirarla:** que producción esté en `≥ 3402466` (medible: `GET /users/me/billing-profile`
   de un usuario sin perfil ⇒ `404`) — entonces la rama y su test (`api.billing-profile.test.ts`, caso
   D-CTA-7) sobran.
@@ -6458,7 +6485,11 @@ topes de posición) ya validan con `isInt`.
   **nadie mide** que el índice quede fijo al hacer scroll ni que el ancla lleve a la sección.
 - **Por qué se deja:** `position: sticky` es una propiedad de layout que jsdom no calcula y en Playwright
   exigiría un `scrollIntoView` + `boundingBox` por sección (frágil ante cambios de espaciado del sistema
-  de diseño). **Disparador:** si ux-ui cambia la geometría del índice o llega un bug de scroll reportado.
+  de diseño).
+- **Comprobación de cierre:** un caso en `e2e/account.spec.ts` a 1280×800 que haga `scroll` al pie y mida por
+  `boundingBox()` que el índice sigue dentro del viewport y que su ancla `#billing` deja la sección visible;
+  hasta entonces `AccountView.tsx:81` conserva `lg:sticky` y `AccountView.test.tsx` asserta las secciones por rol.
+- **Disparador:** si ux-ui cambia la geometría del índice o llega un bug de scroll reportado.
 
 ## Backend · 2026-09-11 · gates Stream A
 
