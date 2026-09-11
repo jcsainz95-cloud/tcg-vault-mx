@@ -19901,3 +19901,82 @@ hoy en el repo: `docker-compose.staging.yml:173` resuelve a `whsec_staging_dummy
 Cerrarlo es de config, no de código: exigir el secreto real en todo entorno con Stripe real y que el
 gate no promueva sin él. (El candado estático de devops
 `scripts/check-stripe-webhook-failclosed.sh` cubre justo esa mitad; corrido contra este árbol: **2/2**.)
+
+---
+
+## §v1.67-A.B4/B5 — Stream A «La cuenta del cliente», agente A2: `users` (B4) y `shipments` (B5) (backend, 2026-09-11, medido)
+
+> Contrato v1.67 §0 (`RECIPIENT_NAME_REQUIRED`), §1 (`GET/PATCH /users/me`, «Direcciones», allowlist del guard),
+> §5 (snapshot de NUEVE campos), §11 (`AddressDTO`); ARCHITECTURE §4.47.4/§4.47.5/§4.47.8. Cierra **D-CTA-2** y la
+> parte `users`+`shipments` de **D-CTA-3**. Migración `M-52` ya en `f5513cd` (no se tocó `prisma/`).
+
+### Qué cambió y dónde
+
+| Pieza | Fichero | Decisión |
+|---|---|---|
+| `GET /users/me` +`nameSource`, +`hasPassword` (= `passwordHash != null`), +`mustChangePassword`; `@AllowPasswordChangeRequired()` **solo en el `GET`** | `users.controller.ts`, `users.service.ts` (`toMeDTO`) | Una sola proyección `toMeDTO`; `GET` y `PATCH` devuelven las **14 claves** del contrato. El hash nunca sale. |
+| `PATCH /users/me`: `name` trim + 1..120, `nameSource='user'` **siempre** que venga `name`; `data` construido a mano (nunca `data: dto`) | `users.service.ts`, `dto/users.dto.ts` | `phone`/`locale` solos **no** tocan `nameSource`. |
+| `recipientName` en la libreta: **obligatorio** en `POST`, **no vaciable** en `PATCH` (ni `null` ni `""`); `AddressDTO.recipientName: string \| null` | `dto/users.dto.ts`, `users.service.ts` (`toAddressDTO`) | Sin fallback a `User.name` (ni consulta al usuario). |
+| Regla única de nombre de persona | `users/person-name.ts` (`assertPersonName`) | Trim; 1..120; `400 VALIDATION_ERROR` con `details.field` (`name` \| `recipientName`). |
+| `POST /shipments/quote` y `POST /shipments` ⇒ `422 RECIPIENT_NAME_REQUIRED { field, addressId }` si la dirección tiene `recipientName` nulo/vacío | `shipments.service.ts` (`assertRecipientName`) | Corre tras `ADDRESS_NOT_MX` y **antes** de clasificar items, de la tx serializable y del PaymentIntent. |
+| `addressSnapshot` de **9 campos** (`recipientName` + los 8 de antes), copiado **tal cual** (recortado) de `Address.recipientName` | `shipments.service.ts` (`create`) | Los retiros anteriores conservan 8 (un snapshot no se reescribe); `withAdminKind` (`:436`) sin cambio: ahora lo encuentra poblado. |
+
+### Dónde vive la validación 1..120 y por qué (lectura conservadora del contrato — para el arquitecto)
+
+El contrato pide `400 VALIDATION_ERROR` **con `details.field='name'`/`'recipientName'`**. El `ValidationPipe` global
+(`main.ts:56`) + `AllExceptionsFilter` serializan los errores de DTO como `details: { message: string[], … }`, **sin
+`field`**, y ambos están fuera de mis rutas (`common/`, `main.ts`). Por eso el DTO **recorta y exige string**
+(`@Transform` + `@IsString()`), y la cota **1..120 y el `field` los pone el servicio** (`assertPersonName`). En el
+cable: `""`, solo espacios, `null` y `>120` ⇒ `400 VALIDATION_ERROR` con `details.field` (**medido en E2E**);
+**ausente** o **no-string** ⇒ `400 VALIDATION_ERROR` del pipe, **sin `details.field`** (es el mismo comportamiento
+que `GuestAddressInput.recipientName` hoy). Si el arquitecto quiere `field` también en esos dos casos, es un
+`exceptionFactory` en `main.ts` (zona compartida), no un cambio de módulo. `@IsOptional()` en
+`UpdateAddressDto.recipientName` deja pasar `null` **a propósito** para que sea el servicio quien lo rechace con
+`field` en vez de escribir `NULL` sobre una dirección con destinatario.
+
+### Pregunta R5 de ux-ui (`DESIGN_SYSTEM §33.10/§33.16`): ¿`GET /admin/shipments` trae `customer {id,name,email}`?
+
+**Medido: NO.** `toAdminShipmentRow` (`shipments.service.ts:39-59`) expone `userId` (crudo) y `withAdminKind` añade
+`kind`, `orderNumber?`, `guestEmail?`, `recipientName?`. El contrato §M4 no define `customer` ⇒ **no se añadió**
+(sería contrato nuevo; regla 9). Está aseverado en `shipments.recipient-name.spec.ts` y en el E2E de M4
+(`not.toHaveProperty('customer')`) para que, si se decide añadirlo, pase por el contrato primero.
+
+### Tests
+
+- Unitarios nuevos: `test/users.person-name.spec.ts` (7), `test/users.me-and-addresses.spec.ts` (26),
+  `test/shipments.recipient-name.spec.ts` (11). Fixtures de `shipments.rollback.spec.ts` y
+  `shipments.withdraw-invariant.spec.ts` ganan `recipientName` (sin él, `create` corta en 422 antes del caso que prueban).
+- E2E: `test/integration/account-profile.e2e-spec.ts` (nuevo, 16: `hasPassword` con/sin hash, allowlist `GET` 200 +
+  `PATCH` 403 `PASSWORD_CHANGE_REQUIRED`, `PATCH name` ⇒ `nameSource='user'` y forma del GET, vacío/121 ⇒ 400,
+  libreta con `recipientName`); `test/integration/vault-shipments.e2e-spec.ts` (+6: quote/create sin nombre ⇒ 422
+  sin PI ni fila, remedio por `PATCH`, `null` no vacía, snapshot de 9 con el nombre de la dirección y no el de la
+  cuenta, M4 detalle+cola con `recipientName` y sin `customer`). `iva-price-convention.e2e-spec.ts:433` garantiza
+  un destinatario antes del retiro (prueba la convención de IVA, no el destinatario). El `beforeAll` de
+  `vault-shipments` **fuerza `recipientName=null`** en la dirección del seed (el seed reusa la fila ⇒ el caso
+  «anterior a M-52» debe ser reproducible en la segunda corrida). `account-profile` restaura `name/nameSource/
+  passwordHash/mustChangePassword` en `afterAll` (el `update` del upsert del seed no los toca).
+
+### Medición (copia en `…/scratchpad/backend-A2/mut`; árbol vivo intacto)
+
+| Qué | Comando | Resultado |
+|---|---|---|
+| Unitarios completos | `cd backend && npx jest` | **4509/4509**, 274 suites |
+| Lint | `npm run lint` | 0 errores, 2 warnings preexistentes (`inventory/`) |
+| Typecheck | `npx tsc --noEmit -p tsconfig.json` | limpio salvo `test/mail.greeting-name.spec.ts` (fichero de A1, en curso) |
+| E2E propios | `E2E_STRICT_INFRA=false ./scripts/stack-native.sh test:integration vault-shipments account-profile` | **33/33** (17 + 16) |
+| E2E ajustado | `… test:integration iva-price-convention` | **33/33** |
+| Mutación (a) snapshot de 8 campos | unit `shipments.recipient-name` ×3 · E2E `vault-shipments` ×3 | rojo **3/3** (2 tests) · rojo **3/3** (2 tests) |
+| Mutación (b) sin `assertPersonName` en `createAddress` | unit `users.me-and-addresses` ×3 · E2E `account-profile` ×3 | rojo **3/3** (6 tests) · rojo **3/3** (1 test) |
+
+Notas de entorno: `.native-stack/secrets.env` (03:35 de hoy) no coincidía con la contraseña del rol `tcg` ⇒
+`./scripts/stack-native.sh up --infra` la realineó y aplicó `M-52`. Sin object storage en :9000 ⇒ las corridas
+llevan `E2E_STRICT_INFRA=false` (solo afecta a `infra-smoke`; **no valen como gate**, QA debe correr con la infra completa).
+
+### Fuera de mi alcance, medido y no tocado
+
+- `admin.service.ts:165` (`toAdminUserAddressRef`, ficha M6) es una **copia** de `toAddressDTO` y **no** proyecta
+  `recipientName`; el contrato §11 dice que `AddressDTO` lo lleva. Módulo `admin` (stream «Admin y auditoría»).
+- `buylist` (`pickupAddressSnapshot`) sigue sin nombre — `D-CTA-5`, stream buylist.
+- `backend/src/common/` (guard, decorador, `ErrorCode.RECIPIENT_NAME_REQUIRED`) lo escribe A1; al cierre de esta
+  sección **seguía sin commitear** (`git log -- backend/src/common/`): mis commits compilan **sobre el árbol de
+  trabajo**, y lo harán en `HEAD` cuando A1 aterrice.
