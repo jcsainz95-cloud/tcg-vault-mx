@@ -186,7 +186,7 @@ SAL="$(DATABASE_URL="$URL_POST" "$SCRIPT" --target local --phase pre 2>&1)"; RC=
 { [ "$RC" -eq 2 ] && grep -q "la base dice fase 'post'" <<<"$SAL"; } \
   && ok "--phase pre contra una base ya migrada: rc=2 («no estás donde crees»)" || mal "discrepancia de fase no detectada (rc=$RC)"
 
-SAL="$(DATABASE_URL="postgresql://tcg:x@127.0.0.1:5432/no_existe_$SUF" "$SCRIPT" --target local 2>&1)"; RC=$?
+SAL="$(DATABASE_URL="postgresql://127.0.0.1:5432/no_existe_$SUF" "$SCRIPT" --target local 2>&1)"; RC=$?
 { [ "$RC" -eq 2 ] && ! grep -qE '\(a\) reservas legadas' <<<"$SAL"; } \
   && ok "base inalcanzable: rc=2 y NO imprime ninguna cifra" || mal "base inalcanzable: rc=$RC y/o imprimió cifras"
 

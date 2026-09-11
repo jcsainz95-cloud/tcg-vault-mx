@@ -129,6 +129,82 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      # -----------------------------------------------------------------------
+      # POOL FIJADO A MANO — MISMO CANDADO QUE EN `ci.yml` (SB-D2, COND-2).
+      # `connection_limit=5` no es preferencia: es el tamaño de pool con el que
+      # la carrera R-3 VE el defecto de dinero de `398c58a` (checkout pidiendo
+      # DOS conexiones por petición ⇒ pool agotado ⇒ `Timed out fetching a new
+      # connection` ⇒ 500 en la ruta de pago). Sin escribirlo, Prisma usa su
+      # default `num_cpus*2+1`: el candado queda atado al tamaño de runner que
+      # GitHub dé ese día y se afloja solo, en silencio. Subirlo —o subir
+      # `pool_timeout`, que convierte el agotamiento en espera— hace que R-3
+      # salga verde CON el defecto dentro. El razonamiento largo, con las
+      # mediciones (R-3 0/10→10/10, mutación `m-pool` 3/3), está en el bloque
+      # equivalente de `.github/workflows/ci.yml`. Lo vigila
+      # `scripts/check-db-pool-limit.sh`. DEVOPS_NOTES §57.
+      # -----------------------------------------------------------------------
+      DATABASE_URL: postgresql://tcg:e2e_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_e2e?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://localhost:6379
+      # S-88-1 — aquí había dos literales JWT y un respaldo `|| 'sk_test_e2e_dummy'`.
+      # El respaldo tiene el defecto justo al revés de como parece: el valor público
+      # gana **cuando el secret NO está cargado**, o sea exactamente cuando alguien
+      # creyó configurarlo y no lo hizo. Ahora los tres los resuelve
+      # `scripts/secrets-preflight.sh` en el paso «Resolver secretos» (abajo):
+      # respeta el valor del secret store si existe, y si no genera uno aleatorio
+      # por corrida en vez de heredar el del repo.
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
+      # RESIDUAL DE P-WH-1 — el literal público desapareció de aquí.
+      # Decía `${{ secrets.X || 'whsec_e2e_dummy' }}`. Esa forma tiene el defecto
+      # justo al revés de como parece: **el valor público gana cuando el secret NO
+      # está cargado**, o sea, exactamente cuando alguien creyó configurar Stripe y
+      # no lo hizo. Y `whsec_e2e_dummy` está commiteado en un repo público: para un
+      # HMAC es una clave perfectamente válida con la que cualquiera puede firmar.
+      # Ahora lo resuelve `scripts/webhook-secret-preflight.sh` en un paso (abajo):
+      # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
+      # propio, ABORTA el job en vez de correr sobre algo forjable.
+      S3_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: tcg-photos
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: e2e_${{ github.run_id }}_${{ github.run_attempt }}
+      S3_PUBLIC_BASE_URL: http://localhost:9000/tcg-photos
+      S3_FORCE_PATH_STYLE: "true"
+      DEFAULT_LOCALE: es
+      NODE_ENV: test
+      SEED_MODE: synthetic
+      # ---------------------------------------------------------------------
+      # E2E_STRICT_INFRA — EL INTERRUPTOR QUE NUNCA SE HABÍA ENCENDIDO (§39.2)
+      #
+      # `backend/test/integration/infra-smoke.e2e-spec.ts` trae desde siempre:
+      #     const STRICT = process.env.E2E_STRICT_INFRA === 'true';
+      # y sin él, un Redis que no responde o un PUT presignado que devuelve 403
+      # se SALTAN con `console.warn` + `return`, y la suite sale VERDE. El propio
+      # comentario del spec dice «recomendado en el job E2E de CI con toda la
+      # infra» — y nadie lo puso: `grep -rn E2E_STRICT_INFRA` sobre el repo
+      # entero no devolvía NINGUNA asignación. La rama estricta existía y jamás
+      # se ejecutó, así que la subida del INE (`purpose: kyc_ine`, PII) llevaba
+      # dos releases sin ejercitarse ni aquí ni en local.
+      #
+      # Este job tiene la infra COMPLETA (postgres + redis + minio como
+      # services, con el bucket `tcg-photos` creado por MINIO_DEFAULT_BUCKETS y
+      # credenciales que cuadran con las S3_* de abajo), así que exigirla no es
+      # una exigencia imposible: es la configuración normal. Si el smoke se pone
+      # rojo aquí, el hallazgo es de INFRAESTRUCTURA (devops) y hay que mirarlo,
+      # no saltarlo.
+      #
+      # MEDIDO en local sobre el MISMO spec y el mismo entorno roto (S3 caído):
+      #   · sin la variable  -> `Tests: 3 passed` (el PUT se salta con warn)
+      #   · con la variable  -> `Tests: 1 failed, 2 passed` (ECONNREFUSED)
+      # Mismo código, misma infra rota, dos veredictos opuestos. Ése era el hueco.
+      # ---------------------------------------------------------------------
+      E2E_STRICT_INFRA: "true"
+      # §4.38(r.6.1) — este job levanta la app Nest EN PROCESO y sus specs de
+      # integración del gancho ENCIENDEN el dial único (`gradingHookEnabled`).
+      # Con v1.51 ese flip autoriza el ingest, así que la credencial del proveedor
+      # de paga se declara VACÍA aquí igual que en e2e-real.yml: sin llave, el
+      # proveedor sale con `warn` antes de la primera petición.
+      POKEMONPRICETRACKER_API_KEY: ''
     steps:
       - uses: actions/checkout@v5
       # -----------------------------------------------------------------------

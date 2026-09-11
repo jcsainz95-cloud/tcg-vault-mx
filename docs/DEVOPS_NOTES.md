@@ -11676,3 +11676,86 @@ y se mide**. Un motor que se actualiza solo es un gate que cambia solo.
   (§4.52.6): `backend-e2e` verde con `E2E_STRICT_INFRA=true` **y** un stand-in caído poniendo el job **rojo**.
 - **Que `semgrep:1.177.0` produzca los mismos hallazgos que `:latest`.** Es un cambio de motor a versión fija;
   lo dirá la primera corrida del gate SAST.
+
+---
+
+## 63. La clase: **un candado anclado a la forma de un fichero es una dependencia invisible desde el fichero** (2026-09-11)
+
+> Esto no es la ficha de un incidente: es la ficha de una **clase**. El incidente concreto
+> —cuatro rojos de CI, tres míos por la misma causa— es solo el caso que la hizo visible.
+
+### 63.1 · Qué pasó, y la causa real (que no es la que parecía)
+
+Reescribí `.github/workflows/e2e.yml` para sacar MinIO. **Tres candados míos se pusieron rojos**:
+`check-db-pool-limit`, `check-e2e-harness-gaps` y `check-e2e-provider-incapacitation` (éste con su
+canario). La pregunta correcta —que el orquestador hizo antes que yo— era: **¿es el candado el que
+tiene un anclaje desfasado, o el cambio el que perdió algo?** Porque **el arreglo es opuesto**.
+
+**Medido: era el CAMBIO, los tres.** Mi edición borró **el bloque `env:` entero del job
+`backend-e2e`** —76 líneas, 15 variables— incluidos:
+
+- `DATABASE_URL` con **`connection_limit=5&pool_timeout=10`**, que **no es preferencia**: es el tamaño
+  de pool con el que la carrera R-3 **ve** el fallo de dinero de `398c58a`. Sin él, Prisma usa
+  `num_cpus*2+1` y el candado **se afloja solo, en silencio**.
+- **`E2E_STRICT_INFRA: true`**, que es lo que hace que ese job valga algo.
+- `E2E_GRADING_PROVIDER_INCAPACITATED`, `NODE_ENV: test` y todas las `S3_*`.
+
+⚠️ **El atajo que NO se tomó:** aflojar los anclajes para que pasaran. Los candados tenían razón; el
+roto era mi diff. **Los tres vuelven a verde al restaurar el bloque**, sin tocar un solo candado.
+
+**La causa técnica, dicha sin adornos:** borré **por rango** (`desde el marcador A hasta el marcador
+B`) sin leer qué había en medio. Entre el servicio `minio` y `steps:` vivía el `env:` del job. *Una
+edición que borra lo que no ha leído no es una edición: es una apuesta.*
+
+### 63.2 · La clase, y por qué el aviso llegó tarde
+
+Los candados me avisaron **después de commitear**, no mientras escribía. Y no por descuido: **el
+anclaje vive dentro del candado, no al lado de lo anclado.** Desde `e2e.yml` no hay nada que diga
+«seis guiones dependen de mi forma». Es una **dependencia invisible desde el fichero**, y es la misma
+familia que §56 (cobertura que se cree viva y depende de algo que nadie mide) y que §60 (el DAST
+colgando de una imagen ajena que nadie vigilaba).
+
+**El artefacto que lo cierra:** `scripts/que-candados-vigilan.sh <fichero>` — responde «¿qué guiones
+se apoyan en la forma de esto?» **antes** de tocarlo, y distingue el que lo **ancla en código** del que
+solo lo **menciona en prosa** (romper un anclaje y desactualizar una nota no son lo mismo).
+
+Medido sobre `e2e.yml`: **seis** guiones lo anclan — los tres que se pusieron rojos **más**
+`check-stripe-webhook-failclosed-canary`, `check-workflow-cwd-canary` y `check-db-pool-limit-canary`.
+**Tres más de los que el incidente reveló**, que es exactamente el punto: el rojo enseñó la mitad.
+
+⚠️ **NO es un gate, y se declara así a propósito.** No falla nada ni bloquea nada: es la pregunta que
+hay que hacerse antes de reescribir un fichero con historia. Un gate que exigiera «declara tus
+anclajes» sería **otro anclaje más que mantener** — el defecto que persigue, una vuelta más arriba.
+
+**La regla que queda, y su comprobación:** antes de cambiar la **forma** de un fichero (renombrar un
+job, mover un `env:`, quitar un servicio), se corre `que-candados-vigilan.sh` sobre él **y se corren
+esos candados ANTES del commit**. Si uno sale rojo, se **mide** cuál de las dos cosas pasó; si es
+anclaje desfasado, se actualiza **y** se añade al canario el caso que lo habría cazado.
+
+### 63.3 · El otro rojo: `check-secret-defaults` sobre mis dos ficheros nuevos
+
+**Dos hallazgos, y uno era del detector, no míos.**
+
+1. **`N_VERIF_SALTADA=3` marcado como «secreto escrito en el repo» — FALSO POSITIVO REAL.** Medido:
+   `FORMA_SECRETO` llevaba **`SALT` sin anclar**, el **único** término corto de la lista sin anclas
+   (sus vecinos son `_KEY$`, `_PWD$`…). Este repo **se escribe en español** y
+   «salt**ar** / salt**ada** / salt**ados**» contiene esas cuatro letras: **50+ apariciones en el
+   árbol**, incluida `SALTADOS_ESPERADOS` de mi propio `check-candidate-checks.sh`. Solo la mía saltó
+   porque el detector descarta valores `0|1|true|false` y la mía valía `3`.
+   **Arreglo: anclar a `SALT(_|$)`** — no silenciar por ruta (eso es justo lo que `P-GL-2` nos tiene
+   fichado como mala práctica). **Con prueba en las dos direcciones**, que es lo que un estrechamiento
+   exige: el autotest del propio candado ahora sondea `FOO_SALT` (**se reconoce**) y
+   `N_VERIF_SALTADA`/`SALTADOS_ESPERADOS`/`PASOS_SALTADOS` (**se descartan**), y el canario gana dos
+   casos: **`MASTER_SALT` sigue saliendo ROJO** y el español sale **VERDE**. Canario **66/66 → 68/68**.
+   *El propio candado ya tenía escrita la razón por la que esto importa: «un candado que suena por lo
+   que no es, se apaga — y entonces no suena por lo que sí».*
+2. **URL con credencial dentro (`postgresql://tcg:x@…`) — CATCH LEGÍTIMO, y era mío.** Un caso de mi
+   canario que solo necesita una base **inalcanzable**: no hace falta usuario ni contraseña. **Se
+   quitó la forma de credencial**, no se exceptuó la ruta. Manifiesto regenerado en el mismo diff
+   (121 valores).
+
+### 63.4 · Estado de los candados tras el arreglo
+
+Todos en verde salvo uno que **no es mío**: `e2e-skip-census` (`mockOnly 92 → 99`), de los E2E nuevos
+de la revisión de identidad — **frontend**. El techo **no se sube sin su motivo**: subirlo por
+conveniencia es firmar el `--update` sin leerlo, que es el defecto que §57.5 ya describe.

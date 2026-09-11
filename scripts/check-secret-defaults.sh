@@ -227,14 +227,14 @@ for sonda in FOO_SECRET FOO_PASSWORD FOO_TOKEN FOO_API_KEY FOO_HMAC FOO_SALT FOO
     DIENTES=$((DIENTES+1))
   fi
 done
-for sonda in PORT FOO_PUBLISHABLE_KEY NEXT_PUBLIC_FOO_KEY MIN_JWT_SECRET_LENGTH FOO_KEY_PATH; do
+for sonda in PORT FOO_PUBLISHABLE_KEY NEXT_PUBLIC_FOO_KEY MIN_JWT_SECRET_LENGTH FOO_KEY_PATH N_VERIF_SALTADA SALTADOS_ESPERADOS PASOS_SALTADOS; do
   if es_nombre_de_secreto "$sonda"; then
     mal "El candado toma \`$sonda\` por un secreto: se pondrá rojo sobre lo que no lo es."
     nota "Un candado que suena por lo que no es, se apaga — y entonces no suena por lo que sí."
     DIENTES=$((DIENTES+1))
   fi
 done
-[ "$DIENTES" -eq 0 ] && ok "8 sondas de secreto reconocidas y 5 no-secretos descartados."
+[ "$DIENTES" -eq 0 ] && ok "8 sondas de secreto reconocidas y 8 no-secretos descartados (3 de ellos, español que CONTIENE «SALT» sin serlo)."
 
 
 # =============================================================================
