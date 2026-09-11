@@ -38,8 +38,16 @@
 #   dos. Lo que eso deja fuera está DECLARADO en DEVOPS_NOTES §44.4.
 #
 # CADENCIA: semanal (lunes 06:00 UTC, la misma que ya tenía el cron muerto que
-#   sustituye) + `workflow_call` para el barrido previo a publicar + manual.
-#   NO por push: el escaneo activo tarda demasiado para castigar el día a día.
+#   sustituye) + `workflow_call` desde `deploy.yml` en CADA push a `production`
+#   —la rama que publica (HECHOS.md)— sobre el SHA publicado, en modo
+#   `report_only` mientras seguridad no lo suba a bloqueante (C2, §56) + manual.
+#   NO por push a otras ramas: el escaneo activo tarda demasiado para castigar
+#   el día a día.
+#
+# QUÉ COMMIT ESCANEA: el de `inputs.ref` si viene (deploy.yml pasa `github.sha`
+#   del push a `production`; el dispatch admite un SHA a mano), y si no, el de
+#   la rama del disparo. Se imprime en el resumen del run para que un verde
+#   diga SOBRE QUÉ es verde (P-77 / SEC-OPS-1).
 #
 # EL CANDADO PUEDE PONERSE ROJO, Y SE COMPRUEBA CADA SEMANA: el job `selftest`
 #   escanea un blanco con vulnerabilidades PLANTADAS y EXIGE que el gate falle.
@@ -60,6 +68,10 @@ on:
     - cron: "0 6 * * 1"        # lunes 06:00 UTC — misma cadencia que el cron que sustituye
   workflow_dispatch:
     inputs:
+      ref:
+        description: "SHA o ref a escanear (vacío = el de la rama del disparo). P. ej. el SHA publicado en `production`."
+        type: string
+        default: ""
       scan_profile:
         description: "full = escaneo ACTIVO (cazan las reglas de inyección) · baseline = solo pasivo"
         type: choice
@@ -76,6 +88,11 @@ on:
   # Barrido previo a publicar: invocable desde cualquier ruta de release.
   workflow_call:
     inputs:
+      ref:
+        description: "SHA o ref a escanear (vacío = github.sha del llamador)."
+        type: string
+        required: false
+        default: ""
       scan_profile:
         type: string
         required: false
@@ -84,6 +101,11 @@ on:
         type: string
         required: false
         default: "10"
+      report_only:
+        description: "true = medir y publicar sin bloquear (C2: hasta que seguridad lo suba)."
+        type: boolean
+        required: false
+        default: false
     outputs:
       blocking:
         description: "true si el DAST encontró hallazgos bloqueantes."
@@ -117,6 +139,8 @@ concurrency:
 env:
   SCAN_PROFILE: ${{ inputs.scan_profile || 'full' }}
   ACTIVE_MAX_MINS: ${{ inputs.active_max_mins || '10' }}
+  # El commit que se escanea, UNO para los tres jobs (checkout + resumen + issue).
+  SCAN_REF: ${{ inputs.ref || github.sha }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -139,6 +163,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_REF }}
       - name: El gate DEBE ponerse rojo contra el canario
         run: ./security/scripts/dast-selftest.sh
       - name: Publicar resumen de la autoprueba
@@ -188,6 +214,12 @@ jobs:
       # propio, ABORTA el job en vez de correr sobre algo forjable.
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_REF }}
+      - name: Qué commit se escanea (para que el verde diga sobre qué es verde)
+        run: |
+          echo "Commit escaneado: $(git rev-parse HEAD)  (SCAN_REF=$SCAN_REF · evento=${{ github.event_name }} · report_only=$REPORT_ONLY)"
+          echo "- DAST sobre el commit \`$(git rev-parse HEAD)\` (SCAN_REF=\`$SCAN_REF\`, evento \`${{ github.event_name }}\`, report_only=$REPORT_ONLY)" >> "$GITHUB_STEP_SUMMARY"
       # -----------------------------------------------------------------------
       # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
@@ -301,6 +333,8 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_REF }}
       - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
@@ -323,7 +357,7 @@ jobs:
             echo ""
             echo "---"
             echo "- Run: ${RUN_URL}"
-            echo "- Commit escaneado: \`${GITHUB_SHA}\`"
+            echo "- Commit escaneado: \`${SCAN_REF}\` (evento: ${{ github.event_name }})"
             echo ""
             echo "**Dueño:** el rol propietario de la superficie afectada (**backend** o **frontend**)."
             echo "devops mantiene el gate y NO corrige código de aplicación (CLAUDE.md)."

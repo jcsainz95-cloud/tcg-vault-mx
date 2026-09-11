@@ -15,11 +15,19 @@
 #   2) Deploy a STAGING: backend->Railway(staging) + frontend->Vercel(preview).
 #      El backend corre `prisma migrate deploy` al arrancar (Dockerfile CMD).
 #   3) GATES de promoción (deben pasar los TRES para ir a prod):
-#        a) DAST contra STAGING (ZAP baseline + nuclei).
+#        a) DAST (`dast-release` → security-dast.yml, stack EFÍMERO sobre el SHA
+#           de este run; §56). Hoy `report_only` (C2): mide y publica, no bloquea.
 #        b) E2E REAL (e2e-real.yml, stack real mocks=false, endpoints reales).
 #        c) SAST en PR (branch protection) ya exigido antes del merge.
-#   4) SOLO si DAST no tiene críticos Y el E2E real pasó -> promoción a PRODUCCIÓN,
+#   4) SOLO si DAST no tiene bloqueantes Y el E2E real pasó -> promoción a PRODUCCIÓN,
 #      protegida por el GitHub Environment "production" (required reviewers).
+#
+#   ADEMÁS (§56, 2026-09-11): en CADA push a `production` —la rama que publica
+#   (HECHOS.md: Vercel/Railway despliegan por integración nativa desde ahí)—
+#   este workflow corre SOLO `dast-release` sobre el SHA publicado. Es la primera
+#   vez que el DAST corre sobre lo que se publica (P-77 / C2). `secrets-gate`
+#   sigue saltando el resto porque no hay secrets de CD: no cambia nada del
+#   despliegue nativo.
 #
 # Rama de release: `main` (recomendada). Para que el trigger workflow_run
 # funcione, este archivo debe estar en la rama por defecto del repo. Ajusta
@@ -33,11 +41,13 @@
 name: Deploy (staging -> prod)
 
 # =============================================================================
-# ⚠️ TRES GATES DE ESTE ARCHIVO ESTÁN **INERTES** (P-77, 2026-09-10)
+# ⚠️ DOS GATES DE ESTE ARCHIVO ESTÁN **INERTES** (P-77, 2026-09-10; §56 2026-09-11)
 # =============================================================================
-# Este workflow no corre: solo `workflow_dispatch`, y aun así `secrets-gate` lo
-# salta si faltan secrets. Los deploys reales van por las integraciones NATIVAS
-# de Vercel/Railway (push-to-deploy). Eso se mantiene: **NO se reactiva el CD**.
+# El CD de este workflow no corre: solo `workflow_dispatch`, y aun así
+# `secrets-gate` lo salta si faltan secrets. Los deploys reales van por las
+# integraciones NATIVAS de Vercel/Railway (push-to-deploy). Eso se mantiene:
+# **NO se reactiva el CD**. (El único job que SÍ corre solo es `dast-release`,
+# en cada push a `production`; ver arriba.)
 #
 # Pero de eso se sigue algo que hasta hoy no estaba escrito, y por no estarlo se
 # contaba como cobertura: los gates que viven aquí dentro **no gatean nada**.
@@ -53,16 +63,18 @@ name: Deploy (staging -> prod)
 #   |  (`I-PP5` / `D-PP-2`)      |         | `price-provider-parity.sh --assert` contra el  |
 #   |                            |         | stack efímero. **Sin secrets**: el admin lo    |
 #   |                            |         | crea el seed sintético.                        |
-#   | `dast-staging`             | INERTE  | security-dast.yml: ZAP+nuclei contra el stack  |
-#   |  (ZAP + nuclei)            |         | efímero, semanal, con autoprueba del candado.  |
 #
-# POR QUÉ NO SE BORRAN: son el esqueleto del día que exista un staging
-# desplegado, y esa decisión es del dueño, no de devops. Lo que NO puede pasar
-# es que alguien los cite como cobertura activa — que es exactamente lo que
+#   `dast-staging` (ZAP+nuclei contra `STAGING_BASE_URL`, un secret que nunca
+#   existió) SE RETIRÓ en §56: lo sustituye `dast-release`, que llama a
+#   security-dast.yml (stack efímero) sobre el SHA de este run y SÍ corre.
+#
+# POR QUÉ NO SE BORRAN los dos que quedan: son el esqueleto del día que exista un
+# staging desplegado, y esa decisión es del dueño, no de devops. Lo que NO puede
+# pasar es que alguien los cite como cobertura activa — que es exactamente lo que
 # pasó durante meses. Por eso quedan MARCADOS aquí y `scripts/check-dast-gate-live.sh`
 # (job `dast-gate-live` de ci.yml) comprueba en cada push que la marca sigue puesta.
 #
-# ⛔ SI ALGÚN DÍA SE REACTIVA ESTE CD: los tres dejan de ser inertes solo cuando
+# ⛔ SI ALGÚN DÍA SE REACTIVA ESTE CD: los dos dejan de ser inertes solo cuando
 #    exista un staging DESPLEGADO y sus secrets estén cargados. Reactivar el
 #    workflow sin eso devuelve el pipeline al estado de P-77 (gates en verde que
 #    no miraron nada). Detalle y decisión completa: DEVOPS_NOTES §44.6.
@@ -73,22 +85,30 @@ name: Deploy (staging -> prod)
 # Los deploys reales van por integraciones NATIVAS Vercel/Railway (push-to-deploy
 # de cada plataforma), así que este workflow es REDUNDANTE para el flujo normal.
 # Antes se disparaba con `workflow_run` de CI en `main` y FALLABA en `preflight`
-# por falta de los 6 GitHub Secrets de deploy en CADA push (rojo espurio). Ahora:
-#   - NO corre automáticamente (se quitó el trigger `workflow_run`).
-#   - Solo se dispara a mano (`workflow_dispatch`); y aun así el job `secrets-gate`
+# por falta de los GitHub Secrets de deploy en CADA push (rojo espurio). Ahora:
+#   - El CD NO corre automáticamente (se quitó el trigger `workflow_run`).
+#   - Se dispara a mano (`workflow_dispatch`); y aun así el job `secrets-gate`
 #     lo SALTA limpiamente si faltan los secrets (no falla — deja un ::notice::).
-# REACTIVAR el CD por Actions: (1) carga los 6 GitHub Secrets (RAILWAY_TOKEN,
-# VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, STAGING_BASE_URL, PROD_BASE_URL —
-# ver DEVOPS_NOTES §11.D); (2) opcional: para CD en cada release, descomenta el
-# bloque `workflow_run` de abajo. Con los secrets presentes, `secrets-gate` deja
-# pasar el pipeline y `preflight` valida como antes.
+#   - En `push` a `production` corre ÚNICAMENTE `dast-release` (no depende de
+#     `secrets-gate`); el CD sigue saltado.
+# REACTIVAR el CD por Actions: (1) carga los 5 GitHub Secrets (RAILWAY_TOKEN,
+# VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, PROD_BASE_URL — ver DEVOPS_NOTES
+# §11.D; `STAGING_BASE_URL` ya no se pide: no hay staging y el DAST no lo usa);
+# (2) opcional: para CD en cada release, descomenta el bloque `workflow_run` de
+# abajo. Con los secrets presentes, `secrets-gate` deja pasar el pipeline y
+# `preflight` valida como antes.
 # -----------------------------------------------------------------------------
 on:
+  # §56: la rama que publica. Vercel y Railway despliegan solos al recibir este
+  # push; aquí solo corre `dast-release` sobre ese mismo SHA (el resto se salta
+  # por `secrets-gate`).
+  push:
+    branches: [production]
   # Disparo manual (primer deploy, re-deploy puntual, o promoción a prod).
   workflow_dispatch:
     inputs:
       promote_to_prod:
-        description: "Promover a producción si el DAST de staging pasa"
+        description: "Promover a producción si el DAST (stack efímero, mismo SHA) no bloquea"
         type: boolean
         default: false
   # CD automático por release (OPCIONAL): descomenta y carga los 6 secrets.
@@ -127,16 +147,15 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
           PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
         run: |
           MISSING=""
-          for VAR in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID STAGING_BASE_URL PROD_BASE_URL; do
+          for VAR in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID PROD_BASE_URL; do
             if [ -z "${!VAR}" ]; then MISSING="$MISSING $VAR"; fi
           done
           if [ -n "$MISSING" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=CD por Actions desactivado::Faltan GitHub Secrets de deploy:$MISSING. Los deploys reales van por integraciones nativas Vercel/Railway; este CD por Actions queda SALTADO (no es un fallo). Para activarlo, carga los 6 secrets (DEVOPS_NOTES §11.D) y vuelve a disparar."
+            echo "::notice title=CD por Actions desactivado::Faltan GitHub Secrets de deploy:$MISSING. Los deploys reales van por integraciones nativas Vercel/Railway; este CD por Actions queda SALTADO (no es un fallo). Para activarlo, carga los 5 secrets (DEVOPS_NOTES §11.D) y vuelve a disparar."
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "Secrets de deploy presentes: el CD por Actions continúa."
@@ -185,11 +204,10 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
           PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
         run: |
           MISSING=""
-          for VAR in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID STAGING_BASE_URL PROD_BASE_URL; do
+          for VAR in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID PROD_BASE_URL; do
             if [ -z "${!VAR}" ]; then MISSING="$MISSING $VAR"; fi
           done
           if [ -n "$MISSING" ]; then
@@ -237,7 +255,7 @@ jobs:
       # NOTA: `environment.url` NO admite el contexto `secrets` (solo env/github/
       # inputs/needs/vars…). Ponerlo ahí hace que GitHub rechace el workflow al
       # arrancar (startup_failure: 0 jobs). El link de despliegue es cosmético;
-      # se omite. El objetivo de STAGING_BASE_URL es el DAST (job dast-staging).
+      # se omite.
       name: staging
     steps:
       - uses: actions/checkout@v5
@@ -285,14 +303,14 @@ jobs:
           DEPLOY_URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
           echo "Frontend staging desplegado: $DEPLOY_URL"
           echo "STAGING_DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
-      # El dominio estable de staging (alias) lo apunta Vercel al proyecto; el
-      # DAST usa STAGING_BASE_URL (dominio estable), no la URL efímera del deploy.
+      # El dominio estable de staging (alias) lo apunta Vercel al proyecto. El
+      # DAST ya no lo usa: escanea el stack efímero de `dast-release` (§56).
 
   # ---------------------------------------------------------------------------
   # GATE DE PROCEDENCIA — SEC-OPS-1 (docs/SECURITY_NOTES.md §9, DEVOPS_NOTES §38.5)
   #
-  # EL AGUJERO QUE CIERRA: `dast-staging` escanea `STAGING_BASE_URL`, un dominio
-  # ESTABLE. `needs: [deploy-staging-*]` garantiza el ORDEN de los jobs, no que el
+  # EL AGUJERO QUE CIERRA (histórico: lo escaneaba `dast-staging` contra un dominio
+  # ESTABLE; ese job se retiró en §56). `needs: [deploy-staging-*]` garantiza el ORDEN de los jobs, no que el
   # rollout de Railway/Vercel haya TOMADO EFECTO. Si el rollout va lento, o falló y
   # la plataforma dejó en pie la revisión anterior, ZAP y nuclei escanean el binario
   # VIEJO — y su verde promueve a producción un commit que nadie escaneó.
@@ -362,12 +380,6 @@ jobs:
           exit 1
 
   # ---------------------------------------------------------------------------
-  # DAST contra STAGING: ZAP baseline + nuclei. GATE de promoción a prod.
-  # Necesita STAGING_BASE_URL en vivo (el frontend/back de staging ya desplegados).
-  # Corre DESPUÉS de `staging-serves-head`: sin saber QUÉ binario hay enfrente, un
-  # DAST verde no significa nada (SEC-OPS-1).
-  # ---------------------------------------------------------------------------
-  # ---------------------------------------------------------------------------
   # PARIDAD DEL PROVEEDOR DE PRECIO EN STAGING (`I-PP5`, API_CONTRACT §M10-PP).
   #
   # EL AGUJERO QUE CIERRA (medido el 2026-09-10, ARCHITECTURE §4.35a(d)): el DAST
@@ -425,63 +437,47 @@ jobs:
           ./scripts/price-provider-parity.sh --assert --api-base "$STAGING_API_URL"
           echo "- ✅ staging evalúa el proveedor de precio PRIMARIO (\`I-PP5\`)" >> "$GITHUB_STEP_SUMMARY"
 
-  # ⚠️ INERTE (P-77): NUNCA ejecutó un escaneo. Apunta a `STAGING_BASE_URL`, un
-  # secret que jamás existió. El DAST que SÍ corre está en security-dast.yml,
-  # semanal, contra el stack efímero, y con autoprueba del candado. Ver §44.
-  dast-staging:
-    needs: [deploy-staging-backend, deploy-staging-frontend, staging-serves-head, staging-provider-parity]
-    runs-on: ubuntu-latest
-    outputs:
-      critical: ${{ steps.gate.outputs.critical }}
-    env:
-      TARGET_URL: ${{ secrets.STAGING_BASE_URL }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Guardia anti-producción
-        run: |
-          : "${TARGET_URL:?falta STAGING_BASE_URL}"
-          echo "DAST target (staging): $TARGET_URL"
-      - name: ZAP baseline contra staging
-        uses: zaproxy/action-baseline@v0.15.0
-        with:
-          target: ${{ env.TARGET_URL }}
-          rules_file_name: security/zap/baseline.conf
-          # -I: no falla por WARN; los FAIL de baseline.conf marcan el gate.
-          cmd_options: "-I"
-          fail_action: true
-      - name: nuclei contra staging
-        run: |
-          mkdir -p security/reports
-          docker run --rm -v "${{ github.workspace }}/security:/sec" \
-            projectdiscovery/nuclei:latest \
-            -u "$TARGET_URL" \
-            -tags "$(grep -vE '^\s*#|^\s*$' security/nuclei/templates.txt | paste -sd, -)" \
-            -severity high,critical \
-            -rate-limit 50 \
-            -jsonl -o /sec/reports/nuclei.jsonl || true
-      - id: gate
-        name: Evaluar hallazgos críticos
-        run: |
-          CRIT=false
-          if [ -f security/reports/nuclei.jsonl ] && grep -Eq '"severity":"(high|critical)"' security/reports/nuclei.jsonl; then
-            CRIT=true
-          fi
-          echo "critical=$CRIT" >> "$GITHUB_OUTPUT"
-          if [ "$CRIT" = "true" ]; then
-            echo "::error::DAST encontró hallazgos críticos/altos. Se BLOQUEA la promoción a producción."
-            exit 1
-          fi
-          echo "DAST sin hallazgos críticos/altos: apto para promover."
+  # ---------------------------------------------------------------------------
+  # DAST SOBRE EL SHA QUE SE PUBLICA (§56, P-77 / C2 — 2026-09-11).
+  #
+  # Aquí vivía `dast-staging`: ZAP+nuclei contra `secrets.STAGING_BASE_URL`, un
+  # secret que nunca existió, dentro de un pipeline que nunca corre. Seis runs
+  # históricos de security-dast.yml, todos por push a `devops/dast-p77`: el DAST
+  # NUNCA había corrido sobre un commit publicado. Opción B (decidida): llamar al
+  # workflow del stack EFÍMERO con el SHA de este run. En `push` a `production`
+  # es el SHA que Vercel/Railway acaban de desplegar; en `workflow_dispatch`, el
+  # de la rama elegida.
+  #
+  # `report_only: true` (C2): mide, publica el veredicto en el resumen y deja
+  # los informes como artifact, pero NO pone rojo. Lo sube a bloqueante el rol
+  # seguridad cuando haya visto los primeros barridos reales (basta poner
+  # `report_only: false`). El `blocking` que devuelve sigue cableado a la
+  # promoción a prod del CD para el día que ese CD se reactive.
+  #
+  # No depende de `secrets-gate`: el DAST no necesita secrets de CD (el stack se
+  # levanta en el runner; STRIPE_TEST_* llegan por `secrets: inherit`, y sin
+  # ellos el preflight del workflow llamado genera los efímeros).
+  # ---------------------------------------------------------------------------
+  dast-release:
+    uses: ./.github/workflows/security-dast.yml
+    permissions:
+      contents: read
+      issues: write      # el job `abrir-issue` del workflow llamado (solo si algo falla)
+    with:
+      ref: ${{ github.sha }}
+      scan_profile: full
+      report_only: true
+    secrets: inherit
 
   # ---------------------------------------------------------------------------
   # PRODUCCIÓN — Backend a Railway (environment production).
   # Requiere aprobación manual del Environment "production" (required reviewers).
-  # Solo corre si el DAST de staging pasó Y (en disparo manual) promote_to_prod.
+  # Solo corre si el DAST (dast-release) no bloquea Y (en disparo manual) promote_to_prod.
   # ---------------------------------------------------------------------------
   promote-production-backend:
-    needs: [dast-staging, e2e-real]
+    needs: [dast-release, e2e-real]
     if: >-
-      needs.dast-staging.outputs.critical == 'false' &&
+      needs.dast-release.outputs.blocking != 'true' &&
       needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
@@ -529,9 +525,9 @@ jobs:
   # PRODUCCIÓN — Frontend a Vercel (--prod).
   # ---------------------------------------------------------------------------
   promote-production-frontend:
-    needs: [dast-staging, e2e-real, promote-production-backend]
+    needs: [dast-release, e2e-real, promote-production-backend]
     if: >-
-      needs.dast-staging.outputs.critical == 'false' &&
+      needs.dast-release.outputs.blocking != 'true' &&
       needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
