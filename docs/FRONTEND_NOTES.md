@@ -16184,3 +16184,121 @@ Stack apagado al terminar (`stack-native.sh down`; PG/Redis quedan como los dej�
 **Contra backend REAL con B-1e** (`e4d83dd` ⊂ binario servido `fba902d`, HTTP a `:3099`): `POST /checkout/quote` ⇒ `ownReservation` **presente** (`null`) y el ítem con sus 3 llaves; `POST /checkout/guest/quote` plano ⇒ `ownReservation: null`; **token sin `email` ⇒ `400 VALIDATION_ERROR`** (por eso el front los manda juntos o ninguno); token inválido + email ⇒ conducta literal (`ownReservation: null`, `unavailableItems: []`). `POST /checkout/session` sigue en `503 PAYMENT_PROVIDER_UNAVAILABLE` (sin Stripe) ⇒ **`reservedByYou: true` / `ownReservation` poblado / `expired` no son medibles aquí** (no hay reserva viva que cotizar); lo cerraría la clave de prueba de Stripe + `checkout-retry.spec.ts` y `orders-resume.spec.ts` en `@real` (hoy `mockOnly`).
 
 **Decisiones:** (1) el correo del invitado se guarda con el token — su propio correo, en su propia pestaña; sin él, tras recargar el primer quote iría sin reclamo y **podaría** la reserva propia (medido en Playwright, corrida 5); (2) `keepPreviousData` en el quote de invitado: al aparecer el token cambia la `queryKey` y sin él el formulario se desmontaba en plena re-cotización; (3) el desenlace de la **session** manda sobre el del quote (un solo aviso); (4) la reserva sembrada de fixtures solo nace desde `GET /orders` para no cambiar la forma del quote plano ni bloquear `inv-1002` en otros specs.
+
+## §70 · Stream B — cierre de gates (QA H-4/H-1, techlead SB-D5/I3 y SB-D7) — 2026-09-11, rama `claude/tcg-hunt-orchestration-2`
+
+Cuatro hallazgos, cuatro commits, y todo lo que se afirma aquí lleva su medición al lado. Stack de la
+medición: nativo `1522b45` (API `:3099`, frontend horneado en `:3000`), seed del día.
+
+| Hallazgo | Commit | Medición |
+|---|---|---|
+| **SB-D7** · import duplicado + `left` congelado | `62b7068` | `vitest` del fichero 6/6; caso nuevo con temporizadores falsos: la reserva vence **con la vista abierta** y el aviso cambia solo |
+| **SB-D5/I3** · `INVALID_TRANSITION` y `PAYMENT_IN_PROGRESS` fuera del catálogo | `8a8d4d9` | `error-audience.test.ts` **42/42** (antes 36): existencia+paridad es/en, cableado en `DETAILED_ERRORS`, no-regreso de las claves viejas y ninguna vista traduciendo el código |
+| **H-4** · Stream B sin un solo E2E contra el backend real | `6510654` | `@real` de §M5-S **3/3 verde** contra el stack; mutación del arnés 3/3 **roja**; mutación de producto 3/3 **roja** (sobre copia) |
+| **H-1** · un commit mío borró dos ficheros de backend | — (no se rehace historia) | en HEAD **cero imports** del módulo borrado: `git grep "from '.*guest-order-sweep" HEAD -- backend/` ⇒ rc=1 |
+
+### 70.1 · H-1 — borré dos ficheros de backend desde un commit de frontend, y la lección no es «tener cuidado»
+
+`d8c0ee9` («frontend(Stream B · contrato v1.68, capa de tipos y mocks)») se llevó
+`backend/src/jobs/guest-order-sweep.service.ts` y `backend/test/guest-order-sweep.job.spec.ts`. Tres
+cosas ciertas, y las digo enteras: **(a)** viola la regla de oro de rutas (`CLAUDE.md`: `backend/` no
+es mío); **(b)** en ese punto de la historia el árbol **no compilaba** —
+`git grep "from '.*guest-order-sweep" d8c0ee9 -- backend/src` devuelve `jobs.module.ts:6` y
+`scheduler.service.ts:12`, los dos importando lo borrado—; **(c)** el mensaje del commit no lo
+menciona, así que nadie podía verlo sin leer el `--stat`.
+
+**El estado final es correcto** (el barrido nuevo, `order-reservation-sweep`, sustituye al viejo) y
+**no se rehace historia**: medido hoy en HEAD, `git grep "from '.*guest-order-sweep" HEAD -- backend/`
+⇒ **rc=1, cero coincidencias**; lo que queda son menciones deliberadas (el alias del repetible viejo
+en Redis que el scheduler retira, y los comentarios que explican la sustitución).
+
+**Causa**: `git commit` a secas en un **índice compartido por cinco agentes**. Lo que otro tenía
+preparado se fue en mi commit. La regla, ya sin adornos:
+
+> ✅ **`git commit -F <mensaje> -- <mis rutas explícitas>`**, y nada más.
+> ⛔ `git commit` a secas · `git add .` / `-A` / `commit -a` · `git reset` · `git checkout <ruta>` ·
+> `git stash` · `git rebase`.
+> ⛔ **Y `git commit --amend`**, que aprendí hoy y de la peor forma: el amend actúa sobre **HEAD**, no
+> sobre «mi último commit». Entre mi commit y mi amend, el orquestador commiteó `HECHOS.md`; el amend
+> reescribió **su** commit con **mi** título. Se restauró (`0df7d72` ≡ `bf77c1a` en contenido, mensaje
+> y autor; `git diff bf77c1a 0df7d72` vacío) y el orquestador reconcilió la rama publicada. **Si el
+> mensaje sale mal, no se arregla: se commitea encima y se dice.**
+
+### 70.2 · H-4 — el `mockOnly` de §M5-S era falso, y QA lo demostró midiendo
+
+El motivo declarado («el seed no garantiza una `en_transito`») era cierto **del seed** y falso **del
+escenario**. `utils/m5-scenario.ts` lo construye por los actos del contrato —`POST /buylist/requests`
+→ `…/offer` → `…/offer-response` → `…/confirm-shipment` (D20) → `…/receive`— y devuelve los ids del
+fixture cuando corre en mock. Cuatro cosas que el arnés aprendió **midiendo**, y que están escritas
+en el propio helper para que nadie las vuelva a descubrir:
+
+1. **El vendedor es `customer2`, no `customer`.** El tope mensual es POR vendedor y lo consumen todas
+   las suites que compran: el `customer` estaba en `monthUsed = 960,000` de `capCents = 1,000,000` y
+   el intake respondía `422 BUYLIST_LIMIT_EXCEEDED`.
+2. **El cupo se cobra en el INTAKE**, así que **conducir una `cotizada` que ya existe no cuesta
+   cupo**: el escenario **recicla** antes de crear. Sin eso el gate se apaga solo (~6 corridas) — el
+   mismo modo de fallo que `buylist-offer.spec.ts` ya había documentado.
+3. **Dos `POST /buylist/requests` simultáneos del mismo vendedor ⇒ `500`**
+   (`PrismaClientKnownRequestError: write conflict or deadlock`, `buylist.service.ts:1637`, la
+   transacción SERIALIZABLE del tope). El arnés siembra **en serie**; queda **anotado para backend**
+   como hallazgo, no arreglado por mí.
+4. **`customer2` no tenía CLABE en archivo** (`422 CLABE_REQUIRED`): el intake la manda en el body,
+   que es lo que §6 admite desde v1.15.
+
+Degradación honesta: cuando no queda cupo **ni** nada que reciclar, el spec se **salta con la frase
+que dice cómo restablecerlo** (re-sembrar purga las solicitudes de los actores y con ellas el
+acumulado del mes), en vez de fallar por algo que no habla del producto.
+
+**`orders-resume.spec.ts` se repartió en tres**, que es lo que el `mockOnly` único escondía:
+`@real` lo medible sin Stripe (el folio de la columna PEDIDO es **el del servidor** y enlaza a su
+detalle; un pedido que no está `pending` **no** ofrece reanudar); `skipIfSeedMissing` con la medición
+exacta para lo que hoy no existe —`POST /checkout/session` ⇒ **`503 PAYMENT_PROVIDER_UNAVAILABLE`**,
+el pedido queda `failed` y `reservedUntil: null` ⇒ **no hay `pending` reservado que reanudar**—; y
+`mockOnly` solo para lo que es mock por construcción (vencer la reserva escribiendo
+`tcg.mock.reservations`, y el fallback al id cuando el servidor manda `orderNumber: null`, que el
+backend real nunca hace). Los dos `mockOnly` de `checkout-retry.spec.ts` se quedan **con esa misma
+medición escrita al lado**.
+
+⚠️ **Límite de la medición `@real`, dicho entero:** el frontend contra el que corrió es el
+**horneado del stack (`1522b45`)**, no mi árbol. Intenté servir mi build en `:3010` y el navegador no
+pudo hablar con la API: **`CORS allow-list: http://localhost:3000`** (backend.log). Ninguna de las
+aserciones `@real` que escribí toca código que yo cambiara en este pase (copy de errores y reloj de
+reserva van cubiertos por `vitest` + Playwright mock), pero **no está medido** que mis cambios de
+este pase corran contra el backend real: lo cerraría re-hornear el frontend del stack, que es de
+devops.
+
+### 70.3 · SB-D5/I3 — el copy de error no se escribe en la pantalla que lo recibe
+
+`INVALID_TRANSITION` lo armaba `M5View` (con su propio rótulo de estado) y `PAYMENT_IN_PROGRESS` salía
+de `checkout.retry.*`. Ahora los dos están en `error.*` y los resuelve `useErrorMessage`, con
+`DETAILED_ERRORS.INVALID_TRANSITION` mapeando `details` → verbo/estado/estados permitidos. **Las
+cadenas son las mismas, movidas verbatim**: no reescribí copy (es de ux-ui).
+
+**Petición a ux-ui (no bloqueante):** esas cuatro cadenas **no están en las tablas de §26/§27**
+(`grep -c 'INVALID_TRANSITION\|PAYMENT_IN_PROGRESS' docs/DESIGN_SYSTEM.md` ⇒ **0**), así que el
+candado de LITERALIDAD no las alcanza. Si se adoptan en la tabla de §27, basta añadirlas a la lista
+de cableados para que ese candado empiece a compararlas carácter por carácter.
+
+### 70.4 · Peticiones al arquitecto
+
+1. **SB-D6 — el correo del invitado en `sessionStorage`.** v1.68.1 lo guarda junto al `checkoutToken`
+   porque sin él el primer quote tras recargar va sin reclamo y **poda la reserva propia** (medido).
+   §4-R.3 no dice si eso es aceptable: hace falta que lo **bendiga o lo prohíba** explícitamente. Está
+   en `docs/TECH_DEBT.md` con su comprobación de cierre; **no lo cambio mientras tanto**.
+2. **Un `pending` reservado sin Stripe.** Hoy nada del reintento de §4-R (ni `200 reused`, ni
+   `supersededOrderIds`, ni `409 PAYMENT_IN_PROGRESS`) es medible contra el stack: `POST
+   /checkout/session` ⇒ `503`. O claves de prueba de Stripe en el entorno, o un modo declarado que
+   permita cerrar el ciclo; mientras tanto ese tramo del gate está **vacío y dicho**.
+
+### 70.5 · Cómo correr lo de este pase
+
+```bash
+cd frontend
+npm run lint && npm run typecheck && npx vitest run          # 153 ficheros / 1715 tests
+E2E_MOCK_DIST_DIR=.next-e2e-mock-bfix E2E_MOCK_PORT=3200 npx playwright test   # 191 pasan, 3 skip (realOnly)
+E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test e2e/m5-transitions.spec.ts --workers=1
+```
+⚠️ Entre corridas `@real` seguidas hay que **espaciar ~70 s**: el login está limitado a **5 por
+minuto y por IP**, y el `globalTeardown` purga las sesiones del disco al terminar. Tres de mis
+corridas se pusieron rojas por **timeout de 60 s esperando el throttler** — un rojo del arnés, no del
+producto; con espaciado, 3/3 verde.
