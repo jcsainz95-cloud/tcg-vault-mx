@@ -54,6 +54,16 @@ id = "generic-api-key-assignment"
 description = "Asignación de API key genérica en código"
 regex = '''(?i)(pokemontcg_io_api_key|pokemonpricetracker_api_key|poketrace_api_key)\s*[:=]\s*['"][0-9a-zA-Z_\-]{16,}['"]'''
 keywords = ["api_key"]
+# Esta regla captura como «secreto» el NOMBRE de la clave (grupo 1), así que
+# la allowlist GLOBAL (que mira el secreto) no puede eximirla por valor. La
+# excepción del historial (§56.3, commit 46d76cc: mock `SUPER-SECRETO-123` en
+# backend/test/graded-estimate.ingest.spec.ts) va aquí, acotada a ESTA regla y
+# a ESE literal, mirando la línea completa (`regexTarget = "match"`).
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  '''POKEMONPRICETRACKER_API_KEY:\s*'SUPER-SECRETO-123'''',
+]
 
 # --- Allowlist: placeholders y valores de prueba NO son hallazgos ------------
 [allowlist]
@@ -78,6 +88,21 @@ regexes = [
   '''ChangeMe123!''',
   '''StagingAdmin123!''',
   '''Operador123!''',
+  # HISTORIAL de `backend/` (§56.3; backend los neutralizó en el árbol en
+  # a454178, pero `gitleaks git .` sigue viendo los commits viejos fbb66e1,
+  # 46d76cc y e504466). Los tres son FICCIÓN de tests o un falso positivo, y
+  # por eso se permiten POR VALOR EXACTO (anclado), no por ruta ni por commit:
+  #   · `SUPER-SECRETO-123`  → POKEMONPRICETRACKER_API_KEY de un spec (mock);
+  #                             su regla expone el NOMBRE como secreto, así que
+  #                             va en `[rules.allowlist]` de esa regla, no aquí.
+  #   · `A-Strong-Secret-123` → SEED_ADMIN_PASSWORD de un spec (mock).
+  #   · `asB64.length`       → un trozo de código (`const key = asB64.length`),
+  #                             no un valor: falso positivo de generic-api-key.
+  # Medido tras añadirlos: `gitleaks git .` (historial completo) 0 hallazgos.
+  # CI escanea el RANGO del push (security-sast.yml), así que estos nunca
+  # ponían rojo un run: esto deja limpio el modo `git` manual/local.
+  '''^A-Strong-Secret-123$''',
+  '''^asB64\.length$''',
 ]
 paths = [
   '''\.env\.example$''',
