@@ -6595,6 +6595,21 @@ techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha
   `abrir-issue` queda `skipped`; con `report_only` aún puesto, el run sigue verde. Si `blocking` llega
   vacío, el fallo está en la propagación `steps.gate → jobs.dast.outputs → workflow_call.outputs`.
 - **Disparador:** ese primer push. Dueño: devops.
+- **MEDIDO EL 2026-09-11 (devops, API pública sobre el run `34633179107`, push a `production`,
+  `c8bee65`, conclusión success):** la **mitad medible se cumplió** — `dast-release / DAST contra el
+  stack efímero` **success**, `dast-release / Autoprueba del candado` **success**,
+  `dast-release / Abrir/actualizar issue` **skipped**. La **otra mitad no se puede medir así**:
+  `promote-production-backend` y `promote-production-frontend` salieron **skipped**, o sea **nunca
+  evaluaron** `needs.dast-release.outputs.blocking`. La causa se deduce del YAML sin leer logs:
+  `deploy-ci-gate` tiene `if: needs.secrets-gate.outputs.ready == 'true'` y `secrets-gate` terminó en
+  success ⇒ `ready=false`, que es lo que emite cuando faltan los cinco secrets de CD (`RAILWAY_TOKEN`,
+  `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `PROD_BASE_URL`); todo lo demás cuelga de ahí
+  por `needs`. ⇒ **Mientras esos secrets no existan, esta ficha NO se cierra con un push real.** Para
+  cerrarla hacen falta dos cosas, y la primera no es de devops: (1) que el dueño decida si el CD por
+  Actions se activa (cargar los cinco secrets) o si se declara **definitivamente** que la promoción la
+  hacen las integraciones nativas y estos jobs sobran; (2) mientras tanto, la única medición posible
+  es un `workflow_dispatch` con `promote_to_prod: true` **en una ventana autorizada**, que tampoco
+  pasaría del `secrets-gate`. Ver `docs/DEVOPS_NOTES.md` §57.4.
 
 ### DO-D3 · Residual de F1-2: la lista cerrada `SKIPPED_ESPERADOS` de `check-candidate-checks.sh` describe deploy.yml por construcción, NO MEDIDA contra un push real — Baja
 - **Qué:** medido que `d2efe07` (26 check-runs), `c13f4179` y `17ce9a9` tienen 0 `skipped`. La lista
@@ -6680,3 +6695,27 @@ techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha
   canario cayera con él, 3/5, arrastrando `ci-ok`— **ya está cerrada** (`cc59a6a`: el canario no
   depende del baseline vivo; medido 13/13 con el baseline aún desfasado). Lo que queda abierto es
   solo el enrutado del `--update`, no la señal.
+
+### DO-D11 · SB-D2: el pool ya está escrito, pero «la integración sigue verde en CI con el pin» está NO MEDIDO — Media
+- **Qué se cerró (2026-09-11, commit `4a8a9b7`):** `connection_limit=5&pool_timeout=10` escrito
+  explícitamente en `.github/workflows/ci.yml` (job `backend`), `.github/workflows/e2e.yml` (job
+  `backend-e2e`) y como default de `scripts/stack-native.sh test:integration`; candado
+  `scripts/check-db-pool-limit.sh` + canario (11/11 en 3/3) cableados en el job `db-pool-limit` y en
+  el `needs` de `ci-ok`. Contexto y mediciones: `docs/DEVOPS_NOTES.md` §57.
+- **Qué queda abierto, y es lo único:** en este entorno **no hay Postgres levantado**, así que la
+  carrera R-3 no se pudo correr con el pool ya fijado. Lo medido aquí es estático (el pin existe, el
+  candado muerde); lo **no medido** es que la suite de integración —15 specs— siga en **verde** con el
+  pool escrito a mano en vez de heredado. El riesgo real no es cero: si el runner que veníamos usando
+  daba **más** de 5 conexiones, algún spec podría estar apoyándose en ese margen sin saberlo.
+- **Comprobación de cierre:** primer push de la rama: el job `backend-e2e` de `e2e.yml` sale
+  **success** y su log del paso «Test de integración (E2E backend)» muestra **15/15 suites** sin
+  ningún `Timed out fetching a new connection`. Si sale rojo con ese mensaje, el hallazgo **no es del
+  pin**: es un spec que abría más conexiones de las que declara, y va a **backend**, no a devops.
+  (Ojo al ruido conocido, ya enrutado a backend: seis suites que no siembran y fallan por orden de
+  ejecución sobre BD virgen —`fx-mode`, `auth-throttle`, `graded-estimate*`,
+  `price-reference-variant-unique`—; ese rojo es **otro**, y se distingue por el mensaje.)
+- **Residual declarado (no bloqueante):** el candado **no mira `docker-compose*.yml`**. Ahí el
+  `DATABASE_URL` es el de la **app** corriendo, no el del arnés que mide R-3, y fijarle un pool de 5 a
+  la app sería una decisión distinta (y probablemente mala). Si algún día la suite de integración se
+  corre contra compose, hay que ampliar el candado en el mismo diff.
+- **Disparador:** el empuje de la rama. Dueño: devops (la medición); backend (si el rojo es de un spec).
