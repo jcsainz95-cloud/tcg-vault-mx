@@ -47,11 +47,7 @@ export class GuestOrdersController {
   @UseGuards(RejectAuthenticatedGuard)
   @Throttle({ default: { ttl: HOUR_MS, limit: 5 } })
   @Post('checkout/guest/session')
-  async session(
-    @Body() dto: GuestSessionDto,
-    @Ip() ip: string,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async session(@Body() dto: GuestSessionDto, @Ip() ip: string, @Res({ passthrough: true }) res: Response) {
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
     const result = await this.guest.createSession(dto, ip);
