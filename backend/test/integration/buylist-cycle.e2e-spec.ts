@@ -480,20 +480,25 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       const reVer = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
       expect(reVer.status).toBe(200);
       expect(reVer.body.status).toBe('verificacion');
-      // `receive` desde `verificacion` transiciona hacia atrás (legal: el guardado es por EXCLUSIÓN,
-      // no por matriz de predecesores — §M5-T punto 2) pero **tampoco re-sella `receivedAt`**.
+      // v1.61 · §M5-V: sigue sin ser pagable porque la línea sigue sin veredicto. Lo enciende (12).
+      expect(reVer.body.isPayable).toBe(false);
+      // ⚠️ v1.68 · §M5-S — `receive` desde `verificacion` YA NO transiciona hacia atrás (hasta v1.67
+      // lo hacía, «por exclusión»): retroceder no es un paso del pacto ⇒ `409 INVALID_TRANSITION`,
+      // y la fila se queda EXACTAMENTE como estaba (estado y las dos fechas).
       const reRec = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
-      expect(reRec.status).toBe(200);
+      expect(reRec.status).toBe(409);
+      expect(reRec.body.error.code).toBe('INVALID_TRANSITION');
+      expect(reRec.body.error.details).toEqual({
+        verb: 'receive',
+        from: 'verificacion',
+        allowedFrom: ['en_transito'],
+        idempotentOn: 'recibida',
+      });
 
       const despues = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+      expect(despues!.status).toBe('verificacion');
       expect(despues!.receivedAt).toEqual(antes!.receivedAt);
       expect(despues!.verifiedAt).toEqual(antes!.verifiedAt);
-
-      // Se deja la solicitud como estaba para que (12)/(13) sigan el camino feliz.
-      const ver = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
-      expect(ver.status).toBe(200);
-      // v1.61 · §M5-V: sigue sin ser pagable porque la línea sigue sin veredicto. Lo enciende (12).
-      expect(ver.body.isPayable).toBe(false);
     });
 
     it('(12) llegó NM ⇒ aprobada AL PRECIO OFERTADO, fijado SERVER-SIDE (criterio 124)', async () => {
@@ -705,29 +710,29 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     });
 
     // =========================================================================================
-    // ⚠️⚠️ (18)-(20) — **BL-35 EJE 2** (`docs/SECURITY_NOTES.md` §2), REPRODUCIDO ENTERO.
+    // ⚠️⚠️ (18)-(21) — **BL-35 EJE 2** (`docs/SECURITY_NOTES.md` §2), REPRODUCIDO ENTERO.
     //
     // El PoC del blue team, por HTTP: un `vault_operator` llama `verify` sobre una solicitud que
     // **nunca recibimos** —el PoC salió de una `ofertada`; QA lo repitió desde una `cotizada`—, la
-    // fila queda en `verificacion` con `verifiedAt` sellado, `isPayable` se pone `true` y un
-    // `super_admin` que trabaja su cola **liquida SPEI real por mercancía que nunca llegó**
+    // fila quedaba en `verificacion` con `verifiedAt` sellado, `isPayable` se ponía `true` y un
+    // `super_admin` que trabaja su cola **liquidaba SPEI real por mercancía que nunca llegó**
     // (MX$320, `SPEI-EJE2-NEVER-ARRIVED-001`).
     //
-    // ⚠️ **Vive aquí y no en un unitario por la misma razón que (14)-(17):** lo que frena el pago es
-    // el `where` del `updateMany`, y un doble de Prisma que no lo evalúa devuelve `count: 1` con la
-    // guarda puesta **y quitada**. El motor solo está aquí.
+    // ⚠️ **v1.68 · §M5-S (P-58) — HOY EL PoC MUERE UN PASO ANTES.** Hasta v1.67 el eje 2-b quedaba
+    // «abierto»: `verify` seguía siendo llamable desde cualquier estado vivo (solo el pago lo frenaba,
+    // §M5-P). Con S, `verify` **solo** aplica desde `recibida` y `receive` **solo** desde `en_transito`:
+    // el verbo del PoC devuelve `409 INVALID_TRANSITION` y **no sella nada**. §M5-P sigue como
+    // segunda red (la fila que S ya no puede producir, la BD puede seguir teniéndola:
+    // `buylist.m5p-received-guard.spec.ts`).
     //
-    // ⚠️ **Y el camino feliz ya está probado arriba** —(11) `receive` → `verify` con
-    // `isPayable: true`, (13) el SPEI que deposita el neto—: sin ese contraste, estos tres los pasa
-    // igual un endpoint que no pague nunca.
+    // ⚠️ **Vive aquí y no en un unitario por la misma razón que (14)-(17):** lo que frena es el
+    // `where` del `updateMany`, y un doble de Prisma que no lo evalúa devuelve `count: 1` con la
+    // guarda puesta **y quitada**. El motor solo está aquí.
     // =========================================================================================
-    describe('⚠️ BL-35 eje 2 · §M5-P — no se paga lo que no ha llegado', () => {
+    describe('⚠️ BL-35 eje 2 · §M5-P + §M5-S — no se paga (ni se verifica) lo que no ha llegado', () => {
       let nuncaRecibidaId: string;
 
-      it('(18) `verify` sobre una solicitud viva NUNCA RECIBIDA sigue siendo `200`… (eje 2-b, abierto)', async () => {
-        // ⚠️ El tercer término **no cierra el eje entero y así está normado** (contrato v1.57 §C):
-        // `verify` sigue siendo llamable desde cualquier estado vivo porque estrecharlo exigiría una
-        // matriz de predecesores que `PROJECT.md` no declara y que rompería la cohorte legacy.
+      it('(18) `verify` sobre una solicitud viva NUNCA RECIBIDA ⇒ 409 INVALID_TRANSITION y `verifiedAt` SIN sellar (v1.68)', async () => {
         const creada = await createRequest(validBody());
         expect(creada.status).toBe(201);
         nuncaRecibidaId = creada.body.sellRequestId;
@@ -735,21 +740,27 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         const ver = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/verify`, {
           token: operatorToken,
         });
-        expect(ver.status).toBe(200);
-        expect(ver.body.status).toBe('verificacion');
+        expect(ver.status).toBe(409);
+        expect(ver.body.error.code).toBe('INVALID_TRANSITION');
+        expect(ver.body.error.details).toEqual({
+          verb: 'verify',
+          from: 'cotizada',
+          allowedFrom: ['recibida'],
+          idempotentOn: 'verificacion',
+        });
 
-        // …y **`verifiedAt` SÍ queda sellado**: es el hecho que la volvía pagable.
+        // …y **`verifiedAt` NO queda sellado**: el hecho que la volvía pagable ya no se fabrica.
         const row = await h.prisma.sellRequest.findUnique({ where: { id: nuncaRecibidaId } });
-        expect(row!.verifiedAt).toBeTruthy();
+        expect(row!.status).toBe('cotizada');
+        expect(row!.verifiedAt).toBeNull();
         expect(row!.receivedAt).toBeNull();
       });
 
-      it('(18-bis) ⚠️ EL PoC DE SEGURIDAD, LITERAL: desde una `ofertada` — el mismo `false`, el mismo `422`', async () => {
+      it('(18-bis) ⚠️ EL PoC DE SEGURIDAD, LITERAL: desde una `ofertada` — 409 al verificar, 422 al pagar', async () => {
         // §M5-P assert 1. (18) reproduce el PoC de **QA** (desde una `cotizada` recién creada); éste
         // reproduce el de **seguridad**, que partió de una **`ofertada`** (`acceptedAt = null`,
-        // `receivedAt = null`) y liquidó **MX$320 reales**. Los dos caminos convergen en la misma
-        // fila post-`verify`, y por eso el término es un **hecho** y no un estado de origen — pero el
-        // contrato exige los dos asserts, y un test que asume la convergencia no la prueba.
+        // `receivedAt = null`) y liquidó **MX$320 reales**. Los dos caminos mueren en S; y aunque S
+        // no existiera, el pago sigue exigiendo `receivedAt` (§M5-P) — dos guardas, un dinero.
         const creada = await createRequest(validBody());
         expect(creada.status).toBe(201); // el ÚNICO 201 del ciclo: crear la SellRequest (§M5-C)
         const id = creada.body.sellRequestId;
@@ -767,8 +778,9 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
 
         // El paso del PoC: `vault_operator` verifica una solicitud que el vendedor ni siquiera aceptó.
         const ver = await h.api('POST', `/admin/buylist/${id}/verify`, { token: operatorToken });
-        expect(ver.status).toBe(200);
-        expect(ver.body.isPayable).toBe(false); // ⚠️ assert 1 de §M5-P
+        expect(ver.status).toBe(409);
+        expect(ver.body.error.code).toBe('INVALID_TRANSITION');
+        expect(ver.body.error.details.from).toBe('ofertada');
 
         const pago = await h.api('POST', `/admin/buylist/${id}/pay-spei`, {
           token: adminToken,
@@ -776,18 +788,20 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         });
         expect(pago.status).toBe(422);
         const row = await h.prisma.sellRequest.findUnique({ where: { id } });
+        expect(row!.status).toBe('ofertada'); // la ventana del vendedor sigue abierta
+        expect(row!.verifiedAt).toBeNull();
         expect(row!.paidAt).toBeNull();
         expect(row!.speiReference).toBeNull();
         expect(row!.payoutNetCents).toBeNull();
         expect(row!.closedAt).toBeNull();
       });
 
-      it('(19) ⚠️ LA SEÑAL DEJA DE MENTIR: `isPayable` es `false` sobre la fila nunca recibida', async () => {
+      it('(19) ⚠️ LA SEÑAL DICE LA VERDAD: `isPayable` es `false` sobre la fila nunca recibida', async () => {
         // `isPayable` **gobierna el botón de pagar en M5**. Arreglar la guarda y no la señal dejaría
         // al súper-admin autorizando con la pantalla diciéndole que la carta llegó.
         const dto = await h.api('GET', `/admin/buylist/${nuncaRecibidaId}`, { token: adminToken });
         expect(dto.status).toBe(200);
-        expect(dto.body.status).toBe('verificacion');
+        expect(dto.body.status).toBe('cotizada');
         expect(dto.body.isPayable).toBe(false);
       });
 
@@ -804,15 +818,43 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         expect(row!.paidAt).toBeNull();
         expect(row!.speiReference).toBeNull();
         expect(row!.payoutNetCents).toBeNull();
-        expect(row!.status).toBe('verificacion');
+        expect(row!.status).toBe('cotizada');
         expect(row!.closedAt).toBeNull();
       });
 
-      it('(21) y el remedio es el paso que faltaba: `receive` la vuelve pagable, y paga', async () => {
-        // *La cohorte que no se puede distinguir del abuso no se exceptúa: se remedia* — con
-        // `POST …/receive`, que sella `receivedAt`, es idempotente y **queda auditado con actor y
-        // fecha**. El control no vuelve imposible declarar una recepción falsa; le quita el
-        // anonimato: deja de ser efecto lateral silencioso de `verify` y pasa a ser un acto firmado.
+      it('(21) y el remedio es EL CICLO, no un atajo: offer → accept → confirm-shipment → receive → verify → approve → paga', async () => {
+        // ⚠️ v1.68 · §M5-S — hasta v1.67 el remedio era «un `receive` desde `cotizada`» (la cohorte
+        // legacy). **Ya no hay excepción**: una `cotizada` viva pasa por el ciclo (§M5-S «Filas
+        // legadas») o se declina. Cada paso es un clic del operador **firmado y auditado**; ninguno
+        // es efecto lateral de otro. `confirm-shipment` **no exige guía** (`guideMissing` en bitácora).
+        const item = await h.prisma.sellRequestItem.findFirst({
+          where: { sellRequestId: nuncaRecibidaId },
+        });
+        const oferta = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/offer`, {
+          token: operatorToken,
+          json: { lines: [{ itemId: item!.id, decision: 'buy' }] },
+        });
+        expect(oferta.status).toBe(200);
+        const acepta = await h.api('POST', `/buylist/requests/${nuncaRecibidaId}/offer-response`, {
+          token: customerToken,
+          json: { decision: 'accept' },
+        });
+        expect(acepta.status).toBe(200);
+
+        // Sin `confirm-shipment`, `receive` sigue siendo un paso equivocado: `aceptada` ∉ allowedFrom.
+        const temprano = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/receive`, {
+          token: operatorToken,
+        });
+        expect(temprano.status).toBe(409);
+        expect(temprano.body.error.code).toBe('INVALID_TRANSITION');
+        expect(temprano.body.error.details.from).toBe('aceptada');
+
+        const enCamino = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/confirm-shipment`, {
+          token: operatorToken,
+          json: {},
+        });
+        expect(enCamino.status).toBe(200);
+
         const rec = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/receive`, {
           token: operatorToken,
         });
@@ -823,18 +865,13 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           token: operatorToken,
         });
         expect(ver.status).toBe(200);
-        // ⚠️ v1.61 · §M5-V (V-a) — `receive` era **el** paso que faltaba para §M5-P, y sigue
-        // siéndolo; lo que v1.61 añade es que **tampoco basta sin haber aprobado nada**. Esta fila es
-        // pre-ciclo (`offerSentAt IS NULL`), así que V-b no aplica y el término que falta es el bruto.
+        // v1.61 · §M5-V: tampoco basta sin haber aprobado nada.
         expect(ver.body.isPayable).toBe(false);
-        expect(ver.body.pendingDecisionItemCount).toBe(0);
+        expect(ver.body.pendingDecisionItemCount).toBe(1);
 
-        const item = await h.prisma.sellRequestItem.findFirst({
-          where: { sellRequestId: nuncaRecibidaId },
-        });
         const aprobada = await h.api('PATCH', `/admin/buylist/items/${item!.id}/decision`, {
           token: operatorToken,
-          json: { decision: 'approve', approvedPriceCents: 50000 },
+          json: { decision: 'approve' },
         });
         expect(aprobada.status).toBe(200);
         const listo = await h.api('GET', `/admin/buylist/${nuncaRecibidaId}`, { token: adminToken });
@@ -844,16 +881,13 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           token: adminToken,
           json: { speiReference: 'SPEI-EJE2-REMEDIADA' },
         });
-        // ⚠️ v1.61.1 · **MENOR-3 (QA)** — era `expect([200, 201]).toContain(...)`, y esa laxitud
-        // **garantiza que nadie note el día que eso cambie**: §M5-C / `BL-37` declara `200` para
-        // TODO `POST` del ciclo que opera sobre una solicitud existente, y `pay-spei` fue
-        // precisamente el endpoint que respondía `201` contra una tabla normativa. *Un rango de
-        // aceptación en el verbo del dinero convierte una regresión de contrato en un no-evento.*
+        // §M5-C / BL-37: `200` para TODO `POST` del ciclo sobre una solicitud existente.
         expect(paid.status).toBe(200);
         const row = await h.prisma.sellRequest.findUnique({ where: { id: nuncaRecibidaId } });
         expect(row!.status).toBe('pagada');
         expect(row!.speiReference).toBe('SPEI-EJE2-REMEDIADA');
         expect(row!.receivedAt).toBeTruthy();
+        expect(row!.shipmentConfirmedAt).toBeTruthy(); // el hecho que antes se perdía al saltar
       });
     });
   });
@@ -884,7 +918,13 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // escenario es **imposible**: una solicitud aceptada cuya carta nunca llegó no puede aprobarse
       // (`422 REQUEST_NOT_RECEIVED`), así que los casos de abajo rebotarían **antes de llegar a su
       // sujeto**. El eje de la recepción tiene su propia cobertura; aquí se cumple para poder medir
-      // el eje que este bloque mide.
+      // el eje que este bloque mide. v1.68 · §M5-S: `receive` exige `en_transito` ⇒ antes va el
+      // clic de `confirm-shipment` (sin guía, permitido).
+      const enCamino = await h.api('POST', `/admin/buylist/${srId}/confirm-shipment`, {
+        token: operatorToken,
+        json: {},
+      });
+      expect(enCamino.status).toBe(200);
       const recibida = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
       expect(recibida.status).toBe(200);
     });
@@ -1003,7 +1043,12 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // escenario es **imposible**: una solicitud aceptada cuya carta nunca llegó no puede aprobarse
       // (`422 REQUEST_NOT_RECEIVED`), así que los casos de abajo rebotarían **antes de llegar a su
       // sujeto**. El eje de la recepción tiene su propia cobertura; aquí se cumple para poder medir
-      // el eje que este bloque mide.
+      // el eje que este bloque mide. v1.68 · §M5-S: antes de `receive`, `confirm-shipment`.
+      const enCamino = await h.api('POST', `/admin/buylist/${srId}/confirm-shipment`, {
+        token: operatorToken,
+        json: {},
+      });
+      expect(enCamino.status).toBe(200);
       const recibida = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
       expect(recibida.status).toBe(200);
     });
@@ -1650,6 +1695,11 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       return { srId, itemId, offerGrossCents: offer.body.offerGrossCents as number };
     }
 
+    /** v1.68 · §M5-S: el paso 4 del pacto (D20). Sin guía está permitido y queda auditado. */
+    function confirmShipment(srId: string) {
+      return h.api('POST', `/admin/buylist/${srId}/confirm-shipment`, { token: operatorToken, json: {} });
+    }
+
     it('§M5-R · ⭐ `approve` SIN recepción → 422, y la conversión sigue con SU ÚNICA guarda', async () => {
       const { srId, itemId } = await ofertadaYAceptada();
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
@@ -1691,6 +1741,8 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     it('§M5-R · ⭐ EL CAMINO FELIZ: `receive` → `approve` → `convert-to-inventory`, los tres 200', async () => {
       // *Sin este caso, el anterior lo pasa un endpoint que no aprueba nunca.*
       const { srId, itemId, offerGrossCents } = await ofertadaYAceptada();
+      // v1.68 · §M5-S: `receive` exige `en_transito` ⇒ el clic de `confirm-shipment` va antes.
+      expect((await confirmShipment(srId)).status).toBe(200);
       const rec = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
       expect(rec.status).toBe(200);
 
@@ -1719,6 +1771,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(antes!.quotedPriceCents).toBe(50000); // MX$500
       expect(antes!.offeredPriceCents).toBe(150000); // MX$1,500 = 3× lo cotizado
 
+      expect((await confirmShipment(srId)).status).toBe(200); // v1.68 · §M5-S
       const rec = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
       expect(rec.status).toBe(200);
       const ap = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {

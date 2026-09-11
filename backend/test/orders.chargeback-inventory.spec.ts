@@ -97,6 +97,12 @@ function build(
         card: { rarity: 'Common', set: {} },
       })),
     },
+    // ⭐ I1 — el PRE-ESCANEO de precios corre por ESTE handle (`this.prisma`), FUERA de la
+    // transacción. Si alguien vuelve a meter `sellableStatusFor` dentro del `$transaction`, el
+    // candado `I1` de abajo (orden de invocación) se pone rojo.
+    orderItem: {
+      findMany: jest.fn(async () => (order?.items ?? []) as { inventoryItemId: string }[]),
+    },
   };
   const pricing: any = {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
@@ -269,5 +275,49 @@ describe('POST /admin/orders/:id/chargeback-inventory — guardas comunes', () =
     });
     // El flag vuelve a `true`: el operador todavía puede resolverlo con el desenlace correcto.
     expect(shared.needsManual).toBe(true);
+  });
+});
+
+/**
+ * ⭐ **I1 (techlead, 2026-09-11) — el precio se resuelve FUERA de la transacción.**
+ *
+ * `sellableStatusFor` usa `this.prisma` y `this.pricing`, que NO son el handle del `tx`: llamarlo
+ * DENTRO del `$transaction` pide una SEGUNDA conexión **por pieza** mientras la primera sigue
+ * retenida, y con `connection_limit=5` eso agota el pool en una ruta de dinero
+ * (`Timed out fetching a new connection`). Es el mismo defecto que v1.68.1 cerró en el checkout,
+ * vivo en esta otra ruta.
+ *
+ * El candado no mide latencia: mide **ORDEN DE INVOCACIÓN**, que es lo que decide si hay dos
+ * conexiones simultáneas. Mutación: devolver la llamada a `this.sellableStatusFor(...)` al cuerpo
+ * del `$transaction` ⇒ estas dos aserciones se ponen rojas (la lectura de precio cae DESPUÉS de
+ * abrir la transacción).
+ */
+describe('POST /admin/orders/:id/chargeback-inventory — I1: pricing FUERA de la transacción', () => {
+  it('`recuperada`: el pre-escaneo de precios ocurre ANTES de abrir el `$transaction`', async () => {
+    const { svc, prisma } = build();
+    await svc.resolveChargebackInventory('order-1', 'recuperada');
+
+    const prescan = (prisma.orderItem.findMany as jest.Mock).mock.invocationCallOrder[0];
+    const priceRead = (prisma.inventoryItem.findUnique as jest.Mock).mock.invocationCallOrder[0];
+    const txOpen = (prisma.$transaction as jest.Mock).mock.invocationCallOrder[0];
+
+    expect(prescan).toBeDefined();
+    expect(priceRead).toBeDefined();
+    // El pre-escaneo Y la lectura de precio, los dos, antes de que exista transacción abierta.
+    expect(prescan).toBeLessThan(txOpen);
+    expect(priceRead).toBeLessThan(txOpen);
+    // Y NADA de `this.prisma` vuelve a tocarse mientras la transacción corre: una sola lectura.
+    expect((prisma.inventoryItem.findUnique as jest.Mock).mock.calls).toHaveLength(1);
+  });
+
+  it('`no_recuperada` / `reexpedir` no precian nada (no mueven inventario por precio)', async () => {
+    for (const outcome of ['no_recuperada', 'reexpedir'] as const) {
+      const { svc, prisma } = build({
+        order: outcome === 'reexpedir' ? { status: 'settled', disputeOutcome: 'won' } : {},
+      });
+      await svc.resolveChargebackInventory('order-1', outcome);
+      expect(prisma.orderItem.findMany).not.toHaveBeenCalled();
+      expect(prisma.inventoryItem.findUnique).not.toHaveBeenCalled();
+    }
   });
 });

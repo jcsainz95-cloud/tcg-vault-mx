@@ -6,6 +6,7 @@
  * más adelante es NO-BREAKING. La tarifa de envío NO vive aquí: reusa el dial existente
  * `SHIPPING_FEE_CENTS` (default 17500).
  */
+import { ORDER_RESERVATION_TTL_MIN } from './reservation';
 import { envOr } from '../mail/mail-env.util';
 
 /**
@@ -39,8 +40,13 @@ export const GUEST_RESEND_MAX_PER_DAY = 5;
 /** Máximo de líneas por pedido de invitado (anti-DoS de inventario, T9). */
 export const GUEST_MAX_ITEMS = 20;
 
-/** Minutos que una orden de invitado `pending` retiene la reserva antes del barrido (T9). */
-export const GUEST_ORDER_RESERVATION_TTL_MIN = 60;
+/**
+ * Minutos que una orden `pending` retiene la reserva antes del barrido (T9).
+ * v1.68 (§4-R.1): RENOMBRADA a `ORDER_RESERVATION_TTL_MIN` (`./reservation`) porque aplica a las DOS
+ * rutas (bóveda e invitado). Este nombre se conserva como ALIAS para no romper lectores; el valor
+ * vive en un solo sitio.
+ */
+export const GUEST_ORDER_RESERVATION_TTL_MIN = ORDER_RESERVATION_TTL_MIN;
 
 /** Ventana de disputa de condición (PROJECT §H): 7 días desde la ENTREGA. */
 export const GUEST_DISPUTE_WINDOW_DAYS = 7;

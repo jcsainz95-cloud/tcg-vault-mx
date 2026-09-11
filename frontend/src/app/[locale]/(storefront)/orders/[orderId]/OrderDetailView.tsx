@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
 import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
+import { ResumePaymentAction } from '../ResumePaymentAction';
 
 /**
  * 6f (detalle) — Repite el desglose del pago y deja la factura como acción
@@ -43,7 +44,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           </div>
           <div className="gutter flex flex-wrap items-baseline justify-between gap-4 pb-5 pt-4">
             <h1 className="font-serif text-[22px] leading-[1.15] text-text lg:text-[30px]">
-              {t('orderNumber', { id: query.data.id })}
+              {/* v1.68 §4-R.5: el folio real; el id solo si el servidor manda `null`. */}
+              {t('orderNumber', { id: query.data.orderNumber ?? query.data.id })}
             </h1>
             <span className="flex items-center gap-2 font-mono text-[11px] text-muted">
               <StatusBadge domain="order" value={query.data.status} />
@@ -119,6 +121,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
 
             <aside className="gutter h-fit pb-12 pt-6 lg:px-10">
               <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
+              {/* v1.68 §4-R.5: `pending` con reserva viva ⇒ «Reanudar pago» (vuelve a /checkout). */}
+              <ResumePaymentAction order={query.data} className="mt-6" />
 
               <div className="mt-7 flex items-center justify-between border-t border-border pt-4 text-[13px] text-muted">
                 <span>{t('cfdiStatusLabel')}</span>

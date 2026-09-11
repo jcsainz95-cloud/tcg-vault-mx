@@ -1012,15 +1012,17 @@ export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
 };
 
 export const mockOrders: OrderSummaryDTO[] = [
-  // MOCK: pendiente de contrato — `orderNumber` no está en `OrderSummaryDTO` (v1.67.1); el primero lo
-  // trae para ver el folio en la columna PEDIDO y el segundo NO, para ver el fallback al id.
+  // v1.68 (§4-R.5): `orderNumber` viaja SIEMPRE en `GET /orders` como `string | null`. Ya no es un
+  // «MOCK: pendiente de contrato»: el contrato lo declara. `null` = pedido anterior al folio.
   { id: 'ord-9001', orderNumber: 'TCG-009001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
-  { id: 'ord-9002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
+  // `pending` con reserva viva: `reservedUntil` NO se escribe aquí — lo proyecta `api.ts` desde el
+  // simulador de reservas (`lib/mock/reservation.ts`), que es quien la renueva en un `200 reused`.
+  { id: 'ord-9002', orderNumber: 'TCG-009002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
   // v1.51-c: pedido ANTIGUO cuyo `cardSnapshot` quedó incompleto (ver `mockOrderDetailLegacy`).
   // Se sirve desde el mock para que el render degradado sea VISIBLE en `dev`/e2e, no solo en un
   // test: la grieta anterior existió justamente porque el simulador servía datos más completos
-  // que el backend y todo se veía impecable en local.
-  { id: 'ord-9003', status: 'settled', totalCents: 79129, createdAt: '2024-11-02T17:40:00Z', settledAt: '2024-11-02T17:41:00Z' },
+  // que el backend y todo se veía impecable en local. Sin folio (`null`): la columna cae al `id`.
+  { id: 'ord-9003', orderNumber: null, status: 'settled', totalCents: 79129, createdAt: '2024-11-02T17:40:00Z', settledAt: '2024-11-02T17:41:00Z' },
 ];
 
 export const mockOrderDetail: OrderDetailDTO = {
@@ -2901,6 +2903,29 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
       { id: 'sri-cp-1', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 40000, offerDecision: 'buy', offeredPriceCents: 40000, approvedPriceCents: 40000, itemStatus: 'aprobada' },
       { id: 'sri-cp-2', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 7000, offerDecision: 'buy', offeredPriceCents: 7000, approvedPriceCents: 7000, itemStatus: 'aprobada' },
       { id: 'sri-cp-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 13000, offerDecision: 'skip', offeredPriceCents: null, itemStatus: 'verificacion' },
+    ],
+  },
+  /**
+   * v1.68 (§M5-S) — **una solicitud `en_transito`: el ÚNICO estado donde M5 ofrece «Marcar
+   * recibida».** Sin esta fila el servidor falso no tenía ninguna solicitud en el paso 4 del ciclo
+   * (`aceptada → confirm-shipment → en_transito`), así que el botón correcto era indemostrable en
+   * mock/E2E y el que existía colgaba de `cotizada` — el paso equivocado (P-58). Sin `receivedAt`
+   * ni `verifiedAt`: el paquete viaja, nadie lo ha tocado.
+   */
+  {
+    id: 'sr-3007',
+    userId: 'u-783',
+    status: 'en_transito',
+    quotedTotalCents: 90000,
+    createdAt: '2026-09-03T14:00:00Z',
+    receivedAt: null,
+    verifiedAt: null,
+    approvedTotalCents: null,
+    offerSentAt: '2026-09-04T10:00:00Z',
+    offerState: 'sent',
+    seller: { id: 'u-783', name: 'Gary Oak', email: 'gary@example.com' },
+    items: [
+      { id: 'sri-tr-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'cotizada' },
     ],
   },
 ];

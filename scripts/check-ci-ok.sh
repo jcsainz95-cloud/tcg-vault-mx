@@ -53,6 +53,7 @@ declare -A PUNTERO=(
   [parity-gate-canary]="el candado de paridad I-PP5 no está vivo. DEVOPS_NOTES §48.1"
   [stripe-webhook-failclosed]="la firma del webhook de Stripe puede verificarse con una clave conocida (P-WH-1). DEVOPS_NOTES §49"
   [workflow-cwd]="un script invocado desde un paso de CI no existe bajo su cwd (rc=127 silencioso). DEVOPS_NOTES §52"
+  [db-pool-limit]="el \`connection_limit\` que hace visible el 500 de checkout (\`398c58a\`) dejó de estar escrito y vuelve a depender del runner. DEVOPS_NOTES §57"
   [e2e-skip-census]="el censo de salvaguardas E2E (mockOnly/needsSeed/…) creció sin nota. DEVOPS_NOTES §56.9 (N7)"
 )
 

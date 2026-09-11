@@ -115,6 +115,13 @@ export class StripeService implements OnModuleInit {
     }
   }
 
+  /**
+   * I3 — techo de UNA petición HTTP a Stripe, en ms. Tiene que quedar **por debajo** del `timeout`
+   * de `RESERVATION_TX_OPTIONS` (30 s): ver el bloque del constructor del cliente. Lo comprueba
+   * `test/integration/stripe-in-tx-pool.e2e-spec.ts` como propiedad, no como comentario.
+   */
+  static readonly TIMEOUT_MS = 8_000;
+
   get stripe(): Stripe {
     if (!this.client) {
       const key = this.config.get<string>('STRIPE_SECRET_KEY');
@@ -128,6 +135,34 @@ export class StripeService implements OnModuleInit {
       this.client = new Stripe(key ?? 'sk_test_dummy', {
         apiVersion: '2024-06-20' as Stripe.LatestApiVersion,
         maxNetworkRetries: 2, // B1: reintentos de red para fallos transitorios.
+        // ⭐⭐ I3 (techlead + QA, 2026-09-11) — **el proveedor NO decide cuánto dura nuestra
+        // transacción.** `OrdersService.supersedeOwnOrder` cancela el PaymentIntent viejo DENTRO
+        // del `$transaction` del checkout, que sostiene la conexión de Prisma y el
+        // `pg_advisory_xact_lock` por cliente y tiene `timeout: 30_000`
+        // (`orders/reservation.ts` · `RESERVATION_TX_OPTIONS`). Aquí NO había `timeout`, y el
+        // default del SDK son **80 000 ms** (medido: `new Stripe(...).getApiField('timeout') ===
+        // 80000`) — **2.6× el techo de la transacción**, y por intento: con `maxNetworkRetries: 2`
+        // una cancelación patológica podía retener conexión y candado muchísimo más de lo que la
+        // propia transacción tolera, mientras el resto de los checkouts espera un hueco del pool.
+        //
+        // `TIMEOUT_MS` = 8 s por intento. La ARITMÉTICA que importa, y va explícita porque es la
+        // que hace que esto sea una cota y no un deseo: peor caso = 3 intentos (1 +
+        // `maxNetworkRetries: 2`) × 8 s = **24 s < 30 s** del `timeout` de la transacción. O sea:
+        // la transacción SIEMPRE gana al SDK, y un Stripe lento aborta la sustitución con rollback
+        // (CERO escritura, el cliente reintenta) en vez de arrastrar al pool entero. No cambia
+        // ningún flujo feliz: la latencia p99 de `cancel`/`create` está muy por debajo de 8 s.
+        //
+        // MEDIDO (2026-09-11, `stripe-in-tx-pool.e2e-spec.ts`, `connection_limit=5`,
+        // `pool_timeout=10`): con N=6 sustituciones concurrentes de clientes distintos y 2 s de
+        // latencia inyectada ⇒ 0/6 quinientos y 0/6 timeouts de pool (3/3 tiradas), pared ~4.15 s
+        // (dos oleadas de 2 s: las conexiones SÍ se retienen toda la latencia). Con 12 s —por
+        // encima del `pool_timeout`— ⇒ **1/6 `500` por `Timed out fetching a new connection`,
+        // 3/3 tiradas**. El mecanismo es real; esto lo ACOTA.
+        //
+        // ⛔ Lo que esto NO hace: sacar la cancelación de la transacción. Eso es cambio de diseño
+        // (§4.48.2 — «cancelar antes de crear» es lo que impide dos PI cobrando la misma pieza) y
+        // le corresponde al arquitecto. Esto ACOTA el peor caso; no lo elimina.
+        timeout: StripeService.TIMEOUT_MS,
       });
     }
     return this.client;
@@ -164,7 +199,7 @@ export class StripeService implements OnModuleInit {
 
   /**
    * v1.21-guest-checkout (T9): cancela un PaymentIntent aún no pagado. Lo usa el barrido de
-   * reservas de pedidos de invitado (`guest-order-sweep`) ANTES de liberar el inventario. NO es
+   * reservas vencidas (`order-reservation-sweep`) y la SUSTITUCIÓN del reintento (§4-R.2) ANTES de liberar el inventario. NO es
    * money-out (un PI cancelado nunca se capturó).
    *
    * **B3 (v1.21.2):** devuelve el `status` resultante en vez de `void`. El barrido lo NECESITA:
@@ -175,6 +210,22 @@ export class StripeService implements OnModuleInit {
   async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
     const pi = await this.stripe.paymentIntents.cancel(paymentIntentId);
     return { status: pi.status };
+  }
+
+  /**
+   * v1.68 (§4-R.2 fila REUSO) — relee un PaymentIntent para devolver el MISMO `client_secret` al
+   * cliente que reintenta (no se persiste). No crea nada. Un fallo se propaga tal cual: el caller
+   * decide (la reserva queda intacta).
+   */
+  async retrievePaymentIntent(
+    paymentIntentId: string,
+  ): Promise<{ id: string; status: string; clientSecret: string }> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      return { id: pi.id, status: pi.status, clientSecret: pi.client_secret ?? '' };
+    } catch (e) {
+      throw this.mapStripeError(e);
+    }
   }
 
   /**

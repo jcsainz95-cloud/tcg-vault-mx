@@ -258,17 +258,34 @@ describe('⚠️⚠️ §M5-P · BL-35 eje 2 — el PoC: pagar mercancía que NU
   });
 
   it('⚠️ y sin el `receive`, la MISMA cadena NO paga: `verify` solo ya no basta', async () => {
-    // El contraste que le da valor al assert de arriba: idéntica fila, idéntico `verify`, y lo único
-    // que falta es el paso que declara que el paquete llegó.
+    // El contraste que le da valor al assert de arriba: idéntica fila, y lo único que falta es el
+    // paso que declara que el paquete llegó.
+    // ⚠️ v1.68 · §M5-S — hoy hay DOS redes, y este caso mide las dos: (1) `verify` desde
+    // `en_transito` ya **no transiciona** (`409 INVALID_TRANSITION`, `verifiedAt` sin sellar), y
+    // (2) aun sobre la fila que S ya no puede producir pero la BD puede seguir teniendo
+    // (`verificacion` con `receivedAt = null`: los dos PoC), `pay-spei` **sigue** rechazando —
+    // el término de §M5-P no depende de S. *Dos guardas independientes, una salida de dinero.*
     const h = harness(
       baseRow({ status: 'en_transito', receivedAt: null, verifiedAt: null, approvedTotalCents: 40_000 }),
     );
-    await h.svc.verify('sr-1');
-    expect(h.state.status).toBe('verificacion');
+    await expect(h.svc.verify('sr-1')).rejects.toMatchObject({
+      code: 'INVALID_TRANSITION',
+      details: { verb: 'verify', from: 'en_transito', allowedFrom: ['recibida'] },
+    });
+    expect(h.state.status).toBe('en_transito');
+    expect(h.state.verifiedAt).toBeNull();
     await expect(h.svc.paySpei('sr-1', 'SPEI-NO', 'admin')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
     expect(h.state.paidAt).toBeNull();
+
+    const legado = harness(
+      baseRow({ status: 'verificacion', receivedAt: null, verifiedAt: VERIFICADA, approvedTotalCents: 40_000 }),
+    );
+    await expect(legado.svc.paySpei('sr-1', 'SPEI-NO', 'admin')).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(legado.state.paidAt).toBeNull();
   });
 
   it('⚠️ NO se exige `acceptedAt` (cuarto término): rompería la cohorte pre-M-46', async () => {

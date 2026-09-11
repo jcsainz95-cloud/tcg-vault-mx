@@ -6,6 +6,7 @@ import { StripeService } from './stripe.service';
 import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
+import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -146,6 +147,8 @@ export class PaymentsService {
         await this.settleDirectShipOrder(order);
         return;
       }
+      // v1.68: piezas que NO estaban reservadas por esta orden al liquidar (se auditan fuera del tx).
+      const anomalies: { inventoryItemId: string; was: string }[] = [];
       await this.prisma.$transaction(async (tx) => {
         await tx.order.update({
           where: { id: order.id },
@@ -155,10 +158,25 @@ export class PaymentsService {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
           if (!item) continue;
           // Transición de reserva a custodia liquidada: reserved → in_custody, settled.
-          await tx.inventoryItem.update({
-            where: { id: oi.inventoryItemId },
-            data: { status: 'in_custody', ownershipStatus: 'settled' },
+          // v1.68 (§4-R.2 regla 2): SOLO si la pieza sigue `reserved` por ESTA orden (o legada). Un
+          // settle de una orden que ya no es dueña NO mueve la pieza (defensa en profundidad: su PI
+          // se canceló antes de la sustitución, no debería ocurrir). Se limpia dueño/vencimiento.
+          const moved = await tx.inventoryItem.updateMany({
+            where: { id: oi.inventoryItemId, ...reservationGuard(order.id) },
+            data: { status: 'in_custody', ownershipStatus: 'settled', ...clearReservation },
           });
+          if (moved.count !== 1) {
+            // Reintento del webhook con la pieza ya en custodia de este comprador: idempotencia
+            // legítima. Cualquier otro estado es una ANOMALÍA: se registra, no se toca (no se le
+            // quita la pieza a nadie automáticamente).
+            if (item.status === 'in_custody' && item.ownerUserId === order.userId) continue;
+            this.logger.error(
+              `settle: pieza ${oi.inventoryItemId} NO reservada por el pedido ${order.orderNumber ?? order.id} ` +
+                `al liquidar (estaba ${item.status}, dueño ${item.reservedByOrderId ?? 'ninguno'}); no se mueve.`,
+            );
+            anomalies.push({ inventoryItemId: oi.inventoryItemId, was: item.status });
+            continue;
+          }
           await tx.inventoryMovement.create({
             data: {
               itemId: oi.inventoryItemId,
@@ -170,6 +188,20 @@ export class PaymentsService {
           });
         }
       });
+      if (anomalies.length > 0) {
+        await this.audit
+          .log({
+            actorUserId: null,
+            actorRole: null,
+            action: 'order.settle_item_not_reserved',
+            entityType: 'Order',
+            entityId: order.id,
+            after: { anomalies },
+          })
+          .catch((e: unknown) =>
+            this.logger.error(`No se pudo auditar la anomalía de settle: ${(e as Error).message}`),
+          );
+      }
       return;
     }
     // ¿Es el pago de un envío? Avanza a picking.
@@ -223,9 +255,10 @@ export class PaymentsService {
         const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
         if (!item) continue;
         // Guardia positiva: solo una pieza aún `reserved` avanza (idempotencia ante reintentos).
+        // v1.68 (§4-R.2 regla 2): … y reservada por ESTA orden (o legada); se limpia dueño/vencimiento.
         const moved = await tx.inventoryItem.updateMany({
-          where: { id: oi.inventoryItemId, status: 'reserved' },
-          data: { status: 'picking' },
+          where: { id: oi.inventoryItemId, ...reservationGuard(order.id) },
+          data: { status: 'picking', ...clearReservation },
         });
         if (moved.count === 1) {
           await tx.inventoryMovement.create({
@@ -253,7 +286,7 @@ export class PaymentsService {
         // que ocurra.
         const recovered = await tx.inventoryItem.updateMany({
           where: { id: oi.inventoryItemId, status: { in: ['listed', 'in_stock'] } },
-          data: { status: 'picking' },
+          data: { status: 'picking', ...clearReservation },
         });
         if (recovered.count === 1) {
           await tx.inventoryMovement.create({
@@ -379,14 +412,12 @@ export class PaymentsService {
       await this.prisma.$transaction(async (tx) => {
         await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
         for (const oi of order.items) {
+          // v1.68 (§4-R.2 regla 2, candado R-2): SOLO libera lo PROPIO. Tras una sustitución O1→O2, el
+          // `payment_intent.canceled` del PI de O1 llega después y NO debe soltar la pieza que O2
+          // acaba de reservar: `reservedByOrderId = O1` no matchea. La exclusión la da el motor.
           await tx.inventoryItem.updateMany({
-            where: { id: oi.inventoryItemId, status: 'reserved' },
-            data: {
-              status: 'listed',
-              ownerType: 'platform',
-              ownerUserId: null,
-              ownershipStatus: null,
-            },
+            where: { id: oi.inventoryItemId, ...reservationGuard(order.id) },
+            data: releaseReservationData,
           });
         }
       });
@@ -536,14 +567,10 @@ export class PaymentsService {
         for (const oi of order.items) {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
           if (!item) continue;
+          // v1.68 (§4-R.2 regla 2): reservada por ESTA orden (o legada); limpia dueño/vencimiento.
           const reverted = await tx.inventoryItem.updateMany({
-            where: { id: oi.inventoryItemId, status: 'reserved' },
-            data: {
-              status: 'listed',
-              ownerType: 'platform',
-              ownerUserId: null,
-              ownershipStatus: null,
-            },
+            where: { id: oi.inventoryItemId, ...reservationGuard(order.id) },
+            data: releaseReservationData,
           });
           if (reverted.count !== 1) {
             // Pieza fuera de `reserved` (típicamente `picking` congelada por una disputa previa):
@@ -609,15 +636,30 @@ export class PaymentsService {
           continue;
         }
         // Sigue en bóveda: revertir a inventario de plataforma.
-        await tx.inventoryItem.update({
-          where: { id: oi.inventoryItemId },
+        // v1.68 (§4-R.2 regla 2): si la pieza está `reserved`, solo si es de ESTA orden (o legada); una
+        // pieza reservada por OTRA orden no se toca (queda para gestión manual). Fuera de `reserved`
+        // (lo normal: `in_custody` tras el settle) se revierte como hoy y se limpia dueño/vencimiento.
+        const reverted = await tx.inventoryItem.updateMany({
+          where: {
+            id: oi.inventoryItemId,
+            OR: [
+              { status: { not: 'reserved' } },
+              { reservedByOrderId: order.id },
+              { reservedByOrderId: null },
+            ],
+          },
           data: {
             ownerType: 'platform',
             ownerUserId: null,
             ownershipStatus: null,
             status: 'listed',
+            ...clearReservation,
           },
         });
+        if (reverted.count !== 1) {
+          needsManual = true;
+          continue;
+        }
         await tx.inventoryMovement.create({
           data: {
             itemId: oi.inventoryItemId,

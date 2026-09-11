@@ -201,6 +201,7 @@ export function M5View() {
   // ⚠️ Back-office: quien lee es el OPERADOR (DESIGN_SYSTEM §26). Aquí caen `REQUEST_NOT_RECEIVED`
   // y `APPROVED_PRICE_CAP_EXCEEDED` de la mesa de verificación, que **solo** existen de este lado.
   const getError = useErrorMessage('operator');
+  const tRoot = useTranslations();
   // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
   const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
 
@@ -229,6 +230,14 @@ export function M5View() {
   function fail(requestId: string, error: unknown) {
     setFeedback({ requestId, kind: 'error', message: getError(error) });
   }
+
+  /**
+   * §M5-S · `409 INVALID_TRANSITION`: el mensaje NO se arma aquí. Lo resuelve el catálogo
+   * compartido (`error.INVALID_TRANSITION[_WITH_DETAILS]` + `DETAILED_ERRORS` en `QueryState`),
+   * que es donde §26 manda que viva todo el copy de error — esta vista tenía su propia copia con
+   * su propio rótulo de estado, y una copia es una cosa más que se desincroniza sin que nada falle
+   * (SB-D5/I3). `getError` ya declara audiencia `operator`.
+   */
 
   // --- Recibir / Verificar (contrato POST /admin/buylist/:id/receive|verify) ---
   const receiveMutation = useMutation({
@@ -988,16 +997,23 @@ export function M5View() {
                     {deskFor === req.id ? tDesk('close') : tDesk('open')}
                   </Button>
                 )}
-                {req.status === 'cotizada' && (
+                {/* §M5-S (v1.68, cierre de P-58): «Marcar recibida» SOLO en `en_transito` — el
+                    único predecesor legítimo de `recibida` (`aceptada → confirm-shipment →
+                    en_transito → receive`). Antes colgaba de `cotizada`: el paso equivocado,
+                    que saltaba al 5 sin precio pactado ni aceptación. Desde `recibida` el
+                    servidor responde `200` idempotente, así que el botón desaparece: no hay
+                    nada que repetir. Candado S-3: test de render por los 11 estados. */}
+                {req.status === 'en_transito' && (
                   <Button
                     size="sm"
-                    variant="secondary"
+                    variant="primary"
                     loading={receiveMutation.isPending && receiveMutation.variables === req.id}
                     onClick={() => receiveMutation.mutate(req.id)}
                   >
                     {t('receive')}
                   </Button>
                 )}
+                {/* §M5-S: «Verificar» SOLO en `recibida` (su único predecesor). */}
                 {req.status === 'recibida' && (
                   <Button
                     size="sm"

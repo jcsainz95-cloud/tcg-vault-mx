@@ -90,8 +90,17 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
     );
-    expect(tx.inventoryItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'in_custody', ownershipStatus: 'settled' } }),
+    // v1.68 (§4-R.2 regla 2): la liquidación SOLO mueve la pieza reservada por ESTA orden (o legada)
+    // y limpia dueño/vencimiento.
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'item1',
+          status: 'reserved',
+          OR: [{ reservedByOrderId: 'o1' }, { reservedByOrderId: null }],
+        },
+        data: { status: 'in_custody', ownershipStatus: 'settled', reservedByOrderId: null, reservedUntil: null },
+      }),
     );
     expect(tx.inventoryMovement.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ reason: 'settle', toStatus: 'in_custody' }) }),
@@ -187,13 +196,16 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'chargeback', chargebackNeedsManual: false } }),
     );
-    expect(tx.inventoryItem.update).toHaveBeenCalledWith(
+    // v1.68: `updateMany` guardado (no toca una pieza `reserved` por OTRA orden) + limpia dueño.
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           ownerType: 'platform',
           ownerUserId: null,
           ownershipStatus: null,
           status: 'listed',
+          reservedByOrderId: null,
+          reservedUntil: null,
         }),
       }),
     );
@@ -287,8 +299,13 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     );
     expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'item1', status: 'reserved' },
-        data: expect.objectContaining({ status: 'listed', ownershipStatus: null }),
+        // v1.68 (candado R-2): solo libera lo PROPIO (o legado).
+        where: {
+          id: 'item1',
+          status: 'reserved',
+          OR: [{ reservedByOrderId: 'o1' }, { reservedByOrderId: null }],
+        },
+        data: expect.objectContaining({ status: 'listed', ownershipStatus: null, reservedByOrderId: null }),
       }),
     );
   });

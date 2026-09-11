@@ -11,7 +11,8 @@ import {
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
-import { OrdersService } from './orders.service';
+import { OrdersService, OwnReservation } from './orders.service';
+import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { GuestQuoteDto, GuestResendLinkDto, GuestSessionDto } from './dto/guest-checkout.dto';
@@ -81,21 +82,33 @@ export class GuestCheckoutService {
    */
   async quote(dto: GuestQuoteDto) {
     if (dto.shippingAddress) this.assertMxAddress(dto.shippingAddress.country);
-    const { items, lines, subtotalCents, unavailableItems } = await this.orders.priceCartForQuote(
-      dto.inventoryItemIds,
-    );
-    const { breakdown, vaultBreakdown } = await this.quoteBreakdowns(
-      subtotalCents,
-      lines.length === 0,
-    );
+    // v1.68.1 (§4-R.5): la reserva propia existe SOLO con `retryOfCheckoutToken` + `email` válidos
+    // (misma regla que la sesión, §4-R.3). Token inválido/otro correo ⇒ conducta de hoy. READ-ONLY.
+    const claimedOrderId =
+      dto.retryOfCheckoutToken && dto.email
+        ? await this.resolveRetryClaim(dto.retryOfCheckoutToken, normalizeEmail(dto.email))
+        : null;
+    const { items, lines, subtotalCents, unavailableItems, ownReservation, reservedByYou, frozenOrder } =
+      await this.orders.priceCartForQuote(
+        dto.inventoryItemIds,
+        claimedOrderId ? { orderId: claimedOrderId } : undefined,
+      );
+    const computed = await this.quoteBreakdowns(subtotalCents, lines.length === 0);
+    // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
+    const breakdown: DirectShipBreakdownDTO = frozenOrder
+      ? { ...this.orders.breakdownOf(frozenOrder), shippingFeeCents: frozenOrder.shippingFeeCents }
+      : computed.breakdown;
+    const vaultBreakdown = computed.vaultBreakdown;
     return {
       // §5.2.5 / contrato v1.51-b: `card` es un `OrderItemCardDTO` (8 hechos congelados +
       // `imageSmallUrl` resuelta en lectura). Se usa el MISMO cuerpo que `POST /checkout/quote`
       // —el hueco gris del invitado tenía exactamente la misma causa— y sin consulta extra: la
       // imagen sale del `card` que `priceCartForQuote` ya cargó para preciar.
-      items: this.orders.toOrderItemPreviews(items, lines),
+      items: this.orders.toOrderItemPreviews(items, lines, reservedByYou ?? new Set<string>()),
       fulfillmentMode: 'direct_ship' as const,
       breakdown,
+      // v1.68.1 (§4-R.5): SIEMPRE presente (`null` si no hay reserva propia).
+      ownReservation: ownReservation ?? null,
       // v1.21.4-dual-breakdown (§4-G.1): segundo desglose "de bóveda" (solo cartas, SIN envío),
       // informativo/reactivo (gancho del upsell). SIEMPRE presente; pagar bóveda sigue exigiendo
       // cuenta (§4-G.2 `422 VAULT_REQUIRES_ACCOUNT`).
@@ -127,75 +140,171 @@ export class GuestCheckoutService {
     // Anti-enumeración (criterio 56): NO se consulta `User` por este correo. Que tenga cuenta o no
     // es indistinguible desde fuera (mismo status, mismo shape, mismos tiempos).
     const guestEmail = normalizeEmail(dto.email);
-
-    const { items, lines, subtotalCents } = await this.orders.priceCartForOrder(dto.inventoryItemIds);
-    const breakdown = await this.breakdownFor(subtotalCents);
-    const orderNumber = await this.orders.nextOrderNumber();
     const addressSnapshot = this.toAddressSnapshot(dto.shippingAddress);
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias
-      // (`ownerType='platform'` + estado vendible + `count===1`). La diferencia de esta ruta es el
-      // `null`: NO se escribe titularidad, la pieza sigue siendo de la plataforma durante todo el
-      // ciclo — invariante §4-G.0-1 (un invitado no tiene bóveda).
-      await this.orders.reserveItems(tx, items, null);
-      // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller proyecta la respuesta del
-      // checkout de invitado (orderId/orderNumber/breakdown/stripe), nunca la fila `Order`.
-      return tx.order.create({
-        data: {
-          userId: null,
-          guestEmail,
-          orderNumber,
-          fulfillmentMode: 'direct_ship',
-          shippingAddressSnapshot: addressSnapshot as unknown as Prisma.InputJsonValue,
-          shippingFeeCents: breakdown.shippingFeeCents,
-          locale: (dto.locale ?? 'es') as Locale,
-          status: 'pending',
-          subtotalCents: breakdown.subtotalCents,
-          processingFeeCents: breakdown.processingFeeCents,
-          ivaCents: breakdown.ivaCents,
-          totalCents: breakdown.totalCents,
-          ivaRatePct: breakdown.ivaRatePct,
-          // v1.64-iva-inclusive (M-50, §4.44.k · DEPLOY 1) — misma regla que el checkout de bóveda:
-          // toda orden nueva nace `IVA_EXCLUSIVE` (la convención con la que se acaba de cobrar) y
-          // `ivaTransferPct` se queda en `NULL`. Sin default de BD detrás: si esta línea se cae, el
-          // `INSERT` revienta (§4.44.e, candado `IVA-3(e)`).
-          priceConvention: 'IVA_EXCLUSIVE',
-          cfdiStatus: 'registrado',
-          items: { create: lines },
-        },
-      });
-    });
+    // v1.68 (§4-R.3): la reserva PROPIA existe SOLO si el body trae `retryOfCheckoutToken` válido
+    // que resuelve a una orden `pending` de ESTE correo. Sin reclamo ⇒ conducta de hoy, literal.
+    const claimedOrderId = dto.retryOfCheckoutToken
+      ? await this.resolveRetryClaim(dto.retryOfCheckoutToken, guestEmail)
+      : null;
 
+    // ⛔ v1.68.1: el precio, FUERA de la transacción (misma razón que la ruta de bóveda: dentro, cada
+    // checkout pediría una segunda conexión para `PricingService` y N concurrentes agotan el pool).
+    const { items, lines, subtotalCents } = await this.orders.priceCartOutsideGate(
+      dto.inventoryItemIds,
+      claimedOrderId ? { orderId: claimedOrderId } : undefined,
+    );
+    const breakdownPre = await this.breakdownFor(subtotalCents);
+
+    const outcome = await this.prisma.$transaction(
+      async (
+        tx,
+      ): Promise<
+        | { kind: 'reused'; order: Order; reservedUntil: Date }
+        | {
+            kind: 'created';
+            order: Order;
+            breakdown: DirectShipBreakdownDTO;
+            itemIds: string[];
+            supersededOrderIds: string[];
+            reservedUntil: Date;
+          }
+      > => {
+        // §4-R.2: PUERTA POR CLIENTE (aquí, por correo normalizado: solo SERIALIZA; la titularidad la
+        // prueba el token) → releer por el mismo tx → decidir → escribir.
+        await lockReservationGate(tx, { guestEmail });
+        const now = new Date();
+        const own: OwnReservation[] = claimedOrderId
+          ? await this.orders.findOwnLiveReservations(
+              tx,
+              dto.inventoryItemIds,
+              { orderId: claimedOrderId },
+              now,
+            )
+          : [];
+        if (own.length === 1 && this.orders.isReusable(own[0], dto.inventoryItemIds)) {
+          const reservedUntil = await this.orders.renewReservation(tx, own[0].order.id, now);
+          return { kind: 'reused', order: own[0].order, reservedUntil };
+        }
+        const supersededOrderIds: string[] = [];
+        for (const o of own) {
+          await this.orders.supersedeOwnOrder(tx, o);
+          supersededOrderIds.push(o.order.id);
+        }
+
+        const breakdown = breakdownPre;
+        // v1.68.1: por el `tx` (una sola conexión por checkout; ver `OrdersService.nextOrderNumber`).
+        const orderNumber = await this.orders.nextOrderNumber(tx);
+        const reservedUntil = reservedUntilFrom(now);
+
+        // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller proyecta la respuesta del
+        // checkout de invitado (orderId/orderNumber/breakdown/stripe), nunca la fila `Order`.
+        const order = await tx.order.create({
+          data: {
+            userId: null,
+            guestEmail,
+            orderNumber,
+            fulfillmentMode: 'direct_ship',
+            shippingAddressSnapshot: addressSnapshot as unknown as Prisma.InputJsonValue,
+            shippingFeeCents: breakdown.shippingFeeCents,
+            locale: (dto.locale ?? 'es') as Locale,
+            status: 'pending',
+            subtotalCents: breakdown.subtotalCents,
+            processingFeeCents: breakdown.processingFeeCents,
+            ivaCents: breakdown.ivaCents,
+            totalCents: breakdown.totalCents,
+            ivaRatePct: breakdown.ivaRatePct,
+            // v1.64-iva-inclusive (M-50, §4.44.k · DEPLOY 1) — misma regla que el checkout de bóveda:
+            // toda orden nueva nace `IVA_EXCLUSIVE` (la convención con la que se acaba de cobrar) y
+            // `ivaTransferPct` se queda en `NULL`. Sin default de BD detrás: si esta línea se cae, el
+            // `INSERT` revienta (§4.44.e, candado `IVA-3(e)`).
+            priceConvention: 'IVA_EXCLUSIVE',
+            cfdiStatus: 'registrado',
+            items: { create: lines },
+          },
+        });
+        // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias
+        // (`ownerType='platform'` + estado vendible + `count===1`) y, desde v1.68, el DUEÑO (esta
+        // orden) y el vencimiento. La diferencia de esta ruta es el `null`: NO se escribe titularidad,
+        // la pieza sigue siendo de la plataforma durante todo el ciclo — invariante §4-G.0-1.
+        await this.orders.reserveItems(tx, items, null, { orderId: order.id, reservedUntil });
+        return {
+          kind: 'created',
+          order,
+          breakdown,
+          itemIds: lines.map((l) => l.inventoryItemId),
+          supersededOrderIds,
+          reservedUntil,
+        };
+      },
+      RESERVATION_TX_OPTIONS,
+    );
+
+    const order = outcome.order;
     // A2: crear PI + compensar si el proveedor falla + persistir el id, por el helper COMPARTIDO
     // (T2). Lo único propio de esta ruta es la metadata: sin `userId` (no hay usuario) y con
-    // `guest:'true'` para distinguir el pedido en el dashboard de Stripe.
-    const pi = await this.orders.attachPaymentIntent({
-      orderId: order.id,
-      amountCents: breakdown.totalCents,
-      metadata: { orderId: order.id, kind: 'order', guest: 'true' },
-      inventoryItemIds: lines.map((l) => l.inventoryItemId),
-    });
+    // `guest:'true'` para distinguir el pedido en el dashboard de Stripe. En el REUSO (§4-R.3) es el
+    // MISMO PaymentIntent de la orden: no se crea otro.
+    const metadata = { orderId: order.id, kind: 'order', guest: 'true' };
+    const stripe =
+      outcome.kind === 'reused'
+        ? await this.orders.paymentIntentForReuse(order, metadata, dto.inventoryItemIds)
+        : await this.orders
+            .attachPaymentIntent({
+              orderId: order.id,
+              amountCents: outcome.breakdown.totalCents,
+              metadata,
+              inventoryItemIds: outcome.itemIds,
+            })
+            .then((pi) => ({ paymentIntentId: pi.id, clientSecret: pi.clientSecret }));
 
     // §4-G.0-5: ÚNICA respuesta de API con un token en claro. Quien llama ES quien creó el pedido,
     // así que no hay filtración posible; resuelve la confirmación tras el redirect 3DS (sin sesión).
     // v1.21.1 (§4-G.7a): es el token de CHECKOUT — vida CORTA (120 min) y NUNCA por correo. El
     // enlace duradero de 90 días lo emite el settle y viaja solo por correo. Así, el solapamiento
-    // de dos puertas sin contraseña dura ≤2 h (T7b) en vez de 90 días.
+    // de dos puertas sin contraseña dura ≤2 h (T7b) en vez de 90 días. En el reuso se emite uno
+    // NUEVO con `rotate:false` (§4-R.3): el presentado sigue valiendo hasta su `expiresAt`.
     const { clear, expiresAt } = await this.tokens.issue(order.id, {
       rotate: false,
       requestIp,
       ttlMs: GUEST_CHECKOUT_TOKEN_TTL_MIN * 60 * 1000,
     });
 
+    const breakdown: DirectShipBreakdownDTO =
+      outcome.kind === 'reused'
+        ? { ...this.orders.breakdownOf(order), shippingFeeCents: order.shippingFeeCents }
+        : outcome.breakdown;
+
     return {
       orderId: order.id,
-      orderNumber,
+      orderNumber: order.orderNumber,
       breakdown,
       checkoutToken: clear,
       checkoutTokenExpiresAt: expiresAt,
-      stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
+      stripe,
+      // v1.68 (§4-R.3, ADITIVO)
+      reused: outcome.kind === 'reused',
+      reservedUntil: outcome.reservedUntil,
+      supersededOrderIds: outcome.kind === 'reused' ? [] : outcome.supersededOrderIds,
     };
+  }
+
+  /**
+   * v1.68 (§4-R.3) — el reclamo de propiedad del invitado: el `checkoutToken` presentado debe ser
+   * VÁLIDO (vivo, no revocado), resolver a una orden `pending` y esa orden tener EXACTAMENTE este
+   * correo. Cualquier otra cosa ⇒ `null` = «no hay reclamo» (la pieza es ajena ⇒ el camino de hoy,
+   * `409 ITEM_UNAVAILABLE`, sin distinguir token malo de pieza vendida). Un correo solo NO es
+   * identidad (cualquiera puede teclearlo); el token ya es «la llave de ese pedido» (§4-G.7a).
+   */
+  private async resolveRetryClaim(clearToken: string, guestEmail: string): Promise<string | null> {
+    const v = await this.tokens.validate(clearToken);
+    if (!v.ok) return null;
+    const order = await this.prisma.order.findUnique({
+      where: { id: v.token.orderId },
+      select: { id: true, status: true, guestEmail: true },
+    });
+    if (!order || order.status !== 'pending' || order.guestEmail !== guestEmail) return null;
+    return order.id;
   }
 
   // ------------------------------------------------------------------ track
@@ -315,6 +424,13 @@ export class GuestCheckoutService {
    * que `GUEST_ORDER_RESERVATION_TTL_MIN`: libera las piezas (reserved → listed), marca la orden
    * `failed` y cancela el PaymentIntent (best-effort). Sin él, un atacante puede retener
    * inventario creando pedidos que nunca paga.
+   *
+   * v1.68 (§4-R.4) — **RAMA LEGADA, un release.** El barrido de verdad es
+   * `OrdersService.sweepExpiredReservations` (por `reservedUntil`, las DOS rutas). Esta rama solo
+   * cubre los pedidos de invitado `pending` con piezas `reservedByOrderId IS NULL` (en vuelo al
+   * desplegar M-53), que no tienen vencimiento y se barren por `createdAt` como hoy. ⛔ Un pedido
+   * con dueño NO entra aquí aunque sea viejo: su TTL pudo RENOVARSE por reuso y solo `reservedUntil`
+   * dice si venció. Se retira con el conteo de ARCHITECTURE §4.48.7(5).
    */
   async sweepStaleGuestOrders(now = new Date()): Promise<{ swept: number }> {
     const cutoff = new Date(now.getTime() - GUEST_ORDER_RESERVATION_TTL_MIN * 60 * 1000);
@@ -324,6 +440,7 @@ export class GuestCheckoutService {
         guestEmail: { not: null },
         fulfillmentMode: 'direct_ship',
         createdAt: { lt: cutoff },
+        items: { some: { inventoryItem: { status: 'reserved', reservedByOrderId: null } } },
       },
       include: { items: { select: { inventoryItemId: true } } },
     });
@@ -337,11 +454,11 @@ export class GuestCheckoutService {
       // única otra vez comprable. Un PI que no se pudo cancelar significa que el pago **todavía
       // puede confirmarse**: esa reserva NO se puede soltar.
       if (order.stripePaymentIntentId) {
-        const closed = await this.closePaymentIntentForSweep(order.stripePaymentIntentId);
+        const { closed } = await this.orders.closePaymentIntent(order.stripePaymentIntentId);
         if (!closed) {
           // NO se traga el fallo (B3): el pedido no se barre en esta pasada y queda visible.
           this.logger.error(
-            `guest-order-sweep: NO se pudo cancelar el PaymentIntent ${order.stripePaymentIntentId} ` +
+            `order-reservation-sweep(legacy): NO se pudo cancelar el PaymentIntent ${order.stripePaymentIntentId} ` +
               `del pedido ${order.orderNumber ?? order.id}; la reserva NO se libera (el pago aún ` +
               'puede confirmarse). Se reintentará en la próxima pasada.',
           );
@@ -356,33 +473,10 @@ export class GuestCheckoutService {
       swept += 1;
     }
     if (skipped > 0) {
-      this.logger.warn(`guest-order-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
+      this.logger.warn(`order-reservation-sweep(legacy): ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
     }
-    if (swept > 0) this.logger.log(`guest-order-sweep: ${swept} pedidos de invitado liberados.`);
+    if (swept > 0) this.logger.log(`order-reservation-sweep(legacy): ${swept} pedidos legados de invitado liberados.`);
     return { swept };
-  }
-
-  /**
-   * B3 — cierra la vía de cobro de un pedido abandonado. Devuelve `true` SOLO si el PaymentIntent
-   * quedó efectivamente cancelado (o ya lo estaba); `false` si sigue vivo, si ya se pagó o si no
-   * se pudo determinar. **Ante la duda, `false`**: no liberar una reserva es un coste acotado
-   * (inventario retenido una pasada más); liberarla con el pago vivo es un double-sell.
-   */
-  private async closePaymentIntentForSweep(paymentIntentId: string): Promise<boolean> {
-    try {
-      const { status } = await this.stripe.cancelPaymentIntent(paymentIntentId);
-      return status === 'canceled';
-    } catch (e) {
-      // Stripe lanza tanto si el PI YA estaba cancelado (inocuo, se puede liberar) como si ya se
-      // PAGÓ (jamás liberar). Se desambigua consultando el estado real.
-      const status = await this.stripe.getPaymentIntentStatus(paymentIntentId);
-      if (status === 'canceled') return true;
-      this.logger.error(
-        `guest-order-sweep: cancelación del PI ${paymentIntentId} falló (${(e as Error).message}); ` +
-          `estado observado: ${status ?? 'desconocido'}.`,
-      );
-      return false;
-    }
   }
 
   // ------------------------------------------------------------- internals

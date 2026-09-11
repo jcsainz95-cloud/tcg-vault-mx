@@ -71,6 +71,8 @@ export function credentialsFor(role: SeedRole = 'customer'): { email: string; pa
  */
 const MOCK_FORM_CREDENTIALS: Record<SeedRole, { email: string; password: string }> = {
   customer: { email: 'cliente@example.com', password: 'secret123' },
+  // En mock el correo decide el rol: el segundo vendedor es otro cliente cualquiera.
+  customer2: { email: 'cliente2@example.com', password: 'secret123' },
   admin: { email: 'admin@example.com', password: 'secret123' },
   operator: { email: 'operador@example.com', password: 'secret123' },
   customerTemp: { email: 'temporal@example.com', password: 'cualquiera' },

@@ -91,7 +91,36 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgresql://tcg:ci_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_ci?schema=public
+      # -----------------------------------------------------------------------
+      # EL POOL VA ESCRITO A MANO PORQUE ES EL CANDADO DE `398c58a`, NO UNA
+      # PREFERENCIA ESTÉTICA (SB-D2 · techlead COND-2, 2026-09-11)
+      #
+      # Hasta hoy esta URL NO llevaba `connection_limit`: el «5» con el que se
+      # midió el defecto de dinero era el DEFAULT de Prisma (`num_cpus*2+1`), o
+      # sea el tamaño de máquina que GitHub diera ese día. Dos consecuencias, las
+      # dos malas: (a) si GitHub cambia el runner (4 vCPU ⇒ 9 conexiones) el
+      # candado se AFLOJA solo y en silencio, sin que nadie toque una línea; y
+      # (b) una corrida local nunca lo reproduce —`scripts/stack-native.sh`
+      # tampoco lo fijaba—, así que el siguiente que reintroduzca la regresión la
+      # ve VERDE en su máquina y roja aquí, sin saber por qué.
+      #
+      # QUÉ VIGILA EL 5, en concreto: antes de `398c58a` el checkout pedía DOS
+      # conexiones por petición (la que retiene la `tx` + otra para
+      # `PricingService.getReference`, que es otro handle). Con N checkouts
+      # concurrentes ≥ pool/2 el pool se agota y la ruta de DINERO muere con
+      # `Timed out fetching a new connection` ⇒ 500. Medido: con el pool en 5 la
+      # carrera R-3 pasó de 0/10 a 10/10 al corregirlo, y la mutación `m-pool`
+      # sale roja 3/3 (`docs/BACKEND_NOTES.md` §B-1f, run 34624748695).
+      #
+      # SI ALGUIEN LO SUBE (o lo borra y vuelve al default del runner): con pool
+      # grande sobran conexiones para la segunda pedida, R-3 sale VERDE con el
+      # defecto DENTRO, y el 500 en checkout vuelve a producción sin gate que lo
+      # pare. `pool_timeout=10` es la otra mitad del candado: subirlo convierte
+      # el agotamiento en espera —el 500 se vuelve lentitud— y también deja de
+      # verse. Quien lo vigila: `scripts/check-db-pool-limit.sh` (job
+      # `db-pool-limit` de este mismo fichero). DEVOPS_NOTES §57.
+      # -----------------------------------------------------------------------
+      DATABASE_URL: postgresql://tcg:ci_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_ci?schema=public&connection_limit=5&pool_timeout=10
       REDIS_URL: redis://localhost:6379
       # S-88-1 — aquí había cuatro literales (`ci_access_secret_dummy`, …). El
       # motivo de que estuvieran no era malo (la app tiene que arrancar en tests) y
@@ -550,6 +579,30 @@ jobs:
         run: ./scripts/check-workflow-cwd-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 SB-D2 — EL POOL QUE HACE VISIBLE EL 500 DE CHECKOUT ESTÁ ESCRITO, NO
+  # HEREDADO DEL RUNNER. 2026-09-11, condición COND-2 del techlead.
+  #
+  # Qué falló, medido por el techlead: el candado que protege el defecto de
+  # dinero de `398c58a` dependía de `connection_limit`, y NADIE lo fijaba —
+  # ni este fichero ni `e2e.yml` ni `scripts/stack-native.sh`. El «5» era el
+  # default de Prisma (`num_cpus*2+1`) sobre la máquina que GitHub diera ese
+  # día: si GitHub cambia el runner, el candado se afloja SOLO y en silencio, y
+  # en local no se reproduce nunca (así que quien reintroduzca la regresión la
+  # ve verde en su máquina). Ahora los tres sitios lo escriben y este job
+  # comprueba que siga escrito; el canario sube/borra/mueve el límite sobre una
+  # copia y exige rojo en cada caso. DEVOPS_NOTES §57.
+  # ---------------------------------------------------------------------------
+  db-pool-limit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: El pool de Prisma que mide la carrera R-3 está fijado a mano
+        run: ./scripts/check-db-pool-limit.sh
+      - name: Y el candado sabe morder (sube, borra y mueve el límite ⇒ rojo)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-db-pool-limit-canary.sh
+
+  # ---------------------------------------------------------------------------
   # 📊 CENSO DE SALVAGUARDAS DE SALTO EN LA SUITE E2E (techlead N7, 2026-09-11).
   # Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing` es un test que
   # en algún entorno NO mide. Esto no los juzga uno a uno: impide que el número
@@ -578,7 +631,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, e2e-skip-census]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census]
     if: always()
     runs-on: ubuntu-latest
     steps:

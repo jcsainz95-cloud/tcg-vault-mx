@@ -534,6 +534,17 @@
         "alreadyClaimedNeutral": "We couldn't link this order.",
         "emailTakenNeutral": "We couldn't create an account with that email. If you already have one, log in to claim the order from your history."
       }
+    },
+    "retry": {
+      "reused": "We recovered your previous reservation ({orderNumber}): same order, same charge, nothing is duplicated.",
+      "superseded": "{count, plural, one {Your previous attempt was cancelled} other {Your # previous attempts were cancelled}}: this order replaces it and only this one is charged.",
+      "reservedUntil": "Reserved for you until {time} (Mexico City time).",
+      "remaining": "Time left: {remaining}",
+      "expired": "The reservation expired. When you pay we will try to reserve these pieces again.",
+      "viewOrder": "View order {orderNumber}",
+      "retrySoon": "Retry in a moment",
+      "ownActive": "This cart is already reserved for you ({orderNumber}): paying resumes that same order, with no double charge.",
+      "ownExpired": "Your previous reservation ({orderNumber}) expired: paying renews it with a new order and cancels the previous attempt."
     }
   },
   "vault": {
@@ -1033,6 +1044,14 @@
     "item": {
       "unknownCard": "Card not recorded",
       "unknownCardHint": "This order's record did not store this card's name. The amount charged is unchanged."
+    },
+    "resume": {
+      "cta": "Resume payment",
+      "reservedUntil": "Reserved until {time} (Mexico City time)",
+      "expired": "The reservation expired: resuming renews it with a new order.",
+      "cartReplaced": "Your cart is replaced with the pieces of this order.",
+      "loading": "Recovering…",
+      "error": "We could not recover the pieces of this order. Please try again."
     }
   },
   "legal": {
@@ -3277,7 +3296,16 @@
     "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
     "OFFER_NOT_PENDING": "This offer is no longer waiting for a response.",
     "PHONE_REQUIRED": "The account has no mobile number. The carrier needs it to deliver the label and to call about the pickup.",
-    "BOUNTY_TARGET_REQUIRED": "Give it a target: how many copies you want to pay that price for. Without one, the bounty never stops the buying. Nothing was saved."
+    "BOUNTY_TARGET_REQUIRED": "Give it a target: how many copies you want to pay that price for. Without one, the bounty never stops the buying. Nothing was saved.",
+    "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
+    "INVALID_TRANSITION_WITH_DETAILS": "This request is in “{from}”: {verb} only applies when it is in {allowedFrom}. Nothing was saved and retrying will not change it: refresh the view to see the real step.",
+    "INVALID_TRANSITION_VERB": {
+      "receive": "“Mark received”",
+      "verify": "“Start verification”"
+    },
+    "INVALID_TRANSITION_ALLOWED_FROM_JOIN": " or ",
+    "PAYMENT_IN_PROGRESS": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
+    "PAYMENT_IN_PROGRESS_GUEST": "Your previous attempt with this email already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check your email or wait a moment before retrying."
   },
   "payment": {
     "title": "Payment",

@@ -2,7 +2,139 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.67.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.69**).
+>
+> **Changelog v1.69 — P-78 · LA VERIFICACIÓN DE IDENTIDAD CIERRA EL CICLO (2026-09-11, arquitecto; base v1.68.1,
+> vigente entera). ⚠️⚠️ FRENTE DE PII ⇒ PASA POR SEGURIDAD ANTES DE PUBLICARSE.**
+>
+> **Hallazgo del dueño sobre la release publicada `c8bee65`, ya medido:** las imágenes de INE **se guardan**
+> (`KycProfile.ineFrontKey/ineBackKey`, `schema.prisma:467-468`) y **ninguna ruta las expone** — la proyección de
+> admin las excluye a propósito y solo deriva `ineOnFile` (`admin.service.ts:40-45,67-68,197`), `uploads.controller.ts`
+> solo tiene `POST /uploads/presign`, y la capacidad de lectura **existe sin usarse** (`uploads.service.ts:154`
+> `presignGet(key, expiresIn = 300)`). ⇒ **el panel deja marcar «verificado» sin haber visto nada**, y el cliente ve
+> «Pendiente» **sin ninguna acción** cuando ya subió todo (`KycSection.tsx:68,162`).
+>
+> **TODO LO NUEVO DE ESTA REV VIVE EN UNA SOLA SECCIÓN NUEVA: [`§M6-K`](#M6-K)** (nada se renumera, nada se mueve).
+> Fuera de ella, v1.69 toca **cinco sitios y nada más**: `GET`/`PUT /users/me/kyc` (§1), el `422 INE_REQUIRED` de
+> `POST /buylist/requests` (§6), las filas 2–3 de [`§M5-A.7`](#M5-A), [`§M5-I.6`](#M5-I), [`§M5-K.5(b)`](#M5-K) y los
+> DTOs de §11. **Cero endpoints de dinero tocados. Un endpoint nuevo, dos códigos nuevos, un campo nuevo de BD.**
+>
+> **1. ⭐ ENDPOINT NUEVO — `GET /api/v1/admin/users/:id/kyc/ine-links` (`super_admin` ÚNICAMENTE).** Devuelve **dos
+> enlaces prefirmados de vida corta** (frente y reverso, `presignGet`, **TTL 120 s**). ⛔ **Nunca** devuelve las
+> *object keys* ni una URL permanente; ⛔ **nunca** se incrusta en un listado ni en la ficha: **solo bajo petición
+> explícita**. `vault_operator` ⇒ **`403`** (decisión (a) del dueño, `HECHOS.md`). Auditado **con fallo cerrado**
+> (`user.kyc.reveal_ine`): si la bitácora no escribe, **no salen los enlaces**. Rate limit `10/min`.
+> Códigos nuevos: **`422 INE_NOT_ON_FILE`** y **`422 KYC_REJECTION_REASON_REQUIRED`**.
+>
+> **2. ⭐ EL RECHAZO EXIGE MOTIVO, Y EL MOTIVO LLEGA AL CLIENTE.** `PATCH /admin/users/:id/kyc` gana
+> `rejectionReason?` (**3–500**, obligatorio **si y solo si** `kycStatus='rejected'`); `GET /users/me/kyc` gana
+> `rejectionReason?` (**solo** cuando el estado es `rejected`) y el cliente **puede volver a subir** ⇒ vuelve a
+> `pending`. **Migración aditiva y nullable** (`KycProfile.rejectionReason`, `reviewedAt`, `reviewedBy`).
+>
+> **3. ⛔⛔ LOS TOPES SALEN DE LA VISTA DEL CLIENTE** (decisión (c) del dueño). `GET /users/me/kyc` **deja de emitir
+> `ineThresholdCents` (hoy en código `capPerRequestCents`), `capPerMonthCents` y `monthUsedCents`**, y el
+> `422 INE_REQUIRED` del intake **deja de emitir `thresholdCents`** (único sitio que lo emitía:
+> `buylist.service.ts:1606-1608`; la emisión ya lo omitía a propósito, `:3611-3615`). **§P.2.2 NO se pierde:** la
+> comparación del front se sustituye por **un booleano server-side** (`GET /users/me/kyc?quotedTotalCents=N` →
+> `ineRequiredForTotal`), que es **estrictamente menos información** que la cifra que viajaba hasta v1.68.1.
+>
+> **4. LA FICHA DE M6 SIRVE PARA COTEJAR IDENTIDAD CONTRA EL DESTINO DE ENVÍO** (decisión (d)): `AdminUserDetailDTO`
+> gana `nameSource` y `recentShipmentRecipients` (últimos 5, lista blanca). ⛔ **Sin ensanchar PII:** la CLABE sigue
+> enmascarada, el RFC sigue `rfcMasked`, y `AdminKycProfileDTO` **PIERDE `ineFrontKey`/`ineBackKey`** — que estaban
+> declarados desde antes y que el código **nunca** emitió (`admin.service.ts:195-197`). *El contrato se alinea con la
+> decisión, no con la línea vieja.*
+>
+> **5. TABLA NORMATIVA DE ESTADOS DEL KYC** (§M6-K.7): qué ve el cliente y qué acción se le ofrece en cada uno, para
+> que ux-ui y frontend no lo adivinen.
+>
+> **Changelog v1.68.1 — DOS CORRECCIONES TRAS LA CONSTRUCCIÓN DE STREAM B (2026-09-11, arquitecto; base v1.68,
+> vigente entera; cero endpoints, cero códigos, cero DDL nuevos).**
+>
+> **1. ⭐ [§4-R.5](#4-R) — EL QUOTE TAMBIÉN CONOCE LA RESERVA PROPIA; sin esto, «Reanudar pago» y el reuso son
+> inalcanzables.** Medido por frontend contra el backend real (hasta `e6b0f35`): `POST /checkout/quote` y
+> `POST /checkout/guest/quote` mandan a `unavailableItems` toda pieza con `status ∉ {listed, in_stock}`
+> (`orders.service.ts:256-258` `isSellable`, `:351`), y el front **debe podar** esas piezas antes de `session` (§4,
+> «Deber del front»). Tras un intento caído la pieza está `reserved` **por la propia orden** ⇒ el quote la devuelve
+> muerta ⇒ la vista la poda ⇒ `session` nunca ve el carrito completo ⇒ el `200 reused` de §4-R.2 no ocurre nunca.
+> **Norma nueva:** el quote trata como **disponible** la pieza `reserved` por una orden `pending` viva **del mismo
+> cliente** (`reservedByOrderId → Order.userId == yo`, `reservedUntil > now()`; invitado: con `retryOfCheckoutToken` +
+> `email`, regla de §4-R.3) y lo **marca**: `items[].reservedByYou: true` + bloque `ownReservation` a nivel superior
+> (`{ orderId, orderNumber, reservedUntil, coversCart }` | `null`, **siempre presente**). Si la reserva propia cubre
+> **exactamente** el carrito, el quote devuelve **los precios congelados** de esa orden (lo que el PI cobra); si no,
+> precios en lectura (la sesión sustituirá y re-preciará). `GuestCheckoutQuoteRequest` gana `retryOfCheckoutToken?` y
+> `email?` (obligatorio si viaja el token). **Backend lo implementa después** (tarea B-1e, `ARCHITECTURE §4.48.8`);
+> candado **R-8**.
+>
+> **1-bis. [§4-R.2](#4-R) — LA RESERVA PROPIA VENCIDA Y AÚN NO BARRIDA ES SUSTITUIBLE, NUNCA AJENA NI REUSABLE**
+> (medido por backend B-1: por la letra de §4-R.1 «viva» = `reservedUntil > now()`, una reserva propia vencida caía a
+> la fila «ajena» ⇒ `409 ITEM_UNAVAILABLE` hasta 15 min). Fila nueva «Propia VENCIDA»: misma secuencia que «carrito
+> distinto» (cancelar PI viejo y confirmar `canceled` → liberar+reservar+crear → `201 supersededOrderIds`).
+> ⛔ No reuso: renovar el TTL compite con el barrido, que ya pudo seleccionarla y la liberaría con una guarda que
+> **sí** matchea. El quote la sigue tratando como propia (`ownReservation.expired: true`, precios en lectura).
+> Candado **R-9** (incluye la carrera con el barrido, con proporción).
+>
+> **2. ⛔ [§M2-F.9](#M2-F9) NO PUEDE PONER EN ROJO EL ESPEJO POR UN CAMBIO QUE, POR DISEÑO, AÚN NO SE IMPLEMENTA.**
+> v1.68 reescribió las tablas **canónicas** de §M2-F.1/F.2/F.3/F.6 (`'fallback'` → `'none'`, `fallbackRate` retirado)
+> mientras P-68 queda **serializado** tras D-GT-1 (`D-SB-3`) y el código sigue emitiendo `'fallback'`.
+> `frontend/src/lib/mock/fx-contract-mirror.test.ts:70-117` compara `FX_SOURCES` y las claves del `FxStateDTO` contra
+> **esas tablas** ⇒ **2 tests rojos en CI** por un contrato adelantado a su propia implementación. **Corrección:**
+> §M2-F.1/F.2/F.3/F.6 **vuelven, palabra por palabra, a v1.67.x** (lo que el código emite: `banxico|manual|fallback`,
+> `fallbackRate`, acuse) y **los valores nuevos viven SOLO en §M2-F.9**, reencuadrada como *«normativa a partir de
+> D-SB-3; hasta entonces rige §M2-F.3 vigente»*. **Regla que queda escrita** (`ARCHITECTURE §4.48.3`): un cambio de
+> contrato cuya implementación se difiere **a propósito** se publica como sección **futura-normativa con disparador**,
+> no editando el canon que un espejo ejecutable lee. El contrato manda sobre el código; no manda sobre el calendario.
+>
+> ---
+>
+> **Changelog v1.68 — STREAM B «LO QUE SE ROMPE CON EL DINERO»: la recepción que respeta el pacto, la reserva que
+> conoce a su dueño, el tipo de cambio que no inventa un 18 y la disputa que no se resuelve dos veces (2026-09-11,
+> arquitecto).** Base: **v1.67.1, vigente entera**. **Cero endpoints nuevos.** **Dos códigos nuevos**
+> (`409 INVALID_TRANSITION`, `409 PAYMENT_IN_PROGRESS`). **DDL ADITIVO** (`M-53`: `InventoryItem.reservedByOrderId`,
+> `InventoryItem.reservedUntil`; nullable, **sin backfill**). **Un campo de request nuevo** (`retryOfCheckoutToken?`,
+> §4-G.2). **Un DTO que cambia de forma** (`FxStateDTO`: `rate` nullable, `source` gana `none` y pierde `fallback`,
+> `fallbackRate` se retira — §M2-F.9; ⚠️ **v1.68.1: normativo a partir de D-SB-3, no antes**). Origen: `PENDIENTES.md` P-58 / P-59 / P-68 + `HISTORIAL.md:413` (disputas).
+> Todo **medido por mí contra el árbol** (`buylist.service.ts:5488-5512,5654`, `orders.service.ts:425-465,544-614`,
+> `guest-checkout.service.ts:141,319-363`, `payments.service.ts:372-393`, `fx-mode.ts:46,56,285-293,364-383`,
+> `fx.service.ts:325-369`, `pricing.service.ts:691-726`, `disputes.service.ts:208-238`,
+> `dispute-deadline.service.ts:16-21`, `M5View.tsx:991-1001`). Razón entera y reparto: `ARCHITECTURE §4.48`.
+> Desviaciones **`D-SB-1..5`** en `ARCHITECTURE §9`. **Dinero ⇒ triple veredicto** (QA + techlead + seguridad).
+>
+> **1. ⭐⭐ [§M5-S](#M5-S) — `receive` y `verify` exigen el PASO CORRECTO, no solo «fila viva» (P-58).** `receive`
+> solo desde `en_transito` (idempotente en `recibida`); `verify` solo desde `recibida` (idempotente en
+> `verificacion`). Cualquier otro estado **vivo** ⇒ **`409 INVALID_TRANSITION`** con
+> `details: { verb, from, allowedFrom, idempotentOn }`. **§M5-T no cambia y sigue ganando**: terminal/cerrada ⇒
+> `409 CONFLICT`. La cadena `confirm-shipment → receive → verify` de la mesa **sigue pasando** (cada verbo parte de su
+> predecesor); la cadena **invertida** (`verify` antes que `receive`), que hoy deja `recibida` con `verifiedAt`
+> sellado, **deja de pasar**. Qué ofrece M5 en cada estado: tabla en §M5-S.
+>
+> **2. ⭐⭐ [§4-R](#4-R) — LA RESERVA TIENE DUEÑO (P-59).** Una pieza `reserved` lleva `reservedByOrderId` y
+> `reservedUntil` (`M-53`). El **mismo cliente** que reintenta `POST /checkout/session` sobre su propia reserva **la
+> recupera**: mismo carrito ⇒ **`200` con la MISMA orden y el MISMO PaymentIntent** (`reused: true`); carrito distinto
+> ⇒ se **cancela primero el PI viejo** y se crea la orden nueva (`201`, `supersededOrderIds`); si el PI viejo ya no se
+> puede cancelar ⇒ **`409 PAYMENT_IN_PROGRESS`**. Otro cliente ⇒ `409 ITEM_UNAVAILABLE`, como hoy. **Invariante de
+> dinero: nunca dos PaymentIntents vivos por la misma pieza.** Toda salida de `reserved` lleva el eje de la orden en el
+> `where`. El barrido pasa a ser **por `reservedUntil`, para las DOS rutas** (hoy solo barre invitados:
+> `guest-checkout.service.ts:324`). Invitado: recupera **solo con `retryOfCheckoutToken`** (§4-G.2, §4-R.3).
+> `POST /checkout/session` y `GET /orders[/:id]` ganan `orderNumber` y `reservedUntil` (aditivo; cierra la petición
+> post-A de `FRONTEND_NOTES §68.4` sobre `orderNumber`).
+>
+> **3. ⭐ [§M2-F.9](#M2-F9) — EL 18 DEJA DE REGIR (P-68).** El interruptor **ya existe e implementado**
+> (`PUT /admin/fx/mode`, `fx.service.ts:325`); ⛔ **no** se crea `GET/PUT /admin/settings/fx` y `legacy` sigue sin
+> salir por la API (`modeResolvedFrom`). Cambia: **(a)** `mode:"auto"` con `automatic.status:"missing"` ⇒
+> `422 FX_NO_AUTOMATIC_RATE` **sin acuse que lo abra** (`acknowledgeNoAutomaticRate` se retira); `stale` sigue
+> permitido y declarado. **(b)** Cuando ninguna rama puede regir, **no rige un literal**: `FxStateDTO.rate: null`,
+> `source: "none"`; `fallback` y `fallbackRate` **se retiran**. La valuación cae a la cifra **persistida con su FX de
+> origen** (`priceMxnCents`, `pricing.service.ts:719-726`, doctrina ya vigente) y **la ingesta no convierte USD** hasta
+> que haya tasa. **(c)** La consulta de P-68 sigue siendo puerta de despliegue (devops). ⚠️ **Implementación
+> SERIALIZADA** fuera de la ventana paralela de Stream B (toca `pricing`/`catalog`/`inventory`/`jobs`/`common`):
+> `ARCHITECTURE §4.48.3`, desviación `D-SB-3`.
+>
+> **4. §M8 — `resolve` obedece la doctrina de §M5-T y el job de deadline no revive resueltas.**
+> `POST /admin/disputes/:id/resolve` con guarda `status ∈ {abierta, en_revision}` en el `where` (`count===1`); segunda
+> resolución ⇒ `409 CONFLICT` `details: { status, resolvedAt }`. El job `dispute-deadline` pasa a un solo `updateMany`
+> con `status:'abierta'` en el `where`. Sin DDL, sin endpoint nuevo, sin frontend.
+>
+> ---
 >
 > **Changelog v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y BACKEND Y FRONTEND RESOLVIERON CADA UNO POR SU LADO
 > (2026-09-11, arquitecto).** Base: **v1.67, vigente entera**. **⛔ Cero endpoints nuevos, cero códigos nuevos, cero
@@ -4778,6 +4910,17 @@
   de quien recibe un paquete son hechos distintos. El front **puede** pre-rellenar el campo con `user.name` cuando
   `nameSource !== 'derived'`; el servidor **nunca**.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
+- **⭐ `422 INE_NOT_ON_FILE` (NUEVO v1.69, P-78 — [`§M6-K.2`](#M6-K)):** `GET /admin/users/:id/kyc/ine-links` sobre un
+  usuario que **existe** pero **no tiene INE completo** (sin `KycProfile`, o con **solo una** de las dos imágenes).
+  `details: { frontOnFile: boolean, backOnFile: boolean }` — le dice al revisor **cuál falta**. **No es `404`**: el
+  recurso *usuario* existe y la respuesta es accionable (*«pídeselo»*), no *«te equivocaste de URL»*. **Misma familia
+  de `CLABE_REQUIRED`**: *falta el dato, pídelo y reintenta*.
+- **⭐ `422 KYC_REJECTION_REASON_REQUIRED` (NUEVO v1.69, P-78 — [`§M6-K.4`](#M6-K)):** `PATCH /admin/users/:id/kyc`
+  con `kycStatus='rejected'` **sin** `rejectionReason` (o vacío tras `trim`). `details: { field: 'rejectionReason' }`.
+  **Existe porque el rechazo sin motivo es exactamente el defecto que P-78 cierra:** el cliente recibe un «no» que no
+  puede corregir. **Longitud fuera de 3–500 ⇒ `422 VALIDATION_ERROR`** (`details: { field, min, max }`), y
+  `rejectionReason` **con un `kycStatus` distinto de `rejected`** ⇒ **`422 VALIDATION_ERROR`** también: ⛔ un motivo
+  aceptado y descartado en silencio es un motivo que el cliente nunca verá y que el admin cree haber mandado.
 - **⛔⛔ ~~`422 KYC_NOT_VERIFIED`~~ — RETIRADO EN v1.60 (D51) ANTES DE IMPLEMENTARSE. NO EXISTE Y NO SE IMPLEMENTA.**
   **Declarado en v1.59** como **un término de KYC** en `POST /admin/buylist/:id/pay-spei` (`ineRequired = true ∧
   kycStatus != 'verified'`), **nunca llegó al código** —llegó por la regla 9 y no se mergeó—, y **`PROJECT.md` D51
@@ -6505,8 +6648,29 @@ Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /user
   es `change-password`/`logout`/`GET /users/me`).
 
 ### KYC (buylist)
-- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, ineThresholdCents, capPerMonthCents, monthUsedCents }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
-  > ⚠️⚠️ **v1.59 (D47, [`§M5-D.5`](#M5-D)) — `capPerRequestCents` SE RETIRA y en su lugar va `ineThresholdCents`.**
+- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, rejectionReason?, ineRequiredForTotal? }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
+  > ⚠️⚠️⚠️ **v1.69 (P-78, [`§M6-K.5`](#M6-K)) — LOS TRES NÚMEROS SE RETIRAN DE ESTE DTO. Decisión del dueño
+  > (`HECHOS.md`, 2026-09-11): «los topes dejan de mostrarse al cliente — pantalla y mensaje de error».**
+  > **Se van `ineThresholdCents`, `capPerMonthCents` y `monthUsedCents`** (medido: el código emite hoy
+  > `capPerRequestCents`, `capPerMonthCents`, `monthUsedCents` — `users.service.ts:294-315`; el rename de v1.59 nunca
+  > se implementó). ⛔ **No se dejan alias ni se marcan «no expuestos»: se retiran.** Son **política interna**, y el
+  > párrafo v1.59 de abajo queda **derogado en su parte de divulgación** (su parte de *«no hay override por usuario»*
+  > sigue viva y es de §M5-D).
+  > **Entran, en su lugar, dos campos que NO son números de política:**
+  > - **`rejectionReason?: string`** — **presente si y solo si `kycStatus === 'rejected'`**. Es el motivo que escribió
+  >   el `super_admin` al rechazar (§M6-K.4). Es **lo que cierra el ciclo**: sin él, el cliente ve «rechazado» y no
+  >   sabe qué corregir. ⛔ Ausente en cualquier otro estado (no se deja `null` residual de un rechazo anterior).
+  > - **`ineRequiredForTotal?: boolean`** — **presente si y solo si la petición trae `?quotedTotalCents=N`**
+  >   (entero ≥ 0). Es la **única** sustitución autorizada de la comparación que hacía el front ([`§M5-I.6`](#M5-I)):
+  >   el servidor compara contra el umbral y devuelve **el veredicto, no la cifra**. **`true`** = con ese total se te
+  >   va a exigir INE. ⛔ **El servidor NO revela el umbral en ninguna forma**, ni siquiera en `details`.
+  >   **Residual conocido y aceptado:** un vendedor autenticado puede *acotar* el umbral repitiendo la llamada. Es
+  >   **estrictamente menos** de lo que v1.68.1 le entregaba impreso, va autenticado y lleva el rate limit general.
+  >   ⛔ **No hay booleano equivalente para el tope MENSUAL:** ése rechaza y no se puede remediar subiendo nada; sigue
+  >   apareciendo solo como `422 BUYLIST_LIMIT_EXCEEDED` al enviar (ver §M6-K.5, nota de alcance).
+  > ~~⚠️⚠️ **v1.59 (D47, [`§M5-D.5`](#M5-D)) — `capPerRequestCents` SE RETIRA y en su lugar va `ineThresholdCents`.**~~
+  > *(v1.69: derogado en lo que toca a la divulgación al cliente — el campo no viaja. Se conserva el texto porque
+  > explica por qué NO existe un umbral por usuario, que sigue siendo norma.)*
   > **Es un RENAME, no un aditivo: frontend tiene que tocarlo.** Es **el mismo número** (`ine_threshold_cents`,
   > MX$3,000 por defecto) con el nombre que corresponde a lo único que hace tras D47: **disparar la identificación**.
   > **`ineThresholdCents` es GLOBAL y no tiene override por usuario** — el override por-KYC del viejo tope **se retira
@@ -6518,6 +6682,19 @@ Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /user
   - **`ineOnFile: boolean`** (ya existente) = hay imagen de INE (frente+reverso) en archivo. El front lo usa para **ocultar los uploaders de INE** y **omitir `ineUploadKeys`** en `POST /buylist/requests`; el backend ya trata el INE en archivo como "provisto" para el umbral AML (no re-pide INE si ya está).
   - **`clabeOnFile: boolean`** (**NUEVO v1.15**) = hay CLABE cifrada en archivo (`Boolean(KycProfile.clabeEnc)`). Booleano **limpio y simétrico** a `ineOnFile`. El front lo usa para ofrecer el atajo "usar mi CLABE ****1234" (= **omitir** `clabe` en `POST /buylist/requests`, resuelto server-side; ver §6) y, junto con `clabeMasked`, pintar el label. Si `clabeOnFile=false`, el front pide la CLABE.
 - `PUT /api/v1/users/me/kyc` — `customer` — Req: `{ clabe?, ineFrontUploadKey?, ineBackUploadKey? }` (keys de presign). La CLABE se recibe en claro (18 dígitos), se **cifra en reposo** y debe ser **a nombre del propio usuario** (**declarado por el usuario — ⚠️ v1.60, D51: «declarado» es literal y es TODO lo que hay**). Err `422 CLABE_INVALID`.
+  > ⚠️⚠️ **v1.69 (P-78, [`§M6-K.6`](#M6-K)) — ESTE `PUT` ES LA VUELTA DEL CICLO, Y HOY MUEVE `kycStatus` DE MÁS.**
+  > **Medido** (`users.service.ts:331-349`): **toda** llamada escribe `kycStatus: 'pending'`, también una que solo
+  > trae `clabe` ⇒ **cambiar la CLABE tira al suelo una verificación de identidad ya hecha**, que no tiene nada que
+  > ver con la CLABE. **Norma v1.69, y es la que hace que «volver a subir» signifique algo:**
+  > - **`kycStatus` pasa a `pending` SI Y SOLO SI la llamada trae al menos una de `ineFrontUploadKey` /
+  >   `ineBackUploadKey`.** Una llamada **solo con `clabe`** **NO toca `kycStatus`**, ni `rejectionReason`.
+  > - Al (re)subir INE: `kycStatus='pending'`, **`rejectionReason` se limpia a `null`** y `reviewedAt`/`reviewedBy`
+  >   se limpian. *El motivo de un rechazo anterior no puede sobrevivir a la corrección que lo responde.*
+  > - **Sustituir una key BORRA el objeto anterior en R2** (`uploads.deleteObject`, `uploads.service.ts:170`), en el
+  >   mismo flujo. Razón en §M6-K.4: conservar la imagen rechazada es evidencia **durante la ventana del rechazo**;
+  >   conservarla **después de que llegó la nueva** es solo PII huérfana que ninguna purga alcanza.
+  > - **`rejected` es un estado re-subible**: el cliente puede llamar a este `PUT` desde `rejected` **y desde
+  >   `verified`** (foto vencida). No hay estado terminal.
   > ⚠️⚠️ **v1.60 (D51) — LA PRECISIÓN QUE ESTE ENDPOINT NECESITA, PORQUE ES DONDE SE CAPTURA EL DATO:** *«a nombre del
   > propio usuario»* es una **declaración del vendedor que NADIE COMPRUEBA**. **El sistema no verifica la titularidad de
   > la cuenta en ningún punto** y `PROJECT.md` **retiró la promesa de que lo hacía** ([`§M5-K`](#M5-K)).
@@ -7092,6 +7269,11 @@ Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableIte
   Entra a `unavailableItems` todo id que (a) **no existe** en BD (`cardName: null`) o (b) existe pero **no** está
   disponible para venta de plataforma (`ownerType != 'platform'` o `status ∉ {listed, in_stock}`) — ahí
   `cardName` trae el nombre de la carta para el aviso del front.
+- ⭐ **v1.68.1 — EXCEPCIÓN: la reserva PROPIA es disponible** ([§4-R.5](#4-R)). Una pieza `reserved` cuya
+  `reservedByOrderId` apunta a una orden `pending` **del mismo `userId`** con `reservedUntil > now()` **NO** entra a
+  `unavailableItems`: va en `items[]` con **`reservedByYou: true`**, y la respuesta trae **`ownReservation`**
+  (siempre presente; `null` si no hay). Sin esto, el front podaba la pieza del propio intento caído antes de
+  `session` y el `200 reused` de §4-R.2 era inalcanzable. Reserva de **otro** cliente ⇒ sigue en `unavailableItems`.
 - `items` y `breakdown` se calculan **SOLO con los ítems válidos** (los podados no suman al total).
 - **Carrito 100 % no disponible:** `200` con `items: []`, `unavailableItems` poblado y **`breakdown` presente en
   CEROS** (`{ subtotalCents: 0, ivaCents: 0, ivaRatePct: 16, processingFeeCents: 0, totalCents: 0,
@@ -7165,8 +7347,196 @@ Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inven
 
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (**v1.40: derivado de `ivaPct/100`**, fuente única del IVA). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
+<a id="4-R"></a>
+### 4-R. La reserva tiene DUEÑO — reintento del mismo cliente, un solo cobro por pieza (v1.68, NORMATIVA, **DINERO**; P-59)
+
+> **Lo medido (2026-09-11):** `reserveItems` (`orders.service.ts:425-440`) reserva con
+> `where { id, ownerType:'platform', status ∈ {listed,in_stock} }` — **sin eje de usuario, sesión ni PaymentIntent**;
+> el invitado ni siquiera escribe titularidad (`guest-checkout.service.ts:141` pasa `null`). Un reintento del **mismo**
+> cliente choca contra **su propia** reserva y recibe `409 ITEM_UNAVAILABLE` (`:436`); el front re-cotiza y **poda la
+> pieza del carrito** (`CheckoutView.tsx:171-183`, `GuestCheckoutView.tsx:182`) — «la carta ya no estaba». La reserva
+> se libera solo por compensación (`releaseReservation` `:450-465`, guardada por `status:'reserved'` **a secas**), por
+> webhook (`payments.service.ts:379-391`, misma guarda) o por el barrido de **invitados**
+> (`guest-checkout.service.ts:319-363`, `guestEmail: {not:null}`), TTL 60 min (`guest-checkout.constants.ts:43`), cada
+> 15 min (`scheduler.service.ts:172`). **Una orden `pending` de bóveda (con cuenta) no se barre nunca** (`D-SB-1`).
+> PROJECT §B (`PROJECT.md:1327-1330`) fija que la pieza queda *«reservada al pedido»* y **no fija plazo**. Razón
+> entera: `ARCHITECTURE §4.48.2`.
+
+#### 4-R.1 Definiciones
+
+- **Reserva** = `InventoryItem.status = 'reserved'` **∧** `reservedByOrderId = <Order.id>` **∧** `reservedUntil =
+  <instante>` (`M-53`, §4-R.6). Una pieza `reserved` con `reservedByOrderId IS NULL` es una **reserva legada**
+  (anterior a `M-53`): se libera por los caminos de siempre y **no es recuperable por nadie**.
+- **Dueño de la reserva** = la `Order` que la creó. **Cliente de la orden** = `Order.userId` (con cuenta) o
+  `Order.guestEmail` **+ posesión de un `checkoutToken` vivo de esa orden** (invitado, §4-G.7a). *Un correo solo no
+  es identidad: cualquiera puede teclearlo.*
+- **Reserva propia y viva** = orden `pending` del cliente que llama, con al menos una pieza reservada por ella y
+  `reservedUntil > now()`. **Reserva propia VENCIDA** *(v1.68.1)* = la misma, con `reservedUntil <= now()` y **aún no
+  barrida** (el barrido corre cada 15 min): sigue siendo **propia** —nunca «ajena»— y es **sustituible, no reusable**
+  (§4-R.2, fila «Propia vencida»).
+- **TTL** = `ORDER_RESERVATION_TTL_MIN` (**60**; es `GUEST_ORDER_RESERVATION_TTL_MIN` renombrada; aplica a las
+  **dos** rutas).
+
+#### 4-R.2 `POST /api/v1/checkout/session` — conducta con reserva propia (`customer`)
+
+Request **sin cambios** (`{ inventoryItemIds, billingProfileId? }`). El servidor, **bajo una puerta por cliente**
+(`pg_advisory_xact_lock` sobre `userId`; misma ceremonia que `lockFxGate`: candado → releer **por el mismo `tx`** →
+decidir → escribir; `ARCHITECTURE §5.5`), busca las **reservas propias y vivas** que intersecan el carrito y decide:
+
+| Caso | Condición | Respuesta |
+|---|---|---|
+| **Sin reserva propia** | ninguna orden `pending` propia tiene piezas del carrito | **Como hoy**: reserva, `Order` `pending`, PI (`pi-order-<id>`) ⇒ **`201`** |
+| **REUSO** ⭐ | **exactamente una** orden propia viva, y su conjunto de piezas **== el carrito** (como conjuntos) | **`200`** — **la misma orden y el mismo PaymentIntent**. `reservedUntil` de sus piezas se **renueva** a `now()+TTL`. **No se escribe nada más**: ni orden, ni PI, ni precio. El `breakdown` es el **congelado** de esa orden (lo que el PI cobra), aunque el catálogo haya cambiado: eso es lo que significa «reservada» |
+| **SUSTITUCIÓN** | hay reservas propias vivas pero el carrito **difiere** (más/menos piezas), o hay **más de una** orden propia solapada | Por cada orden vieja, **en este orden**: (1) cancelar su PI en Stripe **y comprobar que quedó `canceled`** (B3, `guest-checkout.service.ts:333-350`); (2) en **una** transacción: liberar sus piezas (guardadas por `reservedByOrderId = vieja.id`), marcar la orden `failed`, **reservar el carrito nuevo** y crear la orden nueva; (3) PI nuevo. ⇒ **`201`** con `supersededOrderIds: [...]` |
+| **Propia VENCIDA** *(v1.68.1)* | la pieza está `reserved` por una orden `pending` **mía** con `reservedUntil <= now()` que el barrido **aún no** liberó — con el carrito igual **o** distinto | **SUSTITUCIÓN, siempre** (misma secuencia de la fila anterior: cancelar PI viejo y confirmar `canceled` → liberar+reservar+crear en una `tx` → PI nuevo ⇒ **`201`**, `supersededOrderIds`). ⛔ **Nunca reuso** (renovar el TTL de una reserva vencida compite con el barrido, que puede haberla seleccionado ya y liberarla un instante después con la guarda `reservedByOrderId = vieja.id`, que **sí** matchearía); ⛔ **nunca «ajena»** (es del mismo cliente y sustituirla es money-safe: el PI viejo se cancela **antes**). Si el PI viejo no se puede cancelar ⇒ fila siguiente |
+| **PI viejo no cancelable** | en (1) Stripe responde `processing` o `succeeded` (el pago **puede** o **ya** se consumó) | **`409 PAYMENT_IN_PROGRESS`** `details: { orderId, orderNumber }`. **Cero escritura.** El front lleva al cliente a ese pedido |
+| **Reserva ajena** | la pieza está `reserved` por una orden de **otro** cliente, o en cualquier estado no vendible | **`409 ITEM_UNAVAILABLE`**, **como hoy** (`details` sin datos del otro cliente) |
+
+**Res `201` / `200`** (forma única, **aditiva** sobre la de §4):
+```jsonc
+{ "orderId": "…", "orderNumber": "TCG-000123",          // orderNumber: NUEVO aquí (ya viajaba en §4-G.2)
+  "breakdown": { "…": "BreakdownDTO" },
+  "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" },
+  "reused": false,                                      // NUEVO: true SOLO en el 200 de reuso
+  "reservedUntil": "2026-09-11T13:05:00Z",              // NUEVO: hasta cuándo es tuya la reserva
+  "supersededOrderIds": [] }                            // NUEVO: órdenes propias sustituidas ([] si ninguna)
+```
+Err: los de §4 + **`409 PAYMENT_IN_PROGRESS`**.
+
+**Reglas:**
+1. ⛔ **Un cobro por pieza.** En ningún instante existen **dos PaymentIntents no cancelados** cuyas órdenes reserven
+   la misma pieza. El reuso no crea PI; la sustitución **cancela antes de crear**; si no puede cancelar, **no crea**
+   (`PAYMENT_IN_PROGRESS`).
+2. ⛔ **La liberación solo libera lo propio.** Toda transición que sale de `reserved` —compensación
+   (`releaseReservation`), webhook `payment_failed|canceled` (`failAndRelease`), contracargo, barrido **y** liquidación
+   (`reserved → in_custody|picking`)— lleva **`reservedByOrderId = <la orden que la dispara>`** en el `where` de su
+   `updateMany` y **limpia** `reservedByOrderId`/`reservedUntil` en el `data`. *Sin esto, el webhook
+   `payment_intent.canceled` del PI viejo liberaría la pieza que la orden nueva acaba de reservar.* **Transitorio
+   `M-53`:** el `where` admite además `reservedByOrderId IS NULL` (reserva legada); esa rama se retira cuando
+   `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL` sea `0` en
+   producción (deuda con comprobación, `ARCHITECTURE §4.48.7`).
+3. **Idempotencia observable:** N llamadas del mismo cliente con el mismo carrito, **concurrentes o no**, terminan con
+   **una** orden `pending` suya y **un** PI; responden `201` (la primera) o `200 reused` (las demás). *La puerta por
+   cliente es lo que lo garantiza; sin ella, dos llamadas simultáneas pasan el pre-scan sin ver la orden de la otra.*
+4. **Renovar el TTL en el reuso** es deliberado: el reintento es un acto real del mismo cliente, y la seguridad de
+   dinero la da la puerta del PI, no la longitud del TTL.
+5. **El reuso no re-precia.** Si el precio de catálogo se movió dentro del TTL, el PI cobra lo congelado. Es el mismo
+   hecho de hoy (el PI no cambia de importe), dicho en voz alta.
+6. **No hay `POST /orders/:id/cancel`** en este pase: las tres vías de liberación son TTL, webhook de PI y sustitución
+   por reintento. Si el dueño pide «cancelar pedido» explícito, es una rev aparte.
+
+#### 4-R.3 `POST /api/v1/checkout/guest/session` — el invitado recupera con su `checkoutToken` (§4-G.2)
+
+Mismas cinco filas de §4-R.2, con **una** diferencia de identidad: **la reserva propia existe solo si el body trae
+`retryOfCheckoutToken`** (el `checkoutToken` que §4-G.2 devolvió al crear el pedido) **y** ese token es válido (vivo,
+no revocado), resuelve a una orden `pending` **y** `order.guestEmail == normalizeEmail(body.email)`. Token
+inválido/caducado o correo distinto ⇒ **no hay reclamo de propiedad** ⇒ la pieza es «ajena» ⇒ `409 ITEM_UNAVAILABLE`
+(**estado de hoy**, no un error nuevo; `details` **no distingue** token malo de pieza vendida). Sin el campo ⇒
+**conducta de hoy, literal**.
+
+- **Por qué token y no correo:** con solo el correo, quien conozca el correo de otra persona obtendría (en reuso) el
+  `clientSecret` de **su** PI y un `checkoutToken` de **su** pedido — es decir, **su dirección de envío** (§4-G.3). El
+  token ya es «la llave de ese pedido» (§4-G.7a); exigirlo **no abre nada nuevo**. *Un invitado que perdió el token
+  espera el TTL, como hoy.*
+- **Res `200` (reuso):** misma forma que el `201` de §4-G.2 **más** `reused: true`, `reservedUntil`,
+  `supersededOrderIds: []`, y **un `checkoutToken` recién emitido** (`rotate: false`: el presentado sigue valiendo
+  hasta su `expiresAt`).
+- **Rate limit:** el `@Throttle` de 5/h por IP **se conserva** (superficie de dinero); un reuso **cuenta** como
+  llamada. Es el límite vigente y se declara; relajarlo es de la fase de seguridad, no de este pase.
+- **Frontend:** conservar `checkoutToken` en **`sessionStorage`** (ámbito pestaña) para el reintento; ⛔
+  `localStorage` compartido sigue prohibido (§4-G.2). Se envía **solo** en el body de
+  `POST /checkout/guest/session`, nunca en URL.
+
+#### 4-R.4 Expiración — un solo barrido para las dos rutas
+
+Job **`order-reservation-sweep`** (sustituye a `guest-order-sweep`; cron `*/15 * * * *`; la env
+`GUEST_ORDER_SWEEP_CRON` **se conserva** por compatibilidad con devops): selecciona `InventoryItem` con
+`status='reserved' ∧ reservedUntil < now()`, agrupa por `reservedByOrderId`, y por orden: **B3 primero** (cancelar
+el PI y comprobar `canceled`; si no, **no se libera**, se registra y se reintenta en la siguiente pasada —
+`guest-checkout.service.ts:333-350`, sin cambio de doctrina), luego liberar con la guarda de la regla 2 y
+`Order → failed`. **Rama legada, un release:** las órdenes de invitado `pending` con piezas
+`reservedByOrderId IS NULL` y `createdAt < now()-TTL` se barren como hoy; se retira junto con la rama de la regla 2.
+
+⚠️ **Cambio de conducta declarado:** una orden **de bóveda** `pending` **también expira** a los 60 min y sus piezas
+vuelven a `listed` / `ownerType='platform'` (hoy quedan reservadas hasta que Stripe cancele el PI, que **no cancela
+solo**). `ARCHITECTURE §4.21` ya lo prometía (*«el barrido también beneficia a los pedidos con cuenta»*,
+`ARCHITECTURE.md:6345`) y el código no lo hacía (`D-SB-1`). Decisión del arquitecto; PROJECT no fija plazo.
+
+#### 4-R.5 Lo que ven `GET /orders`, `GET /orders/:orderId` **y los dos quotes** (aditivo; v1.68.1 amplía)
+
+`OrderSummaryDTO` y `OrderDetailDTO` ganan **`orderNumber: string | null`** (hoy solo lo emite el admin y el front lo
+pinta si viene: `types/contract.ts:893-900`) y **`reservedUntil?: string`** (presente **solo** con
+`status: 'pending'`). Con eso `/orders` puede ofrecer **«Reanudar pago»** en un pedido `pending`: el front vuelve a
+`/checkout` con los `items[].inventoryItemId` de ese pedido y `POST /checkout/session` responde `200 reused`
+(§4-R.2). *No hay endpoint de «reanudar»: reanudar ES reintentar.*
+
+**v1.68.1 — el QUOTE conoce la reserva propia (sin esto, lo anterior no ocurre nunca).** Medido por frontend contra
+el backend real: `priceCartForQuote` (`orders.service.ts:331-359`) manda a `unavailableItems` toda pieza que no pasa
+`isSellable` (`:256-258`: `ownerType='platform' ∧ status ∈ {listed,in_stock}`); una pieza `reserved` **por la propia
+orden** se devuelve muerta, el front la poda (§4, «Deber del front») y `session` ya no recibe el carrito completo.
+
+- **`POST /checkout/quote` (customer):** una pieza `reserved` con `reservedByOrderId → Order { userId: yo, status:
+  'pending' }` y `reservedUntil > now()` es **disponible**: va en `items[]` con **`reservedByYou: true`** (campo
+  **opcional** en `OrderItemPreview`; **omitido** cuando es falso). Reserva legada (`reservedByOrderId IS NULL`) o de
+  otro cliente ⇒ `unavailableItems`, como hoy.
+- **`POST /checkout/guest/quote` (public):** misma regla **solo** con `retryOfCheckoutToken` + `email` válidos (§4-R.3:
+  token vivo, orden `pending`, `guestEmail == normalizeEmail(email)`). Sin token ⇒ conducta de hoy, literal.
+- **`ownReservation` — SIEMPRE presente en los dos quotes** (tipado estable, misma norma que `unavailableItems`):
+  ```jsonc
+  "ownReservation": null                                  // no hay reserva propia viva sobre este carrito
+  "ownReservation": { "orderId": "…", "orderNumber": "TCG-000123",
+                      "reservedUntil": "2026-09-11T13:05:00Z",
+                      "expired": false,                   // v1.68.1: reservedUntil <= now() (aún no barrida)
+                      "coversCart": true }                // true ⟺ sus piezas == el carrito (como conjuntos)
+  ```
+  Si hay **más de una** orden propia solapada, `ownReservation` describe la **más reciente** y `coversCart: false`
+  (la sesión sustituirá todas, §4-R.2).
+- **Qué precio muestra el quote:** con `coversCart: true` **y la reserva no vencida**, `items[].unitPriceCents` y
+  `breakdown` son **los congelados de esa orden** (`OrderItem.unitPriceCents`, `Order.*Cents`) — *lo que el PI
+  cobra*, para que la pantalla y el cobro no discrepen (§4-R.2 regla 5). Con `coversCart: false`, `null` **o reserva
+  propia vencida** (`ownReservation.expired: true`, v1.68.1), precios **en lectura**, como hoy (la sesión sustituirá y
+  re-preciará). `ownReservation` gana **`expired: boolean`** (= `reservedUntil <= now()`); una reserva propia vencida
+  y no barrida sigue siendo **disponible** para el quote (`reservedByYou: true`), nunca `unavailableItems`.
+- **`PRICE_PENDING`** no cambia: se evalúa sobre los ítems válidos **sin** reserva propia (los congelados ya tienen
+  precio por definición).
+- **Frontend:** `reservedByYou` **no** se poda; la vista muestra `ownReservation.reservedUntil` («es tuya hasta
+  HH:MM») y «Pagar» lleva a `session` con el carrito completo ⇒ `200 reused`.
+
+#### 4-R.6 Impacto en el esquema — `M-53` (ADITIVO, nullable, **sin backfill**)
+
+> ⚠️ `backend/prisma/schema.prisma` es **zona compartida**: el arquitecto especifica, backend aplica, el orquestador
+> serializa. DDL y notas en `ARCHITECTURE §11` (M-53).
+
+| Modelo | Campo | Tipo | Nota |
+|---|---|---|---|
+| `InventoryItem` | `reservedByOrderId` | `String?` + `reservedByOrder Order? @relation("ReservedByOrder", fields:[reservedByOrderId], references:[id], onDelete: SetNull)` | Dueño de la reserva. `NULL` = sin reserva **o** reserva legada |
+| `InventoryItem` | `reservedUntil` | `DateTime?` | Vencimiento. Solo tiene sentido con `status='reserved'` (regla de aplicación, no constraint) |
+| `InventoryItem` | `@@index([reservedByOrderId])`, `@@index([status, reservedUntil])` | — | El primero sirve la guarda de liberación y el pre-scan; el segundo, el barrido |
+| `Order` | `reservedItems InventoryItem[] @relation("ReservedByOrder")` | relación inversa | Solo Prisma; sin DDL propio |
+
+⛔ Sin backfill (no hay de dónde sacar un `reservedUntil` sin inventarlo). ⛔ Sin cambio en `OrderStatus`.
+Rollback: el artefacto anterior ignora las columnas.
+
+#### 4-R.7 Candados (para QA; detalle y proporciones exigidas en `ARCHITECTURE §4.48.9`)
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **R-1** ⭐⭐ | quitar `reservedByOrderId` del pre-scan de reserva propia (o comparar solo por `userId`/`guestEmail`) | Cliente **D** reintenta sobre la reserva de **C** ⇒ `409 ITEM_UNAVAILABLE` **5/5**; rojo si D obtiene `200`/`201` |
+| **R-2** ⭐⭐ | quitar `reservedByOrderId` del `where` de `failAndRelease`/`releaseReservation`/barrido | Tras una **sustitución** (O1→O2), inyectar el webhook `payment_intent.canceled` de **PI1** ⇒ la pieza **sigue** `reserved` por **O2**; rojo si vuelve a `listed` |
+| **R-3** ⭐ | quitar la puerta por cliente | **N=5** llamadas concurrentes del mismo cliente, mismo carrito ⇒ exactamente **una** orden `pending` y **un** PI; se corre **10 veces** y se reporta la proporción; rojo con `>1` orden `pending` en cualquier corrida |
+| **R-4** ⭐⭐ | crear el PI nuevo **antes** de cancelar el viejo, o seguir cuando la cancelación no confirmó `canceled` | Stub de Stripe que responde `processing` ⇒ `409 PAYMENT_IN_PROGRESS` y **cero** órdenes nuevas; rojo si existe O2 |
+| **R-5** | que el reuso re-precie o cree PI | Subir el precio de la pieza entre la 1ª y la 2ª llamada ⇒ el `200` trae el `breakdown` **de O1** y `stripe.paymentIntentId === PI1` |
+| **R-6** | que la orden de bóveda no expire | Orden `pending` con cuenta, `reservedUntil` en el pasado ⇒ tras el barrido: pieza `listed`, `ownerType='platform'`, orden `failed`, PI cancelado |
+| **R-7** | aceptar el reclamo de invitado por correo | Invitado con el mismo `email` y **sin** `retryOfCheckoutToken` (o con uno de otro pedido) ⇒ `409 ITEM_UNAVAILABLE`; rojo si obtiene `200` |
+| **R-9** ⭐ *(v1.68.1)* | tratar la reserva propia **vencida** como ajena (`409`) o como reusable (`200`) | O1 con `reservedUntil` en el pasado y **sin** barrer ⇒ `POST /checkout/session` del mismo cliente, **mismo carrito** ⇒ **`201`**, `supersededOrderIds == [O1]`, PI1 `canceled` **antes** de crear PI2, O1 `failed`; rojo con `409 ITEM_UNAVAILABLE` o con `200 reused`. **Y la carrera con el barrido:** lanzar el barrido y la sesión solapados (5 escalonados) ⇒ en todos los desenlaces la pieza termina `reserved` por O2 **o** `listed` con O2 inexistente y respuesta `409 ITEM_UNAVAILABLE` — **nunca** `listed` con O2 `pending` (proporción reportada) |
+| **R-8** ⭐ *(v1.68.1)* | que el quote pode la reserva propia (volver a `isSellable` a secas) | Tras O1 (`201`), `POST /checkout/quote [X]` del **mismo** cliente ⇒ `items[0].reservedByYou === true`, `unavailableItems == []`, `ownReservation.orderId === O1`, `coversCart === true`, `breakdown.totalCents === O1.totalCents`; **otro** cliente ⇒ `X ∈ unavailableItems`, `ownReservation === null`. Invitado: solo con `retryOfCheckoutToken` + `email` correctos. **Y de punta a punta:** quote → «Pagar» → `session` ⇒ `200 reused` (rojo si la vista podó X) |
+
+---
+
 ### GET /api/v1/orders — `customer`
 Res `200`: `{ data: OrderSummaryDTO[], page, pageSize, total }`.
+> **v1.68 (§4-R.5):** cada fila trae `orderNumber: string | null` y, **solo** con `status: 'pending'`,
+> `reservedUntil: string`. `GET /orders/:orderId` ídem (aditivo sobre el ejemplo de abajo).
 
 ### GET /api/v1/orders/:orderId — `customer`
 Res `200`:
@@ -7265,8 +7635,14 @@ GuestAddressInput = {
   phone: string,               // 10 dígitos MX (contacto de paquetería)
   recipientName: string        // nombre de quien recibe (el invitado no tiene User.name)
 }
-GuestCheckoutQuoteRequest = { inventoryItemIds: string[], shippingAddress?: GuestAddressInput }
+GuestCheckoutQuoteRequest = { inventoryItemIds: string[], shippingAddress?: GuestAddressInput,
+                              retryOfCheckoutToken?: string,   // v1.68.1 (§4-R.5): reclama la reserva PROPIA
+                              email?: string }                 // v1.68.1: OBLIGATORIO si viaja el token (regla §4-R.3)
 ```
+> **v1.68.1:** con `retryOfCheckoutToken` válido (vivo, orden `pending`, `guestEmail == normalizeEmail(email)`), las
+> piezas `reserved` por **esa** orden se cotizan como disponibles (`items[].reservedByYou: true`, `ownReservation`
+> poblado); token sin `email` ⇒ `400 VALIDATION_ERROR`; token inválido/otro correo ⇒ **conducta de hoy** (la pieza va
+> a `unavailableItems`, `ownReservation: null`; `details` no distingue). Read-only: **sigue sin reservar** nada.
 `shippingAddress` es **opcional** en el quote (la tarifa es fija y nacional): si viene, se valida MX; si no viene,
 se cotiza igual y la validación de dirección ocurre en la sesión. `inventoryItemIds`: 1..`GUEST_MAX_ITEMS` (**20**,
 constante de servidor, §4-G.10).
@@ -7381,7 +7757,10 @@ GuestCheckoutSessionRequest = {
   shippingAddress: GuestAddressInput,  // OBLIGATORIO
   locale?: Locale,                     // idioma del correo de confirmación (default `es`; PROJECT pregunta abierta v1.5-8)
   acceptedTerms: true,                 // aceptación explícita de ventas finales + aviso de privacidad
-  fulfillmentMode?: FulfillmentMode    // si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT
+  fulfillmentMode?: FulfillmentMode,   // si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT
+  retryOfCheckoutToken?: string        // v1.68 (§4-R.3): el `checkoutToken` de un intento anterior ⇒ el invitado
+                                       // RECUPERA su propia reserva (200 reused / 201 con sustitución). Sin él,
+                                       // conducta de hoy, literal. Nunca en URL; solo en este body.
 }
 ```
 - **Validación del correo (criterio 47):** formato RFC-5322 simplificado + longitud ≤ 254. La **doble captura /
@@ -7417,7 +7796,11 @@ de seguimiento.
 Err: `400 VALIDATION_ERROR` (correo inválido/vacío, dirección incompleta, `acceptedTerms` ausente, carrito
 vacío/`>20`), `422 ADDRESS_NOT_MX` (criterio 48b / 31), `422 VAULT_REQUIRES_ACCOUNT`, `422 PRICE_PENDING`,
 `409 ITEM_UNAVAILABLE`, `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`, `503 PAYMENT_PROVIDER_UNAVAILABLE`
-(mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`).
+(mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`),
+**`409 PAYMENT_IN_PROGRESS`** *(v1.68, §4-R.2: el PI del intento anterior ya no se puede cancelar)*.
+> **v1.68 — respuesta con `retryOfCheckoutToken` (§4-R.3):** puede ser **`200`** (reuso: misma orden, mismo PI,
+> `reused: true`, `reservedUntil`, `checkoutToken` nuevo) o `201` con `supersededOrderIds`. La forma es la de arriba
+> **más** `reused`, `reservedUntil` y `supersededOrderIds` (aditivo).
 > **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** igual que `POST /checkout/session` (§4),
 > este endpoint **no deduplica**: `inventoryItemIds` duplicados o no resolubles producen el `404 NOT_FOUND` /
 > `409 ITEM_UNAVAILABLE` estricto vigente. El cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza.
@@ -8561,10 +8944,23 @@ Err:
 - **`422 PRODUCT_CARD_MISMATCH`** (v1.30 — algún `productId` no cuelga del `cardId` de su item)
 - `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_month", capCents, wouldBeCents }`) — ⚠️ **v1.59 (D47): SOLO
   el MENSUAL.** `scope: "per_request"` **se retira** (ver tabla)
-- `422 INE_REQUIRED` (`details: { thresholdCents }`) — el **total cotizado** alcanza el **umbral de INE** (`>=`) **o**
-  hay alguna línea en `precio_pendiente`, y **no hay INE ni en el request ni en archivo**. ⚠️ **v1.59: es la
-  COMPUERTA 1 de D46** — norma completa en [`§M5-I`](#M5-I). **Se evalúa DESPUÉS del tope mensual** (criterio 14(c))
-  y **dentro del mismo boundary atómico** que la creación (§M5-I.4)
+- `422 INE_REQUIRED` (**`details: {}` — v1.69: SIN `thresholdCents`**) — el **total cotizado** alcanza el **umbral de
+  INE** (`>=`) **o** hay alguna línea en `precio_pendiente`, y **no hay INE ni en el request ni en archivo**.
+  ⚠️ **v1.59: es la COMPUERTA 1 de D46** — norma completa en [`§M5-I`](#M5-I). **Se evalúa DESPUÉS del tope mensual**
+  (criterio 14(c)) y **dentro del mismo boundary atómico** que la creación (§M5-I.4)
+  > ⚠️⚠️⚠️ **v1.69 (P-78, decisión (c) del dueño en `HECHOS.md`) — `thresholdCents` SE RETIRA DE ESTE `details`.**
+  > **Medido: éste era el ÚNICO sitio del sistema que lo emitía** (`buylist.service.ts:1606-1608`); la puerta de la
+  > emisión ya lo omitía a propósito y **no cambia** (`:3611-3615`, destinatario = operador). **`details` queda
+  > vacío** (`{}`) — ⛔ no se sustituye por otra cifra, ni por `capCents`, ni por «te faltan $X»: **fabricar otro
+  > número es exactamente el defecto que la decisión cierra**.
+  > **El copy que el dueño aceptó, y que es de frontend/ux-ui (i18n `error.INE_REQUIRED`), sin interpolación:**
+  > ***«supera nuestro límite; sube tu INE para continuar»***. **Una frase no es un dial** (patrón D43).
+  > ⚠️ **Consecuencia en el candado de frontend:** `error-audience.test.ts:294-299` resuelve el destinatario **por la
+  > FORMA de `details`** (`thresholdCents` ⇒ `seller`, `sellRequestId`+`grossCents` ⇒ `operator`). Con `details: {}`
+  > esa discriminación **se invierte**: la regla pasa a ser **«`sellRequestId` presente ⇒ `operator`; en cualquier
+  > otro caso ⇒ `seller`»** (el vendedor es el caso por defecto porque es el sujeto de la regla). **Frontend ajusta
+  > `resolveErrorAudience` y su candado** — es la única regresión de contrato que esta retirada produce, y está
+  > medida.
   > ### ⚠️⚠️ v1.59 — VOCABULARIO DE `scope`: SE RETIRAN LOS DOS «per_request» (D47). ([`§M5-A`](#M5-A), [`§M5-I`](#M5-I))
   > **`BUYLIST_LIMIT_EXCEEDED` es UN código para UN control**, y `scope` dice en qué momento. **Tras D47 ese control
   > es UNO SOLO: el tope MENSUAL.** *«Verificable por lo que YA NO existe: **ningún** rechazo cuyo motivo sea “excede
@@ -10787,6 +11183,10 @@ de cada invariante, que el contrato no lleva— y **se mantiene en paridad a man
 | `auto` y **no hay ninguna fila `banxico`** | el **fallback duro (18)** | `fallback` |
 | ⚠️ **`manual` SIN número** — estado **ILEGAL** por I-FX4, alcanzable **sólo** por SQL/migración *(fila NUEVA en v1.63.3)* | **la última fila `banxico`**; si tampoco la hay, el **fallback duro (18)**. ⛔ El `mode` **no** se corrige ni se reescribe: la lectura elige mejor, **no repara** | `banxico` / `fallback` |
 
+> ⚠️ **v1.68.1:** esta tabla es la **vigente** (la que el código emite hoy). Las filas 3 y 4 **cambiarán** —sin 18,
+> `rate: null`, `source: "none"`— **cuando aterrice `D-SB-3`** (P-68, serializado tras D-GT-1); el texto futuro-normativo
+> vive **solo** en [`§M2-F.9`](#M2-F9) y **no se adelanta aquí** (v1.68 lo hizo y puso rojo el espejo del frontend).
+
 > ⭐ **La cuarta fila es un CAMBIO DE CONTRATO de v1.63.3, y su razón está escrita entera en
 > `ARCHITECTURE §4.43c-quater`.** En corto: hasta v1.63.2 el contrato **razonaba** que ese estado era inalcanzable y
 > por eso la lectura no se defendía —caía al **fallback duro de 18**—; **la carrera `S-FX-1` lo alcanzaba por HTTP
@@ -11248,6 +11648,94 @@ producción, es de **devops + el humano**, y **enseñar que la tasa está vieja 
 > verificación** están en **`ARCHITECTURE §4.43(g-bis)`**, y son **lectura obligatoria antes del primer deploy con el
 > interruptor vivo**. El **procedimiento operativo** (comandos, ventana, quién autoriza) lo escribe **devops** en
 > `docs/DEVOPS_NOTES.md`.
+
+---
+
+<a id="M2-F9"></a>
+##### M2-F.9 ⭐⭐ **EL 18 DEJA DE REGIR: `auto` sin Banxico NO es una tasa, y ningún acuse lo convierte en una** *(v1.68, **FUTURA-NORMATIVA: rige a partir de `D-SB-3`**, **DINERO**; P-68)*
+
+> ⚠️⚠️ **v1.68.1 — CUÁNDO RIGE ESTA SECCIÓN, y por qué está separada del canon.** Lo que sigue es **norma con
+> disparador**: entra en vigor **en el release que cierre `D-SB-3`** (P-68, serializado tras D-GT-1,
+> `ARCHITECTURE §4.48.3`). **Hasta entonces rigen, tal cual están, [`§M2-F.1`](#M2-F1), [`§M2-F.2`](#M2-F2),
+> [`§M2-F.3`](#M2-F3) y [`§M2-F.6`](#M2-F6) vigentes** (`banxico | manual | fallback`, `fallbackRate`, el acuse), que es
+> lo que el código emite y lo que el espejo ejecutable del frontend (`lib/mock/fx-contract-mirror.test.ts`) lee.
+> ⛔ **No se edita el canon antes del disparador**: v1.68 lo hizo y puso **dos tests en rojo** por un cambio que, por
+> diseño, aún no existía. Cuando `D-SB-3` aterrice, el arquitecto **traslada** estos valores a las tablas canónicas
+> **en la misma rev** en que backend y frontend los publican (cero ventana con el espejo rojo).
+>
+> **Lo medido (2026-09-11):** el interruptor **existe y corre** (`pricing.controller.ts:830-943`,
+> `fx.service.ts:325-369`); el modo sembrado es el centinela `legacy` (`settings.constants.ts:302`, `fx-mode.ts:46`),
+> la resolución legacy mira **solo** `fx_manual_override_rate` (`fx-mode.ts:285-293`) y, cuando ninguna rama puede
+> regir, **rige el literal 18** (`fx-mode.ts:56,378-383`) con `source:"fallback"`. Con el acuse,
+> `PUT /admin/fx/mode {mode:"auto"}` **publica ese 18** (`fx.service.ts:360-369`). `pricing.service.ts:691-703`
+> (`fxSnapshotSafe`) ya trata una tasa inválida como `null`, y `liveMxnCents` (`:719-726`) cae entonces al
+> **`priceMxnCents` persistido con su FX de origen** (`PriceReference.fxRate/fxBufferPct`,
+> `pricing.service.ts:2268-2269`): **la costura para no inventar ya existe**; lo que falta es que el 18 deje de ser
+> «válido». PROJECT.md no menciona Banxico ni fallback de FX (grep `Banxico` ⇒ 0 líneas; solo *«tipo de cambio
+> USD→MXN con colchón»*, `PROJECT.md:1787,6411`) ⇒ decisión del arquitecto. Razón entera: `ARCHITECTURE §4.48.3`.
+> ⛔ Rutas **sin cambio**: `GET /admin/fx`, `PUT /admin/fx`, `PUT /admin/fx/mode`, `POST /admin/fx/refresh`. No existe
+> ni se crea `GET/PUT /admin/settings/fx`; `legacy` sigue sin salir por la API (`modeResolvedFrom`).
+
+**Qué cambiará al aterrizar `D-SB-3` — y es TODO lo que cambiará:**
+
+1. ⛔ **El acuse se retira.** `PUT /admin/fx/mode { mode: "auto" }` con `automatic.status === "missing"` ⇒
+   **`422 FX_NO_AUTOMATIC_RATE`, incondicional.** `details: { currentRate, automatic: { status: "missing" } }` (⛔ ya
+   **no** lleva `fallbackRate`: no hay número al que «saltar»). El body **deja de aceptar** `acknowledgeNoAutomaticRate`;
+   mandarlo no abre nada (si el `ValidationPipe` global rechaza claves desconocidas, es `422 VALIDATION_ERROR`; si las
+   ignora, es el mismo `422 FX_NO_AUTOMATIC_RATE`). **`stale` sigue permitido** sin acuse: ahí hay un número real,
+   fechado y declarado (`automatic.ageDays`, `status`). *Un acuse que autoriza aplicar un literal no es un acuse: es
+   la forma de que el literal llegue al catálogo con firma.* [`§M2-F.4`](#M2-F4): `after.acknowledgedNoAutomaticRate`
+   desaparece de la bitácora (no hay acto que registrar).
+2. ⛔ **`source: "fallback"` desaparece; entra `source: "none"`.** `FxSource = "banxico" | "manual" | "none"`.
+   **`none` ⟺ `rate: null`** ⟺ ninguna rama puede regir (ni manual con número, ni fila `banxico`). Filas 3 y 4 de la
+   tabla de [`§M2-F.1`](#M2-F1) **quedarán superadas** (hoy siguen vigentes allí): `auto` sin fila `banxico` ⇒
+   `none`/`null`; «`manual` sin número» sin fila `banxico` ⇒ `none`/`null` (con fila ⇒ `banxico`, **sin cambio**,
+   D-FX-1).
+3. ⛔ **`FxStateDTO.rate: number | null`** y **`effectiveDate: string | null`** (`null` ⟺ `source: "none"`).
+   **`fallbackRate` se retira** del DTO (la regla 6 de [`§M2-F.3`](#M2-F3) **quedará superada**: existía para nombrar
+   el número del acuse, y ya no habrá acuse). `applied`: **las dos en `false` ⟺ `source: "none"`** (misma regla mecánica
+   de D-FX-3). El resto del DTO **no cambia**: `manual`/`automatic` siguen viajando **siempre y completos** (regla 1).
+4. ⭐ **Qué rige el dinero con `none` — NADA NUEVO, y ésa es la decisión:** la valuación al vuelo (`fxSnapshotSafe`
+   ⇒ `null`) usa **la cifra persistida en la `PriceReference`, calculada con la FX real de su día** (`priceMxnCents`,
+   `fxRate`, `fxBufferPct`); es un hecho fechado, **no un literal**. Lo que **no** tiene cifra persistida es pendiente
+   (`{ status: 'pending' }`), como hoy. ⛔ **La ingesta no convierte USD sin tasa**: con `rate: null`,
+   `price-ingest`/`sealed-price-ingest` **saltan las filas en USD** y reportan `fxUnavailable: true` (no escriben
+   `priceMxnCents` nuevos), en vez de escribir precios con un 18. *Entre «el número que Banxico publicó tal día y que
+   ya convertimos» y «—», rige el primero: ocultar dinero que sí tenemos no es money-safe ([`§M2-F.7`](#M2-F7));
+   inventarlo tampoco.*
+5. **La resolución legacy no cambia** (I-FX1..I-FX6 intactos). Un entorno en `legacy` sin tasa manual y sin fila
+   `banxico` resuelve `auto` + `none`: **no se mueve un solo precio** al desplegar. El **PELIGRO** de la consulta de
+   P-68 deja de significar «−5 %» y pasa a significar «las conversiones USD se congelan en el último valor real hasta
+   que alguien fije la FX»: **sigue siendo puerta de despliegue** (devops), con un tercer conteo:
+   `SELECT count(*) FROM "FxRate" WHERE source='banxico'`.
+6. ⛔ **`FX_FALLBACK_RATE` se borra del código.** Candado por lo negativo:
+   `grep -rn "FX_FALLBACK_RATE\|fallbackRate\|'fallback'" backend/src frontend/src` ⇒ **0** (fuera de tests
+   históricos marcados como supersedidos).
+
+**Candados que cambiarán al aterrizar `D-SB-3`** ([`§M2-F.6`](#M2-F6) **sigue vigente hasta entonces**; los ids son
+de contrato y **FX-30/FX-31 no existen en la tabla canónica hasta ese release**):
+
+| # | Estado | Enunciado nuevo |
+|---|---|---|
+| **FX-7** | **SUPERSEDIDO por FX-30** | — |
+| **FX-30** ⭐⭐ | nuevo | `FxRate` vacío, sin tasa manual, modo `auto` ⇒ `source == "none"`, **`rate == null`**, `effectiveDate == null`, `automatic.status == "missing"`, las dos `applied == false`. ⭐ **Conducta:** una carta con `PriceReference` USD 100 persistida a `fxRate 19.0` ⇒ `referenceMxnCents` **== el persistido**, ⛔ **jamás** ≈ USD 100 × 18. Y una corrida de `price-ingest` en ese estado ⇒ **cero** filas USD escritas, `fxUnavailable: true` |
+| **FX-12** | **SUPERSEDIDO por FX-31** | — |
+| **FX-31** ⭐ | nuevo | Fixture de FX-12 (`FxRate` vacío, `manual` con 19.0) ⇒ `PUT /admin/fx/mode {mode:"auto"}` ⇒ **`422 FX_NO_AUTOMATIC_RATE` con y sin `acknowledgeNoAutomaticRate: true`**, modo sigue `manual`, `rate == 19.0`, `details.automatic.status == "missing"`, sin `details.fallbackRate`. Con una fila `banxico` **`stale`** (40 días) ⇒ `200`, `source == "banxico"`, `automatic.status == "stale"` (no se pide nada) |
+| **FX-23** | **segundo caso reescrito** | «manual sin número» **sin** fila banxico ⇒ `rate == null`, `source == "none"`, las dos `applied == false` (antes: `18`/`fallback`). Primer caso **sin cambio** |
+| **FX-25** | **SUPERSEDIDO** en (a), (b), (c) | `fallbackRate` **no viaja** en ninguna ruta (rojo si aparece); el `422 FX_NO_AUTOMATIC_RATE` trae `details.currentRate` y `details.automatic.status`. (d) se conserva por lo negativo. El `200` de las cuatro rutas **no cambia** |
+| **FX-24 (e)** | **retirado** | no hay constante de respaldo que caiga en la banda |
+| **FX-4** | sin cambio de enunciado | el paréntesis «o si aplicó el fallback de 18» se lee «o si `rate` dejó de ser 19.0» |
+
+**Frontend (M2, panel de FX; `DESIGN_SYSTEM §30`) — en ese mismo release:** rama `source: "none"` (**«SIN TASA — no
+rige ninguna»**, nunca compartida con `manual`/`banxico`), `rate: null` pintado como «—», el diálogo del acuse (§30.8)
+**se retira** y el `422` se muestra con su `details`. El test espejo `frontend/src/lib/mock/fx-contract-mirror.test.ts`
+dejará de exigir `fallback` y exigirá `none` **cuando las tablas canónicas cambien, no antes**.
+
+⚠️ **Implementación SERIALIZADA** (`ARCHITECTURE §4.48.3`): toca `common/fx-mode.ts`, `pricing/fx.service.ts`,
+`pricing/pricing.service.ts:1896-1900`, `jobs/price-ingest*`, `catalog/card-product-resolver.service.ts:117`,
+`inventory/sealed-catalog-admin.service.ts:137`, `inventory/sealed-product.service.ts:215` y `(admin)/admin/m2` —
+fuera de la ventana paralela de Stream B. **Esta sección rige desde el release que cierre `D-SB-3`** (v1.68.1); hasta
+entonces rigen las tablas canónicas vigentes y la diferencia está declarada como `D-SB-3` (`ARCHITECTURE §9`).
 
 ---
 
@@ -13899,8 +14387,8 @@ es la regla completa, en tres ramas con tres razones:
 | A quién | Cuándo | ¿Viaja el número? |
 |---|---|---|
 | Superficie **pública / anónima**, **proactivamente** | nunca | ⛔ **JAMÁS.** *Publicar el umbral es publicar el manual de cómo estructurar por debajo de él.* **Veto vigente, sin cambios** |
-| **Al vendedor** (el **sujeto** de la regla), **reactivamente**, cuando la regla lo alcanza | `POST /buylist/requests` | ✅ **Sí** — `thresholdCents` en el `INE_REQUIRED` y `capCents`/`wouldBeCents` en el `BUYLIST_LIMIT_EXCEEDED` **mensual** (el de solicitud ya no existe). **No es una fuga: es la explicación de por qué le pedimos su identificación o por qué no le compramos más.** Un rechazo sin cifra lo manda a adivinar. ⚠️ **v1.59: `PROJECT.md` lo eleva de «se conserva» a REQUISITO** — §P.2.2 y pregunta **37**: *«callar el número justo ahí es lo que vuelve arbitraria la petición»* |
-| **Al vendedor**, **PROACTIVAMENTE**, con **sesión iniciada**, sobre **su propia** solicitud | `GET /users/me/kyc` | ✅ **Sí — `ineThresholdCents`** (v1.59; **es el número que ya viajaba** como `capPerRequestCents`, con el nombre corregido). **Clase de información: ya existente**, no ampliada. Habilita **UNA** comparación autorizada en el front (§M5-I.6) para que **§P.2.2 pueda pedir el INE en el mismo paso en que el vendedor captura su dirección**, y **no como un `422` sorpresa al final** |
+| **Al vendedor** (el **sujeto** de la regla), **reactivamente**, cuando la regla lo alcanza | `POST /buylist/requests` | ⚠️⚠️ **v1.69 — LA MITAD DE ESTA FILA CAE.** ⛔ **`thresholdCents` YA NO VIAJA** en el `INE_REQUIRED` (decisión (c) del dueño, `HECHOS.md`; §M6-K.5): `details: {}` y copy sin cifra. ✅ **`capCents`/`wouldBeCents` del `BUYLIST_LIMIT_EXCEEDED` mensual siguen viajando POR AHORA** — la misma decisión los alcanza, pero **NO se normaliza en v1.69** por concurrencia (QA mide Stream B contra v1.68.1); enrutado en §M6-K.5. ~~**No es una fuga: es la explicación…**~~ *(el razonamiento de v1.59 se conserva tachado: el dueño lo revocó para el INE — la explicación va **en palabras**, no en cifra)* |
+| **Al vendedor**, **PROACTIVAMENTE**, con **sesión iniciada**, sobre **su propia** solicitud | `GET /users/me/kyc` | ⛔⛔ **v1.69 — ESTA FILA SE INVIERTE: EL NÚMERO YA NO VIAJA.** ~~✅ Sí — `ineThresholdCents`~~ **se retira del DTO** junto con `capPerMonthCents`/`monthUsedCents` (§M6-K.5). **Lo que viaja en su lugar es un VEREDICTO, no un dial:** `?quotedTotalCents=N` → **`ineRequiredForTotal: boolean`**. **§P.2.2 se conserva entero** —el INE se sigue pidiendo en el mismo paso de la dirección— **con estrictamente menos información**: el front ya no compara, pregunta |
 | **Superficie pública del cotizador**, el **aviso previo** de §P.2.2 | `GET /buylist/quote-policy` y el cotizador | ⛔ **LA CIFRA NO VIAJA — el veto es INTACTO y el DTO NO gana campos.** El aviso va **EN PALABRAS Y SIN CIFRA**, y es **copy estático i18n del front**, **no un dato del backend** — **patrón D43 exacto**: *decir la regla no exige publicar el número* (criterio **177(c)/(d)**). ⚠️ **Que el aviso sea obligatorio (§P.2.2) NO es una excepción al veto:** una frase no es un dial |
 | **Al operador** (no es el sujeto; es quien actúa) | `POST …/offer` | ⛔ **v1.59: YA NO VIAJA NINGÚN NÚMERO POR-SOLICITUD.** El `capCents`/`wouldBeCents` que sí viajaba era el de `A1`, **que se retiró**; el **umbral de INE sigue sin viajar** (sus palancas son *conseguir el documento* o *no ofertar*). **Lo que sí viaja es el MENSUAL** (`per_month_offer`: `capCents`/`wouldBeCents`), que **sí acota su acción**: le dice que con ese vendedor **no hay oferta posible este mes**, a ningún monto |
 
@@ -14103,9 +14591,17 @@ mide **MX$300 → MX$1,000**, deriva de **3.3×**). **Manda la compuerta 2 (§M5
 **I.6 — Qué puede hacer el frontend, y la asimetría es la misma que con el mínimo.**
 §P.2.2 exige que el INE se pida **en el mismo paso en que el vendedor ya está capturando sus datos** (dirección),
 **antes del botón de enviar** — no como un `422` al final. Para eso, y **solo** para eso:
-- ✅ **AUTORIZADA UNA sola comparación:** `pedirINE = totalCarrito >= ineThresholdCents`, con `ineThresholdCents` de
-  **`GET /users/me/kyc`** (autenticado). **Misma forma y misma justificación que la resta autorizada del mínimo**
+- ~~✅ **AUTORIZADA UNA sola comparación:** `pedirINE = totalCarrito >= ineThresholdCents`, con `ineThresholdCents` de
+  **`GET /users/me/kyc`** (autenticado).~~ **Misma forma y misma justificación que la resta autorizada del mínimo**
   (`quote-policy`): *el número viene del servidor, no de una constante del front* (R4 de `DESIGN_SYSTEM.md` §23).
+  > ⚠️⚠️ **v1.69 (P-78, §M6-K.5) — LA COMPARACIÓN SE RETIRA PORQUE EL NÚMERO SE RETIRA. LA CAPACIDAD NO SE PIERDE:
+  > CAMBIA DE LADO.** **`pedirINE` deja de ser una comparación del front y pasa a ser una RESPUESTA del servidor:**
+  > `GET /users/me/kyc?quotedTotalCents=<total del carrito>` → **`ineRequiredForTotal: boolean`**, y el front pinta
+  > `ineExpected = ineRequiredForTotal && !ineOnFile`. **Medido** (`frontend/src/hooks/useSellRequirements.ts:62-66,80`):
+  > hoy `overCaps` compara contra `capPerRequestCents` **y** contra el remanente mensual; **la mitad mensual de esa
+  > predicción se pierde a propósito** (el mensual rechaza y no se remedia subiendo nada — sigue siendo un `422` al
+  > enviar). **El resto de I.6 queda intacto**, y su prohibición se endurece: ⛔ **ni el número ni el booleano se
+  > piden desde una superficie anónima** (el booleano exige sesión por construcción: es `/users/me/…`).
 - ⛔ **PROHIBIDO** pedir ese número desde una superficie **anónima**, cachearlo entre sesiones o pintarlo en el
   cotizador público. **En el cotizador el aviso va EN PALABRAS Y SIN CIFRA** (§M5-A.7, criterio 177(c), patrón D43).
 - ⛔ **La comparación del front NO es la autoridad:** el `422 INE_REQUIRED` del servidor **manda siempre**, y el
@@ -14383,18 +14879,45 @@ el argumento de imposibilidad** (*«el cotejo tiene que vivir en el pago porque 
 - **Por qué NO se retira, a diferencia de `legalName`:** **tiene consumidores reales y medidos** — el **badge** y el
   **selector** de `M6View` (admin) lo pintan y lo reenvían en el `PATCH`. Retirarlo sería romper una pantalla viva a
   cambio de nada. *La prueba de «campo muerto» es que nadie lo lea, no que a mí no me guste el nombre.*
-- ⚠️⚠️ **LA ADVERTENCIA, Y VA TAMBIÉN EN EL DTO (§11) PORQUE AHÍ ES DONDE SE LEE:** **`'verified'` NO significa que se
+- ⚠️⚠️ ~~**LA ADVERTENCIA, Y VA TAMBIÉN EN EL DTO (§11) PORQUE AHÍ ES DONDE SE LEE:** **`'verified'` NO significa que se
   haya verificado nada.** **Tras D51 no existe ningún acto de verificación en el sistema.** El valor registra, como
-  mucho, que **un `super_admin` movió un selector**. ⛔ **Nadie —ni backend, ni frontend, ni una regla futura— puede
+  mucho, que **un `super_admin` movió un selector**.~~ ⛔ **Nadie —ni backend, ni frontend, ni una regla futura— puede
   tratarlo como evidencia de identidad.**
+  > ⚠️⚠️⚠️ **v1.69 (P-78, [`§M6-K`](#M6-K)) — LA PRIMERA MITAD DE ESTA ADVERTENCIA CADUCA, Y LA SEGUNDA NO. LÉELAS
+  > SEPARADAS, PORQUE LA LECTURA FÁCIL ES LA EQUIVOCADA.**
+  > **(1) LO QUE CAMBIA:** *«no existe ningún acto de verificación en el sistema»* **deja de ser cierto el día que
+  > §M6-K entra**. A partir de ahí `'verified'` significa **una cosa comprobable y auditada**: *un `super_admin`
+  > **abrió las dos imágenes del INE** —queda la fila `user.kyc.reveal_ine` con quién, a quién y cuándo— **y decidió
+  > que la persona es quien dice ser**, con las direcciones y el nombre de la misma ficha delante*. Y `'rejected'`
+  > significa algo más fuerte todavía: **lleva motivo obligatorio** y **el motivo se le entrega al cliente**. *Eso es
+  > un acto de verificación de identidad; lo que D51 retiró —y sigue retirado— es el cotejo **INE ↔ titular de la
+  > CLABE**, que es otra cosa: identificar a quien nos vende ≠ comprobar de quién es la cuenta.*
+  > **(2) LO QUE NO CAMBIA, Y ES LA MITAD QUE PROTEGE:** ⛔ **`kycStatus` SIGUE SIN SER PRECONDICIÓN DE NINGÚN CAMINO
+  > DE DINERO.** Ni crear, ni ofertar, ni pagar. **`422 KYC_NOT_VERIFIED` sigue sin existir.** **K.1, K.2 y K.3
+  > quedan intactos, sin una coma menos**, y el `422 INE_REQUIRED` sigue siendo la única compuerta (sus dos puertas).
+  > **v1.69 le da SIGNIFICADO al campo; no le da PODER.**
+  > **(3) LA NORMA DE ABAJO SE CUMPLIÓ, NO SE ESQUIVÓ:** *«ninguna regla nueva se cuelga de `kycStatus` sin pasar por
+  > el arquitecto»* — v1.69 **pasó por el arquitecto** y la respuesta es **que no se cuelga ninguna regla**: lo único
+  > que `kycStatus` gobierna es **qué ve y qué puede hacer el cliente en su propia pantalla** (§M6-K.7). ⛔ **La
+  > norma sigue vigente para la próxima.**
 - ⛔ **NORMA — y es la que impide que esto se rehaga solo:** **ninguna regla nueva se cuelga de `kycStatus` sin pasar por
   el arquitecto** (regla 9), **y la primera pregunta que tendrá que contestar es la 40**, que **está cerrada con «no
   existe fuente»**. *Un enum con un valor llamado `verified` es una invitación permanente a construirle encima una
   regla; por eso la advertencia vive en el DTO y no solo aquí.*
-- ⚠️ **Encargo a frontend/ux-ui (revisión, no cambio obligatorio):** `kycStatus` **hoy NO se pinta en ninguna superficie
+- ⚠️ ~~**Encargo a frontend/ux-ui (revisión, no cambio obligatorio):** `kycStatus` **hoy NO se pinta en ninguna superficie
   de vendedor** —medido: en `(storefront)` solo aparece en tests— **y así debe seguir.** Pintarle *«verificado»* al
-  vendedor **afirmaría un acto que no existe**, que es lo que el **criterio 183(c)** prohíbe. El **badge de M6 (admin)**
+  vendedor **afirmaría un acto que no existe**, que es lo que el **criterio 183(c)** prohíbe.~~ El **badge de M6 (admin)**
   se queda: ahí el lector sabe qué está mirando, y el dueño de esa pantalla es back-office.
+  > ⚠️⚠️ **v1.69 — ESTE BULLET QUEDA DEROGADO POR DOS RAZONES, Y LA PRIMERA ES QUE YA ERA FALSO.**
+  > **(1) Medición 2026-09-11:** el KYC **sí se pinta al vendedor** desde Stream A — `KycSection.tsx:69,84-85`
+  > (`getBadgeSpec('kyc', data.kycStatus)`), en la pantalla de cuenta. *La afirmación envejeció cuando se construyó la
+  > pantalla que este contrato pedía.*
+  > **(2) Y ahora DEBE pintarse**, porque es la mitad del ciclo que P-78 cierra: un cliente que subió su INE y ve
+  > «Pendiente» **sin ninguna acción** es el hallazgo del dueño. **Qué se pinta en cada estado y qué acción se ofrece
+  > es NORMATIVO y está en [`§M6-K.7`](#M6-K)** — incluido **`rejected` + su motivo**, que es lo que le permite
+  > corregir. **El criterio 183(c) sigue vigente y se respeta:** `'verified'` ya **no** afirma un acto inexistente
+  > (§M6-K lo crea), y ⛔ **ninguna superficie puede decir que cotejamos la CLABE contra un titular** — eso sigue sin
+  > existir y sigue prohibido decirlo.
 - ⚠️ **Deuda cosmética registrada, NO bloqueante:** el **nombre** del enum (`verified`) es peor que su conducta —**misma
   familia exacta que `CLABE_NOT_OWN_NAME`**— y por la **misma razón no se renombra hoy**: sería DDL + romper a frontend
   por un cambio de vocabulario. **Se registra; no se hace.**
@@ -15100,6 +15623,78 @@ lleva `@HttpCode` explícito en cada ruta.
   `cotizada`/`precio_pendiente` pasan a `recibida`. Req: body vacío `{}`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`. Sella **`verifiedAt`**; los
   ítems en `recibida` pasan a `verificacion`. Req: body vacío `{}`.
+  > <a id="M5-S"></a>
+  > ### ⚠️⚠️ §M5-S — INVARIANTE S: **`receive` y `verify` exigen el PASO CORRECTO** (v1.68 — NORMATIVA, **MERCANCÍA AJENA + DINERO SALIENTE**; cierre de P-58)
+  >
+  > **Lo medido (2026-09-11):** la guarda de `receive` (`buylist.service.ts:5488-5512`) y de `verify` (`:5520-5541`)
+  > es `liveRequestWhere()` (`:5654` = no-terminal ∧ `closedAt IS NULL`): **exige fila viva, no paso correcto**. Desde
+  > `cotizada`, `receive` salta al paso 5 **sin precio pactado ni aceptación** (PROJECT §P.1, pasos 2-3); desde
+  > `ofertada` **le cierra la ventana al vendedor**; desde `verificacion`/`aprobada` **retrocede** (`aprobada →
+  > recibida` deshace un veredicto). El front cablea el botón **solo en `cotizada`** (`M5View.tsx:991-1001`), que es
+  > el paso equivocado. **El pacto, en PROJECT** (`PROJECT.md:3875-3884`, §P.1): el paso 4 `en_transito` lo escribe
+  > **solo** el operador con `confirm-shipment` desde `aceptada` (D20; `409 NOT_ACCEPTED`); el paso 5 `recibida` =
+  > *«recibimos, conciliando contra la guía»*; regla dura (`:3917-3919`): nada llega a `en_transito` sin `ofertada` y
+  > `aceptada`. ⇒ **El único predecesor legítimo de `recibida` es `en_transito`; el único de `verificacion` es
+  > `recibida`.** Razón entera: `ARCHITECTURE §4.48.1`.
+  >
+  > **La regla:**
+  > ```
+  > receive : allowedFrom = { en_transito }   idempotentOn = recibida       ⇒ status := recibida,     sella receivedAt (1ª vez)
+  > verify  : allowedFrom = { recibida }      idempotentOn = verificacion   ⇒ status := verificacion, sella verifiedAt  (1ª vez)
+  > ```
+  > - **Guarda en el motor, un solo `updateMany`:** `where { id, status: { in: [...allowedFrom, idempotentOn] },
+  >   closedAt: null }`, `count === 1`. **Los dos términos de T siguen dentro** (`closedAt: null` explícito; el
+  >   término de estado ya excluye los terminales) — **§M5-T no se relaja**: S es *T dicha con más precisión*, como
+  >   `NOT_ACCEPTED` lo es para `confirm-shipment`.
+  > - **`count !== 1` ⇒ releer (dentro de la `tx`) y distinguir:** terminal ∨ `closedAt ≠ null` ⇒ **`409 CONFLICT`**
+  >   `details: { status, closedAt }` (**sin cambio**, §M5-T; **T gana**); en otro caso ⇒ **`409 INVALID_TRANSITION`**
+  >   `details: { verb: "receive" | "verify", from: <status>, allowedFrom: string[], idempotentOn: string }`.
+  >   **Cero escritura** en ambos (la guarda va primero; los ítems no se mueven, `:5497`).
+  > - **Idempotencia sin cambio:** `status === idempotentOn` ⇒ `200`, estado actual, **la fecha no se re-sella**
+  >   (`sealOnceTx`).
+  > - **Código:** `INVALID_TRANSITION` es **nuevo y genérico** (`details.verb` lo especializa): un solo rótulo y un
+  >   solo mensaje traducible para los dos verbos, con los estados en `details` (*«Esta solicitud está en {from};
+  >   “{verb}” solo aplica en {allowedFrom}»*). ⛔ No se acuñan `NOT_IN_TRANSIT`/`NOT_RECEIVED`: dos nombres para una
+  >   misma clase de rechazo. Audiencia: **operador** (`useErrorMessage('operator')`).
+  >
+  > **Por qué NO rompe la cadena de 20 ms de la mesa** (la evidencia que el bloque de `receive` deja escrita,
+  > `:5451-5457`): esa cadena es `confirm-shipment → receive → verify`, **secuencial**, y **cada verbo parte de su
+  > predecesor** (`aceptada → en_transito → recibida → verificacion`). Pasa **igual** con S. Lo que S **sí** corta es la
+  > cadena **invertida** (`verify` 20 ms antes que `receive`), que hoy termina en `recibida` con `verifiedAt` sellado —
+  > un estado que ningún paso del pacto produce. *S no inventa una máquina de estados: es la de §P.1, la misma que ya
+  > rige `confirm-shipment`, `offer-response` y `declare-shipped`.*
+  >
+  > **El paquete que llega sin `confirm-shipment`** (el vendedor declaró «ya lo mandé», nadie confirmó): `receive`
+  > desde `aceptada` ⇒ `409 INVALID_TRANSITION`. **No es un agujero: es un clic.** `confirm-shipment` **no exige
+  > guía** (`guideMissing: true` en bitácora, fail-visible) y deja el hecho registrado (`shipmentConfirmedAt/By`, «en
+  > camino» de la mesa). *Negar la recepción no devuelve el paquete; registrar el envío antes de recibirlo tampoco lo
+  > retrasa.*
+  >
+  > **Filas legadas** (anteriores a `M-46`, sin ciclo de oferta): una `cotizada` viva **ya no puede saltar** a
+  > `recibida` (`M5View.tsx:978-981` lo dice desde v1.51). Antes de publicar se **cuentan** (`ARCHITECTURE §4.48.7`);
+  > si existen, pasan por el ciclo (`offer → offer-response → confirm-shipment → receive`) o se declinan. **No se abre
+  > excepción.**
+  >
+  > **Qué ofrece M5 en cada estado** (normativo para `(admin)/admin/m5`; la representación es de ux-ui):
+  >
+  > | `status` | Acción principal | Otras acciones | ⛔ No se ofrece |
+  > |---|---|---|---|
+  > | `cotizada` | Mesa de decisión (`offer`) | `decline`, `pickup-address` | **Marcar recibida** |
+  > | `ofertada` | — (espera del vendedor) | `offer/cancel` | Marcar recibida, Verificar |
+  > | `aceptada` | Guía + **Confirmar envío** (`BuylistShipmentActions`) | `pickup-address` (abre tarea de guía muerta) | Marcar recibida (hasta confirmar) |
+  > | `en_transito` | ⭐ **Marcar recibida** (`receive`) | ver guía y `sellerShippedDeclaredAt` | Verificar |
+  > | `recibida` | **Verificar** (`verify`) | — | Marcar recibida (idempotente: el botón desaparece) |
+  > | `verificacion` | Decisión por ítem (`items/:itemId/decision`) | `pay-spei` cuando `isPayable` (`super_admin`) | Recibir, Verificar |
+  > | `aprobada` | `pay-spei` (`super_admin`) | — | Recibir, Verificar |
+  > | terminales (4) | — (motivo visible) | `guide/cancellation-done` si hay tarea abierta | ningún verbo de transición |
+  >
+  > **Candados:**
+  >
+  > | # | Mutación (romper esto…) | …pone en rojo |
+  > |---|---|---|
+  > | **S-1** ⭐⭐ | volver a `liveRequestWhere()` (o quitar el término de estado) | Matriz **11 × 2**: `receive` desde cada `SellRequestStatus` ⇒ `en_transito` → `200 recibida`; `recibida` → `200` sin re-sellar `receivedAt`; `cotizada|ofertada|aceptada|verificacion|aprobada` → **`409 INVALID_TRANSITION`** con `details.from` = ese estado y `allowedFrom == ["en_transito"]`; los 4 terminales → `409 CONFLICT`. Ídem `verify` (`recibida` → `200`; `verificacion` → `200` sin re-sellar; resto vivo → `INVALID_TRANSITION` con `allowedFrom == ["recibida"]`). **Y la fila de P1** (`status='verificacion'`, `closedAt` sellado) ⇒ `409 CONFLICT`, no `INVALID_TRANSITION` |
+  > | **S-2** ⭐ | «arreglar» la cadena permitiendo `verify` desde `en_transito` | `confirm-shipment → receive → verify` con 20 ms ⇒ `200 · 200 · 200`, estado final `verificacion` con las dos fechas; `confirm-shipment → verify → receive` ⇒ `200 · 409 INVALID_TRANSITION · 200`, estado final `recibida` **sin** `verifiedAt` |
+  > | **S-3** | cablear el botón en otro paso | `M5View`: «Marcar recibida» se renderiza **solo** con `status === 'en_transito'`; «Verificar» solo con `recibida` (test de render por estado, los 11) |
   > ### ⚠️⚠️ v1.56 — LOS DOS GANAN **GUARDA DE ESTADO** E **IDEMPOTENCIA DECLARADA**. Cierre de la CRÍTICA **P1**. Desviación **BL-35** (ARCHITECTURE §9).
   > *(Estos dos eran los **únicos** verbos de transición del ciclo sin guarda atómica: escribían con
   > `update({where:{id}})` mientras todos sus hermanos usan `updateMany` con el estado en el `where` + `count===1`.
@@ -16567,7 +17162,9 @@ Err `403`, `400 VALIDATION_ERROR`.
   > fila de M4 se leen con el mismo vocabulario.
   > **F1 (v1.7):** la ficha `getUser` **no se engorda**. El historial completo se arma por **reuso** de los listados admin ya paginados con `?userId=` (envíos §M4, buylist §M5, disputas §M8, órdenes §M3 — todos con `?userId=`) + el nuevo `GET /admin/users/:id/audit` (abajo). `getUser` sigue trayendo solo las últimas 20 de orders/sellRequests/disputes + bóveda como resumen.
   > **BE-10 (v1.8-ronda-c):** la bóveda resumen (`ownedItems: AdminUserOwnedItemRef[]`) gana **`finish: Finish`** y **`referenceValue: PriceInfo`** por ítem, para que la pestaña "Bóveda" muestre acabado y valor (antes solo carta + folio + titularidad). El backend puebla `referenceValue` **reusando la misma valuación por-acabado** del `HoldingDTO` del cliente (`getReference(cardId, productType, gradeKey, finish)`, §3); los items sin precio del día llevan `referenceValue.status="pending"` (no se excluyen — es vista 360°, no un total de portafolio). Es un **enriquecimiento de proyección** (sin migración); ver `AdminUserOwnedItemRef` en §11.
-- `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerMonthCents? }`.
+- `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerMonthCents?, rejectionReason? }`.
+  > ⭐⭐ **v1.69 (P-78) — `rejectionReason?: string` (3–500, trim), OBLIGATORIO SI Y SOLO SI `kycStatus='rejected'`.**
+  > Norma completa, códigos y auditoría en [`§M6-K.4`](#M6-K). **El motivo LE LLEGA AL CLIENTE** (`GET /users/me/kyc`).
   > ⚠️⚠️ **v1.59 (D47, [`§M5-D.3`](#M5-D)) — `capPerRequestCents` SE RETIRA del body** (una key `capPerRequestCents`
   > cae en `422` como cualquier key desconocida) y `KycProfile.capPerRequestCentsOverride` queda **INERTE**: la
   > columna se conserva (**cero DDL**) y **nadie la lee**. **Es una capacidad que se retira a propósito**: tras D47 el
@@ -16588,6 +17185,10 @@ Err `403`, `400 VALIDATION_ERROR`.
   > ninguna regla nueva se cuelga de él sin pasar por el arquitecto** (regla 9).
   > **Lo que sí conserva peso real en este endpoint es `capPerMonthCents`**: es el **único techo de dinero que
   > queda**, y su override es una decisión comercial con nombre y auditada.
+- ⭐ **`GET /api/v1/admin/users/:id/kyc/ine-links` — `super_admin` ÚNICAMENTE — NUEVO v1.69 (P-78).** Dos **enlaces
+  prefirmados de vida corta** (frente y reverso del INE), **auditados con fallo cerrado**. ⛔ `vault_operator` ⇒ `403`.
+  ⛔ Nunca devuelve las *object keys*; ⛔ nunca se incrusta en un listado ni en la ficha. **Norma completa, códigos,
+  TTL, rate limit y candados: [`§M6-K`](#M6-K).**
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
 - **Editar `name`/`phone` de un usuario desde M6 — 🚧 PROYECTADA, NO EXISTE (v1.67).** Medido: `admin.service.ts`
   expone `createUser`, `updateUserKyc`, `updateUserStatus`, `resetPassword`, `deleteUser` — **ninguno escribe
@@ -16596,6 +17197,348 @@ Err `403`, `400 VALIDATION_ERROR`.
   forma sería `PATCH /admin/users/:id { name?, phone? }` (`super_admin`, auditado `user.profile.update`, escribe
   `nameSource='user'`) — **se decide en ese stream, no aquí**. Mientras, el listado y la ficha de M6 **pueden** exponer
   `nameSource` (aditivo, opcional) para que el buscador entienda por qué «Juan Pérez» no encuentra a «jcsainz95».
+
+<a id="M6-K"></a>
+### M6-K. LA VERIFICACIÓN DE IDENTIDAD — leer el INE, decidir con motivo, y que el cliente lo sepa (v1.69, **NORMATIVA**, **PII**; P-78)
+
+> **Sección NUEVA. No renumera ni mueve nada.** Todo lo que v1.69 añade vive aquí; fuera de aquí solo hay
+> **punteros** y **retiradas**. ⚠️⚠️ **FRENTE DE PII: pasa por `seguridad` antes de publicarse** (`CLAUDE.md`, paso 7).
+>
+> **Por qué existe, dicho con la medición:** hoy el ciclo no cierra por **los dos extremos a la vez**. El
+> `super_admin` **no puede ver** lo que le pedimos al cliente (`uploads.controller.ts` solo tiene `POST
+> /uploads/presign`; `presignGet` existe y **nadie la llama** — `uploads.service.ts:154`), así que el selector de
+> M6 *«verificado»* **se mueve a ciegas**; y el cliente que ya subió todo **ve «Pendiente» sin ninguna acción**
+> (`KycSection.tsx:68,162` solo ofrece subir si `!ineOnFile`). **Un documento que se guarda y nadie mira es riesgo
+> puro: todo el coste de custodiar PII y cero del beneficio de haber identificado a nadie.**
+
+**K.0 — Las cuatro decisiones del dueño que esta sección ejecuta (`HECHOS.md`, 2026-09-11). ⛔ NO se re-preguntan.**
+
+| | Decisión textual | Dónde se ejecuta |
+|---|---|---|
+| **(a)** | las imágenes **«solo yo las veo»** ⇒ **`super_admin` únicamente**, nunca `vault_operator` | K.2, K.3 |
+| **(b)** | rechazar exige **motivo**, y el motivo **le llega al cliente** para que vuelva a subir | K.4, K.6, K.7 |
+| **(c)** | los **topes dejan de mostrarse al cliente** — pantalla **y** mensaje de error | K.5 |
+| **(d)** | la revisión muestra la INE **junto al nombre y las direcciones**, para cotejar contra el destino de envío | K.3 |
+
+---
+
+**K.1 — INVARIANTES DE LA SECCIÓN. Si algo de abajo parece contradecir uno de estos seis, gana el invariante.**
+
+1. ⛔ **Las *object keys* (`ineFrontKey`/`ineBackKey`) NO SALEN DEL SERVIDOR. Nunca. Con ningún rol, en ninguna ruta.**
+   Lo único que sale es una **URL prefirmada de vida corta**. *(Y esto **corrige** el contrato: §11 las declaraba
+   opcionales «solo super_admin: sirven el presigned GET» — línea que el código **nunca** implementó. Ver K.8.)*
+2. ⛔ **Ningún enlace se emite en un LISTADO, ni en la ficha 360° por defecto, ni en un correo.** Solo en respuesta a
+   **una petición explícita** contra el endpoint dedicado. *Un enlace que viaja «por si acaso» es un enlace que se
+   registra en un log, en un historial de navegador y en una captura de pantalla.*
+3. ⛔ **`vault_operator` no ve la imagen ni sabe cómo pedirla.** Sigue viendo `ineOnFile: boolean` y nada más.
+4. ✅ **Cada emisión de enlaces deja una fila de bitácora**, y **si la bitácora no escribe, los enlaces no salen**
+   (K.2.4, fallo **cerrado**).
+5. ⛔ **Ningún dial de política (umbral de INE, topes AML, acumulado) viaja al cliente** (K.5).
+6. ⛔ **Esta sección NO convierte `kycStatus` en precondición de dinero.** [`§M5-K.1–K.3`](#M5-K) quedan **intactos**:
+   ni crear, ni ofertar, ni pagar leen `kycStatus`. **`422 KYC_NOT_VERIFIED` sigue sin existir.**
+
+---
+
+**K.2 — ⭐ ENDPOINT NUEVO: `GET /api/v1/admin/users/:id/kyc/ine-links` — `super_admin` ÚNICAMENTE.**
+
+```
+GET /api/v1/admin/users/:id/kyc/ine-links
+Roles: super_admin  (⛔ vault_operator ⇒ 403 FORBIDDEN)
+Rate limit: @Throttle({ default: { ttl: 60_000, limit: 10 } })
+```
+
+Res `200`:
+```json
+{ "userId": "uuid",
+  "front":     { "url": "https://<bucket-host>/…?X-Amz-Signature=…", "expiresAt": "2026-09-11T18:02:00.000Z" },
+  "back":      { "url": "https://<bucket-host>/…?X-Amz-Signature=…", "expiresAt": "2026-09-11T18:02:00.000Z" },
+  "expiresInSeconds": 120 }
+```
+
+**K.2.1 — Caducidad: 120 segundos. Y digo por qué ése y no el default de 300.**
+- El dial es **`KYC_INE_VIEW_URL_TTL_SECONDS`** (env, default **120**), y el servidor **acota duro a ≤ 300**: un valor
+  mayor se clampa a 300 y se registra `warn`. *Un dial de caducidad que se puede subir sin techo es un dial que
+  algún día vale 24 h.*
+- **Por qué 120 basta:** el navegador **descarga la imagen en el primer segundo**; una vez descargada, la caducidad
+  del enlace **no afecta** a la pestaña abierta. El revisor puede cotejar con calma: lo que caduca es la
+  **capacidad de volver a pedir el objeto**, no lo que ya está en pantalla. Si caduca y necesita recargar, **vuelve
+  a pedir** — y esa segunda petición **también se audita**, que es exactamente lo que queremos.
+- **Por qué no 300:** el enlace es un **portador** (quien tiene la URL tiene la imagen, sin sesión). Cada segundo de
+  vida es superficie en historial de navegador, en un `Referer`, en un proxy corporativo y en una captura.
+- ⚠️ **El número normativo es 120 y vive AQUÍ.** `DESIGN_SYSTEM §34` se redactó con **300 s** de referencia (commit
+  `5a606f3`, antes de esta rev) y **se ajusta a 120** (ux-ui, encargado por el orquestador). ⛔ **El contrato no se
+  alinea con el sistema de diseño: es al revés** — cualquier estado de «enlace caducado» que pinte una cifra la toma
+  de `expiresInSeconds` de la respuesta, **no de una constante del front**.
+- ⛔ **`ResponseContentDisposition: 'attachment'` se CONSERVA** (`uploads.service.ts:161`) — **y lo que hace no es lo
+  que decía la primera redacción de esta línea. Corregido con medición, para que `seguridad` no tenga que
+  re-derivarlo y para que nadie lo «arregle» creyendo que estorba.**
+  - **Medición (orquestador, 2026-09-11, Chromium real, servidor local sirviendo el MISMO PNG con y sin la cabecera,
+    `about:blank` + imagen de OTRO origen ⇒ cubre el caso cruzado de producción; `scratchpad/orq-disposition/probe.js`,
+    **3/3 tiradas**):**
+
+    | Caso | Resultado |
+    |---|---|
+    | `<img src>` **con** `Content-Disposition: attachment` | **SE RENDERIZA** — `naturalWidth` = ancho real |
+    | `<img src>` **sin** la cabecera (control) | idéntico |
+    | **Navegación directa** a esa URL | **«Download is starting»** — no se abre como documento |
+
+  - ⇒ **La premisa correcta:** `Content-Disposition` **no se consulta para SUBRECURSOS**. La cabecera **NO impide
+    renderizar la imagen en un `<img>`**; lo que impide es **navegar a ella como documento de primer nivel**.
+    ~~«el objeto nunca se renderiza inline»~~ **era falso**; la conclusión de S-B3 **no lo era**.
+  - ⇒ **Por qué S-B3 sigue cumpliendo, y por el motivo correcto:** el vector que importa es **HTML ejecutable en el
+    origen del storage**, y ése **solo se dispara navegando**. La cabecera cierra exactamente esa puerta.
+  - ⭐ **Consecuencia de diseño, y es la que ahorra trabajo:** la pantalla de revisión de M6 **puede pintar la INE
+    directamente con los enlaces firmados en un `<img>`** — ⛔ **sin endpoint proxy** y ⛔ **sin tocar `presignGet`**.
+    *La alternativa (un proxy que descargue y re-sirva el objeto) habría sido un segundo camino a la misma PII, con
+    su propio rol, su propio rate limit y su propia auditoría que mantener sincronizados: coste real evitado por una
+    medición de treinta segundos.*
+
+**K.2.2 — Códigos de error (todos, y qué distingue a cada uno).**
+
+| Código | Cuándo | `details` |
+|---|---|---|
+| `401 UNAUTHENTICATED` | sin sesión | — |
+| **`403 FORBIDDEN`** | **rol ≠ `super_admin`** — incluido **`vault_operator`**, que es el caso que la decisión (a) prohíbe. ⭐ **Éste es el assert que distingue un control de una intención**: se verifica **llamando al endpoint con un token de operador**, no leyendo el decorador | — |
+| **`404 NOT_FOUND`** | **el usuario no existe** (paridad exacta con `AuditService.listForUser`, `audit.service.ts:83-84`). ⛔ No se distingue de *«existe pero está borrado»*: un `super_admin` ya puede enumerar usuarios por M6, pero este endpoint **no es un oráculo de existencia adicional** | — |
+| **`422 INE_NOT_ON_FILE`** (**NUEVO**) | el usuario **existe** y **no hay INE completo**: sin `KycProfile`, o con **una sola** de las dos keys. **No es 404**: el recurso *usuario* existe y la respuesta es accionable (*«pídeselo»*), no *«te equivocaste de URL»* | `{ frontOnFile: boolean, backOnFile: boolean }` — le dice al revisor **cuál** falta, que es lo que va a tener que pedirle al cliente |
+| `429 TOO_MANY_REQUESTS` | rate limit | — |
+| **`500 AUDIT_WRITE_FAILED`** | la bitácora no escribió ⇒ **los enlaces se descartan** (K.2.4) | — |
+
+**K.2.3 — Forma y prohibiciones.**
+- ⛔ **La respuesta NO lleva `ineFrontKey`/`ineBackKey`** (invariante K.1.1), ni el nombre del bucket como dato
+  estructurado, ni `kycStatus` (eso ya está en la ficha).
+- ⛔ **Nada de `GET /admin/users` ni de `GET /admin/users/:id` cambia para incrustar enlaces** (invariante K.1.2). La
+  ficha sigue diciendo **`ineOnFile: boolean`**; el botón «Ver INE» de M6 llama a **este** endpoint al pulsarse.
+- **Un solo endpoint para los dos documentos, y es deliberado:** una revisión **necesita frente y reverso** (el
+  reverso lleva la CURP y la vigencia). Dos endpoints = dos filas de bitácora para **un** acto, y la bitácora dejaría
+  de contestar *«¿cuántas veces se miró esta identidad?»*.
+
+**K.2.4 — ⛔⛔ FALLO CERRADO. La lectura NO pasa si la auditoría no escribe.**
+**Secuencia normativa, en este orden:**
+```
+1. guard de rol            → 403 si no es super_admin   (antes de tocar la BD)
+2. cargar KycProfile       → 404 / 422 INE_NOT_ON_FILE
+3. firmar las dos URLs     ← operación LOCAL: no toca R2, no deja rastro, no tiene efecto
+4. await audit.log(...)    ← si LANZA, se propaga: 500 AUDIT_WRITE_FAILED
+5. responder 200 con las URLs
+```
+- **Por qué firmar antes de auditar y no al revés:** firmar **no es el acto auditable** —no lee el objeto, no toca la
+  red, no deja huella— así que auditar primero registraría una mirada que quizá **no ocurra** (si el firmado falla).
+  Auditar **después de firmar y antes de responder** registra exactamente lo que va a pasar. **Lo que hace cerrado el
+  fallo es que el `await` está en el camino de la respuesta**: si la fila no se escribe, **el cuerpo nunca sale**, y
+  una URL que nadie recibió no es una fuga.
+- ⛔ **PROHIBIDO** envolver `audit.log` en un `try/catch` que trague, o en un `void`/`.catch(() => {})`. *Auditoría
+  «best effort» en una superficie de PII es auditoría opcional, y una auditoría opcional se apaga sola el día que la
+  BD va lenta.* **Precedente vivo y misma forma:** `admin-buylist.controller.ts:222-232` (`buylist.reveal_clabe`).
+- **Candado (backend, obligatorio):** con la escritura de `AuditLog` forzada a fallar, el endpoint responde **500** y
+  el cuerpo **no contiene ninguna `url`**. *Un test que solo comprueba que la fila se escribe no distingue «falla
+  cerrado» de «falla abierto y nadie lo vio».*
+
+**K.2.5 — El evento de auditoría: `user.kyc.reveal_ine`.**
+**Nombre**, coherente con los que ya existen (`user.create`, `user.kyc.update`, `user.status.update`,
+`user.reset_password`, `user.delete` en `admin.controller.ts:94,158,177,198,217`; `auth.password_changed` en
+`auth.service.ts:335`; y el precedente exacto de revelado de PII, `buylist.reveal_clabe`). **Namespace `user.` porque
+la entidad mirada es un `User`; sufijo `reveal_ine` porque *revelar* es el verbo que este sistema ya usa para
+«enseñar PII bajo petición».**
+
+| Campo de `AuditEntry` | Valor | Por qué |
+|---|---|---|
+| `actorUserId` | id del `super_admin` | **quién miró** |
+| `actorRole` | `super_admin` | redundante a propósito: si mañana el rol cambia, la fila vieja sigue diciendo con qué autoridad se miró |
+| `action` | **`user.kyc.reveal_ine`** | |
+| `entityType` | `'User'` | ⚠️ **`'User'` y no `'KycProfile'`**: así la fila aparece en `GET /admin/users/:id/audit?scope=target`, que es **la pantalla donde alguien va a preguntar «¿quién ha mirado la identidad de esta persona?»** |
+| `entityId` | **id del usuario MIRADO** | **a quién** |
+| `ip` | IP del actor | ya se proyecta solo a `super_admin` (`audit.service.ts:108`) |
+| `createdAt` | automático | **cuándo** |
+| `after` | **`{ documents: ['front','back'], expiresInSeconds: 120 }`** | **qué documento** se emitió y con qué vida |
+
+- ⛔ **`after` NO lleva las keys, ni las URLs firmadas, ni el bucket.** Una URL prefirmada es una **credencial
+  portadora**: guardarla en una fila de BD es guardar la llave junto a la puerta. *(`before`/`after` no se exponen
+  nunca por `listForUser` — `audit.service.ts:99-109` — pero eso es una proyección, no un cifrado.)*
+- **La bitácora es el control de volumen, no solo el rastro:** 10 llamadas/min es un ritmo humano de revisión; un
+  volcado masivo de identidades **deja una fila por documento**, es ruidoso y es consultable. *No impedimos que el
+  dueño mire a sus clientes: hacemos que mirar deje huella.*
+
+---
+
+**K.3 — ⭐ LA FICHA DE REVISIÓN: cotejar la INE contra el destino de envío (decisión (d)).**
+
+**Decisión: NO se crea un DTO de revisión nuevo. Se AMPLÍA la ficha de M6** (`AdminUserDetailDTO`), con dos campos.
+
+**Por qué ampliar y no crear:**
+- **Ya tiene casi todo, y el «casi» son dos campos.** Medido: la ficha **ya** trae `name`, `addresses:
+  AddressDTO[]` **con `recipientName` para los dos roles** desde v1.67.1 (§M6, `D-CTA-8`) y `kycProfile.ineOnFile`.
+- **Un DTO de revisión sería una SEGUNDA proyección de las mismas columnas de PII**, y este contrato ya pagó ese
+  error dos veces: **S49-M1-R** (`admin.service.ts:71-88`: una copia de `Address` que olvidó `recipientName`) y
+  `toAdminUserAddressRef` (§M6, v1.67.1). ***Una relación que se proyecta dos veces se filtra por la copia que su
+  autor no revisó.***
+- **Y la pantalla es una sola:** el dueño coteja **en la ficha**, no en un módulo aparte. Dos fuentes para un hecho
+  es lo que O-1 prohíbe.
+
+**Campos nuevos en `AdminUserDetailDTO` (⭐ solo `super_admin`; ver §11):**
+
+1. **`nameSource: NameSource`** (`'user' | 'google' | 'derived'`) — **el campo que hace legible el cotejo.** Sin él,
+   *«Jcsainz95»* parece un nombre y el revisor compara contra un INE que dice otra cosa; con él, el revisor sabe que
+   **el sistema lo fabricó del correo** (P-73) y que **el nombre a cotejar es el del `recipientName`**, no el del
+   perfil. **§M6 ya lo autorizaba** («el listado y la ficha **pueden** exponer `nameSource`, aditivo, opcional»);
+   v1.69 lo **fija**. ⚠️ **Va también en `AdminUserDetailOperatorDTO`**: no es PII nueva (el operador ya ve el
+   nombre) y es **exactamente** la información que le evita imprimir una etiqueta a nombre de un correo.
+2. **`recentShipmentRecipients: AdminShipmentRecipientRef[]`** (**últimos 5**, `ShipmentRequest.createdAt desc`) —
+   *«¿a nombre de quién han salido sus paquetes?»*. **Lista blanca estricta sobre `ShipmentRequest.addressSnapshot`
+   (Json):** `{ shipmentId, recipientName: string | null, city: string, state: string, createdAt }`.
+   - ⛔ **El snapshot ENTERO no viaja** (lleva `line1`, `line2`, `phone`, CP). El cotejo de identidad necesita
+     **a quién** y **a qué ciudad**; la calle exacta es PII que no aporta a esa pregunta. *Es la misma doctrina de
+     `AdminUserSellRequestRef`: un ref, no la fila.*
+   - `recipientName: null` = envío **anterior a M-52** (sin destinatario capturado). **Se emite `null`, no se deriva
+     de `User.name`**: derivarlo es inventar el dato que el cotejo intenta comprobar (`users.service.ts:140-145`).
+   - **Solo `super_admin`.** El operador ya ve estos envíos en §M4 cuando le toca uno; agregarlos **por persona** en
+     su ficha sería un perfil de movimientos que su rol no necesita.
+
+**⛔ Lo que esta ficha NO gana, y es la mitad importante de la decisión:**
+- **La CLABE sigue `clabeMasked`** (`****1234`), también para `super_admin`. En claro **solo** por
+  `GET /admin/buylist/:id/reveal-clabe`. **El régimen de la CLABE no lo toca v1.69.**
+- **El RFC sigue `rfcMasked`.**
+- ⛔ **Ni un campo más de PII «ya que estamos».** *La ficha de revisión es la superficie donde es más tentador
+  añadir «solo un campito»: se declara CERRADA salvo paso por el arquitecto.*
+
+---
+
+**K.4 — ⭐ APROBAR / RECHAZAR CON MOTIVO (decisión (b)).**
+
+**Quién:** **`super_admin` únicamente** — ya lo es (`admin.controller.ts:141-142`) y **no se relaja**. *Quien decide
+es quien pudo mirar; y solo el `super_admin` puede mirar (K.2).*
+
+**`PATCH /api/v1/admin/users/:id/kyc` — Req `{ kycStatus, capPerMonthCents?, rejectionReason? }`:**
+
+| Regla | Norma |
+|---|---|
+| **`rejectionReason` obligatorio** | **si y solo si `kycStatus === 'rejected'`**. Ausente/vacío ⇒ **`422 KYC_REJECTION_REASON_REQUIRED`** (**NUEVO**), `details: { field: 'rejectionReason' }` |
+| **Longitud** | **3–500** tras `trim()`. Fuera de rango ⇒ `422 VALIDATION_ERROR`, `details: { field: 'rejectionReason', min: 3, max: 500 }`. **Mismo rango exacto que `SellRequestItem.rejectionReason`** (`schema.prisma:1437-1441`, M-22): *el mismo concepto no estrena una segunda talla* |
+| **Enviarlo sin rechazar** | `kycStatus ≠ 'rejected'` **con** `rejectionReason` ⇒ **`422 VALIDATION_ERROR`** (`details: { field: 'rejectionReason' }`). ⛔ **No se ignora en silencio**: un motivo aceptado y descartado es un motivo que el cliente nunca verá y que el admin cree haber mandado |
+| **Al verificar** | `kycStatus='verified'` ⇒ `verifiedAt`/`verifiedBy` se sellan (ya ocurre, `admin.service.ts:668,675`) **y `rejectionReason` se pone a `null`** |
+| **Al rechazar** | se escriben `rejectionReason`, **`reviewedAt = now()`** y **`reviewedBy = actor.id`**; `verifiedAt` **se pone a `null`** (dejó de estar verificado) |
+| **`none`** | sigue aceptándose (deshacer una decisión tomada por error). **Limpia `rejectionReason`.** ⛔ **No borra imágenes** |
+| **Auditoría** | el `user.kyc.update` que ya existe (`admin.controller.ts:155-162`) **lleva el motivo en `after`** — `{ kycStatus, rejectionReason? }`. **Precedente idéntico:** `buylist.item.reject` mete `reason` en `after` (`admin-buylist.controller.ts:599-603`). El motivo lo escribe un admin sobre un documento: **no es PII del cliente**, es la decisión de negocio |
+| **Contenido del motivo** | ⚠️ **Norma para quien escribe la pantalla (ux-ui):** el motivo **lo lee el cliente**. Se ofrecen **motivos sugeridos** (foto borrosa / no se lee el reverso / documento vencido / el nombre no corresponde a la cuenta) + texto libre. ⛔ **El copy no puede afirmar que cotejamos la CLABE contra un titular** (criterio 183(c) sigue vigente) |
+
+**K.4.1 — ⛔ EL RECHAZO **NO** BORRA LAS IMÁGENES. Y la decisión tiene dos mitades, porque una sola se equivoca.**
+- **NO se borran al rechazar.** *Borrar en el rechazo destruye la única evidencia de **por qué** rechazamos.* Si el
+  cliente reclama —o si un día hay que explicarle a alguien por qué no le compramos—, el motivo de texto **sin la
+  imagen que lo provocó** no se puede defender. Y el cliente **sigue teniendo un rechazo abierto que resolver**:
+  durante esa ventana el documento es material de trabajo, no residuo.
+- **SÍ se borran al SUSTITUIRSE.** Cuando el cliente vuelve a subir (`PUT /users/me/kyc`, §1), **la key vieja se
+  borra de R2** en el mismo flujo (`uploads.deleteObject`, `uploads.service.ts:170`, idempotente). **Ésta es la mitad
+  que cierra un agujero real:** hoy sobrescribir `ineFrontKey` **abandona el objeto anterior en el bucket**, donde
+  **ninguna purga lo alcanza** (la retención de D46/BL-42 recorre las keys de `KycProfile`, y esa key ya no está en
+  ninguna fila). *Sin esta mitad, «no borramos al rechazar» se convierte en «guardamos para siempre cada intento».*
+- **El reloj de retención no cambia:** `INE_RETENTION_DAYS` (180) y su ancla siguen siendo los de D46/§M5-N.3.
+  **BL-42 sigue abierto y v1.69 no lo cierra** — se anota como lo que es.
+
+---
+
+**K.5 — ⛔⛔ LOS TOPES SALEN DE LA VISTA DEL CLIENTE (decisión (c)).**
+
+**Medición, sitio por sitio (2026-09-11):**
+
+| Sitio | Qué emite hoy | v1.69 |
+|---|---|---|
+| `GET /users/me/kyc` | `capPerRequestCents`, `capPerMonthCents`, `monthUsedCents` (`users.service.ts:294-315`) | ⛔ **los tres se RETIRAN** (§1) |
+| `422 INE_REQUIRED` (intake) | `details: { thresholdCents }` (`buylist.service.ts:1606-1608`) | ⛔ **`details: {}`** (§6) |
+| `422 INE_REQUIRED` (emisión) | **ya SIN umbral**, a propósito (`buylist.service.ts:3611-3615`) | ✅ **no se toca** |
+| `PATCH /admin/users/:id/kyc` + ficha M6 | `capPerMonthCents` al **admin** | ✅ **no se toca: el admin los sigue viendo y editando** |
+| Front | `capPerRequest`/`capPerMonth` pintados (`KycSection.tsx:115-130`); `overCaps` calculado (`useSellRequirements.ts:62-66`) | ⛔ **se retiran las dos filas** y `ineExpected` pasa a `ineRequiredForTotal && !ineOnFile` |
+
+- **El mensaje que sustituye a la cifra, aprobado por el dueño y SIN NÚMERO:**
+  ***«supera nuestro límite; sube tu INE para continuar»***. ⛔ **No se fabrica otra cifra en su lugar** —ni «te
+  faltan $X», ni «el máximo es $Y»—: **ese era el defecto**. **Una frase no es un dial** (patrón D43, criterio 177(c)).
+- **§P.2.2 NO se pierde** (y `PROJECT.md` manda sobre este contrato, así que no podía perderse): el INE se sigue
+  pidiendo **en el mismo paso de la dirección**, con `ineRequiredForTotal` (§1, §M5-I.6). **La capacidad cambia de
+  lado: antes el front comparaba, ahora el servidor contesta.**
+- ⚠️⚠️ **ALCANCE SERIALIZADO — DECISIÓN DEL ORQUESTADOR (2026-09-11), CON DUEÑO Y CON MOTIVO. NO ES UN OLVIDO NI UN
+  RECORTE SIN DUEÑO.** El **`422 BUYLIST_LIMIT_EXCEEDED (per_month)` SIGUE EMITIENDO `capCents`/`wouldBeCents` al
+  vendedor** (`buylist.service.ts`, §M5-A.7 fila 2).
+  - **Sí cae dentro de la decisión (c) del dueño** («los topes dejan de mostrarse al cliente — pantalla **y mensaje
+    de error**»): es un tope en un mensaje de error al cliente. **No se discute el fondo.**
+  - **Lo que se decidió es el CUÁNDO, y lo decidió el orquestador:** el arquitecto lo escaló; el orquestador
+    resolvió **serializarlo a la revisión siguiente**. **Motivo:** esa superficie de error es de **Stream B**, y
+    **QA la está midiendo contra v1.68.1 en este momento** — cambiarla ahora **invalidaría su medición**.
+  - **Dueño del pendiente:** orquestador (lo enruta en la rev siguiente) → backend (`buylist`) + frontend (copy).
+  - ⛔ **Nadie lo «arregla de paso» dentro de v1.69.** *Un contrato que cambia bajo los pies de quien lo está
+    midiendo produce un veredicto que no vale — y ese coste es mayor que una rev de espera.*
+
+---
+
+**K.6 — QUÉ HACE EL CLIENTE: el ciclo, de punta a punta.**
+
+```
+sube frente+reverso ──► PUT /users/me/kyc ──► kycStatus = 'pending'   (rejectionReason → null)
+                                                     │
+                          super_admin abre M6 ◄───────┘
+                          GET /admin/users/:id            ← nombre, nameSource, direcciones, envíos
+                          GET /admin/users/:id/kyc/ine-links   ← 2 enlaces, 120 s, AUDITADO
+                                                     │
+                     ┌───────────────────────────────┴───────────────────────────────┐
+            PATCH … { kycStatus:'verified' }                    PATCH … { kycStatus:'rejected',
+                     │                                                    rejectionReason:'…' }
+                     ▼                                                        ▼
+              cliente ve «Verificada»                        cliente ve «Rechazada» + EL MOTIVO
+              (sin acción pendiente)                         + botón «Volver a subir» ──┐
+                                                                                        │
+                                              ◄─────────────────────────────────────────┘
+                                              (vuelve a 'pending'; la imagen vieja se borra)
+```
+
+⛔ **No hay estado terminal y no hay límite de reintentos** (v1.69). *Un límite de reintentos sería una regla nueva
+colgada de `kycStatus`, y §M5-K.5(b) exige que eso pase por el arquitecto: no la creo hoy porque nadie la pidió.*
+
+---
+
+**K.7 — ⭐ TABLA NORMATIVA DE ESTADOS: qué ve el cliente y qué puede hacer. (Para ux-ui y frontend — no se adivina.)**
+
+| `kycStatus` | Cuándo | Qué VE el cliente | Qué ACCIÓN se le ofrece | Campos del DTO |
+|---|---|---|---|---|
+| **`none`** | nunca subió INE | **«Sin verificar»** + una línea de por qué puede necesitarla (**sin cifra**) | **Subir INE** (frente + reverso) | `ineOnFile:false`, sin `rejectionReason` |
+| **`pending`** | subió y **nadie ha decidido** | **«En revisión»** + *«la revisamos y te avisamos»* | ⛔ **NINGUNA acción de subida.** Estado de espera **legítimo**: el cliente no tiene nada que hacer **y se le dice** | `ineOnFile:true`, sin `rejectionReason` |
+| **`verified`** | un `super_admin` **miró las dos imágenes** y decidió | **«Verificada»** (+ fecha, opcional) | ⛔ Ninguna obligatoria. ✅ **«Actualizar mi identificación»** disponible (foto vencida) ⇒ vuelve a `pending` | `ineOnFile:true`, sin `rejectionReason` |
+| **`rejected`** | rechazada **con motivo** | **«Rechazada»** ⭐ **+ EL MOTIVO, textual** — es el campo que cierra el ciclo | ⭐ **«Volver a subir»** (frente + reverso) ⇒ vuelve a `pending` | `ineOnFile:true`, **`rejectionReason` presente** |
+
+- ⛔ **El enum crudo NUNCA se pinta** (§9.2): siempre rótulo i18n (`status.kyc.*`), como ya hace
+  `KycSection.tsx:69`.
+- ⛔ **Ninguna de estas cuatro filas bloquea comprar, vender, cobrar ni retirar.** El único bloqueo del sistema
+  sigue siendo `422 INE_REQUIRED` — **por «no hay imagen», no por «el estado no es `verified`»** (invariante K.1.6).
+  *Si alguien escribe una pantalla que diga «necesitas estar verificado para vender», está afirmando un control que
+  no existe.*
+- **El defecto que esta tabla cierra, para que se entienda qué se está arreglando:** hoy `pending` y `rejected` se
+  pintan igual (**«Pendiente», sin acción**) y `rejected` **ni siquiera tiene motivo que pintar**. El cliente que ya
+  hizo todo **no sabe si falta algo suyo o algo nuestro**.
+
+---
+
+**K.8 — ⛔ CORRECCIÓN DEL CONTRATO CONTRA SÍ MISMO (§11, `AdminKycProfileDTO`).**
+`AdminKycProfileDTO` declaraba **`ineFrontKey?: string, ineBackKey?: string` — *«solo super_admin: sirven el presigned
+GET»***. **Se RETIRAN de la declaración.** Dos razones, y la segunda es la que importa:
+1. **El código nunca las emitió** (`admin.service.ts:56-69,195-197`: se seleccionan **solo** para derivar `ineOnFile`).
+   El contrato describía una fuga que backend, con buen criterio, no implementó.
+2. **Y la decisión del dueño las prohíbe para siempre** (invariante K.1.1): el presigned GET **no necesita que la key
+   viaje** — la resuelve el servidor desde `:id`. *Una línea de contrato que autoriza una fuga «para un uso que no
+   existe» es exactamente por donde entra el uso que sí existe.*
+
+---
+
+**K.9 — CANDADOS (los escribe backend/frontend; los ejecuta QA). Sin estos, K no está verificada.**
+
+| # | Candado | Cómo se comprueba |
+|---|---|---|
+| **K-1** | **`vault_operator` ⇒ `403`** en `/kyc/ine-links` | llamada real con token de operador. ⭐ **Saltándose la pantalla**, no leyendo el decorador |
+| **K-2** | **Ninguna respuesta de admin contiene una object key** | `GET /admin/users`, `GET /admin/users/:id` y `/kyc/ine-links` con `super_admin`: el JSON **no** matchea `/kyc_ine\//` |
+| **K-3** | **Fallo cerrado de auditoría** | forzar el fallo de `auditLog.create` ⇒ **500** y el cuerpo **sin `url`** |
+| **K-4** | **Una fila por emisión**, con `entityId` = usuario mirado y `action='user.kyc.reveal_ine'` | 3 llamadas ⇒ 3 filas en `GET /admin/users/:id/audit?scope=target` |
+| **K-5** | **`rejected` sin motivo ⇒ `422 KYC_REJECTION_REASON_REQUIRED`**; con motivo de 2 y de 501 chars ⇒ `422 VALIDATION_ERROR` | llamada directa al `PATCH` |
+| **K-6** | **El motivo llega al cliente** | tras el rechazo, `GET /users/me/kyc` del **propio** cliente trae `rejectionReason` exacto |
+| **K-7** | **Volver a subir devuelve a `pending` y limpia el motivo**; **un `PUT` solo-CLABE NO toca `kycStatus`** | dos llamadas: una con keys, otra solo con `clabe`, partiendo de `verified` |
+| **K-8** | **Ningún dial llega al cliente** | `GET /users/me/kyc` **sin** `threshold`/`cap`/`monthUsed` en ninguna clave; `422 INE_REQUIRED` del intake con `details` **vacío** |
+| **K-9** | **El TTL se respeta y se acota** | `expiresInSeconds === 120`; con `KYC_INE_VIEW_URL_TTL_SECONDS=3600` ⇒ clampa a **300** |
+| **K-10** | **INE incompleto ⇒ `422 INE_NOT_ON_FILE`** con `frontOnFile`/`backOnFile` | usuario con **una sola** key |
 
 #### Alta de usuario por rol desde admin (v1.7-admin-users — NUEVO backend)
 > Hoy no existe alta de usuarios en back-office: los clientes se **auto-registran** como `customer` y el staff
@@ -16774,6 +17717,23 @@ Err `403`, `400 VALIDATION_ERROR`.
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `Dispute.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: string }` (mismo campo y misma norma que §7: **resuelto server-side desde configuración**, valor no fijado por el contrato). **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
+  > ⚠️ **v1.68 — `resolve` obedece la doctrina de §M5-T (guarda en el motor) y el job de deadline no revive
+  > resueltas.** Medido 2026-09-11: `disputes.service.ts:208-238` hace `findUnique` + `update({ where:{ id } })`
+  > **sin término de estado** ⇒ una disputa `resuelta_recompra` se puede «resolver» otra vez (`reject` la pasa a
+  > `rechazada` y el `status` pierde el rastro de la recompra); `dispute-deadline.service.ts:16-21` hace `findMany` +
+  > `update` por fila (**read-then-write**) ⇒ una disputa resuelta entre la lectura y la escritura **vuelve a
+  > `en_revision`**. No desembolsa (el importe solo se interpola en `resolution`), por eso es Media
+  > (`HISTORIAL.md:413`) — pero es el registro de un money-out. Razón: `ARCHITECTURE §4.48.4`.
+  > - `POST /admin/disputes/:id/resolve`: `updateMany({ where: { id, status: { in: ['abierta','en_revision'] } },
+  >   data })`, `count === 1`; si no ⇒ **`409 CONFLICT`** `details: { status, resolvedAt }`, **cero escritura**.
+  >   ⛔ **No es idempotente a propósito**: resolver dos veces es registrar dos veces un money-out. Res `200` (la fila
+  >   proyectada, `toAdminDisputeRow`), sin cambio de forma.
+  > - Job `dispute-deadline`: **un solo** `updateMany({ where: { status: 'abierta', deadlineAt: { lte: now } },
+  >   data: { status: 'en_revision' } })`; devuelve `{ expired: count }`. Cero `findMany` previo.
+  > - **Candado D-1:** `repurchase` y luego `reject` sobre la misma disputa ⇒ `200` · `409 CONFLICT`, `status` sigue
+  >   `resuelta_recompra`. **Candado D-2:** disputa `abierta` con `deadlineAt` vencido; resolverla **y** correr el job
+  >   (en ese orden) ⇒ sigue resuelta; rojo si queda `en_revision`.
+  > - Sin DDL, sin endpoint nuevo, sin frontend. Módulo `disputes` (Stream B).
 
 ### M9 — Reportes (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`AdminReportsController` + `AdminService.launchMetrics/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M9 es `ModuleTodo` en UI).
@@ -17605,7 +18565,10 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 
 ## 11. DTOs de administración (referencia)
 ```ts
-OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, settledAt? }
+OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, settledAt?,
+                     orderNumber: string | null, reservedUntil?: string }
+// v1.68 (§4-R.5): `orderNumber` y `reservedUntil` son ADITIVOS; `reservedUntil` viaja SOLO con status 'pending'.
+// `OrderDetailDTO` (§4, ejemplo de GET /orders/:orderId) gana los dos mismos campos.
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity` + `appliedRule`. `category` deprecado (puede
 // venir null en filas legacy; no lo consuma el front nuevo).
 // v1.6-finish: `finish` = acabado snapshot de la cotización/solicitud (default "normal"). Determina la regla
@@ -18205,9 +19168,15 @@ AdminOrderBillingDTO = { rfcMasked: string, razonSocial: string, regimenFiscal: 
 // no es «¿este campo es sensible?» sino «¿es sensible PARA QUIEN LEE ESTA RUTA?».)*
 AdminUserDetailDTO = {            // ← `super_admin`
   id: string, email: string, name: string, phone?: string, locale: Locale, role: Role,
+  nameSource: NameSource,                    // ⭐ v1.69 (P-78, §M6-K.3): 'user'|'google'|'derived'.
+                                             //   Sin él, un nombre FABRICADO del correo (P-73) parece
+                                             //   un nombre y el cotejo contra el INE es ilegible.
   status: UserStatus, emailVerified: boolean, authProvider: AuthProvider, avatarUrl?: string,
   mustChangePassword: boolean, deletedAt?: string, anonymizedAt?: string,
   createdAt: string, updatedAt: string,
+  recentShipmentRecipients: AdminShipmentRecipientRef[],  // ⭐ v1.69 (P-78, §M6-K.3): últimos 5.
+                                             //   SOLO super_admin. Existe para UNA pregunta: «¿a nombre
+                                             //   de quién salen sus paquetes?» — cotejo identidad↔destino.
   kycProfile: AdminKycProfileDTO | null,
   billingProfile: AdminBillingProfileDTO | null,
   addresses: AddressDTO[],
@@ -18220,6 +19189,10 @@ AdminUserDetailDTO = {            // ← `super_admin`
 // Misma decisión y misma razón que `GroupedListingSummaryDTO` en D2.
 AdminUserDetailOperatorDTO = {    // ← `vault_operator` (SEC-A4: rol de menor confianza; sin PII fiscal/bancaria)
   id: string, email: string, name: string, phone?: string, locale: Locale, role: Role,
+  nameSource: NameSource,                    // ⭐ v1.69: SÍ va también aquí. No es PII nueva (ya ve `name`)
+                                             //   y es justo lo que le evita imprimir una etiqueta a nombre
+                                             //   de un correo. ⛔ `recentShipmentRecipients` NO va: un perfil
+                                             //   de movimientos por persona no es de su rol.
   status: UserStatus, emailVerified: boolean, deletedAt?: string,
   createdAt: string, updatedAt: string,
   kycProfile: AdminKycProfileOperatorDTO | null,
@@ -18251,15 +19224,36 @@ AdminUserDetailOperatorDTO = {    // ← `vault_operator` (SEC-A4: rol de menor 
 // aparece ni una vez en `frontend/`. ⚠️ No se deja «vacío en la ficha»: un campo que el panel pinta y que siempre
 // llega `null` invita a poblarlo, y poblarlo reintroduce el cotejo por la puerta de atrás. Backend: sale de
 // `ADMIN_KYC_SELECT`, del tipo y de las DOS proyecciones; el escritor a `null` del soft-delete NO se toca.
+// ⛔⛔ v1.69 (P-78, §M6-K.8) — `ineFrontKey?`/`ineBackKey?` SE RETIRAN DE ESTE DTO. Estaban declaradas como «solo
+// super_admin: sirven el presigned GET» y (a) el CÓDIGO NUNCA LAS EMITIÓ (`admin.service.ts:56-69,195-197`: se
+// seleccionan solo para derivar `ineOnFile`), y (b) la decisión del dueño las prohíbe para siempre: el presigned GET
+// lo resuelve el servidor desde `:id` en `GET /admin/users/:id/kyc/ine-links` — la key NO necesita viajar, y una
+// línea de contrato que autoriza una fuga «para un uso que no existe» es por donde entra el uso que sí existe.
 AdminKycProfileDTO = { id: string, userId: string, kycStatus: KycStatus,
                        clabeMasked?: string, rfcMasked?: string, ineOnFile: boolean,
-                       ineFrontKey?: string, ineBackKey?: string,   // solo super_admin: sirven el presigned GET
+                       rejectionReason?: string,     // ⭐ v1.69 (§M6-K.4): presente SOLO si kycStatus='rejected'
+                       reviewedAt?: string, reviewedBy?: string,  // ⭐ v1.69: sello de la decisión (incl. rechazo)
                        capPerMonthCents?: number,
                        verifiedBy?: string, verifiedAt?: string, createdAt: string, updatedAt: string }
 AdminKycProfileOperatorDTO = { id: string, userId: string, kycStatus: KycStatus,
                                clabeMasked?: string, ineOnFile: boolean,
                                capPerMonthCents?: number,
                                verifiedAt?: string }
+// ⛔ v1.69: el OPERADOR **no** gana `rejectionReason`. No decide el KYC (el PATCH es super_admin-only) y el motivo es
+// texto libre sobre un documento de identidad que él no puede ver: dárselo sería contarle la conclusión de una
+// revisión cuyo material le está vedado (decisión (a) del dueño).
+// ⭐ v1.69 (§M6-K.3) — ref de envío para el cotejo identidad ↔ destino. LISTA BLANCA sobre `ShipmentRequest
+// .addressSnapshot` (Json): ⛔ el snapshot ENTERO no viaja (lleva `line1`/`line2`/`phone`/CP; el cotejo necesita
+// «a quién» y «a qué ciudad», no la calle). `recipientName: null` = envío anterior a M-52 — ⛔ NO se deriva de
+// `User.name`: derivarlo es inventar el dato que el cotejo intenta comprobar.
+AdminShipmentRecipientRef = { shipmentId: string, recipientName: string | null,
+                              city: string, state: string, createdAt: string }
+// ⭐ v1.69 (§M6-K.2) — respuesta de `GET /admin/users/:id/kyc/ine-links`. ⛔ NUNCA lleva `ineFrontKey`/`ineBackKey`.
+// Las URLs son CREDENCIALES PORTADORAS de vida corta: no se cachean, no se persisten, no se registran en `AuditLog`.
+AdminIneLinksDTO = { userId: string,
+                     front: { url: string, expiresAt: string },
+                     back:  { url: string, expiresAt: string },
+                     expiresInSeconds: number }   // 120 por defecto; el servidor clampa duro a ≤ 300
 // ⚠️ `verifiedBy`/`verifiedAt` se conservan: siguen sellándose y siguen siendo el rastro auditado de QUIÉN movió el
 // selector y CUÁNDO. Lo que NO son es prueba de que se verificara algo. Mismo caso que `kycStatus`.
 AdminBillingProfileDTO = { id: string, userId: string, rfcMasked: string, razonSocial: string,

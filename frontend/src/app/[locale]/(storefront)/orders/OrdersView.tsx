@@ -15,6 +15,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { ClaimableOrdersNotice } from '@/components/domain/claimable/ClaimableOrdersNotice';
 import type { OrderSummaryDTO } from '@/types/contract';
 import { MyRequestsSection } from '../buylist/MyRequestsSection';
+import { ResumePaymentAction } from './ResumePaymentAction';
 
 /** Pestañas-enlace de «Compras y ventas» (§33.3): `/orders` ⇆ `/orders?tab=ventas`. */
 export type OrdersTab = 'compras' | 'ventas';
@@ -52,13 +53,24 @@ export function OrdersView() {
       header: t('orderNumber', { id: '' }).trim(),
       render: (o) => (
         <Link href={`/orders/${o.id}`} className="tabular font-mono text-accent hover:text-text">
-          {/* Folio legible si el backend lo manda; el UUID solo como fallback (QA, 2026-09-11). */}
+          {/* Folio REAL (contrato v1.68 §4-R.5: `orderNumber: string | null`); el id solo cuando
+              el servidor manda `null` (pedido anterior al folio). */}
           {o.orderNumber ?? o.id}
         </Link>
       ),
     },
     { key: 'date', header: t('date'), render: (o) => formatDate(o.createdAt, locale) },
-    { key: 'status', header: t('status'), render: (o) => <StatusBadge domain="order" value={o.status} /> },
+    {
+      key: 'status',
+      header: t('status'),
+      render: (o) => (
+        <div>
+          <StatusBadge domain="order" value={o.status} />
+          {/* v1.68 §4-R.5: `pending` con reserva viva ⇒ «reservada hasta HH:MM» + «Reanudar pago». */}
+          <ResumePaymentAction order={o} className="mt-2" />
+        </div>
+      ),
+    },
     {
       key: 'total',
       header: t('total'),

@@ -32,7 +32,13 @@ export const IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED);
  * `E2E_TEMP_OPERATOR_*`) con los defaults de `backend/prisma/e2e-fixtures.ts`. ⚠ Su contraseña
  * temporal se CONSUME al recorrer el flujo: cada corrida real necesita re-sembrar (TECH_DEBT GA-D3).
  */
-export type SeedRole = 'customer' | 'admin' | 'operator' | 'customerTemp' | 'operatorTemp';
+export type SeedRole =
+  | 'customer'
+  | 'customer2'
+  | 'admin'
+  | 'operator'
+  | 'customerTemp'
+  | 'operatorTemp';
 
 /** Actores cuya sesión nace con `mustChangePassword: true` (en mock se inyecta esa bandera). */
 export const TEMP_PASSWORD_ROLES: readonly SeedRole[] = ['customerTemp', 'operatorTemp'];
@@ -45,6 +51,20 @@ export const CREDENTIALS: Record<SeedRole, { email: string; password: string; ro
   customer: {
     email: process.env.E2E_CUSTOMER_EMAIL ?? 'customer@e2e.local',
     password: process.env.E2E_CUSTOMER_PASSWORD ?? 'Customer123!',
+    role: 'customer',
+  },
+  /**
+   * ⚠️ **SEGUNDO VENDEDOR, y no es un lujo.** El tope MENSUAL de compra (`buylist_cap_per_month_cents`)
+   * es POR VENDEDOR y lo consumen todas las suites que crean solicitudes: medido hoy (2026-09-11,
+   * stack `1522b45`), el `customer` del seed llegó a `monthUsed = 960,000` de `capCents = 1,000,000`
+   * y `POST /buylist/requests` empezó a responder `422 BUYLIST_LIMIT_EXCEEDED` — un rojo que no
+   * habla del producto sino del cupo del mes. `customer2` ya existe en el seed **con su propia
+   * dirección de recolección** (`seed-e2e.ts`, paso 8), así que el arnés que SIEMBRA solicitudes usa
+   * este actor y deja intacto el cupo del que COMPRA.
+   */
+  customer2: {
+    email: process.env.E2E_CUSTOMER2_EMAIL ?? 'customer2@e2e.local',
+    password: process.env.E2E_CUSTOMER2_PASSWORD ?? 'Customer123!',
     role: 'customer',
   },
   admin: {
