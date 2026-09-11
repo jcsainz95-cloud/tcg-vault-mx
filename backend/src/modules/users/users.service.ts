@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AuthProvider, KycStatus, NameSource, Prisma, Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -34,6 +34,8 @@ export function isValidClabe(clabe: string): boolean {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
@@ -213,6 +215,8 @@ export class UsersService {
    *    acepta su id. (`AdminBillingProfileDTO` de M6 sí los lleva: son dos DTOs a propósito.)
    */
   private toBillingProfileDTO(bp: {
+    id: string;
+    userId: string;
     rfcEnc: string;
     razonSocial: string;
     regimenFiscal: string;
@@ -220,12 +224,29 @@ export class UsersService {
     postalCode: string;
     email: string;
   }): BillingProfileDTO {
-    // N2 (2026-09-11): un RFC que descifra a vacío es una fila corrupta (el DTO exige 12-13 chars al
-    // escribir). NO se convierte en `''` en silencio: se lanza (⇒ 500) para que se vea y se repare;
-    // `pii.decrypt` ya lanza si el blob no descifra (clave distinta / blob dañado).
-    const rfcMasked = maskRfc(this.pii.decrypt(bp.rfcEnc));
+    // N2 (2026-09-11): un `rfcEnc` que NO descifra, o que descifra a vacío, es una fila que este
+    // proceso no puede servir. NO se convierte en `''` en silencio: se lanza (⇒ 500) para que se vea
+    // y se repare — pero CON diagnóstico (id, userId y motivo) en el log, porque el 500 al cliente no
+    // dice nada. Causa medida el 2026-09-11 en el stack nativo: `PII_ENCRYPTION_KEY` sin definir ⇒
+    // clave EFÍMERA por proceso ⇒ una fila escrita por el proceso anterior no descifra en el actual
+    // («Unsupported state or unable to authenticate data»). El seed E2E borra estas filas (E2E-1).
+    let rfc: string;
+    try {
+      rfc = this.pii.decrypt(bp.rfcEnc);
+    } catch (e) {
+      const cause = e instanceof Error ? e.message : String(e);
+      const msg =
+        `BillingProfile ${bp.id} (userId ${bp.userId}): rfcEnc does not decrypt with this process's PII key ` +
+        `(${cause}). Likely PII_ENCRYPTION_KEY differs from the one that encrypted it (ephemeral per-process ` +
+        'key in a local harness, or a rotated key) or the row is corrupt. Not serving it.';
+      this.logger.error(msg);
+      throw new Error(msg);
+    }
+    const rfcMasked = maskRfc(rfc);
     if (!rfcMasked) {
-      throw new Error('BillingProfile.rfcEnc decrypts to an empty RFC (corrupt row); refusing to project it');
+      const msg = `BillingProfile ${bp.id} (userId ${bp.userId}): rfcEnc decrypts to an empty RFC (corrupt row); refusing to project it`;
+      this.logger.error(msg);
+      throw new Error(msg);
     }
     return {
       rfcMasked,

@@ -5,6 +5,7 @@ import { UsersService } from '../src/modules/users/users.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AddressDto, BillingProfileDto, UpdateAddressDto, UpdateMeDto } from '../src/modules/users/dto/users.dto';
 import { ADDRESS_DTO_KEYS } from '../src/modules/users/address-dto';
@@ -394,6 +395,28 @@ describe('BillingProfileDto — cotas y formato (N2, v1.67.1); misma forma de er
   ])('%s ⇒ falla en ese campo y solo en ése', async (_l, over) => {
     const { fields } = await errorsFor({ ...ok, ...over });
     expect(fields).toEqual(Object.keys(over).sort());
+  });
+
+  it('un rfcEnc cifrado con OTRA clave PII ⇒ se lanza con diagnóstico (id, userId, motivo) y se registra en el log', async () => {
+    const pii = new PiiCryptoService(new ConfigService({}));
+    const otherKey = Buffer.alloc(32, 7).toString('base64');
+    const other = new PiiCryptoService(new ConfigService({ PII_ENCRYPTION_KEY: otherKey, PII_HMAC_KEY: otherKey }));
+    const prisma: any = {
+      billingProfile: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'bp-stale', userId: 'u1', rfcEnc: other.encrypt('XAXX010101000'), razonSocial: 'X', regimenFiscal: '612', usoCfdi: 'G03', postalCode: '06600', email: 'a@b.mx',
+        }),
+      },
+    };
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+      await expect(svc.getBillingProfile('u1')).rejects.toThrow(/BillingProfile bp-stale \(userId u1\).*does not decrypt.*Unsupported state|BillingProfile bp-stale \(userId u1\).*does not decrypt/);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(String(errorSpy.mock.calls[0][0])).toMatch(/bp-stale.*userId u1.*PII_ENCRYPTION_KEY/);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('un RFC cifrado que descifra a vacío NO se proyecta como `""`: se lanza (fila corrupta)', async () => {
