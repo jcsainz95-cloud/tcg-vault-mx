@@ -2,7 +2,50 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.66.2**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.67**).
+>
+> **Changelog v1.67 — STREAM A «LA CUENTA DEL CLIENTE»: la contraseña que se cambia desde dentro, la temporal que
+> DE VERDAD obliga, el destinatario que faltaba en todo retiro y el nombre que Google no mandó (2026-09-11,
+> arquitecto).** Base: **v1.66.2, vigente entera**. **Un endpoint nuevo** (`POST /auth/change-password`), **un guard
+> nuevo** (`403 PASSWORD_CHANGE_REQUIRED`), **DDL ADITIVO** (`M-52`: `Address.recipientName`, `User.nameSource`).
+> Origen: `PENDIENTES.md` P-57 / P-73 / P-75 / P-55 + **decisión del dueño 2026-09-11** (*«Que obligue a
+> cambiarla»*). Razón entera: `ARCHITECTURE §4.47`. Desviaciones `D-CTA-1..6` en `ARCHITECTURE §9`.
+>
+> **1. ⭐⭐ [`POST /auth/change-password`](#auth-change-password) — «cambiar la mía con la actual».** Autenticado,
+> cualquier rol. Prueba la actual, fija la nueva, **revoca las demás sesiones** (`tokenVersion++`, el mismo
+> mecanismo de `reset-password`) y **devuelve un par de tokens nuevo** para que la sesión que cambió siga viva.
+> Limpia `mustChangePassword`. Auditado `auth.password_changed`. ⛔ **No crea contraseñas en cuentas sin hash**
+> (`422 PASSWORD_NOT_SET`): para eso ya existe `forgot-password` (prueba de inbox), y una sesión de 15 min no es
+> prueba suficiente para instalar una credencial permanente (§4.47.3).
+>
+> **2. ⭐⭐ [`403 PASSWORD_CHANGE_REQUIRED`](#password-change-required) — la temporal OBLIGA (decisión del dueño).**
+> Guard nuevo tras `JwtAuthGuard`; **allowlist cerrada de tres rutas** (`change-password`, `logout`, `GET /users/me`).
+> **Medido antes de decidir:** `publicUser` (`auth.service.ts:47-57`) **no emite `mustChangePassword`**, así que el
+> aviso de `AuthForm.tsx:65` **nunca se ha mostrado contra el backend real** — el `user` de `register|login|google`
+> **lo gana** (aditivo). `login` **no rechaza**: da la sesión y el flag; el front va **directo** a la pantalla.
+>
+> **3. ⭐ `Address.recipientName` (M-52, nullable, sin backfill) + [`422 RECIPIENT_NAME_REQUIRED`](#recipient-name-required)
+> en `POST /shipments[/quote]`.** El destinatario vive en la **dirección** (es dato de etiqueta, igual que
+> `GuestAddressInput.recipientName`), **se congela en `addressSnapshot`** (pasa a 9 campos) y **M4 lo recibe** por el
+> `recipientName?` que ya declaraba. ⛔ **Sin fallback a `User.name`**: puede ser un nombre fabricado. `POST
+> /users/me/addresses` lo exige; `PATCH` lo admite; las filas viejas quedan `null` y el retiro pide completarla.
+>
+> **4. ⭐ `User.nameSource: user | google | derived` (M-52, backfill determinista).** Google sin nombre **se sigue
+> guardando derivado** (16 sitios y 10 correos lo pintan; un `name` vacío rompe copys), pero **deja de parecer real**:
+> `GET /users/me` lo expone, el perfil pide revisarlo, y `PATCH /users/me { name }` lo fija a `user`.
+>
+> **5. `GET /users/me` gana `mustChangePassword`, `hasPassword`, `nameSource`.** `hasPassword` **retira la heurística
+> v1.1** («`authProvider=google` ⇒ sin contraseña»), falsa tras un reset admin o un `forgot-password` sobre cuenta
+> Google. **`PATCH /users/me`** queda normado (trim, 1..120, `nameSource='user'`, **misma respuesta que el GET**).
+>
+> **6. `GET /orders/claimable`: cero cambio de forma.** Gana una nota de consumo (bóveda + pedidos + cuenta; lista
+> vacía ⇒ no se pinta nada; `403 EMAIL_NOT_VERIFIED` ⇒ lo cubre el banner de verificación que ya existe).
+>
+> **7. ⛔ Lo que NO entra, y por qué:** edición de `name` por admin (**PROYECTADA**, módulo `admin`, otro stream —
+> §M6); persistencia server-side del carrito de venta (**cero backend**, `ARCHITECTURE §4.47.6`); nombre en
+> `pickupAddressSnapshot` del buylist (**follow-up del stream buylist**, `D-CTA-5`).
+>
+> ---
 >
 > **Changelog v1.66.2 — EL CONTRATO DESCRIBÍA UNA SUPERFICIE INSEGURA, Y OBEDECERLO AL PIE DE LA LETRA
 > REPRODUCÍA EL AGUJERO (2026-09-10, arquitecto).** Base: **v1.66.1, vigente entera**. **⛔ Cero endpoints nuevos,
@@ -4655,6 +4698,40 @@
     HTTP; ⛔ **no se ensancha la lista de política para poder probarlo** (sería construir el buylist de graduadas para
     satisfacer un test). Su cobertura es **unitaria**, ensanchando la lista en un mock.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
+- <a id="password-change-required"></a>**`403 PASSWORD_CHANGE_REQUIRED` (v1.67 — decisión del dueño 2026-09-11, ARCHITECTURE §4.47.2):**
+  la cuenta de la sesión tiene **`mustChangePassword=true`** (contraseña temporal puesta por el admin: `POST
+  /admin/users/:id/reset-password`, o alta admin sin `password`) y la petición **no está en la allowlist**. Lo emite
+  `PasswordChangeRequiredGuard` (`common/guards/`, `APP_GUARD` **inmediatamente después de `JwtAuthGuard`**) en
+  **todo endpoint autenticado**, de **cualquier rol**, salvo **exactamente tres**: `POST /auth/change-password`,
+  `POST /auth/logout`, `GET /users/me`. (`POST /auth/refresh` es `@Public` ⇒ el guard no lo ve; hace falta que siga
+  funcionando mientras el usuario teclea.) `details: {}`.
+  **Audiencia:** el propio usuario, ya autenticado. **Copy (ux-ui fija el final):** ES *«Tu cuenta tiene una
+  contraseña temporal. Cámbiala para continuar.»* · EN *«Your account has a temporary password. Change it to
+  continue.»* **Qué hace el front:** navegar a la pantalla de cambio de su rol (`/account/password` |
+  `/admin/account/password`, ARCHITECTURE §4.47.7) — desde el **interceptor global** del `api-client`, no
+  pantalla por pantalla. ⛔ **No es un `401`:** la sesión es válida; lo que falta es un acto del usuario.
+  ⛔ **`login`/`google` NO lo emiten:** responden `200` con tokens y `user.mustChangePassword: true` — sin sesión no
+  hay forma de cambiarla.
+- **`422 CURRENT_PASSWORD_INCORRECT` (v1.67):** `POST /auth/change-password` con una `currentPassword` que no
+  verifica contra `passwordHash`. **`422` y no `401` a propósito:** el interceptor del cliente trata `401` como sesión
+  muerta (`api-client.ts:255`, dispara refresh/limpieza) y un dedazo cerraría la sesión. `details: { field:
+  "currentPassword" }`. Front: marcar el campo, no navegar.
+- **`422 PASSWORD_SAME_AS_CURRENT` (v1.67):** `newPassword === currentPassword` (evaluado **después** de verificar la
+  actual). Con `mustChangePassword=true` es el caso que importa: «cambiar» la temporal por la temporal no la
+  cambia. `details: { field: "newPassword" }`.
+- **`422 PASSWORD_NOT_SET` (v1.67):** `POST /auth/change-password` sobre una cuenta con `passwordHash IS NULL`
+  (solo-Google sin reset). **No hay actual que probar y este endpoint no crea contraseñas.** Remedio, ya existente:
+  `POST /auth/forgot-password` con el correo de la sesión → el enlace **fija** una (§1 «Recuperación»). El front no
+  debería llegar aquí: `GET /users/me.hasPassword=false` ⇒ ofrece «Crear contraseña» (que dispara `forgot-password`),
+  no «Cambiar». `details: {}`.
+- <a id="recipient-name-required"></a>**`422 RECIPIENT_NAME_REQUIRED` (v1.67, ARCHITECTURE §4.47.4):** `POST
+  /shipments/quote` y `POST /shipments` con un `addressId` cuya fila tiene **`recipientName IS NULL`** (dirección
+  anterior a `M-52`). Sin destinatario no hay etiqueta. `details: { field: "recipientName", addressId }`. Remedio:
+  `PATCH /users/me/addresses/:id { recipientName }` y reintentar — **hermano exacto de `PHONE_REQUIRED` y
+  `PICKUP_ADDRESS_REQUIRED`**: *pedir el dato y reintentar*. ⛔ **Prohibido el fallback server-side a `User.name`**:
+  puede ser un nombre **fabricado** (`nameSource='derived'`), y aunque no lo fuera, el nombre de cuenta y el nombre
+  de quien recibe un paquete son hechos distintos. El front **puede** pre-rellenar el campo con `user.name` cuando
+  `nameSource !== 'derived'`; el servidor **nunca**.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **⛔⛔ ~~`422 KYC_NOT_VERIFIED`~~ — RETIRADO EN v1.60 (D51) ANTES DE IMPLEMENTARSE. NO EXISTE Y NO SE IMPLEMENTA.**
   **Declarado en v1.59** como **un término de KYC** en `POST /admin/buylist/:id/pay-spei` (`ineRequired = true ∧
@@ -6146,9 +6223,16 @@ SealedSetGroupLinkRequest = { tcgplayerGroupId: number, kind: SealedGroupKind }
 
 ## 1. Auth y usuarios
 
+> **v1.67 — el objeto `user` de `register` | `login` | `google` (`publicUser`) gana `mustChangePassword: boolean`
+> (ADITIVO).** Medido el 2026-09-11: `auth.service.ts:47-57` emite `{ id, email, name, role, locale, emailVerified }`
+> y **nada más**; el front ya leía `res.user.mustChangePassword` (`AuthForm.tsx:65`) — **siempre `undefined`**. Con
+> el flag en la respuesta, el front navega **directo** a la pantalla de cambio (§«Contraseña temporal obligatoria»).
+> `register` y `google` lo emiten `false` salvo el caso raro de una cuenta con reset admin pendiente que entra por
+> Google (posible: el reset pone hash y flag sin tocar `googleId`) — ahí va `true` y aplica lo mismo.
+
 ### POST /api/v1/auth/register — `public`
 Req: `{ email, password, name, phone, locale? }`
-Res `201`: `{ user: { id, email, name, role, locale, emailVerified }, accessToken, refreshToken }`
+Res `201`: `{ user: { id, email, name, role, locale, emailVerified, mustChangePassword }, accessToken, refreshToken }`
 Err: `409 EMAIL_TAKEN`, `400 VALIDATION_ERROR`.
 > **v1.5:** al registrar (email/password) el usuario nace con `emailVerified=false`; el backend **emite un token
 > de verificación (`AuthToken`, 24h)** y **envía el correo** (Resend). El registro **no** falla si el envío del
@@ -6220,18 +6304,127 @@ setea `emailVerified=true` *(el clic prueba control del inbox; decisión a confi
 Req: `{ token: string, password: string }` (password `MinLength 8`, misma política que register) → Res `200`: `{ ok: true }`.
 Err: `422 RESET_TOKEN_INVALID` (inválido / expirado / ya usado), `400 VALIDATION_ERROR` (contraseña débil).
 
-### GET /api/v1/users/me — `customer+`
-Res `200`: `{ id, email, name, phone, role, locale, kycStatus, status, authProvider, emailVerified, avatarUrl? }`.
-(`authProvider`/`emailVerified`/`avatarUrl` añadidos en v1.1; el front puede ocultar "cambiar contraseña" cuando `authProvider=google` y aún no hay contraseña.)
+### Cambiar la propia contraseña — desde dentro, con la actual (v1.67, Stream A · P-75)
+Cierra el ciclo que `reset-password` dejaba abierto: el usuario **ya está dentro** y no tiene por qué esperar un
+correo (ni tener acceso al buzón, caso del operador con correo de empresa). Razón: `ARCHITECTURE §4.47.1`.
 
-### PATCH /api/v1/users/me — `customer+`
-Req: `{ name?, phone?, locale? }` → Res `200`: user.
+#### <a id="auth-change-password"></a>POST /api/v1/auth/change-password — **autenticado, cualquier rol** (`customer` | `vault_operator` | `super_admin`)
+Cambia la contraseña **de la cuenta de la sesión** probando la actual. **Única salida de `mustChangePassword` que no
+pasa por el correo.** Rate-limit **5/min por IP** (mismo que `login`: con una sesión robada esto es una superficie de
+adivinación de la contraseña real). **Exento** de `403 PASSWORD_CHANGE_REQUIRED` (allowlist).
+Req: `{ currentPassword: string, newPassword: string }`
+- `currentPassword`: string **no vacía**, **siempre obligatoria** (la ausencia no compra una garantía menor —
+  `ARCHITECTURE §0-B.3` regla 9(c)).
+- `newPassword`: `MinLength MIN_PASSWORD_LENGTH` (**8**, `common/validation/credentials.ts`) — **la misma constante**
+  que `register` y `reset-password`. ⛔ No se añade aquí un máximo ni una regla de complejidad que las otras dos rutas
+  no tengan: si la política cambia, cambia en la constante para las tres.
+**Semántica (orden de evaluación NORMATIVO):**
+1. La cuenta es `active` (el guard ya rechazó `blocked`/`deleted` con `401`).
+2. `passwordHash IS NULL` ⇒ **`422 PASSWORD_NOT_SET`**. No se verifica nada más.
+3. `argon2.verify(passwordHash, currentPassword)` falso ⇒ **`422 CURRENT_PASSWORD_INCORRECT`**.
+4. `newPassword === currentPassword` ⇒ **`422 PASSWORD_SAME_AS_CURRENT`** (se evalúa **después** del paso 3).
+5. **Una sola escritura:** `passwordHash = argon2id(newPassword)`, **`tokenVersion +1`**, `mustChangePassword = false`.
+   **`emailVerified` NO cambia** (aquí no hubo prueba de inbox; en `reset-password` sí la hay y por eso allí se
+   marca). `authProvider` no cambia.
+6. **Emite un par de tokens nuevo** con el `tokenVersion` ya incrementado y lo devuelve. Efecto medible: **todas las
+   demás sesiones mueren** en la siguiente petición (`jwt-auth.guard.ts:68`) o refresh (`auth.service.ts:369`), y
+   **ésta continúa** con los tokens de la respuesta. **Difiere de `reset-password` a propósito** (que devuelve `{ ok }`
+   y obliga a re-entrar): allí no hay sesión que conservar; aquí sí, y cortársela a quien acaba de probar que es él es
+   fricción sin garantía a cambio.
+7. `AuditLog`: `action: 'auth.password_changed'`, `entityType: 'User'`, `entityId` = actor, `actorRole`. Sin volcar
+   ninguna contraseña (norma §3.2). Es el hermano de `auth.password_reset_completed`.
+Res `200`: `{ ok: true, accessToken: string, refreshToken: string }`
+Err: `400 VALIDATION_ERROR` (nueva corta, campos ausentes), `422 PASSWORD_NOT_SET`, `422 CURRENT_PASSWORD_INCORRECT`,
+`422 PASSWORD_SAME_AS_CURRENT`, `429 RATE_LIMITED`, `401 UNAUTHENTICATED`.
+**Frontend, al `200`:** reemplazar **los dos** tokens almacenados (los viejos ya no valen), `patchStoredUser({
+mustChangePassword: false, hasPassword: true })`, y si la pantalla venía con `?next=` interno, navegar ahí; si no, a
+la cuenta. **Sin `hasPassword`** (`GET /users/me`) el front **no** pinta este formulario: pinta «Crear contraseña»,
+que dispara `POST /auth/forgot-password` con el correo de la sesión y lo explica en pantalla.
+- ⛔ **Cuenta solo-Google (`hasPassword=false`): NO hay «modo crear» en este endpoint, y es decisión, no omisión.**
+  Una sesión de acceso (15 min, en `localStorage`) es una credencial **más débil** que el control del buzón; permitir
+  que instale una contraseña permanente sin probar nada más abriría un camino que hoy **no existe** (hoy la única
+  vía es `forgot-password`, que exige el inbox). El operador nunca cae aquí (el staff es `local`). Razón y
+  alternativa descartada: `ARCHITECTURE §4.47.3`.
+
+#### Contraseña temporal OBLIGATORIA — `403 PASSWORD_CHANGE_REQUIRED` (v1.67, **decisión del dueño 2026-09-11**)
+> *«Que obligue a cambiarla.»* Hasta v1.66.2 `mustChangePassword` **no bloqueaba nada** (medido: ningún guard lo
+> leía) y el copy del login prometía lo contrario. Desde v1.67 **bloquea**. Ficha del código en §0 «Errores»; razón
+> y orden de despliegue en `ARCHITECTURE §4.47.2`.
+- **Quién lo pone:** `POST /admin/users/:id/reset-password` (siempre) y `POST /admin/users` sin `password`
+  (autogenerada) — §M6, sin cambios.
+- **Quién lo aplica:** `PasswordChangeRequiredGuard`, `APP_GUARD` **entre `JwtAuthGuard` y `RolesGuard`**
+  (`app.module.ts:75-76`). `JwtAuthGuard` **añade `mustChangePassword` a su `select`** (`jwt-auth.guard.ts:62`) y lo
+  pone en `req.user` ⇒ **cero consultas extra**. Rutas `@Public()` no pasan por él.
+- **Allowlist EXACTA — lista cerrada, decorador `@AllowPasswordChangeRequired()`:**
+  | Ruta | Por qué está |
+  |---|---|
+  | `POST /auth/change-password` | es la salida |
+  | `POST /auth/logout` | rendirse siempre se permite |
+  | `GET /users/me` | la pantalla de cambio necesita `hasPassword` y `mustChangePassword`; y la hidratación de sesión del front lo llama |
+  **Nada más.** ⛔ Ni `PATCH /users/me`, ni `verify-email/resend`, ni direcciones, ni `GET /orders/claimable`, ni
+  ninguna ruta `/admin/*`. `POST /auth/refresh` **no necesita estar**: es `@Public`.
+- **`login` / `google` con el flag activo:** **`200`** normal, con `user.mustChangePassword: true`. El front **navega
+  directo** a `/account/password` (customer) o `/admin/account/password` (staff) **conservando `?next=`** — el botón
+  «Continuar» de `AuthForm.tsx:113` **desaparece**.
+- **Sesiones ya abiertas cuando el admin resetea:** el reset hace `tokenVersion +1` (`admin.service.ts:748`) ⇒ **toda
+  petición** de esas sesiones responde `401` (`jwt-auth.guard.ts:68`) y el refresh también (`auth.service.ts:369`) ⇒
+  el interceptor limpia la sesión ⇒ login con la temporal ⇒ flag ⇒ pantalla de cambio. **No hace falta mecanismo
+  nuevo; se documenta la cadena.** Consecuencia deliberada: el usuario reseteado **no puede seguir operando con la
+  sesión vieja ni un minuto**.
+- **Salidas del estado (las dos que existen):** (a) `POST /auth/change-password`; (b) `POST /auth/reset-password`
+  por correo (ya lo limpiaba, `auth.service.ts:249`) — sigue siendo válida si el usuario perdió la temporal.
+- **Front, además del redirect del login:** el **interceptor global** del `api-client` trata `403
+  PASSWORD_CHANGE_REQUIRED` como «navega a la pantalla de cambio de mi rol» — cubre la sesión guardada en
+  `localStorage` que no pasó por el login de hoy y cualquier pantalla que el usuario abra por URL.
+- ⚠️ **Orden de despliegue (normativo):** el guard y el endpoint salen **en el mismo deploy de backend** (guard sin
+  endpoint = encierro), y el frontend con la pantalla + redirect sale **en el mismo release, inmediatamente después**.
+  Durante el hueco, **solo** los usuarios con el flag en `true` ven `403` sin pantalla: el orquestador **mide
+  cuántos son** antes de publicar (`SELECT count(*) FROM "User" WHERE "mustChangePassword"`) y, si son operadores, les
+  avisa. **NO MEDIDO hoy.**
+
+### GET /api/v1/users/me — `customer+` (v1.67: +`mustChangePassword`, +`hasPassword`, +`nameSource`)
+Res `200`: `{ id, email, name, nameSource, phone, role, locale, kycStatus, status, authProvider, emailVerified, avatarUrl?, hasPassword, mustChangePassword }`.
+(`authProvider`/`emailVerified`/`avatarUrl` añadidos en v1.1.) **Exento** de `403 PASSWORD_CHANGE_REQUIRED` (allowlist).
+- **`hasPassword: boolean`** (v1.67) = `passwordHash IS NOT NULL`. ⛔ **Retira la heurística de v1.1** («ocultar
+  "cambiar contraseña" cuando `authProvider=google`»): es **falsa** tras un `POST /admin/users/:id/reset-password` o un
+  `forgot-password` sobre una cuenta Google (`hasPassword=true` con `authProvider='google'`), y falsa al revés para una
+  cuenta `local` enlazada a Google. **Es lo único que decide la sección de contraseña:** `true` ⇒ «Cambiar contraseña»
+  (`POST /auth/change-password`); `false` ⇒ «Crear contraseña» (dispara `POST /auth/forgot-password` con el correo de
+  la sesión; el enlace del correo la fija). No es oráculo: es el propio usuario sobre su propia cuenta.
+- **`nameSource: "user" | "google" | "derived"`** (v1.67, `ARCHITECTURE §4.47.5`). `user` = tecleado por una persona
+  (registro, alta admin, o `PATCH /users/me`); `google` = vino en el ID token; **`derived` = el sistema lo fabricó con
+  el trozo del correo antes de la arroba** (`auth.service.ts:339`). El front, con `derived`, pinta el aviso «Revisa tu
+  nombre» en el perfil (y donde ux-ui decida) — el dato **se sigue mostrando** (un nombre vacío rompe 16 copys y 10
+  correos), pero **deja de parecer tecleado**.
+- **`mustChangePassword: boolean`** (v1.67): ver arriba. La pantalla de cambio lo usa para el banner persistente.
+
+### PATCH /api/v1/users/me — `customer+` (v1.67: normado)
+Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /users/me`** (hoy devuelve 6 campos —
+`users.service.ts:89-96`—, `D-CTA-2`; el front necesita `nameSource` y `hasPassword` de vuelta sin segunda llamada).
+- **`name`** (v1.67): **editable por el propio usuario, cualquier rol.** Reglas: **trim server-side**; tras trim,
+  **1..120 caracteres** (misma cota que `recipientName` y que `GuestAddressInput.recipientName`); vacío o mayor ⇒
+  `400 VALIDATION_ERROR` con `details.field='name'`. ⚠️ Hoy `UpdateMeDto.name` es `@IsString()` a secas
+  (`users.dto.ts:12`) y **acepta `""`**, que escribiría un nombre vacío en una columna `NOT NULL` — `D-CTA-2`.
+  **Escribe `nameSource='user'` siempre** que venga `name` (server-side; una key `nameSource` en el body es desconocida
+  y la descarta el `whitelist` del `ValidationPipe`, `main.ts:56`). Es **la cura** del nombre fabricado de P-73-A.
+- **`phone`**, **`locale`**: sin cambio.
+- **¿Y el admin?** **No existe** edición de `name` desde M6 (`admin.service.ts` solo lo lee y lo anonimiza en soft-delete,
+  `:835`). **Fuera de Stream A** (módulo `admin`): queda **PROYECTADA** en §M6, sin implementar. La cura del nombre
+  fabricado es **el propio usuario**; el admin no la necesita para cerrar P-73.
 
 ### Direcciones (envío, solo MX)
-- `GET /api/v1/users/me/addresses` — `customer` → `{ data: AddressDTO[] }`
-- `POST /api/v1/users/me/addresses` — `customer` — Req: `{ line1, line2?, neighborhood?, city, state, postalCode, country, phone, isDefault? }`. Err **`422 ADDRESS_NOT_MX`** si `country != "MX"`.
-- `PATCH /api/v1/users/me/addresses/:id` — `customer`
+> **v1.67 (`M-52`, Stream A · P-73-B) — la dirección gana `recipientName`.** Razón: `ARCHITECTURE §4.47.4`. Vive en
+> `Address` y no «por retiro» porque **es dato de etiqueta** (quien recibe en *esa* casa: uno mismo, un familiar, la
+> oficina), se congela en cada envío igual que la calle, y el invitado **ya lo captura en la dirección**
+> (`GuestAddressInput.recipientName`, obligatorio) ⇒ **una sola forma de dirección en todo el sistema**.
+- `GET /api/v1/users/me/addresses` — `customer` → `{ data: AddressDTO[] }` (`recipientName: string | null`; **`null`
+  solo en filas anteriores a `M-52`**).
+- `POST /api/v1/users/me/addresses` — `customer` — Req: `{ recipientName, line1, line2?, neighborhood?, city, state, postalCode, country, phone, isDefault? }`. **`recipientName` OBLIGATORIO** (v1.67): trim, **1..120**; vacío/ausente ⇒ `400 VALIDATION_ERROR` (`details.field='recipientName'`). Err **`422 ADDRESS_NOT_MX`** si `country != "MX"`.
+- `PATCH /api/v1/users/me/addresses/:id` — `customer` — Req: los mismos campos, todos opcionales; **`recipientName?`** con la misma validación si viene (⛔ **no se puede poner a `null` ni a `""`**: una dirección que ya tiene destinatario no vuelve a no tenerlo). Es **el remedio** de `422 RECIPIENT_NAME_REQUIRED`.
 - `DELETE /api/v1/users/me/addresses/:id` — `customer`
+- **Pre-relleno permitido en el front, nunca en el servidor:** al crear una dirección, el formulario **puede** proponer
+  `user.name` como destinatario **si `nameSource !== 'derived'`**; con `derived` el campo nace vacío. El servidor **no
+  deriva** `recipientName` de nada.
 
 ### Perfil de facturación (CFDI)
 - `GET /api/v1/users/me/billing-profile` — `customer` → devuelve `rfcMasked` (RFC **enmascarado**, ej. `XAX**********`), no el RFC en claro. El resto de campos (razonSocial, regimenFiscal, usoCfdi, postalCode, email) van tal cual.
@@ -7490,6 +7683,17 @@ ClaimableOrderDTO = { orderId: string, orderNumber: string, status: OrderStatus,
 Err: `401`, `403 EMAIL_NOT_VERIFIED`.
 > **No es un oráculo:** solo informa sobre el correo **verificado** de quien pregunta. Nunca acepta un correo como
 > parámetro.
+> **v1.67 — nota de CONSUMO (Stream A · P-57(b)); cero cambio de forma.** Medido el 2026-09-11: **ningún llamador
+> en `frontend/`** — cada compra de invitado no reclamada en la confirmación quedaba fuera de la bóveda para siempre.
+> Superficies que lo consumen (decisión con el humano): **`/vault`**, **`/orders`** y **la cuenta**. Reglas:
+> - **`200 { data: [] }` ⇒ no se pinta NADA** (ni tarjeta vacía ni «no tienes pedidos por reclamar»); el aviso solo
+>   existe cuando `data.length > 0`, y **desaparece al reclamar** (refetch tras `POST /orders/claim`).
+> - **`403 EMAIL_NOT_VERIFIED` ⇒ tampoco se pinta nada de esto**: el banner «verifica tu correo» que ya existe es el
+>   único aviso — un usuario sin verificar no puede saber si tiene pedidos (no es oráculo) y **no se le dice** que
+>   «podría» tenerlos. El front trata ese 403 como «sin datos», no como error.
+> - **Una llamada por carga de página, sin polling** (throttle 30/min; una pestaña abierta no lo consume).
+> - **Rol:** solo `customer` (`@Roles`); las superficies son del storefront. **No** está en la allowlist de
+>   `PASSWORD_CHANGE_REQUIRED` (un cliente con temporal la cambia primero).
 
 #### POST /api/v1/orders/claim — `customer` (+ `emailVerified`, auditado)
 Req: `{ orderIds: string[] }` (1..50; los ids vienen de `/orders/claimable`).
@@ -7650,7 +7854,7 @@ self-service y el reenvío de soporte.
 El IVA 16% grava la **tarifa de envío**; el fee de procesamiento es gross-up (sin IVA). `totalCents = shippingFee + iva + processingFee`.
 Req: `{ inventoryItemIds: string[], addressId: string }`
 Res `200`: `{ breakdown: { subtotalCents: 17500, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN" }, eligibleItemIds, ineligible: [{ inventoryItemId, reason }] }`
-(nota: en retiros `subtotalCents` = tarifa de envío). Err: `422 ADDRESS_NOT_MX`, `422 ITEM_NOT_SETTLED`.
+(nota: en retiros `subtotalCents` = tarifa de envío). Err: `422 ADDRESS_NOT_MX`, `422 ITEM_NOT_SETTLED`, **`422 RECIPIENT_NAME_REQUIRED`** (v1.67: la dirección elegida no tiene destinatario — se rechaza **ya en el quote** para que el cliente lo complete antes de llegar al cobro; misma regla que el `POST`, lectura y escritura no divergen).
 
 ### POST /api/v1/shipments — `customer`
 Cobra la tarifa (envío + IVA + fee gross-up) por **Stripe ANTES** de crear la solicitud; solo items **elegibles** (ver criterio abajo). La `ShipmentRequest` nace en `solicitado` con el `PaymentIntent` asociado y **solo avanza a `picking` una vez liquidado** (webhook `payment_intent.succeeded`). No hay wallet.
@@ -7660,7 +7864,19 @@ Res `201`: `{ shipmentId, status: "solicitado", breakdown: { "…": "BreakdownDT
   `ownerType='customer' AND ownerUserId=usuario AND ownershipStatus='settled' AND status='in_custody' AND sin envío activo`
   (sin `ShipmentItem` en un `ShipmentRequest` con `status NOT IN (cancelado, entregado)`).
   Este criterio **DEBE excluir** `status='withdrawn'` (item ya entregado, terminal) y **cualquier** estado que no sea `in_custody`. Es el **mismo** criterio que el flag de lectura `HoldingDTO.withdrawable` (§3): read y write comparten regla — no hay divergencia. Rechazos por-causa: `pending` ⇒ `422 ITEM_NOT_SETTLED`; ya con envío activo ⇒ `409 ITEM_IN_ANOTHER_SHIPMENT`; `withdrawn`/no-`in_custody` ⇒ `422 ITEM_NOT_IN_CUSTODY`.
-Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), **`422 ITEM_NOT_IN_CUSTODY`** (v1.17.1 — incluye algún item `withdrawn` o cualquier `status != 'in_custody'`; guardarraíl anti doble-retiro/doble-cobro de un item ya entregado), `422 ADDRESS_NOT_MX`, `409 ITEM_IN_ANOTHER_SHIPMENT`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — retiro/envío es acción sensible; el `POST /shipments/quote` read-only **no** se bloquea).
+Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), **`422 ITEM_NOT_IN_CUSTODY`** (v1.17.1 — incluye algún item `withdrawn` o cualquier `status != 'in_custody'`; guardarraíl anti doble-retiro/doble-cobro de un item ya entregado), `422 ADDRESS_NOT_MX`, **`422 RECIPIENT_NAME_REQUIRED`** (v1.67), `409 ITEM_IN_ANOTHER_SHIPMENT`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — retiro/envío es acción sensible; el `POST /shipments/quote` read-only **no** se bloquea).
+> **v1.67 (`M-52`, Stream A · P-73-B) — el `addressSnapshot` del retiro gana `recipientName` y pasa a NUEVE campos.**
+> Medido el 2026-09-11: `shipments.service.ts:183-192` congela ocho campos y **ninguno es un nombre** — `Address`
+> no lo tenía — ⇒ `:405` devolvía `recipientName: undefined` en **todo** retiro de bóveda y el paquete salía **sin
+> destinatario** (el invitado sí lo llevaba: asimetría literal con `Order.shippingAddressSnapshot`). Desde v1.67:
+> `addressSnapshot = { recipientName, line1, line2, neighborhood, city, state, postalCode, country, phone }`, copiado
+> de `Address.recipientName` **tal cual** (⛔ jamás de `User.name`). Se **rechaza** con `422 RECIPIENT_NAME_REQUIRED`
+> **antes** de la transacción serializable y **antes** de crear el `PaymentIntent` si la fila lo tiene en `null`; un
+> retiro **nunca** nace sin destinatario. Los retiros **anteriores** conservan su snapshot de ocho campos (un snapshot
+> no se reescribe, §5.2) — M4 lo pinta como «sin destinatario» y el operador lo resuelve por la ficha de M6.
+> **`ClientShipmentDTO.addressSnapshot`** lo trae también (el cliente puede ver a nombre de quién sale su paquete).
+> ⚠️ **Serialización:** `shipments` es módulo del **Stream B**; **este punto lo hace Stream A** y **B no entra a
+> `shipments` hasta que aterrice** (`ARCHITECTURE §4.47.8`).
 
 ### GET /api/v1/shipments — `customer` (v1.17 — vista de RASTREO de retiros del cliente)
 Lista los retiros/envíos **del propio usuario**, ordenados por `requestedAt` desc. **No es endpoint nuevo** (ya existía como listMine); v1.17 norma su forma y **enriquece `items`** con carta/folio/acabado para que el cliente vea qué va en cada retiro. **No paginado** en el MVP (un cliente tiene pocos retiros; envelope `{ data }`, no `{ data, page, ... }`). No expone `shippingCostCents` (costo interno del carrier, §M4).
@@ -12845,7 +13061,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > en la rama de envío directo — ver ARCHITECTURE §4.21d), `orderId?`,
 > `orderNumber?`, `guestEmail?` y `recipientName?` (del snapshot). `userId` **puede venir `null`** (envío directo de
 > invitado); el filtro `?userId=` sigue funcionando y simplemente no devuelve envíos de invitado. Filtro nuevo
-> opcional `?kind=`. **La máquina de estados, el picking list y la captura de guía son IDÉNTICOS** para ambos tipos
+> opcional `?kind=`.
+> **v1.67 — `recipientName?` deja de ser «solo invitados».** Con `M-52` el retiro de bóveda **también** lo congela
+> (§5), así que en toda fila nueva de M4 viene poblado **sin cambio alguno en este módulo** (`shipments.service.ts:405`
+> ya lo lee del snapshot). Sigue `undefined` **únicamente** en retiros anteriores a v1.67. **Obligación de la pantalla
+> M4 (frontend, Stream A — `D-CTA-6`):** pintar **destinatario + dirección** (`addressSnapshot`) en la fila y en el
+> detalle — hoy pinta el `userId` crudo (`M4View.tsx:201`) y **ninguna dirección**, y el operador que compra la guía a
+> mano no tiene de dónde copiar el nombre. Cuando falte: «Sin destinatario (retiro anterior a v1.67)», nunca «—» mudo. **La máquina de estados, el picking list y la captura de guía son IDÉNTICOS** para ambos tipos
 > — el operador trabaja igual; lo único que cambia es la **transición terminal** (abajo). El envío directo **nace en
 > `picking`** (ya pagado dentro de la orden), así que **nunca** aparece en `solicitado`.
 - `GET /api/v1/admin/shipments` — cola. `?status=&userId=&page=`
@@ -16260,6 +16482,13 @@ Err `403`, `400 VALIDATION_ERROR`.
   > **Lo que sí conserva peso real en este endpoint es `capPerMonthCents`**: es el **único techo de dinero que
   > queda**, y su override es una decisión comercial con nombre y auditada.
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
+- **Editar `name`/`phone` de un usuario desde M6 — 🚧 PROYECTADA, NO EXISTE (v1.67).** Medido: `admin.service.ts`
+  expone `createUser`, `updateUserKyc`, `updateUserStatus`, `resetPassword`, `deleteUser` — **ninguno escribe
+  `User.name`**. **Fuera de Stream A** (módulo `admin`, stream «Admin y auditoría»): la cura del nombre fabricado
+  (P-73-A) es el propio usuario por `PATCH /users/me`, y con eso P-73 cierra. Si el dueño la quiere para soporte, la
+  forma sería `PATCH /admin/users/:id { name?, phone? }` (`super_admin`, auditado `user.profile.update`, escribe
+  `nameSource='user'`) — **se decide en ese stream, no aquí**. Mientras, el listado y la ficha de M6 **pueden** exponer
+  `nameSource` (aditivo, opcional) para que el buscador entienda por qué «Juan Pérez» no encuentra a «jcsainz95».
 
 #### Alta de usuario por rol desde admin (v1.7-admin-users — NUEVO backend)
 > Hoy no existe alta de usuarios en back-office: los clientes se **auto-registran** como `customer` y el staff
@@ -17724,7 +17953,12 @@ AdminUserOwnedItemRef = { inventoryItemId, folio, card: CardDTO, productType: Pr
 // D10 — `AddressDTO` estaba REFERENCIADA en §5 y NUNCA DEFINIDA (deuda declarada en v2.1.8). Aquí queda.
 // El DUEÑO es implícito por la ruta (`/users/me/addresses` o la ficha de M6) ⇒ NO lleva `userId`: repetirlo
 // solo crea una segunda fuente de la misma verdad.
-AddressDTO = { id: string, line1: string, line2?: string, neighborhood?: string, city: string,
+// v1.67 (M-52, Stream A · P-73-B): `recipientName` — quien recibe en ESTA dirección. `null` SOLO en filas
+//   anteriores a la migración; obligatorio al crear (`POST /users/me/addresses`), no vaciable al editar. Es el
+//   campo que `POST /shipments` congela en `addressSnapshot.recipientName` y que `422 RECIPIENT_NAME_REQUIRED`
+//   exige. Misma forma que `GuestAddressInput.recipientName` (invitado) ⇒ una sola idea de «dirección» en el sistema.
+AddressDTO = { id: string, recipientName: string | null,
+               line1: string, line2?: string, neighborhood?: string, city: string,
                state: string, postalCode: string, country: "MX", phone: string,
                isDefault: boolean, createdAt: string }
 
