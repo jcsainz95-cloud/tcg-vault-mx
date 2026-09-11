@@ -22,6 +22,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useShipmentSteps } from '@/lib/pipelines';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
+import { Link } from '@/i18n/navigation';
 import type {
   AdminShipmentDTO,
   PickingListEntryDTO,
@@ -37,6 +38,27 @@ export function pesosToCents(value: string): number | null {
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100);
 }
+
+/**
+ * Fila de la cola de M4 con lo que el contrato §M4 (v1.21 / v1.67) YA promete y `AdminShipmentDTO`
+ * todavía no tipa: `recipientName?` (del `addressSnapshot`; `undefined` SOLO en retiros anteriores
+ * a v1.67), `addressSnapshot` (nueve campos desde M-52) y `customer` (R5 de §33.16, PROYECTADO).
+ * // MOCK: pendiente de contrato.ts (tipos, zona compartida de A1) — se lee de forma defensiva.
+ */
+type AdminShipmentRow = AdminShipmentDTO & {
+  recipientName?: string | null;
+  addressSnapshot?: Record<string, unknown> | null;
+  customer?: { id?: string; name?: string; email?: string } | null;
+};
+
+/** Campo string de un snapshot de forma abierta; vacío/ausente ⇒ `undefined`. */
+function snap(row: AdminShipmentRow, key: string): string | undefined {
+  const v = row.addressSnapshot?.[key];
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+}
+
+/** §32.4: lo desconocido es «—», nunca omitido en silencio. */
+const DASH = '—';
 
 const STATUS_FILTERS: ShipmentStatus[] = [
   'solicitado',
@@ -65,6 +87,7 @@ export function M4View() {
   const ts = useTranslations('shipments');
   const tStatus = useTranslations('status.shipment');
   const tc = useTranslations('common');
+  const tm6 = useTranslations('admin.m6');
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage('operator');
   const qc = useQueryClient();
@@ -192,13 +215,12 @@ export function M4View() {
           {shipments.data && shipments.data.data.length === 0 ? (
             <EmptyState title={t('queueEmpty')} />
           ) : (
-            (shipments.data?.data ?? []).map((s) => (
+            (shipments.data?.data ?? []).map((s: AdminShipmentRow) => (
               <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="tabular text-sm font-medium">{s.id}</span>
                     <StatusBadge domain="shipment" value={s.status} />
-                    {s.userId && <span className="tabular text-xs text-muted">{s.userId}</span>}
                     {s.items && (
                       <span className="text-xs text-muted">
                         {t('itemCount', { count: s.items.length })}
@@ -238,6 +260,41 @@ export function M4View() {
                       ),
                     )}
                   </div>
+                </div>
+                {/* §33.10d / D-CTA-6 (contrato §M4 v1.67): el operador ve A QUIÉN va el paquete y a
+                    DÓNDE, no un id (P-66 B3). Sin `recipientName` en el snapshot (retiro anterior a
+                    v1.67): «SIN DESTINATARIO (…)» en mono rojo — nunca `User.name` (puede ser el
+                    fabricado) ni el `userId`. Cada dato ausente es «—» (§32.4). */}
+                <div className="flex flex-col gap-1 text-sm text-muted" data-testid={`shipment-parties-${s.id}`}>
+                  <p>
+                    <span className="font-medium text-text">{t('recipient')}</span>{' '}
+                    {(s.recipientName ?? snap(s, 'recipientName')) ? (
+                      <span className="text-text">{s.recipientName ?? snap(s, 'recipientName')}</span>
+                    ) : (
+                      <span className="font-mono text-xs uppercase text-accent">{t('recipientMissing')}</span>
+                    )}
+                    {' · '}
+                    {snap(s, 'city') ?? DASH}, {snap(s, 'state') ?? DASH}
+                    {' · '}
+                    {t('postalCode')} <span className="tabular">{snap(s, 'postalCode') ?? DASH}</span>
+                    {' · '}
+                    {t('phone')} <span className="tabular">{snap(s, 'phone') ?? DASH}</span>
+                  </p>
+                  <p>
+                    <span className="font-medium text-text">{t('customer')}</span>{' '}
+                    {s.customer?.name ?? DASH} · {s.customer?.email ?? DASH}
+                    {s.userId && (
+                      <>
+                        {' · '}
+                        <Link
+                          href={{ pathname: '/admin/m6', query: { user: s.userId } }}
+                          className="font-mono text-xs uppercase text-accent hover:text-text"
+                        >
+                          {tm6('view')}
+                        </Link>
+                      </>
+                    )}
+                  </p>
                 </div>
                 {(s.carrier || s.trackingNumber) && (
                   <p className="text-sm text-muted">

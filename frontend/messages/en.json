@@ -1324,6 +1324,11 @@
       "statusAll": "All statuses",
       "queueEmpty": "No shipments match that filter.",
       "itemCount": "{count, plural, one {# item} other {# items}}",
+      "recipient": "To",
+      "recipientMissing": "NO RECIPIENT (withdrawal prior to v1.67)",
+      "customer": "Customer",
+      "postalCode": "ZIP",
+      "phone": "Phone",
       "pickingHint": "Shipments in picking, sorted by vault location.",
       "pickingEmpty": "Nothing to pick right now.",
       "picking": {

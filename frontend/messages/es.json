@@ -1324,6 +1324,11 @@
       "statusAll": "Todos los estados",
       "queueEmpty": "Sin envíos con ese filtro.",
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
+      "recipient": "Para",
+      "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "customer": "Cliente",
+      "postalCode": "CP",
+      "phone": "Tel",
       "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
       "pickingEmpty": "Nada que preparar por ahora.",
       "picking": {
