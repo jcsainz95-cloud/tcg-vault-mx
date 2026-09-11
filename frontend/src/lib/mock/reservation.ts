@@ -199,7 +199,9 @@ export function mockReservationFor(orderId: string, userId: string | null, now =
   const state = readState();
   if (userId) ensureFixtureSeeded(state, userId, now);
   writeState(state);
-  return state.reservations.find((r) => r.orderId === orderId && isLive(r, now)) ?? null;
+  // Viva O vencida sin barrer: la orden sigue `pending` y `GET /orders` sigue mandando su
+  // `reservedUntil` (v1.68.1: el front ofrece reanudar y la sesión sustituye).
+  return state.reservations.find((r) => r.orderId === orderId) ?? null;
 }
 
 export function mockOrderSuperseded(orderId: string): boolean {

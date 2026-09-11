@@ -330,7 +330,7 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     await usr.click(screen.getByRole('button', { name: /Pagar/ }));
     const dialog = await screen.findByRole('dialog');
     expect(vi.mocked(createGuestCheckoutSession).mock.calls[0][0]).not.toHaveProperty('retryOfCheckoutToken');
-    expect(JSON.parse(window.sessionStorage.getItem(GUEST_RETRY_TOKEN_KEY)!).token).toBe('tok-first');
+    expect(JSON.parse(window.sessionStorage.getItem(GUEST_RETRY_TOKEN_KEY)!)).toMatchObject({ token: 'tok-first', email: 'juan@dominio.com' });
     expect(window.localStorage.getItem(GUEST_RETRY_TOKEN_KEY)).toBeNull();
 
     // Intento caído: cierra el modal y vuelve a pagar.
@@ -367,7 +367,19 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     );
   });
 
-  it('v1.68.1: al montar con token en sessionStorage pero correo SIN confirmar, el quote no manda el token (token sin email ⇒ 400)', async () => {
+  it('v1.68.1: pestaña recargada (formulario vacío) con token + correo guardados ⇒ el quote reclama con los dos desde el primer fetch', async () => {
+    window.sessionStorage.setItem(
+      GUEST_RETRY_TOKEN_KEY,
+      JSON.stringify({ token: 'tok-old', expiresAt: new Date(Date.now() + 60_000).toISOString(), email: 'juan@dominio.com' }),
+    );
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await screen.findByTestId('amount-breakdown');
+    await waitFor(() =>
+      expect(vi.mocked(getGuestCheckoutQuote).mock.calls.at(-1)?.[2]).toEqual({ retryOfCheckoutToken: 'tok-old', email: 'juan@dominio.com' }),
+    );
+  });
+
+  it('v1.68.1: sobre anterior (token SIN correo) y correo sin confirmar ⇒ el quote no manda el token (token sin email ⇒ 400)', async () => {
     window.sessionStorage.setItem(GUEST_RETRY_TOKEN_KEY, JSON.stringify({ token: 'tok-old', expiresAt: new Date(Date.now() + 60_000).toISOString() }));
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
     await screen.findByTestId('amount-breakdown');

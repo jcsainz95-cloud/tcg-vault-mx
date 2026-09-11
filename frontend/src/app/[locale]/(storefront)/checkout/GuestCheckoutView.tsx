@@ -23,7 +23,7 @@ import { InlineAuthPanel } from './InlineAuthPanel';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
-import { clearGuestRetryToken, readGuestRetryToken, saveGuestRetryToken } from './guest-retry-token';
+import { clearGuestRetryToken, readGuestRetry, readGuestRetryToken, saveGuestRetryToken, type GuestRetry } from './guest-retry-token';
 import {
   EMPTY_GUEST_ADDRESS,
   toAddressPayload,
@@ -86,17 +86,19 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   /**
    * v1.68.1 (§4-R.5): el quote reconoce la reserva PROPIA solo con `retryOfCheckoutToken` + `email`.
-   * El token vive en sessionStorage (no es reactivo): se lee al montar y tras cada session. El correo
-   * viaja SOLO cuando el invitado lo confirmó (§15.3): así el quote no se re-pide por cada tecla y
-   * nunca se manda un token con un correo a medias (token sin email ⇒ 400).
+   * El sobre (token + correo con el que se emitió) vive en sessionStorage y no es reactivo: se lee
+   * al montar y tras cada session. El correo del quote es el CONFIRMADO en el formulario (§15.3) y,
+   * mientras no lo haya —pestaña recargada, formulario vacío—, el guardado con el token: sin él el
+   * primer quote iría sin reclamo y podaría la reserva propia. Nunca token sin correo (⇒ 400).
    */
-  const [retryToken, setRetryToken] = useState<string | null>(null);
+  const [retry, setRetry] = useState<GuestRetry | null>(null);
   useEffect(() => {
-    setRetryToken(readGuestRetryToken());
+    setRetry(readGuestRetry());
   }, []);
-  const quoteEmail = form.emailConfirmed ? form.email.trim().toLowerCase() : '';
+  const confirmedEmail = form.emailConfirmed ? form.email.trim().toLowerCase() : '';
+  const quoteEmail = confirmedEmail || retry?.email || '';
   const quoteRetry =
-    retryToken && quoteEmail ? { retryOfCheckoutToken: retryToken, email: quoteEmail } : undefined;
+    retry && quoteEmail ? { retryOfCheckoutToken: retry.token, email: quoteEmail } : undefined;
   const query = useQuery({
     queryKey: ['guest-checkout-quote', cart.ids, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null],
     queryFn: () => getGuestCheckoutQuote(cart.ids, undefined, quoteRetry),
@@ -215,8 +217,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       });
       // El token recién emitido (también en el `200` de reuso) sustituye al anterior: es la
       // llave del reintento siguiente, con su propio vencimiento.
-      saveGuestRetryToken(res.checkoutToken, res.checkoutTokenExpiresAt);
-      setRetryToken(res.checkoutToken);
+      const emailUsed = form.email.trim().toLowerCase();
+      saveGuestRetryToken(res.checkoutToken, res.checkoutTokenExpiresAt, emailUsed);
+      setRetry({ token: res.checkoutToken, email: emailUsed });
       setOutcome(res);
       setSession(res);
     } catch (e) {
@@ -258,7 +261,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setOutcome(null);
     // Pedido pagado: ya no hay reserva que reintentar; el token de reintento se retira.
     clearGuestRetryToken();
-    setRetryToken(null);
+    setRetry(null);
     onPaid();
     cart.clear();
     setPaid(created);
