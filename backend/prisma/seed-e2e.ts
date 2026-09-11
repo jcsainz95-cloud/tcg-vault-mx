@@ -40,6 +40,7 @@ import {
   E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from './e2e-fixtures';
+import { assertSeedTarget } from './seed-target-guard';
 
 function todayUtc(): Date {
   const d = new Date();
@@ -60,6 +61,10 @@ function daysAgoUtc(days: number): Date {
 }
 
 export async function seedE2E(prisma: PrismaClient): Promise<void> {
+  // 0. ⚠️ FAIL-CLOSED (N1, 2026-09-11): antes de la PRIMERA consulta, el seed comprueba a qué BD apunta
+  // `DATABASE_URL` y se niega si no es local / servicio de compose / staging (escotilla explícita
+  // `SEED_E2E_ALLOW_HOST=<host>`). Las tres rutas de invocación pasan por aquí; ver seed-target-guard.ts.
+  assertSeedTarget();
   // 1. Diales M10: defaults + fija los deterministas que usa la matemática de la suite.
   for (const [key, value] of Object.entries(SETTING_DEFAULTS)) {
     await prisma.configSetting.upsert({
