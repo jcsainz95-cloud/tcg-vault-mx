@@ -136,7 +136,21 @@ export class TestStripeService extends StripeService {
     | 'throws-unknown'
     | 'requires_capture' = 'canceled';
 
+  /**
+   * ⭐ **H-3 / I3 — RETARDO INYECTABLE de la cancelación (latencia de Stripe).**
+   *
+   * `supersedeOwnOrder` cancela el PaymentIntent **dentro** del `$transaction` que retiene la
+   * conexión y el `pg_advisory_xact_lock` (`RESERVATION_TX_OPTIONS.timeout = 30_000`). El doble
+   * por defecto responde en microsegundos, así que **por sí solo nunca ejercita la propiedad que
+   * importa**: cuánto tiempo una sustitución mantiene ocupada una conexión del pool esperando a
+   * un tercero. Con este dial se mide (ver `stripe-in-tx-pool.e2e-spec.ts`).
+   */
+  public cancelDelayMs = 0;
+
   async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
+    if (this.cancelDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, this.cancelDelayMs));
+    }
     this.callLog.push(`cancel:${paymentIntentId}`);
     switch (this.cancelOutcome) {
       case 'throws-succeeded':
