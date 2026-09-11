@@ -89,6 +89,17 @@ jobs:
             --error --metrics=off --disable-version-check \
             --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
             backend/ frontend/
+      # -----------------------------------------------------------------------
+      # ¿EL GATE DE SEMGREP MUERDE? (QA, lote 2026-09-11: 0 rojos en 60 corridas
+      # no distingue «código limpio» de «gate inerte»). El canario planta, en un
+      # repo temporal, un fichero que dispara reglas ERROR de `security/semgrep.yml`
+      # y exige que ESTE mismo comando —mismas configs (SG_CONFIGS), misma
+      # severidad— salga rojo; y que un fichero limpio salga verde. En `sh` POSIX
+      # porque corre dentro del contenedor de semgrep. §56.
+      # -----------------------------------------------------------------------
+      - name: Canario de semgrep — el gate sabe ponerse rojo
+        if: ${{ !cancelled() }}
+        run: sh ./security/scripts/sast-semgrep-canary.sh
 
   # ---------------------------------------------------------------------------
   # gitleaks — secretos. ACTIVO.

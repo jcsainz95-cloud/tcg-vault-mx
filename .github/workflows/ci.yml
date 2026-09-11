@@ -235,6 +235,17 @@ jobs:
         run: |
           echo "::warning title=format-mix::Sin commit base utilizable (rama nueva o `before` inexistente). El comparador BL-27 NO corre en este push: el job format-mix queda SKIPPED. No es un verde."
           echo "- ⚠️ format-mix **no medido** en este push (sin base utilizable)" >> "$GITHUB_STEP_SUMMARY"
+      # §56 #5: el comparador tiene que saber morder, haya o no base en ESTE push.
+      # Por eso el canario vive aquí (corre siempre) y no en `format-mix` (que se
+      # salta sin base). Planta 4 repos temporales —estilo puro, lógica pura,
+      # mezcla, mezcla en un fichero nuevo— y exige el color de cada uno con el
+      # prettier fijado del comparador (npx si no hay uno local). ~10 s.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Y el comparador sabe morder (canario BL-27)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-format-mix-canary.sh
 
   format-mix:
     needs: [format-mix-base]
@@ -278,6 +289,12 @@ jobs:
       - uses: actions/checkout@v5
       - name: El entorno E2E no puede escribir contra el proveedor de PAGA
         run: ./scripts/check-e2e-provider-incapacitation.sh
+      # §56 #5: la guarda nunca se había visto en rojo. El canario muta copias
+      # (clave del proveedor de paga con valor, dial sin incapacitar, guarda
+      # sin blanco…) y exige rojo; y verde sobre la copia intacta. 5 casos.
+      - name: Y la guarda sabe morder (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-provider-incapacitation-canary.sh
 
   # ---------------------------------------------------------------------------
   # GUARDA SEC-OPS-1 — el comprobador de procedencia sigue cableado.
@@ -295,6 +312,11 @@ jobs:
       - uses: actions/checkout@v5
       - name: El gate no puede medir un binario distinto del HEAD auditado
         run: ./scripts/check-provenance-gate.sh
+      # §56 #5: idem — reproduce el desmontaje de cada punto de cableado de
+      # SEC-OPS-1 (incluido `dast-release` sin `ref: github.sha`) y exige rojo.
+      - name: Y la guarda sabe morder (canario SEC-OPS-1)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-provenance-gate-canary.sh
 
   # ---------------------------------------------------------------------------
   # GUARDA DEL ARNÉS E2E (§39) — cobro y subida no se pueden saltar en silencio.
