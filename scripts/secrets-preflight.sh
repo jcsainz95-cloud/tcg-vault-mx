@@ -235,7 +235,40 @@ azar_b64_32() {  # base64 de EXACTAMENTE 32 bytes (AES-256; PiiCryptoService cra
   fi
 }
 
+# -----------------------------------------------------------------------------
+# ENMASCARADO EN ORIGEN (`S-MASK-1`, 2026-09-11)
+# -----------------------------------------------------------------------------
+# GitHub tapa los secretos REGISTRADOS (los de `secrets.*`), pero NO los que el
+# propio workflow genera: nunca pasaron por `::add-mask::`. Medido en el run
+# `34650494939` (repo PÚBLICO): el bloque `env:` se imprime en CADA paso y ahí
+# salían en claro `POSTGRES_PASSWORD`, `STAGING_JWT_*`, `STAGING_PII_ENCRYPTION_KEY`,
+# `STAGING_PII_HMAC_KEY`, `STAGING_SEED_*`, `RESEND_API_KEY`, los `STRIPE…WEBHOOK…`…
+# Son efímeros y el stack se destruye, así que el daño directo es BAJO — pero es la
+# misma clase que persigue `S-88-1` una capa más abajo: el valor no está en el repo,
+# está en el LOG PÚBLICO del repo. Y dos de ellos son la pareja cifrado+HMAC de PII:
+# publicarlos enseña el formato exacto y normaliza verlos en claro.
+#
+# ⚠️ POR QUÉ A `stderr` Y NO A `stdout`: este valor nace DENTRO de una sustitución
+# de comandos (`$(generar "$n")` en `github-env` y en `env-file`). Un `::add-mask::`
+# por stdout se metería DENTRO del valor y rompería el secreto. `stderr` no lo captura
+# `$(...)`, y el runner de Actions procesa los comandos de workflow de AMBOS flujos.
+# El candado `scripts/check-secret-masking.sh` comprueba justo eso: que por stdout
+# sale el valor limpio y por stderr sale su `::add-mask::`.
+enmascarar() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] || return 0
+  [ -n "${1:-}" ] || return 0
+  printf '::add-mask::%s\n' "$1" >&2
+}
+
 generar() {
+  # Un solo sitio por el que salen TODOS los valores generados ⇒ un solo sitio que
+  # enmascarar. Si mañana nace otra forma, nace ya tapada.
+  __v="$(generar_crudo "$1")"
+  enmascarar "$__v"
+  printf '%s' "$__v"
+}
+
+generar_crudo() {
   nombre="$1"
   case "$nombre" in
     # Clave de cifrado PII: base64 de 32 bytes exactos. La del HMAC del índice

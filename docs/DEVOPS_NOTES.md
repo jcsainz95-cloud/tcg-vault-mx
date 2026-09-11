@@ -11268,3 +11268,76 @@ TARGET_BASE_URL='https://<host-del-backend-de-produccion>' \
 ```
 
 > **[RESULTADO C6 — se rellena en la ventana autorizada, con proporción N/N y qué cabeceras llegan]**
+
+---
+
+## 59. `S-MASK-1` — los secretos que GENERAMOS salían en claro en un log público (2026-09-11)
+
+> **Hallazgo del orquestador sobre el run `34650494939`. Dueño: devops (yo). Repo PÚBLICO.**
+
+### 59.1 · Qué falló, medido
+
+El bloque `env:` de **cada paso** se imprime en el log. GitHub tapa los secretos
+**registrados** (`secrets.*` → `***`), pero **no** los que el propio workflow **genera**:
+nunca pasaron por `::add-mask::`. Salían en claro y repetidos en cada paso:
+
+`POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `S3_SECRET_ACCESS_KEY`,
+`STAGING_JWT_ACCESS_SECRET`, `STAGING_JWT_REFRESH_SECRET`, **`STAGING_PII_ENCRYPTION_KEY`**,
+**`STAGING_PII_HMAC_KEY`**, `STAGING_POSTGRES_PASSWORD`, `STAGING_SEED_ADMIN_PASSWORD`,
+`STAGING_SEED_OPERATOR_PASSWORD`, `STRIPE_TEST_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET`,
+`RESEND_API_KEY`, `SEED_ADMIN_PASSWORD`.
+
+**Severidad, sin inflarla:** son **efímeros**, generados por corrida, para un stack que se
+destruye y que no tiene endpoint público. **El daño directo es BAJO.** Lo que no es bajo es
+la **clase**: es `S-88-1` una capa más abajo — el valor no está en el repo, está en el **log
+público del repo** — y dos de ellos son la pareja **cifrado + HMAC de PII**, cuyo formato
+exacto no hace falta enseñarle a nadie.
+
+⛔ **No se arregló borrando logs ni tocando la visibilidad del repo.** El arreglo es
+enmascarar **en origen**.
+
+### 59.2 · El arreglo: `::add-mask::` donde nacen
+
+Los valores nacen en **dos** sitios, y ahí se tapan:
+- `scripts/secrets-preflight.sh` → `generar()`, que ahora envuelve a `generar_crudo()`.
+  Un solo embudo: **toda** forma de secreto (actual o futura) sale ya tapada.
+- `scripts/webhook-secret-preflight.sh` → `aleatorio()` (el efímero de `P-WH-1`).
+
+**Por qué la máscara va a `stderr` y no a `stdout`** (y esto es lo que más fácil se rompe):
+el valor nace **dentro** de una sustitución de comandos — `$(generar "$n")` en `github-env`
+y en `env-file`, y `WH="$(… resolve)"` en el webhook. Un `::add-mask::` por **stdout** se
+metería **dentro del secreto**, y el fallo aparecería ocho pasos más tarde, en el `compose`,
+apuntando al sitio equivocado — el patrón exacto que persigue `S-88-1`. El runner de Actions
+procesa los comandos de workflow **también desde stderr**, así que ahí sí valen.
+
+Fuera de Actions (`GITHUB_ACTIONS != true`) **no se emite ninguna máscara**: la salida de un
+operador no se ensucia con algo que ahí no significa nada.
+
+### 59.3 · El candado y su canario
+
+| Artefacto | Qué hace |
+|---|---|
+| `scripts/check-secret-masking.sh` | Exige que **cada** valor generado del **catálogo completo** (derivado de los compose, no una lista a mano) lleve su `::add-mask::`; que **stdout** salga **limpio** de máscaras; y que fuera de CI no haya ruido. Nunca imprime un valor: solo nombres y longitudes. |
+| `scripts/check-secret-masking-canary.sh` | 4 mutaciones **sobre copia** (O-8/O-9): **m1** quitar el enmascarado (el defecto original) · **m2** máscara por stdout (corrompe el valor) · **m3** sin tapar el efímero de webhook · **m4** enmascarado **parcial** (tapa `*_PASSWORD`, deja las claves de PII). |
+
+**Mediciones (2026-09-11, este entorno):**
+- Candado: **6/6** verde. `github-env` **15/15** valores tapados; `env-file` **15/15**;
+  webhook resolve tapado y limpio.
+- Canario: **5/5**, con **m1, m2, m3 y m4 en ROJO 3/3** cada una.
+- **Sin regresión:** `check-secret-defaults-canary.sh` sigue **66/66**, y
+  `secrets-preflight.sh assert` sigue `rc=0` (15 exigidos por los compose).
+
+**Cableado en CI:** job `secret-masking` en `ci.yml` (candado + canario), y está en el
+`needs` de `ci-ok` ⇒ **exige `success`** (`check-ci-ok.sh` lo confirma en su mitad estática:
+«job `secret-masking` está en el needs de ci-ok»). `skipped` no es verde.
+
+### 59.4 · Lo que este candado NO cubre
+
+- **Los logs ya publicados no se tapan retroactivamente.** Los valores del run
+  `34650494939` (y de los anteriores) siguen ahí. Como son **efímeros y de un stack ya
+  destruido**, no hay nada que rotar; si alguna vez un valor **duradero** siguiera esta ruta,
+  la respuesta sería **rotarlo**, no borrar el log.
+- **Secretos que no nacen en estos dos guiones.** Si mañana un workflow genera un valor por
+  su cuenta (un `openssl rand` suelto en un `run:`), este candado **no lo ve**. Queda
+  anotado como lo que es: **NO MEDIDO**, y se cerraría extendiendo el candado a un barrido de
+  `openssl rand|/dev/urandom` en `.github/workflows/`.

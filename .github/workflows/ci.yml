@@ -478,6 +478,37 @@ jobs:
         run: ./scripts/check-daemon-stdout-leak.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 S-MASK-1 — LOS SECRETOS QUE GENERAMOS NO PUEDEN SALIR EN CLARO EN UN LOG
+  # PÚBLICO (2026-09-11).
+  #
+  # Qué falló, medido en el run `34650494939` de este repo PÚBLICO: el bloque
+  # `env:` se imprime en CADA paso, y GitHub solo tapa los secretos REGISTRADOS.
+  # Los que el propio workflow GENERA nunca pasaron por `::add-mask::`, así que
+  # salían en claro y repetidos: `POSTGRES_PASSWORD`, `STAGING_JWT_*`,
+  # `STAGING_PII_ENCRYPTION_KEY`, `STAGING_PII_HMAC_KEY`, `STAGING_SEED_*`,
+  # `RESEND_API_KEY`, los `STRIPE…WEBHOOK…`, `MINIO_ROOT_PASSWORD`…
+  #
+  # Son efímeros y el stack se destruye ⇒ el daño directo es BAJO, y se dice así.
+  # Lo que no es bajo es la CLASE: es `S-88-1` una capa más abajo (el valor no
+  # está en el repo, está en el log público del repo), y dos de ellos son la
+  # pareja cifrado+HMAC de PII, cuyo formato exacto no hace falta enseñar.
+  #
+  # El arreglo es enmascarar EN ORIGEN, donde nacen (`secrets-preflight.sh` y
+  # `webhook-secret-preflight.sh`). Este candado comprueba las dos mitades: que
+  # todo valor generado lleva su `::add-mask::`, y que la máscara NO viaja por
+  # stdout (ahí se metería DENTRO del secreto). Su canario vive en
+  # `scripts/check-secret-masking-canary.sh` (4 mutaciones, proporción N/N).
+  # ---------------------------------------------------------------------------
+  secret-masking:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Todo secreto GENERADO sale tapado del log (S-MASK-1)
+        run: ./scripts/check-secret-masking.sh
+      - name: Y el candado muerde (canario, 4 mutaciones)
+        run: ./scripts/check-secret-masking-canary.sh 3
+
+  # ---------------------------------------------------------------------------
   # 🔒 ¿LA PARIDAD `I-PP5` TUMBA EL GATE? (§48.1) — 2026-09-10, hallazgo de QA.
   #
   # Qué falló, medido: `stack-native.sh up --seed --gate` imprimió «✗ SIN PARIDAD
@@ -631,7 +662,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census]
     if: always()
     runs-on: ubuntu-latest
     steps:
