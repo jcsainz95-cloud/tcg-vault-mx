@@ -4,7 +4,13 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.1.1** — **§33 alineada al contrato v1.67** (`API_CONTRACT.md:6307-6432`, `ARCHITECTURE §4.47`;
+> Estado: **v4.1.2** — **§33 ratificada contra lo implementado en Stream A** (2026-09-11, tras QA 11/11 y techlead):
+> claves i18n de §33.13 = las reales de `es.json`/`en.json` (`auth.changePassword.*`, `orders.claimable.*`,
+> `vault.claimable.body`, `sellCart.*`, `shipments.recipient.*`, `admin.m4.*`); `vault.withdraw` **no cambia** (nueva
+> `vault.requestWithdrawal`); M4 sin destinatario = «SIN DESTINATARIO (retiro anterior a v1.67)»; destinatario inline
+> con «Guardar nombre»; prellenado solo con `nameSource ∈ {user, google}`; ⭐ **decisión nueva §33.11: mientras se
+> recotiza (y mientras la recotización falló) NINGÚN precio se pinta — ni total ni líneas — «—» en todos**.
+> Antes: **v4.1.1** — **§33 alineada al contrato v1.67** (`API_CONTRACT.md:6307-6432`, `ARCHITECTURE §4.47`;
 > 2026-09-11): (1) **no hay «modo crear contraseña»** — con `hasPassword=false` la sección explica y dispara
 > `forgot-password`; (2) el aviso de nombre derivado usa **`nameSource==='derived'`** (fuera la heurística); (3) la
 > pantalla de contraseña vive en **`/account/password`** y **`/admin/account/password`** (fuera `/change-password` en
@@ -15904,6 +15910,17 @@ de hechos, no un resumen), `catalog.syncAllUnavailable`, `common.{cancel,errorTi
 > pantalla bloqueante vive en la ruta de contraseña del rol, no en `(auth)`; allowlist exacta), §33.10
 > (`RECIPIENT_NAME_REQUIRED`; prellenado por `nameSource`), §33.11 (30 días; «—» al recotizar), §33.12–33.16
 > (componentes, claves, prohibiciones y notas ya resueltas). Lo demás no se toca.
+>
+> **v4.1.2 — ratificación contra lo implementado (2026-09-11; `FRONTEND_NOTES §66.3` y `§67.2`, medido con `grep`
+> sobre `frontend/messages/es.json`/`en.json`).** Ratificado: (1) `vault.withdraw` **no cambia de valor** — la teja
+> por pieza sigue diciendo «Retirar» y la cabecera/pestaña usan la clave nueva `vault.requestWithdrawal` (§33.4; v4.1
+> usaba una clave para dos superficies, error de diseño); (2) M4 sin destinatario pinta **«SIN DESTINATARIO (retiro
+> anterior a v1.67)»** en mono rojo (texto literal del contrato §M4, tono de §33.10d); (3) el destinatario en el
+> retiro se captura **inline con botón propio «Guardar nombre»**, no con «Completar» → modal (§33.10b); (4) el
+> prellenado del destinatario solo con `nameSource ∈ {user, google}`; sesión sin el campo ⇒ vacío (§33.10a); (5)
+> §33.13 reescrita a los **namespaces reales**. Decidido nuevo: (6) **§33.11.2 — «sin cotización fresca no hay
+> cifra» aplica por línea**, no solo al total; (7) §33.7 B con claves propias `account.password.rateLimited` /
+> `account.password.resendError` (fuera el préstamo de `verifyEmail.*`).
 
 ### 33.0 Alcance, hechos que este diseño asume y las reglas duras
 
@@ -16046,8 +16063,10 @@ Es el término de categoría (§1, léxico: «el nombre de la cosa manda la clar
   (`components/domain/WithdrawalsList.tsx`) **sin cambio funcional**. Arriba del listado, el CTA outline tinta
   **«Solicitar retiro»** → `/shipments`. Vacío: `shipments.noShipments` (existe) + el mismo CTA.
 - **El botón de cabecera de la bóveda** (`VaultView.tsx:122-127`, hoy «Retirar» → `/shipments`) pasa a decir
-  **«Solicitar retiro»** (`vault.withdraw` cambia de valor). El «Retirar» **por pieza** (§20.13 2e, con
-  `?item=`) no cambia.
+  **«Solicitar retiro»** con la clave **nueva `vault.requestWithdrawal`** (la misma que usa el CTA de la pestaña
+  «Retiros»). *(v4.1.2: v4.1 pedía cambiar el valor de `vault.withdraw`; era **una clave para dos superficies** y
+  se retira esa indicación.)* **`vault.withdraw` no cambia:** sigue siendo el «Retirar» **por pieza** (§20.13 2e,
+  con `?item=`; `e2e/vault.spec.ts` lo mide).
 - **`/shipments` se convierte en la pantalla de solicitar, y solo eso:** título **«Solicitar retiro»**
   (`shipments.title` cambia de valor), enlace de vuelta **«← Mi bóveda»** encima del `h1`, y **se le quitan** sus
   secciones «Mis retiros» y «Mis disputas» (viven en la pestaña). Tras pagar (`onConfirmed`), en vez de
@@ -16276,9 +16295,12 @@ que **ya existe y exige el buzón**: `POST /auth/forgot-password` → el enlace 
 - Botón `primary` **«Enviarme el enlace»** → `POST /auth/forgot-password { email }` (la respuesta es neutra por
   diseño, §1 «Recuperación»; aquí no hay oráculo que proteger porque el correo es el de la sesión). Loading
   **«Enviando…»**. Éxito: línea mono verde **`ENLACE ENVIADO`** + **«Revisa tu correo. El enlace caduca; si no llega,
-  pide otro.»** + `ghost sm` «Enviar otra vez» (respeta el `429 RATE_LIMITED` con el copy de `verifyEmail.rateLimited`
-  — existe). Al volver del enlace (`/reset-password`, ya existe) la cuenta queda con `hasPassword=true` y esta
-  página pasa sola a la variante A.
+  pide otro.»** + `ghost sm` «Enviar otra vez». Errores del envío, en mono rojo `role="alert"` bajo el botón, **con
+  claves propias de la página** (v4.1.2; no se prestan de `verifyEmail.*`, que es la pantalla de verificación y
+  puede cambiar por su cuenta): `429 RATE_LIMITED` → `account.password.rateLimited` (**la misma** de la variante A:
+  «Demasiados intentos. Espera un minuto.»); cualquier otro fallo → **`account.password.resendError`** **«No pudimos
+  enviar el enlace. Intenta de nuevo.»** (§33.13). Al volver del enlace (`/reset-password`, ya existe) la cuenta queda
+  con `hasPassword=true` y esta página pasa sola a la variante A.
 - ⛔ **No** se pintan campos de contraseña en esta variante; **no** se llama a `change-password` (respondería
   `PASSWORD_NOT_SET`). El operador nunca cae aquí (el staff es `local`).
 
@@ -16429,9 +16451,11 @@ silencio: hoy puede ser el fabricado (regla 2).
 **a · En el formulario de dirección (`AddressFormFields`, `AddressManager.tsx:265-319`):**
 - Campo nuevo **primero**, encima de «Calle y número»: `Input` label **«Nombre de quien recibe»**, hint **«Va en la
   etiqueta del paquete.»**, `autoComplete="name"`, obligatorio (`required` → `addresses.required`, existe).
-- **Prellenado** con `user.name` **solo si `user.nameSource !== 'derived'`** (regla del contrato,
-  `API_CONTRACT.md:6425-6427`; **solo en el front, nunca en el servidor**); con `derived`, vacío — el usuario lo
-  teclea. Validación: obligatorio, `trim`, **1..120** (`400 VALIDATION_ERROR`, `details.field='recipientName'`).
+- **Prellenado** con `user.name` **solo si `user.nameSource ∈ {'user', 'google'}`** (regla del contrato,
+  `API_CONTRACT.md:6425-6427`, leída en positivo; **solo en el front, nunca en el servidor**); con `derived` **o sin
+  el campo en la sesión** (sesión guardada anterior a v1.67: no se puede saber si el nombre es fabricado), vacío —
+  el usuario lo teclea *(v4.1.2: ratifica `FRONTEND_NOTES §66.3(6)`; más estricto que la letra, nunca más laxo)*.
+  Validación: obligatorio, `trim`, **1..120** (`400 VALIDATION_ERROR`, `details.field='recipientName'`).
 - En la **fila** (`AddressRow`): primera línea **«Recibe: {name}»** en `text-sm text-text`, encima de la calle. Si
   la fila **no tiene** nombre (direcciones creadas antes de este cambio): en su lugar, mono 11px `text-accent`
   **«Falta el nombre de quien recibe»** + acción mono **«Completar»** que abre el modal de edición con el foco en
@@ -16441,12 +16465,19 @@ silencio: hoy puede ser el fabricado (regla 2).
 - El picker (`AddressManager selectable`) muestra las filas como arriba. Una dirección **sin destinatario** se
   puede seleccionar, pero el CTA **«Pagar envío y solicitar» queda deshabilitado** con motivo en
   `aria-describedby` y una nota mono roja bajo el picker: **«Completa el nombre de quien recibe en la dirección
-  elegida para continuar.»** + «Completar» inline (mismo modal). Al guardar, la cotización se pide y el CTA se
-  habilita. **Nunca** se manda un `POST /shipments` que el servidor vaya a rechazar por falta de nombre. Y si aun
-  así llega **`422 RECIPIENT_NAME_REQUIRED`** (`details: { field, addressId }`; lo emiten `quote` y `create`,
-  `API_CONTRACT.md:4727-4734`): **hermano de `PHONE_REQUIRED`** — se abre la captura inline del destinatario de
-  **esa** `addressId`, `PATCH /users/me/addresses/:id { recipientName }` y **reintento automático** de la
-  cotización; el motivo se pinta con `error.RECIPIENT_NAME_REQUIRED` (§33.13) y el patrón P-4 lo trae al viewport.
+  elegida para continuar.»** (`shipments.recipient.required`). **Y no se pide cotización** mientras falte el nombre
+  (el servidor la rechazaría). Debajo, **captura inline** *(v4.1.2, ratifica `FRONTEND_NOTES §66.3(5)`: no
+  «Completar» → modal de la libreta — ese modal es de «Mi cuenta»; aquí el usuario está a un paso de pagar y no se le
+  saca de la pantalla)*: `Input` label **«Nombre de quien recibe»** (`shipments.recipient.label`), hint **«Va en la
+  etiqueta del paquete.»** (`shipments.recipient.hint`), `autoComplete="name"`, 1..120, y **botón propio
+  `secondary` «Guardar nombre»** (`shipments.recipient.save`) → `PATCH /users/me/addresses/:id { recipientName }`.
+  Al guardar, la cotización se pide sola y el CTA se habilita: **el nombre se fija antes de cotizar**, así el
+  desglose se lee ya con el destinatario puesto y se paga una sola cosa a la vez. **Nunca** se manda un `POST
+  /shipments` que el servidor vaya a rechazar por falta de nombre. Y si aun así llega **`422
+  RECIPIENT_NAME_REQUIRED`** (`details: { field, addressId }`; lo emiten `quote` y `create`,
+  `API_CONTRACT.md:4727-4734`): **hermano de `PHONE_REQUIRED`** — se abre esa misma captura inline para **esa**
+  `addressId` (manda el servidor sobre la caché), `PATCH` y **reintento automático** de la cotización; el motivo se
+  pinta con `error.RECIPIENT_NAME_REQUIRED` (§33.13) y el patrón P-4 lo trae al viewport.
   ⛔ El servidor **no** cae a `User.name` (contrato); el front tampoco lo manda por él.
 - Encima del desglose de importe, una línea de confirmación en mono muted: **«Envío a: {name} · {city}, {state}»**
   — el mismo dato que va a la etiqueta, leído una última vez antes de pagar.
@@ -16459,9 +16490,11 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
 - La línea `{s.userId}` (`:201`) **se retira** (P-66 B3: «las pantallas de dinero hablan en identificadores»).
 - En su lugar, bajo el folio y el `StatusBadge`, un bloque de dos líneas `text-sm`:
   - **`Para` {recipientName} · {city}, {state} · CP {postalCode} · Tel {phone}** — del `addressSnapshot`. Sin
-    `recipientName` en el snapshot: **`SIN DESTINATARIO`** en mono `text-accent` **en el lugar del nombre**, y el
-    resto de la línea igual. Nunca `User.name` como sustituto (podría ser el fabricado): el operador debe saber
-    que **le falta un dato** y pedirlo, no confiar en uno derivado.
+    `recipientName` en el snapshot: **`SIN DESTINATARIO (retiro anterior a v1.67)`** en mono `text-accent` **en el
+    lugar del nombre**, y el resto de la línea igual *(v4.1.2: el paréntesis es el texto literal que exige el
+    contrato §M4; el tono —versalita mono roja— es el de este diseño. Le dice al operador **por qué** falta: no es
+    un bug de hoy, es un retiro creado antes de que el dato existiera)*. Nunca `User.name` como sustituto (podría
+    ser el fabricado): el operador debe saber que **le falta un dato** y pedirlo, no confiar en uno derivado.
   - **`Cliente` {name} · {email}** + enlace mono **«Ver ficha»** (`admin.m6.view`, existe) → M6. Es el patrón que
     **M5 ya usa** (P-66 B3). Requiere que `GET /admin/shipments` traiga `addressSnapshot` y `customer` (R5): hasta
     entonces, **se pinta «—»** en cada dato ausente (§32.4: lo desconocido es «—», nunca omitido en silencio) y
@@ -16474,8 +16507,9 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
 
 **Decisión: el carrito de venta persiste como el de compra**, y **sus precios se vuelven a pedir al restaurarlo**.
 
-- **Persistencia:** `localStorage['tcg.sellCart']` = `{ v: 1, lines: CartLine[], updatedAt }` (mismo patrón que
-  `lib/cart.ts:5-47`: escribir en cada cambio, leer al montar, evento propio para sincronizar pestañas). El
+- **Persistencia:** `localStorage['tcg.sellCart']` = `{ lines: CartLine[], updatedAt }` (el formato del helper
+  compartido `lib/local-store.ts`, `ARCHITECTURE §4.47.6`; mismo patrón que `lib/cart.ts`: escribir en cada
+  cambio, leer al montar, evento propio para sincronizar pestañas). El
   carrito **no se envía al servidor**: es una lista de intención, no una solicitud (SEC-A1: el monto lo re-deriva
   el backend al crear).
 - **Ida y vuelta del login:** los CTAs sin sesión del drawer (`SellCartContents.tsx:358,364`) y la invitación de
@@ -16488,19 +16522,39 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
      Vuelve a cotizar tus cartas.»** Un formato desconocido **no** descarta: migración suave.
   2. Si no: `role="status"` **«Tu lista de venta se conservó: {count} carta(s).»** (formato `carta(s)` ratificado
      en §18.4a) y **se re-cotiza en silencio** con `batchQuote` (`api.ts:1424`, público, caché 5 min, **≤ 50 por
-     lote**: más líneas ⇒ varios lotes) las mismas `(cardId, finish, productId)`. **Mientras recotiza, el total
-     estimado se pinta «—»** (no la cifra vieja: §32.4, lo desconocido no se afirma) y **no se puede mandar una
-     solicitud con estimados que la pantalla no haya vuelto a pedir** (regla 7): el CTA «Enviar solicitud» queda
-     `disabled` con `aria-busy` hasta que vuelva.
+     lote**: más líneas ⇒ varios lotes) las mismas `(cardId, finish, productId)`. **Mientras recotiza, NINGÚN
+     precio se pinta: ni el total ni las líneas** (no la cifra vieja: §32.4, lo desconocido no se afirma) y **no
+     se puede mandar una solicitud con estimados que la pantalla no haya vuelto a pedir** (regla 7): el CTA
+     «Enviar solicitud» queda `disabled` con `aria-busy` hasta que vuelva.
+     ⭐ **Decisión v4.1.2 — «sin cotización fresca no hay cifra» aplica por línea, no solo al total.** Razón: el
+     `quote` persistido **se considera caduco en cuanto se rehidrata** (`ARCHITECTURE §4.47.6`, literal), y una
+     línea es el precio que el vendedor **lee para decidir si quita o deja una carta**; un total «—» sobre
+     líneas con cifras viejas es una pantalla que se contradice a sí misma (la mitad afirma, la mitad no) y
+     el usuario suma las líneas de cabeza y obtiene justo el total que le estamos negando. Forma:
+     - En cada línea, **los dos huecos de precio** —el subtotal de la fila (`SellCartContents.tsx:200`) y el
+       «Estimado c/u» (`:209`)— pintan **«—»** en `text-muted`, `tabular`, mismo tamaño que la cifra que
+       sustituyen (no se mueve la geometría de la fila). Una línea en `precio_pendiente` **conserva su
+       versalita** (no es un precio; no hay nada que negar).
+     - **Un solo anuncio para lectores de pantalla**: el `aria-label` `sellCart.requoting` vive **solo en el total**
+       (como hoy, `:323`); las líneas **no** repiten el label (N veces «Actualizando…» es ruido). El `<ul>` de
+       líneas lleva `aria-busy="true"` mientras dura.
+     - **Aplica también al caso 5** (la recotización **falló** entera): la lista se conserva en memoria para
+       «Reintentar», pero **no se pinta ninguna cifra** — «—» en total y líneas, con la nota roja
+       `sellCart.requoteFailed` explicando por qué. Es el mismo predicado que ya deshabilita el CTA
+       (`requoting || requoteFailed`, `:404`): **si no se puede enviar con esos precios, tampoco se muestran**.
+     - Lo que sí se conserva a la vista: nombre, acabado, cantidad, miniatura y los controles de cantidad/quitar.
+       El usuario puede editar la lista mientras espera; los precios llegan cuando llegan.
   3. Si algún `quotedPriceCents` cambió: se sustituye el `quote` de la línea y se añade **un** `role="status"`:
      **«Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}.»** (totales estimados
      formateados). No se marca línea por línea en rojo: la nota de vigencia que ya existe
      (`buylist.trustValidity`, `es.json:777`) explica que el estimado es de hoy.
   4. Si alguna línea vuelve `ok:false`: se **quita** y se añade **«Quitamos {count} carta(s) que ya no podemos
      cotizar.»** Una línea en `precio_pendiente` **se conserva** (ya se explica bajo el total, `useSellCart.ts:141`).
-  5. Si `batchQuote` **falla entero** (red): el carrito se conserva **con los estimados guardados**, el CTA de
-     enviar queda deshabilitado con motivo mono rojo **«No pudimos actualizar los precios. Reintenta.»** + botón
-     «Reintentar». No se envía con precios viejos; tampoco se destruye la lista por un fallo de red.
+  5. Si `batchQuote` **falla entero** (red): el carrito se conserva **en memoria con los estimados guardados**
+     (para reintentar sin perder nada) **pero sin pintarlos** — «—» en total y líneas (decisión v4.1.2 del paso
+     2); el CTA de enviar queda deshabilitado con motivo mono rojo **«No pudimos actualizar los precios.
+     Reintenta.»** (`sellCart.requoteFailed`) + botón «Reintentar» (`sellCart.retry`). No se envía con precios
+     viejos; tampoco se destruye la lista por un fallo de red.
 - **Al enviar con éxito** (`onCreated`): `clearCart()` ya vacía el estado; **también borra la clave**. Al «Vaciar
   carrito», igual.
 - **Copy que no cambia:** `buylist.cartEmpty`, `cartFooterNote`, `trustValidity`.
@@ -16538,7 +16592,14 @@ ahí hasta que aterrice.
 
 ### 33.13 i18n — claves nuevas, cambiadas y retiradas (propiedad de frontend; copiar sin interpretar)
 
-**Nuevas — `nav`, `account`, `changePassword`, `claimable`, `error`:**
+> **v4.1.2:** las claves de estas tablas son **las que existen** en `frontend/messages/es.json` y `en.json`
+> (medido con `grep` el 2026-09-11, `FRONTEND_NOTES §66.3(4)` y `§67.2(1,3)`). Namespaces que cambiaron respecto a
+> v4.1: `changePassword.*` → **`auth.changePassword.*`**; `claimable.*` → **`orders.claimable.*`** (y
+> `claimable.bodyVault` → **`vault.claimable.body`**); `buylist.cart*` → **`sellCart.*`**;
+> `shipments.recipientRequired` → **`shipments.recipient.required`**. Solo dos claves de esta sección **no** están
+> en el catálogo (se marcan *propuesta*); una es **nueva** en v4.1.2 (`account.password.resendError`).
+
+**Nuevas — `nav`, `account`, `auth.changePassword`, `orders.claimable` / `vault.claimable`, `error`:**
 
 | Clave | ES | EN |
 |---|---|---|
@@ -16566,11 +16627,13 @@ ahí hasta que aterrice.
 | `account.email.unverified` | SIN VERIFICAR | NOT VERIFIED |
 | `account.email.unverifiedBody` | Verifica tu correo para comprar, vender y retirar. | Verify your email to buy, sell and withdraw. |
 | `account.email.changeNote` | Para cambiar tu correo escríbenos a {contact}. | To change your email, write to {contact}. |
+| `account.addresses.title` | Direcciones de envío | Shipping addresses |
 | `account.billing.title` | Facturación (CFDI) | Invoicing (CFDI) |
 | `account.billing.emptyTitle` | Sin datos de facturación | No invoicing details |
 | `account.billing.emptyBody` | Guárdalos para solicitar factura de tus compras. | Save them to request invoices for your purchases. |
 | `account.billing.add` | Agregar datos de facturación | Add invoicing details |
 | `account.billing.edit` | Editar | Edit |
+| `account.billing.cancel` | Cancelar | Cancel |
 | `account.billing.rfc` | RFC | RFC |
 | `account.billing.rfcHint` | Escríbelo completo | Enter it in full |
 | `account.billing.razonSocial` | Razón social | Legal name |
@@ -16586,8 +16649,11 @@ ahí hasta que aterrice.
 | `account.kyc.clabeChange` | Cambiar CLABE | Change CLABE |
 | `account.kyc.clabeHint` | 18 dígitos, a tu nombre. Ahí te pagamos tus ventas. | 18 digits, in your name. That's where we pay your sales. |
 | `account.kyc.clabeInvalid` | La CLABE debe tener 18 dígitos. | The CLABE must be 18 digits. |
+| `account.kyc.ine` | INE | ID (INE) |
 | `account.kyc.ineOnFile` | INE en archivo | ID (INE) on file |
 | `account.kyc.ineMissing` | Sin INE. Se pide solo cuando una venta supera el tope. | No ID on file. Only required when a sale exceeds the cap. |
+| `account.kyc.ineFront` | INE — frente | ID (INE) — front |
+| `account.kyc.ineBack` | INE — reverso | ID (INE) — back |
 | `account.kyc.capPerRequest` | Tope por solicitud | Cap per request |
 | `account.kyc.capPerMonth` | Tope por mes | Cap per month |
 | `account.password.title` | Contraseña | Password |
@@ -16608,7 +16674,8 @@ ahí hasta que aterrice.
 | `account.password.submitting` | Cambiando… | Changing… |
 | `account.password.successTitle` | CONTRASEÑA ACTUALIZADA | PASSWORD UPDATED |
 | `account.password.successOtherSessions` | Cerramos la sesión en tus otros dispositivos. Esta sigue abierta. | We signed you out on your other devices. This session stays open. |
-| `account.password.rateLimited` | Demasiados intentos. Espera un minuto. | Too many attempts. Wait a minute. |
+| `account.password.rateLimited` *(variantes A **y** B)* | Demasiados intentos. Espera un minuto. | Too many attempts. Wait a minute. |
+| `account.password.resendError` **(nueva v4.1.2, variante B; sustituye el préstamo de `verifyEmail.resendError`)** | No pudimos enviar el enlace. Intenta de nuevo. | We couldn't send the link. Try again. |
 | `account.password.changeAgain` | Cambiar otra vez | Change again |
 | `account.password.createTitle` | Crear contraseña | Create a password |
 | `account.password.createBody` | Entras con Google y tu cuenta no tiene contraseña. Para crear una te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google. | You sign in with Google and your account has no password. To create one, we'll send a link to {email}; you choose it there. You can still sign in with Google. |
@@ -16619,29 +16686,30 @@ ahí hasta que aterrice.
 | `account.password.createResend` | Enviar otra vez | Send again |
 | `account.session.title` | Sesión | Session |
 | `account.session.body` | Cierra tu sesión en este dispositivo. | Sign out on this device. |
-| `changePassword.title` | Crea tu contraseña definitiva | Create your permanent password |
-| `changePassword.body` | Entraste con una contraseña temporal. Para continuar, elige una nueva. | You signed in with a temporary password. Choose a new one to continue. |
-| `changePassword.requiredNotice` | Antes de continuar tienes que cambiar tu contraseña temporal. | You need to change your temporary password before continuing. |
-| `changePassword.temporaryLabel` | Contraseña temporal | Temporary password |
-| `changePassword.submit` | Guardar y continuar | Save and continue |
-| `changePassword.done` | Listo | Done |
-| `claimable.title` | {count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo | {count, plural, one {You have # order placed without an account} other {You have # orders placed without an account}} under this email |
-| `claimable.bodyOrders` | Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido. | Link them to see their status and tracking here. Nothing about the order changes. |
-| `claimable.bodyVault` | Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. | They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. |
-| `claimable.more` | y {count} más | and {count} more |
-| `claimable.cta` | Vincular a mi cuenta | Link to my account |
-| `claimable.claiming` | Vinculando… | Linking… |
-| `claimable.later` | Ahora no | Not now |
-| `claimable.success` | {count, plural, one {PEDIDO EN TU HISTORIAL} other {PEDIDOS EN TU HISTORIAL}} | {count, plural, one {ORDER IN YOUR HISTORY} other {ORDERS IN YOUR HISTORY}} |
-| `claimable.successLink` | Ver mis compras | See my purchases |
-| `claimable.partialFail` | {count, plural, one {No fue posible vincular # pedido.} other {No fue posible vincular # pedidos.}} Escríbenos a {contact} citando el número de pedido. | {count, plural, one {We couldn't link # order.} other {We couldn't link # orders.}} Write to {contact} quoting the order number. |
+| `auth.changePassword.title` | Crea tu contraseña definitiva | Create your permanent password |
+| `auth.changePassword.body` | Entraste con una contraseña temporal. Para continuar, elige una nueva. | You signed in with a temporary password. Choose a new one to continue. |
+| `auth.changePassword.requiredNotice` | Antes de continuar tienes que cambiar tu contraseña temporal. | You need to change your temporary password before continuing. |
+| `auth.changePassword.temporaryLabel` | Contraseña temporal | Temporary password |
+| `auth.changePassword.submit` | Guardar y continuar | Save and continue |
+| `auth.changePassword.done` | Listo | Done |
+| `orders.claimable.title` | {count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo | {count, plural, one {You have # order placed without an account} other {You have # orders placed without an account}} under this email |
+| `orders.claimable.body` | Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido. | Link them to see their status and tracking here. Nothing about the order changes. |
+| `vault.claimable.body` | Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. | They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. |
+| `orders.claimable.more` | y {count} más | and {count} more |
+| `orders.claimable.cta` | Vincular a mi cuenta | Link to my account |
+| `orders.claimable.claiming` | Vinculando… | Linking… |
+| `orders.claimable.later` | Ahora no | Not now |
+| `orders.claimable.success` | {count, plural, one {PEDIDO EN TU HISTORIAL} other {PEDIDOS EN TU HISTORIAL}} | {count, plural, one {ORDER IN YOUR HISTORY} other {ORDERS IN YOUR HISTORY}} |
+| `orders.claimable.successLink` | Ver mis compras | See my purchases |
+| `orders.claimable.partialFail` | {count, plural, one {No fue posible vincular # pedido.} other {No fue posible vincular # pedidos.}} Escríbenos a {contact} citando el número de pedido. | {count, plural, one {We couldn't link # order.} other {We couldn't link # orders.}} Write to {contact} quoting the order number. |
+| `orders.claimable.errorTitle` | No se pudieron vincular los pedidos | The orders could not be linked |
 | `error.CURRENT_PASSWORD_INCORRECT` | La contraseña actual no es correcta. | The current password is incorrect. |
 | `error.PASSWORD_SAME_AS_CURRENT` | La contraseña nueva debe ser distinta de la actual. | The new password must differ from the current one. |
 | `error.PASSWORD_NOT_SET` | Tu cuenta no tiene contraseña. Crea una desde «Mi cuenta». | Your account has no password. Create one from “My account”. |
 | `error.PASSWORD_CHANGE_REQUIRED` | Tu cuenta tiene una contraseña temporal. Cámbiala para continuar. | Your account has a temporary password. Change it to continue. |
 | `error.RECIPIENT_NAME_REQUIRED` | Esta dirección no tiene el nombre de quien recibe. Complétalo para continuar. | This address has no recipient name. Add it to continue. |
 
-**Nuevas — `orders`, `buylist`, `vault`, `shipments`, `addresses`, `admin`:**
+**Nuevas — `orders`, `buylist`, `sellCart`, `vault`, `shipments`, `addresses`, `admin`:**
 
 | Clave | ES | EN |
 |---|---|---|
@@ -16653,17 +16721,23 @@ ahí hasta que aterrice.
 | `orders.sales.emptyCta` | Cotizar mis cartas | Get a quote for my cards |
 | `buylist.viewMyRequests` | Ver el estado de mis solicitudes | See the status of my requests |
 | `buylist.backToSales` | Mis ventas | My sales |
-| `buylist.cartRestored` | Tu lista de venta se conservó: {count} carta(s). | Your sell list was kept: {count} card(s). |
-| `buylist.cartRepriced` | Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}. | We updated your list with today's prices: was {before}, now {after}. |
-| `buylist.cartLinesDropped` | Quitamos {count} carta(s) que ya no podemos cotizar. | We removed {count} card(s) we can no longer quote. |
-| `buylist.cartExpired` | Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas. | Your sell list expired and was cleared. Quote your cards again. |
-| `buylist.cartRequoteFailed` | No pudimos actualizar los precios. Reintenta. | We couldn't refresh the prices. Try again. |
-| `buylist.request.phone.inAccount` | o complétalo en Mi cuenta | or add it in My account |
+| `sellCart.restored` | Tu lista de venta se conservó: {count} carta(s). | Your sell list was kept: {count} card(s). |
+| `sellCart.repriced` | Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}. | We updated your list with today's prices: was {before}, now {after}. |
+| `sellCart.linesDropped` | Quitamos {count} carta(s) que ya no podemos cotizar. | We removed {count} card(s) we can no longer quote. |
+| `sellCart.expired` | Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas. | Your sell list expired and was cleared. Quote your cards again. |
+| `sellCart.requoteFailed` | No pudimos actualizar los precios. Reintenta. | We couldn't refresh the prices. Try again. |
+| `sellCart.retry` | Reintentar | Try again |
+| `sellCart.requoting` *(`aria-label` del total «—», §33.11.2)* | Actualizando los precios de tu lista | Refreshing the prices of your list |
+| `buylist.request.phone.inAccount` *(**propuesta**: no está en el catálogo, medido 2026-09-11; se implementa solo si el formulario de solicitud enlaza a «Mi cuenta»)* | o complétalo en Mi cuenta | or add it in My account |
 | `vault.tabs.withdrawals` | Retiros | Withdrawals |
+| `vault.requestWithdrawal` *(cabecera de la bóveda y CTA de la pestaña «Retiros», §33.4)* | Solicitar retiro | Request a withdrawal |
 | `vault.withdrawalRequested` | Retiro solicitado. Aquí verás su avance. | Withdrawal requested. You'll track it here. |
 | `shipments.backToVault` | Mi bóveda | My vault |
 | `shipments.shipTo` | Envío a: {name} · {city}, {state} | Ship to: {name} · {city}, {state} |
-| `shipments.recipientRequired` | Completa el nombre de quien recibe en la dirección elegida para continuar. | Add the recipient name to the selected address to continue. |
+| `shipments.recipient.required` | Completa el nombre de quien recibe en la dirección elegida para continuar. | Add the recipient name to the selected address to continue. |
+| `shipments.recipient.label` | Nombre de quien recibe | Recipient name |
+| `shipments.recipient.hint` | Va en la etiqueta del paquete. | Printed on the shipping label. |
+| `shipments.recipient.save` | Guardar nombre | Save name |
 | `addresses.recipientName` | Nombre de quien recibe | Recipient name |
 | `addresses.recipientNameHint` | Va en la etiqueta del paquete. | Printed on the shipping label. |
 | `addresses.recipientLine` | Recibe: {name} | Recipient: {name} |
@@ -16672,9 +16746,11 @@ ahí hasta que aterrice.
 | `addresses.edit` | Editar | Edit |
 | `addresses.editTitle` | Editar dirección | Edit address |
 | `admin.m4.recipient` | Para | To |
-| `admin.m4.recipientMissing` | SIN DESTINATARIO | NO RECIPIENT |
+| `admin.m4.recipientMissing` | SIN DESTINATARIO (retiro anterior a v1.67) | NO RECIPIENT (withdrawal prior to v1.67) |
 | `admin.m4.customer` | Cliente | Customer |
-| `admin.m6.nameDerived` | Nombre tomado del correo (Google) | Name taken from email (Google) |
+| `admin.m4.postalCode` | CP | ZIP |
+| `admin.m4.phone` | Tel | Phone |
+| `admin.m6.nameDerived` *(**propuesta**: no está en el catálogo, medido 2026-09-11; depende de que M6 exponga `nameSource`, R6)* | Nombre tomado del correo (Google) | Name taken from email (Google) |
 
 **Cambian de valor (misma clave):**
 
@@ -16684,12 +16760,16 @@ ahí hasta que aterrice.
 | `orders.orderNumber` | Orden {id} | Pedido {id} | Order {id} |
 | `orders.detailTitle` | Detalle de la orden | Detalle del pedido | Order details |
 | `orders.noOrders` | Aún no tienes órdenes. | Aún no tienes compras. | No purchases yet. |
-| `vault.withdraw` | Retirar | Solicitar retiro | Request a withdrawal |
 | `shipments.title` | Retiro / envío | Solicitar retiro | Request a withdrawal |
 | `shipments.backToList` | Volver a mis retiros | Mis retiros | My withdrawals |
 
-**Retiradas** (borrar en `es.json` y `en.json` a la vez, si el `grep` no encuentra otro uso): `auth.mustChangePassword`,
-`auth.mustChangeContinue`. `nav.orders` y `nav.shipments` **salen del header**; se borran solo si nadie más las usa.
+**No cambia (v4.1.2):** `vault.withdraw` sigue siendo «Retirar» / «Withdraw» — es el botón **por pieza**; la cabecera
+usa `vault.requestWithdrawal` (§33.4). *(v4.1 la listaba aquí como cambio de valor; retirado.)*
+
+**Retiradas** (medido 2026-09-11): `auth.mustChangePassword` y `auth.mustChangeContinue` **borradas** (ES/EN);
+`buylist.offer.backToBuylist` **borrada** (sin otro consumidor). `nav.orders` y `nav.shipments` **salen del header
+pero se conservan** en el catálogo: `e2e/guest-checkout.spec.ts` resuelve `nav.orders` por `t()` (stream de
+checkout); se borran cuando ese spec cambie.
 
 **Paridad ES/EN:** verificación barata — cada clave de las tablas existe en los dos catálogos y **ninguna cadena EN
 está en español** (`grep` del lint de i18n, como en §26.8).
@@ -16740,4 +16820,4 @@ debajo de los mínimos de §20.11 (mono 11px, cuerpo 16px en móvil).
 | **R7** | **product-owner** | Dos decisiones menores, con recomendación: (a) confirmar el rótulo **«Compras y ventas»** (alternativas descartadas: «Mis pedidos» —se lee como compra—, «Mis operaciones» —nadie lo teclea—); (b) si los campos «clave SAT» de facturación deben ser `Select` con catálogo (hoy `Input` + hint: el diseño no inventa el catálogo). *(La caducidad del carrito de venta ya la fijó el arquitecto en 30 días, §4.47.6.)* |
 | **R8** | **backend** | Mientras el nombre sea el derivado, **los 10 correos** que lo usan (`mail.templates.ts:70-99`, `buylist*.service.ts`) siguen diciéndole «Hola jcsainz95». No es de esta sección; queda anotado para que se decida si el saludo cae al correo o se omite hasta que el usuario lo corrija. |
 | **R9** | **frontend** | Implementa §33 entero contra el contrato v1.67 y el reparto **F1–F11 de `ARCHITECTURE §4.47.8`** (mocks hasta que backend publique); **`components/`, `lib/`, `hooks/` son zona compartida** (un solo stream a la vez). El orden de entrega de v4.1 queda **superseded por F1–F11**. |
-| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, total «—» hasta que `batchQuote` responde (llamado una vez); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
+| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, **total «—» y las dos líneas sin cifra («—» en subtotal y «Estimado c/u»)** hasta que `batchQuote` responde (llamado una vez); si `batchQuote` falla, **sigue sin haber cifra** en total ni líneas y aparece «Reintentar» (v4.1.2, §33.11.2); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
