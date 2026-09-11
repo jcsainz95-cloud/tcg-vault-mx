@@ -1,12 +1,12 @@
 # .gitignore — propiedad devops (higiene de infraestructura y secretos).
 
 # --- Secretos: NUNCA comitear .env con valores reales ---
+# S-CLASE-1 (seguridad, 2026-09-11): la lista de nombres de abajo dejaba fuera
+# `.env.staging` (y cualquier `.env.<lo-que-sea>` futuro). Un `.env.staging` con
+# un secreto real se podía commitear sin que nada chillara. Por eso el comodín:
+# TODO `.env.*` queda fuera del repo, y la ÚNICA excepción es la plantilla.
 .env
-.env.local
-.env.*.local
-.env.development
-.env.production
-.env.test
+.env.*
 !.env.example
 
 # --- Node ---

@@ -98,6 +98,11 @@ jobs:
     needs: detect
     if: needs.detect.outputs.backend_e2e != 'false'
     runs-on: ubuntu-latest
+    # `fase` la fija el último paso (always) y la lee `e2e-ok`: distingue «la
+    # suite corrió y falló» de «el job murió antes y no midió nada» (S-CI-1).
+    outputs:
+      fase: ${{ steps.fase.outputs.fase }}
+      paso: ${{ steps.fase.outputs.paso }}
     defaults:
       run:
         working-directory: backend
@@ -214,8 +219,18 @@ jobs:
       # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
       # contenedor (`Dockerfile.backend`) y en el arnés nativo.
+      #
+      # S-CI-1 (seguridad, 2026-09-11): el `working-directory` del job es
+      # `backend/`, y los tres scripts viven en la RAÍZ del repo. Sin el override
+      # de abajo, este paso moría con rc=127 («No such file or directory»), los
+      # ocho pasos siguientes quedaban `skipped` y el job —DEPLOY-BLOCKING— salió
+      # rojo en 9 corridas seguidas (#1124→#1134) sin ejecutar una sola suite. El
+      # mismo bloque en `ci.yml` SÍ llevaba el override. Ahora lo vigila
+      # `scripts/check-workflow-cwd.sh` en cada PR (ci.yml, job `workflow-cwd`).
       # -----------------------------------------------------------------------
       - name: Resolver secretos sin literales públicos (P-WH-1 + S-88-1)
+        id: secrets
+        working-directory: ${{ github.workspace }}
         env:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
@@ -235,22 +250,27 @@ jobs:
           ./scripts/secrets-preflight.sh github-env \
             JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY >> "$GITHUB_ENV"
       - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
+        id: provider_guard
         run: ./scripts/check-e2e-provider-incapacitation.sh
         working-directory: ${{ github.workspace }}
       - name: Guard — el script test:integration debe existir
+        id: script_guard
         run: |
           if [ "${{ needs.detect.outputs.backend_e2e }}" = "missing" ]; then
             echo "::error::backend no expone 'npm run test:integration'. El rol backend debe añadirlo."
             exit 1
           fi
       - uses: actions/setup-node@v4
+        id: setup_node
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install
+        id: install
         run: npm ci
       - name: Esperar a que MinIO responda (readiness desde el runner)
+        id: minio
         run: |
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
@@ -262,13 +282,94 @@ jobs:
           echo "::error::MinIO no respondió en http://localhost:9000 tras ~60s."
           exit 1
       - name: Prisma generate + migrate
+        id: prisma
         run: |
           npx prisma generate
           npx prisma migrate deploy
       - name: Seed sintético (si existe)
+        id: seed
         run: npm run seed:synthetic --if-present
+      # El log de la suite se conserva en fichero: los agentes de este proyecto NO
+      # pueden leer el blob de logs de Actions (el proxy lo bloquea, SECURITY_NOTES
+      # §0 y DEVOPS_NOTES §16.4), así que el paso siguiente convierte cada spec en
+      # rojo en una ANOTACIÓN (visible por la API de check-runs) con fichero y línea.
       - name: Test de integración (E2E backend)
-        run: npm run test:integration
+        id: tests
+        run: |
+          set -o pipefail
+          npm run test:integration 2>&1 | tee "$RUNNER_TEMP/backend-e2e.log"
+      - name: Anotar cada spec en rojo con fichero y línea (legible por API)
+        if: ${{ !cancelled() && steps.tests.outcome == 'failure' }}
+        run: |
+          LOG="$RUNNER_TEMP/backend-e2e.log"
+          [ -s "$LOG" ] || { echo "::warning title=backend-e2e::la suite falló pero el log está vacío; no puedo anotar specs."; exit 0; }
+          echo "Specs en rojo (jest 'FAIL <spec>'):"
+          grep -E '^(FAIL|PASS) ' "$LOG" | sort | uniq -c || true
+          # Una anotación por spec fallido (jest imprime 'FAIL test/integration/x.e2e-spec.ts').
+          grep -E '^FAIL ' "$LOG" | awk '{print $2}' | sort -u | head -20 | while read -r spec; do
+            # Primer test '●' de ese spec y su primera línea 'at … (spec:linea:col)'.
+            test_name="$(awk -v s="$spec" '$0 ~ "^FAIL "s {f=1} f && /^  ● / {print; exit}' "$LOG" | sed 's/^  ● //')"
+            linea="$(grep -oE "${spec//./\\.}:[0-9]+:[0-9]+" "$LOG" | head -1 | cut -d: -f2)"
+            echo "::error file=backend/${spec},line=${linea:-1},title=backend-e2e · suite en ROJO (dueño: backend)::${spec} — ${test_name:-ver log}"
+          done
+          FALLOS="$(grep -E '^Tests: ' "$LOG" | tail -1 || true)"
+          [ -n "$FALLOS" ] && echo "::error title=backend-e2e · resumen jest::${FALLOS}"
+          exit 0
+      - name: Subir log de la suite de integración
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-e2e-log
+          path: ${{ runner.temp }}/backend-e2e.log
+          if-no-files-found: ignore
+          retention-days: 7
+      # -----------------------------------------------------------------------
+      # VEREDICTO DE FASE (S-CI-1, DEVOPS_NOTES §52): «rojo» no es un veredicto.
+      # Este job estuvo rojo 9 corridas seguidas por rc=127 en el paso 4 y se leyó
+      # como «la suite falla» (dueño por defecto: backend, §16.4). Un rojo tiene
+      # que decir QUÉ se midió: si la suite CORRIÓ y falló (dueño: backend), o si
+      # el job MURIÓ ANTES y no midió nada (dueño: devops). Va INLINE a propósito:
+      # no puede depender de un fichero que el propio checkout podría no traer.
+      # -----------------------------------------------------------------------
+      - name: Veredicto de fase — ¿la suite corrió, o el job murió antes?
+        id: fase
+        if: ${{ always() }}
+        env:
+          O_SECRETS: ${{ steps.secrets.outcome }}
+          O_PROVIDER: ${{ steps.provider_guard.outcome }}
+          O_SCRIPT: ${{ steps.script_guard.outcome }}
+          O_NODE: ${{ steps.setup_node.outcome }}
+          O_INSTALL: ${{ steps.install.outcome }}
+          O_MINIO: ${{ steps.minio.outcome }}
+          O_PRISMA: ${{ steps.prisma.outcome }}
+          O_SEED: ${{ steps.seed.outcome }}
+          O_TESTS: ${{ steps.tests.outcome }}
+        run: |
+          fase=""; paso=""
+          if [ "$O_TESTS" = "success" ]; then
+            fase="suite-verde"; paso="Test de integración (E2E backend)"
+          elif [ "$O_TESTS" = "failure" ]; then
+            fase="suite-roja"; paso="Test de integración (E2E backend)"
+            echo "::error title=backend-e2e · LA SUITE CORRIÓ y falló::Dueño: backend. Los specs en rojo están anotados con fichero y línea en el paso anterior; el log completo en el artifact backend-e2e-log."
+          else
+            for par in "Resolver secretos:$O_SECRETS" "Guarda proveedor de paga:$O_PROVIDER" "Guard test:integration:$O_SCRIPT" \
+                       "setup-node:$O_NODE" "Install:$O_INSTALL" "Esperar MinIO:$O_MINIO" "Prisma generate + migrate:$O_PRISMA" "Seed sintético:$O_SEED"; do
+              nombre="${par%:*}"; res="${par##*:}"
+              if [ "$res" = "failure" ]; then paso="$nombre"; break; fi
+            done
+            fase="infra-muerta"
+            echo "::error title=backend-e2e NO MIDIÓ NADA::El job murió en el paso «${paso:-desconocido}» ANTES de ejecutar la suite (la suite quedó skipped). Dueño: devops (infraestructura del job), NO backend. Ninguna suite de dinero/acceso se ejecutó en esta corrida: este rojo no dice nada sobre el código. DEVOPS_NOTES §52."
+          fi
+          echo "fase=$fase" >> "$GITHUB_OUTPUT"
+          echo "paso=$paso" >> "$GITHUB_OUTPUT"
+          echo "fase=$fase · paso=$paso"
+          {
+            echo "### backend-e2e — veredicto de fase"
+            echo
+            echo "- **fase:** \`$fase\`"
+            echo "- **paso decisivo:** $paso"
+            echo "- resultados: secrets=$O_SECRETS provider=$O_PROVIDER guard=$O_SCRIPT node=$O_NODE install=$O_INSTALL minio=$O_MINIO prisma=$O_PRISMA seed=$O_SEED tests=$O_TESTS"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # Frontend E2E — MODO MOCK (rápido, feedback de PR).
@@ -414,13 +515,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Resumen
+        env:
+          FASE: ${{ needs.backend-e2e.outputs.fase }}
+          PASO: ${{ needs.backend-e2e.outputs.paso }}
         run: |
-          echo "backend-e2e  (deploy-blocking): ${{ needs.backend-e2e.result }}"
+          echo "backend-e2e  (deploy-blocking): ${{ needs.backend-e2e.result }} · fase=${FASE:-?} · paso=${PASO:-?}"
           echo "frontend-e2e (informativo):     ${{ needs.frontend-e2e.result }}"
-          if [ "${{ needs.backend-e2e.result }}" = "failure" ]; then
-            echo "::error::backend-e2e (integración real DB/Redis/MinIO) falló. Bloquea el deploy."
-            exit 1
-          fi
+          # S-CI-1: un rojo sin fase se leyó seis commits como «la suite falla». Aquí el
+          # rojo NOMBRA lo que se midió y a quién le toca — y `skipped`/`cancelled`
+          # tampoco son verde: un gate deploy-blocking que no corre no gatea.
+          case "${{ needs.backend-e2e.result }}" in
+            success) ;;
+            failure)
+              case "$FASE" in
+                suite-roja)   echo "::error::backend-e2e: LA SUITE CORRIÓ y falló (integración real DB/Redis/MinIO). Dueño: backend. Specs anotados en el job. Bloquea el deploy." ;;
+                infra-muerta) echo "::error::backend-e2e NO MIDIÓ NADA: el job murió en «${PASO:-?}» antes de ejecutar la suite. Dueño: devops. Ninguna suite de dinero/acceso corrió. Bloquea el deploy (DEVOPS_NOTES §52)." ;;
+                *)            echo "::error::backend-e2e falló y NO dejó fase (¿el paso de veredicto no corrió?). Dueño: devops. Bloquea el deploy." ;;
+              esac
+              exit 1 ;;
+            *)
+              echo "::error::backend-e2e terminó en '${{ needs.backend-e2e.result }}' — no es verde: un gate deploy-blocking que no corre no gatea. Bloquea el deploy."
+              exit 1 ;;
+          esac
           if [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
             echo "::warning::frontend-e2e MOCK falló (informativo). NO bloquea el deploy. Ver DEVOPS_NOTES §24."
           fi

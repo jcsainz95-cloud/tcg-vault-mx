@@ -1392,6 +1392,13 @@ Tres problemas, todos en archivos **propiedad devops** (`security/semgrep.yml`, 
   `security-sast.yml`; `bash -n` OK en ambos wrappers.
 
 **(B) E2E — `backend-e2e` y `frontend-e2e` siguen rojos por TESTS — SOLO DIAGNÓSTICO, ENRUTADO (no es de devops).**
+
+> **CORRECCIÓN 2026-09-11 (§52, S-CI-1):** el enrutado por defecto de este bloque —«`backend-e2e`
+> rojo ⇒ rol backend»— es **falso como regla** y costó nueve corridas: del #1124 al #1134 el rojo
+> era un **rc=127 en el paso 4** (script invocado desde `backend/` sin override) y la suite **no
+> corrió ni una vez**. Desde §52 el propio job dice su **fase** (`suite-roja` → backend;
+> `infra-muerta` → devops) y `e2e-ok` la nombra. Un rojo de `backend-e2e` **no tiene dueño por
+> defecto**: se lee la fase. Y la causa de un rc=127 está en el YAML, no en los logs.
 - El fix de infra previo (imagen `minio` → `bitnamilegacy/minio`, §16.6(C)) es correcto: **`minio` ya
   arranca**. Lo que falla ahora está en los **tests**, no en la config del harness.
 - **Devops NO puede reproducir ni diagnosticar la causa en esta sesión:** el egress bloquea el `docker
@@ -10356,3 +10363,194 @@ stack que Stripe **no puede alcanzar**. Solo tendría sentido pedirlo el día qu
 aceptación exija ejercitar **webhooks REALES de Stripe** contra CI. Hoy ninguno lo exige, así
 que **no se pide**.
 
+
+---
+
+## 52. `S-CI-1` — el gate deploy-blocking `backend-e2e` llevaba 9 corridas muerto con rc=127, y por qué nadie lo vio (2026-09-11, hallazgo ALTA de seguridad, bloqueante)
+
+### 52.0 · El hallazgo, medido por seguridad y re-medido por mí
+
+`e2e.yml`, job `backend-e2e` (`defaults.run.working-directory: backend`), paso «Resolver
+secretos sin literales públicos (P-WH-1 + S-88-1)»: tres invocaciones `./scripts/…` (líneas
+225, 232, 235) sin `working-directory: ${{ github.workspace }}`. Los scripts viven en la raíz.
+`cd backend && ./scripts/webhook-secret-preflight.sh assert` → **rc=127**. El paso muere, los
+ocho siguientes quedan `skipped`, y con ellos **toda** la suite de integración: `webhook-empty-
+secret-forge`, `infra-smoke`, `auth-authz`, `auth-throttle`, `guest-chargeback`,
+`buylist-pay-verdicts`, `vault-shipments`, `catalog-checkout-webhook`.
+
+El mismo bloque en `ci.yml:122-137` **sí** lleva el override, con mi propio comentario
+explicándolo. Y el paso siguiente de `e2e.yml` también lo lleva. Faltaba en tres líneas entre
+dos sitios que lo tenían. Lo introduje yo en `88c48c7` (P-WH-1).
+
+**Cuánto duró, medido en la API de runs (`actions/workflows/e2e.yml/runs`):**
+
+| run | commit | `backend-e2e` | paso 4 |
+|---|---|---|---|
+| #1123 | `707c4f4` | success | (el paso no existía) |
+| **#1124** | **`88c48c7`** | **failure** | `Process completed with exit code 127` (job `102934818193`, 21 s) |
+| #1126–#1130, #1132–#1134 | `66b7515` … `0417da1` | failure ×8 | rc=127 en todos |
+| #1125, #1131 | — | cancelled | (concurrency) |
+
+**Nueve corridas rojas, once commits, ~7 horas.** Seguridad contó «seis commits» porque midió
+seis; la API da nueve rojos consecutivos. Es peor de lo que decía el hallazgo, no mejor.
+
+### 52.1 · El arreglo de las tres líneas
+
+`e2e.yml`: `working-directory: ${{ github.workspace }}` en el paso, con el comentario que ya
+tenía `ci.yml`. Verificado con el candado nuevo (§52.3): antes del arreglo **3 invocaciones
+muertas**, después **0 de 48**.
+
+### 52.2 · La pregunta de método: ¿por qué un rc=127 pudo estar mudo nueve corridas?
+
+Medí cada hipótesis del encargo. Ninguna de las tres primeras era la causa:
+
+| hipótesis | medición | veredicto |
+|---|---|---|
+| «`e2e-ok` no lo agregaba» | `e2e-ok` = **failure** en los 9 runs (job `102937961579` en #1124, `103075776403` en #1134) | **falsa**: agregaba bien |
+| «estaba en `continue-on-error`» | el paso no lo tiene; `frontend-e2e` sí (soft-gate §24), `backend-e2e` no | **falsa** |
+| «nadie mira e2e.yml porque `ci-ok` es el que importa» | parcialmente: `ci-ok` **verde** en los 9; el briefing del candidato citó **un** run verde de `E2E real` (`34538020057`) como «los 23 pasos en verde» | **verdadera a medias**: se miró un workflow, no el commit |
+
+Lo que de verdad lo mantuvo mudo, medido:
+
+1. **Nada consumía el rojo.** No hay rulesets (`/rulesets` → `[]`), la protección de `main` no
+   es legible con este token (403) y esta rama es una rama de trabajo: ni Railway ni Vercel
+   esperan a `e2e-ok` de esta rama (§16.4: los deploys van por integraciones nativas sobre
+   `main`/`production`). Un gate «deploy-blocking» que no bloquea ningún deploy real es un
+   letrero, y un letrero rojo nueve veces no cambia nada por sí solo.
+2. **El rojo tenía una explicación prefabricada y un dueño por defecto equivocado.** §16.4(B)
+   (2026-08-16) decía: «`backend-e2e` rojo ⇒ rol backend, si los specs fallan…» y, con
+   honestidad, «devops no puede leer los logs». Esa nota llevaba **26 días sin re-medirse**
+   (O-5). Cada vez que alguien vio el rojo, ya sabía «de quién era» y que «no podía leerse».
+   Nadie preguntó **qué paso** había muerto — y la API de jobs lo decía en texto claro:
+   `steps[4].conclusion = failure`, `steps[5..12] = skipped`, anotación «exit code 127».
+3. **`e2e-ok` decía «failure» y nada más.** Un rc=127 en el paso 4 y un spec de dinero roto en
+   el paso 12 producían el **mismo** resumen: `backend-e2e: failure`. La señal que distingue
+   «la suite corrió y falló» de «la suite no corrió» **no existía**.
+4. **El mismo commit puso rojo otro gate con otra explicación prefabricada** (`trivy-fs`,
+   §53): dos rojos nuevos a la vez, dos historias listas, cero mediciones.
+
+La frase de seguridad es exacta: *un script que no está donde se le busca se tomó por un test
+que falla.* La séptima aparición del patrón «la ausencia de una señal se tomó por una señal».
+
+### 52.3 · Qué cierra cada hueco (y cómo se comprueba)
+
+| hueco | cierre | comprobación |
+|---|---|---|
+| (3) «failure» sin fase | `backend-e2e` tiene `id` por paso y un último paso `always()` que fija `outputs.fase` ∈ {`suite-verde`, `suite-roja`, `infra-muerta`} y `outputs.paso`; emite `::error title=backend-e2e NO MIDIÓ NADA::…` con el paso y **dueño: devops**, o `LA SUITE CORRIÓ y falló` con **dueño: backend**. `e2e-ok` lee la fase y la nombra; `skipped`/`cancelled` tampoco son verde | anotaciones legibles por API de check-runs (§52.4); el resumen del job las repite |
+| (3-bis) logs ilegibles para los agentes | el paso de tests hace `tee` al log; un paso posterior convierte cada `FAIL <spec>` de jest en `::error file=backend/<spec>,line=N` con el nombre del primer test rojo; el log sube como artifact `backend-e2e-log` | `scripts/check-candidate-checks.sh <sha>` imprime esas anotaciones |
+| (2) dueño por defecto | corrección fechada en §16.4(B); regla nueva: **un rojo de `backend-e2e` no tiene dueño hasta leer la fase** | — |
+| (1)+(4) «se miró un workflow, no el commit» | `scripts/check-candidate-checks.sh [sha]`: lista **todos** los check-runs del commit vía API y, para cada rojo, sus anotaciones. Es la llamada que hizo seguridad y que ningún rol había hecho. Sobre `0417da1`: **25 check-runs, 4 en rojo** (`backend-e2e` con «exit code 127», `e2e-ok`, `trivy-fs`, `sast-ok`) | rc=1 sobre `0417da1`; a partir de hoy va en el runbook de release (§52.5) |
+| la clase del defecto (script fuera del cwd) | `scripts/check-workflow-cwd.sh`: para cada paso `run:` de cada workflow resuelve las invocaciones `./scripts/…`, `./security/…`, `./…sh` y `${{ github.workspace }}/…sh` contra el cwd **efectivo** (paso → job → raíz) y exige que el fichero exista. rc=2 (nunca 0) sin parser o sin invocaciones. Job `workflow-cwd` en `ci.yml`, `skipped ≠ verde` en `ci-ok` | sobre el árbol roto: **3 invocaciones muertas** (las de seguridad); sobre el arreglado: **48/48 resuelven** |
+| «un candado que no se ha visto rojo» | `scripts/check-workflow-cwd-canary.sh`: 8 casos sobre copia, incluido **quitar el override del paso «Resolver secretos» y exigir rojo nombrando `e2e.yml`/`backend-e2e`/`webhook-secret-preflight.sh`** | **8/8** |
+
+Límite declarado del candado: una línea con `cd …` antes de la invocación no se evalúa (se
+imprime como «no evaluada», no se finge). Hoy no hay ninguna en el repo.
+
+### 52.4 · Lo que dijo `backend-e2e` al correr por primera vez
+
+Se rellena con el run del commit de esta sección: ver el resumen de cierre de este pase
+(reportado al orquestador con número de run). Regla: **si sale rojo por specs, es hallazgo de
+backend con fichero y línea** (anotados por el propio job); no se tapa aquí.
+
+### 52.5 · Runbook: qué se mide antes de llamar «verde» a un candidato
+
+1. `./scripts/check-candidate-checks.sh <sha>` → **todos** los check-runs en `success`. Un run
+   verde de un workflow **no** es el estado del commit.
+2. Si `backend-e2e` está rojo: leer `fase`/`paso` en sus anotaciones. `infra-muerta` → devops;
+   `suite-roja` → backend con los `::error file=…` del job.
+3. Un rojo que dura más de una corrida sin diagnóstico **es un hallazgo de devops**, sea de
+   quien sea la causa: lo que falla es la medición.
+
+---
+
+## 53. `S-SAST-1` — `trivy-fs` rojo 11 corridas: no era P-DEP-1, era el escáner de SECRETOS de trivy sobre mis propios canarios (2026-09-11, bloqueante por regla 10)
+
+### 53.0 · La teoría de todos, y la medición
+
+Seguridad, el briefing y §49.5 (yo) decían lo mismo: `trivy-fs` rojo por `vitest` CRITICAL +
+`vite`/`js-yaml` HIGH en las devDependencies del frontend. Seguridad lo infirió con `npm audit`
+(«trivy no está disponible aquí»). **Nadie lo midió con trivy.**
+
+Lo medí con trivy v0.74.0 (compilado desde el proxy de Go; el binario y la DB por ghcr están
+bloqueados aquí, la DB salió de `mirror.gcr.io/aquasec/trivy-db:2`), con **la configuración
+exacta que corría la action en CI**:
+
+| comando | resultado |
+|---|---|
+| `trivy fs` default (`vuln`+`secret`), severidad HIGH/CRITICAL, `.` | **RC=1 · 0 vulnerabilidades · 5 CRITICAL `stripe-secret-token`** |
+| dónde | `scripts/check-secret-defaults-canary.sh:355,364,374,498` · `scripts/check-stripe-webhook-failclosed-canary.sh:280` |
+| `trivy fs --scanners vuln` | **RC=0** (backend 0, frontend 0, s3-local 0) |
+| `--list-all-pkgs frontend/package-lock.json` | 148 paquetes, **0 dev**; `vitest` ni aparece |
+| `--include-dev-deps` | exactamente las 3 advisories fichadas de P-DEP-1 |
+
+Y el A/B temporal: `Security SAST` #1123 (`707c4f4`) verde; **#1124 (`88c48c7`) rojo** —
+el commit que **creó esos dos canarios** con `sk_test_…` de ficción. El mismo commit que mató
+`backend-e2e` (§52). Las dos explicaciones prefabricadas apuntaban a otro sitio.
+
+Por qué trivy los ve y gitleaks no: `gitleaks.toml:65` tiene la allowlist
+`sk_test_[0-9a-zA-Z_]*` (placeholders); el escáner de secretos de trivy no tiene allowlist en
+este repo porque **nadie había decidido encenderlo**: `security/trivy.yaml` declaraba
+`scanners: [vuln]` desde el día uno, pero (a) la action **no pasaba** ese config y (b) la clave
+estaba en el nivel raíz, donde trivy **no la lee** (avisa `deprecated` de `vulnerability.type`
+y calla con `scanners`). Exactamente «dos escáneres, dos criterios, uno rojo y uno verde sobre
+el mismo hecho» — pero el hecho eran secretos de ficción, no dependencias.
+
+### 53.1 · Lo que se hizo (y lo que NO)
+
+- **Un comando en un sitio:** `security/scripts/trivy-fs.sh` es el gate; lo ejecuta CI (ya no la
+  action), local y el self-test. `--scanners vuln` explícito en el comando **y** en
+  `trivy.yaml` (esquema corregido: `scan.scanners`, `scan.skip-dirs`, `pkg.types`; verificado
+  sin avisos). Los secretos los juzga **gitleaks**, que ya era el escáner de secretos del repo.
+- **NO** se bajó severidad, **no** hay `continue-on-error`, **no** entra nada en `.trivyignore`,
+  `ignore-unfixed` sigue en false.
+- **devDependencies, misma política:** `security/scripts/trivy-dev-fichas.sh` corre trivy con
+  `--include-dev-deps` por app, convierte la salida a la forma de `npm audit` y la pasa por **el
+  mismo `audit-npm-dev.sh`** (interfaz de fixtures) con **las mismas fichas y fechas**. Medido:
+  verde hoy con las 3 fichas; **rojo** fingiendo `2026-09-25` (`js-yaml` caducada). Ahora sí:
+  ficha de `npm-audit` = ficha de trivy, misma caducidad.
+- **El canario ya no se apaga con un rojo real:** el self-test anota la **línea base** (color y
+  CVE) en vez de exigir verde, planta el lockfile y exige rojo por los CVE del canario **que no
+  estaban en la base**; además planta un `sk_test_…` de ficción y exige que **no** se reporte, y
+  que el job `gitleaks` siga en `needs` de `sast-ok`. Medido: **5/5** tiradas verdes, canario
+  retirado; mutación sobre copia (quitar `--scanners vuln` y `scan.scanners`) → self-test
+  **rojo** nombrando el escáner de secretos.
+
+### 53.2 · Corrección a §49.5 y al registro de decisiones
+
+§49.5 afirmaba que el rojo de trivy y el de npm audit eran el mismo hecho. **No lo eran.** El
+bloque `REGISTRO` de `security/README.md` (el que se publica en cada run) lo dice ahora con las
+mediciones. Lo que sí es cierto de §49.5 y se mantiene: P-DEP-1 está fichado hasta 2026-09-24 /
+2026-10-10, dueño frontend, y el trinquete —ahora con dos bases de datos— se pone rojo solo al
+vencer.
+
+### 53.3 · Pendiente no bloqueante (medido 2026-09-11)
+
+`security-scheduled.yml` evalúa la caducidad de las fichas semanalmente con `npm audit`; el
+trinquete de trivy solo corre por push. Como las fechas son las mismas, la caducidad sí se
+evalúa por calendario; lo que no se evalúa semanalmente es un hallazgo **nuevo** que solo
+trivy vea. Añadirlo exige instalar trivy en el job semanal. Ficha: **devops, revisar antes de
+2026-10-10** (misma fecha que las fichas de P-DEP-1).
+
+---
+
+## 54. `S-CLASE-1` — el candado de clase cubre una subclase; lo que se cierra hoy y lo que queda fichado (2026-09-11, MEDIA)
+
+**Medido por seguridad:** 19 formas fuera de las ocho sondas de `check-secret-defaults.sh`;
+muerde 3, escapan 16, y 7 escapan también al manifiesto de valores: `${VAR-lit}` (un guion),
+`${VAR:=lit}`, `: "${VAR:=lit}"`, nombres `SMTP_PASS`/`DB_PASS`/`ADMIN_PIN`/`RECOVERY_CODE`/
+`MASTER_PEPPER`/`SESSION_SEED`/`CLABE_CIPHER`, `.env.staging` versionado, `RUN echo "X=…" >>`,
+`environment:` en forma de lista, `VAR=lit` sin `export` / `declare -x`. **Ninguna existe hoy en
+el árbol** (seguridad lo midió con `grep`; no lo repito como propio).
+
+**Cerrado hoy:** `.gitignore` pasa de una lista de nombres a `.env.*` con la única excepción
+`!.env.example`. Medido con `git check-ignore -v`: `.env.staging`, `.env.local`,
+`.env.production.local` → ignorados; `.env.example` → no ignorado y sigue trackeado.
+
+**Ficha (devops, después de publicar, revisar antes de 2026-09-25):** (1) aceptar `${VAR-…}` y
+`${VAR:=…}` en el mismo escáner que ya lee `${VAR:-…}`; (2) añadir `PASS|PIN|PEPPER|SEED|CODE|
+CIPHER` a `FORMA_SECRETO` en su fuente única (`gen-published-secrets-manifest.sh`); (3) cubrir
+`environment:` en lista, `RUN echo … >>` y la asignación sin `export`; (4) **los 7 casos al
+canario** (`check-secret-defaults-canary.sh`), para que la frase «ningún secreto —ni los que aún
+no existen—» vuelva a medir lo que afirma; hasta entonces, el mensaje del candado debe decir lo
+que cubre. Condición de promoción a producción según seguridad (§7.3 de su re-veredicto), no
+bloqueante del ALTA.

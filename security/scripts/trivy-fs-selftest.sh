@@ -6,13 +6,26 @@
 # se ha visto en verde no está verificado, está sin observar.
 #
 # QUÉ HACE
-#   1. Corre el gate REAL sobre el repo limpio  ->  exige VERDE.
+#   1. Corre el gate REAL (security/scripts/trivy-fs.sh, el MISMO comando que
+#      CI) sobre el árbol tal cual y anota su LÍNEA BASE: color y CVE reportados.
+#      NO exige verde. Antes sí lo exigía, y eso cegaba al canario justo cuando
+#      más falta hacía: con el gate rojo por algo real, este self-test abortaba
+#      con «no puedo medir nada encima de un rojo real» — 11 corridas seguidas
+#      (S-SAST-1). Un candado permanentemente rojo era tan ciego como uno
+#      permanentemente verde. Ahora el rojo real lo reporta el paso del gate;
+#      este paso mide lo suyo IGUAL.
 #   2. PLANTA un `package-lock.json` canario con dependencias vulnerables
 #      conocidas dentro de `scripts/s3-local/` (el directorio que se discutió en
-#      §47: la maqueta S3 de la ruta nativa) y vuelve a correr EL MISMO comando
-#      con LA MISMA config y EL MISMO ignorefile  ->  exige ROJO, y exige que el
-#      CVE plantado aparezca por su nombre en el informe.
-#   3. Borra el canario y comprueba que no quedó nada en el árbol.
+#      §47) y vuelve a correr EL MISMO comando  ->  exige ROJO, exige que los CVE
+#      plantados aparezcan por su nombre, atribuidos al canario, y que NO
+#      estuvieran ya en la línea base (si no, el rojo no sería del canario).
+#   3. Planta también un `sk_test_…` de ficción junto al canario y exige que el
+#      gate NO lo reporte: este gate es de VULNERABILIDADES; los secretos son de
+#      gitleaks, y comprueba que ese job siga cableado en security-sast.yml.
+#      (Es la avería de S-SAST-1: el escáner de secretos de trivy corriendo sin
+#      que nadie lo hubiera decidido, con una allowlist distinta a la de
+#      gitleaks.)
+#   4. Borra el canario y comprueba que no quedó nada en el árbol.
 #
 #   Verde en el paso 2  ->  ESTE SCRIPT FALLA. Es la única forma de distinguir
 #   «no hay vulnerabilidades» de «el escáner no está mirando aquí».
@@ -22,8 +35,7 @@
 #   el hallazgo que bloqueó el release (§47) y que se cerró ELIMINANDO el
 #   componente (override de `busboy` a 1.6.0), NO ignorándolo. Si algún día
 #   alguien "arregla" un rojo parecido metiendo una exclusión de ruta o de CVE,
-#   este self-test se pone verde donde debería estar rojo y FALLA. El candado
-#   queda amarrado al sitio del que se sospechó.
+#   este self-test se pone verde donde debería estar rojo y FALLA.
 #
 # Uso:
 #   ./security/scripts/trivy-fs-selftest.sh
@@ -38,11 +50,14 @@ SEC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ROOT_DIR="$(cd "${SEC_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
+GATE_SH="${SCRIPT_DIR}/trivy-fs.sh"
+
 # Directorio donde se planta el canario. Por defecto, DENTRO de la maqueta S3:
 # es el sitio cuyo escaneo se quiso poner en duda, así que es el sitio que hay
 # que demostrar que se sigue escaneando.
 CANARY_DIR="${TRIVY_SELFTEST_DIR:-scripts/s3-local}/.trivy-selftest-canary"
 CANARY_LOCK="${CANARY_DIR}/package-lock.json"
+CANARY_SECRET="${CANARY_DIR}/fixture-con-clave-de-ficcion.sh"
 
 # CVE que el canario DEBE provocar. `dicer` es el del release (§47);
 # `minimist` es un segundo testigo independiente por si la DB moviera el
@@ -59,37 +74,36 @@ trap limpiar EXIT INT TERM
 if ! command -v trivy >/dev/null 2>&1; then
   fail "trivy no está en PATH. El self-test NO se salta: sin escáner no hay nada que verificar."
 fi
+[ -x "${GATE_SH}" ] || fail "No existe/ejecuta ${GATE_SH}: el self-test tiene que correr EL MISMO comando que CI, y ese comando vive ahí."
 
-# El gate REAL, palabra por palabra. Si esto se desalinea de security-sast.yml o
-# de trivy-fs.sh, el self-test deja de probar el candado que corre en CI.
-gate() {
-  trivy fs \
-    --config "${SEC_DIR}/trivy.yaml" \
-    --ignorefile "${SEC_DIR}/.trivyignore" \
-    --severity HIGH,CRITICAL \
-    --ignore-unfixed=false \
-    --exit-code 1 \
-    --format table \
-    --no-progress \
-    .
-}
+# El gate REAL: el mismo script que ejecuta CI. Ni una bandera distinta.
+gate() { "${GATE_SH}"; }
+
+cves_de() { grep -oE 'CVE-[0-9]{4}-[0-9]+' <<<"$1" | sort -u; }
 
 # ---------------------------------------------------------------------------
-# (1) Árbol limpio -> el gate tiene que estar VERDE.
+# (1) Línea base sobre el árbol tal cual. Se ANOTA, no se exige.
 # ---------------------------------------------------------------------------
-log "(1/3) Gate sobre el árbol limpio — se espera VERDE"
+log "(1/4) Gate sobre el árbol tal cual — línea base"
 limpiar
-SALIDA_LIMPIA="$(gate 2>&1)"; RC_LIMPIO=$?
-if [ "${RC_LIMPIO}" -ne 0 ]; then
-  echo "${SALIDA_LIMPIA}"
-  fail "El gate ya está ROJO sin canario: hay hallazgos HIGH/CRITICAL REALES en el repo. Arréglalos (o repórtalos al rol dueño); este self-test no puede medir nada encima de un rojo real."
+SALIDA_BASE="$(gate 2>&1)"; RC_BASE=$?
+CVES_BASE="$(cves_de "${SALIDA_BASE}")"
+if [ "${RC_BASE}" -ne 0 ]; then
+  echo "  línea base: ROJO (rc=${RC_BASE}) — hay hallazgos REALES; los reporta el paso del gate, no éste."
+  echo "  CVE en la línea base: $(tr '\n' ' ' <<<"${CVES_BASE:-ninguno}")"
+  echo "  Este self-test sigue midiendo: un rojo real no puede apagar al canario (S-SAST-1)."
+else
+  echo "  línea base: verde (0 HIGH/CRITICAL de runtime)."
 fi
-echo "✓ verde sobre el árbol limpio."
+for cve in "${CVE_OBLIGATORIO}" "${CVE_TESTIGO}"; do
+  grep -q "${cve}" <<<"${CVES_BASE}" \
+    && fail "${cve} ya aparece SIN canario. No puedo atribuir el rojo al canario: o el árbol tiene ese CVE de verdad (arréglalo) o el canario quedó plantado de otra corrida."
+done
 
 # ---------------------------------------------------------------------------
-# (2) Con canario plantado -> el gate tiene que ponerse ROJO.
+# (2) Con canario plantado -> el gate tiene que ponerse ROJO por los CVE del canario.
 # ---------------------------------------------------------------------------
-log "(2/3) Plantando canario vulnerable en ${CANARY_LOCK}"
+log "(2/4) Plantando canario vulnerable en ${CANARY_LOCK}"
 mkdir -p "${CANARY_DIR}"
 cat > "${CANARY_LOCK}" <<'JSON'
 {
@@ -117,6 +131,12 @@ JSON
 # NO se instala nada: trivy lee el lockfile. El canario es un fichero de texto,
 # nunca un `node_modules` real, y vive segundos.
 
+# (3, plantado aquí para que una sola corrida mida las dos cosas) Una «clave» de
+# Stripe de FICCIÓN con la forma exacta que el escáner de secretos de trivy
+# detecta (sk_test_ + 24..99 alfanuméricos). Ceros: no es una clave de nadie.
+printf '#!/usr/bin/env bash\n# fixture del self-test: NO es una clave\nCLAVE_FICCION="sk_test_%s"\n' \
+  "$(printf '0%.0s' $(seq 1 40))" > "${CANARY_SECRET}"
+
 SALIDA_CANARIO="$(gate 2>&1)"; RC_CANARIO=$?
 echo "${SALIDA_CANARIO}"
 
@@ -131,14 +151,32 @@ grep -q "${CVE_TESTIGO}" <<<"${SALIDA_CANARIO}" \
 grep -q "${CANARY_LOCK}" <<<"${SALIDA_CANARIO}" \
   || fail "Los CVE aparecen pero el informe NO menciona ${CANARY_LOCK}. No se puede afirmar que el hallazgo venga del directorio que se quería demostrar en alcance."
 
-echo "✓ ROJO con el canario, y por los CVE correctos, y atribuido a ${CANARY_LOCK}."
+echo "✓ ROJO con el canario, por los CVE correctos, atribuido a ${CANARY_LOCK}, y ninguno de los dos estaba en la línea base."
 
 # ---------------------------------------------------------------------------
-# (3) El canario no se queda en el árbol.
+# (3) El gate es de VULNERABILIDADES: la clave de ficción NO puede aparecer, y
+#     el escáner de secretos de verdad (gitleaks) tiene que seguir cableado.
 # ---------------------------------------------------------------------------
-log "(3/3) Retirando el canario"
+log "(3/4) Alcance: secretos fuera de este gate, gitleaks dentro del workflow"
+if grep -qE 'stripe-secret-token|\(secrets\)|fixture-con-clave-de-ficcion' <<<"${SALIDA_CANARIO}"; then
+  fail "El gate de trivy-fs reportó la clave de FICCIÓN de ${CANARY_SECRET}: el escáner de SECRETOS de trivy está encendido. Este gate es de vulnerabilidades; los secretos los juzga gitleaks con su allowlist. Dos escáneres de secretos con dos criterios es S-SAST-1 otra vez. Revisa --scanners vuln en trivy-fs.sh y scan.scanners en trivy.yaml."
+fi
+grep -qE '^\s+gitleaks:\s*$' .github/workflows/security-sast.yml \
+  || fail "security-sast.yml ya no tiene el job 'gitleaks'. Sin él, apartar los secretos del gate de trivy los deja sin escáner: NO se puede."
+grep -qE 'gitleaks' .github/workflows/security-sast.yml && grep -qE "needs:.*gitleaks" .github/workflows/security-sast.yml \
+  || fail "El job 'gitleaks' no está en el 'needs' de sast-ok: existe pero no gatea."
+echo "✓ la clave de ficción no entra en este gate; el job gitleaks existe y sast-ok depende de él."
+
+# ---------------------------------------------------------------------------
+# (4) El canario no se queda en el árbol.
+# ---------------------------------------------------------------------------
+log "(4/4) Retirando el canario"
 limpiar
 [ ! -e "${CANARY_DIR}" ] || fail "El canario sobrevivió en ${CANARY_DIR}. NO se puede dejar: contaminaría el siguiente escaneo y podría acabar commiteado."
 echo "✓ árbol limpio."
 
-printf '\n\033[1;32m✓ Self-test de trivy-fs OK: verde en limpio, ROJO con canario en %s.\033[0m\n' "${CANARY_DIR}"
+if [ "${RC_BASE}" -ne 0 ]; then
+  printf '\n\033[1;33m! Self-test de trivy-fs OK (el candado MUERDE), pero la línea base está ROJA por hallazgos reales: el paso del gate es el que lo reporta.\033[0m\n'
+else
+  printf '\n\033[1;32m✓ Self-test de trivy-fs OK: verde en limpio, ROJO con canario en %s, secretos fuera del alcance.\033[0m\n' "${CANARY_DIR}"
+fi

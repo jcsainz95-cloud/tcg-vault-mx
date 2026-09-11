@@ -452,11 +452,36 @@ jobs:
         run: ./scripts/check-secret-defaults-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
+  # PASO QUE LO INVOCA. 2026-09-11, hallazgo ALTA de seguridad (re-veredicto).
+  #
+  # Qué falló, medido: `e2e.yml` job `backend-e2e` (defaults cwd `backend/`)
+  # invocaba `./scripts/webhook-secret-preflight.sh` —de la RAÍZ— sin override.
+  # rc=127, ocho pasos `skipped`, y el job DEPLOY-BLOCKING en rojo 9 corridas
+  # seguidas (#1124→#1134) leído como «la suite falla». Siete suites de dinero y
+  # acceso mudas. El bloque idéntico en ESTE fichero sí llevaba el override.
+  #
+  # Por qué aquí: misma familia que las guardas de arriba — estático, barato,
+  # sin red, y en el workflow que corre en cada push. Un rc=127 se diagnostica
+  # leyendo el YAML, no los logs (que los agentes no pueden leer). El canario
+  # reproduce S-CI-1 literalmente (quita el override) y exige rojo. §52.
+  # ---------------------------------------------------------------------------
+  workflow-cwd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cada script invocado desde un paso existe bajo el cwd de ese paso
+        run: ./scripts/check-workflow-cwd.sh
+      - name: Y el candado sabe morder (reproduce S-CI-1 y exige rojo)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-workflow-cwd-canary.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -473,6 +498,7 @@ jobs:
           echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
           echo "candado de paridad I-PP5: ${{ needs.parity-gate-canary.result }}"
           echo "webhook Stripe fail-closed: ${{ needs.stripe-webhook-failclosed.result }}"
+          echo "scripts bajo el cwd (S-CI-1): ${{ needs.workflow-cwd.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -535,6 +561,14 @@ jobs:
           # volver sin que nada se ponga rojo — que es literalmente cómo llegó.
           if [ "${{ needs.stripe-webhook-failclosed.result }}" != "success" ]; then
             echo "::error::La firma del webhook de Stripe puede volver a verificarse con una clave conocida (resultado: ${{ needs.stripe-webhook-failclosed.result }}). Dueños: backend (el fail-closed) y devops (la config y el candado). Ver DEVOPS_NOTES §49 y docs/PENTEST_NOTES.md P-WH-1."
+            exit 1
+          fi
+          # 📁 Mismo criterio: `skipped` NO es verde. Lo que este job vigila dejó un
+          # gate deploy-blocking muerto 9 corridas seguidas SIN que su rojo dijera
+          # por qué (S-CI-1). Si la guarda no corre, el siguiente `./scripts/…` bajo
+          # un `working-directory` vuelve a morir con rc=127 en silencio.
+          if [ "${{ needs.workflow-cwd.result }}" != "success" ]; then
+            echo "::error::Hay un script invocado desde un paso de CI que no existe bajo el cwd de ese paso — en el job real eso es rc=127 y el resto del job queda skipped (resultado: ${{ needs.workflow-cwd.result }}). Dueño: devops. Ver DEVOPS_NOTES §52."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

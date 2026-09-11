@@ -29,11 +29,33 @@ Ni por CVE, ni por ruta, ni por severidad. `trivy-fs` y `trivy-image` fallan en
 cualquier HIGH/CRITICAL, con `ignore-unfixed: false` (también los que *no* tienen
 parche disponible).
 
-**Alcance del escaneo `trivy fs`: el repositorio COMPLETO (`scan-ref: .`).** No hay
+**Alcance del escaneo `trivy fs`: el repositorio COMPLETO (`.`), escáner `vuln`.** No hay
 `skip-dirs` de código ni de herramienta de desarrollo; los únicos `skip-dirs` de
 `security/trivy.yaml` son directorios de *artefactos de build* (`**/node_modules/.cache`,
 `**/.next/cache`, `**/coverage`, `**/dist/tmp`), que no contienen manifiestos de
 dependencias.
+
+**Decisión de alcance (2026-09-11, S-SAST-1, DEVOPS_NOTES §53) — léela entera antes de
+juzgar el gate:** el gate corre **un solo comando**, `security/scripts/trivy-fs.sh`, con
+`--scanners vuln` explícito. **Los secretos NO los juzga trivy: los juzga `gitleaks`**
+(`security/gitleaks.toml`, con la allowlist de placeholders `sk_test_…`/`CHANGE_ME`/
+`*_dummy`), que es job propio de `security-sast.yml` y del que `sast-ok` depende. Motivo
+medido: la `trivy-action` anterior no pasaba `security/trivy.yaml` y corría el default de
+`trivy fs` (`vuln`+`secret`); el escáner de secretos de trivy —sin allowlist— puso el gate
+en **rojo 11 corridas seguidas** por **cinco `sk_test_…` de ficción** en dos canarios de
+`scripts/` que gitleaks ya permitía. Con el escáner real: **0 vulnerabilidades** en los tres
+lockfiles. No se rebajó ningún umbral: se hizo que el gate mida lo que su política decía.
+El self-test planta una clave de ficción y **exige que no aparezca** (y que `gitleaks`
+siga cableado); si alguien reactiva el escáner de secretos en trivy, el self-test lo dice.
+
+**devDependencies — dos escáneres, UNA política:** trivy no mira devDependencies por
+defecto (npm), igual que `audit-npm.sh --omit=dev`. `security/scripts/trivy-dev-fichas.sh`
+las mete en alcance (`--include-dev-deps`) y pasa la salida de trivy por **el mismo
+`audit-npm-dev.sh`** y **las mismas fichas** (`security/npm-audit-dev-fichas.tsv`, mismas
+fechas de caducidad). Medido 2026-09-11: trivy ve exactamente las tres advisories fichadas
+de P-DEP-1 (`CVE-2026-47429`/`GHSA-5xrq` vitest, `CVE-2026-53571`/`GHSA-fx2h` vite,
+`CVE-2026-84375`/`GHSA-2883` js-yaml) y **ninguna más**; con la fecha fingida
+`2026-09-25`, rojo por `js-yaml`, igual que por `npm audit`.
 
 **Decisión abierta que conviene conocer (2026-09-10, DEVOPS_NOTES §47):**
 `CVE-2022-24434` (`dicer@0.3.0`, HIGH, **sin versión corregida**) bloqueó el release.
@@ -102,9 +124,10 @@ security/
     sast-semgrep.sh         Semgrep (registry + reglas locales)
     sast-gitleaks.sh        gitleaks (árbol e historial)
     audit-npm.sh            npm audit backend+frontend (gate high/critical)
-    trivy-fs.sh             Trivy filesystem (deps)
+    trivy-fs.sh             ⭐ EL gate de Trivy filesystem (runtime, --scanners vuln): CI == local == self-test
+    trivy-dev-fichas.sh     devDependencies según trivy, juzgadas por audit-npm-dev.sh y sus fichas
     trivy-image.sh          Trivy sobre imágenes Docker construidas
-    trivy-fs-selftest.sh    ⭐ ¿trivy-fs sabe ponerse ROJO? (canario de lockfile vulnerable)
+    trivy-fs-selftest.sh    ⭐ ¿trivy-fs sabe ponerse ROJO? (canario de lockfile vulnerable + secretos fuera de alcance)
     dast-zap-baseline.sh    ZAP baseline (pasivo) — gate de promoción a prod
     dast-zap-full.sh        ZAP full scan (activo) — cron / prueba autorizada
     dast-nuclei.sh          nuclei con la selección de templates
