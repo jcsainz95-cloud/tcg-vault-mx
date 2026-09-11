@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { useSession } from '@/lib/session';
 import { config } from '@/lib/config';
+import { isPasswordRoute, passwordRouteForRole } from '@/lib/account-routes';
 
 /**
  * Rutas privadas del storefront: requieren sesión. El link ya se oculta sin sesión
@@ -21,7 +22,8 @@ import { config } from '@/lib/config';
  * Si alguien vuelve a meter '/checkout' aquí, rompe el guest checkout: lo ancla el test
  * `app/[locale]/(storefront)/checkout/checkout-public-route.test.tsx` (modo REAL, no mock).
  */
-const PRIVATE_PREFIXES = ['/vault', '/orders', '/shipments'];
+// v1.67 (Stream A): `/account` y `/account/password` son privadas (contrato §4.47.7).
+const PRIVATE_PREFIXES = ['/vault', '/orders', '/shipments', '/account'];
 
 function isPrivatePath(pathname: string): boolean {
   return PRIVATE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -36,7 +38,7 @@ function isPrivatePath(pathname: string): boolean {
  * el storefront sin backend). El backend sigue siendo la autoridad.
  */
 export function PrivateRouteGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, ready } = useSession();
+  const { user, isAuthenticated, ready } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const t = useTranslations('common');
@@ -44,16 +46,33 @@ export function PrivateRouteGuard({ children }: { children: React.ReactNode }) {
   const requireAuth = !config.useMocks;
   const guarded = requireAuth && isPrivatePath(pathname);
 
+  /**
+   * v1.67 — contraseña temporal BLOQUEANTE (contrato §1; DESIGN_SYSTEM §33.8 paso 3). Con sesión y
+   * `user.mustChangePassword === true`, TODO el storefront (público o privado: este guard envuelve
+   * `children` del layout) rebota a `/account/password?next=<ruta>&reason=required`, salvo la
+   * propia página de contraseña. Aplica también en modo mock: la bandera viene de la sesión local,
+   * no del backend, y es lo que permite recorrer el bloqueo en los E2E de fixtures.
+   */
+  const mustChange = ready && isAuthenticated && user?.mustChangePassword === true;
+  const blocked = mustChange && !isPasswordRoute(pathname);
+
   useEffect(() => {
+    if (blocked) {
+      router.replace({
+        pathname: passwordRouteForRole(user?.role),
+        query: { next: pathname, reason: 'required' },
+      });
+      return;
+    }
     if (!guarded) return;
     if (ready && !isAuthenticated) {
       router.replace({ pathname: '/login', query: { next: pathname } });
     }
-  }, [guarded, ready, isAuthenticated, router, pathname]);
+  }, [blocked, guarded, ready, isAuthenticated, router, pathname, user?.role]);
 
-  // En ruta privada sin sesión (o mientras se resuelve) mostramos carga, NUNCA la vista
-  // (evita el flash de contenido privado + el banner 401).
-  if (guarded && (!ready || !isAuthenticated)) {
+  // En ruta privada sin sesión (o mientras se resuelve), o bloqueado por temporal, mostramos carga,
+  // NUNCA la vista (evita el flash de contenido privado + el banner 401 / el 403 del guard).
+  if (blocked || (guarded && (!ready || !isAuthenticated))) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center" aria-busy="true">
         <span className="inline-flex items-center gap-2 font-mono text-sm text-muted">

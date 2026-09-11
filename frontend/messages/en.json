@@ -65,7 +65,113 @@
     "terms": "Terms & policy",
     "sealed": "Sealed",
     "buy": "Shop",
-    "myAccount": "My account"
+    "myAccount": "My account",
+    "ordersAndSales": "Purchases & sales"
+  },
+  "account": {
+    "eyebrow": "ACCOUNT",
+    "title": "My account",
+    "index": {
+      "label": "Sections"
+    },
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "SAVED",
+    "required": "Required",
+    "profile": {
+      "title": "Personal details",
+      "name": {
+        "label": "Name",
+        "hint": "This is how we address you in emails and shipments.",
+        "required": "Enter your name.",
+        "tooLong": "120 characters max.",
+        "derivedFromEmail": "We took this name from your email address because Google didn't share your name. Tell us what to call you."
+      },
+      "phone": {
+        "label": "Mobile phone",
+        "hint": "10 digits. We use it to reach you. Each address has its own phone for the carrier.",
+        "invalid": "Enter a 10-digit mobile number.",
+        "missing": "No mobile number yet. You need one to sell."
+      },
+      "locale": {
+        "label": "Language"
+      }
+    },
+    "email": {
+      "title": "Email",
+      "verified": "VERIFIED",
+      "unverified": "NOT VERIFIED",
+      "unverifiedBody": "Verify your email to buy, sell and withdraw.",
+      "changeNote": "To change your email, write to {contact}."
+    },
+    "addresses": {
+      "title": "Shipping addresses"
+    },
+    "billing": {
+      "title": "Invoicing (CFDI)",
+      "emptyTitle": "No invoicing details",
+      "emptyBody": "Save them to request invoices for your purchases.",
+      "add": "Add invoicing details",
+      "edit": "Edit",
+      "cancel": "Cancel",
+      "rfc": "RFC",
+      "rfcHint": "Enter it in full",
+      "razonSocial": "Legal name",
+      "regimenFiscal": "Tax regime (SAT code)",
+      "usoCfdi": "CFDI use (SAT code)",
+      "satHint": "SAT catalog code",
+      "postalCode": "Tax postal code",
+      "email": "Invoice email"
+    },
+    "kyc": {
+      "title": "Identity verification",
+      "status": "Status",
+      "clabe": "CLABE for payouts",
+      "clabeNone": "No CLABE on file",
+      "clabeChange": "Change CLABE",
+      "clabeHint": "18 digits, in your name. That's where we pay your sales.",
+      "clabeInvalid": "The CLABE must be 18 digits.",
+      "ine": "ID (INE)",
+      "ineOnFile": "ID (INE) on file",
+      "ineMissing": "No ID on file. Only required when a sale exceeds the cap.",
+      "ineFront": "ID (INE) — front",
+      "ineBack": "ID (INE) — back",
+      "capPerRequest": "Cap per request",
+      "capPerMonth": "Cap per month"
+    },
+    "password": {
+      "title": "Password",
+      "summaryHas": "Change it any time; we'll sign out your other sessions.",
+      "summaryNone": "You sign in with Google and your account has no password.",
+      "goChange": "Change password",
+      "goCreate": "Create password",
+      "back": "My account",
+      "changeTitle": "Change password",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "policy": "At least 8 characters.",
+      "weak": "Password must be at least 8 characters.",
+      "mismatch": "Passwords don't match.",
+      "sameAsCurrent": "The new password must differ from the current one.",
+      "submit": "Change password",
+      "submitting": "Changing…",
+      "successTitle": "PASSWORD UPDATED",
+      "successOtherSessions": "We signed you out on your other devices. This session stays open.",
+      "rateLimited": "Too many attempts. Wait a minute.",
+      "changeAgain": "Change again",
+      "createTitle": "Create a password",
+      "createBody": "You sign in with Google and your account has no password. To create one, we'll send a link to {email}; you choose it there. You can still sign in with Google.",
+      "createSend": "Send me the link",
+      "createSending": "Sending…",
+      "createSentTitle": "LINK SENT",
+      "createSentBody": "Check your email. The link expires; if it doesn't arrive, request another.",
+      "createResend": "Send again"
+    },
+    "session": {
+      "title": "Session",
+      "body": "Sign out on this device."
+    }
   },
   "storeTabs": {
     "label": "Store",
@@ -3208,7 +3314,14 @@
     "phone": "Phone",
     "country": "Country",
     "countryMx": "Mexico (MX)",
-    "makeDefault": "Use as default"
+    "makeDefault": "Use as default",
+    "recipientName": "Recipient name",
+    "recipientNameHint": "Printed on the shipping label.",
+    "recipientLine": "Recipient: {name}",
+    "recipientMissing": "Recipient name missing",
+    "complete": "Complete",
+    "edit": "Edit",
+    "editTitle": "Edit address"
   },
   "track": {
     "title": "Track your order",

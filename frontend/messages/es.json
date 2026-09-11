@@ -65,7 +65,113 @@
     "terms": "Términos y política",
     "sealed": "Sellado",
     "buy": "Comprar",
-    "myAccount": "Mi cuenta"
+    "myAccount": "Mi cuenta",
+    "ordersAndSales": "Compras y ventas"
+  },
+  "account": {
+    "eyebrow": "CUENTA",
+    "title": "Mi cuenta",
+    "index": {
+      "label": "Secciones"
+    },
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "saved": "GUARDADO",
+    "required": "Campo requerido",
+    "profile": {
+      "title": "Datos personales",
+      "name": {
+        "label": "Nombre",
+        "hint": "Así te llamamos en los correos y en tus envíos.",
+        "required": "Escribe tu nombre.",
+        "tooLong": "Máximo 120 caracteres.",
+        "derivedFromEmail": "Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos."
+      },
+      "phone": {
+        "label": "Celular",
+        "hint": "10 dígitos. Es para contactarte. El teléfono de cada dirección es para la paquetería.",
+        "invalid": "Escribe un celular de 10 dígitos.",
+        "missing": "Sin celular. Lo necesitas para vender."
+      },
+      "locale": {
+        "label": "Idioma"
+      }
+    },
+    "email": {
+      "title": "Correo",
+      "verified": "VERIFICADO",
+      "unverified": "SIN VERIFICAR",
+      "unverifiedBody": "Verifica tu correo para comprar, vender y retirar.",
+      "changeNote": "Para cambiar tu correo escríbenos a {contact}."
+    },
+    "addresses": {
+      "title": "Direcciones de envío"
+    },
+    "billing": {
+      "title": "Facturación (CFDI)",
+      "emptyTitle": "Sin datos de facturación",
+      "emptyBody": "Guárdalos para solicitar factura de tus compras.",
+      "add": "Agregar datos de facturación",
+      "edit": "Editar",
+      "cancel": "Cancelar",
+      "rfc": "RFC",
+      "rfcHint": "Escríbelo completo",
+      "razonSocial": "Razón social",
+      "regimenFiscal": "Régimen fiscal (clave SAT)",
+      "usoCfdi": "Uso de CFDI (clave SAT)",
+      "satHint": "Clave del catálogo del SAT",
+      "postalCode": "Código postal fiscal",
+      "email": "Correo para la factura"
+    },
+    "kyc": {
+      "title": "Verificación de identidad",
+      "status": "Estado",
+      "clabe": "CLABE para pagos",
+      "clabeNone": "Sin CLABE registrada",
+      "clabeChange": "Cambiar CLABE",
+      "clabeHint": "18 dígitos, a tu nombre. Ahí te pagamos tus ventas.",
+      "clabeInvalid": "La CLABE debe tener 18 dígitos.",
+      "ine": "INE",
+      "ineOnFile": "INE en archivo",
+      "ineMissing": "Sin INE. Se pide solo cuando una venta supera el tope.",
+      "ineFront": "INE — frente",
+      "ineBack": "INE — reverso",
+      "capPerRequest": "Tope por solicitud",
+      "capPerMonth": "Tope por mes"
+    },
+    "password": {
+      "title": "Contraseña",
+      "summaryHas": "Cámbiala cuando quieras; cerraremos tus otras sesiones.",
+      "summaryNone": "Entras con Google y tu cuenta no tiene contraseña.",
+      "goChange": "Cambiar contraseña",
+      "goCreate": "Crear contraseña",
+      "back": "Mi cuenta",
+      "changeTitle": "Cambiar contraseña",
+      "current": "Contraseña actual",
+      "new": "Contraseña nueva",
+      "confirm": "Confirmar contraseña nueva",
+      "policy": "Mínimo 8 caracteres.",
+      "weak": "La contraseña debe tener al menos 8 caracteres.",
+      "mismatch": "Las contraseñas no coinciden.",
+      "sameAsCurrent": "La contraseña nueva debe ser distinta de la actual.",
+      "submit": "Cambiar contraseña",
+      "submitting": "Cambiando…",
+      "successTitle": "CONTRASEÑA ACTUALIZADA",
+      "successOtherSessions": "Cerramos la sesión en tus otros dispositivos. Esta sigue abierta.",
+      "rateLimited": "Demasiados intentos. Espera un minuto.",
+      "changeAgain": "Cambiar otra vez",
+      "createTitle": "Crear contraseña",
+      "createBody": "Entras con Google y tu cuenta no tiene contraseña. Para crear una te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google.",
+      "createSend": "Enviarme el enlace",
+      "createSending": "Enviando…",
+      "createSentTitle": "ENLACE ENVIADO",
+      "createSentBody": "Revisa tu correo. El enlace caduca; si no llega, pide otro.",
+      "createResend": "Enviar otra vez"
+    },
+    "session": {
+      "title": "Sesión",
+      "body": "Cierra tu sesión en este dispositivo."
+    }
   },
   "storeTabs": {
     "label": "Tienda",
@@ -3208,7 +3314,14 @@
     "phone": "Teléfono",
     "country": "País",
     "countryMx": "México (MX)",
-    "makeDefault": "Usar como predeterminada"
+    "makeDefault": "Usar como predeterminada",
+    "recipientName": "Nombre de quien recibe",
+    "recipientNameHint": "Va en la etiqueta del paquete.",
+    "recipientLine": "Recibe: {name}",
+    "recipientMissing": "Falta el nombre de quien recibe",
+    "complete": "Completar",
+    "edit": "Editar",
+    "editTitle": "Editar dirección"
   },
   "track": {
     "title": "Seguimiento de tu pedido",

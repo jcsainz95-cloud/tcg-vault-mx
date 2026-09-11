@@ -16,14 +16,25 @@ import { cn } from '@/lib/cn';
  * `tone="ink"` invierte los valores para los paneles oscuros (hero de auth): sobre
  * tinta el activo va en papel, si no el locale seleccionado se vuelve invisible.
  */
-export function LocaleToggle({ tone = 'paper' }: { tone?: 'paper' | 'ink' } = {}) {
+export function LocaleToggle({
+  tone = 'paper',
+  onChange,
+}: {
+  tone?: 'paper' | 'ink';
+  /**
+   * v1.67 (§33.6a «Idioma»): la sección de perfil lo usa para persistir en `User.locale`
+   * (`PATCH /users/me`). Aquí NO se llama a la API: el header y el shell de auth cambian solo
+   * la ruta, y mientras el bloqueo por temporal está activo `PATCH /users/me` respondería 403.
+   */
+  onChange?: (locale: AppLocale) => void;
+} = {}) {
   const active = useLocale() as AppLocale;
   const router = useRouter();
   const pathname = usePathname();
 
   function switchTo(next: AppLocale) {
     if (next === active) return;
-    // Persistencia con sesión: PATCH /users/me { locale } cuando exista backend.
+    onChange?.(next);
     router.replace(pathname, { locale: next });
   }
 
