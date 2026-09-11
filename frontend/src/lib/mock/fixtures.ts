@@ -1012,7 +1012,9 @@ export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
 };
 
 export const mockOrders: OrderSummaryDTO[] = [
-  { id: 'ord-9001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
+  // MOCK: pendiente de contrato — `orderNumber` no está en `OrderSummaryDTO` (v1.67.1); el primero lo
+  // trae para ver el folio en la columna PEDIDO y el segundo NO, para ver el fallback al id.
+  { id: 'ord-9001', orderNumber: 'TCG-009001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
   { id: 'ord-9002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
   // v1.51-c: pedido ANTIGUO cuyo `cardSnapshot` quedó incompleto (ver `mockOrderDetailLegacy`).
   // Se sirve desde el mock para que el render degradado sea VISIBLE en `dev`/e2e, no solo en un

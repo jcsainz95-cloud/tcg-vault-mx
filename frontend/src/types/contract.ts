@@ -890,6 +890,14 @@ export interface CheckoutSessionResponse {
 export interface OrderSummaryDTO {
   id: string;
   userId?: string;
+  /**
+   * Folio legible (`TCG-000123`, columna `Order.orderNumber` desde v1.21). El contrato v1.67.1 NO lo
+   * declara en `OrderSummaryDTO` (`API_CONTRACT §11`: `{ id, userId, status, totalCents, createdAt,
+   * settledAt? }`) ni el backend lo emite en `GET /orders` (`orders.service.ts:listOrders`, medido
+   * 2026-09-11). La columna PEDIDO lo pinta si viene y cae al `id` si no (QA, ronda de gates).
+   * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
+   */
+  orderNumber?: string;
   status: OrderStatus;
   totalCents: number;
   createdAt: string;

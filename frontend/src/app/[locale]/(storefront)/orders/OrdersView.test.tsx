@@ -65,7 +65,13 @@ describe('OrdersView · pestañas-enlace Compras / Ventas', () => {
     expect(sales).toHaveAttribute('href', '/orders?tab=ventas');
 
     // La tabla de compras (fixture) y el copy «Pedido», no «Orden».
-    expect((await screen.findAllByText('ord-9001')).length).toBeGreaterThan(0);
+    // Columna PEDIDO: el folio legible (`orderNumber`) cuando viene; el UUID solo si falta.
+    // (DataTable pinta cada fila dos veces: tabla de escritorio + tarjeta móvil ⇒ `All`.)
+    const folios = await screen.findAllByText('TCG-009001');
+    expect(folios.length).toBeGreaterThan(0);
+    expect(folios[0].closest('a')).toHaveAttribute('href', '/orders/ord-9001');
+    expect(screen.queryByText('ord-9001')).not.toBeInTheDocument();
+    expect(screen.getAllByText('ord-9002')[0].closest('a')).toHaveAttribute('href', '/orders/ord-9002');
     expect(screen.getAllByText('Pedido').length).toBeGreaterThan(0);
     expect(screen.queryByText('Mis solicitudes')).not.toBeInTheDocument();
   });

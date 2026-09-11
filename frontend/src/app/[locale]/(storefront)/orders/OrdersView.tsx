@@ -52,7 +52,8 @@ export function OrdersView() {
       header: t('orderNumber', { id: '' }).trim(),
       render: (o) => (
         <Link href={`/orders/${o.id}`} className="tabular font-mono text-accent hover:text-text">
-          {o.id}
+          {/* Folio legible si el backend lo manda; el UUID solo como fallback (QA, 2026-09-11). */}
+          {o.orderNumber ?? o.id}
         </Link>
       ),
     },
