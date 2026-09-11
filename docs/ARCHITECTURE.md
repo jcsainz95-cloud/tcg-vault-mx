@@ -19726,8 +19726,18 @@ con identidad nula— **dejan de resolverse como PSA 10 y pasan a `pending`**. N
 primera vez dicen la verdad**. Un `pending` visible entra a la cola del dueño y se repara; un PSA 10 silencioso no se
 descubre nunca. Ver §4.40.5(b).
 
+> ⚠️⚠️ **ENMENDADO POR §4.50.1 (v1.70, P-83) — LEER ANTES QUE EL PÁRRAFO (d) DE ABAJO.** Este párrafo declara
+> `'sealed'` *«la clave del override MANUAL del admin»*, es decir **una clave de precio**. **Eso se retira.**
+> `'sealed'` pasa a ser **una clave de COLA y nada más**: identifica una clase de pieza que espera precio, y **no
+> puede sostener una fila de `PriceReference`**, porque no distingue un ETB de un blíster anclados a la misma
+> `Card`. El valor que devuelve `buildGradeKey({productType:'sealed'})` **no cambia** y la unión discriminada
+> **tampoco**; lo que cambia es **para qué se admite ese valor**. La frase *«la colisión … deja de ser alcanzable
+> desde el buylist»* seguía siendo cierta y seguía sin cerrar el caso: la colisión se alcanzaba por el **alta de
+> inventario**, que es donde el dueño la sufrió (bucle de «FIJAR PRECIO»). Normas en `API_CONTRACT §M2-SK`.
+
 **(d) `sealed` no cambia de valor y su hueco tampoco se tapa aquí.** `buildGradeKey({productType:'sealed'})` sigue
-devolviendo `'sealed'`: **es, por diseño, la clave del override MANUAL del admin** (§4.19d), y la clave de mercado por
+devolviendo `'sealed'`: ~~**es, por diseño, la clave del override MANUAL del admin**~~ (§4.19d — **enmendado por
+§4.50.1: ya no es clave de precio**), y la clave de mercado por
 producto ya existe y es `sealedMarketGradeKey()` → `sealed:tcg:<productId>`. Lo único que cambia es que el tipo ya no
 admite campos de grado en la rama `sealed`. La colisión «dos sellados de la misma `Card` colapsan en `'sealed'`» es
 **real y está documentada desde v1.19**, pero **deja de ser alcanzable desde el buylist** en cuanto se cierra la
@@ -22526,6 +22536,11 @@ misma pieza**.
   medir: N llamadas iguales ⇒ una orden.
 - **Sustitución** (carrito distinto): no se puede «editar» un PI ya entregado al cliente sin riesgo de que un tab
   viejo lo confirme por el importe viejo ⇒ **cancelar primero, crear después** (B3, la misma doctrina del barrido).
+  > ⚠️ **v1.70 (§4.50.2, P-80) — DOS PRECISIONES SOBRE ESTA SECUENCIA.** (1) La cancelación **se queda dentro de la
+  > transacción** en este pase, con **disparador nombrado** para reabrirlo (§4.50.2). (2) **La llamada a Stripe no
+  > es transaccional**: tras confirmarse quedan dos escrituras y un commit, así que el estado «PI cancelado + orden
+  > `pending`» **ya es alcanzable** — se declara como **orden huérfana de pago** (`API_CONTRACT §4-R.9`), es
+  > money-safe, **no se reusa (se sustituye)** y la propia sustitución la **sana**.
   Si cancelar no confirma `canceled` (`processing`/`succeeded`) ⇒ `PAYMENT_IN_PROGRESS` y **cero escritura**: el
   dinero del cliente puede estar en vuelo, y ahí no se crea nada.
 - Siempre-sustituir habría sido más simple de escribir y peor de operar (N reintentos = N órdenes `failed`) y no
@@ -22946,6 +22961,252 @@ régimen de la CLABE (`reveal-clabe` intacto) ni el del RFC · ⛔ no cierra **B
 del INE) · ⛔ no normaliza `BUYLIST_LIMIT_EXCEEDED (per_month)` (§4.49.2.7) · ⛔ no borra `legalName` ni
 `capPerRequestCentsOverride` (§4.49.3) · ⛔ no limpia los objetos **huérfanos** que ya existan en R2 · ⛔ no pone
 límite de reintentos de subida.
+
+---
+
+### 4.50 CUATRO DECISIONES ACUMULADAS — la llave del sellado, Stripe en la transacción, la tercera rama y el sobre del invitado (v1.70, 2026-09-11, NORMATIVO, **DINERO + PII**)
+
+> **Marco, y cambia la naturaleza de tres de las cuatro:** **Stream B ya está publicado** (`efe65f5`). Esto no
+> decide sobre un candidato: decide sobre lo que está vivo. Por eso cada decisión dice, con todas las letras, **si
+> exige un despliegue o si es solo para lo siguiente**, y ninguna «mejora» algo que ya corre sin declararlo.
+>
+> **Naturaleza de mi pase:** `[código]` + `[docs]`. **No tengo shell** (`HECHOS.md`): todo lo que afirmo se sostiene
+> en fuente leída, con fichero:línea al lado, o va marcado **NO MEDIDO** con la medición que lo cerraría.
+
+| # | Origen | Decisión en una frase | ¿Despliegue? |
+|---|---|---|---|
+| **4.50.1** | `P-83` (backend) | **`'sealed'` es una clave de COLA, nunca una clave de PRECIO** | **Sí** (2 cambios), **cero migración** |
+| **4.50.2** | `P-80` (backend) | La cancelación **se queda** en la transacción; lo que cambia es que el estado que produce al fallar **se declara** y **se sana** | **Sí** (1 cambio) |
+| **4.50.3** | `P-81` (backend) | §M5-S tiene **tres** ramas; la de la carrera es `CONFLICT` — **gana el código** | **No** (documental) |
+| **4.50.4** | `SB-D6` (frontend) | El **sobre del reintento del invitado** es normativo; el gate E2E de §4-R vive en el carril **con claves** | **No** (documental) |
+
+#### 4.50.1 `P-83` — la llave del sellado, y la medición que descarta la opción que parecía obvia
+
+**El caso.** Backend cerró tres de los cuatro eslabones de P-79(d) (`d3b2543`) y escaló el último: con
+`tcgplayerProductId` nulo, `derivePublishSalePrice` hace `const ref = gk ? ctx.refs.get(...) : undefined`
+(`inventory.service.ts:1593`) ⇒ **no consulta ninguna referencia** ⇒ el override manual de un sellado **no mapeado**
+es ilegible por construcción y la pieza sigue en bucle. Su razón para no tocarlo es buena y la suscribo:
+`PriceReference` no distingue un producto de otro bajo `'sealed'`, así que **leer esa fila valuaría una caja con el
+precio de un sobre**, y el mismo patrón vive en otros cuatro lectores.
+
+**⭐ La medición que decide** `[código]`, y es la que convierte una elección de gusto en una de hecho:
+
+> **`sealedProductId` no existe en la población que habría que desambiguar.**
+> Un `InventoryItem` sellado tiene `sealedProductId` **si y solo si** tiene `tcgplayerProductId`:
+> - el único camino que lo escribe al alta lo deriva de un `SealedProduct` cuyo `tcgplayerProductId` es
+>   `Int @unique` **NOT NULL** (`inventory.service.ts:821-849` → `:984-1009` → `buildItemData :1110-1113`;
+>   `schema.prisma:612`);
+> - el backfill de M-39 liga **solo** piezas ya mapeadas (`sealed-product.service.ts:726`,
+>   `where { tcgplayerProductId: productId, sealedProductId: null }`) y su **paso 8** (`:734`) deja el
+>   `sealedProductId` **nulo** para las no mapeadas, explícitamente, *«porque no se pueden backfillar sin adivinar»*.
+
+⇒ **La opción (a) —`sealedProductId` en `PriceReference` + fallback simétrico en todos los lectores— es INERTE para
+el caso que pretende arreglar.** Añadiría una columna que vale `NULL` exactamente donde hace falta: dos sellados no
+mapeados anclados a la misma `Card` **seguirían compartiendo fila**. Se descarta **por inerte, no por cara**. *(Y de
+paso ahorra un segundo eje de llave para el dinero del sellado, con su fallback duplicado en cinco lectores: cinco
+sitios donde la próxima persona tiene que acordarse de la simetría.)*
+
+**La opción (b) —prohibir el alta de sellado sin mapeo— se descarta por su COSTE OPERATIVO, y por lo que lo
+encadena.** Convertiría un defecto de precio en un **bloqueo de entrada de mercancía real**, y lo haría atado a un
+defecto **abierto en producción**: `P-46` (*«sincronizar sellado devuelve 0 presentaciones»*) significa que hay sets
+**sin ninguna `SealedProduct` que elegir** ⇒ esas cajas no se podrían dar de alta en absoluto. *No se cierra una
+fuga de precio poniendo un candado en la puerta del almacén.* **Queda con disparador nombrado:** se reabre el día
+que `P-46` esté cerrado **y** medido (cero sets con 0 presentaciones), no antes.
+
+**La decisión: separar los dos usos de la llave.** Una fila de **cola** solo tiene que deduplicar *«esta clase de
+pieza espera precio»*; una fila de **precio** es dinero y **tiene que identificar al producto**. `'sealed'` sirve
+para lo primero y no puede servir para lo segundo. Las cuatro normas (SK-1…SK-4) y el reparto están en
+**`API_CONTRACT §M2-SK`**; aquí va solo lo que es razón de diseño:
+
+1. **`PriceReference` no cambia. Migración: NINGUNA.** *(Y por tanto no hay reversa que escribir: la reversa de
+   «cero DDL» es «cero DDL».)*
+2. **Ningún lector de dinero cae a `'sealed'`.** Es `§4.40.4(b)` aplicado sin excepción: `null` ⇒ **no hay
+   referencia** ⇒ `PRICE_PENDING` / «—», jamás un default. El `gk ? … : undefined` de backend **se ratifica**: no
+   era una omisión, era lo correcto, y ahora tiene una razón escrita en vez de una ausencia.
+3. ⭐ **La única excepción viva SE RETIRA, y es el cambio que hay que desplegar.** `admin.inventoryValue()`
+   (`admin.service.ts:1188`, `:1233`) hoy **sí** cae a `'sealed'` ⇒ **un ETB puede estar sumando el precio de un
+   blíster en el total de valuación del dueño**. Backend lo citó como «precedente del fallback, pero solo en lectura
+   agregada»; **lo retiro, y por su propio vecino**: dos líneas más abajo, la graduada sin identidad de slab **no
+   aporta clave y cae a `pendingPriceCount`** (`:1190-1192`), *«que es la verdad: no se puede valuar lo que no se
+   sabe qué grado es»*. El sellado sin identidad de producto está en el mismo caso exacto. **Efecto declarado:**
+   piezas que hoy suman a `atReferenceCents` pasan a `pendingPriceCount` — el total **baja** y el contador de
+   pendientes **sube**. *Un total mal sumado es la cifra con la que el dueño decide qué comprar; «es solo un
+   agregado» no es una defensa.*
+4. **El precio del sellado no mapeado ya tiene instrumento, y es la PIEZA:** `InventoryItem.listPriceCents`,
+   precedencia **#1** de §K (`derivePublishSalePrice :1584-1587` la resuelve **antes** de tocar ninguna clave). Vive
+   en la fila de la pieza ⇒ **no puede cruzarse con otra**. El override de MERCADO deja de aceptarse sin clave de
+   mercado (**`422 SEALED_MARKET_KEY_REQUIRED`**, el segundo cambio a desplegar), porque hoy esa escritura **tiene
+   éxito y no sirve de nada dos veces**: nadie la lee y no identifica al producto.
+
+**Lo que NO MEDÍ, y la medición que lo cierra:** cuántas filas legadas hay en producción bajo la llave equivocada
+(pendientes de pieza **mapeada** escalados como `'sealed'`, y `PriceReference` manuales bajo `'sealed'`). Las dos
+consultas —**solo `SELECT`**— ya están escritas en `docs/BACKEND_NOTES.md` P-79(d). **Cierra:** correrlas contra la
+BD de producción y anotar el número con fecha. **No bloquea esta decisión**, y ésa es una propiedad buscada: las dos
+salidas que M2 ofrecerá (mapear, o fijar el precio de la pieza) son money-safe **con censo o sin él**.
+
+#### 4.50.2 `P-80` — Stripe dentro de la transacción: la pregunta del fondo ya tenía respuesta en el código publicado
+
+**Lo que backend acotó, y lo suscribo:** el SDK traía `timeout` **80 000 ms** por defecto, **2,6×** el techo de
+nuestra propia transacción (`RESERVATION_TX_OPTIONS.timeout = 30_000`) — *el proveedor decidía cuánto duraba
+nuestra transacción*. Con `TIMEOUT_MS = 8_000`, el peor caso es **3 × 8 s = 24 s < 30 s**: la transacción siempre
+gana al SDK. Medido `[REPORTADO por backend]`: con 2 s de latencia **6/6 en `201`, 0 timeouts**; con 12 s,
+**1/6 cae** con el pool agotado; **3/3 tiradas** en ambos escenarios, y **en los dos la propiedad de dinero
+aguanta** (cero piezas con dos órdenes `pending` encima).
+
+**⭐ La pregunta que se me pidió decidir —*«¿qué pasa si la cancelación confirma y la transacción posterior
+falla?»*— tiene una respuesta que cambia el marco: ese estado YA ES ALCANZABLE, con el código publicado** `[código]`.
+La llamada a Stripe **no es transaccional y no puede serlo**: `closePaymentIntent` (`orders.service.ts:870`) cancela
+en el proveedor, y **después** quedan dos escrituras y un commit (`:889-896`). Si el commit falla, si la conexión se
+cae o si la transacción vence, el PI queda **cancelado en Stripe** y la orden queda **`pending` con sus piezas
+reservadas**. ⇒ **Meter la llamada dentro de la transacción no evita ese estado: solo estrecha su ventana.**
+
+*Ésa es la diferencia entre la pregunta que me llegó y la pregunta real.* No es *«¿qué nuevo fallo introduzco si la
+saco?»*, es *«¿qué hago con un fallo que ya tengo?»*.
+
+**DECISIÓN 1 — La cancelación NO sale de la transacción en este pase.** Razón, y no es inercia:
+
+- **El «qué PI cancelo» y el «qué escribo» tienen que decidirse bajo el MISMO candado.** La puerta es
+  `pg_advisory_xact_lock`, **de transacción**: muere con ella. Si la cancelación ocurre antes de tomar la puerta, se
+  decide sobre una **lectura vieja**, y dentro de la puerta el mundo puede haber cambiado: se habría cancelado el PI
+  de una orden que luego no se toca (matar un pago vivo de una orden que se deja `pending`), o se llegaría a la
+  puerta necesitando cancelar **otro** PI sin poder salir a Stripe. Arreglarlo exige un **bucle
+  compare-and-swap** (leer → cancelar fuera → puerta → releer → si el objetivo cambió, soltar y reintentar), que es
+  maquinaria real **a cambio de holgura de pool**, no de una propiedad de dinero.
+- **Lo que hoy falla bajo presión de pool falla BIEN:** `500`/timeout con **cero escrituras** —la transacción
+  entera se deshace—, no corrupción. Es **denegación de servicio en una rama rara del checkout**, no un defecto de
+  dinero. Y el instrumento para medirlo ya existe (`backend/test/integration/stripe-in-tx-pool.e2e-spec.ts`).
+- **Está acotado, no eliminado, y lo digo sin adorno:** con N suficientemente alto vuelve. Lo medido (1/6 a 12 s) es
+  **el mecanismo**; la acotación solo cambia la escala a la que aparece.
+
+**⭐ Disparador nombrado que REABRE esta decisión** (para que no se re-litigue por corazonada ni se olvide): se saca
+la cancelación de la transacción —con el bucle CAS— cuando se mida **cualquiera** de estas dos:
+(i) la concurrencia real de `POST /checkout/session` en producción alcanza el N donde el instrumento ya falla con la
+latencia **p95 real** de Stripe; o (ii) aparece **un solo** `Timed out fetching a new connection` en el log de
+producción en la ruta de checkout. **NO MEDIDO:** ninguna de las dos (no tengo shell ni acceso al log). **Dueño de
+la medición: devops** (contar `Timed out fetching a new connection` en el log de producción y la concurrencia p95 de
+`/checkout/session`). *Hasta que exista ese número, mover el diseño sería optimizar contra una carga imaginada.*
+
+**DECISIÓN 2 — El estado se declara: la orden «huérfana de pago».** Norma completa en
+**`API_CONTRACT §4-R.9`**. Las tres piezas del razonamiento:
+
+1. **Es money-safe, y por eso se puede declarar legal en vez de perseguirlo.** `Order.pending` + PI `canceled` ⇒
+   **cero PaymentIntents vivos** sobre esas piezas ⇒ la regla 1 de §4-R.2 (*un cobro por pieza*) **se cumple**. Lo
+   único que hay es una reserva que nadie va a cobrar, y el barrido (§4-R.4) ya la recoge por vencimiento.
+   ⛔ **No se acuña `OrderStatus` nuevo** ni columna de compensación: el hecho es **derivable del PI**, y una
+   segunda fuente para el mismo hecho es lo que O-1 prohíbe.
+2. ⭐ **Lo que SÍ hay que desplegar, y es la mitad del ciclo que hoy falta (O-4):** `paymentIntentForReuse`
+   (`orders.service.ts:933-935`) relee el PI y **devuelve su `clientSecret` sin mirar el estado** `[código]` ⇒ a un
+   cliente con una orden huérfana, «Reanudar pago» le entrega el `clientSecret` de un PI **cancelado** y se estrella
+   contra un error de Stripe que nadie le puede explicar. **Norma:** PI `canceled` ⇒ **la fila «REUSO» no aplica**
+   ⇒ se cae a **SUSTITUCIÓN**. Candado **R-10**.
+3. **La sustitución SANA la huérfana, y por eso el reintento del cliente ES la reparación** `[código]`:
+   `closePaymentIntent` sobre un PI ya cancelado **es idempotente** — Stripe lanza, el código desambigua
+   consultando el estado real y devuelve `{ closed: true }` (`:764-779`). ⇒ el segundo intento atraviesa la misma
+   secuencia y termina en `201`. ⛔ **Prohibido** «reparar» huérfanas con un job, un script o una compensación
+   asíncrona: sería un **tercer** camino capaz de sacar una pieza de `reserved`, y cada camino nuevo es un sitio más
+   donde se puede liberar la reserva de otro (el defecto exacto que la regla 2 de §4-R.2 cerró).
+
+#### 4.50.3 `P-81` — la tercera rama de §M5-S: **gana el código**, y digo por qué
+
+**El caso:** §M5-S norma dos desenlaces para `count !== 1` (*terminal/cerrada ⇒ `CONFLICT`; **en otro caso** ⇒
+`INVALID_TRANSITION`*) y el código tiene **tres**. La rama de la **carrera** —la relectura ve la fila **viva y en un
+estado admitido**— cae en «en otro caso» **por la letra**, pero el código responde `CONFLICT` **desde v1.68**;
+backend solo la hizo legible con `details.reason: 'CONCURRENT_UPDATE'` (`BACKEND_NOTES §68.2.6`, 40/40, mutación en
+rojo 3/3). **Es preexistente.**
+
+**Zanjo a favor del código y contra mi propia letra**, por dos razones que no son de gusto:
+
+1. **`INVALID_TRANSITION` produciría un `details` que se contradice a sí mismo.** Su carga útil es
+   `from` + `allowedFrom`, y en esta rama **`from` está DENTRO de `allowedFrom`**: el operador leería *«está en
+   `en_transito`; “recibir” solo aplica en `en_transito`»*. Eso es **exactamente el defecto I5** que se acaba de
+   cerrar, reintroducido por la letra del contrato. *Un código de error cuyo `details` no puede ser verdad no es un
+   código: es una plantilla mal rellenada.*
+2. **El remedio del operador es OTRO, y el código es lo único que se lo dice.** `INVALID_TRANSITION` = *«aquí no se
+   hace eso»* ⇒ **no reintentes, cambia de paso**. `CONFLICT` + `CONCURRENT_UPDATE` = *«alguien se te adelantó»* ⇒
+   **refresca y mira**; a menudo el trabajo **ya está hecho**. Dos remedios distintos no comparten código de error.
+
+**`reason` es aditivo y aparece SOLO en la rama de la carrera.** Las dos ramas de §M5-T conservan su `details` de
+siempre, sin `reason` ⇒ ningún consumidor existente cambia. ⛔ **El front no puede leer la *ausencia* de `reason`
+como señal de nada**: el discriminante de §M5-T sigue siendo `status`/`closedAt`. Candado **S-4** en el contrato.
+**No hay nada que desplegar:** el código publicado ya se comporta así; lo que faltaba era que el documento lo
+dijera.
+
+#### 4.50.4 `SB-D6` — el sobre del invitado, y cómo se prueba §4-R de verdad
+
+**(a) El correo del invitado en `sessionStorage`: se BENDICE, y se escribe como norma.**
+
+El contrato exige **token + correo, los dos o ninguno** (§4-R.3, §4-R.5) pero v1.68.1 solo bendijo la persistencia
+**del token**. El correo se quedó guardándose «porque hacía falta». **Medido por frontend:** sin él, **recargar la
+pestaña poda la reserva propia del invitado** — el primer quote sale sin reclamo, la pieza vuelve «ajena», la vista
+la poda (§4, «Deber del front») y la promesa de §4-R.3 **no se cumple**. *Un apaño que sostiene una promesa del
+contrato no es un apaño: es parte del contrato.*
+
+**Por qué es aceptable, con el argumento y no con la costumbre:** el correo ya está, **en esa misma pestaña**, en el
+campo del formulario, en el body de la petición y en la pantalla de confirmación. `sessionStorage` **no ensancha**
+su exposición: cualquier ejecución hostil capaz de leerlo de ahí puede leer el campo del formulario y —peor— el
+**token**, que es estrictamente más sensible y que este contrato **ya** bendijo en el mismo sitio. El riesgo
+marginal es cero; el hueco era **documental**. Y la regla que lo hace coherente: **el par es UNA credencial**;
+partirlo entre dos almacenes le daría al eslabón débil la vida del más largo ⇒ **un sobre, una clave, una escritura,
+un borrado**.
+
+**Alternativa descartada:** *retirar `email` de §4-R.3 y dejar el token como identidad entera.* Sería menos que
+guardar, pero **debilita un control declarado de dinero y PII** y **exige desplegar** backend y frontend para
+**perder** una comprobación. No se paga un despliegue por tener menos defensa.
+
+**Es documental: el código publicado ya lo hace así** `[código]` — `frontend/src/app/[locale]/(storefront)/checkout/
+guest-retry-token.ts`: sobre único `{token, expiresAt, email}` bajo una clave, correo normalizado (`trim` +
+minúsculas), purga en la lectura cuando vence o está malformado, borrado al confirmar el pago. **Nada que
+desplegar.** Lo que gana: deja de ser la decisión de un fichero y pasa a ser una regla con dueño ⇒ cambiarla pasa
+por el arquitecto (regla 9). Norma en **`API_CONTRACT §4-R.3 K.3-bis`**.
+
+**(b) El gate de §4-R sin Stripe: NO se declara una vía, y digo por qué NO.**
+
+La pregunta era buena: §4-R se queda sin gate de punta a punta mientras no exista una vía declarada para tener un
+pedido `pending` **reservado** sin Stripe (hoy `POST /checkout/session` da `503` sin clave y el pedido queda
+`failed` con la reserva liberada). **Decisión: no se declara esa vía.**
+
+- **Porque la alternativa obvia —un «proveedor de pago falso» seleccionable por entorno— es un camino de código
+  capaz de crear una orden `pending` con piezas reservadas y SIN PI real**, viviendo en el mismo módulo que el
+  dinero y a un `env` de distancia de producción. La regla 1 de §4-R.2 se apoya en que **el único que reserva es el
+  que va a cobrar**; un driver que reserve sin cobrar es, literalmente, el invariante con un interruptor. *No se
+  añade una puerta trasera al dinero para poder probar la puerta principal.*
+- **Porque el gate real ya existe y ya corre:** las claves **de prueba** viven en los secrets del repositorio desde
+  el 2026-09-07 y `e2e-real.yml` corrió con ellas (`HECHOS.md`, run `34477885121`, `MONEY_SKIPPED:` vacío)
+  `[REPORTADO]`. §4-R se prueba **ahí**, entero (R-1…R-10).
+- **Y el carril sin claves no se queda vacío: prueba el invariante que SÍ se puede medir sin proveedor** — la
+  **compensación**: `503 PAYMENT_PROVIDER_UNAVAILABLE` ∧ orden `failed` ∧ **cero piezas `reserved`** ∧
+  `reservedByOrderId`/`reservedUntil` limpios. *Ése es exactamente el estado que un fallo de proveedor debe dejar.*
+- ⛔ **Y la consecuencia dicha en voz alta:** un spec de §4-R **saltado** en el carril sin claves **no se lee como
+  verde**. El carril reporta *«N saltados por falta de clave»*, nunca *«pasó»* — misma doctrina que `MONEY_SKIPPED:`
+  y la misma lección de `HECHOS.md` (*una medición hecha en el sitio equivocado no dice «no hay clave»: dice «aquí
+  no la veo»*).
+
+**Dueños:** los specs los escribe **backend**; **QA** los ejecuta y reporta la proporción (O-3); **devops** mantiene
+los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa en **`API_CONTRACT §4-R.10`**.
+
+#### 4.50.5 Reparto — quién implementa cada una
+
+| Rol | Tarea | Contrato | ¿Despliegue? |
+|---|---|---|---|
+| **backend** (`users`/`admin`) | **C10 entero**: guard de tope por `actorUserId` (reusando el mecanismo de `C7`), cabeceras `no-store` + `X-Robots-Tag`, y **un solo** TTL efectivo usado en firma + cuerpo + bitácora (+ `ttlClamped`/`ttlRequested`). Los **tres candados** de la sección | `§M6-K.2.0/.2.1/.2.3/.2.5` | No (§M6-K aún no existe en código) |
+| **backend** (`admin`) | **SK-2**: retirar el fallback a `'sealed'` de `admin.inventoryValue()` (`admin.service.ts:1188,1233`). Test: sellado **no mapeado** ⇒ suma a `pendingPriceCount`, **nunca** a `atReferenceCents` | `§M2-SK` | **Sí** |
+| **backend** (`pricing`) | **SK-3**: `POST /admin/pricing/override` con `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`** | `§M2-SK`, §0 Errores | **Sí** |
+| **backend** (`orders`) | **R-10**: el reuso relee el estado del PI; `canceled` ⇒ **sustitución**, nunca `200 reused` con el `clientSecret` viejo | `§4-R.9` | **Sí** |
+| **backend** (`buylist`) | **Nada.** §M5-S ya se comporta como el contrato dice ahora. *(Si algo hubiera que hacer, sería no tocarlo.)* | `§M5-S` | No |
+| **frontend** (`(admin)/admin/m2`) | Las **dos salidas** de la fila de sellado sin mapear: «Ligar a su presentación» y «Fijar el precio de esta pieza». ⛔ No ofrecer «FIJAR PRECIO» de mercado ahí | `§M2-SK` | **Sí** |
+| **frontend** (`(admin)/admin/m5`) | Copia propia para `details.reason === 'CONCURRENT_UPDATE'` (audiencia **operador**); si no la hay, cae a la genérica de `CONFLICT`. **Opcional, no bloqueante** | `§M5-S` | No |
+| **frontend** (`checkout`) | **Nada que cambiar**: el sobre ya cumple K.3-bis. Lo que gana es que cambiarlo pasa por el arquitecto | `§4-R.3` | No |
+| **devops** | (1) Contar `Timed out fetching a new connection` en el log de producción de la ruta de checkout y la concurrencia p95 de `/checkout/session` — **es el disparador de §4.50.2**; (2) que el carril E2E sin claves reporte **los saltos** en el resumen. ⛔ **Cero migraciones, cero DDL, cero variables nuevas en todo este pase** | `§4-R.10` | — |
+
+#### 4.50.6 Desviaciones detectadas (no las corrijo yo; van al rol dueño)
+
+| # | Desviación | Dónde | Dueño | Estado |
+|---|---|---|---|---|
+| **D-SK-1** | `admin.inventoryValue()` valúa el sellado **no mapeado** cayendo a la llave `'sealed'`, que **no identifica producto** ⇒ el total puede sumar el precio de otra presentación. Contradice a su propio vecino (`:1190-1192`), que para la graduada sin identidad cae a `pendingPriceCount` | `admin.service.ts:1188`, `:1233` | **backend** | **Abierta.** Cierra con SK-2 |
+| **D-SK-2** | `POST /admin/pricing/override` acepta escribir dinero bajo `'sealed'` para una pieza sin mapeo: la fila **no la lee nadie** y **no identifica al producto** | `pricing.controller.ts` (ruta de override) | **backend** | **Abierta.** Cierra con SK-3 |
+| **D-PI-1** | El reuso devuelve el `clientSecret` de un PI **cancelado** sin mirar su estado ⇒ callejón sin salida para el cliente | `orders.service.ts:933-935` | **backend** | **Abierta.** Cierra con R-10 |
+| **D-M5S-1** | §M5-S del contrato normaba **dos** ramas y el código tiene **tres** (preexistente desde v1.68) | `buylist.service.ts` (`throwStepRejected`) | **arquitecto** | ✅ **Cerrada en v1.70**: el contrato se alinea con el código (§4.50.3) |
+| **D-SB-6** | El correo del invitado se persistía sin estar declarado en ningún documento | `frontend/.../guest-retry-token.ts` | **arquitecto** | ✅ **Cerrada en v1.70**: declarado en §4-R.3 K.3-bis |
 
 ---
 
