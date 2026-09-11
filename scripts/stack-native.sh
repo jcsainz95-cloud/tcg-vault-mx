@@ -151,6 +151,21 @@ gate_verdict() {
 # transcript: nunca se imprime un DATABASE_URL entero.
 mask_url() { printf '%s' "$1" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#'; }
 
+# --- with_pool_params <url> <connection_limit> <pool_timeout> -----------------
+# Reescribe SOLO la query de una URL de Prisma fijando el tamaño del pool.
+# Borra los `connection_limit`/`pool_timeout` que ya hubiera (para que el valor
+# efectivo sea UNO y no dependa de cuál gana al repetirse) y añade los pedidos.
+# No parsea usuario ni contraseña: opera sobre lo que va detrás del `?`, así que
+# una contraseña con `@`, `:` o `/` no la afecta. Se usa en `test:integration`
+# (ver el bloque largo allí: es el candado de `398c58a`, SB-D2).
+with_pool_params() {
+  local url="$1" cl="$2" pt="$3" base q
+  base="${url%%\?*}"
+  case "$url" in *\?*) q="${url#*\?}" ;; *) q="" ;; esac
+  q="$(printf '%s' "$q" | sed -E 's/(^|&)(connection_limit|pool_timeout)=[^&]*//g; s/^&+//; s/&+$//; s/&&+/\&/g')"
+  printf '%s?%sconnection_limit=%s&pool_timeout=%s' "$base" "${q:+$q&}" "$cl" "$pt"
+}
+
 # --- psql como el superusuario `postgres`, SIN interpolar valores en el SQL ---
 #   uso:   psql_as_postgres <user> <pass> <db> <<'SQL'
 #            SELECT … :'u' … :"n" …
@@ -1302,6 +1317,45 @@ case "${1:-up}" in
     else
       warn "E2E_STRICT_INFRA=$E2E_STRICT_INFRA: el smoke de infra PUEDE saltarse Redis y el"
       warn "PUT presignado del INE. Esta corrida NO sirve como gate (§39.2)."
+    fi
+    # -------------------------------------------------------------------------
+    # EL POOL DE PRISMA SE FIJA AQUÍ, Y ES UN CANDADO — NO UNA PREFERENCIA
+    # (SB-D2 · techlead COND-2, 2026-09-11)
+    #
+    # Hasta hoy este arnés NO fijaba `connection_limit`, y CI tampoco: el «5» con
+    # el que se midió el defecto de dinero de `398c58a` era el DEFAULT de Prisma
+    # (`num_cpus*2+1`) sobre el runner que GitHub diera ese día. Consecuencia
+    # medida en el propio commit: «el stack nativo no lo tiene; CI sí» — o sea, la
+    # regresión salía VERDE en local y ROJA en CI, y nadie podía reproducirla en
+    # su máquina. Un candado que depende del tamaño de la máquina no es un candado.
+    #
+    # QUÉ VIGILA EL 5: antes de `398c58a` el checkout pedía DOS conexiones por
+    # petición (la que retiene la `tx` + otra para `PricingService.getReference`).
+    # Con N checkouts concurrentes ≥ pool/2 el pool se agota y la ruta de DINERO
+    # muere con `Timed out fetching a new connection` ⇒ 500. Con el pool en 5 la
+    # carrera R-3 pasó de 0/10 a 10/10 al corregirlo y la mutación `m-pool` sale
+    # roja 3/3 (BACKEND_NOTES §B-1f).
+    #
+    # SI ALGUIEN LO SUBE: con pool grande sobran conexiones para la segunda
+    # pedida, R-3 sale verde CON el defecto dentro, y el 500 vuelve sin gate que
+    # lo pare. `pool_timeout=10` es la otra mitad: subirlo convierte el
+    # agotamiento en espera (el 500 se vuelve lentitud) y tampoco se ve.
+    # Para depurar a mano: NATIVE_TEST_CONNECTION_LIMIT=20 ./scripts/stack-native.sh
+    # test:integration — explícito, visible en el historial del shell, y esa
+    # corrida NO sirve como gate. Lo vigila `scripts/check-db-pool-limit.sh`.
+    # -------------------------------------------------------------------------
+    NATIVE_TEST_CONNECTION_LIMIT="${NATIVE_TEST_CONNECTION_LIMIT:-5}"
+    NATIVE_TEST_POOL_TIMEOUT="${NATIVE_TEST_POOL_TIMEOUT:-10}"
+    # Enteros o nada: un valor basura aquí no puede acabar dentro de la URL.
+    case "$NATIVE_TEST_CONNECTION_LIMIT" in ''|*[!0-9]*) die "NATIVE_TEST_CONNECTION_LIMIT='$NATIVE_TEST_CONNECTION_LIMIT' no es un entero." ;; esac
+    case "$NATIVE_TEST_POOL_TIMEOUT"     in ''|*[!0-9]*) die "NATIVE_TEST_POOL_TIMEOUT='$NATIVE_TEST_POOL_TIMEOUT' no es un entero." ;; esac
+    DATABASE_URL="$(with_pool_params "$DATABASE_URL" "$NATIVE_TEST_CONNECTION_LIMIT" "$NATIVE_TEST_POOL_TIMEOUT")"
+    export DATABASE_URL
+    if [ "$NATIVE_TEST_CONNECTION_LIMIT" -gt 5 ]; then
+      warn "NATIVE_TEST_CONNECTION_LIMIT=$NATIVE_TEST_CONNECTION_LIMIT (>5): la carrera R-3 deja de ver el"
+      warn "defecto de pool de \`398c58a\`. Esta corrida NO sirve como gate (SB-D2)."
+    else
+      ok "Pool de Prisma FIJADO: connection_limit=$NATIVE_TEST_CONNECTION_LIMIT, pool_timeout=$NATIVE_TEST_POOL_TIMEOUT (mismo que CI — el candado de \`398c58a\`)."
     fi
     log "Suite de INTEGRACIÓN del backend contra BD REAL (15 specs, --runInBand)"
     echo "  DATABASE_URL: $(mask_url "$DATABASE_URL")"

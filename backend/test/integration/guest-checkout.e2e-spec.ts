@@ -10,7 +10,7 @@
  * API_CONTRACT §4-G; ARCHITECTURE §4.21; PROJECT §J / criterios 45–56b.
  */
 import { E2EHarness } from './helpers/e2e-app';
-import { GuestOrderSweepJobService } from '../../src/jobs/guest-order-sweep.service';
+import { OrderReservationSweepJobService } from '../../src/jobs/order-reservation-sweep.service';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeDirectShipBreakdown } from '../../src/common/money';
@@ -53,6 +53,18 @@ async function createGuestItem(h: E2EHarness, template: { cardId: string; locati
       acquisitionCostCents: 70000,
       locationId: template.locationId,
     },
+  });
+}
+
+/**
+ * v1.68 (§4-R.4): el barrido ya no mira `createdAt` sino `reservedUntil` de las PIEZAS (M-53). Para
+ * envejecer un pedido se vence su reserva (el TTL pudo renovarse por reuso; la fecha de la orden ya
+ * no dice nada).
+ */
+async function ageReservation(h: E2EHarness, orderId: string) {
+  await h.prisma.inventoryItem.updateMany({
+    where: { reservedByOrderId: orderId },
+    data: { reservedUntil: new Date(Date.now() - 5 * 60 * 1000) },
   });
 }
 
@@ -680,15 +692,12 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect((await h.prisma.inventoryItem.findUnique({ where: { id: item.id } }))!.status).toBe('reserved');
 
       // Se envejece la orden más allá de la ventana de reserva (60 min) sin pagarla.
-      await h.prisma.order.update({
-        where: { id: session.body.orderId },
-        data: { createdAt: new Date(Date.now() - 90 * 60 * 1000) },
-      });
+      await ageReservation(h, session.body.orderId);
       // El PI de prueba es un stub offline: cancelarlo no debe salir a la red.
       // B3: el barrido solo libera si el PI queda CANCELADO; el stub lo simula.
       jest.spyOn(h.stripe, 'cancelPaymentIntent').mockResolvedValue({ status: 'canceled' });
 
-      const res = await h.app.get(GuestOrderSweepJobService).run();
+      const res = await h.app.get(OrderReservationSweepJobService).run();
       expect(res.swept).toBeGreaterThanOrEqual(1);
 
       const swept = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
@@ -709,7 +718,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
 
     it('NO toca pedidos recientes ni pedidos con cuenta', async () => {
       const before = await h.prisma.order.findUnique({ where: { id: orderId } });
-      await h.app.get(GuestOrderSweepJobService).run();
+      await h.app.get(OrderReservationSweepJobService).run();
       const after = await h.prisma.order.findUnique({ where: { id: orderId } });
       // El pedido del camino feliz (ya liquidado) sigue intacto.
       expect(after!.status).toBe(before!.status);
@@ -732,10 +741,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       },
     });
     expect(session.status).toBe(201);
-    await h.prisma.order.update({
-      where: { id: session.body.orderId },
-      data: { createdAt: new Date(Date.now() - 120 * 60 * 1000) },
-    });
+    await ageReservation(h, session.body.orderId);
     return {
       orderId: session.body.orderId as string,
       itemId: item.id,
@@ -760,15 +766,12 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         },
       });
       expect(session.status).toBe(201);
-      await h.prisma.order.update({
-        where: { id: session.body.orderId },
-        data: { createdAt: new Date(Date.now() - 120 * 60 * 1000) },
-      });
+      await ageReservation(h, session.body.orderId);
 
       // A1 (QA) — el PI ya se estaba pagando: el Stripe real LANZA al cancelarlo. El doble por
       // defecto siempre cancela, así que hay que guionizarlo o esta rama nunca se ejercita.
       h.stripe.cancelOutcome = 'throws-succeeded';
-      expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
+      expect((await h.app.get(OrderReservationSweepJobService).run()).swept).toBe(0);
 
       // La reserva sigue en pie: la pieza NO volvió a estar comprable. v1.21.3: el quote responde
       // 200 pero PODADA (fuera de `items`); el 409 duro vive en session.
@@ -811,7 +814,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('A3: si el estado del PI no se puede determinar, NO suelta la reserva (ante la duda, no)', async () => {
       const { itemId, orderId: staleId } = await makeStaleGuestOrder('A3');
       h.stripe.cancelOutcome = 'throws-unknown';
-      expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
+      expect((await h.app.get(OrderReservationSweepJobService).run()).swept).toBe(0);
       const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
       const order = await h.prisma.order.findUnique({ where: { id: staleId } });
       expect(item!.status).toBe('reserved');
@@ -822,7 +825,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('el barrido tampoco suelta si el cancel responde un estado distinto de `canceled`', async () => {
       const { itemId } = await makeStaleGuestOrder('A2');
       h.stripe.cancelOutcome = 'requires_capture';
-      expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
+      expect((await h.app.get(OrderReservationSweepJobService).run()).swept).toBe(0);
       expect((await h.prisma.inventoryItem.findUnique({ where: { id: itemId } }))!.status).toBe(
         'reserved',
       );
@@ -832,7 +835,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('si el PI YA estaba cancelado, sí libera (no deja reservas atrapadas para siempre)', async () => {
       const { itemId, orderId: staleId } = await makeStaleGuestOrder('A5');
       h.stripe.cancelOutcome = 'throws-canceled';
-      expect((await h.app.get(GuestOrderSweepJobService).run()).swept).toBeGreaterThanOrEqual(1);
+      expect((await h.app.get(OrderReservationSweepJobService).run()).swept).toBeGreaterThanOrEqual(1);
       const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
       const order = await h.prisma.order.findUnique({ where: { id: staleId } });
       expect(item!.status).toBe('listed');
@@ -872,7 +875,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('ESCENARIO B: el barrido no toca un pedido ya liquidado (sigue `settled`, pieza en `picking`)', async () => {
       const order = await h.prisma.order.findUnique({ where: { id: orderId } });
       expect(order!.status).toBe('settled');
-      await h.app.get(GuestOrderSweepJobService).run();
+      await h.app.get(OrderReservationSweepJobService).run();
       const after = await h.prisma.order.findUnique({ where: { id: orderId } });
       expect(after!.status).toBe('settled');
     });

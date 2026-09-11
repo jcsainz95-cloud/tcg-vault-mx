@@ -106,6 +106,10 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
       json: { decision: 'accept' },
     });
     expect(accept.status).toBe(200);
+    // v1.68 · §M5-S: `receive` exige `en_transito` ⇒ el paso 4 (`confirm-shipment`, sin guía) va antes.
+    expect(
+      (await h.api('POST', `/admin/buylist/${srId}/confirm-shipment`, { token: operatorToken, json: {} })).status,
+    ).toBe(200);
     expect((await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken })).status).toBe(200);
     expect((await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken })).status).toBe(200);
     return { srId, ids };

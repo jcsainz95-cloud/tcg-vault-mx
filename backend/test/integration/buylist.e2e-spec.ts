@@ -182,6 +182,30 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       sellRequestId = res.body.sellRequestId;
     });
 
+    it('el operador oferta, el vendedor acepta y el operador confirma el envío (pasos 2-4 del pacto)', async () => {
+      // v1.68 · §M5-S (P-58): `receive` solo aplica desde `en_transito`, y a `en_transito` solo se
+      // llega por `confirm-shipment` desde `aceptada` (D20). Una `cotizada` ya no salta a `recibida`.
+      const detail = await h.api('GET', `/admin/buylist/${sellRequestId}`, { token: operatorToken });
+      const lineId = detail.body.items[0].id as string;
+      const offer = await h.api('POST', `/admin/buylist/${sellRequestId}/offer`, {
+        token: operatorToken,
+        json: { lines: [{ itemId: lineId, decision: 'buy' }] },
+      });
+      expect(offer.status).toBe(200);
+      const accept = await h.api('POST', `/buylist/requests/${sellRequestId}/offer-response`, {
+        token: customerToken,
+        json: { decision: 'accept' },
+      });
+      expect(accept.status).toBe(200);
+      const shipped = await h.api('POST', `/admin/buylist/${sellRequestId}/confirm-shipment`, {
+        token: operatorToken,
+        json: {},
+      });
+      expect(shipped.status).toBe(200);
+      const req = await h.prisma.sellRequest.findUnique({ where: { id: sellRequestId } });
+      expect(req!.status).toBe('en_transito');
+    });
+
     it('el operador recibe y verifica (hasta verificación)', async () => {
       // v1.56 (§M5 `receive`/`verify`, punto 4): **`200`, no el `201` del default de `POST` de Nest**.
       // El contrato nunca declaró `201`, ningún verbo de transición hermano lo usa, y la repetición

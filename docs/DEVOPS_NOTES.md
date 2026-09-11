@@ -10952,6 +10952,21 @@ de Docker) salvo lo marcado **NO MEDIDO AQUÍ**. Deuda derivada: `docs/TECH_DEBT
 
 | **PII en el arnés nativo** (backend) · `stack-native.sh` no generaba `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` ⇒ clave efímera por proceso ⇒ cada reinicio invalidaba la PII local (500 en billing-profile/KYC) | commit «stack-native · PII» (tras `5df5575`) | ambas claves en la misma llamada `env-file` que las JWT (persistidas, aleatorias por máquina) + `export`; `secrets-preflight.sh` genera `*HMAC_KEY` en base64 de 32 bytes; `check-e2e-harness-gaps.sh` **#7** (estático + genera en temporal y exige 32 bytes) | harness-gaps rc=0 3/3; idempotencia sobre `secrets.env` previo (añade sin rotar); mutación sobre COPIA ⇒ rojo 3/3. **NO MEDIDO AQUÍ:** `stack-native.sh up` real (sin Postgres/Redis en este entorno); en máquinas con `secrets.env` previo, la PII cifrada ANTES de este cambio con clave efímera sigue siendo ilegible (borrar esas filas o `down -v`) |
 
+**Corrección del canario del censo (DO-D10, el mismo día, medida en CI):** el primer canario de N7
+copiaba `frontend/e2e` y la comparaba contra el **baseline commiteado**. Run **34624748863** (job
+`e2e-skip-census`, `18f2b01`): frontend añadió tres specs de Stream B, el baseline quedó corto y el
+canario cayó a **3/5** —«copia intacta = baseline» y «-1 needsSeed ⇒ verde»— arrastrando a `ci-ok`.
+**Una sola causa apagaba dos señales**, y el rojo no distinguía «el instrumento está roto» de «el
+número subió». Arreglado en `cc59a6a`: el canario usa un árbol **sintético** propio con conteos
+conocidos y un baseline que fabrica él; del vivo solo comprueba la **estructura** (4 claves bien
+formadas), nunca sus números. **La medición que lo demuestra:** con el baseline vivo TODAVÍA
+desfasado, canario **13/13 en 3/3** y gate **rc=1** a la vez. Mutaciones sobre COPIA: el gate que
+nunca detecta crecimiento ⇒ 10/13 rojo 3/3; el conteo sin `-w` ⇒ 12/13 rojo 3/3; control ⇒ rc=0.
+Baseline regenerado con motivo en `0ed2180`: **mockOnly 78→85 en 17→20 ficheros** (checkout-retry 3,
+orders-resume 2, m5-transitions 2); las otras tres claves sin cambio. **Lección para el resto de
+canarios de este repo:** un canario que se mide contra un número que otro rol mueve no está midiendo
+el instrumento — está repitiendo el gate.
+
 **Deuda que queda (con comprobación de cierre en TECH_DEBT):** DO-D9 (N4: ámbito por workflow), DO-D10
 (N7: el baseline lo escribe devops y el número es de frontend), DO-D1 (mini-linter + acoplamiento del
 manifiesto; F1-7), DO-D2 (F1-1 residual: push real a `production`), DO-D3 (F1-2 residual: lista contra
@@ -10961,3 +10976,159 @@ DO-D8 (cerrado; cómo medir «actionlint 0 avisos»).
 
 **Nota sobre la referencia «BE-77» del encargo:** en `TECH_DEBT.md` BE-77 es `BulkPriceRow` /
 `sync-all` (backend), no gitleaks; el hallazgo histórico de gitleaks se cita aquí por §56.3 y `a454178`.
+
+---
+
+## 57. `SB-D2` — el candado del defecto de dinero dependía del tamaño de máquina que GitHub diera ese día (2026-09-11, COND-2 del techlead, bloqueante de Stream B)
+
+**El hallazgo (techlead, medido):** `398c58a` corrigió un **500 en la ruta de dinero** —el checkout
+pedía DOS conexiones por petición (la que retiene la `tx` + otra para `PricingService.getReference`),
+así que con N checkouts concurrentes ≥ pool/2 el pool se agotaba y la petición moría con `Timed out
+fetching a new connection`—. Quien hace VISIBLE esa regresión es el **tamaño del pool**: con 5, la
+carrera R-3 pasó de **0/10 a 10/10** al corregirlo y la mutación `m-pool` sale roja **3/3**
+(`docs/BACKEND_NOTES.md` §B-1f). El problema es que **ese 5 no estaba escrito en ningún sitio**: ni
+`.github/workflows/ci.yml:94` ni `.github/workflows/e2e.yml:155` fijaban `connection_limit`, así que
+era el **default de Prisma** (`num_cpus*2+1`) sobre el runner del día. Dos consecuencias, las dos
+silenciosas:
+
+- **(a) se afloja solo.** Si GitHub cambia el runner (4 vCPU ⇒ 9 conexiones), el candado pierde
+  sensibilidad **sin que nadie toque una línea ni vea un diff**.
+- **(b) no se reproduce en local.** `scripts/stack-native.sh` tampoco lo fijaba —lo dice el propio
+  `398c58a`: «el stack nativo no lo tiene; CI sí»—, así que el siguiente que reintroduzca la regresión
+  la ve **verde en su máquina** y roja en CI, sin saber por qué.
+
+Un candado cuya sensibilidad depende del hardware que te toque no es un candado: es una probabilidad
+que nadie declara.
+
+### 57.1 · Lo que se fijó (commit `4a8a9b7`)
+
+| Sitio | Antes | Ahora |
+|---|---|---|
+| `.github/workflows/ci.yml` · job `backend` | `…/tcg_ci?schema=public` | `…?schema=public&connection_limit=5&pool_timeout=10` |
+| `.github/workflows/e2e.yml` · job `backend-e2e` | `…/tcg_e2e?schema=public` | `…?schema=public&connection_limit=5&pool_timeout=10` |
+| `scripts/stack-native.sh` · `test:integration` | nada (heredaba el pool grande de la Postgres local) | `NATIVE_TEST_CONNECTION_LIMIT=5` / `NATIVE_TEST_POOL_TIMEOUT=10` por defecto, aplicados a `DATABASE_URL` |
+
+Los tres llevan **escrito al lado por qué ese número**: qué vigila el 5, qué pasa si alguien lo sube
+(con pool grande sobran conexiones para la segunda pedida ⇒ **R-3 sale verde con el defecto dentro**)
+y por qué `pool_timeout` es la otra mitad (subirlo convierte el agotamiento en **espera**: el 500 se
+vuelve lentitud y tampoco se ve).
+
+En el arnés nativo el pool se aplica con una función nueva, `with_pool_params`, que **sustituye** los
+valores previos en vez de duplicarlos y **no parsea usuario ni contraseña** (opera solo sobre lo que
+va detrás del `?`, así que una contraseña con `@`, `:` o `/` no la afecta). La escotilla es explícita
+y ruidosa: `NATIVE_TEST_CONNECTION_LIMIT=20 ./scripts/stack-native.sh test:integration` corre, pero
+avisa por pantalla de que **esa corrida no sirve como gate**.
+
+### 57.2 · El candado que lo vigila, y su canario
+
+- **`scripts/check-db-pool-limit.sh`** (job `db-pool-limit` de `ci.yml`, en el `needs` de `ci-ok`):
+  (1) todo `DATABASE_URL` de los workflows que apunte a una BD **local/de servicio** lleva
+  `connection_limit` ≤ 5 y `pool_timeout` ≤ 10, los dos explícitos; (2) los **dos anclajes**
+  (`ci.yml`/`backend`, `e2e.yml`/`backend-e2e`) siguen existiendo y pinchados —renombrar el job pone
+  rojo **a propósito**, para que el cambio sea consciente—; (3) el arnés nativo fija el mismo pool por
+  defecto **y lo aplica** (declararlo sin aplicarlo es el peor caso: *parece* que está); (4) y
+  **ejecuta** `with_pool_params` en vez de solo leerla. Techo y no igualdad: **bajar** el pool aprieta
+  el candado, subirlo lo afloja; se prohíbe aflojar.
+  - Límites dichos: es estático sobre el YAML; **no mira `docker-compose*.yml`** (ahí la URL es la de
+    la APP corriendo, no la del arnés que mide R-3 — si algún día la integración corre contra compose,
+    hay que ampliarlo); un `DATABASE_URL` **remoto** se declara «no evaluada», nunca verde fingido; sin
+    URLs evaluables sale **rc=2**, no 0.
+- **`scripts/check-db-pool-limit-canary.sh`**: 11 casos sobre **copia** del árbol, incluida la
+  mutación **literal** de SB-D2 (devolver `ci.yml` al estado de `7766296`, sin `connection_limit`),
+  subirlo a 20, `pool_timeout=60`, el arnés con default 50, el arnés que lo declara y no lo aplica,
+  `with_pool_params` rota, el anclaje renombrado — y los **verdes que deben seguir verdes**
+  (apretarlo a 3/5 se permite; una URL remota se declara sin juzgarla; sin workflows, rc=2).
+
+### 57.3 · Mediciones (2026-09-11, este entorno)
+
+| Qué | Resultado |
+|---|---|
+| `./scripts/check-db-pool-limit.sh` | **rc=0** (2 URLs de CI + los 4 asertos del arnés) |
+| `./scripts/check-db-pool-limit-canary.sh` | **11/11, proporción 3/3** |
+| Mutación independiente sobre COPIA, *no* cubierta por el canario: mover `DATABASE_URL` a un `env:` de **paso** sin el pin | **rc=1**, y el rojo nombra `job backend · paso 2` |
+| `actionlint` **con shellcheck en el PATH** sobre los 7 workflows | **0 avisos** |
+| `yaml.safe_load` de `ci.yml` y `e2e.yml` | OK; las dos URLs se leen con el pin |
+| `shellcheck` de los dos scripts nuevos | **0** |
+| `shellcheck -x scripts/stack-native.sh` | **sin avisos nuevos**: los mismos 6 preexistentes (diff vacío contra la versión de `7766296`) |
+| `check-ci-ok.sh --static` | rc=0 — 18 jobs, 17 en `needs`, `db-pool-limit` incluido |
+| Canarios vecinos afectados (`ci-ok`, `workflow-cwd`, `secret-defaults`) | rc=0 en **3/3** cada uno (el de `secret-defaults` tarda ~7 min por tirada) |
+| `check-secret-defaults.sh` | rc=0 — **mordió primero**: los fixtures de mis dos scripts llevaban `postgresql://u:p@…` y el gate de S-88-1 los marcó como «URL con credencial escrita dentro» (3 líneas). Reescritos sin credencial (`postgresql://sin_credencial@…`) |
+| Los demás gates estáticos (`workflow-cwd`, `e2e-harness-gaps`, `provenance-gate`, `dast-gate-live`, `daemon-stdout-leak`, `stripe-webhook-failclosed`, `e2e-skip-census`, `e2e-provider-incapacitation`, `dast-report-only-expiry`) | rc=0 |
+
+**NO MEDIDO AQUÍ:** que la suite de integración siga **verde en CI** con el pool fijado. En este
+entorno no hay Postgres levantado, así que la carrera R-3 no se puede correr; lo mide el empuje (job
+`backend-e2e` de `e2e.yml`). Queda fichado como **DO-D11** con su comprobación de cierre.
+
+### 57.4 · Lo que vi en el primer `dast-release` sobre un push real (run `34633179107`) y que es de mis rutas
+
+Medido con la API pública (`/actions/runs/34633179107/jobs`), push a `production`, `c8bee65`,
+conclusión **success**:
+
+- `secrets-gate` **success**, `dast-release / Resolver el ref` **success**, `dast-release / Autoprueba
+  del candado (canario vulnerable)` **success**, `dast-release / DAST contra el stack efímero`
+  **success**, `dast-release / Abrir/actualizar issue` **skipped**. O sea: **el DAST corrió de verdad
+  en un push real y no encontró bloqueante** — es la primera vez, y es la mitad buena.
+- Pero `deploy-ci-gate`, `preflight`, `e2e-real`, `deploy-staging-*`, `staging-serves-head`,
+  `staging-provider-parity`, `promote-production-backend` y `promote-production-frontend` salieron
+  **skipped**, y el run igualmente **verde**. La causa se deduce del propio YAML, sin necesidad de
+  logs: `deploy-ci-gate` tiene `if: needs.secrets-gate.outputs.ready == 'true'` y `secrets-gate`
+  terminó en success ⇒ `ready` valía `false`, que es lo que ese job emite cuando faltan los cinco
+  secrets de CD (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
+  `PROD_BASE_URL`). Todo lo demás cuelga de ahí por `needs`.
+- **No es un fallo nuevo y no lo toco:** está declarado así desde `§11.D` («los deploys reales van por
+  integraciones nativas Vercel/Railway; este CD por Actions queda SALTADO»). Lo que sí cambia es una
+  consecuencia que no estaba dicha: **la comprobación de cierre de DO-D2 no se puede cumplir en un
+  push real mientras esos cinco secrets no existan**, porque `promote-production-*` nunca llega a
+  evaluar `needs.dast-release.outputs.blocking`. Anotado en la ficha.
+
+### 57.5 · El techo del censo E2E sube a lo que hay (commit `7f9527e`), y qué opino del método de conteo
+
+**Qué se hizo:** `scripts/e2e-skip-census.baseline` regenerado con `--update --motivo` sobre
+**`8d79c61`**, con el motivo de **frontend** verbatim (dueño del motivo: frontend; del baseline:
+devops — lo dice el propio mensaje de rojo del gate). Nuevo techo: `mockOnly 92 22`, `needsSeed 31 8`,
+`harnessLimit 4 2`, `skipIfSeedMissing 15 6`.
+
+Sobre `8d79c61` **a propósito**: sobre el commit anterior habría salido `skipIfSeedMissing 16 6` —una
+marca por encima de lo que existe— y esa holgura es exactamente lo que este candado existe para
+impedir.
+
+| Medición (2026-09-11, este entorno) | Resultado |
+|---|---|
+| Censo antes de regenerar, medido por mí con el método del script | `mockOnly 92/22` · `needsSeed 31/8` · `harnessLimit 4/2` · `skipIfSeedMissing 15/6` (coincide con lo predicho por frontend y con lo medido por el orquestador) |
+| `./scripts/check-e2e-skip-census.sh` tras el `--update` | **rc=0 en 3/3** |
+| `./scripts/check-e2e-skip-census-canary.sh` | **13/13 en 3/3** |
+| Mutación independiente sobre COPIA de `frontend/e2e` (+1 ocurrencia de `mockOnly`) contra el baseline **nuevo** | **rc=1 en 3/3** (`92 → 93`); control con la copia intacta ⇒ **rc=0** |
+
+**El método (decisión de devops, no petición de frontend).** Frontend observa —y tiene razón— que
+`grep -rwo` cuenta **palabras**, no marcas: de sus +15 ocurrencias solo **5** son llamadas. Lo medí por
+forma sintáctica, y el desfase es grande y estable:
+
+| Clave | Ocurrencias (lo que gatea hoy) | Sitios de llamada (`X(`) | Resto (importaciones, JSDoc, listas) |
+|---|---|---|---|
+| `mockOnly` | 92 | **54** | 38 |
+| `needsSeed` | 31 | **10** | 21 |
+| `harnessLimit` | 4 | **1** | 3 |
+| `skipIfSeedMissing` | 15 | **4** | 11 |
+
+**Mi criterio: el método actual se queda, y el rótulo está mal.** Lo que este número vale es que **no
+se puede contorsionar**: una sola orden, sin AST, sin parsear TypeScript, sin depender del formato, y
+nadie puede bajarlo moviendo una llamada a un helper o a una condición. Un censo «de tests que no
+miden» necesitaría o el compilador de TS (dependencia nueva en un script de devops, justo lo que
+`DO-D1` ya señala como deuda) o correr Playwright con un reporter —caro, y **se le escapa** lo
+dinámico—. O sea: el conteo preciso sería **más exacto y más fácil de esquivar**; el actual es
+impreciso y honesto.
+
+Lo que sí está mal es llamarlo «censo de salvaguardas»: no lo es. Es un **detector de huella textual**
+—«la palabra que marca un test que no mide aparece más veces que ayer»—, y leerlo como «hay 92 tests
+que no miden» es falso. El riesgo de dejarlo así **no es el número, es el hábito**: un rojo que casi
+siempre se explica con «10 de esas son prosa» enseña al equipo a firmar el `--update` sin leerlo, y
+entonces el candado deja de decir nada (es el defecto de §56, del revés).
+
+**Propuesta, con su costo, para OTRO pase (hoy no se toca: primero se desbloquea la fusión):** añadir
+una **segunda línea informativa** por clave con los sitios de llamada
+(`grep -rhoE '\bX[[:space:]]*\('`, menos la definición), dejando el **gate** donde está —sobre la
+huella textual, que es la que no se puede engañar—. Así el rojo diría «`mockOnly` 92→93 en huella,
+llamadas 54→54: es prosa» o «llamadas 54→55: es una marca nueva», y el motivo lo escribiría solo.
+Costo medido a ojo sobre el script actual (78 líneas): ~15 líneas más, 4 filas más en el baseline y
+2-3 casos más en el canario. Dueño: devops. **No lo decido solo:** el que paga el rojo es frontend, y
+la lectura del número la usa el techlead.

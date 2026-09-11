@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -19,22 +20,27 @@ export class OrdersController {
 
   @Post('checkout/quote')
   @HttpCode(200)
-  quote(@Body() dto: QuoteDto) {
-    return this.orders.quote(dto.inventoryItemIds);
+  quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto) {
+    // v1.68.1 (§4-R.5): el quote conoce la reserva PROPIA del cliente (por `userId`).
+    return this.orders.quote(dto.inventoryItemIds, userId);
   }
 
   // v1.5: comprar es acción sensible → requiere emailVerified (403 EMAIL_NOT_VERIFIED si no).
   // El `checkout/quote` (read-only, arriba) NO se bloquea, para mostrar precios con el banner.
+  // v1.68 (§4-R.2): el código DEPENDE del resultado — `201` (orden nueva, con o sin sustitución) o
+  // `200` (REUSO de la orden y el PaymentIntent propios). Se fija con `@Res({ passthrough: true })`.
   @RequireEmailVerified()
   @Post('checkout/session')
-  @HttpCode(201)
-  session(
+  async session(
     @CurrentUser('id') userId: string,
     @Body() dto: SessionDto,
+    @Res({ passthrough: true }) res: Response,
   ) {
     // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
     // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
-    return this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId);
+    const result = await this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId);
+    res.status(result.reused ? 200 : 201);
+    return result;
   }
 
   @Get('orders')

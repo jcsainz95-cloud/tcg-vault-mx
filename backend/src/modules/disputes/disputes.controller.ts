@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Query, HttpStatus } from '@nestjs/common';
 import { IsIn, IsString } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -46,6 +46,8 @@ export class DisputesController {
 @Controller('admin/disputes')
 @Roles(Role.vault_operator, Role.super_admin)
 export class AdminDisputesController {
+  private readonly logger = new Logger(AdminDisputesController.name);
+
   constructor(
     private readonly disputes: DisputesService,
     private readonly audit: AuditService,
@@ -72,6 +74,10 @@ export class AdminDisputesController {
   }
 
   @Post(':id/resolve')
+  // v1.68 · §M8: `200`, no el `201` del default de `POST` de Nest — opera sobre una disputa EXISTENTE
+  // y no crea nada (misma doctrina que §M5-C / BL-37 para los verbos del ciclo). El contrato lo
+  // declara `Res 200`; el cliente ramifica por `res.ok`, así que el impacto en frontend es cero.
+  @HttpCode(HttpStatus.OK)
   async resolve(
     @Param('id') id: string,
     @Body() dto: ResolveDisputeDto,
@@ -92,14 +98,28 @@ export class AdminDisputesController {
       );
     }
     const res = await this.disputes.resolve(id, dto.resolution, dto.note, user.id);
-    await this.audit.log({
-      actorUserId: user.id,
-      actorRole: user.role,
-      action: `dispute.${dto.resolution}`,
-      entityType: 'Dispute',
-      entityId: id,
-      after: { note: dto.note },
-    });
+    // ⚠ SB-D7 — **la auditoría va DESPUÉS del money-out y no puede tumbarlo.** `repurchase` ya
+    // reembolsó en Stripe cuando se llega aquí: si el `INSERT` de la bitácora falla (BD saturada,
+    // conexión caída), un `await` desnudo convertía un money-out **ya consumado** en un `500`, y el
+    // operador —que ve un error— lo reintenta y pide un SEGUNDO reembolso por la misma disputa.
+    // Es la misma regla que ya rige en `payments.service.ts:124-140` (auditar el descuadre NUNCA
+    // aborta el webhook): **un fallo de auditoría se registra, no se propaga**. La pérdida es una
+    // línea de bitácora; la alternativa es un cobro/abono doble.
+    await this.audit
+      .log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: `dispute.${dto.resolution}`,
+        entityType: 'Dispute',
+        entityId: id,
+        after: { note: dto.note },
+      })
+      .catch((e: unknown) =>
+        this.logger.error(
+          `No se pudo auditar dispute.${dto.resolution} de la disputa ${id} (actor ${user.id}); ` +
+            `la resolución SÍ se consumó: ${(e as Error).message}`,
+        ),
+      );
     return res;
   }
 }

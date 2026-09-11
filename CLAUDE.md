@@ -162,7 +162,17 @@ un mensaje que diga que lo escribió el agente y que lo verifiqué yo.
 Corro las suites y **repito al menos una mutación por pase**, sobre una **copia**, nunca sobre el árbol vivo. Esto
 ya era doctrina del proyecto y se escribe aquí porque es la que sostiene a todas las demás.
 
-**Comprobación:** el reporte al humano distingue lo que medí yo de lo que me reportó un agente.
+**La copia es del árbol ENTERO, no de un subárbol.** Hay suites que leen los documentos del repo
+(paridad de enums entre `schema.prisma`, Prisma y `API_CONTRACT.md`; deuda registrada en `TECH_DEBT.md`).
+Copiar solo `backend/` las pone rojas **por falta de ficheros**, no por defecto.
+
+> *De dónde viene:* copié `backend/` con `git archive HEAD backend`, corrí la suite y obtuve **4 rojas de 4601**
+> justo antes de fusionar. Las cuatro eran de paridad documental y `docs/` no existía en mi copia. Con
+> `git archive HEAD` entero: **282/282 suites, 4631/4631 pruebas**. Un falso rojo antes de una fusión cuesta lo
+> mismo que un falso verde: manda a investigar lo que no está roto.
+
+**Comprobación:** el reporte al humano distingue lo que medí yo de lo que me reportó un agente. Y antes de
+llamar rojo a un rojo, compruebo que la copia trae lo que la suite lee.
 
 ### O-11 · Lo que sé es lo que está en git, no lo que recuerdo
 Cuando la conversación se comprime (o arranca una sesión nueva), **no reconstruyo el estado de memoria**: lo
@@ -175,6 +185,33 @@ mido. Primera acción, siempre: `git status`, `git log --oneline -5`, `HECHOS.md
 
 **Comprobación:** el primer mensaje tras una compresión o arranque cita el SHA de `HEAD` y la fecha de la
 última limpieza de `PENDIENTES.md`. Si no los cita, no arranqué bien.
+
+### O-12 · En un árbol compartido, `HEAD` no es mío: el encargo prohíbe los verbos que lo reescriben
+Cuando lanzo varios agentes a la vez sobre el mismo árbol, el encargo enumera lo prohibido, no solo lo permitido:
+⛔ `commit --amend`, `add .` / `add -A` / `commit -a`, `reset`, `checkout <ruta>`, `stash`, `rebase`.
+✅ Solo `git commit -- <rutas explícitas>`.
+
+> *De dónde viene:* un agente frontend hizo `git commit --amend` creyendo que enmendaba *su* último commit. El
+> amend actúa sobre **`HEAD`**, y `HEAD` era **mío** desde hacía segundos: reescribió mi commit dejándolo con el
+> título de él. Un segundo amend le devolvió mi mensaje, así que **no se perdió contenido** — pero el original ya
+> estaba **empujado**, y local y remoto quedaron con historias distintas. El arreglo rápido (force-push) reescribe
+> historia publicada; lo cerré con merge, que no pierde nada porque ambos lados traían el mismo árbol. Es O-8 en
+> otro recurso compartido: allí era el scratchpad, aquí es `HEAD`.
+
+**Comprobación:** ante una divergencia, `git reflog` dice si hubo `amend`/`reset` y sobre qué commit; y antes de
+fusionar compruebo que el commit publicado es ancestro de `HEAD` (`git merge-base --is-ancestor`). Si no lo es,
+reconcilio con **merge**, nunca con force-push, y lo digo.
+
+### O-13 · Tres roles no pueden commitear: su commit es mío, no un rescate
+`arquitecto`, `ux-ui` y `product-owner` no tienen Bash. Cuando entregan, su trabajo queda **suelto en el árbol** y
+el commit lo lanzo yo, acotado a sus rutas y con un mensaje que diga que lo escribió el agente y que yo lo
+verifiqué.
+
+> *De dónde viene:* esperé el commit del arquitecto tras su informe y no llegaba. No era O-10 incumplida por él:
+> era que no tiene la herramienta. Medido en `.claude/agents/`; anotado en `HECHOS.md`.
+
+**Comprobación:** tras el informe de uno de esos tres, `git status` y commit acotado en el mismo pase. Esperar su
+commit es esperar algo que no puede ocurrir.
 
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no

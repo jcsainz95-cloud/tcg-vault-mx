@@ -147,11 +147,24 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
     const { svc, stripe, released } = build([staleOrder]);
     expect(await svc.sweepStaleGuestOrders()).toEqual({ swept: 1 });
     expect(released).toContainEqual({
-      items: { id: { in: ['item-1'] }, status: 'reserved' },
+      // v1.68 (§4-R.2 regla 2): la guarda lleva el DUEÑO (o `null`, reserva legada) y el `data`
+      // limpia dueño/vencimiento.
+      items: {
+        id: { in: ['item-1'] },
+        status: 'reserved',
+        OR: [{ reservedByOrderId: 'order-viejo' }, { reservedByOrderId: null }],
+      },
       // El helper compartido (T2) reescribe la titularidad de plataforma; para un pedido de
       // invitado es un NO-OP (la pieza nunca dejó de ser de la plataforma), y tener un solo cuerpo
       // evita que las dos rutas de compensación vuelvan a divergir.
-      data: { status: 'listed', ownerType: 'platform', ownerUserId: null, ownershipStatus: null },
+      data: {
+        status: 'listed',
+        ownerType: 'platform',
+        ownerUserId: null,
+        ownershipStatus: null,
+        reservedByOrderId: null,
+        reservedUntil: null,
+      },
     });
     expect(released).toContainEqual({ order: { status: 'failed' } });
     expect(stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_viejo');

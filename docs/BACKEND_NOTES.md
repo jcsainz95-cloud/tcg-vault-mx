@@ -20168,3 +20168,371 @@ Suites al cierre: `npx jest` **277 suites / 4555 tests** rc=0 (+1 suite, +31 cas
 **Remedio inmediato en el stack de QA (no es mío):** `./scripts/stack-native.sh up --seed` (la siembra nueva borra la fila) o, desde la UI, el propio `PUT` (reemplaza la fila cifrando con la clave del proceso vivo).
 
 **Petición a devops (medida, no relayada):** `stack-native.sh` genera `JWT_*`/`S3_SECRET_ACCESS_KEY` en `.native-stack/secrets.env` pero **no** `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`; mientras no las genere (32 bytes base64, `openssl rand -base64 32`, persistidas igual que las otras), **cada reinicio del backend nativo invalida toda la PII cifrada** (RFC y CLABE) de la BD local. Producción no está afectada: allí `keysRequired` exige las claves y el arranque falla sin ellas (`pii-crypto.service.ts:129-135`).
+
+## v1.68 — Stream B · agente **B2**: `receive`/`verify` exigen el PASO CORRECTO (§M5-S, P-58) y `resolve` de disputas con guarda en el motor (§M8) (backend · 2026-09-11, medido)
+
+> Fuente: `docs/API_CONTRACT.md` v1.68 §M5-S y nota v1.68 de §M8; `ARCHITECTURE §4.48.1`, `§4.48.4`, `§4.48.9`.
+> Rutas tocadas: `modules/buylist/buylist.service.ts` (solo `receive`/`verify` y sus guardas), `modules/disputes/`,
+> `jobs/dispute-deadline.service.ts`, `common/error-codes.ts` (**una** clave nueva, `INVALID_TRANSITION`, la excepción
+> de ruta compartida autorizada por el orquestador; re-leído justo antes del `Edit`, conserva `PAYMENT_IN_PROGRESS` de B1), `test/`.
+
+### Qué hay (por fichero)
+
+| Fichero | Qué cambió |
+|---|---|
+| `buylist.service.ts` `receive`/`verify` | El `where` del `updateMany` ya no es `liveRequestWhere()` sino **`stepWhere(verb)`** = `{ status: { in: [...allowedFrom, idempotentOn] }, closedAt: null }` — `receive: en_transito → recibida`, `verify: recibida → verificacion`. La tabla vive **una vez** en `STEP_TRANSITIONS`; la guarda y el `details` del rechazo la leen los dos. `closedAt: null` sigue explícito (T no se relaja). |
+| `buylist.service.ts` `throwStepRejected` | `count !== 1` ⇒ relectura **dentro de la tx**: terminal ∨ `closedAt ≠ null` ⇒ `409 CONFLICT { status, closedAt }` (T gana, `requestClosedConflict` compartido con `throwRequestClosedConflict`); vivo en otro paso ⇒ `409 INVALID_TRANSITION { verb, from, allowedFrom, idempotentOn }`; vivo **y admitido por el `where`** (`count ≠ 1` por `where` roto o carrera entre escritura y relectura) ⇒ `409 CONFLICT` — no es «paso equivocado» y decirlo mentiría. Cero escritura en los tres (los ítems se mueven después de la guarda, como antes). |
+| `error-codes.ts` | `INVALID_TRANSITION` (409, genérico; `details.verb` lo especializa). ⛔ No hay `NOT_IN_TRANSIT`/`NOT_RECEIVED`. |
+| `disputes.service.ts` `resolve` | `updateMany({ where: { id, status: { in: DISPUTE_RESOLVABLE_STATES } }, data })` con `count === 1`; si no ⇒ relee y `409 CONFLICT { status, resolvedAt }`, cero escritura. **No idempotente a propósito** (contrato). El `findUnique` previo sigue para el 404 y el `inventoryItemId` de la recompra; **no protege la fila**. `DISPUTE_RESOLVABLE_STATES = ['abierta','en_revision']` exportada (la lee el test). |
+| `disputes.controller.ts` | `@HttpCode(200)` en `POST :id/resolve`. **Desviación respecto a la conducta anterior (201, default de Nest), alineada con el contrato**, que en la nota v1.68 dice `Res 200`; misma doctrina que §M5-C/BL-37. Frontend ramifica por `res.ok` ⇒ impacto cero (NO medido en `frontend/`: no es mi ruta). |
+| `jobs/dispute-deadline.service.ts` | **Un** `updateMany({ where: { status: 'abierta', deadlineAt: { lte: now } }, data: { status: 'en_revision' } })`; devuelve `{ expired: count }`. Sin `findMany` previo. |
+
+### Lo que la mesa tiene que hacer distinto (para frontend — tabla normativa de §M5-S)
+
+| `status` | Verbo que M5 ofrece | `receive` responde | `verify` responde |
+|---|---|---|---|
+| `cotizada` | `offer` / `decline` | `409 INVALID_TRANSITION` (from `cotizada`) | `409 INVALID_TRANSITION` |
+| `ofertada` | `offer/cancel` | `409 INVALID_TRANSITION` | `409 INVALID_TRANSITION` |
+| `aceptada` | **`confirm-shipment`** (sin guía está permitido) | `409 INVALID_TRANSITION` | `409 INVALID_TRANSITION` |
+| `en_transito` | ⭐ **`receive`** | `200 → recibida` | `409 INVALID_TRANSITION` |
+| `recibida` | ⭐ **`verify`** | `200` idempotente (no re-sella) | `200 → verificacion` |
+| `verificacion` | decisión por ítem / `pay-spei` | `409 INVALID_TRANSITION` | `200` idempotente (no re-sella) |
+| `aprobada` | `pay-spei` | `409 INVALID_TRANSITION` | `409 INVALID_TRANSITION` |
+| `pagada`/`rechazada`/`abandonada`/`expirada` (y cualquier fila con `closedAt` sellado) | — | `409 CONFLICT { status, closedAt }` | `409 CONFLICT { status, closedAt }` |
+
+El `details` de `INVALID_TRANSITION` es siempre `{ verb: 'receive'|'verify', from, allowedFrom: ['en_transito'] | ['recibida'], idempotentOn: 'recibida' | 'verificacion' }` (medido por HTTP con `toEqual` en `buylist-step-guard.e2e-spec.ts`). Un solo mensaje i18n para los dos verbos, audiencia operador.
+
+**Filas legadas**: una `cotizada` viva ya no salta a `recibida` (los tests que lo hacían —`buylist.e2e-spec`, `buylist-cycle` (18)-(21) y §5, `buylist-pay-verdicts`— pasan ahora por `offer → offer-response → confirm-shipment`). El **conteo en producción** de filas vivas pre-M-46 en `cotizada` (§4.48.7) **NO lo he medido**: es una `SELECT count(*) FROM "SellRequest" WHERE status='cotizada' AND "closedAt" IS NULL AND "offerSentAt" IS NULL` contra la BD real, antes de publicar.
+
+### Tests (todos en `backend/test/`)
+
+- `buylist.m5s-step-guard.spec.ts` (nuevo, 39 casos): matriz **S-1 11×2** con fake que evalúa el `where`, fila de P1, destino cerrado, forma del `where`; **S-2** directa/invertida/retrocesos/`aceptada`.
+- `buylist.m5t-terminal-guard.spec.ts`: los dos casos «por exclusión» pasan a «predecesor sí / vivo ajeno ⇒ INVALID_TRANSITION» y la forma del `where` a la de S; el resto de T intacto.
+- `buylist.m5p-received-guard.spec.ts`: el contraste «sin `receive` no paga» mide ahora las **dos** redes (S rechaza el `verify`; P rechaza el pago sobre la fila `verificacion` sin `receivedAt` que la BD aún puede tener).
+- `integration/buylist-step-guard.e2e-spec.ts` (nuevo, 29 casos): S-1 por HTTP sobre fila real sembrada por `h.prisma` (los 11 estados × 2 + P1), S-2 por la puerta con 20 ms (secuencial y **lanzadas sin esperar, 5/5**), el paquete sin `confirm-shipment`.
+- `integration/buylist-cycle.e2e-spec.ts`: (11-bis) `receive` desde `verificacion` ⇒ 409; (18)-(21) reescritos: el PoC del eje 2 muere en S (409) y §M5-P sigue como segunda red; el remedio es el ciclo entero; §5 y §M5-R con `confirm-shipment` antes de `receive`.
+- `integration/buylist.e2e-spec.ts`, `integration/buylist-pay-verdicts.e2e-spec.ts`: paso 2-4 del pacto antes de `receive`.
+- `disputes.resolve-guard.spec.ts` (nuevo, 13 casos): D-1, no idempotente, cuatro estados, forma del `where`, carrera; job: un `updateMany`, D-2 y la carrera literal.
+- `disputes.repurchase.spec.ts`: afirma `updateMany` (no `update`).
+- `integration/disputes.e2e-spec.ts` (nuevo, 5 casos): D-1 y D-2 por HTTP, `403 MONEY_OUT_FORBIDDEN` intacto, `POST /admin/jobs/dispute-deadline`.
+
+### Medido (comandos y totales; Node `/opt/node22/bin`; BD propia `tcg_b2`; **todo sobre copia limpia `HEAD b883fab + mis 15 ficheros`** en `…/scratchpad/backend-B2/clean` porque el árbol vivo no compilaba por trabajo en curso de B1 en `orders/`)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Tipos / lint | `tsc --noEmit` · `eslint` | 0 errores (2 warnings preexistentes en `inventory`, ajenos) |
+| Unitarios | `npx jest` | **279 suites / 4590 tests** verdes |
+| Integración | `DATABASE_URL=<tcg_b2> ./scripts/stack-native.sh test:integration` sobre `disputes`, `buylist-step-guard`, `buylist-cycle`, `buylist`, `buylist-pay-verdicts`, `buylist-closed-total`, `buylist-raw-only`, `buylist-cards-order` | **8 suites / 149 tests** verdes |
+| Cadena directa escalonada (O-3) | `buylist-step-guard` › «lanzadas con 20 ms de desfase» | **5/5** `200·200·verificacion` en cada corrida (3 corridas de la suite) |
+
+**Mutaciones (copia `…/scratchpad/backend-B2/mut`, restaurada desde `clean` antes de cada una):**
+
+| Mutación | Unit | Integración |
+|---|---|---|
+| **m5** `stepWhere()` ⇒ `liveRequestWhere()` | **20 rojos 3/3** (`m5s`: 5 filas vivas por verbo + forma del `where` + invertida + retrocesos; `m5t`/`m5p` los suyos) | **12 rojos 3/3** (`buylist-step-guard`) |
+| **m6** `resolve` ⇒ `update({where:{id}})` sin guarda | **8 rojos 3/3** (`resolve-guard` D-1, no-idempotente, resueltas, `where`, carrera; `repurchase` ×2) | **2 rojos 3/3** (`disputes` D-1 y no-idempotente) |
+| **m6b** job ⇒ `findMany` + `update` por fila | **2 rojos 3/3** (forma del job y D-2 carrera literal) | no corrida (D-2 por HTTP no puede fabricar la carrera; la mide el unit) |
+
+**NO medido:** `frontend/` (S-3 es de frontend); el conteo de legadas en producción (arriba); la suite de integración **completa** (solo las 8 de mis flujos: `buylist-*` y `disputes`).
+
+## v1.68 — Stream B · agente **B1**: LA RESERVA TIENE DUEÑO (§4-R, P-59, M-53) — reintento del mismo cliente, un cobro por pieza, barrido único (backend · 2026-09-11, medido)
+
+> Contrato `API_CONTRACT.md` v1.68 §4-R (+ §4-G.2 `retryOfCheckoutToken`, §11 `OrderSummaryDTO`); `ARCHITECTURE.md` §4.48.2/§4.48.8/§4.48.9. Rama `claude/tcg-hunt-orchestration-2`. Commits: **`b883fab`** (B-1a), **`a95bfa4`** (B-1b+B-1d), **`07c7561`** (B-1c), **`7c7e418`** (E2E + arnés). BD propia `tcg_b1` (+ `tcg_b1_mut` para mutaciones). Sin claves `STRIPE_*` en el entorno (`env | grep -c ^STRIPE_` ⇒ 0): todo Stripe pasa por el doble del arnés (`TestStripeService`), como los E2E de pagos existentes.
+
+### Qué cambió, por fichero (la regla en una frase)
+
+| Fichero | Qué |
+|---|---|
+| `prisma/schema.prisma` + `migrations/20260911130000_m53_reservation_owner` | **M-53**: `InventoryItem.reservedByOrderId String?` (FK `Order`, `SET NULL`) + `reservedUntil DateTime?`; índices `(reservedByOrderId)` y `(status, reservedUntil)`; `Order.reservedItems`. Aditiva, nullable, **sin backfill**. `migrate diff --from-url --to-schema-datamodel` sobre `tcg_b1`: solo el rename de índice preexistente de `PriceReference` (ajeno); `InventoryItem`/`Order` limpios. |
+| `common/error-codes.ts` | `PAYMENT_IN_PROGRESS` (409). `INVALID_TRANSITION` lo puso B2 (mismo fichero, hunks disjuntos; commiteé solo el mío con `update-index --cacheinfo`). |
+| `orders/reservation.ts` (nuevo) | `ORDER_RESERVATION_TTL_MIN = 60` (**el único TTL**; `GUEST_ORDER_RESERVATION_TTL_MIN` es alias), `reservedUntilFrom`, **`reservationGuard(orderId)`** = `{status:'reserved', OR:[{reservedByOrderId: orderId},{reservedByOrderId: null}]}` (rama legada), `clearReservation`, `releaseReservationData`, **`lockReservationGate(tx, identidad)`** = `pg_advisory_xact_lock(63_120_959::int, hashtext('user:<id>' \| 'guest:<email>'))`, `RESERVATION_TX_OPTIONS` (`maxWait 10 s`, `timeout 30 s`: la tx sostiene la puerta mientras precia y, en la sustitución, cancela el PI en Stripe; un timeout = rollback = cero escritura). |
+| `orders/orders.service.ts` | `createSession` en **una** transacción: puerta → `findOwnLiveReservations` (pre-scan por `reservedByOrderId` con `reservedByOrder {userId, status:'pending'}`, `reservedUntil > now`) → `isReusable` (mismo conjunto, retenido entero y vivo) ⇒ `renewReservation` y `kind:'reused'`; si no, `supersedeOwnOrder` por cada propia (B3: `closePaymentIntent` y **confirmar `canceled` antes** de liberar guardado + `failed`; `processing\|succeeded\|requires_capture` ⇒ `409 PAYMENT_IN_PROGRESS {orderId, orderNumber}`; indeterminado ⇒ `503`), luego **precia dentro del tx** (`priceCartForOrder(ids, tx)`: la sustitución acaba de liberar ahí), crea la `Order` **antes** de `reserveItems` (la FK del dueño exige que exista) y reserva con `reservedByOrderId`/`reservedUntil`. PI nuevo **después del commit**. Reuso: `paymentIntentForReuse` relee el PI (`retrievePaymentIntent`), no crea. `releaseReservation` con `reservationGuard`. **`sweepExpiredReservations`**: barrido único por `status='reserved' ∧ reservedUntil<now` agrupado por orden, B3 primero, `Order→failed` si seguía `pending`. `listOrders`/`getOrder`: `orderNumber` siempre, `reservedUntil` (mín. de sus piezas) solo en `pending`. |
+| `orders/guest-checkout.service.ts` | Misma ceremonia bajo `lockReservationGate({guestEmail})` (el correo solo **serializa**; la titularidad la prueba el token). `resolveRetryClaim(token, email)`: `tokens.validate` ok ∧ orden `pending` ∧ `guestEmail` igual ⇒ orden propia; si no, **sin reclamo** (⇒ `409 ITEM_UNAVAILABLE`, estado de hoy). Reuso ⇒ `200` + `checkoutToken` nuevo (`rotate:false`). `sweepStaleGuestOrders` queda como **rama legada** (solo pedidos con piezas `reservedByOrderId IS NULL`; un pedido con dueño no entra aunque sea viejo: su TTL pudo renovarse). |
+| `orders/*.controller.ts`, `dto/guest-checkout.dto.ts` | Código dinámico con `@Res({passthrough:true})`: `200` reuso / `201` resto. `retryOfCheckoutToken?: string` (≤200). |
+| `payments/stripe.service.ts` | `retrievePaymentIntent(id) → {id, status, clientSecret}`. |
+| `payments/payments.service.ts` (B-1c) | Toda salida de `reserved` con `reservationGuard(order.id)` en el `where` y `clearReservation` en el `data`: liquidación bóveda (`update` incondicional → `updateMany` guardado; `count≠1` ⇒ idempotente si ya `in_custody` del mismo comprador, si no **no se mueve** y se audita `order.settle_item_not_reserved`), liquidación direct_ship, `failAndRelease` (R-2), contracargo direct_ship y bóveda (no toca una pieza `reserved` por OTRA orden ⇒ `needsManual`). Webhook idempotente intacto. |
+| `jobs/order-reservation-sweep.service.ts` (nuevo), `jobs.module.ts`, `scheduler.service.ts` | Job **`order-reservation-sweep`** (encadena `sweepExpiredReservations` + rama legada) con `GUEST_ORDER_SWEEP_CRON` (default `*/15`); retira el repetible viejo `guest-order-sweep-daily` (best-effort) y el worker acepta `guest-order-sweep` como alias un release. `guest-order-sweep.service.ts` y su spec **borrados** (⚠️ el borrado quedó arrastrado en el commit de frontend `d8c0ee9` por índice compartido; `a95bfa4` restaura la coherencia: entre ambos HEAD no compila). |
+
+### Decisiones que conviene conocer (y por qué)
+
+- **Ventana medida de «una orden, dos PI»** (carrera **9/10** antes del arreglo): el que espera la puerta entra justo tras el commit del ganador, cuando éste aún está en `attachPaymentIntent` (fuera del tx) y la orden no tiene PI. `paymentIntentForReuse` ahora relee la orden hasta 2 s antes de recurrir al `attach` (que además usa la misma clave `pi-order-<id>`). Con Stripe real la clave de idempotencia ya devolvía el mismo PI; el doble no lo modelaba — ahora lo modela (`byIdempotencyKey`). Resultado: **10/10** (medido 5 veces: 3 corridas de control + 2 en el árbol vivo).
+- **`pg_advisory_xact_lock` de dos claves** con `::int` explícito: Prisma vincula un `number` como `bigint` y `(bigint, integer)` no existe (medido: `42883` en el primer E2E).
+- **Reserva propia vencida (aún no barrida)** ⇒ `409 ITEM_UNAVAILABLE` hasta el barrido (≤15 min), por la letra de §4-R.1 («viva» = `reservedUntil > now`). Sería money-safe sustituirla (B3 igual); no lo hice para no desviarme del contrato — decisión para el arquitecto si quiere mejorar esa ventana.
+- **Precio dentro de la transacción**: `priceCartForOrder` acepta un `db` (por defecto `this.prisma`); las lecturas de pricing siguen por su conexión (read-only). Coste: la puerta se sostiene unos ms más.
+- **Contracargo de bóveda**: la pieza normalmente está `in_custody` (no sale de `reserved`); el `where` solo excluye el caso «`reserved` por otra orden». Cambio mínimo, guardado por `count`.
+
+### Medido (comandos y totales)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Migración | `prisma validate` · `generate` · `migrate deploy` (tcg_b1) · `migrate diff` | válida; aplicada; diff limpio en las tablas tocadas |
+| Tipos / lint | `tsc --noEmit` · `npm run lint` | 0 errores (2 warnings preexistentes ajenos: `inventory`, `orders.service.ts:638 actorUserId`) |
+| Unitarios | `npx jest` (completo) | **280 suites / 4607 tests** verdes (+2 suites: `orders.reservation-owner.spec` 19 casos, `order-reservation-sweep.job.spec` 3; `guest-order-sweep.job.spec` borrada; 7 specs con mocks actualizados) |
+| Integración completa | `DATABASE_URL=<tcg_b1> E2E_STRICT_INFRA=true ./scripts/stack-native.sh test:integration` | primera pasada **29/30 suites · 443/446**: los 3 rojos eran contaminación de MI spec en `vault-shipments` (42 charizards `pending` del cliente × 3 corridas = +4 200 000 ¢); arreglado con `afterAll` de limpieza; `vault-shipments` + mi spec verdes después (33/33). Pasada final: ver informe. |
+| E2E §4-R | `checkout-reservation-owner.e2e-spec.ts` | **16/16**; **carrera N=5 × 10 corridas: 10/10** en cada ejecución (5 ejecuciones) |
+| Formato / secretos | `check-format-mix.sh 17ce9a9 HEAD` · `gen-published-secrets-manifest.sh --check` | rc=0 · rc=0 (118 valores; no añadí literales con forma de secreto) |
+
+**Mutaciones (copia `…/scratchpad/backend-B1/mut`, BD `tcg_b1_mut`, spec E2E completo por corrida; 3 corridas cada una):**
+
+| Mutación | Rojo | Qué falla |
+|---|---|---|
+| **m1** pre-scan sin eje de dueño (`reservedByOrder: {status:'pending'}` a secas) | **3/3** | (5) R-1: D obtiene la reserva de C |
+| **m2** `failAndRelease` con `where {id, status:'reserved'}` | **3/3** | (4b) R-2 defensa en profundidad. ⚠️ Con solo el caso (4) del contrato el mutante era **equivalente**: tras la sustitución O1 ya es `failed` y `failAndRelease` sale por `status !== 'pending'` antes del `where`; (4b) fuerza O1 a `pending` para medir el `where` |
+| **m3** `lockReservationGate` no-op | **3/3** | R-3: **0/10** corridas buenas en cada una (5 concurrentes ⇒ 409 para los perdedores, el síntoma original) |
+| **m4** seguir aunque la cancelación no confirmara `canceled` | **3/3** | R-4: se crea O2 con el pago en vuelo |
+| **m4b** `createPaymentIntent` antes de cancelar el viejo | **3/3** | (3) «la primera llamada a Stripe es `cancel`» + R-4 «sin PI nuevos» + sustitución de invitado |
+| control (copia sin mutar) | 0/3 | 16/16 verdes, 10/10 |
+
+Primer runner (con `-t`) invalidado y repetido: al seleccionar tests saltaba los pasos previos de la historia y el control salía rojo por eso — los rojos de m1/m4/m4b de esa tanda no contaban.
+
+### Desviaciones respecto al contrato
+
+- Ninguna de forma. Una de **alcance**: `OrderSummaryDTO` de §11 dice «DTOs de administración»; implementé `orderNumber`/`reservedUntil` en `GET /orders` y `GET /orders/:id` del cliente (§4-R.5, lo normativo); el listado del admin (`admin-orders.controller.ts`) ya emitía `orderNumber` y no le añadí `reservedUntil`.
+
+### Lo que dejo a otros
+
+- **frontend**: `200 reused` en `POST /checkout/session` y `/checkout/guest/session` (mismo body + `reused`, `reservedUntil`, `supersededOrderIds`; invitado además `checkoutToken` nuevo); `409 PAYMENT_IN_PROGRESS {orderId, orderNumber}`; `retryOfCheckoutToken` en el body del invitado; `orderNumber`/`reservedUntil` en `/orders`.
+- **devops**: el job se llama `order-reservation-sweep`; `GUEST_ORDER_SWEEP_CRON` sigue valiendo (DEVOPS_NOTES §… la cita como `guest-order-sweep`). Conteo previo de §4.48.7(1) (reservas en vuelo y órdenes de bóveda `pending` legadas) antes del deploy: **NO MEDIDO** por mí (sin BD de producción).
+- **B2**: nada compartido pendiente; `error-codes.ts` tiene los dos códigos.
+- **TECH_DEBT** (a petición del techlead): retirar la rama `reservedByOrderId IS NULL` de `reservationGuard` y la rama legada de `sweepStaleGuestOrders` cuando `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL` sea 0 en producción.
+
+### NO medido
+
+- Stripe real (modo prueba): el reuso con `retrievePaymentIntent` y la cancelación `processing` solo se midieron con el doble. `e2e-real.yml` lo cubre en CI.
+- El repetible viejo en el Redis de producción: `removeRepeatable` es best-effort y el alias del worker lo absorbe; no he mirado ese Redis.
+- Playwright de frontend.
+
+### v1.68.1 · B-1e — el QUOTE conoce la reserva propia (§4-R.5) y la propia VENCIDA es sustituible (§4-R.1/R.2) (backend B1 · 2026-09-11, medido)
+
+Commit **`e4d83dd`** (contrato `18f2b01`). Solo `orders/`.
+
+| Qué | Dónde | Regla |
+|---|---|---|
+| Quote con identidad | `priceCartForQuote(ids, owner?)` | `owner` = `{userId}` (customer) o `{orderId}` (invitado con `retryOfCheckoutToken`+`email` válidos vía `resolveRetryClaim`). Carga las órdenes `pending` propias que retienen piezas del carrito (`reservedItems some`); esas piezas van a `items[]` con `reservedByYou: true` en vez de `unavailableItems`. Sin identidad ⇒ conducta de hoy, literal. |
+| `ownReservation` | ídem | SIEMPRE presente (`null` si no hay). Describe la orden propia más reciente: `reservedUntil` = mínimo de sus piezas, `expired = reservedUntil <= now`, `coversCart` = una sola orden, su conjunto == carrito y todo retenido. |
+| Precios | `quote()` / guest `quote()` | `coversCart ∧ !expired` ⇒ líneas y `breakdown` **congelados** de la orden (`OrderItem.unitPriceCents`, `Order.*Cents`, guest + `shippingFeeCents`); si no, en lectura. `PRICE_PENDING` sobre válidos sin reserva propia (una propia sin precio en lectura cae a su congelado). |
+| DTO invitado | `GuestQuoteDto` | `retryOfCheckoutToken?`, `email?` con `@ValidateIf(token)` ⇒ token sin correo = `400 VALIDATION_ERROR`. |
+| Propia vencida (sesión) | `findOwnLiveReservations` | Ya no filtra `reservedUntil > now`: la vencida entra como propia con `heldAlive:false` ⇒ `isReusable` falso ⇒ sustitución (cancel+`canceled` → liberar/reservar/crear → `201 supersededOrderIds`); nunca reuso, nunca `409 ITEM_UNAVAILABLE`. |
+
+**Medido:** `tsc` 0 · lint 0 errores · `npx jest` **280 / 4607** verdes · integración completa (`stack-native.sh test:integration`, s3 arriba) **30/30 · 455/455** · E2E `checkout-reservation-owner` **24/24** con **R-3 10/10** y **R-9 (carrera sesión↔barrido sobre la propia vencida) 10/10** · `check-format-mix.sh 17ce9a9 HEAD` rc=0 · manifiesto rc=0.
+**Mutación m-quote** (copia, BD `tcg_b1_mut`, `ownOrders.length = 0` tras cargarlas ⇒ el quote ignora la reserva propia): **rojo 3/3** (5 casos R-8); control verde 3/3. ⚠️ Primer intento con `owner && false` **no compilaba** en ts-jest (narrowing) ⇒ «Tests: 0 total», que el runner contó como verde: invalidado; el runner ahora marca «0 total» como NO CONCLUYENTE.
+**Frontend:** `items[].reservedByYou?: true`, `ownReservation` siempre presente en los dos quotes; `retryOfCheckoutToken`+`email` en `POST /checkout/guest/quote`.
+
+### v1.68.1 · B-1f — dos rojos de CI que mi stack nativo no podía ver: el POOL de conexiones y la contaminación del portafolio (backend B1 · 2026-09-11, medido)
+
+Commits **`398c58a`** (pool) y **`b2d97cf`** (arnés). Origen: `backend-e2e` del run **34624748695** sobre `18f2b01` — 2 specs / 9 tests rojos, ambos míos. Mi medición local decía 455/455 porque `scripts/stack-native.sh` **no fija `connection_limit`** (default de Prisma = `num_cpus*2+1`); CI usa **5**.
+
+**1. El defecto real (mío, de dinero): un checkout necesitaba DOS conexiones.**
+Al mover el pricing dentro de la transacción (`a95bfa4`), cada checkout retenía la conexión de su `tx` y pedía otra para `PricingService.getReference` — servicio distinto, handle distinto. Con N concurrentes ≥ pool/2 el pool se agota y la petición muere con `Timed out fetching a new connection` ⇒ **500 en ruta de dinero**. `nextOrderNumber()` hacía lo mismo (`this.prisma` dentro de la `tx`). **No era un problema de test: era un problema de producción** que el test destapó (Railway también tiene pools pequeños).
+
+| Medición (`connection_limit=5&pool_timeout=10`, BD `tcg_b1`) | Tests | R-3 | Timeouts de pool |
+|---|---|---|---|
+| **Antes** (HEAD `e4d83dd`) | 11 rojos / 41 | **0/10** | 19 |
+| Solo pricing fuera de la `tx` | 3 rojos / 41 | **5/10** | 7 |
+| **Después** (+ `nextOrderNumber(tx)`) | **41/41** | **10/10** | **0** |
+
+- `priceCartOutsideGate(ids, owner?)`: pre-scan best-effort de reservas propias **fuera** del candado + pricing, con **un** reintento si choca con `ITEM_UNAVAILABLE` (ventana de ms; la decisión autoritativa sigue siendo la de dentro del candado).
+- `priceCartForOrder(ids, ownReserved?)`: sin `TransactionClient`; acepta la pieza `reserved` por una orden `pending` mía y, si su precio de catálogo ya no resuelve, usa su línea **congelada** (§4-R.2 regla 5).
+- `nextOrderNumber(db = this.prisma)`: por el `tx` en el checkout (`nextval` no es transaccional: un rollback deja un hueco, inocuo).
+- ⛔ **Ningún invariante se relaja:** la doble venta la corta el `updateMany` guardado de `reserveItems` (`status ∈ {listed,in_stock}` + `count===1`) dentro de la transacción, no la lectura de precios — que además es donde vivía antes de v1.68.
+
+**2. La contaminación del portafolio, cerrada por construcción.** Las piezas de bóveda que la suite reserva quedan `ownerType='customer'` y cuentan en el portafolio de su dueño; `vault-shipments` asierta el total EXACTO del de `E2E_USERS.customer` (+100 000 ¢ = un charizard). Mi `afterAll` de `7c7e418` lo limpiaba, pero con la suite caída a mitad no llegó a correr: *una limpieza que solo funciona cuando todo va bien no es una garantía*. Ahora el cliente C es un **usuario propio de la corrida** (`reserva.owner.<RUN>@e2e.local`, mismo `passwordHash` del fixture) ⇒ ningún usuario sembrado cambia de portafolio. Además `purgeSuitePieces(prefix)` (idempotente, 3 reintentos, no propaga fallo) corre en `beforeAll` (restos de corridas anteriores) y en `afterAll`.
+
+**Verificación (todo con `connection_limit=5`, el pool de CI):**
+
+| Qué | Resultado |
+|---|---|
+| Pareja `checkout-reservation-owner` + `vault-shipments`, mismo proceso y orden, **5 repeticiones** | **5/5 verdes**, 41/41 tests, **0** timeouts de pool |
+| R-3 (carrera N=5 × 10 corridas) y R-9 (sesión↔barrido × 10), 3 corridas del spec | **10/10 y 10/10** en las 3 |
+| Suite de integración **completa** (s3 arriba, `E2E_STRICT_INFRA=true`) | **30/30 suites · 455/455** · rc=0 · 0 timeouts |
+| Unitarios | **280 suites / 4607** verdes |
+| lint · format-mix (`17ce9a9 HEAD`) · manifiesto de secretos | 0 errores · rc=0 · rc=0 |
+
+**Mutaciones (copia `…/scratchpad/backend-B1/mut`, BD `tcg_b1_mut`, pool 5, spec completo, 3 corridas):** m1 **3/3**, m2 **3/3**, m3 **3/3** (R-3 1/10, 0/10, 0/10), m4 **3/3**, m4b **3/3**, m-quote **3/3**, y la nueva **m-pool** (volver a pedir el número con `this.prisma` dentro de la `tx`) **3/3** con R-3 4/10, 5/10 y 3/10 — el candado vigila ahora también esta regresión. Control verde 3/3.
+⚠️ **Una tanda invalidada y repetida:** mi runner pasaba los argumentos desalineados (`$2/$3` en vez de `$3/$4`), el parche no se aplicaba y las 8 mutaciones salieron «verdes» — o sea, corrí el control ocho veces. El runner ahora **aborta** si el patrón no casa exactamente una vez.
+
+**Ruido esperado, no defecto:** los `ERROR … order-reservation-sweep: NO se pudo cancelar el PaymentIntent … (estado succeeded)` del log de CI son la guarda B3 trabajando: cuando un test fija `cancelOutcome='throws-succeeded'`, el barrido recorre **todas** las reservas vencidas de la BD compartida (también de otras suites) y se niega a liberarlas. Es la conducta correcta (`skipped`), registrada a propósito.
+
+**Para devops:** `scripts/stack-native.sh` no fija `connection_limit`, así que una corrida local **no reproduce** el pool de CI. Medir con `?connection_limit=5&pool_timeout=10` en la URL es lo que destapó esto; si quieren, es un candidato a default del subcomando `test:integration` (no lo toco: `scripts/` no es mi ruta).
+
+---
+
+## v1.68.2 — gates Stream B: ronda de cierre (COND-1, I1–I5, H-2, H-3, SB-D7) (backend · 2026-09-11, medido)
+
+> **Qué es:** los hallazgos de techlead y QA sobre Stream B, corregidos y **medidos**. Todo lo que
+> sigue lleva su comando y su proporción; lo que no se midió lo dice. HEAD de partida `7766296`.
+> Herramienta de medición: `./scripts/stack-native.sh test:integration` (fija
+> `connection_limit=5&pool_timeout=10`, el pool de CI) sobre **BD virgen** (`tcg_bfix`, creada y
+> destruida por corrida). Mutaciones **siempre sobre copia** (`…/scratchpad/backend-Bfix/mut`),
+> nunca sobre el árbol vivo.
+
+### §68.2.1 · COND-1 (bloqueante de fusión) — el respaldo al precio congelado solo lo abre `PRICE_PENDING`
+
+`priceCartForOrder` (session: lo que el PaymentIntent cobra) y `priceCartForQuote` (lectura del
+carrito) atrapaban **toda** la clase `BusinessException` y caían a la línea congelada de la orden
+propia. Con el código de hoy la conducta es idéntica —`salePriceOf` solo puede lanzar
+`PRICE_PENDING`— así que esto **no arregla un síntoma: cierra un seam**.
+
+`PricingService.computeSalePriceForItem` es el **seam único donde vive el guardarraíl de venta**
+(§4.36.5b). El día que emita un código propio distinto de `PRICE_PENDING`, el `catch` ancho lo
+habría tragado **en silencio** justo para las piezas reservadas por el propio cliente: se cobrarían
+al precio congelado, esquivando el guardarraíl, sin un solo log.
+
+- **Cambio:** predicado `isPricePending(e)` a nivel de módulo (`orders.service.ts`), usado en los
+  dos sitios. **Cualquier otro código propaga** con su status HTTP.
+- **Candado:** `backend/test/orders.cond1-frozen-price-only-price-pending.spec.ts`, 7 casos.
+- **Medido:** 7/7 verde. **Mutación** «volver a `e instanceof BusinessException`» en los DOS
+  sitios ⇒ **3/3 tiradas en rojo** (5 passed / 2 failed; caen exactamente los dos casos de
+  «cualquier otro código propaga», uno por ruta). *El orquestador lo reverificó por su cuenta sobre
+  copia limpia: mismo resultado, 3/3.*
+
+### §68.2.2 · I1 — el mismo defecto de pool de v1.68.1, vivo en otra ruta
+
+`resolveChargebackInventory` (`POST /admin/orders/:id/chargeback-inventory`) llamaba
+`sellableStatusFor` **dentro** del `$transaction`, y ese método usa `this.prisma` y `this.pricing`
+—handles que **no** son el de la transacción en curso—. Cada pieza recuperada pedía una **segunda
+conexión** mientras la primera seguía retenida.
+
+- **Cambio:** `prescanSellableStatus(orderId, outcome)` resuelve el veredicto **antes** de abrir la
+  transacción, sobre **todas** las piezas del pedido (no solo las congeladas) ⇒ la transacción nunca
+  encuentra una pieza sin veredicto y **no hay ruta de respaldo** que pudiera reintroducir la
+  lectura de dentro. `sellableStatusFor` pasa a tomar el `id`.
+- **No relaja nada:** quien decide sigue siendo el `updateMany` guardado por `status` con
+  `count !== 1 ⇒ continue`, dentro de la `tx`.
+- **Candado:** 2 casos en `orders.chargeback-inventory.spec.ts` que miden **orden de invocación**
+  (`mock.invocationCallOrder`) — que es lo que decide si hay dos conexiones simultáneas—, no latencia.
+- **Medido:** 15/15. **Mutación** «devolver `this.sellableStatusFor(item.id)` al cuerpo del
+  `$transaction`» ⇒ **3/3 en rojo** (1 failed / 14 passed).
+
+### §68.2.3 · H-3 / I3 — Stripe dentro de la transacción: **medido**, y acotado con `timeout`
+
+`supersedeOwnOrder` cancela el PaymentIntent viejo **dentro** del `$transaction` que sostiene la
+conexión y el `pg_advisory_xact_lock` (`RESERVATION_TX_OPTIONS.timeout = 30_000`). El cliente de
+Stripe **no fijaba `timeout`**: el default del SDK son **80 000 ms** (medido:
+`new Stripe(...).getApiField('timeout') === 80000`), **2.6× el techo de la transacción** ⇒ *el
+proveedor decidía cuánto dura nuestra transacción*.
+
+**Instrumento nuevo:** `backend/test/integration/stripe-in-tx-pool.e2e-spec.ts` — doble de Stripe con
+**retardo inyectable** (`TestStripeService.cancelDelayMs`) + **N sustituciones concurrentes de
+clientes DISTINTOS** (claves de advisory lock distintas ⇒ **no se serializan en la puerta**:
+compiten de verdad por el pool). Se **salta** si la `DATABASE_URL` no trae `connection_limit`: sin
+pool acotado un verde ahí no significaría nada.
+
+| Escenario (`connection_limit=5`, `pool_timeout=10`) | `201` | `5xx` | timeouts de pool | pared | tiradas |
+|---|---|---|---|---|---|
+| N=6, latencia **2 s** (lo que pidió QA) | 6/6 | **0/6** | **0/6** | ~4.15 s | **3/3 iguales** |
+| N=6, latencia **12 s** (por encima del `pool_timeout`) | 5/6 | **1/6** | **1/6** | ~12.1 s | **3/3 iguales** |
+
+- La pared de ~4.15 s con 2 s de latencia es **dos oleadas de 2 s**: las conexiones **sí** se
+  retienen toda la latencia de Stripe. A N=6 no rompe; a 12 s sí, y el `500` es literalmente
+  `Timed out fetching a new connection from the connection pool (timeout: 10, connection limit: 5)`.
+  ⚠️ Ese timeout **no se ve en la respuesta** (el filtro global sanea el `500` a `INTERNAL_ERROR`,
+  que es lo correcto de cara afuera): la única fuente fiel es el log del servidor, y el instrumento
+  cuenta ahí.
+- **En los dos escenarios la propiedad de dinero aguanta:** cero piezas con dos órdenes `pending`
+  encima.
+- **Acotación aplicada:** `StripeService.TIMEOUT_MS = 8_000` explícito. Aritmética, explícita porque
+  es lo que convierte esto en cota: peor caso **3 intentos (1 + `maxNetworkRetries: 2`) × 8 s =
+  24 s < 30 s** ⇒ **la transacción siempre gana al SDK**. Ningún flujo feliz cambia.
+
+> **⚠️ PARA EL ARQUITECTO (§4.48.2) — lo que esto NO cierra.** La acotación reduce el peor caso de
+> 80 s a 8 s por intento, pero **una sustitución sigue reteniendo conexión + advisory lock durante
+> toda la latencia de Stripe** (hasta 24 s en el peor caso). Con N alto eso agota el pool igual: lo
+> medido arriba (1/6 a 12 s) es el mecanismo, y solo cambia la escala a la que aparece. **Sacar la
+> cancelación de la transacción es cambio de diseño y no lo hago yo**: «cancelar antes de crear» es
+> justo lo que impide dos PI cobrando la misma pieza (candado R-4), y moverlo exige decidir qué pasa
+> si la cancelación confirma y la transacción posterior falla. Los números para esa decisión son los
+> de la tabla.
+
+### §68.2.4 · H-2 — la suite de integración deja de depender del ORDEN
+
+Seis suites no llamaban a `seedE2E` (`fx-mode`, `auth-throttle`, `graded-estimate`,
+`graded-estimate-inv-d-inverse`, `graded-estimate-degrade-market-ref`,
+`price-reference-variant-unique`): pasaban porque **otra** suite lo había hecho antes en el mismo
+proceso (`maxWorkers: 1`, BD compartida).
+
+- **Cambio:** `ensureSeeded()` en `E2EHarness.create()` — el **ancestro común**, no seis `beforeAll`
+  que el séptimo volvería a olvidar. Idempotente y memoizada por proceso: si el fixture ya está,
+  **no-op**. **No sustituye** al `seedE2E` explícito de las suites que exigen fixture limpio
+  (`seedE2E` es destructivo y acotado).
+- **Medido, siempre sobre BD VIRGEN:**
+
+| Corrida | Resultado | Tiradas |
+|---|---|---|
+| `fx-mode` sola, con el arreglo | **19/19 verde** | 3/3 |
+| `fx-mode` sola, **MUTADA** (sin `ensureSeeded`) | **19/19 ROJO**, `login failed for admin@e2e.local: 401` | **3/3** |
+| Suite COMPLETA, orden por defecto | **31/31 suites · 458/458 tests · rc=0** | 1 |
+| Suite COMPLETA, **orden INVERTIDO** | **31/31 suites · 458/458 tests · rc=0** | 1 |
+
+> **Dato extra de la mutación, que agrava el hallazgo:** sin la siembra, la corrida **no solo falla:
+> se CUELGA**. El `beforeAll` de `fx-mode` revienta en el `login`, y su `afterAll` revienta antes de
+> `h.close()` ⇒ el servidor queda abierto y jest no termina. En CI eso no es un rojo rápido: es un
+> job colgado hasta el timeout del runner.
+>
+> El orden invertido se logró con un `testSequencer` de medición que vive **en el scratchpad, no en
+> el árbol** (`--testSequencer <ruta>`); las tres primeras suites de ese orden son tres de las seis
+> que no sembraban.
+
+### §68.2.5 · I2 — la carrera R-9 ahora es la que pide el contrato
+
+`checkout-reservation-owner.e2e-spec.ts` decía medir R-9 y medía otra cosa: (a) `Promise.all` sin
+escalonar muestrea **un** punto del entrelazado, y siempre el mismo, cuando §4-R.7 R-9 pide **5
+escalonados**; (b) aseveraba **`201` siempre**, cuando el contrato admite **dos** desenlaces —pieza
+`reserved` por O2, **o** `listed` con **O2 inexistente** y `409 ITEM_UNAVAILABLE`—. Exigir `201`
+habría teñido de rojo una corrida correcta y, peor, **no comprobaba lo único prohibido**.
+
+- **Ahora:** retardos 0/25/50/75/100 ms del barrido respecto de la sesión; se asevera la
+  **disyunción** del contrato **y** el **estado prohibido**: pieza `listed` (libre, revendible)
+  mientras O2 sigue `pending` con PI vivo — *eso* es doble venta.
+- **Medido:** **5/5** en cada una de las **3** corridas completas de la suite (orden normal, orden
+  invertido y la final), las cinco por el desenlace A (`201`/`reserved`). El desenlace B no se dio en
+  esta máquina; se admite **por contrato**, no por conveniencia.
+
+### §68.2.6 · I5 — un `409` que se contradecía a sí mismo
+
+Tercera rama de §M5-S (`throwStepRejected`): el `updateMany` guardado tocó ≠ 1 filas **pero** la
+relectura ve la fila **viva y en un estado admitido**. Caía en el mismo cuerpo que la fila terminal
+⇒ respondía *«is terminal or closed»* con un `details` que decía lo contrario (`status:
+'en_transito'`, `closedAt: null`) y **sin traza**.
+
+- **Ahora:** sigue siendo `409 CONFLICT` (misma guarda, cero escritura, §M5-S sin tocar), pero
+  distinguible: `details.reason: 'CONCURRENT_UPDATE'` (aditivo — las dos ramas de §M5-T conservan su
+  `details` de siempre, **sin** `reason`), mensaje propio y `logger.warn` con verbo, id y estado.
+- **Medido:** 40/40. **Mutación** «devolver la rama al `if` compartido con el terminal» ⇒ **3/3 en
+  rojo** (5 failed / 35 passed).
+- **⚠️ Para el arquitecto (no toco el contrato):** §M5-S dice *«terminal ∨ `closedAt ≠ null` ⇒
+  `CONFLICT`; **en otro caso** ⇒ `INVALID_TRANSITION`»*. La rama de la carrera es «otro caso» **en su
+  letra**, y el código responde `CONFLICT` desde v1.68 (con razón: no es un paso equivocado, y
+  decirlo mentiría). Esa desviación es **preexistente**; aquí solo se hace legible. Si el contrato
+  quiere zanjarla —`INVALID_TRANSITION`, o `CONFLICT` con `reason` declarado— es decisión suya.
+
+### §68.2.7 · SB-D7 — tres cifras que mentían
+
+| # | Sitio | Qué afirmaba sin medirlo | Ahora |
+|---|---|---|---|
+| 1 | `orders.service.ts` · `ownReservation.reservedUntil` | `?? 0` ⇒ `new Date(0)`: el DTO de §4-R.5 publicaba **«1970-01-01»** como vencimiento de una reserva LEGADA (sin `reservedUntil`), y el front lo pinta tal cual | `null` = **desconocido**. El veredicto no cambia: `expired` ya trataba `null` como vencida, igual que trataba el 0 |
+| 2 | `orders.service.ts` · `sweepExpiredReservations` | `swept += 1` subía aunque el `updateMany` tocara **cero** filas (la carrera normal: el webhook o una sustitución se adelantaron) ⇒ no se distingue «barrí 40 reservas» de «no había nada que barrer, 40 veces» | `swept` cuenta lo **realmente liberado**; las vueltas sin efecto salen por su propio `log`. La orden `pending` sigue quedando `failed` en ambos casos |
+| 3 | `disputes.controller.ts` · `resolve` | `await this.audit.log(...)` **desnudo** DESPUÉS del money-out: si el `INSERT` falla, un reembolso **ya consumado** responde `500` ⇒ el operador reintenta y pide un **segundo** abono | `.catch()` + `logger.error`, igual que ya hacía `payments.service.ts:124-140`. El guard `MONEY_OUT_FORBIDDEN` no se toca |
+
+- **Medido:** 27/27 verde (5 casos nuevos en `orders.reservation-owner.spec.ts` + 3 en
+  `disputes.audit-never-breaks-money-out.spec.ts`). **Mutaciones, 3/3 cada una:** `swept += 1`
+  incondicional (1 failed/24), volver al `?? 0` (1 failed/24), quitar el `.catch()` (1 failed/3).
+
+### §68.2.8 · Verificación del pase completo (árbol final)
+
+| Comprobación | Comando | Resultado |
+|---|---|---|
+| Lint | `npm run lint` (backend) | **rc=0** · 2 warnings **preexistentes** (`inventory.service.ts:638`, `sealed-product.service.ts:11`), idénticos al baseline de `7766296` |
+| Typecheck | `npm run typecheck` | **rc=0** |
+| Unitarios | `npx jest` | **282 suites · 4631 tests · rc=0** (desde 280 · 4607) |
+| Integración, BD **virgen**, pool de CI | `./scripts/stack-native.sh test:integration` | **31 suites · 458 tests · rc=0** |
+| Integración, BD virgen, **orden invertido** | ídem + `--testSequencer` (scratchpad) | **31 suites · 458 tests · rc=0** |
+| Mezcla formato/lógica | `bash scripts/check-format-mix.sh 17ce9a9 HEAD` | **rc=0** (131 archivos evaluados) |
+| Manifiesto de secretos | `bash scripts/check-secret-defaults.sh` | **rc=0** |
+| Pin del pool | `bash scripts/check-db-pool-limit.sh` | **rc=0** |
+
+**Ruido conocido de esta suite, no defecto:** los `ERROR … order-reservation-sweep: NO se pudo
+cancelar el PaymentIntent … (estado succeeded)` siguen siendo la guarda B3 trabajando (ver el
+bloque de B1). A ellos se suman ahora los `ERROR … Timed out fetching a new connection` del caso
+**techo** de `stripe-in-tx-pool`: son **el sujeto de la medición**, provocados a propósito con 12 s
+de latencia inyectada, y el test pasa **con** ellos.

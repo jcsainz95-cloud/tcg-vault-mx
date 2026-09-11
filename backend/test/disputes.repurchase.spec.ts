@@ -12,10 +12,14 @@ describe('DisputesService.resolve — repurchase NO revierte la carta al inventa
   let service: DisputesService;
 
   beforeEach(() => {
+    // v1.68 · §M8: `resolve` escribe con `updateMany` guardado por estado (no `update({where:{id}})`)
+    // y relee la fila para responder. El fake mínimo de aquí sólo mira QUÉ se escribe; la guarda
+    // (el `where` evaluado de verdad) se prueba en `disputes.resolve-guard.spec.ts`.
     prisma = {
       dispute: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'd1', inventoryItemId: 'item1' }),
-        update: jest.fn().mockResolvedValue({ id: 'd1', status: 'resuelta_recompra' }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'd1', inventoryItemId: 'item1', status: 'abierta' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        update: jest.fn(),
       },
       orderItem: { findFirst: jest.fn().mockResolvedValue({ unitPriceCents: 12500 }) },
       inventoryItem: { update: jest.fn(), findUnique: jest.fn() },
@@ -31,21 +35,22 @@ describe('DisputesService.resolve — repurchase NO revierte la carta al inventa
     expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
     expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
     // Dispute cerrada como recompra, con el precio pagado registrado.
-    expect(prisma.dispute.update).toHaveBeenCalledWith(
+    expect(prisma.dispute.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'd1' },
+        where: expect.objectContaining({ id: 'd1' }),
         data: expect.objectContaining({
           status: 'resuelta_recompra',
           resolution: expect.stringContaining('12500'),
         }),
       }),
     );
+    expect(prisma.dispute.update).not.toHaveBeenCalled();
   });
 
   it('reject → rechazada (sin tocar inventario)', async () => {
     await service.resolve('d1', 'reject', 'sin evidencia', 'admin1');
     expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
-    expect(prisma.dispute.update).toHaveBeenCalledWith(
+    expect(prisma.dispute.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'rechazada' }) }),
     );
   });

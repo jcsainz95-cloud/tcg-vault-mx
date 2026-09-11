@@ -24,8 +24,10 @@ describe('OrdersService.createSession — reserva atómica (fix #1)', () => {
 
   function buildService(sharedState: { available: boolean }) {
     const prisma: any = {
+      // v1.68 (§4-R.2): puerta por cliente (advisory lock) + pre-scan de reservas propias (vacío).
+      $executeRaw: jest.fn(async () => 1),
       inventoryItem: {
-        findMany: jest.fn().mockResolvedValue([item]),
+        findMany: jest.fn(async ({ where }: any) => (where?.status === 'reserved' ? [] : [item])),
         // updateMany atómico: solo "gana" si el item sigue disponible; luego lo marca tomado.
         updateMany: jest.fn(async ({ where }: any) => {
           if (where.status?.in?.includes('listed') && sharedState.available) {
@@ -111,8 +113,10 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
   function buildService(stripeReject: unknown) {
     const released: unknown[] = [];
     const prisma: any = {
+      // v1.68 (§4-R.2): puerta por cliente (advisory lock) + pre-scan de reservas propias (vacío).
+      $executeRaw: jest.fn(async () => 1),
       inventoryItem: {
-        findMany: jest.fn().mockResolvedValue([item]),
+        findMany: jest.fn(async ({ where }: any) => (where?.status === 'reserved' ? [] : [item])),
         updateMany: jest.fn(async ({ where, data }: any) => {
           if (data.status === 'reserved') return { count: 1 };
           if (data.status === 'listed') {
@@ -206,6 +210,8 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
   }
 
   const items = [{ id: 'item1', folio: 'INV-000001' }];
+  // v1.68 (§4-R, M-53): toda reserva nueva lleva DUEÑO (la orden) y VENCIMIENTO.
+  const RES = { orderId: 'order-1', reservedUntil: new Date('2026-09-11T13:00:00.000Z') };
 
   it('SIEMPRE exige `ownerType=platform` (cierra la ventana TOCTOU de la ruta de bóveda)', async () => {
     const { svc, tx, calls } = buildTx();
@@ -213,7 +219,7 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
       ownerType: 'customer',
       ownerUserId: 'user-1',
       ownershipStatus: 'pending',
-    });
+    }, RES);
     expect(calls[0].where).toEqual({
       id: 'item1',
       ownerType: 'platform',
@@ -227,9 +233,11 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
       ownerType: 'customer',
       ownerUserId: 'user-1',
       ownershipStatus: 'pending',
-    });
+    }, RES);
     expect(calls[0].data).toEqual({
       status: 'reserved',
+      reservedByOrderId: 'order-1',
+      reservedUntil: RES.reservedUntil,
       ownerType: 'customer',
       ownerUserId: 'user-1',
       ownershipStatus: 'pending',
@@ -238,8 +246,13 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
 
   it('con `null` (envío directo) NO escribe titularidad: la pieza sigue siendo de la plataforma', async () => {
     const { svc, tx, calls } = buildTx();
-    await svc.reserveItems(tx, items, null);
-    expect(calls[0].data).toEqual({ status: 'reserved' });
+    await svc.reserveItems(tx, items, null, RES);
+    // v1.68: sin titularidad, pero SÍ con dueño de la reserva (la orden) y vencimiento.
+    expect(calls[0].data).toEqual({
+      status: 'reserved',
+      reservedByOrderId: 'order-1',
+      reservedUntil: RES.reservedUntil,
+    });
     // Invariante §4-G.0-1: un pedido de invitado NUNCA convierte la pieza en bóveda de nadie.
     expect(calls[0].data).not.toHaveProperty('ownerType');
     expect(calls[0].data).not.toHaveProperty('ownerUserId');
@@ -249,7 +262,7 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
   it('`count !== 1` ⇒ ITEM_UNAVAILABLE con el folio de la pieza (mensaje operable)', async () => {
     const { svc, tx } = buildTx();
     tx.inventoryItem.updateMany = jest.fn(async () => ({ count: 0 }));
-    await expect(svc.reserveItems(tx, items, null)).rejects.toMatchObject({
+    await expect(svc.reserveItems(tx, items, null, RES)).rejects.toMatchObject({
       code: 'ITEM_UNAVAILABLE',
       message: expect.stringContaining('INV-000001'),
     });
@@ -264,6 +277,7 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
         { id: 'item2', folio: 'INV-000002' },
       ],
       null,
+      RES,
     );
     expect(calls.map((c) => c.where.id)).toEqual(['item1', 'item2']);
   });

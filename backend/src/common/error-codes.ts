@@ -168,6 +168,12 @@ export const ErrorCode = {
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',
   BILLING_PROFILE_REQUIRED: 'BILLING_PROFILE_REQUIRED',
+  // v1.68 (§4-R.2, P-59) — reintento del MISMO cliente con carrito DISTINTO (sustitución): el
+  // PaymentIntent del intento anterior no se pudo cancelar porque Stripe lo reporta `processing`,
+  // `succeeded` o `requires_capture` — el pago PUEDE o YA se consumó. ⛔ Cero escritura: no se
+  // libera, no se reserva, no se crea orden ni PI («un cobro por pieza», regla 1). El front lleva al
+  // cliente a ese pedido. `details: { orderId, orderNumber }`. 409. Audiencia: cliente.
+  PAYMENT_IN_PROGRESS: 'PAYMENT_IN_PROGRESS',
 
   // Inventory (M1) — WS-E hardening
   // Una pieza cuyo status de ORIGEN no es seguro para listar (reserved/in_custody/picking/
@@ -480,6 +486,13 @@ export const ErrorCode = {
   // Regla dura (criterio 114): **no existe** ninguna secuencia que lleve una solicitud a
   // `en_transito` sin haber pasado por `ofertada` y `aceptada`. `details.status`. 409.
   NOT_ACCEPTED: 'NOT_ACCEPTED',
+  // v1.68 (§M5-S, P-58) — `receive` / `verify` sobre una solicitud VIVA que no está en el paso
+  // predecesor (`receive` solo desde `en_transito`, `verify` solo desde `recibida`). GENÉRICO a
+  // propósito: un solo rótulo y un solo mensaje i18n para cualquier verbo con predecesor;
+  // `details.verb` lo especializa. ⛔ No se acuñan `NOT_IN_TRANSIT`/`NOT_RECEIVED`.
+  // Terminal/cerrada NO es esto: es `409 CONFLICT` (§M5-T gana).
+  // `details: { verb, from, allowedFrom: string[], idempotentOn }`. 409. Audiencia: operador.
+  INVALID_TRANSITION: 'INVALID_TRANSITION',
   // `guide/cancellation-done` sin tarea abierta. La cola **NO desaparece sola** (criterio 139): sale
   // únicamente por este endpoint, porque *una etiqueta comprada y olvidada es dinero tirado que nadie
   // ve*. `details: { guideCancellationPendingAt, guideCancellationDoneAt }`. 409.

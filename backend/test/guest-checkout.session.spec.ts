@@ -39,7 +39,10 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     get user() {
       throw new Error('INVARIANTE VIOLADO: el checkout de invitado consultó la tabla User');
     },
+    // v1.68 (§4-R.3): puerta por cliente (advisory lock) + pre-scan de reservas propias (vacío).
+    $executeRaw: jest.fn(async () => 1),
     inventoryItem: {
+      findMany: jest.fn(async () => []),
       updateMany: jest.fn(async ({ where, data }: any) => {
         itemUpdates.push({ where, data });
         if (data.status === 'reserved') {
@@ -136,6 +139,10 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       finish: 'normal' as const,
     })),
     unavailableItems: [],
+    // v1.68.1 (§4-R.5): sin identidad no hay reserva propia.
+    ownReservation: null,
+    reservedByYou: new Set<string>(),
+    frozenOrder: null,
   }));
   jest.spyOn(orders, 'nextOrderNumber').mockResolvedValue('TCG-000123');
   const svc = new GuestCheckoutService(
@@ -181,7 +188,12 @@ describe('GuestCheckoutService.createSession', () => {
     const { svc, itemUpdates } = buildService();
     await svc.createSession(validDto() as never);
     const reserve = itemUpdates.find((u) => u.data.status === 'reserved');
-    expect(reserve.data).toEqual({ status: 'reserved' });
+    // v1.68 (M-53): la reserva lleva DUEÑO (la orden) y VENCIMIENTO; sigue sin titularidad.
+    expect(reserve.data).toEqual({
+      status: 'reserved',
+      reservedByOrderId: 'order-guest-1',
+      reservedUntil: expect.any(Date),
+    });
     expect(reserve.data).not.toHaveProperty('ownerType');
     expect(reserve.data).not.toHaveProperty('ownerUserId');
     expect(reserve.data).not.toHaveProperty('ownershipStatus');
@@ -353,7 +365,8 @@ describe('GuestCheckoutService.quote', () => {
     // Comparte `OrdersService.priceCartForQuote` con POST /checkout/quote (v1.21.3): no hay
     // tabla de precios paralela para invitados (criterio 48b: comprar como invitado no cambia
     // condiciones). La regla de venta/precio es la MISMA que la ruta estricta de session.
-    expect(orders.priceCartForQuote).toHaveBeenCalledWith(['item-1']);
+    // v1.68.1 (§4-R.5): sin `retryOfCheckoutToken` no hay identidad ⇒ `owner` undefined (conducta de hoy).
+    expect(orders.priceCartForQuote).toHaveBeenCalledWith(['item-1'], undefined);
   });
 
   describe('v1.21.3-quote-prune — poda por ítem (§4-G.1)', () => {
@@ -431,6 +444,8 @@ describe('GuestCheckoutService.quote', () => {
     await svc.createSession(validDto() as never);
     // La poda vive SOLO en el quote. Crear un pedido con una pieza muerta DEBE seguir fallando
     // con 404/409 globales (anti double-sell, caso v de ARCHITECTURE §4.21h-1).
+    // v1.68.1: se precia FUERA de la transacción (`priceCartOutsideGate`, por el pool de conexiones);
+    // sin `retryOfCheckoutToken` no hay reserva propia que reclamar ⇒ la llamada es la de siempre.
     expect(orders.priceCartForOrder).toHaveBeenCalledWith(['item-1']);
     expect(orders.priceCartForQuote).not.toHaveBeenCalled();
   });

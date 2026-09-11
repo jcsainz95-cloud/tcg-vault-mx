@@ -37,6 +37,12 @@ import { matchesWhere } from './helpers/prisma-where';
  * | `count !== 1` → `count < 1` | «un `updateMany` que toca DOS filas también es 409» |
  * | mover la fecha de vuelta al `data` del status | «la fecha NO se re-sella» |
  * | quitar el `paidAt`/`closedAt` del CAS de `paySpei` | «una fila con `paidAt` NO se re-paga» |
+ *
+ * ⚠️ **v1.68 · §M5-S (P-58):** la guarda ya no es «por exclusión» sino **por PASO CORRECTO**
+ * (`receive` solo desde `en_transito`, `verify` solo desde `recibida`). Lo que esta suite sigue midiendo
+ * es **T** (terminal/cerrada ⇒ `409 CONFLICT`, cero escritura, T gana a la idempotencia, la fecha no se
+ * re-sella). La **matriz S-1 (11×2)** y la cadena **S-2** viven en `buylist.m5s-step-guard.spec.ts`
+ * (unit) y `test/integration/buylist-step-guard.e2e-spec.ts` (motor real).
  */
 
 const pii = new PiiCryptoService(new ConfigService({}));
@@ -123,6 +129,8 @@ describe('§M5-T · `receive`/`verify` — la guarda lleva LOS DOS términos, en
   for (const verb of ['receive', 'verify'] as const) {
     const destino = verb === 'receive' ? 'recibida' : 'verificacion';
     const fecha = verb === 'receive' ? 'receivedAt' : 'verifiedAt';
+    // v1.68 · §M5-S: cada verbo parte de SU predecesor (antes todo partía de `en_transito`).
+    const origen: SellRequestStatus = verb === 'receive' ? 'en_transito' : 'recibida';
 
     describe(`${verb} → ${destino}`, () => {
       it.each(SELL_REQUEST_TERMINAL_STATES.map((s) => [s]))(
@@ -167,25 +175,31 @@ describe('§M5-T · `receive`/`verify` — la guarda lleva LOS DOS términos, en
         });
       });
 
-      it.each(LIVE.map((s) => [s]))('desde el estado VIVO `%s` sí transiciona (exclusión, no matriz)', async (status) => {
-        // §M5-T punto 2: el guardado es POR EXCLUSIÓN. Se prohíbe transicionar lo CERRADO; **no** se
-        // enumera desde qué estados es legal cada verbo. Si alguien cablea una matriz de
-        // predecesores «deducida del camino feliz», este `each` cae en los estados que dejó fuera —
-        // y con él la cohorte legacy (`offerSentAt IS NULL`), que llega a `recibida`/`verificacion`
-        // sin pasar por `en_transito`.
-        const h = harness(baseRow({ status }));
-        await h.svc[verb]('sr-1');
-        expect(h.state.status).toBe(destino);
+      it('desde su predecesor SÍ transiciona; desde OTRO estado vivo ⇒ 409 INVALID_TRANSITION (S-1, detalle en m5s)', async () => {
+        // ⚠️ v1.68 · §M5-S — antes este `each` afirmaba que TODO estado vivo transicionaba («por
+        // exclusión, no matriz»). El contrato cambió: la matriz es la de PROJECT §P.1 y vive en
+        // `buylist.m5s-step-guard.spec.ts`. Aquí queda el contraste mínimo para que T y S no se
+        // contradigan: el predecesor pasa, un vivo ajeno es `INVALID_TRANSITION` (no `CONFLICT`).
+        const ok = harness(baseRow({ status: origen }));
+        await ok.svc[verb]('sr-1');
+        expect(ok.state.status).toBe(destino);
+        const ajeno = LIVE.find((s) => s !== origen && s !== destino)!;
+        const h = harness(baseRow({ status: ajeno }));
+        await expect(h.svc[verb]('sr-1')).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+        expect(h.state.status).toBe(ajeno);
       });
 
-      it('la guarda va en el `where` del `updateMany`, con LOS DOS términos y desde la constante', async () => {
-        const h = harness(baseRow());
+      it('la guarda va en el `where` del `updateMany`, con el PASO y `closedAt: null` (los dos términos de T siguen)', async () => {
+        // v1.68 · §M5-S: el término de estado es `in: [predecesor, destino]` (ya excluye los cuatro
+        // terminales) y `closedAt: null` va EXPLÍCITO — S no relaja T, la dice con más precisión.
+        const h = harness(baseRow({ status: origen }));
         await h.svc[verb]('sr-1');
-        expect(statusWrite(h.writes)!.where).toEqual({
-          id: 'sr-1',
-          status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
-          closedAt: null,
-        });
+        const w = statusWrite(h.writes)!.where;
+        expect(w).toEqual({ id: 'sr-1', status: { in: [origen, destino] }, closedAt: null });
+        for (const t of SELL_REQUEST_TERMINAL_STATES) {
+          expect(matchesWhere(baseRow({ status: t }), w)).toBe(false);
+        }
+        expect(matchesWhere(baseRow({ status: origen, closedAt: new Date() }), w)).toBe(false);
       });
 
       // -------------------------------------------------------------------------------------
@@ -196,7 +210,7 @@ describe('§M5-T · `receive`/`verify` — la guarda lleva LOS DOS términos, en
         // pueda saltar»* — con `[fecha]: null` en el `where`, dos llamadas concurrentes compiten en
         // el motor y solo una sella; con un `if` sobre una lectura previa, las dos leen `null` y las
         // dos escriben.
-        const h = harness(baseRow());
+        const h = harness(baseRow({ status: origen }));
         await h.svc[verb]('sr-1');
         expect(dateWrite(h.writes, fecha)!.where).toEqual({ id: 'sr-1', [fecha]: null });
         // Y NO viaja en el `data` de la transición: si volviera ahí, cada POST la movería.
@@ -224,7 +238,7 @@ describe('§M5-T · `receive`/`verify` — la guarda lleva LOS DOS términos, en
       it('⚠️ `count` DISTINTO DE 1 (no «al menos 1»): dos filas tocadas ⇒ 409 y no se responde', async () => {
         // Mutación clásica: `count !== 1` → `count < 1`. Un `where` que toca dos filas es un `where`
         // roto, y en una superficie que precede al dinero eso no puede responder `200`.
-        const h = harness(baseRow(), { extraRows: 1 });
+        const h = harness(baseRow({ status: origen }), { extraRows: 1 });
         await expect(h.svc[verb]('sr-1')).rejects.toMatchObject({ code: 'CONFLICT' });
       });
     });

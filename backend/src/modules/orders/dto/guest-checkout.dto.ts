@@ -13,6 +13,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { GUEST_MAX_ITEMS } from '../guest-checkout.constants';
@@ -53,6 +54,16 @@ export class GuestQuoteDto {
 
   /** Opcional en el quote (la tarifa es fija y nacional); si viene, se valida MX. */
   @IsOptional() @ValidateNested() @Type(() => GuestAddressInput) shippingAddress?: GuestAddressInput;
+
+  /** v1.68.1 (§4-R.5): reclama la reserva PROPIA (read-only). Nunca en URL. */
+  @IsOptional() @IsString() @MaxLength(200) retryOfCheckoutToken?: string;
+
+  /** v1.68.1: OBLIGATORIO si viaja el token (regla §4-R.3); token sin correo ⇒ 400 VALIDATION_ERROR. */
+  @ValidateIf((o: GuestQuoteDto) => o.retryOfCheckoutToken !== undefined)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsEmail()
+  @MaxLength(254)
+  email?: string;
 }
 
 export class GuestSessionDto {
@@ -89,6 +100,13 @@ export class GuestSessionDto {
 
   /** Si se envía DEBE ser `direct_ship`; `vault` → 422 VAULT_REQUIRES_ACCOUNT (upsell, no error). */
   @IsOptional() @IsIn(['vault', 'direct_ship']) fulfillmentMode?: 'vault' | 'direct_ship';
+
+  /**
+   * v1.68 (§4-R.3): el `checkoutToken` de un intento anterior ⇒ el invitado RECUPERA su propia
+   * reserva (200 reused / 201 con sustitución). Sin él, conducta de hoy, literal. Nunca en URL; solo
+   * en este body. Mismo tope que `GuestTrackDto.token`.
+   */
+  @IsOptional() @IsString() @MaxLength(200) retryOfCheckoutToken?: string;
 }
 
 export class GuestTrackDto {

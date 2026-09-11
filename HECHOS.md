@@ -18,6 +18,7 @@
 | **Las claves de PRUEBA de Stripe YA ESTÁN en los secrets de GitHub** (`STRIPE_TEST_SECRET_KEY`, `STRIPE_TEST_PUBLISHABLE_KEY`), desde el **2026-09-07**. | 2026-09-10, con captura | ⛔ **NO se le vuelven a pedir.** El gate de dinero **puede correr**. Ver el error de medición abajo. |
 | **El repositorio es PÚBLICO.** | briefing original | Ningún secreto, ni de mentira, puede vivir en el árbol. |
 | **La contraseña temporal (reseteo por el admin) OBLIGA a cambiarla antes de dejar operar.** Decisión textual: «Que obligue a cambiarla». | 2026-09-11 (sesión 2, al presentarle P-75) | `mustChangePassword` pasa de aviso sin consecuencia a **bloqueo**: el contrato define el guard y el error (`docs/API_CONTRACT.md`, Stream A); el frontend lleva al usuario a la pantalla de cambio y no le deja esquivarla. No se vuelve a preguntar. |
+| **La verificación de identidad (KYC) es un acto del dueño, no del operador.** Decisión textual (2026-09-11): «solo yo las veo, con motivo de rechazo, y quita los topes pero siempre quiero poderlas verificar para checar con dirección de envío». | 2026-09-11 (sesión 2, al medir que nadie puede abrir una INE) | (a) Las imágenes de INE las ve **solo el super administrador**, nunca el operador de bóveda. (b) Rechazar exige **motivo**, y el motivo le llega al cliente para que vuelva a subirla. (c) Los **topes dejan de mostrarse al cliente** (pantalla y mensaje de error): son política interna. (d) La vista de revisión muestra la INE **junto al nombre y las direcciones del cliente**, para cotejar identidad contra destino de envío. No se re-pregunta. |
 
 ## ⚠️ ERROR DE MEDICIÓN DEL EQUIPO — «los tres flujos de dinero nunca se han ejecutado»
 
@@ -46,3 +47,11 @@ orquestador el 2026-09-10.
   de Vercel). Fusionar a `main` **no publica**; `git push origin production` **sí**. Resuelve la contradicción entre
   `docs/DEVOPS_NOTES.md:2280` (decía `main`) y `:3313` (decía `production`): gana `:3313`. `vercel.json` construye
   ambas ramas, por eso `main` genera una vista previa. Árbol de `production` == árbol de `main` (`git diff` vacío).
+
+- **Tres roles del equipo no pueden commitear nunca, por diseño de sus herramientas** (medido 2026-09-11:
+  `.claude/agents/` — `arquitecto`, `ux-ui` y `product-owner` tienen Read/Grep/Glob/Write/Edit y **no** Bash;
+  `backend`, `frontend`, `devops`, `qa`, `techlead`, `pentester` y `seguridad` sí la tienen). Consecuencia
+  operativa para el orquestador: cuando uno de esos tres entrega, **su trabajo queda suelto en el árbol y el
+  commit lo lanza el orquestador**, con `git commit -- <sus rutas>` y un mensaje que diga que lo escribió el
+  agente y que el orquestador lo verificó. No es un incumplimiento de O-10 por parte del agente: es que no
+  tiene la herramienta. Esperar su commit es esperar algo que no puede ocurrir.
