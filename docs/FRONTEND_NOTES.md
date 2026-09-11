@@ -16158,3 +16158,15 @@ payments); **B-1b** (`orders.service` / `guest-checkout.service`: pre-scan, reus
   el simulador deja de reclamar con el viejo. Si el backend mantuviera válido el viejo, nada cambia para el front.
 - Playwright `m5-transitions` 2/2 sale de la corrida 3 (arnés acotado); las corridas 1 y 2 fallaron por aserciones del
   spec, no por el producto (snapshots en `test-results/`).
+
+### 6. Añadido al cierre — B-1b aterrizó (`a95bfa4`); mediciones contra el backend REAL (stack nativo, `verify:head` ✔ `c769db5`, 2026-09-11 16:45)
+
+| Qué | Medición (HTTP contra `:3099`, cliente `customer@e2e.local` / `admin@e2e.local` del seed) |
+|---|---|
+| §M5-S por HTTP | `POST /admin/buylist/<cotizada>/receive` ⇒ **`409 INVALID_TRANSITION`** `details: { verb: "receive", from: "cotizada", allowedFrom: ["en_transito"], idempotentOn: "recibida" }`; `verify` ídem con `allowedFrom: ["recibida"]`; la fila **sigue `cotizada`** (cero escritura). Es exactamente la forma que `M5View.invalidTransitionMessage` consume ⇒ el copy con rótulos sale con `details` reales. **UI real de M5 no medida** (solo unit + forma HTTP) |
+| §4-R.5 `GET /orders` / `GET /orders/:id` | **`orderNumber: "TCG-000029"`** en lista y detalle; `reservedUntil` **ausente** en una orden `failed` (solo viaja con `pending`, como dice el contrato). ⇒ la columna PEDIDO de F-3 pinta folio real contra backend real |
+| §4-R.2 reuso / sustitución / `PAYMENT_IN_PROGRESS` | **NO MEDIBLE en este entorno**: `POST /checkout/session` ⇒ `503 PAYMENT_PROVIDER_UNAVAILABLE` («the reservation was released») porque no hay `STRIPE_TEST_SECRET_KEY` exportada (`stack-native.sh up --gate` lo marcó: «falta COBRO»). La orden queda `failed` y el quote posterior trae `unavailableItems: []` (la reserva se liberó). Lo cerraría: exportar la clave de prueba y repetir `POST /checkout/session` ×2 (esperado `201` + `200 reused` con el mismo `paymentIntentId`) y luego `checkout-retry.spec.ts` |
+| Smoke `@real` `checkout.spec.ts` (`E2E_BASE_URL=http://localhost:3000 E2E_REAL=1`) | **1 rojo**, clasificado como ENTORNO: el modal no abre porque la session responde `503` (el propio spec lo advierte en su cabecera). No es del front ni de B-1b |
+| Petición 1 de §69.4 (quotes con reserva propia) | Sigue abierta; no se pudo medir porque sin Stripe no hay reserva viva que re-cotizar |
+
+Stack apagado al terminar (`stack-native.sh down`; PG/Redis quedan como los dejó `up`).
