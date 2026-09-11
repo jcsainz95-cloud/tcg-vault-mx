@@ -15,6 +15,8 @@ import {
   paySpeiBuylist,
 } from '@/lib/api';
 import { useRole } from '@/lib/role';
+import { ApiClientError } from '@/lib/api-client';
+import { getBadgeSpec } from '@/lib/status-map';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
@@ -201,6 +203,8 @@ export function M5View() {
   // ⚠️ Back-office: quien lee es el OPERADOR (DESIGN_SYSTEM §26). Aquí caen `REQUEST_NOT_RECEIVED`
   // y `APPROVED_PRICE_CAP_EXCEEDED` de la mesa de verificación, que **solo** existen de este lado.
   const getError = useErrorMessage('operator');
+  const tTransition = useTranslations('admin.m5.transition');
+  const tRoot = useTranslations();
   // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
   const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
 
@@ -227,7 +231,36 @@ export function M5View() {
     refresh();
   }
   function fail(requestId: string, error: unknown) {
-    setFeedback({ requestId, kind: 'error', message: getError(error) });
+    setFeedback({ requestId, kind: 'error', message: invalidTransitionMessage(error) ?? getError(error) });
+  }
+
+  /**
+   * `409 INVALID_TRANSITION` (contrato **§M5-S**, v1.68): `receive`/`verify` exigen el PASO
+   * correcto, no solo «fila viva». `details: { verb, from, allowedFrom, idempotentOn }` y el
+   * mensaje dice **desde qué estado sí se permite** — no el genérico, que en una cola de
+   * back-office se lee como «la app falló» y se reintenta. Los rótulos de estado salen del MISMO
+   * mapa que pinta el badge (`status-map`), nunca el enum crudo (DESIGN_SYSTEM §9.2). Si el
+   * servidor no mandó lo necesario se pinta la base: no se inventa un estado.
+   */
+  function invalidTransitionMessage(error: unknown): string | null {
+    if (!(error instanceof ApiClientError) || error.code !== 'INVALID_TRANSITION') return null;
+    const d = error.details ?? {};
+    const verb = d.verb === 'receive' || d.verb === 'verify' ? d.verb : null;
+    const label = (status: unknown): string | null => {
+      if (typeof status !== 'string' || status === '') return null;
+      const key = getBadgeSpec('sellRequest', status).i18nKey;
+      return tRoot.has(key) ? tRoot(key) : null;
+    };
+    const from = label(d.from);
+    const allowed = Array.isArray(d.allowedFrom) ? d.allowedFrom.map(label) : [];
+    if (!verb || !from || allowed.length === 0 || allowed.some((l) => l === null)) {
+      return tTransition('invalidGeneric');
+    }
+    return tTransition('invalid', {
+      verb: tTransition(`verb.${verb}`),
+      from,
+      allowedFrom: allowed.join(tTransition('allowedFromJoin')),
+    });
   }
 
   // --- Recibir / Verificar (contrato POST /admin/buylist/:id/receive|verify) ---
@@ -988,16 +1021,23 @@ export function M5View() {
                     {deskFor === req.id ? tDesk('close') : tDesk('open')}
                   </Button>
                 )}
-                {req.status === 'cotizada' && (
+                {/* §M5-S (v1.68, cierre de P-58): «Marcar recibida» SOLO en `en_transito` — el
+                    único predecesor legítimo de `recibida` (`aceptada → confirm-shipment →
+                    en_transito → receive`). Antes colgaba de `cotizada`: el paso equivocado,
+                    que saltaba al 5 sin precio pactado ni aceptación. Desde `recibida` el
+                    servidor responde `200` idempotente, así que el botón desaparece: no hay
+                    nada que repetir. Candado S-3: test de render por los 11 estados. */}
+                {req.status === 'en_transito' && (
                   <Button
                     size="sm"
-                    variant="secondary"
+                    variant="primary"
                     loading={receiveMutation.isPending && receiveMutation.variables === req.id}
                     onClick={() => receiveMutation.mutate(req.id)}
                   >
                     {t('receive')}
                   </Button>
                 )}
+                {/* §M5-S: «Verificar» SOLO en `recibida` (su único predecesor). */}
                 {req.status === 'recibida' && (
                   <Button
                     size="sm"
