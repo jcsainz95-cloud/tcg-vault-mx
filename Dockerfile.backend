@@ -19,7 +19,7 @@
 # =============================================================================
 
 # ---- Base ----
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 # SEGURIDAD (2026-08-18): `apk upgrade` ANTES de instalar nada — ver la nota gemela
 # en Dockerfile.frontend. La imagen base trae los paquetes de Alpine congelados al
 # publicarse el tag y arrastra CVEs de la capa OS ya parcheados upstream. Esta imagen
@@ -57,7 +57,7 @@ RUN npm run build
 FROM base AS runtime
 ENV NODE_ENV=production
 # SEGURIDAD (2026-08-17): npm FUERA del runtime.
-# `node:20-alpine` trae npm empaquetado con SUS PROPIAS dependencias en
+# `node:24-alpine` trae npm empaquetado con SUS PROPIAS dependencias en
 # /usr/local/lib/node_modules/npm/node_modules/ (tar, brace-expansion,
 # cross-spawn, minimatch, picomatch, sigstore...). Trivy las reporta en la
 # sección Node.js (node-pkg) como HIGH/CRITICAL y NO se pueden arreglar desde
