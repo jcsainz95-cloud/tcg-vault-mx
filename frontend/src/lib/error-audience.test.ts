@@ -12,6 +12,9 @@ import {
   ERROR_SCOPE_AUDIENCE,
   errorMessageKeys,
   resolveErrorAudience,
+  STREAM_B_ERROR_CODES,
+  STREAM_B_ERROR_VARIANTS,
+  STREAM_B_RETIRED_COPY_KEYS,
 } from './error-audience';
 
 /*
@@ -280,6 +283,91 @@ describe('§26/§27 · LITERALIDAD: el copy del catálogo es el que dice DESIGN_
       }
     },
   );
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * **STREAM B · los dos códigos que se resolvían EN LA VISTA** (hallazgo SB-D5/I3 del techlead).
+ *
+ * `409 INVALID_TRANSITION` (§M5-S) lo armaba `M5View` a mano —incluido su propio rótulo de
+ * estado— y `409 PAYMENT_IN_PROGRESS` (§4-R.2) leía su copy de `checkout.retry.*`. Ninguno de los
+ * dos pasaba por `error.*`, así que **ningún candado los miraba**: ni existencia, ni paridad es/en,
+ * ni «no lo resuelvas otra vez en la pantalla siguiente».
+ *
+ * Estos tres candados miden cosas distintas y ninguno tapa al otro:
+ *   1. EXISTENCIA y PARIDAD — base y variantes en los DOS catálogos, con texto de verdad.
+ *   2. CABLEADO — la variante `_WITH_DETAILS` sin entrada en `DETAILED_ERRORS` sería copy muerto:
+ *      se lee el fuente de `QueryState` y se exige la entrada.
+ *   3. NO-REGRESO — las claves viejas no vuelven a existir (si vuelven, vuelve la copia).
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe('Stream B · `INVALID_TRANSITION` y `PAYMENT_IN_PROGRESS` viven en el catálogo, no en la vista', () => {
+  it.each(CATALOGS)('%s: base y variantes, en los dos catálogos y con texto de verdad', (locale, catalog) => {
+    for (const code of STREAM_B_ERROR_CODES) {
+      const base = value(catalog, `error.${code}`);
+      expect(base, `${locale}: falta error.${code}`).toBeDefined();
+      expect(base!.length, `${locale}: error.${code} vacío`).toBeGreaterThan(20);
+      for (const variant of STREAM_B_ERROR_VARIANTS[code] ?? []) {
+        const text = value(catalog, `error.${variant}`);
+        expect(text, `${locale}: falta error.${variant}`).toBeDefined();
+        expect(text!.trim().length, `${locale}: error.${variant} vacío`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('es y en no son la misma cadena (una traducción a medias es un catálogo a medias)', () => {
+    for (const code of STREAM_B_ERROR_CODES) {
+      expect(value(es, `error.${code}`), `error.${code} sin traducir`).not.toBe(
+        value(en, `error.${code}`),
+      );
+    }
+  });
+
+  it('`INVALID_TRANSITION` está CABLEADO en `DETAILED_ERRORS` (su `_WITH_DETAILS` no es copy muerto)', () => {
+    // Se lee el fuente porque la tabla es un objeto privado de `QueryState`: lo que importa es que
+    // el código tenga entrada, no cómo la escriba.
+    const src = readFileSync(join(__dirname, '..', 'components', 'ui', 'QueryState.tsx'), 'utf8');
+    const table = src.slice(src.indexOf('const DETAILED_ERRORS'));
+    expect(table.length, 'no se encontró DETAILED_ERRORS en QueryState.tsx').toBeGreaterThan(100);
+    expect(/^\s{2}INVALID_TRANSITION: \(/m.test(table)).toBe(true);
+    // Anti-vacuidad: el mismo patrón reconoce una entrada que SÍ existía desde antes.
+    expect(/^\s{2}ITEMS_NOT_DECIDED: \(/m.test(table)).toBe(true);
+  });
+
+  it('las claves viejas NO vuelven: el copy de estos códigos no se resuelve en la pantalla', () => {
+    for (const [locale, catalog] of CATALOGS) {
+      const offenders = STREAM_B_RETIRED_COPY_KEYS.filter((k) => value(catalog, k) !== undefined);
+      expect(offenders, `${locale}: copy de error de vuelta en la vista: ${offenders.join(', ')}`).toEqual([]);
+    }
+  });
+
+  it('y ninguna VISTA arma el mensaje por su cuenta (ni `M5View`, ni el aviso del checkout)', () => {
+    // El código se sigue MIRANDO en las vistas —para elegir qué afordancia pintar— pero el TEXTO
+    // sale del catálogo. Lo que este candado prohíbe es volver a traducir el código en la vista.
+    const files = [
+      join(__dirname, '..', 'app', '[locale]', '(admin)', 'admin', 'm5', 'M5View.tsx'),
+      join(__dirname, '..', 'app', '[locale]', '(storefront)', 'checkout', 'CheckoutRetryNotice.tsx'),
+    ];
+    for (const file of files) {
+      const src = readFileSync(file, 'utf8');
+      const offenders = STREAM_B_RETIRED_COPY_KEYS.filter((k) => {
+        // La COLA tras el namespace con el que la vista abría sus traducciones
+        // (`useTranslations('admin.m5.transition')` ⇒ `t('verb.receive')`). Se usa la cola y no la
+        // hoja porque `receive`/`verify` son TAMBIÉN los rótulos legítimos de los dos botones de
+        // M5 (`t('receive')`): prohibir la hoja pondría rojo un texto correcto.
+        const tail = k.replace(/^(admin\.m5\.transition|checkout\.retry)\./, '');
+        // ⚠️ `checkout.retry` SIGUE siendo un namespace legítimo de esa pantalla (sus afordancias:
+        // «Ver pedido», «Reintentar en un momento»), así que aquí solo se prohíbe la CLAVE. El
+        // namespace `admin.m5.transition` sí se prohíbe entero: no tenía más inquilinos que este
+        // copy de error.
+        return (
+          new RegExp(`\\(\\s*['\`]${tail.replace('.', '\\.')}['\`]`).test(src) ||
+          src.includes("useTranslations('admin.m5.transition')")
+        );
+      });
+      expect(offenders, `${file}: sigue resolviendo copy de error en la vista`).toEqual([]);
+    }
+  });
 });
 
 describe('§26.2 · el SELECTOR: `code` + discriminador → destinatario', () => {

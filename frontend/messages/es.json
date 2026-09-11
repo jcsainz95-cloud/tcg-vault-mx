@@ -541,8 +541,6 @@
       "reservedUntil": "Reservado para ti hasta las {time} (hora de la Ciudad de México).",
       "remaining": "Tiempo restante: {remaining}",
       "expired": "La reserva venció. Al pagar volveremos a intentar reservar estas piezas.",
-      "paymentInProgress": "Tu intento anterior ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa ese pedido antes de reintentar.",
-      "paymentInProgressGuest": "Tu intento anterior con este correo ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa tu correo o espera un momento antes de reintentar.",
       "viewOrder": "Ver pedido {orderNumber}",
       "retrySoon": "Reintentar en un momento",
       "ownActive": "Este carrito ya está reservado a tu nombre ({orderNumber}): al pagar recuperas ese mismo pedido, sin cobro doble.",
@@ -1743,15 +1741,6 @@
           "latestStatus": "Último estado",
           "note": "Es la lista de gente a la que le debemos una respuesta. La más antigua va primero."
         }
-      },
-      "transition": {
-        "verb": {
-          "receive": "«Marcar recibida»",
-          "verify": "«Iniciar verificación»"
-        },
-        "invalid": "Esta solicitud está en «{from}»: {verb} solo aplica cuando está en {allowedFrom}. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
-        "invalidGeneric": "Esta acción no aplica al paso actual de la solicitud. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
-        "allowedFromJoin": " o "
       }
     },
     "m8": {
@@ -3307,7 +3296,16 @@
     "OFFER_EXPIRED": "El plazo para responder esta oferta ya venció, así que no pudimos registrar tu respuesta.",
     "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta.",
     "PHONE_REQUIRED": "Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.",
-    "BOUNTY_TARGET_REQUIRED": "Ponle un objetivo: hasta cuántas piezas quieres pagar ese precio. Sin objetivo, el bounty nunca frena la compra. No se guardó nada."
+    "BOUNTY_TARGET_REQUIRED": "Ponle un objetivo: hasta cuántas piezas quieres pagar ese precio. Sin objetivo, el bounty nunca frena la compra. No se guardó nada.",
+    "INVALID_TRANSITION": "Esta acción no aplica al paso actual de la solicitud. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
+    "INVALID_TRANSITION_WITH_DETAILS": "Esta solicitud está en «{from}»: {verb} solo aplica cuando está en {allowedFrom}. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
+    "INVALID_TRANSITION_VERB": {
+      "receive": "«Marcar recibida»",
+      "verify": "«Iniciar verificación»"
+    },
+    "INVALID_TRANSITION_ALLOWED_FROM_JOIN": " o ",
+    "PAYMENT_IN_PROGRESS": "Tu intento anterior ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa ese pedido antes de reintentar.",
+    "PAYMENT_IN_PROGRESS_GUEST": "Tu intento anterior con este correo ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa tu correo o espera un momento antes de reintentar."
   },
   "payment": {
     "title": "Pago",

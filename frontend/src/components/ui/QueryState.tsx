@@ -109,6 +109,38 @@ const DETAILED_ERRORS: Record<
     return { count: ids.length };
   },
 
+  /**
+   * `409 INVALID_TRANSITION` de los verbos de §M5-S (`POST /admin/buylist/:id/receive|verify`,
+   * contrato v1.68 · `details: { verb, from, allowedFrom, idempotentOn }`). **Cero escritura**: el
+   * servidor exige el PASO correcto, no solo «fila viva».
+   *
+   * ⚠️ Vivía resuelto DENTRO de `M5View` (`invalidTransitionMessage`), que es justo lo que §26
+   * vino a borrar: copy de error resuelto a mano en una vista es copy que nadie compara con nada y
+   * que la pantalla siguiente vuelve a escribir distinto (SB-D5/I3 del techlead). Aquí se resuelve
+   * como todos los demás: `error.INVALID_TRANSITION[_WITH_DETAILS]` del catálogo.
+   *
+   * Los rótulos de estado salen del MISMO mapa que pinta el badge (`status-map`), nunca el enum
+   * crudo (DESIGN_SYSTEM §9.2); el verbo, de `error.INVALID_TRANSITION_VERB.<verb>`. Si falta
+   * cualquiera de las piezas —verbo desconocido, estado sin rótulo, `allowedFrom` vacío— se
+   * devuelve `null` y se pinta la base: **no se inventa un estado ni un verbo**.
+   */
+  INVALID_TRANSITION: (d, t) => {
+    const verb = d.verb === 'receive' || d.verb === 'verify' ? d.verb : null;
+    const label = (status: unknown): string | null => {
+      if (typeof status !== 'string' || status === '') return null;
+      const key = getBadgeSpec('sellRequest', status).i18nKey;
+      return t.has(key) ? t(key) : null;
+    };
+    const from = label(d.from);
+    const allowed = Array.isArray(d.allowedFrom) ? d.allowedFrom.map(label) : [];
+    if (!verb || !from || allowed.length === 0 || allowed.some((l) => l === null)) return null;
+    return {
+      verb: t(`error.INVALID_TRANSITION_VERB.${verb}`),
+      from,
+      allowedFrom: allowed.join(t('error.INVALID_TRANSITION_ALLOWED_FROM_JOIN')),
+    };
+  },
+
   BUYLIST_LIMIT_EXCEEDED: (d, _t, locale) => {
     const cap = d.capCents;
     const wouldBe = d.wouldBeCents;

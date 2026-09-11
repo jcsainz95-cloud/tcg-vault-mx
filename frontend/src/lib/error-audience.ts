@@ -149,6 +149,62 @@ export const DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES = [
   'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
 ] as const;
 
+/**
+ * **STREAM B — los dos códigos del reintento de checkout y de las transiciones de M5** (contrato
+ * v1.68: §4-R.2 `409 PAYMENT_IN_PROGRESS`, §M5-S `409 INVALID_TRANSITION`).
+ *
+ * ⚠️ **Por qué están aquí y no en las vistas.** Nacieron resueltos DENTRO de la pantalla que los
+ * recibe: `M5View` armaba a mano el mensaje de `INVALID_TRANSITION` (con su propio rótulo de
+ * estado) y `PaymentInProgressNotice` leía su copy de `checkout.retry.*`. Las dos cosas son la
+ * misma clase de defecto que §26 vino a borrar — *copy de un código del contrato escrito donde nadie
+ * lo compara con nada*: la pantalla siguiente que reciba el mismo `409` lo escribirá distinto, y
+ * ningún candado dirá nada. (Hallazgo SB-D5/I3 del techlead.) Ahora viven en `error.<CODE>` como
+ * todos, y el candado de `error-audience.test.ts` los recorre.
+ *
+ * **Ninguno lleva `_OPERATOR`** y no es un olvido: `INVALID_TRANSITION` **solo** existe en rutas de
+ * admin (§26.1 ⇒ la base YA es la del operador) y `PAYMENT_IN_PROGRESS` **solo** llega al
+ * comprador. Su desdoble real es otro —cuenta vs. invitado (`_GUEST`)— porque lo que cambia es a
+ * **dónde** puede ir el lector (su pedido, o su correo), no quién incumple la regla.
+ *
+ * ⚠️ **Su copy NO está en las tablas de §26/§27** (medido: `grep -c 'INVALID_TRANSITION\|PAYMENT_IN_PROGRESS'
+ * docs/DESIGN_SYSTEM.md` ⇒ 0), así que el candado de LITERALIDAD no los alcanza: las cadenas son las
+ * que ya estaban, movidas verbatim. Está pedido a ux-ui que las adopte en su tabla (ver
+ * `docs/FRONTEND_NOTES.md` §70); el día que lo haga, el candado de literalidad empieza a mirarlas
+ * solo con añadirlas a la lista de cableados.
+ */
+export const STREAM_B_ERROR_CODES = ['INVALID_TRANSITION', 'PAYMENT_IN_PROGRESS'] as const;
+
+/**
+ * Las variantes NO-audiencia que cada código de Stream B necesita, y que el candado exige en los
+ * dos catálogos. Se declaran para que «añadir la clave en `es` y olvidarla en `en`» sea rojo.
+ */
+export const STREAM_B_ERROR_VARIANTS: Readonly<Record<string, readonly string[]>> = {
+  INVALID_TRANSITION: [
+    // La variante con cifras del `details` (§M5-S: verbo, estado actual y estados permitidos).
+    'INVALID_TRANSITION_WITH_DETAILS',
+    // Piezas de esa variante: el verbo y el separador de la lista de estados permitidos.
+    'INVALID_TRANSITION_VERB.receive',
+    'INVALID_TRANSITION_VERB.verify',
+    'INVALID_TRANSITION_ALLOWED_FROM_JOIN',
+  ],
+  PAYMENT_IN_PROGRESS: ['PAYMENT_IN_PROGRESS_GUEST'],
+};
+
+/**
+ * Las claves de copy de las que estos códigos VENÍAN. El candado exige que **no vuelvan**: mientras
+ * la cadena siga existiendo en `admin.m5.*` o en `checkout.retry.*`, cualquiera puede volver a
+ * resolver el error en la vista y las dos copias convivirían — que es como empezó esto.
+ */
+export const STREAM_B_RETIRED_COPY_KEYS = [
+  'admin.m5.transition.invalid',
+  'admin.m5.transition.invalidGeneric',
+  'admin.m5.transition.verb.receive',
+  'admin.m5.transition.verb.verify',
+  'admin.m5.transition.allowedFromJoin',
+  'checkout.retry.paymentInProgress',
+  'checkout.retry.paymentInProgressGuest',
+] as const;
+
 /** Sufijo de destinatario (§26.1). El vendedor usa la clave BASE. */
 export const OPERATOR_KEY_SUFFIX = '_OPERATOR';
 

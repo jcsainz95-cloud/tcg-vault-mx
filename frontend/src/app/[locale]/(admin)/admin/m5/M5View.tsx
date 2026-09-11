@@ -15,8 +15,6 @@ import {
   paySpeiBuylist,
 } from '@/lib/api';
 import { useRole } from '@/lib/role';
-import { ApiClientError } from '@/lib/api-client';
-import { getBadgeSpec } from '@/lib/status-map';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
@@ -203,7 +201,6 @@ export function M5View() {
   // ⚠️ Back-office: quien lee es el OPERADOR (DESIGN_SYSTEM §26). Aquí caen `REQUEST_NOT_RECEIVED`
   // y `APPROVED_PRICE_CAP_EXCEEDED` de la mesa de verificación, que **solo** existen de este lado.
   const getError = useErrorMessage('operator');
-  const tTransition = useTranslations('admin.m5.transition');
   const tRoot = useTranslations();
   // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
   const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
@@ -231,37 +228,16 @@ export function M5View() {
     refresh();
   }
   function fail(requestId: string, error: unknown) {
-    setFeedback({ requestId, kind: 'error', message: invalidTransitionMessage(error) ?? getError(error) });
+    setFeedback({ requestId, kind: 'error', message: getError(error) });
   }
 
   /**
-   * `409 INVALID_TRANSITION` (contrato **§M5-S**, v1.68): `receive`/`verify` exigen el PASO
-   * correcto, no solo «fila viva». `details: { verb, from, allowedFrom, idempotentOn }` y el
-   * mensaje dice **desde qué estado sí se permite** — no el genérico, que en una cola de
-   * back-office se lee como «la app falló» y se reintenta. Los rótulos de estado salen del MISMO
-   * mapa que pinta el badge (`status-map`), nunca el enum crudo (DESIGN_SYSTEM §9.2). Si el
-   * servidor no mandó lo necesario se pinta la base: no se inventa un estado.
+   * §M5-S · `409 INVALID_TRANSITION`: el mensaje NO se arma aquí. Lo resuelve el catálogo
+   * compartido (`error.INVALID_TRANSITION[_WITH_DETAILS]` + `DETAILED_ERRORS` en `QueryState`),
+   * que es donde §26 manda que viva todo el copy de error — esta vista tenía su propia copia con
+   * su propio rótulo de estado, y una copia es una cosa más que se desincroniza sin que nada falle
+   * (SB-D5/I3). `getError` ya declara audiencia `operator`.
    */
-  function invalidTransitionMessage(error: unknown): string | null {
-    if (!(error instanceof ApiClientError) || error.code !== 'INVALID_TRANSITION') return null;
-    const d = error.details ?? {};
-    const verb = d.verb === 'receive' || d.verb === 'verify' ? d.verb : null;
-    const label = (status: unknown): string | null => {
-      if (typeof status !== 'string' || status === '') return null;
-      const key = getBadgeSpec('sellRequest', status).i18nKey;
-      return tRoot.has(key) ? tRoot(key) : null;
-    };
-    const from = label(d.from);
-    const allowed = Array.isArray(d.allowedFrom) ? d.allowedFrom.map(label) : [];
-    if (!verb || !from || allowed.length === 0 || allowed.some((l) => l === null)) {
-      return tTransition('invalidGeneric');
-    }
-    return tTransition('invalid', {
-      verb: tTransition(`verb.${verb}`),
-      from,
-      allowedFrom: allowed.join(tTransition('allowedFromJoin')),
-    });
-  }
 
   // --- Recibir / Verificar (contrato POST /admin/buylist/:id/receive|verify) ---
   const receiveMutation = useMutation({

@@ -155,7 +155,9 @@ describe('M5View · §M5-S: 409 INVALID_TRANSITION dice DESDE QUÉ ESTADO se per
     await openTabFor('en_transito');
     fireEvent.click(screen.getByRole('button', { name: RECEIVE_LABEL }));
 
-    expect(await screen.findByText(es.admin.m5.transition.invalidGeneric)).toBeInTheDocument();
+    // SB-D5/I3: el copy vive en el catálogo compartido (`error.INVALID_TRANSITION`), no en
+    // `admin.m5.transition.*`; lo resuelve `useErrorMessage` como cualquier otro código.
+    expect(await screen.findByText(es.error.INVALID_TRANSITION)).toBeInTheDocument();
     expect(screen.queryByText('receive is not allowed')).toBeNull();
   });
 
