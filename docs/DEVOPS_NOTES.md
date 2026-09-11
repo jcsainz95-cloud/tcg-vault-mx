@@ -10554,3 +10554,98 @@ canario** (`check-secret-defaults-canary.sh`), para que la frase «ningún secre
 no existen—» vuelva a medir lo que afirma; hasta entonces, el mensaje del candado debe decir lo
 que cubre. Condición de promoción a producción según seguridad (§7.3 de su re-veredicto), no
 bloqueante del ALTA.
+
+---
+
+## 55. Cierre por decisión del dueño (2026-09-11): lo que quedó commiteado, lo que quedó fuera, y los hechos medidos del lote de QA
+
+**Contexto:** el dueño decidió publicar sin esperar a que `backend-e2e` corriera en CI; el lote de
+once puntos de QA y lo que sigue pasan al frente «andamiaje de CI», que arranca **después** de
+publicar. Esta sección existe para que ese frente arranque de un hecho medido, no de un recuerdo.
+
+### 55.1 · `backend-e2e`: la SEGUNDA causa, reproducida y arreglada (commit de esta sección)
+
+Run `34550891573` (#1136, `874ee0c`): `fase=infra-muerta · paso=Resolver secretos`, 13 s. El
+`working-directory` sí aterrizó; el paso moría por otra causa. **Reproducido ejecutando el `run:`
+real del paso con el env real del job** (`scripts/run-workflow-step.sh`, nuevo):
+
+| paso real ejecutado con `GITHUB_ACTIONS=true`, `sk_test_` de mentira, sin webhook secret | rc |
+|---|---|
+| `e2e.yml` / `backend-e2e` / «Resolver secretos» (antes del fix) | **1** — «Hay STRIPE_SECRET_KEY real y NO hay STRIPE_WEBHOOK_SECRET» |
+| `e2e-real.yml` / `e2e-real` / «Resolver STRIPE_TEST_WEBHOOK_SECRET» | 0 |
+| `e2e.yml` tras añadir `STRIPE_WEBHOOK_UNREACHABLE: "1"` al paso | **0** — escribe `STRIPE_WEBHOOK_SECRET`, `JWT_*` efímeros |
+
+La única diferencia de env entre los dos bloques era esa variable (`e2e-real.yml` y
+`security-dast.yml:207` la declaran; el bloque de `e2e.yml` se copió sin ella). Es cierta por
+construcción: la app corre en el runner sin URL pública.
+
+**Lección de método (tercera vez):** arreglé el cwd, probé el candado estático (8/8) y **no ejecuté
+el paso real en el contexto real**. Lo que lo habría cazado es exactamente `run-workflow-step.sh`.
+El canario de clase (`check-secret-defaults-canary.sh`, bloque H) ejecuta el paso entero **solo de
+`e2e-real.yml`**; los otros dos consumidores del mismo bloque (`e2e.yml/backend-e2e`,
+`security-dast.yml/dast`) **no** están cubiertos. Pendiente del siguiente frente: un canario que
+corra los tres con `run-workflow-step.sh` (verde con `sk_test`+sin secreto; rojo al quitar
+`STRIPE_WEBHOOK_UNREACHABLE` de una copia).
+
+**Observación para seguridad (no arreglada, no bloqueante hoy):** con `STRIPE_WEBHOOK_UNREACHABLE=1`
+en CI el preflight también deja pasar una **`sk_live_`** sin secreto (medido: rc=0). El webhook no
+es forjable —el stack es inalcanzable— pero una clave live en CI es otro hecho que ese preflight no
+distingue.
+
+**Lo que `backend-e2e` dijo al correr por primera vez: todavía nada.** Sigue sin ejecutar la suite;
+la primera corrida con este fix es la del commit de esta sección (o la del merge). Si sale
+`fase=suite-roja`, los specs quedan anotados con fichero y línea y el dueño es **backend**.
+
+### 55.2 · H1 — confirmado, y matizado
+
+`GET /branches/main` y `/branches/production`: `protected:false`,
+`required_status_checks.enforcement_level:off`, `checks:[]`; `/rulesets` → `[]`. **Ningún check
+bloquea nada a nivel GitHub.** Confirma la respuesta de QA a la pregunta de método: el rojo de
+`backend-e2e` llegaba a `e2e-ok`, y `e2e-ok` no bloquea nada. Matiz medido (§52.2): H1 explica por
+qué el rojo **no detuvo** nada; por qué nadie **lo miró** lo explican el dueño por defecto de
+§16.4(B), la ausencia de fase y que se citó un run verde de `E2E real` como estado del candidato.
+
+**Required checks a activar (humano, Settings → Branches / Rulesets), nombres exactos de job:**
+`ci-ok` · `e2e-ok` · `sast-ok` en `main` **y** `production`. Antes de activarlos, renombrar el job
+`ci-ok` de `deploy.yml:152` (colisión de nombre con el de `ci.yml`; pendiente, ver 55.5).
+
+### 55.3 · H2 — medido; las dos afirmaciones falsas, corregidas aquí
+
+| workflow | runs con `event=schedule` | nota |
+|---|---|---|
+| `security-dast.yml` | **0** | `main` va 87 commits atrás; el cron no existe allí |
+| `security-scheduled.yml` | 4 (`main`, 2026-08-24/31, 09-07, success) | es la versión **vieja** de `main`: el `scheduled-dast` no-op de P-77 sigue corriendo cada lunes donde importa |
+| `money-gap-nag.yml` | **404** (no existe en la rama por defecto) | 0 runs, 0 issues (`/issues` no tiene ninguno «Dinero SIN MEDIR») |
+
+**Correcciones (O-5):** §36.6 («DAST programado semanal … ✅ CORREGIDO en P-77») es cierto del
+**fichero** y falso del **calendario**: hasta el merge a `main` el DAST semanal **no ha corrido
+nunca**. §49.6 («`money-gap-nag.yml` hace ruido semanal») es **falso**: nunca corrió, y es obsoleto
+(las claves existen, §51). Pendiente: retirarlo con nota (55.5).
+
+### 55.4 · H3 — NO MEDIBLE desde aquí, y la pregunta exacta para el dueño
+
+`ci-ok`/`sast-ok` rojos en `main` y `production` tres pushes seguidos (QA). El proxy de esta sesión
+corta el CONNECT a `tcg-vault-mx-production.up.railway.app` y a `tcghunt.mx`, así que no puedo leer
+`/api/v1/health` (que lleva el commit servido). **Pregunta para el dueño (dos datos del panel):**
+(1) Railway → servicio `backend` → Deployments: **commit y fecha del deploy `Active`** — si es
+`e117441` (`production`) o `5f05b08` (`main`), se desplegó con CI en rojo; si es anterior, «Wait for
+CI» lo frenó; (2) Settings → Deploy: **¿está activado «Wait for CI»?**
+
+### 55.5 · Estado exacto del lote al parar
+
+| # | punto | estado | evidencia |
+|---|---|---|---|
+| 1 | `backend-e2e` rc=127 | **commiteado** (`874ee0c`) + segunda causa **commiteada** (esta sección) | 55.1 |
+| 2 | `trivy-fs` + self-test | **commiteado** (`874ee0c`); `Security SAST` #1136 **verde** | §53 |
+| 3 | `gitleaks-action@v2` / Node 20 | **fuera**. Medido: `gitleaks v8.30.1 git .` sobre el historial completo con `security/gitleaks.toml` → **17 hallazgos**, todos ficción o falso positivo: fixtures de `check-secret-defaults-canary.sh` (:172,:177,:204,:209,:355-375,:505) y `check-stripe-webhook-failclosed-canary.sh` (:200,:298); `backend/test/seed.password.spec.ts:27` (contraseña de test); `pii-crypto.service.ts:152` (`asB64.length`, falso positivo). La action estaba verde porque solo escanea los commits del push. Reemplazo por binario fijado (`v8.30.1`) + `sast-gitleaks.sh` en modo `git` exige antes esa allowlist (por valor, no por fichero) | scratchpad de esta sesión; no persiste |
+| 4 | `format-mix` verde sin base / rc=2 | **fuera** (sin tocar `ci.yml`) | — |
+| 5 | canarios para 4 jobs sin rojo | **scripts commiteados, NO cableados**: `check-format-mix-canary.sh` (4/4), `check-e2e-provider-incapacitation-canary.sh` (5/5), `check-provenance-gate-canary.sh` (6/6), `security/scripts/sast-semgrep-canary.sh` (4/4 con semgrep 1.177.0; en `sh` POSIX para el contenedor). Cablearlos = un paso en cada job; se dejó fuera para no meter un rojo nuevo en el candidato que se publica. Límite medido del comparador BL-27: un HEAD que **no** es prettier-limpio se **salta sin evaluar** (por diseño: solo juzga commits de reformateo) | ejecutados en local 2026-09-11 |
+| 6 | DAST `abrir-issue` solo en `schedule` | **commiteado** (`!= 'pull_request'`) | esta sección |
+| 7 | `money-gap-nag.yml` | **fuera** (retirar con nota) | 55.3 |
+| 8 | notas :6736 / :9940 | **corregidas aquí** (55.3), no reescritas in situ | — |
+| 9 | `deploy.yml` job `ci-ok` duplicado | **fuera** (`deploy.yml:152`, `needs: [ci-ok]` en :175) | — |
+| 10 | 22 scripts sin workflow | **fuera**; lista medida (wf=0): `check-candidate-checks.sh`, `check-graded-estimate-dials.sh`, `db-migrate.sh`, `dev-down.sh`, `dev-up.sh`, `e2e-capability-gate.sh`, `gen-published-secrets-manifest.sh`, `m50-rollback-gate.sh`, `new-project.sh`, `purge-synthetic-poc-data.sh`, `rollback-safety-probe.sh`, `seed-synthetic.sh`, `seed.sh`, `vercel-ignore-build.sh`, `security/scripts/{_guard,dast-extra,dast-nuclei,dast-zap-baseline,dast-zap-full,sast-gitleaks,sast-semgrep,trivy-image}.sh` (`trivy-fs.sh` ya está cableado). Varios los invocan otros scripts (`gen-published-secrets-manifest` ×5, `e2e-capability-gate` ×4, `_guard` ×4, `dev-up` ×4); la clasificación manual/cablear/borrar queda para el siguiente frente | `grep` sobre workflows/scripts/Dockerfiles |
+| 11 | nombre del workflow programado | se arregla solo al mergear | — |
+
+Nuevos ficheros de este cierre, todos verificados en local y **ninguno invocado por CI todavía**:
+`scripts/run-workflow-step.sh`, los cuatro canarios de (5).

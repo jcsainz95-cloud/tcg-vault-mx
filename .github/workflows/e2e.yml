@@ -236,6 +236,14 @@ jobs:
           STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           # Si el secret store los trae, se respetan; si no, se generan aleatorios.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # S-CI-1, segunda causa (run #1136, 2026-09-11): con la clave de PRUEBA
+          # real en los secrets y sin STRIPE_TEST_WEBHOOK_SECRET, el preflight
+          # ABORTA salvo que se le diga que Stripe NO puede alcanzar este stack.
+          # e2e-real.yml lo declaraba; este bloque —copiado de ahí— no. Es
+          # cierto por construcción: la app corre en el runner, sin URL pública;
+          # ningún webhook real llega. Se genera un secreto efímero (§50.4) y los
+          # specs firman contra él. Reproducido con scripts/run-workflow-step.sh.
+          STRIPE_WEBHOOK_UNREACHABLE: "1"
         run: |
           ./scripts/webhook-secret-preflight.sh assert
           # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que

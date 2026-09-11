@@ -285,10 +285,16 @@ jobs:
   #    security-scheduled.yml). Solo en las corridas PROGRAMADAS: en las manuales
   #    y de rama-taller quien dispara ya está mirando.
   # ---------------------------------------------------------------------------
+  # QA (lote 2026-09-11, hallazgo 6): con `if: schedule` un rojo por
+  # `workflow_dispatch` o por push de rama NO abría issue — y como los crons
+  # de esta rama no existen en `main` (H2), el único disparo que SÍ ocurría
+  # era justo el que no abría nada. Ahora abre issue en cualquier corrida que
+  # no sea un PR (en el PR el rojo ya tiene dueño: el autor). El título lleva
+  # la rama para no mezclar hallazgos de ramas distintas en un mismo hilo.
   abrir-issue:
     name: Abrir/actualizar issue del hallazgo
     needs: [dast]
-    if: failure() && github.event_name == 'schedule'
+    if: failure() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
