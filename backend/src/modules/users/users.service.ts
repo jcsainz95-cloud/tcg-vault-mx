@@ -15,6 +15,7 @@ import {
   UpdateMeDto,
 } from './dto/users.dto';
 import { assertPersonName } from './person-name';
+import { AddressDTO, toAddressDTO } from './address-dto';
 
 /** `BillingProfileDTO` del contrato §11 (v1.67.1): seis campos, `rfcMasked` y nada más. */
 export interface BillingProfileDTO {
@@ -29,44 +30,6 @@ export interface BillingProfileDTO {
 /** Valida CLABE mexicana (18 dígitos numéricos). Validación estructural. */
 export function isValidClabe(clabe: string): boolean {
   return /^\d{18}$/.test(clabe);
-}
-
-/**
- * v2.1.9 (S49-R4) — **`Address` se proyecta al `AddressDTO` del contrato (§DTOs).**
- *
- * Tres rutas devolvían la fila cruda (`GET/POST /users/me/addresses`, `PATCH .../:id`), o sea también
- * `userId`, `createdAt` y `updatedAt`. No hay secreto ahí — la dirección es del propio usuario que
- * pregunta — pero la norma «ningún endpoint devuelve una entidad Prisma» sólo vale si es universal:
- * mientras la respuesta SEA la fila, cualquier columna futura (una geocodificación, un flag de
- * verificación, un id de proveedor logístico) viaja al cliente sin que nadie lo decida.
- */
-function toAddressDTO(a: {
-  id: string;
-  recipientName: string | null;
-  line1: string;
-  line2: string | null;
-  neighborhood: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  phone: string;
-  isDefault: boolean;
-}) {
-  return {
-    id: a.id,
-    // v1.67 (M-52): `null` SOLO en filas anteriores a la migración (contrato §11 `AddressDTO`).
-    recipientName: a.recipientName,
-    line1: a.line1,
-    line2: a.line2,
-    neighborhood: a.neighborhood,
-    city: a.city,
-    state: a.state,
-    postalCode: a.postalCode,
-    country: a.country,
-    phone: a.phone,
-    isDefault: a.isDefault,
-  };
 }
 
 @Injectable()
@@ -159,7 +122,7 @@ export class UsersService {
 
   // ---------------- Addresses (solo MX) ----------------
 
-  async listAddresses(userId: string) {
+  async listAddresses(userId: string): Promise<{ data: AddressDTO[] }> {
     const rows = await this.prisma.address.findMany({ where: { userId } });
     return { data: rows.map(toAddressDTO) }; // S49-R4
   }

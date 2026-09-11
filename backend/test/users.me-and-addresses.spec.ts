@@ -7,6 +7,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { ConfigService } from '@nestjs/config';
 import { AddressDto, BillingProfileDto, UpdateAddressDto, UpdateMeDto } from '../src/modules/users/dto/users.dto';
+import { ADDRESS_DTO_KEYS } from '../src/modules/users/address-dto';
 
 /**
  * v1.67 (Stream A · B4, contrato §1 `GET/PATCH /users/me` + «Direcciones», ARCHITECTURE §4.47.4/5).
