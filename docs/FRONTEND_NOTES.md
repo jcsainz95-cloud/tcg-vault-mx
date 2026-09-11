@@ -15635,3 +15635,130 @@ regresión.
    no lo documenta**. Dos preguntas para el arquitecto: (a) ¿se formaliza ese reparto en el `202` de
    `sync`?; (b) en modo `from_date`, ¿debe hacer eco de `fromReleaseDate`/`setsSkipped*` como
    `sync-all`? Mientras tanto **no pinto ninguna de las dos cosas**.
+
+## §65 · `P-DEP-1`: el audit de devDependencies, **medido** — `js-yaml`, `vite`, y la decisión `vitest` 2 → 5 — 2026-09-11, rama `claude/tcg-hunt-orchestration-ai2vma`
+
+**Encargo:** el hallazgo `P-DEP-1` (pentester) bloqueaba el release porque `trivy-fs` no lee la tabla de
+fichas del trinquete de devops (`DEVOPS_NOTES §49.5`) y pone el SAST en rojo. Cero cambios de producto:
+solo devDependencies y lo que hiciera falta para que la suite pasara con ellas. Scratchpad propio:
+`…/scratchpad/repo-P-DEP-1*/` (raíz falsa con `frontend/`, `docs/` enlazado y `backend/` vacío — ver «la
+trampa de la copia» abajo).
+
+### 1. Punto de partida (medido 2026-09-11 01:00, `npm audit` + `vitest run` sobre el árbol vivo)
+
+| Advisory | Paquete | Severidad | Fix según npm |
+|---|---|---|---|
+| `GHSA-5xrq-8626-4rwp` | `vitest` 2.1.9 | **crítica** | `vitest` 5 (major) |
+| `GHSA-fx2h-pf6j-xcff` | `vite` 5.4.21 (transitiva de vitest) | **alta** | `vitest` 5 (major) |
+| `GHSA-2883-xcg3-v3hh` | `js-yaml` 4.3.1 (transitiva de eslint) | **alta** | lockfile (`fixAvailable: true`) |
+| + 3 moderadas (`@vitest/mocker`, `esbuild`, `vite-node`) | | moderada | caen con `vitest` 5 |
+
+Línea base de la suite: **1491/1491, 128 ficheros, 94.1 s** (vitest 2.1.9, Node 22.22.2, npm 10.9.7).
+
+### 2. `js-yaml` — 4.3.1 → **4.3.2**, solo lockfile
+
+`npm audit fix` en `frontend/`: diff de **3 líneas** en `package-lock.json` (version/resolved/integrity),
+`package.json` intacto. Sin cambio de API: `eslint` 8.57.1 lo consume igual.
+
+### 3. `vite` — **no hay fix menor sin cambiar el major de `vitest`** (medido, no supuesto)
+
+- `vitest@2.1.9` fija `vite: ^5.0.0` (`npm view`), y **5.4.21 es la última 5.x publicada** — la que ya
+  teníamos.
+- `GHSA-fx2h` cubre `<=6.4.2`; el primer `vite` limpio es 6.4.3 / 7.x. `esbuild` (`GHSA-67mh`, moderada)
+  igual: vite 5 arrastra esbuild 0.21.5 y el fix es `>0.24.2`.
+- ⇒ `vite` solo se limpia arrastrado por `vitest` 4/5. Ahora `vite` es **peer** de vitest, no transitiva:
+  entra explícita en `devDependencies` como `^7.3.6`.
+
+### 4. `vitest` 2 → **5.0.0** — la decisión, con los datos que la sostienen
+
+**Candidatos** (`npm view`): 4.1.11 (2026-08-18; engines `^20 || ^22 || >=24`; peers `vite ^6||^7||^8`,
+`@types/node ^20||^22||>=24`) y 5.0.0 (2026-09-03, `latest`; engines `^22.12 || ^24 || >=26`; peers `vite
+^6.4||^7||^8`, `@types/node ^22 || >=24`). Ambos limpian los seis advisories.
+
+**La trampa de la copia (falso rojo, cazado antes de contarlo):** la primera corrida de vitest 5 en la
+copia dio `21 failed | 1449 passed (1470)` + 1 fichero sin recolectar. Los tres ficheros rojos
+(`error-audience.test.ts`, `mock/fx-contract-mirror.test.ts`, `test/e2e-paid-provider-guard.test.ts`) leen
+**fuera de `frontend/`**: `../docs/DESIGN_SYSTEM.md`, `../../docs/API_CONTRACT.md` y `findRepoRoot()`
+(exige hermanos `backend/` + `frontend/`). La copia estaba suelta en el scratchpad, sin nada de eso. Con
+una raíz falsa (`docs` → symlink de solo lectura al real, `backend/` vacío) los tres dan **81/81**. ⛔
+Regla para el siguiente que copie `frontend/` a otro sitio: **copiar la forma del repo, no solo la
+carpeta**.
+
+**Mediciones con vitest 5.0.0 + vite 7.3.6 + @types/node 22.20.2 (copia con raíz falsa):**
+
+| Qué | Resultado |
+|---|---|
+| `npm audit` | **0 vulnerabilidades** |
+| `tsc --noEmit` / `next lint` | limpios |
+| Suite completa, Node 22.22.2 | **1491/1491** (95.7 s) y **1491/1491** (123.2 s) |
+| Suite completa, **Node 20.20.2** (el del CI) | **1491/1491** (100.7 s) — `node@20` bajado vía npm, `node_modules/vitest/vitest.mjs run` |
+| `npm ci` **sin flags** con npm 10.9.7 desde el lockfile nuevo | exit 0, 561 paquetes |
+
+**Por qué NO 4.1.11, aunque su `engines` sí incluya Node 20:** `npm install -D vitest@4.1.11` **revienta
+arborist** en npm 10.9.7 (`TypeError: Cannot read properties of null (reading 'edgesOut')` en
+`#loadPeerSet`, `build-ideal-tree.js:1289`), con lockfile y sin él. Con `--legacy-peer-deps` instala,
+pero el lockfile resultante **no pasa `npm ci` sin flags** (EUSAGE: «lock file's picomatch@2.3.2 does not
+satisfy picomatch@4.0.7», «Missing: @swc/helpers@0.5.23»). npm **12.0.2** lo resuelve y lo reconstruye
+sin problema — pero el CI corre `setup-node@v4` con `node-version: 20` ⇒ Node 20.20.2 ⇒ **npm 10.8.2**
+(`nodejs.org/dist/index.json`), y `Dockerfile.frontend` es `node:20-alpine`. Un lockfile que solo
+instala npm 12 es un CI rojo por otra vía. **Descartado por medición**, no por preferencia.
+
+**La salvedad que hay que saber:** vitest 5.0.0 declara `engines.node ^22.12`, y el CI corre Node 20.
+Medido: la suite entera pasa bajo 20.20.2 (arriba); `npm ci` no es `engine-strict`, así que como mucho
+avisa. Es una combinación **funcional pero fuera del soporte declarado** de vitest. La salida limpia es
+la petición a devops de §6.
+
+**Cambios en `frontend/package.json`:** `vitest ^2.1.3 → ^5.0.0`; `vite ^7.3.6` (nuevo, peer);
+`@types/node ^20.16.11 → ^22.20.2` (peer de vitest 5; `tsc` limpio con él). `vitest.config.ts`,
+`vitest.setup.ts` y `tsconfig.json` (`types: ["vitest/globals"]`) **no cambian**: el API que usa la suite
+(`vi.spyOn` ×426, `vi.fn` ×160, `vi.mock` ×98, `vi.hoisted` ×17, timers falsos, `vi.stubGlobal`…) sigue
+igual en v5.
+
+### 5. Resultado en el árbol vivo (2026-09-11)
+
+`npm audit` **0**; `js-yaml@4.3.2`, `vitest@5.0.0`, `@vitest/mocker@5.0.0`, `vite@7.3.6`,
+`esbuild@0.28.2`, `@types/node@22.20.2`; `vite-node` desaparece (vitest 5 ya no lo usa). `tsc` y `lint`
+limpios. **Dos corridas completas, secuenciales, sin nada más compitiendo por CPU:**
+
+| Corrida | Resultado | Duración |
+|---|---|---|
+| 1 | **1491/1491** (128 ficheros) | 96.1 s |
+| 2 | **1491/1491** (128 ficheros) | 89.6 s |
+
+### 6. Lo que vi de paso (nombrado, no arreglado — no es mío)
+
+1. **Node 20 está EOL desde 2026-04-30** (`nodejs/Release/schedule.json`, medido hoy). Lo usan **todos**
+   los workflows (`ci.yml`, `e2e.yml`, `e2e-real.yml`, `security-*.yml`: `node-version: 20`) y los dos
+   `Dockerfile.*` (`node:20-alpine`). → **Petición a devops:** subir a Node 22 (LTS «Jod» hasta
+   2027-04-30). Con eso vitest 5 queda dentro de su `engines` y desaparece la salvedad de §4. Además, la
+   anotación del propio CI en `main` avisa: «Node.js 20 is deprecated … forced to run on Node.js 24» para
+   `actions/checkout@v4` y `actions/setup-node@v4` (eso es el runtime de las *actions*, otro frente).
+2. **Las fichas del trinquete de devops** (`security/npm-audit-dev-fichas.tsv`: `GHSA-5xrq`, `GHSA-fx2h`,
+   `GHSA-2883`) ya no corresponden a nada. Según `DEVOPS_NOTES §49.5` eso es **aviso, no rojo**, y la ficha
+   «se poda». → devops.
+3. Con vitest 5 **desaparecen los 29 avisos de `act(...)`** que vitest 2 volcaba a stderr (12 de
+   `BuylistKycForm`, 8 de `Harness`, …). No los conté como logro: no medí el porqué (NO MEDIDO — ¿cambia
+   cómo v5 expone `IS_REACT_ACT_ENVIRONMENT`?). Los 3 `Error: Not implemented: navigation (except hash
+   changes)` de jsdom **son preexistentes**: 3 con vitest 2, 3 con vitest 5.
+4. `next lint` avisa de su propia deprecación en Next 16 (ya estaba).
+
+### 7. Añadido del coordinador: **`ci-ok` rojo en `main` (`5f05b08`) — cuál test, medido**
+
+La anotación `::error::` del job `frontend` (`check-run 102348581836`, run `34314737665`, 2026-09-09
+05:24Z; pasos `Install`/`Lint`/`Typecheck` verdes, `Test` rojo) dice, literal:
+
+> `frontend/src/app/[locale]/(storefront)/checkout/CheckoutUnavailable.test.tsx:169` — «checkout · poda
+> amable de piezas muertas (v1.21.3-quote-prune) > invitado: 1 muerta (con nombre) + 2 vivas ⇒ banner con
+> el nombre, 2 renglones y localStorage podado» — `expect(element).toBeInTheDocument()` … `element could
+> not be found in the document` … `:169:50`.
+
+En `5f05b08` la línea 169 es `expect(await screen.findByText('Charizard')).toBeInTheDocument();` (col.
+50 = `.toBeInTheDocument`): **la aserción sobre el nodo transitorio que §63 nota 8 diagnosticó** y que
+`4034387` (ancestro de `HEAD`) mueve **después** de que la re-cotización aterrice, en las dos variantes
+(invitado y con cuenta). **Es uno de los tres arreglados hoy; no es un cuarto.**
+
+Comprobado por dos vías: (a) suite entera sobre `git archive 5f05b08` con su propio lockfile (vitest
+2.1.9): **4/4 verde, 1457/1457** — intermitente de contención, como dice la nota (allí: 1/6 bajo carga
+artificial); (b) el job `frontend` del CI en esta rama, después de `4034387`: **verde en `4034387`,
+`66ca52b`, `d2df320`, `0417da1`, `3cdc5af`, `874ee0c`** (y `75068d3` cancelado). ⇒ **el merge de esta
+rama a `main` cierra ese rojo.** El otro rojo de `ci-ok` (`e2e-harness-gaps`) es de devops.
