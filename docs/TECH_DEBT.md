@@ -13,6 +13,48 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-11 · gates Stream B
+
+### RSV-L1 · La rama LEGADA `reservedByOrderId IS NULL` está en **TRES** sitios, no en uno (backend · techlead I4 / H-5, 2026-09-11)
+- **Dueño:** **backend**. **Severidad:** Media. **No bloqueante hoy**; sí es *requisito de cierre de release*.
+- **Qué es:** M-53 (`20260911130000_m53_reservation_owner`) le dio **dueño** a la reserva
+  (`InventoryItem.reservedByOrderId`). Las piezas que ya estaban `reserved` **en vuelo** al desplegar
+  la migración se quedaron sin dueño (`NULL`), así que cada guarda que sale de `reserved` admite
+  **transitoriamente** esa fila. Esa concesión no vive en un sitio: **vive en tres, con tres formas
+  distintas**, y por eso se anota — quien retire una y crea que terminó, deja las otras dos abiertas.
+
+  | # | Sitio (fichero:línea, 2026-09-11, HEAD `bfbf6fd`) | Forma de la concesión |
+  |---|---|---|
+  | 1 | `backend/src/modules/orders/reservation.ts:39-44` — `reservationGuard(orderId)` | `OR: [{ reservedByOrderId: orderId }, { reservedByOrderId: null }]`. **Es el cuerpo compartido**: lo usan compensación, webhook `failed|canceled`, contracargo, barrido y sustitución. |
+  | 2 | `backend/src/modules/payments/payments.service.ts:642-650` — reversión de bóveda del contracargo | **`OR` escrito A MANO**, con un término más (`{ status: { not: 'reserved' } }`): **no** pasa por `reservationGuard`, así que retirar (1) **no** lo toca. |
+  | 3 | `backend/src/modules/orders/guest-checkout.service.ts:435-445` — `sweepStaleGuestOrders` | La rama legada **entera**: un barrido paralelo, por `createdAt` en vez de por `reservedUntil`, cuyo `where` **selecciona** `reservedByOrderId: null`. El barrido de verdad es `OrdersService.sweepExpiredReservations`. |
+
+- **Por qué importa:** mientras (1) y (2) admitan `NULL`, **cualquier** orden puede liberar una pieza
+  reservada sin dueño — la guarda «solo lo mío» está relajada justo en las transiciones de dinero. Y
+  mientras (3) exista, hay **dos barridos** con dos criterios de vencimiento distintos sobre el mismo
+  inventario. Las tres se pusieron a sabiendas y con fecha de caducidad (ARCHITECTURE §4.48.7(5)); la
+  deuda es que **nadie había escrito dónde están las tres**.
+
+- **Comprobación de cierre (las DOS mitades, y no vale una sin la otra):**
+  1. **En producción**, la cuenta es cero:
+     ```sql
+     SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL;
+     ```
+     ⇒ **0** (y se repite tras un ciclo completo de checkout para descartar que el 0 sea de un
+     momento vacío).
+  2. **Los TRES sitios retirados**, comprobable con un `grep` que tiene que quedar vacío:
+     ```bash
+     grep -rn "reservedByOrderId: null" backend/src --include=*.ts   # ⇒ solo `clearReservation` (el `data`), nunca un `where`
+     ```
+     · (1) `reservationGuard` pasa a `{ status: 'reserved', reservedByOrderId: orderId }`;
+     · (2) `payments.service.ts` **usa `reservationGuard`** en vez de su `OR` a mano (que es lo que
+       evita que la próxima retirada vuelva a dejarse uno);
+     · (3) `sweepStaleGuestOrders` se **borra** y su llamada sale del job (`sweepExpiredReservations`
+       ya cubre las dos rutas por `reservedUntil`).
+- **Disparador:** el **cierre del release** (la cuenta hay que hacerla contra la BD de producción, y
+  hoy no se ha hecho — **NO MEDIDO** en este pase: aquí solo se midió el árbol, con el `grep` de
+  arriba, que da los tres sitios de la tabla).
+
 ### PII-E1 · La clave PII efímera hace **ilegible entre reinicios** lo cifrado en un dev local con BD persistente (backend · `S-88-2`, 2026-09-10)
 - **Dueño:** **backend** (`src/common/crypto/pii-crypto.service.ts`). **Severidad:** Baja. **No bloqueante.** Es el **precio elegido a sabiendas** del arreglo de `S-88-2`, no un descuido: se anota para que nadie lo «arregle» reintroduciendo una clave derivable.
 - **La deuda:** cerrando `S-88-2` (§v2.2-SEC.2), el respaldo sin `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` pasó de una clave **derivable del repo público** a `randomBytes(32)` **efímera por proceso**. Consecuencia: un desarrollador local que corra **sin configurar las claves** y con un Postgres **persistente** verá que la CLABE/RFC cifrados en una sesión **no descifran** en la siguiente (el GCM no autentica) y que el **blind index deja de casar** (la CLABE «a nombre propio» no se reconoce).
