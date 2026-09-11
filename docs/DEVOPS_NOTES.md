@@ -10847,13 +10847,17 @@ por sufijo nuevo en compose/script/.env.example/workflow, 5 `.env.staging` versi
 verde** (`${VAR-}` vacío, `HTTP_CODE/DO_SEED/EXIT_CODE/COUNTRY_CODE`, array + referencias, `.env.staging`
 solo con `CHANGE_ME`). **Proporciones:** **66/66 en 3/3 tiradas** con el gate nuevo (48/48 → 66/66); **52/66 (ROJO)** con el gate viejo sobre copia (`scratchpad/devops-ci/repo-old`, scripts de `cb904d4`): escapan exactamente los 14 casos nuevos y ninguno más.
 
-**Aviso para el orquestador/backend (medido en el árbol vivo, no en el clon):** hay cambios de backend
-**sin commitear** en `backend/src/common/error-codes.ts` que añaden 4 códigos (`PASSWORD_CHANGE_REQUIRED`,
-`PASSWORD_NOT_SET`, `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`) que el generador inventaría
-como «valores publicados» (contienen `PASSWORD`). En cuanto se commiteen, `check-secret-defaults.sh`
-(job `stripe-webhook-failclosed`) saldrá **rojo por «manifiesto DESFASADO»** hasta que devops regenere
-`security/secretos-publicados.sha256` (`./scripts/gen-published-secrets-manifest.sh`). No lo regeneré
-sobre el árbol vivo a propósito: el manifiesto tiene que corresponder al árbol commiteado.
+**Manifiesto regenerado tras los commits de backend del Stream A (re-medido sobre clon limpio de
+`c0d1b68`):** `gen-published-secrets-manifest.sh --check` → rc=1 (desfasado) por **8 entradas nuevas**
+que el generador inventaría desde `backend/`: los 4 códigos de error de `error-codes.ts:32-40`
+(`PASSWORD_CHANGE_REQUIRED`, `PASSWORD_NOT_SET`, `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`
+— constantes, no secretos, pero contienen `PASSWORD` y el generador prefiere sobrar a faltar), los dos
+secretos JWT de `backend/test/auth.change-password.spec.ts:34-35` (`unit_access_secret`,
+`unit_refresh_secret`: literales en un test, ahora **neutralizados** — ningún entorno real puede
+arrancar con ellos) y 2 valores con prefijo de Stripe en ficheros de test. Regenerado y commiteado;
+gate sobre el clon limpio con el manifiesto nuevo → **rc=0** (6 respaldos literales ajenos, todos
+neutralizados). **Nota para backend:** cada literal de secreto nuevo en `backend/test` obliga a devops
+a regenerar el manifiesto; si no se regenera, `stripe-webhook-failclosed` sale rojo por «DESFASADO».
 
 ### 56.7 · Lo que NO pude medir aquí y CI medirá al empujar
 
