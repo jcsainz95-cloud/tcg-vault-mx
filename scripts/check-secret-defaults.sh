@@ -37,6 +37,12 @@
 #      única forma en la que la AUSENCIA no degrada a algo que no protege.
 #   2. `${VAR:-}` / `VAR=` — vacío DECLARADO. Es incapacitación deliberada: sin
 #      valor, la función que depende de él se apaga (no se «apaña»).
+#      (S-CLASE-1, 2026-09-11: lo prohibido es el DEFAULT con literal en
+#      CUALQUIERA de sus grafías — `${VAR:-lit}`, `${VAR-lit}`, `${VAR:=lit}`,
+#      `${VAR=lit}` —, la asignación `VAR=lit` con o sin `export`/`declare -x`/
+#      `ENV`, dentro de un `echo … >> .env` o en una lista `- VAR=lit` de compose,
+#      y un `.env.*` versionado que no sea `.env.example`. Los 7 casos que
+#      seguridad midió escapando están en el canario.)
 #   3. En `.env.example`, y solo ahí: un placeholder AUTO-DELATOR (`CHANGE_ME`,
 #      `dummy`…). `.env.example` es una plantilla que se copia; un placeholder que
 #      parece un secreto de verdad es el que nadie cambia.
@@ -134,6 +140,7 @@ es_autoreferente() {
     scripts/gen-published-secrets-manifest.sh|scripts/secrets-preflight.sh) return 0 ;;
     scripts/webhook-secret-preflight.sh) return 0 ;;
     scripts/check-stripe-webhook-failclosed.sh|scripts/check-stripe-webhook-failclosed-canary.sh) return 0 ;;
+    security/scripts/sast-gitleaks-canary.sh) return 0 ;;   # planta claves de FICCIÓN por construcción (§56)
     security/secretos-publicados.sha256|security/gitleaks.toml|security/semgrep.yml) return 0 ;;
     *.md) return 0 ;;
   esac
@@ -156,6 +163,46 @@ tiene_credencial_en_url() {
 # `limpio <fichero>` → el fichero sin comentarios de línea completa, conservando
 # el número de línea (`sed` sustituye por vacío en vez de borrar).
 limpio() { sed 's/^[[:space:]]*#.*$//' "$1"; }
+
+# --- S-CLASE-1: la FORMA del default, en todas sus grafías ------------------
+# `${VAR:-lit}` era la única que se miraba. Seguridad plantó `${VAR-lit}` (un
+# guion, sin `:`; Compose y sh lo aceptan) y `${VAR:=lit}` / `${VAR=lit}`
+# (asignar-por-defecto) y las tres escaparon. Es el mismo bug con otra tilde:
+# un literal que GANA cuando la variable falta.
+RE_DEFAULT='\$\{([A-Za-z_][A-Za-z0-9_]*)(:-|:=|-|=)([^}]*)\}'
+
+# `defaults_con_literal <linea>` → imprime «VAR<TAB>valor» por cada default con
+# literal NO vacío y NO referencia (`$…`) que haya en la línea.
+defaults_con_literal() {
+  local resto="$1" var val
+  while [[ "$resto" =~ $RE_DEFAULT ]]; do
+    var="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[3]}"
+    resto="${resto#*"${BASH_REMATCH[0]}"}"
+    [ -z "$val" ] && continue
+    [[ "$val" == *'$'* ]] && continue          # `${A:-$B}` es una referencia, no un literal
+    printf '%s\t%s\n' "$var" "$val"
+  done
+}
+
+# `asignaciones_peladas <linea>` → «VAR<TAB>valor» por cada `VAR=valor` con
+# literal usable en la línea, esté donde esté: al principio (`LEDGER_HMAC=lit`,
+# sin `export`), tras `declare -x`/`readonly`/`local`, o dentro de un
+# `echo "VAR=lit" >> /app/.env` (el caso 6 de seguridad: el Dockerfile
+# fabricándose un `.env`). Se descartan referencias, huecos, placeholders
+# auto-delatores, formatos (`%s`) y `0`/`1`/booleanos.
+asignaciones_peladas() {
+  local resto="$1" var val
+  while [[ "$resto" =~ (^|[[:space:]\"\x27])([A-Za-z_][A-Za-z0-9_]*)=([^[:space:]\"\x27\;\)\&\|]*) ]]; do
+    var="${BASH_REMATCH[2]}"; val="${BASH_REMATCH[3]}"
+    resto="${resto#*"${BASH_REMATCH[0]}"}"
+    [ -n "$val" ] || continue
+    [[ "$val" == *'$'* || "$val" == *'%'* ]] && continue
+    case "$val" in 0|1|true|false|null|none|'('*) continue ;; esac   # `ARR=(` es un array, no un valor
+    es_hueco "$val" && continue
+    es_autodelator "$val" && continue
+    printf '%s\t%s\n' "$var" "$val"
+  done
+}
 
 printf '\n\033[1m== ¿Queda algún secreto con valor escrito en el repo? (S-88-1, la CLASE) ==\033[0m\n'
 
@@ -203,19 +250,17 @@ for f in docker-compose*.yml; do
     n=$((n+1))
     [[ "$linea" =~ ^[[:space:]]*# ]] && continue
 
-    # A.1 — `${VAR:-valor}` con valor NO vacío. ESTA es la forma del hallazgo.
-    resto="$linea"
-    while [[ "$resto" =~ \$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\} ]]; do
-      var="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
-      resto="${resto#*"${BASH_REMATCH[0]}"}"
-      [ -z "$val" ] && continue
+    # A.1 — `${VAR:-valor}` / `${VAR-valor}` / `${VAR:=valor}` / `${VAR=valor}`
+    # con valor NO vacío. ESTA es la forma del hallazgo (en sus cuatro grafías).
+    while IFS=$'\t' read -r var val; do
+      [ -n "$var" ] || continue
       if es_nombre_de_secreto "$var"; then
-        mal "$f:$n — \`\${$var:-…}\` entrega un literal cuando la variable falta."
+        mal "$f:$n — \`\${$var…$val}\` entrega un literal cuando la variable falta."
         nota "Es la forma de S-88-1: el valor del repo GANA justo cuando el operador creyó configurarlo."
         nota "Formas admitidas: \`\${$var:?mensaje}\` (obligatoria) o \`\${$var:-}\` (vacío declarado)."
         A_MAL=$((A_MAL+1))
       fi
-    done
+    done < <(defaults_con_literal "$linea")
 
     # A.2 — `CLAVE: literal` (sin `${…}`): un secreto escrito a pelo.
     if [[ "$linea" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*):[[:space:]]+(.+)$ ]]; then
@@ -223,6 +268,17 @@ for f in docker-compose*.yml; do
       val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
       if es_nombre_de_secreto "$clave" && [ -n "$val" ] && [[ "$val" != *'$'* ]]; then
         mal "$f:$n — \`$clave\` lleva un literal escrito a pelo."
+        A_MAL=$((A_MAL+1))
+      fi
+    fi
+
+    # A.3 — `environment:` en forma de LISTA: `- CLAVE=literal` (S-CLASE-1 caso 7).
+    # La forma de mapa (`CLAVE: valor`) la ve A.2; ésta se escapaba entera.
+    if [[ "$linea" =~ ^[[:space:]]*-[[:space:]]*[\"\']?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      clave="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
+      val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
+      if es_nombre_de_secreto "$clave" && [ -n "$val" ] && [[ "$val" != *'$'* ]]; then
+        mal "$f:$n — \`- $clave=…\` (lista de environment) lleva un literal escrito a pelo."
         A_MAL=$((A_MAL+1))
       fi
     fi
@@ -279,18 +335,16 @@ for f in "${CFILES[@]:-}"; do
     n=$((n+1))
     [[ "$linea" =~ ^[[:space:]]*# ]] && continue
 
-    resto="$linea"
-    while [[ "$resto" =~ \$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\} ]]; do
-      var="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
-      resto="${resto#*"${BASH_REMATCH[0]}"}"
-      [ -z "$val" ] && continue
-      [[ "$val" == *'$'* ]] && continue          # `${A:-$B}` es una referencia, no un literal
+    # `${VAR:-lit}` / `${VAR-lit}` / `${VAR:=lit}` / `${VAR=lit}` — incluido el
+    # idioma `: "${VAR:=lit}"` (S-CLASE-1 casos 1-3).
+    while IFS=$'\t' read -r var val; do
+      [ -n "$var" ] || continue
       if es_nombre_de_secreto "$var"; then
-        mal "$f:$n — \`\${$var:-…}\` entrega un literal cuando la variable falta."
+        mal "$f:$n — \`\${$var…$val}\` entrega un literal cuando la variable falta."
         nota "Un arnés que se apaña con un secreto del repo es un arnés que prueba otra cosa."
         C_MAL=$((C_MAL+1))
       fi
-    done
+    done < <(defaults_con_literal "$linea")
 
     # `export VAR=literal` / `ENV VAR=literal` / `ARG VAR=literal`
     if [[ "$linea" =~ ^[[:space:]]*(export|ENV|ARG)[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
@@ -302,6 +356,17 @@ for f in "${CFILES[@]:-}"; do
         mal "$f:$n — \`$var=$val\` es un secreto escrito en el repo."
         C_MAL=$((C_MAL+1))
       fi
+    # …y la misma asignación SIN `export`, tras `declare -x`/`readonly`/`local`, o
+    # dentro de un `echo "VAR=lit" >> /app/.env` (S-CLASE-1 casos 6 y 8). El
+    # `export` no es lo que hace público el valor: lo hace el repositorio.
+    else
+      while IFS=$'\t' read -r var val; do
+        [ -n "$var" ] || continue
+        if es_nombre_de_secreto "$var"; then
+          mal "$f:$n — \`$var=$val\` es un secreto escrito en el repo (sin \`export\` sigue siendo un valor publicado)."
+          C_MAL=$((C_MAL+1))
+        fi
+      done < <(asignaciones_peladas "$linea")
     fi
   done < <(cat "$f")
 done
@@ -361,6 +426,41 @@ else
   D_MAL=1
 fi
 [ "$D_MAL" -eq 0 ] && ok "Todos los secretos de la plantilla están vacíos o se delatan como placeholder."
+
+# D.2 — cualquier OTRO `.env*` versionado (S-CLASE-1 caso 5): `.env.staging`,
+# `.env.production`… no son plantillas, son entornos. Uno versionado con un
+# secreto dentro es un secreto publicado, se llame como se llame el fichero.
+printf '\n\033[1m(D.2) Ningún .env.* versionado (salvo .env.example) lleva un secreto\033[0m\n'
+D2_MAL=0; D2_VISTOS=0
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  mapfile -t ENVFILES < <(git ls-files -z '.env*' '*/.env*' 2>/dev/null | tr '\0' '\n' | grep -v node_modules || true)
+else
+  mapfile -t ENVFILES < <(find . -maxdepth 3 -name '.env*' -type f -not -path '*/node_modules/*' -not -path './.git/*' 2>/dev/null | sed 's|^\./||' || true)
+fi
+for f in "${ENVFILES[@]:-}"; do
+  [ -n "$f" ] && [ -f "$f" ] || continue
+  case "$f" in .env.example|*/.env.example) continue ;; esac
+  D2_VISTOS=$((D2_VISTOS+1))
+  n=0
+  while IFS= read -r linea; do
+    n=$((n+1))
+    [[ "$linea" =~ ^[[:space:]]*# ]] && continue
+    [[ "$linea" =~ ^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    var="${BASH_REMATCH[2]}"; val="${BASH_REMATCH[3]}"
+    val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
+    es_nombre_de_secreto "$var" || continue
+    [ -z "$val" ] && continue
+    [[ "$val" == *'$'* ]] && continue
+    es_autodelator "$val" && continue
+    mal "$f:$n — \`$var\` con valor en un fichero de entorno VERSIONADO."
+    nota "Un \`.env.*\` en git no es una plantilla: es un entorno publicado. Sácalo del repo (y del historial) y deja solo \`.env.example\`."
+    D2_MAL=$((D2_MAL+1))
+  done < "$f"
+done
+if [ "$D2_MAL" -eq 0 ]; then
+  if [ "$D2_VISTOS" -eq 0 ]; then ok "No hay ningún .env.* versionado aparte de .env.example."
+  else ok "$D2_VISTOS fichero(s) .env.* versionados, ninguno con un secreto usable (revisa igual por qué están en git)."; fi
+fi
 
 # =============================================================================
 # (E) El manifiesto de valores publicados, al día
