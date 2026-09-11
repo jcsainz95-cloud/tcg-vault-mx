@@ -6675,3 +6675,8 @@ techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha
 - **Comprobación de cierre:** mover el baseline a `frontend/e2e/` (dueño frontend) con el script
   leyéndolo de ahí, o acordar que el orquestador enruta el `--update` en el mismo diff; y que
   FRONTEND_NOTES cite el método del script al hablar del censo.
+- **Materializada una vez (2026-09-11, run 34624748863):** Stream B subió `mockOnly` de 78 a 85 y el
+  gate se puso rojo con devops como único capaz de apagarlo (`0ed2180`). La **mitad mala** —que el
+  canario cayera con él, 3/5, arrastrando `ci-ok`— **ya está cerrada** (`cc59a6a`: el canario no
+  depende del baseline vivo; medido 13/13 con el baseline aún desfasado). Lo que queda abierto es
+  solo el enrutado del `--update`, no la señal.

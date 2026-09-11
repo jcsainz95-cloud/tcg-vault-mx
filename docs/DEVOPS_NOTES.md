@@ -10952,6 +10952,21 @@ de Docker) salvo lo marcado **NO MEDIDO AQUÍ**. Deuda derivada: `docs/TECH_DEBT
 
 | **PII en el arnés nativo** (backend) · `stack-native.sh` no generaba `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` ⇒ clave efímera por proceso ⇒ cada reinicio invalidaba la PII local (500 en billing-profile/KYC) | commit «stack-native · PII» (tras `5df5575`) | ambas claves en la misma llamada `env-file` que las JWT (persistidas, aleatorias por máquina) + `export`; `secrets-preflight.sh` genera `*HMAC_KEY` en base64 de 32 bytes; `check-e2e-harness-gaps.sh` **#7** (estático + genera en temporal y exige 32 bytes) | harness-gaps rc=0 3/3; idempotencia sobre `secrets.env` previo (añade sin rotar); mutación sobre COPIA ⇒ rojo 3/3. **NO MEDIDO AQUÍ:** `stack-native.sh up` real (sin Postgres/Redis en este entorno); en máquinas con `secrets.env` previo, la PII cifrada ANTES de este cambio con clave efímera sigue siendo ilegible (borrar esas filas o `down -v`) |
 
+**Corrección del canario del censo (DO-D10, el mismo día, medida en CI):** el primer canario de N7
+copiaba `frontend/e2e` y la comparaba contra el **baseline commiteado**. Run **34624748863** (job
+`e2e-skip-census`, `18f2b01`): frontend añadió tres specs de Stream B, el baseline quedó corto y el
+canario cayó a **3/5** —«copia intacta = baseline» y «-1 needsSeed ⇒ verde»— arrastrando a `ci-ok`.
+**Una sola causa apagaba dos señales**, y el rojo no distinguía «el instrumento está roto» de «el
+número subió». Arreglado en `cc59a6a`: el canario usa un árbol **sintético** propio con conteos
+conocidos y un baseline que fabrica él; del vivo solo comprueba la **estructura** (4 claves bien
+formadas), nunca sus números. **La medición que lo demuestra:** con el baseline vivo TODAVÍA
+desfasado, canario **13/13 en 3/3** y gate **rc=1** a la vez. Mutaciones sobre COPIA: el gate que
+nunca detecta crecimiento ⇒ 10/13 rojo 3/3; el conteo sin `-w` ⇒ 12/13 rojo 3/3; control ⇒ rc=0.
+Baseline regenerado con motivo en `0ed2180`: **mockOnly 78→85 en 17→20 ficheros** (checkout-retry 3,
+orders-resume 2, m5-transitions 2); las otras tres claves sin cambio. **Lección para el resto de
+canarios de este repo:** un canario que se mide contra un número que otro rol mueve no está midiendo
+el instrumento — está repitiendo el gate.
+
 **Deuda que queda (con comprobación de cierre en TECH_DEBT):** DO-D9 (N4: ámbito por workflow), DO-D10
 (N7: el baseline lo escribe devops y el número es de frontend), DO-D1 (mini-linter + acoplamiento del
 manifiesto; F1-7), DO-D2 (F1-1 residual: push real a `production`), DO-D3 (F1-2 residual: lista contra
