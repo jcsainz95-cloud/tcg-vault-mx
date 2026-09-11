@@ -11446,3 +11446,73 @@ curl -s 'https://quay.io/api/v1/repository/minio/mc/tag/?limit=5&onlyActiveTags=
 
 y con el `name` + `manifest_digest` que devuelva, el pin se clava **por digest** (inmutable) y
 se verifica con `./scripts/check-compose-images.sh --resolve`.
+
+### 60.5 · REEVALUACIÓN del origen, con un dato nuevo — y una inconsistencia mía corregida
+
+**El dato nuevo (me lo trajo el orquestador; lo RE-MEDÍ yo, no lo relayo).** `quay.io` está
+bloqueado por el proxy para los dos (`000`, CONNECT rechazado), pero el proxy **sí** permite
+lectura git anónima de repos públicos, así que conté las etiquetas yo mismo con
+`git ls-remote --tags`:
+
+| Repo | Releases por año | Última |
+|---|---|---|
+| `minio/minio` | 2018:**94** · 2019:**100** · 2020:**172** · 2021:**133** · 2022:**186** · 2023:**132** · 2024:**126** · 2025:**33** · **2026: 0** | `RELEASE.2025-10-15T17-29-55Z` |
+| `minio/mc` | 2022:**96** · 2023:**100** · 2024:**96** · 2025:**26** | `RELEASE.2025-08-13T08-35-41Z` |
+
+De ~10 releases al mes a **cero en once meses**. Junto al `401` de nivel de repositorio en
+Docker Hub, esto **no parece un repositorio caído: parece el cierre de la distribución
+comunitaria**.
+
+**La inconsistencia que me señalaron, y que acepto:** descarté `bitnamilegacy/minio` por
+«sin parches», y clavar `RELEASE.2025-10-15` es **también** clavar algo sin parches. Apliqué
+el criterio de forma asimétrica. **Concedido.** (Lo que sí sostengo de aquel descarte es la
+otra mitad, que no era la frescura: es un **reempaquetado de tercero** con convenciones de
+arranque distintas, y eso sí es riesgo de comportamiento.)
+
+**Pero la conclusión no se voltea, y aquí está la medición que lo sostiene.** «Congelar una
+dependencia sin mantenimiento en una puerta de seguridad» suena grave porque evoca
+producción. Medido, este MinIO **no es eso**:
+
+| Pregunta | Medido |
+|---|---|
+| ¿Producción usa MinIO? | **NO.** Producción usa **Cloudflare R2** (`DEVOPS_NOTES §1`, §11). MinIO es **local/CI**. |
+| ¿El DAST escanea MinIO? | **NO.** `ZAP_TARGETS` = solo la vitrina; `NUCLEI_TARGETS` = vitrina + API. MinIO **nunca** es blanco. |
+| ¿Está expuesto? | **NO.** `127.0.0.1:9010/9011`, solo loopback del runner. |
+| ¿Qué datos tiene? | **Sintéticos**, sembrados por el propio job. |
+| ¿Cuánto vive? | **Minutos**, y se destruye (`down -v`). |
+
+⇒ Un CVE de MinIO aquí **no es alcanzable por nadie, no aparece en el informe del DAST y no
+existe en producción**. Lo que la fiabilidad del gate necesita de MinIO **no es que esté
+parcheado: es que ARRANQUE**. Y para una pieza de atrezo de CI, **estar congelado es una
+virtud** (reproducibilidad), no un defecto.
+
+**El argumento que SÍ sobrevive, y es otro:** no es el parcheo, es la **disponibilidad**.
+Un proyecto que dejó de publicar hace once meses y que ya cerró un registro **puede cerrar el
+otro**. Clavar en `quay.io` —un registro que **ni el orquestador ni yo podemos alcanzar para
+verificar**— es aceptar una dependencia **con cuenta atrás** en la única puerta que mira la
+aplicación corriendo. Ése es el problema real, y no lo arregla ninguna etiqueta.
+
+### 60.6 · Decisión, y lo que NO decido yo
+
+**NO commiteo el pin.** Las etiquetas de arriba salen de **GitHub**, no del **registro**, y
+`quay.io` es inalcanzable para los dos: sería clavar un dato sin confirmar **en el sitio que
+importa** — exactamente lo que me negué a adivinar hace una hora. El orquestador dejó dicho
+«si `quay.io` tampoco te responde, dilo y esperamos». Lo digo: **no responde.**
+
+**Lo que propongo enrutar al ARQUITECTO** (no lo decido yo: es cambio de stack, `CLAUDE.md`):
+sustituir la pieza de S3 del stack efímero de CI. **El motivo NO es «MinIO tiene CVEs»** —ya
+está medido que aquí eso no muerde— **sino que su distribución se está cerrando y no podemos
+ni verificar que siga siendo descargable**. Datos para esa decisión, ya medidos:
+
+- Candidatos **verificados descargables anónimamente hoy** (HTTP 200 desde este entorno):
+  `adobe/s3mock`, `localstack/localstack`, `chrislusf/seaweedfs`.
+- Alternativa **ya dentro del repo y de propiedad devops**: `scripts/s3-local/` (s3rver), que
+  hoy da el S3 de la ruta **nativa** — pero su propia cabecera declara qué de MinIO **no**
+  reproduce, así que no es un reemplazo gratis.
+- Requisito real a cubrir: que el backend **arranque** y que exista el bucket `kyc_ine/`.
+  Nada más: esta pieza no se escanea y no viaja a producción.
+
+**Mientras tanto:** `dast-release` sigue rojo y **C5 sigue sin cerrar**. El candado de
+imágenes sigue **sin cablear** en `ci.yml` (pin y cableado entran juntos), decisión que el
+orquestador confirmó: poner en rojo los PR de los agentes en vuelo por un defecto ya
+diagnosticado es ruido, no información.
