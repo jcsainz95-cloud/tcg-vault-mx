@@ -14,8 +14,10 @@ import { loginAs, mockOnly } from './utils/auth';
  *           · sin token (otra pestaña / perdido) la reserva propia es «ajena» ⇒ `ITEM_UNAVAILABLE`
  *             ⇒ la poda de siempre (§4-R.3, R-7)
  *
- * Mock-only: contra el stack real esto exige un PI de Stripe en `processing` y una segunda
- * identidad; el smoke `@real` de compra vive en `checkout.spec.ts`.
+ * Mock-only, y el motivo está MEDIDO (H-4, QA): contra este stack `POST /checkout/session` responde
+ * `503 PAYMENT_PROVIDER_UNAVAILABLE` (sin claves de Stripe) y deja el pedido `failed` sin reserva,
+ * así que no hay intento anterior que reusar ni PI que poner en `processing`. El smoke `@real` de
+ * compra vive en `checkout.spec.ts`; el de §M5-S, que SÍ se pudo cablear, en `m5-transitions.spec.ts`.
  */
 const PAY = /Pagar/;
 const modalOf = (page: Page) => page.getByRole('dialog', { name: t('es', 'checkout.payTitle') });
@@ -37,7 +39,13 @@ async function payAndCloseModal(page: Page) {
 
 test.describe('checkout con cuenta · reintento sobre la propia reserva (§4-R.2)', () => {
   test.beforeEach(async ({ page }) => {
-    mockOnly('el desenlace del reintento lo dicta el simulador de reservas de lib/mock');
+    mockOnly(
+      // MEDIDO (2026-09-11, stack nativo `1522b45`): sin proveedor de pagos,
+      // `POST /checkout/session` responde `503 PAYMENT_PROVIDER_UNAVAILABLE`, libera la reserva y
+      // deja el pedido `failed` — no hay modal, ni folio reusable, ni PI que poner en `processing`.
+      // Todo el reintento de §4-R vive DESPUÉS de esa respuesta, así que aquí lo dicta el simulador.
+      'sin Stripe no hay sesión de pago: POST /checkout/session ⇒ 503 PAYMENT_PROVIDER_UNAVAILABLE',
+    );
     await loginAs(page, 'customer');
     await addFirstCard(page);
     await page.goto('/es/checkout');
@@ -122,7 +130,13 @@ test.describe('checkout de invitado · el token es la llave del reintento (§4-R
   }
 
   test.beforeEach(async ({ page }) => {
-    mockOnly('el desenlace del reintento lo dicta el simulador de reservas de lib/mock');
+    mockOnly(
+      // MEDIDO (2026-09-11, stack nativo `1522b45`): sin proveedor de pagos,
+      // `POST /checkout/session` responde `503 PAYMENT_PROVIDER_UNAVAILABLE`, libera la reserva y
+      // deja el pedido `failed` — no hay modal, ni folio reusable, ni PI que poner en `processing`.
+      // Todo el reintento de §4-R vive DESPUÉS de esa respuesta, así que aquí lo dicta el simulador.
+      'sin Stripe no hay sesión de pago: POST /checkout/session ⇒ 503 PAYMENT_PROVIDER_UNAVAILABLE',
+    );
     await addFirstCard(page);
     await page.goto('/es/checkout');
     await fillGuestForm(page);
