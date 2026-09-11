@@ -4,7 +4,21 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.1.2** — **§33 ratificada contra lo implementado en Stream A** (2026-09-11, tras QA 11/11 y techlead):
+> Estado: **v4.2** — **§34 NUEVA: la verificación de identidad (P-78)** (2026-09-11). Cierra **dos callejones sin
+> salida medidos**: el panel deja marcar «verificado» **sin poder ver el documento** (la proyección de admin lo
+> excluye y **no existe ruta de lectura**: `presignGet` tiene **cero llamadores**) y el cliente ve «Pendiente»
+> **sin ninguna acción** cuando ya subió todo. Diseña la **pantalla de revisión en ruta propia**
+> (`/admin/m6/kyc/[userId]`, **solo `super_admin`**) con la INE **grande, sin recortar, girable y ampliable**
+> (§34.3, §34.4) **junto al nombre, su marca de origen, las direcciones con destinatario y los destinatarios de
+> los envíos recientes** (§34.5); **verificar** con confirmación y **rechazar con motivo obligatorio 10–300** que
+> **el cliente lee tal cual** en su cuenta y en un **noveno correo** (§34.6, §34.7); **una línea** de aviso de
+> registro de acceso (§34.2a); los **cuatro estados del cliente** con salida en todos —«En revisión» dice *no
+> tienes que hacer nada*, «Rechazada» trae el motivo **y** los uploaders— (§34.8); y los **topes fuera de la vista
+> del cliente**: el número **decide pero no aparece** (§34.9). ⚠ **§33.6e queda superseded** por §34.8/§34.9
+> (fuera las dos filas de topes). **Cero tokens nuevos** (§34.13). Ocho notas a otros roles: **A1 bloquea**
+> (el `attachment` de `presignGet` impide pintar la imagen) y **A6 es un defecto medido** (cualquier `PUT
+> /users/me/kyc`, incluida una CLABE sola, degrada a `pending`).
+> Antes: **v4.1.2** — **§33 ratificada contra lo implementado en Stream A** (2026-09-11, tras QA 11/11 y techlead):
 > claves i18n de §33.13 = las reales de `es.json`/`en.json` (`auth.changePassword.*`, `orders.claimable.*`,
 > `vault.claimable.body`, `sellCart.*`, `shipments.recipient.*`, `admin.m4.*`); `vault.withdraw` **no cambia** (nueva
 > `vault.requestWithdrawal`); M4 sin destinatario = «SIN DESTINATARIO (retiro anterior a v1.67)»; destinatario inline
@@ -16821,3 +16835,689 @@ debajo de los mínimos de §20.11 (mono 11px, cuerpo 16px en móvil).
 | **R8** | **backend** | Mientras el nombre sea el derivado, **los 10 correos** que lo usan (`mail.templates.ts:70-99`, `buylist*.service.ts`) siguen diciéndole «Hola jcsainz95». No es de esta sección; queda anotado para que se decida si el saludo cae al correo o se omite hasta que el usuario lo corrija. |
 | **R9** | **frontend** | Implementa §33 entero contra el contrato v1.67 y el reparto **F1–F11 de `ARCHITECTURE §4.47.8`** (mocks hasta que backend publique); **`components/`, `lib/`, `hooks/` son zona compartida** (un solo stream a la vez). El orden de entrega de v4.1 queda **superseded por F1–F11**. |
 | **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, **total «—» y las dos líneas sin cifra («—» en subtotal y «Estimado c/u»)** hasta que `batchQuote` responde (llamado una vez); si `batchQuote` falla, **sigue sin haber cifra** en total ni líneas y aparece «Reintentar» (v4.1.2, §33.11.2); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
+
+---
+
+## 34. La verificación de identidad — la pantalla de revisión, el rechazo con motivo y los cuatro estados del cliente (v4.2, 2026-09-11 · P-78)
+
+> **Origen:** **P-78** (`PENDIENTES.md`, fila `P-78`), hallazgo del dueño sobre la release publicada `c8bee65`.
+> **El defecto en una línea: guardamos la INE y nadie puede verla, así que el panel deja marcar «verificado»
+> sin haber visto nada y el cliente ve «Pendiente» sin ninguna acción posible.** Dos callejones sin salida, uno
+> en cada lado del mostrador.
+>
+> **Decisiones del dueño ya tomadas (`HECHOS.md`, 2026-09-11; no se re-preguntan):**
+> **(a)** las imágenes las ve **solo el super administrador**; **(b)** rechazar exige **motivo**, y el motivo
+> **le llega al cliente**; **(c)** los **topes salen de la vista del cliente** (pantalla y mensaje de error);
+> **(d)** la revisión muestra la INE **junto al nombre y las direcciones**, para cotejar contra el destino
+> de envío.
+>
+> **Diseñado desde cero** (sin mockup de Claude Design), sobre las piezas vivas de §7.6 (modal), §7.10
+> (`PhotoUploader`), §20 (piel del storefront), §31 (correo) y §33 (Mi cuenta).
+>
+> **Qué supersede:** **§33.6e** (la retícula de KYC de «Mi cuenta») queda **superseded por §34.8 y §34.9** —
+> desaparecen las dos filas de topes y la línea «INE en archivo» se convierte en un bloque de estado con
+> salida. Lo demás de §33.6e (CLABE, su hint, sus errores) **no cambia**. §33.13 pierde dos claves
+> (`account.kyc.capPerRequest`, `account.kyc.capPerMonth`), listadas en §34.12.
+
+### 34.0 Hechos medidos el 2026-09-11 y las reglas duras
+
+**Medido sobre `7766296` (no supuesto):**
+
+| # | Hecho | Dónde |
+|---|---|---|
+| H1 | La proyección de admin **excluye a propósito** `ineFrontKey`/`ineBackKey` y solo deriva `ineOnFile: boolean`. Las llaves nunca salen del servidor. | `backend/src/modules/admin/admin.service.ts:40-46,56-69,197` |
+| H2 | **No existe ninguna ruta de lectura**: `UploadsController` tiene **exactamente un** endpoint, `POST presign`. La capacidad está escrita y **sin un solo llamador**: `presignGet` aparece **una vez en todo `backend/src`**, su propia definición. | `uploads.controller.ts:22,25`; `grep -rn presignGet backend/src` → 1 hit (`uploads.service.ts:154`) |
+| H3 | ⚠️ **`presignGet` firma la lectura con `ResponseContentDisposition: 'attachment'`**: esa URL **no se puede pintar en un `<img>`** — el navegador la descarga. Cualquier diseño que «solo pida el presign» **no muestra nada**. | `uploads.service.ts:154-163` |
+| H4 | El panel deja **fijar el enum a mano**: un `Select` con las cuatro opciones + «Guardar KYC» ⇒ `verified` es alcanzable **sin haber visto un documento**. | `M6View.tsx:360-372`; `KYC_STATUSES` en `:54` |
+| H5 | La ficha 360° solo dice **«INE en archivo: Sí/No»**. Es toda la información que hoy tiene quien decide. | `M6View.tsx:349-350` |
+| H6 | El cliente **solo** ve uploaders si `!ineOnFile`; con la INE ya subida, «Pendiente» es un **callejón**: ni explicación, ni fecha, ni acción. | `KycSection.tsx:111-113,162-184` |
+| H7 | Se le pintan **dos topes** en cifra (`account.kyc.capPerRequest` / `capPerMonth`, `es.json:138-139`). | `KycSection.tsx:115-130` |
+| H8 | **Cualquier** escritura de `PUT /users/me/kyc` —**también una CLABE sola**— pone `kycStatus: 'pending'`. ⇒ un cliente **verificado** que corrige su CLABE **pierde la verificación** y cae a una cola donde no hay nada nuevo que revisar. | `backend/src/modules/users/users.service.ts:343-347` |
+| H9 | `KycProfile` **ya tiene** `verifiedBy` / `verifiedAt`; **no tiene** motivo de rechazo, ni fecha de envío, ni fecha de revisión. | `backend/prisma/schema.prisma:456-478` |
+| H10 | Divergencia contrato↔código en el DTO del cliente: el contrato declara `ineThresholdCents` y el servicio sigue devolviendo `capPerRequestCents`. | `API_CONTRACT.md:6597` vs `users.service.ts:312-313` |
+| H11 | El `Modal` del sistema es `max-w-md` (**448 px**) con el cuerpo scrolleable; la ficha 360° **ya es** ese modal. | `Modal.tsx:54`; `M6View.tsx:307-316` |
+| H12 | Hay antecedente exacto de rechazo con motivo: M5 valida **3–500** en cliente, avisa que el motivo viaja por correo y el botón dice «Rechazar y notificar». | `M5View.tsx:1306-1365`; `es.json:1505-1510` |
+| H13 | Un cotejo **automático** de nombres está **prohibido por contrato**: D51 retiró el cotejo INE↔CLABE y ninguna regla nueva se cuelga de `kycStatus` sin pasar por el arquitecto. | `API_CONTRACT.md:903-919` |
+
+**Las ocho reglas duras de esta sección:**
+
+1. **Nadie verifica lo que no vio.** El estado `verified` deja de ser un valor que se elige en un `Select`:
+   es **el resultado de una pantalla que enseñó el documento** (§34.6). El `Select` de estado KYC de la ficha
+   **se retira** (§34.10).
+2. **Las imágenes viven en UNA superficie y solo una.** La pantalla de revisión, bajo el rol
+   `super_admin`. **Nunca** en un listado, **nunca** en una miniatura, **nunca** en un correo, **nunca** en la
+   ficha 360°, **nunca** en M5. Y **no se ofrece descargar**: un documento descargado vive para siempre en el
+   portátil de alguien (§34.14).
+3. **Quien mira, sabe que se registra.** Una línea, encima del documento, siempre visible. Una. Sin sermón
+   (§34.2).
+4. **Rechazar exige motivo, y el motivo es texto que el cliente lee tal cual.** No hay códigos, no hay enums,
+   no hay «Rechazado» a secas (§34.6b, §34.7).
+5. **«Pendiente» nunca es un callejón.** Cada estado del cliente dice *qué pasó*, *qué le toca a él* (aunque
+   sea nada) y *cuándo sabrá* (§34.8).
+6. **Ninguna cifra de tope, umbral o cupo se pinta al cliente.** El número puede **viajar y decidir**; no
+   puede **aparecer** (§34.9).
+7. **La pantalla enseña; no dictamina.** Pone la INE, el nombre y los destinatarios uno junto a otro y calla:
+   **ningún veredicto automático de coincidencia**, ni marca verde, ni «el nombre coincide» (H13).
+8. **Un dato que no tenemos no se pinta como si lo tuviéramos.** Sin fecha de envío no se inventa; sin
+   destinatario se escribe «Sin destinatario», **nunca** el `userId` ni el `User.name` (regla 6 de §33).
+
+---
+
+### 34.1 Dónde vive la revisión — ruta propia, y por qué no un modal dentro de la ficha
+
+**Decisión: página propia en el panel, `/admin/m6/kyc/[userId]`, rotulada «Revisión de identidad», alcanzable
+solo desde la ficha 360° y solo para `super_admin`.**
+
+Por qué **no** dentro de la ficha (la alternativa barata):
+
+1. **No cabe, y no es opinión.** La ficha 360° **es** el `Modal` del sistema, `max-w-md` = **448 px** (H11).
+   Una INE legible necesita ≥ **560 px** de ancho útil por cara (§34.3). Ensanchar ese modal a 1100 px para
+   este caso rompería el componente compartido para las otras siete pantallas que lo usan.
+2. **Un modal dentro de un modal es una trampa de foco.** Dos `role="dialog"` anidados, dos `Esc` que
+   compiten, y la ficha de fondo scrolleando bajo el visor. Es el patrón que §7.6 evita.
+3. **Una URL es lo que la bitácora puede señalar.** «Quién miró este documento» es un hecho que se registra al
+   abrir **una ruta**, con su guard de rol en el layout — no con un `&&` de render dentro de un componente de
+   900 líneas.
+4. **Así el payload de las listas nunca toca las imágenes.** La lista de usuarios y la ficha siguen pidiendo
+   exactamente lo que piden hoy; el binario de la INE solo se solicita desde esta ruta, al montarla (regla 2).
+   Es la diferencia entre «no lo pintamos» y «no lo pedimos».
+
+**Cómo se llega** — un solo sitio: en el bloque KYC de la ficha 360°, bajo la línea de estado, botón
+`secondary sm` **«Revisar identidad»** (`admin.m6.kycReview.openCta`), visible **solo si** `isSuperAdmin`
+(patrón `useRole` de `M6View.tsx:65,268`; el backend es la autoridad). Se pinta:
+- **habilitado** cuando `ineOnFile === true`;
+- **ausente** (no deshabilitado: §7.15, lo no permitido no se muestra) cuando el usuario no es `super_admin`;
+- **deshabilitado con motivo visible** cuando `ineOnFile === false` — texto mono muted al lado:
+  **«Sin INE en el expediente.»** (*«un botón apagado sin motivo visible es un callejón»*, §27.1.4).
+
+Cuando `kycStatus === 'pending'`, junto al botón va la marca mono accent **«ESPERA REVISIÓN»**
+(`admin.m6.kycReview.waiting`) — es la única forma de que quien abre la ficha por otra razón se entere.
+
+**Vuelta:** enlace **«← Ficha del usuario»** encima del `h1` → `/admin/m6?user={id}` (el deep-link ya existe,
+`M6View.tsx:70-76`). Tras verificar o rechazar, la vuelta es **automática** sólo si el revisor pulsa el enlace;
+la página **no** navega sola (§34.6c).
+
+**Guard:** `/admin/m6/kyc/*` exige `super_admin`. Un `vault_operator` que teclee la URL recibe el mismo trato
+que hoy da `AdminShell` a un rol sin permiso (redirección), **no** una pantalla vacía con candado.
+
+---
+
+### 34.2 Anatomía de la pantalla de revisión
+
+```
+← Ficha del usuario
+REVISIÓN DE IDENTIDAD                                       ← eyebrow mono 11px
+Ana Gómez                                                   ← h1 serif 30/40
+ana@correo.mx · Cliente desde 12 ene 2026 · [EN REVISIÓN]   ← 15px muted + StatusBadge kyc
+
+🔒 Tu acceso a este documento queda registrado.             ← §34.2a · mono 11px muted
+
+┌── ≥ lg: dos columnas  [1fr_360px], la derecha sticky ──────────────────────┐
+│  INE — FRENTE                     │  DATOS DE LA CUENTA                    │
+│  ┌───────────────────────────┐    │  Nombre    Ana Gómez                   │
+│  │                           │    │            [NOMBRE TOMADO DEL CORREO]  │
+│  │   imagen, object-contain  │    │  Correo    ana@correo.mx               │
+│  │   sobre fondo tinta       │    │  Celular   55 1234 5678                │
+│  └───────────────────────────┘    │  CLABE     ****1234                    │
+│  [Ampliar] [↺] [↻]                │  ──────────────────────────────────    │
+│                                   │  DIRECCIONES GUARDADAS (2)             │
+│  INE — REVERSO                    │  Recibe: Ana Gómez                     │
+│  ┌───────────────────────────┐    │  Av. Reforma 123, int 4                │
+│  │                           │    │  Juárez · CDMX · 06600 · 5512345678    │
+│  └───────────────────────────┘    │  ──────────────────────────────────    │
+│  [Ampliar] [↺] [↻]                │  Recibe: — Sin destinatario            │
+│                                   │  ──────────────────────────────────    │
+│                                   │  DESTINATARIOS DE SUS ENVÍOS (3)       │
+│                                   │  Ana Gómez · CDMX · 3 sep 2026         │
+│                                   │  Luis Gómez · CDMX · 21 ago 2026       │
+└────────────────────────────────────────────────────────────────────────────┘
+
+════ barra de acciones, sticky abajo ════════════════════════════════════════
+  [ Verificar identidad ]   [ Rechazar ]                    ← primary + accent
+```
+
+**a · La línea de privacidad (regla 3).** Texto exacto, mono 11px uppercase tracking `.14em`, color `muted`,
+con el icono `Lock` de 12px `aria-hidden`, **encima del documento** y dentro del flujo (no en un pie):
+**«Tu acceso a este documento queda registrado.»** / **“Your access to this document is logged.”**
+No lleva enlace, no lleva «más información», no se repite en ningún otro sitio de la pantalla. Va en un
+`<p>`, no en un `Banner`: **no es una alerta, es una condición del sitio**.
+
+**b · Jerarquía deliberada:** el nombre del cliente es el `h1` porque la pregunta de la pantalla es *«¿esta
+INE es de esta persona, y coincide con a quién le mandamos las cartas?»*. El folio, el rol y el estado van en
+la línea de metadatos. **Ningún dinero aparece en esta pantalla** (ni totales, ni topes, ni el histórico de
+ventas): no interviene en la decisión y sí ensucia el juicio.
+
+**c · Móvil 390 px** — una columna, en este orden: vuelta · eyebrow · `h1` · metadatos · **línea de
+privacidad** · **INE frente** (ancho completo) · **INE reverso** · «Datos de la cuenta» · direcciones ·
+destinatarios · **barra de acciones fija abajo** (`sticky bottom-0`, fondo `bg` con `border-t`, respeta
+`env(safe-area-inset-bottom)`, botones a ancho completo apilados con `gap-2`). Las imágenes a 358 px de ancho
+no bastan para leer el documento: en móvil **el visor ampliado (§34.4) es el camino principal**, y por eso el
+marco entero es pulsable, no solo el botón.
+
+**d · Estados de la página (§8.1):** `QueryState` sobre `GET /admin/users/:id` (nombre, direcciones) y sobre
+la lectura del documento (§34.3), **por separado**: que la imagen tarde no puede dejar la pantalla sin el
+nombre, y que falle el listado de envíos no puede tapar la INE. Sin usuario ⇒ error de página completa con
+«Volver a la ficha». Sin INE en el expediente ⇒ `EmptyState` **«Este usuario no tiene INE en el expediente»**
++ cuerpo «No hay nada que revisar.» + botón de vuelta, y **la barra de acciones no se pinta**.
+
+---
+
+### 34.3 El documento en pantalla — componente nuevo `IdDocumentViewer`
+
+Un documento de identidad se lee distinto que una foto de producto. Tres cosas mandan: **que no se recorte**,
+**que sea grande** y **que se pueda girar**.
+
+**a · El marco.**
+- Proporción **fija `aspect-[1.586]`** (la ID-1 de la INE: 85.6 × 54 mm). El marco **no** se adapta a la foto:
+  se adapta el contenido.
+- **`object-contain`, jamás `object-cover`.** Recortar un documento de identidad esconde justo lo que se va a
+  cotejar. Con `contain`, una foto torcida deja franjas: **las franjas son información** (te dicen que la foto
+  está mal tomada).
+- Fondo del marco **`--color-ink` (#1A1A18)** con `border border-on-ink-rule`: el papel `#F4F1EA` del sistema
+  se confunde con el fondo claro de una INE y hace desaparecer sus bordes. Es el único sitio de la pantalla
+  con fondo tinta, y usa tokens ya verificados (§34.13).
+- **Ancho mínimo del marco en `≥ lg`: 560 px** (la columna izquierda a `1fr` con `max-w-[720px]`). Razón
+  medible: `PhotoUploader` sube el lado largo a **2000 px** (`PhotoUploader.tsx:34`), así que la fuente da de
+  sobra; a 560 px de ancho renderizado, el nombre impreso en la credencial (≈2.5 mm de alto) cae en ≈16 px
+  CSS — **legible sin ampliar**. A 358 px (móvil) cae en ≈10 px: **ilegible**, de ahí §34.4.
+- Las dos caras **una debajo de otra**, no lado a lado: dos INE a 280 px cada una no se leen ninguna.
+
+**b · Controles bajo cada cara** (fila `gap-2`, botones `secondary sm`, área táctil 44 px):
+**«Ampliar»** (icono `Maximize2`) · **«Girar a la izquierda»** (`RotateCcw`) · **«Girar a la derecha»**
+(`RotateCw`). La rotación es **estado local por cara**, en pasos de 90°, **CSS `transform` puro**: no se
+re-sube nada, no se persiste nada, no se toca el objeto del bucket. Hint mono 11px muted bajo la primera
+cara: **«Si la foto viene de lado, gírala aquí: no cambia el archivo.»**
+
+**c · Carga perezosa y caducidad.** La lectura del binario **se pide al montar la ruta**, nunca antes;
+**frente primero**, reverso con `fetchpriority="low"` en cuanto el frente resuelve. Mientras: `Skeleton` con
+la forma del marco (misma proporción) y `aria-busy`. La firma de lectura vive **minutos** (hoy 300 s,
+`uploads.service.ts:154`), así que la pantalla diseña **el vencimiento como estado normal, no como error**:
+
+| Estado | Qué se ve | Acción |
+|---|---|---|
+| `loading` | Skeleton en el marco + `sr-only` «Cargando la imagen…» | — |
+| `ready` | La imagen | «Ampliar», girar |
+| `expired` | Marco en tinta con texto `on-ink` **«El enlace de la imagen caducó.»** | Botón **«Volver a cargar»**; y **re-petición automática y silenciosa** al volver el foco a la pestaña |
+| `error` | **«No se pudo cargar la imagen.»** | **«Reintentar»** |
+| `missing` | **«Esta cara no está en el expediente.»** (una sola cara subida) | — · y §34.6b preselecciona el motivo «falta una cara» |
+| `purged` | **«Las imágenes se borraron al cumplirse el periodo de retención.»** | — · la barra de acciones **no** se pinta |
+
+⭐ El estado `purged` no es teórico: hay un job de retención que borra los objetos y limpia las llaves
+(`backend/src/jobs/ine-retention.service.ts:51,87`). Una pantalla que en ese caso pintara «error de carga»
+mandaría a alguien a buscar un fallo que no existe.
+
+**d · Semántica.** Cada imagen es `<img alt="INE — frente de {nombre}">` dentro de un
+`<figure>` con `<figcaption>` mono 11px uppercase («INE — FRENTE» / «INE — REVERSO»). El marco completo es
+`role="button" tabIndex=0` con `aria-label="Ampliar la INE — frente"`, activable con Enter/Espacio, foco
+`focus-visible:shadow-focus`. ⛔ **Ningún `download`, ningún `target="_blank"` a la URL cruda, ningún
+menú contextual custom.**
+
+---
+
+### 34.4 El visor ampliado (`IdDocumentLightbox`) — donde se lee de verdad
+
+Se abre desde «Ampliar» o desde el marco. Es un `role="dialog" aria-modal="true"` **a pantalla completa**
+(no el `Modal` de §7.6: ése está acotado a `max-w-md`), fondo `--color-ink` al 100 %, imagen
+`max-h-[100dvh] max-w-[100vw] object-contain`.
+
+| Control | Ratón/táctil | Teclado |
+|---|---|---|
+| Zoom | Botones `−` / `+` y **doble clic** alterna 100 % ↔ 200 %; **pinch nativo** en táctil | `+` / `-` |
+| Encuadre | Arrastrar cuando el zoom > 100 % (`cursor-grab`) | Flechas mueven el encuadre |
+| Rotar | `↺` / `↻` | `r` (derecha), `Shift+R` (izquierda) |
+| Ajustar | Botón **«Ajustar»** vuelve a 100 % y centra | `0` |
+| Cambiar de cara | Botones **«Frente» / «Reverso»** (segmentado) | `←` / `→` |
+| Cerrar | Botón `X` arriba a la derecha (44 px) y clic en el fondo | `Esc` |
+
+- Niveles de zoom **discretos**: 100 / 150 / 200 / 300 %. El nivel se pinta en mono 11px `on-ink-muted`
+  («200 %»): el revisor necesita saber cuánto está ampliando cuando algo «se ve raro».
+- **Táctil:** `touch-action: pinch-zoom` en el contenedor de la imagen. ⛔ No se bloquea el zoom del
+  navegador: en móvil es **la** herramienta de lectura.
+- **Foco:** trampa de foco dentro del diálogo; al cerrar, el foco **vuelve al botón «Ampliar»** que lo abrió
+  (patrón §7.6). La barra de controles es lo primero en el orden de tabulación.
+- **La línea de privacidad se repite aquí**, en `on-ink-muted`, abajo a la izquierda. Es el único sitio donde
+  se repite, y se repite porque en pantalla completa desaparece todo lo demás.
+- ⛔ El visor **no** tiene «Descargar», ni «Abrir en pestaña nueva», ni «Imprimir».
+
+---
+
+### 34.5 El panel de cotejo — lo que va al lado del documento (decisión (d) del dueño)
+
+Columna derecha (360 px, `sticky top-[var(--app-header-h)]`, §4.5), tres bloques separados por
+`border-t border-border`, todos en `text-sm`, con los números en mono/`tabular`:
+
+**a · Datos de la cuenta** — `Nombre` · `Correo` · `Celular` · `CLABE` (`clabeMasked`, tal cual;
+**nunca en claro**) · `Alta`. El nombre en `font-medium text-text`, un punto más grande que el resto:
+es el dato que el ojo va a comparar.
+
+⭐ **Marca de origen del nombre (`nameSource`).** Si `nameSource === 'derived'`, bajo el nombre va una nota
+al margen con regla roja (`rule-note`, patrón de §33.6a):
+> **ES:** «Este nombre lo fabricamos con su correo porque Google no nos dio ninguno. **No es un nombre que él
+> haya declarado**: no lo uses para cotejar.» · **EN:** “We built this name from their email address because
+> Google didn't share one. **The customer never stated it** — don't use it to match.”
+
+Sin esa nota, la pantalla invitaría al error exacto que P-73 documentó: comparar una INE contra
+`jcsainz95`. Si `nameSource === 'google'`, badge neutro mono **«NOMBRE DE GOOGLE»**; si es `'user'`, nada
+(lo normal no se rotula).
+
+**b · Direcciones guardadas ({n})** — cada una en su celda con regla: primera línea **«Recibe: {nombre}»** en
+`font-medium`; si `recipientName == null`, **«Recibe: — Sin destinatario»** en mono `accent`
+(⛔ nunca `User.name` como sustituto, regla 8). Debajo, `line1` + `line2`, colonia, `city · state · CP`, y el
+teléfono de la dirección en mono. Vacío: **«Sin direcciones guardadas.»**
+
+**c · Destinatarios de sus envíos recientes (≤ 5)** — una línea por envío:
+**«{destinatario} · {ciudad} · {fecha}»**, el destinatario en `font-medium`. Fuente:
+`GET /admin/shipments?userId=` (ya lo llama la ficha, `api.ts:4789-4799`), leyendo
+`addressSnapshot.recipientName` de forma defensiva — la forma del snapshot es abierta
+(`contract.ts:1044-1047`) y en retiros viejos no viene: entonces la línea dice **«Sin destinatario»** y
+**jamás** el `userId`. Vacío: **«Sin envíos.»** Ordenados del más reciente al más antiguo.
+
+> ⛔ **Lo que este panel NO hace (regla 7, H13):** no compara cadenas, no marca coincidencias en verde, no
+> ordena por parecido, no dice «el nombre no coincide». El cotejo automático **está retirado por contrato**
+> (`API_CONTRACT.md:903-919`) y una marca de color en esta pantalla sería el cotejo reintroducido por la
+> puerta de atrás. La pantalla pone los datos a la misma altura y **la persona decide**.
+
+---
+
+### 34.6 Las dos acciones
+
+Barra `sticky bottom-0` con `border-t border-border` y fondo `bg`, dentro del ancho del contenido. A la
+izquierda, el estado actual en mono 11px; a la derecha, los botones.
+
+**a · Verificar identidad** — `Button variant="primary"`, rótulo **«Verificar identidad»**.
+Abre confirmación (`Modal` de §7.6, título **«¿Verificar esta identidad?»**), cuerpo de **dos líneas**:
+> «Queda verificada y no volveremos a pedirle la INE.»
+> «Tu nombre y la hora quedan en la bitácora.»
+
+Botones: `secondary` **«Cancelar»** · `primary` **«Verificar»** (loading «Verificando…»).
+No es destructiva, pero sí es la que estampa un juicio: la confirmación existe para que nadie la pulse de
+pasada. Al éxito → §34.6c.
+
+**b · Rechazar con motivo** — `Button variant="accent"`, rótulo **«Rechazar»**. Abre el formulario
+(`Modal`, título **«Rechazar la identidad»**):
+
+1. **Motivos frecuentes** — `radiogroup` vertical con `<label>` de 44 px, seis opciones. Elegir una
+   **escribe su texto literal en el campo de abajo** (editable). Elegir «Otro motivo» **vacía** el campo y
+   pone el foco en él.
+
+   | Valor | Texto que se escribe (ES) | (EN) |
+   |---|---|---|
+   | `unreadable` | No se alcanza a leer: la foto está borrosa, con reflejo o cortada. | We can't read it: the photo is blurry, has glare or is cut off. |
+   | `missingSide` | Falta una de las dos caras de la INE. | One of the two sides of the ID is missing. |
+   | `notAnId` | La foto no es de una INE. | The photo isn't of an INE (Mexican voter ID). |
+   | `expired` | La INE está vencida. | The ID has expired. |
+   | `nameMismatch` | El nombre de la INE no corresponde con el de la cuenta. | The name on the ID doesn't match the account. |
+   | `other` | *(campo vacío)* | *(empty field)* |
+
+2. **Campo de motivo** — `Textarea` de 4 filas, label **«Motivo que verá el cliente»**, **obligatorio**,
+   **10–300 caracteres** (validado en cliente antes de enviar, espejo del servidor). Contador mono que
+   aparece a partir de 240: «{n}/300». Error: **«Escribe un motivo de 10 a 300 caracteres.»**
+   - *Por qué 10 y no 3 como en M5 (H12): allí el motivo lo lee un operador junto a una carta que tiene en la
+     mano; aquí lo lee, solo, la persona a la que le estamos diciendo que no. «no» no es un motivo.*
+   - *Por qué 300 y no 500: el texto se pinta dentro de la tarjeta de «Mi cuenta» y dentro de un correo de
+     600 px (§31.3). 300 caracteres ≈ 3 líneas y caben en los dos sitios sin recortarse.*
+3. **Dos notas bajo el campo**, `text-xs muted`:
+   > «El cliente lee este texto **tal cual**, en su cuenta y en el correo que le mandamos.»
+   > «No escribas datos de otra persona.» *(los cinco prohibidos de §31.0 aplican al correo que lo transporta)*
+4. **Pie:** `secondary` **«Cancelar»** · `accent` **«Rechazar y avisar»** (loading «Enviando…»), habilitado
+   solo con el motivo válido. **No hay una segunda confirmación**: el formulario, con su motivo obligatorio y
+   su advertencia de que el cliente lo leerá, **ya es** la confirmación (§7.6: una sola fricción, la útil).
+
+**c · Qué pasa después (las dos acciones).** La página **no navega sola** y **no cierra nada**: el revisor
+puede querer mirar otra vez lo que acaba de juzgar. Cambia así:
+- La barra de acciones se sustituye por una línea de resultado con `role="status"`:
+  **«Identidad verificada el {fecha}.»** (mono `success`) o
+  **«Identidad rechazada el {fecha}. Le avisamos por correo con tu motivo.»** (mono `accent`), y en el
+  segundo caso, debajo, el motivo entre comillas.
+- El `StatusBadge` de la cabecera cambia al nuevo estado.
+- Las imágenes **siguen a la vista**.
+- Se invalidan `['admin-user', id]` y `['admin-users']` para que la ficha y la lista de atrás cuenten lo
+  mismo (`M6View.tsx:124,133-134` ya usa ese patrón).
+- Aparece un enlace **«← Ficha del usuario»** también al pie, porque ya no queda nada que hacer aquí.
+
+**d · Errores y concurrencia.**
+- `409 KYC_ALREADY_REVIEWED` (PARA EL ARQUITECTO, §34.15 A4) ⇒ `Banner variant="warning"` **«Alguien más ya
+  revisó esta identidad. Recarga para ver cómo quedó.»** + botón «Recargar». Sin este caso, dos pestañas
+  abiertas producen dos correos contradictorios al mismo cliente.
+- `403` ⇒ la ruta no debería haberse abierto: se trata como error de página, no como aviso inline.
+- Cualquier otro error ⇒ `Banner danger` dentro del modal con `useErrorMessage` (nunca el inglés del
+  servidor), el modal **no se cierra** y el motivo escrito **no se pierde**.
+
+---
+
+### 34.7 El noveno correo — «No pudimos verificar tu identidad»
+
+El motivo tiene que **llegarle** (decisión (b)), y la cuenta sola no es llegar. Se añade **un** correo a los
+ocho de §31, con **su mismo esqueleto, sus mismas pilas tipográficas y sus mismas prohibiciones** (§31.0,
+§31.3): nada nuevo de medio.
+
+| Bloque | Contenido |
+|---|---|
+| Preheader | «Necesitamos otra foto de tu INE para poder verificarte.» |
+| Eyebrow (§31.6b) | `VERIFICACIÓN DE IDENTIDAD` |
+| Titular (Georgia 26px) | **No pudimos verificar tu identidad** |
+| Párrafo | «Hola{, nombre}: revisamos la INE que subiste y no pudimos darla por buena.» |
+| **Caja `▌` bermellón (§31.6d)** | `POR QUÉ` + el **motivo tal cual**, sin recortar |
+| Párrafo | «Sube otra vez tu INE —frente y reverso— desde tu cuenta y la revisamos de nuevo. Mientras tanto puedes seguir comprando con normalidad.» |
+| CTA (§31.7) | **SUBIR MI INE DE NUEVO** → `https://tcghunt.mx/{locale}/account#kyc` + la URL en mono como respaldo |
+| Letra chica | «Tu INE se guarda cifrada y se borra al cumplirse el periodo de retención.» |
+
+⛔ **El correo no lleva la imagen**, ni un enlace a ella, ni el estado de ninguna otra solicitud, ni cifra
+alguna (los cinco prohibidos, §31.0). ⛔ **No se diseña correo de "identidad verificada"**: es buena noticia
+sin acción y el cliente la ve en su cuenta; añadirlo es decisión de product-owner (§34.15 D1), y por defecto
+**no existe**.
+
+---
+
+### 34.8 El cliente — los cuatro estados, y el que hoy es un callejón
+
+Bloque `#kyc` de «Mi cuenta» (§33.6e). La retícula de lectura queda en **tres** filas —**Estado**, **CLABE
+para pagos**, **INE**— y **debajo** un **bloque de estado** que siempre dice tres cosas: *qué pasó*, *qué le
+toca a él*, *cuándo lo sabrá*.
+
+| Estado | Línea «INE» | Bloque de estado (título + cuerpo) | Acción para el cliente |
+|---|---|---|---|
+| **Sin INE** (`kycStatus='none'` ∧ `!ineOnFile`) | «Sin INE en tu expediente» (muted) | — «Solo te la pedimos si una venta supera nuestro límite. Si la subes ahora, no volvemos a pedírtela.» | Los dos `PhotoUploader` + «Guardar» **visibles** |
+| **En revisión** (`ineOnFile` ∧ `pending`) | «INE recibida» (`text-text`) | **EN REVISIÓN** — «Ya tenemos tu INE. **No tienes que hacer nada más**: la revisamos nosotros y te avisamos por correo.» + «Enviada el {fecha}.» *(+ plazo si el dueño fija uno, §34.15 D2)* | **Ninguna** — y eso se dice con todas las letras |
+| **Verificada** (`verified`) | «INE verificada» (`text-success`) | **IDENTIDAD VERIFICADA** — «No volveremos a pedirte la INE.» + «Verificada el {fecha}.» | Ninguna. ⛔ No se ofrece re-subir |
+| **Rechazada** (`rejected`) | «INE rechazada» (`text-accent`) | `Banner variant="warning"`, título **«No pudimos verificar tu identidad»**, cuerpo: **Motivo:** «{motivo}» (entre comillas, texto del revisor) + «Sube otra vez tu INE —frente y reverso— y la revisamos de nuevo.» + «Rechazada el {fecha}.» | Los dos `PhotoUploader` + **«Volver a subir mi INE»** |
+
+**Reglas que cierran el callejón (H6):**
+1. **La condición de mostrar uploaders deja de ser `!ineOnFile`** y pasa a ser
+   **`kycStatus ∈ {none, rejected}`**. Ése es el cambio de una línea que hoy deja al rechazado sin remedio
+   (`KycSection.tsx:162`).
+2. **«Pendiente» nunca aparece a secas.** El rótulo del `Estado` sigue saliendo de `status.kyc.*` (§9.2,
+   nunca el enum crudo), pero **siempre** viene acompañado del bloque de arriba.
+3. **Al llegar con `#kyc` desde el correo de rechazo**, el bloque recibe el foco (`tabIndex=-1`, patrón P-4 de
+   `BuylistKycForm.tsx:194-212`) y queda centrado: el cliente aterriza **en el motivo**, no en la cabecera de
+   la página.
+4. **El rechazo también se ve donde duele:** en el formulario de venta (`BuylistKycForm`), cuando se le pide
+   la INE y `kycStatus === 'rejected'`, encima de los uploaders va el mismo `Banner warning` con el motivo.
+   Pedirle otra vez la INE **sin decirle por qué falló la anterior** es pedirle que adivine.
+5. **El aviso de privacidad bajo los uploaders** (`ine.privacy`) **cambia de valor**: la frase actual dice que
+   se usa «para verificar el pago», que era el cotejo retirado por D51. Nueva: «Tu INE se guarda cifrada,
+   **solo la ve el responsable de la tienda** y se borra al cumplirse el periodo de retención.» — dice la
+   verdad **y** transmite la decisión (a).
+
+**Móvil 390 px:** el bloque de estado a ancho completo, los dos uploaders apilados (hoy ya lo están,
+`grid gap-4 sm:grid-cols-2`), el botón «Guardar» a ancho completo.
+
+---
+
+### 34.9 Los topes, fuera de la vista del cliente (decisión (c))
+
+**Qué se retira, literal:**
+- Las **dos filas de cifra** de la retícula de KYC: `capPerRequest` y `capPerMonth`
+  (`KycSection.tsx:115-130`) y sus dos claves (§34.12).
+- La frase **«Se pide solo cuando una venta supera el tope»** de `account.kyc.ineMissing`.
+- La palabra **«tope»** de las tres cadenas del cotizador (`buylist.ineSectionNote`, `buylist.ineRequiredError`)
+  y del catálogo de errores (`error.INE_REQUIRED`, `error.BUYLIST_LIMIT_EXCEEDED`).
+
+**Qué NO se retira, y es el matiz que evita romper el cotizador:** el **número puede seguir viajando** y
+seguir **decidiendo**. `useSellRequirements` compara el estimado contra el umbral para pedir la INE **antes**
+del `422` (`useSellRequirements.ts:62-66,80`) — esa comparación es la única autorizada por contrato
+(§M5-I.6, `API_CONTRACT.md:14493`) y **se conserva**. Lo que cambia es que **ninguna de esas cifras se
+pinta jamás**. Regla, dicha para que no se re-litigue: **el número decide, el número no aparece.**
+
+**La línea que ve el cliente cuando una venta supera el límite** (aceptada por el dueño, sin cifra):
+
+> **ES:** «Esta venta supera nuestro límite: sube tu INE para continuar.»
+> **EN:** “This sale is over our limit: upload your ID (INE) to continue.”
+
+Y para el tope mensual, que **no** se arregla subiendo nada, la salida tiene que ser otra —si no, se deja al
+cliente sin saber qué hacer:
+
+> **ES:** «Esta venta supera nuestro límite. Quita algunas cartas y vuelve a intentar.»
+> **EN:** “This sale is over our limit. Remove a few cards and try again.”
+
+⛔ **Ni «el tope se renueva cada mes», ni «tu tope es de MX$…», ni el `details.thresholdCents` que viaja en el
+`422`.** Publicar el umbral es publicar el manual para quedarse justo debajo (`ARCHITECTURE.md:17937`), y
+ese veto ya existía para las superficies públicas: aquí se extiende a **la superficie del cliente con
+sesión**. `QueryState` ya tiene la prohibición escrita para `thresholdCents` (`QueryState.tsx:83`) — esta
+sección la amplía al resto.
+
+⚠ **El copy dirigido al OPERADOR no se toca** (`error.INE_REQUIRED_OPERATOR`,
+`BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS`, `es.json:3264-3266`): esas cifras son internas y su
+destinatario es interno (§26, el destinatario manda).
+
+---
+
+### 34.10 M6 — que se sepa quién está esperando
+
+Hoy nadie puede saber que hay una INE en cola: la lista filtra por `activa/bloqueada` y nada más
+(`M6View.tsx:253-263`). Tres cambios pequeños:
+
+1. **Columna «Identidad»** en la tabla de usuarios, entre «Estado» y «Alta»: `StatusBadge domain="kyc"` con
+   el valor de `kycStatus` (o «—» si no hay perfil). Es texto y color, nunca una imagen (regla 2).
+2. **Filtro «Identidad»** (`Select`, junto al de estado): Todas · Pendiente de revisión · Verificada ·
+   Rechazada · Sin INE. Reutiliza los rótulos que ya existen (`admin.m6.kycStatusOption.*`, `es.json:2524-2529`).
+   El valor por defecto es **Todas**; el revisor llega a su cola en dos clics.
+3. **El `Select` de «Estado KYC» + «Guardar KYC» de la ficha se RETIRA** (`M6View.tsx:360-372`, regla 1). En
+   su lugar, la línea de estado (solo lectura) + el botón «Revisar identidad» de §34.1. Los dos campos de
+   **topes siguen ahí** (son política interna y su sitio es el panel), con su propio «Guardar».
+   ⭐ *Si el `Select` se queda «por si acaso», la pantalla de revisión es decorativa: siempre habrá un camino
+   de dos clics para marcar `verified` sin mirar.*
+
+---
+
+### 34.11 Componentes — qué se reutiliza y qué es nuevo
+
+| Pieza | Estado | Fichero |
+|---|---|---|
+| `Modal` (§7.6) — confirmación de verificar y formulario de rechazo | reutilizar | `components/ui/Modal.tsx` |
+| `Banner` (warning/danger/success), `Button` (primary/secondary/accent), `Select`, `Skeleton`, `StatusBadge`, `EmptyState`, `QueryState` + `useErrorMessage`, `DataTable`, `Badge` | reutilizar | `components/ui/*` |
+| `PhotoUploader purpose="kyc_ine"` (cliente, estados «sin INE» y «rechazada») | reutilizar **sin cambios** | `components/ui/PhotoUploader.tsx` |
+| `Input` / `Textarea` (motivo del rechazo, 10–300) | reutilizar | `components/ui/Input.tsx` |
+| `KycSection` | **reescribir el bloque de estado**: tres filas + bloque por estado; uploaders por `kycStatus`; fuera los topes | `components/domain/account/KycSection.tsx` |
+| `BuylistKycForm` | **extender**: banner de motivo cuando `kycStatus==='rejected'`; copys sin «tope» | `components/domain/BuylistKycForm.tsx` |
+| `M6View` | **modificar**: columna + filtro de identidad; fuera el `Select` de estado KYC; botón «Revisar identidad» | `(admin)/admin/m6/M6View.tsx` |
+| `useSellRequirements` | **no cambia** (la comparación sigue; solo deja de pintarse) | `hooks/useSellRequirements.ts` |
+| **`KycReviewPage`** | **nueva** — la pantalla completa de §34.2 | `(admin)/admin/m6/kyc/[userId]/page.tsx` + `KycReviewView.tsx` |
+| **`IdDocumentViewer`** | **nuevo** — marco, rotación, estados de carga/caducidad/purga (§34.3) | `components/domain/kyc/IdDocumentViewer.tsx` |
+| **`IdDocumentLightbox`** | **nuevo** — visor a pantalla completa (§34.4) | `components/domain/kyc/IdDocumentLightbox.tsx` |
+| **`KycRejectDialog`** | **nuevo** — presets + motivo 10–300 (§34.6b) | `components/domain/kyc/KycRejectDialog.tsx` |
+| **`KycIdentityPanel`** | **nuevo** — nombre, `nameSource`, direcciones, destinatarios (§34.5) | `components/domain/kyc/KycIdentityPanel.tsx` |
+| **`KycStateBlock`** | **nuevo** — el bloque de los cuatro estados del cliente (§34.8); lo montan `KycSection` y `BuylistKycForm` | `components/domain/kyc/KycStateBlock.tsx` |
+
+⚠ `components/` y `hooks/` son **zona compartida** (`CLAUDE.md`): este trabajo las toca; quien esté en otro
+stream no entra ahí hasta que aterrice.
+
+---
+
+### 34.12 i18n — claves nuevas, cambiadas y retiradas (propiedad de frontend; copiar sin interpretar)
+
+**Nuevas — cliente (`account.kyc.*`):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `account.kyc.noneBody` | Solo te la pedimos si una venta supera nuestro límite. Si la subes ahora, no volvemos a pedírtela. | We only ask for it when a sale goes over our limit. Upload it now and we won't ask again. |
+| `account.kyc.uploadTitle` | Sube tu INE | Upload your ID (INE) |
+| `account.kyc.uploadAgain` | Volver a subir mi INE | Upload my ID again |
+| `account.kyc.ineReceived` | INE recibida | ID (INE) received |
+| `account.kyc.ineVerified` | INE verificada | ID (INE) verified |
+| `account.kyc.ineRejected` | INE rechazada | ID (INE) rejected |
+| `account.kyc.pending.eyebrow` | EN REVISIÓN | UNDER REVIEW |
+| `account.kyc.pending.body` | Ya tenemos tu INE. No tienes que hacer nada más: la revisamos nosotros y te avisamos por correo. | We have your ID. There's nothing else for you to do: we review it and let you know by email. |
+| `account.kyc.pending.since` | Enviada el {date}. | Sent on {date}. |
+| `account.kyc.pending.sla` *(opcional — solo si el dueño fija plazo, §34.15 D2)* | La revisamos en menos de {days, plural, one {# día hábil} other {# días hábiles}}. | We review it within {days, plural, one {# business day} other {# business days}}. |
+| `account.kyc.verified.eyebrow` | IDENTIDAD VERIFICADA | IDENTITY VERIFIED |
+| `account.kyc.verified.body` | No volveremos a pedirte la INE. | We won't ask for your ID again. |
+| `account.kyc.verified.since` | Verificada el {date}. | Verified on {date}. |
+| `account.kyc.rejected.title` | No pudimos verificar tu identidad | We couldn't verify your identity |
+| `account.kyc.rejected.reasonLabel` | Motivo | Reason |
+| `account.kyc.rejected.body` | Sube otra vez tu INE —frente y reverso— y la revisamos de nuevo. | Upload your ID again —front and back— and we'll review it. |
+| `account.kyc.rejected.since` | Rechazada el {date}. | Rejected on {date}. |
+
+**Nuevas — revisión en el panel (`admin.m6.kycReview.*`):**
+
+| Clave | ES | EN |
+|---|---|---|
+| `openCta` | Revisar identidad | Review identity |
+| `openDisabled` | Sin INE en el expediente. | No ID on file. |
+| `waiting` | ESPERA REVISIÓN | AWAITING REVIEW |
+| `eyebrow` | REVISIÓN DE IDENTIDAD | IDENTITY REVIEW |
+| `back` | Ficha del usuario | User record |
+| `privacy` | Tu acceso a este documento queda registrado. | Your access to this document is logged. |
+| `front` | INE — FRENTE | ID (INE) — FRONT |
+| `back2` *(`figcaption` del reverso)* | INE — REVERSO | ID (INE) — BACK |
+| `altFront` | INE — frente de {name} | ID (INE) — front, {name} |
+| `altBack` | INE — reverso de {name} | ID (INE) — back, {name} |
+| `enlarge` | Ampliar | Enlarge |
+| `enlargeAria` | Ampliar la {side} | Enlarge the {side} |
+| `rotateLeft` | Girar a la izquierda | Rotate left |
+| `rotateRight` | Girar a la derecha | Rotate right |
+| `rotateHint` | Si la foto viene de lado, gírala aquí: no cambia el archivo. | If the photo is sideways, rotate it here: the file doesn't change. |
+| `fit` | Ajustar | Fit |
+| `zoomIn` | Acercar | Zoom in |
+| `zoomOut` | Alejar | Zoom out |
+| `zoomLevel` | {pct} % | {pct}% |
+| `sideFront` | Frente | Front |
+| `sideBack` | Reverso | Back |
+| `imgLoading` | Cargando la imagen… | Loading the image… |
+| `imgExpired` | El enlace de la imagen caducó. | The image link expired. |
+| `imgReload` | Volver a cargar | Load again |
+| `imgError` | No se pudo cargar la imagen. | We couldn't load the image. |
+| `imgMissing` | Esta cara no está en el expediente. | This side isn't on file. |
+| `imgPurged` | Las imágenes se borraron al cumplirse el periodo de retención. | The images were deleted when the retention period ended. |
+| `emptyTitle` | Este usuario no tiene INE en el expediente | This user has no ID on file |
+| `emptyBody` | No hay nada que revisar. | There's nothing to review. |
+| `identityTitle` | Datos de la cuenta | Account details |
+| `createdAt` | Alta | Member since |
+| `nameFromGoogle` | NOMBRE DE GOOGLE | NAME FROM GOOGLE |
+| `nameDerivedWarn` | Este nombre lo fabricamos con su correo porque Google no nos dio ninguno. No es un nombre que él haya declarado: no lo uses para cotejar. | We built this name from their email address because Google didn't share one. The customer never stated it — don't use it to match. |
+| `addressesTitle` | Direcciones guardadas ({count}) | Saved addresses ({count}) |
+| `addressesEmpty` | Sin direcciones guardadas. | No saved addresses. |
+| `recipient` | Recibe: {name} | Recipient: {name} |
+| `recipientMissing` | Recibe: — Sin destinatario | Recipient: — none on file |
+| `shipmentsTitle` | Destinatarios de sus envíos recientes ({count}) | Recent shipment recipients ({count}) |
+| `shipmentsEmpty` | Sin envíos. | No shipments. |
+| `shipmentLine` | {name} · {city} · {date} | {name} · {city} · {date} |
+| `verify` | Verificar identidad | Verify identity |
+| `verifyTitle` | ¿Verificar esta identidad? | Verify this identity? |
+| `verifyBody1` | Queda verificada y no volveremos a pedirle la INE. | It stays verified and we won't ask for their ID again. |
+| `verifyBody2` | Tu nombre y la hora quedan en la bitácora. | Your name and the time are recorded in the log. |
+| `verifyConfirm` | Verificar | Verify |
+| `verifying` | Verificando… | Verifying… |
+| `verifiedResult` | Identidad verificada el {date}. | Identity verified on {date}. |
+| `reject` | Rechazar | Reject |
+| `rejectTitle` | Rechazar la identidad | Reject the identity |
+| `rejectPresetLabel` | Motivo frecuente | Common reason |
+| `rejectPreset.unreadable` | No se alcanza a leer: la foto está borrosa, con reflejo o cortada. | We can't read it: the photo is blurry, has glare or is cut off. |
+| `rejectPreset.missingSide` | Falta una de las dos caras de la INE. | One of the two sides of the ID is missing. |
+| `rejectPreset.notAnId` | La foto no es de una INE. | The photo isn't of an INE (Mexican voter ID). |
+| `rejectPreset.expired` | La INE está vencida. | The ID has expired. |
+| `rejectPreset.nameMismatch` | El nombre de la INE no corresponde con el de la cuenta. | The name on the ID doesn't match the account. |
+| `rejectPreset.other` | Otro motivo | Another reason |
+| `rejectReasonLabel` | Motivo que verá el cliente | Reason the customer will see |
+| `rejectReasonHint` | De 10 a 300 caracteres. | Between 10 and 300 characters. |
+| `rejectReasonCounter` | {n}/300 | {n}/300 |
+| `rejectReasonInvalid` | Escribe un motivo de 10 a 300 caracteres. | Write a reason between 10 and 300 characters. |
+| `rejectNoticeVerbatim` | El cliente lee este texto tal cual, en su cuenta y en el correo que le mandamos. | The customer reads this text as-is, in their account and in the email we send. |
+| `rejectNoticeThirdParty` | No escribas datos de otra persona. | Don't include anyone else's data. |
+| `rejectConfirm` | Rechazar y avisar | Reject and notify |
+| `rejecting` | Enviando… | Sending… |
+| `rejectedResult` | Identidad rechazada el {date}. Le avisamos por correo con tu motivo. | Identity rejected on {date}. We emailed them your reason. |
+| `stale` | Alguien más ya revisó esta identidad. Recarga para ver cómo quedó. | Someone else already reviewed this identity. Reload to see the outcome. |
+| `reload` | Recargar | Reload |
+
+**Nuevas — lista M6:** `admin.m6.table.identity` = «Identidad» / “Identity”; `admin.m6.kycFilter` =
+«Identidad» / “Identity”; `admin.m6.kycFilterNone` = «Sin INE» / “No ID”.
+
+**Nuevas — correo (§34.7, namespace del backend `mail.kycRejected.*`):** `subject` = «No pudimos verificar tu
+identidad» / “We couldn't verify your identity”; `preheader`, `eyebrow`, `title`, `p1`, `reasonLabel`
+(`POR QUÉ` / `WHY`), `p2`, `cta` («SUBIR MI INE DE NUEVO» / “UPLOAD MY ID AGAIN”), `fineprint` — textos
+literales en §34.7.
+
+**Cambian de valor (misma clave):**
+
+| Clave | Antes (ES) | Ahora ES | Ahora EN |
+|---|---|---|---|
+| `account.kyc.ineMissing` | Sin INE. Se pide solo cuando una venta supera el tope. | Sin INE en tu expediente | No ID (INE) on file |
+| `ine.privacy` | Tu INE se guarda cifrado y se elimina tras el periodo de retención; se usa solo para verificar el pago. | Tu INE se guarda cifrada, solo la ve el responsable de la tienda y se borra al cumplirse el periodo de retención. | Your ID is stored encrypted, only the store owner sees it, and it's deleted when the retention period ends. |
+| `buylist.ineSectionNote` | Si tu solicitud supera el tope, necesitamos la foto de tu INE (anverso y reverso) para verificar el pago. | Si tu venta supera nuestro límite, necesitamos la foto de tu INE (frente y reverso) para identificarte. | If your sale goes over our limit, we need a photo of your ID (front and back) to identify you. |
+| `buylist.ineRequiredError` | Esta solicitud supera el tope: sube tu INE (anverso y reverso) para continuar. | Esta venta supera nuestro límite: sube tu INE (frente y reverso) para continuar. | This sale is over our limit: upload your ID (front and back) to continue. |
+| `error.INE_REQUIRED` | Por el monto de esta venta necesitamos identificarte: sube tu INE para continuar. | Esta venta supera nuestro límite: sube tu INE para continuar. | This sale is over our limit: upload your ID (INE) to continue. |
+| `error.BUYLIST_LIMIT_EXCEEDED` | Esta cotización pasa el máximo que te podemos comprar en un mes. Quita algunas cartas y vuelve a intentar; el tope se renueva cada mes. | Esta venta supera nuestro límite. Quita algunas cartas y vuelve a intentar. | This sale is over our limit. Remove a few cards and try again. |
+
+**Retiradas:** `account.kyc.capPerRequest`, `account.kyc.capPerMonth` (ES y EN) — **y con ellas las dos filas
+de cifra**. `account.kyc.ineOnFile` se retira **solo si** el `grep` confirma que no le queda otro consumidor
+(hoy su único uso medido es `KycSection.tsx:112`); `admin.m6.ineOnFile` **se conserva** (es del panel).
+
+**No cambian:** `error.INE_REQUIRED_OPERATOR`, `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR*`,
+`admin.m6.capRequest`, `admin.m6.capMonth`, `admin.m6.kycStatusOption.*`, `status.kyc.*`, `ine.front`,
+`ine.back`, `ine.takePhoto`, `ine.retake`, `ine.uploading`, `ine.err*`.
+
+**Paridad ES/EN:** cada clave de estas tablas existe en los dos catálogos y ninguna cadena EN queda en
+español (el `grep` del lint de i18n, §26.8).
+
+---
+
+### 34.13 Contraste y accesibilidad
+
+**Contraste — un solo par nuevo, y ya estaba verificado.** Todo usa tokens de §2.3 sobre papel
+(`text`, `muted`, `accent` #B31217 = 6.2:1, `success` #4A7345 = 4.86:1). **Lo único nuevo es el marco de la
+imagen y el visor**, que son superficie **tinta** `--color-ink` #1A1A18 con texto `--color-on-ink` #F4F1EA
+(**≈ 15.4:1**) y secundarios `--color-on-ink-muted` #8A857A (**≈ 4.6:1**): exactamente el par del hero de
+auth y del sidebar del panel, ya verificado en §10 y §17.2. **Cero tokens nuevos, cero hex nuevos.**
+
+**Accesibilidad:**
+- **El estado nunca es solo color:** «INE verificada» / «INE rechazada» son **texto**; el badge lleva rótulo.
+- Cada `<figure>` con `<figcaption>` visible; `alt` con la cara **y** el nombre del titular.
+- El marco es un control real (`role="button"`, `tabIndex=0`, Enter/Espacio, `focus-visible:shadow-focus`);
+  el visor es `role="dialog" aria-modal="true"` con trampa de foco y retorno al disparador.
+- El zoom del navegador **no se bloquea**; en táctil, `pinch-zoom` habilitado.
+- El `radiogroup` de motivos es nativo (`<input type="radio">` con `<label>`), navegable con flechas; el
+  `Textarea` lleva `aria-describedby` con hint + contador + error, y `aria-invalid` al fallar.
+- Resultados con `role="status"`; errores de acción con `role="alert"`.
+- Orden de tabulación = orden visual: vuelta → frente (marco → controles) → reverso → panel de datos →
+  barra de acciones. En móvil la barra fija es **el último** elemento del DOM, no el primero.
+- Objetivo táctil 44 px en todos los controles del visor y de la barra (§6.1).
+- Móvil a **390 px** y escritorio a **1280 px**, como siempre.
+
+---
+
+### 34.14 Qué NO hacer
+
+1. **No** pintar la INE —ni un recorte, ni una miniatura, ni un `background-image`— en la lista de usuarios,
+   en la ficha 360°, en M5, en un correo ni en ninguna superficie que no sea `/admin/m6/kyc/[userId]`.
+2. **No** ofrecer **«Descargar»**, «Abrir en pestaña nueva» ni «Imprimir» el documento. Un INE descargado
+   sobrevive a nuestra retención y a nuestros permisos.
+3. **No** usar `object-cover` en el documento, ni recortarlo, ni aplicarle filtros «para que se vea mejor»:
+   lo que se juzga es la foto tal como llegó.
+4. **No** persistir la rotación ni re-subir una imagen girada: el objeto del bucket es evidencia, no un
+   asset editable.
+5. **No** dejar que el panel ponga `kycStatus = 'verified'` por ninguna vía que no sea la pantalla de
+   revisión (regla 1). Eso incluye no «dejar el `Select` por si acaso».
+6. **No** rechazar sin motivo, ni con un motivo de una palabra, ni con un código. **No** enviar el rechazo
+   sin decirle al revisor —en la misma pantalla— que el cliente leerá su texto.
+7. **No** mostrar al cliente ninguna cifra de tope, umbral o cupo, ni en pantalla, ni en un error, ni en un
+   `title`, ni en un `aria-label`. **No** pintar `details.thresholdCents` (`QueryState.tsx:83`).
+8. **No** dejar «Pendiente» sin explicación ni fecha. **No** ofrecer re-subir cuando está en revisión (no
+   hay nada que corregir todavía) **ni** cuando está verificada.
+9. **No** calcular ni insinuar coincidencia de nombres (regla 7, H13): ni marca verde, ni «coincide», ni
+   ordenar direcciones por parecido.
+10. **No** meter dinero en la pantalla de revisión (totales, topes, histórico de ventas): no decide nada ahí
+    y contamina el juicio.
+11. **No** anidar la revisión dentro del `Modal` de la ficha, ni ensanchar `Modal` más allá de `max-w-md`
+    para este caso (§34.1).
+12. **No** repetir el aviso de privacidad más de dos veces (pantalla y visor). Es una línea, no una política.
+
+---
+
+### 34.15 Notas a otros roles — lo que este diseño **no** decide
+
+| Ref | Para | Qué |
+|---|---|---|
+| **A1** ⭐⭐ | **arquitecto** → backend | **Cómo llegan los bytes al navegador — es el bloqueo duro (H3).** La firma de lectura actual (`presignGet`, `ResponseContentDisposition: 'attachment'`) **no se puede pintar en un `<img>`: descarga**. Dos caminos, con recomendación: **(1) recomendado — endpoint proxy** `GET /admin/users/:id/kyc/ine/{front\|back}` solo `super_admin`, que devuelve los bytes con `Content-Type` real, **`Content-Disposition: inline`**, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, y **escribe la entrada de bitácora en el mismo acto**; **(2)** un presign de lectura específico de revisión sin `attachment`. El proxy es mejor **para lo que el dueño pidió**: una URL prefirmada se puede reenviar y volver a abrir **sin dejar un segundo registro**, así que «solo yo las veo» y «queda registrado» dejan de ser ciertos en cuanto alguien copia el enlace. Además conserva el `attachment` endurecido para todo lo demás. Si se elige (2), hace falta `expiresAt` en la respuesta para que la UI pueda renovar antes de caducar (§34.3c). |
+| **A2** ⭐ | **arquitecto** → backend | **Dos acciones explícitas en vez de un enum editable** (regla 1, H4): `POST /admin/users/:id/kyc/verify` y `POST /admin/users/:id/kyc/reject { reason }` con **`reason` obligatorio, 10–300** tras `trim` (`400 VALIDATION_ERROR` con `details.field='reason'`). Y **`PATCH /admin/users/:id/kyc` deja de aceptar `kycStatus`** (sigue aceptando los topes). |
+| **A3** ⭐ | **arquitecto** → backend | **Campos que la interfaz necesita y hoy no existen** (H9). En `GET /users/me/kyc`: `kycRejectionReason: string \| null`, `ineSubmittedAt`, `kycReviewedAt`. En `AdminKycProfileDTO`: `ineSubmittedAt`, `ineFrontOnFile` / `ineBackOnFile` (para el estado `missing` de §34.3c), `verifiedAt`, `verifiedByName` (**nombre del actor, no su id** — la pantalla nunca pinta ids), `rejectedAt`, `rejectionReason`. Sin `ineSubmittedAt` **no se pinta fecha**: no se inventa con `updatedAt`. |
+| **A4** | **arquitecto** → backend | **Concurrencia:** `409 KYC_ALREADY_REVIEWED` cuando el estado cambió entre la carga y la acción (§34.6d). Dos pestañas ⇒ hoy, dos correos contradictorios. |
+| **A5** | **arquitecto** → backend | **Cola de revisión:** `kycStatus` en `AdminUserSummaryDTO` y filtro `GET /admin/users?kycStatus=` (§34.10). Sin esto, la columna y el filtro no se pueden construir. |
+| **A6** 🔴 | **arquitecto** → backend | **Defecto medido, y rompe la semántica de esta sección (H8):** `users.service.ts:343-347` pone `kycStatus:'pending'` en **cualquier** escritura de `PUT /users/me/kyc`, **también si solo cambió la CLABE**. ⇒ un cliente **verificado** que corrige su CLABE aparece como «En revisión» y mi tabla de estados le miente («ya tenemos tu INE, la estamos revisando») cuando no hay nada nuevo que revisar. **Solo debería pasar a `pending` una escritura que traiga imágenes de INE.** |
+| **A7** | **arquitecto** → backend | **`ineThresholdCents` vs `capPerRequestCents` (H10):** el contrato declara uno y el servicio devuelve el otro. No afecta a lo que se ve (ninguna cifra se pinta), **sí** a la comparación autorizada de `useSellRequirements`. Que alguien lo alinee y diga cuál gana. |
+| **A8** | **backend** | **El noveno correo** (§34.7) con el esqueleto de §31. El motivo va **sin recortar** y **sin plantilla que lo envuelva en más frases**. |
+| **B1** | **seguridad / pentester** | Superficie nueva de PII: una ruta que devuelve un documento de identidad. Puntos de ataque a mirar: rol en el **servidor** (no basta el guard de ruta), IDOR por `:id`, `no-store` de verdad (que no quede en la caché del navegador ni en la del proxy), la bitácora **antes** de servir los bytes (si falla el registro, no se sirve), y que la URL de lectura —si se elige A1(2)— **no acabe en un `Referer`**. |
+| **C1** | **frontend** | Implementa §34 contra el contrato que salga de A1–A5; con mocks hasta que exista. **`components/` y `hooks/` son zona compartida.** Orden sugerido: (1) §34.8 + §34.9 (cierran el callejón del cliente y sacan los topes, **no dependen de contrato nuevo salvo `kycRejectionReason`**), (2) §34.10, (3) §34.1–§34.6. |
+| **D1** | **product-owner** | ¿Correo de **identidad verificada**? Recomendación: **no** (buena noticia sin acción, visible en la cuenta). Por defecto no se diseña. |
+| **D2** | **product-owner / dueño** | ¿Hay **plazo** que prometerle al cliente en «En revisión»? Recomendación: **empezar sin plazo** — la copy de §34.8 funciona entera sin él y prometer un plazo que no se cumple es peor que no darlo. Si el dueño fija uno, es **una sola clave** (`account.kyc.pending.sla`) y entra sin tocar el diseño. |
+| **E1** | **QA** | Candados que ponen un test en rojo: **KY-1** el HTML de `/admin/m6` (lista **y** ficha) **no contiene ninguna URL de imagen de INE** ni petición al endpoint de lectura; **KY-2** un `vault_operator` autenticado que pide `/admin/m6/kyc/{id}` **no ve el documento** (ni en la ruta ni en la API); **KY-3** con `kycStatus='rejected'`, «Mi cuenta» muestra el motivo **y** los dos uploaders (hoy, con `ineOnFile=true`, no muestra ninguno); **KY-4** con `kycStatus='pending'` la sección contiene la frase «No tienes que hacer nada más» y **cero** botones de subida; **KY-5** `grep` de la superficie de cliente (storefront renderizado) **sin** «tope», «Tope», «cap» ni cifra alguna procedente de `capPerMonthCents`/`ineThresholdCents`/`details.thresholdCents`; **KY-6** rechazar con motivo de 9 caracteres ⇒ el botón sigue deshabilitado y no sale petición; **KY-7** tras rechazar, el correo al cliente contiene el motivo **literal** y **no** contiene ninguna imagen ni enlace al documento; **KY-8** verificar desde dos pestañas ⇒ la segunda recibe `409` y pinta el aviso de §34.6d, **no** un segundo éxito; **KY-9** la ficha 360° **no** contiene ningún control que fije `kycStatus`. Medir en 390×844 y 1280×800. |
