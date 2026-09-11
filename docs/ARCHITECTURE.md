@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.67.2 — P-79(c): LA COLA DE PUBLICACIÓN DE M1 ENSEÑA EL SELLADO CON FORMA DE CARTA SUELTA**
+> (2026-09-11, arquitecto. Base: **v1.67.1, vigente entera**. Origen: hallazgo del dueño sobre la app publicada,
+> medido por el orquestador fichero a fichero. Contrato **v1.69.1** (§M1 `GET /admin/inventory/pending-publish`,
+> §11 `PendingPublishRowDTO`). **Cero DDL, cero endpoints, cero códigos, un campo nuevo en un DTO.** Sección nueva
+> **§4.34a.1**. Desviaciones **`D-P79-1`/`D-P79-2`** en §9.)
+>
+> **Lo medido:** la pieza sellada **no se convirtió en carta** (en BD `productType='sealed'` y `sealedProductId`
+> intactos); la cola la **pinta** como single porque (a) la vista no tiene rama de sellado y (b) el DTO no lleva con
+> qué pintarla. El `· 1 ·` que ve el dueño es el número de la **carta ancla**, que §4.34a ya había declarado que
+> **deja de ser identidad**. Se cierra con **un** campo (`sealedProductName?`) y una norma de render en tres casos.
+> **Lo que NO cierra esta rev** (fichas propias en `PENDIENTES.md`): P-79(d) llave divergente de precios (backend, sin
+> contrato), P-79(b) precio manual obligatorio al publicar sellado (frontend), P-69 mercado en el paso 1 de captura.
+>
+> ---
 > **Rev v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y CADA LADO RESOLVIÓ POR SU CUENTA: EL PERFIL DE FACTURACIÓN QUE NO
 > EXISTE, LA DIRECCIÓN QUE M6 PROYECTABA A MEDIAS, EL DESTINATARIO EMITIDO DOS VECES Y LA CONDICIÓN DE RELEASE**
 > (2026-09-11, arquitecto. Base: **v1.67, vigente entera**. Origen: hallazgos de QA/techlead del mismo día (F2-2,
@@ -9257,6 +9271,62 @@ Los deltas M-37 son el **puente mínimo** money-safe hasta entonces.
   `422 PRICE_PENDING` (o override manual auditado, §4.34d). El job `sealed-price-ingest` (§4.19d) gana una fuente extra
   de grupos/productos a barrer: **los `SealedProduct` activos** (además de los items mapeados), de modo que un producto
   del catálogo tenga precio aunque aún no haya inventario — sin fabricar dato (null si TCGCSV no trae precio).
+
+#### 4.34a.1 P-79(c) — la cola «listas para publicar» de M1 y el último escalón de la cascada
+
+*El dueño da de alta un producto sellado y el panel se lo devuelve con forma de carta suelta. No se convirtió en
+carta: la pantalla le está enseñando el ancla.*
+
+**Medición (orquestador, 2026-09-11, fichero a fichero — esta sección no afirma nada que no esté en esta lista):**
+
+1. `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx:139-141` imprime **siempre**
+   `setName · number · finish`. `grep -c productType` sobre ese fichero = **0** ⇒ **no existe rama de sellado**.
+2. Aunque existiera, **no hay con qué pintarla**: el DTO de la cola no lleva el nombre del producto sellado
+   (`frontend/src/types/contract.ts:2581-2599`) y la proyección tampoco lo emite
+   (`backend/src/modules/inventory/inventory.service.ts:1801-1823`).
+3. El `· 1 ·` es el número de la **carta ancla** del set: el sellado se engancha a la carta de número más bajo
+   **solo** para satisfacer `InventoryItem.cardId NOT NULL`, y el propio código escribe que ahí **deja de ser
+   identidad** (`inventory.service.ts:820-829`, `resolveAnchorCardId`; doctrina §4.34a).
+4. La BD está sana: `productType='sealed'` y `sealedProductId` intactos. **El defecto es de presentación, no de
+   datos** — ninguna migración, ningún backfill, ninguna reparación de piezas.
+5. **Precedente que ya funciona:** la cola de M2 ramifica por
+   `productType === 'sealed' && sealedProductName` (`.../admin/m2/sections/PendingQueueSection.tsx:35`) y oculta el
+   número para sellado (`:99-103`). A la cola de M1 nunca se le hizo ese trabajo.
+
+**Decisión (contrato v1.69.1).** `PendingPublishRowDTO` gana **un solo** campo, `sealedProductName?: string`,
+presente **solo** para `productType='sealed'`. No se añade ningún booleano «es sellado»: `productType` **ya viaja**
+en ese DTO y es el discriminante.
+
+**Dónde se separa de §4.34a, y por qué (razón medida).** La cascada de §4.34a termina en `Card.name`. **En esta cola
+el último escalón se omite**: `SealedProduct.name` (vivo) → snapshot `InventoryItem.sealedProductName` → **ausente**.
+Caer al ancla *es* el defecto reportado, y aquí no hay nada que lo desmienta: la tabla no tiene imagen, ni columna
+`productType`, ni `gradeKey` — que es justo lo que M2 sí pinta (`PendingQueueSection.tsx:107-108`) y lo que le
+permite a M2 quedarse con el fallback sin engañar a nadie. Es la misma doctrina que esta pantalla ya aplica dos
+veces: `missing` vacío se pinta «por revisar» y `total` ausente **no** se degrada a `data.length`
+(`PendingPublishQueue.tsx:23-48,68-84`). *Ante un «no sé», no se pinta un valor que parezca bueno.* Las demás
+superficies de sellado (`/vault/holdings`, `/vault/sealed`, grid público, `sealed-sets`, cola de M2) **conservan la
+cascada completa**: ahí el fallback convive con imagen o con columnas que dicen que es sellado.
+
+**Lo que se pinta (normativo, tres casos)** — tabla completa en el Changelog v1.69.1 del contrato. Resumen: el
+sellado **nunca** enseña `card.number` ni `finish` (ambos son del ancla; el acabado de un sellado es siempre
+`normal`, misma regla que `FinishBadge.tsx:21`), y el sellado **sin** nombre resoluble se pinta «sellado sin
+identificar», nunca `card.name`. **Ninguna fila se oculta:** esta cola es la **red** del disparo de
+auto-publicación (contrato §M1); esconder una pieza porque no sabemos nombrarla la sacaría de la única pantalla
+donde alguien la encontraría.
+
+**Reparto.** **Backend (`inventory`)** — poblar el campo en la proyección de `pendingPublish`; el join es **gratis**:
+la query de la página ya existe (`inventory.service.ts:1790-1796`) y solo gana
+`sealedProduct: { select: { name: true } }` ⇒ **cero queries nuevas, cero N+1**; el barrido (`:1769-1785`) **no se
+toca** (sigue leyendo solo `id` + estado, que es lo que mantiene acotada la memoria). **Frontend
+(`(admin)/admin/m1`)** — tipar el campo, ramificar por `productType` y borrar `· number · finish` del caso sellado.
+**Ni el arquitecto ni ningún otro rol toca esos ficheros**: cada hallazgo va a su dueño (CLAUDE.md, regla 8).
+
+**NO MEDIDO.** Cuántas piezas selladas vivas caen en el tercer caso (sin `sealedProductId` **y** sin snapshot
+`sealedProductName`). Lo cierra un conteo: `SELECT count(*) FROM "InventoryItem" WHERE "productType"='sealed' AND
+"sealedProductId" IS NULL AND "sealedProductName" IS NULL AND "ownerType"='platform' AND "status"='in_stock';`.
+Si sale **0**, el tercer caso es puro seguro de vida (una proyección degradada o un backend viejo) y no hay trabajo
+de curaduría; si sale **> 0**, esas piezas necesitan identidad tecleada en M1 — **trabajo de captura, no de
+software** (§4.34a: ninguna migración adivina qué presentación era).
 
 #### 4.34b Un set → **N grupos** TCGCSV (crítico: promos / colecciones, incl. Mega Evolution)
 
@@ -23727,6 +23797,24 @@ Riesgos técnicos:
   2026-09-11: todos los `updateMany` guardan por `status:'reserved'` a secas. Consecuencia con reintentos: el webhook
   `payment_intent.canceled` de un PI viejo liberaría la reserva de la orden nueva. Norma: contrato §4-R.2 regla 2.
   **Comprobación:** candado R-2 verde; mutación m2 rojo.
+- **🔴 ABIERTA (v1.67.2) — `D-P79-1`: LA COLA «LISTAS PARA PUBLICAR» DE M1 PINTA TODA PIEZA COMO SINGLE, INCLUIDO EL
+  SELLADO.** **Dueño: frontend (`(admin)/admin/m1`).** Medido 2026-09-11 (orquestador):
+  `PendingPublishQueue.tsx:139-141` imprime siempre `setName · number · finish`; `grep -c productType` en ese fichero
+  = **0**. El dueño ve su ETB como `Weedle — CHAOS RISING · 1 · NORMAL` y lo lee como *«mi producto se convirtió en
+  carta»* — el `· 1 ·` es la **carta ancla**, que §4.34a declara que **no es identidad**. La cola de M2 ya ramifica
+  bien (`PendingQueueSection.tsx:35,99-103`); a la de M1 nunca se le hizo ese trabajo. Norma: contrato v1.69.1
+  (§M1 `pending-publish`, §11) y §4.34a.1 (tabla de tres casos). **Comprobación:** `grep -c productType
+  PendingPublishQueue.tsx` ≥ 1; con una fila sellada en la cola, la vista **no** contiene `card.number` ni `finish`,
+  y sin `sealedProductName` **no** contiene `card.name`; la fila **sigue** en la tabla (no se oculta).
+- **🔴 ABIERTA (v1.67.2) — `D-P79-2`: LA PROYECCIÓN DE `pending-publish` NO EMITE CON QUÉ NOMBRAR UN SELLADO.**
+  **Dueño: backend (`inventory`).** Medido 2026-09-11 (orquestador): `inventory.service.ts:1801-1823` proyecta
+  `card`/`productType`/`finish` y **ningún** dato de identidad de sellado (`frontend/src/types/contract.ts:2581-2599`
+  confirma el shape). Es la **misma clase** que BLOQ-2a/2b de v1.42 (`HoldingDTO` y la cola de M2), en la única
+  superficie de sellado a la que no llegó aquel barrido. Norma: contrato v1.69.1 — `sealedProductName?: string`,
+  `SealedProduct.name` → snapshot → **ausente** (⛔ sin caer a `Card.name`, §4.34a.1). **Comprobación:** sellado
+  mapeado ⇒ nombre del `SealedProduct`; con snapshot y sin FK ⇒ snapshot; sin ninguno ⇒ clave **ausente** del JSON;
+  `raw`/`graded` ⇒ clave ausente; y el contador de queries de la ruta **no sube** (el `include` viaja en el
+  `findMany` que ya existe, `:1790-1796`).
 
 - **⚠️ ABIERTA (v1.66) — `D-CS-1`: EL CONTRATO NO SABÍA QUE `sync-all` YA TENÍA CORTE, NI QUE `sync-status` YA
   TENÍA `summary`.** **Dueño del arreglo: arquitecto — CERRADA EN ESTE MISMO PASE** en cuanto a la prosa

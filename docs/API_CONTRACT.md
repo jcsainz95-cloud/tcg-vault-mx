@@ -2,7 +2,65 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.69**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.69.1**).
+>
+> **Changelog v1.69.1 — P-79(c) · LA COLA «LISTAS PARA PUBLICAR» DE M1 ENSEÑA EL SELLADO CON FORMA DE CARTA SUELTA
+> (2026-09-11, arquitecto; base **v1.69, vigente entera**). Cambio ADITIVO, RETROCOMPATIBLE y MONEY-SAFE:
+> **UN campo nuevo en UN DTO**. Cero endpoints, cero códigos, cero DDL, cero secciones renumeradas.**
+>
+> **Hallazgo del dueño sobre la app publicada, medido fichero a fichero (orquestador, 2026-09-11):** da de alta un
+> producto **sellado** y la cola «Listas para publicar» del panel se lo devuelve como
+> `Weedle — CHAOS RISING · 1 · NORMAL`. **La pieza NO se convirtió en carta:** en BD `productType='sealed'` y
+> `sealedProductId` siguen intactos. Falla la pantalla, por dos motivos encadenados:
+> - `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx:139-141` imprime **siempre**
+>   `setName · number · finish`; `grep -c productType` sobre ese fichero = **0** ⇒ no existe rama de sellado.
+> - Y aunque existiera, **no hay con qué pintarla**: el DTO de esta cola no lleva el nombre del producto sellado
+>   (`frontend/src/types/contract.ts:2581-2599`; proyección `backend/src/modules/inventory/inventory.service.ts:1801-1823`).
+> - El `· 1 ·` es el número de la **carta ancla** del set, y el propio backend declara que el ancla **deja de ser
+>   identidad** (`inventory.service.ts:820-829`, `resolveAnchorCardId`; ARCHITECTURE §4.34a). *La pantalla está
+>   enseñando justo el dato que el diseño ya había dictaminado que no identifica nada.*
+>
+> **1. ⭐ `PendingPublishRowDTO` gana UN campo, y solo uno: `sealedProductName?: string`** — presente **SOLO** cuando
+> `productType='sealed'` (ausente/omitido en `raw`/`graded`). **No hay campo nuevo para «es sellado»:** `productType`
+> **ya viaja** en este DTO desde v1.51 (§11) y es el discriminante. *Cada campo nuevo en una proyección es superficie
+> que alguien mantiene; aquí lo único que faltaba era el nombre.*
+> **Resolución server-side, y ⚠️ NO es la cascada completa de §4.34a:**
+> `SealedProduct.name` (vivo, vía `sealedProductId`) → snapshot por-pieza `InventoryItem.sealedProductName` (M-37) →
+> **AUSENTE**. ⛔ **En esta cola el último escalón NO cae a `Card.name`.** El nombre del ancla es *exactamente* el
+> defecto reportado, y aquí no hay nada que lo desmienta: esta tabla no tiene imagen, ni columna `productType`, ni
+> `gradeKey` — a diferencia de la cola de M2, que sí los pinta (`PendingQueueSection.tsx:107-108`) y por eso puede
+> permitirse el fallback al ancla. Misma doctrina que `missing` vacío y que `total` ausente en esta misma pantalla:
+> *ante un «no sé», no se pinta un valor que parezca bueno.* **La fila NUNCA se oculta por esto** (esta cola es la RED
+> del disparo de auto-publicación, §M1): sin nombre resoluble se pinta «sellado sin identificar», nunca vacío.
+>
+> **2. ⭐ QUÉ SE PINTA EN CADA CASO (normativo — frontend no improvisa; ux-ui pone la copia y las claves i18n):**
+>
+> | Caso | Nombre (línea 1) | Línea 2 (secundaria) | Número de carta | Acabado |
+> |---|---|---|---|---|
+> | **Single** (`raw`/`graded`) | `card.name` | `card.setName` | **sí** (`card.number`) | solo si **significativo**: `productType='raw'` **o** `finish !== 'normal'` (misma regla que `FinishBadge.tsx:21`) |
+> | **Sellado con nombre** (`sealed` + `sealedProductName`) | `sealedProductName` | `card.setName` + marca **«SELLADO»** | ⛔ **NUNCA** (es el ancla) | ⛔ **NUNCA** (siempre `normal`) |
+> | **Sellado legado sin nombre** (`sealed`, sin `sealedProductName`) | copia fija tipo «Sellado sin identificar» — ⛔ **jamás `card.name`** | `card.setName` + marca **«SELLADO»**, en tinta de atención | ⛔ **NUNCA** | ⛔ **NUNCA** |
+>
+> El `folio` (columna 1) ya identifica la fila de forma única en los tres casos, así que el tercero **sigue siendo
+> accionable**: el operador va al folio, no al nombre. `card: CardDTO` **se conserva** en el DTO (pertenencia al set y
+> render de singles); lo que cambia es **qué se pinta de él** cuando la pieza es sellada.
+>
+> **3. ⛔ QUÉ **NO** VIAJA (deliberado, para que nadie lo añada «de paso»):** `sealedProductId` (la fila ya es única por
+> `inventoryItemId`/`folio`, el deep-link de precio ya viaja como `pendingPriceEntryId`, y la llave de la cola de M2 no
+> se pinta aquí), `sealedImageUrl` (tabla de texto, sin imágenes), `sealedSubtype` (el subtipo ya está dentro del
+> nombre: «… Elite Trainer Box»), `sealedCondition`, `tcgplayerProductId`/`tcgplayerGroupId`, y **ningún precio nuevo**
+> —ni `sealedMarketRef`, ni sugerencia, ni herencia del costo de compra—: el alcance **D10 «SOLO VISIBILIDAD»** de esta
+> cola no se toca.
+>
+> **4. Reparto (stream «Inventario y vault»).** **Backend (`inventory`)** — poblar `sealedProductName` en la proyección
+> de `pendingPublish` (`inventory.service.ts:1801-1823`) con la resolución del punto 1; el join sale **gratis**: la
+> query de la página ya existe (`:1790-1796`) y solo gana
+> `include: { sealedProduct: { select: { name: true } } }` ⇒ **cero queries nuevas, cero N+1**; el barrido
+> (`:1769-1785`) **no** se toca. Tests: sellado mapeado ⇒ nombre del `SealedProduct`; sellado con snapshot y sin FK ⇒
+> snapshot; sellado sin ninguno ⇒ **campo ausente** (jamás `Card.name`); `raw`/`graded` ⇒ campo **ausente**; la fila
+> sigue en la cola en los tres casos. **Frontend (`(admin)/admin/m1`)** — tipar el campo en `types/contract.ts`,
+> ramificar `PendingPublishQueue.tsx:136-143` según la tabla del punto 2 y **borrar** `· number · finish` para sellado.
+> **No hay endpoint nuevo, no hay migración, no cambia ningún shape existente.**
 >
 > **Changelog v1.69 — P-78 · LA VERIFICACIÓN DE IDENTIDAD CIERRA EL CICLO (2026-09-11, arquitecto; base v1.68.1,
 > vigente entera). ⚠️⚠️ FRENTE DE PII ⇒ PASA POR SEGURIDAD ANTES DE PUBLICARSE.**
@@ -9681,6 +9739,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **La cola es visible en el dashboard** como parte de la cola de trabajo del back-office (ver `workQueue` abajo).
   > **Alcance (D10): SOLO VISIBILIDAD.** Esta cola **no captura precios de venta**, no los sugiere y no los hereda del
   > costo de compra.
+  > **⚠️ v1.69.1 (P-79c, ADITIVO) — EL SELLADO SE NOMBRA COMO SELLADO, NUNCA COMO SU CARTA ANCLA.** La fila gana
+  > `sealedProductName?: string`, **presente solo si `productType='sealed'`**, resuelto server-side
+  > `SealedProduct.name` (vivo) → snapshot `InventoryItem.sealedProductName` → **ausente** (⛔ **sin caer a
+  > `Card.name`**: el ancla existe para satisfacer `InventoryItem.cardId NOT NULL` y **no es identidad**, §4.34a).
+  > **Norma de render (obligatoria):** para `productType='sealed'` la vista **NO pinta `card.number` ni `finish`** —
+  > una ETB no tiene «#1» ni acabado— y sin `sealedProductName` pinta «sellado sin identificar», **jamás** el nombre
+  > del ancla. La fila **no se oculta** en ningún caso: el `folio` la deja accionable. Tabla completa de los tres casos
+  > (single / sellado con nombre / sellado legado) en el **Changelog v1.69.1** (cabecera).
   Err: `403`, `400 VALIDATION_ERROR`.
 
 - **`PATCH /api/v1/admin/inventory/items/:id` — campo aditivo de v1.53** *(va aquí, sobre el mismo endpoint del que
@@ -18831,8 +18897,20 @@ LiveSellerRowDTO = { seller: { id: string, name: string, email: string, phone: s
 // Fase 8 / criterio 125. `missing` dice QUÉ LE FALTA; la pieza SALE SOLA de la cola cuando `missing` queda vacío
 // (auto-publicación: ubicación + precio ⇒ publicada, sin botón). `pendingPriceEntryId` = deep-link a la cola de
 // precio pendiente de M2. La pieza SIN UBICACIÓN sale SEÑALADA (la conversión no la exige, para no atorar el pago).
+// ⚠️ v1.69.1 (P-79c) — `sealedProductName?: string`: nombre del PRODUCTO SELLADO, presente SOLO cuando
+// productType='sealed' (ausente en raw/graded). Resolución server-side: `SealedProduct.name` (vivo, vía
+// `sealedProductId`) → snapshot por-pieza `InventoryItem.sealedProductName` (M-37) → AUSENTE. ⛔ En ESTA cola el
+// último escalón NO cae a `Card.name`: el ancla existe solo para satisfacer `InventoryItem.cardId NOT NULL` y NO es
+// identidad (§4.34a, `resolveAnchorCardId`), y pintarla era el defecto reportado («Weedle — CHAOS RISING · 1 ·
+// NORMAL» para una ETB). A diferencia de la cola de M2 —que pinta columnas `productType` y `gradeKey` y por eso
+// puede permitirse el fallback al ancla—, aquí la columna «pieza» es lo único que hay.
+// NORMA DE RENDER: con productType='sealed' la vista NO pinta `card.number` ni `finish`; sin `sealedProductName`
+// pinta «sellado sin identificar», JAMÁS `card.name`. La fila NUNCA se oculta (el `folio` la deja accionable).
+// NO viajan aquí (deliberado): sealedProductId, sealedImageUrl, sealedSubtype, sealedCondition, tcgplayerProductId/
+// GroupId ni precio nuevo alguno — el alcance D10 «SOLO VISIBILIDAD» de esta cola no se toca.
 PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, productType: ProductType,
                          finish: Finish, cardProductId: number | null,
+                         sealedProductName?: string,        // v1.69.1 — SOLO productType='sealed'
                          locationId: string | null, listPriceCents: number | null,
                          resolvedSalePriceCents: number | null, priceBasis: PriceBasis | null,
                          pendingPriceEntryId: string | null,
