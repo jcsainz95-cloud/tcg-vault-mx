@@ -20354,3 +20354,185 @@ Al mover el pricing dentro de la transacción (`a95bfa4`), cada checkout retení
 **Ruido esperado, no defecto:** los `ERROR … order-reservation-sweep: NO se pudo cancelar el PaymentIntent … (estado succeeded)` del log de CI son la guarda B3 trabajando: cuando un test fija `cancelOutcome='throws-succeeded'`, el barrido recorre **todas** las reservas vencidas de la BD compartida (también de otras suites) y se niega a liberarlas. Es la conducta correcta (`skipped`), registrada a propósito.
 
 **Para devops:** `scripts/stack-native.sh` no fija `connection_limit`, así que una corrida local **no reproduce** el pool de CI. Medir con `?connection_limit=5&pool_timeout=10` en la URL es lo que destapó esto; si quieren, es un candidato a default del subcomando `test:integration` (no lo toco: `scripts/` no es mi ruta).
+
+---
+
+## v1.68.2 — gates Stream B: ronda de cierre (COND-1, I1–I5, H-2, H-3, SB-D7) (backend · 2026-09-11, medido)
+
+> **Qué es:** los hallazgos de techlead y QA sobre Stream B, corregidos y **medidos**. Todo lo que
+> sigue lleva su comando y su proporción; lo que no se midió lo dice. HEAD de partida `7766296`.
+> Herramienta de medición: `./scripts/stack-native.sh test:integration` (fija
+> `connection_limit=5&pool_timeout=10`, el pool de CI) sobre **BD virgen** (`tcg_bfix`, creada y
+> destruida por corrida). Mutaciones **siempre sobre copia** (`…/scratchpad/backend-Bfix/mut`),
+> nunca sobre el árbol vivo.
+
+### §68.2.1 · COND-1 (bloqueante de fusión) — el respaldo al precio congelado solo lo abre `PRICE_PENDING`
+
+`priceCartForOrder` (session: lo que el PaymentIntent cobra) y `priceCartForQuote` (lectura del
+carrito) atrapaban **toda** la clase `BusinessException` y caían a la línea congelada de la orden
+propia. Con el código de hoy la conducta es idéntica —`salePriceOf` solo puede lanzar
+`PRICE_PENDING`— así que esto **no arregla un síntoma: cierra un seam**.
+
+`PricingService.computeSalePriceForItem` es el **seam único donde vive el guardarraíl de venta**
+(§4.36.5b). El día que emita un código propio distinto de `PRICE_PENDING`, el `catch` ancho lo
+habría tragado **en silencio** justo para las piezas reservadas por el propio cliente: se cobrarían
+al precio congelado, esquivando el guardarraíl, sin un solo log.
+
+- **Cambio:** predicado `isPricePending(e)` a nivel de módulo (`orders.service.ts`), usado en los
+  dos sitios. **Cualquier otro código propaga** con su status HTTP.
+- **Candado:** `backend/test/orders.cond1-frozen-price-only-price-pending.spec.ts`, 7 casos.
+- **Medido:** 7/7 verde. **Mutación** «volver a `e instanceof BusinessException`» en los DOS
+  sitios ⇒ **3/3 tiradas en rojo** (5 passed / 2 failed; caen exactamente los dos casos de
+  «cualquier otro código propaga», uno por ruta). *El orquestador lo reverificó por su cuenta sobre
+  copia limpia: mismo resultado, 3/3.*
+
+### §68.2.2 · I1 — el mismo defecto de pool de v1.68.1, vivo en otra ruta
+
+`resolveChargebackInventory` (`POST /admin/orders/:id/chargeback-inventory`) llamaba
+`sellableStatusFor` **dentro** del `$transaction`, y ese método usa `this.prisma` y `this.pricing`
+—handles que **no** son el de la transacción en curso—. Cada pieza recuperada pedía una **segunda
+conexión** mientras la primera seguía retenida.
+
+- **Cambio:** `prescanSellableStatus(orderId, outcome)` resuelve el veredicto **antes** de abrir la
+  transacción, sobre **todas** las piezas del pedido (no solo las congeladas) ⇒ la transacción nunca
+  encuentra una pieza sin veredicto y **no hay ruta de respaldo** que pudiera reintroducir la
+  lectura de dentro. `sellableStatusFor` pasa a tomar el `id`.
+- **No relaja nada:** quien decide sigue siendo el `updateMany` guardado por `status` con
+  `count !== 1 ⇒ continue`, dentro de la `tx`.
+- **Candado:** 2 casos en `orders.chargeback-inventory.spec.ts` que miden **orden de invocación**
+  (`mock.invocationCallOrder`) — que es lo que decide si hay dos conexiones simultáneas—, no latencia.
+- **Medido:** 15/15. **Mutación** «devolver `this.sellableStatusFor(item.id)` al cuerpo del
+  `$transaction`» ⇒ **3/3 en rojo** (1 failed / 14 passed).
+
+### §68.2.3 · H-3 / I3 — Stripe dentro de la transacción: **medido**, y acotado con `timeout`
+
+`supersedeOwnOrder` cancela el PaymentIntent viejo **dentro** del `$transaction` que sostiene la
+conexión y el `pg_advisory_xact_lock` (`RESERVATION_TX_OPTIONS.timeout = 30_000`). El cliente de
+Stripe **no fijaba `timeout`**: el default del SDK son **80 000 ms** (medido:
+`new Stripe(...).getApiField('timeout') === 80000`), **2.6× el techo de la transacción** ⇒ *el
+proveedor decidía cuánto dura nuestra transacción*.
+
+**Instrumento nuevo:** `backend/test/integration/stripe-in-tx-pool.e2e-spec.ts` — doble de Stripe con
+**retardo inyectable** (`TestStripeService.cancelDelayMs`) + **N sustituciones concurrentes de
+clientes DISTINTOS** (claves de advisory lock distintas ⇒ **no se serializan en la puerta**:
+compiten de verdad por el pool). Se **salta** si la `DATABASE_URL` no trae `connection_limit`: sin
+pool acotado un verde ahí no significaría nada.
+
+| Escenario (`connection_limit=5`, `pool_timeout=10`) | `201` | `5xx` | timeouts de pool | pared | tiradas |
+|---|---|---|---|---|---|
+| N=6, latencia **2 s** (lo que pidió QA) | 6/6 | **0/6** | **0/6** | ~4.15 s | **3/3 iguales** |
+| N=6, latencia **12 s** (por encima del `pool_timeout`) | 5/6 | **1/6** | **1/6** | ~12.1 s | **3/3 iguales** |
+
+- La pared de ~4.15 s con 2 s de latencia es **dos oleadas de 2 s**: las conexiones **sí** se
+  retienen toda la latencia de Stripe. A N=6 no rompe; a 12 s sí, y el `500` es literalmente
+  `Timed out fetching a new connection from the connection pool (timeout: 10, connection limit: 5)`.
+  ⚠️ Ese timeout **no se ve en la respuesta** (el filtro global sanea el `500` a `INTERNAL_ERROR`,
+  que es lo correcto de cara afuera): la única fuente fiel es el log del servidor, y el instrumento
+  cuenta ahí.
+- **En los dos escenarios la propiedad de dinero aguanta:** cero piezas con dos órdenes `pending`
+  encima.
+- **Acotación aplicada:** `StripeService.TIMEOUT_MS = 8_000` explícito. Aritmética, explícita porque
+  es lo que convierte esto en cota: peor caso **3 intentos (1 + `maxNetworkRetries: 2`) × 8 s =
+  24 s < 30 s** ⇒ **la transacción siempre gana al SDK**. Ningún flujo feliz cambia.
+
+> **⚠️ PARA EL ARQUITECTO (§4.48.2) — lo que esto NO cierra.** La acotación reduce el peor caso de
+> 80 s a 8 s por intento, pero **una sustitución sigue reteniendo conexión + advisory lock durante
+> toda la latencia de Stripe** (hasta 24 s en el peor caso). Con N alto eso agota el pool igual: lo
+> medido arriba (1/6 a 12 s) es el mecanismo, y solo cambia la escala a la que aparece. **Sacar la
+> cancelación de la transacción es cambio de diseño y no lo hago yo**: «cancelar antes de crear» es
+> justo lo que impide dos PI cobrando la misma pieza (candado R-4), y moverlo exige decidir qué pasa
+> si la cancelación confirma y la transacción posterior falla. Los números para esa decisión son los
+> de la tabla.
+
+### §68.2.4 · H-2 — la suite de integración deja de depender del ORDEN
+
+Seis suites no llamaban a `seedE2E` (`fx-mode`, `auth-throttle`, `graded-estimate`,
+`graded-estimate-inv-d-inverse`, `graded-estimate-degrade-market-ref`,
+`price-reference-variant-unique`): pasaban porque **otra** suite lo había hecho antes en el mismo
+proceso (`maxWorkers: 1`, BD compartida).
+
+- **Cambio:** `ensureSeeded()` en `E2EHarness.create()` — el **ancestro común**, no seis `beforeAll`
+  que el séptimo volvería a olvidar. Idempotente y memoizada por proceso: si el fixture ya está,
+  **no-op**. **No sustituye** al `seedE2E` explícito de las suites que exigen fixture limpio
+  (`seedE2E` es destructivo y acotado).
+- **Medido, siempre sobre BD VIRGEN:**
+
+| Corrida | Resultado | Tiradas |
+|---|---|---|
+| `fx-mode` sola, con el arreglo | **19/19 verde** | 3/3 |
+| `fx-mode` sola, **MUTADA** (sin `ensureSeeded`) | **19/19 ROJO**, `login failed for admin@e2e.local: 401` | **3/3** |
+| Suite COMPLETA, orden por defecto | **31/31 suites · 458/458 tests · rc=0** | 1 |
+| Suite COMPLETA, **orden INVERTIDO** | **31/31 suites · 458/458 tests · rc=0** | 1 |
+
+> **Dato extra de la mutación, que agrava el hallazgo:** sin la siembra, la corrida **no solo falla:
+> se CUELGA**. El `beforeAll` de `fx-mode` revienta en el `login`, y su `afterAll` revienta antes de
+> `h.close()` ⇒ el servidor queda abierto y jest no termina. En CI eso no es un rojo rápido: es un
+> job colgado hasta el timeout del runner.
+>
+> El orden invertido se logró con un `testSequencer` de medición que vive **en el scratchpad, no en
+> el árbol** (`--testSequencer <ruta>`); las tres primeras suites de ese orden son tres de las seis
+> que no sembraban.
+
+### §68.2.5 · I2 — la carrera R-9 ahora es la que pide el contrato
+
+`checkout-reservation-owner.e2e-spec.ts` decía medir R-9 y medía otra cosa: (a) `Promise.all` sin
+escalonar muestrea **un** punto del entrelazado, y siempre el mismo, cuando §4-R.7 R-9 pide **5
+escalonados**; (b) aseveraba **`201` siempre**, cuando el contrato admite **dos** desenlaces —pieza
+`reserved` por O2, **o** `listed` con **O2 inexistente** y `409 ITEM_UNAVAILABLE`—. Exigir `201`
+habría teñido de rojo una corrida correcta y, peor, **no comprobaba lo único prohibido**.
+
+- **Ahora:** retardos 0/25/50/75/100 ms del barrido respecto de la sesión; se asevera la
+  **disyunción** del contrato **y** el **estado prohibido**: pieza `listed` (libre, revendible)
+  mientras O2 sigue `pending` con PI vivo — *eso* es doble venta.
+- **Medido:** **5/5** en cada una de las **3** corridas completas de la suite (orden normal, orden
+  invertido y la final), las cinco por el desenlace A (`201`/`reserved`). El desenlace B no se dio en
+  esta máquina; se admite **por contrato**, no por conveniencia.
+
+### §68.2.6 · I5 — un `409` que se contradecía a sí mismo
+
+Tercera rama de §M5-S (`throwStepRejected`): el `updateMany` guardado tocó ≠ 1 filas **pero** la
+relectura ve la fila **viva y en un estado admitido**. Caía en el mismo cuerpo que la fila terminal
+⇒ respondía *«is terminal or closed»* con un `details` que decía lo contrario (`status:
+'en_transito'`, `closedAt: null`) y **sin traza**.
+
+- **Ahora:** sigue siendo `409 CONFLICT` (misma guarda, cero escritura, §M5-S sin tocar), pero
+  distinguible: `details.reason: 'CONCURRENT_UPDATE'` (aditivo — las dos ramas de §M5-T conservan su
+  `details` de siempre, **sin** `reason`), mensaje propio y `logger.warn` con verbo, id y estado.
+- **Medido:** 40/40. **Mutación** «devolver la rama al `if` compartido con el terminal» ⇒ **3/3 en
+  rojo** (5 failed / 35 passed).
+- **⚠️ Para el arquitecto (no toco el contrato):** §M5-S dice *«terminal ∨ `closedAt ≠ null` ⇒
+  `CONFLICT`; **en otro caso** ⇒ `INVALID_TRANSITION`»*. La rama de la carrera es «otro caso» **en su
+  letra**, y el código responde `CONFLICT` desde v1.68 (con razón: no es un paso equivocado, y
+  decirlo mentiría). Esa desviación es **preexistente**; aquí solo se hace legible. Si el contrato
+  quiere zanjarla —`INVALID_TRANSITION`, o `CONFLICT` con `reason` declarado— es decisión suya.
+
+### §68.2.7 · SB-D7 — tres cifras que mentían
+
+| # | Sitio | Qué afirmaba sin medirlo | Ahora |
+|---|---|---|---|
+| 1 | `orders.service.ts` · `ownReservation.reservedUntil` | `?? 0` ⇒ `new Date(0)`: el DTO de §4-R.5 publicaba **«1970-01-01»** como vencimiento de una reserva LEGADA (sin `reservedUntil`), y el front lo pinta tal cual | `null` = **desconocido**. El veredicto no cambia: `expired` ya trataba `null` como vencida, igual que trataba el 0 |
+| 2 | `orders.service.ts` · `sweepExpiredReservations` | `swept += 1` subía aunque el `updateMany` tocara **cero** filas (la carrera normal: el webhook o una sustitución se adelantaron) ⇒ no se distingue «barrí 40 reservas» de «no había nada que barrer, 40 veces» | `swept` cuenta lo **realmente liberado**; las vueltas sin efecto salen por su propio `log`. La orden `pending` sigue quedando `failed` en ambos casos |
+| 3 | `disputes.controller.ts` · `resolve` | `await this.audit.log(...)` **desnudo** DESPUÉS del money-out: si el `INSERT` falla, un reembolso **ya consumado** responde `500` ⇒ el operador reintenta y pide un **segundo** abono | `.catch()` + `logger.error`, igual que ya hacía `payments.service.ts:124-140`. El guard `MONEY_OUT_FORBIDDEN` no se toca |
+
+- **Medido:** 27/27 verde (5 casos nuevos en `orders.reservation-owner.spec.ts` + 3 en
+  `disputes.audit-never-breaks-money-out.spec.ts`). **Mutaciones, 3/3 cada una:** `swept += 1`
+  incondicional (1 failed/24), volver al `?? 0` (1 failed/24), quitar el `.catch()` (1 failed/3).
+
+### §68.2.8 · Verificación del pase completo (árbol final)
+
+| Comprobación | Comando | Resultado |
+|---|---|---|
+| Lint | `npm run lint` (backend) | **rc=0** · 2 warnings **preexistentes** (`inventory.service.ts:638`, `sealed-product.service.ts:11`), idénticos al baseline de `7766296` |
+| Typecheck | `npm run typecheck` | **rc=0** |
+| Unitarios | `npx jest` | **282 suites · 4631 tests · rc=0** (desde 280 · 4607) |
+| Integración, BD **virgen**, pool de CI | `./scripts/stack-native.sh test:integration` | **31 suites · 458 tests · rc=0** |
+| Integración, BD virgen, **orden invertido** | ídem + `--testSequencer` (scratchpad) | **31 suites · 458 tests · rc=0** |
+| Mezcla formato/lógica | `bash scripts/check-format-mix.sh 17ce9a9 HEAD` | **rc=0** (131 archivos evaluados) |
+| Manifiesto de secretos | `bash scripts/check-secret-defaults.sh` | **rc=0** |
+| Pin del pool | `bash scripts/check-db-pool-limit.sh` | **rc=0** |
+
+**Ruido conocido de esta suite, no defecto:** los `ERROR … order-reservation-sweep: NO se pudo
+cancelar el PaymentIntent … (estado succeeded)` siguen siendo la guarda B3 trabajando (ver el
+bloque de B1). A ellos se suman ahora los `ERROR … Timed out fetching a new connection` del caso
+**techo** de `stripe-in-tx-pool`: son **el sujeto de la medición**, provocados a propósito con 12 s
+de latencia inyectada, y el test pasa **con** ellos.
