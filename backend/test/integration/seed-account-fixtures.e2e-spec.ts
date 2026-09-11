@@ -16,6 +16,8 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_ACCOUNT_FIXTURES, E2E_GUEST_ORDER, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { AuthService } from '../../src/modules/auth/auth.service';
+import { ConfigService } from '@nestjs/config';
+import { PiiCryptoService } from '../../src/common/crypto/pii-crypto.service';
 
 const ROUTE = '/vault/holdings'; // «cualquier ruta autenticada» fuera de la allowlist
 
@@ -155,5 +157,22 @@ describe('E2E — seed: los tres actores de cuenta de §4.47.10.4 (v1.67.1)', ()
     const res = await h.api('GET', '/users/me/billing-profile', { token });
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('reproducción del 500 del stack nativo: un BillingProfile cifrado por OTRO proceso ⇒ 500 con diagnóstico; volver a sembrar lo limpia ⇒ 404', async () => {
+    const token = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    const customer = await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.customer.email } });
+    const otherKey = Buffer.alloc(32, 9).toString('base64');
+    const other = new PiiCryptoService(new ConfigService({ PII_ENCRYPTION_KEY: otherKey, PII_HMAC_KEY: otherKey }));
+    await h.prisma.billingProfile.create({
+      data: { userId: customer.id, rfcEnc: other.encrypt('XAXX010101000'), razonSocial: 'Stale', regimenFiscal: '612', usoCfdi: 'G03', postalCode: '06600', email: 'stale@example.com' },
+    });
+    const stale = await h.api('GET', '/users/me/billing-profile', { token });
+    expect(stale.status).toBe(500);
+    // El PUT sí lo reemplaza (cifra con la clave de ESTE proceso) — es el remedio del usuario…
+    // …pero el arnés tiene que arrancar limpio: la siembra borra la fila del fixture.
+    await seedE2E(h.prisma);
+    const after = await h.api('GET', '/users/me/billing-profile', { token });
+    expect(after.status).toBe(404);
   });
 });

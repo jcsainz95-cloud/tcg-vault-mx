@@ -42,6 +42,12 @@ import {
 } from './e2e-fixtures';
 import { assertSeedTarget } from './seed-target-guard';
 
+/** Todos los correos que este seed gobierna (usuarios por rol + actores de cuenta de §4.47.10.4). */
+const E2E_FIXTURE_EMAILS: string[] = [
+  ...Object.values(E2E_USERS).map((u) => u.email),
+  ...Object.values(E2E_ACCOUNT_FIXTURES).map((u) => u.email),
+];
+
 function todayUtc(): Date {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -136,6 +142,16 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a SellRequestItem
   await prisma.order.deleteMany({ where: { userId: { in: ids } } }); // cascada a OrderItem
   await prisma.kycProfile.deleteMany({ where: { userId: { in: ids } } });
+  // v1.67.1 (2026-09-11, medido): el perfil de facturación lleva `rfcEnc` cifrado con la clave PII
+  // del PROCESO que lo escribió. En el stack nativo no hay `PII_ENCRYPTION_KEY` ⇒ clave efímera por
+  // arranque ⇒ una fila del PUT de una corrida anterior devuelve 500 en la siguiente
+  // («Unsupported state or unable to authenticate data»). Mismo motivo por el que `kycProfile` ya se
+  // borraba. Por correo (relación) para alcanzar TAMBIÉN a los actores de §4.47.10.4, que se
+  // upsertean más abajo y no están en `ids`. El seed NO siembra ningún `BillingProfile`: el 404 es
+  // el vacío que la sección prueba.
+  await prisma.billingProfile.deleteMany({
+    where: { user: { email: { in: E2E_FIXTURE_EMAILS } } },
+  });
 
   // 3b. Idempotencia CROSS-RUN (E2E-1). Hay estado E2E que NO cuelga de userId y que las
   // suites de webhook mutan; si no se resetea, una 2ª corrida de `test:integration` sobre la
