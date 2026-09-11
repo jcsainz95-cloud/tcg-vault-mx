@@ -19980,3 +19980,88 @@ llevan `E2E_STRICT_INFRA=false` (solo afecta a `infra-smoke`; **no valen como ga
 - `backend/src/common/` (guard, decorador, `ErrorCode.RECIPIENT_NAME_REQUIRED`) lo escribe A1; al cierre de esta
   sección **seguía sin commitear** (`git log -- backend/src/common/`): mis commits compilan **sobre el árbol de
   trabajo**, y lo harán en `HEAD` cuando A1 aterrice.
+
+## v1.67 — Stream A · **LA TEMPORAL OBLIGA**: `POST /auth/change-password`, guard `403 PASSWORD_CHANGE_REQUIRED`, `M-52` y `greetingName()` (backend A1 · `common`+`auth`+`mail`+`prisma` · 2026-09-11)
+
+> Contrato v1.67 (`docs/API_CONTRACT.md` §0 códigos nuevos, §1 «Cambiar la propia contraseña» y
+> «Contraseña temporal OBLIGATORIA»); `ARCHITECTURE §4.47` (reparto B1–B7 en §4.47.8, `M-52` en §11).
+> Decisión del dueño (`HECHOS.md`, 2026-09-11): *«Que obligue a cambiarla»*. Commits: `f5513cd` (B1),
+> los dos siguientes de backend (B2+B3+B7 y B6). **Lo de `users`/`shipments` (B4/B5) lo hace el agente A2**
+> y lo documenta en su propia sección.
+
+### Qué hay (por fichero, para el que venga después)
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| `M-52` | `prisma/migrations/20260911120000_m52_account_recipient_name_source/` | `Address.recipientName TEXT` nullable sin backfill; `NameSource` + `User.nameSource NOT NULL DEFAULT 'user'` + los dos `UPDATE` deterministas (solo `authProvider='google'`). Aditiva; el artefacto anterior la ignora. |
+| 5 códigos | `common/error-codes.ts` | `PASSWORD_CHANGE_REQUIRED` (403), `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`, `PASSWORD_NOT_SET`, `RECIPIENT_NAME_REQUIRED` (422; este último lo **emite `shipments`**, no `auth`). |
+| Allowlist | `common/decorators/allow-password-change-required.decorator.ts` | `@AllowPasswordChangeRequired()` **por handler**. Lista cerrada: `POST /auth/change-password`, `POST /auth/logout` (ambos en `auth.controller.ts`, hechos), `GET /users/me` (**lo decora A2** en `users.controller.ts`: el decorador va en el `@Get()` del `me()`, NO a nivel de clase — el `PATCH` queda fuera). Añadir otra ruta = cambio de contrato. |
+| Guard | `common/guards/password-change-required.guard.ts` | `req.user.mustChangePassword === true` y handler sin decorador ⇒ `403 PASSWORD_CHANGE_REQUIRED`, `details: {}`. Sin `req.user` (`@Public`) ⇒ pasa. **No consulta BD.** |
+| `JwtAuthGuard` | `common/guards/jwt-auth.guard.ts` | `mustChangePassword` en el **mismo** `select` (`status, tokenVersion, emailVerified, mustChangePassword`) y en `req.user`. `AuthUser.mustChangePassword?` en `current-user.decorator.ts`. |
+| Cadena | `app.module.ts` | `Throttler → Jwt → PasswordChangeRequired → Roles → EmailVerified → MoneyOut`. Hay un test que lee el orden del metadata de `AppModule` (`test/password-change-required.guard.spec.ts`). |
+| Endpoint | `auth.controller.ts` / `auth.service.ts#changePassword` / `dto/auth.dto.ts#ChangePasswordDto` | Orden normativo del contrato, `tokenVersion +1`, **par nuevo** emitido con la fila `updated` (no con la leída), `emailVerified`/`authProvider` intactos, `AuditLog auth.password_changed` con `ip`. Throttle 5/min/IP. |
+| `publicUser` | `auth.service.ts` | + `mustChangePassword` y nada más (D-CTA-1). `login`/`google` responden 200 con el flag; no rechazan. |
+| `google()` | `auth.service.ts` | Alta nueva escribe `nameSource`: `google` si el ID token trae `name` (tras `trim`), `derived` si se fabrica del correo. **Un `name` en blanco (`"   "`) cuenta como ausente** ⇒ ya no se guarda `""` (antes sí, por el `??`). El enlace de cuenta local con Google no toca `name` ni `nameSource` (sin cambio). |
+| `greetingName()` | `mail/greeting-name.ts`, `mail.templates.ts`, `mail.service.ts` | `null` con `derived` ⇒ «Hola:» / «Hi,». `sendEmailVerification`/`sendPasswordReset` aceptan `nameSource?` (opcional: los llamadores antiguos siguen saludando con nombre). **Los correos del buylist no se tocan** (D-CTA-5, su stream). |
+
+### Decisiones de implementación que no están literalmente en el contrato (lectura conservadora)
+
+1. **Paso 1 del orden normativo («la cuenta es `active`»)**: el guard ya rechaza `blocked`/`deleted` con 401; el
+   servicio lo re-comprueba (defensa en profundidad) y responde el mismo `401 UNAUTHENTICATED` — el contrato lista
+   ese código entre los errores del endpoint. No se inventó un 403 nuevo.
+2. **`currentPassword` con `@MinLength(1)` y sin política**: es «la que ya tiene», sea cual sea (una temporal
+   autogenerada podría no cumplir la política actual). `newPassword` usa `MIN_PASSWORD_LENGTH` — la misma constante
+   que `register`/`reset-password`, sin máximo ni complejidad (contrato: ⛔).
+3. **`argon2.verify` que lanza** (hash corrupto) se trata como «no verifica» ⇒ `422 CURRENT_PASSWORD_INCORRECT`,
+   igual que hace `login`. No se filtra el motivo.
+4. **`ip` en la auditoría**: el contrato pide `actorRole` y no menciona `ip`; `AuditEntry.ip` ya existe y las
+   hermanas de `auth` no la rellenan. Se rellena aquí (viene del `@Ip()` del controlador) porque es una acción de
+   credenciales; es aditivo y no cambia la forma de nada.
+5. **`google()` con `name` en blanco**: el contrato dice `identity.name ? 'google' : 'derived'`; un `""` es falsy y
+   por tanto `derived`, pero el `??` previo habría guardado `name=""`. Se unifica con `trim() || null`: en blanco ⇒
+   derivado del correo + `derived` (coherente con la regla del backfill `M-52b`).
+
+### Medido (comandos y totales; todo con Node `/opt/node22/bin`, Postgres 16.13 del clúster local `16 main`, Redis local; **sin Docker**)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Schema | `npx prisma validate` · `npx prisma generate` | válido · generado |
+| `M-52` aplica | `npx prisma migrate deploy` (BD limpia) | `All migrations have been successfully applied` |
+| Schema == migraciones | `npx prisma migrate diff --from-url <bd> --to-schema-datamodel prisma/schema.prisma` | nada en `User`/`Address`. **Única diferencia: rename de índice de `PriceReference`** (`PriceReference_variant_capturedDate_key` ↔ `…cardId_productType_gradeKey_finish_capturedD_key`), **preexistente**: aparece igual contra el schema de `HEAD` sin `M-52`. No es de este stream; queda anotado, no arreglado. |
+| Backfill `M-52b` | todas las migraciones previas por `psql` + 4 usuarios fixture + `Address` sin nombre + `M-52` | `local` con `name = split_part(email,'@',1)` ⇒ `user` (no se marca); google derivado ⇒ `derived`; google con nombre ⇒ `google`; `recipientName` nace `NULL`. Repetir los dos `UPDATE`: reparto idéntico (1/2/1) ⇒ idempotente. |
+| Unitarios | `npm test` | **271 suites / 4463 tests** en verde (incluye los 44 nuevos: `password-change-required.guard`, `jwt-auth.guard.must-change-password`, `auth.change-password`, `mail.greeting-name`). |
+| E2E nuevo | `npx jest --config test/jest-integration.config.js test/integration/auth-change-password.e2e-spec.ts` | **5/5** (ciclo completo customer, ciclo operador por `/admin/*`, sin flag revoca las otras sesiones, solo-Google ⇒ `PASSWORD_NOT_SET`, sin sesión ⇒ 401). |
+| Integración completa, **árbol vivo** | mismo config, sin filtro | 355/365, **2 suites rojas (`vault-shipments`, `iva-price-convention`) que A2 estaba editando en ese momento** (`git status`: `M` en esos dos specs y en `shipments.service.ts`). |
+| Integración, **copia limpia = `HEAD 9db7b64` + mis 17 ficheros** | `git archive HEAD backend` + `cp` de mis ficheros + esas 3 suites | **49/49 verde** ⇒ los rojos del árbol vivo no son de este trabajo. |
+| Integración **completa** sobre esa copia limpia | mismo config, sin filtro, BD `tcg_a1` | **25 suites / 365 tests en verde**. |
+| Ciclo entero tras aterrizar A2 (`HEAD ae1ee20`) | `auth-change-password` (con la aserción de `GET /users/me` ⇒ 200 con `{ mustChangePassword: true, hasPassword: true }`) + `auth-authz` + `account-profile` (de A2) | **32/32 verde**; `tsc` limpio. |
+| Lint / tipos | `npm run lint` · `npm run typecheck` | 0 errores (2 warnings preexistentes en `inventory`, ajenos) · `tsc` limpio |
+
+**Mutaciones (todas sobre COPIA en `…/scratchpad/backend-A1/mut`, restaurada y verificada idéntica al árbol vivo en mis ficheros):**
+
+| Mutación | E2E (`auth-change-password`) | Unit |
+|---|---|---|
+| (a) `PasswordChangeRequiredGuard` fuera de la cadena `APP_GUARD` | **rojo 3/3** (2 tests: los dos ciclos con 403) | **rojo 5/5** (`password-change-required.guard.spec`: el test de orden) |
+| (b) `CURRENT_PASSWORD_INCORRECT` con **401** en vez de 422 | **rojo 3/3** (5/5 tests: el 401 mata la sesión y todo lo que sigue) | **rojo 5/5** (`auth.change-password.spec`) |
+| (c) `change-password` **sin** `@AllowPasswordChangeRequired()` (encierro) | **rojo 3/3** | **rojo 5/5** |
+| (d) par emitido con `issueTokens(user)` (tv viejo) en vez de `updated` | **rojo 3/3** | **rojo 5/5** (2 tests: paso 6 y «tv viejo ⇒ 401 / nuevo ⇒ 200») |
+
+### Reparto con A2 (`users` · `shipments`) — estado MEDIDO al cierre de esta sección (2026-09-11)
+
+- **Ya aterrizado por A2** (`87c0509`, `ecd14c2`, `3a9bb3e`, notas en `ae1ee20`): `@AllowPasswordChangeRequired()`
+  en el handler `GET /users/me` (`users.controller.ts:37`, medido con `grep`), `hasPassword`/`nameSource`/
+  `mustChangePassword` en `/users/me`, `recipientName` en la libreta y `422 RECIPIENT_NAME_REQUIRED` en `shipments`.
+  Mi E2E lo recorre de punta a punta (fila «Ciclo entero» de arriba): con temporal, `GET /users/me` ⇒ 200 y
+  `PATCH /users/me` / `GET /users/me/addresses` ⇒ 403; tras el cambio, `PATCH /users/me` ⇒ 200.
+- **Fuera de A (no lo hace nadie de este stream):** correos del buylist con `greetingName()` — D-CTA-5 lo enruta al
+  stream buylist.
+
+### NO medido en este entorno
+
+- **Rate-limit 5/min real por HTTP** en `change-password`: el throttler se omite bajo `NODE_ENV=test`
+  (`config/test-env.ts`); queda aseverado el **metadata** (`THROTTLER:LIMITdefault=5`, `TTL=60000`) en unit. El 429
+  real se mide con `E2E_ENABLE_THROTTLER=true` como hace `auth-throttle.e2e-spec.ts` — no se añadió un caso ahí
+  (fichero compartido con otros flujos; lo puede pedir QA).
+- **Cuántos usuarios de producción tienen `mustChangePassword=true`** antes de publicar el guard (contrato: el
+  orquestador lo mide con `SELECT count(*) FROM "User" WHERE "mustChangePassword"`). Sin acceso a esa BD desde aquí.
+- **Playwright / frontend**: fuera de mis rutas.

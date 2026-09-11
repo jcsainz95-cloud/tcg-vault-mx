@@ -14,8 +14,9 @@
  *   → BD: mustChangePassword=false, emailVerified INTACTO, tokenVersion +1, AuditLog auth.password_changed.
  * Aparte: cuenta solo-Google (passwordHash NULL) ⇒ 422 PASSWORD_NOT_SET.
  *
- * `GET /users/me` (tercera ruta de la allowlist) vive en el módulo `users` (B4, agente A2): su
- * aserción E2E está en su spec, no aquí.
+ * `GET /users/me` (tercera ruta de la allowlist) vive en el módulo `users` (B4, agente A2, `87c0509`):
+ * aquí solo se asevera que con la temporal responde 200 con los dos campos que la pantalla de cambio
+ * necesita (`mustChangePassword`, `hasPassword`); el resto de su forma es de su propio spec.
  */
 import { randomUUID } from 'crypto';
 import { E2EHarness } from './helpers/e2e-app';
@@ -92,7 +93,11 @@ describe('E2E — contraseña temporal OBLIGATORIA y POST /auth/change-password 
       expect(res.body.error.details).toEqual({});
     }
 
-    // 5) Allowlist: logout ⇒ 204. refresh es @Public ⇒ sigue funcionando (el front lo necesita).
+    // 5) Allowlist: GET /users/me ⇒ 200 (hidratación de sesión + pantalla de cambio); logout ⇒ 204.
+    //    refresh es @Public ⇒ sigue funcionando (el front lo necesita).
+    const me = await h.api('GET', '/users/me', { token: tempAccess });
+    expect(me.status).toBe(200);
+    expect(me.body).toMatchObject({ mustChangePassword: true, hasPassword: true });
     expect((await h.api('POST', '/auth/logout', { token: tempAccess })).status).toBe(204);
     const refreshDuring = await h.api('POST', '/auth/refresh', { json: { refreshToken: tempRefresh } });
     expect(refreshDuring.status).toBe(200);
