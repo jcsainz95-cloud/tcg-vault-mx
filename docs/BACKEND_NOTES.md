@@ -20536,3 +20536,147 @@ cancelar el PaymentIntent … (estado succeeded)` siguen siendo la guarda B3 tra
 bloque de B1). A ellos se suman ahora los `ERROR … Timed out fetching a new connection` del caso
 **techo** de `stripe-in-tx-pool`: son **el sujeto de la medición**, provocados a propósito con 12 s
 de latencia inyectada, y el test pasa **con** ellos.
+
+---
+
+## P-79 (d) · **MONEY** — el sellado se apuntaba el precio en una llave y se leía de otra (backend · `inventory`+`pricing` · 2026-09-11, medido)
+
+**SHA de partida:** `159192d7f66309c91ce4e554f62a812616024779`.
+**Sección propia:** no toca ninguna sección previa de este documento.
+
+### El defecto, dicho como lo sufría el dueño
+Daba de alta un sellado, la pieza aparecía en la cola de **«FIJAR PRECIO» de M2**, le ponía precio…
+y **la pieza volvía a la cola**. Poner el precio no servía de nada, en bucle, en la app publicada.
+
+### Por qué pasaba (re-medido antes de tocar, no heredado)
+El sellado tiene **dos claves de precio, y las dos existen a propósito** (§4.40.4d):
+
+| clave | qué es | quién la usa |
+|---|---|---|
+| `'sealed'` (constante de `buildGradeKey`, `pricing.types.ts:682-684`) | **override MANUAL** del admin (§4.19d) | `POST /admin/pricing/override` |
+| `sealed:tcg:<tcgplayerProductId>` (`sealedMarketGradeKey()`, `pricing.types.ts:593`) | **mercado por producto** | ingest TCGCSV, catálogo, bóveda, publicación |
+
+La **publicación** lee por la de MERCADO: `inventory.service.ts` → `derivePublishSalePrice` →
+`this.pricing.sealedMarketGradeKeyForItem(item)`. Y de los **tres** caminos de alta que escalan el
+pendiente (`sealedNeedsEscalate`), **dos escalaban con la otra**:
+
+| camino | antes | medido |
+|---|---|---|
+| `createItem` (single) | `sealedMarketGradeKey(...)` | **ya correcto** |
+| `batchCreate` (**el que dispara la app real**) | `r.gradeKey` ⇒ literal `'sealed'` | **defectuoso** |
+| `adjust({reason:'encontrada'})` → `adjustFound` | `r.gradeKey` ⇒ literal `'sealed'` | **defectuoso** (hallazgo adicional, mismo defecto) |
+
+Resultado: la fila de la cola nacía bajo `'sealed'`, el operador fijaba ahí el precio, y el publish
+buscaba `sealed:tcg:<id>` — **no encontraba nada y re-escalaba**. Bucle.
+
+### El arreglo: se arregla el CAMINO, no las claves
+**Las dos claves NO se unifican.** Se introdujo un único constructor privado,
+`InventoryService.sealedPendingGradeKeyOf(r)`, y los **tres** caminos de alta piden la clave ahí. Ya
+no pueden derivar uno del otro.
+
+- Mapeado (`tcgplayerProductId != null`) ⇒ `sealed:tcg:<id>` — **la misma que lee el publish**.
+- **Legacy sin mapeo** ⇒ cae a `r.gradeKey` (`'sealed'`): sin `productId` no hay clave de mercado que
+  construir y **no se inventa** un `sealed:tcg:null`. Fallback seguro ya documentado en el single.
+
+### Cobertura que NO existía y por eso esto pasó inadvertido
+Hasta aquí el **único** camino de alta de sellado probado en camino feliz era
+`aportacion_en_especie` (que escala por otra vía, `resolveSealedMarketForAlta`, ya correcta) y todos
+los casos con `'compra'` eran **rechazos 422**. **No había una sola prueba del alta de sellado por
+COMPRA en camino feliz.** `backend/test/inventory.sealed-product-alta.spec.ts` gana el bloque
+`P-79(d)` con 7 pruebas: single, **lote**, **invariante** (la clave escalada se compara con la que
+pide la publicación al MISMO helper, `sealedMarketGradeKeyForItem`, no contra un literal paralelo),
+`qty>1` (una sola entrada), `listPriceCents` presente (no escala), legacy sin mapeo (fallback
+`'sealed'`) y el camino `encontrada`.
+
+**Mutaciones (sobre copia del árbol entero, nunca sobre el vivo), 3 tiradas cada una:**
+
+| mutación | resultado |
+|---|---|
+| M1 · lote vuelve a `r.gradeKey` | **rojo 3/3** (3 pruebas caen) |
+| M2 · `encontrada` vuelve a `r.gradeKey` | **rojo 3/3** |
+| M3 · single vuelve a `r.gradeKey` | **rojo 3/3** |
+
+### ⚠️ Lo que NO cerré, y por qué — **para el ARQUITECTO**
+
+**El agravante de `derivePublishSalePrice`:** con `tcgplayerProductId` nulo,
+`const ref = gk ? ctx.refs.get(...) : undefined` hace que **no se consulte ninguna referencia**, así
+que el override manual de un sellado **no mapeado** queda **ilegible por construcción** y esa pieza
+sigue en bucle aunque el operador le ponga precio. **No lo arreglé**, y no por pereza:
+
+1. **La clave `'sealed'` no discrimina identidad.** `PriceReference` **no tiene** columna
+   `sealedProductId` (sí la tiene `PendingPriceEntry`). Dos sellados distintos no mapeados anclados a
+   la **misma** Card comparten esa fila: leerla haría que la publicación valuara un ETB con el precio
+   de un blíster. Darle identidad exige **columna nueva en `schema.prisma`** — fuera de mi alcance y
+   decisión del arquitecto.
+2. **El precio derivado de publicación NO se persiste.** `claimListed` solo escribe `listPriceCents`
+   **cuando viene manual en la línea**; el storefront **re-resuelve** en lectura. Y el patrón
+   `gk ? … : undefined` es idéntico en `catalog.service.ts:614`, `sealed-catalog.service.ts:128`,
+   `vault.service.ts:372` y `admin.service.ts:944` — **todos fuera de mis módulos**. Arreglarlo solo
+   en el publish publicaría una pieza que la tienda seguiría pintando «—»: cambiaría un bucle por un
+   **precio fantasma**, que es peor.
+3. **Sí hay precedente del fallback**, pero solo en LECTURA AGREGADA: `admin.inventoryValue()`
+   (`admin.service.ts:944-990`) lee mercado y **cae a `'sealed'`**. Es un total de valuación, no un
+   precio de venta al cliente; el riesgo de cruce que ahí se acepta **no es aceptable** en el
+   publish.
+
+**Lo que cerraría el agravante (propuesta, no ejecutada):** que el arquitecto decida entre (a)
+`sealedProductId` en `PriceReference` + fallback simétrico en **todos** los lectores, o (b) que el
+sellado sin `tcgplayerProductId` **no sea dable de alta** y se cure en M2 antes. Es cambio de
+contrato/schema: regla 9.
+
+### ⚠️ Datos ya escritos con la clave equivocada — **NO escribí ninguna migración**
+
+**NO MEDIDO:** cuántas filas hay en producción. No tengo acceso a esa BD y **tocar datos de
+producción es decisión del dueño, no mía**. Las consultas exactas que lo contarían (solo `SELECT`):
+
+```sql
+-- (A) Pendientes de M2 escalados bajo la clave del OVERRIDE MANUAL cuando la pieza SÍ está mapeada.
+--     `SealedProduct.tcgplayerProductId` es NOT NULL, así que TODA entrada con sealedProductId
+--     tenía clave de mercado disponible: su `gradeKey` debería ser `sealed:tcg:<id>`.
+SELECT p.id,
+       p."cardId",
+       p."sealedProductId",
+       sp."tcgplayerProductId",
+       'sealed:tcg:' || sp."tcgplayerProductId" AS clave_correcta,
+       p.status,
+       p."createdAt"
+FROM "PendingPriceEntry" p
+JOIN "SealedProduct" sp ON sp.id = p."sealedProductId"
+WHERE p."productType" = 'sealed'
+  AND p."gradeKey"    = 'sealed'
+  AND p."sealedProductId" IS NOT NULL
+ORDER BY p."createdAt";
+-- conteo: SELECT count(*) FROM ... (mismo WHERE)
+
+-- (B) Variante LEGACY (pendiente sin sealedProductId) cuya pieza SÍ está mapeada por los campos
+--     M-37. No hay FK pendiente→pieza, así que se empareja por cardId; es una COTA SUPERIOR.
+SELECT DISTINCT p.id, p."cardId", i."tcgplayerProductId",
+       'sealed:tcg:' || i."tcgplayerProductId" AS clave_correcta
+FROM "PendingPriceEntry" p
+JOIN "InventoryItem" i
+  ON i."cardId" = p."cardId"
+ AND i."productType" = 'sealed'
+ AND i."tcgplayerProductId" IS NOT NULL
+WHERE p."productType" = 'sealed'
+  AND p."gradeKey"    = 'sealed'
+  AND p."sealedProductId" IS NULL
+  AND p.status = 'open';
+
+-- (C) El DINERO que el operador ya tecleó y quedó ilegible: overrides manuales escritos bajo
+--     'sealed' para cartas que tienen piezas selladas MAPEADAS. Son los precios que hay que
+--     recuperar (no borrar) si el dueño autoriza una migración de datos.
+SELECT r.id, r."cardId", r."priceMxnCents", r."capturedDate", r.source, r."isManualOverride"
+FROM "PriceReference" r
+WHERE r."productType" = 'sealed'
+  AND r."gradeKey"    = 'sealed'
+  AND (r."isManualOverride" = true OR r.source = 'manual')
+ORDER BY r."capturedDate" DESC;
+```
+
+Si (A) o (C) devuelven filas, **la decisión de re-apuntarlas es del dueño**; el arreglo de código
+por sí solo cura las altas **nuevas**, no las ya escritas.
+
+### Fuera de alcance (explícitamente NO tocado)
+`uploads`, `users`, `admin`, `audit`, `backend/prisma/schema.prisma` (otro agente backend en
+paralelo) y `frontend/` entero — incluidas la cola de M1 que pinta el sellado con forma de carta, el
+`ItemDetailModal.tsx:64-66` que obliga a teclear precio manual, y P-69.
