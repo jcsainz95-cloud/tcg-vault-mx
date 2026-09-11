@@ -225,7 +225,7 @@ jobs:
             echo "ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
           elif git rev-parse --verify --quiet "${{ github.event.before }}^{commit}" >/dev/null 2>&1; then
             echo "ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
-          elif git rev-parse --verify --quiet origin/main^{commit} >/dev/null 2>&1; then
+          elif git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null 2>&1; then
             echo "ref=origin/main" >> "$GITHUB_OUTPUT"
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
@@ -233,7 +233,7 @@ jobs:
       - name: Sin base utilizable ⇒ el comparador NO corre (skipped explícito, no verde)
         if: steps.base.outputs.ref == ''
         run: |
-          echo "::warning title=format-mix::Sin commit base utilizable (rama nueva o `before` inexistente). El comparador BL-27 NO corre en este push: el job format-mix queda SKIPPED. No es un verde."
+          echo "::warning title=format-mix::Sin commit base utilizable (rama nueva o 'before' inexistente). El comparador BL-27 NO corre en este push: el job format-mix queda SKIPPED. No es un verde."
           echo "- ⚠️ format-mix **no medido** en este push (sin base utilizable)" >> "$GITHUB_STEP_SUMMARY"
       # §56 #5: el comparador tiene que saber morder, haya o no base en ESTE push.
       # Por eso el canario vive aquí (corre siempre) y no en `format-mix` (que se
@@ -359,6 +359,25 @@ jobs:
       - uses: actions/checkout@v5
       - name: La medida interina del dial de precio no puede sobrevivir a su causa
         run: ./scripts/price-provider-parity.sh --check-expiry
+
+  # ---------------------------------------------------------------------------
+  # ⏳ DISPARADOR DE RETIRO de `report_only: true` en `deploy.yml > dast-release`
+  # (techlead F1-1, 2026-09-11). Hermano del de arriba y con la misma doctrina:
+  # un modo de calibración sin fecha es un gate apagado con otro nombre. Verde
+  # mientras `report_only` esté dentro de plazo (o ya retirado); ROJO desde la
+  # FECHA_LIMITE del script (2026-10-06) si sigue puesto, con el retiro en el
+  # mensaje. Se apaga solo al quitar la línea. Y su canario demuestra en cada
+  # push que sabe ponerse rojo cuando toca y no antes.
+  # ---------------------------------------------------------------------------
+  dast-report-only-expiry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: El report_only del DAST de release tiene fecha
+        run: ./scripts/check-dast-report-only-expiry.sh
+      - name: Y el disparador sabe ponerse rojo cuando toca (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-dast-report-only-expiry-canary.sh
 
   # ---------------------------------------------------------------------------
   # 🔒 ¿EL CANDADO DEL DAST SIGUE SIENDO UN CANDADO? (P-77, DEVOPS_NOTES §44)
@@ -523,7 +542,7 @@ jobs:
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -537,6 +556,7 @@ jobs:
           echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
           echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
           echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
+          echo "caducidad report_only DAST: ${{ needs.dast-report-only-expiry.result }}"
           echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
           echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
           echo "candado de paridad I-PP5: ${{ needs.parity-gate-canary.result }}"
@@ -569,6 +589,13 @@ jobs:
           # cumplió y sigue puesto». El mensaje del script trae qué quitar y de dónde.
           if [ "${{ needs.price-provider-interim-expiry.result }}" != "success" ]; then
             echo "::error::La medida interina D-PP-2 caducó y sigue cableada (resultado: ${{ needs.price-provider-interim-expiry.result }}). Dueño: devops. Ver DEVOPS_NOTES §43.2."
+            exit 1
+          fi
+          # ⏳ Mismo criterio: `skipped` NO es verde. Este rojo dice «el DAST de
+          # release lleva demasiado en modo calibración» (F1-1); el mensaje del
+          # script trae el retiro exacto.
+          if [ "${{ needs.dast-report-only-expiry.result }}" != "success" ]; then
+            echo "::error::El report_only del DAST de release caducó (o su disparador no corrió) (resultado: ${{ needs.dast-report-only-expiry.result }}). Dueño: seguridad (decisión) / devops (cableado). Ver DEVOPS_NOTES §56.9."
             exit 1
           fi
           # 🔒 Mismo criterio que las tres anteriores: `skipped` NO es verde. Si la

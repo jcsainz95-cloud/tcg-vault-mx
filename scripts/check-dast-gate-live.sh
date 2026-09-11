@@ -26,6 +26,11 @@
 #      VERDE con el limpio y ROJO con el que trae un hallazgo bloqueante. Esto
 #      es lo que convierte «el gate está cableado» en un hecho comprobado en
 #      cada push, sin Docker y en menos de un segundo.
+#   5-bis. `--report-only` NO borra el hecho (techlead F1-1, 2026-09-11): con
+#      un informe sucio y `--report-only` el candado sale 0 PERO escribe
+#      `blocking=true` en `$GITHUB_OUTPUT` y `true` en `--blocking-file`; con
+#      el limpio, `false`. Es lo que impide que `report_only` vuelva a dejar
+#      abierto por construcción el gate de promoción de deploy.yml.
 #   6. Ningún workflow que SÍ corre cuelga su DAST de `STAGING_BASE_URL`. El
 #      único sitio donde ese secret puede aparecer es `deploy.yml`, y solo
 #      dentro de bloques marcados como INERTES.
@@ -36,7 +41,7 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "${ROOT_DIR}"
+cd "${ROOT_DIR}" || exit 1
 
 WF=".github/workflows/security-dast.yml"
 FALLOS=0
@@ -119,6 +124,29 @@ fi
 GITHUB_ACTIONS='' "${GATE[@]}" --zap-json "${TMP}/no-existe.json" >/dev/null 2>&1
 [ $? -ne 0 ] && ok "sin informe, el candado sale ROJO (un escáner que no corrió no es un verde)" \
              || bad "el candado da VERDE cuando no hay informe: es el falso verde original."
+
+# --- 5-bis. report-only separa el HECHO del EXIT CODE (F1-1) ------------------
+# hecho <informe> <flags…> → imprime "rc|fichero|output" para comparar de una vez.
+hecho() {
+  local informe="$1"; shift
+  local out="${TMP}/gh_output"; : > "${out}"; rm -f "${TMP}/blocking.txt"
+  GITHUB_ACTIONS='' GITHUB_OUTPUT="${out}" "${GATE[@]}" --zap-json "${informe}" \
+    --blocking-file "${TMP}/blocking.txt" "$@" >/dev/null 2>&1
+  printf '%s|%s|%s' "$?" "$(cat "${TMP}/blocking.txt" 2>/dev/null)" "$(grep -E '^blocking=' "${out}" | tail -1)"
+}
+H="$(hecho "${TMP}/sucio.json" --report-only)"
+if [ "${H}" = "0|true|blocking=true" ]; then
+  ok "con --report-only y un hallazgo bloqueante: exit 0 PERO blocking=true (fichero y GITHUB_OUTPUT)"
+else
+  bad "con --report-only el hecho se pierde o el exit no es 0 (rc|fichero|output = ${H}; se esperaba 0|true|blocking=true)."
+  note "Así es como report_only dejaba ABIERTO el gate de promoción: blocking se derivaba del exit. Dueño: devops (F1-1)."
+fi
+H="$(hecho "${TMP}/limpio.json" --report-only)"
+[ "${H}" = "0|false|blocking=false" ] && ok "con --report-only y un informe limpio: exit 0 y blocking=false" \
+  || bad "con --report-only e informe limpio se esperaba 0|false|blocking=false y salió ${H}."
+H="$(hecho "${TMP}/sucio.json")"
+[ "${H}" = "1|true|blocking=true" ] && ok "sin --report-only y un hallazgo bloqueante: exit 1 y blocking=true (mismo hecho, otro exit)" \
+  || bad "sin --report-only se esperaba 1|true|blocking=true y salió ${H}."
 
 # --- 6. nadie vuelve a colgar el DAST de un staging inexistente --------------
 CULPABLES=""

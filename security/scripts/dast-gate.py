@@ -39,6 +39,18 @@
 # MODO `--expect-red`: invierte el veredicto. Lo usa el job de autoprueba
 # contra el canario vulnerable (security/dast-selftest/canary.py): ahí un
 # gate VERDE es el fallo, porque significa que el candado no puede cerrarse.
+#
+# DOS HECHOS, DOS CANALES (techlead F1-1, 2026-09-11)
+# ---------------------------------------------------------------------------
+# Antes, `--report-only` forzaba exit 0 y el workflow derivaba «blocking» del
+# outcome del paso ⇒ con report_only el gate de promoción de deploy.yml estaba
+# abierto POR CONSTRUCCIÓN (blocking siempre 'false'). Ahora se separan:
+#   · el HECHO «hay bloqueantes sí/no» se escribe SIEMPRE, pase lo que pase con
+#     el exit code: en `$GITHUB_OUTPUT` como `blocking=true|false` (si existe) y
+#     en el fichero de `--blocking-file` (si se pide);
+#   · `--report-only` solo decide el EXIT CODE (0 aunque haya bloqueantes).
+# Quien consuma el veredicto lee el hecho, no el color del paso. Lo comprueba
+# scripts/check-dast-gate-live.sh (5-bis) en cada push.
 # =============================================================================
 import argparse
 import json
@@ -140,6 +152,24 @@ def load_ignore_ids(path):
     return ids
 
 
+def publicar_bloqueantes(hay, path):
+    """Escribe el HECHO «hay bloqueantes» separado del exit code.
+
+    Va a `$GITHUB_OUTPUT` (blocking=true|false) cuando el gate corre en Actions
+    y a `path` si se pidió `--blocking-file`. Se llama ANTES de decidir el exit
+    code, en todos los modos: el hecho no depende de `--report-only` ni de
+    `--expect-red`.
+    """
+    val = "true" if hay else "false"
+    if path:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(val + "\n")
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a", encoding="utf-8") as fh:
+            fh.write("blocking=%s\n" % val)
+
+
 def anotar(titulo, lineas):
     """Publica un digest como ANOTACIÓN de GitHub.
 
@@ -170,7 +200,11 @@ def main():
     p.add_argument("--expect-red", action="store_true",
                    help="Autoprueba: invierte el veredicto (verde => fallo).")
     p.add_argument("--report-only", action="store_true",
-                   help="Mide y publica, pero nunca sale distinto de 0. Solo para calibrar.")
+                   help="Solo afecta al EXIT CODE: nunca sale distinto de 0. El hecho "
+                        "«blocking» se publica igual (GITHUB_OUTPUT / --blocking-file).")
+    p.add_argument("--blocking-file",
+                   help="Fichero donde escribir el hecho «true|false» (hay bloqueantes), "
+                        "independiente del exit code.")
     args = p.parse_args()
 
     pol = load_policy(args.policy)
@@ -257,6 +291,8 @@ def main():
             A("")
 
     red = bool(blocking) or bool(missing_input)
+    # El hecho, ANTES de cualquier decisión sobre el exit code (F1-1).
+    publicar_bloqueantes(red, args.blocking_file)
 
     A("---")
     A("")

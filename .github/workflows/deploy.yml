@@ -16,7 +16,10 @@
 #      El backend corre `prisma migrate deploy` al arrancar (Dockerfile CMD).
 #   3) GATES de promoción (deben pasar los TRES para ir a prod):
 #        a) DAST (`dast-release` → security-dast.yml, stack EFÍMERO sobre el SHA
-#           de este run; §56). Hoy `report_only` (C2): mide y publica, no bloquea.
+#           de este run; §56). Hoy `report_only` (C2): el RUN no se pone rojo,
+#           pero `blocking` se calcula igual y SÍ gatea la promoción (F1-1).
+#           `report_only` caduca el 2026-10-06 (job `dast-report-only-expiry`
+#           de ci.yml se pone rojo si sigue puesto).
 #        b) E2E REAL (e2e-real.yml, stack real mocks=false, endpoints reales).
 #        c) SAST en PR (branch protection) ya exigido antes del merge.
 #   4) SOLO si DAST no tiene bloqueantes Y el E2E real pasó -> promoción a PRODUCCIÓN,
@@ -449,10 +452,23 @@ jobs:
   # de la rama elegida.
   #
   # `report_only: true` (C2): mide, publica el veredicto en el resumen y deja
-  # los informes como artifact, pero NO pone rojo. Lo sube a bloqueante el rol
-  # seguridad cuando haya visto los primeros barridos reales (basta poner
-  # `report_only: false`). El `blocking` que devuelve sigue cableado a la
-  # promoción a prod del CD para el día que ese CD se reactive.
+  # los informes como artifact, pero el RUN no se pone rojo. Lo sube a
+  # bloqueante el rol seguridad cuando haya visto los primeros barridos reales
+  # (basta poner `report_only: false`).
+  #
+  # LO QUE `report_only` NO HACE (techlead F1-1, 2026-09-11): no abre el gate
+  # de promoción. Antes sí: `blocking` se derivaba del outcome del paso del
+  # candado, y con report_only ese paso nunca falla ⇒ `blocking` era 'false'
+  # por construcción y las dos `promote-production-*` pasaban siempre. Ahora
+  # dast-gate.py publica el HECHO «hay bloqueantes» por GITHUB_OUTPUT en todos
+  # los modos, `report_only` solo decide el exit code, y los `promote-*` exigen
+  # `blocking == 'false'` (vacío = el candado no corrió = NO se promueve).
+  # Lo comprueba scripts/check-dast-gate-live.sh (5-bis) en cada push.
+  #
+  # CADUCIDAD: `report_only: true` tiene fecha. `scripts/check-dast-report-only-expiry.sh`
+  # (job `dast-report-only-expiry` de ci.yml) se pone ROJO desde el 2026-10-06
+  # si sigue aquí. Para retirarlo: borrar la línea `report_only: true` de abajo
+  # (o ponerla en false); el rojo se apaga solo. Dueño de la decisión: seguridad.
   #
   # No depende de `secrets-gate`: el DAST no necesita secrets de CD (el stack se
   # levanta en el runner; STRIPE_TEST_* llegan por `secrets: inherit`, y sin
@@ -472,12 +488,14 @@ jobs:
   # ---------------------------------------------------------------------------
   # PRODUCCIÓN — Backend a Railway (environment production).
   # Requiere aprobación manual del Environment "production" (required reviewers).
-  # Solo corre si el DAST (dast-release) no bloquea Y (en disparo manual) promote_to_prod.
+  # Solo corre si el DAST (dast-release) dijo explícitamente `blocking == 'false'`
+  # (`!= 'true'` dejaba pasar el VACÍO de un candado que no corrió; F1-1) Y el E2E
+  # real pasó Y (en disparo manual) promote_to_prod.
   # ---------------------------------------------------------------------------
   promote-production-backend:
     needs: [dast-release, e2e-real]
     if: >-
-      needs.dast-release.outputs.blocking != 'true' &&
+      needs.dast-release.outputs.blocking == 'false' &&
       needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
@@ -527,7 +545,7 @@ jobs:
   promote-production-frontend:
     needs: [dast-release, e2e-real, promote-production-backend]
     if: >-
-      needs.dast-release.outputs.blocking != 'true' &&
+      needs.dast-release.outputs.blocking == 'false' &&
       needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest

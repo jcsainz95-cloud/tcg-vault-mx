@@ -108,7 +108,7 @@ on:
         default: false
     outputs:
       blocking:
-        description: "true si el DAST encontró hallazgos bloqueantes."
+        description: "true|false según el candado; VACÍO si el candado no corrió. Independiente de report_only (F1-1)."
         value: ${{ jobs.dast.outputs.blocking }}
   # Rama-taller: empujar a `devops/dast-**` reproduce la demostración completa
   # (canario + barrido) sin esperar al lunes. Es el mecanismo documentado para
@@ -224,7 +224,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     outputs:
-      blocking: ${{ steps.gate.outcome == 'failure' }}
+      # El HECHO, no el color del paso (techlead F1-1, 2026-09-11). Antes era
+      # `steps.gate.outcome == 'failure'`: con `report_only` el paso nunca falla,
+      # así que `blocking` era 'false' por construcción y el gate de promoción
+      # de deploy.yml estaba abierto. dast-gate.py escribe `blocking=true|false`
+      # en GITHUB_OUTPUT SIEMPRE; `report_only` solo decide si el run se pone
+      # rojo. Si el candado no llegó a correr, esto queda VACÍO — y deploy.yml
+      # exige `== 'false'`, así que vacío no promueve (fail-closed).
+      blocking: ${{ steps.gate.outputs.blocking }}
       sha: ${{ needs.selftest.outputs.sha }}
     env:
       REPORT_ONLY: ${{ inputs.report_only && '1' || '0' }}
@@ -363,10 +370,13 @@ jobs:
   # era justo el que no abría nada. Ahora abre issue en cualquier corrida que
   # no sea un PR (en el PR el rojo ya tiene dueño: el autor). El título lleva
   # la rama para no mezclar hallazgos de ramas distintas en un mismo hilo.
+  # F1-1 (2026-09-11): también abre issue cuando el candado encontró bloqueantes
+  # en modo `report_only` (el run queda verde, pero el hallazgo necesita dueño
+  # igual: si nadie lo ve, «calibrar» se convierte en «ignorar»).
   abrir-issue:
     name: Abrir/actualizar issue del hallazgo
     needs: [dast]
-    if: failure() && github.event_name != 'pull_request'
+    if: (failure() || needs.dast.outputs.blocking == 'true') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
