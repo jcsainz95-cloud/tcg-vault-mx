@@ -369,7 +369,11 @@ jobs:
   # de esta rama no existen en `main` (H2), el único disparo que SÍ ocurría
   # era justo el que no abría nada. Ahora abre issue en cualquier corrida que
   # no sea un PR (en el PR el rojo ya tiene dueño: el autor). El título lleva
-  # la rama para no mezclar hallazgos de ramas distintas en un mismo hilo.
+  # la RAMA (o el ref pedido en un dispatch) para no mezclar hallazgos de ramas
+  # distintas en un mismo hilo — N5 (2026-09-11): antes el comentario lo decía y
+  # el título era un literal fijo. En `schedule`/`push`/`workflow_call` es
+  # `github.ref_name` (la rama del run: `main`, `production`, `devops/dast-…`);
+  # en `workflow_dispatch` es `inputs.ref` si se pasó, si no la rama elegida.
   # F1-1 (2026-09-11): también abre issue cuando el candado encontró bloqueantes
   # en modo `report_only` (el run queda verde, pero el hallazgo necesita dueño
   # igual: si nadie lo ve, «calibrar» se convierte en «ignorar»).
@@ -396,13 +400,13 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TITLE: "[dast] Barrido semanal: hallazgos bloqueantes en el stack efímero"
+          TITLE: "[dast] Hallazgos bloqueantes en el stack efímero — ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}"
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
           gh label create security --color B60205 --description "Hallazgos de seguridad" 2>/dev/null || true
           {
-            echo "El **DAST semanal** contra el stack efímero de CI encontró hallazgos que la"
+            echo "El **DAST** (evento: ${{ github.event_name }}) contra el stack efímero de CI encontró hallazgos que la"
             echo "política de \`security/zap/baseline.conf\` clasifica como **bloqueantes**."
             echo ""
             cat reports/dast-summary.md 2>/dev/null || echo "_(sin resumen; ver el run)_"
