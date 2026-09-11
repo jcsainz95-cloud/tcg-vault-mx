@@ -3332,5 +3332,14 @@
     "rarity": "Rarity",
     "estimate": "Estimate",
     "pending": "Price pending"
+  },
+  "sellCart": {
+    "restored": "Your sell list was kept: {count} card(s).",
+    "repriced": "We updated your list with today's prices: was {before}, now {after}.",
+    "linesDropped": "We removed {count} card(s) we can no longer quote.",
+    "expired": "Your sell list expired and was cleared. Quote your cards again.",
+    "requoteFailed": "We couldn't refresh the prices. Try again.",
+    "retry": "Try again",
+    "requoting": "Refreshing the prices of your list"
   }
 }

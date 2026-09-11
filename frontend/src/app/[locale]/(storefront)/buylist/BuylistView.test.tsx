@@ -641,6 +641,169 @@ describe('BuylistView · Mis solicitudes (enlace a Ventas)', () => {
 });
 
 /**
+ * §33.11 / ARCHITECTURE §4.47.6 (P-55): el carrito de venta sobrevive al login y, al restaurarlo,
+ * SUS PRECIOS SE VUELVEN A PEDIR. El precio persistido NO es autoridad («nunca inventes un
+ * precio»): hasta que el batch vuelve, el total es «—» y el CTA está apagado con `aria-busy`.
+ */
+describe('BuylistView · carrito de venta restaurado (P-55)', () => {
+  const storedLine = (cents: number) => ({
+    id: 'line-1',
+    card: { id: 'c-charizard', name: 'Charizard', number: '4' },
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    quote: {
+      rarity: 'Rare Holo',
+      finish: 'normal',
+      priceBasis: 'market',
+      quote: { status: 'cotizada', quotedPriceCents: cents, currency: 'MXN' },
+      referencePrice: { status: 'priced', priceMxnCents: cents * 2 },
+      paymentNotice: 'PAY_AFTER_RECEIPT',
+    },
+    quantity: 1,
+  });
+
+  function batchWith(cents: number, gate?: Promise<void>) {
+    return vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => {
+      if (gate) await gate;
+      return {
+        results: items.map((it, index) => ({
+          index,
+          cardId: it.cardId,
+          ok: true as const,
+          rarity: 'Rare Holo',
+          finish: it.finish ?? ('normal' as const),
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada' as const, quotedPriceCents: cents, currency: 'MXN' as const },
+          referencePrice: { status: 'priced' as const, priceMxnCents: cents * 2 },
+          paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+        })),
+      };
+    });
+  }
+
+  it('mientras recotiza: «se conservó», total «—», CTA deshabilitado con aria-busy; luego el precio es el NUEVO', async () => {
+    asVerifiedCustomer();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 1000 }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const batch = batchWith(125000, gate);
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('Tu lista de venta se conservó: 1 carta(s).')).toBeInTheDocument();
+    await waitFor(() => expect(batch).toHaveBeenCalled());
+    openCart();
+    // Lo desconocido no se afirma: «—», no la cifra vieja (MX$1,000.00 no aparece como total).
+    expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
+    const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
+    expect(cta).toBeDisabled();
+    expect(cta).toHaveAttribute('aria-busy', 'true');
+
+    release();
+    // Al volver el batch: el total es el precio de HOY (1,250.00), el CTA vive y se explica el cambio.
+    await waitFor(() => expect(screen.queryByTestId('sell-cart-total-requoting')).not.toBeInTheDocument());
+    const money = screen.getByTestId('sell-cart-money');
+    expect(money).toHaveTextContent('MX$1,250.00');
+    expect(money).not.toHaveTextContent('MX$1,000.00');
+    await waitFor(() => expect(cta).toBeEnabled());
+    expect(cta).not.toHaveAttribute('aria-busy');
+    expect(
+      screen.getByText('Actualizamos tu lista con los precios de hoy: antes MX$1,000.00, ahora MX$1,250.00.'),
+    ).toBeInTheDocument();
+  });
+
+  it('el batch se pide con las MISMAS (cardId, finish) guardadas y una línea caída se quita con aviso', async () => {
+    asVerifiedCustomer();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({
+        lines: [storedLine(100000), { ...storedLine(3000), id: 'line-2', card: { id: 'c-gone', name: 'Missingno', number: '0' } }],
+        updatedAt: Date.now() - 1000,
+      }),
+    );
+    const batch = vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
+      results: items.map((it, index) =>
+        it.cardId === 'c-gone'
+          ? { index, cardId: it.cardId, ok: false as const, error: { code: 'NOT_FOUND' as const, message: 'nope' } }
+          : {
+              index,
+              cardId: it.cardId,
+              ok: true as const,
+              rarity: 'Rare Holo',
+              finish: it.finish ?? ('normal' as const),
+              priceBasis: 'market' as const,
+              quote: { status: 'cotizada' as const, quotedPriceCents: 100000, currency: 'MXN' as const },
+              referencePrice: { status: 'priced' as const, priceMxnCents: 200000 },
+              paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+            },
+      ),
+    }));
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('Quitamos 1 carta(s) que ya no podemos cotizar.')).toBeInTheDocument();
+    expect(batch).toHaveBeenCalledWith([
+      { cardId: 'c-charizard', productType: 'raw', rawCondition: 'NM', finish: 'normal' },
+      { cardId: 'c-gone', productType: 'raw', rawCondition: 'NM', finish: 'normal' },
+    ]);
+    openCart();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
+    expect(screen.queryByText('Missingno')).not.toBeInTheDocument();
+  });
+
+  it('si el batch falla: la lista se conserva, el CTA sigue apagado con motivo y «Reintentar» lo recupera', async () => {
+    asVerifiedCustomer();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 1000 }),
+    );
+    const batch = vi.spyOn(api, 'batchQuote').mockRejectedValueOnce(new Error('network'));
+    renderWithProviders(<BuylistView />, 'es');
+    await screen.findByText('Tu lista de venta se conservó: 1 carta(s).');
+    openCart();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos actualizar los precios. Reintenta.');
+    const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
+    expect(cta).toBeDisabled();
+    expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-requote-failed');
+    expect(screen.getByText('Charizard')).toBeInTheDocument();
+
+    batch.mockRestore();
+    batchWith(100000);
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(cta).toBeEnabled());
+  });
+
+  it('caducada (> 30 días): se vacía y lo dice; sin batch', async () => {
+    asVerifiedCustomer();
+    window.localStorage.setItem(
+      'tcg.sellCart',
+      JSON.stringify({ lines: [storedLine(100000)], updatedAt: Date.now() - 31 * 24 * 3600 * 1000 }),
+    );
+    const batch = vi.spyOn(api, 'batchQuote');
+    renderWithProviders(<BuylistView />, 'es');
+    expect(
+      await screen.findByText('Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas.'),
+    ).toBeInTheDocument();
+    expect(batch).not.toHaveBeenCalled();
+    openCart();
+    expect(screen.queryByRole('button', { name: /Enviar solicitud/ })).not.toBeInTheDocument();
+  });
+
+  it('los CTAs sin sesión del carrito llevan ?next=/buylist', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+    const links = screen.getAllByRole('link', { name: 'Iniciar sesión' }).map((a) => a.getAttribute('href'));
+    expect(links).toContain('/login?next=/buylist');
+    const registers = screen.getAllByRole('link', { name: 'Crear cuenta' }).map((a) => a.getAttribute('href'));
+    expect(registers).toContain('/register?next=/buylist');
+  });
+});
+
+/**
  * Gating de requisitos de cuenta para VENDER (guards del contrato §6: JwtAuthGuard →
  * RolesGuard → EmailVerifiedGuard). El usuario debe saber QUÉ le falta ANTES de llenar
  * todo; el bloqueo autoritativo sigue siendo server-side. (P-11)

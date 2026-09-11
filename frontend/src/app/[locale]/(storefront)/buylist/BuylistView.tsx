@@ -119,7 +119,12 @@ export function BuylistView() {
     cartCount,
     isInCart,
     requestItems,
+    restore,
+    requoting,
+    requoteFailed,
+    retryRequote,
   } = useSellCart();
+  const tSellCart = useTranslations('sellCart');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fabRef = useRef<HTMLButtonElement>(null);
   const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
@@ -329,6 +334,30 @@ export function BuylistView() {
                 {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
               </p>
             )}
+            {/* §33.11 (P-55): qué pasó con la lista guardada al volver (caducó / se conservó /
+                precios de hoy / líneas que ya no cotizamos). UN status por hecho, sin rojo por línea:
+                `trustValidity` ya explica que el estimado es de hoy. */}
+            {restore.kind === 'expired' && (
+              <p role="status" className="mb-3 font-mono text-[11px] text-accent">
+                {tSellCart('expired')}
+              </p>
+            )}
+            {restore.kind === 'restored' && (
+              <div className="mb-3 flex flex-col gap-1 font-mono text-[11px] text-muted" data-testid="sell-cart-restored">
+                <p role="status">{tSellCart('restored', { count: restore.count })}</p>
+                {restore.repriced && (
+                  <p role="status">
+                    {tSellCart('repriced', {
+                      before: formatMoneyCents(restore.repriced.beforeCents, locale),
+                      after: formatMoneyCents(restore.repriced.afterCents, locale),
+                    })}
+                  </p>
+                )}
+                {restore.droppedCount > 0 && (
+                  <p role="status">{tSellCart('linesDropped', { count: restore.droppedCount })}</p>
+                )}
+              </div>
+            )}
             {/* v1.21 / v1.53: el binder COMPARTIDO de Master Set es EL grid del cotizador —
                 casillas de imagen por acabado real de la carta (nunca chip de texto ni casilla
                 vacía), con "Cargar más" propio para sets >20 cartas (fetchQuoterBinder pagina
@@ -369,6 +398,9 @@ export function BuylistView() {
                 onToggleLineDetail={toggleLineDetail}
                 onClearCart={clearCart}
                 showShippingNote={shippingNoteHost === 'cart'}
+                requoting={requoting}
+                requoteFailed={requoteFailed}
+                onRetryRequote={retryRequote}
                 onSubmit={() => {
                   setCreatedId(null);
                   setRequestOpen(true);
@@ -406,6 +438,9 @@ export function BuylistView() {
             onToggleLineDetail={toggleLineDetail}
             onClearCart={clearCart}
             showShippingNote={shippingNoteHost === 'cart'}
+            requoting={requoting}
+            requoteFailed={requoteFailed}
+            onRetryRequote={retryRequote}
             onSubmit={() => {
               setCreatedId(null);
               // Un solo focus trap activo (§18.4b): abrir el modal de solicitud

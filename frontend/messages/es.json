@@ -3332,5 +3332,14 @@
     "rarity": "Rareza",
     "estimate": "Estimado",
     "pending": "Precio pendiente"
+  },
+  "sellCart": {
+    "restored": "Tu lista de venta se conservó: {count} carta(s).",
+    "repriced": "Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}.",
+    "linesDropped": "Quitamos {count} carta(s) que ya no podemos cotizar.",
+    "expired": "Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas.",
+    "requoteFailed": "No pudimos actualizar los precios. Reintenta.",
+    "retry": "Reintentar",
+    "requoting": "Actualizando los precios de tu lista"
   }
 }

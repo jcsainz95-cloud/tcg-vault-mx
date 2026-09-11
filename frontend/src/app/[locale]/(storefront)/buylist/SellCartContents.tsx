@@ -76,6 +76,15 @@ export interface SellCartContentsProps {
    * está rota»*. `BuylistView` es el único que ve la pantalla entera; aquí solo se obedece.
    */
   showShippingNote?: boolean;
+  /**
+   * §33.11 (P-55): el carrito restaurado se está RE-COTIZANDO. Mientras tanto el total se pinta
+   * «—» (lo desconocido no se afirma, §32.4) y el CTA queda `disabled` + `aria-busy`: nunca se
+   * envía una solicitud con estimados que la pantalla no haya vuelto a pedir (regla 7 de §33.0).
+   */
+  requoting?: boolean;
+  /** La re-cotización falló entera (red): motivo mono rojo + «Reintentar»; el CTA sigue apagado. */
+  requoteFailed?: boolean;
+  onRetryRequote?: () => void;
 }
 
 /**
@@ -98,8 +107,12 @@ export function SellCartContents({
   onClearCart,
   onSubmit,
   showShippingNote = true,
+  requoting = false,
+  requoteFailed = false,
+  onRetryRequote,
 }: SellCartContentsProps) {
   const t = useTranslations('buylist');
+  const tSellCart = useTranslations('sellCart');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
 
@@ -302,7 +315,16 @@ export function SellCartContents({
               {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
                   (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
                   cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
-              {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
+              {requoting ? (
+                /* §33.11.2: mientras se recotiza el total NO se afirma — «—», no la cifra vieja. */
+                <span
+                  className="tabular font-mono text-[26px] font-medium leading-none text-muted"
+                  data-testid="sell-cart-total-requoting"
+                  aria-label={tSellCart('requoting')}
+                >
+                  —
+                </span>
+              ) : totalEstimatedCents === 0 && pendingCardCount > 0 ? (
                 <BuylistPendingLineLabel className="text-[13px]" />
               ) : (
                 <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
@@ -354,14 +376,15 @@ export function SellCartContents({
             /* Sin sesión: el envío se sustituye por el CTA de entrar/crear cuenta
                (el guard devolvería 401/403; mejor decirlo aquí). */
             <div className="mt-5 flex flex-col gap-3">
+              {/* §33.11: el carrito persiste; `?next=/buylist` devuelve al cotizador tras entrar. */}
               <Link
-                href="/login"
+                href="/login?next=/buylist"
                 className="inline-flex min-h-[44px] w-full items-center justify-center bg-primary px-6 text-[11px] font-medium uppercase tracking-label text-primary-fg"
               >
                 {t('loginCta')}
               </Link>
               <Link
-                href="/register"
+                href="/register?next=/buylist"
                 className="inline-flex min-h-[44px] w-full items-center justify-center border border-border-strong px-6 text-[11px] font-medium uppercase tracking-label text-text hover:border-text"
               >
                 {t('registerCta')}
@@ -377,13 +400,18 @@ export function SellCartContents({
                 // El gate del mínimo SOLO existe cuando el mínimo se conoce (`belowMinimum` es
                 // false si la política no llegó): apagar el botón por un error de red sería
                 // fail-closed y bloquearía a un vendedor legítimo.
-                disabled={cart.length === 0 || !sellReq.canSubmit || belowMinimum}
+                disabled={
+                  cart.length === 0 || !sellReq.canSubmit || belowMinimum || requoting || requoteFailed
+                }
+                // §33.11: recotizando ⇒ ocupado (no un «no puedes»: un «espera»).
+                aria-busy={requoting || undefined}
                 // §15.9/§23.10: ningún control apagado y mudo — el motivo y su remedio siempre
                 // están enlazados (el faltante dice cuánto falta y qué hacer).
                 aria-describedby={
                   [
                     sellReq.emailBlocked ? 'sell-blocked-reason' : null,
                     belowMinimum ? 'sell-cart-minimum' : null,
+                    requoteFailed ? 'sell-cart-requote-failed' : null,
                   ]
                     .filter(Boolean)
                     .join(' ') || undefined
@@ -392,6 +420,21 @@ export function SellCartContents({
               >
                 {t('sendRequestCta', { count: cartCount })}
               </Button>
+              {requoteFailed && (
+                /* §33.11.5: fallo de red al recotizar — la lista se conserva, el envío no. */
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <p
+                    id="sell-cart-requote-failed"
+                    role="alert"
+                    className="font-mono text-[11px] leading-[1.6] text-accent"
+                  >
+                    {tSellCart('requoteFailed')}
+                  </p>
+                  <Button size="sm" variant="secondary" onClick={onRetryRequote}>
+                    {tSellCart('retry')}
+                  </Button>
+                </div>
+              )}
               {sellReq.emailBlocked && (
                 /* Explica POR QUÉ el botón está deshabilitado (el reenvío vive en el panel). */
                 <p
