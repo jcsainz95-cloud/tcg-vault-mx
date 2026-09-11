@@ -15,12 +15,14 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => ({ get: (k: string) => (k === 'tab' ? search.tab : null) }),
 }));
 
+const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }));
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
   ),
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
 }));
 
 /** Sesión de cliente verificada (la ruta /orders es privada; el gating lo hace el guard). */
@@ -65,13 +67,16 @@ describe('OrdersView · pestañas-enlace Compras / Ventas', () => {
     expect(sales).toHaveAttribute('href', '/orders?tab=ventas');
 
     // La tabla de compras (fixture) y el copy «Pedido», no «Orden».
-    // Columna PEDIDO: el folio legible (`orderNumber`) cuando viene; el UUID solo si falta.
+    // Columna PEDIDO (contrato v1.68 §4-R.5): el folio REAL (`orderNumber: string | null`); el id
+    // solo cuando el servidor manda `null` (pedido anterior al folio, `ord-9003`).
     // (DataTable pinta cada fila dos veces: tabla de escritorio + tarjeta móvil ⇒ `All`.)
     const folios = await screen.findAllByText('TCG-009001');
     expect(folios.length).toBeGreaterThan(0);
     expect(folios[0].closest('a')).toHaveAttribute('href', '/orders/ord-9001');
     expect(screen.queryByText('ord-9001')).not.toBeInTheDocument();
-    expect(screen.getAllByText('ord-9002')[0].closest('a')).toHaveAttribute('href', '/orders/ord-9002');
+    expect(screen.getAllByText('TCG-009002')[0].closest('a')).toHaveAttribute('href', '/orders/ord-9002');
+    expect(screen.queryByText('ord-9002')).not.toBeInTheDocument();
+    expect(screen.getAllByText('ord-9003')[0].closest('a')).toHaveAttribute('href', '/orders/ord-9003');
     expect(screen.getAllByText('Pedido').length).toBeGreaterThan(0);
     expect(screen.queryByText('Mis solicitudes')).not.toBeInTheDocument();
   });
