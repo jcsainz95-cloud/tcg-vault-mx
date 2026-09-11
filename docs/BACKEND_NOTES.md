@@ -20139,3 +20139,14 @@ a probar; el `PUT` lo crea dentro del test).
 - Playwright `@real` de frontend con estos fixtures: fuera de mis rutas; lo desmarca frontend y lo corre QA.
 - gitleaks en modo `git` (historial): los literales viejos siguen en commits antiguos (BE-77, allowlist por
   valor de devops).
+
+### Mini-ronda de cierre (backend · 2026-09-11, tras la aprobación de QA y techlead sobre `ba5fd4b`)
+
+| Hallazgo | Commit | Medición |
+|---|---|---|
+| **N1 (ALTA, release)** — el seed sembraba sin mirar `DATABASE_URL` (solo `scripts/seed-synthetic.sh` guardaba; `npm run seed:synthetic` y `e2e-real.yml` no pasaban por ahí) | `8549bbe` | `prisma/seed-target-guard.ts` + paso 0 de `seedE2E()`: fail-closed (local / servicio de compose sin punto / `staging`), escotilla `SEED_E2E_ALLOW_HOST=<host exacto>`. Spec 16/16; **mutación 3/3 roja** (guarda retirada en copia ⇒ 3 casos de `seedE2E` fallan); CLI con URL de Railway ⇒ **rc=1 `SEED_E2E_REFUSED`**; integración de los specs que siembran 29/29. `scripts/` intacto. |
+| **N2 (MEDIA)** — `BillingProfileDto` con seis `@IsString()` pelados; `rfcMasked ?? ''` | `5571130` | RFC 12-13 (`[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}`, trim+MAYÚSCULAS: el E2E de frontend manda `xaxx010101000` y espera `XAX**********`), `razonSocial` ≤254, régimen 3 dígitos, uso `[A-Z]{1,2}\d{2}`, CP 5 dígitos, email ≤254; forma del error intacta (pipe). RFC cifrado que descifra a vacío ⇒ **throw** (500 visible, fila corrupta), no `''`. Users spec 47/47. |
+| **N8** — `engines.node >=24` | `c5a359a` | `npm install --package-lock-only`: `packages[""].engines` copiado (+3 líneas). `EBADENGINE` solo aviso en el local 22. Cierra BE-84. |
+| **TECH_DEBT** — ids duplicados | `28767d9` | BE-76..81 → **BE-82..87**; «Comprobación de cierre» en cada ficha; BE-84 cerrada. |
+
+Suites al cierre: `npx jest` **277 suites / 4555 tests** rc=0 (+1 suite, +31 casos respecto a la ronda anterior); typecheck 0 errores; eslint 0 errores. `git status` limpio en `backend/`, `BACKEND_NOTES.md`, `TECH_DEBT.md`. **NO medido:** `e2e-real.yml` en el runner con la guarda (su `DATABASE_URL` apunta al servicio `postgres` del compose, que la guarda reconoce por construcción — `seed-e2e.target-guard.spec.ts` lo cubre con esa URL exacta).
