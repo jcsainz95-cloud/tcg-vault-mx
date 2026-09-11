@@ -43,6 +43,26 @@ test.describe('pedidos · folio real y «Reanudar pago» (§4-R.5)', () => {
     await expect(page.getByTestId('reservation-countdown')).toContainText(/Reservado para ti hasta las \d{2}:\d{2}/);
   });
 
+  test('v1.68.1: reserva VENCIDA sin barrer ⇒ «Reanudar pago» sigue ⇒ /checkout avisa que venció y la sesión sustituye (201)', async ({ page }) => {
+    await page.goto('/es/orders');
+    await expect(page.getByTestId('resume-payment').first()).toBeVisible();
+    await page.evaluate(() => {
+      const s = JSON.parse(window.sessionStorage.getItem('tcg.mock.reservations')!);
+      for (const r of s.reservations) r.reservedUntil = new Date(Date.now() - 60_000).toISOString();
+      window.sessionStorage.setItem('tcg.mock.reservations', JSON.stringify(s));
+    });
+    await page.reload();
+    const resume = page.getByTestId('resume-payment').first();
+    await expect(resume.getByTestId('resume-expired')).toContainText('La reserva venció');
+    await resume.getByRole('button', { name: t('es', 'orders.resume.cta') }).click();
+    await expect(page).toHaveURL(/\/es\/checkout$/);
+    await expect(page.getByTestId('own-reservation-expired')).toContainText('TCG-009002');
+    await expect(page.getByText('Blastoise')).toBeVisible();
+    await page.getByRole('button', { name: /Pagar/ }).click();
+    await expect(page.getByRole('dialog', { name: t('es', 'checkout.payTitle') })).toBeVisible();
+    await expect(page.getByText(/Tu intento anterior se canceló/)).toBeVisible();
+  });
+
   test('el detalle del pedido pending pinta el folio en el título y ofrece «Reanudar pago»', async ({ page }) => {
     await page.goto('/es/orders/ord-9002');
     await expect(page.getByRole('heading', { level: 1, name: t('es', 'orders.orderNumber', { id: 'TCG-009002' }) })).toBeVisible();

@@ -54,6 +54,28 @@ test.describe('checkout con cuenta · reintento sobre la propia reserva (§4-R.2
     await expect(page.getByText(/Recuperamos tu reserva anterior \(TCG-\d{6}\): es el mismo pedido y el mismo cobro/)).toBeVisible();
     await modalOf(page).getByRole('button', { name: 'Close' }).click();
 
+    // v1.68.1 §4-R.5: al recargar, el QUOTE ya conoce la reserva propia — la pieza NO se poda y la
+    // pantalla lo dice antes de pagar, con la cuenta atrás del `reservedUntil` de esa orden.
+    await page.reload();
+    await expect(page.getByTestId('own-reservation-active')).toContainText(/reservado a tu nombre \(TCG-\d{6}\)/);
+    await expect(page.getByTestId('reservation-countdown')).toBeVisible();
+    await expect(page.getByTestId('unavailable-notice')).toHaveCount(0);
+
+    // Reserva propia VENCIDA sin barrer (se retrasa el vencimiento en el simulador): el quote la
+    // sigue cotizando, avisa que venció y la sesión SUSTITUYE (201), nunca la trata como ajena.
+    await page.evaluate(() => {
+      const s = JSON.parse(window.sessionStorage.getItem('tcg.mock.reservations')!);
+      for (const r of s.reservations) r.reservedUntil = new Date(Date.now() - 60_000).toISOString();
+      window.sessionStorage.setItem('tcg.mock.reservations', JSON.stringify(s));
+    });
+    await page.reload();
+    await expect(page.getByTestId('own-reservation-expired')).toContainText('venció');
+    await expect(page.getByTestId('unavailable-notice')).toHaveCount(0);
+    await page.getByRole('complementary').getByRole('button', { name: PAY }).click();
+    await expect(modalOf(page)).toBeVisible();
+    await expect(page.getByText('Tu intento anterior se canceló: este pedido lo sustituye y solo se cobra este.')).toBeVisible();
+    await modalOf(page).getByRole('button', { name: 'Close' }).click();
+
     // Cambia el carrito (una pieza más) ⇒ sustitución: el intento anterior se cancela.
     await addSecondCard(page);
     await page.goto('/es/checkout');
@@ -117,10 +139,19 @@ test.describe('checkout de invitado · el token es la llave del reintento (§4-R
     await expect(page.getByText(/Recuperamos tu reserva anterior \(TCG-\d{6}\)/)).toBeVisible();
     await modalOf(page).getByRole('button', { name: 'Close' }).click();
 
-    // Token perdido (otra pestaña, sesión cerrada): no hay reclamo ⇒ ITEM_UNAVAILABLE ⇒ poda.
+    // v1.68.1: con el token en la pestaña y el correo confirmado, el QUOTE reconoce la reserva propia
+    // tras recargar (el formulario se vuelve a capturar; el token sobrevive en sessionStorage).
+    await page.reload();
+    await fillGuestForm(page);
+    await expect(page.getByTestId('own-reservation-active')).toContainText(/reservado a tu nombre/);
+    await expect(page.getByTestId('unavailable-notice')).toHaveCount(0);
+
+    // Token perdido (otra pestaña, sesión cerrada ⇒ estado fresco): el quote va sin reclamo, la
+    // reserva propia es «ajena» (R-7) y la poda de siempre actúa desde el primer fetch.
     await page.evaluate(() => window.sessionStorage.removeItem('tcg.guestCheckoutRetry'));
-    await page.getByRole('complementary').getByRole('button', { name: PAY }).click();
+    await page.reload();
     await expect(page.getByTestId('unavailable-notice')).toContainText('ya no está disponible y se quitó de tu carrito');
+    await expect(page.getByTestId('own-reservation-active')).toHaveCount(0);
     await expect(modalOf(page)).toHaveCount(0);
   });
 });
