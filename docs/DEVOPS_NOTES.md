@@ -11759,3 +11759,49 @@ anclaje desfasado, se actualiza **y** se añade al canario el caso que lo habrí
 Todos en verde salvo uno que **no es mío**: `e2e-skip-census` (`mockOnly 92 → 99`), de los E2E nuevos
 de la revisión de identidad — **frontend**. El techo **no se sube sin su motivo**: subirlo por
 conveniencia es firmar el `--update` sin leerlo, que es el defecto que §57.5 ya describe.
+
+---
+
+## 64. El techo del censo E2E sube a 99 — y **este sube con fecha de caducidad corta** (2026-09-11)
+
+**Medido sobre `44deb2f`** (no sobre un commit anterior: ahí el techo quedaría por encima de lo que
+hay, que es justo el error de la vez pasada). `mockOnly` **92 → 99**; `needsSeed` 31, `harnessLimit` 4
+y `skipIfSeedMissing` 15 **sin cambio**. Gate `rc=0` **3/3**, canario **13/13 en 3/3**.
+
+**Frontend bajó el techo ANTES de pedir que lo subiera**, y eso merece quedar escrito porque es el
+comportamiento que el censo pretende provocar: de las 10 ocurrencias que añadió el spec de identidad
+retiró **tres**, reescribiendo agnósticos los casos que afirmaban una **ausencia** (una ausencia vale
+con cualquier dato) y etiquetándolos `@real`. **Re-medido por mí** sobre el fichero:
+**1 import + 5 llamadas + 1 mención = 7** ⇒ `92 + 7 = 99`. Cuadra.
+
+### 64.1 · Por qué este techo NO es como los anteriores
+
+**Cuatro de las cinco salvaguardas que quedan se levantan SEMBRANDO DATOS, no esperando a un
+tercero.** El servidor ya existe en la rama (`c80bc26`, `§M6-K` entero); lo que falta es el **dato**:
+`backend/prisma/seed-e2e.ts:144` **borra** todos los `KycProfile` de los actores E2E y no siembra
+ninguno, así que en el stack real no hay usuario con INE en el expediente, ni objeto en el bucket que
+pintar, ni nombre derivado contra el que medir el aviso de cotejo.
+
+| # | Qué deja de medirse | Qué la levanta | ¿Depende de fuera? |
+|---|---|---|---|
+| 1 | Las dos caras + panel de cotejo (`naturalWidth > 0`, que distingue «hay un `img`» de «se ve la INE») | `KycProfile` sembrado con las dos keys + sus objetos en el bucket | **No** |
+| 2 | El visor ampliado | El mismo sembrado | **No** |
+| 3 | El rechazo con motivo (`PATCH … {rejectionReason}`) | El mismo sembrado **+ un actor desechable** | **No** |
+| 5 | El estado «sin INE» del cliente | Actor propio de identidad, o `KycProfile` con estado fijo | **No** |
+| 4 | La columna y el filtro (`kycStatus`, `?kycStatus=`) | Que el **contrato** los declare (petición **A5**, `DESIGN_SYSTEM §34.15` → **arquitecto**) | **Sí** |
+
+⇒ **Cuatro de cinco tienen fecha «esta semana» y el sembrado ya está encargado a backend.** Solo la
+**(4)** cuelga de una decisión de contrato.
+
+**La consecuencia operativa, y es la que importa:** este techo **no está aquí para quedarse: está aquí
+para bajar**. Un techo que sube y se queda es exactamente el hábito que `§57.5` describe como el
+riesgo real del censo —«un rojo que casi siempre se explica enseña al equipo a firmar el `--update`
+sin leerlo»—. **Comprobación de que esto no pasó:** cuando el sembrado de `KycProfile` aterrice,
+`mockOnly` tiene que **BAJAR de 99**, y las cuatro salvaguardas de arriba deben desaparecer del spec.
+Si dentro de dos semanas sigue en 99 con el sembrado hecho, el número está mintiendo y hay que
+mirarlo — **dueño de esa revisión: devops (yo), disparador: el commit del sembrado**.
+
+⚠️ **NO MEDIDO:** que las cinco se levanten de verdad al sembrar. Lo mide **frontend** al retirarlas y
+**QA** al correr la suite `@real`; yo solo puedo medir el **número**, no si lo que hay debajo mide el
+producto. Distinguirlo importa: el censo es un **detector de huella textual**, no un censo de
+cobertura (`§57.5`).
