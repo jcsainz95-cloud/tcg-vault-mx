@@ -20065,3 +20065,77 @@ llevan `E2E_STRICT_INFRA=false` (solo afecta a `infra-smoke`; **no valen como ga
 - **Cuántos usuarios de producción tienen `mustChangePassword=true`** antes de publicar el guard (contrato: el
   orquestador lo mide con `SELECT count(*) FROM "User" WHERE "mustChangePassword"`). Sin acceso a esa BD desde aquí.
 - **Playwright / frontend**: fuera de mis rutas.
+
+## v1.67.1 — gates Stream A: ronda de correcciones tras QA y techlead (backend · 2026-09-11, medido)
+
+> Encargo: los hallazgos 1–9 del veredicto del 2026-09-11 (BL-27 de `mail.templates.ts`, billing-profile
+> `404`/`rfcMasked`, `AddressDTO` única, seed E2E de los tres actores, F2-6/F2-7, test reflexivo de la
+> allowlist, `engines`, gitleaks). Contrato v1.67.1 (`API_CONTRACT.md` §1 «Perfil de facturación»,
+> §M6, §11 `BillingProfileDTO`) y `ARCHITECTURE §4.47.10`. Base `origin/main = 17ce9a9`, rama
+> `claude/tcg-hunt-orchestration-2`. Node 22.22.2 (`/opt/node22`); Postgres 16 local en BD **propia
+> `tcg_fix1`** (rol `tcg_fix1`); Redis y S3 locales vía `./scripts/stack-native.sh up --infra`.
+
+### Qué cambió (un commit por unidad)
+
+| Unidad | Commit | Ficheros |
+|---|---|---|
+| BL-27: `mail.templates.ts` vuelve al formato de la base; solo `greeting()` + `name: string \| null` | `c9025af` | `src/modules/mail/mail.templates.ts` |
+| Billing: `404 NOT_FOUND` sin perfil; `BillingProfileDTO` = `{ rfcMasked, razonSocial, regimenFiscal, usoCfdi, postalCode, email }`; `PUT` upsert con `data` a mano y misma forma que el GET | `3402466` | `users.service.ts`, `test/users.me-and-addresses.spec.ts` |
+| `AddressDTO` ÚNICA: `users/address-dto.ts` (`toAddressDTO`, `ADDRESS_DTO_KEYS`) usada por `/users/me/addresses` y `GET /admin/users/:id` (los dos roles); `toAdminUserAddressRef` retirado | `edc4239` | `users/address-dto.ts` (nuevo), `users.service.ts`, `admin/admin.service.ts`, `test/address-dto.parity.spec.ts` (nuevo) |
+| F2-7: `createAddress`/`updateAddress` con lista blanca campo a campo (nunca `{ ...dto }`); F2-6: docblock de `assertPersonName` dice quién corta «ausente» | `bba43d9` | `users.service.ts`, `users/person-name.ts`, spec de users |
+| Test reflexivo: exactamente 3 handlers con `@AllowPasswordChangeRequired()` | `89cae36` | `test/password-change-allowlist.reflect.spec.ts` (nuevo) |
+| Seed E2E: temporal (cliente+operador), solo-Google, pedido de invitado sin reclamar | `83ec86e` | `prisma/e2e-fixtures.ts`, `prisma/seed-e2e.ts`, `test/integration/seed-account-fixtures.e2e-spec.ts` (nuevo) |
+| gitleaks: 3 hallazgos históricos de `backend/` neutralizados en HEAD | `a454178` | `pii-crypto.service.ts`, `test/seed.password.spec.ts`, `test/graded-estimate.ingest.spec.ts` |
+| `engines.node >=22`; `@types/node` ^24 (lockfile por npm) | `1a2d394` | `package.json`, `package-lock.json` |
+| Deuda BE-76..BE-81 | (docs) | `docs/TECH_DEBT.md` |
+
+### Credenciales de FIXTURE del seed (BD sintética/efímera; NO son secretos) — para desmarcar `mockOnly`
+
+| Actor | Correo | Contraseña | Estado sembrado | Para qué |
+|---|---|---|---|---|
+| Cliente con temporal | `temporal.customer@e2e.local` | `Temporal123!` | `authProvider=local`, `mustChangePassword=true`, `emailVerified=true`, `nameSource=user` | `e2e/account.spec.ts` «cliente con temporal»: login ⇒ `/account/password` ⇒ cambio ⇒ tienda |
+| Operador con temporal | `temporal.operator@e2e.local` | `Temporal123!` | `role=vault_operator`, `mustChangePassword=true` | `e2e/account.spec.ts` «operador con temporal»: `/admin/account/password` + `?next=` |
+| Solo-Google | `google.only@e2e.local` | **ninguna** (`passwordHash=NULL`) | `authProvider=google`, `googleId=e2e-google-only-sub-0001`, `name=google.only`, `nameSource=derived` | `hasPassword:false` + «Revisa tu nombre»; `change-password` ⇒ `422 PASSWORD_NOT_SET`. ⚠️ Sin vía de login por contraseña: en Playwright hace falta sesión inyectada (BE-79) |
+| Pedido de invitado sin reclamar | `guestEmail = customer@e2e.local` · `orderNumber TCG-E2E-GUEST-0001` · pieza `E2E-GST-SEED-0001` | — | `userId=null`, `claimedAt=null`, `settled`, `direct_ship`, 1 línea, `totalCents=157200` | `e2e/claimable-orders.spec.ts` `@real`: aviso ⇒ «Vincular a mi cuenta» ⇒ desaparece |
+
+Constantes: `E2E_ACCOUNT_FIXTURES` y `E2E_GUEST_ORDER` en `backend/prisma/e2e-fixtures.ts` (aparte de
+`E2E_USERS` a propósito: el bucle del seed y el reset por-usuario recorren `E2E_USERS`). **Cada siembra
+restaura** hash/flag de las temporales, el estado de la cuenta Google y el pedido sin reclamar
+(borra-y-declara por `orderNumber`), así que un E2E que cambie la contraseña o reclame el pedido no
+apaga el fixture para la siguiente corrida. El seed **no** siembra `BillingProfile` (el `404` es el caso
+a probar; el `PUT` lo crea dentro del test).
+
+### Medido (comandos y totales)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| BL-27 | `BASE_REF=17ce9a9 bash scripts/check-format-mix.sh 17ce9a9 c9025af` | `mail.templates.ts` **ya no aparece**. El check sigue en rc=1 por **`frontend/tsconfig.json`** (8 líneas de cambio real mezcladas; commit de frontend anterior a esta ronda). No es de backend. |
+| Unitarios | `npx jest` (completo) | **276 suites / 4524 tests** verdes (incluye las 3 suites nuevas y las ampliaciones) |
+| Integración completa | `DATABASE_URL=<tcg_fix1> ./scripts/stack-native.sh test:integration` | **27 suites / 395 tests** verdes (QA midió 26/387 antes de esta ronda; +1 suite / +8 casos son `seed-account-fixtures`) |
+| Seed por CLI | `npm run seed:synthetic` ×2 sobre `tcg_fix1` + `psql` | 2/2 ✓; los tres actores en el estado de la tabla; **una** fila `TCG-E2E-GUEST-0001` con `userId IS NULL AND claimedAt IS NULL` |
+| Lint / tipos | `npm run lint` · `npm run typecheck` | 0 errores (2 warnings preexistentes en `inventory`, ajenos) · `tsc` limpio con `@types/node` 24 |
+| gitleaks | binario 8.30.1 en scratchpad, `gitleaks dir backend --config security/gitleaks.toml` (toml de HEAD y del árbol) | **3 → 0** hallazgos. Cada alternativa medida antes sobre copia aislada (las originales disparan; las nuevas no) |
+| Manifiesto de secretos | `scripts/gen-published-secrets-manifest.sh --check` | rc=0 al inicio del pase; **rc=1 al cierre por un literal AJENO**: `frontend/e2e/utils/env.ts:63` (`E2E_TEMP_CUSTOMER_PASSWORD ?? 'Temporal123!'`, sin commitear, de frontend) — el manifiesto lo regenera devops. Ninguno de mis tres literales cambiados está en el manifiesto (sha256 comprobado). |
+
+**Mutaciones (sobre COPIA en `…/scratchpad/backend-fix1/mut`, nunca sobre el árbol vivo):**
+
+| Mutación | Resultado |
+|---|---|
+| `getBillingProfile`: quitar el `throw BusinessException.notFound()` (⇒ `null`) | `users.me-and-addresses.spec.ts` **rojo 3/3** (falla exactamente «GET sin perfil ⇒ 404 NOT_FOUND») |
+| `auth.controller.ts`: quitar `@AllowPasswordChangeRequired()` de `logout` | `password-change-allowlist.reflect.spec.ts` **rojo 1/1** (2 de 4 casos: «exactamente tres» y «dónde viven»); determinista, no probabilístico |
+
+### Confirmaciones pedidas por el arquitecto (v1.67.1)
+
+- `/auth/google` con `name` en blanco ⇒ `trim()` ⇒ derivado del correo + `nameSource='derived'`, nunca `""`:
+  ya estaba en `auth.service.ts:415-426` y **lo fija** `test/auth.change-password.spec.ts:288-292`
+  («name en blanco ⇒ cuenta como ausente: derived»). Sin cambios.
+- `AdminBillingProfileDTO` (M6) conserva `id/userId/timestamps`: `admin.service.ts` no se tocó en billing.
+
+### NO medido aquí
+
+- `./scripts/stack-native.sh up --seed --gate` y `verify:head`: no levanté el backend de :3099 (el stack de
+  QA cayó con el reinicio de la sesión; levanté solo `--infra`). La ruta CLI del seed (la que usan `--seed`,
+  `e2e.yml:299` y `e2e-real.yml`) sí está medida (2/2).
+- Playwright `@real` de frontend con estos fixtures: fuera de mis rutas; lo desmarca frontend y lo corre QA.
+- gitleaks en modo `git` (historial): los literales viejos siguen en commits antiguos (BE-77, allowlist por
+  valor de devops).
