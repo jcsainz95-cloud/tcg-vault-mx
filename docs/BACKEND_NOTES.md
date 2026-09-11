@@ -20317,3 +20317,40 @@ Commit **`e4d83dd`** (contrato `18f2b01`). Solo `orders/`.
 **Medido:** `tsc` 0 · lint 0 errores · `npx jest` **280 / 4607** verdes · integración completa (`stack-native.sh test:integration`, s3 arriba) **30/30 · 455/455** · E2E `checkout-reservation-owner` **24/24** con **R-3 10/10** y **R-9 (carrera sesión↔barrido sobre la propia vencida) 10/10** · `check-format-mix.sh 17ce9a9 HEAD` rc=0 · manifiesto rc=0.
 **Mutación m-quote** (copia, BD `tcg_b1_mut`, `ownOrders.length = 0` tras cargarlas ⇒ el quote ignora la reserva propia): **rojo 3/3** (5 casos R-8); control verde 3/3. ⚠️ Primer intento con `owner && false` **no compilaba** en ts-jest (narrowing) ⇒ «Tests: 0 total», que el runner contó como verde: invalidado; el runner ahora marca «0 total» como NO CONCLUYENTE.
 **Frontend:** `items[].reservedByYou?: true`, `ownReservation` siempre presente en los dos quotes; `retryOfCheckoutToken`+`email` en `POST /checkout/guest/quote`.
+
+### v1.68.1 · B-1f — dos rojos de CI que mi stack nativo no podía ver: el POOL de conexiones y la contaminación del portafolio (backend B1 · 2026-09-11, medido)
+
+Commits **`398c58a`** (pool) y **`b2d97cf`** (arnés). Origen: `backend-e2e` del run **34624748695** sobre `18f2b01` — 2 specs / 9 tests rojos, ambos míos. Mi medición local decía 455/455 porque `scripts/stack-native.sh` **no fija `connection_limit`** (default de Prisma = `num_cpus*2+1`); CI usa **5**.
+
+**1. El defecto real (mío, de dinero): un checkout necesitaba DOS conexiones.**
+Al mover el pricing dentro de la transacción (`a95bfa4`), cada checkout retenía la conexión de su `tx` y pedía otra para `PricingService.getReference` — servicio distinto, handle distinto. Con N concurrentes ≥ pool/2 el pool se agota y la petición muere con `Timed out fetching a new connection` ⇒ **500 en ruta de dinero**. `nextOrderNumber()` hacía lo mismo (`this.prisma` dentro de la `tx`). **No era un problema de test: era un problema de producción** que el test destapó (Railway también tiene pools pequeños).
+
+| Medición (`connection_limit=5&pool_timeout=10`, BD `tcg_b1`) | Tests | R-3 | Timeouts de pool |
+|---|---|---|---|
+| **Antes** (HEAD `e4d83dd`) | 11 rojos / 41 | **0/10** | 19 |
+| Solo pricing fuera de la `tx` | 3 rojos / 41 | **5/10** | 7 |
+| **Después** (+ `nextOrderNumber(tx)`) | **41/41** | **10/10** | **0** |
+
+- `priceCartOutsideGate(ids, owner?)`: pre-scan best-effort de reservas propias **fuera** del candado + pricing, con **un** reintento si choca con `ITEM_UNAVAILABLE` (ventana de ms; la decisión autoritativa sigue siendo la de dentro del candado).
+- `priceCartForOrder(ids, ownReserved?)`: sin `TransactionClient`; acepta la pieza `reserved` por una orden `pending` mía y, si su precio de catálogo ya no resuelve, usa su línea **congelada** (§4-R.2 regla 5).
+- `nextOrderNumber(db = this.prisma)`: por el `tx` en el checkout (`nextval` no es transaccional: un rollback deja un hueco, inocuo).
+- ⛔ **Ningún invariante se relaja:** la doble venta la corta el `updateMany` guardado de `reserveItems` (`status ∈ {listed,in_stock}` + `count===1`) dentro de la transacción, no la lectura de precios — que además es donde vivía antes de v1.68.
+
+**2. La contaminación del portafolio, cerrada por construcción.** Las piezas de bóveda que la suite reserva quedan `ownerType='customer'` y cuentan en el portafolio de su dueño; `vault-shipments` asierta el total EXACTO del de `E2E_USERS.customer` (+100 000 ¢ = un charizard). Mi `afterAll` de `7c7e418` lo limpiaba, pero con la suite caída a mitad no llegó a correr: *una limpieza que solo funciona cuando todo va bien no es una garantía*. Ahora el cliente C es un **usuario propio de la corrida** (`reserva.owner.<RUN>@e2e.local`, mismo `passwordHash` del fixture) ⇒ ningún usuario sembrado cambia de portafolio. Además `purgeSuitePieces(prefix)` (idempotente, 3 reintentos, no propaga fallo) corre en `beforeAll` (restos de corridas anteriores) y en `afterAll`.
+
+**Verificación (todo con `connection_limit=5`, el pool de CI):**
+
+| Qué | Resultado |
+|---|---|
+| Pareja `checkout-reservation-owner` + `vault-shipments`, mismo proceso y orden, **5 repeticiones** | **5/5 verdes**, 41/41 tests, **0** timeouts de pool |
+| R-3 (carrera N=5 × 10 corridas) y R-9 (sesión↔barrido × 10), 3 corridas del spec | **10/10 y 10/10** en las 3 |
+| Suite de integración **completa** (s3 arriba, `E2E_STRICT_INFRA=true`) | **30/30 suites · 455/455** · rc=0 · 0 timeouts |
+| Unitarios | **280 suites / 4607** verdes |
+| lint · format-mix (`17ce9a9 HEAD`) · manifiesto de secretos | 0 errores · rc=0 · rc=0 |
+
+**Mutaciones (copia `…/scratchpad/backend-B1/mut`, BD `tcg_b1_mut`, pool 5, spec completo, 3 corridas):** m1 **3/3**, m2 **3/3**, m3 **3/3** (R-3 1/10, 0/10, 0/10), m4 **3/3**, m4b **3/3**, m-quote **3/3**, y la nueva **m-pool** (volver a pedir el número con `this.prisma` dentro de la `tx`) **3/3** con R-3 4/10, 5/10 y 3/10 — el candado vigila ahora también esta regresión. Control verde 3/3.
+⚠️ **Una tanda invalidada y repetida:** mi runner pasaba los argumentos desalineados (`$2/$3` en vez de `$3/$4`), el parche no se aplicaba y las 8 mutaciones salieron «verdes» — o sea, corrí el control ocho veces. El runner ahora **aborta** si el patrón no casa exactamente una vez.
+
+**Ruido esperado, no defecto:** los `ERROR … order-reservation-sweep: NO se pudo cancelar el PaymentIntent … (estado succeeded)` del log de CI son la guarda B3 trabajando: cuando un test fija `cancelOutcome='throws-succeeded'`, el barrido recorre **todas** las reservas vencidas de la BD compartida (también de otras suites) y se niega a liberarlas. Es la conducta correcta (`skipped`), registrada a propósito.
+
+**Para devops:** `scripts/stack-native.sh` no fija `connection_limit`, así que una corrida local **no reproduce** el pool de CI. Medir con `?connection_limit=5&pool_timeout=10` en la URL es lo que destapó esto; si quieren, es un candidato a default del subcomando `test:integration` (no lo toco: `scripts/` no es mi ruta).
