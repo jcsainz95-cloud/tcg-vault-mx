@@ -16419,7 +16419,28 @@ miniatura. ⛔ Ningún `userId` pintado; sin destinatario se escribe «Sin desti
 - El candado de literalidad de §26 se enseñó a leer **§34.12 como superseder** (`error-audience.test.ts`):
   sigue atado al documento, y las filas marcadas `⏸️` se saltan por el motivo de arriba.
 
-### 71.7 · Cómo correr lo de este pase
+### 71.7 · Censo de salvaguardas E2E — qué dejé marcado y por qué (10 → 7 ocurrencias)
+
+La primera versión del spec dejó **10 ocurrencias** de `mockOnly` (1 import + 1 mención en el
+comentario de cabecera + **8 llamadas**). Revisadas una por una, **tres no hacían falta** y se
+retiraron: los tres casos que afirman una **ausencia** —ningún control fija `kycStatus` (KY-9), el
+operador no ve el documento (KY-2), el cliente no lee ninguna cifra (KY-5)— valen **con cualquier
+dato**, así que se reescribieron agnósticos y se etiquetaron **`@real`**: es contra el servidor de
+verdad donde un `Select` reintroducido o un `capPerRequestCents` olvidado volverían a aparecer.
+Quedan **5 llamadas** (7 ocurrencias con el import y la mención).
+
+⚠️ Esos tres `@real` **solo pasan sobre un stack que lleve `c1e8af6`**: miden el bundle desplegado,
+que es justo su razón de ser. Si van rojos en un stack viejo, el rojo es correcto y dice *«esto
+todavía no está desplegado»*.
+
+Las cinco que quedan **no son un límite del arnés ni de un tercero**: el servidor existe desde
+`c80bc26` (§M6-K entero). Lo que falta es **el dato** — `seed-e2e.ts:144` **borra** todos los
+`KycProfile` y no siembra ninguno, así que en el stack real no hay usuario con INE en el expediente
+ni objeto en el bucket que pintar. Cuatro de las cinco se levantan **juntando backend y frontend
+esta semana**; la quinta (columna y filtro de identidad) espera a la **petición A5** al arquitecto,
+porque `kycStatus` en el listado **no está en el contrato**.
+
+### 71.8 · Cómo correr lo de este pase
 
 ```bash
 cd frontend

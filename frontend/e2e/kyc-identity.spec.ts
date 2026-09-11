@@ -9,10 +9,16 @@ import { loginAs, mockOnly } from './utils/auth';
  * puede verla**, el panel deja marcar «verificado» sin mirar nada, y el cliente ve «Pendiente» sin
  * ningún botón para avanzar. Los dos extremos del mostrador, cada uno en su callejón.
  *
- * ⚠️ Casi todos son `mockOnly` y el motivo es **el dato**, no el arnés: hacen falta un usuario con
- * INE en archivo y el endpoint de enlaces firmados. En cuanto el seed real siembre un `KycProfile`
- * con las dos keys y backend publique `GET /admin/users/:id/kyc/ine-links`, se reetiquetan a
- * `@real` sin tocar los asserts (todos son de ESTRUCTURA y de copy del catálogo).
+ * **Qué corre dónde, y por qué.** Tres casos son `@real`: los que afirman una AUSENCIA (ningún
+ * control fija `kycStatus`; el operador no ve el documento; el cliente no lee ninguna cifra de
+ * tope) valen **con cualquier dato**, así que se escriben agnósticos y se miden sobre el bundle
+ * desplegado, que es donde el atajo podría volver.
+ *
+ * Los cinco `mockOnly` restantes **no son un límite del arnés: es que en el stack real todavía no
+ * existe el DATO**. El servidor sí existe desde `c80bc26` (§M6-K entero), pero `seed-e2e.ts`
+ * **borra todos los `KycProfile`** y no siembra ninguno (`seed-e2e.ts:144`), así que no hay usuario
+ * con INE en el expediente, ni objeto en el bucket que pintar, ni nombre derivado contra el que
+ * medir el aviso de cotejo. Cada marca dice abajo qué deja de medirse y qué la levantaría.
  */
 
 const K = (key: string, vars?: Record<string, string | number>) =>
@@ -29,7 +35,13 @@ async function openReview(page: Page) {
 
 test.describe('P-78 · la pantalla de revisión (super_admin)', () => {
   test('enseña las dos caras de la INE junto al nombre y las direcciones', async ({ page }) => {
-    mockOnly('necesita un usuario con INE en archivo y el endpoint de enlaces firmados');
+    // Deja de medirse contra el stack real: que `GET /admin/users/:id/kyc/ine-links` emita dos
+    // URLs que **el navegador pinta de verdad** (`naturalWidth > 0`) y que el panel de cotejo traiga
+    // `nameSource`/`recentShipmentRecipients`. Lo levanta: un `KycProfile` sembrado con las DOS
+    // keys y sus DOS objetos en el bucket (hoy `seed-e2e.ts:144` borra los perfiles y no siembra
+    // ninguno). Es trabajo de esta semana —backend ya entregó §M6-K en `c80bc26`—, no depende de
+    // ningún tercero.
+    mockOnly('el seed real no siembra ningún KycProfile con INE ni su objeto en el bucket');
     await openReview(page);
 
     // El aviso de que mirar deja huella, ENCIMA del documento.
@@ -69,7 +81,9 @@ test.describe('P-78 · la pantalla de revisión (super_admin)', () => {
   });
 
   test('el visor a pantalla completa lee las dos caras y vuelve sin descargar nada', async ({ page }) => {
-    mockOnly('necesita un usuario con INE en archivo');
+    // Ídem: sin objeto en el bucket no hay bitmap que ampliar, y el visor mediría un marco vacío.
+    // Lo levanta el mismo sembrado; el spec no cambia (los asserts ya son de estructura y catálogo).
+    mockOnly('el seed real no siembra ningún KycProfile con INE ni su objeto en el bucket');
     await openReview(page);
 
     await page.getByRole('button', { name: K('enlarge') }).first().click();
@@ -87,7 +101,11 @@ test.describe('P-78 · la pantalla de revisión (super_admin)', () => {
   });
 
   test('rechazar exige motivo, lo manda tal cual y la página NO navega sola', async ({ page }) => {
-    mockOnly('necesita un usuario con INE en archivo y el PATCH de decisión');
+    // Deja de medirse: que `PATCH /admin/users/:id/kyc { rejectionReason }` acepte el motivo y que
+    // el cliente lo lea después. Lo levanta el mismo sembrado **y** un actor de usar y tirar: este
+    // caso ESCRIBE una decisión de identidad sobre una persona, y hacerlo sobre el `customer`
+    // compartido del seed dejaría al resto de las suites con un KYC rechazado que ellas no pidieron.
+    mockOnly('escribe una decisión de identidad: necesita un KycProfile sembrado y desechable');
     await openReview(page);
 
     await page.getByRole('button', { name: K('reject') }).click();
@@ -110,20 +128,46 @@ test.describe('P-78 · la pantalla de revisión (super_admin)', () => {
     await expect(page.getByRole('button', { name: K('undo') })).toBeVisible();
   });
 
-  test('la ficha 360° ya NO deja fijar «verificado» a mano, y sí lleva a la revisión', async ({ page }) => {
-    mockOnly('la ficha se abre sobre usuarios de fixture');
+  /**
+   * **KY-9, y se escribe AGNÓSTICO a propósito.** Lo que afirma no depende de ningún dato de
+   * fixture: *ninguna ficha de usuario, sea cual sea, puede tener un control que fije `kycStatus`*.
+   * Antes tenía un `Select` con las cuatro opciones + «Guardar KYC» — un camino de dos clics para
+   * marcar `verified` **sin haber visto un documento**—, y mientras ese camino exista la pantalla
+   * de revisión es decorativa. Por eso es `@real`: el candado vale sobre el bundle DESPLEGADO, que
+   * es donde el atajo podría volver.
+   *
+   * Los tres desenlaces del final son legítimos y ninguno es un no-op: con INE en el expediente se
+   * llega a la revisión; sin INE el botón está apagado **con su motivo a la vista**; sin perfil KYC
+   * (el caso del seed real, que borra los `KycProfile`) la ficha lo dice.
+   */
+  test('@real la ficha 360° NO deja fijar «verificado» a mano, y la revisión es la única puerta', async ({ page }) => {
     await loginAs(page, 'admin');
-    await page.goto('/es/admin/m6?user=u-777');
+    await page.goto('/es/admin/m6');
+    await page.getByRole('button', { name: t('es', 'admin.m6.view') }).first().click();
     const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
 
-    // ⛔ Candado KY-9: ningún control que fije el estado KYC.
+    // La ficha carga en dos tiempos (lista → detalle): se espera al BLOQUE de KYC antes de
+    // afirmar nada sobre él. Sin esta espera, «no hay botón de revisión» y «todavía no ha
+    // cargado» se leen igual — y el test mediría la carrera, no la pantalla.
+    await expect(modal.getByText(t('es', 'admin.m6.kycTitle'), { exact: true })).toBeVisible();
+
+    // ⛔ Ni un `select`, ni el rótulo del que se retiró (literal a propósito: la clave ya no está
+    // en el catálogo, así que este assert es lo único que impide que vuelva).
     await expect(modal.getByRole('combobox')).toHaveCount(0);
     await expect(modal.getByLabel('Estado KYC')).toHaveCount(0);
 
-    // La única puerta, y lleva a la pantalla que enseña el documento.
-    await modal.getByRole('button', { name: K('openCta') }).click();
-    await expect(page).toHaveURL(/\/admin\/m6\/kyc\/u-777$/);
+    const review = modal.getByRole('button', { name: K('openCta') });
+    if (await review.count()) {
+      if (await review.isEnabled()) {
+        await review.click();
+        await expect(page).toHaveURL(/\/admin\/m6\/kyc\/[^/]+$/);
+      } else {
+        await expect(modal.getByText(K('openDisabled'))).toBeVisible();
+      }
+    } else {
+      await expect(modal.getByText(t('es', 'admin.m6.noKyc'))).toBeVisible();
+    }
   });
 
   /**
@@ -132,19 +176,27 @@ test.describe('P-78 · la pantalla de revisión (super_admin)', () => {
    * documento. El rol de back-office en modo demo lo dicta el dial local (`tcg.role`), que es el
    * mismo interruptor del selector «Ver como».
    */
-  test('un vault_operator que teclea la URL NO ve el documento', async ({ page }) => {
-    mockOnly('el rol de back-office en demo lo dicta el dial local; en real lo dicta el JWT');
-    await loginAs(page, 'admin');
+  test('@real un vault_operator que teclea la URL NO ve el documento', async ({ page }) => {
+    await loginAs(page, 'operator');
+    // En DEMO el rol de back-office lo dicta el dial local (el mismo del selector «Ver como»); en
+    // real lo dicta el JWT y este `setItem` es INERTE (`RoleProvider` lo ignora con
+    // `config.useMocks === false`). Así el mismo test mide en los dos entornos.
     await page.addInitScript(() => window.localStorage.setItem('tcg.role', 'vault_operator'));
     await page.goto(`/es/admin/m6/kyc/${WAITING_USER}`);
 
     await expect(page.getByText(t('es', 'admin.superAdminGateTitle'))).toBeVisible();
-    await expect(page.getByAltText(K('altFront', { name: 'jcsainz95' }))).toHaveCount(0);
+    // Ni el documento, ni su rótulo, ni una URL firmada en ningún `img` de la página.
+    await expect(page.getByText(K('front'))).toHaveCount(0);
     await expect(page.locator('img[src*="X-Amz-Signature"]')).toHaveCount(0);
   });
 
   test('el listado deja llegar a la cola de revisión en dos clics', async ({ page }) => {
-    mockOnly('la columna de identidad depende de `kycStatus` en el listado (petición A5)');
+    // ⚠️ ÉSTE NO CADUCA ESTA SEMANA, y es el único: `kycStatus` en `AdminUserSummaryDTO` y el
+    // filtro `?kycStatus=` **no están en el contrato** — son la petición **A5** de §34.15 al
+    // arquitecto. Deja de medirse que el revisor pueda LLEGAR a su cola. Lo levanta: el contrato
+    // declara el campo y el filtro, y backend los emite; hasta entonces el mock es el único
+    // servidor que los tiene.
+    mockOnly('`kycStatus` en el listado y `?kycStatus=` no existen en el contrato (petición A5)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m6');
     // La cabecera se busca por el elemento y no por rol: Chromium mapea estos `<th>` a `cell`
@@ -165,7 +217,13 @@ test.describe('P-78 · el cliente, sin callejón', () => {
    * pantalla lo dice con todas las letras y ⛔ no ofrece subir nada (no hay nada que corregir).
    */
   test('en revisión: dice que no tiene que hacer nada más y no ofrece subir', async ({ page }) => {
-    mockOnly('el estado del KYC del cliente viene del fixture');
+    // Deja de medirse el estado `none` de un cliente concreto. No es falta de servidor: es que en
+    // real el KYC del `customer` del seed **depende del orden de las suites** (buylist sube INE en
+    // algunos flujos y lo deja en `pending`), así que afirmar «sin INE» ahí mediría el orden de
+    // ejecución, no el producto. Lo levanta: un actor de cliente propio para identidad, o el mismo
+    // KycProfile sembrado con estado fijo. El caso `pending` —el callejón del dueño— sí está
+    // medido, en unidad: `KycSection.test.tsx` (KY-4).
+    mockOnly('en real el KYC del `customer` compartido depende del orden de las suites');
     await loginAs(page, 'customer');
     await page.goto('/es/account#kyc');
     await expect(page.getByRole('heading', { name: t('es', 'account.kyc.title') })).toBeVisible();
@@ -175,8 +233,13 @@ test.describe('P-78 · el cliente, sin callejón', () => {
     await expect(page.getByText(t('es', 'account.kyc.noneBody'))).toBeVisible();
   });
 
-  test('⛔ ninguna cifra de tope en la superficie del cliente (KY-5)', async ({ page }) => {
-    mockOnly('mide el texto renderizado del fixture');
+  /**
+   * **KY-5, y es el candado que hace VERIFICABLE la decisión (c) del dueño** («los topes dejan de
+   * mostrarse al cliente»). Agnóstico por construcción: afirma una AUSENCIA que tiene que valer
+   * con cualquier estado de KYC y con cualquier DTO. Por eso es `@real` — es justo contra el
+   * servidor de verdad donde un `capPerRequestCents` olvidado volvería a imprimirse en pantalla.
+   */
+  test('@real ninguna cifra de tope en la superficie del cliente (KY-5)', async ({ page }) => {
     await loginAs(page, 'customer');
     await page.goto('/es/account#kyc');
     await expect(page.getByRole('heading', { name: t('es', 'account.kyc.title') })).toBeVisible();
