@@ -4,6 +4,36 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.67.3 — EL ALMACENAMIENTO DE OBJETOS DE LAS RUTAS NO-PRODUCCIÓN: SE UNIFICA EN `scripts/s3-local/` Y SE
+> RETIRA MinIO DE TODO `docker-compose*.yml`**
+> (2026-09-11, arquitecto. Base: **v1.67.2 + §§4.48–4.50, vigentes enteras**. Origen: la distribución comunitaria de
+> `minio/minio` y `minio/mc` dejó de servirse anónimamente en Docker Hub ⇒ `docker compose up` muere ⇒ **el DAST y el
+> E2E-real** —las dos únicas puertas que miran la aplicación **corriendo**— llevan días caídos. **Cero contrato, cero
+> DDL, cero endpoints, cero variables nuevas.** `API_CONTRACT.md` **no se toca** (no hay superficie HTTP implicada).
+> Sección nueva **§4.51**. Fila de §1 y nota de §8 actualizadas. Desviaciones **`D-S3-1..4`** en §4.51.10.)
+>
+> **1. ⭐⭐ El requisito real es corto y está medido, y por eso la pieza puede ser pequeña.** El backend usa **tres**
+> operaciones de S3 (`PutObject` presignado, `GetObject` presignado con `response-content-disposition`, `DeleteObject`
+> server-side) y necesita que **el bucket exista**. Ni políticas, ni versionado, ni multipart, ni `ListObjects`
+> (`uploads.service.ts:4-9,192-260`, único fichero del backend que importa `@aws-sdk`). **Nada más.** MinIO llevaba
+> meses sosteniendo una superficie que nadie ejercitaba.
+>
+> **2. ⭐⭐ Se unifica: `scripts/s3-local/` (s3rver + la verificación SigV4 de devops) pasa a ser el object storage de
+> TODA ruta no-producción** — nativa local, compose local, staging efímero de CI. **Producción NO se toca: sigue R2.**
+> El motivo no es preferencia de pieza: es que **no introduce ni un dominio de disponibilidad nuevo** (imágenes
+> `library/*` y registro npm ya son carga obligada de cada corrida), mientras que los tres candidatos de registro
+> —`localstack`, `adobe/s3mock`, `seaweedfs`— viven en la **misma clase de namespace de tercero que acaba de fallar**.
+>
+> **3. ⭐ Lo que se pierde está enumerado, y ninguna de las cuatro piezas la asierta un test hoy** (§4.51.5): motor de
+> políticas de bucket, `lifecycle`, HMAC de la firma **de cabecera**, y caducidad de la URL presignada. Las dos
+> primeras no las mira nadie; la tercera la cubre por transitividad la ruta presignada; **la cuarta (`X-Amz-Expires`)
+> es la única regresión real de cobertura y se cierra con ~10 líneas en fichero propio de devops, no con un vendor.**
+>
+> **4. ⭐ El agujero que se creía perdido no existía: la ruta de LECTURA del INE nunca se probó contra almacenamiento
+> real.** `kyc-ine-links.e2e-spec.ts:96-102` afirma la **forma de la URL**, no hace `GET`. Cambiar de pieza **no pierde**
+> esa cobertura porque no la había; y la pieza elegida **sí permite crearla** (§4.51.5, G-3).
+>
+> ---
 > **Rev v1.67.2 — P-79(c): LA COLA DE PUBLICACIÓN DE M1 ENSEÑA EL SELLADO CON FORMA DE CARTA SUELTA**
 > (2026-09-11, arquitecto. Base: **v1.67.1, vigente entera**. Origen: hallazgo del dueño sobre la app publicada,
 > medido por el orquestador fichero a fichero. Contrato **v1.69.1** (§M1 `GET /admin/inventory/pending-publish`,
@@ -3467,7 +3497,7 @@ identificador de contacto que se añada después.
 | Base de datos | **PostgreSQL 16** | Modelo fuertemente relacional (items, órdenes, precios, auditoría), constraints e índices, `JSONB` para snapshots (CFDI, direcciones) y `AuditLog`. Recomendado en PROJECT. |
 | Cache / colas / rate-limit | **Redis + BullMQ** | Jobs diarios (sync de precios, FX), barridos de plazos de buylist/disputas, y **rate-limiting** para respetar el free tier de las APIs (100/día, 250/día). |
 | Auth | **JWT** (access corto + refresh), hashing **argon2** | Sin dependencia de proveedor externo para el MVP; roles y KYC viven en `User`. Guards por rol y por acción. |
-| Object storage (SOLO INE de KYC) | **Object storage S3-compatible** (Cloudflare R2 o AWS S3 en prod; **MinIO** en local) vía **URLs prefirmadas**, **bucket privado + cifrado + retención** | **v1.2:** único uso = **imagen del INE del buylist** (`kyc_ine`). No hay fotos de producto/inventario (imagen de catálogo remota) ni de disputa (evidencia por correo). Presign PUT para subir, presign GET de vida corta para leer en back-office; retención por `INE_RETENTION_DAYS` (§3.4). |
+| Object storage (SOLO INE de KYC) | **Producción: Cloudflare R2** (S3-compatible) vía **URLs prefirmadas**, **bucket privado + cifrado + retención**. **Toda ruta NO-producción** (nativa, compose local, staging efímero de CI): **`scripts/s3-local/`** — ⛔ **MinIO retirado, v1.67.3 §4.51** | **v1.2:** único uso = **imagen del INE del buylist** (`kyc_ine`). No hay fotos de producto/inventario (imagen de catálogo remota) ni de disputa (evidencia por correo). Presign PUT para subir, presign GET de vida corta para leer en back-office; retención por `INE_RETENTION_DAYS` (§3.4). **La superficie S3 que el backend usa de verdad son 3 operaciones + «el bucket existe»** (§4.51.1): ni políticas, ni lifecycle, ni multipart, ni `ListObjects`. Por eso la ruta no-producción **no necesita** un servidor S3 completo — y **no debe** depender de una imagen de tercero en la única puerta que mira la app corriendo (§4.51.0). |
 | Frontend | **Next.js 14 (App Router) + React + TypeScript** | Storefront con SEO (server components para catálogo/ficha), y mismo framework para el panel admin responsive. **Sin captura de fotos de producto** (v1.2); la única subida es la imagen del INE en el flujo de KYC del buylist. |
 | Data fetching (front) | **TanStack Query** | Cache cliente, estados de carga/error consistentes con el contrato. |
 | Estilos | **Tailwind CSS** + componentes del **DESIGN_SYSTEM** (propiedad de ux-ui) | La estructura visual/tokens los define ux-ui; el arquitecto no fija el sistema de diseño. |
@@ -23210,6 +23240,210 @@ los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa e
 
 ---
 
+### 4.51 EL OBJECT STORAGE DE LAS RUTAS NO-PRODUCCIÓN — se unifica en `scripts/s3-local/` y MinIO sale de los compose (v1.67.3-ci-object-storage, 2026-09-11, NORMATIVO, **INFRAESTRUCTURA**)
+
+> **Alcance, y solo este:** con qué pieza cubren su almacenamiento de objetos las rutas **no-producción** (nativa
+> local, compose local, staging efímero de CI). **Producción queda intacta: Cloudflare R2.** Esta sección **no**
+> decide nada de R2 y **no** toca `API_CONTRACT.md` (no hay superficie HTTP implicada: la elección es del lado del
+> servidor S3, no del cliente).
+>
+> **Propiedad de ficheros:** el arquitecto decide **la pieza y las propiedades que debe cumplir**. Los
+> `docker-compose*.yml`, `scripts/` y `.github/workflows/` los escribe **devops**; los tests, **backend**.
+
+#### 4.51.0 El hecho, y lo que el hecho NO es
+
+Medido (devops + orquestador, 2026-09-11): Docker Hub devuelve **401 a nivel de repositorio** para `minio/minio` y
+`minio/mc` (ni siquiera `tags/list`), mientras `library/postgres:16-alpine` devuelve **200**. Última release de
+`minio/minio`: `RELEASE.2025-10-15T…`, hace **once meses**; releases por año 2020:172 · 2022:186 · 2024:126 ·
+2025:33 · **2026:0**. `quay.io` —su registro oficial— es **inalcanzable desde este entorno** (CONNECT rechazado por
+el proxy), así que **nadie aquí puede verificar que una etiqueta exista ahí**.
+
+**Qué rompe, exactamente** (medido en los workflows): `docker-compose.staging.yml` es el stack que levantan
+`security-dast.yml` (`:19`) y `e2e-real.yml` (`:140`). Los dos están caídos. El carril de CI unitario/integración
+**no** usa MinIO (`ci.yml:11-13`), así que no está afectado. ⇒ **lo caído son las dos únicas puertas que miran la
+aplicación corriendo**, no el pipeline entero.
+
+⛔ **El argumento que NO sostiene esta decisión, y se declara para que nadie lo reviva:** «clavar una versión de hace
+once meses congela una dependencia sin parches en una puerta de seguridad». **Refutado con medición** (devops):
+producción **no** usa MinIO (usa R2), el DAST **no** lo escanea (los blancos son vitrina y API), **no** está expuesto
+(loopback del runner), y sus datos son sintéticos y viven minutos. Un CVE suyo aquí **no es alcanzable**. Para atrezo
+de CI, **estar congelado es reproducibilidad**, no deuda.
+
+**El argumento que SÍ sobrevive es DISPONIBILIDAD:** un proyecto que cerró un canal de distribución puede cerrar el
+otro, y clavar en un registro que **ni siquiera podemos alcanzar para verificar** es aceptar una dependencia **con
+cuenta atrás** justo donde ya nos mordió. Esta sección resuelve eso y nada más.
+
+#### 4.51.1 Qué necesita el backend del contrato de S3 — el cotejo, que es el corazón de la decisión
+
+`backend/src/modules/uploads/uploads.service.ts` es el **único** fichero del backend que importa `@aws-sdk`
+(medido). Su superficie completa:
+
+| # | Operación | Dónde | Forma exacta | ¿Obligatoria? |
+|---|---|---|---|---|
+| **S1** | **Presign PUT** (`PutObjectCommand` + `getSignedUrl`, 900 s) | `:192-199` | SigV4 en **query**, **path-style** (`forcePathStyle` default `true`, `:105`), con `ContentType` **y `ContentLength` incondicional** (candado P-UP-1) entre las cabeceras firmadas | **Sí.** Es la subida del INE (`purpose: 'kyc_ine'`), la ÚNICA subida del producto y es **PII** |
+| **S2** | **Presign GET** (`GetObjectCommand` + `getSignedUrl`, TTL `KYC_INE_VIEW_URL_TTL_SECONDS`, default 120, clamp ≤300) | `:224-251` | SigV4 en query **+ `ResponseContentDisposition: 'attachment'`** ⇒ viaja como `response-content-disposition` **dentro de la query firmada** (candado S-B3, §4.49.2.1) | **Sí.** Es la lectura del INE en back-office |
+| **S3** | **`DeleteObject`** server-side | `:257-260` | SigV4 en **cabecera** `Authorization:` (no presignado). Es el barrido de retención `INE_RETENTION_DAYS` | **Sí** |
+| **S4** | **El bucket existe** | `S3_BUCKET`, default `tcg-photos` | Sin él, S1 devuelve 403 y el arranque queda mal aprovisionado | **Sí** |
+| — | `ListObjects*`, multipart, versionado, tagging, SSE por-objeto, políticas de bucket **desde el código** | — | **NO APARECEN.** La retención enumera desde **BD**, no desde el bucket; el cifrado es del proveedor (R2), no una cabecera por objeto | **No** |
+
+⇒ **El requisito de una ruta no-producción es: SigV4 presignado (PUT y GET, con overrides de respuesta en la query),
+SigV4 de cabecera aceptado, `DeleteObject`, path-style, y un bucket creado al arrancar.** Esa es la vara con la que
+se miden los candidatos — no la marca.
+
+#### 4.51.2 Qué hace hoy MinIO en CI, y cuánto de eso **asierta** un test
+
+`docker-compose.yml` / `docker-compose.staging.yml`, servicio `createbuckets` (`mc`), hace **tres** cosas. Medido
+qué test observa cada una:
+
+| Lo que hace `mc` | ¿Lo asierta algún test? | Evidencia |
+|---|---|---|
+| `mc mb --ignore-existing` (crear bucket) | **Sí, indirectamente**: sin bucket, el PUT del smoke da 403 | `infra-smoke.e2e-spec.ts:144-153` |
+| `mc anonymous set none` (bucket privado) | **NO.** Ningún test hace una petición **sin firmar** contra el almacenamiento | Búsqueda sobre `backend/test/`: las únicas pruebas que tocan S3 real son `infra-smoke` (solo **PUT**) y `kyc-ine-links` (solo **forma de la URL**) |
+| `mc ilm rule add --expire-days … --prefix 'kyc_ine/'` | **NO.** Y la propia línea del compose lo declara no portante: cae en `\|\| … \|\| echo 'aviso: no se pudo fijar lifecycle …; backend sigue borrando por retencion.'` | `docker-compose.yml:115` |
+
+Y el hallazgo que cambia el diagnóstico del riesgo: **la ruta de LECTURA del INE nunca se ha probado contra un
+almacenamiento real.** `kyc-ine-links.e2e-spec.ts:96,102` comprueba que la URL **contiene** `X-Amz-Signature=` y
+`response-content-disposition=attachment`; **no hace `GET`**. ⇒ *«un reemplazo que no sostenga el presign de lectura
+nos deja sin probar la ruta de INE»* describe una cobertura que **hoy no existe con MinIO tampoco**. Lo que hay que
+exigirle a la pieza no es «no perder» esa cobertura: es **poder crearla** (G-3).
+
+#### 4.51.3 DECISIÓN — `scripts/s3-local/` es el object storage de **toda** ruta no-producción; MinIO y `mc` salen de los compose
+
+**Una pieza, tres rutas:** nativa local, compose local (`docker-compose.yml`) y staging efímero de CI
+(`docker-compose.staging.yml`) usan **`scripts/s3-local/`** (s3rver 3.7.1 + las tres añadiduras de devops).
+**Producción sigue en R2, sin cambio alguno.**
+
+Las cuatro razones, en orden de peso:
+
+1. **⭐⭐ No introduce ni un dominio de disponibilidad nuevo.** Las dependencias externas de s3-local son **imágenes
+   `library/*`** (Docker Official) y el **registro npm**. Las dos ya son **carga obligada de cada corrida de CI**
+   (el backend hace `npm ci`; Postgres y Redis son `library/*`, la clase que medimos **200**). Si cualquiera de las
+   dos cae, la corrida ya estaba muerta por otro sitio. Todo candidato de registro de tercero **añade un dominio de
+   fallo que hoy no tenemos** — y el incidente que estamos resolviendo es, literalmente, la caída de uno de esos.
+2. **⭐⭐ Cubre S1–S4, que es el requisito completo** (§4.51.1). Y cubre S1 y S2 **verificando la firma de verdad**:
+   devops implementó SigV4 sobre `crypto` precisamente porque s3rver **no la valida** (su código lo dice literal:
+   *«Signature version 4 calculation is unimplemeneted»*), y una URL presignada con el **secreto equivocado** devolvía
+   **200** — medido. Un stand-in que acepta cualquier firma convierte el smoke en un falso verde.
+3. **⭐ Mata la asimetría que hoy hace que un verde no signifique lo mismo en cada ruta.** Hoy corren **dos**
+   implementaciones distintas de S3 en las dos rutas no-producción, y un verde en una no dice nada de la otra; la
+   cabecera de `scripts/s3-local/server.js:28-32` ya avisa de esa clase de divergencia («*el arnés nativo y el de
+   Docker probarían configuraciones distintas y la diferencia no se vería en ningún diff*»). Una pieza ⇒ **una** lista
+   de huecos declarados, en **un** sitio, y esa lista ya está escrita. Hoy los huecos de la ruta de CI son implícitos.
+4. **⭐ Retira además `minio/mc`**, la segunda imagen inclavable, y con ella un init-container entero
+   (`createbuckets`): el bucket lo crea el propio servidor al arrancar (`configureBuckets`, `server.js:118-124`).
+   Menos superficie ajena y una pieza menos que pueda 401-ear mañana.
+
+**Contrapartida que se acepta con los ojos abiertos:** `s3-local` es **código nuestro**, y un bug suyo puede producir
+un falso verde. Es un riesgo **real**, pero es el riesgo que ya corremos en la ruta nativa y **está gestionado por
+construcción**: sus tres guardas nacieron de falsos verdes medidos, y su cabecera es **normativa** — todo hueco
+nuevo se declara ahí. Regla que se añade: **ningún hueco de `s3-local` puede quedar sin declarar en su cabecera**;
+tapar uno en silencio es la falta, no tenerlo.
+
+#### 4.51.4 Por qué NO los otros candidatos (cotejados contra §4.51.1, no contra la marca)
+
+| Candidato | Cubre S1–S4 | Por qué NO se elige |
+|---|---|---|
+| **`adobe/s3mock`** | S1/S2/S3/S4 funcionalmente sí (`initialBuckets` cubre S4 barato) | **No verifica SigV4 en absoluto** ⇒ reintroduce **exactamente** el falso verde que devops cerró (firma con secreto equivocado → 200), y esta vez **en la ruta que gatea el release**. Adoptarlo sería desandar una corrección medida. Además sigue siendo **namespace de tercero**: misma clase de disponibilidad que acaba de fallar, sin ganar nada a cambio |
+| **`localstack/localstack`** | La **más** fiel: es el único que plausiblemente cubre políticas, lifecycle, caducidad y overrides | (a) **Mismo riesgo de negocio, idéntico**: vendor comercial con corte free/pro en namespace de tercero — el patrón que cerró la distribución comunitaria de MinIO; (b) ~1 GB y decenas de segundos de arranque **en cada corrida de DAST y E2E**, para sostener **un bucket**; (c) el bucket exige un init-hook nuevo (`ready.d/*.sh`), o sea recuperamos el `createbuckets` que acabamos de quitar. **Paga fidelidad que ningún test consume** (§4.51.2) con el riesgo que estamos huyendo |
+| **`chrislusf/seaweedfs`** | S1/S3/S4 sí (verifica SigV4 con un fichero de identidades) | Es el candidato **del que menos sabemos** y el de peor encaje conceptual (un sistema de ficheros distribuido para guardar dos PNG de prueba): su gateway S3 es un subconjunto y su soporte de **`response-content-disposition`** (S2, el candado S-B3) está **NO MEDIDO**. Exige además un fichero de config nuevo. Tercero, otra vez |
+| **MinIO clavado en `quay.io`** | Sí, es la referencia | **No podemos verificar que la etiqueta exista** desde aquí (quay.io inalcanzable), y devops se niega a clavar a ciegas — **hace bien**: un compose que clava una etiqueta no verificable convierte un gate **rojo-conocido** en un gate **rojo-mañana**, que es peor. Y aun verificada, deja la **cuenta atrás** intacta en la única puerta que mira la app corriendo |
+
+#### 4.51.5 Lo que se pierde — enumerado, con qué lo cerraría (esto es la parte honesta)
+
+| # | Propiedad que MinIO daba y `s3-local` no | ¿La asierta un test hoy? | Veredicto y remedio |
+|---|---|---|---|
+| **G-1** | **Motor de políticas de bucket** (`mc anonymous set none`) | **No** (§4.51.2) | **Pérdida nominal, no efectiva.** La propiedad **observable** (petición sin firmar ⇒ 403) la garantiza `s3-local` **por construcción y en todo método**, incluida la lectura (`server.js:138-142,248-256`) — es igual de estricta o más. Lo que se deja de ejercitar es el **motor**, no el efecto. La propiedad **en producción** (bucket R2 privado) sigue siendo responsabilidad de `seguridad` y ya está marcada como supuesto no medido en §8 |
+| **G-2** | **`lifecycle` / `ilm`** sobre `kyc_ine/` | **No**, y el compose ya lo declara no portante (`docker-compose.yml:115`) | **Pérdida ≈ 0.** El mecanismo real de retención es el barrido del backend (S3, `DeleteObject` por `INE_RETENTION_DAYS`), que **sí** se ejercita |
+| **G-3** | **Presign GET verificado contra almacenamiento real**, con el `Content-Disposition: attachment` de vuelta | **No existe hoy** (`kyc-ine-links.e2e-spec.ts` solo mira la URL) | **No es una pérdida: es un hueco preexistente que esta pieza permite cerrar.** `s3-local` verifica la firma **también** en GET (el `response-content-disposition` va dentro de la query canónica, así que entra en la firma). **Acción (backend, no bloqueante de esta decisión):** añadir al smoke un `GET` real de la URL de vista ⇒ `200` + cuerpo idéntico al subido. ⚠️ **Condición de aceptación previa (devops, un `curl`):** que s3rver **honre** `response-content-disposition` en la respuesta — **NO MEDIDO**. Si no lo honra, se asierta `200` + cuerpo (que ya es más de lo que hay) y el **header** queda cubierto solo por el test de forma de URL, declarado aquí |
+| **G-4** | **Caducidad de la URL presignada** (`X-Amz-Expires`) | **No** (no hay `GET` real que pudiera caducar) | ⭐ **Es la ÚNICA regresión real de capacidad, y es la que más nos importa**, porque `KYC_INE_VIEW_URL_TTL_SECONDS` es un **dial de exposición de PII** (§4.49.2.1). Medido en `server.js:165-233`: el verificador lee `X-Amz-Date/Credential/SignedHeaders/Signature/Content-Sha256` y **nunca compara `X-Amz-Expires` contra el reloj** ⇒ una URL vencida se aceptaría. **Se cierra con ~10 líneas en fichero propio de devops** (`amzDate + expires < now ⇒ 403`), no con una dependencia de vendor. **Acción (devops), y hasta entonces ninguna ruta puede afirmar «el enlace del INE caduca»** |
+| **G-5** | **HMAC de la firma de CABECERA** (`Authorization:`, o sea `DeleteObject`) | **No** directamente | **Pérdida menor y acotada por transitividad:** el `S3Client` es **el mismo objeto** y las mismas credenciales que producen los presignados (`server.js:100-116` ↔ `uploads.service.ts:100-110`), así que una regresión de «secreto equivocado» **la caza S1**, que sí verifica. Lo que quedaría ciego es un fallo **exclusivo** del canonicalizado de cabecera del SDK. Ya está declarado en la cabecera de `s3-local` (`:58-61`) y **se mantiene declarado** |
+
+#### 4.51.6 Formas admisibles de cablearlo — **la forma la elige devops**; los invariantes no
+
+La pieza la fija el arquitecto; **cómo entra en el compose es de devops**. Dos formas son aceptables:
+
+- **Forma A (preferida) — servicio de compose sobre `library/node:<versión>-alpine`**, montando `scripts/s3-local/`
+  y arrancando `server.js`. Mantiene `docker compose up` **autocontenido** (un solo verbo levanta el stack, como hoy)
+  y deja la única imagen externa en la clase `library/*`, la que medimos sana. **Coste:** una imagen más (de la clase
+  buena) y un `npm ci` en el arranque del servicio si `node_modules` no viaja en el árbol.
+- **Forma B — proceso del runner**, como ya hace `stack-native.sh:408-449`, con el backend del compose apuntando al
+  gateway del host. **Coste:** el stack deja de levantarse con un solo verbo y su ciclo de vida pasa a ser de dos
+  piezas (más sitios donde un stack superviviente puede contaminar una corrida — el riesgo que `e2e-real.yml:317-346`
+  ya vigila). **Beneficio:** cero imágenes externas para el almacenamiento.
+
+**Invariantes que la forma elegida DEBE cumplir (normativo):**
+1. **El bucket `S3_BUCKET` existe antes de que el backend atienda su primera petición** (S4). Si no, el arranque falla
+   **ruidosamente**; nunca se degrada en silencio.
+2. **Las credenciales del stand-in son las mismas de `.env.example`/compose** — nunca el par fijo de s3rver
+   (`server.js:106-116` ya lo garantiza y **aborta con `exit 2`** si no puede). Dos rutas con credenciales distintas
+   prueban configuraciones distintas **sin que se vea en ningún diff**.
+3. **`S3_LOCAL_ALLOW_ANON` jamás se activa en un gate.** Existe solo para demostrar en rojo que la guarda funciona.
+4. **La publicación de puertos sigue en loopback** (`127.0.0.1:…`), criterio SEC-M4 sin cambio. ⚠️ En la **Forma A**,
+   `S3_LOCAL_HOST` debe valer `0.0.0.0` **dentro del contenedor** para que el backend lo alcance por la red de
+   compose: eso **no** debilita SEC-M4 —lo que expone al host es la **publicación** del puerto, que sigue en
+   loopback— pero **contradice el comentario literal de `server.js:71** («nunca 0.0.0.0»), escrito para el caso
+   proceso-en-el-host. Ver `D-S3-2`.
+5. **`forcePathStyle` sigue en `true`** en toda ruta no-producción (S1/S2 dependen de ello).
+6. **`check-compose-images.sh` sigue siendo el candado**: cualquier imagen que entre debe estar **clavada** por
+   `@sha256:` o etiqueta de versión. Este cambio **reduce** el conjunto vigilado; no lo exime.
+
+#### 4.51.7 Disparador de revisión (la deuda que esta decisión **sí** contrae)
+
+No hay ficha de deuda por «MinIO clavado» porque no se clava MinIO. La deuda que **sí** se contrae es *«el stand-in es
+código nuestro y su fidelidad es la que declara su cabecera»*. Su ficha:
+
+- **Qué se acepta:** G-1, G-2 y G-5 permanecen **abiertos y declarados** (ninguno lo asierta un test hoy).
+- **Qué NO se acepta y tiene dueño:** **G-4** (caducidad) → **devops**; **G-3** (`GET` real en el smoke) → **backend**,
+  previa medición del `curl` de `response-content-disposition`.
+- **Disparador 1 — revisar la pieza:** que aparezca un requisito de producto que **necesite** una de las propiedades
+  perdidas *y* que un test la asierta. Concretamente: si R2 pasa a configurarse con **políticas o lifecycle desde el
+  código del backend** (hoy no: §4.51.1 mide que no existen), la ruta no-producción deja de poder ejercitar ese
+  camino y toca reabrir esta sección.
+- **Disparador 2 — revisar la forma:** que `library/node` o el registro npm dejen de resolverse anónimamente. **Qué
+  hacemos ese día:** no es un plan nuevo — **es el mismo día en que CI ya no puede construir el backend**, porque
+  ambos son carga obligada de toda corrida. Se atiende como caída de la cadena de build entera, no como incidente de
+  almacenamiento. *Esa es, precisamente, la propiedad por la que se elige esta pieza: no añade un día malo nuevo.*
+- **Disparador 3 — volver a mirar MinIO:** si `quay.io` se vuelve **alcanzable y verificable** desde el entorno de CI
+  **y** alguna de G-1/G-2/G-4 pasa a estar asertada por un test. Con las dos condiciones a la vez, y no antes: volver
+  por nostalgia reintroduce la cuenta atrás.
+- **Medición que cierra la ficha entera:** G-3 y G-4 implementados y verdes ⇒ la ruta del INE (subida **y** lectura,
+  con firma verificada y caducidad respetada) queda cubierta de punta a punta **en las tres rutas a la vez**, que es
+  **más** de lo que MinIO daba antes del incidente.
+
+#### 4.51.8 Lo **NO MEDIDO**, con la medición que lo cerraría
+
+Se declara porque O-1 obliga; ninguno de estos cambia la decisión, pero todos son condición de aceptación del
+cableado:
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| N-1 | Que s3rver **honre** `response-content-disposition` en la respuesta del GET presignado | `curl -sD- '<url-presignada-de-vista>' -o /dev/null` contra `s3-local` arrancado ⇒ ¿trae `Content-Disposition: attachment`? | devops (es prerequisito de G-3) |
+| N-2 | Que `library/node:<versión>-alpine` se descargue **anónimamente** desde el runner | `./scripts/check-compose-images.sh --resolve` tras el cambio (el modo que ya existe para esto) | devops |
+| N-3 | Si `scripts/s3-local/node_modules` viaja en el árbol o hay que `npm ci` en el arranque del servicio | `git ls-files scripts/s3-local \| head` | devops |
+| N-4 | Que ningún **otro** consumidor del stack dependa de la **consola** de MinIO (`:9011`) o de `mc` | `rg -n '9011\|mc alias\|minio/mc' .github scripts security` | devops |
+| N-5 | Que el resto de imágenes de `docker-compose*.yml` sigan resolviendo (este pase solo midió las de MinIO y el control `library/postgres`) | `./scripts/check-compose-images.sh --resolve` | devops |
+
+#### 4.51.9 Qué toca cada rol
+
+| Rol | Qué hace | ¿Bloqueante del release? |
+|---|---|---|
+| **devops** | (1) Retirar `minio` y `createbuckets` de `docker-compose.yml` **y** `docker-compose.staging.yml`; (2) cablear `s3-local` en la forma A o B respetando los 6 invariantes de §4.51.6; (3) medir N-1..N-5; (4) cerrar **G-4** (caducidad `X-Amz-Expires`) y **declararlo en la cabecera** de `server.js`; (5) actualizar `docs/DEVOPS_NOTES.md` §39.2.3 para que la lista de huecos cubra **las tres rutas**, no solo la nativa | **Sí** (1,2,3). G-4: **no** bloquea este desbloqueo, pero **sí** el cierre de la ficha de §4.51.7 |
+| **backend** | **G-3**: añadir al smoke el `GET` real de la URL de vista del INE (200 + cuerpo idéntico), condicionado a N-1. ⛔ **No** toca `scripts/` ni compose | No (no bloquea el desbloqueo del gate) |
+| **qa** | Verificar que `docker compose -f docker-compose.staging.yml up` levanta **sin ninguna imagen de tercero** y que `infra-smoke` pasa **en modo `E2E_STRICT_INFRA=true`** — el modo que **no** se salta a sí mismo | **Sí** |
+| **seguridad** | Confirmar que la superficie del DAST **no cambia** (el almacenamiento nunca fue blanco) y que G-1 sigue sin ser una propiedad afirmada por ningún gate. El supuesto de §8 sobre el **bucket privado de producción (R2)** sigue abierto y **no lo toca esta sección** | **Sí**, como visto bueno |
+| **frontend** | **Nada.** Cero cambios de contrato, cero cambios de URL, cero variables nuevas | — |
+
+#### 4.51.10 Desviaciones detectadas (no las corrijo yo; van al rol dueño)
+
+| # | Desviación | Dónde | Dueño | Estado |
+|---|---|---|---|---|
+| **D-S3-1** | Las imágenes de almacenamiento estaban en etiqueta **móvil** (`minio/minio:latest`, `minio/mc:latest`) en los **dos** compose ⇒ cuando el registro cambió no había «un número al que volver». Es la falta que `check-compose-images.sh` nació para impedir, cometida antes de que el candado existiera | `docker-compose.yml:77,106`; `docker-compose.staging.yml:81,107` | **devops** | **Abierta.** Cierra al retirar MinIO (§4.51.9) |
+| **D-S3-2** | `scripts/s3-local/server.js:71` afirma «**nunca 0.0.0.0**» como norma absoluta; en la **Forma A** (contenedor) el bind interno **debe** ser `0.0.0.0` y eso **no** viola SEC-M4, porque quien expone al host es la publicación del puerto. El comentario, tal cual, **induce a rechazar la forma correcta** | `scripts/s3-local/server.js:71` | **devops** | **Abierta.** Reformular como «nunca `0.0.0.0` **publicado al host**» |
+| **D-S3-3** | El verificador SigV4 **no evalúa `X-Amz-Expires`** ⇒ una URL presignada **vencida** se acepta. No está declarado en la cabecera de huecos (`:52-61`), que sí declara los otros tres. Es un hueco **no declarado**, que es la falta (§4.51.3) | `scripts/s3-local/server.js:165-233` | **devops** | **Abierta** = **G-4** |
+| **D-S3-4** | `infra-smoke.e2e-spec.ts` cubre la **subida** del INE pero **no la lectura**, y `kyc-ine-links.e2e-spec.ts` afirma la **forma de la URL** como si fuera la ruta. La cobertura real de la lectura del INE es **cero contra almacenamiento**, con MinIO o sin él | `backend/test/integration/infra-smoke.e2e-spec.ts:102-154`; `…/kyc-ine-links.e2e-spec.ts:96-102` | **backend** | **Abierta** = **G-3** (condicionada a N-1) |
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -23907,6 +24141,12 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
     ventana en que una URL filtrada abre un documento de identidad. **Cambiarlo pasa por `seguridad`.**
   - ⚠️ **Supuesto de infraestructura que este pase NO midió y que `seguridad` debe comprobar:** que el bucket de
     producción es **privado** (sin ACL de lectura pública). Con un bucket público el presign no protege nada.
+    **Sigue abierto en v1.67.3**: §4.51 retira MinIO de las rutas **no-producción** y **no toca R2** — esta comprobación
+    es de **producción** y ninguna ruta de CI la sustituye (§4.51.5, G-1).
+  - ⭐ **NUEVA v1.67.3 (§4.51): el object storage de las rutas NO-producción es `scripts/s3-local/`, no MinIO.**
+    Las `S3_*` **no cambian** de nombre ni de semántica: cambia **quién** las atiende en local/CI. Variables propias
+    del stand-in (`S3_LOCAL_HOST`, `S3_LOCAL_PORT`, `S3_LOCAL_DIR`, `S3_LOCAL_ALLOW_ANON`) son de **devops** y
+    **ninguna es un secreto**; `S3_LOCAL_ALLOW_ANON` **jamás** se activa en un gate (§4.51.6, invariante 3).
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Set destacado del hero (v1.9-set-chart):** `HOME_FEATURED_SET_ID` (**opcional**; id **nativo de pokemontcg.io** del `CardSet` a graficar en la home, ej. `sv8`). Si no se define o no resuelve a un `CardSet` local, aplica el fallback en cascada de §4.12b (mayor valor en el último snapshot → set más reciente por `releaseDate`). **El valor concreto lo fija devops/backend** por entorno; el arquitecto define solo el mecanismo. No es secreto. Reusa `POKEMONTCG_IO_API_KEY` para el `set-price-sync`.
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
