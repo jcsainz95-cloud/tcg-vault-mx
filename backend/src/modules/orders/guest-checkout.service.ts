@@ -431,6 +431,15 @@ export class GuestCheckoutService {
    * desplegar M-53), que no tienen vencimiento y se barren por `createdAt` como hoy. ⛔ Un pedido
    * con dueño NO entra aquí aunque sea viejo: su TTL pudo RENOVARSE por reuso y solo `reservedUntil`
    * dice si venció. Se retira con el conteo de ARCHITECTURE §4.48.7(5).
+   *
+   * ⚠️ **SEC-SB-1 / C9 — SUBSUMIDA desde v1.68.1.** Esta rama cubría SOLO invitado + `direct_ship`;
+   * la legada de BÓVEDA (y la de envío directo de un usuario CON cuenta) no la barría nadie. Ahora
+   * `OrdersService.sweepExpiredReservations` cubre **todas** las legadas (ver `legacyExpiredByOrder`)
+   * y el job la ejecuta ANTES que a ésta, así que en régimen normal aquí ya no queda nada que barrer
+   * (el `swept` de este método tiende a 0, no porque falle sino porque llega segundo). Se conserva
+   * mientras dure la rama `IS NULL` del guard y se retira **con ella**, en la misma ficha `RSV-L1`,
+   * cuando el conteo de §4.48.7(5) sea 0 en producción. ⛔ No ensanchar ésta: la política legada vive
+   * ya en un solo sitio.
    */
   async sweepStaleGuestOrders(now = new Date()): Promise<{ swept: number }> {
     const cutoff = new Date(now.getTime() - GUEST_ORDER_RESERVATION_TTL_MIN * 60 * 1000);

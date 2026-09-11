@@ -20680,3 +20680,238 @@ por sí solo cura las altas **nuevas**, no las ya escritas.
 `uploads`, `users`, `admin`, `audit`, `backend/prisma/schema.prisma` (otro agente backend en
 paralelo) y `frontend/` entero — incluidas la cola de M1 que pinta el sellado con forma de carta, el
 `ItemDetailModal.tsx:64-66` que obliga a teclear precio manual, y P-69.
+
+---
+
+# §SEC-SB-1 · El barrido llega a la bóveda: la reserva LEGADA que nadie podía reclamar (condición **C9**)
+
+> **Propiedad: backend.** Cierra la parte de código de `SEC-SB-1` (`docs/SECURITY_NOTES.md` §3.4,
+> commit `82525a0`) y de `SB-B1` (`docs/PENTEST_NOTES.md`). Rama de trabajo sobre `HEAD` = `2da899f`.
+> Ficheros tocados: `backend/src/modules/orders/orders.service.ts`,
+> `backend/src/modules/orders/guest-checkout.service.ts` (solo comentario),
+> `backend/test/orders.reservation-owner.spec.ts`,
+> `backend/test/integration/vault-legacy-reservation-sweep.e2e-spec.ts` (nuevo).
+> ⛔ **Ni una migración de datos. Ni una petición a producción.** El conteo se deja como `SELECT`
+> para la ventana autorizada (§SEC-SB-1.4).
+
+## §SEC-SB-1.1 — El equipo azul tiene razón, y ésta es la medición que lo sostiene
+
+Se me pidió **verificar, no relayar**, el argumento del blue team («"transitorio" es la palabra
+equivocada: lo indultado es toda la acumulación histórica»). **Lo confirmo, con tres mediciones
+propias sobre el árbol, no con su informe:**
+
+| # | Afirmación | Medición mía `[MEDIDO]` | Veredicto |
+|---|---|---|---|
+| 1 | La migración M-53 **no hizo backfill** ⇒ «legada» no es «lo que estaba en vuelo», es **toda** pieza que estuviera `reserved` en el instante del deploy | `backend/prisma/migrations/20260911130000_m53_reservation_owner/migration.sql`: dos `ADD COLUMN … NULL`, un FK, dos índices. **Cero `UPDATE`**, y el propio fichero lo declara: «⛔ SIN backfill». | **Confirmado** |
+| 2 | Antes de v1.68 **una orden de bóveda `pending` no se barría nunca** ⇒ la acumulación existe desde que existe el checkout de bóveda | `git show c8bee65:backend/src/modules/orders/guest-checkout.service.ts` (el commit que HOY corre en producción), `sweepStaleGuestOrders`: `where: { status:'pending', guestEmail: { not: null }, fulfillmentMode:'direct_ship', createdAt: { lt: cutoff } }`. Y `git show c8bee65:backend/src/jobs/guest-order-sweep.service.ts`: el job encadenaba **ese único** barrido. | **Confirmado, y es más ancho de lo reportado** — ver abajo |
+| 3 | Ninguno de los dos barridos cubre la legada de bóveda | `orders.service.ts:969` `reservedByOrderId: { not: null }` (la excluye por construcción) + `guest-checkout.service.ts:443` (`guestEmail NOT NULL` **y** `direct_ship`) + `jobs/order-reservation-sweep.service.ts:33-34` (encadena solo esos dos) | **Confirmado** |
+
+**Dónde el hallazgo es MÁS ancho que como está escrito en los dos informes** (aportación mía, no
+corrección de nadie): el filtro del barrido legado no es «bóveda sí, envío directo no», es
+**`guestEmail IS NOT NULL`**. Un usuario **con cuenta** que compra con **envío directo** también
+tiene `guestEmail IS NULL` ⇒ su reserva legada tampoco la barre nadie. El hueco es *toda orden
+`pending` de un usuario con cuenta*, en **sus dos** modos de entrega, no solo bóveda.
+
+**Dónde el red team también tiene razón y conviene no perderlo:** el impacto es **disponibilidad**,
+no titularidad. Lo verifiqué por el mismo mecanismo que ellos y además **lo dejé como aserción
+ejecutable** en el E2E: una pieza legada no la puede reclamar **ni su propio comprador** — el
+reintento del mismo cliente sobre esa pieza responde `409 ITEM_UNAVAILABLE` (`reserveItems` exige
+`listed|in_stock`). Es exactamente lo que la convierte en basura irrecuperable sin intervención
+humana: nadie la roba, y nadie la rescata.
+
+**Sobre la consecuencia de segundo orden (la rama `IS NULL` del guard «no podrá retirarse nunca»):**
+también confirmada, y ver §SEC-SB-1.5 — mi barrido la deja **retirable**, que hoy no lo es, pero el
+disparo de la retirada sigue siendo un número que **solo se mide en el target**.
+
+## §SEC-SB-1.2 — Dónde vive el barrido, y por qué ahí
+
+**Decisión: dentro de `OrdersService.sweepExpiredReservations`, como una segunda fuente de
+candidatos del MISMO bucle** (helper privado `legacyExpiredByOrder`). No un job nuevo, no un método
+separado encadenado por `jobs/`, y **no** ensanchar `GuestCheckoutService.sweepStaleGuestOrders`.
+
+Las tres razones, en orden de peso:
+
+1. **Una orden no puede ser barrida por dos caminos.** El barrido agrupa **por orden** porque por
+   orden se cancela el PaymentIntent (B3). Dos pasadas independientes sobre la misma orden podrían
+   cancelar su PI dos veces y liberar en dos transacciones distintas. Con una sola fuente de verdad
+   —un `Map<orderId, itemIds>` que se llena de dos consultas y se recorre una vez— eso es imposible
+   por construcción. Es el mismo criterio T2 que ya rige en `releaseReservationData`.
+2. **`guest-checkout.service.ts` es el dueño del ciclo de vida del pedido de INVITADO.** Meter ahí
+   el barrido de una orden de bóveda de un usuario **con cuenta** sería ponerle a ese servicio una
+   responsabilidad que no es suya. La regla de negocio de reservas vive en `orders/` (lo dice la
+   cabecera del propio job).
+3. **La política legada queda en UN sitio.** `sweepStaleGuestOrders` queda **subsumida** (su
+   cobertura es un subconjunto estricto de la nueva) y anotada como tal en su docblock: se retira
+   **con** la rama `IS NULL` del guard, en la misma ficha `RSV-L1`, no antes y no por separado.
+
+**El plazo de la legada se deriva, no se inventa.** Una pieza legada no tiene `reservedUntil` (M-53
+no tenía de dónde sacarlo). Su vencimiento es `Order.createdAt + ORDER_RESERVATION_TTL_MIN` — la
+única fecha que sí existe, y es el mismo TTL (60 min) que rige para todo lo demás (§4-R.1).
+
+### Las tres condiciones que impiden soltar una pieza con dueño vivo
+
+Soltar de más es peor que soltar de menos: le quitas a un cliente algo que está pagando. Ninguna de
+las tres es prescindible, y **cada una tiene su mutación** (§SEC-SB-1.3):
+
+| # | Condición | Qué protege |
+|---|---|---|
+| 1 | `Order.status = 'pending'` | Una legada bajo una orden `settled`/`refunded`/`chargeback` **tiene dueño: el que pagó**. No se toca aunque siga `reserved` por una anomalía; eso es runbook, no barrido. |
+| 2 | `Order.createdAt < now − 60 min` | El checkout de hace diez minutos que está en el 3-D Secure **no es basura**. |
+| 3 | **B3**: el PaymentIntent se cancela ANTES y tiene que quedar `canceled` | Es la guarda fuerte. La única vía por la que una legada aún podía reclamarse es el webhook de su propio PI; un PI cancelado ya no dispara `succeeded`. Si Stripe responde `processing`/`succeeded`, la orden se salta entera y se reintenta en la próxima pasada. |
+
+**Por qué la orden que encuentro es la dueña y no otra** (invariante, `[código]`): una pieza
+`reserved` está en las líneas de **como mucho una** orden `pending`. `reserveItems` exige
+`status ∈ {listed,in_stock}` para crear la `OrderItem`, y **toda** ruta que devuelve la pieza a ese
+estado (liberación, sustitución, webhook `failed|canceled`, barrido) marca su orden `failed` **en la
+misma transacción**. Las demás órdenes que mencionen la pieza son pasado terminal.
+
+**Observabilidad:** `sweepExpiredReservations` devuelve ahora `{ swept, skipped, legacy }` y registra
+aparte cuántas piezas legadas entraron en la pasada. `legacy` es una población que **se agota**:
+mientras no sea 0 en una pasada, la rama `IS NULL` del guard no se puede retirar.
+
+## §SEC-SB-1.3 — La prueba fija la PROPIEDAD, y las mutaciones lo demuestran
+
+`backend/test/integration/vault-legacy-reservation-sweep.e2e-spec.ts` (Postgres real, doble offline
+de Stripe). **No nombra** `legacyExpiredByOrder`, ni el `where`, ni el servicio: pide el **job
+programado** (el mismo que corre el cron) y mira `InventoryItem.status` / `Order.status`, que es lo
+que ve el dueño de la tienda. Si el barrido se reescribe en otro sitio, debe seguir verde.
+
+| Grupo | Caso | Propiedad |
+|---|---|---|
+| (1) nadie puede reclamarla ⇒ **acaba disponible** | bóveda de usuario con cuenta; invitado `direct_ship`; **lote** de 3 a la vez | `reserved` → `listed`/`platform`, orden `failed`, PI cancelado, y **se puede volver a vender** |
+| (2) con dueño vivo ⇒ **no se toca** | orden reciente; PI no cancelable; orden `settled`; reserva normal viva | sigue `reserved`, orden intacta |
+
+**Mutaciones (copia del árbol ENTERO en
+`scratchpad/backend-vault-sweep/base`, BD propia `tcg_vs1_mut`; 3 corridas cada una):**
+
+| Mutación | Qué quita | Resultado |
+|---|---|---|
+| **m-legacy** — `orders.service.ts` = `HEAD` (sin la cobertura nueva) | el barrido de la bóveda entero | **ROJO 3/3**: caen *bóveda* y *lote*; el caso de **invitado sigue verde** (lo cubría la rama legada vieja) y los 4 de «dueño vivo» también ⇒ la prueba distingue **qué mitad** faltaba |
+| **m-sin-plazo** — quita `createdAt < cutoff` | la protección del cliente que está pagando | **ROJO 3/3**, y cae **exactamente** el caso «la orden es RECIENTE» |
+| **m-sin-estado** — quita `status:'pending'` | la protección de la pieza ya pagada | **ROJO 3/3**, y cae **exactamente** el caso «la orden ya está LIQUIDADA» |
+
+Control sobre la misma copia y la misma BD: **7/7 verde**. Ninguna corrida salió «0 total» (el
+falso verde de ts-jest): todas reportan `7 total`.
+
+## §SEC-SB-1.4 — ⭐ Cuántas hay AHORA: la consulta exacta para la ventana autorizada
+
+**NO MEDIDO — no tengo acceso a la base de producción y no lo he pedido.** Estas consultas son de
+**solo lectura**, no escriben nada y no hay migración de datos que correr. Cierran `C8`(a) y la
+primera mitad de `RSV-L1`.
+
+```sql
+-- (A) EL NÚMERO. Es la condición de retirada de la rama `IS NULL` del guard
+--     (ARCHITECTURE §4.48.7(5) / SECURITY_NOTES C8(a)): mientras no sea 0, NO se retira.
+SELECT count(*) AS reservas_legadas
+FROM "InventoryItem"
+WHERE status = 'reserved' AND "reservedByOrderId" IS NULL;
+
+-- (B) DESGLOSE por clase: qué drena el barrido nuevo y qué NO.
+--     ⚠️ El `LATERAL` no es adorno: una pieza puede aparecer en las líneas de VARIAS órdenes
+--     (intentos anteriores ya terminales). Un `JOIN` directo contra "OrderItem" MULTIPLICA las
+--     filas e infla el conteo. Aquí se ancla en la ÚNICA orden `pending` que puede tenerla.
+SELECT
+  CASE
+    WHEN p.id IS NULL                                          THEN 'D_sin_orden_pending'
+    WHEN p."createdAt" >= now() - interval '60 minutes'         THEN 'C_pending_reciente'
+    WHEN p."guestEmail" IS NOT NULL AND p."fulfillmentMode" = 'direct_ship'
+                                                                THEN 'A_pending_legado_invitado'
+    ELSE 'B_pending_legado_cuenta'
+  END                              AS clase,
+  count(*)                         AS piezas,
+  count(DISTINCT p.id)             AS pedidos,
+  min(p."createdAt")               AS pedido_mas_viejo,
+  sum(oi."unitPriceCents")         AS valor_congelado_centavos
+FROM "InventoryItem" i
+LEFT JOIN LATERAL (
+  SELECT o.id, o."createdAt", o."guestEmail", o."fulfillmentMode"
+  FROM "OrderItem" oi2
+  JOIN "Order" o ON o.id = oi2."orderId"
+  WHERE oi2."inventoryItemId" = i.id AND o.status = 'pending'
+  ORDER BY o."createdAt" DESC
+  LIMIT 1
+) p ON true
+LEFT JOIN "OrderItem" oi ON oi."inventoryItemId" = i.id AND oi."orderId" = p.id
+WHERE i.status = 'reserved' AND i."reservedByOrderId" IS NULL
+GROUP BY 1
+ORDER BY 1;
+```
+
+**Cómo se leen las cuatro clases de (B):**
+
+| Clase | Qué es | ¿La drena el barrido nuevo? |
+|---|---|---|
+| **A** `pending_legado_invitado` | lo único que cubría el barrido legado | **Sí** (ya lo cubría; ahora por un solo camino) |
+| **B** `pending_legado_cuenta` | **el hueco de `SEC-SB-1`**: bóveda y envío directo de usuario con cuenta | **Sí** — en la **primera pasada** tras desplegar esto, si su PI se deja cancelar |
+| **C** `pending_reciente` | clientes que están pagando ahora mismo | **No, y es correcto**: entran en cuanto pasen los 60 min |
+| **D** `sin_orden_pending` | pieza `reserved` legada **sin ninguna orden `pending`** que la reclame | **No.** Ver §SEC-SB-1.5 |
+
+**Sobre la clase D, medido `[MEDIDO]`:** en producción **no debería existir**, porque *no hay ningún
+camino de aplicación que borre una `Order`* (`grep -rn "order\.delete\|order\.deleteMany\|orderItem\.delete"
+backend/src` → **vacío**; las únicas borradas están en `prisma/seed-e2e.ts` y en specs). La vi
+aparecer **una vez en una BD de pruebas** (una fila, de la resiembra del arnés, que sí borra órdenes
+en cascada), y por eso la consulta la mide: si en producción sale `> 0`, esa pieza **no la suelta
+ningún barrido** y hace falta decisión del dueño (liberación puntual) antes de poder retirar la rama
+legada. Es exactamente la diferencia entre «el conteo bajará» y «el conteo llegará a 0».
+
+**Si (A) sale `0`:** `SEC-SB-1` no tuvo víctimas y `RSV-L1` queda listo para su segunda mitad.
+**Si (A) sale `> 0`:** el número de la fila **B** es el inventario que estuvo atascado, y el barrido
+lo devuelve solo en la primera pasada (el cron corre cada 15 min).
+
+## §SEC-SB-1.5 — La rama legada del guard (`RSV-L1`): **NO se retira aquí**, y qué cambia
+
+**No la toqué**, tal y como se me pidió: sigue viva en los tres sitios
+(`reservation.ts:39-44`, `payments.service.ts:642-650`, `guest-checkout.service.ts` en el barrido
+subsumido). Retirarla hoy rompería reservas legadas vivas.
+
+**Lo que sí cambia, y es la respuesta a «¿la deja retirable?»:**
+
+- **Antes:** el contador de (A) **solo podía bajar por intervención humana**, porque ningún proceso
+  automático liberaba esas filas. La condición de retirada era inalcanzable por sí sola ⇒ la
+  relajación del eje de titularidad era **permanente de facto**, que es justo lo que el blue team
+  señala como el daño mayor.
+- **Ahora:** el contador **baja solo** en cada pasada del cron para las clases **A** y **B** —que es
+  toda la población que tiene una orden `pending` capaz de reclamarla— y **C** entra en cuanto vence.
+  La retirada pasa de «inalcanzable» a «esperar a que el barrido drene y medir».
+- **Con una excepción honesta:** la clase **D** (si existe) **no la drena nadie**, y basta una fila
+  para que (A) nunca sea 0. Por eso la consulta (B) la cuenta por separado: sin ese desglose,
+  «el conteo no baja» no distingue «el barrido no funciona» de «queda una fila de otra clase».
+
+**Cierre de `RSV-L1`, las dos mitades:** (1) `(A) = 0` medido en el target — sigue **NO MEDIDO**,
+es de ventana autorizada; (2) retirar los tres sitios — **backend, cuando (1) esté**. Esta entrega
+no cierra ninguna de las dos: hace que (1) sea **alcanzable**.
+
+## §SEC-SB-1.6 — Gates: qué medí, sobre qué árbol, y qué NO es mío
+
+⚠️ **El árbol vivo tiene trabajo sin commitear de otro agente backend** (KYC/admin/users/uploads +
+`schema.prisma`), y su cliente de Prisma generado en `node_modules` incluye columnas que **no están
+en ninguna migración de `HEAD`**. Por eso **todos** mis gates corren sobre una **copia del árbol
+completo** = `HEAD` (`2da899f`) **+ solo mis cuatro ficheros**, con `node_modules` **copiado** (no
+enlazado) y `prisma generate` **re-ejecutado dentro de la copia**, y contra **bases de datos
+propias** (`tcg_vs1`, `tcg_vs1_mut`, `tcg_vs1_base`, `tcg_vs1_b`). Ni una medición mía toca el árbol
+vivo ni las BD de los demás agentes.
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Unitarios (suite completa) | `npx jest` en la copia | **282 suites / 4638 pruebas, verde** |
+| Typecheck | `tsc --noEmit -p tsconfig.json` en la copia | **exit 0** (sobre el árbol VIVO falla con ~30 errores **que no son míos**: son del trabajo sin commitear del otro agente) |
+| Lint | `eslint` sobre `src/modules/orders/**` + mis dos specs | **exit 0** |
+| Integración — spec nuevo | `stack-native.sh test:integration --testPathPattern vault-legacy…` | **7/7 verde** |
+| Integración — suite completa, BD limpia | `stack-native.sh test:integration` (**2 corridas, BD limpia distinta cada una**) | **31/32 suites · 464/465 en las DOS (2/2, idéntico)**; el único rojo es `infra-smoke` («MinIO/S3: presign + PUT real», espera `403` y recibe `[200,204]`) |
+| **Línea base** del mismo comando sobre `HEAD` **sin mis ficheros**, BD limpia | ídem | **29/31 · 456/458**; rojos: **`infra-smoke` (el mismo)** y `buylist-step-guard` (carrera S-2 de 20 ms, ajena a mis módulos) |
+
+**Lectura de la línea base (O-1):** `infra-smoke` falla **igual con y sin mis cambios** ⇒ es del
+entorno (el S3 local sirve el objeto en vez de exigir firma), **no mío**, y es de **devops**.
+`buylist-step-guard` falló en la línea base y **no** con mis cambios ⇒ carrera conocida, ajena.
+En una corrida temprana sobre una BD **ya usada** vi también `stripe-in-tx-pool` en rojo con un
+`422` en el `POST /checkout/session` **de su propio montaje** (antes de que ningún barrido
+intervenga); **no se reprodujo** en las corridas sobre BD limpia. Lo anoto como **acoplamiento entre
+suites por estado de BD**, no como defecto de este cambio, y queda **NO MEDIDO** cuál es el `422`
+exacto: lo cerraría correr esa suite sola sobre la BD sucia y capturar `body.error.code`.
+
+## §SEC-SB-1.7 — Fuera de alcance (explícitamente NO tocado)
+
+`admin`, `users`, `uploads`, `buylist`, `backend/prisma/schema.prisma` (otro agente backend en
+paralelo), `backend/src/jobs/` (el job encadena `sweepExpiredReservations` sin cambios: la cobertura
+nueva entra por dentro, no por el envoltorio) y `frontend/` entero. Ninguna migración de datos,
+ninguna petición a producción, ningún secreto.

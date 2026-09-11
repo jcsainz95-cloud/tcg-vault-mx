@@ -68,7 +68,9 @@ describe('orders/reservation.ts — el helper compartido', () => {
 
 function buildOrders(stripe: Partial<Record<keyof StripeService, jest.Mock>> = {}) {
   const prisma: any = {
-    order: { findUnique: jest.fn(), update: jest.fn(async () => ({})) },
+    // `order.findMany`: la mitad LEGADA del barrido (SEC-SB-1/C9) pregunta por las órdenes
+    // `pending` que aún retienen piezas sin dueño. Por defecto, ninguna.
+    order: { findUnique: jest.fn(), findMany: jest.fn(async () => []), update: jest.fn(async () => ({})) },
     inventoryItem: { updateMany: jest.fn(async () => ({ count: 1 })), findMany: jest.fn(async () => []) },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
@@ -221,7 +223,7 @@ describe('OrdersService.sweepExpiredReservations — barrido ÚNICO por reserved
         { id: 'c', reservedByOrderId: 'o2' },
       ],
     );
-    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 2, skipped: 0 });
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 2, skipped: 0, legacy: 0 });
     expect(calls).toEqual(['cancel', 'release', 'cancel', 'release']);
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ['a', 'b'] }, ...reservationGuard('o1') },
@@ -245,7 +247,7 @@ describe('OrdersService.sweepExpiredReservations — barrido ÚNICO por reserved
     cancelPaymentIntent.mockImplementationOnce(async () => {
       throw new Error('already succeeded');
     });
-    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 1 });
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 1, legacy: 0 });
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledTimes(1);
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: { in: ['c'] }, ...reservationGuard('o2') } }),
@@ -257,7 +259,7 @@ describe('OrdersService.sweepExpiredReservations — barrido ÚNICO por reserved
       { o1: { id: 'o1', orderNumber: 'TCG-1', status: 'failed', stripePaymentIntentId: null } },
       [{ id: 'a', reservedByOrderId: 'o1' }],
     );
-    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 0 });
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 0, legacy: 0 });
     expect(prisma.order.update).not.toHaveBeenCalled();
   });
 });
@@ -290,12 +292,12 @@ describe('SB-D7 · sweepExpiredReservations: `swept` solo cuenta lo REALMENTE li
 
   it('el `updateMany` tocó 0 filas (otra ruta se adelantó) ⇒ `swept: 0`, NO 1', async () => {
     const { svc } = buildSweep(0);
-    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 0, skipped: 0 });
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 0, skipped: 0, legacy: 0 });
   });
 
   it('liberó de verdad ⇒ `swept: 1` (conducta intacta)', async () => {
     const { svc } = buildSweep(1);
-    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 0 });
+    expect(await svc.sweepExpiredReservations()).toEqual({ swept: 1, skipped: 0, legacy: 0 });
   });
 
   it('aunque no libere nada, la orden `pending` SÍ queda `failed` (no se deja a medias)', async () => {
