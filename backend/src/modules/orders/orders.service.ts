@@ -52,6 +52,22 @@ export interface UnavailableCartItemDTO {
 }
 
 /**
+ * v1.68.1 (§4-R.5) — la RESERVA PROPIA que el quote ve sobre el carrito. SIEMPRE presente en los dos
+ * quotes (`null` si no hay). Con más de una orden propia solapada describe la MÁS RECIENTE y
+ * `coversCart:false`. `expired` = `reservedUntil <= now` (aún no barrida): sigue siendo propia.
+ */
+export interface OwnReservationDTO {
+  orderId: string;
+  orderNumber: string | null;
+  reservedUntil: Date | null;
+  expired: boolean;
+  coversCart: boolean;
+}
+
+/** Identidad del cliente para el quote (§4-R.5): `userId` (cuenta) o la orden que el token resolvió (invitado). */
+export type QuoteOwner = { userId: string } | { orderId: string };
+
+/**
  * v2.0 (P-48, §4.36.7c / PROJECT §N.8) — la DECISIÓN de venta de UNA pieza: el monto y los cuatro
  * datos de instrumentación que se congelan con él. El quinto dato de §N.8 (el precio final) ES
  * `unitPriceCents`.
@@ -328,11 +344,21 @@ export class OrdersService {
    * el TRANSPORTE del fallo (poda vs. excepción), nunca el criterio. `PRICE_PENDING` (422) se
    * conserva y se evalúa DESPUÉS de la poda: solo lo dispara un ítem VÁLIDO sin precio.
    */
-  async priceCartForQuote(inventoryItemIds: string[]): Promise<{
+  async priceCartForQuote(
+    inventoryItemIds: string[],
+    // v1.68.1 (§4-R.5): quién pregunta. Sin identidad ⇒ conducta de hoy, literal.
+    owner?: QuoteOwner,
+    now = new Date(),
+  ): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
     lines: OrderLineData[];
     unavailableItems: UnavailableCartItemDTO[];
+    ownReservation: OwnReservationDTO | null;
+    /** Piezas del carrito reservadas por una orden PROPIA (`items[].reservedByYou: true`). */
+    reservedByYou: Set<string>;
+    /** La orden propia cuyo desglose CONGELADO rige el quote (`coversCart` y no vencida); si no, `null`. */
+    frozenOrder: Order | null;
   }> {
     // Un id repetido en el carrito no debe cotizar (ni podar) dos veces la misma pieza única.
     const uniqueIds = [...new Set(inventoryItemIds)];
@@ -342,20 +368,99 @@ export class OrdersService {
     });
     const byId = new Map(found.map((i) => [i.id, i]));
 
+    // ⭐ v1.68.1 — la reserva PROPIA es disponible. El eje es la ORDEN (`reservedByOrderId → Order
+    // pending del cliente`), nunca el `userId`/`guestEmail` de la pieza (candado R-8). Una reserva
+    // propia VENCIDA y aún no barrida sigue siendo propia (`expired: true`), nunca «ajena».
+    const ownOrders = owner
+      ? await this.prisma.order.findMany({
+          where: {
+            status: 'pending',
+            ...('userId' in owner ? { userId: owner.userId } : { id: owner.orderId }),
+            reservedItems: { some: { id: { in: uniqueIds }, status: 'reserved' } },
+          },
+          include: {
+            items: true,
+            reservedItems: { where: { status: 'reserved' }, select: { id: true, reservedUntil: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : [];
+    const reservedByYou = new Set<string>();
+    for (const o of ownOrders) for (const r of o.reservedItems) reservedByYou.add(r.id);
+
+    let ownReservation: OwnReservationDTO | null = null;
+    let frozenOrder: Order | null = null;
+    if (ownOrders.length > 0) {
+      const { reservedItems, items: orderItems, ...order } = ownOrders[0];
+      const untils = reservedItems.map((r) => r.reservedUntil?.getTime() ?? 0);
+      const reservedUntil = untils.length ? new Date(Math.min(...untils)) : null;
+      const expired = reservedUntil == null || reservedUntil.getTime() <= now.getTime();
+      const orderSet = new Set(orderItems.map((i) => i.inventoryItemId));
+      const held = new Set(reservedItems.map((r) => r.id));
+      const coversCart =
+        ownOrders.length === 1 &&
+        orderSet.size === uniqueIds.length &&
+        uniqueIds.every((id) => orderSet.has(id) && held.has(id));
+      ownReservation = { orderId: order.id, orderNumber: order.orderNumber, reservedUntil, expired, coversCart };
+      if (coversCart && !expired) frozenOrder = order;
+    }
+    const frozenLineByItem = new Map(
+      frozenOrder ? ownOrders[0].items.map((oi) => [oi.inventoryItemId, oi]) : [],
+    );
+
     const valid: (InventoryItem & { card: Card & { set?: CardSet | null } })[] = [];
     const unavailableItems: UnavailableCartItemDTO[] = [];
     for (const id of uniqueIds) {
       const item = byId.get(id);
       if (!item) {
         unavailableItems.push({ inventoryItemId: id, cardName: null });
-      } else if (!this.isSellable(item)) {
-        unavailableItems.push({ inventoryItemId: id, cardName: item.card.name });
-      } else {
+      } else if (this.isSellable(item) || (item.status === 'reserved' && reservedByYou.has(id))) {
         valid.push(item);
+      } else {
+        unavailableItems.push({ inventoryItemId: id, cardName: item.card.name });
       }
     }
-    const { subtotalCents, lines } = await this.buildLines(valid);
-    return { items: valid, subtotalCents, lines, unavailableItems };
+    // Precios: CONGELADOS de la orden propia si rige (§4-R.2 regla 5: lo que el PI cobra); si no, en
+    // lectura, como hoy. `PRICE_PENDING` se evalúa sobre los válidos SIN reserva propia; una pieza
+    // propia sin precio en lectura cae a su precio congelado (ya lo tuvo al reservarse).
+    const lines: OrderLineData[] = [];
+    let subtotalCents = 0;
+    for (const item of valid) {
+      const frozen = frozenLineByItem.get(item.id);
+      let line: OrderLineData;
+      if (frozen) {
+        line = this.frozenLine(item, frozen);
+      } else if (reservedByYou.has(item.id)) {
+        try {
+          line = (await this.buildLines([item])).lines[0];
+        } catch (e) {
+          const own = ownOrders.flatMap((o) => o.items).find((oi) => oi.inventoryItemId === item.id);
+          if (!(e instanceof BusinessException) || !own) throw e;
+          line = this.frozenLine(item, own);
+        }
+      } else {
+        line = (await this.buildLines([item])).lines[0];
+      }
+      subtotalCents += line.unitPriceCents;
+      lines.push(line);
+    }
+    return { items: valid, subtotalCents, lines, unavailableItems, ownReservation, reservedByYou, frozenOrder };
+  }
+
+  /** Línea de quote con el precio CONGELADO de la `OrderItem` propia (la instrumentación viaja tal cual se congeló). */
+  private frozenLine(
+    item: InventoryItem & { card: Card & { set?: CardSet | null } },
+    oi: { unitPriceCents: number; marketMxnCents: number | null; priceBasis: PriceBasis | null; marketBracket: MarketBracket | null; finish: Finish | null },
+  ): OrderLineData {
+    return {
+      inventoryItemId: item.id,
+      cardSnapshot: this.cardSnapshot(item),
+      unitPriceCents: oi.unitPriceCents,
+      marketMxnCents: oi.marketMxnCents,
+      priceBasis: oi.priceBasis ?? 'market',
+      marketBracket: oi.marketBracket,
+      finish: oi.finish ?? item.finish,
+    };
   }
 
   /**
@@ -378,16 +483,19 @@ export class OrdersService {
    * forma; NO se corre el gross-up: cotizar la nada no puede producir un fee fijo > 0).
    * Session (`createSession`, abajo) NO usa esta ruta: sigue estricta.
    */
-  async quote(inventoryItemIds: string[]) {
-    const { items, subtotalCents, lines, unavailableItems } =
-      await this.priceCartForQuote(inventoryItemIds);
-    const previews = this.toOrderItemPreviews(items, lines);
+  async quote(inventoryItemIds: string[], userId?: string) {
+    const { items, subtotalCents, lines, unavailableItems, ownReservation, reservedByYou, frozenOrder } =
+      await this.priceCartForQuote(inventoryItemIds, userId ? { userId } : undefined);
+    const previews = this.toOrderItemPreviews(items, lines, reservedByYou);
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
-    const breakdown: BreakdownDTO =
-      lines.length === 0
+    // v1.68.1 (§4-R.5): con reserva propia que cubre el carrito y no vencida, el desglose es el
+    // CONGELADO de esa orden (lo que el PI cobra), para que pantalla y cobro no discrepen.
+    const breakdown: BreakdownDTO = frozenOrder
+      ? this.breakdownOf(frozenOrder)
+      : lines.length === 0
         ? this.zeroCartBreakdown(ivaPct)
         : computeCartBreakdown(subtotalCents, ivaPct, await this.settings.getStripeFee());
-    return { items: previews, breakdown, unavailableItems };
+    return { items: previews, breakdown, unavailableItems, ownReservation };
   }
 
   /**
@@ -410,12 +518,15 @@ export class OrdersService {
   toOrderItemPreviews(
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
     lines: OrderLineData[],
-  ): { inventoryItemId: string; card: OrderItemCardDTO; unitPriceCents: number }[] {
+    // v1.68.1 (§4-R.5): `reservedByYou: true` SOLO en las piezas reservadas por una orden propia; omitido si falso.
+    reservedByYou: Set<string> = new Set(),
+  ): { inventoryItemId: string; card: OrderItemCardDTO; unitPriceCents: number; reservedByYou?: true }[] {
     const cardByItemId = new Map<string, CardImageSource>(items.map((i) => [i.id, i.card]));
     return lines.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: resolveOrderItemCard(l.cardSnapshot, cardByItemId.get(l.inventoryItemId)),
       unitPriceCents: l.unitPriceCents,
+      ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     }));
   }
 
@@ -553,12 +664,14 @@ export class OrdersService {
   }
 
   /**
-   * ⭐⭐ v1.68 (§4-R.2) — PRE-SCAN de reservas PROPIAS y VIVAS que intersecan el carrito. Se llama
-   * SIEMPRE bajo `lockReservationGate` y por el MISMO `tx` (candado → releer → decidir → escribir).
+   * ⭐⭐ v1.68 (§4-R.2) — PRE-SCAN de reservas PROPIAS que intersecan el carrito. Se llama SIEMPRE
+   * bajo `lockReservationGate` y por el MISMO `tx` (candado → releer → decidir → escribir).
    * «Propia» = reservada por una orden `pending` cuyo cliente es quien llama: `userId` (con cuenta)
-   * o la orden que el `retryOfCheckoutToken` resolvió (invitado). «Viva» = `reservedUntil > now`.
-   * El eje es la ORDEN (`reservedByOrderId`), nunca el `userId`/`guestEmail` de la pieza: un hecho,
-   * un sitio (candado R-1).
+   * o la orden que el `retryOfCheckoutToken` resolvió (invitado). El eje es la ORDEN
+   * (`reservedByOrderId`), nunca el `userId`/`guestEmail` de la pieza: un hecho, un sitio (R-1).
+   * v1.68.1 (fila «Propia VENCIDA»): una propia con `reservedUntil <= now` y aún no barrida TAMBIÉN
+   * entra — `heldAlive:false` ⇒ nunca reuso (renovar competiría con el barrido) pero SUSTITUIBLE
+   * (money-safe: su PI se cancela antes), nunca «ajena» (candado R-9).
    */
   async findOwnLiveReservations(
     tx: Prisma.TransactionClient,
@@ -571,7 +684,6 @@ export class OrdersService {
       where: {
         id: { in: ids },
         status: 'reserved',
-        reservedUntil: { gt: now },
         reservedByOrder:
           'userId' in owner
             ? { userId: owner.userId, status: 'pending' }

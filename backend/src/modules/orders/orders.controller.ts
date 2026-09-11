@@ -20,8 +20,9 @@ export class OrdersController {
 
   @Post('checkout/quote')
   @HttpCode(200)
-  quote(@Body() dto: QuoteDto) {
-    return this.orders.quote(dto.inventoryItemIds);
+  quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto) {
+    // v1.68.1 (§4-R.5): el quote conoce la reserva PROPIA del cliente (por `userId`).
+    return this.orders.quote(dto.inventoryItemIds, userId);
   }
 
   // v1.5: comprar es acción sensible → requiere emailVerified (403 EMAIL_NOT_VERIFIED si no).

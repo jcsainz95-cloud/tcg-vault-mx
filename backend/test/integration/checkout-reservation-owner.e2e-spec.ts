@@ -315,6 +315,164 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
     });
   });
 
+  describe('R-8 (v1.68.1 §4-R.5) — el QUOTE conoce la reserva propia: quote → session ⇒ 200 reused, punta a punta', () => {
+    const quote = (token: string, ids: string[]) =>
+      h.api('POST', '/checkout/quote', { token, json: { inventoryItemIds: ids } });
+    let Q: string;
+    let Q2: string;
+    let orderQ: string;
+    let piQ: string;
+    let frozenUnit: number;
+    let frozenBreakdown: Record<string, unknown>;
+
+    it('antes de reservar: quote sin reservedByYou y ownReservation: null (siempre presente)', async () => {
+      Q = (await piece('Q')).id;
+      const res = await quote(tokenC, [Q]);
+      expect(res.status).toBe(200);
+      expect(res.body.ownReservation).toBeNull();
+      expect(res.body.items[0]).not.toHaveProperty('reservedByYou');
+      frozenUnit = res.body.items[0].unitPriceCents;
+    });
+
+    it('tras session: la pieza reservada por MI orden es disponible (reservedByYou:true), ownReservation coversCart y precios CONGELADOS aunque suba el precio', async () => {
+      const s = await session(tokenC, [Q]);
+      expect(s.status).toBe(201);
+      orderQ = s.body.orderId;
+      piQ = s.body.stripe.paymentIntentId;
+      frozenBreakdown = s.body.breakdown;
+      await h.prisma.inventoryItem.update({ where: { id: Q }, data: { listPriceCents: frozenUnit + 50000 } });
+      const res = await quote(tokenC, [Q]);
+      expect(res.status).toBe(200);
+      expect(res.body.unavailableItems).toEqual([]);
+      expect(res.body.items).toHaveLength(1);
+      expect(res.body.items[0]).toMatchObject({ inventoryItemId: Q, reservedByYou: true, unitPriceCents: frozenUnit });
+      expect(res.body.ownReservation).toMatchObject({
+        orderId: orderQ,
+        orderNumber: s.body.orderNumber,
+        expired: false,
+        coversCart: true,
+      });
+      expect(new Date(res.body.ownReservation.reservedUntil).getTime()).toBeGreaterThan(Date.now());
+      expect(res.body.breakdown).toEqual(frozenBreakdown);
+    });
+
+    it('carrito distinto [Q,Q2]: Q reservedByYou, Q2 no; ownReservation.coversCart:false y precios EN LECTURA', async () => {
+      Q2 = (await piece('Q2')).id;
+      const res = await quote(tokenC, [Q, Q2]);
+      expect(res.status).toBe(200);
+      const q = res.body.items.find((i: any) => i.inventoryItemId === Q);
+      const q2 = res.body.items.find((i: any) => i.inventoryItemId === Q2);
+      expect(q.reservedByYou).toBe(true);
+      expect(q2).not.toHaveProperty('reservedByYou');
+      expect(q.unitPriceCents).toBe(frozenUnit + 50000); // en lectura: el override manual nuevo
+      expect(res.body.ownReservation).toMatchObject({ orderId: orderQ, coversCart: false, expired: false });
+      expect(res.body.breakdown).not.toEqual(frozenBreakdown);
+    });
+
+    it('cliente D: la misma pieza sigue en unavailableItems y ownReservation: null (la reserva no es suya)', async () => {
+      const res = await quote(tokenD, [Q]);
+      expect(res.status).toBe(200);
+      expect(res.body.items).toEqual([]);
+      expect(res.body.unavailableItems.map((u: any) => u.inventoryItemId)).toEqual([Q]);
+      expect(res.body.ownReservation).toBeNull();
+    });
+
+    it('punta a punta: «Pagar» desde el quote ⇒ session con el carrito completo ⇒ 200 reused, misma orden y PI', async () => {
+      const q = await quote(tokenC, [Q]);
+      const ids = q.body.items.map((i: any) => i.inventoryItemId);
+      expect(ids).toEqual([Q]);
+      const s = await session(tokenC, ids);
+      expect(s.status).toBe(200);
+      expect(s.body).toMatchObject({ reused: true, orderId: orderQ, stripe: { paymentIntentId: piQ } });
+      await h.prisma.inventoryItem.update({ where: { id: Q }, data: { listPriceCents: null } });
+    });
+
+    it('invitado: con retryOfCheckoutToken+email ⇒ reservedByYou; sin token ⇒ podada; token sin email ⇒ 400', async () => {
+      const G = (await piece('GQ')).id;
+      const email = `gquote.${RUN}@example.com`;
+      const s = await guestSession([G], email);
+      expect(s.status).toBe(201);
+      const gq = (body: Record<string, unknown>) => h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [G], ...body } });
+      const withToken = await gq({ retryOfCheckoutToken: s.body.checkoutToken, email });
+      expect(withToken.status).toBe(200);
+      expect(withToken.body.items[0]).toMatchObject({ inventoryItemId: G, reservedByYou: true });
+      expect(withToken.body.ownReservation).toMatchObject({ orderId: s.body.orderId, coversCart: true, expired: false });
+      expect(withToken.body.breakdown).toEqual(s.body.breakdown);
+      const noToken = await gq({});
+      expect(noToken.status).toBe(200);
+      expect(noToken.body.items).toEqual([]);
+      expect(noToken.body.ownReservation).toBeNull();
+      const otherEmail = await gq({ retryOfCheckoutToken: s.body.checkoutToken, email: `otro.${RUN}@example.com` });
+      expect(otherEmail.body.items).toEqual([]);
+      expect(otherEmail.body.ownReservation).toBeNull();
+      const noEmail = await gq({ retryOfCheckoutToken: s.body.checkoutToken });
+      expect(noEmail.status).toBe(400);
+      expect(noEmail.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('R-9 (v1.68.1) — reserva propia VENCIDA y no barrida: sustituible siempre, nunca ajena, nunca reuso', () => {
+    const expire = (orderId: string) =>
+      h.prisma.inventoryItem.updateMany({
+        where: { reservedByOrderId: orderId },
+        data: { reservedUntil: new Date(Date.now() - 60_000) },
+      });
+
+    it('quote: sigue siendo propia (reservedByYou, ownReservation.expired:true) con precios en lectura; session ⇒ 201 supersededOrderIds, no 200 ni 409', async () => {
+      const E = (await piece('EXP')).id;
+      const first = await session(tokenC, [E]);
+      expect(first.status).toBe(201);
+      await expire(first.body.orderId);
+      const q = await h.api('POST', '/checkout/quote', { token: tokenC, json: { inventoryItemIds: [E] } });
+      expect(q.body.items[0]).toMatchObject({ inventoryItemId: E, reservedByYou: true });
+      expect(q.body.ownReservation).toMatchObject({ orderId: first.body.orderId, expired: true, coversCart: true });
+      const logStart = h.stripe.callLog.length;
+      const s = await session(tokenC, [E]);
+      expect(s.status).toBe(201);
+      expect(s.body.supersededOrderIds).toEqual([first.body.orderId]);
+      expect(s.body.orderId).not.toBe(first.body.orderId);
+      expect(h.stripe.callLog.slice(logStart)[0]).toBe(`cancel:${first.body.stripe.paymentIntentId}`);
+      expect((await order(first.body.orderId)).status).toBe('failed');
+      expect((await item(E)).reservedByOrderId).toBe(s.body.orderId);
+    });
+
+    it('carrera sesión ↔ barrido sobre la propia vencida, 10 corridas: siempre 201, la pieza acaba en la orden nueva y la vieja failed — proporción', async () => {
+      const RUNS = 10;
+      let ok = 0;
+      const failures: string[] = [];
+      for (let run = 1; run <= RUNS; run += 1) {
+        const P = (await piece(`EXPRACE${run}`)).id;
+        const first = await session(tokenC, [P]);
+        expect(first.status).toBe(201);
+        await expire(first.body.orderId);
+        const [s, sweep] = await Promise.all([
+          session(tokenC, [P]),
+          h.app.get(OrderReservationSweepJobService).run(),
+        ]);
+        const it = await item(P);
+        const old = await order(first.body.orderId);
+        const pending = await pendingOrdersOfCWith(P);
+        const good =
+          s.status === 201 &&
+          it.status === 'reserved' &&
+          it.reservedByOrderId === s.body.orderId &&
+          s.body.orderId !== first.body.orderId &&
+          old.status === 'failed' &&
+          pending === 1 &&
+          intentsOf(s.body.orderId) === 1;
+        if (good) ok += 1;
+        else
+          failures.push(
+            `run ${run}: status=${s.status} code=${s.body?.error?.code ?? '-'} superseded=${JSON.stringify(s.body?.supersededOrderIds)} sweep=${JSON.stringify(sweep)} item=${it.status}/${it.reservedByOrderId} old=${old.status} pending=${pending}`,
+          );
+      }
+      // eslint-disable-next-line no-console
+      console.log(`[R-9] carrera sesión↔barrido × ${RUNS}: ${ok}/${RUNS}${failures.length ? `\n  ${failures.join('\n  ')}` : ''}`);
+      expect(failures).toEqual([]);
+      expect(ok).toBe(RUNS);
+    });
+  });
+
   describe('R-6 — barrido ÚNICO por reservedUntil (bóveda E invitado)', () => {
     it('una orden de BÓVEDA pending con reservedUntil vencido se barre: pieza listed/platform, orden failed, PI cancelado (D-SB-1 cerrada)', async () => {
       const V = (await piece('VAULT')).id;

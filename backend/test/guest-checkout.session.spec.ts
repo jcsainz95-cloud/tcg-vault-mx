@@ -139,6 +139,10 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       finish: 'normal' as const,
     })),
     unavailableItems: [],
+    // v1.68.1 (§4-R.5): sin identidad no hay reserva propia.
+    ownReservation: null,
+    reservedByYou: new Set<string>(),
+    frozenOrder: null,
   }));
   jest.spyOn(orders, 'nextOrderNumber').mockResolvedValue('TCG-000123');
   const svc = new GuestCheckoutService(
@@ -361,7 +365,8 @@ describe('GuestCheckoutService.quote', () => {
     // Comparte `OrdersService.priceCartForQuote` con POST /checkout/quote (v1.21.3): no hay
     // tabla de precios paralela para invitados (criterio 48b: comprar como invitado no cambia
     // condiciones). La regla de venta/precio es la MISMA que la ruta estricta de session.
-    expect(orders.priceCartForQuote).toHaveBeenCalledWith(['item-1']);
+    // v1.68.1 (§4-R.5): sin `retryOfCheckoutToken` no hay identidad ⇒ `owner` undefined (conducta de hoy).
+    expect(orders.priceCartForQuote).toHaveBeenCalledWith(['item-1'], undefined);
   });
 
   describe('v1.21.3-quote-prune — poda por ítem (§4-G.1)', () => {

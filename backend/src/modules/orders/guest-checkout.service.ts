@@ -82,21 +82,33 @@ export class GuestCheckoutService {
    */
   async quote(dto: GuestQuoteDto) {
     if (dto.shippingAddress) this.assertMxAddress(dto.shippingAddress.country);
-    const { items, lines, subtotalCents, unavailableItems } = await this.orders.priceCartForQuote(
-      dto.inventoryItemIds,
-    );
-    const { breakdown, vaultBreakdown } = await this.quoteBreakdowns(
-      subtotalCents,
-      lines.length === 0,
-    );
+    // v1.68.1 (§4-R.5): la reserva propia existe SOLO con `retryOfCheckoutToken` + `email` válidos
+    // (misma regla que la sesión, §4-R.3). Token inválido/otro correo ⇒ conducta de hoy. READ-ONLY.
+    const claimedOrderId =
+      dto.retryOfCheckoutToken && dto.email
+        ? await this.resolveRetryClaim(dto.retryOfCheckoutToken, normalizeEmail(dto.email))
+        : null;
+    const { items, lines, subtotalCents, unavailableItems, ownReservation, reservedByYou, frozenOrder } =
+      await this.orders.priceCartForQuote(
+        dto.inventoryItemIds,
+        claimedOrderId ? { orderId: claimedOrderId } : undefined,
+      );
+    const computed = await this.quoteBreakdowns(subtotalCents, lines.length === 0);
+    // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
+    const breakdown: DirectShipBreakdownDTO = frozenOrder
+      ? { ...this.orders.breakdownOf(frozenOrder), shippingFeeCents: frozenOrder.shippingFeeCents }
+      : computed.breakdown;
+    const vaultBreakdown = computed.vaultBreakdown;
     return {
       // §5.2.5 / contrato v1.51-b: `card` es un `OrderItemCardDTO` (8 hechos congelados +
       // `imageSmallUrl` resuelta en lectura). Se usa el MISMO cuerpo que `POST /checkout/quote`
       // —el hueco gris del invitado tenía exactamente la misma causa— y sin consulta extra: la
       // imagen sale del `card` que `priceCartForQuote` ya cargó para preciar.
-      items: this.orders.toOrderItemPreviews(items, lines),
+      items: this.orders.toOrderItemPreviews(items, lines, reservedByYou ?? new Set<string>()),
       fulfillmentMode: 'direct_ship' as const,
       breakdown,
+      // v1.68.1 (§4-R.5): SIEMPRE presente (`null` si no hay reserva propia).
+      ownReservation: ownReservation ?? null,
       // v1.21.4-dual-breakdown (§4-G.1): segundo desglose "de bóveda" (solo cartas, SIN envío),
       // informativo/reactivo (gancho del upsell). SIEMPRE presente; pagar bóveda sigue exigiendo
       // cuenta (§4-G.2 `422 VAULT_REQUIRES_ACCOUNT`).
