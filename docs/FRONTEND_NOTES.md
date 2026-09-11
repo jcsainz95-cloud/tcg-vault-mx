@@ -16051,3 +16051,110 @@ agentes entre el arranque del backend y el del frontend; `backend/package.json` 
 árbol de **frontend** servido sí es idéntico al esperado (`26d5dc841ca5` en ambos). Para lo que mide este
 frente (guards + logout) el backend no cambió; para el gate formal, QA debe re-medir sobre un stack cuyo
 backend sea HEAD.
+
+## §69 · Stream B (agente frontend B1) — F-1 M5 §M5-S, F-2 checkout §4-R (reserva con dueño), F-3 pedidos §4-R.5 (contrato v1.68, `ARCHITECTURE §4.48.8`) — 2026-09-11, rama `claude/tcg-hunt-orchestration-2`
+
+Todo contra el **contrato v1.68 y la rama mock de `lib/api.ts`**: al cerrar este pase, backend tenía aterrizados
+**B-1a** (`b883fab`, schema + helper), **B-2** (`8ea2c36`, §M5-S), **B-4** (`5101bb8`) y **B-1c** (`07c7561`,
+payments); **B-1b** (`orders.service` / `guest-checkout.service`: pre-scan, reuso, `retryOfCheckoutToken`,
+`orderNumber`/`reservedUntil` en `GET /orders`) **NO** (`git log -- backend/src/modules/orders` medido al cierre). Por eso
+**nada de F-2/F-3 está medido contra backend real**; F-1 tampoco (el bundle real no se levantó en este pase).
+
+### 1. Tarea → commit → medición (2026-09-11, árbol vivo salvo la mutación)
+
+| Tarea | Commit | Medición |
+|---|---|---|
+| Capa de tipos + simulador §4-R + invariante S en el mock + i18n | `d8c0ee9` | `tsc --noEmit` limpio; `lib/mock/reservation.test.ts` 9/9 (tabla de §4-R.2 y R-7 invitado); `api.checkout-quote.test.ts` verde. ⚠️ **Este commit arrastró dos deleciones de `backend/`** que el agente B-1 tenía en el índice compartido (`backend/src/jobs/guest-order-sweep.service.ts`, `backend/test/guest-order-sweep.job.spec.ts`): `git commit` commitea el índice entero. No las toqué ni reescribí historia (sin reset); los commits siguientes usan `git commit -- <rutas>`. Remedio para el orquestador: son la intención del agente B-1 (sustituye `guest-order-sweep` por `order-reservation-sweep`); si quiere el mensaje fiel, `reset --soft` + re-split de `d8c0ee9` antes de fusionar |
+| **F-1** M5: «Marcar recibida» solo en `en_transito`, «Verificar» solo en `recibida`, `INVALID_TRANSITION` con el paso permitido | `f9c5108` | `M5View.transitions.test.tsx` **16/16** (matriz 11 estados × {receive, verify} + ciclo + 4 casos de mensaje); `M5View.test.tsx` intacto (la suite completa: 1694 verdes) |
+| ⭐ Mutación S-3 (O-9, sobre COPIA en `scratchpad/frontend-B1/mut`): `{req.status === 'en_transito' && (` → `{true && (` | — | **3/3 rojas**, 6 filas cada vez (`cotizada`, `ofertada`, `aceptada`, `recibida`, `verificacion`, `aprobada`); los 4 terminales no se ponen rojos porque «Cerradas» es otra tabla sin verbos. Control (árbol vivo) 16/16 |
+| **F-2** checkout: reuso / sustitución / `PAYMENT_IN_PROGRESS` / cuenta atrás; invitado con `retryOfCheckoutToken` en sessionStorage | `7851ad7` | `CheckoutRetry.test.tsx` **10/10**; `reservation-clock.test.ts` 4/4; `guest-retry-token.test.ts` 4/4; `CheckoutUnavailable.test.tsx` intacto (la poda por `ITEM_UNAVAILABLE` se conserva) |
+| **F-3** pedidos: folio real y «Reanudar pago» | `503e613` | `ResumePaymentAction.test.tsx` 5/5; `OrdersView.test.tsx` actualizado (folio en `ord-9002`, id en `ord-9003`) |
+| Playwright mock (`E2E_MOCK_DIST_DIR=.next-e2e-mock-b1`) | commit de specs (ver git log) | `checkout-retry.spec.ts` **3/3**, `orders-resume.spec.ts` **3/3**, `m5-transitions.spec.ts` 1/2 en la primera corrida (aserción del arnés, ver §69.3) y **2/2** tras acotar la aserción — corrida 3 (`scratchpad/frontend-B1-playwright-3.log`) |
+| Gates | — | `npm run lint` limpio; `tsc --noEmit` limpio; `vitest run` **1694/1696** (los 2 rojos son `lib/mock/fx-contract-mirror.test.ts`, F-4/FX: compara `FxSource` del cliente contra §M2-F.3 del contrato v1.68; mi diff no toca ninguno de los dos — `git diff HEAD -- src/types/contract.ts | grep -ci fx` = 0; es del pase serializado B-3/F-4); `scripts/check-format-mix.sh 17ce9a9 HEAD` rc=0; `frontend/tsconfig.json` limpio tras los builds de mocks (`tsconfig.next-e2e-mock-b1.json` generado e ignorado) |
+
+### 2. Decisiones de implementación
+
+1. **Campos v1.68 opcionales en el tipo, obligatorios en la conducta.** `reused`/`reservedUntil`/`supersededOrderIds`
+   (`CheckoutSessionResponse`, `GuestCheckoutSessionResponse`) y `reservedUntil` (`OrderSummaryDTO`/`OrderDetailDTO`)
+   se tipan `?` porque B-1b aterriza en paralelo: contra un backend anterior **no se pinta nada** (ni aviso ni cuenta
+   atrás), nunca un dato inventado. Mismo criterio que `pendingDecisionItemCount ?? 0` (v1.61). `orderNumber` queda
+   `?: string | null` solo porque `AdminOrderDTO` hereda de `OrderSummaryDTO` y §11 admin no lo garantiza.
+2. **La cuenta atrás no tiene TTL propio** (`checkout/reservation-clock.ts`): resta `reservedUntil` del reloj local y
+   formatea la hora en `America/Mexico_City` (misma zona que `formatDateTimeMx`), 24 h en `es` (`hourCycle: 'h23'`:
+   la ICU de Node pinta «7:05 a.m.» con `timeStyle`). El contador de segundos **no** es región viva; la hora absoluta
+   sí (`role="status"`, se anuncia una vez). Vencida ⇒ «La reserva venció. Al pagar volveremos a intentar reservar».
+3. **El desenlace de la session vive aparte del modal** (`outcome` vs `session`): al cerrar el modal sin pagar, la
+   reserva sigue siendo del cliente y su aviso + cuenta atrás siguen a la vista — es lo que le dice que el segundo
+   «Pagar» recupera, no duplica.
+4. **`PAYMENT_IN_PROGRESS` es un bloqueo explicado, no un error genérico** (`PaymentInProgressNotice`): «no se cobra
+   dos veces», enlace a `/orders/:id` (`details.orderId`, leído defensivo) con cuenta, «Reintentar en un momento» que
+   vuelve a llamar; «Pagar» apagado mientras dura. Invitado: sin enlace (no hay `/orders`), copy con «este correo».
+5. **`INVALID_TRANSITION` se resuelve en `M5View`**, no en `DETAILED_ERRORS` de `components/ui/QueryState.tsx`
+   (zona compartida, fuera de mis rutas): `fail()` intercepta el código y compone el mensaje con los rótulos de
+   `status-map` (`getBadgeSpec('sellRequest', s).i18nKey`) — nunca el enum ni el inglés; sin `details` cae a
+   `admin.m5.transition.invalidGeneric`. El namespace `admin.m5.transition.*` es el asignado; ver petición 3.
+6. **«Reanudar pago» sustituye el carrito** (no fusiona): el reuso exige igualdad de conjuntos; fusionar produciría una
+   sustitución (`201`) y cancelaría justo el intento que se quería reanudar. El botón lo dice en su `title`
+   (`orders.resume.cartReplaced`). Se ofrece **solo** con `status === 'pending'` y `reservedUntil` parseable y futuro.
+7. **Simulador de §4-R en `sessionStorage`** (`lib/mock/reservation.ts`): estado por pestaña (una reserva de otra
+   pestaña no es «propia»), sobrevive a `page.goto`; dial `tcg.mock.checkoutPiState=processing` (localStorage, para
+   `addInitScript`) ⇒ `PAYMENT_IN_PROGRESS`. El `pending` de fixtures (`ord-9002`, `inv-1002`) se siembra como reserva
+   propia de la cuenta **sin bloquear a terceros** (fidelidad acotada: si bloqueara, `inv-1002` dejaría de ser
+   comprable en el resto de fixtures/specs; medido: rompía `api.checkout-quote.test.ts`).
+8. **Token de reintento del invitado** (`checkout/guest-retry-token.ts`): `sessionStorage`, caduca con
+   `checkoutTokenExpiresAt` (un token vencido no se manda), viaja solo en el body, se sustituye por el token nuevo del
+   `200` y se borra al confirmar el pago. El simulador lee la **misma clave** (`readMockGuestRetryToken`, paridad
+   vigilada por `guest-retry-token.test.ts`) — motivo en la petición 1.
+9. **Mock de `receive`/`verify` con la invariante S** (`mockAssertTransition`): `409 INVALID_TRANSITION` con
+   `{ verb, from, allowedFrom, idempotentOn }` fuera del paso, `409 CONFLICT` en terminal (la fila mock no modela
+   `closedAt`: `isTerminal` de la proyección es el término T disponible). Coincide con la tabla que backend midió por
+   HTTP (`backend/test/integration/buylist-step-guard.e2e-spec.ts`, según el coordinador; no la corrí yo).
+
+### 3. Desviaciones respecto a contrato / diseño, con motivo
+
+- **Copy nuevo sin sección en `DESIGN_SYSTEM.md`**: §M5-S dice «la representación es de ux-ui» y §4-R no trae
+  copys. Propuse los textos en `messages/{es,en}.json` (`admin.m5.transition.*`, `checkout.retry.*`,
+  `orders.resume.*`) siguiendo §26/§27 (decir qué pasó, desde qué estado sí aplica, «no se guardó nada», «no se
+  cobra dos veces»). **Pendiente de ux-ui** (petición 2).
+- **El aviso de `supersededOrderIds` NO es silencioso** (ARCHITECTURE §4.48.8 lo llamaba «silencioso»): el encargo
+  pide «tu intento anterior se canceló». Se pinta como `role="status"` (información), no como `alert`.
+- **`E2E m5-transitions` asevera por estado, no por el feedback de `receive`**: el feedback de M5 va anclado a la
+  tarjeta y la fila cambia de pestaña al recibirse («Con el vendedor» → «Verificando»), así que el texto no queda a
+  la vista. Es conducta existente de la pantalla (no la cambié: tocarla es un cambio de UX que no pidió nadie); lo
+  anoto para ux-ui como observación (petición 2b).
+- **Botón «Marcar recibida» en `variant="primary"`** (antes `secondary` colgando de `cotizada`): en `en_transito` es
+  la acción principal de la tabla de §M5-S. Sin regla escrita en DESIGN_SYSTEM; si ux-ui prefiere `secondary`, es una
+  palabra.
+
+### 4. Peticiones (no las resuelvo yo)
+
+1. **Arquitecto — los QUOTES deben reconocer la reserva PROPIA (bloquea §4-R.5 «Reanudar pago» y el reintento en
+   general).** §4-R solo cambia `POST /checkout[/guest]/session`. `POST /checkout/quote` y `/checkout/guest/quote`
+   listan en `unavailableItems` toda pieza fuera de `{listed, in_stock}`; tras un intento caído la pieza está
+   `reserved` **por la propia orden** ⇒ el quote la devuelve como no disponible ⇒ `CheckoutView`/`GuestCheckoutView`
+   la **podan del carrito** (efecto v1.21.3) **antes** de que el cliente pulse «Pagar». Con cuenta pasa en cualquier
+   refetch (montar `/checkout` desde «Reanudar pago», foco de ventana); con invitado además el quote no lleva
+   `retryOfCheckoutToken`. Propuesta: (a) `/checkout/quote` trata como disponible lo `reserved` con
+   `reservedByOrderId` de una orden `pending` viva del `userId`; (b) `/checkout/guest/quote` acepta
+   `retryOfCheckoutToken?` con la misma regla de §4-R.3. La rama mock ya se comporta así (decisión 7/8) y está
+   marcada; si el arquitecto decide otra cosa (p. ej. «el front no re-cotiza mientras haya `outcome`»), es un cambio
+   de `useQuery` en las dos vistas. **Comprobación:** contra backend con B-1b, `orders-resume.spec.ts` caso 2 y
+   `checkout-retry.spec.ts` caso 1 en `@real`.
+2. **ux-ui** — (a) validar/redactar los copys propuestos en §69.3 (3 namespaces, ES/EN); (b) observación: el
+   feedback de M5 anclado a la tarjeta desaparece cuando la acción mueve la fila de pestaña (`receive`,
+   `confirm-shipment`); un toast global o anclar el feedback a la barra de pestañas lo resolvería.
+3. **Frontend (zona compartida, siguiente pase que la toque)** — `INVALID_TRANSITION` y `PAYMENT_IN_PROGRESS`
+   podrían vivir en el catálogo `error.*` + `DETAILED_ERRORS` de `QueryState.tsx` (§26) en vez de resolverse en la
+   vista; hoy no toqué `components/ui/` ni `lib/error-audience.ts` por propiedad de rutas.
+4. **Coordinador** — el commit `d8c0ee9` arrastra las dos deleciones de `backend/` (fila 1 de §69.1).
+
+### 5. Lo NO medido (para que nadie lo lea como hecho)
+
+- **Nada contra backend real**: ni el smoke de checkout (B-1b no aterrizó), ni M5 con `8ea2c36` (no levanté el
+  stack real en este pase). Lo cerraría: `E2E_BASE_URL=… E2E_REAL=1 playwright test checkout.spec.ts admin.spec.ts`
+  con B-1b dentro, y a mano `POST /admin/buylist/:id/receive` desde una `cotizada` para ver el copy de
+  `INVALID_TRANSITION` con `details` reales.
+- El `200` de reuso de invitado **rota el `checkoutToken`** según §4-R.3 (`rotate: false`); el front guarda el nuevo y
+  el simulador deja de reclamar con el viejo. Si el backend mantuviera válido el viejo, nada cambia para el front.
+- Playwright `m5-transitions` 2/2 sale de la corrida 3 (arnés acotado); las corridas 1 y 2 fallaron por aserciones del
+  spec, no por el producto (snapshots en `test-results/`).
