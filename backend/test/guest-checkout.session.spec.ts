@@ -444,8 +444,9 @@ describe('GuestCheckoutService.quote', () => {
     await svc.createSession(validDto() as never);
     // La poda vive SOLO en el quote. Crear un pedido con una pieza muerta DEBE seguir fallando
     // con 404/409 globales (anti double-sell, caso v de ARCHITECTURE §4.21h-1).
-    // v1.68 (§4-R.2): se precia DENTRO de la transacción que tiene la puerta (segundo arg = `tx`).
-    expect(orders.priceCartForOrder).toHaveBeenCalledWith(['item-1'], expect.anything());
+    // v1.68.1: se precia FUERA de la transacción (`priceCartOutsideGate`, por el pool de conexiones);
+    // sin `retryOfCheckoutToken` no hay reserva propia que reclamar ⇒ la llamada es la de siempre.
+    expect(orders.priceCartForOrder).toHaveBeenCalledWith(['item-1']);
     expect(orders.priceCartForQuote).not.toHaveBeenCalled();
   });
 });

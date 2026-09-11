@@ -148,6 +148,14 @@ export class GuestCheckoutService {
       ? await this.resolveRetryClaim(dto.retryOfCheckoutToken, guestEmail)
       : null;
 
+    // ⛔ v1.68.1: el precio, FUERA de la transacción (misma razón que la ruta de bóveda: dentro, cada
+    // checkout pediría una segunda conexión para `PricingService` y N concurrentes agotan el pool).
+    const { items, lines, subtotalCents } = await this.orders.priceCartOutsideGate(
+      dto.inventoryItemIds,
+      claimedOrderId ? { orderId: claimedOrderId } : undefined,
+    );
+    const breakdownPre = await this.breakdownFor(subtotalCents);
+
     const outcome = await this.prisma.$transaction(
       async (
         tx,
@@ -184,12 +192,9 @@ export class GuestCheckoutService {
           supersededOrderIds.push(o.order.id);
         }
 
-        const { items, lines, subtotalCents } = await this.orders.priceCartForOrder(
-          dto.inventoryItemIds,
-          tx,
-        );
-        const breakdown = await this.breakdownFor(subtotalCents);
-        const orderNumber = await this.orders.nextOrderNumber();
+        const breakdown = breakdownPre;
+        // v1.68.1: por el `tx` (una sola conexión por checkout; ver `OrdersService.nextOrderNumber`).
+        const orderNumber = await this.orders.nextOrderNumber(tx);
         const reservedUntil = reservedUntilFrom(now);
 
         // PROJECTION-EXEMPT: return DENTRO de la `$transaction`; el caller proyecta la respuesta del

@@ -1,5 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InventoryItem, Card, CardSet, Finish, MarketBracket, MovementReason, Order, Prisma } from '@prisma/client';
+import {
+  InventoryItem,
+  Card,
+  CardSet,
+  Finish,
+  MarketBracket,
+  MovementReason,
+  Order,
+  OrderItem,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -105,7 +115,7 @@ export interface CheckoutSessionResult {
  * orden); `heldAlive` dice si TODAS tienen `reservedUntil > now`.
  */
 export interface OwnReservation {
-  order: Order & { items: { inventoryItemId: string }[] };
+  order: Order & { items: OrderItem[] };
   heldItemIds: string[];
   heldAlive: boolean;
 }
@@ -314,22 +324,86 @@ export class OrdersService {
    */
   async priceCartForOrder(
     inventoryItemIds: string[],
-    // v1.68 (§4-R.2): en la SUSTITUCIÓN las piezas del pedido viejo se liberan y se vuelven a leer
-    // DENTRO de la misma transacción; una lectura por otra conexión no vería esa liberación.
-    db: Prisma.TransactionClient = this.prisma,
+    /**
+     * v1.68.1 (pool de conexiones) — piezas que YA están `reserved` por una orden `pending` MÍA, con
+     * su línea congelada. Son vendibles para mí (§4-R.2: reuso y sustitución las recuperan) y su
+     * precio congelado es el respaldo si el de catálogo ya no resuelve.
+     */
+    ownReserved: Map<string, OrderItem> = new Map(),
   ): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
     lines: OrderLineData[];
   }> {
-    const items = await this.loadItems(inventoryItemIds, db);
+    const items = await this.loadItems(inventoryItemIds);
     for (const item of items) {
-      if (!this.isSellable(item)) {
+      const mine = item.status === 'reserved' && ownReserved.has(item.id);
+      if (!this.isSellable(item) && !mine) {
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
       }
     }
-    const { subtotalCents, lines } = await this.buildLines(items);
+    const lines: OrderLineData[] = [];
+    let subtotalCents = 0;
+    for (const item of items) {
+      const frozen = ownReserved.get(item.id);
+      let line: OrderLineData;
+      try {
+        line = (await this.buildLines([item])).lines[0];
+      } catch (e) {
+        // Una pieza ya reservada por mí conserva su precio congelado: no se re-precia ni se rompe
+        // el reintento porque el catálogo dejó de resolver (§4-R.2 regla 5).
+        if (!(e instanceof BusinessException) || !frozen) throw e;
+        line = this.frozenLine(item, frozen);
+      }
+      subtotalCents += line.unitPriceCents;
+      lines.push(line);
+    }
     return { items, subtotalCents, lines };
+  }
+
+  /**
+   * ⭐ v1.68.1 — **el pricing va FUERA de la transacción del checkout, y eso es money-safety, no
+   * rendimiento.** Medido en CI (`connection_limit=5`, run 34624748695) y reproducido en local: con el
+   * pricing DENTRO de la `tx`, cada checkout retiene la conexión de su transacción y pide una SEGUNDA
+   * para `PricingService.getReference` (otro servicio, otro handle). Con N checkouts concurrentes ≥
+   * pool/2 el pool se agota y la petición muere con `Timed out fetching a new connection` ⇒ 500 en una
+   * ruta de dinero. La carrera de §4-R.7 R-3 daba **0/10** así.
+   *
+   * Preciar antes de la puerta NO relaja ningún invariante: quien impide la doble venta es el
+   * `updateMany` guardado de `reserveItems` (`status ∈ {listed,in_stock}` + `count===1`) DENTRO de la
+   * transacción, no esta lectura. Es, además, lo que se hacía antes de v1.68.
+   *
+   * El pre-scan de reservas propias es **best-effort** (fuera del candado): si una pieza pasa a ser mía
+   * entre el escaneo y el precio, el precio lanza `ITEM_UNAVAILABLE` y se REINTENTA una vez con el
+   * escaneo fresco. La decisión autoritativa la toma igualmente el escaneo de dentro del candado.
+   */
+  async priceCartOutsideGate(
+    inventoryItemIds: string[],
+    /** Sin identidad (invitado sin `retryOfCheckoutToken`) no hay reserva propia: conducta de hoy. */
+    owner?: { userId: string } | { orderId: string },
+  ): Promise<{
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+    subtotalCents: number;
+    lines: OrderLineData[];
+  }> {
+    if (!owner) return this.priceCartForOrder(inventoryItemIds);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const own = await this.findOwnLiveReservations(this.prisma, inventoryItemIds, owner, new Date());
+      const ownReserved = new Map<string, OrderItem>();
+      for (const o of own) {
+        const held = new Set(o.heldItemIds);
+        for (const oi of o.order.items) if (held.has(oi.inventoryItemId)) ownReserved.set(oi.inventoryItemId, oi);
+      }
+      try {
+        return await this.priceCartForOrder(inventoryItemIds, ownReserved);
+      } catch (e) {
+        const retriable =
+          attempt === 0 && e instanceof BusinessException && e.code === 'ITEM_UNAVAILABLE';
+        if (!retriable) throw e;
+      }
+    }
+    // Inalcanzable (el segundo intento lanza o devuelve), pero el tipo lo exige.
+    return this.priceCartForOrder(inventoryItemIds);
   }
 
   /**
@@ -468,11 +542,17 @@ export class OrdersService {
    * `order_number_seq`. Mismo patrón que `inventory_folio_seq` (`PrismaService.nextFolio`); se
    * implementa aquí —y no en `PrismaService`— porque `src/prisma/` es zona de otro stream.
    */
-  async nextOrderNumber(): Promise<string> {
+  async nextOrderNumber(db: Prisma.TransactionClient = this.prisma): Promise<string> {
     // H3 (money-safety): `$queryRaw` con tagged template (parametrizado) en vez de `$queryRawUnsafe`.
     // La sentencia no lleva entradas del cliente, pero se prefiere la puerta segura por defecto
     // (mismo patrón que `master-set.service.ts`), para no dejar una superficie `Unsafe` viva.
-    const rows = await this.prisma.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('order_number_seq') AS nextval`;
+    //
+    // v1.68.1 — `db`: dentro del checkout se pasa el `tx`. No es cosmético: con `this.prisma` se pedía
+    // una SEGUNDA conexión mientras la transacción retenía la suya, y con el pool de CI
+    // (`connection_limit=5`) N checkouts concurrentes lo agotaban (500 en ruta de dinero). `nextval` NO
+    // es transaccional: pedirlo por el `tx` no lo ata al commit (un rollback deja un hueco, que es
+    // inocuo — un número duplicado no lo sería).
+    const rows = await db.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('order_number_seq') AS nextval`;
     return `TCG-${String(Number(rows[0].nextval)).padStart(6, '0')}`;
   }
 
@@ -698,7 +778,9 @@ export class OrdersService {
     const orders = await tx.order.findMany({
       where: { id: { in: orderIds } },
       include: {
-        items: { select: { inventoryItemId: true } },
+        // `items` COMPLETOS: en el pre-scan de precio sirven de respaldo CONGELADO (§4-R.2 regla 5)
+        // cuando una pieza ya reservada por mí perdió su precio de catálogo.
+        items: true,
         reservedItems: { where: { status: 'reserved' }, select: { id: true, reservedUntil: true } },
       },
     });
@@ -1018,6 +1100,12 @@ export class OrdersService {
       ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
       : await this.prisma.billingProfile.findUnique({ where: { userId } });
 
+    // ⛔ El precio se resuelve FUERA de la transacción (y antes del candado): dentro, cada checkout
+    // necesitaría una SEGUNDA conexión para `PricingService` y N concurrentes agotan el pool
+    // (v1.68.1; ver `priceCartOutsideGate`). La atomicidad la da `reserveItems`, no esta lectura.
+    const { items, subtotalCents: subtotal, lines: orderItemsData } =
+      await this.priceCartOutsideGate(inventoryItemIds, { userId });
+
     const outcome = await this.prisma.$transaction(async (tx): Promise<SessionOutcome> => {
       await lockReservationGate(tx, { userId });
       const now = new Date();
@@ -1032,15 +1120,13 @@ export class OrdersService {
         supersededOrderIds.push(o.order.id);
       }
 
-      // Se precia DENTRO del `tx`: en la sustitución las piezas viejas acaban de liberarse aquí.
-      const { items, subtotalCents: subtotal, lines: orderItemsData } =
-        await this.priceCartForOrder(inventoryItemIds, tx);
       // MS-2 (BE-27): un agregado no representable en Int32 → 422 AMOUNT_TOO_LARGE (nunca se persiste
       // un overflow ni se clampa el total). El mapeo es la fuente única `representableOrThrow`.
       const breakdown = this.representableOrThrow(() => computeCartBreakdown(subtotal, ivaPct, fee));
       // v1.21 (M-25): el número legible sale de la secuencia (nextval es no transaccional; un hueco
-      // en la secuencia es inocuo, un número duplicado no). Solo se consume si se crea orden.
-      const orderNumber = await this.nextOrderNumber();
+      // en la secuencia es inocuo, un número duplicado no). Solo se consume si se crea orden, y se pide
+      // POR EL `tx` (v1.68.1: no gasta una segunda conexión del pool).
+      const orderNumber = await this.nextOrderNumber(tx);
       const reservedUntil = reservedUntilFrom(now);
 
       // Creación de la Order pending ANTES de reservar (M-53: la FK del dueño exige que exista) +
