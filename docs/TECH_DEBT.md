@@ -6761,3 +6761,75 @@ techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha
   la app sería una decisión distinta (y probablemente mala). Si algún día la suite de integración se
   corre contra compose, hay que ampliar el candado en el mismo diff.
 - **Disparador:** el empuje de la rama. Dueño: devops (la medición); backend (si el rojo es de un spec).
+
+## Frontend · 2026-09-11 · cierre de gates de Stream B (agente frontend B-fix)
+
+Cuatro fichas. Ninguna es bloqueante; todas llevan **comprobación de cierre** (qué hay que medir para
+tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie puede cerrar.
+
+### FE-SB-1 · SB-D6: el correo del invitado viaja en `sessionStorage` junto al `checkoutToken` — pendiente de que el contrato lo bendiga o lo prohíba — Media
+
+- **Qué hay.** `GuestCheckoutView` persiste el correo del invitado con su `checkoutToken` en
+  `sessionStorage` (`tcg.guestCheckoutRetry`). **Por qué**: medido en Playwright (§69.7, corrida 5),
+  sin el correo el primer `POST /checkout/guest/quote` tras recargar va **sin reclamo**, el backend
+  trata la reserva propia como ajena y la pieza **se poda** — el cliente pierde su propia reserva por
+  recargar. Con token **sin** `email` el backend responde `400 VALIDATION_ERROR` (medido), así que
+  viajan juntos o no viaja ninguno.
+- **Por qué es deuda y no una decisión cerrada.** §4-R.3 del contrato **no dice** si el correo del
+  invitado puede persistirse en el cliente. Es un dato personal en almacenamiento del navegador (vive
+  lo que vive la pestaña, no se comparte entre pestañas y no va a `localStorage`), pero **quien decide
+  eso es el arquitecto**, no el frontend. Yo **no lo cambio** mientras tanto: quitarlo reintroduce la
+  poda medida.
+- **Comprobación de cierre:** §4-R.3 dice explícitamente **una** de dos cosas — (a) «el cliente PUEDE
+  persistir `{token, email}` en `sessionStorage`», y entonces esta ficha se cierra citando el párrafo;
+  o (b) «no puede», y entonces el contrato tiene que ofrecer la alternativa (p. ej. que el token por sí
+  solo baste para reclamar) y el cambio vuelve a frontend con un E2E que demuestre que **recargar no
+  poda**. Dueño de la decisión: **arquitecto**; de la implementación: frontend.
+
+### FE-SB-2 · El gate `@real` de §M5-S depende del CUPO MENSUAL del vendedor sembrado — Media
+
+- **Qué hay.** `e2e/utils/m5-scenario.ts` recicla las solicitudes del vendedor (`customer2`) y solo
+  crea las que falten, porque el tope mensual **se cobra en el intake**: cada `POST /buylist/requests`
+  gasta MX$500 de MX$10,000 al mes. Medido hoy: el `customer` llegó a `960,000/1,000,000` y el intake
+  empezó a devolver `422 BUYLIST_LIMIT_EXCEEDED`; `customer2` se agotó tras ~20 solicitudes de mis
+  propias corridas. Cuando no queda cupo **ni** nada que reciclar, el spec **se salta con la frase que
+  explica cómo restablecerlo** (re-sembrar purga las solicitudes de los actores).
+- **Riesgo real:** en CI el stack se siembra antes de correr, así que hay ~18 corridas de margen y el
+  gate muerde. En un stack de larga vida (el nativo que alguien deja arriba un día entero) el gate
+  **se convierte en skip** — visible, pero skip.
+- **Comprobación de cierre:** el seed (`backend/prisma/seed-e2e.ts`) siembra **una solicitud
+  `en_transito` y una `recibida`** para el actor del escenario; entonces el helper no necesita crear
+  nada y el cupo deja de ser una variable. Se mide corriendo `E2E_REAL=1 npx playwright test
+  e2e/m5-transitions.spec.ts` **dos veces seguidas** sobre un stack sembrado hace días: 2/2 verde, cero
+  skips. Dueño de la siembra: **backend**; del helper: frontend.
+
+### FE-SB-3 · Ningún E2E `@real` cubre el reintento de §4-R (checkout) porque no hay proveedor de pagos — Media
+
+- **Qué hay.** `POST /checkout/session` responde **`503 PAYMENT_PROVIDER_UNAVAILABLE`** en este
+  entorno (medido) y deja el pedido `failed` con `reservedUntil: null`. Consecuencia: `200 reused`,
+  `supersededOrderIds`, `409 PAYMENT_IN_PROGRESS` y la cuenta atrás de la reserva **solo se verifican
+  contra el simulador** (`lib/mock/reservation.ts`), y los specs lo declaran con esa medición escrita
+  al lado (`checkout-retry.spec.ts`, y el caso de «Reanudar pago» de `orders-resume.spec.ts` con
+  `skipIfSeedMissing`).
+- **Comprobación de cierre:** con claves de prueba de Stripe en el entorno, `E2E_REAL=1` corre
+  `e2e/checkout-retry.spec.ts` y el caso `@real` de reanudar **sin saltarse**, y pasan. Mientras no
+  existan, esta ficha es el registro de que **ese tramo del gate está vacío y dicho**. Dueño: devops
+  (entorno) + arquitecto (si hace falta un modo declarado); frontend cablea después.
+- **Y una petición implícita:** hoy no hay forma de fabricar un pedido `pending` con reserva viva por
+  la API del contrato. Si se decide que no habrá Stripe en local, hace falta otra vía **declarada**
+  (no un truco del arnés) o el tramo se queda sin gate para siempre.
+
+### FE-SB-4 · La medición `@real` corre contra el frontend HORNEADO del stack, no contra el árbol del agente — Baja
+
+- **Qué hay.** El backend solo admite `CORS allow-list: http://localhost:3000` (medido en
+  `.native-stack/backend.log`), y ese puerto lo sirve el build del stack. Un agente que hornee su
+  propio bundle contra la API real (`.next-e2e-real`, puerto 3010, receta de `frontend/.gitignore`)
+  levanta la app pero **el navegador no puede hablar con la API**: toda llamada muere en CORS y la
+  pantalla pinta su error honesto, que se lee igual que un rojo de producto.
+- **Consecuencia hoy:** los `@real` que escribí se midieron contra el binario `1522b45`. Ninguna de
+  sus aserciones toca código que yo cambiara en este pase (eso va cubierto por `vitest` y por el
+  Playwright de mocks), pero **no está medido** que mis cambios corran contra el backend real.
+- **Comprobación de cierre:** o el stack acepta un segundo origen (`CORS_ORIGINS` con `:3010`, una
+  línea en el arranque de devops), o `stack-native.sh` ofrece «re-hornear el frontend desde el árbol
+  vivo». Se mide sirviendo el árbol del agente en `:3010` y viendo `GET /api/v1/orders` **200 desde el
+  navegador**. Dueño: **devops**.
