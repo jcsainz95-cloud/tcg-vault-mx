@@ -22444,6 +22444,28 @@ de hoy —el `where` de liberación admite `IS NULL` **solo** en esta ventana—
 La rama muere con un conteo (§4.48.7); mientras exista, el candado R-2 la cubre porque el caso de prueba nace
 **con** dueño.
 
+**v1.68.1 — la reserva propia VENCIDA y no barrida (lo midió backend B-1):** con «viva» = `reservedUntil > now()`
+(§4-R.1), una reserva del mismo cliente vencida hace 1 min —el barrido corre cada 15 (`scheduler.service.ts:172`)—
+caía a la fila «ajena» ⇒ `409` hasta que el barrido pasara: el síntoma de P-59 otra vez, ahora por reloj. Decisión:
+**sustituible siempre, nunca ajena, nunca reusable.** Sustituir es money-safe (mismo cliente; el PI viejo se cancela
+y se confirma `canceled` **antes** de crear nada, como en «carrito distinto»). Reusar **no** lo es: renovaría
+`reservedUntil` sobre piezas que el barrido pudo haber seleccionado ya, y su liberación (`reservedByOrderId =
+vieja.id`, §4-R.2 regla 2) **matchearía** y soltaría la pieza con el PI viejo aún entregado al cliente. Con la
+sustitución, la orden nueva tiene otro id y la guarda del barrido no la toca. Candado R-9 mide también esa carrera
+(escalonados, proporción — O-3).
+
+**v1.68.1 — el quote también conoce la reserva propia (lo bloqueó frontend en real, hasta `e6b0f35`):** los dos
+quotes podan por `isSellable` (`orders.service.ts:256-258`, aplicado en `priceCartForQuote` `:351`) y el contrato
+obliga al front a **podar** lo que venga en `unavailableItems` antes de `session` (§4, «Deber del front»). Tras un
+intento caído la pieza está `reserved` **por la propia orden** ⇒ el quote la devuelve muerta ⇒ la vista la poda ⇒ el
+carrito que llega a `session` ya no es el de la orden ⇒ el `200 reused` era **inalcanzable por construcción**, y
+«Reanudar pago» también. Norma (§4-R.5): la reserva propia y viva es **disponible** para el quote, marcada
+(`items[].reservedByYou`, `ownReservation` siempre presente), con **precios congelados** cuando cubre exactamente el
+carrito (la pantalla no puede decir una cifra y el PI cobrar otra). Invitado: solo con `retryOfCheckoutToken` +
+`email` (misma identidad que §4-R.3; el quote **no** reserva nada). Tarea **B-1e** (backend, después de B-1b);
+candado **R-8**, que además mide el ciclo entero quote → «Pagar» → `session` (O-4: el endpoint existía y el usuario
+no podía llegar).
+
 **Lo que NO entra:** `POST /orders/:id/cancel` (el dueño no lo pidió; las vías de liberación son TTL, webhook y
 sustitución); relajar el `@Throttle` 5/h del invitado (superficie de dinero: fase de seguridad); `OrderStatus`
 nuevo (`failed` sigue significando «no se cobró»).
@@ -22481,6 +22503,17 @@ alguien fije la FX». Se añade el conteo `SELECT count(*) FROM "FxRate" WHERE s
 `pricing`/`inventory` están reservados para D-GT-1/§M2-GT (`PENDIENTES.md` «Lo que NO entra»). ⇒ **Tarea B-3/F-4**,
 que el orquestador programa **después** de D-GT-1 (o antes, si mide que los ficheros no se solapan — NO MEDIDO por
 mí qué toca D-GT-1). Hasta entonces, contrato ≠ código en este punto: **`D-SB-3`, abierta, con dueño y comprobación**.
+
+**v1.68.1 — el error que cometí al escribirlo, y la regla que lo cierra.** v1.68 reescribió las tablas **canónicas**
+de §M2-F.1/F.2/F.3/F.6 con los valores futuros (`none`, sin `fallbackRate`, sin acuse) mientras declaraba, en la
+misma rev, que la implementación se difería. `frontend/src/lib/mock/fx-contract-mirror.test.ts:70-117` **ejecuta**
+esas tablas (compara `FX_SOURCES` y las claves del `FxStateDTO` contra §M2-F.3) ⇒ **2 tests rojos** en CI con el
+código correcto de v1.67.x. *El contrato manda sobre el código; no manda sobre el calendario.* **Regla (aplica a
+cualquier sección con espejo ejecutable — §0-B.3 regla 8 tiene ahora una cláusula temporal):** un cambio de
+contrato cuya implementación se difiere **a propósito** se publica como **sección futura-normativa con disparador
+nombrado** (aquí §M2-F.9, disparador `D-SB-3`), y el canon que el espejo lee **se traslada en la misma rev en que
+backend y frontend lo publican**. v1.68.1 devolvió §M2-F.1/F.2/F.3/F.6 a v1.67.x palabra por palabra y dejó los
+valores nuevos solo en §M2-F.9. **Comprobación:** los dos tests del espejo en verde sobre `main` sin tocar código.
 
 #### 4.48.4 Disputas — un hallazgo, una guarda, cero alcance nuevo
 
@@ -22543,6 +22576,7 @@ duplicar) y el job de deadline pasa a **un** `updateMany` (no puede revivir una 
 | **B-1a** | `prisma/`, `common/error-codes.ts`, `orders/reservation.ts` (nuevo) | `M-53`; los dos códigos; helper `reservationGuard(orderId)` = `{ status:'reserved', OR:[{reservedByOrderId: orderId},{reservedByOrderId: null}] }` + `clearReservation` data; constante `ORDER_RESERVATION_TTL_MIN` | **Primero** (bloquea B-1b/c/d) |
 | **B-1b** | `orders/orders.service.ts`, `orders/guest-checkout.service.ts`, DTOs | `reserveItems` escribe `reservedByOrderId`/`reservedUntil` (el id de la orden se conoce antes: `randomUUID()` o `order.create` primero en la misma `tx`); pre-scan + `pg_advisory_xact_lock` + reuso/sustitución (§4-R.2); `retryOfCheckoutToken` (§4-R.3); `releaseReservation` con la guarda; `orderNumber`/`reservedUntil` en list/detail; respuesta `reused`/`reservedUntil`/`supersededOrderIds` | tras B-1a |
 | **B-1c** | `payments/payments.service.ts:222-229,379-391,540,618` | guardas con `reservationGuard(order.id)` y limpieza en `data` | tras B-1a; **disjunto de B-1b** (otro agente) |
+| **B-1e** *(v1.68.1)* | `orders/orders.service.ts:331-359` (`priceCartForQuote`), `guest-checkout.service.ts:73-107` (quote de invitado), DTOs de los dos quotes | reserva propia = disponible (`reservedByYou`, `ownReservation` siempre presente, precios congelados con `coversCart`); `retryOfCheckoutToken` + `email` en el quote de invitado; candado R-8 de punta a punta | **después de B-1b** (mismo fichero, mismo agente); el frontend ya está construido contra §4-R.5 y hoy poda |
 | **B-1d** | `jobs/guest-order-sweep.service.ts`, `jobs/scheduler.service.ts:168-173`, `orders/guest-checkout.service.ts:319-363` | `order-reservation-sweep` por `reservedUntil` + rama legada; B3 intacto | tras B-1a; coordinar con B-1b solo en `sweepStaleGuestOrders` (mismo fichero: **mismo agente que B-1b** o secuencial) |
 | **B-2** | `buylist/buylist.service.ts:5488-5541`, tests | Invariante S (§M5-S); `throwInvalidTransition`; matriz S-1/S-2 | paralelo (solo `buylist`) |
 | **B-4** | `disputes/disputes.service.ts:208-238`, `jobs/dispute-deadline.service.ts` | guarda de `resolve`; job `updateMany`; D-1/D-2 | paralelo |
@@ -23408,8 +23442,10 @@ Riesgos técnicos:
 - **🔴 ABIERTA (v1.68) — `D-SB-3`: EL 18 RIGE CUANDO NINGUNA RAMA PUEDE REGIR, Y EL ACUSE LO PUBLICA.**
   **Dueños: backend (`common/fx-mode.ts:56,378-383`, `pricing/fx.service.ts:360-369` + los seis consumidores de
   `getCurrent()`, tarea B-3) y frontend (`(admin)/admin/m2`, F-4).** ⚠️ **SERIALIZADA** tras D-GT-1/§M2-GT (toca
-  `pricing`/`catalog`/`inventory`): el orquestador la programa. Norma: contrato §M2-F.9. Hasta que aterrice,
-  **contrato ≠ código en este punto, y manda el contrato**. **Comprobación:** FX-30/FX-31 verdes;
+  `pricing`/`catalog`/`inventory`): el orquestador la programa. Norma: contrato §M2-F.9, **futura-normativa con
+  disparador = este cierre** (v1.68.1: las tablas canónicas §M2-F.1/F.2/F.3/F.6 siguen en v1.67.x hasta ese release,
+  porque `fx-contract-mirror.test.ts` las ejecuta; §4.48.3). Al cerrar: backend + frontend + **el arquitecto traslada
+  §M2-F.9 al canon en la misma rev**. **Comprobación:** FX-30/FX-31 verdes;
   `grep -rn "FX_FALLBACK_RATE\|fallbackRate\|'fallback'" backend/src frontend/src` ⇒ 0.
 - **⚠️ ABIERTA (v1.68) — `D-SB-4`: `resolve` DE DISPUTAS PISA UNA RESUELTA Y EL JOB DE DEADLINE LA REVIVE.**
   **Dueño: backend (`disputes`, B-4).** Medido 2026-09-11: `disputes.service.ts:208-238` (sin término de estado),
