@@ -6657,3 +6657,21 @@ techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha
 - **Comprobación de cierre (ya cumplida, para que no vuelva):** `PATH=<con shellcheck> actionlint
   -no-color .github/workflows/*.yml` ⇒ rc=0. Las mediciones futuras de «actionlint 0 avisos» deben
   decir si shellcheck estaba en el PATH.
+
+### DO-D9 · N4 residual: `SKIPPED_ESPERADOS` valida el NOMBRE del job contra `deploy.yml`, no el workflow del check-run — Baja
+- **Qué:** un job homónimo en otro workflow (hoy no lo hay: nombres únicos desde §56.5 #9) pasaría
+  como «esperado». La API `GET /commits/{sha}/check-runs` no trae el nombre del workflow; hace falta
+  `GET /check-suites/{id}` por cada uno (una llamada más por check-run).
+- **Comprobación de cierre:** el script resuelve `check_suite.id → workflow` (o usa `/actions/runs`
+  filtrado por `head_sha`) y la lista pasa a `workflow/job`; canario con un `skipped` homónimo en otro
+  workflow ⇒ rc=3. Se paga si aparece un nombre duplicado (lo vigila `check-workflow-cwd`? no:
+  nadie; se mide con `grep -hE '^  [a-z0-9-]+:$' .github/workflows/*.yml | sort | uniq -d` = vacío).
+
+### DO-D10 · N7: el baseline del censo E2E lo escribe devops y el número es de frontend — Baja
+- **Qué:** `scripts/e2e-skip-census.baseline` vive en rutas de devops; cuando frontend añade una
+  salvaguarda legítima, el rojo sale en `e2e-skip-census` y el `--update --motivo` lo tiene que
+  commitear devops (mismo acoplamiento que DO-D1, a menor escala). Además el techlead contó 71/18
+  con otro método; el script fija `grep -rwo` (120/20) — dos cifras que no se comparan entre sí.
+- **Comprobación de cierre:** mover el baseline a `frontend/e2e/` (dueño frontend) con el script
+  leyéndolo de ahí, o acordar que el orquestador enruta el `--update` en el mismo diff; y que
+  FRONTEND_NOTES cite el método del script al hablar del censo.
