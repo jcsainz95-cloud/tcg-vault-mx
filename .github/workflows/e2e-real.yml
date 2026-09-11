@@ -193,7 +193,7 @@ jobs:
       # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
       # propio, ABORTA el job en vez de correr sobre algo forjable.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # -----------------------------------------------------------------------
       # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
@@ -281,9 +281,9 @@ jobs:
             echo "::warning::backend no expone 'seed:synthetic'; el seed sintético se saltará (--if-present). Flujos que dependan de datos sembrados pueden fallar (finding -> backend)."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -600,7 +600,7 @@ jobs:
 
       - name: Subir el marcador del hueco de dinero
         if: always() && env.MONEY_GATE == 'off'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           # El NOMBRE es el mensaje: aparece en la portada del run, en la lista
           # de artefactos, sin abrir un solo log.
@@ -611,7 +611,7 @@ jobs:
 
       - name: Subir reporte Playwright
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report-real
           path: |

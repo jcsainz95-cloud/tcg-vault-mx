@@ -138,13 +138,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: El gate DEBE ponerse rojo contra el canario
         run: ./security/scripts/dast-selftest.sh
       - name: Publicar resumen de la autoprueba
         if: always()
         run: cat security/reports/selftest/selftest-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: dast-selftest-reports
@@ -187,7 +187,7 @@ jobs:
       # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
       # propio, ABORTA el job en vez de correr sobre algo forjable.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # -----------------------------------------------------------------------
       # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
@@ -267,7 +267,7 @@ jobs:
         if: failure()
         run: docker compose -f docker-compose.staging.yml logs --tail=300 || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: dast-ephemeral-reports
@@ -300,8 +300,8 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: dast-ephemeral-reports

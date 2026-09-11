@@ -42,7 +42,7 @@ jobs:
       backend: ${{ steps.check.outputs.backend }}
       frontend: ${{ steps.check.outputs.frontend }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: check
         run: |
           if [ -f backend/package.json ]; then
@@ -116,7 +116,7 @@ jobs:
       DEFAULT_LOCALE: es
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Residual de P-WH-1: el secreto de webhook se RESUELVE, no se escribe.
       # `working-directory` del job es `backend/`, por eso la ruta sube un nivel.
       - name: Resolver secretos sin literales públicos (S-88-1)
@@ -135,9 +135,9 @@ jobs:
           ./scripts/secrets-preflight.sh github-env \
             JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY S3_SECRET_ACCESS_KEY \
             >> "$GITHUB_ENV"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install
@@ -176,10 +176,10 @@ jobs:
       NEXT_PUBLIC_DEFAULT_LOCALE: es
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install
@@ -205,13 +205,13 @@ jobs:
   format-mix:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # El comparador necesita el commit BASE, no solo el HEAD.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       - name: Resolver base del diff
         id: base
         run: |
@@ -255,7 +255,7 @@ jobs:
   e2e-provider-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: El entorno E2E no puede escribir contra el proveedor de PAGA
         run: ./scripts/check-e2e-provider-incapacitation.sh
 
@@ -272,7 +272,7 @@ jobs:
   provenance-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: El gate no puede medir un binario distinto del HEAD auditado
         run: ./scripts/check-provenance-gate.sh
 
@@ -291,7 +291,7 @@ jobs:
   e2e-harness-gaps:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
         run: ./scripts/check-e2e-harness-gaps.sh
 
@@ -314,7 +314,7 @@ jobs:
   price-provider-interim-expiry:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: La medida interina del dial de precio no puede sobrevivir a su causa
         run: ./scripts/price-provider-parity.sh --check-expiry
 
@@ -341,7 +341,7 @@ jobs:
   dast-gate-live:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: El gate de seguridad dinámica tiene blanco y sabe ponerse rojo
         run: ./scripts/check-dast-gate-live.sh
 
@@ -371,7 +371,7 @@ jobs:
   daemon-stdout-leak:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Ningún script deja un daemon con el stdout del invocador
         run: ./scripts/check-daemon-stdout-leak.sh
 
@@ -397,7 +397,7 @@ jobs:
   parity-gate-canary:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Un fallo de paridad I-PP5 tumba `up --gate`
         run: ./scripts/check-gate-parity-canary.sh
 
@@ -428,7 +428,7 @@ jobs:
   stripe-webhook-failclosed:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: La verificación de la firma no puede degradar a una clave conocida
         run: ./scripts/check-stripe-webhook-failclosed.sh
       - name: Y el candado tiene que saber morder (canario en ROJO)
@@ -469,7 +469,7 @@ jobs:
   workflow-cwd:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Cada script invocado desde un paso existe bajo el cwd de ese paso
         run: ./scripts/check-workflow-cwd.sh
       - name: Y el candado sabe morder (reproduce S-CI-1 y exige rojo)

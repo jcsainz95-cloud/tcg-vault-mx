@@ -236,7 +236,7 @@ jobs:
       # se omite. El objetivo de STAGING_BASE_URL es el DAST (job dast-staging).
       name: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: mark
         name: Marcar el instante ANTES del deploy (procedencia)
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
@@ -268,7 +268,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Instalar Vercel CLI
         run: npm i -g vercel@latest
       - name: Deploy frontend a Vercel (preview/staging)
@@ -327,7 +327,7 @@ jobs:
       # Si se divergen, este gate deja de cubrir la ruta que importa.
       PROMOTING: ${{ github.event_name == 'workflow_run' || inputs.promote_to_prod == true }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: ¿Staging sirve el commit que se va a promover?
         run: |
           if [ -z "$STAGING_API_URL" ]; then
@@ -402,7 +402,7 @@ jobs:
       ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_PASSWORD }}
       PROMOTING: ${{ github.event_name == 'workflow_run' || inputs.promote_to_prod == true }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: ¿Staging evalúa el MISMO proveedor de precio que producción?
         run: |
           if [ -z "$STAGING_API_URL" ] || [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
@@ -432,13 +432,13 @@ jobs:
     env:
       TARGET_URL: ${{ secrets.STAGING_BASE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Guardia anti-producción
         run: |
           : "${TARGET_URL:?falta STAGING_BASE_URL}"
           echo "DAST target (staging): $TARGET_URL"
       - name: ZAP baseline contra staging
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: ${{ env.TARGET_URL }}
           rules_file_name: security/zap/baseline.conf
@@ -486,7 +486,7 @@ jobs:
       # `environment.url` no admite el contexto `secrets` (causaba startup_failure).
       name: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Recordatorio de snapshot de DB (rollback)
         run: |
           echo "::notice::Antes de promover: toma snapshot / point-in-time de la DB de PROD."
@@ -538,7 +538,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Instalar Vercel CLI
         run: npm i -g vercel@latest
       - name: Deploy frontend a Vercel (production)

@@ -54,7 +54,7 @@ jobs:
         --config=p/secrets
         --config=p/jwt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # -----------------------------------------------------------------------
       # (1) Informe COMPLETO (todas las severidades) -> SARIF a la pestaña
       #     Security. NO bloquea: es VISIBILIDAD. El gate real es el paso (2).
@@ -70,7 +70,7 @@ jobs:
             backend/ frontend/ || true
       - name: Subir SARIF de Semgrep
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
         continue-on-error: true
@@ -103,7 +103,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # historial completo para escanear commits
       - name: gitleaks
@@ -131,10 +131,10 @@ jobs:
   npm-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       # GATE BLOQUEANTE (SEC-C2): falla en high/critical de dependencias de
       # RUNTIME (--omit=dev en audit-npm.sh). Cubre el bump de next/next-intl/
       # postcss (frontend) y express/multer/qs (backend). Es required check.
@@ -189,7 +189,7 @@ jobs:
       TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
         # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
         # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
@@ -331,7 +331,7 @@ jobs:
       TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
         # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
         # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
@@ -387,7 +387,7 @@ jobs:
           docker build -f Dockerfile.backend -t tcg-backend:scan --target runtime .
       - name: Trivy image backend
         if: hashFiles('backend/package.json') != ''
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           skip-setup-trivy: "true"
           scan-type: image
@@ -412,7 +412,7 @@ jobs:
             --build-arg NEXT_PUBLIC_USE_MOCKS=false .
       - name: Trivy image frontend
         if: hashFiles('frontend/package.json') != ''
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           skip-setup-trivy: "true"
           scan-type: image
