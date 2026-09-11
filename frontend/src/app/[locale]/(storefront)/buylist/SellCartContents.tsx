@@ -113,6 +113,11 @@ export function SellCartContents({
 }: SellCartContentsProps) {
   const t = useTranslations('buylist');
   const tSellCart = useTranslations('sellCart');
+  /**
+   * §33.11.2: «sin cotización fresca no hay cifra» y «no se envía con precios que la pantalla no
+   * volvió a pedir» son EL MISMO predicado (techlead N6): líneas, total y CTA lo leen de aquí.
+   */
+  const noFreshPrice = requoting || requoteFailed;
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
 
@@ -169,7 +174,6 @@ export function SellCartContents({
           <ul className="mt-4" aria-busy={requoting || undefined} data-testid="sell-cart-lines">
             {cart.map((l) => {
               const pending = l.quote.quote.status === 'precio_pendiente';
-              const noFreshPrice = requoting || requoteFailed;
               const unitCents = l.quote.quote.quotedPriceCents ?? 0;
               const detailOpen = !!expandedLines[l.id];
               return (
@@ -329,7 +333,7 @@ export function SellCartContents({
               {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
                   (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
                   cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
-              {requoting || requoteFailed ? (
+              {noFreshPrice ? (
                 /* §33.11.2: mientras se recotiza —o si la recotización falló— el total NO se afirma:
                    «—», no la cifra vieja. Mismo predicado que apaga el CTA. */
                 <span
@@ -416,7 +420,7 @@ export function SellCartContents({
                 // false si la política no llegó): apagar el botón por un error de red sería
                 // fail-closed y bloquearía a un vendedor legítimo.
                 disabled={
-                  cart.length === 0 || !sellReq.canSubmit || belowMinimum || requoting || requoteFailed
+                  cart.length === 0 || !sellReq.canSubmit || belowMinimum || noFreshPrice
                 }
                 // §33.11: recotizando ⇒ ocupado (no un «no puedes»: un «espera»).
                 aria-busy={requoting || undefined}
