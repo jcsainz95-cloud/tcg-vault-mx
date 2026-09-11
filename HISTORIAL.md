@@ -1,0 +1,744 @@
+# HISTORIAL — TCG HUNT
+
+> **Qué es este fichero:** lo **cerrado**: releases publicadas, decisiones tomadas, pendientes hechos o retirados,
+> y traspasos de sesiones anteriores. Se conserva **verbatim** para poder consultar cómo se decidió algo.
+> **No es una lista de trabajo**: nada de aquí se enruta a un agente sin re-medirlo (regla O-5).
+>
+> Creado 2026-09-11 por el orquestador al partir `PENDIENTES.md` (1.691 líneas) en HECHOS / PENDIENTES / HISTORIAL.
+
+---
+
+# ✅ PUBLICADO — release `c13f417` (2026-09-11 02:31:46 UTC)
+
+- **Qué:** `production` = `c13f417` (merge `--no-ff` de `main`=`d0c79b9`; árbol idéntico a `26b2c58`, el candidato con
+  25/25 checks verdes y los tres veredictos: QA, techlead, seguridad APROBADO CON CONDICIONES — 0 críticos/0 altos).
+- **Autorización:** el dueño, «publica» (02:3x UTC), tras plan presentado con migración y reversa. Tienda en modo
+  prueba de Stripe. Sin respaldo de BD (no lo hay en su plan de Railway); medido que M-50 es aditiva y transaccional
+  (ningún DROP/DELETE/UPDATE sobre datos existentes) ⇒ el respaldo no protegía nada en esta release. Petición retirada.
+- **Despliegue (medido por el orquestador, API de deployments de GitHub):** Railway «marvelous-kindness / production»
+  creado 02:31:54 → `success` 02:33:16 · Vercel «Production» creado 02:33:58 → «Deployment has completed».
+  Checks sobre `c13f417`: 23/24 verdes (frontend-e2e en curso, informativo).
+- **Verificación funcional (medida por el dueño, 02:4x UTC):** panel admin M2 muestra **los 3 botones** (= sirve la
+  versión nueva); Railway muestra el despliegue **Active** (= preflights + M-50 + healthcheck pasaron). El orquestador
+  NO puede alcanzar `tcghunt.mx` ni Railway desde su entorno (proxy 403 en los tres dominios, medido).
+- **NO MEDIDO tras el deploy:** `GET /api/v1/health` con SHA servido; un checkout de prueba end-to-end sobre la versión
+  nueva; el E2E real contra producción (nunca ha corrido contra prod).
+- **Reversa, si hiciera falta:** `scripts/m50-rollback-gate.sh` (datos) → `production` a `e117441` (código). Orden
+  obligatorio datos→código.
+- **Rojo conocido que queda:** gitleaks sobre `main` (run `34554095125`) por los canarios — P-GL-FP, devops, no bloquea.
+
+# DECISIÓN DEL DUEÑO — PUBLICAR CON SEGURIDAD EN RECHAZADO (2026-09-11)
+
+> **ACTUALIZACIÓN 2026-09-11 02:17 UTC — el rechazo ya no está en pie.** Seguridad re-midió sobre `d6aca64`/`26b2c58`
+> (`docs/SECURITY_NOTES.md`, bloque superior, commit `7f9a80c`): **APROBADO CON CONDICIONES, 0 críticos, 0 altos**.
+> Base: `backend-e2e` verde 2/2 (runs #1139 y #1141) y 25/25 check-runs en verde. Sus condiciones C1–C5 bloquean
+> **dinero real** (`sk_live_`), no esta publicación en modo prueba. Con esto el candidato lleva los **tres veredictos**
+> (QA, techlead, seguridad). La decisión de abajo queda como registro histórico de cómo se tomó; ya no aplica.
+
+> **El humano decidió publicar el release sin esperar a que `backend-e2e` corra en CI.** Palabras:
+> *«Publica entonces»*, tras preguntar *«¿vale la pena publicar si las verificaciones no sirven?»* y
+> *«¿recomiendas salir sin eso o esperar?»*. El orquestador recomendó publicar. **La decisión es del dueño,
+> tomada con esta información delante:**
+>
+> **Lo que SÍ se verificó sobre el candidato:** 4.419 unitarios backend · 1.491 frontend · las 7 suites de
+> integración con BD real **en local, dos veces, 360/360** · los 3 flujos de dinero E2E **en CI con las
+> claves reales de prueba** (run `34538020057`) · QA APROBADO-CON-CONDICIONES (condiciones cerradas) ·
+> techlead APROBADO CON DEUDA (condiciones cerradas) · pentester: el único ALTO (`P-WH-1`) cerrado y
+> verificado por seguridad con 0/14 forjas · SAST verde.
+>
+> **Lo que NO se verificó, y se acepta:** (1) las 7 suites de integración **no corrieron en CI sobre este
+> commit** — el job `backend-e2e` lleva ~10 corridas muerto por un defecto del andamiaje (`working-directory`
+> + resolver de secretos), no del producto; (2) el DAST **nunca corrió sobre este candidato**; (3) producción
+> **nunca se ha escaneado**, en ningún release. **Los tres huecos los tenían también todos los releases
+> anteriores**, con menos verificación que éste.
+>
+> **Veredicto de seguridad vigente: RECHAZADO** (`docs/SECURITY_NOTES.md`, 2026-09-11), con fundamento en
+> el punto (1). **El dueño acepta ese rechazo** entendiendo que su causa es el andamiaje de CI, que no se
+> publica.
+>
+> **Contexto que acota el riesgo:** la tienda está en **modo prueba de Stripe, sin transacciones reales**
+> (hecho establecido por el dueño). La auditoría de gates midió que **ningún inspector ha bloqueado nunca un
+> despliegue** (`protected=false` en `main` y `production`), así que este release es **el más verificado
+> que se ha publicado**, no el menos.
+>
+> **Corrección de método del orquestador, registrada:** el bucle de las últimas ~12 horas fue **arreglar
+> los instrumentos de inspección y usarlos para inspeccionar en el mismo turno**. Cada arreglo invalidaba la
+> medición anterior. Debió separarse desde el «corta y publica» de las 05:30 UTC. **El andamiaje pasa a su
+> propio frente**, después de publicar.
+
+---
+
+# TRASPASOS DE SESIONES ANTERIORES (no re-medidos desde su fecha)
+
+## 🔴 HANDOFF AL ORQUESTADOR — stream «ciclo de compra a usuarios» (2026-09-07)
+
+**Punto de retome.** Todo lo de abajo se midió, no se recordó. Lo no medido va marcado.
+
+### Estado
+
+| | |
+|---|---|
+| `main` | **`c132397`** — código verificado **+ sus tres veredictos + la documentación que dice la verdad** |
+| Rama `claude/buylist-inventory-workflow-hdnls3` | **fusionada entera** (0 commits por delante). No hay nada colgando. |
+| Contrato | **v1.60** · `PROJECT.md` hasta **D51** |
+| Suites (medidas por QA) | backend **248 suites / 3.609** unitarios · **17 / 264** integración · typecheck limpio · lint 0 errores + 2 warnings preexistentes en `inventory/` · frontend **113 / 1.166** |
+| Producción | **`18f279e`** (release de logos). **NO tiene el ciclo de adquisición**: cero `offerState`/`offerGrossCents`/`pickupAddressSnapshot` en su schema y **sin la migración `m46`**. |
+
+**Los tres veredictos sobre `c6b999a`:** QA **APROBADO** · techlead **APROBADO con deuda** · seguridad **APROBADO** (cero críticos, cero altos). Conteos pre-merge de §M5-A.9 y §M5-R.5: **0, 0, 0, 0** sobre dataset limpio. ⚠️ **Local. Producción no está medida.**
+
+---
+
+### ⚠️⚠️ LA RESTRICCIÓN QUE NO SE PUEDE PERDER
+
+> **`A1` (el rechazo por tope por solicitud al ofertar) es HOY lo único que tapa `BL-43`.**
+> **No se puede retirar `A1` sin poner su sustituto EN EL MISMO COMMIT.**
+
+Lo midió seguridad, incluida la vía del override de KYC: `amlCap` en `approve` lee **la misma fuente** que `A1` al ofertar, así que hoy no pueden discrepar y **lo que pasa la emisión pasa la aprobación**. Y **D47 retira exactamente `A1`**. Si se implementa D47 sin `BL-43`, se abre el agujero: una línea cara pasa la oferta vinculante, **el vendedor manda la carta**, y `approve` la rechaza. Sin remedio para el vendedor.
+
+---
+
+### 1 · Ronda siguiente — implementar v1.59/v1.60 (backend)
+
+Todo está **declarado y sin implementar**. Orden sugerido:
+
+1. **`§M5-D`** — fusión de diales (`BUYLIST_CAP_PER_REQUEST_CENTS` se retira de **las cuatro** estructuras de `settings.constants.ts`; sobrevive `INE_THRESHOLD_CENTS`) **+ `BL-43` en el mismo commit** (ver restricción arriba). El override `capPerRequestCentsOverride` **muere con el dial**: habría pasado a ser un umbral de KYC por vendedor, la exención que el criterio 178(e) prohíbe.
+2. **`§M5-A` reordenada** — inciso (c): **el que rechaza va antes que el que identifica**. `BUYLIST_LIMIT_EXCEEDED` queda **solo para el mensual**; se retiran del vocabulario `scope:"per_request"` y `"per_request_offer"`.
+3. **`§M5-I`** — compuerta del INE en la creación. ⚠️ El predicado **ya existe** (`ineRequired = quotedTotalCents >= ineThreshold || hasPendingLine`); lo que falta es que **sea alcanzable**, que depende de (1).
+4. **Boundary atómico** `I3 → I2 → persistencia → create`. Reordenar dos `if` **NO basta**: el `upsert` que escribe las keys del INE commitea **fuera** de la tx que evalúa el mensual, así que el rollback no lo deshace.
+5. **`§M5-N`** — `BL-42` caminos 1 y 2.
+6. **Retirar `legalName`** de `ADMIN_KYC_SELECT`, del tipo y de las dos proyecciones. Cero migración. Impacto de frontend **cero, medido**.
+7. **`D50` necesita DDL** → **vuelve al arquitecto primero (regla 9)**. El instante «cuando se le pide lo que falta» **no está sellado en ninguna columna**. ⛔ **Prohibido aproximarlo con `createdAt`**: aproximarlo *es* el cierre en silencio que §E prohíbe.
+
+---
+
+### 2 · Lo que los tres gates dejaron abierto
+
+**Backend**
+- ⚠️ **Corregir la afirmación «se hace INALCANZABLE el estado»** en `assertRequestReceived`. **Es falsa**: hay un **segundo escritor** de `itemStatus:'aprobada'` (`respond`, rama accept, `:2081-2084`) que **no lleva el término**. La puerta del dinero aguanta (`isPayable` falso), el daño sería de mercancía. La frase, además, **prohíbe la guarda que lo cerraría**. Fichar el residual con dueño.
+- Marcar **`BL35-D7/D8/D9` como resueltas** (están implementadas y siguen diciendo «pendiente»), y añadir a **`BL35-D6`** su consecuencia de mercancía.
+- **Reabrir `BE-1`** con las cinco cosas que pidió el techlead, **antes** de que disputas se vaya a otra rama.
+- `BLC-D4`: la cifra caducó (dice 6.154 líneas; hoy **~7.236**) y su disparador se incumplió cuatro veces.
+- `D3`: re-redactar el disparador como *«cualquier edición que toque una de las dos escaleras sin tocar la otra»*. Falta test del backstop.
+- **M-1 (QA):** `expect([200,201])` laxo en `buylist-cycle.e2e-spec.ts:816`; §M5-C hace el `200` normativo.
+- Ningún camino trata **`P2034`/`40001`**: seis transacciones `SERIALIZABLE`, cero reintentos, `500` opaco en un verbo de dinero cuyo remedio correcto es «reintenta».
+- La doctrina **§4.39(z)** tiene **un adoptante de ocho candidatos**. El más fuerte sin convertir: `countBountyAcquisitionsTx`, que **escribe**.
+
+**Frontend**
+- **`mockIsPayable` se quedó en DOS términos** (`fixtures.ts:1261-1263`) y `receivedAt` **no existe en `frontend/src`**. En modo mock —contra el que corre Playwright— **el botón de pagar aparece habilitado** sin recepción. Su propio docstring predijo esto.
+- **I-1 (QA):** el copy de `APPROVED_PRICE_CAP_EXCEEDED` dice «cotizado × 2 o tope AML» y **`BL-40` retiró ese término dentro del ciclo**. Explicación falsa en el error que gobierna cuánto se le paga a un vendedor.
+- **I-2 (QA):** `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` hablan **al vendedor** («necesitas subir **tu** INE») pero ahora se emiten también en la ruta de **admin**, cuyo destinatario no puede subir el INE de otra persona.
+- **M-2 (QA):** `REQUEST_NOT_RECEIVED` sin copy ⇒ inglés dentro de la UI en español. Familia de **siete** códigos M5 huérfanos preexistentes.
+- La fórmula de `isPayable` en `types/contract.ts:2373` sigue con **dos** términos.
+- **`DT-Gd`**: su disparador duro era *«el primer pase de frontend después de que la rama fusione»*. **Ya disparó.**
+
+**Arquitecto**
+- **Corrección de seguridad al contrato (§M5-P):** el eje 2-b **NO adelanta** la purga del INE, la **RETRASA** ⇒ el riesgo real es **sobre-retención de PII (LFPDPPP)**, no pérdida de evidencia.
+- `BL-44`: el barrido de retención **salta el perfil entero** con `openCount > 0`, así que **una sola solicitud eterna congela la purga de TODAS las identificaciones de esa persona**, incluidas las de solicitudes ya pagadas. `D50` **no lo cierra**.
+- `BL-36` residual, `BL-42` camino 3.
+
+**Devops**
+- **`purge-synthetic-poc-data.sh` no puede completarse**: **verifica con un predicado más ancho del que borra** (cuenta como «del PoC» actividad de usuarios del fixture) ⇒ se niega y deshace. Misma familia que B-1.
+- **Sugerencia de seguridad**: comparar también el **hash de árbol**, no solo el commit, para distinguir *«cambió el commit»* de *«cambió el código»* — un commit de solo-docs pone hoy el gate en rojo sin motivo.
+- ⚠️ **Migración fuera de orden**: `m46` está fechada el **1 de septiembre** y producción ya corrió la del **2**. Comprobar **antes** del despliegue, no durante.
+- Pendiente de antes: runbook de cut-over (el `SELECT` del censo del paso 6), smoke de MinIO que se auto-salta.
+- ⚠️ **`STAGING_API_URL` lo tiene que cargar el humano.** Sin él el gate avisa; **promoviendo a prod, falla**.
+
+**Seguridad**
+- **`SEC-B2` [Media]** — `verify` sobre una **oferta viva** deja al vendedor **atrapado**: no puede aceptar ni declinar (`409`), la fila **no caduca**, **ningún verbo la devuelve**, y **su portal le sigue mostrando la cuenta atrás**. Alcanzable por el rol de menor confianza. **Disparador: cerrarlo ANTES de operar con vendedores reales.**
+- **`BL-41`** cerrada como **retirada por producto**, no implementada. La aceptación del riesgo pide **cuatro condiciones** (§8 de `SECURITY_NOTES.md`).
+
+---
+
+### 3 · Decisiones que esperan al humano
+
+- **Preguntas 36, 37, 39, 42, 43, 44** del product-owner, todas **con supuesto** y ninguna bloqueante.
+- **44 (CEP del SPEI)** — ⚠️ **no verificada por nadie**. Antes de construir nada hay que responder: **¿qué se hace cuando el CEP muestre un nombre distinto, con el dinero ya enviado?** *Un registro que nadie sabe leer no es mejor que no tenerlo.*
+- **El umbral del INE (MX$3,000) es un dial editable en M10**, no está clavado. **Su piso probablemente lo fija la ley** (actividades vulnerables) ⇒ consulta legal pendiente, junto con **guardar identificaciones de gente a la que nunca se le compra**.
+- **El cotejo real INE↔titular es un paso operativo**: quién lo hace y en qué pantalla. Hoy **no existe en ningún flujo**.
+
+---
+
+### 4 · Otros streams — NO en esta rama
+
+- **`disputes` [Media, «Órdenes y dinero»]** — `resolve()` sin guarda ni idempotencia en las dos ramas; el job de deadline hace **read-then-write** (una disputa resuelta vuelve a la cola y se resuelve dos veces). **No desembolsa** (el importe solo se interpola en texto), y por eso es Media y no Alta: **la mitigación real es la bitácora, no el código**. `BE-1` declara resuelto lo que no existe.
+- **Criterio 128(b)** — alta de usuario en back-office sin celular. Va al **arquitecto primero**.
+- **M-49** — buylist de graduadas. Proyecto nuevo, arranca en **product-owner**.
+
+---
+
+### 5 · Lo que NO está verificado (decirlo, no asumirlo)
+
+- **Producción no está medida** para ninguno de los conteos pre-merge. *Cero local no es cero.*
+- **El workflow E2E real en CI nunca se ha corrido** en esta rama.
+- ⚠️ **La suite Playwright NO se puede correr reutilizando servidor** — su configuración lo prohíbe por diseño. Hay que usar `E2E_BASE_URL` + `E2E_REAL=1`. **Quien reporte «E2E verde» habiéndola corrido de la otra forma, midió mocks.**
+- Correos reales, barridos con reloj adelantado, subida de INE de punta a punta (sin MinIO) y DAST contra staging: **fuera del alcance del entorno**.
+
+---
+
+### 6 · Método — lo que costó caro esta sesión
+
+**Nueve diagnósticos falsos por medir mal**, tres del orquestador. El patrón fue **siempre el mismo**: concluir desde un `grep` sin abrir el contexto del match.
+
+Y el patrón de fondo, que es el que explica los cuatro agujeros de dinero: **nadie verificaba que el código cumpliera lo que `PROJECT.md` promete**. Aparecieron **cuatro veces** — pago sin recepción, topes sin evaluar al ofertar, la cota que rechazaba lo prometido, y un control entero (el cotejo INE↔CLABE) que estaba escrito en **18 sitios** y no existía en ninguno.
+
+Tres reglas que salieron de ahí y que conviene mantener:
+1. **§4.39(ad.2)** — antes de declarar el término de un control, **identificar la FUENTE de cada operando**. Un predicado con un operando que ningún flujo produce **no es un control incompleto: es un control que no existe, escrito en forma de control**.
+2. **§4.39(z)** — un tipo que **nombra** la intención no la **impone**. Toda afirmación de «esto ahora falla en compilación» se mide con control **positivo Y negativo** antes de escribirse.
+3. **Un gate que no comprueba qué código sirve no es un gate.** Pasó **tres veces** en un día; ahora `./scripts/stack-native.sh verify:head` se niega a mentir.
+
+---
+
+Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a «Hecho
+(referencia)» al final o se borra. Añade nuevos como `P-#`. Última limpieza: **2026-08-22**.
+
+---
+
+## Listo en `main` — esperando «publica»
+
+Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega a producción con «publica».
+
+- **Endurecimiento inventario/sellado (2026-08-23, doble veredicto QA+techlead APROBADO + E2E ciclo completo):**
+  El gate E2E pre-publicación (stack levantado, 63+ capturas) verificó operativo de punta a punta: comprar
+  (settle certificado por suite de integración con webhook Stripe firmado; pago real staging-only), vender
+  (buylist con CLABE cifrada), **admin intake→publicar** (venta→SPEI→inventario a costo real→«N+1 en stock»),
+  y **subir sellado**→publicar→visible en Compra. Cierres: **BLOQ-1** (el alta por lote perdía el costo de
+  compra → P&L; ya persiste), **BLOQ-2/2a/2b** (regresión «Tropius» muerta en M1›Sellado, «Mis piezas» y
+  cola M2), **BLOQ-3** (el binder cuenta solo singles; el sellado no infla conteos), **IMP-1** (alta sellado
+  sin dead-end vía `effectiveMarketCents` gateado), **IMP-2** (badge en vivo), **IMP-A** (cotizador ya no
+  crashea por cantidad absurda), **IMP-B** (M5 deja convertir tras pagar), **IMP-C** (el override manual del
+  sellado sobrevive al dial off; bucle roto), **IMP-D** (el **T2=25%** de P-34 entra en vigor vía reshape de
+  datos), y la **cola M2 del sellado a 1 sola fila resoluble** por pieza. Contratos **v1.41/v1.42/v1.43**,
+  **migración M-40** (`PendingPriceEntry.sealedProductId`, aditiva). Money-safe en todo el recorrido (sin
+  precio → pendiente, nunca $0). *(Deuda no bloqueante anotada: D-1 cascada display duplicada, D-2
+  `resolveAnchorCardId` duplicado money-adjacent, D-3 saneo de pendientes legacy.)*
+
+- **Deuda saldada (2026-08-23, doble veredicto QA+techlead APROBADO):** backend H-P38-4 (upsert atómico
+  del sync sellado), P-34 H5 (`mega`/`blackwhite` premium), P-34 H4 (invariante premium→pct testeado),
+  **P-30 H2 cierre completo** (productores y consumidores comparten `variantKey()` + guard de round-trip);
+  frontend H-P38-5 (alta sellado sin `cardId` falso), Cotizador H1/H3/H4 (layout CSS, sombreado «En el
+  carrito» en teja separada, doc drift). Todo display/UX/refactor, money-safe, sin cambio de contrato.
+  *(Deuda aún diferida: MK-D6, FE-2 «desde $X», DEUDA-tiers-3, P-30 H3, P-34 H3, SB-D3 (~6 sitios
+  hand-rolled de otros módulos), deps + hardening auth B-1/B-2/B-5, re-seed snapshots, M-1 aceptado.)*
+
+- **P-38** · **Módulo `SealedProduct`** (cura raíz de SB-D5): descarga presentaciones por set (ETB/UPC/
+  Booster Bundle/box/blíster), alta = **seleccionar** con identidad real (adiós «Tropius sealed»), sync
+  **1 set→N grupos** (absorbe promos/colecciones), precio en vivo + **manual** (vault_operator, auditado),
+  soft-delete. **Migración M-39 + backfill** que cura el ETB→Tropius. Cascada de display cableada en
+  Compra/Bóveda (H-P38-1). Contrato v1.39.1. *(Deuda no-bloqueante H-P38-2..6 en TECH_DEBT; precio manual
+  por vault_operator marcado para fase de seguridad por release.)*
+- **P-37** · IVA a **un solo dial**: se retira `STRIPE_FEE_IVA_PCT`; el gross-up de Stripe deriva de
+  `IVA_PCT/100` (idéntico al centavo). Contrato v1.40. Money-safe.
+- **P-41** · cotizador del home surtía `pageSize:5` (Pitch Black quedaba fuera) → **pageSize 20 + «ver
+  más»**; + **orden global por `set.releaseDate desc`** (sets nuevos primero, ya no uuid aleatorio).
+- **P-42** · cotizador: **carrito fijo a la derecha** en desktop (sticky) + **sombreado** «En el carrito».
+- **P-43** · click en la carta → **pop-up de detalle** con imagen grande (cierra por backdrop + Esc).
+- **P-44** · **rareza** visible en tejas de catálogo/cotizador/ficha/binder admin+bóveda.
+- **P-39/P-40** · foto HD en el featured/ficha + etiqueta de **acabado**.
+- **P-36** · stepper de baja rápida: botones disabled ya no se ven «encendidos» al hover.
+
+**Al publicar (devops/Railway) — runbook en `DEVOPS_NOTES.md §29`, orquestado por `scripts/post-deploy.sh`
+(idempotente; el paso 4 es opt-in y PARA si `publish-all` falla, conservando el cuerpo para diagnóstico):**
+1. `prisma migrate deploy` → **M-39** (SealedProduct) + **M-40** (`PendingPriceEntry.sealedProductId`) +
+   **M-41** (P-48: `pricing_curve`, `priceBasis`, `PendingPriceEntry.reason`, instrumentación), todas aditivas.
+2. `ts-node prisma/backfill-m39-sealed-product.ts` — cura ETB→Tropius (idempotente).
+3. `unify-rarities` — cosmético del editor M2. **Ya NO es prerrequisito de nada**: el guardarraíl premium
+   usa `isPremiumCanonicalRarity()`, que acepta rareza cruda o canónica (verificado por devops).
+4. **Cut-over P-48 (`RUN_PUBLISH_ALL=1`, opt-in)** — `publish-all` re-resuelve el precio con la curva.
+   NO es migración de dinero: el precio de venta se resuelve en lectura, así que repriciar es re-resolver,
+   nunca un `UPDATE` masivo. Idempotente por `batchKey` (default `p48-cutover-v2.0`).
+5. **Diagnóstico de la cola por razón** — `no_market` vs `premium_at_floor`. Línea base esperada ≈3 de
+   cada 333 (`ARCHITECTURE §4.36.9c-3`). Si `premium_at_floor` sube con `no_market` plano ⇒ piso mal
+   calibrado; si suben los dos ⇒ feed degradado y **no** hay que tocar el piso.
+6. *(D-3, no bloqueante)* si aparecen filas de sellado huérfanas en la cola M2 de altas previas al fix →
+   barrido puntual (deuda backend registrada).
+7. Por cada set: «Sincronizar» trae presentaciones (requiere egress real a `tcgcsv.com`).
+
+> **Los cinco settings retirados por P-48 quedan INERTES, sin `DELETE`** (`sales_price_rules`,
+> `buylist_price_rules`, `pricing_tier_map`, `sales_price_fallback_pct`, `buylist_price_fallback_pct`).
+> Es deliberado: borrar config en el mismo paso que cambia la matemática mata el diagnóstico y el rollback
+> barato. Ojo con `sealed_spread_fallback_pct`: **se parece pero NO es una de las cinco** — el sellado sigue
+> vivo y fuera de la curva.
+>
+> **Orden entre releases (decisión del humano, pendiente):** `main` va adelante con **P-47** (flip a
+> `tcgcsv_singles`), que cambia la **fuente** del mercado; P-48 cambia la **matemática** que se le aplica.
+> Encender ambos en la misma ventana deja indiagnosticable cualquier movimiento de precio. Devops recomienda
+> serializar.
+> **Antes del deploy:** snapshot/PITR de la Postgres de prod (única vía de rollback fino del dinero del paso 3).
+> **Rollback:** migraciones aditivas → redeploy del commit anterior; backfills idempotentes/no destructivos.
+
+---
+
+---
+
+# PENDIENTES CERRADOS (verbatim)
+
+#### ~~P-54 · 🎨 Logos de expansión en el índice de sets~~ — ✅ HECHO Y EN PRODUCCIÓN (2026-09-08)
+- Verificado: `SetPlate.tsx` pinta `logoUrl`, con el caso `null` tratado como normal y permanente (no como carga). El humano lo confirmó en vivo. *(Texto original abajo, conservado por el histórico.)*
+
+<details><summary>original</summary>
+
+#### P-54 · 🎨 Logos de expansión en el índice de sets (en vez de los títulos en texto) — 0% implementado
+- **Pedido del humano:** que el índice de sets muestre **el logo de cada expansión**, no su nombre en texto.
+- **Lo que SÍ existe (todo documental, ya en `main` y desplegado como docs):**
+  - `docs/ARCHITECTURE.md` **§4.39** (v1.52-set-logos) — marcada **NORMATIVO**: persistir `CardSet.logoUrl`
+    y `symbolUrl`, migración **M-47 aditiva pura**, sin backfill (se puebla por re-sync), servidas desde el
+    mismo host que ya sirve el arte de las cartas ⇒ cero acción de devops.
+  - `docs/API_CONTRACT.md` **v1.52** — `logoUrl: string | null` declarado en el DTO de set y en 4 endpoints.
+  - `docs/DESIGN_SYSTEM.md` **§24** (v2.8) — la «placa de tinta» `#1A1A18`, con **monograma serif** cuando el
+    set no tiene logo (R4: sin logo no hay hueco ni pulso eterno).
+- **🔴 Lo que NO existe — nada de código:**
+  - `backend/prisma/schema.prisma` **no tiene** `logoUrl` ni `symbolUrl`. La última migración es `m43`;
+    **M-47 nunca se creó ni se aplicó**.
+  - `grep logoUrl backend/src frontend/src` ⇒ **cero coincidencias**. Ni ingesta, ni DTO, ni componente.
+- **⚠ Por qué esto importa más que un pendiente normal:** el contrato **declara un campo que la API no
+  devuelve**, y §4.39 está marcada NORMATIVO. Por la regla de conflicto del equipo el contrato manda sobre el
+  código, así que hoy cualquiera —humano o agente— que lea `API_CONTRACT v1.52` va a creer que `logoUrl`
+  existe. Es exactamente la clase de defecto que esta sesión persiguió todo el tiempo: **una afirmación más
+  fuerte que la realidad**. Mientras no se construya, o se construye o el contrato debe decir «declarado, no
+  implementado».
+- **Trabajo pendiente, por dueño:**
+  - **(backend)** migración M-47 (dos columnas nullable en `CardSet`) + persistir `images.logo`/`images.symbol`
+    en el sync de metadata + exponer `logoUrl` en los 4 endpoints del contrato v1.52. `symbolUrl` se persiste
+    y **no se expone** (§4.39.5).
+  - **(frontend)** la retícula de §24: placa de tinta, monograma serif de respaldo, sin pulso cuando no hay logo.
+  - **(devops)** nada. §4.39.7 lo deja explícito: mismo host de imágenes, cero superficie nueva.
+  - **Poblado:** por **re-sync**, no por backfill — no hay `UPDATE` masivo (§4.39.4).
+- **Riesgo de dinero:** ninguno. Es presentación (clase P); M-47 es aditiva pura, sin `DROP`, sin `NOT NULL`.
+- **Requisito abierto:** §24.13 nº1 — un dato que ux-ui dejó pedido al arquitecto. **No bloquea**: sin él la
+  retícula funciona con monogramas.
+
+#### ~~P-62 · 🏷️ Renombrar «Costo de procesamiento»~~ — ✅ HECHO (2026-09-08), y **la recomendación que traía era la EQUIVOCADA**
+- **Cerrado.** El checkout dice **«Comisión de plataforma»** · *«Nuestra comisión por operar tu compra en
+  TCG HUNT. Ya está incluida en el total que ves aquí.»* La clave se renombró a `checkout.platformFee`.
+- ⚠️⚠️ **Lo que esta ficha recomendaba era la opción (b), «Comisión por procesamiento de pago», con el
+  argumento de que “quita lo feo sin cambiar lo que dice”. Esa opción está DESCARTADA, y no por
+  preferencia:** el humano informó (2026-09-08) que **trasladar al cliente la comisión del procesador es
+  ilegal en México**, así que «no cambiar lo que dice» era exactamente lo que NO se podía hacer. Queda
+  escrito para que nadie la reabra leyendo la recomendación vieja.
+- **Y el problema nunca fue el nombre: era la frase.** El texto viejo declaraba por escrito, en la
+  pantalla de pago, que trasladamos ese costo. Se borró entera; la nueva **no afirma nada jurídico y
+  tampoco lo niega** — una negación defensiva introduce el tema y sigue siendo una afirmación que habría
+  que sostener.
+- ⛔ **Lo que NO se tocó, y no se toca:** los rótulos de Stripe del back-office (diales de M10, línea del
+  P&L de M7). Ahí Stripe **sí** es un costo nuestro y nombrarlo es lo honesto. **Un barrido con `grep`
+  de «Stripe» rompe la contabilidad del panel** — hay un candado que lo caza.
+- 🕐 **Pendiente del humano, con disparador DURO:** **no tiene abogado todavía**. Ese texto de cliente
+  **debe revisarse con abogado antes de crecer en volumen**. Ni el equipo ni el orquestador escriben
+  afirmaciones jurídicas mientras tanto.
+
+#### ~~P-63 · 💱 Falta `BANXICO_SIE_TOKEN`~~ — ✅ CERRADO (el humano lo midió, 2026-09-10)
+
+**El humano reporta: «ya actualiza solo».** Su sistema, su observación — y hay mecanismo que la explica,
+verificado por el orquestador en el árbol:
+
+`backend/src/modules/pricing/fx.service.ts:437`
+```ts
+const token = this.config.get('BANXICO_SIE_TOKEN') || this.config.get('FX_API_KEY');
+```
+
+⇒ **El código acepta DOS nombres de variable.** Con `FX_API_KEY` puesta, el refresco consulta a Banxico
+con normalidad y `BANXICO_SIE_TOKEN` no hace falta.
+
+> ⚠️ **La lección, y es más fina que las cinco anteriores:** este pendiente **no afirmaba algo falso —
+> afirmaba media verdad**. Nombraba una sola de las dos variables que el código acepta, así que
+> cualquiera que hiciera `grep BANXICO_SIE_TOKEN` en la configuración concluía «falta» **y tenía razón
+> sobre esa cadena**. El defecto no era el dato: era el **predicado**. Un pendiente que dice «falta X»
+> cuando la condición real es «falta X **o** Y» manda a alguien a resolver un problema que no existe.
+>
+> **Regla que se lleva a O-5:** un pendiente que afirma la ausencia de una variable, una clave o un
+> fichero **nombra el predicado completo**, no un ejemplo de él. Se comprueba leyendo el código que lo
+> consume, no la lista de configuración.
+
+**Sexto pendiente rancio de la semana** (tras P-45, P-74, P-47, el corte de fecha del catálogo, y las
+claves de prueba de Stripe que llevaban tres días puestas).
+
+**Queda vivo, y es otra cosa:** `admin.service.ts:1289` cita `D-OPS-1` como abierta con la premisa
+*«sin `BANXICO_SIE_TOKEN` el refresco no escribe fila»*. Esa premisa arrastra el mismo predicado
+incompleto ⇒ **hay que re-medirla antes de enrutar trabajo desde ella**. Dueño: backend.
+
+<details><summary>texto original (falso desde 2026-09-10)</summary>
+
+#### P-63 · 💱 Falta `BANXICO_SIE_TOKEN` — el tipo de cambio no se actualiza
+- **Medido en los logs de producción**, repetido: *«Sin `BANXICO_SIE_TOKEN`: fx-refresh no puede
+  consultar; usa override/último valor»*. Los precios de mercado vienen en USD y se convierten a
+  MXN: **sin token el tipo de cambio se congela** en el último valor o en el manual.
+- No rompe nada hoy, pero **si el peso se mueve, cotizas compra y venta con un tipo viejo**.
+- **Rol dueño:** devops (variable de entorno) — el token lo obtiene el humano de Banxico.
+
+</details>
+
+</details>
+
+#### ~~P-64 · 📄 `HANDOFF.md` desactualizado~~ — ✅ HECHO Y EN PRODUCCIÓN (2026-09-08)
+- devops barrió el fichero entero, no solo las cinco líneas reportadas. Verificado: las dos menciones que quedan del dominio viejo son la nota explícita de que está **RETIRADO**. Y dejó fijado que el nombre interno `tcg-vault-mx` **sí** es correcto — la trampa del siguiente que haga ese grep.
+
+<details><summary>original</summary>
+
+#### P-64 · 📄 `HANDOFF.md` desactualizado — dice un dominio de correo que ya no es
+- Afirma que el dominio verificado en Resend es `tcgvaultmx.com`; **el que se usa y está verificado
+  es `tcghunt.mx`** (medido en los logs y en Resend). Misma clase que los ocho tachones de D52: un
+  documento afirmando un estado que la realidad dejó atrás. **Rol dueño:** devops.
+
+</details>
+
+
+#### P-74 · 👥 Crear operadores y cambiar su contraseña desde admin — ✅ YA EXISTE (verificado 2026-09-10)
+- **Lo que pidió el humano (2026-09-10):** *«que super admin pueda cambiar contraseña de operador y agregar
+  mas usuarios operadores desde admin»*.
+- ✅ **Las dos cosas están construidas y funcionando. Medido antes de anotar nada:**
+
+  | Lo que pidió | Dónde está | Qué hace |
+  |---|---|---|
+  | **Crear operadores** | **M6 → «Crear usuario»** (`M6View.tsx:148` y `:468`) · `POST /admin/users` (`admin.controller.ts:86`) | Alta por rol, con selector que ofrece los **tres** roles del sistema — `customer`, **`vault_operator`** y `super_admin` (`M6View.tsx:55`, `CREATE_ROLES`). La contraseña temporal se enseña **una sola vez**. |
+  | **Cambiar su contraseña** | **M6 → botón con icono de llave** (`M6View.tsx:425`) · `POST /admin/users/:id/reset-password` (`admin.controller.ts:193`) | Genera una temporal de **alta entropía** (18 bytes → 24 caracteres, `admin.service.ts`), marca `mustChangePassword` y **revoca las sesiones vigentes** — el guard y `/auth/refresh` rechazan la versión previa. |
+
+- ⇒ **No hay nada que construir.** Y la contraseña **no la elige el súper-admin**: el sistema genera una
+  temporal y obliga a cambiarla al entrar. Eso es **mejor** que lo que se pidió, no peor: el súper-admin
+  nunca llega a conocer la contraseña definitiva del operador.
+- 🔴 **Pero el hallazgo real es que el humano no sabía que existía**, y eso NO es un detalle: es
+  **descubribilidad**, y es exactamente lo que **`P-66`** encontró al revisar el panel («zombies y temas de
+  navegabilidad», veredicto RECHAZADO). ⇒ **Se anota como munición de `P-66`, no como trabajo nuevo.**
+  Una función que existe, funciona, está bien hecha y **nadie encuentra** rinde lo mismo que una que no
+  existe.
+- **Rol dueño:** ninguno para construir. **ux-ui/frontend dentro de `P-66`** para que se encuentre.
+
+
+#### P-76 · 🔁 Ocho botones de sincronizar, y el más visible miente — ✅ CERRADO EN PRODUCCIÓN (release `c13f417`, 2026-09-11; el dueño vio los 3 botones) · antes: EVALUADO (ux-review, 2026-09-10) · **VEREDICTO: RECHAZADO**
+
+> **DECISIÓN DEL HUMANO (2026-09-10), literal:** *«Backfill nunca forzar si varias veces, importar
+> sets nuevos deberia de traer los nuevos no los viejos y es movible conforme vaya pasando el tiempo,
+> sincornizar set deberia hacer las dos imagenes y precios solo se ocupa si se ve un error en algun
+> set especifico»*.
+>
+> Cierra las tres preguntas de ux-review. Quedan **tres acciones**, no ocho:
+> 1. **Importar sets nuevos** — solo los nuevos, con corte de fecha **móvil** (el mecanismo del corte
+>    lo decide el **arquitecto**; ¿ventana rodante interna o dial editable en admin?). Hoy
+>    `catalog-sync.service.ts:594` importa TODO lo que falte, sin filtro.
+> 2. **Sincronizar todo (forzar)** — se conserva: la usa varias veces.
+> 3. **Sincronizar este set** (por fila) — hace **imágenes Y precios**, siempre las dos. Es
+>    herramienta de **reparación**, para cuando un set específico se ve mal. Hoy esa acción existe
+>    (`catalog.fullSyncMenuItem`) pero está **escondida en el menú ⋯**, mientras el botón grande de la
+>    fila es el que no escribe precios.
+> 4. **«Backfill» se elimina** — nunca la ha usado.
+>
+> **AMPLIACIÓN DEL HUMANO (2026-09-10), literal:** *«el corte de fecha que automático, estar moviendo
+> cosas manuales deja a que se rompa algo por falta de cuidado o supervisión»*. ⇒ El corte **no es un
+> dial que alguien mueve**: se mueve solo. Mismo criterio que el arquitecto aplicó hoy en `I-PP5`
+> («si la paridad hay que recordarla, no es una paridad»), al que el dueño llegó por su cuenta.
+>
+> ⚠️ **Hallazgo del orquestador que corrige lo que le dije al dueño:** el corte de fecha **ya existe y
+> ya funciona** — `SettingKey.CATALOG_SYNC_FROM_DATE`, seed `'2024/01/01'`, validador `yyyy/MM/dd`,
+> expuesto como `catalogSyncFromDate` en `GET/PUT /admin/settings` y editable sin redeploy. **Cuarto
+> caso de la semana** de algo dado por pendiente que ya estaba hecho (tras P-45, P-74 y P-47).
+> El defecto real es mucho más chico: hay **dos** caminos de import masivo y **solo uno honra el
+> dial** — `sync()` (`catalog-sync.service.ts:346-351`) **sí** filtra; `syncAll()` (`:736`) **no**, y
+> `syncAll()` es justo el que está detrás del botón «Importar sets nuevos» que usa el dueño.
+> `backfill()` (`:516`) es un tercer camino y ux-ui lo retira.
+>
+> **Enrutado como `R6` al arquitecto (2026-09-10)** junto con R2 y R5. Cuatro cosas que debe resolver
+> y que NO se pueden asumir:
+> - **El modo de fallo nuevo:** un corte fijo es estable y auditable; **uno móvil deja caer sets fuera
+>   de rango en silencio**. Un set publicado hace N+1 meses y nunca importado se vuelve inalcanzable
+>   por el botón de rutina, sin aviso. La escotilla existe (`DESIGN_SYSTEM §32` permite importar un
+>   set individual desde su renglón aunque no esté importado) **pero solo funciona si el renglón se
+>   sigue viendo** — hay que verificar que el corte no oculte también la fila.
+> - **`releaseDate` ausente:** el filtro es `(s.releaseDate ?? '') >= from` ⇒ un set **sin fecha
+>   compara como cadena vacía y queda SIEMPRE fuera**, en silencio. Nadie ha decidido esa semántica;
+>   simplemente cae. Por la regla 9 del §0-B.3 hay que declararla una vez.
+> - **¿Sobrevive el dial?** Si `CATALOG_SYNC_FROM_DATE` queda como anulación manual sobre la ventana
+>   automática, habría **dos** fuentes para «desde cuándo es nuevo» ⇒ regla 8: decir cuál gana, una
+>   vez, en un sitio.
+> - **Que se vea:** `§32.3` ya exige que la fecha del corte sea visible. Con corte automático sigue
+>   siendo obligatorio — un automático invisible es peor que un manual visible.
+>
+> **Y `force`:** hoy se lleva `[...remote]` entero, sin filtro. Backend debe **declarar** si «forzar»
+> respeta el corte o lo ignora. El dueño usa «forzar» varias veces; si empieza a arrastrar sets de
+> 2010 se va a notar.
+>
+> **Enrutado el 2026-09-10:** **ux-ui** (patrón de §19 + norma de honestidad del aviso + resolver la
+> copia muerta de los `*Hint`) · **backend/catalog** (los dos contadores mentirosos D1/D2 + MEDIR el
+> corte de fecha, sin implementarlo) · **arquitecto** (decidir el mecanismo del corte, pendiente:
+> está ocupado con la contradicción del seed del dial) · **frontend** (implementar tras ux-ui).
+
+- **Pedido del humano (2026-09-10):** *«revisar tambien cuantos botones tenemos de sincronizar, valdría la
+  pena dejar meter nuevas colecciones, sincronizar set específico y sincronizar todo, evalúalo»*. Nace de
+  que **`P-72` le costó un intento real**: corrió «el sync» y no pasó nada.
+- **Medido: son OCHO acciones manuales de sync en M2** (más una en M1 › Sellado), y **dos de las ocho ya
+  corren solas** (el barrido de metadata diario y el de precios 2×/día). La celda de acciones ocupa
+  **459 de 926 px** de la tabla: **la mitad de la tabla es botonera**.
+- 🔴 **B1 · El botón visible de la fila no hace lo que el operador necesita, y su éxito lo oculta.**
+  «Re-sincronizar» no escribe precios (`catalog-sync.service.ts:816`, la compuerta `firstImport || force`) y
+  responde en **verde** *«Sync encolado: 1 set(s) (job job-7911)»*. Cuatro defectos, **tres verificados por
+  el orquestador**:
+  1. **No se encoló nada:** `sync({setId})` es **síncrono**; cuando el banner aparece el trabajo ya terminó.
+  2. **El «1» no cuenta nada:** `return { imported: true, cardCount }` (`:819`) — `imported` es un **literal
+     fijo**. ⇒ **siempre dice 1**, se haya escrito algo o no.
+  3. El `jobId` es un `Date.now()` **sin ningún sitio donde consultarlo**.
+  4. El banner aparece **675 px por debajo del botón, en otro grupo**: tras el clic, el operador **no ve
+     ningún feedback en su viewport**.
+- 🔴 **B2 · Verde con TODO EN CERO.** Si el set no resuelve su grupo TCGCSV, el backend devuelve
+  `ok:true, 0 productos, 0 precios, pending:0, reachable:true` ⇒ el banner sale **verde**. Y peor:
+  `cardsProcessed = localSet._count.cards` (`catalog-sync.service.ts:366`) — **el total en la base, no lo
+  tocado** ⇒ se lee *«191 cartas procesadas · 0 precios»* como trabajo hecho. **Verificado.**
+- 🔴 **B3 · La explicación EXISTE y no se pinta.** `fullSyncHint` dice literal *«Importar/Re-sincronizar solo
+  trae metadata y cartas (no refresca variantes ni toca precios)»* — la frase que habría evitado el
+  incidente. **Verificado: las claves `*Hint` están en `es.json` y tienen CERO consumidores en
+  `frontend/src/`.** Es copy muerto. **Mismo patrón que `P-74` invertido:** allá lo construido no se
+  encuentra; aquí **lo visible engaña y la verdad está escrita donde nadie la ve**.
+- ✅ **Sobre la propuesta de tres: SÍ, CON CAMBIOS.** Las tres intenciones son las correctas —traer
+  colección · actualizar este set · actualizar precios de todo— más **una de rescate plegada**. De 8 a 4.
+  **Tres condiciones sin las cuales tres botones fallan igual que ocho:**
+  1. **La acción por set debe DEGRADAR, no abortar.** Hoy «Sync completo» aborta en fase 1 si pokemontcg.io
+     no responde y **nunca llega a precios**; «Variantes + precios» existe justo para ese caso. Un solo botón
+     tiene que hacer cartas→acabados→precios y, si falta una fuente, **seguir con el resto y decirlo**. Es
+     composición de contrato ⇒ **arquitecto**.
+  2. **El camino de precios debe escribir POR ACABADO** — si no, el botón consolidado repite el silencio de
+     hoy. Es la **Parte 4 de `P-47`**, sin marcar hecha.
+  3. **Cada resultado debe decir números y quedar JUNTO al botón.** Con **cero escrito ⇒ advertencia, nunca
+     verde**.
+- ⚠️ **Lo que NO se debe perder al consolidar** (ux-review lo enumeró y es la parte que importa): la
+  **elección del set** en la fila; la **reparación con pokemontcg.io caída**; y las **cartas nuevas y logos**
+  que solo trae el camino de catálogo. **Una consolidación que quita una capacidad usada es peor que ocho
+  botones.**
+- 🔗 **Cruce con `P-66`:** aquel midió M2 como «7.986 px, 11 secciones y 61 botones» pero **no entró a la
+  zona de sync**. Esto es el zoom sobre esos últimos ~1.000 px. ⚠️ **Y cambia el rol dueño respecto a
+  `P-66`·I5:** aquí `CatalogSyncSection.tsx` **CUMPLE `DESIGN_SYSTEM §19` al pie de la letra**. El problema
+  **no es que frontend se desviara: es que la especificación §19 produce esta experiencia.** ⇒ **El dueño
+  del arreglo es ux-ui, no frontend.**
+- **Tres preguntas al humano antes de mover nada:** (1) ¿ha usado alguna vez «Backfill» o «Re-sincronizar
+  todo (forzar)»? (2) ¿quiere sets anteriores a 2024 en el catálogo? (3) cuando dice «sincronizar el set»,
+  ¿espera que cambien nombres e imágenes, los precios, o las dos cosas?
+- ⚠️ **Riesgo destapado que NO es de UX:** «Importar sets nuevos» **no importa los nuevos: importa TODO lo
+  que falte**, sin filtro de fecha (`catalog-sync.service.ts:594`). Con el catálogo parcial, un clic dispara
+  la historia completa del proveedor. **Decisión de alcance ⇒ product-owner/arquitecto.**
+- **Rol dueño:** **ux-ui** (redefinir §19 por intención) → **frontend** · **backend** (el DTO de resultado:
+  `imported` fijo, `cardsProcessed` engañoso, jobId ficticio) · **arquitecto** (la degradación y el alcance
+  de «importar todo»).
+
+
+#### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — ✅ CERRADO (confirmado por el humano, 2026-09-10)
+
+> ## ✅ MEDIDO Y CERRADO — el dial en producción dice `tcgcsv_singles`
+>
+> **2026-09-10.** El humano leyó el dial en el panel **M10** («proveedor de la ingesta masiva de
+> precios») y reporta **`tcgcsv_singles`**. Es **lectura directa, no inferencia**: cierra la duda que
+> QA dejó abierta.
+>
+> **Consecuencia:** el barrido de precios **por-acabado** (normal / reverse holo / holofoil, cada uno
+> con SU precio de mercado) **lleva corriendo en producción desde el 2026-08-28**, unas dos semanas.
+> El aplanamiento que este pendiente describía **ya no ocurre**. Las Partes 1, 2, 3 y 4 están todas
+> hechas y desplegadas.
+>
+> **Lo que este cierre NO cierra — dos cosas quedan abiertas y se mueven a su propio sitio:**
+>
+> 1. 🔴 **P-53 (disco/WAL) es ahora el riesgo vivo, no P-47.** Las **28,559 filas/día** que escribe el
+>    barrido son los ~13 MB/día que llenaron la base. Ya no es una hipótesis sobre quién escribe:
+>    sabemos que es el barrido y sabemos que seguirá escribiendo todos los días. La columna
+>    `evidenceDate` ya existe en el esquema y **nadie la escribe ni la lee** — es el sitio natural
+>    para distinguir «el precio no cambió» de «el proveedor no respondió», que es lo que permitiría
+>    dejar de escribir una fila diaria por producto aunque el precio sea idéntico.
+> 2. 🟠 **La brecha de gate de `debb0c3` (BL-25) ya no es hipotética.** Ese commit añadió
+>    `triggerPublishForVariants` a `ingestSinglesForSet` el 2026-09-01: **el barrido auto-publica
+>    piezas**. Está en producción y corriendo AHORA, y el triple veredicto de `DEVOPS_NOTES.md` §28.1
+>    es del **2026-08-24**, anterior. `grep BL-25` en `PENDIENTES.md`, `SECURITY_NOTES.md` y
+>    `TECH_DEBT.md` = 0 resultados. Decisión pendiente del humano: **¿se re-gatea a posteriori?** No
+>    es «¿aprobamos el deploy?» — el deploy ya pasó.
+>
+> **Lo que ya no aplica de lo escrito abajo:** el análisis de «riesgo del flip» (qué pasaría el día
+> que se active) es **retrospectivo**: el flip ya ocurrió y no consta incidente. Se conserva por dos
+> razones: (a) documenta que el rollback **no es máquina del tiempo** —las filas `tcgcsv_singles` no
+> se borran, y para reverse_holo/holofoil son las únicas candidatas desde `9c3eb3e`, así que ganan
+> para siempre congeladas en su último valor—; y (b) porque los cuatro `SELECT` que QA dejó siguen
+> siendo la forma de medir la cobertura real del barrido, que **nadie ha medido todavía**.
+>
+> **Los seis hallazgos de QA siguen abiertos y enrutados** (ver abajo). Dos cambian de urgencia con
+> esta confirmación:
+> - **BLOQUEANTE-1** sube de prioridad: con seed legacy en CI/staging y `tcgcsv_singles` en
+>   producción, **el DAST y los E2E de staging validan un barrido distinto al que corre en prod**.
+>   Enviado al arquitecto como dato medido.
+> - **IMPORTANTE-3** (`resolveGroupId` devuelve `null` con nombres de set ambiguos) deja de ser
+>   teórico: **si hoy hay un set así, lleva dos semanas sin repreciarse y solo dejó un `warn` en
+>   logs**. Nadie se enteraría. Backend lo tiene.
+
+> **QA midió el 2026-09-10 y esta nota afirma un estado que ya no es cierto. Tercer caso de la
+> semana, tras P-45 y P-74.**
+>
+> - **Parte 3 (el provider por-acabado): TERMINADA y YA EN PRODUCCIÓN.** Su historial completo son
+>   dos commits, `73f0fa4` + `03f0e02`, ambos contenidos en `production`. Verificado por el
+>   orquestador: `git diff origin/production..HEAD -- backend/src/modules/pricing/` = **vacío**. El
+>   código del flip es idéntico al que ya está sirviendo.
+> - **Parte 4 (el runbook de activación): TAMBIÉN EXISTE**, desde el 2026-08-24 —
+>   `docs/DEVOPS_NOTES.md` §28, «Runbook de ACTIVACIÓN en PROD». Y `.env.example:444` ya trae
+>   `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`.
+> - 🔴 **Y hay una señal fuerte de que el dial YA ESTÁ FLIPEADO en producción desde el 2026-08-28**,
+>   o sea que **el automático lleva ~2 semanas corriendo por-acabado**. Razonamiento por exclusión
+>   sobre una medición de prod ya registrada en P-53: prod escribe **28,559 filas/día con
+>   `source='tcgcsv_singles'`**, y el ritmo saltó ×14 el 2026-08-28. Solo hay dos escritores posibles
+>   de esa fuente, y el orquestador descartó el otro midiendo: las dos llamadas a
+>   `runCardProductResolver` (`catalog-sync.service.ts:785` y `:817`) están **ambas** detrás de
+>   `firstImport || opts.force === true`, y el cron diario corre con `force:false` ⇒ el resolver no
+>   corre a diario y no puede producir ese volumen. Queda el barrido con el dial en `tcgcsv_singles`.
+> - ⚠️ **Es inferencia, no lectura.** Lo cierra **una** pantalla: **M10 → dial «proveedor de la
+>   ingesta masiva de precios»** (`M10View.tsx:172`), o `GET /api/v1/admin/settings` → `priceProvider`,
+>   o `SELECT "valueJson" FROM "ConfigSetting" WHERE key='price_provider'`.
+> - **Si está flipeado, lo que queda abierto no es P-47 sino P-53** (disco/WAL): esas 28.5k filas/día
+>   son los ~13 MB/día que llenaron el disco.
+>
+> **Riesgo de dinero del flip, si resultara NO estar hecho (medido por QA):**
+> - **Ninguna carta pasa de «con precio» a «pendiente» por falta de dato.** `getReference` y
+>   `getReferencesBatch` no tienen cota de fecha: una carta sin cobertura se **congela** (queda stale),
+>   no se queda sin precio.
+> - El peor caso real es **entrar a la cola de revisión**: tras cada barrido,
+>   `reconcilePublishedPrices` re-deriva el precio de venta de todas las piezas `listed` del set; si
+>   una carta `premium` aterriza en el piso, `premiumFloorGuard` la marca `premium_at_floor`. No se
+>   despublica; aparece en la cola.
+> - **El rollback no es máquina del tiempo.** Las filas `tcgcsv_singles` no se borran nunca. Para
+>   reverse_holo/holofoil, PPT ya no escribe (Parte 1, `9c3eb3e`) ⇒ esas filas **ganan para siempre**,
+>   congeladas en el último valor del barrido. Es el residuo *bueno* (precio real por-acabado, no
+>   aplanado), pero hay que decirlo antes, no después.
+>
+> **Estado de los candados (mutaciones de QA sobre copia aislada): 4 de 5 mueren en rojo** — incluida
+> la que reintroduce el aplanamiento y la que desregistra el provider. **1 hueco real**, ver abajo.
+>
+> **Hallazgos enrutados el 2026-09-10:**
+> - ✅ **BLOQUEANTE-1 — RESUELTO por el arquitecto (2026-09-10, rev v1.65).** Cede el **código**: el
+>   seed pasa a `tcgcsv_singles`. El criterio que faltaba: *un seed money-safe debe ser **inerte** (no
+>   escribe dinero) o el **primario validado**; nunca un segundo escritor con semántica distinta*.
+>   `sealed_price_source='off'` es inerte y por eso su seed sí es candado; `pokemontcg_io` **corre el
+>   barrido y escribe precios aplanados** ⇒ **el seed legacy no era el candado money-safe, era el
+>   riesgo con el nombre del candado**. Fuente única nueva: `API_CONTRACT.md §M10-PP` (`CANON:
+>   proveedor-de-precio`), invariantes `I-PP1`…`I-PP5`; razón en `ARCHITECTURE.md §4.35a`; decisiones
+>   `D-PP-1` (backend) y `D-PP-2` (devops) en §9. El diagnóstico de fondo: «el provider es X» eran
+>   **tres** afirmaciones con dueños distintos —PRIMARIO (norma), SEED (arranque de BD fresca) y
+>   VIGENTE (fila de `ConfigSetting` de un entorno, se lee y no se cita)— y el proyecto solo tenía
+>   vocabulario para una; por eso los cinco textos eran todos verdaderos y la contradicción,
+>   irresoluble. Cambiar el `DEFAULT` **no puede alterar producción**: la fila ya existe allí y
+>   `SettingsService.get()` solo cae al default cuando no hay fila. Enrutado: **backend** (`D-PP-1`,
+>   money + zona compartida ⇒ triple veredicto) y **devops** (`D-PP-2` + runbook §28 + cron).
+>   QA cierra este hallazgo solo cuando el test refleje `I-PP1` **y** una BD fresca de CI arranque en
+>   el primario — no con un cambio solo documental.
+> - 🔴 **BLOQUEANTE-1 (texto original) → arquitecto.** El contrato (`API_CONTRACT.md:4118-4121`) y `ARCHITECTURE.md`
+>   §4.36(d) bandera 3 (NORMATIVO) afirman que el seed del dial es `tcgcsv_singles`; el código dice
+>   `pokemontcg_io` (`settings.constants.ts:307`) **y hay un test que lo fija**
+>   (`settings.validation.spec.ts:152`). Verificado por el orquestador. Consecuencia: toda BD fresca
+>   (CI, dev, staging) arranca en el proveedor legacy ⇒ **staging valida un barrido distinto al de
+>   prod**. Ojo: `DEVOPS_NOTES.md` §28.6 argumenta que el seed money-safe *debe* ser el legacy para
+>   que el rollback funcione, así que no es obvio cuál cede.
+> - 🔴 **BLOQUEANTE-2 → backend.** Borrar `'tcgcsv_singles'` de `PRICE_PROVIDER_VALUES`
+>   (`settings.constants.ts:463`) deja **4281/4281 tests en verde**, y el dial pasaría a ser
+>   infliqueable (422). Verificado por el orquestador: las 37 menciones de `tcgcsv_singles` en
+>   `backend/test/` son **todas** literales de `source` en fixtures; ninguna asserta que sea un valor
+>   aceptado del dial. Es la bandera nº1 de §4.36(d), la que la fusión de la curva v2 ya intentó
+>   llevarse por delante una vez.
+> - 🟠 **IMPORTANTE-1 → devops.** El runbook §28 es del 2026-08-24, **anterior a la curva v2**. Hoy el
+>   barrido además reprecia piezas `listed`, puede abrir entradas en la cola (`premium_at_floor`) y
+>   **auto-publica** piezas (`debb0c3`). Su paso de verificación no lo contempla, ni cruza con P-53.
+> - 🟠 **IMPORTANTE-2 → devops.** Orden del scheduler sin ajustar (§4.35(e)(3)):
+>   `scheduler.service.ts:183-185` deja el barrido a 00:00/12:00 UTC contra `fx-refresh` a las 06:00;
+>   la norma pide el patrón del sellado (21:30 UTC, tras la ventana TCGCSV **y** tras FX). Impacto
+>   acotado (la MXN se recalcula al vuelo en lectura), pero la norma sigue incumplida sin decisión.
+> - 🟠 **IMPORTANTE-3 → backend.** `resolveGroupId`
+>   (`tcgcsv-singles-bulk.provider.ts:194-206`) no tolera el prefijo de código de set — misma familia
+>   que el bug de P-46 (`«SV08: Pitch Black»` vs `«Pitch Black»`). El `includes()` lo salva salvo con
+>   más de un candidato ⇒ `null` ⇒ **un set entero que nunca se reprecia y no grita** (solo un `warn`
+>   en logs). Ya existe `setNameCandidates` (`ppt-set-mapper:145`) que lo resuelve.
+> - 🟡 **MENOR-1 → frontend.** `PhotoUploader.test.tsx:76` falla en la corrida completa (1456/1457) y
+>   pasa 5/5 en aislado ⇒ contaminación entre tests. **La suite de frontend no está verde hoy.**
+>
+> **Brecha de gate que QA encontró y hay que decidir:** el triple veredicto de §28.1 es del
+> **2026-08-24**, pero `ingestSinglesForSet` **cambió después**: `debb0c3` (2026-09-01, BL-25) le
+> añadió `triggerPublishForVariants` — el barrido ahora **auto-publica piezas**. Ese commit está en
+> `production` y trae sus propios tests, pero `grep BL-25` en `PENDIENTES.md`, `SECURITY_NOTES.md` y
+> `TECH_DEBT.md` = **0 resultados**: no consta triple veredicto emitido sobre él como cambio de
+> dinero. Si el dial ya está flipeado, la pregunta deja de ser «¿aprobamos el deploy?» y pasa a ser
+> «¿re-gateamos `debb0c3` a posteriori?».
+
+- **Reportado por el humano:** en el binder, Normal/Reverse Holo/Holofoil de la misma carta muestran el
+  **mismo MERCADO** (Dartrix 1.14=1.14; Luxray reverse 2.47=holofoil 2.47). El proveedor manda precio
+  distinto por acabado; se está aplanando.
+- **Causa raíz (money-adjacent):** display y clave `PriceReference` SÍ son por-acabado (sin fallback). El
+  aplanamiento ocurre en la **ingesta**: el provider primario `PokemonPriceTrackerBulkProvider` en modo
+  `fetchPrintings` (`pokemonpricetracker-bulk.provider.ts:268-295`, `mapEntry` rama forced `:560-564`) lee el
+  `market` de **nivel carta** en las 3 pasadas → escribe el mismo precio a normal/reverse_holo/holofoil. La
+  API v2 de PPT no varía el market por `?printing=`. Test que enmascara: `fix-ppt.spec.ts:84-109` (hardcodea
+  3 markets distintos). Fuente correcta por-acabado = **TCGCSV `tcgcsv_singles`** (per subTypeName), con
+  precedencia sobre PPT, pero solo corre en refresh/import, no en el barrido diario.
+- **Parte 1 (HECHO, en prod `9c3eb3e`):** PPT ya no copia el market a las 3 impresiones — solo escribe la
+  impresión primaria real; los demás acabados quedan pendiente/«—», nunca el precio de otro. Test corregido.
+- **Parte 2 (contrato v1.44, arquitecto):** el barrido diario reprecio **por-acabado** desde TCGCSV
+  `tcgcsv_singles` (separando estructura import/--force de precio diario); apagar `fetchPrintings` de PPT;
+  §4.25a-2 corregida; §4.35 nueva.
+- **Parte 3 (EN CURSO, backend):** implementar el provider/job `TcgcsvSinglesBulkPriceProvider` (precio
+  por-acabado keyed por `cardProductId`, FX, respeta overrides), registrarlo como primario del barrido, PPT
+  LIST fallback. Money-critical → **triple veredicto (QA+techlead+seguridad) antes de desplegar**.
+- **Parte 4 (después, devops):** `PRICE_PROVIDER=tcgcsv_singles` + `POKEMONPRICETRACKER_FETCH_PRINTINGS=false`
+  + orden del scheduler + runbook `--force` por set nuevo (tras merge de backend, NO en paralelo).
+- **Mitigación mientras tanto:** el refresh/sync TCGCSV por set (per-acabado, gana sobre PPT) da los precios
+  correctos por acabado ya.
+
+
+
+#### ~~P-45 · Badge «N EN TOTAL» del binder~~ — ✅ HECHO (arreglado en `5cdac57`; el candado se añadió el 2026-09-08)
+- **Quinto pendiente desactualizado del día.** Decía «EN CURSO · fix frontend en curso»: **el arreglo ya vivía en el árbol**. Lo que faltaba era el candado, y hacía falta — una fuga que use el total de la carta **solo en el renglón de conteo** dejaba los tres tests viejos en verde.
+
+<details><summary>original</summary>
+
+#### P-45 · Badge «N EN TOTAL» del binder — ✅ HECHO (verificado 2026-09-10, la nota decía «EN CURSO» y no lo estaba)
+- **El síntoma original:** dar de alta 2 piezas de un acabado pintaba «2 EN TOTAL» también en la teja de
+  otro acabado con 0 piezas. Solo display; el dato siempre fue correcto.
+- ✅ **Medido, no supuesto:** `MasterSetBinder.tsx:703-705` pinta `finishOnHandCount` con el conteo del
+  acabado de SU teja, y el candado existe y pasa —
+  `MasterSetBinder.test.tsx:185`, *«la teja %s enseña SU conteo y ninguno de los ajenos»*, recorriendo los
+  cuatro acabados. **13/13 verdes, corridos por el orquestador.** Y su parte (b) es la que convierte el caso
+  reportado en regla: asierta que **ningún número ajeno** aparece en ninguna de las dos superficies.
+- ⚠️ **Lección, la misma de la nota de la razón social que está justo debajo:** esta entrada llevaba días
+  diciendo «EN CURSO» sobre un trabajo terminado. **Una nota que afirma un estado que nadie ha medido manda
+  a alguien a rehacer lo que ya está.**
+
+</details>
+
+
+---
+
+## Retirados / obsoletos
+
+### ~~P-6 · El proveedor de precios de PAGA (PPT) no escribe precios~~ — OBSOLETO (2026-08-22)
+- Superado por el rediseño de esta sesión: **TCGCSV es ahora la fuente primaria** de estructura y precio
+  por variante (M-31…M-35); PPT quedó como **fallback**. Si algún día se reactiva PPT como primario,
+  retomar el diagnóstico original (request `GET /api/prices?setId=…`).
+
+---
+
+## Hecho (referencia breve — todo en producción)
+
+- **P-30** publicación única por carta con stock (`GroupedListingDTO` v1.38, una teja «N disponibles»,
+  add-to-cart por pieza, sin migración) + **rediseño makeover 1a** del storefront (nueva capa visual,
+  `StockBadge` con «Agotado»/«Queda 1») — publicados a producción (`e258da0`). Deuda H1-H4/FE-2/MK-D1..D9
+  en `TECH_DEBT`.
+- **P-35** alta dedicada de sellado (imagen de API, M-37), **P-34** pricing por 5 tiers (editor M2,
+  invariante premium→pct, T2 a 25%, fix de dinero de las sin-mapear; Uncommon compra $0.50→$1.50), **H9**
+  sellado fuera de la vista de singles — publicados a producción (`75ef123`). *(Pendiente devops:
+  `unify-rarities` post-deploy, solo cosmético del editor.)*
+- **P-28** carritos que no concordaban en Vender, **P-29** baja rápida de inventario (idempotente,
+  money-safe), **P-31** export de inventario a Excel, **P-32** valor del set = Σ cartas (muere el
+  +157,463%), **P-33** quitar selector de proveedor de respaldo — publicados a producción (`fcb07e1`).
+- **Fix de variantes/precios de raíz (esta sesión):** modelo 1 carta ↔ N productos por productId exacto,
+  TCGCSV fuente única de estructura+precio por variante, FX Banxico, PPT fallback, catálogo canónico de
+  rarezas, «Unificar rarezas», refresh solo-TCGCSV por-set y batch, limpieza del panel admin M2
+  (M-31…M-36). Fantasma `normal` muerto por construcción.
+- **P-27** · Sets multi-parte combinados (Celebrations = 50) — en producción. *(Menores: P27-D2 el
+  cotizador aún no combina; P27-D3 validar y activar los pares Shiny Vault — ver `TECH_DEBT.md`.)*
+- **Streams A/B/C**, **P-1–P-5**, **P-11–P-22, P-24, P-25**, **P-21** (rebrand + dominio tcghunt.mx),
+  **P-26** (sellado). Todo con doble/triple veredicto y en producción.
+
+## HANDOFF (2026-08-25) — Fusión curva v2 BLOQUEADA por límite de uso
+**Estado:** cierre seguro de `claude/card-pricing-rules-2e537m` (curva v2) EN CURSO, detenido por límite de uso de la cuenta (reset Aug 28, 4pm UTC). **NADA desplegado; producción intacta** (`production`=c255692). P-47 por-acabado sigue vivo en prod.
+**Plan ya decidido y documentado (no re-analizar):** ARCHITECTURE §4.36 + API_CONTRACT v1.49 «Dos capas de precio». Verificado: conviven POR-ACABADO; M-41 aditiva (no toca PriceReference).
+**Regla de fusión:** CONSERVAR provider `tcgcsv_singles` (P-47, capa REFERENCIA) + ADOPTAR curva v2 (capa REGLA). Único conflicto de código: `price-ingest.service.ts` (v2 borra el provider → RECHAZAR ese borrado). Restaurar 6 banderas (§4.36): PRICE_PROVIDER_VALUES, enum PriceSource, seed, registro NestJS del provider, tests, .env.example.
+**Resume:** rama `integration/pricing-v2-merge` (creada desde main 6ec0722). `git merge origin/claude/card-pricing-rules-2e537m`, resolver por §4.36, validar (tsc+jest+smoke per-acabado), re-gate (QA/techlead/seguridad del delta post-5bd1975 + fusión), snapshot BD (humano), deploy nativo Railway/Vercel, runbook post-deploy (UPC spreads PUT 18/22, cut-over por sets).
+**Trigger activo:** routine "Publicar curva de precios v2" (trig_01Noh8euNXLdK5uRrkTBfYh7) sigue disparando — considerar pausarla hasta el reset.
+
+## DESPLEGADO (2026-08-28) — Motor curva v2 a producción
+`production`=96580c6 (main->production). Motor de precios v2 (curva por valor de mercado) CONSERVANDO P-47 por-acabado (tcgcsv_singles). Migración M-41 aditiva. Sin snapshot (decisión del humano, opción C). Gate de release verde: QA (2139 back + 679 front), techlead (APROBADO c/deuda), seguridad (APROBADO-CON-CONDICIONES, 0 crít/0 alto).
+**Post-deploy pendiente:** (1) verificar salud + curva; (2) spreads UPC 18/22 vía PUT /admin/pricing/sealed-spreads (si no, venden 25%); (3) cut-over por sets (empezar chico).
+**Deuda aceptada (no bloqueante):** S49-M2 media (disparador DURO: cerrar antes del 1er RFC/CLABE/INE real — hoy BD sin PII real); E2E completa contra stack vivo (no re-corrida sobre árbol fusionado; 3 smokes de dinero rojos solo por falta STRIPE key, aceptados); test de wiring singles→reconcile (techlead); bump NestJS 11 (2 moderate deps, devops); S49-B3/candado no-raw-entity/R2/R4 (bajas).
