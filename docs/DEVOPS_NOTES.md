@@ -11080,3 +11080,55 @@ conclusión **success**:
   consecuencia que no estaba dicha: **la comprobación de cierre de DO-D2 no se puede cumplir en un
   push real mientras esos cinco secrets no existan**, porque `promote-production-*` nunca llega a
   evaluar `needs.dast-release.outputs.blocking`. Anotado en la ficha.
+
+### 57.5 · El techo del censo E2E sube a lo que hay (commit `7f9527e`), y qué opino del método de conteo
+
+**Qué se hizo:** `scripts/e2e-skip-census.baseline` regenerado con `--update --motivo` sobre
+**`8d79c61`**, con el motivo de **frontend** verbatim (dueño del motivo: frontend; del baseline:
+devops — lo dice el propio mensaje de rojo del gate). Nuevo techo: `mockOnly 92 22`, `needsSeed 31 8`,
+`harnessLimit 4 2`, `skipIfSeedMissing 15 6`.
+
+Sobre `8d79c61` **a propósito**: sobre el commit anterior habría salido `skipIfSeedMissing 16 6` —una
+marca por encima de lo que existe— y esa holgura es exactamente lo que este candado existe para
+impedir.
+
+| Medición (2026-09-11, este entorno) | Resultado |
+|---|---|
+| Censo antes de regenerar, medido por mí con el método del script | `mockOnly 92/22` · `needsSeed 31/8` · `harnessLimit 4/2` · `skipIfSeedMissing 15/6` (coincide con lo predicho por frontend y con lo medido por el orquestador) |
+| `./scripts/check-e2e-skip-census.sh` tras el `--update` | **rc=0 en 3/3** |
+| `./scripts/check-e2e-skip-census-canary.sh` | **13/13 en 3/3** |
+| Mutación independiente sobre COPIA de `frontend/e2e` (+1 ocurrencia de `mockOnly`) contra el baseline **nuevo** | **rc=1 en 3/3** (`92 → 93`); control con la copia intacta ⇒ **rc=0** |
+
+**El método (decisión de devops, no petición de frontend).** Frontend observa —y tiene razón— que
+`grep -rwo` cuenta **palabras**, no marcas: de sus +15 ocurrencias solo **5** son llamadas. Lo medí por
+forma sintáctica, y el desfase es grande y estable:
+
+| Clave | Ocurrencias (lo que gatea hoy) | Sitios de llamada (`X(`) | Resto (importaciones, JSDoc, listas) |
+|---|---|---|---|
+| `mockOnly` | 92 | **54** | 38 |
+| `needsSeed` | 31 | **10** | 21 |
+| `harnessLimit` | 4 | **1** | 3 |
+| `skipIfSeedMissing` | 15 | **4** | 11 |
+
+**Mi criterio: el método actual se queda, y el rótulo está mal.** Lo que este número vale es que **no
+se puede contorsionar**: una sola orden, sin AST, sin parsear TypeScript, sin depender del formato, y
+nadie puede bajarlo moviendo una llamada a un helper o a una condición. Un censo «de tests que no
+miden» necesitaría o el compilador de TS (dependencia nueva en un script de devops, justo lo que
+`DO-D1` ya señala como deuda) o correr Playwright con un reporter —caro, y **se le escapa** lo
+dinámico—. O sea: el conteo preciso sería **más exacto y más fácil de esquivar**; el actual es
+impreciso y honesto.
+
+Lo que sí está mal es llamarlo «censo de salvaguardas»: no lo es. Es un **detector de huella textual**
+—«la palabra que marca un test que no mide aparece más veces que ayer»—, y leerlo como «hay 92 tests
+que no miden» es falso. El riesgo de dejarlo así **no es el número, es el hábito**: un rojo que casi
+siempre se explica con «10 de esas son prosa» enseña al equipo a firmar el `--update` sin leerlo, y
+entonces el candado deja de decir nada (es el defecto de §56, del revés).
+
+**Propuesta, con su costo, para OTRO pase (hoy no se toca: primero se desbloquea la fusión):** añadir
+una **segunda línea informativa** por clave con los sitios de llamada
+(`grep -rhoE '\bX[[:space:]]*\('`, menos la definición), dejando el **gate** donde está —sobre la
+huella textual, que es la que no se puede engañar—. Así el rojo diría «`mockOnly` 92→93 en huella,
+llamadas 54→54: es prosa» o «llamadas 54→55: es una marca nueva», y el motivo lo escribiría solo.
+Costo medido a ojo sobre el script actual (78 líneas): ~15 líneas más, 4 filas más en el baseline y
+2-3 casos más en el canario. Dueño: devops. **No lo decido solo:** el que paga el rojo es frontend, y
+la lectura del número la usa el techlead.
