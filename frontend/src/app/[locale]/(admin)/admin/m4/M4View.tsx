@@ -30,14 +30,10 @@ import type {
   ShipmentTrackingRequest,
 } from '@/types/contract';
 
-/** Convierte pesos (texto) a centavos enteros. Vacío/invalid → null (no se envía). */
-export function pesosToCents(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed.replace(/,/g, ''));
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * 100);
-}
+// `pesosToCents` vive en su propio módulo (función pura, sin React) para que su test no arrastre
+// el árbol de la vista (que importa `Link` de next-intl, no cargable en jsdom sin mock).
+import { pesosToCents } from './pesosToCents';
+export { pesosToCents };
 
 /**
  * Fila de la cola de M4 con lo que el contrato §M4 (v1.21 / v1.67) YA promete y `AdminShipmentDTO`
