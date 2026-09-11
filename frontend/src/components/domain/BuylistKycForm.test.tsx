@@ -31,7 +31,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
     expect(screen.getByLabelText(/CLABE/)).toBeInTheDocument();
     expect(screen.getByText('INE (anverso)')).toBeInTheDocument();
     expect(screen.getByText('INE (reverso)')).toBeInTheDocument();
-    expect(screen.getByText(/se guarda cifrado/)).toBeInTheDocument();
+    expect(screen.getByText(/se guarda cifrada/)).toBeInTheDocument();
   });
 
   it('valida la CLABE en cliente (18 dígitos) y no llama al backend si es inválida', async () => {
@@ -178,8 +178,38 @@ describe('BuylistKycForm — gating proactivo de cuenta/KYC', () => {
       'es',
     );
     expect(
-      screen.getByText('Esta solicitud supera el tope: sube tu INE (anverso y reverso) para continuar.'),
+      screen.getByText('Esta venta supera nuestro límite: sube tu INE (frente y reverso) para continuar.'),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * **P-78 · §34.8 regla 4.** Pedirle otra vez la INE **sin decirle por qué falló la anterior** es
+   * pedirle que adivine. El motivo del revisor viaja literal y se lee aquí, encima de los
+   * uploaders — el mismo texto que ve en «Mi cuenta».
+   */
+  it('con la INE rechazada, el formulario de venta muestra el MOTIVO encima de los uploaders', () => {
+    renderWithProviders(
+      <BuylistKycForm
+        items={RAW_ITEMS}
+        onCreated={() => {}}
+        ineExpected
+        kycStatus="rejected"
+        rejectionReason="No se alcanza a leer: la foto está borrosa."
+      />,
+      'es',
+    );
+    expect(screen.getByText('No pudimos verificar tu identidad')).toBeInTheDocument();
+    expect(screen.getByText('«No se alcanza a leer: la foto está borrosa.»')).toBeInTheDocument();
+    // Y se le sigue pidiendo la foto: el motivo acompaña, no sustituye.
+    expect(screen.getByText('INE (anverso)')).toBeInTheDocument();
+  });
+
+  it('sin rechazo previo NO se inventa ningún motivo', () => {
+    renderWithProviders(
+      <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} ineExpected kycStatus="pending" />,
+      'es',
+    );
+    expect(screen.queryByText('No pudimos verificar tu identidad')).not.toBeInTheDocument();
   });
 
   it('con CLABE en archivo (clabeOnFile) arranca en modo "usar mi CLABE" y permite cambiar a capturar otra', () => {

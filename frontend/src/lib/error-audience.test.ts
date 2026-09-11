@@ -208,6 +208,36 @@ function copyRows(section: string): { key: string; es: string; en: string; optio
   return rows;
 }
 
+/**
+ * ⭐ **§34.12 SUPERSEDE a §26 para las claves que P-78 reescribió** (`error.INE_REQUIRED`), y el
+ * candado tiene que saberlo o se pone rojo protegiendo la cadena vieja — que era exactamente el
+ * defecto de v1.68: *una cifra de tope en un mensaje al cliente* (decisión (c) del dueño).
+ *
+ * ⚠️ **No se hard-codea la cadena nueva: se lee del documento.** La tabla «Cambian de valor» de
+ * §34.12 tiene cuatro columnas (`clave | antes | ahora ES | ahora EN`) y de ahí salen las dos que
+ * se exigen. Así el candado sigue atado al documento por los dos lados: si ux-ui reescribe el copy
+ * nuevo, este test cae igual que caía con §26.
+ *
+ * ⏸️ **Las filas marcadas con `⏸️` se saltan a propósito**: §34.9 recortó el alcance de
+ * `error.BUYLIST_LIMIT_EXCEEDED` **con motivo escrito** (esa superficie de error es de Stream B y
+ * QA la está midiendo contra v1.68.1). Exigirla aquí obligaría a cambiar bajo los pies de quien
+ * está midiendo — que es justo lo que el contrato prohíbe.
+ */
+function supersededCopyRows(): Map<string, { es: string; en: string }> {
+  const section = designSystemSection(34);
+  const map = new Map<string, { es: string; en: string }>();
+  for (const raw of section.split('\n')) {
+    const row = raw.match(
+      /^\|\s*`(error\.[A-Za-z0-9_.]+)`([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*$/,
+    );
+    if (!row) continue;
+    const [, key, tag, , esNow, enNow] = row;
+    if (tag.includes('⏸️')) continue;
+    map.set(key, { es: esNow.trim(), en: enNow.trim() });
+  }
+  return map;
+}
+
 describe('§26/§27 · LITERALIDAD: el copy del catálogo es el que dice DESIGN_SYSTEM, carácter por carácter', () => {
   // ⚠️ Se lee DENTRO de cada test (memoizado), no en el cuerpo del `describe`: si una sección se
   // renombra o se mueve, se quiere un test ROJO con su mensaje y no una suite que ni colecciona.
@@ -240,12 +270,19 @@ describe('§26/§27 · LITERALIDAD: el copy del catálogo es el que dice DESIGN_
 
   it('cada cadena NORMATIVA de lo CABLEADO está en `es` y en `en`, exactamente como la escribió ux-ui', () => {
     const { rows } = read();
+    const superseded = supersededCopyRows();
+    // Anti-vacuidad del superseder: §34.12 reescribe al menos `error.INE_REQUIRED`. Si el parser
+    // dejara de encontrar su tabla, las claves de P-78 se compararían contra la cadena VIEJA y el
+    // candado protegería la cifra que el dueño mandó retirar.
+    expect(superseded.get('error.INE_REQUIRED')?.es, '§34.12 no trae el copy nuevo de INE_REQUIRED').toBeTruthy();
     const required = rows.filter((r) => !r.optional && isWired(r.key));
     // Anti-vacuidad: si `isWired` dejara de reconocer las claves, esto no compararía nada.
     expect(required.length).toBeGreaterThanOrEqual(11);
     for (const row of required) {
-      expect(value(es, row.key), `es: ${row.key} no coincide con DESIGN_SYSTEM §26`).toBe(row.es);
-      expect(value(en, row.key), `en: ${row.key} no coincide con DESIGN_SYSTEM §26`).toBe(row.en);
+      const expected = superseded.get(row.key) ?? { es: row.es, en: row.en };
+      const source = superseded.has(row.key) ? '§34.12' : '§26';
+      expect(value(es, row.key), `es: ${row.key} no coincide con DESIGN_SYSTEM ${source}`).toBe(expected.es);
+      expect(value(en, row.key), `en: ${row.key} no coincide con DESIGN_SYSTEM ${source}`).toBe(expected.en);
     }
   });
 

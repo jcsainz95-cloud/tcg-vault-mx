@@ -1,10 +1,8 @@
 'use client';
 
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import type { AppLocale } from '@/i18n/routing';
 import { Banner } from '@/components/ui/Banner';
-import { formatMoneyCents } from '@/lib/format';
 import type { SellRequirements } from '@/hooks/useSellRequirements';
 import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 
@@ -12,14 +10,14 @@ import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
  * Panel de requisitos del flujo de VENDER (buylist). Comunica AL INICIO lo que la cuenta
  * necesita para poder enviar la solicitud, en vez de dejar que el usuario llene todo y
  * reciba un 403 críptico al final (guards del contrato §6: sesión + correo verificado;
- * CLABE en el envío; INE si supera el tope). El bloqueo real sigue siendo server-side.
+ * CLABE en el envío; INE cuando el SERVIDOR dice que hace falta — §M6-K.5, ⛔ sin cifra). El
+ * bloqueo real sigue siendo server-side.
  *
  * Dirección 5a: checklist en mono con marcas de texto (✓ / — / !) y notas con regla;
  * sin cajas de color.
  */
 export function SellRequirementsPanel({ req }: { req: SellRequirements }) {
   const t = useTranslations('buylist');
-  const locale = useLocale() as AppLocale;
 
   // Durante SSR/primer render no hay sesión resuelta: no pintar gating (evita mismatch).
   if (!req.ready) return null;
@@ -81,11 +79,12 @@ export function SellRequirementsPanel({ req }: { req: SellRequirements }) {
               </li>
             )}
             {req.ineExpected && req.kyc ? (
+              /* ⛔ SIN CIFRA (§34.9, decisión (c) del dueño): el veredicto lo da el servidor
+                 (`ineRequiredForTotal`) y el umbral no viaja. Publicar el umbral es publicar el
+                 manual para quedarse justo debajo. */
               <li className="text-accent">
                 <span aria-hidden>! </span>
-                {t('reqIneExpected', {
-                  cap: formatMoneyCents(req.kyc.capPerRequestCents, locale),
-                })}
+                {t('reqIneExpected')}
               </li>
             ) : req.ineOnFile ? (
               <li className="text-success">

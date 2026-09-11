@@ -30,7 +30,7 @@ vi.mock('@/lib/api', () => ({
   deleteAddress: vi.fn(),
   getBillingProfile: vi.fn().mockResolvedValue(null),
   putBillingProfile: vi.fn(),
-  getKyc: vi.fn().mockResolvedValue({ kycStatus: 'none', clabeOnFile: false, ineOnFile: false, capPerRequestCents: 300000, capPerMonthCents: 1000000, monthUsedCents: 0 }),
+  getKyc: vi.fn().mockResolvedValue({ kycStatus: 'none', clabeOnFile: false, ineOnFile: false }),
   updateKyc: vi.fn(),
   resendVerificationEmail: vi.fn(),
   forgotPassword: vi.fn(),

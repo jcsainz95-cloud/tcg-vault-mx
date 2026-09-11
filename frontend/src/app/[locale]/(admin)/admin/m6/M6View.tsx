@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Link } from '@/i18n/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Search, ChevronLeft, ChevronRight, KeyRound, Trash2, Copy, Check, UserPlus } from 'lucide-react';
@@ -51,7 +52,9 @@ import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 
-const KYC_STATUSES: KycStatus[] = ['none', 'pending', 'verified', 'rejected'];
+// ⛔ P-78: la lista de estados KYC que alimentaba el `Select` de la ficha se RETIRA con él
+// (§34.10.3). El filtro del listado enumera sus opciones a mano porque su primera entrada
+// («Todas») no es un estado del enum.
 const CREATE_ROLES: Role[] = ['customer', 'vault_operator', 'super_admin'];
 const PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 10;
@@ -66,6 +69,7 @@ export function M6View() {
 
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'' | 'active' | 'blocked'>('');
+  const [kycFilter, setKycFilter] = useState<'' | KycStatus>('');
   const [page, setPage] = useState(1);
   // Deep-link `?user=<id>` (p. ej. desde el vendedor en M5): abre la ficha 360° directo
   // reusando GET /admin/users/:id (sin endpoint nuevo). Solo el valor inicial; luego el
@@ -78,6 +82,7 @@ export function M6View() {
   const filters: AdminUsersFilters = {
     q: q || undefined,
     status: status || undefined,
+    kycStatus: kycFilter || undefined,
     page,
     pageSize: PAGE_SIZE,
   };
@@ -95,29 +100,29 @@ export function M6View() {
   const currentKyc = d?.kycProfile;
 
   // --- Edición de KYC ---
-  // Borrador: solo las keys que el admin tocó explícitamente. Lo que no está en el
-  // borrador cae al valor del servidor (kycStatus) o queda vacío (topes). Así "Guardar
-  // KYC" nunca degrada el kycStatus cargado salvo que el admin lo cambie a propósito.
-  const [kycDraft, setKycDraft] = useState<{
-    kycStatus?: KycStatus;
-    capRequest?: string;
-    capMonth?: string;
-  }>({});
+  // ⛔⛔ P-78 (DESIGN_SYSTEM §34.10.3, regla 1): **el `Select` de estado KYC se RETIRÓ de esta
+  // ficha**. Dejaba fijar `verified` a mano, o sea **alcanzar «verificado» sin haber visto un
+  // documento** — y mientras exista ese camino de dos clics, la pantalla de revisión es
+  // decorativa y la promesa de que nadie verifica sin mirar es falsa. El estado ahora es
+  // **solo lectura** aquí y se decide en `/admin/m6/kyc/[userId]`.
+  // ⚠️ Es una decisión de INTERFAZ, no de contrato: `PATCH /admin/users/:id/kyc` sigue aceptando
+  // `kycStatus` —es con lo que la pantalla de revisión verifica y rechaza—. Lo que se retira es
+  // **la puerta que permitía llamarlo sin haber visto nada**.
+  // El **tope mensual sí sigue aquí**: es política interna y su sitio es el panel.
+  const [kycDraft, setKycDraft] = useState<{ capMonth?: string }>({});
 
   // El borrador no cruza entre usuarios: se reinicia al cambiar de usuario seleccionado.
   useEffect(() => {
     setKycDraft({});
   }, [selectedId]);
 
-  const kycStatus: KycStatus = kycDraft.kycStatus ?? currentKyc?.kycStatus ?? 'none';
-  const capRequest = kycDraft.capRequest ?? '';
   const capMonth = kycDraft.capMonth ?? '';
 
   const kycMutation = useMutation({
     mutationFn: () =>
       updateUserKyc(selectedId!, {
-        kycStatus,
-        capPerRequestCents: capRequest ? Math.round(Number(capRequest) * 100) : undefined,
+        // El estado NO lo decide esta pantalla: se reenvía el que tiene el servidor.
+        kycStatus: currentKyc?.kycStatus ?? 'none',
         capPerMonthCents: capMonth ? Math.round(Number(capMonth) * 100) : undefined,
       }),
     onSuccess: () => {
@@ -215,6 +220,17 @@ export function M6View() {
       header: t('table.status'),
       render: (u) => <UserStatusBadge status={u.status} t={t} />,
     },
+    {
+      /* ⭐ P-78 (§34.10.1): sin esta columna **nadie se entera de que hay una INE esperando**
+         salvo que abra la ficha por otro motivo. Es TEXTO Y COLOR, nunca una imagen (regla 2:
+         la INE no aparece jamás en un listado ni en una miniatura).
+         MOCK: pendiente de contrato — `kycStatus` en `AdminUserSummaryDTO` es la petición A5; si
+         el servidor no lo emite se pinta «—» y no se deriva de nada. */
+      key: 'kycStatus',
+      header: t('table.identity'),
+      render: (u) =>
+        u.kycStatus ? <StatusBadge domain="kyc" value={u.kycStatus} /> : <span className="text-muted">—</span>,
+    },
     { key: 'createdAt', header: t('table.created'), render: (u) => formatDate(u.createdAt, locale) },
     {
       key: 'actions',
@@ -260,6 +276,21 @@ export function M6View() {
           ]}
           value={status}
           onChange={(e) => { setStatus(e.target.value as '' | 'active' | 'blocked'); setPage(1); }}
+        />
+        {/* Filtro de la cola de revisión (§34.10.2): el revisor llega a su cola en dos clics.
+            Reutiliza los rótulos que ya existen (`kycStatusOption.*`). */}
+        <Select
+          label={t('kycFilter')}
+          className="w-48"
+          options={[
+            { value: '', label: tc('all') },
+            { value: 'pending', label: t('kycStatusOption.pending') },
+            { value: 'verified', label: t('kycStatusOption.verified') },
+            { value: 'rejected', label: t('kycStatusOption.rejected') },
+            { value: 'none', label: t('kycFilterNone') },
+          ]}
+          value={kycFilter}
+          onChange={(e) => { setKycFilter(e.target.value as '' | KycStatus); setPage(1); }}
         />
         <Button variant="ghost" onClick={() => users.refetch()}>
           <Search size={18} /> {tc('search')}
@@ -348,25 +379,44 @@ export function M6View() {
                       <dd className="tabular">{currentKyc.rfcMasked ?? '—'}</dd>
                       <dt className="text-muted">{t('ineOnFile')}</dt>
                       <dd>{currentKyc.ineOnFile ? t('yes') : t('no')}</dd>
-                      <dt className="text-muted">{t('capRequest')}</dt>
-                      <dd className="tabular">{currentKyc.capPerRequestCents != null ? formatMoneyCents(currentKyc.capPerRequestCents, locale) : '—'}</dd>
                       <dt className="text-muted">{t('capMonth')}</dt>
                       <dd className="tabular">{currentKyc.capPerMonthCents != null ? formatMoneyCents(currentKyc.capPerMonthCents, locale) : '—'}</dd>
                     </dl>
                     <p className="text-xs text-muted">{t('maskedNote')}</p>
 
-                    {/* Editar KYC */}
-                    <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
-                      <Select
-                        label={t('kycStatusLabel')}
-                        options={KYC_STATUSES.map((s) => ({ value: s, label: t(`kycStatusOption.${s}`) }))}
-                        value={kycStatus}
-                        onChange={(e) => setKycDraft((prev) => ({ ...prev, kycStatus: e.target.value as KycStatus }))}
-                      />
-                      <div className="flex gap-3">
-                        <Input label={t('capRequest')} type="text" inputMode="decimal" prefix="MX$" className="w-full" value={capRequest} onChange={(e) => setKycDraft((prev) => ({ ...prev, capRequest: e.target.value }))} placeholder={currentKyc.capPerRequestCents != null ? String(currentKyc.capPerRequestCents / 100) : ''} />
-                        <Input label={t('capMonth')} type="text" inputMode="decimal" prefix="MX$" className="w-full" value={capMonth} onChange={(e) => setKycDraft((prev) => ({ ...prev, capMonth: e.target.value }))} placeholder={currentKyc.capPerMonthCents != null ? String(currentKyc.capPerMonthCents / 100) : ''} />
+                    {/* ⭐ P-78 (§34.1): LA ÚNICA puerta a la decisión de identidad. Solo
+                        `super_admin`; ausente —no deshabilitado— para quien no lo es (§7.15: lo
+                        que no se permite no se muestra). Si no hay INE, el botón se apaga CON EL
+                        MOTIVO a la vista: un botón apagado sin motivo es otro callejón. */}
+                    {isSuperAdmin && (
+                      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
+                        {currentKyc.ineOnFile ? (
+                          <Link href={`/admin/m6/kyc/${d.id}`}>
+                            <Button size="sm" variant="secondary">
+                              {t('kycReview.openCta')}
+                            </Button>
+                          </Link>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="secondary" disabled>
+                              {t('kycReview.openCta')}
+                            </Button>
+                            <span className="font-mono text-[11px] text-muted">
+                              {t('kycReview.openDisabled')}
+                            </span>
+                          </>
+                        )}
+                        {currentKyc.kycStatus === 'pending' && (
+                          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-accent">
+                            {t('kycReview.waiting')}
+                          </span>
+                        )}
                       </div>
+                    )}
+
+                    {/* Política interna (tope mensual): sigue aquí, con su propio «Guardar». */}
+                    <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
+                      <Input label={t('capMonth')} type="text" inputMode="decimal" prefix="MX$" className="w-full" value={capMonth} onChange={(e) => setKycDraft({ capMonth: e.target.value })} placeholder={currentKyc.capPerMonthCents != null ? String(currentKyc.capPerMonthCents / 100) : ''} />
                       <Button size="sm" variant="secondary" loading={kycMutation.isPending} onClick={() => kycMutation.mutate()}>
                         {t('saveKyc')}
                       </Button>
@@ -895,8 +945,19 @@ function ActivityTab({ userId, locale }: { userId: string; locale: AppLocale }) 
   const rows = query.data?.data ?? [];
   const showIp = rows.some((r) => r.ip != null);
   const totalPages = query.data ? Math.max(1, Math.ceil(query.data.total / HISTORY_PAGE_SIZE)) : 1;
+  /**
+   * ⭐ P-78 (§34.10.4): ésta es **la pantalla donde alguien va a preguntar «¿quién ha mirado la
+   * identidad de esta persona?»** (§M6-K.2.5), y un `user.kyc.reveal_ine` en mono no le contesta
+   * a nadie que no lea código. Los DOS eventos de identidad ganan rótulo; el resto sigue crudo
+   * (fallback al `action`), que es lo que el diseño pide — no se inventa un diccionario entero.
+   */
+  function actionLabel(action: string): string {
+    const key = `auditAction.${action.replace(/\./g, '_')}`;
+    return t.has(key) ? t(key) : action;
+  }
+
   const columns: Column<UserAuditEntryDTO>[] = [
-    { key: 'action', header: t('table.action'), render: (r) => <span className="tabular">{r.action}</span> },
+    { key: 'action', header: t('table.action'), render: (r) => <span className="tabular">{actionLabel(r.action)}</span> },
     { key: 'actorRole', header: t('table.actorRole'), render: (r) => <Badge tone="neutral">{r.actorRole}</Badge> },
     { key: 'createdAt', header: t('table.date'), render: (r) => formatDate(r.createdAt, locale) },
     ...(showIp

@@ -139,6 +139,7 @@ import type {
   UnifyRaritiesResponse,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
+  AdminIneLinksDTO,
   AdminCreatedUserDTO,
   UserAuditEntryDTO,
   Role,
@@ -2076,9 +2077,22 @@ export async function putBillingProfile(input: BillingProfileInput): Promise<Bil
 let mockBillingProfile: BillingProfileDTO | null = null;
 
 // ---------- KYC (contrato §1) ----------
-export async function getKyc(): Promise<KycInfoDTO> {
-  if (!config.useMocks) return apiRequest<KycInfoDTO>('/users/me/kyc');
-  return delay(fx.mockKyc);
+export interface GetKycParams {
+  /**
+   * ⭐ v1.69 (§M6-K.5): total COTIZADO del carrito. Si va, la respuesta trae
+   * `ineRequiredForTotal` — **el veredicto del servidor**, que sustituye a la comparación contra
+   * el umbral que hacía el cliente. ⛔ El umbral no viaja ni se puede reconstruir.
+   */
+  quotedTotalCents?: number;
+}
+
+export async function getKyc(params: GetKycParams = {}): Promise<KycInfoDTO> {
+  if (!config.useMocks) {
+    return apiRequest<KycInfoDTO>('/users/me/kyc', {
+      query: { quotedTotalCents: params.quotedTotalCents },
+    });
+  }
+  return delay(fx.mockKycFor(params.quotedTotalCents));
 }
 
 export interface UpdateKycInput {
@@ -2092,13 +2106,10 @@ export async function updateKyc(input: UpdateKycInput): Promise<KycInfoDTO> {
   if (!config.useMocks) {
     return apiRequest<KycInfoDTO>('/users/me/kyc', { method: 'PUT', body: input });
   }
-  return delay({
-    ...fx.mockKyc,
-    clabeMasked: input.clabe ? `****${input.clabe.slice(-4)}` : fx.mockKyc.clabeMasked,
-    // v1.15: registrar la CLABE la deja "en archivo" (habilita el atajo en el siguiente flujo).
-    clabeOnFile: !!input.clabe || fx.mockKyc.clabeOnFile,
-    ineOnFile: !!(input.ineFrontUploadKey && input.ineBackUploadKey) || fx.mockKyc.ineOnFile,
-  });
+  // MOCK como SERVIDOR FALSO (contrato §1, v1.69): `kycStatus` pasa a `pending` **si y solo si**
+  // la llamada trae al menos una key de INE; una llamada solo-CLABE no toca ni el estado ni el
+  // motivo. Al (re)subir INE se limpia `rejectionReason`.
+  return delay(fx.mockApplyClientKycUpdate(input));
 }
 
 // ---------- Uploads (contrato §8 — SOLO INE de KYC / kyc_ine) ----------
@@ -4599,6 +4610,13 @@ export async function getPriceSyncStatus(): Promise<PriceSyncStatusResponse> {
 export interface AdminUsersFilters {
   q?: string;
   status?: 'active' | 'blocked';
+  /**
+   * MOCK: pendiente de contrato — **petición A5** (`DESIGN_SYSTEM §34.15`, §34.10 punto 2). El
+   * filtro de la cola de revisión. Contra backend real que no lo soporte, el servidor lo ignora
+   * (query desconocida) y la lista vuelve sin filtrar: ⛔ **no se filtra en el cliente** para no
+   * fabricar una cola parcial sobre una página paginada.
+   */
+  kycStatus?: KycStatus;
   page?: number;
   pageSize?: number;
 }
@@ -4610,17 +4628,20 @@ export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<Pa
       query: {
         q: filters.q,
         status: filters.status,
+        kycStatus: filters.kycStatus,
         page: filters.page,
         pageSize: filters.pageSize,
       },
     });
   }
-  let data = [...fx.mockAdminUsers];
+  let data = fx.mockAdminUsersWithKyc();
   if (filters.q) {
     const q = filters.q.toLowerCase();
     data = data.filter((u) => u.email.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
   }
   if (filters.status) data = data.filter((u) => u.status === filters.status);
+  // MOCK: el filtro de identidad lo resuelve aquí el servidor falso (petición A5).
+  if (filters.kycStatus) data = data.filter((u) => u.kycStatus === filters.kycStatus);
   return delay(paginate(data, filters));
 }
 
@@ -4632,8 +4653,13 @@ export async function getAdminUser(id: string): Promise<AdminUserDetailDTO> {
 
 export interface UpdateUserKycInput {
   kycStatus: KycStatus;
-  capPerRequestCents?: number;
   capPerMonthCents?: number;
+  /**
+   * ⭐ v1.69 (§M6-K.4): **obligatorio si y solo si `kycStatus === 'rejected'`** (3–500 tras
+   * `trim()`). Enviarlo con otro estado ⇒ `422 VALIDATION_ERROR`: ⛔ el servidor **no lo ignora en
+   * silencio**, así que el cliente tampoco lo manda «por si acaso».
+   */
+  rejectionReason?: string;
 }
 
 /** Actualiza el KYC del usuario (contrato PATCH /admin/users/:id/kyc, super_admin). */
@@ -4641,18 +4667,23 @@ export async function updateUserKyc(id: string, input: UpdateUserKycInput): Prom
   if (!config.useMocks) {
     return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}/kyc`, { method: 'PATCH', body: input });
   }
-  const detail = fx.mockAdminUserDetail(id);
-  return delay({
-    ...detail,
-    kycProfile: detail.kycProfile
-      ? {
-          ...detail.kycProfile,
-          kycStatus: input.kycStatus,
-          capPerRequestCents: input.capPerRequestCents ?? detail.kycProfile.capPerRequestCents,
-          capPerMonthCents: input.capPerMonthCents ?? detail.kycProfile.capPerMonthCents,
-        }
-      : detail.kycProfile,
-  });
+  // MOCK como SERVIDOR FALSO: sella `reviewedAt`/`verifiedAt` y hace la limpieza cruzada de
+  // `rejectionReason` que manda §M6-K.4, para que la pantalla de revisión se pueda medir en mock.
+  return delay(fx.mockApplyAdminKycDecision(id, input));
+}
+
+/**
+ * ⭐ Los DOS enlaces prefirmados de la INE (contrato §M6-K.2 · `GET /admin/users/:id/kyc/ine-links`,
+ * **super_admin**, TTL 120 s, 10/min, auditado con **fallo cerrado**).
+ *
+ * ⛔ **Una llamada = una fila de bitácora** (`user.kyc.reveal_ine`): ⛔ no se cachea en React Query
+ * con `refetchInterval`, ⛔ no se re-pide al recuperar el foco, ⛔ no se guarda en estado
+ * persistente ni en un `href` compartible. La re-petición **es un acto del revisor** (§34.3c).
+ * ⛔ Un solo endpoint para las dos caras: pedirlas por separado sería **dos filas para un acto**.
+ */
+export async function getAdminUserIneLinks(id: string): Promise<AdminIneLinksDTO> {
+  if (!config.useMocks) return apiRequest<AdminIneLinksDTO>(`/admin/users/${id}/kyc/ine-links`);
+  return delay(fx.mockIneLinks(id), 300);
 }
 
 /** Bloquea/activa la cuenta (contrato PATCH /admin/users/:id/status, super_admin). */
