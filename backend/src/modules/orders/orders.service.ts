@@ -1269,6 +1269,18 @@ export class OrdersService {
     shipmentId?: string;
     chargebackNeedsManual: false;
   }> {
+    // ⭐ I1 (techlead, 2026-09-11) — **el precio se resuelve ANTES de abrir la transacción**, por el
+    // mismo motivo que el pricing del checkout salió de su `tx` en v1.68.1: `sellableStatusFor` usa
+    // `this.prisma` y `this.pricing` (otros handles), así que llamarlo DENTRO del `$transaction`
+    // pedía una SEGUNDA conexión **por pieza** mientras la primera seguía retenida. Con
+    // `connection_limit=5` y varias resoluciones a la vez, el pool se agota y una ruta de dinero
+    // muere con `Timed out fetching a new connection`. Era el defecto de v1.68.1 vivo en otra ruta.
+    //
+    // Preciar antes NO relaja nada: quien decide es el `updateMany` guardado por `status` de dentro
+    // (`count !== 1 ⇒ continue`). El mapa se calcula sobre **todas** las piezas del pedido (no solo
+    // las congeladas), así que toda pieza que la transacción encuentre congelada ya tiene veredicto
+    // — sin ruta de respaldo que pudiera reintroducir la lectura de dentro.
+    const sellableStatusByItem = await this.prescanSellableStatus(orderId, outcome);
     // TODO EN UNA TRANSACCIÓN (techlead): antes se leía `chargebackNeedsManual` FUERA y se
     // escribía DENTRO, así que dos llamadas concurrentes (doble submit; el endpoint no lleva
     // Idempotency-Key) pasaban ambas el guard. Con `recuperada` salvaba el `count===1` por pieza,
@@ -1365,8 +1377,9 @@ export class OrdersService {
         const recovered: string[] = [];
         for (const item of frozen) {
           // `listed` solo si su precio de venta resuelve; si no, `in_stock` (en Compra NUNCA se
-          // muestra una pieza sin precio — PROJECT §A).
-          const toStatus = await this.sellableStatusFor(item);
+          // muestra una pieza sin precio — PROJECT §A). ⚠ I1: el veredicto viene del pre-escaneo de
+          // FUERA de la transacción; aquí NO se toca `this.prisma`/`this.pricing` (segunda conexión).
+          const toStatus = sellableStatusByItem.get(item.id) ?? 'in_stock';
           const moved = await tx.inventoryItem.updateMany({
             where: { id: item.id, status: item.status },
             data: {
@@ -1408,13 +1421,41 @@ export class OrdersService {
   }
 
   /**
+   * ⭐ I1 — pre-escaneo de precios de `resolveChargebackInventory`, **fuera de toda transacción**.
+   * Devuelve, por pieza del pedido, a qué estado vendible volvería si se recupera. Se calcula sobre
+   * TODAS las piezas del pedido (no solo las congeladas) para que la transacción nunca encuentre una
+   * pieza sin veredicto y no necesite una ruta de respaldo que vuelva a tocar la BD desde dentro.
+   *
+   * Solo trabaja para `recuperada`: es el único desenlace que mueve inventario por precio.
+   */
+  private async prescanSellableStatus(
+    orderId: string,
+    outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
+  ): Promise<Map<string, 'listed' | 'in_stock'>> {
+    const byItem = new Map<string, 'listed' | 'in_stock'>();
+    if (outcome !== 'recuperada') return byItem;
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId },
+      select: { inventoryItemId: true },
+    });
+    for (const { inventoryItemId } of items) {
+      byItem.set(inventoryItemId, await this.sellableStatusFor(inventoryItemId));
+    }
+    return byItem;
+  }
+
+  /**
    * ¿A qué estado vendible vuelve una pieza recuperada? `listed` si su precio de venta resuelve;
    * `in_stock` si queda pendiente (una pieza sin precio NUNCA se publica en Compra, PROJECT §A).
+   *
+   * ⛔ **Usa `this.prisma` y `this.pricing`** (dos handles que NO son el de una transacción en curso):
+   * llamarlo dentro de un `$transaction` pide una segunda conexión por pieza y agota el pool (I1).
+   * Su único llamador es {@link prescanSellableStatus}, que corre FUERA de la transacción.
    */
-  private async sellableStatusFor(item: InventoryItem): Promise<'listed' | 'in_stock'> {
+  private async sellableStatusFor(inventoryItemId: string): Promise<'listed' | 'in_stock'> {
     try {
       const full = await this.prisma.inventoryItem.findUnique({
-        where: { id: item.id },
+        where: { id: inventoryItemId },
         include: { card: { include: { set: true } } },
       });
       if (!full) return 'in_stock';
