@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
 import { IS_REAL, loginAs, mockOnly, skipIfSeedMissing } from './utils/auth';
-import { anyOrderWithNumber, anyResumableOrder, anySettledOrder } from './utils/orders';
+import { anyOrderWithNumber, anyResumableOrder, anySettledOrder, type OrderRow } from './utils/orders';
 
 /**
  * §4-R.5 (contrato v1.68): `GET /orders` trae `orderNumber` REAL y, en `pending`, `reservedUntil`.
@@ -34,15 +34,32 @@ test.describe('pedidos · folio real y «Reanudar pago» (§4-R.5)', () => {
     await loginAs(page, 'customer');
   });
 
+  /**
+   * La fila sobre la que se afirma, con UNA sola salvaguarda para los dos casos que la necesitan.
+   *
+   * ⚠️ Va aquí y no repetida en cada test **a propósito**: los dos comparten el mismo hueco de dato
+   * —la cuenta del seed sin ningún pedido— y una marca por test serían dos salvaguardas defendiendo
+   * lo mismo. Medido (2026-09-11): el seed solo crea el pedido de INVITADO `TCG-E2E-GUEST-0001`
+   * (`userId: null`, reclamable por correo), así que en un stack recién sembrado `GET /orders` de la
+   * cuenta puede venir **vacío** hasta que alguien lo reclame; por eso la ausencia se salta con su
+   * razón en vez de pintar un rojo que hablaría del seed y no del producto.
+   *
+   * En MOCK no hay salvaguarda que valga: se usan las filas del fixture y el assert es el mismo.
+   */
+  async function orderOrSkip(pick: () => Promise<OrderRow | null>, missing: string): Promise<OrderRow> {
+    const order = await pick();
+    skipIfSeedMissing(IS_REAL && order === null, missing);
+    return order ?? { id: 'ord-9001', orderNumber: 'TCG-009001', status: 'settled', totalCents: 0 };
+  }
+
   test('@real la columna PEDIDO pinta el folio QUE MANDA EL SERVIDOR y enlaza a su detalle', async ({
     page,
   }) => {
-    const order = await anyOrderWithNumber();
-    skipIfSeedMissing(IS_REAL && order === null, 'ningún pedido con folio en la cuenta del seed');
     // Folio y destino se afirman contra la RESPUESTA de la API, no contra un literal: en mock es el
     // del fixture y en real el de la BD, y el assert es el mismo.
-    const folio = order?.orderNumber ?? 'TCG-009001';
-    const id = order?.id ?? 'ord-9001';
+    const order = await orderOrSkip(anyOrderWithNumber, 'ningún pedido con folio en la cuenta del seed');
+    const folio = order.orderNumber ?? 'TCG-009001';
+    const id = order.id;
 
     await page.goto('/es/orders');
     await expect(page.getByRole('link', { name: folio }).first()).toHaveAttribute(
@@ -56,10 +73,9 @@ test.describe('pedidos · folio real y «Reanudar pago» (§4-R.5)', () => {
   test('@real el detalle pinta el folio en el título; un pedido que no está pending NO ofrece reanudar', async ({
     page,
   }) => {
-    const order = await anySettledOrder();
-    skipIfSeedMissing(IS_REAL && order === null, 'ningún pedido fuera de `pending` en la cuenta del seed');
-    const id = order?.id ?? 'ord-9001';
-    const folio = order?.orderNumber ?? 'TCG-009001';
+    const order = await orderOrSkip(anySettledOrder, 'ningún pedido fuera de `pending` en la cuenta del seed');
+    const id = order.id;
+    const folio = order.orderNumber ?? 'TCG-009001';
 
     await page.goto(`/es/orders/${id}`);
     await expect(
