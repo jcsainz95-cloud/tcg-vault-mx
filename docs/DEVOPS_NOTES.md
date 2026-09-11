@@ -11132,3 +11132,108 @@ llamadas 54→54: es prosa» o «llamadas 54→55: es una marca nueva», y el mo
 Costo medido a ojo sobre el script actual (78 líneas): ~15 líneas más, 4 filas más en el baseline y
 2-3 casos más en el canario. Dueño: devops. **No lo decido solo:** el que paga el rojo es frontend, y
 la lectura del número la usa el techlead.
+
+---
+
+## 58. Ventana de despliegue de Stream B — condiciones C5, C8, C6 (2026-09-11)
+
+> **Contexto medido, no recordado.** `production` = `efe65f5` (merge de la PR #29,
+> medido: `git rev-parse origin/production` a las 21:41 UTC del 2026-09-11).
+> `main` = `5d2c62b`. Veredicto de seguridad en `SECURITY_NOTES` (commit `82525a0`):
+> **APROBADO CON CONDICIONES para modo prueba, RECHAZADO para dinero real.**
+>
+> **⚠️ Orden real de los hechos, sin maquillar.** El veredicto y `CLAUDE.md` piden
+> **C5 y C8 cerradas antes de publicar**. El dueño fusionó la PR #29 **con ese aviso
+> delante y antes de que C5 y C8 estuvieran cerradas** — decisión suya, no un orden
+> que se haya respetado. La ventana se abrió al fusionar; C8 (que solo existe durante
+> la ventana) se quedó sin correr en el instante correcto. Lo que sigue es el intento
+> de recuperarla desde donde estamos, no un cierre limpio.
+
+### 58.1 · C5 — check-runs sobre el SHA PUBLICADO (`efe65f5`, no `5d2c62b`)
+
+**El error clásico de C5 es medir un SHA parecido.** La fusión de #29 crea un commit
+NUEVO (`efe65f5`), y es ese el que sirve producción, no la punta de `main` (`5d2c62b`).
+Se mide `efe65f5`.
+
+```
+./scripts/check-candidate-checks.sh efe65f575fde7d33e6621f7a8350fd46f71f136f
+```
+
+- **`5d2c62b` (punta de main):** 57/57 en verde, `rc=0`, medido 3/3 a las 21:33 UTC
+  (higiene previa; NO es el SHA publicado).
+- **`efe65f5` (SHA publicado):** resultado abajo. El estado se re-mide al terminar los
+  check-runs de la CI del merge (fetch a las 21:42 UTC seguían corriendo 6-7, 0 en rojo).
+
+> **[RESULTADO C5 sobre `efe65f5` — se rellena al cerrar la CI del merge]**
+
+**Canario del instrumento de C5** (`check-candidate-checks-canary.sh`): 14/14 en 3/3
+(21:33 UTC) — el guion distingue «no pude leer» de «no hay check-runs», que es la
+mentira contra la que existe.
+
+### 58.2 · C8 — censo de reservas legadas · el paso 1 de `ARCHITECTURE §4.48.7`
+
+**⛔ REQUIERE LA BASE DE DATOS DE PRODUCCIÓN. No es medible desde este entorno.**
+Medido: no hay `DATABASE_URL` de producción en el entorno, no hay CLI de Railway, y
+el Postgres de producción es un add-on de Railway cuyo `DATABASE_URL` solo se inyecta
+dentro del servicio. El censo lo tiene que correr **quien tenga esa credencial**, en la
+ventana. La consulta y el instrumento están listos.
+
+**El detalle que rompe la consulta de C8 tal cual está escrita en el veredicto:** C8(a)
+dice `WHERE status='reserved' AND "reservedByOrderId" IS NULL`, pero esa columna la crea
+`M-53`, que viaja en este release. **Antes** del `migrate deploy`, la columna NO existe
+en producción y esa consulta falla con `42703 column does not exist` — un 0 leído de un
+error cerraría `SEC-SB-1` con una mentira. Por eso hay dos fases:
+
+- **Fase PRE** (antes de `migrate deploy`, la columna no existe todavía):
+  `SELECT count(*) FROM "InventoryItem" WHERE status='reserved';`
+  — es exactamente el conjunto que `M-53` dejará en `NULL` (no hay backfill).
+- **Fase POST** (después de `migrate deploy`, la columna ya existe): la consulta literal
+  de C8(a). Cifra **definitiva** de `SEC-SB-1`. Si solo se puede una, que sea ésta.
+
+**Instrumento listo** (solo lee: abre `BEGIN TRANSACTION READ ONLY`, no imprime la
+credencial, exige `--target prod` y aborta si el host es local):
+
+```
+export DATABASE_URL='<DATABASE_URL del Postgres de producción en Railway>'   # NO se pega en el repo
+./scripts/release-reservation-census.sh --target prod          # detecta fase sola; corre PRE si M-53 no está, POST si sí
+unset DATABASE_URL
+```
+
+Canario del instrumento (`release-reservation-census-canary.sh`, bases desechables
+locales): **21/21 en 3/3** (21:39 UTC). Mutación m1 (rama PRE usa la consulta literal
+de C8(a)) ⇒ canario rojo 3/3. Mutación m2 (quitar el candado `--target prod` vs host
+local) ⇒ canario rojo 3/3.
+
+**Las tres cifras (más el paso 1 completo) que hay que anotar aquí con su hora:**
+
+| fecha UTC | fase | objetivo/huella | (a) legadas | (b) bóveda pending c/dueño | (c) filas InventoryItem | (c) tamaño | cotizada sin oferta | verificación saltada |
+|---|---|---|---|---|---|---|---|---|
+| _pendiente — necesita credencial de prod_ | | | | | | | | |
+
+- **(a)** = `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL;` (fase POST) — piezas congeladas de `SEC-SB-1`.
+- **(b)** = `SELECT count(*) FROM "Order" WHERE status='pending' AND "userId" IS NOT NULL;` — **si `>0` ⇒ se abre C9** (dueño backend).
+- **(c)** = `SELECT count(*) FROM "InventoryItem";` — duración del lock de `CREATE INDEX` de `M-53` (§5 de SECURITY_NOTES).
+
+### 58.3 · C6 — sonda del edge de Railway (X-Forwarded-For)
+
+**Seguridad la subió a paso de la ventana; la ventana se adelantó al fusionar, así que ya
+NO es un paso previo a la publicación.** Se corre en cuanto el dueño abra una ventana
+autorizada contra producción. No la ejecuto por mi cuenta: pega a producción.
+
+**Qué mide:** con `trust proxy = 1` (backend/src/main.ts:39), ¿el tracker del throttler
+cuenta por la IP que pone el edge de Railway (bypass ausente) o por la `X-Forwarded-For`
+que el cliente elige (bypass presente, `P-RL-1` explotable)?
+
+**Procedimiento** (`edge-xff-probe.sh`, se niega a correr sin `--i-have-a-window`, sin
+`TARGET_BASE_URL`, o contra un host local — verificado): 6 `POST /api/v1/auth/login`
+desde una IP con `X-Forwarded-For: 203.0.113.1..6` rotatorio y un correo inexistente
+(401, sin efecto de lado; NO toca el checkout de invitado). **6.º = 429 ⇒ bypass ausente,
+C6 cierra. 6.º = 401 (nunca 429) ⇒ bypass presente, C6 FALLA y el release queda rechazado
+retroactivamente hasta C7.** Se corre N rondas y se reporta la proporción (O-3).
+
+```
+TARGET_BASE_URL='https://<host-del-backend-de-produccion>' \
+  ./scripts/edge-xff-probe.sh --i-have-a-window --rounds 3
+```
+
+> **[RESULTADO C6 — se rellena en la ventana autorizada, con proporción N/N y qué cabeceras llegan]**
