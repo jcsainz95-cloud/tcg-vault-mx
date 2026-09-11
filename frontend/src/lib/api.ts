@@ -1914,19 +1914,32 @@ export async function getMe(): Promise<UserDTO> {
 
 // ---------- Perfil de facturación CFDI (contrato §1) ----------
 /**
- * `GET /users/me/billing-profile` → RFC enmascarado. Devuelve `null` con `404 NOT_FOUND`
- * (aún no hay perfil): es el vacío de §33.6d, no un error de la sección.
+ * `GET /users/me/billing-profile` (contrato v1.67.1 «Perfil de facturación», `BillingProfileDTO` de
+ * seis campos con `rfcMasked`). **Sin perfil ⇒ `404 NOT_FOUND` ⇒ `null`**: es el vacío de §33.6d
+ * («Sin datos de facturación» + «Agregar datos de facturación»), no un error de la sección.
+ *
+ * Tolerancia de transición (QA, 2026-09-11 · D-CTA-7): el backend anterior a v1.67.1 respondía
+ * `200` con cuerpo vacío/`null`, que `api-client` convierte en `{}` — y `{}` es truthy: la sección
+ * pintaba seis «—» y «Editar». Un `200` cuyo cuerpo NO es un perfil (sin `rfcMasked` string) se trata
+ * como «sin perfil». ⛔ No es una lectura alternativa del contrato: el contrato dice 404; esto solo
+ * evita afirmar un perfil que no existe si algún despliegue viejo aún contesta 200.
  */
 export async function getBillingProfile(): Promise<BillingProfileDTO | null> {
   if (!config.useMocks) {
     try {
-      return await apiRequest<BillingProfileDTO>('/users/me/billing-profile');
+      const body = await apiRequest<BillingProfileDTO | null>('/users/me/billing-profile');
+      return isBillingProfile(body) ? body : null;
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 404) return null;
       throw e;
     }
   }
   return delay(mockBillingProfile ? { ...mockBillingProfile } : null, 150);
+}
+
+/** Forma mínima que distingue un perfil real (v1.67.1) de un cuerpo vacío. */
+function isBillingProfile(body: unknown): body is BillingProfileDTO {
+  return !!body && typeof body === 'object' && typeof (body as { rfcMasked?: unknown }).rfcMasked === 'string';
 }
 
 /** `PUT /users/me/billing-profile` — el RFC va en claro y el backend lo cifra en reposo. */
