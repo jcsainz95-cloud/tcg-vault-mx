@@ -20,7 +20,10 @@
 #   · rc=2 + mensaje de PARSEO (nunca «NINGÚN») cuando la respuesta no es JSON;
 #   · rc=2 + mensaje de parser (nunca «NINGÚN») cuando `node` no puede ejecutar
 #     (la mutación literal del fallo original);
-#   · rc=1 con un check-run en rojo; rc=2 con uno sin terminar.
+#   · rc=1 con un check-run en rojo; rc=2 con uno sin terminar;
+#   · rc=3 con un `skipped` SIN motivo escrito (F1-2: skipped no es verde) y
+#     rc=0 con un `skipped` de la lista cerrada SKIPPED_ESPERADOS, diciendo
+#     «esperado» y su motivo.
 #
 # Uso:  ./scripts/check-candidate-checks-canary.sh
 # Sale 0 si los casos salen como deben; 1 con el caso exacto. Sin red.
@@ -149,6 +152,26 @@ caso 1 "NO está verde" "-" "check-runs en failure ⇒ rc=1"
 # 9) uno sin terminar
 limpiar; fabricar "$RESP/page1" 3 3 in_progress "-"
 caso 2 "sin terminar" "-" "check-runs in_progress ⇒ rc=2"
+
+# renombrar <fichero> <indice> <nombre> : cambia el nombre de un check-run fabricado
+renombrar() { python3 -c '
+import json, sys
+f, i, n = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+a = json.load(open(f)); a["check_runs"][i]["name"] = n; json.dump(a, open(f, "w"))' "$1" "$2" "$3"; }
+
+# 10) F1-2: un `skipped` sin motivo escrito NO suma al verde ⇒ rc=3 y lo dice
+limpiar; fabricar "$RESP/page1" 3 3 completed skipped
+caso 3 "SIN motivo escrito" "están en verde" "check-runs skipped fuera de la lista ⇒ rc=3, «no medido, no verde»"
+
+# 11) F1-2: un `skipped` de la lista cerrada pasa, con su motivo impreso
+limpiar; fabricar "$RESP/page1" 3 3 completed skipped
+renombrar "$RESP/page1" 0 promote-production-backend; renombrar "$RESP/page1" 1 promote-production-frontend; renombrar "$RESP/page1" 2 deploy-ci-gate
+caso 0 "esperado:" "SIN motivo" "skipped de SKIPPED_ESPERADOS (promote-*, deploy-ci-gate) ⇒ rc=0 con motivo"
+
+# 12) F1-2: mezcla — un skipped esperado Y uno sin motivo ⇒ rc=3 (el sin motivo manda)
+limpiar; fabricar "$RESP/page1" 2 2 completed skipped
+renombrar "$RESP/page1" 0 promote-production-frontend
+caso 3 "SIN motivo escrito" "-" "un skipped esperado + uno sin motivo ⇒ rc=3"
 
 TOTAL=$((PASADAS+FALLOS))
 printf '\n'

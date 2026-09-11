@@ -23,7 +23,17 @@
 #   ./scripts/check-candidate-checks.sh [<sha|ref>]     (por defecto: HEAD)
 #   Requiere GITHUB_TOKEN o GH_TOKEN con lectura del repo.
 # Sale 0 si TODOS los check-runs completados del commit están en `success`
-# (y hay al menos uno); 1 si alguno no lo está; 2 si no pudo medir.
+# (y hay al menos uno); 1 si alguno está en rojo; 2 si no pudo medir (o hay
+# check-runs sin terminar); 3 si hay `skipped` SIN motivo escrito.
+#
+# `skipped` NO es verde (techlead F1-2, 2026-09-11). La primera versión lo
+# sumaba al verde sin motivo, contra la doctrina de ci.yml `ci-ok` («skipped es
+# justo la forma en que un gate deja de gatear sin avisar»). Ahora es una
+# TERCERA clasificación: se imprime aparte, no suma al verde, y solo se tolera
+# si el job está en la lista cerrada SKIPPED_ESPERADOS de abajo, con su motivo.
+# Medido al escribirlo: `d2efe07` (26 check-runs), `c13f4179` y `17ce9a9` tienen
+# 0 skipped — la lista describe lo que deploy.yml salta POR CONSTRUCCIÓN en un
+# push (CD apagado), todavía NO MEDIDO en un push real a `production`.
 # =============================================================================
 set -uo pipefail
 
@@ -86,29 +96,59 @@ if [ "$TOTAL_API" -eq 0 ]; then
 fi
 [ -n "$RESUMEN" ] || { echo "::error::total_count=$TOTAL_API pero no obtuve filas: incoherencia de la API. NO concluyente."; exit 2; }
 
-MAL=0; TOTAL=0; PENDIENTES=0
+# -----------------------------------------------------------------------------
+# LISTA CERRADA de jobs cuyo `skipped` es POR CONSTRUCCIÓN y no oculta ninguna
+# medición (F1-2). Cada entrada lleva su motivo. Lo que NO está aquí y sale
+# `skipped` es «no medido» y baja el veredicto a rc=3. `format-mix` NO entra a
+# propósito: su skipped significa «sin base utilizable», que ci.yml ya declara
+# como NO medido. Añadir una entrada exige motivo, no solo nombre.
+# -----------------------------------------------------------------------------
+declare -A SKIPPED_ESPERADOS=(
+  # deploy.yml en un `push` a production: solo corre `dast-release`; el CD está
+  # apagado (`secrets-gate` sin secrets de CD, HECHOS.md) y los `promote-*`
+  # exigen dispatch con `promote_to_prod`. Cuando el CD se reactive, se quitan.
+  [deploy-ci-gate]="CD apagado: secrets-gate sin secrets de CD (deploy.yml)"
+  [preflight]="CD apagado: cuelga de deploy-ci-gate (deploy.yml)"
+  [e2e-real]="CD apagado: cuelga de preflight (deploy.yml; el E2E real corre en e2e-real.yml)"
+  [deploy-staging-backend]="CD apagado y sin staging (HECHOS.md)"
+  [deploy-staging-frontend]="CD apagado y sin staging (HECHOS.md)"
+  [staging-serves-head]="CD apagado y sin staging (HECHOS.md)"
+  [staging-provider-parity]="CD apagado y sin staging (HECHOS.md)"
+  [promote-production-backend]="solo con dispatch promote_to_prod=true (deploy.yml); en push se salta por construcción"
+  [promote-production-frontend]="solo con dispatch promote_to_prod=true (deploy.yml); en push se salta por construcción"
+)
+
+MAL=0; TOTAL=0; PENDIENTES=0; SALTADOS=0; SALTADOS_ESPERADOS=0
 while IFS=$'\t' read -r nombre estado concl id url; do
   [ -n "$nombre" ] || continue
   TOTAL=$((TOTAL+1))
   if [ "$estado" != "completed" ]; then
     printf '  … %-32s %s\n' "$nombre" "$estado"; PENDIENTES=$((PENDIENTES+1)); continue
   fi
-  if [ "$concl" = "success" ] || [ "$concl" = "skipped" ]; then
+  if [ "$concl" = "success" ]; then
     printf '  \033[1;32m✔\033[0m %-32s %s\n' "$nombre" "$concl"
+  elif [ "$concl" = "skipped" ]; then
+    if [ -n "${SKIPPED_ESPERADOS[$nombre]+x}" ]; then
+      SALTADOS_ESPERADOS=$((SALTADOS_ESPERADOS+1))
+      printf '  \033[2m·\033[0m %-32s skipped (esperado: %s)\n' "$nombre" "${SKIPPED_ESPERADOS[$nombre]}"
+    else
+      SALTADOS=$((SALTADOS+1))
+      printf '  \033[1;33m·\033[0m %-32s skipped — SIN motivo escrito: no medido, no verde   %s\n' "$nombre" "$url"
+    fi
   else
     MAL=$((MAL+1))
     printf '  \033[1;31m✗\033[0m %-32s %s   %s\n' "$nombre" "$concl" "$url"
     curl -sS "${H[@]}" "$API/check-runs/$id/annotations" | node -e '
       let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
         let a=[]; try { a=JSON.parse(s); } catch { return; }
-        for (const x of a) if (x.annotation_level !== "notice" && !/Node\.js 20 is deprecated/.test(x.message))
+        for (const x of a) if (x.annotation_level !== "notice" && !/Node\.js \d+ .*deprecated/i.test(x.message))
           console.log("      · [" + x.annotation_level + "] " + (x.title ? x.title + " — " : "") + x.message.replace(/\s+/g," ").slice(0,300));
       });'
   fi
 done <<<"$RESUMEN"
 
 echo
-echo "  check-runs: $TOTAL · en rojo: $MAL · sin terminar: $PENDIENTES"
+echo "  check-runs: $TOTAL · en rojo: $MAL · sin terminar: $PENDIENTES · saltados sin motivo: $SALTADOS · saltados esperados: $SALTADOS_ESPERADOS"
 if [ "$MAL" -ne 0 ]; then
   printf '\033[1;31m✗ El candidato %s NO está verde: %s check-run(s) en rojo. Un run verde de un workflow no es el estado del commit.\033[0m\n' "${SHA:0:7}" "$MAL"
   exit 1
@@ -116,6 +156,14 @@ fi
 if [ "$PENDIENTES" -ne 0 ]; then
   printf '\033[1;33m… %s check-run(s) sin terminar. Todavía no se puede afirmar nada de %s.\033[0m\n' "$PENDIENTES" "${SHA:0:7}"
   exit 2
+fi
+if [ "$SALTADOS" -ne 0 ]; then
+  printf '\033[1;33m· %s check-run(s) saltado(s) SIN motivo escrito en %s. Lo medido está en verde, pero un skipped no es un verde: o se mide, o se anota en SKIPPED_ESPERADOS con su motivo.\033[0m\n' "$SALTADOS" "${SHA:0:7}"
+  exit 3
+fi
+if [ "$SALTADOS_ESPERADOS" -ne 0 ]; then
+  printf '\033[1;32m✓ Los %s check-runs medidos de %s están en verde (%s saltados por construcción, motivo impreso arriba).\033[0m\n' "$((TOTAL-SALTADOS_ESPERADOS))" "${SHA:0:7}" "$SALTADOS_ESPERADOS"
+  exit 0
 fi
 printf '\033[1;32m✓ Los %s check-runs de %s están en verde.\033[0m\n' "$TOTAL" "${SHA:0:7}"
 exit 0
