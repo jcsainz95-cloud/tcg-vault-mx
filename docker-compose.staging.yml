@@ -77,47 +77,52 @@ services:
   #   API:     http://localhost:9010
   #   Consola: http://localhost:9011
   # ---------------------------------------------------------------------------
-  minio:
-    image: minio/minio:latest
+  # ---------------------------------------------------------------------------
+  # s3 — object storage del STAGING EFÍMERO (ARCHITECTURE §4.51, forma A).
+  # Es `scripts/s3-local/`, el mismo servidor de la ruta nativa y del compose
+  # local ⇒ una implementación, una lista de huecos (§4.51.3 razón 3).
+  # SUSTITUYE a `minio` + `createbuckets`: Docker Hub dejó de servir
+  # `minio/minio` y `minio/mc` sin autenticación (401 de repositorio, medido) y
+  # eso tumbó `security-dast.yml` y `e2e-real.yml`, las DOS únicas puertas que
+  # miran la aplicación corriendo. El bucket lo crea el servidor al arrancar,
+  # antes de escuchar (invariante 1 de §4.51.6): no hay init-container.
+  # ---------------------------------------------------------------------------
+  s3:
+    image: node:22-alpine
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    working_dir: /app
+    # N-3 (medido): `scripts/s3-local/node_modules` NO está en git ⇒ `npm ci` al
+    # arrancar. El registro npm ya es carga obligada de toda corrida de CI.
+    command: sh -c "npm ci --omit=dev --no-audit --no-fund && exec node server.js"
     environment:
-      MINIO_ROOT_USER: ${STAGING_MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${STAGING_MINIO_ROOT_PASSWORD:?falta STAGING_MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
-    # SEC-M4: bind SOLO a localhost (API + consola de staging).
-    ports:
-      - "127.0.0.1:${STAGING_MINIO_API_PORT:-9010}:9000"
-      - "127.0.0.1:${STAGING_MINIO_CONSOLE_PORT:-9011}:9001"
+      # D-S3-2: 0.0.0.0 DENTRO del contenedor (para la red de compose). SEC-M4 lo
+      # sigue cumpliendo la PUBLICACIÓN del puerto, que va en loopback (abajo).
+      S3_LOCAL_HOST: 0.0.0.0
+      S3_LOCAL_PORT: "9000"
+      S3_LOCAL_DIR: /data
+      S3_BUCKET: ${S3_BUCKET:-tcg-photos}
+      # Invariante 2: las MISMAS credenciales que recibe el backend de staging.
+      # ⚠️ DEUDA DE NOMBRE DECLARADA: estas variables siguen llamándose
+      # `STAGING_MINIO_*` aunque MinIO ya no exista aquí. Se conservan a
+      # propósito para no ampliar el diff que desbloquea el gate (viven además en
+      # `.env.example`, `ci.yml` y `e2e.yml`). Renombrarlas es un pase aparte.
+      S3_ACCESS_KEY_ID: ${STAGING_MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_ROOT_PASSWORD:?falta STAGING_MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
     volumes:
-      - minio_staging:/data
+      - ./scripts/s3-local/package.json:/app/package.json:ro
+      - ./scripts/s3-local/package-lock.json:/app/package-lock.json:ro
+      - ./scripts/s3-local/server.js:/app/server.js:ro
+      - s3_staging:/data
+    # SEC-M4: publicación SOLO en loopback.
+    ports:
+      - "127.0.0.1:${STAGING_S3_PORT:-9010}:9000"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # 403 sin firmar = vivo y privado. Lo que significa caído es no conectar.
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:9000,path:'/'},()=>process.exit(0)).on('error',()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # ---------------------------------------------------------------------------
-  # createbuckets — init container: crea el bucket de staging y sale.
-  # SEC-A5 + v1.2.1: mismo modelo que el compose local — bucket 100% PRIVADO;
-  # único contenido kyc_ine/ (INE del buylist, presigned GET). Sin inventory_photo/
-  # ni dispute_claim/.
-  # ---------------------------------------------------------------------------
-  createbuckets:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set staging http://minio:9000 ${STAGING_MINIO_ROOT_USER:-minioadmin} ${STAGING_MINIO_ROOT_PASSWORD:?falta STAGING_MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.} &&
-      mc mb --ignore-existing staging/${S3_BUCKET:-tcg-photos} &&
-      mc anonymous set none staging/${S3_BUCKET:-tcg-photos} &&
-      mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' staging/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' staging/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
-      echo 'Bucket de staging ${S3_BUCKET:-tcg-photos} listo: 100% privado; solo kyc_ine/ (presigned GET); lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-180} dias.' &&
-      exit 0
-      "
-    restart: "no"
+      retries: 12
+      start_period: 90s
 
   # ===========================================================================
   # PERFIL apps — Backend y Frontend de staging (bajo perfil "apps")
@@ -134,14 +139,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      s3:
         condition: service_healthy
     environment:
       # Staging NO es production: usa validaciones estrictas pero datos de prueba.
       NODE_ENV: ${STAGING_NODE_ENV:-production}
       DATABASE_URL: postgresql://${STAGING_POSTGRES_USER:-tcg_staging}:${STAGING_POSTGRES_PASSWORD:?falta STAGING_POSTGRES_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}@postgres:5432/${STAGING_POSTGRES_DB:-tcg_staging}?schema=public
       REDIS_URL: redis://redis:6379
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://s3:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-tcg-photos}
       S3_ACCESS_KEY_ID: ${STAGING_MINIO_ROOT_USER:-minioadmin}
@@ -246,4 +251,4 @@ services:
 volumes:
   postgres_staging:
   redis_staging:
-  minio_staging:
+  s3_staging:

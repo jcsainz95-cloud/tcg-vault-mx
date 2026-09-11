@@ -48,12 +48,36 @@
 //        otro smoke que no mide nada — exactamente el defecto que se venía a
 //        cerrar. La verificación está más abajo (`verificarSigV4Presignada`).
 //     4. Arranca el bucket vacío o lo reutiliza; nunca borra datos al arrancar.
+//     5. Se verifica la CADUCIDAD de la URL presignada (`X-Amz-Expires` contra
+//        el reloj) — G-4 / D-S3-3, 2026-09-11.
+//        ⚠️⚠️ CORRECCIÓN AL MOTIVO CON EL QUE SE PIDIÓ (medido, no supuesto):
+//        `ARCHITECTURE §4.51.5` (G-4) y la desviación `D-S3-3` afirman que «una
+//        URL presignada VENCIDA se aceptaría». **ES FALSO, y lo medí**: con
+//        `S3_LOCAL_ALLOW_ANON=1` —que desactiva TODA esta capa— una URL vencida
+//        ya recibía `403 AccessDenied / "Request has expired"`, con
+//        `<X-Amz-Expires>`, `<Expires>` y `<ServerTime>`: **s3rver YA comprueba
+//        la caducidad por su cuenta**, aunque no verifique la firma. En la misma
+//        corrida, una firma con el SECRETO EQUIVOCADO sí pasaba (404 NoSuchKey)
+//        ⇒ lo que s3rver no hace es la FIRMA (punto 3), no la caducidad.
+//        ⇒ El enlace del INE **nunca** fue eterno y el dial **nunca** fue
+//        decorativo. Esto NO cerró un agujero abierto.
+//        POR QUÉ SE QUEDA AUN ASÍ: (a) **defensa en profundidad** que no depende
+//        de una interna de s3rver 3.7.x —la misma de la que ya desconfiamos lo
+//        bastante como para clavar la versión—; (b) valida además que
+//        `X-Amz-Expires` **exista** y esté **en rango** (1..604800), que s3rver
+//        no garantiza; (c) falla CERRADO si la fecha no se puede interpretar.
+//        Quien quiera retirar esta capa: mide antes, y sabe que el efecto lo
+//        sostiene s3rver. El candado `scripts/check-s3-local-expiry.sh`
+//        distingue QUÉ CAPA respondió por el texto del mensaje.
 //
 //   NO es MinIO. Diferencias conocidas y DECLARADAS (DEVOPS_NOTES §39.2.3):
-//     · No implementa políticas de bucket ⇒ **este stand-in NO sirve para
-//       probar que el bucket es privado** (SEC-A5/v1.2.1). Esa propiedad se
-//       verifica en la ruta Docker/CI (`docker-compose.yml`, servicio
-//       `createbuckets` con `mc anonymous set none`) y en R2 en producción.
+//     · No implementa políticas de bucket **como MOTOR** (`mc anonymous set none`).
+//       ⚠️ Matiz que importa desde §4.51 (MinIO salió de los compose): el EFECTO
+//       observable —petición sin firmar ⇒ 403— sí lo garantiza este fichero, por
+//       construcción y en TODO método, incluida la lectura (guarda (2) abajo).
+//       Lo que no se ejercita es el motor de políticas, no su consecuencia. La
+//       propiedad en PRODUCCIÓN (bucket R2 privado) es de `seguridad` y sigue
+//       siendo un supuesto no medido (ARCHITECTURE §8, G-1).
 //     · No implementa versionado, lifecycle, ni multipart completo.
 //     · La firma se verifica en las peticiones PRESIGNADAS (query). Las
 //       peticiones con `Authorization:` (las que hace el backend server-side)
@@ -68,7 +92,14 @@
 //   S3_LOCAL_PORT=9000 S3_LOCAL_DIR=.native-stack/s3 node scripts/s3-local/server.js
 //
 // VARIABLES (todas con default de DESARROLLO LOCAL; ninguna es un secreto real)
-//   S3_LOCAL_HOST        127.0.0.1   nunca 0.0.0.0: mismo criterio SEC-M4 que el compose
+//   S3_LOCAL_HOST        127.0.0.1   default para el PROCESO EN EL HOST (ruta nativa):
+//                        ahí 0.0.0.0 expondría el almacén a la red local (SEC-M4).
+//                        ⚠️ D-S3-2: DENTRO de un contenedor (Forma A de §4.51.6,
+//                        servicio `s3` de los compose) el valor correcto ES
+//                        `0.0.0.0`, y NO viola SEC-M4: lo que expone al host es la
+//                        PUBLICACIÓN del puerto, que sigue en `127.0.0.1:…`. La
+//                        norma real es «nunca alcanzable desde fuera de la máquina»,
+//                        no «nunca 0.0.0.0».
 //   S3_LOCAL_PORT        9000        el mismo puerto que MinIO en docker-compose.yml
 //   S3_LOCAL_DIR         .native-stack/s3
 //   S3_BUCKET            tcg-photos
@@ -185,6 +216,36 @@ function verificarSigV4Presignada(req) {
   const amzDate = params.get('X-Amz-Date');
   if (!amzDate) return 'falta X-Amz-Date';
 
+  // --- G-4 / D-S3-3: CADUCIDAD (cerrado 2026-09-11) --------------------------
+  // Sin esto, una URL de vista del INE vencida se aceptaba y
+  // `KYC_INE_VIEW_URL_TTL_SECONDS` era un dial decorativo. Falla CERRADO: si la
+  // fecha o el plazo no se pueden interpretar, se rechaza — no se «asume viva».
+  const mFecha = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(amzDate);
+  if (!mFecha) return `X-Amz-Date mal formado: "${amzDate}"`;
+  const firmadaEnMs = Date.UTC(
+    +mFecha[1], +mFecha[2] - 1, +mFecha[3], +mFecha[4], +mFecha[5], +mFecha[6],
+  );
+  const expiresRaw = params.get('X-Amz-Expires');
+  if (expiresRaw === null) return 'falta X-Amz-Expires en una URL presignada';
+  if (!/^\d+$/.test(expiresRaw)) return `X-Amz-Expires no es un entero: "${expiresRaw}"`;
+  const expiresSeg = parseInt(expiresRaw, 10);
+  // AWS: máximo 7 días para SigV4 presignado. Un plazo absurdo es una firma que
+  // no vamos a honrar aunque el HMAC cuadre.
+  if (expiresSeg <= 0 || expiresSeg > 604800) {
+    return `X-Amz-Expires fuera de rango (1..604800): ${expiresSeg}`;
+  }
+  const venceEnMs = firmadaEnMs + expiresSeg * 1000;
+  if (Date.now() > venceEnMs) {
+    const hace = Math.round((Date.now() - venceEnMs) / 1000);
+    return {
+      codigo: 'AccessDenied',
+      motivo:
+        `Request has expired: la URL presignada venció hace ${hace}s ` +
+        `(firmada ${amzDate}, X-Amz-Expires=${expiresSeg}s). ` +
+        'G-4: la caducidad SÍ se verifica aquí; el TTL del enlace de INE no es decorativo.',
+    };
+  }
+
   const signedHeaders = (params.get('X-Amz-SignedHeaders') || '').split(';').filter(Boolean);
   if (!signedHeaders.length) return 'falta X-Amz-SignedHeaders';
 
@@ -234,10 +295,13 @@ function verificarSigV4Presignada(req) {
 
 const handler = instance.getMiddleware();
 
-function denegar(res, motivo) {
+// `codigo` por defecto `SignatureDoesNotMatch`; la caducidad (G-4) usa
+// `AccessDenied` + «Request has expired», que es lo que devuelven S3 y R2, para
+// que un test pueda distinguir «firmó mal» de «llegó tarde».
+function denegar(res, motivo, codigo) {
   const body =
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<Error><Code>SignatureDoesNotMatch</Code>' +
+    `<Error><Code>${(codigo || 'SignatureDoesNotMatch').replace(/[<&>]/g, '')}</Code>` +
     `<Message>${motivo.replace(/[<&>]/g, '')}</Message>` +
     '</Error>';
   res.writeHead(403, { 'content-type': 'application/xml', 'content-length': Buffer.byteLength(body) });
@@ -262,8 +326,12 @@ const server = http.createServer((req, res) => {
       motivo = `no pude verificar la firma: ${e && e.message ? e.message : e}`;
     }
     if (motivo) {
-      console.error(`[s3-local] 403 ${req.method} ${req.url.split('?')[0]} — ${motivo}`);
-      denegar(res, `${motivo}. Ver docs/DEVOPS_NOTES.md §39.2.`);
+      // `verificarSigV4Presignada` devuelve string (firma) u objeto {codigo,motivo}
+      // (caducidad, G-4). Se normaliza aquí, en el único sitio que lo consume.
+      const texto = typeof motivo === 'string' ? motivo : motivo.motivo;
+      const codigo = typeof motivo === 'string' ? undefined : motivo.codigo;
+      console.error(`[s3-local] 403 ${req.method} ${req.url.split('?')[0]} — ${texto}`);
+      denegar(res, `${texto}. Ver docs/DEVOPS_NOTES.md §39.2.`, codigo);
       return;
     }
   }

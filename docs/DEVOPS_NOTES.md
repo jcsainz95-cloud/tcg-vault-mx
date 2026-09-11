@@ -7427,12 +7427,34 @@ viene a cerrar. Lo que hace y lo que no:
 | Verifica la firma de peticiones con `Authorization:` (server-side) | ❌ solo comprueba el `accessKeyId` | ✅ |
 | **Políticas de bucket** (probar que el bucket es privado *por política*) | ❌ **no** | ✅ |
 | Versionado · lifecycle (`kyc_ine/` a N días) · multipart | ❌ | ✅ |
+| **Caduca la URL presignada** (`X-Amz-Expires`) | ✅ **dos capas**: la propia (mensaje detallado) y la de s3rver | ✅ |
+| Honra `response-content-disposition` en el GET presignado | ✅ **medido 2026-09-11** (`Content-Disposition: attachment`) | ✅ |
 
-> **⚠️ La consecuencia operativa, dicha en claro:** este stand-in **no sirve para verificar que el
-> bucket sea privado por política** (SEC-A5 / v1.2.1). Esa propiedad se sigue verificando **solo** en la
-> ruta Docker/CI (servicio `createbuckets` con `mc anonymous set none` y la regla de lifecycle de
-> `kyc_ine/`) y en R2 en producción. Que un `GET` anónimo dé 403 aquí es porque yo lo rechazo en el
-> borde, **no** porque haya una política evaluándose.
+> **⚠️⚠️ ACTUALIZADO 2026-09-11 — ESTA FICHA YA CUBRE LAS TRES RUTAS, NO SOLO LA NATIVA.**
+> Desde `ARCHITECTURE §4.51`, `s3-local` es el object storage de **toda ruta no-producción**: nativa,
+> compose local (`docker-compose.yml`) y **staging efímero de CI** (`docker-compose.staging.yml`).
+> **MinIO y `mc` salieron de los dos compose** (servicios `minio` y `createbuckets`, retirados). Antes
+> esta ficha describía «la ruta nativa» y los huecos de la ruta de CI eran **implícitos**; ahora hay
+> **una** implementación y **una** lista de huecos, que es ésta.
+>
+> **La consecuencia operativa, dicha en claro:** este stand-in **no sirve para verificar que el bucket
+> sea privado POR POLÍTICA** (SEC-A5 / v1.2.1), y **ya no queda ninguna ruta no-producción que lo
+> verifique**, porque `mc anonymous set none` se fue con `createbuckets`. Eso es **G-1** de §4.51.5, y
+> se acepta con dos datos medidos: (a) **ningún test lo aserta** —ni antes: ninguna prueba hacía una
+> petición sin firmar contra el almacenamiento—, y (b) el **efecto observable** (sin firma ⇒ 403) lo
+> garantiza este fichero **en todo método, incluida la lectura**, que es igual de estricto o más. Lo que
+> se deja de ejercitar es el **motor** de políticas, no su consecuencia. La propiedad **en producción**
+> (bucket R2 privado) sigue siendo de `seguridad` y sigue **sin medir** (ARCHITECTURE §8).
+>
+> **Y la caducidad (G-4), con una corrección medida al motivo con que se pidió:** se añadió verificación
+> de `X-Amz-Expires` contra el reloj. **Pero la premisa de `D-S3-3` («una URL vencida se aceptaría») es
+> FALSA**, y lo medí con `S3_LOCAL_ALLOW_ANON=1` —que desactiva toda la capa propia—: la URL vencida ya
+> recibía `403 AccessDenied / "Request has expired"`, con `<X-Amz-Expires>`, `<Expires>` y `<ServerTime>`
+> ⇒ **s3rver ya comprobaba la caducidad**. En la misma corrida, una firma con el secreto equivocado **sí**
+> pasaba (404) ⇒ lo que s3rver no hace es la **firma**, no la caducidad. **El enlace del INE nunca fue
+> eterno.** La capa propia se queda como defensa en profundidad (no depende de una interna de s3rver 3.7.x)
+> y porque además valida presencia y rango de `X-Amz-Expires`; el candado
+> `scripts/check-s3-local-expiry.sh` distingue **qué capa responde** por el texto del mensaje.
 
 **El añadido que más importa, y por qué existe.** `s3rver` **no verifica firmas SigV4**. No es una
 sospecha: lo dice su propio código, literal, en `lib/middleware/authentication.js`:
@@ -11516,3 +11538,76 @@ ni verificar que siga siendo descargable**. Datos para esa decisión, ya medidos
 imágenes sigue **sin cablear** en `ci.yml` (pin y cableado entran juntos), decisión que el
 orquestador confirmó: poner en rojo los PR de los agentes en vuelo por un defecto ya
 diagnosticado es ruido, no información.
+
+---
+
+## 61. MinIO sale de los compose: `s3-local` es el object storage de toda ruta no-producción (2026-09-11)
+
+> Ejecuta `ARCHITECTURE §4.51` (decisión del arquitecto). **Forma elegida: A.** Desbloquea
+> `security-dast.yml` y `e2e-real.yml`, que llevaban caídos desde el 401 de Docker Hub.
+
+### 61.1 · Por qué la Forma A y no la B (la elección era mía)
+
+**Forma A — servicio de compose sobre `library/node:22-alpine`.** Razones, en orden:
+
+1. **`docker compose up` sigue levantando el stack con UN verbo.** Es literalmente el criterio que QA
+   tiene que verificar (§4.51.9). La Forma B parte el ciclo de vida en dos piezas y añade sitios donde un
+   stack superviviente contamina una corrida — el riesgo que `e2e-real.yml:317-346` ya vigila.
+2. **La única imagen que entra es `library/*`**, la clase que medí **HTTP 200** anónimo. No es «una imagen
+   externa menos»: es una imagen de **la clase que no nos ha fallado**, y que además **ya era carga
+   obligada** (el backend construye sobre Node).
+3. **El `npm ci` del arranque no añade un dominio de fallo nuevo** (§4.51.3 razón 1): el registro npm ya es
+   obligatorio en toda corrida. Medido: `npm ci --omit=dev` = **113 paquetes en 3 s**.
+
+### 61.2 · Qué cambió, exactamente
+
+| Antes | Ahora |
+|---|---|
+| `minio` (`minio/minio:latest`) + `createbuckets` (`minio/mc:latest`) en **los dos** compose | Un servicio **`s3`** (`node:22-alpine`) en los dos, que corre `scripts/s3-local/server.js` |
+| Bucket creado por un **init-container** con `mc mb` | Bucket creado por el **propio servidor antes de escuchar** (`configureBuckets`) ⇒ invariante 1 |
+| Consola MinIO en `:9001`/`:9011` | **No hay consola.** Medido (N-4): **nadie** la usaba |
+| `S3_ENDPOINT: http://minio:9000` | `S3_ENDPOINT: http://s3:9000` |
+| Volúmenes `minio_data` / `minio_staging` | `s3_data` / `s3_staging` |
+
+**Los 6 invariantes de §4.51.6, uno a uno:** (1) bucket antes de atender ✅ (`configureBuckets()` se
+resuelve **antes** del `listen`); (2) mismas credenciales que el backend ✅ (el servicio `s3` recibe
+**las mismas variables** que el backend en cada compose); (3) `S3_LOCAL_ALLOW_ANON` **no aparece** en
+ningún compose ni workflow ✅; (4) publicación en **loopback** ✅ (`127.0.0.1:9000` / `127.0.0.1:${STAGING_S3_PORT:-9010}`),
+con `S3_LOCAL_HOST=0.0.0.0` **dentro** del contenedor y el porqué escrito al lado (D-S3-2, también
+corregido en la cabecera de `server.js`); (5) `S3_FORCE_PATH_STYLE` sin tocar ✅; (6) el candado de
+imágenes **sigue y ahora está CABLEADO** ✅.
+
+### 61.3 · Mediciones (2026-09-11, este entorno)
+
+| # | Qué | Resultado |
+|---|---|---|
+| **N-1** | ¿s3rver honra `response-content-disposition` en el GET presignado? | ✅ **SÍ**: `Content-Disposition: attachment`, cuerpo idéntico al subido. **Desbloquea G-3 (backend).** |
+| **N-2** | ¿`node:22-alpine` se descarga anónimamente? | ✅ **HTTP 200** |
+| **N-3** | ¿`scripts/s3-local/node_modules` viaja en git? | ❌ **No** (sólo 3 ficheros) ⇒ `npm ci` en el arranque, medido en **3 s** |
+| **N-4** | ¿Alguien depende de la consola (`:9011`) o de `mc`? | ❌ **Nadie** (`grep` vacío en `.github`, `scripts`, `security`) |
+| **N-5** | ¿Resuelven el resto de imágenes? | ✅ **7/7 clavadas**, todas 200 (una dio 429 = límite de tasa, la misma imagen resolvió 200 en el otro compose) |
+| **G-4** | Caducidad del enlace de INE | ✅ **5/5** fresca aceptada · **5/5** vencida ⇒ 403 desde la **capa propia** · **5/5** mutada ⇒ 403 desde **s3rver**. Ver la corrección de premisa en §39.2.3 |
+| Candado imágenes | `check-compose-images.sh` | **7/7 clavadas, 0 sin clavar** · canario **7/7** (m1..m5 ROJAS 3/3, m6 VERDE 3/3) |
+| Arranque real | `npm ci` + `node server.js` con `S3_LOCAL_HOST=0.0.0.0`, en directorio limpio con los 3 ficheros | ✅ escucha, y el **healthcheck del compose** lee **HTTP 403 ⇒ vivo** (sin firmar = 403 por diseño) |
+| Interpolación | `docker compose -f <cada uno> --profile apps config` | ✅ **rc=0** en los dos |
+
+⏳ **NO MEDIDO — y es el que importa para QA:** que `docker compose up` levante el stack **de verdad**.
+**No hay demonio de Docker en este entorno** (medido: `docker info` falla), así que lo que valido es el
+comando exacto del contenedor por fuera de él, no el contenedor. **Lo cierra QA** con
+`docker compose -f docker-compose.staging.yml up` + `infra-smoke` en `E2E_STRICT_INFRA=true`.
+
+### 61.4 · ⚠️ Lo que este pase NO toca y alguien debe mirar: `e2e.yml` TAMBIÉN usa MinIO
+
+**Medido, y no estaba en el encargo:** además de los dos compose, `.github/workflows/e2e.yml:140` levanta
+un **service container** `bitnamilegacy/minio:latest` para el job `backend-e2e` (deploy-blocking).
+
+- **Hoy NO está roto:** medido **HTTP 200** anónimo.
+- **Pero es la misma clase de riesgo, dos veces:** etiqueta **móvil** (`:latest`) **y** namespace
+  **archivado** (`bitnamilegacy`, a donde Bitnami movió lo que vació en ago-2025). Es exactamente el
+  perfil de `minio/minio:latest` el día antes de romperse.
+- **Mi candado NO lo ve:** `check-compose-images.sh` enumera `docker-compose*.yml`, **no** los
+  `services:` de los workflows. Ése es un hueco **declarado** de mi propio candado.
+- **Por qué no lo arreglo en este pase:** cambiar el almacenamiento de `backend-e2e` es la misma clase de
+  decisión que el arquitecto acaba de tomar para los compose (§4.51) y le corresponde a él decidir si
+  `s3-local` cubre también esa ruta. Y extender el candado **hoy** pondría CI en rojo por un defecto que
+  no estoy autorizado a cerrar — el mismo error que evité con el pin. **Siguiente pase, vía arquitecto.**

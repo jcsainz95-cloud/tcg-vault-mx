@@ -509,6 +509,34 @@ jobs:
         run: ./scripts/check-secret-masking-canary.sh 3
 
   # ---------------------------------------------------------------------------
+  # 🔒 IMÁGENES EXTERNAS CLAVADAS (2026-09-11).
+  #
+  # Qué falló, medido: `minio/minio:latest` dejó de poder descargarse sin
+  # autenticación y se llevó por delante `security-dast.yml` y `e2e-real.yml`
+  # —las DOS únicas puertas que miran la aplicación CORRIENDO—. El árbol propio
+  # era byte a byte idéntico al de la release anterior: no cambió nuestro código,
+  # cambió lo que hay al otro lado. Y como la etiqueta era MÓVIL (`:latest`), no
+  # había «un número al que volver» (D-S3-1).
+  #
+  # Este candado exige que toda imagen de los `docker-compose*.yml` esté clavada
+  # por versión o `@sha256:`. Su canario (6 mutaciones) incluye un compose NUEVO
+  # con imagen móvil: la enumeración NO es una lista a mano, así que un fichero
+  # futuro entra solo.
+  #
+  # El modo `--resolve` (comprobar que además se DESCARGUEN) NO se pone aquí a
+  # propósito: un candado de PR no puede depender de que un registro ajeno esté
+  # de buenas. Se corre a mano y en el pase de release.
+  # ---------------------------------------------------------------------------
+  compose-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toda imagen externa de los compose está clavada
+        run: ./scripts/check-compose-images.sh
+      - name: Y el candado muerde (canario, 6 mutaciones)
+        run: ./scripts/check-compose-images-canary.sh 3
+
+  # ---------------------------------------------------------------------------
   # 🔒 ¿LA PARIDAD `I-PP5` TUMBA EL GATE? (§48.1) — 2026-09-10, hallazgo de QA.
   #
   # Qué falló, medido: `stack-native.sh up --seed --gate` imprimió «✗ SIN PARIDAD
@@ -662,7 +690,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census]
     if: always()
     runs-on: ubuntu-latest
     steps:
