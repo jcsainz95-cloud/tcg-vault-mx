@@ -20,7 +20,10 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { json } from 'express';
 import Stripe from 'stripe';
+import { PrismaClient } from '@prisma/client';
 import { AppModule } from '../../../src/app.module';
+import { seedE2E } from '../../../prisma/seed-e2e';
+import { E2E_USERS } from '../../../prisma/e2e-fixtures';
 import { AllExceptionsFilter } from '../../../src/common/filters/all-exceptions.filter';
 import { StripeService } from '../../../src/modules/payments/stripe.service';
 import { PrismaService } from '../../../src/prisma/prisma.service';
@@ -203,6 +206,38 @@ export interface ApiOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * ⭐⭐ **H-2 (QA, 2026-09-11) — la suite deja de depender del ORDEN en que jest la ejecute.**
+ *
+ * Seis suites (`fx-mode`, `auth-throttle`, `graded-estimate`, `graded-estimate-inv-d-inverse`,
+ * `graded-estimate-degrade-market-ref`, `price-reference-variant-unique`) **no llamaban a
+ * `seedE2E`**: pasaban porque *otra* suite lo había hecho antes en el mismo proceso
+ * (`maxWorkers: 1`, BD compartida). Medido sobre BD VIRGEN: `fx-mode` cae con
+ * `login failed for admin@e2e.local: 401` y se lleva sus 19 tests. Eso es una mina en CI — basta
+ * que jest reordene (`--randomize`, `-t`, un `--shard`) o que alguien corra una suite sola.
+ *
+ * El arreglo va **en el ancestro común**, no en seis `beforeAll` que el séptimo volvería a olvidar:
+ * toda suite que levanta la app pasa por `E2EHarness.create()`, así que la siembra se hereda **por
+ * construcción**. Es idempotente y memoizada por proceso:
+ *  - si el fixture ya está en la BD (o ya se sembró en este proceso) ⇒ **no-op**, cero coste;
+ *  - si no ⇒ siembra ANTES de que la primera suite golpee la app.
+ *
+ * ⛔ No sustituye al `seedE2E` explícito de las suites que **exigen fixture limpio** (`seedE2E` es
+ * destructivo y acotado: resetea órdenes, disputas y precios de los usuarios/cartas del fixture).
+ * Esto solo garantiza el PISO: que nunca se corra contra una BD sin sembrar.
+ */
+let seededInThisProcess = false;
+
+export async function ensureSeeded(prisma: PrismaService): Promise<void> {
+  if (seededInThisProcess) return;
+  seededInThisProcess = true;
+  const yaEsta = await prisma.user.count({ where: { email: E2E_USERS.admin.email } });
+  if (yaEsta > 0) return;
+  // eslint-disable-next-line no-console
+  console.warn('[e2e] BD sin fixture sintético: sembrando (H-2, siembra heredada del arnés).');
+  await seedE2E(prisma as unknown as PrismaClient);
+}
+
 export class E2EHarness {
   private constructor(
     public readonly app: INestApplication,
@@ -242,6 +277,8 @@ export class E2EHarness {
 
     const prisma = app.get(PrismaService);
     const stripe = app.get(StripeService) as TestStripeService;
+    // H-2: piso de siembra heredado por TODA suite que levanta la app (ver `ensureSeeded`).
+    await ensureSeeded(prisma);
     return new E2EHarness(app, baseUrl, prisma, stripe);
   }
 
