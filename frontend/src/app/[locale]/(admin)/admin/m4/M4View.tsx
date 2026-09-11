@@ -36,21 +36,38 @@ import { pesosToCents } from './pesosToCents';
 export { pesosToCents };
 
 /**
- * Fila de la cola de M4 con lo que el contrato §M4 (v1.21 / v1.67) YA promete y `AdminShipmentDTO`
- * todavía no tipa: `recipientName?` (del `addressSnapshot`; `undefined` SOLO en retiros anteriores
- * a v1.67), `addressSnapshot` (nueve campos desde M-52) y `customer` (R5 de §33.16, PROYECTADO).
- * // MOCK: pendiente de contrato.ts (tipos, zona compartida de A1) — se lee de forma defensiva.
+ * Campo string del `addressSnapshot` (contrato §M4 v1.67.1: forma de `AddressDTO` sin id/isDefault/
+ * createdAt; los snapshots anteriores a M-52 traen 8 campos y `AddressSnapshotDTO` es de forma abierta).
+ * Vacío/ausente ⇒ `undefined`.
  */
-type AdminShipmentRow = AdminShipmentDTO & {
-  recipientName?: string | null;
-  addressSnapshot?: Record<string, unknown> | null;
-  customer?: { id?: string; name?: string; email?: string } | null;
-};
-
-/** Campo string de un snapshot de forma abierta; vacío/ausente ⇒ `undefined`. */
-function snap(row: AdminShipmentRow, key: string): string | undefined {
+function snap(row: AdminShipmentDTO, key: string): string | undefined {
   const v = row.addressSnapshot?.[key];
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+}
+
+/**
+ * Destinatario del paquete — UNA fuente canónica: `addressSnapshot.recipientName` (contrato §M4
+ * v1.67.1, D-CTA-9). El `recipientName` suelto de la raíz es legado v1.21 DEPRECADO con invariante
+ * `recipientName === addressSnapshot.recipientName`; se lee DESPUÉS, solo para que su retiro en una rev
+ * futura sea gratis. ⛔ Nunca `User.name` (puede ser el fabricado) ni el `userId`.
+ */
+function recipientOf(row: AdminShipmentDTO): string | undefined {
+  return snap(row, 'recipientName') ?? row.recipientName?.trim() ?? undefined;
+}
+
+/**
+ * Cliente de la fila (R5 de §33.16, PROYECTADO): `customer { id, name, email }` NO está en el contrato
+ * §M4 (medido en v1.67.1) — se lee de forma defensiva y se pinta «—» cuando falta.
+ * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
+ */
+function customerOf(row: AdminShipmentDTO): { name?: string; email?: string } | null {
+  const c = (row as { customer?: unknown }).customer;
+  if (!c || typeof c !== 'object') return null;
+  const { name, email } = c as { name?: unknown; email?: unknown };
+  return {
+    ...(typeof name === 'string' && name.trim() ? { name: name.trim() } : {}),
+    ...(typeof email === 'string' && email.trim() ? { email: email.trim() } : {}),
+  };
 }
 
 /** §32.4: lo desconocido es «—», nunca omitido en silencio. */
@@ -211,7 +228,7 @@ export function M4View() {
           {shipments.data && shipments.data.data.length === 0 ? (
             <EmptyState title={t('queueEmpty')} />
           ) : (
-            (shipments.data?.data ?? []).map((s: AdminShipmentRow) => (
+            (shipments.data?.data ?? []).map((s: AdminShipmentDTO) => (
               <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -264,8 +281,8 @@ export function M4View() {
                 <div className="flex flex-col gap-1 text-sm text-muted" data-testid={`shipment-parties-${s.id}`}>
                   <p>
                     <span className="font-medium text-text">{t('recipient')}</span>{' '}
-                    {(s.recipientName ?? snap(s, 'recipientName')) ? (
-                      <span className="text-text">{s.recipientName ?? snap(s, 'recipientName')}</span>
+                    {recipientOf(s) ? (
+                      <span className="text-text">{recipientOf(s)}</span>
                     ) : (
                       <span className="font-mono text-xs uppercase text-accent">{t('recipientMissing')}</span>
                     )}
@@ -278,7 +295,7 @@ export function M4View() {
                   </p>
                   <p>
                     <span className="font-medium text-text">{t('customer')}</span>{' '}
-                    {s.customer?.name ?? DASH} · {s.customer?.email ?? DASH}
+                    {customerOf(s)?.name ?? DASH} · {customerOf(s)?.email ?? DASH}
                     {s.userId && (
                       <>
                         {' · '}

@@ -1013,10 +1013,15 @@ export interface AdminShipmentDTO {
   orderId?: string | null;
   orderNumber?: string;
   guestEmail?: string;
-  /** v1.67: del `addressSnapshot`; `undefined` únicamente en retiros anteriores a v1.67. */
+  /**
+   * @deprecated Contrato §M4 v1.67.1 (D-CTA-9): la fuente canónica del destinatario es
+   * `addressSnapshot.recipientName`; este campo suelto es una proyección legado (v1.21, invitados) con
+   * invariante `recipientName === addressSnapshot.recipientName`, y se retirará en una rev futura.
+   * Ningún consumidor nuevo lo lee; M4 lo consulta DESPUÉS del snapshot.
+   */
   recipientName?: string | null;
   /**
-   * v1.67 (D-CTA-6): la pantalla M4 pinta destinatario + dirección desde aquí. Misma tolerancia
+   * v1.67 (D-CTA-6): la pantalla M4 pinta destinatario + dirección desde aquí — canónico (v1.67.1). Misma tolerancia
    * de forma que `ClientShipmentDTO.addressSnapshot` (snapshots anteriores a M-52 traen 8 campos).
    */
   addressSnapshot?: AddressSnapshotDTO | null;

@@ -175,7 +175,7 @@ describe('M4View · destinatario y dirección (F9)', () => {
           id: 'shp-9001',
           userId: 'u-777',
           ...base,
-          // Campos que el contrato §M4 promete y AdminShipmentDTO aún no tipa (ver AdminShipmentRow).
+          // Suelto deprecado (v1.67.1) + snapshot canónico con el MISMO valor (invariante del contrato).
           recipientName: 'Misty Waterflower',
           addressSnapshot: {
             recipientName: 'Misty Waterflower',
@@ -204,6 +204,44 @@ describe('M4View · destinatario y dirección (F9)', () => {
     );
     expect(screen.queryByText('u-777')).not.toBeInTheDocument();
     expect(parties).not.toHaveTextContent('SIN DESTINATARIO');
+  });
+
+  it('v1.67.1 (D-CTA-9): el destinatario sale del SNAPSHOT aunque el suelto deprecado no venga; y si SOLO viene el suelto (legado), se tolera', async () => {
+    vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
+      data: [
+        {
+          id: 'shp-9003',
+          userId: 'u-779',
+          ...base,
+          addressSnapshot: { recipientName: 'Brock Harrison', line1: 'x', city: 'Pewter', state: 'KAN', postalCode: '10000', country: 'MX', phone: '5550000001' },
+        },
+        {
+          id: 'shp-9004',
+          userId: 'u-780',
+          ...base,
+          // Fila legado: solo la proyección suelta (sin snapshot). Se tolera, después del snapshot.
+          recipientName: 'Erika Celadon',
+          addressSnapshot: null,
+        },
+        {
+          id: 'shp-9005',
+          userId: 'u-781',
+          ...base,
+          // Si ambos vienen, gana el snapshot (canónico), no el suelto.
+          recipientName: 'VIEJO',
+          addressSnapshot: { recipientName: 'Sabrina Saffron', line1: 'y', city: 'Saffron', state: 'KAN', postalCode: '10001', country: 'MX', phone: '5550000002' },
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 3,
+    });
+    renderWithProviders(<M4View />, 'es');
+    expect(await screen.findByTestId('shipment-parties-shp-9003')).toHaveTextContent('Para Brock Harrison');
+    expect(screen.getByTestId('shipment-parties-shp-9004')).toHaveTextContent('Para Erika Celadon');
+    const both = screen.getByTestId('shipment-parties-shp-9005');
+    expect(both).toHaveTextContent('Para Sabrina Saffron');
+    expect(both).not.toHaveTextContent('VIEJO');
   });
 
   it('retiro anterior a v1.67 (snapshot de ocho campos): «SIN DESTINATARIO» en mono rojo, resto igual, sin User.name', async () => {
