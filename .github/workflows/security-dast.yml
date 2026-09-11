@@ -69,7 +69,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "SHA o ref a escanear (vacío = el de la rama del disparo). P. ej. el SHA publicado en `production`."
+        description: "Rama, tag o SHA (corto o completo) a escanear; se resuelve a SHA completo por API. Vacío = el commit de la rama del disparo."
         type: string
         default: ""
       scan_profile:
@@ -139,10 +139,42 @@ concurrency:
 env:
   SCAN_PROFILE: ${{ inputs.scan_profile || 'full' }}
   ACTIVE_MAX_MINS: ${{ inputs.active_max_mins || '10' }}
-  # El commit que se escanea, UNO para los tres jobs (checkout + resumen + issue).
+  # Lo que PIDIERON escanear (rama, tag, SHA corto o largo). El job `resolver-ref`
+  # lo convierte en SHA completo; los checkouts usan ESE sha, nunca esto.
   SCAN_REF: ${{ inputs.ref || github.sha }}
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 0) `ref` → SHA COMPLETO. Run 34560602347 (dispatch con `ref=c13f417`):
+  #    actions/checkout hace `git fetch --depth=1 origin +refs/heads/c13f417*
+  #    +refs/tags/c13f417*` y falla 3/3 — un SHA ABREVIADO no es un ref para
+  #    checkout (solo rama, tag o 40 hex). Aquí se resuelve por API con el
+  #    GITHUB_TOKEN y, si no resuelve, el run muere en 2 s con el motivo, no
+  #    tras tres fetches.
+  # ---------------------------------------------------------------------------
+  resolver-ref:
+    name: Resolver el ref a SHA completo
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.r.outputs.sha }}
+    steps:
+      - id: r
+        env:
+          REF: ${{ inputs.ref || github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          RESP="$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                   "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$REF")" || { echo "::error::la API de commits no respondió para '$REF'"; exit 1; }
+          SHA="$(jq -r '.sha // empty' <<<"$RESP")"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=ref no resoluble::'$REF' no resuelve a un commit de $GITHUB_REPOSITORY: $(jq -r '.message // "sin mensaje"' <<<"$RESP"). Pasa una rama, un tag o un SHA (corto o completo) que exista."
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ref pedido: $REF  →  sha: $SHA"
+          echo "- ref pedido \`$REF\` → commit \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
   # ---------------------------------------------------------------------------
   # 1) ¿EL CANDADO SABE PONERSE ROJO?
   #
@@ -159,12 +191,17 @@ jobs:
   # ---------------------------------------------------------------------------
   selftest:
     name: Autoprueba del candado (canario vulnerable)
+    needs: [resolver-ref]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      # Se propaga por aquí porque `dast` DEBE seguir siendo `needs: [selftest]`
+      # exacto (lo exige scripts/check-dast-gate-live.sh).
+      sha: ${{ needs.resolver-ref.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.SCAN_REF }}
+          ref: ${{ needs.resolver-ref.outputs.sha }}
       - name: El gate DEBE ponerse rojo contra el canario
         run: ./security/scripts/dast-selftest.sh
       - name: Publicar resumen de la autoprueba
@@ -188,8 +225,10 @@ jobs:
     timeout-minutes: 75
     outputs:
       blocking: ${{ steps.gate.outcome == 'failure' }}
+      sha: ${{ needs.selftest.outputs.sha }}
     env:
       REPORT_ONLY: ${{ inputs.report_only && '1' || '0' }}
+      SCAN_SHA: ${{ needs.selftest.outputs.sha }}
       # Mismas guardas de dinero que el E2E real: el arnés enciende el dial de
       # grading, que autoriza al barrido a gastar créditos de un proveedor de
       # PAGA. Declarada VACÍA (no omitida) para que meterla sea un diff visible.
@@ -215,11 +254,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.SCAN_REF }}
+          ref: ${{ env.SCAN_SHA }}
       - name: Qué commit se escanea (para que el verde diga sobre qué es verde)
         run: |
-          echo "Commit escaneado: $(git rev-parse HEAD)  (SCAN_REF=$SCAN_REF · evento=${{ github.event_name }} · report_only=$REPORT_ONLY)"
-          echo "- DAST sobre el commit \`$(git rev-parse HEAD)\` (SCAN_REF=\`$SCAN_REF\`, evento \`${{ github.event_name }}\`, report_only=$REPORT_ONLY)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$(git rev-parse HEAD)" = "$SCAN_SHA" ] || { echo "::error::el checkout sirve $(git rev-parse HEAD) y se pidió $SCAN_SHA"; exit 1; }
+          echo "Commit escaneado: $SCAN_SHA  (ref pedido=$SCAN_REF · evento=${{ github.event_name }} · report_only=$REPORT_ONLY)"
+          echo "- DAST sobre el commit \`$SCAN_SHA\` (ref pedido \`$SCAN_REF\`, evento \`${{ github.event_name }}\`, report_only=$REPORT_ONLY)" >> "$GITHUB_STEP_SUMMARY"
       # -----------------------------------------------------------------------
       # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
@@ -331,10 +371,12 @@ jobs:
     permissions:
       contents: read
       issues: write
+    env:
+      SCAN_SHA: ${{ needs.dast.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.SCAN_REF }}
+          ref: ${{ needs.dast.outputs.sha }}
       - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
@@ -357,7 +399,7 @@ jobs:
             echo ""
             echo "---"
             echo "- Run: ${RUN_URL}"
-            echo "- Commit escaneado: \`${SCAN_REF}\` (evento: ${{ github.event_name }})"
+            echo "- Commit escaneado: \`${SCAN_SHA}\` (ref pedido: \`${SCAN_REF}\`, evento: ${{ github.event_name }})"
             echo ""
             echo "**Dueño:** el rol propietario de la superficie afectada (**backend** o **frontend**)."
             echo "devops mantiene el gate y NO corrige código de aplicación (CLAUDE.md)."

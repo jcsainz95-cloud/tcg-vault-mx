@@ -10780,10 +10780,20 @@ saltado). `dast-staging` retirado; `promote-production-*` pasan a `needs: [dast-
 **Dispatch sobre el SHA publicado (lo lanza el orquestador, no devops):**
 ```
 gh workflow run security-dast.yml --ref claude/tcg-hunt-orchestration-2 \
-  -f ref=c13f417 -f scan_profile=full -f report_only=false -f active_max_mins=10
+  -f ref=c13f4179be5ea073b91819ce38ee5e87d44ad06f -f scan_profile=full -f report_only=false -f active_max_mins=10
 ```
 (`--ref` = rama con esta versión del workflow; `-f ref` = commit que se escanea = lo publicado.
 Con `report_only=false` el candado SÍ bloquea el run: es el primer barrido `full` citable.)
+
+**Corrección tras el run 34560602347 (dispatch con `ref=c13f417`, `failure`):** `actions/checkout`
+no acepta un SHA abreviado como `ref` (hace `git fetch … +refs/heads/c13f417*` y falla 3/3). Ahora el
+workflow tiene un job previo **`resolver-ref`** que resuelve `inputs.ref || github.sha` a SHA completo
+con `GET /repos/{repo}/commits/{ref}` (medido contra la API real: `c13f417` → `c13f4179…`, `production`
+→ `c13f4179…`, `no-existe-zzz` → «No commit found», que el job convierte en `::error` y rc=1) y lo
+propaga `resolver-ref → selftest.outputs.sha → dast.outputs.sha → abrir-issue` (para que `dast` siga
+siendo exactamente `needs: [selftest]`, como exige `check-dast-gate-live.sh`). Los tres checkouts usan
+ese sha; el paso «Qué commit se escanea» además comprueba `git rev-parse HEAD == sha`. Desde entonces
+el dispatch acepta rama, tag o SHA corto/largo.
 
 ### 56.5 · Prioridad 5 — resto del lote §55.5
 
