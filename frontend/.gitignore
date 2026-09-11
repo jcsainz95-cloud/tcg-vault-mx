@@ -4,6 +4,10 @@
 /.next-e2e-mock
 # Bundles de mocks por agente/sesión (E2E_MOCK_DIST_DIR=.next-e2e-mock-<x>) para no pisarse el build.
 /.next-e2e-mock-*
+# tsconfig GENERADO por next.config.mjs para cada NEXT_DIST_DIR distinto de `.next` (hallazgo #1 de QA,
+# 2026-09-11): es el que recibe `typescript.tsconfigPath`, para que `next build` no reescriba el
+# `tsconfig.json` commiteado. Uno por distDir: `tsconfig.next-e2e-mock-<x>.json`, `tsconfig.next-e2e-real.json`.
+/tsconfig.next-*.json
 # Bundle contra el BACKEND REAL, para correr el subset `@real` sobre código recién tocado sin
 # reconstruir (ni reiniciar) el frontend del stack que devops tenga sirviendo en :3000.
 #   NEXT_DIST_DIR=.next-e2e-real NEXT_PUBLIC_USE_MOCKS=false \
