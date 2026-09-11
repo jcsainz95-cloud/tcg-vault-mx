@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
-import { useSession } from '@/lib/session';
+import { isLogoutInProgress, useSession } from '@/lib/session';
 import { config } from '@/lib/config';
 import { buildPasswordChangeRedirect, isPasswordRoute } from '@/lib/account-routes';
 
@@ -71,6 +71,9 @@ export function PrivateRouteGuard({ children }: { children: React.ReactNode }) {
     }
     if (!guarded) return;
     if (ready && !isAuthenticated) {
+      // QA2-1 / FE-34: si la sesión se vació por un «Cerrar sesión» explícito, el llamador ya está
+      // navegando a su destino; imponer `/login?next=<ruta recién cerrada>` sería ganarle la carrera.
+      if (isLogoutInProgress()) return;
       router.replace({ pathname: '/login', query: { next: pathname } });
     }
   }, [blocked, guarded, ready, isAuthenticated, router, pathname, fullPath, user?.role]);

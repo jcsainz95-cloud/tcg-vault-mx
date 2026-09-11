@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
 import { RoleProvider } from '@/lib/role';
-import { useSession } from '@/lib/session';
+import { isLogoutInProgress, useSession } from '@/lib/session';
 import { Link, usePathname, useRouter } from '@/i18n/navigation';
 import { config } from '@/lib/config';
 import { buildPasswordChangeRedirect, isPasswordRoute } from '@/lib/account-routes';
@@ -58,6 +58,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!requireAuth || !ready) return;
     if (!isAuthenticated) {
+      // QA2-1 / FE-34: tras un «Cerrar sesión» explícito el llamador ya navega a `/login` limpio; el
+      // guard no impone `?next=<módulo recién cerrado>` (lo hacía, y ganaba la carrera).
+      if (isLogoutInProgress()) return;
       // Preserva el destino con `next` para volver tras el login; el router de
       // next-intl conserva el locale.
       router.replace({ pathname: '/login', query: { next: pathname } });

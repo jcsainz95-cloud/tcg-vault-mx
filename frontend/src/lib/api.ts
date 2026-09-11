@@ -9,7 +9,7 @@ import {
   getToken,
   clearClientSession,
 } from './api-client';
-import { setStoredUser, patchStoredUser, getStoredUser } from './session';
+import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
@@ -2064,6 +2064,9 @@ function persistSession(res: AuthResponse): AuthResponse {
  * el cliente queda deslogueado. En modo mock solo limpia el estado local.
  */
 export async function logout(): Promise<void> {
+  // QA2-1: la señal va ANTES de la red y del vaciado, para que el guard que vea la sesión vacía no
+  // imponga `/login?next=<ruta recién cerrada>` por encima del destino del llamador.
+  markIntentionalLogout();
   try {
     if (!config.useMocks) await apiRequest<void>('/auth/logout', { method: 'POST' });
   } finally {

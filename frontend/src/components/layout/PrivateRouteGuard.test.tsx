@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { PrivateRouteGuard } from './PrivateRouteGuard';
-import { setStoredUser } from '@/lib/session';
+import { markIntentionalLogout, resetIntentionalLogoutForTests, setStoredUser } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
 
 // Modo REAL: el guard aplica (requireAuth = !config.useMocks).
@@ -30,9 +30,20 @@ function renderGuard() {
 describe('PrivateRouteGuard · rutas privadas del storefront (modo real)', () => {
   beforeEach(() => {
     replace.mockClear();
+    resetIntentionalLogoutForTests();
     setStoredUser(null);
     window.localStorage.clear();
     currentPath = '/vault';
+  });
+
+  it('QA2-1 / FE-34: sesión vaciada por un «Cerrar sesión» explícito → NO impone /login?next=<ruta>; deja navegar al llamador (sin pintar contenido)', async () => {
+    currentPath = '/account';
+    markIntentionalLogout();
+    renderGuard();
+    expect(screen.queryByText('contenido-privado')).not.toBeInTheDocument();
+    // Le damos tiempo a que el efecto corriera: el `replace` con `next` NO ocurre.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it('ruta privada sin sesión → redirige a /login?next=<ruta> y NO pinta el contenido', async () => {
