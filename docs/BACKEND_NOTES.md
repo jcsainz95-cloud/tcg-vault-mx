@@ -20168,3 +20168,69 @@ Suites al cierre: `npx jest` **277 suites / 4555 tests** rc=0 (+1 suite, +31 cas
 **Remedio inmediato en el stack de QA (no es mío):** `./scripts/stack-native.sh up --seed` (la siembra nueva borra la fila) o, desde la UI, el propio `PUT` (reemplaza la fila cifrando con la clave del proceso vivo).
 
 **Petición a devops (medida, no relayada):** `stack-native.sh` genera `JWT_*`/`S3_SECRET_ACCESS_KEY` en `.native-stack/secrets.env` pero **no** `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`; mientras no las genere (32 bytes base64, `openssl rand -base64 32`, persistidas igual que las otras), **cada reinicio del backend nativo invalida toda la PII cifrada** (RFC y CLABE) de la BD local. Producción no está afectada: allí `keysRequired` exige las claves y el arranque falla sin ellas (`pii-crypto.service.ts:129-135`).
+
+## v1.68 — Stream B · agente **B2**: `receive`/`verify` exigen el PASO CORRECTO (§M5-S, P-58) y `resolve` de disputas con guarda en el motor (§M8) (backend · 2026-09-11, medido)
+
+> Fuente: `docs/API_CONTRACT.md` v1.68 §M5-S y nota v1.68 de §M8; `ARCHITECTURE §4.48.1`, `§4.48.4`, `§4.48.9`.
+> Rutas tocadas: `modules/buylist/buylist.service.ts` (solo `receive`/`verify` y sus guardas), `modules/disputes/`,
+> `jobs/dispute-deadline.service.ts`, `common/error-codes.ts` (**una** clave nueva, `INVALID_TRANSITION`, la excepción
+> de ruta compartida autorizada por el orquestador; re-leído justo antes del `Edit`, conserva `PAYMENT_IN_PROGRESS` de B1), `test/`.
+
+### Qué hay (por fichero)
+
+| Fichero | Qué cambió |
+|---|---|
+| `buylist.service.ts` `receive`/`verify` | El `where` del `updateMany` ya no es `liveRequestWhere()` sino **`stepWhere(verb)`** = `{ status: { in: [...allowedFrom, idempotentOn] }, closedAt: null }` — `receive: en_transito → recibida`, `verify: recibida → verificacion`. La tabla vive **una vez** en `STEP_TRANSITIONS`; la guarda y el `details` del rechazo la leen los dos. `closedAt: null` sigue explícito (T no se relaja). |
+| `buylist.service.ts` `throwStepRejected` | `count !== 1` ⇒ relectura **dentro de la tx**: terminal ∨ `closedAt ≠ null` ⇒ `409 CONFLICT { status, closedAt }` (T gana, `requestClosedConflict` compartido con `throwRequestClosedConflict`); vivo en otro paso ⇒ `409 INVALID_TRANSITION { verb, from, allowedFrom, idempotentOn }`; vivo **y admitido por el `where`** (`count ≠ 1` por `where` roto o carrera entre escritura y relectura) ⇒ `409 CONFLICT` — no es «paso equivocado» y decirlo mentiría. Cero escritura en los tres (los ítems se mueven después de la guarda, como antes). |
+| `error-codes.ts` | `INVALID_TRANSITION` (409, genérico; `details.verb` lo especializa). ⛔ No hay `NOT_IN_TRANSIT`/`NOT_RECEIVED`. |
+| `disputes.service.ts` `resolve` | `updateMany({ where: { id, status: { in: DISPUTE_RESOLVABLE_STATES } }, data })` con `count === 1`; si no ⇒ relee y `409 CONFLICT { status, resolvedAt }`, cero escritura. **No idempotente a propósito** (contrato). El `findUnique` previo sigue para el 404 y el `inventoryItemId` de la recompra; **no protege la fila**. `DISPUTE_RESOLVABLE_STATES = ['abierta','en_revision']` exportada (la lee el test). |
+| `disputes.controller.ts` | `@HttpCode(200)` en `POST :id/resolve`. **Desviación respecto a la conducta anterior (201, default de Nest), alineada con el contrato**, que en la nota v1.68 dice `Res 200`; misma doctrina que §M5-C/BL-37. Frontend ramifica por `res.ok` ⇒ impacto cero (NO medido en `frontend/`: no es mi ruta). |
+| `jobs/dispute-deadline.service.ts` | **Un** `updateMany({ where: { status: 'abierta', deadlineAt: { lte: now } }, data: { status: 'en_revision' } })`; devuelve `{ expired: count }`. Sin `findMany` previo. |
+
+### Lo que la mesa tiene que hacer distinto (para frontend — tabla normativa de §M5-S)
+
+| `status` | Verbo que M5 ofrece | `receive` responde | `verify` responde |
+|---|---|---|---|
+| `cotizada` | `offer` / `decline` | `409 INVALID_TRANSITION` (from `cotizada`) | `409 INVALID_TRANSITION` |
+| `ofertada` | `offer/cancel` | `409 INVALID_TRANSITION` | `409 INVALID_TRANSITION` |
+| `aceptada` | **`confirm-shipment`** (sin guía está permitido) | `409 INVALID_TRANSITION` | `409 INVALID_TRANSITION` |
+| `en_transito` | ⭐ **`receive`** | `200 → recibida` | `409 INVALID_TRANSITION` |
+| `recibida` | ⭐ **`verify`** | `200` idempotente (no re-sella) | `200 → verificacion` |
+| `verificacion` | decisión por ítem / `pay-spei` | `409 INVALID_TRANSITION` | `200` idempotente (no re-sella) |
+| `aprobada` | `pay-spei` | `409 INVALID_TRANSITION` | `409 INVALID_TRANSITION` |
+| `pagada`/`rechazada`/`abandonada`/`expirada` (y cualquier fila con `closedAt` sellado) | — | `409 CONFLICT { status, closedAt }` | `409 CONFLICT { status, closedAt }` |
+
+El `details` de `INVALID_TRANSITION` es siempre `{ verb: 'receive'|'verify', from, allowedFrom: ['en_transito'] | ['recibida'], idempotentOn: 'recibida' | 'verificacion' }` (medido por HTTP con `toEqual` en `buylist-step-guard.e2e-spec.ts`). Un solo mensaje i18n para los dos verbos, audiencia operador.
+
+**Filas legadas**: una `cotizada` viva ya no salta a `recibida` (los tests que lo hacían —`buylist.e2e-spec`, `buylist-cycle` (18)-(21) y §5, `buylist-pay-verdicts`— pasan ahora por `offer → offer-response → confirm-shipment`). El **conteo en producción** de filas vivas pre-M-46 en `cotizada` (§4.48.7) **NO lo he medido**: es una `SELECT count(*) FROM "SellRequest" WHERE status='cotizada' AND "closedAt" IS NULL AND "offerSentAt" IS NULL` contra la BD real, antes de publicar.
+
+### Tests (todos en `backend/test/`)
+
+- `buylist.m5s-step-guard.spec.ts` (nuevo, 39 casos): matriz **S-1 11×2** con fake que evalúa el `where`, fila de P1, destino cerrado, forma del `where`; **S-2** directa/invertida/retrocesos/`aceptada`.
+- `buylist.m5t-terminal-guard.spec.ts`: los dos casos «por exclusión» pasan a «predecesor sí / vivo ajeno ⇒ INVALID_TRANSITION» y la forma del `where` a la de S; el resto de T intacto.
+- `buylist.m5p-received-guard.spec.ts`: el contraste «sin `receive` no paga» mide ahora las **dos** redes (S rechaza el `verify`; P rechaza el pago sobre la fila `verificacion` sin `receivedAt` que la BD aún puede tener).
+- `integration/buylist-step-guard.e2e-spec.ts` (nuevo, 29 casos): S-1 por HTTP sobre fila real sembrada por `h.prisma` (los 11 estados × 2 + P1), S-2 por la puerta con 20 ms (secuencial y **lanzadas sin esperar, 5/5**), el paquete sin `confirm-shipment`.
+- `integration/buylist-cycle.e2e-spec.ts`: (11-bis) `receive` desde `verificacion` ⇒ 409; (18)-(21) reescritos: el PoC del eje 2 muere en S (409) y §M5-P sigue como segunda red; el remedio es el ciclo entero; §5 y §M5-R con `confirm-shipment` antes de `receive`.
+- `integration/buylist.e2e-spec.ts`, `integration/buylist-pay-verdicts.e2e-spec.ts`: paso 2-4 del pacto antes de `receive`.
+- `disputes.resolve-guard.spec.ts` (nuevo, 13 casos): D-1, no idempotente, cuatro estados, forma del `where`, carrera; job: un `updateMany`, D-2 y la carrera literal.
+- `disputes.repurchase.spec.ts`: afirma `updateMany` (no `update`).
+- `integration/disputes.e2e-spec.ts` (nuevo, 5 casos): D-1 y D-2 por HTTP, `403 MONEY_OUT_FORBIDDEN` intacto, `POST /admin/jobs/dispute-deadline`.
+
+### Medido (comandos y totales; Node `/opt/node22/bin`; BD propia `tcg_b2`; **todo sobre copia limpia `HEAD b883fab + mis 15 ficheros`** en `…/scratchpad/backend-B2/clean` porque el árbol vivo no compilaba por trabajo en curso de B1 en `orders/`)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Tipos / lint | `tsc --noEmit` · `eslint` | 0 errores (2 warnings preexistentes en `inventory`, ajenos) |
+| Unitarios | `npx jest` | **279 suites / 4590 tests** verdes |
+| Integración | `DATABASE_URL=<tcg_b2> ./scripts/stack-native.sh test:integration` sobre `disputes`, `buylist-step-guard`, `buylist-cycle`, `buylist`, `buylist-pay-verdicts`, `buylist-closed-total`, `buylist-raw-only`, `buylist-cards-order` | **8 suites / 149 tests** verdes |
+| Cadena directa escalonada (O-3) | `buylist-step-guard` › «lanzadas con 20 ms de desfase» | **5/5** `200·200·verificacion` en cada corrida (3 corridas de la suite) |
+
+**Mutaciones (copia `…/scratchpad/backend-B2/mut`, restaurada desde `clean` antes de cada una):**
+
+| Mutación | Unit | Integración |
+|---|---|---|
+| **m5** `stepWhere()` ⇒ `liveRequestWhere()` | **20 rojos 3/3** (`m5s`: 5 filas vivas por verbo + forma del `where` + invertida + retrocesos; `m5t`/`m5p` los suyos) | **12 rojos 3/3** (`buylist-step-guard`) |
+| **m6** `resolve` ⇒ `update({where:{id}})` sin guarda | **8 rojos 3/3** (`resolve-guard` D-1, no-idempotente, resueltas, `where`, carrera; `repurchase` ×2) | **2 rojos 3/3** (`disputes` D-1 y no-idempotente) |
+| **m6b** job ⇒ `findMany` + `update` por fila | **2 rojos 3/3** (forma del job y D-2 carrera literal) | no corrida (D-2 por HTTP no puede fabricar la carrera; la mide el unit) |
+
+**NO medido:** `frontend/` (S-3 es de frontend); el conteo de legadas en producción (arriba); la suite de integración **completa** (solo las 8 de mis flujos: `buylist-*` y `disputes`).
