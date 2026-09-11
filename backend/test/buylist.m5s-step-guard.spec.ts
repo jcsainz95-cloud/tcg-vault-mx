@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SellRequestStatus } from '@prisma/client';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
@@ -267,5 +268,86 @@ describe('§M5-S · S-2 — la CADENA de la mesa sigue pasando; la INVERTIDA se 
       details: { verb: 'receive', from: 'aceptada', allowedFrom: ['en_transito'] },
     });
     expect(h.state.status).toBe('aceptada');
+  });
+});
+
+// =================================================================================================
+/**
+ * ⚠ **I5 (techlead, 2026-09-11) — la TERCERA rama de §M5-S ya no se contradice a sí misma.**
+ *
+ * Cuando el `updateMany` guardado toca ≠ 1 filas **pero la relectura ve la fila VIVA y en un estado
+ * que el `where` SÍ admitía**, la causa no es «ya cerró»: es que **alguien movió la fila entre la
+ * escritura y la relectura**. Esa rama caía en el mismo cuerpo que la fila terminal, así que
+ * respondía literalmente *«is terminal or closed»* con un `details` que decía lo contrario
+ * (`status: 'en_transito'`, `closedAt: null`) **y sin dejar traza**. Un operador no podía
+ * distinguir un cierre real de una carrera, y quien mirara los logs no encontraba nada.
+ *
+ * Sigue siendo `409` (§M5-S: misma guarda, cero escritura) pero **distinguible**:
+ * `details.reason: 'CONCURRENT_UPDATE'`, mensaje propio y `logger.warn`.
+ *
+ * Mutación: devolver la rama al `if` compartido con el terminal ⇒ estos casos rojos.
+ */
+describe('§M5-S · I5 — el `409` de la CARRERA se distingue del `409` de «ya cerró»', () => {
+  /** Harness cuyo `updateMany` SIEMPRE dice `count: 0` sin mover la fila: la carrera, exacta. */
+  function carrera(status: SellRequestStatus) {
+    const h = harness(baseRow({ status }));
+    h.prisma.sellRequest.updateMany = jest.fn(async () => ({ count: 0 }));
+    return h;
+  }
+
+  for (const [verb, admitido] of [
+    ['receive', 'en_transito'],
+    ['receive', 'recibida'],
+    ['verify', 'recibida'],
+    ['verify', 'verificacion'],
+  ] as const) {
+    it(`\`${verb}\` sobre una fila viva en \`${admitido}\` con count=0 ⇒ 409 CONFLICT con reason CONCURRENT_UPDATE`, async () => {
+      const h = carrera(admitido);
+      const err = await h.svc[verb]('sr-1').catch((e) => e);
+      expect(err).toBeInstanceOf(BusinessException);
+      expect(err.getStatus()).toBe(409);
+      const res = err.getResponse() as { code: string; message: string; details: Record<string, unknown> };
+      expect(res.code).toBe('CONFLICT');
+      expect(res.details).toMatchObject({ status: admitido, closedAt: null, reason: 'CONCURRENT_UPDATE' });
+      // ⭐ Y el mensaje deja de decir lo que el `details` desmiente.
+      expect(res.message).not.toMatch(/terminal or closed/);
+      // Cero escritura, como las otras dos ramas.
+      expect(h.state.status).toBe(admitido);
+      expect(h.prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
+    });
+  }
+
+  it('la carrera deja TRAZA (`logger.warn`) con la solicitud y el verbo: sin ella no es diagnosticable', async () => {
+    const warns: string[] = [];
+    const spy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation((m: unknown) => void warns.push(String(m)));
+    try {
+      const h = carrera('en_transito');
+      await h.svc.receive('sr-1').catch(() => undefined);
+      expect(warns.join('\n')).toContain('sr-1');
+      expect(warns.join('\n')).toContain("'receive'");
+      expect(warns.join('\n')).toContain('en_transito');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('la fila TERMINAL conserva su `409` de siempre: sin `reason` y con el mensaje de §M5-T', async () => {
+    const h = harness(baseRow({ status: 'pagada', closedAt: CERRADO }));
+    const err = await h.svc.receive('sr-1').catch((e) => e);
+    const res = err.getResponse() as { code: string; message: string; details: Record<string, unknown> };
+    expect(res.code).toBe('CONFLICT');
+    expect(res.details).toEqual({ status: 'pagada', closedAt: CERRADO });
+    expect(res.details.reason).toBeUndefined();
+    expect(res.message).toMatch(/terminal or closed/);
+  });
+
+  it('la fila de P1 (viva + `closedAt` sellado) también conserva su `409` SIN `reason` (T gana)', async () => {
+    const h = harness(baseRow({ status: 'verificacion', closedAt: CERRADO }));
+    const err = await h.svc.verify('sr-1').catch((e) => e);
+    const res = err.getResponse() as { code: string; details: Record<string, unknown> };
+    expect(res.code).toBe('CONFLICT');
+    expect(res.details.reason).toBeUndefined();
   });
 });

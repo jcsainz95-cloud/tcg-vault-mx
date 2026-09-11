@@ -5711,7 +5711,7 @@ export class BuylistService implements OnModuleInit {
    * |---|---|
    * | terminal ∨ `closedAt ≠ null` | **`409 CONFLICT`** `{ status, closedAt }` — §M5-T, **T gana** |
    * | viva, en otro paso | **`409 INVALID_TRANSITION`** `{ verb, from, allowedFrom, idempotentOn }` |
-   * | viva y en un estado que el `where` SÍ admitía | **`409 CONFLICT`** — el `where` tocó ≠ 1 filas o una carrera la movió entre la escritura y la relectura; no es «paso equivocado», y decirlo mentiría |
+   * | viva y en un estado que el `where` SÍ admitía | **`409 CONFLICT`** `{ status, closedAt, reason: 'CONCURRENT_UPDATE' }` + `logger.warn` — el `where` tocó ≠ 1 filas porque una carrera movió la fila entre la escritura y la relectura; no es «paso equivocado», y decirlo mentiría (I5) |
    *
    * **Cero escritura** en los tres: la guarda va primero y los ítems no se han movido. `details`
    * lleva los estados para que el operador lea *«está en {from}; “{verb}” solo aplica en
@@ -5730,12 +5730,24 @@ export class BuylistService implements OnModuleInit {
     if (!current) throw BusinessException.notFound();
     const step = BuylistService.STEP_TRANSITIONS[verb];
     const admitted: readonly SellRequestStatus[] = [...step.allowedFrom, step.idempotentOn];
-    if (
-      isTerminalSellRequestStatus(current.status) ||
-      current.closedAt !== null ||
-      admitted.includes(current.status)
-    ) {
+    if (isTerminalSellRequestStatus(current.status) || current.closedAt !== null) {
       throw this.requestClosedConflict(current);
+    }
+    if (admitted.includes(current.status)) {
+      // ⚠ I5 (techlead, 2026-09-11) — **este `409` se contradecía a sí mismo.** Caía en el mismo
+      // cuerpo que la fila terminal, así que respondía «is terminal or closed» con un `details` que
+      // decía justo lo contrario (`status: 'en_transito'`, `closedAt: null`) y sin dejar traza: un
+      // operador que lo viera no podía distinguir un cierre real de una carrera, y quien mirara los
+      // logs no encontraba nada. La CAUSA es otra: el `where` admitía este estado y aun así tocó ≠ 1
+      // filas ⇒ **alguien movió la fila entre el `updateMany` y esta relectura**.
+      // Sigue siendo `409` (§M5-S: la guarda es la misma y no se ha escrito nada), pero se
+      // distingue: `details.reason` lo nombra y el `warn` lo hace diagnosticable.
+      this.logger.warn(
+        `§M5-S · '${verb}' sobre la solicitud ${sellRequestId}: el updateMany guardado tocó ≠ 1 filas ` +
+          `pero la relectura la ve VIVA y en un estado ADMITIDO ('${current.status}', closedAt=null). ` +
+          'Es una escritura concurrente sobre la misma fila, no un paso equivocado. Cero escritura.',
+      );
+      throw this.requestClosedConflict(current, 'CONCURRENT_UPDATE');
     }
     throw BusinessException.conflict(
       'INVALID_TRANSITION',
@@ -5775,10 +5787,24 @@ export class BuylistService implements OnModuleInit {
     throw this.requestClosedConflict(current);
   }
 
-  /** El `409 CONFLICT` de §M5-T construido a partir de una fila YA releída (lo comparten T y S). */
+  /**
+   * El `409 CONFLICT` de §M5-T construido a partir de una fila YA releída (lo comparten T y S).
+   *
+   * ⚠ I5 — `reason` distingue la TERCERA rama de §M5-S (la carrera): mismo código y mismo status,
+   * pero **otro mensaje y `details.reason: 'CONCURRENT_UPDATE'`**, porque el rechazo NO es «ya
+   * cerró». Sin `reason` (los dos llamadores de T) el cuerpo es EXACTAMENTE el de antes.
+   */
   private requestClosedConflict(
     current: { status: SellRequestStatus; closedAt: Date | null } | null,
+    reason?: 'CONCURRENT_UPDATE',
   ): BusinessException {
+    if (reason === 'CONCURRENT_UPDATE') {
+      return BusinessException.conflict(
+        'CONFLICT',
+        'This sell request was modified by another operation; nothing was changed. Please retry.',
+        { status: current?.status, closedAt: current?.closedAt ?? null, reason },
+      );
+    }
     return BusinessException.conflict(
       'CONFLICT',
       'This sell request is terminal or closed and can no longer be transitioned',
