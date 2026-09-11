@@ -16,6 +16,16 @@ import {
 } from './dto/users.dto';
 import { assertPersonName } from './person-name';
 
+/** `BillingProfileDTO` del contrato §11 (v1.67.1): seis campos, `rfcMasked` y nada más. */
+export interface BillingProfileDTO {
+  rfcMasked: string;
+  razonSocial: string;
+  regimenFiscal: string;
+  usoCfdi: string;
+  postalCode: string;
+  email: string;
+}
+
 /** Valida CLABE mexicana (18 dígitos numéricos). Validación estructural. */
 export function isValidClabe(clabe: string): boolean {
   return /^\d{18}$/.test(clabe);
@@ -205,23 +215,60 @@ export class UsersService {
 
   // ---------------- Billing profile (CFDI) ----------------
 
-  async getBillingProfile(userId: string) {
-    const bp = await this.prisma.billingProfile.findUnique({ where: { userId } });
-    if (!bp) return null;
-    // El RFC va cifrado en reposo; en la vista se devuelve ENMASCARADO (nunca en claro).
-    const { rfcEnc, ...rest } = bp;
-    return { ...rest, rfc: maskRfc(this.pii.decryptOptional(rfcEnc)) };
+  /**
+   * v1.67.1 (contrato §1 «Perfil de facturación», §11 `BillingProfileDTO`; ARCHITECTURE §4.47.10;
+   * D-CTA-7) — **la ÚNICA proyección del perfil de facturación del cliente**: exactamente seis
+   * campos `{ rfcMasked, razonSocial, regimenFiscal, usoCfdi, postalCode, email }`.
+   *  - `rfcMasked` = 3 primeros caracteres + un `*` por carácter restante (`maskRfc`). El RFC va
+   *    cifrado en reposo; **nunca** sale en claro ni sale `rfcEnc`.
+   *  - SIN `id`/`userId`/`createdAt`/`updatedAt`: el recurso es singular por usuario y ninguna ruta
+   *    acepta su id. (`AdminBillingProfileDTO` de M6 sí los lleva: son dos DTOs a propósito.)
+   */
+  private toBillingProfileDTO(bp: {
+    rfcEnc: string;
+    razonSocial: string;
+    regimenFiscal: string;
+    usoCfdi: string;
+    postalCode: string;
+    email: string;
+  }): BillingProfileDTO {
+    return {
+      rfcMasked: maskRfc(this.pii.decrypt(bp.rfcEnc)) ?? '',
+      razonSocial: bp.razonSocial,
+      regimenFiscal: bp.regimenFiscal,
+      usoCfdi: bp.usoCfdi,
+      postalCode: bp.postalCode,
+      email: bp.email,
+    };
   }
 
-  async putBillingProfile(userId: string, dto: BillingProfileDto) {
-    const { rfc, ...rest } = dto;
-    const rfcEnc = this.pii.encrypt(rfc);
-    await this.prisma.billingProfile.upsert({
+  /** `GET /users/me/billing-profile`: **sin perfil guardado ⇒ `404 NOT_FOUND`** (nunca `200 null`). */
+  async getBillingProfile(userId: string): Promise<BillingProfileDTO> {
+    const bp = await this.prisma.billingProfile.findUnique({ where: { userId } });
+    if (!bp) throw BusinessException.notFound();
+    return this.toBillingProfileDTO(bp);
+  }
+
+  /**
+   * `PUT /users/me/billing-profile`: UPSERT que reemplaza el perfil entero (los seis campos viajan
+   * siempre) y responde `200` con **la misma forma que el GET** desde la fila que devuelve el upsert
+   * (sin segunda consulta). El `data` se construye a mano (norma del servicio: nunca `{ ...dto }`).
+   */
+  async putBillingProfile(userId: string, dto: BillingProfileDto): Promise<BillingProfileDTO> {
+    const fields = {
+      rfcEnc: this.pii.encrypt(dto.rfc),
+      razonSocial: dto.razonSocial,
+      regimenFiscal: dto.regimenFiscal,
+      usoCfdi: dto.usoCfdi,
+      postalCode: dto.postalCode,
+      email: dto.email,
+    };
+    const bp = await this.prisma.billingProfile.upsert({
       where: { userId },
-      create: { ...rest, rfcEnc, userId },
-      update: { ...rest, rfcEnc },
+      create: { ...fields, userId },
+      update: fields,
     });
-    return this.getBillingProfile(userId);
+    return this.toBillingProfileDTO(bp);
   }
 
   // ---------------- KYC ----------------

@@ -5,7 +5,8 @@ import { UsersService } from '../src/modules/users/users.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { AddressDto, UpdateAddressDto, UpdateMeDto } from '../src/modules/users/dto/users.dto';
+import { ConfigService } from '@nestjs/config';
+import { AddressDto, BillingProfileDto, UpdateAddressDto, UpdateMeDto } from '../src/modules/users/dto/users.dto';
 
 /**
  * v1.67 (Stream A · B4, contrato §1 `GET/PATCH /users/me` + «Direcciones», ARCHITECTURE §4.47.4/5).
@@ -233,5 +234,86 @@ describe('UsersService direcciones — recipientName obligatorio al crear, no va
     const errors = await validate(dto, { whitelist: true });
     expect(errors).toHaveLength(0);
     expect(dto.recipientName).toBeNull();
+  });
+});
+
+describe('UsersService billing-profile — 404 sin perfil y BillingProfileDTO de seis campos (v1.67.1, D-CTA-7)', () => {
+  const pii = new PiiCryptoService(new ConfigService({}));
+  const RFC = 'XAXX010101000';
+  const BILLING_KEYS = ['rfcMasked', 'razonSocial', 'regimenFiscal', 'usoCfdi', 'postalCode', 'email'].sort();
+
+  function row(over: Record<string, unknown> = {}) {
+    return {
+      id: 'bp1',
+      userId: 'u1',
+      rfcEnc: pii.encrypt(RFC),
+      razonSocial: 'ACME SA DE CV',
+      regimenFiscal: '601',
+      usoCfdi: 'G03',
+      postalCode: '06700',
+      email: 'facturas@acme.mx',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-02T00:00:00Z'),
+      ...over,
+    };
+  }
+
+  function buildBilling(existing: Record<string, unknown> | null) {
+    const prisma: any = {
+      billingProfile: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        upsert: jest.fn(async ({ create, update }: any) => row(existing ? update : create)),
+      },
+    };
+    const svc = new UsersService(prisma as PrismaService, {} as SettingsService, pii);
+    return { svc, prisma };
+  }
+
+  it('GET sin perfil ⇒ 404 NOT_FOUND (nunca 200 con null)', async () => {
+    const { svc } = buildBilling(null);
+    await expect(svc.getBillingProfile('u1')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    let status: number | undefined;
+    try {
+      await svc.getBillingProfile('u1');
+    } catch (e) {
+      status = (e as { getStatus: () => number }).getStatus();
+    }
+    expect(status).toBe(404);
+  });
+
+  it('GET con perfil ⇒ exactamente las seis claves del contrato, con rfcMasked (3 en claro + `*`) y sin rfc/rfcEnc/id/userId/fechas', async () => {
+    const { svc } = buildBilling(row());
+    const dto = await svc.getBillingProfile('u1');
+    expect(Object.keys(dto).sort()).toEqual(BILLING_KEYS);
+    expect(dto.rfcMasked).toBe('XAX**********');
+    expect(dto.rfcMasked).not.toContain('010101');
+    expect(JSON.stringify(dto)).not.toContain(RFC);
+    expect(JSON.stringify(dto)).not.toMatch(/"v1:[^"]+"/);
+    expect(dto).toMatchObject({ razonSocial: 'ACME SA DE CV', regimenFiscal: '601', usoCfdi: 'G03', postalCode: '06700', email: 'facturas@acme.mx' });
+  });
+
+  it('PUT = upsert que reemplaza entero: cifra el RFC, construye `data` a mano y responde la MISMA forma que el GET', async () => {
+    const { svc, prisma } = buildBilling(null);
+    const body: BillingProfileDto = {
+      rfc: 'ABCD990101XYZ',
+      razonSocial: 'Nueva SA',
+      regimenFiscal: '612',
+      usoCfdi: 'G01',
+      postalCode: '01000',
+      email: 'nueva@x.mx',
+    };
+    const dto = await svc.putBillingProfile('u1', { ...body, intruso: 'x' } as unknown as BillingProfileDto);
+    const { create, update } = prisma.billingProfile.upsert.mock.calls[0][0];
+    // Nunca el RFC en claro en BD; nunca `rfc` como columna; ningún intruso.
+    expect(create).not.toHaveProperty('rfc');
+    expect(create).not.toHaveProperty('intruso');
+    expect(update).not.toHaveProperty('intruso');
+    expect(pii.decrypt(create.rfcEnc)).toBe('ABCD990101XYZ');
+    expect(Object.keys(create).sort()).toEqual(['userId', 'rfcEnc', 'razonSocial', 'regimenFiscal', 'usoCfdi', 'postalCode', 'email'].sort());
+    expect(Object.keys(update).sort()).toEqual(['rfcEnc', 'razonSocial', 'regimenFiscal', 'usoCfdi', 'postalCode', 'email'].sort());
+    // Respuesta: la forma del GET, desde la fila del upsert (sin segunda consulta).
+    expect(Object.keys(dto).sort()).toEqual(BILLING_KEYS);
+    expect(dto.rfcMasked).toBe('ABC**********');
+    expect(prisma.billingProfile.findUnique).not.toHaveBeenCalled();
   });
 });
