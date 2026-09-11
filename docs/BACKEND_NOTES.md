@@ -20150,3 +20150,21 @@ a probar; el `PUT` lo crea dentro del test).
 | **TECH_DEBT** — ids duplicados | `28767d9` | BE-76..81 → **BE-82..87**; «Comprobación de cierre» en cada ficha; BE-84 cerrada. |
 
 Suites al cierre: `npx jest` **277 suites / 4555 tests** rc=0 (+1 suite, +31 casos respecto a la ronda anterior); typecheck 0 errores; eslint 0 errores. `git status` limpio en `backend/`, `BACKEND_NOTES.md`, `TECH_DEBT.md`. **NO medido:** `e2e-real.yml` en el runner con la guarda (su `DATABASE_URL` apunta al servicio `postgres` del compose, que la guarda reconoce por construcción — `seed-e2e.target-guard.spec.ts` lo cubre con esa URL exacta).
+
+### Diagnóstico: `GET /users/me/billing-profile` ⇒ 500 «Unsupported state or unable to authenticate data» en el stack nativo (backend · 2026-09-11, medido)
+
+**Veredicto: artefacto de ENTORNO, no de código. No es bloqueante de release.**
+
+| Pregunta | Medición | Resultado |
+|---|---|---|
+| ¿Cambió la derivación de la clave PII en la rama? | `git log 17ce9a9..HEAD -- backend/src/common/crypto/pii-crypto*` + `git diff` sin comentarios | **Un solo commit, `a454178`**: rename `key`→`material` en `resolveHmacKey` (HMAC, no cifrado), sin cambio de derivación. `4f27d2f` y `5f0928f` **ya son ancestros de la base `17ce9a9`** (`git merge-base --is-ancestor`). |
+| ¿El stack nativo fija `PII_ENCRYPTION_KEY`? | `grep -c PII_ scripts/stack-native.sh .native-stack/secrets.env` | **0 y 0.** Con `NODE_ENV=development`, `PiiCryptoService.resolveEncKey` (`pii-crypto.service.ts:112-145`) usa una **clave EFÍMERA por proceso** y lo avisa: `backend.log:12` («PII_ENCRYPTION_KEY not set — using an EPHEMERAL random key… UNREADABLE after a restart»). |
+| ¿La fila es de otro proceso? | `psql tcg_marketplace`: `BillingProfile` de `customer@e2e.local` `updatedAt 07:42:58`; `backend.log:273` arranque actual `08:06:05` | **Sí**: la escribió el PUT de QA en el proceso anterior; el actual arrancó con otra clave ⇒ AES-GCM no autentica ⇒ `decrypt` lanza. Mismo mecanismo por el que el seed ya borraba `kycProfile` (`clabeEnc`). |
+
+**Qué se hizo (commits):**
+- `f2b361c` — `toBillingProfileDTO`: el 500 se conserva (fila que este proceso no puede servir) pero con **diagnóstico**: `logger.error` y mensaje `BillingProfile <id> (userId <userId>): rfcEnc does not decrypt with this process's PII key (<causa>). Likely PII_ENCRYPTION_KEY differs… or the row is corrupt`. Test unitario con fila cifrada por otra clave (48/48).
+- `4abd91e` — el seed borra `billingProfile` de **todos** los correos del fixture (`E2E_FIXTURE_EMAILS`) en cada siembra; caso de integración que reproduce el fallo: fila cifrada con otra clave ⇒ **500** ⇒ `seedE2E` ⇒ **404** (30/30 sobre `tcg_fix1`). `jest` completo **277 / 4556** rc=0.
+
+**Remedio inmediato en el stack de QA (no es mío):** `./scripts/stack-native.sh up --seed` (la siembra nueva borra la fila) o, desde la UI, el propio `PUT` (reemplaza la fila cifrando con la clave del proceso vivo).
+
+**Petición a devops (medida, no relayada):** `stack-native.sh` genera `JWT_*`/`S3_SECRET_ACCESS_KEY` en `.native-stack/secrets.env` pero **no** `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`; mientras no las genere (32 bytes base64, `openssl rand -base64 32`, persistidas igual que las otras), **cada reinicio del backend nativo invalida toda la PII cifrada** (RFC y CLABE) de la BD local. Producción no está afectada: allí `keysRequired` exige las claves y el arranque falla sin ellas (`pii-crypto.service.ts:129-135`).
