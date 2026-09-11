@@ -4063,7 +4063,12 @@ Estas columnas sustituyen a los campos en claro `clabe` / `rfc` / `clabeSnapshot
   - **⛔ SIN `MoneyOutGuard`** — *aquí no sale dinero*. Colgarlo del guard de dinero sería tomar prestada una
     autoridad que no le corresponde y **ensuciar la señal de «dinero saliente»** que ese guard existe para marcar,
   - **caducidad 120 s** (dial `KYC_INE_VIEW_URL_TTL_SECONDS`, **clamp duro a ≤ 300**) y
-    `ResponseContentDisposition: 'attachment'` (nunca inline).
+    **`ResponseContentDisposition: 'attachment'`** — ⚠️ **medido, y no hace lo que suena:** la cabecera **no bloquea
+    el renderizado como subrecurso** (un `<img src>` pinta la imagen igual, **3/3 tiradas**, Chromium real,
+    orquestador 2026-09-11, `scratchpad/orq-disposition/probe.js`); **bloquea la NAVEGACIÓN de primer nivel**, que es
+    justo el vector de HTML ejecutable en el origen del storage. ⇒ **S-B3 sigue cumpliendo, por el motivo correcto**,
+    y la pantalla de revisión pinta la INE con el enlace firmado **sin proxy**. Detalle y tabla: `API_CONTRACT`
+    §M6-K.2.1.
   - ⛔ **Las *object keys* (`ineFrontKey`/`ineBackKey`) NO SALEN NUNCA, con ningún rol.** El servidor las resuelve
     desde `:id`. Norma: `API_CONTRACT` §M6-K.1/K.2; razonamiento: §4.49.
   - ⚠️ **Dependencia de infraestructura que NO he medido y que `seguridad` tiene que comprobar:** todo esto supone
@@ -22716,11 +22721,20 @@ demás peticiones post-A (`customer {id,name,email}` en M4, BE-82, §4.47.9): si
 | 16 | Precedente de motivo de rechazo **3–500**, nullable sin backfill | `schema.prisma:1437-1441` (M-22); `admin-buylist.controller.ts:593-604` |
 | 17 | El contrato **ya declaraba** `ineFrontKey?/ineBackKey?` en `AdminKycProfileDTO` «solo super_admin» — **y el código nunca lo implementó** | `API_CONTRACT.md` §11 (línea corregida en v1.69) |
 | 18 | `AddressDTO` lleva `recipientName` para **los dos roles** desde v1.67.1; `nameSource` existe en `User` | `users.service.ts:140-145`; `schema.prisma:104-110,434` |
+| **19** | ⭐ **`Content-Disposition: attachment` NO impide pintar la imagen en un `<img>`** (`naturalWidth` = ancho real, igual que el control sin cabecera); **sí impide navegar a la URL** («Download is starting»). Chromium real, mismo PNG con y sin cabecera, `about:blank` + otro origen ⇒ **cubre el caso cruzado de producción**. **3/3 tiradas** (orquestador, 2026-09-11) | `scratchpad/orq-disposition/probe.js`; norma corregida en `API_CONTRACT` §M6-K.2.1 |
 
-⚠️ **NO MEDIDO, y lo digo en vez de suponerlo:** (a) si el bucket de producción es privado de verdad (es de devops;
-`uploads.service.ts:150-151` lo *asume*) — **`seguridad` lo comprueba**; (b) cuántas filas de `KycProfile` tienen
-**una sola** key en producción (la rama de `422 INE_NOT_ON_FILE` parcial); (c) cuántos objetos **huérfanos** ya hay
-en R2 por sobrescrituras pasadas (K.4.1 evita los futuros, **no limpia los pasados**).
+⚠️ **NO MEDIDO — sigue NO MEDIDO, con dueño y con la medición que lo cerraría (el orquestador los recogió el
+2026-09-11; recogerlos NO es resolverlos):**
+
+| # | Qué no se midió | Quién lo cierra | Medición que lo cierra |
+|---|---|---|---|
+| **(a)** | Si el bucket de **producción** es privado de verdad. `uploads.service.ts:150-151` lo **asume** ⇒ con un bucket público-lectura el presign no protege nada y §M6-K.2 sería teatro | **`seguridad`**, en su pase | intentar un `GET` anónimo a una key de `kyc_ine/` sin firma ⇒ debe dar `403` |
+| **(b)** | Cuántas filas de `KycProfile` tienen **una sola** key (rama del `422 INE_NOT_ON_FILE` parcial) | orquestador → **dueño** (ventana) | `SELECT count(*) FROM "KycProfile" WHERE ("ineFrontKey" IS NULL) <> ("ineBackKey" IS NULL)` **contra producción** |
+| **(c)** | Cuántos objetos **huérfanos** hay ya en R2 por sobrescrituras pasadas. **K.4.1 evita los futuros; NO limpia los pasados** | orquestador → **dueño** (ventana) + devops | listar el prefijo `kyc_ine/` y restar las keys presentes en `KycProfile` |
+
+⛔ **Ninguna de las tres se da por resuelta**, y **ninguna bloquea el arranque de BK-1…FE-4**: (a) bloquea la
+**publicación** (es del gate de seguridad); (b) y (c) son consultas contra **la base de producción** y necesitan
+**ventana del dueño** — no se piden «por si acaso» (regla **O-6**).
 
 #### 4.49.1 Las cuatro decisiones del dueño, y qué se derivó de cada una
 
@@ -22761,9 +22775,12 @@ lo único discutible:
 6. **`kycStatus` gana SIGNIFICADO, no PODER.** §M5-K.5(b) exigía que toda regla nueva colgada de `kycStatus` pasara
    por el arquitecto: pasó, y la respuesta es **que no se cuelga ninguna**. Lo único que gobierna es **qué ve el
    cliente en su pantalla** (§M6-K.7). Los caminos de dinero siguen sin leerlo.
-7. **Alcance recortado, dicho en voz alta:** `BUYLIST_LIMIT_EXCEEDED (per_month)` **sigue emitiendo
-   `capCents`/`wouldBeCents` al vendedor**. La decisión (c) lo alcanza por su letra; **no se normaliza en v1.69**
-   porque QA está midiendo Stream B contra **v1.68.1** y esa superficie es suya. **Enrutado al orquestador.**
+7. **Alcance SERIALIZADO por el orquestador, no recortado por mí:** `BUYLIST_LIMIT_EXCEEDED (per_month)` **sigue
+   emitiendo `capCents`/`wouldBeCents` al vendedor**. **El fondo no se discute** — la decisión (c) del dueño lo
+   alcanza por su letra. **El arquitecto lo escaló; el orquestador decidió el cuándo (2026-09-11): va a la revisión
+   SIGUIENTE**, porque esa superficie es de **Stream B** y **QA la está midiendo contra v1.68.1 ahora mismo**;
+   cambiarla invalidaría su medición. **Dueño:** orquestador → backend (`buylist`) + frontend (copy).
+   ⛔ Nadie lo arregla «de paso» dentro de v1.69. Registro normativo: `API_CONTRACT` §M6-K.5.
 
 #### 4.49.3 Migración `M-54` — aditiva, nullable, sin backfill
 
@@ -22842,7 +22859,7 @@ leyendo el decorador ni el `try`.
 
 | # | Tarea | Contrato |
 |---|---|---|
-| **FE-1** | **M6: botón «Ver INE»** en la ficha — llama al endpoint **al pulsarse**, pinta las dos imágenes **junto a nombre + `nameSource` + direcciones + `recentShipmentRecipients`**. ⛔ No cachea la URL, no la guarda en estado persistente, no la pone en el `href` de un enlace compartible. Maneja `403`/`404`/`422 INE_NOT_ON_FILE`/`429` | §M6-K.2, §M6-K.3 |
+| **FE-1** | **M6: botón «Ver INE»** en la ficha — llama al endpoint **al pulsarse** y pinta las dos imágenes **con `<img src={url}>` directo** (⭐ **medición 19: `attachment` NO lo impide ⇒ NO hace falta endpoint proxy ni tocar `presignGet`**), **junto a nombre + `nameSource` + direcciones + `recentShipmentRecipients`**. ⛔ No cachea la URL, no la guarda en estado persistente, no la pone en el `href` de un enlace compartible. Maneja `403`/`404`/`422 INE_NOT_ON_FILE`/`429` | §M6-K.2, §M6-K.3 |
 | **FE-2** | **M6: rechazar con motivo** — el selector de estado exige motivo cuando es `rejected` (3–500), con motivos sugeridos + texto libre | §M6-K.4 |
 | **FE-3** | **Cuenta del cliente (`KycSection.tsx`)**: implementar **la tabla K.7 entera** — pintar el motivo en `rejected`, ofrecer **«Volver a subir»** en `rejected` (y «Actualizar» en `verified`), y **borrar las dos filas de topes** (`:115-130`) | §M6-K.7 |
 | **FE-4** | **Cotizador**: `ineExpected = ineRequiredForTotal && !ineOnFile` (sustituye `overCaps`, `useSellRequirements.ts:62-66`); copy de `error.INE_REQUIRED` **sin cifra**; **invertir la discriminación de `resolveErrorAudience`** (`sellRequestId` ⇒ operador; resto ⇒ vendedor) y su candado | §6, §M5-I.6 |

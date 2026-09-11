@@ -17265,8 +17265,33 @@ Res `200`:
   a pedir** — y esa segunda petición **también se audita**, que es exactamente lo que queremos.
 - **Por qué no 300:** el enlace es un **portador** (quien tiene la URL tiene la imagen, sin sesión). Cada segundo de
   vida es superficie en historial de navegador, en un `Referer`, en un proxy corporativo y en una captura.
-- ⛔ **`ResponseContentDisposition: 'attachment'` se conserva** (`uploads.service.ts:161`): el objeto **nunca** se
-  renderiza inline, así que una imagen manipulada no se ejecuta como HTML desde el dominio del storage.
+- ⚠️ **El número normativo es 120 y vive AQUÍ.** `DESIGN_SYSTEM §34` se redactó con **300 s** de referencia (commit
+  `5a606f3`, antes de esta rev) y **se ajusta a 120** (ux-ui, encargado por el orquestador). ⛔ **El contrato no se
+  alinea con el sistema de diseño: es al revés** — cualquier estado de «enlace caducado» que pinte una cifra la toma
+  de `expiresInSeconds` de la respuesta, **no de una constante del front**.
+- ⛔ **`ResponseContentDisposition: 'attachment'` se CONSERVA** (`uploads.service.ts:161`) — **y lo que hace no es lo
+  que decía la primera redacción de esta línea. Corregido con medición, para que `seguridad` no tenga que
+  re-derivarlo y para que nadie lo «arregle» creyendo que estorba.**
+  - **Medición (orquestador, 2026-09-11, Chromium real, servidor local sirviendo el MISMO PNG con y sin la cabecera,
+    `about:blank` + imagen de OTRO origen ⇒ cubre el caso cruzado de producción; `scratchpad/orq-disposition/probe.js`,
+    **3/3 tiradas**):**
+
+    | Caso | Resultado |
+    |---|---|
+    | `<img src>` **con** `Content-Disposition: attachment` | **SE RENDERIZA** — `naturalWidth` = ancho real |
+    | `<img src>` **sin** la cabecera (control) | idéntico |
+    | **Navegación directa** a esa URL | **«Download is starting»** — no se abre como documento |
+
+  - ⇒ **La premisa correcta:** `Content-Disposition` **no se consulta para SUBRECURSOS**. La cabecera **NO impide
+    renderizar la imagen en un `<img>`**; lo que impide es **navegar a ella como documento de primer nivel**.
+    ~~«el objeto nunca se renderiza inline»~~ **era falso**; la conclusión de S-B3 **no lo era**.
+  - ⇒ **Por qué S-B3 sigue cumpliendo, y por el motivo correcto:** el vector que importa es **HTML ejecutable en el
+    origen del storage**, y ése **solo se dispara navegando**. La cabecera cierra exactamente esa puerta.
+  - ⭐ **Consecuencia de diseño, y es la que ahorra trabajo:** la pantalla de revisión de M6 **puede pintar la INE
+    directamente con los enlaces firmados en un `<img>`** — ⛔ **sin endpoint proxy** y ⛔ **sin tocar `presignGet`**.
+    *La alternativa (un proxy que descargue y re-sirva el objeto) habría sido un segundo camino a la misma PII, con
+    su propio rol, su propio rate limit y su propia auditoría que mantener sincronizados: coste real evitado por una
+    medición de treinta segundos.*
 
 **K.2.2 — Códigos de error (todos, y qué distingue a cada uno).**
 
@@ -17429,13 +17454,17 @@ es quien pudo mirar; y solo el `super_admin` puede mirar (K.2).*
 - **§P.2.2 NO se pierde** (y `PROJECT.md` manda sobre este contrato, así que no podía perderse): el INE se sigue
   pidiendo **en el mismo paso de la dirección**, con `ineRequiredForTotal` (§1, §M5-I.6). **La capacidad cambia de
   lado: antes el front comparaba, ahora el servidor contesta.**
-- ⚠️⚠️ **ALCANCE, DICHO EXPLÍCITAMENTE PARA QUE NADIE LO LEA COMO OLVIDO:** el
-  **`422 BUYLIST_LIMIT_EXCEEDED (per_month)` SIGUE EMITIENDO `capCents`/`wouldBeCents` al vendedor**
-  (`buylist.service.ts`, §M5-A.7 fila 2). **La decisión (c) del dueño lo alcanza por su letra** («los topes dejan de
-  mostrarse al cliente — pantalla y mensaje de error») **y v1.69 NO lo normaliza a propósito**, por **concurrencia**:
-  QA está midiendo Stream B contra **v1.68.1** y esa superficie de error es suya. **Enrutado al orquestador para la
-  rev siguiente.** *Lo digo aquí, en el contrato, porque un alcance recortado que no se escribe se convierte en un
-  defecto que nadie recuerda haber decidido.*
+- ⚠️⚠️ **ALCANCE SERIALIZADO — DECISIÓN DEL ORQUESTADOR (2026-09-11), CON DUEÑO Y CON MOTIVO. NO ES UN OLVIDO NI UN
+  RECORTE SIN DUEÑO.** El **`422 BUYLIST_LIMIT_EXCEEDED (per_month)` SIGUE EMITIENDO `capCents`/`wouldBeCents` al
+  vendedor** (`buylist.service.ts`, §M5-A.7 fila 2).
+  - **Sí cae dentro de la decisión (c) del dueño** («los topes dejan de mostrarse al cliente — pantalla **y mensaje
+    de error**»): es un tope en un mensaje de error al cliente. **No se discute el fondo.**
+  - **Lo que se decidió es el CUÁNDO, y lo decidió el orquestador:** el arquitecto lo escaló; el orquestador
+    resolvió **serializarlo a la revisión siguiente**. **Motivo:** esa superficie de error es de **Stream B**, y
+    **QA la está midiendo contra v1.68.1 en este momento** — cambiarla ahora **invalidaría su medición**.
+  - **Dueño del pendiente:** orquestador (lo enruta en la rev siguiente) → backend (`buylist`) + frontend (copy).
+  - ⛔ **Nadie lo «arregla de paso» dentro de v1.69.** *Un contrato que cambia bajo los pies de quien lo está
+    midiendo produce un veredicto que no vale — y ese coste es mayor que una rev de espera.*
 
 ---
 
