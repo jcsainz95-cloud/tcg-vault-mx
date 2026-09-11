@@ -21,9 +21,8 @@ import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNoti
 import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
-import { clearUnavailableNotice, pushUnavailableNotice } from './unavailable-notice';
+import { clearUnavailableNotice, pruneCandidates, pushUnavailableNotice } from './unavailable-notice';
 import { CheckoutRetryNotice, PaymentInProgressNotice, type CheckoutRetryOutcome } from './CheckoutRetryNotice';
-import { pruneCandidates } from './unavailable-notice';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el

@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/Button';
 import { formatRemaining, formatReservationTime, remainingMs } from './reservation-clock';
+import { useRemainingMs } from './use-reservation-clock';
 
 /**
  * Contrato v1.68 (§4-R) — lo que el cliente tiene que saber tras `POST /checkout[/guest]/session`:
@@ -77,18 +77,9 @@ export function CheckoutRetryNotice({ outcome, className }: { outcome: CheckoutR
 export function ReservationCountdown({ reservedUntil, className }: { reservedUntil: string; className?: string }) {
   const t = useTranslations('checkout.retry');
   const locale = useLocale() as AppLocale;
-  const [left, setLeft] = useState<number | null>(() => remainingMs(reservedUntil));
-
-  useEffect(() => {
-    setLeft(remainingMs(reservedUntil));
-    if (remainingMs(reservedUntil) === null) return;
-    const id = window.setInterval(() => {
-      const next = remainingMs(reservedUntil);
-      setLeft(next);
-      if (next === null || next <= 0) window.clearInterval(id);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [reservedUntil]);
+  // El reloj es COMPARTIDO con «Reanudar pago» (`use-reservation-clock`): las dos superficies
+  // cuentan el mismo tiempo y ninguna se queda congelada en el instante del render (SB-D7).
+  const left = useRemainingMs(reservedUntil);
 
   if (left === null) return null;
   const time = formatReservationTime(reservedUntil, locale);
@@ -134,9 +125,16 @@ export function PaymentInProgressNotice({
   className?: string;
 }) {
   const t = useTranslations('checkout.retry');
+  // ⚠️ El MENSAJE del `409` sale del catálogo de errores (`error.PAYMENT_IN_PROGRESS[_GUEST]`), no
+  // de `checkout.retry`: §26 — el copy de un código del contrato vive en un solo sitio, por código,
+  // y no en la pantalla que lo recibe (SB-D5/I3). Lo que sí es de esta pantalla son las AFORDANCIAS
+  // (ver el pedido, reintentar), que no son copy de error sino salidas.
+  const tError = useTranslations('error');
   return (
     <div role="alert" className={className} data-testid="payment-in-progress">
-      <p className="text-sm leading-relaxed text-text">{guest ? t('paymentInProgressGuest') : t('paymentInProgress')}</p>
+      <p className="text-sm leading-relaxed text-text">
+        {guest ? tError('PAYMENT_IN_PROGRESS_GUEST') : tError('PAYMENT_IN_PROGRESS')}
+      </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         {!guest && orderId && (
           <Link href={`/orders/${orderId}`} className="font-mono text-[11px] uppercase tracking-label text-accent hover:text-text">

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
@@ -77,6 +77,37 @@ describe('ResumePaymentAction · «Reanudar pago» (§4-R.5)', () => {
     expect(container).toBeEmptyDOMElement();
     const settled = renderWithProviders(<ResumePaymentAction order={{ id: 'b', status: 'settled', reservedUntil: IN_20_MIN() }} />, 'es');
     expect(settled.container).toBeEmptyDOMElement();
+  });
+
+  /**
+   * ⚠️ **SB-D7 — la cuenta atrás VIVE también aquí.** El tiempo restante se calculaba una vez, en
+   * el render: una lista de pedidos abierta un rato seguía prometiendo «Reservado hasta las HH:MM»
+   * sobre una reserva ya vencida, y solo se corregía si algo ajeno provocaba un re-render. Este
+   * caso avanza el reloj SIN tocar nada más: si alguien vuelve a calcularlo en el cuerpo del
+   * render, se pone rojo.
+   */
+  it('la reserva vence CON la vista abierta: el aviso cambia solo, sin re-render de fuera', () => {
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(
+        <ResumePaymentAction
+          order={{ id: 'ord-9002', status: 'pending', reservedUntil: new Date(Date.now() + 3_000).toISOString() }}
+        />,
+        'es',
+      );
+      expect(screen.getByTestId('resume-payment')).toHaveTextContent(/Reservado hasta las \d{1,2}:\d{2}/);
+      expect(screen.queryByTestId('resume-expired')).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(4_000);
+      });
+
+      expect(screen.getByTestId('resume-expired')).toHaveTextContent('La reserva venció');
+      // Y sigue ofreciendo reanudar: vencida NO es ajena (§4-R.2, la sesión sustituye).
+      expect(screen.getByRole('button', { name: 'Reanudar pago' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('si GET /orders/:id falla: mensaje de error, sin navegar y sin tocar el carrito', async () => {

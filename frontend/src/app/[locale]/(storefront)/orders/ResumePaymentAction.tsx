@@ -7,10 +7,8 @@ import { getOrder } from '@/lib/api';
 import { useCart } from '@/lib/cart';
 import type { AppLocale } from '@/i18n/routing';
 import { Button } from '@/components/ui/Button';
-import {
-  formatReservationTime,
-  remainingMs,
-} from '../checkout/reservation-clock';
+import { formatReservationTime } from '../checkout/reservation-clock';
+import { useRemainingMs } from '../checkout/use-reservation-clock';
 
 /**
  * «Reanudar pago» (contrato v1.68, §4-R.5). **No hay endpoint de reanudar: reanudar ES
@@ -40,9 +38,12 @@ export function ResumePaymentAction({ order, className }: { order: ResumableOrde
   const cart = useCart();
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  // ⚠️ El tiempo restante se REFRESCA (SB-D7): antes se calculaba una sola vez en el render, así
+  // que una lista de pedidos abierta un rato seguía prometiendo «Reservado hasta las HH:MM» sobre
+  // una reserva ya vencida. Mismo reloj que la cuenta atrás del checkout — un solo mecanismo.
+  const left = useRemainingMs(order.reservedUntil);
 
   if (order.status !== 'pending') return null;
-  const left = remainingMs(order.reservedUntil);
   if (left === null) return null;
 
   async function resume() {
