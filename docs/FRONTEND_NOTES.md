@@ -15904,3 +15904,110 @@ fallan en cada una** (los de «el precio que se pinta es el NUEVO», «—» mie
 - Mocks (`lib/api.ts`, `lib/mock/fixtures.ts`): `mockClaimableOrders` (2 pedidos) servidos **solo** con `localStorage['tcg.mock.claimable']='1'` — el default sigue `[]` porque el E2E de A2 (`claimable-orders.spec.ts`, primer caso) mide precisamente «con `[]` no hay nodo» (CA-4) y cambiar el default lo pondría en rojo; `claimGuestOrders` vacía el pool y lo anota en `tcg.mock.claimed` (sobrevive a la recarga); ids fuera del pool ⇒ `failed[NOT_FOUND]`. Libreta mock: `addr-legacy` con `recipientName: null` (addr-1 sigue siendo la predeterminada con nombre, así el retiro de demo no se bloquea). **Para que el segundo caso de A2 corra en mock** hay que inyectar la bandera con `addInitScript` y quitar su `test.skip(!IS_REAL…)` — es su fichero; queda como petición a A2/orquestador.
 - `frontend/.gitignore`: `/.next-e2e-mock-*` (builds por agente); `.next-e2e-mock-a1/` borrado.
 - ⚠ Mi §67 entró en git dentro del commit de A2 (`7491743`, «§66»): A2 escenificó el fichero compartido entero. El contenido es el mío; la autoría del commit no. Se anota para O-7/O-10.
+
+## §68 · Ronda de correcciones tras los gates de Stream A (QA + techlead, 2026-09-11) — rama `claude/tcg-hunt-orchestration-2`
+
+Once hallazgos (`#1`–`#11` del encargo) más dos indicaciones de ux-ui (v4.1.2) y una del arquitecto
+(v1.67.1) que llegaron durante la ronda. Todo **medido el 2026-09-11** sobre el árbol vivo salvo las
+mutaciones (copia por `git worktree` en el scratchpad `frontend-fix1`). Lo que dice «creo» es creo.
+
+### 1. Hallazgo → commit → medición
+
+| # | Hallazgo | Commit | Medición |
+|---|---|---|---|
+| 1 | `next build` con `E2E_MOCK_DIST_DIR` reescribía `tsconfig.json` | `19f5ad4` | `next-config-tsconfig-path.test.ts` **5/5** con el propio `writeConfigurationDefaults` de Next (incluido el control: sin remedio SÍ reescribe); `E2E_MOCK_DIST_DIR=.next-e2e-mock-fix1 npx playwright test e2e/account.spec.ts e2e/claimable-orders.spec.ts` ×2 ⇒ `git status` **sin `tsconfig.json`** (solo aparece `tsconfig.next-e2e-mock-fix1.json`, ignorado) |
+| 2 | `/account` facturación: 404 ⇒ vacío, no seis «—» | `baa580f` | `api.billing-profile.test.ts` 5/5 (404⇒null; 200 DTO; 200 vacío/`null`/`{}`⇒null; 500 propaga; PUT seis campos) + `BillingSection.test.tsx` 4/4 + E2E «facturación» en mock (1/1) |
+| 3 | `account.spec.ts` seis `mockOnly`; `claimable-orders.spec.ts:33` `@real` con `skip` | `84235e6` | Playwright mock **12/12 ×2**; en real: NO MEDIDO (no hay stack real en esta sesión; el seed `83ec86e` aterrizó al final de la ronda) |
+| 4 | Cuatro construcciones del rebote por temporal; `next` sin query string | `36ee52b` | 63/63 (layout + AuthForm); **mutación 3/3 roja** (cadena a mano sin query en `PrivateRouteGuard` ⇒ cae el test `/vault?tab=retiros`), control 3/3 verde (10/10) |
+| 5 | `peekExpired()` reimplementaba la caducidad de `local-store` | `7d6a6d8` | `local-store` + `cart` + `useSellCart` 26/26; test nuevo de `expired` (5 casos) |
+| 6 | `AdminShipmentRow` local; `??` entre dos fuentes del destinatario | `9369066` | M4 18/18; casos snapshot-solo / suelto-solo / ambos ⇒ gana el snapshot |
+| 7 | `OrdersView` pinta el UUID | `31fca92` | 19/19; folio en `ord-9001`, fallback visible en `ord-9002` |
+| 8 | Claves prestadas de `verifyEmail.*`; huérfanas `nav.orders`/`nav.shipments` | `2fa4791` | `PasswordPage` + paridad i18n 52/52; `nav.shipments` borrada (0 consumidores); `nav.orders` **se queda** (`CheckoutView.tsx:148`) |
+| 9 | `requestBlob` sin interceptor del 403 | `db86e6a` | `api-client*` 16/16 (401→refresh→blob, refresh muerto limpia, 403 desde la descarga navega) |
+| 10 | `package.json` sin `engines` | `09bdf43` | `npm install --package-lock-only` ⇒ lockfile +3 líneas (solo `engines` en la raíz) |
+| 11 | Deuda a anotar | `TECH_DEBT.md` bloque «Frontend · 2026-09-11 · gates Stream A» (GA-D1..D7) | — |
+| ux-ui §33.11.2 | «—» por línea en `requoting` y `requoteFailed`, `aria-busy` en el `<ul>` | `77368c0` | `BuylistView.test` 63/63; **mutación 3/3 roja** (`noFreshPrice=false`), control 3/3 verde |
+| ux-ui §33.7 B | `account.password.rateLimited` / `resendError` | `2fa4791` | (en #8) |
+| arquitecto v1.67.1 | `snap(s,'recipientName') ?? s.recipientName` y `@deprecated` | `9369066` | (en #6) |
+
+**Suites completas (árbol vivo, tras el último commit):** `npm run lint` 0 avisos · `npx tsc --noEmit` limpio ·
+`npx vitest run` **146 ficheros / 1644 tests verdes** (QA midió 143/1620: +3 ficheros, +24 tests) ·
+Playwright mock de los specs tocados **12/12** (dos pases) · `git status` limpio en mis rutas.
+
+### 2. Decisiones de implementación
+
+- **#1 — un tsconfig generado por `distDir`, no una opción de Next.** No existe opt-out de la inyección
+  de `include` (`writeConfigurationDefaults.js:228-256`): Next exige `${distDir}/types/**/*.ts` en el
+  `include` del fichero que le des en `typescript.tsconfigPath`, y si falta lo añade y re-serializa
+  TODO el fichero. La receta: `next.config.mjs` → `tsconfigPathForDistDir(distDir)` escribe
+  `tsconfig.<distDir-sin-punto>.json` = `{ extends: './tsconfig.json', include: [<el del principal con
+  .next/types sustituido por <distDir>/types>], exclude }` y lo pasa en `typescript.tsconfigPath`. Con
+  `extends`, el plugin `next` llega por herencia (`hasNextPlugin` true) y con `include`/`exclude`
+  presentes no hay ninguna «suggestedAction» ⇒ **no escribe**. El generado está en `.gitignore`
+  (`/tsconfig.next-*.json`); con `distDir === '.next'` no se genera nada. `tsconfig.json` vuelve a tener
+  solo `.next/types`. **Receta para correr mocks sin ensuciar nada:**
+  `E2E_MOCK_PORT=<puerto> E2E_MOCK_DIST_DIR=.next-e2e-mock-<agente> npx playwright test <spec>` — ya no
+  hace falta `git checkout -- frontend/tsconfig.json`.
+- **#2 — además del 404, un 200 sin perfil no se afirma (D-CTA-7).** `getBillingProfile` devuelve `null`
+  con 404 (contrato v1.67.1) y también si el cuerpo del 200 no trae `rfcMasked` string: el backend
+  anterior a `3402466` respondía `200` vacío, `api-client` lo convertía en `{}` y `{}` es truthy. Es
+  tolerancia, no lectura alternativa del contrato; se retira cuando producción esté en `≥ 3402466`
+  (`TECH_DEBT` GA-D6).
+- **#3 — tres clasificaciones, no dos.** `mockOnly` (dato de fixture) y `needsSeed` (falta la fila) no
+  bastaban: la cuenta solo-Google **existe** en el seed pero **no se puede autenticar** sin Google ⇒
+  `harnessLimit(reason)`. Y `needsSeed` estático no sirve para «el actor está pero su temporal ya se
+  consumió»: `skipIfSeedMissing(condition, reason)` decide al intentarlo. Los tres imprimen su razón.
+  El grupo del cliente temporal va en `serial` (mismo worker, en orden): rebote+logout (login por API,
+  no consume) → consume la temporal → cambio «normal» entrando con la definitiva. Cambiar la contraseña
+  del `customer` compartido revocaría la sesión cacheada de los otros workers (`change-password` sube
+  `tokenVersion`), por eso el cambio normal usa al actor temporal. Credenciales reales:
+  `utils/env.ts` (`E2E_TEMP_CUSTOMER_*` / `E2E_TEMP_OPERATOR_*`, defaults de `e2e-fixtures.ts`).
+- **#4 — `buildPasswordChangeRedirect(role, fullPath, { reason })`.** Los guards le pasan `pathname`
+  (next-intl, sin locale) + `useSearchParams()` y devuelven la ruta sin locale (el router de next-intl
+  lo repone); el interceptor le pasa `location.pathname + search` (con locale) y sale con locale.
+  `AuthForm` usa `reason: null` (tras el login no hay banner: §33.8 paso 1). `useSearchParams` puede ser
+  `null` fuera del App Router: se tolera.
+- **#6 — orden del destinatario invertido por el arquitecto (v1.67.1, D-CTA-9):** `snap(s,'recipientName')
+  ?? s.recipientName`. El techlead pedía UNA fuente; el arquitecto fijó «snapshot canónico, suelto
+  deprecado detrás con invariante de igualdad, para que su retiro sea gratis». Se hizo lo segundo y
+  `AdminShipmentDTO.recipientName` va `@deprecated`. `customer` sigue fuera del contrato (GA-D1).
+- **#7 — `orderNumber` no existe en `GET /orders`.** Medido en contrato (`§11 OrderSummaryDTO`) y en
+  backend (`orders.service.ts:listOrders`). Tipo opcional marcado `// MOCK: pendiente de contrato`,
+  `orderNumber ?? id` en la columna; contra el backend real hoy se sigue viendo el UUID (GA-D2).
+- **#8 — por qué el bloqueo vive bajo `auth.changePassword.*` y el resto bajo `account.password.*`.**
+  El bloqueo por temporal es un paso más del **login** (la temporal la emitió el admin; la pantalla no
+  tiene «Mi cuenta», lleva `requiredNotice` y su copy —«Crea tu contraseña definitiva», «Contraseña
+  temporal», «Guardar y continuar», «Listo»— es del flujo de autenticación), así que cuelga de `auth`.
+  Cambiar/crear son secciones de **Mi cuenta** ⇒ `account.password.*`. Los errores del `forgot-password`
+  del modo crear son de esa sección: `rateLimited` (la misma de la variante A) y `resendError` (nueva).
+- **#9 — `fetchWithSession` + `toApiError`.** `requestBlob` y `apiRequest` comparten el núcleo (refresh
+  proactivo, 401→refresh→un reintento, 403 interceptado). La única diferencia del binario: sin
+  `Content-Type: application/json` ni cuerpo serializado. `requestBlob` antes tampoco refrescaba: ahora sí.
+- **§33.11.2 —** `noFreshPrice = requoting || requoteFailed` por línea (mismo predicado que apaga el CTA);
+  el total también «—» con `requoteFailed` (antes solo con `requoting`); `aria-busy` en el `<ul>` solo
+  mientras hay batch en vuelo (con fallo no hay nada en vuelo); un solo `aria-label` (total).
+
+### 3. Lo que depende de otros y en qué estado quedó
+
+- **backend (billing 404):** aterrizó en `3402466` durante la ronda. Mi cliente ya lo consume; contra el
+  stack real **NO MEDIDO** (sin stack en esta sesión). Lo cerraría: `E2E_BASE_URL=… E2E_REAL=1 npx
+  playwright test e2e/account.spec.ts --grep facturación`.
+- **backend (seed E2E):** aterrizó en `83ec86e` (`temporal.customer@e2e.local`, `temporal.operator@e2e.local`,
+  `Temporal123!`, `google.only@e2e.local`, pedido `TCG-E2E-GUEST-0001`). Los specs ya usan esos defaults;
+  en real **NO MEDIDO**. Lo cerraría: `E2E_REAL=1` con el stack sembrado (`account.spec` + `claimable-orders.spec`).
+- **ux-ui:** §33.11.2 y §33.7 B (v4.1.2) aplicados y medidos (arriba).
+- **arquitecto:** v1.67.1 aplicado (billing, D-CTA-9). Peticiones abiertas en §68.4.
+
+### 4. Peticiones al arquitecto (contrato)
+
+1. **`orderNumber` en `OrderSummaryDTO` y `OrderDetailDTO`** (`GET /orders`, `GET /orders/:id`): la columna
+   PEDIDO y el título del detalle pintan el UUID contra el backend real. La columna existe desde v1.21.
+2. **`customer { id, name, email }` en la fila de M4** (`GET /admin/shipments`): o se publica o se retira la
+   línea «Cliente …» de la pantalla (queda «Ver ficha» al M6). Hoy se lee defensivo (GA-D1).
+
+### 5. Lo NO medido (para que nadie lo lea como hecho)
+
+- Nada contra el backend real en esta ronda (ni billing 404, ni actores del seed, ni claimable con el
+  pedido sembrado, ni `requestBlob` con un 403 real). Todo lo de arriba es unitario + Playwright en mock.
+- Que el workflow `e2e-real` / `stack-native.sh` re-siembre antes de cada corrida (GA-D3 lo da por hecho
+  por lectura del seed idempotente, no por ejecución).

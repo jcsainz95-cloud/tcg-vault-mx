@@ -6384,6 +6384,82 @@ topes de posición) ya validan con `isInt`.
   `buylist.service.ts:5846`/`:7157`, `test/buylist.pay-spei-where-composition.spec.ts`,
   `test/integration/buylist-pay-verdicts.e2e-spec.ts` (assert 7).
 
+## Frontend · 2026-09-11 · gates Stream A
+
+> Ronda de correcciones tras QA + techlead (rama `claude/tcg-hunt-orchestration-2`). Los once hallazgos
+> se **arreglaron en el pase** (`FRONTEND_NOTES §68` tiene la tabla hallazgo → commit → medición). Lo que
+> queda aquí es lo que **decidí dejar** o **no depende de mí**, con su disparador. Todo lo de abajo está
+> **medido el 2026-09-11** salvo donde dice NO MEDIDO.
+
+#### GA-D1 · `customer { name, email }` en la fila de M4 no está en el contrato §M4 (Baja, frontend — bloqueada por CONTRATO)
+- **Dueño:** frontend (la lectura), **desbloquea:** arquitecto. **Severidad:** Baja.
+- **Qué pasa:** `M4View.tsx` pinta la línea «Cliente {name} · {email}» (R5 de `DESIGN_SYSTEM §33.16`,
+  PROYECTADO) y el contrato v1.67.1 **no lo declara** en `AdminShipmentDTO` (medido: `API_CONTRACT §M4`,
+  «`guestEmail?`, `orderId?`, `orderNumber?` y `kind` no están en cuestión» — `customer` no aparece). Se
+  lee de forma defensiva en `customerOf()` marcado `// MOCK: pendiente de contrato`; sin él, «—» · «—».
+- **Disparador:** que el contrato publique `customer?` en la fila de M4 (o lo rechace ⇒ se retira la línea
+  y el operador entra por «Ver ficha» al M6, que ya existe). Petición en `FRONTEND_NOTES §68.4`.
+
+#### GA-D2 · `orderNumber` no viaja en `GET /orders` (`OrderSummaryDTO`) (Baja, frontend — bloqueada por CONTRATO + backend)
+- **Dueño:** frontend (la columna), **desbloquea:** arquitecto (contrato) y backend (proyección).
+- **Qué pasa:** la columna PEDIDO pinta `orderNumber ?? id` (QA menor). Medido: `API_CONTRACT §11`
+  `OrderSummaryDTO = { id, userId, status, totalCents, createdAt, settledAt? }` y
+  `backend/src/modules/orders/orders.service.ts:listOrders` proyecta exactamente eso ⇒ **contra el backend
+  real la columna sigue mostrando el UUID**. `orderNumber?` en `types/contract.ts` va marcado `// MOCK:
+  pendiente de contrato`; el fixture `ord-9001` lo trae y `ord-9002` no (el fallback es visible en demo).
+- **Disparador:** `orderNumber` en `OrderSummaryDTO` (y `OrderDetailDTO`, `OrderDetailView.tsx:46` pinta el
+  id en el título) — la columna `Order.orderNumber` ya existe desde v1.21. Petición en `§68.4`.
+
+#### GA-D3 · La temporal de los actores del seed se CONSUME en cada corrida real (Baja, frontend — decisión)
+- **Dueño:** frontend (los specs), **con:** devops/QA (cadencia de siembra). **Severidad:** Baja.
+- **Qué pasa:** `e2e/account.spec.ts` recorre el bloqueo con `temporal.customer@e2e.local` /
+  `temporal.operator@e2e.local` (`seed-e2e.ts` `83ec86e`) y al terminar la cuenta ya tiene definitiva
+  (`mustChangePassword=false`). Una **segunda corrida sin re-sembrar** no encuentra temporal: el login
+  devuelve 200 sin bandera → el caso se **salta** con `falta dato en el seed real: … su temporal ya se
+  consumió: re-sembrar` (dinámico, `skipIfSeedMissing`), no pinta rojo. El seed es idempotente y lo
+  repone (`upsert … update: { mustChangePassword: true }`).
+- **Por qué no se «restaura» desde el test:** no hay endpoint del contrato para volver a poner una
+  temporal salvo el reseteo de admin (`POST /admin/users/:id/reset-password`), que fabrica OTRA temporal
+  aleatoria que el arnés no conoce. Restaurar sería modelar un flujo que el producto no tiene.
+- **Disparador:** ninguno — es la cadencia: **sembrar antes de cada corrida real** (ya es lo que hace
+  `scripts/stack-native.sh` / el workflow `e2e-real`; NO MEDIDO por mí en esta ronda).
+
+#### GA-D4 · Modo «Crear contraseña» (solo-Google) sin cobertura contra el backend real (Baja, frontend — límite del arnés)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: aceptada.**
+- **Qué pasa:** el seed siembra `google.only@e2e.local` (sin `passwordHash`, `nameSource='derived'`), pero
+  una cuenta solo-Google **no tiene contraseña** y el arnés **no tiene Google**: no hay forma de obtener su
+  sesión por el contrato. El caso queda `harnessLimit(...)` (tercera clasificación, `e2e/utils/auth.ts`),
+  medido en mock, y la unidad `PasswordPage.test.tsx` cubre los tres modos con `getMe` espiado.
+- **Lo que NO se acepta como remedio:** un endpoint de «sesión para E2E» — es una puerta trasera de
+  autenticación en el producto. **Disparador:** ninguno previsto.
+
+#### GA-D5 · El aviso «nombre derivado» no tiene actor sembrado autenticable (Baja, frontend — bloqueada por DATO de seed)
+- **Dueño:** frontend (el test), **desbloquea:** backend (`seed-e2e.ts`). **Severidad:** Baja.
+- **Qué pasa:** el único usuario con `nameSource='derived'` del seed es el solo-Google (GA-D4). El caso
+  «con nombre derivado el aviso existe y desaparece al guardar» queda `needsSeed` (estático). En mock se
+  inyecta en la sesión local; en real `GET /users/me` mandaría y lo desmentiría.
+- **Disparador:** un usuario **local** (`passwordHash` + `nameSource='derived'`) en el seed; el test no cambia
+  salvo por tomar sus credenciales de `utils/env.ts`.
+
+#### GA-D6 · Tolerancia D-CTA-7 en `getBillingProfile` (200 sin perfil ⇒ `null`) (Baja, frontend — temporal)
+- **Dueño:** frontend. **Severidad:** Baja.
+- **Qué pasa:** además del `404 ⇒ null` del contrato v1.67.1, `lib/api.ts` trata un `200` cuyo cuerpo no
+  es un perfil (sin `rfcMasked` string) como «sin perfil». Existe porque el backend anterior (`3402466`
+  lo corrige) respondía `200` vacío y la sección pintaba seis «—» con «Editar». No es una segunda lectura
+  del contrato; es no afirmar un perfil que no existe.
+- **Disparador para retirarla:** que producción esté en `≥ 3402466` (medible: `GET /users/me/billing-profile`
+  de un usuario sin perfil ⇒ `404`) — entonces la rama y su test (`api.billing-profile.test.ts`, caso
+  D-CTA-7) sobran.
+
+#### GA-D7 · El índice pegajoso de «Mi cuenta» (§33.6) no está asertado en Playwright (Baja, frontend — decisión)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: aceptada.**
+- **Qué pasa:** `AccountView` pinta el índice de secciones `sticky` en `≥ lg`; la unidad comprueba las
+  secciones por rol (`AccountView.test.tsx`) y el E2E mide 390×844 sin desborde y el header/topbar, pero
+  **nadie mide** que el índice quede fijo al hacer scroll ni que el ancla lleve a la sección.
+- **Por qué se deja:** `position: sticky` es una propiedad de layout que jsdom no calcula y en Playwright
+  exigiría un `scrollIntoView` + `boundingBox` por sección (frágil ante cambios de espaciado del sistema
+  de diseño). **Disparador:** si ux-ui cambia la geometría del índice o llega un bug de scroll reportado.
+
 ## Backend · 2026-09-11 · gates Stream A
 
 > Ronda de correcciones tras los veredictos de QA y techlead (2026-09-11). Lo cerrado está en
