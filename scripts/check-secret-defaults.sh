@@ -78,7 +78,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ "${1:-}" = "--root" ] && [ -n "${2:-}" ]; then
   ROOT_DIR="$(cd "$2" && pwd)"
 fi
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 2
 
 FALLOS=0
 ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
@@ -534,7 +534,7 @@ else
         # `-f "$COMPOSE"` / `-f "${COMPOSE_FILE}"` → se busca su valor en el fichero.
         if [[ "$objetivo" == *'$'* ]]; then
           vname="$(tr -d '${}"' <<< "$objetivo")"
-          resuelto="$(grep -E "^[[:space:]]*(export[[:space:]]+)?$vname[:=]" "$f" \
+          resuelto="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${vname}[:=]" "$f" \
                         | grep -oE 'docker-compose[A-Za-z0-9._-]*' | head -1)"
           objetivo="${resuelto:-TODOS}"
         fi

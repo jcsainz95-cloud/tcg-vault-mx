@@ -45,7 +45,7 @@ set -uo pipefail
 # -----------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 
 ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 bad()  { printf '\033[1;31m  ✖ %s\033[0m\n' "$*" >&2; FAILED=1; }
