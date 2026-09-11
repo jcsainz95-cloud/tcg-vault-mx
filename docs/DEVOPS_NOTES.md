@@ -11161,10 +11161,41 @@ Se mide `efe65f5`.
 
 - **`5d2c62b` (punta de main):** 57/57 en verde, `rc=0`, medido 3/3 a las 21:33 UTC
   (higiene previa; NO es el SHA publicado).
-- **`efe65f5` (SHA publicado):** resultado abajo. El estado se re-mide al terminar los
-  check-runs de la CI del merge (fetch a las 21:42 UTC seguían corriendo 6-7, 0 en rojo).
+- **`efe65f5` (SHA publicado):** **C5 NO CIERRA. `rc=1`, 1 check-run en rojo, medido 3/3
+  a las 21:49 UTC** (43 check-runs · en rojo: 1 · sin terminar: 0 · saltados esperados: 9).
+  El rojo es **`dast-release / DAST contra el stack efímero` = failure**
+  (run `34650494939`).
 
-> **[RESULTADO C5 sobre `efe65f5` — se rellena al cerrar la CI del merge]**
+**Diagnóstico del rojo (hasta donde llega este entorno):**
+- El fallo NO es un hallazgo del DAST. Es el paso **«Levantar y preparar el stack
+  efímero»** (`security/scripts/dast-ephemeral.sh up`), que murió en **1 segundo** —
+  ANTES del `docker compose up --build` (que tarda minutos). El escaneo nunca corrió
+  (`Escanear` y `Candado` quedaron `skipped`), así que la salida `blocking` quedó VACÍA:
+  fail-closed, no promueve (deploy.yml exige `blocking == 'false'`).
+- La config del arnés de DAST es **byte a byte idéntica** entre `c8bee65` (producción
+  anterior) y `efe65f5`: `git diff --stat c8bee65 efe65f5 -- docker-compose.staging.yml
+  scripts/webhook-secret-preflight.sh scripts/secrets-preflight.sh
+  security/scripts/dast-ephemeral.sh .github/workflows/security-dast.yml` → **vacío**.
+- El **push anterior a `production` (`c8bee65`) tuvo `dast-release` = success** (medido
+  por API). El mismo arnés pasó allí y falló aquí.
+- `docker compose -f docker-compose.staging.yml --profile apps config` sobre el árbol de
+  `efe65f5`, con los secretos efímeros resueltos por los preflight, **interpola limpio
+  (`rc=0`)**: NO es un `${VAR:?}` que falte. (No hay demonio de Docker en este entorno,
+  así que el `up` vivo no se puede reproducir aquí.)
+- Precedente de flake del mismo workflow: `security-dast.yml` sobre `c1ed4cd` **falló a
+  las 04:01 y pasó a las 04:07 del 2026-09-11** (mismo SHA, dispatch).
+
+**Lectura:** todo apunta a un **fallo transitorio en el arranque del stack efímero**, no a
+una regresión de código ni de config. Pero **no lo doy por cerrado**: C5 está en rojo por
+su propia definición, y las dos vías para volverlo verde están bloqueadas desde aquí —
+(1) **re-ejecutar el job fallido** exige permiso de escritura sobre Actions que este token
+NO tiene (`POST …/rerun-failed-jobs` → 403 «Resource not accessible by integration»;
+scope efectivo `metadata=read`); (2) no hay evidencia de un bug real en mis rutas que
+arreglar. **Lo que cierra C5: el dueño (o quien tenga escritura en Actions) re-ejecuta el
+job `dast-release / DAST contra el stack efímero` del run `34650494939` desde la UI, y se
+re-mide `./scripts/check-candidate-checks.sh efe65f5` → `rc=0`.** Si el re-run vuelve a
+fallar en el mismo punto, entonces sí hay bug de arranque del stack (mi ruta) y se abre con
+los logs, que aquí están bloqueados por el proxy (403 en `…/logs`).
 
 **Canario del instrumento de C5** (`check-candidate-checks-canary.sh`): 14/14 en 3/3
 (21:33 UTC) — el guion distingue «no pude leer» de «no hay check-runs», que es la
