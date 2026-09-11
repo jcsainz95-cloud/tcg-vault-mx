@@ -162,7 +162,17 @@ un mensaje que diga que lo escribió el agente y que lo verifiqué yo.
 Corro las suites y **repito al menos una mutación por pase**, sobre una **copia**, nunca sobre el árbol vivo. Esto
 ya era doctrina del proyecto y se escribe aquí porque es la que sostiene a todas las demás.
 
-**Comprobación:** el reporte al humano distingue lo que medí yo de lo que me reportó un agente.
+**La copia es del árbol ENTERO, no de un subárbol.** Hay suites que leen los documentos del repo
+(paridad de enums entre `schema.prisma`, Prisma y `API_CONTRACT.md`; deuda registrada en `TECH_DEBT.md`).
+Copiar solo `backend/` las pone rojas **por falta de ficheros**, no por defecto.
+
+> *De dónde viene:* copié `backend/` con `git archive HEAD backend`, corrí la suite y obtuve **4 rojas de 4601**
+> justo antes de fusionar. Las cuatro eran de paridad documental y `docs/` no existía en mi copia. Con
+> `git archive HEAD` entero: **282/282 suites, 4631/4631 pruebas**. Un falso rojo antes de una fusión cuesta lo
+> mismo que un falso verde: manda a investigar lo que no está roto.
+
+**Comprobación:** el reporte al humano distingue lo que medí yo de lo que me reportó un agente. Y antes de
+llamar rojo a un rojo, compruebo que la copia trae lo que la suite lee.
 
 ### O-11 · Lo que sé es lo que está en git, no lo que recuerdo
 Cuando la conversación se comprime (o arranca una sesión nueva), **no reconstruyo el estado de memoria**: lo
