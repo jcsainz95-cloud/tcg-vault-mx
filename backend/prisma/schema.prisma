@@ -101,6 +101,16 @@ enum AuthProvider {
   google
 }
 
+// v1.67 (M-52b, ARCHITECTURE §4.47.5): de dónde salió `User.name`. `user` = tecleado por una
+// persona (registro, alta admin, PATCH /users/me); `google` = vino en el ID token; `derived` = el
+// sistema lo fabricó con el trozo del correo antes de la arroba (auth.service `google()`). No se
+// esconde el valor derivado: se deja de hacer pasar por tecleado (GET /users/me.nameSource).
+enum NameSource {
+  user
+  google
+  derived
+}
+
 enum GradingCompany {
   PSA
   CGC
@@ -419,6 +429,9 @@ model User {
   anonymizedAt       DateTime?
   mustChangePassword Boolean      @default(false)
   tokenVersion       Int          @default(0)
+  // v1.67 (M-52b): origen de `name`. Default `user` es correcto para toda fila `local`; el backfill de
+  // la migración marca `derived`/`google` SOLO en `authProvider='google'` (regla determinista).
+  nameSource         NameSource   @default(user)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -483,6 +496,11 @@ model Address {
   id           String   @id @default(uuid())
   userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // v1.67 (M-52a, ARCHITECTURE §4.47.4): quien recibe en ESTA dirección (dato de etiqueta). Nullable
+  // SOLO por las filas anteriores a M-52: sin backfill (no hay de dónde sacarlo sin inventar) y
+  // ⛔ sin fallback a `User.name` en el servidor. Obligatorio al crear (contrato §1 Direcciones);
+  // un retiro con `NULL` responde 422 RECIPIENT_NAME_REQUIRED y el front pide el dato.
+  recipientName String?
   line1        String
   line2        String?
   neighborhood String?
