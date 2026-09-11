@@ -34,6 +34,7 @@ export interface AddressManagerProps {
 }
 
 const EMPTY_FORM: AddressInput = {
+  recipientName: '',
   line1: '',
   line2: '',
   neighborhood: '',

@@ -935,9 +935,15 @@
       "cta": "Continue with Google",
       "connecting": "Connecting…"
     },
-    "mustChangePassword": "You signed in with a temporary password. You must change it to protect your account.",
-    "mustChangeContinue": "Continue",
-    "forgotPassword": "Forgot your password?"
+    "forgotPassword": "Forgot your password?",
+    "changePassword": {
+      "title": "Create your permanent password",
+      "body": "You signed in with a temporary password. Choose a new one to continue.",
+      "requiredNotice": "You need to change your temporary password before continuing.",
+      "temporaryLabel": "Temporary password",
+      "submit": "Save and continue",
+      "done": "Done"
+    }
   },
   "verifyEmail": {
     "title": "Verify email",
@@ -3034,6 +3040,11 @@
   "error": {
     "VALIDATION_ERROR": "Please check the entered data.",
     "UNAUTHENTICATED": "Please log in to continue.",
+    "CURRENT_PASSWORD_INCORRECT": "The current password is incorrect.",
+    "PASSWORD_SAME_AS_CURRENT": "The new password must differ from the current one.",
+    "PASSWORD_NOT_SET": "Your account has no password. Create one from “My account”.",
+    "PASSWORD_CHANGE_REQUIRED": "Your account has a temporary password. Change it to continue.",
+    "RECIPIENT_NAME_REQUIRED": "This address has no recipient name. Add it to continue.",
     "FORBIDDEN": "You don't have permission for this action.",
     "NOT_FOUND": "We couldn't find what you were looking for.",
     "CONFLICT": "There was a conflict with the current state.",

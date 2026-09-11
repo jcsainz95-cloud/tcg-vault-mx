@@ -1504,6 +1504,9 @@ export const mockKyc: KycInfoDTO = {
 export const mockAddresses: AddressDTO[] = [
   {
     id: 'addr-1',
+    // v1.67 (M-52): destinatario de etiqueta. La libreta mock arranca COMPLETA para que el retiro
+    // de demo no se bloquee; una fila «vieja» (recipientName: null) la siembra quien la necesite.
+    recipientName: 'Ash Ketchum',
     line1: 'Av. Reforma 222',
     line2: 'Piso 3',
     neighborhood: 'Juárez',
@@ -3562,7 +3565,7 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         : null,
     addresses:
       id === 'u-777'
-        ? [{ id: 'addr-1', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
         : [],
     orders: base.id === 'u-777' ? mockOrders : [],
     sellRequests:

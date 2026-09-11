@@ -1,5 +1,6 @@
 import { config } from './config';
-import { setStoredUser } from './session';
+import { getStoredUser, patchStoredUser, setStoredUser } from './session';
+import { buildPasswordChangeRedirect } from './account-routes';
 import type { ApiError } from '@/types/contract';
 
 export class ApiClientError extends Error {
@@ -161,6 +162,43 @@ function isAccessTokenExpired(token: string, skewMs = 5_000): boolean {
   }
 }
 
+/**
+ * v1.67 (contrato «Contraseña temporal OBLIGATORIA», DESIGN_SYSTEM §33.8 paso 4): un
+ * `403 PASSWORD_CHANGE_REQUIRED` en CUALQUIER endpoint significa «la sesión es válida pero la
+ * cuenta tiene una temporal y este endpoint no está en la allowlist». Se intercepta AQUÍ, una vez,
+ * y no pantalla por pantalla: cubre la sesión guardada en `localStorage` que no pasó por el login
+ * de hoy y cualquier URL que el usuario abra a mano.
+ *
+ * Qué hace: (1) marca `mustChangePassword: true` en la sesión local — así los guards de cliente
+ * (`PrivateRouteGuard`, `AdminShell`) pintan carga y no contenido mientras se navega; (2) navega
+ * a la página de contraseña del rol reenviando la ruta actual como `?next=` y `reason=required`.
+ * Si ya estamos en esa página no navega (la propia página llama a `GET /users/me`, que está en la
+ * allowlist; y un 403 desde ahí no debe ciclar). Navegación COMPLETA (`location.assign`): corre
+ * fuera de React y el estado de la SPA no vale nada hasta que la contraseña cambie.
+ *
+ * ⛔ No es un `401`: no se limpia la sesión ni se dispara refresh.
+ */
+let passwordChangeNavigate: (url: string) => void = (url) => {
+  window.location.assign(url);
+};
+/** Solo para tests: sustituye la navegación completa por un espía. */
+export function setPasswordChangeNavigatorForTests(fn: ((url: string) => void) | null) {
+  passwordChangeNavigate = fn ?? ((url) => window.location.assign(url));
+  redirecting = false;
+}
+let redirecting = false;
+
+export function handlePasswordChangeRequired() {
+  if (typeof window === 'undefined') return;
+  patchStoredUser({ mustChangePassword: true });
+  if (redirecting) return;
+  const role = getStoredUser()?.role;
+  const target = buildPasswordChangeRedirect(role, window.location.pathname + window.location.search);
+  if (!target) return;
+  redirecting = true;
+  passwordChangeNavigate(target);
+}
+
 /** Cliente REST/JSON tipado contra NEXT_PUBLIC_API_BASE_URL (contrato §0). */
 export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return requestWithRefresh<T>(path, opts, true);
@@ -274,6 +312,8 @@ async function requestWithRefresh<T>(
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err: ApiError = payload?.error ?? { code: 'INTERNAL', message: 'Unexpected error' };
+    // v1.67: bloqueo por contraseña temporal — interceptor global (ver handlePasswordChangeRequired).
+    if (res.status === 403 && err.code === 'PASSWORD_CHANGE_REQUIRED') handlePasswordChangeRequired();
     throw new ApiClientError(res.status, err);
   }
   return payload as T;

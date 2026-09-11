@@ -299,6 +299,16 @@ export interface BreakdownDTO {
 }
 
 // ---- Auth / usuarios (contrato §1) ----
+/**
+ * v1.67 (Stream A, ARCHITECTURE §4.47.5): de dónde salió `User.name`.
+ * - `user`    → tecleado por una persona (registro, alta admin, `PATCH /users/me`).
+ * - `google`  → vino en el ID token de Google.
+ * - `derived` → **el sistema lo fabricó** con el trozo del correo antes de la arroba
+ *               (`auth.service.ts:339`). El front lo sigue mostrando, pero lo marca como
+ *               inventado (DESIGN_SYSTEM §33.6a) y NUNCA lo copia a un destinatario de envío.
+ */
+export type NameSource = 'user' | 'google' | 'derived';
+
 export interface UserDTO {
   id: string;
   email: string;
@@ -312,9 +322,25 @@ export interface UserDTO {
   authProvider?: AuthProvider;
   emailVerified?: boolean;
   avatarUrl?: string;
-  // v1.3.1: lo activa el reset de contraseña por admin (M6). Si viene true tras el
-  // login, el front dirige al usuario a cambiar su contraseña (o muestra aviso).
+  /**
+   * v1.67 (contrato §1 «Contraseña temporal OBLIGATORIA»): `true` tras un reset por admin (M6)
+   * o un alta admin sin contraseña. **Bloquea**: todo endpoint autenticado fuera de la allowlist
+   * (`change-password`, `logout`, `GET /users/me`) responde `403 PASSWORD_CHANGE_REQUIRED`. El
+   * front navega directo a `/account/password` | `/admin/account/password` (§4.47.7).
+   * Opcional en el tipo porque una sesión guardada en `localStorage` puede venir de un login
+   * anterior a v1.67; `GET /users/me` lo trae SIEMPRE.
+   */
   mustChangePassword?: boolean;
+  /**
+   * v1.67: `passwordHash IS NOT NULL`. **Es lo único que decide la sección de contraseña**
+   * (⛔ retira la heurística por `authProvider`): `true` ⇒ «Cambiar contraseña»
+   * (`POST /auth/change-password`); `false` ⇒ «Crear contraseña» (dispara `forgot-password`
+   * con el correo de la sesión; el enlace del correo la fija). Opcional por la misma razón
+   * que `mustChangePassword` (sesiones guardadas pre-v1.67); `GET /users/me` lo trae SIEMPRE.
+   */
+  hasPassword?: boolean;
+  /** v1.67: ver `NameSource`. `GET /users/me` y `PATCH /users/me` lo traen SIEMPRE. */
+  nameSource?: NameSource;
 }
 
 export interface AuthResponse {
@@ -343,8 +369,41 @@ export interface ResetPasswordSelfResponse {
   ok: true;
 }
 
+// ---- Cambiar la propia contraseña, desde dentro (contrato §1, v1.67 · Stream A · P-75) ----
+/**
+ * POST /auth/change-password — autenticado, cualquier rol; **exento** del 403
+ * PASSWORD_CHANGE_REQUIRED (allowlist). `currentPassword` es SIEMPRE obligatoria (no hay «modo
+ * crear» para solo-Google: §4.47.3). `newPassword` MinLength 8 — la misma constante que register
+ * y reset-password; ⛔ ninguna regla de complejidad que el servidor no exija.
+ */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+/**
+ * 200: el servidor hizo `tokenVersion +1` y emite un par NUEVO ⇒ las demás sesiones mueren y
+ * ÉSTA continúa con estos tokens (el front DEBE reemplazar los dos almacenados). Errores:
+ * `422 PASSWORD_NOT_SET` (sin contraseña: solo-Google), `422 CURRENT_PASSWORD_INCORRECT`
+ * (`details.field='currentPassword'`; es 422 y NO 401 a propósito — un 401 cerraría la sesión),
+ * `422 PASSWORD_SAME_AS_CURRENT` (`details.field='newPassword'`), `400 VALIDATION_ERROR`,
+ * `429 RATE_LIMITED` (5/min/IP, paridad con login).
+ */
+export interface ChangePasswordResponse {
+  ok: true;
+  accessToken: string;
+  refreshToken: string;
+}
+
 export interface AddressDTO {
   id: string;
+  /**
+   * v1.67 (`M-52`, Stream A · P-73-B): nombre de quien recibe — **dato de etiqueta**, vive en la
+   * dirección (como en `GuestAddressInput`). `null` SOLO en filas anteriores a `M-52`; el
+   * servidor responde `422 RECIPIENT_NAME_REQUIRED` en `POST /shipments[/quote]` con una
+   * dirección así, y el remedio es `PATCH /users/me/addresses/:id { recipientName }`.
+   * ⛔ Nunca se rellena con `User.name` en silencio (puede ser `nameSource='derived'`).
+   */
+  recipientName: string | null;
   line1: string;
   line2?: string;
   neighborhood?: string;
@@ -354,6 +413,30 @@ export interface AddressDTO {
   country: string;
   phone: string;
   isDefault?: boolean;
+}
+
+// ---- Perfil de facturación CFDI (contrato §1 «Perfil de facturación») ----
+/**
+ * GET /users/me/billing-profile → el RFC viene **enmascarado** (`rfcMasked`, ej. `XAX**********`),
+ * nunca en claro por este endpoint. 404 NOT_FOUND cuando el usuario aún no lo ha guardado
+ * (se pinta el vacío de §33.6d, no un error).
+ */
+export interface BillingProfileDTO {
+  rfcMasked: string;
+  razonSocial: string;
+  regimenFiscal: string;
+  usoCfdi: string;
+  postalCode: string;
+  email: string;
+}
+/** PUT /users/me/billing-profile — el RFC se manda en claro y el backend lo cifra en reposo. */
+export interface BillingProfileInput {
+  rfc: string;
+  razonSocial: string;
+  regimenFiscal: string;
+  usoCfdi: string;
+  postalCode: string;
+  email: string;
 }
 
 export interface KycInfoDTO {

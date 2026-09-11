@@ -935,9 +935,15 @@
       "cta": "Continuar con Google",
       "connecting": "Conectando…"
     },
-    "mustChangePassword": "Iniciaste sesión con una contraseña temporal. Debes cambiarla para proteger tu cuenta.",
-    "mustChangeContinue": "Continuar",
-    "forgotPassword": "¿Olvidaste tu contraseña?"
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "changePassword": {
+      "title": "Crea tu contraseña definitiva",
+      "body": "Entraste con una contraseña temporal. Para continuar, elige una nueva.",
+      "requiredNotice": "Antes de continuar tienes que cambiar tu contraseña temporal.",
+      "temporaryLabel": "Contraseña temporal",
+      "submit": "Guardar y continuar",
+      "done": "Listo"
+    }
   },
   "verifyEmail": {
     "title": "Verificar correo",
@@ -3034,6 +3040,11 @@
   "error": {
     "VALIDATION_ERROR": "Revisa los datos ingresados.",
     "UNAUTHENTICATED": "Inicia sesión para continuar.",
+    "CURRENT_PASSWORD_INCORRECT": "La contraseña actual no es correcta.",
+    "PASSWORD_SAME_AS_CURRENT": "La contraseña nueva debe ser distinta de la actual.",
+    "PASSWORD_NOT_SET": "Tu cuenta no tiene contraseña. Crea una desde «Mi cuenta».",
+    "PASSWORD_CHANGE_REQUIRED": "Tu cuenta tiene una contraseña temporal. Cámbiala para continuar.",
+    "RECIPIENT_NAME_REQUIRED": "Esta dirección no tiene el nombre de quien recibe. Complétalo para continuar.",
     "FORBIDDEN": "No tienes permiso para esta acción.",
     "NOT_FOUND": "No encontramos lo que buscabas.",
     "CONFLICT": "Hubo un conflicto con el estado actual.",

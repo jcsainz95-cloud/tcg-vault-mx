@@ -11,16 +11,8 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { GoogleSignInButton } from './GoogleSignInButton';
-import type { Role } from '@/types/contract';
-
-/**
- * Destino tras un login exitoso según el rol del usuario:
- * - super_admin / vault_operator → back-office (`/admin`).
- * - customer (u otros) → tienda (`/`).
- */
-function destForRole(role?: Role): '/admin' | '/' {
-  return role === 'super_admin' || role === 'vault_operator' ? '/admin' : '/';
-}
+import { homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
+import type { UserDTO } from '@/types/contract';
 
 export function AuthForm({
   mode,
@@ -38,15 +30,28 @@ export function AuthForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
-  // v1.3.1: si el login indica mustChangePassword (temp password puesta por el admin),
-  // se avisa al usuario antes de continuar a su destino.
-  const [mustChangeRole, setMustChangeRole] = useState<Role | null>(null);
 
   // Solo se honra un `next` interno (empieza con "/") para evitar open redirect.
-  const safeNext = next && next.startsWith('/') ? next : undefined;
+  const safeNext = safeNextOf(next);
 
-  function redirectByRole(role?: Role) {
-    router.push(safeNext ?? destForRole(role));
+  /**
+   * Destino tras la sesión creada (login, registro o Google):
+   * - v1.67 (contrato «Contraseña temporal OBLIGATORIA», DESIGN_SYSTEM §33.8 paso 1): con
+   *   `user.mustChangePassword` se navega DIRECTO a la página de contraseña del rol
+   *   (`/account/password` | `/admin/account/password`) — sin banner ni «Continuar» — y el
+   *   `?next=` **no se consume: se reenvía** para que esa página lo honre tras el `200`.
+   *   `replace`, no `push`: el login no debe quedar en el historial detrás de un bloqueo.
+   * - Si no: `?next=` seguro, o el home del rol (staff → `/admin`, resto → `/`).
+   */
+  function redirectAfterAuth(user?: UserDTO) {
+    if (user?.mustChangePassword) {
+      router.replace({
+        pathname: passwordRouteForRole(user.role),
+        query: safeNext ? { next: safeNext } : {},
+      });
+      return;
+    }
+    router.push(safeNext ?? homeForRole(user?.role));
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -61,13 +66,7 @@ export function AuthForm({
       // Redirige según el rol devuelto en AuthResponse.user.role (admin → /admin).
       if (mode === 'login') {
         const res = await login({ email, password });
-        // Contraseña temporal del admin: avisa que debe cambiarla antes de continuar.
-        if (res.user.mustChangePassword) {
-          setMustChangeRole(res.user.role ?? 'customer');
-          setLoading(false);
-          return;
-        }
-        redirectByRole(res.user.role);
+        redirectAfterAuth(res.user);
       } else {
         const res = await register({
           email,
@@ -75,7 +74,7 @@ export function AuthForm({
           name: String(form.get('name') ?? ''),
           phone: String(form.get('phone') ?? '') || undefined,
         });
-        redirectByRole(res.user.role);
+        redirectAfterAuth(res.user);
       }
     } catch (err) {
       setErrorCode(err instanceof ApiClientError ? err.code : 'INTERNAL');
@@ -100,21 +99,6 @@ export function AuthForm({
         {notice === 'inactivity' && (
           <Banner variant="warning" role="status">
             {t('inactivityLogout')}
-          </Banner>
-        )}
-        {mustChangeRole && (
-          <Banner variant="warning" role="alert">
-            <span className="flex flex-col items-start gap-3">
-              {t('mustChangePassword')}
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() => redirectByRole(mustChangeRole)}
-              >
-                {t('mustChangeContinue')}
-              </Button>
-            </span>
           </Banner>
         )}
         {errorCode && (
@@ -157,7 +141,7 @@ export function AuthForm({
         <span className="h-px flex-1 bg-border-strong" />
       </div>
       <div className="mt-6">
-        <GoogleSignInButton onSuccess={(role) => redirectByRole(role)} />
+        <GoogleSignInButton onSuccess={(_role, user) => redirectAfterAuth(user)} />
       </div>
 
       <Link
