@@ -5448,13 +5448,29 @@ export class BuylistService implements OnModuleInit {
    * `confirm-shipment`, `adminDecline` y `paySpei`. **La exclusión la da el motor, no un `if` sobre una
    * lectura previa que una carrera invalida.**
    *
-   * ### ⚠ Por EXCLUSIÓN (no-terminal), no una matriz de predecesores exactos
-   * El mínimo que cierra el agujero es *«no se transiciona lo cerrado»*. Apretar a «solo desde X»
-   * sería inventar una máquina de estados que la mesa **no** usa hoy: en el propio PoC `receive` y
-   * `verify` se dispararon **en cadena** justo tras `confirm-shipment`, y la bitácora real muestra
-   * `receive`→`verify` con 20 ms de diferencia. *Una guarda que rompe el trabajo legítimo del día
-   * siguiente no es más segura: es la que alguien acaba desactivando.* Es la misma dirección del
-   * criterio 129 (`SELL_REQUEST_LIVE_STATES` por complemento): olvidarse falla hacia el lado seguro.
+   * ### ⚠⚠ v1.68 · **§M5-S (P-58) — YA NO es «por exclusión»: es el PASO CORRECTO** (`ARCHITECTURE §4.48.1`)
+   * Hasta v1.67 este bloque defendía «no se transiciona lo cerrado» y **nada más** (`liveRequestWhere()`),
+   * con el argumento de que una matriz de predecesores rompería la cadena `receive`→`verify` de 20 ms
+   * de la mesa. Tomado en serio, el argumento **no sostiene** la exclusión: esa cadena es
+   * `confirm-shipment → receive → verify`, **secuencial**, y cada verbo parte de su predecesor
+   * (`aceptada → en_transito → recibida → verificacion`) — pasa **igual** con S. Lo que S corta es
+   * la cadena **invertida** (`verify` antes que `receive`) y los saltos (`cotizada → recibida` sin
+   * precio pactado; `ofertada → recibida` cerrándole la ventana al vendedor) y los **retrocesos**
+   * (`aprobada → recibida` deshace un veredicto). S no inventa una máquina de estados: es la de
+   * `PROJECT §P.1`, la misma que ya rige `confirm-shipment` (`NOT_ACCEPTED`), `offer-response` y
+   * `declare-shipped`. La regla, en `STEP_TRANSITIONS` y `stepWhere()`:
+   *
+   *     receive : allowedFrom = { en_transito }  idempotentOn = recibida      sella receivedAt (1ª vez)
+   *     verify  : allowedFrom = { recibida }     idempotentOn = verificacion  sella verifiedAt  (1ª vez)
+   *
+   * `where { id, status: { in: [...allowedFrom, idempotentOn] }, closedAt: null }` + `count === 1`.
+   * **Los dos términos de T siguen dentro**: el término de estado ya excluye los terminales y
+   * `closedAt: null` va explícito — §M5-T no se relaja, S es *T dicha con más precisión*. Con
+   * `count !== 1` se relee **dentro de la tx** y se distingue (`throwStepRejected`): terminal ∨
+   * `closedAt ≠ null` ⇒ `409 CONFLICT { status, closedAt }` (**T gana**); otro estado vivo ⇒
+   * `409 INVALID_TRANSITION { verb, from, allowedFrom, idempotentOn }`. Cero escritura en ambos.
+   * El paquete que llega sin `confirm-shipment` (`aceptada` + «ya lo mandé») **no es un agujero: es
+   * un clic** — `confirm-shipment` no exige guía y deja `shipmentConfirmedAt/By` registrado.
    *
    * ### ⚠ `closedAt: null` es la OTRA MITAD de la guarda, y no es redundante
    * En el código, **toda** escritura de `closedAt` va acompañada de un estado terminal (los seis
@@ -5488,11 +5504,12 @@ export class BuylistService implements OnModuleInit {
   async receive(id: string) {
     await this.adminGet(id);
     const row = await this.prisma.$transaction(async (tx) => {
+      // v1.68 · §M5-S: el `where` exige el PASO CORRECTO (`en_transito`) o el destino (idempotente).
       const guard = await tx.sellRequest.updateMany({
-        where: { id, ...this.liveRequestWhere() },
+        where: { id, ...this.stepWhere('receive') },
         data: { status: 'recibida' },
       });
-      if (guard.count !== 1) await this.throwRequestClosedConflict(tx, id);
+      if (guard.count !== 1) await this.throwStepRejected(tx, id, 'receive');
       await this.sealOnceTx(tx, id, 'receivedAt');
       // DESPUÉS de la guarda, a propósito: una transición ilegítima no debe mover ni un ítem.
       await tx.sellRequestItem.updateMany({
@@ -5520,11 +5537,12 @@ export class BuylistService implements OnModuleInit {
   async verify(id: string) {
     await this.adminGet(id);
     const row = await this.prisma.$transaction(async (tx) => {
+      // v1.68 · §M5-S: solo desde `recibida` (idempotente en `verificacion`). Ver el bloque de `receive`.
       const guard = await tx.sellRequest.updateMany({
-        where: { id, ...this.liveRequestWhere() },
+        where: { id, ...this.stepWhere('verify') },
         data: { status: 'verificacion' },
       });
-      if (guard.count !== 1) await this.throwRequestClosedConflict(tx, id);
+      if (guard.count !== 1) await this.throwStepRejected(tx, id, 'verify');
       await this.sealOnceTx(tx, id, 'verifiedAt');
       await tx.sellRequestItem.updateMany({
         where: { sellRequestId: id, itemStatus: 'recibida' },
@@ -5656,6 +5674,82 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * ⚠⚠ v1.68 · **§M5-S (P-58)** — LA MÁQUINA DE ESTADOS DE `receive`/`verify`, dicha UNA vez.
+   *
+   * Es la secuencia de `PROJECT §P.1` (pasos 4→5→6): el único predecesor legítimo de `recibida` es
+   * `en_transito` (que **solo** escribe `confirm-shipment` desde `aceptada`, D20) y el único de
+   * `verificacion` es `recibida`. `idempotentOn` es el destino: repetir el verbo sobre él es `200`
+   * sin re-sellar la fecha (`sealOnceTx`). Se declara como dato, no como `if`, para que `stepWhere()`
+   * (la guarda) y `throwStepRejected()` (el `details` del rechazo) **no puedan discrepar**: los dos
+   * leen la misma fila de esta tabla. Un verbo futuro con predecesor añade una fila, no un código.
+   */
+  private static readonly STEP_TRANSITIONS = {
+    receive: { allowedFrom: ['en_transito'], idempotentOn: 'recibida' },
+    verify: { allowedFrom: ['recibida'], idempotentOn: 'verificacion' },
+  } as const satisfies Record<
+    string,
+    { allowedFrom: readonly SellRequestStatus[]; idempotentOn: SellRequestStatus }
+  >;
+
+  /**
+   * §M5-S — el `where` de la transición: `status ∈ allowedFrom ∪ {idempotentOn}` ∧ `closedAt IS NULL`.
+   *
+   * ⚠ **Los dos términos de §M5-T siguen aquí.** El de estado ya excluye los cuatro terminales (ninguno
+   * está en la lista), y `closedAt: null` va **explícito** por la misma razón que en
+   * `liveRequestWhere()`: existen filas con `closedAt` sellado y `status` vivo (las que P1 fabricó), y
+   * sobre ésas el término de estado **solo** dejaría pasar. *S no relaja T: la dice con más precisión.*
+   */
+  private stepWhere(verb: keyof typeof BuylistService.STEP_TRANSITIONS): Prisma.SellRequestWhereInput {
+    const step = BuylistService.STEP_TRANSITIONS[verb];
+    return { status: { in: [...step.allowedFrom, step.idempotentOn] }, closedAt: null };
+  }
+
+  /**
+   * §M5-S — el `count !== 1` de `receive`/`verify`, **releído dentro de la tx** y distinguido:
+   *
+   * | La fila releída | Respuesta |
+   * |---|---|
+   * | terminal ∨ `closedAt ≠ null` | **`409 CONFLICT`** `{ status, closedAt }` — §M5-T, **T gana** |
+   * | viva, en otro paso | **`409 INVALID_TRANSITION`** `{ verb, from, allowedFrom, idempotentOn }` |
+   * | viva y en un estado que el `where` SÍ admitía | **`409 CONFLICT`** — el `where` tocó ≠ 1 filas o una carrera la movió entre la escritura y la relectura; no es «paso equivocado», y decirlo mentiría |
+   *
+   * **Cero escritura** en los tres: la guarda va primero y los ítems no se han movido. `details`
+   * lleva los estados para que el operador lea *«está en {from}; “{verb}” solo aplica en
+   * {allowedFrom}»* — un rótulo genérico (`INVALID_TRANSITION`) y un mensaje i18n para los dos
+   * verbos, en vez de dos códigos para una misma clase de rechazo (⛔ no `NOT_IN_TRANSIT`/`NOT_RECEIVED`).
+   */
+  private async throwStepRejected(
+    db: SellRequestReader,
+    sellRequestId: string,
+    verb: keyof typeof BuylistService.STEP_TRANSITIONS,
+  ): Promise<never> {
+    const current = await db.sellRequest.findUnique({
+      where: { id: sellRequestId },
+      select: { status: true, closedAt: true },
+    });
+    if (!current) throw BusinessException.notFound();
+    const step = BuylistService.STEP_TRANSITIONS[verb];
+    const admitted: readonly SellRequestStatus[] = [...step.allowedFrom, step.idempotentOn];
+    if (
+      isTerminalSellRequestStatus(current.status) ||
+      current.closedAt !== null ||
+      admitted.includes(current.status)
+    ) {
+      throw this.requestClosedConflict(current);
+    }
+    throw BusinessException.conflict(
+      'INVALID_TRANSITION',
+      `This sell request is in '${current.status}'; '${verb}' only applies from ${step.allowedFrom.join(', ')}`,
+      {
+        verb,
+        from: current.status,
+        allowedFrom: [...step.allowedFrom],
+        idempotentOn: step.idempotentOn,
+      },
+    );
+  }
+
+  /**
    * ⚠ v1.56 · **§M5-T / BL-35 (P1)** — el `409` de *«esta solicitud ya cerró: no se transiciona»*, con el
    * estado **releído** (dentro de la transacción cuando la hay, para que `details.status` diga el
    * estado REAL contra el que se chocó, no el de una lectura vieja que la carrera invalidó).
@@ -5678,7 +5772,14 @@ export class BuylistService implements OnModuleInit {
       where: { id: sellRequestId },
       select: { status: true, closedAt: true },
     });
-    throw BusinessException.conflict(
+    throw this.requestClosedConflict(current);
+  }
+
+  /** El `409 CONFLICT` de §M5-T construido a partir de una fila YA releída (lo comparten T y S). */
+  private requestClosedConflict(
+    current: { status: SellRequestStatus; closedAt: Date | null } | null,
+  ): BusinessException {
+    return BusinessException.conflict(
       'CONFLICT',
       'This sell request is terminal or closed and can no longer be transitioned',
       // ⚠ §M5-T: `details` lleva **LOS DOS** campos, y por el mismo motivo que la guarda lleva los
