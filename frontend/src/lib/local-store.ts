@@ -40,11 +40,23 @@ export interface LocalStoreOptions<T> {
   migrateLegacy?: (raw: unknown) => T | undefined;
 }
 
+/** Resultado de `read()`: el valor vigente y si, para dárselo, hubo que descartar uno caducado. */
+export interface ReadResult<T> {
+  value: T;
+  /**
+   * `true` solo si había un registro válido, **no vacío**, con más de `maxAgeMs`: se descartó y se
+   * re-persistió `empty()`. Un registro vacío caducado (un `clear()` de hace meses) NO cuenta: no se
+   * perdió nada que avisar. Es lo que el carrito de venta necesita para «Tu lista caducó y la
+   * vaciamos» (§33.11.1) sin releer `localStorage` por su cuenta (techlead F2-4, 2026-09-11).
+   */
+  expired: boolean;
+}
+
 export interface LocalStore<T> {
   readonly key: string;
   readonly event: string;
-  /** Lee aplicando caducidad y migración. Seguro en SSR (devuelve `empty()`). */
-  read(): T;
+  /** Lee aplicando caducidad y migración. Seguro en SSR (devuelve `empty()`, sin caducidad). */
+  read(): ReadResult<T>;
   /** Persiste refrescando `updatedAt` y emite `event`. */
   write(value: T): void;
   /** Persiste `empty()` (refresca timestamp) y emite `event`. */
@@ -61,17 +73,19 @@ export function createLocalStore<T>(opts: LocalStoreOptions<T>): LocalStore<T> {
     window.localStorage.setItem(key, JSON.stringify({ [field]: value, updatedAt: Date.now() }));
   }
 
-  function read(): T {
-    if (typeof window === 'undefined') return empty();
+  const fresh = (value: T): ReadResult<T> => ({ value, expired: false });
+
+  function read(): ReadResult<T> {
+    if (typeof window === 'undefined') return fresh(empty());
     try {
       const raw = window.localStorage.getItem(key);
-      if (raw == null) return empty();
+      if (raw == null) return fresh(empty());
       const parsed: unknown = JSON.parse(raw);
 
       const legacy = migrateLegacy?.(parsed);
       if (legacy !== undefined) {
         persist(legacy);
-        return legacy;
+        return fresh(legacy);
       }
 
       if (parsed && typeof parsed === 'object' && field in (parsed as Record<string, unknown>)) {
@@ -81,19 +95,20 @@ export function createLocalStore<T>(opts: LocalStoreOptions<T>): LocalStore<T> {
         if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) {
           // Timestamp ausente/corrupto: mismo trato que el formato legado (no se descarta).
           persist(clean);
-          return clean;
+          return fresh(clean);
         }
         if (Date.now() - updatedAt > maxAgeMs) {
           const e = empty();
           persist(e);
-          return e;
+          // «Caducó» solo si se perdió algo: un vacío caducado no merece aviso.
+          return { value: e, expired: JSON.stringify(clean) !== JSON.stringify(e) };
         }
-        return clean;
+        return fresh(clean);
       }
 
-      return empty();
+      return fresh(empty());
     } catch {
-      return empty();
+      return fresh(empty());
     }
   }
 
@@ -120,8 +135,8 @@ export function useStoredValue<T>(store: LocalStore<T>, initial: () => T): T {
   const [value, setValue] = useState<T>(initial);
 
   useEffect(() => {
-    setValue(store.read());
-    const handler = () => setValue(store.read());
+    setValue(store.read().value);
+    const handler = () => setValue(store.read().value);
     window.addEventListener(store.event, handler);
     window.addEventListener('storage', handler);
     return () => {

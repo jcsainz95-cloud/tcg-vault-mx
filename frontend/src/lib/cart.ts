@@ -35,7 +35,7 @@ const store = createLocalStore<string[]>({
   migrateLegacy: (raw) => (Array.isArray(raw) ? sanitizeIds(raw) : undefined),
 });
 
-const read = () => store.read();
+const read = () => store.read().value;
 const write = (ids: string[]) => store.write(ids);
 
 /** Carrito local por inventoryItemId (pieza única). Sin wallet ni backend. */

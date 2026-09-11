@@ -139,31 +139,6 @@ const store = createLocalStore<CartLine[]>({
   empty: () => [],
 });
 
-/**
- * ¿Hay un carrito guardado NO vacío que YA caducó? El helper compartido devuelve vacío al caducar
- * sin decirlo; aquí se mira ANTES de leer para poder avisar «Tu lista de venta caducó y la vaciamos»
- * (§33.11.1). Misma regla que el helper: `>` estricto sobre `updatedAt`.
- */
-function peekExpired(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    const raw = window.localStorage.getItem(SELL_CART_KEY);
-    if (raw == null) return false;
-    const parsed = JSON.parse(raw) as { lines?: unknown; updatedAt?: unknown } | null;
-    if (!parsed || typeof parsed !== 'object') return false;
-    const lines = Array.isArray(parsed.lines) ? parsed.lines : [];
-    const updatedAt = parsed.updatedAt;
-    return (
-      lines.length > 0 &&
-      typeof updatedAt === 'number' &&
-      Number.isFinite(updatedAt) &&
-      Date.now() - updatedAt > SELL_CART_MAX_AGE_MS
-    );
-  } catch {
-    return false;
-  }
-}
-
 let lineSeq = 0;
 
 /** Tras restaurar, el contador de ids arranca por encima de los ids guardados (sin colisiones). */
@@ -331,8 +306,9 @@ export function useSellCart() {
 
   // Rehidratación al montar (nunca en SSR ni en el primer render: evita mismatch de hidratación).
   useEffect(() => {
-    const expired = peekExpired();
-    const lines = store.read();
+    // La caducidad la decide el helper compartido (F2-4): `expired` = había un carrito NO vacío con más
+    // de 30 días y se descartó ⇒ «Tu lista de venta caducó y la vaciamos» (§33.11.1).
+    const { value: lines, expired } = store.read();
     if (expired) {
       setRestore({ kind: 'expired' });
       return;
@@ -352,7 +328,7 @@ export function useSellCart() {
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== null && e.key !== SELL_CART_KEY) return;
-      const lines = store.read();
+      const lines = store.read().value;
       cartRef.current = lines;
       setCartState(lines);
     };
