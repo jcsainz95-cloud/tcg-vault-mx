@@ -47,3 +47,11 @@ orquestador el 2026-09-10.
   de Vercel). Fusionar a `main` **no publica**; `git push origin production` **sí**. Resuelve la contradicción entre
   `docs/DEVOPS_NOTES.md:2280` (decía `main`) y `:3313` (decía `production`): gana `:3313`. `vercel.json` construye
   ambas ramas, por eso `main` genera una vista previa. Árbol de `production` == árbol de `main` (`git diff` vacío).
+
+- **Tres roles del equipo no pueden commitear nunca, por diseño de sus herramientas** (medido 2026-09-11:
+  `.claude/agents/` — `arquitecto`, `ux-ui` y `product-owner` tienen Read/Grep/Glob/Write/Edit y **no** Bash;
+  `backend`, `frontend`, `devops`, `qa`, `techlead`, `pentester` y `seguridad` sí la tienen). Consecuencia
+  operativa para el orquestador: cuando uno de esos tres entrega, **su trabajo queda suelto en el árbol y el
+  commit lo lanza el orquestador**, con `git commit -- <sus rutas>` y un mensaje que diga que lo escribió el
+  agente y que el orquestador lo verificó. No es un incumplimiento de O-10 por parte del agente: es que no
+  tiene la herramienta. Esperar su commit es esperar algo que no puede ocurrir.
