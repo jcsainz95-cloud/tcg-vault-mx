@@ -22,6 +22,7 @@ import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { clearUnavailableNotice, pushUnavailableNotice } from './unavailable-notice';
+import { CheckoutRetryNotice, PaymentInProgressNotice } from './CheckoutRetryNotice';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -45,6 +46,16 @@ import { clearUnavailableNotice, pushUnavailableNotice } from './unavailable-not
  * Al crear cuenta/iniciar sesión desde el flujo de invitado, `useSession` reacciona y esta
  * misma vista conmuta al flujo con cuenta sin recargar la ruta: el carrito (localStorage)
  * se conserva y el desglose se re-cotiza.
+ *
+ * v1.68 (§4-R, «la reserva tiene DUEÑO») — el REINTENTO tras un intento caído (modal cerrado,
+ * 3DS abandonado, pestaña recargada): `POST /checkout/session` ya no responde `ITEM_UNAVAILABLE`
+ * contra la propia reserva. Cuatro desenlaces, y los cuatro se pintan:
+ *  - `200 reused` ⇒ `CheckoutRetryNotice` («mismo pedido, mismo cobro») + cuenta atrás con el
+ *    `reservedUntil` del servidor;
+ *  - `201` con `supersededOrderIds` ⇒ aviso «tu intento anterior se canceló; solo se cobra este»;
+ *  - `409 PAYMENT_IN_PROGRESS` ⇒ `PaymentInProgressNotice`: bloqueo explicado, enlace al pedido
+ *    (`details.orderId`) y «Reintentar en un momento». El botón «Pagar» se apaga mientras tanto;
+ *  - `409 ITEM_UNAVAILABLE` ⇒ **otro** cliente la tiene: la poda de abajo SE CONSERVA.
  */
 export function CheckoutView() {
   const t = useTranslations('checkout');
@@ -63,6 +74,13 @@ export function CheckoutView() {
   const [paid, setPaid] = useState(false);
   const [creating, setCreating] = useState(false);
   const [session, setSession] = useState<CheckoutSessionResponse | null>(null);
+  /**
+   * v1.68: el último desenlace de `POST /checkout/session`, SEPARADO de `session` (que es el
+   * modal): al cerrar el modal la reserva sigue siendo del cliente y su cuenta atrás tiene que
+   * seguir a la vista — es lo que le dice que al volver a pulsar «Pagar» recupera, no duplica.
+   */
+  const [outcome, setOutcome] = useState<CheckoutSessionResponse | null>(null);
+  const [paymentInProgress, setPaymentInProgress] = useState<{ orderId?: string; orderNumber?: string } | null>(null);
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
 
@@ -162,12 +180,22 @@ export function CheckoutView() {
     setCreating(true);
     setPayError(null);
     setEmailNotVerified(false);
+    setPaymentInProgress(null);
     try {
       const res = await createCheckoutSession(cart.ids);
+      setOutcome(res);
       setSession(res);
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setEmailNotVerified(true);
+      } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
+        // §4-R.2: el PI del intento anterior ya no se puede cancelar ⇒ el servidor no crea
+        // otro. `details: { orderId, orderNumber }` — se leen defensivos (sin cifra inventada).
+        const d = e.details ?? {};
+        setPaymentInProgress({
+          orderId: typeof d.orderId === 'string' ? d.orderId : undefined,
+          orderNumber: typeof d.orderNumber === 'string' ? d.orderNumber : undefined,
+        });
       } else if (
         e instanceof ApiClientError &&
         (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
@@ -193,6 +221,7 @@ export function CheckoutView() {
     // El pago quedó autorizado; el backend lo asienta por webhook. Limpiamos el carrito y
     // mostramos "procesando" (la titularidad pasa a settled cuando el webhook liquida).
     setSession(null);
+    setOutcome(null);
     cart.clear();
     setPaid(true);
   }
@@ -315,11 +344,24 @@ export function CheckoutView() {
                   {payError}
                 </p>
               )}
+              {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R). */}
+              <CheckoutRetryNotice outcome={outcome} className="mt-6" />
+              {paymentInProgress && (
+                <PaymentInProgressNotice
+                  orderId={paymentInProgress.orderId}
+                  orderNumber={paymentInProgress.orderNumber}
+                  guest={false}
+                  retrying={creating}
+                  onRetry={pay}
+                  className="mt-6"
+                />
+              )}
 
               {/* Compromiso final en rojo TCG HUNT, bloque de 54px (artboard). */}
               <Button
                 variant="accent"
                 loading={creating}
+                disabled={!!paymentInProgress}
                 onClick={pay}
                 className="mt-7 min-h-[54px] w-full tracking-eyebrow"
               >

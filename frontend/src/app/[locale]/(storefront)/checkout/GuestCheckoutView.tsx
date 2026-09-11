@@ -22,6 +22,8 @@ import { GuestOrderConfirmation } from './GuestOrderConfirmation';
 import { InlineAuthPanel } from './InlineAuthPanel';
 import { UnavailableItemsNotice } from './UnavailableItemsNotice';
 import { pushUnavailableNotice } from './unavailable-notice';
+import { CheckoutRetryNotice, PaymentInProgressNotice } from './CheckoutRetryNotice';
+import { clearGuestRetryToken, readGuestRetryToken, saveGuestRetryToken } from './guest-retry-token';
 import {
   EMPTY_GUEST_ADDRESS,
   toAddressPayload,
@@ -49,6 +51,13 @@ export interface GuestCheckoutViewProps {
  * AQUÍ, por encima del gate de identidad, no dentro del panel. Por eso ir a "iniciar
  * sesión" y volver a "invitado" no borra el correo ni la dirección ya capturados, y el
  * carrito —que vive en localStorage— nunca se toca al cambiar de vía.
+ *
+ * v1.68 (§4-R.3) — el invitado recupera su reserva SOLO con `retryOfCheckoutToken`: el
+ * `checkoutToken` que devolvió el intento anterior se guarda en **`sessionStorage`** (ámbito
+ * pestaña, nunca `localStorage`) y viaja en el body del reintento. Con él: `200 reused` (mismo
+ * pedido, mismo PI, token nuevo) o `201` con `supersededOrderIds`; `409 PAYMENT_IN_PROGRESS` bloquea
+ * con explicación. Sin él (otra pestaña, token vencido) la reserva propia cuenta como ajena y la
+ * respuesta es la de hoy (`ITEM_UNAVAILABLE` ⇒ poda), a propósito: un correo no es identidad.
  */
 export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewProps) {
   const t = useTranslations('checkout');
@@ -70,6 +79,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [creating, setCreating] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [session, setSession] = useState<GuestCheckoutSessionResponse | null>(null);
+  /** v1.68: último desenlace de la session, separado del modal (ver `CheckoutView`). */
+  const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
+  const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
 
   const query = useQuery({
@@ -161,7 +173,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     }
 
     setCreating(true);
+    setPaymentInProgress(false);
     try {
+      // §4-R.3: el token del intento anterior (si sigue vivo) es el reclamo de la reserva propia.
+      const retryOfCheckoutToken = readGuestRetryToken() ?? undefined;
       const res = await createGuestCheckoutSession({
         inventoryItemIds: cart.ids,
         email: form.email.trim(),
@@ -169,7 +184,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         locale,
         acceptedTerms: true,
         fulfillmentMode: 'direct_ship',
+        ...(retryOfCheckoutToken ? { retryOfCheckoutToken } : {}),
       });
+      // El token recién emitido (también en el `200` de reuso) sustituye al anterior: es la
+      // llave del reintento siguiente, con su propio vencimiento.
+      saveGuestRetryToken(res.checkoutToken, res.checkoutTokenExpiresAt);
+      setOutcome(res);
       setSession(res);
     } catch (e) {
       // 422 VAULT_REQUIRES_ACCOUNT (details.upsell) NUNCA se pinta como error: es la
@@ -177,6 +197,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
         setDestination('vault');
         setUpsellOpen(true);
+      } else if (e instanceof ApiClientError && e.code === 'PAYMENT_IN_PROGRESS') {
+        // §4-R.2/.3: el PI del intento anterior ya está en curso o cobrado ⇒ no se abre otro. El
+        // invitado no tiene `/orders/:id`: el bloqueo explica y ofrece reintentar en un momento.
+        setPaymentInProgress(true);
       } else if (
         e instanceof ApiClientError &&
         (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
@@ -203,6 +227,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // y ahí manda el correo con el enlace de seguimiento (criterio 49).
     const created = session;
     setSession(null);
+    setOutcome(null);
+    // Pedido pagado: ya no hay reserva que reintentar; el token de reintento se retira.
+    clearGuestRetryToken();
     onPaid();
     cart.clear();
     setPaid(created);
@@ -337,6 +364,11 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   {payError}
                 </p>
               )}
+              {/* v1.68: reuso / sustitución / cuenta atrás de la reserva (§4-R.3). */}
+              <CheckoutRetryNotice outcome={outcome} className="mt-6" />
+              {paymentInProgress && (
+                <PaymentInProgressNotice guest retrying={creating} onRetry={pay} className="mt-6" />
+              )}
 
               {identity === 'guest' ? (
                 <>
@@ -372,7 +404,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   <Button
                     variant="accent"
                     loading={creating}
-                    disabled={!!payBlockedReason}
+                    disabled={!!payBlockedReason || paymentInProgress}
                     aria-describedby={payBlockedReason ? 'pay-blocked-note' : undefined}
                     onClick={pay}
                     className="mt-5 min-h-[54px] w-full tracking-eyebrow"
