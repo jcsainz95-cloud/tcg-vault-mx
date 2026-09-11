@@ -6516,3 +6516,103 @@ topes de posición) ya validan con `isInt`.
   Un controlador que viva en un fichero sin sufijo `.controller.ts` no entraría en el recorrido (hoy
   no hay ninguno: 10+ controladores y 50+ handlers vistos, aserción de sanidad en el propio test).
 - **Disparador:** subir de Nest 10 (revisar las constantes) o cambiar la convención de nombres.
+
+---
+
+## Devops · 2026-09-11 · gates andamiaje de CI
+
+Anotado por **devops** en la ronda de correcciones tras los veredictos (QA aprobado con condiciones,
+techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha lleva la
+**comprobación de cierre**: sin ella no se cierra. Contexto y mediciones: `docs/DEVOPS_NOTES.md` §56.9.
+
+### DO-D1 · `check-secret-defaults.sh` es un mini-linter de 630 líneas y el manifiesto acopla «rojo que causa backend/frontend, solo apaga devops» (techlead F1-7) — Media
+- **Qué:** el script cubre cinco clases (compose, workflows, scripts/Dockerfile, URLs, respaldos con
+  manifiesto) en un solo fichero bash de ~630 líneas con parsers a mano. Y el bloque del manifiesto
+  (`security/secretos-publicados.sha256`, generado por `gen-published-secrets-manifest.sh`) pone ROJO
+  el gate cuando **otro rol** commitea un literal nuevo en un test/fixture, y el único que puede
+  apagarlo es devops regenerando el fichero. **Medido hoy (2026-09-11):** `frontend/e2e/utils/env.ts:63`
+  (`E2E_TEMP_CUSTOMER_PASSWORD ?? 'Temporal123!'`) dejó `check-secret-defaults.sh` en rc=1 en el árbol
+  hasta que devops regeneró el manifiesto al cierre de su ronda. Es el tercer caso de la semana.
+- **Cura (a explorar, no decidida):** que el **job** regenere el manifiesto en el runner y falle **solo**
+  si al commiteado le faltan entradas que el regenerado sí tiene (diff de hashes) — el rojo seguiría
+  diciendo «hay un literal nuevo sin registrar» pero con el diff exacto y sin bloquear a nadie por un
+  fichero que solo devops toca; y partir el script por clase (A–E) con una librería común de parseo.
+- **Comprobación de cierre:** (1) sobre COPIA del árbol, añadir un literal `X_PASSWORD ?? 'Nuevo123!'`
+  en un test de backend y correr el equivalente del job ⇒ el rojo trae el hash/línea que falta **y**
+  el manifiesto regenerado como artifact (no «regenera y vuelve»); (2) `wc -l` de cada pieza < 250 y
+  canario `check-secret-defaults-canary.sh` sigue 66/66 (3/3).
+- **Disparador:** el siguiente rojo del manifiesto causado por un rol que no es devops.
+
+### DO-D2 · Residual de F1-1: `blocking` del DAST de release NO MEDIDO en un push real a `production` — Media
+- **Qué:** el hecho `blocking` separado del exit code (commit `faccdeb`) está medido **en local** con
+  informes de juguete (`check-dast-gate-live.sh` 5-bis, 3/3; mutación 3/3 roja) y en `security-dast.yml`
+  el output pasa a leer `steps.gate.outputs.blocking`. Lo que **no** se ha visto: un run de `deploy.yml`
+  por push a `production` con esta versión, donde `dast-release.outputs.blocking` llegue como `'false'`
+  a los `promote-*` (que ahora exigen `== 'false'`, fail-closed: vacío no promueve).
+- **Comprobación de cierre:** primer push a `production` tras el merge: en el run de `deploy.yml`, el job
+  `dast-release / dast` imprime `blocking=false` en su resumen/outputs (API `jobs` del run) y
+  `abrir-issue` queda `skipped`; con `report_only` aún puesto, el run sigue verde. Si `blocking` llega
+  vacío, el fallo está en la propagación `steps.gate → jobs.dast.outputs → workflow_call.outputs`.
+- **Disparador:** ese primer push. Dueño: devops.
+
+### DO-D3 · Residual de F1-2: la lista cerrada `SKIPPED_ESPERADOS` de `check-candidate-checks.sh` describe deploy.yml por construcción, NO MEDIDA contra un push real — Baja
+- **Qué:** medido que `d2efe07` (26 check-runs), `c13f4179` y `17ce9a9` tienen 0 `skipped`. La lista
+  (9 jobs de `deploy.yml` que se saltan con el CD apagado) se escribió leyendo los `if:`/`needs:`, no
+  viendo un run. Un skipped fuera de la lista ⇒ rc=3.
+- **Comprobación de cierre:** `./scripts/check-candidate-checks.sh <sha del primer push a production>`
+  ⇒ rc=0 con «saltados esperados: N» y **cero** «SIN motivo escrito». Si aparece uno, se añade con su
+  motivo (o se mide por qué se saltó), nunca se vuelve a sumar al verde.
+- **Disparador:** ese primer push; y la reactivación del CD (entonces la lista se **vacía**).
+
+### DO-D4 · `dast-release` sigue en `report_only: true` hasta que seguridad lo suba (C2) — con fecha — Media
+- **Qué:** el run de `deploy.yml` no se pone rojo por hallazgos del DAST; el hecho `blocking` sí se
+  calcula y sí gatea la promoción (DO-D2). Fecha límite **2026-10-06** en
+  `scripts/check-dast-report-only-expiry.sh` (job `dast-report-only-expiry` de `ci.yml`, canario 8/8
+  3/3): desde ese día CI sale rojo si sigue puesto. Primer barrido `full` citable sobre lo publicado:
+  run `34561010792` (`c13f4179`, report_only=false, sin bloqueantes).
+- **Dueño de la decisión:** seguridad (ver los barridos de los lunes 09-14 / 09-21 / 09-28 / 10-05).
+  Cableado: devops.
+- **Comprobación de cierre:** `grep -c 'report_only: true' .github/workflows/deploy.yml` = 0 y
+  `./scripts/check-dast-report-only-expiry.sh` imprime «ya NO lleva report_only». Mover la fecha exige
+  motivo escrito en DEVOPS_NOTES; no se mueve «porque caducó».
+
+### DO-D5 · H1 · Protección de ramas `main`/`production` (ruleset con `ci-ok`, `sast-ok`, `e2e-ok`) — pendiente de decisión del dueño — Media
+- **Qué:** propuesta completa (nombres exactos y JSON del ruleset) en `DEVOPS_NOTES` §56.8. Re-medido
+  2026-09-11: `main` y `production` `protected: false`; `/rulesets` = `[]`. Sin esto, un push directo a
+  `production` publica sin ningún check.
+- **Consecuencia que el dueño tiene que aceptar antes:** con `required_status_checks` un push directo
+  solo pasa por fast-forward de un SHA ya verde; un merge commit nuevo exige PR (o `bypass_actor`).
+- **Comprobación de cierre:** `GET /repos/jcsainz95-cloud/tcg-vault-mx/rulesets` devuelve uno activo
+  sobre `refs/heads/main` y `refs/heads/production` con los tres contexts; y un push de prueba de un
+  SHA sin checks a `production` es rechazado.
+
+### DO-D6 · Hallazgos históricos de gitleaks en `backend/` — CERRADO hoy en modo `git` (commit `12c2fe9`); queda ruido en `dir` sobre artefactos NO versionados — Baja
+- **Qué:** backend neutralizó los tres en el árbol (`a454178`); devops los eximió **por valor exacto y
+  acotados** (dos en la allowlist global, uno en `[rules.allowlist]` de `generic-api-key-assignment`
+  con `regexTarget = "match"`, porque esa regla expone el NOMBRE como secreto). Medido: `gitleaks git .`
+  historial completo → **0** (antes 5); estrechez: mismo literal en otra clave ⇒ rojo, otro valor en
+  la misma clave ⇒ rojo; canario 11/11 (3/3).
+- **Residual:** `gitleaks dir .` en local sigue listando 44 hallazgos, **todos** en ficheros no
+  versionados (`.native-stack/secrets.env`, `.native-stack/backend.log`, `frontend/.next*/…`):
+  0 en ficheros versionados. No es deuda del repo; es que `dir` no respeta `.gitignore`. Quien mida
+  `dir` en local debe leerlo así (o borrar esos artefactos antes).
+- **Comprobación de cierre del residual (si se quiere):** `gitleaks dir . ` con `--gitleaks-ignore-path`
+  o un `.gitleaksignore` con esos hashes; hoy no se hace porque CI escanea el rango del push en modo git.
+
+### DO-D7 · Residual de F1-3: `format-mix-base` sigue trayendo prettier por `npx` (red) — Baja
+- **Qué:** el canario ahora distingue «no pude medir» (rc=2) de «no muerde» (rc=1) y `ci.yml` lo
+  imprime así; pero el job no instala prettier del lockfile (`npm ci` de backend cuesta ~1 min por
+  corrida solo para un binario). Un fallo de red del runner sigue poniendo rojo el job — con el
+  mensaje correcto.
+- **Comprobación de cierre:** el paso instala `prettier@3.9.6` desde `backend/package-lock.json` (o
+  cachea el binario) y el canario imprime `prettier: … (v3.9.6)` sin `npx`; o se acepta el residual
+  con esta ficha.
+
+### DO-D8 · «actionlint 0 avisos» de §56 se midió SIN shellcheck en el PATH de actionlint — corregido para los 7 workflows hoy — cerrado
+- **Qué:** con `shellcheck` accesible, actionlint analiza los `run:` y en `d2efe07` reportaba 3 avisos
+  en `ci.yml` y 2 en `security-sast.yml` (preexistentes). Hoy: `ci.yml` (`^{commit}` sin comillas,
+  backticks en un echo) y `security-sast.yml` (`$SG_CONFIGS` sin comillas **a propósito**, con
+  directiva y motivo) ⇒ **0 avisos en los 7 workflows con shellcheck en PATH**.
+- **Comprobación de cierre (ya cumplida, para que no vuelva):** `PATH=<con shellcheck> actionlint
+  -no-color .github/workflows/*.yml` ⇒ rc=0. Las mediciones futuras de «actionlint 0 avisos» deben
+  decir si shellcheck estaba en el PATH.

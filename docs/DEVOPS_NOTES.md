@@ -10664,8 +10664,10 @@ midió aquí.
 
 ### 56.1 · Prioridad 1 — Node 20 fuera de los runners el 2026-09-16
 
-**Qué se cambió (commit `e7de08d`):** `node-version: 20` → **`24`** en los 8 sitios (`ci.yml` ×3,
-`e2e.yml` ×2, `e2e-real.yml`, `security-sast.yml`, `security-scheduled.yml`). Y —esto es lo que de
+**Qué se cambió (commit `e7de08d`):** `node-version: 20` → **`24`** en los 8 sitios que había entonces
+(`ci.yml` ×3, `e2e.yml` ×2, `e2e-real.yml`, `security-sast.yml`, `security-scheduled.yml`); hoy son
+**9 líneas** porque #5 (`9db7b64`) añadió un `setup-node` en `format-mix-base` para el canario
+(`grep -c node-version .github/workflows/*.yml` = 9, re-medido 2026-09-11; corrige QA). Y —esto es lo que de
 verdad rompe el 16— las **acciones cuyo runtime es node20** (leído del `action.yml` de cada tag en
 raw.githubusercontent.com): `actions/checkout` v4→**v5** (×33), `actions/setup-node` v4→**v5** (×8),
 `actions/upload-artifact` v4→**v6** (×7; v5 sigue en node20), `actions/download-artifact` v4→**v7**
@@ -10916,3 +10918,33 @@ en verde** (p. ej. un fast-forward desde la rama de sesión ya verificada). Un m
 push «a pelo» se rechaza hasta que llegue por PR (o se añada un `bypass_actor`). Con el flujo actual
 (fusionar la rama a `main` y empujar `production` = mismo árbol) funciona si se hace por
 fast-forward; si no, hay que pasar a PR. **No activado por devops.**
+
+### 56.9 · Ronda de correcciones tras los gates (2026-09-11) — F1-1…F1-6, shellcheck, gitleaks histórico, manifiesto
+
+Encargo del orquestador tras QA **APROBADO CON CONDICIONES** y techlead **APROBADO CON DEUDA**. Todo
+lo de abajo está **medido en este entorno** (misma caja de herramientas que §56: gitleaks v8.30.1,
+actionlint del scratchpad, **shellcheck 0.11.0 y yamllint por `pip --target`**, Node 22; sin demonio
+de Docker) salvo lo marcado **NO MEDIDO AQUÍ**. Deuda derivada: `docs/TECH_DEBT.md` bloque
+«Devops · 2026-09-11 · gates andamiaje de CI» (DO-D1…DO-D8).
+
+| Hallazgo | Commit | Qué cambió | Medición |
+|---|---|---|---|
+| **F1-1** (techlead, IMPORTANTE) · el gate DAST de promoción estaba **abierto por construcción**: `report_only: true` ⇒ `dast-gate.py` rc=0 ⇒ `blocking = (outcome == 'failure')` siempre `'false'` ⇒ `promote-*` pasaban siempre | `faccdeb` | `dast-gate.py` publica **siempre** el hecho `blocking=true\|false` (`$GITHUB_OUTPUT` + `--blocking-file`) **antes** de decidir el exit; `--report-only` solo toca el exit. `dast-ephemeral.sh gate` pasa `--blocking-file security/reports/dast-blocking.txt`. `security-dast.yml`: `outputs.blocking = steps.gate.outputs.blocking` (vacío si el candado no corrió); `abrir-issue` también con `blocking == 'true'` en report_only. `deploy.yml`: `promote-*` exigen **`== 'false'`** (fail-closed; `!= 'true'` dejaba pasar el vacío); comentarios corregidos. `check-dast-gate-live.sh` **5-bis**: sucio + `--report-only` ⇒ `0\|true\|blocking=true`; limpio ⇒ `0\|false\|blocking=false`; sucio sin flag ⇒ `1\|true\|blocking=true`. **Caducidad:** `scripts/check-dast-report-only-expiry.sh` (aísla el bloque `dast-release`; verde si no hay `report_only: true` o hoy < **2026-10-06**; rc=9 desde esa fecha; rc=2 sin bloque) + canario (8 casos) + job `dast-report-only-expiry` en `ci.yml`, en `ci-ok` con «skipped no es verde» | canario del candado **3/3** verde; **mutación sobre COPIA** (sin `publicar_bloqueantes`) ⇒ **rojo 3/3**, control verde; canario de caducidad **8/8 en 3/3**; gate real hoy: «vigente hasta 2026-10-06, quedan 25 días», rc=0. actionlint (con shellcheck en PATH) 0 avisos en los 3 workflows; yaml OK (16/11/4 jobs); 11 gates estáticos rc=0. **NO MEDIDO AQUÍ:** `blocking` llegando a `promote-*` en un push real a `production` (DO-D2) |
+| **F1-2** (techlead, IMPORTANTE) · `check-candidate-checks.sh` sumaba `skipped` al verde sin motivo | `1778b0a` | `skipped` es una **tercera clasificación**: se imprime aparte, no suma al verde; solo se tolera si el job está en la **lista cerrada** `SKIPPED_ESPERADOS` (9 jobs de `deploy.yml` que se saltan por construcción con el CD apagado, cada uno con motivo; `format-mix` **no** entra: su skipped es «sin base», no medido). Fuera de la lista ⇒ **rc=3**. Resumen imprime «saltados sin motivo / esperados» | medido por API: `d2efe07` (26 check-runs), `c13f4179`, `17ce9a9` ⇒ **0 skipped**, siguen rc=0. Canario: 3 casos nuevos (sin motivo ⇒ 3; de la lista ⇒ 0 y «esperado:»; mezcla ⇒ 3) → **12/12 en 3/3**; mutación sobre COPIA (volver a sumar skipped) ⇒ **rojo 3/3**. **NO MEDIDO AQUÍ:** la lista contra un push real a `production` (DO-D3) |
+| **F1-3** (techlead, MENOR) · el canario de format-mix hacía `exit 1` con cara de BL-27 si `npx prettier` fallaba por red | `a48f716` | lee `PRETTIER_VERSION` del comparador; binario local solo si tiene ESA versión; si no, `npx` con timeout; si tampoco ⇒ **rc=2** «NO PUEDE MEDIR». El `\|\| { …; exit 1; }` tras `$(…; echo x)` miraba el rc de `echo`: ahora se comprueba el resultado. `ci.yml` distingue rc=2 («canario sin instrumento», sigue rojo) de rc=1 («no muerde») | **4/4 en 3/3** con el local (v3.9.6); sin prettier (binario apartado, PATH sin node) ⇒ **rc=2** con el mensaje nuevo. Residual DO-D7 (no instala del lockfile) |
+| **F1-4** (techlead, MENOR) · `gitleaks.toml` eximía `.github/workflows/*.yml` entero | `eb0c528` | **exención retirada**; comentario in situ con la medición y el puntero al control compensatorio (`check-secret-defaults.sh` bloque B) | con y sin la línea, `gitleaks dir .` (32) y `gitleaks git .` historial completo (5): **conjuntos idénticos, 0 en workflows**. Canario 11/11 (3/3) |
+| **F1-6** (techlead, MENOR) · filtro literal `Node.js 20 is deprecated` caducado | `1778b0a` | `/Node\.js \d+ .*deprecated/i` | (mismo canario) |
+| **shellcheck** (QA) · SC1087 `check-secret-defaults.sh:537`, SC2164 en `check-provenance-gate.sh:48`, `check-secret-defaults.sh:81`, `gen-published-secrets-manifest.sh:52` | `087e0aa` | `${vname}[:=]`; `cd … \|\| exit N`. Solo cambia si el `cd` falla | shellcheck 0.11.0 limpio; canarios `check-secret-defaults-canary` **66/66** y `check-provenance-gate-canary` **9/9**, ambos **3/3**; gates rc=0 |
+| **shellcheck dentro de actionlint** (hallazgo propio) · «0 avisos» de §56 se midió sin shellcheck en el PATH de actionlint; con él, `d2efe07` tenía 3 avisos en `ci.yml` y 2 en `security-sast.yml` | `faccdeb` (ci.yml), `security-sast.yml` en el commit de docs de esta ronda | `"origin/main^{commit}"`, backticks → comillas simples; `# shellcheck disable=SC2086` con motivo (`$SG_CONFIGS` se parte a propósito) | `actionlint -no-color .github/workflows/*.yml` con shellcheck en PATH ⇒ **rc=0 en los 7**; yaml OK ×7 |
+| **§56.1 «8 sitios»** (QA) | (este commit) | son 9 líneas: `format-mix-base` ganó un `setup-node` en #5 | `grep -c node-version` = 9 |
+| **Gitleaks histórico de `backend/`** (orquestador) · backend los neutralizó en el árbol (`a454178`); en modo `git` seguían en `fbb66e1`, `46d76cc`, `e504466` | `12c2fe9` | eximidos **por valor exacto**: `^A-Strong-Secret-123$`, `^asB64\.length$` (global) y `POKEMONPRICETRACKER_API_KEY: 'SUPER-SECRETO-123'` en `[rules.allowlist]` de `generic-api-key-assignment` con `regexTarget = "match"` (esa regla expone el NOMBRE como secreto, la allowlist global no puede eximirla por valor) | `gitleaks git .` ⇒ **0, rc=0**; estrechez: mismo literal en `POKETRACE_API_KEY` ⇒ rojo, otro valor ⇒ rojo; canario 11/11 (3/3). `dir .`: 44 hallazgos, **todos en no versionados** (`.native-stack/`, `frontend/.next*`), 0 versionados (DO-D6) |
+| **Manifiesto** (orquestador/backend) · `gen-published-secrets-manifest.sh --check` rc=1 por `frontend/e2e/utils/env.ts:63/68` (`E2E_TEMP_CUSTOMER_PASSWORD` / `E2E_TEMP_OPERATOR_PASSWORD ?? 'Temporal123!'`, hash `cdf12b93…`); dejaba `check-secret-defaults.sh` en rc=1 (también con la versión `d2efe07` del script: no lo causó esta ronda) | commit de cierre de la ronda | manifiesto regenerado y commiteado al final | `--check` rc=0 y `check-secret-defaults.sh` rc=0 tras regenerar. Es el caso vivo de **DO-D1** |
+
+**Deuda que queda (con comprobación de cierre en TECH_DEBT):** DO-D1 (mini-linter + acoplamiento del
+manifiesto; F1-7), DO-D2 (F1-1 residual: push real a `production`), DO-D3 (F1-2 residual: lista contra
+un push real), DO-D4 (`report_only` hasta que seguridad lo suba; fecha 2026-10-06), DO-D5 (H1, dueño),
+DO-D6 (cerrado; residual de `dir` en artefactos locales), DO-D7 (F1-3 residual: prettier por `npx`),
+DO-D8 (cerrado; cómo medir «actionlint 0 avisos»).
+
+**Nota sobre la referencia «BE-77» del encargo:** en `TECH_DEBT.md` BE-77 es `BulkPriceRow` /
+`sync-all` (backend), no gitleaks; el hallazgo histórico de gitleaks se cita aquí por §56.3 y `a454178`.

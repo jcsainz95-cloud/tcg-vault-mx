@@ -63,6 +63,8 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Semgrep — informe completo (SARIF, no bloquea)
         run: |
+          # $SG_CONFIGS va SIN comillas a propósito: son varios `--config=…` separados por espacio.
+          # shellcheck disable=SC2086
           semgrep $SG_CONFIGS \
             --metrics=off --disable-version-check \
             --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
@@ -84,6 +86,8 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Semgrep GATE — bloquea en high/critical (severidad ERROR)
         run: |
+          # $SG_CONFIGS va SIN comillas a propósito: son varios `--config=…` separados por espacio.
+          # shellcheck disable=SC2086
           semgrep $SG_CONFIGS \
             --severity=ERROR \
             --error --metrics=off --disable-version-check \
