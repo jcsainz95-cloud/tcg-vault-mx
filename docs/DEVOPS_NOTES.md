@@ -11051,7 +11051,7 @@ avisa por pantalla de que **esa corrida no sirve como gate**.
 | `shellcheck` de los dos scripts nuevos | **0** |
 | `shellcheck -x scripts/stack-native.sh` | **sin avisos nuevos**: los mismos 6 preexistentes (diff vacío contra la versión de `7766296`) |
 | `check-ci-ok.sh --static` | rc=0 — 18 jobs, 17 en `needs`, `db-pool-limit` incluido |
-| Canarios vecinos afectados (`ci-ok`, `workflow-cwd`) | rc=0 en **3/3** cada uno |
+| Canarios vecinos afectados (`ci-ok`, `workflow-cwd`, `secret-defaults`) | rc=0 en **3/3** cada uno (el de `secret-defaults` tarda ~7 min por tirada) |
 | `check-secret-defaults.sh` | rc=0 — **mordió primero**: los fixtures de mis dos scripts llevaban `postgresql://u:p@…` y el gate de S-88-1 los marcó como «URL con credencial escrita dentro» (3 líneas). Reescritos sin credencial (`postgresql://sin_credencial@…`) |
 | Los demás gates estáticos (`workflow-cwd`, `e2e-harness-gaps`, `provenance-gate`, `dast-gate-live`, `daemon-stdout-leak`, `stripe-webhook-failclosed`, `e2e-skip-census`, `e2e-provider-incapacitation`, `dast-report-only-expiry`) | rc=0 |
 
