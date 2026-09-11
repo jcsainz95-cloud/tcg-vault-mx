@@ -534,6 +534,17 @@
         "alreadyClaimedNeutral": "No fue posible vincular este pedido.",
         "emailTakenNeutral": "No se pudo crear la cuenta con ese correo. Si ya tienes una, inicia sesión para reclamar el pedido desde tu historial."
       }
+    },
+    "retry": {
+      "reused": "Recuperamos tu reserva anterior ({orderNumber}): es el mismo pedido y el mismo cobro, no se duplica nada.",
+      "superseded": "{count, plural, one {Tu intento anterior se canceló} other {Tus # intentos anteriores se cancelaron}}: este pedido lo sustituye y solo se cobra este.",
+      "reservedUntil": "Reservado para ti hasta las {time} (hora de la Ciudad de México).",
+      "remaining": "Tiempo restante: {remaining}",
+      "expired": "La reserva venció. Al pagar volveremos a intentar reservar estas piezas.",
+      "paymentInProgress": "Tu intento anterior ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa ese pedido antes de reintentar.",
+      "paymentInProgressGuest": "Tu intento anterior con este correo ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa tu correo o espera un momento antes de reintentar.",
+      "viewOrder": "Ver pedido {orderNumber}",
+      "retrySoon": "Reintentar en un momento"
     }
   },
   "vault": {
@@ -1033,6 +1044,14 @@
     "item": {
       "unknownCard": "Carta sin registro",
       "unknownCardHint": "El registro de este pedido no guardó el nombre de esta carta. El importe cobrado no cambia."
+    },
+    "resume": {
+      "cta": "Reanudar pago",
+      "reservedUntil": "Reservado hasta las {time} (hora de la Ciudad de México)",
+      "expired": "La reserva venció",
+      "cartReplaced": "Tu carrito se sustituye por las piezas de este pedido.",
+      "loading": "Recuperando…",
+      "error": "No pudimos recuperar las piezas de este pedido. Inténtalo de nuevo."
     }
   },
   "legal": {
@@ -1722,6 +1741,15 @@
           "latestStatus": "Último estado",
           "note": "Es la lista de gente a la que le debemos una respuesta. La más antigua va primero."
         }
+      },
+      "transition": {
+        "verb": {
+          "receive": "«Marcar recibida»",
+          "verify": "«Iniciar verificación»"
+        },
+        "invalid": "Esta solicitud está en «{from}»: {verb} solo aplica cuando está en {allowedFrom}. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
+        "invalidGeneric": "Esta acción no aplica al paso actual de la solicitud. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",
+        "allowedFromJoin": " o "
       }
     },
     "m8": {

@@ -883,32 +883,57 @@ export interface CheckoutQuoteResponse {
 
 export interface CheckoutSessionResponse {
   orderId: string;
+  /** v1.68 (§4-R.2): folio legible; ya viajaba en §4-G.2 y ahora también aquí. */
+  orderNumber?: string;
   breakdown: BreakdownDTO;
   stripe: { paymentIntentId: string; clientSecret: string };
+  /**
+   * v1.68 (§4-R.2) — **`true` SOLO en el `200` de REUSO**: la misma orden y el MISMO PaymentIntent
+   * del intento anterior del mismo cliente (no se cobra dos veces; el `breakdown` es el congelado
+   * de esa orden). Los tres campos son ADITIVOS (backend B-1b aterriza en paralelo): opcionales en
+   * el tipo para que contra un backend anterior la vista NO pinte nada — nunca una reserva o una
+   * cuenta atrás inventadas.
+   */
+  reused?: boolean;
+  /** v1.68: hasta cuándo es tuya la reserva (ISO, `now()+ORDER_RESERVATION_TTL_MIN`). */
+  reservedUntil?: string;
+  /** v1.68: órdenes propias `pending` que este intento SUSTITUYÓ (`[]` si ninguna). */
+  supersededOrderIds?: string[];
 }
 
 export interface OrderSummaryDTO {
   id: string;
   userId?: string;
   /**
-   * Folio legible (`TCG-000123`, columna `Order.orderNumber` desde v1.21). El contrato v1.67.1 NO lo
-   * declara en `OrderSummaryDTO` (`API_CONTRACT §11`: `{ id, userId, status, totalCents, createdAt,
-   * settledAt? }`) ni el backend lo emite en `GET /orders` (`orders.service.ts:listOrders`, medido
-   * 2026-09-11). La columna PEDIDO lo pinta si viene y cae al `id` si no (QA, ronda de gates).
-   * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
+   * Folio legible (`TCG-000123`, columna `Order.orderNumber` desde v1.21). **Contrato v1.68
+   * (§4-R.5 / §11): `GET /orders` lo emite SIEMPRE como `string | null`** (cierra la petición de
+   * FRONTEND_NOTES §68.4-1). `null` = pedido anterior al folio; la columna PEDIDO cae entonces al
+   * `id`. Se deja opcional en el tipo solo porque `AdminOrderDTO` hereda de aquí y §11 admin no
+   * lo garantiza.
    */
-  orderNumber?: string;
+  orderNumber?: string | null;
   status: OrderStatus;
   totalCents: number;
   createdAt: string;
   settledAt?: string;
+  /**
+   * v1.68 (§4-R.5): presente **SOLO con `status: 'pending'`** — hasta cuándo las piezas del
+   * pedido siguen reservadas a su nombre. Con esto `/orders` ofrece «Reanudar pago»: el front
+   * vuelve a `/checkout` con los `items[].inventoryItemId` del pedido y `POST /checkout/session`
+   * responde `200 reused` (no hay endpoint de «reanudar»: reanudar ES reintentar).
+   */
+  reservedUntil?: string;
 }
 
 export interface OrderDetailDTO {
   id: string;
+  /** v1.68 (§4-R.5): `string | null`, misma semántica que en `OrderSummaryDTO`. */
+  orderNumber?: string | null;
   status: OrderStatus;
   createdAt: string;
   settledAt?: string;
+  /** v1.68 (§4-R.5): solo con `status: 'pending'` (ver `OrderSummaryDTO.reservedUntil`). */
+  reservedUntil?: string;
   breakdown: BreakdownDTO;
   /**
    * v1.51-c: NO es la forma del quote. `card` es `HistoricalOrderItemCardDTO` (tolerante):
@@ -4076,6 +4101,14 @@ export interface GuestCheckoutSessionRequest {
   acceptedTerms: true;
   /** si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT (upsell) */
   fulfillmentMode?: FulfillmentMode;
+  /**
+   * v1.68 (§4-R.3): el `checkoutToken` que §4-G.2 devolvió en un intento anterior. Es la ÚNICA
+   * llave con la que el invitado recupera su propia reserva (`200 reused` / `201` con
+   * `supersededOrderIds`); el correo solo no es identidad. Token inválido/caducado o correo
+   * distinto ⇒ `409 ITEM_UNAVAILABLE` (indistinguible de «pieza vendida», a propósito). Se guarda
+   * en **`sessionStorage`** (ámbito pestaña; ⛔ nunca `localStorage`) y viaja SOLO en el body.
+   */
+  retryOfCheckoutToken?: string;
 }
 
 export interface GuestCheckoutSessionResponse {
@@ -4094,6 +4127,15 @@ export interface GuestCheckoutSessionResponse {
   /** ISO — cuándo se apaga el `checkoutToken` (≈ ahora + 120 min). */
   checkoutTokenExpiresAt: string;
   stripe: { paymentIntentId: string; clientSecret: string };
+  /**
+   * v1.68 (§4-R.3), ADITIVOS y con el mismo significado que en `CheckoutSessionResponse`: `reused`
+   * es `true` solo en el `200` de reuso (mismo pedido, mismo PI, `checkoutToken` recién emitido);
+   * `reservedUntil` es el vencimiento de la reserva; `supersededOrderIds` las órdenes propias que
+   * este intento canceló. Opcionales por la misma razón: sin ellos no se pinta nada.
+   */
+  reused?: boolean;
+  reservedUntil?: string;
+  supersededOrderIds?: string[];
 }
 
 /** Estado público derivado (§4-G.5). El texto legible vive en i18n del front. */

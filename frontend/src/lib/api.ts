@@ -11,6 +11,7 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
+import * as mockReservation from './mock/reservation';
 import type {
   Paginated,
   ListingDTO,
@@ -24,6 +25,7 @@ import type {
   OrderSummaryDTO,
   OrderDetailDTO,
   CheckoutQuoteResponse,
+  UnavailableCartItemDTO,
   CheckoutSessionResponse,
   AddressDTO,
   ShipmentCreateResponse,
@@ -828,10 +830,19 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
   // trata como pieza borrada (`cardName: null`); los fixtures no modelan el caso
   // «existe pero fuera de {listed, in_stock}» (cardName con nombre) — ese lo ejercita
   // el backend real y las pruebas de vista con el API mockeado.
-  const unavailableItems = inventoryItemIds
+  const unavailableItems: UnavailableCartItemDTO[] = inventoryItemIds
     .filter((id) => !fx.mockListings.some((l) => l.inventoryItemId === id))
     .map((id) => ({ inventoryItemId: id, cardName: null }));
+  // v1.68 (§4-R): una pieza `reserved` por la orden de OTRO cliente no es vendible ⇒ el quote la
+  // lista (con nombre: existe, pero está fuera de {listed, in_stock}) y la vista la poda. La
+  // reserva PROPIA no aparece aquí: es justo la que `createCheckoutSession` reutiliza.
+  const reservedByOthers = mockReservation.mockReservedByOthers(inventoryItemIds, mockCallerCustomer());
+  for (const id of reservedByOthers) {
+    const listing = fx.mockListings.find((l) => l.inventoryItemId === id);
+    unavailableItems.push({ inventoryItemId: id, cardName: listing?.card.name ?? null });
+  }
   const items = inventoryItemIds
+    .filter((id) => !reservedByOthers.includes(id))
     .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
     .filter((l): l is ListingDTO => !!l);
   // 422 PRICE_PENDING se evalúa DESPUÉS de la poda (solo ítems válidos), contrato §4.
@@ -889,17 +900,99 @@ export async function createCheckoutSession(
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
-  const orderId = `ord-${Math.floor(Math.random() * 9000 + 1000)}`;
-  return delay({
+  // v1.68 (§4-R.2): la tabla de decisión del reintento del MISMO cliente (`lib/mock/reservation`).
+  return delay(mockCheckoutSessionOutcome(inventoryItemIds, mockCallerCustomer(), subtotal, null));
+}
+
+/** Identidad del llamador con cuenta para el simulador de §4-R (`userId` de la sesión mock). */
+function mockCallerCustomer(): mockReservation.MockCaller {
+  return { kind: 'customer', userId: getStoredUser()?.id ?? 'mock-anon' };
+}
+
+/**
+ * MOCK §4-R.2/§4-R.3 — compone la respuesta de `POST /checkout[/guest]/session` a partir de la
+ * decisión del simulador: `200 reused` (misma orden, mismo PI, `breakdown` **congelado** de esa
+ * orden — regla 5: el reuso no re-precia), `201` (nueva, con `supersededOrderIds`), o los dos
+ * `409`. `guest` trae el token recién emitido cuando la ruta es la de invitado.
+ */
+function mockCheckoutSessionOutcome(
+  inventoryItemIds: string[],
+  caller: mockReservation.MockCaller,
+  subtotalCents: number,
+  guest: { email: string; checkoutToken: string } | null,
+): CheckoutSessionResponse & { checkoutToken?: string } {
+  const decision = mockReservation.decideMockSession(inventoryItemIds, caller);
+  if (decision.kind === 'unavailable') {
+    throw new ApiClientError(409, { code: 'ITEM_UNAVAILABLE', message: 'Item unavailable' });
+  }
+  if (decision.kind === 'payment_in_progress') {
+    throw new ApiClientError(409, {
+      code: 'PAYMENT_IN_PROGRESS',
+      message: 'Previous payment can no longer be canceled',
+      details: { orderId: decision.order.orderId, orderNumber: decision.order.orderNumber },
+    });
+  }
+  const breakdown = guest
+    ? computeGuestBreakdown(subtotalCents, MOCK_SHIPPING_FEE_CENTS)
+    : computeBreakdown(subtotalCents);
+  if (decision.kind === 'reuse') {
+    const renewed = mockReservation.commitMockSession(
+      decision,
+      guest ? { ...decision.reservation, checkoutToken: guest.checkoutToken } : null,
+    );
+    const r = renewed ?? decision.reservation;
+    return {
+      orderId: r.orderId,
+      orderNumber: r.orderNumber,
+      // Congelado: el simulador no guarda el desglose, pero tampoco lo recalcula con otro precio.
+      breakdown,
+      stripe: { paymentIntentId: r.paymentIntentId, clientSecret: `${r.paymentIntentId}_secret_mock` },
+      reused: true,
+      reservedUntil: r.reservedUntil,
+      supersededOrderIds: [],
+      ...(guest ? { checkoutToken: guest.checkoutToken } : {}),
+    };
+  }
+  const orderId = `${guest ? 'ord-guest' : 'ord'}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  const orderNumber = `TCG-${String(Math.floor(Math.random() * 900000 + 100000))}`;
+  const created = mockReservation.commitMockSession(decision, {
     orderId,
-    breakdown: computeBreakdown(subtotal),
-    stripe: { paymentIntentId: `pi_mock_${orderId}`, clientSecret: `pi_mock_${orderId}_secret_mock` },
+    orderNumber,
+    inventoryItemIds: [...inventoryItemIds],
+    paymentIntentId: `pi_mock_${orderId}`,
+    userId: caller.kind === 'customer' ? caller.userId : null,
+    checkoutToken: guest?.checkoutToken ?? null,
+    guestEmail: guest?.email ?? null,
   });
+  return {
+    orderId,
+    orderNumber,
+    breakdown,
+    stripe: { paymentIntentId: `pi_mock_${orderId}`, clientSecret: `pi_mock_${orderId}_secret_mock` },
+    reused: false,
+    reservedUntil: created?.reservedUntil ?? mockReservation.mockReservedUntil(),
+    supersededOrderIds: decision.kind === 'supersede' ? decision.superseded.map((r) => r.orderId) : [],
+    ...(guest ? { checkoutToken: guest.checkoutToken } : {}),
+  };
 }
 
 export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
   if (!config.useMocks) return apiRequest<Paginated<OrderSummaryDTO>>('/orders');
-  return delay({ data: fx.mockOrders, page: 1, pageSize: 20, total: fx.mockOrders.length });
+  const data = fx.mockOrders.map((o) => mockProjectOrder(o));
+  return delay({ data, page: 1, pageSize: 20, total: data.length });
+}
+
+/**
+ * MOCK v1.68 (§4-R.5): `reservedUntil` viaja SOLO con `status: 'pending'` y sale del simulador
+ * de reservas (renovado por un `200 reused`, ausente si venció); una orden SUSTITUIDA por un
+ * reintento se proyecta `failed`, como la escribe el backend.
+ */
+function mockProjectOrder<T extends OrderSummaryDTO | OrderDetailDTO>(order: T): T {
+  if (mockReservation.mockOrderSuperseded(order.id)) return { ...order, status: 'failed' };
+  if (order.status !== 'pending') return order;
+  const live = mockReservation.mockReservationFor(order.id, getStoredUser()?.id ?? null);
+  if (!live) return order;
+  return { ...order, reservedUntil: live.reservedUntil };
 }
 
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
@@ -908,7 +1001,17 @@ export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
   // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
   if (orderId === fx.mockOrderDetailLegacy.id) return delay(fx.mockOrderDetailLegacy);
-  return delay({ ...fx.mockOrderDetail, id: orderId });
+  // v1.68: el detalle hereda `status`/`orderNumber` de la fila del listado cuando existe, para que
+  // un `pending` de `/orders` no aterrice en un detalle `settled` (misma fuente, misma verdad).
+  const summary = fx.mockOrders.find((o) => o.id === orderId);
+  const detail: OrderDetailDTO = {
+    ...fx.mockOrderDetail,
+    id: orderId,
+    ...(summary
+      ? { status: summary.status, orderNumber: summary.orderNumber ?? null, settledAt: summary.settledAt }
+      : {}),
+  };
+  return delay(mockProjectOrder(detail));
 }
 
 // ---------- Direcciones (contrato §1 — envío, solo MX) ----------
@@ -3503,12 +3606,48 @@ export async function getPendingPublish(): Promise<Paginated<PendingPublishRowDT
   return delay(fx.mockPendingPublish());
 }
 
+/**
+ * MOCK §M5-S (v1.68) — **INVARIANTE S: `receive` y `verify` exigen el PASO CORRECTO.**
+ * ```
+ * receive : allowedFrom = { en_transito }   idempotentOn = recibida
+ * verify  : allowedFrom = { recibida }      idempotentOn = verificacion
+ * ```
+ * Terminal o cerrada ⇒ `409 CONFLICT` `{ status, closedAt }` (§M5-T; **T gana**); otro estado vivo ⇒
+ * `409 INVALID_TRANSITION` `{ verb, from, allowedFrom, idempotentOn }`. **Cero escritura** en ambos.
+ * El llamador ya sabe que `status === idempotentOn` es un `200` sin re-sellar (`??=`).
+ */
+const MOCK_TRANSITIONS = {
+  receive: { allowedFrom: ['en_transito'], idempotentOn: 'recibida' },
+  verify: { allowedFrom: ['recibida'], idempotentOn: 'verificacion' },
+} as const satisfies Record<string, { allowedFrom: readonly SellRequestStatus[]; idempotentOn: SellRequestStatus }>;
+
+function mockAssertTransition(req: fx.MockAdminBuylistRow, verb: keyof typeof MOCK_TRANSITIONS): void {
+  // La fila mock no modela `closedAt` (se sella junto con el estado terminal): `isTerminal` de la
+  // proyección del servidor falso es el término T disponible aquí.
+  const dto = fx.mockAdminBuylistDTO(req);
+  if (dto.isTerminal) {
+    throw new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: 'Sell request is terminal or closed',
+      details: { status: req.status, closedAt: null },
+    });
+  }
+  const rule = MOCK_TRANSITIONS[verb];
+  if (req.status === rule.idempotentOn || (rule.allowedFrom as readonly string[]).includes(req.status)) return;
+  throw new ApiClientError(409, {
+    code: 'INVALID_TRANSITION',
+    message: `${verb} is not allowed from ${req.status}`,
+    details: { verb, from: req.status, allowedFrom: [...rule.allowedFrom], idempotentOn: rule.idempotentOn },
+  });
+}
+
 /** Marca recepción física de la solicitud → `recibida` (contrato POST /admin/buylist/:id/receive). */
 export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO> {
   if (!config.useMocks) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/receive`, { method: 'POST', body: {} });
   }
   const req = mockFindBuylistRequest(id);
+  mockAssertTransition(req, 'receive');
   req.status = 'recibida';
   // ⚠️ v1.57 (§M5-P): `receive` es el ÚNICO escritor de `receivedAt` —uno de los términos
   // escalares de `isPayable`, §M5-V.0— y **sella una sola vez**: el re-sellado no es cosmético (mueve el reloj del
@@ -3527,6 +3666,7 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/verify`, { method: 'POST', body: {} });
   }
   const req = mockFindBuylistRequest(id);
+  mockAssertTransition(req, 'verify');
   req.status = 'verificacion';
   // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es **uno de los términos escalares** de
   // `isPayable` (§M5-V.0 — el otro hecho de la misma pareja es `receivedAt`, que sella `receive`).
@@ -4875,10 +5015,24 @@ export async function getGuestCheckoutQuote(
   }
   // MOCK v1.21.3-quote-prune: MISMA poda por ítem que getCheckoutQuote (§4-G.1 comparte
   // la norma con §4). Carrito 100 % muerto ⇒ breakdown en CEROS con shippingFeeCents: 0.
-  const unavailableItems = inventoryItemIds
+  const unavailableItems: UnavailableCartItemDTO[] = inventoryItemIds
     .filter((id) => !fx.mockListings.some((l) => l.inventoryItemId === id))
     .map((id) => ({ inventoryItemId: id, cardName: null }));
+  // v1.68 (§4-R.3): el quote de invitado NO lleva `retryOfCheckoutToken` en el contrato; el
+  // simulador lee el token de la pestaña para reconocer la reserva PROPIA (si no, la podaría antes
+  // del reintento). Es la conducta que §4-R necesita del quote — petición al arquitecto en
+  // FRONTEND_NOTES §69. Sin token (perdido / otra pestaña) la reserva propia es «ajena» (R-7).
+  const reservedByOthers = mockReservation.mockReservedByOthers(inventoryItemIds, {
+    kind: 'guest',
+    email: '',
+    retryOfCheckoutToken: mockReservation.readMockGuestRetryToken(),
+  });
+  for (const id of reservedByOthers) {
+    const listing = fx.mockListings.find((l) => l.inventoryItemId === id);
+    unavailableItems.push({ inventoryItemId: id, cardName: listing?.card.name ?? null });
+  }
   const items = inventoryItemIds
+    .filter((id) => !reservedByOthers.includes(id))
     .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
     .filter((l): l is ListingDTO => !!l);
   const pending = items.find((l) => !l.sellable);
@@ -4951,16 +5105,29 @@ export async function createGuestCheckoutSession(
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
-  const orderId = `ord-guest-${Math.floor(Math.random() * 9000 + 1000)}`;
+  // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
+  // correo; sin él, conducta de hoy (una reserva viva suya cuenta como ajena ⇒ ITEM_UNAVAILABLE).
+  const email = input.email.trim().toLowerCase();
+  // MOCK: en real son 32 bytes base64url; el prefijo `mock-` lo reconoce el track mock. El reuso
+  // también emite uno nuevo (`rotate: false`), así que se acuña antes de decidir.
+  const checkoutToken = `mock-guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-checkout-token`;
+  const outcome = mockCheckoutSessionOutcome(
+    input.inventoryItemIds,
+    { kind: 'guest', email, retryOfCheckoutToken: input.retryOfCheckoutToken },
+    subtotal,
+    { email, checkoutToken },
+  );
   return delay({
-    orderId,
-    orderNumber: 'TCG-000123',
-    breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
-    // MOCK: en real son 32 bytes base64url; el prefijo `mock-` lo reconoce el track mock.
-    checkoutToken: `mock-${orderId}-checkout-token`,
+    orderId: outcome.orderId,
+    orderNumber: outcome.orderNumber ?? 'TCG-000123',
+    breakdown: outcome.breakdown,
+    checkoutToken,
     // MOCK: TTL corto del contrato (GUEST_CHECKOUT_TOKEN_TTL_MIN = 120 min).
     checkoutTokenExpiresAt: new Date(Date.now() + 120 * 60_000).toISOString(),
-    stripe: { paymentIntentId: `pi_mock_${orderId}`, clientSecret: `pi_mock_${orderId}_secret_mock` },
+    stripe: outcome.stripe,
+    reused: outcome.reused,
+    reservedUntil: outcome.reservedUntil,
+    supersededOrderIds: outcome.supersededOrderIds,
   });
 }
 
