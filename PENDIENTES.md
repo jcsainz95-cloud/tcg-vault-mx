@@ -127,6 +127,13 @@ si alguno toca avisos de resultado. Y **A toca `shipments` en P-73** (el destina
 `e2e-real.yml` contra la rama es lo que certifica los tres flujos **de este release** — lanzado por el
 orquestador el 2026-09-10.
 
+- **La rama que despliega es `production`, no `main`** (medido 2026-09-11 con la API de deployments de GitHub:
+  los commits de `production` —`e117441`, `538ab51`, `f04f2dc`— reciben deployment **Production** (Vercel) y
+  **«marvelous-kindness / production»** (Railway); los de `main` —`5f05b08`, `3b36f19`— solo reciben **Preview**
+  de Vercel). Fusionar a `main` **no publica**; `git push origin production` **sí**. Resuelve la contradicción entre
+  `docs/DEVOPS_NOTES.md:2280` (decía `main`) y `:3313` (decía `production`): gana `:3313`. `vercel.json` construye
+  ambas ramas, por eso `main` genera una vista previa. Árbol de `production` == árbol de `main` (`git diff` vacío).
+
 # PENDIENTES — TCG HUNT
 
 ---
