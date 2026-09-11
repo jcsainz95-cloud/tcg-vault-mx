@@ -62,8 +62,15 @@ regexes = [
   '''CHANGE_ME''',
   '''_dummy''',
   '''_change_me''',
-  '''sk_test_[0-9a-zA-Z_]*''',
-  '''pk_test_[0-9a-zA-Z_]*''',
+  # S-GL-1 / C4 (seguridad, 2026-09-11): antes decía `sk_test_[0-9a-zA-Z_]*`,
+  # que —sin anclas y con `*`— casaba CUALQUIER `sk_test_…`, incluida la clave
+  # de prueba REAL de la tienda (`sk_test_51` + alfanumérico). Ahora solo pasa
+  # un placeholder que se DELATA: sin un solo dígito (`sk_test_dummy`,
+  # `sk_test_xxx…`, `sk_test_algo`) o con una palabra auto-delatora dentro
+  # (`sk_test_e2e_dummy`, `sk_test_CHANGE_ME`). Una clave real siempre lleva
+  # dígitos y nunca lleva esas palabras. Anclado (`^…$`) sobre el secreto.
+  # Lo demuestra security/scripts/sast-gitleaks-canary.sh.
+  '''^(sk|pk|rk)_test_(?:[A-Za-z_]+|[A-Za-z0-9_]*(?:dummy|DUMMY|CHANGE_ME|change_me|placeholder|PLACEHOLDER)[A-Za-z0-9_]*)$''',
   '''whsec_(ci|staging|test)_''',
   '''minioadmin''',
   '''tcg_local_dev_password''',
@@ -74,6 +81,14 @@ regexes = [
 ]
 paths = [
   '''\.env\.example$''',
+  # P-GL-FP (2026-09-11): los dos canarios PLANTAN secretos falsos por
+  # construcción (una `sk_live_`, un `whsec_`, una `sk_test_51…` de ficción)
+  # para exigir que los candados muerdan. Run rojo de referencia: 34554095125
+  # (9 hallazgos, todos en estos dos ficheros). Se permiten POR RUTA —no
+  # ensanchando ninguna regex—: cualquier otro fichero con el mismo contenido
+  # sigue siendo rojo (el canario lo comprueba copiándolo a otra ruta).
+  '''^scripts/check-secret-defaults-canary\.sh$''',
+  '''^scripts/check-stripe-webhook-failclosed-canary\.sh$''',
   '''(^|/)docs/.*\.md$''',
   '''security/.*\.(md|toml|yml|yaml)$''',
   '''docker-compose.*\.yml$''',
