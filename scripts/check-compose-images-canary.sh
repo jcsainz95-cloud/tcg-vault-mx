@@ -55,6 +55,26 @@ services:
       context: .
       dockerfile: Dockerfile.backend
 YML
+  # Y un workflow de referencia, CLAVADO: desde §4.52.4 el candado también mira
+  # `services:`/`container:` de `.github/workflows/**` — ahí vivía la imagen que
+  # bloqueaba el despliegue y que no vigilaba nadie.
+  mkdir -p "$D/.github/workflows"
+  cat >"$D/.github/workflows/ci.yml" <<'YML2'
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+    steps:
+      - run: echo ok
+  escaner:
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:1.177.0
+    steps:
+      - run: echo ok
+YML2
   printf '%s' "$D"
 }
 
@@ -99,6 +119,17 @@ mutar 5 'compose NUEVO con imagen móvil (la enumeración no es una lista a mano
 
 mutar 6 'clavar por DIGEST @sha256 (control inverso: debe seguir verde)' \
   "sed -i 's|postgres:16-alpine|postgres@sha256:0000000000000000000000000000000000000000000000000000000000000000|' docker-compose.yml" VERDE
+
+# --- §4.52.4: la cobertura NUEVA (workflows). Es donde vivía el MinIO que
+# bloqueaba el deploy, así que su canario no es opcional.
+mutar 7 'service de WORKFLOW con etiqueta movil (el caso bitnamilegacy/minio:latest)' \
+  "sed -i 's|image: postgres:16-alpine|image: bitnamilegacy/minio:latest|' .github/workflows/ci.yml" ROJO
+
+mutar 8 'container: de WORKFLOW con etiqueta movil (el caso semgrep:latest)' \
+  "sed -i 's|image: returntocorp/semgrep:1.177.0|image: returntocorp/semgrep:latest|' .github/workflows/ci.yml" ROJO
+
+mutar 9 'workflow NUEVO con service movil (la enumeracion de workflows no es una lista)' \
+  "printf 'jobs:\\n  colado:\\n    runs-on: ubuntu-latest\\n    services:\\n      almacen:\\n        image: minio/minio:latest\\n    steps:\\n      - run: echo ok\\n' > .github/workflows/nuevo.yml" ROJO
 
 echo
 if [ "$FALLOS" -eq 0 ]; then

@@ -23,8 +23,17 @@
 # QUÉ EXIGE (estático, sin red — corre en cada PR)
 # ---------------------------------------------------------------------------
 # Enumera **todas** las imágenes externas de **todos** los `docker-compose*.yml`
-# (no una lista a mano: un compose nuevo entra solo) y exige que cada una esté
+# **y de todos los `.github/workflows/*.yml`** (`services:` y `container:`) — no
+# una lista a mano: un fichero nuevo entra solo — y exige que cada una esté
 # **CLAVADA**: por `@sha256:` (lo más fuerte) o por una etiqueta de VERSIÓN.
+#
+# ⭐ POR QUÉ TAMBIÉN LOS WORKFLOWS (ARCHITECTURE §4.52.4, 2026-09-11): la imagen
+# que BLOQUEA EL DESPLIEGUE (`bitnamilegacy/minio:latest`, service de
+# `backend-e2e`) vivía FUERA del alcance de este candado. Un candado que no cubre
+# la puerta que gatea el deploy da una seguridad que no tiene. Se extendió
+# DESPUÉS de retirar esa imagen y de medir el inventario entero (N-6), no antes:
+# *un candado que se enciende sobre un inventario que nadie ha medido no protege,
+# bloquea.*
 # Rechaza `:latest`, `:stable`, `:main`, `:edge`, `:master`, `:dev`, la etiqueta
 # IMPLÍCITA (sin `:`) y cualquier `${VARIABLE}` sin resolver — porque «la imagen
 # que me den hoy» no es una dependencia, es una apuesta.
@@ -78,6 +87,28 @@ for f in sorted(glob.glob("docker-compose*.yml")) + sorted(glob.glob("docker-com
         img = svc.get("image")
         if img:
             filas.append(f"{f}\t{nombre}\t{img}")
+
+# Workflows: `jobs.<job>.services.<svc>.image` y `jobs.<job>.container.image`
+# (también la forma corta `container: <imagen>`), que es donde vivía el MinIO
+# que bloqueaba el deploy y que este candado no veía.
+for f in sorted(glob.glob(".github/workflows/*.yml")) + sorted(glob.glob(".github/workflows/*.yaml")):
+    try:
+        d = yaml.safe_load(open(f)) or {}
+    except Exception as e:
+        print(f"ERRPARSE\t{f}\t{e}"); sys.exit(0)
+    for job, spec in (d.get("jobs") or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        cont = spec.get("container")
+        if isinstance(cont, str) and cont:
+            filas.append(f"{f}\t{job}/container\t{cont}")
+        elif isinstance(cont, dict) and cont.get("image"):
+            filas.append(f"{f}\t{job}/container\t{cont['image']}")
+        for nombre, svc in (spec.get("services") or {}).items():
+            if isinstance(svc, str) and svc:
+                filas.append(f"{f}\t{job}/{nombre}\t{svc}")
+            elif isinstance(svc, dict) and svc.get("image"):
+                filas.append(f"{f}\t{job}/{nombre}\t{svc['image']}")
 if not filas:
     print("ERRVACIO")
 else:
@@ -144,7 +175,7 @@ resolver() { # $1 = referencia -> 0 si se puede descargar anónimamente
 }
 
 MAL=0; BIEN=0; TOTAL=0
-printf '\n\033[1m== Imágenes externas de los compose: ¿clavadas? ==\033[0m\n\n'
+printf '\n\033[1m== Imágenes externas (compose + workflows): ¿clavadas? ==\033[0m\n\n'
 while IFS=$'\t' read -r fichero servicio imagen; do
   [ -n "${imagen:-}" ] || continue
   TOTAL=$((TOTAL+1))
@@ -181,6 +212,8 @@ if [ "$MAL" -ne 0 ]; then
     la única puerta que mira la aplicación corriendo— y el árbol propio estará
     intacto, así que nadie sabrá dónde mirar.
     Arreglo: poner versión (`:1.2.3`, `:RELEASE.…`) o digest (`@sha256:…`).
+    Esto cubre también los `services:`/`container:` de .github/workflows/**, donde
+    vive la imagen del job que BLOQUEA EL DESPLIEGUE.
 FIN
   exit 1
 fi

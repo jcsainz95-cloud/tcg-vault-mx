@@ -49,7 +49,10 @@
 //        cerrar. La verificación está más abajo (`verificarSigV4Presignada`).
 //     4. Arranca el bucket vacío o lo reutiliza; nunca borra datos al arrancar.
 //     5. Se verifica la CADUCIDAD de la URL presignada (`X-Amz-Expires` contra
-//        el reloj) — G-4 / D-S3-3, 2026-09-11.
+//        el reloj) — 2026-09-11. ⚠️ `G-4` y `D-S3-3` fueron **RETIRADOS** por el
+//        arquitecto en `ARCHITECTURE §4.52.1` al aceptar esta medición: NO eran
+//        una pérdida de cobertura, eran una inferencia falsa. Si lees una nota
+//        que hable de «el enlace del INE no caduca», está obsoleta: lee §4.52.1.
 //        ⚠️⚠️ CORRECCIÓN AL MOTIVO CON EL QUE SE PIDIÓ (medido, no supuesto):
 //        `ARCHITECTURE §4.51.5` (G-4) y la desviación `D-S3-3` afirman que «una
 //        URL presignada VENCIDA se aceptaría». **ES FALSO, y lo medí**: con

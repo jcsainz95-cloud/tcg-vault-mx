@@ -11611,3 +11611,68 @@ un **service container** `bitnamilegacy/minio:latest` para el job `backend-e2e` 
   decisión que el arquitecto acaba de tomar para los compose (§4.51) y le corresponde a él decidir si
   `s3-local` cubre también esa ruta. Y extender el candado **hoy** pondría CI en rojo por un defecto que
   no estoy autorizado a cerrar — el mismo error que evité con el pin. **Siguiente pase, vía arquitecto.**
+
+---
+
+## 62. El OTRO MinIO (`e2e.yml`) y el candado encendido sobre inventario medido (2026-09-11)
+
+> Ejecuta `ARCHITECTURE §4.52`. **`backend-e2e` queda sin NINGUNA imagen de almacenamiento.**
+
+### 62.1 · Forma B aquí, y por qué no es «una de dos»
+
+En el compose elegí la **A** porque la B rompía la autocontención de `docker compose up`. **Aquí la B es
+estrictamente mejor**, y por un motivo que estaba en el propio fichero: **un service container de Actions
+no admite `command:`** — literal, el motivo por el que aquí **no** sirvió `minio/minio` oficial y se acabó
+en `bitnamilegacy/minio:latest`. Un proceso del runner **no tiene esa restricción**, y **en este job no hay
+compose** que autocontener: la infraestructura ya son piezas sueltas y la readiness ya se sondeaba desde el
+runner. Coste cero, beneficio máximo: **cero imágenes de contenedor para el almacenamiento**.
+
+`scripts/s3-local/` arranca tras el `npm ci`, con `working-directory: scripts/s3-local`, y el paso de espera
+**no se inventa: se reescribe** — `403` = **vivo y privado**, así que vale cualquier respuesta HTTP y lo que
+significa caído es **no poder conectar**.
+
+**⛔ Sin `|| true` en ninguna línea.** Con `E2E_STRICT_INFRA: true`, un almacenamiento ausente **tiene** que
+salir rojo de infraestructura. El paso termina en `exit 1` con el log del stand-in volcado.
+
+### 62.2 · `D-S3-6` — el gate del deploy tenía el almacenamiento MÁS LAXO de los cuatro
+
+El bucket se creaba con `MINIO_DEFAULT_BUCKETS: tcg-photos:download`. **`download` es lectura anónima
+permitida**: la **inversa** de `mc anonymous set none` y de lo que hace producción. Sin riesgo real
+(sintéticos, `localhost`, efímero), pero es **infidelidad invertida** — probábamos contra algo **más
+permisivo** que producción, que es la dirección mala. **Se corrige solo**: `s3-local` rechaza toda petición
+sin firmar, en todo método. Este job pasa de ser el más laxo a ser tan estricto como los demás, y de paso
+se va la dependencia de una **env propietaria de vendor**.
+
+### 62.3 · El candado ampliado — encendido **después** de medir, no antes
+
+| # | Medición | Resultado |
+|---|---|---|
+| **N-6** | ¿Están clavadas **todas** las imágenes de `services:`/`container:` de **todos** los workflows? | **Sí, AHORA.** Al medir apareció **una** sin clavar que el arquitecto no vio: **`returntocorp/semgrep:latest`** (`security-sast.yml:41`), el `container:` del **gate SAST**. Clavada a **`1.177.0`** (verificada 200; su namespace sigue publicando). Inventario final: **12 imágenes, 12 clavadas, 0 sin clavar** |
+| **N-7** | ¿Alguien depende del puerto de consola (`9001`) o de `MINIO_DEFAULT_BUCKETS`? | **Nadie.** Las únicas apariciones estaban en el propio bloque retirado de `e2e.yml` y una línea de ayuda de `scripts/dev-up.sh`, ya corregida |
+| **N-8** | ¿`scripts/s3-local/` necesita su propio `npm ci` en ese job? | **Sí.** `node_modules` no viaja en git (3 ficheros versionados) y el `npm ci` del job es de `backend/`. Medido: **113 paquetes en 3 s** |
+
+**Condición de encendido de §4.52.4, cumplida por la vía buena:** el candado se enciende con el inventario
+ampliado **en verde**, **sin ninguna excepción nombrada**. No hizo falta dispensa: la única imagen que
+sobraba se clavó.
+
+**Proporciones:** candado **12/12 clavadas**; canario **10/10**, con **m1..m5 y m7..m9 ROJAS 3/3** y **m6
+(digest, control inverso) VERDE 3/3**. Las tres nuevas son justamente la cobertura nueva: **m7** service de
+workflow móvil (el caso `bitnamilegacy/minio:latest`), **m8** `container:` móvil (el caso `semgrep:latest`),
+**m9** un workflow **nuevo** con service móvil — que prueba que la enumeración de workflows **tampoco** es
+una lista a mano.
+
+### 62.4 · Por qué clavar `semgrep` no es un detalle cosmético
+
+Una etiqueta móvil en la imagen de un **gate de seguridad** significa dos cosas malas a la vez: el motor
+puede cambiar **entre dos corridas del mismo commit** (un verde deja de ser reproducible), y el día que el
+registro cambie **no hay número al que volver** — que es, literal, lo que nos pasó con `minio/minio:latest`.
+**Disparador para subirla:** una regla nueva que necesitemos o un aviso del propio semgrep; se sube **a mano
+y se mide**. Un motor que se actualiza solo es un gate que cambia solo.
+
+### 62.5 · Lo que sigue NO MEDIDO
+
+- **Que `backend-e2e` pase de verdad** con el stand-in como proceso. **No hay demonio de Docker ni runner
+  aquí**; validé el comando exacto por fuera (arranca, escucha, el sondeo lee `403 ⇒ vivo`). **Lo cierra QA**
+  (§4.52.6): `backend-e2e` verde con `E2E_STRICT_INFRA=true` **y** un stand-in caído poniendo el job **rojo**.
+- **Que `semgrep:1.177.0` produzca los mismos hallazgos que `:latest`.** Es un cambio de motor a versión fija;
+  lo dirá la primera corrida del gate SAST.
