@@ -630,7 +630,15 @@
     }
   },
   "shipments": {
-    "title": "Withdrawal / shipping",
+    "title": "Request a withdrawal",
+    "backToVault": "My vault",
+    "shipTo": "Ship to: {name} · {city}, {state}",
+    "recipient": {
+      "required": "Add the recipient name to the selected address to continue.",
+      "label": "Recipient name",
+      "hint": "Printed on the shipping label.",
+      "save": "Save name"
+    },
     "subtitle": "Request shipping of your settled cards to an address in Mexico.",
     "shippingFee": "Shipping fee (insured)",
     "flatFeeNotice": "Flat fee per package, charged before creating the request.",
@@ -642,7 +650,7 @@
     "tracking": "Tracking",
     "carrier": "Carrier",
     "noShipments": "You have no withdrawals yet.",
-    "backToList": "Back to my withdrawals",
+    "backToList": "My withdrawals",
     "detailTitle": "Withdrawal {id}",
     "itemsInWithdrawal": "Cards in this withdrawal",
     "shippingAddress": "Shipping address",

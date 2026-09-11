@@ -630,7 +630,15 @@
     }
   },
   "shipments": {
-    "title": "Retiro / envío",
+    "title": "Solicitar retiro",
+    "backToVault": "Mi bóveda",
+    "shipTo": "Envío a: {name} · {city}, {state}",
+    "recipient": {
+      "required": "Completa el nombre de quien recibe en la dirección elegida para continuar.",
+      "label": "Nombre de quien recibe",
+      "hint": "Va en la etiqueta del paquete.",
+      "save": "Guardar nombre"
+    },
     "subtitle": "Solicita el envío de tus cartas liquidadas a una dirección en México.",
     "shippingFee": "Tarifa de envío (con seguro)",
     "flatFeeNotice": "Tarifa fija por paquete, pagada antes de generar la solicitud.",
@@ -642,7 +650,7 @@
     "tracking": "Guía",
     "carrier": "Paquetería",
     "noShipments": "Aún no tienes retiros.",
-    "backToList": "Volver a mis retiros",
+    "backToList": "Mis retiros",
     "detailTitle": "Retiro {id}",
     "itemsInWithdrawal": "Cartas en este retiro",
     "shippingAddress": "Dirección de envío",

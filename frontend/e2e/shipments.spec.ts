@@ -87,9 +87,14 @@ test.describe('retiro · envío nacional', () => {
     // Surging Sparks) y dos retiros en etapas concretas. Nada de eso lo promete el seed real.
     mockOnly('ids/nombres literales del fixture de retiros (shp-7001, Charizard)');
     await loginAs(page, 'customer');
-    await page.goto('/es/shipments');
+    // §33.4: la lista de retiros vive en la pestaña «Retiros» de la bóveda (direccionable por URL).
+    await page.goto('/es/vault?tab=retiros');
 
-    // Sección "Mis retiros".
+    // Sección "Mis retiros" dentro de la pestaña activa.
+    await expect(page.getByRole('tab', { name: t('es', 'vault.tabs.withdrawals') })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await expect(page.getByRole('heading', { name: t('es', 'shipments.myShipments') })).toBeVisible();
 
     // Etapa legible del contrato §5 (un retiro entregado y otro en camino).
