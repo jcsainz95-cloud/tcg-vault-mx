@@ -3588,7 +3588,9 @@ PendingPriceEntry (cola de precio pendiente)
 
 #### KycProfile (M6)
 - `id`, `userId` (único), ~~`legalName`~~ *(⛔ **CAMPO MUERTO, v1.60 — ver abajo**)*, `rfc?`, `clabe?` (18 dígitos, **declarada** por el usuario como suya — ⚠️ **no verificada**), `ineFrontKey?`, `ineBackKey?`, `kycStatus` (`none | pending | verified | rejected` — ⚠️ **anotación sin consecuencia**, ver abajo), ~~`capPerRequestCentsOverride?`~~ *(**INERTE desde v1.59/D47**, §M5-D.3)*, `capPerMonthCentsOverride?` (si null, usa dial de M10), `verifiedBy?`, `verifiedAt?`.
+- ⭐ **v1.69 (P-78, `M-54`, §4.49.3) — tres columnas nuevas, aditivas y nullable, sin backfill:** `rejectionReason?` (3–500, validado en app), `reviewedAt?`, `reviewedBy?`. ⛔ **`verifiedAt`/`verifiedBy` NO se reinterpretan**: siguen significando *«cuándo/quién verificó»*; `reviewedAt`/`reviewedBy` significan *«cuándo/quién **decidió**»*, **incluido el rechazo** — dos hechos, dos columnas.
 - Regla de negocio: pago SPEI **solo a la `clabe` que el propio vendedor capturó en su cuenta**; **INE requerido cuando la cotización/acumulado supera el umbral** (D46, dos compuertas).
+- ⭐ **v1.69 — las imágenes por fin se MIRAN, y solo el `super_admin`:** `GET /admin/users/:id/kyc/ine-links` emite **enlaces prefirmados de 120 s**, **auditados con fallo cerrado** (`user.kyc.reveal_ine`). ⛔ **`ineFrontKey`/`ineBackKey` NO salen del servidor con ningún rol.** Norma: `API_CONTRACT` §M6-K; razonamiento y reparto: §4.49.
 
 > ### ⚠️⚠️ v1.60 · D51 — DOS CAMPOS DE ESTE MODELO CAMBIAN DE SIGNIFICADO, Y HAY QUE LEERLO ANTES DE ESCRIBIR CONTRA ELLOS
 > **Norma completa: `API_CONTRACT.md` §M5-K.5. Razonamiento: §4.39(ad).** Aquí, lo mínimo para que nadie lea este
@@ -3606,6 +3608,19 @@ PendingPriceEntry (cola de precio pendiente)
 > peor que su conducta; no se renombra —deuda cosmética que rompería a frontend por nada—.*
 > **Riesgo residual, aceptado y escrito, con las palabras del humano:** ***«pueden capturar una CLABE que digan que es
 > de ellos y no sabríamos».*** **Lo que sí sabemos es a quién le compramos: eso lo hace el INE, y D46 sigue entero.**
+>
+> ⭐⭐ **ACTUALIZACIÓN v1.69 (P-78) — LA FILA DE `kycStatus` DE ARRIBA CADUCA A MEDIAS. LÉELA CON ESTO AL LADO.**
+> **(1) Deja de ser cierto que «no existe acto de verificación»:** con §M6-K, `'verified'` significa que un
+> **`super_admin` abrió las dos imágenes del INE** —queda la fila `user.kyc.reveal_ine` con quién, a quién y cuándo—
+> y decidió, con el nombre, `nameSource`, las direcciones y los destinatarios de sus envíos delante. Y `'rejected'`
+> **lleva motivo obligatorio que le llega al cliente**. *Lo que D51 retiró —y sigue retirado— es el cotejo **INE ↔
+> titular de la CLABE**: identificar a quien nos vende ≠ comprobar de quién es la cuenta.*
+> **(2) NO deja de ser cierto lo que protege:** ⛔ `kycStatus` **sigue sin gatear** la creación, la emisión ni el
+> pago; `422 KYC_NOT_VERIFIED` **sigue sin existir**; la única compuerta sigue siendo `422 INE_REQUIRED`, y dispara
+> por **«no hay imagen»**, no por «el estado no es `verified`». **v1.69 le dio significado al campo, no poder.**
+> **(3) La norma de la regla 9 se cumplió, no se esquivó:** pasó por el arquitecto y la respuesta fue **que no se
+> cuelga ninguna regla** — `kycStatus` solo gobierna **qué ve y qué puede hacer el cliente en su propia pantalla**
+> (`API_CONTRACT` §M6-K.7). **La norma sigue vigente para la próxima.**
 
 #### BillingProfile (CFDI)
 - `id`, `userId` (único), `rfc`, `razonSocial`, `regimenFiscal`, `usoCfdi`, `postalCode`, `email`. Se toma **snapshot** dentro de `Order` al pagar.
@@ -4038,6 +4053,22 @@ Estas columnas sustituyen a los campos en claro `clabe` / `rfc` / `clabeSnapshot
   - **auditado** en `AuditLog` (`action: buylist.reveal_clabe`, quién/cuándo/qué `SellRequest`),
   - **fallback:** si `SellRequest.clabeSnapshotEnc` falta, descifra la CLABE desde `KycProfile.clabeEnc` del usuario dueño.
 - Este endpoint es el **único** punto de todo el sistema que devuelve CLABE en claro; su propósito es que el súper-admin la copie a su banca al ejecutar el SPEI manual.
+- ⭐⭐ **SEGUNDA EXCEPCIÓN, v1.69 (P-78): `GET /admin/users/:id/kyc/ine-links`** — no devuelve PII en claro **en el
+  cuerpo**, pero entrega **dos enlaces prefirmados que abren las imágenes del INE**, que es la PII más sensible del
+  sistema (§3.4.d). **Se rige por los mismos requisitos acumulativos que `reveal-clabe`, con dos diferencias, y las
+  dos son deliberadas:**
+  - rol **`super_admin`** (⛔ **nunca** `vault_operator` — decisión (a) del dueño, `HECHOS.md`),
+  - **auditado** en `AuditLog` (`action: user.kyc.reveal_ine`; `entityType='User'`, `entityId` = **el usuario
+    mirado**), **con FALLO CERRADO**: si la bitácora no escribe, **los enlaces no salen** (`500`),
+  - **⛔ SIN `MoneyOutGuard`** — *aquí no sale dinero*. Colgarlo del guard de dinero sería tomar prestada una
+    autoridad que no le corresponde y **ensuciar la señal de «dinero saliente»** que ese guard existe para marcar,
+  - **caducidad 120 s** (dial `KYC_INE_VIEW_URL_TTL_SECONDS`, **clamp duro a ≤ 300**) y
+    `ResponseContentDisposition: 'attachment'` (nunca inline).
+  - ⛔ **Las *object keys* (`ineFrontKey`/`ineBackKey`) NO SALEN NUNCA, con ningún rol.** El servidor las resuelve
+    desde `:id`. Norma: `API_CONTRACT` §M6-K.1/K.2; razonamiento: §4.49.
+  - ⚠️ **Dependencia de infraestructura que NO he medido y que `seguridad` tiene que comprobar:** todo esto supone
+    que **el bucket es privado** (`uploads.service.ts:150-151` lo *asume*). Con un bucket público-lectura, el
+    presign no protege nada y este endpoint sería teatro.
 
 #### d) Retención de imágenes de INE
 
@@ -4045,6 +4076,18 @@ Estas columnas sustituyen a los campos en claro `clabe` / `rfc` / `clabeSnapshot
 - **Dial** `INE_RETENTION_DAYS` (declarado en §8): antigüedad máxima de las imágenes de INE en el bucket.
 - **Primera capa — job invocable** (BullMQ, en la familia de `jobs/`): recorre los `KycProfile` cuyas imágenes superan `INE_RETENTION_DAYS` desde su carga/verificación, **borra los objetos** (`ineFrontKey`/`ineBackKey`) del object storage, **limpia las columnas de key** (a `null`) y **audita** la purga (`action: kyc.ine_purged`, `AuditLog`). Es **invocable** (bajo demanda por súper-admin además de programado), idempotente y seguro de re-ejecutar.
 - **Anclaje al cierre real (v1.8-ronda-c / SEC-D2):** la ventana de retención se cuenta desde el **cierre de la última `SellRequest`** del usuario (una vez sin solicitudes abiertas). El job usa **`SellRequest.closedAt`** (seteado al llegar a `pagada`/`rechazada`/`abandonada`, §3.2) como fecha de cierre — más preciso que la aproximación previa `max(paidAt,approvedAt,verifiedAt,receivedAt,createdAt)`, que para `rechazada`/`abandonada` caía en `createdAt` y **acortaba** la ventana. **Fallback:** si `closedAt` es `null` (filas cerradas antes de M-19), el job cae a la aproximación anterior — sin backfill obligatorio. La lógica: `closureDate = req.closedAt ?? max(paidAt, approvedAt, verifiedAt, receivedAt, createdAt)`.
+- ⭐⭐ **v1.69 (P-78, §M6-K.4.1) — EL HUECO QUE LA RETENCIÓN NO CUBRÍA: LOS OBJETOS HUÉRFANOS.** El job de arriba
+  recorre **las keys que están en `KycProfile`**. Cuando el cliente **sustituye** su INE (`PUT /users/me/kyc`
+  escribe `ineFrontKey` encima), **el objeto anterior se queda en el bucket y ninguna fila lo referencia** ⇒ **la
+  purga ya no puede alcanzarlo: PII sin reloj.** Norma: **al sustituir una key, se borra el objeto anterior**
+  (`uploads.deleteObject`, idempotente), en el mismo flujo (tarea **BK-4**, §4.49.6).
+  - ⚠️ **Y la mitad complementaria, que es la que hace defendible «no borrar»:** el **rechazo NO borra las
+    imágenes**. Borrarlas al rechazar destruye la evidencia de **por qué** rechazamos, justo mientras el cliente
+    tiene un rechazo abierto que discutir. **Se conserva durante la ventana del rechazo; se borra cuando llega la
+    sustitución.**
+  - ⚠️ **NO MEDIDO:** cuántos objetos huérfanos hay **ya** en R2 por sobrescrituras pasadas. La norma evita los
+    futuros; **no limpia los existentes**. Medición que lo cerraría: listar el prefijo `kyc_ine/` y restar las keys
+    presentes en `KycProfile` (devops + backend; no es de este pase).
 - **Segunda capa — lifecycle del bucket:** regla de expiración en el object storage sobre el prefijo de INE, como red de seguridad si el job no corriera (defensa en profundidad; devops la configura).
 - **Qué se conserva:** los **metadatos de KYC** (`kycStatus`, `verifiedBy`, `verifiedAt`, límites) permanecen — no se borra el perfil ni el ~~historial de verificación~~ **rastro auditado de quién movió el selector y cuándo**; **solo se purgan las imágenes**. Tras la purga, el contrato sigue exponiendo `ineOnFile: boolean` (que pasará a `false`).
   *(⚠️ **v1.60, D51 — corrección de redacción, no de conducta**: **no hay «historial de verificación»**, porque **tras D51 no existe ningún acto de verificación en el sistema**. `kycStatus`/`verifiedBy`/`verifiedAt` **se conservan igual**, pero **registran una anotación de back-office, no una comprobación** — ver §3.2 y §M5-K.5(b).)*
@@ -22636,6 +22679,189 @@ demás peticiones post-A (`customer {id,name,email}` en M4, BE-82, §4.47.9): si
 
 ---
 
+### 4.49 P-78 — La verificación de identidad (2026-09-11)
+
+> **Contrato: `API_CONTRACT` rev v1.69 — todo lo nuevo en [`§M6-K`](API_CONTRACT.md#M6-K)** (sección **nueva**; nada
+> renumerado, nada movido). **Un endpoint nuevo. Dos códigos nuevos** (`INE_NOT_ON_FILE`,
+> `KYC_REJECTION_REASON_REQUIRED`). **Una migración aditiva y nullable** (`M-54`). **Cero endpoints de dinero
+> tocados.**
+>
+> ⚠️⚠️⚠️ **ESTE FRENTE ES PII ⇒ PASA POR `seguridad` ANTES DE PUBLICARSE** (`CLAUDE.md` paso 7, y el gate de release).
+> Es la primera vez que una imagen de identidad **sale** del servidor. La revisión de `seguridad` no es un trámite:
+> tiene que mirar **K.1 (invariantes)**, **K.2.4 (fallo cerrado de auditoría)** y **K.4.1 (retención)**.
+>
+> **Módulos:** backend `admin`, `uploads`, `users`, `buylist` (una línea: el `details` del `INE_REQUIRED`), `prisma`
+> (schema) · frontend `(admin)/admin/m6` y `(storefront)` cuenta + cotizador. **Stream:** cae a caballo entre
+> «Cuentas y acceso» y «Admin y auditoría» del mapa de `CLAUDE.md` ⇒ **una sola sesión lo lleva entero** (§4.49.7).
+
+#### 4.49.0 Qué se midió (§0-B.3 regla 2: el artefacto, no el informe). Todo el 2026-09-11, sobre el árbol de la rama.
+
+| # | Medición | Fichero:línea |
+|---|---|---|
+| 1 | Las imágenes **se guardan**: `ineFrontKey`/`ineBackKey`, nullable | `backend/prisma/schema.prisma:467-468` |
+| 2 | **Ninguna ruta las expone.** La lista blanca de admin las selecciona **solo** para derivar `ineOnFile`, con un comentario que dice explícitamente que «las llaves no viajan» | `admin.service.ts:40-46,56-69,195-197` |
+| 3 | **No existe ruta de lectura.** `uploads.controller.ts` tiene **un** handler: `POST /uploads/presign` | `uploads.controller.ts:20-30` |
+| 4 | **La capacidad existe y nadie la llama**: `presignGet(key, expiresIn = 300)`, con `ResponseContentDisposition: 'attachment'` ya puesto | `uploads.service.ts:147-164` |
+| 5 | El `PATCH` de KYC es `super_admin` y ya audita `user.kyc.update` | `admin.controller.ts:141-164` |
+| 6 | **No hay motivo de rechazo**: el DTO es `{ kycStatus, capPerRequestCents?, capPerMonthCents? }` | `admin.controller.ts:12-16`; `admin.service.ts:652-679` |
+| 7 | El cliente **solo puede subir si NO tiene nada**: el bloque de uploaders está tras `!data.ineOnFile` | `KycSection.tsx:162` |
+| 8 | El cliente **ve los topes impresos** (dos filas de la `<dl>`) | `KycSection.tsx:115-130` |
+| 9 | El DTO del cliente emite **tres números**: `capPerRequestCents`, `capPerMonthCents`, `monthUsedCents` ⇒ **el rename de v1.59 a `ineThresholdCents` NUNCA se implementó** | `users.service.ts:294-315` |
+| 10 | El **único** sitio que emite `thresholdCents` al cliente es el intake; la emisión ya lo omite a propósito | `buylist.service.ts:1606-1608` vs. `:3607-3616` |
+| 11 | **`PUT /users/me/kyc` pone `kycStatus='pending'` SIEMPRE**, también en una llamada solo-CLABE | `users.service.ts:343-347` |
+| 12 | El front predice el INE comparando **client-side** contra los topes | `useSellRequirements.ts:62-66,80` |
+| 13 | Precedente exacto de revelado de PII bajo petición, auditado, `super_admin`-only | `admin-buylist.controller.ts:213-232` (`buylist.reveal_clabe`) |
+| 14 | Vocabulario de auditoría existente | `admin.controller.ts:94,158,177,198,217`; `auth.service.ts:136,173,211,258,335,408` |
+| 15 | `AuditService.log` acepta `tx` opcional y **no traga errores**; `listForUser` **nunca** proyecta `before`/`after` | `audit.service.ts:42-59,99-109` |
+| 16 | Precedente de motivo de rechazo **3–500**, nullable sin backfill | `schema.prisma:1437-1441` (M-22); `admin-buylist.controller.ts:593-604` |
+| 17 | El contrato **ya declaraba** `ineFrontKey?/ineBackKey?` en `AdminKycProfileDTO` «solo super_admin» — **y el código nunca lo implementó** | `API_CONTRACT.md` §11 (línea corregida en v1.69) |
+| 18 | `AddressDTO` lleva `recipientName` para **los dos roles** desde v1.67.1; `nameSource` existe en `User` | `users.service.ts:140-145`; `schema.prisma:104-110,434` |
+
+⚠️ **NO MEDIDO, y lo digo en vez de suponerlo:** (a) si el bucket de producción es privado de verdad (es de devops;
+`uploads.service.ts:150-151` lo *asume*) — **`seguridad` lo comprueba**; (b) cuántas filas de `KycProfile` tienen
+**una sola** key en producción (la rama de `422 INE_NOT_ON_FILE` parcial); (c) cuántos objetos **huérfanos** ya hay
+en R2 por sobrescrituras pasadas (K.4.1 evita los futuros, **no limpia los pasados**).
+
+#### 4.49.1 Las cuatro decisiones del dueño, y qué se derivó de cada una
+
+Vienen de `HECHOS.md` (2026-09-11) y **no se re-preguntan**. Lo que sigue es lo que el arquitecto **derivó**, que es
+lo único discutible:
+
+| Decisión | Derivación | Motivo |
+|---|---|---|
+| **(a) solo el dueño ve las imágenes** | endpoint **dedicado** `super_admin`-only, y **no** un campo en la ficha | Un campo en la ficha viaja **siempre**; un endpoint viaja **cuando se pide**, y esa diferencia es la que hace posible auditar «quién miró» |
+| **(b) rechazo con motivo, que llega al cliente** | `rejectionReason` en el `PATCH` **y** en `GET /users/me/kyc`; re-subir ⇒ `pending` | Un rechazo que el cliente no puede corregir no es un rechazo: es un callejón |
+| **(c) los topes salen de la vista del cliente** | retirar **tres campos** + `details: {}` en `INE_REQUIRED` + **booleano server-side** que reemplaza la comparación | `PROJECT.md` §P.2.2 exige pedir el INE **en el paso de la dirección**; sin sustituto, quitar el número habría roto un requisito que manda sobre el contrato |
+| **(d) la INE junto al nombre y las direcciones** | **ampliar** la ficha de M6 (2 campos), **no** crear un DTO de revisión | Este contrato ya pagó dos veces el error de la segunda proyección de PII (S49-M1-R y `toAdminUserAddressRef`) |
+
+#### 4.49.2 Decisiones del arquitecto, con su motivo (lo que el dueño **no** decidió)
+
+1. **TTL de 120 s, con clamp duro a 300.** El enlace es un **portador**. 120 s basta porque el navegador descarga la
+   imagen en el primer segundo y **lo que caduca es volver a pedirla**, no lo que ya está en pantalla; si caduca, se
+   vuelve a pedir **y esa petición también se audita**. El clamp existe porque un dial de caducidad sin techo acaba
+   valiendo 24 h. *(Descartado: reutilizar el default de 300 de `presignGet` «porque ya estaba». Un default
+   heredado no es una decisión.)*
+2. **Un endpoint para los dos documentos.** Una revisión necesita frente **y** reverso; dos endpoints darían **dos**
+   filas por **un** acto y la bitácora dejaría de contestar *«¿cuántas veces se miró esta identidad?»*.
+3. **Fallo cerrado de auditoría, y el orden `firmar → auditar → responder`.** Firmar no es el acto auditable (es
+   local, sin efecto): auditar **antes** registraría miradas que no ocurren. Lo que hace cerrado el fallo es que el
+   `await` está **en el camino de la respuesta**: si la fila no entra, el cuerpo no sale. ⛔ Prohibido `try/catch`
+   que trague. *(Descartado: `tx` con la lectura. No hay escritura que transaccionar — la lectura es un `SELECT` y
+   una firma local; meter una transacción sería ceremonia sin garantía.)*
+4. **El rechazo NO borra; la sustitución SÍ.** Borrar al rechazar destruye la evidencia de **por qué** rechazamos,
+   justo cuando el cliente tiene un rechazo abierto que discutir. Pero sobrescribir `ineFrontKey` **hoy abandona el
+   objeto en R2**, donde la purga de retención —que recorre las keys de `KycProfile`— **ya no lo alcanza**. Las dos
+   mitades juntas acotan la PII **y** conservan la evidencia. *(Sin la segunda mitad, «no borramos al rechazar» se
+   convierte en «guardamos para siempre cada intento».)*
+5. **Un booleano server-side (`ineRequiredForTotal`) en vez de la cifra.** Alternativa descartada: **ofrecer el
+   uploader a todo el mundo** (sin comparar). Habría sido más simple y **peor**: recolectaríamos documentos de
+   identidad de vendedores **por debajo** del umbral, que es exactamente la minimización de PII que este frente
+   defiende. Residual aceptado y escrito: un vendedor autenticado puede *acotar* el umbral repitiendo la llamada —
+   **estrictamente menos** que la cifra impresa que recibía hasta v1.68.1.
+6. **`kycStatus` gana SIGNIFICADO, no PODER.** §M5-K.5(b) exigía que toda regla nueva colgada de `kycStatus` pasara
+   por el arquitecto: pasó, y la respuesta es **que no se cuelga ninguna**. Lo único que gobierna es **qué ve el
+   cliente en su pantalla** (§M6-K.7). Los caminos de dinero siguen sin leerlo.
+7. **Alcance recortado, dicho en voz alta:** `BUYLIST_LIMIT_EXCEEDED (per_month)` **sigue emitiendo
+   `capCents`/`wouldBeCents` al vendedor**. La decisión (c) lo alcanza por su letra; **no se normaliza en v1.69**
+   porque QA está midiendo Stream B contra **v1.68.1** y esa superficie es suya. **Enrutado al orquestador.**
+
+#### 4.49.3 Migración `M-54` — aditiva, nullable, sin backfill
+
+```prisma
+model KycProfile {
+  // … columnas existentes, ninguna se toca …
+  rejectionReason String?    // 3–500 (validado en app, no en BD — igual que SellRequestItem.rejectionReason)
+  reviewedAt      DateTime?  // cuándo se decidió (verificado O rechazado). `verifiedAt` NO se reinterpreta.
+  reviewedBy      String?    // id del super_admin que decidió
+}
+```
+- **Tres columnas nullable, cero `NOT NULL`, cero backfill, cero índices.** Toda fila existente queda válida:
+  `rejectionReason IS NULL` = «nunca se rechazó» y es la verdad.
+- ⛔ **`verifiedAt`/`verifiedBy` NO se reinterpretan ni se renombran.** Siguen significando *«cuándo/quién
+  verificó»*. `reviewedAt`/`reviewedBy` significan *«cuándo/quién **decidió**»*, incluido el rechazo. **Dos hechos,
+  dos columnas** — reusar `verifiedAt` para sellar un rechazo es la clase de ahorro que produce una columna que
+  miente.
+- ⛔ **`legalName` y `capPerRequestCentsOverride` siguen INERTES** (§M5-K.5(a), §M5-D.3) y **este pase NO las
+  borra**: la deuda de DDL registrada allí dice «el próximo pase con DDL de `KycProfile`» — **éste lo es**, así que
+  se **anota en `docs/TECH_DEBT.md` como disparada**, y **la decide backend con techlead**, no yo por sorpresa
+  dentro de un pase de PII. *(No la ejecuto aquí porque borrar columnas y publicar imágenes de identidad en la misma
+  migración mezcla dos riesgos que se revisan distinto.)*
+
+#### 4.49.4 Orden de despliegue (dos deploys, y el orden importa en uno solo)
+
+```
+DEPLOY 1  (backend, sin ruptura de frontend)
+  1. migración M-54 (aditiva, nullable)          ← sola, reversible
+  2. GET /admin/users/:id/kyc/ine-links          ← nuevo; nadie lo llama todavía
+  3. PATCH …/kyc acepta rejectionReason          ← opcional en el DTO ⇒ el M6 viejo sigue funcionando
+  4. GET /users/me/kyc emite rejectionReason     ← ADITIVO
+  5. GET /users/me/kyc?quotedTotalCents=N        ← ADITIVO (param opcional)
+     ⚠️ En el deploy 1 el DTO SIGUE emitiendo los tres números. No se retiran todavía.
+
+DEPLOY 2  (la retirada, cuando el frontend ya no los lee)
+  6. GET /users/me/kyc deja de emitir los tres números
+  7. INE_REQUIRED (intake) deja de emitir thresholdCents
+  8. AdminKycProfileDTO sin ineFrontKey/ineBackKey  (no-op real: el código nunca los emitió)
+```
+- **Por qué dos y no uno:** los pasos 6 y 7 son **rupturas** para `KycSection.tsx:115-130`,
+  `useSellRequirements.ts:62-66` y `error-audience`. Si salen antes que el frontend, el cliente ve `NaN`/`undefined`
+  en la pantalla de su cuenta — **cambiar una pantalla de PII por un error de render es la peor forma de cerrar este
+  pendiente**. Con dos deploys, frontend migra contra un backend que aún sirve lo viejo **y** ya sirve lo nuevo.
+- **Frontend puede empezar el día 1**: todo lo que necesita del deploy 1 es **aditivo**.
+- **Rollback:** el deploy 2 es el único con riesgo de contrato; revertirlo es volver a emitir tres campos
+  (no destructivo). La migración `M-54` no se revierte (columnas nullable sin lectores no molestan a nadie).
+- ⛔ **Nada de esto se publica sin el veredicto de `seguridad`** (frente PII).
+
+#### 4.49.5 Zonas compartidas que este frente toca (regla de `CLAUDE.md`: **un solo stream a la vez**)
+
+| Zona | Qué se toca | Conflicto vivo |
+|---|---|---|
+| `backend/prisma/schema.prisma` | `M-54`, 3 columnas en `KycProfile` | ⚠️ **Stream B tiene `M-53`** (§4.48). **Se serializa: `M-54` después de `M-53`.** Modelos **disjuntos** (`Order`/`InventoryItem` vs `KycProfile`), así que el único riesgo es el orden de migraciones, no el contenido |
+| `docs/API_CONTRACT.md` | **sección nueva §M6-K** + 5 toques puntuales | ⚠️ **QA mide Stream B contra v1.68.1.** Por eso v1.69 **no renumera ni mueve nada** y **no toca §M5-S, §4-R ni §M2-F** |
+| `backend/src/common/error-codes.ts` | 2 códigos nuevos | append; sin colisión |
+| `frontend/src/lib/api.ts`, `types/contract.ts` | tipos del DTO | ⚠️ compartida con Stream B ⇒ **el orquestador serializa el merge**, no el trabajo |
+| `backend/src/modules/buylist` | **una línea** (`details` del `INE_REQUIRED`, `:1606-1608`) | ⚠️ **Stream B toca `buylist`** (`receive`/`verify`). **Se hace en el DEPLOY 2**, después del merge de B |
+
+#### 4.49.6 Reparto — backend y frontend arrancan **a la vez** (nada de esto está encadenado a lo otro)
+
+**BACKEND (`backend/`) — 5 tareas, la 1 y la 2 son independientes entre sí:**
+
+| # | Tarea | Contrato | Candados |
+|---|---|---|---|
+| **BK-1** | **`GET /admin/users/:id/kyc/ine-links`** en `admin` (usa `UploadsService.presignGet`, que ya está inyectado en `AdminService`, `admin.service.ts:24`). Rol, TTL+clamp, los 3 códigos, `@Throttle(10/min)`, y **el `await audit.log` en el camino de la respuesta** | §M6-K.2 | **K-1..K-4, K-9, K-10** |
+| **BK-2** | **`rejectionReason` en `PATCH …/kyc`** + `reviewedAt`/`reviewedBy` + limpieza cruzada de `verifiedAt`/`rejectionReason` + el motivo en `after` del `user.kyc.update` | §M6-K.4 | **K-5** |
+| **BK-3** | **`GET /users/me/kyc`**: `+rejectionReason` (solo en `rejected`), `+?quotedTotalCents` → `ineRequiredForTotal`. **DEPLOY 2:** retirar los tres números | §1, §M6-K.5 | **K-6, K-8** |
+| **BK-4** | **`PUT /users/me/kyc`**: `pending` **solo** si vienen keys de INE; limpiar `rejectionReason`; **borrar en R2 la key sustituida** | §1, §M6-K.4.1 | **K-7** |
+| **BK-5** | **Ficha M6**: `nameSource` (los dos DTOs) + `recentShipmentRecipients` (lista blanca sobre `addressSnapshot`, últimos 5, **solo** `super_admin`) | §M6-K.3, §11 | **K-2** |
+| **BK-6** | **DEPLOY 2:** `details: {}` en el `INE_REQUIRED` del intake (`buylist.service.ts:1606-1608`) | §6 | **K-8** |
+
+⚠️ **BK-1 es el que revisa `seguridad`.** Que compile no es que esté bien: **K-1 y K-3 se verifican llamando**, no
+leyendo el decorador ni el `try`.
+
+**FRONTEND (`frontend/`) — 4 tareas, ninguna bloqueada por backend (contra el mock primero):**
+
+| # | Tarea | Contrato |
+|---|---|---|
+| **FE-1** | **M6: botón «Ver INE»** en la ficha — llama al endpoint **al pulsarse**, pinta las dos imágenes **junto a nombre + `nameSource` + direcciones + `recentShipmentRecipients`**. ⛔ No cachea la URL, no la guarda en estado persistente, no la pone en el `href` de un enlace compartible. Maneja `403`/`404`/`422 INE_NOT_ON_FILE`/`429` | §M6-K.2, §M6-K.3 |
+| **FE-2** | **M6: rechazar con motivo** — el selector de estado exige motivo cuando es `rejected` (3–500), con motivos sugeridos + texto libre | §M6-K.4 |
+| **FE-3** | **Cuenta del cliente (`KycSection.tsx`)**: implementar **la tabla K.7 entera** — pintar el motivo en `rejected`, ofrecer **«Volver a subir»** en `rejected` (y «Actualizar» en `verified`), y **borrar las dos filas de topes** (`:115-130`) | §M6-K.7 |
+| **FE-4** | **Cotizador**: `ineExpected = ineRequiredForTotal && !ineOnFile` (sustituye `overCaps`, `useSellRequirements.ts:62-66`); copy de `error.INE_REQUIRED` **sin cifra**; **invertir la discriminación de `resolveErrorAudience`** (`sellRequestId` ⇒ operador; resto ⇒ vendedor) y su candado | §6, §M5-I.6 |
+
+**UX-UI (`docs/DESIGN_SYSTEM.md`, su ruta):** los **cuatro estados de K.7** (rótulo + acción + dónde va el motivo),
+el **visor de INE** de M6 (dos imágenes + los datos de cotejo al lado, y qué se ve mientras carga / cuando caduca /
+cuando el rol no alcanza), y el **copy de los motivos sugeridos** de rechazo. ⛔ **Ningún copy puede contener una
+cifra de tope** ni afirmar que cotejamos la CLABE contra un titular (criterio 183(c)).
+
+#### 4.49.7 Lo que este pase NO hace (para que no crezca solo)
+
+⛔ No añade OCR ni verificación automática · ⛔ no hace de `kycStatus` una precondición de nada · ⛔ no toca el
+régimen de la CLABE (`reveal-clabe` intacto) ni el del RFC · ⛔ no cierra **BL-42** (el ancla del reloj de retención
+del INE) · ⛔ no normaliza `BUYLIST_LIMIT_EXCEEDED (per_month)` (§4.49.2.7) · ⛔ no borra `legalName` ni
+`capPerRequestCentsOverride` (§4.49.3) · ⛔ no limpia los objetos **huérfanos** que ya existan en R2 · ⛔ no pone
+límite de reintentos de subida.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -23327,6 +23553,12 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
 - Object storage (**SOLO INE de KYC**, v1.2): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`. **El set `S3_*` se conserva**, ahora justificado únicamente por `kyc_ine` (bucket **privado** + cifrado + retención `INE_RETENTION_DAYS`). No se usa para fotos de producto/inventario ni de disputa. (`S3_PUBLIC_BASE_URL` no aplica al INE, que es privado; se lee vía presign GET.)
 - **PII / INE (KYC):** `PII_ENCRYPTION_KEY` (32 bytes base64, AES-256-GCM), `PII_HMAC_KEY` (blind index de CLABE, llave **separada**), `INE_RETENTION_DAYS` (antigüedad máxima de las imágenes de INE en el bucket, default **180**; ver §3.4). En prod las llaves provienen de KMS/secret manager, nunca del repo. Estas variables **se conservan intactas** (v1.2.1: INE almacenado con cifrado + retención).
+  - ⭐ **NUEVA v1.69 (P-78, §4.49.2.1): `KYC_INE_VIEW_URL_TTL_SECONDS`** — vida del enlace prefirmado de **lectura**
+    del INE en back-office. **Default 120**; el servidor **clampa duro a ≤ 300** y registra `warn` si se pide más.
+    ⚠️ **No es un secreto** (va en `.env.example`), pero **sí es un dial de exposición de PII**: subirlo alarga la
+    ventana en que una URL filtrada abre un documento de identidad. **Cambiarlo pasa por `seguridad`.**
+  - ⚠️ **Supuesto de infraestructura que este pase NO midió y que `seguridad` debe comprobar:** que el bucket de
+    producción es **privado** (sin ACL de lectura pública). Con un bucket público el presign no protege nada.
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Set destacado del hero (v1.9-set-chart):** `HOME_FEATURED_SET_ID` (**opcional**; id **nativo de pokemontcg.io** del `CardSet` a graficar en la home, ej. `sv8`). Si no se define o no resuelve a un `CardSet` local, aplica el fallback en cascada de §4.12b (mayor valor en el último snapshot → set más reciente por `releaseDate`). **El valor concreto lo fija devops/backend** por entorno; el arquitecto define solo el mecanismo. No es secreto. Reusa `POKEMONTCG_IO_API_KEY` para el `set-price-sync`.
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
@@ -23418,6 +23650,28 @@ Riesgos técnicos:
   de M6») no tenía dato que mostrar. Norma: contrato §M6 (nota v1.67.1), §11 `AddressDTO`. **Comprobación:** `grep -n
   "toAdminUserAddressRef" backend/src` ⇒ cero; `GET /admin/users/:id` con los dos roles ⇒ `addresses[].recipientName`
   presente.
+- **🔴 ABIERTA (v1.69) — `D-KYC-1`: EL CONTRATO AUTORIZABA UNA FUGA QUE EL CÓDIGO, CON BUEN CRITERIO, NUNCA
+  IMPLEMENTÓ.** **Dueño: arquitecto (CERRADA por v1.69 en el propio contrato; se registra porque la clase importa).**
+  Medido 2026-09-11: `API_CONTRACT` §11 declaraba `AdminKycProfileDTO.ineFrontKey?/ineBackKey?` («solo super_admin:
+  sirven el presigned GET») y `admin.service.ts:56-69,195-197` las selecciona **solo** para derivar `ineOnFile`.
+  **La desviación es del CONTRATO contra la decisión, no del código contra el contrato** — y es la más peligrosa de
+  leer al revés: alguien podía «arreglar» el código para cumplir la línea y **abrir la fuga cumpliendo el contrato**.
+  Norma: §M6-K.1(1) y §M6-K.8 (retiradas). **Comprobación:** `grep -n "ineFrontKey" docs/API_CONTRACT.md` ⇒ solo en
+  prosa de §M6-K/§4.49; ningún JSON de admin matchea `/kyc_ine\//` (candado **K-2**).
+- **🔴 ABIERTA (v1.69) — `D-KYC-2`: `GET /users/me/kyc` EMITE `capPerRequestCents`; EL CONTRATO DICE
+  `ineThresholdCents` DESDE v1.59.** **Dueño: backend (`users`).** Medido 2026-09-11: `users.service.ts:294-315`
+  emite `capPerRequestCents`/`capPerMonthCents`/`monthUsedCents`; el rename de v1.59 (§M5-D.5) **nunca se
+  implementó**, y `KycSection.tsx:115` y `useSellRequirements.ts:65` leen el nombre viejo. ⚠️ **Se cierra por la vía
+  contraria a la esperada:** v1.69 **retira los tres campos** (decisión (c) del dueño), así que el rename deja de
+  tener objeto. **Comprobación:** `GET /users/me/kyc` sin ninguna clave que matchee `/cap|threshold|monthUsed/`
+  (candado **K-8**).
+- **🔴 ABIERTA (v1.69) — `D-KYC-3`: CAMBIAR LA CLABE TIRA AL SUELO UNA VERIFICACIÓN DE IDENTIDAD.** **Dueño: backend
+  (`users`, tarea BK-4).** Medido 2026-09-11: `users.service.ts:343-347` escribe `kycStatus: 'pending'` en **toda**
+  llamada a `PUT /users/me/kyc`, incluida una que solo trae `clabe`. Dos hechos distintos —*«cambié mi cuenta
+  bancaria»* y *«mi identidad está sin revisar»*— colapsados en una escritura. Antes de v1.69 era invisible (nadie
+  revisaba nada); con §M6-K manda a re-revisar a personas ya verificadas. Norma: contrato §1 (`PUT /users/me/kyc`,
+  nota v1.69). **Comprobación:** partiendo de `verified`, un `PUT { clabe }` deja `kycStatus='verified'` (candado
+  **K-7**).
 - **⚠️ ACEPTADA-TEMPORAL (v1.67.1) — `D-CTA-9`: `GET /admin/shipments[/:id]` EMITE EL DESTINATARIO DOS VECES (RAÍZ Y
   SNAPSHOT) Y M4 LEE PRIMERO LA RAÍZ.** **Dueños: frontend (Stream A, `M4View.tsx:267` — invertir a
   `snap(s,'recipientName') ?? s.recipientName` y marcar `AdminShipmentDTO.recipientName` `@deprecated` en
