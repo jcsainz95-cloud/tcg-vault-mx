@@ -698,6 +698,14 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
     openCart();
     // Lo desconocido no se afirma: «—», no la cifra vieja (MX$1,000.00 no aparece como total).
     expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
+    // §33.11.2 (v4.1.2): tampoco POR LÍNEA — subtotal y «Estimado c/u» son «—», el <ul> está aria-busy,
+    // y la cifra persistida no aparece en NINGÚN sitio del drawer. Un solo aria-label (en el total).
+    const lines = screen.getByTestId('sell-cart-lines');
+    expect(lines).toHaveAttribute('aria-busy', 'true');
+    expect(within(lines).getByTestId('sell-cart-line-subtotal-dash')).toHaveTextContent('—');
+    expect(within(lines).getByTestId('sell-cart-line-unit-dash')).toHaveTextContent('—');
+    expect(lines).not.toHaveTextContent('MX$');
+    expect(screen.getAllByLabelText('Actualizando los precios de tu lista')).toHaveLength(1);
     const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
     expect(cta).toBeDisabled();
     expect(cta).toHaveAttribute('aria-busy', 'true');
@@ -707,6 +715,10 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
     await waitFor(() => expect(screen.queryByTestId('sell-cart-total-requoting')).not.toBeInTheDocument());
     const money = screen.getByTestId('sell-cart-money');
     expect(money).toHaveTextContent('MX$1,250.00');
+    // Las líneas vuelven a pintar cifra (la de hoy) y el <ul> deja de estar ocupado.
+    expect(lines).toHaveTextContent('MX$1,250.00');
+    expect(lines).not.toHaveAttribute('aria-busy');
+    expect(within(lines).queryByTestId('sell-cart-line-subtotal-dash')).not.toBeInTheDocument();
     expect(money).not.toHaveTextContent('MX$1,000.00');
     await waitFor(() => expect(cta).toBeEnabled());
     expect(cta).not.toHaveAttribute('aria-busy');
@@ -769,11 +781,21 @@ describe('BuylistView · carrito de venta restaurado (P-55)', () => {
     expect(cta).toBeDisabled();
     expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-requote-failed');
     expect(screen.getByText('Charizard')).toBeInTheDocument();
+    // §33.11.2 caso 5: la lista se conserva en memoria, pero NO se pinta ninguna cifra (total ni líneas)
+    // hasta que «Reintentar» traiga precios frescos. El <ul> no está aria-busy (nada en vuelo).
+    expect(screen.getByTestId('sell-cart-total-requoting')).toHaveTextContent('—');
+    const lines = screen.getByTestId('sell-cart-lines');
+    expect(lines).not.toHaveAttribute('aria-busy');
+    expect(within(lines).getByTestId('sell-cart-line-subtotal-dash')).toHaveTextContent('—');
+    expect(within(lines).getByTestId('sell-cart-line-unit-dash')).toHaveTextContent('—');
+    expect(lines).not.toHaveTextContent('MX$');
 
     batch.mockRestore();
     batchWith(100000);
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
     await waitFor(() => expect(cta).toBeEnabled());
+    expect(lines).toHaveTextContent('MX$1,000.00');
+    expect(screen.queryByTestId('sell-cart-total-requoting')).not.toBeInTheDocument();
   });
 
   it('caducada (> 30 días): se vacía y lo dice; sin batch', async () => {

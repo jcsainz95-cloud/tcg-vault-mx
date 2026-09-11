@@ -161,9 +161,15 @@ export function SellCartContents({
         </>
       ) : (
         <>
-          <ul className="mt-4">
+          {/* §33.11.2 (v4.1.2): «sin cotización fresca no hay cifra» aplica POR LÍNEA, no solo al total.
+              Mientras se recotiza (`requoting`) o si la recotización falló (`requoteFailed`), los dos
+              huecos de precio de cada línea pintan «—» (`text-muted`, `tabular`, mismo tamaño: no se
+              mueve la geometría). Una línea `precio_pendiente` conserva su versalita. Un solo anuncio
+              a11y: el `aria-label` vive en el total; aquí solo `aria-busy` mientras dura la recotización. */}
+          <ul className="mt-4" aria-busy={requoting || undefined} data-testid="sell-cart-lines">
             {cart.map((l) => {
               const pending = l.quote.quote.status === 'precio_pendiente';
+              const noFreshPrice = requoting || requoteFailed;
               const unitCents = l.quote.quote.quotedPriceCents ?? 0;
               const detailOpen = !!expandedLines[l.id];
               return (
@@ -196,6 +202,10 @@ export function SellCartContents({
                               aquí no hay precio (§23.3h). La versalita ocupa el sitio de la cifra. */}
                           {pending ? (
                             <BuylistPendingLineLabel />
+                          ) : noFreshPrice ? (
+                            <span className="tabular text-muted" data-testid="sell-cart-line-subtotal-dash">
+                              —
+                            </span>
                           ) : (
                             formatMoneyCents(unitCents * l.quantity, locale)
                           )}
@@ -205,6 +215,10 @@ export function SellCartContents({
                         <span className="text-muted">{t('cartItemEstimate')}:</span>
                         {pending ? (
                           <BuylistPendingLineLabel className="text-[10px]" />
+                        ) : noFreshPrice ? (
+                          <span className="tabular text-muted" data-testid="sell-cart-line-unit-dash">
+                            —
+                          </span>
                         ) : (
                           <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
                         )}
@@ -315,8 +329,9 @@ export function SellCartContents({
               {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
                   (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
                   cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
-              {requoting ? (
-                /* §33.11.2: mientras se recotiza el total NO se afirma — «—», no la cifra vieja. */
+              {requoting || requoteFailed ? (
+                /* §33.11.2: mientras se recotiza —o si la recotización falló— el total NO se afirma:
+                   «—», no la cifra vieja. Mismo predicado que apaga el CTA. */
                 <span
                   className="tabular font-mono text-[26px] font-medium leading-none text-muted"
                   data-testid="sell-cart-total-requoting"
