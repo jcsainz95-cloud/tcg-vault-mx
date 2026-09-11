@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  Address,
   Card,
   CardSet,
   FulfillmentMode,
@@ -84,6 +85,29 @@ export class ShipmentsService {
   }
 
   /**
+   * v1.67 (M-52, contrato §0 `RECIPIENT_NAME_REQUIRED` / §5; ARCHITECTURE §4.47.4) — sin destinatario
+   * no hay etiqueta. Una dirección anterior a la migración tiene `recipientName IS NULL`: se rechaza
+   * con `422 RECIPIENT_NAME_REQUIRED` en LECTURA (`quote`) y en ESCRITURA (`create`) — read y write
+   * comparten regla, como `withdrawable` ↔ elegibilidad. En `create` corre ANTES de la transacción
+   * serializable y ANTES del PaymentIntent: un retiro nunca nace sin destinatario.
+   * ⛔ Prohibido el fallback a `User.name` (puede ser fabricado, `nameSource='derived'`; y aunque no
+   * lo fuera, el nombre de cuenta y el de quien recibe el paquete son hechos distintos). Remedio del
+   * cliente: `PATCH /users/me/addresses/:id { recipientName }` y reintentar — hermano exacto de
+   * `PHONE_REQUIRED` / `PICKUP_ADDRESS_REQUIRED`.
+   */
+  private assertRecipientName(address: Address): string {
+    const name = address.recipientName?.trim() ?? '';
+    if (name.length === 0) {
+      throw BusinessException.validation(
+        'RECIPIENT_NAME_REQUIRED',
+        'The selected address has no recipient name; add one and retry',
+        { field: 'recipientName', addressId: address.id },
+      );
+    }
+    return name;
+  }
+
+  /**
    * Clasifica items en elegibles (settled + EN CUSTODIA, del usuario) e inelegibles con razón.
    *
    * SEC-H1 (WS-H): la elegibilidad exige `status === 'in_custody'` como criterio POSITIVO —
@@ -119,7 +143,8 @@ export class ShipmentsService {
   }
 
   async quote(userId: string, inventoryItemIds: string[], addressId: string) {
-    await this.validateAddress(userId, addressId);
+    const address = await this.validateAddress(userId, addressId);
+    this.assertRecipientName(address); // v1.67: misma regla que `create` (lectura y escritura)
     const { eligibleItemIds, ineligible } = await this.classifyItems(userId, inventoryItemIds);
     const breakdown = await this.breakdown();
     return { breakdown, eligibleItemIds, ineligible };
@@ -136,6 +161,8 @@ export class ShipmentsService {
     idempotencyKey?: string,
   ) {
     const address = await this.validateAddress(userId, addressId);
+    // v1.67: rechazo ANTES de la tx serializable y ANTES del PaymentIntent (contrato §5).
+    const recipientName = this.assertRecipientName(address);
     const { ineligible } = await this.classifyItems(userId, inventoryItemIds);
     if (ineligible.length > 0) {
       // Prioridad de reporte: settled → in_custody → not_found. Todos 422 (validación).
@@ -180,7 +207,11 @@ export class ShipmentsService {
         return tx.shipmentRequest.create({
           data: {
             userId,
+            // v1.67 (M-52, contrato §5): NUEVE campos, los MISMOS que `Order.shippingAddressSnapshot`
+            // del invitado. `recipientName` se copia de `Address.recipientName` TAL CUAL (jamás de
+            // `User.name`). Un snapshot no se reescribe (§5.2): los retiros anteriores conservan ocho.
             addressSnapshot: {
+              recipientName,
               line1: address.line1,
               line2: address.line2,
               neighborhood: address.neighborhood,

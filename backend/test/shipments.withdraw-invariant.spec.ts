@@ -16,9 +16,12 @@ import { StripeService } from '../src/modules/payments/stripe.service';
  * secuenciales del mismo item no producen dos envíos activos (la 2ª ve el envío activo de la 1ª).
  */
 describe('ShipmentsService — invariante de retiro (WS-H)', () => {
+  // v1.67 (M-52): la dirección lleva destinatario; sin él, `create` responde 422 RECIPIENT_NAME_REQUIRED
+  // (cubierto en shipments.recipient-name.spec.ts) y estos casos no llegarían al invariante.
   const address = {
     id: 'addr1',
     userId: 'userA',
+    recipientName: 'Ana Pérez',
     country: 'MX',
     line1: 'x',
     city: 'c',
