@@ -10,6 +10,10 @@ vi.mock('@/lib/config', () => ({ config: { useMocks: false, apiBaseUrl: '', goog
 const replace = vi.fn();
 const push = vi.fn();
 let currentPath = '/admin';
+let currentSearch = '';
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(currentSearch),
+}));
 vi.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace, push }),
   usePathname: () => currentPath,
@@ -34,6 +38,7 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
     window.localStorage.clear();
     setStoredUser(null);
     currentPath = '/admin';
+    currentSearch = '';
   });
 
   it.each(['/admin', '/admin/m4'])(
@@ -43,14 +48,26 @@ describe('AdminShell · contraseña temporal bloquea el panel', () => {
       setStoredUser({ ...operator, mustChangePassword: true });
       renderWithIntl(<AdminShell>panel</AdminShell>, 'es');
       await waitFor(() =>
-        expect(replace).toHaveBeenCalledWith({
-          pathname: '/admin/account/password',
-          query: { next: path, reason: 'required' },
-        }),
+        expect(replace).toHaveBeenCalledWith(
+          `/admin/account/password?next=${encodeURIComponent(path)}&reason=required`,
+        ),
       );
       expect(screen.queryByText('panel')).not.toBeInTheDocument();
     },
   );
+
+  it('F2-3: el rebote desde /admin/m4?status=guia CONSERVA el query string en next y va a la página del ROL', async () => {
+    currentPath = '/admin/m4';
+    currentSearch = 'status=guia';
+    setStoredUser({ ...operator, mustChangePassword: true });
+    renderWithIntl(<AdminShell>panel</AdminShell>, 'es');
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith(
+        '/admin/account/password?next=%2Fadmin%2Fm4%3Fstatus%3Dguia&reason=required',
+      ),
+    );
+    expect(screen.queryByText('panel')).not.toBeInTheDocument();
+  });
 
   it('en /admin/account/password con la bandera activa pinta la página dentro del shell', async () => {
     currentPath = '/admin/account/password';

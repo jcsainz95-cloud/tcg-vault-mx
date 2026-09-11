@@ -60,6 +60,27 @@ describe('account-routes', () => {
     expect(buildPasswordChangeRedirect('customer', '/es')).toBe('/es/account/password?reason=required');
   });
 
+  it('buildPasswordChangeRedirect sin locale (pathname de next-intl) devuelve una ruta sin locale y CON el query string en next', () => {
+    // Es lo que reciben PrivateRouteGuard / AdminShell: `usePathname()` + `useSearchParams()`.
+    expect(buildPasswordChangeRedirect('customer', '/vault?tab=retiros')).toBe(
+      '/account/password?next=%2Fvault%3Ftab%3Dretiros&reason=required',
+    );
+    expect(buildPasswordChangeRedirect('super_admin', '/admin/m4?status=guia')).toBe(
+      '/admin/account/password?next=%2Fadmin%2Fm4%3Fstatus%3Dguia&reason=required',
+    );
+    expect(buildPasswordChangeRedirect('customer', '/')).toBe('/account/password?reason=required');
+  });
+
+  it('buildPasswordChangeRedirect con reason:null (login) reenvía solo el next, y sin next no lleva query', () => {
+    expect(buildPasswordChangeRedirect('vault_operator', '/admin/m4', { reason: null })).toBe(
+      '/admin/account/password?next=%2Fadmin%2Fm4',
+    );
+    expect(buildPasswordChangeRedirect('customer', '/', { reason: null })).toBe('/account/password');
+    // Un next externo (open redirect) no se reenvía.
+    expect(buildPasswordChangeRedirect('customer', 'https://evil.example', { reason: null })).toBe('/account/password');
+    expect(buildPasswordChangeRedirect('customer', '//evil.example', { reason: null })).toBe('/account/password');
+  });
+
   it('buildPasswordChangeRedirect devuelve null si ya estamos en una página de contraseña (no cicla)', () => {
     expect(buildPasswordChangeRedirect('customer', '/es/account/password?next=%2Fvault')).toBeNull();
     expect(buildPasswordChangeRedirect('super_admin', '/es/admin/account/password')).toBeNull();

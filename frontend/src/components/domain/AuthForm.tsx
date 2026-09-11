@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { GoogleSignInButton } from './GoogleSignInButton';
-import { homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
+import { buildPasswordChangeRedirect, homeForRole, passwordRouteForRole, safeNext as safeNextOf } from '@/lib/account-routes';
 import type { UserDTO } from '@/types/contract';
 
 export function AuthForm({
@@ -45,10 +45,12 @@ export function AuthForm({
    */
   function redirectAfterAuth(user?: UserDTO) {
     if (user?.mustChangePassword) {
-      router.replace({
-        pathname: passwordRouteForRole(user.role),
-        query: safeNext ? { next: safeNext } : {},
-      });
+      // Misma construcción que los guards y el interceptor (F2-3), sin `reason` (aquí no hay
+      // banner). `null` solo si el propio `next` era ya una página de contraseña: se va a ella a secas.
+      router.replace(
+        buildPasswordChangeRedirect(user.role, safeNext ?? '/', { reason: null }) ??
+          passwordRouteForRole(user.role),
+      );
       return;
     }
     router.push(safeNext ?? homeForRole(user?.role));

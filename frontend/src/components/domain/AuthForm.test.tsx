@@ -63,9 +63,7 @@ describe('AuthForm — contraseña temporal bloquea (v1.67, §33.8)', () => {
     login.mockResolvedValue(authResponse('customer', { mustChangePassword: true }));
     const { container } = renderWithIntl(<AuthForm mode="login" />, 'es');
     submitLogin(container);
-    await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith({ pathname: '/account/password', query: {} }),
-    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/account/password'));
     expect(push).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -75,12 +73,9 @@ describe('AuthForm — contraseña temporal bloquea (v1.67, §33.8)', () => {
     login.mockResolvedValue(authResponse('vault_operator', { mustChangePassword: true }));
     const { container } = renderWithIntl(<AuthForm mode="login" next="/admin/m4" />, 'es');
     submitLogin(container);
-    await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith({
-        pathname: '/admin/account/password',
-        query: { next: '/admin/m4' },
-      }),
-    );
+    // Sin `reason` (no hay banner tras el login) y con el `next` reenviado — F2-3: misma
+    // construcción que los guards (`buildPasswordChangeRedirect`), no una a mano.
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/admin/account/password?next=%2Fadmin%2Fm4'));
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -88,9 +83,7 @@ describe('AuthForm — contraseña temporal bloquea (v1.67, §33.8)', () => {
     login.mockResolvedValue(authResponse('customer', { mustChangePassword: true }));
     const { container } = renderWithIntl(<AuthForm mode="login" next="https://evil.example" />, 'es');
     submitLogin(container);
-    await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith({ pathname: '/account/password', query: {} }),
-    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/account/password'));
   });
 
   it('sin la bandera el login sigue yendo al home del rol (push), nunca a /password', async () => {
@@ -105,9 +98,7 @@ describe('AuthForm — contraseña temporal bloquea (v1.67, §33.8)', () => {
     loginWithGoogle.mockResolvedValue(authResponse('customer', { mustChangePassword: true }));
     renderWithIntl(<AuthForm mode="login" next="/vault" />, 'es');
     fireEvent.click(screen.getByRole('button', { name: /Continuar con Google/ }));
-    await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith({ pathname: '/account/password', query: { next: '/vault' } }),
-    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/account/password?next=%2Fvault'));
     expect(push).not.toHaveBeenCalled();
   });
 });

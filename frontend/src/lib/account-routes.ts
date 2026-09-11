@@ -71,14 +71,23 @@ export function splitLocale(fullPath: string): { locale: string | null; path: st
 }
 
 /**
- * URL COMPLETA (con locale) de la página de contraseña del rol, reenviando la ruta actual como
- * `?next=` y marcando `reason=required` (DESIGN_SYSTEM §33.8 paso 4). Si ya estamos en una página
- * de contraseña devuelve `null`: no hay a dónde rebotar.
+ * Destino de contraseña del rol, reenviando la ruta actual (CON su query string) como `?next=` y
+ * marcando `reason=required` (DESIGN_SYSTEM §33.8 pasos 3/4). Si ya estamos en una página de
+ * contraseña devuelve `null`: no hay a dónde rebotar.
+ *
+ * Una sola construcción para los CUATRO sitios que rebotan (techlead F2-3, 2026-09-11): el
+ * interceptor global del `api-client` (fuera de React: le llega `location.pathname + search`, CON
+ * locale, y lo devuelve con locale), `PrivateRouteGuard`, `AdminShell` (les llega el `pathname`
+ * SIN locale de `@/i18n/navigation` + `useSearchParams`, y el router de next-intl vuelve a poner el
+ * locale) y `AuthForm` (`reason: null`: tras el login se navega DIRECTO, sin banner — §33.8 paso 1 —
+ * y el `?next=` que traía el login se reenvía tal cual).
  */
 export function buildPasswordChangeRedirect(
   role: Role | undefined,
   currentFullPath: string,
+  opts: { reason?: 'required' | null } = {},
 ): string | null {
+  const reason = opts.reason === undefined ? 'required' : opts.reason;
   const { locale, path } = splitLocale(currentFullPath);
   const pathOnly = path.split('?')[0];
   if (isPasswordRoute(pathOnly)) return null;
@@ -86,6 +95,7 @@ export function buildPasswordChangeRedirect(
   const query = new URLSearchParams();
   const next = safeNext(path);
   if (next && next !== '/') query.set('next', next);
-  query.set('reason', 'required');
-  return `${locale ? `/${locale}` : ''}${target}?${query.toString()}`;
+  if (reason) query.set('reason', reason);
+  const qs = query.toString();
+  return `${locale ? `/${locale}` : ''}${target}${qs ? `?${qs}` : ''}`;
 }

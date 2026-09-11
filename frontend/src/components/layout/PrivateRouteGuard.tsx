@@ -3,10 +3,11 @@
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { useSession } from '@/lib/session';
 import { config } from '@/lib/config';
-import { isPasswordRoute, passwordRouteForRole } from '@/lib/account-routes';
+import { buildPasswordChangeRedirect, isPasswordRoute } from '@/lib/account-routes';
 
 /**
  * Rutas privadas del storefront: requieren sesión. El link ya se oculta sin sesión
@@ -55,20 +56,24 @@ export function PrivateRouteGuard({ children }: { children: React.ReactNode }) {
    */
   const mustChange = ready && isAuthenticated && user?.mustChangePassword === true;
   const blocked = mustChange && !isPasswordRoute(pathname);
+  // El `next` del rebote conserva el query string (`/vault?tab=retiros` vuelve a la pestaña): la
+  // construcción es la MISMA que usa el interceptor global (`buildPasswordChangeRedirect`, F2-3).
+  // `useSearchParams` puede ser `null` fuera del App Router (tests): se tolera.
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString() ?? '';
+  const fullPath = search ? `${pathname}?${search}` : pathname;
 
   useEffect(() => {
     if (blocked) {
-      router.replace({
-        pathname: passwordRouteForRole(user?.role),
-        query: { next: pathname, reason: 'required' },
-      });
+      const target = buildPasswordChangeRedirect(user?.role, fullPath);
+      if (target) router.replace(target);
       return;
     }
     if (!guarded) return;
     if (ready && !isAuthenticated) {
       router.replace({ pathname: '/login', query: { next: pathname } });
     }
-  }, [blocked, guarded, ready, isAuthenticated, router, pathname, user?.role]);
+  }, [blocked, guarded, ready, isAuthenticated, router, pathname, fullPath, user?.role]);
 
   // En ruta privada sin sesión (o mientras se resuelve), o bloqueado por temporal, mostramos carga,
   // NUNCA la vista (evita el flash de contenido privado + el banner 401 / el 403 del guard).

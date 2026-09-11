@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
 import { RoleProvider } from '@/lib/role';
 import { useSession } from '@/lib/session';
 import { Link, usePathname, useRouter } from '@/i18n/navigation';
 import { config } from '@/lib/config';
-import { isPasswordRoute } from '@/lib/account-routes';
+import { buildPasswordChangeRedirect, isPasswordRoute } from '@/lib/account-routes';
 import { logout as apiLogout } from '@/lib/api';
 import type { Role } from '@/types/contract';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
@@ -41,15 +42,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
    */
   const mustChange = ready && isAuthenticated && user?.mustChangePassword === true;
   const blocked = mustChange && !isPasswordRoute(pathname);
+  // Misma construcción que el interceptor global y que PrivateRouteGuard (F2-3): la página de
+  // contraseña del ROL (no una ruta escrita a mano) y el `next` CON su query string.
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString() ?? '';
+  const fullPath = search ? `${pathname}?${search}` : pathname;
 
   useEffect(() => {
     if (blocked) {
-      router.replace({
-        pathname: '/admin/account/password',
-        query: { next: pathname, reason: 'required' },
-      });
+      const target = buildPasswordChangeRedirect(user?.role, fullPath);
+      if (target) router.replace(target);
     }
-  }, [blocked, router, pathname]);
+  }, [blocked, router, fullPath, user?.role]);
 
   useEffect(() => {
     if (!requireAuth || !ready) return;

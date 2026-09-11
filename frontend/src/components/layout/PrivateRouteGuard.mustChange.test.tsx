@@ -10,9 +10,14 @@ vi.mock('@/lib/config', () => ({ config: { useMocks: false } }));
 
 const replace = vi.fn();
 let currentPath = '/';
+let currentSearch = '';
 vi.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace }),
   usePathname: () => currentPath,
+}));
+// El query string vive en `next/navigation` (next-intl solo da el pathname sin locale).
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(currentSearch),
 }));
 
 const customer: UserDTO = { id: 'u-1', email: 'c@example.com', name: 'C', role: 'customer', locale: 'es' };
@@ -32,23 +37,40 @@ describe('PrivateRouteGuard · contraseña temporal bloquea + /account privada',
     window.localStorage.clear();
     setStoredUser(null);
     currentPath = '/';
+    currentSearch = '';
   });
 
-  it.each(['/', '/catalog', '/vault', '/orders', '/account'])(
+  it.each(['/catalog', '/vault', '/orders', '/account'])(
     'CA-3: con la bandera activa, %s rebota a /account/password con next y reason y no pinta contenido',
     async (path) => {
       currentPath = path;
       setStoredUser({ ...customer, mustChangePassword: true });
       renderGuard();
       await waitFor(() =>
-        expect(replace).toHaveBeenCalledWith({
-          pathname: '/account/password',
-          query: { next: path, reason: 'required' },
-        }),
+        expect(replace).toHaveBeenCalledWith(`/account/password?next=${encodeURIComponent(path)}&reason=required`),
       );
       expect(screen.queryByText('contenido')).not.toBeInTheDocument();
     },
   );
+
+  it('CA-3: en la raíz rebota con reason y SIN next (no hay a dónde volver que no sea el home)', async () => {
+    currentPath = '/';
+    setStoredUser({ ...customer, mustChangePassword: true });
+    renderGuard();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/account/password?reason=required'));
+    expect(screen.queryByText('contenido')).not.toBeInTheDocument();
+  });
+
+  it('F2-3: el rebote desde /vault?tab=retiros CONSERVA ?tab=retiros dentro de next (vía buildPasswordChangeRedirect)', async () => {
+    currentPath = '/vault';
+    currentSearch = 'tab=retiros';
+    setStoredUser({ ...customer, mustChangePassword: true });
+    renderGuard();
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith('/account/password?next=%2Fvault%3Ftab%3Dretiros&reason=required'),
+    );
+    expect(screen.queryByText('contenido')).not.toBeInTheDocument();
+  });
 
   it('en /account/password con la bandera activa NO rebota y pinta la página (única pantalla operable)', async () => {
     currentPath = '/account/password';
