@@ -195,10 +195,19 @@ NATIVE_SECRETS="$RUN_DIR/secrets.env"
 mkdir -p "$RUN_DIR"
 # El arnés nativo declara lo que es: un stack local de usar y tirar (S-88-1).
 export SECRETS_ENV="${SECRETS_ENV:-desechable}"
+# PII_ENCRYPTION_KEY / PII_HMAC_KEY (backend, 2026-09-11): faltaban aquí. Con
+# NODE_ENV=development el backend usa una clave PII EFÍMERA por proceso, así que
+# cada reinicio del backend nativo invalidaba toda la PII cifrada local (RFC,
+# CLABE) y daba 500 en billing-profile/KYC sobre filas de corridas anteriores.
+# Persistidas como las JWT: aleatorias por máquina, base64 de 32 bytes (la forma
+# la dicta el sufijo en secrets-preflight.sh). `env-file` es idempotente: en una
+# máquina con secrets.env ya creado las AÑADE sin rotar las demás.
 "$SCRIPT_DIR/secrets-preflight.sh" env-file "$NATIVE_SECRETS" \
-  NATIVE_DB_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET S3_SECRET_ACCESS_KEY >/dev/null
+  NATIVE_DB_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET S3_SECRET_ACCESS_KEY \
+  PII_ENCRYPTION_KEY PII_HMAC_KEY >/dev/null
 # shellcheck disable=SC1090
 . "$NATIVE_SECRETS"
+export PII_ENCRYPTION_KEY PII_HMAC_KEY  # generadas arriba en .native-stack/secrets.env
 
 export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:$NATIVE_DB_PASSWORD@localhost:5432/tcg_marketplace?schema=public}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"

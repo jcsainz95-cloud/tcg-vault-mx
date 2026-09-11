@@ -31,6 +31,11 @@
 #   6. La promoción a producción (`deploy.yml`) llama a `e2e-real.yml` con
 #      `require_real_stripe: true` — sin eso, los tres smokes de dinero se filtran
 #      y prod se promueve con el cobro sin probar.
+#   7. `stack-native.sh` PERSISTE `PII_ENCRYPTION_KEY` y `PII_HMAC_KEY` en
+#      `.native-stack/secrets.env` (backend, 2026-09-11: sin ellas el backend
+#      usa una clave PII efímera por proceso y cada reinicio invalida la PII
+#      cifrada local ⇒ 500 en billing-profile/KYC). Y el generador produce la
+#      FORMA que PiiCryptoService exige: base64 de 32 bytes exactos.
 #
 # QUÉ **NO** verifica: que las capacidades ESTÉN presentes en la máquina donde se
 #   corra (eso lo mide `e2e-capability-gate.sh`, que sí necesita red y stack). Esto
@@ -42,7 +47,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$ROOT_DIR"
+cd "$ROOT_DIR" || exit 1
 
 ok()  { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 bad() { printf '\033[1;31m  ✖ %s\033[0m\n' "$*" >&2; FAILED=1; }
@@ -149,6 +154,33 @@ else
      Es el mismo falso verde de §33, con otra puerta."
 fi
 
+# --- 7. Las claves PII del arnés nativo se persisten y tienen la forma exigida ---
+if [ -f "$STACK" ]; then
+  ENVFILE_CALL="$(awk '/secrets-preflight\.sh" env-file/{f=1} f{print} f&&!/\\$/{exit}' "$STACK")"
+  if grep 'PII_ENCRYPTION_KEY' >/dev/null <<<"$ENVFILE_CALL" && grep 'PII_HMAC_KEY' >/dev/null <<<"$ENVFILE_CALL" \
+     && grep -E '^\s*export .*PII_ENCRYPTION_KEY' "$STACK" >/dev/null && grep -E '^\s*export .*PII_HMAC_KEY' "$STACK" >/dev/null; then
+    ok "$STACK persiste PII_ENCRYPTION_KEY y PII_HMAC_KEY en secrets.env y las exporta."
+  else
+    bad "$STACK ya NO genera/exporta PII_ENCRYPTION_KEY y PII_HMAC_KEY en secrets.env. Con
+     NODE_ENV=development el backend usa una clave PII EFÍMERA por proceso: cada reinicio
+     invalida la PII cifrada local (RFC, CLABE) ⇒ 500 en billing-profile/KYC."
+  fi
+  PII_TMP="$(mktemp)"
+  if SECRETS_ENV=desechable ./scripts/secrets-preflight.sh env-file "$PII_TMP" PII_ENCRYPTION_KEY PII_HMAC_KEY >/dev/null 2>&1; then
+    ENC="$(sed -n 's/^PII_ENCRYPTION_KEY=//p' "$PII_TMP")"; HM="$(sed -n 's/^PII_HMAC_KEY=//p' "$PII_TMP")"
+    ENC_B="$(printf '%s' "$ENC" | base64 -d 2>/dev/null | wc -c)"; HM_B="$(printf '%s' "$HM" | base64 -d 2>/dev/null | wc -c)"
+    if [ "$ENC_B" -eq 32 ] && [ "$HM_B" -eq 32 ]; then
+      ok "el generador produce base64 de 32 bytes exactos para ambas (PiiCryptoService crashea con otra longitud)."
+    else
+      bad "el generador NO produce base64 de 32 bytes: PII_ENCRYPTION_KEY=${ENC_B}B, PII_HMAC_KEY=${HM_B}B.
+     PiiCryptoService exige exactamente 32 bytes para la de cifrado."
+    fi
+  else
+    bad "secrets-preflight.sh env-file no pudo generar PII_ENCRYPTION_KEY/PII_HMAC_KEY."
+  fi
+  rm -f "$PII_TMP"
+fi
+
 echo ""
 if [ "$FAILED" -ne 0 ]; then
   printf '\033[1;31m✖ El arnés E2E puede volver a SALTARSE un flujo crítico sin decirlo.\033[0m\n' >&2
@@ -157,4 +189,4 @@ if [ "$FAILED" -ne 0 ]; then
   printf '  que lo firme quien acepte publicar con el cobro o la subida del INE sin verificar.\n' >&2
   exit 1
 fi
-printf '\033[1;32m✔ Cobro y subida no se pueden saltar en silencio: los 6 puntos siguen cableados.\033[0m\n'
+printf '\033[1;32m✔ Cobro y subida no se pueden saltar en silencio: los 7 puntos siguen cableados.\033[0m\n'
