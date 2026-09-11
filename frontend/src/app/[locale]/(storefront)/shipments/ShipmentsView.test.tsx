@@ -3,7 +3,8 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
 import * as api from '@/lib/api';
-import type { CardDTO, ShipmentDTO } from '@/types/contract';
+import type { AddressDTO, UserDTO } from '@/types/contract';
+import { setStoredUser } from '@/lib/session';
 
 // useSearchParams: sin ?item= (selección arranca vacía).
 vi.mock('next/navigation', () => ({
@@ -11,7 +12,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 // Link de i18n (deep-link al detalle del retiro) → <a> simple en el test.
+const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }));
 vi.mock('@/i18n/navigation', () => ({
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
@@ -30,8 +33,39 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { ShipmentsView } from './ShipmentsView';
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   createShipmentMock.mockReset();
+  routerPush.mockReset();
+  window.localStorage.clear();
+  window.sessionStorage.clear();
 });
+
+/** Dirección MX del picker; `recipientName: null` = fila anterior a M-52 (contrato v1.67). */
+function address(recipientName: string | null): AddressDTO {
+  return {
+    id: 'addr-old',
+    recipientName,
+    line1: 'Calle Falsa 123',
+    city: 'Guadalajara',
+    state: 'JAL',
+    postalCode: '44100',
+    country: 'MX',
+    phone: '3331234567',
+    isDefault: true,
+  };
+}
+
+function asCustomer(overrides: Partial<UserDTO> = {}) {
+  setStoredUser({
+    id: 'u-777',
+    email: 'ash@example.com',
+    name: 'Ash Ketchum',
+    role: 'customer',
+    locale: 'es',
+    emailVerified: true,
+    ...overrides,
+  });
+}
 
 describe('ShipmentsView · estado del botón de retiro (WS-F · F3)', () => {
   it('el botón se habilita solo con dirección (auto-default MX) + al menos un ítem', async () => {
@@ -75,95 +109,146 @@ describe('ShipmentsView · estado del botón de retiro (WS-F · F3)', () => {
 });
 
 /**
- * F6 · Disputas del cliente: "Abrir disputa" aparece SOLO en ítems elegibles de un envío
- * ENTREGADO (raw/sellado, dentro de la ventana de 7 días, sin disputa activa). El graded y el
- * envío fuera de plazo no ofrecen el botón (UI-gate; el backend sigue siendo la autoridad).
+ * §33.4 — /shipments es SOLO la pantalla de solicitar: las listas «Mis retiros» y «Mis disputas»
+ * viven en la pestaña «Retiros» de la bóveda (`vault/WithdrawalsList`, con sus tests).
  */
-describe('ShipmentsView · disputas (F6)', () => {
-  function card(id: string, name: string): CardDTO {
-    return {
-      id,
-      externalId: `ext-${id}`,
-      name,
-      number: '1',
-      rarity: 'Rare',
-      supertype: 'Pokémon',
-      subtypes: [],
-      setId: 'base1',
-      setName: 'Base Set',
-      imageSmallUrl: `https://images.pokemontcg.io/base1/1.png`,
-      imageLargeUrl: `https://images.pokemontcg.io/base1/1_hires.png`,
-      availableFinishes: ['normal'],
-    };
-  }
+describe('ShipmentsView · solo solicitar (§33.4)', () => {
+  it('no lista retiros ni disputas; título «Solicitar retiro» y vuelta «← Mi bóveda» a /vault?tab=retiros', async () => {
+    const own = vi.spyOn(api, 'getShipments');
+    const disputes = vi.spyOn(api, 'getDisputes');
+    renderWithProviders(<ShipmentsView />, 'es');
+    await screen.findByText('Blastoise');
 
-  const deliveredRecent = (): ShipmentDTO => ({
-    id: 'shp-del',
-    status: 'entregado',
-    carrier: 'Estafeta',
-    trackingNumber: '999',
-    createdAt: '2026-08-10T10:00:00Z',
-    deliveredAt: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(),
-    items: [
-      { inventoryItemId: 'inv-raw', folio: 'INV-RAW', card: card('c-raw', 'Bulbasaur'), productType: 'raw' },
-      { inventoryItemId: 'inv-grd', folio: 'INV-GRD', card: card('c-grd', 'Mewtwo'), productType: 'graded' },
-    ],
+    expect(screen.getByRole('heading', { level: 1, name: 'Solicitar retiro' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Mi bóveda/ })).toHaveAttribute('href', '/vault?tab=retiros');
+    expect(screen.queryByRole('heading', { name: 'Mis retiros' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Mis disputas' })).not.toBeInTheDocument();
+    expect(own).not.toHaveBeenCalled();
+    expect(disputes).not.toHaveBeenCalled();
   });
+});
 
-  it('"Abrir disputa" aparece solo en el ítem raw elegible, no en el graded', async () => {
-    vi.spyOn(api, 'getShipments').mockResolvedValue([deliveredRecent()]);
-    vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
+/**
+ * F10 · §33.10b (contrato v1.67, M-52): ningún envío sale sin destinatario. Con una dirección sin
+ * `recipientName` el CTA queda deshabilitado con motivo, se captura el nombre INLINE, se guarda
+ * con `PATCH /users/me/addresses/:id` y la cotización se pide sola. Si el servidor responde
+ * `422 RECIPIENT_NAME_REQUIRED`, se abre la misma captura para ESA dirección.
+ */
+describe('ShipmentsView · destinatario del envío (F10)', () => {
+  it('dirección sin destinatario: CTA deshabilitado con motivo, sin pedir cotización; «Envío a:» ausente', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address(null)]);
+    const quote = vi.spyOn(api, 'getShipmentQuote');
     renderWithProviders(<ShipmentsView />, 'es');
 
-    await screen.findByText('Bulbasaur');
-    expect(screen.getByText('Mewtwo')).toBeInTheDocument();
-    // Solo el ítem raw ofrece el botón (el modal aún no está abierto → 1 instancia).
-    expect(screen.getAllByRole('button', { name: 'Abrir disputa' })).toHaveLength(1);
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+
+    const capture = await screen.findByTestId('recipient-capture');
+    expect(within(capture).getByText('Completa el nombre de quien recibe en la dirección elegida para continuar.')).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-describedby', 'recipient-required');
+    expect(screen.queryByTestId('ship-to')).not.toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(quote).not.toHaveBeenCalled();
   });
 
-  it('fuera de la ventana de 7 días NO ofrece "Abrir disputa"', async () => {
-    const old = deliveredRecent();
-    old.deliveredAt = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    vi.spyOn(api, 'getShipments').mockResolvedValue([old]);
-    vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
+  it('con `nameSource=derived` el campo nace VACÍO (nunca se propone el nombre fabricado)', async () => {
+    asCustomer({ name: 'jcsainz95', nameSource: 'derived' });
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address(null)]);
     renderWithProviders(<ShipmentsView />, 'es');
+    await screen.findByText(/Calle Falsa 123/);
 
-    await screen.findByText('Bulbasaur');
-    expect(screen.queryByRole('button', { name: 'Abrir disputa' })).not.toBeInTheDocument();
+    const input = (await screen.findByLabelText('Nombre de quien recibe')) as HTMLInputElement;
+    expect(input.value).toBe('');
   });
 
-  it('abrir el modal, describir y enviar → createDispute + contacto de evidencia', async () => {
-    vi.spyOn(api, 'getShipments').mockResolvedValue([deliveredRecent()]);
-    vi.spyOn(api, 'getDisputes').mockResolvedValue([]);
-    const spy = vi.spyOn(api, 'createDispute').mockResolvedValue({
-      disputeId: 'dsp-new-1',
-      status: 'abierta',
-      type: 'condition_raw',
-      deadlineAt: '2026-08-24T00:00:00Z',
-      // Ajeno a la marca a propósito: lo que se prueba es que la UI rinde el valor del 201,
-      // no que acierte un buzón (API_CONTRACT §0, cláusula 4).
-      evidenceContact: 'evidencias@ejemplo.test',
+  it('con `nameSource=user` se propone `user.name` (editable)', async () => {
+    asCustomer({ name: 'Ash Ketchum', nameSource: 'user' });
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address(null)]);
+    renderWithProviders(<ShipmentsView />, 'es');
+    await screen.findByText(/Calle Falsa 123/);
+
+    const input = (await screen.findByLabelText('Nombre de quien recibe')) as HTMLInputElement;
+    expect(input.value).toBe('Ash Ketchum');
+  });
+
+  it('guardar el nombre → PATCH de la dirección, la cotización se pide sola, «Envío a:» y CTA habilitado', async () => {
+    asCustomer({ nameSource: 'derived' });
+    const list = vi.spyOn(api, 'listAddresses').mockResolvedValue([address(null)]);
+    const patch = vi.spyOn(api, 'updateAddress').mockImplementation(async (_id, input) => {
+      const saved = address(input.recipientName ?? null);
+      list.mockResolvedValue([saved]);
+      return saved;
     });
+    const quote = vi.spyOn(api, 'getShipmentQuote');
     renderWithProviders(<ShipmentsView />, 'es');
 
-    await screen.findByText('Bulbasaur');
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir disputa' }));
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
 
-    const dialog = await screen.findByRole('dialog', { name: 'Abrir disputa de condición' });
-    fireEvent.change(within(dialog).getByLabelText('Describe el problema'), {
-      target: { value: 'Corner wear on arrival, reported same day.' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Abrir disputa' }));
+    const input = await screen.findByLabelText('Nombre de quien recibe');
+    fireEvent.change(input, { target: { value: '  Misty Waterflower ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar nombre' }));
 
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith({
-        inventoryItemId: 'inv-raw',
-        description: 'Corner wear on arrival, reported same day.',
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('addr-old', { recipientName: 'Misty Waterflower' }));
+    // Con el nombre guardado: la captura desaparece, la cotización se pide y el CTA se habilita.
+    await waitFor(() => expect(screen.queryByTestId('recipient-capture')).not.toBeInTheDocument());
+    await waitFor(() => expect(quote).toHaveBeenCalledWith(['inv-1002'], 'addr-old'));
+    expect(await screen.findByTestId('ship-to')).toHaveTextContent('Envío a: Misty Waterflower · Guadalajara, JAL');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Pagar envío y solicitar' })).not.toBeDisabled());
+  });
+
+  it('422 RECIPIENT_NAME_REQUIRED al crear (DTO con nombre pero el servidor dice que falta) abre la captura', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address('Ash Ketchum')]);
+    createShipmentMock.mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'RECIPIENT_NAME_REQUIRED',
+        message: 'recipient required',
+        details: { field: 'recipientName', addressId: 'addr-old' },
       }),
     );
-    // Tras el 201 se muestra el contacto de soporte (evidenceContact) para enviar la evidencia.
-    expect(await within(dialog).findByTestId('evidence-email')).toHaveTextContent(
-      'evidencias@ejemplo.test',
-    );
+    renderWithProviders(<ShipmentsView />, 'es');
+
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+
+    expect(await screen.findByTestId('recipient-capture')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Completa el nombre de quien recibe');
+    expect(button).toBeDisabled();
+    expect(createShipmentMock).toHaveBeenCalledWith(['inv-1002'], 'addr-old');
+  });
+
+  it('tras pagar navega a /vault?tab=retiros y deja la marca de «Retiro solicitado»', async () => {
+    asCustomer();
+    vi.spyOn(api, 'listAddresses').mockResolvedValue([address('Ash Ketchum')]);
+    createShipmentMock.mockResolvedValue({
+      shipmentId: 'shp-new',
+      status: 'solicitado',
+      breakdown: { subtotalCents: 17500, ivaCents: 2800, ivaRatePct: 16, processingFeeCents: 0, totalCents: 20300, currency: 'MXN' },
+      stripe: { paymentIntentId: 'pi_x', clientSecret: 'pi_x_secret_mock' },
+    });
+    renderWithProviders(<ShipmentsView />, 'es');
+
+    const blastoise = await screen.findByText('Blastoise');
+    await screen.findByText(/Calle Falsa 123/);
+    fireEvent.click(blastoise.closest('label')!.querySelector('input[type="checkbox"]')!);
+    const button = screen.getByRole('button', { name: 'Pagar envío y solicitar' });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
+
+    const modal = await screen.findByRole('dialog', { name: 'Pagar envío' });
+    fireEvent.click(within(modal).getByRole('button', { name: /Pagar/ }));
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/vault?tab=retiros'));
+    expect(window.sessionStorage.getItem('tcg.vault.withdrawalRequested')).toBe('1');
   });
 });

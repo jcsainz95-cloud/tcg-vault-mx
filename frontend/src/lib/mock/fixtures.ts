@@ -10,6 +10,7 @@
  */
 import { brandEmail } from '../brand';
 import type {
+  ClaimableOrderDTO,
   CardDTO,
   CardProductDTO,
   CardSetDTO,
@@ -1011,7 +1012,9 @@ export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
 };
 
 export const mockOrders: OrderSummaryDTO[] = [
-  { id: 'ord-9001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
+  // MOCK: pendiente de contrato — `orderNumber` no está en `OrderSummaryDTO` (v1.67.1); el primero lo
+  // trae para ver el folio en la columna PEDIDO y el segundo NO, para ver el fallback al id.
+  { id: 'ord-9001', orderNumber: 'TCG-009001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
   { id: 'ord-9002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
   // v1.51-c: pedido ANTIGUO cuyo `cardSnapshot` quedó incompleto (ver `mockOrderDetailLegacy`).
   // Se sirve desde el mock para que el render degradado sea VISIBLE en `dev`/e2e, no solo en un
@@ -1504,6 +1507,9 @@ export const mockKyc: KycInfoDTO = {
 export const mockAddresses: AddressDTO[] = [
   {
     id: 'addr-1',
+    // v1.67 (M-52): destinatario de etiqueta. La libreta mock arranca COMPLETA para que el retiro
+    // de demo no se bloquee; una fila «vieja» (recipientName: null) la siembra quien la necesite.
+    recipientName: 'Ash Ketchum',
     line1: 'Av. Reforma 222',
     line2: 'Piso 3',
     neighborhood: 'Juárez',
@@ -1514,6 +1520,31 @@ export const mockAddresses: AddressDTO[] = [
     phone: '5555123456',
     isDefault: true,
   },
+  {
+    // v1.67: fila ANTERIOR a M-52 (sin destinatario). La libreta pinta «Falta el nombre de quien
+    // recibe» + «Completar»; el retiro con esta dirección deja el CTA deshabilitado (§33.10b).
+    id: 'addr-legacy',
+    recipientName: null,
+    line1: 'Calle Vieja 12',
+    neighborhood: 'Centro',
+    city: 'Guadalajara',
+    state: 'Jalisco',
+    postalCode: '44100',
+    country: 'MX',
+    phone: '3331234567',
+    isDefault: false,
+  },
+];
+
+/**
+ * MOCK v1.67: pedidos de invitado reclamables con el correo de la sesión (contrato GET
+ * /orders/claimable, §4-G.9). La rama mock los sirve SOLO con la bandera
+ * `localStorage['tcg.mock.claimable'] === '1'`: por defecto responde `[]`, que es lo que el candado
+ * CA-4 (§33.16 R10: «con [] ⇒ cero nodos») mide en los E2E de fixtures.
+ */
+export const mockClaimableOrders: ClaimableOrderDTO[] = [
+  { orderId: 'ord-g-501', orderNumber: 'PED-2026-000501', status: 'settled', totalCents: 189000, itemCount: 2, createdAt: '2026-08-20T16:10:00.000Z', settledAt: '2026-08-20T16:12:00.000Z' },
+  { orderId: 'ord-g-502', orderNumber: 'PED-2026-000502', status: 'pending', totalCents: 45000, itemCount: 1, createdAt: '2026-09-02T11:30:00.000Z' },
 ];
 
 /** ISO de hace `n` días (para anclar la ventana de disputa a una entrega reciente). */
@@ -3562,7 +3593,7 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         : null,
     addresses:
       id === 'u-777'
-        ? [{ id: 'addr-1', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
         : [],
     orders: base.id === 'u-777' ? mockOrders : [],
     sellRequests:

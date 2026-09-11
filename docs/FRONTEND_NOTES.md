@@ -15762,3 +15762,292 @@ Comprobado por dos vías: (a) suite entera sobre `git archive 5f05b08` con su pr
 artificial); (b) el job `frontend` del CI en esta rama, después de `4034387`: **verde en `4034387`,
 `66ca52b`, `d2df320`, `0417da1`, `3cdc5af`, `874ee0c`** (y `75068d3` cancelado). ⇒ **el merge de esta
 rama a `main` cierra ese rojo.** El otro rojo de `ci-ok` (`e2e-harness-gaps`) es de devops.
+
+## §66 · **Stream A (agente frontend A2) — «Compras y ventas», «Retiros» en la bóveda, aviso de reclamables, carrito de venta persistido, destinatario del envío y M4** (`DESIGN_SYSTEM §33.3/§33.4/§33.9–§33.11`, `API_CONTRACT v1.67`, `ARCHITECTURE §4.47.6/§4.47.8` F7–F10) — 2026-09-11, rama `claude/tcg-hunt-orchestration-2`
+
+Commits (todos sobre `b5868a6…`, en este orden): `ead4d80` (F7 + §33.3) · `028f874` (§33.4 + F10) ·
+`68d1e70` (F8) · `fadaeff` (F9) · `b2a92e9` (Playwright). Rutas de escritura respetadas: `(storefront)/{vault,
+orders,buylist,shipments}/**`, `(admin)/admin/m4/**`, `components/domain/claimable/`, `messages/{es,en}.json`
+(solo mis namespaces, por hunks), `e2e/` de mis flujos y este fichero.
+
+### 1. Lo que hay (medido, no descrito)
+
+| Pieza | Fichero | Qué hace | Medición |
+|---|---|---|---|
+| `ClaimableOrdersNotice` (F7) | `components/domain/claimable/ClaimableOrdersNotice.tsx` | `GET /orders/claimable` (`['claimable-orders']`, `retry:false`, `staleTime` 5 min, solo con sesión y `emailVerified !== false`); **`null` mientras carga, con `[]`, con cualquier error (incl. 403) y tras «Ahora no»** (`sessionStorage['tcg.claimable.dismissed']`); reclama TODOS los ids (`POST /orders/claim`), éxito persistente (+ «Ver mis compras» solo en bóveda), fallo parcial neutro (criterio 55), 403 al reclamar → `EmailNotVerifiedNotice`. | `ClaimableOrdersNotice.test.tsx` **12/12** |
+| «Compras y ventas» (§33.3) | `orders/OrdersView.tsx` (+`page.tsx` con Suspense) | `<nav>` con dos `Link` (`/orders`, `/orders?tab=ventas`), `aria-current="page"`, **sin `role="tablist"`** (§33.15.9); Ventas monta `MyRequestsSection` tal cual (+`emptyAction`); vacíos con CTA; aviso de reclamables encima de la tabla. Copy «orden» → «pedido». | `OrdersView.test.tsx` **11/11** (8 movidos desde `BuylistView.test`) |
+| «Retiros» en la bóveda (§33.4) | `vault/VaultView.tsx`, `vault/WithdrawalsList.tsx`, `vault/vaultTabs.ts` | Cuarta pestaña `role="tab"` con `aria-controls`, **tabindex itinerante y ← → Home End**; `/vault?tab=retiros` arranca activa **con el foco en el tab**; el clic sincroniza la URL (`history.replaceState`, lo que Next 15 lee en `useSearchParams`); `WithdrawalsList` = extracción de `ShipmentsView:320-450` (retiros + disputas F6, sin cambio funcional) con «Solicitar retiro» arriba y en el vacío; `addressSummary` antepone `recipientName` (§33.10c). Aviso «Retiro solicitado. Aquí verás su avance.» consumido UNA vez de `sessionStorage['tcg.vault.withdrawalRequested']`. | `VaultView.test.tsx` **11/11**, `WithdrawalsList.test.tsx` **6/6** |
+| `/shipments` solo solicitar (§33.4) + destinatario inline (F10, §33.10b) | `shipments/ShipmentsView.tsx`, `shipments/[id]/ShipmentDetailView.tsx` | «← Mi bóveda», título «Solicitar retiro», sin listas; al pagar navega a `/vault?tab=retiros`. Con dirección sin `recipientName`: CTA `disabled` + `aria-describedby`, **no se pide cotización** (el servidor la rechazaría), captura inline (1..120, `autoComplete="name"`) → `PATCH /users/me/addresses/:id { recipientName }` → cotización sola + «Envío a: {name} · {city}, {state}». `422 RECIPIENT_NAME_REQUIRED` (quote o create) abre la captura para **esa** `addressId` (manda el servidor sobre la caché). Prellenado **solo** si `user.nameSource ∈ {user, google}`; con `derived` o sin dato, vacío. Detalle: «← Mis retiros» → `/vault?tab=retiros`, destinatario encima de la calle. | `ShipmentsView.test.tsx` **9/9** |
+| Carrito de venta persistido (F8, §33.11) | `buylist/useSellCart.ts`, `buylist/SellCartContents.tsx`, `buylist/BuylistView.tsx` | `localStorage['tcg.sellCart'] = { lines, updatedAt }` con `lib/local-store.ts` (helper de A1): **30 días exactos, `>` estricto**, migración suave, corrupción ⇒ vacío, `storage` entre pestañas. Al montar con lista guardada: caducó ⇒ `expired` (sin batch); si no ⇒ **re-cotiza en lotes ≤50** con `POST /buylist/quote/batch`, sustituye cada `quote`, poda `ok:false` (y lo cuenta), conserva `precio_pendiente`, reporta antes/después solo si algún `quotedPriceCents` cambió; fallo entero ⇒ lista intacta, `requoteFailed` + «Reintentar». Mientras recotiza: **total «—»** y CTA `disabled` + `aria-busy`. CTAs sin sesión → `/login?next=/buylist`, `/register?next=/buylist`. | `useSellCart.test.tsx` **9/9**, `BuylistView.test.tsx` **63/63** (5 nuevos) |
+| M4 destinatario + dirección (F9, §33.10d) | `(admin)/admin/m4/M4View.tsx` | «Para {recipientName} · {city}, {state} · CP · Tel» del `addressSnapshot`; «Cliente {name} · {email} · Ver ficha» (`admin.m6.view` → `/admin/m6?user=`); sin nombre: **«SIN DESTINATARIO (retiro anterior a v1.67)»** en mono rojo (copy del contrato §M4); **fuera el `userId` crudo**; cada dato ausente «—». | `M4View.test.tsx` **10/10** (3 nuevos) |
+
+**Totales del árbol vivo (2026-09-11):** `npm run lint` ✔ sin avisos · `npm run typecheck` exit 0 ·
+`npm test` **141/141 ficheros, 1616/1616 tests** (re-medido tras `30cc3ea`; antes de él, `pesosToCents.test.ts` no arrancaba por importar `M4View` → `next-intl` navigation, 1609/1609 con 1 fichero rojo) · Playwright (mocks, build de producción, puerto 3123): mis tres specs **10/10**
+(+1 `@real` saltado por diseño); `vault.spec`, `shipments.spec` y `buylist-offer.spec` verdes en la misma
+corrida (23 + 2 corregidos de localizador estricto = 25/25).
+
+### 2. ⭐ La mutación (O-3/O-9): «el precio persistido no es autoridad»
+
+Sobre una **copia** del árbol (`scratchpad/frontend-A2/mut-requote`, `node_modules` enlazado), se retiró la
+única línea que dispara la re-cotización al rehidratar (`useSellCart.ts`: `void requote(lines, count)`).
+`vitest run BuylistView useSellCart -t "restaurado|persistencia"` × 5: **5/5 corridas en rojo, 9 tests
+fallan en cada una** (los de «el precio que se pinta es el NUEVO», «—» mientras recotiza, poda de
+`ok:false`, lotes ≤50, fallo de red). Log: `scratchpad/frontend-A2/mutation-requote.log`.
+
+### 3. Desviaciones respecto a §33 / contrato — y por qué
+
+1. **Caducidad del carrito: 30 días**, no los 7 del cuerpo de §33.11 (v4.1): manda `ARCHITECTURE §4.47.6`
+   y la cabecera de §33 v4.1.1 («carrito 30 días»); el coordinador lo confirmó en sesión. Formato
+   persistido `{ lines, updatedAt }` (el del helper compartido), no `{ v: 1, … }`.
+2. **`vault.withdraw` NO cambia de valor.** §33.4 pide que la misma clave diga «Solicitar retiro» en la
+   cabecera y «Retirar» en la teja: es una clave para dos superficies. Se añadió `vault.requestWithdrawal`
+   («Solicitar retiro») para cabecera y pestaña; `vault.withdraw` sigue siendo el «Retirar» por pieza
+   (`e2e/vault.spec.ts` lo sigue midiendo sin cambios).
+3. **Copy de M4 sin destinatario:** «SIN DESTINATARIO (retiro anterior a v1.67)» en mono rojo — funde el
+   tono de §33.10d con el texto que el contrato §M4 exige literalmente («Sin destinatario (retiro
+   anterior a v1.67)», nunca «—» mudo). El contrato manda.
+4. **Claves i18n con namespaces del encargo**, no los de §33.13: `orders.claimable.*` + `vault.claimable.body`
+   (en vez de `claimable.*`), `sellCart.*` (en vez de `buylist.cart*`), `shipments.recipient.*` y
+   `admin.m4.{postalCode,phone}` (necesarias para la línea de M4). `buylist.offer.backToBuylist` retirada
+   (sin otro consumidor: `grep`).
+5. **F10 con botón «Guardar nombre» propio** (no dentro del CTA de pagar): el nombre se guarda ANTES de
+   cotizar, así el desglose de importe se ve con el destinatario ya fijado y se paga una sola cosa a la
+   vez. §33.10b habla de «Completar» → modal de edición de la libreta; ese modal es de `AddressManager`
+   (zona de A1), y el encargo pide captura **inline**: es lo implementado.
+6. **Prellenado del destinatario solo con `nameSource` presente y ≠ `derived`.** El contrato permite
+   proponer `user.name` «si `nameSource !== 'derived'`»; una sesión guardada anterior a v1.67 no trae el
+   campo y **no puede saber** si el nombre es fabricado ⇒ vacío. Es más estricto que la letra, no más laxo.
+7. **`AdminShipmentRow`** (tipo local en M4): `AdminShipmentDTO` no tipa `recipientName`/`addressSnapshot`/
+   `customer`, que el contrato §M4 ya promete (y el backend ya serializa: `shipments.service.ts:38-56,405`).
+   Marcado `// MOCK: pendiente de contrato.ts`; lectura defensiva.
+
+### 4. Contra mock / no medido
+
+- **Reclamables en Playwright:** la rama mock de `getClaimableOrders()` (`lib/api.ts`, zona de A1) devuelve
+  `[]`, así que el E2E mock solo mide «con `[]` no hay nodo». El ciclo aparece → vincular → desaparece está
+  medido en unidad (12/12 con el endpoint espiado) y escrito como `@real` (se salta con razón si el seed no
+  trae un pedido de invitado sin reclamar). **NO MEDIDO contra backend real.**
+- **F10 contra el backend real:** el `422 RECIPIENT_NAME_REQUIRED` y el `PATCH` con `recipientName` se midieron
+  con el cliente espiado (`ShipmentsView.test`), no contra el stack; la libreta mock (`addr-1`) ya trae
+  `recipientName` (A1), así que en Playwright mock la captura no se dispara. **NO MEDIDO E2E.**
+- **`customer {name,email}` en M4:** el DTO no lo trae (R5 de §33.16); se pinta «—» + «Ver ficha» por `userId`.
+- **`storage` entre pestañas** del carrito de venta: cubierto por el helper de A1; no hay test propio.
+
+### 5. Peticiones (no las resuelvo yo)
+
+| Para | Qué |
+|---|---|
+| **A1 / arquitecto** (`lib/`, `types/`) | (a) `AdminShipmentDTO` +`recipientName?`, `addressSnapshot?`, `kind`, `orderNumber?`, `guestEmail?` (contrato §M4 v1.21/v1.67) para retirar `AdminShipmentRow`. (b) Fixture `mockClaimableOrders` no vacío en la rama mock de `getClaimableOrders()` (y `claimGuestOrders` que lo vacíe) para que el E2E de F7 corra en mocks. (c) Una segunda dirección mock con `recipientName: null` para el E2E de F10. |
+| **A1** (`components/domain`) | `SellRequirementsPanel` pinta OTRO «Iniciar sesión» en el carrito de venta con `href="/login"` **sin `?next=/buylist`** (medido: Playwright lo resolvió como segundo enlace). §33.11 no lo lista, pero es el mismo caso. |
+| **backend / seed** | Un pedido de invitado sin reclamar con el correo del cliente del `seed-e2e` para que `claimable-orders.spec.ts @real` deje de saltarse. |
+| **ux-ui** | Decidir de una vez `vault.withdraw` (desviación 2) y el copy de M4 sin destinatario (desviación 3) en §33.4/§33.10d/§33.13. |
+
+## §67 · Stream A (agente frontend A1) — «Mi cuenta», contraseña propia y contraseña temporal **bloqueante** (contrato v1.67, `DESIGN_SYSTEM §33` v4.1.1) — 2026-09-11, rama `claude/tcg-hunt-orchestration-2`
+
+> Encargo F1 → F2 → F3 → F4 ∥ F5 ∥ F6 → F11 de `ARCHITECTURE §4.47.8`. Commits: `cb904d4` (F1+F2+F6),
+> `bb6f7ea` (F3+F4+F5) y el de F11 (Playwright + esta sección). Todo lo de contraseña corre hoy
+> **contra la rama mock** de `lib/api.ts` (backend en construcción en paralelo).
+
+### 1. Decisiones de implementación (y por qué)
+
+| Decisión | Dónde | Motivo |
+|---|---|---|
+| **Una página de contraseña por rol, tres modos**, decididos por `GET /users/me` (`hasPassword`, `mustChangePassword`), nunca por `authProvider` | `components/domain/account/PasswordPage.tsx` | Contrato v1.67 retira la heurística por proveedor; `GET /users/me` está en la allowlist del guard, así que es la única lectura segura con temporal |
+| **Modo «crear» sin campos**: «Enviarme el enlace» → `POST /auth/forgot-password` con el correo de la sesión | `PasswordPage` (variante B) | Contrato `:6343-6347` / `ARCHITECTURE §4.47.3`: no hay modo crear en `change-password`; un access token de 15 min no basta para instalar una credencial permanente |
+| **`changePassword()` reemplaza los DOS tokens y parchea la sesión** (`mustChangePassword:false, hasPassword:true`) *antes* de resolver | `lib/api.ts` | Los guards de cliente leen esa bandera; si el botón «Listo» apareciera antes, el paso 3 de §33.8 devolvería al usuario a la misma página |
+| **Interceptor global de `403 PASSWORD_CHANGE_REQUIRED`** con navegación completa (`location.assign`), single-flight, no-op si ya estamos en `/password` | `lib/api-client.ts` → `handlePasswordChangeRequired` | Corre fuera de React (sin `useLocale`), por eso `lib/account-routes.ts` deriva el locale del `pathname`. Marca la bandera en `tcg.user` para que `PrivateRouteGuard`/`AdminShell` pinten carga y no contenido mientras navega |
+| **El rebote por temporal aplica también en modo mock** (a diferencia de los guards de sesión, que son inertes con fixtures) | `PrivateRouteGuard`, `AdminShell` | La bandera vive en la sesión local, no en el backend: es lo que permite recorrer el bloqueo entero en los E2E de fixtures |
+| **`?next=` se reenvía, no se consume**, y solo si es interno (`safeNext`: una sola `/` inicial, nunca `//`) | `AuthForm.redirectAfterAuth`, guards, `PasswordPage` («Listo») | `ARCHITECTURE §4.47.7`: un operador que abrió `/admin/m4` con temporal acaba en M4 |
+| **`updateMe` guarda la forma COMPLETA de la respuesta** (`setStoredUser`), no un parche de 3 campos | `lib/api.ts` | `PATCH /users/me` devuelve la misma forma que el GET, con `nameSource='user'`: sin esto el aviso de nombre derivado no desaparecería sin recargar |
+| **Nota de nombre derivado en `aria-describedby`** compuesta con el `hint`/`err` del `Input` (`id="profile-name"` explícito) | `ProfileSection` | `Input` deriva `<id>-hint`/`<id>-err`; pasar `aria-describedby` a secas los pisaría (`{...props}` va después) |
+| **`LocaleToggle.onChange`** (prop nueva, opcional); el perfil persiste `locale` con `PATCH /users/me` **salvo con temporal activa** | `components/ui/LocaleToggle.tsx`, `ProfileSection` | Aviso del coordinador: `PATCH /users/me` no está en la allowlist; llamarlo con temporal dispararía el 403 y el rebote |
+| **`AddressManager` gana `recipientName` (primero, obligatorio), «Editar» (PATCH), «Falta el nombre…» + «Completar», `hideTitle`, `defaultRecipientName`**; se exportan `AddressFormModal` y `addressMissingRecipient` | `components/domain/AddressManager.tsx` | §33.10a; el retiro de A2 reutiliza el modal y el predicado. El prellenado del destinatario lo decide quien monta y solo con `nameSource !== 'derived'` (contrato: el servidor nunca deriva) |
+| **`lib/local-store.ts`** (helper compartido: `{ [field], updatedAt }`, caducidad `>` estricta, migración suave, evento propio, `useStoredValue`) y **`cart.ts` reescrito encima** | `lib/` | `ARCHITECTURE §4.47.6` recomendaba extraerlo; reescribir `cart.ts` sobre él es lo que **verifica** el helper (los 8 tests de `cart.test.ts` pasan sin tocarlos). A2 lo usa para `tcg.sellCart` |
+| **Cuentas mock con temporal**: `temporal@example.com` (customer) y `operador.temporal@example.com` (vault_operator); `changePassword` mock replica el orden normativo de evaluación (`PASSWORD_NOT_SET` → `CURRENT_PASSWORD_INCORRECT` con `wrong…` → `VALIDATION_ERROR` → `PASSWORD_SAME_AS_CURRENT`) | `lib/api.ts` | Sin backend no hay otra forma de recorrer §33.8 de punta a punta |
+| **`withMeDefaults`** en la rama mock de `getMe`/`updateMe`: completa `hasPassword`/`mustChangePassword`/`nameSource` cuando la sesión inyectada (E2E `loginAs`) no los trae | `lib/api.ts` | El backend real los trae SIEMPRE; el mock no debe pintar «Crear contraseña» a un `local` por un campo ausente |
+| **`SectionShell`** (`section[aria-labelledby][tabIndex=-1]` + `h2`) para TODAS las secciones; foco por anclaje (`#profile`…) al montar con usuario | `components/domain/account/SectionShell.tsx`, `AccountView` | `h1 → h2` sin saltos y el patrón P-4 de foco en un solo sitio |
+
+### 2. Desviaciones respecto a §33 / contrato, con motivo
+
+1. **Namespace i18n `auth.changePassword.*`** (no `changePassword.*` como en §33.13): lo fijó el encargo del orquestador («tus claves bajo `auth.changePassword.*`»). Los **valores** son los de §33.13 carácter por carácter. Si QA cablea un candado de literalidad por clave, hay que apuntar al namespace real.
+2. **`nav.orders` y `nav.shipments` NO se borran** aunque salen del header: `e2e/guest-checkout.spec.ts:191` (stream de checkout, A2) resuelve `nav.orders` por `t()`. Quedan huérfanas en el catálogo hasta que ese spec cambie; `auth.mustChangePassword`/`auth.mustChangeContinue` **sí** se borraron (ES/EN).
+3. **Claves i18n añadidas fuera de mis namespaces**: `addresses.recipientName/recipientNameHint/recipientLine/recipientMissing/complete/edit/editTitle` (soy quien extiende `AddressManager`), `error.CURRENT_PASSWORD_INCORRECT/PASSWORD_SAME_AS_CURRENT/PASSWORD_NOT_SET/PASSWORD_CHANGE_REQUIRED/RECIPIENT_NAME_REQUIRED` (F1 pedía «5 códigos en el mapa de i18n»), y `account.kyc.ine/ineFront/ineBack`, `account.billing.cancel`, `account.addresses.title` (rótulos que §33.6 describe sin clave). A2 debe **no** duplicarlas.
+4. **`AdminSidebar.tsx` no se toca**: §33.2 es explícito («sin entrada nueva»); «Mi cuenta»/«Cerrar sesión» del drawer viven en `AdminShell` (`DrawerAccountFooter`, `sm:hidden`).
+5. **Índice pegajoso**: `aria-current="location"` lo mueve un `IntersectionObserver` (sin él —jsdom— queda en la primera sección). No es medible en unit; en Playwright no lo aserté.
+6. **El chrome del rol se ve durante el bloqueo** (header/sidebar): así lo fija §33.8 v4.1.1; cualquier enlace rebota (paso 3). No se construyó la ruta `/change-password` en `(auth)` de v4.1 (retirada).
+
+### 3. Qué corrió contra mock y qué no (medido 2026-09-11)
+
+- **Todo lo de contraseña** (`changePassword`, temporal, 422/429, `forgot-password` del modo crear) y `getMe`/`updateMe`/`billing-profile`: **rama mock**. Contra el backend real **NO MEDIDO** (en construcción). Lo que lo cerraría: E2E `@real` con un usuario del seed con `mustChangePassword=true` (petición a backend/devops: sembrarlo en `seed-e2e.ts`) y un `POST /auth/change-password` de verdad.
+- El interceptor de `403` está probado con `fetch` fingido (`api-client.password-change.test.ts`, 5 casos); contra el guard real **NO MEDIDO**.
+
+### 4. Peticiones (arquitecto / backend / devops)
+
+- **backend/devops (seed E2E):** un usuario `mustChangePassword=true` (y, si se quiere cubrir el modo crear en real, una cuenta solo-Google con `passwordHash IS NULL`) en `backend/prisma/seed-e2e.ts`, para que `e2e/account.spec.ts` deje de ser `mockOnly` en sus tres primeros casos.
+- **arquitecto (aclaración, no bloquea):** `GET /users/me/billing-profile` sin perfil — asumo `404 NOT_FOUND` (⇒ vacío de §33.6d); el contrato no lo escribe. Si fuera `200 null`, hay que mapearlo en `getBillingProfile`. Confirmar.
+- **arquitecto (R5 de §33.16):** `AdminShipmentDTO` en `types/contract.ts` tipa ahora lo que §M4 promete (`kind`, `orderId`, `orderNumber?`, `guestEmail?`, `recipientName?`, `addressSnapshot?`); **`customer { id, name, email }` NO está en el contrato** y por eso no se tipó — A2 lo lee como tipo local hasta que el contrato lo publique.
+
+### 5. Mediciones (2026-09-11, árbol vivo salvo la mutación)
+
+| Qué | Comando | Resultado |
+|---|---|---|
+| Unitarios (suite entera) | `npx vitest run` | **141 ficheros / 1616 tests verdes** |
+| Typecheck | `npx tsc --noEmit` | limpio |
+| Lint | `npx next lint` | 0 avisos |
+| Playwright `e2e/account.spec.ts` (mocks, `E2E_MOCK_PORT=3021`, `E2E_MOCK_DIST_DIR=.next-e2e-mock-a1`) | `npx playwright test e2e/account.spec.ts` | **9/9** (temporal cliente y operador con `next=/admin/m4`, rebote de pública, perfil con nombre derivado, solo-Google sin campos, cambio normal, header 5 entradas, topbar/`/admin/account` por rol, 390×844 sin desborde e inputs ≥16px) |
+| Mutación (sobre COPIA: `git worktree` en el scratchpad; quitar el `if (user?.mustChangePassword) { replace… }` de `AuthForm.redirectAfterAuth`) | `vitest run AuthForm.test.tsx` ×5 | **5/5 rojas (4 tests caen cada vez)**; control en el árbol vivo **5/5 verdes (13/13)** |
+
+### 6. Cierre pedido por el coordinador tras el informe de A2 (mismo día)
+
+- `SellRequirementsPanel`: los CTA «Iniciar sesión»/«Crear cuenta» llevan `?next=/buylist` (§33.11); candado `SellRequirementsPanel.test.tsx`.
+- `types/contract.ts`: `AdminShipmentDTO` + `AddressSnapshotDTO` + `AdminShipmentKind` (arriba).
+- Mocks (`lib/api.ts`, `lib/mock/fixtures.ts`): `mockClaimableOrders` (2 pedidos) servidos **solo** con `localStorage['tcg.mock.claimable']='1'` — el default sigue `[]` porque el E2E de A2 (`claimable-orders.spec.ts`, primer caso) mide precisamente «con `[]` no hay nodo» (CA-4) y cambiar el default lo pondría en rojo; `claimGuestOrders` vacía el pool y lo anota en `tcg.mock.claimed` (sobrevive a la recarga); ids fuera del pool ⇒ `failed[NOT_FOUND]`. Libreta mock: `addr-legacy` con `recipientName: null` (addr-1 sigue siendo la predeterminada con nombre, así el retiro de demo no se bloquea). **Para que el segundo caso de A2 corra en mock** hay que inyectar la bandera con `addInitScript` y quitar su `test.skip(!IS_REAL…)` — es su fichero; queda como petición a A2/orquestador.
+- `frontend/.gitignore`: `/.next-e2e-mock-*` (builds por agente); `.next-e2e-mock-a1/` borrado.
+- ⚠ Mi §67 entró en git dentro del commit de A2 (`7491743`, «§66»): A2 escenificó el fichero compartido entero. El contenido es el mío; la autoría del commit no. Se anota para O-7/O-10.
+
+## §68 · Ronda de correcciones tras los gates de Stream A (QA + techlead, 2026-09-11) — rama `claude/tcg-hunt-orchestration-2`
+
+Once hallazgos (`#1`–`#11` del encargo) más dos indicaciones de ux-ui (v4.1.2) y una del arquitecto
+(v1.67.1) que llegaron durante la ronda. Todo **medido el 2026-09-11** sobre el árbol vivo salvo las
+mutaciones (copia por `git worktree` en el scratchpad `frontend-fix1`). Lo que dice «creo» es creo.
+
+### 1. Hallazgo → commit → medición
+
+| # | Hallazgo | Commit | Medición |
+|---|---|---|---|
+| 1 | `next build` con `E2E_MOCK_DIST_DIR` reescribía `tsconfig.json` | `19f5ad4` | `next-config-tsconfig-path.test.ts` **5/5** con el propio `writeConfigurationDefaults` de Next (incluido el control: sin remedio SÍ reescribe); `E2E_MOCK_DIST_DIR=.next-e2e-mock-fix1 npx playwright test e2e/account.spec.ts e2e/claimable-orders.spec.ts` ×2 ⇒ `git status` **sin `tsconfig.json`** (solo aparece `tsconfig.next-e2e-mock-fix1.json`, ignorado) |
+| 2 | `/account` facturación: 404 ⇒ vacío, no seis «—» | `baa580f` | `api.billing-profile.test.ts` 5/5 (404⇒null; 200 DTO; 200 vacío/`null`/`{}`⇒null; 500 propaga; PUT seis campos) + `BillingSection.test.tsx` 4/4 + E2E «facturación» en mock (1/1) |
+| 3 | `account.spec.ts` seis `mockOnly`; `claimable-orders.spec.ts:33` `@real` con `skip` | `84235e6` | Playwright mock **12/12 ×2**; en real: NO MEDIDO (no hay stack real en esta sesión; el seed `83ec86e` aterrizó al final de la ronda) |
+| 4 | Cuatro construcciones del rebote por temporal; `next` sin query string | `36ee52b` | 63/63 (layout + AuthForm); **mutación 3/3 roja** (cadena a mano sin query en `PrivateRouteGuard` ⇒ cae el test `/vault?tab=retiros`), control 3/3 verde (10/10) |
+| 5 | `peekExpired()` reimplementaba la caducidad de `local-store` | `7d6a6d8` | `local-store` + `cart` + `useSellCart` 26/26; test nuevo de `expired` (5 casos) |
+| 6 | `AdminShipmentRow` local; `??` entre dos fuentes del destinatario | `9369066` | M4 18/18; casos snapshot-solo / suelto-solo / ambos ⇒ gana el snapshot |
+| 7 | `OrdersView` pinta el UUID | `31fca92` | 19/19; folio en `ord-9001`, fallback visible en `ord-9002` |
+| 8 | Claves prestadas de `verifyEmail.*`; huérfanas `nav.orders`/`nav.shipments` | `2fa4791` | `PasswordPage` + paridad i18n 52/52; `nav.shipments` borrada (0 consumidores); `nav.orders` **se queda** (`CheckoutView.tsx:148`) |
+| 9 | `requestBlob` sin interceptor del 403 | `db86e6a` | `api-client*` 16/16 (401→refresh→blob, refresh muerto limpia, 403 desde la descarga navega) |
+| 10 | `package.json` sin `engines` | `09bdf43` | `npm install --package-lock-only` ⇒ lockfile +3 líneas (solo `engines` en la raíz) |
+| 11 | Deuda a anotar | `TECH_DEBT.md` bloque «Frontend · 2026-09-11 · gates Stream A» (GA-D1..D7) | — |
+| ux-ui §33.11.2 | «—» por línea en `requoting` y `requoteFailed`, `aria-busy` en el `<ul>` | `77368c0` | `BuylistView.test` 63/63; **mutación 3/3 roja** (`noFreshPrice=false`), control 3/3 verde |
+| ux-ui §33.7 B | `account.password.rateLimited` / `resendError` | `2fa4791` | (en #8) |
+| arquitecto v1.67.1 | `snap(s,'recipientName') ?? s.recipientName` y `@deprecated` | `9369066` | (en #6) |
+
+**Suites completas (árbol vivo, tras el último commit):** `npm run lint` 0 avisos · `npx tsc --noEmit` limpio ·
+`npx vitest run` **146 ficheros / 1644 tests verdes** (QA midió 143/1620: +3 ficheros, +24 tests) ·
+Playwright mock de los specs tocados **12/12** (dos pases) · `git status` limpio en mis rutas.
+
+### 2. Decisiones de implementación
+
+- **#1 — un tsconfig generado por `distDir`, no una opción de Next.** No existe opt-out de la inyección
+  de `include` (`writeConfigurationDefaults.js:228-256`): Next exige `${distDir}/types/**/*.ts` en el
+  `include` del fichero que le des en `typescript.tsconfigPath`, y si falta lo añade y re-serializa
+  TODO el fichero. La receta: `next.config.mjs` → `tsconfigPathForDistDir(distDir)` escribe
+  `tsconfig.<distDir-sin-punto>.json` = `{ extends: './tsconfig.json', include: [<el del principal con
+  .next/types sustituido por <distDir>/types>], exclude }` y lo pasa en `typescript.tsconfigPath`. Con
+  `extends`, el plugin `next` llega por herencia (`hasNextPlugin` true) y con `include`/`exclude`
+  presentes no hay ninguna «suggestedAction» ⇒ **no escribe**. El generado está en `.gitignore`
+  (`/tsconfig.next-*.json`); con `distDir === '.next'` no se genera nada. `tsconfig.json` vuelve a tener
+  solo `.next/types`. **Receta para correr mocks sin ensuciar nada:**
+  `E2E_MOCK_PORT=<puerto> E2E_MOCK_DIST_DIR=.next-e2e-mock-<agente> npx playwright test <spec>` — ya no
+  hace falta `git checkout -- frontend/tsconfig.json`.
+- **#2 — además del 404, un 200 sin perfil no se afirma (D-CTA-7).** `getBillingProfile` devuelve `null`
+  con 404 (contrato v1.67.1) y también si el cuerpo del 200 no trae `rfcMasked` string: el backend
+  anterior a `3402466` respondía `200` vacío, `api-client` lo convertía en `{}` y `{}` es truthy. Es
+  tolerancia, no lectura alternativa del contrato; se retira cuando producción esté en `≥ 3402466`
+  (`TECH_DEBT` GA-D6).
+- **#3 — tres clasificaciones, no dos.** `mockOnly` (dato de fixture) y `needsSeed` (falta la fila) no
+  bastaban: la cuenta solo-Google **existe** en el seed pero **no se puede autenticar** sin Google ⇒
+  `harnessLimit(reason)`. Y `needsSeed` estático no sirve para «el actor está pero su temporal ya se
+  consumió»: `skipIfSeedMissing(condition, reason)` decide al intentarlo. Los tres imprimen su razón.
+  El grupo del cliente temporal va en `serial` (mismo worker, en orden): rebote+logout (login por API,
+  no consume) → consume la temporal → cambio «normal» entrando con la definitiva. Cambiar la contraseña
+  del `customer` compartido revocaría la sesión cacheada de los otros workers (`change-password` sube
+  `tokenVersion`), por eso el cambio normal usa al actor temporal. Credenciales reales:
+  `utils/env.ts` (`E2E_TEMP_CUSTOMER_*` / `E2E_TEMP_OPERATOR_*`, defaults de `e2e-fixtures.ts`).
+- **#4 — `buildPasswordChangeRedirect(role, fullPath, { reason })`.** Los guards le pasan `pathname`
+  (next-intl, sin locale) + `useSearchParams()` y devuelven la ruta sin locale (el router de next-intl
+  lo repone); el interceptor le pasa `location.pathname + search` (con locale) y sale con locale.
+  `AuthForm` usa `reason: null` (tras el login no hay banner: §33.8 paso 1). `useSearchParams` puede ser
+  `null` fuera del App Router: se tolera.
+- **#6 — orden del destinatario invertido por el arquitecto (v1.67.1, D-CTA-9):** `snap(s,'recipientName')
+  ?? s.recipientName`. El techlead pedía UNA fuente; el arquitecto fijó «snapshot canónico, suelto
+  deprecado detrás con invariante de igualdad, para que su retiro sea gratis». Se hizo lo segundo y
+  `AdminShipmentDTO.recipientName` va `@deprecated`. `customer` sigue fuera del contrato (GA-D1).
+- **#7 — `orderNumber` no existe en `GET /orders`.** Medido en contrato (`§11 OrderSummaryDTO`) y en
+  backend (`orders.service.ts:listOrders`). Tipo opcional marcado `// MOCK: pendiente de contrato`,
+  `orderNumber ?? id` en la columna; contra el backend real hoy se sigue viendo el UUID (GA-D2).
+- **#8 — por qué el bloqueo vive bajo `auth.changePassword.*` y el resto bajo `account.password.*`.**
+  El bloqueo por temporal es un paso más del **login** (la temporal la emitió el admin; la pantalla no
+  tiene «Mi cuenta», lleva `requiredNotice` y su copy —«Crea tu contraseña definitiva», «Contraseña
+  temporal», «Guardar y continuar», «Listo»— es del flujo de autenticación), así que cuelga de `auth`.
+  Cambiar/crear son secciones de **Mi cuenta** ⇒ `account.password.*`. Los errores del `forgot-password`
+  del modo crear son de esa sección: `rateLimited` (la misma de la variante A) y `resendError` (nueva).
+- **#9 — `fetchWithSession` + `toApiError`.** `requestBlob` y `apiRequest` comparten el núcleo (refresh
+  proactivo, 401→refresh→un reintento, 403 interceptado). La única diferencia del binario: sin
+  `Content-Type: application/json` ni cuerpo serializado. `requestBlob` antes tampoco refrescaba: ahora sí.
+- **§33.11.2 —** `noFreshPrice = requoting || requoteFailed` por línea (mismo predicado que apaga el CTA);
+  el total también «—» con `requoteFailed` (antes solo con `requoting`); `aria-busy` en el `<ul>` solo
+  mientras hay batch en vuelo (con fallo no hay nada en vuelo); un solo `aria-label` (total).
+
+### 3. Lo que depende de otros y en qué estado quedó
+
+- **backend (billing 404):** aterrizó en `3402466` durante la ronda. Mi cliente ya lo consume; contra el
+  stack real **NO MEDIDO** (sin stack en esta sesión). Lo cerraría: `E2E_BASE_URL=… E2E_REAL=1 npx
+  playwright test e2e/account.spec.ts --grep facturación`.
+- **backend (seed E2E):** aterrizó en `83ec86e` (`temporal.customer@e2e.local`, `temporal.operator@e2e.local`,
+  `Temporal123!`, `google.only@e2e.local`, pedido `TCG-E2E-GUEST-0001`). Los specs ya usan esos defaults;
+  en real **NO MEDIDO**. Lo cerraría: `E2E_REAL=1` con el stack sembrado (`account.spec` + `claimable-orders.spec`).
+- **ux-ui:** §33.11.2 y §33.7 B (v4.1.2) aplicados y medidos (arriba).
+- **arquitecto:** v1.67.1 aplicado (billing, D-CTA-9). Peticiones abiertas en §68.4.
+
+### 4. Peticiones al arquitecto (contrato)
+
+1. **`orderNumber` en `OrderSummaryDTO` y `OrderDetailDTO`** (`GET /orders`, `GET /orders/:id`): la columna
+   PEDIDO y el título del detalle pintan el UUID contra el backend real. La columna existe desde v1.21.
+2. **`customer { id, name, email }` en la fila de M4** (`GET /admin/shipments`): o se publica o se retira la
+   línea «Cliente …» de la pantalla (queda «Ver ficha» al M6). Hoy se lee defensivo (GA-D1).
+
+### 5. Lo NO medido (para que nadie lo lea como hecho)
+
+- Nada contra el backend real en esta ronda (ni billing 404, ni actores del seed, ni claimable con el
+  pedido sembrado, ni `requestBlob` con un 403 real). Todo lo de arriba es unitario + Playwright en mock.
+- Que el workflow `e2e-real` / `stack-native.sh` re-siembre antes de cada corrida (GA-D3 lo da por hecho
+  por lectura del seed idempotente, no por ejecución).
+
+### 6. Re-verificación de QA (QA2-1) y techlead N6 — 2026-09-11, HEAD `a24c516`
+
+| Hallazgo | Commit | Medición |
+|---|---|---|
+| **QA2-1** «Cerrar sesión» aterrizaba en `/login?next=<ruta recién cerrada>` (FE-34 extendida a `/account`; QA 6/6 real) | `ff4f58b` | Señal de logout intencional (`lib/session.ts`: `markIntentionalLogout` en `logout()` ANTES de la red y del vaciado; `isLogoutInProgress`, ventana 10 s) y los dos guards no redirigen mientras dura. Unitario: `PrivateRouteGuard.test`/`AdminShell.test` (caso QA2-1) + `session.logout-signal.test.ts` 4/4; **mutación 3/3 roja** (quitar el check en `PrivateRouteGuard`), control 3/3 verde. **Real** (stack reconstruido con mi árbol, `up --gate`): el caso `@real … «Cerrar sesión» sale a /login` **1/1 verde** contra `http://localhost:3000`. |
+| **N6** `requoting \|\| requoteFailed` ×3 | `f669151` | `noFreshPrice` const del componente; `BuylistView.test` 63/63 |
+| TECH_DEBT «Comprobación de cierre» GA-D1..D7 + FE-34 cerrada | `a24c516` | — |
+
+**Corrida real completa de `account.spec.ts` + `claimable-orders.spec.ts`** (`E2E_BASE_URL=http://localhost:3000
+E2E_REAL=1`, BD re-sembrada con `up --seed --gate`, luego `down` + `up --gate` porque el `:3000` de QA no se
+reutiliza en gate): **6/8 verdes** — los dos flujos de temporal (cliente y operador, consumiendo la temporal
+contra el backend real), rebote + «Cerrar sesión» (QA2-1), cambio normal con la definitiva, header con sesión y
+**reclamables con el pedido sembrado `TCG-E2E-GUEST-0001`** (aparece → vincular → desaparece → no vuelve tras
+recargar). Los dos rojos, clasificados:
+
+1. **Facturación — `GET /users/me/billing-profile` ⇒ `500`** para `customer@e2e.local` (medido con `curl` y
+   Bearer: `{"error":{"code":"INTERNAL"}}`; `backend.log`: `PiiCryptoService.decrypt` → `Unsupported state or
+   unable to authenticate data` desde `UsersService.toBillingProfileDTO`). La fila `BillingProfile` del customer
+   la escribió una corrida anterior (la de QA sobre `ba5fd4b` corrió este mismo caso) y **el proceso actual no
+   puede descifrar su `rfcEnc`**: la clave PII cambió entre procesos (creo: `4f27d2f` «la clave PII no cuelga de
+   NODE_ENV» / `5f0928f`; el seed no toca `BillingProfile`, así que el residuo sobrevive a `--seed`). **No es del
+   front** (la sección pinta su error «Algo salió mal · Reintentar», que es lo correcto ante un 500) y el test
+   **debe seguir rojo** ante un 500. Va a **backend/devops**: o el seed borra/re-escribe `BillingProfile` del
+   customer, o la clave PII del stack nativo es estable entre reinicios. Comprobación: el `curl` de arriba ⇒ `404`
+   (o `200` con `rfcMasked`).
+2. **Topbar del panel — timeout 60 s con página en blanco** en la corrida completa; **1/1 verde (20 s) corriendo
+   solo** (`--grep topbar`). Creo (no lo registra el log del backend): es el throttler de `POST /auth/login`
+   (5/min por IP) — la corrida hace 6 canjes (customerTemp por API y dos por formulario, operatorTemp por
+   formulario, customer y operator por API) y el sexto entra en el backoff de `loginViaApi` (hasta 63 s), que
+   supera el timeout del test. Es del **arnés**, no del producto; lo cerraría subir `timeout` de los `@real` de
+   cuenta o bajar canjes (p. ej. el cambio «normal» por API en vez de por formulario). Lo anoto sin arreglar en
+   este pase para no mezclar.
+
+**Caveat SEC-OPS-1 (lo digo tal cual lo imprimió `stack-native.sh`):** la autocomprobación marcó el stack como
+**NO VERIFICADO** porque el **backend** arrancó sirviendo `557113` y HEAD ya era `28767d9` (commits de otros
+agentes entre el arranque del backend y el del frontend; `backend/package.json` más nuevo que el proceso). El
+árbol de **frontend** servido sí es idéntico al esperado (`26d5dc841ca5` en ambos). Para lo que mide este
+frente (guards + logout) el backend no cambió; para el gate formal, QA debe re-medir sobre un stack cuyo
+backend sea HEAD.

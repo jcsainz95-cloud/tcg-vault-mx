@@ -44,7 +44,7 @@ import { SellCartContents } from './SellCartContents';
 // v1.51.4 (D43): el mínimo de compra del cotizador. Se pide AL MONTAR esta vista (el cotizador),
 // no se guarda en un store de vida larga: el contrato lo norma por la caché pública de 5 minutos.
 import { useQuotePolicy } from './useQuotePolicy';
-import { MyRequestsSection } from './MyRequestsSection';
+import { Link } from '@/i18n/navigation';
 import { EditorialLink } from '../_shared/EditorialLink';
 
 /**
@@ -119,7 +119,12 @@ export function BuylistView() {
     cartCount,
     isInCart,
     requestItems,
+    restore,
+    requoting,
+    requoteFailed,
+    retryRequote,
   } = useSellCart();
+  const tSellCart = useTranslations('sellCart');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const fabRef = useRef<HTMLButtonElement>(null);
   const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
@@ -329,6 +334,30 @@ export function BuylistView() {
                 {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
               </p>
             )}
+            {/* §33.11 (P-55): qué pasó con la lista guardada al volver (caducó / se conservó /
+                precios de hoy / líneas que ya no cotizamos). UN status por hecho, sin rojo por línea:
+                `trustValidity` ya explica que el estimado es de hoy. */}
+            {restore.kind === 'expired' && (
+              <p role="status" className="mb-3 font-mono text-[11px] text-accent">
+                {tSellCart('expired')}
+              </p>
+            )}
+            {restore.kind === 'restored' && (
+              <div className="mb-3 flex flex-col gap-1 font-mono text-[11px] text-muted" data-testid="sell-cart-restored">
+                <p role="status">{tSellCart('restored', { count: restore.count })}</p>
+                {restore.repriced && (
+                  <p role="status">
+                    {tSellCart('repriced', {
+                      before: formatMoneyCents(restore.repriced.beforeCents, locale),
+                      after: formatMoneyCents(restore.repriced.afterCents, locale),
+                    })}
+                  </p>
+                )}
+                {restore.droppedCount > 0 && (
+                  <p role="status">{tSellCart('linesDropped', { count: restore.droppedCount })}</p>
+                )}
+              </div>
+            )}
             {/* v1.21 / v1.53: el binder COMPARTIDO de Master Set es EL grid del cotizador —
                 casillas de imagen por acabado real de la carta (nunca chip de texto ni casilla
                 vacía), con "Cargar más" propio para sets >20 cartas (fetchQuoterBinder pagina
@@ -369,6 +398,9 @@ export function BuylistView() {
                 onToggleLineDetail={toggleLineDetail}
                 onClearCart={clearCart}
                 showShippingNote={shippingNoteHost === 'cart'}
+                requoting={requoting}
+                requoteFailed={requoteFailed}
+                onRetryRequote={retryRequote}
                 onSubmit={() => {
                   setCreatedId(null);
                   setRequestOpen(true);
@@ -406,6 +438,9 @@ export function BuylistView() {
             onToggleLineDetail={toggleLineDetail}
             onClearCart={clearCart}
             showShippingNote={shippingNoteHost === 'cart'}
+            requoting={requoting}
+            requoteFailed={requoteFailed}
+            onRetryRequote={retryRequote}
             onSubmit={() => {
               setCreatedId(null);
               // Un solo focus trap activo (§18.4b): abrir el modal de solicitud
@@ -451,9 +486,25 @@ export function BuylistView() {
           </p>
         )}
 
-        {/* Mis solicitudes (extraída en TL-C3): sin sesión NUNCA muestra error — invita a
-            iniciar sesión en tono informativo (y no consulta el endpoint). */}
-        <MyRequestsSection ready={sellReq.ready} isAuthenticated={sellReq.isAuthenticated} />
+        {/* §33.3 (Stream A): «Mis solicitudes» vive ahora en la pestaña Ventas de «Compras y
+            ventas» (`/orders?tab=ventas`). Aquí queda UNA línea con sesión; sin sesión, la
+            invitación de siempre — y el enlace lleva `?next=/buylist` para volver al cotizador
+            con el carrito de venta ya rehidratado (§33.11). Nunca consulta el endpoint. */}
+        <section className="gutter border-t border-border pb-14 pt-10">
+          {!sellReq.ready ? null : sellReq.isAuthenticated ? (
+            <EditorialLink href="/orders?tab=ventas">{t('viewMyRequests')} →</EditorialLink>
+          ) : (
+            <div className="max-w-[560px]">
+              <p className="text-[13px] leading-[1.7] text-muted">{t('requestsLoginInvite')}</p>
+              <Link
+                href="/login?next=/buylist"
+                className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
+              >
+                {t('loginCta')}
+              </Link>
+            </div>
+          )}
+        </section>
 
         {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
             del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío

@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { AuthProvider, KycStatus, NameSource, Prisma, Role, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
@@ -13,54 +14,82 @@ import {
   UpdateKycDto,
   UpdateMeDto,
 } from './dto/users.dto';
+import { assertPersonName } from './person-name';
+import { AddressDTO, toAddressDTO } from './address-dto';
+
+/** `BillingProfileDTO` del contrato §11 (v1.67.1): seis campos, `rfcMasked` y nada más. */
+export interface BillingProfileDTO {
+  rfcMasked: string;
+  razonSocial: string;
+  regimenFiscal: string;
+  usoCfdi: string;
+  postalCode: string;
+  email: string;
+}
 
 /** Valida CLABE mexicana (18 dígitos numéricos). Validación estructural. */
 export function isValidClabe(clabe: string): boolean {
   return /^\d{18}$/.test(clabe);
 }
 
-/**
- * v2.1.9 (S49-R4) — **`Address` se proyecta al `AddressDTO` del contrato (§DTOs).**
- *
- * Tres rutas devolvían la fila cruda (`GET/POST /users/me/addresses`, `PATCH .../:id`), o sea también
- * `userId`, `createdAt` y `updatedAt`. No hay secreto ahí — la dirección es del propio usuario que
- * pregunta — pero la norma «ningún endpoint devuelve una entidad Prisma» sólo vale si es universal:
- * mientras la respuesta SEA la fila, cualquier columna futura (una geocodificación, un flag de
- * verificación, un id de proveedor logístico) viaja al cliente sin que nadie lo decida.
- */
-function toAddressDTO(a: {
-  id: string;
-  line1: string;
-  line2: string | null;
-  neighborhood: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  phone: string;
-  isDefault: boolean;
-}) {
-  return {
-    id: a.id,
-    line1: a.line1,
-    line2: a.line2,
-    neighborhood: a.neighborhood,
-    city: a.city,
-    state: a.state,
-    postalCode: a.postalCode,
-    country: a.country,
-    phone: a.phone,
-    isDefault: a.isDefault,
-  };
-}
-
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly pii: PiiCryptoService,
   ) {}
+
+  /**
+   * v1.67 (contrato §1 `GET /users/me`) — la ÚNICA proyección del perfil propio; `GET` y `PATCH`
+   * devuelven exactamente esta forma (D-CTA-2: el PATCH respondía 6 campos y el front necesitaba
+   * `nameSource`/`hasPassword` de vuelta sin segunda llamada).
+   *
+   * - `hasPassword = passwordHash != null`. ⛔ Retira la heurística de v1.1 («ocultar "cambiar
+   *   contraseña" cuando `authProvider=google`»): es falsa tras un reset admin o un `forgot-password`
+   *   sobre una cuenta Google, y falsa al revés para una cuenta `local` enlazada a Google. Es lo único
+   *   que decide la sección de contraseña del perfil.
+   * - `nameSource`: `user` | `google` | `derived` (§4.47.5). Con `derived` el front pinta «Revisa tu
+   *   nombre»; el dato se sigue mostrando.
+   * - `mustChangePassword`: banner persistente de la pantalla de cambio. `GET /users/me` está en la
+   *   allowlist del `PasswordChangeRequiredGuard`; el `PATCH` no.
+   * El hash NUNCA sale: se reduce a un booleano aquí mismo.
+   */
+  private toMeDTO(user: {
+    id: string;
+    email: string;
+    name: string;
+    nameSource: NameSource;
+    phone: string | null;
+    role: Role;
+    locale: string;
+    status: UserStatus;
+    authProvider: AuthProvider;
+    emailVerified: boolean;
+    avatarUrl: string | null;
+    passwordHash: string | null;
+    mustChangePassword: boolean;
+    kycProfile: { kycStatus: KycStatus } | null;
+  }) {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      nameSource: user.nameSource,
+      phone: user.phone,
+      role: user.role,
+      locale: user.locale,
+      kycStatus: user.kycProfile?.kycStatus ?? 'none',
+      status: user.status,
+      authProvider: user.authProvider,
+      emailVerified: user.emailVerified,
+      avatarUrl: user.avatarUrl ?? undefined,
+      hasPassword: user.passwordHash != null,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
 
   async me(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -68,37 +97,36 @@ export class UsersService {
       include: { kycProfile: true },
     });
     if (!user) throw BusinessException.notFound();
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      phone: user.phone,
-      role: user.role,
-      locale: user.locale,
-      kycStatus: user.kycProfile?.kycStatus ?? 'none',
-      status: user.status,
-      // v1.1: el front oculta "cambiar contraseña" cuando authProvider=google sin passwordHash.
-      authProvider: user.authProvider,
-      emailVerified: user.emailVerified,
-      avatarUrl: user.avatarUrl ?? undefined,
-    };
+    return this.toMeDTO(user);
   }
 
+  /**
+   * v1.67 (contrato §1 `PATCH /users/me`): `name` editable por el propio usuario, cualquier rol.
+   * Trim + 1..120 (`assertPersonName`, 400 `VALIDATION_ERROR` `details.field='name'`) y, SIEMPRE
+   * que venga `name`, `nameSource='user'` server-side — es la cura del nombre fabricado (P-73-A).
+   * El `data` se construye a mano: nunca `data: dto` ni `{ ...dto }` (un campo nuevo del DTO no debe
+   * escribirse solo). Es la norma de TODO este servicio (`createAddress`/`updateAddress` la cumplen
+   * igual, campo a campo); `test/users.me-and-addresses.spec.ts` la exige con un campo intruso.
+   */
   async updateMe(userId: string, dto: UpdateMeDto) {
-    const user = await this.prisma.user.update({ where: { id: userId }, data: dto });
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      phone: user.phone,
-      role: user.role,
-      locale: user.locale,
-    };
+    const data: Prisma.UserUpdateInput = {};
+    if (dto.name !== undefined) {
+      data.name = assertPersonName(dto.name, 'name');
+      data.nameSource = NameSource.user;
+    }
+    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.locale !== undefined) data.locale = dto.locale;
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      include: { kycProfile: true },
+    });
+    return this.toMeDTO(user);
   }
 
   // ---------------- Addresses (solo MX) ----------------
 
-  async listAddresses(userId: string) {
+  async listAddresses(userId: string): Promise<{ data: AddressDTO[] }> {
     const rows = await this.prisma.address.findMany({ where: { userId } });
     return { data: rows.map(toAddressDTO) }; // S49-R4
   }
@@ -109,22 +137,63 @@ export class UsersService {
     }
   }
 
+  /**
+   * v1.67 (M-52, contrato §1 «Direcciones»): `recipientName` OBLIGATORIO al crear (trim, 1..120;
+   * 400 `VALIDATION_ERROR` `details.field='recipientName'`). ⛔ El servidor NO lo deriva de
+   * `User.name` (puede ser fabricado, y «cómo te llamas» ≠ «a nombre de quién va el paquete»); el
+   * pre-relleno es cosa del front y solo con `nameSource !== 'derived'` (ARCHITECTURE §4.47.4).
+   */
   async createAddress(userId: string, dto: AddressDto) {
+    const recipientName = assertPersonName(dto.recipientName, 'recipientName');
     this.assertMx(dto.country);
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return toAddressDTO(await this.prisma.address.create({ data: { ...dto, userId } })); // S49-R4
+    // Lista blanca explícita (misma norma que `updateMe`): un campo nuevo del DTO no se escribe solo.
+    const data: Prisma.AddressUncheckedCreateInput = {
+      userId,
+      recipientName,
+      line1: dto.line1,
+      line2: dto.line2,
+      neighborhood: dto.neighborhood,
+      city: dto.city,
+      state: dto.state,
+      postalCode: dto.postalCode,
+      country: dto.country,
+      phone: dto.phone,
+      isDefault: dto.isDefault,
+    };
+    return toAddressDTO(await this.prisma.address.create({ data })); // S49-R4
   }
 
+  /**
+   * v1.67: `recipientName?` con la misma validación si viene; ⛔ **no vaciable** (ni `null` ni `""`):
+   * una dirección que ya tiene destinatario no vuelve a no tenerlo. Es el remedio de
+   * `422 RECIPIENT_NAME_REQUIRED` (`PATCH { recipientName }` y reintentar el retiro).
+   */
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
+    // Lista blanca explícita, campo a campo y SOLO los presentes (un PATCH no debe escribir `undefined`
+    // sobre lo que no vino; y un campo nuevo del DTO no se escribe solo — misma norma que `updateMe`).
+    const data: Prisma.AddressUpdateInput = {};
+    if (dto.recipientName !== undefined) {
+      data.recipientName = assertPersonName(dto.recipientName, 'recipientName');
+    }
+    if (dto.line1 !== undefined) data.line1 = dto.line1;
+    if (dto.line2 !== undefined) data.line2 = dto.line2;
+    if (dto.neighborhood !== undefined) data.neighborhood = dto.neighborhood;
+    if (dto.city !== undefined) data.city = dto.city;
+    if (dto.state !== undefined) data.state = dto.state;
+    if (dto.postalCode !== undefined) data.postalCode = dto.postalCode;
+    if (dto.country !== undefined) data.country = dto.country;
+    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
     if (dto.country) this.assertMx(dto.country);
     const existing = await this.prisma.address.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) throw BusinessException.notFound();
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return toAddressDTO(await this.prisma.address.update({ where: { id }, data: dto })); // S49-R4
+    return toAddressDTO(await this.prisma.address.update({ where: { id }, data })); // S49-R4
   }
 
   async deleteAddress(userId: string, id: string) {
@@ -136,23 +205,86 @@ export class UsersService {
 
   // ---------------- Billing profile (CFDI) ----------------
 
-  async getBillingProfile(userId: string) {
-    const bp = await this.prisma.billingProfile.findUnique({ where: { userId } });
-    if (!bp) return null;
-    // El RFC va cifrado en reposo; en la vista se devuelve ENMASCARADO (nunca en claro).
-    const { rfcEnc, ...rest } = bp;
-    return { ...rest, rfc: maskRfc(this.pii.decryptOptional(rfcEnc)) };
+  /**
+   * v1.67.1 (contrato §1 «Perfil de facturación», §11 `BillingProfileDTO`; ARCHITECTURE §4.47.10;
+   * D-CTA-7) — **la ÚNICA proyección del perfil de facturación del cliente**: exactamente seis
+   * campos `{ rfcMasked, razonSocial, regimenFiscal, usoCfdi, postalCode, email }`.
+   *  - `rfcMasked` = 3 primeros caracteres + un `*` por carácter restante (`maskRfc`). El RFC va
+   *    cifrado en reposo; **nunca** sale en claro ni sale `rfcEnc`.
+   *  - SIN `id`/`userId`/`createdAt`/`updatedAt`: el recurso es singular por usuario y ninguna ruta
+   *    acepta su id. (`AdminBillingProfileDTO` de M6 sí los lleva: son dos DTOs a propósito.)
+   */
+  private toBillingProfileDTO(bp: {
+    id: string;
+    userId: string;
+    rfcEnc: string;
+    razonSocial: string;
+    regimenFiscal: string;
+    usoCfdi: string;
+    postalCode: string;
+    email: string;
+  }): BillingProfileDTO {
+    // N2 (2026-09-11): un `rfcEnc` que NO descifra, o que descifra a vacío, es una fila que este
+    // proceso no puede servir. NO se convierte en `''` en silencio: se lanza (⇒ 500) para que se vea
+    // y se repare — pero CON diagnóstico (id, userId y motivo) en el log, porque el 500 al cliente no
+    // dice nada. Causa medida el 2026-09-11 en el stack nativo: `PII_ENCRYPTION_KEY` sin definir ⇒
+    // clave EFÍMERA por proceso ⇒ una fila escrita por el proceso anterior no descifra en el actual
+    // («Unsupported state or unable to authenticate data»). El seed E2E borra estas filas (E2E-1).
+    let rfc: string;
+    try {
+      rfc = this.pii.decrypt(bp.rfcEnc);
+    } catch (e) {
+      const cause = e instanceof Error ? e.message : String(e);
+      const msg =
+        `BillingProfile ${bp.id} (userId ${bp.userId}): rfcEnc does not decrypt with this process's PII key ` +
+        `(${cause}). Likely PII_ENCRYPTION_KEY differs from the one that encrypted it (ephemeral per-process ` +
+        'key in a local harness, or a rotated key) or the row is corrupt. Not serving it.';
+      this.logger.error(msg);
+      throw new Error(msg);
+    }
+    const rfcMasked = maskRfc(rfc);
+    if (!rfcMasked) {
+      const msg = `BillingProfile ${bp.id} (userId ${bp.userId}): rfcEnc decrypts to an empty RFC (corrupt row); refusing to project it`;
+      this.logger.error(msg);
+      throw new Error(msg);
+    }
+    return {
+      rfcMasked,
+      razonSocial: bp.razonSocial,
+      regimenFiscal: bp.regimenFiscal,
+      usoCfdi: bp.usoCfdi,
+      postalCode: bp.postalCode,
+      email: bp.email,
+    };
   }
 
-  async putBillingProfile(userId: string, dto: BillingProfileDto) {
-    const { rfc, ...rest } = dto;
-    const rfcEnc = this.pii.encrypt(rfc);
-    await this.prisma.billingProfile.upsert({
+  /** `GET /users/me/billing-profile`: **sin perfil guardado ⇒ `404 NOT_FOUND`** (nunca `200 null`). */
+  async getBillingProfile(userId: string): Promise<BillingProfileDTO> {
+    const bp = await this.prisma.billingProfile.findUnique({ where: { userId } });
+    if (!bp) throw BusinessException.notFound();
+    return this.toBillingProfileDTO(bp);
+  }
+
+  /**
+   * `PUT /users/me/billing-profile`: UPSERT que reemplaza el perfil entero (los seis campos viajan
+   * siempre) y responde `200` con **la misma forma que el GET** desde la fila que devuelve el upsert
+   * (sin segunda consulta). El `data` se construye a mano (norma del servicio: nunca `{ ...dto }`).
+   */
+  async putBillingProfile(userId: string, dto: BillingProfileDto): Promise<BillingProfileDTO> {
+    const fields = {
+      rfcEnc: this.pii.encrypt(dto.rfc),
+      razonSocial: dto.razonSocial,
+      regimenFiscal: dto.regimenFiscal,
+      usoCfdi: dto.usoCfdi,
+      postalCode: dto.postalCode,
+      email: dto.email,
+    };
+    const bp = await this.prisma.billingProfile.upsert({
       where: { userId },
-      create: { ...rest, rfcEnc, userId },
-      update: { ...rest, rfcEnc },
+      create: { ...fields, userId },
+      update: fields,
     });
-    return this.getBillingProfile(userId);
+    return this.toBillingProfileDTO(bp);
   }
 
   // ---------------- KYC ----------------

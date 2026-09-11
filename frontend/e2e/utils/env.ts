@@ -25,7 +25,17 @@ const FORCE_MOCK = process.env.E2E_MOCKS === '1';
  */
 export const IS_REAL = !FORCE_MOCK && (APP_IS_EXTERNAL || REAL_SUBSET_SELECTED);
 
-export type SeedRole = 'customer' | 'admin' | 'operator';
+/**
+ * Roles base + ACTORES de v1.67 (Stream A, condición de release del contrato v1.67.1): un cliente y
+ * un operador con contraseña TEMPORAL (`mustChangePassword=true`). Los siembra
+ * `backend/prisma/seed-e2e.ts`; sus credenciales reales se leen de env (`E2E_TEMP_CUSTOMER_*`,
+ * `E2E_TEMP_OPERATOR_*`) con los defaults de `backend/prisma/e2e-fixtures.ts`. ⚠ Su contraseña
+ * temporal se CONSUME al recorrer el flujo: cada corrida real necesita re-sembrar (TECH_DEBT GA-D3).
+ */
+export type SeedRole = 'customer' | 'admin' | 'operator' | 'customerTemp' | 'operatorTemp';
+
+/** Actores cuya sesión nace con `mustChangePassword: true` (en mock se inyecta esa bandera). */
+export const TEMP_PASSWORD_ROLES: readonly SeedRole[] = ['customerTemp', 'operatorTemp'];
 
 /**
  * Credenciales del seed determinista (`backend/prisma/seed-e2e.ts`). Sobreescribibles por env
@@ -45,6 +55,17 @@ export const CREDENTIALS: Record<SeedRole, { email: string; password: string; ro
   operator: {
     email: process.env.E2E_OPERATOR_EMAIL ?? 'operator@e2e.local',
     password: process.env.E2E_OPERATOR_PASSWORD ?? 'Operator123!',
+    role: 'vault_operator',
+  },
+  // `backend/prisma/e2e-fixtures.ts` → `E2E_ACCOUNT_FIXTURES.temporalCustomer / temporalOperator` (83ec86e).
+  customerTemp: {
+    email: process.env.E2E_TEMP_CUSTOMER_EMAIL ?? 'temporal.customer@e2e.local',
+    password: process.env.E2E_TEMP_CUSTOMER_PASSWORD ?? 'Temporal123!',
+    role: 'customer',
+  },
+  operatorTemp: {
+    email: process.env.E2E_TEMP_OPERATOR_EMAIL ?? 'temporal.operator@e2e.local',
+    password: process.env.E2E_TEMP_OPERATOR_PASSWORD ?? 'Temporal123!',
     role: 'vault_operator',
   },
 };

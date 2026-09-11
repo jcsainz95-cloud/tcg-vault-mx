@@ -4,7 +4,38 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.0** — **§32 NUEVA: la sincronización del catálogo (M2) pasa de OCHO acciones a TRES, y se
+> Estado: **v4.1.2** — **§33 ratificada contra lo implementado en Stream A** (2026-09-11, tras QA 11/11 y techlead):
+> claves i18n de §33.13 = las reales de `es.json`/`en.json` (`auth.changePassword.*`, `orders.claimable.*`,
+> `vault.claimable.body`, `sellCart.*`, `shipments.recipient.*`, `admin.m4.*`); `vault.withdraw` **no cambia** (nueva
+> `vault.requestWithdrawal`); M4 sin destinatario = «SIN DESTINATARIO (retiro anterior a v1.67)»; destinatario inline
+> con «Guardar nombre»; prellenado solo con `nameSource ∈ {user, google}`; ⭐ **decisión nueva §33.11: mientras se
+> recotiza (y mientras la recotización falló) NINGÚN precio se pinta — ni total ni líneas — «—» en todos**.
+> Antes: **v4.1.1** — **§33 alineada al contrato v1.67** (`API_CONTRACT.md:6307-6432`, `ARCHITECTURE §4.47`;
+> 2026-09-11): (1) **no hay «modo crear contraseña»** — con `hasPassword=false` la sección explica y dispara
+> `forgot-password`; (2) el aviso de nombre derivado usa **`nameSource==='derived'`** (fuera la heurística); (3) la
+> pantalla de contraseña vive en **`/account/password`** y **`/admin/account/password`** (fuera `/change-password` en
+> `(auth)`), el redirect reenvía `?next=`, y `PATCH /users/me` **no** está en la allowlist; (4) códigos reales:
+> `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`, `PASSWORD_NOT_SET`, `RECIPIENT_NAME_REQUIRED`; (5) el
+> snapshot del retiro **no** cae a `User.name`; prellenado solo con `nameSource !== 'derived'`; (6) carrito de venta:
+> caducidad **30 días** y total «—» mientras recotiza. R1–R4 y R6 de §33.16 quedan **resueltas por el contrato**.
+> Antes: **v4.1** — **§33 NUEVA: la cuenta del cliente (Stream A)** (2026-09-11). Crea **«Mi cuenta»** para los
+> tres roles (**un componente, dos puertas**: `/account` en el storefront, `/admin/account` en el panel — §33.5,
+> con la alternativa de ruta única **descartada y razonada**); reordena el **header con sesión a cinco entradas**
+> (Comprar · Vender · Mi bóveda · **Compras y ventas** · Mi cuenta) y **saca el nombre y «Cerrar sesión» del
+> header** (§33.1); consolida compras + ventas en **`/orders` con dos pestañas-enlace** y **mueve los retiros a la
+> bóveda** como cuarta pestaña (§33.3, §33.4). El **nombre fabricado por Google** se detecta en el cliente con la
+> misma regla del backend y lleva **aviso hasta que el usuario lo escribe** (§33.6a). ⭐ **Contraseña temporal
+> BLOQUEANTE por decisión del dueño** (*«Que obligue a cambiarla»*): pantalla `/change-password` en `(auth)` *(ruta
+> retirada en v4.1.1: ahora `/account/password` · `/admin/account/password`)*, sin
+> «Continuar», con las únicas salidas «cambiarla» o «cerrar sesión» — la variante «aviso con enlace» **se
+> descarta** (§33.8). **Aviso de pedidos reclamables** en bóveda y compras que **nunca se pinta vacío ni en error**
+> y **no promete que entren a la bóveda** (§33.9). **Destinatario** en la dirección, confirmado en el retiro y
+> visible en M4 (**`SIN DESTINATARIO`** antes que un id o un nombre derivado, §33.10). **Carrito de venta**
+> persistido y **re-cotizado al restaurar** (§33.11). Copys ES/EN completos (§33.13), **cero pares de contraste
+> nuevos** (§33.14), diez prohibiciones (§33.15) y **diez notas a otros roles** — R1/R2/R4 **bloquean** su tramo
+> (endpoint de cambio de contraseña, guard `PASSWORD_CHANGE_REQUIRED`, `Address.recipientName`), el resto no
+> (§33.16). ⚠ **§7.15 y §20.1 quedan superseded en la lista de entradas con sesión.**
+> Antes: **v4.0** — **§32 NUEVA: la sincronización del catálogo (M2) pasa de OCHO acciones a TRES, y se
 > promulga la NORMA DE HONESTIDAD DEL AVISO DE RESULTADO** (2026-09-10). ⚠ **§19 queda superseded en su
 > mayor parte** (grupos, jerarquía por-fila, menú «Más ▾», feedback y claves). **Origen: decisión del dueño,
 > dictada literal** —*«Backfill nunca; forzar sí varias veces… Sincronizar set debería hacer las dos,
@@ -1637,6 +1668,11 @@ página legal que vea un comprador:
 - Es público (sin sesión). Al "Crear solicitud" pide login/registro y luego KYC/CLABE/INE según topes.
 
 ### 7.15 Navegación
+> ⚠ **v4.1 (§33.1–33.2):** la **lista de entradas con sesión** de este apartado queda **superseded**. Con sesión
+> el header pinta **cinco** entradas —Comprar · Vender · Mi bóveda · **Compras y ventas** · **Mi cuenta**— y
+> **ya no pinta el nombre ni «Cerrar sesión»** (viven en «Mi cuenta»). El panel gana **«Mi cuenta»** en el topbar
+> (no en el sidebar). La piel de este apartado y de §20.1 no cambia.
+
 - **Storefront header:** logo, buscador, nav (**Compra**, Buylist, Mi bóveda, Mis órdenes), `LocaleToggle`,
   cuenta/carrito. Sticky. En móvil: logo + buscador + menú hamburguesa + carrito; nav en drawer.
   > **v1.1 — rótulo "Compra":** el ítem antes llamado "Catálogo" se rotula **"Compra / Shop"** en toda la
@@ -4474,6 +4510,10 @@ tabla en `md`).
     skeleton**, no un gradiente decorativo; no viola la regla de gradientes (§16.6/§17).
 
 ### 20.1 Navegación del header del storefront
+
+> ⚠ **v4.1:** las **entradas** con sesión y su orden las fija **§33.1** (cinco: Comprar · Vender · Mi bóveda ·
+> Compras y ventas · Mi cuenta; sin nombre ni «Cerrar sesión» en el header). Este apartado sigue mandando en la
+> **piel** (medidas, tipografía, regla bermellón, toggle, carrito, hamburguesa).
 
 Desktop (≥`lg`): barra de **74px**, `padding 0 32px`, `border-bottom` regla 1px.
 1. **Marca** a la izquierda: mira SVG 28px (§17.1) + wordmark Montserrat 700 18px tracking `0.04em`
@@ -15849,3 +15889,935 @@ de hechos, no un resumen), `catalog.syncAllUnavailable`, `common.{cancel,errorTi
 | **R6** | **frontend** | Implementa §32 completo en `CatalogSyncSection.tsx` + `useCatalogSync.ts`; **borra** las claves de §32.14 en **es.json y en.json a la vez**; **retira** `RowMoreMenu` de **esta** tabla (el componente **se queda** en el sistema). ⚠ **El tono del `Banner` se calcula con el algoritmo de §32.4a sobre las cifras — nunca con `isSuccess`.** Si al cablear una cifra no existe en el DTO: **«—»**, y se reporta; **no se sustituye por otra** (H4). |
 | **R7** | **QA** | Los diez candados de §32.13. **CS-1 es el del encargo** y se mide contra un set que no resuelve en TCGCSV. **CS-8 es un `grep`** y debería vivir en el lint de i18n si devops quiere cerrarlo duro. |
 | **R8** | **techlead** | §19.1–19.4, §19.6, §19.8 y §19.10 quedan **superseded**. Cualquier código o test que cite «grupo DATOS/CATÁLOGO/AVANZADO», «acción por-fila I/G/H» o «menú Más ▾» de M2 **cita una sección muerta** — `ARCHITECTURE §0-B.3` regla 7 (regla de la cita) aplica en el mismo pase. |
+
+---
+
+## 33. La cuenta del cliente — Stream A: «Mi cuenta», navegación, contraseña, reclamo de pedidos, destinatario y carrito de venta (v4.1, 2026-09-11)
+
+> **Origen:** `PENDIENTES.md` → «SIGUIENTE RELEASE — La cuenta del cliente» (aprobado por el humano 2026-09-10):
+> **P-57** (perfil, reclamo, navegación), **P-73** (nombre inventado por Google; envíos sin destinatario),
+> **P-75** (cambiar la propia contraseña; contraseña temporal) y **P-55** (carrito de venta perdido al entrar).
+> **Cinco síntomas de una sola ausencia: no hay «mi cuenta».** Esta sección la crea, y reordena la navegación
+> alrededor de ella. Diseñado **desde cero** (sin mockup de Claude Design), sobre las piezas ya vivas del
+> makeover (§20) y del portal del vendedor (§25.5).
+>
+> **Decisión del dueño incorporada (2026-09-11, textual: *«Que obligue a cambiarla»*):** la contraseña temporal
+> **bloquea** hasta cambiarla (§33.8). La variante «solo aviso con enlace» **queda descartada y no se diseña**.
+>
+> **v4.1.1 — alineación al contrato v1.67 (el contrato manda, `CLAUDE.md` «Regla de conflicto»).** Qué cambió
+> respecto a v4.1: §33.5 (rutas `/account/password` y `/admin/account/password`), §33.6a (`nameSource`), §33.6d
+> (`rfcMasked`), §33.7 (sin «modo crear»; códigos reales; política de sesiones fijada por el contrato), §33.8 (la
+> pantalla bloqueante vive en la ruta de contraseña del rol, no en `(auth)`; allowlist exacta), §33.10
+> (`RECIPIENT_NAME_REQUIRED`; prellenado por `nameSource`), §33.11 (30 días; «—» al recotizar), §33.12–33.16
+> (componentes, claves, prohibiciones y notas ya resueltas). Lo demás no se toca.
+>
+> **v4.1.2 — ratificación contra lo implementado (2026-09-11; `FRONTEND_NOTES §66.3` y `§67.2`, medido con `grep`
+> sobre `frontend/messages/es.json`/`en.json`).** Ratificado: (1) `vault.withdraw` **no cambia de valor** — la teja
+> por pieza sigue diciendo «Retirar» y la cabecera/pestaña usan la clave nueva `vault.requestWithdrawal` (§33.4; v4.1
+> usaba una clave para dos superficies, error de diseño); (2) M4 sin destinatario pinta **«SIN DESTINATARIO (retiro
+> anterior a v1.67)»** en mono rojo (texto literal del contrato §M4, tono de §33.10d); (3) el destinatario en el
+> retiro se captura **inline con botón propio «Guardar nombre»**, no con «Completar» → modal (§33.10b); (4) el
+> prellenado del destinatario solo con `nameSource ∈ {user, google}`; sesión sin el campo ⇒ vacío (§33.10a); (5)
+> §33.13 reescrita a los **namespaces reales**. Decidido nuevo: (6) **§33.11.2 — «sin cotización fresca no hay
+> cifra» aplica por línea**, no solo al total; (7) §33.7 B con claves propias `account.password.rateLimited` /
+> `account.password.resendError` (fuera el préstamo de `verifyEmail.*`).
+
+### 33.0 Alcance, hechos que este diseño asume y las reglas duras
+
+**Hechos medidos el 2026-09-11 sobre `17ce9a9` (no supuestos):**
+
+| # | Hecho | Dónde |
+|---|---|---|
+| H1 | No existe ninguna ruta de perfil/cuenta. Con sesión el header pinta **5** entradas (Comprar · Vender · Bóveda · Pedidos · Envíos) + nombre + «Cerrar sesión»; «Mi cuenta» solo se pinta **sin** sesión y apunta a `/login`. | `StorefrontHeader.tsx:88-99`, `es.json:68` |
+| H2 | El panel de admin no tiene zona de cuenta: solo «Cerrar sesión» en el topbar. | `AdminTopbar.tsx:77-84` |
+| H3 | El backend **ya expone** todo el perfil: `GET/PATCH /users/me` (`name`, `phone`, `locale`), direcciones (CRUD), facturación (`GET/PUT`), KYC (`GET/PUT`). Su único llamador hoy manda **solo `phone`**. | `users.controller.ts:24-83`, `users.dto.ts:11-15`, `BuylistKycForm.tsx:234` |
+| H4 | `GET /orders/claimable` existe y `getClaimableOrders()` **no lo llama nadie**; el único reclamo vive en la confirmación de compra. | `api.ts:4855`, `GuestOrderConfirmation.tsx:67` |
+| H5 | Google sin nombre ⇒ el sistema **fabrica** `email.split('@')[0]`; nadie puede corregirlo. **v1.67:** `GET /users/me` devuelve **`nameSource: 'user' \| 'google' \| 'derived'`** — el cliente lo lee, no lo deduce (§33.6a). | `auth.service.ts:339`, `API_CONTRACT.md:6394-6398` |
+| H6 | Hasta v1.66 no había endpoint ni pantalla para cambiar la propia contraseña y `mustChangePassword` no bloqueaba. **v1.67:** `POST /auth/change-password` (siempre con la actual; **sin modo crear**), guard `403 PASSWORD_CHANGE_REQUIRED` con allowlist de **tres** rutas, y `GET /users/me` con `hasPassword` y `mustChangePassword`. El operador sigue aterrizando en `/admin`. | `API_CONTRACT.md:6307-6399`, `AuthForm.tsx:21-23` |
+| H7 | `Address` **no tiene nombre**; los envíos de retiro salen sin destinatario. El checkout de invitado sí lo exige (`recipientName`). M4 pinta el `userId` crudo. | `schema.prisma:482-498`, `M4View.tsx:201`, `contract.ts:3894` |
+| H8 | El carrito de venta vive en memoria (`useState`) y los CTAs del drawer enlazan a `/login` y `/register` **sin `?next=`**; el carrito de compra sí persiste (`localStorage`, clave `tcg.cart`). | `useSellCart.ts:106`, `SellCartContents.tsx:358,364`, `cart.ts:5` |
+| H9 | Las solicitudes de venta solo se alcanzan desde dentro de Vender (`MyRequestsSection`) o por correo; los retiros viven en «Envíos», separados de la bóveda. | `BuylistView.tsx:456`, `ShipmentsView.tsx:320` |
+| H10 | Rutas privadas del storefront por prefijo: `/vault`, `/orders`, `/shipments`. El panel exige rol `vault_operator`/`super_admin`. | `PrivateRouteGuard.tsx:24`, `AdminShell.tsx:16` |
+
+**Las ocho reglas duras de esta sección:**
+
+1. **«Mi cuenta» existe para los tres roles** y se alcanza **desde donde cada uno ya está**: el cliente desde el
+   storefront, el operador y el súper-admin desde el panel. Un componente, dos puertas (§33.5).
+2. **Un dato inventado se marca como inventado.** El nombre derivado del correo lleva su aviso hasta que el usuario
+   lo escribe; y **no se pinta en la navegación** (§33.1, §33.6a).
+3. **La contraseña temporal bloquea.** Con `mustChangePassword=true` la única pantalla operable es la de cambio;
+   las salidas son cambiarla o cerrar sesión. Sin «Continuar» (§33.8).
+4. **El aviso de pedidos reclamables nunca se pinta vacío ni en error.** Si no hay nada que ofrecer, no hay nodo
+   en el DOM (§33.9).
+5. **El reclamo no promete lo que no hace.** Un pedido de invitado se envió a domicilio: al vincularlo **no entra
+   a la bóveda** (criterio 54); el copy de la bóveda lo dice (§33.9b).
+6. **Ningún envío sale sin destinatario, y M4 nunca pinta un identificador crudo.** Sin nombre en el snapshot,
+   M4 escribe `SIN DESTINATARIO` en mono rojo — no `u-777`, no el nombre fabricado (§33.10).
+7. **El carrito de venta sobrevive al login, pero sus precios no se congelan:** al restaurarlo se re-cotiza y se
+   dice qué cambió (§33.11). Nunca se envía una solicitud con estimados que la pantalla no haya vuelto a pedir.
+8. **Un solo sitio para cada cosa:** «Cerrar sesión» del cliente vive **en «Mi cuenta»** (y ya no en el header);
+   los retiros viven **en la bóveda**; las ventas viven **junto a las compras**. Nada se duplica «por si acaso».
+
+---
+
+### 33.1 Mapa de navegación — storefront
+
+**Con sesión (cliente), escritorio ≥ `lg`, de izquierda a derecha** (misma piel de §20.1: 11px 500 uppercase
+tracking `0.14em`, activo con regla bermellón):
+
+| # | Rótulo ES | Rótulo EN | Clave | Ruta | `match` (activo) |
+|---|---|---|---|---|---|
+| 1 | Comprar | Shop | `nav.buy` *(existe)* | `/catalog` | `/catalog`, `/sellado`, `/compra` *(sin cambio)* |
+| 2 | Vender | Sell | `nav.buylist` *(existe)* | `/buylist` | `/buylist` **excepto** `/buylist/requests/*` |
+| 3 | Mi bóveda | My vault | `nav.vault` *(existe)* | `/vault` | `/vault`, `/shipments` |
+| 4 | Compras y ventas | Purchases & sales | `nav.ordersAndSales` **(nueva)** | `/orders` | `/orders`, `/buylist/requests` |
+| 5 | Mi cuenta | My account | `nav.myAccount` *(existe)* | `/account` | `/account` |
+
+A la derecha, sin cambio: `ES / EN` (§20.1.3) y **Carrito** (oculto en `/buylist`, P-28).
+
+**Qué sale del header con sesión:** el **nombre** (`StorefrontHeader.tsx:153-158`) y el botón **«Cerrar sesión»**
+(`:159-165`). El nombre deja de ser rótulo de navegación —era la superficie más visible del nombre inventado
+(regla 2)— y «Cerrar sesión» pasa a ser la última sección de «Mi cuenta» (§33.6i). El header con sesión queda en
+**cinco entradas, ni una más**.
+
+**Sin sesión:** sin cambio — Comprar · Vender · **Mi cuenta** (→ `/login`). ⭐ La entrada «Mi cuenta» ocupa **el
+mismo hueco con el mismo rótulo** en los dos estados; solo cambia el destino (`/login` ↔ `/account`). Así el
+usuario aprende un solo sitio.
+
+**«Envíos» desaparece del menú.** No se pierde nada: la lista de retiros vive en la pestaña «Retiros» de la
+bóveda (§33.4) y el flujo de solicitar retiro sigue en `/shipments`, al que se llega desde la bóveda.
+
+**Móvil `< lg` (drawer de §20.1):** las mismas cinco entradas en el mismo orden, luego **Carrito** (con contador)
+y el toggle `ES / EN`. Se retiran del drawer el nombre (`:219`) y «Cerrar sesión» (`:220-226`): viven en «Mi
+cuenta», a un toque. Filas de 44px, `border-b` de regla, como hoy.
+
+**`PrivateRouteGuard`:** añade `/account` a `PRIVATE_PREFIXES` (`PrivateRouteGuard.tsx:24`). Sin sesión,
+`/account` → `/login?next=/account`.
+
+> **Nota a §7.15 y §20.1:** esta tabla **supersede** la lista de entradas con sesión de ambas secciones (que
+> citaban «Mi bóveda, Mis órdenes» / «Mis retiros»). La piel (tamaños, regla bermellón, hamburguesa) no cambia.
+
+### 33.2 Mapa de navegación — panel (admin)
+
+- **Sidebar (`AdminSidebar.tsx`): sin entrada nueva.** «Mi cuenta» **no es un módulo** y no lleva código M-n; meterla
+  entre M1–M10 la haría parecer una cola de trabajo. *(P-66 I2 —los códigos que no ordenan— sigue abierto y fuera
+  de este stream.)*
+- **Topbar (`AdminTopbar.tsx`), extremo derecho, `≥ sm`:** `rol legible` · `ES | EN` · **«Mi cuenta»** · «Cerrar
+  sesión». «Mi cuenta» es un `Link` a `/admin/account` con la misma piel que «Cerrar sesión» (11px 500 uppercase
+  muted → text en hover, `focus-visible:shadow-focus`), **área táctil 44px** (P-66 I5: los objetivos del topbar
+  hoy miden 15×25 — se corrige en este pase para los dos botones). Orden de tabulación: rol → idioma → Mi cuenta
+  → Cerrar sesión.
+- **`< sm`:** «Mi cuenta» y «Cerrar sesión» **bajan al pie del drawer** (`AdminShell.tsx:73-79`), separados de los
+  módulos por `border-t border-on-ink-rule`, filas de 44px en `text-on-ink-nav`. El topbar móvil queda: hamburguesa ·
+  «Back-office» · rol. *(Hoy «Cerrar sesión» sí cabe en 390px; se mueve para que **los dos** vivan juntos y el
+  patrón sea uno.)*
+- **«Cerrar sesión» del panel se queda en el topbar** (a diferencia del cliente, regla 8): el operador trabaja de
+  pie, junto a cajas, a veces en un equipo compartido — cerrar sesión en un toque desde cualquier módulo es
+  seguridad operativa, no comodidad. Además aparece en `/admin/account` (§33.6i) por coherencia con el cliente.
+
+### 33.3 «Compras y ventas» — una página, dos pestañas (`/orders`)
+
+**El problema de nombre, resuelto por lo literal:** «Mis órdenes» / «Mis pedidos» se leen como *compra*; el
+vendedor no busca ahí su solicitud (P-57 c). El rótulo del menú **nombra las dos cosas**: **«Compras y ventas»**.
+Es el término de categoría (§1, léxico: «el nombre de la cosa manda la claridad literal»), cabe en el header
+(16 caracteres, ≈130px a 11px con tracking) y no inventa una palabra neutra que nadie teclearía («operaciones»,
+«movimientos»).
+
+**Anatomía (`/orders`):**
+- `h1` serif 30/40px **«Compras y ventas»** (`orders.title` cambia de valor).
+- Debajo, **pestañas que son enlaces** (no estado de cliente): **Compras** → `/orders` · **Ventas** →
+  `/orders?tab=ventas`. Piel de las tabs de bóveda (§20.1: 14px sin uppercase, subrayado 2px **tinta**, son
+  navegación de contenido). Semántica: `<nav aria-label="Compras y ventas">` con dos `Link`; la activa lleva
+  `aria-current="page"`. **No** se usa `role="tablist"`: cambian la URL, son navegación.
+- **Pestaña Compras:** arriba el aviso de reclamables (§33.9, si aplica), luego la tabla actual de `OrdersView`
+  sin cambios de columnas. Vacío: **«Aún no tienes compras.»** + CTA secundario **«Explorar el catálogo»**
+  (`home.ctaShop`, existe) → `/catalog`. *(Hoy el vacío no tiene CTA: `OrdersView.tsx:57`.)*
+- **Pestaña Ventas:** el contenido de `MyRequestsSection` (`buylist/MyRequestsSection.tsx`) **se muda aquí tal
+  cual** —renglones, stepper de ocho pasos, bloque de ajuste, enlace al portal—. Vacío: `buylist.noRequests`
+  (existe) + CTA secundario **«Cotizar mis cartas»** → `/buylist`.
+- **Detalle de compra** (`/orders/[orderId]`): enlace de vuelta **«← Compras y ventas»**; el título pasa de
+  «Detalle de la orden» a **«Detalle del pedido»** y «Orden {id}» a **«Pedido {id}»** — la superficie de invitado ya
+  dice «PEDIDO» (`checkout.confirmation.orderNumber`) y la de cliente decía «orden»: **una sola palabra para la
+  misma cosa**.
+- **Portal de la solicitud** (`/buylist/requests/[id]`, §25.5): enlace de vuelta **«← Mis ventas»** →
+  `/orders?tab=ventas`. Los correos siguen apuntando al portal: **no cambia ninguna URL**.
+- **En `/buylist` (Vender), con sesión,** la sección «Mis solicitudes» se sustituye por **una línea**
+  (`EditorialLink`, `_shared/EditorialLink.tsx`): **«Ver el estado de mis solicitudes →»** → `/orders?tab=ventas`.
+  Sin sesión, la invitación actual (`buylist.requestsLoginInvite` + `loginCta`) se queda, **y el enlace lleva
+  `?next=/buylist`** (hoy no lo lleva, `MyRequestsSection.tsx:62`; ver §33.11).
+- **Móvil 390px:** las dos pestañas caben en una línea; la tabla de compras ya colapsa a tarjetas (`DataTable`,
+  §7.7); los renglones de ventas ya son de una columna (§25.5).
+
+### 33.4 Retiros dentro de la bóveda
+
+*«Un retiro es una acción sobre la bóveda»* (P-57 c). Se hace literal:
+
+- **`VaultView` gana una cuarta pestaña: «Retiros»** (`vault.tabs.withdrawals`), tras Piezas · Master set ·
+  Sellado. Misma piel y semántica que las tres actuales (`VaultView.tsx:131-146`). Es **direccionable por URL**:
+  `/vault?tab=retiros` (las otras tres no lo necesitan hoy; ésta sí, porque la enlazan el detalle del retiro y el
+  aviso de §33.9). Al montar con `?tab=retiros` la pestaña arranca activa y **el foco va al `role="tab"`
+  activo**.
+- **Contenido de la pestaña:** las dos secciones que hoy cierran `ShipmentsView` (`:320-450`) — **«Mis retiros»**
+  (renglones con folio del retiro, `StatusBadge`, etapa legible, guía, dirección resumida, total, stepper e ítems
+  con «Abrir disputa» donde aplica) y **«Mis disputas»** — **extraídas a un componente** `WithdrawalsList`
+  (`components/domain/WithdrawalsList.tsx`) **sin cambio funcional**. Arriba del listado, el CTA outline tinta
+  **«Solicitar retiro»** → `/shipments`. Vacío: `shipments.noShipments` (existe) + el mismo CTA.
+- **El botón de cabecera de la bóveda** (`VaultView.tsx:122-127`, hoy «Retirar» → `/shipments`) pasa a decir
+  **«Solicitar retiro»** con la clave **nueva `vault.requestWithdrawal`** (la misma que usa el CTA de la pestaña
+  «Retiros»). *(v4.1.2: v4.1 pedía cambiar el valor de `vault.withdraw`; era **una clave para dos superficies** y
+  se retira esa indicación.)* **`vault.withdraw` no cambia:** sigue siendo el «Retirar» **por pieza** (§20.13 2e,
+  con `?item=`; `e2e/vault.spec.ts` lo mide).
+- **`/shipments` se convierte en la pantalla de solicitar, y solo eso:** título **«Solicitar retiro»**
+  (`shipments.title` cambia de valor), enlace de vuelta **«← Mi bóveda»** encima del `h1`, y **se le quitan** sus
+  secciones «Mis retiros» y «Mis disputas» (viven en la pestaña). Tras pagar (`onConfirmed`), en vez de
+  refrescar in situ, **navega a `/vault?tab=retiros`** con `role="status"`: **«Retiro solicitado. Aquí verás su
+  avance.»** — el usuario aterriza donde va a mirar de ahora en adelante.
+- **`/shipments/[id]`** (detalle/rastreo): «Volver a mis retiros» (`shipments.backToList`) → `/vault?tab=retiros`.
+- **Rutas técnicas no cambian** (`/shipments`, `/shipments/[id]`): `WithdrawalBadge`, los correos y los tests
+  siguen válidos. Cambia **desde dónde se llega**, no **a dónde**.
+- `nav.vault` activa también en `/shipments*` (tabla de §33.1): el usuario que está solicitando un retiro «está
+  en su bóveda».
+
+---
+
+### 33.5 «Mi cuenta» — dónde vive y cómo llegan los tres roles (decisión razonada)
+
+**Decisión: un componente, dos puertas.**
+
+| Rol | Rutas (**contrato**, `ARCHITECTURE §4.47.7`) | Grupo / chrome | Cómo llega |
+|---|---|---|---|
+| `customer` | **`/account`** y **`/account/password`** | `(storefront)` — header de §33.1, banner de verificación, footer | Entrada «Mi cuenta» del header (escritorio y drawer) |
+| `vault_operator`, `super_admin` | **`/admin/account`** y **`/admin/account/password`** | `(admin)` — `AdminShell` (sidebar + topbar) | «Mi cuenta» del topbar (`≥ sm`) o del pie del drawer |
+
+Las páginas (`(storefront)/account/page.tsx` + `account/password/page.tsx`, `(admin)/admin/account/page.tsx` +
+`admin/account/password/page.tsx`) montan **los mismos** componentes de `components/domain/account/*`
+(`AccountView` con `surface: 'storefront' | 'admin'`, y `PasswordPage`); el componente decide **qué secciones pinta
+por rol** (§33.6) y **a dónde sale al cerrar sesión** (§33.6g). Los guards existentes hacen el resto:
+`PrivateRouteGuard` para `/account/*`, `AdminShell` para `/admin/account/*` (un `customer` que teclee
+`/admin/account` va a `/`, como hoy). **Un redirect más** (contrato): el layout de `/account` manda al staff a
+`/admin/account` + resto de la ruta. ⭐ **Las dos URL `/password` son contrato** con el login y con el interceptor
+(§33.8): no se renombran.
+
+**Por qué no la alternativa —una sola ruta compartida fuera de los grupos** (p. ej. `(account)/account` con un
+layout que elija el chrome por rol):
+1. **Duplicaría los dos guards.** `PrivateRouteGuard` es por prefijo (`/vault`, `/orders`…) y `AdminShell` es por
+   grupo y por rol. Un tercer layout necesitaría su propio guard y quedarían **tres** sitios que mantener
+   sincronizados para decir «esto exige sesión».
+2. **El operador aterrizaría en un chrome que no es el suyo.** O ve el header de la tienda (Comprar / Vender / Mi
+   bóveda — superficies que su rol no usa y que `AdminShell` le prohíbe recíprocamente), o ve una pantalla huérfana
+   sin sidebar, sin «volver al panel». Ninguna de las dos es «llegar desde donde ya está» (regla 1).
+3. **El `?next=` del login lo resolvería mal:** tras cambiar la contraseña temporal, un operador debe volver a
+   `/admin` y un cliente a `/`; con una ruta única el destino de retorno se decide con `if role` en un sitio más.
+4. **Cuesta lo mismo.** Dos páginas de cinco líneas que montan un componente frente a un grupo de rutas nuevo con
+   layout y guard propios. La opción barata es también la correcta.
+
+**Lo que sí es compartido y no se duplica:** `AccountView` y sus secciones, el formulario de contraseña
+(§33.7), y la pantalla de contraseña temporal (§33.8), que vive en `(auth)` porque **precede** a cualquier chrome.
+
+### 33.6 «Mi cuenta» — anatomía por secciones
+
+**Layout (`AccountView`):** página editorial de una columna, `max-w-2xl`, en la línea de la confirmación de compra
+(§15.5) y del portal del vendedor. `eyebrow` mono **`CUENTA`** / `ACCOUNT` + `h1` serif 30/40px **«Mi cuenta»**.
+Debajo, en `text-[15px] muted`, el **correo** de la sesión (no el nombre: regla 2). Cada sección es un
+`<section aria-labelledby id="…">` separado por `border-t border-border`, `mt-10 pt-8`, con `h2` serif 24px.
+En `≥ lg`, a la izquierda un **índice pegajoso** (`lg:grid-cols-[200px_1fr]`, `sticky top-[var(--app-header-h)]`,
+§4.5): lista mono 11px uppercase tracking `0.14em` con un enlace por sección; el de la sección visible en tinta,
+el resto muted (`aria-current="location"`). En `< lg` **no hay índice**: las secciones se apilan en orden y los
+anclajes (`#password`, `#addresses`) siguen funcionando.
+
+**Anclajes y foco:** al llegar con `#id` (desde el diálogo de retiro a `#addresses`, desde `PHONE_REQUIRED` a
+`#profile`), la sección recibe el foco (`tabIndex=-1`, patrón P-4 de `BuylistKycForm.tsx:194-212`) y queda
+centrada en el viewport. Sin esto, «te llevamos a tu perfil» aterriza en la cabecera y el usuario busca.
+
+**Patrón de edición (común a a, c, f, g):** cada sección es **su propio formulario** con un botón `secondary sm`
+**«Guardar»** que se habilita solo con cambios (`dirty`); `loading` con label «Guardando…»; al éxito, línea mono
+verde **`GUARDADO`** con `role="status"` junto al botón (persiste hasta el siguiente cambio, no es toast — §7.5);
+al error, línea mono roja `role="alert"` con el mensaje del catálogo `error.*` (`useErrorMessage`, nunca el
+inglés del servidor). **Nunca un «Guardar todo» global:** guardar el nombre no debe poder fallar por una CLABE.
+
+**Secciones y quién las ve:**
+
+| # | `id` | Sección | `customer` | `vault_operator` / `super_admin` |
+|---|---|---|---|---|
+| a | `#profile` | Datos personales (nombre, celular, idioma) | ✓ | ✓ |
+| b | `#email` | Correo y verificación | ✓ | ✓ (solo lectura del estado) |
+| c | `#addresses` | Direcciones de envío | ✓ | — |
+| d | `#billing` | Facturación (CFDI) | ✓ | — |
+| e | `#kyc` | Verificación de identidad y CLABE | ✓ | — |
+| f | `#password` | Contraseña | ✓ | ✓ |
+| g | `#session` | Cerrar sesión | ✓ | ✓ |
+
+El operador no compra, no retira ni vende: sus tres secciones ausentes no son «bloqueadas con candado» —
+**no existen** para él (§7.15: lo no permitido no se muestra).
+
+**a · Datos personales (`#profile`)**
+- **Nombre** — `Input`, label «Nombre», `autoComplete="name"`, hint **«Así te llamamos en los correos y en tus
+  envíos.»** Validación: obligatorio tras `trim()` (mensaje «Escribe tu nombre.»); la longitud la decide el
+  servidor (hoy `UpdateMeDto.name` solo exige `string`; no se inventa un tope).
+- ⭐ **Aviso de nombre derivado de Google (P-73 A).** Condición: **`user.nameSource === 'derived'`** (contrato
+  v1.67, `GET /users/me`; el backend lo escribe al fabricar el nombre y lo pone en `'user'` al guardar `PATCH
+  /users/me {name}`, que devuelve la misma forma que el GET — sin segunda llamada). ⛔ La heurística
+  `authProvider==='google' && name === local-part` de v4.1 **queda retirada**: el contrato la declara falsa tras un
+  reset o un `forgot-password`. Se pinta como **nota al margen con regla roja** (`rule-note`, el patrón del bloque de
+  ajuste de §25.5) **debajo del campo**, enlazada por `aria-describedby`:
+  > **ES:** «Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te
+  > llamemos.» · **EN:** “We took this name from your email address because Google didn't share your name. Tell
+  > us what to call you.”
+  Mientras se cumpla la condición, el campo arranca **con el foco** si se llegó a `#profile` por anclaje, y el
+  botón «Guardar» se habilita aunque el valor no haya cambiado aún (el usuario viene a escribirlo). Validación del
+  contrato: tras `trim`, **1..120** caracteres (`400 VALIDATION_ERROR` con `details.field='name'` → error en el
+  campo con `account.profile.name.required` si vacío, `account.profile.name.tooLong` si excede).
+- **Celular** — `Input type="tel" inputMode="tel" maxLength=10`, label **«Celular»**, hint **«10 dígitos. Es para
+  contactarte. El teléfono de cada dirección es para la paquetería.»** (son dos teléfonos distintos:
+  `buylist.service.ts:4447`). Validación `^\d{10}$`, la de `BuylistKycForm.tsx:453`. Si está vacío, encima del
+  campo una línea mono roja **«Sin celular. Lo necesitas para vender.»** — es la cura permanente del
+  `PHONE_REQUIRED` que hoy solo tiene remedio inline (`BuylistKycForm.tsx:420-467`); ese remedio **se queda** (el
+  vendedor no debe salir del flujo), y gana un enlace **«o complétalo en Mi cuenta»** → `/account#profile`.
+- **Idioma** — el `LocaleToggle` (§6.5) con label **«Idioma»**; ya persiste en `User.locale` por `PATCH /users/me`.
+  No lleva «Guardar»: cambia al instante, como en el header.
+
+**b · Correo y verificación (`#email`)**
+- Valor del correo en `text-base` + pill mono al lado: **`VERIFICADO`** (`text-success`) o **`SIN VERIFICAR`**
+  (`text-accent`). Con `emailVerified === false`: debajo, «Verifica tu correo para comprar, vender y retirar.» +
+  botón `secondary sm` **«Reenviar correo de verificación»** con los cuatro estados de `useResendVerification`
+  (`sending` / `sent` / `rateLimited` / `error`, copys de `verifyEmail.*` que ya existen).
+- **El correo no se edita** (`UpdateMeDto` no lo acepta y cambiarlo rompe la prueba de titularidad del reclamo):
+  nota `text-xs muted` **«Para cambiar tu correo escríbenos a {contact}.»** con `mailto:` — `contact` es el
+  `evidenceContact`/`SUPPORT_CONTACT_FALLBACK` del proyecto, nunca un literal nuevo (§7.11).
+- Para el operador: solo el valor y el pill, sin reenvío (su cuenta la dio de alta el admin).
+
+**c · Direcciones de envío (`#addresses`)**
+- Monta `AddressManager` (`components/domain/AddressManager.tsx`) **sin `selectable`**, tal como su propio
+  comentario preveía (*«puede montarse en una sección de cuenta como libreta simple»*). Gana tres cosas que la
+  libreta no tiene y §33.10 exige: el campo **destinatario**, la acción **«Editar»** (el `PATCH` existe;
+  `AddressFormModal` se reutiliza en modo edición con título «Editar dirección») y la marca **«Falta el nombre de
+  quien recibe»** en las filas viejas.
+- Vacío: `addresses.emptyTitle/emptyBody` (existen) + CTA `secondary` «Agregar» (existe). En móvil el modal ya es
+  bottom sheet (§7.6).
+
+**d · Facturación (`#billing`)**
+- `GET /users/me/billing-profile`. Sin perfil: `EmptyState` **«Sin datos de facturación»** + «Guárdalos para
+  solicitar factura de tus compras.» + CTA `secondary` **«Agregar datos de facturación»**, que **abre el formulario
+  en línea** (no modal: son seis campos y el usuario los teclea del pdf de su constancia).
+- Formulario (los seis campos de `BillingProfileDto`, todos obligatorios): **RFC** (`Input` mono, `uppercase`,
+  `maxLength=13`), **Razón social**, **Régimen fiscal (clave SAT)**, **Uso de CFDI (clave SAT)**, **Código
+  postal fiscal** (`inputMode="numeric"`), **Correo para la factura** (`type="email"`, prellenado con el de la
+  cuenta). ⚠ Los dos campos de «clave SAT» van como `Input` con hint **«Clave del catálogo del SAT»**: este
+  documento **no inventa** el catálogo; si product-owner quiere un `Select` con opciones, es una decisión suya
+  (§33.16). Con perfil: los seis valores en retícula de dos columnas (celdas con reglas, §20.13) + «Editar».
+- Con `PUT` exitoso: `GUARDADO`. En lectura el RFC se pinta **como lo devuelve el contrato: `rfcMasked`**
+  (`XAX**********`, `API_CONTRACT.md:6430`), en mono; al editar, el campo RFC nace **vacío** con hint «Escríbelo
+  completo» (el servidor no devuelve el claro y el usuario lo conoce).
+
+**e · Verificación de identidad y CLABE (`#kyc`)**
+- `GET /users/me/kyc`. Retícula de lectura: **Estado** (`status.kyc.<enum>`, nunca el enum crudo, §9.2) ·
+  **CLABE para pagos**: `clabeMasked` tal cual (`****1234`) o **«Sin CLABE registrada»** · **INE**: **«INE en
+  archivo»** (`text-success`) o **«Sin INE. Se pide solo cuando una venta supera el tope.»** (muted) · **Tope por
+  solicitud** con `capPerRequestCents` formateado (**solo** si el DTO lo trae; el mensual solo si viene, §32.4:
+  lo desconocido no se pinta como 0).
+- **Cambiar CLABE:** enlace `text-accent` «Cambiar CLABE» que despliega `Input inputMode="numeric" maxLength=18`
+  con hint **«18 dígitos, a tu nombre. Ahí te pagamos tus ventas.»**, validación `^\d{18}$` (misma `CLABE_RE` de
+  `BuylistKycForm.tsx:83`) y `PUT /users/me/kyc {clabe}`. Errores `CLABE_INVALID` / `CLABE_NOT_OWN_NAME` con los
+  copys que ya existen en `error.*`.
+- **INE:** si `ineOnFile === false`, dos `PhotoUploader purpose="kyc_ine"` (frente/reverso, §7.10) + el aviso de
+  privacidad `ine.privacy` (existe) + «Guardar» → `PUT /users/me/kyc {ineFrontUploadKey, ineBackUploadKey}`. Si
+  está en archivo **no se ofrece re-subir** (misma regla que el formulario de venta, `BuylistKycForm.tsx:484`).
+
+**f · Contraseña (`#password`)** — **resumen + puerta a la página de contraseña** (la ruta `/password` es contrato,
+§33.5). `h2` «Contraseña». Con `hasPassword === true`: línea muted «Cámbiala cuando quieras; cerraremos tus otras
+sesiones.» + enlace-botón `secondary sm` **«Cambiar contraseña»** → `/account/password` (o `/admin/account/password`).
+Con `hasPassword === false`: línea muted **«Entras con Google y tu cuenta no tiene contraseña.»** + `secondary sm`
+**«Crear contraseña»** → la misma página, que explica el camino (§33.7 B). **Es lo único que decide el rótulo:
+`hasPassword`** (contrato `:6388-6393`); nunca `authProvider`.
+
+**g · Cerrar sesión (`#session`)**
+- `h2` «Sesión» + una línea muted «Cierra tu sesión en este dispositivo.» + botón `secondary` **«Cerrar
+  sesión»** (`nav.logout`). Comportamiento idéntico al de hoy: `apiLogout()` y `router.push('/')` para el
+  cliente; `router.replace('/login')` para el panel (`AdminTopbar.tsx:21-24`, por el mismo motivo del parpadeo).
+  No lleva confirmación (no es destructivo ni de dinero, §7.6).
+
+**Estados obligatorios (§8.1):** cada sección carga **por separado** (`QueryState` por query: `me`, `addresses`,
+`billing-profile`, `kyc`), con skeleton de su propia forma; un error en KYC no oculta el nombre. El error de una
+sección es un banner `danger` **dentro de esa sección** con «Reintentar». No hay «vacío» de página: siempre hay
+al menos nombre y correo.
+
+**Móvil 390px:** una columna; inputs a 16px (§20.11); botones «Guardar» a ancho completo bajo su sección; el
+índice no existe; el `h1` a 30px. Los modales de dirección ya son bottom sheet.
+
+**Accesibilidad (además de §8.2):** `h1` → `h2` por sección sin saltos; todo `Input` con `label` visible; los
+avisos de estado (`GUARDADO`, pills de verificación) son **texto**, no color; el aviso de nombre derivado va en
+`aria-describedby` del campo; el índice pegajoso es `<nav aria-label="Secciones">`; el foco al llegar por
+anclaje se documenta arriba. Orden de tabulación = orden visual (índice antes del contenido en `≥ lg`).
+
+---
+
+### 33.7 Cambiar contraseña — la página `/account/password` · `/admin/account/password` (`PasswordPage`)
+
+Una página por rol (§33.5), **el mismo componente** (`components/domain/account/PasswordPage.tsx` con
+`PasswordForm.tsx`), y **la misma página** que sirve de bloqueo con temporal (§33.8): cambia el título y aparece
+el banner; el formulario es uno. Layout: columna editorial `max-w-xl` dentro del chrome del rol; enlace de vuelta
+**«← Mi cuenta»** encima del `h1` (oculto mientras bloquea, §33.8).
+
+**Variante A — «Cambiar contraseña» (`hasPassword === true`), contra `POST /auth/change-password`:**
+- `h1` serif 30/38px **«Cambiar contraseña»**. Tres campos apilados (`gap-4`), todos `type="password"`:
+  1. **Contraseña actual** — `autoComplete="current-password"`.
+  2. **Contraseña nueva** — `autoComplete="new-password"`, `minLength=8`, hint **«Mínimo 8 caracteres.»** (la
+     política vigente del contrato §1, la misma de `ResetPasswordView.tsx:13`; no se añaden reglas de mayúsculas o
+     símbolos que el servidor no exige — una regla que solo vive en el cliente es una mentira).
+  3. **Confirmar contraseña nueva** — `autoComplete="new-password"`.
+- Botón `primary` **«Cambiar contraseña»** → loading **«Cambiando…»**. Se habilita con los tres campos
+  no vacíos.
+- **Validación en cliente, en el `submit` (no al teclear):** longitud < 8 → error en el campo 2 **«La contraseña
+  debe tener al menos 8 caracteres.»**; 2 ≠ 3 → error en el campo 3 **«Las contraseñas no coinciden.»**; 2 = 1 →
+  error en el campo 2 **«La contraseña nueva debe ser distinta de la actual.»** Cada error con `aria-invalid` +
+  `aria-describedby` y el foco al campo fallido (P-4).
+- **Errores del servidor (códigos del contrato v1.67, `API_CONTRACT.md:4715-4726`, todos `422`, ninguno
+  navega):** `CURRENT_PASSWORD_INCORRECT` (`details.field='currentPassword'`) → en el campo 1 **«La contraseña actual
+  no es correcta.»**; `PASSWORD_SAME_AS_CURRENT` (`details.field='newPassword'`) → campo 2, «distinta de la actual»;
+  `400 VALIDATION_ERROR` → campo 2, «al menos 8»; `PASSWORD_NOT_SET` → **no debería ocurrir** (la página decide por
+  `hasPassword`), pero si llega, la página **cambia a la variante B en el sitio**; `429 RATE_LIMITED` → banner
+  `warning` **«Demasiados intentos. Espera un minuto.»**; cualquier otro → banner `danger` con `useErrorMessage`.
+  ⚠ Es `422` y no `401` **a propósito** (contrato): el interceptor no cierra la sesión por un dedazo.
+- **Éxito (`200 { ok, accessToken, refreshToken }`; política fijada por el contrato: las demás sesiones mueren,
+  ésta continúa con los tokens nuevos):** el cliente **reemplaza los dos tokens** y hace `patchStoredUser({
+  mustChangePassword: false, hasPassword: true })`. El formulario se sustituye por línea mono verde
+  **`CONTRASEÑA ACTUALIZADA`** (`role="status"`) + **«Cerramos la sesión en tus otros dispositivos. Esta sigue
+  abierta.»** + enlace «Cambiar otra vez» (reabre el formulario) y **«← Mi cuenta»**. Sin redirección automática
+  en el uso normal; **con `?next=`** (viene del bloqueo, §33.8) aparece el botón `primary` de continuar.
+
+**Variante B — «Crear contraseña» (`hasPassword === false`, cuenta solo-Google): SIN formulario.**
+El contrato **no tiene «modo crear»** y es decisión, no omisión (`API_CONTRACT.md:6343-6347`, `ARCHITECTURE
+§4.47.3`): una sesión de 15 min en `localStorage` no basta para instalar una credencial permanente; la vía es la
+que **ya existe y exige el buzón**: `POST /auth/forgot-password` → el enlace del correo **fija** la contraseña.
+- `h1` **«Crear contraseña»** + cuerpo muted **«Entras con Google y tu cuenta no tiene contraseña. Para crear una
+  te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google.»** (`{email}` = el de
+  la sesión, completo: es el propio usuario sobre su propia cuenta, §15.5).
+- Botón `primary` **«Enviarme el enlace»** → `POST /auth/forgot-password { email }` (la respuesta es neutra por
+  diseño, §1 «Recuperación»; aquí no hay oráculo que proteger porque el correo es el de la sesión). Loading
+  **«Enviando…»**. Éxito: línea mono verde **`ENLACE ENVIADO`** + **«Revisa tu correo. El enlace caduca; si no llega,
+  pide otro.»** + `ghost sm` «Enviar otra vez». Errores del envío, en mono rojo `role="alert"` bajo el botón, **con
+  claves propias de la página** (v4.1.2; no se prestan de `verifyEmail.*`, que es la pantalla de verificación y
+  puede cambiar por su cuenta): `429 RATE_LIMITED` → `account.password.rateLimited` (**la misma** de la variante A:
+  «Demasiados intentos. Espera un minuto.»); cualquier otro fallo → **`account.password.resendError`** **«No pudimos
+  enviar el enlace. Intenta de nuevo.»** (§33.13). Al volver del enlace (`/reset-password`, ya existe) la cuenta queda
+  con `hasPassword=true` y esta página pasa sola a la variante A.
+- ⛔ **No** se pintan campos de contraseña en esta variante; **no** se llama a `change-password` (respondería
+  `PASSWORD_NOT_SET`). El operador nunca cae aquí (el staff es `local`).
+
+**Móvil:** campos a 16px, botón ancho completo. **Accesibilidad:** los tres campos con label visible (no
+placeholder); `autoComplete` correcto para que el gestor de contraseñas ofrezca generar una; sin «mostrar
+contraseña» custom (los navegadores ya lo dan; no se añade un control que hay que hacer accesible a mano).
+
+### 33.8 Contraseña temporal — **BLOQUEANTE** (decisión del dueño, 2026-09-11)
+
+**Regla:** con `mustChangePassword = true` **no se opera**. La única pantalla operable es la de contraseña; las
+únicas salidas son **cambiarla** o **cerrar sesión**. **No existe «Continuar».** El copy actual —*«Debes
+cambiarla»*— por fin dice la verdad. El servidor lo garantiza (`PasswordChangeRequiredGuard`, `403
+PASSWORD_CHANGE_REQUIRED` en todo endpoint autenticado salvo **tres**: `POST /auth/change-password`, `POST
+/auth/logout`, `GET /users/me` — `API_CONTRACT.md:6358-6365`; `refresh` es público); el cliente solo lo hace
+**visible y sin rodeos**.
+
+**Ruta (contrato, `ARCHITECTURE §4.47.7`):** la **página de contraseña del rol** — **`/account/password`**
+(customer) · **`/admin/account/password`** (staff) —, es decir, **la misma `PasswordPage` de §33.7 en modo
+bloqueo**. ⛔ La ruta `/change-password` en `(auth)` de v4.1 **queda retirada**: las dos URL `/password` son
+contrato con el login y con el interceptor. El chrome del rol (header o sidebar) **sí se ve** — pero cualquier
+enlace que se pulse rebota aquí (paso 3) y el `LocaleToggle` **no** llama a `PATCH /users/me` mientras bloquea
+(no está en la allowlist): persiste solo en cookie y sincroniza al cambiar la contraseña.
+
+**Cómo se llega (los cuatro caminos, todos cierran el ciclo):**
+1. **Login con temporal** (`AuthForm.tsx:65-69`): `login`/`google` responden `200` con `user.mustChangePassword:
+   true`; en vez de pintar el banner con «Continuar», **`router.replace(passwordRouteForRole(role) + '?next=' +
+   safeNext)`** — el `?next=` **no se consume, se reenvía** (contrato: un operador que abrió `/admin/m4` acaba en
+   M4, no en el tablero). El banner y su botón **se retiran** (`auth.mustChangePassword`, `auth.mustChangeContinue`:
+   claves **retiradas**, §33.13).
+2. **Login con Google** de una cuenta local que el admin reseteó (`GoogleSignInButton.onSuccess`): mismo
+   `replace` si el usuario devuelto trae la bandera.
+3. **Cualquier otra pantalla** con sesión y bandera activa: `PrivateRouteGuard` (todo el storefront, público o
+   privado: envuelve `children` del layout, `(storefront)/layout.tsx:25`) y `AdminShell` (todo el panel) comprueban
+   `user.mustChangePassword === true` y, si la ruta no es la de contraseña de su rol,
+   `router.replace('<ruta de contraseña>?next=<ruta>&reason=required')`. Mientras tanto pintan su estado de
+   carga (nunca el contenido).
+4. **El servidor:** `403 PASSWORD_CHANGE_REQUIRED` (sesión guardada en `localStorage` que no pasó por el login de
+   hoy; reset del admin con sesión abierta ⇒ `401` ⇒ login ⇒ paso 1). El `api-client` lo intercepta
+   **globalmente** (no pantalla por pantalla) y hace el mismo `replace` con `reason=required`. Y por si alguna
+   superficie lo pinta inline antes de redirigir, `error.PASSWORD_CHANGE_REQUIRED` existe: **«Tu cuenta tiene una
+   contraseña temporal. Cámbiala para continuar.»** (copy fijado con el contrato, `:4708`).
+
+**Anatomía de `PasswordPage` en modo bloqueo (`user.mustChangePassword === true`):**
+- **Sin** el enlace «← Mi cuenta» (llevaría a un rebote). `h1` serif 30/38px **«Crea tu contraseña definitiva»**
+  / “Create your permanent password”.
+- Cuerpo `text-[15px] muted`: **«Entraste con una contraseña temporal. Para continuar, elige una nueva.»**
+- Si `reason=required` (llegó rebotado): encima del cuerpo, `Banner warning role="alert"`: **«Antes de continuar
+  tienes que cambiar tu contraseña temporal.»** — la respuesta a «¿por qué me trajo aquí?», **antes** del título en
+  orden de lectura (foco inicial en el banner; sin él, en el `h1`).
+- `PasswordForm` variante A (§33.7) con **un cambio de rótulo**: el campo 1 se llama **«Contraseña temporal»**
+  (`autoComplete="current-password"`). Botón `primary` **«Guardar y continuar»** / “Save and continue”.
+  `PASSWORD_SAME_AS_CURRENT` es aquí el error que importa (temporal por temporal no es cambiarla): mismo copy
+  de §33.7 en el campo 2. **Nunca variante B** en este modo: una cuenta con temporal tiene `hasPassword=true` por
+  construcción.
+- **Éxito:** el cliente reemplaza tokens y hace `patchStoredUser({ mustChangePassword: false, hasPassword: true })`
+  **antes** de habilitar el botón (si no, el paso 3 lo devolvería). Luego `CONTRASEÑA ACTUALIZADA` + **un** botón
+  `primary` **«Listo»**: destino = `?next=` seguro si existe; si no, **la cuenta** (`/account` o `/admin/account`,
+  contrato `:6339-6340`). Sin redirección automática.
+- **Al pie**, `link` muted **«Cerrar sesión»** → `apiLogout()` (en la allowlist) + `/login`. Es la **única** otra
+  salida. Sin enlace a «olvidé mi contraseña» (la temporal la tiene delante), ni a la tienda, ni a «más tarde».
+  *(El «Cerrar sesión» del topbar del panel sigue disponible; el del cliente vive en `/account`, que rebota — por
+  eso esta página lleva el suyo.)*
+
+**Para el operador, en concreto:** entra en `/login` con la temporal que le dio el súper-admin → aterriza en
+`/admin/account/password` dentro del `AdminShell` (el sidebar se ve, cada módulo rebota) → la cambia → «Listo»
+→ `?next=` o `/admin/account`. Si abre un marcador de `/admin/m4` antes: rebote con banner y `next=/admin/m4`,
+y al cambiarla **acaba en M4**. **Para el cliente:** idéntico con `/account/password`. Por qué importa que bloquee
+de verdad: la temporal la **conoce quien la generó** (el súper-admin ve `tempPassword`, `admin.service.ts:733`);
+mientras siga viva, dos personas pueden operar con la identidad del operador y la bitácora (*«queda auditado
+quién declinó»*, criterio 171) no distingue cuál.
+
+**Móvil 390px:** columna única dentro del chrome del rol; banner `warning` arriba; campos a 16px; botón a ancho
+completo. **Accesibilidad:** foco inicial documentado; el botón «Listo» recibe el foco al aparecer; «Cerrar
+sesión» es el último en el orden de tabulación; el chrome sigue siendo navegable por teclado (rebota, no
+atrapa: no es un modal).
+
+---
+
+### 33.9 Aviso de pedidos reclamables (`ClaimableOrdersNotice`) — en la bóveda y en Compras
+
+**Dónde (decidido con el dueño):** (1) **`/vault`**, entre la cabecera y las pestañas — es donde se nota la
+ausencia; (2) **`/orders`, pestaña Compras**, encima de la tabla — los pedidos enviados a domicilio nunca pasan
+por la bóveda. Un solo componente (`components/domain/ClaimableOrdersNotice.tsx`) con `surface: 'vault' |
+'orders'`; **solo cambia el cuerpo** (b).
+
+**a · Cuándo se pinta (regla 4: nunca vacío, nunca en error):**
+- Consulta `GET /orders/claimable` (`getClaimableOrders`, `api.ts:4855`) con `queryKey ['claimable-orders']`,
+  `enabled: ready && isAuthenticated && user.emailVerified !== false` (el endpoint responde `403
+  EMAIL_NOT_VERIFIED`; no se llama para no provocarlo: el banner de verificación ya está en pantalla),
+  `retry: false`, `staleTime` 5 min.
+- Renderiza **`null`** mientras carga, si hay error, o si la lista está vacía. **Sin skeleton, sin banner de
+  error, sin «Reintentar».** Es la excepción documentada a §8.1 y su motivo es doble: el aviso es una **oferta**,
+  no el contenido de la página (un error sobre algo que el usuario no pidió es ruido), y el endpoint es por diseño
+  **no-oráculo** (`§4-G.9`): una superficie que dijera «no pudimos comprobar si tienes pedidos» invita a
+  reintentar hasta ver algo. Se refetch al volver a montar.
+- También `null` tras **«Ahora no»** (`sessionStorage['tcg.claimable.dismissed']`): desaparece en esta sesión y
+  vuelve en la siguiente. Y `null` **para siempre** tras reclamar con éxito (la siguiente consulta viene vacía).
+
+**b · Anatomía:** `Banner` (`components/ui/Banner.tsx`) variante **`info`** (franja de papel con regla, sin
+relleno de color — dirección 5a), `role="status"`, no descartable con la ✕ (la salida es «Ahora no»).
+- **Título** (semibold): ES **«{count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos
+  hechos sin cuenta}} con este correo»** · EN “{count, plural, one {You have # order placed without an account}
+  other {You have # orders placed without an account}} under this email”.
+- **Cuerpo, por superficie (regla 5):**
+  - `orders`: ES **«Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido.»** · EN “Link
+    them to see their status and tracking here. Nothing about the order changes.”
+  - `vault`: ES **«Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su
+    seguimiento.»** · EN “They were shipped to your home, not to the vault. Once linked, they appear under
+    Purchases & sales with their tracking.” — **prohibido** insinuar que las cartas entrarán a la bóveda.
+- **Lista** (`<ul>`, máx. 5 filas; si hay más, «y {n} más» en muted — el reclamo es de todos igual): por fila,
+  `orderNumber` en mono `tabular-nums` + fecha (`formatDate`) + total (`formatMoneyCents`) + `StatusBadge
+  domain="order"`. Todo viene del `ClaimableOrderDTO` (`contract.ts:4041-4049`): **no se pide nada más**.
+- **Acciones** (`action` del Banner, a la derecha en `≥ sm`, debajo en móvil): `primary sm` **«Vincular a mi
+  cuenta»** → loading **«Vinculando…»** · `ghost sm` **«Ahora no»**.
+
+**c · Qué pasa al reclamar:** `claimGuestOrders(ids)` con **todos** los `orderId` de la lista (son todos del
+correo verificado de la sesión; no hay caso para elegir). Respuesta parcial-tolerante (`ClaimOrdersResponse`):
+- `claimed` no vacío: el banner cambia a **éxito**: línea mono verde **«{count, plural, one {PEDIDO EN TU
+  HISTORIAL} other {PEDIDOS EN TU HISTORIAL}}»** + (solo en `vault`) enlace `text-accent` **«Ver mis compras»**
+  → `/orders`. En `orders` no hace falta enlace: se invalida `['orders']` y la tabla se repinta con ellos.
+  Invalida también `['claimable-orders']`. El bloque de éxito **persiste hasta salir de la página**; no vuelve.
+- `failed` no vacío: debajo, línea muted **neutra** (criterio 55: nunca «pertenece a otra cuenta»): ES **«{count,
+  plural, one {No fue posible vincular # pedido.} other {No fue posible vincular # pedidos.}} Escríbenos a
+  {contact} citando el número de pedido.»** · EN “{count, plural, one {We couldn't link # order.} other {We
+  couldn't link # orders.}} Write to {contact} quoting the order number.” Sin distinguir `ORDER_ALREADY_CLAIMED`
+  de `CLAIM_EMAIL_MISMATCH` en pantalla.
+- `403 EMAIL_NOT_VERIFIED` (carrera: verificó en otra pestaña o al revés): el banner se sustituye por
+  `EmailNotVerifiedNotice` (existe). Otro error: banner `danger` inline con `useErrorMessage` — **aquí sí** (es la
+  respuesta a una acción del usuario, §8.3).
+
+**d · Móvil 390px:** título a 15px, lista a 13px mono, acciones apiladas a ancho completo (44px).
+**Accesibilidad:** `role="status"` (no roba foco al aparecer); el éxito y el fallo parcial en `aria-live="polite"`;
+el botón `aria-busy` mientras vincula.
+
+---
+
+### 33.10 Destinatario del envío — en la dirección, confirmado en el retiro, visible en M4
+
+**Decisión: el nombre de quien recibe vive en la dirección guardada** (`Address.recipientName`, R4), **se
+confirma en el retiro** y **se muestra en M4**. Por qué en la dirección y no solo por envío: (1) el checkout de
+invitado ya lo captura **como parte del formulario de dirección** (`GuestCheckoutForm`, `recipientName` obligatorio)
+— el cliente con cuenta debe rellenar **el mismo formulario**, no uno con un campo menos; (2) la misma libreta
+sirve de **origen** en el buylist (D36/D37, `BuylistPickupAddressField`), donde la etiqueta necesita el nombre de
+quien **manda**; una dirección «a nombre de» resuelve las dos direcciones del paquete; (3) pedirlo en cada retiro
+haría teclear lo mismo cada vez y seguiría dejando la libreta incompleta. Y **no** se copia `User.name` en
+silencio: hoy puede ser el fabricado (regla 2).
+
+**a · En el formulario de dirección (`AddressFormFields`, `AddressManager.tsx:265-319`):**
+- Campo nuevo **primero**, encima de «Calle y número»: `Input` label **«Nombre de quien recibe»**, hint **«Va en la
+  etiqueta del paquete.»**, `autoComplete="name"`, obligatorio (`required` → `addresses.required`, existe).
+- **Prellenado** con `user.name` **solo si `user.nameSource ∈ {'user', 'google'}`** (regla del contrato,
+  `API_CONTRACT.md:6425-6427`, leída en positivo; **solo en el front, nunca en el servidor**); con `derived` **o sin
+  el campo en la sesión** (sesión guardada anterior a v1.67: no se puede saber si el nombre es fabricado), vacío —
+  el usuario lo teclea *(v4.1.2: ratifica `FRONTEND_NOTES §66.3(6)`; más estricto que la letra, nunca más laxo)*.
+  Validación: obligatorio, `trim`, **1..120** (`400 VALIDATION_ERROR`, `details.field='recipientName'`).
+- En la **fila** (`AddressRow`): primera línea **«Recibe: {name}»** en `text-sm text-text`, encima de la calle. Si
+  la fila **no tiene** nombre (direcciones creadas antes de este cambio): en su lugar, mono 11px `text-accent`
+  **«Falta el nombre de quien recibe»** + acción mono **«Completar»** que abre el modal de edición con el foco en
+  el campo. Acciones de fila: «Marcar predeterminada» · **«Editar»** (nuevo; `PATCH`) · «Borrar».
+
+**b · En el retiro (`/shipments`, `ShipmentsView.tsx:268-317`):**
+- El picker (`AddressManager selectable`) muestra las filas como arriba. Una dirección **sin destinatario** se
+  puede seleccionar, pero el CTA **«Pagar envío y solicitar» queda deshabilitado** con motivo en
+  `aria-describedby` y una nota mono roja bajo el picker: **«Completa el nombre de quien recibe en la dirección
+  elegida para continuar.»** (`shipments.recipient.required`). **Y no se pide cotización** mientras falte el nombre
+  (el servidor la rechazaría). Debajo, **captura inline** *(v4.1.2, ratifica `FRONTEND_NOTES §66.3(5)`: no
+  «Completar» → modal de la libreta — ese modal es de «Mi cuenta»; aquí el usuario está a un paso de pagar y no se le
+  saca de la pantalla)*: `Input` label **«Nombre de quien recibe»** (`shipments.recipient.label`), hint **«Va en la
+  etiqueta del paquete.»** (`shipments.recipient.hint`), `autoComplete="name"`, 1..120, y **botón propio
+  `secondary` «Guardar nombre»** (`shipments.recipient.save`) → `PATCH /users/me/addresses/:id { recipientName }`.
+  Al guardar, la cotización se pide sola y el CTA se habilita: **el nombre se fija antes de cotizar**, así el
+  desglose se lee ya con el destinatario puesto y se paga una sola cosa a la vez. **Nunca** se manda un `POST
+  /shipments` que el servidor vaya a rechazar por falta de nombre. Y si aun así llega **`422
+  RECIPIENT_NAME_REQUIRED`** (`details: { field, addressId }`; lo emiten `quote` y `create`,
+  `API_CONTRACT.md:4727-4734`): **hermano de `PHONE_REQUIRED`** — se abre esa misma captura inline para **esa**
+  `addressId` (manda el servidor sobre la caché), `PATCH` y **reintento automático** de la cotización; el motivo se
+  pinta con `error.RECIPIENT_NAME_REQUIRED` (§33.13) y el patrón P-4 lo trae al viewport.
+  ⛔ El servidor **no** cae a `User.name` (contrato); el front tampoco lo manda por él.
+- Encima del desglose de importe, una línea de confirmación en mono muted: **«Envío a: {name} · {city}, {state}»**
+  — el mismo dato que va a la etiqueta, leído una última vez antes de pagar.
+
+**c · En el detalle del retiro (`/shipments/[id]`) y en la lista (`WithdrawalsList`):** la dirección resumida
+(`addressSummary`) antepone el nombre: **«{name} · {city}, {state}»**. Snapshot viejo sin nombre: solo ciudad y
+estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
+
+**d · En M4 (`M4View.tsx:196-251`) — el operador ve a quién va el paquete, no un id:**
+- La línea `{s.userId}` (`:201`) **se retira** (P-66 B3: «las pantallas de dinero hablan en identificadores»).
+- En su lugar, bajo el folio y el `StatusBadge`, un bloque de dos líneas `text-sm`:
+  - **`Para` {recipientName} · {city}, {state} · CP {postalCode} · Tel {phone}** — del `addressSnapshot`. Sin
+    `recipientName` en el snapshot: **`SIN DESTINATARIO (retiro anterior a v1.67)`** en mono `text-accent` **en el
+    lugar del nombre**, y el resto de la línea igual *(v4.1.2: el paréntesis es el texto literal que exige el
+    contrato §M4; el tono —versalita mono roja— es el de este diseño. Le dice al operador **por qué** falta: no es
+    un bug de hoy, es un retiro creado antes de que el dato existiera)*. Nunca `User.name` como sustituto (podría
+    ser el fabricado): el operador debe saber que **le falta un dato** y pedirlo, no confiar en uno derivado.
+  - **`Cliente` {name} · {email}** + enlace mono **«Ver ficha»** (`admin.m6.view`, existe) → M6. Es el patrón que
+    **M5 ya usa** (P-66 B3). Requiere que `GET /admin/shipments` traiga `addressSnapshot` y `customer` (R5): hasta
+    entonces, **se pinta «—»** en cada dato ausente (§32.4: lo desconocido es «—», nunca omitido en silencio) y
+    **nunca** el `userId`.
+- La **lista de picking** no cambia (es por ubicación, no por persona).
+
+---
+
+### 33.11 Carrito de venta al iniciar sesión (P-55)
+
+**Decisión: el carrito de venta persiste como el de compra**, y **sus precios se vuelven a pedir al restaurarlo**.
+
+- **Persistencia:** `localStorage['tcg.sellCart']` = `{ lines: CartLine[], updatedAt }` (el formato del helper
+  compartido `lib/local-store.ts`, `ARCHITECTURE §4.47.6`; mismo patrón que `lib/cart.ts`: escribir en cada
+  cambio, leer al montar, evento propio para sincronizar pestañas). El
+  carrito **no se envía al servidor**: es una lista de intención, no una solicitud (SEC-A1: el monto lo re-deriva
+  el backend al crear).
+- **Ida y vuelta del login:** los CTAs sin sesión del drawer (`SellCartContents.tsx:358,364`) y la invitación de
+  «Mis solicitudes» (`MyRequestsSection.tsx:62`) pasan a **`/login?next=/buylist`** y **`/register?next=/buylist`**.
+  `AuthForm` ya honra `safeNext` en los dos modos (`AuthForm.tsx:46-50`). Vuelve a `/buylist`: el FAB pinta el
+  contador y el drawer está como lo dejó.
+- **Al restaurar (montaje de `BuylistView` con carrito guardado no vacío), en este orden:**
+  1. Si `updatedAt` tiene **más de 30 días** (`>` estricto, la misma caducidad que el carrito de compra —
+     `ARCHITECTURE §4.47.6`): se descarta y se muestra `role="status"` **«Tu lista de venta caducó y la vaciamos.
+     Vuelve a cotizar tus cartas.»** Un formato desconocido **no** descarta: migración suave.
+  2. Si no: `role="status"` **«Tu lista de venta se conservó: {count} carta(s).»** (formato `carta(s)` ratificado
+     en §18.4a) y **se re-cotiza en silencio** con `batchQuote` (`api.ts:1424`, público, caché 5 min, **≤ 50 por
+     lote**: más líneas ⇒ varios lotes) las mismas `(cardId, finish, productId)`. **Mientras recotiza, NINGÚN
+     precio se pinta: ni el total ni las líneas** (no la cifra vieja: §32.4, lo desconocido no se afirma) y **no
+     se puede mandar una solicitud con estimados que la pantalla no haya vuelto a pedir** (regla 7): el CTA
+     «Enviar solicitud» queda `disabled` con `aria-busy` hasta que vuelva.
+     ⭐ **Decisión v4.1.2 — «sin cotización fresca no hay cifra» aplica por línea, no solo al total.** Razón: el
+     `quote` persistido **se considera caduco en cuanto se rehidrata** (`ARCHITECTURE §4.47.6`, literal), y una
+     línea es el precio que el vendedor **lee para decidir si quita o deja una carta**; un total «—» sobre
+     líneas con cifras viejas es una pantalla que se contradice a sí misma (la mitad afirma, la mitad no) y
+     el usuario suma las líneas de cabeza y obtiene justo el total que le estamos negando. Forma:
+     - En cada línea, **los dos huecos de precio** —el subtotal de la fila (`SellCartContents.tsx:200`) y el
+       «Estimado c/u» (`:209`)— pintan **«—»** en `text-muted`, `tabular`, mismo tamaño que la cifra que
+       sustituyen (no se mueve la geometría de la fila). Una línea en `precio_pendiente` **conserva su
+       versalita** (no es un precio; no hay nada que negar).
+     - **Un solo anuncio para lectores de pantalla**: el `aria-label` `sellCart.requoting` vive **solo en el total**
+       (como hoy, `:323`); las líneas **no** repiten el label (N veces «Actualizando…» es ruido). El `<ul>` de
+       líneas lleva `aria-busy="true"` mientras dura.
+     - **Aplica también al caso 5** (la recotización **falló** entera): la lista se conserva en memoria para
+       «Reintentar», pero **no se pinta ninguna cifra** — «—» en total y líneas, con la nota roja
+       `sellCart.requoteFailed` explicando por qué. Es el mismo predicado que ya deshabilita el CTA
+       (`requoting || requoteFailed`, `:404`): **si no se puede enviar con esos precios, tampoco se muestran**.
+     - Lo que sí se conserva a la vista: nombre, acabado, cantidad, miniatura y los controles de cantidad/quitar.
+       El usuario puede editar la lista mientras espera; los precios llegan cuando llegan.
+  3. Si algún `quotedPriceCents` cambió: se sustituye el `quote` de la línea y se añade **un** `role="status"`:
+     **«Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}.»** (totales estimados
+     formateados). No se marca línea por línea en rojo: la nota de vigencia que ya existe
+     (`buylist.trustValidity`, `es.json:777`) explica que el estimado es de hoy.
+  4. Si alguna línea vuelve `ok:false`: se **quita** y se añade **«Quitamos {count} carta(s) que ya no podemos
+     cotizar.»** Una línea en `precio_pendiente` **se conserva** (ya se explica bajo el total, `useSellCart.ts:141`).
+  5. Si `batchQuote` **falla entero** (red): el carrito se conserva **en memoria con los estimados guardados**
+     (para reintentar sin perder nada) **pero sin pintarlos** — «—» en total y líneas (decisión v4.1.2 del paso
+     2); el CTA de enviar queda deshabilitado con motivo mono rojo **«No pudimos actualizar los precios.
+     Reintenta.»** (`sellCart.requoteFailed`) + botón «Reintentar» (`sellCart.retry`). No se envía con precios
+     viejos; tampoco se destruye la lista por un fallo de red.
+- **Al enviar con éxito** (`onCreated`): `clearCart()` ya vacía el estado; **también borra la clave**. Al «Vaciar
+  carrito», igual.
+- **Copy que no cambia:** `buylist.cartEmpty`, `cartFooterNote`, `trustValidity`.
+
+---
+
+### 33.12 Componentes — qué se reutiliza y qué es nuevo
+
+| Pieza | Estado | Fichero |
+|---|---|---|
+| `Banner` (info / warning / danger / success, `title`, `action`, `role`) | reutilizar | `components/ui/Banner.tsx` |
+| `EmptyState`, `QueryState` + `useErrorMessage`, `Input`, `Button`, `Modal`, `Select`, `StatusBadge`, `DataTable`, `PipelineStepper`, `Skeleton` | reutilizar | `components/ui/*` |
+| `LocaleToggle` (sección idioma) | reutilizar | `components/ui/LocaleToggle.tsx` |
+| `PhotoUploader purpose="kyc_ine"` (sección KYC) | reutilizar | `components/ui/PhotoUploader.tsx` |
+| `AddressManager`, `AddressFormFields`, `useAddressForm`, `AddressFormModal` | **extender**: `recipientName`, modo edición, «Falta el nombre…» | `components/domain/AddressManager.tsx` |
+| `EmailNotVerifiedNotice`, `useResendVerification` | reutilizar | `components/domain/…`, `hooks/…` |
+| `EditorialLink` («Ver el estado de mis solicitudes →») | reutilizar | `(storefront)/_shared/EditorialLink.tsx` |
+| `MyRequestsSection` | **mover** a la pestaña Ventas de `/orders` (sin cambios internos) | `(storefront)/buylist/MyRequestsSection.tsx` |
+| `OrdersView` | **extender**: pestañas-enlace, aviso reclamables, vacío con CTA | `(storefront)/orders/OrdersView.tsx` |
+| `VaultView` | **extender**: pestaña «Retiros», `?tab=`, aviso reclamables, CTA «Solicitar retiro» | `(storefront)/vault/VaultView.tsx` |
+| `ShipmentsView` | **recortar**: solo solicitar; vuelta a bóveda; destinatario | `(storefront)/shipments/ShipmentsView.tsx` |
+| `StorefrontHeader`, `AdminTopbar`, `AdminShell`, `PrivateRouteGuard`, `AuthForm`, `GoogleSignInButton` | **modificar** según §33.1, §33.2, §33.8 | `components/layout/*`, `components/domain/*` |
+| `useSellCart` | **extender**: persistencia + restauración + re-cotización | `(storefront)/buylist/useSellCart.ts` |
+| `M4View` | **modificar**: bloque Para / Cliente | `(admin)/admin/m4/M4View.tsx` |
+| **`AccountView`** (+ `ProfileSection`, `EmailSection`, `BillingSection`, `KycSection`, `SessionSection`) | **nuevo** | `components/domain/account/` |
+| **`PasswordPage`** (variante A con `PasswordForm`, variante B «Crear contraseña» vía `forgot-password`, modo bloqueo) | **nuevo** | `components/domain/account/PasswordPage.tsx`, `PasswordForm.tsx` |
+| **`ClaimableOrdersNotice`** | **nuevo** | `components/domain/ClaimableOrdersNotice.tsx` |
+| **`WithdrawalsList`** (extraído de `ShipmentsView:320-450`) | **nuevo por extracción** | `components/domain/WithdrawalsList.tsx` |
+| Páginas: `(storefront)/account/page.tsx` + `account/password/page.tsx`, `(admin)/admin/account/page.tsx` + `admin/account/password/page.tsx` | **nuevas** (montan lo anterior; las `/password` son contrato) | — |
+
+⚠ `components/`, `lib/` y `hooks/` son **zona compartida** (`CLAUDE.md`): este stream las toca; B y C no entran
+ahí hasta que aterrice.
+
+---
+
+### 33.13 i18n — claves nuevas, cambiadas y retiradas (propiedad de frontend; copiar sin interpretar)
+
+> **v4.1.2:** las claves de estas tablas son **las que existen** en `frontend/messages/es.json` y `en.json`
+> (medido con `grep` el 2026-09-11, `FRONTEND_NOTES §66.3(4)` y `§67.2(1,3)`). Namespaces que cambiaron respecto a
+> v4.1: `changePassword.*` → **`auth.changePassword.*`**; `claimable.*` → **`orders.claimable.*`** (y
+> `claimable.bodyVault` → **`vault.claimable.body`**); `buylist.cart*` → **`sellCart.*`**;
+> `shipments.recipientRequired` → **`shipments.recipient.required`**. Solo dos claves de esta sección **no** están
+> en el catálogo (se marcan *propuesta*); una es **nueva** en v4.1.2 (`account.password.resendError`).
+
+**Nuevas — `nav`, `account`, `auth.changePassword`, `orders.claimable` / `vault.claimable`, `error`:**
+
+| Clave | ES | EN |
+|---|---|---|
+| `nav.ordersAndSales` | Compras y ventas | Purchases & sales |
+| `account.eyebrow` | CUENTA | ACCOUNT |
+| `account.title` | Mi cuenta | My account |
+| `account.index.label` | Secciones | Sections |
+| `account.save` | Guardar | Save |
+| `account.saving` | Guardando… | Saving… |
+| `account.saved` | GUARDADO | SAVED |
+| `account.required` | Campo requerido | Required |
+| `account.profile.title` | Datos personales | Personal details |
+| `account.profile.name.label` | Nombre | Name |
+| `account.profile.name.hint` | Así te llamamos en los correos y en tus envíos. | This is how we address you in emails and shipments. |
+| `account.profile.name.required` | Escribe tu nombre. | Enter your name. |
+| `account.profile.name.tooLong` | Máximo 120 caracteres. | 120 characters max. |
+| `account.profile.name.derivedFromEmail` | Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos. | We took this name from your email address because Google didn't share your name. Tell us what to call you. |
+| `account.profile.phone.label` | Celular | Mobile phone |
+| `account.profile.phone.hint` | 10 dígitos. Es para contactarte. El teléfono de cada dirección es para la paquetería. | 10 digits. We use it to reach you. Each address has its own phone for the carrier. |
+| `account.profile.phone.invalid` | Escribe un celular de 10 dígitos. | Enter a 10-digit mobile number. |
+| `account.profile.phone.missing` | Sin celular. Lo necesitas para vender. | No mobile number yet. You need one to sell. |
+| `account.profile.locale.label` | Idioma | Language |
+| `account.email.title` | Correo | Email |
+| `account.email.verified` | VERIFICADO | VERIFIED |
+| `account.email.unverified` | SIN VERIFICAR | NOT VERIFIED |
+| `account.email.unverifiedBody` | Verifica tu correo para comprar, vender y retirar. | Verify your email to buy, sell and withdraw. |
+| `account.email.changeNote` | Para cambiar tu correo escríbenos a {contact}. | To change your email, write to {contact}. |
+| `account.addresses.title` | Direcciones de envío | Shipping addresses |
+| `account.billing.title` | Facturación (CFDI) | Invoicing (CFDI) |
+| `account.billing.emptyTitle` | Sin datos de facturación | No invoicing details |
+| `account.billing.emptyBody` | Guárdalos para solicitar factura de tus compras. | Save them to request invoices for your purchases. |
+| `account.billing.add` | Agregar datos de facturación | Add invoicing details |
+| `account.billing.edit` | Editar | Edit |
+| `account.billing.cancel` | Cancelar | Cancel |
+| `account.billing.rfc` | RFC | RFC |
+| `account.billing.rfcHint` | Escríbelo completo | Enter it in full |
+| `account.billing.razonSocial` | Razón social | Legal name |
+| `account.billing.regimenFiscal` | Régimen fiscal (clave SAT) | Tax regime (SAT code) |
+| `account.billing.usoCfdi` | Uso de CFDI (clave SAT) | CFDI use (SAT code) |
+| `account.billing.satHint` | Clave del catálogo del SAT | SAT catalog code |
+| `account.billing.postalCode` | Código postal fiscal | Tax postal code |
+| `account.billing.email` | Correo para la factura | Invoice email |
+| `account.kyc.title` | Verificación de identidad | Identity verification |
+| `account.kyc.status` | Estado | Status |
+| `account.kyc.clabe` | CLABE para pagos | CLABE for payouts |
+| `account.kyc.clabeNone` | Sin CLABE registrada | No CLABE on file |
+| `account.kyc.clabeChange` | Cambiar CLABE | Change CLABE |
+| `account.kyc.clabeHint` | 18 dígitos, a tu nombre. Ahí te pagamos tus ventas. | 18 digits, in your name. That's where we pay your sales. |
+| `account.kyc.clabeInvalid` | La CLABE debe tener 18 dígitos. | The CLABE must be 18 digits. |
+| `account.kyc.ine` | INE | ID (INE) |
+| `account.kyc.ineOnFile` | INE en archivo | ID (INE) on file |
+| `account.kyc.ineMissing` | Sin INE. Se pide solo cuando una venta supera el tope. | No ID on file. Only required when a sale exceeds the cap. |
+| `account.kyc.ineFront` | INE — frente | ID (INE) — front |
+| `account.kyc.ineBack` | INE — reverso | ID (INE) — back |
+| `account.kyc.capPerRequest` | Tope por solicitud | Cap per request |
+| `account.kyc.capPerMonth` | Tope por mes | Cap per month |
+| `account.password.title` | Contraseña | Password |
+| `account.password.summaryHas` | Cámbiala cuando quieras; cerraremos tus otras sesiones. | Change it any time; we'll sign out your other sessions. |
+| `account.password.summaryNone` | Entras con Google y tu cuenta no tiene contraseña. | You sign in with Google and your account has no password. |
+| `account.password.goChange` | Cambiar contraseña | Change password |
+| `account.password.goCreate` | Crear contraseña | Create password |
+| `account.password.back` | Mi cuenta | My account |
+| `account.password.changeTitle` | Cambiar contraseña | Change password |
+| `account.password.current` | Contraseña actual | Current password |
+| `account.password.new` | Contraseña nueva | New password |
+| `account.password.confirm` | Confirmar contraseña nueva | Confirm new password |
+| `account.password.policy` | Mínimo 8 caracteres. | At least 8 characters. |
+| `account.password.weak` | La contraseña debe tener al menos 8 caracteres. | Password must be at least 8 characters. |
+| `account.password.mismatch` | Las contraseñas no coinciden. | Passwords don't match. |
+| `account.password.sameAsCurrent` | La contraseña nueva debe ser distinta de la actual. | The new password must differ from the current one. |
+| `account.password.submit` | Cambiar contraseña | Change password |
+| `account.password.submitting` | Cambiando… | Changing… |
+| `account.password.successTitle` | CONTRASEÑA ACTUALIZADA | PASSWORD UPDATED |
+| `account.password.successOtherSessions` | Cerramos la sesión en tus otros dispositivos. Esta sigue abierta. | We signed you out on your other devices. This session stays open. |
+| `account.password.rateLimited` *(variantes A **y** B)* | Demasiados intentos. Espera un minuto. | Too many attempts. Wait a minute. |
+| `account.password.resendError` **(nueva v4.1.2, variante B; sustituye el préstamo de `verifyEmail.resendError`)** | No pudimos enviar el enlace. Intenta de nuevo. | We couldn't send the link. Try again. |
+| `account.password.changeAgain` | Cambiar otra vez | Change again |
+| `account.password.createTitle` | Crear contraseña | Create a password |
+| `account.password.createBody` | Entras con Google y tu cuenta no tiene contraseña. Para crear una te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google. | You sign in with Google and your account has no password. To create one, we'll send a link to {email}; you choose it there. You can still sign in with Google. |
+| `account.password.createSend` | Enviarme el enlace | Send me the link |
+| `account.password.createSending` | Enviando… | Sending… |
+| `account.password.createSentTitle` | ENLACE ENVIADO | LINK SENT |
+| `account.password.createSentBody` | Revisa tu correo. El enlace caduca; si no llega, pide otro. | Check your email. The link expires; if it doesn't arrive, request another. |
+| `account.password.createResend` | Enviar otra vez | Send again |
+| `account.session.title` | Sesión | Session |
+| `account.session.body` | Cierra tu sesión en este dispositivo. | Sign out on this device. |
+| `auth.changePassword.title` | Crea tu contraseña definitiva | Create your permanent password |
+| `auth.changePassword.body` | Entraste con una contraseña temporal. Para continuar, elige una nueva. | You signed in with a temporary password. Choose a new one to continue. |
+| `auth.changePassword.requiredNotice` | Antes de continuar tienes que cambiar tu contraseña temporal. | You need to change your temporary password before continuing. |
+| `auth.changePassword.temporaryLabel` | Contraseña temporal | Temporary password |
+| `auth.changePassword.submit` | Guardar y continuar | Save and continue |
+| `auth.changePassword.done` | Listo | Done |
+| `orders.claimable.title` | {count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo | {count, plural, one {You have # order placed without an account} other {You have # orders placed without an account}} under this email |
+| `orders.claimable.body` | Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido. | Link them to see their status and tracking here. Nothing about the order changes. |
+| `vault.claimable.body` | Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. | They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. |
+| `orders.claimable.more` | y {count} más | and {count} more |
+| `orders.claimable.cta` | Vincular a mi cuenta | Link to my account |
+| `orders.claimable.claiming` | Vinculando… | Linking… |
+| `orders.claimable.later` | Ahora no | Not now |
+| `orders.claimable.success` | {count, plural, one {PEDIDO EN TU HISTORIAL} other {PEDIDOS EN TU HISTORIAL}} | {count, plural, one {ORDER IN YOUR HISTORY} other {ORDERS IN YOUR HISTORY}} |
+| `orders.claimable.successLink` | Ver mis compras | See my purchases |
+| `orders.claimable.partialFail` | {count, plural, one {No fue posible vincular # pedido.} other {No fue posible vincular # pedidos.}} Escríbenos a {contact} citando el número de pedido. | {count, plural, one {We couldn't link # order.} other {We couldn't link # orders.}} Write to {contact} quoting the order number. |
+| `orders.claimable.errorTitle` | No se pudieron vincular los pedidos | The orders could not be linked |
+| `error.CURRENT_PASSWORD_INCORRECT` | La contraseña actual no es correcta. | The current password is incorrect. |
+| `error.PASSWORD_SAME_AS_CURRENT` | La contraseña nueva debe ser distinta de la actual. | The new password must differ from the current one. |
+| `error.PASSWORD_NOT_SET` | Tu cuenta no tiene contraseña. Crea una desde «Mi cuenta». | Your account has no password. Create one from “My account”. |
+| `error.PASSWORD_CHANGE_REQUIRED` | Tu cuenta tiene una contraseña temporal. Cámbiala para continuar. | Your account has a temporary password. Change it to continue. |
+| `error.RECIPIENT_NAME_REQUIRED` | Esta dirección no tiene el nombre de quien recibe. Complétalo para continuar. | This address has no recipient name. Add it to continue. |
+
+**Nuevas — `orders`, `buylist`, `sellCart`, `vault`, `shipments`, `addresses`, `admin`:**
+
+| Clave | ES | EN |
+|---|---|---|
+| `orders.tabs.label` | Compras y ventas | Purchases & sales |
+| `orders.tabs.purchases` | Compras | Purchases |
+| `orders.tabs.sales` | Ventas | Sales |
+| `orders.emptyCta` | Explorar el catálogo | Explore the catalog |
+| `orders.back` | Compras y ventas | Purchases & sales |
+| `orders.sales.emptyCta` | Cotizar mis cartas | Get a quote for my cards |
+| `buylist.viewMyRequests` | Ver el estado de mis solicitudes | See the status of my requests |
+| `buylist.backToSales` | Mis ventas | My sales |
+| `sellCart.restored` | Tu lista de venta se conservó: {count} carta(s). | Your sell list was kept: {count} card(s). |
+| `sellCart.repriced` | Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}. | We updated your list with today's prices: was {before}, now {after}. |
+| `sellCart.linesDropped` | Quitamos {count} carta(s) que ya no podemos cotizar. | We removed {count} card(s) we can no longer quote. |
+| `sellCart.expired` | Tu lista de venta caducó y la vaciamos. Vuelve a cotizar tus cartas. | Your sell list expired and was cleared. Quote your cards again. |
+| `sellCart.requoteFailed` | No pudimos actualizar los precios. Reintenta. | We couldn't refresh the prices. Try again. |
+| `sellCart.retry` | Reintentar | Try again |
+| `sellCart.requoting` *(`aria-label` del total «—», §33.11.2)* | Actualizando los precios de tu lista | Refreshing the prices of your list |
+| `buylist.request.phone.inAccount` *(**propuesta**: no está en el catálogo, medido 2026-09-11; se implementa solo si el formulario de solicitud enlaza a «Mi cuenta»)* | o complétalo en Mi cuenta | or add it in My account |
+| `vault.tabs.withdrawals` | Retiros | Withdrawals |
+| `vault.requestWithdrawal` *(cabecera de la bóveda y CTA de la pestaña «Retiros», §33.4)* | Solicitar retiro | Request a withdrawal |
+| `vault.withdrawalRequested` | Retiro solicitado. Aquí verás su avance. | Withdrawal requested. You'll track it here. |
+| `shipments.backToVault` | Mi bóveda | My vault |
+| `shipments.shipTo` | Envío a: {name} · {city}, {state} | Ship to: {name} · {city}, {state} |
+| `shipments.recipient.required` | Completa el nombre de quien recibe en la dirección elegida para continuar. | Add the recipient name to the selected address to continue. |
+| `shipments.recipient.label` | Nombre de quien recibe | Recipient name |
+| `shipments.recipient.hint` | Va en la etiqueta del paquete. | Printed on the shipping label. |
+| `shipments.recipient.save` | Guardar nombre | Save name |
+| `addresses.recipientName` | Nombre de quien recibe | Recipient name |
+| `addresses.recipientNameHint` | Va en la etiqueta del paquete. | Printed on the shipping label. |
+| `addresses.recipientLine` | Recibe: {name} | Recipient: {name} |
+| `addresses.recipientMissing` | Falta el nombre de quien recibe | Recipient name missing |
+| `addresses.complete` | Completar | Complete |
+| `addresses.edit` | Editar | Edit |
+| `addresses.editTitle` | Editar dirección | Edit address |
+| `admin.m4.recipient` | Para | To |
+| `admin.m4.recipientMissing` | SIN DESTINATARIO (retiro anterior a v1.67) | NO RECIPIENT (withdrawal prior to v1.67) |
+| `admin.m4.customer` | Cliente | Customer |
+| `admin.m4.postalCode` | CP | ZIP |
+| `admin.m4.phone` | Tel | Phone |
+| `admin.m6.nameDerived` *(**propuesta**: no está en el catálogo, medido 2026-09-11; depende de que M6 exponga `nameSource`, R6)* | Nombre tomado del correo (Google) | Name taken from email (Google) |
+
+**Cambian de valor (misma clave):**
+
+| Clave | Antes (ES) | Ahora ES | Ahora EN |
+|---|---|---|---|
+| `orders.title` | Mis órdenes | Compras y ventas | Purchases & sales |
+| `orders.orderNumber` | Orden {id} | Pedido {id} | Order {id} |
+| `orders.detailTitle` | Detalle de la orden | Detalle del pedido | Order details |
+| `orders.noOrders` | Aún no tienes órdenes. | Aún no tienes compras. | No purchases yet. |
+| `shipments.title` | Retiro / envío | Solicitar retiro | Request a withdrawal |
+| `shipments.backToList` | Volver a mis retiros | Mis retiros | My withdrawals |
+
+**No cambia (v4.1.2):** `vault.withdraw` sigue siendo «Retirar» / «Withdraw» — es el botón **por pieza**; la cabecera
+usa `vault.requestWithdrawal` (§33.4). *(v4.1 la listaba aquí como cambio de valor; retirado.)*
+
+**Retiradas** (medido 2026-09-11): `auth.mustChangePassword` y `auth.mustChangeContinue` **borradas** (ES/EN);
+`buylist.offer.backToBuylist` **borrada** (sin otro consumidor). `nav.orders` y `nav.shipments` **salen del header
+pero se conservan** en el catálogo: `e2e/guest-checkout.spec.ts` resuelve `nav.orders` por `t()` (stream de
+checkout); se borran cuando ese spec cambie.
+
+**Paridad ES/EN:** verificación barata — cada clave de las tablas existe en los dos catálogos y **ninguna cadena EN
+está en español** (`grep` del lint de i18n, como en §26.8).
+
+### 33.14 Contraste — cero pares nuevos
+
+Todo lo de §33 usa tokens y pares ya verificados en §10 / §17.2 / §20.15: texto e `muted` sobre papel, `accent`
+(#B31217) para notas y estados en mono, `success` para `VERIFICADO`/`GUARDADO`, `on-ink*` en el sidebar y el
+drawer del panel, el `Banner info/warning/danger` existente. No se introduce ningún color, fondo ni tamaño por
+debajo de los mínimos de §20.11 (mono 11px, cuerpo 16px en móvil).
+
+### 33.15 Qué NO hacer
+
+1. **No** pintar el nombre del usuario en el header, el drawer ni el topbar (regla 2). Hasta que el aviso de
+   §33.6a exista, esa era la vitrina del nombre inventado.
+2. **No** ofrecer «Continuar», «Más tarde» ni «← Mi cuenta» en la página de contraseña **en modo bloqueo**.
+   Tampoco un banner con enlace en el login: **esa variante está descartada**. Y **no** crear `/change-password`
+   en `(auth)`: las rutas son `/account/password` y `/admin/account/password` (contrato).
+2b. **No** pintar campos de contraseña ni llamar a `change-password` con `hasPassword=false`: la vía es
+   `forgot-password` (contrato v1.67; `PASSWORD_NOT_SET` es un error de programación del front, no del usuario).
+2c. **No** llamar a `PATCH /users/me` (ni al toggle de idioma persistente) mientras `mustChangePassword`: no está
+   en la allowlist.
+3. **No** pintar el aviso de reclamables vacío, cargando o en error; **no** ponerle skeleton; **no** decir en la
+   bóveda que los pedidos «aparecerán en tu bóveda».
+4. **No** copiar `User.name` a `recipientName` en silencio; **no** pintar `User.name` en M4 cuando falte el
+   destinatario; **no** pintar `userId`.
+5. **No** enviar una solicitud de venta con estimados restaurados sin re-cotizar; **no** borrar la lista por un
+   fallo de red.
+6. **No** añadir «Mi cuenta» al sidebar como módulo; **no** inventar un código M-11.
+7. **No** añadir reglas de contraseña (mayúsculas, símbolos) que el servidor no exige; **no** construir un «mostrar
+   contraseña» propio.
+8. **No** ofrecer editar el correo; **no** ofrecer re-subir el INE si está en archivo.
+9. **No** usar `role="tablist"` para las pestañas de `/orders` (son enlaces con URL); **sí** para las de la
+   bóveda (son estado), como hoy.
+10. **No** cambiar las rutas técnicas `/orders`, `/shipments`, `/shipments/[id]`, `/buylist/requests/[id]`: los
+    correos y los tests las citan.
+
+### 33.16 Notas a otros roles — lo que este diseño **no** decide y hay que enrutar
+
+| Ref | Para | Qué |
+|---|---|---|
+| **R1** ✅ | *(resuelta — contrato v1.67)* | `POST /auth/change-password` existe (`API_CONTRACT.md:6311-6347`): siempre con la actual, `MIN_PASSWORD_LENGTH=8`, limpia `mustChangePassword`, **revoca las demás sesiones y conserva ésta** (par de tokens nuevo en la respuesta). Códigos: `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`, `PASSWORD_NOT_SET`. **Sin «modo crear»** (§33.7 B). §33.7/§33.8 ya están alineadas. |
+| **R2** ✅ | *(resuelta — contrato v1.67)* | `PasswordChangeRequiredGuard` + `403 PASSWORD_CHANGE_REQUIRED` con allowlist **exacta** de tres rutas (`:6358-6365`). ⚠ `PATCH /users/me` **no** está: decisión abierta al dueño en `ARCHITECTURE §4.47.9(1)`; el diseño la respeta (§33.15 2c). |
+| **R3** ✅ | *(resuelta — contrato v1.67)* | `hasPassword`, `mustChangePassword` y `nameSource` en `GET /users/me` (`:6385-6399`); `PATCH /users/me` devuelve la misma forma. |
+| **R4** ✅ | *(resuelta — contrato v1.67, `M-52`)* | `Address.recipientName` obligatorio en `POST`, opcional no vaciable en `PATCH`, `null` solo en filas viejas; `422 RECIPIENT_NAME_REQUIRED` en `quote`/`create`; **sin fallback a `User.name`** (`:4727-4734`, `:6415-6427`). Backend `B5` toca `shipments` **serializado** con el stream B. |
+| **R5** ⭐ | **arquitecto** → backend | `recipientName` **sí** llega a M4 vía el snapshot (`API_CONTRACT.md:29-30`). Lo que **no he medido en v1.67**: si `GET /admin/shipments` trae **`customer { id, name, email }`** para la línea «Cliente» de §33.10d (P-66 B3). Si no lo trae, M4 pinta «—» ahí y **nunca** el `userId`. No bloquea. |
+| **R6** ✅ | *(resuelta — contrato v1.67)* | `User.nameSource` con backfill determinista (`ARCHITECTURE §4.47.5`); M6 **puede** exponerlo (aditivo, `API_CONTRACT.md:16490-16491`) para pintar `admin.m6.nameDerived`. |
+| **R7** | **product-owner** | Dos decisiones menores, con recomendación: (a) confirmar el rótulo **«Compras y ventas»** (alternativas descartadas: «Mis pedidos» —se lee como compra—, «Mis operaciones» —nadie lo teclea—); (b) si los campos «clave SAT» de facturación deben ser `Select` con catálogo (hoy `Input` + hint: el diseño no inventa el catálogo). *(La caducidad del carrito de venta ya la fijó el arquitecto en 30 días, §4.47.6.)* |
+| **R8** | **backend** | Mientras el nombre sea el derivado, **los 10 correos** que lo usan (`mail.templates.ts:70-99`, `buylist*.service.ts`) siguen diciéndole «Hola jcsainz95». No es de esta sección; queda anotado para que se decida si el saludo cae al correo o se omite hasta que el usuario lo corrija. |
+| **R9** | **frontend** | Implementa §33 entero contra el contrato v1.67 y el reparto **F1–F11 de `ARCHITECTURE §4.47.8`** (mocks hasta que backend publique); **`components/`, `lib/`, `hooks/` son zona compartida** (un solo stream a la vez). El orden de entrega de v4.1 queda **superseded por F1–F11**. |
+| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, **total «—» y las dos líneas sin cifra («—» en subtotal y «Estimado c/u»)** hasta que `batchQuote` responde (llamado una vez); si `batchQuote` falla, **sigue sin haber cifra** en total ni líneas y aparece «Reintentar» (v4.1.2, §33.11.2); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |

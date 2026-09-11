@@ -9,7 +9,7 @@ import {
   getToken,
   clearClientSession,
 } from './api-client';
-import { setStoredUser, patchStoredUser, getStoredUser } from './session';
+import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
@@ -107,6 +107,10 @@ import type {
   ResendVerificationResponse,
   ForgotPasswordResponse,
   ResetPasswordSelfResponse,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
+  BillingProfileDTO,
+  BillingProfileInput,
   Locale,
   UserDTO,
   UploadPurpose,
@@ -909,6 +913,11 @@ export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
 
 // ---------- Direcciones (contrato §1 — envío, solo MX) ----------
 export interface AddressInput {
+  /**
+   * v1.67 (M-52): OBLIGATORIO al crear (trim, 1..120; `400 VALIDATION_ERROR` con
+   * `details.field='recipientName'`). En `PATCH` es opcional pero ⛔ no se puede vaciar.
+   */
+  recipientName: string;
   line1: string;
   line2?: string;
   neighborhood?: string;
@@ -941,6 +950,14 @@ export async function createAddress(input: AddressInput): Promise<AddressDTO> {
   // MOCK: replica la validación MX-only del backend y el manejo de `isDefault`.
   if (input.country !== 'MX') {
     throw new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: 'Only MX addresses are allowed' });
+  }
+  // MOCK v1.67: `recipientName` obligatorio (contrato POST /users/me/addresses).
+  if (!input.recipientName || !input.recipientName.trim()) {
+    throw new ApiClientError(400, {
+      code: 'VALIDATION_ERROR',
+      message: 'recipientName is required',
+      details: { field: 'recipientName' },
+    });
   }
   const created: AddressDTO = { id: `addr-new-${fx.mockAddresses.length + 1}`, ...input };
   if (created.isDefault) fx.mockAddresses.forEach((a) => (a.isDefault = false));
@@ -1836,21 +1853,114 @@ export interface UpdateMeInput {
 export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
   if (!config.useMocks) {
     const user = await apiRequest<UserDTO>('/users/me', { method: 'PATCH', body: input });
-    patchStoredUser({ name: user.name, phone: user.phone, locale: user.locale });
+    // v1.67: la respuesta tiene LA MISMA forma que `GET /users/me` (contrato): se sincroniza
+    // entera para que `nameSource` (que el servidor pone en `'user'` al guardar `name`) y los
+    // demás campos nuevos no se queden rancios en la sesión local.
+    setStoredUser(user);
     return user;
   }
   // MOCK: espeja el 200 del contrato sobre la sesión local (no hay backend que consultar).
   const current = getStoredUser();
   if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+  if (input.name != null) {
+    const trimmed = input.name.trim();
+    if (trimmed.length < 1 || trimmed.length > 120) {
+      throw new ApiClientError(400, {
+        code: 'VALIDATION_ERROR',
+        message: 'name must be 1..120 chars',
+        details: { field: 'name' },
+      });
+    }
+  }
   const user: UserDTO = {
-    ...current,
-    ...(input.name != null ? { name: input.name } : {}),
+    ...withMeDefaults(current),
+    ...(input.name != null ? { name: input.name.trim(), nameSource: 'user' as const } : {}),
     ...(input.phone != null ? { phone: input.phone } : {}),
     ...(input.locale != null ? { locale: input.locale } : {}),
   };
-  patchStoredUser({ name: user.name, phone: user.phone, locale: user.locale });
+  setStoredUser(user);
   return delay(user, 200);
 }
+
+/**
+ * MOCK: completa los campos v1.67 que una sesión inyectada (E2E `loginAs`) o guardada antes de
+ * v1.67 puede no traer. El backend real los trae SIEMPRE en `GET /users/me`.
+ */
+function withMeDefaults(u: UserDTO): UserDTO {
+  return {
+    ...u,
+    hasPassword: u.hasPassword ?? u.authProvider !== 'google',
+    mustChangePassword: u.mustChangePassword ?? false,
+    nameSource: u.nameSource ?? (u.authProvider === 'google' ? 'google' : 'user'),
+  };
+}
+
+/**
+ * Perfil propio (contrato §1 · `GET /users/me`, v1.67: +`mustChangePassword`, +`hasPassword`,
+ * +`nameSource`). **Exento** del `403 PASSWORD_CHANGE_REQUIRED`: es la única lectura que la
+ * página de contraseña necesita. Sincroniza la sesión local (`tcg.user`) con la respuesta —
+ * es la forma de refrescar la bandera en el cliente sin re-login.
+ */
+export async function getMe(): Promise<UserDTO> {
+  if (!config.useMocks) {
+    const user = await apiRequest<UserDTO>('/users/me');
+    setStoredUser(user);
+    return user;
+  }
+  const current = getStoredUser();
+  if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+  return delay(withMeDefaults(current), 150);
+}
+
+// ---------- Perfil de facturación CFDI (contrato §1) ----------
+/**
+ * `GET /users/me/billing-profile` (contrato v1.67.1 «Perfil de facturación», `BillingProfileDTO` de
+ * seis campos con `rfcMasked`). **Sin perfil ⇒ `404 NOT_FOUND` ⇒ `null`**: es el vacío de §33.6d
+ * («Sin datos de facturación» + «Agregar datos de facturación»), no un error de la sección.
+ *
+ * Tolerancia de transición (QA, 2026-09-11 · D-CTA-7): el backend anterior a v1.67.1 respondía
+ * `200` con cuerpo vacío/`null`, que `api-client` convierte en `{}` — y `{}` es truthy: la sección
+ * pintaba seis «—» y «Editar». Un `200` cuyo cuerpo NO es un perfil (sin `rfcMasked` string) se trata
+ * como «sin perfil». ⛔ No es una lectura alternativa del contrato: el contrato dice 404; esto solo
+ * evita afirmar un perfil que no existe si algún despliegue viejo aún contesta 200.
+ */
+export async function getBillingProfile(): Promise<BillingProfileDTO | null> {
+  if (!config.useMocks) {
+    try {
+      const body = await apiRequest<BillingProfileDTO | null>('/users/me/billing-profile');
+      return isBillingProfile(body) ? body : null;
+    } catch (e) {
+      if (e instanceof ApiClientError && e.status === 404) return null;
+      throw e;
+    }
+  }
+  return delay(mockBillingProfile ? { ...mockBillingProfile } : null, 150);
+}
+
+/** Forma mínima que distingue un perfil real (v1.67.1) de un cuerpo vacío. */
+function isBillingProfile(body: unknown): body is BillingProfileDTO {
+  return !!body && typeof body === 'object' && typeof (body as { rfcMasked?: unknown }).rfcMasked === 'string';
+}
+
+/** `PUT /users/me/billing-profile` — el RFC va en claro y el backend lo cifra en reposo. */
+export async function putBillingProfile(input: BillingProfileInput): Promise<BillingProfileDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BillingProfileDTO>('/users/me/billing-profile', { method: 'PUT', body: input });
+  }
+  // MOCK: enmascara como el backend (los 3 primeros caracteres + asteriscos).
+  const rfc = input.rfc.trim().toUpperCase();
+  mockBillingProfile = {
+    rfcMasked: `${rfc.slice(0, 3)}${'*'.repeat(Math.max(0, rfc.length - 3))}`,
+    razonSocial: input.razonSocial,
+    regimenFiscal: input.regimenFiscal,
+    usoCfdi: input.usoCfdi,
+    postalCode: input.postalCode,
+    email: input.email,
+  };
+  return delay({ ...mockBillingProfile }, 200);
+}
+// MOCK: perfil de facturación en memoria (arranca vacío: el flujo de demo lo crea).
+let mockBillingProfile: BillingProfileDTO | null = null;
 
 // ---------- KYC (contrato §1) ----------
 export async function getKyc(): Promise<KycInfoDTO> {
@@ -1954,6 +2064,9 @@ function persistSession(res: AuthResponse): AuthResponse {
  * el cliente queda deslogueado. En modo mock solo limpia el estado local.
  */
 export async function logout(): Promise<void> {
+  // QA2-1: la señal va ANTES de la red y del vaciado, para que el guard que vea la sesión vacía no
+  // imponga `/login?next=<ruta recién cerrada>` por encima del destino del llamador.
+  markIntentionalLogout();
   try {
     if (!config.useMocks) await apiRequest<void>('/auth/logout', { method: 'POST' });
   } finally {
@@ -1983,9 +2096,36 @@ function mockAuthResponse(over: Partial<AuthResponse['user']> = {}): AuthRespons
   };
 }
 
+/**
+ * MOCK v1.67: cuentas de demo con CONTRASEÑA TEMPORAL (`mustChangePassword: true`), para poder
+ * recorrer el bloqueo de §33.8 sin backend. El correo decide el rol; cualquier contraseña vale.
+ *   `temporal@example.com`          → customer con temporal
+ *   `operador.temporal@example.com` → vault_operator con temporal
+ */
+export const MOCK_TEMP_PASSWORD_EMAILS: Record<string, Role> = {
+  'temporal@example.com': 'customer',
+  'operador.temporal@example.com': 'vault_operator',
+};
+
 export async function login(input: { email: string; password: string }): Promise<AuthResponse> {
   if (!config.useMocks) {
     return persistSession(await apiRequest<AuthResponse>('/auth/login', { method: 'POST', body: input }));
+  }
+  const tempRole = MOCK_TEMP_PASSWORD_EMAILS[input.email.toLowerCase()];
+  if (tempRole) {
+    return delay(
+      persistSession(
+        mockAuthResponse({
+          email: input.email,
+          role: tempRole,
+          name: tempRole === 'customer' ? 'Cliente Temporal' : 'Operador Temporal',
+          mustChangePassword: true,
+          hasPassword: true,
+          nameSource: 'user',
+        }),
+      ),
+      400,
+    );
   }
   return delay(persistSession(mockAuthResponse({ email: input.email })), 400);
 }
@@ -2114,6 +2254,71 @@ export async function resetPassword(input: {
     });
   }
   return { ok: true };
+}
+
+/**
+ * Cambia la propia contraseña probando la actual (contrato §1 · `POST /auth/change-password`,
+ * v1.67; autenticado, cualquier rol; **exento** del `403 PASSWORD_CHANGE_REQUIRED`).
+ *
+ * Al `200` el servidor ya hizo `tokenVersion +1` y devuelve un par NUEVO: los dos tokens
+ * almacenados se REEMPLAZAN (los viejos ya no valen en ningún sitio) y la sesión local pasa a
+ * `mustChangePassword: false, hasPassword: true` — ANTES de que la pantalla ofrezca continuar,
+ * porque los guards (§33.8 paso 3) leen esa bandera y devolverían al usuario aquí.
+ *
+ * Errores del contrato (todos `422`, ninguno cierra sesión — es `422` y no `401` a propósito):
+ * `PASSWORD_NOT_SET` (solo-Google), `CURRENT_PASSWORD_INCORRECT` (`details.field='currentPassword'`),
+ * `PASSWORD_SAME_AS_CURRENT` (`details.field='newPassword'`); `400 VALIDATION_ERROR` (corta),
+ * `429 RATE_LIMITED` (5/min/IP).
+ */
+export async function changePassword(input: ChangePasswordRequest): Promise<ChangePasswordResponse> {
+  if (!config.useMocks) {
+    const res = await apiRequest<ChangePasswordResponse>('/auth/change-password', {
+      method: 'POST',
+      body: input,
+    });
+    setToken(res.accessToken);
+    setRefreshToken(res.refreshToken);
+    patchStoredUser({ mustChangePassword: false, hasPassword: true });
+    return res;
+  }
+  // MOCK: replica el orden NORMATIVO de evaluación del contrato (pasos 2→4).
+  await delay(undefined, 400);
+  const current = getStoredUser();
+  if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+  if (withMeDefaults(current).hasPassword === false) {
+    throw new ApiClientError(422, { code: 'PASSWORD_NOT_SET', message: 'Account has no password' });
+  }
+  // MOCK: la contraseña «actual» de cualquier cuenta de demo es cualquiera que NO sea `wrong-…`.
+  if (/^wrong/i.test(input.currentPassword)) {
+    throw new ApiClientError(422, {
+      code: 'CURRENT_PASSWORD_INCORRECT',
+      message: 'Current password is incorrect',
+      details: { field: 'currentPassword' },
+    });
+  }
+  if (input.newPassword.length < 8) {
+    throw new ApiClientError(400, {
+      code: 'VALIDATION_ERROR',
+      message: 'newPassword too short',
+      details: { field: 'newPassword' },
+    });
+  }
+  if (input.newPassword === input.currentPassword) {
+    throw new ApiClientError(422, {
+      code: 'PASSWORD_SAME_AS_CURRENT',
+      message: 'New password must differ',
+      details: { field: 'newPassword' },
+    });
+  }
+  const res: ChangePasswordResponse = {
+    ok: true,
+    accessToken: 'mock.session.token.rotated',
+    refreshToken: 'mock.refresh.token.rotated',
+  };
+  setToken(res.accessToken);
+  setRefreshToken(res.refreshToken);
+  patchStoredUser({ mustChangePassword: false, hasPassword: true });
+  return res;
 }
 
 // ---------- Admin ----------
@@ -4857,7 +5062,31 @@ export async function getClaimableOrders(): Promise<ClaimableOrderDTO[]> {
     const res = await apiRequest<{ data: ClaimableOrderDTO[] }>('/orders/claimable');
     return res.data;
   }
-  return delay<ClaimableOrderDTO[]>([]);
+  // MOCK v1.67: `[]` por defecto (candado CA-4: cero nodos). Con la bandera
+  // `localStorage['tcg.mock.claimable']='1'` sirve los pedidos del fixture que AÚN no se reclamaron
+  // en esta sesión (los reclamados se anotan en `tcg.mock.claimed` y no vuelven tras recargar).
+  return delay<ClaimableOrderDTO[]>(mockClaimablePool());
+}
+
+const MOCK_CLAIMABLE_FLAG = 'tcg.mock.claimable';
+const MOCK_CLAIMED_KEY = 'tcg.mock.claimed';
+
+function mockClaimedIds(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(MOCK_CLAIMED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function mockClaimablePool(): ClaimableOrderDTO[] {
+  if (typeof window === 'undefined') return [];
+  if (window.localStorage.getItem(MOCK_CLAIMABLE_FLAG) !== '1') return [];
+  const claimed = new Set(mockClaimedIds());
+  return fx.mockClaimableOrders.filter((o) => !claimed.has(o.orderId)).map((o) => ({ ...o }));
 }
 
 /**
@@ -4870,5 +5099,13 @@ export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersR
   if (!config.useMocks) {
     return apiRequest<ClaimOrdersResponse>('/orders/claim', { method: 'POST', body: { orderIds } });
   }
-  return delay<ClaimOrdersResponse>({ claimed: orderIds, failed: [] }, 400);
+  // MOCK: parcial-tolerante como el contrato — los ids que no están en el pool vienen en `failed`
+  // (`NOT_FOUND`); los reclamados se vacían del pool (la siguiente consulta viene sin ellos).
+  const pool = new Set(mockClaimablePool().map((o) => o.orderId));
+  const claimed = orderIds.filter((id) => pool.has(id));
+  const failed = orderIds.filter((id) => !pool.has(id)).map((orderId) => ({ orderId, code: 'NOT_FOUND' as const }));
+  if (typeof window !== 'undefined' && claimed.length > 0) {
+    window.localStorage.setItem(MOCK_CLAIMED_KEY, JSON.stringify([...mockClaimedIds(), ...claimed]));
+  }
+  return delay<ClaimOrdersResponse>({ claimed, failed }, 400);
 }

@@ -41,6 +41,36 @@ export function patchStoredUser(patch: Partial<UserDTO>) {
   setStoredUser({ ...current, ...patch });
 }
 
+/**
+ * QA2-1 (2026-09-11; FE-34 de TECH_DEBT extendida a `/account`): al cerrar sesión, `logout()` vacía la
+ * sesión ANTES de que el llamador navegue, y los guards (`PrivateRouteGuard`, `AdminShell`) ven
+ * `ready && !isAuthenticated` y ganan la carrera con `/login?next=<ruta recién cerrada>`. Medido 6/6
+ * contra el stack real (`/es/account` → `login?next=%2Faccount`; `/es/admin` → `login?next=%2Fadmin`).
+ *
+ * La señal: `logout()` marca «logout intencional» y, mientras dure la ventana, los guards NO redirigen
+ * (pintan su carga y dejan que el llamador aterrice donde decidió: `/login` en el panel y la página de
+ * contraseña, `/` en la sección «Sesión» de la tienda — DS §33.6g). Un vaciado por 401 (refresh muerto)
+ * NO marca nada: ahí el `next` sigue siendo correcto. Ventana temporal y no «consumo» porque el efecto
+ * del guard puede correr más de una vez antes de que el `router.replace` del llamador tome efecto.
+ */
+let intentionalLogoutAt = 0;
+const INTENTIONAL_LOGOUT_WINDOW_MS = 10_000;
+
+/** La llama `logout()` (lib/api.ts) antes de tocar la red y de vaciar la sesión. */
+export function markIntentionalLogout() {
+  intentionalLogoutAt = Date.now();
+}
+
+/** `true` mientras un logout intencional está en curso (ventana desde `markIntentionalLogout`). */
+export function isLogoutInProgress(now: number = Date.now()): boolean {
+  return intentionalLogoutAt > 0 && now - intentionalLogoutAt < INTENTIONAL_LOGOUT_WINDOW_MS;
+}
+
+/** Solo para tests. */
+export function resetIntentionalLogoutForTests() {
+  intentionalLogoutAt = 0;
+}
+
 export interface SessionState {
   user: UserDTO | null;
   isAuthenticated: boolean;

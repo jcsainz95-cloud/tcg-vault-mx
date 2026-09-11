@@ -164,6 +164,28 @@ ya era doctrina del proyecto y se escribe aquí porque es la que sostiene a toda
 
 **Comprobación:** el reporte al humano distingue lo que medí yo de lo que me reportó un agente.
 
+### O-11 · Lo que sé es lo que está en git, no lo que recuerdo
+Cuando la conversación se comprime (o arranca una sesión nueva), **no reconstruyo el estado de memoria**: lo
+mido. Primera acción, siempre: `git status`, `git log --oneline -5`, `HECHOS.md` entero y el **índice** de
+`PENDIENTES.md`. `HISTORIAL.md` solo cuando necesito saber *cómo* se decidió algo.
+
+> *De dónde viene:* tras una compresión pregunté al dueño cosas que ya estaban decididas (modo prueba de Stripe,
+> claves en GitHub, «no hay staging») hasta cinco veces. Él lo vio como «crasheaste y perdiste día y medio».
+> No se perdió trabajo — todo estaba en git — pero se perdió su confianza, que cuesta más.
+
+**Comprobación:** el primer mensaje tras una compresión o arranque cita el SHA de `HEAD` y la fecha de la
+última limpieza de `PENDIENTES.md`. Si no los cita, no arranqué bien.
+
+## Arranque y traspaso de sesión
+- **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
+  se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus
+  cuerpos verbatim), `HISTORIAL.md` (lo cerrado, verbatim; nunca se enruta trabajo desde ahí sin re-medir).
+- **Traspaso a una sesión hija:** el orquestador la crea él mismo (herramienta `create_session`, mismo entorno)
+  con el prompt guardado en `TRASPASO.md`, **después** de dejar `PENDIENTES.md` limpio y commiteado. El prompt
+  no lleva estado de memoria: lleva rutas y SHAs. Si la hija muere, el dueño la rearma pegando `TRASPASO.md`.
+- **Una sesión = una rama** (`claude/tcg-hunt-orchestration-<n>`); fusiona a `main` al cerrar cada stream con
+  sus gates, y **solo `production` publica** (`HECHOS.md`).
+
 ## Regla de conflicto
 Ante cualquier ambigüedad entre PROJECT.md, el contrato y el código: el contrato manda sobre el código, y PROJECT.md manda sobre el contrato. Si PROJECT.md es ambiguo, se pregunta al humano; no se asume.
 

@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { getHoldings } from '@/lib/api';
 import { useCart } from '@/lib/cart';
@@ -20,11 +21,17 @@ import { Select } from '@/components/ui/Select';
 import { PortfolioTrendChart } from '@/components/domain/PortfolioTrendChart';
 import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
 import { SealedVaultPanel } from '@/components/domain/SealedVaultPanel';
+import { ClaimableOrdersNotice } from '@/components/domain/claimable/ClaimableOrdersNotice';
+import { WithdrawalsList } from './WithdrawalsList';
+import { VAULT_WITHDRAWALS_TAB, WITHDRAWAL_REQUESTED_KEY } from './vaultTabs';
 
 type SortKey = 'default' | 'set' | 'value_desc' | 'value_asc';
 // v1.20: "Mi bóveda" gana la vista master set (vista (iii) del contrato, scope user_vault).
 // v1.23-sealed-sales: pestaña «Sellado» — superficie dedicada del producto cerrado (§3 GET /vault/sealed).
-type VaultTab = 'pieces' | 'masterSet' | 'sealed';
+// §33.4 (Stream A): cuarta pestaña «Retiros» — un retiro es una acción sobre la bóveda. Es la única
+// direccionable por URL (`/vault?tab=retiros`): la enlazan el detalle del retiro y el flujo de solicitar.
+type VaultTab = 'pieces' | 'masterSet' | 'sealed' | 'withdrawals';
+const VAULT_TABS: VaultTab[] = ['pieces', 'masterSet', 'sealed', 'withdrawals'];
 
 /**
  * Ordena los holdings en cliente. `set` usa `card.setName` (localeCompare, desempate
@@ -67,8 +74,62 @@ export function VaultView() {
   const [sort, setSort] = useState<SortKey>('default');
   // Filtro por set (client-side). 'all' = todos los sets presentes en los holdings.
   const [setFilter, setSetFilter] = useState<string>('all');
-  // Pestañas: "Piezas" (renglones actuales) | "Master set" (binder v1.20, vista (iii)).
-  const [tab, setTab] = useState<VaultTab>('pieces');
+  // Pestañas: "Piezas" (renglones actuales) | "Master set" (binder v1.20, vista (iii)) |
+  // "Sellado" | "Retiros" (§33.4). Solo «Retiros» arranca desde la URL (`?tab=retiros`).
+  const searchParams = useSearchParams();
+  const startOnWithdrawals = searchParams.get('tab') === VAULT_WITHDRAWALS_TAB;
+  const [tab, setTab] = useState<VaultTab>(startOnWithdrawals ? 'withdrawals' : 'pieces');
+  const tabRefs = useRef<Record<VaultTab, HTMLButtonElement | null>>({
+    pieces: null,
+    masterSet: null,
+    sealed: null,
+    withdrawals: null,
+  });
+  // §33.4: al montar con `?tab=retiros` el foco va al `role="tab"` activo (el usuario llega desde
+  // un enlace y debe saber dónde aterrizó). Solo al montar: no se roba el foco al cambiar de pestaña.
+  useEffect(() => {
+    if (startOnWithdrawals) tabRefs.current.withdrawals?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // «Retiro solicitado. Aquí verás su avance.» — marca que deja `/shipments` al pagar; se consume
+  // UNA vez (sessionStorage, no URL: un marcador no repite un aviso).
+  const [withdrawalRequested, setWithdrawalRequested] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(WITHDRAWAL_REQUESTED_KEY) === '1') {
+        window.sessionStorage.removeItem(WITHDRAWAL_REQUESTED_KEY);
+        setWithdrawalRequested(true);
+      }
+    } catch {
+      /* sin sessionStorage: no hay aviso que consumir */
+    }
+  }, []);
+
+  // La pestaña «Retiros» se refleja en la URL (y se quita al salir de ella) sin recargar ni
+  // re-renderizar por router: `history.replaceState` es lo que Next 15 sincroniza con useSearchParams.
+  const selectTab = useCallback((next: VaultTab) => {
+    setTab(next);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (next === 'withdrawals') url.searchParams.set('tab', VAULT_WITHDRAWALS_TAB);
+    else url.searchParams.delete('tab');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }, []);
+
+  // Teclado del tablist (WAI-ARIA tabs, activación automática): ← → Home End con tabindex itinerante.
+  function onTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, current: VaultTab) {
+    const idx = VAULT_TABS.indexOf(current);
+    let nextIdx: number | null = null;
+    if (e.key === 'ArrowRight') nextIdx = (idx + 1) % VAULT_TABS.length;
+    else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + VAULT_TABS.length) % VAULT_TABS.length;
+    else if (e.key === 'Home') nextIdx = 0;
+    else if (e.key === 'End') nextIdx = VAULT_TABS.length - 1;
+    if (nextIdx === null) return;
+    e.preventDefault();
+    const next = VAULT_TABS[nextIdx];
+    selectTab(next);
+    tabRefs.current[next]?.focus();
+  }
   // Carrito de COMPRA del storefront: el CTA de una variante faltante `buyable` agrega la
   // pieza publicada (inventoryItemId) al MISMO carrito/checkout que usa el catálogo (§4).
   const cart = useCart();
@@ -123,20 +184,31 @@ export function VaultView() {
           href="/shipments"
           className="inline-flex min-h-[44px] items-center border border-text px-6 text-[11px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg"
         >
-          {t('withdraw')}
+          {t('requestWithdrawal')}
         </Link>
       </div>
 
-      {/* Pestañas: piezas (renglones) ⇆ master set (binder por variantes, v1.20). */}
-      <div className="gutter flex gap-5 border-b border-border" role="tablist" aria-label={t('title')}>
-        {(['pieces', 'masterSet', 'sealed'] as VaultTab[]).map((key) => (
+      {/* §33.9: aviso de pedidos de invitado reclamables, entre la cabecera y las pestañas. Sin
+          nada que ofrecer no hay nodo (regla 4); su copy dice que NO entran a la bóveda (regla 5). */}
+      <ClaimableOrdersNotice surface="vault" className="gutter pb-6" />
+
+      {/* Pestañas: piezas (renglones) ⇆ master set (binder por variantes, v1.20) ⇆ sellado ⇆ retiros. */}
+      <div className="gutter flex gap-5 overflow-x-auto border-b border-border" role="tablist" aria-label={t('title')}>
+        {VAULT_TABS.map((key) => (
           <button
             key={key}
+            id={`vault-tab-${key}`}
+            ref={(el) => {
+              tabRefs.current[key] = el;
+            }}
             type="button"
             role="tab"
             aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-1 pb-3 text-sm ${
+            aria-controls={`vault-panel-${key}`}
+            tabIndex={tab === key ? 0 : -1}
+            onClick={() => selectTab(key)}
+            onKeyDown={(e) => onTabKeyDown(e, key)}
+            className={`-mb-px min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-1 text-sm ${
               tab === key ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'
             }`}
           >
@@ -145,22 +217,36 @@ export function VaultView() {
         ))}
       </div>
 
+      {/* §33.4: «Retiros» — la lista extraída de /shipments (retiros + disputas) con el CTA
+          «Solicitar retiro». Al volver de pagar un retiro, el aviso de aterrizaje. */}
+      {tab === 'withdrawals' && (
+        <div id="vault-panel-withdrawals" role="tabpanel" aria-labelledby="vault-tab-withdrawals">
+          {withdrawalRequested && (
+            <p role="status" className="gutter rule-note mt-6 text-sm text-text">
+              {t('withdrawalRequested')}
+            </p>
+          )}
+          <WithdrawalsList />
+        </div>
+      )}
+
       {/* Vista (iii): mi colección por set — faltantes con imagen atenuada y CTA de compra
           cuando la variante trae `buyable`; sin acciones de venta (contrato §3 v1.20). */}
       {tab === 'masterSet' && (
-        <div className="gutter py-8">
+        <div id="vault-panel-masterSet" role="tabpanel" aria-labelledby="vault-tab-masterSet" className="gutter py-8">
           <MasterSetPanel mode="user_vault_self" onBuyMissing={cart.add} />
         </div>
       )}
 
       {/* Pestaña «Sellado» (§3 GET /vault/sealed): producto cerrado agrupado por producto+condición. */}
       {tab === 'sealed' && (
-        <div className="gutter py-8">
+        <div id="vault-panel-sealed" role="tabpanel" aria-labelledby="vault-tab-sealed" className="gutter py-8">
           <SealedVaultPanel mode="self" />
         </div>
       )}
 
       {tab === 'pieces' && (
+      <div id="vault-panel-pieces" role="tabpanel" aria-labelledby="vault-tab-pieces">
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -368,6 +454,7 @@ export function VaultView() {
             </>
           ))}
       </QueryState>
+      </div>
       )}
     </div>
   );

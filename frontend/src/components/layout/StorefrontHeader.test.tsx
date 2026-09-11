@@ -8,12 +8,12 @@ import type { UserDTO } from '@/types/contract';
 
 // El header usa next-intl navigation (usePathname/useRouter/Link), que requiere el
 // router de Next. Lo mockeamos para aislar la lógica de sesión del header.
-const push = vi.fn();
 // Mutable para poder simular la ruta activa (P-28: el carrito de compra se oculta en /buylist).
 let mockPathname = '/';
 vi.mock('@/i18n/navigation', () => ({
   usePathname: () => mockPathname,
-  useRouter: () => ({ push }),
+  // El header ya no navega (sin logout), pero `LocaleToggle` sí usa el router.
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
@@ -31,7 +31,6 @@ const user: UserDTO = {
 
 describe('StorefrontHeader — sesión', () => {
   beforeEach(() => {
-    push.mockClear();
     setToken(null);
     setStoredUser(null);
     window.localStorage.clear();
@@ -44,31 +43,63 @@ describe('StorefrontHeader — sesión', () => {
     expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();
   });
 
-  it('con sesión muestra el perfil (nombre) y "Cerrar sesión" en vez de "Mi cuenta"', async () => {
+  /**
+   * v1.67 — DESIGN_SYSTEM §33.1 (candado CA-1 de §33.16 R10): con sesión el header pinta
+   * EXACTAMENTE cinco entradas y NINGUNA es el nombre; «Cerrar sesión» sale del header (vive en
+   * «Mi cuenta», regla 8) y «Mi cuenta» ocupa el mismo hueco con el mismo rótulo (→ /account).
+   */
+  it('CA-1: con sesión el nav tiene exactamente cinco entradas, sin nombre ni «Cerrar sesión»', async () => {
     setStoredUser(user);
     renderWithIntl(<StorefrontHeader />, 'es');
 
-    await waitFor(() => expect(screen.getByText('Ash Ketchum')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /Cerrar sesión/ })).toBeInTheDocument();
-    expect(screen.queryByText('Mi cuenta')).not.toBeInTheDocument();
+    const account = await screen.findByRole('link', { name: 'Mi cuenta' });
+    expect(account).toHaveAttribute('href', '/account');
+    const nav = account.closest('nav') as HTMLElement;
+    const labels = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent?.trim());
+    expect(labels).toEqual(['Comprar', 'Vender', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
+    expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Cerrar sesión/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();
   });
 
-  it('cae al email cuando el usuario no tiene nombre', async () => {
+  it('nunca pinta el nombre ni el correo del usuario (regla 2: el nombre no es rótulo)', async () => {
     setStoredUser({ ...user, name: '' });
     renderWithIntl(<StorefrontHeader />, 'es');
-    await waitFor(() => expect(screen.getByText('ash@example.com')).toBeInTheDocument());
+    await screen.findByRole('link', { name: 'Mi cuenta' });
+    expect(screen.queryByText('ash@example.com')).not.toBeInTheDocument();
   });
 
-  it('al cerrar sesión limpia el estado y vuelve a "Mi cuenta" (reactivo, sin recargar)', async () => {
+  it('«Envíos» sale del menú y «Compras y ventas» apunta a /orders', async () => {
     setStoredUser(user);
     renderWithIntl(<StorefrontHeader />, 'es');
+    expect(await screen.findByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('href', '/orders');
+    expect(screen.queryByRole('link', { name: 'Mis retiros' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Mis órdenes' })).not.toBeInTheDocument();
+  });
 
-    const logoutBtn = await screen.findByRole('button', { name: /Cerrar sesión/ });
-    fireEvent.click(logoutBtn);
+  it('«Mi bóveda» se activa también en /shipments (§33.1: el retiro es una acción sobre la bóveda)', async () => {
+    mockPathname = '/shipments';
+    setStoredUser(user);
+    renderWithIntl(<StorefrontHeader />, 'es');
+    expect(await screen.findByRole('link', { name: 'Mi bóveda' })).toHaveAttribute('aria-current', 'page');
+  });
 
-    await waitFor(() => expect(screen.getAllByText('Mi cuenta').length).toBeGreaterThan(0));
+  it('en /buylist/requests/:id se activa «Compras y ventas», no «Vender»', async () => {
+    mockPathname = '/buylist/requests/sr-1';
+    setStoredUser(user);
+    renderWithIntl(<StorefrontHeader />, 'es');
+    expect(await screen.findByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Vender' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('el drawer móvil lleva las mismas cinco entradas y ningún «Cerrar sesión»', async () => {
+    setStoredUser(user);
+    renderWithIntl(<StorefrontHeader />, 'es');
+    await screen.findByRole('link', { name: 'Mi cuenta' });
+    fireEvent.click(screen.getByRole('button', { name: 'Menú' }));
+    expect(screen.getAllByRole('link', { name: 'Mi cuenta' })).toHaveLength(2);
+    expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();
     expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
-    expect(push).toHaveBeenCalledWith('/');
   });
 
   it('en inglés el nav de venta se etiqueta "Sell" (ruta interna /buylist)', () => {
@@ -94,12 +125,12 @@ describe('StorefrontHeader — sesión', () => {
     expect(screen.queryByRole('link', { name: 'Mis órdenes' })).not.toBeInTheDocument();
   });
 
-  it('con sesión el nav agrega "Mi bóveda" (/vault) y "Mis órdenes" (/orders)', async () => {
+  it('con sesión el nav agrega "Mi bóveda" (/vault) y "Compras y ventas" (/orders)', async () => {
     setStoredUser(user);
     renderWithIntl(<StorefrontHeader />, 'es');
     const vault = await screen.findByRole('link', { name: 'Mi bóveda' });
     expect(vault).toHaveAttribute('href', '/vault');
-    expect(screen.getByRole('link', { name: 'Mis órdenes' })).toHaveAttribute('href', '/orders');
+    expect(screen.getByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('href', '/orders');
   });
 
   it('P-28: fuera del flujo de venta muestra el carrito de compra en el header', () => {

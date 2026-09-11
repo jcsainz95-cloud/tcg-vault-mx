@@ -30,14 +30,16 @@ export function SellRequirementsPanel({ req }: { req: SellRequirements }) {
       <Banner variant="warning" role="status" title={t('loginToSellTitle')}>
         {t('loginToSellBody')}
         <span className="mt-3 flex flex-wrap gap-6">
+          {/* §33.11 / ARCHITECTURE §4.47.6: `next=/buylist` para volver al cotizador con el carrito
+              de venta ya rehidratado (antes aterrizaba en `/` y el árbol se desmontaba). */}
           <Link
-            href="/login"
+            href={{ pathname: '/login', query: { next: '/buylist' } }}
             className="border-b border-accent pb-1 text-xs font-medium text-accent hover:border-text hover:text-text"
           >
             {t('loginCta')}
           </Link>
           <Link
-            href="/register"
+            href={{ pathname: '/register', query: { next: '/buylist' } }}
             className="border-b border-accent pb-1 text-xs font-medium text-accent hover:border-text hover:text-text"
           >
             {t('registerCta')}

@@ -1,15 +1,67 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
+// Directorio de build parametrizable. Lo usa el `webServer` de Playwright para hornear su
+// bundle de MOCKS (`NEXT_PUBLIC_USE_MOCKS=true`) en `.next-e2e-mock[-<agente>]` en vez de pisar el
+// `.next` del stack que devops pueda tener corriendo: dos artefactos con banderas distintas
+// no pueden compartir carpeta sin convertir un `next start` ajeno en modo fixtures.
+const distDir = process.env.NEXT_DIST_DIR || '.next';
+
+/**
+ * Hallazgo #1 de QA (2026-09-11) — **`next build` con un `distDir` distinto de `.next` reescribía
+ * `tsconfig.json`**: `verifyTypeScriptSetup` (`next/dist/lib/typescript/writeConfigurationDefaults.js`)
+ * exige que el `include` del tsconfig que usa el build contenga `${distDir}/types/…` (la entrada de tipos generados del build), y si no
+ * está lo AÑADE y re-serializa el fichero entero (reformateo + una entrada por cada `.next-e2e-mock-*`
+ * que haya horneado cada agente). El `include` commiteado arrastraba `.next-e2e-mock/types` desde
+ * `46d76cc` por eso mismo.
+ *
+ * Remedio: el build de un `distDir` alternativo usa SU PROPIO tsconfig (`typescript.tsconfigPath`),
+ * generado aquí en cada arranque y que **ya trae** lo que Next querría añadir — `extends` del principal
+ * (compilerOptions + plugin `next` resueltos por herencia, así `hasNextPlugin` es true), el `include` del
+ * principal con `.next/types` sustituido por `${distDir}/types`, y `exclude`. Con todo presente,
+ * `writeConfigurationDefaults` no tiene ninguna «suggestedAction» y **no escribe nada**; y aunque
+ * escribiera, escribiría en el generado, que está en `.gitignore` (`/tsconfig.next-*.json`), nunca en el
+ * commiteado. El `tsconfig.json` del repo queda con `.next/types` y nada más.
+ *
+ * No aplica al build normal (`distDir === '.next'`): ahí Next usa `tsconfig.json`, cuyo `include` ya
+ * contiene `.next/types/…` (la entrada de tipos generados), y tampoco escribe. Candado: `next.config.tsconfig-path.test.ts`.
+ */
+export function tsconfigPathForDistDir(dir, { baseDir = dirname(fileURLToPath(import.meta.url)) } = {}) {
+  if (!dir || dir === '.next') return 'tsconfig.json';
+  const base = JSON.parse(readFileSync(join(baseDir, 'tsconfig.json'), 'utf8'));
+  const baseInclude = Array.isArray(base.include) ? base.include : [];
+  const distTypes = `${dir}/types/**/*.ts`;
+  const include = baseInclude
+    .filter((entry) => entry !== '.next/types/**/*.ts' && entry !== distTypes)
+    .concat(distTypes);
+  const generated = {
+    // Generado por next.config.mjs para NEXT_DIST_DIR=<dir>. No se edita ni se commitea.
+    extends: './tsconfig.json',
+    include,
+    exclude: Array.isArray(base.exclude) ? base.exclude : ['node_modules'],
+  };
+  const name = `tsconfig.${dir.replace(/^\.+/, '')}.json`;
+  const target = join(baseDir, name);
+  const content = JSON.stringify(generated, null, 2) + '\n';
+  let current = null;
+  try {
+    current = readFileSync(target, 'utf8');
+  } catch {
+    current = null;
+  }
+  if (current !== content) writeFileSync(target, content);
+  return name;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  // Directorio de build parametrizable. Lo usa el `webServer` de Playwright para hornear su
-  // bundle de MOCKS (`NEXT_PUBLIC_USE_MOCKS=true`) en `.next-e2e-mock` en vez de pisar el
-  // `.next` del stack que devops pueda tener corriendo: dos artefactos con banderas distintas
-  // no pueden compartir carpeta sin convertir un `next start` ajeno en modo fixtures.
-  distDir: process.env.NEXT_DIST_DIR || '.next',
+  distDir,
+  typescript: { tsconfigPath: tsconfigPathForDistDir(distDir) },
   reactStrictMode: true,
   images: {
     // D-IMG-5 (ARCHITECTURE §5.3.4) — CERRADO. Aquí vivía `{ protocol: 'https', hostname: '**' }`,

@@ -238,8 +238,10 @@ azar_b64_32() {  # base64 de EXACTAMENTE 32 bytes (AES-256; PiiCryptoService cra
 generar() {
   nombre="$1"
   case "$nombre" in
-    # Clave de cifrado PII: base64 de 32 bytes exactos.
-    *ENCRYPTION_KEY|*ENCRYPTION_KEYS) azar_b64_32 ;;
+    # Clave de cifrado PII: base64 de 32 bytes exactos. La del HMAC del índice
+    # ciego (PII_HMAC_KEY) igual: PiiCryptoService acepta base64 o texto (>=32
+    # bytes) y recomienda base64 (`openssl rand -base64 32`).
+    *ENCRYPTION_KEY|*ENCRYPTION_KEYS|*HMAC_KEY) azar_b64_32 ;;
     # Contraseñas de usuarios sembrados: tienen que pasar la política de la app
     # (mayúscula, minúscula, dígito y símbolo). Prefijo y sufijo fijos + azar.
     *PASSWORD) printf 'Ef%s!aA9' "$(azar_hex 16)" ;;

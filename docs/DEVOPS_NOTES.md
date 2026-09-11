@@ -6732,8 +6732,8 @@ Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es jus
 | **SAST en cada PR** | `security-sast.yml` (semgrep · gitleaks · npm-audit · trivy-fs · trivy-image → `sast-ok`) | ✅ **Cableado y corriendo** en `push` y `pull_request`. |
 | **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales, **deploy-blocking**) + `frontend-e2e` (mock, **informativo** por decisión §24) | ✅ **Cableado.** El mock es soft-gate **a propósito**; el gate real de UI es `e2e-real.yml`. |
 | **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
-| **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-staging` (ZAP baseline) con `promote-production-*` condicionado a `dast-staging.outputs.critical == 'false'` | ⚠️ **Cableado y correctamente condicionado… en un camino que no se usa.** `deploy.yml` es **`workflow_dispatch` only**; los deploys reales van por push-to-deploy de Vercel/Railway, que **no pasan por este DAST**. Es el hueco estructural de §32.11, ahora con nombre. |
-| **DAST programado semanal** | `security-dast.yml` (lunes 06:00 UTC) | ✅ **CORREGIDO en P-77 (§44).** Antes: no-op silencioso en `security-scheduled.yml` — el preflight comprobaba `STAGING_BASE_URL`, faltaba, emitía un `::notice::` y se saltaba todo **saliendo en verde**; el DAST no se ejecutó nunca. Ahora levanta su propio stack efímero y **bloquea**, con autoprueba del candado. |
+| **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-release` (llama a `security-dast.yml`, stack efímero, `ref: github.sha`) con `promote-production-*` condicionado a `dast-release.outputs.blocking != 'true'` | ⚠️ **Actualizado 2026-09-11 (§56):** `dast-staging` (que apuntaba a `STAGING_BASE_URL`, secret inexistente, y nunca corrió) se retiró. Ahora `deploy.yml` dispara también en **push a `production`** y corre `dast-release` sobre el SHA publicado — en modo **`report_only`** (C2) hasta que seguridad lo suba a bloqueante. El deploy sigue siendo push-to-deploy nativo; el DAST corre **después**, sobre el mismo commit, no se interpone (decisión del dueño pendiente). |
+| **DAST programado semanal** | `security-dast.yml` (lunes 06:00 UTC) | ⚠️ **CORREGIDO en el FICHERO (P-77, §44) — NO en el calendario** (corrección in situ 2026-09-11, §55.3/§56): antes era un no-op silencioso en `security-scheduled.yml` (comprobaba `STAGING_BASE_URL`, faltaba, `::notice::` y verde). El workflow nuevo levanta su propio stack efímero y **bloquea**, con autoprueba del candado, **pero hasta el 2026-09-11 el cron semanal no había corrido nunca**: los 6 runs históricos fueron todos por push a `devops/dast-p77`. Desde §56 corre además en cada push a `production` (`deploy.yml` → `dast-release`, `report_only`). |
 | **Que los gates sean `required checks`** | Protección de rama en GitHub | ❓ **No verificable desde aquí** (no hay `gh` en este entorno). `ci-ok`, `sast-ok` y `e2e-ok` están **diseñados** como required checks, pero si nadie los marcó como tales en *Settings → Branches*, **no bloquean nada**. Comprobación del humano: `gh api repos/<org>/<repo>/branches/main/protection`. |
 
 **Resumen honesto del tamaño:** no falta *construir* casi nada — **falta encender**. Dos secretos
@@ -9937,7 +9937,7 @@ un **major** y es decisión suya (ficha hasta **2026-10-10**).
 | `COPY` del preflight entra al contexto de build | devops | ⏳ **NO MEDIDO aquí** (sin demonio Docker); lo mide `trivy-image` en la primera corrida de CI |
 | **`NODE_ENV` real del deploy de Railway** (Root Directory, builder, Variables) | **humano (dueño)** | ⏳ **ABIERTO** — §49.1. No cambia el arreglo; decide si la tienda estuvo expuesta |
 | `P-DEP-1`: `js-yaml` (lockfile) y `vitest` 2→5 (major) | **frontend** | ⏳ fichado hasta 2026-09-24 / 2026-10-10; el trinquete se pone rojo solo al vencer |
-| Los tres flujos de dinero a través de Stripe, medidos | **humano (dueño)** | ⏳ sigue abierto (quinto pase; `money-gap-nag.yml` hace ruido semanal) |
+| Los tres flujos de dinero a través de Stripe, medidos | **humano (dueño)** | ✅ **CERRADO — esta fila era FALSA** (corrección in situ 2026-09-11, §51/§55.3/§56): las claves de prueba estaban en los secrets desde 2026-09-07 y el nocturno `34477885121` corrió los tres flujos en real (`MONEY_SKIPPED` vacío). Y `money-gap-nag.yml` **nunca hizo ruido**: no corrió ni una vez (retirado en §56). |
 
 ---
 
@@ -10649,3 +10649,315 @@ CI» lo frenó; (2) Settings → Deploy: **¿está activado «Wait for CI»?**
 
 Nuevos ficheros de este cierre, todos verificados en local y **ninguno invocado por CI todavía**:
 `scripts/run-workflow-step.sh`, los cuatro canarios de (5).
+
+---
+
+## 56. Andamiaje de CI (2026-09-11): que un rojo signifique algo y un verde también
+
+Encargo del orquestador sobre `claude/tcg-hunt-orchestration-2` (base `17ce9a9` = `origin/main`;
+`origin/production` = `c13f417`). Todo lo de abajo está **medido en este entorno** salvo lo marcado
+**NO MEDIDO AQUÍ** (lo mide CI al empujar). Herramientas del scratchpad: gitleaks v8.30.1 (`go install`
+del módulo `zricethezav/gitleaks/v8`), actionlint 1.7.12, shellcheck 0.11.0, semgrep de pip, Node
+v22.22.2 (`/opt/node22`) y v24.21.0 (tarball de nodejs.org). **No hay demonio de Docker** en este
+entorno (`docker ps` → «cannot connect to the docker API»): nada que necesite construir una imagen se
+midió aquí.
+
+### 56.1 · Prioridad 1 — Node 20 fuera de los runners el 2026-09-16
+
+**Qué se cambió (commit `e7de08d`):** `node-version: 20` → **`24`** en los 8 sitios que había entonces
+(`ci.yml` ×3, `e2e.yml` ×2, `e2e-real.yml`, `security-sast.yml`, `security-scheduled.yml`); hoy son
+**9 líneas** porque #5 (`9db7b64`) añadió un `setup-node` en `format-mix-base` para el canario
+(`grep -c node-version .github/workflows/*.yml` = 9, re-medido 2026-09-11; corrige QA). Y —esto es lo que de
+verdad rompe el 16— las **acciones cuyo runtime es node20** (leído del `action.yml` de cada tag en
+raw.githubusercontent.com): `actions/checkout` v4→**v5** (×33), `actions/setup-node` v4→**v5** (×8),
+`actions/upload-artifact` v4→**v6** (×7; v5 sigue en node20), `actions/download-artifact` v4→**v7**
+(v5 y v6 siguen en node20), `github/codeql-action/upload-sarif` v3→**v4**, `aquasecurity/trivy-action`
+v0.33.1→**v0.36.0** (composite; su `actions/cache` interno pasa de v4.2.4/node20 a v5.0.5/node24 y
+**sí corre**: `cache` es `true` por defecto), `zaproxy/action-baseline` v0.12.0→v0.15.0 (luego retirado
+con `dast-staging`), `gitleaks/gitleaks-action` v2→**v3** (commit `bff043c`, ver 56.3).
+
+**Por qué 24 y no 22:** las dos se midieron sobre COPIA del árbol (`scratchpad/devops-ci/n22`, `n24`):
+backend `npm ci` + `npx prisma generate` + `lint` + `typecheck` + `build` → **rc=0 (5/5)** y frontend
+`npm ci` + `lint` + `typecheck` + `build` → **rc=0 (4/4)**, con **ambas** versiones. Ni backend ni
+frontend declaran `engines` (0 coincidencias en los dos `package.json`); lockfiles v3. Se eligió la LTS
+**activa** (24); 22 es mantenimiento hasta 2027-04 y habría obligado a repetir esto en meses.
+
+**Dockerfiles (commit `ca094f2`):** `node:20-alpine` → `node:24-alpine` en `Dockerfile.backend:22` y
+`Dockerfile.frontend:22` (el tag existe: HTTP 200 en Docker Hub). **NO MEDIDO AQUÍ:** la construcción
+de las dos imágenes (sin demonio). La mide `trivy-image` en la primera corrida (construye ambas con
+`--target runtime`; el guard de `rm -rf …/npm` usa las mismas rutas en node:24-alpine).
+
+**Validación:** `actionlint -no-color` sobre los 8 workflows → 0 avisos; `yaml.safe_load` OK ×8.
+**NO MEDIDO AQUÍ:** el comportamiento real de cada acción nueva en el runner (setup-node v5 activa caché
+automática solo si hay `packageManager` en package.json — no lo hay; checkout v5 «solo cambia el
+runtime» según su README).
+
+### 56.2 · Prioridad 2 — `check-candidate-checks.sh` mentía (C5)
+
+**Reproducido (antes):** `./scripts/check-candidate-checks.sh 17ce9a9` → `node: Argument list too
+long` (respuesta de 206 KB por `argv`) → rc=2 → «el commit no tiene NINGÚN check-run». Por API:
+**49 check-runs, 49 success, 0 sin terminar** (había 47 cuando lo midió el orquestador).
+
+**Arreglo (commit `3503008`):** la respuesta va a fichero temporal por página (`curl -o`) y `node` la
+lee de disco; pagina por `total_count` (hasta 10×100); tres ramas de fallo con rc=2 y mensaje propio
+(«NO parseable», «respuesta inesperada», «no pude ejecutar el parser»); la rama «NINGÚN check-run»
+**solo** con `total_count=0`. **Después:** mismo comando → «Los 49 check-runs de 17ce9a9 están en
+verde», rc=0.
+
+**Canario nuevo** `scripts/check-candidate-checks-canary.sh` (sin red: `curl` y `node` de mentira en
+PATH, script real copiado a un repo git temporal), 9 casos: verde con 49, con **328 KB** (la respuesta
+que rompía `execve`) y con 150 en dos páginas; rc=2+«NINGÚN» solo con `total_count=0`; rc=2+parseo
+con HTML, con JSON sin `check_runs` y con un `node` que revienta (la mutación literal del fallo); rc=1
+con failure; rc=2 con in_progress. **Medido: 9/9 en 3/3 tiradas** con el script nuevo; **5/9 (rojo)**
+contra el script viejo (copia en `scratchpad/devops-ci/mut-c5-old`). No cableado en CI (necesita token
+con lectura y no gatea nada: es un instrumento del orquestador; ver 56.7).
+
+### 56.3 · Prioridad 3 — gitleaks: P-GL-FP y C4/S-GL-1 juntos (commit `bff043c`)
+
+**Antes (medido con gitleaks v8.30.1 sobre un clon en el scratchpad, `security/gitleaks.toml` de
+`17ce9a9`):**
+- rango del run rojo `34554095125` (`git . --log-opts="--no-merges --first-parent 88c48c7^..c9ba265"`,
+  20 commits): **9 hallazgos**, todos en `scripts/check-secret-defaults-canary.sh` (:168,:173,:205,:351,
+  :360,:370,:371,:505) y `scripts/check-stripe-webhook-failclosed-canary.sh` (:290);
+- `git .` historial completo: **12**; `dir .` árbol: **12** (los 9 + 3 de `backend/`, ver abajo);
+- y **`sk_test_51QrEaL…` de la línea 498 del canario NO aparecía**: la allowlist `sk_test_[0-9a-zA-Z_]*`
+  (sin anclas, con `*`) casaba cualquier `sk_test_` — S-GL-1 literal.
+
+**Cambio en `security/gitleaks.toml`:** (a) `[allowlist] paths` + `^scripts/check-secret-defaults-canary\.sh$`
+y `^scripts/check-stripe-webhook-failclosed-canary\.sh$` (por RUTA; ninguna regex se ensancha);
+(b) regex `^(sk|pk|rk)_test_(?:[A-Za-z_]+|[A-Za-z0-9_]*(?:dummy|DUMMY|CHANGE_ME|change_me|placeholder|PLACEHOLDER)[A-Za-z0-9_]*)$`
+en lugar de `sk_test_…*`/`pk_test_…*`: pasa un placeholder **sin dígitos** o **con palabra
+auto-delatora**; una clave real (`sk_test_51`+alfanumérico) no pasa. Placeholders del árbol
+comprobados: `sk_test_dummy`, `sk_test_e2e_dummy`, `sk_test_CHANGE_ME`, `sk_test_xxx…`,
+`sk_test_dummydummy…`, `sk_test_algo`, `pk_test_ci_dummy`, `pk_test_scan`.
+
+**Después (mismo binario, misma config nueva):** rango `88c48c7^..c9ba265` → **0** (rc=0); rango de la
+rama `c13f417..17ce9a9` → **0**; `git .` completo → **3**; `dir .` → **3**. Los 3 que quedan son de
+**backend/** y no están en el rango de ningún push reciente (por eso CI estaba verde): `generic-api-key`
+en `backend/src/common/crypto/pii-crypto.service.ts:152` (`asB64.length…`, falso positivo) y en
+`backend/test/seed.password.spec.ts:27` (contraseña de test), y `generic-api-key-assignment` (regla
+propia) en `backend/test/graded-estimate.ingest.spec.ts:504`. **Dueño: backend** (o seguridad decide
+allowlist por ruta de `backend/test/`); devops no toca esas rutas.
+
+**Canario nuevo** `security/scripts/sast-gitleaks-canary.sh` (11 casos, modo `dir` y modo `git` —el de
+CI—): rojo con `sk_test_51`+32 mixtos en `backend/src` y como `STRIPE_SECRET_KEY=…` en `scripts/`,
+con `sk_live_`, con `whsec_`, con el contenido de un canario en OTRA ruta y bajo `tools/scripts/`;
+verde con árbol limpio, con los placeholders del repo y con los dos canarios en su ruta exacta.
+**Medido: 11/11 en 3/3 tiradas** con la config nueva; **6/11 (rojo)** con la config vieja (mutación
+sobre copia: la clave real pasaba y los canarios salían rojos). Cableado en `security-sast.yml` tras
+la acción (`!cancelled()`; la acción deja el binario en PATH vía `core.addPath`).
+
+**gitleaks-action v2→v3:** README v3: «no changes to inputs, outputs, or behavior», runtime node24;
+`src/gitleaks.js` de v3 sigue escaneando `--log-opts=--no-merges --first-parent base^..head` y dejando
+`results.sarif` como artifact ⇒ es la opción que mantiene el comportamiento medido (sustituirlo por
+`sast-gitleaks.sh` en modo `git` habría escaneado el historial completo y sacado los 3 de backend).
+`GITLEAKS_VERSION: "8.30.1"` fijado. **NO MEDIDO AQUÍ:** la corrida de la acción v3 en el runner.
+
+### 56.4 · Prioridad 4 — el DAST corre sobre lo publicado (P-77 / C2, commit `8267194`)
+
+**Antes:** `security-dast.yml` con `schedule` + `workflow_dispatch` + `workflow_call` + push a
+`devops/dast-**`; **nadie** lo invocaba con `uses:`; `checkout` sin `ref:`; 6 runs históricos, todos
+por push a `devops/dast-p77`. `deploy.yml` con `dast-staging` (INERTE, `STAGING_BASE_URL` nunca
+existió; HECHOS.md: no hay staging).
+
+**Cambio:** `security-dast.yml` gana `inputs.ref` (dispatch y call) e `inputs.report_only` (call);
+`SCAN_REF = inputs.ref || github.sha` en env; los tres `checkout` llevan `ref: SCAN_REF`; paso nuevo que
+imprime en log y en resumen **qué commit se escanea** (`git rev-parse HEAD`, SCAN_REF, evento,
+report_only); el issue cita SCAN_REF. `deploy.yml` gana `on.push.branches: [production]` y el job
+**`dast-release`** (`uses: ./.github/workflows/security-dast.yml`, `ref: ${{ github.sha }}`,
+`scan_profile: full`, **`report_only: true`**, `secrets: inherit`, `permissions: issues: write`), que
+**no depende de `secrets-gate`**: en un push a `production` es lo único que corre (el CD sigue
+saltado). `dast-staging` retirado; `promote-production-*` pasan a `needs: [dast-release, e2e-real]` con
+`needs.dast-release.outputs.blocking != 'true'`; `STAGING_BASE_URL` fuera de `secrets-gate`/`preflight`.
+`scripts/check-provenance-gate.sh` (#5) ahora exige que el bloque `dast-release` llame al DAST con
+`ref: github.sha` y que `security-dast.yml` levante con `dast-ephemeral.sh up` (que invoca
+`assert-serving-head.sh`); su canario pasa de 6/6 a **9/9 (3/3 tiradas)**.
+
+**Medido:** actionlint 0 avisos; yaml OK; los 6 gates estáticos de `ci.yml` que leen estos ficheros
+(`check-dast-gate-live`, `check-workflow-cwd`, `check-secret-defaults`, `check-provenance-gate`,
+`check-e2e-harness-gaps`, `check-e2e-provider-incapacitation`) → rc=0 (6/6) sobre el árbol.
+**NO MEDIDO AQUÍ:** el run real de `dast-release`. Lo mide el primer push a `production` con esta
+`deploy.yml`.
+
+**Dispatch sobre el SHA publicado (lo lanza el orquestador, no devops):**
+```
+gh workflow run security-dast.yml --ref claude/tcg-hunt-orchestration-2 \
+  -f ref=c13f4179be5ea073b91819ce38ee5e87d44ad06f -f scan_profile=full -f report_only=false -f active_max_mins=10
+```
+(`--ref` = rama con esta versión del workflow; `-f ref` = commit que se escanea = lo publicado.
+Con `report_only=false` el candado SÍ bloquea el run: es el primer barrido `full` citable.)
+
+**Corrección tras el run 34560602347 (dispatch con `ref=c13f417`, `failure`):** `actions/checkout`
+no acepta un SHA abreviado como `ref` (hace `git fetch … +refs/heads/c13f417*` y falla 3/3). Ahora el
+workflow tiene un job previo **`resolver-ref`** que resuelve `inputs.ref || github.sha` a SHA completo
+con `GET /repos/{repo}/commits/{ref}` (medido contra la API real: `c13f417` → `c13f4179…`, `production`
+→ `c13f4179…`, `no-existe-zzz` → «No commit found», que el job convierte en `::error` y rc=1) y lo
+propaga `resolver-ref → selftest.outputs.sha → dast.outputs.sha → abrir-issue` (para que `dast` siga
+siendo exactamente `needs: [selftest]`, como exige `check-dast-gate-live.sh`). Los tres checkouts usan
+ese sha; el paso «Qué commit se escanea» además comprueba `git rev-parse HEAD == sha`. Desde entonces
+el dispatch acepta rama, tag o SHA corto/largo.
+
+### 56.5 · Prioridad 5 — resto del lote §55.5
+
+| # | punto | estado | commit | medición |
+|---|---|---|---|---|
+| 4 | `format-mix` verde sin base / `exit 0` en rc=2 | **hecho** | `ad00589` | job partido en `format-mix-base` (resuelve base; sin base → `::warning` + resumen «no medido») y `format-mix` (`if: outputs.ref != ''` ⇒ **SKIPPED** explícito; rc=2 ⇒ `::error` + `exit 1`). `ci-ok` imprime ambos y falla si cualquiera es `failure`. actionlint 0; yaml OK (15 jobs). **NO MEDIDO AQUÍ:** el skipped/rojo en el runner. |
+| 5 | 4 canarios sueltos | **hecho** | `9db7b64` | `check-format-mix-canary.sh` en `format-mix-base` (corre SIEMPRE, con setup-node para el `npx prettier@3.9.6`); `check-e2e-provider-incapacitation-canary.sh` en `e2e-provider-guard`; `check-provenance-gate-canary.sh` en `provenance-gate`; `sh sast-semgrep-canary.sh` en el job `semgrep` (contenedor). Local: 4/4, 5/5, 9/9 (3/3), semgrep **4/4 con la config local**. **NO MEDIDO AQUÍ:** semgrep con `p/default…` (semgrep.dev → 403 por el proxy). `grep -rl` en workflows: 0 → 2 ficheros. `check-workflow-cwd`: 57/57. **Rojo en CI y arreglo (runs 34559904088 y 34560593892, job `semgrep`):** el gate principal verde (83 reglas, 0 hallazgos) pero el canario 4/4 rojo con «path `security/semgrep.yml` does not exist» (rc=7): `SG_CONFIGS` trae la config **relativa** a la raíz y el canario hace `cd` al árbol temporal. Reproducido en local con la misma invocación (`sh`, cwd raíz, `SG_CONFIGS="--config=security/semgrep.yml"`): rc=1, mismo mensaje, 4/4. Arreglo: el canario sustituye cualquier `--config=…semgrep.yml` de la lista por la ruta **absoluta** `$SEC_DIR/semgrep.yml` (bajo el workspace, que el contenedor tiene montado) y aborta si no existe. Después, misma invocación: **4/4 en 3/3 tiradas**; también 4/4 sin `SG_CONFIGS`. |
+| 7 | `money-gap-nag.yml` | **retirado** | `db8f581` | `git rm`; única referencia restante: comentario histórico en `check-stripe-webhook-failclosed.sh:238`. |
+| 8 | notas `:6736` y `:9940` | **corregidas in situ** | (este commit) | fila «DAST programado semanal» → «corregido en el fichero, no en el calendario»; fila «tres flujos de dinero» → CERRADO, era falsa, y `money-gap-nag` nunca hizo ruido; fila «DAST contra staging» → describe `dast-release`. |
+| 9 | `ci-ok` duplicado en `deploy.yml` | **hecho** | `b0cafe6` | `deploy.yml` job `ci-ok` → `deploy-ci-gate` (`needs` actualizado). Nombres únicos: `ci-ok` solo en `ci.yml`. |
+| 10 | scripts sin workflow | **clasificados** (abajo) | — | `grep -rl <nombre> .github/workflows/` = 0 para 24 scripts (los 4 canarios ya no cuentan). |
+| H1 | protección de ramas | **propuesta, no activada** (decisión del dueño) | — | re-medido hoy: `main` y `production` `protected: false`; `/rulesets` = `[]`. Ver 56.8. |
+| C1 | `check-secret-defaults.sh` cubre una subclase | **hecho** | (este commit) | ver 56.6. |
+
+**#10 · Clasificación de los 24 scripts sin invocación desde un workflow** (medido con `grep -rl` en
+workflows y en scripts/Dockerfiles/compose):
+
+*Manual por diseño (no se cablean):* `check-candidate-checks.sh` + su canario (instrumento del
+orquestador con token; no gatea), `check-graded-estimate-dials.sh` (lo corre `post-deploy.sh` a mano
+en Railway, §32.11), `db-migrate.sh`/`dev-down.sh`/`dev-up.sh`/`seed.sh` (entorno local; los usa
+`docker-compose.yml`), `seed-synthetic.sh` (lo invoca `docker-compose.staging.yml` y `price-provider-parity.sh`),
+`purge-synthetic-poc-data.sh` (lo invoca `stack-native.sh`), `m50-rollback-gate.sh` +
+`rollback-safety-probe.sh` (runbook de rollback, §46.3: se corren a mano ANTES de revertir),
+`new-project.sh` (plantilla), `vercel-ignore-build.sh` (Ignored Build Step de Vercel: se configura en el
+panel de Vercel, no en Actions — **NO MEDIDO** que el panel lo tenga puesto), `security/scripts/_guard.sh`
+(librería de los dast-*), `security/scripts/{dast-extra,dast-nuclei,dast-zap-baseline,dast-zap-full}.sh`
+(el pentester/seguridad contra local; la ruta de CI es `dast-ephemeral.sh`), `sast-gitleaks.sh`,
+`sast-semgrep.sh`, `trivy-image.sh` (equivalentes locales de los jobs; CI usa la acción/comando directo).
+
+*Invocados por otros scripts que SÍ corren en CI (cableados de forma indirecta):* `e2e-capability-gate.sh`
+(`stack-native.sh`, `check-e2e-harness-gaps.sh`), `gen-published-secrets-manifest.sh`
+(`check-secret-defaults.sh`, preflights).
+
+*Debería estar cableado:* **ninguno** con coste bajo y valor claro más allá de los 4 canarios de #5.
+*Muerto:* ninguno (todos tienen invocador o runbook).
+
+### 56.6 · C1 — el candado de clase cubre la clase (S-CLASE-1)
+
+**Qué se cambió:** `scripts/gen-published-secrets-manifest.sh:90` `FORMA_SECRETO` + `PEPPER|CIPHER|_PASS$|_PIN$|_SEED$|_CODE$`;
+`NO_SECRETO` + las familias que esos sufijos arrastran y no son secretos (`HTTP_CODE`, `EXIT_CODE`,
+`COUNTRY_CODE`…, `DO_SEED`, `RANDOM_SEED`…, `…_PASS` de render). `scripts/check-secret-defaults.sh`:
+(A.1/C) un solo helper `defaults_con_literal` que entiende `${VAR:-lit}`, `${VAR-lit}`, `${VAR:=lit}` y
+`${VAR=lit}` (cubre `: "${VAR:=lit}"`); (A.3) `environment:` en forma de **lista** (`- VAR=lit`);
+(C) `asignaciones_peladas`: `VAR=lit` **sin `export`**, tras `declare -x`/`readonly`/`local` y dentro
+de `echo "VAR=lit" >> /app/.env` (descarta referencias, `%s`, huecos, placeholders, `0/1`, arrays `(`);
+(D.2) cualquier `.env*` **versionado** distinto de `.env.example` con un secreto usable ⇒ rojo.
+`security/scripts/sast-gitleaks-canary.sh` pasa a autoreferente (planta claves de ficción).
+
+**Medido sobre el árbol (clon limpio de `cb904d4` + estos scripts):** primer pase → 1 falso positivo
+(`check-graded-estimate-dials.sh:271` `PENDING_KEYS=(` — array) → corregido; luego «manifiesto
+DESFASADO» porque la forma nueva inventaría **1** valor más (`FIXTURE_E2E_PASS`, de
+`price-provider-parity.sh`) → manifiesto regenerado en el clon limpio y commiteado
+(`security/secretos-publicados.sha256`, +1 línea) → **gate verde (rc=0)**.
+
+**Canario** `scripts/check-secret-defaults-canary.sh`: +6 nombres inventados (`SMTP_RELAY_PASS`,
+`VAULT_ADMIN_PIN`, `MASTER_PEPPER`, `SESSION_SEED`, `RECOVERY_CODE`, `CLABE_CIPHER`; comprobado con
+`grep` que no existen en config/código) y bloque nuevo «S-CLASE-1» con los 7 casos de seguridad como
+**14 mutaciones en rojo** (1 `${VAR-lit}`, 2 `${VAR:=lit}`, 3 `: "${VAR:=lit}"` en .sh, 4a-4f un caso
+por sufijo nuevo en compose/script/.env.example/workflow, 5 `.env.staging` versionado, 6 Dockerfile
+`RUN echo … >> /app/.env`, 7 lista de environment, 8a sin `export`, 8b `declare -x`) y **4 controles en
+verde** (`${VAR-}` vacío, `HTTP_CODE/DO_SEED/EXIT_CODE/COUNTRY_CODE`, array + referencias, `.env.staging`
+solo con `CHANGE_ME`). **Proporciones:** **66/66 en 3/3 tiradas** con el gate nuevo (48/48 → 66/66); **52/66 (ROJO)** con el gate viejo sobre copia (`scratchpad/devops-ci/repo-old`, scripts de `cb904d4`): escapan exactamente los 14 casos nuevos y ninguno más.
+
+**Manifiesto regenerado tras los commits de backend del Stream A (re-medido sobre clon limpio de
+`c0d1b68`):** `gen-published-secrets-manifest.sh --check` → rc=1 (desfasado) por **8 entradas nuevas**
+que el generador inventaría desde `backend/`: los 4 códigos de error de `error-codes.ts:32-40`
+(`PASSWORD_CHANGE_REQUIRED`, `PASSWORD_NOT_SET`, `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`
+— constantes, no secretos, pero contienen `PASSWORD` y el generador prefiere sobrar a faltar), los dos
+secretos JWT de `backend/test/auth.change-password.spec.ts:34-35` (`unit_access_secret`,
+`unit_refresh_secret`: literales en un test, ahora **neutralizados** — ningún entorno real puede
+arrancar con ellos) y 2 valores con prefijo de Stripe en ficheros de test. Regenerado y commiteado;
+gate sobre el clon limpio con el manifiesto nuevo → **rc=0** (6 respaldos literales ajenos, todos
+neutralizados). **Nota para backend:** cada literal de secreto nuevo en `backend/test` obliga a devops
+a regenerar el manifiesto; si no se regenera, `stripe-webhook-failclosed` sale rojo por «DESFASADO».
+
+### 56.7 · Lo que NO pude medir aquí y CI medirá al empujar
+
+- Construcción de `Dockerfile.backend`/`Dockerfile.frontend` con `node:24-alpine` (sin demonio) → `trivy-image`.
+- Cada acción bumpeada corriendo en el runner (checkout v5, setup-node v5, upload/download-artifact
+  v6/v7, upload-sarif v4, trivy-action v0.36.0, gitleaks-action v3) → todos los workflows del push.
+- `format-mix` SKIPPED/ROJO reales → `ci.yml` de este push (tiene `event.before`, así que debe correr).
+- Canario de semgrep con las configs del registro → job `semgrep`.
+- `dast-release` de verdad → primer push a `production`; y el dispatch `full` sobre `c13f417` (56.4).
+- Que el panel de Vercel tenga puesto `vercel-ignore-build.sh` como Ignored Build Step.
+
+### 56.8 · H1 — protección de ramas: nombres exactos y JSON del ruleset (decisión del dueño)
+
+Required checks tras #9 (nombres de job únicos, todos en workflows que corren en `push` y
+`pull_request` a cualquier rama): **`ci-ok`** (CI), **`sast-ok`** (Security SAST), **`e2e-ok`** (E2E).
+No añadir `deploy-ci-gate` ni nada de `deploy.yml`/`security-dast.yml` (no corren en cada push).
+
+Ruleset (API `POST /repos/jcsainz95-cloud/tcg-vault-mx/rulesets`), una sola regla para `main` y
+`production`:
+```json
+{
+  "name": "release-gates",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/main", "refs/heads/production"], "exclude": [] } },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    { "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "required_status_checks": [
+          { "context": "ci-ok" },
+          { "context": "sast-ok" },
+          { "context": "e2e-ok" }
+        ]
+      }
+    }
+  ],
+  "bypass_actors": []
+}
+```
+**Consecuencia que el dueño tiene que aceptar antes:** con `required_status_checks` en un ruleset,
+un `git push` directo a `main`/`production` solo pasa si el **SHA empujado ya tiene esos tres checks
+en verde** (p. ej. un fast-forward desde la rama de sesión ya verificada). Un merge commit nuevo o un
+push «a pelo» se rechaza hasta que llegue por PR (o se añada un `bypass_actor`). Con el flujo actual
+(fusionar la rama a `main` y empujar `production` = mismo árbol) funciona si se hace por
+fast-forward; si no, hay que pasar a PR. **No activado por devops.**
+
+### 56.9 · Ronda de correcciones tras los gates (2026-09-11) — F1-1…F1-6, shellcheck, gitleaks histórico, manifiesto
+
+Encargo del orquestador tras QA **APROBADO CON CONDICIONES** y techlead **APROBADO CON DEUDA**. Todo
+lo de abajo está **medido en este entorno** (misma caja de herramientas que §56: gitleaks v8.30.1,
+actionlint del scratchpad, **shellcheck 0.11.0 y yamllint por `pip --target`**, Node 22; sin demonio
+de Docker) salvo lo marcado **NO MEDIDO AQUÍ**. Deuda derivada: `docs/TECH_DEBT.md` bloque
+«Devops · 2026-09-11 · gates andamiaje de CI» (DO-D1…DO-D8).
+
+| Hallazgo | Commit | Qué cambió | Medición |
+|---|---|---|---|
+| **F1-1** (techlead, IMPORTANTE) · el gate DAST de promoción estaba **abierto por construcción**: `report_only: true` ⇒ `dast-gate.py` rc=0 ⇒ `blocking = (outcome == 'failure')` siempre `'false'` ⇒ `promote-*` pasaban siempre | `faccdeb` | `dast-gate.py` publica **siempre** el hecho `blocking=true\|false` (`$GITHUB_OUTPUT` + `--blocking-file`) **antes** de decidir el exit; `--report-only` solo toca el exit. `dast-ephemeral.sh gate` pasa `--blocking-file security/reports/dast-blocking.txt`. `security-dast.yml`: `outputs.blocking = steps.gate.outputs.blocking` (vacío si el candado no corrió); `abrir-issue` también con `blocking == 'true'` en report_only. `deploy.yml`: `promote-*` exigen **`== 'false'`** (fail-closed; `!= 'true'` dejaba pasar el vacío); comentarios corregidos. `check-dast-gate-live.sh` **5-bis**: sucio + `--report-only` ⇒ `0\|true\|blocking=true`; limpio ⇒ `0\|false\|blocking=false`; sucio sin flag ⇒ `1\|true\|blocking=true`. **Caducidad:** `scripts/check-dast-report-only-expiry.sh` (aísla el bloque `dast-release`; verde si no hay `report_only: true` o hoy < **2026-10-06**; rc=9 desde esa fecha; rc=2 sin bloque) + canario (8 casos) + job `dast-report-only-expiry` en `ci.yml`, en `ci-ok` con «skipped no es verde» | canario del candado **3/3** verde; **mutación sobre COPIA** (sin `publicar_bloqueantes`) ⇒ **rojo 3/3**, control verde; canario de caducidad **8/8 en 3/3**; gate real hoy: «vigente hasta 2026-10-06, quedan 25 días», rc=0. actionlint (con shellcheck en PATH) 0 avisos en los 3 workflows; yaml OK (16/11/4 jobs); 11 gates estáticos rc=0. **NO MEDIDO AQUÍ:** `blocking` llegando a `promote-*` en un push real a `production` (DO-D2) |
+| **F1-2** (techlead, IMPORTANTE) · `check-candidate-checks.sh` sumaba `skipped` al verde sin motivo | `1778b0a` | `skipped` es una **tercera clasificación**: se imprime aparte, no suma al verde; solo se tolera si el job está en la **lista cerrada** `SKIPPED_ESPERADOS` (9 jobs de `deploy.yml` que se saltan por construcción con el CD apagado, cada uno con motivo; `format-mix` **no** entra: su skipped es «sin base», no medido). Fuera de la lista ⇒ **rc=3**. Resumen imprime «saltados sin motivo / esperados» | medido por API: `d2efe07` (26 check-runs), `c13f4179`, `17ce9a9` ⇒ **0 skipped**, siguen rc=0. Canario: 3 casos nuevos (sin motivo ⇒ 3; de la lista ⇒ 0 y «esperado:»; mezcla ⇒ 3) → **12/12 en 3/3**; mutación sobre COPIA (volver a sumar skipped) ⇒ **rojo 3/3**. **NO MEDIDO AQUÍ:** la lista contra un push real a `production` (DO-D3) |
+| **F1-3** (techlead, MENOR) · el canario de format-mix hacía `exit 1` con cara de BL-27 si `npx prettier` fallaba por red | `a48f716` | lee `PRETTIER_VERSION` del comparador; binario local solo si tiene ESA versión; si no, `npx` con timeout; si tampoco ⇒ **rc=2** «NO PUEDE MEDIR». El `\|\| { …; exit 1; }` tras `$(…; echo x)` miraba el rc de `echo`: ahora se comprueba el resultado. `ci.yml` distingue rc=2 («canario sin instrumento», sigue rojo) de rc=1 («no muerde») | **4/4 en 3/3** con el local (v3.9.6); sin prettier (binario apartado, PATH sin node) ⇒ **rc=2** con el mensaje nuevo. Residual DO-D7 (no instala del lockfile) |
+| **F1-4** (techlead, MENOR) · `gitleaks.toml` eximía `.github/workflows/*.yml` entero | `eb0c528` | **exención retirada**; comentario in situ con la medición y el puntero al control compensatorio (`check-secret-defaults.sh` bloque B) | con y sin la línea, `gitleaks dir .` (32) y `gitleaks git .` historial completo (5): **conjuntos idénticos, 0 en workflows**. Canario 11/11 (3/3) |
+| **F1-6** (techlead, MENOR) · filtro literal `Node.js 20 is deprecated` caducado | `1778b0a` | `/Node\.js \d+ .*deprecated/i` | (mismo canario) |
+| **shellcheck** (QA) · SC1087 `check-secret-defaults.sh:537`, SC2164 en `check-provenance-gate.sh:48`, `check-secret-defaults.sh:81`, `gen-published-secrets-manifest.sh:52` | `087e0aa` | `${vname}[:=]`; `cd … \|\| exit N`. Solo cambia si el `cd` falla | shellcheck 0.11.0 limpio; canarios `check-secret-defaults-canary` **66/66** y `check-provenance-gate-canary` **9/9**, ambos **3/3**; gates rc=0 |
+| **shellcheck dentro de actionlint** (hallazgo propio) · «0 avisos» de §56 se midió sin shellcheck en el PATH de actionlint; con él, `d2efe07` tenía 3 avisos en `ci.yml` y 2 en `security-sast.yml` | `faccdeb` (ci.yml), `security-sast.yml` en el commit de docs de esta ronda | `"origin/main^{commit}"`, backticks → comillas simples; `# shellcheck disable=SC2086` con motivo (`$SG_CONFIGS` se parte a propósito) | `actionlint -no-color .github/workflows/*.yml` con shellcheck en PATH ⇒ **rc=0 en los 7**; yaml OK ×7 |
+| **§56.1 «8 sitios»** (QA) | (este commit) | son 9 líneas: `format-mix-base` ganó un `setup-node` en #5 | `grep -c node-version` = 9 |
+| **Gitleaks histórico de `backend/`** (orquestador) · backend los neutralizó en el árbol (`a454178`); en modo `git` seguían en `fbb66e1`, `46d76cc`, `e504466` | `12c2fe9` | eximidos **por valor exacto**: `^A-Strong-Secret-123$`, `^asB64\.length$` (global) y `POKEMONPRICETRACKER_API_KEY: 'SUPER-SECRETO-123'` en `[rules.allowlist]` de `generic-api-key-assignment` con `regexTarget = "match"` (esa regla expone el NOMBRE como secreto, la allowlist global no puede eximirla por valor) | `gitleaks git .` ⇒ **0, rc=0**; estrechez: mismo literal en `POKETRACE_API_KEY` ⇒ rojo, otro valor ⇒ rojo; canario 11/11 (3/3). `dir .`: 44 hallazgos, **todos en no versionados** (`.native-stack/`, `frontend/.next*`), 0 versionados (DO-D6) |
+| **Manifiesto** (orquestador/backend) · `gen-published-secrets-manifest.sh --check` rc=1 por `frontend/e2e/utils/env.ts:63/68` (`E2E_TEMP_CUSTOMER_PASSWORD` / `E2E_TEMP_OPERATOR_PASSWORD ?? 'Temporal123!'`, hash `cdf12b93…`); dejaba `check-secret-defaults.sh` en rc=1 (también con la versión `d2efe07` del script: no lo causó esta ronda) | commit de cierre de la ronda | manifiesto regenerado y commiteado al final | `--check` rc=0 y `check-secret-defaults.sh` rc=0 tras regenerar. Es el caso vivo de **DO-D1** |
+
+**Mini-ronda de cierre (mismo día, tras aprobar QA y techlead sobre `ba5fd4b`):**
+
+| Hallazgo | Commit | Qué cambió | Medición |
+|---|---|---|---|
+| **F1-5** (techlead) · `engines` ausente en los dos `package.json` (§56.1 lo había medido: 0 coincidencias) | backend `1a2d394` (`engines.node >=22`, `@types/node` ^24; backend lo subirá a `>=24`), frontend `09bdf43` (`>=24`) | no es de devops; se cita aquí porque §56.9 no lo listaba (N9) | `grep -n '"engines"' backend/package.json frontend/package.json` ⇒ `>=22` / `>=24` |
+| **N3** (MEDIA) · `ci-ok` con ocho bloques y dos criterios: un gate nuevo en `needs` sin bloque quedaba skipped = verde | `7007342` | `scripts/check-ci-ok.sh` lee `toJSON(needs)`: **todo exige `success`** salvo OPCIONALES declarados con motivo (backend, frontend, format-mix-base, format-mix: pueden estar skipped, nunca failure). Estática en cada run: todo job de `ci.yml` está en el `needs` de `ci-ok` y OPCIONALES no está desfasada. `ci-ok` = checkout + script + canario | canario `check-ci-ok-canary.sh` **10/10 en 3/3** (incluye «job DESCONOCIDO skipped ⇒ rojo» y «job fuera del needs ⇒ estática roja»); mutación sobre COPIA (quitar un job del needs) ⇒ rc=1 3/3; actionlint 0 ×7; yaml OK (17 jobs) |
+| **N4** · `SKIPPED_ESPERADOS` podía desfasarse en silencio | `017e5f8` | cada clave tiene que ser `^  <job>:$` en `deploy.yml`; si no (o sin fichero) ⇒ rc=2 «lista desfasada». Ámbito por workflow **no** (la API de check-runs no trae el workflow sin otra llamada por `check_suite`; DO-D9) | canario **14/14 en 3/3** (casos 13-14 nuevos); `d2efe07` sigue rc=0 |
+| **N5** · el comentario decía «el título lleva la rama» y el título era un literal | `b66b3f9` | `TITLE` = «[dast] Hallazgos bloqueantes en el stack efímero — `inputs.ref` (dispatch) \| `github.ref_name`»; el cuerpo cita el evento | actionlint 0; yaml OK. **NO MEDIDO AQUÍ:** el título rendido en un run real |
+| **N7** (parte devops) · censo de `mockOnly\|needsSeed\|harnessLimit\|skipIfSeedMissing` en `frontend/e2e/` | `a171a97` (script + baseline + canario), cableado en `7007342` (job `e2e-skip-census`, en `needs` de `ci-ok`) | método fijado: `grep -rwo` por palabra completa + ficheros, `frontend/e2e/**/*.ts`. **Baseline 2026-09-11:** mockOnly **78/17**, needsSeed **30/7**, harnessLimit **4/2**, skipIfSeedMissing **8/3** (120 en 20 ficheros; el **71/18** del techlead es otro método — este script fija el método). Crece ⇒ rc=1 con el comando `--update --motivo "…"` (motivo obligatorio); baja ⇒ verde con aviso | gate rc=0; canario sobre COPIA (+1 `mockOnly` ⇒ rojo; -1 ⇒ verde; sin baseline ⇒ 2; `--update` sin motivo ⇒ 2) **5/5 en 3/3** |
+
+| **PII en el arnés nativo** (backend) · `stack-native.sh` no generaba `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` ⇒ clave efímera por proceso ⇒ cada reinicio invalidaba la PII local (500 en billing-profile/KYC) | commit «stack-native · PII» (tras `5df5575`) | ambas claves en la misma llamada `env-file` que las JWT (persistidas, aleatorias por máquina) + `export`; `secrets-preflight.sh` genera `*HMAC_KEY` en base64 de 32 bytes; `check-e2e-harness-gaps.sh` **#7** (estático + genera en temporal y exige 32 bytes) | harness-gaps rc=0 3/3; idempotencia sobre `secrets.env` previo (añade sin rotar); mutación sobre COPIA ⇒ rojo 3/3. **NO MEDIDO AQUÍ:** `stack-native.sh up` real (sin Postgres/Redis en este entorno); en máquinas con `secrets.env` previo, la PII cifrada ANTES de este cambio con clave efímera sigue siendo ilegible (borrar esas filas o `down -v`) |
+
+**Deuda que queda (con comprobación de cierre en TECH_DEBT):** DO-D9 (N4: ámbito por workflow), DO-D10
+(N7: el baseline lo escribe devops y el número es de frontend), DO-D1 (mini-linter + acoplamiento del
+manifiesto; F1-7), DO-D2 (F1-1 residual: push real a `production`), DO-D3 (F1-2 residual: lista contra
+un push real), DO-D4 (`report_only` hasta que seguridad lo suba; fecha 2026-10-06), DO-D5 (H1, dueño),
+DO-D6 (cerrado; residual de `dir` en artefactos locales), DO-D7 (F1-3 residual: prettier por `npx`),
+DO-D8 (cerrado; cómo medir «actionlint 0 avisos»).
+
+**Nota sobre la referencia «BE-77» del encargo:** en `TECH_DEBT.md` BE-77 es `BulkPriceRow` /
+`sync-all` (backend), no gitleaks; el hallazgo histórico de gitleaks se cita aquí por §56.3 y `a454178`.

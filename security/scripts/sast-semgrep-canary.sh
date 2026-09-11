@@ -23,17 +23,30 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SEC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ROOT_DIR="$(cd "$SEC_DIR/.." && pwd)"
 FALLOS=0; PASADAS=0
 ok()  { PASADAS=$((PASADAS+1)); printf '  \033[1;32m✔ %s\033[0m\n' "$*"; }
 bad() { printf '  \033[1;31m✗ %s\033[0m\n' "$*"; FALLOS=$((FALLOS+1)); }
 
 printf '\n\033[1m== ¿El gate de semgrep (severidad ERROR) muerde? ==\033[0m\n\n'
 command -v semgrep >/dev/null 2>&1 || { bad "semgrep no está en PATH: el canario no puede medir"; exit 1; }
-CONFIGS="${SG_CONFIGS:---config=$SEC_DIR/semgrep.yml}"
+CONFIGS="${SG_CONFIGS:-}"
 # La regla local tiene que estar SIEMPRE entre los configs, venga lo que venga
-# de CI: es la que el canario sabe provocar.
-case "$CONFIGS" in *semgrep.yml*) ;; *) CONFIGS="--config=$SEC_DIR/semgrep.yml $CONFIGS" ;; esac
+# de CI, y por RUTA ABSOLUTA. Runs 34559904088 y 34560593892 (job `semgrep`,
+# contenedor returntocorp/semgrep): SG_CONFIGS trae `--config=security/semgrep.yml`
+# RELATIVO a la raíz del repo; el canario hace `cd` al árbol temporal y semgrep
+# ya no lo encuentra («path security/semgrep.yml does not exist», rc=7) — 4/4
+# casos rojos por el instrumento, no por el gate. Aquí se quita cualquier
+# `--config=…semgrep.yml` relativo de la lista y se antepone el absoluto
+# ($SEC_DIR está bajo el workspace, que el contenedor SÍ tiene montado).
+LIMPIOS=""
+for c in $CONFIGS; do
+  case "$c" in
+    --config=*semgrep.yml|--config=*semgrep.yaml) ;;   # se sustituye por el absoluto de abajo
+    *) LIMPIOS="$LIMPIOS $c" ;;
+  esac
+done
+CONFIGS="--config=$SEC_DIR/semgrep.yml$LIMPIOS"
+[ -f "$SEC_DIR/semgrep.yml" ] || { bad "no existe $SEC_DIR/semgrep.yml: sin la regla local el canario no tiene qué provocar"; exit 1; }
 
 T="$(mktemp -d -t semgrep-canary-XXXXXX)"; trap 'rm -rf "$T"' EXIT INT TERM
 # Las reglas locales acotan por ruta (`backend/src/**`, `…/payments/**`): el

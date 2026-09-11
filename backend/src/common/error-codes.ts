@@ -25,6 +25,22 @@ export const ErrorCode = {
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED', // acción sensible con emailVerified=false (guard)
   EMAIL_VERIFY_TOKEN_INVALID: 'EMAIL_VERIFY_TOKEN_INVALID', // token de verificación inválido/expirado/usado
   RESET_TOKEN_INVALID: 'RESET_TOKEN_INVALID', // token de reset inválido/expirado/usado
+  // v1.67 (Stream A, contrato §0 / §1 «Contraseña temporal obligatoria», ARCHITECTURE §4.47):
+  // 403 — la sesión es válida pero la cuenta tiene `mustChangePassword=true` y la ruta no está en
+  // la allowlist (`@AllowPasswordChangeRequired()`: change-password, logout, GET /users/me).
+  // ⛔ NO es 401: el interceptor del cliente trata 401 como sesión muerta.
+  PASSWORD_CHANGE_REQUIRED: 'PASSWORD_CHANGE_REQUIRED',
+  // 422 — POST /auth/change-password: `currentPassword` no verifica contra `passwordHash`.
+  // ⛔ 422 y no 401 A PROPÓSITO (un dedazo en la actual cerraría la sesión). details.field.
+  CURRENT_PASSWORD_INCORRECT: 'CURRENT_PASSWORD_INCORRECT',
+  // 422 — POST /auth/change-password: `newPassword === currentPassword` (tras verificar la actual).
+  PASSWORD_SAME_AS_CURRENT: 'PASSWORD_SAME_AS_CURRENT',
+  // 422 — POST /auth/change-password sobre `passwordHash IS NULL` (solo-Google): no hay actual que
+  // probar y este endpoint NO crea contraseñas (remedio: forgot-password). ARCHITECTURE §4.47.3.
+  PASSWORD_NOT_SET: 'PASSWORD_NOT_SET',
+  // 422 — POST /shipments/quote | /shipments con un `addressId` cuya fila tiene `recipientName IS NULL`
+  // (dirección anterior a M-52). Emisor: módulo `shipments` (Stream A · B5). details { field, addressId }.
+  RECIPIENT_NAME_REQUIRED: 'RECIPIENT_NAME_REQUIRED',
 
   // Money-out / roles
   MONEY_OUT_FORBIDDEN: 'MONEY_OUT_FORBIDDEN',

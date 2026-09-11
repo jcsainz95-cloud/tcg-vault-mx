@@ -11,6 +11,7 @@ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
+import { Link } from '@/i18n/navigation';
 import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
 
 /**
@@ -34,7 +35,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     >
       {query.data && (
         <div>
-          <div className="gutter flex flex-wrap items-baseline justify-between gap-4 pb-5 pt-10 lg:pt-[46px]">
+          {/* §33.3: enlace de vuelta a «Compras y ventas» encima del título del pedido. */}
+          <div className="gutter pt-10 lg:pt-[46px]">
+            <Link href="/orders" className="font-mono text-[11px] uppercase tracking-label text-muted hover:text-text">
+              ← {t('back')}
+            </Link>
+          </div>
+          <div className="gutter flex flex-wrap items-baseline justify-between gap-4 pb-5 pt-4">
             <h1 className="font-serif text-[22px] leading-[1.15] text-text lg:text-[30px]">
               {t('orderNumber', { id: query.data.id })}
             </h1>

@@ -4,6 +4,59 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y CADA LADO RESOLVIÓ POR SU CUENTA: EL PERFIL DE FACTURACIÓN QUE NO
+> EXISTE, LA DIRECCIÓN QUE M6 PROYECTABA A MEDIAS, EL DESTINATARIO EMITIDO DOS VECES Y LA CONDICIÓN DE RELEASE**
+> (2026-09-11, arquitecto. Base: **v1.67, vigente entera**. Origen: hallazgos de QA/techlead del mismo día (F2-2,
+> F2-5), `FRONTEND_NOTES.md:15887`, desviación 3 de backend A1. Contrato **v1.67.1** (§1 `google`, §1 «Perfil de
+> facturación», §5, §M4, §M6, §11 `BillingProfileDTO`). **Cero DDL, cero endpoints, cero códigos.** Sección nueva
+> **§4.47.10**. Desviaciones **`D-CTA-7..9`** en §9.)
+>
+> **1. ⭐⭐ Un recurso singular que no existe es `404`, no `200 null`.** `GET /users/me/billing-profile` sin perfil
+> devolvía `null` con `200` (`users.service.ts:210`) y el contrato callaba; frontend asumió `404`. Se ratifica el
+> `404` y se declara la forma (seis campos, `rfcMasked`, sin `id`/`userId`/timestamps — doctrina D10 de `AddressDTO`).
+> *Cuando el contrato calla, backend y frontend no se equivocan: se equivoca el contrato* (§4.47.10.1).
+>
+> **2. ⭐ Una proyección de `Address`, no dos.** `toAdminUserAddressRef` era una copia de `toAddressDTO` sin
+> `recipientName`, y el remedio de §5 («el operador lo resuelve por la ficha de M6») **no tenía dato que enseñar**.
+> Se unifica y se escribe que M6 y M4 hablan con los mismos nombres de campo (§4.47.10.2).
+>
+> **3. ⭐ El destinatario suelto de M4 es proyección deprecada del snapshot, con condición de retiro medible.** No se
+> retira en v1.67.x (stream en curso); el front invierte el orden de lectura y el retiro futuro es gratis (§4.47.10.3).
+>
+> **4. La condición de release que QA y techlead exigen queda escrita:** tres actores en el seed E2E y la regla de
+> despliegue «guard + endpoint juntos, conteo de temporales antes de publicar» (§4.47.10.4).
+>
+> ---
+> **Rev v1.67 — STREAM A «LA CUENTA DEL CLIENTE»: CAMBIAR LA CONTRASEÑA DESDE DENTRO, LA TEMPORAL QUE OBLIGA, EL
+> DESTINATARIO DE CADA RETIRO Y EL NOMBRE QUE GOOGLE NO MANDÓ**
+> (2026-09-11, arquitecto. Base: **v1.66.2, vigente entera**. Origen: `PENDIENTES.md` **P-57, P-73, P-75, P-55** +
+> **decisión del dueño 2026-09-11**: *«Que obligue a cambiarla»*. Contrato en `API_CONTRACT.md` **v1.67** (§0
+> Errores, §1, §4-G.9, §5, §M4, §M6, §11). Sección nueva **§4.47**. Migración **`M-52`** en §11. Desviaciones
+> **`D-CTA-1..6`** en §9. Fila nueva en §7.)
+>
+> **1. ⭐⭐ Lo que se midió antes de decidir, y cambia el diagnóstico.** El aviso «debes cambiar tu contraseña» del
+> login **nunca se ha mostrado contra el backend real**: `publicUser` (`auth.service.ts:47-57`) no emite
+> `mustChangePassword` y `AuthForm.tsx:65` lo lee `undefined`. P-75 decía «la plataforma pide algo que no deja
+> hacer»; **medido, ni siquiera lo pedía**. El dueño decidió que **obligue**: guard nuevo, allowlist de tres rutas,
+> y la cadena de revocación por `tokenVersion` **ya existente** hace el resto (§4.47.2).
+>
+> **2. ⭐⭐ Un endpoint, no dos, y sin «modo crear».** `POST /auth/change-password` exige la actual **siempre**; la
+> cuenta solo-Google usa `forgot-password` (prueba de inbox), que ya fija contraseña. *Una sesión de 15 minutos en
+> `localStorage` no puede comprar una credencial permanente que hoy solo se obtiene con el buzón* (§4.47.3).
+>
+> **3. ⭐ El destinatario vive en la DIRECCIÓN, se congela en el envío, y NUNCA se deriva de `User.name`.** `M-52`
+> aditiva, sin backfill; `422 RECIPIENT_NAME_REQUIRED` en lectura y escritura. *El nombre de cuenta y el nombre en
+> la etiqueta son hechos distintos; y el primero puede ser inventado* (§4.47.4).
+>
+> **4. ⭐ El nombre fabricado NO se deja de fabricar: se MARCA.** `User.nameSource` con backfill determinista de las
+> filas ya inventadas. *Dieciséis sitios y diez correos pintan `name`; un vacío rompe copys y un inventado sin marca
+> parece real. La marca es lo que falta, no el dato* (§4.47.5).
+>
+> **5. Dos rutas para la cuenta (`/account`, `/admin/account`), componentes compartidos, y el `next=` que ya existe.**
+> El operador nunca pisa el storefront; el cliente nunca pisa `/admin`. Un solo grupo de rutas nuevo habría
+> necesitado un tercer chrome y un tercer guard (§4.47.7).
+>
+> ---
 > **Rev v1.66.2 — LA AUSENCIA DE UN CAMPO NUNCA COMPRA UNA GARANTÍA MENOR: EL CONTRATO DESCRIBÍA UNA SUPERFICIE
 > INSEGURA Y OBEDECERLO REPRODUCÍA EL AGUJERO**
 > (2026-09-10, arquitecto. Base: **v1.66.1, vigente entera**. Origen: `P-UP-1` (pentester/seguridad §3.4) +
@@ -3461,7 +3514,10 @@ frontend/
     app/
       [locale]/                 # es | en (default es)
         (storefront)/           # catálogo, ficha, carrito, checkout, mi-bóveda, retiros, buylist
+                                #   + account/ y account/password (v1.67, §4.47.7 — cuenta del CLIENTE)
         (admin)/                # back-office M1–M10 + dashboard (responsive; sin captura de fotos de producto, v1.2)
+                                #   + admin/account/ y admin/account/password (v1.67 — cuenta del STAFF; mismos
+                                #   componentes de components/domain/account/*, solo perfil + contraseña)
         (auth)/                 # login/registro
     components/                 # implementa el DESIGN_SYSTEM (ux-ui define tokens/componentes)
       master-set/               # v1.20: binder/índice de master set PROMOVIDOS desde (admin)/admin/m1/master-set/
@@ -21905,6 +21961,322 @@ como una en contra: habría justificado una migración que nadie necesita.*
 
 ---
 
+### 4.47 Stream A — «La cuenta del cliente» (v1.67, 2026-09-11, NORMATIVO)
+
+> **Contrato:** `API_CONTRACT §0` (cinco códigos nuevos), `§1` (`POST /auth/change-password`, «Contraseña temporal
+> obligatoria», `GET/PATCH /users/me`, Direcciones), `§4-G.9` (nota de consumo de `claimable`), `§5`, `§M4`, `§M6`,
+> `§11` (`AddressDTO`). **Migración `M-52`** (§11). **Desviaciones `D-CTA-1..6`** (§9). **Pendientes que cierra:**
+> P-57(a)(b), P-73(A)(B), P-75, P-55. *(P-57(c) —la navegación— es de ux-ui y no toca contrato ni esquema.)*
+
+#### 4.47.0 Qué se midió el 2026-09-11 (§0-B.3 regla 2: el artefacto que corre, no el informe)
+
+| Hecho | Dónde | Consecuencia |
+|---|---|---|
+| `publicUser` emite `{ id, email, name, role, locale, emailVerified }` — **sin `mustChangePassword`** | `auth.service.ts:47-57` | el banner de `AuthForm.tsx:65-69` **nunca** se muestra en producción; el «Continuar» de `:113` es inalcanzable |
+| Ningún guard lee `mustChangePassword`; se escribe en `admin.service.ts:746,411`, se limpia en `auth.service.ts:249` y `admin.service.ts:840` | `common/guards/*` | la temporal no obliga a nada |
+| No existe `change-password`; `auth.controller.ts` expone 8 rutas y las dos de contraseña consumen token de correo | `auth.controller.ts:88-103` | el operador con correo de empresa **no tiene camino** |
+| `reset-password` revoca con `tokenVersion: { increment: 1 }` y no devuelve tokens | `auth.service.ts:242-251` | el patrón de revocación a reusar |
+| `JwtAuthGuard` ya consulta `User` por petición (`status`, `tokenVersion`, `emailVerified`) | `jwt-auth.guard.ts:60-63` | un guard más **no** cuesta una consulta más |
+| Cadena `APP_GUARD`: Throttler → Jwt → Roles → EmailVerified → MoneyOut | `app.module.ts:74-78` | dónde encaja el nuevo |
+| El interceptor del cliente trata **`401`** como sesión muerta (refresh + limpieza) | `api-client.ts:255-263` | un «actual incorrecta» **no puede** ser 401 |
+| Cuenta solo-Google: `passwordHash: null`; `forgot-password` ya **fija** contraseña en ese caso | `auth.service.ts:337`; contrato §1 | ya existe la vía «crear» con prueba de inbox |
+| `Address` sin nombre; snapshot de 8 campos; `recipientName: undefined` en todo retiro | `schema.prisma:482-498`; `shipments.service.ts:183-192,405` | el paquete sale sin destinatario |
+| El invitado sí lo captura, obligatorio, en la dirección | `guest-checkout.dto.ts:44`; `guest-checkout.service.ts:39,416` | la forma correcta ya existe en el sistema |
+| M4 pinta `userId` crudo y ninguna dirección | `M4View.tsx:201` | el operador no tiene de dónde copiar el nombre |
+| `name: identity.name ?? email.split('@')[0]`, sin marca | `auth.service.ts:339` | un dato inventado indistinguible de uno tecleado |
+| `UpdateMeDto.name` es `@IsString()` a secas; `updateMe` devuelve 6 campos | `users.dto.ts:12`; `users.service.ts:88-96` | `""` pasa; la respuesta no sirve al perfil |
+| `/users/me` admite los tres roles | `users.controller.ts:25` | la misma API sirve al operador |
+| Carrito de venta: `useState` en `useSellCart`; el de compra: `localStorage` con caducidad 30 d | `useSellCart.ts:106`; `lib/cart.ts:5-13` | el patrón a copiar está a un directorio |
+| El CTA de entrar del carrito de venta es `href="/login"` **sin `next`** | `SellCartContents.tsx:358` | tras entrar, aterriza en `/`, no en el cotizador |
+| La cotización **no** tiene `quotedAt`/`expiresAt`; el monto autoritativo lo re-deriva el servidor al crear la solicitud (SEC-A1); `quote/batch` es público, read-only, ≤ 50 | contrato §6; `buylist.dto.ts:86` | «caducidad» = *siempre recotizar al rehidratar* |
+| Operador → `/admin`; cliente → `/`; `AdminShell` exige rol y manda a `/login?next=`; `PrivateRouteGuard` cubre `/vault`, `/orders`, `/shipments` | `AuthForm.tsx:21-23`; `AdminShell.tsx:16,40`; `PrivateRouteGuard.tsx:24` | los dos guards y el `next=` ya existen |
+
+**NO MEDIDO por mí:** que Railway no tenga respaldo de BD (lo afirma el orquestador citando `HECHOS.md`; `grep -i
+respald|backup|pg_dump HECHOS.md` no lo localiza). **El diseño no depende de ello:** `M-52` es aditiva y nullable, y
+su backfill solo escribe una columna nueva (§11).
+
+#### 4.47.1 Cambiar la propia contraseña — `POST /auth/change-password`
+
+- **Un endpoint, autenticado, cualquier rol.** El operador y el cliente tienen exactamente el mismo problema y la
+  misma tabla; separar por rol sería duplicar un `argon2.verify`.
+- **La actual es obligatoria siempre** (regla 9(c): su ausencia no compra una garantía menor). **Con `passwordHash
+  IS NULL` se rechaza** (`422 PASSWORD_NOT_SET`), no se «crea»: §4.47.3.
+- **Revoca las demás sesiones con el mecanismo existente** (`tokenVersion +1`, el de `reset-password` y del reset
+  admin) **y devuelve un par nuevo** emitido *después* del incremento. Es la única diferencia con `reset-password`, y
+  es deliberada: allí no hay sesión; aquí el usuario acaba de probar que es él, y mandarlo al login es fricción sin
+  garantía. Si un día se quiere «cerrar también ésta», es un booleano en el body — no se añade hoy (YAGNI).
+- **`422`, no `401`, para «actual incorrecta».** No es doctrina abstracta: `api-client.ts:255` filtra por `401` para
+  disparar refresh y limpiar sesión. Un dedazo en la actual cerraría la sesión del usuario.
+- **`emailVerified` no se toca.** `reset-password` lo marca porque el clic prueba el inbox; aquí no hubo inbox.
+- **Rate-limit 5/min/IP** (paridad con `login`): con un access token robado, este endpoint es una superficie de
+  adivinación de la contraseña real. La misma tabla, la misma defensa.
+- **Auditoría `auth.password_changed`**, hermano de `auth.password_reset_completed`. Sin secretos (§3.2).
+
+#### 4.47.2 La temporal OBLIGA — `PasswordChangeRequiredGuard` y `403 PASSWORD_CHANGE_REQUIRED` (decisión del dueño)
+
+**Decisión textual del dueño (2026-09-11):** *«Que obligue a cambiarla».* Hasta hoy el copy prometía obligación y el
+código no la tenía — y ni siquiera mostraba el copy (4.47.0). Queda una sola política; no se diseña la alternativa.
+
+- **Mecanismo.** `JwtAuthGuard` añade `mustChangePassword` al `select` que **ya hace** (`jwt-auth.guard.ts:62`) y lo
+  pone en `req.user`. `PasswordChangeRequiredGuard` (`common/guards/password-change-required.guard.ts`) se registra
+  como `APP_GUARD` **entre `JwtAuthGuard` y `RolesGuard`** (`app.module.ts:75-76`): si `req.user?.mustChangePassword
+  === true` y el handler **no** lleva `@AllowPasswordChangeRequired()` ⇒ `403 PASSWORD_CHANGE_REQUIRED`. Rutas
+  `@Public()` no tienen `req.user` ⇒ pasan. **Cero consultas nuevas.**
+- **Allowlist cerrada (tres):** `POST /auth/change-password`, `POST /auth/logout`, `GET /users/me`. `refresh` es
+  público. ⛔ Todo lo demás —incluido `PATCH /users/me`— queda fuera: *un usuario con temporal no edita su perfil, no
+  ve su bóveda y no opera M1; primero cambia la contraseña.* Es literalmente lo que el dueño pidió.
+- **`login`/`google` no rechazan.** Emiten sesión + `user.mustChangePassword: true`. Sin sesión no hay cambio posible.
+- **Sesiones ya abiertas al resetear.** El reset admin incrementa `tokenVersion` (`admin.service.ts:748`) ⇒ el guard y
+  el refresh rechazan con `401` **desde la siguiente petición** ⇒ el cliente limpia sesión ⇒ login con la temporal ⇒
+  flag ⇒ pantalla. **No se añade nada**: se documenta que la cadena existe y que el efecto es «expulsión inmediata».
+- **Frontend, dos puntos de entrada a la misma navegación:** (1) tras `login`/`google` con el flag; (2) el
+  **interceptor global** del `api-client` ante `403 PASSWORD_CHANGE_REQUIRED` (cubre la sesión guardada que no pasó
+  por el login de hoy). Destino por rol: `/account/password` | `/admin/account/password` (§4.47.7), **conservando
+  `?next=`**. El botón «Continuar» se retira.
+- **Orden de despliegue (normativo).** Guard + endpoint **en el mismo deploy de backend**; frontend con pantalla y
+  redirect **en el mismo release, justo después**. En el hueco solo sufren los usuarios con el flag en `true`: el
+  orquestador **mide cuántos** (`SELECT count(*) FROM "User" WHERE "mustChangePassword"`) antes de publicar. ⛔
+  **Prohibido publicar el guard sin el endpoint**: sería encerrar a esos usuarios sin salida salvo el correo.
+
+#### 4.47.3 Cuenta solo-Google: por qué NO hay «modo crear» en `change-password`
+
+Alternativa considerada: el mismo endpoint, con `currentPassword` opcional cuando `passwordHash IS NULL`. **Rechazada.**
+Hoy la **única** vía para que una cuenta solo-Google obtenga contraseña es `forgot-password` (prueba de control del
+buzón) o el reset admin (un humano con privilegio). Un «modo crear» con sesión convertiría **un access token de 15
+minutos en `localStorage`** en suficiente para instalar una credencial **permanente** — un camino que **no existe** y
+que un robo de token abriría. La cuenta Google es `emailVerified=true` por construcción y su buzón es el de Google:
+`forgot-password` con el correo de la sesión es **un clic más para el usuario y cero código nuevo**. El operador
+nunca cae aquí (el staff es `local`). ⇒ `hasPassword` en `/users/me` decide qué botón pinta el perfil; el endpoint
+responde `422 PASSWORD_NOT_SET` si aun así lo llaman.
+
+#### 4.47.4 El destinatario del envío — `Address.recipientName` (P-73-B)
+
+- **Modelo: en la dirección, no por retiro.** (a) Es **dato de etiqueta**: quien recibe en *esa* casa (uno mismo, un
+  familiar, la oficina) es propiedad del lugar, como la calle. (b) El invitado **ya** lo captura en la dirección
+  (`GuestAddressInput.recipientName`) ⇒ una sola forma de «dirección» en el sistema, y el `addressSnapshot` de un
+  retiro y el `shippingAddressSnapshot` de un pedido pasan a tener **los mismos nueve campos**. (c) La libreta se
+  reusa para el buylist (`pickupAddressSnapshot`, D36): una etiqueta de **recolección** también necesita nombre —
+  hoy tampoco lo lleva (`D-CTA-5`, follow-up del stream buylist, **no** de A). «Pedirlo por retiro» habría dejado a
+  ese segundo consumidor sin dato y habría obligado a teclearlo en cada envío.
+- **⛔ Sin fallback a `User.name`, ni en el servidor ni en la migración.** Dos razones independientes: `name` puede
+  ser **fabricado** (§4.47.5), y aunque no lo fuera, «cómo te llamas» y «a nombre de quién va el paquete» son hechos
+  distintos. El servidor **rechaza** (`422 RECIPIENT_NAME_REQUIRED`) y el front **pide el dato y reintenta** — el
+  patrón de `PHONE_REQUIRED` y `PICKUP_ADDRESS_REQUIRED`. El front **sí puede** proponer `user.name` como valor
+  inicial del campo cuando `nameSource !== 'derived'`: la comodidad va en la pantalla, la afirmación en el contrato.
+- **En lectura y en escritura** (`/shipments/quote` y `/shipments`): read y write comparten regla (misma doctrina que
+  `withdrawable` ↔ elegibilidad de retiro, §5). El rechazo ocurre **antes** de la transacción serializable y **antes**
+  del `PaymentIntent`.
+- **Migración `M-52a`:** `ALTER TABLE "Address" ADD COLUMN "recipientName" TEXT;` — nullable, sin default, sin
+  backfill (no hay de dónde sacarlo sin inventar). Detalle y orden en §11.
+- **M4:** el backend ya lee `snapshot.recipientName` (`:405`) ⇒ **cero cambio en `admin`**. La pantalla debe pintar
+  destinatario y dirección (`D-CTA-6`). Retiros viejos: «Sin destinatario (retiro anterior a v1.67)».
+- **Serialización con Stream B:** `shipments` es de B. **A hace este punto de punta a punta** (`users` DTO/columna +
+  `shipments` snapshot y 422 + M4 render) y **B no entra a `shipments` ni a `(admin)/admin/m4` hasta que aterrice**
+  en `main`. Es el único cruce de módulos del stream y está acotado a: `shipments.service.ts` (`create`, `quote`,
+  `withAdminKind` sin cambio), `shipments.dto` (ninguno), `M4View.tsx`.
+
+#### 4.47.5 El nombre que Google no mandó — `User.nameSource` (P-73-A)
+
+- **Se sigue guardando el derivado; se deja de esconder.** `name` es `NOT NULL` y lo pintan 16 sitios y 10 correos:
+  vaciarlo rompe copys («Hola :») y **no es menos inventado que rellenarlo** (un vacío también afirma algo). Lo que
+  viola la regla «nunca se inventa un dato» no es el valor: es que **parezca tecleado**. ⇒ enum `NameSource { user,
+  google, derived }`, columna `User.nameSource` con `@default(user)`.
+- **Escritores:** `register` y `POST /admin/users` ⇒ `user`; `google` (alta nueva) ⇒ `identity.name ? 'google' :
+  'derived'`; **el enlace de una cuenta local con Google no toca `name` ni `nameSource`** (ya no tocaba `name`,
+  `auth.service.ts:315-322`); `PATCH /users/me { name }` ⇒ `user` **siempre** (server-side). Soft-delete ⇒ `user`
+  («Usuario eliminado» es un literal nuestro, no un derivado; irrelevante: no autenticable).
+- **Backfill determinista (`M-52b`):** `UPDATE "User" SET "nameSource"='derived' WHERE "authProvider"='google' AND
+  "name" = split_part("email", '@', 1);` y `... ='google' WHERE "authProvider"='google' AND "nameSource"='user'`. Es
+  **exactamente** la regla de `:339` aplicada hacia atrás: no puede marcar `derived` a nadie a quien el sistema no se
+  lo haya inventado (una cuenta `local` nunca entra en el `WHERE`). Idempotente. Reversible (la columna se ignora).
+- **Consumo:** `GET /users/me.nameSource`; el perfil pinta «Revisa tu nombre» con `derived`. **Correos del módulo
+  `mail`** (Stream A): helper `greetingName(user)` que devuelve `null` con `derived` ⇒ las dos plantillas de
+  `mail.templates.ts:55-101` saludan sin nombre en ese caso («Hola:» / «Hi,»). Los correos del buylist
+  (`buylist.service.ts`, `buylist-sweep.service.ts`) **adoptan el mismo helper en su stream** — no se tocan en A.
+  M6 puede exponer `nameSource` (aditivo, opcional) para que el buscador explique por qué «Juan Pérez» no encuentra a
+  «jcsainz95»; **la edición por admin queda PROYECTADA** (contrato §M6).
+
+#### 4.47.6 El carrito de venta sobrevive al inicio de sesión (P-55) — cero backend
+
+- **Diagnóstico (medido):** `useSellCart` es `useState` (`:106`) y el CTA de entrar navega a `/login` **sin `next`**
+  (`SellCartContents.tsx:358`): el árbol se desmonta y el usuario aterriza en `/`. El de compra no lo sufre porque
+  vive en `localStorage` (`lib/cart.ts`).
+- **Decisión: persistencia cliente con el MISMO patrón que `lib/cart.ts`.** Clave `tcg.sellCart`, `{ lines,
+  updatedAt }`, caducidad **30 días exactos** desde la última modificación (`>` estricto, como el de compra),
+  migración suave (nunca se descarta por formato), evento propio para reactividad. **Nada viaja al servidor.**
+- **Regla de caducidad de la cotización (medida: hoy no hay marca).** La respuesta de `quote[/batch]` **no lleva
+  `quotedAt` ni `expiresAt`**, el estimado **no es vinculante** y el monto lo **re-deriva el servidor** en `POST
+  /buylist/requests` (SEC-A1; el body no lleva precios, `useSellCart.ts:173-189`). ⇒ **el `quote` persistido es solo
+  pintura, y se considera caduco en cuanto se rehidrata**: al montar con líneas guardadas, el front **recotiza** con
+  `POST /buylist/quote/batch` (público, read-only, ≤ 50 por request; más líneas ⇒ varios lotes) y **sustituye** cada
+  `quote`; una línea que vuelve `ok:false` (`NOT_FOUND`, `FINISH_NOT_AVAILABLE`, `PRODUCT_*`) **se poda**, igual que la
+  poda de piezas muertas del carrito de compra (v1.21.3). Mientras recotiza, el total **no se afirma** («—», no la
+  cifra vieja) — ux-ui decide la forma. ⛔ **Prohibido enviar la solicitud con estimados sin recotizar** (no por
+  dinero —el servidor manda— sino porque el vendedor aceptaría un total que ya no es).
+- **`?next=`:** los dos CTA del carrito (`/login`, `/register`) llevan `next=/buylist` para volver al cotizador con
+  el carrito ya rehidratado.
+- **Zona compartida:** si frontend extrae el `read/write/expiry` común de `lib/cart.ts` a un helper (recomendado:
+  `lib/local-store.ts`), toca `frontend/src/lib/` ⇒ **solo Stream A** en esta ventana.
+
+#### 4.47.7 Dónde vive la pantalla de cuenta para los dos roles — rutas y guards
+
+- **Decisión: DOS rutas, UN juego de componentes.** `/[locale]/account` (+ `/account/password`) dentro de
+  `(storefront)`, y `/[locale]/admin/account` (+ `/admin/account/password`) dentro de `(admin)`. Los formularios viven
+  en `frontend/src/components/domain/account/*` (perfil, contraseña, direcciones, facturación, KYC, pedidos
+  reclamables) y cada ruta compone **solo** las secciones de su rol: el cliente todas; el operador **perfil +
+  contraseña** (no tiene libreta, CFDI ni bóveda). ux-ui decide pestañas vs. páginas **dentro** de cada ruta; **las
+  dos URL de `/password` son contrato con el login y con el interceptor** (§4.47.2).
+- **Por qué no un tercer grupo `(account)` compartido:** necesitaría su propio chrome (¿cabecera de tienda o
+  sidebar de tinta?) y su propio guard, y **rompería la regla que ya está medida**: el operador aterriza en `/admin`
+  y nunca pisa el storefront (`AuthForm.tsx:21-23`); un cliente nunca ve el chrome de admin (`AdminShell.tsx:33`).
+  Dos rutas reutilizan **los dos guards existentes sin tocarlos**.
+- **Guards:** `PrivateRouteGuard.PRIVATE_PREFIXES` gana `'/account'` (⇒ `/login?next=/account/...` automático);
+  `/admin/account` ya está bajo `AdminShell` (⇒ `/login?next=/admin/account/...` y rechazo de `customer`). El layout
+  de `/account` añade **un** redirect: si `user.role` es staff ⇒ `replace('/admin/account' + resto)`.
+- **`next=` de vuelta al sitio correcto:** ya funciona (`safeNext` solo acepta rutas internas, `AuthForm.tsx:46`).
+  Lo nuevo: **el redirect por `mustChangePassword` NO consume `next`** — lo **reenvía** a la pantalla de contraseña
+  (`/account/password?next=<original>`), y esa pantalla lo honra tras el `200` de `change-password`. Así un operador
+  que abrió `/admin/m4` con temporal acaba en M4, no en el tablero.
+- **Enlace de la cuenta:** `StorefrontHeader` (cliente) y `AdminTopbar` (staff) — ux-ui decide dónde; **ambos** deben
+  existir o el operador sigue sin camino (P-75).
+
+#### 4.47.8 Reparto por módulo y orden — para que backend y frontend arranquen A LA VEZ
+
+**Zonas compartidas que toca A (y en qué orden, un solo stream a la vez):** `backend/prisma/` (M-52, **primero**),
+`backend/src/common/` (guard + decorador; `error-codes.ts`), `frontend/src/lib/` (`api-client` interceptor,
+`api.ts` clientes nuevos, `session.ts` patch, helper de `localStorage`), `frontend/src/components/` (`domain/account/*`,
+`PrivateRouteGuard`, `AuthForm`), `frontend/src/types/contract.ts`. **B y C no tocan ninguna de estas en esta ventana.**
+
+| # | Backend (módulo → fichero) | Depende de |
+|---|---|---|
+| B1 | `prisma/`: `M-52` (`Address.recipientName`, `NameSource` + `User.nameSource` + backfill) | — |
+| B2 | `common/`: `ErrorCode` +5; `PasswordChangeRequiredGuard` + `@AllowPasswordChangeRequired()`; `JwtAuthGuard` `select` + `req.user.mustChangePassword`; `app.module` orden | — |
+| B3 | `auth`: `publicUser` +`mustChangePassword`; `POST /auth/change-password` (DTO, servicio, throttle, audit); `google()` escribe `nameSource`; allowlist en `logout`/`change-password` | B1 (schema), B2 |
+| B4 | `users`: `/users/me` +`hasPassword`/`nameSource`/`mustChangePassword` y allowlist; `UpdateMeDto.name` trim/1..120 + `nameSource='user'`; `updateMe` devuelve la forma del GET; `AddressDto.recipientName` obligatorio, `UpdateAddressDto` opcional no vaciable; `toAddressDTO` | B1 |
+| B5 | `shipments` (**cruce con B, serializado**): `quote`/`create` ⇒ `422 RECIPIENT_NAME_REQUIRED`; snapshot de 9 campos | B1 |
+| B6 | `mail`: `greetingName()` en las dos plantillas | B1 |
+| B7 | Tests: unitarios de guard/allowlist, cambio (incl. `tv` viejo ⇒ 401 y par nuevo ⇒ 200), 5 códigos; E2E: reset admin → sesión vieja 401 → login temporal → 403 en `/vault` → `change-password` → 200 en `/vault` | B2–B5 |
+
+**Secuencia backend:** B1 → (B2 ∥ B4 ∥ B5 ∥ B6) → B3 → B7. Dos agentes backend pueden ir en paralelo: **uno en
+`auth`+`common`+`mail`** (B2, B3, B6) y **otro en `users`+`shipments`** (B4, B5), ambos tras B1.
+
+| # | Frontend (ruta/fichero) | Depende de |
+|---|---|---|
+| F1 | `types/contract.ts`: `UserDTO` +3 campos, `AddressDTO.recipientName`, `ChangePasswordRequest/Response`, 5 códigos en el mapa de i18n de errores | contrato (ya) |
+| F2 | `lib/`: `api.ts` `changePassword()`, `getClaimable()`, `claimOrders()` (si faltan); `api-client.ts` interceptor `PASSWORD_CHANGE_REQUIRED`; `session.ts` sin cambio de forma; `lib/local-store.ts` (helper compartido de carritos) | F1 |
+| F3 | `components/domain/account/*` (perfil con aviso `derived`, contraseña con `hasPassword`, direcciones con `recipientName`, facturación, KYC, `ClaimableOrdersNotice`) | F1, `DESIGN_SYSTEM` (ux-ui, en paralelo) |
+| F4 | `(storefront)/account`, `(storefront)/account/password`; `PrivateRouteGuard` +`/account`; `StorefrontHeader` enlace | F2, F3 |
+| F5 | `(admin)/admin/account`, `(admin)/admin/account/password`; `AdminTopbar` enlace | F2, F3 |
+| F6 | `AuthForm`: redirect directo por `mustChangePassword` con `next`; sin «Continuar» | F2 |
+| F7 | `/vault` y `/orders`: `ClaimableOrdersNotice` (nada con `[]` o 403) | F3 |
+| F8 | `buylist`: `useSellCart` persistido + recotización al rehidratar + poda; CTA con `next=/buylist` | F2 (helper) |
+| F9 | `(admin)/admin/m4`: destinatario + dirección en fila y detalle; copy «Sin destinatario (…)» | F1 |
+| F10 | Retiro (`/vault` → crear envío): manejar `RECIPIENT_NAME_REQUIRED` con captura inline de `recipientName` y reintento; alta de dirección con el campo | F1, F3 |
+| F11 | Playwright: login con temporal → pantalla de contraseña → cambio → vuelve a `next`; reclamo desde bóveda; retiro con dirección vieja → captura → 201; carrito de venta sobrevive a login | F4–F10 |
+
+**Secuencia frontend:** F1 → F2 → (F3 ∥ F6 ∥ F8 ∥ F9) → (F4 ∥ F5 ∥ F7 ∥ F10) → F11. **Contra mocks hasta que backend
+publique**: F1–F10 no necesitan el backend nuevo para construirse (los mocks de `lib/api.ts` reflejan el contrato).
+
+**Orden de despliegue del stream (normativo):** (1) `M-52` (aditiva; en el mismo `migrate deploy` que el artefacto);
+(2) backend completo (B2–B6 en un solo deploy: **guard y endpoint juntos**); (3) frontend, mismo release,
+inmediatamente después. Rollback del backend: el artefacto anterior **ignora** las columnas nuevas (nullable /
+default) — no hay que revertir la migración.
+
+#### 4.47.9 Decisiones que quedan al dueño / product-owner (marcadas, no asumidas)
+
+1. **PREGUNTA AL DUEÑO — `PATCH /users/me` y `mustChangePassword`.** Diseñado **fuera** de la allowlist (un usuario
+   con temporal **no** edita nombre/teléfono hasta cambiarla). Es la lectura literal de «que obligue». **Recomiendo
+   mantenerlo así**; si se quiere permitir, es añadir el decorador a una ruta — sin cambio de contrato.
+2. **PREGUNTA AL DUEÑO — edición del nombre por el admin (M6).** PROYECTADA, fuera de A (contrato §M6).
+   **Recomendación:** no construirla hasta que un caso de soporte real la pida; la cura de P-73 es el propio usuario.
+3. **PREGUNTA A PRODUCT-OWNER — correos del buylist con `nameSource='derived'`.** El helper `greetingName()` nace en
+   `mail` (A); adoptarlo en `buylist.service.ts`/`buylist-sweep.service.ts` es del stream buylist (`D-CTA-5` lo
+   enruta). **Recomendación:** adoptarlo en su siguiente pase; mientras, esos correos siguen diciendo «Hola jcsainz95».
+
+#### 4.47.10 Pase v1.67.1 — lo que el contrato dejó sin fijar, y la condición de release del stream (2026-09-11)
+
+> **Qué se midió antes de escribir (regla §0-B.3/2, el artefacto que corre):** `users.service.ts:208-225`
+> (`getBillingProfile` devuelve `null` ⇒ `200` vacío; emite `rfc` + spread de la fila), `users.dto.ts:64-71`
+> (`BillingProfileDto` sin cotas), `schema.prisma:480-493` (`userId @unique`), `pii-mask.ts:20-24` (`maskRfc`),
+> `admin.service.ts:165-190` (`toAdminUserAddressRef` sin `recipientName`), `shipments.service.ts:424-436`
+> (`recipientName` suelto = `snapshot.recipientName ?? undefined`), `M4View.tsx:267` (lee el suelto primero),
+> `auth.service.ts:415-434` (`trim() || null` ⇒ `derived`), `lib/api.ts:1917-1926` y `types/contract.ts:424-431`
+> (frontend ya asume `404` y seis campos con `rfcMasked`), `seed-e2e.ts` entero (**ninguno** de los tres actores de
+> §4.47.10.4 está sembrado en `HEAD d2efe07`; solo hay limpieza de pedidos de invitado en `:115-124`).
+
+##### 4.47.10.1 Perfil de facturación: `404` sin perfil, upsert en `PUT`, seis campos
+
+- **`404 NOT_FOUND`, no `200 null`.** El recurso es **singular por usuario** y no tiene lista: «no existe» es
+  exactamente lo que `404` significa, y ya es el código común de §0. `200 null` obliga a todo consumidor a tratar el
+  vacío como un caso especial del éxito y a tiparlo como `T | null` en cada llamada; el `404` lo aísla en **un**
+  sitio (`lib/api.ts:1925` ya lo hace). No hay anti-enumeración que proteger (recurso propio y autenticado), así que
+  no aplica la doctrina «misma respuesta para inexistente y ajeno» de `PICKUP_ADDRESS_NOT_FOUND`.
+- **`PUT` = upsert que reemplaza entero y devuelve la forma del `GET`.** Los seis campos son obligatorios, así que
+  «parcial» no existe y `PATCH` no tiene sentido. `200` también en la creación: el cliente no distingue —ni debe—
+  primera vez de reemplazo (`putBillingProfile` ya hace `upsert` + relee, `users.service.ts:216-225`).
+- **Forma: `{ rfcMasked, razonSocial, regimenFiscal, usoCfdi, postalCode, email }` y nada más.** Misma doctrina que
+  `AddressDTO` (D10): sin `userId` (dueño implícito por `/users/me`), sin `id` (ninguna ruta lo acepta), sin
+  timestamps (nadie los pinta). **`AdminBillingProfileDTO` de M6 sigue llevando `id`/`userId`/timestamps**: una
+  ficha de back-office correlaciona por id y fecha con auditoría; el perfil del cliente no. Dos DTOs a propósito,
+  igual que `AdminUserDetailDTO` vs `AdminUserDetailOperatorDTO`. `rfcMasked` y no `rfc`: el nombre del campo dice
+  lo que contiene, y un `rfc` que no es el RFC es una trampa para el siguiente lector.
+- **Backend (`users`, Stream A): `D-CTA-7`.** Lanzar `BusinessException.notFound()` en vez de `return null`;
+  proyectar explícitamente los seis campos (lista blanca, no spread — es la lección S49-M1-R de §11).
+
+##### 4.47.10.2 Una sola proyección de `Address`; M4 y M6 con el mismo vocabulario
+
+- `toAdminUserAddressRef` (`admin.service.ts:165`) nació como «misma lista blanca que `toAddressDTO`» y dejó de
+  serlo en cuanto `toAddressDTO` ganó un campo. **Es el patrón de S49-M1-R con otro nombre**: una copia sin dueño
+  diverge sin que nadie lo note. Norma: **una función**; backend decide dónde vive (exportada de `users` o en
+  `common/`) — lo prohibido es la segunda copia. Módulo `admin` (stream «Admin y auditoría») pero el cambio es de
+  una línea de import y **lo ejecuta backend de Stream A** con la unificación que ya anunció (`D-CTA-8`); B/C no
+  tocan `admin.service.ts` en esta ventana.
+- `recipientName` en la ficha del **operador** no es PII nueva: ya ve `line1` y `phone` de la misma fila, y el
+  nombre es lo que imprime en la etiqueta. Misma proyección para los dos roles.
+- **El snapshot de un envío es `AddressDTO` sin `id`/`isDefault`/`createdAt`** (9 campos, mismos nombres). Así la
+  fila de M4 y la dirección de la ficha de M6 se comparan a ojo, y el operador que resuelve un retiro «sin
+  destinatario» encuentra el dato **con el mismo nombre** en los dos sitios.
+
+##### 4.47.10.3 El destinatario suelto de M4: proyección deprecada, no segunda verdad
+
+- **Diagnóstico exacto:** la BD tiene **una** fuente (`ShipmentRequest.addressSnapshot`, JSON) y el DTO la lee dos
+  veces (`:436`). No es «dos fuentes para un hecho» (la lección de O-1 del orquestador, que sí prohibiría una columna
+  nueva); es **dos lugares donde mirar**, y `M4View.tsx:267` mira primero el equivocado.
+- **Decisión: canónico = `addressSnapshot.recipientName`; el suelto se conserva DEPRECADO en v1.67.x** con el
+  invariante `recipientName === addressSnapshot.recipientName`. Retirarlo hoy rompería a un frontend que está
+  implementando M4 en este mismo stream; conservarlo sin marca perpetuaría la duplicación. La marca **más una
+  condición de retiro medible** (`grep` sin lectores de la raíz en `admin/m4` y `lib/`) convierte el retiro futuro en
+  un cambio de una línea en backend y cero en frontend. Frontend invierte el orden de lectura ahora (`D-CTA-9`).
+
+##### 4.47.10.4 Condición de release de Stream A (exigida por QA y techlead; NORMATIVA)
+
+**(a) Seed E2E — tres actores que la suite necesita y que `seed-e2e.ts` NO tiene en `HEAD d2efe07` (medido):**
+
+| Actor | Datos mínimos | Qué prueba |
+|---|---|---|
+| Usuario con **contraseña temporal** | `authProvider='local'`, `passwordHash` de una temporal **conocida por la suite**, `mustChangePassword=true` | login ⇒ `user.mustChangePassword: true` ⇒ `403 PASSWORD_CHANGE_REQUIRED` en `/vault` ⇒ `change-password` ⇒ `200` en `/vault` con el par nuevo; sesión vieja ⇒ `401` |
+| Cuenta **solo-Google** | `authProvider='google'`, `passwordHash=null`, `googleId` ficticio, `emailVerified=true`, `name` derivado del correo, `nameSource='derived'` | `GET /users/me` ⇒ `hasPassword:false` + `nameSource:'derived'` (perfil pinta «Revisa tu nombre» y el botón de `forgot-password`, no el de cambiar); `change-password` ⇒ `422 PASSWORD_NOT_SET` |
+| **Pedido de invitado sin reclamar** | `Order` con `userId=null`, `guestEmail` = correo de un cliente del seed con `emailVerified=true`, `claimedAt=null`, `status` que §4-G.9 considere reclamable | `GET /orders/claimable` **no vacío** para ese cliente ⇒ `ClaimableOrdersNotice` se pinta; reclamo ⇒ el pedido aparece en `/orders` |
+
+Backend informa que **lo está sembrando** — **NO MEDIDO por mí que haya aterrizado**; lo cierra `grep -n
+"mustChangePassword\|authProvider: .google\|claimedAt" backend/prisma/seed-e2e.ts` con tres coincidencias y una
+corrida verde de la E2E `@real` de frontend (`FRONTEND_NOTES.md:15881`). El seed **no** siembra un `BillingProfile`
+(el vacío `404` es el caso que hay que probar; el `PUT` lo crea dentro del test).
+
+**(b) Regla de despliegue (ya normativa en §4.47.2 y §4.47.8; aquí como checklist de release):**
+1. `M-52` en el mismo `migrate deploy` que el artefacto (aditiva, nullable/default; rollback = ignorar columnas).
+2. **Guard `PasswordChangeRequiredGuard` y `POST /auth/change-password` en el MISMO deploy de backend.** ⛔ Publicar el
+   guard sin el endpoint encierra a los usuarios con temporal sin más salida que el correo.
+3. **Antes de publicar, contar** `SELECT count(*) FROM "User" WHERE "mustChangePassword"` en producción: es el número
+   de usuarios que, entre el deploy de backend y el de frontend, verán `403` sin pantalla. **El orquestador lo pide
+   al dueño en el plan de publicación** (`HECHOS.md:17`: no hay staging, solo producción en Railway; **NO MEDIDO por
+   mí** si esa BD es alcanzable desde este entorno — si lo fuera, el orquestador lo mide él y no lo pide); si es
+   `0`, el hueco no afecta a nadie; si no, backend y frontend se publican **en la misma ventana**.
+4. Frontend (pantalla `/account/password` + `/admin/account/password` + interceptor `403`) en el mismo release,
+   inmediatamente después.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -22546,6 +22918,8 @@ miente en la otra dirección cuesta lo mismo que uno que no mide.*
 |---|---|---|---|
 | Storefront/compra/bóveda/retiro/buylist (como cliente) | ✅ | — | — |
 | **Acciones sensibles con `emailVerified=false`** (comprar / retirar / vender) | ❌ **403 `EMAIL_NOT_VERIFIED`** (`EmailVerifiedGuard`, §4.11) | n/a | n/a |
+| **Cualquier endpoint autenticado con `mustChangePassword=true`** salvo `POST /auth/change-password`, `POST /auth/logout`, `GET /users/me` (v1.67, §4.47.2) | ❌ **403 `PASSWORD_CHANGE_REQUIRED`** | ❌ ídem | ❌ ídem |
+| Cambiar la propia contraseña con la actual (`POST /auth/change-password`, v1.67) | ✅ | ✅ | ✅ |
 | M1 Inventario (alta, mover, fotos, pérdida/daño) | — | ✅ | ✅ |
 | M2 Precios (sync, override, FX, tabla rareza) | — | — | ✅ |
 | M3 Órdenes ver | — | ✅ (solo lectura) | ✅ |
@@ -22645,6 +23019,54 @@ Riesgos técnicos:
 > (los decimales de `aportacion_pct` e `iva_pct`, **cerradas por backend**; su deuda vive como `TD-IVA-1`/`TD-IVA-2`
 > en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
 > nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
+
+- **🔴 ABIERTA (v1.67) — `D-CTA-1`: `mustChangePassword` NO VIAJA EN EL `user` DE `login|google|register`, Y EL
+  FRONT LO LEE.** **Dueño: backend (`auth`).** Medido 2026-09-11: `auth.service.ts:47-57` (`publicUser`) no lo emite;
+  `AuthForm.tsx:65` lo consulta. El aviso de contraseña temporal **nunca se ha mostrado en producción**. Norma:
+  contrato §1 (nota v1.67 sobre `publicUser`). Cierra con B3 de §4.47.8.
+- **🔴 ABIERTA (v1.67) — `D-CTA-2`: `UpdateMeDto.name` ACEPTA `""` Y `updateMe` NO DEVUELVE LA FORMA DEL `GET`.**
+  **Dueño: backend (`users`).** `users.dto.ts:12` es `@IsString()` sin `MinLength`/trim ⇒ un `PATCH { name: "" }`
+  escribe un nombre vacío en columna `NOT NULL`; `users.service.ts:89-96` responde 6 campos. Norma: contrato
+  §1 `PATCH /users/me` (trim, 1..120, `nameSource='user'`, misma forma que el GET). Cierra con B4.
+- **🔴 ABIERTA (v1.67) — `D-CTA-3`: TODO RETIRO DE BÓVEDA NACE SIN DESTINATARIO.** **Dueño: backend
+  (`shipments`, ejecutado por Stream A, serializado con B).** `shipments.service.ts:183-192` congela 8 campos sin
+  nombre; `:405` emite `recipientName: undefined`. Es la premisa del contrato («el invitado no tiene `User.name`»,
+  §4-G) **que el código nunca honró**. Norma: §4.47.4, contrato §5. Cierra con B1 + B5.
+- **🔴 ABIERTA (v1.67) — `D-CTA-4`: EL NOMBRE DE UNA CUENTA GOOGLE SIN NOMBRE SE FABRICA SIN MARCA.** **Dueño:
+  backend (`auth`).** `auth.service.ts:339`. Rompe «nunca se inventa un dato» no por el valor sino por parecer
+  tecleado. Norma: §4.47.5 (`User.nameSource`, backfill `M-52b`). Cierra con B1 + B3.
+- **⚠️ ABIERTA (v1.67) — `D-CTA-5`: `pickupAddressSnapshot` DEL BUYLIST TAMPOCO LLEVA NOMBRE, Y SUS CORREOS
+  SALUDAN CON EL NOMBRE FABRICADO.** **Dueño: backend del stream buylist («Catálogo y precios») — NO Stream A.**
+  Con `M-52` la libreta ya tiene `recipientName`; el constructor del snapshot de recolección debe copiarlo (sin
+  gatear: una solicitud vieja no se bloquea por esto) y los correos de `buylist.service.ts:4358,4383,5392,6681` y
+  `buylist-sweep.service.ts:129,177,250,443` deben adoptar `greetingName()` (§4.47.5). **Pendiente de medir** por ese
+  stream: dónde se construye hoy el snapshot (`grep pickupAddressSnapshot backend/src/modules/buylist`).
+- **⚠️ ABIERTA (v1.67) — `D-CTA-6`: M4 NO PINTA NI DESTINATARIO NI DIRECCIÓN; PINTA EL `userId` CRUDO.**
+  **Dueño: frontend (Stream A, `(admin)/admin/m4`).** `M4View.tsx:201`. El operador que compra la guía a mano no tiene
+  de dónde copiar. Norma: contrato §M4 (nota v1.67). Cierra con F9.
+- **🔴 ABIERTA (v1.67.1) — `D-CTA-7`: `GET /users/me/billing-profile` RESPONDE `200` VACÍO SIN PERFIL Y EMITE UN
+  SPREAD DE LA FILA CON EL RFC BAJO LA CLAVE EQUIVOCADA.** **Dueño: backend (`users`, Stream A).** Medido 2026-09-11:
+  `users.service.ts:210` (`return null` ⇒ `200` sin cuerpo útil) y `:212-213` (`{ ...rest, rfc: maskRfc(...) }` ⇒
+  emite `rfc`, `id`, `userId`, `createdAt`, `updatedAt`; el contrato decía `rfcMasked` desde v1.1 y frontend lo tipa
+  así, `types/contract.ts:425`). Norma: contrato §1 «Perfil de facturación» + §11 `BillingProfileDTO` (`404
+  NOT_FOUND`; seis campos en lista blanca). **Comprobación:** `curl` autenticado sin perfil ⇒ `404` con `code:
+  NOT_FOUND`; con perfil ⇒ exactamente seis claves, `rfcMasked` presente, `rfc`/`id`/`userId` ausentes.
+- **🔴 ABIERTA (v1.67.1) — `D-CTA-8`: LA FICHA M6 PROYECTA `Address` CON UNA COPIA QUE OMITE `recipientName`.**
+  **Dueño: backend (`admin.service.ts:165-190`; lo ejecuta backend de Stream A con la unificación en `toAddressDTO` que
+  anunció en `BACKEND_NOTES.md:19977`; B/C no entran a `admin.service.ts` en esta ventana).** Medido 2026-09-11: la
+  función se declara «misma lista blanca que `UsersService.toAddressDTO`» y no lo es (sin `recipientName`, sin
+  `createdAt`). Consecuencia: el remedio de §5 para retiros anteriores a v1.67 («el operador lo resuelve por la ficha
+  de M6») no tenía dato que mostrar. Norma: contrato §M6 (nota v1.67.1), §11 `AddressDTO`. **Comprobación:** `grep -n
+  "toAdminUserAddressRef" backend/src` ⇒ cero; `GET /admin/users/:id` con los dos roles ⇒ `addresses[].recipientName`
+  presente.
+- **⚠️ ACEPTADA-TEMPORAL (v1.67.1) — `D-CTA-9`: `GET /admin/shipments[/:id]` EMITE EL DESTINATARIO DOS VECES (RAÍZ Y
+  SNAPSHOT) Y M4 LEE PRIMERO LA RAÍZ.** **Dueños: frontend (Stream A, `M4View.tsx:267` — invertir a
+  `snap(s,'recipientName') ?? s.recipientName` y marcar `AdminShipmentDTO.recipientName` `@deprecated` en
+  `types/contract.ts:1017`); arquitecto (la rev futura que lo retira).** Medido 2026-09-11: `shipments.service.ts:436`
+  emite `recipientName: snapshot.recipientName ?? undefined` — **una** fuente en BD, **dos** proyecciones en el DTO.
+  Norma: contrato §M4 (v1.67.1): canónico = `addressSnapshot.recipientName`; raíz = legado deprecado con invariante
+  de igualdad; retiro en rev futura cuando `grep -rn "\.recipientName" frontend/src/app/[locale]/(admin)/admin/m4
+  frontend/src/lib` no devuelva lecturas de la raíz. **No se retira en v1.67.x** (stream en curso).
 
 - **⚠️ ABIERTA (v1.66) — `D-CS-1`: EL CONTRATO NO SABÍA QUE `sync-all` YA TENÍA CORTE, NI QUE `sync-status` YA
   TENÍA `summary`.** **Dueño del arreglo: arquitecto — CERRADA EN ESTE MISMO PASE** en cuanto a la prosa
@@ -24677,6 +25099,41 @@ productivas); las migraciones solo redefinen esquema.~~
 > **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
 > `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
 > que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.67-cuenta-del-cliente (**M-52**: destinatario en la dirección + origen del nombre — **DDL ADITIVO + enum + backfill determinista**, §4.47)
+
+> 🚧 **`M-52` NO EXISTE TODAVÍA** *(medido el 2026-09-11: la última migración del árbol sigue siendo
+> `20260909120000_m50_price_convention`; `M-51` tampoco existe aún)*. Especificación de una migración **pendiente**.
+> Dueño: **backend** (Stream A, tarea B1 de §4.47.8). **Va antes que cualquier código del stream** y en el mismo
+> `migrate deploy` que el artefacto que la usa. `M-51` y `M-52` son independientes: el orden entre ellas lo fija el
+> orquestador por el orden de merge; ninguna toca la tabla de la otra.
+
+**`M-52a` — `Address.recipientName`.**
+```sql
+ALTER TABLE "Address" ADD COLUMN "recipientName" TEXT;   -- nullable, SIN default, SIN backfill
+```
+No hay de dónde rellenarlo sin inventar (§4.47.4): las filas viejas quedan `NULL` y **el retiro pide completarlo**
+(`422 RECIPIENT_NAME_REQUIRED`). Prisma: `recipientName String?`. **Rollback:** ninguno necesario — el artefacto
+anterior ignora la columna.
+
+**`M-52b` — `User.nameSource`.**
+```sql
+CREATE TYPE "NameSource" AS ENUM ('user', 'google', 'derived');
+ALTER TABLE "User" ADD COLUMN "nameSource" "NameSource" NOT NULL DEFAULT 'user';
+-- Backfill DETERMINISTA: la regla de auth.service.ts:339 aplicada hacia atrás. Idempotente.
+UPDATE "User" SET "nameSource" = 'derived'
+ WHERE "authProvider" = 'google' AND "name" = split_part("email", '@', 1);
+UPDATE "User" SET "nameSource" = 'google'
+ WHERE "authProvider" = 'google' AND "nameSource" = 'user';
+```
+`NOT NULL DEFAULT 'user'` es correcto para toda fila `local` (registro y alta admin teclean el nombre). Las dos
+sentencias solo tocan `authProvider='google'` ⇒ **no pueden marcar como inventado un nombre tecleado** en una cuenta
+local. **Falso positivo posible y aceptado:** una cuenta Google cuyo nombre real coincida letra por letra con el
+trozo local de su correo quedará `derived`; el único efecto es un aviso «revisa tu nombre» que el usuario cierra
+guardando (⇒ `user`). **No es destructivo:** solo escribe la columna nueva. **Rollback:** el artefacto anterior ignora la columna.
+Prisma: `enum NameSource { user google derived }`, `nameSource NameSource @default(user)`.
+
+**Sin índices nuevos** (ninguna consulta filtra por estas columnas). **Sin seeds** (no hay `ConfigSetting`).
 
 ### v1.66-catalog-honesty (**M-51**: el índice que paga la columna de cobertura + el mando muerto que se borra — **SIN DDL de tablas**, §4.45)
 

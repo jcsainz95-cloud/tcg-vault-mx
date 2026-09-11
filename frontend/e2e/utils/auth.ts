@@ -3,6 +3,7 @@ import { test } from '@playwright/test';
 import {
   CREDENTIALS,
   IS_REAL,
+  TEMP_PASSWORD_ROLES,
   type InjectedSession,
   type SeedRole,
   sessionFor,
@@ -61,8 +62,20 @@ export const MONEY_RE = /MX\$[\d,]+\.\d{2}/;
  */
 export function credentialsFor(role: SeedRole = 'customer'): { email: string; password: string } {
   const { email, password } = CREDENTIALS[role];
-  return IS_REAL ? { email, password } : { email: 'cliente@example.com', password: 'secret123' };
+  return IS_REAL ? { email, password } : MOCK_FORM_CREDENTIALS[role];
 }
+
+/**
+ * Credenciales que la rama MOCK de `login()` (`lib/api.ts`) entiende: cualquier par vale, salvo que el
+ * CORREO decide el rol y, para `MOCK_TEMP_PASSWORD_EMAILS`, la contraseña temporal.
+ */
+const MOCK_FORM_CREDENTIALS: Record<SeedRole, { email: string; password: string }> = {
+  customer: { email: 'cliente@example.com', password: 'secret123' },
+  admin: { email: 'admin@example.com', password: 'secret123' },
+  operator: { email: 'operador@example.com', password: 'secret123' },
+  customerTemp: { email: 'temporal@example.com', password: 'cualquiera' },
+  operatorTemp: { email: 'operador.temporal@example.com', password: 'temporal-op' },
+};
 
 /**
  * Persiste la sesión en localStorage ANTES de cargar la app (addInitScript corre en cada
@@ -94,7 +107,9 @@ export async function loginAs(page: Page, role: SeedRole = 'customer'): Promise<
     return session;
   }
 
-  // MOCK: sin backend, basta el `user` (las ramas mock de api.ts ignoran el token).
+  // MOCK: sin backend, basta el `user` (las ramas mock de api.ts ignoran el token). Los actores con
+  // temporal nacen con la bandera puesta, como su login real.
+  const temp = TEMP_PASSWORD_ROLES.includes(role);
   const session: InjectedSession = {
     accessToken: 'mock.session.token',
     refreshToken: 'mock.refresh.token',
@@ -107,6 +122,7 @@ export async function loginAs(page: Page, role: SeedRole = 'customer'): Promise<
       status: 'active',
       authProvider: 'local',
       emailVerified: true,
+      ...(temp ? { mustChangePassword: true, hasPassword: true, nameSource: 'user' } : {}),
     },
   };
   await injectSession(page, session);
@@ -147,6 +163,26 @@ export function mockOnly(reason: string): void {
  */
 export function needsSeed(reason: string): void {
   test.skip(IS_REAL, `falta dato en el seed real: ${reason}`);
+}
+
+/**
+ * Tercera clasificación, distinta de las dos anteriores: el test está bien y el DATO existe (o puede
+ * existir), pero **el arnés no tiene forma de ejercerlo contra el backend real** — p. ej. una cuenta
+ * solo-Google no tiene contraseña y aquí no hay Google con el que entrar. No es un fixture (`mockOnly`)
+ * ni una fila que falte (`needsSeed`): es un límite declarado del arnés, para que no se disfrace de
+ * ninguno de los dos.
+ */
+export function harnessLimit(reason: string): void {
+  test.skip(IS_REAL, `límite del arnés: ${reason}`);
+}
+
+/**
+ * Variante DINÁMICA de `needsSeed`, para cuando solo se sabe si el dato existe al intentarlo (p. ej.
+ * el login de un actor sembrado responde 401 porque el seed no corrió, o su temporal ya se consumió
+ * en una corrida anterior). `condition=true` ⇒ se salta con la razón impresa.
+ */
+export function skipIfSeedMissing(condition: boolean, reason: string): void {
+  test.skip(condition, `falta dato en el seed real: ${reason}`);
 }
 
 /** Inverso de `mockOnly`: el test solo tiene sentido contra el backend real (p. ej. un 409 del contrato). */

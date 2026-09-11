@@ -149,11 +149,13 @@ export class PiiCryptoService {
     if (raw && raw.length > 0) {
       // Acepta base64 o texto plano; exige suficiente entropía (>= 32 bytes).
       const asB64 = Buffer.from(raw, 'base64');
-      const key = asB64.length >= 32 ? asB64 : Buffer.from(raw, 'utf8');
-      if (key.length < 32) {
+      // (`material`, no `key`: el nombre `key = …` disparaba el `generic-api-key` de gitleaks sobre
+      // `asB64.length` — falso positivo medido con gitleaks 8.30.1, 2026-09-11.)
+      const material = asB64.length >= 32 ? asB64 : Buffer.from(raw, 'utf8');
+      if (material.length < 32) {
         throw new Error('PII_HMAC_KEY must provide at least 32 bytes of key material');
       }
-      return key;
+      return material;
     }
     const { required, reason } = PiiCryptoService.keysRequired(config);
     if (required) {

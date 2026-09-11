@@ -54,7 +54,7 @@ jobs:
         --config=p/secrets
         --config=p/jwt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # -----------------------------------------------------------------------
       # (1) Informe COMPLETO (todas las severidades) -> SARIF a la pestaña
       #     Security. NO bloquea: es VISIBILIDAD. El gate real es el paso (2).
@@ -63,6 +63,8 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Semgrep — informe completo (SARIF, no bloquea)
         run: |
+          # $SG_CONFIGS va SIN comillas a propósito: son varios `--config=…` separados por espacio.
+          # shellcheck disable=SC2086
           semgrep $SG_CONFIGS \
             --metrics=off --disable-version-check \
             --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
@@ -70,7 +72,7 @@ jobs:
             backend/ frontend/ || true
       - name: Subir SARIF de Semgrep
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
         continue-on-error: true
@@ -84,11 +86,24 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Semgrep GATE — bloquea en high/critical (severidad ERROR)
         run: |
+          # $SG_CONFIGS va SIN comillas a propósito: son varios `--config=…` separados por espacio.
+          # shellcheck disable=SC2086
           semgrep $SG_CONFIGS \
             --severity=ERROR \
             --error --metrics=off --disable-version-check \
             --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
             backend/ frontend/
+      # -----------------------------------------------------------------------
+      # ¿EL GATE DE SEMGREP MUERDE? (QA, lote 2026-09-11: 0 rojos en 60 corridas
+      # no distingue «código limpio» de «gate inerte»). El canario planta, en un
+      # repo temporal, un fichero que dispara reglas ERROR de `security/semgrep.yml`
+      # y exige que ESTE mismo comando —mismas configs (SG_CONFIGS), misma
+      # severidad— salga rojo; y que un fichero limpio salga verde. En `sh` POSIX
+      # porque corre dentro del contenedor de semgrep. §56.
+      # -----------------------------------------------------------------------
+      - name: Canario de semgrep — el gate sabe ponerse rojo
+        if: ${{ !cancelled() }}
+        run: sh ./security/scripts/sast-semgrep-canary.sh
 
   # ---------------------------------------------------------------------------
   # gitleaks — secretos. ACTIVO.
@@ -103,27 +118,46 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # historial completo para escanear commits
+      # 2026-09-11 (§56): @v2 → @v3. v3 es la misma acción sobre runtime node24
+      # (README v3: «no changes to inputs, outputs, or behavior»); v2 corre sobre
+      # node20, que GitHub retira de los runners el 2026-09-16. Se mantiene el
+      # comportamiento medido: escanea el RANGO del push (`--log-opts … base^..head`)
+      # y deja el SARIF como artifact. Se fija además GITLEAKS_VERSION al binario
+      # con el que se midió la allowlist en local (§56): sin fijarlo, la acción
+      # resuelve «latest» en cada corrida y la config se mide contra un escáner
+      # que cambia solo.
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           # OBLIGATORIO: sin esto la acción aborta con
           #   "GITHUB_TOKEN is now required to scan pull requests"
           # (fue el fallo del release PR #3). Va por ENV, no por `with:` — así lo
-          # documenta el README de gitleaks-action v2.
+          # documenta el README de gitleaks-action.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: ${{ github.workspace }}/security/gitleaks.toml
+          GITLEAKS_VERSION: "8.30.1"
           # Comentarios en el PR DESACTIVADOS a propósito: publicarlos requiere
           # `pull-requests: write` y no queremos ese scope en un job de secretos.
           # El gate no se relaja: si hay leaks el job FALLA y el detalle está en el
           # log y en el artifact SARIF.
           GITLEAKS_ENABLE_COMMENTS: "false"
           # GITLEAKS_LICENSE solo hace falta para org accounts; en repos personales no.
-          # DEUDA (no bloqueante): gitleaks-action@v2 corre sobre Node 20, que GitHub
-          # retira de los runners el 2026-09-16. Antes de esa fecha hay que subir a
-          # @v3 (mismos inputs/env; requiere runner >= 2.327.1). Ver DEVOPS_NOTES §22.
+      # -----------------------------------------------------------------------
+      # C4 (S-GL-1) + P-GL-FP — el candado de secretos tiene que saber morder.
+      # La acción deja el binario en PATH (`core.addPath`). Con ESE binario y
+      # ESTA config, el canario planta una `sk_test_51…` de forma real y exige
+      # rojo; planta los dos canarios de `scripts/` en su ruta y exige verde; y
+      # el mismo contenido en otra ruta, rojo. Si alguien vuelve a ensanchar la
+      # allowlist («sk_test_.*») o borra la ruta, esto lo dice en el mismo run.
+      # `!cancelled()`: corre aunque el paso de arriba haya encontrado leaks —
+      # un rojo real no puede apagar la autoprueba (lección de §53).
+      # -----------------------------------------------------------------------
+      - name: Canario de gitleaks — la clave de prueba real es roja; los canarios pasan por su ruta
+        if: ${{ !cancelled() }}
+        run: ./security/scripts/sast-gitleaks-canary.sh
 
   # ---------------------------------------------------------------------------
   # npm audit — backend + frontend. ACTIVO (se salta la app que no exista).
@@ -131,10 +165,10 @@ jobs:
   npm-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       # GATE BLOQUEANTE (SEC-C2): falla en high/critical de dependencias de
       # RUNTIME (--omit=dev en audit-npm.sh). Cubre el bump de next/next-intl/
       # postcss (frontend) y express/multer/qs (backend). Es required check.
@@ -189,7 +223,7 @@ jobs:
       TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
         # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
         # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
@@ -331,7 +365,7 @@ jobs:
       TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
         # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
         # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
@@ -387,7 +421,7 @@ jobs:
           docker build -f Dockerfile.backend -t tcg-backend:scan --target runtime .
       - name: Trivy image backend
         if: hashFiles('backend/package.json') != ''
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           skip-setup-trivy: "true"
           scan-type: image
@@ -412,7 +446,7 @@ jobs:
             --build-arg NEXT_PUBLIC_USE_MOCKS=false .
       - name: Trivy image frontend
         if: hashFiles('frontend/package.json') != ''
-        uses: aquasecurity/trivy-action@v0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           skip-setup-trivy: "true"
           scan-type: image

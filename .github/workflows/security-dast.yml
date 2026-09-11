@@ -38,8 +38,16 @@
 #   dos. Lo que eso deja fuera está DECLARADO en DEVOPS_NOTES §44.4.
 #
 # CADENCIA: semanal (lunes 06:00 UTC, la misma que ya tenía el cron muerto que
-#   sustituye) + `workflow_call` para el barrido previo a publicar + manual.
-#   NO por push: el escaneo activo tarda demasiado para castigar el día a día.
+#   sustituye) + `workflow_call` desde `deploy.yml` en CADA push a `production`
+#   —la rama que publica (HECHOS.md)— sobre el SHA publicado, en modo
+#   `report_only` mientras seguridad no lo suba a bloqueante (C2, §56) + manual.
+#   NO por push a otras ramas: el escaneo activo tarda demasiado para castigar
+#   el día a día.
+#
+# QUÉ COMMIT ESCANEA: el de `inputs.ref` si viene (deploy.yml pasa `github.sha`
+#   del push a `production`; el dispatch admite un SHA a mano), y si no, el de
+#   la rama del disparo. Se imprime en el resumen del run para que un verde
+#   diga SOBRE QUÉ es verde (P-77 / SEC-OPS-1).
 #
 # EL CANDADO PUEDE PONERSE ROJO, Y SE COMPRUEBA CADA SEMANA: el job `selftest`
 #   escanea un blanco con vulnerabilidades PLANTADAS y EXIGE que el gate falle.
@@ -60,6 +68,10 @@ on:
     - cron: "0 6 * * 1"        # lunes 06:00 UTC — misma cadencia que el cron que sustituye
   workflow_dispatch:
     inputs:
+      ref:
+        description: "Rama, tag o SHA (corto o completo) a escanear; se resuelve a SHA completo por API. Vacío = el commit de la rama del disparo."
+        type: string
+        default: ""
       scan_profile:
         description: "full = escaneo ACTIVO (cazan las reglas de inyección) · baseline = solo pasivo"
         type: choice
@@ -76,6 +88,11 @@ on:
   # Barrido previo a publicar: invocable desde cualquier ruta de release.
   workflow_call:
     inputs:
+      ref:
+        description: "SHA o ref a escanear (vacío = github.sha del llamador)."
+        type: string
+        required: false
+        default: ""
       scan_profile:
         type: string
         required: false
@@ -84,9 +101,14 @@ on:
         type: string
         required: false
         default: "10"
+      report_only:
+        description: "true = medir y publicar sin bloquear (C2: hasta que seguridad lo suba)."
+        type: boolean
+        required: false
+        default: false
     outputs:
       blocking:
-        description: "true si el DAST encontró hallazgos bloqueantes."
+        description: "true|false según el candado; VACÍO si el candado no corrió. Independiente de report_only (F1-1)."
         value: ${{ jobs.dast.outputs.blocking }}
   # Rama-taller: empujar a `devops/dast-**` reproduce la demostración completa
   # (canario + barrido) sin esperar al lunes. Es el mecanismo documentado para
@@ -117,8 +139,42 @@ concurrency:
 env:
   SCAN_PROFILE: ${{ inputs.scan_profile || 'full' }}
   ACTIVE_MAX_MINS: ${{ inputs.active_max_mins || '10' }}
+  # Lo que PIDIERON escanear (rama, tag, SHA corto o largo). El job `resolver-ref`
+  # lo convierte en SHA completo; los checkouts usan ESE sha, nunca esto.
+  SCAN_REF: ${{ inputs.ref || github.sha }}
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 0) `ref` → SHA COMPLETO. Run 34560602347 (dispatch con `ref=c13f417`):
+  #    actions/checkout hace `git fetch --depth=1 origin +refs/heads/c13f417*
+  #    +refs/tags/c13f417*` y falla 3/3 — un SHA ABREVIADO no es un ref para
+  #    checkout (solo rama, tag o 40 hex). Aquí se resuelve por API con el
+  #    GITHUB_TOKEN y, si no resuelve, el run muere en 2 s con el motivo, no
+  #    tras tres fetches.
+  # ---------------------------------------------------------------------------
+  resolver-ref:
+    name: Resolver el ref a SHA completo
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.r.outputs.sha }}
+    steps:
+      - id: r
+        env:
+          REF: ${{ inputs.ref || github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          RESP="$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                   "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$REF")" || { echo "::error::la API de commits no respondió para '$REF'"; exit 1; }
+          SHA="$(jq -r '.sha // empty' <<<"$RESP")"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=ref no resoluble::'$REF' no resuelve a un commit de $GITHUB_REPOSITORY: $(jq -r '.message // "sin mensaje"' <<<"$RESP"). Pasa una rama, un tag o un SHA (corto o completo) que exista."
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "ref pedido: $REF  →  sha: $SHA"
+          echo "- ref pedido \`$REF\` → commit \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
   # ---------------------------------------------------------------------------
   # 1) ¿EL CANDADO SABE PONERSE ROJO?
   #
@@ -135,16 +191,23 @@ jobs:
   # ---------------------------------------------------------------------------
   selftest:
     name: Autoprueba del candado (canario vulnerable)
+    needs: [resolver-ref]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      # Se propaga por aquí porque `dast` DEBE seguir siendo `needs: [selftest]`
+      # exacto (lo exige scripts/check-dast-gate-live.sh).
+      sha: ${{ needs.resolver-ref.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolver-ref.outputs.sha }}
       - name: El gate DEBE ponerse rojo contra el canario
         run: ./security/scripts/dast-selftest.sh
       - name: Publicar resumen de la autoprueba
         if: always()
         run: cat security/reports/selftest/selftest-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: dast-selftest-reports
@@ -161,9 +224,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     outputs:
-      blocking: ${{ steps.gate.outcome == 'failure' }}
+      # El HECHO, no el color del paso (techlead F1-1, 2026-09-11). Antes era
+      # `steps.gate.outcome == 'failure'`: con `report_only` el paso nunca falla,
+      # así que `blocking` era 'false' por construcción y el gate de promoción
+      # de deploy.yml estaba abierto. dast-gate.py escribe `blocking=true|false`
+      # en GITHUB_OUTPUT SIEMPRE; `report_only` solo decide si el run se pone
+      # rojo. Si el candado no llegó a correr, esto queda VACÍO — y deploy.yml
+      # exige `== 'false'`, así que vacío no promueve (fail-closed).
+      blocking: ${{ steps.gate.outputs.blocking }}
+      sha: ${{ needs.selftest.outputs.sha }}
     env:
       REPORT_ONLY: ${{ inputs.report_only && '1' || '0' }}
+      SCAN_SHA: ${{ needs.selftest.outputs.sha }}
       # Mismas guardas de dinero que el E2E real: el arnés enciende el dial de
       # grading, que autoriza al barrido a gastar créditos de un proveedor de
       # PAGA. Declarada VACÍA (no omitida) para que meterla sea un diff visible.
@@ -187,7 +259,14 @@ jobs:
       # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
       # propio, ABORTA el job en vez de correr sobre algo forjable.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SCAN_SHA }}
+      - name: Qué commit se escanea (para que el verde diga sobre qué es verde)
+        run: |
+          [ "$(git rev-parse HEAD)" = "$SCAN_SHA" ] || { echo "::error::el checkout sirve $(git rev-parse HEAD) y se pidió $SCAN_SHA"; exit 1; }
+          echo "Commit escaneado: $SCAN_SHA  (ref pedido=$SCAN_REF · evento=${{ github.event_name }} · report_only=$REPORT_ONLY)"
+          echo "- DAST sobre el commit \`$SCAN_SHA\` (ref pedido \`$SCAN_REF\`, evento \`${{ github.event_name }}\`, report_only=$REPORT_ONLY)" >> "$GITHUB_STEP_SUMMARY"
       # -----------------------------------------------------------------------
       # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
       # Un hecho, un sitio: la misma resolución que corre en el arranque del
@@ -267,7 +346,7 @@ jobs:
         if: failure()
         run: docker compose -f docker-compose.staging.yml logs --tail=300 || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: dast-ephemeral-reports
@@ -290,18 +369,29 @@ jobs:
   # de esta rama no existen en `main` (H2), el único disparo que SÍ ocurría
   # era justo el que no abría nada. Ahora abre issue en cualquier corrida que
   # no sea un PR (en el PR el rojo ya tiene dueño: el autor). El título lleva
-  # la rama para no mezclar hallazgos de ramas distintas en un mismo hilo.
+  # la RAMA (o el ref pedido en un dispatch) para no mezclar hallazgos de ramas
+  # distintas en un mismo hilo — N5 (2026-09-11): antes el comentario lo decía y
+  # el título era un literal fijo. En `schedule`/`push`/`workflow_call` es
+  # `github.ref_name` (la rama del run: `main`, `production`, `devops/dast-…`);
+  # en `workflow_dispatch` es `inputs.ref` si se pasó, si no la rama elegida.
+  # F1-1 (2026-09-11): también abre issue cuando el candado encontró bloqueantes
+  # en modo `report_only` (el run queda verde, pero el hallazgo necesita dueño
+  # igual: si nadie lo ve, «calibrar» se convierte en «ignorar»).
   abrir-issue:
     name: Abrir/actualizar issue del hallazgo
     needs: [dast]
-    if: failure() && github.event_name != 'pull_request'
+    if: (failure() || needs.dast.outputs.blocking == 'true') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       issues: write
+    env:
+      SCAN_SHA: ${{ needs.dast.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.dast.outputs.sha }}
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: dast-ephemeral-reports
@@ -310,20 +400,20 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TITLE: "[dast] Barrido semanal: hallazgos bloqueantes en el stack efímero"
+          TITLE: "[dast] Hallazgos bloqueantes en el stack efímero — ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref_name }}"
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
           gh label create security --color B60205 --description "Hallazgos de seguridad" 2>/dev/null || true
           {
-            echo "El **DAST semanal** contra el stack efímero de CI encontró hallazgos que la"
+            echo "El **DAST** (evento: ${{ github.event_name }}) contra el stack efímero de CI encontró hallazgos que la"
             echo "política de \`security/zap/baseline.conf\` clasifica como **bloqueantes**."
             echo ""
             cat reports/dast-summary.md 2>/dev/null || echo "_(sin resumen; ver el run)_"
             echo ""
             echo "---"
             echo "- Run: ${RUN_URL}"
-            echo "- Commit escaneado: \`${GITHUB_SHA}\`"
+            echo "- Commit escaneado: \`${SCAN_SHA}\` (ref pedido: \`${SCAN_REF}\`, evento: ${{ github.event_name }})"
             echo ""
             echo "**Dueño:** el rol propietario de la superficie afectada (**backend** o **frontend**)."
             echo "devops mantiene el gate y NO corrige código de aplicación (CLAUDE.md)."

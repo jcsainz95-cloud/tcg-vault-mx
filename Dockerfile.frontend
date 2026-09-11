@@ -19,9 +19,9 @@
 # =============================================================================
 
 # ---- Base ----
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 # SEGURIDAD (2026-08-18): `apk upgrade` ANTES de instalar nada.
-# La imagen `node:20-alpine` viene con los paquetes de Alpine congelados al momento
+# La imagen `node:24-alpine` viene con los paquetes de Alpine congelados al momento
 # en que se publicó el tag, así que arrastra CVEs de la capa OS que YA están
 # parcheados en el repo de Alpine. Caso concreto que rompió el gate: `libcrypto3`
 # y `libssl3` 3.5.6-r0 (CVE-2026-45447, use-after-free en PKCS7_verify de OpenSSL,
@@ -67,7 +67,7 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 # SEGURIDAD (2026-08-17): npm FUERA del runtime.
-# El npm que trae `node:20-alpine` empaqueta sus propias deps en
+# El npm que trae `node:24-alpine` empaqueta sus propias deps en
 # /usr/local/lib/node_modules/npm/node_modules/ (tar, brace-expansion,
 # cross-spawn, minimatch, sigstore...) y Trivy las reporta como HIGH/CRITICAL en
 # la sección node-pkg. No son deps de la app ni se pueden bumpear desde

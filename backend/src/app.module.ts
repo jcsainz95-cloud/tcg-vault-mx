@@ -30,6 +30,7 @@ import { HealthModule } from './modules/health/health.module';
 import { JobsModule } from './jobs/jobs.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { EmailVerifiedGuard } from './common/guards/email-verified.guard';
 import { MoneyOutGuard } from './common/guards/money-out.guard';
@@ -65,14 +66,20 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     JobsModule,
   ],
   providers: [
-    // Orden: rate-limit → autenticación → rol → correo verificado → dinero saliente.
-    // (APP_GUARD respeta el orden.) El throttling corre antes que la autenticación para frenar
-    // fuerza bruta en /auth/login. EmailVerifiedGuard (v1.5) corre tras JwtAuthGuard/RolesGuard,
+    // Orden: rate-limit → autenticación → contraseña temporal → rol → correo verificado → dinero
+    // saliente. (APP_GUARD respeta el orden.) El throttling corre antes que la autenticación para
+    // frenar fuerza bruta en /auth/login. EmailVerifiedGuard (v1.5) corre tras JwtAuthGuard/RolesGuard,
     // usando `req.user.emailVerified` para gatear las acciones sensibles marcadas.
     // AppThrottlerGuard = ThrottlerGuard + skip SOLO bajo NODE_ENV=test (ver config/test-env.ts).
     // Los límites (global 300/min y los @Throttle por handler) NO cambian en entornos reales.
+    // v1.67 (contrato §1 «Contraseña temporal obligatoria», ARCHITECTURE §4.47.2):
+    // PasswordChangeRequiredGuard va INMEDIATAMENTE después de JwtAuthGuard y antes de RolesGuard:
+    // lee `req.user.mustChangePassword` (mismo select del Jwt, cero consultas extra) y responde
+    // 403 PASSWORD_CHANGE_REQUIRED en toda ruta autenticada, de cualquier rol, salvo la allowlist
+    // (`@AllowPasswordChangeRequired()`). Las @Public() no tienen `req.user` ⇒ pasan.
     { provide: APP_GUARD, useClass: AppThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PasswordChangeRequiredGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: EmailVerifiedGuard },
     { provide: APP_GUARD, useClass: MoneyOutGuard },

@@ -41,7 +41,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ROOT_DIR="$(cd "${SEC_DIR}/.." && pwd)"
-cd "${ROOT_DIR}"
+cd "${ROOT_DIR}" || exit 2
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.staging.yml}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:3010}"
@@ -110,7 +110,11 @@ cmd_up() {
   SECRETOS_TMP="$(mktemp)"
   ./scripts/secrets-preflight.sh env-file "${SECRETOS_TMP}" >/dev/null || {
     err "no pude resolver los secretos del stack"; rm -f "${SECRETOS_TMP}"; return 1; }
-  set -a; . "${SECRETOS_TMP}"; set +a
+  # Fichero EFÍMERO generado dos líneas arriba: no hay ruta fija que declararle a shellcheck.
+  set -a
+  # shellcheck source=/dev/null
+  . "${SECRETOS_TMP}"
+  set +a
   rm -f "${SECRETOS_TMP}"
 
   STACK_UP_EPOCH="$(date +%s)"
@@ -292,9 +296,13 @@ cmd_gate() {
   for target in ${ZAP_TARGETS}; do
     args+=(--zap-json "${REPORT_DIR}/zap-$(slug "${target}").json")
   done
+  # `--report-only` solo toca el EXIT CODE; el hecho «hay bloqueantes» sale
+  # SIEMPRE por GITHUB_OUTPUT (blocking=…) y por este fichero (F1-1). Es lo que
+  # lee security-dast.yml para `outputs.blocking`, no el color del paso.
   [ "${REPORT_ONLY:-0}" = "1" ] && args+=(--report-only)
   python3 "${SCRIPT_DIR}/dast-gate.py" \
     "${args[@]}" \
+    --blocking-file "${REPORT_DIR}/dast-blocking.txt" \
     --nuclei-jsonl "${REPORT_DIR}/nuclei.jsonl" \
     --policy "${SEC_DIR}/zap/baseline.conf" \
     --nuclei-ignore "${SEC_DIR}/nuclei/ignore.txt" \

@@ -2307,17 +2307,24 @@
 - **Disparador:** al tocar el resultado del alta masiva. Acción: incluir en cada línea OK el acabado asignado
   (badge `FinishBadge`), destacando cuando difiere del elegido en el formulario.
 
-### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético)
-- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` (guard de sesión) vs. el `router.replace('/login')`
-  del logout.
-- **Estado actual:** al cerrar sesión, el guard de `AdminShell` **gana la carrera** y redirige a
-  `/login?next=/admin/m1` (con el `?next=`/flash) antes de que el `router.replace('/login')` limpio tome
-  efecto. El usuario acaba en login con un `next` que apunta de vuelta a la ruta admin recién cerrada.
-- **Impacto:** cosmético. No hay fuga (el guard protege igual); solo el query param sobra tras un logout
-  explícito.
-- **Disparador:** aceptado; **no arreglar ahora** salvo que resulte trivial y sin riesgo para el guard.
-  Acción posible: que el logout señale un "logout intencional" para que el guard omita el `?next=` en esa
-  transición.
+### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético) — **CERRADA 2026-09-11 (`ff4f58b`)**
+- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` y `PrivateRouteGuard.tsx` (guards de sesión) vs. el
+  `router.replace('/login')` / `push('/')` del logout.
+- **Estado (histórico):** al cerrar sesión, el guard **ganaba la carrera** y redirigía a `/login?next=<ruta recién
+  cerrada>` antes de que el `router.replace('/login')` limpio tomara efecto. En 2026-09-11 QA la re-midió **6/6
+  contra el stack real** extendida a `/account` (QA2-1: cliente desde `/es/account` → `login?next=%2Faccount`;
+  operador desde `/es/admin` → `login?next=%2Fadmin`), en contradicción con DS §33.8 («Cerrar sesión» → `/login`)
+  y con `e2e/account.spec.ts` — dejó de ser cosmética: rojo determinista del gate.
+- **Cierre:** la «acción posible» de esta ficha, tal cual: `logout()` (`lib/api.ts`) marca un **logout
+  intencional** (`lib/session.ts` · `markIntentionalLogout` / `isLogoutInProgress`, ventana de 10 s, no consumo)
+  ANTES de tocar la red y de vaciar la sesión, y ambos guards, al ver `ready && !isAuthenticated` con la señal
+  encendida, **no redirigen** (pintan carga y dejan aterrizar al llamador: `/login` en panel y página de
+  contraseña, `/` en la sección «Sesión» de la tienda, DS §33.6g). Un vaciado por 401 no marca nada.
+- **Comprobación de cierre:** unitario `PrivateRouteGuard.test.tsx` / `AdminShell.test.tsx` (caso QA2-1: con la
+  señal, `replace` no se llama) + `session.logout-signal.test.ts` (4/4); mutación sobre copia (quitar el check en
+  `PrivateRouteGuard`) 3/3 roja, control 3/3 verde; contra el stack real: `E2E_BASE_URL=http://localhost:3000
+  E2E_REAL=1 npx playwright test e2e/account.spec.ts` ⇒ el caso «Cerrar sesión» aterriza en `/es/login` sin `next`
+  (ver `FRONTEND_NOTES §68.6` para el N/N medido).
 
 
 ### P-5 (v1.25 paginación+filtros) — deuda del delta frontend (2026-08-20, no bloqueante)
@@ -6383,3 +6390,288 @@ topes de posición) ya validan con `isInt`.
   Ref: `ARCHITECTURE §4.39i.4-bis`, `API_CONTRACT §M5-V` (V-a), `src/common/buylist-aml.ts:153`,
   `buylist.service.ts:5846`/`:7157`, `test/buylist.pay-spei-where-composition.spec.ts`,
   `test/integration/buylist-pay-verdicts.e2e-spec.ts` (assert 7).
+
+## Frontend · 2026-09-11 · gates Stream A
+
+> Ronda de correcciones tras QA + techlead (rama `claude/tcg-hunt-orchestration-2`). Los once hallazgos
+> se **arreglaron en el pase** (`FRONTEND_NOTES §68` tiene la tabla hallazgo → commit → medición). Lo que
+> queda aquí es lo que **decidí dejar** o **no depende de mí**, con su disparador. Todo lo de abajo está
+> **medido el 2026-09-11** salvo donde dice NO MEDIDO.
+
+#### GA-D1 · `customer { name, email }` en la fila de M4 no está en el contrato §M4 (Baja, frontend — bloqueada por CONTRATO)
+- **Dueño:** frontend (la lectura), **desbloquea:** arquitecto. **Severidad:** Baja.
+- **Qué pasa:** `M4View.tsx` pinta la línea «Cliente {name} · {email}» (R5 de `DESIGN_SYSTEM §33.16`,
+  PROYECTADO) y el contrato v1.67.1 **no lo declara** en `AdminShipmentDTO` (medido: `API_CONTRACT §M4`,
+  «`guestEmail?`, `orderId?`, `orderNumber?` y `kind` no están en cuestión» — `customer` no aparece). Se
+  lee de forma defensiva en `customerOf()` marcado `// MOCK: pendiente de contrato`; sin él, «—» · «—».
+- **Comprobación de cierre:** `grep -n "MOCK: pendiente de contrato" frontend/src/app/\[locale\]/\(admin\)/admin/m4/M4View.tsx`
+  devuelve 0 líneas y `AdminShipmentDTO` en `types/contract.ts` tipa `customer?` (o la línea «Cliente …» ya no
+  existe en M4 y `M4View.test.tsx` no la asserta); `vitest run m4` verde.
+- **Disparador:** que el contrato publique `customer?` en la fila de M4 (o lo rechace ⇒ se retira la línea
+  y el operador entra por «Ver ficha» al M6, que ya existe). Petición en `FRONTEND_NOTES §68.4`.
+
+#### GA-D2 · `orderNumber` no viaja en `GET /orders` (`OrderSummaryDTO`) (Baja, frontend — bloqueada por CONTRATO + backend)
+- **Dueño:** frontend (la columna), **desbloquea:** arquitecto (contrato) y backend (proyección).
+- **Qué pasa:** la columna PEDIDO pinta `orderNumber ?? id` (QA menor). Medido: `API_CONTRACT §11`
+  `OrderSummaryDTO = { id, userId, status, totalCents, createdAt, settledAt? }` y
+  `backend/src/modules/orders/orders.service.ts:listOrders` proyecta exactamente eso ⇒ **contra el backend
+  real la columna sigue mostrando el UUID**. `orderNumber?` en `types/contract.ts` va marcado `// MOCK:
+  pendiente de contrato`; el fixture `ord-9001` lo trae y `ord-9002` no (el fallback es visible en demo).
+- **Comprobación de cierre:** `grep -n "MOCK: pendiente de contrato" frontend/src/types/contract.ts` no menciona
+  `orderNumber`; contra el stack real `GET /orders` (customer del seed) trae `orderNumber` en cada fila y
+  `/es/orders` pinta `TCG-…` en la columna PEDIDO (medible con `curl` + Playwright real), y `OrdersView.test.tsx`
+  sigue verde con el fixture sin el campo (fallback).
+- **Disparador:** `orderNumber` en `OrderSummaryDTO` (y `OrderDetailDTO`, `OrderDetailView.tsx:46` pinta el
+  id en el título) — la columna `Order.orderNumber` ya existe desde v1.21. Petición en `§68.4`.
+
+#### GA-D3 · La temporal de los actores del seed se CONSUME en cada corrida real (Baja, frontend — decisión)
+- **Dueño:** frontend (los specs), **con:** devops/QA (cadencia de siembra). **Severidad:** Baja.
+- **Qué pasa:** `e2e/account.spec.ts` recorre el bloqueo con `temporal.customer@e2e.local` /
+  `temporal.operator@e2e.local` (`seed-e2e.ts` `83ec86e`) y al terminar la cuenta ya tiene definitiva
+  (`mustChangePassword=false`). Una **segunda corrida sin re-sembrar** no encuentra temporal: el login
+  devuelve 200 sin bandera → el caso se **salta** con `falta dato en el seed real: … su temporal ya se
+  consumió: re-sembrar` (dinámico, `skipIfSeedMissing`), no pinta rojo. El seed es idempotente y lo
+  repone (`upsert … update: { mustChangePassword: true }`).
+- **Por qué no se «restaura» desde el test:** no hay endpoint del contrato para volver a poner una
+  temporal salvo el reseteo de admin (`POST /admin/users/:id/reset-password`), que fabrica OTRA temporal
+  aleatoria que el arnés no conoce. Restaurar sería modelar un flujo que el producto no tiene.
+- **Comprobación de cierre:** dos corridas reales SEGUIDAS de `e2e/account.spec.ts` con `./scripts/stack-native.sh
+  up --seed` entre ambas ⇒ ambas N/N sin ningún `falta dato en el seed real` en el reporte; la misma segunda
+  corrida SIN `--seed` ⇒ los dos flujos de temporal aparecen como *skipped* con esa razón (no rojos).
+- **Disparador:** ninguno — es la cadencia: **sembrar antes de cada corrida real** (ya es lo que hace
+  `scripts/stack-native.sh` / el workflow `e2e-real`; NO MEDIDO por mí en esta ronda).
+
+#### GA-D4 · Modo «Crear contraseña» (solo-Google) sin cobertura contra el backend real (Baja, frontend — límite del arnés)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: aceptada.**
+- **Qué pasa:** el seed siembra `google.only@e2e.local` (sin `passwordHash`, `nameSource='derived'`), pero
+  una cuenta solo-Google **no tiene contraseña** y el arnés **no tiene Google**: no hay forma de obtener su
+  sesión por el contrato. El caso queda `harnessLimit(...)` (tercera clasificación, `e2e/utils/auth.ts`),
+  medido en mock, y la unidad `PasswordPage.test.tsx` cubre los tres modos con `getMe` espiado.
+- **Lo que NO se acepta como remedio:** un endpoint de «sesión para E2E» — es una puerta trasera de
+  autenticación en el producto.
+- **Comprobación de cierre:** (solo si aparece una vía legítima de sesión para la cuenta solo-Google) el caso
+  «cuenta solo-Google» de `e2e/account.spec.ts` deja de llevar `harnessLimit` y corre `@real` verde; hasta
+  entonces la unidad `PasswordPage.test.tsx` (modo crear, 429 y fallo) sigue verde.
+- **Disparador:** ninguno previsto.
+
+#### GA-D5 · El aviso «nombre derivado» no tiene actor sembrado autenticable (Baja, frontend — bloqueada por DATO de seed)
+- **Dueño:** frontend (el test), **desbloquea:** backend (`seed-e2e.ts`). **Severidad:** Baja.
+- **Qué pasa:** el único usuario con `nameSource='derived'` del seed es el solo-Google (GA-D4). El caso
+  «con nombre derivado el aviso existe y desaparece al guardar» queda `needsSeed` (estático). En mock se
+  inyecta en la sesión local; en real `GET /users/me` mandaría y lo desmentiría.
+- **Comprobación de cierre:** el caso «nombre derivado» de `e2e/account.spec.ts` sin `needsSeed`, con las
+  credenciales del actor en `e2e/utils/env.ts`, verde contra el stack real re-sembrado (1/1) y el `PATCH` deja
+  `nameSource='user'` (`GET /users/me` tras el test).
+- **Disparador:** un usuario **local** (`passwordHash` + `nameSource='derived'`) en el seed; el test no cambia
+  salvo por tomar sus credenciales de `utils/env.ts`.
+
+#### GA-D6 · Tolerancia D-CTA-7 en `getBillingProfile` (200 sin perfil ⇒ `null`) (Baja, frontend — temporal)
+- **Dueño:** frontend. **Severidad:** Baja.
+- **Qué pasa:** además del `404 ⇒ null` del contrato v1.67.1, `lib/api.ts` trata un `200` cuyo cuerpo no
+  es un perfil (sin `rfcMasked` string) como «sin perfil». Existe porque el backend anterior (`3402466`
+  lo corrige) respondía `200` vacío y la sección pintaba seis «—» con «Editar». No es una segunda lectura
+  del contrato; es no afirmar un perfil que no existe.
+- **Comprobación de cierre:** `curl -H 'Authorization: Bearer <token de un usuario sin perfil>' <prod>/api/v1/users/me/billing-profile`
+  ⇒ `404`; entonces se borra `isBillingProfile` de `lib/api.ts` y el caso «D-CTA-7» de
+  `api.billing-profile.test.ts`, y el resto del fichero (404⇒null, 200 DTO, 500, PUT) sigue verde.
+- **Disparador para retirarla:** que producción esté en `≥ 3402466` (medible: `GET /users/me/billing-profile`
+  de un usuario sin perfil ⇒ `404`) — entonces la rama y su test (`api.billing-profile.test.ts`, caso
+  D-CTA-7) sobran.
+
+#### GA-D7 · El índice pegajoso de «Mi cuenta» (§33.6) no está asertado en Playwright (Baja, frontend — decisión)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: aceptada.**
+- **Qué pasa:** `AccountView` pinta el índice de secciones `sticky` en `≥ lg`; la unidad comprueba las
+  secciones por rol (`AccountView.test.tsx`) y el E2E mide 390×844 sin desborde y el header/topbar, pero
+  **nadie mide** que el índice quede fijo al hacer scroll ni que el ancla lleve a la sección.
+- **Por qué se deja:** `position: sticky` es una propiedad de layout que jsdom no calcula y en Playwright
+  exigiría un `scrollIntoView` + `boundingBox` por sección (frágil ante cambios de espaciado del sistema
+  de diseño).
+- **Comprobación de cierre:** un caso en `e2e/account.spec.ts` a 1280×800 que haga `scroll` al pie y mida por
+  `boundingBox()` que el índice sigue dentro del viewport y que su ancla `#billing` deja la sección visible;
+  hasta entonces `AccountView.tsx:81` conserva `lg:sticky` y `AccountView.test.tsx` asserta las secciones por rol.
+- **Disparador:** si ux-ui cambia la geometría del índice o llega un bug de scroll reportado.
+
+## Backend · 2026-09-11 · gates Stream A
+
+> Ronda de correcciones tras los veredictos de QA y techlead (2026-09-11). Lo cerrado está en
+> `docs/BACKEND_NOTES.md` §«v1.67.1 — gates Stream A»; aquí SOLO lo que se deja, con dueño, impacto y
+> disparador. Medido el 2026-09-11 sobre `claude/tcg-hunt-orchestration-2`. (Ids renumerados BE-82..BE-87:
+> BE-76/77/78 ya existían más arriba, `:3473/:3498/:3517`.) Cada ficha lleva «Comprobación de cierre», como las de devops.
+
+### BE-82 · `details.field` no existe cuando el nombre de persona viene AUSENTE o no-string (Baja)
+- **Qué:** `POST /users/me/addresses` sin `recipientName` (o `PATCH /users/me { name: 42 }`) lo corta el
+  `ValidationPipe` global (`@IsString()`) con `400 VALIDATION_ERROR` y `message[]` de class-validator,
+  **sin `details.field`**. `assertPersonName` (`users/person-name.ts`) solo ve `""`, `null` y `>120`, y
+  ésos sí llevan `details.field`. El docblock ya lo dice tal cual (techlead F2-6).
+- **Impacto:** el front no puede marcar el campo en ese caso concreto; hoy pinta el mensaje genérico.
+- **Cura:** `exceptionFactory` en `main.ts:56` que traduzca el primer `ValidationError` a
+  `{ code: 'VALIDATION_ERROR', details: { field } }` (y el mismo en `helpers/e2e-app.ts`, réplica de
+  `main.ts`). Es transversal a TODOS los DTOs: cambio de contrato de forma de error ⇒ pasa por el
+  arquitecto (regla 9).
+- **Disparador:** la primera pantalla que necesite `details.field` en un 400 del pipe.
+- **Comprobación de cierre:** `POST /users/me/addresses` sin `recipientName` responde `400` con `error.details.field === 'recipientName'` en `account-profile.e2e-spec.ts` (hoy ese caso asevera solo el código); y `main.ts` y `helpers/e2e-app.ts` comparten el mismo `exceptionFactory` (un `grep` lo encuentra en los dos).
+
+### BE-83 · Los 3 literales viejos de gitleaks siguen en el HISTORIAL (Baja · dueño del remedio: devops)
+- **Qué:** backend neutralizó en HEAD los tres hallazgos de `DEVOPS_NOTES §56.3`
+  (`pii-crypto.service.ts:152` `key`→`material`; `seed.password.spec.ts:27` y
+  `graded-estimate.ingest.spec.ts:504` con literales que no disparan). **Medido:** gitleaks 8.30.1
+  `dir backend` con `security/gitleaks.toml` (HEAD y árbol) → **3 → 0**. Pero el modo `git` (historial
+  completo) los seguirá viendo en los commits antiguos: eso solo lo cierra una **allowlist por valor**
+  en `security/gitleaks.toml` (fichero de devops). Ninguno de los tres valores está en
+  `security/secretos-publicados.sha256` (sha256 comprobado): el manifiesto no cambia por esto.
+- **Disparador:** el día que `sast-gitleaks.sh` en modo `git` entre en `needs` de `sast-ok`.
+- **Comprobación de cierre:** `gitleaks git . --config security/gitleaks.toml` (8.30.1) → 0 hallazgos en `backend/` sobre el historial completo, con la allowlist por VALOR exacto (devops la aterrizó en `12c2fe9`: esta ficha queda a expensas de esa medición en CI).
+
+### BE-84 · `engines.node` era `>=22` en backend y `>=24` en frontend (Baja) — **CERRADA 2026-09-11**
+- **Qué había:** backend declaraba `>=22` (rango medido en local); frontend `>=24`. El techlead lo fija:
+  todo lo que ejecuta (CI, `Dockerfile.backend`, imagen) corre en 24 y nadie mide 22 como blanco.
+- **Cierre:** `backend/package.json` `engines.node = ">=24"` (commit de esta mini-ronda; lockfile
+  regenerado con `npm install --package-lock-only`). Sin `engine-strict` en ningún sitio, el local en
+  22 solo recibe el aviso `EBADENGINE`.
+- **Comprobación de cierre:** `node -e "console.log(require('./backend/package.json').engines.node)"`
+  imprime `>=24` y coincide con `frontend/package.json`; `grep -n '"node": ">=24"' backend/package-lock.json`
+  ≥ 1 (la copia de `packages[""]`).
+
+### BE-85 · La cuenta solo-Google del seed no tiene vía de sesión en Playwright (Baja · informa a frontend/QA)
+- **Qué:** `google.only@e2e.local` (`E2E_ACCOUNT_FIXTURES.googleOnly`) no puede hacer `POST /auth/login`
+  (no hay contraseña: ése es el caso). Backend la ejercita con `AuthService.issueTokens` en
+  `seed-account-fixtures.e2e-spec.ts`; en el arnés de frontend hace falta una **sesión inyectada** (el
+  `loginAs` real no sirve) o un endpoint de test que no existe ni debe existir en producción.
+- **Disparador:** si QA exige el flujo solo-Google `@real` de punta a punta; decisión con el arquitecto
+  (un verificador de ID token falso SOLO bajo `NODE_ENV=test` sería la vía).
+- **Comprobación de cierre:** `frontend/e2e/account.spec.ts` ejecuta el caso solo-Google `@real` contra el stack (sin `harnessLimit`/skip) y queda verde 3/3; o el arquitecto decide por escrito que ese flujo no se mide E2E.
+
+### BE-86 · El pedido de invitado sembrado es `settled`/`direct_ship` SIN `ShipmentRequest` ni `stripePaymentIntentId` (Baja)
+- **Qué:** `E2E_GUEST_ORDER` (`TCG-E2E-GUEST-0001`) existe para `GET /orders/claimable`; se siembra
+  liquidado y su pieza `delivered`, pero sin envío asociado ni PI. Es una simplificación deliberada
+  (menos filas que borrar-y-declarar; sin `Restrict` de `ShipmentRequest.orderId`). **Medido:** la
+  integración completa (27 suites / 395) no lo nota.
+- **Disparador:** si M4 o alguna suite pasa a exigir «todo `direct_ship` liquidado tiene envío» o
+  cruza `settled` con `stripePaymentIntentId`, el fixture gana su `ShipmentRequest` `entregado`.
+- **Comprobación de cierre:** el fixture `TCG-E2E-GUEST-0001` tiene un `ShipmentRequest` `entregado` con `orderId` y `userId=null` (`psql`: 1 fila), `seed-idempotency.e2e-spec` y `guest-checkout.e2e-spec` siguen verdes, y la siembra ×2 deja UNA fila de cada.
+
+### BE-87 · El test reflexivo de la allowlist carga los controladores con `require` por ruta de fichero (Baja)
+- **Qué:** `test/password-change-allowlist.reflect.spec.ts` recorre `src/**/*.controller.ts` y lee
+  `METHOD_METADATA`/`PATH_METADATA` de `@nestjs/common/constants` (API interna, estable en Nest 10).
+  Un controlador que viva en un fichero sin sufijo `.controller.ts` no entraría en el recorrido (hoy
+  no hay ninguno: 10+ controladores y 50+ handlers vistos, aserción de sanidad en el propio test).
+- **Disparador:** subir de Nest 10 (revisar las constantes) o cambiar la convención de nombres.
+- **Comprobación de cierre:** `test/password-change-allowlist.reflect.spec.ts` sigue verde tras subir `@nestjs/*` (las constantes `METHOD_METADATA`/`PATH_METADATA` existen), y su aserción de sanidad cuenta ≥ los controladores que `grep -rl '@Controller(' backend/src` devuelve.
+
+---
+
+## Devops · 2026-09-11 · gates andamiaje de CI
+
+Anotado por **devops** en la ronda de correcciones tras los veredictos (QA aprobado con condiciones,
+techlead aprobado con deuda). Rama `claude/tcg-hunt-orchestration-2`. Cada ficha lleva la
+**comprobación de cierre**: sin ella no se cierra. Contexto y mediciones: `docs/DEVOPS_NOTES.md` §56.9.
+
+### DO-D1 · `check-secret-defaults.sh` es un mini-linter de 630 líneas y el manifiesto acopla «rojo que causa backend/frontend, solo apaga devops» (techlead F1-7) — Media
+- **Qué:** el script cubre cinco clases (compose, workflows, scripts/Dockerfile, URLs, respaldos con
+  manifiesto) en un solo fichero bash de ~630 líneas con parsers a mano. Y el bloque del manifiesto
+  (`security/secretos-publicados.sha256`, generado por `gen-published-secrets-manifest.sh`) pone ROJO
+  el gate cuando **otro rol** commitea un literal nuevo en un test/fixture, y el único que puede
+  apagarlo es devops regenerando el fichero. **Medido hoy (2026-09-11):** `frontend/e2e/utils/env.ts:63`
+  (`E2E_TEMP_CUSTOMER_PASSWORD ?? 'Temporal123!'`) dejó `check-secret-defaults.sh` en rc=1 en el árbol
+  hasta que devops regeneró el manifiesto al cierre de su ronda. Es el tercer caso de la semana.
+- **Cura (a explorar, no decidida):** que el **job** regenere el manifiesto en el runner y falle **solo**
+  si al commiteado le faltan entradas que el regenerado sí tiene (diff de hashes) — el rojo seguiría
+  diciendo «hay un literal nuevo sin registrar» pero con el diff exacto y sin bloquear a nadie por un
+  fichero que solo devops toca; y partir el script por clase (A–E) con una librería común de parseo.
+- **Comprobación de cierre:** (1) sobre COPIA del árbol, añadir un literal `X_PASSWORD ?? 'Nuevo123!'`
+  en un test de backend y correr el equivalente del job ⇒ el rojo trae el hash/línea que falta **y**
+  el manifiesto regenerado como artifact (no «regenera y vuelve»); (2) `wc -l` de cada pieza < 250 y
+  canario `check-secret-defaults-canary.sh` sigue 66/66 (3/3).
+- **Disparador:** el siguiente rojo del manifiesto causado por un rol que no es devops.
+
+### DO-D2 · Residual de F1-1: `blocking` del DAST de release NO MEDIDO en un push real a `production` — Media
+- **Qué:** el hecho `blocking` separado del exit code (commit `faccdeb`) está medido **en local** con
+  informes de juguete (`check-dast-gate-live.sh` 5-bis, 3/3; mutación 3/3 roja) y en `security-dast.yml`
+  el output pasa a leer `steps.gate.outputs.blocking`. Lo que **no** se ha visto: un run de `deploy.yml`
+  por push a `production` con esta versión, donde `dast-release.outputs.blocking` llegue como `'false'`
+  a los `promote-*` (que ahora exigen `== 'false'`, fail-closed: vacío no promueve).
+- **Comprobación de cierre:** primer push a `production` tras el merge: en el run de `deploy.yml`, el job
+  `dast-release / dast` imprime `blocking=false` en su resumen/outputs (API `jobs` del run) y
+  `abrir-issue` queda `skipped`; con `report_only` aún puesto, el run sigue verde. Si `blocking` llega
+  vacío, el fallo está en la propagación `steps.gate → jobs.dast.outputs → workflow_call.outputs`.
+- **Disparador:** ese primer push. Dueño: devops.
+
+### DO-D3 · Residual de F1-2: la lista cerrada `SKIPPED_ESPERADOS` de `check-candidate-checks.sh` describe deploy.yml por construcción, NO MEDIDA contra un push real — Baja
+- **Qué:** medido que `d2efe07` (26 check-runs), `c13f4179` y `17ce9a9` tienen 0 `skipped`. La lista
+  (9 jobs de `deploy.yml` que se saltan con el CD apagado) se escribió leyendo los `if:`/`needs:`, no
+  viendo un run. Un skipped fuera de la lista ⇒ rc=3.
+- **Comprobación de cierre:** `./scripts/check-candidate-checks.sh <sha del primer push a production>`
+  ⇒ rc=0 con «saltados esperados: N» y **cero** «SIN motivo escrito». Si aparece uno, se añade con su
+  motivo (o se mide por qué se saltó), nunca se vuelve a sumar al verde.
+- **Disparador:** ese primer push; y la reactivación del CD (entonces la lista se **vacía**).
+
+### DO-D4 · `dast-release` sigue en `report_only: true` hasta que seguridad lo suba (C2) — con fecha — Media
+- **Qué:** el run de `deploy.yml` no se pone rojo por hallazgos del DAST; el hecho `blocking` sí se
+  calcula y sí gatea la promoción (DO-D2). Fecha límite **2026-10-06** en
+  `scripts/check-dast-report-only-expiry.sh` (job `dast-report-only-expiry` de `ci.yml`, canario 8/8
+  3/3): desde ese día CI sale rojo si sigue puesto. Primer barrido `full` citable sobre lo publicado:
+  run `34561010792` (`c13f4179`, report_only=false, sin bloqueantes).
+- **Dueño de la decisión:** seguridad (ver los barridos de los lunes 09-14 / 09-21 / 09-28 / 10-05).
+  Cableado: devops.
+- **Comprobación de cierre:** `grep -c 'report_only: true' .github/workflows/deploy.yml` = 0 y
+  `./scripts/check-dast-report-only-expiry.sh` imprime «ya NO lleva report_only». Mover la fecha exige
+  motivo escrito en DEVOPS_NOTES; no se mueve «porque caducó».
+
+### DO-D5 · H1 · Protección de ramas `main`/`production` (ruleset con `ci-ok`, `sast-ok`, `e2e-ok`) — pendiente de decisión del dueño — Media
+- **Qué:** propuesta completa (nombres exactos y JSON del ruleset) en `DEVOPS_NOTES` §56.8. Re-medido
+  2026-09-11: `main` y `production` `protected: false`; `/rulesets` = `[]`. Sin esto, un push directo a
+  `production` publica sin ningún check.
+- **Consecuencia que el dueño tiene que aceptar antes:** con `required_status_checks` un push directo
+  solo pasa por fast-forward de un SHA ya verde; un merge commit nuevo exige PR (o `bypass_actor`).
+- **Comprobación de cierre:** `GET /repos/jcsainz95-cloud/tcg-vault-mx/rulesets` devuelve uno activo
+  sobre `refs/heads/main` y `refs/heads/production` con los tres contexts; y un push de prueba de un
+  SHA sin checks a `production` es rechazado.
+
+### DO-D6 · Hallazgos históricos de gitleaks en `backend/` — CERRADO hoy en modo `git` (commit `12c2fe9`); queda ruido en `dir` sobre artefactos NO versionados — Baja
+- **Qué:** backend neutralizó los tres en el árbol (`a454178`); devops los eximió **por valor exacto y
+  acotados** (dos en la allowlist global, uno en `[rules.allowlist]` de `generic-api-key-assignment`
+  con `regexTarget = "match"`, porque esa regla expone el NOMBRE como secreto). Medido: `gitleaks git .`
+  historial completo → **0** (antes 5); estrechez: mismo literal en otra clave ⇒ rojo, otro valor en
+  la misma clave ⇒ rojo; canario 11/11 (3/3).
+- **Residual:** `gitleaks dir .` en local sigue listando 44 hallazgos, **todos** en ficheros no
+  versionados (`.native-stack/secrets.env`, `.native-stack/backend.log`, `frontend/.next*/…`):
+  0 en ficheros versionados. No es deuda del repo; es que `dir` no respeta `.gitignore`. Quien mida
+  `dir` en local debe leerlo así (o borrar esos artefactos antes).
+- **Comprobación de cierre del residual (si se quiere):** `gitleaks dir . ` con `--gitleaks-ignore-path`
+  o un `.gitleaksignore` con esos hashes; hoy no se hace porque CI escanea el rango del push en modo git.
+
+### DO-D7 · Residual de F1-3: `format-mix-base` sigue trayendo prettier por `npx` (red) — Baja
+- **Qué:** el canario ahora distingue «no pude medir» (rc=2) de «no muerde» (rc=1) y `ci.yml` lo
+  imprime así; pero el job no instala prettier del lockfile (`npm ci` de backend cuesta ~1 min por
+  corrida solo para un binario). Un fallo de red del runner sigue poniendo rojo el job — con el
+  mensaje correcto.
+- **Comprobación de cierre:** el paso instala `prettier@3.9.6` desde `backend/package-lock.json` (o
+  cachea el binario) y el canario imprime `prettier: … (v3.9.6)` sin `npx`; o se acepta el residual
+  con esta ficha.
+
+### DO-D8 · «actionlint 0 avisos» de §56 se midió SIN shellcheck en el PATH de actionlint — corregido para los 7 workflows hoy — cerrado
+- **Qué:** con `shellcheck` accesible, actionlint analiza los `run:` y en `d2efe07` reportaba 3 avisos
+  en `ci.yml` y 2 en `security-sast.yml` (preexistentes). Hoy: `ci.yml` (`^{commit}` sin comillas,
+  backticks en un echo) y `security-sast.yml` (`$SG_CONFIGS` sin comillas **a propósito**, con
+  directiva y motivo) ⇒ **0 avisos en los 7 workflows con shellcheck en PATH**.
+- **Comprobación de cierre (ya cumplida, para que no vuelva):** `PATH=<con shellcheck> actionlint
+  -no-color .github/workflows/*.yml` ⇒ rc=0. Las mediciones futuras de «actionlint 0 avisos» deben
+  decir si shellcheck estaba en el PATH.
+
+### DO-D9 · N4 residual: `SKIPPED_ESPERADOS` valida el NOMBRE del job contra `deploy.yml`, no el workflow del check-run — Baja
+- **Qué:** un job homónimo en otro workflow (hoy no lo hay: nombres únicos desde §56.5 #9) pasaría
+  como «esperado». La API `GET /commits/{sha}/check-runs` no trae el nombre del workflow; hace falta
+  `GET /check-suites/{id}` por cada uno (una llamada más por check-run).
+- **Comprobación de cierre:** el script resuelve `check_suite.id → workflow` (o usa `/actions/runs`
+  filtrado por `head_sha`) y la lista pasa a `workflow/job`; canario con un `skipped` homónimo en otro
+  workflow ⇒ rc=3. Se paga si aparece un nombre duplicado (lo vigila `check-workflow-cwd`? no:
+  nadie; se mide con `grep -hE '^  [a-z0-9-]+:$' .github/workflows/*.yml | sort | uniq -d` = vacío).
+
+### DO-D10 · N7: el baseline del censo E2E lo escribe devops y el número es de frontend — Baja
+- **Qué:** `scripts/e2e-skip-census.baseline` vive en rutas de devops; cuando frontend añade una
+  salvaguarda legítima, el rojo sale en `e2e-skip-census` y el `--update --motivo` lo tiene que
+  commitear devops (mismo acoplamiento que DO-D1, a menor escala). Además el techlead contó 71/18
+  con otro método; el script fija `grep -rwo` (120/20) — dos cifras que no se comparan entre sí.
+- **Comprobación de cierre:** mover el baseline a `frontend/e2e/` (dueño frontend) con el script
+  leyéndolo de ahí, o acordar que el orquestador enruta el `--update` en el mismo diff; y que
+  FRONTEND_NOTES cite el método del script al hablar del censo.

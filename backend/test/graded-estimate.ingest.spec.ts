@@ -501,8 +501,8 @@ describe('§4.38h — cuota, moneda y ESCALADA (regla 9)', () => {
     // La API key va en el header, JAMÁS en la URL ni en el log (§4.15). Se comprueba con una clave
     // distintiva para que la aserción no sea trivialmente cierta por ser 'k' una letra común.
     const conClaveVisible = mockPages([pageS1(s1())]);
-    await call(provider(cfg({ POKEMONPRICETRACKER_API_KEY: 'SUPER-SECRETO-123' })));
-    expect(String((conClaveVisible.mock.calls[0] as unknown[])[0])).not.toContain('SUPER-SECRETO-123');
+    await call(provider(cfg({ POKEMONPRICETRACKER_API_KEY: 'CLAVE-VISIBLE-1' })));
+    expect(String((conClaveVisible.mock.calls[0] as unknown[])[0])).not.toContain('CLAVE-VISIBLE-1');
   });
 
   it('SIN formato de moneda explícito ⇒ SAMPLE-ONLY: no se persiste nada (fail-closed de dinero)', async () => {

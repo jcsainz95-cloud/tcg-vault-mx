@@ -136,10 +136,10 @@ export function SellRequestDetailView({ sellRequestId }: { sellRequestId: string
           body={t('notFoundBody')}
           action={
             <Link
-              href="/buylist"
+              href="/orders?tab=ventas"
               className="inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
             >
-              {t('backToBuylist')}
+              ← {tb('backToSales')}
             </Link>
           }
         />

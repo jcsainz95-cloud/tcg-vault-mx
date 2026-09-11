@@ -19901,3 +19901,270 @@ hoy en el repo: `docker-compose.staging.yml:173` resuelve a `whsec_staging_dummy
 Cerrarlo es de config, no de código: exigir el secreto real en todo entorno con Stripe real y que el
 gate no promueva sin él. (El candado estático de devops
 `scripts/check-stripe-webhook-failclosed.sh` cubre justo esa mitad; corrido contra este árbol: **2/2**.)
+
+---
+
+## §v1.67-A.B4/B5 — Stream A «La cuenta del cliente», agente A2: `users` (B4) y `shipments` (B5) (backend, 2026-09-11, medido)
+
+> Contrato v1.67 §0 (`RECIPIENT_NAME_REQUIRED`), §1 (`GET/PATCH /users/me`, «Direcciones», allowlist del guard),
+> §5 (snapshot de NUEVE campos), §11 (`AddressDTO`); ARCHITECTURE §4.47.4/§4.47.5/§4.47.8. Cierra **D-CTA-2** y la
+> parte `users`+`shipments` de **D-CTA-3**. Migración `M-52` ya en `f5513cd` (no se tocó `prisma/`).
+
+### Qué cambió y dónde
+
+| Pieza | Fichero | Decisión |
+|---|---|---|
+| `GET /users/me` +`nameSource`, +`hasPassword` (= `passwordHash != null`), +`mustChangePassword`; `@AllowPasswordChangeRequired()` **solo en el `GET`** | `users.controller.ts`, `users.service.ts` (`toMeDTO`) | Una sola proyección `toMeDTO`; `GET` y `PATCH` devuelven las **14 claves** del contrato. El hash nunca sale. |
+| `PATCH /users/me`: `name` trim + 1..120, `nameSource='user'` **siempre** que venga `name`; `data` construido a mano (nunca `data: dto`) | `users.service.ts`, `dto/users.dto.ts` | `phone`/`locale` solos **no** tocan `nameSource`. |
+| `recipientName` en la libreta: **obligatorio** en `POST`, **no vaciable** en `PATCH` (ni `null` ni `""`); `AddressDTO.recipientName: string \| null` | `dto/users.dto.ts`, `users.service.ts` (`toAddressDTO`) | Sin fallback a `User.name` (ni consulta al usuario). |
+| Regla única de nombre de persona | `users/person-name.ts` (`assertPersonName`) | Trim; 1..120; `400 VALIDATION_ERROR` con `details.field` (`name` \| `recipientName`). |
+| `POST /shipments/quote` y `POST /shipments` ⇒ `422 RECIPIENT_NAME_REQUIRED { field, addressId }` si la dirección tiene `recipientName` nulo/vacío | `shipments.service.ts` (`assertRecipientName`) | Corre tras `ADDRESS_NOT_MX` y **antes** de clasificar items, de la tx serializable y del PaymentIntent. |
+| `addressSnapshot` de **9 campos** (`recipientName` + los 8 de antes), copiado **tal cual** (recortado) de `Address.recipientName` | `shipments.service.ts` (`create`) | Los retiros anteriores conservan 8 (un snapshot no se reescribe); `withAdminKind` (`:436`) sin cambio: ahora lo encuentra poblado. |
+
+### Dónde vive la validación 1..120 y por qué (lectura conservadora del contrato — para el arquitecto)
+
+El contrato pide `400 VALIDATION_ERROR` **con `details.field='name'`/`'recipientName'`**. El `ValidationPipe` global
+(`main.ts:56`) + `AllExceptionsFilter` serializan los errores de DTO como `details: { message: string[], … }`, **sin
+`field`**, y ambos están fuera de mis rutas (`common/`, `main.ts`). Por eso el DTO **recorta y exige string**
+(`@Transform` + `@IsString()`), y la cota **1..120 y el `field` los pone el servicio** (`assertPersonName`). En el
+cable: `""`, solo espacios, `null` y `>120` ⇒ `400 VALIDATION_ERROR` con `details.field` (**medido en E2E**);
+**ausente** o **no-string** ⇒ `400 VALIDATION_ERROR` del pipe, **sin `details.field`** (es el mismo comportamiento
+que `GuestAddressInput.recipientName` hoy). Si el arquitecto quiere `field` también en esos dos casos, es un
+`exceptionFactory` en `main.ts` (zona compartida), no un cambio de módulo. `@IsOptional()` en
+`UpdateAddressDto.recipientName` deja pasar `null` **a propósito** para que sea el servicio quien lo rechace con
+`field` en vez de escribir `NULL` sobre una dirección con destinatario.
+
+### Pregunta R5 de ux-ui (`DESIGN_SYSTEM §33.10/§33.16`): ¿`GET /admin/shipments` trae `customer {id,name,email}`?
+
+**Medido: NO.** `toAdminShipmentRow` (`shipments.service.ts:39-59`) expone `userId` (crudo) y `withAdminKind` añade
+`kind`, `orderNumber?`, `guestEmail?`, `recipientName?`. El contrato §M4 no define `customer` ⇒ **no se añadió**
+(sería contrato nuevo; regla 9). Está aseverado en `shipments.recipient-name.spec.ts` y en el E2E de M4
+(`not.toHaveProperty('customer')`) para que, si se decide añadirlo, pase por el contrato primero.
+
+### Tests
+
+- Unitarios nuevos: `test/users.person-name.spec.ts` (7), `test/users.me-and-addresses.spec.ts` (26),
+  `test/shipments.recipient-name.spec.ts` (11). Fixtures de `shipments.rollback.spec.ts` y
+  `shipments.withdraw-invariant.spec.ts` ganan `recipientName` (sin él, `create` corta en 422 antes del caso que prueban).
+- E2E: `test/integration/account-profile.e2e-spec.ts` (nuevo, 16: `hasPassword` con/sin hash, allowlist `GET` 200 +
+  `PATCH` 403 `PASSWORD_CHANGE_REQUIRED`, `PATCH name` ⇒ `nameSource='user'` y forma del GET, vacío/121 ⇒ 400,
+  libreta con `recipientName`); `test/integration/vault-shipments.e2e-spec.ts` (+6: quote/create sin nombre ⇒ 422
+  sin PI ni fila, remedio por `PATCH`, `null` no vacía, snapshot de 9 con el nombre de la dirección y no el de la
+  cuenta, M4 detalle+cola con `recipientName` y sin `customer`). `iva-price-convention.e2e-spec.ts:433` garantiza
+  un destinatario antes del retiro (prueba la convención de IVA, no el destinatario). El `beforeAll` de
+  `vault-shipments` **fuerza `recipientName=null`** en la dirección del seed (el seed reusa la fila ⇒ el caso
+  «anterior a M-52» debe ser reproducible en la segunda corrida). `account-profile` restaura `name/nameSource/
+  passwordHash/mustChangePassword` en `afterAll` (el `update` del upsert del seed no los toca).
+
+### Medición (copia en `…/scratchpad/backend-A2/mut`; árbol vivo intacto)
+
+| Qué | Comando | Resultado |
+|---|---|---|
+| Unitarios completos | `cd backend && npx jest` | **4509/4509**, 274 suites |
+| Lint | `npm run lint` | 0 errores, 2 warnings preexistentes (`inventory/`) |
+| Typecheck | `npx tsc --noEmit -p tsconfig.json` | limpio salvo `test/mail.greeting-name.spec.ts` (fichero de A1, en curso) |
+| E2E propios | `E2E_STRICT_INFRA=false ./scripts/stack-native.sh test:integration vault-shipments account-profile` | **33/33** (17 + 16) |
+| E2E ajustado | `… test:integration iva-price-convention` | **33/33** |
+| Mutación (a) snapshot de 8 campos | unit `shipments.recipient-name` ×3 · E2E `vault-shipments` ×3 | rojo **3/3** (2 tests) · rojo **3/3** (2 tests) |
+| Mutación (b) sin `assertPersonName` en `createAddress` | unit `users.me-and-addresses` ×3 · E2E `account-profile` ×3 | rojo **3/3** (6 tests) · rojo **3/3** (1 test) |
+
+Notas de entorno: `.native-stack/secrets.env` (03:35 de hoy) no coincidía con la contraseña del rol `tcg` ⇒
+`./scripts/stack-native.sh up --infra` la realineó y aplicó `M-52`. Sin object storage en :9000 ⇒ las corridas
+llevan `E2E_STRICT_INFRA=false` (solo afecta a `infra-smoke`; **no valen como gate**, QA debe correr con la infra completa).
+
+### Fuera de mi alcance, medido y no tocado
+
+- `admin.service.ts:165` (`toAdminUserAddressRef`, ficha M6) es una **copia** de `toAddressDTO` y **no** proyecta
+  `recipientName`; el contrato §11 dice que `AddressDTO` lo lleva. Módulo `admin` (stream «Admin y auditoría»).
+- `buylist` (`pickupAddressSnapshot`) sigue sin nombre — `D-CTA-5`, stream buylist.
+- `backend/src/common/` (guard, decorador, `ErrorCode.RECIPIENT_NAME_REQUIRED`) lo escribe A1; al cierre de esta
+  sección **seguía sin commitear** (`git log -- backend/src/common/`): mis commits compilan **sobre el árbol de
+  trabajo**, y lo harán en `HEAD` cuando A1 aterrice.
+
+## v1.67 — Stream A · **LA TEMPORAL OBLIGA**: `POST /auth/change-password`, guard `403 PASSWORD_CHANGE_REQUIRED`, `M-52` y `greetingName()` (backend A1 · `common`+`auth`+`mail`+`prisma` · 2026-09-11)
+
+> Contrato v1.67 (`docs/API_CONTRACT.md` §0 códigos nuevos, §1 «Cambiar la propia contraseña» y
+> «Contraseña temporal OBLIGATORIA»); `ARCHITECTURE §4.47` (reparto B1–B7 en §4.47.8, `M-52` en §11).
+> Decisión del dueño (`HECHOS.md`, 2026-09-11): *«Que obligue a cambiarla»*. Commits: `f5513cd` (B1),
+> los dos siguientes de backend (B2+B3+B7 y B6). **Lo de `users`/`shipments` (B4/B5) lo hace el agente A2**
+> y lo documenta en su propia sección.
+
+### Qué hay (por fichero, para el que venga después)
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| `M-52` | `prisma/migrations/20260911120000_m52_account_recipient_name_source/` | `Address.recipientName TEXT` nullable sin backfill; `NameSource` + `User.nameSource NOT NULL DEFAULT 'user'` + los dos `UPDATE` deterministas (solo `authProvider='google'`). Aditiva; el artefacto anterior la ignora. |
+| 5 códigos | `common/error-codes.ts` | `PASSWORD_CHANGE_REQUIRED` (403), `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`, `PASSWORD_NOT_SET`, `RECIPIENT_NAME_REQUIRED` (422; este último lo **emite `shipments`**, no `auth`). |
+| Allowlist | `common/decorators/allow-password-change-required.decorator.ts` | `@AllowPasswordChangeRequired()` **por handler**. Lista cerrada: `POST /auth/change-password`, `POST /auth/logout` (ambos en `auth.controller.ts`, hechos), `GET /users/me` (**lo decora A2** en `users.controller.ts`: el decorador va en el `@Get()` del `me()`, NO a nivel de clase — el `PATCH` queda fuera). Añadir otra ruta = cambio de contrato. |
+| Guard | `common/guards/password-change-required.guard.ts` | `req.user.mustChangePassword === true` y handler sin decorador ⇒ `403 PASSWORD_CHANGE_REQUIRED`, `details: {}`. Sin `req.user` (`@Public`) ⇒ pasa. **No consulta BD.** |
+| `JwtAuthGuard` | `common/guards/jwt-auth.guard.ts` | `mustChangePassword` en el **mismo** `select` (`status, tokenVersion, emailVerified, mustChangePassword`) y en `req.user`. `AuthUser.mustChangePassword?` en `current-user.decorator.ts`. |
+| Cadena | `app.module.ts` | `Throttler → Jwt → PasswordChangeRequired → Roles → EmailVerified → MoneyOut`. Hay un test que lee el orden del metadata de `AppModule` (`test/password-change-required.guard.spec.ts`). |
+| Endpoint | `auth.controller.ts` / `auth.service.ts#changePassword` / `dto/auth.dto.ts#ChangePasswordDto` | Orden normativo del contrato, `tokenVersion +1`, **par nuevo** emitido con la fila `updated` (no con la leída), `emailVerified`/`authProvider` intactos, `AuditLog auth.password_changed` con `ip`. Throttle 5/min/IP. |
+| `publicUser` | `auth.service.ts` | + `mustChangePassword` y nada más (D-CTA-1). `login`/`google` responden 200 con el flag; no rechazan. |
+| `google()` | `auth.service.ts` | Alta nueva escribe `nameSource`: `google` si el ID token trae `name` (tras `trim`), `derived` si se fabrica del correo. **Un `name` en blanco (`"   "`) cuenta como ausente** ⇒ ya no se guarda `""` (antes sí, por el `??`). El enlace de cuenta local con Google no toca `name` ni `nameSource` (sin cambio). |
+| `greetingName()` | `mail/greeting-name.ts`, `mail.templates.ts`, `mail.service.ts` | `null` con `derived` ⇒ «Hola:» / «Hi,». `sendEmailVerification`/`sendPasswordReset` aceptan `nameSource?` (opcional: los llamadores antiguos siguen saludando con nombre). **Los correos del buylist no se tocan** (D-CTA-5, su stream). |
+
+### Decisiones de implementación que no están literalmente en el contrato (lectura conservadora)
+
+1. **Paso 1 del orden normativo («la cuenta es `active`»)**: el guard ya rechaza `blocked`/`deleted` con 401; el
+   servicio lo re-comprueba (defensa en profundidad) y responde el mismo `401 UNAUTHENTICATED` — el contrato lista
+   ese código entre los errores del endpoint. No se inventó un 403 nuevo.
+2. **`currentPassword` con `@MinLength(1)` y sin política**: es «la que ya tiene», sea cual sea (una temporal
+   autogenerada podría no cumplir la política actual). `newPassword` usa `MIN_PASSWORD_LENGTH` — la misma constante
+   que `register`/`reset-password`, sin máximo ni complejidad (contrato: ⛔).
+3. **`argon2.verify` que lanza** (hash corrupto) se trata como «no verifica» ⇒ `422 CURRENT_PASSWORD_INCORRECT`,
+   igual que hace `login`. No se filtra el motivo.
+4. **`ip` en la auditoría**: el contrato pide `actorRole` y no menciona `ip`; `AuditEntry.ip` ya existe y las
+   hermanas de `auth` no la rellenan. Se rellena aquí (viene del `@Ip()` del controlador) porque es una acción de
+   credenciales; es aditivo y no cambia la forma de nada.
+5. **`google()` con `name` en blanco**: el contrato dice `identity.name ? 'google' : 'derived'`; un `""` es falsy y
+   por tanto `derived`, pero el `??` previo habría guardado `name=""`. Se unifica con `trim() || null`: en blanco ⇒
+   derivado del correo + `derived` (coherente con la regla del backfill `M-52b`).
+
+### Medido (comandos y totales; todo con Node `/opt/node22/bin`, Postgres 16.13 del clúster local `16 main`, Redis local; **sin Docker**)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Schema | `npx prisma validate` · `npx prisma generate` | válido · generado |
+| `M-52` aplica | `npx prisma migrate deploy` (BD limpia) | `All migrations have been successfully applied` |
+| Schema == migraciones | `npx prisma migrate diff --from-url <bd> --to-schema-datamodel prisma/schema.prisma` | nada en `User`/`Address`. **Única diferencia: rename de índice de `PriceReference`** (`PriceReference_variant_capturedDate_key` ↔ `…cardId_productType_gradeKey_finish_capturedD_key`), **preexistente**: aparece igual contra el schema de `HEAD` sin `M-52`. No es de este stream; queda anotado, no arreglado. |
+| Backfill `M-52b` | todas las migraciones previas por `psql` + 4 usuarios fixture + `Address` sin nombre + `M-52` | `local` con `name = split_part(email,'@',1)` ⇒ `user` (no se marca); google derivado ⇒ `derived`; google con nombre ⇒ `google`; `recipientName` nace `NULL`. Repetir los dos `UPDATE`: reparto idéntico (1/2/1) ⇒ idempotente. |
+| Unitarios | `npm test` | **271 suites / 4463 tests** en verde (incluye los 44 nuevos: `password-change-required.guard`, `jwt-auth.guard.must-change-password`, `auth.change-password`, `mail.greeting-name`). |
+| E2E nuevo | `npx jest --config test/jest-integration.config.js test/integration/auth-change-password.e2e-spec.ts` | **5/5** (ciclo completo customer, ciclo operador por `/admin/*`, sin flag revoca las otras sesiones, solo-Google ⇒ `PASSWORD_NOT_SET`, sin sesión ⇒ 401). |
+| Integración completa, **árbol vivo** | mismo config, sin filtro | 355/365, **2 suites rojas (`vault-shipments`, `iva-price-convention`) que A2 estaba editando en ese momento** (`git status`: `M` en esos dos specs y en `shipments.service.ts`). |
+| Integración, **copia limpia = `HEAD 9db7b64` + mis 17 ficheros** | `git archive HEAD backend` + `cp` de mis ficheros + esas 3 suites | **49/49 verde** ⇒ los rojos del árbol vivo no son de este trabajo. |
+| Integración **completa** sobre esa copia limpia | mismo config, sin filtro, BD `tcg_a1` | **25 suites / 365 tests en verde**. |
+| Ciclo entero tras aterrizar A2 (`HEAD ae1ee20`) | `auth-change-password` (con la aserción de `GET /users/me` ⇒ 200 con `{ mustChangePassword: true, hasPassword: true }`) + `auth-authz` + `account-profile` (de A2) | **32/32 verde**; `tsc` limpio. |
+| Lint / tipos | `npm run lint` · `npm run typecheck` | 0 errores (2 warnings preexistentes en `inventory`, ajenos) · `tsc` limpio |
+
+**Mutaciones (todas sobre COPIA en `…/scratchpad/backend-A1/mut`, restaurada y verificada idéntica al árbol vivo en mis ficheros):**
+
+| Mutación | E2E (`auth-change-password`) | Unit |
+|---|---|---|
+| (a) `PasswordChangeRequiredGuard` fuera de la cadena `APP_GUARD` | **rojo 3/3** (2 tests: los dos ciclos con 403) | **rojo 5/5** (`password-change-required.guard.spec`: el test de orden) |
+| (b) `CURRENT_PASSWORD_INCORRECT` con **401** en vez de 422 | **rojo 3/3** (5/5 tests: el 401 mata la sesión y todo lo que sigue) | **rojo 5/5** (`auth.change-password.spec`) |
+| (c) `change-password` **sin** `@AllowPasswordChangeRequired()` (encierro) | **rojo 3/3** | **rojo 5/5** |
+| (d) par emitido con `issueTokens(user)` (tv viejo) en vez de `updated` | **rojo 3/3** | **rojo 5/5** (2 tests: paso 6 y «tv viejo ⇒ 401 / nuevo ⇒ 200») |
+
+### Reparto con A2 (`users` · `shipments`) — estado MEDIDO al cierre de esta sección (2026-09-11)
+
+- **Ya aterrizado por A2** (`87c0509`, `ecd14c2`, `3a9bb3e`, notas en `ae1ee20`): `@AllowPasswordChangeRequired()`
+  en el handler `GET /users/me` (`users.controller.ts:37`, medido con `grep`), `hasPassword`/`nameSource`/
+  `mustChangePassword` en `/users/me`, `recipientName` en la libreta y `422 RECIPIENT_NAME_REQUIRED` en `shipments`.
+  Mi E2E lo recorre de punta a punta (fila «Ciclo entero» de arriba): con temporal, `GET /users/me` ⇒ 200 y
+  `PATCH /users/me` / `GET /users/me/addresses` ⇒ 403; tras el cambio, `PATCH /users/me` ⇒ 200.
+- **Fuera de A (no lo hace nadie de este stream):** correos del buylist con `greetingName()` — D-CTA-5 lo enruta al
+  stream buylist.
+
+### NO medido en este entorno
+
+- **Rate-limit 5/min real por HTTP** en `change-password`: el throttler se omite bajo `NODE_ENV=test`
+  (`config/test-env.ts`); queda aseverado el **metadata** (`THROTTLER:LIMITdefault=5`, `TTL=60000`) en unit. El 429
+  real se mide con `E2E_ENABLE_THROTTLER=true` como hace `auth-throttle.e2e-spec.ts` — no se añadió un caso ahí
+  (fichero compartido con otros flujos; lo puede pedir QA).
+- **Cuántos usuarios de producción tienen `mustChangePassword=true`** antes de publicar el guard (contrato: el
+  orquestador lo mide con `SELECT count(*) FROM "User" WHERE "mustChangePassword"`). Sin acceso a esa BD desde aquí.
+- **Playwright / frontend**: fuera de mis rutas.
+
+## v1.67.1 — gates Stream A: ronda de correcciones tras QA y techlead (backend · 2026-09-11, medido)
+
+> Encargo: los hallazgos 1–9 del veredicto del 2026-09-11 (BL-27 de `mail.templates.ts`, billing-profile
+> `404`/`rfcMasked`, `AddressDTO` única, seed E2E de los tres actores, F2-6/F2-7, test reflexivo de la
+> allowlist, `engines`, gitleaks). Contrato v1.67.1 (`API_CONTRACT.md` §1 «Perfil de facturación»,
+> §M6, §11 `BillingProfileDTO`) y `ARCHITECTURE §4.47.10`. Base `origin/main = 17ce9a9`, rama
+> `claude/tcg-hunt-orchestration-2`. Node 22.22.2 (`/opt/node22`); Postgres 16 local en BD **propia
+> `tcg_fix1`** (rol `tcg_fix1`); Redis y S3 locales vía `./scripts/stack-native.sh up --infra`.
+
+### Qué cambió (un commit por unidad)
+
+| Unidad | Commit | Ficheros |
+|---|---|---|
+| BL-27: `mail.templates.ts` vuelve al formato de la base; solo `greeting()` + `name: string \| null` | `c9025af` | `src/modules/mail/mail.templates.ts` |
+| Billing: `404 NOT_FOUND` sin perfil; `BillingProfileDTO` = `{ rfcMasked, razonSocial, regimenFiscal, usoCfdi, postalCode, email }`; `PUT` upsert con `data` a mano y misma forma que el GET | `3402466` | `users.service.ts`, `test/users.me-and-addresses.spec.ts` |
+| `AddressDTO` ÚNICA: `users/address-dto.ts` (`toAddressDTO`, `ADDRESS_DTO_KEYS`) usada por `/users/me/addresses` y `GET /admin/users/:id` (los dos roles); `toAdminUserAddressRef` retirado | `edc4239` | `users/address-dto.ts` (nuevo), `users.service.ts`, `admin/admin.service.ts`, `test/address-dto.parity.spec.ts` (nuevo) |
+| F2-7: `createAddress`/`updateAddress` con lista blanca campo a campo (nunca `{ ...dto }`); F2-6: docblock de `assertPersonName` dice quién corta «ausente» | `bba43d9` | `users.service.ts`, `users/person-name.ts`, spec de users |
+| Test reflexivo: exactamente 3 handlers con `@AllowPasswordChangeRequired()` | `89cae36` | `test/password-change-allowlist.reflect.spec.ts` (nuevo) |
+| Seed E2E: temporal (cliente+operador), solo-Google, pedido de invitado sin reclamar | `83ec86e` | `prisma/e2e-fixtures.ts`, `prisma/seed-e2e.ts`, `test/integration/seed-account-fixtures.e2e-spec.ts` (nuevo) |
+| gitleaks: 3 hallazgos históricos de `backend/` neutralizados en HEAD | `a454178` | `pii-crypto.service.ts`, `test/seed.password.spec.ts`, `test/graded-estimate.ingest.spec.ts` |
+| `engines.node >=22`; `@types/node` ^24 (lockfile por npm) | `1a2d394` | `package.json`, `package-lock.json` |
+| Deuda BE-76..BE-81 | (docs) | `docs/TECH_DEBT.md` |
+
+### Credenciales de FIXTURE del seed (BD sintética/efímera; NO son secretos) — para desmarcar `mockOnly`
+
+| Actor | Correo | Contraseña | Estado sembrado | Para qué |
+|---|---|---|---|---|
+| Cliente con temporal | `temporal.customer@e2e.local` | `Temporal123!` | `authProvider=local`, `mustChangePassword=true`, `emailVerified=true`, `nameSource=user` | `e2e/account.spec.ts` «cliente con temporal»: login ⇒ `/account/password` ⇒ cambio ⇒ tienda |
+| Operador con temporal | `temporal.operator@e2e.local` | `Temporal123!` | `role=vault_operator`, `mustChangePassword=true` | `e2e/account.spec.ts` «operador con temporal»: `/admin/account/password` + `?next=` |
+| Solo-Google | `google.only@e2e.local` | **ninguna** (`passwordHash=NULL`) | `authProvider=google`, `googleId=e2e-google-only-sub-0001`, `name=google.only`, `nameSource=derived` | `hasPassword:false` + «Revisa tu nombre»; `change-password` ⇒ `422 PASSWORD_NOT_SET`. ⚠️ Sin vía de login por contraseña: en Playwright hace falta sesión inyectada (BE-79) |
+| Pedido de invitado sin reclamar | `guestEmail = customer@e2e.local` · `orderNumber TCG-E2E-GUEST-0001` · pieza `E2E-GST-SEED-0001` | — | `userId=null`, `claimedAt=null`, `settled`, `direct_ship`, 1 línea, `totalCents=157200` | `e2e/claimable-orders.spec.ts` `@real`: aviso ⇒ «Vincular a mi cuenta» ⇒ desaparece |
+
+Constantes: `E2E_ACCOUNT_FIXTURES` y `E2E_GUEST_ORDER` en `backend/prisma/e2e-fixtures.ts` (aparte de
+`E2E_USERS` a propósito: el bucle del seed y el reset por-usuario recorren `E2E_USERS`). **Cada siembra
+restaura** hash/flag de las temporales, el estado de la cuenta Google y el pedido sin reclamar
+(borra-y-declara por `orderNumber`), así que un E2E que cambie la contraseña o reclame el pedido no
+apaga el fixture para la siguiente corrida. El seed **no** siembra `BillingProfile` (el `404` es el caso
+a probar; el `PUT` lo crea dentro del test).
+
+### Medido (comandos y totales)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| BL-27 | `BASE_REF=17ce9a9 bash scripts/check-format-mix.sh 17ce9a9 c9025af` | `mail.templates.ts` **ya no aparece**. El check sigue en rc=1 por **`frontend/tsconfig.json`** (8 líneas de cambio real mezcladas; commit de frontend anterior a esta ronda). No es de backend. |
+| Unitarios | `npx jest` (completo) | **276 suites / 4524 tests** verdes (incluye las 3 suites nuevas y las ampliaciones) |
+| Integración completa | `DATABASE_URL=<tcg_fix1> ./scripts/stack-native.sh test:integration` | **27 suites / 395 tests** verdes (QA midió 26/387 antes de esta ronda; +1 suite / +8 casos son `seed-account-fixtures`) |
+| Seed por CLI | `npm run seed:synthetic` ×2 sobre `tcg_fix1` + `psql` | 2/2 ✓; los tres actores en el estado de la tabla; **una** fila `TCG-E2E-GUEST-0001` con `userId IS NULL AND claimedAt IS NULL` |
+| Lint / tipos | `npm run lint` · `npm run typecheck` | 0 errores (2 warnings preexistentes en `inventory`, ajenos) · `tsc` limpio con `@types/node` 24 |
+| gitleaks | binario 8.30.1 en scratchpad, `gitleaks dir backend --config security/gitleaks.toml` (toml de HEAD y del árbol) | **3 → 0** hallazgos. Cada alternativa medida antes sobre copia aislada (las originales disparan; las nuevas no) |
+| Manifiesto de secretos | `scripts/gen-published-secrets-manifest.sh --check` | rc=0 al inicio del pase; **rc=1 al cierre por un literal AJENO**: `frontend/e2e/utils/env.ts:63` (`E2E_TEMP_CUSTOMER_PASSWORD ?? 'Temporal123!'`, sin commitear, de frontend) — el manifiesto lo regenera devops. Ninguno de mis tres literales cambiados está en el manifiesto (sha256 comprobado). |
+
+**Mutaciones (sobre COPIA en `…/scratchpad/backend-fix1/mut`, nunca sobre el árbol vivo):**
+
+| Mutación | Resultado |
+|---|---|
+| `getBillingProfile`: quitar el `throw BusinessException.notFound()` (⇒ `null`) | `users.me-and-addresses.spec.ts` **rojo 3/3** (falla exactamente «GET sin perfil ⇒ 404 NOT_FOUND») |
+| `auth.controller.ts`: quitar `@AllowPasswordChangeRequired()` de `logout` | `password-change-allowlist.reflect.spec.ts` **rojo 1/1** (2 de 4 casos: «exactamente tres» y «dónde viven»); determinista, no probabilístico |
+
+### Confirmaciones pedidas por el arquitecto (v1.67.1)
+
+- `/auth/google` con `name` en blanco ⇒ `trim()` ⇒ derivado del correo + `nameSource='derived'`, nunca `""`:
+  ya estaba en `auth.service.ts:415-426` y **lo fija** `test/auth.change-password.spec.ts:288-292`
+  («name en blanco ⇒ cuenta como ausente: derived»). Sin cambios.
+- `AdminBillingProfileDTO` (M6) conserva `id/userId/timestamps`: `admin.service.ts` no se tocó en billing.
+
+### NO medido aquí
+
+- `./scripts/stack-native.sh up --seed --gate` y `verify:head`: no levanté el backend de :3099 (el stack de
+  QA cayó con el reinicio de la sesión; levanté solo `--infra`). La ruta CLI del seed (la que usan `--seed`,
+  `e2e.yml:299` y `e2e-real.yml`) sí está medida (2/2).
+- Playwright `@real` de frontend con estos fixtures: fuera de mis rutas; lo desmarca frontend y lo corre QA.
+- gitleaks en modo `git` (historial): los literales viejos siguen en commits antiguos (BE-77, allowlist por
+  valor de devops).
+
+### Mini-ronda de cierre (backend · 2026-09-11, tras la aprobación de QA y techlead sobre `ba5fd4b`)
+
+| Hallazgo | Commit | Medición |
+|---|---|---|
+| **N1 (ALTA, release)** — el seed sembraba sin mirar `DATABASE_URL` (solo `scripts/seed-synthetic.sh` guardaba; `npm run seed:synthetic` y `e2e-real.yml` no pasaban por ahí) | `8549bbe` | `prisma/seed-target-guard.ts` + paso 0 de `seedE2E()`: fail-closed (local / servicio de compose sin punto / `staging`), escotilla `SEED_E2E_ALLOW_HOST=<host exacto>`. Spec 16/16; **mutación 3/3 roja** (guarda retirada en copia ⇒ 3 casos de `seedE2E` fallan); CLI con URL de Railway ⇒ **rc=1 `SEED_E2E_REFUSED`**; integración de los specs que siembran 29/29. `scripts/` intacto. |
+| **N2 (MEDIA)** — `BillingProfileDto` con seis `@IsString()` pelados; `rfcMasked ?? ''` | `5571130` | RFC 12-13 (`[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}`, trim+MAYÚSCULAS: el E2E de frontend manda `xaxx010101000` y espera `XAX**********`), `razonSocial` ≤254, régimen 3 dígitos, uso `[A-Z]{1,2}\d{2}`, CP 5 dígitos, email ≤254; forma del error intacta (pipe). RFC cifrado que descifra a vacío ⇒ **throw** (500 visible, fila corrupta), no `''`. Users spec 47/47. |
+| **N8** — `engines.node >=24` | `c5a359a` | `npm install --package-lock-only`: `packages[""].engines` copiado (+3 líneas). `EBADENGINE` solo aviso en el local 22. Cierra BE-84. |
+| **TECH_DEBT** — ids duplicados | `28767d9` | BE-76..81 → **BE-82..87**; «Comprobación de cierre» en cada ficha; BE-84 cerrada. |
+
+Suites al cierre: `npx jest` **277 suites / 4555 tests** rc=0 (+1 suite, +31 casos respecto a la ronda anterior); typecheck 0 errores; eslint 0 errores. `git status` limpio en `backend/`, `BACKEND_NOTES.md`, `TECH_DEBT.md`. **NO medido:** `e2e-real.yml` en el runner con la guarda (su `DATABASE_URL` apunta al servicio `postgres` del compose, que la guarda reconoce por construcción — `seed-e2e.target-guard.spec.ts` lo cubre con esa URL exacta).
+
+### Diagnóstico: `GET /users/me/billing-profile` ⇒ 500 «Unsupported state or unable to authenticate data» en el stack nativo (backend · 2026-09-11, medido)
+
+**Veredicto: artefacto de ENTORNO, no de código. No es bloqueante de release.**
+
+| Pregunta | Medición | Resultado |
+|---|---|---|
+| ¿Cambió la derivación de la clave PII en la rama? | `git log 17ce9a9..HEAD -- backend/src/common/crypto/pii-crypto*` + `git diff` sin comentarios | **Un solo commit, `a454178`**: rename `key`→`material` en `resolveHmacKey` (HMAC, no cifrado), sin cambio de derivación. `4f27d2f` y `5f0928f` **ya son ancestros de la base `17ce9a9`** (`git merge-base --is-ancestor`). |
+| ¿El stack nativo fija `PII_ENCRYPTION_KEY`? | `grep -c PII_ scripts/stack-native.sh .native-stack/secrets.env` | **0 y 0.** Con `NODE_ENV=development`, `PiiCryptoService.resolveEncKey` (`pii-crypto.service.ts:112-145`) usa una **clave EFÍMERA por proceso** y lo avisa: `backend.log:12` («PII_ENCRYPTION_KEY not set — using an EPHEMERAL random key… UNREADABLE after a restart»). |
+| ¿La fila es de otro proceso? | `psql tcg_marketplace`: `BillingProfile` de `customer@e2e.local` `updatedAt 07:42:58`; `backend.log:273` arranque actual `08:06:05` | **Sí**: la escribió el PUT de QA en el proceso anterior; el actual arrancó con otra clave ⇒ AES-GCM no autentica ⇒ `decrypt` lanza. Mismo mecanismo por el que el seed ya borraba `kycProfile` (`clabeEnc`). |
+
+**Qué se hizo (commits):**
+- `f2b361c` — `toBillingProfileDTO`: el 500 se conserva (fila que este proceso no puede servir) pero con **diagnóstico**: `logger.error` y mensaje `BillingProfile <id> (userId <userId>): rfcEnc does not decrypt with this process's PII key (<causa>). Likely PII_ENCRYPTION_KEY differs… or the row is corrupt`. Test unitario con fila cifrada por otra clave (48/48).
+- `4abd91e` — el seed borra `billingProfile` de **todos** los correos del fixture (`E2E_FIXTURE_EMAILS`) en cada siembra; caso de integración que reproduce el fallo: fila cifrada con otra clave ⇒ **500** ⇒ `seedE2E` ⇒ **404** (30/30 sobre `tcg_fix1`). `jest` completo **277 / 4556** rc=0.
+
+**Remedio inmediato en el stack de QA (no es mío):** `./scripts/stack-native.sh up --seed` (la siembra nueva borra la fila) o, desde la UI, el propio `PUT` (reemplaza la fila cifrando con la clave del proceso vivo).
+
+**Petición a devops (medida, no relayada):** `stack-native.sh` genera `JWT_*`/`S3_SECRET_ACCESS_KEY` en `.native-stack/secrets.env` pero **no** `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`; mientras no las genere (32 bytes base64, `openssl rand -base64 32`, persistidas igual que las otras), **cada reinicio del backend nativo invalida toda la PII cifrada** (RFC y CLABE) de la BD local. Producción no está afectada: allí `keysRequired` exige las claves y el arranque falla sin ellas (`pii-crypto.service.ts:129-135`).

@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
 import { RoleProvider } from '@/lib/role';
-import { useSession } from '@/lib/session';
-import { usePathname, useRouter } from '@/i18n/navigation';
+import { isLogoutInProgress, useSession } from '@/lib/session';
+import { Link, usePathname, useRouter } from '@/i18n/navigation';
 import { config } from '@/lib/config';
+import { buildPasswordChangeRedirect, isPasswordRoute } from '@/lib/account-routes';
+import { logout as apiLogout } from '@/lib/api';
 import type { Role } from '@/types/contract';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { AdminSidebar } from './AdminSidebar';
@@ -32,9 +35,32 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   // (super_admin por defecto), así que no se aplica aquí.
   const hasAdminRole = !!user && ADMIN_ROLES.includes(user.role);
 
+  /**
+   * v1.67 — contraseña temporal BLOQUEANTE (DESIGN_SYSTEM §33.8 paso 3): con la bandera activa, todo
+   * el panel rebota a `/admin/account/password?next=<ruta>&reason=required` salvo esa página. Aplica
+   * también en modo mock (la bandera vive en la sesión local).
+   */
+  const mustChange = ready && isAuthenticated && user?.mustChangePassword === true;
+  const blocked = mustChange && !isPasswordRoute(pathname);
+  // Misma construcción que el interceptor global y que PrivateRouteGuard (F2-3): la página de
+  // contraseña del ROL (no una ruta escrita a mano) y el `next` CON su query string.
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString() ?? '';
+  const fullPath = search ? `${pathname}?${search}` : pathname;
+
+  useEffect(() => {
+    if (blocked) {
+      const target = buildPasswordChangeRedirect(user?.role, fullPath);
+      if (target) router.replace(target);
+    }
+  }, [blocked, router, fullPath, user?.role]);
+
   useEffect(() => {
     if (!requireAuth || !ready) return;
     if (!isAuthenticated) {
+      // QA2-1 / FE-34: tras un «Cerrar sesión» explícito el llamador ya navega a `/login` limpio; el
+      // guard no impone `?next=<módulo recién cerrado>` (lo hacía, y ganaba la carrera).
+      if (isLogoutInProgress()) return;
       // Preserva el destino con `next` para volver tras el login; el router de
       // next-intl conserva el locale.
       router.replace({ pathname: '/login', query: { next: pathname } });
@@ -46,7 +72,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   // Mientras no sepamos si hay sesión (o si falta el rol) mostramos carga, NUNCA el
   // contenido del back-office (evita el super_admin falso + 401/403 confuso).
-  if (requireAuth && (!ready || !isAuthenticated || !hasAdminRole)) {
+  if (blocked || (requireAuth && (!ready || !isAuthenticated || !hasAdminRole))) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bg" aria-busy="true">
         <span className="inline-flex items-center gap-2 font-mono text-sm text-muted">
@@ -76,6 +102,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             >
               <SidebarBrand onClose={() => setDrawer(false)} />
               <AdminSidebar onNavigate={() => setDrawer(false)} />
+              <DrawerAccountFooter onNavigate={() => setDrawer(false)} />
             </aside>
           </div>
         )}
@@ -86,6 +113,39 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </RoleProvider>
+  );
+}
+
+/**
+ * §33.2 (`< sm`): «Mi cuenta» y «Cerrar sesión» bajan al PIE del drawer, separados de los módulos
+ * por `border-t border-on-ink-rule`, filas de 44px. ⛔ No es un módulo del sidebar (sin código M-n).
+ * En `≥ sm` viven en el topbar, así que aquí se ocultan para no duplicarlos.
+ */
+function DrawerAccountFooter({ onNavigate }: { onNavigate: () => void }) {
+  const tnav = useTranslations('nav');
+  const router = useRouter();
+  async function onLogout() {
+    onNavigate();
+    await apiLogout();
+    router.replace('/login');
+  }
+  return (
+    <div className="mt-2 flex flex-col border-t border-on-ink-rule px-[22px] py-3 sm:hidden">
+      <Link
+        href="/admin/account"
+        onClick={onNavigate}
+        className="flex min-h-[44px] items-center text-sm text-on-ink-nav hover:text-on-ink"
+      >
+        {tnav('myAccount')}
+      </Link>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="flex min-h-[44px] items-center text-left text-sm text-on-ink-nav hover:text-on-ink"
+      >
+        {tnav('logout')}
+      </button>
+    </div>
   );
 }
 
