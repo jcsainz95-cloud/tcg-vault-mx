@@ -20301,3 +20301,19 @@ Primer runner (con `-t`) invalidado y repetido: al seleccionar tests saltaba los
 - Stripe real (modo prueba): el reuso con `retrievePaymentIntent` y la cancelación `processing` solo se midieron con el doble. `e2e-real.yml` lo cubre en CI.
 - El repetible viejo en el Redis de producción: `removeRepeatable` es best-effort y el alias del worker lo absorbe; no he mirado ese Redis.
 - Playwright de frontend.
+
+### v1.68.1 · B-1e — el QUOTE conoce la reserva propia (§4-R.5) y la propia VENCIDA es sustituible (§4-R.1/R.2) (backend B1 · 2026-09-11, medido)
+
+Commit **`e4d83dd`** (contrato `18f2b01`). Solo `orders/`.
+
+| Qué | Dónde | Regla |
+|---|---|---|
+| Quote con identidad | `priceCartForQuote(ids, owner?)` | `owner` = `{userId}` (customer) o `{orderId}` (invitado con `retryOfCheckoutToken`+`email` válidos vía `resolveRetryClaim`). Carga las órdenes `pending` propias que retienen piezas del carrito (`reservedItems some`); esas piezas van a `items[]` con `reservedByYou: true` en vez de `unavailableItems`. Sin identidad ⇒ conducta de hoy, literal. |
+| `ownReservation` | ídem | SIEMPRE presente (`null` si no hay). Describe la orden propia más reciente: `reservedUntil` = mínimo de sus piezas, `expired = reservedUntil <= now`, `coversCart` = una sola orden, su conjunto == carrito y todo retenido. |
+| Precios | `quote()` / guest `quote()` | `coversCart ∧ !expired` ⇒ líneas y `breakdown` **congelados** de la orden (`OrderItem.unitPriceCents`, `Order.*Cents`, guest + `shippingFeeCents`); si no, en lectura. `PRICE_PENDING` sobre válidos sin reserva propia (una propia sin precio en lectura cae a su congelado). |
+| DTO invitado | `GuestQuoteDto` | `retryOfCheckoutToken?`, `email?` con `@ValidateIf(token)` ⇒ token sin correo = `400 VALIDATION_ERROR`. |
+| Propia vencida (sesión) | `findOwnLiveReservations` | Ya no filtra `reservedUntil > now`: la vencida entra como propia con `heldAlive:false` ⇒ `isReusable` falso ⇒ sustitución (cancel+`canceled` → liberar/reservar/crear → `201 supersededOrderIds`); nunca reuso, nunca `409 ITEM_UNAVAILABLE`. |
+
+**Medido:** `tsc` 0 · lint 0 errores · `npx jest` **280 / 4607** verdes · integración completa (`stack-native.sh test:integration`, s3 arriba) **30/30 · 455/455** · E2E `checkout-reservation-owner` **24/24** con **R-3 10/10** y **R-9 (carrera sesión↔barrido sobre la propia vencida) 10/10** · `check-format-mix.sh 17ce9a9 HEAD` rc=0 · manifiesto rc=0.
+**Mutación m-quote** (copia, BD `tcg_b1_mut`, `ownOrders.length = 0` tras cargarlas ⇒ el quote ignora la reserva propia): **rojo 3/3** (5 casos R-8); control verde 3/3. ⚠️ Primer intento con `owner && false` **no compilaba** en ts-jest (narrowing) ⇒ «Tests: 0 total», que el runner contó como verde: invalidado; el runner ahora marca «0 total» como NO CONCLUYENTE.
+**Frontend:** `items[].reservedByYou?: true`, `ownReservation` siempre presente en los dos quotes; `retryOfCheckoutToken`+`email` en `POST /checkout/guest/quote`.
