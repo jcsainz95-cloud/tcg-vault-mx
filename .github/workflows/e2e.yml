@@ -152,7 +152,21 @@ jobs:
         # Postgres/Redis sí traen sus binarios (pg_isready/redis-cli) y conservan
         # su healthcheck.
     env:
-      DATABASE_URL: postgresql://tcg:e2e_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_e2e?schema=public
+      # -----------------------------------------------------------------------
+      # POOL FIJADO A MANO — MISMO CANDADO QUE EN `ci.yml` (SB-D2, COND-2).
+      # `connection_limit=5` no es preferencia: es el tamaño de pool con el que
+      # la carrera R-3 VE el defecto de dinero de `398c58a` (checkout pidiendo
+      # DOS conexiones por petición ⇒ pool agotado ⇒ `Timed out fetching a new
+      # connection` ⇒ 500 en la ruta de pago). Sin escribirlo, Prisma usa su
+      # default `num_cpus*2+1`: el candado queda atado al tamaño de runner que
+      # GitHub dé ese día y se afloja solo, en silencio. Subirlo —o subir
+      # `pool_timeout`, que convierte el agotamiento en espera— hace que R-3
+      # salga verde CON el defecto dentro. El razonamiento largo, con las
+      # mediciones (R-3 0/10→10/10, mutación `m-pool` 3/3), está en el bloque
+      # equivalente de `.github/workflows/ci.yml`. Lo vigila
+      # `scripts/check-db-pool-limit.sh`. DEVOPS_NOTES §57.
+      # -----------------------------------------------------------------------
+      DATABASE_URL: postgresql://tcg:e2e_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_e2e?schema=public&connection_limit=5&pool_timeout=10
       REDIS_URL: redis://localhost:6379
       # S-88-1 — aquí había dos literales JWT y un respaldo `|| 'sk_test_e2e_dummy'`.
       # El respaldo tiene el defecto justo al revés de como parece: el valor público
