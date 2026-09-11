@@ -92,5 +92,14 @@ paths = [
   '''(^|/)docs/.*\.md$''',
   '''security/.*\.(md|toml|yml|yaml)$''',
   '''docker-compose.*\.yml$''',
-  '''\.github/workflows/.*\.yml$''',
+  # F1-4 (techlead, 2026-09-11): aquí estaba `\.github/workflows/.*\.yml$`, que
+  # eximía los workflows ENTEROS. Retirada: medido con el mismo binario
+  # (v8.30.1) sobre `gitleaks dir .` y `gitleaks git .` (historial completo)
+  # con y sin la línea, el conjunto de hallazgos es IDÉNTICO (0 en
+  # .github/workflows/ en ambos modos). La exención no evitaba ningún falso
+  # positivo: solo abría un hueco. Control compensatorio que sigue vigente y
+  # cubre lo que gitleaks no ve (respaldos `${{ secrets.X || 'literal' }}` y
+  # literales en claves con nombre de secreto): scripts/check-secret-defaults.sh
+  # bloque (B). Si un workflow futuro dispara un falso positivo, se exime ESA
+  # regla o ESA ruta con motivo, no la carpeta.
 ]
