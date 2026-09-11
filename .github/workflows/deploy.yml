@@ -148,8 +148,12 @@ jobs:
   # (Refuerza además con branch protection: ci-ok, sast-ok y e2e como
   #  required status checks de la rama de release — ver DEVOPS_NOTES §5/§14.)
   # Solo corre si `secrets-gate` marcó ready == 'true'.
+  # NOMBRE (§56 #9, 2026-09-11): antes se llamaba `ci-ok`, igual que el gate
+  # final de ci.yml. GitHub identifica los required checks por NOMBRE de job:
+  # dos jobs homónimos en workflows distintos hacen ambiguo el required check
+  # y este —que casi nunca corre— podía bloquear la protección de rama.
   # ---------------------------------------------------------------------------
-  ci-ok:
+  deploy-ci-gate:
     needs: [secrets-gate]
     if: needs.secrets-gate.outputs.ready == 'true'
     runs-on: ubuntu-latest
@@ -172,7 +176,7 @@ jobs:
   # FALLA con la lista exacta (no continúa, no despliega a medias).
   # ---------------------------------------------------------------------------
   preflight:
-    needs: [ci-ok]
+    needs: [deploy-ci-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Verificar secrets de deploy (GitHub Secrets)
