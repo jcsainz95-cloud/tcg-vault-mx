@@ -1,4 +1,4 @@
-import { PriceIngestService } from '../src/modules/pricing/price-ingest.service';
+import { PriceIngestService, UnknownPriceProviderError } from '../src/modules/pricing/price-ingest.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { usdToMxnCents } from '../src/common/money';
@@ -91,8 +91,59 @@ describe('PriceIngestService.providerFor — el dial PRICE_PROVIDER elige el pro
   it('dial=pokemontcg_io → provider LEGACY', async () => {
     expect((await build('pokemontcg_io').providerFor()).source).toBe('pokemontcg_io');
   });
-  it('dial desconocido → fallback money-safe a pokemontcg_io (legacy)', async () => {
-    expect((await build('garbage').providerFor()).source).toBe('pokemontcg_io');
+  /**
+   * ⭐⭐ **CS-D8 — ESTE TEST DEFENDÍA LA CONDUCTA QUE EL CONTRATO PROHÍBE, Y SE INVIERTE.**
+   *
+   * Se llamaba *«dial desconocido → fallback money-safe a pokemontcg_io (legacy)»* y aseveraba
+   * `source === 'pokemontcg_io'`. Dos defectos en una línea:
+   *
+   * 1. **La conducta.** `API_CONTRACT §M10-PP · I-PP4`: *«⛔ No hay caída automática a otro
+   *    proveedor: fallar es fail-closed; aplanar es una pérdida irrecuperable»*. El test ponía en
+   *    verde justo la caída automática, y al proveedor **que aplana**.
+   * 2. **La frase.** *«money-safe … legacy»* es **la misma que `D-PP-1` retiró de
+   *    `settings.constants.ts`**: §M10-PP declara que `pokemontcg_io` ⛔ *«ya no se describe como el
+   *    seed money-safe»* (`I-PP1`), precisamente porque escribe precios **aplanados**. La frase
+   *    sobrevivía aquí, en el test que guarda la ruta del dinero — que es el peor sitio donde puede
+   *    sobrevivir una afirmación falsa: un rojo que **defiende** el defecto le cuesta al siguiente
+   *    mucho más caro que el defecto solo.
+   */
+  it('⭐ dial fuera del enum → FAIL-CLOSED: LANZA (⛔ NO cae al legacy que aplana) — I-PP4', async () => {
+    const svc = build('garbage');
+    await expect(svc.providerFor()).rejects.toThrow(UnknownPriceProviderError);
+    // El mensaje nombra el valor corrupto y la palanca de corrección (I-PP3): un fail-closed que no
+    // dice qué corregir obliga a leer el código para operar.
+    await expect(svc.providerFor()).rejects.toThrow(/garbage/);
+    await expect(svc.providerFor()).rejects.toThrow(/priceProvider/);
+  });
+
+  it('⭐ y NO devuelve ningún proveedor: ni el legacy, ni el primario, ni el de paga', async () => {
+    const svc = build('garbage');
+    // La aserción en negativo es la que mata la reincidencia: si alguien restaura CUALQUIER
+    // `return` en esa rama —da igual a cuál de los tres caiga— esto se pone rojo.
+    const resuelto = await svc.providerFor().catch(() => 'LANZÓ' as const);
+    expect(resuelto).toBe('LANZÓ');
+  });
+
+  /**
+   * ⚠️ **LA SEÑAL, y por qué es parte del hallazgo y no un extra.**
+   *
+   * El `throw` a secas convierte una escritura silenciosa y MALA en una NO-escritura silenciosa
+   * —mejor para el dinero, pero igual de muda—. En `runBackground()` (el botón «sincronizar ahora»)
+   * el barrido es *fire-and-forget*: el operador ya recibió su `200` y la única señal viviría en los
+   * logs. `sync-status` es la superficie que el front pollea, así que el fallo tiene que llegar ahí.
+   */
+  it('⭐ el fail-closed DEJA SEÑAL en sync-status (⛔ no muere en silencio con un 200)', async () => {
+    const svc = build('garbage');
+    expect(svc.getSyncStatus().lastError).toBeNull(); // antes: nada que reportar
+    await expect(svc.providerFor()).rejects.toThrow();
+
+    const st = svc.getSyncStatus();
+    expect(st.lastError).toMatch(/garbage/);
+    expect(st.lastError).toMatch(/M10-PP/);
+    expect(st.running).toBe(false); // murió antes de empezar: no hay barrido en curso
+    // ⛔ Y NO se apunta un proveedor «por si acaso»: no se eligió ninguno.
+    expect(st.provider).toBeNull();
+    expect(st.provider).not.toBe('pokemontcg_io');
   });
 });
 

@@ -151,6 +151,19 @@ enum FulfillmentMode {
   direct_ship
 }
 
+// v1.64-iva-inclusive (M-50, ARCHITECTURE §4.44.e) — LA CONVENCIÓN CON LA QUE SE COBRÓ UNA FILA.
+//
+// `Order.ivaRatePct` congela la TASA, jamás la CONVENCIÓN. La fila `subtotal=10000, iva=1600`
+// significa hoy «100 + 16» (IVA_EXCLUSIVE) y bajo la regla nueva significaría «100, de los cuales
+// 13.79 son IVA» (IVA_INCLUSIVE). Sin esta columna, el pedido de ayer cambia de significado solo el
+// día que el código cambie de regla. Por eso se congela POR FILA y NUNCA se deriva del dial vivo.
+enum PriceConvention {
+  // El importe exhibido NO lleva el IVA dentro: `total = subtotal + iva + fee`. Toda orden previa al deploy 2.
+  IVA_EXCLUSIVE
+  // El importe exhibido LLEVA el IVA dentro: `total = subtotal + envio + fee` (§4.44.d).
+  IVA_INCLUSIVE
+}
+
 enum ShipmentStatus {
   solicitado
   picking
@@ -1056,6 +1069,18 @@ model Order {
   ivaCents                Int
   totalCents              Int
   ivaRatePct              Int             @default(16)
+  // v1.64-iva-inclusive (M-50, §4.44.e) — ⛔ NOT NULL y ⛔ SIN @default, Y EL «SIN DEFAULT» ES LA
+  // DECISIÓN, no el NOT NULL. Con un `@default(IVA_EXCLUSIVE)`, un camino de escritura que olvide
+  // el campo cobraría bajo una convención y archivaría bajo la otra, en silencio y para siempre.
+  // Sin default, ese camino REVIENTA con violación de NOT NULL la primera vez que corre. Un fallo
+  // ruidoso en una columna de dinero es estrictamente mejor que una fila que se contradice a sí
+  // misma. Candado `IVA-3(c)`/`IVA-3(e)` (`API_CONTRACT §M10-IVA.5`).
+  priceConvention         PriceConvention
+  // v1.64 (M-50) — NULLABLE y `NULL` en TODA fila anterior al deploy 2. ⛔ NO se backfillea a 100:
+  // esas órdenes se cobraron cuando el dial no existía y marcarlas `t=100` sería inventar un hecho
+  // (misma doctrina del hueco honesto de §5.2). Es INFORMATIVO/AUDITOR: el dinero se reproduce
+  // desde subtotal/shipping/iva/fee/total/ivaRatePct/priceConvention, jamás desde aquí.
+  ivaTransferPct          Int?
   stripePaymentIntentId   String?         @unique
   stripeChargeId          String?
   billingSnapshot         Json?
@@ -1125,10 +1150,33 @@ model ShipmentRequest {
   addressSnapshot       Json
   status                ShipmentStatus @default(solicitado)
   shippingFeeCents      Int
+  // v1.64(4) (§4.44.f-ter, D55(c), decisión del dueño 2026-09-10): `shippingCostCents` es **BRUTO**
+  // — el importe TOTAL de la factura de la paquetería, IVA INCLUIDO. Hasta v1.64(3) su semántica no
+  // estaba declarada en ninguna parte (`§9 · D-IVA-9`) y se podía capturar de las dos formas.
   shippingCostCents     Int            @default(0)
+  // v1.64(4) (M-50 punto 3-bis, §4.44.f-ter): el **IVA ACREDITABLE de esa factura, CONGELADO al
+  // capturar**, para que el neto sea una RESTA (`shippingCostCents − shippingCostIvaCents`).
+  // ⛔ NUNCA una división por `(1+r)`: esta tabla NO tiene `ivaRatePct` (solo `Order`), así que
+  // derivarlo obligaría a leer el DIAL VIVO y un P&L histórico cambiaría al mover `iva_pct` —
+  // incumpliendo `IVA-5`. Y `ivaCents/shippingFeeCents` no lo recupera: las filas de fulfillment de
+  // `direct_ship` llevan `shippingFeeCents = 0` a propósito.
+  // ⭐ `@default(0)` SÍ es honesto aquí, y es la distinción con `priceConvention`: la ausencia **de
+  // verdad significa cero** (en las filas históricas nunca se capturó el IVA de un costo) ⇒ `0` dice
+  // «no consta crédito» ⇒ `net = bruto`, que es la dirección CONSERVADORA (subestima la ganancia).
+  // En `priceConvention` la ausencia significa «nadie dijo con qué regla se cobró» y un default
+  // convertiría un hueco en una afirmación falsa. ⛔ Sin backfill: `costo × 16/116` inventaría un
+  // crédito fiscal que nadie verificó.
+  // ⚠️ **D-1 NO LA LEE.** La escribe la columna (default) desde el día uno y el primer lector es el
+  // P&L del D-2 (`API_CONTRACT §M10-IVA.8`). Candado: `shipments.cost-iva-column-inert.spec.ts`.
+  shippingCostIvaCents  Int            @default(0)
   ivaCents              Int            @default(0)
   processingFeeCents    Int            @default(0)
   totalCents            Int            @default(0)
+  // v1.64-iva-inclusive (M-50, §4.44.e/§4.44.f) — mismas dos columnas y MISMAS reglas que `Order`:
+  // ⛔ NOT NULL y ⛔ SIN @default en `priceConvention`; `ivaTransferPct` nullable y sin backfill.
+  // El envío entra en la convención porque el criterio 189 lo obliga (§4.44.f).
+  priceConvention       PriceConvention
+  ivaTransferPct        Int?
   stripePaymentIntentId String?        @unique
   carrier               String?
   trackingNumber        String?

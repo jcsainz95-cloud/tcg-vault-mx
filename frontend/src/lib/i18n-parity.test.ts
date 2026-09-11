@@ -628,3 +628,74 @@ describe('catálogos i18n: claves duplicadas (se leen del TEXTO, no del objeto p
     expect(duplicateKeyPaths('{"a":[{"x":"1"},{"x":"2"}],"a":"dup"}')).toEqual(['a']);
   });
 });
+
+/*
+ * ⭐ `DESIGN_SYSTEM §32.6` — **una cadena de advertencia que no renderiza ninguna pantalla es un
+ * DEFECTO, no una reserva.** Sólo hay dos destinos legítimos: renderizarla en una superficie
+ * permanente, o borrarla. ⛔ No existe «se queda por si acaso»: mientras esté, el repo afirma que
+ * el usuario fue advertido, y ése fue el peor de los tres defectos de §32 —`catalog.fullSyncHint`
+ * advertía **exactamente la trampa** en la que el dueño cayó, y no la veía nadie.
+ *
+ * El candado es el `grep` de CS-8, subido al catálogo: toda clave que termine en `Hint` tiene que
+ * tener **al menos un consumidor** en `src/**`.
+ */
+describe('§32.6 · ninguna clave `*Hint` sin consumidor (CS-8)', () => {
+  /**
+   * ⚠ DEUDA HEREDADA, declarada y acotada: dos claves de **M1** (inventario, otro work stream)
+   * ya estaban huérfanas antes de §32. Se listan aquí en vez de silenciar el candado entero: la
+   * lista sólo puede encogerse, y una clave nueva huérfana pone el test en rojo igual.
+   */
+  const DEUDA_HEREDADA = ['admin.m1.sealedConditionHint', 'admin.m1.listPriceOptionalHint'];
+
+  function sourceFiles(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) return sourceFiles(full);
+      return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [full] : [];
+    });
+  }
+
+  it('toda clave `*Hint` del catálogo se renderiza en alguna pantalla', () => {
+    const hints = keyPaths(es).filter((p) => /Hint$/.test(p));
+    // Se busca el NOMBRE DE HOJA, que es como `useTranslations('ns')` la nombra en el componente.
+    const corpus = sourceFiles(join(__dirname, '..')).map((f) => readFileSync(f, 'utf8')).join('\n');
+    const orphans = hints.filter((path) => {
+      const leaf = path.split('.').pop() as string;
+      return !new RegExp(`['"\`][\\w.]*${leaf}['"\`]`).test(corpus);
+    });
+    expect(
+      orphans.filter((o) => !DEUDA_HEREDADA.includes(o)),
+      'claves `*Hint` sin consumidor: o se cablean en una superficie permanente, o se borran (§32.6)',
+    ).toEqual([]);
+  });
+
+  /*
+   * Y el candado tiene que poder ponerse rojo: si el buscador no encontrara NADA, el test de
+   * arriba pasaría siempre. Aquí se comprueba que sí encuentra las que sí están cableadas.
+   */
+  it('el buscador ve de verdad las claves que SÍ tienen consumidor', () => {
+    const hints = keyPaths(es).filter((p) => /Hint$/.test(p));
+    expect(hints.length).toBeGreaterThan(20);
+    expect(hints).toContain('admin.m2.priceIngest.triggerHint');
+  });
+
+  /*
+   * §32.6 — las CINCO claves muertas de §32 están **borradas**, no ocultas. Si alguien las
+   * reintroduce «por si acaso», este test cae: describían el reparto de ocho acciones que §32
+   * elimina, así que mostrarlas hoy sería cambiar copia muerta por copia MENTIROSA.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s ya no contiene las cinco `*Hint` que §32.6 manda borrar', (_locale, catalog) => {
+    const muertas = [
+      'admin.m2.catalog.syncAllHint',
+      'admin.m2.catalog.fullSyncHint',
+      'admin.m2.catalog.refreshVariantsHint',
+      'admin.m2.catalog.refreshVariantsAllHint',
+      'admin.m2.catalog.syncHint',
+    ];
+    const vivas = keyPaths(catalog);
+    expect(muertas.filter((k) => vivas.includes(k))).toEqual([]);
+  });
+});

@@ -133,6 +133,8 @@ describe('CatalogSyncService.upsertCards — autoridad de catalogFinishes + reco
           id: where.externalId,
           availableFinishes: existingCards[where.externalId]?.availableFinishes ?? ['normal'],
         })),
+        // D1: pre-conteo del universo previo del set (siempre se consulta).
+        count: jest.fn(async () => 0),
       },
     } as any;
   }

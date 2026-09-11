@@ -87,7 +87,12 @@ warn() { printf '\033[1;33m  ⚠ %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 mask_url() { printf '%s' "$1" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#'; }
 
-DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace?schema=public}"
+# S-88-1 — aquí había un DATABASE_URL de respaldo con la contraseña escrita dentro.
+# Este script BORRA datos: apuntar por defecto a una base adivinada a partir de un
+# literal del repo es la peor forma posible de equivocarse de entorno. Ahora exige
+# que se diga a qué base se apunta.
+DATABASE_URL="${DATABASE_URL:-}"
+[ -n "$DATABASE_URL" ] || die "falta DATABASE_URL. Este script BORRA datos: dime contra qué base, no lo adivino. (Arnés nativo: los secretos viven en .native-stack/secrets.env)"
 
 # psql NO acepta parámetros de query que no sean suyos: con `?schema=public` (que es
 # de Prisma) aborta con `invalid URI query parameter: "schema"`. MEDIDO, no supuesto.

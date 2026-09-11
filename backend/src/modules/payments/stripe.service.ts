@@ -4,6 +4,25 @@ import Stripe from 'stripe';
 import { BusinessException } from '../../common/business.exception';
 
 /**
+ * P-WH-1 (ALTA, pentest): el secreto de webhook NO está configurado (ausente, vacío o solo
+ * espacios). Es un **defecto de configuración NUESTRO**, no una firma inválida del llamador:
+ * el controller lo traduce a **5xx** (Stripe reintenta y el evento sobrevive), nunca a 400.
+ *
+ * Se distingue por CLASE y no por mensaje a propósito: el mensaje de `StripeSignatureVerification
+ * Error` lo controla el SDK y confundir ambos casos es justo lo que dejaría un config roto
+ * escondido entre el ruido de firmas inválidas.
+ */
+export class StripeWebhookSecretMissingError extends Error {
+  constructor() {
+    super(
+      'STRIPE_WEBHOOK_SECRET no está configurado: la firma del webhook NO se puede verificar ' +
+        '(fail-closed). Configúralo en este entorno; no hay degradación a clave vacía.',
+    );
+    this.name = 'StripeWebhookSecretMissingError';
+  }
+}
+
+/**
  * StripeService — Cliente Stripe (PaymentIntents, refunds) + verificación de firma
  * de webhooks. ARCHITECTURE §4.3.
  *
@@ -14,6 +33,25 @@ import { BusinessException } from '../../common/business.exception';
  * B6: en producción NO se cae al `sk_test_dummy`; si faltan claves reales, la app falla
  *     al arrancar (validado también en env.validation.ts). El cliente se crea
  *     perezosamente para que tests/CI arranquen con claves dummy sin llamar a la red.
+ *
+ * ### P-WH-1 (pentest ALTA, explotado LIVE-DB) — la verificación de firma falla CERRADA
+ *
+ * `constructEvent` hacía `config.get('STRIPE_WEBHOOK_SECRET') ?? ''`. Con el secreto ausente eso
+ * **no es una verificación**: es un HMAC de clave vacía que cualquiera puede computar. El pentester
+ * forjó un `payment_intent.succeeded`, liquidó un pedido y movió una carta a la bóveda del
+ * comprador **sin que entrara un peso**. El guard de monto/moneda no ayuda: el forjador escribe el
+ * payload. Un candado que no se puede poner rojo.
+ *
+ * El arreglo mantiene DOS cosas que son distintas y que confundirlas rompe el arnés sin cerrar el
+ * agujero:
+ *  - **«No hay proveedor de pago»** (local/CI sin Stripe): permitido. La app arranca, el catálogo
+ *    y todo lo que no cobra funcionan.
+ *  - **«Acepto cualquier firma»**: prohibido SIEMPRE, en todos los entornos. Sin secreto no hay
+ *    verificación posible ⇒ se lanza (`StripeWebhookSecretMissingError`) y el evento NO se procesa.
+ *
+ * Por eso el fail-fast de arranque ya **no** se condiciona a `NODE_ENV`, sino a si hay integración
+ * Stripe (`STRIPE_SECRET_KEY` presente): con Stripe cableado, el secreto de webhook es obligatorio
+ * en staging/dev/CI igual que en producción.
  */
 @Injectable()
 export class StripeService implements OnModuleInit {
@@ -29,15 +67,50 @@ export class StripeService implements OnModuleInit {
     return (this.config.get<string>('NODE_ENV') ?? 'development') === 'production';
   }
 
-  /** B6: fail-fast en el arranque si faltan las claves de Stripe en producción. */
+  /**
+   * Valor de config NO vacío, o `null`. Trimea a propósito: `' '` es tan inservible como `''`
+   * para un HMAC y `!config.get(k)` no lo veía (string con espacios es truthy).
+   */
+  private nonBlank(key: string): string | null {
+    const raw = this.config.get<string>(key);
+    const v = typeof raw === 'string' ? raw.trim() : '';
+    return v.length > 0 ? v : null;
+  }
+
+  /**
+   * ¿Hay integración Stripe cableada en este entorno? Se decide por `STRIPE_SECRET_KEY`, no por
+   * `NODE_ENV`: es el hecho que importa (si se pueden cobrar pagos, hay webhooks que verificar).
+   */
+  private stripeConfigured(): boolean {
+    return this.nonBlank('STRIPE_SECRET_KEY') !== null;
+  }
+
+  /**
+   * P-WH-1: fail-fast de arranque **NO condicionado a `NODE_ENV`**.
+   *
+   * - En producción se exigen ambas claves (como antes, B6).
+   * - En CUALQUIER entorno con Stripe cableado (`STRIPE_SECRET_KEY` presente) se exige además
+   *   `STRIPE_WEBHOOK_SECRET` no vacío: staging/dev con Stripe real era forjable y ya no arranca.
+   * - Sin Stripe cableado (arnés local/CI sin proveedor de pago) NO se exige nada y la app
+   *   arranca: esa asimetría es deliberada. La protección de ese caso está en el punto de uso
+   *   (`constructEvent` lanza), que es la que de verdad cierra el agujero.
+   */
   onModuleInit(): void {
-    if (!this.isProduction()) return;
-    const missing = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'].filter(
-      (k) => !this.config.get<string>(k),
-    );
+    const hasApiKey = this.stripeConfigured();
+    const hasWebhookSecret = this.nonBlank('STRIPE_WEBHOOK_SECRET') !== null;
+    if (!this.isProduction() && !hasApiKey) {
+      this.logger.warn(
+        'Stripe no está configurado en este entorno (sin STRIPE_SECRET_KEY). Los webhooks NO se ' +
+          'podrán verificar y serán rechazados con 5xx (fail-closed, P-WH-1).',
+      );
+      return;
+    }
+    const missing: string[] = [];
+    if (!hasApiKey) missing.push('STRIPE_SECRET_KEY');
+    if (!hasWebhookSecret) missing.push('STRIPE_WEBHOOK_SECRET');
     if (missing.length > 0) {
       throw new Error(
-        `Missing required Stripe env in production (no dummy fallback): ${missing.join(', ')}`,
+        `Missing required Stripe env (no dummy fallback, no empty-secret fallback): ${missing.join(', ')}`,
       );
     }
   }
@@ -168,9 +241,24 @@ export class StripeService implements OnModuleInit {
     return e;
   }
 
-  /** Verifica la firma del webhook con STRIPE_WEBHOOK_SECRET. */
+  /**
+   * Verifica la firma del webhook con `STRIPE_WEBHOOK_SECRET`. **Falla CERRADA** (P-WH-1).
+   *
+   * Sin secreto utilizable NO se llama al SDK: se lanza. El `?? ''` anterior sí llamaba al SDK, y
+   * el SDK verifica felizmente un HMAC de clave vacía — un 200 indistinguible de una firma buena.
+   * Aquí no hay entorno exento: ni dev, ni test, ni CI. Si un día hace falta un webhook en un
+   * entorno sin Stripe, la respuesta es **poner un secreto** en ese entorno, no bajar el listón.
+   */
   constructEvent(payload: Buffer | string, signature: string): Stripe.Event {
-    const secret = this.config.get<string>('STRIPE_WEBHOOK_SECRET') ?? '';
+    const secret = this.nonBlank('STRIPE_WEBHOOK_SECRET');
+    if (secret === null) {
+      // Loguea el HECHO (config rota), no la petición: el llamador solo verá un 5xx genérico.
+      this.logger.error(
+        'Webhook de Stripe rechazado: STRIPE_WEBHOOK_SECRET ausente o vacío. La firma NO se ' +
+          'verifica con clave vacía (P-WH-1). Configura el secreto en este entorno.',
+      );
+      throw new StripeWebhookSecretMissingError();
+    }
     return this.stripe.webhooks.constructEvent(payload, signature, secret);
   }
 }

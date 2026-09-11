@@ -1,0 +1,345 @@
+# =============================================================================
+# security-dast.yml — DAST contra un stack EFÍMERO levantado en el propio CI
+# TCG Vault MX  ·  Propiedad: devops
+# =============================================================================
+# P-77 — LA MITAD DAST DEL GATE DE SEGURIDAD NUNCA HABÍA CORRIDO CONTRA NADA.
+#
+# Lo que había, medido (no supuesto):
+#   · `security-scheduled.yml > scheduled-dast` apuntaba a `secrets.STAGING_BASE_URL`.
+#     Ese secret NUNCA existió, porque el dueño NUNCA TUVO STAGING: solo producción.
+#     El job hacía `echo ::notice:: modo plantilla (no-op)` y salía en VERDE.
+#   · `deploy.yml > dast-staging` apuntaba al mismo secret inexistente, dentro de un
+#     workflow que además solo se dispara a mano y cuyo `secrets-gate` lo salta si
+#     faltan secrets. Nunca corrió.
+#   ⇒ Cero escaneos dinámicos en toda la vida del proyecto, con el tablero diciendo
+#     "DAST semanal: cableado". El DoD de CLAUDE.md pedía «SAST + DAST cableados en
+#     CI»: la mitad SAST se cumplía; la mitad DAST era decorativa.
+#
+# LA SALIDA: CLAUDE.md autoriza como blanco «**staging (o local)**». Este workflow
+# toma la vía local y levanta el MISMO `docker-compose.staging.yml` que ya usa
+# `e2e-real.yml` (29 corridas, la última 2026-09-09 en verde). No se construye stack
+# nuevo: se apunta el escáner al que ya existe y ya funciona.
+#
+# NÚMERO QUE DECIDIÓ LA FORMA (job propio en vez de colgarlo del E2E nocturno):
+#   e2e-real.yml, run 34352287999: total 224 s, de los cuales 139 s son
+#   `compose up --build`. Aquí, levantar + sembrar + procedencia + paridad del dial
+#   cuesta 143 s (medido, run 34432408600): el DAST añade 4 s sobre lo que el
+#   nocturno ya hacía. Colgarlo del nocturno ahorraría esos 139 s pero multiplicaría
+#   por ~6 la corrida que el equipo mira cada mañana, y mezclaría dos veredictos
+#   distintos ("¿funciona?" vs "¿es atacable?") en un solo rojo ambiguo. 139 s es un
+#   precio barato por mantenerlos separados: se separan.
+#
+#   SEGUNDA MEDICIÓN, la que fijó el presupuesto del escaneo: con perfil `full` +
+#   araña AJAX contra DOS blancos (vitrina y base de la API), el paso de escaneo
+#   pasó de 30 min sin terminar. El culpable es el segundo blanco: el backend no
+#   expone OpenAPI, así que la araña no tiene nada que recorrer ahí y se gasta su
+#   presupuesto entero sin descubrir superficie. ZAP apunta ahora SOLO a la vitrina
+#   (la araña AJAX sí mete las XHR de la SPA en el árbol) y nuclei —rápido— a las
+#   dos. Lo que eso deja fuera está DECLARADO en DEVOPS_NOTES §44.4.
+#
+# CADENCIA: semanal (lunes 06:00 UTC, la misma que ya tenía el cron muerto que
+#   sustituye) + `workflow_call` para el barrido previo a publicar + manual.
+#   NO por push: el escaneo activo tarda demasiado para castigar el día a día.
+#
+# EL CANDADO PUEDE PONERSE ROJO, Y SE COMPRUEBA CADA SEMANA: el job `selftest`
+#   escanea un blanco con vulnerabilidades PLANTADAS y EXIGE que el gate falle.
+#   `dast` depende de él: si el candado no sabe cerrarse, el verde del barrido no
+#   se emite. Eso es lo que distingue este gate del que sustituye.
+#
+# ⚠️ ALCANCE DECLARADO — LO QUE ESTE DAST **NO** CUBRE: un stack efímero de CI con
+#   datos sintéticos no es producción. No tiene su configuración, ni sus datos, ni
+#   su superficie de red (CDN/WAF/DNS/TLS de Vercel y Railway), ni sus integraciones
+#   vivas. Nadie puede citar este verde como "producción escaneada".
+#   El párrafo completo: docs/DEVOPS_NOTES.md §44.4.
+# =============================================================================
+
+name: DAST (stack efímero de CI)
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"        # lunes 06:00 UTC — misma cadencia que el cron que sustituye
+  workflow_dispatch:
+    inputs:
+      scan_profile:
+        description: "full = escaneo ACTIVO (cazan las reglas de inyección) · baseline = solo pasivo"
+        type: choice
+        options: [full, baseline]
+        default: full
+      report_only:
+        description: "Medir y publicar sin bloquear (solo para CALIBRAR la política; no dejar puesto)"
+        type: boolean
+        default: false
+      active_max_mins:
+        description: "Tope duro del escaneo activo por blanco (minutos)"
+        type: string
+        default: "10"
+  # Barrido previo a publicar: invocable desde cualquier ruta de release.
+  workflow_call:
+    inputs:
+      scan_profile:
+        type: string
+        required: false
+        default: full
+      active_max_mins:
+        type: string
+        required: false
+        default: "10"
+    outputs:
+      blocking:
+        description: "true si el DAST encontró hallazgos bloqueantes."
+        value: ${{ jobs.dast.outputs.blocking }}
+  # Rama-taller: empujar a `devops/dast-**` reproduce la demostración completa
+  # (canario + barrido) sin esperar al lunes. Es el mecanismo documentado para
+  # volver a probar el candado cuando se toque la política o el escáner.
+  push:
+    branches: ["devops/dast-**"]
+    # Solo cuando cambia el TOOLING del DAST. Sin este filtro, un commit de prosa
+    # en la rama-taller quemaba 14 min de barrido para no verificar nada nuevo —
+    # y un gate caro que salta sin motivo es un gate que alguien acaba apagando.
+    paths:
+      - ".github/workflows/security-dast.yml"
+      - "security/scripts/dast-*"
+      - "security/zap/**"
+      - "security/nuclei/**"
+      - "security/dast-selftest/**"
+      - "docker-compose.staging.yml"
+      - "docker-compose.dast-selftest.yml"
+      - "scripts/price-provider-parity.sh"
+      - "scripts/assert-serving-head.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-dast-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCAN_PROFILE: ${{ inputs.scan_profile || 'full' }}
+  ACTIVE_MAX_MINS: ${{ inputs.active_max_mins || '10' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) ¿EL CANDADO SABE PONERSE ROJO?
+  #
+  # Escanea security/dast-selftest/canary.py — un blanco con vulnerabilidades
+  # PLANTADAS (XSS reflejado, traversal, traza de error de servidor) — con el
+  # MISMO ZAP, la MISMA política y el MISMO dast-gate.py del barrido de abajo.
+  # El veredicto va INVERTIDO: gate rojo = OK. Si el canario pasa en verde,
+  # este job falla, porque significa que el escáner, la política o el candado
+  # están inertes.
+  #
+  # Va PRIMERO y `dast` lo NECESITA: un verde de seguridad emitido por un
+  # candado que no puede cerrarse es exactamente el estado del que venimos.
+  # Barato: el canario arranca en segundos frente a los 139 s del stack real.
+  # ---------------------------------------------------------------------------
+  selftest:
+    name: Autoprueba del candado (canario vulnerable)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: El gate DEBE ponerse rojo contra el canario
+        run: ./security/scripts/dast-selftest.sh
+      - name: Publicar resumen de la autoprueba
+        if: always()
+        run: cat security/reports/selftest/selftest-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-selftest-reports
+          path: security/reports/selftest/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 2) EL BARRIDO DE VERDAD, contra el stack efímero.
+  # ---------------------------------------------------------------------------
+  dast:
+    name: DAST contra el stack efímero
+    needs: [selftest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    outputs:
+      blocking: ${{ steps.gate.outcome == 'failure' }}
+    env:
+      REPORT_ONLY: ${{ inputs.report_only && '1' || '0' }}
+      # Mismas guardas de dinero que el E2E real: el arnés enciende el dial de
+      # grading, que autoriza al barrido a gastar créditos de un proveedor de
+      # PAGA. Declarada VACÍA (no omitida) para que meterla sea un diff visible.
+      POKEMONPRICETRACKER_API_KEY: ''
+      E2E_GRADING_PROVIDER_INCAPACITATED: '1'
+      # Stripe SIEMPRE en modo TEST. El DAST no ejecuta flujos de pago, pero el
+      # backend exige forma de clave para arrancar los módulos de dinero.
+      # S-88-1 — aquí decía `${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}`.
+      # El respaldo literal gana EN AUSENCIA del secret: justo cuando alguien creyó
+      # haber cargado Stripe y no lo hizo. Sin respaldo, la ausencia se nota; el
+      # valor efímero para levantar el stack lo pone el paso «Resolver secretos».
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+      STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
+      # RESIDUAL DE P-WH-1 — el literal público desapareció de aquí.
+      # Decía `${{ secrets.X || 'whsec_e2e_dummy' }}`. Esa forma tiene el defecto
+      # justo al revés de como parece: **el valor público gana cuando el secret NO
+      # está cargado**, o sea, exactamente cuando alguien creyó configurar Stripe y
+      # no lo hizo. Y `whsec_e2e_dummy` está commiteado en un repo público: para un
+      # HMAC es una clave perfectamente válida con la que cualquiera puede firmar.
+      # Ahora lo resuelve `scripts/webhook-secret-preflight.sh` en un paso (abajo):
+      # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
+      # propio, ABORTA el job en vez de correr sobre algo forjable.
+    steps:
+      - uses: actions/checkout@v4
+      # -----------------------------------------------------------------------
+      # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
+      # Un hecho, un sitio: la misma resolución que corre en el arranque del
+      # contenedor (`Dockerfile.backend`) y en el arnés nativo.
+      # -----------------------------------------------------------------------
+      - name: Resolver STRIPE_TEST_WEBHOOK_SECRET sin literales públicos
+        env:
+          STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # El stack de staging de este job vive en el RUNNER: no tiene endpoint
+          # público y Stripe no puede entregarle un webhook. Con clave de Stripe
+          # real y sin `STRIPE_TEST_WEBHOOK_SECRET` en los secrets, el preflight
+          # abortaba (medido: run 34498068945, paso 3) y con él moría el gate de
+          # DINERO entero. Aquí un secreto GENERADO es estrictamente más seguro
+          # que uno compartido: nadie puede firmar contra él. Los webhooks
+          # entrantes se rechazan — que es lo correcto para un stack inalcanzable.
+          STRIPE_WEBHOOK_UNREACHABLE: "1"
+        run: |
+          ./scripts/webhook-secret-preflight.sh assert
+          # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que
+          # `echo` sale 0 aunque la sustitución aborte, y entonces se exporta un
+          # valor VACÍO y el rojo aparece 8 pasos más tarde, en el `compose`, con un
+          # mensaje que apunta al sitio equivocado. Es el mismo patrón que
+          # perseguimos: la ausencia degradaba en silencio. Aquí se captura y se
+          # comprueba, así que el fallo sale donde se produce.
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_TEST_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          # S-88-1: el resto de secretos del stack de staging, sin literales. Respeta
+          # los del secret store si existen; si no, aleatorios por corrida.
+          RESUELTOS="$(./scripts/secrets-preflight.sh github-env)"
+          printf '%s\n' "$RESUELTOS" >> "$GITHUB_ENV"
+          # EMPAREJAMIENTO runner ↔ contenedor. El contenedor recibe `STAGING_SEED_*`
+          # (el compose los mapea a `SEED_*`), pero los scripts que corren en el RUNNER
+          # —`price-provider-parity.sh`— leen `SEED_*`. Antes coincidían por ACCIDENTE:
+          # ambos eran el mismo literal público del repo. Al quitar el literal (S-88-1)
+          # el accidente desaparece, así que el emparejamiento se hace explícito.
+          SEED_PASS="$(printf '%s\n' "$RESUELTOS" | sed -n 's/^STAGING_SEED_ADMIN_PASSWORD=//p')"
+          if [ -n "$SEED_PASS" ]; then
+            echo "SEED_ADMIN_PASSWORD=$SEED_PASS" >> "$GITHUB_ENV"
+            echo "SEED_ADMIN_EMAIL=${STAGING_SEED_ADMIN_EMAIL:-admin@staging.local}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Guarda — el entorno no puede escribir contra el proveedor de paga
+        run: ./scripts/check-e2e-provider-incapacitation.sh
+
+      # Levanta + salud + PROCEDENCIA (SEC-OPS-1) + seed sintético + PARIDAD
+      # del dial price_provider (I-PP5 / D-PP-2). La paridad aquí es un gate
+      # REAL y sin secrets: el admin lo crea el seed sintético.
+      - name: Levantar y preparar el stack efímero
+        run: ./security/scripts/dast-ephemeral.sh up
+
+      - name: Escanear (ZAP + nuclei)
+        run: ./security/scripts/dast-ephemeral.sh scan
+
+      - name: Candado — veredicto sobre los informes
+        id: gate
+        run: ./security/scripts/dast-ephemeral.sh gate
+
+      - name: Publicar veredicto en la portada del run
+        if: always()
+        run: |
+          cat security/reports/dast-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null \
+            || echo "::warning::El candado no llegó a escribir resumen; revisa el log." 
+          {
+            echo ""
+            echo "<details><summary>Tiempos medidos de este barrido</summary>"
+            echo ""
+            echo '```'
+            cat security/reports/timings.txt 2>/dev/null || echo "(sin tiempos)"
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Logs del stack si algo falló
+        if: failure()
+        run: docker compose -f docker-compose.staging.yml logs --tail=300 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-ephemeral-reports
+          path: security/reports/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Apagar stack
+        if: always()
+        run: ./security/scripts/dast-ephemeral.sh down
+
+  # ---------------------------------------------------------------------------
+  # 3) DUEÑO DEL HALLAZGO. Un rojo de cron no frena a nadie y no tiene dueño;
+  #    sin issue, se mira una vez y se olvida (es la lección de S-PROC-1, ver
+  #    security-scheduled.yml). Solo en las corridas PROGRAMADAS: en las manuales
+  #    y de rama-taller quien dispara ya está mirando.
+  # ---------------------------------------------------------------------------
+  # QA (lote 2026-09-11, hallazgo 6): con `if: schedule` un rojo por
+  # `workflow_dispatch` o por push de rama NO abría issue — y como los crons
+  # de esta rama no existen en `main` (H2), el único disparo que SÍ ocurría
+  # era justo el que no abría nada. Ahora abre issue en cualquier corrida que
+  # no sea un PR (en el PR el rojo ya tiene dueño: el autor). El título lleva
+  # la rama para no mezclar hallazgos de ramas distintas en un mismo hilo.
+  abrir-issue:
+    name: Abrir/actualizar issue del hallazgo
+    needs: [dast]
+    if: failure() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: dast-ephemeral-reports
+          path: reports
+      - name: Abrir o actualizar issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: "[dast] Barrido semanal: hallazgos bloqueantes en el stack efímero"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          gh label create security --color B60205 --description "Hallazgos de seguridad" 2>/dev/null || true
+          {
+            echo "El **DAST semanal** contra el stack efímero de CI encontró hallazgos que la"
+            echo "política de \`security/zap/baseline.conf\` clasifica como **bloqueantes**."
+            echo ""
+            cat reports/dast-summary.md 2>/dev/null || echo "_(sin resumen; ver el run)_"
+            echo ""
+            echo "---"
+            echo "- Run: ${RUN_URL}"
+            echo "- Commit escaneado: \`${GITHUB_SHA}\`"
+            echo ""
+            echo "**Dueño:** el rol propietario de la superficie afectada (**backend** o **frontend**)."
+            echo "devops mantiene el gate y NO corrige código de aplicación (CLAUDE.md)."
+            echo ""
+            echo "**Salidas válidas:** (a) arreglar el hallazgo, o (b) si es falso positivo,"
+            echo "reclasificar la regla en \`security/zap/baseline.conf\` **con motivo escrito**"
+            echo "y registrar la aceptación en \`docs/SECURITY_NOTES.md\` (rol seguridad)."
+            echo "Bajar la regla sin motivo escrito no es una salida."
+            echo ""
+            echo "⚠️ **Alcance:** este barrido NO cubre producción (otra config, otros datos,"
+            echo "otra superficie de red). Ver \`docs/DEVOPS_NOTES.md\` §44.4."
+          } > issue-body.md
+          EXISTING="$(gh issue list --state open --limit 50 --json number,title \
+            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --body-file issue-body.md
+          else
+            gh issue create --title "${TITLE}" --body-file issue-body.md --label security
+          fi

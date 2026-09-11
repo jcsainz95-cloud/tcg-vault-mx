@@ -142,19 +142,32 @@ jobs:
         run: ./security/scripts/audit-npm.sh
         env:
           AUDIT_LEVEL: high
-      # VISIBILIDAD NO BLOQUEANTE (SEC-C2): reporta también criticals de
-      # devDependencies (p. ej. vitest). No bloquea el pipeline —son supply-chain
-      # de tooling, deuda aceptada— pero deja el hallazgo en el log del PR.
-      - name: npm audit (informativo — incluye devDependencies)
-        if: always()
-        continue-on-error: true
-        run: |
-          for app in backend frontend; do
-            if [ -f "$app/package.json" ]; then
-              echo "== npm audit (con dev) en $app =="
-              ( cd "$app" && npm audit --audit-level=critical || true )
-            fi
-          done
+      # TRINQUETE DE devDependencies (P-DEP-1, pentester 2026-09-10).
+      #
+      # Aquí había un paso `continue-on-error: true` con un `|| true` dentro del
+      # bucle: reportaba las críticas de tooling y NO podía cambiar el color de
+      # nada. Resultado medido: 1 crítica (`vitest`) y 2 altas (`vite`, `js-yaml`)
+      # llevaban ahí sin dueño, sin fecha y sin revisor hasta que el pentester las
+      # nombró. Un escáner que nadie lee es un escáner apagado con más pasos.
+      #
+      # NO se sube el umbral ni se silencia nada. Cambia QUIÉN responde: cada
+      # alto/crítico de tooling necesita una FICHA en
+      # `security/npm-audit-dev-fichas.tsv` con dueño, fecha de revisión y el
+      # motivo MEDIDO por el que no es alcanzable. Sin ficha -> rojo. Ficha
+      # vencida -> rojo. Ficha que sobra porque ya se arregló -> aviso.
+      #
+      # Sigue SIN bloquear por el estado de hoy (está fichado): bloquea por
+      # EMPEORAMIENTO y por el paso del tiempo. El gate de RUNTIME es el paso de
+      # arriba y no admite fichas.
+      - name: npm audit devDependencies — trinquete con fichas (P-DEP-1)
+        if: ${{ !cancelled() }}
+        run: AUDIT_SUMMARY_FILE="$GITHUB_STEP_SUMMARY" ./security/scripts/audit-npm-dev.sh
+
+      # Y el trinquete tiene que saber morder: mismo criterio que el self-test de
+      # `trivy-fs`. Si esto se cae, lo de arriba puede haberse vuelto decorativo.
+      - name: Self-test del trinquete (rojo ante hallazgo nuevo y ante ficha vencida)
+        if: ${{ !cancelled() }}
+        run: ./security/scripts/audit-npm-dev-selftest.sh
 
   # ---------------------------------------------------------------------------
   # Trivy filesystem — CVEs de dependencias. ACTIVO.
@@ -226,21 +239,85 @@ jobs:
           done
           echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
           exit 1
-      - name: Trivy fs (HIGH/CRITICAL => fallo)
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          skip-setup-trivy: "true"   # usa el binario instalado por apt (arriba)
-          scan-type: fs
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          ignore-unfixed: false
-          format: table
-          # security/.trivyignore está VACÍO de excepciones desde 2026-08-17 (los
-          # ignores de node-tar se retiraron: el npm que los traía ya no existe en
-          # la etapa runtime de las imágenes). Se sigue pasando el archivo para que
-          # cualquier excepción futura quede en un único sitio auditable.
-          trivyignores: security/.trivyignore
+      # -----------------------------------------------------------------------
+      # S-SAST-1 (seguridad, 2026-09-11 — DEVOPS_NOTES §53). Aquí había una
+      # `aquasecurity/trivy-action` con sus propios inputs. NO pasaba
+      # `security/trivy.yaml`, así que corría con el default de `trivy fs`:
+      # `vuln` + `secret`. El escáner de SECRETOS de trivy —que nadie había
+      # decidido encender, y que duplica a gitleaks con OTRA allowlist— puso este
+      # job en rojo 11 corridas seguidas (#1124→#1134) por cinco `sk_test_…` de
+      # FICCIÓN en dos canarios de `scripts/`. Todo el equipo lo atribuyó a las
+      # devDependencies del frontend (P-DEP-1): trivy ni siquiera las mira por
+      # defecto. MEDIDO con el escáner real: 0 vulnerabilidades en los tres
+      # lockfiles; 5 hallazgos, todos de `stripe-secret-token`.
+      #
+      # Ahora el gate es UN comando en UN sitio (`security/scripts/trivy-fs.sh`,
+      # `--scanners vuln`, misma config, mismo ignorefile), el mismo que corre en
+      # local y el que el self-test ejercita. El umbral no cambia: HIGH/CRITICAL,
+      # sin ignore-unfixed, sin excepciones activas. Los secretos siguen gateados
+      # por el job `gitleaks` de este workflow (con la allowlist de placeholders).
+      # -----------------------------------------------------------------------
+      - name: Trivy fs — dependencias de RUNTIME (HIGH/CRITICAL => fallo)
+        run: ./security/scripts/trivy-fs.sh
+
+      # -----------------------------------------------------------------------
+      # Y las devDependencies, con LAS MISMAS fichas y LAS MISMAS fechas que
+      # `npm audit` (S-SAST-1, la petición literal de seguridad: «que los dos
+      # escáneres digan lo mismo sobre el mismo hecho»). Trivy con
+      # `--include-dev-deps`, y su salida juzgada por `audit-npm-dev.sh` —el
+      # mismo código, no una copia de la política—: sin ficha -> rojo; ficha
+      # vencida -> rojo; ficha que trivy ya no ve -> aviso (podar).
+      # -----------------------------------------------------------------------
+      - name: Trivy fs — devDependencies bajo las mismas fichas que npm audit (P-DEP-1)
+        if: ${{ !cancelled() }}
+        run: AUDIT_SUMMARY_FILE="$GITHUB_STEP_SUMMARY" ./security/scripts/trivy-dev-fichas.sh
+
+      # -----------------------------------------------------------------------
+      # SELF-TEST: ¿el gate SABE ponerse rojo? (DEVOPS_NOTES §47.3, §53)
+      #
+      # Un gate que sólo se ha visto en verde no está verificado, está sin
+      # observar. Este paso planta un lockfile con `dicer@0.3.0`
+      # (CVE-2022-24434 — el hallazgo que bloqueó aquel release) y
+      # `minimist@1.2.0` DENTRO de `scripts/s3-local/`, corre EL MISMO script
+      # que el paso del gate, y EXIGE rojo por ESOS CVE. Planta también un
+      # `sk_test_…` de ficción y exige que NO se reporte (alcance = vuln; los
+      # secretos son de gitleaks). El canario se borra siempre (trap).
+      #
+      # Ya NO exige que la línea base esté verde: eso lo cegaba justo cuando el
+      # gate llevaba 11 corridas en rojo («no puede medir nada encima de un rojo
+      # real»). Anota la línea base y mide igual; el rojo real lo reporta el
+      # paso del gate, que es cuyo trabajo es.
+      # -----------------------------------------------------------------------
+      - name: Self-test de trivy-fs (el candado tiene que saber morder)
+        if: ${{ !cancelled() }}
+        run: ./security/scripts/trivy-fs-selftest.sh
+
+      # -----------------------------------------------------------------------
+      # El registro de decisiones/excepciones de escáner, VISIBLE en cada
+      # corrida. Motivo (§47.4): una excepción que sólo vive en un fichero de
+      # configuración es una excepción que nadie revisa. Esto la pone delante
+      # de quien mire el run — en particular del rol `seguridad` en la fase de
+      # release. Fuente única: security/README.md entre los marcadores.
+      # -----------------------------------------------------------------------
+      - name: Publicar el registro de decisiones de escáner en el resumen
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          REGISTRO="$(sed -n '/<!-- REGISTRO:INICIO -->/,/<!-- REGISTRO:FIN -->/p' security/README.md \
+                      | grep -v 'REGISTRO:INICIO\|REGISTRO:FIN' || true)"
+          # Si el bloque desaparece, el paso FALLA a propósito: borrar el registro
+          # es exactamente la forma de que una excepción vuelva a quedar invisible.
+          if [ -z "${REGISTRO//[[:space:]]/}" ]; then
+            echo "::error title=Registro de decisiones de escáner vacío::No encuentro el bloque entre <!-- REGISTRO:INICIO --> y <!-- REGISTRO:FIN --> en security/README.md. Ese bloque es lo que el rol seguridad audita en el release (DEVOPS_NOTES §47.4); sin él, cualquier excepción de Trivy queda sin revisor."
+            exit 1
+          fi
+          {
+            echo "## Registro de decisiones de escáner (Trivy)"
+            echo
+            echo "${REGISTRO}"
+            echo
+            echo "_Fuente: \`security/README.md\`. Excepciones activas de Trivy: \`security/.trivyignore\`._"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # Trivy image — CVEs de las imágenes Docker. ACTIVO si existen los Dockerfiles.

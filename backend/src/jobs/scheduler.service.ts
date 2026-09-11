@@ -175,10 +175,11 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.priceIngest.setQueue(this.queue);
 
     // WS-A — PRICING del catálogo = `price-ingest` POR DEFECTO 2×/día (reemplaza al barrido pesado
-    // `catalog-price-sync force:true`, que tras el aligeramiento ya NO escribe precios). Usa el dial
-    // SEMBRADO `price_provider=pokemontcg_io` (legacy, misma fuente USD de siempre → money-safe; NO
-    // activa el proveedor de paga). Mismos horarios que el barrido que reemplaza: 06:00 y 18:00 CDMX
-    // = 00:00 y 12:00 UTC. Configurables por env (devops ajusta sin redeploy).
+    // `catalog-price-sync force:true`, que tras el aligeramiento ya NO escribe precios). El proveedor
+    // lo resuelve `PriceIngestService.providerFor()` leyendo el dial `price_provider` **de este
+    // entorno**; ⚠️ v1.65 (`API_CONTRACT §M10-PP`, `I-PP2`): el scheduler NO afirma qué valor corre —
+    // se LEE de `GET /admin/settings`. Mismos horarios que el barrido que reemplaza: 06:00 y 18:00
+    // CDMX = 00:00 y 12:00 UTC. Configurables por env (devops ajusta sin redeploy).
     const ingestCron1 = this.config.get<string>('PRICE_INGEST_CRON_1') ?? '0 0 * * *';
     const ingestCron2 = this.config.get<string>('PRICE_INGEST_CRON_2') ?? '0 12 * * *';
     await this.queue.add('price-ingest-1', {}, this.repeat('price-ingest-1', ingestCron1));
@@ -272,7 +273,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       'Scheduler activo (BullMQ): fx-refresh, price-sync, set-price-sync, portfolio-snapshot, ' +
         'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios ' +
-        '+ price-ingest 2×/día (00:00 y 12:00 UTC, dial pokemontcg_io) ' +
+        '+ price-ingest 2×/día (00:00 y 12:00 UTC, dial price_provider) ' +
         '+ sealed-price-ingest diario (21:30 UTC, dial sealed_price_source, seed off) ' +
         '+ catalog-metadata-sync diario (import de sets nuevos, force:false).',
     );

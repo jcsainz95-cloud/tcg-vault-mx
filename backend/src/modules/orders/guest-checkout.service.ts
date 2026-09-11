@@ -156,6 +156,11 @@ export class GuestCheckoutService {
           ivaCents: breakdown.ivaCents,
           totalCents: breakdown.totalCents,
           ivaRatePct: breakdown.ivaRatePct,
+          // v1.64-iva-inclusive (M-50, §4.44.k · DEPLOY 1) — misma regla que el checkout de bóveda:
+          // toda orden nueva nace `IVA_EXCLUSIVE` (la convención con la que se acaba de cobrar) y
+          // `ivaTransferPct` se queda en `NULL`. Sin default de BD detrás: si esta línea se cae, el
+          // `INSERT` revienta (§4.44.e, candado `IVA-3(e)`).
+          priceConvention: 'IVA_EXCLUSIVE',
           cfdiStatus: 'registrado',
           items: { create: lines },
         },

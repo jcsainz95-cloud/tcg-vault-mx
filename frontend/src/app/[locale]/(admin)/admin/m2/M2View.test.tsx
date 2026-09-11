@@ -36,14 +36,17 @@ beforeEach(() => {
 });
 
 describe('M2View · Catálogo y precios', () => {
-  it('muestra los TRES grupos de operaciones (§19), FX y la cola pendiente', async () => {
+  it('§32.2: UNA sección de sincronización (ni tres grupos, ni «Avanzado»), FX y la cola pendiente', async () => {
     renderWithProviders(<M2View />, 'es');
     expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
-    // §19.1: los tres grupos reemplazan las viejas secciones «Operaciones avanzadas» + «Sync de bóveda».
-    expect(screen.getByRole('heading', { name: /Datos \(rápido · TCGCSV\)/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Catálogo \(cartas nuevas/ })).toBeInTheDocument();
-    // «Avanzado» es un <summary> plegado por defecto.
-    expect(screen.getByText(/Avanzado — operaciones pesadas/)).toBeInTheDocument();
+    // §32.1/§32.2: los tres grupos de §19.1 (DATOS/CATÁLOGO/AVANZADO) quedan SUPERSEDED por UNA
+    // sección única. Que hayan desaparecido es parte de la norma, no un efecto colateral: los
+    // grupos existían para que el operador eligiera la fuente, y §32 convierte esa elección en
+    // una frase del aviso.
+    expect(screen.getByRole('heading', { name: /Sincronización del catálogo/ })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Datos \(rápido · TCGCSV\)/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /Catálogo \(cartas nuevas/ })).toBeNull();
+    expect(screen.queryByText(/Avanzado — operaciones pesadas/)).toBeNull();
     // FX carga async desde el mock. El servidor falso arranca en el estado REAL de producción
     // (§30: 19.0000 fijado a mano y ninguna fila de Banxico), así que la cifra que RIGE es ésa.
     // (la cifra sale DOS veces a propósito: la que rige arriba y la columna MANUAL de §30.3)
@@ -67,8 +70,12 @@ describe('M2View · Catálogo y precios', () => {
   it('lista los sets remotos con estado imported/cardCount', async () => {
     renderWithProviders(<M2View />, 'es');
     expect((await screen.findAllByText('Surging Sparks')).length).toBeGreaterThan(0);
-    // El botón de importar sets nuevos (sync-all force:false) está disponible (contrato v1.3, condicional).
+    // §32.2: las TRES acciones se ven, y ninguna vive en un overflow.
     expect(screen.getByRole('button', { name: /Importar sets nuevos/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sincronizar todo \(forzar\)/ })).toBeInTheDocument();
+    expect(
+      (await screen.findAllByRole('button', { name: /Sincronizar Surging Sparks/ })).length,
+    ).toBeGreaterThan(0);
   });
 
   it('abre el modal de override manual de precio', async () => {
@@ -287,129 +294,6 @@ describe('M2View · Catálogo y precios', () => {
     expect(screen.getByRole('link', { name: /Abrir admin de buylist/ })).toBeInTheDocument();
   });
 
-  it('muestra un Banner de error cuando el sync por set (Importar/Re-sincronizar) falla', async () => {
-    // Rate limit de pokemontcg.io sin API key: el sync síncrono revienta.
-    vi.spyOn(api, 'syncCatalog').mockRejectedValueOnce(
-      new ApiClientError(429, { code: 'RATE_LIMITED', message: 'rate limited' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    // Nombre EXACTO para no capturar "Re-sincronizar todo (forzar)" (sync-all force).
-    const [importBtn] = await screen.findAllByRole('button', { name: /^(Importar|Re-sincronizar)$/ });
-    fireEvent.click(importBtn);
-
-    // El usuario ve claramente que falló y por qué (código del contrato).
-    expect(await screen.findByText('Demasiadas solicitudes, intenta más tarde.')).toBeInTheDocument();
-    const alerts = screen.getAllByRole('alert');
-    expect(alerts.length).toBeGreaterThan(0);
-  });
-
-  it('muestra un Banner de error cuando el backfill falla', async () => {
-    vi.spyOn(api, 'backfillCatalog').mockRejectedValueOnce(
-      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Backfill/ }));
-
-    expect(await screen.findByText('Error del servidor. Intenta de nuevo.')).toBeInTheDocument();
-  });
-
-  it('el botón "Importar sets nuevos" dispara syncAllCatalog sin forzar (force:false = solo sets nuevos)', async () => {
-    const spy = vi
-      .spyOn(api, 'syncAllCatalog')
-      .mockResolvedValue({ jobId: 'job-1', setsQueued: 3, remaining: 0 });
-    renderWithProviders(<M2View />, 'es');
-
-    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
-
-    // Importar sets nuevos NO fuerza: llama sin argumentos (o con force ausente/false),
-    // así el backend solo trae los sets recién salidos aún no importados.
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { force?: boolean } | undefined;
-    expect(arg?.force ?? false).toBe(false);
-  });
-
-  it('un error real (no 404/405) del sync total muestra Banner danger, no el aviso "no disponible"', async () => {
-    vi.spyOn(api, 'syncAllCatalog').mockRejectedValueOnce(
-      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
-
-    expect(await screen.findByText('Error del servidor. Intenta de nuevo.')).toBeInTheDocument();
-    expect(screen.queryByText(/no está disponible en el backend/)).not.toBeInTheDocument();
-  });
-
-  it('un 404/405 del sync total conserva el aviso "no disponible" (warning, no danger)', async () => {
-    vi.spyOn(api, 'syncAllCatalog').mockRejectedValueOnce(
-      new ApiClientError(404, { code: 'NOT_FOUND', message: 'missing' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
-
-    expect(await screen.findByText(/no está disponible en el backend/)).toBeInTheDocument();
-  });
-
-  it('el botón "Re-sincronizar todo (forzar)" pide confirmación y llama al endpoint con force=true', async () => {
-    const spy = vi
-      .spyOn(api, 'syncAllCatalog')
-      .mockResolvedValue({ jobId: 'job-1', setsQueued: 42, remaining: 0 });
-    renderWithProviders(<M2View />, 'es');
-
-    // Picar el botón NO llama de inmediato: abre el modal de confirmación.
-    fireEvent.click(await screen.findByRole('button', { name: /Re-sincronizar todo \(forzar\)/ }));
-    expect(
-      await screen.findByRole('dialog', { name: /Re-sincronizar todo el catálogo \(forzar\)/ }),
-    ).toBeInTheDocument();
-    expect(spy).not.toHaveBeenCalled();
-
-    // Confirmar dispara la mutación con force=true.
-    fireEvent.click(screen.getByRole('button', { name: /Sí, re-sincronizar todo/ }));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith({ force: true }));
-    // El barrido corre en segundo plano: copy honesto "encolado", no "listo".
-    expect(await screen.findByText(/Barrido encolado: 42 set\(s\)/)).toBeInTheDocument();
-  });
-
-  it('cancelar la confirmación del re-sync forzado no llama al endpoint', async () => {
-    const spy = vi.spyOn(api, 'syncAllCatalog');
-    renderWithProviders(<M2View />, 'es');
-
-    fireEvent.click(await screen.findByRole('button', { name: /Re-sincronizar todo \(forzar\)/ }));
-    const dialog = await screen.findByRole('dialog', { name: /Re-sincronizar todo el catálogo \(forzar\)/ });
-    fireEvent.click(within(dialog).getByRole('button', { name: /Cancelar/ }));
-
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('pinta la barra de progreso del barrido cuando GET /sync-status reporta running', async () => {
-    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
-      running: true,
-      jobId: 'catalog-sync-all-1',
-      total: 10,
-      done: 4,
-      startedAt: '2026-08-17T00:00:00.000Z',
-      finishedAt: null,
-    });
-    renderWithProviders(<M2View />, 'es');
-    // Progreso honesto done/total + porcentaje, con aviso de que corre en segundo plano.
-    expect(await screen.findByText(/Importando catálogo… 4\/10 sets/)).toBeInTheDocument();
-    expect(screen.getByText('40%')).toBeInTheDocument();
-    expect(screen.getByText(/Corre en segundo plano/)).toBeInTheDocument();
-  });
-
-  it('al terminar el barrido (running=false, total>0) muestra "completada", no la barra viva', async () => {
-    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
-      running: false,
-      jobId: 'catalog-sync-all-1',
-      total: 10,
-      done: 10,
-      startedAt: '2026-08-17T00:00:00.000Z',
-      finishedAt: '2026-08-17T00:05:00.000Z',
-    });
-    renderWithProviders(<M2View />, 'es');
-    expect(await screen.findByText(/Sincronización completada: 10 set\(s\)/)).toBeInTheDocument();
-  });
-
-  // ---- Barra de progreso del barrido MASIVO de PRECIOS (N-11) ----
   it('pinta la barra de progreso del barrido de precios cuando GET /pricing/sync-status reporta running', async () => {
     vi.spyOn(api, 'getPriceSyncStatus').mockResolvedValue({
       running: true,
@@ -573,88 +457,6 @@ describe('M2View · Catálogo y precios', () => {
     ).toBeInTheDocument();
   });
 });
-
-/**
- * P-12 (v1.27): la acción por fila «Sync completo» encadena el flujo recomendado del contrato
- * (§M2 v1.27): (1) POST /admin/catalog/sync {setId, force:true} → cartas + variantes TCGCSV;
- * (2) POST /admin/jobs/price-ingest {setId} → precios del set completo. El feedback es HONESTO
- * por fase (nunca un "202 cosmético"): éxito solo si el ingest encoló; single-flight y fallos
- * de cada fase se dicen tal cual.
- */
-describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
-  // §19.4: H («Sync completo») ya no es un botón del renglón; vive en el menú overflow «Más ▾» por-fila.
-  // El helper abre ese menú (DataTable pinta la fila 2 veces → se toma el primero) y pica el menuitem.
-  async function triggerFullSync() {
-    const [more] = await screen.findAllByRole('button', { name: /Más acciones para Surging Sparks/ });
-    fireEvent.click(more);
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Sync completo de Surging Sparks/ }));
-  }
-
-  it('encadena syncCatalog({setId, force:true}) → triggerPriceIngest({setId}) y reporta el éxito de AMBAS fases', async () => {
-    const syncSpy = vi.spyOn(api, 'syncCatalog').mockResolvedValue({
-      jobId: 'j-cat-1',
-      setsQueued: 1,
-      mode: 'single',
-    });
-    const ingestSpy = vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({
-      job: 'price-ingest',
-      enqueued: true,
-      jobId: 'j-pi-1',
-      scope: 'set',
-      setId: 'sv08',
-    });
-
-    renderWithProviders(<M2View />, 'es');
-
-    // Fila de Surging Sparks (sv08, primer set del mock de remote-sets): abre «Más» y pica «Sync completo».
-    await triggerFullSync();
-
-    // Fase 1: sync de catálogo POR SET con force (refresca variantes estructurales TCGCSV).
-    await waitFor(() => expect(syncSpy).toHaveBeenCalledWith({ setId: 'sv08', force: true }));
-    // Fase 2: ingest de precios de ESE set, DESPUÉS de la fase 1.
-    await waitFor(() => expect(ingestSpy).toHaveBeenCalledWith({ setId: 'sv08' }));
-    expect(syncSpy.mock.invocationCallOrder[0]).toBeLessThan(ingestSpy.mock.invocationCallOrder[0]);
-
-    // Éxito HONESTO: solo se declara cuando el ingest sí encoló.
-    expect(
-      await screen.findByText(/Sync completo de Surging Sparks: cartas y variantes actualizadas; precios del set encolados/),
-    ).toBeInTheDocument();
-  });
-
-  it('single-flight del ingest (enqueued:false) → aviso de que los precios NO se encolaron, no un éxito', async () => {
-    vi.spyOn(api, 'syncCatalog').mockResolvedValue({ jobId: 'j-cat-2', setsQueued: 1, mode: 'single' });
-    vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({ job: 'price-ingest', enqueued: false });
-
-    renderWithProviders(<M2View />, 'es');
-    await triggerFullSync();
-
-    // La fase de cartas SÍ corrió, pero el ingest no encoló (ya había un barrido): se dice tal cual.
-    expect(await screen.findByText(/los precios de este set NO se encolaron/)).toBeInTheDocument();
-    expect(screen.queryByText(/precios del set encolados/)).toBeNull();
-  });
-
-  it('si la fase de cartas FALLA, se reporta esa fase y NO se dispara el ingest de precios', async () => {
-    vi.spyOn(api, 'syncCatalog').mockRejectedValue(
-      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
-    );
-    const ingestSpy = vi.spyOn(api, 'triggerPriceIngest');
-
-    renderWithProviders(<M2View />, 'es');
-    await triggerFullSync();
-
-    expect(
-      await screen.findByText(/Sync completo de Surging Sparks: falló la fase de cartas\/variantes; NO se encolaron precios\./),
-    ).toBeInTheDocument();
-    expect(ingestSpy).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * §19.5: «Unificar rarezas» — anclado al editor de reglas por rareza (NO en Datos). Confirmación
- * one-shot money-safe; dispara POST /admin/catalog/unify-rarities (backfill LOCAL de rarityCanonical);
- * muestra un resumen HONESTO (cuántas actualizó + rarezas `unmapped` accionables) y recompone el
- * editor invalidando sus queries de rarezas.
- */
 describe('M2 · «Unificar rarezas» (§19.5)', () => {
   const okResponse = {
     ok: true as const,
@@ -679,9 +481,13 @@ describe('M2 · «Unificar rarezas» (§19.5)', () => {
     // Endpoint sin parámetros (backfill local money-safe).
     expect(spy).toHaveBeenCalledWith();
 
-    // Resumen honesto: éxito + cuántas actualizó + lista de rarezas sin mapear (accionable).
-    expect(await screen.findByText(/Rarezas unificadas/)).toBeInTheDocument();
-    expect(screen.getByText(/3400 de 12000 carta\(s\) actualizadas/)).toBeInTheDocument();
+    // Resumen honesto (§32.4, v2.1): **versalita primero** —y sólo `HECHO` porque `cardsUpdated`
+    // es > 0—, la cifra de ESCRITURA delante, el contexto detrás tras «de», y la lista de rarezas
+    // sin mapear (accionable). ⛔ La frase «Rarezas unificadas…» dejó de existir como encabezado:
+    // afirmaba el trabajo sin mirar la cifra. Los candados del caso `0` viven en
+    // `RarityHealthSection.test.tsx`.
+    expect(await screen.findByText(/3400 cartas actualizadas/)).toBeInTheDocument();
+    expect(screen.getByText(/de 12000 revisadas/)).toBeInTheDocument();
     expect(screen.getByText(/sin mapear/)).toBeInTheDocument();
     expect(screen.getByText('Galaxy Foil')).toBeInTheDocument();
   });
@@ -698,319 +504,6 @@ describe('M2 · «Unificar rarezas» (§19.5)', () => {
   });
 
 });
-
-/**
- * §19.4: la acción por-fila H («Sync completo») está ESCONDIDA en un menú overflow «Más ▾» accesible
- * (aria-haspopup="menu"), no en el renglón principal; I (Variantes + precios) y G (Importar/Re-sync)
- * siguen como botones directos con I primero.
- */
-describe('M2 · jerarquía por-fila (§19.4)', () => {
-  it('I y G son botones directos; H («Sync completo») solo aparece al abrir el menú «Más»', async () => {
-    renderWithProviders(<M2View />, 'es');
-    // I: acción primaria por-fila (aria-label estable). G: importar/re-sincronizar.
-    expect(
-      (await screen.findAllByRole('button', {
-        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
-      })).length,
-    ).toBeGreaterThan(0);
-    // H NO está en el renglón: no hay un botón/menuitem «Sync completo» hasta abrir el menú.
-    expect(screen.queryByRole('menuitem', { name: /Sync completo de Surging Sparks/ })).toBeNull();
-
-    const [more] = await screen.findAllByRole('button', { name: /Más acciones para Surging Sparks/ });
-    expect(more).toHaveAttribute('aria-haspopup', 'menu');
-    fireEvent.click(more);
-    // Al abrir, H aparece como menuitem con su label completo.
-    expect(
-      await screen.findByRole('menuitem', { name: /Sync completo de Surging Sparks/ }),
-    ).toBeInTheDocument();
-  });
-});
-
-/**
- * P-13: la acción por fila «Variantes + precios (solo TCGCSV)» refresca variantes/acabados y
- * precios de un set YA importado usando SOLO TCGCSV (POST /admin/catalog/refresh-variants). NO
- * re-importa cartas ni depende de pokemontcg.io, de modo que una caída de pokemontcg.io no bloquee
- * arreglar el "fantasma" de un set. El feedback es un resumen HONESTO (money-safe) y los errores
- * del contrato (SET_NOT_IMPORTED, UPSTREAM_ERROR) se muestran legibles sin romper la pantalla.
- */
-describe('M2 · «Refrescar variantes + precios (solo TCGCSV)» por set (P-13)', () => {
-  it('dispara refreshVariants({setId}) y muestra el resumen (cartas / productos / precios)', async () => {
-    const spy = vi.spyOn(api, 'refreshVariants').mockResolvedValue({
-      ok: true,
-      setId: 'sv08',
-      cardsProcessed: 191,
-      cardProductsUpserted: 260,
-      pricesUpserted: 260,
-      pending: 0,
-      tcgcsvReachable: true,
-    });
-    renderWithProviders(<M2View />, 'es');
-    const [btn] = await screen.findAllByRole('button', {
-      name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
-    });
-    fireEvent.click(btn);
-
-    // Solo TCGCSV: llama al endpoint con el setId, SIN encadenar syncCatalog ni pokemontcg.io.
-    await waitFor(() => expect(spy).toHaveBeenCalledWith({ setId: 'sv08' }));
-    // Resumen honesto de lo procesado.
-    expect(
-      await screen.findByText(/191 carta\(s\) procesadas · 260 producto\(s\)\/variante\(s\) actualizados · 260 precio\(s\) actualizados\./),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/refrescados desde TCGCSV/)).toBeInTheDocument();
-  });
-
-  it('money-safe: si quedan productos sin precio (pending>0) lo refleja honesto (warning), no "todo listo"', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue({
-      ok: true,
-      setId: 'sv08',
-      cardsProcessed: 191,
-      cardProductsUpserted: 260,
-      pricesUpserted: 258,
-      pending: 2,
-      tcgcsvReachable: true,
-    });
-    renderWithProviders(<M2View />, 'es');
-    fireEvent.click(
-      (await screen.findAllByRole('button', {
-        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
-      }))[0],
-    );
-
-    // Resultado PARCIAL + conteo real de pendientes (no se inventa que todo quedó con precio).
-    expect(await screen.findByText(/resultado parcial/)).toBeInTheDocument();
-    expect(screen.getByText(/2 producto\(s\) quedaron sin precio/)).toBeInTheDocument();
-  });
-
-  it('money-safe: si TCGCSV no fue alcanzable del todo (tcgcsvReachable=false) avisa resultado parcial', async () => {
-    vi.spyOn(api, 'refreshVariants').mockResolvedValue({
-      ok: true,
-      setId: 'sv08',
-      cardsProcessed: 100,
-      cardProductsUpserted: 120,
-      pricesUpserted: 90,
-      pending: 30,
-      tcgcsvReachable: false,
-    });
-    renderWithProviders(<M2View />, 'es');
-    fireEvent.click(
-      (await screen.findAllByRole('button', {
-        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
-      }))[0],
-    );
-
-    expect(await screen.findByText(/TCGCSV no respondió por completo/)).toBeInTheDocument();
-  });
-
-  it('UPSTREAM_ERROR (502, TCGCSV caído) se muestra legible y NO rompe la pantalla', async () => {
-    vi.spyOn(api, 'refreshVariants').mockRejectedValue(
-      new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'tcgcsv down' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    fireEvent.click(
-      (await screen.findAllByRole('button', {
-        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
-      }))[0],
-    );
-
-    // Copy legible del contrato (error.UPSTREAM_ERROR) + banner de alerta; la vista sigue viva.
-    expect(await screen.findByText(/TCGCSV no está disponible en este momento/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
-  });
-
-  it('SET_NOT_IMPORTED se muestra legible (set no está en BD)', async () => {
-    vi.spyOn(api, 'refreshVariants').mockRejectedValue(
-      new ApiClientError(409, { code: 'SET_NOT_IMPORTED', message: 'not imported' }),
-    );
-    renderWithProviders(<M2View />, 'es');
-    // Surging Sparks está importado (botón habilitado); el backend igual puede responder SET_NOT_IMPORTED.
-    fireEvent.click(
-      (await screen.findAllByRole('button', {
-        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
-      }))[0],
-    );
-
-    expect(
-      await screen.findByText(/Ese set aún no está importado; impórtalo antes de refrescar sus variantes\./),
-    ).toBeInTheDocument();
-  });
-
-  it('el botón está DESHABILITADO para un set no importado (evita el SET_NOT_IMPORTED obvio)', async () => {
-    renderWithProviders(<M2View />, 'es');
-    // Temporal Forces (sv05) NO está importado en el mock → la acción TCGCSV queda deshabilitada.
-    const [btn] = await screen.findAllByRole('button', {
-      name: /Refrescar variantes y precios de Temporal Forces usando solo TCGCSV/,
-    });
-    expect(btn).toBeDisabled();
-  });
-});
-
-/**
- * RV-ALL: el botón GLOBAL «Refrescar variantes + precios de TODO (solo TCGCSV)» corre el batch sobre
- * TODO el catálogo YA importado. Es ASÍNCRONO: POST /admin/catalog/refresh-variants-all responde 202
- * `{ jobId, setsQueued, remaining }` (solo arranca) y el progreso/resumen se leen por su STATUS PROPIO
- * GET /admin/catalog/refresh-variants-status (NO el sync-status de sync-all). Pide confirmación (es
- * masivo); al terminar el status trae un RESUMEN AGREGADO honesto (sets ok/fallidos, productos,
- * precios, pendientes y la lista legible de `failures`).
- */
-describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (RV-ALL)', () => {
-  // Estado inicial del status (sin batch previo): nada que mostrar en el montaje.
-  const idleStatus = {
-    running: false,
-    jobId: null,
-    total: 0,
-    done: 0,
-    startedAt: null,
-    finishedAt: null,
-    summary: null,
-  } as const;
-
-  it('POST 202 solo arranca; confirmar dispara refreshVariantsAll y el STATUS PROPIO trae el resumen', async () => {
-    const postSpy = vi
-      .spyOn(api, 'refreshVariantsAll')
-      .mockResolvedValue({ jobId: 'rv-1', setsQueued: 12, remaining: 0 });
-    // 1ª lectura (montaje): sin summary. Tras disparar: status terminal con el resumen agregado.
-    vi.spyOn(api, 'getRefreshVariantsStatus')
-      .mockResolvedValueOnce({ ...idleStatus })
-      .mockResolvedValue({
-        running: false,
-        jobId: 'rv-1',
-        total: 12,
-        done: 12,
-        startedAt: '2026-08-22T00:00:00.000Z',
-        finishedAt: '2026-08-22T00:05:00.000Z',
-        summary: {
-          setsTotal: 12,
-          setsOk: 12,
-          setsFailed: 0,
-          cardProductsUpserted: 3200,
-          pricesUpserted: 3200,
-          pending: 0,
-          failures: [],
-        },
-      });
-    renderWithProviders(<M2View />, 'es');
-
-    // Picar el botón NO llama de inmediato: abre el modal de confirmación (operación masiva).
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
-    );
-    expect(
-      await screen.findByRole('dialog', {
-        name: /Refrescar variantes \+ precios de TODO el catálogo \(solo TCGCSV\)/,
-      }),
-    ).toBeInTheDocument();
-    expect(postSpy).not.toHaveBeenCalled();
-
-    // Confirmar dispara el POST del batch SIN forzar (body mínimo).
-    fireEvent.click(screen.getByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
-    await waitFor(() => expect(postSpy).toHaveBeenCalledTimes(1));
-
-    // El resumen NO viene del POST: se lee del STATUS PROPIO tras terminar (sets ok/total + productos + precios).
-    expect(
-      await screen.findByText(
-        /12\/12 set\(s\) refrescados · 3200 producto\(s\)\/variante\(s\) actualizados · 3200 precio\(s\) actualizados\./,
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/refrescados desde TCGCSV/)).toBeInTheDocument();
-  });
-
-  it('pinta la barra de progreso done/total desde el STATUS PROPIO cuando reporta running', async () => {
-    vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({
-      running: true,
-      jobId: 'rv-2',
-      total: 12,
-      done: 4,
-      startedAt: '2026-08-22T00:00:00.000Z',
-      finishedAt: null,
-      summary: null,
-    });
-    renderWithProviders(<M2View />, 'es');
-
-    // Progreso honesto done/total (4/12 = 33%) desde el endpoint de status del batch (no sync-status).
-    expect(await screen.findByText(/Refrescando catálogo desde TCGCSV… 4\/12 sets/)).toBeInTheDocument();
-    expect(screen.getByText('33%')).toBeInTheDocument();
-  });
-
-  it('cancelar la confirmación no llama al endpoint', async () => {
-    const spy = vi.spyOn(api, 'refreshVariantsAll');
-    vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({ ...idleStatus });
-    renderWithProviders(<M2View />, 'es');
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
-    );
-    const dialog = await screen.findByRole('dialog', {
-      name: /Refrescar variantes \+ precios de TODO el catálogo \(solo TCGCSV\)/,
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: /Cancelar/ }));
-
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('money-safe: sets fallidos y pendientes del summary se reflejan honestos (warning) con la lista de failures', async () => {
-    vi.spyOn(api, 'refreshVariantsAll').mockResolvedValue({ jobId: 'rv-3', setsQueued: 12, remaining: 0 });
-    vi.spyOn(api, 'getRefreshVariantsStatus')
-      .mockResolvedValueOnce({ ...idleStatus })
-      .mockResolvedValue({
-        running: false,
-        jobId: 'rv-3',
-        total: 12,
-        done: 12,
-        startedAt: '2026-08-22T00:00:00.000Z',
-        finishedAt: '2026-08-22T00:05:00.000Z',
-        summary: {
-          setsTotal: 12,
-          setsOk: 11,
-          setsFailed: 1,
-          cardProductsUpserted: 2900,
-          pricesUpserted: 2850,
-          pending: 50,
-          failures: [{ setId: 'sv08', code: 'UPSTREAM_ERROR', message: 'TCGCSV no respondió para este set' }],
-        },
-      });
-    renderWithProviders(<M2View />, 'es');
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
-    );
-    fireEvent.click(await screen.findByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
-
-    // Resultado PARCIAL + conteo real de pendientes (no se inventa que todo quedó con precio).
-    expect(await screen.findByText(/resultado parcial/)).toBeInTheDocument();
-    expect(screen.getByText(/50 producto\(s\) quedaron sin precio/)).toBeInTheDocument();
-    // Lista honesta de fallidos: título con el conteo + set (nombre resuelto) con su motivo legible.
-    expect(screen.getByText(/1 set\(s\) fallaron y NO se refrescaron:/)).toBeInTheDocument();
-    expect(screen.getByText(/TCGCSV no respondió para este set/)).toBeInTheDocument();
-    // El setId se muestra para poder identificarlo aunque no resuelva a nombre.
-    expect(screen.getByText(/\(sv08\)/)).toBeInTheDocument();
-  });
-
-  it('un error al ARRANCAR el batch (POST) se muestra legible (banner danger) y NO rompe la pantalla', async () => {
-    vi.spyOn(api, 'refreshVariantsAll').mockRejectedValue(
-      new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'tcgcsv down' }),
-    );
-    vi.spyOn(api, 'getRefreshVariantsStatus').mockResolvedValue({ ...idleStatus });
-    renderWithProviders(<M2View />, 'es');
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
-    );
-    fireEvent.click(await screen.findByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
-
-    expect(await screen.findByText(/No se pudo refrescar el catálogo completo desde TCGCSV\./)).toBeInTheDocument();
-    // La vista sigue viva (el encabezado M2 sigue presente).
-    expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
-  });
-});
-
-
-/**
- * v2.0 (P-48) · **Editor de la CURVA de precio por valor de mercado** (§21.1–§21.7). Sustituye a los
- * cuatro editores retirados. Se verifica: la anatomía de la pantalla, que la columna derivada y el
- * previsualizador salen del **dry-run del servidor** (nunca de una cuenta del cliente), el
- * reordenamiento por mercado al `blur`, el punto nuevo NEUTRO por construcción, el borrado con
- * deshacer, el guardado con diff y el `422` que no guarda nada.
- */
 describe('M2 · Editor de la curva de precio (P-48, v2.0)', () => {
   const CURVE_RE = /Curva de precio/;
 

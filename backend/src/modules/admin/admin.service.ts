@@ -11,6 +11,7 @@ import {
   Locale,
   MarketBracket,
   OrderStatus,
+  PriceConvention,
   Prisma,
   ProductType,
   Role,
@@ -24,6 +25,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { netRevenueCents } from '../../common/money';
 import {
   MIN_PASSWORD_LENGTH,
   isStrongPassword,
@@ -220,6 +222,44 @@ function toAdminKycDTO(k: {
     // se sirve por presigned GET dedicado, nunca publicando su object key en un cuerpo de respuesta.
     ineOnFile: Boolean(k.ineFrontKey && k.ineBackKey),
   };
+}
+
+/**
+ * ⭐ **v1.64 (`D-IVA-5` + §4.44.j sitio 3) — el INGRESO DE ENVÍO de una orden `direct_ship`, neteado
+ * por la convención de ESA orden.**
+ *
+ * **En el DEPLOY 1 devuelve `o.shippingFeeCents` tal cual, para toda fila**, porque toda fila es
+ * `IVA_EXCLUSIVE` y bajo esa convención la tarifa persistida ya es NETA (hoy `computeDirectShipBreakdown`
+ * apila el IVA aparte, en `Order.ivaCents`). El neteo es, literalmente, la identidad. *Eso es lo que
+ * hace verificable que este sumando nuevo no reinterpreta nada: solo cuenta lo que ya nadie contaba.*
+ *
+ * ⚠️⚠️ **PUNTO ABIERTO PARA EL DEPLOY 2 — marca interna `IVA-R1` (no es un candado de contrato).**
+ * Bajo `IVA_INCLUSIVE`, `Order.ivaCents` es el **residual del AGREGADO** `G = S + E` (regla R2 de
+ * §4.44.c): el IVA que corresponde a la línea de envío **no está persistido por separado**, así que
+ * repartirlo entre mercancía y envío es una **decisión de asignación** y **no la tomo yo aquí**. Lo que
+ * este helper hace es aplicar al envío la misma regla de base gravable que §4.44.c aplica al agregado
+ * —`taxBase = round(E / (1 + r))`, con `r` leído de la columna congelada `ivaRatePct`—, que es la
+ * lectura más directa de «`E` lleva su IVA dentro» (§4.44.f). **Suma de las dos partes puede diferir
+ * del residual agregado en ±1 centavo**, y ésa es exactamente la clase de detalle que decide el
+ * arquitecto y no el implementador. **Queda enrutado en `BACKEND_NOTES` como pregunta del deploy 2;
+ * en el deploy 1 esta rama es INALCANZABLE** (ninguna fila es `IVA_INCLUSIVE`) y se prueba que lo es.
+ *
+ * ⛔ Igual que `netRevenueCents`, **solo columnas persistidas de esa fila**: nunca el dial vivo.
+ */
+function netShippingRevenueOfOrder(o: {
+  shippingFeeCents: number;
+  ivaRatePct: number;
+  priceConvention: PriceConvention;
+}): number {
+  // El IVA embebido en la línea de envío, derivado de la propia línea y de la TASA congelada.
+  // Bajo IVA_EXCLUSIVE `netRevenueCents` ignora este valor y devuelve `shippingFeeCents` intacto.
+  const shippingIvaCents =
+    o.shippingFeeCents - Math.round(o.shippingFeeCents / (1 + o.ivaRatePct / 100));
+  return netRevenueCents({
+    subtotalCents: o.shippingFeeCents,
+    ivaCents: shippingIvaCents,
+    priceConvention: o.priceConvention,
+  });
 }
 
 /**
@@ -807,7 +847,28 @@ export class AdminService {
 
   // ---------------- M7 Finance ----------------
 
-  /** P&L: ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia. */
+  /**
+   * P&L: ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia.
+   *
+   * ⭐⭐ **v1.64-iva-inclusive (§4.44.j, criterio 191) — TODO INGRESO PASA POR `netRevenueCents`.**
+   * `incomeCents += o.subtotalCents` era correcto mientras el subtotal fuera SIEMPRE neto. El día que
+   * una fila pueda llevar el IVA dentro (deploy 2), esa línea **no revienta: MIENTE**, contando el
+   * impuesto que se le debe al SAT como ingreso propio. El neteo se decide **por fila y desde columnas
+   * persistidas** (`subtotalCents`/`ivaCents`/`priceConvention`), ⛔ jamás desde el dial vivo: por eso
+   * mover el dial no mueve ni un centavo de un periodo ya cerrado (criterio 190, candado `IVA-5` ⭐⭐).
+   * **En el DEPLOY 1 esto es bit a bit lo de hoy**, porque toda fila es `IVA_EXCLUSIVE`.
+   *
+   * ⭐ **v1.64 — `D-IVA-5` (§9): el sumando de envío que FALTABA, y el contrato lo manda desde v1.21.**
+   * `shippingRevenueCents = Σ ShipmentRequest.shippingFeeCents + Σ Order.shippingFeeCents`. El segundo
+   * sumando **no existía en este método**, y el dinero se perdía ENTERO (no a medias): el
+   * `ShipmentRequest` de fulfillment de un pedido `direct_ship` lleva `shippingFeeCents = 0` **a
+   * propósito** (para no contar dos veces) y `Order.subtotalCents` **excluye** el envío (columna
+   * aparte) ⇒ **el ingreso de envío de TODO pedido de invitado no lo contaba nadie**, mientras su
+   * COSTO sí se capturaba. El P&L **subestimaba** la ganancia. Pre-existente: **no lo causa D54**; se
+   * cierra aquí porque vive en este mismo bucle y arreglar el neteo sin arreglarlo dejaría el reporte
+   * mal por la otra vía (`ARCHITECTURE §9 · D-IVA-5`: *«va con el helper desde el primer commit»*).
+   * ⚠️ **Esta cifra del reporte SÍ cambia con este pase, y debe cambiar**: hoy falta un sumando.
+   */
   async pnl(from?: string, to?: string) {
     const createdAt = range(from, to);
     const settledOrders = await this.prisma.order.findMany({
@@ -817,9 +878,17 @@ export class AdminService {
     let incomeCents = 0;
     let stripeFeesCents = 0;
     let cogsCents = 0;
+    // `D-IVA-5`: el ingreso de envío cobrado DENTRO de la orden (`direct_ship`). Se acumula aparte
+    // porque es INGRESO DE ENVÍO, no ingreso de mercancía: va a `shippingRevenueCents`, jamás a
+    // `incomeCents`. Se acota por `settledAt` (el mismo predicado del `findMany` de arriba), que es
+    // lo que el contrato dice: «órdenes settled del periodo».
+    let directShipShippingRevenueCents = 0;
     for (const o of settledOrders) {
-      incomeCents += o.subtotalCents;
+      incomeCents += netRevenueCents(o);
       stripeFeesCents += o.processingFeeCents;
+      if (o.fulfillmentMode === 'direct_ship') {
+        directShipShippingRevenueCents += netShippingRevenueOfOrder(o);
+      }
       for (const it of o.items) {
         cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
       }
@@ -836,10 +905,17 @@ export class AdminService {
     // v1.4-finance: el envío separa INGRESO (shippingFeeCents, lo que paga el cliente) de
     // COSTO (shippingCostCents, lo que la plataforma paga al carrier). Ambos se acotan al
     // mismo periodo/conjunto de envíos (por `pickingAt`) para que caigan en el mismo lapso.
-    let shippingRevenueCents = 0;
+    let shippingRevenueCents = directShipShippingRevenueCents;
     let shippingCostCents = 0;
     for (const s of shipments) {
-      shippingRevenueCents += s.shippingFeeCents;
+      // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
+      // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
+      // devuelve `subtotalCents: shippingFeeCents`), así que la fila se lee con esa correspondencia.
+      shippingRevenueCents += netRevenueCents({
+        subtotalCents: s.shippingFeeCents,
+        ivaCents: s.ivaCents,
+        priceConvention: s.priceConvention,
+      });
       shippingCostCents += s.shippingCostCents; // sin captura => 0 (default de columna)
       stripeFeesCents += s.processingFeeCents;
     }

@@ -217,12 +217,28 @@ describe('M10View · Config y bitácora', () => {
   /**
    * §22.13(c) — con el dial YA guardado en `on`, el mismo texto sigue visible como recordatorio de
    * estado: **no desaparece tras guardar**, y no vuelve a interrumpir (`status`, no `alert`).
+   *
+   * ⚠ **Intermitente MEDIDO (1 rojo / 6 corridas de la suite completa; aislado 15/15) y su causa,
+   * reproducida a mano:** este aviso se pinta **dos veces con dos árboles distintos**. Mientras
+   * `graded-estimates-config` (la segunda query, la del tope de M2) está en vuelo, la variante es
+   * `onNoFigures`; cuando resuelve, pasa a `on` y React **desmonta** el `<strong>Y gasta.</strong>`
+   * de la primera para montar el de la segunda. Un `findByText` puede resolver legítimamente con el
+   * nodo de la variante vieja y quedarse con un nodo ya **desprendido** del documento: ahí
+   * `closest('[role="status"]')` devuelve `null` y el rojo es «expected null to be truthy».
+   * ⛔ **No es presupuesto de reloj** —subir `asyncUtilTimeout` no lo toca— sino un nodo
+   * transitorio; por eso la espera se pone sobre la **aserción entera** (`waitFor` re-consulta el
+   * DOM en cada intento y acaba agarrando el nodo ya asentado). Si el aviso NUNCA fuera `status`,
+   * el `waitFor` agota su presupuesto y el test sigue en rojo: no se esconde ninguna regresión.
    */
   it('v1.51 · con el dial guardado en `on`, el aviso persiste como `status` (no `alert`)', async () => {
     renderWithProviders(<M10View />, 'es');
     await screen.findByLabelText(/Gancho de grading/);
-    const reminder = await screen.findByText(/Y gasta\./);
-    const banner = reminder.closest('[role="status"]') as HTMLElement;
+    const banner = await waitFor(() => {
+      const reminder = screen.getByText(/Y gasta\./);
+      const host = reminder.closest('[role="status"]');
+      expect(host).toBeTruthy();
+      return host as HTMLElement;
+    });
     expect(banner).toBeTruthy();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });

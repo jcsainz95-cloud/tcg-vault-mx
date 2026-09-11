@@ -81,7 +81,7 @@
 #                           lista. No es celo: el 2026-09-06 una resiembra se llevó dos
 #                           filas que probaban un hallazgo abierto. Ver DEVOPS_NOTES §38.4.
 #   PG_CLUSTER     16/main
-#   DATABASE_URL   postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace
+#   DATABASE_URL   postgresql://tcg:<generada en .native-stack/secrets.env>@localhost:5432/tcg_marketplace
 #                  (credenciales de DESARROLLO LOCAL, las mismas de `.env.example`; jamás
 #                   se pone aquí un secreto real — ver DEVOPS_NOTES §11)
 # =============================================================================
@@ -108,6 +108,43 @@ log()  { printf '\n\033[1;36m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  ⚠ %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# --- VEREDICTO DE GATE (§48.1) -----------------------------------------------
+# Regla que ya regía en el gate de capacidades y que la PARIDAD `I-PP5` no cumplía:
+# **un aviso que no cambia el código de salida no gatea nada.** El 2026-09-10 QA
+# corrió `up --seed --gate` sobre un stack cuyo dial vivo era el proveedor LEGACY
+# (el que aplana acabados): el script imprimió «✗ SIN PARIDAD (I-PP5)» y SIGUIÓ.
+# El `rc=1` que recibió venía del gate de capacidades, no de la paridad ⇒ con
+# claves de Stripe presentes ese mismo stack habría salido 0 siendo, por el propio
+# criterio del script, NO CITABLE. Ahora hay UN camino para los dos:
+#   · `gate_fail "<motivo>"` — anota el fallo y lo grita al momento. NO aborta:
+#     el stack se termina de levantar (igual que el gate de capacidades), porque
+#     el rojo dice «esta corrida no es citable», no «no tienes stack».
+#   · `gate_verdict`         — al final: si hay motivos anotados, sale ≠0 (1).
+# Fuera de `--gate` (`GATE_MODE=0`) nada de esto se activa: `up` a secas es un
+# stack de trabajo y sigue informando con `warn` y saliendo 0.
+GATE_MODE=0
+GATE_FAILURES=()
+# `VERIFY_STRICT=1` ⇒ `verify_head` exige evidencia de CALIDAD DE GATE (frontend
+# horneado). Lo enciende `up --gate` y `verify:head --gate`. Ver §48.3.
+VERIFY_STRICT=0
+gate_fail() {
+  GATE_FAILURES+=("$1")
+  printf '\n\033[1;31m✖ GATE ROJO: %s\033[0m\n' "$1" >&2
+}
+gate_verdict() {
+  [ "${#GATE_FAILURES[@]}" -eq 0 ] && return 0
+  printf '\n\033[1;31m'
+  printf '══════════════════════════════════════════════════════════════════════════════\n'
+  printf ' ✖ ESTE STACK NO ES APTO PARA UNA CORRIDA DE GATE (%s motivo(s))\n' "${#GATE_FAILURES[@]}"
+  printf '══════════════════════════════════════════════════════════════════════════════\033[0m\n'
+  local m
+  for m in "${GATE_FAILURES[@]}"; do printf '  · %s\n' "$m"; done
+  printf '\n  El stack queda ARRIBA para que puedas ARREGLARLO y volver a medir, pero\n'
+  printf '  NADA de lo que corras contra él ahora mismo es citable como gate\n'
+  printf '  (E2E, DAST, smoke: ninguno). Detalle: docs/DEVOPS_NOTES.md §39 y §43.2.\n\n'
+  exit 1
+}
 
 # Enmascara la contraseña de una URL de conexión antes de imprimirla. Aunque aquí la
 # credencial sea de desarrollo, el script se copia/pega en sesiones que SÍ acaban en un
@@ -143,7 +180,27 @@ psql_as_postgres() {
 # en vez de heredar éste. Si tocas esta línea, no deshagas aquella.
 export NODE_ENV="${NODE_ENV:-development}"
 export PORT="$BACKEND_PORT"
-export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace?schema=public}"
+# --- Secretos del arnés nativo: generados, nunca escritos en el repo (S-88-1) --
+# Aquí había literales: `tcg_local_dev_password` dentro del DATABASE_URL, dos
+# secretos JWT y la clave de S3. Eran «de desarrollo local», y ese es justo el
+# argumento que seguridad refutó con una medición: el repositorio es PÚBLICO, y un
+# literal de respaldo GANA en el momento del error del operador —cuando creyó
+# haber configurado el entorno y no lo hizo—, no en el momento cómodo.
+#
+# Se persisten en `.native-stack/secrets.env` (ya ignorado por git) en vez de
+# regenerarse en cada arranque: el rol de Postgres se crea con esta contraseña y
+# la base sobrevive entre corridas, así que un valor nuevo por arranque dejaría el
+# arnés sin poder entrar a sus propios datos. Aleatorio por MÁQUINA, no por repo.
+NATIVE_SECRETS="$RUN_DIR/secrets.env"
+mkdir -p "$RUN_DIR"
+# El arnés nativo declara lo que es: un stack local de usar y tirar (S-88-1).
+export SECRETS_ENV="${SECRETS_ENV:-desechable}"
+"$SCRIPT_DIR/secrets-preflight.sh" env-file "$NATIVE_SECRETS" \
+  NATIVE_DB_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET S3_SECRET_ACCESS_KEY >/dev/null
+# shellcheck disable=SC1090
+. "$NATIVE_SECRETS"
+
+export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:$NATIVE_DB_PASSWORD@localhost:5432/tcg_marketplace?schema=public}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
 # CTA de los correos del buylist (v1.51). MISMA URL que APP_BASE_URL, leída con otro nombre por
@@ -151,8 +208,8 @@ export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
 # existe y se midió viva (DEVOPS_NOTES §35.4-bis). Espeja a APP_BASE_URL para que no puedan
 # divergir. Para volver al degrade (botón -> instrucción de texto): APP_PUBLIC_URL= ./scripts/...
 export APP_PUBLIC_URL="${APP_PUBLIC_URL:-http://localhost:$FRONTEND_PORT}"
-export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-local_dev_only_access_secret_at_least_32_chars_long}"
-export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local_dev_only_refresh_secret_at_least_32_chars_different}"
+export JWT_ACCESS_SECRET   # generado arriba en .native-stack/secrets.env (S-88-1)
+export JWT_REFRESH_SECRET  # idem
 
 # --- Object storage (§39.2) --------------------------------------------------
 # Hasta hoy la ruta nativa NO tenía object storage y la cabecera de este script lo
@@ -167,7 +224,7 @@ export S3_ENDPOINT="${S3_ENDPOINT:-http://127.0.0.1:9000}"
 export S3_REGION="${S3_REGION:-us-east-1}"
 export S3_BUCKET="${S3_BUCKET:-tcg-photos}"
 export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-minioadmin}"
-export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-minioadmin_local_dev}"
+export S3_SECRET_ACCESS_KEY  # generado arriba en .native-stack/secrets.env (S-88-1)
 export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"
 export S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-$S3_ENDPOINT/$S3_BUCKET}"
 S3_LOCAL_PORT="${S3_LOCAL_PORT:-9000}"
@@ -193,7 +250,29 @@ if [ -n "${STRIPE_TEST_WEBHOOK_SECRET:-}" ] && [ -z "${STRIPE_WEBHOOK_SECRET:-}"
 fi
 [ -z "${STRIPE_SECRET_KEY:-}" ]      || export STRIPE_SECRET_KEY
 [ -z "${STRIPE_PUBLISHABLE_KEY:-}" ] || export STRIPE_PUBLISHABLE_KEY
-[ -z "${STRIPE_WEBHOOK_SECRET:-}" ]  || export STRIPE_WEBHOOK_SECRET
+
+# --- P-WH-1 + su residual: el secreto del webhook, resuelto por el preflight ---
+# Esta línea decía `[ -z "${STRIPE_WEBHOOK_SECRET:-}" ] || export STRIPE_WEBHOOK_SECRET`,
+# es decir: **si venía vacío, NO se exportaba**. El backend lo veía ausente, hacía
+# `?? ''` y verificaba la firma del webhook con CLAVE VACÍA. El pentester forjó un
+# `payment_intent.succeeded` contra este mismo arnés y liquidó un pedido con la
+# carta movida a la bóveda del comprador, sin cobro (ALTA, LIVE-DB).
+#
+# La resolución NO se escribe aquí: la hace `scripts/webhook-secret-preflight.sh`,
+# que es la MISMA que corre dentro del contenedor (`Dockerfile.backend`) y en CI.
+# Un hecho, un sitio. Lo que hace, resumido:
+#   · secreto propio presente            -> se usa;
+#   · sin secreto y SIN Stripe real      -> genera uno EFÍMERO (el arnés levanta y
+#                                            rechaza todo webhook: correcto sin Stripe);
+#   · con Stripe REAL y sin secreto, o
+#     con un literal público del repo    -> ABORTA (ese es el caso forjable).
+if ! STRIPE_WEBHOOK_SECRET="$(sh "$SCRIPT_DIR/webhook-secret-preflight.sh" resolve)"; then
+  echo "✗ El preflight del webhook de Stripe abortó el arranque (ver el motivo arriba)." >&2
+  exit 1
+fi
+# Con VALOR explícito: un `export VAR` pelado propaga lo que haya —incluida la
+# ausencia— y es el idioma exacto del que vino P-WH-1. El candado lo prohíbe.
+export STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET"
 # La clave PÚBLICA se hornea en el bundle de Next (`frontend/src/lib/config.ts` lee
 # `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`). Sin ella el modal de Stripe no monta en el
 # navegador AUNQUE el backend cree la sesión de pago — y el rojo resultante parece un
@@ -407,7 +486,14 @@ SELECT count(*) FROM pg_roles WHERE rolname = :'u';
 SQL
   )" || die "psql no respondió al comprobar el rol (¿Postgres arriba?)."
   if [ "$role_n" != "0" ]; then
-    ok "rol '$db_user' ya existe."
+    # S-88-1: la contraseña ya no es un literal fijo del repo, sino una generada por
+    # máquina. Un rol creado por una corrida ANTERIOR conserva la contraseña vieja y
+    # el arnés no podría entrar a su propia base. Se realinea (idempotente, no toca
+    # los datos). Sin esto, cerrar la clase habría roto el arnés de QA en silencio.
+    psql_as_postgres "$db_user" "$db_pass" "$db_name" >/dev/null <<'SQL'
+ALTER ROLE :"u" WITH LOGIN PASSWORD :'p';
+SQL
+    ok "rol '$db_user' ya existe (contraseña realineada con .native-stack/secrets.env)."
   else
     psql_as_postgres "$db_user" "$db_pass" "$db_name" >/dev/null <<'SQL'
 CREATE ROLE :"u" LOGIN PASSWORD :'p';
@@ -496,8 +582,31 @@ start_backend() {
   fi
 
   [ -d "$BACKEND_DIR/node_modules" ] || die "Falta $BACKEND_DIR/node_modules. Corre: cd backend && npm ci"
-  ( cd "$BACKEND_DIR" && nohup npx ts-node --transpile-only src/main.ts \
-      > "$RUN_DIR/backend.log" 2>&1 & echo $! > "$RUN_DIR/backend.pid" )
+  # -------------------------------------------------------------------------
+  # ⚠️ `setsid env -C … &` A NIVEL DE FUNCIÓN, **SIN** `( … )` ENVOLVENTE.
+  # Esto es EL MISMO defecto que ya se arregló en `start_s3` (ver el bloque de
+  # allí) y que aquí se quedó sin arreglar hasta 2026-09-10. Lo que costó: QA
+  # perdió ~36 min con `up --seed | tail` sin UN SOLO BYTE de salida (§46.2).
+  #
+  # MEDIDO, con `sleep 45` de maqueta y `timeout 10 script | cat`:
+  #   ( cd X && nohup CMD > log 2>&1 & echo $! > pid )   → 45 s, pidfile = `bash`
+  #   ( cd X && setsid CMD > log 2>&1 </dev/null & … )   → 45 s, pidfile = `bash`
+  #   setsid env -C X CMD > log 2>&1 </dev/null & …      →  1 s, pidfile = el daemon
+  # ⇒ el culpable NO es `nohup` vs `setsid`: es el **subshell envolvente**, que
+  # sobrevive como padre del daemon y HEREDA el stdout del script. Si alguien
+  # invoca `stack-native.sh up | tail`, ese subshell mantiene la tubería ABIERTA
+  # mientras viva el backend ⇒ `tail` nunca ve EOF.
+  #
+  # ⚠️⚠️ Y EL `timeout` NO SALVA (medido en el mismo experimento): `timeout 10
+  # script | cat` devolvió **rc=0 a los 45 s**. `timeout` mata al SCRIPT, no al
+  # lector del pipe; el pipeline siguió bloqueado hasta que murió el daemon y
+  # encima reportó ÉXITO. Un `timeout N … | tail` en CI no acota nada.
+  # Si de verdad hay que acotar un pipeline entero: `timeout N bash -c 'a | b'`.
+  # El candado que impide que esto vuelva: `scripts/check-daemon-stdout-leak.sh`.
+  # -------------------------------------------------------------------------
+  setsid env -C "$BACKEND_DIR" npx ts-node --transpile-only src/main.ts \
+      > "$RUN_DIR/backend.log" 2>&1 < /dev/null &
+  echo $! > "$RUN_DIR/backend.pid"
   # El arranque compila TS en caliente: dale margen (observado ~45-60s en frío).
   for i in $(seq 1 60); do
     curl -sf -m 3 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 && break
@@ -615,18 +724,25 @@ start_frontend() {
      este script (\`env | grep NODE_ENV\`) — ver DEVOPS_NOTES §32.10."
     fi
     ok "build listo (NODE_ENV=$NEXT_NODE_ENV, sin aviso de NODE_ENV no estándar)."
-    ( cd "$FRONTEND_DIR" \
-      && NODE_ENV="$NEXT_NODE_ENV" \
+    # `setsid env -C … &` sin subshell envolvente — misma razón MEDIDA que en
+    # `start_backend` (fuga del stdout del script + pidfile apuntando al `bash`).
+    setsid env -C "$FRONTEND_DIR" \
+         NODE_ENV="$NEXT_NODE_ENV" \
          NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
-         nohup npx next start -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+         npx next start -p "$FRONTEND_PORT" \
+      > "$RUN_DIR/frontend.log" 2>&1 < /dev/null &
+    echo $! > "$RUN_DIR/frontend.pid"
   else
     NEXT_NODE_ENV=development
-    ( cd "$FRONTEND_DIR" \
-      && NODE_ENV="$NEXT_NODE_ENV" \
+    # Idem `next start`: sin subshell envolvente (§46.2).
+    setsid env -C "$FRONTEND_DIR" \
+         NODE_ENV="$NEXT_NODE_ENV" \
          NEXT_PUBLIC_USE_MOCKS=false \
          NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
-         nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
+         npx next dev -p "$FRONTEND_PORT" \
+      > "$RUN_DIR/frontend.log" 2>&1 < /dev/null &
+    echo $! > "$RUN_DIR/frontend.pid"
   fi
 
   # Instante de lanzamiento del servidor (para el sello). El frontend NO expone un
@@ -660,7 +776,9 @@ port=$FRONTEND_PORT"
 # Exit 0 = puedes medir.  Exit 1 = lo que midas no vale.
 # -----------------------------------------------------------------------------
 verify_head() {
-  local rc=0 expected; expected="${1:-$(head_sha)}"
+  # `degraded` = respondió y coincide, pero la EVIDENCIA no es de calidad de gate
+  # (hoy: frontend en `next dev`, que no se puede fechar). Ver el veredicto abajo.
+  local rc=0 degraded=0 expected; expected="${1:-$(head_sha)}"
 
   "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT" \
       --stamp "$BACKEND_STAMP" --sha "$expected" "${BACKEND_SOURCE_ARGS[@]}" || rc=1
@@ -727,10 +845,36 @@ verify_head() {
     else
       echo "  ⚠ modo \`dev\`: recompila bajo demanda, así que no se puede fechar lo que sirve."
       echo "    NO es un artefacto de gate. Para un gate: 'up --gate'."
+      degraded=1
     fi
   fi
 
   echo ""
+  # -------------------------------------------------------------------------
+  # EL VEREDICTO NO PUEDE CONTRADECIR A SU PROPIA ADVERTENCIA (§48.3, QA).
+  # Hasta este pase, en modo `dev` se imprimía «⚠ … NO es un artefacto de gate»
+  # y **acto seguido** «✔ VERIFICADO … Puedes medir.»: el segundo mensaje borra
+  # al primero, y lo que queda en la retina (y en el pegado del transcript) es el
+  # ✔. Ahora hay TRES desenlaces, no dos, y el tercero dice lo que sabe y nada
+  # más — el backend sí quedó verificado, el frontend no es fechable:
+  #   · rc=1               → ROJO duro (die), como siempre.
+  #   · rc=0 y degradado   → PARCIAL. En modo estricto (`up --gate`,
+  #                          `verify:head --gate`) es ROJO; si no, exit 0 pero
+  #                          SIN la frase «puedes medir».
+  #   · rc=0 y no degradado→ ✔ VERIFICADO.
+  # -------------------------------------------------------------------------
+  if [ "$rc" = 0 ] && [ "$degraded" = 1 ] && [ "$VERIFY_STRICT" = 1 ]; then
+    die "NO VERIFICADO (SEC-OPS-1): se pidió un artefacto de GATE y el frontend vivo
+     está en modo \`dev\` (procedencia NO fechable). Lo que midas contra este stack NO vale.
+     Arréglalo con:   ./scripts/stack-native.sh down && ./scripts/stack-native.sh up --gate"
+  fi
+  if [ "$rc" = 0 ] && [ "$degraded" = 1 ]; then
+    warn "VERIFICADO A MEDIAS: el backend sirve el árbol de ahora ($(short_sha "$expected")),
+     pero el frontend corre en modo \`dev\` y su procedencia NO es fechable.
+     Sirve para TRABAJAR. No es un artefacto de gate: no cites contra él un E2E,
+     un DAST ni un smoke. Para eso: ./scripts/stack-native.sh up --gate"
+    return 0
+  fi
   if [ "$rc" = 0 ]; then
     ok "VERIFICADO: lo que está vivo es el árbol de ahora ($(short_sha "$expected")). Puedes medir."
   else
@@ -872,9 +1016,26 @@ print_e2e_instructions() {
    (e2e/utils/auth.ts:55-70) — app levantada por otro ⇒ backend real ⇒ auth real.
  · Número reportado sobre el stack final: **48 verdes · 3 rojos · 35 saltados**. Los
    **3 rojos son los smokes de dinero** (checkout · guest-checkout · shipments) y son
-   de ENTORNO, no de producto: sin \`STRIPE_SECRET_KEY\` el backend responde 503
-   PAYMENT_PROVIDER_UNAVAILABLE y libera la reserva (money-safe). Frontend NO los
-   salta a propósito. Ver DEVOPS_NOTES §31.
+   de ENTORNO, no de producto. Frontend NO los salta a propósito. Ver DEVOPS_NOTES §31.
+ · QUÉ HACE EXACTAMENTE EL BACKEND SIN \`STRIPE_SECRET_KEY\` (corregido el 2026-09-10
+   tras la corrida de QA — este texto decía «responde 503 PAYMENT_PROVIDER_UNAVAILABLE»
+   como si hubiera una guarda por clave ausente, y NO la hay; lo que hay es esto):
+     1. \`stripe.service.ts:53-55\` **DEGRADA**: \`WARN [StripeService] STRIPE_SECRET_KEY
+        ausente; usando sk_test_dummy (solo no-producción)\` y construye el cliente con
+        \`sk_test_dummy\`. No hay 503 en este punto. (En \`NODE_ENV=production\` no existe
+        esta rama: \`onModuleInit\` aborta el arranque — B6.)
+     2. Al cobrar, \`createPaymentIntent\` LLAMA a Stripe con esa clave falsa y falla
+        (aquí, además, sin egress: CONNECT → 403).
+     3. \`orders.service.ts:495-496\` compensa: \`releaseReservation()\` devuelve las piezas
+        a \`listed\` y deja la orden en \`failed\` (\`:462\`), y \`toRetryError()\` traduce a
+        **503 \`PAYMENT_PROVIDER_UNAVAILABLE\`**.
+   O sea: el 503 y la liberación de reserva SÍ ocurren (money-safe: ni piezas atrapadas
+   en \`reserved\` ni orden \`pending\` sin PaymentIntent), pero como CONSECUENCIA de que la
+   llamada al proveedor falla, no de una comprobación de «falta la clave». Observado por
+   QA el 2026-09-10 en \`TCG-001101\`/\`TCG-001102\`: ambas \`failed\`, sin payment intent.
+   Importa porque el síntoma que se ve primero en el log es el WARN del paso 1, no un
+   503: quien busque «PAYMENT_PROVIDER_UNAVAILABLE» al arrancar no lo va a encontrar.
+   Es lo mismo que dice \`e2e-capability-gate.sh:120\` («degrada a \`sk_test_dummy\`»).
  · **Sigue sin ser el gate de dinero**, por dos razones verificadas:
      1. Aquí NO hay egress a api.stripe.com (CONNECT → 403): esos 3 no pueden ponerse
         verdes en esta máquina NI con clave de prueba. El gate vive en CI.
@@ -927,10 +1088,15 @@ case "${1:-up}" in
       case "$a" in
         --infra) ONLY_INFRA=1 ;;
         --seed)  DO_SEED=1 ;;
-        --gate)  FRONTEND_MODE=build ;;
+        --gate)  FRONTEND_MODE=build; GATE_MODE=1 ;;
         *) die "Opción desconocida: $a (usa --infra | --seed | --gate)" ;;
       esac
     done
+    # `FRONTEND_MODE=build ./scripts/stack-native.sh up` era, ANTES de este pase,
+    # indistinguible de `up --gate` para el gate de capacidades (que ramificaba por
+    # `FRONTEND_MODE`). Se conserva esa equivalencia y se hace explícita: quien pide
+    # frontend HORNEADO está pidiendo un artefacto de gate, con el mismo listón.
+    if [ "$FRONTEND_MODE" = "build" ]; then GATE_MODE=1; fi
     [ -d "$BACKEND_DIR" ] || die "No existe $BACKEND_DIR."
     start_infra
     # D-g (techlead): `[ cond ] && cmd` bajo `set -e` sólo es seguro por su POSICIÓN
@@ -948,6 +1114,84 @@ case "${1:-up}" in
       exit 0
     fi
     start_backend
+    # -------------------------------------------------------------------------
+    # PARIDAD DEL DIAL `price_provider` (`I-PP5`) — D-PP-2, DEVOPS_NOTES §43.2.
+    # Va DESPUÉS de `start_backend` porque el dial vive en la BD y se opera por
+    # HTTP (`PUT /admin/settings`, auditado): `PRICE_PROVIDER` como env NO flipea
+    # nada (§23.8, verificado en `providerFor()`). Va ANTES del frontend y de los
+    # gates para que lo que se mida sea el barrido que se promueve.
+    # RETIRO de `--ensure` (2026-09-10, §45.1): `D-PP-1` aterrizó, el seed del
+    # código ya es el primario y el puente interino caducó — desde ese día
+    # `--ensure` era un no-op que salía 0 sin mirar nada. Queda `--assert`, que
+    # NO es interino: es el candado `I-PP5`, y MIDE el valor vigente.
+    #
+    # Ojo con la diferencia, que aquí importa más que en CI: este stack usa un
+    # directorio de datos de Postgres que SOBREVIVE entre `up`. Un stack sembrado
+    # ANTES de `D-PP-1` conserva la fila LEGACY aunque el seed del código haya
+    # cambiado (los seeds hacen `upsert(... update:{})`, §32.1). Antes eso lo
+    # tapaba el puente; ahora sale a la luz, que es lo que se quiere. El arreglo
+    # es un `PUT /admin/settings` por el panel M10 (auditado), no un script de
+    # arranque.
+    #
+    # QUÉ PASA SI FALLA (corregido el 2026-09-10 — hallazgo de QA, §48.1):
+    #   · `up` a secas → `warn`, exit 0. Stack de trabajo: el rojo queda dicho.
+    #   · `up --gate`  → `gate_fail`, y `gate_verdict` sale ≠0 al final.
+    # Hasta este pase decía aquí «Un fallo aquí NO tumba el stack» y valía TAMBIÉN
+    # para `--gate`: el stack seguía adelante y, sin el rojo del gate de
+    # capacidades tapándolo, `up --gate` salía **0** sobre un stack que dos líneas
+    # más abajo se declara no citable. Era exactamente lo que el §39 prohíbe
+    # veinte líneas más abajo: un aviso que no cambia el código de salida.
+    # El stack SIGUE quedando arriba en los dos casos — lo que cambia es el
+    # veredicto, no la disponibilidad: la vía de arreglo (`PUT /admin/settings`)
+    # necesita el backend vivo.
+    # -------------------------------------------------------------------------
+    log "Paridad del proveedor de precio (I-PP5, §43.2)"
+    PARITY_RC=0
+    "$SCRIPT_DIR/price-provider-parity.sh" --assert \
+      --api-base "http://localhost:$BACKEND_PORT/api/v1" || PARITY_RC=$?
+    if [ "$PARITY_RC" != 0 ]; then
+      # ⚠️ `20` (SIN PARIDAD) y «cualquier otro ≠0» son HECHOS DISTINTOS y no se
+      # pueden narrar igual. Lo pilló la propia demostración de este pase: al
+      # repetir el gate varias veces seguidas, el login del asertor chocó con el
+      # límite de 5/min de `/auth/login` (SEC-C1) y salió `30` — «no pude LEER el
+      # dial». El mensaje, sin embargo, afirmaba «el dial NO está en el primario»,
+      # que es una afirmación que nadie había medido. Los dos casos siguen siendo
+      # ROJOS en `--gate` (fail-closed: «no medido» JAMÁS es verde), pero cada uno
+      # dice lo que pasó y manda al arreglo que le toca.
+      # Códigos del asertor: 20 = sin paridad · 30 = sin credenciales/PUT fallido
+      # · 2 = entorno/estructura inesperada.
+      case "$PARITY_RC" in
+        20)
+          PARITY_QUE="PARIDAD I-PP5 EN ROJO — el dial vivo NO es el proveedor primario."
+          PARITY_HOWTO="El dial NO está en el proveedor primario: este stack evalúa OTRO barrido.
+     Un E2E/DAST verde aquí NO es citable como gate del sistema que se promueve
+     (ARCHITECTURE §4.35a(d)). Arréglalo antes de declarar nada verde.
+     Causa típica: BD sembrada ANTES de D-PP-1 (la fila sobrevive al cambio de seed).
+     Arreglo: panel M10 > proveedor de precio (PUT /admin/settings, auditado).
+              (NO \`--ensure\`: desde §45.1 es un NO-OP que sale 0 sin tocar nada.)
+     Re-asertar antes de medir:
+              ./scripts/price-provider-parity.sh --assert --api-base http://localhost:$BACKEND_PORT/api/v1
+     Desde cero: para el stack, borra el directorio de datos y vuelve a sembrar."
+          ;;
+        *)
+          PARITY_QUE="PARIDAD I-PP5 SIN MEDIR (asertor rc=$PARITY_RC) — no sé en qué proveedor está este stack."
+          PARITY_HOWTO="NO se ha medido la paridad: el asertor no pudo leer el dial (rc=$PARITY_RC).
+     Eso NO significa que el dial esté mal; significa que NADIE lo sabe, y un gate
+     no puede aprobar lo que no midió. Motivos frecuentes:
+       · rc=30 sin credenciales de super_admin, o \`/auth/login\` limitado a 5/min
+                (SEC-C1): espera un minuto, o pasa ADMIN_JWT=… y repite.
+       · rc=2  el backend no responde en :$BACKEND_PORT o el JSON no tiene la forma esperada.
+     Comprueba a mano:  ./scripts/price-provider-parity.sh --assert --api-base http://localhost:$BACKEND_PORT/api/v1"
+          ;;
+      esac
+      if [ "$GATE_MODE" = 1 ]; then
+        gate_fail "$PARITY_QUE
+     $PARITY_HOWTO"
+      else
+        warn "$PARITY_HOWTO
+     (Esto es \`up\` a secas: INFORME, exit 0. En \`up --gate\` esto es ROJO y sale ≠0.)"
+      fi
+    fi
     start_frontend
     # -------------------------------------------------------------------------
     # AUTOCOMPROBACIÓN DE CIERRE (SEC-OPS-1). `up` no AFIRMA que sirve el árbol de
@@ -957,6 +1201,7 @@ case "${1:-up}" in
     # que parece bueno.
     # -------------------------------------------------------------------------
     log "Autocomprobación: ¿el stack vivo sirve el árbol de ahora? (SEC-OPS-1)"
+    VERIFY_STRICT="$GATE_MODE"   # en `--gate`, «procedencia no fechable» es ROJO (§48.3)
     verify_head
 
     # -------------------------------------------------------------------------
@@ -971,19 +1216,24 @@ case "${1:-up}" in
     # y, a la vez, no puede declarar verde lo que no se ejecutó.
     # -------------------------------------------------------------------------
     log "Capacidades del arnés: ¿este entorno puede ejercitar COBRO y SUBIDA? (§39)"
-    if [ "$FRONTEND_MODE" = "build" ]; then
+    if [ "$GATE_MODE" = 1 ]; then
       if ! "$SCRIPT_DIR/e2e-capability-gate.sh" --require-all; then
-        printf '\n\033[1;31m✖ El stack está ARRIBA, pero NO es apto para una corrida de GATE.\033[0m\n' >&2
-        printf '  Los flujos de arriba quedan SIN VERIFICAR. No los declares verdes ni saltados.\n' >&2
-        printf '  Detalle y salidas posibles: docs/DEVOPS_NOTES.md §39.\n\n' >&2
-        print_e2e_instructions
-        exit 1
+        gate_fail "CAPACIDADES DEL ARNÉS (§39) — falta COBRO y/o SUBIDA.
+     Los flujos de arriba quedan SIN VERIFICAR. No los declares verdes ni saltados.
+     Detalle y salidas posibles: docs/DEVOPS_NOTES.md §39."
       fi
     else
       "$SCRIPT_DIR/e2e-capability-gate.sh" || true
       warn "Modo \`dev\`: esto fue un INFORME, no un gate. Para gatear: 'up --gate'."
     fi
     print_e2e_instructions
+    # VEREDICTO ÚNICO (§48.1). Antes, el gate de capacidades hacía `exit 1` aquí
+    # mismo y era el ÚNICO que podía teñir de rojo la corrida; la paridad `I-PP5`
+    # solo avisaba. Ahora los dos motivos se acumulan y salen juntos: si el fallo
+    # es de paridad, el operador lo ve aunque las capacidades estén completas
+    # (que es justo el caso que se le escapó a QA: con claves de Stripe puestas,
+    # el único rojo habría sido el de paridad… y no existía).
+    gate_verdict
     ;;
   test:integration)
     shift || true
@@ -1081,10 +1331,21 @@ case "${1:-up}" in
     ;;
   verify:head)
     shift || true
-    # `verify:head [<sha>]` — SOLO LEE. Sin argumento compara contra `git rev-parse HEAD`.
-    # Con argumento, contra el SHA que se le pase (útil para «auditar exactamente 3b2fc87»).
+    # `verify:head [--gate] [<sha>]` — SOLO LEE. Sin SHA compara contra `git rev-parse HEAD`.
+    # Con SHA, contra el que se le pase (útil para «auditar exactamente 3b2fc87»).
+    # `--gate` (§48.3): además de coincidir, exige que la evidencia sea de calidad de
+    # gate (frontend HORNEADO). Sin él, un frontend en `next dev` sale 0 pero con el
+    # veredicto PARCIAL — nunca con «puedes medir».
+    VH_SHA=""
+    for a in "$@"; do
+      case "$a" in
+        --gate) VERIFY_STRICT=1 ;;
+        -*)     die "Opción desconocida: $a (usa: verify:head [--gate] [<sha>])" ;;
+        *)      VH_SHA="$a" ;;
+      esac
+    done
     log "Verificación de procedencia del stack vivo (SEC-OPS-1)"
-    verify_head "${1:-}"
+    verify_head "$VH_SHA"
     ;;
   status)
     log "Estado del stack nativo"

@@ -20,6 +20,35 @@ if [[ ! -f .env ]]; then
   cp .env.example .env
 fi
 
+# --- Secretos: generados aquí, NUNCA heredados del repo (S-88-1) -------------
+# Antes, `.env.example` traía valores USABLES (`tcg_local_dev_password`,
+# `minioadmin_local_dev`, `whsec_CHANGE_ME`…) y esta copia los daba por buenos. El
+# argumento de que «son de desarrollo local» es el que seguridad refutó midiendo:
+# el repositorio es PÚBLICO, y un valor de respaldo gana justo en el momento del
+# ERROR del operador —cuando creyó haberlo cambiado y no lo hizo—, nunca en el
+# momento cómodo. Con el JWT publicado se firma un `super_admin`; con la clave PII
+# se descifra una CLABE. Seguridad hizo las dos cosas.
+#
+# `secrets-preflight.sh env-file`:
+#   · rellena las que falten con valores ALEATORIOS de esta máquina;
+#   · sustituye las que traigan un valor que el repo PUBLICA (identidad, no
+#     heurística: `security/secretos-publicados.sha256`);
+#   · respeta las que ya tengas puestas de verdad — es idempotente y no rota nada.
+# El resolutor no ADIVINA que esto es un entorno desechable: se lo decimos. Este
+# script existe para levantar el stack local de un dev — el que sabe que es de
+# usar y tirar es él, no una corazonada del resolutor mirando variables sueltas.
+export SECRETS_ENV=desechable
+echo "→ Secretos locales (S-88-1): ninguno puede venir escrito en el repo."
+./scripts/secrets-preflight.sh env-file .env
+
+# P-WH-1: el webhook conserva ADEMÁS su preflight propio, porque es el único
+# secreto cuya exigencia depende de un EMPAREJAMIENTO (si hay una clave de Stripe
+# real, no vale cualquier valor). `env-file` de arriba ya le puso uno generado si
+# faltaba o si el `.env` traía el `whsec_CHANGE_ME` publicado; esto comprueba el
+# par y aborta si alguien metió una clave real de Stripe con un secreto público.
+set -a; . ./.env; set +a
+./scripts/webhook-secret-preflight.sh assert
+
 # --- Elegir perfil ----------------------------------------------------------
 PROFILE_ARGS=()
 if [[ "${1:-}" == "--apps" ]]; then

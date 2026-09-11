@@ -177,11 +177,65 @@ jobs:
       POKEMONPRICETRACKER_API_KEY: ''
       E2E_GRADING_PROVIDER_INCAPACITATED: '1'
       # Stripe SIEMPRE en modo TEST en staging/E2E (nunca claves live).
-      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
+      # S-88-1 — aquí decía `${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}`.
+      # El respaldo literal gana EN AUSENCIA del secret: justo cuando alguien creyó
+      # haber cargado Stripe y no lo hizo. Sin respaldo, la ausencia se nota; el
+      # valor efímero para levantar el stack lo pone el paso «Resolver secretos».
+      STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
-      STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || 'whsec_e2e_dummy' }}
+      # RESIDUAL DE P-WH-1 — el literal público desapareció de aquí.
+      # Decía `${{ secrets.X || 'whsec_e2e_dummy' }}`. Esa forma tiene el defecto
+      # justo al revés de como parece: **el valor público gana cuando el secret NO
+      # está cargado**, o sea, exactamente cuando alguien creyó configurar Stripe y
+      # no lo hizo. Y `whsec_e2e_dummy` está commiteado en un repo público: para un
+      # HMAC es una clave perfectamente válida con la que cualquiera puede firmar.
+      # Ahora lo resuelve `scripts/webhook-secret-preflight.sh` en un paso (abajo):
+      # sin Stripe genera uno EFÍMERO irrepetible; con Stripe real y sin secreto
+      # propio, ABORTA el job en vez de correr sobre algo forjable.
     steps:
       - uses: actions/checkout@v4
+      # -----------------------------------------------------------------------
+      # RESOLUCIÓN DEL SECRETO DE WEBHOOK (residual de P-WH-1) — antes de nada.
+      # Un hecho, un sitio: la misma resolución que corre en el arranque del
+      # contenedor (`Dockerfile.backend`) y en el arnés nativo.
+      # -----------------------------------------------------------------------
+      - name: Resolver STRIPE_TEST_WEBHOOK_SECRET sin literales públicos
+        env:
+          STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          # El stack de staging de este job vive en el RUNNER: no tiene endpoint
+          # público y Stripe no puede entregarle un webhook. Con clave de Stripe
+          # real y sin `STRIPE_TEST_WEBHOOK_SECRET` en los secrets, el preflight
+          # abortaba (medido: run 34498068945, paso 3) y con él moría el gate de
+          # DINERO entero. Aquí un secreto GENERADO es estrictamente más seguro
+          # que uno compartido: nadie puede firmar contra él. Los webhooks
+          # entrantes se rechazan — que es lo correcto para un stack inalcanzable.
+          STRIPE_WEBHOOK_UNREACHABLE: "1"
+        run: |
+          ./scripts/webhook-secret-preflight.sh assert
+          # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que
+          # `echo` sale 0 aunque la sustitución aborte, y entonces se exporta un
+          # valor VACÍO y el rojo aparece 8 pasos más tarde, en el `compose`, con un
+          # mensaje que apunta al sitio equivocado. Es el mismo patrón que
+          # perseguimos: la ausencia degradaba en silencio. Aquí se captura y se
+          # comprueba, así que el fallo sale donde se produce.
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_TEST_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          # S-88-1: el resto de secretos del stack de staging, sin literales. Respeta
+          # los del secret store si existen; si no, aleatorios por corrida.
+          RESUELTOS="$(./scripts/secrets-preflight.sh github-env)"
+          printf '%s\n' "$RESUELTOS" >> "$GITHUB_ENV"
+          # EMPAREJAMIENTO runner ↔ contenedor. El contenedor recibe `STAGING_SEED_*`
+          # (el compose los mapea a `SEED_*`), pero los scripts que corren en el RUNNER
+          # —`price-provider-parity.sh`— leen `SEED_*`. Antes coincidían por ACCIDENTE:
+          # ambos eran el mismo literal público del repo. Al quitar el literal (S-88-1)
+          # el accidente desaparece, así que el emparejamiento se hace explícito.
+          SEED_PASS="$(printf '%s\n' "$RESUELTOS" | sed -n 's/^STAGING_SEED_ADMIN_PASSWORD=//p')"
+          if [ -n "$SEED_PASS" ]; then
+            echo "SEED_ADMIN_PASSWORD=$SEED_PASS" >> "$GITHUB_ENV"
+            echo "SEED_ADMIN_EMAIL=${STAGING_SEED_ADMIN_EMAIL:-admin@staging.local}" >> "$GITHUB_ENV"
+          fi
 
       # -----------------------------------------------------------------------
       # GUARDA DE DINERO Nº0 — antes que el preflight de Stripe, porque este no
@@ -253,14 +307,24 @@ jobs:
 
       - name: Esperar salud del backend (migrate deploy + API escuchando)
         run: |
+          # NO se esperan 5 minutos a un contenedor que YA murió. Run 34531002011: el
+          # backend salió a los pocos segundos y este bucle siguió preguntando 300 s más
+          # para acabar diciendo «no respondió» — que es verdad y no sirve de nada.
           for i in $(seq 1 60); do
             if curl -sf "$BACKEND_HEALTH" >/dev/null 2>&1; then
               echo "Backend arriba ($BACKEND_HEALTH)."; exit 0
             fi
+            ESTADO_BK="$(docker compose -f "$COMPOSE" ps -a --format '{{.Service}} {{.State}}' 2>/dev/null | awk '$1=="backend"{print $2}')"
+            case "$ESTADO_BK" in
+              exited|dead)
+                echo "::warning::El contenedor del backend ya NO corre (estado: $ESTADO_BK) tras $((i*5))s. Seguir esperando no aporta nada."
+                ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
+                exit 1 ;;
+            esac
             echo "Esperando backend... ($i)"; sleep 5
           done
-          echo "::error::El backend real no respondió en $BACKEND_HEALTH tras ~5min. Revisa arranque/migrate. Si es fallo de arranque del backend, el finding es del rol backend."
-          docker compose -f "$COMPOSE" logs --tail=200 backend || true
+          ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
+          echo "::error::El backend real no respondió en $BACKEND_HEALTH tras ~5min. La causa y el DUEÑO van en la anotación de arriba y en el resumen del job."
           exit 1
 
       # -----------------------------------------------------------------------
@@ -310,6 +374,49 @@ jobs:
           echo "Seed sintético: $SEED_CMD"
           docker compose -f "$COMPOSE" exec -T backend \
             sh -c "export PATH=/app/node_modules/.bin:\$PATH; $SEED_CMD"
+
+      # -----------------------------------------------------------------------
+      # PARIDAD DEL PROVEEDOR DE PRECIO (`I-PP5`, API_CONTRACT §M10-PP).
+      #
+      # Va DESPUÉS del seed a propósito: el seed MATERIALIZA la fila
+      # `ConfigSetting.price_provider` (`upsert(... update:{})`), así que antes de
+      # él no hay nada que corregir y después de él la fila ya existe.
+      #
+      # QUÉ SE EVITA, medido: mientras el seed del código no sea el proveedor
+      # PRIMARIO (`D-PP-1`, backend), este stack nace en el LEGACY — que no es
+      # inerte: barre y escribe precios APLANADOS (mismo `market` a normal /
+      # reverse_holo / holofoil). Un smoke verde contra ese barrido no dice nada
+      # del que se promueve a producción (ARCHITECTURE §4.35a(d)).
+      #
+      # ⛔ NO se hace con una env var: `PRICE_PROVIDER` en el entorno NO flipea el
+      # dial (DEVOPS_NOTES §23.8, verificado en `providerFor()`), y «fijarlo» ahí
+      # dejaría este workflow mintiendo.
+      #
+      # ROJO DURO: si el dial no queda en el primario, este job para. Un E2E que
+      # mide otro sistema es peor que no correrlo, porque su verde se cita.
+      #
+      # RETIRO DE `--ensure` (2026-09-10, DEVOPS_NOTES §45.1). Aquí había
+      # `--ensure`, el puente INTERINO de `D-PP-2`. `D-PP-1` aterrizó (46d76cc):
+      # el seed del código ya es el primario, así que el puente caducó — y desde
+      # ese día `--ensure` era un **no-op que salía 0 sin mirar nada**. O sea que
+      # este paso, anunciado como «rojo duro», llevaba desde entonces sin
+      # verificar absolutamente nada. Cambiarlo a `--assert` no es una rebaja:
+      # es lo contrario, DEVUELVE la verificación que el no-op se había comido.
+      #
+      # Este stack nace FRESCO en cada corrida (`down -v` al final del job), así
+      # que el seed primario basta y `--assert` pasa solo — verificado en el run
+      # 34440267283, donde el mismo `--assert` corre contra este mismo compose.
+      # Si algún día sale rojo, el hallazgo es del rol **backend** (su seed dejó
+      # de fijar el primario); NO se parchea desde devops.
+      # -----------------------------------------------------------------------
+      - name: Paridad del dial price_provider (I-PP5) — el smoke mide el barrido que se promueve
+        run: |
+          ./scripts/price-provider-parity.sh --assert --api-base "http://localhost:3011/api/v1"
+          {
+            echo "### Proveedor de precio del stack E2E"
+            echo ""
+            echo "- dial \`price_provider\` verificado contra el PRIMARIO (\`I-PP5\`, API_CONTRACT §M10-PP)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Esperar readiness del frontend real
         run: |
@@ -441,6 +548,67 @@ jobs:
             echo "::warning title=Verde PARCIAL — $CORRIDOS $PLURAL corridos, $SALTADOS de dinero SALTADOS::Este run NO probó comprar, comprar-como-invitado ni retirar: no hay credencial de Stripe (ausencia deliberada, DEVOPS_NOTES 33.2). El verde de este workflow NO es un verde de dinero."
           fi
 
+      # -----------------------------------------------------------------------
+      # QUE EL HUECO SE VEA SIN ABRIR NADA (§46.4) — 2026-09-10.
+      #
+      # El problema que queda cuando falta la clave de Stripe NO es que el aviso
+      # no exista: existe, y es bueno (tabla en el step summary + `::warning`).
+      # El problema es que el run TERMINA VERDE y en la LISTA de Actions se ve
+      # idéntico a uno que sí midió el dinero. Quien pasa revista a diez runs no
+      # abre diez step summaries: mira diez puntos verdes.
+      #
+      # Un artefacto SÍ se ve en la portada del run, junto al reporte. Se llama
+      # como lo que falta, en mayúsculas, para que sea imposible leerlo como
+      # «pasó». No cambia el veredicto —la decisión del dueño (§33.2) se respeta
+      # tal cual— sólo lo hace IMPOSIBLE DE CONFUNDIR.
+      #
+      # ⚠️ Esto NO sustituye a la clave: mientras no exista el secret, comprar,
+      # comprar-como-invitado y retirar siguen SIN MEDIR. Es una petición al
+      # dueño, no un problema de infraestructura (DEVOPS_NOTES §31.1, §46.4).
+      # -----------------------------------------------------------------------
+      - name: Escribir el marcador del hueco de dinero
+        if: always() && env.MONEY_GATE == 'off'
+        run: |
+          mkdir -p /tmp/hueco-dinero
+          {
+            echo "# ESTE RUN NO MIDIÓ NINGÚN FLUJO DE DINERO"
+            echo
+            echo "El job terminó **verde**. Ese verde NO cubre:"
+            echo
+            echo "  - comprar (checkout.spec.ts)"
+            echo "  - comprar como invitado (guest-checkout.spec.ts)"
+            echo "  - retirar / envíos (shipments.spec.ts)"
+            echo
+            echo "No se ejecutaron. **No están aprobados.** No hay evidencia de que funcionen."
+            echo
+            echo "Motivo: no hay credencial de PRUEBA de Stripe en este repositorio."
+            echo "Se saltan a propósito (DEVOPS_NOTES 33.2) en vez de correr un job vacío"
+            echo "en verde, que sería un falso verde. Saltarlos es lo correcto; lo que NO"
+            echo "es correcto es leer este run como si el dinero estuviera probado."
+            echo
+            echo "## Cómo desaparece este fichero"
+            echo
+            echo "Crear los secrets en Settings > Secrets and variables > Actions:"
+            echo "  - STRIPE_TEST_SECRET_KEY       (sk_test_...)"
+            echo "  - STRIPE_TEST_PUBLISHABLE_KEY  (pk_test_...)"
+            echo
+            echo "Nada más que tocar: no hay bandera que quitar. Nunca una clave live."
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "Commit: ${GITHUB_SHA}"
+          } > /tmp/hueco-dinero/LEEME-EL-DINERO-NO-SE-PROBO.md
+
+      - name: Subir el marcador del hueco de dinero
+        if: always() && env.MONEY_GATE == 'off'
+        uses: actions/upload-artifact@v4
+        with:
+          # El NOMBRE es el mensaje: aparece en la portada del run, en la lista
+          # de artefactos, sin abrir un solo log.
+          name: SIN-MEDIR-comprar-invitado-retirar
+          path: /tmp/hueco-dinero
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Subir reporte Playwright
         if: always()
         uses: actions/upload-artifact@v4
@@ -454,7 +622,13 @@ jobs:
 
       - name: Logs del stack si algo falló
         if: failure()
-        run: docker compose -f "$COMPOSE" logs --tail=300
+        run: |
+          # `docker compose logs` ordena POR SERVICIO alfabéticamente: las líneas
+          # del backend salen enterradas detrás de `createbuckets`, `postgres` y
+          # `redis` — los tres que sí arrancaron. Primero el que falló, y solo él.
+          ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
+          echo "--- resto de servicios (contexto) ---"
+          docker compose -f "$COMPOSE" logs --no-color --tail=300 postgres redis minio createbuckets frontend || true
 
       - name: Apagar stack
         if: always()

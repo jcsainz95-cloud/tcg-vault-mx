@@ -48,6 +48,31 @@ ok()  { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 bad() { printf '\033[1;31m  ✖ %s\033[0m\n' "$*" >&2; FAILED=1; }
 FAILED=0
 
+# -----------------------------------------------------------------------------
+# ⚠️ NO USAR `grep -q` AL FINAL DE UN PIPELINE EN ESTE FICHERO (medido, 2026-09-10)
+# Razón entera y números: docs/DEVOPS_NOTES.md §45.2.
+#
+# `set -o pipefail` (arriba) + `grep -q` = carrera SIGPIPE. `grep -q` sale en
+# cuanto encuentra el patrón y cierra el pipe; si el escritor (awk/grep) todavía
+# tenía cola por volcar, se lleva un SIGPIPE y sale 141. Con `pipefail`, el
+# estado del PIPELINE pasa a 141 **aunque el patrón SÍ estuviera**, el `if` toma
+# la rama ELSE y la guarda inventa un rojo.
+#
+# No es teórico: el bloque del check 2 son 4 483 B y `start_s3` cae en el byte
+# 747, así que mawk vuelca un primer bloque de 4 096 B —que ya contiene el
+# match—, grep sale, y el segundo write (387 B) muere. Medido en este repo:
+# **10 falsos rojos de 300 corridas (3,3 %)** del pipeline real. Eso es lo que
+# tumbó `e2e-harness-gaps` en el run 34441149856 con el árbol INTACTO.
+#
+# Una guarda intermitente es tan mala como una que nunca falla: enseña al equipo
+# a re-lanzar hasta que salga verde, y entonces el día que el rojo sea de verdad
+# también se re-lanza. Es la misma enfermedad que este repo vino arreglando.
+#
+# EL ARREGLO: `grep PATRÓN >/dev/null` en vez de `grep -q PATRÓN`. Sin `-q`,
+# grep CONSUME toda la entrada antes de salir, así que el escritor nunca escribe
+# contra un pipe cerrado. Mismo código de salida, misma semántica, sin carrera.
+# -----------------------------------------------------------------------------
+
 printf '\n\033[1;36m▸ Guarda del arnés E2E: ¿sigue siendo IMPOSIBLE saltarse cobro y subida?\033[0m\n'
 
 CAP="scripts/e2e-capability-gate.sh"
@@ -65,7 +90,7 @@ fi
 
 # --- 2. La ruta nativa levanta object storage ---------------------------------
 if [ -f "$STACK" ]; then
-  if awk '/^start_infra\(\)/,/^}/' "$STACK" | grep -q 'start_s3'; then
+  if awk '/^start_infra\(\)/,/^}/' "$STACK" | grep 'start_s3' >/dev/null; then
     ok "'start_infra' levanta object storage (start_s3)."
   else
     bad "'start_infra' de $STACK ya NO levanta object storage. Sin él, el PUT
@@ -78,7 +103,7 @@ if [ -f "$STACK" ]; then
   # comentario de otra parte del fichero — mismo criterio que check-provenance-gate.
   UP_BODY="$(awk '/^  up\)/,/^  test:integration\)/' "$STACK")"
   # La comilla de cierre de "$SCRIPT_DIR/…" queda entre el nombre y la bandera.
-  if printf '%s' "$UP_BODY" | grep -qE 'e2e-capability-gate\.sh"? +--require-all'; then
+  if printf '%s' "$UP_BODY" | grep -E 'e2e-capability-gate\.sh"? +--require-all' >/dev/null; then
     ok "'up --gate' EXIGE las capacidades (--require-all), no solo las informa."
   else
     bad "'up --gate' ya no llama a e2e-capability-gate.sh --require-all. Un aviso que
@@ -88,7 +113,7 @@ if [ -f "$STACK" ]; then
 
   # --- 4. La integración corre en modo estricto ------------------------------
   INT_BODY="$(awk '/^  test:integration\)/,/^  verify:head\)/' "$STACK")"
-  if printf '%s' "$INT_BODY" | grep -q 'E2E_STRICT_INFRA'; then
+  if printf '%s' "$INT_BODY" | grep 'E2E_STRICT_INFRA' >/dev/null; then
     ok "'test:integration' fija E2E_STRICT_INFRA (el smoke de infra no puede saltarse)."
   else
     bad "'test:integration' de $STACK ya no fija E2E_STRICT_INFRA. Sin él,
@@ -115,7 +140,7 @@ fi
 # otro job daría verde — verde por mencionar, que es el modo de fallo que estos
 # checks existen para no repetir.
 if grep -A8 'uses: ./.github/workflows/e2e-real.yml' "$DEPLOY_WF" 2>/dev/null \
-     | grep -qE '^\s*require_real_stripe:\s*true\s*$'; then
+     | grep -E '^\s*require_real_stripe:\s*true\s*$' >/dev/null; then
   ok "$DEPLOY_WF promueve a prod exigiendo clave de PRUEBA real (require_real_stripe: true)."
 else
   bad "$DEPLOY_WF ya NO pasa 'require_real_stripe: true' al gate E2E. Sin eso, el

@@ -9,6 +9,12 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
  * cliente) de COSTO de envío (shippingCostCents, lo que la plataforma paga al carrier) y
  * lo RESTA de la ganancia. La clave `shippingCents` se renombró a `shippingRevenueCents`.
  * Fórmula: profit = income + shippingRevenue − cogs − stripeFees − shippingCost.
+ *
+ * ⚠️ v1.64 (M-50): los fixtures ganan `priceConvention` porque la columna es NOT NULL y el lector
+ * (`netRevenueCents`) LANZA ante una fila sin convención en vez de adivinarla. **Las cifras
+ * asertadas NO cambian ni un centavo**: con todo `IVA_EXCLUSIVE` el neteo es la identidad, que es
+ * exactamente lo que el deploy 1 existe para demostrar. La neutralidad se mide aparte y a fondo en
+ * `admin.pnl-iva-neutral.spec.ts`.
  */
 describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () => {
   let prisma: any;
@@ -21,6 +27,14 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
           {
             subtotalCents: 100000,
             processingFeeCents: 4000,
+            // v1.64 (M-50): la convención es OBLIGATORIA también en un fixture. Sin ella,
+            // `netRevenueCents` LANZA en vez de adivinar (§4.44.e, candado IVA-3). Es la misma
+            // exigencia que el compilador impone en el código de producción.
+            priceConvention: 'IVA_EXCLUSIVE',
+            fulfillmentMode: 'vault',
+            shippingFeeCents: 0,
+            ivaCents: 16000,
+            ivaRatePct: 16,
             items: [{ inventoryItem: { acquisitionCostCents: 30000 } }],
           },
         ]),
@@ -28,9 +42,9 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       shipmentRequest: {
         findMany: jest.fn().mockResolvedValue([
           // Envío con costo capturado: ingreso 17500, costo real 9000.
-          { shippingFeeCents: 17500, shippingCostCents: 9000, processingFeeCents: 800 },
+          { shippingFeeCents: 17500, shippingCostCents: 9000, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
           // Envío histórico/sin captura: costo = 0 (default de columna), no rompe el cálculo.
-          { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800 },
+          { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
         ]),
       },
     };
@@ -61,8 +75,8 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
   it('subtracting the shipping cost lowers profit vs treating it as 0', async () => {
     const withCost = await service.pnl();
     prisma.shipmentRequest.findMany.mockResolvedValue([
-      { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800 },
-      { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800 },
+      { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
+      { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
     ]);
     const withoutCost = await service.pnl();
     expect(withoutCost.profitCents - withCost.profitCents).toBe(9000);

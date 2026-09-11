@@ -3463,9 +3463,21 @@ function computeMockRefreshVariantsSummary(): RefreshVariantsSummary {
   const cardProductsUpserted = okSets.reduce((sum, s) => sum + Math.round((s.cardCount ?? 0) * 1.4), 0);
   // Un pendiente por set OK (TCGCSV no siempre trae todos los precios) → resultado parcial honesto.
   const pending = okSets.length;
+  // §M2-CS.0/§M2-CS.2 — el reparto se CUENTA: `setsWritten` (escribió algo) vs `setsNoop`
+  // (corrió, no escribió nada). ⛔ El mock NO puede modelar la mentira vieja —«todo el que no
+  // reventó cuenta como bueno»—: si `setsNoop` volviera a sumarse a los buenos, el espejo
+  // concordaría consigo mismo y ningún test de contrato podría cazarlo.
+  // El último set OK se modela como NOOP (el set que no empareja con TCGCSV): existe de verdad y
+  // es el caso que quemó al dueño.
+  const noopSets = okSets.slice(-1);
+  const writtenSets = okSets.slice(0, Math.max(0, okSets.length - 1));
   return {
     setsTotal: imported.length,
-    setsOk: okSets.length,
+    setsWritten: writtenSets.length,
+    setsNoop: noopSets.length,
+    // ⛔ DEPRECADO (§M2-CS.2), significado CONGELADO: `setsWritten + setsNoop`. Se emite DERIVADO
+    // para que no pueda desviarse de su definición. Ningún consumidor lo usa para un veredicto.
+    setsOk: writtenSets.length + noopSets.length,
     setsFailed: failures.length,
     cardProductsUpserted,
     pricesUpserted: Math.max(0, cardProductsUpserted - pending),

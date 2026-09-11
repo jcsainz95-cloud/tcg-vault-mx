@@ -292,6 +292,9 @@ export class PaymentsService {
             ivaCents: 0,
             processingFeeCents: 0,
             totalCents: 0,
+            // v1.64 (M-50, DEPLOY 1): la convención se escribe SIEMPRE, también en el envío de
+            // fulfillment con montos en cero (el ingreso vive en `Order.shippingFeeCents`).
+            priceConvention: 'IVA_EXCLUSIVE',
             items: { create: order.items.map((oi) => ({ inventoryItemId: oi.inventoryItemId })) },
           },
         });

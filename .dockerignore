@@ -14,4 +14,22 @@
 docs
 .github
 scripts
+# EXCEPCIÓN (residual de P-WH-1): `Dockerfile.backend` copia este único fichero de
+# `scripts/` a la imagen y lo corre ANTES de arrancar el proceso. Sin esta línea el
+# COPY falla el build — que es preferible a que el preflight desaparezca en
+# silencio, pero mejor aún es que esté. No abras la excepción a `scripts/` entero:
+# el resto no tiene por qué viajar en la imagen de producción.
+!scripts/webhook-secret-preflight.sh
+# S-88-1 — mismas razones, ampliadas a la CLASE:
+#   · `secrets-preflight.sh` comprueba EN EL ARRANQUE que ningún secreto del
+#     entorno (no solo el del webhook) sea un valor que el repo publica.
+#   · `security/secretos-publicados.sha256` es lo que le permite decidirlo por
+#     IDENTIDAD en vez de por una lista de palabras. Sin el fichero, el preflight
+#     degrada a la heurística vieja — y esa heurística dejaba pasar
+#     `sk_live_… + whsec_e2e_test_secret` (medido por seguridad).
+!scripts/secrets-preflight.sh
+!security
+!security/secretos-publicados.sha256
+!security/secretos-retirados.sha256
+!security/secretos-exigidos-contenedor.txt
 *.md

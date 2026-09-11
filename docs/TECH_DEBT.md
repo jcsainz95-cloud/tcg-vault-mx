@@ -13,6 +13,21 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+### PII-E1 · La clave PII efímera hace **ilegible entre reinicios** lo cifrado en un dev local con BD persistente (backend · `S-88-2`, 2026-09-10)
+- **Dueño:** **backend** (`src/common/crypto/pii-crypto.service.ts`). **Severidad:** Baja. **No bloqueante.** Es el **precio elegido a sabiendas** del arreglo de `S-88-2`, no un descuido: se anota para que nadie lo «arregle» reintroduciendo una clave derivable.
+- **La deuda:** cerrando `S-88-2` (§v2.2-SEC.2), el respaldo sin `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` pasó de una clave **derivable del repo público** a `randomBytes(32)` **efímera por proceso**. Consecuencia: un desarrollador local que corra **sin configurar las claves** y con un Postgres **persistente** verá que la CLABE/RFC cifrados en una sesión **no descifran** en la siguiente (el GCM no autentica) y que el **blind index deja de casar** (la CLABE «a nombre propio» no se reconoce).
+- **Por qué se aceptó, y por qué es la dirección correcta:** el fallo es **ruidoso y en la dirección segura** — lanza en vez de casar de más, y no existe el desenlace *«parece cifrado y cualquiera que lea el repo lo abre»*, que era el hallazgo. La alternativa (una clave de dev **estable** derivada de una cadena fija) es exactamente el defecto que se acaba de cerrar; y una clave de dev en fichero (generada en el primer arranque) añade escrituras al FS en el arranque —que en un contenedor de CI de FS de solo lectura falla— por un beneficio puramente ergonómico.
+- **Impacto medido HOY: cero en CI y cero en producción.** CI usa BD **efímera por corrida** (un proceso, una base) y producción **exige** las claves. Solo toca al dev local que además persista datos de KYC.
+- **Cura (barata, y ya documentada):** exportar `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` en el `.env` local (`.env.example` ya las trae con el comando `openssl rand -base64 32`). El `logger.warn` del arranque lo dice literalmente: *«Anything encrypted now is UNREADABLE after a restart»*.
+- **⚠️ Disparador para volver sobre esto:** **la primera queja real de un dev** por PII ilegible tras reiniciar, o el día que el arnés local necesite **dos procesos** que compartan PII cifrada (hoy no ocurre: `git grep` → los seeds `prisma/seed.ts`/`seed-e2e.ts` **no** usan `PiiCryptoService`, y ningún spec de `test/integration/` lo toca). Si llega ese día, la cura correcta es **generar las claves en el arranque del arnés** (`scripts/stack-native.sh`, devops) y exportarlas — **no** volver a una constante en el código. Ref: `BACKEND_NOTES.md` §v2.2-SEC.2, `SECURITY_NOTES.md` §3.2, `test/pii-crypto.spec.ts` (bloque *«S-88-2»*).
+
+### UP-C1 · `POST /uploads/presign` exige `contentLength`, y el **contrato no lo menciona** — pendiente del arquitecto (backend · `P-UP-1`, 2026-09-10)
+- **Dueño:** **arquitecto** para el documento; **backend** para el código (ya hecho). **Severidad:** Baja como riesgo, **pero es una divergencia código⇄contrato viva** y por eso se registra en vez de dejarse en un resumen.
+- **La deuda:** cerrando `P-UP-1`, `contentLength` pasó a **obligatorio** (`422 VALIDATION_ERROR` si falta). `docs/API_CONTRACT.md:8767` sigue declarando `Req: { purpose: "kyc_ine", contentType: string }` ⇒ **un cliente literal al contrato recibe 422**. Además, `Res 200` ya devuelve **`maxBytes`** y un `headers` poblado (`Content-Type` + `Content-Length`) que el contrato tampoco documenta — drift **preexistente** a este pase.
+- **Por qué no lo arreglé yo:** regla 9 del equipo. **Backend no escribe en `API_CONTRACT.md`**; la solicitud pasa por el arquitecto.
+- **Impacto HOY: cero.** El **único** cliente de producción (`frontend/src/components/ui/PhotoUploader.tsx`) **siempre** manda `contentLength` (medido: lo calcula del blob comprimido antes de pedir el presign). Ningún llamador real se rompe.
+- **Disparador:** **inmediato** — el arquitecto actualiza §8 (`Req` + el `422` por ausencia + `maxBytes`/`headers` en `Res`). Mientras no ocurra, cualquier lector del contrato tiene una descripción incompleta del endpoint. Ref: `BACKEND_NOTES.md` §v2.2-SEC.2(1), `SECURITY_NOTES.md` §3.4, `backend/test/uploads.presign.spec.ts` (bloque *«P-UP-1»*).
+
 ### BL45-D1 · `req.items ?? []` **en el verbo del dinero** anula la garantía del tipo, y vuelve VACUO a V-b en todo unitario de `paySpei` (techlead · B1, v1.61.1, 2026-09-07)
 - **Dueño:** **backend** (`buylist` — `buylist.service.ts:7002` en `paySpei`, y su gemelo de proyección en `:2372`). **Severidad:** Media (hoy **no dispara**; lo que degrada es la **cobertura** de un término de dinero). **No bloqueante.**
 - **La deuda:** `pendingBuyDecisionItemIds(req, req.items ?? [])`. El tipo de `req` (`VerdictItemsPayload = SellRequestGetPayload & { items: VerdictItemRow[] }`, `:226`) **ya garantiza `items`**: el `findUnique` de `paySpei` lleva `include: { items: { select: VERDICT_ITEM_SELECT } }` y **§M5-V declara ese `include` precondición del verbo, no adorno de la respuesta**. El `?? []` existe **para acomodar mocks unitarios** que construyen filas a mano y no pasan por el compilador.
@@ -6030,3 +6045,341 @@
   igual, sin `<a>`**: la maqueta no se descuadra y **la URL en texto de debajo se sigue emitiendo**, así
   que ML-5 (la ruta a la acción) no depende de esta guarda. Candado **N9** + mutación: quitar la
   allowlist deja **2 aserciones en rojo**.
+
+---
+
+### Asimetría validador↔columna en los diales de porcentaje — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-09 (dueño: **backend**, no bloqueante)
+
+Barrido hecho al cerrar el defecto de `iva_pct` (ver `docs/BACKEND_NOTES.md` §v1.63.4): se revisaron
+**todos** los `SETTING_VALIDATORS` contra el tipo de la columna donde su valor acaba persistido,
+buscando el patrón «el dial acepta lo que la columna no sabe representar».
+
+#### TD-IVA-1 · `iva_pct` aceptaba decimales y `Order.ivaRatePct` (`Int`) los truncaba — **CERRADA en este pase**
+- **Dueño:** backend. **Estado: CERRADA** (validador `isNum` → `isInt`, `validateIvaPct` +
+  `test/settings.iva-pct-integer.spec.ts`, mutación 5/13 rojos). Se anota solo como cabecera del
+  barrido; el detalle está en `BACKEND_NOTES.md`.
+
+#### TD-IVA-2 · `aportacion_pct` tenía la MISMA asimetría — **CERRADA en el pase siguiente**
+- **Estado: CERRADA** (2026-09-09, misma rama, con autorización explícita del dueño: *«misma cura que
+  el IVA: el dial rechaza decimales con un mensaje que explica el porqué, en vez de truncarlos en
+  silencio»*).
+- **Lo que había:** `SETTING_VALIDATORS[APORTACION_PCT]` era `isNum(v) && 0 <= v <= 100` — **decimales
+  dentro**. `inventory.service.ts` lo lee como **fallback** del alta
+  (`dto.acquisitionPct ?? getNumber(APORTACION_PCT)`) y lo persiste en **`InventoryItem.acquisitionPct`,
+  que es `Int?`**. El camino del **DTO** sí exigía entero (`@IsInt()` en `inventory.dto.ts`); **el del
+  dial no lo exigía nadie**.
+- **Confirmado al medirlo (Postgres 16 real, `prisma.inventoryItem.create`):** `70.5` **no revienta —
+  trunca en silencio a `70`** (`70.9`→`70`, `99.999`→`99`, `0.5`→`0`, hacia cero). Y el **agravante
+  quedó cuantificado**: el costo se calcula con el **decimal vivo** mientras la fila archiva el
+  entero ⇒ sobre una referencia de MX$1,000.00, la pieza archiva `acquisitionCostCents = 70500` junto
+  a `acquisitionPct = 70`, cuyo 70 % son **70 000**: **500 centavos de brecha** por cada MX$1,000, y
+  hacia el lado que **infla el margen**.
+- **Cómo se cerró:** `isNum` → `isInt` en un validador nombrado **`validateAportacionPct`**, con `422`
+  que explica el motivo y docblock que fija el orden si algún día hace falta una fracción (**primero
+  la columna —arquitecto—, después el rango**). Candado
+  `test/settings.aportacion-pct-integer.spec.ts` (**14 tests**), mutación sobre una copia del árbol
+  ⇒ **5/14 rojos**. Detalle en `docs/BACKEND_NOTES.md`.
+- **⛔ NO se tocó `prisma/schema.prisma`** (zona compartida, cambio de contrato en vuelo). Se midió si
+  la cura correcta lo exigía: **no** — los dos pct del negocio (`70` default, `100` alta rápida) son
+  enteros, así que rechazar decimales no bloquea ningún caso real.
+
+#### TD-IVA-3 · `fx_buffer_pct` (`isNum`) cae en columnas `Decimal(6, 3)` (Baja/informativa, backend)
+- **No es el mismo defecto.** `Decimal(6, 3)` **redondea a la milésima**, no trunca a entero, y el
+  colchón admite fracciones **legítimamente** (es un porcentaje de ajuste, no una tasa que se declare
+  en una factura). La pérdida vive por debajo de `0.001` puntos de colchón y **no mueve dinero al
+  centavo**.
+- **Se registra por completitud del barrido**, para que la próxima revisión no vuelva a gastar el
+  tiempo en descartarlo. **No requiere acción.**
+
+**Resto de diales: limpios.** Todos los que aterrizan en columnas enteras (`*_cents`, días hábiles,
+topes de posición) ya validan con `isInt`.
+
+---
+
+### Deuda anotada a petición del techlead con el bloqueante nº3 — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-10 (dueño: **backend**)
+
+> Las cinco fichas de abajo las **pidió el techlead** en su veredicto y las **midió el backend** antes
+> de anotarlas (ninguna se copió de la petición sin comprobarla). Cada una lleva **ubicación**,
+> **medición** y **coste si no se paga**. ⚠️ **D8 se mide aparte y su veredicto está escrito**: no es
+> deuda por descarte, es deuda **porque la medición dijo que el camino no es alcanzable hoy** — con la
+> reserva que se escribe en su ficha.
+
+#### CS-D1 · La TERCERA escalera de match — y es la que **resuelve y PERSISTE** justo el caso que la canónica se niega a adivinar (techlead, 2026-09-10)
+- **Dueño:** **backend** (`inventory` — `sealed-product.service.ts:782-814`, `matchScore` +
+  `bestSetMainMatch`). **Severidad: Alta latente** (toca **dinero de sellado**). **No bloqueante hoy**
+  y **NO se arregla en este pase**: hay release en curso y la cura es un cambio de **política de
+  match**, no una limpieza.
+- **La deuda, con la divergencia exacta:** `matchScore` compara `setNameCandidates(local)` contra
+  `setNameCandidates(grupo)` ⇒ **pela el prefijo de código de LOS DOS lados**. La escalera canónica
+  (`tcgcsv-group-match.ts`, `namesMatchModuloOnePrefix`) lo pela **de UNO SOLO, y la restricción es
+  DELIBERADA** (su propio docblock, `:53-58`: *«con ambos prefijos presentes y DISTINTOS no hay
+  match: el prefijo es información, no ruido»*), y una propiedad de monotonía la obliga.
+- **⚠️ MEDIDO en este pase** (spec desechable sobre copia del árbol; el caso es el que reportó el
+  techlead). Set local **`"Pitch Black"`**, grupos `"SV08: Pitch Black"` (2024) y `"ME05: Pitch Black"`
+  (2025):
+  - `matchTcgcsvGroupByName` ⇒ **`groupId: null`, `failure: 'ambiguous'`, `candidates: 2`** — money-safe:
+    no adivina.
+  - `bestSetMainMatch` ⇒ **`groupId: 111`**. Los dos puntúan exacto; el **año** de `releaseDate` los
+    desempata (`1.0` vs `0.7`), el filtro `>= 0.9` deja uno solo y el «empate» que `bestSetMainMatch`
+    dice vigilar **ya no existe cuando llega al `if`**.
+  - Y con **prefijo en ambos lados** (`"SV08: Pitch Black"` local vs `"ME05: Pitch Black"` remoto):
+    canónica ⇒ **`null`**; `matchScore` ⇒ **`≥ 0.9`**. Son **dos colecciones distintas**.
+- **Por qué importa y no es cosmético — la cadena hasta el dinero, verificada:** el resultado **se
+  PERSISTE** (`sealed-product.service.ts:439-442`, `data: { tcgcsvGroupId: setMainGroupId }`), y
+  `CardSet.tcgcsvGroupId` es lo primero que lee `resolveGroupId`
+  (`sealed-catalog-admin.service.ts:177`), que gobierna de qué grupo se traen los precios y por tanto
+  el **`marketRef`** que se pinta (`:145-150`). ⇒ **un set emparejado con la colección equivocada
+  exhibe los precios de otra colección**, y la columna persistida hace que el error **sobreviva a la
+  corrida** que lo cometió.
+- **El desempate por año NO es ilegítimo** —`matchSet` de PPT lo usa y está declarado money-safe—.
+  **El problema es que ahora hay DOS políticas de match** para el mismo hecho, una de las cuales
+  resuelve donde la otra se para. `tcgcsv-group-match.ts:25` ya lo dejó escrito: *«Si aparece una
+  tercera ruta que necesite este match, LLAMA a esta función; copiarla es cómo P-46 llegó a tres sitios
+  y nunca al que movía dinero.»* **Esta es esa tercera ruta.**
+- **Coste si no se paga:** un `CardSet.tcgcsvGroupId` **equivocado y persistido** ⇒ precios de sellado
+  de otra colección, **sin error, sin `warn` y sin caducidad**. El daño es *precio en pantalla*, y el
+  lado irrecuperable (`PROJECT §N.0`) es el precio **más bajo**.
+- **Cura (una decisión, no un parche):** el arquitecto/techlead deciden **cuál** es la política —o
+  `bestSetMainMatch` delega en `matchTcgcsvGroupByName` y pierde el desempate por año, o el desempate
+  por año se **sube a la escalera canónica** como peldaño declarado y lo heredan las tres rutas—. ⛔ Lo
+  que **no** puede quedarse es una tercera copia divergente. Coste: bajo en líneas, **alto en decisión**
+  (cambia qué sets se resuelven).
+- **Disparador:** ⚠️ **el primer pase que abra `sealed-product.service.ts` con ventana**, y **antes** de
+  que TCGCSV publique un segundo grupo homónimo de un set que ya tengamos (el escenario ya no es
+  hipotético: `"Pitch Black"` existe en SV08 **y** en ME05). Ref: `API_CONTRACT` S-D3/§4.27d,
+  `tcgcsv-group-match.ts:39-65`, `test/tcgcsv-group-match.spec.ts`.
+
+#### CS-D2 · `tallyImports()` es la TERCERA implementación del reparto — y su corolario es que **una excepción en un set aborta el barrido `sync` entero** (techlead, 2026-09-10)
+- **Dueño:** **backend** (`catalog` — `catalog-sync.service.ts:51-66` (`SetImportTally`), `:205-223`
+  (`tallyImports`), `:490-500` (el bucle de `sync()` en modo `from_date`)). **Severidad: Media-Alta**
+  (**dispara hoy**, no es latente). **No bloqueante** por lo acotado del alcance, pero es la ficha con
+  el disparador más cercano de las cinco.
+- **La deuda (a):** `tallyImports` reimplementa a mano el predicado que `recordSweepAttempt`
+  centraliza (`set-sweep-tally.ts:93`): hace `if (r.outcome !== 'noop') tally.setsWritten += 1` en
+  lugar de llamarlo. `set-sweep-tally.ts` existe **precisamente** para que ese reparto viva en un solo
+  sitio (§M2-CS.0, `ARCHITECTURE §0-B.3` regla 8) y ya se comparte entre los **dos** barridos; éste es
+  el tercero y no lo usa.
+- **La deuda (b):** `SetImportTally` **no tiene `setsTotal`, ni `setsFailed`, ni `failures[]`**
+  (verificado: el tipo tiene cinco campos y ninguno de esos tres). Es un reparto **incompleto** del
+  mismo hecho que `SetSweepTally` reparte entero.
+- **⚠️ El corolario, que es lo grave — MEDIDO:** como no hay `failures[]`, **`sync()` no captura por
+  set**. Su bucle es literalmente
+  `for (const s of toImport) { results.push(await this.importSet(s, { force })); }` — **sin `try`**.
+  Una excepción en un set **aborta el barrido `from_date` entero** y el llamador recibe un `5xx` sin
+  ninguna de las cifras de lo que ya se había importado. Su hermano `runSyncAll` **la aísla**
+  (`catalog-sync.service.ts:980`, `recordSweepFailure(summary, s.id, e)`) y sigue con el siguiente.
+  ⇒ **dos endpoints, el mismo trabajo, políticas de error OPUESTAS.**
+- **Y `sync()` es el endpoint del botón por-fila que aprieta el dueño** (`POST /admin/catalog/sync`,
+  la acción por fila de M2 con `force:true`). El modo de fallo con nombre: un set con un `502` de
+  pokemontcg.io en medio de un `from_date` **tira todo el barrido**, mientras el mismo `502` en
+  `sync-all` deja un renglón en `failures[]` y el resto entra.
+- **Coste si no se paga:** trabajo perdido y **una cifra que no existe**: el operador no puede saber
+  *qué* falló ni *cuánto* se hizo antes de fallar, porque el `500` no lleva `summary`. Cada reintento
+  reprocesa desde cero.
+- **Cura:** `SetImportTally` se **hereda de `SetSweepTally`** (como ya hacen `SyncAllSummary` y
+  `RefreshVariantsSummary`), `tallyImports` llama a `recordSweepAttempt`, y el bucle de `sync()` gana
+  el `try/catch` con `recordSweepFailure`. Coste: bajo-medio; **cambia el shape de la respuesta de
+  `POST /admin/catalog/sync`** (gana `setsTotal`/`setsFailed`/`failures[]`) ⇒ **pasa por el arquitecto**
+  (`CLAUDE.md` regla 9) antes de tocarse.
+- **Disparador:** **el primer `from_date` que reviente en producción**, o el primer pase con ventana
+  sobre `catalog-sync.service.ts` que tenga aprobación de contrato. Ref: `API_CONTRACT §M2-CS.0`
+  (`I-CS1`…`I-CS5`), `set-sweep-tally.ts`.
+
+#### CS-D4 · `normalizeGroupName` es **byte a byte** `normalizeSetName`, y el fichero ya importa del vecino (techlead, 2026-09-10)
+- **Dueño:** **backend** (`pricing` — `providers/tcgcsv-group-match.ts:158`). **Severidad: Baja.**
+  **No bloqueante.**
+- **Medido:** las dos son
+  `(x ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')` — idénticas salvo el **nombre del parámetro**
+  (`raw` vs `name`). Y `tcgcsv-group-match.ts:2` **ya importa `setNameCandidates` de
+  `../ppt-set-mapper.service`**, que es el módulo donde vive `normalizeSetName` (`:170`) — es decir:
+  **importa del vecino y re-declara su normalizador**, que es el peor de los dos mundos (la dependencia
+  ya está pagada y la copia no compra aislamiento).
+- **Coste si no se paga:** el día que la normalización cambie —quitar acentos, plegar `&`/`and`, tratar
+  guiones— se aplicará en **un** lado. Y como `setNameCandidates` **compone sobre `normalizeSetName`**,
+  la escalera quedaría comparando peldaños normalizados con **dos reglas distintas dentro de la misma
+  función**: el peldaño `exact` con una y el `exact_unprefixed` con la otra. Es una divergencia
+  **silenciosa** que devuelve `null` (set congelado) o, peor, un match que no debería existir.
+- **Cura:** borrar `normalizeGroupName` y usar `normalizeSetName` (ya exportada). Coste: **trivial**
+  (dos llamadas). ⚠️ **Por qué no se hizo aquí:** este pase está acotado al bloqueante nº3 en `catalog`;
+  `pricing/providers/` está tocado por el frente de precios y **un cambio trivial en un fichero de
+  dinero que otro pase tiene abierto no es trivial**.
+- **Disparador:** el **primer cambio a cualquiera de las dos normalizaciones** — ése es el momento en
+  que la copia cobra. También cualquier pase con ventana sobre `tcgcsv-group-match.ts`.
+
+#### CS-D7 · `sweepAttempted()` — `I-CS1` está **declarada y no cableada** (techlead, 2026-09-10)
+- **Dueño:** **backend** (`catalog` — `set-sweep-tally.ts:124`). **Severidad: Baja.** **No bloqueante.**
+- **Medido:** `grep -rn "sweepAttempted" src test` ⇒ **su propia definición** y **tres referencias en
+  `test/catalog-sweep-reparto.spec.ts`**. **Cero consumidores en `src/`.** (Contraste: su vecino
+  `deprecatedSetsOk` —que está *deprecado*— **sí** lo llama `catalog-sync.service.ts:849`.)
+- **Qué significa:** `I-CS1` (§M2-CS.0) dice *«sets intentados = `setsWritten + setsNoop + setsFailed`
+  = `done`»*. La función que encarna esa invariante existe, está documentada y probada… y **nadie la
+  usa para comprobar nada**. La igualdad con `done` —que es lo que la invariante afirma— **no se
+  verifica en ningún punto del código**: `done` lo incrementa un `finally` propio en `runSyncAll`
+  (`:984`), por un camino independiente del reparto.
+- **Coste si no se paga:** `I-CS1` no es una invariante **vigente**, es una **frase**. Si un día un
+  camino suma a `done` sin repartir (o al revés), la barra de progreso y el `summary` se separan y
+  **nada lo detecta**: el operador vería `done: 12` con un reparto que suma 11 y ninguna de las dos
+  cifras se declararía sospechosa. Es exactamente la clase de desincronización silenciosa que §M2-CS.0
+  existe para eliminar.
+- **Cura:** cablearla donde la invariante se puede afirmar — una aserción de desarrollo (o un `warn` de
+  observabilidad) al cerrar el barrido: `sweepAttempted(summary) === this.syncAllStatus.done`. Coste:
+  bajo. ⚠️ **Ojo con la tentación fácil:** emitirla como campo está **prohibido** (`I-CS2`: la cuenta ya
+  vive en `total`/`done`, ⛔ no se emite). La cura es **comprobar**, no **publicar**.
+- **Disparador:** el primer pase que toque el avance de `done` o el reparto de `runSyncAll`; y de forma
+  natural, el pase de CS-D2 (que va a mover exactamente ese código).
+
+#### ~~CS-D8~~ · `providerFor()` **caía automáticamente al proveedor que APLANA** con solo un `warn` — ⛔ **CERRADA el 2026-09-10** (fail-closed + señal). *La ficha original se conserva íntegra debajo porque su medición es la que justifica el cierre.*
+
+> ⚠️⚠️ **CERRADA — el `warn` es ahora un `throw`, y el `throw` viaja con señal.** Dos agentes
+> independientes señalaron esta ficha el mismo día (backend al anotarla; **QA la elevó** al medir que
+> el test que la cubría **defendía la conducta prohibida**), así que dejó de ser una duda. Lo que
+> cambió, en `backend/src/modules/pricing/price-ingest.service.ts`:
+>
+> 1. **`providerFor()` LANZA `UnknownPriceProviderError`** en vez de `return this.tcgIoBulk`. Es
+>    `I-PP4` literal: *fallar es fail-closed; aplanar es una pérdida irrecuperable*.
+> 2. **El `throw` estampa `syncStatus.lastError`** (`markProviderFailure`), que es lo que
+>    `GET /admin/pricing/sync-status` ya exponía y nadie poblaba en este camino. **Sin esto el cierre
+>    habría sido un cambio de modo de fallo, no una mejora** — ver la medición de abajo.
+> 3. **El test que lo blindaba al revés se invirtió.** Se llamaba *«dial desconocido → fallback
+>    money-safe a pokemontcg_io (legacy)»* — **la misma frase que `D-PP-1` retiró de
+>    `settings.constants.ts`**, viva en el test que guarda la ruta del dinero. `§M10-PP · I-PP1`
+>    declara que `pokemontcg_io` ⛔ *«ya no se describe como el seed money-safe»*.
+>
+> **⚠️ MEDICIÓN DEL MODO DE FALLO DEL `throw` EN PRODUCCIÓN** (la pregunta era: *¿muere solo ese set,
+> muere el job entero, hay reintento?*). Respuesta corta: **muere el barrido entero, antes de encolar
+> un solo set, y en dos de los tres disparos moría MUDO** — por eso el `throw` no va solo:
+>
+> | Disparo | Dónde sale el `throw` | Qué muere | Reintento | Señal ANTES del arreglo |
+> |---|---|---|---|---|
+> | **cron 2×/día con Redis** (prod) | `run()` → `enqueueAllSets()` → `listSetIdsForIngest()` (`price-ingest.service.ts:410`) | **el barrido ENTERO**, y **ni un child se encola** (el `throw` precede al `queue.add`) | ⛔ **ninguno**: el job repetible se añade con `repeat()`, que **no fija `attempts`** ⇒ BullMQ usa **1**. Siguiente intento = **el siguiente cron (12 h)** | 1 línea `error` del listener `failed` del worker. **`sync-status` seguía mostrando la corrida BUENA anterior con `lastError: null`** |
+> | **`run()` sin Redis** (local/CI) | `ingestAll()` (`:456`) | el barrido entero | ninguno | ⛔ **ninguna**: el `throw` ocurre **antes** de reinicializar `syncStatus` (`:460`), así que el `catch` que puebla `lastError` **no se alcanza** |
+> | **`runBackground()`** — botón «sincronizar ahora» (N-11) | `ingestAll()` dentro de un `void … .catch(logger.error)` | el barrido entero | ninguno | ⛔ **la peor**: el operador ya recibió **`200 { background: true }`** y la barra de progreso **nunca se mueve**. **Cero señal en la UI** |
+> | **child `price-ingest-set`** (solo si la fila se ensucia a media corrida) | `ingestForSet()` (`:520`) | ese set | **sí**: `attempts: 3` + backoff exponencial ⇒ 3 intentos × N sets | ruidosa (N×3 `failed`) |
+> | **`POST /admin/jobs/price-ingest { setId }`** | `ingestSetByExternalId()` → `ingestForSet()` | ese request | n/a | ruidosa: `500 INTERNAL` por el filtro global |
+> | **catch-up al boot** | encola `price-ingest` → misma rama del cron | el barrido entero | **de facto sí**: `hasRecentIngest()` seguirá en `false`, así que **cada arranque vuelve a encolarlo** (dedup por día) | la del cron |
+>
+> ⇒ **Conclusión de la medición, dicha entera:** el `throw` a secas cambiaba *«escritura silenciosa y
+> MALA»* por *«NO-escritura silenciosa»*. Mejor para el dinero —no se escribe un solo precio aplanado—
+> pero **igual de muda**, y con el agravante de que el barrido nocturno se caería sin avisar a nadie
+> durante 12 h por ciclo. **Ése es el «algo» que el `throw` necesitaba, y es el estampado en
+> `sync-status`** (punto 2), que aterriza en la superficie que el operador ya pollea. ⛔ **No se añadió
+> aislamiento por set**: no aplica — el fallo es de la **fila de config**, es idéntico para los N sets,
+> y aislar por set solo convertiría un fallo en N fallos del mismo.
+>
+> **Verificado por mutación sobre copia (`npm test`, 266 suites):** base **4348/4348 verde**.
+> Restaurando el `warn` + `return this.tcgIoBulk` ⇒ **3 rojos**. Dejando el `throw` pero quitando
+> `markProviderFailure` ⇒ **1 rojo** (el candado de la señal existe y es independiente del candado de
+> la conducta). ⚠️ **Alcanzabilidad: sin cambio.** La medición (d)/(e) de la ficha original sigue
+> valiendo — **ningún camino de código de este repo alcanza la rama**, luego **este cierre no altera
+> ninguna conducta observable hoy**; convierte el día que deje de serlo en un fallo ruidoso.
+> **Residual que NO cierra este pase** (y por eso la reserva de la ficha original sigue de pie): **la
+> LECTURA de los diales sigue sin validar** (`SettingsService.get()` devuelve `row.valueJson` tal
+> cual). Se recomienda como follow-up validar en la lectura los diales de clase (A); **no es de este
+> pase** y no tiene dueño asignado.
+
+<details><summary>Ficha original (techlead, 2026-09-10) — se conserva porque su medición es la que justifica el cierre</summary>
+
+#### CS-D8 · `providerFor()` **cae automáticamente al proveedor que APLANA** con solo un `warn` — contradice `I-PP4`, y hoy está **cerrado por una guarda que vive en OTRO módulo** (techlead, 2026-09-10)
+- **Dueño:** **backend** (`pricing` — `price-ingest.service.ts:354-357`). **Severidad: Media** hoy /
+  **Alta** el día que la guarda se mueva. **No bloqueante** — con la reserva escrita abajo, que es el
+  punto entero de esta ficha.
+- **La contradicción, literal:** el código hace
+  `if (!chosen) { this.logger.warn(...); return this.tcgIoBulk; }` — **caída automática al legacy**.
+  `I-PP4` (§M10-PP) dice: *«no hay caída automática a otro proveedor: fallar es fail-closed»*. Y el
+  proveedor al que cae es **el que APLANA** (un `market` por carta ⇒ reverse/holo al precio del
+  normal), que `API_CONTRACT` v1.65(3) declara **el lado irrecuperable del sesgo de error**.
+- **⚠️ MEDICIÓN (lo que el techlead pidió que se midiera, hecha con specs desechables sobre copia):**
+
+  | # | Hecho | Resultado |
+  |---|---|---|
+  | (a) | El **validador de ESCRITURA** rechaza un cuarto valor y el seed está dentro del enum | ✅ `SETTING_VALIDATORS[price_provider]('un_cuarto_valor') != null`; `SETTING_DEFAULTS` ∈ `PRICE_PROVIDER_VALUES` |
+  | (b) | La **LECTURA no valida nada** | ⚠️ `SettingsService.get()` (`settings.service.ts:215-219`) devuelve **`row.valueJson` tal cual**; `getString` sólo hace `String(...)`. Con una fila `valueJson: 'un_cuarto_valor'` ⇒ `getString` devuelve `'un_cuarto_valor'` |
+  | (c) | Con esa fila, `providerFor()` elige el que aplana | 🔴 devuelve `source: 'pokemontcg_io'`, con un `warn` y `200` |
+  | (d) | ¿Hay en el repo **algún escritor** que pueda poner un valor fuera del enum en esa fila? | ✅ **NO.** Los 10 escritores de `ConfigSetting` son: `settings.service.ts:396,408` (pasa por `SETTING_VALIDATORS`), `pricing.controller.ts:599,793,804` y `graded-estimates.controller.ts:275` (**claves fijas**, ninguna es `price_provider`), `fx.service.ts:376` (idem), y `prisma/seed.ts:44` / `seed-e2e.ts:63,70` (escriben desde `SETTING_DEFAULTS` y `E2E_SETTINGS`; **`price_provider` no está en `E2E_SETTINGS`**) |
+  | (e) | ¿Y el otro modo de `!chosen` — dial válido pero proveedor **no inyectado**? | ✅ **Cerrado en DI real**: `pricing.module.ts:71` provee `TcgcsvSinglesBulkPriceProvider`. Sólo lo alcanzan tests con mocks posicionales |
+
+- **🟢 VEREDICTO: NO es alcanzable hoy por ningún camino de código de este repo** ⇒ **no es bloqueante
+  de dinero, y por eso se anota como deuda** (criterio del techlead, aplicado tal cual).
+- **⚠️ PERO la reserva se escribe, porque es la mitad del hallazgo:** *la razón de que sea inalcanzable
+  no vive en `providerFor()`*. Vive en un **validador de otro módulo que sólo guarda la puerta de
+  ESCRITURA**. La lectura no valida nada, así que **cualquier escritura fuera de banda** de la fila
+  `ConfigSetting.price_provider` —SQL directo, restauración de un respaldo, una migración de datos, o
+  un futuro escritor de claves arbitrarias como el patrón de `graded-estimates.controller.ts:275`—
+  **aterriza directa en `providerFor()` y reprecia el catálogo entero desde el legacy que aplana, en
+  silencio.** `scripts/price-provider-parity.sh:305` ya lo prohíbe por escrito (*«⛔ NUNCA … ni por SQL
+  directo»*), y **una prohibición en un runbook no es un mecanismo**: es exactamente el argumento que
+  `I-PP5` rechazó cuando descartó *«flipear el dial como paso obligatorio del arranque»*.
+- **Coste si no se paga:** el día que la fila se ensucie fuera de banda —o que alguien añada un escritor
+  sin validador—, **todo el catálogo se reprecia aplanado** y la única señal es un `warn` en logs.
+  Reverse/holo pasan a valer lo que el normal ⇒ **precio más bajo en silencio**, el lado del que no se
+  vuelve.
+- **Cura (recomendada, y es barata):** `throw` en lugar de `return this.tcgIoBulk` — fail-closed, como
+  manda `I-PP4`. **Si de verdad es inalcanzable, la cura no cambia ninguna conducta observable**; si
+  algún día deja de serlo, convierte un repricing silencioso en un fallo ruidoso del barrido. *(Un
+  `warn` sobre dinero es una decisión tomada por nadie.)* Complemento opcional: validar **en la
+  lectura** de los diales de clase A, no sólo en la escritura.
+- **⚠️ Por qué NO se cambió en este pase:** la instrucción del techlead fue explícita —*«si es
+  alcanzable, `throw`; si no, anótalo»*— y **la medición dijo que no lo es**. Convertirlo en `throw` es
+  un cambio de conducta en un camino de dinero, con release en curso y `pricing/` tocado por otro
+  frente. **Queda propuesto, con su medición completa, para la decisión del techlead/arquitecto.**
+- **Disparador:** ⚠️ **el primer escritor nuevo de `ConfigSetting` que acepte claves variables**, o
+  **cualquier runbook que toque `price_provider` fuera de `PUT /admin/settings`**. Ref:
+  `API_CONTRACT §M10-PP` (`I-PP1`…`I-PP5`), `test/settings.validation.spec.ts` (PIN del enum),
+  `scripts/price-provider-parity.sh`, `DEVOPS_NOTES §43.2`.
+
+</details>
+
+---
+
+### Deuda anotada a petición de QA con el rechazo del release — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-10 (dueño: **backend**)
+
+#### PNL-D1 · El P&L y el tablero suman `approvedTotalCents` **a secas**; el control ANTILAVADO del mismo dinero usa la cascada `brutoConsumado` — **dos aritméticas para el mismo peso** (QA, 2026-09-10)
+- **Dueño:** **backend** (`admin` — `admin.service.ts:1276` y `:1321`). **Severidad: Baja hoy** /
+  **Media el día que se mueva el disparador de abajo**. **No bloqueante**, y la razón está medida.
+- **La asimetría, literal.** Las dos superficies miden *«cuánto bruto de buylist consumimos en este
+  periodo»* y **no lo miden con la misma columna**:
+  - **Tablero / P&L** (`:1276`): `sellRequest.aggregate({ where: { status:'pagada', paidAt: period }, _sum: { approvedTotalCents: true } })`, servido en `:1321` como
+    `buylistPeriod.amountCents = agg._sum.approvedTotalCents ?? 0` — **suma plana de UNA columna**.
+  - **Control AML** (`buylist.service.ts:1752` `monthCommittedGrossPaidCentsTx` → `:1786`):
+    `rows.reduce((acc, r) => acc + brutoConsumado(r), 0)` con
+    `brutoConsumado = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`
+    (`src/common/buylist-aml.ts:153`, **`ARCHITECTURE §4.39i.4-bis`, NORMATIVO/DINERO/AML**).
+  - ⇒ En toda fila `pagada` con `approvedTotalCents = null`, **el AML cuenta el bruto ofertado y el
+    tablero cuenta 0**. Se llama **subreporte del P&L**, y va en la dirección de reportar **de menos**.
+- **⚠️ POR QUÉ ES DEUDA Y NO BLOQUEANTE — la acotación, medida, no supuesta.** Ninguna fila `pagada`
+  **nueva** puede tener `approvedTotalCents = null`, y el candado está en el `where` del pago:
+  `payableWhere()` (`buylist.service.ts:5846`) incluye **`approvedTotalCents: { not: null }`** (V-a,
+  §M5-V), y ese fragmento **llega al motor por `AND`, no por spread** — `buylist.service.ts:7157-7161`
+  lo mete como elemento de `AND: [ this.payableWhere(), … ]` **precisamente porque el spread se lo
+  comía** (`B1`, v1.61.1: *«en un objeto literal de JavaScript la clave posterior gana sobre el
+  spread»*, con el `count === 1` y `payoutNetCents = 72000` por CERO cartas ya reproducidos). ⇒ **la
+  cascada y la suma plana coinciden en toda fila pagada del ciclo vivo**, y la divergencia solo puede
+  venir de **filas históricas pre-M-46** (donde `approvedTotalCents` es `null` y manda
+  `quotedTotalCents`) o de una fila fabricada fuera del verbo.
+- **⚠️ Y EL MATIZ QUE HAY QUE LLEVARSE, porque es la mitad del hallazgo (QA):** el test que
+  *supuestamente* blinda esto **no puede distinguirlo**.
+  `test/integration/buylist-pay-verdicts.e2e-spec.ts`, **assert 7** (*«amountCents ES EL BRUTO
+  CONSUMADO»*), corre sobre **dos fixtures en las que `approvedTotalCents` es NO-NULO** ⇒ la cascada
+  y la suma plana **dan el mismo número**, y el assert pasa **con y sin el defecto**. *Un test que no
+  puede separar las dos conductas no está blindando ninguna* — es la misma familia que `B1-D3` y que
+  el `?? []` de `BL45-D1`: cobertura que **certifica** el pase sin poder decir «no».
+- **Coste si no se paga:** el tablero de `super_admin` y el AML contestan **cifras distintas sobre el
+  mismo dinero** en cuanto entre al periodo una fila con el aprobado en `null`. Es una superficie de
+  **decisión del dueño**, no de cobro: nadie paga con esta cifra, pero se decide con ella.
+- **Cura (una, barata, y con un orden):** **(1)** darle al assert 7 una tercera fixture en la que
+  `approvedTotalCents` sea `null` y `offerGrossCents` no — sin eso, cualquier arreglo se declara bueno
+  contra un test que no lo mide; **(2)** entonces sustituir la agregación plana por la cascada. ⚠️ **El
+  paso (2) no es un `_sum` de Prisma**: `brutoConsumado` es un `COALESCE` de tres columnas y por eso
+  el AML **suma en memoria** (`buylist.service.ts:1739`); replicarlo aquí cambia el perfil de la
+  consulta del tablero y debe medirse. ⛔ **Y no se «unifica» con `monthCommittedGrossCents`**: son
+  dos cascadas distintas a propósito (`buylist-aml.ts`, *«POR QUÉ HAY DOS CASCADAS Y NO SE UNIFICAN»*).
+- **⚠️ Por qué NO se arregla en este pase:** `admin.service.ts` es del stream **«Admin y auditoría»** y
+  este pase corre en **«Catálogo y precios»**; además la cura (1) toca la suite de **integración**,
+  que ejecuta QA. *No se corrige a mano ajena, y menos con el release rechazado.*
+- **Disparador:** ⚠️ **la primera fila `pagada` con `approvedTotalCents = null` que caiga dentro de un
+  periodo reportado** — hoy solo alcanzable por dato histórico pre-M-46 o por escritura fuera del
+  verbo. **También** cualquier pase que relaje `payableWhere()` o que vuelva a componer ese `where`
+  por spread: **en ese momento la acotación de esta ficha deja de ser cierta y esto pasa a Media**.
+  Ref: `ARCHITECTURE §4.39i.4-bis`, `API_CONTRACT §M5-V` (V-a), `src/common/buylist-aml.ts:153`,
+  `buylist.service.ts:5846`/`:7157`, `test/buylist.pay-spei-where-composition.spec.ts`,
+  `test/integration/buylist-pay-verdicts.e2e-spec.ts` (assert 7).

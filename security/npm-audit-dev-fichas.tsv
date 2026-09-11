@@ -1,0 +1,39 @@
+# =============================================================================
+# npm-audit-dev-fichas.tsv — Excepciones DECLARADAS del audit de devDependencies
+# Propiedad: devops.  Lo consume: security/scripts/audit-npm-dev.sh
+# =============================================================================
+# POR QUÉ EXISTE (P-DEP-1, hallazgo del pentester 2026-09-10)
+# ---------------------------------------------------------------------------
+# El audit de devDependencies del frontend traía 1 CRÍTICA y 2 ALTAS, y el paso
+# que las reportaba era `continue-on-error: true` con un `|| true` dentro. Es
+# decir: el escáner corría, hablaba, y NADIE lo leía nunca. Eso no es «deuda
+# aceptada»: es una excepción sin dueño, sin fecha y sin revisor — la misma
+# forma en que un hallazgo se queda vivo años.
+#
+# NO se silencia el escáner y NO se sube el umbral. Lo que cambia es que ahora
+# cada hallazgo alto/crítico de tooling tiene que estar AQUÍ, con dueño y con
+# fecha de revisión. Consecuencias, cableadas en el script:
+#   · Aparece un alto/crítico de tooling que NO está en esta tabla  -> ROJO.
+#   · Pasa la fecha `revisar_antes_de` de una ficha                 -> ROJO.
+#   · Una ficha ya no corresponde a ningún hallazgo (se arregló)    -> AVISO
+#     (no rojo: el candado no puede castigar a quien arregla; se poda aquí).
+#
+# ALCANCE: solo devDependencies. Las de RUNTIME siguen gateadas, sin fichas y
+# sin excepciones posibles, por `security/scripts/audit-npm.sh` (umbral high).
+# Medido hoy 2026-09-10: backend runtime 0 altos/críticos, frontend runtime 0.
+#
+# FORMATO (TSV, una ficha por línea, tabuladores entre columnas):
+#   ghsa <TAB> app <TAB> paquete <TAB> dueño <TAB> revisar_antes_de <TAB> motivo
+#
+# `dueño` es quien tiene que ARREGLARLO, no quien lo anotó: `frontend/package.json`
+# y su lockfile son propiedad del rol frontend (CLAUDE.md), devops no los toca.
+# QUÉ CUENTA COMO HALLAZGO FICHABLE: el script fija por ADVISORY (GHSA), no por
+# paquete, y solo entran los de severidad `high`/`critical`. Los `moderate` que
+# viajan en el mismo paquete (p. ej. GHSA-82fw en @vitest/mocker, GHSA-4w7w y
+# GHSA-v6wh en vite) NO llevan ficha: no la necesitan, y ficharlos de más hace que
+# el trinquete pida podarlas — lo comprobé en la primera corrida, que es justo la
+# señal de que la tabla no puede afirmar más de lo que el audit dice.
+# =============================================================================
+GHSA-5xrq-8626-4rwp	frontend	vitest	frontend	2026-10-10	Crítica 9.8 pero NO alcanzable aquí: requiere el servidor `vitest --ui` ESCUCHANDO. Medido 2026-09-10: `frontend/package.json` corre `vitest run` y `--ui` no aparece en ningún script ni workflow. Fix = vitest 5 (major, rompedor) -> decisión del rol frontend.
+GHSA-fx2h-pf6j-xcff	frontend	vite	frontend	2026-10-10	Bypass de `server.fs.deny` en rutas alternativas de WINDOWS. Los runners y el equipo son Linux. Fix = vitest 5.
+GHSA-2883-xcg3-v3hh	frontend	js-yaml	frontend	2026-09-24	Alta 7.5 (DoS por CPU en merge keys). Llega por `eslint`/`@eslint/eslintrc`. `npm audit` da `fixAvailable: true` -> es un bump de LOCKFILE (js-yaml >= 4.3.2), sin cambio de API. Es el más barato de los tres y por eso tiene la fecha más corta.

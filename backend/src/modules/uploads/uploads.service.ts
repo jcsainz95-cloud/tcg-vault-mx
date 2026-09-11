@@ -81,25 +81,42 @@ export class UploadsService {
       );
     }
 
-    // S-B3: límite de tamaño. Si el cliente declara `contentLength`, se valida y se FIJA en la
-    // firma (`ContentLength`) para que el PUT deba enviar exactamente ese tamaño (S3 rechaza si
-    // el cuerpo no coincide). Así el tope no depende solo de la buena fe del cliente.
+    // P-UP-1 (pentest MEDIA): el tope de tamaño es OBLIGATORIO, no opcional.
+    //
+    // Antes, `contentLength` era opcional: si el cliente lo OMITÍA, el `if` de abajo no corría, la
+    // firma salía sin `ContentLength` (`UNSIGNED-PAYLOAD`) y el PUT podía subir lo que quisiera.
+    // O sea: **el candado lo elegía el atacante**, porque quien quiere pasarse del tope es
+    // justamente quien no va a declarar su tamaño. Un tope que se evade omitiendo un campo no es
+    // un tope; es una sugerencia.
+    //
+    // Ahora el tamaño se exige SIEMPRE y se FIJA SIEMPRE en la firma, de modo que S3/R2 rechaza
+    // (`SignatureDoesNotMatch` / 400) cualquier cuerpo cuyo `Content-Length` no sea exactamente el
+    // firmado. La cota deja de depender de la buena fe del cliente y pasa a estar en la firma.
+    //
+    // Alternativa descartada: acotar del lado del almacenamiento. La condición `s3:content-length-range`
+    // solo existe para el POST-policy de formulario, no para un PUT prefirmado, y la política del
+    // bucket es de devops: no sirve como candado de este endpoint.
     const maxBytes = this.maxUploadBytes;
-    if (contentLength !== undefined) {
-      if (!Number.isInteger(contentLength) || contentLength <= 0) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          'contentLength must be a positive integer',
-          { contentLength },
-        );
-      }
-      if (contentLength > maxBytes) {
-        throw BusinessException.validation(
-          'VALIDATION_ERROR',
-          `File too large: max ${maxBytes} bytes for kyc_ine uploads`,
-          { contentLength, maxBytes },
-        );
-      }
+    if (contentLength === undefined || contentLength === null) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'contentLength is required: the presigned URL is always bound to an exact size',
+        { maxBytes },
+      );
+    }
+    if (!Number.isInteger(contentLength) || contentLength <= 0) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'contentLength must be a positive integer',
+        { contentLength },
+      );
+    }
+    if (contentLength > maxBytes) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        `File too large: max ${maxBytes} bytes for kyc_ine uploads`,
+        { contentLength, maxBytes },
+      );
     }
 
     const bucket = this.config.get<string>('S3_BUCKET') ?? 'tcg-photos';
@@ -109,11 +126,14 @@ export class UploadsService {
       Bucket: bucket,
       Key: uploadKey,
       ContentType: contentType,
-      ...(contentLength !== undefined ? { ContentLength: contentLength } : {}),
+      // P-UP-1: incondicional. Ya no hay rama «sin ContentLength» que produzca una URL sin cota.
+      ContentLength: contentLength,
     });
     const uploadUrl = await getSignedUrl(this.s3, command, { expiresIn: 900 });
-    const headers: Record<string, string> = { 'Content-Type': contentType };
-    if (contentLength !== undefined) headers['Content-Length'] = String(contentLength);
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Length': String(contentLength),
+    };
     return {
       uploadKey,
       uploadUrl,

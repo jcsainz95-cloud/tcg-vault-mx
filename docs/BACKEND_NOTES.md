@@ -28,6 +28,458 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.52 — **§31.5(c): las dos rayas del bloque de marca eran dos bloques grises de 216×72** (2026-09-10)
+
+> Propiedad: **backend** (`src/modules/buylist/mail-shell.ts`). Lo levantó **frontend** midiendo con
+> Playwright; **lo verifiqué yo antes de tocarlo**, que es lo que se me pidió. ⛔ **Nada que ver con el
+> pase del IVA**: es un fichero distinto, un cambio distinto y se puede revertir por separado.
+
+**El defecto.** En `brandRows()`, la celda que pinta la raya **compartía fila** con la celda de la mira
+(72 px). En una tabla, **`height` es un MÍNIMO, no un máximo**: la celda se estira a la altura de su
+fila **y su fondo con ella**. Donde `§31.5(c)` pide un filete salían **dos rectángulos grises**.
+
+**Medido por mí, Chromium sobre el correo renderizado y con las imágenes BLOQUEADAS** (`route.abort`
+de todo `*.png`, para descartar que lo causara el PNG nuevo de la mira — no lo causa: el `<img>` con
+`width`/`height` explícitos reserva su caja igual):
+
+| | antes | después |
+|---|---|---|
+| cada raya del bloque de marca | **216 × 72** | **216 × 1** |
+| `ruleRow()` de debajo del wordmark (**control**) | 536 × 1 | 536 × 1 |
+| centro vertical de la raya vs. centro de la mira | 68 vs 68 | **68 vs 68** |
+
+⭐ **El control es lo que convierte la hipótesis en diagnóstico.** La regla de debajo del wordmark
+**siempre midió 1 px**, con el mismo color y el mismo `height="1"`; lo único que la diferencia es que
+**va sola en su fila**. ⇒ el arreglo es darle a cada raya **su propia fila** (tabla anidada de una
+celda), que es literalmente lo que ya hacía `ruleRow()`. El centrado sale gratis: el `valign` por
+defecto de una celda es `middle`.
+
+**⛔ Es mecánica de tablas, no una peculiaridad de Chromium.** Que un fondo llene su celda y que la
+altura de fila la marque la celda más alta es común a todos los motores; el de Word/Outlook —que es el
+que manda (§31.2)— **infla las celdas más, no menos**. Y las tablas anidadas son el recurso que este
+mismo shell usa en todas partes. *Aun así, `ML-11` (mirarlo en Gmail/Outlook de verdad) sigue siendo
+de un humano: `npm run mail:preview`.*
+
+### ⚠️ Para ux-ui: `DESIGN_SYSTEM §31.5(c)` **sigue cumplido al pie de la letra** — no hay que cambiarlo
+
+El documento prescribe `<td height="1" bgcolor="#AEACA7">` a izquierda y derecha de la celda de la
+mira. **Ese `<td>` sigue ahí, idéntico, a los dos lados**; lo único que cambió es **de qué fila
+cuelga**, que §31.5(c) no prescribe. La composición tampoco cambia: la fila de la mira sigue teniendo
+**tres celdas** (`raya · mira · raya`), y hay un control que lo asierta. ⇒ **no es un caso de
+«el documento está mal»**, sino el otro: **había una forma de cumplirlo que sí renderiza como filete**.
+*Lo único que le pediría a ux-ui es añadir el PORQUÉ al documento —una celda con fondo pinta toda su
+fila— para que el siguiente que lo lea no lo repita.*
+
+### El candado, con su mutación
+
+`test/buylist.mail-shell.spec.ts` → **N9**: *ninguna celda que pinte una regla comparte fila con otra
+celda*, barrido sobre el HTML de **los ocho correos × dos idiomas**. ⛔ **No asierta píxeles** —eso no
+se puede medir en jest y en Outlook lo pinta otro motor—: asierta **la forma que causa el defecto en
+cualquier motor de tablas**. Más un **control positivo** de que el bloque sigue siendo `raya · mira ·
+raya`, para que «arreglarlo» quitando una raya o sacando la mira también sea rojo.
+
+| Mutación (sobre una COPIA) | Rojos |
+|---|---|
+| volver a la raya que comparte fila con la mira (el defecto original) | **16** (los 16 renders de los seis correos migrados), y el control **sigue verde**: la composición no cambia, solo la fila |
+
+**Dos errores míos que el propio candado cazó, dichos porque enseñan dónde está la línea:**
+
+1. Exigí *«el barrido encuentra al menos una regla»* a **los ocho** correos ⇒ **4 rojos con razón y
+   sin defecto**: el **7 y el 8** no tienen ni una regla porque **no usan el esqueleto de §31** (viven
+   en `mail/mail.templates.ts`, otro work stream, deuda **BE-43**). El invariante se les aplica igual
+   —se cumple en vacío— y **empezará a morder solo** el día que se migren; el *control* de no-vacío se
+   exige solo a los migrados. *Un control que confunde «no aplica» con «está mal» enseña a ignorar el
+   rojo.*
+2. Buscar la fila con `lastIndexOf('<tr>')` **miente en cuanto hay tablas anidadas**: para la celda de
+   la mira, el `<tr>` más cercano hacia atrás es el de la raya izquierda **ya cerrada**. Se recorre con
+   una pila y se toma la fila abierta más interna; y las celdas se cuentan **directas** (vaciando las
+   tablas anidadas), o la fila de la mira cuenta 5 en vez de 3.
+
+## 0.51 — **v1.64(4): `ShipmentRequest.shippingCostIvaCents` — una columna más en M-50, y D-1 sigue sin cambiar nada** (2026-09-10)
+
+> Propiedad: **backend**. Encargo: `ARCHITECTURE §4.44.f-ter` y **§11 M-50 punto 3-bis**;
+> `API_CONTRACT §M10-IVA.8` y candado `IVA-11` (ambos rev **v1.64(4)**).
+> **Alcance:** UNA columna aditiva, `@default(0)`, **sin backfill**, más la enumeración del candado de
+> texto. ⛔ **No toca `Order`, ni el enum, ni el backfill de `priceConvention`, ni el seed.**
+> ⛔ **No implementa D-2.** Ficheros: `prisma/schema.prisma`, la migración M-50,
+> `test/migration.m50-no-default.spec.ts`, `test/shipments.cost-iva-column-inert.spec.ts` (nuevo) y
+> `test/integration/iva-price-convention.e2e-spec.ts`.
+
+### 0.51.1 Qué es y por qué entra ahora
+
+El dueño decidió (2026-09-10, preguntas 68 y 69) que **`shippingCostCents` se captura BRUTO** —es la
+cifra que trae la factura de la paquetería— y que **el envío no lleva margen**. Netear al leer con
+`costo/(1+r)` exigiría **la tasa**, y **`ShipmentRequest` no tiene `ivaRatePct`** (solo `Order`) ⇒
+habría que leer **el dial vivo**, y entonces **un P&L histórico cambiaría el día que alguien mueva
+`iva_pct`** — que es justo lo que prohíbe `IVA-5`, ya publicado y **verde**. Con esta columna el neto
+es **una resta**: sin división, sin tasa al leer, y **sobrevive intacto a un cambio de tasa**.
+
+| Columna | Tipo | Nulabilidad | Default de BD | Backfill |
+|---|---|---|---|---|
+| `ShipmentRequest.shippingCostIvaCents` | `Int` | **NOT NULL** | **`0`** (y es correcto) | ⛔ **NINGUNO** |
+
+### 0.51.2 ⭐ Por qué aquí el `@default(0)` SÍ es honesto — y no me lo creí por obediencia
+
+Se me pidió explícitamente que parara si la distinción no me cuadraba. **Cuadra, y es el mismo
+criterio que yo mismo dejé escrito, aplicado dos veces con resultados distintos porque las dos
+ausencias significan cosas distintas:** *un default vale cuando la ausencia **de verdad significa** ese
+valor*.
+
+- En **`priceConvention`**, la ausencia significa *«nadie dijo con qué regla se cobró»*. Un default
+  **convierte un hueco en una afirmación falsa**, y encima silenciosa.
+- En **`shippingCostIvaCents`**, la ausencia significa **cero de verdad**: en las filas históricas
+  **nunca se capturó el IVA de un costo**. `0` dice *«no consta crédito»* ⇒ `net = bruto`.
+
+Y hay una segunda prueba, independiente del significado, que a mí me acaba de convencer: **la
+dirección del error**. `net = bruto` **subestima la ganancia**; el default equivocado de
+`priceConvention` la habría reinterpretado en cualquier dirección, en silencio. *Cuando un default
+tiene que equivocarse, que se equivoque contra la casa.*
+
+⛔ **Y por eso mismo, prohibido backfillear `costo × 16/116`:** ése sí es un invento que **infla** la
+ganancia — un crédito fiscal sobre facturas que nadie miró. Misma doctrina que `ivaTransferPct`.
+
+⛔ **No es nullable, y la razón es lo que NO se puede saber:** para las filas existentes «costó cero» y
+«no se capturó» son **indistinguibles**, y un `NULL` exigiría un backfill que **inventa** esa
+distinción. La ambigüedad se **hace visible** (contador, §0.51.3), no se resuelve falsamente.
+
+### 0.51.3 ⚠️ `shippingCostMissingCount` **NO entra en D-1** — va a D-2, y la razón es medible
+
+El contador es correcto y lo quiero; **pero no cabe en este pase sin romper su única promesa**.
+`API_CONTRACT §M10-IVA.8` lo pone en la **respuesta** de `GET /admin/finance/pnl` **y en su CSV**, y
+ese CSV tiene cabecera fija:
+
+```
+report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents
+```
+
+Añadir una clave al objeto **es** un cambio observable, y añadir una columna al CSV **rompe la
+igualdad contra el pasado** que `test/admin.pnl-iva-neutral.spec.ts` asierta. El propio contrato marca
+`§M10-IVA.8` como **deploy 2**. ⇒ **entra con el neteo, en D-2, con `IVA-11(a)(b)(c)` enteros.** *Un
+contador que hace visible una ambigüedad es bueno; hacerlo visible en el deploy que prometió no
+cambiar nada visible sería cambiar la promesa por la mitad de la funcionalidad.*
+
+**Lo que sí queda hecho para D-2:** la columna existe, arranca en `0` desde el minuto cero y
+`IVA-11(d)` ya está verde.
+
+### 0.51.4 «Nadie la lee hasta D-2», medido — y el riesgo real de una columna nueva
+
+El riesgo de una columna nueva en una tabla de dinero **no es que alguien la use: es que se publique
+sola**. Antes de `S49-R4`, `setTracking` devolvía la entidad Prisma cruda; con ese código, esta columna
+habría aparecido en la respuesta de M4 **sin que nadie escribiera una línea**. La lista blanca
+`toAdminShipmentRow` ya lo impide; `test/shipments.cost-iva-column-inert.spec.ts` lo **mide**:
+
+- ⛔ **ni un fichero de `src/` menciona `shippingCostIvaCents`** (barrido, con control de que barre);
+- ⛔ no sale por **`setTracking`** (back-office) ni por **`getMine`/`listMine`** (cliente), **aunque la
+  fila cruda la traiga**;
+- ⛔ el **DTO de captura de M4 no gana el campo**: con `whitelist: true`, hoy un cliente que lo mande
+  recibe 200 y el campo **se descarta**; añadirlo lo persistiría — y eso es observable. La captura y su
+  rótulo («importe TOTAL de la factura, IVA incluido», obligación de ux-ui) son de **D-2**;
+- el P&L **sigue sumando el bruto** y ⛔ no aparece ninguna división por `(1+r)`.
+
+⚠️ **El primer bloque de ese fichero CADUCA en D-2, a propósito**: se pone rojo en cuanto el P&L lea la
+columna, que es lo que `§M10-IVA.8` manda hacer. **Ese rojo es la señal**: quien haga D-2 borra **ese
+bloque** y escribe en su lugar `IVA-11(a)(b)(c)`. El resto (que no se publique en ninguna respuesta)
+**no caduca**.
+
+### 0.51.5 El candado de texto de M-50: por qué pasó de global a acotado
+
+`test/migration.m50-no-default.spec.ts` prohibía `NOT NULL DEFAULT` **en toda la migración**. Hasta hoy
+eso no costaba nada porque M-50 no tenía ninguno; el PASO 3-BIS obliga a elegir, y **la elección ya
+estaba escrita en el mismo fichero**, en el test que barre todas las migraciones: **§4.44.e no prohíbe
+los defaults, prohíbe ÉSTE**. Dejarlo global habría dado un rojo **sobre una sentencia correcta**, y el
+primero que lo viera lo habría borrado entero.
+
+⇒ La prohibición se acota a `priceConvention`/`ivaTransferPct`, **y se paga el acotamiento con una
+enumeración**: *el único `NOT NULL DEFAULT` de M-50 es el de `shippingCostIvaCents`*. Un segundo tiene
+que pasar por ese test. **`DROP DEFAULT` sigue prohibido globalmente** y ahora es más fuerte que antes:
+si alguien «arregla» este default quitándolo después, se entera ahí.
+*(La enumeración de defaults legítimos sobre `Order`/`ShipmentRequest` pasa de **cuatro** a **cinco**.)*
+
+### 0.51.6 ⚠️⚠️ AVISO A QA Y DEVOPS — M-50 **cambió después de aplicarse** en bases locales
+
+**Staging y producción NO la tienen** (D-1 está sin publicar) — por eso el arquitecto reabrió M-50 en
+vez de crear una migración aparte, y por eso esta ventana era barata. **Pero una base local que ya
+corrió M-50 no recibe la columna, y `prisma migrate deploy` NO lo detecta: dice «No pending
+migrations» y sigue.** El síntoma aparece luego, en la suite de integración, como
+`column "shippingCostIvaCents" does not exist`.
+
+- **Lo limpio:** `npx prisma migrate reset` (base de desarrollo).
+- **Sin perder datos** (lo que hice yo en la base local de este equipo, ya aplicado):
+  ```sql
+  ALTER TABLE "ShipmentRequest" ADD COLUMN IF NOT EXISTS "shippingCostIvaCents" INTEGER NOT NULL DEFAULT 0;
+  UPDATE _prisma_migrations SET checksum = '<sha256 del migration.sql>'
+   WHERE migration_name = '20260909120000_m50_price_convention';
+  ```
+- **CI no se ve afectado**: el job de e2e levanta Postgres como *service container*, base nueva en cada
+  corrida.
+
+### 0.51.7 Verificación
+
+| Qué | Referencia (pase anterior) | Ahora |
+|---|---|---|
+| `npm test` (unitaria completa) | 262 suites / 4243 | **263 suites / 4281 verdes** |
+| `npm run test:integration` (Postgres 16 real + Redis) | 23 / 354 | **23 suites / 357 verdes** |
+| `npm run typecheck` | limpio | **limpio** |
+| `eslint` sobre lo tocado | — | **limpio** |
+| ⭐⭐ `admin.pnl-iva-neutral.spec.ts` (**la prueba de que D-1 no mueve el P&L**) | verde | **verde CON la columna puesta** |
+| `fx-mode.e2e-spec.ts` (flake conocido del barrido) | — | **verde en la corrida completa; no hizo falta aislarlo** |
+
+*(+38 unitarios: 10 del fichero nuevo, 7 en el candado de texto de M-50 y 21 del N9 del correo, §0.52.
++3 de integración: `IVA-11(d)`.)*
+
+**Las mutaciones, cada una sobre una COPIA del árbol** (`tar` del árbol + `node_modules` enlazado),
+**ninguna sobre el vivo**:
+
+| # | Mutación | Rojos |
+|---|---|---|
+| **C1** ⭐⭐ | la columna se hace **nullable y sin default** (`INTEGER;` + `Int?`) — la variante que exigiría inventar el backfill | **5** |
+| **C2** ⭐⭐ | el backfill prohibido: `UPDATE … SET "shippingCostIvaCents" = "shippingCostCents" * 16 / 116` | **4**, uno de ellos el contra-candado estructural de M-50 (*los únicos `UPDATE` son los dos de convención*) |
+| **C3** ⭐⭐ | **D-1 la lee**: el P&L netea (`s.shippingCostCents - s.shippingCostIvaCents`) | **11 en 3 suites** — y las que importan son **las de neutralidad del P&L**: la promesa de D-1 se rompe **en la prueba que la enuncia** |
+| **C4** ⭐ | la columna se publica: `toAdminShipmentRow` la expone | **2** |
+| **C5** | el DTO de captura de M4 gana el campo (contrato observable) | **2** |
+| **C6** ⭐⭐ | **REGRESIÓN**: vuelve `ADD COLUMN "priceConvention" … NOT NULL DEFAULT 'IVA_EXCLUSIVE'` | **4** — *el candado acotado sigue cazando la forma prohibida* |
+| **C7** ⭐⭐ | **REGRESIÓN**: lo mismo **+ `DROP DEFAULT`** (la variante que el candado de DDL no puede ver) | **7** — *sigue siendo el caso que justifica el candado de texto, y ahora con más rojos que antes* |
+
+⭐ **C6 y C7 son la mitad que hacía falta:** acotar un candado sin volver a correr las mutaciones que
+justificaban su forma original es cómo se afloja una defensa sin enterarse. **No se aflojó: pasó de 3 y
+5 rojos a 4 y 7.**
+
+## 0.50 — **v1.64-iva-inclusive · DEPLOY 1 (M-50): el esqueleto de D54, sin mover un centavo** (2026-09-09)
+
+> Propiedad: **backend**. Encargo: el **primer** deploy del cambio de IVA (`ARCHITECTURE §4.44` rev
+> v1.64, `API_CONTRACT §M10-IVA`, migración **M-50**). **Cero cambios de contrato observable.**
+> ⛔ **NO se implementa D-2** (la fórmula nueva, el dial abierto, `displayPriceCents`): eso es otro
+> deploy y otro pase. Ficheros tocados: `prisma/schema.prisma`, la migración M-50,
+> `src/common/money.ts`, `src/modules/admin/admin.service.ts`,
+> `src/modules/settings/settings.constants.ts` y los **cinco** sitios de escritura de
+> `Order`/`ShipmentRequest`.
+
+### 0.50.1 Qué es el deploy 1 y por qué existe separado (léase antes de tocar nada de esto)
+
+**D-1 es puramente ADITIVO: nadie paga distinto, nadie ve distinto, ningún DTO cambia.** Existe
+separado por dos razones, y las dos importan:
+
+1. **Para que no haya un hueco sin convención.** Si el DDL y la fórmula viajan juntos, una orden
+   creada entre ambos pasos queda **sin forma de saber con qué regla se calculó**.
+2. ⭐ **Porque es la ÚNICA ventana para probar contra producción que el P&L sigue dando lo mismo**,
+   antes de que la fórmula cambie. Esa ventana se ha usado (§0.50.5).
+
+### 0.50.2 Las columnas, y cómo se garantiza que NO hay default
+
+`Order` y `ShipmentRequest` ganan **las mismas dos columnas** (§4.44.e y §11 M-50 punto 3; el envío
+entra en la convención porque el criterio 189 lo obliga):
+
+| Columna | Tipo | Nulabilidad | Default de BD | Backfill |
+|---|---|---|---|---|
+| `priceConvention` | `PriceConvention` (enum nuevo) | **NOT NULL** | ⛔ **NINGUNO** | **`IVA_EXCLUSIVE`** en toda fila existente |
+| `ivaTransferPct` | `Int` | **NULL** | ninguno | ⛔ **NINGUNO — se quedan en `NULL`** |
+
+**Cómo se garantiza el «sin default», que es LA decisión y no el `NOT NULL`.** La migración usa el
+orden obligatorio —**añadir NULLABLE → `UPDATE` explícito → `SET NOT NULL`**— y **jamás**
+`ADD COLUMN … NOT NULL DEFAULT`, ni siquiera transitoriamente. Se verifica **en las dos puntas, y
+las dos hacen falta**:
+
+- **El ESTADO**, contra Postgres real: `information_schema.columns.column_default IS NULL` **y**
+  `pg_attrdef` vacío para esas columnas, en las dos tablas.
+- **La FORMA**, sobre el texto de la migración: ni `NOT NULL DEFAULT` ni `DROP DEFAULT`.
+  ⚠️ **Y esta segunda mitad no es celo: la medí.** La variante
+  `ADD … NOT NULL DEFAULT` **+ `DROP DEFAULT`** deja un esquema **idéntico** al correcto ⇒ el
+  candado de DDL **no puede verla** (27/27 verde con el mutante). `IVA-3(c)` pide explícitamente que
+  sea roja, y con razón: basta que el `DROP` se caiga en un rebase para reintroducir el defecto
+  entero. **El único instrumento que ve la forma es el texto**, y por eso existe
+  `test/migration.m50-no-default.spec.ts`.
+
+⭐ **El backfill dice la verdad y no inventa nada.** `ivaTransferPct` se queda en `NULL` en todas las
+filas viejas: marcarlas `t=100` sería **inventar un hecho** (se cobraron cuando el dial no existía).
+Verificado en producción-dev: las 3 órdenes existentes quedaron `IVA_EXCLUSIVE` / `NULL` y **ningún
+importe se tocó**.
+
+### 0.50.3 ⭐⭐ Que OLVIDAR la convención falle: tres capas, y la primera ya cobró una pieza
+
+**Ésta es la conducta que D-1 existe para dar.** Un camino de escritura que olvide la convención
+**revienta**; no hereda un significado en silencio.
+
+| Capa | Qué la sostiene | ¿Ya sirvió? |
+|---|---|---|
+| **Compilador** | `priceConvention` es obligatorio en `OrderCreateInput`/`ShipmentRequestCreateInput` porque la columna es NOT NULL sin default | ⭐ **Sí, en este mismo pase**: rompió un fixture de `guest-chargeback.e2e-spec.ts` que no lo escribía. *El compilador para la próxima mutación que se olvide.* |
+| **Motor** | violación de `NOT NULL` (**SQLSTATE `23502`**) en cualquier `INSERT` que no pase por el compilador: SQL a mano, migraciones de datos, scripts de operación | Sí (candado con su control positivo) |
+| **Lector** | `netRevenueCents` **LANZA** ante una convención desconocida. ⛔ Sin `?? subtotalCents` de cortesía: eso interpretaría la fila huérfana bajo la convención que hoy es mayoría, y **el día del deploy 2 esa mayoría cambia de bando** | Sí (y puso rojo el spec viejo del P&L, que se actualizó **sin mover una cifra**) |
+
+⚠️ **Para QA / techlead:** el `23502` se asierta **por el código, no por el texto** — Prisma **recorta
+el `DETAIL`** de Postgres y el nombre de la columna no llega al cliente. El código además **distingue**
+el fallo del `23514` (violación de CHECK), que es el error «parecido» con el que un test flojo se
+pondría verde sin haber probado nada; se asierta que **no** es ése.
+
+### 0.50.4 `netRevenueCents` — un helper, y los CUATRO sitios de §4.44.j
+
+```ts
+// src/common/money.ts — ÚNICO lugar donde vive esta decisión
+netRevenueCents({ subtotalCents, ivaCents, priceConvention }): number
+//   IVA_EXCLUSIVE → subtotalCents               (bit a bit lo de hoy)
+//   IVA_INCLUSIVE → subtotalCents − ivaCents     (el IVA no es ingreso propio)
+//   cualquier otra cosa → THROW
+```
+
+| # (§4.44.j) | Sitio | Estado |
+|---|---|---|
+| **1** | `pnl()` — `incomeCents` | ✅ cableado |
+| **2** | `pnl()` — `shippingRevenueCents` de cada `ShipmentRequest`, por la convención de **esa** fila | ✅ cableado |
+| **3** | `pnl()` — **el sumando que faltaba** (`D-IVA-5`), neteado | ✅ añadido **con el helper desde el primer commit** |
+| **4** | `ivaReport()` + su CSV | ⛔ **NO SE TOCÓ**, y hay candado que lo afirma: sigue siendo `Σ ivaCents` |
+
+⚠️ **Discrepancia menor con el encargo, resuelta a favor del documento.** El encargo hablaba de
+*«el CSV y las dos del dashboard»*; **§4.44.j dice otra cosa y es la norma**: el CSV del P&L
+**no es un quinto sitio** (reserializa `p.incomeCents`, así que queda cubierto por el 1 — y el
+documento avisa *«se dice para que nadie lo arregle por su cuenta y lo netee dos veces»*), y el
+dashboard **no tiene sitios propios**: `dashboard()` **llama a `pnl()`**. Los dos quedan cubiertos
+sin tocarlos, y hay candados que lo comprueban. *(La única cifra de dinero propia del dashboard es
+`salesPeriod.amountCents` = `Σ totalCents`, que es **lo que el cliente pagó**, no ingreso neto;
+§4.44.j no la lista. Queda como pregunta al arquitecto para D-2 — §0.50.7.)*
+
+### 0.50.5 ⭐⭐ Que el P&L dé EXACTAMENTE lo mismo: cómo está demostrado
+
+**No con constantes copiadas.** Con **dos identidades**:
+
+1. **Unitaria — contra el algoritmo VIEJO.** `admin.pnl-iva-neutral.spec.ts` **reconstruye literal**
+   el `pnl()` anterior a este pase y compara las **seis** cifras. Sobre 7 escenarios a mano **y 200
+   generados al azar** (solo bóveda, donde `D-IVA-5` no aporta por definición): **idénticas**.
+   *Una constante copiada probaría que sé teclear; una identidad contra el algoritmo viejo prueba
+   que nada se movió.*
+2. **Integración — contra la propia base.** `incomeCents == Σ "Order"."subtotalCents"` de las
+   liquidadas, leído por SQL. Sigue midiendo aunque otra suite añada órdenes.
+
+Y el amarre contra el dial vivo en su forma más fuerte que hay: **`AdminService` ni siquiera recibe
+`SettingsService`** — no es que no lo lea, es que no lo tiene. Se asierta.
+
+### 0.50.6 ⭐ `D-IVA-5` — la cifra que SÍ cambia, y por qué debe cambiar
+
+**Sí: el reporte cambia, y es el arreglo.** `shippingRevenueCents` gana el sumando
+`Σ Order.shippingFeeCents` de las órdenes `direct_ship` liquidadas del periodo, que el contrato manda
+desde **v1.21** y **no estaba en el código**.
+
+**El dinero se perdía ENTERO, no a medias:** el `ShipmentRequest` de fulfillment de un pedido de
+invitado lleva `shippingFeeCents = 0` **a propósito** (para no contar dos veces) y
+`Order.subtotalCents` **excluye** el envío (columna aparte) ⇒ **el ingreso de envío de TODO pedido
+`direct_ship` no lo contaba nadie**, mientras su **costo** (`shippingCostCents`) sí se capturaba.
+⇒ **el P&L SUBESTIMABA la ganancia.**
+
+- **Medido:** con un pedido `direct_ship` de tarifa `20300`, `shippingRevenueCents` pasa de **0** a
+  **20300** y `profitCents` sube **exactamente** eso. Ni `incomeCents` ni el costo se mueven.
+- **El predicado es el MODO (`fulfillmentMode === 'direct_ship'`), ⛔ no el importe.** Hay
+  contra-candado: una orden `vault` con tarifa distinta de cero (corrupción) **no** se cuela — si el
+  predicado se relajara a `shippingFeeCents > 0` volvería el doble conteo que §4.21b evita.
+- **Se acota por `settledAt`** (el mismo predicado del `findMany` de las órdenes), que es lo que dice
+  el contrato: *«órdenes settled del periodo»*.
+
+⚠️ **Para QA:** cualquier cifra de P&L anotada en un informe anterior a este pase **está desfasada
+por abajo** en el ingreso de envío de los pedidos de invitado. **No es una regresión.**
+
+### 0.50.7 ⚠️ LO QUE ENVÍO AL ARQUITECTO Y NO DECIDO YO
+
+- ⭐ **`IVA-R1` (marca interna, no candado de contrato) — el reparto del IVA del ENVÍO en el sitio 3,
+  bajo `IVA_INCLUSIVE`.** Bajo esa convención `Order.ivaCents` es el **residual del AGREGADO**
+  `G = S + E` (regla R2 de §4.44.c): **el IVA que corresponde a la línea de envío no está persistido
+  por separado**, así que netear ese sumando exige una **decisión de asignación** que es del
+  arquitecto. Lo que hay hoy aplica al envío la misma regla de base gravable que §4.44.c aplica al
+  agregado (`round(E / (1+r))`, con `r` de la columna congelada `ivaRatePct`); **la suma de las dos
+  partes puede diferir del residual agregado en ±1 centavo**. ⛔ **En el DEPLOY 1 esta rama es
+  INALCANZABLE** (ninguna fila es `IVA_INCLUSIVE`, y hay censo que lo comprueba **después** de
+  escribir) y el neteo es **la identidad**. **Debe decidirse antes del deploy 2.**
+- **`salesPeriod.amountCents` del dashboard** (`Σ Order.totalCents`) no aparece en la tabla de
+  §4.44.j. Es *«lo que el cliente pagó»*, no ingreso neto, así que **no lo he tocado**. Si bajo
+  `IVA_INCLUSIVE` esa tarjeta debe netearse, es decisión suya y entra en D-2.
+
+### 0.50.8 El dial `iva_transfer_pct` en el deploy 1: sembrado, validado y **mudo**
+
+M-50 siembra la fila en **100** (el NEUTRO) con `ON CONFLICT DO NOTHING` —misma semántica que el
+`update: {}` del seed (§11.0), así que **nunca pisa un valor elegido**— y existen `SettingKey`,
+`SETTING_DEFAULTS` y `SETTING_VALIDATORS`.
+
+⛔ **Y NO está en `SETTING_DTO_MAP`, a propósito y de forma permanente.** Con eso, en el deploy 1
+**ni sale por `GET /admin/settings` ni entra por `PUT /admin/settings`** (`update()` valida contra ese
+mapa con `hasOwnProperty` ⇒ `422 unknown setting key`): **el contrato observable no cambia**
+(§4.44.k) y **la segunda puerta no existe** (`IVA-8(b)`). Precedente exacto: `stripeFeeIvaPct`
+(v1.40) y `fxRateMode` (v1.63). *No hace falta código de rechazo: hace falta NO estar ahí.*
+Su única puerta —`PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**— es del
+**deploy 2**.
+
+**El validador es ENTERO** (`[0,100]`), por la misma razón exacta que `iva_pct` y `aportacion_pct`:
+**es la COLUMNA**. Un `37.5` se truncaría en silencio a `37` mientras el precio se calculó con
+`37.5` — el defecto que `TD-IVA-1`/`TD-IVA-2` cerraron. El `message` **nombra los dos extremos**.
+
+### 0.50.9 `D-IVA-4` — cerrada, y en **cuatro** sitios, no dos
+
+El arquitecto la enrutó como *«dos comentarios»* en `settings.constants.ts`. Al buscarlos encontré
+**dos más con la misma falsedad** en los specs gemelos (`settings.iva-pct-integer.spec.ts` y
+`settings.aportacion-pct-integer.spec.ts`). Los cuatro decían, en variantes, que D54 es *«borrador NO
+vigente»* o que hay *«un cambio de contrato en vuelo»*. **D54 está APROBADA desde el 2026-09-09 y
+`PROJECT §Q` es alcance vigente**; además **la decisión de columna que esos comentarios esperaban ya
+está tomada** (`§4.44.g`: sigue siendo `Int`). ⛔ **Ni una línea de lógica cambió**: el razonamiento de
+los dos validadores era correcto y lo sigue siendo. Lo que cambia es que **ya no esperan a nadie**.
+
+### 0.50.10 Verificación
+
+| Qué | Antes | Después |
+|---|---|---|
+| `npm test` (unitaria completa) | 258 suites / 4147 | **262 suites / 4243 verdes** |
+| `npm run test:integration` (Postgres 16 real + Redis) | 22 / 324 | **23 suites / 354 verdes** |
+| Idempotencia de la suite de integración | — | **dos corridas seguidas, 354/354 las dos** |
+| `npm run typecheck` | limpio | **limpio** |
+| `npm run lint` | 2 warnings preexistentes | **0 errores, los mismos 2 warnings ajenos** |
+| `fx-mode.e2e-spec.ts` (flake conocido de autocalibración) | — | **verde en las dos corridas; no hizo falta re-correrlo** |
+
+**Ficheros de prueba nuevos:** `test/money.net-revenue.spec.ts`,
+`test/admin.pnl-iva-neutral.spec.ts`, `test/settings.iva-transfer-pct.spec.ts`,
+`test/migration.m50-no-default.spec.ts` y `test/integration/iva-price-convention.e2e-spec.ts`.
+
+**Las mutaciones, cada una sobre una COPIA del árbol y ninguna sobre el vivo.** *(La copia arrastra
+2 rojos propios del arnés —`sell-request-states` e `inventory.card-product-id` leen ficheros fuera de
+`backend/`— que se descuentan de todos los conteos.)*
+
+| # | Mutación | Rojos |
+|---|---|---|
+| **M1** ⭐⭐ | `ADD COLUMN … NOT NULL DEFAULT 'IVA_EXCLUSIVE'` (la forma prohibida) | **4 de integración**, entre ellos **el `INSERT` que omite la convención deja de reventar** |
+| **M1b** ⭐ | lo mismo **+ `DROP DEFAULT`** (esquema final idéntico) | **0 en el candado de DDL** ⇒ por eso existe el de texto: **5 rojos** ahí |
+| **M2** ⭐⭐ | el `default` «amable»: `netRevenueCents` devuelve `subtotalCents` en vez de lanzar | **16 unitarios** |
+| **M3** | `IVA_INCLUSIVE` cuenta el IVA como ingreso propio | **7 unitarios** |
+| **M4** | se netea **también** la histórica (el pasado cambia de cifra) | **26 unitarios** |
+| **M5** | se quita el sumando de `D-IVA-5` (vuelve el defecto) | **6 unitarios** |
+| **M6** ⭐ | el predicado pasa de MODO a IMPORTE (`shippingFeeCents > 0`) | **3 unitarios** |
+| **M7** ⭐⭐ | un camino de escritura **olvida** `priceConvention` | **NO COMPILA** (y la suite de integración cae entera, ruidosa) |
+| **M7b** ⭐ | un camino escribe la convención **equivocada** (compila) | **4 de integración** |
+| **M8** | el envío directo entra en `incomeCents` en vez de en el ingreso de envío | **6 unitarios** |
+| **M9** | `ivaTransferPct` se cuela en `SETTING_DTO_MAP` (segunda puerta + contrato observable) | **4 unitarios** |
+| **M10** | backfillear `ivaTransferPct = 100` (inventar un hecho) | **2 unitarios**; y **1 de integración** en cuanto la base tiene historia |
+| **M11** | el dial acepta decimales (`isInt` → `isNum`) | **8 unitarios** |
+| **M12** | el seed del dial deja de ser 100 (arranque NO neutral) | **4 unitarios** |
+
+⭐⭐ **Dos hallazgos que la batería produjo y que sin ella no habrían existido:**
+
+1. **M11 SOBREVIVÍA (0 rojos).** El dial se había cableado **sin una sola prueba propia**: había
+   validador y no había candado. De ahí sale `test/settings.iva-transfer-pct.spec.ts` (32 tests).
+   *Por eso se corre la batería antes de decir que algo está probado.*
+2. **M7b sobrevivía al censo `IVA-3(d)`**, porque ese censo corría **antes** de que la suite
+   escribiera nada: un candado que solo mira el pasado no ve lo que el pase acaba de introducir. Se
+   añadió un censo **al final** (con su control de que no está vacío). Con eso, M7b pasa de 3 a 4.
+
+⚠️ **Y un error mío que la propia suite cazó, dicho porque enseña dónde está la línea.** Escribí el
+candado del texto como *«ninguna migración usa `NOT NULL DEFAULT` sobre `Order`/`ShipmentRequest`»* y
+salió rojo con **cuatro sentencias legítimas** (`shippingCostCents 0`, `fulfillmentMode 'vault'`…).
+**§4.44.e no prohíbe los defaults: prohíbe ÉSTE**, y la diferencia es de **significado**: en
+`shippingCostCents` la ausencia **de verdad significa cero**, así que el default dice la verdad; en
+`priceConvention` la ausencia significa *«nadie dijo con qué regla se cobró»*, y ahí el default
+**convierte un hueco en una afirmación falsa**. El candado quedó acotado a las dos columnas de M-50.
+*Un test que prohibiera los dos por igual no defendería la norma: la caricaturizaría, y el primero
+que necesitara un default honesto lo borraría — llevándose por delante el que sí importa.*
+
+### 0.50.11 ⚠️ Aviso a QA sobre la BD compartida de integración (me lo salté una vez)
+
+La suite nueva compra y retira como **`customer2`**, no como `customer`. **No es cosmético:**
+`vault-shipments.e2e-spec.ts` asierta el portafolio de `customer` como una **suma exacta**, y mi
+primera versión —que usaba `customer`— la infló (**medido: 1 005 000 en vez de 5 000, 3 rojos
+ajenos**). Además la suite **limpia su propio residuo** en el `afterAll` (envíos, órdenes y piezas).
+**Comprobado con dos corridas consecutivas de la suite completa: 354/354 las dos.**
+
 ## 0.49 — **v1.63.4: el respaldo se publica, la banda gana piso, y el candado de la carrera deja de ser una moneda al aire** (2026-09-09, gate de QA rechazado)
 
 > Propiedad: **backend**. Encargo: los tres hallazgos de la re-verificación de QA. **Cero cambios de
@@ -18237,3 +18689,1215 @@ así porque una sustitución no aplicó y **ningún test lo notaba**. Corregido:
 ⚠️ **Sigue en pie lo dicho en §7:** `test/integration/fx-mode.e2e-spec.ts` está **escrito y no
 corrido** (aquí no hay Postgres). El candado real de `pg_advisory_xact_lock` **solo lo puede afirmar
 QA con el stack levantado**; lo que la unitaria afirma es la semántica, no el motor.
+
+---
+
+## v1.63.4 · **EL DIAL DE IVA ACEPTABA `8.5` Y LA COLUMNA LO GUARDABA COMO `8`** (2026-09-09)
+
+**Dueño:** backend. **Rama:** `claude/tcg-hunt-orchestration-ai2vma`. **Alcance:** un validador y su
+candado. ⛔ **Nada de esto es D54** (§Q de `PROJECT.md`, «IVA dentro del precio exhibido», **borrador
+NO vigente**): este defecto está vivo **hoy**, con el IVA fuera del precio, y su cura no anticipa
+ninguna de las decisiones que ese bloque tiene abiertas.
+
+### El defecto, y por qué había que MEDIRLO antes de arreglarlo
+
+Dos piezas que no se hablaban:
+
+- `settings.constants.ts` — `iva_pct` se validaba con `isNum(v) && 0 <= v <= 100`, e `isNum` es
+  `typeof v === 'number'`: **decimales incluidos**.
+- `prisma/schema.prisma` — la tasa se **congela por orden** en `Order.ivaRatePct`, que es **`Int`**.
+
+Un `super_admin` podía guardar **`8.5`** sin un solo error. De ahí el valor viaja
+`money.ts` (`computeCartBreakdown` → `ivaRatePct: ivaPct`) → `orders.service.ts` /
+`guest-checkout.service.ts` → la columna entera. **Había dos desenlaces posibles y cambiaban la
+gravedad**: reventar al escribir (ruidoso, molesto, inofensivo) o truncar en silencio (la orden miente
+sobre la tasa con la que se cobró). **No se dedujo del tipo: se midió.**
+
+### Lo medido (Postgres 16 real, `prisma.order.create`)
+
+**Trunca en silencio. Hacia cero. Sin excepción ni aviso.**
+
+| dial guardado | validador de HOY | fila `Order.ivaRatePct` |
+|---|---|---|
+| `8.5` | ✅ aceptado | **`8`** |
+| `8.9` | ✅ aceptado | **`8`** |
+| `15.999` | ✅ aceptado | **`15`** |
+| `0.5` | ✅ aceptado | **`0`** |
+
+⭐ **Y el truncamiento es SOLO de la fila, no del cobro.** `computeCartBreakdown` calcula `ivaCents`
+con el **float vivo**. Con el dial en `8.5` y un subtotal de MX$100.00 se cobran **850 centavos** de
+IVA y se archiva `ivaRatePct = 8`, cuyo 8 % de ese mismo subtotal son **800**. La fila que sostiene el
+desglose fiscal de la orden **declara una tasa que no es la que se cobró**, y **hacia abajo**, que es
+justo el lado que le interesa a quien audite. Esa fila es la que sale en el DTO de la orden
+(`orders.service.ts`) y en el de invitado (`guest-checkout.service.ts`).
+
+⚠️ **No es un valor de laboratorio.** El **8 %** es la tasa de IVA de la **zona fronteriza norte** de
+México. `8.5` es el error de medio punto de un negocio que está justo en ese cambio — no un fuzz.
+
+### La cura: por el validador, NO por el esquema
+
+`iva_pct` pasa de `isNum` a **`isInt` en `[0, 100]`**, en un validador nombrado
+(`validateIvaPct`) para que el porqué viva pegado a la regla y la tabla apunte a él (nada de un lambda
+paralelo que pueda divergir). El `422` **nombra el motivo** («integer… frozen in the integer column
+`Order.ivaRatePct`»): un admin que recibe un genérico reintenta `8.5` hasta rendirse.
+
+⛔ **Deliberadamente NO se tocó `Order.ivaRatePct`.** Volverla decimal es la cura obvia y es la que
+**no me toca**: es zona compartida (`prisma/schema`) y su tipo (`Int` vs escalado en enteros) está
+atado a D54, que el arquitecto se reservó explícitamente. Un `422` claro hoy es estrictamente mejor
+que un truncamiento mudo en una tasa de impuestos, y no prejuzga ese diseño.
+
+⭐ **Nada legítimo se pierde**: las tres tasas mexicanas vigentes —**0, 8 y 16**— son **enteras**. Si
+algún día hiciera falta una fraccionaria, el orden correcto es **primero la columna** (arquitecto) y
+**después** este rango; relajar solo el validador reabre el truncamiento tal cual, y así queda escrito
+en el docblock.
+
+### Candado y su mutación
+
+`test/settings.iva-pct-integer.spec.ts` (**13 tests**). Mutación sobre una **copia** del árbol
+(`validateIvaPct` relajado al `isNum` de hoy, mismo rango) ⇒ **5 rojos de 13**: los tres del validador
+puro y los dos de la puerta `PUT /admin/settings` (el `422` y el «no se escribe la fila»). Los otros
+ocho **pasan en los dos mundos a propósito** y están **etiquetados como tales** —contra-candados
+(0/8/16/100 siguen aceptándose: el arreglo no cierra de más), un **tripwire** que cae si
+`Order.ivaRatePct` deja de ser `Int`, y el test que **documenta el daño en centavos** (850 ≠ 800)— para
+que nadie los cuente como cobertura del bug.
+
+| Verificación | Resultado |
+|---|---|
+| Candado nuevo, con el arreglo | 🟢 **13/13** |
+| Mutación (validador relajado a `isNum`) | 🔴 **5/13 rojos**. Restaurado 🟢 |
+| `typecheck` + `eslint` de los ficheros tocados | 🟢 limpio |
+| Suite unitaria completa | 🟢 **257 suites / 4 133 tests** (antes 256 / 4 120) |
+| Integración contra **Postgres 16 real** | 🟢 **22 suites / 324 tests** |
+
+### ⚠️ Hallazgo colateral que NO se arregló aquí: `aportacion_pct` tiene la MISMA asimetría
+
+Barrido de todos los diales buscando «validador más laxo que la columna que los persiste». Solo hay
+**un segundo caso**, y es el mismo patrón exacto:
+
+- `aportacion_pct` se valida con `isNum(v) && 0 <= v <= 100` (decimales dentro).
+- `inventory.service.ts` lo usa como **fallback** cuando el alta no manda `acquisitionPct`
+  (`dto.acquisitionPct ?? getNumber(APORTACION_PCT)`) y lo persiste en
+  **`InventoryItem.acquisitionPct`, que es `Int?`**.
+- El camino del **DTO** sí está blindado (`@IsInt()`); **el del dial no**. Con el dial en `70.5`,
+  `computeAportacionCostCents` calcula el costo con `70.5` y la pieza archiva `70`.
+
+⛔ **No se tocó**: cae fuera del encargo y toca el módulo de inventario (otro work stream). Queda
+registrado en `docs/TECH_DEBT.md` y escalado en el resumen para que **el orquestador/arquitecto**
+decida si se cierra igual. **Tercer caso, menor y distinto:** `fx_buffer_pct` (validador `isNum`) cae
+en columnas `Decimal(6, 3)` — no trunca a entero, **redondea a la milésima**; la pérdida es por debajo
+de `0.001 %` de colchón y no cambia dinero al centavo. Se anota por completitud, no como defecto.
+
+Los demás diales que aterrizan en columnas enteras (todos los `*_cents`, los de días hábiles y los
+topes) **ya usan `isInt`**: no hay más casos.
+
+---
+
+## ⭐⭐ `aportacion_pct` — el gemelo del defecto del IVA, cerrado (el dial rechaza decimales)
+
+**Es el hallazgo colateral de la sección anterior, ahora cerrado con autorización del dueño.** Mismo
+patrón, otro dial, y —esto es lo que lo hace peor— sobre **el costo de adquisición**, que es la base
+del P&L y del margen.
+
+### Lo que estaba vivo, MEDIDO (no deducido del tipo)
+
+El validador era `isNum(v) && 0 <= v <= 100` (`typeof v === 'number'`, decimales dentro). El pct se
+congela por pieza en **`InventoryItem.acquisitionPct`, que es `Int?`**. Sonda con
+`prisma.inventoryItem.create` contra **Postgres 16 real**:
+
+| Escrito | ¿Revienta? | Guardado |
+|---|---|---|
+| `70.5` | ✅ aceptado | **`70`** |
+| `70.9` | ✅ aceptado | **`70`** |
+| `99.999` | ✅ aceptado | **`99`** |
+| `0.5` | ✅ aceptado | **`0`** |
+| `100.0001` | ✅ aceptado | **`100`** |
+
+**Trunca hacia cero, en silencio.** No lanza, no avisa, no deja bitácora — idéntico al IVA.
+
+### ⭐ El agravante: el cálculo usa el decimal VIVO mientras la fila archiva el entero
+
+En `inventory.service.ts` (rama `aportacion_en_especie`) la **misma variable** alimenta las dos cosas:
+
+```ts
+const pct = dto.acquisitionPct ?? (await this.settings.getNumber(SettingKey.APORTACION_PCT)); // 70.5
+...
+acquisitionPct       = pct;                                        // → columna Int  ⇒ archiva 70
+acquisitionCostCents = computeAportacionCostCents(referenceCents, pct); // usa 70.5   ⇒ archiva 70500
+```
+
+Medido con `computeAportacionCostCents`, sobre una referencia de **MX$1,000.00** (100 000 centavos):
+
+| Dial | Costo que se GUARDA | Pct que archiva la columna | Costo que ESE pct reproduce | Brecha |
+|---|---|---|---|---|
+| `70.5` | **70 500** | `70` | 70 000 | **500 centavos** |
+| `70.9` | **70 900** | `70` | 70 000 | **900 centavos** |
+| `99.999` | **99 999** | `99` | 99 000 | **999 centavos** |
+
+⭐ **La pieza se contradice a sí misma**: *el porcentaje guardado no reproduce el costo guardado*, y
+las dos mitades de la contradicción **viajan juntas en el mismo DTO de inventario**
+(`acquisitionCostCents` y `acquisitionPct` salen ambas en el detalle de back-office). No hace falta un
+reporte externo para verla.
+
+**Y falla hacia el lado caro**: quien audite y recalcule el costo desde el pct archivado obtiene
+**menos costo del real** ⇒ **margen inflado**. En aportación en especie, `acquisitionCostCents` es
+además **lo que se le acredita a quien aportó**.
+
+⚠️ **No es un valor de laboratorio.** `70` es el default del formulario clásico y `100` lo manda el
+alta rápida (§4.39 del contrato); `70.5` es el medio punto de quien afina la política de aportación.
+El dial lo edita un `super_admin` **sin redeploy**. Y el camino del **DTO ya estaba blindado**
+(`acquisitionPct` con `@IsInt() @Min(0) @Max(100)` en los tres DTOs de alta): **el dial era el ÚNICO
+hueco** por el que entraba un decimal. `PUT /admin/settings` no tiene DTO por-campo — `SETTING_VALIDATORS`
+es la puerta entera.
+
+### La cura: por el validador, NO por el esquema
+
+`aportacion_pct` pasa de `isNum` a **`isInt` en `[0, 100]`**, en un validador nombrado
+(**`validateAportacionPct`**) para que el porqué viva pegado a la regla y la tabla apunte a él (nada de
+un lambda paralelo que pueda divergir). El `422` **nombra el motivo** («integer… frozen in the integer
+column `InventoryItem.acquisitionPct` … the stored percentage would no longer reproduce the stored
+cost»): un genérico deja al admin reintentando `70.5` hasta rendirse.
+
+⛔ **Deliberadamente NO se tocó `prisma/schema.prisma`.** Es zona compartida y hay un cambio de
+contrato en vuelo; el tipo de la columna es decisión del **arquitecto**. **Medí si la cura correcta
+exigía tocarla y no: no existe hoy ningún pct de aportación fraccionario en el negocio**, así que
+rechazar decimales no bloquea ningún caso real.
+
+⭐ **Nada legítimo se pierde**: los dos pct que el negocio usa —**70** (default) y **100** (alta
+rápida)— son **enteros**. Si algún día hace falta una fracción (p. ej. 72.5 %), el orden correcto es
+**(1) la COLUMNA** —decisión del arquitecto: decimal o escalada en enteros— y **(2) DESPUÉS** este
+rango. Relajar solo el validador reabre el truncamiento tal cual, y así queda escrito en el docblock.
+
+### Candado y su mutación
+
+`test/settings.aportacion-pct-integer.spec.ts` (**14 tests**). Mutación sobre una **COPIA** del árbol
+(`validateAportacionPct` relajado al `isNum` de antes, mismo rango) ⇒ **5 rojos de 14**: los tres del
+validador puro y los dos de la puerta `PUT /admin/settings` (el `422` y el «no se escribe la fila»).
+Los otros **nueve pasan en los dos mundos a propósito** y están **etiquetados como tales** —cinco
+contra-candados (70/100/0 siguen aceptándose, `NaN`/strings siguen fuera, `[0,100]` sigue vigente, la
+tabla apunta al validador nombrado: el arreglo no cierra de más), un **tripwire** que cae si
+`InventoryItem.acquisitionPct` deja de ser `Int?`, y **dos que documentan el daño en centavos**
+(70 500 ≠ 70 000)— para que nadie los cuente como cobertura del bug.
+
+| Verificación | Resultado |
+|---|---|
+| Sonda de truncamiento contra **Postgres 16 real** | 🟢 medida (trunca hacia cero, sin excepción) |
+| Candado nuevo, con el arreglo | 🟢 **14/14** |
+| Mutación (validador relajado a `isNum`) | 🔴 **5/14 rojos**. Restaurado 🟢 |
+| `typecheck` + `eslint` de los ficheros tocados | 🟢 limpio |
+| Suite unitaria completa | 🟢 **258 suites / 4 147 tests** (antes 257 / 4 133) |
+| Integración contra **Postgres 16 real** | 🟢 **22 suites / 324 tests** (1 flake de timing en `fx-mode`, ver abajo) |
+
+*Flake de integración, ajeno a este cambio:* `fx-mode.e2e-spec.ts › «las dos peticiones se solapan»*
+falló una vez con su **propio** mensaje de auto-calibración («el barrido NO SOLAPÓ lo suficiente…
+**no es un fallo del candado del FX**»); en re-ejecución aislada pasa. Toca `fx_manual_override_rate`,
+no `aportacion_pct`.
+
+### Estado del barrido de diales tras este cierre
+
+`iva_pct` ✅ cerrado · `aportacion_pct` ✅ cerrado (aquí) · **`fx_buffer_pct` sigue correctamente
+descartado** (cae en `Decimal(6, 3)`: redondea a la milésima, ahí las fracciones son legítimas y no
+cambia dinero al centavo). Los demás diales que aterrizan en columnas enteras ya usaban `isInt`.
+**No quedan casos de «validador más laxo que la columna que lo persiste».**
+
+---
+
+## v1.65 — Contadores HONESTOS del sync de catálogo (D1 · D2) + corte de fecha del barrido (D3)
+
+**Alcance:** `backend/src/modules/catalog/` (`catalog-sync.service.ts`, `card-product-resolver.service.ts`)
+y sus specs. **No** se tocó `frontend/`, `docs/API_CONTRACT.md`, `pricing/`, `settings/` ni
+`src/jobs/`.
+
+### El problema, en una frase
+
+El dueño pulsó «sincronizar», la pantalla le dijo **éxito en verde**, y no se había hecho nada. Las dos
+cifras que sostenían ese verde estaban **rellenadas**, no medidas.
+
+### D1 — «cuántos sets importé» ≠ «cuántos ya estaban»
+
+`importSet`/`importSetByExternalId` devolvían `{ imported: true, cardCount }` con `imported`
+**literal**. Todo llamador contaba un import: `sync()` («1 set(s) importado(s)» aunque fuera un re-sync
+o un no-op), `backfill()` (listaba como recién importados sets que ya tenía) y `runSyncAll()` (que
+directamente **descartaba** el resultado, así que del barrido no se sabía nada).
+
+Ahora ambos devuelven `SetImportOutcome` = **tres hechos distintos**, todos medidos:
+
+| Hecho | Significa | Cómo se mide |
+|---|---|---|
+| `outcome: 'imported'` | el set **no tenía** ninguna carta local y ahora sí | `cardsBefore === 0` y se escribió ≥1 carta |
+| `outcome: 'refreshed'` | el set **ya estaba** con cartas; esta corrida las re-upserteó | `cardsBefore > 0` y se escribió ≥1 carta |
+| `outcome: 'noop'` | esta corrida **no escribió ni una carta** | `cardsUpserted === 0` |
+| `cardsUpserted` | cartas que **esta corrida** escribió (≠ las que el set tiene) | contador de `upsertCards` |
+| `cardsBefore` | universo previo; `null` si **no se llegó a consultar** (ausente, no 0) | `countLocalCardsInSet` |
+
+`sync()` y `backfill()` exponen el desglose (`setsImported`, `setsRefreshed`, `setsNoop`,
+`cardsUpserted`); `backfill` además separa `imported[]` de `refreshed[]`. `setsQueued` (campo del
+contrato) pasa a significar lo que dice —sets **procesados**— y ya no sale de un literal.
+
+`runSyncAll` deja de tirar el resultado: lo acumula en **`sync-status.summary`**
+(`setsTotal/setsImported/setsRefreshed/setsNoop/setsFailed/cardsUpserted/failures[]`), `null` hasta
+que arranca el primer barrido — mismo criterio que `refresh-variants-status.summary`, para no pintar
+un «Listo — 0/0» que parece un resultado. El `202` de `sync-all` **no anticipa** cuántos sets se
+importarán: en ese instante no se sabe, y un número inventado ahí es exactamente el bug de origen.
+
+**Efecto secundario reparado:** el gate de first-import (`firstImport`) se calculaba **solo si el
+resolver estructural estaba cableado** y, si no, se fabricaba `false`. Un valor inventado gobernando
+una rama. Ahora el pre-conteo se hace siempre.
+
+### D2 — «cartas procesadas» era el total de la base
+
+`refreshVariants` devolvía `cardsProcessed = localSet._count.cards`: **cuántas cartas existen**, no
+cuántas tocó la corrida. De ahí el «**191 cartas procesadas · 0 precios**», en verde, en un set donde
+no se resolvió nada.
+
+- `CardProductResolverService` ahora **cuenta y devuelve `cardsTouched`** (`touched.size`: las `Card`
+  distintas con `CardProduct` upserteado y `availableFinishes` recomputado). Ese conjunto ya existía
+  —es el que se pasa al `FinishReconciler`—, solo que no se reportaba.
+- `refreshVariants.cardsProcessed` = ese número. **`number | null`**: `null` = *no se pudo saber* ⇒
+  «—» en la UI. Jamás el total, jamás un `0` de relleno (misma norma que ya rige para los precios sin
+  mercado). Cuando sí se sabe que no se tocó nada (sin `groupId` TCGCSV único) el `0` es **medido**.
+- El universo del set viaja aparte y con su propio nombre: **`cardsInSet`**.
+
+### Regla del censo (§0-B.3 regla 8) llevada al código
+
+Dos predicados distintos se llamaban igual y uno se reportaba con la etiqueta del otro. Cada uno tiene
+ahora **una** implementación y un nombre propio:
+
+| Predicado | Fuente ÚNICA | Se llama |
+|---|---|---|
+| cartas locales de un set (universo) | `countLocalCardsInSet()` (+ su forma en lote `localCardCountsByExternalSetId()` para `remote-sets`) | `cardsInSet`, `cardsBefore` |
+| cartas que una corrida tocó | `CardProductResolver.cardsTouched` / `upsertCards` | `cardsProcessed`, `cardsUpserted` |
+| el set existe localmente (fila `CardSet`) | `localSetExternalIds()` | candidatos de `backfill`, `remote-sets.imported` |
+| set importado de verdad (fila **con** cartas) | `localSetExternalIdsWithCards()` | `sync-all`, `refresh-variants-all` |
+| ¿entra por fecha? | `isWithinCatalogFromDate()` | `sync()` from_date y `sync-all` |
+| ¿entra al barrido? | `selectSyncAllCandidates()` | `sync-all` |
+| ¿desde qué fecha? | `resolveCatalogFromDate()` | `sync()` y `sync-all` |
+
+### D3 — el barrido ya honra el corte de fecha
+
+`syncAll()` no filtraba por fecha: se traía **todo** lo que faltara, de cualquier año, y es el que
+está detrás del botón «Importar sets nuevos». Ahora el criterio de admisión vive en
+`selectSyncAllCandidates()` con cuatro ramas explícitas:
+
+- set **nuevo dentro del corte** ⇒ entra (es el botón, literalmente);
+- set **nuevo anterior al corte** ⇒ **no** entra; se reporta en `setsSkippedOutOfRange` (para eso está
+  `backfill`, explícito y por lotes);
+- set **ya importado con `force`** ⇒ entra **sin mirar el corte**. `force` no es «importar»: es
+  **reparar lo que ya tenemos** (re-upsert + resolver estructural TCGCSV). Aplicarle el corte encogería
+  la reparación justo donde más falta hace (los sets viejos son los del `normal` fantasma) y un set ya
+  importado no puede «traer catálogo viejo»: ya está aquí. Lo que `force` **deja** de hacer es
+  arrastrar cientos de sets viejos que **no** teníamos;
+- set **ya importado sin `force`** ⇒ se salta (comportamiento de siempre).
+
+**De dónde sale la fecha está aislado en `resolveCatalogFromDate()`** — hoy lee el dial
+`catalog_sync_from_date` (seed `2024/01/01`, editable en M10) y valida su formato (`VALIDATION_ERROR`
+accionable si es inválido; no se adivina un corte). Esa función es **la costura**: cuando el arquitecto
+entregue el mecanismo **automático** que pidió el dueño (ventana rodante u otro eje), aterriza ahí
+dentro y **ningún llamador cambia**.
+
+**`releaseDate` ausente:** el filtro es `(releaseDate ?? '') >= from`, así que un set **sin fecha**
+queda fuera. Se conserva ese comportamiento (no se adivina una fecha) pero **deja de ser invisible**:
+sale en su propio cubo (`unknownDate`), se loguea con los ids y se reporta como
+`setsSkippedUnknownDate`. Es un caso que **nadie ha decidido**; queda sobre la mesa del arquitecto.
+> ⚠️ **Corregido el 2026-09-10** (§v1.66-CS.1, al final de este documento): este pase emitió el campo
+> como **`setsSkippedUndated`** —nombre inventado por el backend— durante varias revisiones. El nombre
+> del contrato es **`setsSkippedUnknownDate`** (§M2-CS.1/§M2-CS.4) y es el que se emite hoy. El texto de
+> arriba ya está actualizado; se deja constancia porque **el candado de esta misma sección fijaba el
+> nombre equivocado**.
+
+### Candado y su mutación
+
+`test/catalog-sync.honest-counters.spec.ts` (**16 tests**: 7 de D1, 4 de D2, 5 de D3). Mutación sobre
+una **COPIA** del árbol en el scratchpad (nunca el árbol vivo), restaurando los dos defectos exactos
+—`outcomeOf` devolviendo el literal `'imported'`, y `cardsProcessed = cardsInSet`— ⇒ **7 rojos de 16**;
+copia eliminada. Muestras del diff: `setsImported` esperado 0 / recibido 1; `cardsProcessed` esperado
+3 / recibido **191** (el número exacto del síntoma del dueño).
+
+| Verificación | Resultado |
+|---|---|
+| Candado nuevo, con el arreglo | 🟢 **16/16** |
+| Mutación (literal fijo + total de la base) | 🔴 **7/16 rojos**. Copia borrada |
+| `typecheck` + `eslint` de lo tocado | 🟢 limpio |
+| Suite unitaria completa | 🟢 **264 suites / 4 307 tests** |
+
+### Pendientes que NO se resolvieron aquí (van al arquitecto)
+
+1. **Contrato vs. `cardsProcessed`.** `API_CONTRACT §M2` define hoy `cardsProcessed` como «# de `Card`
+   locales del set (universo procesado)» — que es justo la cifra que el dueño reportó como mentira. El
+   campo pasa a significar «cartas tocadas» y admite `null`; el universo se emite como `cardsInSet`.
+   Necesita ratificación.
+2. **Contrato vs. corte en `sync-all`.** `API_CONTRACT §M2` dice que `sync-all` importa «TODO el
+   catálogo … **sin frontera de fecha**» y que «**ignora `catalog_sync_from_date`**». Ambas frases son
+   falsas desde este pase. También queda tocada su justificación («Opción 1 del cotizador: poder cotizar
+   cualquier carta»), que ahora depende de `backfill`.
+3. **Campos aditivos por ratificar:** `setsImported`/`setsRefreshed`/`setsNoop`/`cardsUpserted` en
+   `sync` y `backfill`; `refreshed[]` en `backfill`; `cardsInSet` en `refresh-variants`;
+   `fromReleaseDate`/`setsSkippedOutOfRange`/`setsSkippedUnknownDate` en `sync-all`; `summary` en
+   `sync-status`. *(Ratificados por el contrato en v1.66 §M2-CS.1, con el nombre
+   `setsSkippedUnknownDate` y con las tres cifras de selección DENTRO de `summary` — ver §v1.66-CS.1
+   al final de este documento.)*
+4. **Copy de M2 (frontend).** La UI rotula `setsQueued` como «set(s) importado(s)»: con un re-sync eso
+   sigue siendo falso aunque el backend ya diga la verdad. Debe leer `setsImported`/`setsRefreshed`, y
+   pintar «—» cuando `cardsProcessed` sea `null`.
+5. **`src/jobs/catalog-price-sync.service.ts` quedó con prosa stale** (dice que importa «los sets que
+   aún no existían localmente»; ahora, solo los que caen dentro del corte). No se tocó: está fuera de
+   `modules/catalog/`.
+6. **`PokemonTcgIoClient.getSets()` pide `/sets?pageSize=250` y NO pagina** (usa `body.data` a secas).
+   Con ≤250 sets remotos hoy no se nota; el día que se pase, el barrido dejará de ver el resto **en
+   silencio**. No se tocó (cambia comportamiento de import).
+
+---
+
+## v1.65 — El dial `price_provider` gana su candado, el seed pasa al PRIMARIO (`D-PP-1`), y el match de grupo TCGCSV deja de ser silencioso (QA BLOQUEANTE-2 · IMPORTANTE-3)
+
+**Norma que manda aquí:** `API_CONTRACT §M10-PP` (`<!-- CANON: proveedor-de-precio -->`, invariantes
+`I-PP1`…`I-PP5`) y `ARCHITECTURE §4.35a` / `§4.36(d)` / desviación `D-PP-1` (§9).
+**Money-critical + zona compartida ⇒ triple veredicto antes de producción. NO está cerrado.**
+
+### 1. BLOQUEANTE-2 — el valor del dial no tenía candado
+
+**Lo que QA midió y yo reproduje:** borrar `'tcgcsv_singles'` de `PRICE_PROVIDER_VALUES` deja la suite
+**entera en verde**. Reproducido sobre copia aislada de `HEAD` (`6518694`): **4297/4297 pasan** con el
+valor borrado. Las 37 menciones de `tcgcsv_singles` en `test/` eran literales de `source` en fixtures
+de `PriceReference` — la **fila que escribe** el provider, nunca el **dial que lo selecciona**.
+
+**Consecuencia real:** `PUT /admin/settings {"priceProvider":"tcgcsv_singles"}` empieza a devolver
+`422`, el dueño pierde a la vez el flip al primario **y su rollback** (`I-PP3`), y nada se pone rojo.
+
+**Candado añadido** (`backend/test/settings.validation.spec.ts`), en dos mitades que cubren
+direcciones distintas:
+
+| Test | Qué garantiza | Qué fallo atrapa |
+|---|---|---|
+| `it.each([...tres valores])` — acepta y **PERSISTE** en la fila `price_provider` | «ni MENOS» | borrar un valor del enum |
+| `PIN: PRICE_PROVIDER_VALUES es EXACTAMENTE el enum de §M10-PP` | «ni MÁS» | **añadir** un cuarto valor |
+
+⭐ **El PIN no es redundante, y se midió:** `providerFor()` hace
+`providers.find(p => p.source === wanted)` y, si no encuentra el valor, **cae a `pokemontcg_io`
+dejando sólo un `warn`**. Un cuarto valor en la lista se aceptaría con `200`, el dueño creería haber
+flipeado el provider y **el catálogo entero se repreciaría desde el legacy**. La mutación que añade un
+valor mata **sólo** el PIN (ver tabla de mutaciones): ningún otro test lo ve.
+
+### 2. `D-PP-1` — el seed pasa a `tcgcsv_singles`, y el test asserta `I-PP1` como IGUALDAD
+
+`SETTING_DEFAULTS[SettingKey.PRICE_PROVIDER]` = **`tcgcsv_singles`**. Los comentarios de
+`settings.constants.ts` dejan de llamar *«money-safe»* al legacy y **citan** `§M10-PP`/`I-PP1` en vez
+de repetir el valor.
+
+**Cómo se expresó `I-PP1` sin volver a clavar un literal** — y por qué así:
+- ⛔ Cambiar la cadena `'pokemontcg_io'` por `'tcgcsv_singles'` sólo **mueve la copia de sitio**.
+- ⛔ Derivar los dos lados de la misma constante (`expect(SEED).toBe(SEED)`) es la **tautología** que
+  `test/enum-values-parity.spec.ts` ya documenta: un test que no puede fallar.
+- ✅ `§M10-PP` dice que son **dos fuentes distintas**: el PRIMARIO es **(A), del contrato**; el SEED es
+  el **literal de este repo**. Así que el test **lee el primario del bloque canónico de
+  `docs/API_CONTRACT.md`** (regex sobre `- **`x`` — PROVIDER PRIMARIO.**` dentro de
+  `<!-- CANON: proveedor-de-precio -->`, exigiendo **exactamente uno**) y lo compara con el literal.
+  Mismo patrón y mismo fichero-fuente que `enum-values-parity.spec.ts`.
+
+Atrapa las dos direcciones y **no caduca**: si el arquitecto nombra otro primario, el test se pone
+rojo hasta que backend aterrice el seed — que es el trabajo, no un falso positivo. **Ningún nombre de
+proveedor está escrito en el test para este hecho.**
+
+⚠️ **Dos hechos, dos tests, a propósito:** «el `PUT` ACEPTA `tcgcsv_singles`» (hecho 1) y «una BD
+fresca NACE con él» (hecho 2) se assertan **por separado**. Confundirlos es la causa raíz de §4.35a(a).
+
+**Copias rancias del literal barridas en el mismo pase** (la divergencia nació de tener el valor en
+cinco sitios; no se recrea): `settings.constants.ts` (comentario de `SettingKey`, doc de
+`PRICE_PROVIDER_VALUES`, comentario del validador que aún transcribía un enum de **dos** valores),
+`price-ingest.service.ts` (`providerFor` decía *«default legacy pokemontcg_io»*; `PriceSyncStatus`)
+y `scheduler.service.ts` — que además **imprimía en el log de arranque `dial pokemontcg_io`**, una
+afirmación sobre el VIGENTE prohibida por `I-PP2`. Ahora se cita la sección, no el valor.
+
+**Ningún test dependía del seed viejo salvo el que se reescribió.** Medido: la mutación que devuelve
+el seed al legacy mata exactamente los **dos** tests de `I-PP1` y nada más.
+
+### 3. IMPORTANTE-3 — `resolveGroupId` y el prefijo de código de set
+
+**Decisión: no era «reusar `setNameCandidates` aquí».** `setNameCandidates` es la primitiva correcta
+(ya es el único hogar de la regla del prefijo, y la usan `matchSet` de PPT y `matchScore` del
+sellado), pero **la escalera de match entera estaba duplicada literalmente** entre
+`TcgcsvSinglesBulkPriceProvider.resolveGroupId` (precio) y `CardProductResolverService.resolveGroupId`
+(estructura), pese a que ARCHITECTURE las declara *«la misma lógica S-D3/§4.27d»*. Por eso el arreglo
+de P-46 llegó a PPT y al sellado y **nunca a la ruta de precio**. ⇒ La escalera se extrajo a
+**`backend/src/modules/pricing/providers/tcgcsv-group-match.ts`** (`matchTcgcsvGroupByName`), que ahora
+es el único sitio donde se decide qué set empata con qué grupo.
+
+**La escalera** (money-safe: sigue exigiendo match ÚNICO; el peldaño ambiguo **no** cae al siguiente):
+`exact` → `exact_unprefixed` → `contains`.
+
+⚠️ **`exact_unprefixed` pela el prefijo de UN SOLO lado**, y esa restricción la obligó la propiedad de
+monotonía (la primera versión no la tenía y **el test la cazó**): pelando los dos, `"SV08: Pitch
+Black"` y `"ME05: Pitch Black"` pasan a ser «el mismo nombre» y son **dos colecciones distintas** —
+se perdía un set que el algoritmo viejo sí resolvía.
+
+⭐ **Propiedad probada por fuerza bruta** (`test/tcgcsv-group-match.spec.ts`, contra una
+reimplementación literal del algoritmo viejo que se conserva como oráculo): sobre **todos** los
+subconjuntos de un universo de nombres realistas, `legacy ≠ null ⇒ nuevo === legacy`. Sólo puede pasar
+`null → groupId`; **nunca** `groupId → null` ni `groupId → OTRO groupId`.
+
+**La señal visible (b).** El caso «no resolví el groupId» ya no vive sólo en un `warn`:
+`BulkPriceResult` gana `setUnresolved` (`stage`, `reason ∈ {ambiguous, no_match, lookup_failed}`,
+`setName`, `candidates`, hasta 5 `candidateNames`) y `PriceIngestService.ingestSinglesForSet` lo
+convierte en una fila de **`AuditLog action='pricing.set_unresolved'`, `entityType='CardSet'`**,
+legible en **`GET /api/v1/admin/audit-log?action=pricing.set_unresolved`** (§M10).
+- **Sin cambio de contrato:** `AuditLogDTO` no cambia de shape y `action` es texto libre.
+- **Una fila por set y por corrida**, a propósito: el filtro por `entityId` contesta *«¿desde cuándo
+  lleva este set sin repreciarse?»*.
+- **Best-effort**: un fallo de bitácora no tumba el barrido. **Contra-caso obligatorio en la suite**:
+  un set que SÍ se mapeó (aunque devuelva 0 filas) **no** escribe nada — una señal que salta en el
+  caso normal deja de ser señal a la tercera corrida.
+- ⚠️ **Lo que esto NO es:** una superficie de UI. Si el dueño debe verlo en el dashboard de M10 (una
+  tarjeta *«sets sin repreciar»*), **eso es contrato + frontend y NO lo invento aquí**: queda como
+  petición al arquitecto. Lo que existe hoy es la bitácora, que es la superficie ya normada.
+
+### 4. Mutaciones (prueba de que los candados sirven)
+
+Todas sobre **copia aislada** en ruta propia (`scratchpad/be-p47-mutation/`), **después** del
+incidente en que otro agente borró un directorio de scratchpad homónimo; ninguna cifra de antes del
+incidente se reutiliza. Copia = `HEAD 6518694` + estos cambios ⇒ **base 4319/4319 en verde**.
+
+| # | Mutación | Antes (sin candado) | Después | Tests que mueren |
+|---|---|---|---|---|
+| M1 | borrar `'tcgcsv_singles'` de `PRICE_PROVIDER_VALUES` | **4297/4297 verde** (HEAD limpio) | **3 rojos** | `accepts priceProvider="tcgcsv_singles"…`, `PIN: …ni uno más ni uno menos`, `I-PP1: SETTING_DEFAULTS…` |
+| M2 | **añadir** un cuarto valor (`'tcgcsv'`) | — | **1 rojo** | sólo el `PIN` (⇒ no es redundante) |
+| M3 | devolver el seed a `'pokemontcg_io'` | — | **2 rojos** | los dos `I-PP1` |
+| M4 | retirar el peldaño `exact_unprefixed` | — | **3 rojos** | el caso del prefijo en el provider, el del matcher, y la **PROPIEDAD** de monotonía |
+| M5 | apagar la escritura de `AuditLog` | — | **1 rojo** | `SEÑAL VISIBLE: set sin groupId ⇒ fila en AuditLog` |
+
+### 5. Lo que NO se tocó (y por qué)
+
+- ⛔ **`providerFor()` y el contenido del enum**: `pokemontcg_io` **sigue** en `PRICE_PROVIDER_VALUES`
+  (`I-PP3`, palanca de rollback).
+- ⛔ **`docs/API_CONTRACT.md`** y **`docs/ARCHITECTURE.md`**: sólo se citan.
+- ⛔ **`CardProductResolverService.resolveGroupId` conserva su copia de la escalera vieja.** El fichero
+  estaba siendo editado por otro pase backend en paralelo mientras se hacía este cambio, y dos agentes
+  sobre el mismo fichero es justo lo que la propiedad de archivos existe para evitar. ⇒ **La ruta de
+  ESTRUCTURA sigue teniendo el defecto del prefijo que la ruta de PRECIO ya no tiene** (es menos
+  silencioso allí: corre bajo import/`--force`, donde el operador ve los contadores de la respuesta).
+  **Follow-up de una línea**: sustituir el bloque por `matchTcgcsvGroupByName`. Lo enruta el
+  orquestador cuando ese fichero quede libre.
+
+---
+
+## Cierre del follow-up P-47/IMPORTANTE-3: la ruta de ESTRUCTURA adopta `matchTcgcsvGroupByName` (2026-09-10)
+
+> Cierra el **PENDIENTE DECLARADO** de la sección anterior («`CardProductResolverService.resolveGroupId`
+> conserva su copia de la escalera vieja»). El fichero quedó libre y se hizo lo que decía el pendiente:
+> **adoptar** la escalera compartida, **no** volver a copiar el arreglo.
+
+### 1. Qué se hizo (y qué NO)
+
+- **Reuso, no copia.** `CardProductResolverService.resolveGroupId` (`backend/src/modules/catalog/`)
+  llama ahora a **`matchTcgcsvGroupByName`** (`backend/src/modules/pricing/providers/tcgcsv-group-match.ts`).
+  ⇒ **Ya no existen dos implementaciones** del match set↔grupo: ARCHITECTURE dice que las dos rutas son
+  *«la misma lógica S-D3/§4.27d»* y ahora el código también lo dice.
+- **Se retira `normalizeName`** (exportada desde `card-product-resolver.service.ts`). Era la última
+  pieza local del match por nombre; dejarla exportada es la invitación a reconstruir la escalera aquí.
+  `normalizeCardNumber` (join por NÚMERO de carta) **se queda**: es otro predicado.
+- ⛔ **No se tocó** el atajo `pptSetId` entero == `groupId`, ni el `groupIdCache`, ni el contrato de
+  `resolveCardProductsForSet` (mismos campos, mismos contadores). ⛔ Nada en `docs/API_CONTRACT.md`.
+
+### 2. Impacto en DATOS (medido antes de cambiar, no supuesto)
+
+**Qué le pasa HOY a un set cuyo `groupId` no resuelve por esta vía** — medido leyendo los tres caminos:
+
+| Camino | Qué pasa hoy | ¿Lo ve el dueño? |
+|---|---|---|
+| `POST /admin/catalog/sync` (first-import o `--force`) y `sync-all` | `runCardProductResolver` **se traga** el `null`; la respuesta (`outcomeOf`) sólo habla de cartas de pokemontcg.io. Las cartas conservan su `structuralFinishes`/`availableFinishes` **seed/previo** (el `FinishReconciler` ni se llama) | **NO** — sólo un `warn` en logs |
+| `POST /admin/catalog/refresh-variants` (M-34) | `200 ok:true` con `cardsProcessed: 0` de `cardsInSet: N` y todos los contadores en 0 | **A medias**: ve ceros, pero **el shape es idéntico** al del grupo que sí resolvió y no trajo producto mapeable ⇒ no distingue la causa |
+| `POST /admin/catalog/refresh-variants-all` (M-35) | `refreshVariants` no lanza ⇒ **`summary.setsOk += 1`** con ceros; **no** entra en `failures` | **NO** — el set sin match se cuenta como «bien» |
+
+**Blast radius del cambio (por fuerza bruta, `test/card-product-resolver.spec.ts`):**
+
+- Régimen limpio (nombres con ≥1 alfanumérico): **512 pares** (128 subconjuntos × 4 nombres locales) ⇒
+  `legacy ≠ null ⇒ nuevo === legacy` **sin excepciones**, y **24** pares pasan de `null → groupId`.
+- Régimen sucio (se añaden nombres que normalizan a VACÍO en los dos lados): **1536 pares** ⇒
+  **`groupId → OTRO groupId`: 0 casos**, `null → groupId`: 148, `groupId → null`: 342 — **todas** con un
+  lado vacío (ver §3).
+- ⇒ **Lo único que puede cambiar en BD es lo que hoy NO se escribe.** Un set que ya resolvía sigue
+  resolviendo al MISMO grupo, así que **ningún `CardProduct`/`PriceReference` existente se re-apunta**
+  (`CardProduct` sólo lo escribe este resolver — verificado: es el único `cardProduct.upsert` del repo).
+- **Sí cambia datos existentes en un sentido**: para un set que *empieza* a resolver, se upsertean sus
+  `CardProduct` y se **recomputa `Card.availableFinishes`** desde ellos (§4.27c) — el valor seed deja
+  paso al medido, que es exactamente el propósito de §4.27d. Ocurre **sólo** bajo import/`--force`,
+  nunca en price-ingest. Efecto de segundo orden deseado: con `CardProduct` ya persistido, el barrido
+  de precio deja de omitir esas variantes (§4.35b).
+- ⚠️ **Cuántos sets REALES cambian: no medible desde este entorno** (egress a `tcgcsv.com` y
+  `api.pokemontcg.io` bloqueado por política, y no hay BD levantada). El predicado exacto de los sets
+  afectados es: *`pptSetId` no entero* **y** *≥2 grupos candidatos por contención* **y** *exactamente 1
+  candidato empatando módulo prefijo de un lado*. Se mide en staging corriendo `refresh-variants-all`
+  antes/después — con la salvedad de §4 (hoy el `summary` no sabe decirlo).
+
+### 3. La ÚNICA desviación (declarada, no escondida)
+
+La monotonía cruda (`legacy ≠ null ⇒ nuevo === legacy`) **no se cumple** para nombres que normalizan a
+vacío, y es a propósito: el algoritmo viejo, con `target = ''`, hacía `gn.includes('')` ⇒ **true para
+todo grupo**, así que si la fuente traía **un solo** grupo le colgaba ESE grupo al set. Simétrico: un
+grupo con nombre basura (`"---"`, normaliza a vacío) era candidato de **cualquier** set. Eso no era un
+match, era un accidente de `includes`. Ahora es `empty_name`/`no_match` ⇒ `null` ⇒ **no se escribe
+nada**. Los 342 `groupId → null` del régimen sucio son **exactamente** esa clase (270 por nombre local
+vacío + 72 por grupo basura), y el test lo **afirma caso a caso**, no de palabra.
+
+### 4. La señal: **NO se añade `AuditLog` en esta ruta** (decisión, con motivo)
+
+La ruta de PRECIO sí escribe `AuditLog action='pricing.set_unresolved'`. Aquí **no**, y no por asimetría
+descuidada:
+
+1. **Un set que no resuelve por NOMBRE aquí, tampoco resuelve allá**: las dos rutas usan el MISMO atajo
+   (`pptSetId` entero), el MISMO `listGroups()` y ahora la MISMA escalera. ⇒ el hecho *«este set no tiene
+   grupo»* **ya deja una fila diaria** en `pricing.set_unresolved`. Una segunda `action` para el mismo
+   hecho da dos respuestas a la misma pregunta y envejece peor.
+2. **Este camino no corre desatendido**: sólo bajo import/`--force`, con un humano que acaba de pulsar.
+   El barrido de precio corre solo, cada día, sin nadie mirando — que es por lo que allí la bitácora era
+   la pieza que faltaba.
+3. **Lo que aquí falta ya está normado en el contrato y NO está implementado** (ver §5): el `summary` de
+   `refresh-variants-status` debe repartir `setsWritten`/`setsNoop` (§M2-CS.2). Inventar una bitácora
+   nueva mientras `setsOk` sigue contando como «bien» al set que no escribió nada sería tapar el
+   síntoma dejando el instrumento roto.
+
+Lo que **sí** se hizo, por ser gratis y sin superficie nueva: el `warn` de esta ruta ahora lleva
+`failure` (`empty_name`/`no_match`/`ambiguous`), `candidates` y hasta 5 `candidateNames` — antes sólo
+decía «N candidatos» sin decir cuáles ni por qué.
+
+### 5. Discrepancia contrato ⇄ código detectada (NO se corrige aquí — es de otro alcance)
+
+`docs/API_CONTRACT.md` §M2-CS.2 declara **normativo** que el `summary` de
+`GET /admin/catalog/refresh-variants-status` incluya **`setsWritten`** y **`setsNoop`**, con `setsOk`
+**deprecado y congelado** (`setsOk === setsWritten + setsNoop`). El código
+(`CatalogSyncService.runRefreshVariantsAll` / `emptyRefreshVariantsSummary`) **sólo tiene `setsOk`**.
+Regla de conflicto: **manda el contrato**. No se implementa en este pase porque (a) cambia el shape que
+consume el front (coordinación) y (b) excede el follow-up de una línea que se encargó. **Queda como
+petición al orquestador/arquitecto.** Es, además, el instrumento que mediría el §2 de esta nota.
+
+### 6. Mutaciones (prueba de que los candados se pueden poner rojos)
+
+Copia aislada en ruta propia **`scratchpad/be-resolver-p47-structure-2026-09-10/`** (nombre único por el
+incidente de scratchpads borrados entre agentes), **borrada al terminar**. Base de la copia: **4326/4326
+en verde** (idéntica al repo).
+
+| # | Mutación | Rojos | Quién muere |
+|---|---|---|---|
+| **M-A** | **revertir este cambio**: devolver a `resolveGroupId` la escalera copiada (+ su `normalizeName`) | **7 / 4326** | los 7 de `card-product-resolver.spec.ts`: delegación, caso del prefijo, punta-a-punta, las 2 desviaciones y **las 2 PROPIEDADES**. ⚠️ `tcgcsv-group-match.spec.ts` sigue **verde** — que es la demostración de que el spec del matcher **nunca** cubrió esta ruta |
+| **M-B** | pelar el prefijo de **los dos lados** (la trampa que ya cazó la propiedad del matcher) | **4 / 4326** | 2 del matcher + **2 míos**; mi propiedad reporta **178 casos `groupId → OTRO groupId`** (p. ej. local `"SV08: Pitch Black"` → grupo `"ME05: Pitch Black"`, otra colección) |
+| **M-C** | retirar el peldaño `exact_unprefixed` | **8 / 4326** (antes de este pase eran 3) | los 3 de antes + **5 de la ruta de estructura**: el defecto P-46 ya no puede volver por el lado de la estructura sin que algo se ponga rojo |
+
+## v1.66 — **EL REPARTO DEL BARRIDO: `setsOk` deja de contar como bueno al set que no escribió nada** (§M2-CS.0 / §M2-CS.2 · 2026-09-10)
+
+> Cierra la discrepancia contrato⇄código que la sección anterior dejó **abierta y nombrada** (§5 del
+> pase P-47/IMPORTANTE-3: «el contrato declara `setsWritten`/`setsNoop` y el código sólo tiene
+> `setsOk`»). Alcance de este pase: `backend/src/modules/catalog/` + `backend/test/`.
+
+### 1. El defecto, y por qué era peor que su hermano
+
+`GET /admin/catalog/refresh-variants-status` emitía un `summary` cuyo único total era **`setsOk`**, y
+`setsOk` se incrementaba **por cada set que no lanzara excepción**. Un set cuyo nombre **no empareja**
+con TCGCSV corre limpio: el resolver no resuelve grupo, se escriben **cero** variantes y **cero**
+precios, no hay error ⇒ **sumaba a `setsOk` y no aparecía en `failures`**.
+
+Es **D2 a escala de lote**: en un barrido de cien sets, el resumen decía «todo bien» y había sets sin
+tocar. Y a escala de lote es peor que a escala de set, porque **en un lote nadie revisa renglón por
+renglón** — el resumen *es* la única lectura.
+
+### 2. ⭐ Fuente ÚNICA del reparto: `backend/src/modules/catalog/set-sweep-tally.ts` (NUEVO)
+
+`sync-all` ya contaba sus `setsNoop`; `refresh-variants-all` no. **Dos implementaciones del mismo
+reparto es exactamente cómo uno de los dos acaba mintiendo** (`ARCHITECTURE §0-B.3 regla 8`), así que
+el reparto ya no se escribe en ningún barrido: sale del módulo nuevo, y **los dos lo consumen**.
+
+| Export | Qué es |
+|---|---|
+| `SetSweepTally` | el reparto de §M2-CS.0: `setsTotal`/`setsWritten`/`setsNoop`/`setsFailed`/`failures[]` |
+| `recordSweepAttempt(tally, wrote)` | intento **sin error**: `wrote` decide `setsWritten` vs `setsNoop` |
+| `recordSweepFailure(tally, setId, err)` | intento que **lanzó**: `setsFailed` + renglón en `failures[]` |
+| `sweepFailureCode(err)` | `code` de la `BusinessException`, o **`null`** (⛔ no se inventa) |
+| `sweepAttempted(tally)` | `I-CS1`: `setsWritten + setsNoop + setsFailed` |
+| `deprecatedSetsOk(tally)` | ⛔ `setsOk` congelado: `setsWritten + setsNoop` |
+
+Los dos `summary` se componen igual: **reparto heredado** (`SetSweepTally`) **+ cifras de escritura
+propias**. Lo que legítimamente difiere sigue difiriendo: `cardsUpserted` (cartas) en `sync-all`;
+`cardProductsUpserted`/`pricesUpserted`/`pending` (variantes y precios) en `refresh-variants-all`.
+⛔ **No se igualaron**: un nombre común para dos hechos distintos es el error simétrico al de `setsOk`.
+
+### 3. ⭐ El set que NO empareja es `setsNoop` — decisión, y por qué NO es un `failures[]`
+
+Lo manda el contrato y **no había margen**: §M2-CS.2 anota literalmente el campo con el caso
+(`"setsNoop": 8, // corrieron, no escribieron nada (el set que no empareja)`), y §M2-CS.0 define
+`setsFailed` como «sets cuyo intento **lanzó**» y `failures[]` como «por set **fallido**». El set sin
+emparejar **no lanza**. Darle un `code` propio en `failures[]` habría exigido, además, **inventar un
+código** que ninguna excepción emitió — la prohibición explícita de §M2-CS.0.
+
+⚠️ **La necesidad legítima detrás de la pregunta sigue en pie y NO la resuelve este pase.** «No escribí
+porque ya estaba al día» y «no escribí porque no encontré el set» son **hechos distintos** y ambos caen
+hoy en el mismo `setsNoop`. **El contrato ya decidió dónde se distinguen: NO en el resumen del lote,
+sino por set** — es la columna de cobertura de §M2-CS.3, cuyo `I-PC4` le da al set sin estructura
+resuelta su **propia cara** (`pricedVariants: 0`, `variants: null` ⇒ «0 de —», «el set más roto del
+catálogo»). Si se quisiera además **en el `summary`**, sería un **desglose de `setsNoop`**, y §M2-CS.0
+sólo autoriza desglosar **`setsWritten`** ⇒ **cambio de contrato, decisión del arquitecto** (regla 9).
+Mientras tanto el `warn` por set ya lo dice en log (`corrió SIN escribir nada … ⇒ setsNoop`).
+
+### 4. Predicado de escritura de cada barrido
+
+- `refresh-variants-all`: `cardProductsUpserted > 0 || pricesUpserted > 0` (§M2-CS.2: «≥1 escritura,
+  variante o precio»). ⛔ **`pending` NO cuenta**: son variantes que quedaron **sin** precio, es decir
+  justo lo que **no** se escribió. Meterlo ahí resucitaría el defecto con otro nombre (hay candado).
+- `sync-all`: `outcome !== 'noop'`. `setsImported`/`setsRefreshed` quedan como **desglose** de
+  `setsWritten` (`I-CS5`), no como vocabulario paralelo.
+
+### 5. `setsOk` — DEPRECADO, congelado, y ahora **derivado**
+
+`setsOk === setsWritten + setsNoop`. Se emite **calculado en el getter**, no como contador propio: un
+campo congelado que se **deriva** no puede desviarse de su definición por mucho que el barrido cambie.
+**Congelar no es arreglar** — sigue sumando los `noop` a los buenos. ⛔ **Ningún consumidor puede
+usarlo para un veredicto**; el veredicto se calcula con `setsWritten`/`setsNoop`/`setsFailed`. Se
+**retira del shape en la rev siguiente**, cuando frontend confirme cero consumidores.
+
+### 6. ⚠️ Delta de shape para **frontend** (`docs/FRONTEND_NOTES.md` / `types/contract.ts`)
+
+**`GET /admin/catalog/refresh-variants-status` → `summary`** *(`RefreshVariantsSummary`)*
+- **GANA** `setsWritten: number` — ⭐ «cuántos toqué». **La cifra del veredicto.**
+- **GANA** `setsNoop: number` — corrieron sin escribir nada.
+- **CONSERVA** `setsOk: number` — ⛔ deprecado/congelado; **no usar para veredicto**; se retira en la rev siguiente.
+- **CAMBIA** `failures[].code: string` → **`string | null`** (`null` = el fallo no traía código; ⛔ no se inventa `UNKNOWN`). En la práctica esta ruta envuelve casi todo en `UPSTREAM_ERROR`, pero el tipo debe admitir `null`.
+- **PIERDE**: nada.
+
+**`GET /admin/catalog/sync-status` → `summary`** *(`SyncAllSummary`)*
+- **GANA** `setsWritten: number` (`I-CS5`: `setsImported + setsRefreshed === setsWritten`).
+- **CAMBIA** `failures[]` de `{setId, message}` a **`{setId, code, message}`** con `code: string | null`.
+- **PIERDE**: nada. ⛔ **No gana `setsOk`** (no se propaga el campo deprecado al hermano).
+
+**`POST /admin/catalog/sync` (respuesta de `sync` single/from_date) y `backfill`**
+- **GANAN** `setsWritten: number` (aditivo). `setsQueued` se conserva y ahora vale exactamente `setsWritten` — antes se recalculaba a mano como `setsImported + setsRefreshed` en **tres** llamadores.
+
+### 7. Tests
+
+- **NUEVO** `backend/test/catalog-sweep-reparto.spec.ts` — **17 tests**, el candado: el set que no
+  escribe no cuenta como tocado; `I-CS1` **con datos** (las tres categorías ≠ 0 en una sola corrida y
+  la suma cuadra con `done`); `I-CS3` (ninguna cifra `null`); `I-CS4`; `I-CS5`; `setsOk` congelado;
+  `failures[].code` nullable sin inventar; y **los dos barridos exponen las mismas claves de reparto**.
+- **ACTUALIZADO** `catalog-refresh-variants-all.spec.ts` — el test se llamaba *«resolver ⇒ null cuenta
+  como OK con ceros»* y afirmaba **sólo** `setsOk: 1`. **Ese nombre era el defecto**: ahora se llama
+  *«es setsNoop, NO un set tocado»* y afirma el reparto entero.
+- **ACTUALIZADO** `catalog-sync.honest-counters.spec.ts` — `failures[]` con `code`, más `I-CS1`/`I-CS5`.
+- **Suite completa: 266 suites / 4343 tests en verde.**
+
+### 8. Mutaciones (prueba de que el candado se puede poner rojo)
+
+Copia aislada en ruta propia **`scratchpad/backend-catalog-reparto-jcs/mutant-backend/`** (nombre único
+por el incidente de scratchpads borrados entre agentes), **borrada al terminar**. Base de la copia:
+**26/26 en verde** en las dos suites de catálogo afectadas.
+
+| # | Mutación (restaura el defecto) | Rojos | Quién muere |
+|---|---|---|---|
+| **M-1** | `refresh-variants-all`: `const wrote = true` — *el defecto original*: «no lanzó» ⇒ «salió bien», el noop vuelve a contar como tocado | **5 / 26** | el candado, `pending`-no-es-escritura, `I-CS1` con datos, «el resumen ya no puede decir todo bien», y el barrido completo |
+| **M-2** | `sync-all`: `recordSweepAttempt(summary, true)` — el mismo defecto, en el barrido **hermano** | **2 / 26** | el reparto simétrico de `sync-all` e `I-CS5` |
+
+⚠️ **El dato que importa de M-1:** `catalog-refresh-variants-all.spec.ts` —la suite que **ya existía**
+para este endpoint— se quedó **entera en verde** con el defecto restaurado. Es la demostración de que
+esa suite **nunca pudo cazar** este defecto: afirmaba `setsOk`, y `setsOk` vale lo mismo con el defecto
+y sin él (justo por estar congelado). El candado nuevo es lo único que lo detiene.
+
+---
+
+## §v1.66-CS.1 — El backend emitía `setsSkippedUndated` y el contrato manda `setsSkippedUnknownDate`; y las tres cifras de SELECCIÓN viajaban FUERA del `summary` (backend, 2026-09-10, bloqueante nº3 del techlead)
+
+**Rama:** `claude/tcg-hunt-orchestration-ai2vma`. **Ficheros:**
+`backend/src/modules/catalog/catalog-sync.service.ts`, `backend/test/catalog-sync.honest-counters.spec.ts`.
+⛔ **Cero DDL, cero endpoints nuevos, cero cambios de política.** Manda el contrato
+(`CLAUDE.md`, regla de conflicto).
+
+### Qué estaba mal, y por qué el candado era parte del problema
+
+1. **El nombre.** El backend emitía **`setsSkippedUndated`** (`catalog-sync.service.ts`, tres sitios).
+   `API_CONTRACT §M2-CS.1` y **§M2-CS.4** declaran **`setsSkippedUnknownDate`**. Ningún consumidor del
+   contrato podía leer el campo que el backend emitía: la cifra existía y era **invisible** — que es,
+   con otra cara, el defecto que §M2-CS.4 vino a cerrar (*«no se calla: se cuenta»*).
+2. **⚠️ Y el test fijaba el nombre equivocado** (`catalog-sync.honest-counters.spec.ts`, caso
+   *«syncAll lee el corte del dial y lo reporta junto a lo que dejó fuera»*). La suite de contrato
+   **aprobaba la divergencia**. Es la misma familia del candado que hoy se encontró bendiciendo
+   *«resolver ⇒ null cuenta como OK con ceros»*: **un candado que protege el defecto** no es cobertura,
+   es una firma. Por eso el arreglo del código y el del test van **en el mismo pase**: separarlos deja
+   una ventana en la que la suite sigue certificando lo contrario del contrato.
+3. **La colocación.** `fromReleaseDate` / `setsSkippedOutOfRange` / `setsSkippedUnknownDate` viajaban
+   **sólo** en el `202` de `POST /admin/catalog/sync-all`. §M2-CS.1 las declara **dentro de `summary`**
+   y dice por qué: *«la fuente canónica del registro de la corrida es este `summary`»* — el `202` las
+   **hace eco** al arrancar, el `summary` las guarda al terminar; **un cálculo, dos momentos**.
+   `SyncAllSummary` no las declaraba, así que quien leía `GET /admin/catalog/sync-status` **no podía
+   saber desde cuándo se barrió ni qué quedó fuera**, que es justamente la única explicación útil de un
+   `setsTotal` pequeño (y de un `SIN CAMBIOS`, §M2-CS.0).
+
+### Qué se hizo
+
+- **Renombrado en el emisor y en el cubo interno**: `undated` → `unknownDate`, `setsSkippedUndated` →
+  `setsSkippedUnknownDate` (`selectSyncAllCandidates`, el `warn`, el `202` y el `summary`). El nombre
+  interno se alineó **a propósito**: un cubo que se llama distinto del campo que produce es el desnivel
+  por el que el nombre inventado sobrevivió tres revisiones.
+- **`SyncAllSummary` gana las tres cifras de SELECCIÓN**, documentadas como tales (⛔ no son cifras de
+  escritura: no abren la frase de un aviso —H3— y **no entran en `setsTotal`**).
+- **`SyncAllSelection`**: tipo nuevo, calculado **una sola vez** en `syncAll()` y copiado a los dos
+  sitios (`202` y `summary`). Que sea **un tipo** y no tres parámetros sueltos es lo que impide que el
+  eco y el registro canónico se desincronicen (`ARCHITECTURE §0-B.3` regla 8). El `202` ya no recalcula
+  nada: hace `...selection`.
+- **`emptySyncAllSummary(selection?)`**: la selección entra al arrancar (se conoce antes de encolar).
+  El parámetro es opcional **sólo** para el camino en que `runSyncAll` se invoca **directamente** (job
+  interno / test) sin pasar por `syncAll` — camino **no alcanzable desde el endpoint** —, y ahí
+  `fromReleaseDate` queda `''`: **no hubo selección que reportar y no se inventa una fecha**
+  (§M2-CS.4).
+
+### Candado y su mutación
+
+`test/catalog-sync.honest-counters.spec.ts` — el caso existente corregido al nombre del contrato, más
+`Object.keys(res)).not.toContain('setsSkippedUndated')` (⛔ el nombre viejo no vuelve como «alias de
+compatibilidad»), más un caso nuevo: *«las TRES cifras de selección viven DENTRO del summary, y el 202
+es su ECO exacto»*.
+
+Mutación sobre **COPIA** del árbol en el scratchpad (ruta única de este pase; el árbol vivo no se toca):
+
+| Mutación | Resultado |
+|---|---|
+| **A** — volver a emitir `setsSkippedUndated` (nombre del defecto) | 🔴 la suite **no compila**: `TS2551` en dos aserciones, *«Did you mean 'setsSkippedUndated'?»* |
+| **B** — reintroducir el nombre viejo como **alias** en el `202` (tipos válidos) | 🔴 **1 rojo**: *«syncAll lee el corte del dial…»* — lo caza el `Object.keys` |
+| **C** — devolver la selección **sólo** al `202` (`summary` sin ella) | 🔴 **1 rojo**: `summary.fromReleaseDate` esperado `2024/01/01`, recibido `""` |
+| Con el arreglo | 🟢 **17/17** en el fichero |
+
+### Frontend: NO consume el nombre viejo (medido)
+
+`grep -rn "setsSkipped\|SyncAllSummary" frontend/src` ⇒ **cero apariciones**. La única coincidencia
+cercana es `frontend/src/lib/api.ts:4053`, que es el **`fromReleaseDate` de entrada** de
+`syncCatalog({ fromReleaseDate })` (el parámetro de `POST /admin/catalog/sync`), **no** el campo de
+respuesta. ⇒ el renombrado **no rompe a frontend** y no hubo que enrutar nada.
+
+### Lo que este pase NO hizo, a propósito
+
+- **§M2-CS.4 entero** (corte automático `hoy − VENTANA`, retiro del dial `catalog_sync_from_date` y su
+  fila) **sigue pendiente**: es un cambio de política con migración y compuerta de medición propia, y
+  no cabe en un arreglo de nombre. `resolveCatalogFromDate()` sigue siendo la costura donde aterriza.
+- El **`fromReleaseDate` del `summary` ya está cableado**, así que cuando el corte pase a automático la
+  corrida ya reporta **cuál corte la rigió** sin tocar ningún llamador.
+
+---
+
+## §v2.2-PP.1 — `providerFor()` pasa a **FAIL-CLOSED**, y el `throw` **no viaja solo** (backend, 2026-09-10; CS-D8 · `API_CONTRACT §M10-PP · I-PP4`)
+
+> ⚠️ **Dos agentes independientes señalaron esto el mismo día**: backend lo anotó como `CS-D8` en
+> `docs/TECH_DEBT.md`, y **QA lo elevó** al medir que el test que lo cubría **defendía la conducta
+> prohibida**. Dejó de ser una duda.
+
+### Qué decía el contrato y qué hacía el código
+
+`API_CONTRACT §M10-PP · I-PP4`: *«⛔ **No hay caída automática a otro proveedor**: fallar es
+fail-closed; aplanar es una pérdida irrecuperable»*. `price-ingest.service.ts` hacía, ante un dial
+fuera del enum, `logger.warn(...)` **+ `return this.tcgIoBulk`** — caída automática **al proveedor que
+APLANA** (un `market` por carta ⇒ `normal`/`reverse_holo`/`holofoil` al mismo precio). ⇒ la conducta
+que el `warn` defendía era **repreciar el catálogo entero a la baja, en silencio, con un `200`**.
+
+**Y el test era la mitad peor del hallazgo.** `test/price-ingest.service.spec.ts` tenía un caso
+llamado *«dial desconocido → **fallback money-safe** a pokemontcg_io (**legacy**)»*: **la misma frase
+que `D-PP-1` acaba de retirar de `settings.constants.ts`**, porque `§M10-PP · I-PP1` declara que
+`pokemontcg_io` ⛔ *«ya no se describe como el seed money-safe»* — precisamente por escribir precios
+aplanados. La frase sobrevivía en el test que guarda la ruta del dinero, que es el peor sitio donde
+puede sobrevivir una afirmación falsa: **un rojo que defiende el defecto le cuesta al siguiente mucho
+más caro que el defecto solo.**
+
+### Qué se hizo
+
+1. **`providerFor()` lanza `UnknownPriceProviderError`** (exportada desde el mismo módulo) en vez de
+   devolver el legacy. El mensaje nombra **el valor corrupto** y **la palanca de corrección**
+   (`PUT /api/v1/admin/settings { priceProvider }`, `I-PP3`).
+2. **Es un `Error` pelado, ⛔ no una `BusinessException`, y es deliberado.** Ningún código de
+   `API_CONTRACT §0` nombra este caso; tomar uno prestado (`GRADED_CONFIG_INVALID` está a un palmo y
+   es de **otra** clave) sería ampliar por mi cuenta el alcance de un código del contrato. **Si el
+   arquitecto decide que este fallo merece `code` propio, se añade allí primero (regla 9).** El único
+   camino HTTP que lo alcanza —`POST /admin/jobs/price-ingest { setId }`— lo sirve el filtro global
+   como **`500 INTERNAL`**, que es la verdad: la fila de config está corrupta y el operador no puede
+   corregirlo desde ese request.
+3. **⭐ El `throw` estampa `syncStatus.lastError`** (`markProviderFailure`) — ver el apartado siguiente,
+   que es la razón de que este punto exista.
+4. **El test se invirtió** y ganó dos hermanos: uno en negativo (*no devuelve **ningún** proveedor*) y
+   otro sobre **la señal**.
+
+### ⚠️ La medición que obligó al punto 3: qué pasa en PRODUCCIÓN si esa rama se alcanza con un `throw`
+
+La pregunta era *¿muere solo ese set, muere el job entero, hay reintento?*. Medido sobre el código que
+corre:
+
+| Disparo | Dónde sale el `throw` | Qué muere | Reintento | Señal **sin** el punto 3 |
+|---|---|---|---|---|
+| **cron 2×/día con Redis** (prod) | `run()` → `enqueueAllSets()` → `listSetIdsForIngest()` | **el barrido ENTERO**, y **ni un child se encola** | ⛔ **ninguno**: el job repetible se añade con `repeat()`, que **no fija `attempts`** ⇒ BullMQ usa **1**. Siguiente intento = **el siguiente cron, 12 h después** | 1 línea `error` del listener `failed`; **`sync-status` seguía mostrando la corrida BUENA anterior con `lastError: null`** |
+| **`run()` sin Redis** | `ingestAll()` | el barrido entero | ninguno | ⛔ **ninguna**: el `throw` precede a la reinicialización de `syncStatus`, así que el `catch` que puebla `lastError` **no se alcanza** |
+| **`runBackground()`** — botón «sincronizar ahora» (N-11) | `ingestAll()` dentro de `void … .catch(logger.error)` | el barrido entero | ninguno | ⛔ **la peor**: el operador ya tiene su **`200 { background: true }`** y **la barra nunca se mueve**. Cero señal en la UI |
+| **child `price-ingest-set`** | `ingestForSet()` | ese set | **sí**: `attempts: 3` + backoff exponencial | ruidosa |
+| **`POST /admin/jobs/price-ingest { setId }`** | `ingestSetByExternalId()` | ese request | n/a | ruidosa (`500`) |
+| **catch-up al boot** | encola `price-ingest` → rama del cron | el barrido entero | **de facto sí**: `hasRecentIngest()` sigue en `false` ⇒ **cada arranque vuelve a encolarlo** (dedup por día) | la del cron |
+
+⇒ **Conclusión, dicha entera:** el `throw` **a secas** cambiaba *«escritura silenciosa y MALA»* por
+*«NO-escritura silenciosa»*. Mejor para el dinero —no se escribe un solo precio aplanado— pero **igual
+de muda**, y tumbando el barrido nocturno sin avisar a nadie durante 12 h por ciclo. **Eso es un modo
+de fallo distinto, no necesariamente mejor**, y por eso el `throw` va acompañado del estampado en
+`syncStatus.lastError`, que aterriza en `GET /admin/pricing/sync-status` — **la superficie que el
+operador ya pollea**. ⛔ **No se añadió aislamiento por set**: no aplica. El fallo es de la **fila de
+config**, es idéntico para los N sets, y aislar por set convertiría un fallo en N fallos del mismo.
+
+### Alcanzabilidad: **sin cambio**, y por eso el cierre es barato
+
+La medición (d)/(e) de `CS-D8` sigue valiendo: **ningún camino de código de este repo** puede dejar un
+valor fuera del enum en `ConfigSetting.price_provider` (la puerta de **escritura** la guarda
+`SETTING_VALIDATORS`). ⇒ **este cambio no altera ninguna conducta observable hoy**; convierte el día
+que deje de serlo en un fallo ruidoso. **Residual que este pase NO cierra:** la **lectura** de los
+diales sigue sin validar (`SettingsService.get()` devuelve `row.valueJson` tal cual). Queda
+recomendado como follow-up (validar en la lectura los diales de clase (A)); **sin dueño asignado**.
+
+### Candados y su mutación (sobre copia, `npm test`, 266 suites)
+
+Base: **4348/4348 verde**.
+
+| Mutación | Rojos |
+|---|---|
+| Restaurar `logger.warn(...) + return this.tcgIoBulk` (la conducta que `I-PP4` prohíbe) | **3** |
+| Dejar el `throw` pero **quitar** `markProviderFailure` (fail-closed **mudo**) | **1** |
+
+Los dos candados son **independientes**: uno afirma la conducta, el otro afirma que se ve.
+
+---
+
+## §v2.2-CS.1 — MUT9 (`sweepFailureCode`): **el candado ya existía; lo que sobrevivía era un mutante EQUIVALENTE** (backend, 2026-09-10, medido)
+
+**Refutación con medición, no opinión.** QA reportó que mutar
+`backend/src/modules/catalog/set-sweep-tally.ts:103` para inventar `'UNKNOWN'` dejaba **4343/4343 en
+verde**, es decir *«la norma está escrita y el candado no existe»*. **Medido dos veces, la segunda con
+`npx jest --clearCache`: no reproduce.**
+
+| Mutación | Rama | Resultado |
+|---|---|---|
+| `… ? String(error.code) : 'UNKNOWN'` | **`else`** (el error **sin** código — la que la norma vigila) | 🔴 **3 rojos / 2 suites**, ya **antes** de este pase (`test/catalog-sweep-reparto.spec.ts` y `test/catalog-sync.honest-counters.spec.ts`) |
+| `… ? String(error.code ?? 'UNKNOWN') : null` | **`then`** (la `BusinessException`) | 🟢 **4344/4344 verde** |
+
+⇒ **La que sobrevivía es la del `then`, y sobrevive porque es un MUTANTE EQUIVALENTE**:
+`BusinessException.code` es `public readonly code: ErrorCodeType`, **parámetro requerido del
+constructor** (`src/common/business.exception.ts:11`) ⇒ **nunca es nullish** y el `??` **no puede
+dispararse jamás**. Ningún test puede matarla, y **ninguno debería intentarlo**: hacerlo exigiría
+fabricar una `BusinessException` ilegal. *Un mutante equivalente que sobrevive no es un candado que
+falta; es un mutante que no debió contarse.* (La cifra `4343` vs. las `4344` de mi árbol es un commit
+de deriva: el candado entró en `59ff97f`, once commits atrás.)
+
+⚠️ **Y por eso ese `?? 'UNKNOWN'` NO se queda en el código**, aunque sea inalcanzable: planta **el
+literal exacto que la norma prohíbe** dos líneas debajo del comentario que dice `⛔ No se inventa un
+código (§M2-CS.0)`, y el siguiente que lo lea concluye que inventar `'UNKNOWN'` es la conducta de la
+casa. Se usó **solo como sonda de medición sobre copia** y se revirtió.
+
+**Lo que sí se hizo: reforzar el candado del `else`**, que era correcto pero estrecho.
+`test/catalog-sweep-reparto.spec.ts` gana dos casos:
+
+- **el ayudante** con los seis errores planos que separan las dos conductas —`Error`, **`TypeError`**
+  (el que llega de una librería), un `throw` de string, un objeto, `null` y `undefined`— aseverando
+  `null` **y** enumerando los rellenos por su literal: los dos que la norma nombra (`'UNKNOWN'`,
+  `'UPSTREAM_ERROR'`) **más `'undefined'`**, que no nombra nadie y es el que saldría solo de un
+  `String(...)` descuidado, rematado con `typeof !== 'string'` (mata **cualquier** relleno, incluido
+  uno que a nadie se le ha ocurrido);
+- **el llamador** (`recordSweepFailure`), porque el relleno puede reaparecer ahí
+  (`code: sweepFailureCode(e) ?? 'UNKNOWN'`) sin tocar el ayudante.
+
+⚠️ **La trampa que estos casos existen para evitar:** en el camino feliz —una `BusinessException` con
+su `code`— la norma y el defecto **dan el mismo resultado**, así que un test que solo mire ese camino
+pasa con y sin el defecto y **no blinda nada**. **El caso que las separa es un error PLANO.**
+
+**Mutación (sobre copia), con el candado reforzado:** base **4348/4348**.
+
+| Mutación | Rojos |
+|---|---|
+| `else` → `'UNKNOWN'` (ayudante) | **5** (eran 3) |
+| `code: sweepFailureCode(error) ?? 'UNKNOWN'` (llamador) | **4** |
+
+⛔ **Producción NO se tocó**: `set-sweep-tally.ts` sale de este pase **byte a byte como entró**. Lo que
+faltaba era cobertura, no conducta.
+
+---
+
+## §v2.2-BL.1 — `recomputeApprovedTotal` **YA ESTABA CERRADO**: confirmado con la medición y con fecha (backend, 2026-09-10)
+
+**Veredicto: CERRADO. Que nadie más lo persiga.** Se venía citando como defecto vivo *(«reescribe
+`approvedTotalCents` sobre una fila ya pagada y mueve el acumulado AML retroactivamente a la baja»)*.
+Ya no lo es, y esto es lo que hay en el árbol hoy (`buylist.service.ts:6497`):
+
+- la escritura es un **`updateMany` con `this.liveRequestWhere()`** —⛔ no un `update({ where: { id } })`—
+  así que **no puede tocar una fila cerrada**;
+- si el guard no casa (`guard.count !== 1`) **deja aviso** (`recomputeApprovedTotal: … ya no está
+  viva; el total aprobado NO se reescribe`), de modo que la carrera es **visible** en vez de silenciosa;
+- **⚠️ no lanza, y es deliberado**: es un derivado *best-effort* **post-commit** de una decisión que ya
+  prosperó legítimamente. El **no-op ES el resultado correcto** — en una solicitud cerrada el total
+  congelado es exactamente el que se pagó (§4.18f ancla la norma de `brutoConsumado` justo ahí).
+
+**Fecha y lugar del cierre, medidos con `git`:** entró en **`3b2fc87`, 2026-09-06** (*«fix(backend): la
+invariante que faltaba en dos verbos, y el segundo SPEI que salía por ahí»*), verificado con
+`git log -S` sobre el literal del aviso. Ese commit es **ancestro del merge-base** (`5f05b08`) de la
+rama actual ⇒ **el cierre es anterior a todo el trabajo de este stream** y no depende de él.
+
+---
+
+## §v2.2-SEC.2 — `P-UP-1` + `S-88-2` + `S-88-4`: el tope que elegía el cliente, la clave que estaba en el repo, y los dos literales del arnés (backend, 2026-09-10)
+
+> **Las dos condiciones de backend del veredicto RECHAZADO de seguridad (`SECURITY_NOTES` §7.2 y §7.3),
+> más el residual `S-88-4` que era mío.** El hilo común es el mismo de `P-WH-1` (§v2.2-SEC.1):
+> **la protección colgaba de algo que puede faltar, y la ausencia degradaba en silencio a algo que no
+> protege.** Aquí la ausencia era, respectivamente, un campo del cuerpo, una variable de entorno y un
+> secreto de CI.
+
+### 1. `P-UP-1` — el tope de tamaño del presign lo elegía quien lo quería evadir
+
+**Hallazgo (pentester MEDIA, confirmado por seguridad §3.4).** `uploads.service.ts` validaba contra
+`KYC_UPLOAD_MAX_BYTES` **solo si el cliente mandaba `contentLength`**, y firmaba con
+`...(contentLength !== undefined ? { ContentLength } : {})`. **Omitiendo el campo** salía una URL
+prefirmada con `UNSIGNED-PAYLOAD` y **sin cota**: PUT de tamaño arbitrario al bucket que guarda fotos
+de INE. *El candado lo activaba el atacante.*
+
+**Lo que medí ANTES de elegir el mecanismo** (la pregunta era: ¿obligatorio rompe algún cliente?):
+
+| Llamador | ¿Manda `contentLength`? | Evidencia |
+|---|---|---|
+| **Frontend (único cliente de producción)** | **SIEMPRE** | `frontend/src/components/ui/PhotoUploader.tsx:149-153` lo calcula del blob YA comprimido y lo manda en las tres ramas |
+| `frontend/src/lib/api.ts:1893` (`presignUpload`) | lo expone como opcional, pero su **único** llamador es el de arriba | `git grep presignUpload frontend/src` → 1 llamador real |
+| `backend/test/uploads.presign.spec.ts` | lo omitía en 6 llamadas | mías; actualizadas |
+| `backend/test/integration/infra-smoke.e2e-spec.ts` (smoke de MinIO) | lo omitía | mío; actualizado |
+
+⇒ **Ningún cliente de producción se rompe.** Los únicos que omitían el campo eran mis propios tests.
+
+**Alternativa descartada: cota del lado del almacenamiento.** La condición `s3:content-length-range`
+existe para el **POST-policy de formulario**, no para un **PUT prefirmado**, que es el método que
+declara el contrato §8; y la política del bucket es de **devops**. No sirve como candado *de este
+endpoint*. **`[NO MEDIDO]` contra R2**: no lo probé contra el bucket real — pero el arreglo no depende
+de ello.
+
+**Qué cambió.** `contentLength` pasa a **obligatorio** y la cota se **fija SIEMPRE** en la firma:
+- ausente/`null` ⇒ `422 VALIDATION_ERROR` (misma forma que `purpose`, contrato §8; se deja
+  `@IsOptional()` en el DTO **a propósito** para que el 422 lo emita el servicio y no el `400` del
+  `ValidationPipe`);
+- no entero, `<= 0`, o `> maxBytes` ⇒ `422` (como antes, pero ahora sin rama que lo esquive);
+- todo presign que **sí** sale lleva `ContentLength` en el `PutObjectCommand` **y** el header
+  `Content-Length` exacto en la respuesta ⇒ S3/R2 rechaza cualquier cuerpo de otro tamaño.
+
+> ### ⚠️ DISCREPANCIA CON EL CONTRATO — no la arreglo yo (regla 9)
+> `docs/API_CONTRACT.md:8767` declara `Req: { purpose: "kyc_ine", contentType: string }`.
+> **`contentLength` no aparece en el contrato**, ni como opcional. Con este arreglo, un cliente
+> literal al contrato recibe `422`. **La corrección del documento le toca al arquitecto**; yo no
+> toco el contrato. Lo que hay que decidir ahí (dos cosas, ambas drift preexistente):
+> 1. `Req` pasa a `{ purpose: "kyc_ine", contentType: string, contentLength: number }` + el `422` por
+>    ausencia;
+> 2. `Res 200` ya devuelve **`maxBytes`** (y `headers` poblado con `Content-Type`/`Content-Length`),
+>    que el contrato tampoco documenta — el frontend ya lo consume como fuente de verdad del tope
+>    (`PhotoUploader.tsx:155`, `presign.maxBytes ?? maxBytes`).
+
+### 2. `S-88-2` — las claves de PII colgaban de `NODE_ENV`, y la ausencia degradaba a una clave del repo
+
+**Hallazgo (seguridad, MEDIA→ALTA).** `PiiCryptoService`, sin `PII_ENCRYPTION_KEY` y con `NODE_ENV`
+∈ {`development`, `test`, `local`, **ausente**}, derivaba `sha256('local-dev-pii-encryption-key')` y
+seguía con un `warn`. Esa cadena **está en este repositorio, que es público**: seguridad descifró una
+CLABE sintética usando solo el literal. Idéntico para `PII_HMAC_KEY` (el blind index dejaba de ser
+ciego). Y `env.validation` **entera** no exigía **nada** con `NODE_ENV` ausente — que es justamente lo
+que hace `npm run start:prod` (`node dist/main.js`).
+
+**Es la misma clase que `P-WH-1`, y se arregla con la misma cirugía**, manteniendo la asimetría que
+importa (confundir estos dos casos rompe el arnés sin cerrar nada):
+
+| Hecho | ¿Permitido? | Dónde se decide |
+|---|---|---|
+| **«Este proceso no tiene claves de verdad»** (arnés local/CI, datos sintéticos y desechables) | **SÍ.** Arranca sin configurar nada. | `keysRequired()` devuelve `false` ⇒ clave efímera |
+| **«Protejo PII con una clave derivable de un repo público»** | **NUNCA**, en ningún entorno. | Ya **no existe** esa clave |
+
+**Dos mecanismos independientes:**
+
+1. **El respaldo dejó de ser derivable.** Sin claves configuradas se genera `randomBytes(32)`
+   **efímera por PROCESO** (estática, compartida por todas las instancias del proceso: el arnés
+   construye una `PiiCryptoService` por spec y tiene que entenderse consigo mismo). Ninguna cadena
+   del repo abre nada, **con cualquier `NODE_ENV`**. Y como muere con el proceso, un entorno con
+   datos **reales** que olvide las claves **falla ruidoso** al leer la primera fila existente (GCM no
+   autentica) en vez de seguir «cifrando» con una clave publicada.
+2. **La exigencia cuelga del HECHO, no de `NODE_ENV`.** Las claves son obligatorias si:
+   (a) `NODE_ENV` es no-local; (b) **`NODE_ENV` falta** — la ausencia ya no relaja: solo los tres
+   valores locales **explícitos** cuentan como arnés; o (c) hay una clave Stripe **LIVE**
+   (`sk_live_`/`rk_live_`): si se cobra dinero real hay personas reales, y su CLABE/RFC no puede
+   depender de qué diga `NODE_ENV`. *(Este es el gemelo exacto del «¿hay `STRIPE_SECRET_KEY`?» de
+   §v2.2-SEC.1, ajustado al hecho relevante aquí.)*
+
+**Por qué (c) mira `sk_live_` y no «hay Stripe»** — medido antes de escribirlo: `ci.yml` exporta una `STRIPE_SECRET_KEY` de **prueba** (`sk_test_…`) y `e2e.yml` usa la clave de
+**prueba** real de Stripe, y **ninguno de los dos carga claves PII** (`git grep PII_ .github/` → **0
+resultados**, medido hoy). Un «hay Stripe ⇒ exige PII» habría puesto en rojo los dos gates de CI sin
+cerrar nada. Esa era la trampa de la asimetría.
+
+**`env.validation.ts`, misma familia:** `isLocal` pasa de `nodeEnv === undefined || LOCAL_ENVS.has(...)`
+a `nodeEnv !== undefined && LOCAL_ENVS.has(...)`. **La ausencia falla CERRADA.** Medido antes de
+cambiarlo: **todos** los arranques del arnés fijan `NODE_ENV` explícitamente — `ci.yml`/`e2e.yml` → `NODE_ENV: test`,
+`docker-compose.yml`/`scripts/stack-native.sh` → `development`, `Dockerfile.backend` → `production`,
+jest → `test` por defecto. Ninguno se rompe. Y `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` entran a la lista
+de requeridas en no-local: **esto no añade ningún fallo nuevo** (`PiiCryptoService` ya abortaba solo en
+no-local — ver el test *«en NO-local, FALLA claro si faltan las claves»*, que es anterior a este pase),
+solo lo adelanta al arranque y nombra las dos de una vez.
+
+**Verificación del ciclo, no solo de la suite.** `ts-node -e "require('./test/integration/helpers/e2e-app')"`
+**sin `NODE_ENV`** hoy aborta con
+`Missing required env vars: DATABASE_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, STRIPE_SECRET_KEY, APP_BASE_URL, RESEND_API_KEY, PII_ENCRYPTION_KEY, PII_HMAC_KEY`.
+Ese arranque —el de `npm run start:prod`— es exactamente el que antes pasaba **sin exigir nada**.
+
+> ### ⚠️ Para devops / el dueño, antes del próximo deploy
+> **Esto NO cambia el comportamiento de un `NODE_ENV=production` bien configurado**, ni añade una
+> exigencia que no existiera ya (`PiiCryptoService` abortaba igual, solo que más tarde y de una en
+> una). **Lo que sí cambia**: un servicio desplegado **sin `NODE_ENV`** ahora **no arranca** hasta
+> tener el set completo. Es el fallo que se pidió. Ref: `SECURITY_NOTES` §6.2 — las Variables de
+> Railway (¿`NODE_ENV`? ¿`PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` cargadas?) siguen siendo una pregunta
+> abierta del dueño, y ahora la respuesta se manifiesta como *«arranca o no arranca»* en vez de como
+> *«arranca y no cifra»*.
+
+### 3. `S-88-4` — los dos `whsec_…` con la forma `|| 'literal'` eran míos: **se retiran**
+
+`test/integration/setup.ts` y `test/integration/helpers/e2e-app.ts` tenían
+`process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e_test_secret'`. No viajan al artefacto —severidad
+BAJA, y no cambian `P-WH-1`— **pero son el patrón exacto** (*el literal público gana cuando falta el
+de verdad*) **en el fichero que decide si un test de dinero es válido**, y seguridad midió que el
+preflight de devops **no los caza** (`sk_live_…` + `whsec_e2e_test_secret` → **PASA**).
+
+**Decisión: se retiran. Ninguna razón para quedarse.** Lo único que aportaban era estabilidad del
+secreto dentro de la corrida, y eso se consigue sin publicar nada:
+- `setup.ts` genera un secreto **EFÍMERO ALEATORIO por corrida** (`whsec_${randomBytes(24).hex}`) si
+  no hay uno real. Irrepetible, nunca publicado, y **estable dentro del proceso** — que es todo lo que
+  la suite necesita: `maxWorkers: 1` y la app se levanta **en ese mismo proceso** desde `e2e-app.ts`,
+  así que firmante y verificador comparten `process.env`. Es la misma solución que devops ya aplicó en
+  `ci.yml`/`e2e.yml` con `webhook-secret-preflight.sh`.
+- `webhookSecret()` **lanza** si no hay secreto, en vez de devolver el literal. La ausencia ahí solo
+  puede significar que alguien usó el helper fuera de la suite de integración; eso debe explotar, no
+  firmar con una clave commiteada. Verificado: sin la variable ⇒ `Error: STRIPE_WEBHOOK_SECRET no está
+  definido…`; con ella ⇒ la devuelve tal cual.
+
+**Lo que NO se retira, y por qué.** `git grep whsec_ backend/` deja `whsec_un_secreto_de_verdad_para_la_suite`
+(`test/payments.webhook-empty-secret.spec.ts`) y `whsec_x` (mismo fichero y `test/env.validation.spec.ts`).
+**No son la misma forma:** son constantes locales que el mismo test usa para **firmar Y verificar**, o
+un relleno para comprobar que una variable «está presente». Nunca se leen del entorno, así que
+**no existe el caso «el literal gana porque falta el de verdad»** — que es el defecto, no la cadena.
+Retirarlas no cerraría nada y le quitaría al test su control positivo.
+
+### Medición (⚠️ toda la mutación sobre **COPIA**, `…/scratchpad/be-sec-uploads-pii/mut`; el árbol vivo nunca se mutó)
+
+Línea base de la copia, verificada antes de mutar: **267/267 suites, 4419/4419 tests** — idéntica al
+árbol vivo *(con `docs/` y `backend/prisma/` enlazados en la copia: sin eso, 5 tests de paridad
+documental fallan **por la copia**, no por el código, y habrían contaminado cada cuenta)*.
+
+| Mutación (restaurada sobre la copia) | Rojos |
+|---|---|
+| **M-UP-1** · el defecto original completo: `contentLength` opcional en validación, firma y header | **2** / 4419 |
+| **M-UP-2** · se quita `ContentLength` de la firma (validación intacta) | **4** / 4419 |
+| **M-UP-3** · se quita el chequeo contra `maxBytes` | **4** / 4419 |
+| **M-PII-1** · `process.env.NODE_ENV ?? 'development'` (la ausencia vuelve a ser local) | **2** / 4419 |
+| **M-PII-2** · vuelve el respaldo **derivable del repo** (`sha256('local-dev-pii-…')`) | **2** / 4419 |
+| **M-PII-3** · se cae la señal de Stripe **LIVE** | **1** / 4419 |
+| **M-ENV-1** · `env.validation`: `NODE_ENV` ausente vuelve a ser local | **3** / 4419 |
+| **M-ENV-2** · las claves PII salen de la lista de requeridas | **3** / 4419 |
+
+Tests nuevos: **+37** (`uploads.presign` 20→32 incl. una **invariante barrida** de 12 formas de
+`contentLength` que exige *«o 422, o firma acotada»*; `pii-crypto` 10→24; `env.validation` 9→15), más
+el candado extremo-a-extremo de `P-UP-1` en `test/integration/infra-smoke.e2e-spec.ts` (omitir
+`contentLength` ⇒ **422** por HTTP real, atravesando DTO + controller + servicio).
+
+**Suites:** unitarios **4419/4419 verde** (267 suites); `tsc --noEmit` **limpio**; `lint` **0 errores**
+(2 warnings preexistentes en `inventory.service.ts`/`sealed-product.service.ts`, ajenos).
+**`[NO MEDIDO]`: la suite de integración/E2E.** No hay Postgres ni Redis en este entorno
+(`pg_isready` → *no response*, `redis-cli ping` → *connection refused*); la corre CI/QA. Los tres
+ficheros que toqué ahí compilan (`tsc` cubre `test/**/*`) y el helper se probó por separado.
+
+### Nota de estado, con su fecha de medición (para que nadie mande a rehacer lo hecho)
+
+- **Las claves de PRUEBA de Stripe SÍ están cargadas.** `[REPORTADO por el orquestador el 2026-09-10,
+  no medido por mí]`: llevan tres días en los secrets de GitHub y el gate de dinero corrió **hoy en
+  modo REAL** (run `34477885121`, `MONEY_SKIPPED` **vacío**). Y `[MEDIDO por mí, 2026-09-10]`:
+  **este documento nunca afirmó que faltaran** — `grep -i "clave de prueba\|STRIPE_TEST\|MONEY_SKIPPED"
+  docs/BACKEND_NOTES.md` → **0 coincidencias**. No hay nada que corregir aquí; se deja escrito para que
+  la próxima lectura no lo dé por pendiente.
+- **El dueño confirmó que su tienda SIEMPRE ha estado en modo prueba y NUNCA ha transaccionado**
+  `[REPORTADO, no medido por mí]` ⇒ no hubo ventana de exposición con dinero real por `P-WH-1`.
+
+---
+
+## §v2.2-SEC.1 — `P-WH-1`: la firma del webhook de Stripe **falla CERRADA** en todos los entornos (backend, 2026-09-10)
+
+**Hallazgo (pentester, ALTA, explotado LIVE-DB).** `stripe.service.ts:constructEvent` hacía
+`config.get('STRIPE_WEBHOOK_SECRET') ?? ''`. Con el secreto ausente eso **no apaga** la verificación:
+la **degrada a una clave vacía**, que cualquiera puede computar. El pentester forjó un
+`payment_intent.succeeded`, dejó el pedido `settled` y movió la carta a `in_custody` /
+`ownershipStatus='settled'` en la bóveda del comprador — **sin cobro**. El guard H1 de monto/moneda no
+frena nada: el forjador **escribe el payload**. Y el fail-fast de arranque solo miraba
+`NODE_ENV==='production'`, así que **cualquier otro entorno con Stripe cableado era forjable**.
+
+Es exactamente la familia que este proyecto persigue: **un candado que no se puede poner rojo**. No
+había excepción, ni log, ni 4xx — había un **200** y un pedido liquidado.
+
+### La distinción que gobierna el arreglo
+
+Son **dos hechos distintos** y confundirlos rompe el arnés sin cerrar el agujero:
+
+| Hecho | ¿Permitido? | Dónde se decide |
+|---|---|---|
+| **«No hay proveedor de pago»** (local/CI sin Stripe) | **SÍ.** La app arranca; todo lo que no cobra funciona. | `onModuleInit` (avisa y sigue) |
+| **«Acepto cualquier firma»** | **NUNCA**, en ningún entorno. | `constructEvent` (lanza) |
+
+### Qué cambió
+
+1. **`constructEvent` — fail-closed incondicional (la barrera real).** Sin secreto utilizable
+   (`undefined`, `''` o **solo espacios** — `!config.get(k)` no veía el tercero) **no se llama al SDK**:
+   se lanza `StripeWebhookSecretMissingError`. Sin entornos exentos: ni dev, ni test, ni CI. Si algún
+   día hace falta un webhook en un entorno sin Stripe, la respuesta es **poner un secreto ahí**, no
+   bajar el listón.
+2. **`webhooks.controller` — 503, no 400.** Se distingue **por clase**, no por mensaje (el texto de
+   `StripeSignatureVerificationError` lo controla el SDK):
+   - firma inválida ⇒ **400** (contrato §9, sin cambio);
+   - **secreto ausente ⇒ 503**. Un 400 mentiría dos veces: marcaría un defecto de configuración
+     **nuestro** como error del cliente —enterrándolo justo entre el ruido de firmas forjadas— y
+     clasificaría como basura un `payment_intent.succeeded` **legítimo** que llegara con la config
+     rota. Con 5xx, **Stripe reintenta hasta 3 días**: el evento **sobrevive** al arreglo y la orden se
+     liquida cuando aparece el secreto. Sí, eso es un **bucle de reintentos** mientras la config esté
+     mal — es el modo de fallo **querido**: ruidoso, retenido y reversible, frente a silencioso y con
+     el dinero perdido. El mensaje al cable es **genérico** (no se le confirma a un atacante el estado
+     de nuestra config); el detalle va al log de `StripeService` en `ERROR`.
+3. **Arranque: fail-fast por «hay Stripe», no por «es producción».** `onModuleInit` ya **no** se
+   condiciona a `NODE_ENV`, sino a `STRIPE_SECRET_KEY` presente. Con Stripe cableado, el secreto de
+   webhook es obligatorio en **staging/dev/CI igual que en producción**.
+   **¿Por qué no basta con el punto de uso, y por qué no basta con el arranque?** El punto de uso es la
+   **barrera** (decide en el instante en que se acepta o no dinero, y cubre el entorno sin Stripe, que
+   el arranque deja pasar a propósito). El arranque es **feedback**: convierte un fallo que se
+   descubriría con el primer pago real en un fallo de despliegue. Ninguno sustituye al otro; el
+   arranque **solo**, que es lo que había, es justo lo que falló.
+
+### Medición (⚠️ todo sobre **copia**, `…/scratchpad/backend-pwh1/mut`; producción del árbol vivo intacta)
+
+| Mutación (restaurada sobre la copia) | Rojos |
+|---|---|
+| `constructEvent` → `?? ''` (el defecto original) | **11/34** unitarios · **1/3** E2E |
+| `onModuleInit` → `if (!this.isProduction()) return;` | **11/34** unitarios |
+
+Con la mutación `?? ''`, el E2E **reprodujo el exploit**: `HTTP 200` y pedido liquidado con firma de
+clave vacía. Con el árbol arreglado, **503** y la BD sin moverse (2 corridas verdes, la segunda partiendo
+del estado que dejó la corrida explotada ⇒ el spec es idempotente vía `seedE2E`).
+
+**El caso que importa no es la línea, es el ataque.** `test/integration/webhook-empty-secret-forge.e2e-spec.ts`
+repite el PoC del pentester contra la app real por HTTP real y Postgres real: checkout real ⇒ orden
+`pending`; se apaga el secreto en el `ConfigService` **vivo**; se manda el evento de dinero firmado con
+**clave vacía**; se asevera 503 **y** que la BD no se movió (`pending`/`reserved`, cero movimientos
+`settle`, sin fila en `ProcessedStripeEvent`). El paso 4 manda **el MISMO payload bien firmado** y **sí**
+liquida: eso es lo que hace honesto al paso 3 — prueba que lo único que separaba al atacante del dinero
+era la firma.
+
+**Ciclo completo verificado (no solo la suite), sobre la app compilada:**
+- arnés **sin Stripe** (`NODE_ENV=development`, sin ninguna `STRIPE_*`): **arranca** (`/health` `db:up`,
+  `redis:up`) con aviso explícito, y el PoC de clave vacía por HTTP real ⇒
+  `503 {"error":{"code":"INTERNAL",…}}` sin filtrar el nombre de la variable;
+- `NODE_ENV=development` **con** `STRIPE_SECRET_KEY` y **sin** secreto de webhook ⇒ **no arranca**
+  (`exit=1`, `Missing required Stripe env … STRIPE_WEBHOOK_SECRET`) — el hueco exacto del hallazgo;
+- `NODE_ENV=staging` en el mismo caso ⇒ **no arranca** (lo caza antes `env.validation.ts`, capa S-B4).
+
+Suites: **4382/4382** unitarios y **360/360** integración/E2E en verde; `tsc` limpio; lint 0 errores
+(2 warnings preexistentes, ajenos a este cambio).
+
+### ⚠️ Residual que este arreglo **NO** cierra — dueño: **devops**
+
+El backend puede exigir que el secreto **exista y no esté vacío**; **no puede distinguir un secreto de
+un no-secreto** (para un HMAC, cualquier cadena es una clave válida). Por eso queda vivo esto, medido
+hoy en el repo: `docker-compose.staging.yml:173` resuelve a `whsec_staging_dummy` y los workflows a
+`whsec_ci_dummy` / `whsec_e2e_dummy` — **literales commiteados y públicos**. Un entorno con Stripe
+**real** y uno de esos valores arranca en verde y **sigue siendo forjable por quien lea el repo**.
+Cerrarlo es de config, no de código: exigir el secreto real en todo entorno con Stripe real y que el
+gate no promueva sin él. (El candado estático de devops
+`scripts/check-stripe-webhook-failclosed.sh` cubre justo esa mitad; corrido contra este árbol: **2/2**.)

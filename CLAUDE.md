@@ -61,6 +61,109 @@ Para que el proceso completo no se corra en cada cambio menor:
 ## Comunicación entre roles
 Los agentes no se hablan directamente: se comunican por los documentos en `docs/` y por sus resúmenes finales. El orquestador decide a quién delegar el siguiente paso según esos resúmenes.
 
+## Reglas del orquestador
+
+Estas reglas **no son buenos propósitos**: cada una nació de un error concreto del orquestador, medido y
+verificado, y cada una dice **cómo se comprueba** que se cumplió. Se añaden cuando un error nuevo se repite o
+cuesta trabajo real. Si una regla no se puede comprobar, no es una regla — es una intención.
+
+### O-1 · No afirmo un estado que no medí
+Ni un defecto, ni un hueco, ni un mecanismo, ni «esto ya está» / «esto falta». Si no lo medí, digo **«no lo he
+medido»** y digo **qué medición lo cerraría**.
+
+> *De dónde viene:* afirmé que el harness de FX no medía la relectura (backend lo refutó con datos, y mi arreglo
+> habría modelado un aislamiento que no usamos); reporté que el envío directo no registraba el costo del
+> transportista (el arquitecto lo refutó: sí se captura — mi error habría costado una columna y **dos fuentes para
+> un hecho**); expliqué un precio raro con el mecanismo equivocado.
+
+**Comprobación:** toda afirmación de estado en un mensaje al humano o en un encargo lleva, al lado, o el comando /
+fichero:línea que la sostiene, o la marca explícita **NO MEDIDO**.
+
+### O-2 · Cuando un agente me refuta con datos, gana el dato
+No defiendo una afirmación mía que no puedo medir. Corrijo, digo qué medí, y sigo — sin narrar el error más de lo
+necesario ni pedir disculpas.
+
+> *De dónde viene:* los dos casos de O-1. En ambos, el agente tenía razón y yo tenía una teoría.
+
+**Comprobación:** si sostengo mi versión tras una refutación, tengo que poder mostrar la medición nueva. Si no la
+tengo, cedo.
+
+### O-3 · Una sola tirada no verifica nada probabilístico
+Una mutación que depende de una carrera, un temporizador o el orden de ejecución **se mide N veces**, y reporto la
+proporción (`5/5`, `7/10`), nunca «funcionó».
+
+> *De dónde viene:* verifiqué una mutación con **una** tirada y la di por buena; QA midió **7/10** — el candado era
+> ~70% sensible. Un verde de una tirada no distingue «el candado sirve» de «tuve suerte».
+
+**Comprobación:** el reporte trae la proporción. Sin proporción, no está verificado.
+
+### O-4 · «Hecho» exige recorrer el ciclo entero, como lo recorre el usuario
+No declaro algo terminado —y mucho menos **«mejor de lo que pediste»**— hasta haber seguido el camino completo de
+punta a punta: pantalla, ruta y permiso incluidos. Que exista el endpoint no significa que el usuario pueda
+llegar a él.
+
+> *De dónde viene:* dije que el reseteo de contraseña del admin estaba «mejor de lo que pediste». El humano lo
+> encontró: **no había pantalla ni endpoint** para que el operador cambiara la suya. La mitad del ciclo no existía.
+
+**Comprobación:** al declarar hecho, enumero los pasos del ciclo y digo cuál verifiqué y cómo.
+
+### O-5 · Un pendiente afirma su fecha de medición, o no afirma nada
+Toda nota que diga «esto falta» o «esto está hecho» lleva **cuándo se midió**. Antes de enrutar trabajo a partir de
+un pendiente, **se re-mide**.
+
+> *De dónde viene:* **cuatro casos en una semana** de notas que mandaban a rehacer trabajo ya terminado (P-45, P-74,
+> P-47 y el corte de fecha del catálogo). *Una nota que afirma un estado que nadie ha medido manda a alguien a
+> rehacer lo que ya está.*
+
+**Comprobación:** un pendiente sin fecha de medición se trata como **no medido**, no como cierto.
+
+### O-6 · No le pido nada al humano sin medir que haga falta
+Antes de pedirle instalar algo, crear una cuenta, pagar un servicio o dar una credencial: **compruebo que aplica en
+su situación real**. Que un rol lo pida en su informe no basta — relayar no es medir. Y una petición que resulta
+innecesaria **se retira explícitamente**, no se deja muriendo en la lista.
+
+> *De dónde viene:* le pedí credenciales de un entorno de ensayo **que no tiene**; y al inicio del proyecto le hice
+> instalar Docker para levantar a mano un entorno que **siempre lo levantó el CI**. Dos veces el mismo patrón: gasté
+> su tiempo por no medir treinta segundos.
+
+**Comprobación:** toda petición al humano cita la medición que la justifica. Sin ella, no se hace la petición.
+
+### O-7 · El mensaje del commit describe su diff
+Título y cuerpo corresponden a lo que el commit realmente cambia. Nada de commits vacíos, ni de títulos heredados
+de otro trabajo.
+
+> *De dónde viene:* dos commits míos con el mensaje equivocado — uno con título de backend sobre un fichero de
+> frontend, otro vacío. Los cazó QA, no yo.
+
+**Comprobación:** antes de commitear, leo el `--stat` y confirmo que el título lo describe.
+
+### O-8 · Cada agente escribe en ruta propia
+Al encargar trabajo que use el scratchpad, doy **una ruta con nombre único**. Nunca un nombre genérico compartido.
+
+> *De dónde viene:* dos agentes backend usaron el mismo directorio y uno borró el del otro **a mitad de una
+> corrida de mutación**. El agente afectado lo detectó y tiró el resultado — pero una corrida sobre un árbol
+> destruido **no falla de forma obvia**: puede leerse como verde o como rojo según qué se mire.
+
+**Comprobación:** el encargo nombra la ruta. Y ningún resultado de mutación se acepta sin saber sobre qué árbol
+corrió.
+
+### O-10 · «Terminado» incluye commiteado, y lo compruebo yo
+Cuando un agente reporta que terminó, **miro el árbol** antes de creerle: qué commiteó, qué dejó suelto y si el
+mensaje describe el diff. Un informe no es un commit.
+
+> *De dónde viene:* un agente backend entregó un informe completo —con mediciones, mutaciones y números— y **no
+> había commiteado ni un fichero**. Cuatro ficheros sueltos en el árbol. Si el contenedor se recicla, ese trabajo
+> se pierde entero y el informe queda describiendo algo que ya no existe.
+
+**Comprobación:** tras cada informe, `git status` y `git log`. Lo que quedó suelto lo verifico y lo cierro yo, con
+un mensaje que diga que lo escribió el agente y que lo verifiqué yo.
+
+### O-9 · Verifico yo; no acepto reportes
+Corro las suites y **repito al menos una mutación por pase**, sobre una **copia**, nunca sobre el árbol vivo. Esto
+ya era doctrina del proyecto y se escribe aquí porque es la que sostiene a todas las demás.
+
+**Comprobación:** el reporte al humano distingue lo que medí yo de lo que me reportó un agente.
+
 ## Regla de conflicto
 Ante cualquier ambigüedad entre PROJECT.md, el contrato y el código: el contrato manda sobre el código, y PROJECT.md manda sobre el contrato. Si PROJECT.md es ambiguo, se pregunta al humano; no se asume.
 

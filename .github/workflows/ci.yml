@@ -73,7 +73,12 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: tcg
-          POSTGRES_PASSWORD: tcg_ci
+          # S-88-1: aquí decía `tcg_ci`, un literal en un repo PÚBLICO. Un service
+          # container de Actions recibe su `env:` ANTES del primer paso, así que no
+          # puede leerse de `$GITHUB_ENV`: la única vía sin literal es una expresión
+          # que se evalúe en el workflow. `run_id`+`run_attempt` da un valor distinto
+          # en cada corrida y que NO está escrito en ningún fichero del repo.
+          POSTGRES_PASSWORD: ci_${{ github.run_id }}_${{ github.run_attempt }}
           POSTGRES_DB: tcg_ci
         ports: ["5432:5432"]
         options: >-
@@ -86,24 +91,50 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgresql://tcg:tcg_ci@localhost:5432/tcg_ci?schema=public
+      DATABASE_URL: postgresql://tcg:ci_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_ci?schema=public
       REDIS_URL: redis://localhost:6379
-      # Secretos dummy para que la app arranque en tests (no se usan de verdad):
-      JWT_ACCESS_SECRET: ci_access_secret_dummy
-      JWT_REFRESH_SECRET: ci_refresh_secret_dummy
-      STRIPE_SECRET_KEY: sk_test_ci_dummy
+      # S-88-1 — aquí había cuatro literales (`ci_access_secret_dummy`, …). El
+      # motivo de que estuvieran no era malo (la app tiene que arrancar en tests) y
+      # el motivo de que ya no estén tampoco es teórico: un literal commiteado en un
+      # repo PÚBLICO es, para un HMAC, una clave válida — con el secreto JWT de
+      # staging publicado, seguridad firmó un `super_admin`. Ahora los genera
+      # `scripts/secrets-preflight.sh` en el paso «Resolver secretos» (abajo):
+      # aleatorios por corrida, irrepetibles, y nadie puede firmar contra ellos.
       STRIPE_PUBLISHABLE_KEY: pk_test_ci_dummy
-      STRIPE_WEBHOOK_SECRET: whsec_ci_dummy
+      # RESIDUAL DE P-WH-1 — aquí decía `STRIPE_WEBHOOK_SECRET: whsec_ci_dummy`.
+      # Un literal commiteado en un repo PÚBLICO es, para un HMAC, una clave
+      # perfectamente válida: quien lo lea puede firmar eventos que cualquier
+      # entorno con ese valor aceptará. Lo resuelve el paso «Resolver
+      # STRIPE_WEBHOOK_SECRET» (abajo) con `scripts/webhook-secret-preflight.sh`:
+      # sin Stripe real genera uno EFÍMERO por corrida — irrepetible y no
+      # publicado— y los tests siguen pudiendo firmar sus propios payloads.
       S3_ENDPOINT: http://localhost:9000
       S3_REGION: us-east-1
       S3_BUCKET: tcg-photos
       S3_ACCESS_KEY_ID: ci_dummy
-      S3_SECRET_ACCESS_KEY: ci_dummy
       S3_PUBLIC_BASE_URL: http://localhost:9000/tcg-photos
       DEFAULT_LOCALE: es
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+      # Residual de P-WH-1: el secreto de webhook se RESUELVE, no se escribe.
+      # `working-directory` del job es `backend/`, por eso la ruta sube un nivel.
+      - name: Resolver secretos sin literales públicos (S-88-1)
+        working-directory: ${{ github.workspace }}
+        run: |
+          ./scripts/webhook-secret-preflight.sh assert
+          # `echo "VAR=$(resolve)" >> $GITHUB_ENV` NO se usa: MEDIDO (S-88-1) que
+          # `echo` sale 0 aunque la sustitución aborte, y entonces se exporta un
+          # valor VACÍO y el rojo aparece 8 pasos más tarde, en el `compose`, con un
+          # mensaje que apunta al sitio equivocado. Es el mismo patrón que
+          # perseguimos: la ausencia degradaba en silencio. Aquí se captura y se
+          # comprueba, así que el fallo sale donde se produce.
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          ./scripts/secrets-preflight.sh github-env \
+            JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY S3_SECRET_ACCESS_KEY \
+            >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -265,11 +296,192 @@ jobs:
         run: ./scripts/check-e2e-harness-gaps.sh
 
   # ---------------------------------------------------------------------------
+  # ⏳ DISPARADOR DE RETIRO de la medida interina `D-PP-2` (DEVOPS_NOTES §43.2).
+  #
+  # No verifica nada del producto: verifica que un APAÑO no sobreviva a su causa.
+  # Mientras el seed del código no sea el proveedor primario (`D-PP-1`, de backend),
+  # el aprovisionamiento de staging/CI fija el dial a mano y eso es legítimo. El día
+  # que `D-PP-1` mergee, ese cableado deja de tener motivo — y un parche provisional
+  # que nadie retira acaba convertido en la explicación de por qué «el seed no
+  # importa» (ARCHITECTURE §0-B.3 regla 9(b) / §4.35a(d)).
+  #
+  # POR QUÉ EN ROJO Y NO EN AVISO: el modo de fallo de esta clase de deuda es que
+  # nadie la mire. Un `::warning::` lo lee quien ya lo sabía. El rojo sale UNA vez,
+  # trae el comando exacto en el mensaje, y se apaga solo en cuanto el cableado se
+  # quita — no hay bandera que alguien tenga que acordarse de apagar.
+  # Estático y barato: lee dos ficheros, sin red y sin stack.
+  # ---------------------------------------------------------------------------
+  price-provider-interim-expiry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: La medida interina del dial de precio no puede sobrevivir a su causa
+        run: ./scripts/price-provider-parity.sh --check-expiry
+
+  # ---------------------------------------------------------------------------
+  # 🔒 ¿EL CANDADO DEL DAST SIGUE SIENDO UN CANDADO? (P-77, DEVOPS_NOTES §44)
+  #
+  # Misma familia que las tres guardas de arriba: estática, barata (lee ficheros
+  # y corre el candado contra dos informes de juguete; sin red, sin Docker) y en
+  # el workflow que corre en CADA push y PR.
+  #
+  # La medición que la originó: el gate DAST de este repo NUNCA escaneó nada.
+  # Apuntaba a `STAGING_BASE_URL`, un secret que nunca existió porque el dueño
+  # nunca tuvo staging. El job detectaba la ausencia, imprimía «modo plantilla
+  # (no-op)» y salía en VERDE — durante meses, con el DoD contándolo como
+  # «SAST + DAST cableados en CI». Arreglar el hoy fue apuntar el escáner a un
+  # stack efímero; esto impide que vuelva a quedarse sin blanco sin que nadie
+  # se entere.
+  #
+  # Lo más importante que comprueba: que el candado PUEDE PONERSE ROJO. Le pasa
+  # un informe con un SQLi de manual y exige exit≠0. Si alguien vacía las reglas
+  # FAIL de `security/zap/baseline.conf` para «quitar ruido», este job lo dice
+  # en el PR, no seis meses después.
+  # ---------------------------------------------------------------------------
+  dast-gate-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El gate de seguridad dinámica tiene blanco y sabe ponerse rojo
+        run: ./scripts/check-dast-gate-live.sh
+
+  # ---------------------------------------------------------------------------
+  # GUARDA DEL CUELGUE SILENCIOSO DEL ARNÉS (§46.2) — 2026-09-10.
+  #
+  # Qué protege, con el coste ya pagado: `stack-native.sh` lanzaba backend y
+  # frontend dentro de un `( … )` envolvente, y ese subshell se quedaba con el
+  # STDOUT del script. Resultado: `./scripts/stack-native.sh up --seed | tail`
+  # NUNCA terminaba. QA perdió ~36 minutos con el pipeline bloqueado, sin un
+  # solo byte de salida, antes de que Playwright llegara a arrancar.
+  #
+  # Por qué merece un job propio y no un comentario: esto NO se manifiesta como
+  # rojo. Se manifiesta como un job que **parece «corriendo»** y no está midiendo
+  # nada. Es la misma familia que los falsos verdes de §44 y los falsos rojos de
+  # §45, pero peor de detectar: un falso rojo se mira, un falso verde se audita
+  # — un falso «en curso» NO SE VE NUNCA. No hay artefacto que revisar.
+  #
+  # Y ojo con el reflejo de «pues le pongo un timeout»: está MEDIDO en el MODO 1
+  # del propio script que `timeout N cmd | tail` devuelve **rc=0** tras la vida
+  # entera del daemon. El timeout mata al primer eslabón, no al pipeline, y
+  # encima reporta éxito. Si hay que acotar un pipeline: `timeout N bash -c '…'`.
+  #
+  # El script se AUTOPRUEBA antes de juzgar a nadie (MODO 1): si dejara de poder
+  # reproducir la fuga, sale ≠0 declarándose NO CONCLUYENTE en vez de verde.
+  # ---------------------------------------------------------------------------
+  daemon-stdout-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ningún script deja un daemon con el stdout del invocador
+        run: ./scripts/check-daemon-stdout-leak.sh
+
+  # ---------------------------------------------------------------------------
+  # 🔒 ¿LA PARIDAD `I-PP5` TUMBA EL GATE? (§48.1) — 2026-09-10, hallazgo de QA.
+  #
+  # Qué falló, medido: `stack-native.sh up --seed --gate` imprimió «✗ SIN PARIDAD
+  # (I-PP5)» —el dial vivo era el proveedor LEGACY, el que aplana los acabados— y
+  # SIGUIÓ ADELANTE. El rc=1 que recibió QA venía del gate de capacidades (§39),
+  # no de la paridad: con claves de Stripe presentes, ese mismo `up --gate` habría
+  # salido **0** sobre un stack que el propio script declara no citable. QA lo vio
+  # de milagro, leyendo el log: «si no llego a mirar, mis 37 E2E verdes no eran
+  # con paridad».
+  #
+  # Por qué un job y no una revisión: es la misma familia que §44 (candado DAST
+  # sin blanco) y §32.12 — un aviso que no cambia el código de salida no gatea
+  # nada. El arreglo (que la paridad tiña de rojo en `--gate`) sólo vale mientras
+  # nadie lo deshaga; esto lo ejercita en cada push, en rojo Y en verde.
+  #
+  # Barato y hermético: copia el script real con los lanzadores de procesos
+  # neutralizados y le dicta el rc de sus dos hijos. Sin red, sin Postgres, ~1 s.
+  # ---------------------------------------------------------------------------
+  parity-gate-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Un fallo de paridad I-PP5 tumba `up --gate`
+        run: ./scripts/check-gate-parity-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 🔒 P-WH-1 — LA FIRMA DEL WEBHOOK DE STRIPE NO PUEDE VERIFICARSE CON UNA CLAVE
+  # QUE EL ATACANTE CONOCE.  2026-09-10, hallazgo ALTA del pentester, EXPLOTADO EN
+  # VIVO contra Postgres real (docs/PENTEST_NOTES.md).
+  #
+  # Qué falló, medido: `stripe.service.ts` verificaba con
+  # `config.get('STRIPE_WEBHOOK_SECRET') ?? ''`. Con el secreto ausente la
+  # verificación no se apagaba: **degradaba a clave VACÍA**, que cualquiera
+  # computa. El pentester forjó un `payment_intent.succeeded` y dejó un pedido
+  # `settled` con la carta en la bóveda del comprador, **sin cobro**. La guarda de
+  # arranque solo miraba `NODE_ENV==='production'` ⇒ cualquier otro entorno con
+  # Stripe cableado era forjable. Y por el lado de config, `docker-compose.yml`
+  # pasaba `${STRIPE_WEBHOOK_SECRET}` sin default y `stack-native.sh` NO exportaba
+  # la variable cuando venía vacía: las dos mitades del mismo agujero.
+  #
+  # Por qué un job en `ci.yml` y no en `deploy.yml`: los deploys reales van por las
+  # integraciones nativas de Railway/Vercel y NO pasan por `deploy.yml` (§16.4).
+  # Un candado ahí no vería la mayoría de los cambios. Éste corre en cada push.
+  #
+  # El canario NO es opcional: este defecto es de la familia «degrada en silencio a
+  # cero» (como §44 y §48.1). Un candado contra eso que nunca se ha visto rojo es
+  # el mismo problema una capa más arriba. Barato: sin red, sin Docker, ~2 s.
+  # Ver DEVOPS_NOTES §49.
+  # ---------------------------------------------------------------------------
+  stripe-webhook-failclosed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: La verificación de la firma no puede degradar a una clave conocida
+        run: ./scripts/check-stripe-webhook-failclosed.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-stripe-webhook-failclosed-canary.sh
+      # -----------------------------------------------------------------------
+      # S-88-1 — LA CLASE, no la variable.
+      # Seguridad midió que el arreglo de P-WH-1 tocó UNA variable y dejó otras
+      # siete con la misma forma tres líneas más arriba, en el mismo fichero. Los
+      # dos pasos de abajo son lo que impide que eso vuelva a pasar sin que nadie
+      # se entere: el candado prohíbe la FORMA (para cualquier nombre de secreto,
+      # incluidos los que aún no existen) y el canario demuestra que muerde
+      # plantando secretos INVENTADOS que este repo nunca ha tenido.
+      # DEVOPS_NOTES §50.
+      # -----------------------------------------------------------------------
+      - name: Ningún secreto puede tener un valor escrito en el repo (S-88-1)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-secret-defaults.sh
+      - name: Y muerde con secretos que NUNCA ha visto (canario de la clase)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-secret-defaults-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
+  # PASO QUE LO INVOCA. 2026-09-11, hallazgo ALTA de seguridad (re-veredicto).
+  #
+  # Qué falló, medido: `e2e.yml` job `backend-e2e` (defaults cwd `backend/`)
+  # invocaba `./scripts/webhook-secret-preflight.sh` —de la RAÍZ— sin override.
+  # rc=127, ocho pasos `skipped`, y el job DEPLOY-BLOCKING en rojo 9 corridas
+  # seguidas (#1124→#1134) leído como «la suite falla». Siete suites de dinero y
+  # acceso mudas. El bloque idéntico en ESTE fichero sí llevaba el override.
+  #
+  # Por qué aquí: misma familia que las guardas de arriba — estático, barato,
+  # sin red, y en el workflow que corre en cada push. Un rc=127 se diagnostica
+  # leyendo el YAML, no los logs (que los agentes no pueden leer). El canario
+  # reproduce S-CI-1 literalmente (quita el override) y exige rojo. §52.
+  # ---------------------------------------------------------------------------
+  workflow-cwd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cada script invocado desde un paso existe bajo el cwd de ese paso
+        run: ./scripts/check-workflow-cwd.sh
+      - name: Y el candado sabe morder (reproduce S-CI-1 y exige rojo)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-workflow-cwd-canary.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -281,6 +493,12 @@ jobs:
           echo "guarda proveedor de paga: ${{ needs.e2e-provider-guard.result }}"
           echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
           echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
+          echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
+          echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
+          echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
+          echo "candado de paridad I-PP5: ${{ needs.parity-gate-canary.result }}"
+          echo "webhook Stripe fail-closed: ${{ needs.stripe-webhook-failclosed.result }}"
+          echo "scripts bajo el cwd (S-CI-1): ${{ needs.workflow-cwd.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
@@ -301,6 +519,56 @@ jobs:
           # decirlo; si ella misma se salta, el candado desaparece exactamente igual.
           if [ "${{ needs.e2e-harness-gaps.result }}" != "success" ]; then
             echo "::error::La guarda de huecos del arnés E2E no terminó en verde (resultado: ${{ needs.e2e-harness-gaps.result }}). Ver DEVOPS_NOTES §39."
+            exit 1
+          fi
+          # ⏳ Mismo criterio que las otras dos guardas: `skipped` NO es verde. Este
+          # rojo NO dice «el producto está roto», dice «hay un apaño de devops que ya
+          # cumplió y sigue puesto». El mensaje del script trae qué quitar y de dónde.
+          if [ "${{ needs.price-provider-interim-expiry.result }}" != "success" ]; then
+            echo "::error::La medida interina D-PP-2 caducó y sigue cableada (resultado: ${{ needs.price-provider-interim-expiry.result }}). Dueño: devops. Ver DEVOPS_NOTES §43.2."
+            exit 1
+          fi
+          # 🔒 Mismo criterio que las tres anteriores: `skipped` NO es verde. Si la
+          # guarda del candado DAST desaparece, el gate de seguridad dinámica puede
+          # volver a quedarse sin blanco en silencio — que es el estado del que
+          # viene P-77 y el que costó meses de falso verde.
+          if [ "${{ needs.dast-gate-live.result }}" != "success" ]; then
+            echo "::error::El candado del DAST no está vivo (resultado: ${{ needs.dast-gate-live.result }}). Dueño: devops. Ver DEVOPS_NOTES §44."
+            exit 1
+          fi
+          # 🔇 Mismo criterio que las cuatro anteriores: `skipped` NO es verde. Y
+          # aquí el criterio pesa MÁS que en las otras, no menos: el defecto que
+          # esta guarda vigila no produce rojo ni verde, produce un job colgado en
+          # silencio. Si la guarda se salta, lo único que avisaba desaparece y el
+          # síntoma vuelve a ser «CI tarda mucho hoy» (§46.2).
+          if [ "${{ needs.daemon-stdout-leak.result }}" != "success" ]; then
+            echo "::error::Hay un script que deja un daemon con el stdout del invocador: un \`| tail\` sobre él se cuelga en silencio (resultado: ${{ needs.daemon-stdout-leak.result }}). Dueño: devops. Ver DEVOPS_NOTES §46.2."
+            exit 1
+          fi
+          # 🔒 Mismo criterio que las cinco anteriores: `skipped` NO es verde. Si este
+          # canario desaparece, `up --gate` puede volver a salir 0 sobre un stack sin
+          # paridad — y esa es de las averías que INVALIDAN MEDICIONES YA HECHAS: un
+          # E2E o un DAST verdes contra el proveedor legacy no miden el sistema que se
+          # promueve, y nadie se entera al leer el resumen.
+          if [ "${{ needs.parity-gate-canary.result }}" != "success" ]; then
+            echo "::error::El candado de paridad I-PP5 no está vivo: un \`up --gate\` sin paridad podría salir 0 (resultado: ${{ needs.parity-gate-canary.result }}). Dueño: devops. Ver DEVOPS_NOTES §48.1."
+            exit 1
+          fi
+          # 💸 Mismo criterio que las seis anteriores, y aquí es el que más caro sale
+          # si se relaja: lo que este job vigila se explotó EN VIVO y terminó con un
+          # pedido `settled` y una carta movida a la bóveda del comprador SIN COBRO
+          # (P-WH-1). `skipped` no es verde: si el candado no corre, el agujero puede
+          # volver sin que nada se ponga rojo — que es literalmente cómo llegó.
+          if [ "${{ needs.stripe-webhook-failclosed.result }}" != "success" ]; then
+            echo "::error::La firma del webhook de Stripe puede volver a verificarse con una clave conocida (resultado: ${{ needs.stripe-webhook-failclosed.result }}). Dueños: backend (el fail-closed) y devops (la config y el candado). Ver DEVOPS_NOTES §49 y docs/PENTEST_NOTES.md P-WH-1."
+            exit 1
+          fi
+          # 📁 Mismo criterio: `skipped` NO es verde. Lo que este job vigila dejó un
+          # gate deploy-blocking muerto 9 corridas seguidas SIN que su rojo dijera
+          # por qué (S-CI-1). Si la guarda no corre, el siguiente `./scripts/…` bajo
+          # un `working-directory` vuelve a morir con rc=127 en silencio.
+          if [ "${{ needs.workflow-cwd.result }}" != "success" ]; then
+            echo "::error::Hay un script invocado desde un paso de CI que no existe bajo el cwd de ese paso — en el job real eso es rc=127 y el resto del job queda skipped (resultado: ${{ needs.workflow-cwd.result }}). Dueño: devops. Ver DEVOPS_NOTES §52."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

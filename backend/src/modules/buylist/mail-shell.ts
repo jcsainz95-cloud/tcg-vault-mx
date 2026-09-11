@@ -162,9 +162,49 @@ export function ruleRow(color: string = RULE): string {
  * wordmark y el `.mx`. **La marca se ve siempre, en los ocho, con imágenes o sin ellas.**
  * ⛔ `alt=""` deliberado: la mira es decorativa porque el wordmark de al lado ya porta la marca.
  * Meter `TCG HUNT` en el `alt` **es la mutación que ML-1 caza**, no un arreglo.
+ *
+ * ### 🔴 **LAS DOS RAYAS NO ERAN RAYAS: eran dos bloques grises de 216×72** (medido, 2026-09-10)
+ *
+ * **El defecto, y por qué sobrevivió desde que se montó el esqueleto.** La celda que pinta la raya
+ * **compartía fila** con la celda de la mira (72px), y en una tabla **`height` es un MÍNIMO, no un
+ * máximo**: la celda se estira a la altura de su fila y **su fondo con ella**. Resultado: donde el
+ * boceto pide un filete, salían **dos rectángulos grises**. Nadie lo vio porque en la previsualización
+ * *parece* un separador grueso, no un error. ⛔ **No lo causó el PNG de la mira**: se reproduce con las
+ * imágenes BLOQUEADAS, porque el `<img>` con `width`/`height` explícitos reserva su caja igual.
+ *
+ * **Medido con Chromium sobre el correo renderizado, imágenes bloqueadas** (`correo-1-oferta.es`):
+ *
+ * | | antes | después |
+ * |---|---|---|
+ * | cada raya del bloque de marca | **216 × 72** | **216 × 1** |
+ * | `ruleRow()` de debajo del wordmark (control) | 536 × 1 | 536 × 1 |
+ *
+ * ⭐ **El control es lo que hace buena la hipótesis:** la regla de debajo del wordmark **siempre midió
+ * 1px** y es el mismo color y el mismo `height="1"` — lo único que la diferencia es que **va sola en su
+ * fila**. ⇒ el arreglo es darle a cada raya **su propia fila**, anidándola en una tabla de una celda,
+ * que es literalmente lo que hace {@link ruleRow}. *El centrado vertical sale gratis: el `valign` por
+ * defecto de una celda es `middle`, y la raya cae en el centro exacto de la mira (68px en las dos).*
+ *
+ * ⚠️ **`DESIGN_SYSTEM §31.5(c)` sigue cumplido AL PIE DE LA LETRA**, y por eso este arreglo no pasa por
+ * ux-ui: el documento prescribe `<td height="1" bgcolor="#AEACA7">` a izquierda y derecha de la celda
+ * de la mira, y **ese `<td>` sigue ahí, idéntico, a izquierda y derecha**. Lo único que cambia es **de
+ * qué fila cuelga**, que §31.5(c) no prescribe. *Lo que sí conviene que ux-ui añada al documento es el
+ * porqué —una celda con fondo pinta toda su fila—, para que el siguiente que lo lea no lo repita.*
+ *
+ * ⛔ **Y es un arreglo de mecánica de tablas, no de motor de render:** que el fondo llene la celda y que
+ * la fila la marque la celda más alta es común a todos los motores; el de Word/Outlook —que es el que
+ * manda aquí (§31.2)— **infla las celdas más, no menos**. Y las tablas anidadas son el recurso que este
+ * mismo shell ya usa en todas partes. Candado: `buylist.mail-shell.spec.ts` § «la raya va SOLA».
  */
 export function brandRows(): string {
-  const raya = td(RULE_STRONG, 'height:1px;line-height:1px;font-size:0', '&nbsp;', 'width="42%" height="1"');
+  // ⚠️ La raya vive en su PROPIA fila (tabla anidada de una celda). Ver el bloque de arriba: fundirla
+  // con la fila de la mira es lo que la convertía en un bloque de 216×72.
+  const raya = td(
+    PAPER,
+    'padding:0',
+    table(`<tr>${td(RULE_STRONG, 'height:1px;line-height:1px;font-size:0', '&nbsp;', 'height="1"')}</tr>`),
+    'width="42%"',
+  );
   const mira = td(
     PAPER,
     'padding:0 16px',

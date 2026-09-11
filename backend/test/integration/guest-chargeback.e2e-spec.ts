@@ -383,6 +383,9 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
           ivaCents: 0,
           totalCents: 1000,
           ivaRatePct: 16,
+          // v1.64 (M-50): la columna es NOT NULL y SIN default de BD, así que hasta un fixture tiene
+          // que decir con qué convención se cobró. Es el candado funcionando (§4.44.e).
+          priceConvention: 'IVA_EXCLUSIVE',
         },
       });
       const shipment = await h.prisma.shipmentRequest.create({
@@ -395,6 +398,7 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
           ivaCents: 0,
           processingFeeCents: 0,
           totalCents: 0,
+          priceConvention: 'IVA_EXCLUSIVE',
         },
       });
 

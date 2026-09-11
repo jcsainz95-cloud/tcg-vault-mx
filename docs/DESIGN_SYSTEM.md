@@ -4,7 +4,33 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.8** — dos cosas:
+> Estado: **v4.0** — **§32 NUEVA: la sincronización del catálogo (M2) pasa de OCHO acciones a TRES, y se
+> promulga la NORMA DE HONESTIDAD DEL AVISO DE RESULTADO** (2026-09-10). ⚠ **§19 queda superseded en su
+> mayor parte** (grupos, jerarquía por-fila, menú «Más ▾», feedback y claves). **Origen: decisión del dueño,
+> dictada literal** —*«Backfill nunca; forzar sí varias veces… Sincronizar set debería hacer las dos,
+> imágenes y precios»*— más **tres defectos de honestidad medidos en el código que corre**: una cifra que es
+> un **literal fijo**, una cifra que es el **total de la base** presentada como trabajo hecho (**«191 cartas
+> procesadas · 0 precios» EN VERDE**), y **cinco advertencias escritas que ninguna pantalla muestra**. ⭐ El
+> corazón es **§32.4**, que es **transversal y extiende §8.1/§8.3**: el veredicto se lee en una **versalita**
+> antes que en el color, **son seis y solo uno es verde**, **el verde exige escritura real**, **un cero
+> escrito nunca es verde**, **la primera cifra es siempre lo que se tocó** (el total de contexto solo va tras
+> «de», en muted), **lo desconocido es «—», nunca 0 y nunca omitido**, y **un booleano jamás se convierte en
+> cifra**. La copia muerta **se borra** y su contenido vive en subtítulos permanentes. **Diez candados en
+> §32.13** y **dos peticiones de dato marcadas ⭐⭐** (§32.15 R2 y R5).
+> Antes: **v3.9** — **§31.10 reescrita: el pase de COPY que pidió el dueño sobre los correos ya renderizados**
+> (2026-09-10). ⛔ **No se toca la maqueta**: son cinco valores de cadena, ES y EN, listos para cablear.
+> **(a) El correo de cancelación deja de decir dos veces lo mismo y deja de prometer lo que el sistema no
+> cumple.** Medido en el código: la cancelación es **una acción manual del operador** —*«la ÚNICA vía para
+> corregir una oferta equivocada»*— y **el motivo NUNCA viaja al vendedor**; y desde `cotizada` hay **tres**
+> salidas, **solo una es una oferta nueva** ⇒ ⛔ *«te escribiremos con una oferta nueva»* **se retira**, y en
+> su sitio van **las dos salidas reales**, que es lo único garantizado. **(b) El correo de expiración** gana
+> la frase que el dueño dictó (*«La solicitud queda cerrada y no se compró ninguna carta.»*) y pierde la
+> negación defensiva — ⚠ **con textos DISTINTOS en sus dos variantes**, porque en `not_shipped` el vendedor
+> aceptó y **puede mandar el paquete igual**. **(c) `notPursued.p2` se comprime de 15 palabras a 9**: se va el
+> marco defensivo, **se queda la instrucción operativa**. **(d) Se cierran DOS huecos abiertos de §31**: el
+> **eyebrow de 2b** (§31.10d) y el **CTA del correo 4** — que **no lleva, y es deliberado** (§31.10e).
+> **Dos candados nuevos: ML-12 y ML-13.**
+> Antes: **v3.8** — dos cosas:
 > **(1) §31 — NUEVA: los OCHO correos, hablando el mismo idioma.** El dueño mandó una propuesta del correo 1
 > (*«adecua con nuestro logo pero algo así»*, *«que todos se hablen»*) y **no es lenguaje nuevo: es nuestro
 > sistema llevado al correo**. Hoy los ocho comparten un `layout()` de nueve líneas con **Arial, un `<h2>` y
@@ -4084,6 +4110,18 @@ de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
 ---
 
 ## 19. Reorganización del panel M2 — catálogo/precios (v1.9)
+
+> # ⛔ SUPERSEDED EN SU MAYOR PARTE POR **§32** (v4.0, decisión del dueño)
+> **Las acciones de sincronización de este panel pasan de OCHO a TRES y el patrón del aviso de resultado se
+> reescribe entero.** Quedan **muertas** y no se implementan: **§19.0** (mapa de 9 acciones), **§19.1** (los
+> grupos DATOS / CATÁLOGO / AVANZADO y el `<details>` plegado), **§19.2**, **§19.3**, **§19.4** (jerarquía
+> por-fila I→G→H y el **menú «Más ▾»**), **§19.6** (se amplía en §32), **§19.8** (confirmaciones y feedback)
+> y **§19.10** (claves i18n). De **§19.9** solo sobrevive lo que no nombre grupos ni menú kebab; §32.10 la
+> reescribe.
+> **Siguen VIGENTES tal cual: §19.5** (ya reanclada por §21.7b) y **§19.7** (selector de proveedor de
+> respaldo), más la acción **A «Actualizar precios ahora»**, que §32 **no toca**.
+> *Motivo: una revisión midió que la pantalla cumplía §19 al pie de la letra y aun así mentía — el defecto
+> estaba en el patrón, no en el código. Ver §32.0.*
 
 > **⚠ Enmendado por §21 (v2.1, P-48) en la zona de editores de precio.** Los editores de **reglas por rareza**
 > (Sección 4 buylist / Sección 5 venta) y de **tiers + mapa rareza→tier** **se retiran** y los sustituye el
@@ -14571,7 +14609,7 @@ pantalla** y **qué sale por la red**.*
 
 ---
 
-## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.8)
+## 31. LOS OCHO CORREOS — el sistema de diseño del medio «correo» (v3.9)
 
 > **Origen:** el dueño mandó una propuesta de diseño del **correo 1** y pidió, literal: *«adecua con nuestro
 > logo pero algo así»* y *«hay que mover el diseño a que todos se hablen con la propuesta que te mandé»*.
@@ -14595,9 +14633,18 @@ pantalla** y **qué sale por la red**.*
 | **2** | **⛔ LOS CINCO PROHIBIDOS** (`PROJECT.md §P.3`, criterio **173(h)**) | **(1)** domicilio · **(2)** CLABE, ni enmascarada · **(3)** datos de terceros · **(4)** montos o estado de **otras** solicitudes u **otros** ítems · **(5)** cifras internas de la mesa (posición, sugerencia, topes del operador). Los hace cumplir `test/buylist.cycle-mail-pii.spec.ts`. **Un correo bonito que meta uno de los cinco es peor que el feo de hoy** — y el rediseño es justo el momento en que se cuela uno, porque se toca cada plantilla a la vez. |
 | **3** | **⛔ Prohibido `MX$ 0.00`** para lo que no compramos | Se lista **con nombre y sin monto** (criterio 118). *Misma familia que la regla del mercado de §28.4a: cero es un precio, y ahí no hay precio.* |
 
-**Y una consecuencia de método que vale para todo §31:** el rediseño **no reescribe ni una cadena** salvo la
-única que el dueño pidió expresamente (§31.10). **Todo lo demás es envoltura.** Si al maquetar hace falta
-partir un párrafo, se parte **por donde ya está partido**; si una frase no cabe, **cabe igual** — no se acorta.
+**Y una consecuencia de método que vale para todo §31:** el rediseño **no reescribe ni una cadena** salvo las
+que el dueño pidió expresamente y que §31.10 escribe **una por una**. **Todo lo demás es envoltura.** Si al
+maquetar hace falta partir un párrafo, se parte **por donde ya está partido**; si una frase no cabe, **cabe
+igual** — no se acorta.
+
+> ⚠ **v3.9 — y aquí conviene ser exacto sobre quién decide qué.** El pase de copy de §31.10 **es del dueño**:
+> él pidió los tres cambios y una de sus frases entra **carácter por carácter**. Lo que aporta §31 es **el
+> control de verdad**: comprobar en el código qué puede afirmar cada correo antes de escribirlo. ⭐ **De ahí
+> salió el único hallazgo que cambió una decisión suya: la cancelación NO garantiza una oferta nueva**, así
+> que la frase que lo prometía **no se puede escribir por bonita que sea** (§31.10a). *Regla, no caso: el copy
+> de un correo no puede afirmar un estado que el sistema no cumple ni un dato que no llega hasta la
+> plantilla.*
 
 ### 31.1 Qué supersede esta sección, y qué NO
 
@@ -14607,7 +14654,7 @@ decisiones **siguen vivas y mandando**. Lo que faltaba era el **sistema del medi
 | | Estado |
 |---|---|
 | **§25.4.0 «El medio»** y **§25.4.1 «Esqueleto común»** | ⚠ **ABSORBIDOS AQUÍ Y AMPLIADOS a los ocho.** Todo lo que decían sigue siendo cierto —600px, tablas, estilos en línea, las tres pilas tipográficas, los colores aplanados `#D1CFC8`/`#AEACA7`, radios 0, imágenes casi cero, parte de texto plano obligatoria— **y se conserva palabra por palabra**. §31 añade lo que no tenían: **el bloque de marca**, **el pie en tinta**, **el modo oscuro de verdad** (§31.8), **el presupuesto de peso** y **los patrones nombrados**. ⛔ **Dos correcciones**, y son de medio, no de gusto: la **regla punteada** de §25.4.2 y el **`text-transform` de las versalitas** no sobreviven a Outlook (§31.2) |
-| **§25.4.2–§25.4.4-bis** (los cinco correos, bloque a bloque) | ✅ **INTACTAS.** El orden de bloques, las ocho decisiones del correo 1, el pozo del bloque de consecuencia, la resta, el plazo y las prohibiciones **no se tocan** |
+| **§25.4.2–§25.4.4-bis** (los cinco correos, bloque a bloque) | ✅ **INTACTAS en estructura**: el orden de bloques, las ocho decisiones del correo 1, el pozo del bloque de consecuencia, la resta, el plazo, los CTA y **todas las prohibiciones** siguen mandando. ⚠ **v3.9 — enmendadas SOLO en el valor de cinco cadenas**, y §31.10 es el sitio donde viven: `offerCancelled.p1`/`p2` (§25.4.4-bis), `expiry.noResponse.p1` y `expiry.notShipped.p1` (§25.4.4) y `notPursued.p2` (§25.4.5). **Lo que §25 dice de esos correos —qué afirma cada uno, qué CTA lleva y qué tiene prohibido— no cambia ni una coma**; cambia cómo lo dicen |
 | **§17.3, fila «Correos»** | ⚠ **ENMENDADA en un punto, y a mejor** (§31.5): decía *«lockup completo (a) como PNG»*. Un lockup **entero como imagen** desaparece cuando el cliente bloquea imágenes — que es el estado **por defecto** de Gmail y Outlook. Pasa a ser **híbrido: la mira es imagen, el wordmark es TEXTO VIVO** |
 | **§7.12a** (cómo se nombra un cobro) | ✅ **Aplica al correo con todas las letras**, y es la norma que justifica el cambio de copy de §31.10 |
 | **§2.x, §3.x, §4.x, §10, §17.2** | ✅ **Fuente de los valores.** §31 **no crea ni un token**: usa los mismos hex, aplanados |
@@ -14841,8 +14888,9 @@ línea:**
 | Correo | CTA | Color |
 |---|---|---|
 | **1 · la oferta** · **2 · el recordatorio** | `VER Y RESPONDER LA OFERTA` | **Bermellón** — hay una **decisión de dinero con fecha límite**, y el silencio también decide |
-| **3, 5, 6** (cancelada, vencida, no perseguida) | `Cotizar de nuevo` / ninguno | **Tinta** |
-| **4** (ítem rechazado) | el de coordinación | **Tinta** |
+| **3** (oferta cancelada) | `VER MI SOLICITUD` / `VIEW MY REQUEST` — ⛔ **no** «cotizar de nuevo»: la solicitud sigue viva y ese botón la duplicaría | **Tinta** |
+| **5, 6** (vencida, no perseguida) | `COTIZAR DE NUEVO` / `GET A NEW QUOTE` | **Tinta** |
+| **4** (ítem rechazado) | ⛔ **NINGUNO, y es deliberado** — resuelto en **§31.10e**: la acción es escribir a `soporte@tcghunt.mx`, que ya viaja dos veces en el cuerpo; un `mailto:` no puede cumplir el respaldo en texto de §31.6g, y el portal no tiene pantalla de devolución | — |
 | **7, 8** (verificar, restablecer) | `Verificar mi correo` / `Restablecer mi contraseña` | **Tinta** — hay plazo, pero **no hay dinero**: es una acción de cuenta |
 
 *No es una excepción de estilo: es exactamente la semántica del acento en este documento («esto pide una
@@ -14852,7 +14900,8 @@ al dueño donde él lo dibujó: **el correo 1 es su referencia y ahí el botón 
 **Construcción, a prueba de Outlook:** `<table><tr><td bgcolor align="center" style="padding:14px 28px">`
 con un `<a>` dentro **con `color` explícito y `text-decoration:none`**, altura útil ≥ 44px, **radio 0**,
 `border:1px solid` del mismo color (le da cuerpo si el `bgcolor` se pierde). **Texto del botón en MAYÚSCULAS
-en la cadena** (§31.2). **Un solo CTA por correo** (§25.4.1); un segundo destino va como enlace de texto.
+en la cadena** (§31.2). **Un solo CTA por correo** (§25.4.1) —**y CERO en el correo 4** (§31.10e)—; un
+segundo destino va como enlace de texto.
 
 ### 31.8 ⚠⚠ Modo oscuro — lo que hoy no está resuelto
 
@@ -14896,9 +14945,9 @@ preheader · parte de texto plano · pilas tipográficas · paleta · radios 0 �
 | # | Función | Eyebrow | Titular | ¿Montos? | ¿Caja de términos? | CTA |
 |---|---|---|---|---|---|---|
 | 1 | `sellOfferTemplate` ⭐ | `OFERTA DE COMPRA · <folio>` | serif 26px | **Sí** (la resta completa) | **Sí** | **Bermellón** |
-| 2 | `sellOfferReminderTemplate` | `LA OFERTA VENCE MAÑANA · <folio>` | serif 26px | **Solo el neto** | No | **Bermellón** |
+| 2 | `sellOfferReminderTemplate` | ⭐ **DOS, uno por variante** (§31.10d): **2a** `LA OFERTA VENCE MAÑANA · <folio>` · **2b** `EL PLAZO PARA ENVIAR VENCE MAÑANA · <folio>` | serif 26px | **Solo el neto** | No | **Bermellón** |
 | 3 | `sellOfferCancelledTemplate` | `OFERTA CANCELADA · <folio>` | serif 22px | **No** | No | Tinta |
-| 4 | `sellItemRejectedTemplate` | `CARTA NO ACEPTADA · <folio>` | serif 22px | **No** | **Sí** (los dos plazos) | Tinta |
+| 4 | `sellItemRejectedTemplate` | `CARTA NO ACEPTADA · <folio>` | serif 22px | **No** | **Sí** (los dos plazos) | ⛔ **Ninguno** (§31.10e) |
 | 5 | `sellRequestExpiredTemplate` | `SOLICITUD VENCIDA · <folio>` | serif 22px | **No** | No | Tinta |
 | 6 | `sellRequestNotPursuedTemplate` | `SOLICITUD CERRADA · <folio>` | serif 22px | **No** | No | Tinta |
 | 7 | `emailVerificationTemplate` | `SEGURIDAD DE LA CUENTA` *(sin folio)* | serif 22px | **No** | No | Tinta |
@@ -14912,31 +14961,217 @@ preheader · parte de texto plano · pilas tipográficas · paleta · radios 0 �
 - **⚠ Los correos 7 y 8 son de OTRO módulo y OTRO work stream** (`mail/mail.templates.ts`, «Cuentas y
   acceso»). Ver §31.15 antes de planificar.
 
-### 31.10 🟡 El único cambio de copy — correo 6
+### 31.10 🟡 Los cambios de copy — DOS pases, y éste es el segundo
 
-**Hoy** (`buylist-mail.templates.ts:705`, clave `notPursued.p2` de §25.12):
+**Pase 1 (v3.8, ya implementado y visible en los renders).** `notPursued.p2` perdió *«y no nos debes nada»* /
+*"and you owe us nothing"*. La razón sigue vigente y es la norma de **§7.12a**: una negación defensiva
+**nombra el tema** —mete la idea de una deuda que nunca existió, solo para negarla— y sigue siendo **una
+afirmación que habría que sostener**. Se mantuvo el **tuteo**: los ocho hablan de tú.
 
-> ES — «No hay nada pendiente de tu parte: no mandes ninguna carta, no se generó ninguna guía **y no nos debes
-> nada**.»
-> EN — “There is nothing pending on your side: don't send any card, no shipping label was generated **and you
-> owe us nothing**.”
+**Pase 2 (v3.9, éste).** El dueño revisó los seis del ciclo **ya renderizados** (`backend/tmp/mail-preview/`,
+2026-09-10) y pidió tres cosas. **Las tres son de copy y ninguna toca la maqueta**: la retícula, los patrones,
+el pie y el modo oscuro de §31.2–§31.9 se quedan **exactamente como están**. Lo que sigue es el texto
+**definitivo, ES y EN**: backend lo cablea **sin interpretar nada**.
+
+> ⚠⚠ **Aviso de numeración, porque aquí es donde se cometen los errores caros.** Los comentarios del código
+> usan la numeración de **§25** (donde «correo 3» es la expiración, «correo 4» el *no procederemos* y
+> «correo 5» la cancelación) y **§31 usa la de los OCHO** (3 = cancelada, 4 = carta no aceptada, 5 = vencida,
+> 6 = cerrada). **Por eso cada bloque de abajo se identifica por FUNCIÓN y por CLAVE, nunca por número.**
+
+#### 31.10a `sellOfferCancelledTemplate` — `offerCancelled.p1` / `p2` (§31.9 fila 3)
+
+El dueño preguntó **«¿en qué parte se detona la cancelación?»** antes de decidir el texto. **La respuesta está
+medida en el código, no supuesta, y cambia el correo:**
+
+| Lo medido | Dónde |
+|---|---|
+| **Un solo productor, y es MANUAL:** `POST /admin/buylist/:id/offer/cancel` sobre una oferta `sent`. ⛔ **Ningún barrido la dispara** | `admin-buylist.controller.ts:333` · `buylist.service.ts:3939`, `4035` |
+| **Para qué existe:** *«la ÚNICA vía para corregir una oferta equivocada. No existe "corregir un número" sobre una oferta que el vendedor ya tiene en su bandeja: se cancela y se emite otra»* | `admin-buylist.controller.ts:325-332` (criterio 145, **D38**) |
+| ⚠ **El motivo se captura y NO VIAJA.** El endpoint recibe `reason`, se guarda en `offerCancelReason` y en la bitácora; al vendedor *«viaja EL CUÁNDO Y NADA MÁS: ni el motivo (interno), ni los montos de la oferta cancelada»* | `buylist.service.ts:3991` · `buylist.service.ts:1979` |
+| **La solicitud vuelve VIVA:** `status='cotizada'`, `closedAt` intacto y el reloj de emisión repuesto entero | `buylist.service.ts:3960-4006` |
+
+⇒ **La cancelación NO es «ya no te compramos»: es «el número estaba mal y volvemos a la fila».** Eso es lo que
+el texto de hoy insinúa y no consigue decir. ⇒ **Y el correo no puede explicar POR QUÉ, porque el motivo no
+llega hasta él.** No se finge que sí.
+
+**⛔ La verificación que impide escribir la frase bonita.** *¿Está garantizado que después de cancelar siempre
+llega otra oferta?* **NO.** Desde `cotizada` hay **tres** salidas y solo una es una oferta:
+
+| Salida desde `cotizada` | Qué le llega al vendedor |
+|---|---|
+| Se prepara y se autoriza otra oferta | **`sellOfferTemplate`** (§31.9 fila 1) |
+| Un operador **declina** (`POST …/decline`) | **`sellRequestNotPursuedTemplate`** (§31.9 fila 6) |
+| El **barrido** la cierra por la **regla 7** (nuestro plazo de emisión se agotó) | **`sellRequestNotPursuedTemplate`**, el mismo correo y el mismo texto |
+
+⇒ ⛔ **«te escribiremos con una oferta nueva» es una promesa que el sistema no cumple**, y por eso no se
+escribe. **Lo que SÍ está garantizado —las tres salidas mandan correo— es exactamente lo que se dice.**
+*Volver a escribir, sí. Volver a ofertar, no.*
+
+**Los dos defectos del texto de hoy, y su arreglo:**
+
+1. *«la cancelamos nosotros. **No es nada de tu parte.**»* — **dice el mismo hecho dos veces**, y la segunda en
+   negación defensiva. El pronombre enfático `nosotros` **ya asigna el agente**; *«no es nada de tu parte»* solo
+   repite eso poniendo al vendedor en el sitio del sospechoso. **Es literalmente la norma de §7.12a que el
+   dueño ya aceptó para `notPursued.p2`.** ⇒ **se retira.**
+2. *«una oferta nueva **o con nuestra respuesta**»* — **«nuestra respuesta» no significa nada para quien lo
+   lee**, y deja al vendedor sin saber qué esperar. La alternativa honesta existe: **nombrar las dos salidas
+   reales**, que son exhaustivas y las dos llegan por correo.
 
 **Queda:**
 
 | Clave | ES | EN |
 |---|---|---|
-| `notPursued.p2` | `No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna guía.` | `There is nothing pending on your side: don't send any card, and no shipping label was generated.` |
+| `offerCancelled.p1` | `La oferta del {fecha} ya no es válida: la cancelamos nosotros.` | `The offer from {date} is no longer valid: we cancelled it ourselves.` |
+| `offerCancelled.p2` | `Tu solicitud sigue abierta y no tienes que hacer nada. Te escribiremos otra vez: con una oferta nueva o con el cierre de la solicitud.` | `Your request is still open and there's nothing for you to do. We'll write to you again, either with a new offer or to close the request.` |
 
-**Por qué, y es exactamente la norma de §7.12a:** *«y no nos debes nada»* **introduce la idea de una deuda que
-nunca existió, solo para negarla** — una negación defensiva **nombra el tema** y sigue siendo **una afirmación
-que habría que sostener**. Y es **redundante**: *«no se generó ninguna guía»* ya contesta la única duda real
-(*¿me van a cobrar el envío?*), y la contesta **por un hecho**, no por una promesa.
+- **⚠ El preheader CAMBIA, porque su cadena se fue.** Hoy es `${title}. ${notYourFault}` y `notYourFault` deja
+  de existir. **Pasa a ser la PRIMERA frase de `p2`** —cadena viva del correo, dentro de los 40–90 caracteres
+  de §31.6a— y es lo más útil que se puede leer en la bandeja sin abrir:
+  **ES `Tu solicitud sigue abierta y no tienes que hacer nada.`** (53 car.) ·
+  **EN `Your request is still open and there's nothing for you to do.`** (60 car.).
+- **⛔ El asunto NO se toca** (`Cancelamos la oferta que te mandamos` / `We cancelled the offer we sent you`):
+  §25.4.7 lo ratificó y es el único cierre que pone **el sujeto de la acción en nosotros en la primera
+  palabra**, que es justo lo que este correo necesita.
+- **⛔ El CTA NO se toca** (`VER MI SOLICITUD` / `VIEW MY REQUEST`, **tinta**, §31.7): la solicitud **está
+  viva** y `COTIZAR DE NUEVO` mandaría al vendedor a **duplicarla** (§25.4.4-bis).
+- **⛔ Sigue prohibido aquí, y ahora con el dato que lo respalda:** el **motivo** (no viaja), **cualquier
+  monto** (se limpiaron de la fila y no se resucitan), la palabra **«venció»** (aquí no venció nada suyo) y
+  **cualquier fecha de vuelta** — `offerIssueDeadlineAt` es *«un SLA nuestro que a propósito no se
+  comunica»* (`buylist.service.ts:391`). ⛔ **No se le pone plazo a la próxima carta.**
+- **🟠 Decisión del DUEÑO, no mía.** `p2` **nombra el cierre como posibilidad**, y el texto de hoy lo esconde.
+  Ése es el precio de no prometer una oferta. Si prefiere no nombrarlo, la única alternativa honesta es
+  ES `Te escribiremos otra vez en cuanto lo revisemos.` / EN `We'll write to you again once we've reviewed it.`
+  — **honesta, pero vuelve exactamente a la vaguedad que él mismo señaló**. **Recomiendo la de la tabla.**
 
-- ⚠ **Se mantiene el TUTEO.** El dueño lo dictó como *«no requiere acción de su parte»*; **los ocho hablan de
-  tú**, y cambiar a usted en uno solo suena a que lo escribió otra persona. *La idea es suya; el registro es
-  del sistema.*
-- ⛔ **Ninguna otra cadena de los ocho se toca en este pase** (§31.0).
-- **Este cambio es de una línea y no depende del rediseño: puede —y debería— salir antes** (§31.15).
+#### 31.10b `sellRequestExpiredTemplate` — `expiry.noResponse.*` y `expiry.notShipped.*` (§31.9 fila 5)
+
+**Lo que pidió:** más conciso · que aparezca **«La solicitud queda cerrada y no se compró ninguna carta.»** ·
+que **termine** en el cierre **+ la invitación** a hacer una solicitud nueva.
+
+**⭐ Y la pregunta que hay que contestar antes de escribir: ¿el texto debe ser idéntico en las dos variantes?
+NO, y la diferencia no es de tono: es operativa.**
+
+| | **5a `no_response`** | **5b `not_shipped`** |
+|---|---|---|
+| ¿Aceptó la oferta? | **No** | **Sí** |
+| ¿Hubo guía? | **Nunca** — la guía solo existe después de aceptar | **Puede haberla**, y puede estar en su mano |
+| ¿Puede el vendedor mandar cartas HOY, por error? | **No**: nadie le pidió nunca que mandara nada | **SÍ**, y es el riesgo real: llegan cartas de una solicitud cerrada |
+| ⇒ ¿Necesita instrucción? | **No** | **Sí, una frase corta** |
+
+**Queda:**
+
+| Clave | ES | EN |
+|---|---|---|
+| `expiry.noResponse.p1` | `El plazo para responder terminó el {fecha}. La solicitud queda cerrada y no se compró ninguna carta.` | `The deadline to respond ended on {date}. The request is closed and no card was purchased.` |
+| `expiry.noResponse.p2` | `Si sigues queriendo vender, puedes cotizar de nuevo cuando quieras.` *(sin cambios)* | `If you still want to sell, you can get a new quote whenever you like.` *(sin cambios)* |
+| `expiry.notShipped.p1` | `Aceptaste la oferta, pero el paquete no salió antes del {fecha}. Ya no lo mandes: la solicitud queda cerrada y no se compró ninguna carta.` | `You accepted the offer, but the package did not ship by {date}. Don't send it now: the request is closed and no card was purchased.` |
+| `expiry.notShipped.p2` | `Si sigues queriendo vender, puedes cotizar de nuevo cuando quieras.` *(sin cambios)* | `If you still want to sell, you can get a new quote whenever you like.` *(sin cambios)* |
+
+- **Qué se fue en 5a, y por qué:** *«y la oferta ya no es válida»* (**redundante**: si el plazo terminó y la
+  solicitud queda cerrada, la oferta no puede estar viva) y *«y no tienes nada pendiente»* (**la misma
+  negación defensiva** del pase 1: «cerrada» ya lo dice). **De 24 a 16 palabras**, y la frase que el dueño
+  dictó entra **carácter por carácter**.
+- **Qué se fue en 5b:** *«dentro del plazo, que terminó el»* ⇒ *«antes del»*. **Entra `Ya no lo mandes:`**,
+  cuatro palabras, **pegadas al hecho** para que la frase dictada siga cerrando el párrafo.
+- **El orden que pidió se respeta en las dos: el último párrafo del correo es la invitación, y el
+  penúltimo remate es el cierre.**
+- **🟠 Decisión del DUEÑO (a):** dijo *«invitamos a hacer una **solicitud nueva**»* y el texto dice *«cotizar
+  de nuevo»*. **Lo dejo como está a propósito**, porque el botón de este correo dice `COTIZAR DE NUEVO` y
+  **el cuerpo y el botón tienen que nombrar el mismo acto**. Si quiere su palabra, el cambio son **dos**
+  líneas y van juntas: cuerpo `puedes hacer una solicitud nueva cuando quieras` + CTA
+  `HACER UNA SOLICITUD NUEVA` / `START A NEW REQUEST`, **en 5a, 5b y en el 6**. ⛔ **Nunca una sola de las
+  dos.**
+- **🟠 Decisión del DUEÑO (b) — y hay una petición de dato detrás.** §25.4.4 tenía para 5b una frase que **el
+  código nunca implementó**: *«Si la guía que te mandamos sigue sin usar, ya no es válida.»* **No la escribo**,
+  y la razón es la regla de §31.0: `SellRequestExpiredParams` recibe `{kind, folio, closedAt, portalUrl}` y
+  **no sabe si hubo guía** ⇒ afirmarlo sería inventar un estado. Por eso `Ya no lo mandes` es **una
+  instrucción**, no una afirmación sobre una guía que quizá no existe. **Si el dueño quiere nombrar la guía,
+  es una petición al arquitecto** (§31.15): pasar la presencia de `shipmentTrackingNumber` al parámetro.
+
+#### 31.10c `sellRequestNotPursuedTemplate` — `notPursued.p2` (§31.9 fila 6)
+
+**Lo que pidió:** quitar *«No hay nada pendiente de tu parte: no mandes ninguna carta y no se generó ninguna
+guía.»*, porque **«cerrada» ya implica que no hay nada pendiente** y repetirlo es ruido. **Su instinto
+editorial es correcto y se respeta.**
+
+**🔴 Pero antes de borrarlo hay que pesar una cosa, y se pesa aquí en vez de borrarla en silencio:**
+*«no mandes ninguna carta y no se generó ninguna guía»* **no es solo tranquilizar — es una instrucción
+operativa**. Si alguien manda las cartas igual, llegan a la bodega piezas de una solicitud cerrada.
+
+**Lo medido, que es lo que decide cuánta instrucción hace falta:** este correo tiene **dos productores**
+(`POST …/decline` y el barrido, regla 7) y **los dos exigen `status='cotizada'`** (`buylist.service.ts:5337`).
+⇒ **En este correo nunca hubo una oferta aceptada, y por lo tanto nunca hubo guía ni instrucción de enviar
+nada.** *El riesgo de que el vendedor mande cartas es real en 5b —donde aceptó y tiene guía— y es
+**marginal** aquí, donde nadie le pidió nunca que mandara nada.*
+
+⇒ **Veredicto: sí se puede decir en menos palabras sin perder la instrucción. De 15 palabras a 9.** Lo que se
+va es **el marco defensivo** (*«No hay nada pendiente de tu parte:»*), que es el ruido que el dueño señaló;
+lo que se queda son **los dos hechos**, fundidos en una frase.
+
+| Clave | ES | EN |
+|---|---|---|
+| `notPursued.p2` | `No se generó ninguna guía y no hay nada que mandar.` | `No shipping label was generated and there is nothing to send.` |
+
+- ⭐ **Esto NO contradice el pase anterior, y conviene decirlo porque es el error fácil.** Aquella vez el dueño
+  quiso que el correo dijera que **no requiere ninguna acción de su parte**; *«no hay nada que mandar»* es
+  exactamente eso **dicho como hecho**, que es más fuerte que decirlo como tranquilización. **Borrar `p2`
+  entero sí lo habría contradicho**: el correo se quedaría sin ninguna frase de «no tienes que hacer nada».
+- *«No se generó ninguna guía»* **se queda porque contesta la única duda real** (*¿me van a cobrar un
+  envío?*) **por un hecho**, no por una promesa (§7.12a).
+- **⛔ No se tocan `p1` ni `p3`, ni el asunto, ni el CTA, ni el preheader** (que sale de `p3`).
+- **🟠 Observación al DUEÑO / product-owner, no un cambio:** `p3` empieza con *«Los precios se mueven todo el
+  tiempo»*. Puesto justo después de *«no vamos a proceder»*, **roza la primera prohibición de §25.4.5**
+  (*decir POR QUÉ no ofertamos*): se puede leer como *«no ofertamos por precio»*. **No lo cambio** —no lo
+  pidió y es copy ratificada—, pero **queda señalado**: si algún día molesta, la cura es dejar `p3` en
+  `Puedes volver a cotizar cuando quieras.`
+
+#### 31.10d ⭐ Resuelto: el eyebrow de la variante **2b** (hueco abierto de §31.9)
+
+§31.9 daba al correo 2 **un** eyebrow, `LA OFERTA VENCE MAÑANA`, y backend lo escaló con razón: **en 2b es
+falso** —la oferta ya se aceptó y lo que vence es el **plazo de envío**—, así que puso provisionalmente
+`TU OFERTA`. **Un eyebrow que no dice qué vence no hace su trabajo**, y uno que afirma un hecho falso en
+versalitas es peor. **El correo 2 tiene DOS eyebrows, uno por variante:**
+
+| Variante | Eyebrow ES | Eyebrow EN |
+|---|---|---|
+| **2a** `accept` | `LA OFERTA VENCE MAÑANA` *(sin cambios)* | `THE OFFER EXPIRES TOMORROW` *(sin cambios)* |
+| **2b** `ship` ⭐ | `EL PLAZO PARA ENVIAR VENCE MAÑANA` | `THE DEADLINE TO SHIP IS TOMORROW` |
+
+- **Es cierto en 2b y es paralelo a 2a**: mismo patrón *«X vence mañana»*, y el titular del correo
+  (*«Tu paquete debe salir mañana»*) **ya afirma el mañana**, así que el eyebrow no añade ninguna promesa
+  nueva.
+- **Cabe:** `EL PLAZO PARA ENVIAR VENCE MAÑANA · BL-000123` son 45 caracteres en **mono 10px** ≈ **270 px**
+  sobre los 536 px de contenido (600 − 2×32). **Holgura de sobra**, también en el ES, que es el más largo.
+- **En MAYÚSCULAS en la cadena** (§31.2), y **el folio detrás con su `·`** como en los seis del ciclo
+  (§31.6b). ⛔ Nada de `text-transform`.
+
+#### 31.10e ⭐ Resuelto: el CTA del correo 4 — **no lleva** (hueco abierto de §31.7)
+
+§31.7 le asignaba *«el de coordinación»* **sin decir qué rótulo ni a dónde apunta**, y backend lo envió **sin
+botón**, escalándolo. **Ratifico el sin botón, y ahora con la razón escrita para que no vuelva a abrirse:**
+
+1. **La acción que pide este correo es escribir a `soporte@tcghunt.mx`** — un **buzón**, no una URL. Un CTA
+   `mailto:` en un correo transaccional **falla en webmail sin cliente por defecto**, y **no puede cumplir
+   §31.6g** (la URL en texto debajo del botón, que es el respaldo obligatorio en modo oscuro forzado, §31.8
+   regla 4c). Un botón cuyo respaldo no existe **es exactamente lo que §31.8 prohíbe**.
+2. **La dirección ya viaja dos veces**, dentro de la opción de devolución, **en el HTML y en la parte de
+   texto** — y ahí está pegada a su plazo, que es donde sirve.
+3. **Mandarlo al portal sería un botón medio muerto:** el portal **no tiene** pantalla de coordinación de
+   devolución, así que `VER MI SOLICITUD` llevaría a un sitio que **no puede hacer lo que el correo pide**
+   (el espíritu de **BL-21**: ⛔ jamás un botón que no lleve a la acción).
+
+⇒ **§31.7 queda enmendada: el correo 4 es el único de los ocho SIN CTA, y es deliberado.** ⛔ No es un hueco
+pendiente y **no se le inventa uno**. *El día que exista una pantalla de devolución en el portal, ese día se
+reabre — y será un cambio de producto, no de diseño.*
+
+**Y lo que este pase NO resuelve, porque no es §31:** la variante de copy de *«guardada pero no rige»* cuando
+**no hay tasa de Banxico que nombrar** (`fallback`) vive en **§30.9c / §30.15** (`manual.savedNotRuling`) y en
+`TECH_DEBT` como hueco abierto. **No se toca aquí**: cambiarla es un pase de §30 y este encargo es de correos.
+La cadena está redactada y entregada en el resumen de este pase, lista para pegar en cuanto se autorice.
+
+**Y el resto sigue igual:** ⛔ **ninguna otra cadena de los ocho se toca** (§31.0). Los cinco cambios de arriba
+son **de valor de cadena**: no mueven un bloque, no añaden un patrón y no crean ni un par de contraste
+(§31.11).
 
 ### 31.11 Contraste — **cero pares nuevos**
 
@@ -14999,8 +15234,14 @@ Todo §31 usa pares ya verificados en §10 y §17.2, con los bordes **aplanados*
 15. **⛔ No superes los 90 KB de HTML**, y **no empujes los montos ni el CTA por debajo de la mitad del
     documento**: Gmail recorta (§31.2).
 16. **⛔ No inventes un identificador** para los correos 7 y 8 solo para que el eyebrow «cuadre» (§31.6b).
-17. **⛔ No reescribas ninguna cadena** salvo `notPursued.p2` (§31.10).
-18. **⛔ No cambies los asuntos** en este pase (§31.9).
+17. **⛔ No reescribas ninguna cadena** salvo **las que §31.10 escribe una por una**: `notPursued.p2`,
+    `offerCancelled.p1`/`p2` (+ su preheader), `expiry.noResponse.p1`, `expiry.notShipped.p1` y el **eyebrow
+    de 2b**. **Todo lo demás sigue congelado**, incluidos `p2`/`p3` de las que sí cambian.
+18. **⛔ No cambies los asuntos.** Los ocho siguen intactos, también en el pase 2 (§31.9, §25.4.7).
+19. **⛔ No prometas una oferta nueva** en el correo de cancelación, ni le pongas fecha a la próxima carta:
+    desde `cotizada` hay **tres** salidas y solo una es una oferta, y el plazo de emisión **no se comunica**
+    (§31.10a).
+20. **⛔ No le inventes un CTA al correo 4** ni un `mailto:` que haga de botón (§31.10e).
 
 ### 31.14 Las mutaciones que ponen un test **en rojo**
 
@@ -15019,6 +15260,8 @@ quitan las imágenes, qué cadenas salen por el cable y de dónde sale el texto 
 | **ML-8** | **que el peso se dispare y Gmail recorte** | Correo 1 con **20 líneas de carta** (el caso realista más pesado) ⇒ **`Buffer.byteLength(html) < 90_000`**, y **el bloque del neto y el CTA aparecen antes del carácter que marca la mitad del documento**. **Rojo por encima de 90 KB o si el CTA cae en la segunda mitad.** |
 | **ML-9** | **que las versalitas dependan de CSS** | Ninguna cadena que se pinte como versalita lleva su valor en minúsculas confiando en `text-transform`: **el valor de la cadena ya está en mayúsculas**. **Rojo si aparece `text-transform:uppercase` en cualquiera de los ocho** (Outlook lo ignora y el eyebrow se lee en minúsculas). **Y el barrido de homoglifos de §28.10 corre también sobre estas cadenas.** |
 | **ML-10** | **que el rediseño rompa el escape de HTML** | Un nombre de vendedor `"><script>alert(1)</script>` ⇒ aparece **escapado** en los ocho. *`escapeHtml` (S15-B1) ya existe y está duplicado (**BE-43**); tocar las ocho plantillas a la vez es exactamente cuando alguien interpola sin escapar.* |
+| **ML-12** ⭐ **(v3.9)** | **que el correo de cancelación vuelva a prometer una oferta** | **Se mide sobre `subject` + `html` + `text`, en ES y EN.** El render de `sellOfferCancelledTemplate` **no contiene** `oferta nueva` / `new offer` **como promesa aislada**: la aserción operativa es que **si aparece la cadena de una oferta futura, aparece dentro de la frase que también nombra el cierre** (`o con el cierre de la solicitud` / `or to close the request`). **Rojo si alguien «suaviza» el correo quitando la segunda salida.** *La mutación que esto caza es la amable: borrar «o con el cierre» porque suena feo. Eso convierte una disyunción cierta en una promesa falsa* (§31.10a). **Control adicional, ya vigente:** ⛔ ni `offerCancelReason`, ni ningún monto, ni la palabra `venció`/`expired`, ni ninguna fecha que no sea `offerSentAt`. |
+| **ML-13** **(v3.9)** | **que la instrucción operativa de `not_shipped` se pierda al «hacerlo conciso»** | El render de `sellRequestExpiredTemplate` con `kind:'not_shipped'`, en ES y EN, **contiene la instrucción de no enviar** (`Ya no lo mandes` / `Don't send it now`) **y** la frase de cierre dictada por el dueño (`La solicitud queda cerrada y no se compró ninguna carta.` / `The request is closed and no card was purchased.`), **carácter por carácter**. **Control negativo:** con `kind:'no_response'` **NO** aparece ninguna instrucción de envío — ahí nunca hubo guía y decirlo sería ruido (§31.10b). ⛔ **Y en ninguna de las dos aparece la palabra «guía» / "label"**: el parámetro no sabe si existió. |
 | **ML-11** | **el idioma** | Los ocho, **en ES y EN**, **vistos renderizados** (§26.8: mirarlo, no `grep`earlo), y **en tres bandejas**: Gmail web con imágenes bloqueadas, Outlook Windows y Gmail app en Android en modo oscuro. **Rojo si en alguna el texto desaparece, la marca desaparece o el CTA no se lee.** |
 
 ### 31.15 Estimación honesta, secuenciación y notas a otros roles
@@ -15042,6 +15285,7 @@ esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquest
 | **0 · ahora, y no depende de nada** | **(a)** el cambio de copy del correo 6 (§31.10) — **una línea, dos idiomas**; **(b)** copiar `apple-icon.png` → `frontend/public/branding/mail-mira-180.png` | backend / **frontend** | **~10 min + ~10 min** |
 | **1 · el pase de verdad** | Esqueleto compartido + los **seis** correos de buylist: marca, pie de tinta, patrones, modo oscuro, parte de texto plano a paridad, y los candados ML-1…ML-10 | **backend** | **~3–4 días** |
 | **2 · cuando la zona esté libre** | Los **dos** de `mail/` sobre el mismo esqueleto (+ absorber BE-43 si el orquestador lo autoriza) | **backend**, stream Cuentas y acceso | **~0.5–1 día** |
+| **3 · el copy del dueño (v3.9)** ⭐ | **§31.10 entero, y son SOLO valores de cadena**: `offerCancelled.p1`/`p2` **+ su preheader** (⚠ se borra la constante `notYourFault` y el preheader deja de componerse con ella), `expiry.noResponse.p1`, `expiry.notShipped.p1`, `notPursued.p2` y el **eyebrow de 2b** (pasa a ramificar por `kind`, como el titular). **Y una cosa que NO es código:** el escalado del **CTA del correo 4** queda **cerrado en §31.10e** — sigue **sin botón**, así que el comentario de `sellItemRejectedTemplate` deja de decir *«queda escalado a ux-ui»* y pasa a citar §31.10e. ⛔ **Cero bloques nuevos, cero patrones nuevos, cero pares de contraste nuevos** | **backend** | **~40 min**, tests incluidos |
 
 - **⭐ Esto es ~95 % backend.** El **frontend hace exactamente una cosa**: copiar un PNG a
   `public/branding/` con nombre estable. *Lo digo de frente porque el encargo llegó por el lado del diseño y
@@ -15052,6 +15296,9 @@ esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquest
 - **El pase 1 NO se parte más.** El esqueleto y los seis correos **son el mismo trabajo**: hacer el esqueleto
   sin aplicarlo deja un helper sin usuarios, y hacer los correos de uno en uno multiplica la duplicación que
   BE-43 ya paga.
+- **⭐ El pase 3 es independiente de los otros tres y se puede hacer YA**, con la maqueta que ya está en
+  producción: **no toca ni un bloque**. Y por la misma razón que el pase 0, **sale solo**: es copy que el
+  dueño pidió y que hay que poder señalar en la bitácora sin buscarlo dentro de un PR grande.
 
 **Notas a otros roles:**
 
@@ -15059,6 +15306,546 @@ esqueleto de los ocho ES ese disparador.** ⇒ **No lo decido yo**: o el orquest
 |---|---|
 | **frontend** | Copiar `frontend/src/app/apple-icon.png` → **`frontend/public/branding/mail-mira-180.png`** (mismo binario, nombre estable, servido desde `tcghunt.mx`). ⛔ **Nada más.** No hay componente, no hay ruta, no hay i18n de frontend en este encargo. |
 | **backend** | Las plantillas son suyas. ⚠ **Tres trampas medidas en el código de hoy, y las tres se corrigen de paso**: `max-width:520px` (debe ser **600**), `color:#111` (debe ser **`#1A1A18`**) y **`border-radius:6px` en los CTA** (debe ser **0** — §4.2, y viene siendo falso desde v1.3). Y **`BRAND` está duplicado en cuatro sitios** (deuda **BE-P21-1**): el rediseño lo roza, **no hace falta arreglarlo**, pero conviene no añadir un quinto. |
-| **arquitecto / orquestador** | **Decisión de zonas compartidas, no mía:** los correos 7 y 8 viven en `mail/`, de otro stream (**BE-43**). O se serializa, o el pase 2 espera. **No hay nada que cambiar en el contrato**: ni un campo, ni un endpoint, ni un DTO. |
-| **product-owner** | **(a)** El cambio de `notPursued.p2` (§31.10) es de copy vinculante-adyacente: **lo pidió el dueño y lo ratifico con la norma de §7.12a**, pero **la ratificación formal es tuya**. **(b)** **Pregunta abierta, no bloqueante:** los ocho son **transaccionales** y por eso **no llevan enlace de baja**. El día que el negocio quiera mandar correo **comercial**, eso es **otra familia de plantillas y otro pase** — y ahí sí habrá que resolver baja, preferencias y frecuencia. |
-| **QA** | Los once candados de §31.14 están escritos para poder ponerse rojos. Los tres ⭐⭐ son los del encargo: **ML-1 mide por ablación** (quitar los `<img>` y ver si la marca sigue), **ML-2 extiende un barrido que ya existe** y lo hace sobre **la parte de texto plano**, donde nada se esconde, y **ML-3 asierta igualdad exacta de cadena** contra el portal. ⚠ **ML-11 no se puede automatizar y no se sustituye por un `grep`**: hay que abrir los ocho en **Gmail con imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. |
+| **arquitecto / orquestador** | **(a) Decisión de zonas compartidas, no mía:** los correos 7 y 8 viven en `mail/`, de otro stream (**BE-43**). O se serializa, o el pase 2 espera. **No hay nada que cambiar en el contrato**: ni un campo, ni un endpoint, ni un DTO. **(b) ⚠ v3.9 — la ÚNICA petición de dato de todo §31, y es opcional:** si el dueño quiere que el correo de expiración **nombre la guía** en la variante `not_shipped` (*«si la guía sigue sin usar, ya no es válida»*, la frase que §25.4.4 tenía y el código nunca implementó), `SellRequestExpiredParams` necesita **saber si hubo guía** (la presencia de `shipmentTrackingNumber`, **no el número**). **Sin ese dato NO se escribe la frase** (§31.10b) y el correo sale igual, con `Ya no lo mandes`. ⛔ **No es un bloqueo y no pido el número de guía**: solo un booleano, y solo si se decide que la frase entra. |
+| **product-owner** | **(a)** Los cambios de copy de §31.10 —los del pase 1 y **los cinco del pase 2 (v3.9)**— son **copy vinculante-adyacente**: **los pidió el dueño y los ratifico con las normas de §7.12a y §25.4.4-bis**, pero **la ratificación formal es tuya**. ⚠ **Tres de ellos son decisiones del DUEÑO, no mías, y están marcadas 🟠 en §31.10**: **(1)** que el correo de cancelación **nombre el cierre** como posible desenlace (el precio de no prometer una oferta que el sistema no garantiza); **(2)** si la invitación de los correos 5 y 6 dice *«cotizar de nuevo»* o *«hacer una solicitud nueva»* —y si cambia, **el cuerpo y el CTA cambian juntos, en los tres correos**—; **(3)** si la frase de la guía entra en la variante `not_shipped` (necesita el dato de (b) del arquitecto). **(b)** **Observación, no cambio:** `notPursued.p3` empieza con *«Los precios se mueven todo el tiempo»* y, pegado a *«no vamos a proceder»*, roza la primera prohibición de §25.4.5 (*decir por qué no ofertamos*). **(c)** **Pregunta abierta, no bloqueante:** los ocho son **transaccionales** y por eso **no llevan enlace de baja**. El día que el negocio quiera mandar correo **comercial**, eso es **otra familia de plantillas y otro pase** — y ahí sí habrá que resolver baja, preferencias y frecuencia. |
+| **QA** | Los **trece** candados de §31.14 están escritos para poder ponerse rojos (**ML-12 y ML-13 son de v3.9 y cubren el copy nuevo**: que la cancelación no vuelva a prometer una oferta, y que la instrucción de no enviar sobreviva a la concisión). Los tres ⭐⭐ son los del encargo: **ML-1 mide por ablación** (quitar los `<img>` y ver si la marca sigue), **ML-2 extiende un barrido que ya existe** y lo hace sobre **la parte de texto plano**, donde nada se esconde, y **ML-3 asierta igualdad exacta de cadena** contra el portal. ⚠ **ML-11 no se puede automatizar y no se sustituye por un `grep`**: hay que abrir los ocho en **Gmail con imágenes bloqueadas**, **Outlook Windows** y **Gmail Android en modo oscuro**. |
+
+---
+
+## 32. M2 › Sincronización del catálogo — **TRES** acciones, y **el aviso que no puede afirmar más de lo que pasó** (v4.0, decisión del dueño)
+
+> **Origen: NO es Claude Design.** Es una **decisión del dueño**, dictada literal, más **tres defectos de
+> honestidad medidos en el código que corre**. Esta sección los codifica.
+>
+> **La frase del dueño, íntegra, porque es la norma:**
+> > «*Backfill nunca; forzar sí varias veces. Importar sets nuevos debería de traer los nuevos no los viejos,
+> > y es movible conforme vaya pasando el tiempo. Sincronizar set debería hacer las dos, imágenes y precios;
+> > solo se ocupa si se ve un error en algún set específico.*»
+>
+> **⚠ Por qué esta sección existe y no un arreglo de pantalla.** Una revisión de UX midió
+> `CatalogSyncSection.tsx` y concluyó que **el componente cumple §19 al pie de la letra**. El defecto no
+> estaba en la implementación: **estaba en el patrón**. Arreglar la pantalla sin cambiar la norma la habría
+> dejado fuera de norma. *Es el mismo tipo de hallazgo que §28.5 v3.5 —«las dos piezas eran correctas por
+> separado y la frase resultante era falsa»— y se trata igual: se corrige aquí.*
+>
+> **Qué supersede de §19:** **§19.0** (diagnóstico y mapa de 9 acciones), **§19.1** (los tres grupos
+> DATOS/CATÁLOGO/AVANZADO), **§19.2**, **§19.3**, **§19.4** (jerarquía por-fila I→G→H y el menú «Más ▾»),
+> **§19.6** (se amplía: se retiran más cosas), **§19.8** (confirmaciones y feedback) y **§19.10** (claves).
+> De **§19.9** sobrevive todo lo que no nombre grupos ni menú kebab (§32.10 lo reescribe completo).
+> **NO se toca: §19.5** (ya reanclada por §21.7b), **§19.7** (selector de proveedor de respaldo — sigue
+> vigente tal cual) ni la **acción A «Actualizar precios ahora»** (§19.1, el `Button` `primary` `lg` del tope
+> del panel: **no entra en este encargo y no cambia**).
+>
+> **§32.4 no es de M2.** Es una **norma transversal del sistema** —el aviso de resultado de cualquier acción,
+> en cualquier panel— y **extiende §8.1/§8.3**. M2 es donde se descubrió, no donde acaba.
+
+### 32.0 Los tres defectos, y las NUEVE reglas duras
+
+**Los tres defectos, medidos (dos los está corrigiendo backend; el tercero es de diseño/frontend):**
+
+| # | Dónde | Qué | De quién |
+|---|---|---|---|
+| **D1** | `catalog-sync.service.ts:819` | `return { imported: true, cardCount }` — `imported` es un **literal fijo**, no una medición ⇒ el aviso siempre dice «1 set», pase lo que pase. | backend (en curso) |
+| **D2** | `catalog-sync.service.ts:366` | `cardsProcessed = localSet._count.cards` — es **el total en la base**, no lo que la corrida tocó ⇒ un set que no se resolvió reporta «**191 cartas procesadas · 0 precios**» **en verde, como éxito**. | backend (en curso) |
+| **D3** | `frontend/messages/es.json` | Las claves `*Hint` —**incluida `fullSyncHint`, que advierte literalmente que re-sincronizar NO toca precios**— existen y **no las consume ninguna pantalla**. Copia muerta. | **este documento + frontend** |
+
+> **⚠ D3 es el peor de los tres, y conviene decir por qué.** Por `ARCHITECTURE §0-B.3` regla 8, *una
+> advertencia escrita que nadie ve es peor que no tenerla*: hace creer —a quien lee el repo, a quien revisa
+> el PR, a quien audita— que **el usuario fue advertido**. D1 y D2 mienten al dueño; **D3 miente al equipo
+> sobre si el dueño fue avisado**. Y en este caso concreto la advertencia muerta describía **exactamente la
+> trampa en la que el dueño cayó**.
+
+**Las nueve reglas duras de esta sección. Todo lo demás se deriva de ellas:**
+
+1. **TRES acciones, no ocho.** Importar sets nuevos · Sincronizar todo (forzar) · Sincronizar este set.
+   Cualquier cuarta acción de sincronización en M2 es una regresión de esta sección.
+2. **La de reparación se ve; la de rutina no miente.** Hoy es al revés: la única que traía precios estaba
+   **escondida en un menú ⋯** y la grande y obvia no los tocaba. **⛔ Ninguna acción de este panel vuelve a
+   vivir en un overflow.**
+3. **«Sincronizar este set» hace SIEMPRE las dos: imágenes y precios.** No hay variante que haga solo una.
+   No hay botón que haga solo una.
+4. **Una fase que no depende de la fuente caída NO se cancela porque la otra falle.** Si la fuente de
+   catálogo no responde, los precios se actualizan igual y el aviso lo dice. *(Esto es lo que permite pasar
+   de ocho botones a tres sin perder la capacidad que §19.2 protegía con un grupo entero.)*
+5. **⭐ Un aviso en verde exige trabajo realmente escrito.** §32.4 lo desarrolla; es el corazón del encargo.
+6. **⭐ «0 precios escritos» NUNCA se presenta en verde.** Ni con un adverbio amable al lado.
+7. **⭐ Un número que se le enseña al dueño es lo que la acción TOCÓ.** Un total de contexto solo aparece
+   detrás de la palabra «de», en `text-muted`, y **nunca** en el primer lugar de la frase.
+8. **⭐ Lo que no se sabe se pinta «—», nunca `0` y nunca omitido.** Precedente del sistema: el precio
+   pendiente (§7.3) y el cero que no se dice (§28.5). *Un cero que en realidad es un «no lo sé» es la misma
+   mentira con mejor presentación.*
+9. **La copia muerta se muestra o se borra.** No existe la tercera opción «se queda por si acaso» (§32.6).
+
+### 32.1 Por qué OCHO se quedan en TRES sin perder nada
+
+**Lo que hay hoy, medido — 8 acciones de sincronización** (6 con botón + 2 automáticas sin botón):
+
+| Hoy | Dónde vive | Qué hace de verdad | Destino v4.0 |
+|---|---|---|---|
+| «Actualizar variantes» (`refreshVariantsShort`) | fila, 1.ª | variantes + precios (TCGCSV) | **Absorbida** — es la **fase 2** de «Sincronizar este set» |
+| «Importar» / «Re-sincronizar» (`import`/`resync`) | fila, 2.ª — **el botón grande y obvio** | metadata + cartas (**no toca precios**) | **Absorbida** — es la **fase 1** de «Sincronizar este set» |
+| «Sincronización completa» (`fullSyncMenuItem`) | **menú ⋯** | ⭐ **la ÚNICA de las tres que traía precios** | **Se convierte en la acción de fila, y sale del menú** |
+| «Actualizar variantes de todos» (`refreshVariantsAllShort`) | global | variantes + precios de todo (TCGCSV) | **Absorbida** — es la **fase 2** de «Sincronizar todo (forzar)» |
+| «Importar sets nuevos» (`syncAll`) | global | sets nuevos desde el corte | **Se queda** (acción 1), con **el corte a la vista** |
+| «Backfill» (`backfill`) | global | siguiente lote de sets viejos | ⛔ **RETIRADA** — «backfill nunca» |
+| barrido diario de precios | automática | — | **No se toca** (no tiene botón, no entra aquí) |
+| resolvedor diario de productos | automática | — | **No se toca** |
+
+- **⭐ La retirada de «Backfill» NO pierde la capacidad, la mejora.** «Backfill (siguiente lote)» era un lote
+  **a ciegas**: el dueño no elegía qué entraba ni sabía qué había entrado. Lo que reemplaza ese trabajo es
+  **«Sincronizar este set» sobre una fila no importada**: el set viejo que se quiera traer se **señala en la
+  tabla**, y el aviso dice qué trajo. Se cambia un lote opaco por una elección visible.
+- **⭐ Por qué desaparecen los tres grupos de §19.1 (DATOS / CATÁLOGO / AVANZADO).** Aquellos grupos existían
+  para que el operador **eligiera la fuente**: TCGCSV (siempre funciona) vs. pokemontcg.io (se cae). Con las
+  fases fundidas, **la fuente deja de ser una elección del dueño y pasa a ser un hecho que el aviso reporta**
+  (regla 4). Un grupo entero de la pantalla se convierte en **una frase del aviso**, que es donde el dato
+  sirve: cuando ya pasó y hay que decidir qué hacer.
+- **Y por qué desaparece «AVANZADO».** Su contenido era «Re-sincronizar todo (forzar)», que el dueño **usa
+  varias veces**. Un `<details>` plegado sobre la acción que más se usa es un error de jerarquía; la sección
+  se queda vacía y se retira con él.
+
+### 32.2 Las TRES acciones — nombre, sitio y papel
+
+**⛔ El papel de cada acción (rutina vs. reparación) es normativo y se dice en la pantalla, no se infiere:**
+
+| # | Acción | Sitio | Papel | Frecuencia esperada | Confirmación |
+|---|---|---|---|---|---|
+| **1** | **«Importar sets nuevos»** | global, 1.ª | **Rutina** — lo que se hace cuando sale una expansión | alta | **no** |
+| **2** | **«Sincronizar todo (forzar)»** | global, 2.ª | **Rutina pesada** — «forzar sí, varias veces» | media | **sí** (§32.7) |
+| **3** | **«Sincronizar este set»** | **una por fila** de la tabla | ⭐ **Reparación** — *«solo se ocupa si se ve un error en algún set específico»* | baja, puntual | **no** |
+
+**Composición de cada acción (endpoints ya existentes; §32.15 dice qué falta):**
+
+| # | Fase 1 | Fase 2 | Naturaleza |
+|---|---|---|---|
+| 1 | `POST /admin/catalog/sync` sin `setId` (modo `from_date`) | — | barrido asíncrono observable (`sync-status`) |
+| 2 | `POST /admin/catalog/sync {force:true}` | `POST /admin/catalog/refresh-variants-all` | **dos** barridos asíncronos encadenados |
+| 3 | `POST /admin/catalog/sync {setId, force:true}` | `POST /admin/catalog/refresh-variants {setId}` | **síncrona**, y devuelve cifras contables |
+
+> **⚠⚠ La fase 2 de la acción 3 es `refresh-variants`, NO `price-ingest` — y es una decisión de diseño, no de
+> implementación.** `price-ingest {setId}` **encola**: su respuesta no puede decir cuántos precios quedaron
+> escritos, así que bajo §32.4-H6 el aviso solo podría decir «encolado» — y **«encolado» no contesta la
+> pregunta que el dueño trae**, que es *«¿ya quedó bien este set?»*. `refresh-variants` es **síncrono** y
+> devuelve `cardProductsUpserted` / `pricesUpserted` / `pending`: **cifras de escritura reales**. La regla
+> general, para cuando backend proponga otra composición: **la segunda fase de una acción de reparación debe
+> devolver un conteo de lo escrito; si solo encola, el botón no puede prometer precios.**
+
+**Layout de la zona (reemplaza el bloque de tres grupos de §19.1):**
+
+```
+┌─ (SIN CAMBIOS — §19.1 / §19.7 / §21) ───────────────────────────────────┐
+│  h1 «Catálogo y precios»                                                │
+│  ▸ Actualizar precios ahora   [A · primary lg]     ← NO ENTRA EN §32     │
+│  … editores de precio (curva §21, proveedor de respaldo §19.7, FX §30)   │
+├─ eyebrow  SINCRONIZACIÓN DEL CATÁLOGO ──────────────────────────────────┤  ← UNA sección, no tres
+│  h2 «Sincronización del catálogo»                                       │
+│  p  «Traer lo nuevo, y reparar lo que se vea mal.»                      │
+│                                                                          │
+│  [1 · Importar sets nuevos]   [2 · Sincronizar todo (forzar)]  (secondary)│
+│   ↳ «Cuenta como nuevo…»       ↳ «Dos fases: cartas y luego precios…»    │
+│      (subtítulo PERMANENTE bajo cada botón — §32.3, §32.6)               │
+│                                                                          │
+│  ── barra de progreso / aviso de veredicto (§32.4, §32.5) ──             │
+│                                                                          │
+│  p  «Si un set concreto se ve mal, repáralo desde su fila.»             │
+│  ┌ tabla de sets ────────────────────────────────────────────────────┐  │
+│  │ Set · Lanzamiento · Importado · Cartas ·      [Sincronizar este set]│  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│  ── aviso de veredicto de la fila (§32.5c) ──                            │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Encabezado:** `eyebrow` mono (§3.2) + `h2` serif + una línea `text-sm text-muted`. La sección entera es
+  `<section role="group" aria-labelledby>` (§32.10).
+- **Los dos botones globales son `secondary`** (§6.1). ⛔ **Ninguno es `primary`**: el `primary` del panel es
+  A («Actualizar precios ahora») y **sigue siendo único**. Dos primarios compitiendo es lo que produce el
+  «botón obvio».
+- **Bajo cada botón global va un subtítulo `text-xs text-muted` PERMANENTE**, no un `title`, no un tooltip,
+  no un popover (§32.6). Es lo que reemplaza a los `*Hint` muertos.
+- **La fila tiene UN botón, no tres.** `secondary` `sm`, con `RefreshCw` decorativo. **No hay menú «Más ▾»**
+  en esta tabla: `RowMoreMenu` se queda en el sistema para otras tablas, pero **aquí no se usa** (regla 2).
+
+### 32.3 El corte de «nuevo» — la fecha se ve, o la acción no se entiende
+
+El dueño dijo que el corte «*es movible conforme vaya pasando el tiempo*». El mecanismo **ya existe** y **no
+lo decido yo**: es el dial `catalogSyncFromDate` (`GET/PUT /admin/settings`, §M10; la pantalla M10 lo rotula
+«Frontera de sync de catálogo»). Lo que §32 exige es que **sea legible desde donde se aprieta el botón**:
+
+- **Subtítulo permanente bajo «Importar sets nuevos»**, en `text-xs text-muted`, con la fecha en `tabular`:
+  - ES: «Cuenta como **nuevo** todo lo lanzado desde **{fecha}**. Los anteriores no entran.»
+  - EN: “Anything released on or after **{date}** counts as **new**. Earlier sets are not included.”
+- **La fecha se lee del dial, no se escribe aquí** (`ARCHITECTURE §0-B.3` regla 1: es un valor de clase (B);
+  el documento cita su origen, no su valor. Hoy, *p. ej.*, `2024/01/01`).
+- **Si el dial no se pudo leer:** la fecha se pinta **«—»** y la frase pasa a «*No se pudo leer la fecha de
+  corte.*» ⛔ **Nunca se pinta una fecha por defecto inventada** (regla dura 8).
+- **Cómo se mueve:** enlace `text-xs` **«Cambiar la fecha»** al lado, que lleva a **M10 · Configuración**
+  (`/admin/m10`, ancla del campo). ⛔ **No se edita en M2 en esta versión**: un dial de dos superficies es
+  justo lo que `ARCHITECTURE §0-B.3` regla 9 prohíbe sin token de concurrencia. *(Si el dueño quiere
+  editarlo aquí, es petición al arquitecto — §32.15 R3.)*
+- **El corte también se nombra en el aviso de resultado** cuando no hubo nada que traer, porque es la única
+  explicación útil de un cero legítimo (§32.5a).
+
+### 32.4 ⭐⭐ NORMA DE HONESTIDAD DEL AVISO DE RESULTADO *(transversal: extiende §8.1 y §8.3)*
+
+> **La norma, en una frase: un aviso de resultado puede afirmar exactamente lo que la corrida midió, y ni una
+> palabra más.** Ni el código HTTP, ni la ausencia de excepción, ni el hecho de que «terminó» son trabajo
+> realizado.
+
+#### 32.4a El portador del veredicto es una VERSALITA, no el color
+
+En este sistema **`warning` y `danger` comparten bermellón** y se distinguen por el texto (§10, regla
+derivada), y **el verde de éxito está en el borde de AA** precisamente porque *nunca es el único canal*.
+Aplicado al aviso de resultado, eso deja una sola forma posible:
+
+> **Todo aviso de resultado abre con un veredicto en versalitas mono** (`font-mono text-xs uppercase
+> tracking-[0.18em]`, patrón de §28.5), seguido de la frase. **El color es el segundo canal, jamás el
+> primero.** *El dueño se quemó leyendo un verde; la palabra que ahora lee primero es `NO SE HIZO`.*
+
+**El vocabulario de veredictos es CERRADO. Son seis, y solo UNO es verde:**
+
+| Veredicto | ES / EN | Tono `Banner` | Cuándo — condición mecánica |
+|---|---|---|---|
+| **HECHO** | `HECHO` / `DONE` | `success` (verde) | Corrieron **todas** las fases prometidas **y** al menos una cifra de escritura es **> 0** **y** ninguna cifra de escritura es desconocida. |
+| **SIN CAMBIOS** | `SIN CAMBIOS` / `NO CHANGES` | `info` (neutro) | Corrió bien y **no había nada que hacer** — y eso se puede **demostrar** (p. ej. cero sets nuevos desde el corte). ⛔ **No es verde.** |
+| **PARCIAL** | `PARCIAL` / `PARTIAL` | `warning` | Algo se escribió **y** algo quedó sin hacer, falló, quedó pendiente o **no se pudo medir**. |
+| **NO SE HIZO** | `NO SE HIZO` / `NOTHING DONE` | `warning` | Corrió sin error **y no escribió nada**, **habiendo trabajo que hacer**. ⭐ **Éste es el caso de D2.** |
+| **FALLÓ** | `FALLÓ` / `FAILED` | `danger` + `role="alert"` | La llamada falló, o ninguna fase llegó a correr. |
+| **NO SE SABE** | `NO SE SABE` / `UNKNOWN` | `info` (neutro) | La acción terminó pero **el sistema no puede reportar qué escribió** (estado perdido, resumen no expuesto). Va **siempre** con «—» y con la superficie donde sí se puede comprobar. |
+
+**El algoritmo, en el orden exacto en que se evalúa** (normativo — si dos condiciones casan, manda la de
+arriba):
+
+```
+1. ninguna fase corrió, o la única fase falló         → FALLÓ
+2. alguna cifra de escritura es DESCONOCIDA           → PARCIAL (si algo sí se midió y es >0)
+                                                       → NO SE SABE (si no se midió nada)
+3. alguna fase falló, o quedó trabajo pendiente       → PARCIAL
+4. todas las cifras de escritura son 0
+     4a. y HABÍA trabajo que hacer                    → NO SE HIZO
+     4b. y NO había nada que hacer (demostrable)      → SIN CAMBIOS
+5. resto                                              → HECHO
+```
+
+> **⚠ El paso 2 va ANTES del 4 a propósito.** Sin ese orden, «no lo medí» se colapsa con «fue cero», que es
+> exactamente D2. *Un cero que no se midió no es un cero.*
+
+#### 32.4b Las diez reglas (H1–H10)
+
+- **H1 · El verde exige escritura.** `HECHO` requiere **al menos una cifra de escritura > 0**. Terminar sin
+  excepción **no es** trabajo hecho.
+- **H2 · El cero escrito nunca es verde.** Si todas las cifras de escritura son 0, el veredicto es
+  `NO SE HIZO` o `SIN CAMBIOS`, y **ninguno de los dos usa el token de éxito**. ⛔ Prohibido «Listo, 0
+  precios actualizados».
+- **H3 · El número es lo que se tocó.** La **primera** cifra de la frase es **siempre** una cifra de
+  escritura. Un total de contexto **solo** puede aparecer (a) después de la palabra «**de**», (b) en
+  `text-muted`, (c) nunca en negrita, (d) nunca solo. Forma canónica: «**{p} precios escritos** <span
+  muted>de {n} variantes del set</span>». ⛔ **Prohibido:** «191 cartas procesadas · 0 precios».
+- **H4 · Lo desconocido es «—».** Se pinta `—` en `tabular`, **más** una frase que diga que no se pudo saber,
+  **más** dónde sí se puede comprobar. ⛔ **Nunca `0`**, ⛔ **nunca inventado**, ⛔ **nunca omitido en
+  silencio** (omitir también miente: el lector asume que no aplicaba).
+- **H5 · Un booleano jamás se convierte en cifra.** Una cifra se pinta **solo** si su origen es una cuenta de
+  esa corrida. ⭐ **Ésta es D1**: `imported: true` → «1 set» es convertir una constante en un dato.
+  *Corolario de revisión, `grep`-able: una cifra que no cambia nunca entre corridas es sospechosa.*
+- **H6 · «Encolado» no es «hecho».** Un trabajo encolado se reporta como **estado** (`EN CURSO`, tono `info`,
+  con la barra de progreso), **jamás como veredicto verde**, y la frase dice **dónde se verá el resultado**.
+  Una acción que promete precios **no puede terminar su vida en «encolado»**: o espera y reporta, o el botón
+  no promete precios (§32.2).
+- **H7 · Manda la fase peor.** En una acción de varias fases, el veredicto es el **peor** de sus fases, y la
+  frase **nombra la fase** que lo empeoró. ⛔ Nunca se reporta solo la fase que salió bien.
+- **H8 · Vocabulario cerrado para las cifras.** **Escritura:** «escritos», «actualizados», «importados»,
+  «creados». **Lectura:** «revisados», «consultados». ⛔ **«procesados» queda PROHIBIDO** en avisos de
+  resultado: es la palabra que permitió llamar «procesadas» a 191 cartas que nadie tocó. Si no se sabe si
+  hubo escritura, la cifra **no se pinta** (H4).
+- **H9 · Lo que no se hizo se nombra.** Si la acción prometía dos cosas y solo hizo una, la frase dice **la
+  que faltó** y **qué pasó con lo anterior** («*sus precios siguen como estaban*»). El dueño necesita saber
+  si quedó en un estado a medias, no solo qué salió bien.
+- **H10 · El tono no se deriva del HTTP ni del `isSuccess` del cliente.** `200 OK` con cero escrito no es
+  éxito. **⛔ Prohibido `variant={mutation.isSuccess ? 'success' : …}`**: el tono se deriva **siempre** del
+  algoritmo de §32.4a sobre las **cifras**.
+
+#### 32.4c Dos prohibiciones más, de forma
+
+- **⛔ Identificadores técnicos fuera del aviso.** `jobId`, `setId` crudo, códigos internos: **no van en la
+  frase que lee el dueño** (hoy `syncDone` pinta «(job catalog-sync-1690000000000)»). Si hacen falta para
+  soporte, van en un `<details>` **«Detalle técnico»** plegado al pie del aviso, o en la bitácora. *Misma
+  familia que §26: el destinatario manda.*
+- **⛔ El aviso no se autodestruye.** El veredicto **permanece** hasta que el dueño lance otra acción o
+  recargue. Nada de toast efímero para un resultado de escritura (§8.3).
+
+### 32.5 Los avisos, uno por uno *(copy normativo; se copia sin interpretar)*
+
+**Convención de las frases de cifra** (compartidas por las tres acciones):
+
+| Concepto | ES | EN | Origen |
+|---|---|---|---|
+| precios | «**{p} precios escritos**» | “**{p} prices written**” | `pricesUpserted` |
+| variantes | «**{v} variantes actualizadas**» | “**{v} variants updated**” | `cardProductsUpserted` |
+| sets | «**{s} sets importados**» | “**{s} sets imported**” | resumen del barrido (§32.15 R2) |
+| contexto | «de {n} del set» *(muted)* | “of {n} in the set” *(muted)* | opcional, nunca solo |
+| desconocido | «**—**» | “**—**” | H4 |
+| pendientes | «{q} variantes quedaron sin precio y siguen en la cola» | “{q} variants got no price and stay queued” | `pending` |
+
+#### 32.5a Acción 1 — «Importar sets nuevos»
+
+| Situación | Veredicto | Frase (ES) |
+|---|---|---|
+| `setsQueued === 0` | **SIN CAMBIOS** | «No había ningún set lanzado desde **{fecha}** que faltara por importar. No se importó nada.» |
+| barrido en curso | *(estado, no veredicto)* **EN CURSO** | «Importando **{done}/{total}** sets… Corre en segundo plano; puedes seguir trabajando.» |
+| terminó **y** el barrido reporta resumen | **HECHO** | «**{s} sets importados** · **{c} cartas nuevas** · **{p} precios escritos**.» |
+| terminó **y no hay resumen** *(hoy, §32.15 R2)* | **NO SE SABE** | «El barrido terminó. Cuántos sets quedaron importados y cuántos precios se escribieron: **—** — el sistema todavía no lo reporta. **La lista de abajo sí está al día: revísala.**» |
+| terminó con 0 importados de N encolados | **NO SE HIZO** | «Se intentaron **{n} sets** y no quedó **ninguno** importado.» |
+| fuente no disponible (404/405) | **FALLÓ** | «La fuente de catálogo no respondió, así que no se trajo ningún set nuevo. **Los precios de lo que ya tienes no se tocaron.** Vuelve a intentarlo en unos minutos.» |
+| estado perdido (proceso reiniciado, DEV-1) | **NO SE SABE** | «El sistema perdió el rastro de este barrido y no puede decir cómo terminó: **—**. Revisa la lista de sets; si falta alguno, repáralo desde su fila.» |
+
+*(EN: “No set released on or after **{date}** was missing…”, “Importing **{done}/{total}** sets…”, “**{s}
+sets imported** · **{c} new cards** · **{p} prices written**.”, “The sweep finished. How many sets were
+imported and how many prices were written: **—** …”, “**{n} sets** were attempted and **none** ended up
+imported.”, “The catalog source did not respond, so no new set was imported. **Prices of what you already
+have were not touched.**”, “The system lost track of this sweep …”.)*
+
+#### 32.5b Acción 2 — «Sincronizar todo (forzar)» — dos fases, un veredicto
+
+- **Progreso:** **una** barra, con la fase rotulada: «**Fase 1 de 2** — cartas e imágenes… {done}/{total}
+  sets» → «**Fase 2 de 2** — variantes y precios… {done}/{total} sets». *(Reusa `SyncProgress`, §8.)*
+- **La fase 2 arranca sola** cuando la fase 1 reporta `running:false` **con la pantalla abierta**.
+
+| Situación | Veredicto | Frase (ES) |
+|---|---|---|
+| las dos fases, sin fallos ni pendientes | **HECHO** | «**{s} sets revisados** · **{v} variantes actualizadas** · **{p} precios escritos**.» |
+| fase 2 con `setsFailed>0` o `pending>0` | **PARCIAL** | «**{v} variantes actualizadas** · **{p} precios escritos**. **{f} sets fallaron** y no se refrescaron *(lista abajo)*. {q} variantes quedaron sin precio y siguen en la cola.» |
+| fase 1 falló, fase 2 corrió *(regla dura 4)* | **PARCIAL** | «**No se pudieron traer cartas nuevas**: la fuente de catálogo no respondió. **Los precios y las variantes sí se actualizaron**: **{p} precios escritos**.» |
+| fase 2 escribió 0 y 0 | **NO SE HIZO** | «El barrido terminó y **no se escribió ni un precio ni una variante**. Todo quedó como estaba.» |
+| **la fase 2 no llegó a correr** | **PARCIAL** + palanca | Versalita **`FALTA LA SEGUNDA MITAD`**: «Se trajeron las cartas, pero **los precios no se actualizaron**: la segunda mitad no llegó a correr.» + botón **«Terminar la segunda mitad»**. |
+| ambos estados perdidos | **NO SE SABE** | «El sistema perdió el rastro y no puede decir qué se escribió: **—**.» |
+
+> **⭐ Cómo se sabe que «falta la segunda mitad» sin dato nuevo:** comparando los `finishedAt` de
+> `GET /admin/catalog/sync-status` y `GET /admin/catalog/refresh-variants-status` — si el de catálogo es
+> **posterior** (o el de variantes es `null`), la fase 2 no corrió después de la 1. **Es derivable con lo que
+> el contrato ya devuelve.** ⚠ **Y su límite es conocido y declarado (DEV-1, estado en memoria):** si el
+> proceso se reinició, no hay `finishedAt` de nadie ⇒ **`NO SE SABE`**, jamás un verde optimista. *(Que esto
+> sobreviva a cerrar la pestaña pide un trabajo de dos fases en backend: §32.15 R4.)*
+
+#### 32.5c Acción 3 — «Sincronizar este set» *(la de reparación — aquí se corrige D2)*
+
+- **Progreso, en la fila o justo bajo la tabla:** «**{set} — fase 1 de 2**: trayendo cartas e imágenes…» →
+  «**{set} — fase 2 de 2**: variantes y precios…».
+
+| Situación | Veredicto | Frase (ES) |
+|---|---|---|
+| las dos fases bien | **HECHO** | «**{set}**: **{v} variantes actualizadas** · **{p} precios escritos** <span muted>de {n} del set</span>.» |
+| `pending > 0` | **PARCIAL** | «**{set}**: **{p} precios escritos**. **{q} variantes quedaron sin precio** y siguen en la cola de pendientes.» |
+| ⭐ `pricesUpserted===0 && cardProductsUpserted===0` | **NO SE HIZO** | «**{set}**: **no se escribió ningún precio ni ninguna variante.** Este set no se pudo emparejar con la fuente de precios (TCGCSV). **Sus precios siguen como estaban.**» |
+| TCGCSV incompleto (`!tcgcsvReachable`) | **PARCIAL** | «**{set}**: **{p} precios escritos**, pero la fuente de precios **no respondió por completo**. Repite cuando esté disponible.» |
+| fase 1 falló, fase 2 corrió | **PARCIAL** | «**{set}**: no se pudieron traer **cartas nuevas** (la fuente de catálogo no respondió), pero **{p} precios escritos** y **{v} variantes actualizadas**.» |
+| fase 1 falló y el set **no** estaba importado | **FALLÓ** | «**{set}**: **no se importó ninguna carta y no se tocó ningún precio.** La fuente de catálogo no respondió.» |
+
+> **⭐⭐ La fila `NO SE HIZO` es el encargo entero en una línea.** Hoy ese mismo desenlace se pinta **verde**
+> con «*191 cartas procesadas · 0 precios*». Después de §32: **versalita `NO SE HIZO`**, tono `warning`,
+> **cero cifras de contexto**, **la causa** («no se pudo emparejar con la fuente de precios») y **la
+> consecuencia** («sus precios siguen como estaban», H9). ⚠ **Y depende de que backend cierre D2:** mientras
+> `cardsProcessed` sea el total de la base, **esa cifra no se pinta** — §32.15 R1.
+
+### 32.6 La copia muerta: **se BORRA**, y su contenido útil se muda a superficie permanente
+
+**Decisión, y es de las dos legítimas la que corresponde aquí:**
+
+| Clave (ES/EN) | Qué decía | Decisión |
+|---|---|---|
+| `catalog.fullSyncHint` | que «Re-sincronizar» **no toca precios** | ⛔ **BORRAR** — tras §32 es **falsa**: la acción de fila ahora **siempre** hace las dos |
+| `catalog.syncAllHint` | qué hace `syncAll` vs. el forzado, y que el forzado no repuebla precios | ⛔ **BORRAR** — su mitad viva se muda al **subtítulo permanente** y al **cuerpo de la confirmación** |
+| `catalog.refreshVariantsHint` | qué hace el refresh por-set | ⛔ **BORRAR** — la acción ya no existe suelta |
+| `catalog.refreshVariantsAllHint` | qué hace el refresh global | ⛔ **BORRAR** — ídem |
+| `catalog.syncHint` | «se ejecutan de forma síncrona… no cierres esta pantalla» | ⛔ **BORRAR** el literal; el aviso **«no cierres esta pantalla»** se muda al **estado `EN CURSO`** de la acción 2, donde sí importa y donde sí se ve |
+
+- **⚠ Por qué borrar y no mostrar.** Cuatro de las cinco describen **el reparto de ocho acciones que esta
+  sección elimina**; `fullSyncHint` en particular advierte de una trampa **que el rediseño quita de raíz**.
+  Mostrarlas sería cablear en pantalla una descripción **falsa** de la pantalla nueva — cambiar copia muerta
+  por copia mentirosa, que es peor. **Lo que se conserva de ellas se conserva por su contenido, no por su
+  clave**, y aparece en dos sitios que **siempre** se ven: el **subtítulo permanente** bajo cada botón global
+  (§32.2) y el **cuerpo del diálogo de confirmación** (§32.7).
+- **⭐ La regla general que queda (transversal, no de M2):**
+  > **Una cadena de advertencia que no renderiza ninguna pantalla es un DEFECTO, no una reserva.** Solo hay
+  > dos destinos legítimos: **(a)** renderizarla en una **superficie permanente**, o **(b)** borrarla. ⛔ No
+  > existe «se queda por si acaso»: mientras esté, el repo afirma que el usuario fue advertido.
+- **Y qué NO cuenta como «mostrada»:** un `title=""`, un tooltip en hover, o un texto que solo aparece dentro
+  de un menú cerrado. **No son alcanzables con dedo ni con teclado en un elemento no enfocable**, así que a
+  efectos de esta regla **son tan invisibles como no existir**. *(El único `title` legítimo sigue siendo el
+  de un **motivo de deshabilitado**, y siempre duplicado en `aria-describedby` — §32.10.)*
+- **Verificación, barata y `grep`-able (checklist de PR de frontend):** toda clave que termine en `Hint`
+  debe tener **al menos un consumidor** en `frontend/src/**`. Cero consumidores ⇒ se borra o se cablea en el
+  mismo PR.
+
+### 32.7 Confirmaciones y guardarraíles — que el botón obvio no pueda volver a quemar
+
+| Acción | Confirmación | Por qué |
+|---|---|---|
+| 1 · Importar sets nuevos | **NO** | Incremental, acotada por el corte, y el corte **ya está a la vista** (§32.3). |
+| 2 · Sincronizar todo (forzar) | **SÍ** | Pesada y larga; el diálogo es donde vive la explicación de las dos fases. |
+| 3 · Sincronizar este set | **NO** | ⭐ **Es la herramienta de reparación: la fricción aquí es el defecto que estamos corrigiendo.** Acotada a un set, no borra nada, y su resultado es contable e inmediato. |
+
+**Diálogo de la acción 2 (§7.6) — copy normativo:**
+- **Título ES:** «Sincronizar todo el catálogo (forzar)» · **EN:** “Sync the whole catalog (force)”
+- **Cuerpo ES:** «Reprocesa **todos** los sets, incluidos los que ya están importados, en **dos fases**:
+  primero **cartas e imágenes**, después **variantes y precios**. **No borra nada: reescribe.** Puede tardar
+  **varios minutos** y conviene dejar esta pantalla abierta. ¿Continuar?»
+- **Cuerpo EN:** “Reprocesses **every** set, including already imported ones, in **two phases**: first
+  **cards and images**, then **variants and prices**. **Nothing is deleted: it is rewritten.** It can take
+  **several minutes** and it is best to leave this screen open. Continue?”
+- **CTA ES:** «Sí, sincronizar todo» · **EN:** “Yes, sync everything” · Cancelar / Cancel.
+
+**Los guardarraíles que hacen imposible repetir la quemada** (el dueño **no es técnico**, apretó el botón
+obvio y **creyó el verde**):
+
+1. **El botón obvio ya no es el que no trae precios**: la acción de fila hace **siempre** las dos (regla 3).
+2. **Ningún verde sin una cifra de escritura al lado** (H1). El verde deja de ser una respuesta y pasa a ser
+   una respuesta **con recibo**.
+3. **La palabra se lee antes que el color** (§32.4a): con un ⅓ de segundo de atención, lo que llega es
+   `NO SE HIZO`, no un rectángulo verde.
+4. **Lo que faltó se nombra** (H9), y con ello **qué pasó con lo anterior** — que es la pregunta real: *«¿lo
+   dejé peor?»*.
+5. **Serialización intacta** (§19.8, lo único de esa subsección que sobrevive): una operación de catálogo a
+   la vez; las demás `disabled` con el motivo en `title` **y** `aria-describedby`, y el `keep-alive` de
+   sesión atado a la operación en curso.
+
+### 32.8 Estados de carga, vacío y error (obligatorios, §8.1)
+
+- **Carga de la tabla:** `QueryState` con filas skeleton que respetan la retícula final.
+- **Vacío:** `EmptyState` — ES «Aún no hay ningún set en la lista.» + CTA **«Importar sets nuevos»**; la
+  segunda línea nombra el corte: «Se traerán los lanzados desde **{fecha}**.»
+- **Error de la tabla:** `Banner` `danger` + «Reintentar» (§8.1). ⛔ **La tabla vacía por error jamás se
+  presenta como «no hay sets»**: es otra vez un cero que es un «no lo sé» (regla dura 8).
+- **Deshabilitado:** botón `loading` con su etiqueta persistente (§6.1); los demás `disabled` con motivo
+  anunciado (§32.7.5).
+
+### 32.9 Móvil (390 px)
+
+- Los **dos botones globales** apilan a ancho completo, con su subtítulo debajo de cada uno.
+- La **fila de la tabla** colapsa a tarjeta apilada (patrón §16): nombre del set + `Importado` + `Cartas`, y
+  **«Sincronizar este set»** como botón de ancho completo al pie de la tarjeta. **≥ 44 px** de alto (§8.2).
+- El **aviso de veredicto** ocupa el ancho completo; la versalita va en su propia línea sobre la frase.
+
+### 32.10 Accesibilidad *(reescribe §19.9; además de §8.2)*
+
+- **Una sola sección:** `<section role="group" aria-labelledby="m2-catalog-sync">` con el `h2` como etiqueta.
+  Desaparecen los tres grupos y el `<details>` de «Avanzado».
+- **⭐ El aviso de veredicto es `role="status"` (`aria-live="polite"`) salvo `FALLÓ`, que es `role="alert"`.**
+  Y **la versalita va DENTRO de la región viva**, primera: es el portador del significado y tiene que ser lo
+  primero que se anuncie.
+- **La versalita nunca es solo color ni solo icono.** Es texto, y se lee tal cual.
+- **Progreso:** `SyncProgress` con `role="progressbar"` y `aria-valuenow/min/max`; el rótulo de fase («Fase 1
+  de 2 — cartas e imágenes») es parte del nombre accesible, no un adorno visual.
+- **Botón de fila:** lleva texto visible **y** `aria-label` completo — «Sincronizar {set}: cartas, imágenes y
+  precios» —, porque «este set» fuera de contexto no identifica nada en una lista de botones.
+- **Motivos de deshabilitado:** `title` **y** `aria-describedby` apuntando a un `<span class="sr-only">`
+  (patrón ya existente `m2-reason-busy`).
+- **Iconos decorativos** `aria-hidden`. **Sin botones icono-solo** en esta zona.
+- **Orden de tabulación:** A → editores de precio → «Importar sets nuevos» → «Sincronizar todo (forzar)» →
+  *(aviso/progreso, no enfocable)* → tabla, fila por fila con **un** control por fila. **Cero trampas de
+  foco**: al desaparecer el menú kebab desaparece también su gestión de foco (§19.4 retirada).
+- **El foco no se roba al terminar una acción**: el aviso se anuncia por `aria-live`, el foco se queda donde
+  el dueño lo dejó.
+
+### 32.11 Contraste — **cero pares nuevos**
+
+§32 no introduce ni un token ni un color nuevo. Los pares que usa ya están verificados en §10:
+
+| Uso | Par | Ratio | Cumple |
+|---|---|---|---|
+| Frase del aviso | Tinta `#1A1A18` sobre papel `#F4F1EA` | ~15.5:1 | AA/AAA |
+| Versalita `HECHO` | Verde `#4E7A49` sobre papel | ~4.4:1 | AA borde — **el texto es el portador** (§10) |
+| Versalita `PARCIAL` / `NO SE HIZO` / `FALLÓ` | Bermellón `#B44B3A` sobre papel | ~4.65:1 | AA |
+| Versalita `SIN CAMBIOS` / `NO SE SABE` | Muted `#6E695E` sobre papel | ~4.8:1 | AA |
+| Cifra de contexto (muted, tras «de») | Muted `#6E695E` sobre papel | ~4.8:1 | AA |
+| Anillo de foco de los botones | Bermellón sobre papel | ~4.65:1 | AA (≥3:1 UI) |
+
+> **⚠ `PARCIAL`, `NO SE HIZO` y `FALLÓ` comparten bermellón** — como `warning` y `danger` en todo el sistema
+> (§10). **Se distinguen por la palabra**, que es justo por lo que el veredicto es una versalita y no un
+> punto de color.
+
+### 32.12 Qué NO hacer
+
+1. ⛔ **No añadir una cuarta acción de sincronización** a este panel. Ni «solo variantes», ni «solo precios»,
+   ni «backfill» con otro nombre.
+2. ⛔ **No devolver ninguna acción a un menú ⋯, a un `<details>` ni a una pestaña.** Las tres se ven.
+3. ⛔ **No hacer `primary` a ninguno de los dos botones globales.** El `primary` del panel es A.
+4. ⛔ **No pintar `success` desde `mutation.isSuccess`** (H10). El tono sale de las cifras.
+5. ⛔ **No pintar `0` donde no se midió** (H4), ni omitir la cifra en silencio.
+6. ⛔ **No usar «procesados/procesadas»** en un aviso de resultado (H8).
+7. ⛔ **No poner un total del catálogo como primera cifra de la frase** (H3).
+8. ⛔ **No reportar solo la fase que salió bien** (H7).
+9. ⛔ **No convertir un booleano en una cifra** (H5).
+10. ⛔ **No dejar el resultado en un toast** que se va solo (§32.4c).
+11. ⛔ **No enseñar `jobId` ni ids crudos** en la frase del dueño (§32.4c).
+12. ⛔ **No dejar viva ninguna clave `*Hint` sin consumidor** (§32.6).
+13. ⛔ **No cancelar la fase de precios porque falló la de catálogo** (regla dura 4).
+14. ⛔ **No añadir confirmación a «Sincronizar este set»**: es la herramienta de reparación.
+15. ⛔ **No escribir la fecha de corte en este documento ni hardcodearla en la pantalla**: se lee del dial
+    (§32.3, `ARCHITECTURE §0-B.3`).
+
+### 32.13 Las mutaciones que ponen un test en rojo *(QA visual sugerido)*
+
+| # | Mutación / escenario | Qué debe pasar |
+|---|---|---|
+| **CS-1** ⭐⭐ | Un set que **no resuelve** en TCGCSV → `pricesUpserted:0`, `cardProductsUpserted:0` | Versalita **`NO SE HIZO`**, `Banner` `warning`, **cero cifras de contexto**, y la frase nombra la causa y dice «sus precios siguen como estaban». **Si sale verde, o si aparece un «191», el test falla.** |
+| **CS-2** ⭐ | Backend devuelve una cifra de escritura ausente/`null` | Se pinta **«—»**, veredicto `PARCIAL` o `NO SE SABE`. **Un `0` en su lugar falla.** |
+| **CS-3** | Fuente de catálogo caída, TCGCSV viva, «Sincronizar este set» | La **fase 2 corre igual**; veredicto `PARCIAL` con precios escritos > 0. Si la acción aborta entera, falla. |
+| **CS-4** | «Importar sets nuevos» sin nada nuevo | `SIN CAMBIOS`, tono **neutro** (no verde), y la frase **nombra la fecha de corte**. |
+| **CS-5** | «Sincronizar todo (forzar)»: fase 1 termina, se cierra la pestaña, se vuelve | `FALTA LA SEGUNDA MITAD` + palanca. **Un verde aquí falla.** |
+| **CS-6** | Reiniciar el proceso a mitad del barrido (DEV-1) | `NO SE SABE` + «—» + «revisa la lista». Nunca `HECHO`, nunca `SIN CAMBIOS`. |
+| **CS-7** | Recorrer M2 solo con teclado | Se alcanzan las **tres** acciones sin abrir ningún menú; foco visible; el veredicto se anuncia por `aria-live` sin robar el foco. |
+| **CS-8** | `grep -o '"[a-zA-Z]*Hint"' frontend/messages/es.json` cruzado con `frontend/src/**` | **Cero** claves `*Hint` sin consumidor. |
+| **CS-9** | Paridad ES/EN de todas las cadenas nuevas de §32.14 | Mismas claves en los dos ficheros, **cero** claves huérfanas. |
+| **CS-10** | Cualquier aviso de resultado del panel | **Ninguno** contiene «procesad*», `jobId`, ni una cifra de contexto en primera posición. |
+
+### 32.14 i18n — claves nuevas y **retiradas** *(propiedad de frontend)*
+
+**Nuevas** (bajo `admin.m2.catalog.*`, nombres sugeridos — el árbol lo fija frontend):
+
+- `section.{eyebrow,title,subtitle,repairLead}` — encabezado de la sección única + la línea sobre la tabla.
+- `importNew.{label,cutoffHint,cutoffUnknown,editCutoff}` — acción 1 + el corte (§32.3).
+- `forceAll.{label,subtitle,phase1,phase2,confirmTitle,confirmBody,confirmCta,secondHalfMissing,secondHalfCta}`
+  — acción 2 (§32.5b, §32.7).
+- `repairSet.{label,aria,phase1,phase2}` — acción 3 (§32.5c).
+- **`verdict.{done,noChanges,partial,notDone,failed,unknown}`** — ⭐ las **seis versalitas**. Son
+  **transversales**: si otro panel adopta §32.4, reusa estas claves (sugerido: `common.verdict.*`).
+- `figure.{prices,variants,sets,cards,context,unknown,pending}` — las frases de cifra (§32.5).
+- `result.importNew.*`, `result.forceAll.*`, `result.repairSet.*` — una por fila de las tablas de §32.5.
+- `technicalDetail` — rótulo del `<details>` plegado con los ids (§32.4c).
+
+**Reusadas sin cambio:** `catalog.{set,releaseDate,imported,yes,no,cardCount,busyReason,setsEmpty}`,
+`catalog.refreshVariantsAllSweep*` (pasan a rotular la **fase 2** de la acción 2),
+`catalog.refreshVariantsAllFailuresTitle` (la lista de sets fallidos **se conserva tal cual**: es una lista
+de hechos, no un resumen), `catalog.syncAllUnavailable`, `common.{cancel,errorTitle}`.
+
+**⛔ RETIRADAS** (y sus equivalentes EN):
+
+| Grupo | Claves |
+|---|---|
+| Copia muerta (§32.6) | `catalog.syncAllHint`, `catalog.fullSyncHint`, `catalog.refreshVariantsHint`, `catalog.refreshVariantsAllHint`, `catalog.syncHint` |
+| Backfill (retirado) | `catalog.backfill`, `catalog.backfillDone` |
+| Acciones absorbidas | `catalog.import`, `catalog.resync`, `catalog.fullSync`, `catalog.fullSyncMenuItem`, `catalog.fullSyncAria`, `catalog.fullSyncDone`, `catalog.fullSyncPricesAlreadyRunning`, `catalog.refreshVariants`, `catalog.refreshVariantsShort`, `catalog.refreshVariantsAll`, `catalog.refreshVariantsAllShort`, `catalog.refreshVariantsAria`, `catalog.refreshVariantsDone`, `catalog.refreshVariantsPartial`, `catalog.refreshVariantsSummary`, `catalog.refreshVariantsAllDone`, `catalog.refreshVariantsAllPartial`, `catalog.refreshVariantsAllSummary` |
+| Menú y grupos (§19.1/§19.4 retiradas) | `catalog.rowMoreAria`, `groups.data.*`, `groups.catalog.*`, `groups.advanced.*` |
+| Avisos con `jobId` | `catalog.syncDone` (se reescribe sin `jobId`) |
+
+> **⚠ Se CONSERVAN, y no es descuido:** `catalog.refreshVariantsNeedsImport` (motivo de deshabilitado, sigue
+> siendo real), `catalog.refreshVariantsUnreachable` y `catalog.refreshVariantsPending` (describen hechos
+> que las fases nuevas siguen produciendo), `catalog.syncAllForceConfirm*` (**cuerpo reescrito** por §32.7,
+> misma clave), `groups.catalog.sourceDownReroute` **solo si** sigue teniendo consumidor tras el rediseño —
+> si no, cae bajo §32.6 y se borra.
+>
+> **Recordatorio §9:** las versalitas ES son más largas (`SIN CAMBIOS` vs `NO CHANGES`, `NO SE HIZO` vs
+> `NOTHING DONE`). Van en su **propia línea** en móvil (§32.9) y **nunca** se truncan con elipsis: un
+> veredicto truncado es un veredicto distinto.
+
+### 32.15 Notas a otros roles — lo que **no** invento y hay que enrutar
+
+| Ref | Para | Qué |
+|---|---|---|
+| **R1** ⭐ | **backend** *(ya en curso)* | **D1 y D2.** Además de arreglarlos: **si `cardsProcessed` no puede ser «lo que esta corrida tocó», que se retire del DTO.** Bajo H3/H4 el diseño **prefiere no pintar cifra** antes que pintar un total de contexto — y mientras siga siendo `_count.cards`, **la pantalla no lo pinta**. Aplica igual a `imported`/`cardCount` de `importSet`: si `cardCount` es «upserteadas» y no «nuevas», **la palabra del aviso no puede ser «nuevas»** (H8). |
+| **R2** ⭐⭐ | **arquitecto / backend** | **`GET /admin/catalog/sync-status` necesita un `summary`** análogo al que **ya tiene** `refresh-variants-status` (`setsImported`, `cardsCreated`, `pricesWritten`, `failures[]`). **Sin él, la acción de rutina del dueño NUNCA podrá decir `HECHO`**: se queda en `NO SE SABE` con «—» (§32.5a), que es honesto pero pobre. **Es la petición de dato más valiosa de §32.** |
+| **R3** | **arquitecto / product-owner** | **El corte se lee hoy** (`GET /admin/settings` → `catalogSyncFromDate`), así que **§32.3 no está bloqueada**. Lo que **no** decido yo: si el dueño puede **editarlo desde M2**. Hoy el diseño **enlaza a M10** para no crear un dial de dos superficies (`ARCHITECTURE §0-B.3` regla 9). Si se quiere edición in-situ, hace falta esa decisión **y** un token de concurrencia. |
+| **R4** | **arquitecto / backend** | **«Sincronizar todo (forzar)» como UN trabajo de dos fases en backend.** Hoy son dos barridos encadenados **por la pantalla**: si el dueño cierra la pestaña entre fases, la fase 2 no corre (el diseño lo detecta y lo dice, §32.5b, pero **detectarlo no es cumplirlo**). Y el estado en memoria (**DEV-1**) hace que un reinicio deje `NO SE SABE`. **No bloquea**: el diseño funciona hoy con la palanca «Terminar la segunda mitad». |
+| **R5** ⭐⭐ | **arquitecto / product-owner** | **La pregunta que el rediseño deja al descubierto: ¿cómo ve el dueño QUÉ set está mal?** Su regla es *«solo se ocupa si se ve un error en algún set específico»* — pero **la tabla de hoy no tiene ninguna columna que revele el error**: `Cartas` sube aunque no haya ni un precio. Un set roto es **invisible** hasta que alguien lo topa en la tienda. **Pido un dato por set en `remote-sets`: variantes con precio vs. variantes totales** (p. ej. `pricedVariants` / `variants`). Con él, la tabla gana una columna **`PRECIOS`** que dice `184/191` o **`0/191`**, y la herramienta de reparación **por fin tiene cómo señalar la fila que hay que reparar**. ⛔ **No lo diseño hasta tenerlo**: sin el dato, la columna sería otra cifra inventada. **§32 funciona sin él; el flujo del dueño, a medias.** |
+| **R6** | **frontend** | Implementa §32 completo en `CatalogSyncSection.tsx` + `useCatalogSync.ts`; **borra** las claves de §32.14 en **es.json y en.json a la vez**; **retira** `RowMoreMenu` de **esta** tabla (el componente **se queda** en el sistema). ⚠ **El tono del `Banner` se calcula con el algoritmo de §32.4a sobre las cifras — nunca con `isSuccess`.** Si al cablear una cifra no existe en el DTO: **«—»**, y se reporta; **no se sustituye por otra** (H4). |
+| **R7** | **QA** | Los diez candados de §32.13. **CS-1 es el del encargo** y se mide contra un set que no resuelve en TCGCSV. **CS-8 es un `grep`** y debería vivir en el lint de i18n si devops quiere cerrarlo duro. |
+| **R8** | **techlead** | §19.1–19.4, §19.6, §19.8 y §19.10 quedan **superseded**. Cualquier código o test que cite «grupo DATOS/CATÁLOGO/AVANZADO», «acción por-fila I/G/H» o «menú Más ▾» de M2 **cita una sección muerta** — `ARCHITECTURE §0-B.3` regla 7 (regla de la cita) aplica en el mismo pase. |

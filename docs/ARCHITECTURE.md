@@ -4,6 +4,345 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.66.2 — LA AUSENCIA DE UN CAMPO NUNCA COMPRA UNA GARANTÍA MENOR: EL CONTRATO DESCRIBÍA UNA SUPERFICIE
+> INSEGURA Y OBEDECERLO REPRODUCÍA EL AGUJERO**
+> (2026-09-10, arquitecto. Base: **v1.66.1, vigente entera**. Origen: `P-UP-1` (pentester/seguridad §3.4) +
+> `UP-C1` (`TECH_DEBT.md`), **enrutado por backend sin tocar el contrato** — regla 9 de `CLAUDE.md`, aplicada como
+> debe. Contrato en `API_CONTRACT.md` **v1.66.2**, sección **§8**. Ampliación **§0-B.3 regla 9(c)**; marca nueva
+> **`cota-de-tamano-del-presign`** en el censo de la regla 8. Desviación **`D-UP-1`** en **§9**.)
+>
+> **1. ✅ RATIFICADO CONTRA EL ÁRBOL, no contra el informe.** `contentLength` es **obligatorio** en
+> `POST /uploads/presign` y la firma fija `ContentLength` **siempre** (`uploads.service.ts:100-136`); la respuesta
+> lleva `maxBytes` y un `headers` **poblado**. El contrato decía `{ purpose, contentType }`. **Manda el código en
+> este caso concreto porque la forma insegura era la DOCUMENTADA:** ratificar el documento viejo habría sido
+> mandar a backend a reabrir el hallazgo.
+>
+> **2. ⭐⭐ LA PREGUNTA DE FONDO: no era el campo, era que el CONTRATO AUTORIZABA el agujero.** Quien hubiera
+> implementado exactamente §8 habría reproducido `P-UP-1` **y habría tenido razón** (regla de conflicto:
+> el contrato manda sobre el código). Misma familia que §0-B.4. ⇒ **§0-B.3 regla 9 gana la mitad (c)**: si un
+> campo del cliente sostiene una guarda del servidor, **su ausencia se RECHAZA o produce el caso más estricto**
+> (`c1`), y **el contrato declara qué pasa cuando falta**, no solo que el campo existe (`c2`).
+>
+> **3. ⛔ Y lo que decidí NO crear: un vocabulario de marcas «de seguridad».** Un censo de secciones sensibles
+> poblado a mano **es exhaustivo el día que se escribe y nunca más**, y su daño no es el hueco: es el **verde que
+> emite sobre todo lo que nadie marcó** — el defecto de v1.66.1 otra vez, y la regla 11 cerró el vocabulario hace
+> una rev. Se usa el mecanismo que ya existe y ya tiene lint (`CANON` + token `VIGENTE`), y la lección se escribe
+> **como norma**, que sí alcanza al endpoint que aún no existe.
+>
+> ---
+> **Rev v1.66.1 — UN `CANON` DECLARA SI YA EXISTE: LA REV ANTERIOR ESCRIBIÓ, DENTRO DE LA NORMA HECHA PARA
+> IMPEDIRLO, LA INSTANCIA MÁS GRANDE DEL DEFECTO QUE VENÍA A CURAR**
+> (2026-09-10, arquitecto. Base: **v1.66**. Origen: **bloqueante nº1 del veredicto de techlead**, verificado punto
+> por punto por el orquestador. Contrato en `API_CONTRACT.md` **v1.66.1**, sección nueva **§M2-GT**. Reglas nuevas
+> **§0-B.3 regla 10** (estado de un `CANON`) y **regla 11** (vocabulario cerrado). Detalle del predicado nuevo en
+> **§4.46**. Desviaciones **`D-CS-5`**, **`D-CS-6`** y **`D-GT-1`** en **§9**; **`D-PP-1` CERRADA**.)
+>
+> **1. 🔴 EL BLOQUEANTE, y la parte incómoda dicha entera.** `API_CONTRACT §M2-CS.3` y `§M2-CS.4` eran bloques
+> `CANON` **cerrados** —la fuente única del proyecto para esos predicados— y **afirmaban en indicativo cinco
+> hechos falsos contra el árbol**: `pricedVariants`/`priceCoverage`/`catalogWindow`/`CATALOG_SYNC_WINDOW_MONTHS`
+> con **cero ocurrencias** en `backend/` y `frontend/`, **`M-51` inexistente**, y `catalogSyncFromDate` **vivo en
+> el DTO y editable en la pantalla**. Por la regla de conflicto de `CLAUDE.md` eso ponía al backend **fuera de
+> contrato en dos secciones canónicas enteras sin haber hecho nada mal**. **El defecto era mío y era del
+> documento.**
+>
+> **2. ⭐⭐⭐ POR QUÉ UNA NORMA Y NO UN PARCHE — §0-B.3 REGLA 10.** Nada impedía que un `CANON` describiera en
+> indicativo un sistema inexistente, **y a todo el equipo se le ha dicho que cite un `CANON` sin verificar**: la
+> promesa de la marca era el vehículo del error. ⇒ **toda apertura lleva un token `estado: VIGENTE |
+> PROYECTADA`** (sin token se lee `PROYECTADA`, fail-closed), **`PROYECTADA` no gobierna ningún gate**, nace con
+> banner + dueño + compuerta + desviación en §9, y **⛔ cero afirmaciones de clase (B) dentro de un bloque
+> canónico**. *Si el mecanismo no distingue «esto es la norma» de «esto es la norma **y ya está construida**»,
+> vuelve a pasar.*
+>
+> **3. ⚠️ EL PRECEDENTE HABÍA FALLADO Y SE DICE POR QUÉ ANTES DE REUSARLO.** La «nota de vigencia» de `§M10-PP`
+> llevaba días **caduca** (`D-PP-1` cerró) y seguía en presente **dentro** del bloque, con tres frases gemelas en
+> este documento. Falló por no ser `grep`-able, por no atar su retiro a un evento y —lo de fondo— **por ser
+> clase (B) dentro de un `CANON`**. Los tres agujeros los cierra la regla 10. **Las cuatro frases: corregidas.**
+>
+> **4. ⭐ LA DEFINICIÓN DE «MARCA REAL» INVALIDABA DOS BLOQUES DE DINERO, y se corrige.** v1.66 dijo *«las que
+> empiezan línea»*: medido, **dos de las doce no empiezan línea** (`mercado-de-la-variante`, dentro de un bloque
+> de código; `semantica-de-omision`, indentada). **La propiedad es el ENTRECOMILLADO, no la columna**, y el lint
+> queda especificado con sus cuatro invariantes —incluido `L3` **bidireccional**, el único que caza una marca
+> acuñada fuera del censo—. **Y la enumeración manual de bloques abiertos/cerrados se retira: era, ella misma,
+> una infracción de la regla 8.**
+>
+> **5. ⭐ REGLA 11 — VOCABULARIO CERRADO.** Nació en código un segundo tipo de marca (`CANON-IMPL`, sin censo, sin
+> par, sin dueño). **Estatuto: se retira** (`D-CS-6`, backend, **una línea**). ⛔ **Cero marcas en `backend/` y
+> `frontend/`**: el código cita el **anchor**. *La fuente única de un predicado está en el contrato; un fichero
+> que se declara «única fuente en código» del mismo predicado **es la segunda fuente**.*
+>
+> **6. ⭐ `§M2-GT` — «EL GRUPO TCGCSV DE UN SET» ENTRA AL CENSO (DINERO).** Hallazgo de techlead: **dos columnas
+> persistidas y tres escaleras** para un hecho. Se decide qué manda, ⛔ que **`pptSetId` NO es un groupId**
+> (juego de tipos; su escalera **no tiene monotonía** y **corre ANTES** que la canónica ⇒ el blindaje no cubre el
+> camino normal), una sola resolución para las tres rutas, y **`I-GT5`: dos fuentes que difieren ⇒ señal, jamás
+> una elección silenciosa**. Razón en **§4.46**.
+>
+> **7. ⭐ DOS MAGNITUDES RENOMBRADAS ANTES DE EXISTIR.** El contrato tuvo que escribir *«⛔ `windowDays` y
+> `windowMonths` NO son la misma ventana»* — **y necesitar esa frase ES la señal**, la misma que precedió a
+> PRIMARIO/SEED/VIGENTE. ⇒ **VIGENCIA** de un precio (`freshnessDays`) vs **NOVEDAD** de un set (`recencyMonths`,
+> `catalogCutoff`, `CATALOG_RECENCY_MONTHS`); ⛔ «ventana»/`window` prohibida en ambos. **Coste medido: cero.**
+>
+> ---
+> **Rev v1.66 — UNA CIFRA SÓLO SE EMITE SI ESTA CORRIDA LA CONTÓ: EL `summary` QUE FALTABA, LA COLUMNA QUE REVELA
+> EL SET ROTO, Y EL CORTE QUE SE MUEVE SOLO**
+> (2026-09-10, arquitecto. Base: **v1.65, vigente entera**. Origen: `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui) +
+> **decisión del dueño** del 2026-09-10 (**R6**). Contrato en `API_CONTRACT.md` **v1.66**, sección nueva **§M2-CS**.
+> Detalle en **§4.45**. Migración **`M-51`** (§11). Desviaciones **`D-CS-1`**…**`D-CS-4`** en **§9**. **Amplía
+> §0-B.3 regla 8**: la marca canónica es un **par** —sin cierre no hay bloque—, norma nacida de un defecto **mío**
+> que el orquestador encontró al revisar esta misma rev.)
+>
+> **1. ⭐⭐ EL CRITERIO ÚNICO, Y ES EL LADO SERVIDOR DE `§32.4`: una cifra sólo se emite si ESTA corrida la CONTÓ; lo
+> que no se midió viaja AUSENTE, jamás como `0`.** *Una pantalla no puede ser más honesta que su DTO.* Las tres
+> peticiones salen de ahí y por eso se resuelven juntas: tocan **los mismos dos payloads**.
+>
+> **2. R2 — el `summary` de `sync-status`, y el defecto que apareció al mirar al hermano.** Sin `summary`, **la
+> acción que el dueño usa a diario no podía emitir `HECHO` nunca**. Al comparar con `refresh-variants-status` para
+> copiar su forma, **la forma buena no lo era**: **`setsOk` cuenta como bueno al set que corrió sin escribir nada**
+> — **D2 a escala de barrido**. ⇒ **un solo reparto para los dos** (`setsWritten` es «cuántos toqué»), `setsOk`
+> **deprecado con su significado congelado**. Regla que queda: **el reparto de sets se unifica siempre; las cifras
+> de escritura se nombran por lo que escriben.**
+>
+> **3. ⛔ RECHAZO la mitad de R2 que pedía `pricesWritten`.** El barrido de catálogo **no escribe precios desde
+> v1.14**. **Un DTO no emite la cifra de una capacidad que la acción no tiene**: «cero de algo que no hago» no es
+> una medición, es una invitación a prometerlo en pantalla — y es la trampa de `fullSyncHint` otra vez.
+>
+> **4. ⭐⭐ R5 — la columna `PRECIOS`, con el eje de acabado tomado en serio.** Denominador definido **una vez**: la
+> **VARIANTE DE PRECIO** = par (`CardProduct`, `Finish`). ⛔ **No la carta** (aplanarlo es el origen de **P-47**), y
+> ⛔ **no `SetValueSnapshot.pricedCardCount`**, que ya existe y **mide con el eje aplanado** — *reusarlo por barato
+> habría sido cometer P-47 otra vez*. **El costo decidió la forma**: el numerador **no cabe** sin ventana ⇒ se acota,
+> y esa restricción **mejora** la respuesta. **⛔ Prohibida la columna cacheada:** sólo la escriben los escritores que
+> tuvieron éxito ⇒ el set que deja de repreciarse diría **«completo» para siempre**.
+>
+> **5. R6 — el corte se deriva y el dial MUERE** (*«el corte de fecha, que automático»*). ⛔ No sobrevive como
+> anulación manual: serían **dos fuentes** para «desde cuándo es nuevo» (regla 8). Se **nombra el modo de fallo que
+> el manual no tenía** —**la caída silenciosa del borde trasero**— y se **verifica** (no se supone) que la escotilla
+> de escape existe: `remote-sets` **no filtra por el corte**, y eso **pasa a ser norma**. Y se decide, por primera
+> vez, el set **sin `releaseDate`**: **no entra, pero se cuenta**. ⇒ **R3 queda sin objeto.**
+>
+> ---
+> **Rev v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED «MONEY-SAFE» ERA EL QUE APLANA**
+> (2026-09-10, arquitecto. Base: **v1.64(4), vigente entera**. Escalada **regla 9** desde QA, **BLOQUEANTE-1 sobre
+> P-47**. ⛔ **Sin migración, sin endpoint, sin cambio de shape.** Contrato en `API_CONTRACT.md` **v1.65**, sección
+> nueva **§M10-PP**. Detalle en **§4.35a**; desviaciones **`D-PP-1`** (backend) y **`D-PP-2`** (devops) en **§9**.)
+>
+> **1. ⭐⭐ EL DEFECTO NO ERA «QUÉ VALOR GANA»: ERA QUE «EL PROVIDER ES X» SON TRES AFIRMACIONES.** **PRIMARIO**
+> (norma, la fija el contrato), **SEED** (con qué arranca una BD fresca) y **VIGENTE** (la fila `ConfigSetting` de
+> **un** entorno, que **se lee**, no se cita). El contrato hablaba del **vigente**, `§4.36(d)` del **seed**,
+> `DEVOPS_NOTES §28` **operaba** el vigente — **cinco textos, ninguno falso, y una contradicción irresoluble.**
+> **Medido el 2026-09-10:** producción `tcgcsv_singles`, seed `pokemontcg_io`. *Divergen de verdad, y esa medición
+> es el diagnóstico, no la respuesta.*
+>
+> **2. 🔴 DECISIÓN — CEDE EL CÓDIGO. `I-PP1`: EL SEED ES EL PRIMARIO.** El criterio, que faltaba y ahora es norma:
+> **un seed money-safe debe ser INERTE o el PRIMARIO validado; ⛔ nunca un SEGUNDO escritor con semántica distinta.**
+> `sealed_price_source='off'` es inerte y por eso **sí** es candado. **`pokemontcg_io` no lo es: escribe, y escribe
+> APLANADO** (un `market` por carta ⇒ reverse/holo al precio de la normal) — **el lado irrecuperable de
+> `PROJECT §N.0`**. **El seed legacy no era el candado money-safe: era el riesgo con el nombre del candado.**
+> *La razón de v1.14 era buena y su objeto —un proveedor de paga sin verificar— ya no existe. No es antigüedad del
+> texto: es que el peligro que nombraba se fue.*
+>
+> **3. `I-PP2`/`I-PP3` — Y POR ESO EL RUNBOOK DE DEVOPS NO ERA ARGUMENTO EN CONTRA.** Ningún documento afirma el
+> **vigente** de un entorno (se lee; lo que se escribe es un **evento fechado**). Y **el rollback mueve el VIGENTE,
+> nunca el SEED** ⇒ **`§28.6` sobrevive intacto**. Que el flip de agosto funcionara prueba que **la palanca**
+> funciona — **una vez, en el único entorno con un humano mirando**. ⚠️ **El otro lado nunca se midió:** el entorno
+> que se queda en el legacy **no falla, publica más barato y no avisa**.
+>
+> **4. ⚠️ LA BRECHA, NOMBRADA: EL GATE VALIDA UN BARRIDO QUE NO ES EL DE PRODUCCIÓN.** E2E, smoke y **DAST contra
+> staging** corren sobre el proveedor que aplana. **`I-PP5`** la cierra **por construcción** (el seed ya no diverge).
+> ⛔ **Rechazo la alternativa** de sembrar el legacy y hacer del flip un paso obligatorio del arranque: es el mismo
+> mecanismo de divergencia con un humano en medio, *y si la paridad hay que recordarla, no es una paridad*. Ventana
+> de transición y medida **interina con fecha de retiro** en `D-PP-2`.
+>
+> **5. FUENTE ÚNICA + ampliación de §0-B.3 regla 8.** Enum, semántica y seed vivían **repetidos en cinco sitios con
+> dos valores**; quedan **sólo** en `API_CONTRACT §M10-PP` (`<!-- CANON: proveedor-de-precio -->`). La ampliación:
+> **la marca canónica cubre el HECHO, no el literal** — *cinco frases que usan el mismo literal para tres hechos
+> distintos no las encuentra ningún grep, y son las que llegan a un gate como contradicción.*
+>
+> ---
+> **Rev v1.64(4) — EL DUEÑO CONTESTA 68, 69 Y 70. UNA CONTRADICE MI RECOMENDACIÓN Y TIENE RAZÓN**
+> (2026-09-10, arquitecto. Base: **v1.64(3), vigente entera**. **⚠️ REABRE `M-50` con UNA columna aditiva**, y
+> ⛔ **no cambia la promesa de D-1**. Contrato en `API_CONTRACT.md` **v1.64(4)**.)
+>
+> **1. 🔴 ME EQUIVOQUÉ EN LA 68, Y ES ÚTIL DECIR EN QUÉ.** Yo recomendé capturar `shippingCostCents` **NETO**.
+> El dueño decidió **BRUTO** — *«el costo de envio con el iva que yo pague»* — **y su decisión es mejor que mi
+> recomendación**: el bruto es **la cifra que trae la factura de la paquetería**, y pedirle que reste el IVA antes
+> de teclear es **pedirle aritmética fiscal en cada captura**, justo donde se cuela un error mudo. **Y hay un
+> argumento de doctrina que yo mismo había escrito y no apliqué: `R3` — la flecha va del dato PRIMARIO al
+> DERIVADO.** El bruto es verificable contra un papel; el neto es derivado. **Guardar el neto habría sido perder
+> el primario**, que es exactamente lo que `R3` prohíbe. ⚠️ **Mi advertencia del descuadre NO era falsa: estaba en
+> el sitio equivocado.** El descuadre existe y **se cura al LEER** (netear en el P&L), no al capturar.
+>
+> **2. ⚠️ REABRO `M-50` — UNA columna — Y DIGO POR QUÉ, porque en v1.64(3) escribí «CERO DDL».**
+> `ShipmentRequest.shippingCostIvaCents Int @default(0)`: el **IVA acreditable congelado al capturar**, para que el
+> neto sea **una resta**. **El hecho que lo decide, verificado: `ShipmentRequest` NO tiene `ivaRatePct`** (solo
+> `Order`, `:1071`) ⇒ netear con `costo/(1+r)` obligaría a leer **el dial VIVO**, y entonces **un P&L histórico
+> cambiaría el día que alguien mueva `iva_pct`** — **incumpliendo el candado `IVA-5` que ya está publicado y
+> verde**. **No es preferencia: sin la columna, D-2 no puede cumplir una norma que ya escribí.** Y **es la última
+> ventana barata** (D-1 verificado, **sin publicar**). **Alcance acotado:** columna aditiva, `@default(0)`, **sin
+> backfill**, ⛔ sin tocar `Order`, el enum, el backfill ni el seed. **D-1 conserva su «cero cambios observables»**:
+> la columna se escribe desde el día uno y **nadie la lee hasta D-2**.
+>
+> **3. ⭐ LA 69 DA EL MEJOR INVARIANTE DEL PASE — Y ⛔ NO LO CONVIERTO EN IDENTIDAD GLOBAL.**
+> *«Trátalo como si no hubiera margen»* ⇒ `ingresoNetoEnvío − costoNetoEnvío ≈ 0`. **Asertarlo siempre sería un
+> candado que rechaza conducta correcta — el error de `FX-20`, que ya pagué una vez**: la tarifa se fija **por
+> tabla** y el costo real del carrier **varía por destino y peso**, así que un no-cero es legítimo. ⇒ el candado
+> **`IVA-11`** va sobre lo exigible: **que un `0` no signifique dos cosas** (`shippingCostMissingCount`) y la
+> identidad **exacta pero CONDICIONADA al fixture** (cobrado == factura ⇒ línea neta **0**). ⛔ **No hago nullable
+> la columna**: para las filas existentes es **imposible** distinguir «costó cero» de «no se capturó», y un `NULL`
+> exigiría un backfill que **inventa** esa distinción — *la lección de `ivaTransferPct`*.
+>
+> **4. ✅ LA 70 CONFIRMA MI SUPUESTO Y LO ASCIENDE A DECISIÓN.** *«si me refiero al mismo numero»* ⇒ el neto del
+> tablero **es** `pnl.incomeCents`. **La coherencia tablero↔P&L deja de ser deseable y pasa a ser mandato**, así
+> que **`IVA-10(b)` tiene respaldo del dueño**. Ratifica el rechazo de *«bruto − IVA»*.
+>
+> ⚠️ **Las tres van como DECISIÓN SUYA CON FECHA (2026-09-10), sin ratificar por contador** (familia de **58** y
+> **65**). **⛔ Cero postura fiscal de este documento.** **Que él acredite el IVA del envío es afirmación SUYA.**
+>
+> ---
+> **Rev v1.64(3) — DOS DECISIONES DEL DUEÑO (D55), `IVA-R1` RESUELTO, Y UN DEFECTO MÍO QUE ESO DESTAPÓ**
+> (2026-09-10, arquitecto. Base: **v1.64(2), vigente entera**. **⛔ CERO DDL — `M-50` NO SE TOCA.** **⛔ D-1 no se
+> reabre.** Contrato en `API_CONTRACT.md` **v1.64(3)**.)
+>
+> **1. 🔴🔴 `netRevenueCents` ESTABA MAL PARA LOS PEDIDOS `direct_ship`, Y NO REVENTABA: MENTÍA. EL DEFECTO ES MÍO
+> (§4.44.j, `§9 · D-IVA-10`).** Publiqué `IVA_INCLUSIVE → subtotalCents − ivaCents`; pero `ivaCents` es el residual
+> del **AGREGADO** `G = S + E` ⇒ **incluye el IVA del envío**, y restarlo entero **le quita a la mercancía un IVA
+> que no es suyo**. Medido: `S=11600`, `E=20300`, `ivaCents=4400` ⇒ daba **7 200** donde son **10 000**. **−2 800
+> por pedido de invitado, en el criterio 191.** **Por qué no se veía: los dos ejemplos del criterio 191 son de
+> pedidos a bóveda (`E = 0`), donde las dos fórmulas coinciden** — *la trampa de la pregunta 67 otra vez, en otro
+> sitio; el patrón es mío y lo anoto*. Corregido: **`round(subtotalCents / (1 + ivaRatePct/100))`**.
+> ⛔ **En D-1 la rama es INALCANZABLE** (toda fila es `IVA_EXCLUSIVE`) ⇒ **backend no tiene rework**.
+>
+> **2. ⭐⭐ `IVA-R1` RESUELTO — el IVA del envío es el RESIDUAL DEL RESIDUAL, y la suma queda EXACTA (§4.44.j.1).**
+> Backend me lo elevó **sin tocarlo**, con la razón correcta (*«es una decisión de asignación y es del
+> arquitecto»*) y declarando un **±1 centavo** en su implementación provisional. **No hace falta aceptar ese
+> centavo:** `ivaEnvío := ivaCents − ivaMercancía` ⇒ **`netRevenue + netShipping + ivaCents ≡ S + E`, exacto**
+> (`10000 + 17500 + 4400 = 31900` ✓). **El envío absorbe el residuo** porque la mercancía ya tiene fórmula canónica
+> y porque —**por decisión del dueño**— el envío *«no es una venta»*. ⛔ **Y la regla que importa: PROHIBIDO
+> recalcular `Order.ivaCents` desde las partes.** La flecha va `ivaCents → partes`; `ivaCents` es **fiscal**.
+> Candado **`IVA-9`**. *El valor de que un implementador se niegue a decidir lo que no le toca no es la deferencia:
+> es que el defecto sale a la luz — sin `IVA-R1` yo no habría mirado ahí.*
+>
+> **3. ⭐ D55(a) — EL ENVÍO ES COSTO OPERATIVO TRASLADADO, NO UNA VENTA (dueño, 2026-09-10; §4.44.f-bis).** Su
+> frase junta **tres** preguntas y separarlas es todo el trabajo: **Q-A** ¿venta o recuperación de costo? →
+> **recuperación** (P&L); **Q-B** ¿IVA **trasladado** al cliente? → `Order.ivaCents` (CFDI); **Q-C** ¿IVA
+> **acreditable**? → `16 % × costo`. **Su *«el iva es el 16 de lo que yo pague»* es Q-C: impuesto de ENTRADA.**
+> ⇒ **su regla y el residual NO se contradicen: no hablan de la misma columna**, y `Order.ivaCents` **no puede**
+> contener Q-C (es la única fuente de la factura **del cliente**, y `shippingCostCents` es `@default(0)` ⇒ un costo
+> no capturado pondría a cero un impuesto trasladado). **`R2` no cambia, `§4.44.f` no cambia, la pregunta 60 NO se
+> reabre.** ⚠️ **Tratamiento contable sin contador ⇒ pregunta 68, familia de 58 y 65.**
+>
+> **4. ⭐ EL HALLAZGO DE DINERO QUE SALE DE AHÍ (`§9 · D-IVA-9`, preexistente):** **`shippingCostCents` tiene que
+> capturarse NETO de IVA acreditable**, y hoy **su semántica no está definida en ninguna parte**. Capturado bruto
+> (`20300`) contra ingreso neto (`17500`) ⇒ **el P&L muestra una pérdida de 2 800 en cada envío que no existe** —
+> justo lo que el dueño quiso evitar. ⛔⛔ **Y CORRIJO EL REPORTE QUE ME LLEGÓ: `Order` NO necesita
+> `shippingCostCents`; NO HAY HUECO DE DATOS.** El `ShipmentRequest` de fulfillment **sí captura el costo** y el
+> P&L **ya lo resta** — lo asierta el test de backend (`admin.pnl-iva-neutral.spec.ts:238`). ⇒ **CERO DDL.**
+> *Añadir la columna habría creado dos fuentes para un mismo hecho: el defecto de `stripe_fee_iva_pct`, que este
+> proyecto ya pagó una vez.*
+>
+> **5. ⭐ D55(b) — EL TABLERO MUESTRA VENTAS BRUTAS **Y** NETAS (dueño, 2026-09-10; §4.44.o).** `amountCents` se
+> renombra a **`grossAmountCents`** y nace **`netAmountCents`, derivado del MISMO helper que el P&L** ⇒ **no pueden
+> divergir nunca**. ⛔ Se **rechaza** definir el neto como *«bruto − IVA»*: dejaría la comisión dentro y crearía un
+> **tercer** número. La diferencia contra el bruto se explica con **términos nombrados que viajan**
+> (`ivaCents`, `netShippingRevenueCents`, `processingFeeCents`) y con una identidad **exacta**. Candado **`IVA-10`**.
+> **Entra en D-2**: ⛔ no se reabre D-1 por una tarjeta de tablero. **Supuesto ⇒ pregunta 70.**
+>
+> ---
+> **Rev v1.64(2) — DOS CORRECCIONES A v1.64, LAS DOS SOBRE DEFECTOS MÍOS** (2026-09-09, arquitecto. **⛔ No
+> rediseña nada: ni un endpoint, ni un DTO, ni la fórmula, ni un deploy. CERO DDL.** Base: **v1.64, vigente entera**.
+> Contrato en `API_CONTRACT.md` **v1.64(2)**.)
+>
+> **1. 🔴 MI COTA VIVÍA EN DOS DOCUMENTOS CON DOS CIFRAS DISTINTAS, Y LA DEL CONTRATO ERA LA MÁS FLOJA.**
+> `ARCHITECTURE` decía **«≤ 0.53 ¢/pieza»** (3 sitios) y `API_CONTRACT` **«≤ 1 ¢/pieza»** (2 sitios, **uno dentro
+> del candado `IVA-4`**). Es **§0-B.3 regla 8** en el peor sitio: **la cifra del contrato es la que backend
+> implementa como umbral**, y con 7 piezas admitía `≤ 7` donde la norma dice `≤ 4` ⇒ **el candado habría pasado en
+> verde una implementación que este documento declara rota.** ⛔ **No las promedié.** **Canon único, entero, sobre
+> la BASE** (§4.44.c.1-bis): **`n = 1` ⇒ CERO —IDENTIDAD demostrada, no cota— y `n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋`**.
+> ⭐ **Y con la demostración del product-owner incorporada** (§4.44.c.1-ter): `round(L×(1+t·r)) = L + round(L×t·r)`
+> porque sumar un entero conmuta con el redondeo, **y con `r = 16` NO EXISTE empate en `.5`** para ningún `t` ni
+> ningún `L` (`16·t·L ≡ 5000 (mod 10000)` exige **par = impar**) ⇒ **la convención de redondeo es indiferente**, y
+> **la desviación es EXCLUSIVAMENTE del agregado**. *Eso pasa la cota de «cero contraejemplos medidos» a
+> «imposible», y refuerza mi recomendación sobre `D-IVA-7`: el criterio 185 se enuncia sobre una pieza, y sobre una
+> pieza no se desvía nada.* ⚠️ **Es propiedad de `r = 16`, no de la fórmula: si cambia la tasa, se reverifica.**
+>
+> **2. 🔴 HABÍA UN TERCER SITIO CON EL DEFECTO DE `D-IVA-7` Y NO LO VI — el criterio 191 (pregunta 67).** El
+> `taxBase` agregado puede reportar **un centavo menos de ingreso neto** que `Σ L_i` (dos piezas de `L=103` ⇒ **205
+> vs 206**). **Lo feo no era el centavo: era que MI EJEMPLO ESCRITO ERA DE UNA PIEZA**, donde esto es **exacto por
+> demostración** ⇒ **QA nunca lo habría visto fallar con el caso que el propio documento trae.** *Un defecto
+> invisible por construcción del ejemplo que lo ilustra es peor que el defecto.* **⇒ DECIDO que `R2` NO CAMBIA**
+> (§4.44.c.2): `netRevenueCents + ivaCents ≡ subtotalCents` **es una identidad y vale más que el centavo** —un
+> informe cuyo ingreso más su impuesto no da lo que se cobró **no cuadra consigo mismo**, que es el defecto que
+> `TD-IVA-2` describió con esas palabras—, y **`ivaCents` es fiscal y no se toca para que cuadre un informe de
+> gestión**. **Lo que se arregla es EL EJEMPLO:** `IVA-5` gana un **caso multi-línea obligatorio**.
+>
+> ---
+> **Rev v1.64 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, CON UN DIAL DE TRASLACIÓN QUE NACE NEUTRO**
+> (2026-09-09, arquitecto. Base: **v1.63.4, vigente entera** — este pase **no toca el FX**: es otro frente.
+> Origen: **`PROJECT.md §Q` / D54, APROBADA por el dueño el 2026-09-09**, con las preguntas **52–55** contestadas.
+> Contrato en `API_CONTRACT.md` **v1.64**.)
+>
+> **La sección nueva es `§4.44` (justo antes de `§5`) y trae: `M-50` (DDL aditivo + enum + backfill + seed), **un dial nuevo** (`iva_transfer_pct`), **un endpoint
+> nuevo con su preview** (`§M10-IVA`), **ocho candados** (`IVA-1…IVA-8`) y **cinco divergencias** (`§9`,
+> `D-IVA-4…D-IVA-8`).**
+>
+> **⭐⭐ LA GARANTÍA QUE ORDENA TODO EL DISEÑO: EL DÍA DEL DEPLOY NADIE PAGA DISTINTO.** Con el dial en su valor
+> inicial (**100 %**), la fórmula reproduce el cobro de hoy **al centavo** — lo verifiqué contra los diales reales
+> (`16` / `0.036` / `300`) y contra `money.ts`: base MX$100.00 ⇒ vitrina **MX$116.00**, cobro **MX$124.69**, margen
+> **MX$100.00**, `ivaCents` **1600**. **Y las tres posiciones del dial que `§Q.4` publica —MX$124.69 / MX$116.34 /
+> MX$107.99 y netos 100.00 / 93.10 / 86.21— salen exactas de la misma fórmula.** El criterio **185** lo eleva a
+> *«si alguien paga un centavo distinto, es fallo de release»*: **eso es candado (`IVA-1`), no aspiración.**
+> **Lo único que cambia es que el precio de vitrina deja de mentir.**
+>
+> **1. 🔴 LA LÍNEA DE MAYOR RIESGO, y es una sola (§4.44.d).** Hoy `money.ts:385` hace `baseCents = subtotal + iva`,
+> y **ese `base` NO es la base gravable: es la base del gross-up**. Bajo la convención nueva el IVA **ya está dentro
+> del subtotal**, así que `grossUpBase = subtotalCents` (+ envío) **y nada más**. Sumarlo otra vez **cobra un
+> +13.6 % a todos los clientes, en silencio**. ⇒ **norma de nombres obligatoria** (`grossUpBaseCents` /
+> `taxBaseCents`; ⛔ ningún `baseCents` a secas sobrevive) y candado **`IVA-2`**. *Dos conceptos con el mismo nombre
+> en un fichero de dinero es el defecto de D54 un nivel más abajo.*
+>
+> **2. 🔴 EL SNAPSHOT DE CONVENCIÓN, y el «sin default» ES la decisión (§4.44.e).** `Order.priceConvention` /
+> `ShipmentRequest.priceConvention` van **NOT NULL y SIN default de BD**, para que un camino que las olvide
+> **reviente ruidosamente** en vez de archivar bajo una convención lo que cobró bajo otra. **`ivaTransferPct` es
+> nullable y se queda en `NULL` en las filas antiguas: ⛔ no se backfillean a `100`, sería una mentira** — esas
+> órdenes se cobraron cuando el dial no existía. *Un hueco honesto, jamás un dato inventado presentado como
+> probatorio* (misma doctrina que §5.2).
+>
+> **3. 🟡 EL DIAL NO SE CUELGA DE `iva_pct`, Y ESO ES CANDADO (§4.44.g).** `settings.service.ts:259` deriva el IVA de
+> la comisión de Stripe del **mismo** `IVA_PCT` (hecho 3 de §Q.2) ⇒ si el dial nuevo entrara ahí, **mover un precio
+> movería una comisión**. `getStripeFee()` **jamás** lee `IVA_TRANSFER_PCT` (`IVA-7`). El dial es **entero `[0,100]`
+> porque la columna es `Int`** —la decisión de columna que backend dejó esperando en `validateIvaPct`, **tomada aquí**—,
+> **seed `100`**, `super_admin`, auditado en la misma transacción, y con **endpoint propio** que **exige acuse del
+> costo en pesos** antes de guardar (criterio **188** hecho verificable en el servidor, patrón de `FX-12`).
+> **El nombre está elegido para que quepa un segundo dial `commission_transfer_pct`** el día que el dueño decida
+> meter la comisión: **hueco preparado, ⛔ no construido**.
+>
+> **4. 🟡 EL P&L NO PUEDE MENTIR EN SILENCIO (§4.44.j).** `admin.service.ts:821` cuenta `o.subtotalCents` como
+> ingreso; con el IVA dentro **contaría el impuesto como ingreso propio sin que nadie tocara ese fichero**. Se cierra
+> con **un helper único** (`netRevenueCents`) derivado **solo de columnas persistidas** —nunca del dial vivo— y
+> **tres call sites**, con el cuarto (`ivaReport`) listado **para que nadie lo toque**. Candado `IVA-5`.
+>
+> **5. 🟡 SON DOS DEPLOYS, NUNCA UNO (§4.44.k).** D-1 = `M-50` + el helper cableado + escribir `IVA_EXCLUSIVE`
+> ⇒ **cero efecto observable**, y es la única ventana para probar el P&L neutro contra producción real. D-2 = la
+> convención, **cero DDL**, y su rollback **no toca la BD** porque el lector es por fila. En uno solo, revertir deja
+> **órdenes `IVA_INCLUSIVE` en una base cuyo código ya no conoce la columna** ⇒ **el criterio 190 al revés**.
+>
+> **6. ⭐ LO QUE ENCONTRÉ Y NO ACOMODO — `§9 · D-IVA-7`.** El criterio **185** (*«idéntico al centavo»*) y el
+> criterio **194** (*«Σ líneas == subtotal»*) **no pueden ser los dos exactos en carritos multi-línea**, porque
+> `Σ round ≠ round Σ`. Contraejemplo mínimo calculado con los diales reales: **dos piezas de `L=103` ⇒ hoy 613
+> centavos, con §4.44 612**. **Un centavo.** **Canon único de la cota (v1.64(2)): `n = 1` ⇒ CERO, y es una
+> IDENTIDAD demostrada, no una cota; `n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋` centavos sobre la BASE** (§4.44.c.1-bis/ter).
+> **La desviación es exclusivamente del AGREGADO**: no se desvían el caso de una sola pieza —que es el que 185
+> enuncia—, el precio ni el margen por unidad, ni el envío. **Enmendar un criterio de `PROJECT.md` no es
+> mío**: va al product-owner con mi recomendación escrita, y **⛔ no bloquea a nadie** (la fórmula es la misma se
+> responda lo que se responda; solo cambia **cómo verifica QA el 185**). Las otras cuatro divergencias: el comentario
+> de `settings.constants.ts` que aún llama a D54 *«borrador NO vigente»* (`D-IVA-4`), el ingreso de envío de
+> `direct_ship` que **el P&L no cuenta y el contrato manda desde v1.21** (`D-IVA-5`), una cita de línea desviada
+> (`D-IVA-6`), y **el criterio 189 decidiendo de facto la mitad aritmética de la pregunta 60, que sigue abierta**
+> (`D-IVA-8`).
+>
+> **7. Ocho supuestos, con su mapa.** Las preguntas **56, 57, 59, 60, 61, 62, 63 y 64** siguen abiertas y **ninguna
+> bloquea**. **§4.44.m es la tabla de qué se cae si el dueño responde distinto**, decisión por decisión — para que
+> nadie tenga que releer el pase entero para saber qué reverificar.
+>
+> ---
 > **Rev v1.63.2 — PASE DOCUMENTAL: `§M2-F` ESTÁ IMPLEMENTADO Y APROBADO, Y ESTE DOCUMENTO SEGUÍA DESCRIBIENDO EL BUG
 > QUE ABOLIÓ** (2026-09-09, arquitecto. Base: **v1.63.1, vigente entera**. **⛔ NO rediseña `§M2-F`: no cambia ni un
 > endpoint, ni un DTO, ni un invariante, ni un candado.** **CERO DDL, CERO migración, CERO código nuevo.** Contrato en
@@ -2790,6 +3129,74 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **La PRECEDENCIA de la tasa** (qué rige en cada estado, incluida la 4.ª fila ilegal) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.1**, tabla de precedencia | `<!-- CANON: precedencia-de-la-tasa -->` |
      | **El ESTADO del tipo de cambio** (forma del `FxStateDTO`, `applied`, `fallbackRate`) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.3** | `<!-- CANON: estado-del-tipo-de-cambio -->` |
      | **La BANDA de una tasa USD→MXN** (`[1, 1000]`, sus dos extremos y las dos puertas) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.8** | `<!-- CANON: banda-de-la-tasa-usd-mxn -->` |
+     | **El PROVEEDOR DE PRECIO** (`price_provider`: enum, semántica de cada valor, **SEED**, y la prohibición de afirmar el **VIGENTE** de un entorno) *(v1.65)* | **`API_CONTRACT.md` §M10-PP** *(razón entera, que no se transcribe allí: `ARCHITECTURE §4.35a`)* | `<!-- CANON: proveedor-de-precio -->` |
+     | **El REPARTO de un barrido de sets** (qué se le pasó a cada set encolado: los términos, sus invariantes, y **el único nombre de «cuántos toqué»**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.0** *(razón: `ARCHITECTURE §4.45.1`)* | `<!-- CANON: reparto-del-barrido -->` |
+     | **La VARIANTE DE PRECIO** (la unidad de cobertura: qué se cuenta, qué **no** es denominador, y cuándo el universo es **desconocido** en vez de cero) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.3** *(razón: `ARCHITECTURE §4.45.2`)* | `<!-- CANON: variante-de-precio -->` |
+     | **El CORTE DE CATÁLOGO** (desde cuándo un set cuenta como **nuevo**: la fórmula derivada, la semántica del `releaseDate` ausente, y que **ya no hay dial**) *(v1.66)* | **`API_CONTRACT.md` §M2-CS.4** *(razón: `ARCHITECTURE §4.45.3`)* | `<!-- CANON: corte-de-catalogo -->` |
+     | **⭐ El GRUPO TCGCSV DE UN SET** (qué entero es «el grupo» de un `CardSet`: qué columna manda, qué escalera la escribe, y qué hace un lector cuando dos fuentes existen y **difieren**) *(v1.66.1, **DINERO**)* | **`API_CONTRACT.md` §M2-GT** *(razón: `ARCHITECTURE §4.46`)* | `<!-- CANON: grupo-tcgcsv-del-set -->` |
+     | **⭐ La COTA DE TAMAÑO DE UN PRESIGN** (qué ata la URL prefirmada a un tamaño, qué pasa cuando el campo **falta**, y quién sostiene el tope) *(v1.66.2, **SEGURIDAD**)* | **`API_CONTRACT.md` §8**, bloque de `POST /uploads/presign` *(razón: fuera del bloque, en esa misma sección)* | `<!-- CANON: cota-de-tamano-del-presign -->` |
+   - **⭐⭐ AMPLIACIÓN v1.66 — LA MARCA CANÓNICA ES UN PAR: SIN CIERRE, NO HAY BLOQUE.** Toda marca
+     `<!-- CANON: x -->` **abre** un bloque y **debe cerrarse** con `<!-- /CANON: x -->`. **No es cosmética:** la
+     regla 8 dice *«la cuenta vive en UN sitio»*, y **un bloque abierto y nunca cerrado no delimita ese sitio** —
+     nadie puede decir dónde acaba la fuente única y dónde empieza prosa que **sí** puede repetirse, discutirse y
+     envejecer. *Sin cierre, la fuente única se convierte en «de aquí para abajo, más o menos», que es
+     exactamente la ambigüedad que la regla existe para eliminar.*
+     - **Qué va DENTRO:** el predicado — definición, forma, invariantes, prohibiciones. **Qué va FUERA:** razón,
+       costo, compuertas de un merge concreto, ayudas de lectura y todo lo que **deba** poder citarse desde otros
+       documentos. *La utilidad del cierre se ve al escribirlo: obliga a decidir qué es norma y qué es comentario,
+       que es la decisión que se estaba saltando.*
+     - **⭐⭐ QUÉ ES UNA «MARCA REAL» — LA PROPIEDAD ES EL ENTRECOMILLADO, NO LA COLUMNA (corregido v1.66.1).**
+       **Cada `x` debe tener exactamente UNA apertura y UN cierre como marcas REALES**, y una apertura sin su
+       `/CANON` es un fallo de documentación, no un descuido de formato. **Una marca es REAL salvo que esté
+       CITADA**, y **CITADA** significa **una sola cosa**: aparecer entre **acentos graves simples en la misma
+       línea** (`` `<!-- CANON: x -->` ``), que es la forma correcta de nombrarla desde otro sitio.
+       ⛔ **Ni la indentación ni un prefijo de comentario del lenguaje del bloque (`// `, `* `, `# `) convierten
+       una marca en cita.**
+       > ⚠️⚠️ **Esta definición REEMPLAZA a la de v1.66 (*«las que empiezan línea»*), que era FALSA y peligrosa.**
+       > Medido el 2026-09-10 sobre el censo entero: **de las marcas reales del proyecto, DOS no empiezan
+       > línea** — `mercado-de-la-variante` (dentro de un bloque de código, prefijada con `// `) y
+       > `semantica-de-omision` (indentada dos espacios dentro de un bullet). **Las dos delimitan predicados de
+       > DINERO.** Un lint escrito literalmente contra *«empieza línea»* **no las contaría ni las protegería**:
+       > para él, esos dos bloques no existen. *Un guardián que declara inexistente lo que debe guardar es peor
+       > que no tenerlo, porque además emite un verde.* **La marca dentro de un bloque de código es
+       > DELIBERADA** (`API_CONTRACT` línea siguiente a la de `mercado-de-la-variante` lo dice: la fuente única
+       > **es la declaración**, no una prosa aparte) ⇒ la convención tenía que ceder, no el bloque.
+     - **Especificación del lint, para que devops no tenga que inferirla** *(sugerencia, mismo límite que las
+       reglas 7 y 8: **yo normo, no cableo**; alcance devops, `security/` o `scripts/`)*:
+       1. **Candidata:** cualquier línea que case `<!--\s*/?CANON:\s*([a-z0-9-]+)`, **en cualquier columna**.
+       2. **Es CITA** si y sólo si la ocurrencia va entre acentos graves simples en esa misma línea. Todo lo
+          demás es **marca REAL**.
+       3. **`L1` (par):** por cada `x`, exactamente **1** apertura y **1** cierre reales, **en el mismo fichero**
+          y en ese orden.
+       4. **`L2` (estado):** toda apertura real lleva su **token de estado** (regla 10). Sin token ⇒ se lee
+          **`PROYECTADA`** (fail-closed) y el lint lo reporta.
+       5. **`L3` (censo, BIDIRECCIONAL):** todo `x` del censo de esta regla tiene su par, **y todo par tiene su
+          `x` en el censo**. La segunda mitad es la que importa y es la que faltaba: **es la única que caza una
+          marca normativa acuñada fuera de este censo** — que ya pasó una vez (regla 11).
+       6. **`L4` (fuera de `docs/`):** ⛔ **cero marcas reales en `backend/` y `frontend/`** (regla 11). **En
+          código, el texto de una marca sólo es legítimo DENTRO DE UN LITERAL DE CADENA o entre acentos graves en
+          un comentario** —una **cita** o una **búsqueda**—, nunca como marca desnuda. ⚠️ **Ese carve-out no es
+          una comodidad: es un patrón que el proyecto quiere.** `backend/test/settings.validation.spec.ts`
+          **localiza el bloque `proveedor-de-precio` en `docs/API_CONTRACT.md` y compara la norma con el literal
+          del código**: un test que **lee el contrato como fuente** en vez de copiarlo. *Un lint que le pidiera a
+          backend borrar eso estaría atacando el único mecanismo que hoy ata una marca a un aserto ejecutable.*
+     - **Estado de cumplimiento: NO SE ENUMERA AQUÍ** *(corregido v1.66.1 — la enumeración era, ella misma, una
+       infracción de esta regla)*. La v1.66 listó a mano *«cerrados: … / abiertos: …»*: **una cuenta viva,
+       mantenida a mano, lejos del artefacto que la decide** — exactamente lo que esta regla prohíbe, escrita
+       dentro de la propia regla. Era correcta el día que se escribió y **caducaba en el primer bloque que
+       alguien cerrara**, sin diff, sin test y sin que nadie la mencionara (que es el argumento de la regla 8
+       contra la regla 7). ⇒ **El estado se MIDE** (el lint de arriba) y **lo que está abierto vive donde viven
+       las cosas abiertas: §9**, con dueño y fecha. Los bloques de FX sin cerrar están en **`D-CS-4`**.
+       *Detectado por el orquestador al revisar v1.66.*
+   - **⭐⭐ AMPLIACIÓN v1.65 — «EL VALOR NO CADUCA SOLO: CADUCA EL HECHO QUE EL VALOR NOMBRABA». La regla 8 también
+     gobierna los valores de clase (B) que se afirman con VERBOS DISTINTOS.** El caso que la origina no fue una
+     cuenta: fueron **dos frases sobre el mismo dial** —*«el **seed** debe dejar `tcgcsv_singles`»* (§4.36(d)) y
+     *«**valor vigente** = `tcgcsv_singles`»* (`API_CONTRACT §M10`)— que **parecían decir lo mismo y no lo decían**.
+     Ningún barrido por texto las habría cotejado: no discrepan en el valor, discrepan en **qué hecho afirman**.
+     ⇒ **Cuando un valor de configuración se menciona, la marca canónica debe cubrir el HECHO, no el literal**, y el
+     hecho se **nombra** (**PRIMARIO** / **SEED** / **VIGENTE**), como se nombran los términos en la ampliación
+     v1.63.4. *Un literal repetido en cinco sitios se detecta con grep; cinco frases que usan el mismo literal para
+     tres hechos distintos, no — y ésas son las que llegan a un gate como contradicción irresoluble.*
    - **⭐⭐ AMPLIACIÓN v1.63.4 — «ELIMINA O NOMBRA»: un número PELADO junto a un ENLACE es lo PEOR de las dos
      opciones, y es como esta regla se rompió TRES veces seguidas en una sola feature.** Medido en `§M2-F`: el
      resumen de cabecera decía *«**Cuatro** invariantes»* **y enlazaba a la lista que ya declaraba seis**; otro decía
@@ -2856,6 +3263,108 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
    - **Cómo se comprueba (mitad de cliente):** el body emitido **no contiene la clave** del campo no editado —una
      aserción sobre la petición, no sobre la respuesta—. La mitad de servidor se prueba **donde vive el endpoint** y
      **no se re-asierta** en la pantalla (regla 8).
+   - **⭐⭐ (c) AMPLIACIÓN v1.66.2 — LA AUSENCIA DE UN CAMPO NUNCA COMPRA UNA GARANTÍA MENOR; y el CONTRATO debe
+     decir qué pasa cuando falta.** Las mitades (a) y (b) gobiernan *qué significa* omitir. Ésta gobierna **hacia
+     qué lado se equivoca el servidor cuando el campo no viene**, y son dos obligaciones:
+     - **(c1) Fail-closed, siempre.** Si un campo del cliente **sostiene una guarda del servidor** (una cota, un
+       binding, una verificación), su **ausencia se RECHAZA** o produce **el caso más estricto**. ⛔ Prohibida la
+       tercera vía —*«si viene lo aplico, si no viene lo salto»*—: eso **le entrega el candado a quien tiene el
+       motivo para no mandarlo**. *Un tope que se evade omitiendo un campo no es un tope: es una sugerencia.*
+     - **(c2) El contrato declara la ausencia, no solo el campo.** Marcar el campo obligatorio **no basta**: un
+       `Req` es una lista de nombres y tipos, y **de ella no se deduce si faltar es un `422` o una firma más
+       laxa**. La sección declara **qué invariante sostiene el campo y qué ocurre al faltar**; si el invariante
+       merece fuente única, entra al censo de la regla 8 con su marca y su token (regla 10).
+     **De dónde viene, medido:** `P-UP-1`. `POST /uploads/presign` traía `contentLength` **opcional**; omitirlo
+     saltaba el chequeo contra el tope **y** emitía la URL prefirmada **sin `ContentLength`** (`UNSIGNED-PAYLOAD`)
+     ⇒ subida de tamaño arbitrario al bucket que guarda **fotos de INE**. **Y el contrato era cómplice, que es la
+     mitad cara del hallazgo:** `API_CONTRACT §8` declaraba `{ purpose, contentType }` y **ni mencionaba el
+     campo** ⇒ por la regla de conflicto de `CLAUDE.md`, **una implementación fiel al contrato reproducía el
+     agujero y estaba en su derecho**. Cerrado en contrato **v1.66.2** (`<!-- CANON: cota-de-tamano-del-presign -->`).
+     - **Por qué es NORMA y no una etiqueta de «sección sensible».** La salida tentadora era marcar las secciones
+       peligrosas del contrato. **Se descartó**: un censo de sensibilidad poblado a mano **es exhaustivo el día que
+       se escribe y nunca más**, y su daño es el **verde que emite sobre lo que nadie marcó** — el mismo defecto
+       que la regla 10 vino a cerrar. *Una norma se aplica al endpoint que aún no existe; una etiqueta solo cubre
+       lo que alguien ya recordó etiquetar.*
+     - **Cómo se comprueba (y ya existe el precedente):** una **invariante barrida** sobre las formas posibles del
+       campo —ausente, `null`, `0`, negativo, no numérico, sobre el tope— que exija **una** de dos salidas:
+       **rechazo**, o **garantía completa aplicada**. ⛔ Ninguna tercera. Se prueba **donde vive el endpoint**, y
+       **al menos una** de esas formas se ejercita **por HTTP real** (DTO + controller + servicio), porque el
+       reparto entre el `400` del pipe y el `422` de negocio **no se ve desde un unitario del servicio**.
+
+10. **⭐⭐⭐ REGLA DEL ESTADO DE UN CANON — «ESTO ES LA NORMA» Y «ESTO ES LA NORMA Y YA ESTÁ CONSTRUIDO» SON DOS
+    AFIRMACIONES, Y HASTA HOY LA MARCA NO LAS DISTINGUÍA (añadida 2026-09-10, v1.66.1).**
+    **Toda apertura `<!-- CANON: x -->` lleva un TOKEN DE ESTADO obligatorio:**
+    | Token | Qué afirma | Qué autoriza |
+    |---|---|---|
+    | **`estado: VIGENTE`** | El predicado **está construido**: existe el código que lo implementa | Se cita como norma **y** se usa para leer el sistema. La **conformidad al detalle** la miden QA/techlead; lo que discrepe vive en §9 |
+    | **`estado: PROYECTADA`** | El predicado **es la norma y el código NO lo implementa todavía** | Se cita **sólo** como norma del pase que lo implementará. ⛔ **No describe el sistema y no gobierna ningún gate** |
+    - **Sintaxis:** `<!-- CANON: x · estado: VIGENTE · única fuente · … -->`. **Una apertura sin token se lee
+      `PROYECTADA`** (fail-closed): el error barato es no citar un bloque que ya existe; el caro es citar como
+      descripción uno que no.
+    - **`PROYECTADA` obliga a TRES cosas, y las tres en el mismo pase que escribe el bloque:**
+      1. **Un banner NO IMPLEMENTADA como primera línea DENTRO del bloque**, con **dueño** (rol) y **compuerta**
+         (el hecho observable en el artefacto que, al cumplirse, permite el paso a `VIGENTE`).
+      2. **Una desviación en §9** con id, dueño y esa misma compuerta. *El bloque no se vigila solo; §9 es donde
+         este proyecto mira lo que está abierto.*
+      3. **⛔ Nada en indicativo presente sobre el mundo.** *«el `PUT` la rechaza»*, *«la fila se BORRA»*,
+         *«`remote-sets` gana X — siempre presente»* son **descripciones**; la forma correcta es **deóntica**:
+         *«el `PUT` DEBERÁ rechazarla»*, *«la migración BORRARÁ la fila»*. La definición del predicado
+         (*«VARIANTE DE PRECIO := …»*) **sí** va en presente: es una definición, no una descripción.
+    - **El paso `PROYECTADA → VIGENTE` lo hace el ARQUITECTO, en la rev que registra la compuerta cumplida —
+      nunca el pase que escribe el código** (regla 5: el dueño del código no edita este documento ni el contrato).
+      *Si el token lo moviera quien implementa, sería el implementador certificándose a sí mismo.*
+    - **⭐ POR QUÉ ESTA REGLA Y NO UN PARCHE A LAS DOS SECCIONES QUE FALLARON.** El defecto no fue un descuido:
+      **fue estructural, y el mecanismo lo amplificó.** Las reglas 1 y 2 prohíben afirmar un valor de clase (B)
+      y exigen verificar contra el artefacto; la regla 8 promete que dentro de un `CANON` vive **la** verdad del
+      predicado, **y a todo el equipo se le ha dicho que lo cite sin volver a verificar**. Un `CANON` que
+      describe en indicativo un sistema que no existe **usa esa promesa para propagar exactamente lo que las
+      reglas 1 y 2 prohíben, en el sitio del proyecto donde más caro sale**. Medido en v1.66: **§M2-CS.3 y
+      §M2-CS.4 afirmaban CINCO hechos falsos contra el árbol** (0 ocurrencias de `pricedVariants`,
+      `priceCoverage`, `catalogWindow` y `CATALOG_SYNC_WINDOW_MONTHS` en `backend/` y `frontend/`; la migración
+      `M-51` inexistente; `catalogSyncFromDate` vivo en el DTO **y editable en la pantalla**). *La rev que venía
+      a curar «un documento que hace tomar decisiones equivocadas a los roles que lo respetan» fabricó, dentro
+      de la norma escrita para impedirlo, la instancia más grande de ese defecto.*
+    - **⚠️ POR QUÉ EL PRECEDENTE FALLÓ, y qué cambia aquí — la pregunta hay que contestarla antes de reusar el
+      mecanismo.** El proyecto ya tenía una «nota de vigencia»: la de `§M10-PP` (v1.65), que decía *«`I-PP1`
+      describe la norma, no necesariamente el literal que hoy corre… mientras esa desviación siga abierta…»*.
+      **El 2026-09-10 esa nota llevaba días caduca** (`D-PP-1` cerró; el seed del código es el primario) **y
+      seguía en presente dentro del bloque `CANON`**, junto con tres frases gemelas de este documento. Tres
+      defectos de diseño, y los tres se cierran arriba:
+      1. **Era prosa libre, no un token.** No se podía `grep`ear, no tenía forma fija y nadie sabía que existía
+         una convención. ⇒ **el estado vive en la marca de apertura, en UN sitio, y el lint lo lee.**
+      2. **Su retiro no estaba atado a un evento.** *«Mientras siga abierta»* deja el trabajo a que alguien
+         recuerde volver: es la regla 7 pidiendo memoria, que es justo lo que la regla 8 declaró insuficiente.
+         ⇒ **el token es un DATO, y su cambio es un paso obligado de la rev que cierra la desviación.**
+      3. **⛔⛔ Y el fallo de raíz: era una afirmación de clase (B) DENTRO de un bloque `CANON`.** «Qué dice hoy
+         el literal del código» y «qué desviación sigue abierta» son hechos del mundo, que envejecen. **Dentro
+         de un bloque canónico no va NADA de clase (B)** —ni un literal vigente, ni el estado de una desviación,
+         ni *«verificado el {fecha} contra el código»*—: eso va **fuera**, junto a la razón y las compuertas, o
+         en §9. *El único dato del mundo que el bloque lleva dentro es su propio token, y se elige de modo que
+         equivocarse por defecto sea inofensivo.*
+    - **Qué NO cambia:** la regla 8 (una cuenta, un sitio) y su ampliación del **par** siguen enteras. El token
+      no dice **dónde acaba** el bloque —eso lo dice el cierre— sino **si lo que hay dentro existe**.
+
+11. **⭐⭐ REGLA DEL VOCABULARIO CERRADO — NADIE ACUÑA UNA MARCA NORMATIVA FUERA DE ESTE CENSO, Y NINGUNA MARCA
+    VIVE EN CÓDIGO (añadida 2026-09-10, v1.66.1).**
+    - **(a) El espacio de marcas normativas es CERRADO y lo declara la regla 8.** ⛔ Ningún rol inventa una marca
+      nueva —ni una variante «parecida pero distinta»— en su módulo, su documento o su comentario. Quien la
+      necesite **la pide al arquitecto** (regla 9 de `CLAUDE.md`).
+    - **(b) ⛔ Cero marcas `CANON` reales en `backend/` y `frontend/`.** El código **cita el ANCHOR**
+      (`API_CONTRACT §M2-CS.0`), nunca la marca. **Dos razones, y la segunda es la que decide:** una marca en
+      código o abre un segundo bloque o rompe el conteo del par (`L1`); y, sobre todo, **la marca delimita la
+      FUENTE ÚNICA del predicado, que por la regla de conflicto de `CLAUDE.md` está en el CONTRATO** — un
+      fichero de código que se declara «única fuente **en código**» del mismo predicado **es la segunda fuente**,
+      con otras palabras. ✅ **Sí es legítimo** el texto de la marca **dentro de una cadena o entre acentos
+      graves**: una **cita** en un comentario, o la **búsqueda** con la que un test de contrato localiza el
+      bloque en `docs/API_CONTRACT.md` (ver `L4`). *La intención («si necesitas este reparto, llama aquí; no lo copies») es correcta y
+      valiosa: se escribe en prosa y se blinda con un test, que es donde una regla sobre código se hace
+      cumplir — no con una marca que compite con la del contrato.*
+    - **Caso que la origina, medido el 2026-09-10:** `backend/src/modules/catalog/set-sweep-tally.ts:4` acuñó
+      `<!-- CANON-IMPL: reparto-del-barrido · única fuente EN CÓDIGO · … -->` — **un segundo vocabulario de
+      marcas, sin censo, sin par de cierre y sin dueño**, en el mismo pase en que nacía la norma del par.
+      **Estatuto decidido: se RETIRA** (desviación **`D-CS-6`**, dueño **backend**; es **una línea**, ⛔ ni una
+      de lógica). *La intención era buena; el mecanismo, no. Que un rol acuñe marcas normativas en su módulo es
+      el arranque del siguiente incidente, y esta vez se cazó a la primera.*
 
 ### 0-B.4 Consecuencia para `API_CONTRACT.md`: forma y origen, no valor
 
@@ -11967,6 +12476,194 @@ implementado), sin migración, sin cambio de forma de contrato.
 
 ---
 
+### 4.35a EL SEED DEL DIAL `price_provider` — «SEED» y «VIGENTE» NO SON LA MISMA FRASE, y el seed «money-safe» era el que APLANA (v1.65, NORMATIVO, **DINERO**)
+
+> **Escalada regla 9 (QA → arquitecto), BLOQUEANTE-1 sobre P-47, 2026-09-10.** Contrato en `API_CONTRACT.md`
+> **v1.65**, sección nueva **§M10-PP** (fuente única). **⛔ Sin migración, sin endpoint nuevo, sin cambio de shape.**
+> **⛔ El arquitecto no toca código:** el arreglo de `settings.constants.ts` y del test es de **backend**, registrado
+> como desviación **`D-PP-1`** en §9.
+
+#### (a) El hecho que nadie estaba mirando: «el provider es X» son TRES afirmaciones, no una
+
+QA reportó una contradicción documento↔documento↔código y **tenía razón en los cinco sitios a la vez** — que es
+justo la señal de que el defecto no era ninguno de ellos. Puestos en fila, los textos dicen esto:
+
+| Sitio | Frase | Qué hecho afirma **de verdad** |
+|---|---|---|
+| `API_CONTRACT §M10` (v1.48) | *«valor **vigente** `tcgcsv_singles`»* | **VIGENTE** de producción |
+| `ARCHITECTURE §4.36(d)` bandera 3 | *«el **seed** debe dejar `tcgcsv_singles`»* | **SEED** |
+| `settings.constants.ts:307` | `PRICE_PROVIDER: 'pokemontcg_io'` | **SEED** (el literal que corre) |
+| `settings.validation.spec.ts:152` | *«default seed (`pokemontcg_io`)»* | **SEED** (fijado por test) |
+| `DEVOPS_NOTES §28/§28.6` | runbook de flip y de flip inverso | **VIGENTE**, y cómo se mueve |
+
+**Ninguna es falsa por sí sola. Lo falso es que se leyeran como la misma.** Un dial de configuración tiene tres
+hechos con dueños distintos, y el proyecto sólo tenía vocabulario para uno:
+
+1. **PRIMARIO** — qué proveedor es, **por norma**, la fuente del precio por-acabado. **Clase (A)**: lo decide el
+   contrato. Es lo que `§4.35` fijó en P-47.
+2. **SEED** — qué valor toma el dial en una **BD fresca** (CI, dev, staging recién aprovisionado, un restore de DR)
+   mientras nadie lo edite. **Es una decisión (A) cuyo literal vive en el código (B).**
+3. **VIGENTE** — qué valor tiene el dial **en un entorno concreto, hoy**. **Clase (B) pura, y además por entorno**:
+   no existe «el vigente» a secas, existe «el vigente de producción», «el de staging»…
+
+⚠️ **Por qué esto es peor que una copia rancia y por qué la regla 8 no lo atrapaba.** Las cinco frases **no
+discrepan en el literal**: discrepan en el **verbo**. Un barrido por `tcgcsv_singles` las encuentra todas y las
+declara coherentes. Sólo se rompe cuando alguien **ejecuta** el documento —levantar CI— y descubre que el sistema
+que se valida no es el que corre. ⇒ ampliación **v1.65** de §0-B.3 regla 8: *la marca canónica cubre el **hecho**,
+no el literal*.
+
+#### (b) La decisión: **CEDE EL CÓDIGO**. `I-PP1` — el SEED es el PRIMARIO (hoy ⇒ `tcgcsv_singles`)
+
+**Se me pidió argumentar por money-safe y no por antigüedad del texto. El argumento money-safe es exactamente el que
+invierte la conclusión heredada.**
+
+**La razón de v1.14 (2026-08-17) era buena y su objeto ya no existe.** El seed `pokemontcg_io` se eligió cuando el
+candidato a primario era **`pokemonpricetracker`**, un proveedor **de paga con esquema sin verificar**. Sembrar el
+legacy protegía contra *«desplegar contra un esquema que nadie ha visto»*. **`tcgcsv_singles` no es ese riesgo**: es
+el primario **desde P-47/v1.44**, con el gate operativo de §28.7 (*≥2 corridas programadas sin fallo*) consumado y
+un régimen diario estable observado en producción. **La premisa caducó; la frase, no.** *Esto no es antigüedad del
+texto: es que el peligro que el candado nombraba dejó de estar ahí.*
+
+**Y la razón decisiva, que va en el otro sentido: `pokemontcg_io` no es un seed money-safe. Es un ESCRITOR.**
+Aquí está el criterio que faltaba, y conviene enunciarlo como norma porque el proyecto ya tiene el contraejemplo
+correcto delante:
+
+> **Un seed money-safe debe ser INERTE —no escribe dinero— o el PRIMARIO validado. ⛔ Nunca un SEGUNDO escritor con
+> semántica distinta del primario.**
+
+- **`sealed_price_source = 'off'` es inerte** y por eso su seed **sí** es un candado: con `off` el job es no-op y
+  **no se escribe nada** (§4.19e). Fallar hacia «no hay dato» es fail-closed.
+- **`price_provider = 'pokemontcg_io'` no es inerte:** corre el barrido y **escribe `PriceReference`** — con un
+  `market` **único por carta, invariante al printing** (§4.35 preámbulo/(d)) ⇒ `normal`, `reverse_holo` y
+  `holofoil` reciben **el mismo precio**. Eso es **la regresión exacta que P-47 cerró**, y por `PROJECT §N.0`
+  (*precio de menos = carta perdida, irrecuperable*) es **el lado malo del sesgo de error**: la reverse y la holo
+  —las caras— se cotizan y se publican al precio de la normal.
+
+⇒ **El seed legacy no era el candado money-safe: era el riesgo llevando el nombre del candado.** Un entorno fresco
+no arrancaba «sin precios hasta que un humano decida»; arrancaba **con precios silenciosamente aplanados**.
+
+**Tres comprobaciones de que la decisión no mueve dinero de producción** (§0-B.3 regla 2 — se verifica contra el
+artefacto, no contra este párrafo; **el `DEFAULT` sólo se consulta cuando NO hay fila**):
+
+1. ✅ **MEDIDO, ya no deducido (2026-09-10):** el humano **leyó el dial en el panel M10 de producción** y devuelve
+   **`tcgcsv_singles`**. ⇒ producción **tiene fila** `ConfigSetting.price_provider` (con `DEFAULT = pokemontcg_io`,
+   ninguna otra cosa produce esa lectura) ⇒ **cambiar el `DEFAULT` no puede alterar producción**. *La deducción
+   previa —28,559 filas/día con `source='tcgcsv_singles'`— apuntaba al mismo sitio; se conserva porque son
+   evidencias independientes: una dice qué **está configurado**, la otra qué **está ocurriendo**, y coinciden.*
+   ⚠️ **Esto es un registro FECHADO, no una afirmación viva** (`I-PP2`): mañana lo autoritativo vuelve a ser la
+   lectura, no esta línea.
+2. El upsert del seed **no pisa un valor ya editado** (misma garantía que `pricing_curve`, §4.36.2/M-41.7).
+3. **Aun en el caso imposible** de que producción no tuviera fila, el cambio la llevaría **al primario**, que es la
+   norma vigente desde P-47. **No hay rama de este cambio que termine en un precio más bajo.**
+
+⚠️ **La medición NO mueve la decisión, y conviene decir por qué, porque parece que debería.** Confirma que
+`API_CONTRACT §M10` decía **verdad** al hablar del **vigente** —nunca estuvo en discusión que fuera rezagado— y
+confirma que **seed y vigente divergen legítimamente hoy**: `pokemontcg_io` sembrado, `tcgcsv_singles` corriendo.
+**Eso es exactamente el diagnóstico de (a), medido en vez de sospechado.** Lo que no hace es responder la pregunta
+de (b), que es **otra**: *¿con qué debe NACER un entorno nuevo?* Una divergencia que existe **no se justifica sola
+por existir**; la medición dice **que** divergen, y §4.35a(d) dice **por qué eso es un defecto** — es la brecha que
+QA midió.
+
+#### (c) Lo que la decisión **NO** rompe: `DEVOPS_NOTES §28` opera otro hecho
+
+El tercer documento parecía argumentar a favor del código, y **es el que más limpio queda al separar los hechos**:
+
+- **`I-PP3` — el rollback mueve el VIGENTE, nunca el SEED.** La palanca sigue siendo
+  `PUT /admin/settings { "priceProvider": "pokemontcg_io" }` (`super_admin`, auditado, sin redeploy, efecto en la
+  siguiente corrida). **Esa palanca no depende de qué valor se siembre**, y **§28.6 sobrevive intacto**.
+- **§28 (activación) es el registro fechado de una migración del VIGENTE en un entorno que ya existía** — 2026-08-24,
+  sobre una BD con historia. **Un runbook de flip nunca fue argumento sobre el seed:** describe cómo se mueve el
+  hecho 3. *Que exista un procedimiento para encender algo no dice nada sobre cómo debe nacer un entorno nuevo.*
+- **Lo que sí caduca es el adjetivo, no el procedimiento:** las frases de `DEVOPS_NOTES` que llaman al seed
+  *«money-safe»* (§19.5, §19.6 paso 3, §28.2) quedan **desactualizadas** — enrutado a devops en §9 (`D-PP-2`), y
+  **no las corrijo yo** (regla 5 de §0-B.3).
+
+⚠️⚠️ **El argumento más fuerte del otro lado, contestado de frente: *«seed legacy + flip deliberado ya se ejecutó
+con éxito una vez (2026-08-28); no es una hipótesis»*.** Es cierto, y **no sostiene la conclusión**, por dos razones
+que la propia medición deja a la vista:
+
+1. **Lo que el flip de agosto demostró es que la PALANCA funciona (`I-PP3`), que es cosa distinta de que el SEED
+   deba ser el legacy.** Se ejecutó **una vez**, **en el único entorno que tiene un humano mirándolo**, **con un
+   runbook escrito para él** y **sobre una BD que ya existía**. Ninguna de esas cuatro condiciones se cumple en un
+   `docker compose up` de CI. *Generalizar «funcionó en producción con un humano al mando» a «así deben nacer los
+   entornos» es justo el paso que produjo la brecha.*
+2. **El éxito no es simétrico: sólo se midió el lado bueno.** El flip que salió bien es el que iba **del legacy al
+   primario**. **Nadie ha medido el otro lado** — un entorno que se queda en el legacy porque nadie se acordó de
+   flipearlo—, **y ése es exactamente el que no avisa**: no falla, no alerta, **publica un número más bajo**. Un
+   mecanismo cuyo modo de fallo es *silencio con precio aplanado* no gana confianza por haber salido bien la vez
+   que alguien lo estaba mirando. **Y hoy hay una medición de ese lado: es la brecha de (d).**
+
+#### (d) LA BRECHA, con nombre: **el gate de release valida un barrido que no es el de producción**
+
+El daño que QA midió no es el valor del dial: es que **CI, dev y staging evalúan un proveedor distinto al de
+producción**. Con la medición del 2026-09-10 la brecha deja de ser potencial y queda **cuantificada**: producción
+`tcgcsv_singles`, todo entorno fresco `pokemontcg_io`. **Y alcanza al gate de seguridad y al de QA**, que es lo que
+la vuelve BLOQUEANTE y no una molestia de dev:
+
+- **La suite E2E y el smoke por-stream** ejercitan la capa REFERENCIA con el proveedor **que aplana**. Un test que
+  afirme *«reverse_holo con precio propio»* **no puede pasar** en CI, o —peor— **se escribió para pasar con el
+  aplanado**, y entonces el candado money-safe de §4.35(e)(4) está verde contra la conducta equivocada.
+- **El DAST contra staging** recorre superficies de dinero (cotizador, vitrina) alimentadas por un barrido que
+  **no es el de producción**. *Un gate que aprueba un sistema distinto del que se promueve no es un gate: es una
+  ceremonia.* ⇒ va a `DEVOPS_NOTES` (`D-PP-2`) y **debe verse en la fase de seguridad por release**.
+
+**Cómo se cierra, de forma permanente: `I-PP5` por construcción.** Con `I-PP1` la paridad **se cumple sin que nadie
+haga nada** — que es la única forma en que una paridad sobrevive. La alternativa que se me pidió evaluar (*«conservar
+el seed legacy y hacer del flip un paso obligatorio del arranque de staging»*) **la rechazo, y por una razón
+concreta, no por gusto**: es **el mismo mecanismo de divergencia con más pasos y un humano en medio**, y su modo de
+fallo —olvidarlo— **no produce ningún error**, produce **precios más bajos en silencio**. Añadir un paso obligatorio
+a un runbook es la clase de arreglo que funciona hasta el primer día con prisa. *Si la paridad hay que recordarla,
+no es una paridad: es una deuda con calendario.*
+
+**Si algún entorno necesitara de verdad otro proveedor** (p. ej. un staging sin salida a `tcgcsv.com`), se fija
+**explícitamente por el hecho 3** —`PUT /admin/settings`, auditado— y **se declara en `DEVOPS_NOTES`** como
+desviación consciente de ese entorno. ⛔ **Nunca por divergencia del seed**, que es una decisión sin autor y sin
+registro.
+
+✅ **LA VENTANA DE TRANSICIÓN SE CERRÓ (actualizado 2026-09-10, v1.66.1).** ~~*«Entre este dictamen y el
+aterrizaje de `D-PP-1`, CI y staging siguen divergiendo»*~~ — **`D-PP-1` aterrizó**: medido en el artefacto que
+corre (§0-B.3 regla 2), `settings.constants.ts` siembra **el primario**. ⇒ **la paridad `I-PP5` se cumple ya por
+construcción en toda BD fresca**, que era el objetivo entero.
+**Y la medida interina de devops —fijar el dial en el aprovisionamiento de staging— DEBE ESTAR RETIRADA**, porque
+su fecha de retiro era exactamente este merge. ✅ **Verificado, y devops llegó antes que este documento**:
+`DEVOPS_NOTES §44.7` ya declara caducado el puente `--ensure` y deja **sólo `--assert`** (la medición, que es
+permanente y sigue siendo el gate del DAST). *Lo anoto porque es el sistema funcionando: devops **verificó contra
+el artefacto** en vez de contra este párrafo, que es la regla 2 haciendo su trabajo — y la consecuencia es que el
+texto muerto que quedaba era el mío.* ⚠️ **Lo que sí queda para devops:** barrer las frases que aún describen el
+puente como vigente (p. ej. la fila de `scripts/price-provider-parity.sh` en `DEVOPS_NOTES §43.2`,
+*«INTERINO, muere con `D-PP-1`»*) — **`D-PP-2` sigue abierta por eso**.
+**La doctrina que motivaba el aviso no se deroga y por eso se conserva la frase:** un apaño de provisión que
+sobrevive a la causa que lo justificó **se convierte en la explicación de por qué el seed «no importa»** —misma
+familia que §0-B.3 regla 9(b), *un parche provisional sobre una ambigüedad no es provisional, porque nadie vuelve
+a quitarlo*—. Aquí sí se quitó, y a tiempo.
+
+**Y el seed nuevo es MÁS fail-closed que el viejo, no menos:** si TCGCSV no responde en un entorno sin red, el
+barrido **no produce precio** y la celda queda `PRICE_PENDING`/«—» (`I-PP4`, §4.35(e)(4)). ⛔ **No hay caída
+automática a otro proveedor.** *Con el seed legacy, el mismo entorno no fallaba: publicaba un número equivocado —
+y un número equivocado no dispara ninguna alarma.*
+
+#### (e) Fuente única y reparto
+
+- **Fuente única del dial: `API_CONTRACT §M10-PP`** (`<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Allí
+  viven **enum, semántica, `I-PP1`…`I-PP5`**. **Este documento lleva la RAZÓN y no transcribe el enum**; §4.36(d)
+  bandera 3 pasa a **citar**. *El literal del seed no se re-escribe en ningún documento: `I-PP1` está enunciada como
+  **igualdad** (`seed = primario`) precisamente para que no pueda caducar cuando el primario cambie.*
+- **backend** (WS «Catálogo y precios»): ✅ **`D-PP-1` EJECUTADA Y CERRADA** (§9) — seed, comentarios y test. Tocó
+  dinero y zona compartida (`settings.constants.ts`); el cambio fue de **una línea de valor** y su gate no fue
+  menor por ser pequeño.
+- **devops**: `D-PP-2` (§9) — **sigue abierta**: la prosa de `DEVOPS_NOTES` que llama «money-safe» al seed legacy
+  y las frases que aún presentan como vigente el puente interino ya retirado. La verificación de paridad de
+  `I-PP5` **ya está cableada** (`--assert`, gate del DAST).
+- **QA**: ✅ **BLOQUEANTE-1 CERRADA.** El criterio era *«cuando el test refleje `I-PP1`** y una BD fresca de CI
+  arranque en el primario»*, y se cumple. ⚠️⚠️ **Y aquí murió una frase que este documento mantuvo viva de más:**
+  ~~*«Mientras `D-PP-1` siga abierta, el literal que corre es `pokemontcg_io`»*~~ **es falsa desde que cerró.**
+  Se deja tachada, no borrada, porque es **el segundo caso medido** de lo que originó §0-B.3 regla 10: un texto
+  que describe el mundo en presente y **no tiene ningún disparador que lo despierte cuando el mundo cambia**.
+  *La frase correcta nunca fue ésa, sino: **el literal se lee del fichero** (regla 2), y este documento sólo
+  afirma la norma que lo obliga.*
+
+---
+
 ### 4.36 Fusión pricing v2 — DOS CAPAS ORTOGONALES: REFERENCIA (`tcgcsv_singles`, P-47) × REGLA (curva v2) (v1.49, DICTAMEN DE FUSIÓN, NORMATIVO)
 
 > **Escalada regla 9 (backend) — dictamen de fusión de la rama v2 `origin/claude/card-pricing-rules-2e537m`.** La rama v2
@@ -12047,8 +12744,15 @@ retirado. Backend/QA deben barrer y RESTABLECER en el merge:
    `['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`. Si v2 lo redujo a dos valores, **restaurar** `tcgcsv_singles`.
 2. **`enum PriceSource`** (Prisma / `common/`): debe conservar el valor `tcgcsv_singles` (M-31). Si v2 lo eliminó del enum
    o de su union TS, **restaurar** (borrarlo rompería la lectura de `PriceReference` históricas y §4.27f).
-3. **Seed / `ConfigSetting`**: el seed de `PRICE_PROVIDER` debe dejar `tcgcsv_singles` como primario (§4.35/§M10). Si el
-   seed v2 lo cambió a `pokemontcg_io`/`pokemonpricetracker`, **restaurar**.
+3. **Seed / `ConfigSetting`**: ⚠️⚠️ **v1.65 — ESTA BANDERA SE REESCRIBE PARA CITAR, NO PARA AFIRMAR.** Decía *«el seed
+   de `PRICE_PROVIDER` debe dejar `tcgcsv_singles` como primario … si el seed v2 lo cambió a `pokemontcg_io`,
+   restaurar»*, y **fue la mitad documental de la BLOQUEANTE-1 de QA**: afirmaba un **SEED** apoyándose en secciones
+   que hablaban del **VIGENTE**, y describía como «restaurar» un valor que **el código nunca tuvo** *(el seed
+   `pokemontcg_io` es de v1.14, anterior a la rama v2: no lo introdujo ninguna fusión)*. **La norma del seed vive en
+   `API_CONTRACT §M10-PP` (`I-PP1`: el seed ES el primario) y la razón en §4.35a. Aquí se cita y no se transcribe**
+   (§0-B.3 regla 8). **Para el merge, lo exigible es:** que la fusión **no reduzca el enum** ni retire el primario
+   (banderas 1 y 2), y que **cualquier toque al seed cumpla `I-PP1`**. ⛔ **El literal del seed no se decide en esta
+   lista.**
 4. **Registro de providers** (módulo NestJS / factory de `providerFor`): el proveedor debe estar en el array de providers
    inyectables; si v2 lo quitó del módulo, **re-registrarlo**.
 5. **Tests**: cualquier test v2 que asserte `providerFor()` == `[pptBulk, tcgIoBulk]` o que `tcgcsv_singles` ya no existe
@@ -20212,6 +20916,995 @@ caducó dos veces** — §0-B.3 regla 8, ampliación «elimina o nombra»)* — 
 
 ---
 
+### 4.44 EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO + DIAL DE TRASLACIÓN PARCIAL (v1.64-iva-inclusive, `PROJECT §Q` / **D54 APROBADA 2026-09-09**, NORMATIVO, **DINERO**)
+
+> **Fuente y autoridad.** `PROJECT.md §Q` es **alcance vigente** y sus criterios **185–197** son **criterios de
+> aceptación vigentes que QA verifica y el DoD exige**. `PROJECT.md` manda sobre este documento y este documento
+> sobre el código. Lo que §Q fija es el **QUÉ** y el **POR QUÉ**; **el modelo de datos, la fórmula, el orden de las
+> operaciones y los nombres de campo son de este documento**, y aquí quedan.
+>
+> **Alcance de la verificación de este pase — dicho para que nadie lo tome por más de lo que es.** Verifiqué **yo**,
+> contra el árbol de código, los siete hechos de aritmética que sostienen todo lo de abajo: `money.ts:379-457`
+> (los tres breakdowns), `money.ts:476-492` (`grossUpTotal`), `settings.service.ts:259` (`stripeFeeIvaPct` derivado
+> de `IVA_PCT`), `settings.constants.ts:262-265` (seeds `16` / `0.036` / `300`), `admin.service.ts:821` y `:842`
+> (el P&L), `admin.service.ts:980-1001` (`ivaReport` + CSV) y `schema.prisma:1020-1080` (`model Order`). **Las
+> cuatro respuestas del dueño (52–55) y la corrección `D-IVA-1` las tomo de `PROJECT.md`, releído en este pase.**
+
+#### 4.44.a ⭐⭐ La garantía que este diseño existe para dar: EL DÍA DEL DEPLOY NADIE PAGA DISTINTO
+
+Con el dial en su valor inicial (**100 %**), la fórmula de abajo **reproduce el cobro de hoy al centavo**. No es
+aspiración: es **candado** (`IVA-1`), y el criterio **185** lo dice con todas las letras — *«si alguien paga un
+centavo distinto, es un fallo de release»*.
+
+Verificado por mí contra los diales reales (`iva_pct = 16`, `stripe_fee_pct = 0.036`, `stripe_fee_fixed_cents = 300`),
+sobre una pieza de lista **MX$100.00**:
+
+| | Hoy (antes de D54) | Con §4.44, dial `t = 100 %` |
+|---|---|---|
+| Cifra en la ficha | MX$100.00 *(y miente)* | **MX$116.00** |
+| Base gravable | 10000 | **10000** |
+| `Order.ivaCents` | 1600 | **1600** |
+| Base del gross-up | `10000 + 1600` = **11600** | **11600** |
+| `Order.totalCents` | **12469** | **12469** |
+| `processingFeeCents` | 869 | 869 |
+| Ingreso del P&L | 10000 | **10000** |
+
+**Lo único que cambia es que el precio de vitrina deja de mentir.** Y las tres posiciones que `PROJECT §Q.4`
+publica se reproducen también al centavo con esta fórmula — las recalculé una por una:
+
+| Dial `t` | `displayPriceCents` | `Order.ivaCents` | `Order.totalCents` | Neto del negocio |
+|---|---|---|---|---|
+| **100 %** ← inicial | 11600 | 1600 | **12469** ✅ | **10000** (MX$100.00) |
+| **50 %** | 10800 | 1490 | 11634 ✅ | **9310** (MX$93.10) |
+| **0 %** | 10000 | **1379** | 10799 ✅ | **8621** (MX$86.21) |
+
+*(Las tres columnas de la derecha son exactamente las cifras de `§Q.4`, del criterio **188** —«MX$108.00 exhibido,
+MX$93.10 neto, −MX$6.90 por unidad»— y del criterio **191** —«la segunda aporta MX$86.21»— y del criterio **192**
+—«con dial al 0 % el IVA de la orden es MX$13.79, no cero»—. **Si la implementación no produce estas cifras, la
+implementación está mal, no la tabla.**)*
+
+#### 4.44.b LA REGLA MADRE, y de ella cuelga todo lo demás
+
+> **`L` no cambia nunca. `P` se deriva. El dial mueve `P`, jamás `L`.**
+
+- **`L` = precio de lista, en centavos, SIN IVA.** Es lo que hoy resuelve la curva de venta (`§4.36`), el override
+  de variante o `InventoryItem.listPriceCents`, y es **lo que la plataforma se queda**. ⛔ **La curva no se toca.**
+  ⛔ **`listPriceCents` no se toca.** ⛔ **El costo de adquisición, el buylist, la valuación de bóveda y el «valor
+  de mercado» no se tocan** (`PROJECT §Q.5`; supuestos de las preguntas **56** y **62**).
+- **`P` = precio exhibido, en centavos, CON IVA dentro.** Es lo que el cliente ve, lo que suma el carrito y **lo
+  que se cobra**. Se deriva en el servidor, en cada lectura, con el dial vigente.
+
+Corolario que hay que decir en voz alta porque es donde alguien «corregiría» de más: **bajar el dial no baja el
+impuesto, baja `P`**, y esa diferencia **sale del margen** (`PROJECT §Q.4`). El dial de traslación es un **dial de
+margen**, y por eso su pantalla tiene que decirlo en pesos antes de guardar (§4.44.h).
+
+#### 4.44.c ⭐ LA FÓRMULA, y las tres reglas de redondeo con su porqué
+
+```
+r  = ivaPct / 100                         // TASA del impuesto. Entero [0,100] (dial `iva_pct`, sin cambio)
+t  = ivaTransferPct / 100                 // FRACCIÓN TRASLADADA. Entero [0,100] (dial NUEVO `iva_transfer_pct`)
+
+P        = round( L × (1 + t·r) )         // (1) precio exhibido, POR UNIDAD
+S        = Σ P_i                          // (2) subtotal = suma exacta de los precios exhibidos
+E        = round( F × (1 + t·r) )         // (3) tarifa de envío exhibida (F = dial `shipping_fee_cents`, neto)
+G        = S + E                          // (4) BASE DEL GROSS-UP  ⚠️⚠️ NO es `S + E + iva`
+taxBase  = round( G / (1 + r) )           // (5) base gravable, UNA sola vez, sobre el AGREGADO
+iva      = G − taxBase                    // (6) RESIDUAL. Jamás se calcula por su cuenta
+total    = ceil( (G + (1+r)·fija) / (1 − (1+r)·pct) )    // (7) gross-up, SIN CAMBIO (`grossUpTotal`)
+fee      = total − G                                      // (8) comisión de plataforma, SIN CAMBIO
+```
+
+*(En (7) el `(1+r)` es `stripeFeeIvaPct = ivaPct/100`, derivado de `IVA_PCT` desde v1.40 — **no** de
+`iva_transfer_pct`. Ver §4.44.g y el candado `IVA-7`.)*
+
+**R1 — Se redondea UNA sola vez por precio, y ese redondeo es `P`.** `P` se redondea **por unidad**, nunca por
+línea-con-cantidad ni sobre el subtotal. Razón: `P` es **la cifra que el cliente lee**, y una cifra que se lee
+tiene que ser la que se suma. El subtotal es **suma exacta de enteros** ⇒ criterio **194** se cumple *por
+construcción*, no por cuidado del implementador.
+
+**R2 — El IVA es RESIDUAL y se calcula UNA sola vez, sobre el AGREGADO que se persiste.** `iva = G − round(G/(1+r))`
+⇒ **`taxBase + iva ≡ G` es una identidad exacta, no una aproximación**. ⛔ **Prohibido** calcular IVA por línea y
+sumarlo: `Σ round(...)` ≠ `round(Σ ...)` y el CSV de `GET /admin/finance/iva` dejaría de cuadrar contra las
+columnas de la propia orden (criterio **192**). *El agregado es además el status quo: hoy `computeCartBreakdown`
+ya calcula el IVA una vez sobre el subtotal.*
+
+**R3 — El redondeo lo absorbe el RESIDUAL, jamás el precio exhibido.** `P` es autoritativo; `taxBase` e `iva` se
+derivan **de `P`**. ⛔ **Prohibido reconstruir `P` desde `taxBase`** (`taxBase × (1+r)` puede diferir de `P` en un
+centavo, y esa dirección convierte un desglose en un **recobro**). *La flecha va en un solo sentido: precio →
+desglose. Nunca desglose → precio.*
+
+##### 4.44.c.1 ⚠️ LA CONSECUENCIA QUE D54 NO PREVIÓ, Y NO LA ESCONDO: el criterio 185 y el criterio 194 se rozan
+
+`R1` obliga a `S = Σ round(L_i × (1+t·r))`. La aritmética de hoy produce, en cambio, `round(Σ L_i × (1+r))`. **Y
+`Σ round` ≠ `round Σ`.** Contraejemplo mínimo, que calculé con los diales reales — **dos piezas de `L = 103`**:
+
+| | Hoy | Con §4.44 (`t = 100 %`) |
+|---|---|---|
+| Subtotal / base del gross-up | `206` → iva `33` → **239** | `119 + 119` = **238** |
+| `totalCents` | **613** | **612** |
+
+**Un centavo.** No es un defecto de la fórmula: es **la única salida posible** cuando se exige a la vez que (a) el
+cliente vea un precio por pieza y (b) la suma de lo que ve sea el subtotal (criterio **194**, que es absoluto:
+*«un redondeo por línea que se acumule y descuadre el total es un fallo»*). Cualquier variante que redondee sobre
+el agregado descuadraría el recibo.
+
+##### 4.44.c.1-bis ⭐ LA COTA — **UN SOLO CANON**, entero, y con el caso `n = 1` DEMOSTRADO en cero
+
+> ⛔⛔ **v1.64(2) — LAS DOS CIFRAS QUE PUBLIQUÉ EN v1.64 QUEDAN DEROGADAS. ERAN MÍAS Y ERAN DOS PARA UNA SOLA COSA.**
+> `ARCHITECTURE` decía **«≤ 0.53 ¢/pieza»** (3 sitios) y `API_CONTRACT` decía **«≤ 1 centavo por pieza»** (2 sitios,
+> **uno de ellos dentro del candado `IVA-4`**). Es **§0-B.3 regla 8** en el peor sitio posible: **la cifra del
+> contrato es la que backend implementa como umbral y la de arquitectura la que se cita al razonar**, y encima
+> **la del contrato era la MÁS FLOJA** (para 7 piezas: `≤ 7` contra `≤ 4`) ⇒ **el candado habría pasado en verde
+> una implementación que este documento declara rota**. *Un umbral que difiere del que promete su propia norma no
+> es un umbral: es un permiso.* **⛔ No las promedio: las sustituyo por un canon único.** Lo levantó el
+> product-owner al enmendar los criterios y el coordinador lo verificó; **el defecto es mío**.
+
+**CANON ÚNICO — se enuncia sobre la BASE (`subtotalCents`), en centavos ENTEROS, y `n` = número de piezas:**
+
+```
+n = 1   ⇒  la desviación es CERO. Y no es una cota: es una IDENTIDAD (demostrada abajo).
+n ≥ 2   ⇒  |S_nuevo − S_viejo|  ≤  ⌊(n+1)/2⌋      centavos
+```
+
+*(n=2 ⇒ `≤ 1` — que es exactamente el contraejemplo de arriba. n=7 ⇒ `≤ 4`.)*
+
+- **Por qué el canon se enuncia sobre la BASE y no sobre el total cobrado.** Es donde la aritmética es limpia y
+  entera. Enunciarlo sobre el total arrastra el `ceil` del gross-up —que **no tiene nada que ver con la doctrina de
+  redondeo**— y obliga a un umbral con decimales (de ahí salió el `0.53`). ⇒ **el candado `IVA-4(c)` mide en la
+  base**, y para el total asierta algo **más fuerte que una cota**: la **implicación**
+  `totalCents == grossUpTotal(subtotalCents + shippingFeeCents)` en los dos lados ⇒ **toda la desviación del total
+  viene de la base y de nada más**.
+
+##### 4.44.c.1-ter ⭐⭐ POR QUÉ `n = 1` ES CERO EXACTO — y no *«cero contraejemplos medidos»*
+
+*Esto lo demostró el **product-owner** sin ejecutar código y el coordinador lo confirmó por fuerza bruta
+(`L = 1..99 999`, **0 contraejemplos**). Lo incorporo porque **convierte una medición en una imposibilidad**, y
+porque es justo el caso que el criterio **185** enuncia.*
+
+1. **Sumar un entero conmuta con el redondeo:** `round(L + x) = L + round(x)` para `L` entero. Con `x = t·r·L`:
+   **`round(L × (1+t·r)) = L + round(L × t·r)`** ⇒ la expresión nueva y la vieja **son la misma función** cuando
+   hay un solo sumando. **No hay nada que acotar.**
+2. **⭐ Y con `r = 16` NUNCA hay empate en `.5`, para NINGUNA posición del dial y NINGÚN `L`.** Un empate exigiría
+   `16·t·L ≡ 5000 (mod 10000)`, o sea `2·t·L = 625·(1 + 2m)`: **el lado izquierdo es par y el derecho impar** ⇒
+   **no tiene solución entera**. ⇒ **la convención de redondeo (half-up de `Math.round`, half-even, half-away) es
+   INDIFERENTE** en toda esta fórmula. *Eso elimina de raíz la clase de defecto más silenciosa que hay en dinero:
+   la que solo aparece en el empate y cambia con el lenguaje.*
+3. ⚠️ **Es propiedad de `r = 16`, NO de la fórmula.** Si algún día cambia la tasa del IVA, **el punto 2 se
+   reverifica** — y si con la tasa nueva hubiera empates, habría que fijar la convención de redondeo por escrito.
+   Anotado también en `§4.44.m`.
+
+⇒ **Consecuencia que reordena `D-IVA-7`: la desviación es un fenómeno EXCLUSIVAMENTE del AGREGADO.** El precio por
+unidad, el margen por unidad y el caso de una pieza son **exactos por demostración**. Eso **refuerza** mi
+recomendación al product-owner: el criterio **185** se enuncia sobre una pieza, y **sobre una pieza no se desvía
+nada**.
+
+- **Qué NO se desvía ni un centavo, ahora con su razón al lado:** el caso de **una sola pieza** (identidad, punto 1),
+  **el precio y el margen por unidad** (idem), **`taxBase + iva ≡ subtotal`** (por construcción, R2/R3), y **el
+  envío** (`round(17500×1.16) = 20300 = 17500 + 2800`, exacto).
+- **⚠️ Esto es del product-owner, no mío.** El criterio **185** dice *«idéntico al centavo»* y **enmendar un
+  criterio de `PROJECT.md` no es competencia del arquitecto**. Lo enruto como divergencia **`§9 · D-IVA-7`**, con
+  mi recomendación escrita ahí. **⛔ No bloquea a backend**: la fórmula es la misma se responda lo que se responda;
+  lo único que depende de la respuesta es **cómo verifica QA el criterio 185** (pieza única y margen, o carrito
+  completo). El candado `IVA-4` mide y **declara** la desviación en vez de taparla.
+
+##### 4.44.c.2 ⭐⭐ EL TERCER SITIO — el criterio 191, y **decido que R2 NO CAMBIA** *(pregunta 67)*
+
+> **Lo encontró el product-owner, el coordinador lo verificó, y yo no lo había visto. La parte fea no es el
+> centavo: es que MI EJEMPLO ESCRITO ERA DE UNA PIEZA, y sobre una pieza esto es exacto por demostración
+> (§4.44.c.1-ter) ⇒ QA nunca lo habría visto fallar con el caso que el propio documento trae.** *Un defecto
+> invisible por construcción del ejemplo que lo ilustra es peor que el defecto.* **Se arregla el ejemplo.**
+
+**El hecho, con el mismo carrito de siempre — dos piezas de `L = 103`:**
+
+```
+G = 238   ⇒   taxBase = round(238 / 1.16) = round(205.17) = 205
+Σ L_i     = 206
+⇒ el P&L reporta UN CENTAVO MENOS de ingreso neto del que el negocio puso de precio de lista
+```
+
+**No es dinero cobrado de más ni de menos: es la cifra de un informe interno.** Y aun así hay que decidirla.
+
+**⇒ DECISIÓN: `R2` se queda EXACTAMENTE como está — `taxBase = round(G/(1+r))` sobre el agregado.** Y la razón no
+es comodidad:
+
+1. **Hay DOS cantidades defendibles y no son la misma**, y confundirlas era el error de fondo: **`T1 = Σ L_i`**
+   (*«el margen que el negocio fijó»*) y **`T2 = round(S/(1+r))`** (*«la base gravable de lo que de verdad se
+   cobró»*). `T1 ≠ T2` en agregado, y **ninguna técnica de redondeo las reconcilia**: no es un problema de cómo se
+   redondea, es que **son dos preguntas distintas**.
+2. **⭐ El invariante que manda, y vale más que el centavo:**
+   ```
+   netRevenueCents + ivaCents  ≡  subtotalCents        (EXACTO, por definición)
+   ```
+   Con `T2` esto es **una identidad**. Con `T1` **se rompe**: el P&L diría que ingresó `206` mientras el desglose
+   fiscal de la **misma orden** dice `238 − 32`. **Un informe financiero cuyo ingreso más su impuesto no da lo que
+   se cobró es un informe que no cuadra consigo mismo** — que es, literalmente, el defecto que `TD-IVA-2` describió
+   con esas palabras (*«la fila se contradice consigo misma»*). **Prefiero un centavo de desviación contra el
+   precio de lista antes que un reporte que no reconcilia.**
+3. **`ivaCents` no puede seguir a `T1` de todos modos.** Es **fiscal** y es **la única fuente** del desglose de la
+   factura manual (criterio **192**, hecho 10): tiene que ser el IVA de **lo que se cobró**, y el CSV tiene que
+   cuadrar contra `subtotalCents`. Fijar `T1` obligaría a `ivaCents = S − Σ L_i`, que **no es la base gravable de
+   `S`**. ⛔ **No se toca un número fiscal para que cuadre un informe de gestión.**
+4. **La cota es la MISMA que la de `§4.44.c.1-bis`** —`n=1` ⇒ **cero exacto** (por eso los dos ejemplos del
+   criterio 191, `11600→10000` y `10000→8621`, **son exactos**); `n≥2` ⇒ `≤ ⌊(n+1)/2⌋`—, así que **no hay una
+   segunda cota que mantener**. *Un solo canon para las dos desviaciones: eso era medio problema del punto 1.*
+
+**Lo que SÍ cambia, y es lo que pedía el hallazgo: EL EJEMPLO.** El criterio 191 y el candado **`IVA-5`** pasan a
+llevar **un caso multi-línea obligatorio**, para que la desviación **sea visible y esté asertada** en vez de
+esconderse detrás de un carrito de una pieza. Ver `API_CONTRACT §M10-IVA.5`, `IVA-5(c)`.
+
+**⇒ Respuesta a la pregunta 67, para el product-owner:** la desviación **se acepta y queda declarada** —con su
+cota, con su razón y con un candado que la mide—, **igual que `D-IVA-7`**, y **`R2` no se toca**. Si el
+product-owner prefiere `T1`, **es una enmienda al criterio 191 y rompe el invariante de reconciliación del punto 2**:
+eso sí habría que decidirlo arriba, y lo diría con estas palabras.
+
+#### 4.44.d ⚠️⚠️ LA LÍNEA DE MAYOR RIESGO DE TODO EL CAMBIO: `G = S + E`, **no** `S + E + iva`
+
+Hoy, en `money.ts:385`, `:409` y `:445`, la variable se llama `baseCents` y vale `subtotal + iva`. **Ese `base` NO
+es la base gravable: es «lo que la plataforma debe recibir íntegro» — la base del gross-up.** Bajo `IVA_INCLUSIVE`
+el IVA **ya está dentro de `S`**, así que sumarlo otra vez **lo cobra dos veces**:
+
+```
+correcto:    G = 11600            → total 12469
+la mutación: G = 11600 + 1600     → total 14164     ⚠️ +13.6 % a TODOS los clientes, en silencio
+```
+
+⇒ **Norma de nombres, y es obligatoria porque el nombre es el defecto:** en el código de §4.44 la variable de (4)
+se llama **`grossUpBaseCents`** y la de (5) **`taxBaseCents`**. ⛔ **Está prohibido que sobreviva un identificador
+`baseCents` a secas** en las rutas tocadas por este pase. *Dos conceptos distintos con el mismo nombre, en un
+fichero de dinero, es exactamente el defecto que D54 vino a matar — un nivel más abajo.* Candado: **`IVA-2`**.
+
+#### 4.44.e EL SNAPSHOT DE CONVENCIÓN — cómo se garantiza que una orden vieja no se reinterprete sola
+
+El riesgo es real y `PROJECT §Q.2` (hecho 8) lo nombra: **`Order.ivaRatePct` congela la TASA, no la CONVENCIÓN**.
+La fila `subtotal=10000, iva=1600` significa hoy *«100 + 16»* y bajo la regla nueva significaría *«100 de los
+cuales 13.79 son IVA»*. **Sin una columna que diga cuál de las dos, el pedido de ayer cambia de significado solo.**
+
+```prisma
+enum PriceConvention { IVA_EXCLUSIVE  IVA_INCLUSIVE }
+
+model Order {
+  // ...
+  priceConvention  PriceConvention        // ⛔ NOT NULL y ⛔ SIN @default
+  ivaTransferPct   Int?                   // NULLABLE. NULL en toda fila anterior al deploy 2
+}
+
+model ShipmentRequest {
+  // ...
+  priceConvention  PriceConvention        // ⛔ NOT NULL y ⛔ SIN @default
+  ivaTransferPct   Int?
+}
+```
+
+- **`priceConvention` NOT NULL y SIN default de BD — y el «sin default» es la decisión, no el `NOT NULL`.** Un
+  `DEFAULT 'IVA_EXCLUSIVE'` haría que **un camino de escritura que olvide el campo cobre bajo una convención y lo
+  archive bajo la otra**, en silencio y para siempre. Sin default, ese camino **revienta con una violación de
+  `NOT NULL` la primera vez que corre**, en desarrollo, con nombre y apellido. *Un fallo ruidoso en una columna de
+  dinero es estrictamente mejor que una fila que se contradice a sí misma.* **⛔ La migración NO puede usar
+  `ADD COLUMN … NOT NULL DEFAULT …`** ni siquiera transitoriamente: el orden obligatorio es **añadir nullable →
+  backfill explícito a `IVA_EXCLUSIVE` → `SET NOT NULL`**, sin que quede ningún `DEFAULT` en el DDL final (M-50).
+- **`ivaTransferPct` nullable y `NULL` en las filas antiguas. ⛔ NO se backfillean a `100`.** Marcarlas `t=100`
+  sería **inventar un hecho**: esas órdenes se cobraron cuando el dial no existía. `NULL` dice la verdad —*«esta
+  orden no tuvo dial»*— y no le hace falta a nadie para reproducir el dinero. **Es la misma doctrina que §5.2 usa
+  con los hechos congelados: un hueco honesto, jamás un dato inventado presentado como probatorio.**
+- **El dinero de una orden se reproduce SOLO desde columnas persistidas**, nunca desde el dial vivo:
+  `subtotalCents`, `shippingFeeCents`, `ivaCents`, `processingFeeCents`, `totalCents`, `ivaRatePct` y
+  `priceConvention`. **`ivaTransferPct` es informativo/auditor** — el dinero ya está en las otras columnas. Por eso
+  su `NULL` no rompe nada, y por eso **mover el dial no puede alterar ni un centavo de una orden existente**
+  (criterio **190**). Candado: **`IVA-3`**.
+- **⛔ Ninguna migración reescribe importes de órdenes existentes.** Ni `subtotalCents`, ni `ivaCents`, ni
+  `totalCents`. La migración M-50 solo **añade** columnas y **escribe la convención que esas filas ya tenían**.
+
+#### 4.44.f El envío — y aquí hay que decir exactamente qué es decisión, qué es supuesto y qué lo obliga
+
+**El estado en `PROJECT.md`:** la pregunta **60** sigue **abierta** y `§Q.5` marca el envío como *«SIN DECIDIR»*,
+con el **supuesto declarado** de que *«se suma aparte»*. **Ese supuesto se respeta al pie: el envío sigue siendo
+una línea propia, visible y separada.**
+
+**Lo que NO es supuesto y sí es criterio vigente:** el **189** exige que
+`total = suma(precios exhibidos) + envío + comisión de plataforma` **y nada más**, y que *«encontrar un solo caso
+donde aparezca un importe de IVA sumado después del precio exhibido es un fallo»*. Hoy `computeShipmentBreakdown`
+y `computeDirectShipBreakdown` **apilan `round(envío × r)` después**. ⇒ **el criterio 189 obliga a que la tarifa de
+envío exhibida lleve su IVA dentro**, exactamente igual que un precio de carta. No es una preferencia mía: es la
+única lectura de 189 que no lo incumple.
+
+⇒ **El envío entra en la regla madre como un `L` más**: `F` (el dial `shipping_fee_cents`, **que sigue siendo
+neto** y **no cambia de valor**) produce `E = round(F × (1+t·r))`, y `E` es lo que se exhibe y lo que se cobra.
+**Es money-neutral por construcción:** con `t = 100 %`, `E = round(17500 × 1.16) = 20300`, que es **exactamente**
+lo que hoy aporta `17500 + round(17500 × 0.16) = 20300`. **Ni un centavo.**
+
+> **⚠️ SUPUESTO SOSTENEDOR — márquese, porque es lo que hay que reverificar si el dueño responde distinto.**
+> Esto descansa en la lectura de que la pregunta **60** decide **el rótulo** del envío, no su aritmética, porque
+> la aritmética ya la fija el criterio **189**. **Si el dueño responde que el envío se muestra sin IVA y el IVA
+> del envío se suma aparte**, hay que reverificar: **§4.44.f entero**, el candado **`IVA-6`**, la fórmula (3)–(4),
+> y **habría que enmendar el criterio 189** — que es del product-owner, no mío. Lo dejo dicho aquí y en
+> **`§9 · D-IVA-8`**. *Mi recomendación de pases anteriores sigue viva y sin cambio: dos convenciones dentro de un
+> mismo total es el defecto que §Q vino a cerrar (hecho 6), no algo que se pueda dejar abierto en el checkout.*
+
+#### 4.44.f-bis ⭐ EL DUEÑO DEFINIÓ EL TRATAMIENTO DEL ENVÍO (2026-09-10) — y hay que separar TRES preguntas que su frase junta
+
+**Sus palabras, literales (2026-09-10), registradas como HECHO con su fecha:**
+
+> *«como al cliente se descuenta el envio yo soy el ultimo que lo ocupa es costo operativo lo trasladamos de cara al
+> cliente pero no se lo vendemos ya que descontamos ese iva asumimos que el iva es el 16 de lo que yo pague»*
+
+> ⚠️⚠️ **ES UN TRATAMIENTO CONTABLE Y HOY NO HAY CONTADOR EN EL PROYECTO.** Se registra **el hecho de que el dueño
+> lo decidió, con su fecha**, exactamente con la disciplina de **D53** y **D54**. **⛔ Este documento no sostiene
+> ninguna postura fiscal propia** y **⛔ ningún rol del equipo la cierra.** **Requiere ratificación de contador** y
+> queda en la **misma familia que las preguntas 58 y 65** — ver **pregunta 68**, nueva.
+
+**La frase junta tres preguntas distintas, y confundirlas es lo que haría daño. Separadas:**
+
+| | Pregunta | Dónde vive | Qué decidió el dueño |
+|---|---|---|---|
+| **Q-A** | ¿el envío es **VENTA** o **RECUPERACIÓN DE COSTO**? | **P&L** (presentación) | **Costo operativo trasladado. NO es venta.** ✅ Decisión clara y accionable |
+| **Q-B** | ¿cuánto IVA se le **TRASLADA AL CLIENTE** por el envío? | **`Order.ivaCents`** → CFDI, criterio 192 | *(su frase no habla de esto)* |
+| **Q-C** | ¿cuánto IVA **ACREDITABLE** genera el envío? | **P&L / conciliación fiscal** | **`16 % × lo que se le paga a la paquetería`** ✅ |
+
+**⇒ La respuesta a la pregunta del coordinador —«¿la regla del dueño y el residual pueden ser los dos ciertos?»—
+es SÍ, y la razón es que NO HABLAN DE LA MISMA COLUMNA.** Su *«el IVA es el 16 de lo que yo pague»* es **Q-C: IVA
+**acreditable**, impuesto de ENTRADA**. `Order.ivaCents` es **Q-B: IVA **trasladado**, impuesto de SALIDA**. Son
+conceptos distintos, viven en renglones distintos de cualquier declaración, y **`Order.ivaCents` nunca ha
+contenido Q-C ni puede contenerlo**:
+
+1. **Es la única fuente del desglose de la factura del CLIENTE** (criterio **192**, hecho 10). Meter ahí nuestro
+   impuesto de entrada haría que **la factura del cliente reportara un importe que al cliente nunca se le cobró**.
+2. **`shippingCostCents` es `@default(0)` — *«sin captura ⇒ 0»***. Si `ivaCents` dependiera de él, **un costo no
+   capturado pondría a cero, en silencio, una parte del impuesto trasladado**. *Un número fiscal que depende de una
+   captura operativa que puede no haber ocurrido es un número fiscal que miente.*
+
+⇒ **`R2` NO cambia, la aritmética de cara al cliente NO cambia, y `§4.44.f` sigue vigente palabra por palabra**
+(`E = round(F × (1+t·r))`, money-neutral: `round(17500×1.16) = 20300 = 17500 + 2800`). **La pregunta 60 NO se
+reabre por el lado aritmético.**
+
+**Lo que SÍ cambia, y es la parte accionable de su decisión (Q-A + Q-C):**
+
+- **El envío deja de presentarse como INGRESO y pasa a presentarse como RECUPERACIÓN DE COSTO.** El `profitCents`
+  **no se mueve** —el P&L ya hacía `+ shippingRevenue − shippingCost`—; lo que cambia es **el rótulo y la lectura**.
+  *Es exactamente lo que él dijo: «lo trasladamos… pero no se lo vendemos».*
+- ⭐ **Y de ahí sale el hallazgo que sí es dinero: `shippingCostCents` tiene que capturarse NETO de IVA
+  acreditable.** Si se captura **bruto** (p. ej. `20300` de una factura de paquetería de MX$175 + IVA) mientras el
+  ingreso de envío se reporta **neto** (`17500`), **el P&L muestra una PÉRDIDA DE 2 800 EN CADA ENVÍO QUE NO
+  EXISTE** — y evitar justo eso es lo que el dueño quiso decir con *«descontamos ese IVA»*. **Neto contra neto ⇒ 0
+  de margen, que es lo que él describe.** **Hoy la semántica de captura de esa columna NO ESTÁ DEFINIDA en ninguna
+  parte** (el comentario solo dice *«lo que la plataforma paga al carrier»`*). ⇒ **divergencia `§9 · D-IVA-9`**,
+  **preexistente**, con dueño **backend** (+ ux-ii para el rótulo de captura en M4).
+- **⚠️ SUPUESTO DECLARADO — no lo asumo, lo enruto:** su *«no se lo vendemos»* **sugiere** que cobra al cliente lo
+  mismo que paga a la paquetería, **pero no lo afirma**. Si cobra más, **la diferencia ES margen suyo y SÍ es
+  ingreso**. **El diseño no depende de la respuesta** —el P&L resta costo de ingreso pase lo que pase—, pero
+  **el RÓTULO de la tarjeta sí**: *«recuperación de costo»* es falso si hay margen. **Pregunta 69**, para el dueño.
+
+**⛔ Y LO QUE NO HAY QUE CONSTRUIR: `Order` NO necesita `shippingCostCents`. NO HAY HUECO DE DATOS.** Ver
+`§9 · D-IVA-9`, punto 2 — **lo verifiqué y el dato ya existe**.
+
+#### 4.44.f-ter ⭐ EL COSTO DEL ENVÍO SE CAPTURA **BRUTO** Y SE NETEA AL LEER (D55(c)+(d), dueño 2026-09-10)
+
+**Sus palabras, literales:** *«el costo de envio con el iva que yo pague, tratalo como si no hubiera margen»*
+⇒ **pregunta 68: BRUTO** (con IVA) · **pregunta 69: sin margen** (cobra lo que paga).
+
+> ⚠️⚠️ **Mismo trato que D53/D54/D55(a): se registra el HECHO de que el dueño lo decidió, con su fecha. ⛔ Este
+> documento no sostiene ninguna postura fiscal propia.** **Que él acredite ese IVA es AFIRMACIÓN SUYA**, no algo que
+> este equipo verifique ni recomiende. **Sigue sin contador** ⇒ ratificación pendiente, familia de **58** y **65**.
+
+##### 🔴 Me equivoqué, y es útil decir en qué exactamente
+
+**Yo recomendé capturar `shippingCostCents` NETO. El dueño decidió BRUTO, y su decisión es mejor que mi
+recomendación.** La razón, que él no dijo y es evidente: **el bruto es la cifra que trae la factura de la
+paquetería**. Pedirle que reste el IVA antes de teclear es **pedirle aritmética fiscal en cada captura**, que es
+justo donde se cuela un error mudo — la misma razón por la que `iva_pct` rechaza decimales.
+
+**Y hay un argumento de doctrina que yo mismo ya había escrito y no apliqué aquí:** el bruto es el **dato
+primario**, verificable contra un papel; el neto es **derivado**. **`R3` dice que la flecha va primario →
+derivado y jamás al revés.** Guardar el neto y perder el bruto habría sido **reconstruir el primario desde el
+derivado** — exactamente lo que `R3` prohíbe. *Mi advertencia no era falsa: estaba en el sitio equivocado. El
+descuadre que describí es real y sigue ahí; lo que cambia es DÓNDE se cura — al LEER, no al CAPTURAR.*
+
+##### La norma que queda
+
+| | |
+|---|---|
+| **`ShipmentRequest.shippingCostCents`** | **BRUTO — IVA INCLUIDO.** Es el **importe total de la factura de la paquetería**. Hoy su semántica **no está declarada en ninguna parte** (`§9 · D-IVA-9`) |
+| **`ShipmentRequest.shippingCostIvaCents`** *(NUEVA, M-50)* | El **IVA acreditable** de esa factura, **congelado al capturar**. `net = shippingCostCents − shippingCostIvaCents` |
+| **Neteo** | **Al LEER, en el P&L.** ⛔ Nunca al capturar |
+| **Rótulo de M4** | Debe decir **«importe TOTAL de la factura, IVA incluido»** — ⛔ *un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas* |
+
+- **⭐⭐ POR QUÉ UNA COLUMNA Y NO UNA DIVISIÓN AL LEER — y es el hecho que decide, lo verifiqué:**
+  **`ShipmentRequest` NO TIENE `ivaRatePct`.** Solo `Order` lo tiene (`schema.prisma:1071`). ⇒ netear con
+  `costo/(1+r)` obligaría a leer **el dial VIVO**, y entonces **un P&L histórico cambiaría el día que alguien
+  mueva `iva_pct`** — que es **exactamente lo que el candado `IVA-5` prohíbe** (*«se mueve el dial y las cifras NO
+  se mueven»*). **Sin columna, D-2 no puede cumplir un candado que ya publiqué.** ⛔ Y recuperar `r` invirtiendo
+  `ivaCents/shippingFeeCents` **falla justo donde importa**: las filas de fulfillment de `direct_ship` llevan
+  `shippingFeeCents = 0` a propósito.
+- **Por qué `shippingCostIvaCents` y no `ivaRatePct`:** es **la misma doctrina del residual**, un nivel más abajo.
+  Se guarda el **primario** (`shippingCostCents`, lo que dice el papel) y su **acompañante congelado**; el neto es
+  **una resta**, sin división ni búsqueda de tasa al leer, y **sobrevive intacto a un cambio de tasa**. Además
+  **nombra el concepto que el dueño nombró** (*«el iva que yo pague»* = IVA acreditable), así que la pantalla de M4
+  puede enseñárselo con la palabra que él reconoce de su factura.
+- **`@default(0)` es honesto aquí, y por la razón que backend dejó escrita** (`migration.m50-no-default.spec.ts`):
+  un default vale cuando **la ausencia de verdad significa ese valor**. En las filas históricas **nunca se capturó
+  el IVA de un costo**, así que `0` dice la verdad: *«no consta crédito»* ⇒ `net = bruto`. **Es la dirección
+  CONSERVADORA** (subestima la ganancia, no la infla). ⛔ **Y no se backfillea a `costo×16/116`**: sería inventar
+  un crédito que nadie verificó — misma doctrina que `ivaTransferPct`.
+- **⚠️ SUPUESTO DECLARADO:** que **toda** factura de paquetería captada lleva IVA a la tasa estándar. Si alguna vez
+  se captura un costo **sin** IVA y el operador teclea un crédito, **se infla la ganancia**. Por eso el crédito
+  **se captura, no se deriva de una división ciega**.
+
+##### El invariante de la 69 — y ⛔ NO lo convierto en identidad global
+
+Su regla da un invariante comprobable: **`ingresoNetoEnvío − costoNetoEnvío ≈ 0`**. Pero **asertarlo siempre
+sería un candado que rechaza conducta correcta** — el error de `FX-20`, que ya pagué una vez. Hay **tres** razones
+legítimas de no-cero: **(1)** redondeo; **(2)** costo aún no capturado; **(3)** **la tarifa se fija por tabla
+(`shipping_fee_cents`) y el costo real del carrier varía por destino y peso** — *«trátalo como si no hubiera
+margen»* es una **intención**, no una garantía por envío.
+
+⇒ **El candado va sobre lo que sí es exigible, que es lo que el coordinador identificó bien: que un `0` no
+signifique dos cosas.**
+
+```
+shippingCostCents          // Σ NETO de los envíos del periodo
+shippingCostMissingCount   // nº de envíos LIQUIDADOS del periodo con `shippingCostCents = 0`
+```
+
+- **⛔ No hago nullable la columna.** Para las filas existentes **es imposible distinguir «costó cero» de «no se
+  capturó»**, y un `NULL` exigiría un backfill que **inventa** esa distinción. *Misma lección que `ivaTransferPct`:
+  un hueco honesto, jamás un dato inventado.* ⇒ **el contador hace visible la ambigüedad en vez de resolverla
+  falsamente**, y **es una señal para un humano, no una afirmación fiscal**.
+- **Lo que SÍ se asierta como identidad exacta, porque está condicionado al fixture:** cuando **lo cobrado iguala
+  a la factura del carrier**, la línea neta de envío da **exactamente 0**. Ésa es su regla, hecha verificable.
+  Candado **`IVA-11`**.
+
+#### 4.44.g EL DIAL — uno solo, global, continuo, en fracción de traslación
+
+| | |
+|---|---|
+| **Clave** | `iva_transfer_pct` (`SettingKey.IVA_TRANSFER_PCT`) |
+| **DTO** | `ivaTransferPct` |
+| **Unidad** | **FRACCIÓN DE TRASLACIÓN**, en puntos porcentuales **enteros**, `[0, 100]`. ⛔ **No son puntos de IVA** (pregunta **54**) |
+| **Seed** | **`100`** (pregunta **55**: arranque neutral) |
+| **Quién** | **`super_admin`**, sin redeploy |
+| **Puerta** | `PUT /api/v1/admin/settings/iva-transfer` (**endpoint propio**; ver §4.44.h y `API_CONTRACT §M10-IVA`) |
+| **Auditoría** | `settings.update` con `before`/`after`, **en la MISMA transacción** que la escritura (ya lo garantiza `SettingsService.update` desde v2.1.6) |
+| **Alcance** | **UNO SOLO Y GLOBAL** (pregunta **53**). ⛔ Cero diales por tipo de producto, por set, por SKU o por carta |
+
+- **⛔ ENTERO, y el «entero» no es gusto: es la COLUMNA.** `Order.ivaTransferPct` es `Int`. Un `37.5` se
+  **truncaría en silencio a `37`** mientras el precio se calculó con `37.5` — **es literalmente el defecto que
+  `TD-IVA-1`/`TD-IVA-2` cerraron** para `iva_pct` y `aportacion_pct`. Backend dejó escrito el orden correcto
+  —*«primero la columna (decisión del arquitecto), después el rango»*— y **la decisión de columna es ésta y la
+  tomo aquí: `Int`, y por tanto el validador es `isInt(v) && 0 <= v <= 100`.** Criterio **187** exige poder
+  guardar `0`, `37`, `50` y `100`: los cuatro son enteros. *Si algún día el negocio necesita medio punto de
+  traslación, se cambia primero la columna y después el rango — nunca al revés.*
+- **⛔⛔ EL DIAL NUEVO NO SE CUELGA DE `iva_pct`, Y ESO ES UN CANDADO.** `settings.service.ts:259` deriva
+  `stripeFeeIvaPct` de `IVA_PCT` (hecho 3): si el dial de traslación entrara ahí, **mover un precio movería una
+  comisión**. ⇒ **`getStripeFee()` NUNCA lee `IVA_TRANSFER_PCT`**, y `IVA_PCT` sigue siendo la fuente única del
+  IVA de la comisión de Stripe. *Son dos filas independientes de `ConfigSetting` y ninguna deriva de la otra.*
+  Candado **`IVA-7`**. *(La pregunta **61** —si `iva_pct` debería dejar de gobernar dos cosas— **sigue abierta y
+  no la toca este pase**: aquí solo se garantiza que el dial **nuevo** no agrava el acoplamiento existente.)*
+- **Por qué el seed `100` NO necesita el sentinel `"legacy"` de `FX-6`.** En el FX el default era peligroso porque
+  `SETTING_DEFAULTS` es **también** el fallback de `get()` cuando la fila no existe, y ahí *«ausente»* y
+  *«elegido»* significaban cosas distintas. **Aquí no:** `100 %` es **la conducta correcta en las dos bases** —en
+  una instalación limpia porque es el valor inicial que el dueño eligió, y en producción antes del backfill porque
+  es el neutro que reproduce el cobro de hoy—. **La ausencia de la fila y el valor por defecto significan lo
+  mismo**, así que no hay decisión que perder. La migración **siembra la fila igualmente** (§11.0, regla de
+  propagación de seeds), para que el dial sea visible y auditable desde el minuto cero.
+- **⚠️ El nombre está elegido a propósito para que quepa un segundo dial.** `iva_transfer_pct` nombra **qué** se
+  traslada, no *«el dial»*. El día que el dueño decida meter la comisión al precio exhibido (`PROJECT §Q.9`,
+  escenario B, **pendiente suyo con carácter temporal explícito**), el hueco es `commission_transfer_pct` y la
+  fórmula (1) crece a `P = round(L × (1 + t·r) × (1 + c·…))` **sin renombrar nada**. ⛔ **El hueco se deja
+  PREPARADO, NO CONSTRUIDO**: en este pase **no** existe la clave, **no** existe el validador, **no** existe el
+  campo en ningún DTO. *Nadie del equipo cierra ese pendiente: es del dueño, con su contador o abogado.*
+
+#### 4.44.h LA PANTALLA DEL DIAL DICE LO QUE CUESTA, Y ESO SE VERIFICA EN EL SERVIDOR (criterio 188)
+
+El criterio **188** es *«el punto entero del requisito»* y termina con *«**⛔ falla si el dial se puede guardar sin
+que esa cifra se haya mostrado**»*. Una norma que solo vive en la UI **no se puede poner roja desde el servidor**,
+así que se ancla con el patrón que este contrato ya usa para el FX (`acknowledgeNoAutomaticRate`, `FX-12`):
+
+1. **`ivaTransferPct` se expone READ-ONLY en `GET /admin/settings` y se RECHAZA en `PUT /admin/settings`**
+   (`422 VALIDATION_ERROR`, clave desconocida) — **mismo precedente exacto que `fxRateMode`**.
+2. **Su única puerta es `PUT /api/v1/admin/settings/iva-transfer`**, y esa puerta **exige el acuse**: el cuerpo
+   trae `acknowledgement: { samplePriceCents, previewedNetDeltaCents }`, el servidor **recalcula** el delta y
+   compara. Sin acuse ⇒ `422 IVA_TRANSFER_ACK_REQUIRED`; con acuse que no cuadra ⇒ `409 IVA_TRANSFER_ACK_STALE`.
+   **En los dos casos la fila NO se escribe.**
+3. **La cifra la calcula el servidor**, en `GET /api/v1/admin/settings/iva-transfer/preview`. ⛔ **El frontend no
+   multiplica nada** (§4.44.i): si el front computara el delta, el acuse probaría que el front sabe multiplicar,
+   no que el dueño vio el costo real.
+4. **La pantalla no puede insinuar que absorber IVA reduce el impuesto**: no lo reduce (`PROJECT §Q.4`). Y ⛔ **cero
+   afirmaciones jurídicas** sobre el IVA en ninguna superficie (criterio **195**, ratifica D53).
+
+*Decisión de arquitecto declarada como tal: el endpoint propio + el acuse son **míos**, no de `PROJECT.md`. §Q fija
+que la pantalla debe decir el costo; el **cómo se hace verificable** es de este documento. El precedente es
+`§M2-F.2` y la razón es idéntica: un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene
+guardián.*
+
+#### 4.44.i LAS SUPERFICIES — el servidor manda la cifra ya hecha; ⛔ EL FRONTEND NUNCA MULTIPLICA
+
+**Norma, no sugerencia.** Toda superficie de cliente recibe **el número que se muestra**, más las dos señales que
+lo describen. Nunca recibe los ingredientes para que los combine.
+
+```
+displayPriceCents : number     // = P. La cifra que se pinta y la que se suma. YA lleva el IVA dentro
+ivaIncluded       : boolean    // true en superficie de cliente bajo IVA_INCLUSIVE
+ivaRatePct        : number     // la TASA, para el rótulo «IVA 16 % incluido». ⛔ NO es el dial
+```
+
+- **⛔ `ivaTransferPct` NO viaja a ninguna superficie de cliente.** Es una decisión de margen del negocio; que el
+  cliente pueda leer qué fracción absorbemos es una **fuga comercial** de la misma clase que v2.1.6 cerró
+  retirando `source`/`isManualOverride` de lo público. Viaja **solo** en `/admin/*`.
+- **⭐ `salePriceCents` NO se reinterpreta: DESAPARECE de la superficie pública y lo sustituye `displayPriceCents`.**
+  Dejar el mismo nombre cambiando su significado es **el defecto de D54 un nivel más abajo**, y además un front
+  que no migrara **seguiría pintando la mentira sin que nada fallara**. Con el rename, un front que no migró
+  **no compila**. *El compilador sostiene la diferencia; el test es la red.* Es la misma doctrina que ya justificó
+  `GroupedListingSummaryDTO` como tipo propio en v2.1.9/D2. Detalle por DTO en `API_CONTRACT §M10-IVA.3`.
+- **En `/admin/*` viajan AMBAS**, más el desglose completo: `listPriceCents` (el `L`), `displayPriceCents` (el `P`),
+  `taxBaseCents`, `ivaCents`, el neto y el dial. `PROJECT §Q.5` lo exige con estas palabras: *«⛔ el admin NO se
+  convierte en superficie solo-con-IVA: ve base, IVA, neto, exhibido y dial. Es donde se toma la decisión de
+  margen.»*
+- **La línea de IVA del checkout INFORMA, no suma** (criterio **189**, decisión de D54). El rótulo exacto
+  —*«IVA 16 % incluido»*— es **SUPUESTO** de la pregunta **60** y lo fija `DESIGN_SYSTEM`; lo normativo aquí es
+  que **el importe que se muestra es el que YA está dentro de `displayPriceCents`**, y que **no existe ningún
+  sumando de IVA después del precio exhibido**.
+- **Las superficies que NO cambian, listadas para que nadie las «arregle»** (`PROJECT §Q.5`, con su supuesto al
+  lado): **valuación de bóveda/portafolio** (supuesto, pregunta **62**), **«valor de mercado»** y **estimados
+  PSA 10/PSA 9** (supuesto, pregunta **62**), **cotizador de buylist, oferta al vendedor y los cinco correos del
+  ciclo de compra** (supuesto, pregunta **56**; hoy el IVA **no participa** en el buylist — hecho 9), y **el P&L
+  de M7 y los informes de M9**, que siguen en **NETO** (criterio **191**, esto es **decisión**, no supuesto).
+- **El mock del frontend** tiene hoy el `16` clavado (`api.ts:765`, hecho 11). Criterio **196**: o **deriva del
+  mismo dial**, o **la pantalla dice que es dato simulado**. Lo que no puede es **parecer real y estar mal**.
+
+#### 4.44.j EL P&L — un helper único, cuatro sitios, y solo columnas persistidas
+
+`admin.service.ts:821` hace `incomeCents += o.subtotalCents`. Si el subtotal pasa a llevar IVA dentro, **el reporte
+no reventaría: mentiría**, contando el IVA como ingreso propio (criterio **191**). El arreglo **no** es tocar cuatro
+sitios a mano:
+
+> 🔴🔴 **v1.64(3) — LA FÓRMULA QUE PUBLIQUÉ EN v1.64 ERA INCORRECTA PARA LOS PEDIDOS `direct_ship`, Y NO
+> REVENTABA: MENTÍA. El defecto es MÍO.** Decía `IVA_INCLUSIVE → subtotalCents − ivaCents`. Pero bajo
+> `IVA_INCLUSIVE` **`ivaCents` es el residual del AGREGADO `G = S + E`** (regla R2), o sea **incluye el IVA del
+> envío** ⇒ restarlo entero del subtotal **le quita a la mercancía un IVA que no es suyo**. Medido con el caso
+> real: cartas `S = 11600`, envío `E = 20300` ⇒ `ivaCents = 4400` ⇒ mi fórmula daba **`7200`** de ingreso de
+> mercancía **donde son `10000`**. **−2 800 por pedido de invitado, en silencio, en el criterio 191.**
+> **Lo destapó `IVA-R1`**, la marca que backend me elevó sin tocarla (`BACKEND_NOTES §0.50.7`): *«el IVA que
+> corresponde a la línea de envío no está persistido por separado»*. **Tenía razón en que era decisión mía, y al
+> tomarla encontré que mi propia fórmula ya estaba mal.** ⛔ **En el DEPLOY 1 la rama es INALCANZABLE** (toda fila
+> es `IVA_EXCLUSIVE` y ahí la fórmula es la identidad) ⇒ **backend NO tiene rework en D-1**: se corrige antes de D-2.
+
+```ts
+// backend/src/common/money.ts — ÚNICO lugar donde vive esta decisión
+netRevenueCents(row: { subtotalCents: number; ivaRatePct: number; priceConvention: PriceConvention }): number
+//   IVA_EXCLUSIVE → row.subtotalCents                            (bit a bit lo de hoy)
+//   IVA_INCLUSIVE → round(row.subtotalCents / (1 + ivaRatePct/100))   ⭐ la BASE GRAVABLE de la MERCANCÍA
+```
+
+- **Se deriva SOLO de columnas persistidas de esa fila.** ⛔ Nunca del dial vivo, ⛔ nunca de `ivaTransferPct`,
+  ⛔ nunca recalculando desde `L`. Por eso una orden de hace un año sigue aportando exactamente lo que aportaba.
+- **Los dos ejemplos del criterio 191 siguen exactos** con la fórmula corregida: `round(11600/1.16) = 10000` y
+  `round(10000/1.16) = 8621`. *Eran de pedidos a bóveda —`E = 0`, donde las dos fórmulas coinciden—, y por eso el
+  defecto no se veía: exactamente la misma trampa que la pregunta 67, otra vez.*
+
+##### 4.44.j.1 ⭐⭐ `IVA-R1` RESUELTO — el IVA del envío es **el residual del residual**, y así la suma es EXACTA
+
+*Backend elevó esto sin tocarlo y acertó: es asignación, y la asignación es del arquitecto. Su implementación
+provisional (`round(E/(1+r))` aplicado al envío por su cuenta) **podía diferir del residual agregado en ±1 centavo**
+y él lo dijo. **No hace falta aceptar ese centavo.***
+
+```
+ivaMercanciaCents = S − round(S / (1+r))            // el IVA de la mercancía, por su propia base gravable
+ivaEnvioCents     = ivaCents − ivaMercanciaCents    // ⭐ EL ENVÍO ABSORBE EL RESIDUO
+netRevenueCents      = S − ivaMercanciaCents  ( = round(S/(1+r)) )
+netShippingRevenue   = E − ivaEnvioCents
+```
+
+- **⭐ La identidad, y ahora es EXACTA — cero centavos de deriva:**
+  ```
+  netRevenueCents + netShippingRevenueCents + ivaCents  ≡  subtotalCents + shippingFeeCents   ( = G )
+  ```
+  Comprobado con el caso real: `10000 + 17500 + 4400 = 31900 = 11600 + 20300`. ✓
+- **Por qué el ENVÍO absorbe el centavo y no la mercancía** —y esta es la decisión—: **(1)** la mercancía ya tiene
+  fórmula canónica y publicada (`round(S/(1+r))`, criterio **191**), y es la cifra grande y auditada; **(2)** el
+  envío es, **por decisión del dueño (§4.44.f-bis)**, *«costo operativo trasladado, no una venta»* ⇒ **es
+  exactamente el sitio correcto para aparcar un centavo de asignación**; **(3)** es la doctrina **R3** aplicada un
+  nivel más abajo: *el residual absorbe el redondeo, jamás la cifra autoritativa*.
+- ⛔⛔ **PROHIBIDO RECALCULAR `Order.ivaCents` A PARTIR DE LAS PARTES.** La flecha va `ivaCents → partes`, **nunca**
+  `partes → ivaCents`. `ivaCents` es **fiscal** y es la única fuente de la factura manual (criterio **192**);
+  hacerlo depender de una asignación de reporte es convertir un número fiscal en un derivado de un informe de
+  gestión. *Es la misma flecha de R3, y romperla es la misma clase de defecto.* Candado **`IVA-9`**.
+- **Los sitios que leen dinero de una orden como INGRESO son TRES, y el cuarto se lista para que nadie lo toque:**
+
+| # | Sitio (verificado por mí) | Qué hace hoy | Qué hace después |
+|---|---|---|---|
+| 1 | `admin.service.ts:821` (`pnl`) | `incomeCents += o.subtotalCents` | `incomeCents += netRevenueCents(o)` |
+| 2 | `admin.service.ts:842` (`pnl`) | `shippingRevenueCents += s.shippingFeeCents` | idem, neteado por la convención de **esa** `ShipmentRequest` |
+| 3 | `pnl`, **el sumando que hoy FALTA** | *(nada)* | `Σ Order.shippingFeeCents` de las órdenes `direct_ship`, **neteado**. Ver **`§9 · D-IVA-6`** |
+| 4 | `admin.service.ts:988` + CSV `:1001` (`ivaReport`) | `Σ o.ivaCents` | **⛔ NO SE TOCA.** Ya es correcto: `ivaCents` sigue siendo el IVA efectivamente cobrado |
+
+- **Criterio 192, dicho como invariante:** mover el dial **reduce el neto, nunca el IVA registrado**. Con `t = 0 %`
+  y exhibido MX$100.00, `Order.ivaCents` vale **1379**, ⛔ jamás `0`. `ivaCents` sigue siendo **la única fuente**
+  del desglose para la factura manual (hecho 10) y el CSV sigue cuadrando **contra las columnas de la propia
+  orden**, que es lo que R2 garantiza por identidad.
+- **El CSV del P&L (`admin.service.ts:996`) no es un quinto sitio**: reserializa `p.incomeCents`, así que queda
+  cubierto por (1). *Se dice para que nadie lo «arregle» por su cuenta y lo netee dos veces.*
+
+#### 4.44.k EL DESPLIEGUE — SON DOS, Y NUNCA UNO
+
+> **Ésta es la parte del diseño que no se puede optimizar. Un solo deploy hace este cambio irreversible en la
+> práctica.**
+
+| | **Deploy 1 — el esqueleto, sin cambiar una cifra** | **Deploy 2 — la convención** |
+|---|---|---|
+| **DDL** | **M-50 completa** (§11): las dos columnas en `Order` y `ShipmentRequest`, backfill a `IVA_EXCLUSIVE`, `SET NOT NULL`, fila del dial sembrada en `100` | **CERO DDL** |
+| **Código** | Escribe **siempre `IVA_EXCLUSIVE`**. Aritmética **la de hoy**. El helper `netRevenueCents` **ya cableado** en los cuatro sitios | Escribe **`IVA_INCLUSIVE`** y deriva `P`. Aparecen `displayPriceCents`/`ivaIncluded`/`ivaRatePct` y la puerta del dial |
+| **Efecto observable** | **NINGUNO.** Ni un centavo, ni un DTO, ni una cifra del P&L | La vitrina deja de mentir |
+| **Qué se verifica ahí** | `IVA-3` y `IVA-5` **contra producción real**, antes de tocar ningún precio | `IVA-1`, `IVA-2`, `IVA-4`, `IVA-6`, `IVA-7`, `IVA-8` |
+| **Rollback** | Revertir código; las columnas quedan (aditivas e inertes) | **Revertir SOLO el código. ⛔ La BD no se toca** |
+
+- **Por qué el rollback del deploy 2 es seguro sin tocar la BD:** el lector es **por fila**. Las órdenes cobradas
+  bajo `IVA_INCLUSIVE` conservan su etiqueta y se siguen leyendo bien; las nuevas vuelven a nacer `IVA_EXCLUSIVE`.
+  **Nada se reinterpreta en ninguna de las dos direcciones** — que es exactamente la lección de `§4.43g-bis`.
+- **⛔ Por qué NUNCA en uno solo:** si el DDL y la convención viajan juntos, revertir deja **órdenes
+  `IVA_INCLUSIVE` en una base cuyo código ya no conoce la columna** ⇒ **se reinterpretan solas**, que es el
+  criterio **190 al revés**. Y además se pierde la única ventana en la que se puede probar que el P&L quedó neutro
+  **antes** de que ninguna cifra se mueva.
+- **`decks-meta-v1` se desbloquea con el DEPLOY 2 PUBLICADO EN PRODUCCIÓN**, no antes (criterio **197**;
+  `docs/specs/DECKS_META_V1.md §12`). ⚠️ **Aprobar D54 no desbloquea nada, y mergear tampoco.**
+
+#### 4.44.l Qué NO hace este pase, dicho porque es justo donde alguien haría de más
+
+- ⛔ **No cambia la TASA del IVA** ni introduce varias tasas, regímenes, exentos o tasa 0 (`PROJECT` fuera de alcance).
+- ⛔ **No mete la comisión de plataforma al precio exhibido** (pregunta **52**, contestada: *«Solo iva adentro,
+  comision por fuera»*). Sigue **sumándose aparte, visible y desglosada**, con el rótulo **«Comisión de
+  plataforma»** que fijó **D53** — que **no se reabre**. **Es decisión del dueño con carácter temporal explícito**
+  (`§Q.9`), **no una omisión**, y **su hueco queda preparado** (§4.44.g), **no construido**.
+- ⛔ **No toca la curva de venta** (§4.36), **ni el buylist** (§4.39), **ni la valuación de bóveda/portafolio**,
+  **ni el «valor de mercado»**, **ni el gancho de grading**.
+- ⛔ **No reabre la pregunta 61** (que `iva_pct` gobierne también el IVA de la comisión de Stripe). Sigue abierta.
+- ⛔ **No responde la pregunta 65** (si el IVA grava la comisión embebida). **Es de contador** y **hoy no aplica**:
+  con la comisión fuera, **no hay comisión embebida que gravar** (`§Q.4`, corrección `D-IVA-1`).
+- ⛔ **No escribe ni una afirmación jurídica sobre el IVA**, ni en positivo ni en negativo (criterio **195**).
+
+#### 4.44.m Mapa de supuestos: qué decisión se cae si el dueño responde distinto
+
+*El criterio **185** convierte esto en obligación: si una respuesta cambia, hay que saber **exactamente** qué
+reverificar, sin releer el pase entero.*
+
+| Pregunta abierta | Supuesto declarado que estoy usando | Qué se cae si la respuesta es otra |
+|---|---|---|
+| **56** buylist / oferta al vendedor | **No cambia** (el IVA no participa hoy, hecho 9) | §4.44.b (la lista de «no se tocan») y §4.44.i. **La fórmula NO cambia** |
+| **57** órdenes viejas | **Se congelan** con su convención | §4.44.e entero y el candado `IVA-3`. Es el supuesto de **más** peso del pase |
+| **59** *(informes / trazabilidad del dial)* | El dial se audita por `settings.update`, sin reporte propio de IVA absorbido | §4.44.g (fila «Auditoría»). No toca aritmética |
+| **60** envío + rótulo de la línea de IVA | **Se suma aparte** (línea propia) **y su cifra lleva el IVA dentro**, porque el criterio **189** lo obliga. ✅ **NO la reabre D55**: su regla es del lado del COSTO (§4.44.f-bis) | **§4.44.f entero**, fórmulas (3)–(4), candado `IVA-6`. ⇒ `§9 · D-IVA-8` |
+| ✅ **68 CONTESTADA** (2026-09-10) — ¿cómo se captura el costo del envío? | **BRUTO, con IVA** — *«el costo de envio con el iva que yo pague»*. **Ya NO es supuesto: es decisión.** ⚠️ **De contador, sin ratificar** (familia 58/65) | **§4.44.f-ter**, `M-50` punto **3-bis**, candado `IVA-11`. ⛔ **No toca `Order.ivaCents` ni la aritmética de cliente** |
+| ✅ **69 CONTESTADA** (2026-09-10) — ¿hay margen en el envío? | **No hay** — *«trátalo como si no hubiera margen»*: cobra lo que paga | **§4.44.f-ter**, invariante de la 69 y candado `IVA-11`. ⛔ **No se aserta como identidad global**: la tarifa es por tabla y el costo real varía |
+| ✅ **70 CONTESTADA** (2026-09-10) — ¿el «neto» del tablero es su ingreso? | **Sí, el MISMO número que el P&L** — *«si me refiero al mismo numero»*. **Mi supuesto era correcto y pasa a decisión** | **§4.44.o**. La coherencia tablero↔P&L deja de ser deseable y pasa a ser **mandato**: candado `IVA-10(b)` |
+| **61** un solo mando `iva_pct` | **No se toca**; solo se garantiza que el dial nuevo no se cuelgue de él | §4.44.g (viñeta 2) y el candado `IVA-7`. Si se separan, es **otro pase** |
+| **62** valuaciones (portafolio, valor de mercado, PSA) | **No cambian**: son valuaciones, no precios que alguien pague | §4.44.i (últimas dos viñetas) |
+| **63/64** *(superficies de menor alcance)* | Siguen la regla general de §4.44.i | Solo §4.44.i |
+| **65** IVA sobre comisión embebida | **No aplica** (la comisión está fuera) | Nada de este pase. Reviviría con el escenario B de `§Q.4` |
+| **67** *(NUEVA)* el `taxBase` agregado reporta `≤ ⌊(n+1)/2⌋` ¢ menos que `Σ L_i` en el P&L | **Se acepta y queda DECLARADA**, porque `netRevenue + iva ≡ subtotal` vale más y `ivaCents` es fiscal. **`R2` no cambia** | **`§4.44.c.2`** y el candado `IVA-5(c)`. Si el product-owner prefiere `T1 = Σ L_i`, **es una enmienda al criterio 191** y rompe el invariante de reconciliación |
+| ⚠️ **NO es pregunta — es una PROPIEDAD DE `r = 16` que caduca si cambia la tasa** | Con `r = 16` **no existe empate en `.5`** para ningún `t` ni ningún `L` ⇒ **la convención de redondeo es indiferente** | **`§4.44.c.1-ter` punto 2.** Con otra tasa habría que **reverificarlo y, si hay empates, fijar la convención de redondeo por escrito** |
+
+#### 4.44.o ⭐ EL TABLERO MUESTRA VENTAS BRUTAS **Y** NETAS (decisión del dueño, 2026-09-10)
+
+**Sus palabras, literales:** *«Hagamos ventas brutas con iva y ventas netas sin iva»* · *«Ingreso bruto y neto»*.
+
+*Se le había recomendado quedarse con una cifra y renombrar la etiqueta. **Eligió mejor**: son dos preguntas
+legítimas y distintas —«¿cuánto dinero movió el negocio?» y «¿cuánto gané?»— y enseñarlas juntas **elimina de raíz**
+el riesgo que el renombre intentaba esquivar: que el tablero y el P&L den cifras distintas para lo que parece lo
+mismo. Con las dos a la vista, la relación entre ellas es **visible en vez de sospechosa**.*
+
+**⚠️ El riesgo real, y es el que hay que diseñar contra:** hoy `salesPeriod.amountCents = Σ Order.totalCents`
+(`admin.service.ts:1314`), que **incluye la comisión de plataforma Y el envío**. Definir el neto como *«bruto menos
+IVA»* dejaría dentro la comisión y **no coincidiría con el `incomeCents` del P&L** ⇒ **tres números** y el problema
+que el dueño quiso cerrar, peor. **⛔ Se rechaza esa definición.**
+
+**⇒ Decisión: el neto del tablero es EL MISMO HELPER que el ingreso del P&L, y la diferencia se explica con
+términos NOMBRADOS, no con una resta a ojo.**
+
+```
+salesPeriod = {
+  count,
+  grossAmountCents,             // Σ Order.totalCents          ← «lo que el cliente pagó» (= amountCents de hoy)
+  netAmountCents,               // Σ netRevenueCents(o)        ← ⭐ MISMO helper que el P&L (§4.44.j)
+  ivaCents,                     // Σ Order.ivaCents
+  netShippingRevenueCents,      // Σ netShippingRevenueCents(o)   (§4.44.j.1)
+  processingFeeCents            // Σ Order.processingFeeCents
+}
+```
+
+- **⭐ La identidad que se verifica, y es EXACTA por construcción** (se sigue de `§4.44.j.1` y de la identidad (b)
+  de `§M10-IVA.4`):
+  ```
+  grossAmountCents ≡ netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents
+  ```
+  **Coherencia por CONSTRUCCIÓN, no por disciplina:** si el neto sale del mismo helper que el P&L, **no pueden
+  divergir nunca**. Y como los tres términos del puente están **nombrados y viajan**, la diferencia contra el bruto
+  es **explicable**, no un misterio. *Esto es exactamente lo que la regla del censo exige: una sola definición de
+  «neto» en todo el sistema.* Candado **`IVA-10`**.
+- ⛔ **`amountCents` se RENOMBRA a `grossAmountCents`; no se conserva el nombre viejo.** Un campo llamado
+  *«amount»* que ahora convive con otro *«amount»* distinto es la clase de ambigüedad que este pase entero existe
+  para matar. Rompe al front — **y debe romperlo**: la tarjeta cambia de una cifra a dos.
+- ✅ **v1.64(4) — YA NO ES SUPUESTO: ES DECISIÓN DEL DUEÑO (pregunta 70, contestada 2026-09-10).** Se le preguntó
+  si al decir *«ventas netas»* se refería a su ingreso, el mismo número del P&L, y respondió: ***«si me refiero al
+  mismo numero»***. ⇒ **el neto del tablero ES `pnl.incomeCents`** (mercancía, sin IVA, **sin comisión y sin
+  envío**). **La coherencia tablero↔P&L deja de ser una propiedad deseable del diseño y pasa a ser lo que el dueño
+  pidió**, así que **`IVA-10(b)` —la igualdad asertada entre los dos endpoints— tiene mandato detrás**. Y ratifica
+  el rechazo de *«bruto − IVA»*: habría dejado la comisión dentro y producido **un tercer número que no es ninguno
+  de los dos que él quiere ver**.
+- **Entra en el DEPLOY 2, no en el 1.** Es aditivo y funcionaría igual bajo `IVA_EXCLUSIVE` (donde
+  `netRevenueCents` es la identidad), **pero D-1 prometió CERO cambios de contrato observable** y ese candado ya
+  está verde con 4.243 unitarios. **⛔ No se reabre D-1 por una tarjeta de tablero.**
+
+#### 4.44.n Candados
+
+**Los ocho candados normativos `IVA-1 … IVA-8` viven en `API_CONTRACT §M10-IVA.5`**, con sus fixtures, sus vectores
+y su caso de conducta, al estándar de `FX-23`/`FX-24`. ⚠️ **Los ids `IVA-<n>` son del contrato y los asigno yo
+allí**: un id `IVA-<n>` **sin fila en esa tabla no existe**; para marcas internas de backend, prefijo propio
+(`IVA-R*`), como hizo backend con `FX-R2`.
+
+---
+
+### 4.45 M2 · SINCRONIZACIÓN DE CATÁLOGO — el `summary` que faltaba, la columna que revela el set roto, y el corte que se mueve solo (v1.66-catalog-honesty, NORMATIVO)
+
+> **Contrato: `API_CONTRACT §M2-CS`** (tres marcas `CANON`: `reparto-del-barrido`, `variante-de-precio`,
+> `corte-de-catalogo`). **Aquí vive la RAZÓN; allí, la forma.** ⛔ Las cifras y los shapes **no se transcriben** en
+> esta sección (§0-B.3 regla 8).
+>
+> 🚧🚧 **ESTADO (v1.66.1, y va aquí arriba a propósito): de las tres marcas, SÓLO `reparto-del-barrido` está
+> CONSTRUIDA.** `variante-de-precio` (§4.45.2) y `corte-de-catalogo` (§4.45.3) están **`estado: PROYECTADA`**
+> (§0-B.3 regla 10): **son la norma del pase que las construirá y ⛔ no describen el sistema de hoy.** Medición,
+> dueños, orden y compuertas: **§9, `D-CS-5`**. *v1.66 escribió las tres en indicativo, y dos de ellas eran
+> falsas contra el árbol; la corrección no es sólo el tiempo verbal, es que el estado ahora **se declara**.*
+>
+> **Origen — tres peticiones, dos autores, un solo panel:** `DESIGN_SYSTEM §32.15` **R2** y **R5** (ux-ui, al
+> rediseñar M2 contra la norma de honestidad de `§32.4`) y una **decisión del dueño del 2026-09-10**: *«el corte de
+> fecha, que automático. Estar moviendo cosas manuales deja a que se rompa algo por falta de cuidado o
+> supervisión»* (**R6**). **Se resuelven juntas porque tocan los mismos dos payloads** (`sync-status` y
+> `remote-sets`) y porque separarlas habría dejado dos revs pisándose la misma zona compartida.
+
+#### 4.45.0 El criterio único del que salen las tres decisiones
+
+> ⭐⭐ **Una cifra sólo se emite si esta corrida la CONTÓ. Lo que no se midió viaja AUSENTE, jamás como `0`.**
+
+No es una preferencia de estilo: es la generalización de **D2** —*«191 cartas procesadas · 0 precios», en verde,
+sobre un set que nadie tocó*— y ya está escrita como norma de presentación en `DESIGN_SYSTEM §32.4`. Lo que esta
+sección hace es **llevarla al lado del servidor**, donde tiene que empezar: *una pantalla no puede ser más honesta
+que su DTO*. De ahí salen, mecánicamente, las tres decisiones:
+
+| Petición | Lo que la norma obliga | Decisión |
+|---|---|---|
+| **R2** | El aviso no puede afirmar «hecho» sin cifras de escritura de **esta** corrida | `sync-status` gana `summary`, y **el reparto de sets se unifica** (§4.45.1) |
+| **R5** | La tabla no puede pedirle al dueño que detecte lo que no muestra | cobertura de precio **por set**, con denominador definido **una vez** (§4.45.2) |
+| **R6** | Un mando que hay que acordarse de mover es un defecto silencioso esperando | el corte se **deriva**; el dial **muere** (§4.45.3) |
+
+#### 4.45.1 R2 — el `summary`, y el defecto que apareció al mirar al hermano
+
+**La petición era de simetría** (`refresh-variants-status` tiene `summary`; `sync-status` no ⇒ la acción de rutina
+del dueño **nunca** podría emitir `HECHO`). **Al comparar los dos para copiar la forma buena, apareció que la forma
+buena no lo era:**
+
+> **`setsOk` cuenta «sets que no lanzaron excepción»**, e incluye a los sets que corrieron **sin escribir ni una
+> variante ni un precio** (el set que no empareja con TCGCSV). ⇒ **`setsOk` es D2 a escala de barrido**: convierte
+> *«no reventó»* en *«salió bien»*. **Copiar la forma del hermano habría propagado el defecto en vez de cerrarlo.**
+
+**Decisión — un solo reparto para los dos barridos** (`setsTotal` / `setsWritten` / `setsNoop` / `setsFailed` /
+`failures[]`, `API_CONTRACT §M2-CS.0`), con **`setsWritten` como el único nombre de «cuántos toqué»** y `setsOk`
+**deprecado con su significado congelado**. La regla general que queda, y que gobierna el próximo barrido que
+alguien añada:
+
+> **El reparto de sets se unifica SIEMPRE; las cifras de escritura se nombran por LO QUE ESCRIBEN.** Un barrido de
+> catálogo escribe **cartas**; uno de variantes escribe **variantes** y **precios**. Igualar esos nombres sería el
+> error simétrico al de `setsOk`: **un nombre común para dos hechos distintos**.
+
+**Lo que RECHACÉ de R2, y por qué importa.** ux-ui pidió el `summary` *«análogo»*, con `pricesWritten`. **El barrido
+de catálogo no escribe precios desde v1.14 (§4.15g).** Un `pricesWritten: 0` sería un cero **perfectamente cierto y
+perfectamente engañoso** —*«no escribió precios»* y *«no escribe precios»* son hechos distintos, y la pantalla no
+puede distinguirlos— y **rehabilitaría exactamente la trampa de `fullSyncHint`** que §32 acaba de desmontar. La
+regla, transversal:
+
+> **⛔ Un DTO no emite una cifra de una capacidad que la acción NO TIENE.** «Cero de algo que no hago» no es una
+> medición: es una invitación a prometerlo en la pantalla.
+
+⇒ **Consecuencia enrutada a ux-ui** (§0-B.3 regla 7, en el mismo pase): `§32.5a` **no puede prometer «{p} precios
+escritos»** en la acción 1, ni decir **«cartas nuevas»** (el `upsert` no distingue creada de re-escrita, así que la
+distinción **no se emite** y la palabra normativa es **«escritas»**). *El hueco que eso deja —un set recién
+importado no tiene precios— no se tapa con copy: se vuelve visible en la columna de §4.45.2 y se repara desde el
+renglón.*
+
+#### 4.45.2 R5 — «¿a este set le faltan precios?», que no es «cuántas filas tiene»
+
+**El flujo del dueño no se podía ejecutar:** su regla es *«solo se ocupa si se ve un error en algún set
+específico»*, y **la tabla no tenía ninguna columna que revelara el error** — `Cartas` sube aunque no se escriba ni
+un precio, que es justo el set que él querría reparar.
+
+**(a) El denominador se fija UNA vez, y no es la carta.** Un set tiene **más variantes que cartas** (normal /
+reverse holo / holofoil). La unidad canónica es la **VARIANTE DE PRECIO** = par (`CardProduct`, `Finish`), que es
+**exactamente** la que lleva precio propio (la `@@unique` de `PriceReference` incluye `cardProductId` **y**
+`finish`) y **exactamente** la que ya cuenta `pending`. ⛔ **No la carta** —aplanar el eje de acabado es el origen
+de **P-47**—, ⛔ no `printedTotal`, ⛔ no `Card.availableFinishes` (que se **reconcilia desde** `CardProduct`: usarla
+mediría una cosa con la regla de otra). *Precedente en contra, y por eso lo digo en voz alta:*
+**`SetValueSnapshot.pricedCardCount` ya existe y NO sirve aquí** — cuenta **cartas** bajo `SET_VALUE_RULE`
+(`raw:NM`, acabado `normal`), que es el eje aplanado. **Reusarlo por barato habría sido cometer P-47 otra vez.**
+
+**(b) El costo decidió la forma, no al revés.** Medido sobre el modelo: el **denominador** es un agregado barato
+sobre `CardProduct ⋈ Card`; el **numerador** no. Contar *«variantes con precio alguna vez»* obliga a recorrer
+**toda** `PriceReference` —una fila por variante **por día**, creciendo sin techo—, lo que **no cabe en la carga de
+una tabla de ~150 renglones**. ⇒ **el numerador se acota por ventana de vigencia**, y esa restricción **no es una
+concesión: mejora la respuesta**, porque *«tiene precios de hace tres semanas»* es exactamente uno de los modos de
+estar roto. **Precio a pagar, declarado: un índice por `capturedDate` (`M-51a`)** en una tabla de escritura por
+lotes, fuera de la ruta de dinero.
+
+**(c) Qué se rompe si el número queda stale — y por eso la cifra es VIVA.** Consideré y **rechacé** una columna
+derivada/persistida en `CardSet`:
+
+> **Un contador cacheado sólo lo escriben los escritores que TUVIERON ÉXITO.** El set que **deja de repreciarse**
+> —`IMPORTANTE-3`— conservaría **para siempre su último valor bueno**, y la columna diría **«completo»** justo del
+> único set que hay que reparar. **Una cifra vieja que dice «completo» es peor que no tener columna.**
+
+La cifra se calcula **en la petición**, con un **presupuesto declarado** y una **degradación honesta**: si no se
+puede pagar, la respuesta dice *«no medí la cobertura»* y la columna entera se pinta **«—»** (`I-PC5`) — ⛔ **jamás
+una tabla lenta ni media cobertura sin avisar**.
+
+**(d) El `0/0` que se lee «completo».** El caso peor no es *«le faltan 7»*: es el set **importado cuya estructura
+nunca se resolvió** contra TCGCSV, que **no tiene ni una variante** ⇒ un cociente `0/0` que en pantalla se lee
+**«nada que hacer»**. Por eso `variants` **nunca vale `0`** (`I-PC1`) y ese caso tiene **cara propia**: *«0 de —»*
+(`I-PC4`). *Es la misma disciplina del precio pendiente (§7.3 del sistema de diseño): un universo desconocido se
+dice, no se rellena con el número que casualmente cuadra.*
+
+**(e) `IMPORTANTE-3`: qué cubre esta columna y qué NO** *(lo digo en los dos sentidos, porque se me pidió así)*.
+**✅ Cubre**: el set que deja de repreciarse cae a `0/N` mientras sus vecinos siguen altos — **es la primera
+superficie del producto donde ese defecto se ve sin leer logs**, y también aparece su variante peor (estructura
+nunca resuelta, `I-PC4`). **⚠️ No cubre**: no avisa el día 1 (hay hasta una ventana de retraso) — es un
+**detector**, no una **alarma**. **⛔ Y no lo cierra**: la causa raíz (`resolveGroupId` → `null` con nombres
+ambiguos, `tcgcsv-singles-bulk.provider.ts`, que devuelve 0 filas y deja un `warn`) **sigue siendo de backend**.
+*Ver el síntoma no cura la enfermedad; lo que esta columna quita es la parte de «durante semanas y nadie se
+entera».*
+
+**(f) La compuerta que evita una columna que cría lobo.** Si la ventana semilla deja **más de ~⅓ de los sets
+importados en cero**, hay dos explicaciones y **ninguna se arregla ajustando la pantalla**: o la semilla está mal,
+**o el barrido diario no cubre el catálogo** — y **ese segundo caso es el hallazgo**, no un parámetro. Vuelve al
+arquitecto **antes** de publicar la columna. *Una columna que pinta 150 renglones en rojo enseña al dueño a
+ignorarla, y una columna ignorada es peor que ninguna.*
+
+#### 4.45.3 R6 — el corte se mueve solo (decisión del dueño, 2026-09-10)
+
+**El defecto que el dueño nombró es de la peor clase: el que no falla.** Un dial que hay que acordarse de mover no
+avisa cuando nadie lo mueve; simplemente va acumulando sets viejos que él no quiere. *Es el mismo criterio con el
+que rechacé, en `v1.65`, dejar el seed legacy y volver el flip un paso manual del arranque de staging:* **si la
+paridad hay que recordarla, no es una paridad**. Aplicado aquí: **si el corte hay que moverlo a mano, no es un
+corte: es una tarea pendiente con aspecto de configuración.**
+
+**Decisión: `CORTE EFECTIVO := hoy − NOVEDAD`** (`API_CONTRACT §M2-CS.4`), y **el dial muere** — ⛔ no sobrevive
+como «anulación manual por encima del corte automático»: eso serían **dos fuentes para «desde cuándo es
+nuevo»**, que es §0-B.3 regla 8, y **la lectura de la frase del dueño es que quiere dejar de administrarlo, no
+tener dos palancas**. La **única** anulación que queda es **por llamada y explícita** (`fromReleaseDate` en el body
+de `sync`), que no persiste, no la lee nadie más y **la corrida la reporta**: *un argumento de una llamada no
+compite con una norma, la acompaña y queda registrado.*
+
+**El eje: TIEMPO, y por qué no «las últimas N series».** El eje de series es más estable en contenido, pero
+**`CardSet.series` es nullable y lo controla el proveedor**: un set con `series: null` sería **inclasificable** y
+volvería a caerse **en silencio** — el mismo defecto que estamos cerrando, con otra cara. Y el argumento a favor
+del eje de series —*los sets no salen a ritmo constante*— **no hace daño aquí**: importar es **acumulativo**, lo ya
+importado no se va, y lo único que el corte gobierna es **qué ofrece el botón de rutina**. Que traiga 4 sets un
+año y 12 el siguiente no rompe nada.
+
+**⚠️ EL MODO DE FALLO QUE HAY QUE NOMBRAR, porque el manual no lo tenía: «la caída silenciosa del borde trasero».**
+Un corte fijo es estable y auditable; **uno que se mueve deja caer sets por detrás sin avisar**. Un set lanzado
+hace `NOVEDAD + 1` meses que **nunca se importó** queda fuera del alcance del botón de rutina, para siempre. **Tres
+candados, y el primero es una dependencia que había que VERIFICAR, no suponer:**
+
+1. **El renglón sigue visible.** `remote-sets` **no filtra por el corte** — **verificado el 2026-09-10 contra el
+   código que corre** (§0-B.3 regla 2): lista **todos** los sets remotos y marca `imported`. **Si los ocultara, la
+   ventana móvil se tragaría la escotilla de escape y el rediseño de §32 se rompería.** Lo que hasta hoy era un
+   accidente feliz **pasa a ser norma** (`I-PC7`), precisamente porque la ventana móvil se apoya en él.
+2. **Se cuenta lo que se descartó** (`setsSkippedOutOfRange`): el descarte deja de ser silencioso.
+3. **La ventana se lee ANTES de apretar** (§4.45.4), no después.
+
+**⭐ `releaseDate` ausente — hoy nadie lo había decidido, y se decide aquí, una vez.** El filtro vigente
+(`(releaseDate ?? '') >= corte`) deja fuera al set sin fecha **por accidente aritmético**, no por decisión: la
+cadena vacía nunca gana la comparación. **Norma: sin `releaseDate` NO entra** —⛔ no se adivina una fecha, ni para
+colarlo ni para excluirlo— **pero NO se calla: se cuenta** (`setsSkippedUnknownDate`) y su renglón sigue visible.
+*Es H4 aplicado a la SELECCIÓN en vez de a un aviso: ausente ⇒ reportado, nunca «excluido en silencio».*
+**`releaseDate` futura sí entra**: un set anunciado **es** lo más nuevo que hay, y a lo sumo produce un `setsNoop`,
+que es un cero **medido**.
+
+**⭐ La compuerta de medición, y por qué no la contesto yo.** La semilla de 24 meses es **más restrictiva** que el
+corte vigente, así que el cambio **puede** ser de comportamiento. El número que lo decide —**sets remotos NO
+importados en el tramo que la ventana deja fuera**— **es un valor de clase (B): se mide contra el catálogo real,
+no se estima en un documento** (§0-B.3 reglas 1 y 2). Queda como **compuerta de merge de backend**: **0 ⇒ higiene**;
+**>0 ⇒ cambio de comportamiento**, se importan (o se abandonan a conciencia) **antes**, y el número se reporta.
+⛔ **No se activa «a ver qué pasa».**
+
+#### 4.45.4 Que se vea: el corte automático **no** puede ser invisible
+
+`DESIGN_SYSTEM §32.3` («la fecha se ve, o la acción no se entiende») **sigue vigente y se vuelve más exigente**: el
+dueño ya no controla el corte, así que **leerlo es su único modo de predecir qué hará el botón**. El dato se sirve
+en la **misma respuesta que dibuja la tabla** (`catalogCutoff` de `remote-sets`), y no en `GET /admin/settings`,
+por una razón de diseño: **el subtítulo y la tabla no pueden discrepar si salen de la misma petición.**
+
+**Y la frase debe nombrar la REGLA además de la FECHA** («lo lanzado en los últimos *N* meses — desde *{fecha}*»):
+*una fecha derivada sin su regla es un número mágico que el dueño no puede predecir*, y sería un automático
+invisible, que es **peor que un manual visible**. ⇒ **`§32.3` cambia y el enlace «Cambiar la fecha» → M10 se
+retira** (apuntaría a un mando que dejará de existir). **Con esto, la petición R3 de `§32.15` queda sin objeto:** la
+pregunta era *«¿se edita el corte desde M2 o desde M10?»* y la respuesta es **«en ninguna de las dos»**.
+
+#### 4.45.5 Orden de trabajo, y qué bloquea a qué
+
+1. **R2 y R5 son lo que desbloquea la pantalla** y pueden ir en paralelo (payloads distintos).
+2. **R6 comparte payload con los dos** (`summary.fromReleaseDate`, `catalogCutoff`) ⇒ **misma rev de contrato**,
+   pero su **activación** está detrás de la compuerta de medición de §4.45.3. **No bloquea a R2 ni a R5.**
+3. **`M-51` es una migración en dos partes** (§11): **`M-51a`** índice `PriceReference(capturedDate)` —el costo de
+   la columna— y **`M-51b`** borrado de la fila `ConfigSetting.catalog_sync_from_date` —el mando muerto—.
+   **`M-51b` va DESPUÉS de que el código deje de leerla**, no antes.
+4. **Nada de esto cierra `IMPORTANTE-3`** (§4.45.2e) ni **`DEV-1`** (estado del barrido en memoria): siguen
+   abiertas, con sus dueños, y **el diseño de §32 ya está escrito para convivir con las dos** (`NO SE SABE` + «—»).
+
+---
+
+### 4.46 EL GRUPO TCGCSV DE UN SET — un hecho, dos columnas y tres escaleras (v1.66.1, **NORMATIVO, DINERO**)
+
+> **Contrato: `API_CONTRACT §M2-GT`** (`<!-- CANON: grupo-tcgcsv-del-set -->`, **`estado: PROYECTADA`**).
+> **Aquí vive la RAZÓN; allí, la forma.** Desviación y reparto: **§9, `D-GT-1`**. **Hallazgo: techlead.**
+
+#### 4.46.1 Qué se midió, y por qué no es una duplicación cosmética
+
+El sistema contesta *«¿contra qué grupo de TCGCSV se precia este set?»* por **tres caminos distintos**, dos de
+ellos **persistidos**:
+
+| Portador | Escritor | Contra qué fuente | Lector |
+|---|---|---|---|
+| `CardSet.pptSetId` — **si es numérico, se usa COMO groupId** | empate por nombre + año | **PPT** (`/v2/sets`) | ruta de **precio** de singles y ruta de **estructura** |
+| `CardSet.tcgcsvGroupId` | match por nombre (o curación) | **TCGCSV** | **sellado** → `marketRef` |
+| `SealedSetGroup.kind='set_main'` | `linkGroup` (humano, auditado) | curación | sellado |
+
+**Y hay una cuarta escalera, la buena, que es la que menos se ejecuta:** `matchTcgcsvGroupByName` —la que se
+extrajo precisamente para que *«la misma regla no viva copiada en dos sitios»*, con **propiedad de monotonía
+probada por fuerza bruta** (`null → groupId` sí; ⛔ nunca `groupId → null` ni `groupId → OTRO groupId`)—.
+
+#### 4.46.2 Las dos consecuencias, y por qué la primera es la grave
+
+1. **⭐⭐ El blindaje no cubre el camino que se toma.** Las dos `resolveGroupId` **cortocircuitan primero** en
+   `pptSetId` numérico y **sólo bajan a la escalera canónica si no lo hay**. ⇒ **para todo set que PPT ya mapeó
+   —o sea, el caso normal— el groupId que gobierna el precio lo decidió OTRA escalera, contra OTRA fuente, sin la
+   propiedad de monotonía.** *Se invirtió esfuerzo real en probar que una escalera no puede degradar, y el
+   camino habitual no pasa por ella. Un invariante que protege la rama fría es un invariante decorativo.*
+2. **Nada obliga a `pptSetId == tcgcsvGroupId`.** Son dos empates independientes, contra dos catálogos, con dos
+   algoritmos. **El día que discrepen, singles y sellado del mismo set se prician contra grupos distintos** — sin
+   excepción, sin log y sin ninguna pantalla que lo enseñe. *No hay «modo degradado»: hay dos respuestas
+   correctas-a-su-manera para una pregunta que sólo admite una.*
+
+**El defecto de fondo tiene nombre y es de la familia de §M10-PP: un JUEGO DE TIPOS.** *«Si el string parsea como
+entero, entonces es el groupId de TCGCSV»* **infiere identidad en un espacio de nombres a partir de la forma
+sintáctica de un valor de otro**. Y el valor de `pptSetId` **se elige por preferencia entre tres cosas distintas**
+(id numérico de TCGplayer → slug → id interno de PPT): la misma función devuelve `'1407'`, `'sv-prismatic-evolutions'`
+o un hexadecimal. **Que hoy el numérico coincida es una propiedad del proveedor, no una garantía del modelo** —
+exactamente la clase de coincidencia que este proyecto ya declaró inaceptable cuando `(releaseDate ?? '') >= corte`
+excluía al set sin fecha *«por accidente aritmético»* (§M2-CS.4).
+
+#### 4.46.3 La decisión, y por qué ésta y no otra
+
+- **Manda el `set_main`** (`SealedSetGroup`), porque **es el único portador que modela el hecho de verdad**: un
+  set tiene **un** grupo principal y **N** de promos, y esa forma ya existe. `CardSet.tcgcsvGroupId` queda como
+  **espejo de lectura** con invariante de igualdad — ⛔ no como segunda opinión.
+- **`pptSetId` se conserva y deja de leerse como groupId.** ⛔ **No se borra la columna:** PPT la necesita como
+  `setId` y borrarla rompería el barrido de graded. **El arreglo es retirar UNA RAMA**, no migrar datos.
+- **Una sola función de resolución para las tres rutas** (`I-GT3`). *Este proyecto ya pagó dos veces por «la misma
+  lógica copiada»: el arreglo del prefijo de código de colección llegó a tres rutas y **no** a la que movía
+  dinero. Volver a tener tres resolutores del mismo entero es reservar el mismo billete.*
+- **`I-GT5` — discrepancia ⇒ fail-closed y RUIDOSO.** Cuando dos fuentes existen y difieren, **el lector no
+  elige**: aplica la precedencia y **emite señal**. *Elegir en silencio convierte un hallazgo en una preferencia,
+  y una preferencia no la revisa nadie.*
+- **`I-GT6` — un lector no repara datos.** ⛔ La consulta no escribe la columna «para dejarlo arreglado»: reparar
+  es un acto explícito y auditado. *Una escritura de reparación disparada por una lectura es una migración
+  silenciosa por cada request.*
+
+#### 4.46.4 Una premisa del reporte, corregida con la medición (y abarata el arreglo)
+
+El hallazgo decía que el groupId derivado de `pptSetId` queda **cacheado en la BD**. **Medido: no.** El caché de
+las dos rutas es un **`Map` en memoria por instancia**, que se recalcula en cada arranque; lo persistido es
+`pptSetId`. ⇒ **no hace falta migración de datos ni invalidación de caché**: retirar la rama corrige el
+comportamiento **desde el primer deploy**. *Lo anoto porque una premisa falsa **a favor** del arreglo es tan mala
+como una en contra: habría justificado una migración que nadie necesita.*
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -20219,6 +21912,26 @@ caducó dos veces** — §0-B.3 regla 8, ampliación «elimina o nombra»)* — 
 - **P&L (M7) — ingreso y costo de envío son cosas distintas (v1.4-finance):** el envío aporta al P&L por **dos** lados: un **ingreso** (`ShipmentRequest.shippingFeeCents`, lo que el cliente paga) y un **costo** (`ShipmentRequest.shippingCostCents`, lo que la plataforma paga a la paquetería, M-16). El P&L los suma/resta por separado: `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`. Ambos importes de un mismo envío se acotan al periodo por **`pickingAt`** (envíos liquidados: `status ∈ {picking, guia, enviado, entregado}`), garantizando que ingreso y costo del envío caigan en el mismo periodo. Antes de v1.4-finance el P&L solo contaba el ingreso, sobreestimando la ganancia. Response/CSV en `API_CONTRACT §M7` (`shippingCents`→`shippingRevenueCents` + nuevo `shippingCostCents`).
 
 ### 5.1 Cálculo del checkout (precio de venta, IVA y fee gross-up)
+
+> ⚠️⚠️ **v1.64 — ESTA SECCIÓN DESCRIBE LA CONVENCIÓN `IVA_EXCLUSIVE`, QUE ES LA DE HOY Y LA DEL DEPLOY 1. LA NORMA
+> VIGENTE TRAS EL DEPLOY 2 ES `§4.44` (última sección de `§4`, justo antes de esta).**
+> Se conserva **entera y sin tachar** porque **sigue siendo la aritmética exacta de toda orden con
+> `priceConvention = IVA_EXCLUSIVE`** —o sea, de **todas** las órdenes ya cobradas—, y esa aritmética **no se
+> deroga: se congela por fila** (§4.44.e). Lo que cambia bajo `IVA_INCLUSIVE`, y son **tres** cosas:
+>
+> 1. **`subtotalCents` pasa a llevar el IVA DENTRO** (`= Σ displayPriceCents`), y el envío también (`§4.44.f`).
+> 2. **⚠️⚠️ `baseCents = subtotalCents + ivaCents` DEJA DE SER CIERTO.** La base del gross-up pasa a ser
+>    **`grossUpBaseCents = subtotalCents + shippingFeeCents`**, **sin sumar el IVA** — que ya está dentro.
+>    Aplicar la línea de abajo bajo la convención nueva **cobra el IVA dos veces (+13.6 %)**. Es la línea de mayor
+>    riesgo de todo el cambio: `§4.44.d`, candado `IVA-2`.
+> 3. **`ivaCents` deja de ser `round(subtotal × ivaPct/100)` y pasa a ser RESIDUAL**:
+>    `ivaCents = G − round(G/(1+r))`. La **tasa** `ivaPct` y el **gross-up** (7)–(8) **no cambian**, y
+>    `stripeFeeIvaPct` **sigue derivándose de `ivaPct`, jamás del dial de traslación** (candado `IVA-7`).
+>
+> *Se publica aquí, en la ficha donde la gente busca la verdad, y no solo en §4.44: la lección de v1.63.2 fue
+> exactamente ésta — un contrato impecable no salva a una arquitectura que sigue publicando la norma vieja donde
+> se la consulta.*
+
 Orden de compra de cartas:
 ```
 salePriceCents(item) = item.listPriceCents  // = round(referenciaMxn × (1 + salesMarkupPct/100)), o override manual
@@ -20926,6 +22639,329 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+> **⚠️ v1.64 — SOBRE LOS IDS `D-IVA-*`.** El espacio de nombres **ya estaba acuñado fuera de este documento**:
+> `D-IVA-1` (base doble del IVA en `PROJECT §Q.4`, **corregida por el product-owner**), `D-IVA-2` y `D-IVA-3`
+> (los decimales de `aportacion_pct` e `iva_pct`, **cerradas por backend**; su deuda vive como `TD-IVA-1`/`TD-IVA-2`
+> en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
+> nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-1`: EL CONTRATO NO SABÍA QUE `sync-all` YA TENÍA CORTE, NI QUE `sync-status` YA
+  TENÍA `summary`.** **Dueño del arreglo: arquitecto — CERRADA EN ESTE MISMO PASE** en cuanto a la prosa
+  (`API_CONTRACT §M2-CS` + dos frases tachadas); **queda abierta la parte de proceso, que va a techlead.**
+  - **Qué se midió el 2026-09-10** (§0-B.3 regla 2, leído el artefacto que corre): `catalog-sync.service.ts` ya
+    expone `summary` en `getSyncStatus()`, ya tiene el predicado único `isWithinCatalogFromDate` /
+    `selectSyncAllCandidates`, y el `202` de `syncAll` ya devuelve `fromReleaseDate` y `setsSkippedOutOfRange`.
+    **Nada de eso estaba en el contrato**, que además seguía afirmando lo contrario (*«sin frontera de fecha»*,
+    *«ignora `catalog_sync_from_date`»*).
+  - **Por qué NO es una anécdota:** **ux-ui leyó el contrato, como debe, y concluyó que el `summary` no existía**
+    (`§32.15 R2`). Un contrato atrasado **no es un documento incompleto: es un documento que hace tomar decisiones
+    equivocadas a los roles que lo respetan.** *Aquí el daño fue barato —una petición redundante—; el mismo
+    mecanismo, en una ruta de dinero, es un incidente.*
+  - **Lo que queda abierto (a techlead):** el shape del `summary` entró en `main` **por delante de una rev de
+    contrato**. La regla 9 de `CLAUDE.md` no admite excepción por «es aditivo». **Yo normo la forma final aquí; el
+    procedimiento lo revisa techlead.** ⚠️ Y donde el código difiera de `§M2-CS.0` (faltan `setsWritten` y
+    `setsNoop`; `failures[]` sin `code`), **manda el contrato** — es un delta pequeño porque el trabajo está en
+    vuelo, no una reescritura.
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-2`: `setsOk` DE `refresh-variants-status` CUENTA COMO BUENO AL SET QUE NO ESCRIBIÓ
+  NADA.** **Dueño del arreglo: backend** (WS «Catálogo y precios»). Norma: `API_CONTRACT §M2-CS.0/§M2-CS.2`; razón:
+  **§4.45.1**.
+  - **Qué hace hoy:** el barrido acumula en `setsOk` todo set que no lanzó excepción — **incluido el set que no
+    empareja con TCGCSV** y devuelve `cardProductsUpserted: 0`, `pricesUpserted: 0`. **Es D2 a escala de barrido**,
+    y alimentaría el veredicto de «Sincronizar todo (forzar)».
+  - **Alcance:** añadir `setsWritten` y `setsNoop` al `summary`; **⛔ NO redefinir `setsOk`** (queda deprecado con
+    su significado congelado, `setsOk === setsWritten + setsNoop`, y se retira en la rev siguiente cuando frontend
+    confirme cero consumidores). *Redefinir un campo vivo es peor que retirarlo: nadie se entera.*
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-4`: LOS CUATRO BLOQUES CANÓNICOS DE FX ESTÁN ABIERTOS Y SIN CERRAR.**
+  **Dueño del arreglo: arquitecto (yo).** Norma nueva: **§0-B.3 regla 8, ampliación v1.66** (la marca canónica es
+  un par).
+  - **Qué se midió:** `invariantes-del-modo-fx`, `precedencia-de-la-tasa`, `estado-del-tipo-de-cambio` y
+    `banda-de-la-tasa-usd-mxn` abren bloque en `API_CONTRACT §M2-F` y **ninguno lo cierra** ⇒ **el límite de la
+    fuente única de cuatro predicados de DINERO está indefinido**.
+  - **Por qué no se arregla en esta rev:** fijar dónde acaba cada bloque exige releer §M2-F entero y **decidir qué
+    de esa sección es norma y qué es razón** — es un pase propio, y hacerlo «de paso» en una rev de catálogo es
+    justo cómo se cuela un error en una zona de dinero. **Se cierra en la próxima rev que toque §M2-F**; hasta
+    entonces, **manda el texto de §M2-F tal como está** (la ambigüedad es de límite, no de contenido).
+  - **Nota de honestidad:** los tres bloques de v1.66 nacieron con el mismo defecto y **se cerraron en el mismo
+    pase**. *La norma no la escribí porque lo hicieran mal otros: la escribí porque lo hice mal yo y alguien lo
+    revisó.*
+
+- **🔴 ABIERTA (v1.66.1) — `D-CS-5`: `§M2-CS.3` Y `§M2-CS.4` SON NORMA **NO IMPLEMENTADA**, Y HASTA v1.66.1 EL
+  CONTRATO LAS AFIRMABA EN INDICATIVO.** **Dueños del arreglo: backend** (WS «Catálogo y precios») **y frontend**
+  (el editor de M10). Norma: `API_CONTRACT §M2-CS.3` / `§M2-CS.4`, ambas con **`estado: PROYECTADA`** (§0-B.3
+  regla 10). ⚠️ **Toca zona compartida** (`settings.constants.ts`, `prisma/`) ⇒ **un solo stream a la vez**.
+  - **Qué se midió el 2026-09-10 contra el árbol** (§0-B.3 regla 2), y por qué era bloqueante: `pricedVariants`,
+    `priceCoverage`, `catalogWindow` y `CATALOG_SYNC_WINDOW_MONTHS` ⇒ **cero ocurrencias** en `backend/` y
+    `frontend/`; **`M-51` no existe** (la última migración es `20260909120000_m50_price_convention`);
+    `catalogSyncFromDate` **sigue en el mapa del DTO** de `settings.constants.ts` **y sigue teniendo editor** en
+    `M10View.tsx`. **Cinco hechos, cinco falsos, dentro de dos bloques `CANON` cerrados.**
+  - **Por qué el bloqueante era del ARQUITECTO y no de backend:** por la regla de conflicto de `CLAUDE.md` —*el
+    contrato manda sobre el código*—, esos dos bloques declaraban al backend **fuera de contrato en dos secciones
+    canónicas enteras** sin que backend hubiera hecho nada mal. **El defecto era del documento.**
+  - **Alcance, en orden** *(no es una lista de deseos: es la compuerta de cada bloque)*:
+    1. **backend** — `M-51a` (índice `PriceReference(capturedDate)`, `CONCURRENTLY`) y la columna de cobertura
+       (`pricedVariants` / `variants` / `priceCoverage.freshnessDays`) con `I-PC1..I-PC7`. **Corre la compuerta
+       de medición y la reporta** *antes* de publicar la columna.
+    2. **backend** — el corte **derivado** (`CATALOG_RECENCY_MONTHS`), `catalogCutoff` en `remote-sets`,
+       `catalogSyncFromDate` fuera del DTO y rechazado en el `PUT`.
+    3. **frontend** — retirar el campo `catalogSyncFromDate` y su editor de M10, y el enlace «Cambiar la fecha»
+       de M2. ⚠️ **Después de (2), nunca antes**: quitar la superficie de un dial que sigue vivo lo deja
+       gobernando en la sombra, que es peor que el estado de hoy.
+    4. **backend** — `M-51b` (borrado de la fila), **después** del deploy que dejó de leerla.
+  - **El token `estado:` lo mueve el ARQUITECTO** cuando cada compuerta se registre cumplida (regla 10). ⛔ No lo
+    mueve el pase que escribe el código.
+
+- **⚠️ ABIERTA (v1.66.1) — `D-CS-6`: UN SEGUNDO VOCABULARIO DE MARCAS NORMATIVAS NACIÓ EN CÓDIGO.**
+  **Dueño del arreglo: backend** (WS «Catálogo y precios»). Norma: **§0-B.3 regla 11**.
+  - **Qué se midió:** `backend/src/modules/catalog/set-sweep-tally.ts:4` abre
+    `<!-- CANON-IMPL: reparto-del-barrido · única fuente EN CÓDIGO · … -->` — **fuera del censo, sin par de
+    cierre, sin dueño declarado**, y con una semántica que **compite** con `CANON`.
+  - **Estatuto decidido: se RETIRA la marca.** ⛔ **Ni una línea de lógica ni del docblock**: lo que sobra es
+    **la marca**, no la explicación. **El resto del comentario es exactamente lo que debe quedar** —*«este
+    reparto vive en un solo sitio; si aparece una tercera ruta, llama a esta función»*— y **se cita el ANCHOR**
+    (`API_CONTRACT §M2-CS.0`), como ya hace el resto del fichero.
+  - **Por qué no se «declara» en el censo, que era la otra salida:** la fuente única de un predicado normativo
+    está en el **contrato** (regla de conflicto de `CLAUDE.md`). Un fichero que se declara «única fuente **en
+    código**» del **mismo** predicado **es la segunda fuente**, con otras palabras — el defecto que la regla 8
+    existe para eliminar. *La intención («no copies esto») es correcta y valiosa; se hace cumplir con un test,
+    que es donde una regla sobre código se hace cumplir.*
+
+- **🔴 ABIERTA (v1.66.1) — `D-GT-1`: DOS COLUMNAS Y TRES ESCALERAS AFIRMAN «EL GRUPO TCGCSV DE UN SET», Y NADA
+  OBLIGA A QUE COINCIDAN.** **Hallazgo: techlead.** **Dueño del arreglo: backend** —WS «Catálogo y precios»
+  (precio + estructura) y WS «Inventario y vault» (sellado)—. Norma: **`API_CONTRACT §M2-GT`**
+  (`estado: PROYECTADA`); razón entera: **§4.46**. **DINERO + dos work streams ⇒ el orquestador SERIALIZA, y
+  triple veredicto.**
+  - **Qué se midió el 2026-09-10:** `CardSet.pptSetId` (escrito contra **PPT**, leído como groupId por la ruta de
+    **precio** y la de **estructura**), `CardSet.tcgcsvGroupId` (escrito contra **TCGCSV**, leído por **sellado**
+    → `marketRef`) y `SealedSetGroup.kind='set_main'` (escrito a mano por `linkGroup`).
+  - **Las dos consecuencias que nadie había escrito:** **(a)** las dos `resolveGroupId` **cortocircuitan en
+    `pptSetId` numérico ANTES** de llamar a la escalera canónica ⇒ **en el caso normal el groupId que gobierna el
+    precio lo decidió otra escalera, contra otra fuente, sin la propiedad de monotonía**; **(b)** nada garantiza
+    `pptSetId == tcgcsvGroupId` ⇒ el día que discrepen, **singles y sellado del mismo set se prician contra
+    grupos distintos, en silencio**.
+  - **Alcance del arreglo, y es más barato de lo que parece:** (1) **retirar la rama de `pptSetId`** de las dos
+    `resolveGroupId` —⛔ **no se borra la columna**: PPT la necesita—; (2) **una** función de resolución para las
+    tres rutas (`I-GT3`); (3) `I-GT5` (discrepancia ⇒ señal, nunca elección) con su test; (4) `groupSource` en la
+    respuesta del catálogo de sellado.
+  - **⚠️ Premisa del reporte corregida, medida:** el groupId derivado de `pptSetId` **no está cacheado en la
+    base** — el caché es un `Map` **en memoria por instancia**. ⇒ **no hace falta migración de datos ni
+    invalidación**: retirar la rama corrige desde el primer deploy.
+
+- **⚠️ ABIERTA (v1.66.2) — `D-UP-1`: EL CLIENTE DE `POST /uploads/presign` SIGUE TIPADO CONTRA EL CONTRATO
+  VIEJO.** **Dueño del arreglo: frontend** (WS «Cuentas y acceso»). Norma: **`API_CONTRACT §8` v1.66.2**
+  (`<!-- CANON: cota-de-tamano-del-presign -->`, `estado: VIGENTE`). **No es una fuga viva** — se registra porque
+  es divergencia código⇄contrato, que es lo que este documento vigila.
+  - **Qué medí el 2026-09-10 contra el árbol** (§0-B.3 regla 2), tres sitios y ningún incidente:
+    (1) `frontend/src/types/contract.ts:390` declara **`maxBytes?: number`** *«opcional por compat»* — el contrato
+    lo declara **siempre presente**; (2) `frontend/src/lib/api.ts:1896` tipa **`contentLength?: number`** y su
+    docblock (`:1889`) afirma *«es **opcional** en el contrato»* — **frase muerta**: era cierta hasta v1.66.1 y hoy
+    es lo contrario; (3) el **mock** de `presignUpload` (`api.ts:1907`) devuelve **`headers: {}`**, que el contrato
+    ya no admite.
+  - **Por qué no rompe hoy, y por qué aun así se arregla:** el **único** llamador real
+    (`PhotoUploader.tsx:149-153`) **siempre** manda `contentLength` (lo calcula del blob ya comprimido) ⇒ **cero
+    clientes rotos**, medido. Lo que queda mal es **el tipo y la frase**: un `?` invita al siguiente llamador a
+    omitirlo —y ese llamador **se estrellará contra un `422`**, no contra el compilador, que es el sitio caro— y un
+    mock con `headers: {}` **entrena a la pantalla a no reenviarlos**. *El `?? maxBytes` de `PhotoUploader:155` es
+    un fallback correcto y **no** hay que quitarlo: lo que sobra es la opcionalidad del TIPO.*
+  - **Alcance (pequeño, y ⛔ ninguna línea de lógica):** `maxBytes` y `contentLength` **requeridos** en los tipos,
+    el docblock reescrito, y el mock devolviendo `headers` poblado. **Cabe en el pase de cierre o en el siguiente;
+    no bloquea la publicación.**
+
+- **⚠️ ABIERTA (v1.66) — `D-CS-3`: `IMPORTANTE-3` SIGUE SIENDO DE BACKEND, Y LA COLUMNA NUEVA NO LO CIERRA.**
+  **Dueño del arreglo: backend** (`tcgcsv-singles-bulk.provider.ts`, `resolveGroupId` → `null` con nombres
+  ambiguos ⇒ 0 filas y sólo un `warn`). **Se registra aquí para que la columna de `§M2-CS.3` no se lea como el
+  arreglo.**
+  - **Qué aporta la columna y qué no:** vuelve el defecto **visible** (el set cae a `0/N` pasada la ventana) y le
+    da cara propia a su variante peor (estructura nunca resuelta, `I-PC4`). **No avisa el día 1** (detector, no
+    alarma) y **no toca la causa**. *Ver el síntoma no cura la enfermedad.*
+
+- **✅ CERRADA (v1.65 → cerrada 2026-09-10, v1.66.1) — `D-PP-1`: EL SEED DE `price_provider` CONTRADECÍA LA NORMA
+  `I-PP1`, Y UN TEST LO FIJABA.** **La ejecutó backend** (WS «Catálogo y precios»). Razón entera: **§4.35a**;
+  norma: **`API_CONTRACT §M10-PP`**.
+  - **Cierre verificado en el artefacto que corre** (§0-B.3 regla 2, 2026-09-10):
+    `backend/src/modules/settings/settings.constants.ts` siembra **el provider PRIMARIO** en
+    `DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]` ⇒ **`I-PP1` se cumple** y **`I-PP5` (paridad de entornos) se
+    cumple por construcción** en toda BD fresca. ⛔ **El literal no se transcribe aquí** (`I-PP2` / §0-B.3 regla 1):
+    se lee del fichero.
+  - **⚠️ Lo que este cierre dejó abierto durante días, y es el motivo de la regla 10:** **cuatro textos** de la
+    documentación siguieron afirmando en presente que la desviación estaba abierta —la nota de vigencia dentro del
+    bloque `CANON` de `API_CONTRACT §M10-PP` y tres frases de §4.35a de este documento—. **Ninguna se disparó
+    sola**: cerrar la desviación no toca los textos que hablan de ella. ⇒ **`ARCHITECTURE §0-B.3` regla 10**: el
+    estado es un **token** en la marca, cambiarlo es un paso obligado de la rev que cierra la desviación, y ⛔
+    **cero clase (B) dentro de un bloque canónico**.
+  - **Registro histórico de qué se arregló** *(no es una afirmación sobre el ahora)*: el seed decía
+    `pokemontcg_io` con el comentario *«money-safe»*, el comentario de `PRICE_PROVIDER_VALUES` lo repetía, y
+    `backend/test/settings.validation.spec.ts` fijaba el literal. Se reescribieron los tres, y el test asserta
+    **`I-PP1` como IGUALDAD** (`seed == primario`), que es lo que impide que vuelva a caducar.
+  - **Por qué era un defecto y no una preferencia** *(se conserva: es la razón, y sigue siendo válida)*:
+    `pokemontcg_io` **escribe** `PriceReference` con un `market` **aplanado** (mismo precio a
+    `normal`/`reverse_holo`/`holofoil`) ⇒ toda BD fresca —CI, dev, staging— arrancaba en **el lado irrecuperable**
+    del sesgo de error (`PROJECT §N.0`) y **validaba un barrido distinto al de producción**. *El adjetivo
+    «money-safe» del comentario era falso: el seed money-safe sería uno INERTE, y éste no lo es.*
+  - **Lo que el arreglo NO tocó, y sigue siendo norma:** ⛔ **ni una línea del `providerFor()` ni del enum** —
+    `pokemontcg_io` **permanece** como valor válido (`I-PP3`, es la palanca de rollback del **VIGENTE**).
+  - **Precondición verificada antes del merge** (§4.35a(b)): producción **tiene** la fila
+    `ConfigSetting.price_provider` (leída el 2026-09-10 en el panel M10) ⇒ el cambio del `DEFAULT` **no pudo**
+    alterar producción.
+
+- **⚠️ ABIERTA, REDUCIDA (v1.65; actualizada v1.66.1) — `D-PP-2`: PROSA DE `DEVOPS_NOTES` QUE LLAMA «MONEY-SAFE»
+  AL SEED QUE APLANA, Y FRASES QUE AÚN DESCRIBEN COMO VIGENTE UN PUENTE YA RETIRADO.** **Dueño del arreglo:
+  devops.** **⛔ No escribo en `DEVOPS_NOTES.md`.** Razón: **§4.35a(c)/(d)**.
+  - **Prosa a corregir (no procedimiento):** las frases de §19.5, §19.6 (paso 3, *«sembrar `PRICE_PROVIDER=pokemontcg_io`
+    (money-safe)»*) y §28.2 que presentan el **seed** legacy como candado. **§28.6 (rollback) NO se toca: sigue
+    íntegro y correcto** — opera el **VIGENTE** (`I-PP3`), que es otro hecho. §28 queda como **registro fechado** de
+    una activación consumada, no como norma sobre cómo nace un entorno.
+  - **➕ v1.66.1, y es la mitad que queda viva:** con `D-PP-1` **cerrada**, las frases que presentan el puente
+    interino como **vigente** ya no describen nada — p. ej. la fila de `scripts/price-provider-parity.sh` en
+    **§43.2** (*«`--ensure` … INTERINO, muere con `D-PP-1`»*). ⚠️ **Es prosa, no procedimiento:** el
+    procedimiento **ya lo corrigió devops** en **§44.7** (*«Solo `--assert`, nunca `--ensure`; el puente
+    caducó»*), y esa decisión **es correcta y no se toca**. Lo pendiente es que las dos secciones digan lo mismo.
+  - **✅ Brecha operativa CERRADA:** el DAST contra staging y la suite E2E validaban un barrido distinto al de
+    producción **mientras `D-PP-1` estaba abierta**. Ya no: la paridad se cumple por construcción (`I-PP1`) y el
+    `--assert` la **mide** en cada corrida — esa medición es **permanente** y ⛔ no se retira con el puente.
+  - **Aviso a `.env.example`:** ⚠️ **`PRICE_PROVIDER` como variable de entorno NO flipea nada** (`DEVOPS_NOTES §23.8`,
+    ya documentado por devops); la autoridad es el `ConfigSetting`. **Esa trampa no la toca este pase** y conviene
+    releerla al aplicar la medida interina, para no «fijar» el dial en un sitio que nadie lee.
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-4`: EL COMENTARIO QUE GOBIERNA DOS VALIDADORES DE DINERO PUBLICA UN ESTADO FALSO
+  DE D54.** **Dueño del arreglo: backend** (`backend/src/modules/settings/settings.constants.ts`, el bloque de
+  `validateIvaPct`, líneas ~644-653, y su gemelo en `validateAportacionPct`). **⛔ No lo toco yo.**
+  - **Qué dice el código hoy, verbatim:** *«su tipo … es una decisión de arquitectura ligada a D54 (§Q de
+    `PROJECT.md`, **borrador NO vigente**). Cambiarlo ahora la prejuzgaría.»*
+  - **Por qué es falso desde el 2026-09-09:** **§Q es alcance vigente y D54 está aprobada.** El comentario está en
+    el fichero que gobierna qué puede teclear un `super_admin` en **dos diales de dinero**, y quien lo lea concluirá
+    que hay una decisión pendiente que ya no existe.
+  - **Lo que NO cambia, y por eso esto es prosa y no dinero:** **el razonamiento del validador era correcto y sigue
+    siéndolo**, y **la decisión de columna que el comentario esperaba ya está tomada** — `§4.44.g`: la columna sigue
+    siendo `Int` y el rango sigue siendo entero, también para el dial nuevo. **Backend acertó al cerrarlo ahí.**
+  - **Alcance del arreglo: dos comentarios.** ⛔ **Ni una línea de lógica.** Sustituir *«borrador NO vigente»* por
+    la referencia a **`ARCHITECTURE §4.44.g`** y a **D54 (aprobada 2026-09-09)**.
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-5`: EL P&L NO CUENTA EL INGRESO DE ENVÍO DE LOS PEDIDOS `direct_ship`, Y EL
+  CONTRATO LO MANDA DESDE v1.21.** **Pre-existente: NO la causa D54.** La levanto ahora porque **vive en el mismo
+  bucle que el pase de §4.44 va a tocar**, y arreglar el neteo sin arreglar esto dejaría el reporte mal por otra
+  vía. **Dueño del arreglo: backend** (`admin.service.ts`, `pnl()`, líneas 811-856).
+  - **Qué manda el contrato** (`API_CONTRACT`, nota «P&L y guest checkout (v1.21)»):
+    `shippingRevenueCents = Σ ShipmentRequest.shippingFeeCents + Σ Order.shippingFeeCents (órdenes settled del periodo)`.
+  - **Qué hace el código, verificado línea a línea:** solo el primer sumando (`admin.service.ts:842`). **El segundo
+    no aparece en ninguna parte de `pnl()`.**
+  - **Por qué el dinero se pierde entero y no a medias:** el `ShipmentRequest` de fulfillment de un pedido de
+    invitado lleva **`shippingFeeCents = 0` a propósito** (para evitar el doble conteo), y `Order.subtotalCents`
+    **excluye** el envío (columna aparte). ⇒ **el ingreso de envío de TODO pedido `direct_ship` no lo cuenta nadie.**
+    El **costo** (`shippingCostCents`) sí se captura ⇒ **el P&L subestima la ganancia** por ese lado.
+  - **Interacción con §4.44:** cuando se añada, ese sumando **también tiene que netearse** por la convención de la
+    orden (`§4.44.j`, sitio **3**). *Si se añade antes que el neteo, se añade IVA como ingreso de envío; si se añade
+    después sin neteo, igual. Va con el helper desde el primer commit.*
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-6`: LA CITA DE LÍNEA DE `PROJECT §Q.2` (hecho 7) APUNTA UNA LÍNEA ANTES DE LO QUE
+  DESCRIBE.** **Menor, y de documento, no de código.** `PROJECT.md` cita `admin.service.ts:816` para
+  `incomeCents += o.subtotalCents`; **la línea real es la 821** (la `:816` es el cierre del `include` del
+  `findMany`). Misma deriva en `§Q.2` hecho 3 (`settings.service.ts:259` **sí es exacta**, verificada) y en la
+  bandera de la brecha (`money.ts:486` **sí es exacta**, es el `Math.ceil` del gross-up). **Se anota para que QA no
+  busque en el sitio equivocado y concluya que el hecho no existe.** **Dueño: product-owner** (`PROJECT.md`), o
+  simplemente **nadie**, si se acepta que las citas de línea derivan. ⛔ **No es motivo para tocar código.**
+
+- **⚠️ ABIERTA — LA ABRO YO Y NO PUEDO CERRARLA (v1.64) — `D-IVA-7`: EL CRITERIO 185 («idéntico al centavo») Y EL
+  CRITERIO 194 («Σ líneas == subtotal») NO PUEDEN SER LOS DOS EXACTOS EN CARRITOS MULTI-LÍNEA.**
+  **Dueño de la decisión: product-owner** (es una enmienda a un criterio de `PROJECT.md`, y **eso no es mío**).
+  - **La aritmética, con el contraejemplo mínimo que calculé con los diales reales** (`§4.44.c.1`): dos piezas de
+    `L = 103` ⇒ hoy se cobran **613** centavos, con §4.44 se cobran **612**. **Un centavo.** Es
+    `Σ round(L×1.16)` **≠** `round(Σ L ×1.16)`, y no hay fórmula que evite las dos a la vez.
+  - **Por qué no se puede «elegir la otra»:** redondear sobre el agregado descuadra el recibo del cliente, y el
+    criterio **194** es absoluto (*«un redondeo por línea que se acumule y descuadre el total es un fallo»*).
+  - **Cota — CANON ÚNICO (v1.64(2), §4.44.c.1-bis), sobre la BASE y en centavos enteros:** **`n = 1` ⇒ CERO**
+    (identidad **demostrada**, §4.44.c.1-ter, no una cota); **`n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋`** ⇒ **≤ 4 centavos** en el
+    carrito de 7 piezas del propio criterio 194. **En las dos direcciones.**
+    ⛔ **Las cifras `0.53 ¢/pieza` (este documento) y `1 ¢/pieza` (el contrato) quedan DEROGADAS: eran mías y eran
+    dos para una sola cosa, y la del contrato —la que backend implementa como umbral— era la MÁS FLOJA.**
+  - **⭐ La desviación es EXCLUSIVAMENTE del AGREGADO.** El precio por unidad, el margen por unidad y el caso de una
+    pieza son **exactos por demostración**: `round(L×(1+t·r)) = L + round(L×t·r)` (sumar un entero conmuta con el
+    redondeo) y **con `r = 16` no existe empate en `.5` para ningún `t` ni ningún `L`** (`16·t·L ≡ 5000 (mod 10000)`
+    exige par = impar). *Esto refuerza la recomendación: el criterio 185 se enuncia sobre una pieza, y sobre una
+    pieza no se desvía nada.*
+  - **Qué NO se desvía:** el caso de **una sola pieza** —que es el que el criterio 185 **enuncia** (MX$100.00 →
+    MX$116.00 → MX$124.69)—, **el precio y el margen por unidad**, **el envío**, y la identidad
+    `taxBase + iva ≡ subtotal`.
+  - ⭐ **TERCER SITIO, hallado por el product-owner tras mi pase (pregunta 67): el criterio 191.** El `taxBase`
+    agregado puede reportar **un centavo menos de ingreso neto** que `Σ L_i` (dos piezas de `L=103` ⇒ `205` vs
+    `206`). **Decidido en `§4.44.c.2`: `R2` NO cambia** —porque `netRevenue + iva ≡ subtotal` vale más que el
+    centavo, y `ivaCents` es fiscal—, **y lo que se arregla es el EJEMPLO**: `IVA-5` gana un caso multi-línea
+    obligatorio. *Mi ejemplo era de una pieza, donde esto es exacto por demostración: QA nunca lo habría visto
+    fallar.*
+  - **Mi recomendación, para que el product-owner decida sobre algo concreto:** que el criterio **185** se verifique
+    **por pieza y por margen** (que es lo que el dueño realmente decidió: *«el margen sigue en MX$100.00»*), y que
+    la desviación de agregado quede **declarada y acotada** por el candado **`IVA-4`** en vez de negada. **⛔ No la
+    aplico como si estuviera aprobada.**
+  - **⛔ NO BLOQUEA a backend ni a frontend.** La fórmula es la misma se responda lo que se responda. Lo único que
+    depende de la respuesta es **cómo verifica QA el criterio 185**.
+
+- **⚠️ ABIERTA (v1.64) — `D-IVA-8`: EL CRITERIO 189 (VIGENTE) DECIDE DE FACTO LA MITAD ARITMÉTICA DE LA PREGUNTA 60
+  (ABIERTA), Y LOS DOS DOCUMENTOS NO LO DICEN JUNTO.** **Dueño: product-owner.**
+  - `PROJECT §Q.5` marca el envío **«SIN DECIDIR — pregunta 60»** con el supuesto *«se suma aparte»*. Pero el
+    criterio **189** —**vigente, y QA lo verifica**— exige `total = Σ(exhibidos) + envío + comisión` **y nada más**,
+    y hoy el código **apila `round(envío × 16 %)` después** (`money.ts:409` y `:445`).
+  - ⇒ **Bajo 189, la tarifa de envío exhibida tiene que llevar su IVA dentro.** No es una preferencia: es la única
+    lectura de 189 que no lo incumple. Lo diseño así (`§4.44.f`) y es **money-neutral al centavo**
+    (`round(17500×1.16) = 20300 = 17500 + 2800`).
+  - **Lo que sigue abierto de verdad es el ROTULADO**, no la aritmética. **Si el dueño responde que el envío se
+    muestra sin IVA y el IVA del envío se suma aparte**, hay que **enmendar el criterio 189** y reverificar
+    `§4.44.f`, las fórmulas (3)–(4) y el candado **`IVA-6`**.
+  - ⛔ **No bloquea.** Con el supuesto declarado, backend implementa; si cambia, se sabe exactamente qué revisar.
+
+- **🔴 ABIERTA Y CERRADA EN EL MISMO PASE (v1.64(3)) — `D-IVA-10`: MI PROPIA FÓRMULA DE `netRevenueCents` ERA
+  INCORRECTA PARA LOS PEDIDOS `direct_ship`, Y NO REVENTABA: MENTÍA.** **Dueño del arreglo: yo** (es `§4.44.j`,
+  documento mío) ⇒ **corregida en el acto**. ⛔ **Backend NO tiene rework en D-1: la rama es INALCANZABLE ahí.**
+  - **Qué publiqué en v1.64:** `IVA_INCLUSIVE → subtotalCents − ivaCents`.
+  - **Por qué es falso:** bajo `IVA_INCLUSIVE`, `ivaCents` es el residual del **AGREGADO** `G = S + E` (R2) ⇒
+    **incluye el IVA del envío**. Restarlo entero del subtotal **le quita a la mercancía un IVA que no es suyo**.
+  - **Medido con el caso real de un pedido de invitado:** `S = 11600`, `E = 20300`, `ivaCents = 4400` ⇒ mi fórmula
+    daba **7 200** de ingreso de mercancía **donde son 10 000**. **−2 800 por pedido, en silencio, en el criterio
+    191** — el reporte que este pase entero existe para que no mienta.
+  - **Por qué no se veía:** **los dos ejemplos del criterio 191 son de pedidos a bóveda** (`E = 0`), y ahí las dos
+    fórmulas **coinciden**. *Es la trampa de la pregunta 67 otra vez, en otro sitio: un ejemplo que esconde el
+    defecto que ilustra. Dos veces en dos rondas — el patrón es mío y lo anoto como tal.*
+  - **Cómo se destapó:** por **`IVA-R1`**, la marca interna que backend me elevó **sin tocarla**
+    (`BACKEND_NOTES §0.50.7`): *«el IVA que corresponde a la línea de envío no está persistido por separado»*.
+    **Acertó en que era decisión mía, y al tomarla encontré que mi fórmula ya estaba mal.** *El valor de que un
+    implementador se niegue a decidir lo que no le toca no es la deferencia: es que el defecto sale a la luz.*
+  - **Corrección:** `IVA_INCLUSIVE → round(subtotalCents / (1 + ivaRatePct/100))`, y `IVA-R1` resuelto como
+    **residual del residual** (§4.44.j.1) ⇒ la identidad
+    `netRevenue + netShipping + ivaCents ≡ subtotal + shippingFee` pasa a ser **EXACTA**, sin el ±1 centavo que
+    backend había declarado. Candado **`IVA-9`**.
+
+- **⚠️ ABIERTA (v1.64(3)) — `D-IVA-9`: LA SEMÁNTICA DE CAPTURA DE `ShipmentRequest.shippingCostCents` NO ESTÁ
+  DEFINIDA (¿BRUTO O NETO DE IVA ACREDITABLE?), Y LA DECISIÓN DEL DUEÑO DEL 2026-09-10 LA VUELVE NORMATIVA.**
+  **Preexistente: NO la causa D54.** **Dueño del arreglo: backend** (semántica + validación) **y ux-ui** (el rótulo
+  del campo en M4).
+  - **Qué dice hoy la columna:** `shippingCostCents Int @default(0)`, comentario *«lo que la plataforma paga al
+    carrier»*, *«sin captura ⇒ 0»* (`schema.prisma:1153`). **No dice si lleva IVA dentro.**
+  - **Por qué ahora es dinero:** el dueño decidió que **el IVA del envío se acredita** (*«descontamos ese iva»*).
+    Si el costo se captura **bruto** (`20300`) y el ingreso de envío se reporta **neto** (`17500`), **el P&L
+    muestra una pérdida de 2 800 en cada envío que no existe**. **Neto contra neto ⇒ margen 0**, que es justo lo
+    que él describe con *«no se lo vendemos»*.
+  - ~~**Norma que fija este documento:** **`shippingCostCents` se captura NETO de IVA acreditable.**~~
+    🔴 **DEROGADO EN v1.64(4) POR DECISIÓN DEL DUEÑO (pregunta 68, contestada 2026-09-10):
+    *«el costo de envio con el iva que yo pague»* ⇒ SE CAPTURA **BRUTO**.** **Mi recomendación era la contraria y
+    su decisión es mejor:** el bruto es **la cifra que trae la factura del carrier**, y pedirle que reste el IVA
+    antes de teclear es **pedirle aritmética fiscal en cada captura**. Además es **`R3`, que yo mismo escribí y no
+    apliqué aquí**: se guarda el **primario** y se deriva el resto — guardar el neto habría sido perder el dato
+    verificable contra el papel. **⚠️ Mi advertencia no era falsa: estaba en el sitio equivocado.** El descuadre
+    sigue existiendo y **se cura al LEER** (netear en el P&L), no al capturar. **Norma vigente: `§4.44.f-ter`**,
+    con la columna nueva `shippingCostIvaCents` (M-50, punto 3-bis) y el rótulo de M4 diciendo **«importe TOTAL de
+    la factura, IVA incluido»**. ⚠️ **Sujeto a ratificación de contador**; **que él acredite ese IVA es afirmación
+    SUYA**, no nuestra.
+  - **⭐⭐ 2. Y LO QUE NO HAY QUE CONSTRUIR — CORRIJO EL REPORTE QUE ME LLEGÓ: `Order` NO NECESITA
+    `shippingCostCents`. NO HAY HUECO DE DATOS.** Se me elevó como *«en los pedidos `direct_ship` no existe el dato
+    de lo que yo pagué»*, con propuesta de meter DDL en `M-50` aprovechando que D-1 no está publicado.
+    **Lo verifiqué y es incorrecto:** el `ShipmentRequest` **de fulfillment** de un pedido `direct_ship` lleva
+    `shippingFeeCents = 0` **a propósito** (para no contar dos veces el ingreso) **pero su `shippingCostCents` SÍ
+    se captura**, y el P&L **ya lo resta**. **Lo asierta el propio test de backend**
+    (`admin.pnl-iva-neutral.spec.ts:234-241`: *«el costo SÍ se capturaba»*, `viejo.shippingCostCents === 9000`).
+    ⇒ **⛔ CERO DDL. `M-50` no se toca.** *Y añadir la columna habría sido peor que innecesario: dos fuentes para
+    un mismo hecho, que es exactamente el defecto de `stripe_fee_iva_pct` —dos diales, un concepto, derivando— que
+    este proyecto ya pagó una vez.*
 
 - **✅ ABIERTA Y CERRADA EN EL MISMO PASE (v1.63.4) — `D-FX-6`: MI CANDADO NORMATIVO `FX-20` DESCRIBÍA LA CARRERA
   `S-FX-1` AL REVÉS.** **Dueño del arreglo: yo** (es `API_CONTRACT §M2-F.6`, documento mío) ⇒ **corregido en el
@@ -22518,9 +24554,14 @@ este documento y con `API_CONTRACT.md`.
   *required* en prod (recomendado cuando `PRICE_PROVIDER=pokemonpricetracker`).
 - **v1.14-3 (devops) — cadencia y horarios del `price-ingest` (1–2×/día).** Default propuesto: **2×/día** alineado con
   el `fx-refresh` (FX fresco antes de convertir). ¿Confirmar horas? ¿1×/día basta para el negocio? Scheduling = **devops**.
-- **v1.14-4 (rollout, money-safe) — seed del dial `PRICE_PROVIDER`.** Default recomendado: **`pokemontcg_io`** al
+- **v1.14-4 (rollout, money-safe) — seed del dial `PRICE_PROVIDER`.** ~~Default recomendado: **`pokemontcg_io`** al
   desplegar (sin cambio de fuente; el job ya es robusto) y **flip a `pokemonpricetracker`** tras verificar v1.14-1.
-  Alternativa: sembrar `pokemonpricetracker` desde el arranque (la key ya está en Railway). Confirmar la secuencia.
+  Alternativa: sembrar `pokemonpricetracker` desde el arranque (la key ya está en Railway). Confirmar la secuencia.~~
+  ⛔ **CERRADA y SUPERSEDIDA por v1.65 (§4.35a):** la norma del seed es **`I-PP1` — el seed ES el primario**, y vive
+  en **`API_CONTRACT §M10-PP`** (fuente única). ⚠️ **La recomendación tachada era correcta EN SU CONTEXTO** —el
+  candidato a primario era entonces un proveedor **de paga sin esquema verificado**— y **dejó de serlo cuando el
+  primario pasó a ser `tcgcsv_singles`** (P-47/v1.44), que **no** es ese riesgo. *Este párrafo es la fuente que se
+  citaba de buena fe para sostener el seed legacy; se deja tachado y no borrado para que se vea de dónde venía.*
 - **v1.14-5 (alcance) — ¿el proveedor de paga precia también GRADEADAS (PSA) en WS-A?** La respuesta bulk trae eBay/**PSA**.
   WS-A se acota a **raw market + variantes** (`raw:NM`, el barrido que hoy se cae). Preciar gradeadas (`graded:PSA:<grade>`)
   con el mismo proveedor es una **extensión natural** (misma respuesta bulk) pero **fuera del core de WS-A**; queda como
@@ -22627,7 +24668,125 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
-Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+Cambios de esquema Prisma que backend debe migrar. ~~Proyecto **greenfield sin backfill de datos** (aún no hay filas
+productivas); las migraciones solo redefinen esquema.~~
+
+> ⛔⛔ **v1.64 — ESA FRASE CADUCÓ Y NO ES UN DETALLE: ES LA PREMISA DE LA QUE CUELGA `M-50`.** §9 de este mismo
+> documento dice, desde el 2026-08-16, *«plataforma **ya en producción**»*, y `PROJECT §Q` está construido entero
+> sobre que **existen órdenes ya cobradas** (criterio **190**: *«se toma una orden creada antes del cambio…»*).
+> **Hay filas productivas.** Quien lea este preámbulo y escriba una migración *«que solo redefine esquema»* sobre
+> `Order` **destruye el criterio 190 sin enterarse**. **La norma vigente para toda migración de aquí en adelante es
+> que hay datos**, y que un `ADD COLUMN … NOT NULL` sin backfill explícito **es un fallo de release**.
+
+### v1.66-catalog-honesty (**M-51**: el índice que paga la columna de cobertura + el mando muerto que se borra — **SIN DDL de tablas**, §4.45)
+
+> 🚧 **`M-51` NO EXISTE TODAVÍA** *(medido el 2026-09-10: la última migración del árbol es
+> `20260909120000_m50_price_convention`)*. Esta entrada es **la especificación de una migración pendiente**, no
+> el registro de una aplicada — y se dice porque **v1.66 la citó en presente desde dos documentos**. Dueño:
+> **backend**; compuerta y orden: **§9, `D-CS-5`**.
+>
+> **Dos partes independientes, y su ORDEN importa.** Ninguna toca dinero: `M-51a` es un índice de lectura y
+> `M-51b` borra una fila de configuración que para entonces ya no decidirá nada.
+
+**`M-51a` — índice `PriceReference(capturedDate)`.** Es **el costo declarado** de la columna `PRECIOS` de M2
+(`API_CONTRACT §M2-CS.3`): sin él, contar variantes con precio vigente degrada a barrido de tabla completa sobre la
+tabla que más crece del sistema (una fila por variante **por día**). `PriceReference` se escribe **por lotes** y
+está **fuera de la ruta de dinero del checkout**, así que el B-tree extra es aceptable. ⚠️ **Se crea
+`CONCURRENTLY`** (tabla grande, producción viva). Backend elige la forma final —simple o compuesta
+`(capturedDate, cardProductId)`— **midiendo el plan**, y **lo reporta**: la decisión de forma es suya, la de que el
+índice existe es de esta sección.
+
+**`M-51b` — `DELETE FROM "ConfigSetting" WHERE key = 'catalog_sync_from_date'`.** El corte **pasará a derivarse**
+(§4.45.3), y entonces esa fila dejará de decidir — ⚠️ **hoy todavía decide** (`D-CS-5`). ⛔ **No se deja «deprecada e inerte»**: un mando muerto que sobrevive
+en la base **lo lee alguien y cree que manda** — es la misma norma de `DESIGN_SYSTEM §32.6` (*«la copia muerta se
+muestra o se borra; no existe se queda por si acaso»*) aplicada a configuración.
+
+> ⭐ **`M-51b` va DESPUÉS del deploy que deja de leer la clave, nunca antes.** Si se borra primero, la lectura
+> vigente cae al seed del código y **el corte se movería solo, en silencio y en la dirección equivocada**, entre un
+> paso y el otro. *Rollback: re-insertar la fila NO restaura el comportamiento si el código nuevo ya no la lee — el
+> rollback real es el del artefacto.*
+
+### v1.64-iva-inclusive (**M-50**: convención de precio por orden + dial de traslación — **DDL ADITIVO + enum + backfill determinista + seed**, §4.44)
+
+> ⭐ **Va ENTERA en el DEPLOY 1** (§4.44.k), cuando el código todavía escribe `IVA_EXCLUSIVE` y la aritmética es la
+> de hoy. **El deploy 2 no trae DDL.** *La única ventana para probar que el P&L quedó neutro es antes de que
+> ninguna cifra se mueva.*
+
+**1. Enum nuevo**
+
+```prisma
+enum PriceConvention { IVA_EXCLUSIVE  IVA_INCLUSIVE }
+```
+
+**2. `Order` — dos columnas aditivas**
+
+| Columna | Tipo | Nulabilidad | Default de BD | Backfill |
+|---|---|---|---|---|
+| `priceConvention` | `PriceConvention` | **NOT NULL** | ⛔ **NINGUNO** (§4.44.e) | **`IVA_EXCLUSIVE`** en toda fila existente |
+| `ivaTransferPct` | `Int` | **NULL** | ninguno | ⛔ **NINGUNO — se quedan en `NULL`** |
+
+**3. `ShipmentRequest` — las mismas dos columnas, con las mismas reglas** (el envío entra en la convención, §4.44.f).
+
+**3-bis. ⚠️ `ShipmentRequest.shippingCostIvaCents` — TERCERA columna, AÑADIDA en v1.64(4) (§4.44.f-ter)**
+
+```prisma
+model ShipmentRequest {
+  shippingCostCents     Int  @default(0)   // ya existía. BRUTO: importe TOTAL de la factura del carrier
+  shippingCostIvaCents  Int  @default(0)   // NUEVA. IVA acreditable de esa factura, CONGELADO al capturar
+}
+```
+
+> 🔴 **REVIERTO MI PROPIO «CERO DDL — `M-50` NO SE TOCA» de v1.64(3), y digo por qué, porque un cambio de criterio
+> sin razón escrita es ruido.** Cuando lo dije, la semántica de `shippingCostCents` era **indefinida** y yo
+> recomendaba capturar neto. **La decisión 69 del dueño la volvió un hecho que carga dinero** (*«trátalo como si no
+> hubiera margen»* ⇒ la línea de envío tiene que poder cuadrar), y **la 68 fijó que se captura BRUTO** ⇒ **hay que
+> netear al leer**. Y al ir a hacerlo encontré el hecho que lo decide: **`ShipmentRequest` NO tiene `ivaRatePct`**
+> (solo `Order`, `:1071`) ⇒ netear exigiría **el dial vivo**, y entonces **un P&L histórico cambiaría al mover
+> `iva_pct`**, incumpliendo el candado **`IVA-5`** que ya está publicado y verde. **No es preferencia: sin esta
+> columna, D-2 no puede cumplir una norma que ya escribí.**
+>
+> **Es el momento barato y es la última oportunidad barata:** `D-1` está **implementado y verificado pero SIN
+> PUBLICAR**. Después es una migración aparte sobre una tabla con filas productivas.
+>
+> **Alcance del reproceso para backend, acotado:** **una columna aditiva**, `@default(0)`, **sin backfill**, más la
+> enumeración de `migration.m50-no-default.spec.ts`. ⛔ **No toca `Order`, ni el enum, ni el backfill de
+> `priceConvention`, ni el seed del dial.** ⛔ **Y NO cambia la promesa de D-1**: la columna se **escribe** desde el
+> día uno pero **nadie la lee hasta D-2** ⇒ **cero cambios de contrato observable**, el candado de D-1 sigue válido.
+>
+> **`@default(0)` es HONESTO aquí** por el criterio que el propio backend dejó escrito: la ausencia **de verdad
+> significa cero** —en las filas históricas nunca se capturó el IVA de un costo— y es la **dirección conservadora**
+> (`net = bruto` ⇒ subestima la ganancia). ⛔ **Prohibido backfillear `costo × 16/116`**: inventaría un crédito
+> fiscal que nadie verificó, misma doctrina que `ivaTransferPct`.
+
+**4. `ConfigSetting` — la fila del dial**, sembrada en **`100`** (§11.0, regla de propagación de seeds):
+`{ key: 'iva_transfer_pct', valueJson: 100 }`. Más las cuatro estructuras de `settings.constants.ts` —
+**`SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS`, `SETTING_DTO_MAP`**: ⚠️ **en tres de las cuatro compila y
+falla en runtime** (misma advertencia que dejó `kycUploadOrphanHours`).
+
+**5. ⛔ EL ORDEN DEL DDL ES OBLIGATORIO, y el motivo es que un `DEFAULT` transitorio sobrevive a quien lo escribió**
+
+```sql
+-- (a) añadir NULLABLE, sin default
+ALTER TABLE "Order" ADD COLUMN "priceConvention" "PriceConvention";
+ALTER TABLE "Order" ADD COLUMN "ivaTransferPct"  INTEGER;
+-- (b) backfill EXPLÍCITO y determinista (dice la verdad: así se cobraron)
+UPDATE "Order" SET "priceConvention" = 'IVA_EXCLUSIVE' WHERE "priceConvention" IS NULL;
+-- (c) recién ahora, NOT NULL — y SIN dejar DEFAULT
+ALTER TABLE "Order" ALTER COLUMN "priceConvention" SET NOT NULL;
+-- (idem para "ShipmentRequest")
+```
+
+- ⛔ **PROHIBIDO `ADD COLUMN … NOT NULL DEFAULT 'IVA_EXCLUSIVE'`**, aunque después se haga `DROP DEFAULT`. Es más
+  corto y **es exactamente el fallo que §4.44.e existe para evitar**: basta con que el `DROP DEFAULT` se caiga en un
+  rebase para que un camino de escritura que olvide el campo archive bajo una convención lo que cobró bajo la otra,
+  **en silencio y para siempre**. **El fallo ruidoso es la funcionalidad.** Candado `IVA-3(c)`.
+- ⛔ **`ivaTransferPct` NO se backfillea.** `UPDATE … SET "ivaTransferPct" = 100` sobre filas viejas es **inventar un
+  hecho**: esas órdenes se cobraron cuando el dial no existía. Candado `IVA-3(d)`, que lo mide como
+  `SELECT count(*) = 0`.
+- ⛔ **NINGUNA sentencia toca `subtotalCents`, `ivaCents`, `processingFeeCents` ni `totalCents`.** Criterio **190**.
+
+**6. Reversibilidad.** Las cuatro columnas son **aditivas**: revertir el código del deploy 1 las deja **inertes**, no
+rotas. **El `down` no borra nada** (mismo criterio que las migraciones anteriores de dinero).
 
 ### v1.62-bounty-console — **SIN MIGRACIÓN** (§4.42g)
 

@@ -231,8 +231,37 @@ export interface PriceSyncStatus {
   dailyLimited: boolean;
   /** Sets que quedaron pendientes si se detuvo por límite diario. */
   pending: number;
-  /** Proveedor de la corrida (`pokemonpricetracker`/`pokemontcg_io`). */
+  /** Proveedor de la corrida (un valor del enum de `API_CONTRACT §M10-PP`), o null. */
   provider: string | null;
+}
+
+/**
+ * ⚠️⚠️ **v2.2 · CS-D8 — el dial `price_provider` no empareja con ningún proveedor ⇒ el barrido NO
+ * corre** (`API_CONTRACT §M10-PP`, **`I-PP4`**: *«no hay caída automática a otro proveedor: fallar es
+ * fail-closed; aplanar es una pérdida irrecuperable»*).
+ *
+ * Es un `Error` **pelado a propósito**, no una `BusinessException`:
+ * - **No inventa superficie de contrato.** Los códigos de error los fija `API_CONTRACT §0` y ninguno
+ *   nombra este caso; elegir uno prestado (`GRADED_CONFIG_INVALID` está a un palmo, y es de OTRA
+ *   clave) sería ampliar por mi cuenta el alcance de un código del contrato. Si el arquitecto decide
+ *   que este fallo merece `code` propio, se añade **allí primero** (regla 9).
+ * - **El sitio natural de este fallo es un JOB, no un request.** En los tres disparos del barrido lo
+ *   que importa es que el job muera y se vea (`logger.error` + `syncStatus.lastError`). El único
+ *   camino HTTP que lo puede alcanzar es `POST /admin/jobs/price-ingest { setId }`, y ahí el filtro
+ *   global lo sirve como `500 INTERNAL` — que es la verdad: **es un defecto del servidor**, la fila
+ *   de config está corrupta y el operador no puede corregirlo desde ese request.
+ */
+export class UnknownPriceProviderError extends Error {
+  constructor(readonly dial: string) {
+    super(
+      `PRICE_PROVIDER="${dial}" no está en el enum de API_CONTRACT §M10-PP: el barrido de precios NO ` +
+        'corre. I-PP4 es fail-closed — ⛔ no hay caída automática a otro proveedor, porque el legacy ' +
+        'APLANA (un market por carta) y repreciar reverse/holo al precio del normal es una pérdida ' +
+        'irrecuperable. Corrige ConfigSetting.price_provider con PUT /api/v1/admin/settings ' +
+        '{ priceProvider } (I-PP3, super_admin) y vuelve a disparar el barrido.',
+    );
+    this.name = 'UnknownPriceProviderError';
+  }
 }
 
 /**
@@ -332,7 +361,36 @@ export class PriceIngestService {
     private readonly inventoryPublish?: InventoryPublishPort,
   ) {}
 
-  /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
+  /**
+   * Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER`. El enum, la semántica de cada valor y
+   * el SEED los fija `API_CONTRACT §M10-PP` (se citan, no se transcriben: §0-B.3 regla 8).
+   *
+   * ⚠️⚠️ **v2.2 · CS-D8 — FAIL-CLOSED: un dial fuera del enum LANZA. ⛔ No cae a otro proveedor.**
+   * Esto **era** `logger.warn(...) + return this.tcgIoBulk`, es decir **caída automática al LEGACY**,
+   * que es exactamente lo que `I-PP4` (§M10-PP) prohíbe con nombre y apellido: *«no hay caída
+   * automática a otro proveedor: fallar es fail-closed; aplanar es una pérdida irrecuperable»*. Y el
+   * proveedor al que caía es **el que APLANA** (un `market` por carta ⇒ `reverse_holo`/`holofoil` al
+   * precio del `normal`), así que la conducta que el `warn` defendía era **repreciar el catálogo
+   * entero a la baja, en silencio, con un `200`**.
+   *
+   * **Alcanzabilidad, medida (CS-D8, `docs/TECH_DEBT.md`):** hoy **ningún** camino de código de este
+   * repo puede dejar un valor fuera del enum en `ConfigSetting.price_provider` — la puerta de
+   * ESCRITURA la guarda `SETTING_VALIDATORS`. Pero **la LECTURA no valida nada**
+   * (`SettingsService.get()` devuelve `row.valueJson` tal cual), así que cualquier escritura **fuera
+   * de banda** (SQL directo, restauración de respaldo, migración de datos) aterriza aquí. ⇒ El cambio
+   * **no altera ninguna conducta observable hoy**, y convierte el día que deje de serlo en un fallo
+   * ruidoso en vez de un repricing silencioso. *(Un `warn` sobre dinero es una decisión tomada por
+   * nadie.)*
+   *
+   * ⚠️ **Y por eso el `throw` NO viaja solo** — ver `markProviderFailure` justo debajo. Medido: en la
+   * rama con Redis el `throw` sale por `listSetIdsForIngest()` **antes de encolar un solo child**, y
+   * en `runBackground()` (el botón «sincronizar ahora» de N-11) el barrido es *fire-and-forget* con
+   * `.catch(logger.error)` ⇒ **el operador recibiría un `200` y una barra que no se mueve, sin nada
+   * en la UI**. Fail-closed sin señal es otro modo de fallo, no uno mejor: la señal es el estampado
+   * en `syncStatus.lastError`, que es lo que `GET /admin/pricing/sync-status` ya expone.
+   *
+   * @throws {UnknownPriceProviderError} si el dial no empareja con ningún `BulkPriceProvider` vivo.
+   */
   async providerFor(): Promise<BulkPriceProvider> {
     const wanted = await this.settings.getString(SettingKey.PRICE_PROVIDER);
     // v1.44 (§4.35): `tcgcsv_singles` entra como opción PRIMARIA del barrido. Se filtra `undefined`
@@ -345,10 +403,39 @@ export class PriceIngestService {
     const providers = candidates.filter((p): p is BulkPriceProvider => p != null);
     const chosen = providers.find((p) => p.source === wanted);
     if (!chosen) {
-      this.logger.warn(`PRICE_PROVIDER="${wanted}" desconocido → fallback a pokemontcg_io (legacy).`);
-      return this.tcgIoBulk;
+      const err = new UnknownPriceProviderError(String(wanted));
+      // `error`, no `warn`: el barrido de precios NO corre y nadie va a repreciar hoy.
+      this.logger.error(err.message);
+      this.markProviderFailure(err.message);
+      throw err;
     }
     return chosen;
+  }
+
+  /**
+   * ⚠️ **La SEÑAL del fail-closed de `providerFor()` (CS-D8), y no es opcional.**
+   *
+   * Estampa el fallo en el estado observable del barrido para que `GET /admin/pricing/sync-status`
+   * —la superficie que el admin de verdad pollea (N-11)— **diga que no se repreció y por qué**. Sin
+   * esto, los tres disparos del barrido fallan de formas distintas y **dos de ellas son mudas**:
+   *
+   * | Disparo | Sin este estampado | Con él |
+   * |---|---|---|
+   * | cron con Redis (`enqueueAllSets` → `listSetIdsForIngest`) | parent `failed`; `attempts` por defecto **1** ⇒ **sin reintento** hasta el siguiente cron (12 h). Solo una línea `error` del listener `failed` del worker; `sync-status` sigue mostrando la corrida buena anterior (`lastError: null`) | `sync-status` muestra el fallo |
+   * | `run()` sin Redis (`ingestAll`) | el `throw` ocurre **antes** de reinicializar `syncStatus` ⇒ el `catch` que puebla `lastError` **nunca se alcanza** | idem |
+   * | `runBackground()` (botón «sincronizar ahora») | *fire-and-forget*: `200 { background: true }` al operador y `.catch(logger.error)`; **cero señal en la UI** | idem |
+   *
+   * `running: false` es honesto: si esto se estampa, no hay barrido en curso — murió antes de
+   * empezar. `provider: null` porque **no se eligió ninguno** (⛔ nunca el legacy «por si acaso»).
+   */
+  private markProviderFailure(message: string): void {
+    this.syncStatus = {
+      ...this.syncStatus,
+      running: false,
+      finishedAt: new Date().toISOString(),
+      lastError: message,
+      provider: null,
+    };
   }
 
   /** IDs internos de TODOS los `CardSet` locales (parent fan-out + fallback secuencial). */
@@ -725,6 +812,41 @@ export class PriceIngestService {
         `${result.requestOk ? '' : ' [fetch FALLÓ → 0 filas, precios previos STALE]'}. ` +
         `Estructura NO re-resuelta (§4.35).`,
     );
+
+    // ⚠️⚠️ v1.65 (QA IMPORTANTE-3) — **LA SEÑAL VISIBLE de «este set no se repreció».**
+    //
+    // El provider no pudo mapear el set a su grupo remoto ⇒ **NINGUNA** de sus cartas se ha
+    // repreciado, y seguirá así **en cada corrida** hasta que alguien lo arregle. Es money-safe (no
+    // se inventa ni se borra un precio: se CONGELAN los previos) pero **silencioso**, que para el
+    // dueño es peor: un set entero puede quedarse meses con precios de otro mercado sin que nada lo
+    // grite. Hasta ahora el único rastro era un `warn` en los logs del servidor.
+    //
+    // Se deja en `AuditLog` porque es la **única superficie ya existente** donde un humano lo ve sin
+    // abrir logs (`GET /api/v1/admin/audit-log?action=pricing.set_unresolved`, §M10) y **no requiere
+    // tocar el contrato**: `AuditLogDTO` no cambia de shape y `action` es texto libre.
+    // ⚠️ Deliberadamente **una fila por set y por corrida**, no una sola agregada: así el filtro por
+    // `entityId` responde *«¿desde cuándo lleva este set sin repreciarse?»*, que es la pregunta real.
+    // Si el volumen molestara, la respuesta es arreglar los sets, no callar la señal.
+    // ⛔ Best-effort: un fallo de bitácora **no** puede tumbar el barrido (mismo criterio que §4.38h.4).
+    if (result.setUnresolved && this.audit) {
+      try {
+        await this.audit.log({
+          action: 'pricing.set_unresolved',
+          entityType: 'CardSet',
+          entityId: set.id,
+          after: {
+            provider: provider.source,
+            setExternalId: set.externalId,
+            ...result.setUnresolved,
+          },
+        });
+      } catch (e) {
+        this.logger.warn(
+          `price-ingest-set(${set.externalId}): no se pudo dejar la señal "pricing.set_unresolved" ` +
+            `en la bitácora: ${(e as Error).message}. El set SIGUE sin repreciarse.`,
+        );
+      }
+    }
     // §4.36(c) — COEXISTENCIA de las DOS CAPAS ortogonales (ESCRIBIR-luego-LEER): la capa REFERENCIA
     // (P-47, `tcgcsv_singles`) acaba de upsertear las `PriceReference` per-acabado del set; ahora la
     // capa REGLA (curva v2) LEE esas mismas filas para re-resolver el precio de venta de las piezas

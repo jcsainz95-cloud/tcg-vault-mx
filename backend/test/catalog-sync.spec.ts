@@ -30,7 +30,9 @@ function buildPrisma() {
       upsert: jest.fn(async () => ({ id: 'local-sv8', externalId: 'sv8' })),
       findMany: jest.fn(async () => []),
     },
-    card: { upsert: jest.fn(async () => ({})) },
+    // D1: el pre-conteo del universo (`countLocalCardsInSet`) se hace SIEMPRE, no solo cuando el
+    // resolver está cableado — de él sale el veredicto import-nuevo vs re-sync. Por defecto: set vacío.
+    card: { upsert: jest.fn(async () => ({})), count: jest.fn(async () => 0) },
   } as any;
 }
 
@@ -170,19 +172,26 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
         upsert: jest.fn(async () => ({ id: 'local', externalId: 'x' })),
         findMany: jest.fn(async () => localSets.map((s) => ({ externalId: s.externalId, _count: { cards: s.count } }))),
       },
-      card: { upsert: jest.fn(async () => ({})) },
+      card: { upsert: jest.fn(async () => ({})), count: jest.fn(async () => 0) },
     } as any;
   }
 
+  // sv8 cae DENTRO del corte por defecto (dial `catalog_sync_from_date` = 2024/01/01) y base1
+  // (1999) queda FUERA: desde D3 el barrido ya no se trae lo viejo que falte (para eso, backfill).
   const remoteSets = [
     { id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' },
     { id: 'base1', name: 'Base', releaseDate: '1999/01/09' },
   ];
 
   it('encola solo los sets pendientes (resumible) y NO bloquea el request', async () => {
-    // sv8 ya está importado con cartas → pendiente solo base1.
+    // sv8 ya está importado con cartas → pendiente solo sv9 (2025, dentro del corte).
     const prisma = prismaWithLocal([{ externalId: 'sv8', count: 5 }]);
-    const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
+    const client = {
+      getSets: jest.fn(async () => [
+        ...remoteSets,
+        { id: 'sv9', name: 'Nine', releaseDate: '2025/02/01' },
+      ]),
+    } as unknown as PokemonTcgIoClient;
     const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     // El barrido de fondo se difiere (promesa pendiente): demuestra que syncAll NO lo espera.
@@ -196,9 +205,12 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     // Retorna 202-shape de inmediato aunque el barrido siga en curso.
     expect(res).toMatchObject({ setsQueued: 1, remaining: 0 });
     expect(res.jobId).toMatch(/^catalog-sync-all-/);
-    // Solo el set pendiente (base1) se encoló para el barrido.
+    // Solo el set pendiente Y dentro del corte (sv9) se encoló; base1 (1999) queda fuera y se
+    // reporta aparte en vez de colarse en el barrido (D3).
     expect(runSpy).toHaveBeenCalledTimes(1);
-    expect((runSpy.mock.calls[0][0] as any[]).map((s: any) => s.id)).toEqual(['base1']);
+    expect((runSpy.mock.calls[0][0] as any[]).map((s: any) => s.id)).toEqual(['sv9']);
+    expect(res.setsSkippedOutOfRange).toBe(1);
+    expect(res.fromReleaseDate).toBe('2024/01/01');
 
     resolveRun();
   });
@@ -248,10 +260,11 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     const first = await svc.syncAll();
     const second = await svc.syncAll();
 
-    expect(first.setsQueued).toBe(2);
+    // Solo sv8 entra (base1 es de 1999 y queda fuera del corte).
+    expect(first.setsQueued).toBe(1);
     // El segundo disparo no encola nada (ya hay barrido activo) y reporta lo que falta.
     expect(second.setsQueued).toBe(0);
-    expect(second.remaining).toBe(2);
+    expect(second.remaining).toBe(1);
 
     resolveRun();
   });
@@ -293,7 +306,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     const importSpy = jest
       .spyOn(svc as any, 'importSet')
       .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValueOnce({ imported: true, cardCount: 1 });
+      .mockResolvedValueOnce({ outcome: 'imported', cardsUpserted: 1, cardsBefore: 0 });
 
     await expect(
       svc.runSyncAll([
@@ -305,7 +318,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
   });
 
   it('getSyncStatus refleja el progreso: total al lanzar, done por set, running→false al terminar', async () => {
-    const prisma = prismaWithLocal([]); // nada importado → ambos remotos pendientes (total 2)
+    const prisma = prismaWithLocal([]); // nada importado → solo sv8 entra por el corte (total 1)
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
     const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
@@ -319,7 +332,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     await svc.syncAll();
     const mid = svc.getSyncStatus();
     expect(mid.running).toBe(true);
-    expect(mid.total).toBe(2);
+    expect(mid.total).toBe(1);
     expect(mid.jobId).toMatch(/^catalog-sync-all-/);
     expect(mid.startedAt).not.toBeNull();
     expect(mid.finishedAt).toBeNull();
@@ -342,7 +355,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     jest
       .spyOn(svc as any, 'importSet')
       .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValueOnce({ imported: true, cardCount: 1 });
+      .mockResolvedValueOnce({ outcome: 'imported', cardsUpserted: 1, cardsBefore: 0 });
 
     await svc.runSyncAll([
       { id: 'bad', name: 'Bad', releaseDate: '2020/01/01' },

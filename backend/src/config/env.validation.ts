@@ -4,9 +4,23 @@
  *
  * S-B4: la validación ahora corre SIEMPRE (antes solo con `NODE_ENV==='production'`), de modo
  * que staging queda cubierto igual que producción. Se mantiene el patrón local/no-local del
- * repo (seed, pii-crypto): en entornos locales (`development`/`test`/`local` o sin `NODE_ENV`)
- * las claves faltantes NO abortan el arranque (para no romper el dev/CI sin secretos reales);
- * en cualquier entorno NO-local (staging, production, …) sí abortan.
+ * repo (seed, pii-crypto): en entornos locales (`development`/`test`/`local`) las claves faltantes
+ * NO abortan el arranque (para no romper el dev/CI sin secretos reales); en cualquier entorno
+ * NO-local (staging, production, …) sí abortan.
+ *
+ * ### S-88-2 (seguridad) — `NODE_ENV` AUSENTE ya no significa «local»
+ *
+ * Seguridad midió que con `NODE_ENV` ausente esta función **pasaba sin exigir NADA**: ni
+ * `DATABASE_URL`, ni los secretos JWT, ni su entropía, ni Stripe, ni `APP_BASE_URL`, ni Resend.
+ * Es la clase de defecto de `P-WH-1`: *la ausencia de una variable degrada en silencio a lo
+ * permisivo*, y justo en el arranque que NO fija `NODE_ENV` (`npm run start:prod` →
+ * `node dist/main.js`). Ahora **solo los tres valores locales EXPLÍCITOS** relajan; la ausencia
+ * falla CERRADA y exige el set completo. Medido antes de cambiarlo: todos los arranques del arnés
+ * fijan `NODE_ENV` explícitamente (`ci.yml`/`e2e.yml` → `test`, `docker-compose.yml` y
+ * `stack-native.sh` → `development`, jest → `test`), así que esto no rompe ninguno.
+ *
+ * Las claves de PII entran a la lista de requeridas: `PiiCryptoService` ya abortaba por su cuenta
+ * en no-local, así que esto no añade un fallo nuevo — lo adelanta al arranque y con mejor mensaje.
  */
 
 const LOCAL_ENVS = new Set(['development', 'test', 'local']);
@@ -16,7 +30,8 @@ const MIN_JWT_SECRET_LENGTH = 32;
 
 export function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
   const nodeEnv = typeof config.NODE_ENV === 'string' ? config.NODE_ENV : undefined;
-  const isLocal = nodeEnv === undefined || LOCAL_ENVS.has(nodeEnv);
+  // S-88-2: la AUSENCIA no relaja. Solo relajan los tres valores locales explícitos.
+  const isLocal = nodeEnv !== undefined && LOCAL_ENVS.has(nodeEnv);
 
   // Requeridas en todo entorno NO-local (incluye staging y production). Nunca se cae a
   // dummies: sin claves reales, la app NO arranca fuera de local.
@@ -37,6 +52,11 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     'STRIPE_WEBHOOK_SECRET',
     'APP_BASE_URL',
     'RESEND_API_KEY',
+    // S-88-2: cifrado en reposo de CLABE/RFC. `PiiCryptoService` ya se niega a arrancar sin ellas
+    // fuera del arnés (y ya no existe respaldo derivable); aquí el fallo llega antes y nombra
+    // ambas de una vez en lugar de una por reinicio.
+    'PII_ENCRYPTION_KEY',
+    'PII_HMAC_KEY',
   ];
 
   // v1.14-price-ingest (WS-A, §4.15h): `POKEMONPRICETRACKER_API_KEY` es requisito operativo en

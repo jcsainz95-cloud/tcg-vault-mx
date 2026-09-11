@@ -31,7 +31,11 @@ fi
 cd "${BACKEND_DIR}"
 
 # Prefiere un script npm "seed"; si no, intenta `prisma db seed`.
-if npm run | grep -qE '^\s*seed'; then
+# `grep -E … >/dev/null` y NO `grep -qE`: con `set -o pipefail` (arriba), `grep -q`
+# cierra el pipe al primer match, `npm run` muere de SIGPIPE (141) y el pipeline se
+# evalúa FALSO aunque el script exista ⇒ este entorno no se sembraría, en silencio
+# y con exit 0. Mismo defecto que §45.3.
+if npm run | grep -E '^\s*seed' >/dev/null; then
   echo "→ npm run seed"
   npm run seed
 elif [[ -f prisma/schema.prisma ]]; then

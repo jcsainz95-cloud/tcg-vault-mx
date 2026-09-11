@@ -1,0 +1,10 @@
+# =============================================================================
+# ignore.txt — template-ids de nuclei SILENCIADOS  ·  devops
+# =============================================================================
+# Un ID por línea. Todo lo que entre aquí necesita MOTIVO escrito al lado: si
+# no se puede escribir el motivo, no se silencia. El candado (dast-gate.py)
+# los descarta ANTES de decidir, y el resumen del run dice cuántos descartó —
+# "silenciado" no puede volverse "invisible".
+#
+# Hoy la lista está VACÍA a propósito: se llena con evidencia del primer
+# barrido real, no por adelantado.

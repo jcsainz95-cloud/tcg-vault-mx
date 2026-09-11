@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { createDecipheriv, createHash, createHmac } from 'crypto';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 
 /**
@@ -132,8 +133,126 @@ describe('PiiCryptoService', () => {
     }
   });
 
-  it('en local (test) sin claves usa un fallback de desarrollo (no rompe el arranque)', () => {
+  it('en local (test) sin claves arranca (el arnés no necesita claves de produccion)', () => {
     const svc = new PiiCryptoService(new ConfigService({}));
+    expect(svc.decrypt(svc.encrypt(CLABE))).toBe(CLABE);
+  });
+});
+
+/**
+ * S-88-2 (seguridad) — las claves de PII colgaban de `NODE_ENV` y su AUSENCIA degradaba a una
+ * clave DERIVABLE DEL REPO (`sha256('local-dev-pii-encryption-key')`). Misma clase que `P-WH-1`.
+ *
+ * Estos tests son el candado de las DOS mitades del arreglo:
+ *  (1) el respaldo ya no es derivable de ninguna cadena publicada — es aleatorio por proceso;
+ *  (2) la exigencia cuelga del HECHO (ausencia de `NODE_ENV`, entorno no-local, Stripe LIVE),
+ *      sin romper el arnés local/CI, que DEBE seguir arrancando sin claves.
+ */
+describe('PiiCryptoService — S-88-2: las claves NO cuelgan de NODE_ENV', () => {
+  const CLABE = '012345678901234567';
+  const prevEnv = process.env.NODE_ENV;
+  const prevStripe = process.env.STRIPE_SECRET_KEY;
+
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prevEnv;
+    if (prevStripe === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = prevStripe;
+  });
+
+  // ---- (1) el respaldo dejó de ser derivable ----
+
+  it('el fallback NO es la clave del repo: lo que cifra no se descifra con sha256(literal)', () => {
+    process.env.NODE_ENV = 'test';
+    const svc = new PiiCryptoService(new ConfigService({}));
+    const payload = svc.encrypt(CLABE);
+
+    // El PoC EXACTO de seguridad: derivar la clave con la cadena que vive en el repo publico.
+    const repoKey = createHash('sha256').update('local-dev-pii-encryption-key').digest();
+    const [, ivB64, tagB64, ctB64] = payload.split(':');
+    const decipher = createDecipheriv('aes-256-gcm', repoKey, Buffer.from(ivB64, 'base64'), {
+      authTagLength: 16,
+    });
+    decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+    expect(() =>
+      Buffer.concat([decipher.update(Buffer.from(ctB64, 'base64')), decipher.final()]),
+    ).toThrow(); // GCM no autentica ⇒ el literal del repo ya no abre nada
+  });
+
+  it('el blind index tampoco se reproduce con la cadena del repo (el indice sigue ciego)', () => {
+    process.env.NODE_ENV = 'test';
+    const svc = new PiiCryptoService(new ConfigService({}));
+    const repoHmacKey = createHash('sha256').update('local-dev-pii-hmac-key').digest();
+    const derivable = createHmac('sha256', repoHmacKey).update(CLABE).digest('hex');
+    expect(svc.clabeBlindIndex(CLABE)).not.toBe(derivable);
+  });
+
+  it('el fallback efimero es ESTABLE dentro del proceso: dos instancias se entienden', () => {
+    process.env.NODE_ENV = 'test';
+    const a = new PiiCryptoService(new ConfigService({}));
+    const b = new PiiCryptoService(new ConfigService({}));
+    // Si la clave fuera por-instancia, el arnes (que construye una por spec) se rompería.
+    expect(b.decrypt(a.encrypt(CLABE))).toBe(CLABE);
+    expect(b.clabeBlindIndex(CLABE)).toBe(a.clabeBlindIndex(CLABE));
+  });
+
+  // ---- (2) la exigencia cuelga del hecho ----
+
+  it('NODE_ENV AUSENTE ya no es "local": exige las claves (era el agujero medido)', () => {
+    delete process.env.NODE_ENV;
+    expect(() => new PiiCryptoService(new ConfigService({}))).toThrow(
+      /PII_ENCRYPTION_KEY is required here: NODE_ENV ausente/,
+    );
+  });
+
+  it('NODE_ENV vacio ("") tampoco cuela', () => {
+    process.env.NODE_ENV = '   ';
+    expect(() => new PiiCryptoService(new ConfigService({}))).toThrow(/PII_ENCRYPTION_KEY is required/);
+  });
+
+  it.each(['production', 'staging', 'preprod'])('%s exige las claves', (env) => {
+    process.env.NODE_ENV = env;
+    expect(() => new PiiCryptoService(new ConfigService({}))).toThrow(/PII_ENCRYPTION_KEY is required/);
+  });
+
+  it('con Stripe LIVE, ni "development" exime: dinero real ⇒ PII real', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.STRIPE_SECRET_KEY = 'sk_live_deadbeef';
+    expect(() => new PiiCryptoService(new ConfigService({}))).toThrow(/Stripe LIVE/);
+    process.env.STRIPE_SECRET_KEY = 'rk_live_deadbeef';
+    expect(() => new PiiCryptoService(new ConfigService({}))).toThrow(/Stripe LIVE/);
+  });
+
+  it('la HMAC se exige con el MISMO criterio (no basta con poner solo la de cifrado)', () => {
+    delete process.env.NODE_ENV;
+    expect(
+      () =>
+        new PiiCryptoService(
+          new ConfigService({ PII_ENCRYPTION_KEY: Buffer.alloc(32, 4).toString('base64') }),
+        ),
+    ).toThrow(/PII_HMAC_KEY is required here: NODE_ENV ausente/);
+  });
+
+  // ---- la asimetria deliberada: el arnes NO se rompe ----
+
+  it.each(['development', 'test', 'local'])(
+    '%s con Stripe de PRUEBA sigue arrancando sin claves (arnes local/CI intacto)',
+    (env) => {
+      process.env.NODE_ENV = env;
+      process.env.STRIPE_SECRET_KEY = 'sk_test_e2e_dummy';
+      const svc = new PiiCryptoService(new ConfigService({}));
+      expect(svc.decrypt(svc.encrypt(CLABE))).toBe(CLABE);
+    },
+  );
+
+  it('con claves REALES cargadas, ningun entorno falla (incluido NODE_ENV ausente)', () => {
+    delete process.env.NODE_ENV;
+    const svc = new PiiCryptoService(
+      new ConfigService({
+        PII_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString('base64'),
+        PII_HMAC_KEY: Buffer.alloc(32, 6).toString('base64'),
+      }),
+    );
     expect(svc.decrypt(svc.encrypt(CLABE))).toBe(CLABE);
   });
 });

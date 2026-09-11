@@ -10,5 +10,24 @@
   },
   "dependencies": {
     "s3rver": "3.7.1"
+  },
+  "//overrides": [
+    "busboy: s3rver 3.7.1 pide busboy@^0.3.1, que arrastra dicer@0.3.0 (CVE-2022-24434, HIGH,",
+    "DoS por payload multipart manipulado). dicer está SIN MANTENER: el aviso no tiene 'Fixed",
+    "Version' — no hay a dónde actualizar. Se elimina el componente en vez de ignorar el CVE:",
+    "busboy 1.x absorbió el parser (streamsearch) y NO depende de dicer, así que el override",
+    "borra dicer del árbol entero (`npm ls dicer` -> vacío).",
+    "SEGURO AQUÍ, medido (no asumido): el ÚNICO consumidor de busboy en s3rver es",
+    "lib/controllers/object.js::postObject — la subida por FORMULARIO HTML (POST /bucket). Esa",
+    "ruta ya era inalcanzable en este stand-in ANTES del override: la guarda anti-anónima de",
+    "server.js exige firma en cabecera `Authorization` o en query `X-Amz-Signature`, y un POST",
+    "de formulario lleva su firma en los CAMPOS del form. Medido: POST multipart -> 403 idéntico",
+    "con busboy 0.3.1 y con 1.6.0. Y el backend no la usa: uploads.service.ts firma PutObjectCommand",
+    "(PUT presignado), nunca createPresignedPost.",
+    "Round-trip verificado con las dos versiones (PUT/GET presignado OK, firma mala 403, anónimo 403).",
+    "Ver docs/DEVOPS_NOTES.md §47."
+  ],
+  "overrides": {
+    "busboy": "1.6.0"
   }
 }

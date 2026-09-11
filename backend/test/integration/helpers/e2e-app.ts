@@ -25,9 +25,25 @@ import { AllExceptionsFilter } from '../../../src/common/filters/all-exceptions.
 import { StripeService } from '../../../src/modules/payments/stripe.service';
 import { PrismaService } from '../../../src/prisma/prisma.service';
 
-/** Secreto del webhook usado para firmar/verificar en la suite. */
+/**
+ * Secreto del webhook usado para firmar/verificar en la suite.
+ *
+ * S-88-4: aquí decía `|| 'whsec_e2e_test_secret'` — el literal público ganaba **exactamente
+ * cuando faltaba el de verdad**, que es el patrón de `P-WH-1`, en el helper del que dependen los
+ * tests de dinero. Ya no hay respaldo: `setup.ts` genera uno EFÍMERO por corrida, así que la
+ * ausencia aquí solo puede significar que este helper se usó fuera de la suite de integración
+ * (sin `setupFilesAfterEnv`) — y eso debe explotar, no firmar con una clave commiteada.
+ */
 export function webhookSecret(): string {
-  return process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e_test_secret';
+  const secret = (process.env.STRIPE_WEBHOOK_SECRET ?? '').trim();
+  if (!secret) {
+    throw new Error(
+      'STRIPE_WEBHOOK_SECRET no está definido: la suite NO firma webhooks con un literal de ' +
+        'respaldo (S-88-4). Corre con `test/jest-integration.config.js` (su `setup.ts` genera uno ' +
+        'efímero) o expórtalo tú.',
+    );
+  }
+  return secret;
 }
 
 /**

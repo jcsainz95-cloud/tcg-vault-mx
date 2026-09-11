@@ -2,12 +2,13 @@
 # security-scheduled.yml — barrido de seguridad por CALENDARIO  ·  devops
 # Marketplace TCG con Bóveda (Pokémon, México)
 # =============================================================================
-# Dos jobs, los dos semanales:
+# UN job semanal: `deps-audit` (`npm audit` de backend + frontend). ACTIVO
+# SIEMPRE — no necesita secrets ni staging.
 #
-#   1) deps-audit     — `npm audit` de backend + frontend. ACTIVO SIEMPRE
-#                       (no necesita secrets ni staging).
-#   2) scheduled-dast — ZAP full scan + nuclei contra STAGING. PLANTILLA hasta
-#                       que exista STAGING_BASE_URL.
+# El DAST YA NO VIVE AQUÍ (P-77, 2026-09-10). Vive en
+# `.github/workflows/security-dast.yml`, misma cadencia (lunes 06:00 UTC), pero
+# contra un stack EFÍMERO levantado en el propio runner en vez de contra un
+# `STAGING_BASE_URL` que nunca existió. El porqué, al pie de este archivo.
 #
 # POR QUÉ EXISTE deps-audit (hallazgo S-PROC-1)
 # ---------------------------------------------------------------------------
@@ -26,7 +27,7 @@
 # mismo script que usa el gate por PR. Una sola verdad para los dos.
 # =============================================================================
 
-name: Security Scheduled (deps audit + DAST)
+name: Security Scheduled (npm audit por calendario)
 
 on:
   schedule:
@@ -97,6 +98,17 @@ jobs:
             echo "_Barrido por calendario (S-PROC-1). Corre aunque nadie toque el repo._"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # TRINQUETE DE devDependencies (P-DEP-1). Aquí, y no solo en el gate por
+      # PR, por un motivo concreto: las fichas de
+      # `security/npm-audit-dev-fichas.tsv` CADUCAN POR FECHA. Una caducidad que
+      # solo se evalúa cuando alguien empuja código no es una caducidad — es una
+      # lotería. Este barrido corre aunque nadie toque el repo, así que es el que
+      # de verdad hace sonar la fecha.
+      - name: npm audit devDependencies — trinquete con fichas (P-DEP-1)
+        id: audit_dev
+        continue-on-error: true      # el rojo se decide al final, tras publicar
+        run: AUDIT_SUMMARY_FILE="$GITHUB_STEP_SUMMARY" ./security/scripts/audit-npm-dev.sh
+
       # VISIBILIDAD 2: el JSON crudo queda descargable para seguridad.
       - name: Subir reportes npm audit
         if: always()
@@ -162,61 +174,34 @@ jobs:
           echo "::error::npm audit semanal encontró vulnerabilidades high/critical en runtime. Ver el resumen del run y el issue con label 'security'."
           exit 1
 
+      # Rojo INDEPENDIENTE del de runtime: un hallazgo de tooling sin ficha, o una
+      # ficha vencida, no puede quedar tapado por el hecho de que runtime esté
+      # limpio. Son dos hechos distintos y se reportan por separado.
+      - name: Marcar el run en rojo si el trinquete de devDependencies falló
+        if: steps.audit_dev.outcome == 'failure'
+        run: |
+          echo "::error::El trinquete de devDependencies (P-DEP-1) está rojo: hay un alto/crítico de tooling sin ficha, o una ficha de security/npm-audit-dev-fichas.tsv pasó su fecha de revisión. Dueño del arreglo: el rol propietario del package.json; dueño de la ficha: devops. Ver DEVOPS_NOTES §49.4."
+          exit 1
 
-  scheduled-dast:
-    runs-on: ubuntu-latest
-    env:
-      TARGET_URL: ${{ secrets.STAGING_BASE_URL }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Preflight — requiere staging en vivo
-        id: pf
-        run: |
-          if [ -z "${{ secrets.STAGING_BASE_URL }}" ]; then
-            echo "::notice::STAGING_BASE_URL no definido. DAST programado en modo plantilla (no-op)."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Guard anti-producción
-        if: steps.pf.outputs.run == 'true'
-        run: |
-          case "$TARGET_URL" in
-            *staging*) : ;;
-            *) echo "::error::El cron solo debe apuntar a staging. TARGET_URL no contiene 'staging'."; exit 1 ;;
-          esac
-      - name: ZAP full scan (activo) contra staging
-        if: steps.pf.outputs.run == 'true'
-        uses: zaproxy/action-full-scan@v0.12.0
-        with:
-          target: ${{ env.TARGET_URL }}
-          rules_file_name: security/zap/baseline.conf
-          cmd_options: "-I"
-          fail_action: false     # el cron reporta; no bloquea
-      - name: nuclei contra staging
-        if: steps.pf.outputs.run == 'true'
-        run: |
-          mkdir -p security/reports
-          docker run --rm -v "${{ github.workspace }}/security:/sec" \
-            projectdiscovery/nuclei:latest \
-            -u "$TARGET_URL" \
-            -tags "$(grep -vE '^\s*#|^\s*$' security/nuclei/templates.txt | paste -sd, -)" \
-            -severity low,medium,high,critical \
-            -rate-limit 50 \
-            -jsonl -o /sec/reports/nuclei.jsonl || true
-      - name: Subir reportes DAST
-        if: steps.pf.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dast-scheduled-reports
-          path: |
-            security/reports/
-            report_html.html
-            report_md.md
-          if-no-files-found: ignore
-      - name: Alarma si hay críticos
-        if: steps.pf.outputs.run == 'true'
-        run: |
-          if [ -f security/reports/nuclei.jsonl ] && grep -Eq '"severity":"(high|critical)"' security/reports/nuclei.jsonl; then
-            echo "::warning::DAST programado encontró hallazgos high/critical en staging. Escalar a seguridad (docs/SECURITY_NOTES.md)."
-          fi
+
+  # ---------------------------------------------------------------------------
+  # `scheduled-dast` SE RETIRÓ DE AQUÍ (P-77, 2026-09-10). NO se "desactivó": se
+  # MOVIÓ a un workflow que sí tiene blanco.
+  #
+  # Qué era: un job que escaneaba `secrets.STAGING_BASE_URL`. Ese secret nunca
+  # existió, porque el dueño nunca tuvo staging — solo producción. El preflight
+  # detectaba la ausencia, imprimía «modo plantilla (no-op)» y el job salía en
+  # VERDE. Resultado medido: cero escaneos dinámicos en toda la vida del
+  # proyecto, mientras el tablero contaba el DAST como cableado. Es el mismo
+  # patrón que S-PROC-1 y que el falso verde del preflight de Stripe: una
+  # verificación que técnicamente corre, no puede fallar, y nadie lee.
+  #
+  # Dónde vive ahora: `.github/workflows/security-dast.yml`, misma cadencia
+  # (lunes 06:00 UTC), pero levantando el stack EFÍMERO de
+  # `docker-compose.staging.yml` en el propio runner —blanco que CLAUDE.md
+  # autoriza expresamente («staging (o local)»)— y con un job de autoprueba que
+  # exige que el candado sepa ponerse rojo. Ver DEVOPS_NOTES §44.
+  #
+  # ⛔ NO recrear un job de DAST que dependa de `STAGING_BASE_URL` mientras no
+  #    exista un staging desplegado. Un gate sin blanco es peor que ningún gate.
+  # ---------------------------------------------------------------------------

@@ -165,15 +165,28 @@ describe('checkout · poda amable de piezas muertas (v1.21.3-quote-prune)', () =
     expect(within(notice).getByRole('status')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-    // Los 2 renglones vivos siguen cotizados y comprables.
-    expect(await screen.findByText('Charizard')).toBeInTheDocument();
-    expect(screen.getByText('Blastoise')).toBeInTheDocument();
-
+    /*
+     * ⚠ ORDEN DELIBERADO (falso rojo medido en CI, 2026-09-10). La poda quita el id muerto del
+     * `localStorage`, y eso **cambia `cart.ids`, que es parte de la `queryKey`** ⇒ la vista
+     * arranca una cotización NUEVA sin caché, `QueryState` pinta su carga y **el subárbol de
+     * renglones se desmonta y vuelve**. Afirmar los renglones ANTES de esa ventana es afirmar
+     * sobre un render intermedio: bajo contención de CPU, el nodo que devolvió `findByText`
+     * queda DESPRENDIDO antes de que corra `toBeInTheDocument()`, y el error es literalmente
+     * «element could not be found in the document» — el rojo que se vio en CI.
+     * ⛔ No es presupuesto de espera: subir el reloj no arregla un nodo desprendido. Se
+     * comprueban los renglones **después** de que la re-cotización aterrice, que es el estado
+     * que el test quiere describir. (El aviso vive FUERA de `QueryState` justamente porque es
+     * lo único que sobrevive a esa ventana, y eso se sigue comprobando abajo.)
+     */
     // El id muerto se podó del localStorage y se re-cotizó SOLO con los vivos.
     await waitFor(() => expect(storedIds()).toEqual(['inv-1001', 'inv-1002']));
     await waitFor(() =>
       expect(vi.mocked(getGuestCheckoutQuote).mock.calls.at(-1)?.[0]).toEqual(['inv-1001', 'inv-1002']),
     );
+
+    // Los 2 renglones vivos siguen cotizados y comprables (ya con la re-cotización aterrizada).
+    expect(await screen.findByText('Charizard')).toBeInTheDocument();
+    expect(screen.getByText('Blastoise')).toBeInTheDocument();
     // El aviso SOBREVIVE a la re-cotización (el segundo fetch trae unavailableItems: []).
     expect(screen.getByTestId('unavailable-notice')).toBeInTheDocument();
   });
@@ -222,15 +235,18 @@ describe('checkout · poda amable de piezas muertas (v1.21.3-quote-prune)', () =
     expect(notice).toHaveTextContent('Antique Skull Fossil ya no está disponible y se quitó de tu carrito.');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-    expect(await screen.findByText('Charizard')).toBeInTheDocument();
-    expect(screen.getByText('Blastoise')).toBeInTheDocument();
-    // El resto del carrito sigue comprable.
-    expect(screen.getByRole('button', { name: /Pagar/ })).toBeInTheDocument();
-
+    /* ⚠ MISMO ORDEN DELIBERADO que en la variante de invitado (ver el comentario de arriba):
+     * la poda cambia `cart.ids` ⇒ cambia la `queryKey` ⇒ el subárbol de renglones se desmonta y
+     * vuelve. Los renglones se comprueban DESPUÉS de que la re-cotización aterrice. */
     await waitFor(() => expect(storedIds()).toEqual(['inv-1001', 'inv-1002']));
     await waitFor(() =>
       expect(vi.mocked(getCheckoutQuote).mock.calls.at(-1)?.[0]).toEqual(['inv-1001', 'inv-1002']),
     );
+
+    expect(await screen.findByText('Charizard')).toBeInTheDocument();
+    expect(screen.getByText('Blastoise')).toBeInTheDocument();
+    // El resto del carrito sigue comprable.
+    expect(screen.getByRole('button', { name: /Pagar/ })).toBeInTheDocument();
     expect(screen.getByTestId('unavailable-notice')).toBeInTheDocument();
   });
 

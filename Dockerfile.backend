@@ -88,6 +88,32 @@ COPY --from=build --chown=nestjs:nodejs /app/prisma ./prisma
 # junto a las dev deps ya conservadas (ver NOTA en etapa build y DEVOPS_NOTES §6).
 COPY --from=build --chown=nestjs:nodejs /app/src ./src
 COPY --from=build --chown=nestjs:nodejs /app/tsconfig.json ./tsconfig.json
+# PREFLIGHT DEL WEBHOOK DE STRIPE (residual de P-WH-1). Es lo ÚNICO que se copia
+# desde fuera de `backend/`: viene del contexto de build (la raíz del repo) porque
+# es un fichero de devops. POSIX sh a propósito — aquí no hay bash.
+#
+# Por qué en el ARRANQUE y no solo en CI: backend ya exige que el secreto exista y
+# no esté vacío, pero —su frase— «no puede distinguir un secreto de un no-secreto».
+# Este repo es PÚBLICO y tenía `whsec_ci_dummy`, `whsec_e2e_dummy`,
+# `whsec_staging_dummy` commiteados. Un entorno con Stripe REAL y uno de esos
+# valores arranca en verde, pasa el fail-closed… y sigue siendo forjable por quien
+# lea el repo. El único sitio donde ese emparejamiento (clave real + no-secreto) es
+# observable es el arranque del proceso, y este CMD es el arranque de TODOS los
+# entornos que usan esta imagen — compose local, staging y Railway.
+COPY --chown=nestjs:nodejs scripts/webhook-secret-preflight.sh ./scripts/webhook-secret-preflight.sh
+# S-88-1 — la misma comprobación, para la CLASE entera de secretos y no solo para
+# el del webhook. `secrets-preflight.sh assert` mira TODOS los secretos que los
+# compose exigen y aborta si alguno trae un valor que este repositorio publica.
+# El manifiesto viaja con él: es lo que convierte «¿parece un dummy?» (heurística
+# que dejaba pasar `whsec_e2e_test_secret`) en «¿está escrito en el repo?» (hecho).
+COPY --chown=nestjs:nodejs scripts/secrets-preflight.sh ./scripts/secrets-preflight.sh
+COPY --chown=nestjs:nodejs security/secretos-publicados.sha256 ./security/secretos-publicados.sha256
+# Y el CATÁLOGO: dentro de la imagen no hay compose, así que sin este fichero el
+# `assert` del CMD no tendría nada que mirar y saldría 0 (candado sin blanco, §44).
+# El catálogo del CONTENEDOR (nombres tal como los ve este proceso), no el del host:
+# confundirlos hizo que el entrypoint exigiera `STAGING_*` aquí dentro, abortara, y
+# el contenedor muriera sin llegar a `node` (run 34531002011).
+COPY --chown=nestjs:nodejs security/secretos-exigidos-contenedor.txt ./security/secretos-exigidos-contenedor.txt
 # GUARD del CMD: sin npx, el arranque depende de esta ruta exacta del CLI de Prisma.
 # Si un bump de `prisma` la moviera, mejor fallar el BUILD aquí que crash-loopear en
 # Railway al arrancar. (En prisma 5.x: bin.prisma = "build/index.js".)
@@ -101,4 +127,9 @@ EXPOSE 3001
 # bin.prisma = "build/index.js" en su package.json (verificado en prisma 5.x)— y
 # `prisma` viaja en el node_modules completo que esta imagen conserva a propósito
 # (ver NOTA de la etapa build). Equivale exactamente a `npx prisma migrate deploy`.
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]
+# El preflight va PRIMERO y en `&&`: si el emparejamiento es inseguro, el contenedor
+# NO arranca (Railway lo deja en `ON_FAILURE` con el motivo en los deploy logs). Es
+# deliberadamente ruidoso: el modo de fallo alternativo es servir una API que acepta
+# webhooks forjados, y ése no avisa de nada. Rollback: redeploy del anterior mientras
+# se pone el `whsec_…` real (DEVOPS_NOTES §49.3).
+CMD ["sh", "-c", "sh ./scripts/webhook-secret-preflight.sh assert && sh ./scripts/secrets-preflight.sh assert && node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]

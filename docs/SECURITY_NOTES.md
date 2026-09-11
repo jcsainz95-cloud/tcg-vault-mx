@@ -1,3 +1,1186 @@
+# RE-VEREDICTO BLUE TEAM — candidato `d6aca64` (≡ tip remoto `26b2c58`) · 2026-09-11 · re-medición del RECHAZADO de `0417da1`
+
+> ## ⭐ VEREDICTO: **APROBADO CON CONDICIONES**
+>
+> **Críticos abiertos: 0. Altos abiertos: 0.** Los dos ALTOS que sostenían el rechazo (`S-CI-1`,
+> `S-SAST-1`) están **cerrados y lo medí yo**, no me lo creí: el job deploy-blocking `backend-e2e`
+> —muerto 9 corridas con rc=127— ha corrido **verde 2/2 veces** sobre este código (runs #1139 y
+> #1141), y el tip remoto `26b2c58` tiene **25/25 check-runs en `success`**, medidos a las 02:13:22 UTC
+> con la API de check-runs (`./scripts/check-candidate-checks.sh 26b2c58` → 0 en rojo, 0 sin terminar).
+> `sast-ok` verde con el self-test de `trivy-fs` **ejecutándose** (ya no hay rojo permanente que lo
+> apague), y `P-DEP-1` cerrado por su cuenta: `npm audit` del frontend **0/0/0/0/0**.
+>
+> **Corrección mía (O-2):** en el pase anterior atribuí el rojo de `trivy-fs` a `P-DEP-1`. Devops
+> midió otra cosa —el escáner de **secretos** de trivy, encendido por defecto, sobre `sk_test_…` de
+> ficción en dos canarios— y su dato es coherente con el comportamiento documentado de trivy (las
+> devDependencies de npm **no** se escanean sin `--include-dev-deps`). No tengo `trivy` aquí para
+> reproducirlo: lo registro como **medido por devops, coherente, no reproducido por mí**. Gana el dato.
+>
+> Las condiciones (§7) son las **Medias** que ya dije que no bloquean el DoD pero sí la promoción a
+> producción con dinero real, más **un hallazgo nuevo de severidad Media** que aparece precisamente
+> por el cierre de `S-SAST-1`: al apagar —correctamente— el escáner de secretos de trivy, **gitleaks
+> queda como único escáner de secretos, y su allowlist deja pasar cualquier `sk_test_…`**, incluida la
+> clave de prueba **real** que la tienda usa en producción (§3.1, `S-GL-1`). Tiene mitigación en la otra
+> dirección y la medí; por eso es Media y no Alta.
+>
+> **Lo que NO puedo afirmar** (§5): cuántos tests ejecutó la suite (el proxy bloquea logs y
+> artefactos: `blob.core.windows.net → connect_rejected`, medido hoy otra vez); qué specs corrió el
+> `E2E real` #34538020057; y que producción haya sido escaneada alguna vez (no lo ha sido).
+
+---
+
+## 0. Alcance y procedencia
+
+- **HEAD local:** `d6aca64` (`git log -1`), árbol limpio antes de este fichero (`git status --short`
+  vacío). **Tip remoto:** `26b2c58` (`git ls-remote origin refs/heads/claude/tcg-hunt-orchestration-ai2vma`),
+  cuyo único padre es `d6aca64` y cuyo diff es **`PENDIENTES.md +7/-0`** (API `commits/26b2c58`, campo
+  `files`). **El código es el mismo**; toda la evidencia de CI que cito sobre `26b2c58` aplica a `d6aca64`.
+- **No escribí una línea de código.** Único fichero: éste. Scratchpad propio:
+  `scratchpad/seguridad-reveredicto-0911/` (JSON de la API, logs de canarios y del `npm test`).
+- **Límite de instrumentación, medido hoy:** `curl …/actions/artifacts/10181353635/zip` → `HTTP=000`,
+  proxy: `productionresultssa19.blob.core.windows.net:443 — connect_rejected`. Ídem `…/jobs/103118121585/logs`.
+  **El artefacto `backend-e2e-log` (2.031 bytes) existe y no lo puedo leer.** La API de runs/jobs/steps/
+  check-runs/annotations sí responde y es la base de todo lo que digo de CI.
+- **Local:** sin Postgres (`127.0.0.1:5432 no response`), sin Redis (`Connection refused`), sin demonio
+  Docker ⇒ `npm run test:integration` **no ejecutable aquí**. Corrí lo que sí se puede: `npm test`.
+
+Convención: `[MEDIDO]` lo disparé yo · `[DERIVADO]` conclusión forzada por datos medidos · `[REPORTADO]`
+lo dijo otro rol y lo cito como tal · `[NO MEDIDO]` no lo llamo «seguro».
+
+---
+
+## 1. Los motivos del RECHAZADO anterior, uno a uno
+
+### 1.1 `S-CI-1` (ALTA) — **CERRADO** · `[MEDIDO]`
+
+| qué | medición |
+|---|---|
+| Causa 1 (cwd) | `.github/workflows/e2e.yml:218-220`: el paso «Resolver secretos…» lleva ahora `working-directory: ${{ github.workspace }}` (leído hoy) |
+| Causa 2 (preflight aborta) | `e2e.yml:228-236`: `STRIPE_WEBHOOK_UNREACHABLE: "1"` en el `env` del mismo paso |
+| Run #1139 (`34552446414`, sha `5e6ab3c`) | job `backend-e2e` `103118121585` → **success**. Paso 4 «Resolver secretos» success · paso 12 «Test de integración (E2E backend)» success (01:54:43→01:55:42, 59 s) · paso 13 «Anotar cada spec en rojo» **skipped** (su `if` es `steps.tests.outcome == 'failure'`, `e2e.yml:310`) · paso 15 «Veredicto de fase» success · `e2e-ok` success |
+| Run #1141 (`34553139352`, sha `26b2c58`) | job `backend-e2e` `103120139295` → **success** (02:04:21→02:06:19); paso 12 success (02:05:15→02:06:16, 61 s); `e2e-ok` success |
+| **Proporción (O-3)** | **2/2** corridas verdes de la suite sobre este código. (#1140 sobre `d6aca64` salió `cancelled` por concurrencia al empujar `26b2c58` un minuto después: no es un rojo, es un run sustituido.) |
+| ¿Puede «success» significar «no corrió nada»? | No por estructura: `e2e.yml:306-308` ejecuta `set -o pipefail; npm run test:integration 2>&1 \| tee …`; `backend/package.json` → `prisma migrate deploy && jest --config test/jest-integration.config.js --runInBand`; `testRegex: 'test/integration/.*\.e2e-spec\.ts$'` sobre **24 ficheros** presentes en el checkout (`ls backend/test/integration/*.e2e-spec.ts`); **sin** `passWithNoTests`. Jest sale ≠0 si no encuentra tests o si alguno falla, y el `pipefail` lo propaga. |
+| Cuántos tests dentro | **`[NO MEDIDO]`** — está en el artefacto que no puedo descargar. `PENDIENTES.md:8-9` dice «360/360 en local, dos veces»: `[REPORTADO]`. |
+| Candado nuevo contra la clase | `./scripts/check-workflow-cwd.sh` → **rc=0**, «119 pasos evaluados · 52 invocaciones resueltas bajo el cwd de su paso». Cableado en `ci.yml:473-477` (job `workflow-cwd`, con su canario `check-workflow-cwd-canary.sh`, que trabaja sobre `mktemp -d`, no sobre el árbol: líneas 9, 39, 44). Check-run `workflow-cwd` **success** en `5e6ab3c` y `26b2c58`. |
+| Diagnóstico legible por API | `e2e.yml:342-370`: el paso de fase distingue `suite-verde` / `suite-roja` (dueño backend) / `infra-muerta` (dueño devops) y `e2e-ok` (`:535-547`) trata `skipped`/`cancelled` como **no verde**. Esto cierra el «rojo mudo nueve corridas». |
+
+### 1.2 `S-SAST-1` (ALTA) — **CERRADO** por las dos vías · `[MEDIDO]` + corrección mía
+
+- **Gate:** check-run `trivy-fs` **success** en `5e6ab3c` (run `34552446510`, job `103117979761`) y en
+  `26b2c58`; `sast-ok` **success** en ambos. Pasos del job: 4 «Trivy fs — dependencias de RUNTIME»
+  success · 5 «devDependencies bajo las mismas fichas que npm audit» success · **6 «Self-test de
+  trivy-fs (el candado tiene que saber morder)» success**. El self-test **vuelve a medir**: la objeción
+  «un gate rojo permanente apaga su propio canario» queda sin objeto.
+- **Qué cambió** (`git diff 0417da1..HEAD -- security/trivy.yaml security/scripts/trivy-fs.sh`): el
+  yaml tenía `scanners:`/`skip-dirs:` en claves que trivy **no lee**; ahora `scan.scanners: [vuln]` y el
+  wrapper pasa además `--scanners vuln`, `--severity HIGH,CRITICAL`, `--ignore-unfixed=false`,
+  `--exit-code 1`. `security/.trivyignore`: **sin entradas activas** (leído hoy). **No es una rebaja del
+  umbral**: es que el gate mide lo que su política dice.
+- **Corrección (O-2):** mi §3.2 anterior decía que el rojo era `P-DEP-1`. Devops midió (`DEVOPS_NOTES`
+  §53.0, l.10482-10484): `trivy fs --scanners vuln` **rc=0** en los tres lockfiles y los 3 avisos de
+  `P-DEP-1` **solo** aparecen con `--include-dev-deps`. Coherente con el default documentado de trivy para
+  npm. **No lo reproduje** (`trivy` no está instalado aquí): `[REPORTADO, coherente]`.
+- **`P-DEP-1` cerrado de todos modos** (`36d16d8`, frontend): `frontend/package-lock.json` →
+  `vitest 5.0.0`, `vite 7.3.6`, `js-yaml 4.3.2`, `@vitest/mocker 5.0.0`. `npm audit --json`:
+  **frontend `{critical:0, high:0, moderate:0, low:0}`** · backend `{high:0, critical:0, moderate:12, low:1}` ·
+  `scripts/s3-local` `{high:0, critical:0, moderate:2}`. **Deuda `D-1` se cierra.**
+- Una observación de diseño que **acepto** y quiero dejar escrita porque tiene consecuencia (§3.1): «un
+  hecho, un escáner» —los secretos los juzga **solo** gitleaks— es correcto, pero convierte la allowlist
+  de gitleaks en **el único** punto donde se decide qué secreto se puede commitear.
+
+### 1.3 `S-CLASE-1` (MEDIA) — **PARCIAL** · `[MEDIDO]`
+- Cerrado el agravante: `.gitignore` pasa de la lista de nombres a **`.env.*`** con `!.env.example`
+  (`git diff 0417da1..HEAD -- .gitignore`).
+- **Abierto** el alcance del candado: `scripts/check-secret-defaults.sh` y su canario **no aparecen** en
+  `git diff --stat 0417da1..HEAD` ⇒ los 7 casos que escapan a las dos capas (`${VAR-…}`, `${VAR:=…}`,
+  nombres `*_PASS`/`*_PIN`/`*_PEPPER`/…, `environment:` en lista, `.env.staging` versionado, `RUN echo … >> .env`)
+  siguen sin cubrirse. Re-medido hoy: `check-secret-defaults.sh` rc=0 y canario **48/48 en 3/3 tiradas**
+  (mismo número que antes: el canario no creció). Sigue siendo **condición de promoción a prod (C1)**.
+
+### 1.4 `S-DAST-1` (MEDIA) — **ABIERTO** · `[MEDIDO]`
+`api…/workflows/security-dast.yml/runs`: **6 corridas en total**, todas en `devops/dast-p77`, la última
+`2d19cae` 2026-09-10 05:14 UTC. **Ninguna sobre este candidato.** Disparadores (`security-dast.yml:58-100`):
+`schedule` (lunes 06:00), `workflow_dispatch`, `workflow_call`, `push` a `devops/dast-**` con filtro de
+paths. Nota nueva: `26b2c58` establece que **la rama que despliega es `production`**, y un `schedule`
+de Actions solo dispara en la rama por defecto (`main`, `5f05b08`): **el cron semanal nunca escaneará
+el código que se despliega** salvo que alguien lo dispare a mano o lo llame por `workflow_call` desde
+la ruta de release. Condición **C2**; dueño devops.
+
+### 1.5 `S-ENV-1` (BAJA) — sin cambio, sigue como deuda `D-7` · `[MEDIDO]`
+`git diff --stat 0417da1..HEAD -- backend/` → **vacío**; `stripe.service.ts:67` sigue siendo
+`(this.config.get<string>('NODE_ENV') ?? 'development') === 'production'`. Money-safe; no bloquea.
+
+### 1.6 La línea de §6.3 (qué specs corrió `E2E real` #34538020057) — **`[NO MEDIDO]`**, sigue igual
+Logs bloqueados. Condición **C3** para el humano (`gh run view 34538020057 --log | grep -m1 "Smoke (real) specs:"`).
+
+---
+
+## 2. Las verificaciones que se me encargaron
+
+1. **Manifiesto (`d6aca64`):** `git show HEAD -- security/secretos-publicados.sha256` → **+1 línea**,
+   `40b377ea…  STRIPE_TEST_SECRET_KEY`. Reconstruí el valor: es el sha256 del **texto literal**
+   `sk_test_$(head -c 24 /dev/zero | tr '\0' 0) \` (el lado derecho del `VAR=` del comentario en
+   `scripts/run-workflow-step.sh:35`, hasta la barra de continuación; `printf '%s' "$v" | sha256sum` →
+   `40b377ea2689…`). **No es una credencial**: es el texto de una expresión de shell; incluso evaluada
+   produce `sk_test_` + 24 ceros. `./scripts/check-secret-defaults.sh` → **rc=0**. Y el efecto en CI:
+   `stripe-webhook-failclosed` **failure** en `5e6ab3c` (paso 5 «Ningún secreto puede tener un valor escrito
+   en el repo (S-88-1)») → **success** en `26b2c58`. La cadena briefing→diff→rc→CI cierra.
+2. **Unitarios backend:** `npx jest --ci --silent` → **267 suites, 4419/4419, 42,6 s, rc=0** (`scratchpad/…/unit.log`).
+3. **Suite de integración en CI:** §1.1. **En local:** no ejecutable (§0).
+4. **SAST #1139 (`34552446510`):** `gitleaks`, `trivy-image`, `npm-audit` (con «Self-test del trinquete»
+   success), `trivy-fs`, `semgrep`, `sast-ok` → **6/6 success**. Ídem en `26b2c58`.
+5. **Estado del commit entero (runbook devops §52.5):** `./scripts/check-candidate-checks.sh 26b2c58` →
+   **«check-runs: 25 · en rojo: 0 · sin terminar: 0»** (02:13:22 UTC). Sobre `5e6ab3c`: 2 en rojo
+   (`stripe-webhook-failclosed`, `ci-ok`), ambos por el manifiesto desfasado que `d6aca64` corrige.
+
+---
+
+## 3. Hallazgo nuevo
+
+### 3.1 `S-GL-1` · **MEDIA** (no bloqueante) · gitleaks es ahora el único escáner de secretos y su allowlist deja pasar cualquier `sk_test_…`/`pk_test_…` · **dueño: devops** · `[MEDIDO]`
+
+**Ubicación:** `security/gitleaks.toml:65-66`: `'''sk_test_[0-9a-zA-Z_]*'''`, `'''pk_test_[0-9a-zA-Z_]*'''`
+(allowlist «placeholders … y claves de TEST»). Con `security/trivy.yaml` `scan.scanners: [vuln]` y
+`trivy-fs.sh --scanners vuln`, **ningún otro escáner de CI mira secretos**.
+
+**Por qué importa en ESTE negocio:** la tienda opera en producción con la clave de prueba **real** (hecho
+del dueño; en GitHub Secrets desde 2026-09-07). Si esa clave —`sk_test_51…` seguido de caracteres
+alfanuméricos— se commitea por error, **gitleaks la aprueba en verde** porque su forma es idéntica a la
+del placeholder. El repo es público: quedaría expuesta en el instante del push.
+
+**Mitigación que existe y medí (por eso Media, no Alta):** `scripts/gen-published-secrets-manifest.sh:104`
+(`PREFIJOS_RE` incluye `sk_test_[A-Za-z0-9_]{4,}`) inventaría ese valor en **cualquier** fichero
+versionado; entra al manifiesto y el preflight lo **rechaza en runtime** (fail-closed): la tienda dejaría
+de arrancar con esa clave, pero **la clave ya sería pública**. La mitigación cierra el uso, no la fuga.
+`sk_live_`/`rk_live_` **no** están en la allowlist: una clave viva sí se cazaría.
+
+**Impacto:** toma de la cuenta de Stripe en modo prueba (cargos de prueba, lectura de objetos
+`customer`/`payment_intent` de prueba, que si la tienda atiende público real en modo prueba pueden llevar
+nombres y correos reales).
+
+**Corrección (devops):** estrechar la allowlist a las formas reales de placeholder (p. ej. exigir que el
+sufijo sea `dummy`, `ci_…`, `0{8,}` o palabras sin dígitos), y **un canario** que plante una
+`sk_test_51` + 24 caracteres mixtos y exija rojo de gitleaks. **Disparador duro:** antes de que exista
+cualquier `sk_live_` en cualquier panel. Condición **C4**.
+
+### 3.2 Consolidación con el pentester · `[CONSOLIDADO]`
+`P-WH-1` cerrado (0/14, pase de `88c48c7`) y **ahora con la suite de integración que lo prueba
+ejecutándose en CI** (`webhook-empty-secret-forge.e2e-spec.ts` está en los 24 ficheros de `testRegex`);
+`P-UP-1` cerrado (32/32, mutación 4/32, pase anterior; `infra-smoke.e2e-spec.ts` idem); `P-DEP-1`
+**cerrado** (§1.2); `P-CFG-1` sigue `D-2`. Sin duplicados.
+
+---
+
+## 4. Deuda de seguridad ACEPTADA (no bloqueante)
+
+| # | Deuda | Estado hoy | Disparador | Dueño |
+|---|---|---|---|---|
+| ~~D-1~~ | `P-DEP-1` devDeps frontend | **CERRADA** (`36d16d8`; audit 0/0/0/0/0) | — | — |
+| D-2 | `P-CFG-1` diales sin re-validar | sin cambio | nuevo escritor de `ConfigSetting` con clave dinámica | backend |
+| D-3 | `S3_* ?? 'minioadmin'` | sin cambio | bucket de INE en MinIO propio | backend |
+| D-4 | webhook público sin throttle | sin cambio | primer incidente de ruido / backend sin WAF | backend/devops |
+| D-5 | preflight heurístico | sin cambio | cambio de formato de claves Stripe | devops |
+| D-6 | el gate DAST no es un escaneo de producción | sin cambio | antes de dinero real (§5.3) | devops + humano |
+| D-7 | `S-ENV-1` `NODE_ENV ?? 'development'` en `stripe.service.ts:67` | sin cambio (§1.5) | algo que no sea el cliente Stripe cuelgue de `isProduction()` | backend |
+| D-8 | `PII-E1` clave PII efímera en dev local | sin cambio | primera queja real de un dev | backend |
+
+---
+
+## 5. Lo que sigue SIN MEDIR
+
+1. **Número de tests de la suite de integración en CI** — artefacto `backend-e2e-log` (id `10181353635`,
+   2.031 B) inaccesible por proxy. Lo cierra cualquiera con `gh run download 34553139352 -n backend-e2e-log`.
+2. **Qué specs corrió `E2E real` #34538020057** (C3).
+3. **Producción nunca escaneada** (DAST corre contra stack efímero de CI; y ni eso sobre este candidato).
+4. **Causa del rojo histórico de trivy** — medida por devops, coherente con trivy, no reproducida por mí.
+5. **XSS/CSRF de la UI renderizada** — cuarto release sin cubrir; ni yo ni el pentester levantamos el frontend.
+6. **`NODE_ENV`/root del servicio en Railway** — ya no es condición de seguridad; sigue sin determinarse.
+7. **Que «modo prueba de Stripe, nunca dinero real» siga siendo cierto** — `[REPORTADO]` por el dueño; es
+   la premisa que sostiene que `S-GL-1` sea Media y que `D-6` sea aceptable.
+
+---
+
+## 6. 🚩 Banderas para el humano
+
+1. **Antes del primer peso real:** pentest de tercero + bug bounty. Nada de lo de hoy lo sustituye.
+2. **La rama que despliega es `production` y el cron de DAST vive en `main`** (§1.4): hoy el escaneo
+   semanal, cuando dispare, escaneará **otro código**. Que devops lo cablee por `workflow_call` en la
+   ruta de release o lo dispare a mano sobre el SHA que se publica.
+3. **La clave de prueba real es hoy el secreto más expuesto del proyecto** (`S-GL-1`): mientras la tienda
+   sea pública en modo prueba, tratarla como si fuera viva. Rotarla si alguna vez ha estado en un fichero.
+4. **Validaciones legales** (sin cambio): custodia de bienes de terceros, LFPDPPP (INE/CLABE/RFC, retención
+   `INE_RETENTION_DAYS=180` sin aval registrado), AML si crece la dispersión SPEI.
+5. **El repositorio sigue siendo público** (`api…/repos/… "private": false`, medido hoy).
+6. **Sobre la «DECISIÓN DEL DUEÑO» de `PENDIENTES.md`:** se tomó con mi rechazo en pie y con su causa bien
+   descrita (andamiaje de CI, no producto). Con este re-veredicto la decisión **ya no necesita saltarse
+   ningún veredicto**: lo que se publica tiene los tres gates en verde sobre `26b2c58`.
+
+---
+
+## 7. VEREDICTO
+
+> # **APROBADO CON CONDICIONES**
+>
+> **Críticos: 0 · Altos: 0 · Medios abiertos: 3 (`S-CLASE-1` parcial, `S-DAST-1`, `S-GL-1`) · Bajos: 1 (`S-ENV-1`, deuda D-7).**
+> El DoD exige «sin críticos/altos abiertos»: **se cumple**, medido sobre `26b2c58` ≡ `d6aca64`.
+
+**Qué cierra el rechazo anterior (mi mínimo de §7 del pase `0417da1`, puntos 1 y 2):**
+
+| motivo | estado | medición |
+|---|---|---|
+| `S-CI-1` | **CERRADO** | `backend-e2e` success **2/2** (#1139, #1141) · `e2e-ok` success · paso 12 ejecuta jest sobre 24 specs con `pipefail`, sin `passWithNoTests` · candado `workflow-cwd` rc=0 + canario cableado |
+| `S-SAST-1` | **CERRADO** | `trivy-fs` success con self-test ejecutado (paso 6) · `sast-ok` success · `.trivyignore` sin entradas · frontend audit 0/0/0/0/0 |
+| manifiesto `d6aca64` | **VERIFICADO** | +1 hash = texto literal de la expresión de ejemplo, no credencial · `check-secret-defaults.sh` rc=0 · `stripe-webhook-failclosed` success en `26b2c58` |
+| estado del commit | **VERDE** | `check-candidate-checks.sh 26b2c58` → 25/25 success, 0 rojo, 0 pendiente (02:13:22 UTC) |
+
+**Condiciones (verificables; ninguna bloquea publicar en modo prueba, C1–C4 bloquean operar con dinero real):**
+
+- **C1 [devops]** `S-CLASE-1`: cubrir los 7 casos de §3.3 del pase anterior en `check-secret-defaults.sh`
+  **y en su canario**. Verificación: el canario pasa de `48/48` a `≥55/55` y cada caso, mutado sobre copia, pone rojo.
+- **C2 [devops + humano]** `S-DAST-1`: una corrida de `Security DAST` (`workflow_dispatch`, `scan_profile=full`)
+  **sobre el SHA que se publique**, citada por número de run, con `blocking=false`. Y cablear el DAST a la
+  rama `production` (workflow_call en la ruta de release), porque el cron solo mira `main`.
+- **C3 [humano/QA]** `gh run view 34538020057 --log | grep -m1 "Smoke (real) specs:"` mostrando
+  `checkout`, `guest-checkout` y `shipments`. Con eso el flujo de dinero en navegador queda **medido**.
+- **C4 [devops]** `S-GL-1`: allowlist de gitleaks estrechada + canario que plante una `sk_test_51…`
+  realista y exija rojo. **Obligatoria antes de cualquier `sk_live_`.**
+- **C5 [devops, en cada deploy]** publicar solo un SHA con **todos** los check-runs en `success`
+  (`./scripts/check-candidate-checks.sh <sha>` → rc=0). `26b2c58` lo cumple hoy; cualquier commit encima se re-mide.
+
+**Qué medí yo y qué no.** Medido por mí: todo lo de §1.1–§1.5 y §2 (API de runs/jobs/steps/check-runs,
+lectura del YAML y de los scripts, `npm test` 4419/4419, `npm audit` en tres árboles, candados y canarios
+en local, reconstrucción del hash del manifiesto). Reportado y no reproducido: la causa del rojo histórico
+de trivy (devops), los «360/360» de integración en local (orquestador), y el modo prueba permanente de
+Stripe (dueño). No medido: §5.
+
+**Lo que no diré es que el proyecto está «verificado de punta a punta».** Está verificado **hasta donde
+alcanza la instrumentación que tengo**, y hoy, por primera vez en esta rama, esa instrumentación incluye
+la suite de integración de dinero y acceso corriendo en CI. Eso es lo que faltaba para aprobar. Lo que
+sigue faltando —el escaneo del código que se despliega, y ojos externos antes del dinero real— está
+escrito arriba con nombre, dueño y disparador.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-11 · candidato `d6aca64` ≡ `26b2c58` · **APROBADO CON CONDICIONES**
+
+---
+
+# RE-VEREDICTO BLUE TEAM — candidato `0417da1` (2026-09-11) · cierre de las 5 condiciones del RECHAZO de `88c48c7`
+
+> ## ⭐ VEREDICTO: **RECHAZADO**
+>
+> **Mis cinco condiciones están cerradas o correctamente resueltas, y lo verifiqué yo — no me lo creí.**
+> `S-88-1` es real y la clase está cerrada donde se midió (`48/48` en **5/5** tiradas mías, y los siete
+> `:?` comprobados uno a uno). `P-UP-1` cierra y su candado **muerde**: mutación fiel → **4/32** rojos.
+> `S-88-2` cierra y sus dos candados muerden: reintroducir la clave derivable del repo → **2/24** rojos;
+> devolver `NODE_ENV` ausente a «permisivo» → **3/24** rojos. La respuesta del dueño sobre Railway
+> (tienda **siempre en modo prueba, nunca dinero real**) elimina la ventana de exposición de `P-WH-1`,
+> y el arreglo de backend ya no cuelga de `NODE_ENV`, así que lo que falta por determinar **ya no manda**.
+> Y la corrección del punto 5 es correcta y la confirmo: **las claves de Stripe SÍ están configuradas**
+> (lo derivé del propio run, §2.5). El equipo entero —yo incluido— afirmó cinco pases lo contrario.
+>
+> **Se rechaza por algo que no estaba en el encargo y que nadie había mirado: la SÉPTIMA aparición
+> del patrón, y es exactamente la forma que se pidió buscar — una señal copiada fuera de su dominio.**
+>
+> `e2e.yml`, job `backend-e2e`, paso 4 — el paso que se llama **«Resolver secretos sin literales
+> públicos (P-WH-1 + S-88-1)»**— invoca tres scripts de la raíz del repo (`./scripts/…`) dentro de un
+> job cuyo `defaults.run.working-directory` es **`backend/`**. No existe `backend/scripts/`. El paso
+> muere con **rc=127** («No such file or directory»), los ocho pasos siguientes quedan `skipped`, y
+> `backend-e2e` —que el propio `e2e.yml` declara **DEPLOY-BLOCKING**— sale en rojo. **Reproducido por
+> mí en local: `cd backend && ./scripts/webhook-secret-preflight.sh assert` → `RC=127`.** Lleva así
+> **los 5 commits que he medido** de esta rama (`4f27d2f`, `5f0928f`, `715e4af`, `66ca52b`, `d2df320`,
+> `0417da1`).
+>
+> **Por qué es la forma pedida, con la prueba A/B en el propio repo:** el **mismo bloque de tres
+> líneas** existe en `ci.yml` (job `backend`, que también tiene `working-directory: backend`) y allí
+> **sí** lleva `working-directory: ${{ github.workspace }}`, con un comentario que dice literalmente
+> *«`working-directory` del job es `backend/`, por eso la ruta sube un nivel»* (`ci.yml:121-123`).
+> `ci.yml` está **verde**; `e2e.yml` está **rojo**. El bloque se copió con su nombre y sin su dominio.
+> Y la puntilla: el paso **inmediatamente siguiente** en `e2e.yml` (`e2e.yml:238-239`) **sí** lleva el
+> override. Falta en tres líneas, entre dos sitios que lo tienen.
+>
+> **Lo que eso deja sin ejecutar en este candidato** no es accesorio: es justo la evidencia de este
+> release. La suite muerta contiene `webhook-empty-secret-forge.e2e-spec.ts` (el candado de `P-WH-1`),
+> `infra-smoke.e2e-spec.ts` (el candado extremo-a-extremo de `P-UP-1`), `auth-authz`, `auth-throttle`,
+> `guest-chargeback`, `buylist-pay-verdicts`, `vault-shipments` y `catalog-checkout-webhook`.
+>
+> **Y hay un segundo gate rojo que el briefing no menciona:** `trivy-fs` → `sast-ok` **failure** en el
+> candidato y en los 5 commits anteriores. La regla 10 de `CLAUDE.md` dice que devops solo despliega
+> con el gate de seguridad en verde. Además su *self-test* se anula solo: *«El gate ya está ROJO sin
+> canario … este self-test no puede medir nada encima de un rojo real»* — un gate rojo permanente
+> **apaga su propio canario**.
+>
+> **Mínimo para aprobar en §7. Son tres líneas de YAML y una decisión de deuda; no es un rediseño.**
+
+---
+
+## 0. Alcance, procedencia y honestidad
+
+- **Candidato:** `0417da1d08624c5d1bd91939bc8c7cce3eba4de7`. Árbol **limpio** (`git status --porcelain`
+  vacío) y `HEAD == @{u}` (`origin/claude/tcg-hunt-orchestration-ai2vma`, `0 0` en
+  `git rev-list --left-right --count HEAD...@{u}`). **Matiz al briefing:** `origin/main` está en
+  `5f05b08` ⇒ este release **no está en `main`**. No cambia nada de mi juicio; lo anoto porque «HEAD ==
+  origin» puede leerse como «ya está en la rama por defecto» y no lo está.
+- **No escribí ni una línea de código del repo.** Mi único fichero es éste. Todo arreglo va al **rol
+  dueño**. Banco de pruebas fuera del árbol, en ruta propia:
+  `scratchpad/sec-reveredicto/` (`base/` para atacar el candado de clase, `mut/` copia del backend con
+  `node_modules` enlazado para mutar). **Ninguna mutación tocó el árbol vivo** (O-9).
+- **Blanco autorizado:** local + lectura de la API pública de GitHub. **Producción fuera de alcance.**
+- **Límite de instrumentación, dicho antes de usarlo:** el proxy de salida **bloquea** el blob de logs
+  de Actions (`results-receiver.actions.githubusercontent.com` → `connect_rejected`) y la descarga de
+  artefactos. **No he podido leer ni una línea de log de ningún run.** Todo lo que afirmo sobre CI sale
+  de la **API de checks/jobs/annotations**, que sí responde, o de reproducir en local.
+
+### Convención
+`[MEDIDO]` = lo disparé yo y vi el resultado, con el comando al lado · `[DERIVADO]` = conclusión forzada
+por datos medidos, con la cadena explícita · `[NO MEDIDO]` = lo digo así y **nunca** lo llamo «seguro».
+
+---
+
+## 1. Correcciones al briefing (me pidieron refutar con medición; aquí van cuatro)
+
+1. **«los 23 pasos en verde» es cierto de ESE run y falso del candidato. `[MEDIDO]`**
+   El run `34538020057` está en `success` sobre `0417da1` y sus 23 pasos son los que dice el briefing
+   (lo verifiqué contra `api.github.com/.../actions/runs/34538020057/jobs`). Pero el **candidato**
+   tiene cuatro check-runs en **failure**:
+
+   | check-run | estado | causa medida |
+   |---|---|---|
+   | `backend-e2e` | **failure** | rc=127 en el paso 4 (§2.6) |
+   | `e2e-ok` | **failure** | consecuencia del anterior |
+   | `trivy-fs` | **failure** | HIGH/CRITICAL reales (§2.7) |
+   | `sast-ok` | **failure** | consecuencia del anterior |
+
+   Comando: `curl -s api.github.com/repos/jcsainz95-cloud/tcg-vault-mx/commits/0417da1…/check-runs`.
+   **Un run verde de un workflow no es el estado de un candidato**, y este candidato tiene dos gates
+   deploy-blocking en rojo.
+
+2. **«pasos 19-20 SKIPPED ⇒ no hubo hueco» — la conclusión es correcta pero prueba MENOS de lo que
+   dice. `[DERIVADO]`** La condición es `if: always() && env.MONEY_GATE == 'off'`. El paso 5
+   (preflight) salió `success` ⇒ el script terminó en 0 ⇒ rama A o rama C; la rama C escribe
+   `MONEY_GATE=off` y entonces 19-20 **habrían corrido**; fueron `skipped` ⇒ **`MONEY_GATE=on`**. Eso
+   prueba una cosa valiosa y solo una: **las dos claves de prueba tienen forma de credencial real** —
+   o sea, **sí están configuradas en los secrets**, que es el punto 5 del briefing y lo confirmo. Lo
+   que **no** prueba es qué lista de specs recibió el `workflow_dispatch`: `money_gate=on` depende solo
+   del veredicto de las claves, no de `smoke_specs`. Si el disparo pasó una lista sin los tres specs de
+   dinero, el gate saldría igualmente `on`. **`[NO MEDIDO]`** — y no lo puedo medir desde aquí porque
+   los logs están bloqueados. **Lo cierra un comando de una línea:**
+   `gh run view 34538020057 --log | grep -m1 "Smoke (real) specs:"`.
+
+3. **La afirmación final del candado de clase es más fuerte que el candado. `[MEDIDO]`**
+   `check-secret-defaults.sh` imprime: *«Clase S-88-1 cerrada: ningún secreto —ni los que aún no
+   existen— puede nacer con un valor del repo.»* Le lancé **19 mutaciones** con nombres y formas que no
+   están en sus ocho sondas: **muerde 3, escapan 16**; y de esas, **7 escapan también al manifiesto de
+   valores**, o sea a las **dos** capas (§3.3). El trabajo es bueno y cierra el caso medido; **la frase
+   no se sostiene** y una frase así es peligrosa, porque es la que hace que nadie vuelva a mirar.
+
+4. **`S-88-2` está cerrado en PII, pero no es cierto que ya no quede NADA colgando de `NODE_ENV`.
+   `[MEDIDO]`** `backend/src/modules/payments/stripe.service.ts:67`:
+   `return (this.config.get<string>('NODE_ENV') ?? 'development') === 'production';` — la **ausencia
+   sigue degradando a «development»**, y de ahí cuelga el `sk_test_dummy` de `get stripe`
+   (`stripe.service.ts:123-128`). Es el último superviviente de la clase. **Lo clasifico BAJA y no
+   bloqueante** porque la dirección es *money-safe*: una clave falsa **no cobra a nadie**; y el
+   fail-closed del webhook —lo que sí costaba cartas— ya es incondicional (medido en el pase anterior:
+   0/14 forjas). Pero que conste como pendiente, no como cerrado.
+
+---
+
+## 2. Las cinco condiciones, verificadas una a una
+
+### 2.1 (1) `S-88-1` — **CERRADA en lo medido**, con la reserva de §3.3 · `[MEDIDO]`
+
+- Los **siete** que señalé son `:?` con mensaje accionable. Verificados uno a uno en
+  `docker-compose.staging.yml`: `POSTGRES_PASSWORD:42`, `MINIO_ROOT_PASSWORD:86`,
+  `S3_SECRET_ACCESS_KEY:148`, `PII_ENCRYPTION_KEY:160`, `PII_HMAC_KEY:161`, `JWT_ACCESS_SECRET:166`,
+  `JWT_REFRESH_SECRET:167`, `SEED_ADMIN_PASSWORD:204`. Lo que queda con `:-` son **nombre de usuario y
+  nombre de base** (`STAGING_POSTGRES_USER:-tcg_staging`, `STAGING_MINIO_ROOT_USER:-minioadmin`,
+  `STAGING_POSTGRES_DB`). **Confirmo el briefing.**
+- `bash scripts/check-secret-defaults.sh` → **rc=0**, con los 8 bloques (0, A, B, C, C-bis, D, E, G, F)
+  en verde y el inventario del bloque F nombrando 6 literales ajenos, todos neutralizados.
+- **Canario, 5 tiradas mías (O-3): `48/48` en `5/5`.** Confirmo el número del briefing exactamente.
+- **El diseño es el correcto** y lo digo sin reservas: la forma se lee de **una** fuente
+  (`gen-published-secrets-manifest.sh`, `FORMA_SECRETO`), el bloque (0) se muerde a sí mismo con
+  8+5 sondas fijas para que nadie pueda amputar la forma en silencio, el manifiesto rechaza **por
+  identidad del valor** (no por heurística), el fichero de jubilados es **append-only** (un valor
+  retirado del árbol sigue siendo público y se sigue rechazando), y el bloque (C-bis) caza URLs con
+  `usuario:contraseña@` que ninguna regla por nombres ve. Nada de esto es una lista de variables.
+  **Es trabajo de primera.** La reserva de §3.3 es sobre el **alcance**, no sobre el enfoque.
+
+### 2.2 (2) `P-UP-1` — **CERRADA**, y el candado muerde · `[MEDIDO]`
+`uploads.service.ts:99-135`: `contentLength` ausente/nulo ⇒ `422 VALIDATION_ERROR`; no-entero o ≤0 ⇒
+422; `> maxBytes` ⇒ 422; y `ContentLength: contentLength` en el `PutObjectCommand` es **incondicional**
+(ya no hay rama que firme sin cota). `npx jest test/uploads.presign.spec.ts` → **32/32 verde**.
+**Mutación fiel** (sobre `scratchpad/sec-reveredicto/mut/`, no sobre el árbol): devolver `contentLength`
+a opcional + `ContentLength` condicional ⇒ **4 rojos / 28 verdes**. El candado ve el agujero cuando
+existe. Restaurado desde `git show HEAD:` y re-verificado **32/32**.
+
+### 2.3 (3) `S-88-2` — **CERRADA**, y los dos candados muerden · `[MEDIDO]`
+Busqué la vía que se me pidió buscar —*«una clave PII derivable del repo que vuelva a usarse»*— y **no
+la encontré**:
+- `git grep 'local-dev-pii'` → solo en **comentarios** de `pii-crypto.service.ts:30` y en el **test**
+  que prohíbe esa clave (`test/pii-crypto.spec.ts:171,185`). **Ninguna ruta de ejecución** la deriva.
+- El respaldo es `randomBytes(32)` **estático por proceso** (`PiiCryptoService.ephemeralEncKey` /
+  `ephemeralHmacKey`), compartido entre instancias para que el arnés cierre el round-trip. Ninguna
+  cadena del repo abre nada, con **cualquier** `NODE_ENV`.
+- `keysRequired()` cuelga del **hecho**: `NODE_ENV` ausente ⇒ **required** (la ausencia falla CERRADA);
+  `NODE_ENV` fuera de `{development,test,local}` ⇒ required; clave Stripe **LIVE** ⇒ required.
+- `env.validation.ts:34` — `isLocal = nodeEnv !== undefined && LOCAL_ENVS.has(nodeEnv)`: la ausencia ya
+  **no** es local. Confirmo el briefing.
+- `npx jest test/pii-crypto.spec.ts test/env.validation.spec.ts` (+ webhook + presign) → **105/105 verde**.
+- **Mutación A** — reintroducir `sha256('local-dev-pii-encryption-key')` como respaldo ⇒ **2/24 rojos**.
+- **Mutación B** — `NODE_ENV` ausente vuelve a `required: false` ⇒ **3/24 rojos**.
+
+**Un matiz de diseño que sí quiero dejar escrito, porque es la forma que se nos está escapando:**
+`keysRequired()` usa **una señal del dominio del dinero** (`/^(sk|rk)_live_/` sobre `STRIPE_SECRET_KEY`)
+para decidir algo del **dominio de la PII**. Aquí es **seguro y lo apruebo**, porque la señal solo puede
+**ampliar** la exigencia (es un `OR` que añade casos, nunca exime). Lo señalo para que quede el criterio:
+*una señal prestada de otro dominio solo es admisible si su dirección es de cierre.* La que nos costó el
+día (`hay_stripe_real` en `es_desechable`) estaba en la dirección contraria.
+
+### 2.4 (4) Railway / ventana de exposición — **resuelta lo suficiente, y coincido en que lo que falta ya no manda**
+La respuesta del dueño (tienda **siempre en modo prueba**, **nunca dinero real**, `STRIPE_WEBHOOK_SECRET`
+**existe** en el panel) es `[REPORTADO, no medido por mí — no tengo acceso ni ventana]`. **Aceptándola,
+`P-WH-1` nunca fue explotable en su producción y no hubo ventana con dinero real.** Y suscribo el
+razonamiento del briefing **porque lo verifiqué en el código, no porque me lo digan**: el arreglo de PII
+ya no lee `NODE_ENV` como señal permisiva (§2.3) y el fail-closed del webhook es incondicional (pase
+anterior, 0/14). Por tanto el `root directory` y el `NODE_ENV` del servicio **dejan de ser una condición
+de seguridad** y pasan a ser un dato de operación. **Retiro la condición 4 como bloqueante.**
+
+### 2.5 (5) Clave de Stripe — **confirmo la corrección, y la suscribo como error mío** · `[DERIVADO]`
+La cadena está en §1.2: paso 5 verde + pasos 19-20 `skipped` ⇒ `MONEY_GATE=on` ⇒ **las dos claves de
+prueba existen y tienen forma de credencial real**. Durante cinco pases afirmé «los tres flujos de dinero
+nunca se han ejecutado» y la base de esa afirmación era un preflight corrido **en la máquina local**,
+donde los secrets de Actions **no existen por definición**. O-2: gana el dato. **Un preflight corrido en
+el sitio equivocado no dice «no hay clave»: dice «aquí no la veo»** — y esa frase merece quedarse, porque
+es la misma familia que el resto de hallazgos de hoy. Lo que sigue sin medir es cuál fue la lista de
+specs de ese disparo (§1.2), y se cierra con un `grep`.
+
+### 2.6 ⭐ **EL SÉPTIMO** — `S-CI-1` · la señal copiada fuera de su dominio · `[MEDIDO + REPRODUCIDO]`
+Ver §3.1. Es el motivo del rechazo.
+
+### 2.7 El gate de seguridad del repo está en ROJO · `S-SAST-1` · `[MEDIDO]`
+Ver §3.2.
+
+---
+
+## 3. Hallazgos, por severidad
+
+### 3.1 `S-CI-1` · **ALTA** · El gate deploy-blocking `backend-e2e` lleva toda la rama sin ejecutarse, porque el paso que arregla `S-88-1` invoca la raíz del repo desde `backend/` · **dueño: devops** · `[MEDIDO]`
+
+**Ubicación:** `.github/workflows/e2e.yml:218-236` (paso *«Resolver secretos sin literales públicos
+(P-WH-1 + S-88-1)»*), dentro del job `backend-e2e` cuyo `defaults.run.working-directory` es `backend`
+(`e2e.yml:101-103`). Líneas exactas sin override: **225, 232, 235**.
+
+**Evidencia / PoC (reproducido por mí, sin CI):**
+```
+$ cd /home/user/tcg-vault-mx/backend && ./scripts/webhook-secret-preflight.sh assert
+/bin/bash: line 1: ./scripts/webhook-secret-preflight.sh: No such file or directory
+RC=127
+$ ls backend/scripts/
+render-mail-preview.ts          # no hay ningún .sh: los scripts viven en la RAÍZ
+```
+**Confirmación en CI** (API de jobs del run `34537897586`, job `103073695464`):
+paso 4 `failure`; pasos 5→12 **todos `skipped`**; anotación literal: `Process completed with exit code 127`.
+Duración del job: **25 segundos** (22:32:05→22:32:30) — no llegó ni a instalar dependencias.
+
+**Persistencia (medida en 6 commits):** `trivy-fs`/`sast-ok`/`backend-e2e`/`e2e-ok` en `failure` en
+`4f27d2f`, `5f0928f`, `715e4af`, `66ca52b`, `d2df320` y `0417da1`.
+
+**Por qué es «una señal copiada con su nombre y sin su significado» (A/B en el propio repo):**
+
+| | `ci.yml` job `backend` | `e2e.yml` job `backend-e2e` |
+|---|---|---|
+| `defaults.run.working-directory` | `backend` | `backend` |
+| las **mismas** 3 invocaciones | `ci.yml:125,132,135` | `e2e.yml:225,232,235` |
+| `working-directory: ${{ github.workspace }}` | **SÍ** (`ci.yml:123`), con el comentario *«el `working-directory` del job es `backend/`, por eso la ruta sube un nivel»* (`ci.yml:121`) | **NO** |
+| resultado en `0417da1` | `backend` = **success** | `backend-e2e` = **failure (127)** |
+
+Y el paso **siguiente** de `e2e.yml` (`:238-239`, `check-e2e-provider-incapacitation.sh`) **sí** lleva el
+override. El conocimiento estaba a una línea de distancia, dos veces.
+
+**Impacto de seguridad — que es lo que hace esto ALTA y no una molestia de CI.** No es un fallo
+explotable: es **un control de seguridad que este release afirma y que demostrablemente no se ha
+ejecutado**. La suite muerta es exactamente la que sostiene las afirmaciones de este pase:
+
+| spec de integración no ejecutado | qué deja sin evidencia |
+|---|---|
+| `webhook-empty-secret-forge.e2e-spec.ts` | el candado de `P-WH-1` **extremo a extremo** contra Postgres real |
+| `infra-smoke.e2e-spec.ts` | el candado extremo-a-extremo de `P-UP-1` (`BACKEND_NOTES §v2.2-SEC.2`) |
+| `auth-authz.e2e-spec.ts` | autorización por rol y **por objeto (IDOR)** en vivo |
+| `auth-throttle.e2e-spec.ts` | el anti-fuerza-bruta de auth en vivo |
+| `buylist-pay-verdicts.e2e-spec.ts` | los veredictos de **dinero saliente** |
+| `guest-chargeback.e2e-spec.ts` | **contracargo** |
+| `catalog-checkout-webhook.e2e-spec.ts` · `vault-shipments.e2e-spec.ts` | el camino del dinero y la custodia |
+
+Añádase que `CLAUDE.md` regla 10 exige los **tres veredictos** + gates verdes, y que el DoD exige la
+pata de **QA con E2E**. Con `e2e-ok` en rojo por rc=127, esa pata no se puede afirmar de este candidato.
+
+**Agravante de proceso (O-5), dicho con justicia:** `DEVOPS_NOTES` **§16 (2026-08-16), líneas 1394-1405**
+enruta este rojo al **rol backend** (*«si `backend/test/integration/*.e2e-spec.ts` falla por lógica de
+app…»*) y dice —con honestidad— que devops **no podía leer los logs** («el egress bloquea … el blob de
+logs de Actions (403) … **no se inventa la causa**»). Ese bloqueo es real: **yo también lo tengo**. Pero
+la causa **no estaba en los logs, estaba en el fichero**: se diagnostica leyendo `e2e.yml` y comparándolo
+con `ci.yml`, sin CI y sin red. La nota lleva **casi un mes** sin re-medirse y ha mantenido el hallazgo
+enrutado al dueño equivocado.
+
+**Dueño: devops.** Corrección: `working-directory: ${{ github.workspace }}` en el paso de `e2e.yml:218`.
+Tres líneas. **Yo no lo toco** (§límites).
+
+---
+
+### 3.2 `S-SAST-1` · **ALTA (por regla 10; riesgo técnico efectivo BAJO)** · El gate SAST del repo está rojo, y su rojo permanente apaga su propio canario · **dueño: devops (decisión) + frontend (deps)** · `[MEDIDO]`
+
+**Ubicación:** `security-sast.yml` job `trivy-fs` → check-run `trivy-fs` = **failure** ⇒ `sast-ok` =
+**failure**, en `0417da1` y en los 5 commits anteriores.
+
+**Anotación literal del job `103073655078`:**
+> *«Self-test de trivy-fs — El gate ya está ROJO sin canario: hay hallazgos HIGH/CRITICAL REALES en el
+> repo. Arréglalos (o repórtalos al rol dueño); este self-test no puede medir nada encima de un rojo real.»*
+
+**Causa, reproducida por mí** (`trivy` no está disponible aquí; usé `npm audit`, que comparte la base de
+avisos de GitHub para node):
+
+| árbol | crítica | alta | detalle |
+|---|---|---|---|
+| `backend/` | 0 | 0 | limpio (1 low, 12 moderate) |
+| `frontend/` | **1** | **2** | `vitest` **CRITICAL** (`@vitest/mocker`, lectura+ejecución arbitraria con el UI server escuchando) · `vite` **HIGH** (path traversal en `.map` de optimized deps) · `js-yaml` **HIGH** |
+| `scripts/s3-local/` | 0 | 0 | limpio — el `override` de `busboy@1.6.0` **funcionó**, `dicer` ya no está |
+
+Son **exactamente** `P-DEP-1` / `D-1`, que yo mismo acepté como deuda **con trinquete fechado**
+(`js-yaml` 2026-09-24, `vite`/`vitest` 2026-10-10) porque son **devDependencies** y el runtime mide
+**0/0**. El check-run `npm-audit` está **verde** porque `audit-npm-dev.sh` conoce las fichas; **Trivy no
+tiene ese mecanismo** y por eso ve el mismo hecho y bloquea.
+
+**Lo que convierte una deuda aceptada en un hallazgo ALTO:** (a) `CLAUDE.md` regla 10 —*devops solo
+despliega con el gate de seguridad (SAST+DAST) en verde*— **no se cumple**, y publicar con el gate rojo
+**sin decirlo** no es defendible; (b) el efecto de segundo orden es el patrón del día otra vez: **mientras
+el gate esté rojo por algo aceptado, su self-test no corre**, así que **nadie sabría si el gate ha dejado
+de morder**. Un candado permanentemente rojo es tan ciego como uno permanentemente verde.
+
+Es **la tercera vez** que pido esto (`S-DEP-1` en el pase de `97f3bcf`, `S-PROC-1` en el mismo).
+
+**Dueño:** **devops** decide (excepción fechada en `security/.trivyignore` + ficha en `TECH_DEBT.md`, que
+es lo que el propio fichero norma) y/o **frontend** sube `vitest`/`vite`/`js-yaml`. **Riesgo técnico real
+hoy: bajo** — nada de esto viaja al artefacto (runtime 0/0 medido en los dos lados).
+
+---
+
+### 3.3 `S-CLASE-1` · **MEDIA** · El candado de clase cubre una **subclase**, y su mensaje afirma la clase entera · **dueño: devops** · `[MEDIDO]`
+
+Ataqué el candado como se me pidió, con secretos que **no** están en sus ocho sondas, sobre una copia
+(`scratchpad/sec-reveredicto/base`, manifiesto regenerado en cada caso para que el bloque (E) no
+enmascare nada). **19 mutaciones: muerde 3, escapan 16.** Y de las que escapan, **7 escapan también al
+manifiesto de valores**, es decir a **las dos** capas — el valor plantado **no entra** en
+`secretos-publicados.sha256`, así que **ningún preflight lo rechazaría en runtime**:
+
+| # | forma / nombre plantado | candado estático | manifiesto (capa de valor) |
+|---|---|---|---|
+| 1 | `${HSM_UNSEAL_KEY-literal}` — **un solo guion**, sin `:` (Compose lo soporta) | escapa | **fuera** |
+| 2 | `${HSM_UNSEAL_KEY:=literal}` — asignar-por-defecto | escapa | **fuera** |
+| 3 | `: "${KYC_PROVIDER_PASSWORD:=literal}"` en un `.sh` | escapa | **fuera** |
+| 4 | nombres fuera de `FORMA_SECRETO`: **`SMTP_PASS`**, `DB_PASS`, `ADMIN_PIN`, `RECOVERY_CODE`, `MASTER_PEPPER`, `SESSION_SEED`, `CLABE_CIPHER` | escapa | **fuera** |
+| 5 | `.env.staging` versionado con `HSM_UNSEAL_KEY=literal` | escapa | **fuera** |
+| 6 | `RUN echo "HSM_UNSEAL_KEY=literal" >> /app/.env` en el Dockerfile | escapa | **fuera** |
+| 7 | `environment:` en **forma de lista** (`- HSM_UNSEAL_KEY=literal`) | escapa | en manifiesto (mitigado en runtime) |
+| 8 | `LEDGER_HMAC=literal` **sin `export`** · `declare -x VAR=literal` | escapa | en manifiesto (mitigado) |
+| — | controles: literal pelado en compose · `export VAR=literal` · `ENV VAR=literal` | **muerde** | — |
+
+Dos precisiones que bajan esto a MEDIA y que quiero que consten:
+- **Ninguna de esas formas existe hoy en el árbol.** Lo medí:
+  `grep -E '\$\{[A-Za-z_][A-Za-z0-9_]*-[^}]' docker-compose*.yml scripts/*.sh Dockerfile* .github/workflows/*.yml | grep -v ':-'` → **vacío**; `\$\{VAR:=` → **vacío**; `environment` en lista → **vacío**.
+  O sea: **`S-88-1` está cerrado de hecho**, y esto es alcance del candado, no un agujero abierto.
+- El punto 5 tiene un agravante barato de arreglar: **`.gitignore` no cubre `.env.staging`** (cubre
+  `.env`, `.env.local`, `.env.*.local`, `.env.development`, `.env.production`, `.env.test`). Un
+  `.env.staging` se puede commitear sin que nada chille.
+
+**Dueño: devops.** Lo mínimo que cerraría la frase: aceptar `${VAR-…}` y `${VAR:=…}` en el mismo escáner
+que ya acepta `${VAR:-…}` (tres regex), añadir `PASS`/`PIN`/`PEPPER`/`SEED`/`CODE`/`CIPHER` a
+`FORMA_SECRETO` en su **fuente única**, cubrir `environment:` en forma de lista, y añadir `.env.*` al
+`.gitignore` con la excepción de `.env.example`. Y —más importante que todo lo anterior— **añadir estos
+7 casos al canario**, para que la afirmación y el candado vuelvan a medir lo mismo.
+
+---
+
+### 3.4 `S-DAST-1` · **MEDIA** · El DAST **no se ha ejecutado** contra este candidato · **dueño: devops + humano** · `[MEDIDO]`
+Runs de `security-dast.yml`: los tres últimos son `2d19cae`, `241774f1`, `a4e802a7`, **todos en la rama
+`devops/dast-p77`**, el más reciente del **2026-09-10 05:14 UTC**. En `0417da1` corrieron cuatro
+workflows —`E2E real`, `Security SAST`, `CI`, `E2E`— y **`Security DAST` no está entre ellos**. El
+check-run `dast-gate-live` que sale verde es `scripts/check-dast-gate-live.sh`, un **candado estático
+sobre la configuración del gate**, no un escaneo. `CLAUDE.md` regla 10 pide *«DAST contra staging que
+bloquea la promoción a prod»*: para este release **no ha corrido**.
+
+---
+
+### 3.5 `S-ENV-1` · **BAJA** · Último superviviente de `NODE_ENV ?? 'development'` · **dueño: backend** · `[MEDIDO]`
+`stripe.service.ts:67`. Detalle y por qué no bloquea en §1.4. **No lo acepto como cerrado, lo acepto como
+deuda** (§4, D-7): su dirección es money-safe, pero es el patrón que este equipo ya ha pagado seis veces.
+
+---
+
+### 3.6 Confirmaciones de defensa — sin hallazgo nuevo · `[MEDIDO]`
+Repasé la superficie estándar que me toca y **no encontré regresión**:
+`main.ts:60-62` CORS con allow-list desde `APP_BASE_URL`, **nunca `origin: true`**, con `credentials: true` ·
+`main.ts:42` `helmet()` activo · `app.module.ts:44` throttler global 300/min y `auth.controller.ts`
+endurece los handlers sensibles (`5/min` en login/registro/recuperación, `10/hora` en el más caro) ·
+`MoneyOutGuard` (`money-out.guard.ts:32`) exige `super_admin` estricto y devuelve `403 MONEY_OUT_FORBIDDEN` ·
+**sin inyección SQL**: los dos `$queryRawUnsafe` vivos (`prisma.service.ts:16,30`) son una constante y un
+`nextval(...) FROM generate_series(1, $1)` **parametrizado**; el de folios de órdenes
+(`orders.service.ts:313`) es tagged template.
+
+### 3.7 Consolidación con el pentester — **sin duplicados** · `[CONSOLIDADO]`
+De `docs/PENTEST_NOTES.md` (pase release `062ab8d`): `P-WH-1` **CERRADO** (verificado por mí en el pase
+anterior, 0/14) · `P-UP-1` **CERRADO** (§2.2, con mutación) · `P-DEP-1` **vivo y ahora bloqueando por
+otra puerta**, es la causa medida de `S-SAST-1` (§3.2) · `P-CFG-1` sigue como deuda `D-2`, sin cambio. Y
+el propio pentester ya avisó de lo que hoy confirmo: *«Los tres flujos de dinero A TRAVÉS DE STRIPE …
+queda para un pase con clave de prueba»* — la clave **ya existe** (§2.5); lo que falta es la evidencia
+de que ese pase corrió con los tres specs dentro.
+
+---
+
+## 4. Deuda de seguridad ACEPTADA (no bloqueante), con impacto y disparador
+
+| # | Deuda | Impacto hoy | Disparador | Dueño |
+|---|---|---|---|---|
+| D-1 | `P-DEP-1` — 1 crítica + 2 altas en devDeps del frontend | **Ninguno en el artefacto** (runtime 0/0 medido). **Pero hoy bloquea el gate** ⇒ ver `S-SAST-1` | Ficha caducada (`js-yaml` 2026-09-24; `vite`/`vitest` 2026-10-10) o que aparezca `vitest --ui` en cualquier script | frontend |
+| D-2 | `P-CFG-1` — lectura de diales sin re-validar | Nulo (ningún escritor con clave arbitraria) | Nuevo escritor de `ConfigSetting` con clave dinámica | backend |
+| D-3 | `S3_ACCESS_KEY_ID/SECRET ?? 'minioadmin'` | Nulo con S3/R2 real (403, no acceso) | Que el bucket de INE viva en un MinIO propio | backend |
+| D-4 | `S-88-5` — webhook público sin throttle | Nulo con config sana | Primer incidente de ruido, o backend público sin WAF | backend/devops |
+| D-5 | Preflight heurístico (`S-88-4`) | Bajo: exige que un humano copie un valor publicado | Cambio de formato de claves de Stripe | devops |
+| D-6 | El gate DAST **no es** un escaneo de producción | Riesgo de sobre-confianza | Antes de operar con dinero real (§5) | devops + humano |
+| **D-7** | **`S-ENV-1`** — `NODE_ENV ?? 'development'` en `stripe.service.ts:67` | **Nulo y money-safe**: sin clave real no se cobra a nadie; el webhook ya es incondicional | El día que algo **que no sea el cliente de Stripe** cuelgue de `isProduction()` | backend |
+| **D-8** | **`PII-E1`** — clave PII efímera ⇒ PII ilegible entre reinicios en un dev local con BD persistente | Ninguno en entornos reales; es el **precio elegido** del arreglo de `S-88-2` | Primera queja real de un dev, o que el arnés necesite dos procesos compartiendo PII | backend |
+
+**Lo que NO acepto como deuda:** `S-CI-1` (ALTA) y `S-SAST-1` (ALTA). `S-CLASE-1` y `S-DAST-1` son Medias
+y **no** bloquean el DoD, pero sí son condición de promoción a producción (§7).
+
+---
+
+## 5. Lo que sigue SIN MEDIR — dicho con la misma dureza que la vez pasada
+
+1. **⭐ PRODUCCIÓN NUNCA SE HA ESCANEADO. `[NO MEDIDO]`** Sin matices. El gate DAST corre contra un
+   **stack efímero de CI con datos sintéticos** (`DEVOPS_NOTES §44.4`): sin la config real, sin los
+   datos reales, sin la superficie de red real ni las integraciones reales. **Nadie —ni QA, ni devops,
+   ni yo— puede citar ese gate como «producción escaneada».** Y añado lo de hoy: **ese gate ni siquiera
+   ha corrido sobre este candidato** (§3.4). Dos cosas distintas y las dos verdaderas.
+2. **El camino del dinero sigue sin evidencia citable en ESTE candidato. `[NO MEDIDO]`** Corrijo mi
+   propia afirmación de cinco pases (§2.5): las claves **existen** y el gate estuvo **ON**. Lo que no
+   tengo es la línea que dice **qué specs corrieron**, porque el proxy me bloquea los logs y los
+   artefactos. Y sigue sin ejecutarse la evidencia de integración: `catalog-checkout-webhook`,
+   `guest-chargeback` y `buylist-pay-verdicts` viven en la suite que muere en rc=127 (§3.1). **No he
+   visto nunca** un `charge.refunded` ni un `charge.dispute.*` reales. Ahí vive el dinero que sale.
+3. **Un `payment_intent.succeeded` LEGÍTIMO firmado por Stripe liquidando un pedido. `[NO MEDIDO]`**
+   Mi control positivo (secreto real + firma válida → aceptado) es **unitario**. Baja el riesgo de que
+   el fail-closed haya roto el camino bueno; no lo cierra. El spec que lo cerraría —
+   `webhook-empty-secret-forge.e2e-spec.ts`— es justo uno de los que no corren.
+4. **El `NODE_ENV` y el root del servicio en Railway. `[NO MEDIDO]`** Ya **no** es condición de
+   seguridad (§2.4), pero sigue sin determinarse y sigue decidiendo la historia (no la mitigación).
+5. **XSS/CSRF de la UI renderizada. `[NO MEDIDO]`** No levanté el frontend; el pentester tampoco lo
+   tuvo citable. Tercer release consecutivo sin cubrir.
+6. **El `COPY` del preflight dentro del contexto de build. `[NO MEDIDO]`** Sin demonio Docker aquí.
+7. **La respuesta del dueño sobre Stripe/Railway es `[REPORTADO]`, no medida por mí.** La acepto —es su
+   panel y su negocio— pero no la convierto en «verificado».
+
+---
+
+## 6. 🚩 Banderas para el humano
+
+1. **Antes de recibir el primer peso real: pentest de un tercero + programa de bug bounty.** Este equipo
+   encontró un bypass de pago completo **en su propio código**, y hoy ha encontrado que su gate de
+   integración lleva un mes sin ejecutarse **sin que nadie lo notara**. La conclusión no es «qué bien lo
+   cazamos»: es que un sistema que **custodia bienes ajenos** y mueve dinero necesita ojos externos e
+   independientes. Esto no lo sustituye ningún gate técnico ni ningún veredicto mío.
+2. **Buena noticia, y conviene que sea explícita:** tu confirmación de que la tienda **siempre estuvo en
+   modo prueba y nunca transaccionó dinero real** es lo que cierra la peor pregunta abierta del pase
+   anterior. **No hubo ventana de exposición con dinero real por `P-WH-1`.**
+3. **Una línea de comando tuya cierra el último hueco del dinero:**
+   `gh run view 34538020057 --log | grep -m1 "Smoke (real) specs:"`. Si ahí salen los tres
+   (`checkout`, `guest-checkout`, `shipments`), el flujo de dinero en navegador **queda medido por
+   primera vez en la historia del proyecto** y hay que decirlo así de claro. A mí el proxy me bloquea
+   los logs; a ti no.
+4. **Validaciones legales pendientes — ningún gate técnico las cubre:** custodia de bienes de terceros
+   (contrato de depósito, seguro, responsabilidad ante pérdida/robo), tratamiento de **datos personales
+   sensibles** (INE, CLABE, RFC) bajo la **LFPDPPP** —aviso de privacidad, base de licitud, **retención**
+   (hoy `INE_RETENTION_DAYS=180`, **¿avalado por alguien?**), derechos ARCO— y obligaciones **AML/CNBV**
+   si el volumen de dispersión SPEI crece.
+5. **Si levantas staging**, ya puedes: el compose de staging **ya no publica** su secreto de sesión ni la
+   contraseña de su admin (§2.1). La reserva es la de §3.3, que es de alcance, no de estado.
+6. **El repositorio sigue siendo PÚBLICO** (`api.github.com/repos/…` → `"private": false`, HTTP 200 sin
+   credenciales, medido hoy). Todo lo que se commitee es público en el instante en que se empuja. Es una
+   decisión legítima; solo tiene que ser **consciente**.
+
+---
+
+## 7. VEREDICTO
+
+> # **RECHAZADO**
+>
+> **Críticos abiertos: 0. Altos abiertos: 2 (`S-CI-1`, `S-SAST-1`).** El DoD de `CLAUDE.md` exige
+> *«sin hallazgos críticos/altos abiertos»* ⇒ no puedo aprobar.
+
+**Lo que SÍ queda cerrado con este pase, medido por mí — y es mucho:**
+
+| condición | estado | mi medición |
+|---|---|---|
+| (1) `S-88-1` | **CERRADA** | 7/7 en `:?` verificados uno a uno · candado rc=0 · canario **48/48 en 5/5** |
+| (2) `P-UP-1` | **CERRADA** | 32/32 verde · mutación fiel **4/32 rojos** |
+| (3) `S-88-2` | **CERRADA** | 105/105 verde · mutación clave-derivable **2/24** · mutación `NODE_ENV` **3/24** · `git grep` sin ruta de ejecución derivable |
+| (4) Railway | **RESUELTA / retirada como bloqueante** | el arreglo no cuelga de `NODE_ENV` (verificado en código) ⇒ lo que falta ya no manda |
+| (5) Clave de Stripe | **CONFIRMADA — el equipo se equivocó y la corrección es correcta** | `MONEY_GATE=on` derivado del propio run ⇒ las claves existen |
+
+**El rechazo no viene de mis cinco condiciones. Viene de lo que se pidió buscar y apareció.**
+
+### Mínimo necesario para que yo apruebe
+
+1. **[devops · BLOQUEANTE]** `S-CI-1`: añadir `working-directory: ${{ github.workspace }}` al paso
+   `e2e.yml:218` («Resolver secretos sin literales públicos»). **Tres líneas.** Y después **`backend-e2e`
+   tiene que salir VERDE sobre el candidato, con el run citado** — no basta con que el YAML cambie: la
+   suite lleva un mes sin correr y **nadie sabe qué dirá cuando corra**. Si al arrancar sale roja por
+   tests, eso es un hallazgo nuevo y se enruta a **backend**, no se negocia aquí.
+2. **[devops · BLOQUEANTE por regla 10]** `S-SAST-1`: poner **verde** `trivy-fs`/`sast-ok`, por una de
+   estas dos vías y no por una tercera: (a) **frontend** sube `vitest`/`vite`/`js-yaml`; o (b) **devops**
+   registra la excepción **fechada y justificada** en `security/.trivyignore` + ficha en
+   `docs/TECH_DEBT.md`, que es lo que el propio `.trivyignore` norma. Lo que **no** es admisible es
+   publicar con el gate rojo sin decirlo, ni dejar el `trivy-fs-selftest` sin poder medir.
+3. **[devops · condición de promoción a prod, no del ALTA]** `S-CLASE-1`: cubrir los **7 casos** de §3.3
+   en el candado **y en el canario**, y añadir `.env.*` al `.gitignore`. Mientras no ocurra, el mensaje
+   del candado debe decir lo que cubre, no la clase entera.
+4. **[devops/humano · condición de promoción a prod]** `S-DAST-1`: correr `Security DAST` **sobre este
+   candidato** y citar el run.
+5. **[humano/QA · cierra el último hueco del dinero]** La línea de §6.3. Con ella, y solo con ella, este
+   proyecto podrá decir por primera vez que **los tres flujos de dinero se ejecutaron**.
+
+**Cerrados (1) y (2) —tres líneas de YAML y una decisión de deuda—, el veredicto pasa a
+APROBADO-CON-CONDICIONES con (3), (4) y (5) como condiciones de promoción a producción. Con los cinco,
+APROBADO.**
+
+**Lo que no diré es que «ya solo faltan detalles».** Este candidato llega al tercer veredicto del DoD con
+**dos gates deploy-blocking en rojo desde hace seis commits**, el gate DAST **sin correr**, y la suite que
+prueba el webhook, el presign, la autorización, el throttling y el contracargo **sin ejecutarse ni una
+vez**. Nada de eso lo introdujo este release y nada de eso es difícil de arreglar — pero **llegó hasta
+aquí sin que los tres veredictos lo vieran**, y ésa, no el rc=127, es la avería que importa.
+
+**Y la lección del día, para que quede escrita donde se relea:** las siete apariciones del patrón son la
+misma frase. *La ausencia de una señal se tomó por una señal.* Un secreto que falta se tomó por un
+secreto vacío; un `NODE_ENV` que falta se tomó por «local»; un preflight que no ve el secret se tomó por
+«no hay secret»; un catálogo del host se tomó por el del contenedor; una clave `sk_test_` se tomó por
+«esto es un entorno real»; y hoy, **un script que no está donde se le busca se tomó por un test que
+falla**. La defensa contra la séptima no es otro candado: es preguntar, cada vez que algo sale rojo o
+verde, **qué cosa exactamente se midió para decirlo**.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-11 · candidato `0417da1` · **RECHAZADO**
+
+---
+
+# PASE BLUE TEAM — candidato `88c48c7` (2026-09-10) · **fase de seguridad del release · 3.º de 3 veredictos**
+
+> ## ⭐ VEREDICTO: **RECHAZADO**
+>
+> **No por `P-WH-1`.** El bypass de pago del pentester está **CERRADO** y lo verifiqué yo, no me lo
+> creí: **0 de 14** configuraciones hostiles dejan pasar un `payment_intent.succeeded` forjado con
+> firma de clave vacía; el mismo PoC contra un árbol mutado da **7 de 14** (el PoC es sensible, no
+> es un verde de adorno); la mutación `?? ''` pone **11/34** unitarios en rojo; el canario del cable
+> da **31/31 en 3/3 tiradas**. Detalle y comandos en §2.1.
+>
+> Se rechaza por **un hallazgo ALTO nuevo, abierto, que nadie había mirado y que es la SEXTA
+> aparición del patrón del día** — *«la ausencia degrada en silencio a un valor que no protege»* —
+> y que está **en el mismo fichero que devops acaba de arreglar**, tres líneas más arriba:
+> `docker-compose.staging.yml` entrega **siete secretos** (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`,
+> `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, contraseña del admin sembrado, contraseña de Postgres,
+> contraseña de MinIO) con la forma `${VAR:-literal}`, y los literales están **commiteados en un
+> repositorio que medí público** (`api.github.com/... → "private": false`, HTTP 200 sin
+> autenticación). El arreglo de `STRIPE_WEBHOOK_SECRET` se aplicó **a una variable, no a la clase**.
+>
+> Con el JWT publicado, cualquiera que lea el repo firma un token `super_admin` contra ese entorno:
+> eso incluye las tres rutas de **dinero saliente** (`pay-spei`, `refund`, `reveal-clabe`). Con la
+> clave PII publicada, la CLABE y el RFC cifrados «en reposo» se leen con una cadena que está en
+> GitHub — **lo demostré descifrando una CLABE sintética usando solo el literal del repo** (§2.3).
+>
+> **Mínimo para aprobar en §7.** Es trabajo de devops de minutos (cambiar `:-` por `:?` en siete
+> líneas), no un rediseño.
+>
+> **Y aunque eso se cierre, este release NO puede promoverse a producción con dinero real**: los
+> **tres flujos de dinero siguen sin ejecutarse jamás** (quinto pase), el `NODE_ENV` real del
+> despliegue **no es determinable desde el repo** —y de él cuelgan dos candados más que sí siguen
+> condicionados a él (§2.3)— y **producción nunca se ha escaneado**. Eso no lo arregla un commit:
+> lo decide el dueño (§6).
+
+---
+
+## 0. Alcance, procedencia y honestidad de este pase
+
+- **Candidato:** `88c48c7f28ae7a1f0c610013d4f643bbe6562f2e`. Árbol **limpio** y `HEAD == @{u}`
+  (medido por mí al abrir: `git status --porcelain` vacío, `git rev-parse HEAD` = `git rev-parse @{u}`).
+- **Blanco autorizado:** **solo local**. No hay staging levantado y **producción está fuera de
+  alcance** (sin ventana del dueño). Nada de lo que digo sobre producción es una medición: va marcado.
+- **No escribí ni una línea de código del repo.** Mi único fichero es éste. Todos los arreglos van
+  al **rol dueño**. Mi banco de pruebas vivió fuera del árbol, en ruta propia:
+  `scratchpad/sec-blue-88c48c7/` (copia del backend en `mut/` para mutar, `node_modules` enlazado).
+- **Insumo principal:** `docs/PENTEST_NOTES.md`, pase release `062ab8d`, leído entero. Cada hallazgo
+  suyo aparece abajo confirmado, cerrado o matizado — **ninguno duplicado**.
+
+### Convención
+`[MEDIDO]` = lo disparé yo y vi el resultado, con el comando al lado · `[CONSOLIDADO]` = hallazgo del
+red team que crucé contra el código · `[NO MEDIDO]` = lo digo así y **nunca** lo llamo «seguro».
+
+---
+
+## 1. Correcciones al encargo (me pidieron refutar con medición; aquí van)
+
+1. **«los seis literales `whsec_…` … no queda ninguno vivo» — impreciso. `[MEDIDO]`**
+   `git grep whsec_` encuentra **dos literales `whsec_` vivos con la forma exacta del patrón**
+   (`|| 'literal'`, el respaldo público que gana en ausencia), en ficheros **de backend**:
+   - `backend/test/integration/setup.ts:32` → `process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e_test_secret'`
+   - `backend/test/integration/helpers/e2e-app.ts:30` → `return process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e_test_secret'`
+
+   Son del arnés de tests (no viajan al artefacto), así que **no cambian la severidad de `P-WH-1`**.
+   Lo que sí cambian es la afirmación: quedan literales publicados, y **el preflight no los caza**
+   (§2.2, caso 2 de la matriz: `sk_live_…` + `whsec_e2e_test_secret` → **PASA**). Lo correcto es:
+   *«no queda ningún literal que gane por defecto en un entorno de despliegue; quedan dos en el arnés
+   de tests, y el preflight tiene un punto ciego sobre ellos»*.
+   También siguen `whsec_CHANGE_ME` en `.env.example:317,865` — ésos **sí** los caza el preflight
+   (caso 1: ABORTA), así que están cubiertos.
+
+2. **Lo demás del encargo que pude verificar, se sostiene. `[MEDIDO]`** Mutación `?? ''` → **11/34**
+   unitarios rojos (idéntico a lo reportado); canario **31/31**, yo lo corrí **3/3 tiradas** (devops
+   dice 5/5; mi medición es compatible, no la contradice); `npm audit` reproduce exactamente
+   `P-DEP-1`: frontend dev **1 crítica + 2 altas**, runtime **0/0** en ambos lados.
+   *(No medí el «1/3 E2E» de la mutación: la suite de integración necesita Postgres y no levanté uno.)*
+
+---
+
+## 2. Lo que intenté ROMPER (los tres encargos del orquestador)
+
+### 2.1 ¿El fail-closed del webhook es realmente incondicional? → **SÍ.** `[MEDIDO]`
+
+**Banco propio** (`scratchpad/sec-blue-88c48c7/failclosed-poc.ts`, ejecutado con `ts-node` contra el
+código real de `backend/src/modules/payments/stripe.service.ts`, no una réplica): forjo la firma
+`t=<now>,v1=HMAC-SHA256(key="", "<t>.<payload>")` —el ataque exacto del pentester— y la lanzo contra
+`constructEvent` bajo 14 configuraciones distintas, incluidas las que intentan colar un secreto que
+*parece* presente pero no sirve.
+
+| Config inyectada | Resultado |
+|---|---|
+| secreto ausente (`undefined`) · vacío `''` · solo espacios · `null` | **RECHAZADO fail-closed** (`StripeWebhookSecretMissingError` → 503) |
+| secreto `0` · `false` · `[]` · `{toString:()=>''}` · `Buffer.from('')` (tipos no-string hostiles) | **RECHAZADO fail-closed** |
+| sin Stripe cableado (arnés local/CI) | **RECHAZADO fail-closed** |
+| `NODE_ENV=production` y `NODE_ENV=test`, secreto ausente | **RECHAZADO fail-closed** |
+| **control +**: secreto real + firma válida | **ACEPTADO** (no rompió el camino legítimo) |
+| **control −**: secreto real + firma de clave vacía | **RECHAZADO** (`StripeSignatureVerificationError` → 400) |
+| `onModuleInit` con Stripe real + secreto `' '`, para `NODE_ENV` ∈ {production, staging, development, test, local, **ausente**} | **ABORTA el arranque en los 6** |
+
+**Total: 0 eventos forjados liquidarían.** El mismo PoC, palabra por palabra, contra el árbol mutado
+(`?? ''` restaurado en `constructEvent`) da **7 aceptados** — o sea que mi banco **sí** ve el agujero
+cuando existe. Triangulación: código (`stripe.service.ts:74-78,98-114,252-262`), unitarios
+(`test/payments.webhook-empty-secret.spec.ts` **34/34 verde**; con la mutación **11 rojos / 23 verdes**),
+y el candado estático + canario (**3/3 verdes, 31/31 casos**).
+
+**No encontré vía de escape**, y busqué éstas:
+- **Otro llamador.** `git grep constructEvent|handleEvent` → el **único** camino a `handleEvent` es
+  `webhooks.controller.ts`, que solo se alcanza tras `verifyAndParse`. No hay endpoint admin de
+  «reproducir evento», ni simulador, ni ruta que marque `settled` a mano: los **tres** escritores de
+  `status:'settled'` viven en `payments.service.ts` (líneas 152, 217, 668), todos aguas abajo de la firma.
+- **Inyección de config.** `ConfigModule.forRoot({ validate })` sin `ignoreEnvFile`: `nonBlank` re-lee
+  en **cada** llamada y trimea; ningún tipo hostil produce una clave utilizable (tabla arriba).
+- **Que un test lo mockee.** El fail-closed no depende del entorno de test: `NODE_ENV=test` con Stripe
+  cableado **aborta el arranque** y sin Stripe **rechaza el webhook** (medido). El arnés firma con un
+  secreto real de suite, no con la ausencia.
+- **La respuesta.** `BusinessException.retriable` → **503** (`business.exception.ts:51-53`) con mensaje
+  genérico: no le confirma al atacante el estado de la config. El detalle va al log del servicio.
+  Comparto el criterio de backend: 503 sobre 400 es lo correcto aquí (Stripe reintenta 3 días ⇒ el
+  evento legítimo sobrevive a la config rota).
+
+**Conclusión: `P-WH-1` (mitad de código) — CERRADO.** No es «lo dice backend»: son 14 intentos míos.
+
+### 2.2 ¿El preflight se puede saltar? → **SÍ, por dos vías, y una está abierta hoy.** `[MEDIDO]`
+
+**(a) Cualquier arranque que no sea el `CMD` del Dockerfile no lo ejecuta.**
+`backend/package.json` → `"start:prod": "node dist/main.js"`. **Sin preflight.** El preflight solo
+está cableado en `Dockerfile.backend:124` (CMD), `scripts/stack-native.sh:249` y los cuatro workflows.
+No puede estar en `package.json`: ese fichero es de backend y el script es de devops — el límite de
+propiedad es real, no una excusa.
+Esto importa **hoy** porque la pregunta de Railway sigue sin respuesta: `railway.json` (raíz) declara
+`builder: DOCKERFILE`, pero **no existe `backend/railway.json`** (lo verifiqué); si el root del
+servicio fuera `backend/`, Railway ignoraría esa config y autodetectaría → build sin Dockerfile →
+**sin preflight y sin `ENV NODE_ENV=production`**. **`[NO MEDIDO]`**: qué root tiene el servicio real.
+*Mitigación que sí sobrevive a esa vía:* el fail-closed de backend (§2.1) es código, viaja siempre.
+Lo que se pierde por esa vía es exactamente el residual —un secreto **publicado**— que el preflight existe para cazar.
+
+**(b) El emparejamiento es heurístico y tiene un punto ciego medido.** Matriz que corrí contra
+`scripts/webhook-secret-preflight.sh assert` (14 combinaciones, `env -i` limpio):
+
+| # | Entorno | Esperado | Medido |
+|---|---|---|---|
+| 1 | `sk_live_…` + `whsec_CHANGE_ME` | aborta | **ABORTA** ✔ |
+| 2 | `sk_live_…` + **`whsec_e2e_test_secret`** (literal commiteado, `backend/test/…`) | aborta | **PASA** ✗ |
+| 3 | `sk_live_…` + `whsec_e2e_dummy` | aborta | **ABORTA** ✔ |
+| 4-8 | `sk_live_`/`sk_test_`/`rk_live_` sin secreto, o secreto en blanco, o clave con espacios | aborta | **ABORTA** ✔ (5/5) |
+| 9 | clave sin prefijo `sk_`/`rk_` | — | **PASA** (no la considera «real»; degrada a permisivo si Stripe cambia el formato de sus claves) |
+| 10 | sin Stripe, sin secreto | efímero | **PASA** ✔ |
+| 13 | `sk_live_…` + secreto **solo** en `STRIPE_TEST_WEBHOOK_SECRET` | — | **PASA**, pero la app lee `STRIPE_WEBHOOK_SECRET` y **aborta al arrancar** ⇒ verde falso del preflight, fallo cerrado igualmente |
+
+El caso 2 es el que cuenta: **el propio repo contiene un valor publicado que el preflight deja pasar
+junto a una clave `sk_live_`**. La promesa del script («un Stripe real no puede convivir con una clave
+publicada») tiene un contraejemplo dentro del repositorio. → `S-88-4`, BAJA (hace falta que un operador
+lo copie), pero es exactamente el gesto que el script existe para atrapar.
+
+**(c) El `COPY` del preflight en el contexto de build: `[NO MEDIDO]`** — no hay demonio Docker en este
+entorno (`docker info` falla). **Pero el modo de fallo es demostrablemente ruidoso por construcción:**
+el `COPY` de `Dockerfile.backend:103` es una **única ruta literal, sin comodín y sin `if`**. O el
+fichero está en el contexto y la imagen lo lleva, o **el build falla**. No existe el desenlace
+«imagen publicada sin preflight». Eso convierte la incógnita de devops en un riesgo de
+**disponibilidad**, no de seguridad. Comando que la cerraría del todo:
+`docker build -f Dockerfile.backend --target runtime -t x . && docker run --rm x sh -c 'ls -l ./scripts/webhook-secret-preflight.sh'`.
+
+### 2.3 ¿Queda un sexto «degrada en silencio a un valor que no protege»? → **SÍ. Está en el fichero que devops acaba de tocar.** `[MEDIDO]`
+
+Barrí la clase entera en vez de buscar un caso. Resultado: **el patrón sigue vivo en tres sitios**,
+uno de ellos ALTO.
+
+**(i) `docker-compose.staging.yml` — siete secretos con `${VAR:-literal_público}`** → `S-88-1`, **ALTA**.
+Ver §3.1. Es literalmente la forma que el mismo fichero declara explotable en su comentario de la
+línea 197-208… para la variable de al lado.
+
+**(ii) El cifrado de PII degrada a una clave que está escrita en el repo, y el único guardia es
+`NODE_ENV`** → `S-88-2`, **MEDIA (→ALTA si el dueño confirma el entorno)**.
+`backend/src/common/crypto/pii-crypto.service.ts:44-47,66-75,86-96`: sin `PII_ENCRYPTION_KEY`, si
+`NODE_ENV` ∈ {`development`, `test`, `local`, **ausente**}, deriva
+`sha256('local-dev-pii-encryption-key')` y sigue adelante con un `logger.warn`. **PoC que disparé:**
+cifré una CLABE sintética con el servicio real y la **descifré desde fuera** derivando la clave con
+esa cadena del repo — salida literal del banco:
+`ARRANCA y la CLABE se descifra con clave del repo: "012180012345678901"` para `NODE_ENV` ausente,
+`development`, `test` y `local`; **aborta** en `production` y `staging`. Idéntico para `PII_HMAC_KEY`
+(el blind index deja de ser ciego: permite emparejar/enumerar CLABEs).
+Es **el mismo defecto que `P-WH-1`**: el candado cuelga de `NODE_ENV` en vez del hecho relevante.
+Backend ya aplicó la lección correcta al webhook (*«¿hay `STRIPE_SECRET_KEY`? entonces el secreto es
+obligatorio»*); aquí no se aplicó.
+
+**(iii) `env.validation` entera cuelga del mismo hilo** `[MEDIDO]`: con `NODE_ENV` **ausente**,
+`validateEnv({})` **pasa sin exigir NADA** (ni `DATABASE_URL`, ni los dos secretos JWT, ni su entropía
+mínima, ni `STRIPE_*`, ni `APP_BASE_URL`, ni `RESEND_API_KEY`). Con `production`/`staging` aborta
+correctamente. `backend/src/config/env.validation.ts:20-21,59-71`.
+*Nota justa:* tras `707c4f4` esto ya **no** reabre `P-WH-1` (el fail-closed del webhook es código y no
+mira `NODE_ENV`). Lo que reabre es todo lo demás que sí lo mira.
+
+**(iv) Bonus de la misma clase, menor:** `backend/src/modules/uploads/uploads.service.ts:39-41` →
+`S3_ACCESS_KEY_ID ?? 'minioadmin'` / `S3_SECRET_ACCESS_KEY ?? 'minioadmin'`. Ausencia ⇒ credencial
+por defecto conocida, en silencio, sobre el bucket que guarda **fotos de INE**. Contra un S3/R2 real
+solo produce 403 (degradación funcional); contra un MinIO con credenciales por defecto, acceso total.
+→ deuda con disparador (§4).
+
+---
+
+## 3. Hallazgos priorizados
+
+### 3.1 `S-88-1` · **ALTA** · Siete secretos de staging con literal público como respaldo — el literal gana justo cuando el operador cree haber cargado el secret manager · **dueño: devops** · `[MEDIDO]`
+
+- **Ubicación:** `docker-compose.staging.yml`
+  - `:166` `JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:-staging_access_secret_change_me_please_32}`
+  - `:167` `JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:-staging_refresh_secret_change_me_please_32}`
+  - `:160` `PII_ENCRYPTION_KEY: ${STAGING_PII_ENCRYPTION_KEY:-c3RhZ2luZ19waWlfZW5jX2tleV8zMmJ5dGVzX29rISE=}`
+  - `:161` `PII_HMAC_KEY: ${STAGING_PII_HMAC_KEY:-staging_pii_hmac_key_change_me_distinct}`
+  - `:204` `SEED_ADMIN_PASSWORD: ${STAGING_SEED_ADMIN_PASSWORD:-StagingAdmin123!}`
+  - `:206` `SEED_OPERATOR_PASSWORD: ${STAGING_SEED_OPERATOR_PASSWORD:-StagingOperator123!}`
+  - `:42` `POSTGRES_PASSWORD: …:-tcg_staging_password` · `:86` `MINIO_ROOT_PASSWORD: …:-minioadmin_staging`
+- **Evidencia de que el repo es público:** `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/jcsainz95-cloud/tcg-vault-mx` → **200** sin credenciales; el JSON dice **`"private": false`**. Los literales son legibles por cualquiera.
+- **Evidencia de que los defaults se usan de verdad hoy:** `.github/workflows/security-dast.yml` y
+  `e2e-real.yml` levantan **este mismo compose** y **no exportan ninguna `STAGING_*`** (`git grep
+  STAGING_JWT_ACCESS_SECRET .github/` → 0 resultados). O sea: cada corrida del **gate DAST** —el que
+  bloquea la promoción a prod— corre contra un stack cuyo secreto de firma de sesión está publicado.
+  Hoy eso es un runner efímero, localhost, datos sintéticos ⇒ **sin exposición externa**.
+- **Impacto si alguien levanta staging desde este fichero sin el secret manager** (que es como
+  `DEVOPS_NOTES` lo documenta): con `JWT_ACCESS_SECRET` conocido se **firma un token `super_admin`**
+  ⇒ acceso a `POST /admin/buylist/:id/pay-spei`, `POST /admin/orders/:id/refund` y
+  `GET /admin/buylist/:id/reveal-clabe` — las tres rutas `@MoneyOut`. Con `PII_ENCRYPTION_KEY`
+  conocido, el cifrado en reposo de CLABE/RFC **no cifra nada frente a quien lea el repo**. Y las
+  contraseñas del admin/operador sembrados están publicadas en claro.
+- **Por qué es ALTA y no deuda:** no hace falta que nada más falle; el literal **gana por defecto**, y
+  gana **exactamente** en el escenario de error del operador (creer que el secret manager está cableado).
+  Es la definición que este equipo ya adoptó con `P-WH-1`, y el arreglo correcto —`:?` en vez de
+  `:-`— está **tres líneas más abajo, en el mismo fichero** (`:182`, `STRIPE_WEBHOOK_SECRET`).
+  Nadie lo había registrado: `git grep` en `SECURITY_NOTES`/`PENTEST_NOTES`/`TECH_DEBT` → **0 menciones**.
+- **Matiz honesto de explotabilidad:** **hoy no existe staging** ⇒ nadie puede atacarlo ahora mismo.
+  Si el dueño declara por escrito que este compose no se levantará nunca en una red alcanzable, el
+  hallazgo baja a MEDIA y pasa a deuda con disparador. Esa declaración **tiene que ser explícita**:
+  hoy el fichero es la receta documentada de staging.
+- **Arreglo (no lo implemento):** `:?` con mensaje —igual que ya se hizo con `STRIPE_WEBHOOK_SECRET`—
+  en las 7 variables, y extender el canario `check-stripe-webhook-failclosed-canary.sh` (o uno gemelo)
+  para que **la clase** quede vigilada, no una variable.
+
+### 3.2 `S-88-2` · **MEDIA** (→ALTA si el dueño confirma el entorno) · El cifrado de PII degrada a una clave derivable del repo, condicionado a `NODE_ENV` · **dueño: backend** · `[MEDIDO]`
+
+- **Ubicación:** `backend/src/common/crypto/pii-crypto.service.ts:44-47` (`isLocalEnv`), `:66-75`
+  (enc), `:86-96` (hmac). Relacionado: `backend/src/config/env.validation.ts:20-21,59-71`.
+- **PoC:** §2.3(ii). Con `NODE_ENV` ausente/local y sin claves, la app **arranca** y la CLABE cifrada
+  se descifra con `sha256('local-dev-pii-encryption-key')` — cadena que está en el repo público.
+- **Impacto:** el control de «PII cifrada en reposo» (CLABE/RFC, el corazón del riesgo legal de este
+  negocio) queda **inerte** frente a cualquiera que obtenga la BD o un respaldo. Silencioso: un `warn`.
+- **Dos incógnitas que deciden la severidad, ambas `[NO MEDIDO]`:** (1) qué `NODE_ENV` tiene el
+  entorno desplegado; (2) si `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` están cargadas ahí. **Ambas se
+  cierran leyendo las Variables del servicio en Railway** — treinta segundos del dueño.
+- **Arreglo pedido:** la misma cirugía que backend ya hizo en `stripe.service.ts` — condicionar al
+  **hecho**, no a `NODE_ENV` (p. ej.: si hay `DATABASE_URL` que no apunta a localhost, o si existe
+  cualquier fila de `KycProfile`, las claves PII son obligatorias). Y que `env.validation` no dé por
+  local a `NODE_ENV` ausente sin exigir nada.
+
+### 3.3 `S-88-3` · **MEDIA** · No se puede afirmar que el preflight corra en producción · **dueño: devops (+ respuesta del humano)** · `[MEDIDO parcialmente]`
+
+Ver §2.2(a). `npm run start:prod` no lo invoca; `backend/railway.json` no existe; el root del servicio
+Railway es una incógnita abierta. **La mitigación de código (fail-closed) sí viaja siempre**, así que
+esto no reabre el bypass de pago: deja abierto el residual «secreto publicado». Arreglo: responder las
+tres preguntas de Railway y, si el root es `backend/`, mover/duplicar la config o cablear el preflight
+en la vía real de arranque.
+
+### 3.4 `P-UP-1` · **MEDIA** · [CONSOLIDADO — confirmado] · Tope de tamaño del presign evadible · **dueño: backend + devops**
+
+Confirmado en código en `88c48c7`: `backend/src/modules/uploads/uploads.service.ts:86-118` —
+`ContentLength` y el chequeo contra `KYC_UPLOAD_MAX_BYTES` **solo se aplican si el cliente manda
+`contentLength`** (línea 110: `...(contentLength !== undefined ? { ContentLength } : {})`). Sin él, la
+URL sale con `UNSIGNED-PAYLOAD` y sin cota. **La severidad del pentester es correcta** (abuso de
+storage/costo por un `customer` autenticado; no es RCE ni fuga). No lo re-disparé: su PoC es
+suficiente y subir GiB sería daño gratuito. **Sigue abierto.** Arreglo: `contentLength` obligatorio y
+fijado siempre en la firma + política de tamaño en el bucket.
+
+### 3.5 `P-DEP-1` · **MEDIA** · [CONSOLIDADO — confirmado y contenido] · Deps de desarrollo con crítica/alta · **dueño: frontend**
+
+`[MEDIDO]` `npm audit --json`: **frontend runtime 0/0**, **backend runtime** 5 moderadas / **0 altas /
+0 críticas**, **frontend completo** 1 crítica (`vitest` GHSA-5xrq) + 2 altas (`vite` GHSA-fx2h,
+`js-yaml` GHSA-2883). Exactamente lo que reportó el pentester.
+El `continue-on-error` fue sustituido por un trinquete con fichas fechadas; lo **corrí**:
+`./security/scripts/audit-npm-dev.sh` → **verde**, 3 fichas con dueño (`frontend`) y fecha
+(`2026-09-24` js-yaml, `2026-10-10` vite y vitest), y el script pone **rojo** si aparece un alto sin
+ficha o si una ficha caduca. **Acepto esto como deuda registrada, no como bloqueante**: no viaja al
+artefacto y ahora tiene dueño, fecha y revisor. Ficha en §4.
+
+### 3.6 `S-88-4` · **BAJA** · El preflight acepta un literal `whsec_` que está commiteado · **dueño: devops (lista) + backend (arnés)** · `[MEDIDO]`
+
+§2.2(b) caso 2. Arreglo barato y de la forma correcta: que la lista de «no-secretos» no sea un patrón
+fijo sino **lo que el propio repo contenga** (`git grep -o 'whsec_[A-Za-z0-9_]*'` como fuente), y que
+el arnés de backend deje de usar `|| 'literal'` (misma forma que el `?? ''`).
+
+### 3.7 `S-88-5` · **BAJA** · `POST /webhooks/stripe` es el único POST público **y** exento de rate-limit · **dueño: backend/devops** · `[código]`
+
+`webhooks.controller.ts:15` `@SkipThrottle()` + `@Public()`. Es defendible (Stripe reintenta y no debe
+descartarse un evento legítimo), pero con la config rota cada petición anónima produce un `logger.error`
+⇒ amplificador de logs/CPU gratuito. El cuerpo sí está acotado (límite por defecto de `express.json`,
+100 kB). Mitigación sugerida: límite por IP muy holgado o rate-limit en el borde, y `warn` agregado
+(uno cada N) en vez de uno por petición.
+
+### 3.8 `P-CFG-1` · **BAJA** · [CONSOLIDADO — sostengo la conclusión del pentester] · `SettingsService.get()` no valida en lectura · **dueño: backend**
+
+`backend/src/modules/settings/settings.service.ts:216-219`. El pentester **intentó refutar** la
+afirmación de backend (ningún escritor alcanza `price_provider`) y **no pudo**; yo tampoco encontré
+vía nueva. Queda como defensa-en-profundidad ausente en el camino del dinero, no explotable por API.
+Deuda con disparador (§4).
+
+---
+
+## 4. Deuda de seguridad ACEPTADA (no bloqueante), con impacto y disparador
+
+| # | Deuda | Impacto hoy | Disparador para abordarla | Dueño |
+|---|---|---|---|---|
+| D-1 | `P-DEP-1` — 1 crítica + 2 altas en devDependencies del frontend | **Ninguno en el artefacto** (runtime 0/0 medido). Riesgo de CI/máquina de dev | Ficha caducada (`js-yaml` **2026-09-24**; `vite`/`vitest` **2026-10-10**) o que aparezca `vitest --ui` en cualquier script | frontend |
+| D-2 | `P-CFG-1` — lectura de diales sin re-validar | Nulo hoy (ningún escritor con clave arbitraria) | Que aparezca un **nuevo escritor** de `ConfigSetting` con clave dinámica, o cualquier acceso directo a la BD en un runbook | backend |
+| D-3 | `S3_ACCESS_KEY_ID/SECRET ?? 'minioadmin'` (§2.3-iv) | Nulo con S3/R2 real (produce 403, no acceso) | El día que el bucket de INE viva en un MinIO propio, o que se despliegue sin credenciales S3 | backend |
+| D-4 | `S-88-5` — webhook público sin throttle | Nulo con config sana | Primer incidente de ruido de logs, o exposición pública del backend sin WAF/borde | backend/devops |
+| D-5 | Preflight heurístico (`S-88-4`) y clave Stripe con prefijo desconocido (caso 9) | Bajo: requiere que un humano copie un valor publicado | Cambio de formato de claves de Stripe, o aparición de un nuevo literal `whsec_` en el repo | devops |
+| D-6 | El **gate DAST no es un escaneo de producción** (`DEVOPS_NOTES §44.4`) | Riesgo de sobre-confianza | Antes de operar con dinero real (ver §6) | devops + humano |
+
+**Lo que NO acepto como deuda:** `S-88-1` (ALTA) y `P-UP-1` (MEDIA, sin arreglo). `S-88-2` y `S-88-3`
+quedan condicionadas a la respuesta del dueño sobre Railway.
+
+---
+
+## 5. Lo que NO pude medir (y por qué lo digo así)
+
+1. **⭐ Los tres flujos de dinero (checkout de bóveda, checkout de invitado, envíos) NUNCA se han
+   ejecutado de punta a punta.** Quinto pase. **No están verdes ni saltados: están sin verificar.**
+   Me alineo con QA y **me niego a darlos por cubiertos**. Concretamente, lo que sigue sin medir del
+   camino del dinero: creación real de un `PaymentIntent`, captura de tarjeta, 3DS, y —lo que más me
+   toca a mí— **que un evento `payment_intent.succeeded` LEGÍTIMO firmado por Stripe siga liquidando
+   tras el cambio de `707c4f4`**. Mi control positivo (secreto real + firma válida → aceptado) es
+   unitario, no de integración: baja el riesgo, no lo cierra. Y **`charge.refunded` /
+   `charge.dispute.*` reales tampoco se han visto nunca** — ahí vive el dinero que sale.
+2. **El `NODE_ENV` real del entorno desplegado.** No es determinable desde el repo (`railway.json` en
+   raíz, sin `backend/railway.json`). Afecta a `S-88-2`, a `env.validation` completa y a
+   `stripe.service.get stripe` (fallback a `sk_test_dummy` fuera de producción). **Ya NO afecta al
+   fail-closed del webhook** (medido: aborta/rechaza en los 6 valores de `NODE_ENV`).
+   → **¿Estuvo la tienda expuesta antes de `707c4f4`?** **No lo sé y no lo puedo saber desde aquí.**
+   La respuesta honesta: *si* ese entorno corrió con `NODE_ENV` no-`production` **y** con Stripe real
+   **y** sin `STRIPE_WEBHOOK_SECRET`, entonces **sí** fue forjable durante ese tiempo. Las tres
+   condiciones se comprueban en un minuto con las Variables y los logs de arranque de Railway (el
+   arranque anterior habría dejado el `warn` de `StripeService`), y esa comprobación **la tiene que
+   hacer el dueño**: yo no tengo acceso ni ventana. Mientras no se haga, **hay que tratarlo como
+   posible** y revisar si algún pedido quedó `settled` sin cargo correspondiente en Stripe.
+3. **El `COPY` del preflight dentro del contexto de build.** Sin demonio Docker aquí. Argumenté en
+   §2.2(c) por qué el modo de fallo es «build roto», no «imagen insegura», pero **no lo medí**.
+4. **Producción: nunca escaneada.** Lo digo tal cual, como pide el encargo: **el gate DAST corre
+   contra un stack efímero de CI con datos sintéticos** — sin la config, los datos, la superficie de
+   red ni las integraciones reales (`DEVOPS_NOTES §44.4`). **Nadie puede citar ese gate como
+   "producción escaneada".** Y añado lo que medí hoy: ese stack de CI corre además con **secretos
+   publicados** (`S-88-1`), así que tampoco es «un staging bien configurado».
+5. **XSS/CSRF de la UI renderizada**: el pentester no tuvo frontend citable; yo tampoco lo levanté.
+   Queda sin medir en este release.
+
+---
+
+## 6. Banderas para el humano
+
+1. **Antes de operar con dinero real: pentest de un tercero + programa de bug bounty.** Este equipo ha
+   encontrado un bypass de pago completo *en su propio código* en el pase anterior. La conclusión no es
+   «qué bien lo cazamos»: es que un sistema que custodia bienes ajenos y mueve dinero necesita ojos
+   externos e independientes antes de recibir el primer peso real.
+2. **Dos preguntas que solo tú puedes contestar y que valen más que cualquier auditoría más de código:**
+   (a) ¿cuál es el **root del servicio backend en Railway** y qué **`NODE_ENV`** tiene? (b) ¿están
+   cargadas `PII_ENCRYPTION_KEY` y `PII_HMAC_KEY` en ese servicio? Con esas dos respuestas cierro
+   `S-88-2` y `S-88-3` y sé si la tienda estuvo expuesta (§5.2).
+3. **Clave de prueba de Stripe.** Es la quinta vez que se pide. Sin ella, los tres flujos de dinero
+   —incluidos reembolso y contracargo— **jamás** se han ejecutado. No es un capricho de QA: es el único
+   camino que mueve dinero y titularidad de cartas, y es donde ya apareció el peor fallo del sistema.
+4. **Validaciones legales pendientes (no las cubre ningún gate técnico):** custodia de bienes de
+   terceros (contrato de depósito, seguro, responsabilidad ante pérdida/robo), tratamiento de **datos
+   personales sensibles** (INE, CLABE, RFC) bajo la LFPDPPP —aviso de privacidad, base de licitud,
+   **retención** (hoy `INE_RETENTION_DAYS=180`, ¿avalado por alguien?), derechos ARCO— y obligaciones
+   AML/CNBV si el volumen de dispersión SPEI crece. **Ningún hallazgo técnico sustituye esto.**
+5. **Si decides levantar staging**, hazlo *después* de `S-88-1`: hoy ese compose publica su propio
+   secreto de sesión y la contraseña de su admin.
+
+---
+
+## 7. VEREDICTO
+
+> # **RECHAZADO**
+>
+> **Críticos abiertos: 0. Altos abiertos: 1 (`S-88-1`).** El DoD exige *«sin hallazgos críticos/altos
+> abiertos»* ⇒ no puedo aprobar.
+
+**Lo que SÍ queda cerrado con este pase, medido por mí:**
+- `P-WH-1` (ALTA, el bypass de pago): **CERRADO**. 0/14 forjas aceptadas; mutación 11/34 roja;
+  canario 31/31 en 3/3; el fail-closed es incondicional respecto a `NODE_ENV` y a tipos hostiles de config.
+- Los seis literales `whsec_` de despliegue: **eliminados** (con la precisión de §1.1).
+- `P-DEP-1`: **contenido** con trinquete fechado y verde. Aceptado como deuda.
+
+### Mínimo necesario para que yo apruebe
+
+1. **[devops · bloqueante]** Cerrar `S-88-1`: las 7 variables de `docker-compose.staging.yml` pasan de
+   `${VAR:-literal}` a `${VAR:?mensaje}` (o equivalente que **falle ruidoso**), y el canario se
+   extiende para vigilar **la clase**, no una variable. *Alternativa admisible:* el dueño declara por
+   escrito que ese compose no se levantará en ninguna red alcanzable y se marca el fichero como
+   solo-CI; entonces baja a MEDIA y pasa a deuda con disparador.
+2. **[backend · bloqueante para promover a producción, no para cerrar el ALTA]** `P-UP-1`: exigir
+   `contentLength` y fijarlo siempre en el presign.
+3. **[backend]** `S-88-2`: que la exigencia de las claves PII cuelgue del **hecho**, no de `NODE_ENV`
+   — la misma cirugía de `707c4f4`, aplicada al segundo sitio donde vive el patrón.
+4. **[humano/devops]** Responder las tres preguntas de Railway (§6.2) y, con la respuesta, decidir si
+   hubo ventana de exposición (§5.2) y si el preflight corre en producción (`S-88-3`).
+5. **[humano/QA]** Clave de prueba de Stripe y **ejecución real** de los tres flujos de dinero, con al
+   menos un `payment_intent.succeeded` **firmado por Stripe** liquidando un pedido y un
+   `charge.refunded` real. Mientras eso no ocurra, **ningún veredicto —el mío incluido— puede
+   afirmar que el camino del dinero funciona**; solo que no encontramos cómo romperlo.
+
+Cerrados (1) y (4), el veredicto pasa a **APROBADO-CON-CONDICIONES** con (2), (3) y (5) como
+condiciones de promoción a producción. Con los cinco, **APROBADO**.
+
+---
+
 # PASE BLUE TEAM — candidato `6055f82` (2026-09-08) · release «consola de bounties» (§M2-B) + delta acumulado contra `origin/main`
 
 > ## ⭐ VEREDICTO: **APROBADO**

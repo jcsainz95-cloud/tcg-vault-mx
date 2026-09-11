@@ -2,8 +2,307 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-09 (rev **v1.63.4**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-10 (rev **v1.66.2**).
 >
+> **Changelog v1.66.2 — EL CONTRATO DESCRIBÍA UNA SUPERFICIE INSEGURA, Y OBEDECERLO AL PIE DE LA LETRA
+> REPRODUCÍA EL AGUJERO (2026-09-10, arquitecto).** Base: **v1.66.1, vigente entera**. **⛔ Cero endpoints nuevos,
+> cero DDL.** Toca **una** sección: [§8 Uploads](#8-uploads-solo-ine-de-kyc). Origen: `P-UP-1` (pentester/seguridad
+> §3.4) + `UP-C1` (`TECH_DEBT.md`), enrutado por backend **sin tocar el contrato** (regla 9 de `CLAUDE.md` —
+> correcto).
+>
+> **1. ✅ RATIFICADO: `contentLength` es OBLIGATORIO en `POST /uploads/presign`, y la `Res 200` documenta
+> `maxBytes` y un `headers` POBLADO.** Medido por mí contra el árbol, no relayado: `uploads.service.ts:100-136`
+> (rechazo por ausencia, `ContentLength` incondicional en la firma, `headers` con `Content-Type` +
+> `Content-Length`, `maxBytes` en la respuesta) y `uploads.controller.ts:13-17` (el DTO deja la **ausencia** al
+> servicio a propósito, para que salga `422` de negocio y no el `400` del pipe). **Ratifico el código y corrijo el
+> documento** — no al revés: la forma insegura era la documentada.
+>
+> **2. ⭐⭐ MARCA NUEVA `<!-- CANON: cota-de-tamano-del-presign · estado: VIGENTE -->` (§8), y el token es
+> `VIGENTE` porque el predicado ESTÁ CONSTRUIDO** (regla 10; lo verifiqué en el artefacto, no en un informe).
+> Lo que se marca **no es el campo: es el invariante que el campo sostiene** (`I-UP1..I-UP4`). *Un campo se borra
+> por «simplificar» sin que nadie note qué se llevó consigo; un invariante nombrado, no.*
+>
+> **3. ⛔ LO QUE DECIDÍ NO HACER, y la razón importa más que la decisión: NO se acuña un vocabulario de marcas
+> «de seguridad».** Un censo de secciones marcadas «esto es sensible» **solo vale si es exhaustivo**, y uno
+> poblado a mano **emite un verde sobre todo lo que nadie marcó** — que es literalmente el defecto de v1.66.1 (un
+> guardián que declara inexistente lo que debe guardar). Además la regla 11 cerró el vocabulario **hace una rev**.
+> ⇒ Se usa el mecanismo que ya existe y ya tiene lint (`CANON` + token), y la lección generalizable se escribe
+> **como norma, no como etiqueta**: `ARCHITECTURE §0-B.3` **regla 9 gana la mitad (c)** — *la AUSENCIA de un campo
+> del cliente nunca produce una garantía MENOR del servidor*, y **el contrato declara qué pasa cuando falta**.
+>
+> ---
+>
+> **Changelog v1.66.1 — UN `CANON` DECLARA SI YA EXISTE: la rev anterior escribió, dentro de la norma hecha para
+> impedirlo, la instancia más grande del defecto que venía a curar (2026-09-10, arquitecto).** Base: **v1.66**.
+> **⛔ Cero endpoints nuevos, cero DDL nuevo.** Origen: **bloqueante nº1 del veredicto de techlead**, verificado
+> punto por punto por el orquestador. Razón entera: `ARCHITECTURE §0-B.3` reglas **10** y **11**, y `§4.46`.
+>
+> **1. 🔴 EL BLOQUEANTE — [`§M2-CS.3`](#M2-CS3) y [`§M2-CS.4`](#M2-CS4) eran bloques `CANON` cerrados que
+> afirmaban en INDICATIVO cinco hechos FALSOS contra el árbol.** Medido: `pricedVariants`, `priceCoverage`,
+> `catalogWindow` y `CATALOG_SYNC_WINDOW_MONTHS` con **cero ocurrencias** en `backend/` y `frontend/`; **`M-51`
+> no existe**; y `catalogSyncFromDate` **sigue en el DTO y sigue editándose en la pantalla M10**. Por la regla de
+> conflicto de `CLAUDE.md` —*el contrato manda sobre el código*— eso ponía al backend **fuera de contrato en dos
+> secciones canónicas enteras** sin que backend hubiera hecho nada mal. ⇒ **Los dos bloques quedan marcados
+> `estado: PROYECTADA`, con banner, dueño y compuerta**, y sus frases sobre el mundo pasan a **deónticas**.
+>
+> **2. ⭐⭐ NORMA NUEVA, porque un parche a esas dos secciones no habría impedido la tercera: `ARCHITECTURE
+> §0-B.3` REGLA 10 — TODA APERTURA `CANON` LLEVA UN TOKEN DE ESTADO** (`VIGENTE` / `PROYECTADA`; **sin token se
+> lee `PROYECTADA`**, fail-closed). *Hasta hoy el mecanismo no distinguía «esto es la norma» de «esto es la norma
+> **y ya está construida**», y a todo el equipo se le ha dicho que cite un `CANON` sin verificar: la promesa de
+> la marca era el vehículo del error.* **Las 12 marcas del censo llevan ya su token.**
+>
+> **3. ⚠️ EL PRECEDENTE HABÍA FALLADO, y se dice por qué antes de reusarlo.** La «nota de vigencia» de
+> [`§M10-PP`](#M10-PP) llevaba días **caduca** (`D-PP-1` cerró: el seed del código es el primario) y seguía en
+> presente **dentro del bloque**. Falló por tres cosas, y las tres las cierra la regla 10: no era `grep`-able,
+> su retiro no estaba atado a un evento, y —lo de fondo— **era una afirmación de clase (B) dentro de un `CANON`**.
+> ⇒ **Se retira**, y ⛔ **cero clase (B) dentro de un bloque canónico** pasa a ser norma.
+>
+> **4. ⭐ [`§M2-GT`](#M2-GT), SECCIÓN NUEVA (DINERO): «EL GRUPO TCGCSV DE UN SET» entra al censo.** Hallazgo de
+> techlead: **dos columnas persistidas y tres escaleras** afirmando el mismo hecho. Se decide **qué manda**
+> (`SealedSetGroup.set_main`; `CardSet.tcgcsvGroupId` es su espejo), **⛔ que `pptSetId` NO es un groupId** —usarlo
+> es un juego de tipos, y su escalera **no tiene monotonía**—, una sola escalera de escritura, una precedencia de
+> lectura, y **`I-GT5`: dos fuentes que difieren ⇒ fail-closed y RUIDOSO, jamás una elección silenciosa**.
+>
+> **5. ⭐ SE RENOMBRAN DOS MAGNITUDES **ANTES** DE QUE EXISTAN, y la señal de alarma fue el propio contrato.**
+> v1.66 tuvo que escribir *«⛔ `windowDays` y `windowMonths` NO son la misma ventana»*: **cuando un contrato
+> necesita esa frase, el defecto ya está puesto** (es la señal que precedió a PRIMARIO/SEED/VIGENTE). ⇒
+> **VIGENCIA de un precio = `priceCoverage.freshnessDays`** y **NOVEDAD de un set = `catalogCutoff.recencyMonths`**
+> (`CATALOG_RECENCY_MONTHS`); ⛔ la palabra «ventana»/`window` queda **prohibida en ambos**. **Coste medido: cero**
+> — ninguno existe todavía en el código.
+>
+> ---
+>
+> **Changelog v1.66 — UNA CIFRA SÓLO SE EMITE SI ESTA CORRIDA LA CONTÓ: el `summary` que faltaba, la columna que
+> revela el set roto, y el corte que se mueve solo (2026-09-10, arquitecto).** Base: **v1.65, vigente entera**.
+> Sección nueva **[`§M2-CS`](#M2-CS)** (fuente única, tres marcas `CANON`). Razón entera: `ARCHITECTURE §4.45`.
+> Origen: dos peticiones de ux-ui (`DESIGN_SYSTEM §32.15` **R2** y **R5**) + una **decisión del dueño** del
+> 2026-09-10 (**R6**). **Toca DDL** (un índice y el borrado de una fila de config), **ningún endpoint nuevo**.
+>
+> **1. ⭐⭐ `GET /admin/catalog/sync-status` gana `summary` ([`§M2-CS.1`](#M2-CS1), R2).** Sin él, **la acción que
+> el dueño usa a diario no podía emitir `HECHO` NUNCA** (`DESIGN_SYSTEM §32.5a`: se quedaba en `NO SE SABE` con
+> «—»). Y al mirar al hermano `refresh-variants-status` para copiar su forma, apareció el defecto de verdad: los
+> dos usaban **vocabularios distintos para «cuántos toqué»**, y **el del hermano estaba mal** — **`setsOk` cuenta
+> como bueno al set que corrió sin escribir nada**, que es **D2 a escala de barrido**. ⇒ **[`§M2-CS.0`](#M2-CS0)
+> fija UN reparto** (`setsTotal` / `setsWritten` / `setsNoop` / `setsFailed` / `failures[]`) para los dos, y
+> **`setsOk` queda deprecado con su significado congelado** ([`§M2-CS.2`](#M2-CS2)).
+>
+> **2. ⛔ RECHAZADA la mitad de R2 que pedía `pricesWritten` en `sync-status`.** El barrido de catálogo **no
+> escribe precios desde v1.14**: un `pricesWritten: 0` sería un cero cierto y engañoso —«no escribió» y «no
+> escribe» son hechos distintos— y rehabilitaría la trampa de `fullSyncHint`. **Consecuencia enrutada a ux-ui:**
+> `§32.5a` no puede prometer «{p} precios escritos» en la acción 1, ni decir «cartas **nuevas**» (el `upsert` no
+> distingue creada de re-escrita ⇒ la palabra es «**escritas**»).
+>
+> **3. ⭐⭐ `remote-sets` gana `pricedVariants` / `variants` ([`§M2-CS.3`](#M2-CS3), R5)** — la columna `PRECIOS`
+> que le faltaba al dueño para poder **ver** el set que hay que reparar (hoy `Cartas` sube aunque no se escriba ni
+> un precio). Con **denominador definido una sola vez**: la **VARIANTE DE PRECIO** = par (`CardProduct`, `Finish`),
+> ⛔ **no la carta** (aplanar el acabado es el origen de P-47). Siete invariantes `I-PC1..I-PC7`, entre ellas
+> **`variants` nunca vale `0`** (un `0/0` se lee «completo» del set más roto que hay) y **⛔ prohibida una columna
+> cacheada** (sólo la escriben los escritores que tuvieron éxito ⇒ el set que deja de repreciarse diría «completo»
+> para siempre).
+>
+> **4. ⭐⭐ El corte de catálogo **se mueve solo** y el dial MUERE ([`§M2-CS.4`](#M2-CS4), R6, decisión del dueño:
+> *«el corte de fecha, que automático»*).** `CORTE EFECTIVO := hoy − VENTANA`; **`catalogSyncFromDate` sale del DTO
+> de §M10** y su fila de config **se borra** (dos fuentes para «desde cuándo es nuevo» es §0-B.3 regla 8). Se nombra
+> el modo de fallo que el manual no tenía —**la caída silenciosa del borde trasero**— con sus tres candados, y se
+> declara **por primera vez** qué pasa con un set **sin `releaseDate`**: **no entra, pero se cuenta**
+> (`setsSkippedUnknownDate`). ⇒ **La petición R3 de `§32.15` queda sin objeto**: no se edita en ninguna superficie.
+>
+> **5. Dos frases de este contrato eran FALSAS y quedan tachadas, no borradas:** *«`sync-all` … sin frontera de
+> fecha»* e *«ignora `catalog_sync_from_date`»*. Backend ya cerró **D3** (el botón de rutina se traía sets de
+> cualquier año) y **el contrato no se enteró**. *Eran ciertas en v1.3; el hecho que nombraban se fue.*
+>
+> **6. ⭐ CORRECCIÓN DENTRO DE LA PROPIA v1.66 (revisión del orquestador, mismo día).** Dos defectos **de la clase
+> que esta rev existe para eliminar**, y por eso se corrigen aquí y no «en la siguiente»: **(a)** la nota de §M10
+> derogaba `catalogSyncFromDate` **mientras la enumeración autoritativa del DTO seguía nombrándolo, con default y
+> con «editable sin redeploy»** — *una nota que corrige y una enumeración que no cede son dos autoridades, y el
+> implementador mira la enumeración* (es el diagnóstico literal de §M10-PP, cometido trece líneas más abajo). **La
+> enumeración cede: el campo sale y su semántica se cita, no se repite.** **(b)** Las **tres marcas `CANON` nuevas
+> se abrían y nunca se cerraban** ⇒ **el límite de la fuente única quedaba indefinido**. Cerradas las tres, con la
+> frontera declarada (dentro: predicado, forma, invariantes; fuera: razón, costo y compuertas). **La convención
+> pasa a ser NORMA en `ARCHITECTURE §0-B.3` regla 8** (ampliación v1.66), y los **cuatro bloques de FX que están
+> abiertos sin cerrar** quedan registrados en `D-CS-4` — **no se cierran de paso en una rev de catálogo.**
+>
+> ---
+>
+> **Changelog v1.65 — «SEED» Y «VIGENTE» NO SON LA MISMA FRASE, Y EL SEED MONEY-SAFE ERA EL QUE APLANA
+> (2026-09-10, arquitecto).** Base: **v1.64(4), vigente entera**. **⛔ CERO DDL, cero endpoints nuevos, cero cambios
+> de shape de DTO.** Resuelve la **BLOQUEANTE-1 de QA sobre P-47** (regla 9). Razón entera: `ARCHITECTURE §4.35a`.
+>
+> **1. ⭐⭐ SECCIÓN NUEVA [`§M10-PP`](#M10-PP), FUENTE ÚNICA del dial `price_provider`**
+> (`<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). El enum, la semántica de cada valor y el seed **estaban
+> repetidos en cinco sitios con dos valores distintos** (§M10, Changelog v1.14, Changelog v1.48,
+> `ARCHITECTURE §4.36(d)`, y el código). **Se retiran de los cuatro documentos y quedan en uno**; los demás citan.
+>
+> **2. ⭐ EL DEFECTO NO ERA «QUÉ VALOR», ERA QUE «EL PROVIDER ES X» SON TRES AFIRMACIONES.** **PRIMARIO** (norma,
+> clase A, la fija este contrato), **SEED** (arranque de BD fresca) y **VIGENTE** (fila `ConfigSetting` de UN entorno,
+> clase B, **se lee, no se cita**). El contrato decía *«valor vigente `tcgcsv_singles`»*, `ARCHITECTURE` leyó *«seed
+> `tcgcsv_singles`»* y `DEVOPS_NOTES` operaba el **vigente**: **tres roles con razón y un solo texto**.
+>
+> **3. 🔴 DECISIÓN — CEDE EL CÓDIGO: `I-PP1`, EL SEED ES EL PRIMARIO.** Un seed money-safe debe ser **INERTE** o
+> **el PRIMARIO validado**; **`pokemontcg_io` no es ninguna de las dos**: **escribe** —y escribe **aplanado**
+> (un `market` por carta ⇒ reverse/holo al precio del normal)—, que por `PROJECT §N.0` es **el lado irrecuperable**
+> del sesgo de error. **Sembrar el legacy no era el candado: era el riesgo con el nombre del candado.**
+> ⇒ **Backend cambia el seed y el test** (desviación **`D-PP-1`**, `ARCHITECTURE §9`); ⛔ **el arquitecto no toca código**.
+>
+> **4. `I-PP2` — ⛔ NINGÚN DOCUMENTO AFIRMA EL VIGENTE DE UN ENTORNO;** y **`I-PP3` — el rollback mueve el VIGENTE,
+> nunca el SEED**, así que el runbook de `DEVOPS_NOTES §28` **no es argumento a favor del seed legacy**: opera otro
+> hecho. **§28.6 (rollback) sobrevive intacto**; §28 pasa a ser **registro fechado** de una activación consumada.
+> ⚠️ **Medido el 2026-09-10** (panel M10 de producción): **seed y vigente divergen de verdad**. Eso confirma el
+> diagnóstico —son dos hechos— y **no responde** la pregunta del seed, que es *«¿con qué NACE un entorno nuevo?»*.
+>
+> **5. ⚠️ `I-PP5` — LA BRECHA QUE QA MIDIÓ, Y QUE ALCANZA AL GATE DE SEGURIDAD.** E2E, smoke y **DAST contra
+> staging** ejercitan hoy **el proveedor que aplana**, no el de producción: *un gate que aprueba un sistema distinto
+> del que se promueve no es un gate*. `I-PP1` cierra la paridad **por construcción**. ⛔ Se **rechaza** la alternativa
+> de sembrar el legacy y volver el flip un paso obligatorio del arranque de staging: mismo mecanismo de divergencia
+> con un humano en medio, y su modo de fallo es **precio más bajo en silencio**. Ventana de transición y medida
+> **interina con fecha de retiro**: `ARCHITECTURE §9`, `D-PP-2` (devops).
+>
+> ---
+> **Changelog v1.64(4) — EL DUEÑO CONTESTA 68, 69 Y 70; UNA CONTRADICE MI RECOMENDACIÓN Y TIENE RAZÓN
+> (2026-09-10, arquitecto).** Base: **v1.64(3), vigente entera**. Razón entera: `ARCHITECTURE §4.44.f-ter`.
+> ⚠️ **Reabre `M-50` con UNA columna aditiva** y ⛔ **no cambia la promesa de D-1**.
+>
+> **1. 🔴 ME EQUIVOQUÉ EN LA 68.** Recomendé capturar `shippingCostCents` **NETO**; el dueño decidió **BRUTO**
+> —*«el costo de envio con el iva que yo pague»*— **y tiene razón**: el bruto es **la cifra que trae la factura del
+> carrier**, y pedirle restar el IVA antes de teclear es **aritmética fiscal en cada captura**. Es además **`R3`,
+> que yo mismo escribí**: la flecha va del dato **primario** al **derivado**, y guardar el neto habría perdido el
+> primario. ⚠️ **Mi advertencia del descuadre no era falsa: estaba en el sitio equivocado** — se cura **al LEER**.
+> ⇒ **NUEVA [`§M10-IVA.8`](#M10-IVA)**: `pnl.shippingCostCents` pasa a ser **NETO**, por **RESTA** de la columna
+> nueva `ShipmentRequest.shippingCostIvaCents` (IVA acreditable **congelado al capturar**). ⛔ **Sin división por
+> `(1+r)` ni dial vivo**: `ShipmentRequest` **no tiene `ivaRatePct`**, y derivarlo haría que **un P&L histórico
+> cambiara al mover `iva_pct`**, incumpliendo `IVA-5`. ⛔ **`profitCents` no cambia de fórmula**: lo que cambia es
+> que **sus dos términos de envío quedan en la misma base**.
+>
+> **2. ⭐ LA 69 —*«trátalo como si no hubiera margen»*— DA EL MEJOR CANDADO DEL PASE, `IVA-11`, Y ⛔ NO ES UNA
+> IDENTIDAD GLOBAL.** La tarifa se fija **por tabla** y el costo real **varía por destino y peso** ⇒ un no-cero es
+> **legítimo**, y asertar cero siempre sería **`FX-20` otra vez: un candado que rechaza conducta correcta**. Se
+> asierta **(a)** la identidad **exacta pero condicionada al fixture** (cobrado == factura ⇒ línea neta **0**;
+> **rojo con −2 800**, la pérdida fantasma) y **(b)** que **un `0` no signifique dos cosas**, con
+> **`shippingCostMissingCount`** nuevo en el P&L. ⛔ **La columna NO se hace nullable**: distinguir «costó cero» de
+> «no se capturó» en filas existentes exigiría **inventar** el dato.
+>
+> **3. ✅ LA 70 ASCIENDE MI SUPUESTO A DECISIÓN.** *«si me refiero al mismo numero»* ⇒ el `netAmountCents` del
+> tablero **es** `pnl.incomeCents`. **`IVA-10(b)` pasa a tener mandato del dueño detrás**, y queda ratificado el
+> rechazo de *«bruto − IVA»*.
+>
+> ⚠️ **Las tres son DECISIÓN DEL DUEÑO CON FECHA (2026-09-10) y SIN RATIFICAR POR CONTADOR** (familia de **58** y
+> **65**). **⛔ Cero postura fiscal de este contrato. Que él acredite ese IVA es afirmación SUYA.**
+>
+> ---
+> **Changelog v1.64(3) — DOS DECISIONES DEL DUEÑO (D55), `IVA-R1` RESUELTO, Y UN DEFECTO MÍO QUE ESO DESTAPÓ
+> (2026-09-10, arquitecto).** Base: **v1.64(2), vigente entera**. **⛔ CERO DDL — `M-50` no se toca. ⛔ D-1 no se
+> reabre.** Razón entera: `ARCHITECTURE §4.44.f-bis`, `§4.44.j.1` y `§4.44.o`.
+>
+> **1. 🔴🔴 LA FÓRMULA DE `netRevenueCents` QUE ESTE CONTRATO Y `§4.44.j` PUBLICARON ERA FALSA PARA
+> `direct_ship`.** Decía `subtotalCents − ivaCents`; pero `ivaCents` es el residual del **agregado** `G = S + E`
+> ⇒ **incluye el IVA del envío**. Medido: `S=11600`, `E=20300`, `ivaCents=4400` ⇒ daba **7 200** de ingreso de
+> mercancía **donde son 10 000**: **−2 800 por pedido de invitado en el criterio 191**. **Corregida a
+> `round(subtotalCents / (1 + ivaRatePct/100))`.** *No se veía porque los dos ejemplos del criterio 191 son de
+> pedidos a bóveda (`E = 0`), donde las dos fórmulas coinciden* — por eso **`IVA-9(e)` obliga a probar el caso
+> `E = 0`**. ⛔ **En D-1 la rama es inalcanzable ⇒ backend no tiene rework.**
+>
+> **2. ⭐⭐ `IVA-R1` RESUELTO — candado nuevo `IVA-9`.** El IVA del envío es **el residual del residual**
+> (`ivaEnvío := ivaCents − ivaMercancía`), no un `round(E/(1+r))` por su cuenta ⇒ la identidad
+> **`netRevenue + netShipping + ivaCents ≡ subtotal + shippingFee` es EXACTA**, sin el ±1 centavo que backend
+> había declarado al elevarlo. ⛔ **Y la regla que manda: PROHIBIDO recalcular `Order.ivaCents` desde las partes** —
+> la flecha va `ivaCents → partes`, porque `ivaCents` es **fiscal** y es la única fuente de la factura del cliente
+> (criterio 192). `IVA-9(d)` lo asierta por lo negativo.
+>
+> **3. ⭐ D55(a) — EL ENVÍO ES COSTO OPERATIVO TRASLADADO, NO UNA VENTA (dueño, 2026-09-10).** ⛔ **CERO cambios en
+> este contrato por esta decisión**: su regla *«el IVA es el 16 % de lo que yo pague»* es **IVA ACREDITABLE
+> (impuesto de ENTRADA)** y vive en el P&L, mientras `Order.ivaCents` es **IVA TRASLADADO (de SALIDA)**. **No
+> hablan de la misma columna** ⇒ `R2` no cambia, `BreakdownDTO` no cambia, **y la pregunta 60 NO se reabre por el
+> lado aritmético**. ⚠️ **Tratamiento contable sin contador ⇒ pregunta 68** (familia de 58 y 65).
+>
+> **4. ⭐ D55(b) — NUEVA [`§M10-IVA.7`](#M10-IVA): el tablero muestra VENTAS BRUTAS **Y** NETAS.** `salesPeriod`
+> pierde `amountCents` y gana **`grossAmountCents` + `netAmountCents` + tres términos de puente**, con identidad
+> exacta. **`netAmountCents` sale del MISMO helper que `pnl.incomeCents`** ⇒ **no pueden divergir**; `IVA-10(b)` lo
+> asierta como igualdad entre los dos endpoints. ⛔ Se **rechaza** «bruto − IVA» (dejaría la comisión dentro ⇒ un
+> **tercer** número). **Rompe al front y debe romperlo.** **Deploy 2.** **Supuesto ⇒ pregunta 70.**
+>
+> ---
+> **Changelog v1.64(2) — DOS CORRECCIONES A v1.64, LAS DOS SOBRE DEFECTOS MÍOS (2026-09-09, arquitecto).**
+> **⛔ No rediseña nada: ni un endpoint, ni un DTO, ni un código de error, ni la fórmula. CERO DDL.** Base:
+> **v1.64, vigente entera**. Razón entera: `ARCHITECTURE §4.44.c.1-bis`, `§4.44.c.1-ter` y `§4.44.c.2`.
+>
+> **1. 🔴 EL UMBRAL DE `IVA-4` ESTABA MÁS FLOJO QUE SU PROPIA NORMA.** Este contrato decía *«≤ 1 centavo por
+> pieza»* y `ARCHITECTURE` decía *«≤ 0.53»*: **dos cifras para una sola cosa**, y **la de aquí es la que backend
+> implementa como umbral** ⇒ con 7 piezas admitía `≤ 7` donde la norma dice `≤ 4`, o sea **verde sobre una
+> implementación que la arquitectura declara rota**. *Un umbral que difiere del que promete su propia norma no es
+> un umbral: es un permiso.* **Canon único, entero, y se mide sobre la BASE** —no sobre el total, que arrastra el
+> `ceil` del gross-up—: **`n = 1` ⇒ CERO (identidad demostrada, se asierta como igualdad) y `n ≥ 2` ⇒
+> `≤ ⌊(n+1)/2⌋`**. `IVA-4` gana **(d)** el caso `n = 1` y **(e)** la implicación
+> `totalCents == grossUpTotal(subtotalCents + shippingFeeCents)`, **más fuerte que una cota**.
+>
+> **2. 🔴 `IVA-5` ESCONDÍA UN DEFECTO POR CONSTRUCCIÓN DE SU FIXTURE (pregunta 67).** Sus tres órdenes eran **de
+> una pieza**, y sobre una pieza `round(P/1.16) = L` es **exacto por demostración** ⇒ la desviación del criterio
+> **191** —el `taxBase` agregado reporta `205` donde `Σ L_i = 206`— **nunca se habría visto fallar**. Gana un
+> **caso multi-línea obligatorio** que la asierta **en 205 y no en 206**, y que asierta el invariante que manda:
+> **`netRevenueCents + ivaCents == subtotalCents`, exacto**. ⭐ **`R2` NO cambia** (decisión en
+> `ARCHITECTURE §4.44.c.2`): la desviación **se declara**, como la de `D-IVA-7`.
+>
+> ---
+> **Changelog v1.64 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, CON UN DIAL DE TRASLACIÓN QUE NACE NEUTRO
+> (2026-09-09, arquitecto).** Base: **v1.63.3/v1.63.4, vigentes enteras** — este pase **no toca el FX**: es otro
+> frente. Origen: **`PROJECT.md §Q` / D54, APROBADA por el dueño el 2026-09-09**, con las preguntas **52–55**
+> contestadas (*«Solo iva adentro, comision por fuera»*, *«Un dial para todo»*, unidad = **fracción de traslación
+> 0–100 %**, arranque en **100 %**). Razón entera: **`ARCHITECTURE §4.44`**.
+>
+> **⭐⭐ LA GARANTÍA QUE ORDENA TODO: EL DÍA DEL DEPLOY NADIE PAGA DISTINTO.** Con el dial en **100 %** la
+> especificación **reproduce el cobro de hoy al centavo** —verificado contra los diales reales (`16`/`0.036`/`300`)
+> y contra `money.ts`—: base MX$100.00 ⇒ vitrina **MX$116.00**, cobro **MX$124.69**, `ivaCents` **1600**, margen
+> **MX$100.00**. Criterio **185**: *«si alguien paga un centavo distinto, es fallo de release»* ⇒ **candado
+> `IVA-1`, no aspiración**. **Lo único que cambia es que el precio de vitrina deja de mentir.**
+>
+> **1. ⭐⭐ SECCIÓN NUEVA [`§M10-IVA`](#M10-IVA)** — el dial `ivaTransferPct` (entero `[0,100]`, seed **100**,
+> `super_admin`), **DOS endpoints nuevos** (`GET /admin/settings/iva-transfer/preview` y
+> `PUT /admin/settings/iva-transfer`), **DTO nuevo** `IvaTransferPreviewDTO`, **dos códigos de error nuevos**
+> (`IVA_TRANSFER_ACK_REQUIRED` 422, `IVA_TRANSFER_ACK_STALE` 409) y **los OCHO candados `IVA-1…IVA-8`**.
+> **`ivaTransferPct` se LEE en `GET /admin/settings` y se RECHAZA en `PUT /admin/settings`** (`422`, clave
+> desconocida) — **mismo precedente exacto que `fxRateMode`**. El endpoint propio existe porque el criterio **188**
+> dice *«falla si el dial se puede guardar sin que la cifra en pesos se haya mostrado»*, y **una norma que solo vive
+> en la UI no se puede poner roja desde el servidor**: el `PUT` **exige acuse** del delta que el servidor recalcula
+> (patrón de `acknowledgeNoAutomaticRate`, `FX-12`).
+>
+> **2. 🔴 LA IDENTIDAD DEL TOTAL CAMBIA, Y ES LO QUE MÁS ROMPE CLIENTES.** `totalCents = subtotal + iva + fee`
+> **deja de ser cierto**. Pasa a ser **`totalCents = subtotalCents + shippingFeeCents + processingFeeCents`**: el
+> IVA **ya está dentro del subtotal y NO es un sumando**. `BreakdownDTO` gana **`priceConvention`** e
+> **`ivaIncluded`** para que **cada desglose diga bajo qué convención se calculó** — sin eso, una orden de ayer y
+> una de mañana son indistinguibles y **se reinterpretan solas** (criterio **190**). Un cliente que asierte la
+> fórmula vieja **fallará, y debe fallar** (`IVA-2`).
+>
+> **3. ⭐ `salePriceCents` DESAPARECE DE LA SUPERFICIE PÚBLICA; lo sustituye `displayPriceCents` + `ivaIncluded` +
+> `ivaRatePct`.** ⛔ **No se reinterpreta el nombre viejo**: sería el defecto de D54 un nivel más abajo, y un front
+> que no migrara **seguiría pintando la mentira sin que nada fallara**. Con el rename **no compila**. ⛔ **El
+> frontend NUNCA multiplica**: el servidor manda la cifra ya hecha. ⛔ **El dial NO viaja a superficie de cliente**
+> (fuga comercial, misma clase que v2.1.6). **`referenceValue`/`PriceInfo`, el portafolio y el buylist NO CAMBIAN**
+> (supuestos, preguntas **62** y **56**).
+>
+> **4. 🟡 CERO cambios en el gross-up y en el FX.** `processingFeeCents` sigue siendo el gross-up de siempre, sigue
+> rotulado **«Comisión de plataforma»** (D53, **no se reabre**) y **sigue sumándose aparte** (pregunta **52**,
+> contestada). `stripeFeeIvaPct` **sigue derivándose de `ivaPct`** y ⛔ **jamás del dial de traslación** — si se
+> colgara del mismo mando, **mover un precio movería una comisión** (`IVA-7`).
+>
+> **5. ⚠️ TRES COSAS QUE ESTE CONTRATO DECLARA EN VEZ DE ACOMODAR** (`ARCHITECTURE §9`): el criterio **185**
+> (*«idéntico al centavo»*) y el **194** (*«Σ líneas == subtotal»*) **no pueden ser los dos exactos en carritos
+> multi-línea** —contraejemplo: dos piezas de `L=103` ⇒ **613 vs 612 centavos**—, y el candado **`IVA-4`** lo **mide
+> y lo acota** en vez de negarlo (**`D-IVA-7`**, va al product-owner). ⚠️ **v1.64(2): el umbral de ese candado se
+> CORRIGE.** Decía *«≤ 1 centavo por pieza»*, que **no coincidía con el `≤ 0.53` que publicaba `ARCHITECTURE`** —dos
+> cifras para una sola cosa, **y la de aquí, que es la que backend implementa, era la MÁS FLOJA** (7 piezas: `≤ 7`
+> contra `≤ 4`) ⇒ **el candado habría pasado en verde una implementación que la arquitectura declara rota**.
+> **Canon único, entero, sobre la BASE: `n = 1` ⇒ CERO —identidad demostrada, no cota— y `n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋`**
+> (`ARCHITECTURE §4.44.c.1-bis`). Y **`IVA-5` gana un caso multi-línea obligatorio** (pregunta **67**): el ejemplo
+> de una pieza **escondía** la desviación del criterio 191, porque sobre una pieza es exacta por demostración.
+> El criterio **189**
+> **decide de facto la aritmética del envío** mientras la pregunta **60** sigue abierta para el rótulo
+> (**`D-IVA-8`**); y el P&L **no cuenta el ingreso de envío de los pedidos `direct_ship`** desde v1.21, cosa que
+> este contrato manda y el código no hace (**`D-IVA-5`**).
+>
+> **6. SON DOS DEPLOYS Y ⛔ NUNCA UNO** ([`§M10-IVA.6`](#M10-IVA)). El **deploy 1** trae `M-50` y **cero cambios
+> observables de contrato**; el **deploy 2** trae todo lo de arriba y **cero DDL**. **`decks-meta-v1` se desbloquea
+> con el deploy 2 PUBLICADO EN PRODUCCIÓN** — no con la aprobación de D54 ni con el merge (criterio **197**).
+>
+> ---
 > **Changelog v1.63.4 — LA BANDA DE LA TASA GANA PISO, Y EL RESPALDO SE PUBLICA (2026-09-09, arquitecto).** Base:
 > **v1.63.3, vigente entera**. **Las decisiones que eran mías y estaban bloqueando a otros roles** —numeradas
 > abajo; **la cuenta es esa numeración** (§0-B.3 regla 8, ampliación «elimina o nombra»: ⛔ no la repito aquí en
@@ -2761,7 +3060,8 @@
 >
 > **— DOS CAPAS DE PRECIO (NORMATIVO). —** El precio de un single se produce en dos capas independientes que no se pisan:
 > 1. **Capa REFERENCIA (per-acabado):** el **precio de mercado por `(carta, finish, cardProductId)`** lo puebla el barrido
->    diario desde **TCGCSV `tcgcsv_singles`** (§4.35, P-47), provider **PRIMARIO**. `tcgcsv_singles` **PERMANECE** como
+>    diario desde **TCGCSV `tcgcsv_singles`** (§4.35, P-47), provider **PRIMARIO** *(⚠️ v1.65: enum, semántica y seed
+>    del dial ya no se transcriben en ningún changelog — fuente única [`§M10-PP`](#M10-PP))*. `tcgcsv_singles` **PERMANECE** como
 >    fuente per-acabado **precisamente porque PPT/pokemontcg.io aplanan** —exponen UN solo `market` a nivel carta,
 >    invariante al printing (§4.35(d))—; retirarlo re-aplana normal/reverse/holo al mismo precio (la regresión que P-47
 >    cerró). Ancla: **§4.35** (referencia per-acabado, `tcgcsv_singles` primario) + **§4.27f-2** (override manual = tier
@@ -2797,6 +3097,14 @@
 > money-safe**; `pokemonpricetracker` = **fallback**. **No cambia la forma del DTO** (el campo ya existe en `GET/PUT
 > /admin/settings`), no añade endpoint ni migración; solo alinea §M10 con las secciones P-47 y con `PRICE_PROVIDER_VALUES`.
 > **Base previa:** v1.47-manual-override-perennial-candidate.
+>
+> > ⚠️⚠️ **NOTA DE VIGENCIA (v1.65) — ESTA ENTRADA ES EL EJEMPLO DE LO QUE [`§M10-PP`](#M10-PP) PROHÍBE, Y SE DEJA
+> > ESCRITA POR ESO.** v1.48 acertó el diagnóstico (§M10 estaba desactualizada) y erró el método: **volvió a copiar el
+> > enum y la semántica en un sitio más** en lugar de dejarlos en uno solo. Diecisiete días después, este mismo párrafo
+> > —junto con `ARCHITECTURE §4.36(d)`— era la evidencia que se citaba para afirmar un **SEED** que el código nunca
+> > tuvo; y «vigente» aquí nunca quiso decir «sembrado». **Enum, semántica y seed viven ahora SOLO en §M10-PP**
+> > (`<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). *La corrección de v1.48 sigue siendo cierta como historia;
+> > su método, no.*
 >
 > **Changelog v1.47-manual-override-perennial-candidate (2026-08-24, arquitecto — DISEÑO EN PAPEL; lo implementa BACKEND.
 > Re-gate seguridad + techlead sobre P47-2, rama `fix/variant-composition-regression`. NO cambia ningún shape de DTO ni
@@ -3969,11 +4277,13 @@
 >   el ingest masivo (fan-out BullMQ **un job por set**; reanudable). Acepta **`setId?`** opcional (excepción al body-vacío
 >   de la familia, justificada: verificar el esquema del proveedor en la 1ª corrida con un solo set). **Toca dinero**
 >   (mueve precios de referencia). Equivale a la corrida programada 1–2×/día.
-> - **M10 settings (NUEVO dial):** `GET/PUT /api/v1/admin/settings` gana **`priceProvider`** (`price_provider`,
->   ~~`pokemonpricetracker | pokemontcg_io`~~ **enum vigente `tcgcsv_singles | pokemonpricetracker | pokemontcg_io`
->   — actualizado v1.48; ver §M10 y Changelog v1.48**) — selecciona el proveedor de ingest **sin redeploy** (palanca de
->   rollback money-safe). ~~Seed recomendado `pokemontcg_io` … flip a `pokemonpricetracker`~~ *(superado por P-47/v1.44:
->   provider primario vigente = `tcgcsv_singles`)*. Editable por `PUT /admin/settings` parcial; auditado (`settings.update`).
+> - **M10 settings (NUEVO dial):** `GET/PUT /api/v1/admin/settings` gana **`priceProvider`** (`price_provider`) —
+>   selecciona el proveedor de ingest **sin redeploy**. Editable por `PUT /admin/settings` parcial; auditado
+>   (`settings.update`). ⚠️⚠️ **v1.65: el enum, la semántica y el SEED que esta entrada describía se han RETIRADO de
+>   aquí y viven en [`§M10-PP`](#M10-PP)** (`<!-- CANON: proveedor-de-precio -->`). *Lo que esta entrada registra —y
+>   sigue siendo cierto **como historia de 2026-08-17**— es que el dial NACIÓ con seed `pokemontcg_io` y flip previsto
+>   a `pokemonpricetracker`. ⛔ **No es afirmación sobre el ahora** (§0-B.3 regla 8, excepción del changelog); el ahora
+>   lo fija `I-PP1` y el vigente de cada entorno se LEE (`I-PP2`), no se cita de un changelog.*
 > - **FX / colchón (#13):** `PUT /api/v1/admin/fx` gana **`rate?` opcional** — si se omite `rate`, actualiza **solo** el
 >   colchón (`bufferPct`) y **NO** ~~pinnea~~ **FIJA** el override manual de tasa (~~hoy exige ambos y congela la tasa auto de Banxico~~).
 >   *(⚠️ **v1.63.2:** el verbo se corrige —desde v1.63.1 **«pinnear» está reservado al MODO**, I-FX2— y *«hoy exige
@@ -4530,6 +4840,16 @@
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
 - **Códigos nuevos del módulo `SealedProduct` (v1.39, P-38):** `422 SEALED_PRODUCT_NOT_FOUND` (`BatchInventoryItemInput.sealedProductId` no existe o está `active=false`; money-safe: no se crea inventario contra una identidad inválida). `422 MANUAL_MARKET_NOT_ALLOWED` (`manualMarketMxnCents` enviado cuando el mercado en vivo/caché **ya** resuelve — el override solo aplica al hueco de precio, jamás pisa un mercado vivo). **v1.39.1:** **ya NO** lo dispara el rol — el precio manual lo permite `vault_operator+` (decisión del humano); queda como error **solo** por el caso «mercado ya resuelto». Input de dinero por vault_operator → marcado para la fase de seguridad por release. Reusa: `422 PRICE_PENDING` (sellado sin mercado y sin override manual), `422 VALIDATION_ERROR` (`manualMarketMxnCents ≤ 0`; `sealedProductId` en raw/graded; `sync` sin `setId` ni `all`), `409` (grupo ya enlazado en `sealed-sets/:setId/groups`), `502 UPSTREAM_ERROR` (sync/candidates/marketRef live). Ya en el enum central `common/error-codes.ts`.
+- **Códigos nuevos del DIAL DE TRASLACIÓN DEL IVA (v1.64 — detalle en [`§M10-IVA`](#M10-IVA)):**
+  **`422 IVA_TRANSFER_ACK_REQUIRED`** (`PUT /admin/settings/iva-transfer` **cambiando el valor** y **sin**
+  `acknowledgement`: el criterio **188** de `PROJECT.md` exige que el costo en pesos se haya **mostrado** antes de
+  guardar; **la fila NO se escribe**) y **`409 IVA_TRANSFER_ACK_STALE`** (el `previewedNetDeltaCents` del acuse **no
+  coincide** con el que el servidor recalcula ⇒ el dueño está confirmando una cifra que ya no es la suya;
+  `details: { expectedNetDeltaCents }`; **sin escritura parcial**). **No** introduce ningún otro código: el resto
+  reusa **`422 VALIDATION_ERROR`** (`ivaTransferPct` no entero —p. ej. `37.5`— o fuera de `[0, 100]`, con el
+  `message` **nombrando los dos extremos**; y **`ivaTransferPct` enviado a `PUT /admin/settings`**, que es clave
+  desconocida en **ese** endpoint, mismo precedente que `fxRateMode`). ⛔ **Ninguno de los dos aparece jamás en
+  superficie de cliente**: el dial no viaja fuera de `/admin/*`. Candado `IVA-8`.
 - **Códigos nuevos del MODO del tipo de cambio (v1.63 — detalle en [`§M2-F`](#M2-F)):** `422 FX_MANUAL_RATE_MISSING`
   (`PUT /admin/fx/mode {mode:"manual"}` **sin** tasa manual guardada: no hay número al que volver — `details:
   { savedManualRate: null }`; **el modo NO cambia**) y `422 FX_MANUAL_RATE_REQUIRED`
@@ -4813,6 +5133,18 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
 //   **no puede garantizar** ni `name` ni `cardId`. Tipar el histórico con la forma completa es el MISMO pecado,
 //   invertido: el tipo del cliente volvería a prometer lo que el backend puede no enviar.
 //   Doctrina de qué se congela y qué se resuelve: ARCHITECTURE §5.2 y §5.2.9.
+// ===== ⚠️⚠️ v1.64 (D54 / §Q) — `salePriceCents` DESAPARECE DE LA SUPERFICIE PÚBLICA TRAS EL DEPLOY 2 =====
+//   Lo sustituye `displayPriceCents` (= P, **con el IVA DENTRO**) + `ivaIncluded` + `ivaRatePct`. **NO es un
+//   rename cosmético y NO se reinterpreta el nombre viejo**: dejar `salePriceCents` cambiando su significado es
+//   el defecto de D54 un nivel más abajo, y un front que no migrara seguiría pintando la mentira SIN QUE NADA
+//   FALLARA. Con el rename, un front que no migró **no compila** — misma doctrina que hizo de
+//   `GroupedListingSummaryDTO` un tipo propio en v2.1.9/D2: *el compilador sostiene la diferencia; el test es la red*.
+//   ⛔ `ivaTransferPct` (el dial) **NO viaja a ninguna superficie de cliente**: es una decisión de margen, y
+//   publicarla es la misma clase de fuga que v2.1.6 cerró con `source`/`isManualOverride`. En `/admin/*` viajan
+//   AMBAS (`listPriceCents` = L, `displayPriceCents` = P, `taxBaseCents`, `ivaCents`, neto y dial — `PROJECT §Q.5`).
+//   ⛔ **`referenceValue`/`PriceInfo` NO CAMBIAN**: son VALUACIÓN, no precio que alguien pague (supuesto,
+//   `PROJECT` pregunta 62). Igual el cotizador de buylist (pregunta 56) y el portafolio.
+//   Detalle por DTO: §M10-IVA.3. Razón entera: `ARCHITECTURE §4.44`.
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -5410,7 +5742,7 @@ VariantPricingDTO = { market: MarketReferenceDTO,
                                  acquiredQty: number, completedAt: string | null,
                                  effective: boolean, curveQuoteCents: number | null } | null }
 
-// <!-- CANON: mercado-de-la-variante · única fuente · §0-B.3 regla 8 · ver ARCHITECTURE §4.42j -->
+// <!-- CANON: mercado-de-la-variante · estado: VIGENTE · única fuente · §0-B.3 reglas 8 y 10 · ver ARCHITECTURE §4.42j -->
 //    (marca DENTRO del bloque `ts` a propósito: la fuente única es esta declaración, no una prosa aparte.)
 // ===== v1.62.2 — `MarketReferenceDTO`: QUÉ ES, EXACTAMENTE, EL «PRECIO DEL MERCADO» QUE SE PINTA =====
 // Es la MISMA forma que el backend ya resuelve y ya pasa al composer (`PriceInfo` de
@@ -6555,6 +6887,15 @@ Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inven
 > cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza (un id por pieza única).
 > **v1.5:** `POST /checkout/session` está bloqueado por `EmailVerifiedGuard` (crear orden = acción sensible). El
 > `POST /checkout/quote` (read-only) **no** se bloquea, para que la UI muestre precios con el banner "verifica tu correo".
+> ⚠️⚠️ **v1.64 — LA NOTA DE ABAJO DESCRIBE LA CONVENCIÓN `IVA_EXCLUSIVE`, QUE ES LA DE HOY Y LA DEL DEPLOY 1.**
+> Tras el **deploy 2** (`ARCHITECTURE §4.44`, [`§M10-IVA`](#M10-IVA)): **`subtotalCents` lleva el IVA DENTRO**,
+> **`ivaCents` pasa a ser RESIDUAL** (`G − round(G/(1+r))`, ⛔ nunca `0`) y —**esto es lo que hay que leer dos
+> veces**— **`totalCents = subtotalCents + ivaCents + processingFeeCents` DEJA DE SER CIERTO**. La identidad
+> vigente pasa a ser **`totalCents = subtotalCents + shippingFeeCents + processingFeeCents`**: el IVA **ya está
+> dentro del subtotal y NO es un sumando del total**. Un cliente que asierte la fórmula vieja **fallará, y debe
+> fallar** (candado `IVA-2`). **El gross-up (`processingFeeCents`) y la derivación de `stripeFeeIvaPct` desde
+> `ivaPct` NO cambian** (candado `IVA-7`).
+
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (**v1.40: derivado de `ivaPct/100`**, fuente única del IVA). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
 ### GET /api/v1/orders — `customer`
@@ -8451,12 +8792,60 @@ Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW`
 ### POST /api/v1/uploads/presign — `customer`  (solo `kyc_ine`)
 Genera un presign para subir la imagen del INE. El objeto vive en **bucket privado** (no público); su lectura
 por back-office es vía presign **GET** de vida corta (no URL pública). Retención según `INE_RETENTION_DAYS`.
-Req: `{ purpose: "kyc_ine", contentType: string }`
-Res `200`: `{ uploadKey, uploadUrl, method: "PUT", headers: {}, expiresAt }`
+Req: `{ purpose: "kyc_ine", contentType: string, contentLength: number }`
+Res `200`: `{ uploadKey, uploadUrl, method: "PUT", headers: { "Content-Type": string, "Content-Length": string }, maxBytes: number, expiresAt }`
+- **`contentLength`** — **OBLIGATORIO**, entero de **bytes** del cuerpo **exacto** que se va a subir (el ya
+  comprimido, no el archivo original que el humano eligió). Su razón —y qué pasa si falta— está en el bloque
+  canónico de abajo; **no es un dato informativo**.
+- **`headers`** — **poblado, nunca `{}`**: los headers que el `PUT` al storage **debe** enviar, con esos valores
+  **exactos**. Van firmados; cambiar uno invalida la firma. El cliente los reenvía tal cual, sin recalcularlos.
+- **`maxBytes`** — tope de tamaño **del servidor**, en bytes, **resuelto server-side desde configuración** (§0: el
+  contrato norma forma y origen, **no** el valor). **Siempre presente.** Es la **fuente única de verdad del límite
+  para el cliente**: una constante local solo cabe como fallback de mocks/offline.
+
 El cliente hace `PUT` directo al object storage privado; luego envía la `uploadKey` al endpoint de KYC
 (`PUT /users/me/kyc` como `ineFrontUploadKey`/`ineBackUploadKey`). Captura móvil vía navegador.
-Err: `422 VALIDATION_ERROR` si `purpose != "kyc_ine"` (los propósitos `inventory_photo`/`dispute_claim` ya no
-son válidos).
+
+Err:
+- `401` — sin sesión.
+- `422 VALIDATION_ERROR` — `purpose != "kyc_ine"` (los propósitos `inventory_photo`/`dispute_claim` ya no son
+  válidos); `contentType` fuera de `image/*` (`details.contentType`) — **el INE es una FOTO**, y la allow-list es
+  lo que impide depositar HTML/PDF/binarios en el bucket; **`contentLength` ausente** (`details.maxBytes`);
+  `contentLength > maxBytes` (`details.contentLength`, `details.maxBytes`).
+- `400 VALIDATION_ERROR` — `contentLength` presente pero **mal formado** (no entero, o `< 1`). Es el `400` de
+  esquema de §«Códigos comunes», no una regla de negocio; la **ausencia** es lo que se trata como regla de negocio.
+
+<!-- CANON: cota-de-tamano-del-presign · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8, 9 y 10 -->
+**LA COTA DE TAMAÑO DE UN PRESIGN — qué la sostiene.**
+
+**Invariante `I-UP1` (el único que importa): toda URL prefirmada que este endpoint emite sale ATADA A UN TAMAÑO
+EXACTO. ⛔ No existe rama que produzca una URL sin cota.** El tamaño se fija **en la firma**, de modo que el
+almacenamiento rechaza por sí mismo cualquier cuerpo que no lo respete: la cota **no depende de que el cliente se
+porte bien** ni de una comprobación posterior.
+
+- **`I-UP2` — la ausencia del campo es un RECHAZO, jamás una firma más laxa.** Un `contentLength` opcional
+  convierte el tope en una **sugerencia**: quien quiere pasarse es exactamente quien no lo declara, y así **el
+  candado lo elegiría el atacante**. Por eso el campo es obligatorio y la falta se rechaza (código en el `Err:` de
+  este endpoint) en vez de degradar a una firma sin `Content-Length`.
+- **`I-UP3` — el tope lo pone el SERVIDOR y viaja en la respuesta (`maxBytes`).** El cliente puede **mostrarlo** y
+  puede cortar antes para dar mejor mensaje, pero **no lo sostiene**: un cliente que no comprueba nada no puede
+  superar el tope. ⛔ Ningún otro documento, pantalla, test ni mensaje de error **transcribe la cifra**: se lee de
+  la respuesta.
+- **`I-UP4` — `headers` es normativo, no informativo.** Lo que va firmado es el par `Content-Type` +
+  `Content-Length`; enviarlos distintos (o omitirlos) **debe** fallar en el storage, no colarse.
+- ⛔ **Prohibido "acotar del lado del bucket" como sustituto.** Una política de tamaño en el almacenamiento es
+  propiedad de devops y **no** cubre un `PUT` prefirmado; puede sumarse como defensa en profundidad, **nunca como
+  la cota de este endpoint**.
+<!-- /CANON: cota-de-tamano-del-presign -->
+
+> **Por qué este endpoint lleva bloque canónico y casi ningún otro lo lleva** *(fuera del bloque: es razón, no
+> norma)*. En v1.66.1 este `Req` decía `{ purpose, contentType }` **y nada más**. No era una omisión cosmética:
+> **describía una superficie insegura**, y por la regla de conflicto de `CLAUDE.md` —*el contrato manda sobre el
+> código*— **autorizaba** la implementación con la cota evadible que el pentester encontró (`P-UP-1`). *Quien
+> hubiera implementado exactamente lo escrito habría reproducido el agujero, y habría tenido razón.* Es la misma
+> familia que §0-B.4 (mientras el contrato transcribiera un dominio muerto, obedecerlo lo reintroducía
+> **legítimamente**). ⇒ Lo que se marca **no es el campo, es el invariante que el campo sostiene**: un campo se
+> borra por «simplificar» sin que nadie note qué se llevó consigo; un invariante nombrado, no.
 
 ---
 
@@ -8959,11 +9348,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   reutilización del buscador de CARTAS en el modal de alta (defecto P-35). `vault_operator+`.
   Query: `?setId=<id LOCAL de CardSet>` (**requerido**) `&groupId?=<int>` (override manual del grupo TCGCSV, para
   bootstrap de un set aún sin sellado ni `tcgcsvGroupId`) `&q?` (filtro por nombre).
-  - **Resolución set → grupo TCGCSV (precedencia normativa, §4.32b):** `groupId` explícito de la query > **`CardSet.tcgcsvGroupId`**
-    (delta M-37) > `SELECT DISTINCT tcgplayerGroupId` de los `InventoryItem` `sealed` **ya mapeados** del set (dato
-    curado M-23). Exactamente un grupo ⇒ se usa; **cero ⇒ `groupResolved:false`** y `data:[]` (el front ofrece fijar
-    el grupo); varios distintos ⇒ se toma el de `CardSet.tcgcsvGroupId` si existe, si no `groupResolved:false`
-    (ambigüedad, no se adivina).
+  - ⚠️⚠️ **Resolución set → grupo TCGCSV: la precedencia que aquí se transcribía SE RETIRA y pasa a citarse.**
+    **Fuente única del predicado: [`§M2-GT`](#M2-GT)** (`<!-- CANON: grupo-tcgcsv-del-set -->`, §0-B.3 regla 8),
+    donde vive **la escalera completa, quién la escribe y qué hace un lector cuando dos fuentes difieren**.
+    *Razón del cambio (v1.66.1): esta línea era una de **tres** descripciones del mismo hecho en el proyecto, y
+    las tres podían dar números distintos.* **Lo que esta línea sí conserva, porque es de este endpoint:** cero
+    grupos resueltos ⇒ **`groupResolved:false`** y `data:[]` (el front ofrece fijar el grupo); ⛔ **nunca se
+    adivina**. 🚧 §M2-GT está **`estado: PROYECTADA`**: hasta que `D-GT-1` cierre, **el comportamiento vigente es
+    el del código** (§4.32b) y se lee del artefacto, no de aquí.
   - **Fuente de los productos = proxy read-only server-side** (host fijo `tcgcsv.com`, categoría Pokémon=3, anti-SSRF
     centralizado; **misma familia** que `/admin/pricing/sealed/tcgcsv/groups/:groupId/products`, §M2). El navegador
     NUNCA habla con tcgcsv.com. Filtra singles por heurística de `extendedData` (§4.19b). `sealedSubtype` se **infiere**
@@ -9397,7 +9789,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   "graded:PSA:10"… */, sellOverrideCents?: number | null, buyOverrideCents?: number | null,
   bounty?: { enabled: boolean, priceCents?: number, targetQty?: number | null } | null }`
 
-  <!-- CANON: semantica-de-omision · única fuente · ver ARCHITECTURE §0-B.3 regla 9 -->
+  <!-- CANON: semantica-de-omision · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 9 y 10 -->
   **SEMÁNTICA DE ESCRITURA PARCIAL — FUENTE ÚNICA DEL PROYECTO. Se CITA este anchor; no se transcribe.**
 
   | Lo que manda el cliente | Qué hace el servidor |
@@ -9553,7 +9945,7 @@ pantalla cura; **todo lo demás de la pantalla es secundario a eso**.
 **Qué fila entra a esta pantalla** (predicado de ALCANCE — una fila `VariantPriceOverride` es *un bounty* si tiene
 historia de bounty; una fila que solo lleva `sellOverrideCents`/`buyOverrideCents` **NO** aparece):
 
-<!-- CANON: estado-de-bounty · única fuente · ver ARCHITECTURE §0-B.3 regla 8 -->
+<!-- CANON: estado-de-bounty · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 ```
 enScope  ⇔  bountyEnabled = true
           ∨ bountyPriceCents  IS NOT NULL
@@ -10011,8 +10403,8 @@ cambió** — y desde el panel **no hay vuelta a automático sin destruir su tas
 <a id="M2-F1"></a>
 ##### M2-F.1 — El ajuste `fx_rate_mode` y la regla de resolución (NORMATIVA)
 
-<!-- CANON: invariantes-del-modo-fx -->
-<!-- CANON: precedencia-de-la-tasa -->
+<!-- CANON: invariantes-del-modo-fx · estado: VIGENTE · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
+<!-- CANON: precedencia-de-la-tasa · estado: VIGENTE · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 
 
 **`fx_rate_mode`** — `ConfigSetting`. **API: `FxRateMode = "auto" | "manual"`.** ⚠️ **Almacenamiento: TRES valores**
@@ -10166,7 +10558,7 @@ sigue sin poder escribir un número. Ver la razón en la regla 5 de [`§M2-F.3`]
 <a id="M2-F3"></a>
 ##### M2-F.3 — `FxStateDTO` — ⚠️ **LAS DOS TASAS VIAJAN SIEMPRE, LADO A LADO. ES NORMA, NO SUGERENCIA**
 
-<!-- CANON: estado-del-tipo-de-cambio -->
+<!-- CANON: estado-del-tipo-de-cambio · estado: VIGENTE · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 
 **Lo devuelven las CUATRO rutas de FX**: `GET /admin/fx`, `PUT /admin/fx`, `PUT /admin/fx/mode` y
 `POST /admin/fx/refresh` (esta última con un bloque extra, §M2-F.5). **Un solo DTO para las cuatro**, por el mismo
@@ -10568,7 +10960,7 @@ producción, es de **devops + el humano**, y **enseñar que la tasa está vieja 
 <a id="M2-F8"></a>
 ##### M2-F.8 ⭐⭐ **LA BANDA DE CORDURA DE LA TASA — `[1, 1000]`, UNA SOLA, PARA LAS DOS PUERTAS** *(v1.63.4, NORMATIVA, **DINERO**)*
 
-<!-- CANON: banda-de-la-tasa-usd-mxn -->
+<!-- CANON: banda-de-la-tasa-usd-mxn · estado: VIGENTE · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 
 > **Una tasa USD→MXN válida es un número finito en `[1, 1000]`, extremos INCLUIDOS. Fuera de ahí no es una tasa:
 > es un cambio de formato, un error de escala o un fallo — y se RECHAZA, no se aproxima.**
@@ -11189,6 +11581,507 @@ se mueven en el mismo cambio o no se mueve ninguna**: media banda es una diverge
   - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.sales_rules.update`, con
     `before`/`after`). **Surte efecto sin redeploy.** Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
 
+#### <a id="M2-CS"></a>⚠️⚠️ §M2-CS — LO QUE M2 PUEDE AFIRMAR DE UN BARRIDO DE CATÁLOGO: **reparto**, **cobertura de precio** y **corte** (v1.66 — NORMATIVA, FUENTE ÚNICA; razón entera en `ARCHITECTURE §4.45`)
+
+> **Por qué existe esta sección.** `DESIGN_SYSTEM §32.4` fijó una norma transversal —*un aviso de resultado puede
+> afirmar exactamente lo que la corrida midió*— y al aplicarla a M2, ux-ui midió que **el contrato no da los datos
+> para cumplirla**: la acción de rutina no puede emitir `HECHO` (petición **R2**) y la tabla no tiene ninguna
+> columna que revele el set roto que el dueño debe reparar (petición **R5**). El **2026-09-10** el dueño añadió una
+> tercera: *«el corte de fecha, que automático»* (**R6**). Las tres tocan **los mismos dos payloads**, así que se
+> norman juntas y **en un solo sitio**: los endpoints de abajo **citan** esta sección y **no transcriben** sus
+> cifras (§0-B.3 regla 8).
+>
+> **La regla que gobierna las tres, y de la que todo lo demás se deriva:** ⭐ **una cifra sólo se emite si esta
+> corrida la CONTÓ.** Lo que no se midió viaja **ausente** (`null` / objeto ausente), **jamás como `0`** — porque
+> un `0` que en realidad es un «no lo sé» es exactamente el defecto **D2** que originó todo esto (*«191 cartas
+> procesadas · 0 precios», en verde, sin haber tocado nada*).
+
+<a id="M2-CS0"></a>
+##### §M2-CS.0 — CANON: **el reparto de un barrido de sets** *(vocabulario ÚNICO de «cuántos toqué»)*
+
+<!-- CANON: reparto-del-barrido · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 · razón entera en ARCHITECTURE §4.45.1 -->
+
+Los dos barridos de catálogo (`sync-all` y `refresh-variants-all`) reportan **el mismo tipo de hecho** —*qué le
+pasó a cada set del universo encolado*—, así que **reportan con la misma forma**. Lo que legítimamente difiere es
+**qué escribe cada uno** (§M2-CS.1 y §M2-CS.2); el reparto de sets **no difiere y no puede diferir**.
+
+| Término | Qué cuenta | Naturaleza |
+|---|---|---|
+| **`setsTotal`** | Sets **encolados** en el barrido. | **contexto** — nunca es la primera cifra de un aviso (`§32.4` H3). |
+| **`setsWritten`** | ⭐ Sets en los que la corrida **escribió algo** (≥ 1 escritura real). **Ésta es «cuántos toqué».** | **escritura** |
+| **`setsNoop`** | Sets **intentados, sin error y sin escribir nada**. | escritura (cero **medido**) |
+| **`setsFailed`** | Sets cuyo intento **lanzó**. | fallo |
+| **`failures[]`** | `{ setId, code, message }` por set fallido. `code` = `code` de la `BusinessException`; **`null`** si el fallo no traía uno (⛔ no se inventa un `"UNKNOWN"`). | fallo |
+
+**Invariantes (normativos, verificables en un test de contrato):**
+
+- **`I-CS1`** — `setsWritten + setsNoop + setsFailed === done`. *(El reparto cubre exactamente lo intentado.)*
+- **`I-CS2`** — `done <= setsTotal`. La diferencia son **sets no intentados** (barrido cortado a media). **Se
+  DERIVA de `total - done`; ⛔ no se emite como campo** (§0-B.3 regla 8: la cuenta ya vive en `total`/`done`).
+- **`I-CS3`** — ⭐ **ninguna cifra del `summary` es `null`.** Lo desconocido se transmite por **otras dos vías, y
+  sólo por ellas**: `summary: null` (no se midió nada) e `I-CS2` (se midió una parte). *Si un día alguna cifra
+  pudiera faltar de verdad, se declara aquí como nullable y se dice por qué; hasta entonces, un `null` suelto en
+  este objeto es un defecto, no una ausencia honesta.*
+- **`I-CS4`** — ⛔ **`setsNoop` no se suma a nada para «redondear» un total.** Un set intentado que no escribió
+  **no es un set hecho**, y ése es el error exacto que `setsOk` cometía (§M2-CS.2).
+
+**⛔ Prohibido: un segundo vocabulario para «cuántos toqué».** `setsOk` queda **deprecado** (§M2-CS.2) y no nace
+ningún `setsProcessed`, `setsHandled` ni `setsDone`. Si un barrido necesita **más** granularidad, la añade como
+**desglose de `setsWritten`** —con la invariante de suma escrita— y **nunca como un total paralelo**.
+
+<!-- /CANON: reparto-del-barrido -->
+
+*(Fuera del bloque canónico: lo de abajo es **ayuda de lectura**, no fuente. El algoritmo del veredicto y su copy
+son de `DESIGN_SYSTEM §32.4`, que manda sobre este párrafo.)*
+
+**Cómo se lee un veredicto de aquí** *(informativo; el copy y el algoritmo son de `DESIGN_SYSTEM §32.4`, que
+manda)*: `summary == null` ⇒ `NO SE SABE`. `running:true` ⇒ **estado `EN CURSO`, jamás veredicto** (el `summary`
+de un barrido vivo es **parcial por construcción**; el veredicto sólo se calcula con `running:false` **y**
+`finishedAt != null`). `total > done` con `running:false` ⇒ `PARCIAL`. Todas las cifras de escritura en `0` con
+`setsTotal > 0` ⇒ `NO SE HIZO`. `setsTotal === 0` ⇒ `SIN CAMBIOS` **demostrable** (y la frase nombra el corte,
+§M2-CS.4, que es la única explicación útil de ese cero).
+
+<a id="M2-CS1"></a>
+##### §M2-CS.1 — `GET /admin/catalog/sync-status` **gana `summary`** *(cierra R2)*
+
+**Shape normativo** (sustituye a la respuesta documentada más abajo, que queda como forma **previa a v1.66**):
+
+```jsonc
+{
+  "running": false,
+  "jobId": "catalog-sync-all-1690000000000",
+  "total": 12,
+  "done": 12,
+  "startedAt": "2026-09-10T18:00:00.000Z",
+  "finishedAt": "2026-09-10T18:04:00.000Z",
+  "summary": {
+    "setsTotal": 12,               // §M2-CS.0
+    "setsWritten": 3,              // ⭐ «cuántos toqué»
+    "setsImported": 2,             //   desglose de setsWritten — set que NO tenía cartas y ahora sí
+    "setsRefreshed": 1,            //   desglose de setsWritten — set que YA tenía cartas y se re-escribió
+    "setsNoop": 8,
+    "setsFailed": 1,
+    "cardsUpserted": 431,          // cartas que ESTA corrida escribió (≠ cartas que existen en los sets)
+    "fromReleaseDate": "2024/09/10",   // corte VIGENTE en esta corrida (§M2-CS.4)
+    "setsSkippedOutOfRange": 140,      // remotos descartados por el corte (selección, no escritura)
+    "setsSkippedUnknownDate": 2,       // remotos sin `releaseDate` (§M2-CS.4) — se cuentan, no se callan
+    "failures": [
+      { "setId": "base1", "code": "UPSTREAM_ERROR", "message": "pokemontcg.io no respondió (502)" }
+    ]
+  }
+}
+```
+
+- **`summary`: `null`** hasta que arranca el **primer** barrido del proceso, y tras un reinicio (**DEV-1**, estado
+  en memoria). `null` significa **«no lo medí»** ⇒ `NO SE SABE` + «—». ⛔ **Nunca un `summary` en ceros para
+  rellenar**: un objeto lleno de `0` afirma que se contó.
+- **`setsImported + setsRefreshed === setsWritten`** (`I-CS5`). Es un **desglose**, no un vocabulario paralelo:
+  el aviso puede decir «**2 sets importados** · **1 actualizado**», pero *«cuántos toqué»* es `setsWritten` y sale
+  de un solo campo.
+- **`cardsUpserted` es «escritas», no «nuevas».** El `upsert` **no puede distinguir** creada de re-escrita, así
+  que **la distinción no se emite** (H5/H8: no se convierte en cifra lo que no se contó). ⇒ ⚠️ **`DESIGN_SYSTEM
+  §32.5a` no puede decir «{c} cartas nuevas»**: la palabra normativa es **«cartas escritas»**.
+- **⭐⭐ Este `summary` NO lleva ninguna cifra de precios, y es deliberado.** Desde v1.14 (§4.15g) el barrido de
+  catálogo **no escribe ni un precio**: emitir `pricesWritten: 0` sería un cero perfectamente cierto y
+  perfectamente engañoso —«no escribió precios» y «no escribe precios» son hechos distintos— y **rehabilitaría la
+  trampa de `fullSyncHint`** que §32 acaba de desmontar. ⇒ **Se RECHAZA `pricesWritten` en este endpoint**
+  (petición R2 de ux-ui, parcialmente denegada) y la consecuencia se enruta: **`DESIGN_SYSTEM §32.5a` no puede
+  prometer «{p} precios escritos» en la acción 1**. *El hueco que eso deja —un set recién importado no tiene
+  precios— es exactamente lo que la columna de §M2-CS.3 vuelve visible, y se repara desde su renglón.*
+- **`fromReleaseDate` / `setsSkippedOutOfRange` / `setsSkippedUnknownDate` son cifras de SELECCIÓN**, no de
+  escritura: ⛔ no pueden abrir la frase de un aviso (H3) y **no entran en `setsTotal`** (nunca se encolaron).
+  El `202` de `POST /admin/catalog/sync-all` **hace eco** de las mismas tres; **la fuente canónica del registro de
+  la corrida es este `summary`** (el `202` las dice al arrancar, éste al terminar; mismo cálculo, un solo origen).
+- **Auditoría/roles/polling: sin cambio** (`super_admin`, read-only, no auditado, no llama a ningún upstream).
+
+<a id="M2-CS2"></a>
+##### §M2-CS.2 — `GET /admin/catalog/refresh-variants-status`: **`setsOk` mentía en el mismo sitio, y se retira**
+
+La asimetría que ux-ui reportó era real, pero **el hermano «bueno» también estaba roto**, y por la misma causa:
+
+> **`setsOk` cuenta «sets que no lanzaron excepción»** — e incluye los sets que corrieron **sin escribir ni un
+> precio ni una variante** (el set que no empareja con TCGCSV: `pricesUpserted: 0`, `cardProductsUpserted: 0`, sin
+> error). ⇒ **`setsOk` es D2 a escala de barrido**: convierte «no reventó» en «salió bien», que es la definición
+> exacta de lo que `§32.4` H1 prohíbe.
+
+**Decisión:** el `summary` de este endpoint adopta **§M2-CS.0 entero** —gana **`setsWritten`** y **`setsNoop`**— y
+conserva sus cifras de escritura propias, que son las que legítimamente lo distinguen del hermano:
+
+```jsonc
+"summary": {
+  "setsTotal": 37,
+  "setsWritten": 27,             // NUEVO — sets con ≥1 escritura (variante o precio)
+  "setsNoop": 8,                 // NUEVO — corrieron, no escribieron nada (el set que no empareja)
+  "setsFailed": 2,
+  "setsOk": 35,                  // ⛔ DEPRECADO — ver abajo
+  "cardProductsUpserted": 1234,
+  "pricesUpserted": 2100,
+  "pending": 180,                // variantes sin precio ⇒ «—»/PRICE_PENDING (jamás 0)
+  "failures": [{ "setId": "base1", "code": "UPSTREAM_ERROR", "message": "…" }]
+}
+```
+
+- **`setsOk` queda DEPRECADO, con su significado CONGELADO**: `setsOk === setsWritten + setsNoop`. **⛔ No se
+  redefine** (redefinir un campo vivo es peor que retirarlo) y **⛔ ningún consumidor puede usarlo para un
+  veredicto**. Se **retira del shape en la rev siguiente**, cuando frontend confirme cero consumidores.
+- **`pending` sigue siendo `pending`** y **no** entra al reparto de sets: cuenta **variantes**, no sets. *Dos
+  unidades distintas nunca comparten prefijo en este contrato.*
+- **Qué NO se unifica, y por qué:** `cardsUpserted` (catálogo) vs `cardProductsUpserted`/`pricesUpserted`
+  (variantes) **son hechos distintos y conservan nombres distintos** — uno cuenta **cartas** escritas y los otros
+  **variantes** y **precios**. Igualarlos sería el error simétrico al de `setsOk`: **un nombre común para dos
+  hechos**. La regla general: **el reparto de sets se unifica siempre; las cifras de escritura se nombran por lo
+  que escriben.**
+
+<a id="M2-CS3"></a>
+##### §M2-CS.3 — CANON: **la variante de precio**, y la cobertura por set en `remote-sets` *(cierra R5)*
+
+<!-- CANON: variante-de-precio · estado: PROYECTADA · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 · razón entera en ARCHITECTURE §4.45.2 -->
+
+> 🚧🚧 **NO IMPLEMENTADA — `estado: PROYECTADA` (`ARCHITECTURE §0-B.3` regla 10).** Este bloque es **la norma
+> del pase que la construirá**; ⛔ **no describe el sistema de hoy y no gobierna ningún gate de QA, techlead ni
+> seguridad**. **Medido el 2026-09-10 contra el árbol:** `pricedVariants`, `variants` y `priceCoverage` tienen
+> **cero ocurrencias** en `backend/` y `frontend/`; la migración `M-51a` (el índice que paga la columna) **no
+> existe** —la última es `20260909120000_m50_price_convention`—.
+> **Dueño: backend** (WS «Catálogo y precios»). **Desviación: `ARCHITECTURE §9`, `D-CS-5`.**
+> **Compuerta para pasar a `estado: VIGENTE`** *(la mueve el arquitecto, no el pase que escribe el código)*:
+> (1) `M-51a` existe y está aplicada; (2) `GET /admin/catalog/remote-sets` emite `pricedVariants`, `variants` y
+> `priceCoverage` con los invariantes `I-PC1..I-PC7`; (3) la **compuerta de medición** de abajo (distribución de
+> `pricedVariants/variants`) se corrió **y se reportó**.
+
+**La pregunta que la columna contesta es «¿a este set le faltan precios?», no «cuántas filas tiene».** Para eso
+hace falta fijar el **denominador una sola vez**, porque un set tiene **más variantes que cartas** (normal /
+reverse holo / holofoil) y aplanar ese eje es **la falla de origen de P-47**:
+
+> **VARIANTE DE PRECIO** *(unidad canónica de cobertura)* **:= el par (`CardProduct`, `Finish`) con
+> `Finish ∈ CardProduct.finishes`**, para los `CardProduct` de las `Card` del set.
+>
+> **Por qué ésa y no otra:** es **exactamente** la unidad que lleva precio propio (la `@@unique` de
+> `PriceReference` incluye `cardProductId` **y** `finish`) y **exactamente** la que cuenta `pending` en
+> `refresh-variants`. ⛔ **No es la carta** (aplana el acabado, P-47), ⛔ **no es `printedTotal`** (es del
+> proveedor y cuenta cartón impreso), ⛔ **no es `Card.availableFinishes`** (es la afirmación del catálogo sobre
+> qué acabados existen — se **reconcilia desde** `CardProduct`, así que usarla como denominador mediría una cosa
+> con la regla de otra).
+
+**Shape normativo de `GET /admin/catalog/remote-sets`:**
+
+```jsonc
+{
+  "data": [
+    { "id": "sv08", "name": "…", "series": "…", "releaseDate": "2024/11/08", "printedTotal": 191,
+      "imported": true, "cardCount": 191,
+      "pricedVariants": 184,        // NUEVO — variantes de precio CON precio vigente
+      "variants": 191 },            // NUEVO — variantes de precio del set (denominador)
+    { "id": "base1", "imported": false, "cardCount": 0,
+      "pricedVariants": null, "variants": null },
+    { "id": "me05", "imported": true, "cardCount": 191,
+      "pricedVariants": 0, "variants": null }        // estructura sin resolver ⇒ «0 de —»
+  ],
+  "degraded": false,
+  "source": "remote",
+  "priceCoverage": { "freshnessDays": 7, "measuredAt": "2026-09-10T18:00:00.000Z" }
+}
+```
+
+- **`pricedVariants`** — variantes de precio con **precio VIGENTE**: existe una `PriceReference` de naturaleza
+  dinero (`MONEY_REF_WHERE`) para ese `(cardProductId, finish)` con **`capturedDate >= hoy − freshnessDays`**.
+- **`variants`** — variantes de precio del set (el denominador de arriba).
+- **`priceCoverage`** *(nivel de respuesta, no de fila)* — **cómo se midió**: `freshnessDays` (**la VIGENCIA de
+  un precio**, **eco del valor vigente en backend**; §0-B.3 regla 1: se lee de ahí, no se cita de aquí) y
+  `measuredAt`. **La definición viaja UNA vez** y las 150 filas traen sólo cifras.
+
+> ⭐ **`freshnessDays` se llama así, y no `windowDays`, a propósito** *(v1.66.1; el nombre lo decidió una señal
+> de alarma, no el gusto)*. El nombre anterior obligaba al contrato a escribir una advertencia — *«⛔
+> `priceCoverage.windowDays` y `catalogWindow.windowMonths` NO son la misma ventana, y no se comparan»*—, **y
+> cuando un contrato NECESITA escribir esa frase, el defecto ya está puesto**: hay dos magnitudes con nombres
+> casi iguales en el mismo payload y alguien las va a cruzar «para simplificar». Es **la misma señal que precedió
+> a PRIMARIO/SEED/VIGENTE** (§M10-PP), donde un solo literal nombraba tres hechos. ⇒ **se aplica la ampliación
+> v1.65 de §0-B.3 regla 8 —«el hecho se NOMBRA»— antes de que nada se implemente:** son **dos hechos con dos
+> nombres**, **VIGENCIA** de un precio (días, aquí) y **NOVEDAD** de un set (meses, §M2-CS.4 → `recencyMonths`),
+> y ⛔ **la palabra «ventana»/`window` queda PROHIBIDA en ambos**, que era el único término que compartían.
+> *Coste de renombrar, medido antes de decidir: **cero** — ninguno de los dos existe todavía en el código. Es
+> exactamente el momento en que un renombrado es gratis, y por eso se hace ahora y no «cuando dé problemas».*
+
+**Invariantes (normativos):**
+
+- **`I-PC1`** — ⭐ **`variants` NUNCA vale `0`.** O el set tiene ≥ 1 variante de precio, o **su universo es
+  desconocido** y entonces es `null`. *Un `0/0` en pantalla se lee «completo», y es la peor lectura posible del
+  set más roto que hay.*
+- **`I-PC2`** — `pricedVariants <= variants` cuando ambos son número.
+- **`I-PC3`** — **set no importado** (`imported: false` **o** `cardCount: 0`) ⇒ **ambos `null`**. El hecho «no
+  está importado» ya viaja en `imported`; ⛔ no se duplica como un par de ceros (§0-B.3 regla 8).
+- **`I-PC4`** — ⭐ **set importado, con cartas y con CERO `CardProduct`** ⇒ **`pricedVariants: 0`, `variants:
+  null`** («**0 de —**»). Es un hecho medido —no hay ni una variante con precio— **más** un universo desconocido:
+  la estructura del set nunca se resolvió contra TCGCSV. **Es el set más roto del catálogo y tiene su propia
+  cara**, distinta de «le faltan 7».
+- **`I-PC5`** — **`priceCoverage: null`** (nivel de respuesta) ⇒ **todas** las filas traen `pricedVariants` y
+  `variants` en `null`. Es la salida **legítima y prevista** cuando la medición no se pudo pagar (timeout o
+  circuito abierto, ver presupuesto abajo): la tabla se sirve igual y la columna entera se pinta «—» (H4).
+  ⛔ **Jamás se sirve una cobertura a medias sin decirlo.**
+- **`I-PC6`** — ⭐ **la cifra es VIVA: se calcula en la petición.** ⛔ **Prohibida una columna derivada/persistida
+  en `CardSet`.** Razón, y es la que decide: un contador cacheado **sólo lo escriben los escritores que tuvieron
+  éxito** ⇒ el set que **deja de repreciarse** (`IMPORTANTE-3`) conservaría para siempre su último valor bueno y
+  **la columna diría «completo» del único set que hay que reparar**. *Una cifra vieja que dice «completo» es peor
+  que no tener columna.*
+- **`I-PC7`** — ⛔ **`remote-sets` NO filtra por el corte de catálogo** (§M2-CS.4). Devuelve **todos** los sets
+  remotos. Con corte móvil esto **deja de ser un detalle** y pasa a ser **la escotilla de escape** del diseño.
+
+<!-- /CANON: variante-de-precio -->
+
+*(Fuera del bloque canónico: **la unidad, el shape y los invariantes** de arriba son fuente única y no se
+transcriben en ningún otro sitio. Lo de abajo —costo, presupuesto, compuerta y alcance frente a `IMPORTANTE-3`— es
+**razón y operación**: se puede citar, discutir y ampliar sin tocar la fuente.)*
+
+**Costo, y cómo se paga** *(medido antes de decidir la forma, no después)*:
+
+1. **Denominador** — un agregado sobre `CardProduct ⋈ Card` sumando la cardinalidad de `finishes` por `setId`.
+   Decenas de miles de filas, índice `CardProduct(cardId)` ya existe. **Barato.**
+2. **Numerador** — **por eso la VIGENCIA es obligatoria, y no es un adorno de honestidad**: contar pares
+   *«con precio alguna vez»* obligaría a recorrer **toda** `PriceReference` (una fila por variante **por día**),
+   que crece sin techo. Acotado a `capturedDate >= hoy − freshnessDays` el universo es
+   ~`variantes × freshnessDays`.
+   **Precio a pagar: un índice por `capturedDate` en `PriceReference`** (migración, dueño **backend**). Es una
+   tabla de escritura por lotes, no de ruta de dinero: aceptable, y **se declara aquí porque es el costo real de
+   la columna**.
+3. **Presupuesto y degradación:** el añadido sobre `remote-sets` **no debe superar ~300 ms p95**. Si los supera,
+   backend **degrada a `priceCoverage: null`** (`I-PC5`) — ⛔ **jamás sirve la tabla lenta ni una cifra a medias**
+   — y **lo reporta al arquitecto** para re-decidir la forma (p. ej. endpoint aparte con carga diferida, hoy
+   **rechazado**: la cifra decora **la fila** y un segundo endpoint la haría envejecer respecto de la fila que
+   decora).
+4. **Compuerta de medición ANTES de publicar la columna** *(dueño: backend)*: con la VIGENCIA semilla, medir
+   **cuántos sets importados quedan en `pricedVariants === 0`** y la distribución de `pricedVariants/variants`.
+   **Si más de ~⅓ de los sets importados sale en cero**, la semilla está mal **o el barrido diario no cubre el
+   catálogo** —y ese segundo caso **es el hallazgo, no un ajuste**—: vuelve al arquitecto **antes** de que la
+   columna se publique. *Una columna que pinta en rojo 150 renglones enseña al dueño a ignorarla, y eso es peor
+   que no tenerla.*
+
+**Qué cubre y qué NO de `IMPORTANTE-3`** *(el set que deja de repreciarse porque `resolveGroupId` devuelve `null`
+con nombres ambiguos y sólo deja un `warn`)*:
+
+- ✅ **Lo hace visible**, y era invisible: pasada la vigencia, ese set cae a `0/191` mientras sus vecinos siguen en
+  `184/191`. **Es la primera superficie del producto donde ese defecto se ve sin leer logs.**
+- ✅ **Cubre también su variante peor** (estructura nunca resuelta) con cara propia: `I-PC4`, «0 de —».
+- ⚠️ **No lo detecta el día 1**: hay hasta `freshnessDays` de retraso. Es un **detector**, no una **alarma**.
+- ⛔ **No lo diagnostica ni lo arregla**, y esta columna **no cierra `IMPORTANTE-3`**: la causa raíz sigue siendo
+  del dueño del código (**backend**, `tcgcsv-singles-bulk.provider.ts`). *Ver un síntoma no es curar la
+  enfermedad; lo que esta columna quita es la parte de «durante semanas y nadie se entera».*
+
+<a id="M2-CS4"></a>
+##### §M2-CS.4 — CANON: **el corte de catálogo se mueve solo** *(cierra R6; deroga el dial `catalogSyncFromDate`)*
+
+<!-- CANON: corte-de-catalogo · estado: PROYECTADA · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 · razón entera en ARCHITECTURE §4.45.3 -->
+
+> 🚧🚧 **NO IMPLEMENTADA — `estado: PROYECTADA` (`ARCHITECTURE §0-B.3` regla 10).** Este bloque es **la norma
+> del pase que la construirá**; ⛔ **no describe el sistema de hoy y no gobierna ningún gate de QA, techlead ni
+> seguridad**. **Medido el 2026-09-10 contra el árbol:** `CATALOG_RECENCY_MONTHS` (ni su nombre anterior) y
+> `catalogCutoff` tienen **cero ocurrencias** en `backend/` y `frontend/`; la migración `M-51b` **no existe**;
+> **el dial sigue vivo y sigue siendo EDITABLE** (`settings.constants.ts` lo expone en el mapa del DTO y
+> `M10View.tsx` pinta su editor).
+> **Dueños: backend** (WS «Catálogo y precios»: derivación, DTO, `M-51b`) **y frontend** (retirar el campo de
+> M10). **Desviación: `ARCHITECTURE §9`, `D-CS-5`.**
+> **Compuerta para pasar a `estado: VIGENTE`** *(la mueve el arquitecto)*: (1) el corte se **deriva** y
+> `catalogCutoff` viaja en `remote-sets`; (2) `catalogSyncFromDate` ya **no** está en el DTO ni en la pantalla y
+> el `PUT` lo rechaza; (3) `M-51b` aplicada **después** del deploy que dejó de leer la clave; (4) la
+> **compuerta de medición** de abajo se corrió y se reportó.
+> ⚠️ **Consecuencia mientras siga `PROYECTADA`, y es la que importa para no volver a mentir:** hasta que la
+> compuerta se cumpla, **el corte lo sigue decidiendo el dial y M10 lo sigue editando**. Quien necesite saber
+> qué corte corre **lee el artefacto** (§0-B.3 regla 2), no este bloque.
+
+**Decisión del dueño (2026-09-10):** *«el corte de fecha, que automático. Estar moviendo cosas manuales deja a que
+se rompa algo por falta de cuidado o supervisión»*.
+
+> **CORTE EFECTIVO := `hoy − NOVEDAD`**, formateado `yyyy/MM/dd`. **`NOVEDAD`** es la única perilla que
+> sobrevivirá (`CATALOG_RECENCY_MONTHS`, en **meses**, configuración de despliegue **no expuesta en M10**;
+> §0-B.3 regla 1: el valor **vigente se lee de la fuente ejecutable**, este contrato no lo afirma **ni siembra un
+> literal aquí**).
+> **Un set entra al universo de la acción de rutina si `releaseDate >= CORTE EFECTIVO`.**
+
+- **⛔ El dial `catalog_sync_from_date` DEJARÁ DE DECIDIR y se retira.** `catalogSyncFromDate` **saldrá del DTO de
+  `GET /admin/settings`** y el `PUT` **deberá rechazarla** como clave desconocida (mismo trato que los diales
+  retirados de §M10). **La fila `ConfigSetting` se BORRARÁ** en la misma migración: un mando muerto que sigue en
+  la base es una copia muerta con voz de autoridad — *mientras exista, alguien la lee y cree que manda*. **Dos
+  fuentes para «desde cuándo es nuevo» es justamente lo que §0-B.3 regla 8 prohíbe, y la lectura del dueño es que
+  quiere dejar de administrarlo, no tener dos palancas.**
+- **La ÚNICA anulación que sobrevive es POR LLAMADA y explícita:** `POST /admin/catalog/sync { fromReleaseDate }`
+  sigue aceptando su parámetro. **No es un segundo dial**: no persiste, no lo lee nadie más, y **la corrida lo
+  reporta** en `summary.fromReleaseDate` (§M2-CS.1). *Un argumento de una llamada no compite con una norma: la
+  acompaña y queda registrado.*
+- **⚠️ EL MODO DE FALLO QUE HAY QUE NOMBRAR — «la caída silenciosa del borde trasero».** Un corte fijo es estable
+  y auditable; **uno que se mueve deja caer sets por detrás sin avisar**: un set lanzado hace `NOVEDAD + 1` meses
+  que **nunca se importó** queda fuera del alcance del botón de rutina, para siempre y en silencio. **Tres
+  candados, y ninguno es opcional:**
+  1. **`I-PC7` — el renglón sigue visible.** `remote-sets` **no filtra por el corte**; el set fuera de la
+     NOVEDAD se ve en la tabla con `imported: false` y **se importa desde su propia fila** (la elección visible
+     que `DESIGN_SYSTEM §32.1` puso en lugar del `backfill` a ciegas). *Lo que era un accidente feliz pasa a ser
+     norma, porque el corte móvil se apoya en él.*
+  2. **Se cuenta lo que se descartó:** `summary.setsSkippedOutOfRange` (§M2-CS.1). El descarte deja de ser
+     silencioso y pasa a ser una cifra que el aviso puede nombrar.
+  3. **El corte se lee antes de apretar**, no después: ver el punto de visibilidad, abajo.
+- **⭐ `releaseDate` ausente o futura — semántica declarada UNA vez** (§0-B.3 regla 9; hoy **nadie lo ha
+  decidido**: `(releaseDate ?? '') >= corte` deja fuera al set sin fecha **por accidente aritmético**):
+  - **Sin `releaseDate` ⇒ NO entra** al universo de la rutina. ⛔ **No se adivina una fecha** para colarlo ni para
+    excluirlo: no se sabe cuándo salió.
+  - **⭐ Pero NO se calla: se cuenta** en `summary.setsSkippedUnknownDate`, y su renglón **sigue visible** con su
+    botón de reparación. *Ausente ⇒ «—» + reportado; nunca «excluido en silencio», que es H4 aplicado a la
+    selección en vez de a un aviso.*
+  - **`releaseDate` futura ⇒ entra** (`>= corte` se cumple). Es correcto: un set anunciado con fecha futura **es**
+    lo más nuevo que hay, y el proveedor no publica sus cartas hasta que existen ⇒ a lo sumo produce un
+    `setsNoop`, que es un cero **medido**.
+- **Que se vea (§32.3 sigue siendo obligatorio, y con más razón).** `GET /admin/catalog/remote-sets` **ganará**, a
+  nivel de respuesta, **`catalogCutoff: { fromReleaseDate, recencyMonths, computedAt }`** — y, una vez
+  implementado, **siempre presente** (es un valor derivado: no puede fallar). Es la fuente del subtítulo
+  permanente de M2. **La frase debe nombrar la REGLA y la FECHA**, no sólo la fecha: una fecha derivada sin su
+  regla es un número mágico que el dueño no puede predecir. *(Un automático invisible es peor que un manual
+  visible.)* ⇒ **`DESIGN_SYSTEM §32.3` cambia**: la fecha ya no se leerá de `GET /admin/settings` y **el enlace
+  «Cambiar la fecha» → M10 debe RETIRARSE** (apunta a un mando que dejará de existir). **Con esto, la petición R3
+  de §32.15 —«¿se edita el corte desde M2?»— queda sin objeto: no se edita en ninguna superficie.**
+  ⚠️ **`catalogCutoff`, no `catalogWindow`** *(v1.66.1)*: `recencyMonths` es la **NOVEDAD** de un set y no tiene
+  nada que ver con la **VIGENCIA** de un precio (`priceCoverage.freshnessDays`, §M2-CS.3). ⛔ **La palabra
+  «ventana»/`window` está prohibida en los dos**, que era lo único que compartían — ver la nota de §M2-CS.3.
+- **⛔ Ejes rechazados, con razón escrita:** *«las últimas N series/bloques»* — **`CardSet.series` es nullable y lo
+  controla el proveedor**: un set con `series: null` sería inclasificable y **volvería a caerse en silencio**, que
+  es el defecto que estamos cerrando, con otra cara. *La irregularidad del ritmo de lanzamientos —el argumento a
+  favor del eje de series— no hace daño aquí: importar es acumulativo, y que una ventana traiga 4 sets un año y 12
+  el siguiente no rompe nada; lo único que la ventana gobierna es qué ofrece el botón de rutina.*
+
+<!-- /CANON: corte-de-catalogo -->
+
+*(Fuera del bloque canónico: lo de abajo es **medición y operación de un merge concreto**, no la definición del
+corte. Cuando se consuma, se marca como consumada; la definición de arriba no se toca.)*
+
+**Estado del código el 2026-09-10** *(§0-B.3 regla 2 — leído el artefacto, y **fuera** del bloque porque es
+clase (B) y envejece; regla 10)*: `remote-sets` **hoy no filtra** por ninguna fecha ⇒ el candado `I-PC7` no pide
+un cambio, pide que **deje de ser un accidente**. El dial `catalog_sync_from_date` **sigue vivo, expuesto y
+editable**, y el `POST /admin/catalog/sync-all` **ya honra un corte** (predicado único `isWithinCatalogFromDate`).
+
+⚠️ **Nota de orden para ux-ui y frontend, porque §M2-CS.4 está `PROYECTADA`:** `DESIGN_SYSTEM §32.3` **puede
+diseñarse ya** contra `catalogCutoff`, pero **el enlace «Cambiar la fecha» → M10 NO se retira todavía**: hoy sigue
+apuntando a un mando que **existe y decide**. Retirarlo antes de que backend derive el corte dejaría al dueño sin
+superficie sobre un dial vivo. **Secuencia: backend deriva → backend saca la clave del DTO → frontend retira
+editor y enlace → `M-51b`.** Reparto completo: `ARCHITECTURE §9`, `D-CS-5`.
+
+- **⭐ COMPUERTA DE MEDICIÓN ANTES DEL CAMBIO** *(dueño: backend; bloquea el merge, no el diseño)*. La semilla de
+  `CATALOG_RECENCY_MONTHS` que backend proponga será previsiblemente **más restrictiva** que el corte que hoy
+  gobierna. Antes de activar, contar:
+  > sets remotos con **`imported: false`** y **`releaseDate ∈ [ valor vigente del dial , CORTE EFECTIVO )`**.
+  - **= 0 ⇒ higiene**: nadie pierde alcance, se activa sin más.
+  - **> 0 ⇒ cambio de comportamiento**: esos sets **salen del alcance del botón de rutina** al activar. Se
+    **importan antes** (o se abandonan a conciencia), **y el número se reporta**. ⛔ No se activa «a ver qué pasa».
+
+<a id="M2-GT"></a>
+#### ⚠️⚠️ §M2-GT — CANON: **EL GRUPO TCGCSV DE UN SET** (v1.66.1, **NORMATIVO, DINERO**, FUENTE ÚNICA; razón entera en `ARCHITECTURE §4.46`)
+
+<!-- CANON: grupo-tcgcsv-del-set · estado: PROYECTADA · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 · razón entera en ARCHITECTURE §4.46 -->
+
+> 🚧🚧 **NO IMPLEMENTADA — `estado: PROYECTADA` (`ARCHITECTURE §0-B.3` regla 10).** Este bloque **norma un
+> predicado que hoy existe repartido en dos columnas y tres escaleras**; ⛔ **no describe el sistema de hoy**.
+> **Dueños: backend** — WS «Catálogo y precios» (rutas de **precio** y **estructura**) y WS «Inventario y vault»
+> (ruta de **sellado**). ⚠️ **Cruza dos work streams y toca zona compartida** ⇒ el orquestador **serializa**;
+> **triple veredicto** (toca dinero). **Desviación: `ARCHITECTURE §9`, `D-GT-1`.**
+> **Compuerta para pasar a `estado: VIGENTE`:** (1) existe **una** función de resolución y **las tres** rutas la
+> llaman; (2) ninguna ruta deriva un `groupId` de `CardSet.pptSetId`; (3) `I-GT5` (discrepancia) emite su señal
+> y hay un test que la fija; (4) `groupSource` viaja en la respuesta del catálogo de sellado.
+
+**El predicado, y por qué es UNO.** *«¿Contra qué grupo de TCGCSV se precia este set?»* tiene **una sola
+respuesta correcta por set**, y hoy la contestan tres mecanismos distintos que pueden discrepar **en silencio**.
+
+> **GRUPO TCGCSV DE UN SET := el `tcgplayerGroupId` de la fila `SealedSetGroup(setId, kind = 'set_main')`.**
+> Es el **grupo principal** del set: el que publica sus singles y su producto sellado principal.
+> **`CardSet.tcgcsvGroupId` es su ESPEJO denormalizado de lectura**, no una segunda opinión (`I-GT2`).
+
+- **⛔⛔ `CardSet.pptSetId` NO ES UN GRUPO TCGCSV, y no se lee como tal — nunca.** Es **el id que PPT usa para
+  ese set**, y su valor se elige por preferencia entre tres cosas distintas (id numérico de TCGplayer → slug de
+  TCGplayer → id interno de PPT). Deducir *«si el string parsea como entero, ENTONCES es el groupId de TCGCSV»*
+  es un **juego de tipos**: infiere identidad en un espacio de nombres a partir de la **forma sintáctica** de un
+  valor de otro. ⛔ **Prohibido** ese peldaño en cualquier ruta.
+  - **Y no es una objeción de purismo:** ese id lo escribe **otra escalera** (empate por nombre + año **contra el
+    catálogo de PPT**), que **no tiene la propiedad de monotonía** que sí tiene la escalera canónica de abajo, y
+    su resultado queda **persistido**. Un empate malo de PPT se vuelve permanente, invisible, y **gobierna el
+    precio**.
+  - **`pptSetId` se CONSERVA y no se toca:** PPT lo necesita como `setId`. Lo que se retira es **leerlo como
+    groupId**, que es un cambio de **una rama**, ⛔ no una migración de datos.
+
+**La ÚNICA escalera que escribe este grupo automáticamente** es la del match por NOMBRE contra **TCGCSV**
+(`matchTcgcsvGroupByName`: `exact` → `exact_unprefixed` → `contains`, match **ÚNICO** o `null`, con su propiedad
+de monotonía probada). ⛔ **No nace una segunda.** *El puntaje difuso que propone candidatos a un humano en la
+pantalla de curación es **otro predicado** —«qué grupos le ofrezco para que elija»— y puede seguir existiendo con
+su propio nombre; lo que ⛔ no puede es resolver este predicado por su cuenta.*
+
+**Escritores autorizados, y su precedencia** *(sólo estos dos escriben `set_main`)*:
+1. **CURACIÓN HUMANA** — `POST …/sealed-groups` (`linkGroup`, `kind='set_main'`, `super_admin`, **auditado**).
+   **Gana siempre** y ⛔ **el automático no la pisa**: un humano que eligió el grupo es la autoridad más alta que
+   hay sobre este hecho.
+2. **AUTOMÁTICO** — la escalera de arriba, y **sólo con match ÚNICO**. Ambigüedad ⇒ **`null` + señal**, jamás
+   una adivinanza.
+
+**PRECEDENCIA DE LECTURA — una sola escalera, la misma para las tres rutas** *(precio de singles, resolución de
+estructura, catálogo de sellado)*:
+
+| # | Peldaño | Persiste | Notas |
+|---|---|---|---|
+| 1 | **Override explícito de la llamada** (`?groupId=`) | ⛔ no | No es un dial: no persiste y no lo lee nadie más |
+| 2 | **`set_main` CURADO** (`linkGroup`) | sí | Autoridad máxima |
+| 3 | **`set_main` AUTOMÁTICO** (escalera por nombre) | sí | Sólo match único |
+| 4 | **Derivado de los items ya mapeados del set** (`DISTINCT tcgplayerGroupId`, y **exactamente uno**) | ⛔ **no se cachea** | Último recurso **de lectura**; se **reporta**, no se promueve en silencio |
+| — | si ninguno resuelve ⇒ **`null` + señal visible** | — | ⛔ **Jamás un groupId adivinado** |
+
+**⛔ NO hay peldaño `pptSetId`, y no lo habrá.**
+
+**Invariantes (normativos):**
+
+- **`I-GT1` — UN set, UN `set_main`.** A lo sumo una fila `SealedSetGroup` con `kind='set_main'` por `setId`. Las
+  demás filas del set son `promo_collection` y ⛔ **no responden a este predicado**.
+- **`I-GT2` — EL ESPEJO NO OPINA.** `CardSet.tcgcsvGroupId` **iguala** al `set_main` o es `null`. Se escribe
+  **en la misma transacción** que la fila. ⛔ **Ningún lector lo usa para contradecir la fila.**
+- **`I-GT3` — UNA IMPLEMENTACIÓN.** Existe **una** función de resolución y **las tres rutas la llaman**. ⛔ No
+  hay tres `resolveGroupId`. *Este proyecto ya pagó dos veces por «la misma lógica copiada en dos sitios»: el
+  arreglo del prefijo llegó a tres rutas y no a la que movía dinero.*
+- **`I-GT4` — EL MISMO SET SE PRICIA CONTRA EL MISMO GRUPO.** Singles y sellado de un set resuelven **por la
+  misma escalera** y obtienen **el mismo entero**. ⛔ Prohibido que dos superficies del mismo set se prician
+  contra grupos distintos: es **un** hecho, no dos.
+- **`I-GT5` — ⭐⭐ DISCREPANCIA ⇒ FAIL-CLOSED Y RUIDOSO, NUNCA UNA ELECCIÓN.** Si un lector encuentra **dos
+  fuentes que existen y difieren** —típicamente un `pptSetId` numérico ≠ el `set_main` resuelto, o el espejo ≠ la
+  fila—: **(a)** manda el peldaño más alto de la tabla; **(b)** ⛔ **no se elige «la que parezca mejor» ni se
+  promedia**; **(c)** se emite **señal visible** (`AuditLog`, misma familia que `pricing.set_unresolved`) con las
+  dos fuentes y sus valores. *Dos fuentes que discrepan sobre un hecho de dinero es un **hallazgo**, no un
+  empate: lo que no puede pasar es que se resuelva callando.*
+- **`I-GT6` — UN LECTOR NO REPARA DATOS.** ⛔ La ruta de lectura **no** escribe una columna con el valor de la
+  otra para «arreglar» una discrepancia. Reparar es un acto **explícito y auditado** (peldaño 2). *Una escritura
+  de reparación disparada por una lectura convierte cada consulta en una migración silenciosa.*
+
+**Superficie de respuesta (`GET /admin/inventory/sealed-catalog`):** además de `tcgcsvGroupId` y `groupResolved`,
+la respuesta **gana `groupSource: "override" | "curated" | "matched" | "derived" | null`** — el peldaño por el que
+se resolvió. **No es adorno:** un número sin su procedencia no se puede auditar, y la discrepancia de `I-GT5` es
+justo lo que el dueño necesita ver sin abrir logs.
+
+<!-- /CANON: grupo-tcgcsv-del-set -->
+
+*(Fuera del bloque canónico: lo de abajo es **medición, alcance y reparto**, y se puede citar y ampliar.)*
+
+**Lo que se midió el 2026-09-10, y que originó esta sección** *(§0-B.3 regla 2; el hallazgo es de techlead)*:
+
+| Portador del hecho | Quién lo escribe | Quién lo lee | Riesgo |
+|---|---|---|---|
+| `CardSet.pptSetId` (si es numérico, se **usa como** groupId) | empate por nombre+año contra **PPT** | ruta de **precio** de singles **y** ruta de **estructura**, **antes** de llegar a la escalera canónica | **el caso normal**: para todo set que PPT ya mapeó, el groupId que gobierna el precio lo decidió otra escalera, contra otra fuente, **sin monotonía** |
+| `CardSet.tcgcsvGroupId` | match por nombre contra **TCGCSV** (o `linkGroup`) | **sellado** → `marketRef` | nada garantiza que iguale al anterior |
+| `SealedSetGroup.kind='set_main'` | `linkGroup` (humano) | sellado | tercera escalera para el mismo hecho |
+
+**Dos consecuencias que no estaban escritas en ninguna parte, y son la razón de que esto sea DINERO:**
+1. **El peldaño de `pptSetId` está PRIMERO**, así que en el caso normal **la escalera canónica —la única con
+   monotonía probada— ni se ejecuta**. El blindaje existe y no cubre el camino que se toma.
+2. **Nada obliga a `pptSetId == tcgcsvGroupId`.** El día que discrepen, **singles y sellado del mismo set se
+   prician contra grupos distintos**, sin error, sin alerta y sin que ninguna pantalla lo enseñe.
+
+⚠️ **Corrección de una premisa del reporte, medida** *(regla 2, y cambia el alcance del arreglo a mejor)*: el
+groupId derivado de `pptSetId` **NO queda cacheado en la base**. El caché de la ruta de precio es **un `Map` en
+memoria por instancia** y se recalcula en cada arranque; lo persistido es `pptSetId`. ⇒ **el arreglo no necesita
+migración de datos ni invalidación**: retirar la rama corrige el comportamiento **desde el primer deploy**. *Lo
+digo porque hace la reparación mucho más barata de lo que el hallazgo sugería, y porque una premisa falsa a favor
+del arreglo es tan mala como una en contra.*
+
+**Qué NO cierra esta sección:** `IMPORTANTE-3` (el set que no resuelve por nombre y sólo deja un `warn`) sigue
+siendo de **backend** y sigue abierta (`D-CS-3`). Esta sección quita **la ambigüedad de qué número manda**; no
+resuelve los nombres que no empatan.
+
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
 > **v1.52 (M-47) — el sync ahora persiste también las IMÁGENES DEL SET** (`CardSet.logoUrl` / `symbolUrl`, ARCHITECTURE
@@ -11209,11 +12102,18 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 >   son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next (§5.3.4, §4.41.7). *La conclusión
 >   sobrevive; el argumento que la sostenía, no.*
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
-  Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
+  Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number, pricedVariants, variants }], degraded: boolean, source: "remote" | "local", priceCoverage, catalogCutoff }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
+  - 🚧 **v1.66 / v1.66.1 — `pricedVariants` / `variants` / `priceCoverage` (cobertura de precio por set) y `catalogCutoff` (el corte derivado) están `estado: PROYECTADA`** (§0-B.3 regla 10): forma, invariantes `I-PC1..I-PC7`, costo, degradación y **compuertas de paso a `VIGENTE`** en [`§M2-CS.3`](#M2-CS3) y [`§M2-CS.4`](#M2-CS4). **Hoy el endpoint NO emite ninguno de los cuatro campos** — quien consuma esta línea antes de que las compuertas se cumplan debe tratarlos como **ausentes**, no como `null` de medición. ⛔ **Este endpoint NO filtra por el corte** (`I-PC7`, y **eso sí es cierto hoy**): devolver **todos** los sets remotos es la escotilla de escape del corte móvil, no un detalle de implementación.
+  - **`degraded` / `source`:** `source: "local"` + `degraded: true` cuando pokemontcg.io no responde y la lista se sirve desde los sets **locales** (⇒ `imported` es `true` en todas las filas **por construcción**, no por medición). La **cobertura** (`priceCoverage`) es local y **se mide igual** en ese modo: son dos degradaciones independientes.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
   Req: `{ setId?: string, fromReleaseDate?: string, force?: boolean = false }`.
   - `setId` (opcional) → importa ese set puntual. **Debe cumplir `^[a-z0-9]+(-[a-z0-9]+)*$`** (anti-inyección en `q=set.id:`); si no, `422 VALIDATION_ERROR`.
-  - sin `setId` → importa sets con `releaseDate >= fromReleaseDate`. **Default `fromReleaseDate` = dial `catalog_sync_from_date` (`"2024/01/01"`)**, editable sin redeploy vía `GET/PUT /admin/settings` (`catalogSyncFromDate`, §M10). Formato `yyyy/MM/dd`.
+  - sin `setId` → importa sets con `releaseDate >= fromReleaseDate`. Formato `yyyy/MM/dd`.
+    ⚠️ **v1.66 — el DEFAULT cambia de fuente:** era el dial `catalog_sync_from_date` (editable en §M10); pasa a ser
+    el **CORTE EFECTIVO derivado** de [`§M2-CS.4`](#M2-CS4), que **se mueve solo** y **ya no se administra a mano**.
+    El `fromReleaseDate` del body **sobrevive como anulación POR LLAMADA** (explícita, sin estado) y la corrida lo
+    reporta en `summary.fromReleaseDate`. La semántica de un set **sin `releaseDate`** —no entra, **pero se
+    cuenta**— también vive en §M2-CS.4, y **no se decide aquí**.
   - **`force` (v1.27 / P-12, opcional, default `false`, aditivo):** con `true`, para **cada set procesado por la
     llamada** se corre además el **resolver estructural TCGCSV** (`resolveStructuralFinishesForSet`, ARCHITECTURE
     §4.24a) aunque el set NO sea first-import — misma semántica que el `force` de `sync-all` (cierra la asimetría:
@@ -11232,13 +12132,13 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 - `POST /api/v1/admin/catalog/backfill` — importa el **siguiente lote de sets más antiguos aún no importados** (colecciones previas a la frontera). Repetible.
   Req: `{ batchSize?: number = 10, untilYear?: number }`.
   Res `200`: `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary: string, remaining: number }`. `newBoundary` = `releaseDate` del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar. Se repite hasta `remaining=0` (o hasta `untilYear`).
-- `POST /api/v1/admin/catalog/sync-all` — **(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, sin frontera de fecha) — soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9). **Admin-only** (`super_admin`).
-  Req: `{ force?: boolean = false }` (sin otros campos; ignora `catalog_sync_from_date`).
+- `POST /api/v1/admin/catalog/sync-all` — ~~**(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, **sin frontera de fecha**)~~ ⚠️ **v1.66 — CORREGIDO: SÍ tiene frontera.** Este barrido **honra el corte** (era el defecto **D3**: el botón «Importar sets nuevos» del dueño se traía sets de cualquier año) y desde v1.66 el corte es el **CORTE EFECTIVO derivado** de [`§M2-CS.4`](#M2-CS4), no un dial. *La frase tachada era cierta en v1.3 y dejó de serlo sin que este documento se enterara — se conserva tachada, no se borra.* Soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9). **Admin-only** (`super_admin`).
+  Req: `{ force?: boolean = false }` (sin otros campos). ~~ignora `catalog_sync_from_date`~~ ⚠️ **v1.66: falso — el corte se aplica** ([`§M2-CS.4`](#M2-CS4)). Con **`force: true`** el corte **no** se aplica a los sets **ya importados**: `force` no es «importar», es **reparar lo que ya está aquí**, y acotarlo por fecha encogería la reparación justo en los sets viejos, que son los que la necesitan.
     - **`force` (v1.6-finish, opcional, default `false`, admin-only):** controla si se reprocesan los sets **ya importados**.
       - `false` (default): **comportamiento actual** — se **saltan** los sets ya importados; solo se encolan los sets remotos aún no presentes.
       - `true`: **no filtra** por sets ya importados — se encolan **TODOS** los sets (incluidos los ya importados) para **repoblar** `Card.availableFinishes` ~~y los precios por acabado~~ tras la **migración M-18** (v1.6-finish). Usar tras el deploy que requiere RE-SYNC (ver Changelog v1.6-finish, criterio 24). **⛔ Corrección v1.27:** desde v1.14 (WS-A §4.15g) este endpoint **NO repuebla precios** — solo metadata, cartas y (con `force`) variantes estructurales TCGCSV + reconcile; los precios se ingieren únicamente vía `price-ingest` (§M10-ops).
     - **Retrocompatible:** omitir `force` (o enviar `false`) preserva el contrato y la semántica previos; ningún consumidor existente se rompe. El campo es aditivo y opcional.
-  Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
+  Res `202`: `{ jobId: string, setsQueued: number, remaining: number, fromReleaseDate: string, setsSkippedOutOfRange: number, setsSkippedUnknownDate: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). **Las tres últimas son ECO de la selección** —el corte que rigió esta corrida y lo que dejó fuera— y su **fuente canónica es `summary`** ([`§M2-CS.1`](#M2-CS1)): el `202` las dice **al arrancar**, el `summary` **al terminar**; un solo cálculo, dos momentos. ⛔ **Ninguna de las tres es una cifra de escritura** y no puede abrir la frase de un aviso. Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
   > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
   > **Uso en Fase 1 (v1.12-catalog-pricing, ARCHITECTURE §4.13):** este endpoint **cubre 1.3 y 1.4 sin variantes nuevas** — (1.4, frontend) botón **"Importar sets nuevos"** en M2 = `sync-all {force:false}` (solo sets no importados) + polling `sync-status` + refrescar `remote-sets`; (1.3, disparo manual del refresco de precios) = `sync-all {force:true}` (re-sync completo que repuebla `PriceReference` por acabado). El job automático `catalog-price-sync` 2×/día ejecuta internamente la misma lógica de `force:true`.
   > **⛔ Corrección v1.27 al párrafo anterior (la mitad 1.3 quedó STALE desde v1.14/WS-A §4.15g):** `sync-all` **ya NO
@@ -11248,6 +12148,10 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
   > 1.4 ("Importar sets nuevos") sigue vigente tal cual. El copy de frontend en M2 debe reflejarlo (`es.json` decía
   > "repuebla precios": mentira desde v1.14; corregir en este stream).
 - `GET /api/v1/admin/catalog/sync-status` — **(v1.10-sync-status, NUEVO)** devuelve el **progreso** del barrido `sync-all` **en curso** (o del **último** ejecutado) → permite a M2 **pollear** (cada ~3s mientras `running`) y saber **cuándo** terminó (antes `sync-all` era fire-and-forget "a ciegas"). **Read-only**, **NO auditado** (es de polling), **NO llama a pokemontcg.io** (lee estado **en memoria del proceso**; **no** consume rate-limit ni la cola BullMQ). **Admin-only** (`super_admin`, hereda de `@Roles(Role.super_admin)` del controller). El shape corresponde **exactamente** a `CatalogSyncStatusResponse` (`frontend/src/types/contract.ts`).
+  > **⚠️ v1.66 — ESTE SHAPE ES LA FORMA PREVIA.** El endpoint **gana `summary`** y su forma normativa vive en
+  > [`§M2-CS.1`](#M2-CS1) (reparto en [`§M2-CS.0`](#M2-CS0)). **Sin `summary`, la acción de rutina del dueño nunca
+  > podía emitir `HECHO`** y se quedaba en `NO SE SABE` con «—» (`DESIGN_SYSTEM §32.5a`, petición R2). Lo de abajo
+  > se conserva como registro de la forma v1.10-sync-status; **⛔ no se implementa contra él.**
   Res `200` (`CatalogSyncStatusResponse`):
   ```json
   {
@@ -11332,6 +12236,9 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
     "startedAt": "2026-08-22T18:00:00.000Z",
     "finishedAt": "2026-08-22T18:04:00.000Z",  // null mientras running=true; se fija al terminar
     "summary": {
+      // ⚠️ v1.66: este summary adopta el reparto canónico de §M2-CS.0 (gana `setsWritten` y `setsNoop`)
+      // y `setsOk` queda DEPRECADO con su significado congelado — ver §M2-CS.2. NO se implementa
+      // un veredicto contra `setsOk`: cuenta como «bien» al set que corrió sin escribir nada.
       "setsTotal": 37,
       "setsOk": 35,
       "setsFailed": 2,
@@ -12233,7 +13140,7 @@ hoy no exista.
 > actualizar** —ése es el punto de que la cuenta viva en un sitio—, pero **sí** debe releer los sitios que la citan
 > por si alguno reintrodujo un número. *La caja es la que se lee; las citas son las que se auditan.*
 
-<!-- CANON: predicado-de-pagabilidad · única fuente · ver ARCHITECTURE §0-B.3 regla 8 -->
+<!-- CANON: predicado-de-pagabilidad · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 ```
 isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES     // 'aprobada' | 'verificacion'
               ∧  receivedAt        IS NOT NULL          // v1.57 §M5-P — «recibimos»
@@ -15545,7 +16452,30 @@ Err `403`, `400 VALIDATION_ERROR`.
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48:** `priceProvider` (`price_provider`, enum **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**, valor vigente **`tcgcsv_singles`** desde P-47/v1.44) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy → palanca de **rollback money-safe** del proveedor. Validado contra el enum del backend (**`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`**); `422 VALIDATION_ERROR` si es otro valor. **Semántica de los tres valores (P-47/v1.44, ARCHITECTURE §4.35):** `tcgcsv_singles` = **provider PRIMARIO** del precio **por-acabado** diario (reprecia desde TCGCSV, FX Banxico, respeta `isManualOverride`, no escribe estructura); `pokemontcg_io` = **legacy/rollback money-safe** (fuente previa, congelable sin escritura de estructura); `pokemonpricetracker` (PPT bulk) = **fallback**. **Nota histórica:** el seed original v1.14 era `pokemontcg_io` con flip previsto a `pokemonpricetracker` (decisión abierta v1.14-1/v1.14-4); ese flip quedó **superado** por el switch a `tcgcsv_singles` (P-47/v1.44), hoy el provider primario del barrido. **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- 🚧⛔ **v1.66 / v1.66.1 — `catalogSyncFromDate` SALDRÁ DE ESTE DTO Y DE ESTE `PUT`, y todavía NO ha salido.** El
+  corte del sync de catálogo **dejará de ser un dial y pasará a ser un valor DERIVADO que se mueve solo**
+  ([`§M2-CS.4`](#M2-CS4), `<!-- CANON: corte-de-catalogo -->`, **`estado: PROYECTADA`**; decisión del dueño,
+  2026-09-10). **Cuando el pase aterrice:** enviar `catalogSyncFromDate` en el body caerá en
+  **`422 VALIDATION_ERROR`** como cualquier clave desconocida (mismo precedente que `stripeFeeIvaPct` y
+  `fxRateMode`), y **la fila `ConfigSetting` `catalog_sync_from_date` se BORRARÁ** (`M-51b`) — ⛔ **no queda
+  «deprecada e inerte»**: un mando muerto que sobrevive en la base es leído por alguien que cree que manda.
+  **Dónde se leerá el corte:** `catalogCutoff` de `GET /admin/catalog/remote-sets` (para la pantalla, **antes**
+  de apretar) y `summary.fromReleaseDate` de `GET /admin/catalog/sync-status` (para el aviso, **después** de
+  correr).
+  > ⚠️⚠️ **ESTADO REAL, medido el 2026-09-10 (§0-B.3 reglas 2 y 10), porque v1.66 lo escribió en presente y era
+  > FALSO:** el dial **sigue en el DTO** (`settings.constants.ts` lo mapea) **y la pantalla M10 lo sigue
+  > editando** (`M10View.tsx`). ⇒ **La enumeración de abajo, que YA NO lo nombra, se adelantó al código**: es la
+  > enumeración la que hoy miente, no la nota. **Hasta que `D-CS-5` cierre, el DTO real lleva
+  > `catalogSyncFromDate` y el `PUT` lo acepta**, y quien necesite saberlo **lee el artefacto**. *Se deja dicho
+  > aquí, en la línea que el implementador mira, porque el defecto de v1.66 fue exactamente el simétrico —una
+  > nota que corregía junto a una enumeración que no cedía— y la lección no es «que ceda la enumeración» sino
+  > **que ninguna de las dos afirme en presente algo que el código no hace**.*
+  **Qué desaparecerá de la pantalla de frontend M10:** el campo `catalogSyncFromDate` y su editor — **trabajo de
+  frontend, y NO se hace hasta que backend retire la clave del DTO** (si la pantalla la quita antes, el dial
+  queda vivo y sin superficie, que es el peor de los dos mundos). Orden y compuertas: `§M2-CS.4`.
+- ⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
+  `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**. Ver §M10-IVA.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** 🚧 **v1.66 / v1.66.1: `catalogSyncFromDate` se RETIRA de este DTO y de este `PUT` — `estado: PROYECTADA`, todavía NO retirado del código** (cuando aterrice: mismo trato que `stripeFeeIvaPct` y `fxRateMode`, enviarlo caerá en `422 VALIDATION_ERROR` como cualquier clave desconocida; **ver el recuadro de estado arriba y `D-CS-5`**). ⛔ **Su semántica no se repite aquí y su antiguo default no se cita en ninguna parte**: el corte del sync de catálogo **dejará de ser un dial** para ser un valor derivado, y **vive entero en [`§M2-CS.4`](#M2-CS4)** (`<!-- CANON: corte-de-catalogo -->`, §0-B.3 reglas 8 y 10). *La frase que esta línea tenía —«frontera por defecto … editable sin redeploy … `ConfigSetting` de primera clase», con un literal de fecha— describía un mando destinado a desaparecer: **se retira, no se anota**.* Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
 - ⚠️⚠️ **v1.63 (§M2-F) — `fxManualOverrideRate` SIGUE en este DTO, pero ESTE `PUT` ya no decide si la tasa manual
   RIGE.** Desde v1.63 eso lo decide el ajuste **`fx_rate_mode`**, que ⛔ **NO se expone aquí y NO se edita por este
   endpoint** (enviar `fxRateMode` en el body cae en `422 VALIDATION_ERROR` como cualquier clave desconocida, mismo
@@ -15840,6 +16770,356 @@ Err `403`, `400 VALIDATION_ERROR`.
 
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
+
+- ⚠️⚠️ **v1.64 (§M10-IVA) — `ivaTransferPct` ENTRA EN EL `GET` PERO SE RECHAZA EN ESTE `PUT`.** Mismo precedente
+  **exacto** que `fxRateMode` (v1.63): el dial se **lee** aquí junto a los demás, y enviarlo en el cuerpo de
+  `PUT /admin/settings` cae en **`422 VALIDATION_ERROR`** (clave desconocida). **Su única puerta es
+  [`PUT /admin/settings/iva-transfer`](#M10-IVA)**, la que impone el **acuse del costo en pesos** que exige el
+  criterio **188** de `PROJECT.md`. ⛔ `ivaPct` (la **TASA**) **sigue editándose aquí y no cambia**: son **dos diales
+  independientes** y ninguno deriva del otro (`ARCHITECTURE §4.44.g`, candado `IVA-7`).
+
+<a id="M10-PP"></a>
+#### ⚠️⚠️ §M10-PP — EL PROVEEDOR DE PRECIO: **PRIMARIO**, **SEED** y **VIGENTE** son hechos DISTINTOS (v1.65, **NORMATIVO, DINERO**, FUENTE ÚNICA; razón entera en `ARCHITECTURE §4.35a`)
+
+<!-- CANON: proveedor-de-precio · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 · razón entera en ARCHITECTURE §4.35a -->
+
+> ⛔ **Ésta es la ÚNICA sección del proyecto que afirma algo sobre el dial `price_provider`.** §M10 (arriba), el
+> Changelog v1.14, el Changelog v1.48, `ARCHITECTURE §4.35/§4.36`, `DEVOPS_NOTES §19/§23/§28`, los comentarios de
+> `settings.constants.ts` y cualquier test **la CITAN y no la transcriben** (§0-B.3 regla 8). *Nace de una
+> contradicción medida en tres documentos y el código a la vez, con dos valores distintos repetidos en cinco
+> sitios; el arreglo no es elegir el valor bueno y volver a copiarlo cinco veces.*
+
+**El defecto de fondo, dicho con precisión: «el provider es X» no es UNA afirmación, son TRES**, con dueños de verdad
+distintos. Mezclarlas en una frase es lo que hizo que un documento y el código pudieran ser ambos «correctos» a la vez:
+
+| # | Hecho | Qué afirma | Fuente de verdad | Clase (§0-B.2) |
+|---|---|---|---|---|
+| **1** | **PRIMARIO** | Qué proveedor es, **por norma**, la fuente del precio de mercado **por-acabado** | **Este contrato** (bloque «Enum y semántica», abajo) | **(A) Decisión** |
+| **2** | **SEED** | Qué valor tiene el dial en una BD **fresca** (CI, dev, staging recién aprovisionado, DR) mientras nadie lo edite | **La REGLA `I-PP1` de abajo**; el **literal** se lee en `backend/src/modules/settings/settings.constants.ts` (`DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]`) | REGLA **(A)** + literal **(B)** |
+| **3** | **VIGENTE** | Qué valor tiene el dial **en un entorno concreto, hoy** | **La fila `ConfigSetting.price_provider` de ESE entorno**, leída por `GET /api/v1/admin/settings` | **(B) Descripción** |
+
+**Enum y semántica (hecho 1 — DECISIÓN de este contrato).** Enum válido:
+**`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**. Un valor fuera del enum ⇒ **`422 VALIDATION_ERROR`**.
+- **`tcgcsv_singles` — PROVIDER PRIMARIO.** Es la **única** fuente del proyecto que produce un precio **distinto por
+  acabado** (por `cardProductId`; reprecia a diario desde TCGCSV con FX Banxico, respeta `isManualOverride`, **no**
+  escribe estructura). `ARCHITECTURE §4.35` / §4.36 (capa REFERENCIA).
+- **`pokemontcg_io` — LEGACY.** ⚠️ **Aplana:** expone **un solo `market` a nivel carta**, invariante al printing ⇒ con
+  este valor, `normal`/`reverse_holo`/`holofoil` reciben **el mismo precio**. Sigue siendo un valor **válido** del enum
+  (palanca de rollback operativo, `I-PP3`), pero **⛔ ya no se describe como «el seed money-safe»**: ver `I-PP1`.
+- **`pokemonpricetracker` (PPT bulk) — FALLBACK.** Aplana igual (API v2, un `market` por carta).
+
+**Invariantes del dial (v1.65). Se citan por su id; no se re-escriben fuera de aquí.**
+- **`I-PP1` — EL SEED ES EL PRIMARIO.** El valor sembrado en una BD fresca **es, por norma, el provider PRIMARIO**
+  (hoy ⇒ `tcgcsv_singles`). ⛔ **No existe un «seed money-safe distinto del primario».** *La regla se escribe como
+  IGUALDAD y no como literal a propósito: así no puede caducar cuando el primario cambie, y ningún documento
+  necesita volver a copiar el valor.* **Razón money-safe completa en `ARCHITECTURE §4.35a(b)`**; en una línea: un
+  seed money-safe debe ser **INERTE** (no escribe dinero, p. ej. `sealed_price_source = off`) **o el PRIMARIO
+  validado** — **nunca un SEGUNDO escritor con semántica distinta**, que es lo que `pokemontcg_io` es hoy.
+- **`I-PP2` — ⛔ NINGÚN DOCUMENTO AFIRMA EL VALOR VIGENTE DE UN ENTORNO.** Frases como *«el valor vigente es X»* o
+  *«producción corre X»* están **prohibidas** en `API_CONTRACT.md`, `ARCHITECTURE.md` y las `*_NOTES.md`: el vigente
+  es clase (B) **por entorno** y se **lee** de `GET /api/v1/admin/settings` (o de la fila `ConfigSetting`). Lo que sí
+  se registra es un **evento fechado** (*«el 2026-08-24 se flipeó producción a `tcgcsv_singles`»*) — historial, no
+  afirmación sobre el ahora; misma excepción que el changelog en §0-B.3 regla 8.
+- **`I-PP3` — EL ROLLBACK MUEVE EL VIGENTE, NUNCA EL SEED.** `PUT /api/v1/admin/settings { "priceProvider": … }`
+  (`super_admin`, auditado `settings.update`, sin redeploy, efecto en la siguiente corrida del job) es la palanca de
+  rollback. **Cambiar el seed no es un rollback** y **un rollback no cambia el seed**. *Corolario: que exista un
+  runbook de flip no es argumento para sembrar el legacy — el runbook opera el hecho 3, el seed es el hecho 2.*
+- **`I-PP4` — SIN DATO ⇒ PENDIENTE, JAMÁS EL PRECIO DE OTRO ACABADO.** Si el primario no produce precio para un
+  acabado, la celda es `PRICE_PENDING`/«—» (`ARCHITECTURE §4.35(e)(4)`). ⛔ **No hay caída automática a otro
+  proveedor**: fallar es fail-closed; aplanar es una pérdida irrecuperable (`PROJECT §N.0`, sesgo de error).
+- **`I-PP5` — PARIDAD DE ENTORNOS.** CI, dev y staging **evalúan el mismo proveedor que producción**. Con `I-PP1` eso
+  se cumple **sin acción de nadie**; si algún entorno necesita otro valor, se fija **explícitamente** por el hecho 3
+  y **se dice en `DEVOPS_NOTES`**, nunca por divergencia del seed.
+
+<!-- /CANON: proveedor-de-precio -->
+
+> ⚠️ **v1.66.1 — AQUÍ VIVÍA UNA «NOTA DE VIGENCIA», DENTRO DEL BLOQUE, Y SE RETIRA POR DOS RAZONES.**
+> Decía que `DEFAULT_SETTINGS[SettingKey.PRICE_PROVIDER]` *«aún dice `pokemontcg_io`»* y que **`D-PP-1`** seguía
+> abierta. **(1) Es FALSA desde que backend cerró `D-PP-1`** — medido el 2026-09-10 en el artefacto que corre
+> (§0-B.3 regla 2): el seed del código **es el primario**, y `DEVOPS_NOTES §44.7` ya retiró el puente interino
+> `--ensure` por ese mismo motivo. **(2) Y aunque hubiera sido verdadera, no podía estar ahí:** era una
+> afirmación de **clase (B)** —el literal de hoy, el estado de una desviación— **dentro de un bloque `CANON`**,
+> que es el sitio del proyecto donde a todo el mundo se le ha dicho que cite sin verificar. Ese par de defectos
+> es el caso que origina **`ARCHITECTURE §0-B.3` regla 10**: *cero clase (B) dentro de un bloque canónico; el
+> estado del bloque viaja como **token** en su marca de apertura, y su cambio es un paso obligado de la rev que
+> cierra la desviación.* **`I-PP1` no cambia ni una coma:** sigue enunciada como **igualdad** (`seed = primario`),
+> que es justo por lo que sobrevivió al cierre sin necesitar edición.
+
+<a id="M10-IVA"></a>
+#### ⚠️⚠️ §M10-IVA — EL DIAL DE TRASLACIÓN DEL IVA (v1.64, **NORMATIVO, DINERO**; `PROJECT §Q` / **D54**, `ARCHITECTURE §4.44`)
+
+> **El precio exhibido pasa a llevar el IVA dentro en toda superficie de cliente, y el dueño gobierna qué fracción
+> del IVA traslada.** El dial **nace en 100 %**, que es **el neutro**: con `t = 100 %` esta especificación
+> **reproduce el cobro de hoy al centavo** (base MX$100.00 ⇒ vitrina **MX$116.00**, cobro **MX$124.69**, margen
+> **MX$100.00**). Criterio **185**: *«si alguien paga un centavo distinto, es un fallo de release»*.
+> **Razón entera, fórmula, redondeos y despliegue: `ARCHITECTURE §4.44`.** Aquí va **solo la interfaz**.
+
+##### §M10-IVA.1 — El dial
+
+| | |
+|---|---|
+| **Clave / DTO** | `iva_transfer_pct` / **`ivaTransferPct`** |
+| **Tipo** | **entero** en **`[0, 100]`** — **FRACCIÓN DE TRASLACIÓN**, ⛔ **no puntos de IVA** |
+| **Seed** | **`100`** |
+| **Lectura** | `GET /admin/settings` (junto a los demás) y `GET /admin/settings/iva-transfer` |
+| **Escritura** | **SOLO** `PUT /admin/settings/iva-transfer` (`super_admin`) |
+| **Auditoría** | `settings.update` con `before`/`after`, **en la MISMA transacción** que la escritura |
+
+⛔ **`37.5` ⇒ `422 VALIDATION_ERROR`.** El entero **no es gusto: es la columna** — `Order.ivaTransferPct` es `Int` y
+un decimal se truncaría en silencio mientras el precio se calculó con él. Es el mismo defecto que ya cerraron
+`validateIvaPct` y `validateAportacionPct`; la **decisión de columna** que aquellos comentarios dejaron esperando
+está tomada en `ARCHITECTURE §4.44.g`: **sigue siendo `Int`**.
+
+##### §M10-IVA.2 — Los dos endpoints nuevos
+
+**`GET /api/v1/admin/settings/iva-transfer/preview`** — `super_admin`. **READ-ONLY, sin efectos, cacheable: no.**
+
+```
+Query: ?ivaTransferPct=<0..100>&samplePriceCents=<int>=10000
+Res 200: IvaTransferPreviewDTO
+```
+
+```ts
+IvaTransferPreviewDTO = {
+  ivaRatePct: number,                  // la TASA vigente (dial `iva_pct`)
+  samplePriceCents: number,            // el `L` de ejemplo (default 10000 = MX$100.00)
+  current:  IvaTransferPositionDTO,    // con el dial VIGENTE
+  proposed: IvaTransferPositionDTO,    // con el `ivaTransferPct` de la query
+  netDeltaPerUnitCents: number         // proposed.netRevenueCents − current.netRevenueCents  (negativo = margen cedido)
+}
+IvaTransferPositionDTO = {
+  ivaTransferPct: number,
+  displayPriceCents: number,           // P = round(L × (1 + t·r))
+  taxBaseCents: number,                // round(P / (1 + r))
+  ivaCents: number,                    // P − taxBaseCents   (RESIDUAL)
+  netRevenueCents: number,             // = taxBaseCents
+  totalChargedCents: number            // gross-up con los diales de Stripe vigentes (lo que el cliente pagaría)
+}
+```
+
+- ⭐ **La cifra la calcula EL SERVIDOR. ⛔ El frontend no multiplica nada** (`ARCHITECTURE §4.44.i`). Si el front
+  computara el delta, el acuse de abajo probaría que el front sabe multiplicar, **no que el dueño vio el costo real**.
+- **Valores exactos que este endpoint debe devolver** con `ivaRatePct = 16`, `samplePriceCents = 10000` y los diales
+  de Stripe vigentes (`0.036` / `300`) — **son los del criterio 188 y los de `PROJECT §Q.4`**:
+
+| `ivaTransferPct` | `displayPriceCents` | `taxBaseCents` = neto | `ivaCents` | `totalChargedCents` |
+|---|---|---|---|---|
+| **100** | **11600** | **10000** | **1600** | **12469** |
+| **50** | **10800** | **9310** | **1490** | **11634** |
+| **0** | **10000** | **8621** | **1379** | **10799** |
+
+  ⇒ pasar de **100 → 50** da `netDeltaPerUnitCents = −690` (**−MX$6.90 por unidad**), que es literalmente la cifra
+  que el criterio **188** exige mostrar antes de guardar.
+
+**`PUT /api/v1/admin/settings/iva-transfer`** — `super_admin`, auditado, **transaccional**.
+
+```
+Req: { ivaTransferPct: number,
+       acknowledgement: { samplePriceCents: number, previewedNetDeltaCents: number } }
+Res 200: { ivaTransferPct: number, preview: IvaTransferPreviewDTO }
+```
+
+| Código | Cuándo | Efecto |
+|---|---|---|
+| **`422 VALIDATION_ERROR`** | `ivaTransferPct` no entero, o fuera de `[0, 100]`. El `message` **nombra los dos extremos** | ⛔ **no escribe** |
+| **`422 IVA_TRANSFER_ACK_REQUIRED`** | falta `acknowledgement` (o alguno de sus dos campos) **y el valor CAMBIA** | ⛔ **no escribe** |
+| **`409 IVA_TRANSFER_ACK_STALE`** | el `previewedNetDeltaCents` **no coincide** con el que el servidor recalcula para ese `samplePriceCents` y ese `ivaTransferPct`. `details: { expectedNetDeltaCents }` | ⛔ **no escribe** |
+| **`200`** | todo cuadra | escribe **y** audita, **en la misma transacción** |
+
+- **El acuse solo se exige cuando el valor CAMBIA.** Un `PUT` con el mismo valor vigente es idempotente y no pide
+  acuse (no hay margen que ceder).
+- **Por qué endpoint propio y no una key más de `PUT /admin/settings`:** porque el criterio **188** dice *«⛔ falla si
+  el dial se puede guardar sin que esa cifra se haya mostrado»*, y **una norma que solo vive en la UI no se puede
+  poner roja desde el servidor**. Precedente idéntico: `PUT /admin/fx/mode` con `acknowledgeNoAutomaticRate`
+  ([`§M2-F.2`](#M2-F2)). *Un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene guardián.*
+- ⛔ **La pantalla no puede insinuar que absorber IVA reduce el impuesto** (no lo reduce) ni contener **ninguna**
+  afirmación jurídica sobre el IVA, tampoco en negativo (criterio **195**, ratifica **D53** y `DESIGN_SYSTEM §7.12a`).
+
+##### §M10-IVA.3 — Lo que cambia en los DTOs de cliente: ⛔ EL FRONTEND NUNCA MULTIPLICA
+
+**Tres campos, y sustituyen — no acompañan — a `salePriceCents` en superficie pública:**
+
+```ts
+displayPriceCents : number     // = P. La cifra que se pinta y la que se suma. YA lleva el IVA dentro
+ivaIncluded       : boolean    // true bajo IVA_INCLUSIVE
+ivaRatePct        : number     // la TASA, para el rótulo «IVA 16 % incluido». ⛔ NO es el dial
+```
+
+| DTO | Antes | Desde v1.64 (deploy 2) |
+|---|---|---|
+| `ListingDTO` | `salePriceCents?: number` | `displayPriceCents?: number` + `ivaIncluded` + `ivaRatePct` |
+| `GroupedListingDTO` | `salePriceCents: number` | `displayPriceCents: number` (**semántica «desde»**, sin cambio) + `ivaIncluded` + `ivaRatePct` |
+| `GroupedListingSummaryDTO` | `salePriceCents: number` | idem |
+| `SealedGroupDTO` | `fromPriceCents` | `fromPriceCents` **pasa a llevar el IVA dentro** + `ivaIncluded` + `ivaRatePct` |
+| `OrderItemPreview` / `OrderItemDTO` | `unitPriceCents` | `unitPriceCents` **es el `P` congelado**; se acompaña de `ivaIncluded` a nivel de `breakdown` |
+| `BreakdownDTO` | ver §M10-IVA.4 | ver §M10-IVA.4 |
+
+- ⭐ **`salePriceCents` NO se reinterpreta: DESAPARECE de la superficie pública.** Dejar el mismo nombre cambiando
+  su significado es **el defecto de D54 un nivel más abajo**, y además un front que no migrara **seguiría pintando
+  la mentira sin que nada fallara**. Con el rename, **un front que no migró no compila**. *El compilador sostiene la
+  diferencia; el test es la red* — misma doctrina que hizo de `GroupedListingSummaryDTO` un tipo propio en v2.1.9/D2.
+- ⛔ **`ivaTransferPct` NO viaja a NINGUNA superficie de cliente.** Que el cliente pueda leer qué fracción absorbemos
+  es una **fuga comercial** de la misma clase que v2.1.6 cerró retirando `source`/`isManualOverride` de lo público.
+  Viaja **solo** en `/admin/*`.
+- **En `/admin/*` viajan AMBAS y el desglose completo:** `listPriceCents` (el `L`), `displayPriceCents` (el `P`),
+  `taxBaseCents`, `ivaCents`, el neto y el dial. `PROJECT §Q.5`: *«⛔ el admin NO se convierte en superficie
+  solo-con-IVA: ve base, IVA, neto, exhibido y dial. Es donde se toma la decisión de margen.»*
+- **Superficies que NO cambian** (`PROJECT §Q.5`, con el supuesto al lado): **`HoldingDTO`/portafolio y su
+  valuación** (supuesto, pregunta **62**), **`PriceInfo`/`referenceValue` y los estimados PSA** (supuesto,
+  pregunta **62**), **todo el cotizador y las ofertas de buylist y sus cinco correos** (supuesto, pregunta **56**),
+  y **M7/M9**, que siguen en **NETO** (criterio **191**, **decisión**, no supuesto).
+
+##### §M10-IVA.4 — `BreakdownDTO`: la forma NO cambia, el SIGNIFICADO sí, y por eso gana dos campos
+
+```ts
+BreakdownDTO = {
+  subtotalCents: number,          // ⚠️ bajo IVA_INCLUSIVE = Σ displayPriceCents ⇒ YA lleva el IVA dentro
+  ivaCents: number,               // RESIDUAL: G − round(G/(1+r)). ⛔ NUNCA 0, ni con el dial en 0 %
+  ivaRatePct: number,             // sin cambio (la TASA)
+  processingFeeCents: number,     // sin cambio (gross-up; sigue SUMANDO y sigue rotulada «Comisión de plataforma»)
+  totalCents: number,
+  currency: 'MXN',
+  // ---- v1.64, ADITIVOS y NORMATIVOS
+  priceConvention: "IVA_EXCLUSIVE" | "IVA_INCLUSIVE",   // la convención de ESTE desglose
+  ivaIncluded: boolean                                   // = (priceConvention === "IVA_INCLUSIVE")
+}
+DirectShipBreakdownDTO = BreakdownDTO & { shippingFeeCents: number }  // shippingFeeCents = E, con IVA dentro
+```
+
+**Las tres identidades que el cliente puede comprobar, y que son normativas:**
+
+```
+(a)  Σ items[].unitPriceCents            ==  subtotalCents          exacto, sin deriva   ← criterio 194
+(b)  totalCents                          ==  subtotalCents + shippingFeeCents + processingFeeCents
+(c)  ivaCents                            <   subtotalCents          y ⛔ jamás 0
+```
+
+- ⚠️⚠️ **(b) es la identidad que sustituye a la vieja `total = subtotal + iva + fee`.** Bajo `IVA_INCLUSIVE`
+  **el IVA NO es un sumando del total: ya está dentro de `subtotalCents`**. ⇒ **la línea de IVA del checkout
+  INFORMA, no suma** (criterio **189**, decisión de D54). El rótulo exacto —*«IVA 16 % incluido»*— es **supuesto**
+  de la pregunta **60** y lo fija `DESIGN_SYSTEM`; lo normativo aquí es **el importe y que no sume**.
+- ⚠️ **El envío (`shippingFeeCents` / `E`) también lleva su IVA dentro** y **es money-neutral**:
+  `round(17500 × 1.16) = 20300`, que es exactamente lo que hoy aportan `17500 + 2800`. Lo obliga el criterio **189**
+  (*«ningún importe de IVA sumado después del precio exhibido»*). ⚠️ **La pregunta 60 sigue abierta en lo que toca
+  al ROTULADO**: divergencia declarada en `ARCHITECTURE §9 · D-IVA-8`.
+- **Nota que reemplaza a la de §4 (v1.3):** *«`totalCents = subtotalCents + ivaCents + processingFeeCents`»* es
+  cierto **solo bajo `IVA_EXCLUSIVE`**. Bajo `IVA_INCLUSIVE` es **(b)**. Un cliente que asierte la fórmula vieja
+  **fallará, y debe fallar**.
+
+##### §M10-IVA.5 — Las mutaciones que ponen un test **en rojo** *(para QA y para quien escriba los tests)*
+
+*Al estándar de [`§M2-F.6`](#M2-F6): **ninguno mide el nombre de un campo; todos miden qué dinero sale**.*
+
+> ⚠️ **LOS IDS `IVA-<n>` SON DEL CONTRATO Y LOS ASIGNO YO AQUÍ.** Un id `IVA-<n>` **sin fila en esta tabla no
+> existe**; para marcas internas que no son candados de contrato, prefijo propio (**`IVA-R*`**), como hizo backend
+> con `FX-R2`. *Un identificador compartido entre dos espacios de nombres no es un nombre: es una colisión esperando
+> a un incidente.*
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **IVA-1** ⭐⭐ | **que el arranque deje de ser neutral**: cualquier cosa que haga que con el dial en su valor inicial alguien pague distinto de lo que paga hoy | **EL candado de la feature y del criterio 185, y es una IGUALDAD CONTRA EL PASADO, no una aserción de forma.** Fixture: `iva_pct = 16`, `iva_transfer_pct = 100`, `stripe_fee_pct = 0.036`, `stripe_fee_fixed_cents = 300`, **UNA** pieza con `L = 10000`. ⇒ `POST /checkout/quote`: `displayPriceCents == 11600`, `subtotalCents == 11600`, **`ivaCents == 1600`**, `processingFeeCents == 869`, **`totalCents == 12469`**. ⭐ **Y la mitad que importa: `netRevenueCents` de la orden liquidada es `10000`** — el margen no se movió. **Rojo con 12468 o 12470.** ⭐⭐ **Y el viaje completo, que es lo que lo hace un candado y no una constante copiada:** las **tres** posiciones del dial dan `{100 → 11600/1600/12469/neto 10000}`, `{50 → 10800/1490/11634/neto 9310}`, `{0 → 10000/**1379**/10799/neto 8621}`. *Son las cifras que `PROJECT §Q.4` publica; si la implementación no las produce, la implementación está mal* |
+| **IVA-2** ⭐⭐ | **restaurar `grossUpBase = subtotal + iva`** bajo `IVA_INCLUSIVE` (o dejar vivo un identificador `baseCents` a secas que alguien vuelva a alimentar así) | **LA LÍNEA DE MAYOR RIESGO DEL CAMBIO, y se mide en pesos.** Con el fixture de `IVA-1`: la mutación produce `grossUpBase = 13200` ⇒ **`totalCents == 14164`** en vez de **12469** — **+13.6 % a TODOS los clientes, en silencio, sin excepción y sin log**. **Rojo si `totalCents > 12469`.** ⭐ **Y la mitad estructural:** `totalCents == grossUpTotal(subtotalCents + shippingFeeCents, fee)` **como identidad**, en los **tres** breakdowns (cart, shipment, direct-ship) — *rojo si uno solo de los tres suma el IVA aparte* |
+| **IVA-3** ⭐⭐ | **que una orden ya cobrada se reinterprete sola** — sembrar `'IVA_INCLUSIVE'`, poner un `DEFAULT` en la columna, un `?? 'IVA_INCLUSIVE'` en el lector, o backfillear `ivaTransferPct = 100` | **EL candado de la migración y del criterio 190, y son TRES salidas y DOS consultas SQL.** Fixture **sembrado por SQL** (único modo de crear el estado): una `Order` con `subtotalCents=10000`, `ivaCents=1600`, `ivaRatePct=16`, **`priceConvention='IVA_EXCLUSIVE'`**, **`ivaTransferPct IS NULL`**. **(a)** `GET /orders/:id`, **(b)** el correo de confirmación y **(c)** su fila en el CSV de `GET /admin/finance/iva` son **idénticos al centavo** a los de antes del cambio — **y se repite DESPUÉS de mover el dial a 0 %**: *rojo si alguna de las tres cambia*. **(c)** ⭐ **verificable POR LO NEGATIVO, sobre el DDL:** la columna `priceConvention` **no tiene `DEFAULT`** (`information_schema.columns.column_default IS NULL`) **y es `NOT NULL`** — *rojo si la migración usó `ADD COLUMN … NOT NULL DEFAULT`, aunque después hiciera `DROP DEFAULT`*. **(d)** ⭐⭐ `SELECT count(*) FROM "Order" WHERE "ivaTransferPct" IS NOT NULL AND "createdAt" < <fecha del deploy 2>` **== 0** — *nadie backfilleó una mentira*. **(e)** insertar una `Order` **omitiendo** `priceConvention` **LANZA** (violación de `NOT NULL`); rojo si pasa |
+| **IVA-4** ⭐ | **«arreglar» el descuadre re-redondeando el subtotal**, o redondear el IVA por línea y sumarlo | **El candado del criterio 194 y de la doctrina R1/R2/R3.** Carrito de **7 piezas** con `L ∈ {103, 999, 1, 12345, 7, 250, 8888}`, dial 100 %. **(a)** `Σ items[].unitPriceCents == subtotalCents` **exacto**. **(b)** `subtotalCents − ivaCents == taxBase` y `taxBase + ivaCents == subtotalCents` **como identidad** (rojo si difiere en 1 centavo: significa que el IVA se calculó por línea). **(c)** ⭐ **la mitad honesta, que se MIDE y se DECLARA en vez de negarse** *(⚠️ **v1.64(2): EL UMBRAL SE CORRIGE.** Decía «≤ 1 centavo por pieza» mientras `ARCHITECTURE` decía «≤ 0.53» — dos cifras para una cosa, **y ésta, que es la que se implementa, era la MÁS FLOJA**: con 7 piezas admitía `≤ 7` donde la norma dice `≤ 4`)*: **el canon se mide sobre la BASE, no sobre el total** —enunciarlo sobre el total arrastra el `ceil` del gross-up, que no tiene nada que ver con la doctrina de redondeo—. Se compara `subtotalCents` contra `round(Σ L × 1.16)` —la base que se habría cobrado hoy— y **la diferencia es `≤ ⌊(n+1)/2⌋` centavos** con `n` = nº de piezas (**aquí `n=7` ⇒ `≤ 4`**). ⚠️ **Que la diferencia NO sea cero no es rojo**: es la consecuencia aritmética declarada en `ARCHITECTURE §9 · D-IVA-7`. **Rojo si excede la cota, y rojo si (a) falla.** **(d)** ⭐⭐ **`n = 1` es CERO EXACTO, y se asierta como igualdad, no como cota**: con **una** pieza de `L = 103`, `subtotalCents == round(103 × 1.16) == 119` **idéntico** a lo de hoy — *porque `round(L×(1+t·r)) = L + round(L×t·r)` y con `r = 16` **nunca hay empate en `.5`** para ningún `t` ni ningún `L`*. Se repite con `t ∈ {0, 37, 50, 100}`. **Rojo si difiere en un solo centavo.** **(e)** ⭐ **más fuerte que una cota, para el total:** `totalCents == grossUpTotal(subtotalCents + shippingFeeCents, fee)` **en los dos lados** ⇒ *toda la desviación del total viene de la base y de nada más* |
+| **IVA-5** ⭐⭐ | **que el P&L cuente el IVA como ingreso propio** — dejar `incomeCents += o.subtotalCents` tal cual, o netear desde el dial vivo en vez de desde las columnas de la fila | **El candado del criterio 191, y el reporte NO revienta: MIENTE.** Fixture: **dos** órdenes liquidadas, una a dial **100 %** (`subtotal 11600`, `iva 1600`, `IVA_INCLUSIVE`) y otra a dial **0 %** (`subtotal 10000`, `iva 1379`, `IVA_INCLUSIVE`), **más una tercera `IVA_EXCLUSIVE`** (`subtotal 10000`, `iva 1600`) sembrada por SQL. ⇒ `GET /admin/finance/pnl` da `incomeCents == 10000 + 8621 + 10000 == 28621`. **Rojo con 31600** (contó el IVA) **y rojo con 26242** (neteó también la histórica). ⭐ **Y el CSV lo repite** (`GET /admin/finance/pnl?format=csv`). ⭐⭐ **Y el amarre que mata la mutación silenciosa: se mueve el dial a 37 % y se vuelve a pedir el P&L ⇒ las tres cifras NO se mueven** — *el ingreso sale de columnas persistidas, jamás del dial vivo*. ⭐⭐ **(c) v1.64(2) — CASO MULTI-LÍNEA OBLIGATORIO, y sin él este candado ESCONDE un defecto** *(pregunta **67**; lo levantó el product-owner)*: **las tres órdenes de arriba son de UNA pieza, y sobre una pieza la recuperación `round(P/1.16) = L` es EXACTA POR DEMOSTRACIÓN** ⇒ la desviación del criterio 191 **nunca se vería fallar con el fixture de este candado**. ⇒ **se añade una cuarta orden de DOS piezas de `L = 103`** (`subtotalCents == 238`, `ivaCents == 33`, `IVA_INCLUSIVE`, dial 100 %) y se asierta que aporta **`205`** al `incomeCents`, **⛔ NO `206`** (`= Σ L_i`). **Rojo con 206**, porque significaría que alguien cambió `R2` para que el P&L cuadre contra el precio de lista **rompiendo el invariante de reconciliación**. ⭐ **Y ése es el invariante que se asierta, y es el que manda: `netRevenueCents + ivaCents == subtotalCents` EXACTO** (`205 + 33 == 238`) — *un informe cuyo ingreso más su impuesto no da lo que se cobró es un informe que no cuadra consigo mismo*. La desviación de **1 centavo** contra `Σ L_i` es **la consecuencia declarada** en `ARCHITECTURE §4.44.c.2`, con la misma cota `⌊(n+1)/2⌋` de `IVA-4`: **no es rojo; ocultarla sí lo era** |
+| **IVA-6** ⭐ | **apilar un importe de IVA después del precio exhibido** en cualquier flujo, típicamente por el envío | **El candado del criterio 189, y el sitio donde se cuela es el ENVÍO.** **(a)** `POST /checkout/guest/quote` con envío: `totalCents == grossUpTotal(subtotalCents + shippingFeeCents)` **y `shippingFeeCents == 20300`** con la tarifa en `17500` y dial 100 % — **rojo con `17500`** (dos convenciones en un mismo total) **y rojo si aparece cualquier cuarto sumando**. **(b)** ⭐ **money-neutral contra el pasado:** ese mismo `totalCents` es **idéntico** al que producía `computeDirectShipBreakdown` antes del cambio con el mismo carrito de UNA pieza. **(c)** `POST /shipments/quote`: misma identidad. **(d)** **por ausencia, sobre el JSON serializado de las tres rutas: no existe ningún campo de IVA que sea sumando del total** |
+| **IVA-7** ⭐⭐ | **colgar el dial nuevo de `iva_pct`** — leer `IVA_TRANSFER_PCT` dentro de `getStripeFee()`, o derivar uno del otro en cualquier dirección | **El candado del hecho 3 de `§Q.2` (pregunta 61), y mide que mover un PRECIO no mueva una COMISIÓN.** **(a)** con `grossUpBase` **fijo** en `11600`, mover `iva_transfer_pct` de `100` a `0` deja `processingFeeCents == 869` **sin moverse** y `getStripeFee().stripeFeeIvaPct == 0.16`. **Rojo si el fee cambia.** **(b)** el espejo: `PUT /admin/settings { ivaPct: 8 }` **no toca** la fila `iva_transfer_pct` (sigue en su valor) — **dos filas `ConfigSetting` independientes**, leídas a pelo. **(c)** ⭐ **por ausencia, sobre el código:** `getStripeFee()` **no contiene ninguna referencia a `IVA_TRANSFER_PCT`** — *rojo en cuanto aparezca, aunque los números cuadren ese día* |
+| **IVA-9** ⭐⭐ *(v1.64(3) — resuelve `IVA-R1`)* | **recalcular `Order.ivaCents` a partir de las partes**, o repartir el IVA del envío por su cuenta (`round(E/(1+r))`) en vez de por el residual | **El candado de la ASIGNACIÓN, y son una IDENTIDAD y una FLECHA.** Fixture: pedido `direct_ship` **`IVA_INCLUSIVE`** con `subtotalCents = 11600`, `shippingFeeCents = 20300`, `ivaRatePct = 16`, `ivaCents = 4400`. **(a)** ⭐⭐ **la identidad, EXACTA, cero centavos de deriva:** `netRevenueCents + netShippingRevenueCents + ivaCents == subtotalCents + shippingFeeCents` (`10000 + 17500 + 4400 == 31900`). **Rojo con ±1 centavo** — *es lo que separa «resuelto» de «declarado»*. **(b)** ⭐ **la mercancía, contra el criterio 191:** `netRevenueCents == 10000`. **⛔ Rojo con `7200`**, que es lo que da `subtotalCents − ivaCents` — **la fórmula que este contrato publicó en v1.64 y que era falsa** (`ARCHITECTURE §9 · D-IVA-10`): *le resta a la mercancía el IVA del envío*. **(c)** **el envío absorbe el residuo:** `netShippingRevenueCents == 20300 − (4400 − 1600) == 17500`. **(d)** ⭐⭐ **la FLECHA, por lo negativo:** se altera `ivaCents` a `4401` **a pelo en la BD** ⇒ **`netShippingRevenueCents` cambia y `Order.ivaCents` NO se recalcula ni se "corrige"** — *rojo si algún camino reescribe `ivaCents` desde las partes: es un número FISCAL y es la única fuente de la factura del cliente*. **(e)** **caso bóveda** (`E = 0`): `netShippingRevenueCents == 0` y `netRevenueCents == round(S/1.16)` — *rojo si el caso `E = 0` no se prueba: **es el que escondía el defecto**, porque ahí las dos fórmulas coinciden* |
+| **IVA-10** ⭐ *(v1.64(3) — D55(b), tablero)* | que el tablero y el P&L tengan **dos definiciones de «neto»**, o que la diferencia bruto↔neto deje de ser explicable | **El candado de la coherencia POR CONSTRUCCIÓN.** **(a)** ⭐⭐ **la identidad del puente, exacta:** `grossAmountCents == netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents`, sobre un periodo con **al menos una orden `vault` y una `direct_ship`**, y en las **dos** convenciones. **(b)** ⭐ **contra el P&L, como IGUALDAD y no como dos cálculos parecidos:** para el **mismo periodo**, `salesPeriod.netAmountCents == GET /admin/finance/pnl → incomeCents`. **Rojo si difieren en un centavo** — *es la mutación realista, porque son dos endpoints y dos ficheros*. **(c)** **`amountCents` YA NO EXISTE** en el DTO (se renombró a `grossAmountCents`): rojo si sobrevive, aunque valga lo mismo — *un «amount» que convive con otro «amount» distinto es la ambigüedad que este pase existe para matar*. **(d)** **`grossAmountCents == Σ Order.totalCents`** sigue siendo *«lo que el cliente pagó»*, con comisión y envío dentro: rojo si alguien lo netea |
+| **IVA-11** ⭐⭐ *(v1.64(4) — D55(c)+(d), preguntas 68 y 69)* | **comparar peras con manzanas en la línea de envío** —costo BRUTO contra ingreso NETO—, **o dejar que un `shippingCostCents = 0` pase por «costó cero»** | **El candado de la regla del dueño *«trátalo como si no hubiera margen»*, y son DOS mitades que miden cosas distintas.** ⭐ **(a) LA IDENTIDAD, exacta pero CONDICIONADA AL FIXTURE** *(⛔ **no es global y no debe serlo**: la tarifa se fija por tabla y el costo real del carrier varía por destino y peso ⇒ **un no-cero en producción es legítimo**. Asertarlo siempre sería `FX-20` otra vez: un candado que rechaza conducta correcta)*: envío `IVA_INCLUSIVE` con `shippingFeeCents = 20300` **y factura del carrier idéntica** (`shippingCostCents = 20300` **BRUTO**, `shippingCostIvaCents = 2800`) ⇒ **`netShippingRevenueCents − netShippingCostCents == 0` EXACTO** (`17500 − 17500`). **Rojo con `−2800`**, que es lo que sale si el costo se resta **bruto** contra ingreso **neto** — *la pérdida fantasma en cada envío, que es justo lo que la decisión 68 existe para evitar*. **(b)** ⭐⭐ **QUE EL `0` NO SIGNIFIQUE DOS COSAS:** dos envíos liquidados, uno con `shippingCostCents = 20300` y otro con **`0`** ⇒ **`shippingCostMissingCount == 1`**. **Rojo si es `0`** — *un cero silencioso convierte el ingreso de ese envío en ganancia fantasma, y `@default(0)` lo produce sin que nadie escriba nada*. ⛔ **No se aserta que el importe sea distinto: se asierta que el CONTADOR lo señala** — para las filas existentes «costó cero» y «no se capturó» son **indistinguibles**, y un candado que fingiera distinguirlas estaría midiendo un backfill inventado. **(c)** **el crédito se CAPTURA, no se deriva:** `netShippingCostCents == shippingCostCents − shippingCostIvaCents` **por resta**, ⛔ **sin ninguna división por `(1+r)` ni lectura del dial vivo** — *rojo si aparece, porque `ShipmentRequest` no tiene `ivaRatePct` y un P&L histórico cambiaría al mover `iva_pct`, incumpliendo `IVA-5`*. **(d)** **filas históricas:** `shippingCostIvaCents == 0` ⇒ `net == bruto` (**dirección conservadora**), y `SELECT count(*) FROM "ShipmentRequest" WHERE "shippingCostIvaCents" <> 0 AND <anterior al deploy>` **== 0** — *nadie backfilleó un crédito fiscal que nadie verificó* |
+| **IVA-8** ⭐ | **vaciar el desglose fiscal** o **abrir una segunda puerta al dial** | **El candado del criterio 192 y de la puerta.** **(a)** dial `0 %`, exhibido `10000` ⇒ **`Order.ivaCents == 1379`**, ⛔ **jamás `0`, jamás `null`** — *mover el dial reduce el NETO, nunca el IVA registrado* — y el CSV de `GET /admin/finance/iva` **suma exactamente eso**. **(b)** `PUT /admin/settings { "ivaTransferPct": 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) **y la fila sigue en `100`**. **(c)** `PUT /admin/settings/iva-transfer { "ivaTransferPct": 50 }` **sin `acknowledgement`** ⇒ **`422 IVA_TRANSFER_ACK_REQUIRED`** **y la fila sigue en `100`**; con un `previewedNetDeltaCents` que no cuadra ⇒ **`409 IVA_TRANSFER_ACK_STALE`**, **sin escritura**. **(d)** `37.5` ⇒ `422 VALIDATION_ERROR` cuyo `message` **nombra los dos extremos**; `-1` y `101` también. **(e)** ⭐ **por lo negativo, sobre el seed: `SETTING_DEFAULTS['iva_transfer_pct'] === 100`** y el seed **sigue sin lógica** (el bucle sobre `SETTING_DEFAULTS`) — *rojo si aparece una derivación en `prisma/seed.ts`* |
+
+##### §M10-IVA.8 — El P&L: el costo del envío se captura **BRUTO** y se netea **al leer** (v1.64(4), D55(c)+(d), **deploy 2**)
+
+**Decisiones del dueño (2026-09-10), preguntas 68 y 69:** *«el costo de envio con el iva que yo pague, tratalo
+como si no hubiera margen»*. **Razón entera y la corrección de mi recomendación anterior:
+`ARCHITECTURE §4.44.f-ter`.**
+
+> ⚠️ **Tratamiento contable, decidido por el dueño, con su fecha, y SIN CONTADOR.** Familia de las preguntas **58**
+> y **65**. **⛔ Cero postura fiscal de este contrato.** **Que él acredite ese IVA es afirmación SUYA.**
+
+```ts
+// GET /api/v1/admin/finance/pnl — `super_admin`
+{
+  incomeCents: number,                 // sin cambio (§M10-IVA / netRevenueCents)
+  shippingRevenueCents: number,        // NETO (sin cambio)
+  cogsCents: number,
+  stripeFeesCents: number,
+  shippingCostCents: number,           // ⚠️ NETO: Σ (shippingCostCents − shippingCostIvaCents)
+  shippingCostMissingCount: number,    // ⭐ NUEVO: nº de envíos LIQUIDADOS del periodo con costo en 0
+  profitCents: number
+}
+```
+
+- **Semántica de la columna, declarada donde hoy no lo está:** `ShipmentRequest.shippingCostCents` es **BRUTO —
+  el importe TOTAL de la factura de la paquetería, IVA incluido**. La acompaña
+  **`ShipmentRequest.shippingCostIvaCents`** (NUEVA, `M-50` punto 3-bis), el **IVA acreditable congelado al
+  capturar**. ⇒ **el neto es una RESTA**, ⛔ nunca una división por `(1+r)` ni una lectura del dial vivo
+  (`ShipmentRequest` **no tiene `ivaRatePct`**; derivarlo haría que un P&L histórico cambiara al mover `iva_pct`,
+  incumpliendo `IVA-5`).
+- ⭐ **`shippingCostMissingCount` hace VISIBLE una ambigüedad que no se puede resolver.** `shippingCostCents` es
+  `@default(0)`, así que **«costó cero» y «no se capturó» son indistinguibles** en las filas existentes. ⛔ **No se
+  hace nullable**: exigiría un backfill que **inventa** esa distinción. El contador **es una señal para un humano**
+  —*«estos N envíos no tienen costo: revísalos»*— **no una afirmación fiscal**. *Un cero que puede significar dos
+  cosas es el defecto que este pase lleva tres rondas persiguiendo; lo que se puede prometer honestamente es
+  señalarlo, no resolverlo.*
+- **El CSV del P&L gana la misma columna**, en el mismo orden que el objeto.
+- ⛔ **`profitCents` no cambia de fórmula.** Sigue siendo
+  `income + shippingRevenue − cogs − stripeFees − shippingCost`; lo que cambia es que **sus dos términos de envío
+  están ahora en la MISMA base (neta)**. *Antes uno era neto y el otro bruto: eso restaba una pérdida que no
+  existía.*
+- **Rótulo de captura (M4), obligación de ux-ui:** el campo debe decir **«importe TOTAL de la factura, IVA
+  incluido»**. ⛔ *Un campo de dinero que no dice si lleva impuesto dentro se captura de las dos formas.*
+
+##### §M10-IVA.7 — El tablero: **ventas brutas Y netas** (v1.64(3), D55(b), **deploy 2**)
+
+**Decisión del dueño (2026-09-10):** *«Hagamos ventas brutas con iva y ventas netas sin iva»* · *«Ingreso bruto y
+neto»*. **Razón entera y supuestos: `ARCHITECTURE §4.44.o`.**
+
+```ts
+// Dashboard (`GET /api/v1/admin/dashboard`) — la tarjeta de ventas del periodo
+salesPeriod = {
+  count: number,
+  grossAmountCents: number,          // Σ Order.totalCents   ← «lo que el cliente pagó» (comisión y envío DENTRO)
+  netAmountCents: number,            // Σ netRevenueCents(o)  ← ⭐ MISMO helper que `pnl.incomeCents`
+  ivaCents: number,                  // Σ Order.ivaCents
+  netShippingRevenueCents: number,   // Σ netShippingRevenueCents(o)   (§M10-IVA / ARCHITECTURE §4.44.j.1)
+  processingFeeCents: number         // Σ Order.processingFeeCents
+}
+```
+
+- ⛔ **`amountCents` DESAPARECE del DTO** (se renombra a `grossAmountCents`). **Rompe al front — y debe
+  romperlo**: la tarjeta pasa de una cifra a dos. *Un campo «amount» conviviendo con otro «amount» distinto es la
+  ambigüedad que este pase entero existe para matar.*
+- ⭐ **Identidad NORMATIVA y exacta**, que es lo que hace la diferencia **explicable** en vez de sospechosa:
+  ```
+  grossAmountCents ≡ netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents
+  ```
+- ⛔ **Se RECHAZA definir el neto como «bruto − IVA»**: dejaría la comisión de plataforma dentro y **no coincidiría
+  con `incomeCents` del P&L** ⇒ **tres números**, que es peor que el problema que el dueño quiso cerrar.
+- **Coherencia por CONSTRUCCIÓN:** `netAmountCents` sale **del mismo helper** que el P&L ⇒ **no pueden divergir**.
+  Candado **`IVA-10(b)`** lo asierta como **igualdad entre los dos endpoints**.
+- **Rol:** la tarjeta ya es de campos financieros ⇒ **`super_admin`**; `vault_operator` no la recibe (sin cambio).
+- ✅ **v1.64(4) — YA NO ES SUPUESTO (pregunta 70, contestada 2026-09-10):** *«si me refiero al mismo numero»* ⇒ su
+  *«neto»* **ES** `pnl.incomeCents` (mercancía, sin IVA, **sin comisión y sin envío**). **La igualdad de
+  `IVA-10(b)` deja de ser una propiedad deseable del diseño y pasa a ser lo que el dueño pidió.**
+
+##### §M10-IVA.6 — Orden de entrega, para el orquestador
+
+**Son DOS deploys y ⛔ nunca uno** (`ARCHITECTURE §4.44.k`). **`decks-meta-v1` se desbloquea con el DEPLOY 2
+PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criterio **197**).
+
+| | Deploy 1 | Deploy 2 |
+|---|---|---|
+| Backend | `M-50` entera + `netRevenueCents` cableado + escribe `IVA_EXCLUSIVE` | deriva `P`, escribe `IVA_INCLUSIVE`, emite los tres campos, abre §M10-IVA.2 |
+| Frontend | **nada** | consume `displayPriceCents` en las **13 superficies**, la pantalla del dial (criterio 188), la tarjeta **bruto/neto** (§M10-IVA.7) y arregla el mock (criterio 196) |
+| Contrato observable | **CERO cambios** | §M10-IVA.3, §M10-IVA.4 y §M10-IVA.7 |
+| Candados a correr | `IVA-3`, `IVA-5` | los **once** |
+
+⚠️ **v1.64(3) — lo que entra en D-2 y NO estaba en la lista de v1.64:** la fórmula corregida de `netRevenueCents`
+(`ARCHITECTURE §9 · D-IVA-10`), la asignación del IVA del envío (`§4.44.j.1`, candado **`IVA-9`**) y la tarjeta
+**bruto/neto** del tablero (§M10-IVA.7, candado **`IVA-10`**). ⛔ **Nada de esto toca D-1**, que sigue con su
+promesa intacta de **cero cambios de contrato observable** y sus candados en verde.
 
 #### <a id="M10-ops"></a>Ops — disparo manual de jobs internos (`admin/jobs/*`, `super_admin`, auditado)
 > **Superficie interna de operaciones** (no consumida por clientes): permite al súper-admin **disparar a mano** los

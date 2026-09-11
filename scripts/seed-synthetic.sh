@@ -61,10 +61,18 @@ cd "${BACKEND_DIR}"
 
 # Prefiere un script npm dedicado "seed:synthetic"; si no, cae a seed normal
 # con SEED_MODE=synthetic; si tampoco, avisa qué debe exponer backend.
-if npm run 2>/dev/null | grep -qE '^\s*seed:synthetic'; then
+#
+# ⚠️ `grep -E … >/dev/null` y NO `grep -qE` (2026-09-10, §45.3). Este script corre
+# con `set -o pipefail` (arriba): `grep -q` sale al primer match y cierra el pipe,
+# `npm run` se lleva un SIGPIPE (141) y el PIPELINE se evalúa como FALSO aunque el
+# script SÍ exista. Aquí la consecuencia no es un rojo de CI, es peor y silenciosa:
+# la rama equivocada ⇒ este entorno se siembra con el seed que no toca, o se
+# declara «el backend no expone seed» y NO se siembra — y encima sale exit 0.
+# Sin `-q`, grep consume toda la entrada y nadie escribe contra un pipe cerrado.
+if npm run 2>/dev/null | grep -E '^\s*seed:synthetic' >/dev/null; then
   echo "→ npm run seed:synthetic"
   npm run seed:synthetic
-elif npm run 2>/dev/null | grep -qE '^\s*seed'; then
+elif npm run 2>/dev/null | grep -E '^\s*seed' >/dev/null; then
   echo "→ npm run seed  (SEED_MODE=synthetic)"
   npm run seed
 elif [[ -f prisma/schema.prisma ]]; then
@@ -77,3 +85,44 @@ else
 fi
 
 echo "✓ Datos sintéticos cargados en staging."
+
+# -----------------------------------------------------------------------------
+# PARIDAD DE PROVEEDOR DE PRECIO (`I-PP5`) — §43.2, con el puente RETIRADO §45.1.
+#
+# El seed MATERIALIZA la fila `ConfigSetting.price_provider` (prisma/seed.ts y
+# seed-e2e.ts hacen `upsert(... update:{})`). Si el dial no está en el PRIMARIO,
+# el entorno barre y escribe precios APLANADOS con el proveedor LEGACY —que no es
+# inerte— y los E2E y el DAST que corran encima medirían un barrido distinto del
+# que se promueve.
+#
+# RETIRO de `--ensure` (2026-09-10): `D-PP-1` aterrizó y el seed del código ya es
+# el primario, así que el puente interino caducó — y desde ese día `--ensure` era
+# un no-op que salía 0 sin mirar nada. Queda `--assert`, que NO es interino: es el
+# candado `I-PP5` y MIDE el valor vigente.
+#
+# ⚠️ Lo que el puente tapaba y ahora se ve: una BD sembrada ANTES de `D-PP-1`
+# conserva la fila LEGACY aunque el seed del código haya cambiado (§32.1). Eso es
+# precisamente lo que hay que ver, no autocorregir: el arreglo es un
+# `PUT /admin/settings` por el panel M10 (auditado), con un humano delante.
+# -----------------------------------------------------------------------------
+PARITY_API_BASE="${PARITY_API_BASE:-http://localhost:${STAGING_BACKEND_PORT:-3011}/api/v1}"
+echo "=== paridad del dial price_provider (I-PP5) ==="
+if curl -sf --max-time 5 "${PARITY_API_BASE%/}/health" >/dev/null 2>&1; then
+  if ! "${SCRIPT_DIR}/price-provider-parity.sh" --assert --api-base "$PARITY_API_BASE"; then
+    echo "✗ Este entorno NO evalúa el proveedor de precio PRIMARIO."
+    echo "  Causa típica: la BD se sembró ANTES de D-PP-1 y conserva la fila legacy"
+    echo "  (los seeds hacen upsert(... update:{}): cambiar el seed NO cambia lo ya sembrado)."
+    echo "  Arreglo: panel M10 > proveedor de precio (PUT /admin/settings, auditado)."
+    echo "  Desde cero:  docker compose -f docker-compose.staging.yml --profile apps down -v"
+    echo "  NO declares este staging apto para E2E/DAST hasta verlo en verde (DEVOPS_NOTES §43.2)."
+    exit 1
+  fi
+else
+  echo "✗ La API de staging no responde en $PARITY_API_BASE."
+  echo "  El dial vive en la BD y se LEE por GET /admin/settings: sin API no se puede medir."
+  echo "  Levanta las apps y repite:"
+  echo "     docker compose -f docker-compose.staging.yml --profile apps up -d --build"
+  echo "     ./scripts/price-provider-parity.sh --assert --api-base $PARITY_API_BASE"
+  echo "  NO declares este staging apto para E2E/DAST hasta verlo en verde (DEVOPS_NOTES §43.2)."
+  exit 1
+fi

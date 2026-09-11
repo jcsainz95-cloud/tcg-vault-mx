@@ -53,6 +53,21 @@ export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
   APORTACION_PCT: 'aportacion_pct',
   IVA_PCT: 'iva_pct',
+  // ⭐⭐ v1.64-iva-inclusive (M-50, `ARCHITECTURE §4.44.g` / `API_CONTRACT §M10-IVA.1`) — EL DIAL DE
+  // TRASLACIÓN. Es una **FRACCIÓN DE TRASLACIÓN** en puntos porcentuales enteros `[0,100]`,
+  // ⛔ **NO son puntos de IVA** y ⛔ **NO es la tasa**: `iva_pct` sigue siendo la TASA y la fuente
+  // ÚNICA del IVA de la comisión de Stripe. **Son dos filas independientes y ninguna deriva de la
+  // otra** — `getStripeFee()` ⛔ NUNCA lee esta clave (candado `IVA-7`): si el dial de traslación
+  // entrara ahí, **mover un precio movería una comisión**.
+  //
+  // ⚠️ **DEPLOY 1: la fila existe (la siembra M-50) pero NADIE la lee.** No está en
+  // `SETTING_DTO_MAP` a propósito ⇒ ni sale en `GET /admin/settings` ni se puede escribir por
+  // `PUT /admin/settings` (que valida contra ese mapa con `hasOwnProperty` ⇒ `422` clave desconocida;
+  // mismo precedente exacto que `stripeFeeIvaPct` desde v1.40 y que `fxRateMode`). Su única puerta
+  // será `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**, y esa puerta abre en el
+  // **DEPLOY 2** (§M10-IVA.2, candado `IVA-8(b)/(c)`). *Un dial que gobierna dinero y cuyo único
+  // guardián es una pantalla no tiene guardián.*
+  IVA_TRANSFER_PCT: 'iva_transfer_pct',
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
   STRIPE_FEE_FIXED_CENTS: 'stripe_fee_fixed_cents',
@@ -75,10 +90,11 @@ export const SettingKey = {
   PRICING_PROVIDER_RAW: 'pricing_provider_raw',
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
-  // v1.14-price-ingest (WS-A, §4.15h): proveedor de la INGESTA MASIVA de precios (BulkPriceProvider).
-  // Distinto de los `pricing_provider_*` per-carta de arriba. Palanca de rollback money-safe: seed
-  // `pokemontcg_io` (legacy, sin cambio de fuente al desplegar); el humano flipa a
-  // `pokemonpricetracker` tras verificar el esquema del proveedor de paga en la 1ª corrida.
+  // Proveedor de la INGESTA MASIVA de precios (`BulkPriceProvider`), distinto de los
+  // `pricing_provider_*` per-carta de arriba. ⚠️ v1.65 (D-PP-1): enum, semántica, seed y rollback los
+  // fija `API_CONTRACT §M10-PP` (`I-PP1`…`I-PP5`); aquí se CITA y no se transcribe (§0-B.3 regla 8).
+  // *El texto anterior describía el seed y el flip previsto, y fue una de las cinco copias del
+  // literal que produjeron la contradicción de `ARCHITECTURE §4.35a(a)`.*
   PRICE_PROVIDER: 'price_provider',
   // v1.19-sealed-tcgcsv (§4.19e): dial FAIL-CLOSED de la ingesta de la referencia de mercado
   // del SELLADO vía TCGCSV (job `sealed-price-ingest`). Valores `tcgcsv | off`, seed `off`:
@@ -260,6 +276,12 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SHIPPING_FEE_CENTS]: 17500, // MX$175
   [SettingKey.APORTACION_PCT]: 70,
   [SettingKey.IVA_PCT]: 16,
+  // ⭐ v1.64 (M-50, §4.44.g) — seed **100**: EL NEUTRO. Con el dial ahí, la fórmula del deploy 2
+  // reproduce el cobro de hoy AL CENTAVO (§4.44.a). ⛔ Sin lógica y sin sentinel: a diferencia del
+  // FX (`FX-6`), aquí «ausente» y «100» significan **lo mismo** —en instalación limpia porque es el
+  // valor que el dueño eligió, y en producción antes del backfill porque es el neutro—, así que no
+  // hay ninguna decisión que perder por caer al default. Candado `IVA-8(e)`.
+  [SettingKey.IVA_TRANSFER_PCT]: 100,
   [SettingKey.SALES_MARKUP_PCT]: 15, // markup de venta configurable
   [SettingKey.STRIPE_FEE_PCT]: 0.036, // 3.6% tarifa MX Stripe (fracción)
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: 300, // MX$3.00 fija
@@ -281,9 +303,28 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.PRICING_PROVIDER_RAW]: 'pokemontcg_io',
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
-  // v1.14-price-ingest (WS-A): SEED `pokemontcg_io` por seguridad (rollout money-safe). El flip a
-  // `pokemonpricetracker` lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h).
-  [SettingKey.PRICE_PROVIDER]: 'pokemontcg_io',
+  // ⚠️⚠️ v1.65 (D-PP-1) — **SEED DEL PROVEEDOR DE PRECIO. NORMA: `API_CONTRACT §M10-PP`, invariante
+  // `I-PP1` («el seed ES el primario»); razón entera en `ARCHITECTURE §4.35a`.**
+  //
+  // ⛔ Este comentario **CITA y no transcribe** (§0-B.3 regla 8): no repite el enum, ni la semántica de
+  // cada valor, ni afirma qué valor corre en ningún entorno (eso es `I-PP2`: el VIGENTE se LEE de
+  // `GET /admin/settings`, no de un comentario). La línea de abajo **es** el literal del seed — el
+  // único sitio del proyecto donde ese literal vive (§M10-PP, hecho 2).
+  //
+  // Lo que este comentario SÍ debe dejar dicho, porque es la corrección que motivó el cambio: la
+  // versión anterior sembraba el proveedor LEGACY y lo llamaba *«money-safe»*, y eso **era falso**. Un
+  // seed money-safe tiene que ser **INERTE** (no escribe dinero — como `SEALED_PRICE_SOURCE: 'off'`,
+  // unas líneas más abajo) **o el PRIMARIO validado**. El legacy no es ninguno de los dos: **corre el
+  // barrido y ESCRIBE `PriceReference` con un `market` aplanado** (un precio por carta, invariante al
+  // printing) ⇒ `reverse_holo` y `holofoil` quedaban al precio de la `normal`. Es la regresión exacta
+  // que cerró P-47, y por `PROJECT §N.0` cae del lado irrecuperable del sesgo de error.
+  // ⇒ El seed legacy no era el candado money-safe: era el riesgo con el nombre del candado.
+  //
+  // ⚠️ Cambiar esta línea NO es un rollback y un rollback NO cambia esta línea (`I-PP3`): la palanca de
+  // rollback es `PUT /admin/settings { "priceProvider": … }` (super_admin, auditado, sin redeploy), y
+  // mueve el VIGENTE de UN entorno. Este `DEFAULT` sólo se consulta cuando **no existe la fila**
+  // `ConfigSetting.price_provider` ⇒ no puede alterar un entorno ya sembrado.
+  [SettingKey.PRICE_PROVIDER]: 'tcgcsv_singles',
   // v1.19-sealed-tcgcsv (§4.19e / §4.23e / API_CONTRACT §M10): SEED `off` (FAIL-CLOSED, por contrato).
   // Un seed FRESCO (BD nueva: CI/dev/prod) arranca con el autoprecio del sellado APAGADO — la ingesta
   // TCGCSV no corre hasta que devops valide el esquema real en staging (§4.23f) y flipee el dial. El
@@ -432,12 +473,20 @@ export const RETIRED_SETTING_KEYS = [
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
 
 /**
- * v1.14-price-ingest (WS-A, §4.15h): valores válidos del dial `price_provider` (BulkPriceProvider).
- * Proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
+ * Valores válidos del dial `price_provider` (`BulkPriceProvider` del ingest MASIVO; NO `poketrace`/
+ * `manual`, que son del pricing per-carta).
  *
- * v1.44 (P-47, §4.38): += `tcgcsv_singles` — PRIMARIO del barrido de singles por-acabado desde TCGCSV
- * (reverse_holo/holofoil con SU marketPrice). El default sigue en `pokemontcg_io` (seed); devops flipea
- * el dial a `tcgcsv_singles` en staging→prod (config/env es de devops, §4.38e). PPT queda como fallback.
+ * ⚠️⚠️ **v1.65 — el ENUM y la SEMÁNTICA de cada valor los fija `API_CONTRACT §M10-PP`**
+ * (`<!-- CANON: proveedor-de-precio -->`). Este bloque lo **CITA y no lo transcribe** (§0-B.3 regla 8):
+ * ni describe qué hace cada proveedor, ni cuál es el seed (eso es `I-PP1` y su literal vive en
+ * `SETTING_DEFAULTS`, arriba — §M10-PP lo nombra `DEFAULT_SETTINGS`, mismo mapa), ni qué valor corre
+ * en ningún entorno (`I-PP2`: el VIGENTE se LEE).
+ * La versión anterior de este comentario afirmaba un seed, y ésa fue una de las cinco copias que
+ * produjeron la contradicción medida en `ARCHITECTURE §4.35a(a)`.
+ *
+ * ⛔ **Nada se retira de esta lista sin pasar por el arquitecto** (regla 9): `pokemontcg_io` sigue aquí
+ * porque es la palanca de rollback operativo (`I-PP3`), y el contenido EXACTO está pineado contra el
+ * contrato en `test/settings.validation.spec.ts`.
  */
 export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'tcgcsv_singles'];
 
@@ -620,6 +669,136 @@ export function validateGradingMinUpsidePct(v: unknown): string | null {
     : `must be a number in [0, ${GRADING_MIN_UPSIDE_PCT_MAX}]`;
 }
 
+/**
+ * ⭐⭐ **`iva_pct` — ENTERO en [0, 100], y el «entero» NO es gusto: es la COLUMNA.**
+ *
+ * **El defecto que cierra (medido, no supuesto).** El validador anterior era `isNum(v) && 0 <= v <= 100`
+ * — `typeof v === 'number'`, o sea **decimales incluidos**. Pero la tasa que este dial fija se **congela
+ * por orden** en `Order.ivaRatePct`, que es **`Int`** (`prisma/schema.prisma`). Medido contra Postgres 16
+ * real con `prisma.order.create`: **`8.5` no revienta — se TRUNCA en silencio a `8`** (y `8.9`→`8`,
+ * `15.999`→`15`, `0.5`→`0`: truncamiento hacia cero, no redondeo). No hay excepción, no hay aviso, no hay
+ * fila de bitácora que lo diga.
+ *
+ * **Por qué eso es dinero y no cosmética.** El truncamiento ocurre **solo en la fila**, no en la
+ * aritmética: `computeCartBreakdown` (`common/money.ts`) calcula `ivaCents` con el **float vivo**. Con el
+ * dial en `8.5` y un subtotal de MX$100.00 se cobran **850 centavos** de IVA y se archiva `ivaRatePct = 8`
+ * — una fila que dice *«cobré 8 %»* junto a un importe que es **8.5 %**. Esa fila es la que viaja al DTO
+ * de la orden y la que sostiene el desglose fiscal: la orden **miente sobre la tasa con la que se cobró**,
+ * y miente **hacia abajo**, que es el lado que le interesa a quien audite.
+ *
+ * **Por qué NO es un caso de laboratorio.** El **8 %** es una tasa de IVA **real** en México (zona
+ * fronteriza norte). Un `8.5` no es un fat-finger exótico: es lo que teclea alguien que está en medio de
+ * ese cambio y se equivoca por medio punto. Y el dial lo edita un `super_admin` **sin redeploy**.
+ *
+ * **Por qué se cierra AQUÍ y no en el esquema.** La cura barata sería volver la columna decimal; **no se
+ * hace**: `Order.ivaRatePct` es zona compartida y su tipo es decisión del arquitecto.
+ * ✅ **v1.64 (`D-IVA-4`) — esa decisión YA ESTÁ TOMADA y este comentario decía lo contrario.** D54 fue
+ * **APROBADA el 2026-09-09** y `PROJECT §Q` es **alcance vigente**; llamarla *«borrador NO vigente»*
+ * mandaba a quien leyera el fichero que gobierna dos diales de dinero a buscar una decisión pendiente
+ * que ya no existe. **`ARCHITECTURE §4.44.g` la fija: la columna SIGUE siendo `Int` y el rango SIGUE
+ * siendo entero**, también para el dial nuevo `iva_transfer_pct`. ⇒ **el razonamiento de abajo no
+ * cambia ni una línea de lógica; lo que cambia es que ya no espera a nadie.**
+ * El validador, en cambio, solo tiene que **dejar de aceptar lo que la columna no puede
+ * representar**: un `422` explícito es estrictamente mejor que un truncamiento mudo en una tasa de
+ * impuestos. **Nada legítimo se pierde**: las tres tasas mexicanas vigentes —`0`, `8` y `16`— son enteras.
+ *
+ * ⚠️ **Si algún día el negocio necesita una tasa fraccionaria, este validador NO es el sitio donde
+ * relajarlo**: primero cambia la columna (decisión del arquitecto), después este rango. Relajarlo solo
+ * aquí devuelve el truncamiento silencioso tal cual.
+ */
+export function validateIvaPct(v: unknown): string | null {
+  return isInt(v) && v >= 0 && v <= 100
+    ? null
+    : 'must be an integer in [0, 100] (percent). Decimals are rejected because the rate is frozen ' +
+        'per order in the integer column `Order.ivaRatePct`, where a value like 8.5 would be ' +
+        'silently truncated to 8 while the charged IVA still used 8.5';
+}
+
+/**
+ * ⭐⭐ **`iva_transfer_pct` — LA FRACCIÓN DE IVA QUE SE TRASLADA AL PRECIO EXHIBIDO. ENTERO en [0, 100].**
+ * (v1.64-iva-inclusive, `ARCHITECTURE §4.44.g`, `API_CONTRACT §M10-IVA.1`, D54 aprobada 2026-09-09.)
+ *
+ * ⛔ **NO son puntos de IVA y NO es la tasa.** `t = 100` significa *«traslado el IVA entero»* (el
+ * neutro: reproduce el cobro de hoy al centavo); `t = 0` significa *«lo absorbo entero»*. Bajar el
+ * dial **⛔ no baja el impuesto: baja el precio exhibido**, y esa diferencia **sale del margen**. Es
+ * un **dial de margen**, y por eso su puerta (deploy 2) exige que el servidor haya mostrado el costo
+ * en pesos antes de guardar (criterio 188).
+ *
+ * **Por qué ENTERO, con la misma razón exacta que `iva_pct` y `aportacion_pct`: es la COLUMNA.**
+ * `Order.ivaTransferPct` es `Int` (M-50). Un `37.5` **no revienta: se TRUNCA en silencio a `37`**
+ * mientras el precio exhibido se calculó con `37.5` — una fila que dice *«trasladé 37 %»* junto a un
+ * importe que es de 37.5 %. Es literalmente el defecto que `TD-IVA-1`/`TD-IVA-2` cerraron.
+ * El criterio **187** exige poder guardar `0`, `37`, `50` y `100`: los cuatro son enteros.
+ *
+ * ⚠️ **Si algún día el negocio necesita medio punto de traslación, este validador NO es el sitio donde
+ * relajarlo.** El orden es: (1) la COLUMNA —decisión del arquitecto—, (2) después este rango. Al revés
+ * devuelve el truncamiento mudo tal cual.
+ *
+ * *(El `message` nombra LOS DOS EXTREMOS a propósito: lo exige `API_CONTRACT §M10-IVA.5`, candado
+ * `IVA-8(d)`.)*
+ */
+export function validateIvaTransferPct(v: unknown): string | null {
+  return isInt(v) && v >= 0 && v <= 100
+    ? null
+    : 'must be an integer in [0, 100] (percentage points of IVA TRANSFERRED to the displayed ' +
+        'price; 0 = absorbed, 100 = fully passed through). Decimals are rejected because the value ' +
+        'is frozen per order in the integer column `Order.ivaTransferPct`, where 37.5 would be ' +
+        'silently truncated to 37 while the displayed price still used 37.5';
+}
+
+/**
+ * ⭐⭐ **`aportacion_pct` — ENTERO en [0, 100]. Mismo defecto que `iva_pct`, otro dial, otra columna.**
+ *
+ * **El defecto que cierra (medido contra Postgres 16 real, no deducido del tipo).** El validador
+ * anterior era `isNum(v) && 0 <= v <= 100` — `typeof v === 'number'`, o sea **decimales incluidos**.
+ * Pero el porcentaje se **congela por pieza** en `InventoryItem.acquisitionPct`, que es **`Int`**
+ * (`prisma/schema.prisma`). Medido con `prisma.inventoryItem.create`: **`70.5` no revienta — se
+ * TRUNCA en silencio a `70`** (`70.9`→`70`, `99.999`→`99`, `0.5`→`0`: truncamiento hacia cero, no
+ * redondeo). Sin excepción, sin aviso, sin bitácora.
+ *
+ * **El agravante, que es el que convierte esto en dinero.** El truncamiento ocurre **solo en la
+ * fila**, no en la aritmética. En `inventory.service.ts` el costo se calcula con el **float vivo**
+ * (`computeAportacionCostCents(referenceCents, pct)`) y la MISMA variable se escribe en la columna
+ * `Int`. Con el dial en `70.5` y una referencia de MX$1,000.00 la pieza archiva
+ * `acquisitionCostCents = 70500` junto a `acquisitionPct = 70`, y **el 70 % de MX$1,000.00 son
+ * 70,000 centavos, no 70,500**: *el porcentaje guardado NO reproduce el costo guardado*, y falla
+ * **500 centavos por cada MX$1,000 de referencia** (con `70.9`, 900; con `99.999`, 999).
+ *
+ * **Por qué duele más que en el IVA.** `acquisitionCostCents` es **lo que la pieza dice que costó**:
+ * la base del P&L y del margen, y —en aportación en especie— lo que se le acredita a quien aportó.
+ * Quien audite y recalcule el costo desde el porcentaje archivado obtiene **menos costo del real**
+ * ⇒ **margen inflado**. La fila no se contradice con un reporte externo: se contradice **consigo
+ * misma**, y las dos mitades de la contradicción viajan juntas en el mismo DTO de inventario.
+ *
+ * **No es un valor de laboratorio.** `70` es el default y `100` lo manda el alta rápida; un `70.5`
+ * es el medio punto de quien afina la política de aportación. El dial lo edita un `super_admin`
+ * **sin redeploy**, y el camino del DTO (`acquisitionPct` con `@IsInt()`) **ya está blindado**: este
+ * era el ÚNICO hueco por el que entraba un decimal.
+ *
+ * **Por qué se cierra AQUÍ y no en el esquema.** `InventoryItem.acquisitionPct` vive en
+ * `prisma/schema.prisma`, **zona compartida**; su tipo es decisión del arquitecto.
+ * ✅ **v1.64 (`D-IVA-4`) — el «cambio de contrato en vuelo» que decía esta línea era D54, y ATERRIZÓ:
+ * aprobada 2026-09-09, `PROJECT §Q` es alcance vigente y `ARCHITECTURE §4.44.g` ratifica el criterio
+ * entero (columna `Int` ⇒ rango entero).** No queda nada en vuelo que justifique esperar aquí.
+ * El validador, en cambio, solo tiene que **dejar de aceptar lo que la
+ * columna no puede representar**: un `422` explícito es estrictamente mejor que un truncamiento mudo
+ * en la base del costo. **Nada legítimo se pierde**: los porcentajes de aportación que el negocio usa
+ * hoy —`70` (default del formulario) y `100` (alta rápida, §4.39 del contrato)— son enteros.
+ *
+ * ⚠️ **Si algún día el negocio necesita una aportación fraccionaria (p. ej. 72.5 %), este validador
+ * NO es el sitio donde relajarlo. El orden es: (1) la COLUMNA —decisión del arquitecto: decimal o
+ * escalada en enteros—, (2) DESPUÉS este rango.** Relajarlo solo aquí devuelve, tal cual, el
+ * truncamiento silencioso y la fila que se contradice a sí misma.
+ */
+export function validateAportacionPct(v: unknown): string | null {
+  return isInt(v) && v >= 0 && v <= 100
+    ? null
+    : 'must be an integer in [0, 100] (percent). Decimals are rejected because the percentage is ' +
+        'frozen per piece in the integer column `InventoryItem.acquisitionPct`, where a value like ' +
+        '70.5 would be silently truncated to 70 while the acquisition cost was still computed with ' +
+        '70.5 — the stored percentage would no longer reproduce the stored cost';
+}
+
 /** v1.44 (I6): `graded_estimate_freshness_days` = entero en [1, 365]. */
 export function validateGradedEstimateFreshnessDays(v: unknown): string | null {
   return isInt(v) && v >= GRADED_ESTIMATE_FRESHNESS_DAYS_MIN && v <= GRADED_ESTIMATE_FRESHNESS_DAYS_MAX
@@ -751,8 +930,17 @@ export function validateBuylistCrossDials(
  */
 export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string | null> = {
   [SettingKey.SHIPPING_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
-  [SettingKey.APORTACION_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
-  [SettingKey.IVA_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
+  // ⭐ ENTERO, no «número»: el pct se congela en la columna `Int` `InventoryItem.acquisitionPct` y un
+  // `70.5` se truncaba a `70` EN SILENCIO mientras el COSTO se calculaba con 70.5 — la fila dejaba de
+  // reproducir su propio costo. Ver el docblock de `validateAportacionPct`.
+  [SettingKey.APORTACION_PCT]: validateAportacionPct,
+  // ⭐ ENTERO, no «número»: la tasa se congela en la columna `Int` `Order.ivaRatePct` y un `8.5` se
+  // truncaba a `8` EN SILENCIO mientras el cobro usaba 8.5. Ver el docblock de `validateIvaPct`.
+  [SettingKey.IVA_PCT]: validateIvaPct,
+  // ⭐ ENTERO en [0,100], y el «entero» NO es gusto: es la COLUMNA `Order.ivaTransferPct` (`Int`,
+  // M-50). Un `37.5` se truncaría en silencio a `37` mientras el precio se calculó con `37.5` — el
+  // MISMO defecto que cerraron `validateIvaPct` y `validateAportacionPct`. Ver `validateIvaTransferPct`.
+  [SettingKey.IVA_TRANSFER_PCT]: validateIvaTransferPct,
   [SettingKey.SALES_MARKUP_PCT]: (v) => (isNum(v) && v >= 0 ? null : 'must be a number >= 0'),
   // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
   [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
@@ -780,7 +968,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_SEALED]: (v) =>
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
-  // v1.14-price-ingest (WS-A): IsIn(['pokemontcg_io','pokemonpricetracker']) → 422 si otro valor.
+  // Fuera del enum de `API_CONTRACT §M10-PP` ⇒ `422 VALIDATION_ERROR`. La lista vive en
+  // `PRICE_PROVIDER_VALUES` (arriba) y NO se re-escribe aquí: este comentario llegó a transcribir un
+  // enum de DOS valores que ya no era el del contrato (§0-B.3 regla 8).
   [SettingKey.PRICE_PROVIDER]: (v) =>
     typeof v === 'string' && PRICE_PROVIDER_VALUES.includes(v)
       ? null

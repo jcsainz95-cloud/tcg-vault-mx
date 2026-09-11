@@ -30,11 +30,20 @@ function configMock() {
 }
 
 /** Provider `tcgcsv_singles` mock: filas YA joineadas (cardId + cardProductId), como en producción. */
-function singlesProvider(rows: Array<Record<string, unknown>>, opts: { skipped?: number; requestOk?: boolean } = {}) {
-  const { skipped = 0, requestOk = true } = opts;
+function singlesProvider(
+  rows: Array<Record<string, unknown>>,
+  opts: { skipped?: number; requestOk?: boolean; setUnresolved?: Record<string, unknown> } = {},
+) {
+  const { skipped = 0, requestOk = true, setUnresolved } = opts;
   return {
     source: 'tcgcsv_singles',
-    fetchPricesForSet: jest.fn(async () => ({ rows, fetchedRaw: rows.length + skipped, skipped, requestOk })),
+    fetchPricesForSet: jest.fn(async () => ({
+      rows,
+      fetchedRaw: rows.length + skipped,
+      skipped,
+      requestOk,
+      ...(setUnresolved ? { setUnresolved } : {}),
+    })),
   };
 }
 
@@ -46,6 +55,9 @@ function build(provider: any, prismaOver: Record<string, unknown> = {}) {
   } as unknown as PrismaService;
   const pricing = { persistMarketReference: jest.fn(async () => {}) };
   const reconciler = reconcilerMock();
+  // v1.65 (QA IMPORTANTE-3): la señal VISIBLE de «set sin repreciar» va a `AuditLog`, así que el
+  // spy de auditoría deja de ser opcional en este arnés.
+  const audit = { log: jest.fn(async () => {}) };
   const svc = new PriceIngestService(
     prisma,
     settingsMock('tcgcsv_singles') as any,
@@ -56,8 +68,9 @@ function build(provider: any, prismaOver: Record<string, unknown> = {}) {
     pptMapperMock() as any,
     configMock() as any,
     provider as any, // tcgcsvSinglesBulk
+    audit as any, // AuditService
   );
-  return { svc, prisma, pricing, reconciler };
+  return { svc, prisma, pricing, reconciler, audit };
 }
 
 describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', () => {
@@ -135,6 +148,57 @@ describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', ()
     expect(pricing.persistMarketReference).not.toHaveBeenCalled();
     expect(reconciler.reconcile).not.toHaveBeenCalled();
     expect(res.priced).toBe(0);
+  });
+
+  /**
+   * ⚠️⚠️ v1.65 (QA IMPORTANTE-3) — **«un set entero sin repreciar deja de ser invisible».**
+   *
+   * El hallazgo no era que el barrido hiciera algo malo con el dinero (no lo hace: congela, no
+   * inventa), sino que **no lo dijera**: el único rastro de «no supe a qué grupo remoto corresponde
+   * este set» era un `warn` en los logs del servidor. Un set puede quedarse meses con precios de otro
+   * mercado y el dueño enterarse por un cliente.
+   */
+  it('SEÑAL VISIBLE: set sin groupId ⇒ fila en AuditLog `pricing.set_unresolved` (no solo un warn)', async () => {
+    const provider = singlesProvider([], {
+      requestOk: false,
+      setUnresolved: {
+        stage: 'group_id',
+        reason: 'ambiguous',
+        setName: 'Pitch Black',
+        candidates: 2,
+        candidateNames: ['SV08: Pitch Black', 'Pitch Black Promos'],
+      },
+    });
+    const { svc, audit, pricing } = build(provider);
+
+    await svc.ingestSet('local-me05', fx);
+
+    // Money-safe primero: la señal NO viene acompañada de ninguna escritura de precio.
+    expect(pricing.persistMarketReference).not.toHaveBeenCalled();
+    expect(audit.log).toHaveBeenCalledTimes(1);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'pricing.set_unresolved',
+        entityType: 'CardSet',
+        entityId: 'local-me05',
+        after: expect.objectContaining({
+          provider: 'tcgcsv_singles',
+          setExternalId: 'me05',
+          reason: 'ambiguous',
+          candidates: 2,
+          // Los nombres candidatos son lo que permite ARREGLARLO sin depurar nada.
+          candidateNames: ['SV08: Pitch Black', 'Pitch Black Promos'],
+        }),
+      }),
+    );
+  });
+
+  it('CONTRA-CASO: set que SÍ se mapeó (aunque devuelva 0 filas) NO ensucia la bitácora', async () => {
+    // Sin esto, «avisar» y «avisar de todo» serían indistinguibles: una señal que salta en el caso
+    // normal deja de ser una señal a la tercera corrida.
+    const { svc, audit } = build(singlesProvider([], { requestOk: true }));
+    await svc.ingestSet('local-me05', fx);
+    expect(audit.log).not.toHaveBeenCalled();
   });
 });
 

@@ -15182,3 +15182,583 @@ candado nuevo, **rojo** después.
 **No medido, y por lo tanto no afirmado:** nada de esto corrió contra el **backend real** — la capa de
 API va en modo fixtures. Es fiel para todo lo que se afirma aquí (copy, ramas de render, conteo de
 controles, foco), pero no ejercita el desglose que compone el servidor.
+
+---
+
+## P-XX · `mail-mira-180.png`: el asset que los ocho correos pedían y nunca se dejó
+
+### 1. El síntoma y la causa
+
+El dueño no veía el logo en la previsualización de los correos. `mail-shell.ts` (backend) resuelve
+`MAIL_MIRA_URL` a `https://tcghunt.mx/branding/mail-mira-180.png` y ese fichero **no existía**:
+`frontend/public/branding/` solo tenía `og-tcg-hunt.svg`. La petición estaba escrita en
+**DESIGN_SYSTEM §31.5(b)** («Petición a frontend») y nunca se ejecutó. Es un asset que faltaba, no
+un bug de código: **no se tocó ni una línea de TS** en este pase.
+
+### 2. ⭐ Por qué NO se copió `apple-icon.png` tal cual
+
+§31.5(b) se contradice a sí mismo y hay que leerlo entero:
+
+- dice **«El asset: `frontend/src/app/apple-icon.png` … copiarla a `public/branding/`»**, y
+- dice **«⛔ Sin degradado: la mira va sólida `#B31217` — el degradado de §17.2 es de marca a tamaño
+  grande y no sobrevive al correo»**.
+
+**`apple-icon.png` lleva degradado.** Se midió píxel a píxel: la tinta va de **`#991114`**
+(arriba-izquierda) a **`#630E0F`** (abajo-derecha) y **ningún píxel del fichero es `#B31217`**. Es lo
+correcto para lo que ese fichero es —§17.3 fila «Favicon» pide para apple-touch la solo-mira **«con
+degradado» sobre papel**— y es exactamente lo que el correo prohíbe. Copiar sin mirar habría metido
+en los ocho correos la variante que §31.5(b) veta.
+
+Manda la regla concreta del correo (§31.5b) sobre la frase de conveniencia de la misma sección.
+
+### 3. Lo que sí se hizo: **recolorear**, no redibujar
+
+Se conserva la geometría **exacta** del ráster existente (la solo-mira §17.1b, `LogoTcgHunt`
+variante `mark`) y se sustituye solo el color. Método: el canal **verde** es un estimador limpio de
+cobertura, porque a lo largo del degradado el verde de la tinta plena vive en **14–16** (rango de
+2/255) mientras el rojo se mueve de 99 a 153. Con `alfa = (241 − G) / (241 − 15)` se recompone
+`alfa · #B31217` sobre `#F4F1EA`.
+
+⛔ **No se redibujó la mira** y no se tocó `LogoTcgHunt.tsx`: rehacer la retícula desde el vector
+habría cambiado el rasterizado (arcos, antialias) sin que nadie lo pidiera, y **rediseñar es de
+ux-ui**, no de frontend.
+
+**Verificado sobre el fichero producido:**
+
+| Comprobación | Resultado |
+|---|---|
+| Dimensiones | **180×180**, lo que pide §31.5(b) (@2.5x sobre los 72px de uso) |
+| Geometría | bbox `18,19 → 158,156` — **idéntica** a la de `apple-icon.png` |
+| Tinta plena | **`#B31217`** exacto (4029 px) |
+| ¿Degradado? | **No.** Los 195 colores del fichero caen a **≤0.78/255** de la recta papel→`#B31217`: es bitono con antialias |
+| Fondo | `#F4F1EA` opaco == token `PAPER` de `mail-shell.ts` |
+| Alfa | **eliminado** (el original era RGBA con 0 px translúcidos: un canal inútil que solo da ocasión a que un cliente lo componga contra blanco o negro) |
+| Peso | 4.227 bytes (el original pesaba 6.785) |
+
+### 4. Fondo opaco a propósito (y qué pasa en modo oscuro)
+
+El PNG lleva **papel opaco**, no transparencia. Es deliberado: la `<td>` que lo envuelve ya es
+`bgcolor="#F4F1EA"`, así que sobre papel la costura es invisible; y si el fichero fuese transparente,
+un cliente que invierta a oscuro pintaría **bermellón sobre tinta**, que es justo el par prohibido de
+§17.2 (2.5:1) — la mira desaparecería. Con papel opaco la mira se ve **siempre**. El coste conocido y
+aceptado es que en un cliente que fuerce oscuro queda un cuadro claro de 72px; el correo declara
+`color-scheme:light` (§31.8), así que el cliente que respeta la señal no llega a ese caso.
+
+### 5. Contraste
+
+Sobre papel `#F4F1EA`, `#B31217` da **6.17:1** (el tono más claro del degradado original daba
+**3.63:1**). El recoloreado no solo cumple §31.5(b): **se ve mejor** que el candidato que se iba a
+copiar.
+
+### 6. Con imágenes BLOQUEADAS (§31.5a / candado ML-1)
+
+Se miró la previsualización con el `src` roto a propósito. **El correo no queda decapitado**: siguen
+el wordmark `TCG HUNT` (Georgia 30px, texto vivo), el `.mx`, las dos rayas del lockup y la regla — que
+es literalmente lo que §31.5(a) promete («el boceto del dueño menos la mira»).
+
+⭐ **El `alt=""` de `mail-shell.ts:171` es CORRECTO y no se pide cambiarlo.** §31.5(a) lo exige
+(«la mira lleva `alt=""`, decorativa») y **ML-1 caza por ablación** precisamente la mutación de meter
+`TCG HUNT` en el `alt`, porque Outlook de escritorio pinta el `alt` estilizado como un recuadro con
+una cruz roja y la marca pasaría a depender del cliente. **Poner texto en ese `alt` sería el bug, no
+el arreglo.**
+
+### 7. Lo que se vio de paso y NO es de frontend
+
+En la previsualización, las **dos rayas** del bloque de marca no son rayas: se renderizan como
+**bloques grises de 216×72** (medido con Playwright), no como el filete de 1px que dibuja §31.5(c) y
+el boceto `──── ◎ ────` de §31.5. La causa es de maqueta de tablas: la `<td height="1"
+bgcolor="#AEACA7">` comparte fila con la celda de la mira (72px) y en una tabla `height` es un
+**mínimo**, no un máximo, así que la celda se estira a la altura de la fila y su fondo con ella. Se
+ve en la misma pantalla que el dueño estaba mirando. **Es de backend** (`mail-shell.ts`,
+`brandRows()`) y aquí solo se reporta. Contraste con la `ruleRow` de debajo del wordmark, que sí mide
+536×1 porque va sola en su fila.
+
+### 8. Números
+
+`tsc --noEmit` limpio · `next lint` sin avisos · `npm test` **1457/1457** (125 archivos). El cambio es
+**un binario en `public/`**: no hay código que probar, y por eso no se añadió test.
+
+---
+
+## MENOR-1 (QA) — el rojo de `PhotoUploader.test.tsx:76` era contaminación de un test que no drenaba
+
+**Síntoma que reportó QA:** corrida completa 1456/1457; el único rojo,
+`PhotoUploader.test.tsx:76` (`expect(uploadSpy).not.toHaveBeenCalled()`). En aislado, 5/5.
+
+### Qué era (medido, no deducido)
+
+**No es contaminación entre archivos.** Vitest corre con `pool: forks` e `isolate` por defecto:
+cada archivo de test tiene su propio proceso, su propio jsdom y su propio registro de módulos.
+Ningún `URL.createObjectURL` stubbeado ni `fetch` interceptado de otro archivo puede cruzar. **El
+orden tampoco es aleatorio**: no hay `sequence.shuffle`; el orden dentro de un archivo es el de
+declaración.
+
+El origen estaba **dentro del propio `PhotoUploader.test.tsx`**, entre dos tests vecinos:
+
+1. El test `envía contentLength=file.size en el presign` (el 3º) hace
+   `await waitFor(() => expect(presignSpy).toHaveBeenCalled())`. Esa espera se satisface en
+   cuanto `presignUpload` es **invocado** — a los pocos ms. Pero el pipeline de `handleFile`
+   sigue vivo: el presign mock resuelve a ~120ms (`delay()` de `lib/api.ts`) y encadena
+   `uploadToPresignedUrl` (otros ~200ms de mock).
+2. RTL desmonta el componente en su `cleanup`, pero **una promesa no se desmonta**: la cadena
+   huérfana sigue corriendo.
+3. El test 4 arranca e instala `vi.spyOn(api, 'uploadToPresignedUrl')`. Si sigue vivo cuando la
+   cadena del test 3 llega a su paso de subida, **esa llamada ajena queda registrada en su spy**
+   → `expect(uploadSpy).not.toHaveBeenCalled()` falla.
+
+Instrumentado con una sonda temporal, el mecanismo quedó explícito: en el test 4, a los +400ms,
+`uploadSpy.mock.calls.length === 1`, con `file.size === 8` (los `'imgbytes'` del test 3, no los
+10 bytes del test 4) y `uploadUrl === 'mock://storage/kyc_ine/nhejfdni'` — la URL del presign
+**real** del test 3, no la `.../x` que el test 4 mockeó. La huella es del test 3, sin ambigüedad.
+
+Por eso pasa en aislado y falla en la corrida completa: es una **carrera contra el reloj**. Con la
+máquina descargada el test 4 termina antes de los ~320ms y el fantasma aterriza en tierra de nadie.
+
+### Qué se tocó
+
+- `frontend/src/components/ui/PhotoUploader.test.tsx` — **en el origen (test 3), no en la víctima**:
+  tras verificar los argumentos del presign, el test espera el estado terminal (`Subida ✓`) para
+  **drenar** la cadena dentro de su propio test. El test 4 quedó intacto: parchearlo para aguantar
+  la suciedad habría escondido el defecto para el siguiente test que aterrizara ahí.
+- `frontend/vitest.setup.ts` — `configure({ asyncUtilTimeout: 5000 })` (ver abajo).
+- `frontend/vitest.config.ts` — `testTimeout`/`hookTimeout` 20s, por encima del anterior.
+
+### Hallazgo aparte: fragilidad por reloj en `findBy*` (no es contaminación)
+
+Al validar el arreglo, una corrida completa cayó en **otro** test (`M2View.test.tsx`, «single-flight
+del ingest»), y bajo carga artificial de CPU cayeron **otros dos** del mismo archivo. El error real
+es siempre `Unable to find an element with the text: ...`: el default de RTL para `findBy*`/`waitFor`
+es **1000ms**, y vistas grandes como M2 ya gastan ~600-900ms de reloj en verde. Con 125 archivos en
+forks paralelos sobre 4 núcleos, esas esperas se pasan del segundo y caen por **reloj**, no por
+defecto de producto — y el test que cae **cambia de corrida a corrida**.
+
+El arreglo es universal y va en el setup compartido (`asyncUtilTimeout: 5000`), no test por test.
+**No esconde nada**: si el elemento no aparece nunca, el test sigue fallando; solo tarda más en
+rendirse. `testTimeout` sube a 20s para que el error que se lea sea el de Testing Library (que dice
+qué elemento faltó y pinta el DOM) y no un «test timed out» opaco. Ningún test de la suite depende de
+que un `findBy*` **rechace** (se verificó: cero `.rejects` sobre `findBy*`, cero
+`waitForElementToBeRemoved`), así que el techo más alto no cuesta nada en verde.
+
+### Números
+
+`tsc --noEmit` limpio · dos corridas completas seguidas: **1457/1457 (125 archivos)** y
+**1457/1457 (125 archivos)**. Además, `M2View` + `PhotoUploader` bajo 6 procesos quemando CPU en una
+máquina de 4 núcleos (la condición que los rompía antes del cambio): **70/70**.
+
+---
+
+## §63 · **M2 › Sincronización del catálogo: TRES acciones y un aviso que no puede afirmar más de lo que pasó** (`DESIGN_SYSTEM §32`, `API_CONTRACT §M2-CS`) — 2026-09-10, rama `claude/tcg-hunt-orchestration-ai2vma`
+
+> El dueño apretó «Re-sincronizar», la pantalla le dijo **«191 cartas procesadas · 0 precios» en
+> verde**, y no se había escrito nada. Backend ya dejó de mentir (D1/D2). Esto es la pantalla.
+>
+> ⚠️ El aviso verde falso **no estaba en una superficie: estaba en las tres**. Techlead lo midió y
+> por eso este pase reescribe la sección entera en vez de parchear la fila.
+
+### 1. Las TRES acciones (§32.2) — y las cuatro que desaparecen como FASES
+
+| # | Acción | Sitio | Fases | Confirmación |
+|---|---|---|---|---|
+| 1 | **Importar sets nuevos** | global | `POST /admin/catalog/sync-all` (barrido observable) | no |
+| 2 | **Sincronizar todo (forzar)** | global | `sync-all {force:true}` **→** `refresh-variants-all` | **sí** (§32.7) |
+| 3 | **Sincronizar este set** | **una por fila** | `sync {setId, force:true}` **→** `refresh-variants {setId}` | no |
+
+- ⛔ **Muere el menú ⋯ de esta tabla.** Ahí vivía escondida la única acción que traía precios,
+  mientras la grande y obvia no los tocaba. `RowMoreMenu` **se queda en el sistema** (§32.15 R6) y
+  hoy no tiene consumidor; queda dicho en su propio JSDoc para que no se lea como olvido.
+- ⛔ **«Backfill» retirado** («backfill nunca»): lo reemplaza la acción 3 sobre una fila **no
+  importada**, que por eso **no** está deshabilitada. Se retiró también `backfillCatalog()` de
+  `src/lib/api.ts` (el endpoint sigue vivo en backend; ninguna pantalla lo llama).
+- **Regla dura 4 implementada de verdad:** en la acción 3 la **fase 2 corre aunque la 1 falle** —
+  son fuentes distintas (pokemontcg.io vs TCGCSV) y el aviso nombra la que cayó.
+
+### 2. ⭐⭐ El veredicto: `src/lib/verdict.ts` (§32.4, **transversal**, no de M2)
+
+`computeVerdict(facts)` implementa el algoritmo de §32.4a **en su orden exacto** (el paso 2 —«no lo
+medí»— **antes** del 4 —«fue cero»—, que es lo que impide colapsar D2 otra vez). Seis veredictos,
+**uno solo verde**; `verdictTone`/`verdictRole` derivan color y semántica accesible.
+
+⭐ **Lo que hace imposible la regresión no es el algoritmo, es dónde vive.** `VerdictFacts` no tiene
+`isSuccess`, ni `status`, ni `ok`: **la vista no tiene de dónde sacar un verde que no venga de una
+cifra** (H10). Las tres «vistas puras» (`importNewView`, `forceAllView`, `repairSetView`) están
+fuera del componente, sin acceso al estado de la mutación.
+
+**H3/H4/H8/H10 en la práctica:** la primera cifra de cada frase es de **escritura** (el total sólo
+tras «de», en `text-muted`, vía `t.rich` con `<b>`/`<c>`); `cardsProcessed: null` ⇒ **«—»** y
+veredicto degradado; «procesad\*» está prohibida y hay un candado que barre todos los avisos;
+`jobId` sale de la frase y vive en un `<details>` «Detalle técnico».
+
+**Dos lecturas de §32 que tomé y conviene que ux-ui ratifique** (razón escrita en el código):
+1. En las acciones de **dos fases**, las cifras que **deciden** el veredicto son las de la **fase 2**
+   (variantes y precios), que es lo que la acción promete. La fase 1 entra por su **fallo** (⇒
+   PARCIAL) y por sus cartas en la frase. Sin esto, «fase 2 escribió 0 y 0 ⇒ NO SE HIZO» (§32.5b) es
+   contradictorio con un `HECHO` sacado de las cartas de la fase 1.
+2. Si la fase 1 no dejó resumen, un `HECHO` se **degrada a PARCIAL**: H1 exige que ninguna cifra sea
+   desconocida, y sus cartas se pintan «—».
+
+### 3. La tercera superficie: `setsQueued: 0` **es ambiguo**
+
+`POST /admin/catalog/sync-all` devuelve `setsQueued: 0` tanto cuando **no había nada que traer**
+como cuando **se rechazó la corrida porque ya había un barrido en curso**. El copy viejo decía «el
+catálogo está al día» en los dos casos. Ahora: `remaining === 0` ⇒ `SIN CAMBIOS` **demostrable**
+(y la frase nombra el corte que reportó la corrida); `remaining > 0` ⇒ **`NO SE SABE`** con «—».
+⚠️ La ambigüedad del campo es **de contrato** y está con el arquitecto; aquí sólo se deja de emitir
+un veredicto que las cifras no sostienen.
+
+### 4. El espejo del contrato y las fixtures (lo que hacía inauditable el defecto)
+
+`src/types/contract.ts` estaba congelado en la semántica vieja y `src/lib/mock/fixtures.ts`
+**modelaba la mentira**: el espejo concordaba consigo mismo y ningún test podía cazar nada.
+
+| Fichero | Cambio |
+|---|---|
+| `types/contract.ts` | `RefreshVariantsSummary` gana `setsWritten`/`setsNoop`; `setsOk` queda **`@deprecated`** con su significado congelado escrito · `CatalogSyncStatusResponse.summary` (nuevo `CatalogSyncSummary`) · `RefreshVariantsResponse.cardsProcessed: number \| null` + `cardsInSet` · `failures[].code: string \| null` · `CatalogSyncResponse` gana el reparto · `CatalogSyncAllResponse` gana el eco de la selección |
+| `lib/mock/fixtures.ts` | el barrido de variantes reparte `setsWritten`/`setsNoop` y **modela el set que no empareja** (un `noop`); `setsOk` se emite **derivado** |
+| `lib/api.ts` | mocks alineados: `cardsProcessed ≠ cardsInSet`, `summary: null` en `sync-status`, eco de `fromReleaseDate` |
+
+### 5. i18n (§32.6): **las cinco `*Hint` muertas, BORRADAS** en `es.json` **y** `en.json`
+
+`syncAllHint · fullSyncHint · refreshVariantsHint · refreshVariantsAllHint · syncHint`. Su contenido
+vivo se mudó a **subtítulo permanente** bajo cada botón global y al **cuerpo de la confirmación**.
+⛔ Ni `title` ni tooltip: no cuentan como mostrado. Se retiraron además las claves de las acciones
+absorbidas, las de `groups.*`, `catalog.syncDone` (pintaba el `jobId`) y `syncAllUnavailable` (su
+texto mandaba al backfill, que ya no existe ⇒ era copia **falsa**, no sólo muerta).
+
+⭐ **Candado nuevo (CS-8, `src/lib/i18n-parity.test.ts`):** toda clave `*Hint` debe tener consumidor
+en `src/**`. **Se puso rojo al escribirlo** y cazó una clave que yo mismo acababa de crear
+(`importNew.cutoffHint`, sin consumidor porque el dato no existe todavía): se borró. Deuda heredada
+declarada y acotada: `admin.m1.sealedConditionHint` y `admin.m1.listPriceOptionalHint` (M1, otro
+work stream) siguen huérfanas; van en una lista explícita que sólo puede encoger.
+
+### 6. Lo que NO se implementó, por falta de dato — y **no se inventó** (H4)
+
+| §32 pide | Falta | Qué hace hoy la pantalla |
+|---|---|---|
+| Columna **`PRECIOS` `N/M`** (§32.15 R5) | `pricedVariants`/`variants` en `remote-sets` (§M2-CS.3) | **no se pinta**. ⛔ No se deriva de `cardCount` |
+| **Corte a la vista antes de apretar** (§32.3) | `catalogWindow` en `remote-sets` (§M2-CS.4) | subtítulo permanente que dice que **no se pudo leer: «—»**; la fecha sí se nombra en el aviso, leída del `202` de la corrida. ⛔ **Sin enlace «Cambiar la fecha» a M10**: §M2-CS.4 derogó ese dial |
+| `{p} precios escritos` en la acción 1 (§32.5a) | — | **imposible por contrato**: §M2-CS.1 rechaza `pricesWritten` en ese barrido. El aviso no promete precios ahí |
+
+### 7. Candados (§32.13) y **la mutación**
+
+`CatalogSyncSection.test.tsx` (25) + `verdict.test.ts` (13) + CS-8/CS-9 en `i18n-parity`. Cada uno
+afirma **lo que el dueño lee** (versalita, frase, ausencia de la cifra de contexto) y el **token de
+color**, no un detalle interno.
+
+**Demostración de que el candado puede ponerse rojo** — sobre una copia se restauró el verde-con-ceros
+en **cada** superficie y se contaron los muertos:
+
+| Mutación (comportamiento viejo restaurado) | Superficie | Tests que mueren |
+|---|---|---|
+| **M-A** — la fila pinta `HECHO` si la llamada no lanzó (el viejo `variant={isSuccess…}`) | acción 3 | **4** |
+| **M-B** — titular desde `setsOk` y tono desde `setsFailed>0 \|\| pending>0` | fase 2 de la acción 2 | **2** |
+| **M-C** — `setsQueued===0` ⇒ «al día», y barrido terminado ⇒ verde | acción 1 | **2** |
+
+⚠️ M-B mata **2** porque el comportamiento viejo y el nuevo **sólo divergen** cuando
+`setsWritten:0 · setsNoop>0 · setsFailed:0 · pending:0` (más el control positivo, que fija que la
+cifra de cartas sale de `cardsUpserted` y **no** de `setsOk`). Es el tamaño real de la diferencia,
+no un candado flojo.
+
+### 8. Falso rojo de CI: `CheckoutUnavailable.test.tsx:169` — **causa medida, arreglo en el origen**
+
+**No es presupuesto de espera** (subir el reloj no arregla esto) y **no es contaminación**.
+
+**La causa, medida con una sonda:** la poda quita el id muerto del `localStorage` ⇒ cambia
+`cart.ids` ⇒ **cambia la `queryKey`** (`['guest-checkout-quote', cart.ids]`) ⇒ cotización nueva sin
+caché ⇒ `QueryState` pinta su carga y **el subárbol de renglones se desmonta y vuelve**. La sonda lo
+enseña sin ambigüedad: **5 ms después de que `findByText('Charizard')` resuelva,
+`document.body.contains(nodo) === false` mientras hay 1 nodo «Charizard» en el DOM** — o sea, el
+`findBy*` había atrapado el nodo **transitorio**. Según cuál atrape (contención de CPU mediante), la
+aserción cae con el mensaje exacto de CI: *«element could not be found in the document»*.
+
+**Reproducido**: con 6 procesos quemando CPU en 4 núcleos, **1 fallo en 6 corridas** del fichero.
+
+**Arreglo, en el origen (el test, no la víctima ni el setup):** los renglones se comprueban
+**después** de que la re-cotización aterrice —que es el estado que el test quiere describir—, y no
+se sostiene una referencia a un nodo a través de un `await` que puede remontar el subárbol. Aplica
+a las **dos** pruebas con esa forma (invitado y con cuenta). ⛔ Nada que cambiar en el producto: que
+el aviso viva **fuera** de `QueryState` es precisamente lo que lo hace sobrevivir a esa ventana, y
+eso se sigue comprobando. **Verificado: 14/14 bajo la misma carga que lo rompía.**
+
+**¿Cuántos más hay? (censo, no impresión):**
+
+| Familia | Medida | Riesgo |
+|---|---|---|
+| Nodo capturado sostenido a través de un `await` | **17** llamadas en 9 ficheros | **0 expuestas hoy**: sólo remonta solo un subárbol cuyo componente **cambia su propia `queryKey`**, y eso lo hacen **2** componentes (`CheckoutView`, `GuestCheckoutView`), cuyos 2 tests son los ya arreglados. Las otras 17 capturan diálogos/cajones que sólo cambian por interacción |
+| Esperas con **reloj propio por debajo** del presupuesto compartido (`timeout: 3000` < `asyncUtilTimeout: 5000`) | **12** llamadas en **2** ficheros: `(storefront)/page.test.tsx` (2) y `admin/m2/bounties/BountiesView.test.tsx` (10) | ⚠️ **Ésta es la pared siguiente**: no obedecen el endurecimiento de CI y se rinden **antes** que el resto. Se reporta, no se toca (fuera del encargo) |
+
+### 9. Peticiones al arquitecto (no las resuelvo yo)
+
+1. ⭐⭐ **`remote-sets` necesita `pricedVariants`/`variants`** (§M2-CS.3, R5) — sin ellos el dueño no
+   puede **ver** qué set está roto, que es el flujo entero de la acción de reparación.
+2. ⭐ **`remote-sets` necesita `catalogWindow`** (§M2-CS.4): hoy el corte sólo se puede leer
+   **después** de lanzar la importación, y §32.3 lo exige **antes**.
+3. ⚠️ **`setsSkippedUnknownDate` vs `setsSkippedUndated`**: el contrato (§M2-CS.1) nombra el campo
+   `setsSkippedUnknownDate`; `catalog-sync.service.ts` emite **`setsSkippedUndated`**. No lo consumo
+   hasta que los dos nombres sean uno.
+4. **`setsQueued` carga tres hechos distintos** según el endpoint (ya en su mesa): mientras tanto la
+   pantalla emite `NO SE SABE` en vez de un veredicto que no puede sostener.
+
+### 10. Hallazgos para **ux-ui** (§32 tal como está escrita no se puede cumplir al pie de la letra)
+
+1. **§32.5b abre su frase de `HECHO` con «{s} sets revisados»**, que es vocabulario de **LECTURA**
+   (H8) en la **primera** posición, y **H3 exige** que la primera cifra sea de **escritura**. Se
+   implementó respetando H3 (primero variantes y precios). **Conflicto interno de §32.**
+2. **§32.5a promete «{p} precios escritos» en la acción 1**, y §M2-CS.1 **rechaza** esa cifra ahí
+   (ese barrido no escribe precios). Se implementó sin ella. *(El contrato ya enruta el choque.)*
+3. **§32.2 cita `POST /admin/catalog/sync` sin `setId`** para la acción 1, pero el barrido
+   **asíncrono observable** por `sync-status` —que es lo que §32.5a describe— es `sync-all`, que
+   además es el que honra el corte (§M2-CS.4). Se implementó con `sync-all`.
+4. **§32.14 conserva `catalog.refreshVariantsNeedsImport`** («primero importa el set») como motivo
+   de deshabilitado, pero §32.1 dice que la acción de fila sobre un set **no importado** es lo que
+   reemplaza al backfill ⇒ el botón **no puede estar deshabilitado** y la clave se quedó sin
+   consumidor. **Borrada** por §32.6.
+5. **Cuarta superficie, fuera de §32 y no la toco:** `PriceIngestSection` («Actualizar precios
+   ahora», acción A) pinta `Banner variant="success"` desde `ingestMutation.isSuccess` sobre un
+   **encolado**. §32.4 H6 dice que «encolado» se reporta como **estado**, nunca como veredicto
+   verde. §32 excluye la acción A de su alcance, así que queda **reportado**, no arreglado.
+
+## §64 · **El verde falso seguía vivo diez líneas más allá**, el tercer campo que el DTO traía y la pantalla no veía, y el intermitente de M10 — 2026-09-10, rama `claude/tcg-hunt-orchestration-ai2vma`
+
+> Tres hallazgos: dos de techlead (bloqueantes) y uno de QA. Cierre del §63, que se había declarado
+> cerrado **sin serlo**.
+
+### 1. ⭐⭐ `RarityHealthSection`: el mismo panel, el mismo defecto, otra sección
+
+`unifyMutation.isSuccess` pintaba `Banner variant="success"` con «**Rarezas unificadas. La lista ya
+refleja las rarezas canónicas.**» + «{updated} de {processed} carta(s) actualizadas» — es decir,
+**verde con `cardsUpdated: 0` sobre `cardsProcessed: 191`**: la frase que el docstring de
+`lib/verdict.ts` cita como el defecto de origen, en el mismo panel, diez líneas más abajo. Y no era
+cosmético: el `hint` de la acción promete que *puede cambiar qué cartas quedan retenidas por el
+guardarraíl*, así que un verde falso ahí manda a revisar un guardarraíl que nadie movió.
+
+**Arreglo** — `unifyRaritiesView()`, función **pura** y exportada, con `computeVerdict`:
+
+| Campo del contrato | Papel | Por qué |
+|---|---|---|
+| `cardsUpdated` | ⭐ **la única cifra de ESCRITURA** | cartas cuyo `rarityCanonical` **difería** y se corrigió |
+| `cardsProcessed` | **contexto** — ⛔ no entra en `writes` (H3) | «recorridas», no tocadas: es literalmente el «191 cartas procesadas» de D2 |
+| `distinctCanonical` | contexto | rarezas canónicas resultantes |
+| `unmapped[]` | lista de HECHOS aparte | ⛔ **no degrada el veredicto**: no es trabajo que esta corrida pudiera hacer (añadir entradas al catálogo canónico es código). Se conserva íntegra en **todos** los desenlaces |
+
+`hadWork` es donde se juega `SIN CAMBIOS` vs `NO SE HIZO`: la acción es un **censo completo** —el
+contrato dice «0 en 2ª corrida»—, así que `cardsUpdated: 0` sobre un censo que **clasificó**
+(`distinctCanonical > 0`) es un cero **demostrable** ⇒ `SIN CAMBIOS` (neutro). Si recorrió cartas y
+**no clasificó ninguna**, no hay nada que demuestre que no hiciera falta ⇒ en la duda `NO SE HIZO`.
+⛔ Ninguno de los dos es verde. **`unifyRarities.result.done` sólo es alcanzable con veredicto
+`done`**, que exige `cardsUpdated > 0`: ésa es la mecánica del candado.
+
+**Copia:** `unifyRarities.done` y `unifyRarities.summary` **RETIRADAS** en `es.json` **y** `en.json`
+(eran la frase que encabezaba sin mirar la cifra), más `unifyRarities.running`, que ya no tenía
+consumidor (CS-8). Nuevas: `unifyRarities.result.{done,noChanges,notDone,unknown}`.
+
+**Y la forma dejó de ser de M2:** `ResultNotice` vivía dentro de `CatalogSyncSection`, así que
+adoptar §32.4 en otro panel costaba copiar-pegar. Ahora es **`components/ui/VerdictNotice.tsx`**
+(`VerdictNotice` + `VerdictBanner`, que deriva tono y `role` del **veredicto**). `CatalogSyncSection`
+la consume y sólo conserva lo suyo: el rótulo del `<details>` técnico.
+
+#### El barrido que pidió techlead: ¿era el último o hay cola?
+
+**39 superficies con tono de éxito en 25 ficheros** (31 `Banner variant="success"` + 8
+toasts/feedback), de las cuales **22 cuelgan del desenlace de una mutación**. Resultado:
+
+| Veredicto | Cuántas | Cuáles |
+|---|---|---|
+| **Defecto real, arreglado aquí** | **1** | `RarityHealthSection` (unify-rarities) |
+| **Defecto real, EN COLA** (no es de este stream) | **1** (2 sitios de render) | `SealedAddFlow` — `sync.resultSummary` / `resultSummary` pintan verde por **la mera presencia** de `SealedSyncResultDTO`: con `productsUpserted: 0` y `pricedCount: 0` sigue verde, y con `pendingPriceCount > 0` (trabajo pendiente) también. Es §32.4 H1/H2 + regla 3 del algoritmo ⇒ debería ser `NO SE HIZO`/`PARCIAL`. **Es del stream «Inventario y vault»** |
+| **Limítrofe, ya reportado** (§63 nota 10.5) | **1** | `PriceIngestSection`: verde sobre un **encolado** (H6 dice «estado, nunca veredicto verde»). No afirma trabajo ⇒ no miente, pero usa el token de éxito para un no-`done` |
+| **Limítrofe menor** | **2** | `QuickRemove` (`{count}` de `removed`) y `GradedEstimateReviewSection` (`deletedCount`): verde derivado de la **presencia** del DTO, no de la cifra. Hoy no pueden valer 0 por construcción del endpoint (el 404 ya tiene su rama `gone`), pero el tono no lo comprueba |
+| **Sanas** | **17** | Confirmaciones de `PUT`/`POST` de formulario (200 = escrito: M10 diales, M6 KYC, curva, spreads, graded), recibos con folio/etiqueta del propio DTO (`AddGradedModal`, `LocationsModal`, `QuickAdd`, `ItemDetailModal`, `CellDrawer`, M3/M4/M5/M8) y `FxRateCard`, que ya deriva de `outcome`, no de `isSuccess` |
+
+⇒ **La cola es de UNA superficie real** (`SealedAddFlow`, 2 sitios) más las tres limítrofes. No es
+una plaga; es lo que queda.
+
+### 2. ⭐ `setsSkippedUnknownDate`: el dato viajaba y la pantalla no podía verlo
+
+`CatalogSyncAllResponse` declaraba `fromReleaseDate` y `setsSkippedOutOfRange` y **no** el tercero:
+**0 apariciones en `frontend/`** frente a 4 en backend, que lo emite. La decisión de §M2-CS.4 —*«no
+entra, pero **se cuenta**; nunca excluido en silencio»*— era **inalcanzable en la UI**.
+
+- **`CatalogSyncAllResponse`** gana `setsSkippedUnknownDate`.
+- **`CatalogSyncSummary`** gana las **tres** (`fromReleaseDate`, `setsSkippedOutOfRange`,
+  `setsSkippedUnknownDate`): el `summary` es la fuente **canónica** (§M2-CS.1) y le faltaban todas.
+- **`selectionOf()`** (pura): prefiere el `summary` **del mismo `jobId`** y cae al eco del `202`.
+  Atribuirle a una corrida la selección de otra es la misma familia de mentira que §32 corrige.
+- **Se pinta** en un renglón `text-muted` dentro del aviso —`importNew.selection`—, también
+  **mientras corre** (el `202` ya la trae; callarla hasta el final sería volver a excluir en
+  silencio). H3: son cifras de **selección**, jamás abren la frase. **H4: lo que no viaja se pinta
+  «—», nunca `0`** (`figureOrUnknown`, ⛔ nunca `?? 0`).
+- **La petición 9.3 del §63 queda CERRADA**: backend ya emite `setsSkippedUnknownDate` (el nombre
+  del contrato), no `setsSkippedUndated`. Verificado en `catalog-sync.service.ts`.
+
+**`CatalogSyncResponse` (`POST /admin/catalog/sync`) se revisó y NO se toca, a propósito:** el
+contrato fija su `202` en `{ jobId, setsQueued, mode }` («shape sin cambios») y el backend devuelve
+`jobId + setsQueued + tally + mode` — **ninguna** de las tres cifras de selección. Ese endpoint no
+tiene fase de selección que reportar (con `setId` es un set puntual; con `from_date` el corte llega
+por argumento). Añadirlas sería inventar respuesta. **Va como pregunta al arquitecto**, no como
+código.
+
+### 3. Intermitente de `M10View.test.tsx:221` — **causa medida, y no es la familia del reloj**
+
+**Medido por QA: 1 rojo / 6 corridas de la suite completa; aislado 15/15.** Aislado **bajo carga**
+(6 procesos quemando CPU en 4 núcleos): **10/10 verde** ⇒ no es presupuesto de espera.
+
+**La causa, reproducida a mano** (sonda que retrasa 300 ms `getGradedEstimateConfig`): el aviso del
+gancho **se pinta dos veces con dos árboles distintos**. Mientras la segunda query —el tope de M2—
+está en vuelo, la variante es `onNoFigures`; cuando resuelve pasa a `on` y React **desmonta** el
+`<strong>Y gasta.</strong>` de la primera para montar el de la segunda. `findByText` resuelve
+legítimamente con el nodo viejo y la aserción corre sobre un nodo ya **desprendido** ⇒
+`closest('[role="status"]')` devuelve `null` ⇒ *«expected null to be truthy»*. Con la sonda, el
+patrón viejo **falla siempre** y el nuevo **pasa siempre**.
+
+**Familia:** la del **nodo transitorio** (§63 nota 8, `CheckoutUnavailable`), no la del reloj. ⛔ **No
+es** una de las 12 llamadas con `timeout: 3000` propio: ese censo sigue en pie, intacto, en
+`(storefront)/page.test.tsx` (2) y `BountiesView.test.tsx` (10) — esta prueba no usa reloj propio.
+**Diferencia con `CheckoutUnavailable`:** allí remontaba el subárbol porque el componente **cambiaba
+su propia `queryKey`**; aquí no hay remonte de subárbol sino **swap de variante de copy** disparado
+por una **segunda query independiente**. Tercera causa distinta, tercera vez.
+
+**Arreglo (en el test, no en el producto):** la espera se pone sobre la **aserción entera** —
+`waitFor` re-consulta el DOM en cada intento y acaba agarrando el nodo asentado. Si el aviso nunca
+fuera `status`, el `waitFor` agota su presupuesto y el test sigue rojo: no se esconde ninguna
+regresión.
+
+### 4. Peticiones al arquitecto (siguen abiertas / nuevas)
+
+1. ⭐⭐ **`remote-sets` necesita `pricedVariants`/`variants`** (§M2-CS.3, R5) — **sigue abierta**.
+2. ⭐ **`remote-sets` necesita `catalogWindow`** (§M2-CS.4) — **sigue abierta**.
+3. ✅ **`setsSkippedUnknownDate` vs `setsSkippedUndated`** — **cerrada**: backend emite el nombre del
+   contrato.
+4. **`setsQueued` carga tres hechos distintos** según el endpoint — **sigue abierta**.
+5. 🆕 **`POST /admin/catalog/sync` (`CatalogSyncResponse`): ¿la selección también, o no aplica?** Su
+   `202` normativo es `{ jobId, setsQueued, mode }`, pero el backend ya devuelve además el reparto de
+   §M2-CS.0 (`setsWritten`/`setsImported`/`setsRefreshed`/`setsNoop`/`cardsUpserted`) y **el contrato
+   no lo documenta**. Dos preguntas para el arquitecto: (a) ¿se formaliza ese reparto en el `202` de
+   `sync`?; (b) en modo `from_date`, ¿debe hacer eco de `fromReleaseDate`/`setsSkipped*` como
+   `sync-all`? Mientras tanto **no pinto ninguna de las dos cosas**.
+
+## §65 · `P-DEP-1`: el audit de devDependencies, **medido** — `js-yaml`, `vite`, y la decisión `vitest` 2 → 5 — 2026-09-11, rama `claude/tcg-hunt-orchestration-ai2vma`
+
+**Encargo:** el hallazgo `P-DEP-1` (pentester) bloqueaba el release porque `trivy-fs` no lee la tabla de
+fichas del trinquete de devops (`DEVOPS_NOTES §49.5`) y pone el SAST en rojo. Cero cambios de producto:
+solo devDependencies y lo que hiciera falta para que la suite pasara con ellas. Scratchpad propio:
+`…/scratchpad/repo-P-DEP-1*/` (raíz falsa con `frontend/`, `docs/` enlazado y `backend/` vacío — ver «la
+trampa de la copia» abajo).
+
+### 1. Punto de partida (medido 2026-09-11 01:00, `npm audit` + `vitest run` sobre el árbol vivo)
+
+| Advisory | Paquete | Severidad | Fix según npm |
+|---|---|---|---|
+| `GHSA-5xrq-8626-4rwp` | `vitest` 2.1.9 | **crítica** | `vitest` 5 (major) |
+| `GHSA-fx2h-pf6j-xcff` | `vite` 5.4.21 (transitiva de vitest) | **alta** | `vitest` 5 (major) |
+| `GHSA-2883-xcg3-v3hh` | `js-yaml` 4.3.1 (transitiva de eslint) | **alta** | lockfile (`fixAvailable: true`) |
+| + 3 moderadas (`@vitest/mocker`, `esbuild`, `vite-node`) | | moderada | caen con `vitest` 5 |
+
+Línea base de la suite: **1491/1491, 128 ficheros, 94.1 s** (vitest 2.1.9, Node 22.22.2, npm 10.9.7).
+
+### 2. `js-yaml` — 4.3.1 → **4.3.2**, solo lockfile
+
+`npm audit fix` en `frontend/`: diff de **3 líneas** en `package-lock.json` (version/resolved/integrity),
+`package.json` intacto. Sin cambio de API: `eslint` 8.57.1 lo consume igual.
+
+### 3. `vite` — **no hay fix menor sin cambiar el major de `vitest`** (medido, no supuesto)
+
+- `vitest@2.1.9` fija `vite: ^5.0.0` (`npm view`), y **5.4.21 es la última 5.x publicada** — la que ya
+  teníamos.
+- `GHSA-fx2h` cubre `<=6.4.2`; el primer `vite` limpio es 6.4.3 / 7.x. `esbuild` (`GHSA-67mh`, moderada)
+  igual: vite 5 arrastra esbuild 0.21.5 y el fix es `>0.24.2`.
+- ⇒ `vite` solo se limpia arrastrado por `vitest` 4/5. Ahora `vite` es **peer** de vitest, no transitiva:
+  entra explícita en `devDependencies` como `^7.3.6`.
+
+### 4. `vitest` 2 → **5.0.0** — la decisión, con los datos que la sostienen
+
+**Candidatos** (`npm view`): 4.1.11 (2026-08-18; engines `^20 || ^22 || >=24`; peers `vite ^6||^7||^8`,
+`@types/node ^20||^22||>=24`) y 5.0.0 (2026-09-03, `latest`; engines `^22.12 || ^24 || >=26`; peers `vite
+^6.4||^7||^8`, `@types/node ^22 || >=24`). Ambos limpian los seis advisories.
+
+**La trampa de la copia (falso rojo, cazado antes de contarlo):** la primera corrida de vitest 5 en la
+copia dio `21 failed | 1449 passed (1470)` + 1 fichero sin recolectar. Los tres ficheros rojos
+(`error-audience.test.ts`, `mock/fx-contract-mirror.test.ts`, `test/e2e-paid-provider-guard.test.ts`) leen
+**fuera de `frontend/`**: `../docs/DESIGN_SYSTEM.md`, `../../docs/API_CONTRACT.md` y `findRepoRoot()`
+(exige hermanos `backend/` + `frontend/`). La copia estaba suelta en el scratchpad, sin nada de eso. Con
+una raíz falsa (`docs` → symlink de solo lectura al real, `backend/` vacío) los tres dan **81/81**. ⛔
+Regla para el siguiente que copie `frontend/` a otro sitio: **copiar la forma del repo, no solo la
+carpeta**.
+
+**Mediciones con vitest 5.0.0 + vite 7.3.6 + @types/node 22.20.2 (copia con raíz falsa):**
+
+| Qué | Resultado |
+|---|---|
+| `npm audit` | **0 vulnerabilidades** |
+| `tsc --noEmit` / `next lint` | limpios |
+| Suite completa, Node 22.22.2 | **1491/1491** (95.7 s) y **1491/1491** (123.2 s) |
+| Suite completa, **Node 20.20.2** (el del CI) | **1491/1491** (100.7 s) — `node@20` bajado vía npm, `node_modules/vitest/vitest.mjs run` |
+| `npm ci` **sin flags** con npm 10.9.7 desde el lockfile nuevo | exit 0, 561 paquetes |
+
+**Por qué NO 4.1.11, aunque su `engines` sí incluya Node 20:** `npm install -D vitest@4.1.11` **revienta
+arborist** en npm 10.9.7 (`TypeError: Cannot read properties of null (reading 'edgesOut')` en
+`#loadPeerSet`, `build-ideal-tree.js:1289`), con lockfile y sin él. Con `--legacy-peer-deps` instala,
+pero el lockfile resultante **no pasa `npm ci` sin flags** (EUSAGE: «lock file's picomatch@2.3.2 does not
+satisfy picomatch@4.0.7», «Missing: @swc/helpers@0.5.23»). npm **12.0.2** lo resuelve y lo reconstruye
+sin problema — pero el CI corre `setup-node@v4` con `node-version: 20` ⇒ Node 20.20.2 ⇒ **npm 10.8.2**
+(`nodejs.org/dist/index.json`), y `Dockerfile.frontend` es `node:20-alpine`. Un lockfile que solo
+instala npm 12 es un CI rojo por otra vía. **Descartado por medición**, no por preferencia.
+
+**La salvedad que hay que saber:** vitest 5.0.0 declara `engines.node ^22.12`, y el CI corre Node 20.
+Medido: la suite entera pasa bajo 20.20.2 (arriba); `npm ci` no es `engine-strict`, así que como mucho
+avisa. Es una combinación **funcional pero fuera del soporte declarado** de vitest. La salida limpia es
+la petición a devops de §6.
+
+**Cambios en `frontend/package.json`:** `vitest ^2.1.3 → ^5.0.0`; `vite ^7.3.6` (nuevo, peer);
+`@types/node ^20.16.11 → ^22.20.2` (peer de vitest 5; `tsc` limpio con él). `vitest.config.ts`,
+`vitest.setup.ts` y `tsconfig.json` (`types: ["vitest/globals"]`) **no cambian**: el API que usa la suite
+(`vi.spyOn` ×426, `vi.fn` ×160, `vi.mock` ×98, `vi.hoisted` ×17, timers falsos, `vi.stubGlobal`…) sigue
+igual en v5.
+
+### 5. Resultado en el árbol vivo (2026-09-11)
+
+`npm audit` **0**; `js-yaml@4.3.2`, `vitest@5.0.0`, `@vitest/mocker@5.0.0`, `vite@7.3.6`,
+`esbuild@0.28.2`, `@types/node@22.20.2`; `vite-node` desaparece (vitest 5 ya no lo usa). `tsc` y `lint`
+limpios. **Dos corridas completas, secuenciales, sin nada más compitiendo por CPU:**
+
+| Corrida | Resultado | Duración |
+|---|---|---|
+| 1 | **1491/1491** (128 ficheros) | 96.1 s |
+| 2 | **1491/1491** (128 ficheros) | 89.6 s |
+
+### 6. Lo que vi de paso (nombrado, no arreglado — no es mío)
+
+1. **Node 20 está EOL desde 2026-04-30** (`nodejs/Release/schedule.json`, medido hoy). Lo usan **todos**
+   los workflows (`ci.yml`, `e2e.yml`, `e2e-real.yml`, `security-*.yml`: `node-version: 20`) y los dos
+   `Dockerfile.*` (`node:20-alpine`). → **Petición a devops:** subir a Node 22 (LTS «Jod» hasta
+   2027-04-30). Con eso vitest 5 queda dentro de su `engines` y desaparece la salvedad de §4. Además, la
+   anotación del propio CI en `main` avisa: «Node.js 20 is deprecated … forced to run on Node.js 24» para
+   `actions/checkout@v4` y `actions/setup-node@v4` (eso es el runtime de las *actions*, otro frente).
+2. **Las fichas del trinquete de devops** (`security/npm-audit-dev-fichas.tsv`: `GHSA-5xrq`, `GHSA-fx2h`,
+   `GHSA-2883`) ya no corresponden a nada. Según `DEVOPS_NOTES §49.5` eso es **aviso, no rojo**, y la ficha
+   «se poda». → devops.
+3. Con vitest 5 **desaparecen los 29 avisos de `act(...)`** que vitest 2 volcaba a stderr (12 de
+   `BuylistKycForm`, 8 de `Harness`, …). No los conté como logro: no medí el porqué (NO MEDIDO — ¿cambia
+   cómo v5 expone `IS_REACT_ACT_ENVIRONMENT`?). Los 3 `Error: Not implemented: navigation (except hash
+   changes)` de jsdom **son preexistentes**: 3 con vitest 2, 3 con vitest 5.
+4. `next lint` avisa de su propia deprecación en Next 16 (ya estaba).
+
+### 7. Añadido del coordinador: **`ci-ok` rojo en `main` (`5f05b08`) — cuál test, medido**
+
+La anotación `::error::` del job `frontend` (`check-run 102348581836`, run `34314737665`, 2026-09-09
+05:24Z; pasos `Install`/`Lint`/`Typecheck` verdes, `Test` rojo) dice, literal:
+
+> `frontend/src/app/[locale]/(storefront)/checkout/CheckoutUnavailable.test.tsx:169` — «checkout · poda
+> amable de piezas muertas (v1.21.3-quote-prune) > invitado: 1 muerta (con nombre) + 2 vivas ⇒ banner con
+> el nombre, 2 renglones y localStorage podado» — `expect(element).toBeInTheDocument()` … `element could
+> not be found in the document` … `:169:50`.
+
+En `5f05b08` la línea 169 es `expect(await screen.findByText('Charizard')).toBeInTheDocument();` (col.
+50 = `.toBeInTheDocument`): **la aserción sobre el nodo transitorio que §63 nota 8 diagnosticó** y que
+`4034387` (ancestro de `HEAD`) mueve **después** de que la re-cotización aterrice, en las dos variantes
+(invitado y con cuenta). **Es uno de los tres arreglados hoy; no es un cuarto.**
+
+Comprobado por dos vías: (a) suite entera sobre `git archive 5f05b08` con su propio lockfile (vitest
+2.1.9): **4/4 verde, 1457/1457** — intermitente de contención, como dice la nota (allí: 1/6 bajo carga
+artificial); (b) el job `frontend` del CI en esta rama, después de `4034387`: **verde en `4034387`,
+`66ca52b`, `d2df320`, `0417da1`, `3cdc5af`, `874ee0c`** (y `75068d3` cancelado). ⇒ **el merge de esta
+rama a `main` cierra ese rojo.** El otro rojo de `ci-ok` (`e2e-harness-gaps`) es de devops.

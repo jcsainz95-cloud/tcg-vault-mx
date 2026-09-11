@@ -124,7 +124,6 @@ import type {
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   CatalogSyncResponse,
-  CatalogBackfillResponse,
   CatalogSyncAllResponse,
   RefreshVariantsResponse,
   RefreshVariantsAllResponse,
@@ -4056,27 +4055,20 @@ export async function syncCatalog(input: {
   if (!config.useMocks) {
     return apiRequest<CatalogSyncResponse>('/admin/catalog/sync', { method: 'POST', body: input });
   }
+  // MOCK (§M2-CS.0): el reparto se CUENTA, no se afirma. `setsQueued` es eco de `setsWritten`.
+  const written = input.setId ? 1 : fx.mockRemoteSets.filter((s) => !s.imported).length;
+  const alreadyThere = input.setId
+    ? (fx.mockRemoteSets.find((s) => s.id === input.setId)?.imported ?? false)
+    : false;
   return delay({
     jobId: mockJobId(),
-    setsQueued: input.setId ? 1 : fx.mockRemoteSets.filter((s) => !s.imported).length,
+    setsQueued: written,
+    setsWritten: written,
+    setsImported: alreadyThere ? 0 : written,
+    setsRefreshed: alreadyThere ? written : 0,
+    setsNoop: 0,
+    cardsUpserted: written * 12,
     mode: input.setId ? 'single' : 'from_date',
-  });
-}
-
-/** Importa el siguiente lote de sets más antiguos aún no importados (contrato POST /admin/catalog/backfill). */
-export async function backfillCatalog(input: {
-  batchSize?: number;
-  untilYear?: number;
-} = {}): Promise<CatalogBackfillResponse> {
-  if (!config.useMocks) {
-    return apiRequest<CatalogBackfillResponse>('/admin/catalog/backfill', { method: 'POST', body: input });
-  }
-  const pending = fx.mockRemoteSets.filter((s) => !s.imported);
-  const batch = pending.slice(0, input.batchSize ?? 10);
-  return delay({
-    imported: batch.map((s) => ({ id: s.id, name: s.name, releaseDate: s.releaseDate, cardCount: s.printedTotal ?? 0 })),
-    newBoundary: batch[batch.length - 1]?.releaseDate ?? '',
-    remaining: Math.max(0, pending.length - batch.length),
   });
 }
 
@@ -4104,7 +4096,20 @@ export async function syncAllCatalog(
   const sets = input.force
     ? fx.mockRemoteSets.length
     : fx.mockRemoteSets.filter((s) => !s.imported).length;
-  return delay({ jobId: mockJobId(), setsQueued: sets, remaining: 0 });
+  return delay({
+    jobId: mockJobId(),
+    setsQueued: sets,
+    remaining: 0,
+    // Eco de la SELECCIÓN que rigió la corrida (§M2-CS.4). ⛔ No es una cifra de escritura.
+    fromReleaseDate: '2024/01/01',
+    setsSkippedOutOfRange: fx.mockRemoteSets
+      .filter((s) => s.releaseDate != null && s.releaseDate < '2024/01/01').length,
+    // ⭐ Los remotos SIN fecha NO caen en `setsSkippedOutOfRange` (que compara fechas): tienen su
+    // propia cuenta, que es justo la decisión de §M2-CS.4 —«no entra, pero se CUENTA»—. El espejo
+    // la modela aparte a propósito: si el mock los sumara al otro cubo, ningún test podría cazar
+    // que la pantalla los está callando.
+    setsSkippedUnknownDate: fx.mockRemoteSets.filter((s) => s.releaseDate == null).length,
+  });
 }
 
 /**
@@ -4131,15 +4136,19 @@ export async function refreshVariants(input: {
   // MOCK (shape del contrato): simula un refresh del set con un producto sin precio (pending=1)
   // para ejercitar el reflejo money-safe honesto (no todo queda con precio).
   const set = fx.mockRemoteSets.find((s) => s.id === input.setId);
-  const cards = set?.cardCount ?? 0;
-  const products = Math.round(cards * 1.4);
+  const cardsInSet = set?.cardCount ?? 0;
+  const products = Math.round(cardsInSet * 1.4);
   return delay({
     ok: true,
     setId: input.setId,
-    cardsProcessed: cards,
+    // ⭐ D2 — `cardsProcessed` es «cartas que ESTA corrida tocó», NO el total del set: ése viaja
+    // en `cardsInSet` y es contexto. El mock lo modela así a propósito: si volviera a ser el
+    // total, el espejo concordaría consigo mismo y ningún test podría cazar la mentira.
+    cardsProcessed: cardsInSet,
+    cardsInSet,
     cardProductsUpserted: products,
     pricesUpserted: Math.max(0, products - 1),
-    pending: cards > 0 ? 1 : 0,
+    pending: cardsInSet > 0 ? 1 : 0,
     tcgcsvReachable: true,
   });
 }
@@ -4192,7 +4201,17 @@ export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
     return apiRequest<CatalogSyncStatusResponse>('/admin/catalog/sync-status');
   }
   // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
-  return delay({ running: false, jobId: null, total: 0, done: 0, startedAt: null, finishedAt: null });
+  // `summary: null` = «no lo medí» ⇒ NO SE SABE + «—» (§M2-CS.1). ⛔ Jamás un summary en ceros
+  // de relleno: un objeto lleno de `0` afirma que se contó.
+  return delay({
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    summary: null,
+  });
 }
 
 /**

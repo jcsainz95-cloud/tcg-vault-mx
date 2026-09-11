@@ -15,6 +15,11 @@ import {
   isBountyEffective,
 } from './pricing-curve';
 import type { PriceBasis } from './pricing-curve';
+// v1.64-iva-inclusive (§4.44.j): SOLO el tipo del enum de Prisma. `import type` ⇒ no hay import en
+// runtime ⇒ `money.ts` sigue siendo funciones puras sin dependencias de infra. Se importa en vez de
+// re-declarar la unión de strings A PROPÓSITO: así, el día que el enum del esquema cambie, esto no
+// compila en vez de aceptar en silencio un valor que la columna ya no admite.
+import type { PriceConvention } from '@prisma/client';
 
 /**
  * §4.36.7a — los CINCO valores LOCKED de PROJECT §N.7. Se DEFINE en `pricing-curve.ts` (que no importa
@@ -454,6 +459,58 @@ export function computeDirectShipBreakdown(
     totalCents,
     currency: 'MXN',
   };
+}
+
+/**
+ * ⭐⭐ **`netRevenueCents` — EL INGRESO PROPIO DE UNA FILA DE DINERO, y el ÚNICO lugar donde vive
+ * esa decisión** (v1.64-iva-inclusive, `ARCHITECTURE §4.44.j`, criterio **191**).
+ *
+ * **El defecto que existe para evitar.** `admin.service.ts` hacía `incomeCents += o.subtotalCents`.
+ * El día que `subtotalCents` pase a llevar el IVA dentro (deploy 2), ese reporte **no reventaría:
+ * MENTIRÍA**, contando el impuesto que se le debe al SAT como ingreso propio. Un reporte que revienta
+ * se arregla; uno que miente se cree.
+ *
+ * **Por qué UN helper y no cuatro `if` a mano.** Los sitios que leen dinero de una fila como INGRESO
+ * son varios (§4.44.j) y van a crecer. Cuatro copias de la misma decisión son cuatro sitios donde
+ * puede divergir; uno solo se muta una vez y pone rojos todos los candados a la vez.
+ *
+ * ⛔ **Se deriva SOLO de columnas PERSISTIDAS de ESA fila.** ⛔ Nunca del dial vivo, ⛔ nunca de
+ * `ivaTransferPct` (que es informativo/auditor), ⛔ nunca recalculando desde el precio de lista. Por
+ * eso una orden de hace un año sigue aportando **exactamente** lo que aportaba, y por eso mover el
+ * dial **no puede** cambiar ni un centavo de un periodo ya cerrado (criterio **190**, candado
+ * `IVA-5` ⭐⭐).
+ *
+ * ⚠️⚠️ **EL `default` LANZA, Y ESO ES LA FUNCIONALIDAD, no una paranoia.** Un `?? row.subtotalCents`
+ * o un `: 'IVA_EXCLUSIVE'` de cortesía es **exactamente la mutación que `IVA-3` mata**: haría que una
+ * fila sin convención —la que un camino de escritura olvidó etiquetar— se **interprete en silencio
+ * bajo la convención que hoy es mayoría**, y el día del deploy 2 esa mayoría cambia de bando. La
+ * columna es `NOT NULL` y **sin default de BD** justamente para que ese estado no exista; si aun así
+ * llega aquí (mock incompleto, fila sembrada a mano, `select` que olvidó la columna), **es un error
+ * de programación y tiene que sonar**, no producir una cifra plausible.
+ *
+ * En el **DEPLOY 1** devuelve `row.subtotalCents` para **toda** fila, porque **todas** son
+ * `IVA_EXCLUSIVE`: el P&L queda **bit a bit el de hoy**. Ése es el punto entero del deploy 1 — dejar
+ * el reporte probado NEUTRO **antes** de que exista la otra rama.
+ */
+export function netRevenueCents(row: {
+  subtotalCents: number;
+  ivaCents: number;
+  priceConvention: PriceConvention;
+}): number {
+  switch (row.priceConvention) {
+    // El IVA se cobró APARTE: el subtotal ya es el ingreso propio. Bit a bit lo de hoy.
+    case 'IVA_EXCLUSIVE':
+      return row.subtotalCents;
+    // El IVA viaja DENTRO del subtotal ⇒ no es ingreso propio, es impuesto trasladado.
+    case 'IVA_INCLUSIVE':
+      return row.subtotalCents - row.ivaCents;
+    default:
+      throw new Error(
+        `netRevenueCents: unknown priceConvention ${JSON.stringify(row.priceConvention)} — ` +
+          'a money row without a convention has no interpretation and MUST NOT be guessed ' +
+          '(ARCHITECTURE §4.44.e/§4.44.j, candado IVA-3)',
+      );
+  }
 }
 
 /**

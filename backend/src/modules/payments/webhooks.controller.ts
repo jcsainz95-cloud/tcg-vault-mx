@@ -3,6 +3,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
+import { StripeWebhookSecretMissingError } from './stripe.service';
 import { BusinessException } from '../../common/business.exception';
 
 /**
@@ -27,6 +28,26 @@ export class WebhooksController {
     try {
       event = this.payments.verifyAndParse(raw, signature);
     } catch (e) {
+      // P-WH-1: dos fallos que PARECEN el mismo y no lo son.
+      //
+      // (a) Firma inválida ⇒ 400 (contrato §9): el llamador mandó algo que no verifica.
+      // (b) Secreto de webhook AUSENTE ⇒ 503. No es culpa del llamador y decirle 400 sería mentir
+      //     dos veces: (1) marca un fallo de configuración NUESTRO como error de cliente y lo
+      //     entierra entre el ruido de firmas forjadas —justo el evento que debe hacer ruido—, y
+      //     (2) un `payment_intent.succeeded` LEGÍTIMO que llegara con el secreto sin poner
+      //     quedaría clasificado como basura. Con 5xx, Stripe reintenta hasta 3 días: el evento
+      //     SOBREVIVE al arreglo de config y la orden se liquida cuando el secreto aparece. Sí,
+      //     eso es un bucle de reintentos mientras la config esté rota — es el modo de fallo
+      //     QUERIDO: ruidoso, retenido y reversible, en vez de silencioso y con el dinero perdido.
+      //     El mensaje al cable es genérico a propósito (no se le confirma a un atacante el estado
+      //     de nuestra config); el detalle va al log de `StripeService`.
+      if (e instanceof StripeWebhookSecretMissingError) {
+        this.logger.error(`Webhook rechazado por configuración: ${(e as Error).message}`);
+        throw BusinessException.retriable(
+          'INTERNAL',
+          'Webhook signature verification is temporarily unavailable; retry later.',
+        );
+      }
       throw BusinessException.badRequest('VALIDATION_ERROR', `Invalid signature: ${(e as Error).message}`);
     }
     // Fix QA #1: NO tragamos el error. Si el handler falla (p. ej. DB transitoria),

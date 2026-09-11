@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${STAGING_POSTGRES_USER:-tcg_staging}
-      POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:-tcg_staging_password}
+      POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:?falta STAGING_POSTGRES_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       POSTGRES_DB: ${STAGING_POSTGRES_DB:-tcg_staging}
     # SEC-M4: bind SOLO a localhost (base de staging no expuesta a la LAN).
     ports:
@@ -83,7 +83,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${STAGING_MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
+      MINIO_ROOT_PASSWORD: ${STAGING_MINIO_ROOT_PASSWORD:?falta STAGING_MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
     # SEC-M4: bind SOLO a localhost (API + consola de staging).
     ports:
       - "127.0.0.1:${STAGING_MINIO_API_PORT:-9010}:9000"
@@ -110,7 +110,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set staging http://minio:9000 ${STAGING_MINIO_ROOT_USER:-minioadmin} ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging} &&
+      mc alias set staging http://minio:9000 ${STAGING_MINIO_ROOT_USER:-minioadmin} ${STAGING_MINIO_ROOT_PASSWORD:?falta STAGING_MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.} &&
       mc mb --ignore-existing staging/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set none staging/${S3_BUCKET:-tcg-photos} &&
       mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' staging/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' staging/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
@@ -139,13 +139,13 @@ services:
     environment:
       # Staging NO es production: usa validaciones estrictas pero datos de prueba.
       NODE_ENV: ${STAGING_NODE_ENV:-production}
-      DATABASE_URL: postgresql://${STAGING_POSTGRES_USER:-tcg_staging}:${STAGING_POSTGRES_PASSWORD:-tcg_staging_password}@postgres:5432/${STAGING_POSTGRES_DB:-tcg_staging}?schema=public
+      DATABASE_URL: postgresql://${STAGING_POSTGRES_USER:-tcg_staging}:${STAGING_POSTGRES_PASSWORD:?falta STAGING_POSTGRES_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}@postgres:5432/${STAGING_POSTGRES_DB:-tcg_staging}?schema=public
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-tcg-photos}
       S3_ACCESS_KEY_ID: ${STAGING_MINIO_ROOT_USER:-minioadmin}
-      S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
+      S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_ROOT_PASSWORD:?falta STAGING_MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       # v1.2.1: sin S3_PUBLIC_BASE_URL — bucket 100% privado (solo kyc_ine/, presigned GET).
       S3_FORCE_PATH_STYLE: "true"
       KYC_UPLOAD_MAX_BYTES: ${KYC_UPLOAD_MAX_BYTES:-10485760}
@@ -157,20 +157,29 @@ services:
       # (AES-256); si no, PiiCryptoService crashea al arrancar. El default es un
       # dummy determinista de local (base64 de 'staging_pii_enc_key_32bytes_ok!!',
       # 32 bytes); el staging real lo inyecta el secret manager (nunca real de prod).
-      PII_ENCRYPTION_KEY: ${STAGING_PII_ENCRYPTION_KEY:-c3RhZ2luZ19waWlfZW5jX2tleV8zMmJ5dGVzX29rISE=}
-      PII_HMAC_KEY: ${STAGING_PII_HMAC_KEY:-staging_pii_hmac_key_change_me_distinct}
+      PII_ENCRYPTION_KEY: ${STAGING_PII_ENCRYPTION_KEY:?falta STAGING_PII_ENCRYPTION_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
+      PII_HMAC_KEY: ${STAGING_PII_HMAC_KEY:?falta STAGING_PII_HMAC_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       # Secretos de staging: en local caen a dummies; en el staging real los
       # inyecta el secret manager de la plataforma. NUNCA reales de prod.
       # Defaults >= 32 chars (MIN_JWT_SECRET_LENGTH): la validacion de arranque
       # rechaza secretos JWT mas cortos. En el staging real los inyecta el secret manager.
-      JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:-staging_access_secret_change_me_please_32}
-      JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:-staging_refresh_secret_change_me_please_32}
+      JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:?falta STAGING_JWT_ACCESS_SECRET (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
+      JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:?falta STAGING_JWT_REFRESH_SECRET (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
       # Stripe en modo TEST siempre en staging (nunca claves live).
-      STRIPE_SECRET_KEY: ${STRIPE_TEST_SECRET_KEY:-sk_test_staging_dummy}
+      STRIPE_SECRET_KEY: ${STRIPE_TEST_SECRET_KEY:?falta STRIPE_TEST_SECRET_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_TEST_PUBLISHABLE_KEY:-pk_test_staging_dummy}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_TEST_WEBHOOK_SECRET:-whsec_staging_dummy}
+      # ⚠️ RESIDUAL DE P-WH-1 — aquí pesaba MÁS que en el compose local. Staging usa
+      # claves de Stripe de TEST, o sea que habla con Stripe de verdad y recibe
+      # webhooks de verdad; el default `whsec_staging_dummy` estaba commiteado en un
+      # repo PÚBLICO y, por la forma del `:-`, ganaba exactamente cuando el operador
+      # creía haber cargado el secreto y no lo había hecho. Un forjador con ese valor
+      # liquida pedidos en staging igual que el pentester lo hizo en local.
+      # Ahora falla ruidoso. Quien levanta staging (e2e-real.yml, security-dast.yml y
+      # el operador a mano) resuelve la variable con `scripts/webhook-secret-preflight.sh`,
+      # que genera un EFÍMERO cuando no hay Stripe y aborta cuando sí lo hay y falta.
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_TEST_WEBHOOK_SECRET:?falta STRIPE_TEST_WEBHOOK_SECRET. Resuelvela con ./scripts/webhook-secret-preflight.sh resolve (sin Stripe te da uno efimero). NO pongas un literal, el repo es publico (P-WH-1).}"
       # Login con Google (v1.2): mismo OAuth Client ID que el front. Vacío = login Google deshabilitado.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       # Disputas (v1.2): correo de contacto de evidencia. Vacío ⇒ el backend cae a su
@@ -192,15 +201,15 @@ services:
       FX_API_KEY: ${FX_API_KEY:-}
       BANXICO_SIE_TOKEN: ${BANXICO_SIE_TOKEN:-}
       SEED_ADMIN_EMAIL: ${STAGING_SEED_ADMIN_EMAIL:-admin@staging.local}
-      SEED_ADMIN_PASSWORD: ${STAGING_SEED_ADMIN_PASSWORD:-StagingAdmin123!}
+      SEED_ADMIN_PASSWORD: ${STAGING_SEED_ADMIN_PASSWORD:?falta STAGING_SEED_ADMIN_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       SEED_OPERATOR_EMAIL: ${STAGING_SEED_OPERATOR_EMAIL:-operador@staging.local}
-      SEED_OPERATOR_PASSWORD: ${STAGING_SEED_OPERATOR_PASSWORD:-StagingOperator123!}
+      SEED_OPERATOR_PASSWORD: ${STAGING_SEED_OPERATOR_PASSWORD:?falta STAGING_SEED_OPERATOR_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       APP_BASE_URL: ${STAGING_APP_BASE_URL:-http://localhost:3010}
       # OBLIGATORIA en modo production: la validacion de arranque aborta si falta.
       # En local el correo NO se envia de verdad; los usuarios sembrados vienen con
       # emailVerified:true, asi que un dummy no bloquea comprar/vender/retirar. En el
       # staging real la inyecta el secret manager (nunca una clave real de prod).
-      RESEND_API_KEY: ${RESEND_API_KEY:-re_staging_dummy_key_for_local_testing}
+      RESEND_API_KEY: ${RESEND_API_KEY:?falta RESEND_API_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       # Remitente y buzón de soporte de los correos (incluidos los del buylist). Vacíos = el
       # backend cae a sus defaults de código / a la cadena SUPPORT_EMAIL >
       # DISPUTE_EVIDENCE_CONTACT > default. Pass-through: `environment:` es allow-list.

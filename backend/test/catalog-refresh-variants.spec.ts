@@ -30,14 +30,16 @@ function pokemonClientSpy(): PokemonTcgIoClient {
   } as unknown as PokemonTcgIoClient;
 }
 
-/** Prisma mínimo: `cardSet.findUnique` devuelve el set local (o null) con su conteo de cartas. */
+/**
+ * Prisma mínimo: `cardSet.findUnique` resuelve el set local (o null) y `card.count` da el universo
+ * del set — la fuente ÚNICA del predicado «cartas locales de un set» (`countLocalCardsInSet`).
+ */
 function prismaMock(set: { id: string; cards: number } | null) {
   return {
     cardSet: {
-      findUnique: jest.fn(async () =>
-        set ? { id: set.id, _count: { cards: set.cards } } : null,
-      ),
+      findUnique: jest.fn(async () => (set ? { id: set.id } : null)),
     },
+    card: { count: jest.fn(async () => (set ? set.cards : 0)) },
   } as unknown as PrismaService;
 }
 
@@ -58,6 +60,7 @@ describe('CatalogSyncService.refreshVariants (M-34) — SOLO TCGCSV, jamás poke
         pricesWritten: 55,
         pricesPending: 7,
         unjoined: 1,
+        cardsTouched: 38, // cartas DISTINTAS tocadas por la corrida (≠ las 42 que tiene el set)
       })),
     };
     const svc = new CatalogSyncService(
@@ -74,7 +77,9 @@ describe('CatalogSyncService.refreshVariants (M-34) — SOLO TCGCSV, jamás poke
     expect(res).toEqual({
       ok: true,
       setId: 'me05',
-      cardsProcessed: 42,
+      // D2: lo que la corrida TOCÓ (38), no el universo del set (42) — ese va aparte.
+      cardsProcessed: 38,
+      cardsInSet: 42,
       cardProductsUpserted: 40,
       pricesUpserted: 55,
       pending: 7,
@@ -152,6 +157,7 @@ describe('CatalogSyncService.refreshVariants (M-34) — SOLO TCGCSV, jamás poke
         pricesWritten: 1, // holofoil con precio
         pricesPending: 1, // reverse_holo sin precio ⇒ «—»/PRICE_PENDING
         unjoined: 0,
+        cardsTouched: 1,
       })),
     };
     const svc = new CatalogSyncService(prisma, client, settings(), reconciler() as any, resolver as any);
@@ -174,7 +180,9 @@ describe('CatalogSyncService.refreshVariants (M-34) — SOLO TCGCSV, jamás poke
     expect(res).toEqual({
       ok: true,
       setId: 'ambig',
-      cardsProcessed: 10,
+      // Sin groupId no se tocó NADA: 0 medido (y el universo del set, aparte, sigue siendo 10).
+      cardsProcessed: 0,
+      cardsInSet: 10,
       cardProductsUpserted: 0,
       pricesUpserted: 0,
       pending: 0,
@@ -194,6 +202,7 @@ describe('CatalogSyncService.refreshVariants (M-34) — SOLO TCGCSV, jamás poke
       status: 422,
     });
     expect((prisma as any).cardSet.findUnique).not.toHaveBeenCalled();
+    expect((prisma as any).card.count).not.toHaveBeenCalled();
     expect(resolver.resolveCardProductsForSet).not.toHaveBeenCalled();
     expectPokemonNotCalled(client);
   });

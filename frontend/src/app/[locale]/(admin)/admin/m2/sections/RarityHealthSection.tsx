@@ -1,15 +1,86 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Wand2 } from 'lucide-react';
 import { getRarityHealth, unifyRarities } from '@/lib/api';
+import type { UnifyRaritiesResponse } from '@/types/contract';
 import { Badge } from '@/components/ui/Badge';
-import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { VerdictBanner } from '@/components/ui/VerdictNotice';
+import { computeVerdict, type Verdict } from '@/lib/verdict';
+
+/** `<b>` = cifra de ESCRITURA (H3: primera y en negrita) · `<c>` = contexto muted tras «de». */
+const RICH = {
+  b: (chunks: ReactNode) => <strong className="font-medium tabular text-text">{chunks}</strong>,
+  c: (chunks: ReactNode) => <span className="tabular text-muted">{chunks}</span>,
+};
+
+/**
+ * ⭐⭐ **El veredicto de «Unificar rarezas»** — `DESIGN_SYSTEM §32.4`, la MISMA norma que rige la
+ * sección de sincronización. §32.4 es transversal: *vale para el aviso de resultado de CUALQUIER
+ * acción de cualquier panel*, y esta acción vive en el mismo panel, diez líneas más allá.
+ *
+ * Hasta hoy este aviso salía de `mutation.isSuccess` (⛔ H10) y abría con «Rarezas unificadas. La
+ * lista ya refleja las rarezas canónicas.» **en verde** aunque la corrida hubiera reescrito **0**
+ * cartas: la misma frase que el docstring de `lib/verdict.ts` cita como el defecto de origen. Y no
+ * era cosmético — el `hint` de esta acción promete que *puede cambiar qué cartas quedan retenidas
+ * por el guardarraíl*, así que un verde falso aquí manda a revisar el guardarraíl que nadie movió.
+ *
+ * **Cómo se traduce el contrato a hechos** (`POST /admin/catalog/unify-rarities`):
+ *
+ *  - `cardsUpdated` — la ÚNICA cifra de **escritura**: cartas cuyo `rarityCanonical` **difería** y
+ *    se corrigió. Es la que decide.
+ *  - `cardsProcessed` — **contexto**: cartas *recorridas*, no tocadas. ⛔ **No entra en `writes`**
+ *    (H3) y no puede abrir la frase: es exactamente el «191 cartas procesadas» de D2.
+ *  - `distinctCanonical` — contexto: rarezas canónicas resultantes.
+ *  - `unmapped` — **no** es trabajo pendiente de esta corrida: son rarezas que el catálogo canónico
+ *    (código, no datos) todavía no conoce. Se listan aparte, íntegras, y ⛔ no degradan el veredicto:
+ *    afirmar «parcial» por algo que esta corrida no podía hacer también sería afirmar de más.
+ *
+ * **`hadWork`, que es donde se juega el `SIN CAMBIOS` vs `NO SE HIZO`:** la acción es un **censo
+ * completo** —recorre todo el catálogo con rareza y escribe exactamente lo divergente; el contrato
+ * lo dice: «0 en 2ª corrida»—, así que un `cardsUpdated: 0` sobre un censo que de verdad clasificó
+ * (`distinctCanonical > 0`) es un cero **demostrable** ⇒ `SIN CAMBIOS`, tono neutro. Si el censo
+ * recorrió cartas y **no clasificó ninguna**, no hay nada que demuestre que no hiciera falta ⇒ en la
+ * duda `hadWork: true` ⇒ `NO SE HIZO`. ⛔ En ninguno de los dos casos es verde (H2).
+ */
+export function unifyRaritiesView(data: UnifyRaritiesResponse): {
+  verdict: Verdict;
+  phraseKey: string;
+  vars: Record<string, string | number>;
+} {
+  const censusClassified = data.cardsProcessed > 0 && data.distinctCanonical > 0;
+  const emptyUniverse = data.cardsProcessed === 0;
+  const verdict = computeVerdict({
+    nothingRan: false,
+    // ⭐ Una sola cifra de escritura, y es la de escritura. ⛔ `cardsProcessed` NO entra (H3).
+    writes: [data.cardsUpdated],
+    // Síncrona, de una pasada y sin cola: no hay fase que pueda quedarse a medias (§M2 unify).
+    failedOrPending: false,
+    hadWork: !(censusClassified || emptyUniverse),
+  });
+  const vars = {
+    updated: data.cardsUpdated,
+    processed: data.cardsProcessed,
+    distinct: data.distinctCanonical,
+  };
+  // ⭐ `unifyRarities.result.done` —la única frase que afirma «rarezas unificadas»— sólo es
+  // alcanzable con veredicto `done`, que exige `cardsUpdated > 0` (H1). No hay otra rama que la
+  // devuelva, y ése es el candado: el verde no tiene de dónde salir si no hay escritura.
+  const phraseKey =
+    verdict === 'done'
+      ? 'unifyRarities.result.done'
+      : verdict === 'noChanges'
+        ? 'unifyRarities.result.noChanges'
+        : verdict === 'notDone'
+          ? 'unifyRarities.result.notDone'
+          : 'unifyRarities.result.unknown';
+  return { verdict, phraseKey, vars };
+}
 
 /**
  * M2 › **Salud del catálogo de rarezas** (DESIGN_SYSTEM §21.7b). Sustituye al asignador
@@ -26,6 +97,7 @@ export function RarityHealthSection() {
   const t = useTranslations('admin.m2');
   const tt = useTranslations('admin.m2.rarityHealth');
   const tc = useTranslations('common');
+  const tv = useTranslations('common.verdict');
   const qc = useQueryClient();
   const getError = useErrorMessage('operator');
 
@@ -38,6 +110,11 @@ export function RarityHealthSection() {
       qc.invalidateQueries({ queryKey: ['rarity-health'] });
     },
   });
+  /**
+   * El veredicto sale de las CIFRAS, en una función pura y fuera del componente: la vista no tiene
+   * acceso a `isSuccess` desde aquí y por tanto **no tiene de dónde sacar un verde** (H10).
+   */
+  const unifyView = unifyMutation.data ? unifyRaritiesView(unifyMutation.data) : null;
 
   return (
     <>
@@ -60,15 +137,13 @@ export function RarityHealthSection() {
         </div>
         <p className="max-w-3xl text-sm text-muted">{tt('subtitle')}</p>
 
-        {unifyMutation.isSuccess && (
-          <Banner variant="success" role="status">
-            <span className="font-medium">{t('unifyRarities.done')}</span>{' '}
-            {t('unifyRarities.summary', {
-              updated: unifyMutation.data.cardsUpdated,
-              processed: unifyMutation.data.cardsProcessed,
-              distinct: unifyMutation.data.distinctCanonical,
-            })}
-            {unifyMutation.data.unmapped.length > 0 && (
+        {unifyView != null && (
+          <VerdictBanner verdict={unifyView.verdict} label={tv(unifyView.verdict)}>
+            {t.rich(unifyView.phraseKey, { ...RICH, ...unifyView.vars })}
+            {unifyMutation.data != null && unifyMutation.data.unmapped.length > 0 && (
+              // Lista de HECHOS (no un resumen): se conserva íntegra en todos los veredictos. Es la
+              // consecuencia que el `hint` promete —el guardarraíl no reconoce estas rarezas—, y
+              // callarla en un desenlace malo dejaría al dueño sin la parte accionable.
               <div className="mt-2 flex flex-col gap-1">
                 <p className="font-medium">
                   {t('unifyRarities.unmappedTitle', { count: unifyMutation.data.unmapped.length })}
@@ -85,12 +160,13 @@ export function RarityHealthSection() {
                 </ul>
               </div>
             )}
-          </Banner>
+          </VerdictBanner>
         )}
         {unifyMutation.isError && (
-          <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-            {getError(unifyMutation.error)}
-          </Banner>
+          // FALLÓ: `danger` + `role="alert"` salen del veredicto, no de `isError` (§32.4a).
+          <VerdictBanner verdict="failed" label={tv('failed')}>
+            <span className="font-medium">{tc('errorTitle')}</span> {getError(unifyMutation.error)}
+          </VerdictBanner>
         )}
 
         <QueryState

@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-tcg}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tcg_local_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       POSTGRES_DB: ${POSTGRES_DB:-tcg_marketplace}
     # SEC-M4: bind SOLO a localhost. La base nunca se publica en 0.0.0.0 (LAN).
     # El backend en el perfil "apps" la alcanza por la red de compose (host
@@ -79,7 +79,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
     # SEC-M4: bind SOLO a localhost (API + consola no expuestas a la LAN).
     ports:
       - "127.0.0.1:9000:9000"
@@ -109,7 +109,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev} &&
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.} &&
       mc mb --ignore-existing local/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set none local/${S3_BUCKET:-tcg-photos} &&
       mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
@@ -151,13 +151,13 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       # Dentro de la red de compose los hosts son los nombres de servicio:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tcg}:${POSTGRES_PASSWORD:-tcg_local_dev_password}@postgres:5432/${POSTGRES_DB:-tcg_marketplace}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tcg}:${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}@postgres:5432/${POSTGRES_DB:-tcg_marketplace}?schema=public
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-tcg-photos}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin_local_dev}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?falta S3_SECRET_ACCESS_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
       # v1.2.1: sin S3_PUBLIC_BASE_URL — el bucket es 100% privado (solo kyc_ine/, presigned GET).
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       # Tope de bytes del upload de INE (kyc_ine). Opcional: sin valor, backend usa 10 MiB.
@@ -176,7 +176,42 @@ services:
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      # ⚠️ P-WH-1 (ALTA, explotado EN VIVO por el pentester — PENTEST_NOTES).
+      # Esta línea decía `${STRIPE_WEBHOOK_SECRET}` SIN default. Cuando la variable
+      # no estaba, compose la pasaba VACÍA, el backend hacía `?? ''` y la firma del
+      # webhook se verificaba con CLAVE VACÍA — que cualquiera puede computar. Con
+      # eso se forjó un `payment_intent.succeeded`, se liquidó un pedido y se movió
+      # una carta a la bóveda del comprador SIN COBRO.
+      #
+      # El `:-` no es cosmético (mismo criterio que POKEMONPRICETRACKER_API_KEY,
+      # DEVOPS_NOTES §32.12): «levantar SIN Stripe» y «aceptar cualquier firma» son
+      # cosas distintas y aquí dejaron de ser la misma. Con este default declarado
+      # el stack levanta sin claves y TODO webhook entrante se RECHAZA por firma
+      # inválida — que es exactamente lo que debe pasar sin Stripe.
+      #
+      # RESIDUAL DECLARADO: este literal está en un repo público, así que quien lo
+      # lea puede firmar contra TU stack local. Por eso `scripts/dev-up.sh` escribe
+      # un valor ALEATORIO en el `.env` que crea, y ese gana sobre este default.
+      # Si vas a exponer el stack local a una red, exporta un secreto propio.
+      # Candado: `scripts/check-stripe-webhook-failclosed.sh` (job `stripe-webhook-failclosed`).
+      # ⚠️ P-WH-1 y su RESIDUAL. Esta línea ha tenido tres formas y las dos primeras
+      # eran explotables:
+      #   1. `${STRIPE_WEBHOOK_SECRET}` (sin default) -> compose la pasaba VACÍA y el
+      #      backend verificaba la firma con clave vacía. Con eso el pentester forjó
+      #      un `payment_intent.succeeded`, liquidó un pedido y movió una carta a la
+      #      bóveda del comprador SIN COBRO. Explotado en vivo, no deducido.
+      #   2. `${STRIPE_WEBHOOK_SECRET:-whsec_local_placeholder…}` (default literal)
+      #      -> ya no degradaba a cero, pero el valor está en un repo PÚBLICO: quien
+      #      lo lea puede firmar contra este stack. Y por la forma del `:-`, ese
+      #      literal ganaba justo cuando alguien creía tener Stripe configurado y no
+      #      lo tenía. Misma avería que el `?? ''`, una capa más arriba.
+      #   3. (esta) `:?` -> compose FALLA RUIDOSO si la variable no está.
+      #
+      # Y falla de una forma que se arregla sola por el camino normal: `scripts/dev-up.sh`
+      # escribe un secreto ALEATORIO en el `.env` que crea, y compose lee ese `.env`.
+      # Levantar sin Stripe sigue siendo legítimo y sigue funcionando; lo que ya no se
+      # puede es heredar en silencio un valor que está publicado.
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:?falta STRIPE_WEBHOOK_SECRET. Levanta con ./scripts/dev-up.sh (te genera uno aleatorio en .env) o exporta el tuyo. NO pongas un literal, este repo es publico y cualquier valor escrito aqui es una clave que el atacante tambien tiene (P-WH-1).}"
       # Login con Google (v1.2): mismo OAuth Client ID que el front (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
       # Si va vacío, el backend rechaza el login con Google (email/password sigue OK).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

@@ -22,6 +22,8 @@
  * igual y con mejor mensaje en el `$connect()` del primer spec, que es donde la ausencia de infra se
  * manifiesta de verdad (probado apuntando a un Postgres inexistente: 3/3 rojos).
  */
+import { randomBytes } from 'crypto';
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('dotenv').config({ quiet: true });
 
@@ -29,7 +31,21 @@ jest.setTimeout(30000);
 
 // Secretos/valores dummy para que la app arranque (NO se usan contra red real salvo
 // el webhook, que verifica firma con STRIPE_WEBHOOK_SECRET — debe ser estable).
-process.env.STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_e2e_test_secret';
+
+// ### S-88-4 — aquí decía `|| 'whsec_e2e_test_secret'`
+//
+// Era el MISMO patrón de `P-WH-1` (*el literal público gana cuando falta el de verdad*) y en el
+// peor sitio posible: **el fichero que decide si un test de dinero es válido**. Con ese literal,
+// una corrida sin `STRIPE_WEBHOOK_SECRET` verificaba firmas con una clave commiteada en un repo
+// público — verde igual, pero verde contra algo forjable, y el preflight de devops **no lo cazaba**
+// (seguridad lo midió: `sk_live_…` + `whsec_e2e_test_secret` PASA el preflight).
+//
+// Se retira. En su lugar, un secreto **EFÍMERO ALEATORIO por corrida**: irrepetible, nunca
+// publicado, y estable dentro del proceso (`maxWorkers: 1`, y la app se levanta EN ESTE MISMO
+// proceso desde `helpers/e2e-app.ts`, así que firmante y verificador comparten `process.env`).
+// Misma solución que devops ya aplicó en `ci.yml`/`e2e.yml` con `webhook-secret-preflight.sh`.
+process.env.STRIPE_WEBHOOK_SECRET =
+  process.env.STRIPE_WEBHOOK_SECRET || `whsec_${randomBytes(24).toString('hex')}`;
 process.env.STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_e2e_dummy';
 process.env.STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_e2e_dummy';
 process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'e2e_access_secret';

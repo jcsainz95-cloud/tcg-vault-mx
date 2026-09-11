@@ -36,7 +36,16 @@
       "quarter": "Este trimestre",
       "year": "Este año"
     },
-    "undo": "Deshacer"
+    "undo": "Deshacer",
+    "verdict": {
+      "done": "Hecho",
+      "failed": "Falló",
+      "inProgress": "En curso",
+      "noChanges": "Sin cambios",
+      "notDone": "No se hizo",
+      "partial": "Parcial",
+      "unknown": "No se sabe"
+    }
   },
   "nav": {
     "catalog": "Compra",
@@ -1579,35 +1588,19 @@
         "title": "Actualizar precios",
         "subtitle": "Refresca los precios de referencia de todo el catálogo. Es la acción principal de este módulo; corre 1–2 veces al día y también puedes dispararla a mano aquí."
       },
-      "groups": {
-        "data": {
-          "eyebrow": "Datos",
-          "title": "Datos (rápido · TCGCSV)",
-          "subtitle": "Refrescan variantes, acabados y precios desde TCGCSV. Funcionan siempre, aunque la fuente de catálogo (pokemontcg.io) esté caída. Es lo que necesitas para reparar variantes o precios faltantes de un set ya importado."
-        },
-        "catalog": {
-          "eyebrow": "Catálogo",
-          "title": "Catálogo (cartas nuevas · usa fuente de catálogo)",
-          "subtitle": "Único camino para crear cartas nuevas: importa sets y cartas desde la fuente de catálogo (pokemontcg.io).",
-          "sourceWarning": "Estas acciones traen cartas nuevas desde la fuente de catálogo (pokemontcg.io). Si la fuente está caída o limitada, pueden fallar o no traer nada — usa el grupo Datos para refrescar variantes y precios mientras tanto.",
-          "sourceDownReroute": "pokemontcg.io no respondió; los precios y variantes que sí puedes actualizar están en el grupo Datos, más arriba."
-        },
-        "advanced": {
-          "eyebrow": "Avanzado",
-          "summary": "Avanzado — operaciones pesadas (re-sincronización completa)",
-          "subtitle": "Rara vez necesarias: reprocesan todo el catálogo o encadenan cartas + precios de un set. Pesadas y dependientes de pokemontcg.io."
-        }
-      },
       "unifyRarities": {
         "button": "Unificar rarezas",
         "hint": "Agrupa las rarezas fragmentadas del catálogo en su forma canónica. No cambia ningún precio, pero sí puede cambiar qué cartas quedan retenidas por el guardarraíl, porque este mira la rareza premium.",
         "confirmTitle": "Unificar rarezas del catálogo",
         "confirmBody": "Reasigna la rareza canónica de todas las cartas para colapsar duplicados y variantes de escritura en una sola rareza. Es una operación local de una sola pasada: no consulta fuentes externas. No cambia ningún precio, pero sí puede cambiar qué cartas quedan retenidas por el guardarraíl, porque este mira la rareza premium.",
         "confirmCta": "Unificar rarezas",
-        "running": "Unificando…",
-        "done": "Rarezas unificadas. La lista ya refleja las rarezas canónicas.",
-        "summary": "{updated} de {processed} carta(s) actualizadas · {distinct} rareza(s) canónica(s) distintas.",
-        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para que el guardarraíl las reconozca):"
+        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para que el guardarraíl las reconozca):",
+        "result": {
+          "done": "<b>{updated} cartas actualizadas</b> <c>de {processed} revisadas · {distinct} rarezas canónicas distintas</c>. La lista ya refleja las rarezas canónicas.",
+          "noChanges": "Ninguna carta necesitaba corrección: las <c>{processed} revisadas</c> ya tenían asignada su rareza canónica <c>({distinct} distintas)</c>. No se reescribió ninguna.",
+          "notDone": "El barrido terminó y <b>no reescribió ninguna rareza</b>, y no puede demostrar que no hiciera falta: recorrió cartas y no reconoció ni una rareza canónica. Las rarezas del catálogo <b>siguen como estaban</b> y el guardarraíl sigue mirando las de antes.",
+          "unknown": "La acción terminó y el sistema no puede decir cuántas rarezas reescribió: <b>—</b>. Comprueba la lista de abajo antes de darla por unificada."
+        }
       },
       "pending": {
         "title": "Cola de precio pendiente",
@@ -1762,74 +1755,87 @@
         "dailyRemaining": "Presupuesto restante hoy: {remaining}."
       },
       "catalog": {
-        "title": "Sync de catálogo (pokemontcg.io)",
-        "subtitle": "Importa sets y cartas del catálogo de referencia. Por defecto sets 2024+; backfill de colecciones anteriores por lotes.",
         "set": "Set",
         "releaseDate": "Lanzamiento",
         "imported": "Importado",
         "yes": "Sí",
         "no": "No",
         "cardCount": "Cartas",
-        "setsEmpty": "Aún no hay sets. Usa «Importar sets nuevos» (grupo Catálogo) como primer paso.",
+        "setsEmpty": "Aún no hay ningún set en la lista.",
         "busyReason": "Espera a que termine el barrido en curso.",
-        "import": "Importar",
-        "resync": "Re-sincronizar",
-        "backfill": "Backfill (siguiente lote)",
-        "syncAll": "Importar sets nuevos",
-        "syncAllHint": "«Importar sets nuevos» trae los sets recién salidos que aún no están importados (operación ligera); el sistema además lo hace solo 2 veces al día. «Re-sincronizar todo (forzar)» reprocesa TODO el catálogo: metadata, cartas y variantes/acabados (operación pesada). NO repuebla precios: esos se actualizan con «Actualizar precios ahora» o con el «Sync completo» por set.",
-        "fullSync": "Sync completo",
-        "fullSyncMenuItem": "Sync completo (cartas + precios)",
-        "rowMoreAria": "Más acciones para {name}",
-        "refreshVariantsShort": "Variantes + precios",
-        "refreshVariantsAllShort": "Refrescar variantes + precios (todo)",
-        "fullSyncAria": "Sync completo de {name}: cartas, variantes y precios",
-        "fullSyncHint": "Por set: «Importar»/«Re-sincronizar» solo trae metadata y cartas (no refresca variantes ni toca precios). «Sync completo» encadena dos fases: primero cartas + variantes/acabados del set y después los precios de ese set completo.",
-        "fullSyncPhaseCatalog": "Sync completo de {name} — fase 1/2: sincronizando cartas y variantes…",
-        "fullSyncPhasePrices": "Sync completo de {name} — cartas y variantes listas · fase 2/2: encolando precios del set…",
-        "fullSyncDone": "Sync completo de {name}: cartas y variantes actualizadas; precios del set encolados (corren en segundo plano — el avance se ve en la barra de «Actualizar precios»).",
-        "fullSyncPricesAlreadyRunning": "Sync completo de {name}: cartas y variantes actualizadas, pero ya había un barrido de precios en curso y los precios de este set NO se encolaron. Cuando termine, dispara «Actualizar precios ahora» o repite el sync completo.",
-        "fullSyncCatalogError": "Sync completo de {name}: falló la fase de cartas/variantes; NO se encolaron precios.",
-        "fullSyncPricesError": "Sync completo de {name}: cartas y variantes actualizadas, pero falló el encolado de precios. Reintenta con «Actualizar precios ahora».",
-        "refreshVariants": "Variantes + precios (solo TCGCSV)",
-        "refreshVariantsAria": "Refrescar variantes y precios de {name} usando solo TCGCSV",
-        "refreshVariantsHint": "«Variantes + precios (solo TCGCSV)» refresca las variantes/acabados y los precios de un set YA importado usando únicamente TCGCSV: NO re-importa cartas ni depende de pokemontcg.io. Úsalo para arreglar variantes o precios faltantes de un set cuando pokemontcg.io no está disponible.",
-        "refreshVariantsNeedsImport": "Primero importa el set (necesita estar en la base de datos).",
-        "refreshVariantsRunning": "Refrescando variantes y precios de {name} desde TCGCSV… no re-importa cartas ni usa pokemontcg.io. Esto puede tardar unos segundos.",
-        "refreshVariantsSummary": "{cards} carta(s) procesadas · {products} producto(s)/variante(s) actualizados · {prices} precio(s) actualizados.",
-        "refreshVariantsDone": "Variantes + precios de {name} refrescados desde TCGCSV.",
-        "refreshVariantsPartial": "Variantes + precios de {name} refrescados desde TCGCSV (resultado parcial).",
-        "refreshVariantsUnreachable": "TCGCSV no respondió por completo, así que el refresco quedó parcial; reintenta cuando TCGCSV esté disponible.",
-        "refreshVariantsPending": "{pending} producto(s) quedaron sin precio y siguen en la cola de pendientes.",
-        "refreshVariantsError": "No se pudieron refrescar las variantes y precios de {name} desde TCGCSV.",
-        "syncHint": "Importar, re-sincronizar y backfill se ejecutan de forma síncrona: pueden tardar y el resultado aparece al terminar. No cierres esta pantalla.",
-        "syncRunning": "Sincronizando con pokemontcg.io… esto puede tardar unos segundos.",
-        "syncDone": "Sync encolado: {count} set(s) (job {jobId}).",
-        "backfillDone": "Backfill: {count} sets importados, {remaining} restantes.",
-        "syncAllQueued": "Barrido encolado: {count} set(s) — importando en segundo plano; la lista se actualiza sola.",
-        "syncAllNothing": "No hay sets pendientes por importar (el catálogo está al día).",
-        "syncAllUnavailable": "El sync total no está disponible en el backend; usa el sync por set o el backfill.",
-        "syncAllForce": "Re-sincronizar todo (forzar)",
-        "sweepRunning": "Importando catálogo… {done}/{total} sets.",
-        "sweepRunningHint": "Corre en segundo plano; puedes seguir trabajando. El avance y la lista se actualizan solos.",
-        "sweepDone": "Sincronización completada: {total} set(s) procesados.",
-        "syncAllForceConfirmTitle": "Re-sincronizar todo el catálogo (forzar)",
-        "syncAllForceConfirmBody": "Esto reprocesa TODO el catálogo, incluidos los sets ya importados, para repoblar metadata, cartas y variantes/acabados. NO repuebla precios (usa «Actualizar precios ahora» o el «Sync completo» por set). Es una operación pesada que puede tardar bastante. ¿Continuar?",
-        "syncAllForceConfirmCta": "Sí, re-sincronizar todo",
-        "refreshVariantsAll": "Refrescar variantes + precios de TODO (solo TCGCSV)",
-        "refreshVariantsAllHint": "«Refrescar variantes + precios de TODO (solo TCGCSV)» corre el mismo refresco que la acción por set, pero sobre TODO el catálogo YA importado: repuebla variantes/acabados y precios usando únicamente TCGCSV. NO re-importa cartas ni depende de pokemontcg.io. Úsalo para backfillear la composición y los precios de todo el catálogo cuando pokemontcg.io no está disponible. El avance se ve en la barra de sincronización de catálogo.",
-        "refreshVariantsAllRunning": "Refrescando variantes y precios de TODO el catálogo desde TCGCSV… no re-importa cartas ni usa pokemontcg.io. Corre en segundo plano; el avance se ve en la barra de abajo y puede tardar varios minutos.",
-        "refreshVariantsAllSweepRunning": "Refrescando catálogo desde TCGCSV… {done}/{total} sets.",
-        "refreshVariantsAllSweepRunningHint": "Corre en segundo plano; puedes seguir trabajando. El avance y la lista se actualizan solos.",
-        "refreshVariantsAllSweepDone": "Refresco de variantes + precios completado: {total} set(s) procesados.",
-        "refreshVariantsAllSummary": "{setsOk}/{setsTotal} set(s) refrescados · {products} producto(s)/variante(s) actualizados · {prices} precio(s) actualizados.",
-        "refreshVariantsAllDone": "Variantes + precios de TODO el catálogo refrescados desde TCGCSV.",
-        "refreshVariantsAllPartial": "Refresco de TODO el catálogo desde TCGCSV con resultado parcial.",
+        "syncAllForceConfirmTitle": "Sincronizar todo el catálogo (forzar)",
+        "syncAllForceConfirmBody": "Reprocesa todos los sets, incluidos los que ya están importados, en dos fases: primero cartas e imágenes, después variantes y precios. No borra nada: reescribe. Puede tardar varios minutos y conviene dejar esta pantalla abierta. ¿Continuar?",
+        "syncAllForceConfirmCta": "Sí, sincronizar todo",
         "refreshVariantsAllPending": "{pending} producto(s) quedaron sin precio y siguen en la cola de pendientes.",
         "refreshVariantsAllFailuresTitle": "{count} set(s) fallaron y NO se refrescaron:",
         "refreshVariantsAllError": "No se pudo refrescar el catálogo completo desde TCGCSV.",
-        "refreshVariantsAllConfirmTitle": "Refrescar variantes + precios de TODO el catálogo (solo TCGCSV)",
-        "refreshVariantsAllConfirmBody": "Esto refresca las variantes/acabados y los precios de TODOS los sets ya importados usando únicamente TCGCSV. NO re-importa cartas ni usa pokemontcg.io. Es una operación masiva que puede tardar varios minutos y correr sobre todo el catálogo. ¿Continuar?",
-        "refreshVariantsAllConfirmCta": "Sí, refrescar todo el catálogo"
+        "setsEmptyCutoff": "Se traerán los lanzados desde {date}.",
+        "section": {
+          "eyebrow": "Sincronización del catálogo",
+          "title": "Sincronización del catálogo",
+          "subtitle": "Traer lo nuevo, y reparar lo que se vea mal.",
+          "repairLead": "Si un set concreto se ve mal, repáralo desde su fila."
+        },
+        "importNew": {
+          "label": "Importar sets nuevos",
+          "cutoffUnknown": "Cuenta como nuevo todo lo lanzado desde la fecha de corte, que hoy no se puede leer antes de lanzar: —. La corrida sí la dice al terminar. Los anteriores no entran; se traen desde su fila.",
+          "selection": "Selección de esta corrida: corte {date} · {outOfRange} set(s) fuera del corte · {unknownDate} sin fecha de lanzamiento (no entran, pero se cuentan)."
+        },
+        "forceAll": {
+          "label": "Sincronizar todo (forzar)",
+          "subtitle": "Dos fases: primero cartas e imágenes, después variantes y precios. No borra nada: reescribe.",
+          "phase1": "Fase 1 de 2 — cartas e imágenes… {done}/{total} sets.",
+          "phase2": "Fase 2 de 2 — variantes y precios… {done}/{total} sets.",
+          "phaseHint": "Corre en segundo plano. No cierres esta pantalla: la segunda mitad arranca sola en cuanto termina la primera.",
+          "secondHalfMissing": "Falta la segunda mitad",
+          "secondHalfBody": "Se trajeron las cartas, pero los precios no se actualizaron: la segunda mitad no llegó a correr.",
+          "secondHalfCta": "Terminar la segunda mitad"
+        },
+        "repairSet": {
+          "label": "Sincronizar este set",
+          "aria": "Sincronizar {name}: cartas, imágenes y precios",
+          "phase1": "{name} — fase 1 de 2: trayendo cartas e imágenes…",
+          "phase2": "{name} — fase 2 de 2: variantes y precios…"
+        },
+        "figure": {
+          "context": "de {n} del set",
+          "contextSets": "de {n} sets encolados",
+          "progress": "{done}/{total} sets"
+        },
+        "technicalDetail": "Detalle técnico",
+        "result": {
+          "importNew": {
+            "running": "Importando {done}/{total} sets… Corre en segundo plano; puedes seguir trabajando.",
+            "noChanges": "No había ningún set lanzado desde {date} que faltara por importar. No se importó nada.",
+            "noChangesUnknownDate": "No había ningún set nuevo que faltara por importar. No se importó nada. La fecha de corte que rigió esta corrida: —, el sistema no la reportó.",
+            "ambiguous": "No se encoló ningún set y quedan {remaining} sin importar. El sistema no puede decir qué pasó: —. Puede que ya hubiera un barrido en curso. Revisa la lista de abajo.",
+            "unknownSummary": "El barrido terminó. Cuántos sets quedaron importados y cuántas cartas se escribieron: — — el sistema todavía no lo reporta. La lista de abajo sí está al día: revísala.",
+            "lostState": "El sistema perdió el rastro de este barrido y no puede decir cómo terminó: —. Revisa la lista de sets; si falta alguno, repáralo desde su fila.",
+            "done": "<b>{written} sets actualizados</b> · <b>{cards} cartas escritas</b> <c>de {total} sets encolados</c>.",
+            "partial": "<b>{written} sets actualizados</b> · <b>{cards} cartas escritas</b>. <b>{failed} sets fallaron</b> y no se importaron.",
+            "notDone": "Se intentaron <b>{total} sets</b> y no quedó <b>ninguno</b> importado. El catálogo siguió como estaba.",
+            "failed": "La fuente de catálogo no respondió, así que no se trajo ningún set nuevo. Los precios de lo que ya tienes no se tocaron. Vuelve a intentarlo en unos minutos."
+          },
+          "forceAll": {
+            "done": "<b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b> · <b>{cards} cartas escritas</b> <c>de {sets} sets encolados</c>.",
+            "partial": "<b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b>.",
+            "notDone": "El barrido terminó y <b>no se escribió ni un precio ni una variante</b>. Todo quedó como estaba.",
+            "unknown": "El sistema perdió el rastro y no puede decir qué se escribió: <b>—</b>. Revisa la lista de sets; si alguno se ve mal, repáralo desde su fila.",
+            "catalogPhaseFailed": "<b>No se pudieron traer cartas nuevas</b>: la fuente de catálogo no respondió. Los precios y las variantes sí se actualizaron.",
+            "failed": "No se pudo arrancar la sincronización, así que no se escribió nada. Los precios y las cartas siguen como estaban."
+          },
+          "repairSet": {
+            "done": "<b>{name}</b>: <b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b> · <b>{cards} cartas tocadas</b> ",
+            "pending": "<b>{name}</b>: <b>{prices} precios escritos</b> · <b>{variants} variantes actualizadas</b>. <b>{pending} variantes quedaron sin precio</b> y siguen en la cola de pendientes.",
+            "notDone": "<b>{name}</b>: <b>no se escribió ningún precio ni ninguna variante.</b> Este set no se pudo emparejar con la fuente de precios (TCGCSV). <b>Sus precios siguen como estaban.</b>",
+            "unreachable": "<b>{name}</b>: <b>{prices} precios escritos</b>, pero la fuente de precios no respondió por completo. Repite cuando esté disponible.",
+            "catalogPhaseFailed": "<b>{name}</b>: no se pudieron traer <b>cartas nuevas</b> (la fuente de catálogo no respondió), pero <b>{prices} precios escritos</b> y <b>{variants} variantes actualizadas</b>.",
+            "pricePhaseFailed": "<b>{name}</b>: las cartas se trajeron, pero <b>los precios no se pudieron actualizar</b>: <b>—</b>. Sus precios siguen como estaban.",
+            "failed": "<b>{name}</b>: <b>no se importó ninguna carta y no se tocó ningún precio.</b> La fuente de catálogo y la de precios no respondieron.",
+            "unknown": "<b>{name}</b>: el sistema no puede decir qué se escribió: <b>—</b>. Revisa el set antes de darlo por reparado.",
+            "unknownFigure": "<b>{name}</b>: <b>{variants} variantes actualizadas</b> · <b>{prices} precios escritos</b>. Cuántas cartas tocó esta corrida: <b>—</b>, el sistema no lo pudo medir."
+          }
+        }
       },
       "sealedSpreads": {
         "title": "Spreads de venta del sellado",
