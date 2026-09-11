@@ -4,14 +4,23 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.1** — **§33 NUEVA: la cuenta del cliente (Stream A)** (2026-09-11). Crea **«Mi cuenta»** para los
+> Estado: **v4.1.1** — **§33 alineada al contrato v1.67** (`API_CONTRACT.md:6307-6432`, `ARCHITECTURE §4.47`;
+> 2026-09-11): (1) **no hay «modo crear contraseña»** — con `hasPassword=false` la sección explica y dispara
+> `forgot-password`; (2) el aviso de nombre derivado usa **`nameSource==='derived'`** (fuera la heurística); (3) la
+> pantalla de contraseña vive en **`/account/password`** y **`/admin/account/password`** (fuera `/change-password` en
+> `(auth)`), el redirect reenvía `?next=`, y `PATCH /users/me` **no** está en la allowlist; (4) códigos reales:
+> `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`, `PASSWORD_NOT_SET`, `RECIPIENT_NAME_REQUIRED`; (5) el
+> snapshot del retiro **no** cae a `User.name`; prellenado solo con `nameSource !== 'derived'`; (6) carrito de venta:
+> caducidad **30 días** y total «—» mientras recotiza. R1–R4 y R6 de §33.16 quedan **resueltas por el contrato**.
+> Antes: **v4.1** — **§33 NUEVA: la cuenta del cliente (Stream A)** (2026-09-11). Crea **«Mi cuenta»** para los
 > tres roles (**un componente, dos puertas**: `/account` en el storefront, `/admin/account` en el panel — §33.5,
 > con la alternativa de ruta única **descartada y razonada**); reordena el **header con sesión a cinco entradas**
 > (Comprar · Vender · Mi bóveda · **Compras y ventas** · Mi cuenta) y **saca el nombre y «Cerrar sesión» del
 > header** (§33.1); consolida compras + ventas en **`/orders` con dos pestañas-enlace** y **mueve los retiros a la
 > bóveda** como cuarta pestaña (§33.3, §33.4). El **nombre fabricado por Google** se detecta en el cliente con la
 > misma regla del backend y lleva **aviso hasta que el usuario lo escribe** (§33.6a). ⭐ **Contraseña temporal
-> BLOQUEANTE por decisión del dueño** (*«Que obligue a cambiarla»*): pantalla `/change-password` en `(auth)`, sin
+> BLOQUEANTE por decisión del dueño** (*«Que obligue a cambiarla»*): pantalla `/change-password` en `(auth)` *(ruta
+> retirada en v4.1.1: ahora `/account/password` · `/admin/account/password`)*, sin
 > «Continuar», con las únicas salidas «cambiarla» o «cerrar sesión» — la variante «aviso con enlace» **se
 > descarta** (§33.8). **Aviso de pedidos reclamables** en bóveda y compras que **nunca se pinta vacío ni en error**
 > y **no promete que entren a la bóveda** (§33.9). **Destinatario** en la dirección, confirmado en el retiro y
@@ -15888,6 +15897,13 @@ de hechos, no un resumen), `catalog.syncAllUnavailable`, `common.{cancel,errorTi
 >
 > **Decisión del dueño incorporada (2026-09-11, textual: *«Que obligue a cambiarla»*):** la contraseña temporal
 > **bloquea** hasta cambiarla (§33.8). La variante «solo aviso con enlace» **queda descartada y no se diseña**.
+>
+> **v4.1.1 — alineación al contrato v1.67 (el contrato manda, `CLAUDE.md` «Regla de conflicto»).** Qué cambió
+> respecto a v4.1: §33.5 (rutas `/account/password` y `/admin/account/password`), §33.6a (`nameSource`), §33.6d
+> (`rfcMasked`), §33.7 (sin «modo crear»; códigos reales; política de sesiones fijada por el contrato), §33.8 (la
+> pantalla bloqueante vive en la ruta de contraseña del rol, no en `(auth)`; allowlist exacta), §33.10
+> (`RECIPIENT_NAME_REQUIRED`; prellenado por `nameSource`), §33.11 (30 días; «—» al recotizar), §33.12–33.16
+> (componentes, claves, prohibiciones y notas ya resueltas). Lo demás no se toca.
 
 ### 33.0 Alcance, hechos que este diseño asume y las reglas duras
 
@@ -15899,8 +15915,8 @@ de hechos, no un resumen), `catalog.syncAllUnavailable`, `common.{cancel,errorTi
 | H2 | El panel de admin no tiene zona de cuenta: solo «Cerrar sesión» en el topbar. | `AdminTopbar.tsx:77-84` |
 | H3 | El backend **ya expone** todo el perfil: `GET/PATCH /users/me` (`name`, `phone`, `locale`), direcciones (CRUD), facturación (`GET/PUT`), KYC (`GET/PUT`). Su único llamador hoy manda **solo `phone`**. | `users.controller.ts:24-83`, `users.dto.ts:11-15`, `BuylistKycForm.tsx:234` |
 | H4 | `GET /orders/claimable` existe y `getClaimableOrders()` **no lo llama nadie**; el único reclamo vive en la confirmación de compra. | `api.ts:4855`, `GuestOrderConfirmation.tsx:67` |
-| H5 | Google sin nombre ⇒ el sistema **fabrica** `email.split('@')[0]`; nadie puede corregirlo. `GET /users/me` devuelve `authProvider`, `name`, `email` — suficiente para **detectarlo en el cliente** con la misma regla (§33.6a). | `auth.service.ts:339`, `users.service.ts:65-84` |
-| H6 | No hay endpoint ni pantalla para cambiar la propia contraseña; el aviso de temporal tiene un único botón «Continuar». El operador aterriza en `/admin` y nunca pisa el storefront. `mustChangePassword` no bloquea nada. | `AuthForm.tsx:21-23, 105-119`, `es.json:938-939` |
+| H5 | Google sin nombre ⇒ el sistema **fabrica** `email.split('@')[0]`; nadie puede corregirlo. **v1.67:** `GET /users/me` devuelve **`nameSource: 'user' \| 'google' \| 'derived'`** — el cliente lo lee, no lo deduce (§33.6a). | `auth.service.ts:339`, `API_CONTRACT.md:6394-6398` |
+| H6 | Hasta v1.66 no había endpoint ni pantalla para cambiar la propia contraseña y `mustChangePassword` no bloqueaba. **v1.67:** `POST /auth/change-password` (siempre con la actual; **sin modo crear**), guard `403 PASSWORD_CHANGE_REQUIRED` con allowlist de **tres** rutas, y `GET /users/me` con `hasPassword` y `mustChangePassword`. El operador sigue aterrizando en `/admin`. | `API_CONTRACT.md:6307-6399`, `AuthForm.tsx:21-23` |
 | H7 | `Address` **no tiene nombre**; los envíos de retiro salen sin destinatario. El checkout de invitado sí lo exige (`recipientName`). M4 pinta el `userId` crudo. | `schema.prisma:482-498`, `M4View.tsx:201`, `contract.ts:3894` |
 | H8 | El carrito de venta vive en memoria (`useState`) y los CTAs del drawer enlazan a `/login` y `/register` **sin `?next=`**; el carrito de compra sí persiste (`localStorage`, clave `tcg.cart`). | `useSellCart.ts:106`, `SellCartContents.tsx:358,364`, `cart.ts:5` |
 | H9 | Las solicitudes de venta solo se alcanzan desde dentro de Vender (`MyRequestsSection`) o por correo; los retiros viven en «Envíos», separados de la bóveda. | `BuylistView.tsx:456`, `ShipmentsView.tsx:320` |
@@ -16049,16 +16065,19 @@ Es el término de categoría (§1, léxico: «el nombre de la cosa manda la clar
 
 **Decisión: un componente, dos puertas.**
 
-| Rol | Ruta | Grupo / chrome | Cómo llega |
+| Rol | Rutas (**contrato**, `ARCHITECTURE §4.47.7`) | Grupo / chrome | Cómo llega |
 |---|---|---|---|
-| `customer` | **`/account`** | `(storefront)` — header de §33.1, banner de verificación, footer | Entrada «Mi cuenta» del header (escritorio y drawer) |
-| `vault_operator`, `super_admin` | **`/admin/account`** | `(admin)` — `AdminShell` (sidebar + topbar) | «Mi cuenta» del topbar (`≥ sm`) o del pie del drawer |
+| `customer` | **`/account`** y **`/account/password`** | `(storefront)` — header de §33.1, banner de verificación, footer | Entrada «Mi cuenta» del header (escritorio y drawer) |
+| `vault_operator`, `super_admin` | **`/admin/account`** y **`/admin/account/password`** | `(admin)` — `AdminShell` (sidebar + topbar) | «Mi cuenta» del topbar (`≥ sm`) o del pie del drawer |
 
-Las dos páginas (`(storefront)/account/page.tsx`, `(admin)/admin/account/page.tsx`) montan **el mismo**
-`AccountView` (`components/domain/account/AccountView.tsx`) con `surface: 'storefront' | 'admin'`; el componente
-decide **qué secciones pinta por rol** (§33.6) y **a dónde sale al cerrar sesión** (§33.6i). Los guards existentes
-hacen el resto: `PrivateRouteGuard` para `/account`, `AdminShell` para `/admin/account` (un `customer` que
-teclee `/admin/account` va a `/`, como hoy con cualquier `/admin/*`).
+Las páginas (`(storefront)/account/page.tsx` + `account/password/page.tsx`, `(admin)/admin/account/page.tsx` +
+`admin/account/password/page.tsx`) montan **los mismos** componentes de `components/domain/account/*`
+(`AccountView` con `surface: 'storefront' | 'admin'`, y `PasswordPage`); el componente decide **qué secciones pinta
+por rol** (§33.6) y **a dónde sale al cerrar sesión** (§33.6g). Los guards existentes hacen el resto:
+`PrivateRouteGuard` para `/account/*`, `AdminShell` para `/admin/account/*` (un `customer` que teclee
+`/admin/account` va a `/`, como hoy). **Un redirect más** (contrato): el layout de `/account` manda al staff a
+`/admin/account` + resto de la ruta. ⭐ **Las dos URL `/password` son contrato** con el login y con el interceptor
+(§33.8): no se renombran.
 
 **Por qué no la alternativa —una sola ruta compartida fuera de los grupos** (p. ej. `(account)/account` con un
 layout que elija el chrome por rol):
@@ -16087,8 +16106,8 @@ En `≥ lg`, a la izquierda un **índice pegajoso** (`lg:grid-cols-[200px_1fr]`,
 el resto muted (`aria-current="location"`). En `< lg` **no hay índice**: las secciones se apilan en orden y los
 anclajes (`#password`, `#addresses`) siguen funcionando.
 
-**Anclajes y foco:** al llegar con `#id` (desde el aviso de contraseña, desde el diálogo de retiro, desde
-`PHONE_REQUIRED`), la sección recibe el foco (`tabIndex=-1`, patrón P-4 de `BuylistKycForm.tsx:194-212`) y queda
+**Anclajes y foco:** al llegar con `#id` (desde el diálogo de retiro a `#addresses`, desde `PHONE_REQUIRED` a
+`#profile`), la sección recibe el foco (`tabIndex=-1`, patrón P-4 de `BuylistKycForm.tsx:194-212`) y queda
 centrada en el viewport. Sin esto, «te llevamos a tu perfil» aterriza en la cabecera y el usuario busca.
 
 **Patrón de edición (común a a, c, f, g):** cada sección es **su propio formulario** con un botón `secondary sm`
@@ -16116,18 +16135,19 @@ El operador no compra, no retira ni vende: sus tres secciones ausentes no son «
 - **Nombre** — `Input`, label «Nombre», `autoComplete="name"`, hint **«Así te llamamos en los correos y en tus
   envíos.»** Validación: obligatorio tras `trim()` (mensaje «Escribe tu nombre.»); la longitud la decide el
   servidor (hoy `UpdateMeDto.name` solo exige `string`; no se inventa un tope).
-- ⭐ **Aviso de nombre derivado de Google (P-73 A).** Condición, en el cliente: `user.authProvider === 'google'
-  && user.name === user.email.split('@')[0]` — **la misma regla con la que el backend lo fabrica**
-  (`auth.service.ts:339`), así que detecta exactamente los casos fabricados y deja de cumplirse en cuanto el
-  usuario escribe otra cosa. Se pinta como **nota al margen con regla roja** (`rule-note`, el patrón del bloque de
+- ⭐ **Aviso de nombre derivado de Google (P-73 A).** Condición: **`user.nameSource === 'derived'`** (contrato
+  v1.67, `GET /users/me`; el backend lo escribe al fabricar el nombre y lo pone en `'user'` al guardar `PATCH
+  /users/me {name}`, que devuelve la misma forma que el GET — sin segunda llamada). ⛔ La heurística
+  `authProvider==='google' && name === local-part` de v4.1 **queda retirada**: el contrato la declara falsa tras un
+  reset o un `forgot-password`. Se pinta como **nota al margen con regla roja** (`rule-note`, el patrón del bloque de
   ajuste de §25.5) **debajo del campo**, enlazada por `aria-describedby`:
   > **ES:** «Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te
   > llamemos.» · **EN:** “We took this name from your email address because Google didn't share your name. Tell
   > us what to call you.”
   Mientras se cumpla la condición, el campo arranca **con el foco** si se llegó a `#profile` por anclaje, y el
-  botón «Guardar» se habilita aunque el valor no haya cambiado aún (el usuario viene a escribirlo). Un nombre
-  real que coincida con el local-part del correo verá el aviso una vez y lo hará desaparecer guardando: coste
-  aceptable frente a un booleano nuevo en el contrato (§33.16 R6 lo pide como mejora, no como bloqueo).
+  botón «Guardar» se habilita aunque el valor no haya cambiado aún (el usuario viene a escribirlo). Validación del
+  contrato: tras `trim`, **1..120** caracteres (`400 VALIDATION_ERROR` con `details.field='name'` → error en el
+  campo con `account.profile.name.required` si vacío, `account.profile.name.tooLong` si excede).
 - **Celular** — `Input type="tel" inputMode="tel" maxLength=10`, label **«Celular»**, hint **«10 dígitos. Es para
   contactarte. El teléfono de cada dirección es para la paquetería.»** (son dos teléfonos distintos:
   `buylist.service.ts:4447`). Validación `^\d{10}$`, la de `BuylistKycForm.tsx:453`. Si está vacío, encima del
@@ -16166,7 +16186,9 @@ El operador no compra, no retira ni vende: sus tres secciones ausentes no son «
   cuenta). ⚠ Los dos campos de «clave SAT» van como `Input` con hint **«Clave del catálogo del SAT»**: este
   documento **no inventa** el catálogo; si product-owner quiere un `Select` con opciones, es una decisión suya
   (§33.16). Con perfil: los seis valores en retícula de dos columnas (celdas con reglas, §20.13) + «Editar».
-- Con `PUT` exitoso: `GUARDADO`. El RFC **se muestra completo** (es del propio usuario; el cifrado es en reposo).
+- Con `PUT` exitoso: `GUARDADO`. En lectura el RFC se pinta **como lo devuelve el contrato: `rfcMasked`**
+  (`XAX**********`, `API_CONTRACT.md:6430`), en mono; al editar, el campo RFC nace **vacío** con hint «Escríbelo
+  completo» (el servidor no devuelve el claro y el usuario lo conoce).
 
 **e · Verificación de identidad y CLABE (`#kyc`)**
 - `GET /users/me/kyc`. Retícula de lectura: **Estado** (`status.kyc.<enum>`, nunca el enum crudo, §9.2) ·
@@ -16182,7 +16204,12 @@ El operador no compra, no retira ni vende: sus tres secciones ausentes no son «
   privacidad `ine.privacy` (existe) + «Guardar» → `PUT /users/me/kyc {ineFrontUploadKey, ineBackUploadKey}`. Si
   está en archivo **no se ofrece re-subir** (misma regla que el formulario de venta, `BuylistKycForm.tsx:484`).
 
-**f · Contraseña (`#password`)** — §33.7.
+**f · Contraseña (`#password`)** — **resumen + puerta a la página de contraseña** (la ruta `/password` es contrato,
+§33.5). `h2` «Contraseña». Con `hasPassword === true`: línea muted «Cámbiala cuando quieras; cerraremos tus otras
+sesiones.» + enlace-botón `secondary sm` **«Cambiar contraseña»** → `/account/password` (o `/admin/account/password`).
+Con `hasPassword === false`: línea muted **«Entras con Google y tu cuenta no tiene contraseña.»** + `secondary sm`
+**«Crear contraseña»** → la misma página, que explica el camino (§33.7 B). **Es lo único que decide el rótulo:
+`hasPassword`** (contrato `:6388-6393`); nunca `authProvider`.
 
 **g · Cerrar sesión (`#session`)**
 - `h2` «Sesión» + una línea muted «Cierra tu sesión en este dispositivo.» + botón `secondary` **«Cerrar
@@ -16205,13 +16232,15 @@ anclaje se documenta arriba. Orden de tabulación = orden visual (índice antes 
 
 ---
 
-### 33.7 Cambiar contraseña — el formulario (`PasswordSection`)
+### 33.7 Cambiar contraseña — la página `/account/password` · `/admin/account/password` (`PasswordPage`)
 
-Vive en `#password` de «Mi cuenta» (los dos roles) y **es el mismo formulario** que usa la pantalla bloqueante
-(§33.8) con otro título. Componente `components/domain/account/PasswordForm.tsx`.
+Una página por rol (§33.5), **el mismo componente** (`components/domain/account/PasswordPage.tsx` con
+`PasswordForm.tsx`), y **la misma página** que sirve de bloqueo con temporal (§33.8): cambia el título y aparece
+el banner; el formulario es uno. Layout: columna editorial `max-w-xl` dentro del chrome del rol; enlace de vuelta
+**«← Mi cuenta»** encima del `h1` (oculto mientras bloquea, §33.8).
 
-**Variante A — «Cambiar contraseña» (cuenta con contraseña):**
-- `h2` **«Contraseña»**. Tres campos apilados (`gap-4`), todos `type="password"`:
+**Variante A — «Cambiar contraseña» (`hasPassword === true`), contra `POST /auth/change-password`:**
+- `h1` serif 30/38px **«Cambiar contraseña»**. Tres campos apilados (`gap-4`), todos `type="password"`:
   1. **Contraseña actual** — `autoComplete="current-password"`.
   2. **Contraseña nueva** — `autoComplete="new-password"`, `minLength=8`, hint **«Mínimo 8 caracteres.»** (la
      política vigente del contrato §1, la misma de `ResetPasswordView.tsx:13`; no se añaden reglas de mayúsculas o
@@ -16223,30 +16252,35 @@ Vive en `#password` de «Mi cuenta» (los dos roles) y **es el mismo formulario*
   debe tener al menos 8 caracteres.»**; 2 ≠ 3 → error en el campo 3 **«Las contraseñas no coinciden.»**; 2 = 1 →
   error en el campo 2 **«La contraseña nueva debe ser distinta de la actual.»** Cada error con `aria-invalid` +
   `aria-describedby` y el foco al campo fallido (P-4).
-- **Errores del servidor** (`error.*`, códigos **propuestos** al arquitecto — §33.16 R1; el frontend cablea los que
-  el contrato fije): `CURRENT_PASSWORD_INVALID` → en el campo 1 **«La contraseña actual no es correcta.»**;
-  `VALIDATION_ERROR` → campo 2, «al menos 8»; `PASSWORD_SAME_AS_CURRENT` (si el servidor lo emite) → campo 2,
-  «distinta de la actual»; cualquier otro → banner `danger` con `useErrorMessage`.
-- **Éxito:** el formulario se sustituye por línea mono verde **`CONTRASEÑA ACTUALIZADA`** (`role="status"`) y
-  un cuerpo que **depende de la política de sesiones que decida el arquitecto** (R1):
-  - *(recomendada)* revocar las demás y conservar la actual: **«Cerramos la sesión en tus otros dispositivos.
-    Esta sigue abierta.»** — sin más acción; el enlace «Cambiar otra vez» reabre el formulario.
-  - *(alternativa)* revocar todas: **«Vuelve a iniciar sesión con tu contraseña nueva.»** + botón `primary`
-    **«Iniciar sesión»** → `/login`. Sin redirección automática (una pantalla que se va sola mientras se lee es
-    un susto, no un ahorro).
-  El diseño **no elige la política** —es de seguridad—, pero fija los dos copys para que ninguna la improvise.
+- **Errores del servidor (códigos del contrato v1.67, `API_CONTRACT.md:4715-4726`, todos `422`, ninguno
+  navega):** `CURRENT_PASSWORD_INCORRECT` (`details.field='currentPassword'`) → en el campo 1 **«La contraseña actual
+  no es correcta.»**; `PASSWORD_SAME_AS_CURRENT` (`details.field='newPassword'`) → campo 2, «distinta de la actual»;
+  `400 VALIDATION_ERROR` → campo 2, «al menos 8»; `PASSWORD_NOT_SET` → **no debería ocurrir** (la página decide por
+  `hasPassword`), pero si llega, la página **cambia a la variante B en el sitio**; `429 RATE_LIMITED` → banner
+  `warning` **«Demasiados intentos. Espera un minuto.»**; cualquier otro → banner `danger` con `useErrorMessage`.
+  ⚠ Es `422` y no `401` **a propósito** (contrato): el interceptor no cierra la sesión por un dedazo.
+- **Éxito (`200 { ok, accessToken, refreshToken }`; política fijada por el contrato: las demás sesiones mueren,
+  ésta continúa con los tokens nuevos):** el cliente **reemplaza los dos tokens** y hace `patchStoredUser({
+  mustChangePassword: false, hasPassword: true })`. El formulario se sustituye por línea mono verde
+  **`CONTRASEÑA ACTUALIZADA`** (`role="status"`) + **«Cerramos la sesión en tus otros dispositivos. Esta sigue
+  abierta.»** + enlace «Cambiar otra vez» (reabre el formulario) y **«← Mi cuenta»**. Sin redirección automática
+  en el uso normal; **con `?next=`** (viene del bloqueo, §33.8) aparece el botón `primary` de continuar.
 
-**Variante B — «Crear una contraseña» (cuenta solo-Google, `passwordHash=null`):**
-- `h2` **«Crear una contraseña»** + cuerpo muted **«Entras con Google. Si creas una contraseña, también podrás
-  entrar con tu correo.»** Solo los campos 2 y 3. Botón **«Crear contraseña»**. Éxito: **`CONTRASEÑA CREADA`** +
-  **«Seguirás pudiendo entrar con Google.»** (la vinculación no se pierde: `auth.service.ts:305-331`).
-- **Cómo sabe el cliente qué variante pintar:** hoy `GET /users/me` trae `authProvider` pero **no** si hay
-  contraseña (`users.service.ts:80` lo insinúa: *«el front oculta cambiar contraseña cuando authProvider=google
-  sin passwordHash»* — pero no devuelve `passwordHash` ni un booleano). Regla: **se usa `hasPassword` del DTO**
-  cuando exista (R3); **mientras no exista**, `authProvider === 'google'` ⇒ variante B, y si el servidor responde
-  `CURRENT_PASSWORD_REQUIRED` (la cuenta sí tenía contraseña) el formulario **cambia a la variante A en el sitio**
-  con el mensaje **«Escribe tu contraseña actual.»** en el campo 1. Nunca se oculta la sección: una cuenta de
-  Google **debe poder** crear contraseña (caso de borde del encargo).
+**Variante B — «Crear contraseña» (`hasPassword === false`, cuenta solo-Google): SIN formulario.**
+El contrato **no tiene «modo crear»** y es decisión, no omisión (`API_CONTRACT.md:6343-6347`, `ARCHITECTURE
+§4.47.3`): una sesión de 15 min en `localStorage` no basta para instalar una credencial permanente; la vía es la
+que **ya existe y exige el buzón**: `POST /auth/forgot-password` → el enlace del correo **fija** la contraseña.
+- `h1` **«Crear contraseña»** + cuerpo muted **«Entras con Google y tu cuenta no tiene contraseña. Para crear una
+  te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google.»** (`{email}` = el de
+  la sesión, completo: es el propio usuario sobre su propia cuenta, §15.5).
+- Botón `primary` **«Enviarme el enlace»** → `POST /auth/forgot-password { email }` (la respuesta es neutra por
+  diseño, §1 «Recuperación»; aquí no hay oráculo que proteger porque el correo es el de la sesión). Loading
+  **«Enviando…»**. Éxito: línea mono verde **`ENLACE ENVIADO`** + **«Revisa tu correo. El enlace caduca; si no llega,
+  pide otro.»** + `ghost sm` «Enviar otra vez» (respeta el `429 RATE_LIMITED` con el copy de `verifyEmail.rateLimited`
+  — existe). Al volver del enlace (`/reset-password`, ya existe) la cuenta queda con `hasPassword=true` y esta
+  página pasa sola a la variante A.
+- ⛔ **No** se pintan campos de contraseña en esta variante; **no** se llama a `change-password` (respondería
+  `PASSWORD_NOT_SET`). El operador nunca cae aquí (el staff es `local`).
 
 **Móvil:** campos a 16px, botón ancho completo. **Accesibilidad:** los tres campos con label visible (no
 placeholder); `autoComplete` correcto para que el gestor de contraseñas ofrezca generar una; sin «mostrar
@@ -16254,64 +16288,72 @@ contraseña» custom (los navegadores ya lo dan; no se añade un control que hay
 
 ### 33.8 Contraseña temporal — **BLOQUEANTE** (decisión del dueño, 2026-09-11)
 
-**Regla:** con `mustChangePassword = true` **no se opera**. La única pantalla operable es la de cambio; las únicas
-salidas son **cambiarla** o **cerrar sesión**. **No existe «Continuar».** El copy actual —*«Debes cambiarla»*—
-por fin dice la verdad.
+**Regla:** con `mustChangePassword = true` **no se opera**. La única pantalla operable es la de contraseña; las
+únicas salidas son **cambiarla** o **cerrar sesión**. **No existe «Continuar».** El copy actual —*«Debes
+cambiarla»*— por fin dice la verdad. El servidor lo garantiza (`PasswordChangeRequiredGuard`, `403
+PASSWORD_CHANGE_REQUIRED` en todo endpoint autenticado salvo **tres**: `POST /auth/change-password`, `POST
+/auth/logout`, `GET /users/me` — `API_CONTRACT.md:6358-6365`; `refresh` es público); el cliente solo lo hace
+**visible y sin rodeos**.
 
-**Ruta:** **`/change-password`** en el grupo **`(auth)`** (`(auth)/change-password/page.tsx` +
-`ChangePasswordRequiredView.tsx`). Vive en `(auth)` **a propósito**: es la única pantalla que **precede** al chrome
-de los dos roles, y el layout de `(auth)` (`(auth)/layout.tsx`: media pantalla de tinta con la promesa de bóveda,
-media de papel con el formulario) ya es **agnóstico de rol** y no tiene navegación que esquivar. Un operador y un
-cliente ven **exactamente la misma pantalla**; solo cambia el botón final (abajo).
+**Ruta (contrato, `ARCHITECTURE §4.47.7`):** la **página de contraseña del rol** — **`/account/password`**
+(customer) · **`/admin/account/password`** (staff) —, es decir, **la misma `PasswordPage` de §33.7 en modo
+bloqueo**. ⛔ La ruta `/change-password` en `(auth)` de v4.1 **queda retirada**: las dos URL `/password` son
+contrato con el login y con el interceptor. El chrome del rol (header o sidebar) **sí se ve** — pero cualquier
+enlace que se pulse rebota aquí (paso 3) y el `LocaleToggle` **no** llama a `PATCH /users/me` mientras bloquea
+(no está en la allowlist): persiste solo en cookie y sincroniza al cambiar la contraseña.
 
 **Cómo se llega (los cuatro caminos, todos cierran el ciclo):**
-1. **Login con temporal** (`AuthForm.tsx:65-69`): si `res.user.mustChangePassword`, en vez de pintar el banner
-   con «Continuar», **`router.replace('/change-password' + next)`** conservando el `?next=` seguro que ya calcula
-   `safeNext`. El banner y su botón **se retiran** (`auth.mustChangePassword`, `auth.mustChangeContinue`:
+1. **Login con temporal** (`AuthForm.tsx:65-69`): `login`/`google` responden `200` con `user.mustChangePassword:
+   true`; en vez de pintar el banner con «Continuar», **`router.replace(passwordRouteForRole(role) + '?next=' +
+   safeNext)`** — el `?next=` **no se consume, se reenvía** (contrato: un operador que abrió `/admin/m4` acaba en
+   M4, no en el tablero). El banner y su botón **se retiran** (`auth.mustChangePassword`, `auth.mustChangeContinue`:
    claves **retiradas**, §33.13).
 2. **Login con Google** de una cuenta local que el admin reseteó (`GoogleSignInButton.onSuccess`): mismo
    `replace` si el usuario devuelto trae la bandera.
 3. **Cualquier otra pantalla** con sesión y bandera activa: `PrivateRouteGuard` (todo el storefront, público o
-   privado: el guard envuelve `children` del layout, `(storefront)/layout.tsx:25`) y `AdminShell` (todo el panel)
-   comprueban `user.mustChangePassword === true` y, si la ruta no es `/change-password`,
-   `router.replace('/change-password?next=<ruta>&reason=required')`. Mientras tanto pintan su estado de carga
-   (nunca el contenido).
-4. **El servidor** (guard del arquitecto, R2): `403 PASSWORD_CHANGE_REQUIRED` en cualquier endpoint fuera de la
-   lista blanca. El cliente HTTP (`api-client.ts`) lo intercepta **globalmente** y hace el mismo `replace` con
-   `reason=required`. Y por si alguna superficie lo pinta inline antes de redirigir, `error.PASSWORD_CHANGE_REQUIRED`
-   existe: **«Tu cuenta tiene una contraseña temporal. Cámbiala para continuar.»**
+   privado: envuelve `children` del layout, `(storefront)/layout.tsx:25`) y `AdminShell` (todo el panel) comprueban
+   `user.mustChangePassword === true` y, si la ruta no es la de contraseña de su rol,
+   `router.replace('<ruta de contraseña>?next=<ruta>&reason=required')`. Mientras tanto pintan su estado de
+   carga (nunca el contenido).
+4. **El servidor:** `403 PASSWORD_CHANGE_REQUIRED` (sesión guardada en `localStorage` que no pasó por el login de
+   hoy; reset del admin con sesión abierta ⇒ `401` ⇒ login ⇒ paso 1). El `api-client` lo intercepta
+   **globalmente** (no pantalla por pantalla) y hace el mismo `replace` con `reason=required`. Y por si alguna
+   superficie lo pinta inline antes de redirigir, `error.PASSWORD_CHANGE_REQUIRED` existe: **«Tu cuenta tiene una
+   contraseña temporal. Cámbiala para continuar.»** (copy fijado con el contrato, `:4708`).
 
-**Anatomía de `/change-password`:**
-- `h1` serif 30/38px **«Crea tu contraseña definitiva»** / “Create your permanent password”.
+**Anatomía de `PasswordPage` en modo bloqueo (`user.mustChangePassword === true`):**
+- **Sin** el enlace «← Mi cuenta» (llevaría a un rebote). `h1` serif 30/38px **«Crea tu contraseña definitiva»**
+  / “Create your permanent password”.
 - Cuerpo `text-[15px] muted`: **«Entraste con una contraseña temporal. Para continuar, elige una nueva.»**
-- Si `reason=required` (llegó rebotado desde otra pantalla): encima del cuerpo, `Banner warning role="alert"`:
-  **«Antes de continuar tienes que cambiar tu contraseña temporal.»** — es la respuesta a «¿por qué me trajo
-  aquí?», y va **antes** del título en orden de lectura del lector de pantalla (foco inicial en el banner; sin
-  él, en el `h1`).
+- Si `reason=required` (llegó rebotado): encima del cuerpo, `Banner warning role="alert"`: **«Antes de continuar
+  tienes que cambiar tu contraseña temporal.»** — la respuesta a «¿por qué me trajo aquí?», **antes** del título en
+  orden de lectura (foco inicial en el banner; sin él, en el `h1`).
 - `PasswordForm` variante A (§33.7) con **un cambio de rótulo**: el campo 1 se llama **«Contraseña temporal»**
-  (`autoComplete="current-password"`: es la que acaba de teclear, y el navegador la ofrece). Botón `primary`
-  **«Guardar y continuar»** / “Save and continue”.
-- **Éxito:** `CONTRASEÑA ACTUALIZADA` + **un** botón `primary`: **«Ir a la tienda»** (customer) o **«Ir al
-  panel»** (operador / súper-admin); destino = `?next=` seguro si existe, si no `/` o `/admin`
-  (`destForRole`, `AuthForm.tsx:21`). Antes de habilitarlo, la sesión **refresca al usuario** (`GET /users/me` o
-  el `user` que devuelva el endpoint) para que la bandera quede en `false` en el cliente; si no, el guard del
-  paso 3 lo devolvería aquí. Política de sesiones: la que fije R1 — si es «revocar todas», el botón dice
-  **«Iniciar sesión»** → `/login` y el `next` se conserva en la query.
-- **Al pie**, `link` muted **«Cerrar sesión»** → `apiLogout()` + `/login`. Es la **única** otra salida. No hay
-  enlace a «olvidé mi contraseña» (la temporal la tiene delante), ni a la tienda, ni a «más tarde».
-- **La marca del layout** (`(auth)/layout.tsx:26`) sigue enlazando a `/`: no se toca — al pulsarla, el paso 3
-  lo devuelve aquí con el banner. Cerrar la pestaña y volver a entrar: paso 3 otra vez. **No hay agujero.**
+  (`autoComplete="current-password"`). Botón `primary` **«Guardar y continuar»** / “Save and continue”.
+  `PASSWORD_SAME_AS_CURRENT` es aquí el error que importa (temporal por temporal no es cambiarla): mismo copy
+  de §33.7 en el campo 2. **Nunca variante B** en este modo: una cuenta con temporal tiene `hasPassword=true` por
+  construcción.
+- **Éxito:** el cliente reemplaza tokens y hace `patchStoredUser({ mustChangePassword: false, hasPassword: true })`
+  **antes** de habilitar el botón (si no, el paso 3 lo devolvería). Luego `CONTRASEÑA ACTUALIZADA` + **un** botón
+  `primary` **«Listo»**: destino = `?next=` seguro si existe; si no, **la cuenta** (`/account` o `/admin/account`,
+  contrato `:6339-6340`). Sin redirección automática.
+- **Al pie**, `link` muted **«Cerrar sesión»** → `apiLogout()` (en la allowlist) + `/login`. Es la **única** otra
+  salida. Sin enlace a «olvidé mi contraseña» (la temporal la tiene delante), ni a la tienda, ni a «más tarde».
+  *(El «Cerrar sesión» del topbar del panel sigue disponible; el del cliente vive en `/account`, que rebota — por
+  eso esta página lleva el suyo.)*
 
 **Para el operador, en concreto:** entra en `/login` con la temporal que le dio el súper-admin → aterriza en
-`/change-password` (nunca ve `/admin`) → la cambia → «Ir al panel» → `/admin`. Si abre un marcador de `/admin/m4`
-antes de cambiarla: `AdminShell` lo devuelve con el banner. **Para el cliente:** idéntico con `/` y «Ir a la
-tienda». Por qué importa que bloquee de verdad: la temporal la **conoce quien la generó** (el súper-admin ve
-`tempPassword`, `admin.service.ts:733`); mientras siga viva, dos personas pueden operar con la identidad del
-operador y la bitácora (*«queda auditado quién declinó»*, criterio 171) no distingue cuál.
+`/admin/account/password` dentro del `AdminShell` (el sidebar se ve, cada módulo rebota) → la cambia → «Listo»
+→ `?next=` o `/admin/account`. Si abre un marcador de `/admin/m4` antes: rebote con banner y `next=/admin/m4`,
+y al cambiarla **acaba en M4**. **Para el cliente:** idéntico con `/account/password`. Por qué importa que bloquee
+de verdad: la temporal la **conoce quien la generó** (el súper-admin ve `tempPassword`, `admin.service.ts:733`);
+mientras siga viva, dos personas pueden operar con la identidad del operador y la bitácora (*«queda auditado
+quién declinó»*, criterio 171) no distingue cuál.
 
-**Móvil 390px:** el layout de `(auth)` ya reduce la tinta a cabecera; formulario a ancho completo; el banner
-`warning` arriba. **Accesibilidad:** foco inicial documentado; `Esc` no hace nada (no es un modal); el botón de
-éxito recibe el foco al aparecer; el enlace «Cerrar sesión» es el último en el orden de tabulación.
+**Móvil 390px:** columna única dentro del chrome del rol; banner `warning` arriba; campos a 16px; botón a ancho
+completo. **Accesibilidad:** foco inicial documentado; el botón «Listo» recibe el foco al aparecer; «Cerrar
+sesión» es el último en el orden de tabulación; el chrome sigue siendo navegable por teclado (rebota, no
+atrapa: no es un modal).
 
 ---
 
@@ -16387,9 +16429,9 @@ silencio: hoy puede ser el fabricado (regla 2).
 **a · En el formulario de dirección (`AddressFormFields`, `AddressManager.tsx:265-319`):**
 - Campo nuevo **primero**, encima de «Calle y número»: `Input` label **«Nombre de quien recibe»**, hint **«Va en la
   etiqueta del paquete.»**, `autoComplete="name"`, obligatorio (`required` → `addresses.required`, existe).
-- **Prellenado** con `user.name` **solo si no es el derivado del correo** (heurística de §33.6a); si lo es,
-  vacío — el usuario lo teclea (y de paso es una segunda oportunidad de corregir el nombre: no se propaga un dato
-  inventado a una etiqueta).
+- **Prellenado** con `user.name` **solo si `user.nameSource !== 'derived'`** (regla del contrato,
+  `API_CONTRACT.md:6425-6427`; **solo en el front, nunca en el servidor**); con `derived`, vacío — el usuario lo
+  teclea. Validación: obligatorio, `trim`, **1..120** (`400 VALIDATION_ERROR`, `details.field='recipientName'`).
 - En la **fila** (`AddressRow`): primera línea **«Recibe: {name}»** en `text-sm text-text`, encima de la calle. Si
   la fila **no tiene** nombre (direcciones creadas antes de este cambio): en su lugar, mono 11px `text-accent`
   **«Falta el nombre de quien recibe»** + acción mono **«Completar»** que abre el modal de edición con el foco en
@@ -16400,8 +16442,12 @@ silencio: hoy puede ser el fabricado (regla 2).
   puede seleccionar, pero el CTA **«Pagar envío y solicitar» queda deshabilitado** con motivo en
   `aria-describedby` y una nota mono roja bajo el picker: **«Completa el nombre de quien recibe en la dirección
   elegida para continuar.»** + «Completar» inline (mismo modal). Al guardar, la cotización se pide y el CTA se
-  habilita. **Nunca** se manda un `POST /shipments` que el servidor vaya a rechazar por falta de nombre — y
-  nunca se manda sin nombre si el servidor aún no lo exige (la regla 6 es del diseño, no del guard).
+  habilita. **Nunca** se manda un `POST /shipments` que el servidor vaya a rechazar por falta de nombre. Y si aun
+  así llega **`422 RECIPIENT_NAME_REQUIRED`** (`details: { field, addressId }`; lo emiten `quote` y `create`,
+  `API_CONTRACT.md:4727-4734`): **hermano de `PHONE_REQUIRED`** — se abre la captura inline del destinatario de
+  **esa** `addressId`, `PATCH /users/me/addresses/:id { recipientName }` y **reintento automático** de la
+  cotización; el motivo se pinta con `error.RECIPIENT_NAME_REQUIRED` (§33.13) y el patrón P-4 lo trae al viewport.
+  ⛔ El servidor **no** cae a `User.name` (contrato); el front tampoco lo manda por él.
 - Encima del desglose de importe, una línea de confirmación en mono muted: **«Envío a: {name} · {city}, {state}»**
   — el mismo dato que va a la etiqueta, leído una última vez antes de pagar.
 
@@ -16437,14 +16483,15 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
   `AuthForm` ya honra `safeNext` en los dos modos (`AuthForm.tsx:46-50`). Vuelve a `/buylist`: el FAB pinta el
   contador y el drawer está como lo dejó.
 - **Al restaurar (montaje de `BuylistView` con carrito guardado no vacío), en este orden:**
-  1. Si `updatedAt` tiene **más de 7 días**: se descarta y se muestra `role="status"` **«Tu lista de venta caducó y
-     la vaciamos. Vuelve a cotizar tus cartas.»** *(7 días es un parámetro de UX, no un dato de negocio: mantiene
-     una lista que el usuario hizo la semana pasada y tira la del trimestre pasado. Ajustable sin tocar
-     diseño.)*
+  1. Si `updatedAt` tiene **más de 30 días** (`>` estricto, la misma caducidad que el carrito de compra —
+     `ARCHITECTURE §4.47.6`): se descarta y se muestra `role="status"` **«Tu lista de venta caducó y la vaciamos.
+     Vuelve a cotizar tus cartas.»** Un formato desconocido **no** descarta: migración suave.
   2. Si no: `role="status"` **«Tu lista de venta se conservó: {count} carta(s).»** (formato `carta(s)` ratificado
-     en §18.4a) y **se re-cotiza en silencio** con `batchQuote` (`api.ts:1424`, público, caché 5 min) las mismas
-     `(cardId, finish, productId)`; **no se puede mandar una solicitud con estimados que la pantalla no haya
-     vuelto a pedir** (regla 7): el CTA «Enviar solicitud» queda `disabled` con `aria-busy` hasta que vuelva.
+     en §18.4a) y **se re-cotiza en silencio** con `batchQuote` (`api.ts:1424`, público, caché 5 min, **≤ 50 por
+     lote**: más líneas ⇒ varios lotes) las mismas `(cardId, finish, productId)`. **Mientras recotiza, el total
+     estimado se pinta «—»** (no la cifra vieja: §32.4, lo desconocido no se afirma) y **no se puede mandar una
+     solicitud con estimados que la pantalla no haya vuelto a pedir** (regla 7): el CTA «Enviar solicitud» queda
+     `disabled` con `aria-busy` hasta que vuelva.
   3. Si algún `quotedPriceCents` cambió: se sustituye el `quote` de la línea y se añade **un** `role="status"`:
      **«Actualizamos tu lista con los precios de hoy: antes {before}, ahora {after}.»** (totales estimados
      formateados). No se marca línea por línea en rojo: la nota de vigencia que ya existe
@@ -16479,11 +16526,10 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
 | `useSellCart` | **extender**: persistencia + restauración + re-cotización | `(storefront)/buylist/useSellCart.ts` |
 | `M4View` | **modificar**: bloque Para / Cliente | `(admin)/admin/m4/M4View.tsx` |
 | **`AccountView`** (+ `ProfileSection`, `EmailSection`, `BillingSection`, `KycSection`, `SessionSection`) | **nuevo** | `components/domain/account/` |
-| **`PasswordForm`** (variantes A/B; rótulo de campo 1 configurable) | **nuevo** | `components/domain/account/PasswordForm.tsx` |
-| **`ChangePasswordRequiredView`** | **nuevo** | `(auth)/change-password/` |
+| **`PasswordPage`** (variante A con `PasswordForm`, variante B «Crear contraseña» vía `forgot-password`, modo bloqueo) | **nuevo** | `components/domain/account/PasswordPage.tsx`, `PasswordForm.tsx` |
 | **`ClaimableOrdersNotice`** | **nuevo** | `components/domain/ClaimableOrdersNotice.tsx` |
 | **`WithdrawalsList`** (extraído de `ShipmentsView:320-450`) | **nuevo por extracción** | `components/domain/WithdrawalsList.tsx` |
-| Páginas: `(storefront)/account/page.tsx`, `(admin)/admin/account/page.tsx`, `(auth)/change-password/page.tsx` | **nuevas** (montan lo anterior) | — |
+| Páginas: `(storefront)/account/page.tsx` + `account/password/page.tsx`, `(admin)/admin/account/page.tsx` + `admin/account/password/page.tsx` | **nuevas** (montan lo anterior; las `/password` son contrato) | — |
 
 ⚠ `components/`, `lib/` y `hooks/` son **zona compartida** (`CLAUDE.md`): este stream las toca; B y C no entran
 ahí hasta que aterrice.
@@ -16508,6 +16554,7 @@ ahí hasta que aterrice.
 | `account.profile.name.label` | Nombre | Name |
 | `account.profile.name.hint` | Así te llamamos en los correos y en tus envíos. | This is how we address you in emails and shipments. |
 | `account.profile.name.required` | Escribe tu nombre. | Enter your name. |
+| `account.profile.name.tooLong` | Máximo 120 caracteres. | 120 characters max. |
 | `account.profile.name.derivedFromEmail` | Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos. | We took this name from your email address because Google didn't share your name. Tell us what to call you. |
 | `account.profile.phone.label` | Celular | Mobile phone |
 | `account.profile.phone.hint` | 10 dígitos. Es para contactarte. El teléfono de cada dirección es para la paquetería. | 10 digits. We use it to reach you. Each address has its own phone for the carrier. |
@@ -16525,6 +16572,7 @@ ahí hasta que aterrice.
 | `account.billing.add` | Agregar datos de facturación | Add invoicing details |
 | `account.billing.edit` | Editar | Edit |
 | `account.billing.rfc` | RFC | RFC |
+| `account.billing.rfcHint` | Escríbelo completo | Enter it in full |
 | `account.billing.razonSocial` | Razón social | Legal name |
 | `account.billing.regimenFiscal` | Régimen fiscal (clave SAT) | Tax regime (SAT code) |
 | `account.billing.usoCfdi` | Uso de CFDI (clave SAT) | CFDI use (SAT code) |
@@ -16543,6 +16591,12 @@ ahí hasta que aterrice.
 | `account.kyc.capPerRequest` | Tope por solicitud | Cap per request |
 | `account.kyc.capPerMonth` | Tope por mes | Cap per month |
 | `account.password.title` | Contraseña | Password |
+| `account.password.summaryHas` | Cámbiala cuando quieras; cerraremos tus otras sesiones. | Change it any time; we'll sign out your other sessions. |
+| `account.password.summaryNone` | Entras con Google y tu cuenta no tiene contraseña. | You sign in with Google and your account has no password. |
+| `account.password.goChange` | Cambiar contraseña | Change password |
+| `account.password.goCreate` | Crear contraseña | Create password |
+| `account.password.back` | Mi cuenta | My account |
+| `account.password.changeTitle` | Cambiar contraseña | Change password |
 | `account.password.current` | Contraseña actual | Current password |
 | `account.password.new` | Contraseña nueva | New password |
 | `account.password.confirm` | Confirmar contraseña nueva | Confirm new password |
@@ -16554,13 +16608,15 @@ ahí hasta que aterrice.
 | `account.password.submitting` | Cambiando… | Changing… |
 | `account.password.successTitle` | CONTRASEÑA ACTUALIZADA | PASSWORD UPDATED |
 | `account.password.successOtherSessions` | Cerramos la sesión en tus otros dispositivos. Esta sigue abierta. | We signed you out on your other devices. This session stays open. |
-| `account.password.successRelogin` | Vuelve a iniciar sesión con tu contraseña nueva. | Sign in again with your new password. |
+| `account.password.rateLimited` | Demasiados intentos. Espera un minuto. | Too many attempts. Wait a minute. |
 | `account.password.changeAgain` | Cambiar otra vez | Change again |
-| `account.password.createTitle` | Crear una contraseña | Create a password |
-| `account.password.createBody` | Entras con Google. Si creas una contraseña, también podrás entrar con tu correo. | You sign in with Google. If you create a password, you'll also be able to sign in with your email. |
-| `account.password.createSubmit` | Crear contraseña | Create password |
-| `account.password.createSuccess` | CONTRASEÑA CREADA | PASSWORD CREATED |
-| `account.password.googleNote` | Seguirás pudiendo entrar con Google. | You can still sign in with Google. |
+| `account.password.createTitle` | Crear contraseña | Create a password |
+| `account.password.createBody` | Entras con Google y tu cuenta no tiene contraseña. Para crear una te mandamos un enlace a {email}; desde ahí la eliges. Seguirás pudiendo entrar con Google. | You sign in with Google and your account has no password. To create one, we'll send a link to {email}; you choose it there. You can still sign in with Google. |
+| `account.password.createSend` | Enviarme el enlace | Send me the link |
+| `account.password.createSending` | Enviando… | Sending… |
+| `account.password.createSentTitle` | ENLACE ENVIADO | LINK SENT |
+| `account.password.createSentBody` | Revisa tu correo. El enlace caduca; si no llega, pide otro. | Check your email. The link expires; if it doesn't arrive, request another. |
+| `account.password.createResend` | Enviar otra vez | Send again |
 | `account.session.title` | Sesión | Session |
 | `account.session.body` | Cierra tu sesión en este dispositivo. | Sign out on this device. |
 | `changePassword.title` | Crea tu contraseña definitiva | Create your permanent password |
@@ -16568,9 +16624,7 @@ ahí hasta que aterrice.
 | `changePassword.requiredNotice` | Antes de continuar tienes que cambiar tu contraseña temporal. | You need to change your temporary password before continuing. |
 | `changePassword.temporaryLabel` | Contraseña temporal | Temporary password |
 | `changePassword.submit` | Guardar y continuar | Save and continue |
-| `changePassword.goStore` | Ir a la tienda | Go to the store |
-| `changePassword.goPanel` | Ir al panel | Go to the panel |
-| `changePassword.goLogin` | Iniciar sesión | Sign in |
+| `changePassword.done` | Listo | Done |
 | `claimable.title` | {count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo | {count, plural, one {You have # order placed without an account} other {You have # orders placed without an account}} under this email |
 | `claimable.bodyOrders` | Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido. | Link them to see their status and tracking here. Nothing about the order changes. |
 | `claimable.bodyVault` | Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. | They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. |
@@ -16581,10 +16635,11 @@ ahí hasta que aterrice.
 | `claimable.success` | {count, plural, one {PEDIDO EN TU HISTORIAL} other {PEDIDOS EN TU HISTORIAL}} | {count, plural, one {ORDER IN YOUR HISTORY} other {ORDERS IN YOUR HISTORY}} |
 | `claimable.successLink` | Ver mis compras | See my purchases |
 | `claimable.partialFail` | {count, plural, one {No fue posible vincular # pedido.} other {No fue posible vincular # pedidos.}} Escríbenos a {contact} citando el número de pedido. | {count, plural, one {We couldn't link # order.} other {We couldn't link # orders.}} Write to {contact} quoting the order number. |
-| `error.CURRENT_PASSWORD_INVALID` | La contraseña actual no es correcta. | The current password is incorrect. |
-| `error.CURRENT_PASSWORD_REQUIRED` | Escribe tu contraseña actual. | Enter your current password. |
+| `error.CURRENT_PASSWORD_INCORRECT` | La contraseña actual no es correcta. | The current password is incorrect. |
 | `error.PASSWORD_SAME_AS_CURRENT` | La contraseña nueva debe ser distinta de la actual. | The new password must differ from the current one. |
+| `error.PASSWORD_NOT_SET` | Tu cuenta no tiene contraseña. Crea una desde «Mi cuenta». | Your account has no password. Create one from “My account”. |
 | `error.PASSWORD_CHANGE_REQUIRED` | Tu cuenta tiene una contraseña temporal. Cámbiala para continuar. | Your account has a temporary password. Change it to continue. |
+| `error.RECIPIENT_NAME_REQUIRED` | Esta dirección no tiene el nombre de quien recibe. Complétalo para continuar. | This address has no recipient name. Add it to continue. |
 
 **Nuevas — `orders`, `buylist`, `vault`, `shipments`, `addresses`, `admin`:**
 
@@ -16650,8 +16705,13 @@ debajo de los mínimos de §20.11 (mono 11px, cuerpo 16px en móvil).
 
 1. **No** pintar el nombre del usuario en el header, el drawer ni el topbar (regla 2). Hasta que el aviso de
    §33.6a exista, esa era la vitrina del nombre inventado.
-2. **No** ofrecer «Continuar», «Más tarde» ni un enlace a la tienda en `/change-password`. Tampoco un banner con
-   enlace en el login: **esa variante está descartada**.
+2. **No** ofrecer «Continuar», «Más tarde» ni «← Mi cuenta» en la página de contraseña **en modo bloqueo**.
+   Tampoco un banner con enlace en el login: **esa variante está descartada**. Y **no** crear `/change-password`
+   en `(auth)`: las rutas son `/account/password` y `/admin/account/password` (contrato).
+2b. **No** pintar campos de contraseña ni llamar a `change-password` con `hasPassword=false`: la vía es
+   `forgot-password` (contrato v1.67; `PASSWORD_NOT_SET` es un error de programación del front, no del usuario).
+2c. **No** llamar a `PATCH /users/me` (ni al toggle de idioma persistente) mientras `mustChangePassword`: no está
+   en la allowlist.
 3. **No** pintar el aviso de reclamables vacío, cargando o en error; **no** ponerle skeleton; **no** decir en la
    bóveda que los pedidos «aparecerán en tu bóveda».
 4. **No** copiar `User.name` a `recipientName` en silencio; **no** pintar `User.name` en M4 cuando falte el
@@ -16671,13 +16731,13 @@ debajo de los mínimos de §20.11 (mono 11px, cuerpo 16px en móvil).
 
 | Ref | Para | Qué |
 |---|---|---|
-| **R1** ⭐⭐ | **arquitecto** → backend | **`POST /auth/change-password { currentPassword, newPassword }`** (sesión requerida; roles los tres). Debe: verificar la actual, aplicar la política de §1 (min 8), **limpiar `mustChangePassword`**, y fijar la **política de sesiones**. Recomendación de UX: **revocar las demás y conservar la actual** (bump de `tokenVersion` + devolver un par de tokens nuevo en la respuesta), porque cambiar la contraseña *desde dentro* y ser expulsado se lee como error. Códigos que el diseño espera (nombres propuestos, cámbielos si el contrato ya tiene equivalentes): `CURRENT_PASSWORD_INVALID`, `CURRENT_PASSWORD_REQUIRED` (cuenta con contraseña que mandó sin la actual), `VALIDATION_ERROR`; opcional `PASSWORD_SAME_AS_CURRENT`. Variante «crear»: sin `currentPassword` cuando `passwordHash` es `null`. **Bloquea §33.7 y §33.8.** |
-| **R2** ⭐⭐ | **arquitecto** → backend | **Guard `PASSWORD_CHANGE_REQUIRED` (403)** en todo endpoint autenticado mientras `mustChangePassword=true`, con **lista blanca**: `change-password`, `logout`, `refresh`, `GET /users/me`. Hoy la bandera no la lee ningún guard (P-75). Sin esto, el bloqueo es solo de cliente y no vale nada. |
-| **R3** ⭐ | **arquitecto** → backend | **`hasPassword: boolean`** en `GET /users/me` (y en `AuthResponse.user`). Sin él, el cliente adivina la variante por `authProvider` y una cuenta de Google que ya creó contraseña seguiría viendo «Crear» (§33.7). No bloquea: hay fallback documentado. |
-| **R4** ⭐⭐ | **product-owner** (el qué) → **arquitecto** (esquema + contrato) → backend | **`Address.recipientName`** (P-73 B): obligatorio en `POST /users/me/addresses`, editable en `PATCH`, **nullable** en la tabla (filas viejas), copiado al `addressSnapshot` del retiro (`shipments.service.ts:183-192`) y **exigido** al crear el retiro (`422 RECIPIENT_NAME_REQUIRED` propuesto). Y la misma columna sirve de **remitente** en el snapshot de origen del buylist. **Toca `shipments` (stream B): serializar, lo hace A.** Bloquea §33.10a-c; hasta que exista, el frontend pinta la libreta sin el campo y **no** bloquea el retiro. |
-| **R5** ⭐ | **arquitecto** → backend | **`GET /admin/shipments`** debe traer **`addressSnapshot`** (con `recipientName`) y **`customer { id, name, email }`**; hoy `AdminShipmentDTO` solo trae `userId` (`contract.ts:898-911`). Sin esto M4 pinta «—» y no puede cumplir P-66 B3. No bloquea el resto. |
-| **R6** | **arquitecto** *(mejora)* | Un booleano **`nameDerived`** (o `nameSource: 'user' \| 'derived'`) en `UserDTO`, escrito en `auth.service.ts:339` cuando se fabrica y limpiado por `PATCH /users/me {name}`. El cliente hoy replica la regla (`name === email.split('@')[0]`); con el dato, M6 también puede marcar **«Nombre tomado del correo (Google)»** en sus resultados (`admin.m6.nameDerived`, ya en §33.13) sin replicarla. |
-| **R7** | **product-owner** | Tres decisiones menores, con recomendación: (a) confirmar el rótulo **«Compras y ventas»** (alternativas descartadas: «Mis pedidos» —se lee como compra—, «Mis operaciones» —nadie lo teclea—); (b) si los campos «clave SAT» de facturación deben ser `Select` con catálogo (hoy `Input` + hint: el diseño no inventa el catálogo); (c) los **7 días** de caducidad del carrito de venta guardado. |
+| **R1** ✅ | *(resuelta — contrato v1.67)* | `POST /auth/change-password` existe (`API_CONTRACT.md:6311-6347`): siempre con la actual, `MIN_PASSWORD_LENGTH=8`, limpia `mustChangePassword`, **revoca las demás sesiones y conserva ésta** (par de tokens nuevo en la respuesta). Códigos: `CURRENT_PASSWORD_INCORRECT`, `PASSWORD_SAME_AS_CURRENT`, `PASSWORD_NOT_SET`. **Sin «modo crear»** (§33.7 B). §33.7/§33.8 ya están alineadas. |
+| **R2** ✅ | *(resuelta — contrato v1.67)* | `PasswordChangeRequiredGuard` + `403 PASSWORD_CHANGE_REQUIRED` con allowlist **exacta** de tres rutas (`:6358-6365`). ⚠ `PATCH /users/me` **no** está: decisión abierta al dueño en `ARCHITECTURE §4.47.9(1)`; el diseño la respeta (§33.15 2c). |
+| **R3** ✅ | *(resuelta — contrato v1.67)* | `hasPassword`, `mustChangePassword` y `nameSource` en `GET /users/me` (`:6385-6399`); `PATCH /users/me` devuelve la misma forma. |
+| **R4** ✅ | *(resuelta — contrato v1.67, `M-52`)* | `Address.recipientName` obligatorio en `POST`, opcional no vaciable en `PATCH`, `null` solo en filas viejas; `422 RECIPIENT_NAME_REQUIRED` en `quote`/`create`; **sin fallback a `User.name`** (`:4727-4734`, `:6415-6427`). Backend `B5` toca `shipments` **serializado** con el stream B. |
+| **R5** ⭐ | **arquitecto** → backend | `recipientName` **sí** llega a M4 vía el snapshot (`API_CONTRACT.md:29-30`). Lo que **no he medido en v1.67**: si `GET /admin/shipments` trae **`customer { id, name, email }`** para la línea «Cliente» de §33.10d (P-66 B3). Si no lo trae, M4 pinta «—» ahí y **nunca** el `userId`. No bloquea. |
+| **R6** ✅ | *(resuelta — contrato v1.67)* | `User.nameSource` con backfill determinista (`ARCHITECTURE §4.47.5`); M6 **puede** exponerlo (aditivo, `API_CONTRACT.md:16490-16491`) para pintar `admin.m6.nameDerived`. |
+| **R7** | **product-owner** | Dos decisiones menores, con recomendación: (a) confirmar el rótulo **«Compras y ventas»** (alternativas descartadas: «Mis pedidos» —se lee como compra—, «Mis operaciones» —nadie lo teclea—); (b) si los campos «clave SAT» de facturación deben ser `Select` con catálogo (hoy `Input` + hint: el diseño no inventa el catálogo). *(La caducidad del carrito de venta ya la fijó el arquitecto en 30 días, §4.47.6.)* |
 | **R8** | **backend** | Mientras el nombre sea el derivado, **los 10 correos** que lo usan (`mail.templates.ts:70-99`, `buylist*.service.ts`) siguen diciéndole «Hola jcsainz95». No es de esta sección; queda anotado para que se decida si el saludo cae al correo o se omite hasta que el usuario lo corrija. |
-| **R9** | **frontend** | Implementa §33 entero; **`components/`, `lib/`, `hooks/` son zona compartida** (un solo stream a la vez). Orden sugerido para que cada tramo sea entregable solo: (1) navegación + `/orders` con pestañas + bóveda con «Retiros» (cero backend); (2) `/account` + `/admin/account` con a–e y g (cero backend); (3) `ClaimableOrdersNotice` (cero backend); (4) carrito de venta (cero backend); (5) contraseña y bloqueo (espera R1/R2); (6) destinatario (espera R4/R5). |
-| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault`, `/admin` y `/admin/m4` acaban en `/change-password` con el banner, y la página **no tiene** ningún botón «Continuar»; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas y `batchQuote` llamado una vez; **CA-9** `authProvider=google` + `name` = local-part ⇒ aviso presente; tras `PATCH` con otro nombre ⇒ ausente; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
+| **R9** | **frontend** | Implementa §33 entero contra el contrato v1.67 y el reparto **F1–F11 de `ARCHITECTURE §4.47.8`** (mocks hasta que backend publique); **`components/`, `lib/`, `hooks/` son zona compartida** (un solo stream a la vez). El orden de entrega de v4.1 queda **superseded por F1–F11**. |
+| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, total «—» hasta que `batchQuote` responde (llamado una vez); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
