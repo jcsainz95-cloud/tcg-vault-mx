@@ -65,11 +65,7 @@ function button(url: string, label: string): string {
  * `name`: el que decidió `greetingName()` — `string` para saludar con nombre, `null` para saludar sin
  * él (v1.67, nombre derivado). Los llamadores antiguos que pasan un `string` siguen funcionando.
  */
-export function emailVerificationTemplate(
-  link: string,
-  name: string | null,
-  locale?: string | null,
-): MailMessage {
+export function emailVerificationTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);
   // S15-B1: escapa los valores dinámicos antes de interpolarlos en el HTML (el nombre, dentro de `greeting`).
   const hi = greeting(l, name);
@@ -96,11 +92,7 @@ export function emailVerificationTemplate(
   };
 }
 
-export function passwordResetTemplate(
-  link: string,
-  name: string | null,
-  locale?: string | null,
-): MailMessage {
+export function passwordResetTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);
   // S15-B1: escapa los valores dinámicos antes de interpolarlos en el HTML (el nombre, dentro de `greeting`).
   const hi = greeting(l, name);
