@@ -2,6 +2,8 @@
 /.next
 # Bundle de MOCKS que hornea el `webServer` de Playwright (ver playwright.config.ts).
 /.next-e2e-mock
+# Bundles de mocks por agente/sesión (E2E_MOCK_DIST_DIR=.next-e2e-mock-<x>) para no pisarse el build.
+/.next-e2e-mock-*
 # Bundle contra el BACKEND REAL, para correr el subset `@real` sobre código recién tocado sin
 # reconstruir (ni reiniciar) el frontend del stack que devops tenga sirviendo en :3000.
 #   NEXT_DIST_DIR=.next-e2e-real NEXT_PUBLIC_USE_MOCKS=false \

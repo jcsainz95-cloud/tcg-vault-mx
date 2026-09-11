@@ -5046,7 +5046,31 @@ export async function getClaimableOrders(): Promise<ClaimableOrderDTO[]> {
     const res = await apiRequest<{ data: ClaimableOrderDTO[] }>('/orders/claimable');
     return res.data;
   }
-  return delay<ClaimableOrderDTO[]>([]);
+  // MOCK v1.67: `[]` por defecto (candado CA-4: cero nodos). Con la bandera
+  // `localStorage['tcg.mock.claimable']='1'` sirve los pedidos del fixture que AÚN no se reclamaron
+  // en esta sesión (los reclamados se anotan en `tcg.mock.claimed` y no vuelven tras recargar).
+  return delay<ClaimableOrderDTO[]>(mockClaimablePool());
+}
+
+const MOCK_CLAIMABLE_FLAG = 'tcg.mock.claimable';
+const MOCK_CLAIMED_KEY = 'tcg.mock.claimed';
+
+function mockClaimedIds(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(MOCK_CLAIMED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function mockClaimablePool(): ClaimableOrderDTO[] {
+  if (typeof window === 'undefined') return [];
+  if (window.localStorage.getItem(MOCK_CLAIMABLE_FLAG) !== '1') return [];
+  const claimed = new Set(mockClaimedIds());
+  return fx.mockClaimableOrders.filter((o) => !claimed.has(o.orderId)).map((o) => ({ ...o }));
 }
 
 /**
@@ -5059,5 +5083,13 @@ export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersR
   if (!config.useMocks) {
     return apiRequest<ClaimOrdersResponse>('/orders/claim', { method: 'POST', body: { orderIds } });
   }
-  return delay<ClaimOrdersResponse>({ claimed: orderIds, failed: [] }, 400);
+  // MOCK: parcial-tolerante como el contrato — los ids que no están en el pool vienen en `failed`
+  // (`NOT_FOUND`); los reclamados se vacían del pool (la siguiente consulta viene sin ellos).
+  const pool = new Set(mockClaimablePool().map((o) => o.orderId));
+  const claimed = orderIds.filter((id) => pool.has(id));
+  const failed = orderIds.filter((id) => !pool.has(id)).map((orderId) => ({ orderId, code: 'NOT_FOUND' as const }));
+  if (typeof window !== 'undefined' && claimed.length > 0) {
+    window.localStorage.setItem(MOCK_CLAIMED_KEY, JSON.stringify([...mockClaimedIds(), ...claimed]));
+  }
+  return delay<ClaimOrdersResponse>({ claimed, failed }, 400);
 }

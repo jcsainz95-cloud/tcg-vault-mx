@@ -978,9 +978,48 @@ export interface ShipmentDTO {
  * El backend devuelve la fila cruda de ShipmentRequest (incluye `requestedAt` en vez de
  * `createdAt` y `userId`); los items del listado NO traen carta/folio (solo ids).
  */
+/**
+ * Snapshot de dirección congelado en cada envío (contrato §5 v1.67: NUEVE campos, M-52).
+ * `recipientName` viene poblado en toda fila nueva; `undefined`/`null` SOLO en retiros anteriores a
+ * v1.67 (M4 pinta «Sin destinatario…», nunca `User.name` como sustituto).
+ */
+export interface AddressSnapshotDTO {
+  /** Forma abierta (snapshots anteriores a M-52 traen 8 campos; M4 lee por clave). */
+  [key: string]: unknown;
+  recipientName?: string | null;
+  line1: string;
+  line2?: string | null;
+  neighborhood?: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+}
+
+/** Tipo de envío en la cola de M4 (contrato §M4 v1.21.2: se deriva de `Order.fulfillmentMode`). */
+export type AdminShipmentKind = 'vault_withdrawal' | 'guest_direct_ship';
+
 export interface AdminShipmentDTO {
   id: string;
-  userId?: string;
+  /** `null` en el envío directo de un invitado (contrato §M4 v1.21). */
+  userId?: string | null;
+  /**
+   * v1.21 (aditivo): `vault_withdrawal` (`orderId == null`) | `guest_direct_ship` (resuelto por
+   * `Order.fulfillmentMode`). Opcional en el tipo por tolerancia a filas antiguas; el backend lo
+   * serializa siempre.
+   */
+  kind?: AdminShipmentKind;
+  orderId?: string | null;
+  orderNumber?: string;
+  guestEmail?: string;
+  /** v1.67: del `addressSnapshot`; `undefined` únicamente en retiros anteriores a v1.67. */
+  recipientName?: string | null;
+  /**
+   * v1.67 (D-CTA-6): la pantalla M4 pinta destinatario + dirección desde aquí. Misma tolerancia
+   * de forma que `ClientShipmentDTO.addressSnapshot` (snapshots anteriores a M-52 traen 8 campos).
+   */
+  addressSnapshot?: AddressSnapshotDTO | null;
   status: ShipmentStatus;
   carrier?: string | null;
   trackingNumber?: string | null;

@@ -15884,4 +15884,23 @@ fallan en cada una** (los de «el precio que se pinta es el NUEVO», «—» mie
 ### 4. Peticiones (arquitecto / backend / devops)
 
 - **backend/devops (seed E2E):** un usuario `mustChangePassword=true` (y, si se quiere cubrir el modo crear en real, una cuenta solo-Google con `passwordHash IS NULL`) en `backend/prisma/seed-e2e.ts`, para que `e2e/account.spec.ts` deje de ser `mockOnly` en sus tres primeros casos.
-- **arquitecto (aclaración, no bloquea):** `GET /users/me/billing-profile` sin perfil — asumo `404 NOT_FOUND` (⇒ vacío de §33.6d); el contrato no lo escribe. Si fuera `200 null`, `getBillingProfile` ya lo tolera (`?? null` no, devuelve el body: habría que mapearlo). Confirmar.
+- **arquitecto (aclaración, no bloquea):** `GET /users/me/billing-profile` sin perfil — asumo `404 NOT_FOUND` (⇒ vacío de §33.6d); el contrato no lo escribe. Si fuera `200 null`, hay que mapearlo en `getBillingProfile`. Confirmar.
+- **arquitecto (R5 de §33.16):** `AdminShipmentDTO` en `types/contract.ts` tipa ahora lo que §M4 promete (`kind`, `orderId`, `orderNumber?`, `guestEmail?`, `recipientName?`, `addressSnapshot?`); **`customer { id, name, email }` NO está en el contrato** y por eso no se tipó — A2 lo lee como tipo local hasta que el contrato lo publique.
+
+### 5. Mediciones (2026-09-11, árbol vivo salvo la mutación)
+
+| Qué | Comando | Resultado |
+|---|---|---|
+| Unitarios (suite entera) | `npx vitest run` | **141 ficheros / 1616 tests verdes** |
+| Typecheck | `npx tsc --noEmit` | limpio |
+| Lint | `npx next lint` | 0 avisos |
+| Playwright `e2e/account.spec.ts` (mocks, `E2E_MOCK_PORT=3021`, `E2E_MOCK_DIST_DIR=.next-e2e-mock-a1`) | `npx playwright test e2e/account.spec.ts` | **9/9** (temporal cliente y operador con `next=/admin/m4`, rebote de pública, perfil con nombre derivado, solo-Google sin campos, cambio normal, header 5 entradas, topbar/`/admin/account` por rol, 390×844 sin desborde e inputs ≥16px) |
+| Mutación (sobre COPIA: `git worktree` en el scratchpad; quitar el `if (user?.mustChangePassword) { replace… }` de `AuthForm.redirectAfterAuth`) | `vitest run AuthForm.test.tsx` ×5 | **5/5 rojas (4 tests caen cada vez)**; control en el árbol vivo **5/5 verdes (13/13)** |
+
+### 6. Cierre pedido por el coordinador tras el informe de A2 (mismo día)
+
+- `SellRequirementsPanel`: los CTA «Iniciar sesión»/«Crear cuenta» llevan `?next=/buylist` (§33.11); candado `SellRequirementsPanel.test.tsx`.
+- `types/contract.ts`: `AdminShipmentDTO` + `AddressSnapshotDTO` + `AdminShipmentKind` (arriba).
+- Mocks (`lib/api.ts`, `lib/mock/fixtures.ts`): `mockClaimableOrders` (2 pedidos) servidos **solo** con `localStorage['tcg.mock.claimable']='1'` — el default sigue `[]` porque el E2E de A2 (`claimable-orders.spec.ts`, primer caso) mide precisamente «con `[]` no hay nodo» (CA-4) y cambiar el default lo pondría en rojo; `claimGuestOrders` vacía el pool y lo anota en `tcg.mock.claimed` (sobrevive a la recarga); ids fuera del pool ⇒ `failed[NOT_FOUND]`. Libreta mock: `addr-legacy` con `recipientName: null` (addr-1 sigue siendo la predeterminada con nombre, así el retiro de demo no se bloquea). **Para que el segundo caso de A2 corra en mock** hay que inyectar la bandera con `addInitScript` y quitar su `test.skip(!IS_REAL…)` — es su fichero; queda como petición a A2/orquestador.
+- `frontend/.gitignore`: `/.next-e2e-mock-*` (builds por agente); `.next-e2e-mock-a1/` borrado.
+- ⚠ Mi §67 entró en git dentro del commit de A2 (`7491743`, «§66»): A2 escenificó el fichero compartido entero. El contenido es el mío; la autoría del commit no. Se anota para O-7/O-10.

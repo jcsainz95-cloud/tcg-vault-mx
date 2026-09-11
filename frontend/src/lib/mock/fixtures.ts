@@ -10,6 +10,7 @@
  */
 import { brandEmail } from '../brand';
 import type {
+  ClaimableOrderDTO,
   CardDTO,
   CardProductDTO,
   CardSetDTO,
@@ -1517,6 +1518,31 @@ export const mockAddresses: AddressDTO[] = [
     phone: '5555123456',
     isDefault: true,
   },
+  {
+    // v1.67: fila ANTERIOR a M-52 (sin destinatario). La libreta pinta «Falta el nombre de quien
+    // recibe» + «Completar»; el retiro con esta dirección deja el CTA deshabilitado (§33.10b).
+    id: 'addr-legacy',
+    recipientName: null,
+    line1: 'Calle Vieja 12',
+    neighborhood: 'Centro',
+    city: 'Guadalajara',
+    state: 'Jalisco',
+    postalCode: '44100',
+    country: 'MX',
+    phone: '3331234567',
+    isDefault: false,
+  },
+];
+
+/**
+ * MOCK v1.67: pedidos de invitado reclamables con el correo de la sesión (contrato GET
+ * /orders/claimable, §4-G.9). La rama mock los sirve SOLO con la bandera
+ * `localStorage['tcg.mock.claimable'] === '1'`: por defecto responde `[]`, que es lo que el candado
+ * CA-4 (§33.16 R10: «con [] ⇒ cero nodos») mide en los E2E de fixtures.
+ */
+export const mockClaimableOrders: ClaimableOrderDTO[] = [
+  { orderId: 'ord-g-501', orderNumber: 'PED-2026-000501', status: 'settled', totalCents: 189000, itemCount: 2, createdAt: '2026-08-20T16:10:00.000Z', settledAt: '2026-08-20T16:12:00.000Z' },
+  { orderId: 'ord-g-502', orderNumber: 'PED-2026-000502', status: 'pending', totalCents: 45000, itemCount: 1, createdAt: '2026-09-02T11:30:00.000Z' },
 ];
 
 /** ISO de hace `n` días (para anclar la ventana de disputa a una entrega reciente). */
