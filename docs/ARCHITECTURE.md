@@ -4,6 +4,29 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y CADA LADO RESOLVIÓ POR SU CUENTA: EL PERFIL DE FACTURACIÓN QUE NO
+> EXISTE, LA DIRECCIÓN QUE M6 PROYECTABA A MEDIAS, EL DESTINATARIO EMITIDO DOS VECES Y LA CONDICIÓN DE RELEASE**
+> (2026-09-11, arquitecto. Base: **v1.67, vigente entera**. Origen: hallazgos de QA/techlead del mismo día (F2-2,
+> F2-5), `FRONTEND_NOTES.md:15887`, desviación 3 de backend A1. Contrato **v1.67.1** (§1 `google`, §1 «Perfil de
+> facturación», §5, §M4, §M6, §11 `BillingProfileDTO`). **Cero DDL, cero endpoints, cero códigos.** Sección nueva
+> **§4.47.10**. Desviaciones **`D-CTA-7..9`** en §9.)
+>
+> **1. ⭐⭐ Un recurso singular que no existe es `404`, no `200 null`.** `GET /users/me/billing-profile` sin perfil
+> devolvía `null` con `200` (`users.service.ts:210`) y el contrato callaba; frontend asumió `404`. Se ratifica el
+> `404` y se declara la forma (seis campos, `rfcMasked`, sin `id`/`userId`/timestamps — doctrina D10 de `AddressDTO`).
+> *Cuando el contrato calla, backend y frontend no se equivocan: se equivoca el contrato* (§4.47.10.1).
+>
+> **2. ⭐ Una proyección de `Address`, no dos.** `toAdminUserAddressRef` era una copia de `toAddressDTO` sin
+> `recipientName`, y el remedio de §5 («el operador lo resuelve por la ficha de M6») **no tenía dato que enseñar**.
+> Se unifica y se escribe que M6 y M4 hablan con los mismos nombres de campo (§4.47.10.2).
+>
+> **3. ⭐ El destinatario suelto de M4 es proyección deprecada del snapshot, con condición de retiro medible.** No se
+> retira en v1.67.x (stream en curso); el front invierte el orden de lectura y el retiro futuro es gratis (§4.47.10.3).
+>
+> **4. La condición de release que QA y techlead exigen queda escrita:** tres actores en el seed E2E y la regla de
+> despliegue «guard + endpoint juntos, conteo de temporales antes de publicar» (§4.47.10.4).
+>
+> ---
 > **Rev v1.67 — STREAM A «LA CUENTA DEL CLIENTE»: CAMBIAR LA CONTRASEÑA DESDE DENTRO, LA TEMPORAL QUE OBLIGA, EL
 > DESTINATARIO DE CADA RETIRO Y EL NOMBRE QUE GOOGLE NO MANDÓ**
 > (2026-09-11, arquitecto. Base: **v1.66.2, vigente entera**. Origen: `PENDIENTES.md` **P-57, P-73, P-75, P-55** +
@@ -22170,6 +22193,88 @@ default) — no hay que revertir la migración.
    `mail` (A); adoptarlo en `buylist.service.ts`/`buylist-sweep.service.ts` es del stream buylist (`D-CTA-5` lo
    enruta). **Recomendación:** adoptarlo en su siguiente pase; mientras, esos correos siguen diciendo «Hola jcsainz95».
 
+#### 4.47.10 Pase v1.67.1 — lo que el contrato dejó sin fijar, y la condición de release del stream (2026-09-11)
+
+> **Qué se midió antes de escribir (regla §0-B.3/2, el artefacto que corre):** `users.service.ts:208-225`
+> (`getBillingProfile` devuelve `null` ⇒ `200` vacío; emite `rfc` + spread de la fila), `users.dto.ts:64-71`
+> (`BillingProfileDto` sin cotas), `schema.prisma:480-493` (`userId @unique`), `pii-mask.ts:20-24` (`maskRfc`),
+> `admin.service.ts:165-190` (`toAdminUserAddressRef` sin `recipientName`), `shipments.service.ts:424-436`
+> (`recipientName` suelto = `snapshot.recipientName ?? undefined`), `M4View.tsx:267` (lee el suelto primero),
+> `auth.service.ts:415-434` (`trim() || null` ⇒ `derived`), `lib/api.ts:1917-1926` y `types/contract.ts:424-431`
+> (frontend ya asume `404` y seis campos con `rfcMasked`), `seed-e2e.ts` entero (**ninguno** de los tres actores de
+> §4.47.10.4 está sembrado en `HEAD d2efe07`; solo hay limpieza de pedidos de invitado en `:115-124`).
+
+##### 4.47.10.1 Perfil de facturación: `404` sin perfil, upsert en `PUT`, seis campos
+
+- **`404 NOT_FOUND`, no `200 null`.** El recurso es **singular por usuario** y no tiene lista: «no existe» es
+  exactamente lo que `404` significa, y ya es el código común de §0. `200 null` obliga a todo consumidor a tratar el
+  vacío como un caso especial del éxito y a tiparlo como `T | null` en cada llamada; el `404` lo aísla en **un**
+  sitio (`lib/api.ts:1925` ya lo hace). No hay anti-enumeración que proteger (recurso propio y autenticado), así que
+  no aplica la doctrina «misma respuesta para inexistente y ajeno» de `PICKUP_ADDRESS_NOT_FOUND`.
+- **`PUT` = upsert que reemplaza entero y devuelve la forma del `GET`.** Los seis campos son obligatorios, así que
+  «parcial» no existe y `PATCH` no tiene sentido. `200` también en la creación: el cliente no distingue —ni debe—
+  primera vez de reemplazo (`putBillingProfile` ya hace `upsert` + relee, `users.service.ts:216-225`).
+- **Forma: `{ rfcMasked, razonSocial, regimenFiscal, usoCfdi, postalCode, email }` y nada más.** Misma doctrina que
+  `AddressDTO` (D10): sin `userId` (dueño implícito por `/users/me`), sin `id` (ninguna ruta lo acepta), sin
+  timestamps (nadie los pinta). **`AdminBillingProfileDTO` de M6 sigue llevando `id`/`userId`/timestamps**: una
+  ficha de back-office correlaciona por id y fecha con auditoría; el perfil del cliente no. Dos DTOs a propósito,
+  igual que `AdminUserDetailDTO` vs `AdminUserDetailOperatorDTO`. `rfcMasked` y no `rfc`: el nombre del campo dice
+  lo que contiene, y un `rfc` que no es el RFC es una trampa para el siguiente lector.
+- **Backend (`users`, Stream A): `D-CTA-7`.** Lanzar `BusinessException.notFound()` en vez de `return null`;
+  proyectar explícitamente los seis campos (lista blanca, no spread — es la lección S49-M1-R de §11).
+
+##### 4.47.10.2 Una sola proyección de `Address`; M4 y M6 con el mismo vocabulario
+
+- `toAdminUserAddressRef` (`admin.service.ts:165`) nació como «misma lista blanca que `toAddressDTO`» y dejó de
+  serlo en cuanto `toAddressDTO` ganó un campo. **Es el patrón de S49-M1-R con otro nombre**: una copia sin dueño
+  diverge sin que nadie lo note. Norma: **una función**; backend decide dónde vive (exportada de `users` o en
+  `common/`) — lo prohibido es la segunda copia. Módulo `admin` (stream «Admin y auditoría») pero el cambio es de
+  una línea de import y **lo ejecuta backend de Stream A** con la unificación que ya anunció (`D-CTA-8`); B/C no
+  tocan `admin.service.ts` en esta ventana.
+- `recipientName` en la ficha del **operador** no es PII nueva: ya ve `line1` y `phone` de la misma fila, y el
+  nombre es lo que imprime en la etiqueta. Misma proyección para los dos roles.
+- **El snapshot de un envío es `AddressDTO` sin `id`/`isDefault`/`createdAt`** (9 campos, mismos nombres). Así la
+  fila de M4 y la dirección de la ficha de M6 se comparan a ojo, y el operador que resuelve un retiro «sin
+  destinatario» encuentra el dato **con el mismo nombre** en los dos sitios.
+
+##### 4.47.10.3 El destinatario suelto de M4: proyección deprecada, no segunda verdad
+
+- **Diagnóstico exacto:** la BD tiene **una** fuente (`ShipmentRequest.addressSnapshot`, JSON) y el DTO la lee dos
+  veces (`:436`). No es «dos fuentes para un hecho» (la lección de O-1 del orquestador, que sí prohibiría una columna
+  nueva); es **dos lugares donde mirar**, y `M4View.tsx:267` mira primero el equivocado.
+- **Decisión: canónico = `addressSnapshot.recipientName`; el suelto se conserva DEPRECADO en v1.67.x** con el
+  invariante `recipientName === addressSnapshot.recipientName`. Retirarlo hoy rompería a un frontend que está
+  implementando M4 en este mismo stream; conservarlo sin marca perpetuaría la duplicación. La marca **más una
+  condición de retiro medible** (`grep` sin lectores de la raíz en `admin/m4` y `lib/`) convierte el retiro futuro en
+  un cambio de una línea en backend y cero en frontend. Frontend invierte el orden de lectura ahora (`D-CTA-9`).
+
+##### 4.47.10.4 Condición de release de Stream A (exigida por QA y techlead; NORMATIVA)
+
+**(a) Seed E2E — tres actores que la suite necesita y que `seed-e2e.ts` NO tiene en `HEAD d2efe07` (medido):**
+
+| Actor | Datos mínimos | Qué prueba |
+|---|---|---|
+| Usuario con **contraseña temporal** | `authProvider='local'`, `passwordHash` de una temporal **conocida por la suite**, `mustChangePassword=true` | login ⇒ `user.mustChangePassword: true` ⇒ `403 PASSWORD_CHANGE_REQUIRED` en `/vault` ⇒ `change-password` ⇒ `200` en `/vault` con el par nuevo; sesión vieja ⇒ `401` |
+| Cuenta **solo-Google** | `authProvider='google'`, `passwordHash=null`, `googleId` ficticio, `emailVerified=true`, `name` derivado del correo, `nameSource='derived'` | `GET /users/me` ⇒ `hasPassword:false` + `nameSource:'derived'` (perfil pinta «Revisa tu nombre» y el botón de `forgot-password`, no el de cambiar); `change-password` ⇒ `422 PASSWORD_NOT_SET` |
+| **Pedido de invitado sin reclamar** | `Order` con `userId=null`, `guestEmail` = correo de un cliente del seed con `emailVerified=true`, `claimedAt=null`, `status` que §4-G.9 considere reclamable | `GET /orders/claimable` **no vacío** para ese cliente ⇒ `ClaimableOrdersNotice` se pinta; reclamo ⇒ el pedido aparece en `/orders` |
+
+Backend informa que **lo está sembrando** — **NO MEDIDO por mí que haya aterrizado**; lo cierra `grep -n
+"mustChangePassword\|authProvider: .google\|claimedAt" backend/prisma/seed-e2e.ts` con tres coincidencias y una
+corrida verde de la E2E `@real` de frontend (`FRONTEND_NOTES.md:15881`). El seed **no** siembra un `BillingProfile`
+(el vacío `404` es el caso que hay que probar; el `PUT` lo crea dentro del test).
+
+**(b) Regla de despliegue (ya normativa en §4.47.2 y §4.47.8; aquí como checklist de release):**
+1. `M-52` en el mismo `migrate deploy` que el artefacto (aditiva, nullable/default; rollback = ignorar columnas).
+2. **Guard `PasswordChangeRequiredGuard` y `POST /auth/change-password` en el MISMO deploy de backend.** ⛔ Publicar el
+   guard sin el endpoint encierra a los usuarios con temporal sin más salida que el correo.
+3. **Antes de publicar, contar** `SELECT count(*) FROM "User" WHERE "mustChangePassword"` en producción: es el número
+   de usuarios que, entre el deploy de backend y el de frontend, verán `403` sin pantalla. **El orquestador lo pide
+   al dueño en el plan de publicación** (`HECHOS.md:17`: no hay staging, solo producción en Railway; **NO MEDIDO por
+   mí** si esa BD es alcanzable desde este entorno — si lo fuera, el orquestador lo mide él y no lo pide); si es
+   `0`, el hueco no afecta a nadie; si no, backend y frontend se publican **en la misma ventana**.
+4. Frontend (pantalla `/account/password` + `/admin/account/password` + interceptor `403`) en el mismo release,
+   inmediatamente después.
+
 ---
 
 ## 5. Decisiones transversales
@@ -22939,6 +23044,29 @@ Riesgos técnicos:
 - **⚠️ ABIERTA (v1.67) — `D-CTA-6`: M4 NO PINTA NI DESTINATARIO NI DIRECCIÓN; PINTA EL `userId` CRUDO.**
   **Dueño: frontend (Stream A, `(admin)/admin/m4`).** `M4View.tsx:201`. El operador que compra la guía a mano no tiene
   de dónde copiar. Norma: contrato §M4 (nota v1.67). Cierra con F9.
+- **🔴 ABIERTA (v1.67.1) — `D-CTA-7`: `GET /users/me/billing-profile` RESPONDE `200` VACÍO SIN PERFIL Y EMITE UN
+  SPREAD DE LA FILA CON EL RFC BAJO LA CLAVE EQUIVOCADA.** **Dueño: backend (`users`, Stream A).** Medido 2026-09-11:
+  `users.service.ts:210` (`return null` ⇒ `200` sin cuerpo útil) y `:212-213` (`{ ...rest, rfc: maskRfc(...) }` ⇒
+  emite `rfc`, `id`, `userId`, `createdAt`, `updatedAt`; el contrato decía `rfcMasked` desde v1.1 y frontend lo tipa
+  así, `types/contract.ts:425`). Norma: contrato §1 «Perfil de facturación» + §11 `BillingProfileDTO` (`404
+  NOT_FOUND`; seis campos en lista blanca). **Comprobación:** `curl` autenticado sin perfil ⇒ `404` con `code:
+  NOT_FOUND`; con perfil ⇒ exactamente seis claves, `rfcMasked` presente, `rfc`/`id`/`userId` ausentes.
+- **🔴 ABIERTA (v1.67.1) — `D-CTA-8`: LA FICHA M6 PROYECTA `Address` CON UNA COPIA QUE OMITE `recipientName`.**
+  **Dueño: backend (`admin.service.ts:165-190`; lo ejecuta backend de Stream A con la unificación en `toAddressDTO` que
+  anunció en `BACKEND_NOTES.md:19977`; B/C no entran a `admin.service.ts` en esta ventana).** Medido 2026-09-11: la
+  función se declara «misma lista blanca que `UsersService.toAddressDTO`» y no lo es (sin `recipientName`, sin
+  `createdAt`). Consecuencia: el remedio de §5 para retiros anteriores a v1.67 («el operador lo resuelve por la ficha
+  de M6») no tenía dato que mostrar. Norma: contrato §M6 (nota v1.67.1), §11 `AddressDTO`. **Comprobación:** `grep -n
+  "toAdminUserAddressRef" backend/src` ⇒ cero; `GET /admin/users/:id` con los dos roles ⇒ `addresses[].recipientName`
+  presente.
+- **⚠️ ACEPTADA-TEMPORAL (v1.67.1) — `D-CTA-9`: `GET /admin/shipments[/:id]` EMITE EL DESTINATARIO DOS VECES (RAÍZ Y
+  SNAPSHOT) Y M4 LEE PRIMERO LA RAÍZ.** **Dueños: frontend (Stream A, `M4View.tsx:267` — invertir a
+  `snap(s,'recipientName') ?? s.recipientName` y marcar `AdminShipmentDTO.recipientName` `@deprecated` en
+  `types/contract.ts:1017`); arquitecto (la rev futura que lo retira).** Medido 2026-09-11: `shipments.service.ts:436`
+  emite `recipientName: snapshot.recipientName ?? undefined` — **una** fuente en BD, **dos** proyecciones en el DTO.
+  Norma: contrato §M4 (v1.67.1): canónico = `addressSnapshot.recipientName`; raíz = legado deprecado con invariante
+  de igualdad; retiro en rev futura cuando `grep -rn "\.recipientName" frontend/src/app/[locale]/(admin)/admin/m4
+  frontend/src/lib` no devuelva lecturas de la raíz. **No se retira en v1.67.x** (stream en curso).
 
 - **⚠️ ABIERTA (v1.66) — `D-CS-1`: EL CONTRATO NO SABÍA QUE `sync-all` YA TENÍA CORTE, NI QUE `sync-status` YA
   TENÍA `summary`.** **Dueño del arreglo: arquitecto — CERRADA EN ESTE MISMO PASE** en cuanto a la prosa

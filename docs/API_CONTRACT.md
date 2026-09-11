@@ -2,7 +2,52 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.67**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.67.1**).
+>
+> **Changelog v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y BACKEND Y FRONTEND RESOLVIERON CADA UNO POR SU LADO
+> (2026-09-11, arquitecto).** Base: **v1.67, vigente entera**. **⛔ Cero endpoints nuevos, cero códigos nuevos, cero
+> DDL.** Origen: hallazgos de QA/techlead del mismo día (F2-2, F2-5), pregunta de frontend A1
+> (`FRONTEND_NOTES.md:15887`) y desviación 3 de backend A1. Todo **medido por mí contra el árbol** antes de escribir
+> (`users.service.ts:208-225`, `admin.service.ts:165-190`, `shipments.service.ts:424-436`, `auth.service.ts:415-434`,
+> `M4View.tsx:267`, `types/contract.ts:424-431`, `seed-e2e.ts:115-124`). Razón de cada punto: `ARCHITECTURE §4.47.10`;
+> desviaciones nuevas **`D-CTA-7..9`** en `ARCHITECTURE §9`.
+>
+> **1. ⭐⭐ [`GET /users/me/billing-profile`](#billing-profile) SIN PERFIL ⇒ `404 NOT_FOUND`.** Hoy el backend responde
+> `200` con cuerpo `null` (`users.service.ts:210`) y el contrato callaba; frontend asumió `404` (`lib/api.ts:1917-1925`)
+> y esa lectura queda **ratificada**: un recurso singular que no existe es un `404`, y `200 null` obliga a todo
+> consumidor a tratar el vacío como caso especial del éxito. **`PUT` es upsert** (crea o reemplaza entero) y responde
+> **`200` con la forma completa**, la misma que el `GET` (`putBillingProfile` ya lo hace así, `:224`).
+>
+> **2. ⭐⭐ `BillingProfileDTO` QUEDA DECLARADA EN §11 — SEIS CAMPOS, y `rfcMasked` es el nombre.** Backend emite hoy
+> `rfc: "XAX**********"` **más `id`, `userId`, `createdAt`, `updatedAt`** (`:212-213`, un spread de la fila);
+> frontend tipa seis campos con `rfcMasked` (`types/contract.ts:424-431`). **Gana la forma del contrato de v1.1
+> (`rfcMasked`, §1) y la doctrina de `AddressDTO` (D10): el dueño es implícito por la ruta ⇒ sin `userId`; el
+> recurso es singular por usuario (`BillingProfile.userId @unique`) ⇒ sin `id`; sin timestamps** (nadie los pinta;
+> `AdminBillingProfileDTO` de M6 sí los lleva porque una ficha de back-office correlaciona por id y fecha — son DTOs
+> distintos a propósito). ⛔ `rfc` en claro **nunca**; `rfcEnc` **nunca**. El backend ajusta la proyección (`D-CTA-7`).
+>
+> **3. ⭐ §M6: la ficha de usuario expone `AddressDTO` COMPLETO (con `recipientName`) y hay UNA sola proyección de
+> `Address`.** `toAdminUserAddressRef` (`admin.service.ts:165-190`) es una copia de `toAddressDTO` **sin
+> `recipientName`**, así que el remedio que §5 daba para un retiro viejo —«el operador lo resuelve por la ficha de
+> M6»— **no tenía dato que mostrar**. Backend unifica en una sola función; el contrato lo fija: `/users/me/addresses`
+> y `GET /admin/users/:id.addresses[]` emiten **la misma `AddressDTO` de §11, para los dos roles** (`D-CTA-8`).
+>
+> **4. ⭐ §M4: `addressSnapshot.recipientName` es la FUENTE CANÓNICA; el `recipientName?` suelto queda LEGADO
+> DEPRECADO, siempre igual al del snapshot, con condición de retiro medible.** No son dos fuentes de un hecho —la BD
+> tiene una y el DTO la proyecta dos veces (`shipments.service.ts:436`)— pero sí dos sitios donde el front puede
+> mirar, y M4 mira **primero el suelto** (`M4View.tsx:267`). Se invierte: **el front lee el snapshot**; el suelto se
+> retira en una rev futura cuando `grep` no encuentre lectores (`D-CTA-9`). Sin cambio de backend en esta rev.
+>
+> **5. ⭐ `POST /auth/google`: un `name` EN BLANCO del ID token cuenta como AUSENTE.** `trim()`; vacío ⇒ derivado del
+> correo + `nameSource='derived'` (antes se guardaba `""`, que ni es nombre ni es marca). Ya implementado
+> (`auth.service.ts:420-426`); aquí se vuelve **normativo** en la ficha del endpoint. El enlace de cuenta no toca
+> `name` ni `nameSource` (ya lo decía §4.47.5).
+>
+> **6. Condición de release de Stream A (QA + techlead) — escrita en `ARCHITECTURE §4.47.10`, no aquí:** seed E2E
+> con los tres actores que la suite necesita (temporal, solo-Google, invitado sin reclamar) y la regla de despliegue
+> «guard + endpoint en el mismo deploy, conteo de `mustChangePassword=true` antes de publicar».
+>
+> ---
 >
 > **Changelog v1.67 — STREAM A «LA CUENTA DEL CLIENTE»: la contraseña que se cambia desde dentro, la temporal que
 > DE VERDAD obliga, el destinatario que faltaba en todo retiro y el nombre que Google no mandó (2026-09-11,
@@ -6252,6 +6297,15 @@ Login/registro con **ID token de Google** (Google Identity Services en el front 
 Req: `{ idToken: string }`
 Res `200`: `{ user, accessToken, refreshToken }` — **mismo shape que `/auth/login`**.
 Comportamiento: busca por `googleId`; si no, enlaza por **email verificado** a una cuenta `local` existente (account-linking); si no existe, crea `User` (`authProvider=google`, `emailVerified=true`, `passwordHash=null`, `role=customer`).
+- **`name` y `nameSource` en el alta nueva (v1.67.1 — NORMATIVO; `ARCHITECTURE §4.47.5`).** El `name` del ID token
+  se **`trim()`ea**. Si tras el trim queda **no vacío** ⇒ `User.name = <trimmed>`, `nameSource='google'`. Si viene
+  **ausente, vacío o solo espacios** ⇒ se trata como **ausente**: `User.name = email.split('@')[0]`,
+  `nameSource='derived'`. ⛔ **Nunca se persiste `""`** (no es un nombre y no lleva marca: era la desviación 3 de
+  backend A1, ya cerrada en `auth.service.ts:420-426`). Sin cota de longitud server-side sobre lo que manda Google
+  (la cota `1..120` de `PATCH /users/me` es para lo que **teclea** el usuario; **NO MEDIDO** que Google emita nombres
+  mayores — si aparece uno, es decisión aparte). **El account-linking no toca `name` ni `nameSource`** de la cuenta
+  local ya existente. El `user` de la respuesta lleva `nameSource` cuando el `publicUser` lo exponga
+  (`GET /users/me` **siempre** lo lleva, abajo).
 Err:
 - `401 GOOGLE_TOKEN_INVALID` (firma/`aud`/`iss`/`exp` inválidos)
 - `403 GOOGLE_EMAIL_UNVERIFIED` (`email_verified != true` en el token → no se crea ni enlaza)
@@ -6426,9 +6480,29 @@ Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /user
   `user.name` como destinatario **si `nameSource !== 'derived'`**; con `derived` el campo nace vacío. El servidor **no
   deriva** `recipientName` de nada.
 
-### Perfil de facturación (CFDI)
-- `GET /api/v1/users/me/billing-profile` — `customer` → devuelve `rfcMasked` (RFC **enmascarado**, ej. `XAX**********`), no el RFC en claro. El resto de campos (razonSocial, regimenFiscal, usoCfdi, postalCode, email) van tal cual.
-- `PUT /api/v1/users/me/billing-profile` — `customer` — Req: `{ rfc, razonSocial, regimenFiscal, usoCfdi, postalCode, email }` (el RFC se recibe en claro y se cifra en reposo; ver ARCHITECTURE §3.4).
+### <a id="billing-profile"></a>Perfil de facturación (CFDI) — v1.67.1: forma y vacío FIJADOS
+> **Recurso SINGULAR por usuario** (`BillingProfile.userId @unique`, `schema.prisma:480-493`): no hay lista, no hay
+> `:id` en la ruta, y el dueño es implícito por `/users/me`. De ahí las dos decisiones de abajo (`ARCHITECTURE
+> §4.47.10`): **sin perfil es `404`, no `200 null`**, y la forma **no repite ni el dueño ni un id que ninguna ruta
+> acepta**. Es la doctrina D10 de `AddressDTO` aplicada al segundo recurso de la libreta del cliente.
+- `GET /api/v1/users/me/billing-profile` — `customer` → Res **`200`: `BillingProfileDTO`** (§11): `{ rfcMasked,
+  razonSocial, regimenFiscal, usoCfdi, postalCode, email }`. **`rfcMasked`** = los **3 primeros caracteres en claro +
+  un `*` por cada carácter restante** (`maskRfc`, `pii-mask.ts:20-24`; ej. `XAX**********` para un RFC de 13); nunca
+  el RFC en claro, nunca `rfcEnc`.
+  - **Sin perfil guardado ⇒ `404 NOT_FOUND`** (código común de §0; cuerpo estándar `{ error: { code: "NOT_FOUND",
+    message, details: {} } }`, **sin** cuerpo de perfil). ⛔ **No `200` con `null`** (hoy `users.service.ts:210`,
+    `D-CTA-7`). Consumo en el front: el `404` **es el vacío de la sección** (§33.6d del diseño), no un error que se
+    pinte — `lib/api.ts:1920-1926` ya lo mapea a `null`. No hay anti-enumeración que proteger: el recurso es del
+    propio usuario autenticado.
+- `PUT /api/v1/users/me/billing-profile` — `customer` — Req: `{ rfc, razonSocial, regimenFiscal, usoCfdi, postalCode,
+  email }` (**todos obligatorios**; `email` con formato de correo; hoy `@IsString()`/`@IsEmail()` sin más cotas,
+  `users.dto.ts:64-71` — **no se añaden** en esta rev). El RFC se recibe en claro y se **cifra en reposo**
+  (`rfcEnc`, ARCHITECTURE §3.4). **Semántica: UPSERT** — crea el perfil si no existe y **lo reemplaza entero** si
+  existe (no es un merge parcial: los seis campos viajan siempre). Res **`200`: `BillingProfileDTO`**, **la misma
+  forma que el `GET`** (tras el `PUT` el front no necesita segunda llamada). ⛔ No `201` en la creación: el cliente
+  no distingue —ni debe— «primera vez» de «reemplazo». Err `400 VALIDATION_ERROR`, `401`.
+- **Guards:** sin cambio (`JwtAuthGuard`; **fuera** de la allowlist de `PASSWORD_CHANGE_REQUIRED`, como todo lo que no
+  es `change-password`/`logout`/`GET /users/me`).
 
 ### KYC (buylist)
 - `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, ineThresholdCents, capPerMonthCents, monthUsedCents }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
@@ -7873,7 +7947,11 @@ Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), **`422 ITEM_NOT_IN_
 > de `Address.recipientName` **tal cual** (⛔ jamás de `User.name`). Se **rechaza** con `422 RECIPIENT_NAME_REQUIRED`
 > **antes** de la transacción serializable y **antes** de crear el `PaymentIntent` si la fila lo tiene en `null`; un
 > retiro **nunca** nace sin destinatario. Los retiros **anteriores** conservan su snapshot de ocho campos (un snapshot
-> no se reescribe, §5.2) — M4 lo pinta como «sin destinatario» y el operador lo resuelve por la ficha de M6.
+> no se reescribe, §5.2) — M4 lo pinta como «sin destinatario» y el operador lo resuelve por la ficha de M6
+> (**v1.67.1:** `GET /admin/users/:id.addresses[]` emite `AddressDTO` **completa, con `recipientName`** — medido el
+> 2026-09-11 que **no** lo hacía, `admin.service.ts:165-190`, `D-CTA-8`; sin eso este remedio era una frase sin dato.
+> Si el cliente **aún no** ha completado `recipientName` en su libreta, la ficha lo trae `null` y el operador
+> **contacta al cliente**: el sistema **no** rellena con `User.name`).
 > **`ClientShipmentDTO.addressSnapshot`** lo trae también (el cliente puede ver a nombre de quién sale su paquete).
 > ⚠️ **Serialización:** `shipments` es módulo del **Stream B**; **este punto lo hace Stream A** y **B no entra a
 > `shipments` hasta que aterrice** (`ARCHITECTURE §4.47.8`).
@@ -13067,7 +13145,26 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > ya lo lee del snapshot). Sigue `undefined` **únicamente** en retiros anteriores a v1.67. **Obligación de la pantalla
 > M4 (frontend, Stream A — `D-CTA-6`):** pintar **destinatario + dirección** (`addressSnapshot`) en la fila y en el
 > detalle — hoy pinta el `userId` crudo (`M4View.tsx:201`) y **ninguna dirección**, y el operador que compra la guía a
-> mano no tiene de dónde copiar el nombre. Cuando falte: «Sin destinatario (retiro anterior a v1.67)», nunca «—» mudo. **La máquina de estados, el picking list y la captura de guía son IDÉNTICOS** para ambos tipos
+> mano no tiene de dónde copiar el nombre. Cuando falte: «Sin destinatario (retiro anterior a v1.67)», nunca «—» mudo.
+> **v1.67.1 — UNA FUENTE CANÓNICA DEL DESTINATARIO: `addressSnapshot.recipientName`. El `recipientName?` suelto es
+> LEGADO DEPRECADO (techlead F2-5).** Medido el 2026-09-11: `shipments.service.ts:424-436` emite el mismo valor dos
+> veces (`recipientName: snapshot.recipientName ?? undefined` **y** el `addressSnapshot` entero), y `M4View.tsx:267`
+> lee **primero el suelto** y cae al snapshot. Norma:
+> - **Canónico:** `addressSnapshot.recipientName` (string; **ausente** en snapshots de 8 campos anteriores a v1.67).
+>   Es la misma clave y el mismo valor que `Order.shippingAddressSnapshot.recipientName` del invitado: **el snapshot
+>   de un envío tiene la forma de `AddressDTO` sin `id`/`isDefault`/`createdAt`** (9 campos, §5) — M4 y M6 pintan
+>   direcciones con **los mismos nombres de campo**, y una fila de M4 y una dirección de la ficha M6 se comparan a ojo.
+> - **`recipientName?` suelto (raíz de la fila/detalle):** **se mantiene en v1.67.x** como legado v1.21 de
+>   invitados, **DEPRECADO**, con invariante **`recipientName === addressSnapshot.recipientName`** siempre (es una
+>   proyección, no una segunda verdad: la BD tiene **una** columna JSON y el DTO la lee dos veces). ⛔ Ningún
+>   consumidor nuevo lo lee; **M4 (frontend, Stream A) invierte el orden**: `snap(s,'recipientName') ?? s.recipientName`
+>   (`D-CTA-9`), para que el retiro del campo sea gratis.
+> - **Retiro:** en una rev futura del contrato (**no en v1.67.x**, para no romper a nadie en pleno stream), cuando
+>   la comprobación `grep -rn "\.recipientName" frontend/src/app/\[locale\]/\(admin\)/admin/m4 frontend/src/lib`
+>   **no devuelva lecturas de la raíz** (solo del snapshot) — condición medible, sin fecha. El `AdminShipmentDTO` de
+>   `types/contract.ts:1017` lo marca `@deprecated` mientras tanto. `guestEmail?`, `orderId?`, `orderNumber?` y `kind`
+>   **no** están en cuestión: no duplican nada del snapshot.
+> **La máquina de estados, el picking list y la captura de guía son IDÉNTICOS** para ambos tipos
 > — el operador trabaja igual; lo único que cambia es la **transición terminal** (abajo). El envío directo **nace en
 > `picking`** (ya pagado dentro de la orden), así que **nunca** aparece en `solicitado`.
 - `GET /api/v1/admin/shipments` — cola. `?status=&userId=&page=`
@@ -16458,6 +16555,16 @@ Err `403`, `400 VALIDATION_ERROR`.
 > **Estado v1.3: YA EXISTE en backend** (`AdminUsersController` + `AdminService.listUsers/getUser/updateUserKyc/updateUserStatus`). No requiere backend nuevo; falta **consumo de frontend** (M6 es `ModuleTodo` en UI). Shapes confirmados contra el código: el **listado** es paginado `{ data, page, pageSize, total }` con `data: { id, email, name, role, status, createdAt }[]` y filtros `q` (email/name) + `status`; la **ficha 360°** (`GET /admin/users/:id`) incluye `kycProfile` (CLABE/RFC **enmascarados** incluso para `super_admin`; `ineOnFile: boolean`), `billingProfile` (RFC enmascarado; `null` para `vault_operator`), `addresses`, `orders` (últimas 20), `sellRequests` (20), `disputes` (20) y `ownedItems` (bóveda). El `vault_operator` recibe **proyección reducida** (sin RFC/INE/billing).
 - `GET /api/v1/admin/users` — `?q=&status=&page=`
 - `GET /api/v1/admin/users/:id` — **ficha 360°** (compras, bóveda, buylist, disputas, KYC). La CLABE y el RFC se devuelven **enmascarados también para `super_admin`** (`clabeMasked` = `****1234`, `rfcMasked` = parcial); la CLABE en claro solo por `reveal-clabe`. Para `vault_operator` se mantiene la proyección reducida de SEC-A4 (sin CLABE/RFC/INE keys ni billing profile; `ineOnFile` booleano).
+  > **v1.67.1 (techlead F2-2, `D-CTA-8`) — `addresses: AddressDTO[]` es la `AddressDTO` COMPLETA de §11, con
+  > `recipientName: string | null`, PARA LOS DOS ROLES (`AdminUserDetailDTO` y `AdminUserDetailOperatorDTO`).**
+  > Medido el 2026-09-11: `toAdminUserAddressRef` (`admin.service.ts:165-190`) es una **copia** de
+  > `UsersService.toAddressDTO` que **omite `recipientName`** (y `createdAt`), así que la ficha no servía como remedio
+  > del retiro «sin destinatario» de §5/§M4. Norma: **UNA sola proyección de `Address` en todo el backend** —
+  > `/users/me/addresses` y esta ficha emiten **la misma función** (backend la unifica; dónde vive —exportada de
+  > `users` o en `common/`— lo decide backend, lo que se prohíbe es la segunda copia). `recipientName` **no es PII
+  > nueva para el operador**: ya ve `line1` y `phone` de la misma fila, y es literalmente lo que imprime en la etiqueta.
+  > Y **el snapshot de M4 usa los mismos nombres de campo** que esta `AddressDTO` (§M4, v1.67.1): la ficha de M6 y la
+  > fila de M4 se leen con el mismo vocabulario.
   > **F1 (v1.7):** la ficha `getUser` **no se engorda**. El historial completo se arma por **reuso** de los listados admin ya paginados con `?userId=` (envíos §M4, buylist §M5, disputas §M8, órdenes §M3 — todos con `?userId=`) + el nuevo `GET /admin/users/:id/audit` (abajo). `getUser` sigue trayendo solo las últimas 20 de orders/sellRequests/disputes + bóveda como resumen.
   > **BE-10 (v1.8-ronda-c):** la bóveda resumen (`ownedItems: AdminUserOwnedItemRef[]`) gana **`finish: Finish`** y **`referenceValue: PriceInfo`** por ítem, para que la pestaña "Bóveda" muestre acabado y valor (antes solo carta + folio + titularidad). El backend puebla `referenceValue` **reusando la misma valuación por-acabado** del `HoldingDTO` del cliente (`getReference(cardId, productType, gradeKey, finish)`, §3); los items sin precio del día llevan `referenceValue.status="pending"` (no se excluyen — es vista 360°, no un total de portafolio). Es un **enriquecimiento de proyección** (sin migración); ver `AdminUserOwnedItemRef` en §11.
 - `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerMonthCents? }`.
@@ -17961,6 +18068,22 @@ AddressDTO = { id: string, recipientName: string | null,
                line1: string, line2?: string, neighborhood?: string, city: string,
                state: string, postalCode: string, country: "MX", phone: string,
                isDefault: boolean, createdAt: string }
+// v1.67.1 — UNA SOLA PROYECCIÓN: `/users/me/addresses` (customer) y `GET /admin/users/:id.addresses[]` (M6, los DOS
+//   roles) emiten ESTA forma por la MISMA función. `admin.service.ts:165-190` era una copia sin `recipientName`
+//   (`D-CTA-8`). El `addressSnapshot` de un envío (§5/§M4) y el `shippingAddressSnapshot` de un pedido (§4-G) son
+//   ESTA forma sin `id`/`isDefault`/`createdAt` — 9 campos, mismos nombres.
+
+// v1.67.1 — `BillingProfileDTO` (`GET`/`PUT /users/me/billing-profile`, §1) estaba REFERENCIADA por sus campos y
+//   NUNCA DEFINIDA; backend emitía un spread de la fila (`rfc` enmascarado bajo la clave equivocada + `id`, `userId`,
+//   `createdAt`, `updatedAt` — `users.service.ts:212-213`, `D-CTA-7`). Aquí queda, con la doctrina de `AddressDTO`:
+//   * SIN `userId`: el dueño es implícito por `/users/me`.
+//   * SIN `id`: el recurso es SINGULAR por usuario (`BillingProfile.userId @unique`) y NINGUNA ruta acepta su id.
+//   * SIN `createdAt`/`updatedAt`: nadie los pinta en el perfil del cliente. `AdminBillingProfileDTO` (M6) SÍ los
+//     lleva, con `id` y `userId`: una ficha de back-office correlaciona por id y fecha. Son DOS DTOs a propósito.
+//   * `rfcMasked` y NUNCA `rfc` ni `rfcEnc`: 3 primeros caracteres + un `*` por carácter restante (`maskRfc`).
+//   Sin perfil ⇒ `404 NOT_FOUND` (no `200 null`). `PUT` = upsert ⇒ `200` con esta misma forma.
+BillingProfileDTO = { rfcMasked: string, razonSocial: string, regimenFiscal: string,
+                      usoCfdi: string, postalCode: string, email: string }
 
 // ⚠️ v1.51.4 (D43) — LA ÚNICA CIFRA DE DINERO QUE EL COTIZADOR PÚBLICO CONOCE. Respuesta de
 // `GET /buylist/quote-policy` (§6). UN CAMPO. Y el DTO es tan importante por lo que NO lleva como por lo que lleva.
