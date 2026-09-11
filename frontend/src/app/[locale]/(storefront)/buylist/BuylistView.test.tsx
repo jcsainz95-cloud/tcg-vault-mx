@@ -606,12 +606,13 @@ describe('BuylistView · acabado (finish, raw)', () => {
 });
 
 /**
- * "Mis solicitudes": sin sesión NUNCA muestra estado de error — la sección invita a
- * iniciar sesión en tono informativo y no consulta el endpoint. Con sesión, el
- * pendiente sigue siendo honesto (sin MX$0.00).
+ * §33.3 (Stream A): «Mis solicitudes» se MUDÓ a la pestaña Ventas de «Compras y ventas». En
+ * /buylist queda UNA línea con sesión y, sin sesión, la invitación neutra de siempre — que
+ * NUNCA consulta el endpoint ni muestra error. El enlace de entrar lleva `?next=/buylist`
+ * (§33.11): el carrito de venta persiste y el usuario vuelve al cotizador.
  */
-describe('BuylistView · Mis solicitudes', () => {
-  it('sin sesión: invita a iniciar sesión, NO consulta el endpoint y NO muestra error', async () => {
+describe('BuylistView · Mis solicitudes (enlace a Ventas)', () => {
+  it('sin sesión: invita a iniciar sesión con next=/buylist, NO consulta el endpoint y NO muestra error', async () => {
     const spy = vi.spyOn(api, 'getSellRequests').mockRejectedValue(new Error('401'));
     renderWithProviders(<BuylistView />, 'es');
 
@@ -620,150 +621,22 @@ describe('BuylistView · Mis solicitudes', () => {
     ).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // El primer «Iniciar sesión» es el de la invitación (el del carrito vive en el drawer).
+    const invite = screen
+      .getAllByRole('link', { name: 'Iniciar sesión' })
+      .find((a) => a.getAttribute('href') === '/login?next=/buylist');
+    expect(invite).toBeDefined();
   });
 
-  it('un item sin precio muestra "Precio pendiente" (no MX$0.00) y una nota explica el total', async () => {
+  it('con sesión: NO lista solicitudes aquí; enlaza «Ver el estado de mis solicitudes» → /orders?tab=ventas', async () => {
     asVerifiedCustomer();
-    const card: CardDTO = {
-      id: 'c-zapdos',
-      externalId: 'base1-16',
-      name: 'Zapdos',
-      number: '16',
-      rarity: 'Rare Holo',
-      supertype: 'Pokémon',
-      subtypes: [],
-      setId: 'base1',
-      setName: 'Base Set',
-      imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
-      imageLargeUrl: 'https://images.pokemontcg.io/base1/16_hires.png',
-      availableFinishes: ['normal'],
-    };
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-pend-1',
-        status: 'cotizada',
-        quotedTotalCents: 0,
-        ineRequired: false,
-        items: [
-          {
-            id: 'sri-1',
-            card,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'normal',
-            rarity: 'Rare Holo',
-            itemStatus: 'precio_pendiente',
-          },
-        ],
-        createdAt: '2026-08-17T10:00:00Z',
-      }),
-    ]);
+    const spy = vi.spyOn(api, 'getSellRequests').mockResolvedValue([]);
     renderWithProviders(<BuylistView />, 'es');
 
-    expect(await screen.findByText('sr-pend-1')).toBeInTheDocument();
-    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
-    expect(
-      screen.getByText('El total mostrado no incluye las cartas con precio pendiente.'),
-    ).toBeInTheDocument();
-  });
-});
-
-/**
- * F5 · Responder ajuste de venta. El bloque de aceptar/rechazar aparece SOLO cuando hay ítems
- * `ajustada` (item-level), y "Aceptar" llama a respondSellRequest(id,'accept').
- */
-describe('BuylistView · responder ajuste (F5)', () => {
-  const adjustedCard: CardDTO = {
-    id: 'c-charizard',
-    externalId: 'base1-4',
-    name: 'Charizard',
-    number: '4',
-    rarity: 'Rare Holo',
-    supertype: 'Pokémon',
-    subtypes: [],
-    setId: 'base1',
-    setName: 'Base Set',
-    imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
-    imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png',
-    availableFinishes: ['holofoil'],
-  };
-
-  function withAdjustedRequest() {
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-adj-1',
-        status: 'verificacion',
-        quotedTotalCents: 60000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [
-          {
-            id: 'sri-adj-1',
-            card: adjustedCard,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'holofoil',
-            rarity: 'Rare Holo',
-            quotedPriceCents: 60000,
-            approvedPriceCents: 45000,
-            itemStatus: 'ajustada',
-          },
-        ],
-      }),
-    ]);
-  }
-
-  it('el bloque de ajuste aparece solo con ítems `ajustada` y muestra el precio ajustado', async () => {
-    asVerifiedCustomer();
-    withAdjustedRequest();
-    renderWithProviders(<BuylistView />, 'es');
-
-    expect(await screen.findByText('sr-adj-1')).toBeInTheDocument();
-    expect(screen.getByText('Ajuste de precio propuesto')).toBeInTheDocument();
-    // El precio ajustado (MX$450.00) se muestra; el original queda tachado.
-    expect(screen.getByText('Aceptar ajuste')).toBeInTheDocument();
-    expect(screen.getByText('Rechazar')).toBeInTheDocument();
-  });
-
-  it('el bloque NO aparece cuando ningún ítem está `ajustada`', async () => {
-    asVerifiedCustomer();
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-plain-1',
-        status: 'verificacion',
-        quotedTotalCents: 50000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [
-          {
-            id: 'sri-1',
-            card: adjustedCard,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'holofoil',
-            rarity: 'Rare Holo',
-            quotedPriceCents: 50000,
-            itemStatus: 'verificacion',
-          },
-        ],
-      }),
-    ]);
-    renderWithProviders(<BuylistView />, 'es');
-
-    expect(await screen.findByText('sr-plain-1')).toBeInTheDocument();
-    expect(screen.queryByText('Ajuste de precio propuesto')).not.toBeInTheDocument();
-  });
-
-  it('"Aceptar ajuste" llama respondSellRequest(id, "accept")', async () => {
-    asVerifiedCustomer();
-    withAdjustedRequest();
-    const spy = vi
-      .spyOn(api, 'respondSellRequest')
-      .mockResolvedValue({ id: 'sr-adj-1', status: 'aprobada' });
-    renderWithProviders(<BuylistView />, 'es');
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Aceptar ajuste' }));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-adj-1', 'accept'));
+    const link = await screen.findByRole('link', { name: /Ver el estado de mis solicitudes/ });
+    expect(link).toHaveAttribute('href', '/orders?tab=ventas');
+    expect(screen.queryByRole('heading', { name: 'Mis solicitudes' })).not.toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -1365,104 +1238,5 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
     // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
     expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
-  });
-});
-
-/**
- * v1.51 (M-46) · el portal del vendedor tenía su propia derivación del desenlace:
- * `errored={r.status === 'rechazada' || r.status === 'abandonada'}` — dos literales que, con
- * `expirada` en el enum, dejaban de reconocer un cierre real. Ahora sale de `isTerminal`
- * (server-derived) menos el único terminal FELIZ.
- *
- * Y §23.1d: `expirada` se pinta por su MOTIVO. Aquí es donde más importa, porque es la pantalla
- * del propio vendedor: un `no_offer` (no ofertamos NOSOTROS) pintado como `not_shipped` le
- * imputaría un incumplimiento que nunca cometió.
- */
-describe('BuylistView · «Mis solicitudes» y los estados nuevos (v1.51 · M-46)', () => {
-  const card: CardDTO = {
-    id: 'c-exp',
-    externalId: 'c-exp',
-    name: 'Charizard',
-    number: '4',
-    rarity: 'Rare Holo',
-    supertype: 'Pokémon',
-    subtypes: [],
-    setId: 'base1',
-    setName: 'Base Set',
-    imageSmallUrl: '',
-    imageLargeUrl: '',
-    availableFinishes: ['holofoil'],
-  };
-
-  function withExpired(expiredReason: 'no_offer' | 'not_shipped') {
-    asVerifiedCustomer();
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-exp-1',
-        status: 'expirada',
-        expiredReason,
-        quotedTotalCents: 60000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [
-          {
-            id: 'sri-exp-1',
-            card,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: 'holofoil',
-            rarity: 'Rare Holo',
-            quotedPriceCents: 60000,
-            itemStatus: 'cotizada',
-          },
-        ],
-      }),
-    ]);
-  }
-
-  it('una `expirada` por `no_offer` dice «No procedió» y NO acusa al vendedor', async () => {
-    withExpired('no_offer');
-    renderWithProviders(<BuylistView />, 'es');
-
-    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
-    const badge = screen.getByText('No procedió');
-    expect(badge).toBeInTheDocument();
-    expect(badge.className).toContain('text-muted');
-    // Ni el rótulo genérico ni la versión acusatoria.
-    expect(screen.queryByText('Expirada')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sin envío')).not.toBeInTheDocument();
-  });
-
-  it('una `expirada` por `not_shipped` sí dice «Sin envío» (los dos motivos NO se colapsan)', async () => {
-    withExpired('not_shipped');
-    renderWithProviders(<BuylistView />, 'es');
-
-    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
-    expect(screen.getByText('Sin envío')).toBeInTheDocument();
-    expect(screen.queryByText('No procedió')).not.toBeInTheDocument();
-  });
-
-  it('el pipeline del vendedor tiene los OCHO pasos del contrato, no los cinco viejos', async () => {
-    asVerifiedCustomer();
-    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      srv({
-        sellRequestId: 'sr-tr-1',
-        status: 'en_transito',
-        quotedTotalCents: 60000,
-        ineRequired: false,
-        createdAt: '2026-08-15T10:00:00Z',
-        items: [],
-      }),
-    ]);
-    renderWithProviders(<BuylistView />, 'es');
-    await screen.findByText('sr-tr-1');
-
-    // `en_transito` ES un paso alcanzable: antes caía fuera de la lista de cinco y el stepper
-    // no marcaba NINGÚN paso como actual (`currentIdx === -1`).
-    const current = document.querySelector('li[aria-current="step"]');
-    expect(current).not.toBeNull();
-    expect(current!.textContent).toContain('En tránsito');
-    // El stepper (el `<ol>` que contiene ese paso; la página tiene otras listas) es de OCHO.
-    expect(current!.parentElement!.children).toHaveLength(8);
   });
 });

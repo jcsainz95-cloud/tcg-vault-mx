@@ -44,7 +44,7 @@ import { SellCartContents } from './SellCartContents';
 // v1.51.4 (D43): el mínimo de compra del cotizador. Se pide AL MONTAR esta vista (el cotizador),
 // no se guarda en un store de vida larga: el contrato lo norma por la caché pública de 5 minutos.
 import { useQuotePolicy } from './useQuotePolicy';
-import { MyRequestsSection } from './MyRequestsSection';
+import { Link } from '@/i18n/navigation';
 import { EditorialLink } from '../_shared/EditorialLink';
 
 /**
@@ -451,9 +451,25 @@ export function BuylistView() {
           </p>
         )}
 
-        {/* Mis solicitudes (extraída en TL-C3): sin sesión NUNCA muestra error — invita a
-            iniciar sesión en tono informativo (y no consulta el endpoint). */}
-        <MyRequestsSection ready={sellReq.ready} isAuthenticated={sellReq.isAuthenticated} />
+        {/* §33.3 (Stream A): «Mis solicitudes» vive ahora en la pestaña Ventas de «Compras y
+            ventas» (`/orders?tab=ventas`). Aquí queda UNA línea con sesión; sin sesión, la
+            invitación de siempre — y el enlace lleva `?next=/buylist` para volver al cotizador
+            con el carrito de venta ya rehidratado (§33.11). Nunca consulta el endpoint. */}
+        <section className="gutter border-t border-border pb-14 pt-10">
+          {!sellReq.ready ? null : sellReq.isAuthenticated ? (
+            <EditorialLink href="/orders?tab=ventas">{t('viewMyRequests')} →</EditorialLink>
+          ) : (
+            <div className="max-w-[560px]">
+              <p className="text-[13px] leading-[1.7] text-muted">{t('requestsLoginInvite')}</p>
+              <Link
+                href="/login?next=/buylist"
+                className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
+              >
+                {t('loginCta')}
+              </Link>
+            </div>
+          )}
+        </section>
 
         {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
             del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío

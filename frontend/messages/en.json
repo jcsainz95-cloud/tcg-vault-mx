@@ -469,7 +469,13 @@
     "tabs": {
       "pieces": "Pieces",
       "masterSet": "Master set",
-      "sealed": "Sealed"
+      "sealed": "Sealed",
+      "withdrawals": "Withdrawals"
+    },
+    "requestWithdrawal": "Request a withdrawal",
+    "withdrawalRequested": "Withdrawal requested. You'll track it here.",
+    "claimable": {
+      "body": "They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking."
     }
   },
   "masterSet": {
@@ -680,6 +686,8 @@
     "pricePendingNotice": "This card has no reference price; it will enter the pending-price queue and we'll quote it manually.",
     "myRequests": "My requests",
     "noRequests": "You have no sell requests yet.",
+    "viewMyRequests": "See the status of my requests",
+    "backToSales": "My sales",
     "requestsLoginInvite": "Log in to see the status of your sell requests.",
     "requirementsTitle": "Requirements to get paid",
     "loginToSellTitle": "Log in or create an account to sell",
@@ -819,8 +827,7 @@
       "notFoundBody": "Check the link in your email, or sign in with the account you used to create the request.",
       "loginTitle": "Sign in to see your offer",
       "loginBody": "You will sign in with your account: this offer is not accepted from an email link.",
-      "viewRequestCta": "View this request",
-      "backToBuylist": "See my requests"
+      "viewRequestCta": "View this request"
     },
     "adjust": {
       "title": "Proposed price adjustment",
@@ -876,13 +883,35 @@
     "understood": "Got it"
   },
   "orders": {
-    "title": "My orders",
+    "title": "Purchases & sales",
     "orderNumber": "Order {id}",
     "date": "Date",
     "status": "Status",
     "total": "Total",
-    "noOrders": "You have no orders yet.",
-    "detailTitle": "Order detail",
+    "noOrders": "No purchases yet.",
+    "emptyCta": "Explore the catalog",
+    "back": "Purchases & sales",
+    "detailTitle": "Order details",
+    "tabs": {
+      "label": "Purchases & sales",
+      "purchases": "Purchases",
+      "sales": "Sales"
+    },
+    "sales": {
+      "emptyCta": "Get a quote for my cards"
+    },
+    "claimable": {
+      "title": "{count, plural, one {You have # order placed without an account} other {You have # orders placed without an account}} under this email",
+      "body": "Link them to see their status and tracking here. Nothing about the order changes.",
+      "more": "and {count} more",
+      "cta": "Link to my account",
+      "claiming": "Linking…",
+      "later": "Not now",
+      "success": "{count, plural, one {ORDER IN YOUR HISTORY} other {ORDERS IN YOUR HISTORY}}",
+      "successLink": "See my purchases",
+      "partialFail": "{count, plural, one {We couldn't link # order.} other {We couldn't link # orders.}} Write to {contact} quoting the order number.",
+      "errorTitle": "The orders could not be linked"
+    },
     "items": "Items",
     "requestInvoice": "Request invoice",
     "invoiceRequested": "Invoice requested",
