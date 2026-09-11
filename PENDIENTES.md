@@ -1,5 +1,11 @@
 # DECISIÓN DEL DUEÑO — PUBLICAR CON SEGURIDAD EN RECHAZADO (2026-09-11)
 
+> **ACTUALIZACIÓN 2026-09-11 02:17 UTC — el rechazo ya no está en pie.** Seguridad re-midió sobre `d6aca64`/`26b2c58`
+> (`docs/SECURITY_NOTES.md`, bloque superior, commit `7f9a80c`): **APROBADO CON CONDICIONES, 0 críticos, 0 altos**.
+> Base: `backend-e2e` verde 2/2 (runs #1139 y #1141) y 25/25 check-runs en verde. Sus condiciones C1–C5 bloquean
+> **dinero real** (`sk_live_`), no esta publicación en modo prueba. Con esto el candidato lleva los **tres veredictos**
+> (QA, techlead, seguridad). La decisión de abajo queda como registro histórico de cómo se tomó; ya no aplica.
+
 > **El humano decidió publicar el release sin esperar a que `backend-e2e` corra en CI.** Palabras:
 > *«Publica entonces»*, tras preguntar *«¿vale la pena publicar si las verificaciones no sirven?»* y
 > *«¿recomiendas salir sin eso o esperar?»*. El orquestador recomendó publicar. **La decisión es del dueño,
