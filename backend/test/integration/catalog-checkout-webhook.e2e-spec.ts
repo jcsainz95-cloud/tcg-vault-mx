@@ -220,11 +220,15 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
   });
 
   describe('reserva atómica anti doble-venta (pieza única)', () => {
-    it('dos checkouts concurrentes del mismo item: solo uno gana', async () => {
+    it('dos checkouts concurrentes del mismo item por DOS clientes: solo uno gana', async () => {
+      // v1.68 (§4-R.2 regla 3): dos llamadas del MISMO cliente ya no compiten — la segunda REUSA
+      // (201 + 200 reused; lo fija `checkout-reservation-owner.e2e-spec.ts`, R-3). La doble venta
+      // que este caso vigila es entre clientes DISTINTOS.
+      const otherToken = await h.login(E2E_USERS.customer2.email, E2E_USERS.customer2.password);
       const body = { inventoryItemIds: [itemId.listedGraded] };
       const [a, b] = await Promise.all([
         h.api('POST', '/checkout/session', { token: customerToken, json: body, headers: { 'idempotency-key': 'k-a' } }),
-        h.api('POST', '/checkout/session', { token: customerToken, json: body, headers: { 'idempotency-key': 'k-b' } }),
+        h.api('POST', '/checkout/session', { token: otherToken, json: body, headers: { 'idempotency-key': 'k-b' } }),
       ]);
       const statuses = [a.status, b.status].sort();
       expect(statuses).toEqual([201, 409]);

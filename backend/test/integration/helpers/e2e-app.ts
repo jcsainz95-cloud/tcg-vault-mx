@@ -55,6 +55,18 @@ export class TestStripeService extends StripeService {
   public readonly createdIntents: { id: string; amountCents: number; metadata: Record<string, string> }[] = [];
   /** PaymentIntents cancelados por el barrido (B3). */
   public readonly canceledIntents: string[] = [];
+  /**
+   * v1.68 (candado R-4) — BITÁCORA del ORDEN de llamadas a Stripe (`create:<pi>` / `cancel:<pi>`).
+   * La sustitución del reintento (§4-R.2) debe CANCELAR el PI viejo antes de CREAR el nuevo; solo
+   * el orden observado lo demuestra.
+   */
+  public readonly callLog: string[] = [];
+  /**
+   * Stripe REAL devuelve el MISMO PaymentIntent ante la misma `idempotencyKey` (24 h). El doble lo
+   * modela: es la garantía H2 («pi-order-<id>» server-side ⇒ un reintento no crea dos PI»), y sin
+   * ella el doble sería MENOS estricto que Stripe justo en la propiedad que se mide.
+   */
+  private readonly byIdempotencyKey = new Map<string, { id: string; clientSecret: string }>();
 
   constructor(config: ConfigService) {
     super(config);
@@ -65,9 +77,31 @@ export class TestStripeService extends StripeService {
     metadata: Record<string, string>;
     idempotencyKey?: string;
   }): Promise<{ id: string; clientSecret: string }> {
+    if (params.idempotencyKey && this.byIdempotencyKey.has(params.idempotencyKey)) {
+      const same = this.byIdempotencyKey.get(params.idempotencyKey)!;
+      this.callLog.push(`replay:${same.id}`);
+      return same;
+    }
     const id = `pi_e2e_${randomUUID().replace(/-/g, '')}`;
     this.createdIntents.push({ id, amountCents: params.amountCents, metadata: params.metadata });
-    return { id, clientSecret: `${id}_secret_e2e` };
+    this.callLog.push(`create:${id}`);
+    const pi = { id, clientSecret: `${id}_secret_e2e` };
+    if (params.idempotencyKey) this.byIdempotencyKey.set(params.idempotencyKey, pi);
+    return pi;
+  }
+
+  /**
+   * v1.68 (§4-R.2 REUSO) — el mismo PI, releído: `clientSecret` determinista a partir del id (igual
+   * que lo emitió `createPaymentIntent`), estado según lo cancelado por el doble.
+   */
+  async retrievePaymentIntent(
+    paymentIntentId: string,
+  ): Promise<{ id: string; status: string; clientSecret: string }> {
+    return {
+      id: paymentIntentId,
+      status: this.canceledIntents.includes(paymentIntentId) ? 'canceled' : 'requires_payment_method',
+      clientSecret: `${paymentIntentId}_secret_e2e`,
+    };
   }
 
   async refund(_paymentIntentId: string, _idempotencyKey?: string): Promise<string> {
@@ -103,6 +137,7 @@ export class TestStripeService extends StripeService {
     | 'requires_capture' = 'canceled';
 
   async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
+    this.callLog.push(`cancel:${paymentIntentId}`);
     switch (this.cancelOutcome) {
       case 'throws-succeeded':
         throw new Error(
