@@ -3,6 +3,7 @@ import {
   apiRequest,
   ApiClientError,
   getToken,
+  requestBlob,
   setToken,
   setRefreshToken,
   setPasswordChangeNavigatorForTests,
@@ -43,6 +44,15 @@ afterEach(() => {
 });
 
 describe('api-client · 403 PASSWORD_CHANGE_REQUIRED', () => {
+  it('F2-9: requestBlob (descarga binaria) pasa por el MISMO interceptor: marca la bandera y navega', async () => {
+    setStoredUser(customer);
+    fetchMock.mockResolvedValueOnce(makeRes(403, FORBIDDEN));
+    await expect(requestBlob('/admin/inventory/export.xlsx')).rejects.toBeInstanceOf(ApiClientError);
+    expect(getStoredUser()?.mustChangePassword).toBe(true);
+    expect(navigate).toHaveBeenCalledWith('/es/account/password?next=%2Fvault%3Ftab%3Dretiros&reason=required');
+    expect(getToken()).toBe('access.token');
+  });
+
   it('customer: marca la bandera en sesión, navega a /es/account/password con next + reason y conserva los tokens', async () => {
     setStoredUser(customer);
     fetchMock.mockResolvedValueOnce(makeRes(403, FORBIDDEN));

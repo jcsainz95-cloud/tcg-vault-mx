@@ -229,25 +229,19 @@ function parseContentDispositionFilename(header: string | null): string | null {
 /**
  * Descarga binaria autenticada (p. ej. `GET /admin/inventory/export.xlsx`, P-31). Devuelve el
  * Blob + el `filename` que sugiera el backend por Content-Disposition (para que el caller lo use
- * y sólo caiga a un nombre propio si no viene). No usa el interceptor de refresh (una exportación
- * puntual no justifica reintento de token); un 401 u otro no-ok se traduce al MISMO
- * `ApiClientError` que el resto (el error se lee del JSON de error si el backend lo manda).
+ * y sólo caiga a un nombre propio si no viene).
+ *
+ * techlead F2-9 (2026-09-11): pasa por el MISMO núcleo que `apiRequest` (`fetchWithSession` +
+ * `toApiError`): refresh proactivo, 401 → refresh → un reintento, y el interceptor global de
+ * `403 PASSWORD_CHANGE_REQUIRED`. Antes tenía su propio `fetch` sin nada de eso, y una exportación
+ * con temporal pendiente lanzaba un 403 mudo en vez de rebotar a la página de contraseña. La única
+ * diferencia con el JSON: sin `Content-Type: application/json` ni cuerpo serializado.
  */
 export async function requestBlob(path: string, opts: RequestOptions = {}): Promise<BlobResponse> {
-  const url = new URL(config.apiBaseUrl + path);
-  applyQuery(url, opts.query);
-  const token = getToken();
-  const res = await fetch(url.toString(), {
-    method: opts.method ?? 'GET',
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...opts.headers,
-    },
-  });
+  const res = await fetchWithSession(path, opts, true, false);
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));
-    const err: ApiError = payload?.error ?? { code: 'INTERNAL', message: 'Unexpected error' };
-    throw new ApiClientError(res.status, err);
+    throw toApiError(res.status, payload);
   }
   return {
     blob: await res.blob(),
@@ -256,15 +250,18 @@ export async function requestBlob(path: string, opts: RequestOptions = {}): Prom
 }
 
 /**
- * Núcleo de apiRequest con interceptor de refresh (WS-B). `allowRefresh` habilita el
- * ciclo 401 → refresh → reintento; el reintento se hace con `allowRefresh=false` para
- * garantizar UN SOLO reintento (nunca un bucle).
+ * Núcleo de sesión compartido por `apiRequest` (JSON) y `requestBlob` (binario) — F2-9. Hace la
+ * petición con el Bearer vigente y aplica el interceptor de refresh (WS-B): `allowRefresh` habilita
+ * el ciclo 401 → refresh → reintento; el reintento se hace con `allowRefresh=false` para garantizar
+ * UN SOLO reintento (nunca un bucle). Devuelve la `Response` cruda: quien llama decide cómo leer el
+ * cuerpo. `json` añade `Content-Type: application/json` y serializa `opts.body`.
  */
-async function requestWithRefresh<T>(
+async function fetchWithSession(
   path: string,
   opts: RequestOptions,
   allowRefresh: boolean,
-): Promise<T> {
+  json: boolean,
+): Promise<Response> {
   const url = new URL(config.apiBaseUrl + path);
   applyQuery(url, opts.query);
 
@@ -281,11 +278,11 @@ async function requestWithRefresh<T>(
   const res = await fetch(url.toString(), {
     method: opts.method ?? 'GET',
     headers: {
-      'Content-Type': 'application/json',
+      ...(json ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...opts.headers,
     },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    body: json && opts.body ? JSON.stringify(opts.body) : undefined,
   });
 
   // WS-B — interceptor: el access token dura 15m; al vencer, cualquier request da 401.
@@ -293,28 +290,42 @@ async function requestWithRefresh<T>(
   if (res.status === 401 && allowRefresh && !isAuthPath(path) && getRefreshToken()) {
     const pair = await refreshTokensShared();
     if (pair) {
-      try {
-        // Reintento único (allowRefresh=false ⇒ sin recursión de refresh ⇒ sin bucle).
-        return await requestWithRefresh<T>(path, opts, false);
-      } catch (e) {
-        // Si aun con token fresco sigue 401, la sesión local no es de fiar → limpiar.
-        if (e instanceof ApiClientError && e.status === 401) clearClientSession();
-        throw e;
-      }
+      // Reintento único (allowRefresh=false ⇒ sin recursión de refresh ⇒ sin bucle).
+      const retry = await fetchWithSession(path, opts, false, json);
+      // Si aun con token fresco sigue 401, la sesión local no es de fiar → limpiar.
+      if (retry.status === 401) clearClientSession();
+      return retry;
     }
     // El refresh falló (sin refresh token / 401 / red): sesión muerta. Limpiar y dejar
     // que el 401 original propague para que el flujo normal lleve al login.
     clearClientSession();
   }
+  return res;
+}
 
+/**
+ * Traduce un cuerpo de error del contrato (`{ error: { code, message, details? } }`) al
+ * `ApiClientError` común, pasando ANTES por el interceptor global del bloqueo por temporal
+ * (v1.67, ver `handlePasswordChangeRequired`). Único punto: JSON y binario lo comparten (F2-9).
+ */
+function toApiError(status: number, payload: unknown): ApiClientError {
+  const err: ApiError = (payload as { error?: ApiError } | null)?.error ?? {
+    code: 'INTERNAL',
+    message: 'Unexpected error',
+  };
+  if (status === 403 && err.code === 'PASSWORD_CHANGE_REQUIRED') handlePasswordChangeRequired();
+  return new ApiClientError(status, err);
+}
+
+/** Lectura JSON sobre el núcleo de sesión: 204 ⇒ `undefined`; no-ok ⇒ `ApiClientError`. */
+async function requestWithRefresh<T>(
+  path: string,
+  opts: RequestOptions,
+  allowRefresh: boolean,
+): Promise<T> {
+  const res = await fetchWithSession(path, opts, allowRefresh, true);
   if (res.status === 204) return undefined as T;
-
   const payload = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err: ApiError = payload?.error ?? { code: 'INTERNAL', message: 'Unexpected error' };
-    // v1.67: bloqueo por contraseña temporal — interceptor global (ver handlePasswordChangeRequired).
-    if (res.status === 403 && err.code === 'PASSWORD_CHANGE_REQUIRED') handlePasswordChangeRequired();
-    throw new ApiClientError(res.status, err);
-  }
+  if (!res.ok) throw toApiError(res.status, payload);
   return payload as T;
 }
