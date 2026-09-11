@@ -1,13 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AuthProvider, AuthTokenType, Prisma, Role, User, UserStatus } from '@prisma/client';
+import { AuthProvider, AuthTokenType, NameSource, Prisma, Role, User, UserStatus } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { ChangePasswordDto, RegisterDto, LoginDto } from './dto/auth.dto';
 import { GoogleTokenVerifier } from './google-token-verifier';
 import { AuthTokenService } from './auth-token.service';
 
@@ -46,6 +46,9 @@ export class AuthService {
 
   private publicUser(u: User) {
     // v1.5: el `user` de register|login|google incluye `emailVerified` (para el banner del front).
+    // v1.67 (D-CTA-1, contrato §1): gana `mustChangePassword` y NADA más. Con `true`, login/google
+    // responden 200 igual (sin sesión no hay forma de cambiarla) y el front navega a la pantalla de
+    // cambio; toda otra ruta autenticada responde 403 PASSWORD_CHANGE_REQUIRED (guard).
     return {
       id: u.id,
       email: u.email,
@@ -53,6 +56,7 @@ export class AuthService {
       role: u.role,
       locale: u.locale,
       emailVerified: u.emailVerified,
+      mustChangePassword: u.mustChangePassword,
     };
   }
 
@@ -258,6 +262,84 @@ export class AuthService {
     return { ok: true };
   }
 
+  /**
+   * POST /auth/change-password (autenticado, cualquier rol) — v1.67, contrato §1, ARCHITECTURE §4.47.1.
+   * Cambia la contraseña de la cuenta de la sesión probando la actual. Única salida de
+   * `mustChangePassword` que no pasa por el correo. **Orden de evaluación NORMATIVO (contrato):**
+   *  1. cuenta `active` (el guard ya rechazó blocked/deleted con 401; aquí, defensa en profundidad);
+   *  2. `passwordHash IS NULL` ⇒ 422 PASSWORD_NOT_SET (no se verifica nada más; este endpoint NO crea
+   *     contraseñas: §4.47.3 — remedio: forgot-password);
+   *  3. `argon2.verify` falso ⇒ 422 CURRENT_PASSWORD_INCORRECT (⛔ NUNCA 401: el cliente cierra sesión
+   *     ante 401 y un dedazo en la actual lo echaría);
+   *  4. `newPassword === currentPassword` ⇒ 422 PASSWORD_SAME_AS_CURRENT (DESPUÉS del paso 3);
+   *  5. UNA escritura: passwordHash nuevo, `tokenVersion +1`, `mustChangePassword=false`.
+   *     `emailVerified` NO cambia (aquí no hubo prueba de inbox; en reset-password sí). `authProvider` no cambia;
+   *  6. emite un par NUEVO con el `tokenVersion` ya incrementado y lo devuelve: las demás sesiones
+   *     mueren en su siguiente petición/refresh y ÉSTA continúa (difiere de reset-password a propósito);
+   *  7. AuditLog `auth.password_changed` (hermano de `auth.password_reset_completed`), sin secretos.
+   */
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    requestIp?: string | null,
+  ): Promise<{ ok: true } & TokenPair> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    // 1. Solo cuentas activas (mismo code que el guard: la sesión no es válida para esta cuenta).
+    if (!user || user.status !== UserStatus.active) {
+      throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
+    }
+    // 2. Sin hash no hay actual que probar, y aquí no se crea.
+    if (!user.passwordHash) {
+      throw BusinessException.validation(
+        'PASSWORD_NOT_SET',
+        'This account has no password; use forgot-password to set one',
+        {},
+      );
+    }
+    // 3. La actual, verificada contra el hash real.
+    let currentOk = false;
+    try {
+      currentOk = await argon2.verify(user.passwordHash, dto.currentPassword);
+    } catch {
+      currentOk = false;
+    }
+    if (!currentOk) {
+      throw BusinessException.validation('CURRENT_PASSWORD_INCORRECT', 'Current password is incorrect', {
+        field: 'currentPassword',
+      });
+    }
+    // 4. Solo tras probar la actual: «cambiar» la temporal por la temporal no la cambia.
+    if (dto.newPassword === dto.currentPassword) {
+      throw BusinessException.validation(
+        'PASSWORD_SAME_AS_CURRENT',
+        'New password must differ from the current one',
+        { field: 'newPassword' },
+      );
+    }
+    // 5. Una sola escritura. ⛔ `emailVerified` y `authProvider` NO se tocan.
+    const passwordHash = await argon2.hash(dto.newPassword);
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        tokenVersion: { increment: 1 },
+        mustChangePassword: false,
+      },
+    });
+    // 6. Par nuevo con el `tokenVersion` YA incrementado (el de `updated`, no el de `user`).
+    const tokens = await this.issueTokens(updated);
+    // 7. Auditoría, sin volcar ninguna contraseña.
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'auth.password_changed',
+      entityType: 'User',
+      entityId: user.id,
+      ip: requestIp ?? undefined,
+    });
+    return { ok: true, ...tokens };
+  }
+
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
 
@@ -332,11 +414,16 @@ export class AuthService {
 
     // 3) Alta nueva (solo-Google): passwordHash null, emailVerified true, role SIEMPRE customer.
     if (!user) {
+      // v1.67 (D-CTA-4, §4.47.5): si Google no mandó nombre, se sigue derivando del correo (un `name`
+      // vacío rompe copys) pero se MARCA `nameSource='derived'` para que no parezca tecleado. Un `name`
+      // en blanco del token cuenta como ausente (no se guarda "" ni se marca `google`).
+      const googleName = identity.name?.trim() || null;
       user = await this.prisma.user.create({
         data: {
           email,
           passwordHash: null,
-          name: identity.name ?? email.split('@')[0],
+          name: googleName ?? email.split('@')[0],
+          nameSource: googleName ? NameSource.google : NameSource.derived,
           role: Role.customer,
           authProvider: AuthProvider.google,
           googleId: identity.sub,

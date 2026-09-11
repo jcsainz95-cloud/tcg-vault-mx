@@ -3,7 +3,9 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AllowPasswordChangeRequired } from '../../common/decorators/allow-password-change-required.decorator';
 import {
+  ChangePasswordDto,
   ForgotPasswordDto,
   GoogleLoginDto,
   LoginDto,
@@ -57,11 +59,24 @@ export class AuthController {
     return this.auth.refresh(dto.refreshToken);
   }
 
+  // v1.67: en la allowlist de PASSWORD_CHANGE_REQUIRED (rendirse siempre se permite).
+  @AllowPasswordChangeRequired()
   @Post('logout')
   @HttpCode(204)
   logout() {
     // JWT stateless: el cliente descarta los tokens. (Blacklist = fase 2.)
     return;
+  }
+
+  // v1.67 (Stream A · P-75, contrato §1 «Cambiar la propia contraseña»): AUTENTICADO, cualquier rol.
+  // Rate-limit 5/min/IP (paridad con login: con una sesión robada es una superficie de adivinación
+  // de la contraseña real). En la allowlist de PASSWORD_CHANGE_REQUIRED: es la salida.
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @AllowPasswordChangeRequired()
+  @Post('change-password')
+  @HttpCode(200)
+  changePassword(@CurrentUser('id') userId: string, @Body() dto: ChangePasswordDto, @Ip() ip: string) {
+    return this.auth.changePassword(userId, dto, ip);
   }
 
   // ---------------- v1.5: verificación de correo + recuperación self-service ----------------

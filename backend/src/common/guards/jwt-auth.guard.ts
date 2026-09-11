@@ -57,9 +57,11 @@ export class JwtAuthGuard implements CanActivate {
 
     // Revocación por versión + estado de cuenta (reset/soft-delete/bloqueo).
     // v1.5: se añade `emailVerified` al select para poblar `req.user` (lo usa EmailVerifiedGuard).
+    // v1.67: se añade `mustChangePassword` al MISMO select (lo usa PasswordChangeRequiredGuard) —
+    // un guard más NO cuesta una consulta más (ARCHITECTURE §4.47.2).
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { status: true, tokenVersion: true, emailVerified: true },
+      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true },
     });
     if (
       !user ||
@@ -75,6 +77,7 @@ export class JwtAuthGuard implements CanActivate {
       email: payload.email,
       role: payload.role,
       emailVerified: user.emailVerified,
+      mustChangePassword: user.mustChangePassword,
     };
     return true;
   }

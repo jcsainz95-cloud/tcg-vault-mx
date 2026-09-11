@@ -65,3 +65,17 @@ export class ResetPasswordDto {
   @MinLength(MIN_PASSWORD_LENGTH)
   password!: string;
 }
+
+// v1.67 (Stream A, contrato §1 «Cambiar la propia contraseña»): POST /auth/change-password.
+export class ChangePasswordDto {
+  // SIEMPRE obligatoria y no vacía (ARCHITECTURE §0-B.3 regla 9(c): la ausencia no compra una
+  // garantía menor). Sin MinLength de política: es la que YA tiene, sea cual sea.
+  @IsString()
+  @MinLength(1)
+  currentPassword!: string;
+
+  // MISMA constante que register y reset-password (BE-9). ⛔ Sin máximo ni complejidad propios.
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  newPassword!: string;
+}
