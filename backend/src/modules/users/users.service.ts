@@ -102,7 +102,9 @@ export class UsersService {
    * v1.67 (contrato §1 `PATCH /users/me`): `name` editable por el propio usuario, cualquier rol.
    * Trim + 1..120 (`assertPersonName`, 400 `VALIDATION_ERROR` `details.field='name'`) y, SIEMPRE
    * que venga `name`, `nameSource='user'` server-side — es la cura del nombre fabricado (P-73-A).
-   * El `data` se construye a mano: nunca `data: dto` (un campo nuevo del DTO no debe escribirse solo).
+   * El `data` se construye a mano: nunca `data: dto` ni `{ ...dto }` (un campo nuevo del DTO no debe
+   * escribirse solo). Es la norma de TODO este servicio (`createAddress`/`updateAddress` la cumplen
+   * igual, campo a campo); `test/users.me-and-addresses.spec.ts` la exige con un campo intruso.
    */
   async updateMe(userId: string, dto: UpdateMeDto) {
     const data: Prisma.UserUpdateInput = {};
@@ -145,9 +147,21 @@ export class UsersService {
     if (dto.isDefault) {
       await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
     }
-    return toAddressDTO(
-      await this.prisma.address.create({ data: { ...dto, recipientName, userId } }),
-    ); // S49-R4
+    // Lista blanca explícita (misma norma que `updateMe`): un campo nuevo del DTO no se escribe solo.
+    const data: Prisma.AddressUncheckedCreateInput = {
+      userId,
+      recipientName,
+      line1: dto.line1,
+      line2: dto.line2,
+      neighborhood: dto.neighborhood,
+      city: dto.city,
+      state: dto.state,
+      postalCode: dto.postalCode,
+      country: dto.country,
+      phone: dto.phone,
+      isDefault: dto.isDefault,
+    };
+    return toAddressDTO(await this.prisma.address.create({ data })); // S49-R4
   }
 
   /**
@@ -156,10 +170,21 @@ export class UsersService {
    * `422 RECIPIENT_NAME_REQUIRED` (`PATCH { recipientName }` y reintentar el retiro).
    */
   async updateAddress(userId: string, id: string, dto: UpdateAddressDto) {
-    const data: Prisma.AddressUpdateInput = { ...dto };
+    // Lista blanca explícita, campo a campo y SOLO los presentes (un PATCH no debe escribir `undefined`
+    // sobre lo que no vino; y un campo nuevo del DTO no se escribe solo — misma norma que `updateMe`).
+    const data: Prisma.AddressUpdateInput = {};
     if (dto.recipientName !== undefined) {
       data.recipientName = assertPersonName(dto.recipientName, 'recipientName');
     }
+    if (dto.line1 !== undefined) data.line1 = dto.line1;
+    if (dto.line2 !== undefined) data.line2 = dto.line2;
+    if (dto.neighborhood !== undefined) data.neighborhood = dto.neighborhood;
+    if (dto.city !== undefined) data.city = dto.city;
+    if (dto.state !== undefined) data.state = dto.state;
+    if (dto.postalCode !== undefined) data.postalCode = dto.postalCode;
+    if (dto.country !== undefined) data.country = dto.country;
+    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
     if (dto.country) this.assertMx(dto.country);
     const existing = await this.prisma.address.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) throw BusinessException.notFound();

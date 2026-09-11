@@ -238,6 +238,45 @@ describe('UsersService direcciones — recipientName obligatorio al crear, no va
   });
 });
 
+describe('UsersService direcciones — norma «nunca `data: dto`»: lista blanca campo a campo (v1.67.1, F2-7)', () => {
+  const body = {
+    recipientName: 'Ana Pérez',
+    line1: 'Av. Siempre Viva 742',
+    city: 'CDMX',
+    state: 'CDMX',
+    postalCode: '01000',
+    country: 'MX',
+    phone: '5555555555',
+  };
+  const old = {
+    id: 'a-old', userId: 'u1', recipientName: 'Ana Pérez', line1: 'Calle Vieja 1', line2: null, neighborhood: null,
+    city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX', phone: '5555555555', isDefault: true,
+  };
+
+  it('POST: un campo INTRUSO en el DTO (que el whitelist del pipe no cazó) NO se escribe', async () => {
+    const { svc, prisma } = build(baseUser());
+    await svc.createAddress('u1', { ...body, intruso: 'no-debe-escribirse' } as unknown as AddressDto);
+    const data = prisma.address.create.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('intruso');
+    expect(Object.keys(data).sort()).toEqual(
+      ['userId', 'recipientName', 'line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode', 'country', 'phone', 'isDefault'].sort(),
+    );
+  });
+
+  it('PATCH: solo los campos PRESENTES van en `data` (ni intrusos ni `undefined`)', async () => {
+    const { svc, prisma } = build(baseUser(), [old]);
+    await svc.updateAddress('u1', 'a-old', { city: 'Puebla', intruso: 'x' } as unknown as UpdateAddressDto);
+    expect(prisma.address.update.mock.calls[0][0].data).toEqual({ city: 'Puebla' });
+  });
+
+  it('las claves del AddressDTO que devuelve la libreta son EXACTAMENTE las del contrato §11 (una sola lista)', async () => {
+    const { svc } = build(baseUser(), [old]);
+    const { data } = await svc.listAddresses('u1');
+    expect(Object.keys(data[0]).sort()).toEqual([...ADDRESS_DTO_KEYS].sort());
+    expect(data[0]).not.toHaveProperty('userId');
+  });
+});
+
 describe('UsersService billing-profile — 404 sin perfil y BillingProfileDTO de seis campos (v1.67.1, D-CTA-7)', () => {
   const pii = new PiiCryptoService(new ConfigService({}));
   const RFC = 'XAXX010101000';
