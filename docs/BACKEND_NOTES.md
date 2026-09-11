@@ -20234,3 +20234,70 @@ El `details` de `INVALID_TRANSITION` es siempre `{ verb: 'receive'|'verify', fro
 | **m6b** job ⇒ `findMany` + `update` por fila | **2 rojos 3/3** (forma del job y D-2 carrera literal) | no corrida (D-2 por HTTP no puede fabricar la carrera; la mide el unit) |
 
 **NO medido:** `frontend/` (S-3 es de frontend); el conteo de legadas en producción (arriba); la suite de integración **completa** (solo las 8 de mis flujos: `buylist-*` y `disputes`).
+
+## v1.68 — Stream B · agente **B1**: LA RESERVA TIENE DUEÑO (§4-R, P-59, M-53) — reintento del mismo cliente, un cobro por pieza, barrido único (backend · 2026-09-11, medido)
+
+> Contrato `API_CONTRACT.md` v1.68 §4-R (+ §4-G.2 `retryOfCheckoutToken`, §11 `OrderSummaryDTO`); `ARCHITECTURE.md` §4.48.2/§4.48.8/§4.48.9. Rama `claude/tcg-hunt-orchestration-2`. Commits: **`b883fab`** (B-1a), **`a95bfa4`** (B-1b+B-1d), **`07c7561`** (B-1c), **`7c7e418`** (E2E + arnés). BD propia `tcg_b1` (+ `tcg_b1_mut` para mutaciones). Sin claves `STRIPE_*` en el entorno (`env | grep -c ^STRIPE_` ⇒ 0): todo Stripe pasa por el doble del arnés (`TestStripeService`), como los E2E de pagos existentes.
+
+### Qué cambió, por fichero (la regla en una frase)
+
+| Fichero | Qué |
+|---|---|
+| `prisma/schema.prisma` + `migrations/20260911130000_m53_reservation_owner` | **M-53**: `InventoryItem.reservedByOrderId String?` (FK `Order`, `SET NULL`) + `reservedUntil DateTime?`; índices `(reservedByOrderId)` y `(status, reservedUntil)`; `Order.reservedItems`. Aditiva, nullable, **sin backfill**. `migrate diff --from-url --to-schema-datamodel` sobre `tcg_b1`: solo el rename de índice preexistente de `PriceReference` (ajeno); `InventoryItem`/`Order` limpios. |
+| `common/error-codes.ts` | `PAYMENT_IN_PROGRESS` (409). `INVALID_TRANSITION` lo puso B2 (mismo fichero, hunks disjuntos; commiteé solo el mío con `update-index --cacheinfo`). |
+| `orders/reservation.ts` (nuevo) | `ORDER_RESERVATION_TTL_MIN = 60` (**el único TTL**; `GUEST_ORDER_RESERVATION_TTL_MIN` es alias), `reservedUntilFrom`, **`reservationGuard(orderId)`** = `{status:'reserved', OR:[{reservedByOrderId: orderId},{reservedByOrderId: null}]}` (rama legada), `clearReservation`, `releaseReservationData`, **`lockReservationGate(tx, identidad)`** = `pg_advisory_xact_lock(63_120_959::int, hashtext('user:<id>' \| 'guest:<email>'))`, `RESERVATION_TX_OPTIONS` (`maxWait 10 s`, `timeout 30 s`: la tx sostiene la puerta mientras precia y, en la sustitución, cancela el PI en Stripe; un timeout = rollback = cero escritura). |
+| `orders/orders.service.ts` | `createSession` en **una** transacción: puerta → `findOwnLiveReservations` (pre-scan por `reservedByOrderId` con `reservedByOrder {userId, status:'pending'}`, `reservedUntil > now`) → `isReusable` (mismo conjunto, retenido entero y vivo) ⇒ `renewReservation` y `kind:'reused'`; si no, `supersedeOwnOrder` por cada propia (B3: `closePaymentIntent` y **confirmar `canceled` antes** de liberar guardado + `failed`; `processing\|succeeded\|requires_capture` ⇒ `409 PAYMENT_IN_PROGRESS {orderId, orderNumber}`; indeterminado ⇒ `503`), luego **precia dentro del tx** (`priceCartForOrder(ids, tx)`: la sustitución acaba de liberar ahí), crea la `Order` **antes** de `reserveItems` (la FK del dueño exige que exista) y reserva con `reservedByOrderId`/`reservedUntil`. PI nuevo **después del commit**. Reuso: `paymentIntentForReuse` relee el PI (`retrievePaymentIntent`), no crea. `releaseReservation` con `reservationGuard`. **`sweepExpiredReservations`**: barrido único por `status='reserved' ∧ reservedUntil<now` agrupado por orden, B3 primero, `Order→failed` si seguía `pending`. `listOrders`/`getOrder`: `orderNumber` siempre, `reservedUntil` (mín. de sus piezas) solo en `pending`. |
+| `orders/guest-checkout.service.ts` | Misma ceremonia bajo `lockReservationGate({guestEmail})` (el correo solo **serializa**; la titularidad la prueba el token). `resolveRetryClaim(token, email)`: `tokens.validate` ok ∧ orden `pending` ∧ `guestEmail` igual ⇒ orden propia; si no, **sin reclamo** (⇒ `409 ITEM_UNAVAILABLE`, estado de hoy). Reuso ⇒ `200` + `checkoutToken` nuevo (`rotate:false`). `sweepStaleGuestOrders` queda como **rama legada** (solo pedidos con piezas `reservedByOrderId IS NULL`; un pedido con dueño no entra aunque sea viejo: su TTL pudo renovarse). |
+| `orders/*.controller.ts`, `dto/guest-checkout.dto.ts` | Código dinámico con `@Res({passthrough:true})`: `200` reuso / `201` resto. `retryOfCheckoutToken?: string` (≤200). |
+| `payments/stripe.service.ts` | `retrievePaymentIntent(id) → {id, status, clientSecret}`. |
+| `payments/payments.service.ts` (B-1c) | Toda salida de `reserved` con `reservationGuard(order.id)` en el `where` y `clearReservation` en el `data`: liquidación bóveda (`update` incondicional → `updateMany` guardado; `count≠1` ⇒ idempotente si ya `in_custody` del mismo comprador, si no **no se mueve** y se audita `order.settle_item_not_reserved`), liquidación direct_ship, `failAndRelease` (R-2), contracargo direct_ship y bóveda (no toca una pieza `reserved` por OTRA orden ⇒ `needsManual`). Webhook idempotente intacto. |
+| `jobs/order-reservation-sweep.service.ts` (nuevo), `jobs.module.ts`, `scheduler.service.ts` | Job **`order-reservation-sweep`** (encadena `sweepExpiredReservations` + rama legada) con `GUEST_ORDER_SWEEP_CRON` (default `*/15`); retira el repetible viejo `guest-order-sweep-daily` (best-effort) y el worker acepta `guest-order-sweep` como alias un release. `guest-order-sweep.service.ts` y su spec **borrados** (⚠️ el borrado quedó arrastrado en el commit de frontend `d8c0ee9` por índice compartido; `a95bfa4` restaura la coherencia: entre ambos HEAD no compila). |
+
+### Decisiones que conviene conocer (y por qué)
+
+- **Ventana medida de «una orden, dos PI»** (carrera **9/10** antes del arreglo): el que espera la puerta entra justo tras el commit del ganador, cuando éste aún está en `attachPaymentIntent` (fuera del tx) y la orden no tiene PI. `paymentIntentForReuse` ahora relee la orden hasta 2 s antes de recurrir al `attach` (que además usa la misma clave `pi-order-<id>`). Con Stripe real la clave de idempotencia ya devolvía el mismo PI; el doble no lo modelaba — ahora lo modela (`byIdempotencyKey`). Resultado: **10/10** (medido 5 veces: 3 corridas de control + 2 en el árbol vivo).
+- **`pg_advisory_xact_lock` de dos claves** con `::int` explícito: Prisma vincula un `number` como `bigint` y `(bigint, integer)` no existe (medido: `42883` en el primer E2E).
+- **Reserva propia vencida (aún no barrida)** ⇒ `409 ITEM_UNAVAILABLE` hasta el barrido (≤15 min), por la letra de §4-R.1 («viva» = `reservedUntil > now`). Sería money-safe sustituirla (B3 igual); no lo hice para no desviarme del contrato — decisión para el arquitecto si quiere mejorar esa ventana.
+- **Precio dentro de la transacción**: `priceCartForOrder` acepta un `db` (por defecto `this.prisma`); las lecturas de pricing siguen por su conexión (read-only). Coste: la puerta se sostiene unos ms más.
+- **Contracargo de bóveda**: la pieza normalmente está `in_custody` (no sale de `reserved`); el `where` solo excluye el caso «`reserved` por otra orden». Cambio mínimo, guardado por `count`.
+
+### Medido (comandos y totales)
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Migración | `prisma validate` · `generate` · `migrate deploy` (tcg_b1) · `migrate diff` | válida; aplicada; diff limpio en las tablas tocadas |
+| Tipos / lint | `tsc --noEmit` · `npm run lint` | 0 errores (2 warnings preexistentes ajenos: `inventory`, `orders.service.ts:638 actorUserId`) |
+| Unitarios | `npx jest` (completo) | **280 suites / 4607 tests** verdes (+2 suites: `orders.reservation-owner.spec` 19 casos, `order-reservation-sweep.job.spec` 3; `guest-order-sweep.job.spec` borrada; 7 specs con mocks actualizados) |
+| Integración completa | `DATABASE_URL=<tcg_b1> E2E_STRICT_INFRA=true ./scripts/stack-native.sh test:integration` | primera pasada **29/30 suites · 443/446**: los 3 rojos eran contaminación de MI spec en `vault-shipments` (42 charizards `pending` del cliente × 3 corridas = +4 200 000 ¢); arreglado con `afterAll` de limpieza; `vault-shipments` + mi spec verdes después (33/33). Pasada final: ver informe. |
+| E2E §4-R | `checkout-reservation-owner.e2e-spec.ts` | **16/16**; **carrera N=5 × 10 corridas: 10/10** en cada ejecución (5 ejecuciones) |
+| Formato / secretos | `check-format-mix.sh 17ce9a9 HEAD` · `gen-published-secrets-manifest.sh --check` | rc=0 · rc=0 (118 valores; no añadí literales con forma de secreto) |
+
+**Mutaciones (copia `…/scratchpad/backend-B1/mut`, BD `tcg_b1_mut`, spec E2E completo por corrida; 3 corridas cada una):**
+
+| Mutación | Rojo | Qué falla |
+|---|---|---|
+| **m1** pre-scan sin eje de dueño (`reservedByOrder: {status:'pending'}` a secas) | **3/3** | (5) R-1: D obtiene la reserva de C |
+| **m2** `failAndRelease` con `where {id, status:'reserved'}` | **3/3** | (4b) R-2 defensa en profundidad. ⚠️ Con solo el caso (4) del contrato el mutante era **equivalente**: tras la sustitución O1 ya es `failed` y `failAndRelease` sale por `status !== 'pending'` antes del `where`; (4b) fuerza O1 a `pending` para medir el `where` |
+| **m3** `lockReservationGate` no-op | **3/3** | R-3: **0/10** corridas buenas en cada una (5 concurrentes ⇒ 409 para los perdedores, el síntoma original) |
+| **m4** seguir aunque la cancelación no confirmara `canceled` | **3/3** | R-4: se crea O2 con el pago en vuelo |
+| **m4b** `createPaymentIntent` antes de cancelar el viejo | **3/3** | (3) «la primera llamada a Stripe es `cancel`» + R-4 «sin PI nuevos» + sustitución de invitado |
+| control (copia sin mutar) | 0/3 | 16/16 verdes, 10/10 |
+
+Primer runner (con `-t`) invalidado y repetido: al seleccionar tests saltaba los pasos previos de la historia y el control salía rojo por eso — los rojos de m1/m4/m4b de esa tanda no contaban.
+
+### Desviaciones respecto al contrato
+
+- Ninguna de forma. Una de **alcance**: `OrderSummaryDTO` de §11 dice «DTOs de administración»; implementé `orderNumber`/`reservedUntil` en `GET /orders` y `GET /orders/:id` del cliente (§4-R.5, lo normativo); el listado del admin (`admin-orders.controller.ts`) ya emitía `orderNumber` y no le añadí `reservedUntil`.
+
+### Lo que dejo a otros
+
+- **frontend**: `200 reused` en `POST /checkout/session` y `/checkout/guest/session` (mismo body + `reused`, `reservedUntil`, `supersededOrderIds`; invitado además `checkoutToken` nuevo); `409 PAYMENT_IN_PROGRESS {orderId, orderNumber}`; `retryOfCheckoutToken` en el body del invitado; `orderNumber`/`reservedUntil` en `/orders`.
+- **devops**: el job se llama `order-reservation-sweep`; `GUEST_ORDER_SWEEP_CRON` sigue valiendo (DEVOPS_NOTES §… la cita como `guest-order-sweep`). Conteo previo de §4.48.7(1) (reservas en vuelo y órdenes de bóveda `pending` legadas) antes del deploy: **NO MEDIDO** por mí (sin BD de producción).
+- **B2**: nada compartido pendiente; `error-codes.ts` tiene los dos códigos.
+- **TECH_DEBT** (a petición del techlead): retirar la rama `reservedByOrderId IS NULL` de `reservationGuard` y la rama legada de `sweepStaleGuestOrders` cuando `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL` sea 0 en producción.
+
+### NO medido
+
+- Stripe real (modo prueba): el reuso con `retrievePaymentIntent` y la cancelación `processing` solo se midieron con el doble. `e2e-real.yml` lo cubre en CI.
+- El repetible viejo en el Redis de producción: `removeRepeatable` es best-effort y el alias del worker lo absorbe; no he mirado ese Redis.
+- Playwright de frontend.
