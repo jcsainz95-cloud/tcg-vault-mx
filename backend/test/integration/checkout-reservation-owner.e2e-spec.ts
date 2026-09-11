@@ -76,42 +76,83 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
   const intentsOf = (orderId: string) =>
     h.stripe.createdIntents.filter((i) => i.metadata.orderId === orderId).length;
 
+  /**
+   * ⛑️ Limpieza de las piezas de ESTA suite: devuelve a la plataforma (fuera de venta) todo lo que
+   * quedó reservado/en bóveda y cierra sus órdenes `pending`. Idempotente y tolerante a fallos: si el
+   * pool está saturado reintenta, y si aun así no puede NO tumba la suite (el `beforeAll` de la
+   * siguiente corrida vuelve a barrer por prefijo).
+   */
+  async function purgeSuitePieces(prefix: string): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const mine = await h.prisma.inventoryItem.findMany({
+          where: { folio: { startsWith: prefix } },
+          select: { id: true },
+        });
+        const ids = mine.map((m) => m.id);
+        if (ids.length === 0) return;
+        await h.prisma.order.updateMany({
+          where: { status: 'pending', items: { some: { inventoryItemId: { in: ids } } } },
+          data: { status: 'failed' },
+        });
+        await h.prisma.inventoryItem.updateMany({
+          where: { id: { in: ids } },
+          data: {
+            status: 'withdrawn',
+            ownerType: 'platform',
+            ownerUserId: null,
+            ownershipStatus: null,
+            reservedByOrderId: null,
+            reservedUntil: null,
+          },
+        });
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+  }
+
   beforeAll(async () => {
     h = await E2EHarness.create();
     await seedE2E(h.prisma);
-    tokenC = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    // Restos de CUALQUIER corrida anterior de esta suite (si su `afterAll` no llegó a correr).
+    await purgeSuitePieces('E2E-RSV-');
+    // ⛑️ Cliente C **propio de la corrida**, no un usuario del seed. Las piezas de BÓVEDA que este
+    // flujo deja reservadas (`ownerType='customer'`, `ownershipStatus='pending'`) CUENTAN en el
+    // portafolio de su dueño, y `vault-shipments` asierta el total EXACTO del de `E2E_USERS.customer`.
+    // Medido en CI (run 34624748695): con esta suite caída a mitad la limpieza no alcanzó y
+    // `vault-shipments` vio +1 charizard (+100 000 ¢) en 3 casos. Con un usuario propio la
+    // contaminación es **imposible por construcción**, no «improbable si la limpieza corre».
+    const seedCustomer = await h.prisma.user.findUniqueOrThrow({
+      where: { email: E2E_USERS.customer.email },
+    });
+    const ownerEmail = `reserva.owner.${RUN}@e2e.local`;
+    const own = await h.prisma.user.upsert({
+      where: { email: ownerEmail },
+      create: {
+        email: ownerEmail,
+        // Mismo hash que el fixture ⇒ misma contraseña, sin volver a derivar argon2 en el test.
+        passwordHash: seedCustomer.passwordHash,
+        name: 'E2E Reservation Owner',
+        role: 'customer',
+        locale: 'es',
+        phone: seedCustomer.phone,
+        emailVerified: true,
+      },
+      update: { emailVerified: true, status: 'active' },
+    });
+    customerCId = own.id;
+    tokenC = await h.login(ownerEmail, E2E_USERS.customer.password);
     tokenD = await h.login(E2E_USERS.customer2.email, E2E_USERS.customer2.password);
-    customerCId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.customer.email } })).id;
     template = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { folio: E2E_FOLIOS.listedCharizard } });
   });
 
   afterAll(async () => {
-    // LIMPIEZA (medido): las piezas de BÓVEDA que esta suite deja `pending` para el cliente C
-    // (ownerType=customer, ownershipStatus=pending) CUENTAN en su portafolio, y `vault-shipments`
-    // asierta el total exacto del seed — 3 corridas dejaron 42 charizards de más (4 200 000 ¢). Se
-    // devuelven a plataforma fuera de venta y sus órdenes quedan `failed`; el seed no las conoce.
-    if (h) {
-      const mine = await h.prisma.inventoryItem.findMany({
-        where: { folio: { startsWith: `E2E-RSV-${RUN}-` } },
-        select: { id: true },
-      });
-      const ids = mine.map((m) => m.id);
-      await h.prisma.order.updateMany({
-        where: { status: 'pending', items: { some: { inventoryItemId: { in: ids } } } },
-        data: { status: 'failed' },
-      });
-      await h.prisma.inventoryItem.updateMany({
-        where: { id: { in: ids } },
-        data: {
-          status: 'withdrawn',
-          ownerType: 'platform',
-          ownerUserId: null,
-          ownershipStatus: null,
-          reservedByOrderId: null,
-          reservedUntil: null,
-        },
-      });
-    }
+    // Cinturón y tirantes: el cliente propio de la corrida ya hace IMPOSIBLE contaminar el portafolio
+    // del fixture, pero las piezas siguen siendo inventario de la BD compartida. Se devuelven fuera de
+    // venta; un fallo aquí NO tumba la suite (el `beforeAll` de la próxima corrida lo reintenta).
+    if (h) await purgeSuitePieces(`E2E-RSV-${RUN}-`);
     await h?.close();
   });
 
