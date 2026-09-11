@@ -202,16 +202,22 @@ jobs:
   # Detalle del porqué y del algoritmo: scripts/check-format-mix.sh + DEVOPS_NOTES
   # §36 (era §34 antes de la fusión con main; ver la nota de renumeración de §35).
   # ---------------------------------------------------------------------------
-  format-mix:
+  # §56 #4 (2026-09-11): antes «sin base utilizable» y «rc=2 (base inaccesible)»
+  # salían VERDES con un `::notice` que nadie lee — un gate que no concluye no
+  # puede parecer que concluyó. Ahora el job va en dos: `format-mix-base` resuelve
+  # la base (y si no la hay, lo dice con `::warning` y deja `format-mix` en
+  # SKIPPED, que es lo que es: no medido); y `format-mix` solo corre con base y
+  # pone ROJO si el comparador no puede concluir (rc=2) — eso ya no es «rama
+  # nueva», es un fallo que hay que mirar.
+  format-mix-base:
     runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.base.outputs.ref }}
     steps:
       - uses: actions/checkout@v5
         with:
           # El comparador necesita el commit BASE, no solo el HEAD.
           fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
       - name: Resolver base del diff
         id: base
         run: |
@@ -224,20 +230,34 @@ jobs:
           else
             echo "ref=" >> "$GITHUB_OUTPUT"
           fi
-      - name: Comparar (reformateo vs lógica)
+      - name: Sin base utilizable ⇒ el comparador NO corre (skipped explícito, no verde)
+        if: steps.base.outputs.ref == ''
         run: |
-          BASE="${{ steps.base.outputs.ref }}"
-          if [ -z "$BASE" ]; then
-            echo "::notice title=format-mix::Sin commit base utilizable (rama nueva). No concluye; no se finge verde."
-            exit 0
-          fi
+          echo "::warning title=format-mix::Sin commit base utilizable (rama nueva o `before` inexistente). El comparador BL-27 NO corre en este push: el job format-mix queda SKIPPED. No es un verde."
+          echo "- ⚠️ format-mix **no medido** en este push (sin base utilizable)" >> "$GITHUB_STEP_SUMMARY"
+
+  format-mix:
+    needs: [format-mix-base]
+    if: needs.format-mix-base.outputs.ref != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Comparar (reformateo vs lógica)
+        env:
+          BASE: ${{ needs.format-mix-base.outputs.ref }}
+        run: |
           set +e
           ./scripts/check-format-mix.sh "$BASE" "${{ github.sha }}"
           rc=$?
           set -e
           case "$rc" in
             0) exit 0 ;;
-            2) echo "::notice title=format-mix::El comparador no pudo concluir (base inaccesible)."; exit 0 ;;
+            2) echo "::error title=format-mix::El comparador no pudo concluir (rc=2: base '$BASE' inaccesible o prettier no disponible). Un gate que no concluye no es un verde: se marca ROJO para que alguien lo mire."; exit 1 ;;
             *) echo "::error title=format-mix::Este diff mezcla reformateo con cambios de comportamiento (BL-27). Sepáralos en dos commits."; exit 1 ;;
           esac
 
@@ -481,7 +501,7 @@ jobs:
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -489,7 +509,8 @@ jobs:
         run: |
           echo "backend:                  ${{ needs.backend.result }}"
           echo "frontend:                 ${{ needs.frontend.result }}"
-          echo "format-mix:               ${{ needs.format-mix.result }}"
+          echo "format-mix-base:          ${{ needs.format-mix-base.result }}"
+          echo "format-mix:               ${{ needs.format-mix.result }}   (skipped = sin base utilizable: NO medido, no verde)"
           echo "guarda proveedor de paga: ${{ needs.e2e-provider-guard.result }}"
           echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
           echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
@@ -502,7 +523,7 @@ jobs:
           # Falla solo si algún job que SÍ corrió terminó en failure.
           # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
           # cableado, el resto de gates dejan de significar lo que dicen.
-          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ] || [ "${{ needs.format-mix.result }}" = "failure" ] || [ "${{ needs.provenance-gate.result }}" = "failure" ]; then
+          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ] || [ "${{ needs.format-mix-base.result }}" = "failure" ] || [ "${{ needs.format-mix.result }}" = "failure" ] || [ "${{ needs.provenance-gate.result }}" = "failure" ]; then
             echo "::error::Algún job de CI falló."
             exit 1
           fi
