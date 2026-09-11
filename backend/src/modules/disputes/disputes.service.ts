@@ -63,6 +63,13 @@ function toAdminDisputeRow(d: DisputeRow) {
   };
 }
 
+/**
+ * v1.68 · §M8 — los estados desde los que `resolve` puede escribir (los dos VIVOS de `DisputeStatus`).
+ * Es el término de estado del `where` de `resolve`; el job de plazo usa solo `abierta` (una disputa
+ * ya `en_revision` no se re-mueve, y una resuelta no se revive: no está en ninguna de las dos listas).
+ */
+export const DISPUTE_RESOLVABLE_STATES = ['abierta', 'en_revision'] as const satisfies readonly DisputeStatus[];
+
 @Injectable()
 export class DisputesService {
   constructor(
@@ -208,32 +215,52 @@ export class DisputesService {
   async resolve(id: string, resolution: 'repurchase' | 'reject', note: string, actorUserId: string) {
     const dispute = await this.prisma.dispute.findUnique({ where: { id } });
     if (!dispute) throw BusinessException.notFound();
-    if (resolution === 'reject') {
-      // S49-R4: proyectado.
-      return toAdminDisputeRow(
-        await this.prisma.dispute.update({
-          where: { id },
-          data: { status: 'rechazada', resolution: note, resolvedAt: new Date(), resolvedBy: actorUserId },
-        }),
+    let resolutionText = note;
+    if (resolution === 'repurchase') {
+      // repurchase: precio pagado = unitPrice del OrderItem del item. El cliente conserva la
+      // carta; NO se toca el InventoryItem ni se crea InventoryMovement de reingreso.
+      const orderItem = await this.prisma.orderItem.findFirst({
+        where: { inventoryItemId: dispute.inventoryItemId },
+        orderBy: { id: 'desc' },
+      });
+      resolutionText = `${note} (repurchase ${orderItem?.unitPriceCents ?? 0} cents; customer keeps card, not re-added to inventory)`;
+    }
+    // ⚠️ v1.68 · §M8 (doctrina de §M5-T, ARCHITECTURE §4.48.4) — LA GUARDA VA EN EL MOTOR.
+    // Hasta v1.67 esto era `update({ where: { id } })` sin término de estado: una disputa
+    // `resuelta_recompra` se podía «resolver» otra vez y `reject` la pasaba a `rechazada`, con lo
+    // que el `status` perdía el rastro de la recompra (el registro de un money-out). El `findUnique`
+    // de arriba autoriza la lectura (404) y aporta `inventoryItemId`; **no protege la fila** — la
+    // precondición se evalúa en el `where` del `updateMany`, con `count === 1`, y no en un `if`
+    // sobre una lectura previa que una carrera invalida.
+    // ⛔ **NO es idempotente a propósito**: resolver dos veces es registrar dos veces un money-out
+    // (no «repetir»), así que la segunda llamada es `409 CONFLICT { status, resolvedAt }` y cero
+    // escritura — a diferencia de `receive`/`verify`, que declaran un hecho puntual sin dinero.
+    const guard = await this.prisma.dispute.updateMany({
+      where: { id, status: { in: [...DISPUTE_RESOLVABLE_STATES] } },
+      data: {
+        status: resolution === 'reject' ? 'rechazada' : 'resuelta_recompra',
+        resolution: resolutionText,
+        resolvedAt: new Date(),
+        resolvedBy: actorUserId,
+      },
+    });
+    if (guard.count !== 1) {
+      // Relectura para que `details` diga el estado REAL contra el que se chocó, no el de la
+      // lectura vieja de arriba (que es justamente la que la carrera invalidó).
+      const current = await this.prisma.dispute.findUnique({
+        where: { id },
+        select: { status: true, resolvedAt: true },
+      });
+      throw BusinessException.conflict(
+        'CONFLICT',
+        'This dispute is already resolved and cannot be resolved again',
+        { status: current?.status ?? dispute.status, resolvedAt: current?.resolvedAt ?? null },
       );
     }
-    // repurchase: precio pagado = unitPrice del OrderItem del item. El cliente conserva la
-    // carta; NO se toca el InventoryItem ni se crea InventoryMovement de reingreso.
-    const orderItem = await this.prisma.orderItem.findFirst({
-      where: { inventoryItemId: dispute.inventoryItemId },
-      orderBy: { id: 'desc' },
-    });
+    // `updateMany` no devuelve filas ⇒ la relectura es la única forma de responder lo ya escrito.
+    const row = await this.prisma.dispute.findUnique({ where: { id } });
+    if (!row) throw BusinessException.notFound();
     // S49-R4: proyectado.
-    return toAdminDisputeRow(
-      await this.prisma.dispute.update({
-        where: { id },
-        data: {
-          status: 'resuelta_recompra',
-          resolution: `${note} (repurchase ${orderItem?.unitPriceCents ?? 0} cents; customer keeps card, not re-added to inventory)`,
-          resolvedAt: new Date(),
-          resolvedBy: actorUserId,
-        },
-      }),
-    );
+    return toAdminDisputeRow(row);
   }
 }

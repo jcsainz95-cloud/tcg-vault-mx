@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, HttpStatus } from '@nestjs/common';
 import { IsIn, IsString } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -72,6 +72,10 @@ export class AdminDisputesController {
   }
 
   @Post(':id/resolve')
+  // v1.68 · §M8: `200`, no el `201` del default de `POST` de Nest — opera sobre una disputa EXISTENTE
+  // y no crea nada (misma doctrina que §M5-C / BL-37 para los verbos del ciclo). El contrato lo
+  // declara `Res 200`; el cliente ramifica por `res.ok`, así que el impacto en frontend es cero.
+  @HttpCode(HttpStatus.OK)
   async resolve(
     @Param('id') id: string,
     @Body() dto: ResolveDisputeDto,
