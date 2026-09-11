@@ -98,7 +98,8 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
     await svc.onPaymentSucceeded(PI);
     expect(itemState.status).toBe('picking');
     const data = tx.inventoryItem.updateMany.mock.calls[0][0].data;
-    expect(data).toEqual({ status: 'picking' });
+    // v1.68 (§4-R.2 regla 2): la salida de `reserved` limpia dueño y vencimiento.
+    expect(data).toEqual({ status: 'picking', reservedByOrderId: null, reservedUntil: null });
     // Jamás in_custody / ownerType=customer / ownershipStatus=settled.
     expect(JSON.stringify(data)).not.toContain('in_custody');
     expect(data).not.toHaveProperty('ownerType');
@@ -260,8 +261,10 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
     const { svc, created, tx } = build({ order: vaultOrder });
     await svc.onPaymentSucceeded(PI);
     expect(created.shipments).toHaveLength(0);
-    expect(tx.inventoryItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'in_custody', ownershipStatus: 'settled' } }),
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'in_custody', ownershipStatus: 'settled', reservedByOrderId: null, reservedUntil: null },
+      }),
     );
   });
 });
