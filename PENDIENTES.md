@@ -1,3 +1,22 @@
+# ✅ PUBLICADO — release `c13f417` (2026-09-11 02:31:46 UTC)
+
+- **Qué:** `production` = `c13f417` (merge `--no-ff` de `main`=`d0c79b9`; árbol idéntico a `26b2c58`, el candidato con
+  25/25 checks verdes y los tres veredictos: QA, techlead, seguridad APROBADO CON CONDICIONES — 0 críticos/0 altos).
+- **Autorización:** el dueño, «publica» (02:3x UTC), tras plan presentado con migración y reversa. Tienda en modo
+  prueba de Stripe. Sin respaldo de BD (no lo hay en su plan de Railway); medido que M-50 es aditiva y transaccional
+  (ningún DROP/DELETE/UPDATE sobre datos existentes) ⇒ el respaldo no protegía nada en esta release. Petición retirada.
+- **Despliegue (medido por el orquestador, API de deployments de GitHub):** Railway «marvelous-kindness / production»
+  creado 02:31:54 → `success` 02:33:16 · Vercel «Production» creado 02:33:58 → «Deployment has completed».
+  Checks sobre `c13f417`: 23/24 verdes (frontend-e2e en curso, informativo).
+- **Verificación funcional (medida por el dueño, 02:4x UTC):** panel admin M2 muestra **los 3 botones** (= sirve la
+  versión nueva); Railway muestra el despliegue **Active** (= preflights + M-50 + healthcheck pasaron). El orquestador
+  NO puede alcanzar `tcghunt.mx` ni Railway desde su entorno (proxy 403 en los tres dominios, medido).
+- **NO MEDIDO tras el deploy:** `GET /api/v1/health` con SHA servido; un checkout de prueba end-to-end sobre la versión
+  nueva; el E2E real contra producción (nunca ha corrido contra prod).
+- **Reversa, si hiciera falta:** `scripts/m50-rollback-gate.sh` (datos) → `production` a `e117441` (código). Orden
+  obligatorio datos→código.
+- **Rojo conocido que queda:** gitleaks sobre `main` (run `34554095125`) por los canarios — P-GL-FP, devops, no bloquea.
+
 # DECISIÓN DEL DUEÑO — PUBLICAR CON SEGURIDAD EN RECHAZADO (2026-09-11)
 
 > **ACTUALIZACIÓN 2026-09-11 02:17 UTC — el rechazo ya no está en pie.** Seguridad re-midió sobre `d6aca64`/`26b2c58`
