@@ -477,40 +477,89 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
       expect((await item(E)).reservedByOrderId).toBe(s.body.orderId);
     });
 
-    it('carrera sesión ↔ barrido sobre la propia vencida, 10 corridas: siempre 201, la pieza acaba en la orden nueva y la vieja failed — proporción', async () => {
-      const RUNS = 10;
+    /**
+     * ⭐⭐ **I2 (techlead, 2026-09-11) — esta carrera no era la que §4-R.7 R-9 pide, y aseveraba de
+     * más.**
+     *
+     * Dos defectos, los dos del mismo tipo (*el test afirma más de lo que el contrato promete*):
+     *  1. **No escalonaba.** `Promise.all` sin retardo lanza sesión y barrido en el mismo tick: se
+     *     muestrea UN punto del entrelazado, y encima siempre el mismo. R-9 pide **5 escalonados**,
+     *     que es lo que recorre la ventana entre «el barrido aún no ha tomado la pieza» y «ya la
+     *     soltó». Aquí: 0/25/50/75/100 ms de retardo del barrido respecto de la sesión.
+     *  2. **Aseveraba `201` SIEMPRE.** El contrato (§4-R.7, fila R-9) admite **dos** desenlaces:
+     *     la pieza acaba `reserved` por O2 **o** `listed` **con O2 inexistente** y la sesión
+     *     responde `409 ITEM_UNAVAILABLE` — porque el barrido pudo soltarla entre la puerta y la
+     *     reserva. Exigir `201` habría teñido de rojo una corrida CORRECTA (falso positivo que
+     *     manda a «arreglar» lo que no está roto), y —peor— no comprobaba lo único prohibido.
+     *
+     * **El estado PROHIBIDO, que es el que importa y ninguno de los dos medía:** pieza `listed`
+     * (libre, revendible a otro) mientras O2 sigue `pending` con un PaymentIntent vivo ⇒ el cliente
+     * paga una pieza que la tienda ya puede vender de nuevo. Eso es doble venta.
+     */
+    it('carrera sesión ↔ barrido sobre la propia vencida, 5 ESCALONADOS (0/25/50/75/100 ms): la disyunción del contrato, nunca el estado prohibido — proporción', async () => {
+      const RETARDOS = [0, 25, 50, 75, 100];
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       let ok = 0;
+      const desenlaces: string[] = [];
       const failures: string[] = [];
-      for (let run = 1; run <= RUNS; run += 1) {
+      for (const [idx, retardo] of RETARDOS.entries()) {
+        const run = idx + 1;
         const P = (await piece(`EXPRACE${run}`)).id;
         const first = await session(tokenC, [P]);
         expect(first.status).toBe(201);
         await expire(first.body.orderId);
+        // ESCALONADO: la sesión arranca en t=0; el barrido, `retardo` ms después.
         const [s, sweep] = await Promise.all([
           session(tokenC, [P]),
-          h.app.get(OrderReservationSweepJobService).run(),
+          sleep(retardo).then(() => h.app.get(OrderReservationSweepJobService).run()),
         ]);
         const it = await item(P);
         const old = await order(first.body.orderId);
         const pending = await pendingOrdersOfCWith(P);
-        const good =
+
+        // O2 = la orden que la sesión dice haber creado (si la creó).
+        const o2Id: string | undefined = s.status === 201 ? s.body.orderId : undefined;
+        const o2 = o2Id ? await order(o2Id) : null;
+
+        // --- EL ESTADO PROHIBIDO, primero y sin excepciones: pieza libre con O2 cobrando. -------
+        const prohibido = it.status === 'listed' && o2 !== null && o2.status === 'pending';
+
+        // --- La DISYUNCIÓN que el contrato admite (§4-R.7, R-9). --------------------------------
+        const desenlaceA = // reservada por O2, la vieja `failed`, un solo PI y una sola pending
           s.status === 201 &&
           it.status === 'reserved' &&
-          it.reservedByOrderId === s.body.orderId &&
-          s.body.orderId !== first.body.orderId &&
+          it.reservedByOrderId === o2Id &&
+          o2Id !== first.body.orderId &&
           old.status === 'failed' &&
           pending === 1 &&
-          intentsOf(s.body.orderId) === 1;
-        if (good) ok += 1;
-        else
+          intentsOf(o2Id!) === 1;
+        const desenlaceB = // el barrido se le adelantó: pieza libre y NINGUNA O2 viva
+          s.status === 409 &&
+          s.body?.error?.code === 'ITEM_UNAVAILABLE' &&
+          it.status === 'listed' &&
+          o2 === null &&
+          old.status === 'failed' &&
+          pending === 0;
+
+        const good = !prohibido && (desenlaceA || desenlaceB);
+        if (good) {
+          ok += 1;
+          desenlaces.push(`${retardo}ms:${desenlaceA ? 'A(201/reserved)' : 'B(409/listed)'}`);
+        } else {
           failures.push(
-            `run ${run}: status=${s.status} code=${s.body?.error?.code ?? '-'} superseded=${JSON.stringify(s.body?.supersededOrderIds)} sweep=${JSON.stringify(sweep)} item=${it.status}/${it.reservedByOrderId} old=${old.status} pending=${pending}`,
+            `retardo ${retardo}ms: PROHIBIDO=${prohibido} status=${s.status} code=${s.body?.error?.code ?? '-'} ` +
+              `superseded=${JSON.stringify(s.body?.supersededOrderIds)} sweep=${JSON.stringify(sweep)} ` +
+              `item=${it.status}/${it.reservedByOrderId} O2=${o2?.status ?? 'inexistente'} old=${old.status} pending=${pending}`,
           );
+        }
       }
       // eslint-disable-next-line no-console
-      console.log(`[R-9] carrera sesión↔barrido × ${RUNS}: ${ok}/${RUNS}${failures.length ? `\n  ${failures.join('\n  ')}` : ''}`);
+      console.log(
+        `[R-9] carrera sesión↔barrido, 5 escalonados: ${ok}/${RETARDOS.length} — ${desenlaces.join(' ')}` +
+          `${failures.length ? `\n  ${failures.join('\n  ')}` : ''}`,
+      );
       expect(failures).toEqual([]);
-      expect(ok).toBe(RUNS);
+      expect(ok).toBe(RETARDOS.length);
     });
   });
 
