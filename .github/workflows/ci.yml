@@ -550,107 +550,43 @@ jobs:
         run: ./scripts/check-workflow-cwd-canary.sh
 
   # ---------------------------------------------------------------------------
-  # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
-  # Útil como required check en la protección de rama.
+  # 📊 CENSO DE SALVAGUARDAS DE SALTO EN LA SUITE E2E (techlead N7, 2026-09-11).
+  # Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing` es un test que
+  # en algún entorno NO mide. Esto no los juzga uno a uno: impide que el número
+  # SUBA en silencio. Baseline commiteado en scripts/e2e-skip-census.baseline;
+  # subirlo exige `--update --motivo "…"` en el mismo diff. Canario: +1 mockOnly
+  # sobre una copia ⇒ rojo.
+  # ---------------------------------------------------------------------------
+  e2e-skip-census:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: El censo de salvaguardas E2E no crece sin nota
+        run: ./scripts/check-e2e-skip-census.sh
+      - name: Y el censo sabe ponerse rojo (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-e2e-skip-census-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
+  # bloques copiados a mano con dos criterios, y un gate nuevo añadido a `needs`
+  # SIN su bloque quedaba skipped = verde. Ahora `scripts/check-ci-ok.sh` lee
+  # `toJSON(needs)`: TODO exige `success` salvo la lista declarada OPCIONALES
+  # (backend/frontend en greenfield, format-mix* sin base), y además comprueba
+  # estáticamente que todo job de este fichero está en el `needs` de abajo.
+  # Su canario (`check-ci-ok-canary.sh`) demuestra que un job fuera de la lista
+  # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, e2e-skip-census]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Verificar resultados
-        run: |
-          echo "backend:                  ${{ needs.backend.result }}"
-          echo "frontend:                 ${{ needs.frontend.result }}"
-          echo "format-mix-base:          ${{ needs.format-mix-base.result }}"
-          echo "format-mix:               ${{ needs.format-mix.result }}   (skipped = sin base utilizable: NO medido, no verde)"
-          echo "guarda proveedor de paga: ${{ needs.e2e-provider-guard.result }}"
-          echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
-          echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
-          echo "retiro medida D-PP-2:     ${{ needs.price-provider-interim-expiry.result }}"
-          echo "caducidad report_only DAST: ${{ needs.dast-report-only-expiry.result }}"
-          echo "candado DAST vivo:        ${{ needs.dast-gate-live.result }}"
-          echo "fuga de stdout del arnés: ${{ needs.daemon-stdout-leak.result }}"
-          echo "candado de paridad I-PP5: ${{ needs.parity-gate-canary.result }}"
-          echo "webhook Stripe fail-closed: ${{ needs.stripe-webhook-failclosed.result }}"
-          echo "scripts bajo el cwd (S-CI-1): ${{ needs.workflow-cwd.result }}"
-          # Falla solo si algún job que SÍ corrió terminó en failure.
-          # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
-          # cableado, el resto de gates dejan de significar lo que dicen.
-          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ] || [ "${{ needs.format-mix-base.result }}" = "failure" ] || [ "${{ needs.format-mix.result }}" = "failure" ] || [ "${{ needs.provenance-gate.result }}" = "failure" ]; then
-            echo "::error::Algún job de CI falló."
-            exit 1
-          fi
-          # La guarda de §4.38r.6.1 NO es opcional y NO se puede saltar: a diferencia
-          # de backend/frontend (que pueden no existir en greenfield), este job corre
-          # siempre. Cualquier resultado que no sea `success` es rojo — incluido
-          # `skipped`, que es justo la forma en que un gate deja de gatear sin avisar.
-          if [ "${{ needs.e2e-provider-guard.result }}" != "success" ]; then
-            echo "::error::La guarda del proveedor de paga no terminó en verde (resultado: ${{ needs.e2e-provider-guard.result }}). Ver DEVOPS_NOTES §32.12."
-            exit 1
-          fi
-          # Mismo criterio, y por la misma razón: `skipped` NO es verde. La guarda de
-          # §39 impide que el arnés vuelva a saltarse el cobro o la subida del INE sin
-          # decirlo; si ella misma se salta, el candado desaparece exactamente igual.
-          if [ "${{ needs.e2e-harness-gaps.result }}" != "success" ]; then
-            echo "::error::La guarda de huecos del arnés E2E no terminó en verde (resultado: ${{ needs.e2e-harness-gaps.result }}). Ver DEVOPS_NOTES §39."
-            exit 1
-          fi
-          # ⏳ Mismo criterio que las otras dos guardas: `skipped` NO es verde. Este
-          # rojo NO dice «el producto está roto», dice «hay un apaño de devops que ya
-          # cumplió y sigue puesto». El mensaje del script trae qué quitar y de dónde.
-          if [ "${{ needs.price-provider-interim-expiry.result }}" != "success" ]; then
-            echo "::error::La medida interina D-PP-2 caducó y sigue cableada (resultado: ${{ needs.price-provider-interim-expiry.result }}). Dueño: devops. Ver DEVOPS_NOTES §43.2."
-            exit 1
-          fi
-          # ⏳ Mismo criterio: `skipped` NO es verde. Este rojo dice «el DAST de
-          # release lleva demasiado en modo calibración» (F1-1); el mensaje del
-          # script trae el retiro exacto.
-          if [ "${{ needs.dast-report-only-expiry.result }}" != "success" ]; then
-            echo "::error::El report_only del DAST de release caducó (o su disparador no corrió) (resultado: ${{ needs.dast-report-only-expiry.result }}). Dueño: seguridad (decisión) / devops (cableado). Ver DEVOPS_NOTES §56.9."
-            exit 1
-          fi
-          # 🔒 Mismo criterio que las tres anteriores: `skipped` NO es verde. Si la
-          # guarda del candado DAST desaparece, el gate de seguridad dinámica puede
-          # volver a quedarse sin blanco en silencio — que es el estado del que
-          # viene P-77 y el que costó meses de falso verde.
-          if [ "${{ needs.dast-gate-live.result }}" != "success" ]; then
-            echo "::error::El candado del DAST no está vivo (resultado: ${{ needs.dast-gate-live.result }}). Dueño: devops. Ver DEVOPS_NOTES §44."
-            exit 1
-          fi
-          # 🔇 Mismo criterio que las cuatro anteriores: `skipped` NO es verde. Y
-          # aquí el criterio pesa MÁS que en las otras, no menos: el defecto que
-          # esta guarda vigila no produce rojo ni verde, produce un job colgado en
-          # silencio. Si la guarda se salta, lo único que avisaba desaparece y el
-          # síntoma vuelve a ser «CI tarda mucho hoy» (§46.2).
-          if [ "${{ needs.daemon-stdout-leak.result }}" != "success" ]; then
-            echo "::error::Hay un script que deja un daemon con el stdout del invocador: un \`| tail\` sobre él se cuelga en silencio (resultado: ${{ needs.daemon-stdout-leak.result }}). Dueño: devops. Ver DEVOPS_NOTES §46.2."
-            exit 1
-          fi
-          # 🔒 Mismo criterio que las cinco anteriores: `skipped` NO es verde. Si este
-          # canario desaparece, `up --gate` puede volver a salir 0 sobre un stack sin
-          # paridad — y esa es de las averías que INVALIDAN MEDICIONES YA HECHAS: un
-          # E2E o un DAST verdes contra el proveedor legacy no miden el sistema que se
-          # promueve, y nadie se entera al leer el resumen.
-          if [ "${{ needs.parity-gate-canary.result }}" != "success" ]; then
-            echo "::error::El candado de paridad I-PP5 no está vivo: un \`up --gate\` sin paridad podría salir 0 (resultado: ${{ needs.parity-gate-canary.result }}). Dueño: devops. Ver DEVOPS_NOTES §48.1."
-            exit 1
-          fi
-          # 💸 Mismo criterio que las seis anteriores, y aquí es el que más caro sale
-          # si se relaja: lo que este job vigila se explotó EN VIVO y terminó con un
-          # pedido `settled` y una carta movida a la bóveda del comprador SIN COBRO
-          # (P-WH-1). `skipped` no es verde: si el candado no corre, el agujero puede
-          # volver sin que nada se ponga rojo — que es literalmente cómo llegó.
-          if [ "${{ needs.stripe-webhook-failclosed.result }}" != "success" ]; then
-            echo "::error::La firma del webhook de Stripe puede volver a verificarse con una clave conocida (resultado: ${{ needs.stripe-webhook-failclosed.result }}). Dueños: backend (el fail-closed) y devops (la config y el candado). Ver DEVOPS_NOTES §49 y docs/PENTEST_NOTES.md P-WH-1."
-            exit 1
-          fi
-          # 📁 Mismo criterio: `skipped` NO es verde. Lo que este job vigila dejó un
-          # gate deploy-blocking muerto 9 corridas seguidas SIN que su rojo dijera
-          # por qué (S-CI-1). Si la guarda no corre, el siguiente `./scripts/…` bajo
-          # un `working-directory` vuelve a morir con rc=127 en silencio.
-          if [ "${{ needs.workflow-cwd.result }}" != "success" ]; then
-            echo "::error::Hay un script invocado desde un paso de CI que no existe bajo el cwd de ese paso — en el job real eso es rc=127 y el resto del job queda skipped (resultado: ${{ needs.workflow-cwd.result }}). Dueño: devops. Ver DEVOPS_NOTES §52."
-            exit 1
-          fi
-          echo "CI OK (los jobs saltados son esperados mientras no exista el código)."
+      - uses: actions/checkout@v5
+      - name: Verificar resultados (todo exige success salvo OPCIONALES declarados)
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: ./scripts/check-ci-ok.sh
+      - name: Y el veredicto sabe ponerse rojo (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-ci-ok-canary.sh
