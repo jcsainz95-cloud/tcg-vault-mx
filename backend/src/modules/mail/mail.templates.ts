@@ -42,14 +42,37 @@ function layout(title: string, bodyHtml: string): string {
   ].join('');
 }
 
+/**
+ * v1.67 (§4.47.5): saludo con o SIN nombre. `name` llega ya decidido por `greetingName()` (null ⇒ el
+ * nombre es derivado o vacío y no se afirma). Devuelve la línea para HTML (ya escapada) y para texto.
+ */
+function greeting(l: Locale, name: string | null): { html: string; text: string } {
+  if (l === 'en') {
+    return name === null
+      ? { html: 'Hi,', text: 'Hi,' }
+      : { html: `Hi ${escapeHtml(name)},`, text: `Hi ${name},` };
+  }
+  return name === null
+    ? { html: 'Hola:', text: 'Hola:' }
+    : { html: `Hola ${escapeHtml(name)}:`, text: `Hola ${name}:` };
+}
+
 function button(url: string, label: string): string {
   return `<p style="margin:20px 0"><a href="${url}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${label}</a></p>`;
 }
 
-export function emailVerificationTemplate(link: string, name: string, locale?: string | null): MailMessage {
+/**
+ * `name`: el que decidió `greetingName()` — `string` para saludar con nombre, `null` para saludar sin
+ * él (v1.67, nombre derivado). Los llamadores antiguos que pasan un `string` siguen funcionando.
+ */
+export function emailVerificationTemplate(
+  link: string,
+  name: string | null,
+  locale?: string | null,
+): MailMessage {
   const l = normalizeLocale(locale);
-  // S15-B1: escapa los valores dinámicos antes de interpolarlos en el HTML.
-  const safeName = escapeHtml(name);
+  // S15-B1: escapa los valores dinámicos antes de interpolarlos en el HTML (el nombre, dentro de `greeting`).
+  const hi = greeting(l, name);
   const safeLink = escapeHtml(link);
   if (l === 'en') {
     return {
@@ -57,9 +80,9 @@ export function emailVerificationTemplate(link: string, name: string, locale?: s
       subject: 'Verify your email',
       html: layout(
         'Verify your email',
-        `<p>Hi ${safeName},</p><p>Confirm your email address to unlock buying, withdrawing and selling on ${BRAND}.</p>${button(safeLink, 'Verify email')}<p style="font-size:13px;color:#555">This link expires in 24 hours. If the button doesn't work, copy this URL:</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+        `<p>${hi.html}</p><p>Confirm your email address to unlock buying, withdrawing and selling on ${BRAND}.</p>${button(safeLink, 'Verify email')}<p style="font-size:13px;color:#555">This link expires in 24 hours. If the button doesn't work, copy this URL:</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
       ),
-      text: `Hi ${name},\n\nVerify your email for ${BRAND} (link expires in 24 hours):\n${link}\n\nIf you didn't create an account, ignore this message.`,
+      text: `${hi.text}\n\nVerify your email for ${BRAND} (link expires in 24 hours):\n${link}\n\nIf you didn't create an account, ignore this message.`,
     };
   }
   return {
@@ -67,16 +90,20 @@ export function emailVerificationTemplate(link: string, name: string, locale?: s
     subject: 'Verifica tu correo',
     html: layout(
       'Verifica tu correo',
-      `<p>Hola ${safeName}:</p><p>Confirma tu correo para poder comprar, retirar y vender en ${BRAND}.</p>${button(safeLink, 'Verificar correo')}<p style="font-size:13px;color:#555">Este enlace caduca en 24 horas. Si el botón no funciona, copia esta URL:</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+      `<p>${hi.html}</p><p>Confirma tu correo para poder comprar, retirar y vender en ${BRAND}.</p>${button(safeLink, 'Verificar correo')}<p style="font-size:13px;color:#555">Este enlace caduca en 24 horas. Si el botón no funciona, copia esta URL:</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
     ),
-    text: `Hola ${name}:\n\nVerifica tu correo en ${BRAND} (el enlace caduca en 24 horas):\n${link}\n\nSi no creaste una cuenta, ignora este mensaje.`,
+    text: `${hi.text}\n\nVerifica tu correo en ${BRAND} (el enlace caduca en 24 horas):\n${link}\n\nSi no creaste una cuenta, ignora este mensaje.`,
   };
 }
 
-export function passwordResetTemplate(link: string, name: string, locale?: string | null): MailMessage {
+export function passwordResetTemplate(
+  link: string,
+  name: string | null,
+  locale?: string | null,
+): MailMessage {
   const l = normalizeLocale(locale);
-  // S15-B1: escapa los valores dinámicos antes de interpolarlos en el HTML.
-  const safeName = escapeHtml(name);
+  // S15-B1: escapa los valores dinámicos antes de interpolarlos en el HTML (el nombre, dentro de `greeting`).
+  const hi = greeting(l, name);
   const safeLink = escapeHtml(link);
   if (l === 'en') {
     return {
@@ -84,9 +111,9 @@ export function passwordResetTemplate(link: string, name: string, locale?: strin
       subject: 'Reset your password',
       html: layout(
         'Reset your password',
-        `<p>Hi ${safeName},</p><p>We received a request to reset your ${BRAND} password.</p>${button(safeLink, 'Reset password')}<p style="font-size:13px;color:#555">This link expires in 1 hour. If you didn't request it, ignore this email.</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+        `<p>${hi.html}</p><p>We received a request to reset your ${BRAND} password.</p>${button(safeLink, 'Reset password')}<p style="font-size:13px;color:#555">This link expires in 1 hour. If you didn't request it, ignore this email.</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
       ),
-      text: `Hi ${name},\n\nReset your ${BRAND} password (link expires in 1 hour):\n${link}\n\nIf you didn't request this, ignore this email.`,
+      text: `${hi.text}\n\nReset your ${BRAND} password (link expires in 1 hour):\n${link}\n\nIf you didn't request this, ignore this email.`,
     };
   }
   return {
@@ -94,8 +121,8 @@ export function passwordResetTemplate(link: string, name: string, locale?: strin
     subject: 'Restablece tu contraseña',
     html: layout(
       'Restablece tu contraseña',
-      `<p>Hola ${safeName}:</p><p>Recibimos una solicitud para restablecer tu contraseña de ${BRAND}.</p>${button(safeLink, 'Restablecer contraseña')}<p style="font-size:13px;color:#555">Este enlace caduca en 1 hora. Si no lo solicitaste, ignora este correo.</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
+      `<p>${hi.html}</p><p>Recibimos una solicitud para restablecer tu contraseña de ${BRAND}.</p>${button(safeLink, 'Restablecer contraseña')}<p style="font-size:13px;color:#555">Este enlace caduca en 1 hora. Si no lo solicitaste, ignora este correo.</p><p style="font-size:12px;word-break:break-all;color:#555">${safeLink}</p>`,
     ),
-    text: `Hola ${name}:\n\nRestablece tu contraseña de ${BRAND} (el enlace caduca en 1 hora):\n${link}\n\nSi no lo solicitaste, ignora este correo.`,
+    text: `${hi.text}\n\nRestablece tu contraseña de ${BRAND} (el enlace caduca en 1 hora):\n${link}\n\nSi no lo solicitaste, ignora este correo.`,
   };
 }
