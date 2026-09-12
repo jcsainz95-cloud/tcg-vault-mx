@@ -16,6 +16,16 @@
 ## Backend · 2026-09-11 · gates Stream B
 
 ### RSV-L1 · La rama LEGADA `reservedByOrderId IS NULL` está en **TRES** sitios, no en uno (backend · techlead I4 / H-5, 2026-09-11)
+> ⭐⭐ **ACTUALIZACIÓN MEDIDA (2026-09-12, por el DUEÑO en la consola de Railway): las reservas
+> legadas de producción son CERO.**
+> `InventoryItem` con `status='reserved'` y `reservedByOrderId IS NULL` ⇒ **0**.
+> ⇒ **La primera mitad de esta deuda queda cerrada, y con ella la condición `C8`: no hay inventario
+> atascado que rescatar.** El barrido que entregó `SEC-SB-1` pasa a ser **preventivo** (cubre la
+> ventana de un despliegue futuro), no el remedio de una cola existente.
+> ⚠️ **Lo que NO cierra:** la rama sigue **escrita en los tres sitios** de la tabla de abajo. Retirarla
+> es una decisión de código que ahora **sí** se puede tomar sin miedo a dejar piezas huérfanas —
+> pero **re-mídase el conteo justo antes de retirarla**: un `0` de hoy no es un `0` de mañana si
+> entremedio hay un despliegue. **Dueño de la retirada:** backend (`orders`/`inventory`).
 - **Dueño:** **backend**. **Severidad:** Media. **No bloqueante hoy**; sí es *requisito de cierre de release*.
 - **Qué es:** M-53 (`20260911130000_m53_reservation_owner`) le dio **dueño** a la reserva
   (`InventoryItem.reservedByOrderId`). Las piezas que ya estaban `reserved` **en vuelo** al desplegar
@@ -6932,3 +6942,8 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL`, y
   `RSV-L1` se lee contra ESE número (no contra `legacySwept`); y el `skipped` de la tupla suma los dos
   barridos o se desdobla en dos campos con nombre.
+- ⭐ **2026-09-12:** el dueño corrió **ese** conteo a mano contra producción y dio **0** (ver `RSV-L1`).
+  Eso **no cierra esta deuda**: la métrica del job **sigue respondiendo otra pregunta**. Lo que cambia
+  es la urgencia — hoy nadie va a tomar una decisión equivocada a partir de ella, porque el número que
+  importa se midió por fuera. Cuando se retire la rama legada, esta métrica **tiene que** ser la que
+  se mire, o el siguiente que la consulte volverá a creerse `legacySwept`.

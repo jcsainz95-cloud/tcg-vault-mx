@@ -21258,7 +21258,13 @@ escribir**. ⇒ **un expediente que pasó la compuerta con keys inventadas sigue
 
 - ⛔ **No hice backfill, y es una decisión, no un olvido:** inventar un permiso para cada key
   existente sería **firmar retroactivamente lo que este control existe para comprobar**.
-- **La medición que decide** (necesita ventana del dueño, contra producción): por cada
+- ⭐⭐ **MEDIDO el 2026-09-12 (por el DUEÑO, consola de Railway): `KycProfile` con INE ⇒ **1**, y con
+  llave de forma **no canónica** ⇒ **0**.** El residuo es **una sola fila**, y su llave **tiene la
+  forma que emite nuestro presign**. Sigue sin permiso en `KycUploadGrant` (la tabla nace vacía), así
+  que sigue siendo *no verificable* — pero la decisión del dueño es sobre **una** persona, no sobre
+  una población, y eso cambia cuál de las tres salidas sale más barata (re-pedir el documento a un
+  cliente es trivial; a doscientos, no).
+- **La medición que FALTA** (necesita ventana del dueño, contra producción): por esa
   `KycProfile` con `ineFrontKey`/`ineBackKey`, un `HeadObject` contra el bucket. El resultado parte
   las filas en tres: **objeto presente** (expediente real), **objeto ausente** (expediente falso o
   purgado) y **key con forma no canónica** (nunca salió de nuestro presign).
@@ -21349,3 +21355,102 @@ otra cosa*.
    y recargar). Yo medí `C14`(b) —la cabecera real por HTTP, 23/23— pero **la conducta de Chromium
    no la he medido**: es de `seguridad`/devops y ⛔ con imagen de prueba, nunca con la INE de nadie.
 4. **Cuántas filas de producción tienen keys no verificables** (P78.13). Necesita ventana del dueño.
+
+---
+
+## P-79(d) · EL GUION DE REPARACIÓN EN PRODUCCIÓN — lo escribe backend, **lo ejecuta el dueño** (2026-09-12, medido)
+
+> **Ficheros:** `backend/prisma/data-repair/20260912_p79d_llave_de_precio_del_sellado.sql` (reparación)
+> y `…/20260912_p79d_DESHACER.sql` (reversa). **SQL puro**: no necesita Node, ni el repo, ni Prisma.
+> ⛔ **No es una migración de Prisma** y por eso NO vive en `prisma/migrations/`: `prisma migrate`
+> solo lee esa carpeta, así que esto no puede colarse en un despliegue por accidente.
+> **Por qué lo ejecuta el dueño:** desde este entorno **no se alcanza esa base** — medido: solo sale
+> TCP 443, una conexión a Postgres está bloqueada.
+
+### P79d.1 — Los números de partida (**medidos por el DUEÑO** en la consola de Railway, 2026-09-12)
+
+| Qué | Cuántas |
+|---|---|
+| `InventoryItem` `reserved` con `reservedByOrderId IS NULL` | **0** |
+| `KycProfile` con INE | **1** · con llave de forma **no canónica**: **0** |
+| `PendingPriceEntry` sellado con `gradeKey='sealed'` y `sealedProductId` poblado | **5** |
+| `PriceReference` `gradeKey='sealed'` con `isManualOverride=true` | **4** |
+
+⚠️ **Los dos primeros números cierran cosas que estaban abiertas, y se anotan con su fecha:**
+- **`0` reservas legadas** ⇒ cae la **primera mitad de `RSV-L1`** y la condición **`C8`**: **no hay
+  inventario atascado**. El barrido que entregó `SEC-SB-1` queda como **preventivo**, no como
+  remedio de una cola existente. (Anotado también en `TECH_DEBT`.)
+- **`1` INE en archivo, `0` con llave no canónica** ⇒ el residuo de **`C15`** (§P78.13) tiene el
+  tamaño más pequeño posible: **una sola fila**, y su llave **tiene la forma que emite nuestro
+  presign**. Sigue sin `KycUploadGrant` (la tabla nace vacía), así que sigue siendo *no verificable*
+  — pero la decisión del dueño es sobre **una** persona, no sobre una población.
+
+### P79d.2 — Las 5 de la cola son fáciles; las 4 de precios **no**, y ahí está el riesgo
+
+- **La cola** (`PendingPriceEntry`) son **avisos**, no dinero, y **cada uno sabe a qué producto
+  pertenece** (`sealedProductId`). `SealedProduct.tcgplayerProductId` es `NOT NULL`, así que la llave
+  correcta —`sealed:tcg:<id>`— **se deduce sin ambigüedad para las cinco**.
+- **Los precios** (`PriceReference`) son **el dinero que el dueño ya tecleó**, y esa tabla **no tiene
+  `sealedProductId`** (§M2-SK `SK-1`: no lo va a tener, y por qué). Una fila `gradeKey='sealed'` está
+  anclada a una **carta**, no a un producto ⇒ **si dos sellados cuelgan de la misma carta ancla, la
+  fila es AMBIGUA y moverla le pondría a una caja el precio de un sobre.**
+
+**Por eso el guion clasifica y solo repara lo inequívoco.** Cuatro veredictos posibles, y cada fila
+se imprime con **el importe en pesos, la fecha, la carta ancla y el nombre del producto**, para que el
+dueño **reconozca el precio que tecleó**:
+
+| Veredicto | Cuándo | Qué hace |
+|---|---|---|
+| **SE CORRIGE** | la carta ancla tiene **un solo** sellado con mapeo | re-etiqueta a `sealed:tcg:<id>` |
+| **AMBIGUO** | **dos o más** sellados cuelgan de esa carta | ⛔ no la toca, y dice **cuáles** son |
+| **SIN CANDIDATO** | ninguna pieza sellada mapeada cuelga de esa carta | ⛔ no la toca |
+| **COLISIÓN** | ya existe un precio con la llave correcta ese mismo día | ⛔ no la toca |
+
+### P79d.3 — Cómo está construido (las cinco propiedades que se pidieron)
+
+1. **Marcha en seco por defecto.** El fichero **termina en `ROLLBACK`**. Se pega tal cual, imprime
+   el plan y el «antes/después», **y no escribe nada**. Para aplicar, el dueño cambia **una palabra**
+   (`ROLLBACK` → `COMMIT`) y lo vuelve a pegar. *Un interruptor de una palabra, en la última línea.*
+2. **Respaldo antes de tocar.** `p79d_respaldo` (tabla nueva, se queda como comprobante) guarda
+   `(tabla, fila_id, etiqueta_anterior, etiqueta_nueva)` de **cada** fila que se va a mover.
+3. **Reversa escrita y ejecutable**, con los valores previos: al final del mismo fichero, y además
+   como **fichero hermano listo para pegar** (`…_DESHACER.sql`) — quitarle los `--` a mano a un
+   bloque de SQL es justo el tipo de paso que se hace mal a las tres de la mañana.
+4. **Idempotente por construcción.** Los `UPDATE` llevan `AND "gradeKey" = 'sealed'`: tras la primera
+   pasada ninguna fila lo cumple. El respaldo usa `ON CONFLICT DO NOTHING`.
+5. **Las ambiguas no se tocan.** Se listan aparte, al final, con su motivo.
+
+⚠️ **Un caso que NO se comprueba, y es porque la base ya lo impide (medido):** «dos precios genéricos
+de la misma carta, día y acabado» no puede existir — el índice único
+`PriceReference_variant_capturedDate_key` es **`NULLS NOT DISTINCT`**, así que Postgres rechaza el
+par. Lo medí intentando sembrarlo: `duplicate key value violates unique constraint`. **Escribí el
+guardarraíl y lo retiré al medir que era código muerto**, dejando dicho el porqué en el propio fichero
+(si alguien lo «arregla» otra vez sin medirlo, ahí está el motivo).
+
+### P79d.4 — El ensayo: qué medí y con qué proporción
+
+Base **local y desechable** (`p79d_probe`, creada con `prisma migrate deploy`), sembrada con **las
+cuatro variantes a la vez**: inequívoca, ambigua (dos sellados en la misma carta ancla), sin candidato
+y colisión — más un precio **raw** de control que no debe tocarse jamás, y un aviso de cola duplicado.
+
+Cada tirada: **sembrar → marcha en seco → aplicar → aplicar otra vez → deshacer**, comprobando:
+
+| Comprobación | Resultado |
+|---|---|
+| La marcha en seco **no escribe nada** (huella de la BD idéntica) y **no deja la tabla de respaldo** | ✅ |
+| Al aplicar, la **inequívoca** pasa a `sealed:tcg:111111` | ✅ |
+| La **ambigua**, la **sin candidato**, la de **colisión** y el **raw de control** quedan **intactos** | ✅ |
+| La cola: dos avisos re-etiquetados, el **duplicado** intacto | ✅ |
+| El respaldo tiene **exactamente** las 3 filas movidas | ✅ |
+| **Segunda pasada**: no mueve nada ni duplica el respaldo | ✅ |
+| **La reversa** devuelve la huella **exacta** del estado inicial | ✅ |
+
+**Proporción: 3/3** (arnés: `scratchpad/backend-P78/p79d-ensayo.sh`; siembra:
+`…/p79d-siembra.sql`). ⛔ Ni una consulta a producción: todo contra `p79d_probe`.
+
+**⚠️ NO MEDIDO, y lo digo porque cambia qué vale este ensayo:** el guion **no se ha corrido nunca
+contra los datos reales**. Lo que está medido es su **conducta** sobre un escenario que reproduce las
+cuatro variantes; lo que **no** sé es **cómo se reparten las 4 filas reales** entre esos cuatro
+veredictos. **Eso lo contesta el PASO 1 (la marcha en seco) en la consola del dueño**, y por eso el
+paso 1 existe: es la medición, no un trámite. **Hasta que él la pegue y lea las tablas, «cuántas se
+reparan» es desconocido.**
