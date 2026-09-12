@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
-import { UsersService } from '../src/modules/users/users.service';
+import { usersServiceDouble } from './helpers/users-service-double';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -100,7 +100,7 @@ function svcWith(opts: {
     prisma as PrismaService,
     pricing as unknown as PricingService,
     settings,
-    {} as UsersService,
+    usersServiceDouble(),
     pii,
   );
   return { svc, pricing };
@@ -334,7 +334,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       prisma as PrismaService,
       pricing as unknown as PricingService,
       settings,
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
     const res = await svc.createRequest(
@@ -360,7 +360,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       prisma as PrismaService,
       pricing as unknown as PricingService,
       settings,
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
     // INE keys para no bloquear por hasPendingLine (INE_REQUIRED).
@@ -390,7 +390,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       prisma as PrismaService,
       pricing as unknown as PricingService,
       settings,
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
     const res = await svc.createRequest(

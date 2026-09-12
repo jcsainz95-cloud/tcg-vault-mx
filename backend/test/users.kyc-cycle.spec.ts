@@ -40,13 +40,16 @@ function buildService(existing: Record<string, unknown> | null, opts: { threshol
     getNumber: jest.fn().mockResolvedValue(opts.threshold ?? 300_000),
   } as unknown as SettingsService;
   const deleteObject: jest.Mock = jest.fn(async (_key: string) => undefined);
+  // v1.70 (C15): el doble de `UploadsService` incluye la COMPUERTA. Aquí se deja pasar a propósito
+  // (este fichero mide el ciclo, no la compuerta); su medición vive en `uploads.ine-key-gate.spec.ts`.
+  const assertOwnedIneKeys = jest.fn(async () => undefined);
   const svc = new UsersService(
     prisma as unknown as PrismaService,
     settings,
     pii,
-    { deleteObject } as unknown as UploadsService,
+    { deleteObject, assertOwnedIneKeys } as unknown as UploadsService,
   );
-  return { svc, prisma, upsert, deleteObject, settings, state };
+  return { svc, prisma, upsert, deleteObject, assertOwnedIneKeys, settings, state };
 }
 
 describe('K-8 · ⛔ NINGÚN dial de política llega al cliente (§M6-K.5, decisión (c) del dueño)', () => {
@@ -230,5 +233,53 @@ describe('§M6-K.4.1 · el objeto HUÉRFANO: sustituir una key BORRA la anterior
     } finally {
       errorSpy.mockRestore();
     }
+  });
+});
+
+describe('C17 / SEC-PII-3 · el SEGUNDO camino de escritura usa la MISMA rutina', () => {
+  /**
+   * `POST /buylist/requests` era el **otro** escritor de INE y rompía dos invariantes de v1.69 en el
+   * mismo `upsert`: **pisaba la key vieja sin borrar el objeto** (huérfano invisible para la purga) y
+   * **su rama `update` no tocaba `kycStatus`** ⇒ un `verified` cambiaba sus imágenes y **conservaba
+   * la insignia**, con el revisor viendo `verified` sobre un documento que nadie revisó.
+   *
+   * Aquí se mide la RUTINA COMPARTIDA, que es lo que ahora usan los dos caminos.
+   */
+  it('sustituir una key ⇒ `pending` + la key vieja marcada para borrar (da igual por qué puerta)', async () => {
+    const { svc } = buildService({
+      kycStatus: KycStatus.verified,
+      verifiedAt: new Date('2026-09-01T00:00:00Z'),
+      ineFrontKey: 'kyc_ine/2026-09-01/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.png',
+      ineBackKey: 'kyc_ine/2026-09-01/aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff.png',
+    });
+    const nueva = 'kyc_ine/2026-09-12/11111111-2222-4333-8444-555555555555.png';
+    const res = await svc.buildIneSubmission('u1', { front: nueva });
+    expect(res.data).toMatchObject({
+      ineFrontKey: nueva,
+      kycStatus: 'pending',
+      rejectionReason: null,
+      reviewedAt: null,
+      reviewedBy: null,
+    });
+    expect(res.supersededKeys).toEqual(['kyc_ine/2026-09-01/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.png']);
+  });
+
+  it('sin keys: ni toca el estado ni marca nada para borrar (una CLABE no es una identidad)', async () => {
+    const { svc } = buildService({ kycStatus: KycStatus.verified, ineFrontKey: 'k1', ineBackKey: 'k2' });
+    const res = await svc.buildIneSubmission('u1', {});
+    expect(res.data).toEqual({});
+    expect(res.supersededKeys).toEqual([]);
+  });
+
+  it('⭐ C15 vive DENTRO de la rutina: si la compuerta lanza, no se construye NADA que escribir', async () => {
+    const { svc, assertOwnedIneKeys, prisma } = buildService(null);
+    assertOwnedIneKeys.mockRejectedValueOnce(
+      Object.assign(new Error('INE_UPLOAD_KEY_INVALID'), { code: 'INE_UPLOAD_KEY_INVALID' }),
+    );
+    await expect(svc.buildIneSubmission('u1', { front: 'lo-que-sea' })).rejects.toMatchObject({
+      code: 'INE_UPLOAD_KEY_INVALID',
+    });
+    // Ni siquiera se leyó el perfil: la compuerta va PRIMERO.
+    expect(prisma.kycProfile.findUnique).not.toHaveBeenCalled();
   });
 });

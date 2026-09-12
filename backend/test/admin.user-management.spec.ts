@@ -136,6 +136,49 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
     expect(tx.address.deleteMany).toHaveBeenCalled();
   });
 
+  /**
+   * ⭐⭐ **`C20` / `SEC-PII-7` (seguridad) — EL BORRADO NO DECLARA UNA PURGA QUE NO OCURRIÓ.**
+   *
+   * Antes, un `deleteObject` que lanzaba se registraba en el log **y el flujo seguía**: la columna
+   * `ineFrontKey` se ponía a `null` igual ⇒ la imagen quedaba en el bucket **sin ninguna fila que la
+   * referenciara**, invisible para la purga de retención (`BL-42` c2), y la cuenta marcada como
+   * anonimizada. *El sistema afirmaba «PII purgada» sobre un objeto vivo.*
+   * **Un puntero a PII es feo; PII sin puntero es peor: nadie la puede borrar nunca.**
+   */
+  it('C20 · HARD: si el objeto NO se pudo borrar, la cuenta NO se borra (500 INE_PURGE_FAILED)', async () => {
+    const { prisma } = prismaWith({
+      user: { id: 'u1', status: 'active', kycProfile: { id: 'k', ineFrontKey: 'ine/f', ineBackKey: 'ine/b' } },
+      counts: {},
+    });
+    const uploads = { deleteObject: jest.fn(async () => { throw new Error('R2 down'); }) };
+    await expect(svc(prisma, uploads).deleteUser('u1', 'admin')).rejects.toMatchObject({
+      code: 'INE_PURGE_FAILED',
+    });
+    // ⛔ La fila NO se borra: la cascada se llevaría el ÚNICO puntero a una imagen que sigue viva.
+    expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+
+  it('C20 · SOFT: la key SOLO se anula si su objeto se borró (el fallo conserva el puntero)', async () => {
+    const { prisma, tx } = prismaWith({
+      user: { id: 'u1', status: 'active', kycProfile: { id: 'k', ineFrontKey: 'ine/f', ineBackKey: 'ine/b' } },
+      counts: { order: 2 },
+    });
+    // El frente falla, el reverso se borra: la respuesta tiene que distinguirlos.
+    const uploads = {
+      deleteObject: jest.fn(async (key: string) => {
+        if (key === 'ine/f') throw new Error('R2 down');
+      }),
+    };
+    const res = await svc(prisma, uploads).deleteUser('u1', 'admin');
+    expect(res).toEqual({ userId: 'u1', mode: 'soft' });
+    const kycData = (tx.kycProfile.update as jest.Mock).mock.calls[0][0].data;
+    // El que SÍ se borró se anula; el que NO, se conserva para que la retención lo reintente.
+    expect(kycData.ineBackKey).toBeNull();
+    expect(kycData).not.toHaveProperty('ineFrontKey');
+    // El resto de la PII sí se anonimiza: lo que no se pudo hacer es UNA cosa, no todas.
+    expect(kycData).toMatchObject({ clabeEnc: null, rfcEnc: null, legalName: null });
+  });
+
   it('re-DELETE sobre cuenta ya soft-deleted → no-op idempotente { mode: "soft" }', async () => {
     const { prisma } = prismaWith({ user: { id: 'u1', status: 'deleted', kycProfile: null }, counts: { order: 2 } });
     const res = await svc(prisma).deleteUser('u1', 'admin');

@@ -1160,18 +1160,35 @@ export class AdminService {
     return { userId: id, tempPassword, mustChangePassword: true };
   }
 
-  /** Purga las imágenes de INE del object storage y limpia las keys (reusa la rutina de retención). */
-  private async purgeIne(kyc: { id: string; ineFrontKey: string | null; ineBackKey: string | null } | null) {
-    if (!kyc) return;
+  /**
+   * Purga las imágenes de INE del object storage y **devuelve las keys que NO se pudieron borrar**.
+   *
+   * ⭐⭐ **v1.70 (`C20` / `SEC-PII-7`) — EL BORRADO DE CUENTA DEJA DE DECLARAR UNA PURGA QUE NO
+   * OCURRIÓ.** Antes, un `deleteObject` que lanzaba se registraba en el log **y el flujo seguía**:
+   * la columna `ineFrontKey` se ponía a `null` igual, así que la imagen quedaba en el bucket **sin
+   * ninguna fila que la referenciara** ⇒ **invisible para la purga de retención** (`BL-42` c2) y con
+   * la cuenta marcada como anonimizada. *El sistema afirmaba «PII purgada» sobre un objeto vivo.*
+   *
+   * Ahora el fallo **viaja**: el llamador decide, y en el soft-delete la key **se conserva** para que
+   * la retención pueda volver a intentarlo. Un puntero a PII es feo; **PII sin puntero es peor**:
+   * nadie la puede borrar nunca.
+   */
+  private async purgeIne(
+    kyc: { id: string; ineFrontKey: string | null; ineBackKey: string | null } | null,
+  ): Promise<{ failedKeys: string[] }> {
+    const failedKeys: string[] = [];
+    if (!kyc) return { failedKeys };
     for (const key of [kyc.ineFrontKey, kyc.ineBackKey]) {
       if (key) {
         try {
           await this.uploads.deleteObject(key);
         } catch (e) {
           this.logger.error(`user.delete: fallo al purgar INE ${key}: ${String(e)}`);
+          failedKeys.push(key);
         }
       }
     }
+    return { failedKeys };
   }
 
   /**
@@ -1206,9 +1223,20 @@ export class AdminService {
     const hasTransactions = orders + sellRequests + shipments + disputes + ownedItems > 0;
 
     // La imagen de INE se purga en AMBOS modos (dato de máxima sensibilidad).
-    await this.purgeIne(user.kycProfile);
+    const purga = await this.purgeIne(user.kycProfile);
 
     if (!hasTransactions) {
+      // ⭐ `C20` — **el HARD delete no puede continuar con objetos vivos.** La cascada borra la fila
+      // `KycProfile` **con sus keys dentro**: si el objeto sigue en el bucket, su ÚNICO puntero
+      // desaparece y la imagen queda fuera del alcance de toda purga, para siempre. Se aborta con un
+      // `500` de código estable: el `super_admin` reintenta cuando el storage responda.
+      if (purga.failedKeys.length > 0) {
+        throw BusinessException.internal(
+          'INE_PURGE_FAILED',
+          'The account was NOT deleted: its INE images could not be purged from storage, and ' +
+            'deleting the row would leave them unreachable. Retry when object storage responds.',
+        );
+      }
       // HARD delete: cascada borra KycProfile/BillingProfile/Address/PortfolioSnapshot.
       await this.prisma.user.delete({ where: { id } });
       return { userId: id, mode: 'hard' };
@@ -1224,8 +1252,11 @@ export class AdminService {
             clabeHmac: null,
             rfcEnc: null,
             legalName: null,
-            ineFrontKey: null,
-            ineBackKey: null,
+            // ⭐ `C20` — las keys se anulan **solo si el objeto SE BORRÓ**. Con el borrado fallido, el
+            // puntero se CONSERVA: es lo único que permite que la purga de retención lo reintente.
+            // (`anonymizedAt` sí se sella: el resto de la PII sí se anonimizó.)
+            ...(purga.failedKeys.includes(user.kycProfile.ineFrontKey ?? '') ? {} : { ineFrontKey: null }),
+            ...(purga.failedKeys.includes(user.kycProfile.ineBackKey ?? '') ? {} : { ineBackKey: null }),
           },
         });
       }

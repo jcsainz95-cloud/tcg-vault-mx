@@ -21216,3 +21216,136 @@ que el código de salida era el de `tail` — **siempre 0**. Con `set -o pipefai
    y va junto a la comprobación de que **el bucket de producción es privado** (§4.49.0(a), abierta).
 3. **El `429` del tope por actor** sigue sin medirse de punta a punta (el throttler se omite bajo
    `NODE_ENV=test`); ver `P78.5`. Sin cambios en esta ronda.
+
+---
+
+## P-78 · TERCERA RONDA — las dos ALTAS de `seguridad` (`C15`/`C14`) y tres eslabones de la cadena de custodia (backend · 2026-09-12, medido)
+
+> Veredicto de `seguridad`: **RECHAZADO para datos personales reales**, con dos ALTAS. **Una estaba
+> viva en `production` desde antes de este frente.** Esta ronda las cierra y, de paso, `C17`, `C19` y
+> `C20`. Fuente: `docs/SECURITY_NOTES.md` §4.1–§4.3, §5.
+
+### P78.12 — `C15` / `SEC-PII-1` (ALTA): la compuerta de identidad se pasaba con dos cadenas cualesquiera
+
+**El defecto, en una frase:** las **dos** compuertas de cumplimiento —el intake
+(`buylist.service.ts:1591-1606`) y la emisión de la oferta (`:3608-3615`)— medían lo mismo,
+`ineFrontKey != null && ineBackKey != null`, **y ese booleano lo escribía el cliente**. Con
+`{front:'a', back:'b'}` un vendedor **por encima del umbral AML** pasaba las dos y **cobraba a su
+CLABE sin habernos dado jamás una identificación**. `grep -rc HeadObject backend/src/` ⇒ **0**.
+
+**Se cierra con TRES comprobaciones, y ninguna sobra:**
+
+| # | Qué | Dónde | Qué deja pasar si falta |
+|---|---|---|---|
+| 1 | **Forma** anclada `^kyc_ine/<AAAA-MM-DD>/<uuid>.<ext>$` + `@MaxLength` | `KYC_INE_KEY_PATTERN` (`uploads.service.ts`), aplicada en **los dos DTOs** (`users.dto.ts`, `buylist.dto.ts` con `@ValidateNested`) | `'a'`, `'../otro/objeto'`, 5.000 caracteres |
+| 2 | **Dueño**: la key salió de **un presign de ESE `userId`** | tabla nueva **`KycUploadGrant`** (M-55), escrita por `POST /uploads/presign` | cualquier cadena con forma válida — y, si acertara una key ajena, **declarar suyo el documento de otro** |
+| 3 | **Existencia**: `HeadObject` | `UploadsService.objectExists` | quien pide un presign y **no sube nada**: un expediente que dice «tiene INE» sobre un bucket vacío |
+
+- **Un solo código (`422 INE_UPLOAD_KEY_INVALID`) para los tres fallos, a propósito:** distinguirlos
+  le diría al cliente **cuál** falló, que es un oráculo gratis sobre qué keys existen y de quién son.
+- **⚠️ Un fallo de RED del `HeadObject` NO se traduce a «no existe»: se propaga.** «No pude
+  preguntar» y «no está» son hechos distintos; confundirlos convierte un corte de red en un
+  expediente aceptado (o rechazado) por casualidad.
+- **La compuerta vive DENTRO de la rutina compartida** (`UsersService.buildIneSubmission`), que es el
+  **único escritor** de keys: quien añada un tercer camino y no pase por ahí, **no escribe**.
+
+### P78.13 — ⚠️ LA PREGUNTA QUE NO DECIDO YO: ¿hace falta migrar las filas que YA pasaron?
+
+**Sí hay un residuo, y no lo he resuelto porque no me toca.** `KycUploadGrant` nace **vacía**: toda
+fila de `KycProfile` anterior a M-55 tiene keys **no verificables**, y el control **solo actúa al
+escribir**. ⇒ **un expediente que pasó la compuerta con keys inventadas sigue contando como
+`ineOnFile: true`** y sigue satisfaciendo el umbral AML.
+
+- ⛔ **No hice backfill, y es una decisión, no un olvido:** inventar un permiso para cada key
+  existente sería **firmar retroactivamente lo que este control existe para comprobar**.
+- **La medición que decide** (necesita ventana del dueño, contra producción): por cada
+  `KycProfile` con `ineFrontKey`/`ineBackKey`, un `HeadObject` contra el bucket. El resultado parte
+  las filas en tres: **objeto presente** (expediente real), **objeto ausente** (expediente falso o
+  purgado) y **key con forma no canónica** (nunca salió de nuestro presign).
+- **Las tres salidas posibles** —(a) marcar las falsas y **re-pedir el documento**, (b) aceptarlas y
+  anotarlo, (c) backfill de permisos para las que sí tienen objeto— **son del dueño**, no mías.
+  Yo dejo la migración lista para cualquiera de las tres: la tabla existe y el control ya distingue.
+
+### P78.14 — `C14` / `SEC-PII-2` (ALTA en marco real): el `no-store` no alcanzaba a los bytes
+
+El `Cache-Control: no-store` que puse en la segunda ronda protege **la respuesta que lleva los
+enlaces**. **La imagen la baja el navegador del bucket, por otra conexión**, y salía **sin metadato
+de caché ninguno** (`grep CacheControl` ⇒ vacío en el PUT y en el GET).
+
+- **Lo que rompía:** *una copia cacheada se sirve sin red* ⇒ el TTL de 120 s **no la alcanza**, la
+  firma caducada **no la alcanza**, y **volver a mirarla no deja fila de bitácora** — que es
+  exactamente la promesa del dueño. Y queda **en reposo fuera de la retención de 180 días**: nuestra
+  purga no llega al disco de un portátil.
+- **Las dos mitades:** `ResponseCacheControl: 'no-store'` en el `presignGet` (va **dentro de la query
+  firmada**) y `CacheControl: 'no-store'` en el `PutObjectCommand`, para que el objeto **nazca** con
+  el metadato. ⚠️ La segunda lo convierte en **cabecera firmada** ⇒ **tiene que ir en `headers` de la
+  respuesta del presign** (el front hace `{...presign.headers}`); es la misma clase que el BUG A1, y
+  por eso se declara en vez de dejarlo al azar.
+- **MEDIDO por HTTP contra almacenamiento real** (no por mecanismo): la descarga del enlace devuelve
+  `cache-control: no-store` — es el aserto nuevo del bloque `G-3`.
+
+### P78.15 — `C17`, `C19` y `C20`: tres eslabones más de la cadena de custodia
+
+- **`C17` / `SEC-PII-3`** — **una sola rutina de escritura de INE.** El intake era el **segundo**
+  escritor y rompía dos invariantes de v1.69 en el mismo `upsert`: **pisaba la key vieja sin borrar
+  el objeto** (huérfano invisible para la purga, `BL-42` c2) y **su rama `update` no tocaba
+  `kycStatus`** ⇒ un **`verified`** cambiaba sus imágenes y **conservaba la insignia**, con el
+  revisor viendo `verified` **sobre un documento que nadie revisó**. Ahora los dos caminos usan
+  `buildIneSubmission` + `purgeSupersededIneObjects`.
+  *(Y de paso: su rama `create` ponía `pending` **aunque no viniera ni una key** — una CLABE no es
+  una identidad.)*
+- **`C19` / `SEC-PII-5`** — `POST /uploads/presign` tenía **tope global por IP**, el eje que `P-RL-1`
+  esquiva: una manguera de objetos de 10 MiB **que nacen huérfanos**. Ahora **20/min por ACTOR**
+  (`ActorThrottlerGuard`, el mismo de `…/kyc/ine-links`). ⚠️ **El barrido de huérfanos de `C19` NO lo
+  hice**: es `backend + devops` y necesita ventana del dueño (ver «no medido»).
+- **`C20` / `SEC-PII-7`** — **el borrado de cuenta ya no declara una purga que no ocurrió.** Antes un
+  `deleteObject` que lanzaba se registraba en el log **y el flujo seguía**: la key se ponía a `null`
+  igual ⇒ la imagen quedaba en el bucket **sin ninguna fila que la referenciara**, invisible para
+  toda purga, con la cuenta marcada como anonimizada. Ahora: en **HARD** se **aborta** el borrado
+  (`500 INE_PURGE_FAILED` — la cascada se llevaría el único puntero) y en **SOFT** la key **se
+  conserva** para que la retención reintente. *Un puntero a PII es feo; **PII sin puntero es peor**.*
+
+### P78.16 — Mutaciones de esta ronda (COPIA del árbol entero, 3 tiradas, base verde y revertido verde)
+
+| Mutación | Spec | Proporción |
+|---|---|---|
+| **M-23** · la compuerta de `C15` desaparece de la rutina compartida | `users.kyc-cycle` | **ROJO 3/3** |
+| **M-24** · se quita el **`HeadObject`** (basta el permiso, sin objeto) | `uploads.ine-key-gate` | **ROJO 3/3** |
+| **M-25** · se quita la comprobación de **DUEÑO** | ídem | **ROJO 3/3** |
+| **M-26** · el PUT deja de fijar `CacheControl` (`C14`, escritura) | ídem | **ROJO 3/3** ⚠️ *ver abajo* |
+| **M-27** · el presign deja de **registrar** la key | ídem | **ROJO 3/3** |
+| **M-28** · el intake vuelve a escribir el INE por su cuenta (`C17`) | `buylist.ine-pending` | **ROJO 3/3** |
+| **M-29** · el borrado vuelve a declarar la purga fallida (`C20`) | `admin.user-management` | **ROJO 3/3** |
+| **M-30** · el patrón de key deja de estar anclado | `uploads.ine-key-gate` | **ROJO 3/3** |
+| **M-31** · se quita `ResponseCacheControl` del GET (`C14`, **lectura**) | `kyc-ine-links.e2e` (integración, STRICT) | **ROJO 3/3** |
+| **M-32** · la compuerta de `C15` desaparece (**el PoC por HTTP**) | ídem | **ROJO 3/3** |
+
+⚠️ **M-26 salió `0/3` en la primera tanda, y el fallo era del TEST, no de la mutación.** El aserto
+miraba `presign.headers['Cache-Control']` —el diccionario que yo construyo— y no el
+`PutObjectCommand` **que se firma**: quitar `CacheControl` del comando no movía ese aserto. *Medía la
+respuesta, no el objeto.* Reescrito para capturar el comando firmado **y** el header devuelto (las
+dos mitades: sin la segunda, la primera rompe la subida), la mutación sale **3/3**. Lo dejo escrito
+porque es exactamente el modo de fallo contra el que el encargo avisaba: *si no se pone roja, mide
+otra cosa*.
+
+### P78.17 — Gates de esta ronda
+
+| Gate | Resultado |
+|---|---|
+| `npm run lint` | **0 errores** (3 *warnings* preexistentes, ajenos) |
+| `npm run typecheck` | **exit 0** |
+| `npx jest` | **289 suites / 4748 pruebas, verde** |
+| Integración — `kyc-ine-links.e2e-spec.ts` | **23/23** (13 de §M6-K + 4 de `G-3` + 6 de `C15`/`C19` por HTTP) |
+| Integración — suite completa | **30/33 · 473/488**; los 3 rojos son los **mismos** de la línea base sin mis cambios |
+
+**⚠️ NO MEDIDO (nuevo), con la medición que lo cerraría:**
+1. **El `429` de `POST /uploads/presign`** (candado `C19`(a): 11 presigns con la misma sesión y XFF
+   rotatorio ⇒ `429` en el 11.º). Mismo impedimento que el `429` de `…/kyc/ine-links`: bajo
+   `NODE_ENV=test` el throttler se omite. **Lo cierra el mismo arnés** con el tope encendido.
+2. **El barrido de huérfanos de `kyc_ine/`** (`C19`(b), `BL-42` c2): listar el prefijo y restar las
+   keys vivas de `KycProfile`, **en modo informe**. Es `backend + devops` **y necesita ventana del
+   dueño contra el bucket real**; no se hace «por si acaso».
+3. **La sonda de caché de `C14`(c)** (cargar la imagen, dejar vencer el enlace, **desconectar la red**
+   y recargar). Yo medí `C14`(b) —la cabecera real por HTTP, 23/23— pero **la conducta de Chromium
+   no la he medido**: es de `seguridad`/devops y ⛔ con imagen de prueba, nunca con la INE de nadie.
+4. **Cuántas filas de producción tienen keys no verificables** (P78.13). Necesita ventana del dueño.

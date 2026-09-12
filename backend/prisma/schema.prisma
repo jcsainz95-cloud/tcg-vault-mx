@@ -446,6 +446,8 @@ model User {
   portfolioSnapshots         PortfolioSnapshot[]
   // v1.5 (M-17): tokens de verificación de correo / reset de contraseña (un solo uso, hash en BD).
   authTokens                 AuthToken[]
+  // v1.70 (C15/SEC-PII-1, M-55): las keys de subida de INE que el servidor le emitió a ESTE usuario.
+  kycUploadGrants            KycUploadGrant[]
   // v1.23-sealed-sales (M-28): suscripciones restock del usuario (FK opcional; onDelete SetNull).
   sealedRestockSubscriptions SealedRestockSubscription[]
 
@@ -492,6 +494,38 @@ model KycProfile {
   updatedAt                  DateTime  @updatedAt
 
   @@index([clabeHmac])
+}
+
+//
+// ⭐⭐ v1.70 (`C15` / `SEC-PII-1`, M-55) — **EL PRESIGN QUE SE EMITIÓ, REGISTRADO.**
+//
+// ### El defecto que cierra, medido por `seguridad` y vivo en producción desde antes de P-78
+// `ineFrontKey`/`ineBackKey` eran `@IsString()` a secas y **nadie comprobaba nada**: un vendedor por
+// encima del umbral mandaba `{front:'a', back:'b'}` ⇒ `ineProvided = true` ⇒ **pasaba el intake Y la
+// emisión de la oferta** ⇒ cobraba a su CLABE **sin habernos dado jamás una identificación**. Las dos
+// compuertas de cumplimiento medían el mismo booleano, **y ese booleano lo escribía el cliente**.
+//
+// ### Qué es esta tabla
+// La prueba, del lado del SERVIDOR, de que una `objectKey` **la emitimos nosotros y para ESE
+// usuario**. Se escribe al firmar el presign (`POST /uploads/presign`) y se consulta al registrar la
+// llave en el expediente (`PUT /users/me/kyc` y `POST /buylist/requests`).
+//
+// ⛔ **NO es PII**: es un puntero (`kyc_ine/<fecha>/<uuid>.<ext>`) y el `userId` que lo pidió. La
+// imagen vive en el bucket; esto solo dice **quién tiene derecho a declararla suya**.
+// ⚠️ **No sustituye al `HeadObject`**: el permiso dice «esta llave es tuya», no «el objeto existe».
+// Hacen falta los dos — quien pide un presign y no sube nada tiene permiso sobre un objeto vacío.
+//
+model KycUploadGrant {
+  id String @id @default(uuid())
+  // `Cascade`: si la cuenta se borra, sus permisos de subida se van con ella.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// La key EXACTA que emitió el presign. `@unique`: una llave pertenece a UNA persona, y punto.
+  objectKey   String   @unique
+  contentType String
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
 }
 
 model BillingProfile {

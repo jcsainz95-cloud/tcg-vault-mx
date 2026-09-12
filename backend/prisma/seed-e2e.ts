@@ -991,6 +991,17 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       create: { userId: user.id, ...kyc },
       update: kyc,
     });
+    // ⭐ v1.70 (`C15`): el PERMISO de subida de cada key. Sin él, el fixture tendría keys que el
+    // producto **rechazaría** al re-registrarlas (`422 INE_UPLOAD_KEY_INVALID`) — un dato de prueba
+    // que el sistema no aceptaría no sirve para medir el sistema.
+    for (const key of [f.frontKey, f.backKey]) {
+      if (!key) continue;
+      await prisma.kycUploadGrant.upsert({
+        where: { objectKey: key },
+        create: { userId: user.id, objectKey: key, contentType: E2E_KYC_INE_IMAGES.contentType },
+        update: { userId: user.id },
+      });
+    }
     // Dirección de origen: `kyc.review` la necesita para que el panel de cotejo de §M6-K.3 tenga
     // algo que enseñar al lado del documento (y para poder vender, D36/D37).
     const address = await prisma.address.findFirst({ where: { userId: user.id }, select: { id: true } });

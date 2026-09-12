@@ -1,7 +1,10 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ActorThrottlerGuard } from '../admin/actor-throttler.guard';
 import { UploadsService } from './uploads.service';
 
 class PresignDto {
@@ -22,9 +25,21 @@ class PresignDto {
 export class UploadsController {
   constructor(private readonly uploads: UploadsService) {}
 
+  /**
+   * ⭐ v1.70 (`C19` / `SEC-PII-5`) — **tope propio, y por ACTOR.** Antes caía en el global de 300/min
+   * **por IP**, que es justo el eje que `P-RL-1` (ALTA, abierto) esquiva rotando `X-Forwarded-For`:
+   * una manguera de objetos de 10 MiB que **nacen huérfanos** (un presign que nadie ata a un
+   * expediente deja un objeto que ninguna purga alcanza). 20/min es holgado para una persona que
+   * sube dos caras de una credencial y corrige alguna foto; no lo es para un bucle.
+   * ⚠️ Mismo guard que `…/kyc/ine-links`: el eje correcto aquí es **la sesión**, no la red.
+   *
+   * ⭐ v1.70 (`C15`): el `userId` baja al servicio porque **la key se registra a su nombre**.
+   */
   @Post('presign')
   @HttpCode(200)
-  presign(@Body() dto: PresignDto) {
-    return this.uploads.presign(dto.purpose, dto.contentType, dto.contentLength);
+  @UseGuards(ActorThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  presign(@CurrentUser('id') userId: string, @Body() dto: PresignDto) {
+    return this.uploads.presign(userId, dto.purpose, dto.contentType, dto.contentLength);
   }
 }

@@ -6841,7 +6841,18 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
 > Anotada por **backend** a petición del **techlead** (veredicto *aprobado con condiciones*, R-1
 > cerrado aparte por ser bloqueante). Las tres son **preexistentes o disparadas**, ninguna bloquea.
 
-### D-1 · `ineOnFile` es un hecho **afirmado por el cliente**: nada ata la llave de subida a quien pidió el presign
+### D-1 · ~~`ineOnFile` es un hecho afirmado por el cliente~~ → **CERRADA el 2026-09-12** (`C15`)
+> ⭐ **Cerrada por `seguridad`, que la subió de Media a ALTA (`SEC-PII-1`) al medir que la MISMA
+> validación ausente gobierna las DOS compuertas de cumplimiento.** El fix está en `bec269b`+ y
+> `BACKEND_NOTES §P78.12`: forma anclada en los dos DTOs, `KycUploadGrant` (M-55) que ata la key al
+> presign de ESE usuario, y `HeadObject`. Mutaciones M-23/24/25/27/30 y M-32, todas rojas 3/3.
+> ⚠️ **Lo que queda abierto no es el control, es el RESIDUO:** las filas anteriores a M-55 tienen
+> keys no verificables y el control solo actúa al escribir. La decisión (migrar, re-pedir el
+> documento o aceptarlas) **es del dueño** — medición y salidas en `BACKEND_NOTES §P78.13`.
+
+<details><summary>Texto original de la deuda (2026-09-11), conservado</summary>
+
+### D-1 (original) · `ineOnFile` es un hecho **afirmado por el cliente**: nada ata la llave de subida a quien pidió el presign
 - **Dueño:** **backend** (`users`/`uploads`). **Severidad:** Media-alta (PII / integridad de un
   invariante). **Preexistente** desde v1.2; ⚠️ **P-78 es lo que sube su coste**, no su causa.
 - **Qué es, medido:** `backend/src/modules/users/dto/users.dto.ts:94-95` declara
@@ -6860,6 +6871,9 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   `HEAD` al objeto. ⛔ Lo segundo por sí solo **no** cierra (a).
 - **Comprobación de cierre:** un `PUT /users/me/kyc` con `ineFrontUploadKey: "cualquier/cosa.png"`
   ⇒ `422`, y `GET /users/me/kyc` sigue con `ineOnFile: false`.
+  ✅ **MEDIDA el 2026-09-12** por HTTP contra la app real (`kyc-ine-links.e2e-spec.ts`, bloque `C15`).
+
+</details>
 
 ### D-2 · `PATCH /admin/users/:id/kyc` sigue **aceptando** `capPerRequestCents`, que ya no se devuelve
 - **Dueño:** **backend** (`admin`). **Severidad:** Baja (cosmética de contrato; sin efecto de dinero).
