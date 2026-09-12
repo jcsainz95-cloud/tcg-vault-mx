@@ -1,3 +1,677 @@
+# VEREDICTO BLUE TEAM (RE-EMISIÓN) — frente **PII / identidad** · candidato `8f8c35c` (rama `claude/tcg-hunt-orchestration-2`; `main` sigue en `8aeec21`) · `origin/production`=`efe65f5` · 2026-09-12
+
+> ## ⭐ VEREDICTO — **LEVANTO EL RECHAZO**
+>
+> ### 1) **APROBADO CON CONDICIONES** — marco **«datos personales REALES»** (INE de clientes en producción)
+> **0 críticos, 0 altos abiertos en la superficie de PII.** Las dos ALTAS que provocaron el rechazo
+> (`SEC-PII-1`, `SEC-PII-2`) están **cerradas en código y verificadas por mí**, no recibidas: re-corrí
+> mi propia prueba de concepto —la que daba **0 errores** con `{front:'a',back:'b'}` y con una key de
+> 5.000 caracteres— y hoy **falla la validación en los dos DTOs**; y medí en el árbol que la URL
+> firmada de lectura lleva `response-cache-control=no-store` **dentro de la query firmada**
+> (**mutación 3/3**: quitarlo ⇒ `AUSENTE`). **`C16` la cierro** con la evidencia del dueño (§2).
+>
+> ### 2) **APROBADO CON CONDICIONES** — marco **«modo prueba de Stripe»** (dinero)
+> Sin cambio de fondo: siguen abiertas **C3, C6, C7, C12, C13** para `sk_live_…`, y **`P-RL-1`
+> (ALTA) sigue abierta**. Lo que sí cambia: **`P-RL-1` ya no toca la superficie de PII por ningún
+> lado** — los **dos** endpoints que la componen (`…/kyc/ine-links` y `POST /uploads/presign`) topan
+> **por actor**, no por IP (§3.3).
+>
+> ### ⛔ **Nada bloquea publicar hoy desde seguridad.** Y lo digo con la otra mitad, que se me pidió
+> valorar: **retener la publicación no es neutral.** El arreglo de `P-79(d)` está en la rama y **no
+> en producción** (medido: `d3b2543` ∉ `efe65f5`), así que **el defecto sigue escribiendo filas malas
+> cada vez que el dueño da de alta un sellado** — el censo ya cuenta **9**. Entre publicar con dos
+> condiciones no bloqueantes abiertas y no publicar mientras el daño corre, **recomiendo publicar**.
+
+---
+
+## 0. Procedencia: sobre qué árbol juzgo, y qué medí yo en esta re-emisión
+
+⚠️ **El candidato ya no es `main`.** `main` sigue en `8aeec21`; los arreglos viven en la rama, punta
+**`8f8c35c`** `[MEDIDO: git rev-parse]`. **Este veredicto es sobre `8f8c35c`.** Si entra algo más
+antes de la fusión, se re-mide (O-5).
+
+| # | Medición **mía**, hoy | Resultado |
+|---|---|---|
+| 1 | Mi PoC de validación, **la misma que abrió `SEC-PII-1`**, re-corrida sobre el árbol nuevo | `ineUploadKeys:{front:'a',back:'b'}` ⇒ **falla** (antes **0 errores**), con el error **en la propiedad `ineUploadKeys.front`**; `UpdateKycDto` con `'../otro/objeto'` + key de 5.000 caracteres ⇒ **2 errores** (antes **0**) |
+| 2 | Firma real del GET de lectura (`presignGet`, sin red) | La URL lleva **`response-cache-control=no-store`** y `response-content-disposition=attachment`, **dentro de la query firmada** (`X-Amz-Signature` presente) |
+| 3 | **Mutación M-A** sobre **copia del árbol entero** (`git archive HEAD`), 3 tiradas: quitar `ResponseCacheControl` | `AUSENTE` **3/3**; original `no-store` **3/3** |
+| 4 | **Mutación M-B** sobre la misma copia, 3 tiradas: anular el candado de **dueño** (`grant.userId !== userId`) | `uploads.ine-key-gate.spec.ts` **en rojo 3/3** (3 pruebas caídas) |
+| 5 | Suites de la superficie (6 ficheros) | **113/113 verde** |
+| 6 | **Suite unitaria completa de backend sobre la copia** | **289/289 suites · 4.748/4.748 pruebas verdes** |
+| 7 | `grep HeadObject` (era **0** en mi pase anterior) | Presente y **usado en la compuerta**; un fallo de red **se propaga**, no se traduce a «no existe» |
+| 8 | Migración del registro de permisos | `20260912120000_m55_kyc_upload_grant` existe; `KycUploadGrant.objectKey` es **`@unique`** y `userId` cae en **cascada** con la cuenta |
+| 9 | `git log efe65f5..HEAD` sobre `P-79` | `d3b2543` (el arreglo) **no está publicado** |
+| 10 | `npm audit --omit=dev` backend | **0 crítica · 0 alta · 5 moderate** (sin cambio) |
+
+**Convención:** `[MEDIDO]` = lo ejecuté yo · `[código]` = leído en fuente sobre `8f8c35c` ·
+`[DUEÑO]` = medido por el dueño y citado como suyo · `NO MEDIDO` = no lo llamo seguro.
+
+---
+
+## 1. `SEC-PII-1` (era ALTA) — **CERRADA**, y el residuo es **cero**
+
+**El fix no es un patrón: son tres comprobaciones, y las tres hacen falta** `[código + MEDIDO]`.
+1. **Forma** — `KYC_INE_KEY_PATTERN` anclado `^…$` con UUID y extensión corta (no admite `..`, ni
+   barras de más, ni 5.000 caracteres) + `@MaxLength(120)` en **los dos** DTOs.
+2. **Dueño** — `KycUploadGrant` (M-55): el presign **se registra a nombre de quien lo pidió**, y la
+   key tiene que salir de **ese** registro. *Es el control; el patrón solo prueba que la cadena
+   parece nuestra.*
+3. **Existencia** — `HeadObject`.
+
+**Tres cosas del diseño que quiero dejar escritas porque son las que evitan la próxima:**
+- **Un solo código de error** (`422 INE_UPLOAD_KEY_INVALID`) para los tres fallos. Distinguirlos
+  sería un **oráculo** sobre qué keys existen y de quién son. Correcto.
+- **El `HeadObject` que falla por red NO se traduce a «no existe»: se propaga.** Es la diferencia
+  entre *no pude preguntar* y *no está*, y confundirlas convertiría un corte de red en un expediente
+  aceptado. Lo comprobé en el `catch` (`objectExists`).
+- **La compuerta vive en la ÚNICA rutina que escribe keys** (`buildIneSubmission`), llamada por los
+  **dos** caminos. Quien añada un tercer escritor y no pase por ahí, **no escribe**. Eso es lo que
+  convierte el arreglo en estructural en vez de en dos parches.
+
+**El residuo: cero.** `[DUEÑO, 2026-09-12 ~05:00 UTC, rol de solo lectura en la consola de Railway,
+registrado en `PENDIENTES` commit `3c658b2`]` — **1** expediente con INE, **0** con llave de forma no
+canónica. ⇒ **la compuerta que se podía pasar con dos cadenas inventadas nunca se pasó así.** No hay
+backfill, ni documentos que re-pedir, ni población que marcar. La `D-1` del techlead queda cerrada.
+
+> **Lo que ese número NO dice, y lo digo yo también (O-1):** mide la **forma** de la llave, no que el
+> objeto exista en R2 ni que la llave tenga un `KycUploadGrant` (no existía cuando se emitió). Con
+> **un** expediente, el residuo es despreciable y **no abro condición por él**. Si algún día hay que
+> dar certeza sobre él: `HeadObject` sobre esas dos keys — treinta segundos de devops, no un proyecto.
+
+---
+
+## 2. `C16` — **LA CIERRO** con la evidencia del dueño, y digo por qué la sonda anónima **deja de ser condición**
+
+**Evidencia:** `[DUEÑO]` panel de Cloudflare, bucket **de INE**, **Public Access: Disabled**, sin
+dominios propios apuntándole, 152 KB, una sola carpeta `kyc_ine/`.
+
+**Por qué basta, y no es una concesión.** Mi §2.2 pedía **dos** cosas: el panel **y** la sonda
+anónima 4/4. La sonda existía para cubrir *«¿y si el panel dice una cosa y el bucket hace otra?»*. Con
+R2 la pregunta se contesta en el panel **por construcción**: el acceso público solo existe si se
+habilita el subdominio `r2.dev` **o** se ata un dominio propio; la API S3
+(`…r2.cloudflarestorage.com`) **exige firma siempre** y no tiene el concepto de lectura anónima. Con
+las dos vías públicas apagadas, **no queda hostname público que sondear**. ⇒ **la sonda añadiría
+confianza, no información.**
+
+**Y el dato que me faltaba y que sí cambia el juicio `[MEDIDO por el orquestador sobre `efe65f5`, y
+re-verificado por mí en el árbol]`: ese bucket guarda INEs y nada más.** `presign` rechaza cualquier
+propósito distinto de `kyc_ine` y `uploads.service.ts` es el **único** fichero del backend que
+escribe en el almacén. No comparte sitio con fotos de producto ni con catálogo ⇒ **no hay ninguna
+razón operativa para que alguien encienda el acceso público «para las imágenes»**, que es el guion
+habitual por el que un bucket de PII acaba abierto.
+
+**Si aun así quieres cerrar el círculo (opcional, NO bloqueante):**
+- **La sonda anónima**, si se hace: **desde el portátil del dueño** (`curl -sS -o /dev/null -w '%{http_code}'`
+  contra el endpoint del bucket, su listado y una **ruta de objeto inventada** ⇒ `401`/`403`, **4/4**).
+  **No la puedo correr yo** y no es por red: es por **alcance** — producción está fuera de mi blanco
+  autorizado, y una sonda contra el almacén de producción es una petición a producción. Quien puede:
+  **el dueño**, o **devops en ventana autorizada**.
+- **El residuo que el panel de R2 NO muestra en esa pantalla:** un **Worker de Cloudflare con binding
+  al bucket** sería un camino público invisible ahí. Medición: *Workers & Pages* → comprobar que
+  **ningún** Worker tiene binding R2 a ese bucket. En este proyecto no hay Workers (el despliegue es
+  Railway + Vercel), así que lo registro como **verificación oportunista**, no como condición.
+
+---
+
+## 3. Lo demás, re-medido uno a uno
+
+### 3.1 · `SEC-PII-2` — **CERRADA**, y con una precisión sobre dónde vive su candado
+
+`ResponseCacheControl: 'no-store'` en el GET firmado **y** `CacheControl: 'no-store'` en el PUT (que
+lo vuelve **cabecera firmada** y viaja también en los headers que el front reenvía). Lo medí en la
+**firma** (§0.2-3) y backend lo midió **por HTTP contra almacenamiento real** (`[REPORTADO]`,
+mutación 3/3) — las dos mediciones son distintas y se complementan: la mía dice que **pedimos** el
+override; la suya, que el almacén **lo devuelve**.
+
+> ⚠️ **Dato de mantenimiento que hay que saber, y salió de mi mutación:** quitar el
+> `ResponseCacheControl` **no pone roja ninguna prueba unitaria** — la mitad del GET la cubre solo la
+> suite de **integración** (`kyc-ine-links.e2e-spec.ts:424-427`, que **descarga el objeto** y exige
+> `no-store`). La unitaria cubre la mitad del PUT. ⇒ **el candado de la mitad que importa depende de
+> que `e2e.yml` corra** (medido: lo corre, `npm run test:integration`). No es un hallazgo; es una
+> dependencia que conviene que esté escrita el día que alguien toque ese workflow.
+
+### 3.2 · `C17` y `C20` — **CERRADAS** `[código + MEDIDO: 113/113]`
+
+- **`C17`:** los dos caminos comparten `buildIneSubmission` ⇒ la sustitución por el intake **borra el
+  objeto viejo** (`purgeSupersededIneObjects`, después de persistir) y **aplica A6** (`kycStatus` a
+  `pending`, sello de revisión limpiado). Se acabó el «verificado sobre un documento que nadie
+  revisó». Y de paso arreglaron el simétrico que yo no había pedido: la rama `create` ya **no** pone
+  `pending` cuando solo viene una CLABE.
+- **`C20`:** el borrado de cuenta **deja de declarar una purga que no ocurrió**. En **soft** delete la
+  key se **conserva** si el objeto no se pudo borrar (es el único puntero que permite reintentar); en
+  **hard** delete se **aborta con `500 INE_PURGE_FAILED`** en vez de borrar la fila y dejar la imagen
+  fuera del alcance de toda purga. *Esa segunda mitad es la que yo no había especificado y es la
+  correcta:* un puntero a PII es feo, **PII sin puntero es peor**.
+
+### 3.3 · `C19` — **MITAD cerrada, mitad abierta**
+
+- ✅ **Tope por actor en `POST /uploads/presign`** (`ActorThrottlerGuard` + `20/min`) `[código]`.
+  Esto **saca a `P-RL-1` de la superficie de PII por completo**: los dos endpoints que la componen
+  topan por sesión, no por red. *Era el último sitio por el que el bypass de IP tocaba identidades.*
+- ❌ **El barrido de huérfanos sigue sin existir** (`grep ListObjects` ⇒ **vacío** `[MEDIDO]`). Sigue
+  abierto como **C19b** (§4). Nota útil: ahora es **más barato de escribir** que cuando lo pedí,
+  porque `KycUploadGrant` es un inventario de todas las keys emitidas ⇒ *huérfano = grant sin fila en
+  `KycProfile`*, una consulta en vez de un listado del bucket.
+
+### 3.4 · `C18` (`SEC-PII-4`) — **ABIERTA**, sin cambio
+
+`logout()` sigue siendo no-op `[MEDIDO: `auth.controller.ts:64-69`]` y el refresh vive **30 días** en
+`localStorage`. Media, con fecha (§4). No bloquea publicar.
+
+### 3.5 · Lo que NO ha cambiado y no doy por cerrado
+
+- **`P-RL-1` (ALTA) y `C6`:** abiertas. `DEVOPS_NOTES §58.3` sigue con la tabla vacía. **Bloquean
+  dinero real**, no esta publicación — y ya **no tocan PII** (§3.3).
+- **La suite E2E completa del cierre de release:** no ha corrido. **No es mi veredicto** (es de QA),
+  pero lo anoto porque el DoD lo exige y porque mi §0.6 es la **unitaria**, no la E2E.
+- **`C5`:** se re-mide sobre el SHA que se publique (el anterior quedó en rojo por `dast-release`).
+- **`C8`:** ✅ **CERRADA por el censo** — `reserved` con `reservedByOrderId IS NULL` = **0**
+  `[DUEÑO]`, y la columna **existía** en producción cuando se midió (M-53 viajó en `efe65f5`,
+  verificado: la migración está en ese árbol) ⇒ **la cifra es la POST, la definitiva**. `SEC-SB-1` se
+  cierra: **no hay inventario atascado que rescatar**; el barrido nuevo queda como preventivo.
+
+---
+
+## 4. Condiciones que quedan abiertas
+
+### 4.1 Bloquean **publicar hoy** — **NINGUNA**
+
+### 4.2 Con fecha (no bloquean publicar; sí el cierre del DoD)
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C18** | **backend** | `logout` revoca de verdad (subir `tokenVersion`); evaluar un `JWT_REFRESH_TTL` más corto para back-office | Test: tras `logout`, el **refresh** anterior ⇒ **401** y el access anterior ⇒ **401**, **3/3** |
+| **C19b** | **backend + devops** | **Barrido de huérfanos** de `kyc_ine/`, primera corrida **en modo informe** (`BL-42` c2) | El número de huérfanos anotado en `DEVOPS_NOTES.md` con fecha. Hoy el universo es **1 expediente**, así que el número esperado es pequeño y **verificable a mano** |
+| **C2-bis** | **devops** | Heredada: retirar `report_only: true` de `dast-release`. **Fecha límite 2026-09-25** | Sin cambio |
+
+### 4.3 Bloquean **dinero real** (`sk_live_…`) — heredadas, ninguna cerrada
+
+**C3** (humano/QA) · **C6** (devops, el edge de Railway) · **C7** (backend, backstop que no dependa
+de la IP) · **C12** (pase **vivo** del red team) · **C13** (pentest de tercero + canal de
+divulgación).
+
+### 4.4 Higiene de la ventana de publicación
+
+**C5** (devops): `./scripts/check-candidate-checks.sh <SHA publicado>` ⇒ `rc=0`, citando SHA y hora.
+
+---
+
+## 5. Deuda de seguridad **ACEPTADA** (actualizada)
+
+| Id | Sev. | Dueño | Impacto aceptado | **Disparador** |
+|---|---|---|---|---|
+| `BL-42` caminos 1 y 3 | **Media** | backend + **humano** | Retención indefinida de identificaciones que nunca anclan a un cierre. **Hoy el universo es 1 expediente** `[DUEÑO]`, así que el riesgo es pequeño y medible a mano | La primera solicitud ARCO, o la regla 7 encendida, o que el número de expedientes con INE crezca de un dígito |
+| Residuo pre-M-55 (1 llave sin `KycUploadGrant`) | Baja | backend | El control actúa **al escribir**: la llave existente no se re-valida. Forma canónica confirmada; existencia del objeto **NO MEDIDA** | Que aparezca un segundo expediente anterior a M-55 (no puede: M-55 ya está) o una duda concreta sobre ese expediente ⇒ `HeadObject` sobre sus dos keys |
+| `PII-D` (tope en memoria) | Info | devops/backend | `numReplicas: 1` `[MEDIDO]` ⇒ no aplica hoy | Subir `numReplicas > 1` |
+| URL firmada portadora (120 s) | Baja | — | Inherente al presigned; **ahora sí acotada por el reloj**, porque la copia ya no sobrevive en caché (`C14`) | Subir `KYC_INE_VIEW_URL_TTL_SECONDS` |
+| El candado del GET de `C14` vive **solo** en la suite de integración | Baja | devops | Quitar `ResponseCacheControl` no pone roja ninguna unitaria `[MEDIDO: mutación 3/3]` | Cualquier cambio que saque `test:integration` de `e2e.yml` |
+| `SB-B4`, `SB-B2`/`SEC-SB-3`, `P-SEED-1`, `P-GL-2`, `P-NAME-1`, `P-REDIR-1`, `P-BILL-DoS`, `SB-B5` | Baja/Info | según ficha | Sin cambio | Los de siempre |
+
+---
+
+## 6. Lo que sigue **NO MEDIDO**
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| 1 | **La sonda anónima contra el bucket de producción.** Producción está fuera de mi alcance; **no es falta de red, es falta de permiso** | El **dueño** desde su portátil, o **devops** en ventana autorizada (§2). **Opcional** |
+| 2 | **Que ningún Worker de Cloudflare tenga binding al bucket** | Panel → Workers & Pages. **Opcional** |
+| 3 | **Que el objeto del único expediente pre-M-55 exista en R2** | `HeadObject` sobre sus dos keys (devops) |
+| 4 | **Todo lo que exige HTTP vivo contra el Nest real**: el `422 INE_UPLOAD_KEY_INVALID`, el `429` por actor, el `500` fail-closed. Hoy lo tengo **verde en unitarias y en la suite de integración** `[REPORTADO por backend]`, **no disparado por mí** | **C12** (pase vivo del red team) |
+| 5 | **El edge de Railway con `X-Forwarded-For`** | **C6** |
+| 6 | **La suite E2E completa del cierre de release** | QA |
+
+---
+
+## 7. 🚩 Banderas para el humano
+
+1. **Publicar hoy es, en mi lectura, lo más seguro que hay sobre la mesa.** Las dos ALTAS están
+   cerradas y verificadas; lo que queda abierto no se mitiga reteniendo — y **sí hay daño corriendo**:
+   `P-79(d)` sigue escribiendo filas malas en cada alta de sellado, y van **9**. *No publicar también
+   es una decisión con consecuencias, y ésta las tiene medidas.*
+2. **Tu medición cerró dos cosas que el equipo no podía cerrar.** El censo con el rol de solo lectura
+   resolvió el residuo de `SEC-PII-1` (**cero**) y el de `SEC-SB-1` (**cero**). Fue la medición más
+   barata y más decisiva de este frente. *El rol de solo lectura conviene conservarlo.*
+3. **Legal (LFPDPPP), sin cambios y sigue siendo tuyo:** el plazo de conservación de las
+   identificaciones (`BL-42`), y que el **aviso de privacidad** mencione que existe el registro de
+   *«quién miró la identidad de esta persona»*. Hoy ese registro ya funciona y **falla cerrado**.
+4. **Lo que compraste con este frente, dicho en una línea:** antes, una identificación podía estar
+   en archivo **sin que nadie pudiera mirarla** y **sin que nada garantizara que fuera un documento**.
+   Hoy, para que un expediente diga «tiene INE» hace falta **una llave nuestra, de esa persona, con
+   un objeto detrás**; y para verla, **una fila de bitácora que no se puede saltar**.
+
+---
+# VEREDICTO BLUE TEAM — frente **PII / identidad** (P-78 · §M6-K «ver la INE sin perder el rastro») · `main`=`8aeec21` (fusionado, **NO publicado**) · `origin/production`=`efe65f5` · informe del red team en `5fa6f45` · 2026-09-12
+
+> ## ⭐ VEREDICTO — **DOS MARCOS, Y HOY NO COINCIDEN**
+>
+> ### 1) **APROBADO CON CONDICIONES** — marco **«modo prueba de Stripe»** (dinero)
+> No hay dinero real en juego (`HECHOS.md`) y **este frente casi no toca la superficie de dinero**:
+> `git diff --stat origin/production main` sobre `payments/`, `main.ts` y `app-throttler.guard.ts` →
+> **vacío**; solo `orders.service.ts` (+88) y `schema.prisma` (+17), y son el **barrido de reservas
+> legadas** que cierra `SEC-SB-1`/`C9` — deuda que se paga, no superficie que se abre `[MEDIDO hoy]`.
+> Las condiciones de dinero real siguen siendo las heredadas (**C3, C6, C7, C12, C13**), ninguna cerrada.
+>
+> ### 2) **RECHAZADO** — marco **«datos personales REALES»** (INE de clientes, en producción, HOY)
+> **Una ALTA nueva y abierta (`SEC-PII-1`) y una ALTA re-juzgada y abierta (`SEC-PII-2`).** Con
+> hallazgos altos abiertos la fase de seguridad **no se aprueba** (DoD). Mínimo para pasar a
+> **APROBADO**: cerrar **C14, C15 y C16** (§5.1). Son dos fixes de backend acotados y **una medición
+> de treinta segundos** — ninguno es un rediseño.
+>
+> **⚠️ Y una precisión operativa que no es una concesión, porque el orquestador tiene que decidir con
+> ella delante:** `SEC-PII-1` **ya está viva en `origin/production` desde antes de este frente**
+> (medido: `git show efe65f5:…/users/dto/users.dto.ts:94` es idéntico) y **retener esta publicación no
+> la cierra**. Lo que esta publicación añade es, precisamente, **el primer control DETECTIVO que existe
+> sobre ella**: hasta hoy nadie podía mirar una INE, así que un expediente «con INE» que apunta a dos
+> cadenas inventadas **no lo cazaba nadie**. Publicar **con C14 y C15 cerradas** deja el sistema
+> estrictamente mejor que hoy; publicar **sin ellas** cambia una ceguera por otra.
+
+---
+
+## 0. Alcance, procedencia y qué medí **yo** (convención)
+
+- **HEAD al escribir:** `5fa6f45` (informe del red team). **Candidato:** `main` = `8aeec21`.
+  **Producción:** `origin/production` = `efe65f5` `[MEDIDO: git rev-parse]`. ⚠️ El ref **local**
+  `production` está rancio en `c8bee65`; **no lo usé**. Delta a publicar: **97 ficheros,
+  +12.331/−535**.
+- **Blanco:** el código del repo y objetos de git. **Producción: ni una petición.** Stripe en modo prueba.
+- **Naturaleza del pase:** **`[código]` + `[MEDIDO]`**. **No levanté el stack** (el Nest no estaba
+  arriba); lo que exige un target vivo va marcado **`NO MEDIDO`** con la medición exacta (§7).
+- **Lo único que ejecuté:** `jest` de una spec, `npm audit`, un validador de DTO aislado, `git diff`,
+  `grep`. **No escribí una línea de código.** Único fichero escrito: éste. Scratchpad:
+  `scratchpad/seguridad-pii/`.
+- **Convención:** `[MEDIDO]` lo ejecuté yo hoy · `[código]` leído en fuente sobre `8aeec21` ·
+  `[REPORTADO]` lo dijo otro rol y lo cito como suyo · `[DUEÑO]` hecho del negocio que me llega por el
+  orquestador · `NO MEDIDO` no lo llamo seguro.
+
+**Lo que medí yo hoy, para que se distinga de lo que leí:**
+
+| # | Medición | Resultado |
+|---|---|---|
+| 1 | `npx jest test/admin.kyc-ine-links.spec.ts` | **20/20 verde**, incluido *«la escritura de `AuditLog` revienta ⇒ 500 `AUDIT_WRITE_FAILED` y el cuerpo NO contiene ninguna `url`»* y los tres del `getTracker` por actor. Determinista (mocks, sin carrera) ⇒ no aplica O-3 |
+| 2 | Validador aislado del DTO real con las opciones EXACTAS del `ValidationPipe` de `main.ts:56` (`whitelist:true, transform:true, forbidNonWhitelisted:false`) | `CreateRequestDto` con `ineUploadKeys:{front:'a',back:'b'}` ⇒ **0 errores** y los valores **sobreviven el whitelist**. `UpdateKycDto` con `ineFrontUploadKey:'../otro/objeto'` y una key de **5.000 caracteres** ⇒ **0 errores** |
+| 3 | `grep -rn "ResponseCacheControl" backend/` y `CacheControl` en el `PutObjectCommand` | **vacío los dos** ⇒ el objeto **no tiene metadato de caché** ni al subirlo ni al firmarlo |
+| 4 | `grep -rn "HeadObject" backend/src` | **vacío** ⇒ nadie comprueba jamás que la key **exista** |
+| 5 | Call-sites de `presignGet` / `ineLinksUnaudited` | **uno solo** cada uno, y es el controller auditado (confirmo al red team) |
+| 6 | `npm audit --omit=dev` backend / `npm audit` frontend | **backend: 0 crítica, 0 alta, 5 moderate** · **frontend: 0** |
+| 7 | `railway.json` | **`numReplicas: 1`** ⇒ `PII-D` (tope en memoria por réplica) **no aplica hoy** |
+| 8 | `git diff --stat origin/production main` sobre `payments/`, `main.ts`, `app-throttler.guard.ts` | **vacío** ⇒ ni se introduce ni se empeora `P-RL-1`, ni se toca el dinero |
+
+---
+
+## 1. ⛔ LA PREMISA DEL RED TEAM ES FALSA, Y ESO MUEVE DOS SEVERIDADES
+
+El red team cierra con *«publicable en modo prueba **con datos sintéticos** — `PII-B` y `PII-A`
+deberían cerrarse **antes de operar con INEs reales de clientes**»*.
+
+**`[DUEÑO, vía orquestador]` Los clientes YA suben su INE real a producción, y llevan tiempo
+haciéndolo.** Ése es el origen de este frente: *«la gente sube su credencial y nadie podía verla»*.
+⇒ **no estamos «antes de que llegue el día»: estamos dentro de él.** El red team no tuvo ese dato;
+no se lo reprocho, pero **su recomendación se apoya en él y por eso no la firmo tal cual**.
+
+**Consecuencia inmediata, dicha sin rodeos:** la frase *«no bloqueante para un piloto con datos
+sintéticos»* **no describe este sistema**. El bucket de producción **no contiene datos sintéticos**:
+contiene credenciales de identidad de personas reales, y todo lo que se diga sobre su custodia se
+juzga con esa vara. *Un hallazgo de PII no se clasifica por lo que el sistema hará: se clasifica por
+lo que el sistema ya tiene dentro.*
+
+> **Yo tampoco he medido ese hecho** y no lo presento como mío: es del dueño. **Lo que lo mediría,
+> y sirve para dimensionar todo lo demás:** `SELECT count(*) FROM "KycProfile" WHERE "ineFrontKey"
+> IS NOT NULL;` en la BD de producción (mismo instrumento y misma ventana que `C8`) y el número de
+> objetos bajo `kyc_ine/` en el bucket. **La diferencia entre esos dos números es, literalmente, el
+> tamaño de `BL-42` camino 2 en vivo** (§3, eslabón 7).
+
+### Re-juicio de severidad (respuesta explícita a lo que se me preguntó)
+
+| Hallazgo | Red team | **Blue team, con el hecho encima** | Por qué cambia |
+|---|---|---|---|
+| `PII-A` | Media | **`SEC-PII-1` · ALTA** | No es solo *«el cliente corrompe su propio expediente»*. La **misma** validación ausente es la que hace que el **control AML de identificación** se satisfaga con **dos cadenas arbitrarias** (§4.1) — y eso es cumplimiento sobre dinero saliente, con vendedores reales, **hoy en producción** |
+| `PII-B` | Media | **`SEC-PII-2` · ALTA en el marco de datos reales** (Media en explotabilidad técnica) | Con INEs sintéticas es higiene. Con INEs reales es **una credencial oficial de un tercero quedando en reposo fuera de todo proceso de retención**, en una copia que **nuestra purga no alcanza** y que permite **volver a verla sin fila de bitácora** — que es justo la promesa del frente (§2.1) |
+| `PII-C` | Baja | **`SEC-PII-4` · Media** | El residual no es «≤ 15 min»: `logout` no revoca **nada**, y el **refresh vive 30 días** (`JWT_REFRESH_TTL` default `'30d'`, `auth.service.ts:94`) **en `localStorage`** (`api-client.ts:39-45`) `[código]` |
+| `PII-D` | Info | **Info — confirmado y ACOTADO** | `railway.json` fija `numReplicas: 1` `[MEDIDO]` ⇒ hoy el tope por actor es real; deuda con disparador explícito |
+
+---
+
+## 2. Las tres preguntas que se me hicieron, contestadas
+
+### 2.1 · «Nadie ve una INE sin que quede constancia» — **CONFIRMADA dentro de la aplicación, con DOS salvedades que hay que escribir**
+
+**Confirmo el mecanismo, y lo confirmo midiendo, no recibiendo.**
+- El orden es `firmar → await audit.log → responder` (`admin.controller.ts:265-303`); el `create` de
+  `AuditLog` está **`await`-eado en el camino de la respuesta** y `AuditService.log` hace un `create`
+  real sin `void` ni `.catch` (`audit.service.ts:47-58`) `[código]`.
+- El `try/catch` **no traga**: relanza `500 AUDIT_WRITE_FAILED` ⇒ el `200` es inalcanzable si la fila
+  no entró. **Medido por mí hoy:** el candado K-3 existe, **fuerza el fallo** del `create` y exige
+  `500` **y** cuerpo **sin ninguna `url`** — **20/20 verde** `[MEDIDO]`.
+- **No hay segundo camino de servidor:** `presignGet` y `ineLinksUnaudited` tienen **un único
+  call-site** cada uno, y es el controller auditado `[MEDIDO: grep exhaustivo]`. Ninguna otra
+  respuesta del sistema emite una URL del INE ni la key (`ADMIN_KYC_SELECT` solo deriva
+  `ineOnFile`).
+
+**Salvedad 1 — la promesa se rompe FUERA del servidor, y es `SEC-PII-2`.** La imagen la baja el
+navegador del bucket y **se queda en su caché de disco**. Una copia cacheada **no vuelve a pedir el
+objeto**: se sirve sin red ⇒ **la firma caducada es irrelevante** y **no hay fila de bitácora**. O
+sea: *volver a ver esa identidad después es posible, y la bitácora dirá que solo se miró una vez*.
+**Ése es el único «segundo camino» que encontré, y no es de código: es de cabeceras.**
+
+**Salvedad 2 — la bitácora cubre la APLICACIÓN, no el ALMACÉN.** Quien tenga el par
+`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` (o el panel de Railway, o un volcado de la BD con las keys)
+**lee cualquier INE sin dejar una sola fila**. Es inherente y no es un defecto de este frente — pero
+la frase *«nadie ve una INE sin que quede constancia»* debe leerse como *«nadie la ve **por la
+aplicación** sin que quede constancia»*. Si el dueño quiere cerrar también ese eje, el instrumento no
+es código: son los **logs de acceso de R2** (hoy **NO MEDIDO**, ver §7).
+
+### 2.2 · El bucket de producción — **NO MEDIDO, y es la pregunta que más barato se cierra**
+
+**Lo que el red team midió es el doble local** (`s3-local` en `:9000`, anónimo → `403` en 3/3): lo
+cito como **`[REPORTADO]`** y **no lo extrapolo a R2**. *Un doble que rechaza el anónimo no dice nada
+del bucket que guarda las credenciales de las personas.*
+
+**Lo que sí puedo afirmar del repo `[MEDIDO]`:** no existe `S3_PUBLIC_BASE_URL` ni ninguna ruta que
+construya una URL pública; el código **solo** habla con el bucket firmado. Y en `DEVOPS_NOTES §11.B`
+el ítem *«Crear un bucket R2 **PRIVADO** (sin acceso público)»* está en la lista **`- [ ]` sin
+marcar**, igual que el CORS *«[HUMANO — PENDIENTE]»* ⇒ **la evidencia de que se hizo no existe en el
+repositorio**.
+
+**⇒ `SEC-PII-6`: NO MEDIDO.** Medición exacta que lo cierra (dueño: **devops** con el humano, en
+ventana autorizada; son minutos):
+1. **Panel de Cloudflare** → R2 → bucket de INE → *Settings* → **Public access**: el subdominio
+   `r2.dev` **Disabled** y **cero** *Custom Domains*. Anotar fecha y quién lo vio en `DEVOPS_NOTES`.
+2. **Sonda anónima** (sin credenciales, desde fuera): `GET` al endpoint S3 del bucket, al listado
+   (`?list-type=2`), al prefijo `kyc_ine/` y a **una ruta de objeto inventada** ⇒ se exige
+   `401`/`403` en los cuatro, **4/4**. ⛔ *No usar la key de una persona real para la sonda.*
+3. Si el paso 1 revelara `r2.dev` **habilitado**: eso es **CRÍTICO inmediato** (toda INE sería legible
+   por cualquiera que tenga la key, sin firma y sin bitácora) y este veredicto pasa a RECHAZADO sin
+   matices. **No lo afirmo: por eso es una medición y no un hallazgo.**
+
+### 2.3 · `P-RL-1` (ALTA, abierta) sobre esta superficie — **el red team acierta en el revelado y se queda corto en la subida**
+
+- **En el REVELADO: NO agrava. Confirmado, y medido.** El tracker del tope cuelga de
+  `actor:${user.id}` (`actor-throttler.guard.ts:46-49`); rotar `X-Forwarded-For` no renueva cuota.
+  Lo verifiqué con los tres casos del candado: *dos IPs distintas, mismo actor ⇒ mismo cubo*; *misma
+  IP, dos actores ⇒ cubos distintos*; *sin actor **no** se degrada a IP, cae en un cubo `anon`
+  estrecho* — **verde** `[MEDIDO]`. Ese guard es, además, el cierre de **C10(a)** de mi veredicto
+  anterior.
+- **En la SUBIDA: SÍ agrava, y esto el red team no lo cubrió.** `POST /uploads/presign` **no tiene
+  tope propio**: cae en el global `300/min` **por IP** (`app.module.ts:45`) — el **mismo eje** que
+  `P-RL-1` esquiva. Con el bypass, un cliente autenticado emite presigns sin cota práctica y **PUTea
+  objetos de hasta 10 MiB** que nacen **huérfanos** (nadie los referencia) y que **ninguna purga
+  alcanza** (`BL-42` camino 2). Es `SEC-PII-5`: coste de almacenamiento sin techo **y** un vertedero
+  de PII que crece solo.
+
+---
+
+## 3. La cadena de custodia, eslabón por eslabón — **dónde sobrevive una INE real a lo que el diseño promete**
+
+> Se me pidió buscar el eslabón donde el dato sobrevive a la promesa. Hay **cuatro**, y tres son de
+> la misma familia: *la fila de la BD se limpia y el objeto no*.
+
+| # | Eslabón | Qué promete el diseño | Qué hace el código `[código]` | Veredicto |
+|---|---|---|---|---|
+| 1 | **Subida** (`POST /uploads/presign` → PUT del navegador) | key server-side `kyc_ine/<fecha>/<uuid>.<ext>`, tipo `image/*`, tamaño **en la firma** | Correcto y bien cerrado (`P-UP-1`): el tamaño es obligatorio y va firmado | ✅ aguanta |
+| 2 | **Registro de la key** (`PUT /users/me/kyc`, `POST /buylist/requests`) | que el expediente apunte a **nuestro** objeto | El presign **no se persiste**; el cliente reenvía **la cadena que quiera** (`@IsString()` / `@IsObject()` pelados) y **nadie comprueba que el objeto exista** | ❌ **`SEC-PII-1` (ALTA)** |
+| 3 | **Emisión del enlace** (`GET …/ine-links`) | `super_admin`, 120 s, tope por actor, fila de bitácora, fallo cerrado | Todo presente y **medido** (§2.1). Un `super_admin` ve a cualquiera **por diseño** (no es IDOR) | ✅ aguanta |
+| 4 | **Descarga de la imagen** (navegador → bucket) | *«el enlace muere en 120 s»* | Ni el `PutObjectCommand` ni el `GetObjectCommand` fijan caché ⇒ **el objeto no tiene `Cache-Control`** y la copia del disco **sobrevive al enlace**, re-visible **sin fila** | ❌ **`SEC-PII-2` (ALTA en marco real)** |
+| 5 | **Sustitución** (subir una INE nueva) | *«la key vieja se borra de R2 en el mismo flujo»* (contrato §M6-K.4.1) | **Cierto solo en `PUT /users/me/kyc`** (`users.service.ts:412-419,437-447`). El **segundo camino** (`POST /buylist/requests`, `buylist.service.ts:1636-1637`) **sobrescribe sin borrar** y **sin resetear `kycStatus`** | ❌ **`SEC-PII-3` (Media)** |
+| 6 | **Borrado del usuario** (soft y hard) | *«la imagen se purga en AMBOS modos»* | Se intenta; si `deleteObject` falla, se **loguea y se sigue**, y la fila se pone a `NULL` ⇒ **la imagen queda viva y ya no sabemos su key** | ❌ **`SEC-PII-7` (Media, cumplimiento)** |
+| 7 | **Purga por retención** (`INE_RETENTION_DAYS`) | 180 días tras el cierre | El reloj **no nace con la imagen: nace con el cierre de una solicitud**. Quien subió su INE y **nunca cerró** una solicitud ⇒ `lastClosed = null` ⇒ **`continue` para siempre** (`ine-retention.service.ts:66-70`). Es `BL-42`, **abierto**, y con INEs reales **ya está corriendo** | ⚠️ **deuda ACEPTADA que hoy tiene sujetos reales** (§6) |
+
+**La familia común de 5, 6 y 7:** *la BD deja de nombrar el objeto y el objeto sigue ahí.* Como el
+único inventario de INEs que tenemos es `KycProfile`, **un huérfano es invisible para siempre**: no
+se purga, no se cuenta, y no se puede contestar a un cliente que ejerza su derecho de cancelación.
+**El instrumento que lo cierra no es un fix puntual, es un barrido**: listar `kyc_ine/` y restar las
+keys vivas de `KycProfile` (**C19**).
+
+---
+
+## 4. Hallazgos priorizados (consolidado: red team + blue team)
+
+### 4.1 · `SEC-PII-1` — **ALTA** · el control de identificación **AML** se satisface con **dos cadenas arbitrarias** (subsume `PII-A` y `D-1` del techlead)
+
+- **Dueño: backend.**
+- **Ubicación:** `backend/src/modules/buylist/dto/buylist.dto.ts:146` (`@IsOptional() @IsObject() ineUploadKeys`),
+  `backend/src/modules/users/dto/users.dto.ts:94-95` (`@IsOptional() @IsString()`, sin `@Matches` ni
+  `@MaxLength`), `buylist.service.ts:1591-1606` (**la compuerta de intake**),
+  `buylist.service.ts:3608-3615` (**la compuerta de emisión de oferta**), `users.service.ts:410-421`,
+  `uploads.service.ts:191` (la key server-side **se emite y no se registra**).
+- **El mecanismo, en una frase:** las **dos** compuertas de cumplimiento miden lo mismo —
+  `ineFrontKey != null && ineBackKey != null`— y **ese booleano lo escribe el cliente**.
+- **PoC `[MEDIDO]` (capa de validación, con las opciones exactas del `ValidationPipe` de producción):**
+  `CreateRequestDto` con `ineUploadKeys: { front: 'a', back: 'b' }` ⇒ **0 errores de validación** y
+  los valores **sobreviven al `whitelist`**. `UpdateKycDto` con `'../otro/objeto'` y una key de 5.000
+  caracteres ⇒ **0 errores**. Y `grep HeadObject` ⇒ **vacío**: nadie comprueba que el objeto exista.
+- **Qué consigue el atacante:** un vendedor **por encima del umbral AML** manda dos cadenas
+  inventadas ⇒ `ineProvided = true` ⇒ **pasa el intake**, y `ineOnFile = true` ⇒ **pasa la emisión de
+  la oferta** ⇒ cobra a su CLABE **sin habernos dado jamás una identificación**. Secundarios: (a) el
+  `super_admin` **firma a ciegas** la key que el cliente eligió; (b) el borrado cross-tenant que
+  describe el red team (real, pero **condicionado** a conocer un UUID ajeno que **nunca sale del
+  servidor** — lo verifiqué: ninguna respuesta emite keys, y el bucket es el único que las conoce);
+  (c) `ineOnFile`, que gobierna el `422` y la pantalla del revisor, **es un hecho afirmado por el
+  cliente**, tal como dice el techlead en `D-1`.
+- **Lo que NO es:** no es lectura de la INE de otro. No encontré camino para eso.
+- **`NO MEDIDO`:** el `422`/`2xx` real por HTTP (backend caído). **Lo cierra:** autenticado como
+  `customer`, `POST /buylist/requests` por encima del umbral con `ineUploadKeys:{front:'a',back:'b'}`
+  ⇒ hoy se espera **`2xx`**; tras el fix, **`422`**. Proporción **3/3**.
+
+### 4.2 · `SEC-PII-2` — **ALTA (marco datos reales)** · el `no-store` cubre el JSON; **la imagen se queda en el disco del revisor** (era `PII-B`)
+
+- **Dueño: backend** (el fix) **+ devops** (cabecera por defecto del bucket).
+- **Ubicación:** `admin.controller.ts:258-259` (el `no-store` **del JSON**, correcto),
+  `uploads.service.ts:224-251` (`presignGet`: fija **solo** `ResponseContentDisposition`),
+  `uploads.service.ts:189-196` (`PutObjectCommand`: **no** fija `CacheControl`).
+- **Refuerzo mío sobre el red team `[MEDIDO]`:** él dejó en duda si *«el bucket añade por su cuenta un
+  `Cache-Control` restrictivo»*. **El bucket no puede devolver lo que nadie guardó:** `grep` de
+  `CacheControl`/`ResponseCacheControl` en todo `backend/` → **vacío**, ni en el PUT ni en el GET ⇒ el
+  objeto **no tiene metadato de caché**. La única tabla de salvación que queda es que el navegador se
+  niegue a cachear heurísticamente una URL con query — y eso **no se puede dar por hecho** (las cachés
+  modernas sí lo hacen; el objeto trae `Last-Modified`, que es justo lo que alimenta la heurística).
+- **Lo que rompe, y es la promesa del frente:** una copia cacheada **se sirve sin red** ⇒ el TTL de
+  120 s **no la alcanza**, la firma caducada **no la alcanza**, y **volver a mirarla no deja fila**.
+  Además la copia queda **en reposo, fuera de todo proceso de retención**: nuestra purga de 180 días
+  no llega al disco de un portátil. Con INEs reales eso es **conservación de una identificación
+  oficial de un tercero en un sitio que no controlamos ni podemos limpiar**.
+- **El vector de «proxy intermedio» hay que acotarlo con honestidad:** el tráfico al bucket es HTTPS,
+  así que solo lo cachea un proxy **que termine TLS** (corporativo con CA propia). El vector que **no**
+  necesita nada de eso —y el que de verdad importa— es **la caché de disco del propio navegador del
+  revisor**.
+- **`NO MEDIDO`:** las cabeceras reales de la respuesta del objeto y la conducta de Chromium.
+  **Lo cierra:** (a) `curl -sI "<url firmada de un objeto de PRUEBA>"` en local/staging → hoy se espera
+  **sin `Cache-Control`**; tras el fix, **`Cache-Control: no-store`**; (b) sonda de caché: cargar la
+  imagen, esperar a que venza el enlace, **desconectar la red** y recargar la vista ⇒ hoy puede
+  pintarse desde caché; tras el fix, no. **3/3.** ⛔ Con una imagen de prueba, **nunca con la INE de
+  una persona**.
+
+### 4.3 · `SEC-PII-3` — **Media** · el **segundo** camino de sustitución ni borra el objeto viejo ni reinicia el estado (hallazgo mío, no del red team)
+
+- **Dueño: backend.**
+- **Ubicación:** `buylist.service.ts:1624-1639` (`upsert` del intake) frente a
+  `users.service.ts:410-447` (el camino que **sí** hace las dos cosas).
+- **Dos invariantes de v1.69 rotas en el mismo `upsert`:**
+  1. **§M6-K.4.1 dice «SÍ se borran al SUSTITUIRSE»** — y es verdad **solo en uno de los dos caminos**.
+     Por `POST /buylist/requests` la key vieja se **pisa sin `deleteObject`**: objeto huérfano,
+     **invisible para la purga** (`BL-42` camino 2), sin siquiera el `logger.error` que deja el otro
+     camino. *El contrato afirma un cierre más ancho que el código.*
+  2. **A6 («solo una subida de INE mueve el estado de la identidad»)** — la rama `update` **no** toca
+     `kycStatus` (la `create` sí pone `pending`). ⇒ un usuario **`verified`** puede **cambiar sus
+     imágenes** y **conservar la insignia de verificado**: la pantalla nueva del revisor mostrará
+     `verified` sobre **un documento que nadie revisó**.
+- **Alcance real:** el front oficial omite `ineUploadKeys` cuando `ineOnFile` es cierto
+  (`BuylistKycForm.tsx:302`) — pero **la frontera es la API, no la pantalla**.
+- **Cierre:** el `PUT` y el intake deben compartir **una sola rutina** de escritura de INE (borrar
+  sustituida + `ineSubmission`). Comprobación: test que sustituya por el camino del intake y asevere
+  (a) `deleteObject` llamado con la key vieja y (b) `kycStatus` de vuelta a `pending`.
+
+### 4.4 · `SEC-PII-4` — **Media** (era `PII-C`, Baja) · `logout` no revoca, y el portador real dura **30 días**
+
+- **Dueño: backend.** **Ubicación:** `auth.controller.ts:64-69` (`logout()` **no-op**),
+  `auth.service.ts:87,94` (`15m` / **`30d`**), `auth.service.ts:443-464` (`refresh` solo mira firma,
+  `status` y `tokenVersion` — que `logout` **no incrementa**), `frontend/src/lib/api-client.ts:39-45`
+  (refresh **en `localStorage`**).
+- **Por qué sube de Baja:** el red team acotó el residual a *«≤ 15 min»*, que es el access-token. El
+  **refresh** es el que manda: quien lo obtenga (máquina compartida, perfil del navegador copiado, un
+  XSS futuro) **renueva sesión durante 30 días**, y si esa sesión es la del `super_admin` eso es
+  **acceso continuado a las identidades de todos los clientes**, con la agravante de que *«cerrar
+  sesión»* **no lo corta** (solo lo corta un reset de contraseña, que sí sube `tokenVersion`).
+- **La URL firmada como portadora (120 s)** sigue siendo **residual aceptado**: es inherente al
+  presigned y está acotada por el TTL — **siempre que `SEC-PII-2` se cierre**, porque sin `no-store`
+  el «portador» deja de durar 120 s y pasa a durar lo que dure la caché.
+
+### 4.5 · `SEC-PII-5` — **Media** · `POST /uploads/presign` **sin tope por actor**: manguera de objetos huérfanos de 10 MiB
+
+- **Dueño: backend** (tope por actor, como el del revelado) **+ devops** (`P-RL-1` y ciclo de vida).
+- **Ubicación:** `uploads.controller.ts` (**sin `@Throttle`**), `app.module.ts:45` (global `300/min`
+  **por IP** — el eje que `P-RL-1` esquiva), `uploads.service.ts:170-196`.
+- **Impacto:** coste de almacenamiento sin techo por cuenta **y** crecimiento indefinido del vertedero
+  de `BL-42` camino 2. No es acceso indebido; es **custodia y coste**.
+
+### 4.6 · `SEC-PII-6` — **NO MEDIDO (potencialmente CRÍTICO)** · ¿el bucket de producción es privado?
+
+Ver §2.2. **No lo convierto en hallazgo porque no lo medí**, y no lo dejo como nota al pie porque es
+la única pregunta cuya respuesta *mala* invalidaría todo lo demás. **Es `C16`.**
+
+### 4.7 · `SEC-PII-7` — **Media (cumplimiento)** · el borrado de cuenta **promete purga** y la incumple en silencio
+
+- **Dueño: backend.** **Ubicación:** `admin.service.ts:1164-1175` (`purgeIne`: `try/catch` que
+  **loguea y sigue**) y `:1219-1230` (la fila se pone a `NULL` **igual**).
+- **Mecanismo:** si el `deleteObject` falla (R2 caído, credencial rotada), la imagen **sigue en el
+  bucket** y la key **se pierde de la BD** ⇒ huérfano **irrecuperable** y un expediente que afirma que
+  la identificación se purgó. Con una solicitud ARCO de por medio, eso es **una respuesta falsa a un
+  cliente**, no un log feo.
+- **Cierre:** no anular las keys si el borrado del objeto no fue confirmado (o encolar reintento
+  idempotente y anular al confirmar). Test: `deleteObject` que lanza ⇒ la fila **conserva** la key
+  (o queda una entrada de reintento) y **nunca** se reporta purga.
+
+### 4.8 · Heredados y confirmados sin cambio
+
+| Id | Sev. | Estado hoy |
+|---|---|---|
+| `P-RL-1` | **ALTA, ABIERTA** | **No agrava el revelado** (medido, §2.3). **Sí agrava la subida** (`SEC-PII-5`). Sigue colgando de **C6** (devops), sin rellenar en `DEVOPS_NOTES §58.3` |
+| `PII-D` | Info | **Confirmado y acotado:** `numReplicas: 1` `[MEDIDO]` ⇒ no aplica hoy. Disparador escrito en §6 |
+| `SB-B4` | Info | **Re-medido hoy:** backend `0 crítica / 0 alta / 5 moderate`; frontend **0** |
+| `SEC-SB-1` / `C9` | Media | **Este release trae el barrido de reservas legadas de bóveda** (`orders.service.ts`, `legacyExpiredByOrder`) — la deuda se paga en el código que se publica. El **censo** (`C8`) sigue sin correrse |
+
+### 4.9 · Condiciones de mi veredicto anterior que **cierro hoy con medición**
+
+- **`C10` (arquitecto) — CERRADA.** Las tres correcciones que pedí al contrato están **en el código
+  que se publica** `[MEDIDO]`: tope por **actor** (`ActorThrottlerGuard`), `Cache-Control: no-store`
+  **y** `X-Robots-Tag` en `ine-links` (`admin.controller.ts:258-259`), y `expiresInSeconds` = **TTL
+  efectivo tras el clamp**, con `ttlClamped`/`ttlRequested` en la fila cuando hubo recorte.
+- **`C11` (backend) — CERRADA.** El candado K-3 **fuerza el fallo** de la escritura de `AuditLog` y
+  exige `500` + cuerpo sin `url`. **20/20 verde, corrido por mí hoy.** No es un test que solo
+  comprueba que la fila se escribe: es el que distingue *fallar cerrado* de *fallar y que nadie lo
+  vea*.
+
+---
+
+## 5. CONDICIONES — numeradas, con **rol dueño** y **comprobación de cierre**
+
+> Las heredadas conservan su número. Las nuevas empiezan en **C14**.
+
+### 5.1 Bloquean **PUBLICAR HOY** — 3
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C14** | **backend** | **`SEC-PII-2`:** que la imagen del INE **no se pueda cachear**. `ResponseCacheControl: 'no-store'` en el `GetObjectCommand` de `presignGet` **y** `CacheControl: 'no-store'` en el `PutObjectCommand` (para que el objeto lleve el metadato aunque algún día se sirva por otra vía) | (a) Test unitario: la URL firmada contiene `response-cache-control=no-store` **y** está en `SignedHeaders`/query firmada. (b) `curl -sI "<url firmada de un objeto de PRUEBA>"` → `Cache-Control: no-store`, **3/3**. (c) Sonda de caché offline de §4.2, **3/3**. ⛔ Nunca con la INE de una persona |
+| **C15** | **backend** | **`SEC-PII-1`:** que la key del INE deje de ser texto libre, **en los dos caminos de escritura**. Formato anclado (`^kyc_ine/\d{4}-\d{2}-\d{2}/<uuid>\.<ext>$`) + `@MaxLength`; **atarla al presign emitido para ESE `userId`** (registrar el `uploadKey` al firmar) y **comprobar que el objeto existe** (`HeadObject`) antes de dar por cumplido el requisito AML | (a) El validador que corrí hoy debe devolver **≥1 error** para `{front:'a',back:'b'}`, para `'../otro/objeto'` y para la key de 5.000 caracteres. (b) HTTP: `POST /buylist/requests` por encima del umbral con keys inventadas ⇒ **`422`**, y `PUT /users/me/kyc` con una key que el presign nunca emitió ⇒ **`422`**, **3/3 cada uno**. (c) Mutación: quitar el `HeadObject` ⇒ el test se pone **rojo** |
+| **C16** | **devops + humano** | **`SEC-PII-6`:** dejar **escrito y fechado** que el bucket de producción es **privado**. Es una **medición**, no un fix | Los dos pasos de §2.2 anotados en `DEVOPS_NOTES.md` con fecha, hora y quién: (1) panel R2 con `r2.dev` **Disabled** y 0 dominios propios; (2) sonda anónima **4/4** en `401`/`403`. Si (1) sale habilitado ⇒ **CRÍTICO**, se para la publicación |
+
+> **Por qué estas tres y no más.** `C14` es **una línea** y es lo único que separa la promesa
+> *«efímero, 120 s, auditado»* de *«una credencial oficial en el disco de un portátil»*. `C15` es el
+> control **AML** que hoy se satisface con dos cadenas inventadas — y publicar sin él es estrenar la
+> pantalla de revisión sabiendo que el expediente que pinta puede no apuntar a ningún documento.
+> `C16` cuesta **treinta segundos** y lleva abierta desde la revisión del contrato.
+
+### 5.2 Bloquean cerrar el **DoD** (fase de seguridad aprobada), con fecha — 4
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C17** | **backend** | **`SEC-PII-3`:** una **sola** rutina de escritura de INE para los dos caminos (borra la sustituida **y** aplica `ineSubmission`) | Test: sustituir por `POST /buylist/requests` ⇒ `deleteObject(keyVieja)` llamado **y** `kycStatus='pending'`. Mutación: quitar cualquiera de las dos ⇒ rojo |
+| **C18** | **backend** | **`SEC-PII-4`:** que `logout` **revoque de verdad** (subir `tokenVersion`), y evaluar bajar `JWT_REFRESH_TTL` para roles de back-office | Test: `logout` ⇒ el **refresh** anterior da **401** y el access anterior da **401**, **3/3** |
+| **C19** | **backend + devops** | **`SEC-PII-5` + `BL-42` camino 2:** tope **por actor** en `POST /uploads/presign`, y un **barrido de huérfanos** de `kyc_ine/` (listar el bucket, restar las keys vivas de `KycProfile`, reportar antes de borrar) | (a) 11 presigns con la misma sesión y XFF rotatorio ⇒ **429** en el 11.º, **3/3**. (b) Primera corrida del barrido **en modo informe**, con el número de huérfanos anotado en `DEVOPS_NOTES.md` |
+| **C20** | **backend** | **`SEC-PII-7`:** el borrado de cuenta **no declara purgada** una imagen que no se borró | Test: `deleteObject` que lanza ⇒ la key **no** se anula (o queda reintento pendiente) y la respuesta **no** afirma purga |
+
+### 5.3 Heredadas — bloquean **dinero real** (`sk_live_…`), ninguna cerrada
+
+| # | Dueño | Estado hoy |
+|---|---|---|
+| **C3** | humano / QA | Abierta (certificar los tres flujos de dinero contra el runner) |
+| **C6** | **devops** | **Abierta y ya vencida de hecho:** la tabla de `DEVOPS_NOTES §58.3` sigue con *«se rellena en la ventana autorizada»*. Es el pivote de `P-RL-1`, `SB-B3` y ahora también de `SEC-PII-5` |
+| **C7** | backend | Abierta (backstop de rate-limit que no dependa de la IP) |
+| **C12** | orquestador + pentester | Abierta (pase **vivo**, con proporción N/N). ⚠️ Este pase de PII también fue **estático**: el `C12` debe cubrir ahora, además, `C14`(c) y `C15`(b) |
+| **C13** | humano | Abierta (pentest de tercero + canal de divulgación) |
+
+### 5.4 Higiene de la ventana de publicación (heredadas, se re-miden sobre el SHA que se publique)
+
+| # | Dueño | Comprobación |
+|---|---|---|
+| **C5** | devops | `./scripts/check-candidate-checks.sh <SHA publicado>` → `rc=0`. ⚠️ En la ventana anterior **quedó en rojo** (`dast-release` fallido en `efe65f5`, `DEVOPS_NOTES §58.1`) y **nunca se re-ejecutó**: se arrastra |
+| **C8** | devops + humano | El censo de reservas legadas **sigue sin correrse** (necesita la credencial de la BD de producción). El instrumento está listo. Y ahora **viaja con él** la cifra de §1: `count(*)` de `KycProfile` con INE en archivo |
+
+---
+
+## 6. Deuda de seguridad **ACEPTADA** (registrada, no bloqueante) — lo que pide el DoD
+
+| Id | Sev. | Dueño | Impacto aceptado | **Disparador** |
+|---|---|---|---|---|
+| `PII-D` | Info | devops/backend | El tope `10/min` por actor vive en memoria del proceso ⇒ con N réplicas sería `10×N`. **Hoy no aplica: `numReplicas: 1` `[MEDIDO]`** | **Subir `numReplicas > 1`** en `railway.json`. Arreglo: storage compartido (Redis) para el throttler |
+| URL firmada portadora (120 s) | Baja | — | Quien tenga la URL ve la imagen sin sesión hasta que caduque. Inherente al presigned; acotado por TTL con techo duro de 300 s | Que se suba `KYC_INE_VIEW_URL_TTL_SECONDS`, **o** que `C14` no se cierre (sin `no-store` deja de estar acotado por el reloj) |
+| `BL-42` caminos 1 y 3 | **Media** | backend + **humano** | Retención **indefinida** de identificaciones que nunca anclan a un cierre. **Con INEs reales ya tiene sujetos concretos**, no hipotéticos | ⚠️ **La primera solicitud ARCO**, o la regla 7 (`BUYLIST_NO_OFFER_EXPIRY_ENABLED`) encendida, lo que llegue antes |
+| `SB-B4` | Info | devops | 5 `moderate` en deps de runtime del backend; **0 alta/crítica** `[MEDIDO hoy]`; frontend en **0** | Que alguna suba a alta/crítica, o que salga fix upstream |
+| `SB-B2`/`SEC-SB-3`, `P-SEED-1`, `P-GL-2`, `P-NAME-1`, `P-REDIR-1`, `P-BILL-DoS`, `SB-B5` | Baja/Info | según ficha anterior | **Sin cambio** en este pase; siguen aceptadas con los disparadores del veredicto de `82525a0` | — |
+| `rejectionReason` como vector | — | — | **Descartado como hallazgo** (confirmo al red team `[código]`): no viaja por correo y el front lo escapa por interpolación JSX, sin `dangerouslySetInnerHTML` | — |
+
+---
+
+## 7. Lo que **NO MEDÍ** — con la medición exacta que lo cerraría
+
+| # | **NO MEDIDO** | Qué lo cierra |
+|---|---|---|
+| 1 | **El bucket de producción.** No sé si es privado. Lo del red team es el **doble local** | **C16** (§2.2): panel de R2 + sonda anónima 4/4 |
+| 2 | **Las cabeceras reales de la respuesta del objeto** y si Chromium cachea ese subrecurso | **C14**(b)(c) |
+| 3 | **Cuántas INE reales hay hoy** en producción, y **cuántos huérfanos** | `count(*)` de `KycProfile` con key + listado de `kyc_ine/`; la resta es `BL-42` c2 (**C19**) |
+| 4 | **Todo lo que exige HTTP vivo:** el `403` al `vault_operator`, el `429` en la 11.ª, el `422`/`2xx` de `SEC-PII-1`, el `500` fail-closed **contra el Nest real** (hoy solo lo tengo **verde en el candado unitario**) | **C12** ampliado (§5.3) |
+| 5 | **Si existen logs de acceso de R2** (el único eje que auditaría al portador de las credenciales del bucket) | devops: decir si R2 los tiene activados y dónde van |
+| 6 | **El edge de Railway con `X-Forwarded-For`** (`P-RL-1`). Sigue `[REPORTADO]`, nunca medido | **C6** |
+| 7 | **Que las INE de producción sean reales.** Es un hecho del **dueño**, no mío | El `count(*)` de la fila 3 |
+
+---
+
+## 8. 🚩 Banderas para el humano
+
+1. **⚠️ Esto ya no es «antes de operar con datos reales»: las identificaciones reales llevan tiempo
+   guardadas.** Todo lo que en veredictos anteriores se toleró *«porque es modo prueba»* se refería al
+   **dinero**. **Los datos personales nunca estuvieron en modo prueba.** Los dos ejes se separan
+   aquí, y el de PII es el que hoy está más expuesto.
+2. **Antes de dinero real: pentest de tercero + canal de divulgación (`C13`).** Sin cambios respecto al
+   veredicto anterior, y con un motivo nuevo: este pase encontró una **ALTA** que cinco pases del
+   equipo no habían encontrado, en un control de **cumplimiento**. Eso confirma que el proceso sirve
+   **y** que ojos externos hacen falta.
+3. **Legal (LFPDPPP), y no lo puede decidir el equipo:** (a) conservamos identificaciones **sin plazo
+   efectivo** por los caminos de `BL-42`, y ahora con personas concretas detrás; (b) **no podemos
+   contestar con certeza a un derecho de cancelación** mientras existan huérfanos (§3, eslabones 5-7);
+   (c) a partir de esta publicación existe el registro *«quién miró la identidad de esta persona»* —
+   conviene que el **aviso de privacidad** lo diga.
+4. **Si decides publicar antes de `C14`** (es tu decisión, no mía): mitigación **temporal y parcial** —
+   revisar identidades en una **ventana privada/incógnito** y cerrarla al terminar (esa caché es de
+   memoria y se descarta), **nunca** en el navegador de trabajo habitual. **No sustituye al fix**:
+   una línea de código lo cierra para siempre y una costumbre se olvida el primer día con prisa.
+5. **`C5` y `C8` se quedaron sin correr en la ventana anterior** (`DEVOPS_NOTES §58`, con el orden de
+   los hechos escrito sin maquillar). No las repito por burocracia: `C8` es la **única** oportunidad
+   de saber cuánto inventario quedó atrapado, y esa cifra **solo existe en la ventana**.
+
+---
+
+## 9. Lo **mínimo** para que esto pase a APROBADO
+
+1. **C14** (backend) — `no-store` en el objeto. *Una línea, más el test que la sostiene.*
+2. **C15** (backend) — la key deja de ser texto libre y el AML deja de creerle al cliente.
+3. **C16** (devops + humano) — dejar escrito que el bucket de producción es privado.
+
+Con esas tres cerradas y medidas: **0 críticos, 0 altos abiertos en la superficie de PII** ⇒
+**APROBADO** para el marco de datos personales reales, y **APROBADO CON CONDICIONES** (las heredadas
+`C3/C6/C7/C12/C13`) para el marco de dinero mientras Stripe siga en modo prueba. ⛔ **El día que se
+cambie a `sk_live_…`, este documento deja de aplicar** hasta cerrar también esas cinco.
+
+---
 # VEREDICTO BLUE TEAM — release **Stream B «Lo que se rompe con el dinero»** · `main`=`5d2c62b` (fusionado, NO publicado) · `production`=`c8bee65` · informe del red team sobre `159192d` · 2026-09-11
 
 > ## ⭐ VEREDICTO

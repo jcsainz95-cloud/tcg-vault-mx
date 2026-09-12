@@ -16,6 +16,16 @@
 ## Backend · 2026-09-11 · gates Stream B
 
 ### RSV-L1 · La rama LEGADA `reservedByOrderId IS NULL` está en **TRES** sitios, no en uno (backend · techlead I4 / H-5, 2026-09-11)
+> ⭐⭐ **ACTUALIZACIÓN MEDIDA (2026-09-12, por el DUEÑO en la consola de Railway): las reservas
+> legadas de producción son CERO.**
+> `InventoryItem` con `status='reserved'` y `reservedByOrderId IS NULL` ⇒ **0**.
+> ⇒ **La primera mitad de esta deuda queda cerrada, y con ella la condición `C8`: no hay inventario
+> atascado que rescatar.** El barrido que entregó `SEC-SB-1` pasa a ser **preventivo** (cubre la
+> ventana de un despliegue futuro), no el remedio de una cola existente.
+> ⚠️ **Lo que NO cierra:** la rama sigue **escrita en los tres sitios** de la tabla de abajo. Retirarla
+> es una decisión de código que ahora **sí** se puede tomar sin miedo a dejar piezas huérfanas —
+> pero **re-mídase el conteo justo antes de retirarla**: un `0` de hoy no es un `0` de mañana si
+> entremedio hay un despliegue. **Dueño de la retirada:** backend (`orders`/`inventory`).
 - **Dueño:** **backend**. **Severidad:** Media. **No bloqueante hoy**; sí es *requisito de cierre de release*.
 - **Qué es:** M-53 (`20260911130000_m53_reservation_owner`) le dio **dueño** a la reserva
   (`InventoryItem.reservedByOrderId`). Las piezas que ya estaban `reserved` **en vuelo** al desplegar
@@ -6841,7 +6851,18 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
 > Anotada por **backend** a petición del **techlead** (veredicto *aprobado con condiciones*, R-1
 > cerrado aparte por ser bloqueante). Las tres son **preexistentes o disparadas**, ninguna bloquea.
 
-### D-1 · `ineOnFile` es un hecho **afirmado por el cliente**: nada ata la llave de subida a quien pidió el presign
+### D-1 · ~~`ineOnFile` es un hecho afirmado por el cliente~~ → **CERRADA el 2026-09-12** (`C15`)
+> ⭐ **Cerrada por `seguridad`, que la subió de Media a ALTA (`SEC-PII-1`) al medir que la MISMA
+> validación ausente gobierna las DOS compuertas de cumplimiento.** El fix está en `bec269b`+ y
+> `BACKEND_NOTES §P78.12`: forma anclada en los dos DTOs, `KycUploadGrant` (M-55) que ata la key al
+> presign de ESE usuario, y `HeadObject`. Mutaciones M-23/24/25/27/30 y M-32, todas rojas 3/3.
+> ⚠️ **Lo que queda abierto no es el control, es el RESIDUO:** las filas anteriores a M-55 tienen
+> keys no verificables y el control solo actúa al escribir. La decisión (migrar, re-pedir el
+> documento o aceptarlas) **es del dueño** — medición y salidas en `BACKEND_NOTES §P78.13`.
+
+<details><summary>Texto original de la deuda (2026-09-11), conservado</summary>
+
+### D-1 (original) · `ineOnFile` es un hecho **afirmado por el cliente**: nada ata la llave de subida a quien pidió el presign
 - **Dueño:** **backend** (`users`/`uploads`). **Severidad:** Media-alta (PII / integridad de un
   invariante). **Preexistente** desde v1.2; ⚠️ **P-78 es lo que sube su coste**, no su causa.
 - **Qué es, medido:** `backend/src/modules/users/dto/users.dto.ts:94-95` declara
@@ -6860,6 +6881,9 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   `HEAD` al objeto. ⛔ Lo segundo por sí solo **no** cierra (a).
 - **Comprobación de cierre:** un `PUT /users/me/kyc` con `ineFrontUploadKey: "cualquier/cosa.png"`
   ⇒ `422`, y `GET /users/me/kyc` sigue con `ineOnFile: false`.
+  ✅ **MEDIDA el 2026-09-12** por HTTP contra la app real (`kyc-ine-links.e2e-spec.ts`, bloque `C15`).
+
+</details>
 
 ### D-2 · `PATCH /admin/users/:id/kyc` sigue **aceptando** `capPerRequestCents`, que ya no se devuelve
 - **Dueño:** **backend** (`admin`). **Severidad:** Baja (cosmética de contrato; sin efecto de dinero).
@@ -6918,3 +6942,8 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL`, y
   `RSV-L1` se lee contra ESE número (no contra `legacySwept`); y el `skipped` de la tupla suma los dos
   barridos o se desdobla en dos campos con nombre.
+- ⭐ **2026-09-12:** el dueño corrió **ese** conteo a mano contra producción y dio **0** (ver `RSV-L1`).
+  Eso **no cierra esta deuda**: la métrica del job **sigue respondiendo otra pregunta**. Lo que cambia
+  es la urgencia — hoy nadie va a tomar una decisión equivocada a partir de ella, porque el número que
+  importa se midió por fuera. Cuando se retire la rama legada, esta métrica **tiene que** ser la que
+  se mire, o el siguiente que la consulte volverá a creerse `legacySwept`.

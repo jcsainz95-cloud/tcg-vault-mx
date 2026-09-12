@@ -27,6 +27,20 @@ jest.mock('@aws-sdk/client-s3', () => ({
   DeleteObjectCommand: jest.fn().mockImplementation((input) => ({ input })),
 }));
 
+/** v1.70 (C15): el presign REGISTRA la key a nombre de quien la pidió ⇒ necesita Prisma. */
+const USER_ID = 'user-e2e-1';
+const grants: { userId: string; objectKey: string; contentType: string }[] = [];
+function buildPrisma() {
+  return {
+    kycUploadGrant: {
+      create: jest.fn(async ({ data }: { data: (typeof grants)[number] }) => {
+        grants.push(data);
+        return data;
+      }),
+    },
+  } as unknown as import('../src/prisma/prisma.service').PrismaService;
+}
+
 function buildConfig(overrides: Record<string, string> = {}): ConfigService {
   const values: Record<string, string> = {
     S3_REGION: 'us-east-1',
@@ -41,8 +55,8 @@ function buildConfig(overrides: Record<string, string> = {}): ConfigService {
 
 describe('UploadsService.presign — solo kyc_ine (v1.2)', () => {
   it('acepta purpose=kyc_ine y devuelve presign PUT con key bajo kyc_ine/', async () => {
-    const svc = new UploadsService(buildConfig());
-    const res = await svc.presign('kyc_ine', 'image/png', 1024);
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    const res = await svc.presign(USER_ID, 'kyc_ine', 'image/png', 1024);
     expect(res.method).toBe('PUT');
     expect(typeof res.uploadUrl).toBe('string');
     expect(res.uploadKey.startsWith('kyc_ine/')).toBe(true);
@@ -50,22 +64,22 @@ describe('UploadsService.presign — solo kyc_ine (v1.2)', () => {
   });
 
   it('rechaza purpose=inventory_photo con 422 VALIDATION_ERROR', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('inventory_photo', 'image/png')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'inventory_photo', 'image/png')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
 
   it('rechaza purpose=dispute_claim con 422 VALIDATION_ERROR', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('dispute_claim', 'image/png')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'dispute_claim', 'image/png')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
 
   it('rechaza cualquier otro propósito arbitrario', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('whatever', 'image/png')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'whatever', 'image/png')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
@@ -73,29 +87,29 @@ describe('UploadsService.presign — solo kyc_ine (v1.2)', () => {
 
 describe('UploadsService.presign — allow-list de content-type (S-B3)', () => {
   it('acepta image/jpeg', async () => {
-    const svc = new UploadsService(buildConfig());
-    const res = await svc.presign('kyc_ine', 'image/jpeg', 1024);
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    const res = await svc.presign(USER_ID, 'kyc_ine', 'image/jpeg', 1024);
     expect(res.method).toBe('PUT');
     expect(res.uploadKey.endsWith('.jpeg')).toBe(true);
   });
 
   it('rechaza text/html (no-imagen) con 422 VALIDATION_ERROR', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('kyc_ine', 'text/html')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'text/html')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
 
   it('rechaza application/pdf con 422 VALIDATION_ERROR', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('kyc_ine', 'application/pdf')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'application/pdf')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
 
   it('rechaza application/octet-stream con 422 VALIDATION_ERROR', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('kyc_ine', 'application/octet-stream')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'application/octet-stream')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
@@ -103,32 +117,32 @@ describe('UploadsService.presign — allow-list de content-type (S-B3)', () => {
 
 describe('UploadsService.presign — límite de tamaño (S-B3)', () => {
   it('acepta un contentLength dentro del tope y lo refleja en headers', async () => {
-    const svc = new UploadsService(buildConfig());
-    const res = await svc.presign('kyc_ine', 'image/png', 2 * 1024 * 1024);
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    const res = await svc.presign(USER_ID, 'kyc_ine', 'image/png', 2 * 1024 * 1024);
     expect(res.method).toBe('PUT');
     expect(res.headers['Content-Length']).toBe(String(2 * 1024 * 1024));
     expect(res.maxBytes).toBe(10 * 1024 * 1024);
   });
 
   it('rechaza un archivo por encima del tope por defecto (10 MiB) con 422', async () => {
-    const svc = new UploadsService(buildConfig());
+    const svc = new UploadsService(buildConfig(), buildPrisma());
     await expect(
-      svc.presign('kyc_ine', 'image/png', 10 * 1024 * 1024 + 1),
+      svc.presign(USER_ID, 'kyc_ine', 'image/png', 10 * 1024 * 1024 + 1),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   it('respeta el tope configurable por env KYC_UPLOAD_MAX_BYTES', async () => {
-    const svc = new UploadsService(buildConfig({ KYC_UPLOAD_MAX_BYTES: '1048576' }));
-    await expect(svc.presign('kyc_ine', 'image/png', 1048577)).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig({ KYC_UPLOAD_MAX_BYTES: '1048576' }), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'image/png', 1048577)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
-    const ok = await svc.presign('kyc_ine', 'image/png', 1048576);
+    const ok = await svc.presign(USER_ID, 'kyc_ine', 'image/png', 1048576);
     expect(ok.maxBytes).toBe(1048576);
   });
 
   it('rechaza contentLength no positivo con 422', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('kyc_ine', 'image/png', 0)).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'image/png', 0)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
@@ -140,9 +154,9 @@ describe('UploadsService — construcción del S3Client (BUG A1: presigned PUT a
   });
 
   it('construye el S3Client con requestChecksumCalculation=WHEN_REQUIRED (no firma checksum en el presign)', async () => {
-    const svc = new UploadsService(buildConfig());
+    const svc = new UploadsService(buildConfig(), buildPrisma());
     // fuerza la construcción lazy del cliente (getter `s3`) vía un presign real
-    await svc.presign('kyc_ine', 'image/png', 1024);
+    await svc.presign(USER_ID, 'kyc_ine', 'image/png', 1024);
     expect(s3ClientCtorArgs).toHaveLength(1);
     expect(s3ClientCtorArgs[0]).toMatchObject({
       requestChecksumCalculation: 'WHEN_REQUIRED',
@@ -150,17 +164,17 @@ describe('UploadsService — construcción del S3Client (BUG A1: presigned PUT a
   });
 
   it('también fija responseChecksumValidation=WHEN_REQUIRED', async () => {
-    const svc = new UploadsService(buildConfig());
-    await svc.presign('kyc_ine', 'image/png', 1024);
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await svc.presign(USER_ID, 'kyc_ine', 'image/png', 1024);
     expect(s3ClientCtorArgs[0]).toMatchObject({
       responseChecksumValidation: 'WHEN_REQUIRED',
     });
   });
 
   it('reutiliza un único S3Client entre presigns (no reconstruye por llamada)', async () => {
-    const svc = new UploadsService(buildConfig());
-    await svc.presign('kyc_ine', 'image/png', 1024);
-    await svc.presign('kyc_ine', 'image/jpeg', 1024);
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await svc.presign(USER_ID, 'kyc_ine', 'image/png', 1024);
+    await svc.presign(USER_ID, 'kyc_ine', 'image/jpeg', 1024);
     expect(s3ClientCtorArgs).toHaveLength(1);
   });
 });
@@ -181,8 +195,8 @@ describe('UploadsService.presign — P-UP-1: el tope se exige SIEMPRE', () => {
   });
 
   it('OMITIR contentLength ya NO produce una URL sin cota: 422 VALIDATION_ERROR', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('kyc_ine', 'image/png')).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'image/png')).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
     // Y no llegó a firmarse nada.
@@ -190,16 +204,16 @@ describe('UploadsService.presign — P-UP-1: el tope se exige SIEMPRE', () => {
   });
 
   it('un contentLength `null` (cliente que manda el campo vacío) tampoco pasa', async () => {
-    const svc = new UploadsService(buildConfig());
+    const svc = new UploadsService(buildConfig(), buildPrisma());
     await expect(
-      svc.presign('kyc_ine', 'image/png', null as unknown as number),
+      svc.presign(USER_ID, 'kyc_ine', 'image/png', null as unknown as number),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(PutObjectCommand as unknown as jest.Mock).not.toHaveBeenCalled();
   });
 
   it('todo presign que SÍ sale lleva ContentLength FIJADO en la firma (no UNSIGNED-PAYLOAD)', async () => {
-    const svc = new UploadsService(buildConfig());
-    const res = await svc.presign('kyc_ine', 'image/png', 4321);
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    const res = await svc.presign(USER_ID, 'kyc_ine', 'image/png', 4321);
     const calls = (PutObjectCommand as unknown as jest.Mock).mock.calls;
     expect(calls).toHaveLength(1);
     expect(calls[0][0]).toMatchObject({ ContentLength: 4321, ContentType: 'image/png' });
@@ -208,20 +222,20 @@ describe('UploadsService.presign — P-UP-1: el tope se exige SIEMPRE', () => {
   });
 
   it('el tope de env también se firma: justo en el límite pasa, un byte más no', async () => {
-    const svc = new UploadsService(buildConfig({ KYC_UPLOAD_MAX_BYTES: '2048' }));
-    const ok = await svc.presign('kyc_ine', 'image/png', 2048);
+    const svc = new UploadsService(buildConfig({ KYC_UPLOAD_MAX_BYTES: '2048' }), buildPrisma());
+    const ok = await svc.presign(USER_ID, 'kyc_ine', 'image/png', 2048);
     expect(ok.headers['Content-Length']).toBe('2048');
     expect((PutObjectCommand as unknown as jest.Mock).mock.calls[0][0]).toMatchObject({
       ContentLength: 2048,
     });
-    await expect(svc.presign('kyc_ine', 'image/png', 2049)).rejects.toMatchObject({
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'image/png', 2049)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
   });
 
   it('rechaza tamaños no enteros (fraccionarios) — no se firma un ContentLength inválido', async () => {
-    const svc = new UploadsService(buildConfig());
-    await expect(svc.presign('kyc_ine', 'image/png', 1024.5)).rejects.toMatchObject({
+    const svc = new UploadsService(buildConfig(), buildPrisma());
+    await expect(svc.presign(USER_ID, 'kyc_ine', 'image/png', 1024.5)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
     expect(PutObjectCommand as unknown as jest.Mock).not.toHaveBeenCalled();
@@ -252,10 +266,10 @@ describe('UploadsService.presign — P-UP-1: invariante «toda URL sale acotada�
 
   it.each(SHAPES)('contentLength %s: o 422, o firma acotada (nunca UNSIGNED-PAYLOAD)', async (_name, value) => {
     (PutObjectCommand as unknown as jest.Mock).mockClear();
-    const svc = new UploadsService(buildConfig({ KYC_UPLOAD_MAX_BYTES: '2048' }));
+    const svc = new UploadsService(buildConfig({ KYC_UPLOAD_MAX_BYTES: '2048' }), buildPrisma());
     let res: Awaited<ReturnType<UploadsService['presign']>> | undefined;
     try {
-      res = await svc.presign('kyc_ine', 'image/png', value as number);
+      res = await svc.presign(USER_ID, 'kyc_ine', 'image/png', value as number);
     } catch (e) {
       expect(e).toMatchObject({ code: 'VALIDATION_ERROR' });
       // Nada se firmó: no queda una URL suelta por ahí.

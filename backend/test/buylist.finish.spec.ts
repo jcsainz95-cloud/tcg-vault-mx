@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
-import { UsersService } from '../src/modules/users/users.service';
+import { usersServiceDouble } from './helpers/users-service-double';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -68,7 +68,7 @@ function svcWith(opts: {
   } as unknown as PricingService;
   const settings = { getRaw: jest.fn(), getNumber: jest.fn().mockResolvedValue(0) } as unknown as SettingsService;
   return {
-    svc: new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii),
+    svc: new BuylistService(prisma as PrismaService, pricing, settings, usersServiceDouble(), pii),
     pricing,
   };
 }
@@ -236,7 +236,7 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
       prisma as PrismaService,
       pricingFor(12500),
       settingsFor(),
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
 
@@ -265,7 +265,7 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
       prisma as PrismaService,
       pricingFor(null),
       settingsFor(),
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
 
@@ -349,7 +349,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
       getRaw: jest.fn(),
       getNumber: jest.fn(withMinimumOff(async () => 100_000_000)),
     } as unknown as SettingsService;
-    return new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+    return new BuylistService(prisma as PrismaService, pricing, settings, usersServiceDouble(), pii);
   }
 
   const line = { cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'normal' as any };
@@ -422,7 +422,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
       getVariantOverridesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
     const settings = { getRaw: jest.fn(), getNumber: jest.fn(withMinimumOff(async () => 100_000_000)) } as unknown as SettingsService;
-    const svc = new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
+    const svc = new BuylistService(prisma as PrismaService, pricing, settings, usersServiceDouble(), pii);
 
     await svc.createRequest('u1', [line, line, line], VALID_CLABE_2, undefined, GATE_ADDRESS_ID);
 

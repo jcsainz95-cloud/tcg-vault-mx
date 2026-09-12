@@ -8,6 +8,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Length,
   Max,
   MaxLength,
@@ -23,6 +24,12 @@ import { FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../../common/enum-values'
 // El literal `['NM']` que estaba inline en los tres DTOs de abajo era CORRECTO; ahora es además
 // ÚNICO y con su cita al lado (`common/business-rules.ts`).
 import { ACCEPTED_RAW_CONDITIONS } from '../../../common/business-rules';
+// v1.70 (C15): la forma de una key de INE la declara quien la EMITE (`UploadsService`), para que no
+// existan dos definiciones del mismo hecho en dos módulos.
+import {
+  KYC_INE_KEY_MAX_LENGTH,
+  KYC_INE_KEY_PATTERN,
+} from '../../uploads/uploads.service';
 
 // v2.1.8: DERIVADO del schema (`common/enum-values.ts`) — un enum se declara UNA vez.
 const FINISHES = FINISH_VALUES;
@@ -110,6 +117,16 @@ export class RequestItemDto {
   // un `category` que envíe el cliente lo descarta el ValidationPipe (whitelist).
 }
 
+/**
+ * v1.70 (`C15`) — las DOS caras, con la MISMA forma exacta que emite `presign`. `@IsNotEmpty` no
+ * basta: el patrón anclado es lo que descarta `'a'`, `'../otro/objeto'` y la cadena de 5.000
+ * caracteres **sin tocar la red**.
+ */
+export class IneUploadKeysDto {
+  @IsString() @MaxLength(KYC_INE_KEY_MAX_LENGTH) @Matches(KYC_INE_KEY_PATTERN) front!: string;
+  @IsString() @MaxLength(KYC_INE_KEY_MAX_LENGTH) @Matches(KYC_INE_KEY_PATTERN) back!: string;
+}
+
 export class CreateRequestDto {
   @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => RequestItemDto)
   items!: RequestItemDto[];
@@ -143,7 +160,15 @@ export class CreateRequestDto {
   // reveal-clabe); si tampoco hay en archivo → 422 CLABE_REQUIRED. Con `clabe` presente el flujo
   // no cambia (formato 18 dígitos → CLABE_INVALID; nombre propio por blind index → CLABE_NOT_OWN_NAME).
   @IsOptional() @IsString() clabe?: string;
-  @IsOptional() @IsObject() ineUploadKeys?: { front: string; back: string };
+  /**
+   * ⭐⭐ **v1.70 (`C15` / `SEC-PII-1`) — deja de ser un `@IsObject()` pelado.**
+   * `seguridad` lo midió con el `ValidationPipe` real: `{front:'a', back:'b'}` daba **0 errores** y
+   * los valores **sobrevivían al `whitelist`** ⇒ el intake daba `ineProvided = true` y el vendedor
+   * pasaba **la compuerta AML** sin haber subido nada. Ahora la forma se valida como objeto anidado
+   * (`@ValidateNested` + `@Type`), y el CONTROL —que la key salga de un presign de ESE usuario y que
+   * el objeto exista— lo aplica `UploadsService.assertOwnedIneKeys` en el servicio.
+   */
+  @IsOptional() @ValidateNested() @Type(() => IneUploadKeysDto) ineUploadKeys?: IneUploadKeysDto;
 }
 
 export class RespondDto {

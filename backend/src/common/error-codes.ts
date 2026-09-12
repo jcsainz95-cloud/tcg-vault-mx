@@ -273,6 +273,25 @@ export const ErrorCode = {
   // no es un rechazo, es un callejón. ⚠️ El caso inverso (motivo SIN rechazar) es
   // `VALIDATION_ERROR`, no éste: no es «falta un dato», es «este dato aquí no significa nada».
   KYC_REJECTION_REASON_REQUIRED: 'KYC_REJECTION_REASON_REQUIRED',
+  // ⭐⭐ v1.70 (C15 / SEC-PII-1, `docs/SECURITY_NOTES.md §4.1`) — 422. La key de INE que el cliente
+  // manda **no la emitió este servidor para él**, o **su objeto no existe**. Cubre los DOS caminos
+  // de escritura: `PUT /users/me/kyc` (§1) y `POST /buylist/requests` (§6).
+  //
+  // EL DEFECTO QUE CIERRA, y estaba VIVO EN PRODUCCIÓN desde antes de P-78: las dos compuertas de
+  // cumplimiento medían `ineFrontKey != null && ineBackKey != null` — **un booleano que escribía el
+  // cliente**. Con `{front:'a', back:'b'}` un vendedor por encima del umbral pasaba el intake Y la
+  // emisión de la oferta, y **cobraba a su CLABE sin habernos dado jamás una identificación**.
+  //
+  // ⚠️ UN SOLO CÓDIGO PARA LOS TRES FALLOS (forma, dueño, existencia) A PROPÓSITO: distinguirlos le
+  // diría al cliente CUÁL falló, que es un oráculo gratis sobre qué keys existen y de quién son.
+  // `details: { field }` dice QUÉ CAMPO, no por qué.
+  INE_UPLOAD_KEY_INVALID: 'INE_UPLOAD_KEY_INVALID',
+  // ⭐ v1.70 (C20 / SEC-PII-7) — 500. `DELETE /admin/users/:id` en modo HARD cuando la imagen de INE
+  // **no se pudo borrar del bucket**. La cascada borraría la fila `KycProfile` con sus keys dentro,
+  // así que el ÚNICO puntero a esa imagen desaparecería y la purga de retención **nunca** la
+  // alcanzaría. Se aborta el borrado: el `super_admin` reintenta cuando el storage responda.
+  // ⛔ 500 y no 422: el actor no hizo nada mal y no hay nada que pueda corregir en su petición.
+  INE_PURGE_FAILED: 'INE_PURGE_FAILED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',
   CLABE_INVALID: 'CLABE_INVALID',
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo

@@ -119,6 +119,35 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
     await h?.close();
   });
 
+  /**
+   * ⭐ v1.70 (`C15`) — sube una imagen **por el camino del producto** (presign + `PUT` real) y
+   * devuelve la key emitida, o `null` si no hay almacenamiento vivo (y no estamos en modo estricto).
+   * Es la única forma de obtener una key que el servidor acepte: desde `C15`, una cadena inventada
+   * **no vale**.
+   */
+  async function subirIneReal(token: string): Promise<string | null> {
+    const bytes = Buffer.from(E2E_KYC_INE_IMAGES.front, 'base64');
+    const presign = await h.api('POST', '/uploads/presign', {
+      token,
+      json: { purpose: 'kyc_ine', contentType: 'image/png', contentLength: bytes.length },
+    });
+    expect(presign.status).toBe(200);
+    let status: number;
+    try {
+      status = await httpPut(presign.body.uploadUrl, bytes, 'image/png');
+    } catch (e) {
+      if (STRICT) throw e;
+      // eslint-disable-next-line no-console
+      console.warn(`[e2e] object storage no accesible (${(e as Error).message}); se salta.`);
+      return null;
+    }
+    if (status !== 200 && status !== 204) {
+      if (STRICT) throw new Error(`PUT presignado devolvió ${status}`);
+      return null;
+    }
+    return presign.body.uploadKey as string;
+  }
+
   /** Deja al usuario con INE completo en archivo (sin subir nada a R2: solo las keys). */
   async function withIne(front: string | null = FRONT_KEY, back: string | null = BACK_KEY) {
     await h.prisma.kycProfile.upsert({
@@ -323,9 +352,14 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
       expect(soloClabe.body.clabeOnFile).toBe(true);
 
       // (b) Con keys de INE ⇒ vuelve a `pending` y el motivo anterior queda limpio en la columna.
+      // ⚠️ v1.70 (`C15`): la key tiene que ser REAL — emitida por un presign de ESTE usuario y con
+      // su objeto subido. Una cadena inventada ahora da `422 INE_UPLOAD_KEY_INVALID`, que es
+      // justamente el arreglo (y lo mide el bloque `C15` de abajo).
+      const nuevaKey = await subirIneReal(customerToken);
+      if (nuevaKey === null) return;
       const conIne = await h.api('PUT', '/users/me/kyc', {
         token: customerToken,
-        json: { ineFrontUploadKey: 'kyc_ine/2026-09-11/nuevo-front.png', ineBackUploadKey: BACK_KEY },
+        json: { ineFrontUploadKey: nuevaKey, ineBackUploadKey: nuevaKey },
       });
       expect(conIne.status).toBe(200);
       expect(conIne.body.kycStatus).toBe('pending');
@@ -333,7 +367,7 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
       const row = await h.prisma.kycProfile.findUnique({ where: { userId } });
       expect(row!.rejectionReason).toBeNull();
       expect(row!.reviewedAt).toBeNull();
-      expect(row!.ineFrontKey).toBe('kyc_ine/2026-09-11/nuevo-front.png');
+      expect(row!.ineFrontKey).toBe(nuevaKey);
     });
   });
 
@@ -363,30 +397,7 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
     /** Bytes distintivos: si la descarga devolviera «otro objeto», el aserto tiene que romperse. */
     const SUBIDO = Buffer.from(E2E_KYC_INE_IMAGES.front, 'base64');
 
-    /** Sube por el camino del producto y devuelve la key, o `null` si no hay almacenamiento vivo. */
-    async function subirPorElCaminoDelProducto(): Promise<string | null> {
-      const presign = await h.api('POST', '/uploads/presign', {
-        token: customerToken,
-        json: { purpose: 'kyc_ine', contentType: 'image/png', contentLength: SUBIDO.length },
-      });
-      expect(presign.status).toBe(200);
-      let status: number;
-      try {
-        status = await httpPut(presign.body.uploadUrl, SUBIDO, 'image/png');
-      } catch (e) {
-        if (STRICT) throw e;
-        // eslint-disable-next-line no-console
-        console.warn(`[e2e] object storage no accesible (${(e as Error).message}); G-3 se salta.`);
-        return null;
-      }
-      if (status !== 200 && status !== 204) {
-        if (STRICT) throw new Error(`PUT presignado devolvió ${status}`);
-        // eslint-disable-next-line no-console
-        console.warn(`[e2e] PUT presignado devolvió ${status} (bucket ausente o firma divergente); G-3 se salta.`);
-        return null;
-      }
-      return presign.body.uploadKey as string;
-    }
+    const subirPorElCaminoDelProducto = () => subirIneReal(customerToken);
 
     it('subir → pedir el enlace → DESCARGAR: 200, `Content-Disposition: attachment` y los MISMOS bytes', async () => {
       const key = await subirPorElCaminoDelProducto();
@@ -410,6 +421,10 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
       // 3) Y el servidor manda la cabecera de descarga (S-B3): el vector que cierra es NAVEGAR al
       //    objeto como documento de primer nivel en el origen del storage.
       expect(String(bajada.headers['content-disposition'])).toContain('attachment');
+      // 4) ⭐⭐ `C14` / `SEC-PII-2`: **`no-store` en la respuesta del OBJETO**, no solo en el JSON.
+      //    Sin esto, *una copia cacheada se sirve sin red*: el TTL de 120 s no la alcanza, la firma
+      //    caducada no la alcanza y volver a mirarla **no deja fila de bitácora**.
+      expect(String(bajada.headers['cache-control'])).toContain('no-store');
     });
 
     it('⛔ la MITAD NEGATIVA: con la firma manipulada no se descarga nada', async () => {
@@ -507,6 +522,89 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
       // Y el actor del fixture es el del cotejo: nombre FABRICADO del correo.
       const ficha = await h.api('GET', `/admin/users/${review.id}`, { token: adminToken });
       expect(ficha.body.nameSource).toBe('derived');
+    });
+  });
+
+  /**
+   * ⭐⭐ **`C15` / `SEC-PII-1` POR HTTP — el `422` que `seguridad` dejó `NO MEDIDO` (backend caído).**
+   * Su comprobación, literal: *«autenticado como `customer`, `POST /buylist/requests` por encima del
+   * umbral con `ineUploadKeys:{front:'a',back:'b'}` ⇒ hoy se espera `2xx`; tras el fix, `422`»*.
+   */
+  describe('C15 · las dos cadenas inventadas ya no abren la compuerta (por HTTP)', () => {
+    it('⛔ `PUT /users/me/kyc` con `{front:"a", back:"b"}` ⇒ 4xx, y el expediente NO cambia', async () => {
+      await h.prisma.kycProfile.updateMany({
+        where: { userId },
+        data: { ineFrontKey: null, ineBackKey: null, kycStatus: 'none' },
+      });
+      const res = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: 'a', ineBackUploadKey: 'b' },
+      });
+      // El `ValidationPipe` lo corta antes (400) o lo corta el servicio (422). Lo que importa es que
+      // **no pasa**, y que no quedó nada escrito.
+      expect([400, 422]).toContain(res.status);
+      const fila = await h.prisma.kycProfile.findUnique({ where: { userId } });
+      expect(fila?.ineFrontKey).toBeNull();
+      expect(fila?.kycStatus).toBe('none');
+    });
+
+    it('⛔ una key con FORMA válida que el presign nunca emitió ⇒ `422 INE_UPLOAD_KEY_INVALID`', async () => {
+      const inventada = 'kyc_ine/2026-09-12/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.png';
+      const res = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: inventada, ineBackUploadKey: inventada },
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('INE_UPLOAD_KEY_INVALID');
+    });
+
+    it('⛔⛔ la key de OTRO usuario ⇒ 422: no se puede declarar propio el documento ajeno', async () => {
+      const ajena = await subirIneReal(await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password));
+      if (ajena === null) return;
+      const res = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: ajena, ineBackUploadKey: ajena },
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('INE_UPLOAD_KEY_INVALID');
+    });
+
+    it('⛔ presign SIN subir nada ⇒ 422 (un permiso no es una imagen)', async () => {
+      const presign = await h.api('POST', '/uploads/presign', {
+        token: customerToken,
+        json: { purpose: 'kyc_ine', contentType: 'image/png', contentLength: 10 },
+      });
+      expect(presign.status).toBe(200);
+      const res = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: presign.body.uploadKey, ineBackUploadKey: presign.body.uploadKey },
+      });
+      // Sin almacenamiento vivo el `HeadObject` no puede responder «no está»: se propaga (500) y el
+      // caso se declara no medible aquí.
+      if (res.status === 500 && !STRICT) return;
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('INE_UPLOAD_KEY_INVALID');
+    });
+
+    it('✅ el camino legítimo sigue funcionando: presign → PUT real → registrar ⇒ 200', async () => {
+      const key = await subirIneReal(customerToken);
+      if (key === null) return;
+      const res = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: key, ineBackUploadKey: key },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.ineOnFile).toBe(true);
+      expect(res.body.kycStatus).toBe('pending');
+    });
+
+    it('⭐ `C19`: `POST /uploads/presign` devuelve `Cache-Control: no-store` entre sus headers firmados', async () => {
+      const presign = await h.api('POST', '/uploads/presign', {
+        token: customerToken,
+        json: { purpose: 'kyc_ine', contentType: 'image/png', contentLength: 10 },
+      });
+      expect(presign.status).toBe(200);
+      expect(presign.body.headers['Cache-Control']).toBe('no-store');
     });
   });
 });

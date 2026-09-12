@@ -425,6 +425,11 @@ export const E2E_SETTINGS = {
  * el paso 3 del seed borra los `KycProfile`, y por eso estos se siembran **con las columnas que NO
  * son PII cifrada**: las llaves del INE son cadenas en claro.
  *
+ * ⚠️ **v1.70 (`C15`): las keys tienen la FORMA CANÓNICA** (`kyc_ine/<AAAA-MM-DD>/<uuid>.<ext>`) y el
+ * seed les siembra su **`KycUploadGrant`**. No es cosmético: desde `C15` una key sin permiso —o con
+ * otra forma— **no se puede volver a registrar**, así que un fixture con keys inventadas sería un
+ * fixture que el producto rechaza. *El dato de prueba tiene que ser un dato que el sistema aceptaría.*
+ *
  * Credenciales de FIXTURE de una BD sintética/efímera: **no son secretos**, misma doctrina que
  * `E2E_USERS`/`E2E_ACCOUNT_FIXTURES`.
  */
@@ -435,8 +440,8 @@ export const E2E_KYC_FIXTURES = {
     /** = `email.split('@')[0]`: nombre FABRICADO ⇒ `nameSource='derived'` (el caso del cotejo). */
     name: 'kyc.review',
     phone: '5511110008',
-    frontKey: 'kyc_ine/e2e-fixtures/kyc-review-front.png',
-    backKey: 'kyc_ine/e2e-fixtures/kyc-review-back.png',
+    frontKey: 'kyc_ine/2026-09-12/e2e0a001-0000-4000-8000-000000000001.png',
+    backKey: 'kyc_ine/2026-09-12/e2e0a001-0000-4000-8000-000000000002.png',
     kycStatus: 'pending' as const,
   },
   reject: {
@@ -444,8 +449,8 @@ export const E2E_KYC_FIXTURES = {
     password: 'KycReject123!',
     name: 'kyc.reject',
     phone: '5511110009',
-    frontKey: 'kyc_ine/e2e-fixtures/kyc-reject-front.png',
-    backKey: 'kyc_ine/e2e-fixtures/kyc-reject-back.png',
+    frontKey: 'kyc_ine/2026-09-12/e2e0a002-0000-4000-8000-000000000001.png',
+    backKey: 'kyc_ine/2026-09-12/e2e0a002-0000-4000-8000-000000000002.png',
     kycStatus: 'pending' as const,
   },
   none: {

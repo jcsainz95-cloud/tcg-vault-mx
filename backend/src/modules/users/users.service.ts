@@ -389,17 +389,36 @@ export class UsersService {
    *   evidencia de **por qué** rechazamos, justo mientras el cliente tiene un rechazo que discutir.
    *   Se borra **cuando llega la sustitución**, que es lo que aquí ocurre.
    */
-  async putKyc(userId: string, dto: UpdateKycDto) {
-    if (dto.clabe && !isValidClabe(dto.clabe)) {
-      throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
-    }
+  /**
+   * ⭐⭐ **v1.70 (`C17` / `SEC-PII-3`) — LA ÚNICA RUTINA DE ESCRITURA DE INE, para los DOS caminos.**
+   *
+   * ### El defecto que cierra (hallazgo de `seguridad`, no del red team)
+   * Había **dos** escritores de `ineFrontKey`/`ineBackKey`: éste y el `upsert` del intake
+   * (`POST /buylist/requests`). El segundo **pisaba la key vieja sin borrar el objeto** —huérfano
+   * invisible para la purga, `BL-42` camino 2— y **su rama `update` no tocaba `kycStatus`** ⇒ un
+   * usuario **`verified`** podía cambiar sus imágenes y **conservar la insignia**: la pantalla del
+   * revisor mostraría `verified` sobre **un documento que nadie revisó**. Dos invariantes de v1.69
+   * (§M6-K.4.1 y A6) rotas en el mismo `upsert`, y el contrato afirmando un cierre más ancho que el
+   * código. *La frontera es la API, no la pantalla: que el front oficial no lo haga no es un control.*
+   *
+   * Devuelve el `data` que hay que fundir en el `upsert` del llamador y **las keys sustituidas**, que
+   * el llamador debe borrar **después** de persistir (`purgeSupersededIneObjects`). Se parte en dos
+   * porque el intake escribe **dentro de su propio `upsert`** con la CLABE, y un segundo `upsert`
+   * aquí dejaría dos escrituras donde el contrato describe una.
+   *
+   * ⚠️ **Esta función NO valida la key**: eso es `UploadsService.assertOwnedIneKeys` (`C15`), y va
+   * **antes**, en los dos caminos. Aquí solo se decide **qué se escribe**.
+   */
+  async buildIneSubmission(
+    userId: string,
+    keys: { front?: string | null; back?: string | null },
+  ): Promise<{ data: Record<string, unknown>; supersededKeys: string[] }> {
+    // ⭐⭐ **C15 VIVE AQUÍ, y aquí es donde tiene que vivir.** Ésta es la ÚNICA rutina que escribe
+    // keys de INE, así que validar aquí hace **imposible olvidarlo** en un camino nuevo: quien añada
+    // un tercer escritor y no pase por aquí, no escribe. Si la key no salió de un presign de ESTE
+    // usuario, o su objeto no existe ⇒ `422 INE_UPLOAD_KEY_INVALID` **antes de tocar la BD**.
+    await this.uploads.assertOwnedIneKeys(userId, keys);
     const data: Record<string, unknown> = {};
-    if (dto.clabe) {
-      // Cifra la CLABE en reposo y guarda su blind index (para el match a nombre propio).
-      data.clabeEnc = this.pii.encrypt(dto.clabe);
-      data.clabeHmac = this.pii.clabeBlindIndex(dto.clabe);
-    }
-
     // ⚠️ Se lee ANTES de escribir: las keys que van a ser sustituidas solo se conocen aquí.
     const existing = await this.prisma.kycProfile.findUnique({
       where: { userId },
@@ -407,34 +426,37 @@ export class UsersService {
     });
     /** Keys que quedan huérfanas por esta llamada (solo si REALMENTE cambian). */
     const supersededKeys: string[] = [];
-    if (dto.ineFrontUploadKey) {
-      data.ineFrontKey = dto.ineFrontUploadKey;
-      if (existing?.ineFrontKey && existing.ineFrontKey !== dto.ineFrontUploadKey) {
+    if (keys.front) {
+      data.ineFrontKey = keys.front;
+      if (existing?.ineFrontKey && existing.ineFrontKey !== keys.front) {
         supersededKeys.push(existing.ineFrontKey);
       }
     }
-    if (dto.ineBackUploadKey) {
-      data.ineBackKey = dto.ineBackUploadKey;
-      if (existing?.ineBackKey && existing.ineBackKey !== dto.ineBackUploadKey) {
+    if (keys.back) {
+      data.ineBackKey = keys.back;
+      if (existing?.ineBackKey && existing.ineBackKey !== keys.back) {
         supersededKeys.push(existing.ineBackKey);
       }
     }
+    // ⭐ v1.69 (A6): SOLO una subida de INE mueve el estado de la identidad — y ahora **por los dos
+    // caminos**. Una llamada sin keys no toca `kycStatus` ni el sello de revisión.
+    if (keys.front || keys.back) {
+      data.kycStatus = 'pending';
+      data.rejectionReason = null;
+      data.reviewedAt = null;
+      data.reviewedBy = null;
+    }
+    return { data, supersededKeys };
+  }
 
-    // ⭐ v1.69 (A6): SOLO una subida de INE mueve el estado de la identidad.
-    const touchesIne = Boolean(dto.ineFrontUploadKey || dto.ineBackUploadKey);
-    const ineSubmission = touchesIne
-      ? { kycStatus: 'pending' as const, rejectionReason: null, reviewedAt: null, reviewedBy: null }
-      : {};
-
-    await this.prisma.kycProfile.upsert({
-      where: { userId },
-      // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
-      // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
-      create: { userId, ...data, ...ineSubmission },
-      update: { ...data, ...ineSubmission },
-    });
-
-    for (const key of supersededKeys) {
+  /**
+   * Borra del bucket las imágenes SUSTITUIDAS. Se llama **después** de persistir (si se borrara antes
+   * y la escritura fallara, el cliente se queda sin INE ninguno) y **un fallo no tumba la petición**:
+   * la subida ya está guardada y él no puede hacer nada al respecto. Se registra `error` — queda un
+   * huérfano, exactamente como antes de v1.69, pero **sabiendo que quedó**.
+   */
+  async purgeSupersededIneObjects(userId: string, keys: string[]): Promise<void> {
+    for (const key of keys) {
       try {
         await this.uploads.deleteObject(key);
       } catch (err) {
@@ -445,6 +467,34 @@ export class UsersService {
         );
       }
     }
+  }
+
+  async putKyc(userId: string, dto: UpdateKycDto) {
+    if (dto.clabe && !isValidClabe(dto.clabe)) {
+      throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
+    }
+    // ⚠️ La compuerta de `C15` la aplica `buildIneSubmission` (abajo), que es el único escritor de
+    // keys: se llama **antes** de persistir la CLABE, así que un `422` no deja escritura a medias.
+    const data: Record<string, unknown> = {};
+    const ine = await this.buildIneSubmission(userId, {
+      front: dto.ineFrontUploadKey,
+      back: dto.ineBackUploadKey,
+    });
+    if (dto.clabe) {
+      // Se cifra DESPUÉS de la compuerta: si la key es inválida, no se escribe nada de nada.
+      data.clabeEnc = this.pii.encrypt(dto.clabe);
+      data.clabeHmac = this.pii.clabeBlindIndex(dto.clabe);
+    }
+
+    await this.prisma.kycProfile.upsert({
+      where: { userId },
+      // En el `create` sin INE el estado se queda en el default del schema (`none` = «nunca subió
+      // INE», §M6-K.7): una CLABE no es una identidad y no puede poner nada «en revisión».
+      create: { userId, ...data, ...ine.data },
+      update: { ...data, ...ine.data },
+    });
+
+    await this.purgeSupersededIneObjects(userId, ine.supersededKeys);
     return this.getKyc(userId);
   }
 }

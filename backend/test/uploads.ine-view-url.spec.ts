@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
  * ⭐ **v1.69 (P-78) — el enlace de LECTURA del INE: su caducidad y su cabecera.**
@@ -46,7 +47,11 @@ function buildService(env: Record<string, string> = {}) {
     S3_SECRET_ACCESS_KEY: 'minioadmin',
     ...env,
   };
-  return new UploadsService({ get: (k: string) => values[k] } as unknown as ConfigService);
+  return new UploadsService(
+    { get: (k: string) => values[k] } as unknown as ConfigService,
+    // v1.70 (C15): el presign registra la key; estas pruebas solo miden el TTL y la firma del GET.
+    { kycUploadGrant: { create: jest.fn(async () => ({})) } } as unknown as PrismaService,
+  );
 }
 
 beforeEach(() => {

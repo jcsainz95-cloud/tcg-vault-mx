@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
-import { UsersService } from '../src/modules/users/users.service';
+import { usersServiceDouble } from './helpers/users-service-double';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
@@ -112,7 +112,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
       prisma as PrismaService,
       buildPricing(null),
       buildSettings(),
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
 
@@ -145,7 +145,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
       prisma as PrismaService,
       buildPricing(null),
       buildSettings(),
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
 
@@ -168,13 +168,50 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
     expect(JSON.stringify(err!.details)).not.toMatch(/\d/);
   });
 
+  /**
+   * ⭐⭐ **`C17` / `SEC-PII-3` — el intake escribe el INE **por la rutina compartida**, no por su
+   * cuenta.** Antes tenía su propio `upsert`: pisaba la key vieja **sin borrar el objeto** (huérfano
+   * invisible para la purga) y su rama `update` **no tocaba `kycStatus`** ⇒ un `verified` cambiaba
+   * sus imágenes y **conservaba la insignia**, y el revisor veía `verified` sobre un documento que
+   * nadie revisó. *La frontera es la API, no la pantalla.*
+   */
+  it('C17 · delega en `UsersService.buildIneSubmission` y funde SU `data` en el upsert', async () => {
+    const prisma = buildPrisma('Illustration Rare');
+    const users = usersServiceDouble();
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      buildPricing(null),
+      buildSettings(),
+      users,
+      pii,
+    );
+    const keys = {
+      front: 'kyc_ine/2026-09-12/11111111-2222-4333-8444-555555555555.png',
+      back: 'kyc_ine/2026-09-12/11111111-2222-4333-8444-666666666666.png',
+    };
+    await svc.createRequest(
+      'user-1',
+      [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any }],
+      VALID_CLABE,
+      keys,
+      GATE_ADDRESS_ID,
+    );
+    // (a) Pasó por la ÚNICA rutina de escritura (donde vive la compuerta de C15).
+    expect(users.buildIneSubmission).toHaveBeenCalledWith('user-1', keys);
+    // (b) Y lo que escribe es lo que ESA rutina decide — incluido `kycStatus: 'pending'` en las DOS
+    //     ramas del upsert (A6), que es justo lo que la rama `update` no hacía.
+    const upsert = (prisma as any).kycProfile.upsert.mock.calls[0][0];
+    expect(upsert.update).toMatchObject({ ineFrontKey: keys.front, kycStatus: 'pending' });
+    expect(upsert.create).toMatchObject({ ineBackKey: keys.back, kycStatus: 'pending' });
+  });
+
   it('línea precio_pendiente CON INE → pasa y marca ineRequired=true', async () => {
     const prisma = buildPrisma('Illustration Rare');
     const svc = new BuylistService(
       prisma as PrismaService,
       buildPricing(null),
       buildSettings(),
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
 
@@ -206,7 +243,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
       prisma as PrismaService,
       buildPricing(12500),
       settings,
-      {} as UsersService,
+      usersServiceDouble(),
       pii,
     );
 
