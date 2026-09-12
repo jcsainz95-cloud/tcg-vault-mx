@@ -128,6 +128,46 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
     ).rejects.toMatchObject({ code: 'INE_REQUIRED' });
   });
 
+  /**
+   * ⭐⭐ **v1.69 (P-78, BK-6 · API_CONTRACT §M6-K.5) — `details` VACÍO.**
+   *
+   * Aquí viajaba `thresholdCents`, y era **el último sitio** que le imprimía al VENDEDOR el número
+   * exacto a partir del cual le pedimos identificación — o sea, el manual de cómo quedarse un peso
+   * por debajo. Decisión (c) del dueño, literal: *«los topes dejan de mostrarse al cliente —
+   * pantalla **y mensaje de error**»*.
+   * ⛔ Y no se fabrica otra cifra en su lugar: el remedio es una FRASE, y vive en el copy del front.
+   * La capacidad de avisar ANTES no se pierde — el cotizador pregunta con
+   * `GET /users/me/kyc?quotedTotalCents=N` y recibe un veredicto, no el número.
+   */
+  it('§M6-K.5 · el `details` del INE_REQUIRED del intake va VACÍO: ni `thresholdCents` ni sustituto', async () => {
+    const prisma = buildPrisma('Illustration Rare');
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      buildPricing(null),
+      buildSettings(),
+      {} as UsersService,
+      pii,
+    );
+
+    const err = await svc
+      .createRequest(
+        'user-1',
+        [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any }],
+        VALID_CLABE,
+        undefined,
+        GATE_ADDRESS_ID,
+      )
+      .then(
+        () => null,
+        (e: { code: string; details: Record<string, unknown> }) => e,
+      );
+
+    expect(err!.code).toBe('INE_REQUIRED');
+    expect(err!.details).toEqual({});
+    // ⛔ Ninguna cifra, con ningún nombre: el candado mide la CLASE, no solo la clave vieja.
+    expect(JSON.stringify(err!.details)).not.toMatch(/\d/);
+  });
+
   it('línea precio_pendiente CON INE → pasa y marca ineRequired=true', async () => {
     const prisma = buildPrisma('Illustration Rare');
     const svc = new BuylistService(

@@ -223,6 +223,84 @@ commit es esperar algo que no puede ocurrir.
 - **Una sesión = una rama** (`claude/tcg-hunt-orchestration-<n>`); fusiona a `main` al cerrar cada stream con
   sus gates, y **solo `production` publica** (`HECHOS.md`).
 
+## Cómo se publica (desde 2026-09-11)
+
+Esto cambió el día que Stream B salió, y cambió por hechos medidos, no por preferencia.
+
+**El orquestador NO publica.** Este entorno bloquea toda operación sobre `production` («Production Deploy»)
+y también bloquea que el orquestador se escriba su propia regla de permiso («Self-Modification»). El segundo
+candado es correcto y **no se rodea**: un agente que puede ampliarse los permisos no tiene permisos, tiene una
+sugerencia.
+
+**El botón es del dueño, y la solicitud de fusión es el sitio donde se le cuenta todo.** El procedimiento:
+
+1. El orquestador fusiona a `main` y abre una **solicitud de fusión `main` → `production`** en GitHub.
+2. El cuerpo de la solicitud lleva, **en lenguaje llano**: qué entra, qué le pasa a la base de datos, **cómo se
+   revierte**, y los pasos concretos que el dueño tiene que verificar en su tienda después.
+3. **Las condiciones que bloquean se escriben ahí, no solo en el chat.** Una condición que solo vive en una
+   conversación se pierde; en la solicitud la lee el dueño en el momento de decidir.
+4. Fusionar **despliega**: Vercel y Railway publican solos al recibir el push (`HECHOS.md`).
+
+> *De dónde viene:* el dueño fusionó con las condiciones abiertas y el aviso delante. Fue su decisión y está
+> bien que lo sea — pero el aviso tiene que estar **donde está el botón**, no en un mensaje de hace media hora.
+
+**Lo que se mide en la ventana de despliegue, se prepara ANTES.** Hay cuentas que solo existen durante el
+despliegue. El instrumento que las toma se escribe y se prueba antes de abrir la ventana, no durante.
+
+> *Matiz medido, que corrige la versión alarmista:* casi ninguna cuenta es literalmente «ahora o nunca». La de
+> reservas legadas es **estable después** del despliegue, porque el código nuevo siempre escribe la columna y
+> el conjunto ya no crece. Lo único irrecuperable es la foto **anterior** a la migración. Antes de decirle al
+> dueño «se cierra la puerta para siempre», **se comprueba si es verdad**.
+
+**Secretos: ni por chat, ni en el repositorio, ni en los registros.** El repositorio es público. No se le pide
+al dueño el valor de una credencial por conversación. Las tres vías admitidas, en orden: un **usuario de solo
+lectura** creado para la medición; que **el dueño la corra él** donde la credencial ya vive; o el **almacén de
+secretos** del proveedor. Y lo que se genera en CI se **enmascara en origen**, con candado y canario — porque ya
+pasó que quedaran en claro en un registro público.
+
+**Toda dependencia externa va fijada.** La puerta de seguridad dinámica se cayó entera porque una imagen ajena
+dejó de poder descargarse. Una etiqueta móvil de un tercero es una decisión que toma un desconocido por
+nosotros. Fijar versión o digest, con candado que lo vigile.
+
+## Reparto de modelos: el plano y la prueba primero
+
+El coste no se reparte por rol sino por **si el error se nota o no** y por **si toca dinero**.
+
+| Modelo fuerte | Modelo barato |
+|---|---|
+| Encontrar el defecto (diagnóstico) | Hacer pasar una prueba que ya existe |
+| Escribir la prueba que **debe fallar** | Refactor con la suite como juez |
+| Contrato, esquema, decisiones de diseño | Copys y textos, con su control de paridad |
+| Los tres veredictos (QA, techlead, seguridad) | Cableado ya decidido |
+| Todo lo que toque `orders`, `payments`, `pricing`, `buylist`, `inventory`, `vault` | Pantallas sin dinero, documentación |
+| La verificación final del orquestador (O-9) | |
+
+**El protocolo:** el modelo fuerte escribe **el plano y la prueba que falla**; el barato la hace pasar. La
+prueba es el contrato entre los dos, y no hay ambigüedad que negociar. Encaja con lo que este proyecto ya tiene:
+cada candado viene con su canario que demuestra que muerde.
+
+⛔ **El modelo barato no toca pruebas ni candados, solo código de producción.** Una prueba se puede hacer pasar
+debilitándola, y este proyecto ya fue mordido por esa clase — por eso existe el censo de pruebas apagadas.
+Después, el fuerte reintroduce el defecto y confirma que la prueba sigue mordiendo.
+
+**La trampa, dicha entera:** el troceo funciona si el plano está completo, y **la completitud del plano es justo
+lo que no se puede verificar por adelantado**. Medido el 2026-09-11: el defecto del sellado vivía en la
+*relación* entre tres sitios y un cuarto que el diagnóstico no tenía; el de Stripe salió de medir un valor por
+defecto que ningún encargo mencionaba. En los tres casos lo valioso fue **descubrir que el plan estaba
+incompleto**. Por eso una tarea baja al modelo barato solo si cumple las tres: la especificación dice qué es
+«terminado», existe una prueba que falla si está mal, y equivocarse se nota hoy.
+
+**Y lo que se pierde, para decidirlo con los ojos abiertos:** los tres mejores hallazgos del día salieron de
+agentes de construcción **contradiciendo al orquestador con datos**. Esa capacidad de plantarse es lo primero
+que se degrada. En código que toca dinero, un agente obediente que no discute es exactamente lo que no se
+quiere.
+
+**Dónde se va el gasto** (medido el 2026-09-11, ~3 millones de tokens en agentes): construir **46%**, diseño y
+contratos **32%**, veredictos **17%**, investigación **5%**. Y un dato que manda sobre todos: cerca del **17%**
+se fue en **rehacer trabajo ya hecho** (una premisa falsa que costó casi lo mismo que el diseño entero, y un
+encargo enrutado al agente equivocado). **Evitar el retrabajo ahorra tanto como cambiar de modelo, y no cuesta
+calidad.**
+
 ## Regla de conflicto
 Ante cualquier ambigüedad entre PROJECT.md, el contrato y el código: el contrato manda sobre el código, y PROJECT.md manda sobre el contrato. Si PROJECT.md es ambiguo, se pregunta al humano; no se asume.
 

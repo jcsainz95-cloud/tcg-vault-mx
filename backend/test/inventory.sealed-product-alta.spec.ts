@@ -20,6 +20,7 @@ import { AuditService } from '../src/modules/audit/audit.service';
 
 function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
   const created: any[] = [];
+  const adjustments: any[] = [];
   const pendingStore: any[] = [];
   const priceRefs: any[] = [];
   const overrides: any[] = [];
@@ -70,6 +71,11 @@ function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
       }),
     },
     inventoryMovement: { create: jest.fn(async () => ({})) },
+    // P-79(d): `adjust({reason:'encontrada'})` es el TERCER camino de alta y escribe su propia fila
+    // de ajuste; sin este mock la prueba de ese camino revienta antes de llegar a la aserción.
+    inventoryAdjustment: {
+      create: jest.fn(async ({ data }: any) => ({ id: `adj-${adjustments.push(data)}`, ...data })),
+    },
     priceReference: {
       findFirst: jest.fn(async ({ where }: any) =>
         priceRefs.find(
@@ -126,7 +132,7 @@ function buildHarness(opts: { sourceOn?: boolean; withAudit?: boolean } = {}) {
   const auditLog = jest.fn(async () => {});
   const audit = opts.withAudit ? ({ log: auditLog } as unknown as AuditService) : undefined;
   const svc = new InventoryService(prisma as PrismaService, pricing, settings, audit);
-  return { svc, prisma, created, pendingStore, priceRefs, overrides, auditLog };
+  return { svc, prisma, created, adjustments, pendingStore, priceRefs, overrides, auditLog };
 }
 
 function seedMarket(h: ReturnType<typeof buildHarness>, productId = 777, priceMxnCents = 250000) {
@@ -358,5 +364,164 @@ describe('H-2 — manualMarketMxnCents exige sealedProductId validado', () => {
     expect(res.acquisitionCostCents).toBe(150000);
     // El override quedó anclado al productId DERIVADO del SealedProduct (777), no a uno del cliente.
     expect(h.overrides.some((o) => o.isManualOverride === true && o.gradeKey === 'sealed:tcg:777')).toBe(true);
+  });
+});
+
+/**
+ * P-79 (d) · **MONEY** — *«el sellado se apunta el precio en una llave y se lee de otra»*.
+ *
+ * ### El defecto que estas pruebas cierran
+ * El alta de sellado **por COMPRA** (`listPriceCents == null`) escala la pieza a la cola de precio
+ * pendiente de M2 (`sealedNeedsEscalate`). La **publicación** lee la referencia del sellado por la
+ * clave de **MERCADO** (`sealedMarketGradeKeyForItem` ⇒ `sealed:tcg:<productId>`,
+ * `inventory.service.ts` → `derivePublishSalePrice`). El camino de **LOTE** —que es el que dispara la
+ * app real— escalaba con `r.gradeKey`, y `buildGradeKey` devuelve para sellado la constante
+ * `'sealed'` (la clave del **override MANUAL** del admin, §4.19d). Resultado: el operador fijaba el
+ * precio en M2 sobre la fila `'sealed'`, la publicación leía `sealed:tcg:<id>`, no encontraba nada, y
+ * **la pieza volvía a la cola en bucle**.
+ *
+ * ### Por qué NO se unifican las dos claves
+ * Las dos existen a propósito (§4.40.4d): `'sealed'` = override manual del admin;
+ * `sealedMarketGradeKey()` = mercado por producto. Lo que se arregla es el **camino**, no las claves.
+ *
+ * ### El hueco de cobertura que dejó pasar esto
+ * Hasta aquí el ÚNICO camino de alta de sellado probado en camino feliz era
+ * `aportacion_en_especie` (que escala por otra vía, `resolveSealedMarketForAlta`, ya correcta), y los
+ * casos con `'compra'` eran todos RECHAZOS (422). **No había una sola prueba del alta de sellado por
+ * COMPRA en camino feliz**, ni del lote. Estas son esas.
+ *
+ * La aserción fuerte es la de la **INVARIANTE**: la clave con que el alta escala se compara con la
+ * que la publicación va a leer, pedida al MISMO helper que usa la publicación
+ * (`pricing.sealedMarketGradeKeyForItem(pieza)`), no a un literal paralelo.
+ */
+describe('P-79(d) — alta de sellado por COMPRA: escala con la MISMA clave que lee la publicación', () => {
+  /** Alta de sellado por COMPRA: sin `listPriceCents` ⇒ `sealedNeedsEscalate` ⇒ entra a la cola de M2. */
+  const compra = (over: any = {}) => ({
+    productType: 'sealed' as const,
+    sealedProductId: 'sp-etb',
+    acquisitionType: 'compra' as const,
+    acquisitionCostCents: 180000,
+    locationId: 'loc-1',
+    ...over,
+  });
+
+  it('SINGLE: la pieza nace sin precio, entra a la cola UNA vez y con `sealed:tcg:777` + sealedProductId', async () => {
+    const h = buildHarness({ sourceOn: true }); // sin mercado: la compra no lo consulta
+    const res = await h.svc.createItem(compra() as any, 'op-1');
+
+    expect(res.id).toBeDefined();
+    expect(h.created).toHaveLength(1);
+    // Sin precio manual ⇒ la pieza depende de la referencia de mercado para publicarse.
+    expect(h.created[0].listPriceCents ?? null).toBeNull();
+    expect(h.pendingStore).toHaveLength(1);
+    expect(h.pendingStore[0]).toMatchObject({
+      cardId: 'card-tropius',
+      productType: 'sealed',
+      gradeKey: 'sealed:tcg:777',
+      finish: 'normal',
+      sealedProductId: 'sp-etb',
+      context: 'inventory',
+      status: 'open',
+    });
+  });
+
+  it('LOTE (el camino de la app): MISMA clave que el single — `sealed:tcg:777`, NO el legacy `sealed`', async () => {
+    const h = buildHarness({ sourceOn: true });
+    const res = await h.svc.batchCreate(
+      { batchKey: 'bk-p79-lote', items: [compra() as any] },
+      'op-1',
+    );
+
+    expect(res.results[0].ok).toBe(true);
+    expect(h.created).toHaveLength(1);
+    expect(h.pendingStore).toHaveLength(1);
+    expect(h.pendingStore[0]).toMatchObject({
+      cardId: 'card-tropius',
+      productType: 'sealed',
+      gradeKey: 'sealed:tcg:777',
+      finish: 'normal',
+      sealedProductId: 'sp-etb',
+      context: 'inventory',
+    });
+    // El defecto EXACTO que se cierra: la cola NO queda bajo la clave del override manual.
+    expect(h.pendingStore[0].gradeKey).not.toBe('sealed');
+  });
+
+  it('LOTE · INVARIANTE: la clave escalada === la que la publicación pide a `sealedMarketGradeKeyForItem`', async () => {
+    const h = buildHarness({ sourceOn: true });
+    await h.svc.batchCreate({ batchKey: 'bk-p79-inv', items: [compra() as any] }, 'op-1');
+
+    const pieza = h.created[0];
+    // La MISMA llamada que hace `derivePublishSalePrice` para leer la referencia del sellado.
+    const claveQueLeeLaPublicacion = (h.svc as any).pricing.sealedMarketGradeKeyForItem(pieza);
+    expect(claveQueLeeLaPublicacion).toBe('sealed:tcg:777'); // guarda: el helper no cambió de forma
+    expect(h.pendingStore[0].gradeKey).toBe(claveQueLeeLaPublicacion);
+  });
+
+  it('LOTE · qty>1: una sola entrada en la cola (dedupe por clave lógica), no una por pieza', async () => {
+    const h = buildHarness({ sourceOn: true });
+    const res = await h.svc.batchCreate(
+      { batchKey: 'bk-p79-qty', items: [compra({ qty: 3 }) as any] },
+      'op-1',
+    );
+    expect(res.results[0].ok).toBe(true);
+    expect(h.created).toHaveLength(3);
+    expect(h.pendingStore).toHaveLength(1);
+    expect(h.pendingStore[0].gradeKey).toBe('sealed:tcg:777');
+  });
+
+  it('LOTE · con `listPriceCents` NO se escala nada (la pieza ya tiene precio publicable)', async () => {
+    const h = buildHarness({ sourceOn: true });
+    const res = await h.svc.batchCreate(
+      { batchKey: 'bk-p79-conprecio', items: [compra({ listPriceCents: 320000 }) as any] },
+      'op-1',
+    );
+    expect(res.results[0].ok).toBe(true);
+    expect(h.pendingStore).toHaveLength(0);
+  });
+
+  it('LOTE · sellado LEGACY sin mapeo (sin tcgplayerProductId): cae a `sealed`, el fallback seguro documentado', async () => {
+    const h = buildHarness({ sourceOn: true });
+    // Sin `sealedProductId` y sin mapeo M-23 ⇒ no hay clave de mercado que construir.
+    const res = await h.svc.batchCreate(
+      {
+        batchKey: 'bk-p79-legacy',
+        items: [
+          {
+            productType: 'sealed' as const,
+            cardId: 'card-tropius',
+            acquisitionType: 'compra' as const,
+            acquisitionCostCents: 90000,
+            locationId: 'loc-1',
+          } as any,
+        ],
+      },
+      'op-1',
+    );
+    expect(res.results[0].ok).toBe(true);
+    expect(h.pendingStore).toHaveLength(1);
+    // Mismo idioma que el single: sin productId no se inventa `sealed:tcg:null`.
+    expect(h.pendingStore[0]).toMatchObject({ gradeKey: 'sealed', sealedProductId: null });
+    // Y la publicación tampoco tendrá clave de mercado para esta pieza (simetría del fallback).
+    expect((h.svc as any).pricing.sealedMarketGradeKeyForItem(h.created[0])).toBeNull();
+  });
+
+  it('AJUSTE «encontrada» (tercer camino de alta): misma clave de MERCADO, no el legacy', async () => {
+    // Mismo defecto que el lote, en el tercer sitio que escala: `adjustFound`. Se prueba aquí para
+    // que la corrección no quede cubierta en dos caminos de tres.
+    const h = buildHarness({ sourceOn: true });
+    const res = await h.svc.adjust(
+      { reason: 'encontrada', batchKey: 'bk-p79-found', item: compra() as any, note: 'aparecio en bodega' } as any,
+      'op-1',
+    );
+    expect(res).toBeDefined();
+    expect(h.created).toHaveLength(1);
+    expect(h.pendingStore).toHaveLength(1);
+    expect(h.pendingStore[0]).toMatchObject({
+      gradeKey: 'sealed:tcg:777',
+      sealedProductId: 'sp-etb',
+      productType: 'sealed',
+      finish: 'normal',
+    });
   });
 });

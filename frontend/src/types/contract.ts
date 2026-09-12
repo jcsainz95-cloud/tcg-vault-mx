@@ -451,10 +451,24 @@ export interface KycInfoDTO {
   // v1.15: hay imagen de INE (frente+reverso) en archivo. El front oculta los uploaders de INE y
   // omite `ineUploadKeys`; el backend trata el INE en archivo como "provisto" para el umbral AML.
   ineOnFile: boolean;
-  capPerRequestCents: number;
-  capPerMonthCents: number;
-  monthUsedCents: number;
+  /**
+   * ⭐ v1.69 (P-78, contrato §M6-K.5 / §1): presente **si y solo si** `kycStatus === 'rejected'`.
+   * Es el texto LITERAL que escribió el `super_admin` al rechazar, y es lo que cierra el ciclo:
+   * sin él el cliente lee «rechazada» y no sabe qué corregir. ⛔ No se recorta, no se traduce.
+   */
+  rejectionReason?: string;
+  /**
+   * ⭐ v1.69 (P-78, contrato §M6-K.5): presente **si y solo si** la petición llevó
+   * `?quotedTotalCents=N`. Es **el veredicto, no la cifra**: `true` = con ese total se va a exigir
+   * INE. Sustituye a la comparación que hacía el cliente (`capPerRequestCents`, §M5-I.6): el
+   * servidor compara y el umbral **no viaja en ninguna forma**.
+   */
+  ineRequiredForTotal?: boolean;
 }
+// ⛔⛔ v1.69 (P-78, §M6-K.5) — `capPerRequestCents`, `capPerMonthCents` y `monthUsedCents` SE
+// RETIRARON de este DTO por decisión del dueño («los topes dejan de mostrarse al cliente —
+// pantalla y mensaje de error»). No se dejan alias ni campos «no expuestos»: el número ni aparece
+// ni llega. Lo que llega es `ineRequiredForTotal`, un sí/no.
 
 // ---- Uploads (contrato §8 — SOLO INE de KYC) ----
 // v1.2: el único propósito válido es `kyc_ine` (imagen del INE del buylist).
@@ -3592,6 +3606,14 @@ export interface AdminUserSummaryDTO {
   role: Role;
   status: AdminUserStatus;
   createdAt: string;
+  /**
+   * MOCK: pendiente de contrato — **petición A5** (`DESIGN_SYSTEM §34.15`): `kycStatus` en
+   * `AdminUserSummaryDTO` y filtro `GET /admin/users?kycStatus=`. Sin esto **nadie se entera de
+   * que hay una INE esperando** salvo que abra la ficha por otro motivo (§34.10). Se declara
+   * OPCIONAL a propósito: con backend real que aún no lo emita, la columna pinta «—» y el filtro
+   * no miente — no se deriva de ningún otro campo.
+   */
+  kycStatus?: KycStatus;
 }
 
 // POST /admin/users/:id/reset-password → contraseña temporal UNA sola vez (v1.3.1).
@@ -3613,9 +3635,45 @@ export interface AdminKycProfileDTO {
   clabeMasked?: string;
   rfcMasked?: string;
   ineOnFile: boolean;
-  capPerRequestCents?: number;
+  /** ⭐ v1.69 (§M6-K.4): presente SOLO si `kycStatus === 'rejected'`. El motivo que lee el cliente. */
+  rejectionReason?: string;
+  /** ⭐ v1.69: sello de la decisión (también del rechazo). */
+  reviewedAt?: string;
+  /** ⭐ v1.69: id del actor. ⛔ NO SE PINTA (es un id; §34.2 regla 8 · la bitácora contesta «quién»). */
+  reviewedBy?: string;
+  verifiedAt?: string;
+  /** ⛔ id: no se pinta (ídem `reviewedBy`). */
+  verifiedBy?: string;
   capPerMonthCents?: number;
-  monthUsedCents?: number;
+}
+// ⛔ v1.59 (D47): `capPerRequestCents` se retiró de los DOS DTOs de admin (override inerte).
+// ⛔ v1.69 (§M6-K.8): `ineFrontKey`/`ineBackKey` NUNCA salen del servidor — el presigned GET lo
+// resuelve `GET /admin/users/:id/kyc/ine-links` desde el `:id`.
+
+/**
+ * ⭐ v1.69 (§M6-K.3) — ref de envío para el cotejo identidad ↔ destino. LISTA BLANCA sobre
+ * `ShipmentRequest.addressSnapshot`: ⛔ el snapshot entero NO viaja (calle, interior, teléfono y
+ * CP no aportan a «¿a nombre de quién salen sus paquetes?»). `recipientName: null` = envío
+ * anterior a M-52; ⛔ NO se deriva de `User.name` (sería inventar el dato que el cotejo comprueba).
+ */
+export interface AdminShipmentRecipientRef {
+  shipmentId: string;
+  recipientName: string | null;
+  city: string;
+  state: string;
+  createdAt: string;
+}
+
+/**
+ * ⭐ v1.69 (§M6-K.2) — respuesta de `GET /admin/users/:id/kyc/ine-links` (super_admin).
+ * ⛔ NUNCA lleva object keys. Las URLs son **credenciales portadoras** de vida corta (120 s, el
+ * servidor clampa a ≤ 300): no se cachean, no se persisten, no se ponen en el `href` de un enlace.
+ */
+export interface AdminIneLinksDTO {
+  userId: string;
+  front: { url: string; expiresAt: string };
+  back: { url: string; expiresAt: string };
+  expiresInSeconds: number;
 }
 
 export interface AdminBillingProfileDTO {
@@ -3661,6 +3719,15 @@ export interface AdminUserOwnedItemRef {
 export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
   locale?: Locale;
   authProvider?: AuthProvider;
+  phone?: string;
+  /**
+   * ⭐ v1.69 (§M6-K.3): de dónde salió `name`. Va en los DOS DTOs (también el de operador).
+   * Con `'derived'` el nombre lo FABRICÓ el sistema con el correo (P-73) y **no sirve para
+   * cotejar** contra una INE: la pantalla de revisión lo dice con un aviso duro.
+   */
+  nameSource?: NameSource;
+  /** ⭐ v1.69 (§M6-K.3): últimos 5 destinatarios de sus envíos. SOLO `super_admin`. */
+  recentShipmentRecipients?: AdminShipmentRecipientRef[];
   kycProfile?: AdminKycProfileDTO | null;
   billingProfile?: AdminBillingProfileDTO | null;
   addresses?: AddressDTO[];

@@ -11,6 +11,18 @@ vi.mock('@/lib/role', () => ({
   useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
 }));
 
+// P-78: la ficha estrena el enlace a la pantalla de revisión (`Link` de next-intl), que en jsdom
+// no resuelve `next/navigation`. Mismo mock que el resto de la suite.
+vi.mock('@/i18n/navigation', () => ({
+  usePathname: () => '/admin/m6',
+  useRouter: () => ({ push: vi.fn() }),
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -40,47 +52,102 @@ describe('M6View · Usuarios / KYC', () => {
     expect(await screen.findByText('****1234')).toBeInTheDocument();
   });
 
-  it('el form de KYC refleja el usuario cargado y no arrastra estado al cambiar de usuario', async () => {
+  /**
+   * ⭐ **P-78 · candado KY-9 (DESIGN_SYSTEM §34.10.3, regla 1).** La ficha 360° **no puede tener
+   * ningún control que fije `kycStatus`**. Antes tenía un `Select` con las cuatro opciones +
+   * «Guardar KYC», o sea **un camino de dos clics para marcar `verified` sin haber visto un
+   * documento** — y mientras ese camino exista, la pantalla de revisión es decorativa.
+   *
+   * Se comprueba por AUSENCIA y por PRESENCIA: ni selector de estado, ni la opción «Verificada»
+   * en ningún combo de la ficha; y sí la puerta única, «Revisar identidad», apuntando a su ruta.
+   */
+  it('la ficha 360° NO tiene ningún control que fije el estado KYC, y sí el paso a la revisión', async () => {
     renderWithProviders(<M6View />, 'es');
     const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
-
-    // Ana (u-777) está 'verified': el Select debe reflejarlo tras cargar el detalle.
     fireEvent.click(viewButtons[0]);
-    await screen.findByRole('dialog', { name: /Ficha 360/ });
-    const statusSelect = () => screen.getByLabelText('Estado KYC') as HTMLSelectElement;
-    await waitFor(() => expect(statusSelect().value).toBe('verified'));
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    // La única puerta a la decisión de identidad, y lleva a la pantalla que enseña el documento.
+    const review = await within(dialog).findByRole('button', { name: 'Revisar identidad' });
 
-    // El admin teclea un borrador de tope para Ana pero NO guarda.
-    fireEvent.change(screen.getByLabelText('Tope por solicitud'), { target: { value: '4500' } });
-    expect((screen.getByLabelText('Tope por solicitud') as HTMLInputElement).value).toBe('4500');
+    expect(within(dialog).queryByLabelText('Estado KYC')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('option', { name: 'Verificado' })).not.toBeInTheDocument();
 
-    // Abre Bruno (u-778, 'none'): el form debe reflejar a Bruno, sin arrastrar el borrador de Ana.
-    fireEvent.click(viewButtons[1]);
-    await waitFor(() => expect(statusSelect().value).toBe('none'));
-    expect((screen.getByLabelText('Tope por solicitud') as HTMLInputElement).value).toBe('');
+    expect(review).toBeEnabled();
+    expect(review.closest('a')).toHaveAttribute('href', '/admin/m6/kyc/u-777');
   });
 
-  it('guardar sin tocar el estado NO degrada el kycStatus cargado', async () => {
+  it('sin INE en el expediente, «Revisar identidad» se apaga CON el motivo a la vista', async () => {
+    renderWithProviders(<M6View />, 'es');
+    const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
+    // Bruno (u-778) no tiene INE en archivo en el fixture.
+    fireEvent.click(viewButtons[1]);
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { name: 'Revisar identidad' })).toBeDisabled(),
+    );
+    // Un botón apagado sin motivo visible es otro callejón (§27.1.4).
+    expect(within(dialog).getByText('Sin INE en el expediente.')).toBeInTheDocument();
+  });
+
+  it('guardar el tope mensual NO degrada el kycStatus cargado', async () => {
     const spy = vi.spyOn(api, 'updateUserKyc');
     renderWithProviders(<M6View />, 'es');
     const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
 
-    // Abre Ana (verified) y ajusta SOLO un tope, sin tocar el estado KYC.
+    // Abre Ana (verified) y ajusta el tope mensual, que es lo único editable aquí.
     fireEvent.click(viewButtons[0]);
     await screen.findByRole('dialog', { name: /Ficha 360/ });
-    await waitFor(() =>
-      expect((screen.getByLabelText('Estado KYC') as HTMLSelectElement).value).toBe('verified'),
-    );
-    fireEvent.change(screen.getByLabelText('Tope por solicitud'), { target: { value: '4500' } });
+    fireEvent.change(await screen.findByLabelText('Tope mensual'), { target: { value: '4500' } });
     fireEvent.click(screen.getByRole('button', { name: 'Guardar KYC' }));
 
-    // El payload debe conservar el kycStatus del servidor ('verified'), nunca 'none'.
+    // El payload conserva el kycStatus del servidor ('verified'), nunca 'none'.
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith('u-777', {
       kycStatus: 'verified',
-      capPerRequestCents: 450000,
-      capPerMonthCents: undefined,
+      capPerMonthCents: 450000,
     });
+  });
+
+  /**
+   * §34.10.1-2 · la COLA de revisión. Sin la columna y el filtro, nadie se entera de que hay una
+   * INE esperando salvo que abra la ficha por otro motivo.
+   * ⚠️ MOCK: `kycStatus` en el listado es la petición **A5** al arquitecto; el mock lo sirve.
+   */
+  it('el listado pinta el estado de identidad y el filtro deja llegar a la cola', async () => {
+    renderWithProviders(<M6View />, 'es');
+    await screen.findAllByText('Ana López');
+    expect(screen.getByRole('columnheader', { name: 'Identidad' })).toBeInTheDocument();
+    // u-780 espera revisión: es EL caso que motiva la columna.
+    expect((await screen.findAllByText('KYC pendiente')).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText('Identidad'), { target: { value: 'pending' } });
+    await waitFor(() => expect(screen.queryByText('Ana López')).not.toBeInTheDocument());
+    expect((await screen.findAllByText('jcsainz95')).length).toBeGreaterThan(0);
+  });
+
+  /** §34.10.4 · la bitácora contesta «¿quién ha mirado la identidad de esta persona?». */
+  it('la pestaña Actividad rotula los dos eventos de identidad (y deja crudo el resto)', async () => {
+    vi.spyOn(api, 'getAdminUserAudit').mockResolvedValue({
+      data: [
+        { id: 'a1', action: 'user.kyc.reveal_ine', actorRole: 'super_admin', createdAt: '2026-09-10T10:00:00Z' },
+        { id: 'a2', action: 'user.kyc.update', actorRole: 'super_admin', createdAt: '2026-09-10T10:01:00Z' },
+        { id: 'a3', action: 'user.status.update', actorRole: 'super_admin', createdAt: '2026-09-10T10:02:00Z' },
+      ],
+      page: 1,
+      pageSize: 10,
+      total: 3,
+    } as Awaited<ReturnType<typeof api.getAdminUserAudit>>);
+    renderWithProviders(<M6View />, 'es');
+    const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
+    fireEvent.click(viewButtons[0]);
+    await screen.findByRole('dialog', { name: /Ficha 360/ });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Actividad' }));
+
+    expect((await screen.findAllByText('Miró la INE')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Decidió sobre la identidad').length).toBeGreaterThan(0);
+    // El resto sigue crudo: no se inventa un diccionario entero (§34.10.4).
+    expect(screen.getAllByText('user.status.update').length).toBeGreaterThan(0);
   });
 
   // ---- Reset de contraseña (v1.3.1): temp password una sola vez ----

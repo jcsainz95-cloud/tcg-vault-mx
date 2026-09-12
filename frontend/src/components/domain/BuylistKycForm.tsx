@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest, updateMe } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { RawCondition, Finish } from '@/types/contract';
+import type { RawCondition, Finish, KycStatus } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useSession } from '@/lib/session';
@@ -65,6 +65,14 @@ export interface BuylistKycFormProps {
    */
   ineOnFile?: boolean;
   /**
+   * ⭐ P-78 (§34.8 regla 4): estado y motivo del KYC. **Pedirle otra vez la INE sin decirle por qué
+   * falló la anterior es pedirle que adivine**, así que el rechazo también se ve aquí, encima de
+   * los uploaders. ⛔ El estado NO bloquea nada (invariante §M6-K.1.6): el único freno es la falta
+   * de imagen.
+   */
+  kycStatus?: KycStatus;
+  rejectionReason?: string;
+  /**
    * Mínimo de compra vigente (`GET /buylist/quote-policy`), heredado del cotizador: NO se vuelve a
    * pedir aquí. `undefined` = no se conoce (fail-open) ⇒ no se pinta faltante y el botón NO se
    * apaga por este eje; la puerta es el `422 BUYLIST_MINIMUM_NOT_MET` del servidor.
@@ -101,6 +109,8 @@ export function BuylistKycForm({
   clabeMasked,
   clabeOnFile,
   ineOnFile,
+  kycStatus,
+  rejectionReason,
   minimumRequestCents,
   totalEstimatedCents = 0,
 }: BuylistKycFormProps) {
@@ -488,6 +498,18 @@ export function BuylistKycForm({
           <>
             <p className="text-sm text-muted">{t('ineSectionNote')}</p>
             {ineRequired && <Banner variant="warning" role="alert">{t('ineRequiredError')}</Banner>}
+            {/* El rechazo, donde duele: si le volvemos a pedir la INE, tiene que leer POR QUÉ
+                falló la anterior — con el motivo textual del revisor, entre comillas (§34.8.4). */}
+            {kycStatus === 'rejected' && rejectionReason && (
+              <Banner variant="warning" role="status" title={t('ineRejectedTitle')}>
+                <span className="flex flex-col gap-1">
+                  <span>
+                    <span className="font-medium">{t('ineRejectedReason')}:</span> «{rejectionReason}»
+                  </span>
+                  <span>{t('ineRejectedBody')}</span>
+                </span>
+              </Banner>
+            )}
             <div className="flex flex-wrap gap-4">
               <PhotoUploader
                 label={tine('front')}

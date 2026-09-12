@@ -628,7 +628,7 @@ jobs:
           # `redis` — los tres que sí arrancaron. Primero el que falló, y solo él.
           ./scripts/diagnose-stack-failure.sh "$COMPOSE" backend
           echo "--- resto de servicios (contexto) ---"
-          docker compose -f "$COMPOSE" logs --no-color --tail=300 postgres redis minio createbuckets frontend || true
+          docker compose -f "$COMPOSE" logs --no-color --tail=300 postgres redis s3 frontend || true
 
       - name: Apagar stack
         if: always()

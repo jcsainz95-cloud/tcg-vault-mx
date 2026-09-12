@@ -27,9 +27,6 @@ const BASE_KYC: KycInfoDTO = {
   clabeMasked: undefined,
   clabeOnFile: false,
   ineOnFile: false,
-  capPerRequestCents: 300000,
-  capPerMonthCents: 1000000,
-  monthUsedCents: 0,
 };
 
 /** Sesión de cliente verificada (requisito para VENDER; el cotizador es público). */
@@ -924,19 +921,20 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     expect(screen.queryByLabelText(/CLABE \(18 dígitos/)).not.toBeInTheDocument();
   });
 
-  it('estimado sobre el tope sin INE: avisa ANTES de enviar y el modal pide el INE de entrada', async () => {
-    // Tope por solicitud ínfimo → cualquier estimado lo supera (heads-up de INE_REQUIRED).
-    asVerifiedCustomer({}, { capPerRequestCents: 1 });
+  it('el SERVIDOR dice que hace falta INE: avisa ANTES de enviar y el modal la pide de entrada', async () => {
+    // ⭐ v1.69 (§M6-K.5): ya no hay tope que comparar en el navegador — el servidor contesta
+    // `ineRequiredForTotal` y el front solo lo obedece (`useSellRequirements`).
+    asVerifiedCustomer({}, { ineRequiredForTotal: true });
     renderWithProviders(<BuylistView />, 'es');
     await addCard('Charizard');
     openCart();
 
-    expect(await screen.findByText(/supera el tope .*se pedirá tu INE/)).toBeInTheDocument();
+    expect(await screen.findByText(/supera nuestro límite: se pedirá tu INE/)).toBeInTheDocument();
 
     // Al abrir el modal, la petición de INE ya está visible (no espera al 422).
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     expect(
-      await screen.findByText('Esta solicitud supera el tope: sube tu INE (anverso y reverso) para continuar.'),
+      await screen.findByText('Esta venta supera nuestro límite: sube tu INE (frente y reverso) para continuar.'),
     ).toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@ import {
   Finish,
   KycStatus,
   Locale,
+  NameSource,
   MarketBracket,
   OrderStatus,
   PriceConvention,
@@ -21,7 +22,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, MONEY_REF_WHERE, isBetterRef } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
-import { UploadsService } from '../uploads/uploads.service';
+import { IneViewUrlTtl, UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
@@ -57,16 +58,53 @@ const ADMIN_KYC_SELECT = {
   id: true,
   userId: true,
   kycStatus: true,
-  capPerRequestCentsOverride: true,
+  // ⛔ v1.59 (D47, §M5-D.3 · §11) — `capPerRequestCentsOverride` **NO se lee ni se emite**. El
+  // contrato lo retiró de los DOS DTOs de admin hace cuatro revisiones y el código seguía
+  // publicándolo: el override por-solicitud quedó INERTE (columna conservada, cero lectores). Lo
+  // levanta el candado de CONJUNTO DE CLAVES de `admin.user-detail-shape.spec.ts`, que es
+  // justamente la clase de defecto que un candado de valores no ve.
   capPerMonthCentsOverride: true,
   verifiedBy: true,
   verifiedAt: true,
   createdAt: true,
   updatedAt: true,
+  // ⭐ v1.69 (P-78, M-54 · §M6-K.4, §11 `AdminKycProfileDTO`): la DECISIÓN. `rejectionReason` es la
+  // decisión de negocio de un admin sobre un documento —NO es PII del cliente— y el contrato la
+  // publica al `super_admin` (y al propio cliente, por otra ruta). `reviewedAt`/`reviewedBy` sellan
+  // quién decidió y cuándo. ⛔ Al OPERADOR no le llega ninguna de las tres (ver `getUser`).
+  rejectionReason: true,
+  reviewedAt: true,
+  reviewedBy: true,
   // SOLO para `ineOnFile`; no se exponen (ver toAdminKycDTO).
   ineFrontKey: true,
   ineBackKey: true,
 } satisfies Prisma.KycProfileSelect;
+
+/**
+ * ⭐ v1.69 (P-78, §M6-K.4/K.7) — **`rejectionReason` sale SI Y SOLO SI el estado es `rejected`.**
+ *
+ * Una sola función porque hay **dos** proyectores de KYC hacia el `super_admin` (`toAdminKycDTO`
+ * para el `PATCH`, y la rama de `getUser` que proyectaba por SPREAD DE RESTO) y ésta es justo la
+ * cuando se copia: el contrato dice *«⛔ ausente en cualquier otro estado — no se deja `null`
+ * clase de regla que diverge al copiarse: un SPREAD DE RESTO sobre la fila cruda publica el residual **por
+ * omisión**. (La columna **conserva** el motivo viejo a propósito: es evidencia de la decisión
+ * anterior en la bitácora y en la BD; lo que no se hace es **enseñarlo** junto a un estado que ya no
+ * es `rejected`.)
+ */
+function kycDecisionFields(k: {
+  kycStatus: KycStatus;
+  rejectionReason: string | null;
+  reviewedAt: Date | null;
+  reviewedBy: string | null;
+}) {
+  return {
+    ...(k.kycStatus === KycStatus.rejected && k.rejectionReason
+      ? { rejectionReason: k.rejectionReason }
+      : {}),
+    reviewedAt: k.reviewedAt,
+    reviewedBy: k.reviewedBy,
+  };
+}
 
 /**
  * v2.1.9 (S49-M1-R) — **las RELACIONES de la ficha 360°, proyectadas una por una.**
@@ -86,10 +124,11 @@ const ADMIN_KYC_SELECT = {
  * Todas las proyecciones de abajo son **listas blancas** y espejan los refs que el contrato §M6 ya
  * declara (`AdminUserSellRequestRef`, `AdminUserDisputeRef`, `OrderSummaryDTO`, `AddressDTO`).
  */
-function toAdminUserHeader(u: {
+interface AdminUserRow {
   id: string;
   email: string;
   name: string;
+  nameSource: NameSource;
   role: Role;
   status: UserStatus;
   locale: Locale;
@@ -99,26 +138,54 @@ function toAdminUserHeader(u: {
   avatarUrl: string | null;
   mustChangePassword: boolean;
   deletedAt: Date | null;
+  anonymizedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-}) {
+}
+
+function toAdminUserHeader(u: AdminUserRow) {
   return {
     id: u.id,
     email: u.email,
     name: u.name,
+    // ⭐ v1.69 (P-78, §M6-K.3, BK-5) — **el campo que hace LEGIBLE el cotejo contra la INE**, y va a
+    // los DOS DTOs (super_admin y vault_operator). Sin él, un nombre FABRICADO del correo (P-73,
+    // `nameSource='derived'`) parece un nombre: el revisor compara «Jcsainz95» contra un INE que
+    // dice otra cosa y concluye que no coinciden. Con él sabe que el nombre a cotejar es el
+    // `recipientName` de la dirección, no el del perfil. ⛔ No es PII nueva para el operador (ya ve
+    // `name`) y es justo lo que le evita imprimir una etiqueta a nombre de un correo.
+    nameSource: u.nameSource,
     role: u.role,
     status: u.status,
     locale: u.locale,
     emailVerified: u.emailVerified,
-    authProvider: u.authProvider,
     phone: u.phone,
-    avatarUrl: u.avatarUrl,
-    mustChangePassword: u.mustChangePassword,
     deletedAt: u.deletedAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
-    // FUERA por construcción: `passwordHash`, `tokenVersion` (revocación de sesiones), `googleId`,
-    // `anonymizedAt`. Ninguno tiene por qué viajar en una ficha de back-office.
+    // FUERA por construcción: `passwordHash`, `tokenVersion` (revocación de sesiones) y `googleId`
+    // — ninguno tiene por qué viajar en una ficha de back-office, y **ya no se leen de la BD**
+    // (`ADMIN_USER_DETAIL_SELECT`).
+  };
+}
+
+/**
+ * ⭐ `R-1` — la cabecera del `super_admin` = la del operador **+ cuatro claves enumeradas**
+ * (`AdminUserDetailDTO`, §11). Es un SUPERSET EXPLÍCITO, no un «lo mismo sin recortar»: la
+ * diferencia entre los dos roles **es parte de la forma** (§11: «dos DTOs, no uno con opcionales»),
+ * y escribirla aquí es lo que hace que el candado de conjunto de claves pueda ponerse rojo.
+ *
+ * `anonymizedAt` **entra** (solo aquí): el contrato lo pide desde v2.1.9 —«en la ficha 360° la
+ * pregunta *¿esta cuenta está anonimizada?* es legítima»— y el código lo excluía por herencia de
+ * `PATCH /status`, donde sí era ruido.
+ */
+function toAdminUserHeaderSuper(u: AdminUserRow) {
+  return {
+    ...toAdminUserHeader(u),
+    authProvider: u.authProvider,
+    avatarUrl: u.avatarUrl,
+    mustChangePassword: u.mustChangePassword,
+    anonymizedAt: u.anonymizedAt,
   };
 }
 
@@ -130,6 +197,138 @@ function toAdminUserSellRequestRef(r: {
   createdAt: Date;
 }) {
   return { id: r.id, status: r.status, quotedTotalCents: r.quotedTotalCents, createdAt: r.createdAt };
+}
+
+/**
+ * ⭐⭐ **`R-1` (techlead, 2026-09-12) — LOS PROYECTORES DE LA FICHA 360°: UNO POR DTO, Y NINGUNO POR
+ * RESTA.**
+ *
+ * ### Por qué esta puerta filtró TRES veces por el mismo motivo
+ * `getUser` derivaba `AdminKycProfileDTO` **por sustracción**: siete exclusiones a mano y un SPREAD DE RESTO
+ * sobre la fila CRUDA del `include`. Una lista NEGRA protege de lo que su autor recordó, así que
+ * **cada columna nueva del schema se publicaba sola**: `clabeSnapshotEnc` (S49-M1-R), `legalName`
+ * (D51) y las **object keys del INE** (P-78, cazada llamando al endpoint). La columna número ocho
+ * habría salido igual.
+ *
+ * ### Las tres cosas que cambian, y ninguna es cosmética
+ * 1. **La lista blanca vive en el `select` de la CONSULTA** (`ADMIN_USER_DETAIL_SELECT`): lo que no
+ *    está enumerado **ni se lee de la base**. Es la única forma de que una columna nueva no pueda
+ *    publicarse por omisión — un filtro en memoria depende de que alguien se acuerde.
+ * 2. **Un proyector por DTO.** `toAdminKycDTO` (que ya existía, y que **solo** usaba el `PATCH`) pasa
+ *    a ser la fuente ÚNICA del KYC de admin; la ficha añade encima los dos enmascarados. Dos
+ *    proyectores para un DTO es lo que el contrato ya prohibió por escrito: *«una relación que se
+ *    proyecta dos veces se filtra por la copia que su autor no revisó»*.
+ * 3. **El operador y el `super_admin` son DOS DTOs**, no uno con opcionales (§11): cada uno tiene su
+ *    proyector y su lista, y lo que no está en la lista **no existe** en esa respuesta.
+ */
+function toAdminKycDetailDTO(
+  k: Parameters<typeof toAdminKycDTO>[0],
+  masked: { clabeMasked: string | undefined; rfcMasked: string | undefined },
+) {
+  // `AdminKycProfileDTO` (§11) = lo que emite el `PATCH` + los dos enmascarados de la ficha.
+  // ⛔ Nada de SPREAD DE RESTO: si el schema gana una columna, esta función devuelve lo mismo.
+  return { ...toAdminKycDTO(k), clabeMasked: masked.clabeMasked, rfcMasked: masked.rfcMasked };
+}
+
+/**
+ * `AdminKycProfileOperatorDTO` (§11) — **siete claves, y las siete están enumeradas.**
+ * SEC-A4: el `vault_operator` es el rol de menor confianza. ⛔ Sin RFC, sin motivo de rechazo (no
+ * decide el KYC y el material de la revisión le está vedado, §M6-K), sin sello de decisión y sin una
+ * sola object key.
+ */
+function toAdminKycOperatorDTO(
+  k: {
+    id: string;
+    userId: string;
+    kycStatus: KycStatus;
+    capPerMonthCentsOverride: number | null;
+    verifiedAt: Date | null;
+    ineFrontKey: string | null;
+    ineBackKey: string | null;
+  },
+  clabeMasked: string | undefined,
+) {
+  return {
+    id: k.id,
+    userId: k.userId,
+    kycStatus: k.kycStatus,
+    clabeMasked,
+    ineOnFile: Boolean(k.ineFrontKey && k.ineBackKey),
+    capPerMonthCents: k.capPerMonthCentsOverride,
+    verifiedAt: k.verifiedAt,
+  };
+}
+
+/**
+ * `AdminBillingProfileDTO` (§11) — **diez claves enumeradas.**
+ * Antes era un SPREAD DE RESTO quitando solo `rfcEnc`: **lista negra pura**, que cuadraba con el contrato
+ * **por coincidencia** (la tabla tiene justo esas columnas). La misma trampa que el KYC, un release
+ * antes de saltar. ⛔ `rfcEnc` no se lee de la BD; solo se descifra para enmascararlo.
+ */
+function toAdminBillingDTO(
+  b: {
+    id: string;
+    userId: string;
+    razonSocial: string;
+    regimenFiscal: string;
+    usoCfdi: string;
+    postalCode: string;
+    email: string;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  rfcMasked: string | undefined,
+) {
+  return {
+    id: b.id,
+    userId: b.userId,
+    rfcMasked,
+    razonSocial: b.razonSocial,
+    regimenFiscal: b.regimenFiscal,
+    usoCfdi: b.usoCfdi,
+    postalCode: b.postalCode,
+    email: b.email,
+    createdAt: b.createdAt,
+    updatedAt: b.updatedAt,
+  };
+}
+
+/**
+ * ⭐ v1.69 (P-78, §M6-K.3, §11 `AdminShipmentRecipientRef`) — **«¿a nombre de quién han salido sus
+ * paquetes?»**, que es la única pregunta que este ref existe para contestar (cotejo identidad ↔
+ * destino, decisión (d) del dueño).
+ *
+ * **LISTA BLANCA ESTRICTA sobre `ShipmentRequest.addressSnapshot` (Json).** ⛔ El snapshot ENTERO no
+ * viaja: lleva `line1`, `line2`, `phone` y el CP. El cotejo necesita **a quién** y **a qué ciudad**;
+ * la calle exacta es PII que no aporta a esa pregunta. Misma doctrina que `AdminUserSellRequestRef`:
+ * **un ref, no la fila**.
+ *
+ * ⛔ `recipientName: null` (envío anterior a M-52, sin destinatario capturado) **se emite `null` y NO
+ * se deriva de `User.name`**: derivarlo sería inventar exactamente el dato que el cotejo intenta
+ * comprobar.
+ *
+ * El `Json` de Prisma es `unknown` en la práctica: se lee **campo por campo y con tipo comprobado**,
+ * nunca con un cast del objeto entero — un cast haría que cualquier clave futura del snapshot (o una
+ * fila vieja con otra forma) entrara al DTO sin que nadie lo decidiera.
+ */
+function toAdminShipmentRecipientRef(s: {
+  id: string;
+  addressSnapshot: Prisma.JsonValue;
+  requestedAt: Date;
+}) {
+  const snap: Record<string, unknown> =
+    s.addressSnapshot !== null && typeof s.addressSnapshot === 'object' && !Array.isArray(s.addressSnapshot)
+      ? (s.addressSnapshot as Record<string, unknown>)
+      : {};
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return {
+    shipmentId: s.id,
+    recipientName: typeof snap.recipientName === 'string' ? snap.recipientName : null,
+    city: str(snap.city),
+    state: str(snap.state),
+    // La clave es la del contrato (`createdAt`); el hecho es el alta del envío (`requestedAt`).
+    createdAt: s.requestedAt,
+  };
 }
 
 /** `AdminUserDisputeRef` (§M6). Sin `resolution`/`resolvedBy` (detalle operativo del caso). */
@@ -173,10 +372,12 @@ function toAdminKycDTO(k: {
   id: string;
   userId: string;
   kycStatus: KycStatus;
-  capPerRequestCentsOverride: number | null;
   capPerMonthCentsOverride: number | null;
   verifiedBy: string | null;
   verifiedAt: Date | null;
+  rejectionReason: string | null;
+  reviewedAt: Date | null;
+  reviewedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
   ineFrontKey: string | null;
@@ -186,10 +387,11 @@ function toAdminKycDTO(k: {
     id: k.id,
     userId: k.userId,
     kycStatus: k.kycStatus,
-    capPerRequestCents: k.capPerRequestCentsOverride,
     capPerMonthCents: k.capPerMonthCentsOverride,
     verifiedBy: k.verifiedBy,
     verifiedAt: k.verifiedAt,
+    // ⭐ v1.69 (P-78): el motivo solo acompaña a `rejected` (ver `kycDecisionFields`).
+    ...kycDecisionFields(k),
     createdAt: k.createdAt,
     updatedAt: k.updatedAt,
     // El INE se reduce a un booleano: al back-office le basta saber SI está en archivo; la imagen
@@ -263,6 +465,133 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   }
   return { ...(gte ? { gte } : {}), ...(lte ? { lte } : {}) };
 }
+
+/**
+ * ⭐⭐ **`R-1` (techlead) — LA LISTA BLANCA DE LA FICHA 360°, EN EL `select` DE LA CONSULTA.**
+ *
+ * **Lo que no está enumerado aquí NI SIQUIERA SE LEE DE LA BASE.** Es la diferencia entre «filtrar»
+ * y «no tener»: un filtro en memoria (la lista negra + el spread de resto que había) protege de las columnas
+ * que su autor recordó; este `select` protege de las que **todavía no existen**. Tres fugas por esa
+ * misma puerta —`clabeSnapshotEnc` (S49-M1-R), `legalName` (D51) y las object keys del INE (P-78)—
+ * y las tres eran **la misma**: lo que se proyecta por resto se publica por omisión.
+ *
+ * ⛔ FUERA por construcción, y ahora de verdad: `passwordHash`, `tokenVersion` (contador de
+ * revocación de sesión), `googleId`, `clabeHmac` (**blind index**: clave de CORRELACIÓN entre
+ * cuentas, jamás sale) y `legalName` (campo muerto, §M5-K.5a).
+ *
+ * ⚠️ `clabeEnc`/`rfcEnc` **sí se leen** —y **solo** para descifrarlos y devolverlos ENMASCARADOS—;
+ * las object keys del INE **sí se leen** y **solo** para derivar `ineOnFile: boolean`. Los tres
+ * salen del DTO por sus proyectores, que son listas blancas explícitas. *Leer no es publicar; lo
+ * que estaba roto era publicar por omisión.*
+ */
+const ADMIN_USER_DETAIL_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  nameSource: true,
+  role: true,
+  status: true,
+  locale: true,
+  emailVerified: true,
+  authProvider: true,
+  phone: true,
+  avatarUrl: true,
+  mustChangePassword: true,
+  deletedAt: true,
+  anonymizedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  kycProfile: {
+    select: {
+      ...ADMIN_KYC_SELECT,
+      // Solo para ENMASCARAR (nunca viajan): `maskClabe`/`maskRfc` sobre el descifrado.
+      clabeEnc: true,
+      rfcEnc: true,
+    },
+  },
+  billingProfile: {
+    select: {
+      id: true,
+      userId: true,
+      // Solo para `rfcMasked`. ⛔ El blob cifrado no sale nunca.
+      rfcEnc: true,
+      razonSocial: true,
+      regimenFiscal: true,
+      usoCfdi: true,
+      postalCode: true,
+      email: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  // Las 11 columnas de `AddressDTO` (§11) — las MISMAS que `/users/me/addresses`.
+  addresses: {
+    select: {
+      id: true,
+      recipientName: true,
+      line1: true,
+      line2: true,
+      neighborhood: true,
+      city: true,
+      state: true,
+      postalCode: true,
+      country: true,
+      phone: true,
+      isDefault: true,
+    },
+  },
+  orders: {
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    // ⛔ Sin `billingSnapshot` (lleva `rfcEnc`) ni ids de Stripe.
+    select: {
+      id: true,
+      userId: true,
+      orderNumber: true,
+      status: true,
+      totalCents: true,
+      createdAt: true,
+      settledAt: true,
+    },
+  },
+  sellRequests: {
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    // ⛔ Sin `clabeSnapshotEnc` — el fallo exacto de S49-M1-R, ahora imposible desde la BD.
+    select: { id: true, status: true, quotedTotalCents: true, createdAt: true },
+  },
+  disputes: {
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    select: { id: true, status: true, type: true, createdAt: true },
+  },
+  ownedItems: {
+    select: {
+      id: true,
+      folio: true,
+      cardId: true,
+      productType: true,
+      finish: true,
+      rawCondition: true,
+      gradingCompany: true,
+      gradeValue: true,
+      ownershipStatus: true,
+      card: { include: { set: true } },
+    },
+  },
+  // ⭐ v1.69 (P-78, §M6-K.3, BK-5): los ÚLTIMOS 5 envíos, SOLO para el cotejo identidad ↔ destino.
+  // De `ShipmentRequest` salen TRES columnas, y de `addressSnapshot` solo tres claves
+  // (`toAdminShipmentRecipientRef`). Se proyecta **solo en la rama `super_admin`**.
+  // ⚠️ El contrato (§11 `AdminShipmentRecipientRef`) dice «`ShipmentRequest.createdAt desc`» y **esa
+  // columna no existe**: la tabla sella su alta en `requestedAt` (`@default(now())`). Se ordena y se
+  // emite por `requestedAt` —el mismo hecho, con el nombre que tiene el schema— bajo la clave
+  // `createdAt` que el DTO declara. ⛔ Sin migración. Anotado para el arquitecto.
+  shipmentRequests: {
+    orderBy: { requestedAt: 'desc' },
+    take: 5,
+    select: { id: true, addressSnapshot: true, requestedAt: true },
+  },
+} satisfies Prisma.UserSelect;
 
 @Injectable()
 export class AdminService {
@@ -442,102 +771,61 @@ export class AdminService {
    * INE keys (para servir la imagen por presigned GET) + billingProfile con RFC enmascarado.
    */
   async getUser(id: string, role?: Role) {
+    // ⭐⭐ `R-1` — **`select`, NO `include`.** Lo que no está enumerado aquí **no se lee de la base**:
+    // ni `passwordHash`, ni `tokenVersion`, ni `googleId`, ni `clabeHmac`, ni `legalName`, ni la
+    // columna que el schema gane mañana. *Un filtro en memoria protege de lo que su autor recordó;
+    // un `select` protege de lo que todavía no existe.*
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: {
-        kycProfile: true,
-        billingProfile: true,
-        addresses: true,
-        orders: { orderBy: { createdAt: 'desc' }, take: 20 },
-        sellRequests: { orderBy: { createdAt: 'desc' }, take: 20 },
-        disputes: { orderBy: { createdAt: 'desc' }, take: 20 },
-        ownedItems: { include: { card: { include: { set: true } } } },
-      },
+      select: ADMIN_USER_DETAIL_SELECT,
     });
     if (!user) throw BusinessException.notFound();
-    // v2.1.9 (S49-M1-R): antes esto era `const { passwordHash, ownedItems, ...safe } = user` — una
-    // lista NEGRA que quitaba dos campos conocidos y dejaba pasar TODO lo demás, incluidas las
-    // RELACIONES del `include` como filas enteras. `sellRequests` arrastraba `clabeSnapshotEnc` (el
-    // blob AES-256-GCM de la CLABE) a un endpoint que el `vault_operator` puede leer. Ahora cada
-    // pieza pasa por su propia lista BLANCA (ver los proyectores del encabezado de este archivo).
-    const safe = {
-      ...toAdminUserHeader(user),
+
+    // Las relaciones ya vienen acotadas por el `select`, y cada una pasa además por SU proyector
+    // (los del encabezado de este fichero). ⛔ Ni un SPREAD DE RESTO en esta función.
+    const comunes = {
       // v1.67.1 (F2-2, D-CTA-8, contrato §M6): LA MISMA proyección que `/users/me/addresses` —
       // `AddressDTO` completa, con `recipientName`. Prohibida una segunda copia de la lista blanca.
       addresses: user.addresses.map(toAddressDTO),
       orders: user.orders.map(toAdminUserOrderRef),
       sellRequests: user.sellRequests.map(toAdminUserSellRequestRef),
       disputes: user.disputes.map(toAdminUserDisputeRef),
-      kycProfile: user.kycProfile,
-      billingProfile: user.billingProfile,
+      // Conforma la bóveda al contrato §M6 `AdminUserOwnedItemRef` (v1.8-ronda-c / BE-10):
+      // { inventoryItemId, folio, card, productType, finish, ownershipStatus, referenceValue }.
+      ownedItems: await this.ownedItemRefs(user.ownedItems),
     };
-    const _ownedRaw = user.ownedItems;
-    // Conforma la bóveda al contrato §M6 `AdminUserOwnedItemRef` (v1.8-ronda-c / BE-10):
-    // { inventoryItemId, folio, card: CardDTO, productType, finish, ownershipStatus, referenceValue }.
-    // `referenceValue` reusa la MISMA valuación por-acabado del HoldingDTO (getReference); los items
-    // sin precio del día llevan status="pending" (NO se excluyen: es vista 360°, no un total).
-    const ownedItems = await this.ownedItemRefs(_ownedRaw);
-    const clabeMasked = maskClabe(this.pii.decryptOptional(safe.kycProfile?.clabeEnc));
+    // La CLABE vive CIFRADA en reposo: se descifra SOLO para enmascararla, y sale `****1234` también
+    // para el `super_admin`. En claro únicamente por `GET /admin/buylist/:id/reveal-clabe`.
+    const clabeMasked = maskClabe(this.pii.decryptOptional(user.kycProfile?.clabeEnc));
 
     if (role === Role.super_admin) {
-      // super_admin: ficha completa PERO con CLABE/RFC enmascarados (nunca en claro).
       return {
-        ...safe,
-        ownedItems,
-        kycProfile: safe.kycProfile
-          ? (() => {
-              const {
-                clabeEnc: _c,
-                rfcEnc: _r,
-                clabeHmac: _h,
-                // ⛔ v1.60 (D51, §M5-K.5a): `legalName` sale del DTO. Esta rama proyecta con
-                // `...rest` sobre la fila CRUDA del `include`, así que retirarlo de
-                // `ADMIN_KYC_SELECT` —que es lo único que el contrato enumera— **no la cubre**:
-                // aquí hay que quitarlo a mano o el campo muerto sigue saliendo por esta puerta.
-                // *Es la razón por la que la lista blanca existe: lo que se proyecta por resto
-                // publica cada columna nueva del schema por omisión.*
-                legalName: _l,
-                capPerRequestCentsOverride,
-                capPerMonthCentsOverride,
-                ...rest
-              } = safe.kycProfile;
-              return {
-                ...rest,
-                clabeMasked,
-                rfcMasked: maskRfc(this.pii.decryptOptional(_r)),
-                capPerRequestCents: capPerRequestCentsOverride,
-                capPerMonthCents: capPerMonthCentsOverride,
-                ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
-              };
-            })()
+        ...toAdminUserHeaderSuper(user),
+        ...comunes,
+        // ⭐ v1.69 (P-78, §M6-K.3): SOLO aquí. El operador no recibe la clave (ni vacía): un perfil
+        // de movimientos POR PERSONA no es de su rol.
+        recentShipmentRecipients: user.shipmentRequests.map(toAdminShipmentRecipientRef),
+        kycProfile: user.kycProfile
+          ? toAdminKycDetailDTO(user.kycProfile, {
+              clabeMasked,
+              rfcMasked: maskRfc(this.pii.decryptOptional(user.kycProfile.rfcEnc)),
+            })
           : null,
-        billingProfile: safe.billingProfile
-          ? (() => {
-              const { rfcEnc: _r, ...rest } = safe.billingProfile;
-              return { ...rest, rfcMasked: maskRfc(this.pii.decryptOptional(_r)) };
-            })()
+        billingProfile: user.billingProfile
+          ? toAdminBillingDTO(
+              user.billingProfile,
+              maskRfc(this.pii.decryptOptional(user.billingProfile.rfcEnc)),
+            )
           : null,
       };
     }
 
-    // Proyección reducida para vault_operator (y cualquier rol no super_admin).
+    // Proyección reducida para `vault_operator` (y cualquier rol no `super_admin`), SEC-A4.
     return {
-      ...safe,
-      ownedItems,
-      // KYC: solo estado/límites y una CLABE ENMASCARADA; sin INE ni CLABE/RFC completos.
-      kycProfile: safe.kycProfile
-        ? {
-            id: safe.kycProfile.id,
-            userId: safe.kycProfile.userId,
-            kycStatus: safe.kycProfile.kycStatus,
-            clabeMasked,
-            ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
-            capPerRequestCents: safe.kycProfile.capPerRequestCentsOverride,
-            capPerMonthCents: safe.kycProfile.capPerMonthCentsOverride,
-            verifiedAt: safe.kycProfile.verifiedAt,
-          }
-        : null,
-      // Perfil de facturación (RFC/datos fiscales): oculto al operador.
+      ...toAdminUserHeader(user),
+      ...comunes,
+      kycProfile: user.kycProfile ? toAdminKycOperatorDTO(user.kycProfile, clabeMasked) : null,
+      // SIEMPRE `null`, nunca «omitido»: el front pinta «sin acceso», no «sin datos» (§11).
       billingProfile: null,
     };
   }
@@ -654,28 +942,173 @@ export class AdminService {
     kycStatus: string,
     capPerRequestCents?: number,
     capPerMonthCents?: number,
-    verifiedBy?: string,
+    actorUserId?: string,
+    rejectionReason?: string,
   ) {
+    // ⭐⭐ v1.69 (P-78, §M6-K.4, BK-2) — **EL MOTIVO ES OBLIGATORIO SI Y SOLO SI SE RECHAZA.**
+    //
+    // Las dos mitades de la regla, y ninguna sobra:
+    //  · rechazar SIN motivo ⇒ `422 KYC_REJECTION_REASON_REQUIRED`. El motivo LE LLEGA AL CLIENTE
+    //    (`GET /users/me/kyc`): sin él ve «rechazada» y no sabe qué corregir — un rechazo que no se
+    //    puede corregir es un callejón, no un rechazo.
+    //  · mandar motivo SIN rechazar ⇒ `422 VALIDATION_ERROR`. ⛔ **No se ignora en silencio**: un
+    //    motivo aceptado y descartado es un motivo que el cliente NUNCA verá y que el admin CREE
+    //    haber mandado. Un 422 cuesta un reintento; el silencio cuesta la confianza del cliente.
+    //
+    // Rango **3–500 tras `trim()`**: el MISMO exacto que `SellRequestItem.rejectionReason` (M-22,
+    // `schema.prisma`). El mismo concepto no estrena una segunda talla.
+    const isRejection = kycStatus === 'rejected';
+    const trimmedReason = typeof rejectionReason === 'string' ? rejectionReason.trim() : undefined;
+    if (isRejection) {
+      if (trimmedReason === undefined || trimmedReason.length === 0) {
+        throw BusinessException.validation(
+          'KYC_REJECTION_REASON_REQUIRED',
+          'rejectionReason is required when rejecting a KYC profile',
+          { field: 'rejectionReason' },
+        );
+      }
+      if (trimmedReason.length < 3 || trimmedReason.length > 500) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'rejectionReason must be 3 to 500 characters after trim',
+          { field: 'rejectionReason', min: 3, max: 500 },
+        );
+      }
+    } else if (rejectionReason !== undefined) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'rejectionReason is only accepted when kycStatus is "rejected"',
+        { field: 'rejectionReason' },
+      );
+    }
+
+    const now = new Date();
+    // Lo que se ESCRIBE en cada rama (§M6-K.4), y por qué cada `null` es deliberado:
+    //  · `rejectionReason`: el trimmed al rechazar; **`null` en cualquier otro estado** — §M6-K.7
+    //    prohíbe el residual («no se deja `null` residual de un rechazo anterior»), y limpiarlo EN
+    //    LA COLUMNA es más fuerte que esconderlo en la proyección: el cliente lo lee por otra ruta.
+    //  · `verifiedAt`: se sella al verificar y **se anula al rechazar** (dejó de estar verificado).
+    //  · `verifiedBy`: ⭐ **ahora solo se escribe al VERIFICAR.** Antes se escribía en CUALQUIER
+    //    `PATCH` (incluido un rechazo), así que «quién verificó» acababa nombrando a quien RECHAZÓ.
+    //    Con `reviewedBy` existiendo, mantener eso sería conservar la única lectura falsa que la
+    //    columna admite. ⛔ No se anula al rechazar: el contrato solo manda anular `verifiedAt`.
+    //  · `reviewedAt`/`reviewedBy`: se sellan en TODA decisión (verificar, rechazar y deshacer a
+    //    `none`) — son «cuándo/quién DECIDIÓ», y deshacer también es decidir.
+    const decision = {
+      kycStatus: kycStatus as never,
+      capPerRequestCentsOverride: capPerRequestCents,
+      capPerMonthCentsOverride: capPerMonthCents,
+      rejectionReason: isRejection ? trimmedReason : null,
+      reviewedAt: now,
+      reviewedBy: actorUserId ?? null,
+      ...(kycStatus === 'verified' ? { verifiedBy: actorUserId, verifiedAt: now } : {}),
+      ...(isRejection ? { verifiedAt: null } : {}),
+    };
     const row = await this.prisma.kycProfile.upsert({
       select: ADMIN_KYC_SELECT,
       where: { userId: id },
-      create: {
-        userId: id,
-        kycStatus: kycStatus as never,
-        capPerRequestCentsOverride: capPerRequestCents,
-        capPerMonthCentsOverride: capPerMonthCents,
-        verifiedBy,
-        verifiedAt: kycStatus === 'verified' ? new Date() : undefined,
-      },
-      update: {
-        kycStatus: kycStatus as never,
-        capPerRequestCentsOverride: capPerRequestCents,
-        capPerMonthCentsOverride: capPerMonthCents,
-        verifiedBy,
-        verifiedAt: kycStatus === 'verified' ? new Date() : undefined,
-      },
+      create: { userId: id, ...decision },
+      update: decision,
     });
     return toAdminKycDTO(row);
+  }
+
+  /**
+   * ⭐⭐ **v1.69 (P-78, BK-1 · API_CONTRACT §M6-K.2 · ARCHITECTURE §3.4.c/§4.49) —
+   * los dos enlaces de `GET /admin/users/:id/kyc/ine-links`. `super_admin` ÚNICAMENTE.**
+   *
+   * Es la **primera vez que una imagen de identidad sale de este servidor**, así que esto se escribe
+   * para que `seguridad` lo revise leyéndolo: cada candado, con su motivo, en su sitio.
+   *
+   * ### La secuencia es NORMATIVA y este orden no es casual (§M6-K.2.4)
+   * ```
+   * 1. guard de rol         → 403 si no es super_admin   (decorador, ANTES de tocar la BD)
+   * 2. cargar KycProfile    → 404 / 422 INE_NOT_ON_FILE          ← aquí
+   * 3. firmar las dos URLs  ← operación LOCAL: no toca R2, no lee el objeto, no deja rastro ← aquí
+   * 4. await audit.log(...) ← si LANZA: 500 AUDIT_WRITE_FAILED   ← en el CONTROLLER
+   * 5. responder con las URLs                                     ← en el CONTROLLER
+   * ```
+   * **Firmar ANTES de auditar** porque firmar **no es el acto auditable** —es local y sin efecto—,
+   * así que auditar primero registraría miradas que quizá no ocurran. Lo que hace **cerrado** el
+   * fallo es que el `await audit.log` está **en el camino de la respuesta**: si la fila no entra, el
+   * cuerpo no sale, y una URL prefirmada que nadie recibió no es una fuga.
+   *
+   * ⚠️ **Los pasos 4 y 5 viven en `AdminUsersController.ineLinks`, y NO por descuido:** es la MISMA
+   * forma que el precedente vivo de revelado de PII (`admin-buylist.controller.ts`,
+   * `buylist.reveal_clabe`), y esta clase no inyecta `AuditService`. **La consecuencia hay que
+   * decirla:** quien llame a este método desde otro sitio **no audita**. Por eso el método se llama
+   * `ineLinksUnaudited` — el nombre es el candado que queda cuando el comentario se deja de leer.
+   *
+   * ### Lo que NO sale, y es la mitad que sostiene la promesa del dueño
+   * ⛔ Las *object keys* (`ineFrontKey`/`ineBackKey`) **no viajan** — el servidor las resuelve desde
+   * `:id`. ⛔ Tampoco viajan en la fila de bitácora (ver el controller). ⛔ Y no se emiten en ningún
+   * listado ni en la ficha: un enlace que viaja «por si acaso» acaba en un log, en un historial de
+   * navegador y en una captura de pantalla.
+   *
+   * **Un solo endpoint para los DOS documentos** y es deliberado: una revisión necesita frente *y*
+   * reverso (el reverso lleva CURP y vigencia). Dos endpoints darían **dos filas por un acto** y la
+   * bitácora dejaría de contestar *«¿cuántas veces se miró esta identidad?»*.
+   */
+  async ineLinksUnaudited(targetUserId: string): Promise<{
+    links: {
+      userId: string;
+      front: { url: string; expiresAt: string };
+      back: { url: string; expiresAt: string };
+      expiresInSeconds: number;
+    };
+    ttl: IneViewUrlTtl;
+  }> {
+    // (2) — `select` de DOS columnas: ni siquiera se leen la CLABE cifrada ni el blind index.
+    const kyc = await this.prisma.kycProfile.findUnique({
+      where: { userId: targetUserId },
+      select: { ineFrontKey: true, ineBackKey: true },
+    });
+
+    // `404` SOLO si el usuario no existe (paridad exacta con `AuditService.listForUser`). Sin perfil
+    // de KYC el usuario puede existir perfectamente ⇒ eso es `422`, no `404`. La consulta extra se
+    // hace únicamente en esa rama: con perfil, el `User` existe por la FK.
+    if (!kyc) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true },
+      });
+      if (!user) throw BusinessException.notFound();
+    }
+
+    const frontKey = kyc?.ineFrontKey ?? null;
+    const backKey = kyc?.ineBackKey ?? null;
+    if (!frontKey || !backKey) {
+      // ⚠️ `422` y no `404`: el recurso *usuario* EXISTE y la respuesta es accionable («pídeselo»),
+      // no «te equivocaste de URL». `details` dice CUÁL de las dos falta, que es lo que el revisor
+      // va a tener que pedirle al cliente. ⛔ Los `details` NO llevan las keys.
+      throw BusinessException.validation('INE_NOT_ON_FILE', 'No complete INE on file for this user', {
+        frontOnFile: Boolean(frontKey),
+        backOnFile: Boolean(backKey),
+      });
+    }
+
+    // (3) Firmar: local, sin red, sin efecto. 120 s por defecto, techo duro de 300 (§M6-K.2.1).
+    // ⭐ v1.70 (C10(c)): **UNA sola resolución del dial por petición**, usada en los TRES sitios —
+    // la firma de las dos URLs, el `expiresInSeconds` del cuerpo y el `after` de la bitácora (que lo
+    // recibe por `ttl`, sin volver a leer el env). Dos lecturas del mismo dial en la misma petición
+    // serían dos fuentes para un hecho, y una mentiría el día del despliegue que lo cambie.
+    const ttl = this.uploads.resolveIneViewUrlTtl();
+    const expiresInSeconds = ttl.seconds;
+    const [frontUrl, backUrl] = await Promise.all([
+      this.uploads.presignGet(frontKey, expiresInSeconds),
+      this.uploads.presignGet(backKey, expiresInSeconds),
+    ]);
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+
+    return {
+      links: {
+        userId: targetUserId,
+        front: { url: frontUrl, expiresAt },
+        back: { url: backUrl, expiresAt },
+        expiresInSeconds,
+      },
+      ttl,
+    };
   }
 
   /**
@@ -1038,7 +1471,16 @@ export class AdminService {
     const ivaCollectedCents = orders
       .filter((o) => o.status === 'settled')
       .reduce((s, o) => s + o.ivaCents, 0);
-    const byOrder = orders.map(({ id, ...rest }) => ({ orderId: id, ...rest }));
+    // ⭐ `R-1` — enumerado, no por resto. Aquí el spread era inofensivo (el `select` de arriba ya
+    // acota a cuatro columnas), pero la REGLA es la que vale: en este fichero **no se proyecta por
+    // sustracción**, ni siquiera donde hoy no duele. Si mañana alguien ensancha ese `select`, el
+    // informe de IVA no se lleva la columna nueva de regalo.
+    const byOrder = orders.map((o) => ({
+      orderId: o.id,
+      ivaCents: o.ivaCents,
+      settledAt: o.settledAt,
+      status: o.status,
+    }));
     return { ivaCollectedCents, byOrder };
   }
 

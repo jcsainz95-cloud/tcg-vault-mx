@@ -58,21 +58,32 @@ export const ERROR_SCOPE_AUDIENCE: Readonly<Record<string, ErrorAudience>> = {
  * ⚠️ **`INE_REQUIRED` no lleva `scope`: se distingue por la FORMA de `details`**, y eso es un
  * contrato **implícito** que ux-ui ya escaló al arquitecto (§26.9, petición 1). Medido en el
  * backend (`buylist.service.ts:3560-3572`, HEAD `29f97e2`): la emisión manda
- * `{ sellRequestId, grossCents }` y **omite `thresholdCents` a propósito**; el intake manda
- * `{ thresholdCents }`. *El día que alguien añada `sellRequestId` a la puerta del intake «porque ya
- * había campo», el vendedor empieza a leer el mensaje del operador* — por eso el remedio pedido es
- * un `details.scope` propio, y por eso este mapa está en UN sitio y no repartido por las pantallas.
+ * `{ sellRequestId, grossCents }` y **omite `thresholdCents` a propósito**; el intake mandaba
+ * `{ thresholdCents }` y **desde v1.69 manda `{}`** (§M6-K.5). *El día que alguien añada
+ * `sellRequestId` a la puerta del intake «porque ya había campo», el vendedor empieza a leer el
+ * mensaje del operador* — por eso el remedio pedido sigue siendo un `details.scope` propio, y por
+ * eso este mapa está en UN sitio y no repartido por las pantallas.
  */
 const AUDIENCE_FROM_DETAILS: Readonly<
   Record<string, (details: Record<string, unknown>) => ErrorAudience | undefined>
 > = {
   BUYLIST_LIMIT_EXCEEDED: (d) =>
     typeof d.scope === 'string' ? ERROR_SCOPE_AUDIENCE[d.scope] : undefined,
-  INE_REQUIRED: (d) => {
-    if (typeof d.thresholdCents === 'number') return 'seller';
-    if (typeof d.sellRequestId === 'string' && typeof d.grossCents === 'number') return 'operator';
-    return undefined;
-  },
+  /**
+   * ⭐ v1.69 (P-78, §M6-K.5) — **la discriminación se INVIERTE, y el motivo es una medición del
+   * contrato:** el `422 INE_REQUIRED` del **intake** pasa a `details: {}` (los topes dejan de
+   * viajar al cliente). Con la regla anterior —«`thresholdCents` ⇒ vendedor»— ese error se
+   * quedaba **sin discriminador**, y en una pantalla de back-office que declara `'operator'`
+   * habría caído en el copy del operador… diciéndole al **vendedor** que llame a alguien.
+   *
+   * Ahora la señal es la que **sí** existe y el contrato garantiza: la emisión manda
+   * `{ sellRequestId, grossCents }` (`buylist.service.ts:3560-3572`) y el intake **nunca** manda
+   * `sellRequestId`. ⇒ con `sellRequestId` es del OPERADOR; **sin él, del vendedor**, que es el
+   * sujeto de la regla. `thresholdCents` sigue resolviendo a vendedor (ya no viaja, pero un
+   * backend viejo no puede cambiar de destinatario por una retirada de campo).
+   */
+  INE_REQUIRED: (d) =>
+    typeof d.sellRequestId === 'string' && typeof d.grossCents === 'number' ? 'operator' : 'seller',
 };
 
 /**

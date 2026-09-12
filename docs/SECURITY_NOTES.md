@@ -1,3 +1,425 @@
+# VEREDICTO BLUE TEAM — release **Stream B «Lo que se rompe con el dinero»** · `main`=`5d2c62b` (fusionado, NO publicado) · `production`=`c8bee65` · informe del red team sobre `159192d` · 2026-09-11
+
+> ## ⭐ VEREDICTO
+>
+> ### **APROBADO CON CONDICIONES** — publicar Stream B en **modo prueba de Stripe** (`HECHOS.md`: la tienda **siempre** ha estado en modo prueba; **no se mueve dinero real**).
+> ### **RECHAZADO** — para el paso a **dinero real** (`sk_live_…`), hasta cerrar **C3, C6, C7, C12 y C13**.
+>
+> **Críticos nuevos: 0. Altos nuevos: 0.** Confirmo el recuento del red team sobre el código de Stream B, y lo
+> confirmo **por mecanismo**, no por recepción: el eje de titularidad de la reserva aguanta porque además de
+> `reservationGuard(orderId)` **toda** salida de `reserved` acota por `id ∈ líneas de la propia orden`, y ese
+> `id` es seguro porque **una `OrderItem` no puede existir sin un `reserveItems` exitoso en la MISMA
+> transacción** — lo medí: hay **tres** sitios que crean `OrderItem` (`orders.service.ts:1205`, `:1385` es un
+> `ShipmentRequest`, `guest-checkout.service.ts:223`) y **cero** escrituras sueltas de `orderItem.*`
+> (`grep` vacío). Sin esa invariante, la rama transitoria `reservedByOrderId: null` del guard sería un robo de
+> reserva; con ella, no lo es.
+>
+> **Pero «0 altos nuevos» no es «0 altos».** Este release se publica con **`P-RL-1` (ALTA en local, Media
+> provisional en producción, ABIERTO desde el Pase 2)**, y Stream B **no lo introduce ni lo empeora**
+> (`git diff --stat c8bee65 5d2c62b -- backend/src/main.ts backend/src/common/guards/app-throttler.guard.ts`
+> → **vacío**, medido) pero **sí ensancha lo que se gana explotándolo**: la superficie de invitado
+> ahora retiene un **advisory lock dentro de la transacción** y, en la sustitución, una **llamada a Stripe
+> dentro de la transacción**, todo detrás del mismo `@Throttle 5/h` **por IP** que `P-RL-1` esquiva. Mi
+> respuesta a la cadena `SB-B3 → P-RL-1` está en §2: **no sube Stream B a alto, y sí convierte `C6` en la
+> medición más urgente del release** — se hace en la propia ventana de publicación.
+>
+> **Dos hallazgos míos que el red team no reportó** (§3.4 y §3.5): **SEC-SB-1** — el alcance real de `SB-B1`
+> no es «las reservas en vuelo al desplegar» sino **toda la acumulación histórica de órdenes de bóveda
+> `pending`**, porque la bóveda **nunca** se barrió (ése es justo el defecto `D-SB-1` que Stream B arregla) ⇒
+> «transitorio» **no es la palabra correcta** y la rama `IS NULL` del guard **no podrá retirarse nunca** si
+> nadie las libera a mano; y **SEC-SB-2** — la clave del advisory lock del invitado es
+> `guest:<correo normalizado>` con un correo **no verificado**, así que el DoS de `SB-B3` **no es solo
+> autoinfligido: es dirigible contra el correo de un cliente conocido**.
+>
+> **Y el contrato de PII que entra sin código (v1.69 / `§M6-K`): lo reviso ahora, que sale más barato.**
+> Es el mejor redactado que he revisado de este equipo —fallo cerrado de bitácora en el camino de la
+> respuesta, TTL 120 s con techo duro, keys que no salen, `after` sin la URL— y aun así tiene **tres huecos
+> concretos** que van al **arquitecto** antes de implementarse (**C10**, §4): el tope de `10/min` está en el
+> **eje equivocado** (IP, no actor) justo en la superficie donde el modelo de amenaza es *una sesión de
+> `super_admin` abusada*; la respuesta que lleva **dos credenciales portadoras** no exige `Cache-Control:
+> no-store`; y la bitácora graba `expiresInSeconds: 120` **constante** cuando el TTL es un dial de entorno
+> (misma clase que `S-FX-3`: una bitácora que afirma un número que quizá no rigió).
+
+---
+
+## 0. Alcance, procedencia y convención
+
+- **HEAD al escribir:** `159192d` (informe del pentester). **Candidato:** `main` = `5d2c62b`. **Producción:**
+  `c8bee65`. **Delta del release** `c8bee65..5d2c62b`: 102 ficheros, +12.804/−582 (`git diff --shortstat`).
+- **Blanco:** SOLO el código del repo y objetos de git. **Producción: ni una petición.** Stripe en modo prueba.
+- **Naturaleza de mi pase:** **`[código]` + `[git]`**, igual que el del red team. **NO levanté el stack.** Lo que
+  exige un target vivo va marcado **`NO MEDIDO`** con la medición exacta que lo cierra (§9).
+- **Lo único que ejecuté:** `npm audit` en `backend/` y `frontend/`, `git diff`/`git show`, `grep`. **No escribí
+  una línea de código.** Único fichero escrito: éste. Scratchpad: `scratchpad/seguridad-streamB/`.
+- **Convención:** `[MEDIDO]` lo ejecuté yo · `[código]` leído en fuente sobre `5d2c62b` · `[REPORTADO]` lo dijo
+  otro rol y lo cito como suyo · `[NO MEDIDO]` no lo llamo seguro.
+
+---
+
+## 1. El límite del pase estático — **lo acepto para modo prueba, y escribo por qué**
+
+El red team lo declara él mismo con honestidad: **no levantó la aplicación viva**. Un veredicto de dinero
+apoyado solo en lectura de código tiene un límite, y aquí queda escrito en vez de implícito.
+
+**Qué SÍ cierra el análisis estático, y no es poco.** Las clases de defecto de Stream B son **estructurales**,
+no temporales: quién puede salir de `reserved` (un `where`), qué credencial prueba la titularidad del invitado
+(una comparación), si un precio `<= 0` tiene una rama que lo deje pasar (cuatro ramas de
+`resolveSaleDecision`), si la idempotencia del webhook es *insert-first* (un `create` con P2002), si hay
+`$queryRawUnsafe` (un `grep`). Todas ésas se deciden leyendo, y una corrida viva **no las decidiría mejor**:
+un verde de una tirada no distingue «el candado sirve» de «tuve suerte» (O-3).
+
+**Qué NO cierra, y es exactamente el filo del dinero.** Todo lo que depende de **una carrera, un temporizador
+o el orden de ejecución**: doble venta bajo concurrencia real, doble reembolso, el agotamiento del pool, la
+carrera del barrido contra la sustitución, y el comportamiento real de Stripe ante una cancelación lenta.
+De eso hoy solo hay medición **`[REPORTADO]` por backend** (double-sell a N=6, pool a N=6/12 s), que cito como
+suya — ni el red team ni yo la re-corrimos.
+
+**Mi criterio, y es una distinción de marco, no una concesión:**
+
+- **Para modo prueba: SUFICIENTE.** No hay dinero real que perder; el peor caso de las clases no medidas es
+  **una pieza única atrapada o un 500 en una ruta de cobro**, ambos reversibles a mano y ninguno irreversible.
+  Y el mismo árbol ya pasó `e2e-real.yml` con las claves de prueba en un runner (`HECHOS.md`, run
+  `34477885121`) `[REPORTADO]`.
+- **Para dinero real: INSUFICIENTE, y es bloqueante (C12).** Antes del primer peso real exijo **un pase VIVO**
+  del red team contra el stack levantado con claves de prueba, cubriendo las tres carreras de dinero y el arma
+  del pool, **con proporción N/N** (O-3), no con una tirada. Un double-sell de una carta única con dinero real
+  no se deshace con un rollback: se deshace con un reembolso, una disculpa y una pieza que no existe.
+
+---
+
+## 2. ⭐ La cadena `SB-B3 → P-RL-1` — **mi respuesta, que es lo que se me pidió juzgar**
+
+**La pregunta:** ¿sigue siendo tranquilizador el «0 altos nuevos» si el alto viejo sostiene la mitigación del
+bajo nuevo?
+
+**Respuesta corta: el recuento es correcto y la tranquilidad es parcial.** «0 altos nuevos» es una afirmación
+sobre **el código de Stream B**, y como tal la confirmo. **No** es una afirmación sobre **el sistema que se
+publica**, que sale con un ALTO abierto heredado. Las dos cosas son ciertas a la vez y confundirlas sería
+firmar por recepción.
+
+**Los tres datos que la desmontan hasta el fondo:**
+
+1. **`SB-B3` no hereda la incertidumbre de `P-RL-1`: hereda EXACTAMENTE la misma, ni más ni menos** `[MEDIDO]`.
+   En mi veredicto anterior (`d6aca64`, §2.1) desmonté `P-RL-1` por mecanismo y lo medí **2/2**: con
+   `trust proxy = 1` el tracker del throttler es la **última** entrada de `X-Forwarded-For`, no la que el
+   cliente elija ⇒ el bypass **solo** existe donde nadie appendea (local). El `@Throttle 5/h` de
+   `POST /checkout/guest/session` (`guest-orders.controller.ts:47`) usa **ese mismo tracker global**. Luego
+   la mitigación de `SB-B3` vive o muere con la **misma** suposición sobre el edge de Railway, y **la misma
+   medición (`C6`) cierra las dos**. No son dos incertidumbres: es una, contada dos veces.
+2. **Stream B no empeora `P-RL-1`, y lo medí:** `git diff --stat c8bee65 5d2c62b -- backend/src/main.ts
+   backend/src/common/guards/app-throttler.guard.ts` → **vacío**. El `trust proxy` y el guard que se publican
+   son **byte a byte** los que ya están en producción.
+3. **Pero Stream B sí sube el PREMIO de explotarlo** `[código]`. Antes de v1.68, `POST /checkout/guest/session`
+   no tomaba candado alguno. Ahora: `lockReservationGate(tx, {guestEmail})` se toma **dentro** de la
+   `$transaction` (`reservation.ts:94-101`) ⇒ cada petición en cola **retiene una conexión del pool mientras
+   espera**; y el camino de sustitución llama a Stripe **dentro** del `tx` (`supersedeOwnOrder`,
+   `orders.service.ts:867-895`). Es decir: el control que `P-RL-1` rompe ahora defiende **más**.
+
+**Veredicto de la cadena:**
+
+- **No subo Stream B a alto.** El impacto de `SB-B3` es **denegación de servicio en la ruta del cobro**, no robo
+  ni corrupción; el código del throttle es idéntico al publicado; y estamos en modo prueba. Mantengo `SB-B3`
+  en **Baja (condicional)** y `P-RL-1` en **Media provisional en producción / ALTA en local por construcción**,
+  igual que en el veredicto anterior — **la información nueva no cambia la severidad, cambia la urgencia**.
+- **Sí endurezco `C6`:** deja de ser «en alguna ventana autorizada» y pasa a ser **un paso de ESTA ventana de
+  publicación** (§6). Es una medición de seis peticiones desde una IP: cuesta menos que discutirla.
+- **Y lo digo sin adorno para el DoD:** si `C6` sale mal —si el valor del cliente llega como última entrada—
+  **`P-RL-1` sube a ALTA confirmada en producción**, **`SB-B3` sube a Media/Alta**, y **este release queda
+  RECHAZADO retroactivamente** hasta que `C7` esté desplegado. El veredicto de hoy está condicionado a esa
+  medición, no la sustituye.
+
+---
+
+## 3. Consolidación del red team + mis propios hallazgos
+
+### 3.1 Lo que CONFIRMO del Pase 3 (sin duplicar: su ficha manda para el detalle)
+
+| Id | Sev. red team | Mi dictamen | Nota |
+|---|---|---|---|
+| `SB-B1` | Baja (transitorio) | **CONFIRMADO, recalificado a MEDIA** | «Transitorio» es la palabra equivocada. Ver **SEC-SB-1** (§3.4) |
+| `SB-B2` | Baja | **CONFIRMADO, alcance ampliado** | No son 2 boundaries `SERIALIZABLE` sin reintento: son **6** (§3.6) |
+| `SB-B3` | Baja (condicional) | **CONFIRMADO, y ampliado** | La clave del candado es un correo **no verificado** ⇒ dirigible (**SEC-SB-2**, §3.5) |
+| `SB-B4` | Info | **CONFIRMADO `[MEDIDO]`** | Re-corrí `npm audit --omit=dev` en `backend/`: `{critical:0, high:0, moderate:5}`. Y `frontend/` completo: **0 vulnerabilidades**. No bloquea el DoD |
+| `SB-B5` | Info | **CONFIRMADO, y correcto por diseño** | `@SkipThrottle` en el webhook es la decisión acertada: rechazo por firma **antes** de tocar la BD. Mitigación real es de edge (WAF/tope de body), no de app |
+
+**Los 8 «AGUANTA» del red team: los suscribo, y a uno le añado el argumento que le faltaba.** Su positivo 1
+(robo de reserva) se apoya en «el `id` acota a piezas que ya son líneas de la propia orden». Eso es cierto
+**solo si** una pieza no puede ser línea de dos órdenes. **Lo medí y se sostiene:** `reserveItems`
+(`orders.service.ts:709-730`) exige `ownerType:'platform'` + `status ∈ {listed,in_stock}` + `count===1`, las
+tres creaciones de `OrderItem` van en la **misma transacción** que el `reserveItems` correspondiente (rollback
+si falla), y **no existe ninguna otra escritura de `orderItem`** en `backend/src` (grep vacío). **Ésa es la
+invariante que hace inofensiva la rama `reservedByOrderId: null`**, y conviene que esté escrita: el día que
+alguien añada una ruta que cree una `OrderItem` sin reservar, esa rama **se convierte en robo de reserva**.
+
+### 3.2 `P-RL-1` — sigue **ABIERTO**, heredado del Pase 2
+
+Sin cambios respecto a mi veredicto anterior salvo la urgencia (§2). Dueños: **devops** (`C6`) + **backend**
+(`C7`). No bloquea modo prueba; **bloquea dinero real**.
+
+### 3.3 Bajas/info heredadas del Pase 2 — siguen abiertas, ninguna bloquea
+
+`P-SEED-1` (backend+devops), `P-GL-2` (devops), `P-NAME-1` (backend+frontend), `P-REDIR-1` (frontend),
+`P-BILL-DoS` (backend+devops). Registradas como deuda aceptada en §7; su detalle está en `PENTEST_NOTES`
+y en mi veredicto anterior. **No se re-abren aquí y no se duplican.**
+
+### 3.4 ⭐ `SEC-SB-1` — **MEDIA** · el alcance de `SB-B1` es la acumulación HISTÓRICA, no «lo que haya en vuelo»
+
+- **Dueño: backend** (ensanchar el barrido o script de liberación) **+ devops** (ejecutar el conteo en la ventana).
+- **Ubicación:** `orders.service.ts:966-969` (`sweepExpiredReservations`, `reservedByOrderId: { not: null }`),
+  `guest-checkout.service.ts:435-443` (`sweepStaleGuestOrders`, `guestEmail: { not: null }` **y**
+  `fulfillmentMode: 'direct_ship'`), `jobs/order-reservation-sweep.service.ts:33-34` (el job encadena **solo**
+  esos dos), `reservation.ts:39-44` (la rama `IS NULL`).
+- **Por qué «transitorio» no es la palabra `[código]`:** el red team describe el hueco como *«el pedido de
+  bóveda abandonado a caballo del deploy»*. El hueco es más ancho, y la razón está en el propio diseño:
+  **antes de v1.68 una orden de BÓVEDA `pending` no se barría NUNCA** — es literalmente el defecto `D-SB-1`
+  que Stream B viene a arreglar (`ARCHITECTURE §4.48`, y el comentario del job lo dice: *«una orden de BÓVEDA
+  `pending` no se barría nunca»*). Luego, en el instante del deploy, **toda** pieza `reserved` bajo una orden
+  de bóveda `pending` —incluida la que se quedó ahí hace semanas— nace con `reservedByOrderId IS NULL`, y
+  **ninguno de los dos barridos la cubre**: el nuevo la excluye por `not: null`, el legado por
+  `guestEmail NOT NULL` + `direct_ship`. No es la ventana del deploy: **es todo el pasado acumulado del
+  defecto que estamos arreglando, indultado para siempre.**
+- **La consecuencia de segundo orden, que es la que me preocupa más que el inventario:** la rama
+  `reservedByOrderId: null` de `reservationGuard` es **la única relajación del eje de titularidad** en todo
+  Stream B, y su condición de retirada (`ARCHITECTURE §4.48.7(5)`) es
+  `SELECT count(*) … WHERE status='reserved' AND "reservedByOrderId" IS NULL` **= 0**. Si nadie libera esas
+  filas, **el contador nunca llega a 0 y la rama transitoria se vuelve permanente**. Una relajación que no se
+  puede retirar deja de ser deuda con comprobación y pasa a ser diseño.
+- **Qué consigue un atacante: NADA** (lo verifiqué y coincido con el red team): la pieza legada no es
+  re-reservable (`reserveItems` exige `listed|in_stock`) ni aparece como propia de nadie
+  (`findOwnLiveReservations` filtra por la **relación** `reservedByOrder`, inexistente en `NULL`). El impacto
+  es **disponibilidad de inventario único** + la deuda permanente de arriba. Por eso es **Media**, no Alta.
+- **Lo bueno, y hay que decirlo:** el arquitecto **ya lo anticipó**. `ARCHITECTURE §4.48.7` paso 1 pide
+  literalmente `SELECT count(*) FROM "Order" WHERE status='pending' AND "userId" IS NOT NULL` y dice *«si el
+  segundo conteo es >0, devops decide con el dueño si se liberan a mano (runbook) o se dejan morir por
+  webhook»*. **Mi aportación es que ese paso deja de ser opcional**: es la condición **C8**, y *«dejarlas morir
+  por webhook»* **no es una salida** para una orden abandonada cuyo PaymentIntent ni confirma ni se cancela —
+  ésa no muere sola.
+- **NO MEDIDO:** cuántas filas son. Solo se mide en el target. **Medición que lo cierra: C8.**
+
+### 3.5 ⭐ `SEC-SB-2` — **Baja (condicional, sube con `P-RL-1`)** · la clave del candado del invitado es un correo NO verificado ⇒ el DoS es **dirigible**
+
+- **Dueño: backend/arquitecto** (eje del candado) **+ devops** (`C6`, el throttle).
+- **Ubicación:** `reservation.ts:78-84` (`reservationGateKey` → `guest:<email>`),
+  `guest-checkout.service.ts:145,175` (`normalizeEmail(dto.email)` → `lockReservationGate(tx, {guestEmail})`),
+  `guest-orders.controller.ts:47` (`@Throttle 5/h` por IP).
+- **El hallazgo `[código]`:** `createSession` **no verifica** que quien teclea el correo lo controle —y eso es
+  **deliberado y correcto** (criterio 56, anti-enumeración: no se consulta `User` por ese correo). Pero el
+  efecto colateral es que **la clave del advisory lock la elige el atacante**. El red team describe el arma del
+  pool como *«N peticiones con el mismo correo se serializan»* — implícitamente, el correo **propio**. Con el
+  correo de **otro**, la misma arma deja de ser un DoS general y se vuelve **dirigido**: quien conozca el correo
+  de un cliente (o el del dueño) puede mantener ocupada **su** puerta de reserva y hacer que **sus** checkouts
+  esperen tras la cola, cada espera reteniendo una conexión del pool.
+- **Qué NO consigue:** ni reclamar, ni ver, ni tocar la reserva de esa persona — eso lo sigue cerrando el
+  `retryOfCheckoutToken` (`resolveRetryClaim` exige token válido **y** `guestEmail` idéntico; el token es
+  `randomBytes(32)` con lookup por SHA-256 y comprobación de `revokedAt`/`expiresAt`,
+  `order-access-token.service.ts:74,98-105`). **La titularidad aguanta; lo que cede es la disponibilidad.**
+- **Por qué Baja hoy:** el `@Throttle 5/h` por IP lo acota a 5 intentos/hora/IP. **Sube con `P-RL-1`**, exactamente
+  como `SB-B3` — misma mitigación, misma medición (`C6`).
+- **NO MEDIDO:** la proporción real de `500` por timeout de pool. Lo cierra la misma medición que `SB-B3`
+  (ver `PENTEST_NOTES` § `SB-B3`, «Medición que lo cierra»), añadiendo una oleada con **el correo de otro**.
+
+### 3.6 `SEC-SB-3` — **Baja** · la clase de `SB-B2` es de **6** transacciones `SERIALIZABLE`, no de 2
+
+- **Dueño: backend.**
+- **`[MEDIDO]`:** `grep -rn "TransactionIsolationLevel.Serializable" backend/src` (sin specs) → **6**
+  boundaries, en `buylist.service.ts` (**5**: `:1669`, `:3806`, `:6672`, `:6763`, `:7339`) y
+  `shipments.service.ts` (**1**). `grep -rn "P2034\|40001" backend/src` → **cero manejadores**. Luego **las seis**
+  convierten un conflicto de serialización (`40001` → Prisma `P2034`) en un `500 INTERNAL` genérico vía
+  `all-exceptions.filter.ts:50-53`.
+- **Por qué lo anoto:** el red team localizó dos y concluyó, con razón, *«nada explotable»* — el tope AML se
+  mantiene y el `500` no filtra internals. **Suscribo eso.** Lo que añado es que el arreglo, cuando se haga,
+  **no es de dos líneas en `createRequest`**: hay seis sitios, y uno está en `shipments` (retiros, custodia),
+  no en `buylist`. Un arreglo parcial dejaría la clase viva creyéndola cerrada.
+- **No bloquea.** Deuda aceptada (§7) con comprobación.
+
+---
+
+## 4. ⭐ Revisión del CONTRATO de PII antes de que exista el código — `API_CONTRACT` v1.69 `§M6-K` + `DESIGN_SYSTEM §34`
+
+Se me pidió mirarlo ahora porque sale más barato que revisarlo implementado. **Lo confirmo: sale más barato,
+y hay tres cosas que cambiar.** Primero lo que está bien, porque no es cortesía — es lo que NO hay que tocar.
+
+**Lo que apruebo tal cual (⛔ no se «mejora» al implementarlo):**
+
+1. **Las *object keys* no salen. Nunca, con ningún rol** (K.1.1). Y el contrato **retira** de `§11` las
+   `ineFrontKey`/`ineBackKey` que estaban declaradas y que el código nunca emitió: alinea el contrato con la
+   realidad en la dirección correcta.
+2. **Fallo cerrado de la bitácora, con el `await` EN el camino de la respuesta** (K.2.4). El razonamiento del
+   arquitecto —firmar es local y sin efecto, así que se audita **después de firmar y antes de responder**— es
+   correcto y es la única ordenación que no registra miradas que no ocurrieron ni deja salir miradas sin
+   registrar. **Y la prohibición explícita de `try/catch` que trague, de `void` y de `.catch(()=>{})` es la
+   línea más valiosa de toda la sección.** El candado exigido (forzar el fallo de `AuditLog` y comprobar que el
+   cuerpo **no** contiene ninguna `url`) es exactamente el test que distingue fallo cerrado de fallo abierto.
+3. **TTL 120 s con techo duro ≤ 300 en el servidor** (K.2.1). Un dial de caducidad sin techo acaba valiendo 24 h.
+4. **`after` sin la URL, sin las keys y sin el bucket** (K.2.5): una URL prefirmada es una credencial portadora;
+   guardarla en la bitácora sería guardar la llave junto a la puerta. Correcto.
+5. **`super_admin` únicamente, y el assert es llamar con token de operador**, no leer el decorador (K.2.2).
+6. **No se ensancha la PII de la ficha**: CLABE sigue `clabeMasked`, RFC sigue `rfcMasked`,
+   `recentShipmentRecipients` es lista blanca sin `line1`/`line2`/teléfono/CP.
+7. **La medición del `Content-Disposition: attachment`** (K.2.1) está bien hecha y bien corregida: la cabecera
+   no impide el render en `<img>`, impide la **navegación** como documento — que es el vector real (HTML
+   ejecutable en el origen del storage). `presignGet` lo conserva (`uploads.service.ts:161`, verificado). Y
+   evitar el endpoint proxy evita **un segundo camino a la misma PII** con su propio rol, su propio tope y su
+   propia auditoría que mantener sincronizados. Suscribo la decisión.
+8. **`DESIGN_SYSTEM §34` ya está alineado a 120 s** (v4.2.1, verificado): el contrato mandó sobre el sistema de
+   diseño, que es el orden correcto.
+
+**Lo que hay que cambiar — va al `arquitecto`, condición C10:**
+
+- **(a) ⭐ El tope de `10/min` está en el EJE EQUIVOCADO.** El contrato especifica
+  `@Throttle({ default: { ttl: 60_000, limit: 10 } })`, que usa el tracker global = **`req.ip`**. Dos problemas
+  a la vez: **(i)** el modelo de amenaza de esta superficie **no es una IP anónima**, es *una sesión de
+  `super_admin` abusada o robada* — y esa sesión cambia de IP cuando quiere; **(ii)** ese tracker es
+  precisamente el que `P-RL-1` (ALTA, **abierto**) esquiva rotando `X-Forwarded-For`. Resultado: **el único
+  control de volumen sobre el revelado de identidades es esquivable por el mismo bug que llevamos dos pases
+  arrastrando.** K.2.5 dice, con razón, que *«la bitácora es el control de volumen, no solo el rastro»* — y la
+  bitácora **sí** aguanta (deja una fila por acto, y falla cerrada). Pero la bitácora es **detectiva**; el tope
+  es el control **preventivo**, y está en el eje que no defiende. **Corrección:** el tope de este endpoint se
+  cuenta por **`actorUserId`**, no por IP (es la misma corrección que `C7` pide para `change-password`, y por
+  la misma razón). Coste: un `getTracker` propio en un guard, cero cambios de forma en la respuesta.
+- **(b) Falta `Cache-Control: no-store` (y `X-Robots-Tag`) en la respuesta de `ine-links`.** El propio contrato
+  **ya lo exige** para `POST /orders/guest/track` (`@Header('Cache-Control','no-store')`,
+  `guest-orders.controller.ts:66-67`) **porque la respuesta lleva un token**. La respuesta de `ine-links` lleva
+  **dos credenciales portadoras hacia PII de identidad**, que es estrictamente más sensible, y **no lo exige**.
+  Un `200` con esas dos URLs en una caché intermedia, en un `bfcache` o en un log de proxy corporativo es la
+  fuga que el TTL de 120 s intenta acotar. **Corrección:** `Cache-Control: no-store` + `X-Robots-Tag: noindex,
+  nofollow` normativos en K.2.3, con el mismo precedente citado.
+- **(c) La bitácora graba una cifra que puede no haber regido.** K.2.5 fija
+  `after: { documents:['front','back'], expiresInSeconds: 120 }` — **constante**, cuando K.2.1 define el TTL
+  como el dial de entorno `KYC_INE_VIEW_URL_TTL_SECONDS` (default 120, clamp 300). Si alguien sube el dial a
+  300, **la bitácora seguirá afirmando 120**. Es la misma clase exacta que `S-FX-3` («la bitácora … puede
+  afirmar un número que nunca rigió»), que este equipo ya pagó una vez. **Corrección:** `expiresInSeconds`
+  registra el TTL **efectivamente aplicado tras el clamp**, y K.2.1 añade que **el clamp también se registra**
+  (hoy solo se `warn`ea).
+
+**Lo que NO es un hueco aunque lo parezca** (lo miré y lo descarto, para que nadie lo «arregle»): que la URL
+firmada se pinte en un `<img src>` del panel la deja en el DOM y en la caché del navegador del revisor. Es
+**aceptable**: vive 120 s, el revisor es el `super_admin` (el único autorizado a verla), y la alternativa —un
+proxy— crea el segundo camino a la PII que K.2.1 evita con argumento. **No se cambia.**
+
+**Y una bandera de retención que el contrato mismo declara abierta:** K.4.1 cierra la mitad buena
+(al **sustituirse** la imagen, la key vieja se borra de R2 — hoy se abandona el objeto y **ninguna purga lo
+alcanza**), y dice con todas las letras que **`BL-42` sigue abierto y v1.69 no lo cierra**: hay caminos por los
+que el INE queda **sin ancla de purga**. Eso es **retención indefinida de PII de identidad**, y no es una
+decisión de ingeniería (§8, bandera 3).
+
+---
+
+## 5. `M-53` y las reservas legadas al desplegar
+
+- **El DDL es correcto y money-safe `[código]`:** `ADD COLUMN` **nullable, sin default, sin backfill** (no se
+  inventa un `reservedUntil` que nadie puede saber), FK `ON DELETE SET NULL` (defensiva: las órdenes no se
+  borran), y el artefacto anterior **ignora** las dos columnas ⇒ **reversible sin ceremonia**. Suscrito.
+- **Lo que sí anoto, y es de ventana de despliegue, no de seguridad de la app `[código]`:** la migración crea
+  **dos índices sin `CONCURRENTLY`** sobre `InventoryItem`. `CREATE INDEX` toma un `SHARE` que **bloquea las
+  escrituras** de esa tabla mientras dura, y `ADD CONSTRAINT … FOREIGN KEY` toma `SHARE ROW EXCLUSIVE` sobre
+  `InventoryItem` y `Order`. Con la tabla pequeña es instantáneo; si no lo fuera, coincidiría con checkouts que
+  **retienen conexión dentro de una transacción** (el patrón de `SB-B3`) y el efecto es el agotamiento del pool
+  en la ruta del cobro, justo durante el deploy. **Mitigación: ventana de bajo tráfico + medir el tamaño de la
+  tabla antes.** Dueño **devops**, condición **C8** (mismo paso, mismo momento). **NO MEDIDO:** el número de
+  filas de `InventoryItem` en producción.
+- **Las reservas legadas: ver `SEC-SB-1` (§3.4) y la condición `C8`/`C9`.**
+
+---
+
+## 6. CONDICIONES — numeradas, con **rol dueño** y **comprobación de cierre**
+
+> Una condición que nadie sabe cómo cerrar no es una condición. Cada una de abajo trae el comando o el
+> artefacto que la cierra. **Las heredadas conservan su número**; las nuevas empiezan en `C8`.
+
+### 6.1 Bloquean **publicar HOY** (modo prueba) — **2**
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C5** | **devops** | **Re-medir los check-runs sobre el SHA que se publique.** Heredada; se re-mide porque hay commits encima de `abecf73` | `./scripts/check-candidate-checks.sh <sha de production>` → rc=0 y «en rojo: 0 · sin terminar: 0 · saltados sin motivo: 0». Citar el SHA y la hora |
+| **C8** | **devops** | **Ejecutar el paso 1 de `ARCHITECTURE §4.48.7` EN la ventana de despliegue y DEJAR EL NÚMERO ESCRITO.** Deja de ser opcional: es el único momento en que ese conteo existe. Incluye el tamaño de `InventoryItem` (§5) | Las tres cifras anotadas en `DEVOPS_NOTES.md` con fecha: (a) `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL;` **antes** del deploy de código; (b) `SELECT count(*) FROM "Order" WHERE status='pending' AND "userId" IS NOT NULL;`; (c) `SELECT count(*) FROM "InventoryItem";`. Si (b) `> 0` ⇒ se abre **C9** con ese número |
+
+> **Por qué solo dos, y por qué ninguna es un fix de código:** no hay ningún hallazgo crítico ni alto **nuevo**,
+> y el único ALTO abierto (`P-RL-1`) se publica **sin empeorar** porque el código del throttle es idéntico al
+> que ya corre en producción (`[MEDIDO]`). En modo prueba no hay dinero real que perder. **C5** es higiene de
+> release ya establecida; **C8** es una medición de treinta segundos que solo se puede hacer hoy y sin la cual
+> `SEC-SB-1` queda sin cerrar para siempre.
+
+### 6.2 Bloquean el paso a **DINERO REAL** (`sk_live_…`) — **5**
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C3** | **humano / QA** | Heredada: certificar los tres flujos de dinero del release contra el runner con las claves de prueba | `gh run view <run> --log \| grep -m1 "Smoke (real) specs:"` sobre el SHA publicado, con `MONEY_SKIPPED:` vacío |
+| **C6** | **devops** | **Medir el edge de Railway** (el pivote de `P-RL-1`, `SB-B3` y `SEC-SB-2`). ⭐ **Se ejecuta en ESTA ventana de publicación**, no «en alguna» | Desde UNA IP, 6× `POST /api/v1/auth/login` a producción con correo inexistente y `X-Forwarded-For: 203.0.113.$i` rotatorio → **429 en el 6.º**. Reportar la proporción **6/6** (O-3) y anotar en `DEVOPS_NOTES.md` qué cabeceras llegan. ⛔ Sin secretos en el informe |
+| **C7** | **backend** | Heredada: **backstop de rate-limit que no dependa de la IP**: `login`/`google` por correo normalizado, `change-password` por `userId`, `register` por correo; + test que fije `trust proxy = 1` y asevere que el tracker es la última entrada de XFF | Serie A (10 logins con XFF rotatorio) contra local → **429 antes del 11.º**; mutar el límite por identidad ⇒ test en rojo |
+| **C12** | **orquestador (agenda) + pentester (ejecuta)** | **Un pase VIVO antes del primer peso real.** El Pase 3 fue estático y lo acepté para modo prueba (§1); para dinero real no basta | Bloque nuevo en `PENTEST_NOTES.md` con stack levantado y claves de prueba, cubriendo con **proporción N/N**: (a) double-sell concurrente sobre la misma pieza; (b) doble reembolso / replay de webhook; (c) el arma del pool de `SB-B3` **con el correo de otro** (`SEC-SB-2`); (d) la carrera barrido↔sustitución (candado `R-9`) |
+| **C13** | **humano** | **Pentest de tercero + programa de divulgación** antes de operar con dinero real (§8, bandera 1) | Informe del tercero y canal de reporte publicado |
+
+### 6.3 Condiciones **con fecha**, no de bloqueo
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C2-bis** | **devops** | Retirar `report_only: true` de `dast-release` (decidido en el veredicto anterior). **Fecha límite 2026-09-25** | `grep -n "report_only" .github/workflows/deploy.yml` sin `true`, y el primer run de `dast-release` sobre `production` citado por número con `blocking=false` |
+| **C9** | **backend** | **Si `C8`(b) > 0:** ensanchar el barrido legado a bóveda **o** entregar un script de liberación puntual, y **no retirar** la rama `IS NULL` de `reservationGuard` hasta que el conteo sea 0 (`SEC-SB-1`) | Ficha en `TECH_DEBT.md` con el número de `C8` y su disparador; y, al cerrar, `SELECT count(*) … reservedByOrderId IS NULL` = **0** medido en el target + el `git show` del commit que retira la rama |
+| **C10** | **arquitecto** | **Corregir `§M6-K` antes de que backend lo implemente** (§4): (a) tope `10/min` por **`actorUserId`**, no por IP; (b) `Cache-Control: no-store` + `X-Robots-Tag` normativos en la respuesta de `ine-links`; (c) `expiresInSeconds` de la bitácora = TTL **efectivo tras el clamp**, y registrar el clamp | `git show <sha>:docs/API_CONTRACT.md` con las tres líneas en `§M6-K.2/K.2.3/K.2.5`, y `docs/DESIGN_SYSTEM.md §34` sin contradicción |
+| **C11** | **backend** | Al implementar `§M6-K`: el candado de fallo cerrado que el propio contrato exige | Test que **fuerza el fallo** de la escritura de `AuditLog` y asevera **`500`** y que el cuerpo **no contiene ninguna `url`**. Un test que solo comprueba que la fila se escribe **no cierra esta condición** |
+
+---
+
+## 7. Deuda de seguridad ACEPTADA (registrada, **no bloqueante**) — lo que pide el DoD
+
+| Id | Sev. | Dueño | Impacto aceptado | **Disparador** para dejar de aceptarla |
+|---|---|---|---|---|
+| `SB-B2` / `SEC-SB-3` | Baja | backend | `500 INTERNAL` genérico ante conflicto de serialización en **6** boundaries (5 buylist + 1 shipments). No filtra internals, no rompe el tope AML | La primera queja real de un vendedor por doble-submit, **o** cuando se toque cualquiera de los 6 sitios. Arreglo: mapear `P2034` → `409 CONFLICT` **en los seis**, no en dos |
+| `SB-B4` | Info | devops | 5 `moderate` en deps de runtime de backend (`@nestjs/core`, `qs`, `express`/`body-parser`). **0 alta/crítica** `[MEDIDO hoy]` | Que cualquiera suba a alta/crítica, o que salga fix upstream. `frontend/` está en **0** |
+| `SB-B5` | Info | devops | Flood barato de firmas inválidas en `/webhooks/stripe` (`@Public @SkipThrottle`, correcto por diseño: rechazo antes de tocar la BD) | Si el coste de CPU se observa en producción. Mitigación de **edge** (tope de body/WAF), no de app |
+| `P-SEED-1` | Baja | backend + devops | `assertSeedTarget` mira `URL.hostname` e ignora `?host=`/`?options=` de libpq (confirmé en el pase anterior que Prisma **sí** los honra) | Cualquier cambio en cómo se inyecta `DATABASE_URL`, o el primer entorno con más de una BD alcanzable |
+| `P-GL-2` | Baja | devops | `gitleaks` exime `docs/*.md` y `security/*` por **ruta entera**, sin control compensatorio. Repo **PÚBLICO** | Inmediato si alguna vez se pega un valor real en un doc. Arreglo: exención por **valor anclado**, no por ruta |
+| `P-NAME-1` | Info | backend + frontend | `name`/`recipientName` se almacenan sin escapar; ningún sink sin escapar encontrado (correos escapan; React auto-escapa) | Cualquier sink nuevo que pinte HTML crudo: PDF/etiqueta server-side, export CSV, `dangerouslySetInnerHTML` |
+| `P-REDIR-1` | Baja | frontend | `safeNext` acepta `/\`; sin sink cross-origin alcanzable (router SPA) | El primer `window.location.assign` que reciba un `next` controlado por el atacante |
+| `P-BILL-DoS` | Info | backend + devops | `rfcEnc` corrupto ⇒ `500 INTERNAL` autoinfligido y fail-closed; no hay ruta para corromper el de otro | La rotación de `PII_ENCRYPTION_KEY` (necesita procedimiento de re-cifrado **antes**) |
+| `BUYLIST_LIMIT_EXCEEDED` emite `capCents`/`wouldBeCents` | Baja | arquitecto → backend | Un dial de política AML sigue viajando al cliente, contra la decisión (c) del dueño. Serializado **a propósito** por el orquestador para no invalidar la medición de QA sobre v1.68.1 | La revisión siguiente (`§M6-K.5` ya lo enruta). **Tiene dueño y fecha: no es un olvido** |
+| `BL-42` (INE sin ancla de purga) | **Media** | backend + **humano** | Retención **indefinida** de imágenes de identidad por tres caminos que nunca llegan al ancla de `INE_RETENTION_DAYS`. El contrato v1.69 lo declara abierto y **no lo cierra** | ⚠️ **Antes de dinero real, o antes de la primera solicitud ARCO de un cliente.** Ver §8, bandera 3 |
+
+---
+
+## 8. Banderas para el humano
+
+1. **Pentest de tercero + canal de divulgación antes de operar con dinero real (`C13`).** Este equipo lleva
+   cinco pases de red team propio y ha encontrado cosas serias (`P1` doble pago SPEI, `S-FX-1`, `P-WH-1`), lo
+   cual es señal de que el proceso funciona — **y también de que un sexto pase del mismo equipo tiene
+   rendimientos decrecientes**. Custodia de bienes de terceros + dinero saliente + PII de identidad es un
+   perfil que justifica ojos externos. **Coste que evita:** un solo double-sell de una carta graduada cara con
+   dinero real cuesta más que el pentest.
+2. **El marco «modo prueba» es lo que sostiene este veredicto, y tiene fecha de caducidad.** Todo lo que aquí
+   digo «no bloquea» se apoya en que **no se mueve dinero real** (`HECHOS.md`). El día que se cambie a
+   `sk_live_…` **este documento deja de aplicar**: se cierran `C3, C6, C7, C12, C13` primero. ⛔ No es un
+   trámite: `P-RL-1` sigue abierto y `SB-B3`/`SEC-SB-2` cuelgan de él.
+3. **⚠️ PII e identidad — dos cosas que son tuyas, no del equipo.** (a) **`BL-42`: hoy hay imágenes de INE que
+   pueden quedarse indefinidamente** porque tres caminos no llegan nunca al ancla de purga de
+   `INE_RETENTION_DAYS` (180 días). Conservar una identificación oficial sin plazo ni base es un riesgo
+   **legal**, no técnico: en México eso cae bajo LFPDPPP (aviso de privacidad, plazo de conservación, derechos
+   ARCO), y nadie del equipo puede decidir cuál es el plazo correcto. (b) **`§M6-K` crea la primera ruta por la
+   que alguien puede VER una INE.** El diseño es bueno (solo tú, auditado, 120 s, fallo cerrado) — pero a
+   partir de que exista, *«¿quién ha mirado la identidad de esta persona?»* es una pregunta con respuesta, y
+   conviene que tu aviso de privacidad diga que existe ese registro.
+4. **Custodia de bienes: `SEC-SB-1` puede dejarte piezas únicas invendibles y no se sabe cuántas.** No es un
+   ataque, es inventario congelado. La cifra solo existe **en la ventana del deploy** (`C8`): si no se mide
+   entonces, se mide nunca.
+
+---
+
+## 9. Lo que **NO MEDÍ** — con la medición que lo cerraría
+
+> No lo convierto en hipótesis con aire de conclusión. Si no está medido, no está.
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| 1 | **No levanté el stack.** Ninguna carrera de dinero de este pase es mía. Las de backend (double-sell N=6, pool N=6/12 s) las cito `[REPORTADO]` | `C12` (pase vivo del red team con proporción N/N) |
+| 2 | **Cuántas reservas legadas hay en producción** (`SEC-SB-1`), y cuántas de bóveda | `C8`, en la ventana de despliegue |
+| 3 | **Si el arma del pool es disparable por un externo**, y si `SEC-SB-2` (correo de otro) amplifica | `C6` (el throttle) + `C12` (la carrera) |
+| 4 | **El comportamiento del edge de Railway con `X-Forwarded-For`.** Sigue siendo `[REPORTADO]` por resúmenes de búsqueda; el egress a sus docs está bloqueado desde aquí | `C6` |
+| 5 | **Tamaño de `InventoryItem` en producción** ⇒ duración real del lock de `CREATE INDEX` de M-53 | `C8`(c) |
+| 6 | **`§M6-K` no tiene código.** Todo lo de §4 es revisión de **contrato**: no he probado ningún endpoint de INE porque no existe | `C11` cuando backend lo implemente |
+| 7 | **`gitleaks` no está instalado en este entorno hoy.** No re-corrí el canario; lo cerré `[MEDIDO]` en el pase anterior (`C4`, 11/11 en 3/3) y no ha cambiado el fichero de reglas | `security/scripts/sast-gitleaks-canary.sh` con el binario del scratchpad de devops |
+| 8 | **Lo que sí medí yo hoy**, para que se distinga: `npm audit` backend `--omit=dev` → `{critical:0, high:0, moderate:5}`; frontend → **0**; `git diff --stat c8bee65 5d2c62b` de `main.ts` + `app-throttler.guard.ts` → **vacío**; `grep` de secretos con forma real en el delta → **0** (solo prosa en `docs/`); `grep` de `orderItem.(create\|update\|delete\|upsert)` → **vacío**; `Serializable` sin `P2034` → **6 boundaries** | — |
+
+---
 # VEREDICTO BLUE TEAM — release «Stream A + andamiaje de CI» · candidato `main`=`abecf73` (árbol ≡ `22ce2a4`; rama `claude/tcg-hunt-orchestration-2` en `c1a945c`) · 2026-09-11
 
 > ## ⭐ VEREDICTO: **APROBADO CON CONDICIONES** para publicar Stream A + andamiaje de CI en **modo prueba de Stripe**

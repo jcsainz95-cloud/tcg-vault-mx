@@ -1603,9 +1603,18 @@ export class BuylistService implements OnModuleInit {
     const hasPendingLine = itemsData.some((i) => i.itemStatus === 'precio_pendiente');
     const ineRequired = quotedTotalCents >= ineThreshold || hasPendingLine;
     if (ineRequired && !ineProvided) {
-      throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {
-        thresholdCents: ineThreshold,
-      });
+      // ⛔⛔ v1.69 (P-78, BK-6 · §M6-K.5) — **`details` VACÍO. El umbral ya NO viaja al vendedor.**
+      // Decisión (c) del dueño, literal: *«los topes dejan de mostrarse al cliente — pantalla Y
+      // MENSAJE DE ERROR»*. Aquí vivía `thresholdCents`, y era **el último sitio** que le imprimía
+      // al vendedor el número exacto a partir del cual le pedimos identificación — o sea, el manual
+      // de cómo quedarse un peso por debajo.
+      // ⛔ **No se fabrica otra cifra en su lugar** (ni «te faltan $X», ni «el máximo es $Y»): ese
+      // era el defecto. El remedio es una FRASE, y vive en el copy del front — *«supera nuestro
+      // límite; sube tu INE para continuar»*. **Una frase no es un dial** (patrón D43).
+      // ⚠️ La capacidad de avisar ANTES no se pierde: el cotizador pregunta con
+      // `GET /users/me/kyc?quotedTotalCents=N` y recibe un veredicto (`ineRequiredForTotal`), no el
+      // número — así §P.2.2 (pedir el INE en el paso de la dirección) sigue cumpliéndose.
+      throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {});
     }
 
     // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE

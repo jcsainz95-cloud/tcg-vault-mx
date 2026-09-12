@@ -71,7 +71,7 @@ cat <<EOF
   Postgres : localhost:5432   (user/db según .env)
   Redis    : localhost:6379
   MinIO API: http://localhost:9000
-  MinIO UI : http://localhost:9001  (login: MINIO_ROOT_USER / MINIO_ROOT_PASSWORD)
+  S3       : http://localhost:9000  (s3-local; SIN consola web — MinIO se retiró, §4.51)
 
 Siguientes pasos (cuando exista el código):
   Backend : cd backend  && npm install && npm run start:dev   (o: ./scripts/dev-up.sh --apps)

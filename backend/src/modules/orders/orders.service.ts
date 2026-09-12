@@ -18,6 +18,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
 import {
+  ORDER_RESERVATION_TTL_MIN,
   RESERVATION_TX_OPTIONS,
   lockReservationGate,
   releaseReservationData,
@@ -961,10 +962,20 @@ export class OrdersService {
    * en la próxima pasada), luego liberar con `reservationGuard(orden)` y `Order → failed` (si seguía
    * `pending`). Cambio de conducta declarado: una orden de BÓVEDA `pending` también expira a los
    * `ORDER_RESERVATION_TTL_MIN` (hoy quedaba reservada hasta que Stripe cancelara el PI, que no cancela
-   * solo). La rama LEGADA (invitado con piezas `reservedByOrderId IS NULL`) sigue en
-   * `GuestCheckoutService.sweepStaleGuestOrders`; el job las encadena.
+   * solo).
+   *
+   * ⭐⭐ **SEC-SB-1 / C9 (v1.68.1)** — el barrido cubre TAMBIÉN la reserva LEGADA (`reservedByOrderId
+   * IS NULL`, anterior a M-53), que **no la barría nadie**: `sweepStaleGuestOrders` solo mira
+   * invitados `direct_ship`, y el `not: null` de aquí arriba las excluye por construcción. Como la
+   * migración M-53 fue **sin backfill**, «legada» no es «lo que estaba en vuelo al desplegar»: es
+   * **toda** pieza que estuviera `reserved` en ese instante, incluida la acumulación histórica de
+   * órdenes de BÓVEDA `pending` que nunca tuvieron barrido (D-SB-1). Ver
+   * {@link legacyExpiredByOrder} para la política y por qué no puede soltar una reserva con dueño
+   * vivo.
    */
-  async sweepExpiredReservations(now = new Date()): Promise<{ swept: number; skipped: number }> {
+  async sweepExpiredReservations(
+    now = new Date(),
+  ): Promise<{ swept: number; skipped: number; legacy: number }> {
     const expired = await this.prisma.inventoryItem.findMany({
       where: { status: 'reserved', reservedByOrderId: { not: null }, reservedUntil: { lt: now } },
       select: { id: true, reservedByOrderId: true },
@@ -973,6 +984,15 @@ export class OrdersService {
     for (const row of expired) {
       if (!row.reservedByOrderId) continue;
       byOrder.set(row.reservedByOrderId, [...(byOrder.get(row.reservedByOrderId) ?? []), row.id]);
+    }
+    // SEC-SB-1: las legadas entran POR LA MISMA PUERTA (mismo bucle, mismo B3, mismo cuerpo de
+    // liberación). Dos barridos paralelos sobre la misma orden cancelarían su PI dos veces y
+    // liberarían en dos transacciones distintas; uno solo, agrupado por orden, no puede divergir (T2).
+    const legacyByOrder = await this.legacyExpiredByOrder(now);
+    let legacy = 0;
+    for (const [orderId, itemIds] of legacyByOrder) {
+      legacy += itemIds.length;
+      byOrder.set(orderId, [...(byOrder.get(orderId) ?? []), ...itemIds]);
     }
     let swept = 0;
     let skipped = 0;
@@ -1024,7 +1044,67 @@ export class OrdersService {
       this.logger.warn(`order-reservation-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
     }
     if (swept > 0) this.logger.log(`order-reservation-sweep: ${swept} reservas vencidas liberadas.`);
-    return { swept, skipped };
+    if (legacy > 0) {
+      // SEC-SB-1: se cuenta APARTE porque es una población que se AGOTA. Mientras este número no
+      // sea 0 en una pasada, la rama `IS NULL` de `reservationGuard` NO se puede retirar (`RSV-L1`).
+      this.logger.log(
+        `order-reservation-sweep(legado): ${legacy} piezas LEGADAS (sin dueño) candidatas en ` +
+          `${legacyByOrder.size} pedidos; el conteo de ARCHITECTURE §4.48.7(5) baja con cada pasada.`,
+      );
+    }
+    return { swept, skipped, legacy };
+  }
+
+  /**
+   * ⭐⭐ **SEC-SB-1 / C9** — las reservas LEGADAS que puede barrer esta pasada, agrupadas por la orden
+   * a la que pertenecen. Una pieza legada (`status='reserved'` y `reservedByOrderId IS NULL`) no
+   * lleva `reservedUntil` —M-53 no hizo backfill y no había de dónde sacarlo sin inventarlo—, así que
+   * su vencimiento se deriva de la ÚNICA fecha que sí existe: `Order.createdAt + ORDER_RESERVATION_TTL_MIN`.
+   *
+   * ⛔ **Soltar de más es peor que soltar de menos** (le quitas a un cliente algo que está pagando).
+   * Las tres condiciones que lo impiden, y ninguna es prescindible:
+   *  1. **`Order.status = 'pending'`.** Una pieza legada bajo una orden `settled`/`refunded`/
+   *     `chargeback` tiene dueño (alguien pagó): NO se toca, aunque siga `reserved` por una anomalía.
+   *     Esa clase queda para el runbook, no para el barrido.
+   *  2. **`createdAt < now − TTL`.** El checkout de hace diez minutos que aún está en el 3-D Secure
+   *     NO es basura: es un cliente pagando. Mismo plazo que el resto del sistema (§4-R.1).
+   *  3. **B3 (en el bucle del llamador): el PaymentIntent se cancela ANTES y tiene que quedar
+   *     `canceled`.** Si Stripe dice `processing`/`succeeded`, la orden se salta entera. Ésta es la
+   *     guarda fuerte: la única vía por la que una legada podía aún reclamarse es el webhook de su
+   *     propio PI, y un PI cancelado ya no dispara `succeeded`.
+   *
+   * **Por qué la orden que encuentro es la dueña y no otra:** una pieza `reserved` está en las líneas
+   * de como mucho UNA orden `pending` — `reserveItems` exige `status ∈ {listed,in_stock}` para crear
+   * la `OrderItem`, y toda ruta que devuelve la pieza a ese estado (liberación, sustitución, webhook
+   * `failed|canceled`, barrido) marca su orden `failed` en la MISMA transacción. Las demás órdenes que
+   * mencionen la pieza son pasado terminal.
+   *
+   * Cubre lo que `GuestCheckoutService.sweepStaleGuestOrders` cubría (invitado + `direct_ship`) y
+   * además lo que NO cubría nadie: bóveda, y envío directo de usuario CON cuenta. Las dos se retiran
+   * juntas (`RSV-L1`) cuando el conteo de §4.48.7(5) sea 0 en producción.
+   */
+  private async legacyExpiredByOrder(now: Date): Promise<Map<string, string[]>> {
+    const cutoff = new Date(now.getTime() - ORDER_RESERVATION_TTL_MIN * 60 * 1000);
+    const legacyItem = { status: 'reserved', reservedByOrderId: null } as const;
+    const stale = await this.prisma.order.findMany({
+      where: {
+        status: 'pending',
+        createdAt: { lt: cutoff },
+        items: { some: { inventoryItem: legacyItem } },
+      },
+      select: {
+        id: true,
+        // SOLO las líneas legadas de la orden: el `swept` de la pasada cuenta piezas realmente
+        // atrapadas, y no se arrastra a la liberación una línea que ya se resolvió por otra vía.
+        items: { where: { inventoryItem: legacyItem }, select: { inventoryItemId: true } },
+      },
+    });
+    const byOrder = new Map<string, string[]>();
+    for (const order of stale) {
+      const ids = [...new Set(order.items.map((i) => i.inventoryItemId))];
+      if (ids.length > 0) byOrder.set(order.id, ids);
+    }
+    return byOrder;
   }
 
   /**

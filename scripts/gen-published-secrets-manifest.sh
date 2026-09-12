@@ -87,7 +87,18 @@ MODO="${1:-write}"
 # Fuente ÚNICA de la forma. `check-secret-defaults.sh` la LEE de aquí (no la copia):
 # un hecho, un sitio. Si mañana añadimos `PASSPHRASE`, lo añadimos una vez.
 # INICIO_FORMA_SECRETO
-FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|SIGNING|UNSEAL|HMAC|SALT|CREDENTIAL|PEPPER|CIPHER|_KEY$|_KEYS$|_PWD$|_PASS$|_PIN$|_SEED$|_CODE$)'
+# ⚠️ `SALT(_|$)` VA ANCLADO A PROPÓSITO (2026-09-11). Era `SALT` a secas: el único
+# término corto de esta lista SIN anclar. Este repo se escribe en ESPAÑOL, y
+# «saltar / saltada / saltados / SALTADOS_ESPERADOS» contiene esas cuatro letras
+# — medido: 50+ apariciones en el árbol. Con `SALT` suelto, `N_VERIF_SALTADA=3`
+# (un CONTADOR de un canario) se clasificaba como secreto publicado.
+# No se estrecha el DETECTOR por comodidad: se estrecha porque clasificaba mal, y
+# el propio candado ya dice por qué importa — «un candado que suena por lo que no
+# es, se apaga, y entonces no suena por lo que sí». Lo que sigue reconociendo:
+# `FOO_SALT`, `SALT_KEY`, `MASTER_SALT`, `SALT`. Lo que deja de marcar: palabras
+# españolas que sólo CONTIENEN esas letras. Las dos direcciones están sondeadas
+# en el autotest (0) de `check-secret-defaults.sh`.
+FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|SIGNING|UNSEAL|HMAC|SALT(_|$)|CREDENTIAL|PEPPER|CIPHER|_KEY$|_KEYS$|_PWD$|_PASS$|_PIN$|_SEED$|_CODE$)'
 # FIN_FORMA_SECRETO
 # Nombres que CONTIENEN esas palabras y NO son secretos. Se acierta por defecto a
 # «es secreto»: una variable de más en el manifiesto no rompe nada; una de menos

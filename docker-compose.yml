@@ -13,7 +13,7 @@
 # su código aún no existe. Ver "PERFIL apps" abajo.
 #
 # Uso rápido:
-#   docker compose up -d              # solo infraestructura (postgres/redis/minio)
+#   docker compose up -d              # solo infraestructura (postgres/redis/s3)
 #   docker compose --profile apps up  # + backend y frontend (cuando exista el código)
 #   docker compose down               # apaga (conserva volúmenes/datos)
 #   docker compose down -v            # apaga y BORRA los datos (reset total)
@@ -69,54 +69,59 @@ services:
       start_period: 5s
 
   # ---------------------------------------------------------------------------
-  # MinIO — object storage S3-compatible (fotos de bóveda/verificación/disputa)
-  #   API:     http://localhost:9000
-  #   Consola: http://localhost:9001  (login con MINIO_ROOT_USER/PASSWORD)
+  # s3 — object storage S3-compatible de TODA ruta NO-PRODUCCIÓN (ARCHITECTURE
+  # §4.51, forma A de §4.51.6). Es `scripts/s3-local/`: EL MISMO servidor que usa
+  # el arnés nativo ⇒ una sola implementación y UNA sola lista de huecos
+  # declarados, en vez de dos configuraciones que un diff no distingue.
+  #
+  # SUSTITUYE a `minio` + `createbuckets` (`minio/mc`), retirados porque Docker
+  # Hub dejó de servirlos anónimamente (401 a nivel de repositorio, medido) y su
+  # etiqueta era `:latest`, así que no había «un número al que volver» (D-S3-1).
+  # El bucket ya no lo crea un init-container: lo crea el propio servidor al
+  # arrancar (`configureBuckets`, ANTES de escuchar) ⇒ invariante 1 de §4.51.6.
+  #   API: http://localhost:9000  ·  consola: NO HAY (nadie la usaba, medido N-4)
   # ---------------------------------------------------------------------------
-  minio:
-    image: minio/minio:latest
+  s3:
+    # `library/*` = Docker Official, la clase que SÍ se descarga anónimamente
+    # (medido HTTP 200). Clavada por versión, como exige check-compose-images.sh.
+    image: node:22-alpine
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    working_dir: /app
+    # `npm ci` al arrancar: `scripts/s3-local/node_modules` NO viaja en git
+    # (N-3 medido: sólo package.json, package-lock.json y server.js). El registro
+    # npm ya es carga OBLIGADA de cada corrida (el backend hace `npm ci`), así que
+    # esto NO añade un dominio de fallo nuevo — que es la razón 1 de §4.51.3.
+    command: sh -c "npm ci --omit=dev --no-audit --no-fund && exec node server.js"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
-    # SEC-M4: bind SOLO a localhost (API + consola no expuestas a la LAN).
+      # §4.51.6 invariante 4 + D-S3-2: DENTRO del contenedor el bind DEBE ser
+      # 0.0.0.0 para que el backend lo alcance por la red de compose. NO debilita
+      # SEC-M4: lo que expone al host es la PUBLICACIÓN del puerto, en loopback.
+      S3_LOCAL_HOST: 0.0.0.0
+      S3_LOCAL_PORT: "9000"
+      S3_LOCAL_DIR: /data
+      S3_BUCKET: ${S3_BUCKET:-tcg-photos}
+      # Invariante 2: EXACTAMENTE las mismas credenciales que recibe el backend.
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?falta S3_SECRET_ACCESS_KEY (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}
+    volumes:
+      # Se montan los TRES ficheros, no el directorio: así `npm ci` escribe
+      # `node_modules` DENTRO del contenedor y no ensucia el árbol del host.
+      - ./scripts/s3-local/package.json:/app/package.json:ro
+      - ./scripts/s3-local/package-lock.json:/app/package-lock.json:ro
+      - ./scripts/s3-local/server.js:/app/server.js:ro
+      - s3_data:/data
+    # SEC-M4: publicación SOLO en loopback.
     ports:
       - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
-    volumes:
-      - minio_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # Una petición SIN FIRMAR recibe 403 por diseño (guarda anti-anónimo). Por
+      # eso «vivo» = «responde HTTP», sea cual sea el código; lo que significa
+      # caído es no poder conectar. 403 aquí es «vivo Y privado».
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:9000,path:'/'},()=>process.exit(0)).on('error',()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # ---------------------------------------------------------------------------
-  # createbuckets — init container: crea el bucket y sale (no queda corriendo).
-  # SEC-A5 + v1.2.1: bucket 100% PRIVADO. Su único contenido es el prefijo
-  # kyc_ine/ (INE del buylist, INE/PII) que NUNCA es de lectura pública: se sirve
-  # por presigned GET (backend). Ya NO hay inventory_photo/ (catálogo público, sin
-  # CDN) ni dispute_claim/ (la evidencia de disputa va por correo). 'set none'
-  # garantiza que un bucket preexistente (de una corrida vieja con lectura pública)
-  # quede reprivatizado. En prod (R2/S3) el bucket va 100% privado, solo kyc_ine/.
-  # ---------------------------------------------------------------------------
-  createbuckets:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.} &&
-      mc mb --ignore-existing local/${S3_BUCKET:-tcg-photos} &&
-      mc anonymous set none local/${S3_BUCKET:-tcg-photos} &&
-      mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
-      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo: 100% privado; solo kyc_ine/ (presigned GET); lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-180} dias.' &&
-      exit 0
-      "
-    restart: "no"
+      retries: 12
+      start_period: 90s
 
   # ===========================================================================
   # PERFIL apps — Backend y Frontend (APAGADOS por defecto)
@@ -146,14 +151,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
+      s3:
         condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       # Dentro de la red de compose los hosts son los nombres de servicio:
       DATABASE_URL: postgresql://${POSTGRES_USER:-tcg}:${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD (S-88-1). Este repo es PUBLICO y aqui ya NO hay literal de respaldo. Genera uno con ./scripts/secrets-preflight.sh env-file .env  o cargalo del gestor de secretos. NUNCA escribas un literal aqui.}@postgres:5432/${POSTGRES_DB:-tcg_marketplace}?schema=public
       REDIS_URL: redis://redis:6379
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://s3:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-tcg-photos}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
@@ -300,4 +305,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  s3_data:

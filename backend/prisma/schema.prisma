@@ -471,6 +471,23 @@ model KycProfile {
   capPerMonthCentsOverride   Int?
   verifiedBy                 String?
   verifiedAt                 DateTime?
+  // ⭐ v1.69 (P-78, M-54 · API_CONTRACT §M6-K.4 · ARCHITECTURE §4.49.3) — LA DECISIÓN DEL KYC.
+  // Tres columnas ADITIVAS y NULLABLE, sin backfill y sin índices: toda fila existente queda válida
+  // (`rejectionReason IS NULL` = «nunca se rechazó», y eso es la verdad).
+  //
+  // ⛔ `verifiedAt`/`verifiedBy` NO se reinterpretan ni se renombran: siguen significando
+  // «cuándo/quién VERIFICÓ». `reviewedAt`/`reviewedBy` significan «cuándo/quién DECIDIÓ», incluido
+  // el rechazo. **Dos hechos, dos columnas** — reusar `verifiedAt` para sellar un rechazo es la
+  // clase de ahorro que produce una columna que miente.
+  //
+  // `rejectionReason`: 3–500 tras `trim()`, validado EN LA APLICACIÓN (no en la BD), exactamente
+  // como `SellRequestItem.rejectionReason` (M-22) — el mismo concepto no estrena una segunda talla.
+  // ⚠️ Lo escribe un admin sobre un documento: es la decisión de negocio, **no es PII del cliente**
+  // (por eso sí viaja en el `after` del `user.kyc.update` y sí se le devuelve al cliente en
+  // `GET /users/me/kyc`, §M6-K.4/K.7).
+  rejectionReason            String?
+  reviewedAt                 DateTime?
+  reviewedBy                 String?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
