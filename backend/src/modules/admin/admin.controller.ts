@@ -81,6 +81,15 @@ class CreateAdminUserDto {
   @IsOptional() @IsString() locale?: string;
 }
 
+/**
+ * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L · desviación `D-A5-3`) — **las llaves de query que
+ * `GET /admin/users` ADMITE. Cualquier otra es `400`, no un descarte silencioso.**
+ *
+ * Es una lista blanca de **cinco** llaves y vive junto a su único call-site porque es la superficie
+ * de **este** endpoint, no una política del backend.
+ */
+const ADMIN_USERS_QUERY_KEYS = ['q', 'status', 'kycStatus', 'page', 'pageSize'] as const;
+
 /** M6 Usuarios: lista/ficha para vault_operator (limitado) + super_admin. */
 @Controller('admin/users')
 @Roles(Role.vault_operator, Role.super_admin)
@@ -94,19 +103,53 @@ export class AdminUsersController {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * `GET /admin/users` — **API_CONTRACT §M6-L** (`A5`, v1.71) · ARCHITECTURE §4.53.
+   *
+   * ### Por qué este endpoint lee la query ENTERA y no cuatro `@Query('…')` sueltos
+   * Con parámetros sueltos, **una llave desconocida se descarta sin que nada falle** (desviación
+   * `D-A5-3`). Eso no es tolerancia: es la puerta por la que entró el defecto que `A5` cierra — el
+   * frontend publicado manda `?kycStatus=`, el servidor lo tiraba, y el operador recibía **el padrón
+   * entero con cara de cola filtrada** (medido el 2026-09-12: `?kycStatus=pending` ⇒ `200`, `total`
+   * idéntico al del listado sin filtrar). Leer el objeto completo es lo que permite decir `400`.
+   *
+   * ⚠️ **ACOTADO A ESTE ENDPOINT, a propósito.** ⛔ No se convierte en regla global de «rechazar toda
+   * query desconocida» sin pasar por el arquitecto: rompería clientes en rutas que hoy toleran
+   * parámetros de más (`D-A5-3`).
+   *
+   * ### La paginación NO cambia (conducta publicada, §M6)
+   * `page` default `1` normalizado a ≥ 1; `pageSize` default `20` **acotado** a `[1,100]`. Un
+   * `pageSize` fuera de rango **no es error**: se acota. Se documentó tal cual está, y se queda.
+   */
   @Get()
-  list(
-    @Query('q') q?: string,
-    @Query('status') status?: string,
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
-  ) {
-    return this.admin.listUsers(
-      q,
-      status,
-      Math.max(1, parseInt(page, 10) || 1),
-      Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
-    );
+  list(@Query() query: Record<string, unknown>) {
+    for (const [key, value] of Object.entries(query)) {
+      if (!(ADMIN_USERS_QUERY_KEYS as readonly string[]).includes(key)) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', `unknown query parameter '${key}'`, {
+          field: key,
+          allowed: [...ADMIN_USERS_QUERY_KEYS],
+        });
+      }
+      // `?q=a&q=b` llega como array: un parámetro REPETIDO tampoco se descarta en silencio (leerlo
+      // como `undefined` sería exactamente el mismo daño con otro disfraz).
+      if (typeof value !== 'string') {
+        throw BusinessException.badRequest('VALIDATION_ERROR', `query parameter '${key}' must appear once`, {
+          field: key,
+        });
+      }
+    }
+
+    const raw = query as Record<string, string | undefined>;
+    return this.admin.listUsers({
+      q: raw.q,
+      status: raw.status,
+      // ⭐ §M6-L.3: cadena vacía ≡ ausente (el `Select` en «Todas» manda `?kycStatus=`), y el valor
+      // fuera del enum es `400` — nunca una lista sin filtrar. La validación vive en el servicio,
+      // que es quien arma el `where`: así ningún camino puede colar un valor crudo a Prisma.
+      kycStatus: raw.kycStatus,
+      page: Math.max(1, parseInt(raw.page ?? '1', 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(raw.pageSize ?? '20', 10) || 20)),
+    });
   }
 
   /**
