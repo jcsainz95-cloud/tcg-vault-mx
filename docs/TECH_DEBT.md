@@ -6833,3 +6833,88 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   línea en el arranque de devops), o `stack-native.sh` ofrece «re-hornear el frontend desde el árbol
   vivo». Se mide sirviendo el árbol del agente en `:3010` y viendo `GET /api/v1/orders` **200 desde el
   navegador**. Dueño: **devops**.
+
+---
+
+## Backend · 2026-09-12 · P-78 (§M6-K) — deuda que deja la verificación de identidad
+
+> Anotada por **backend** a petición del **techlead** (veredicto *aprobado con condiciones*, R-1
+> cerrado aparte por ser bloqueante). Las tres son **preexistentes o disparadas**, ninguna bloquea.
+
+### D-1 · `ineOnFile` es un hecho **afirmado por el cliente**: nada ata la llave de subida a quien pidió el presign
+- **Dueño:** **backend** (`users`/`uploads`). **Severidad:** Media-alta (PII / integridad de un
+  invariante). **Preexistente** desde v1.2; ⚠️ **P-78 es lo que sube su coste**, no su causa.
+- **Qué es, medido:** `backend/src/modules/users/dto/users.dto.ts:94-95` declara
+  `ineFrontUploadKey?`/`ineBackUploadKey?` como `@IsString()` **y nada más**. `UsersService.putKyc`
+  las escribe tal cual en `KycProfile`. ⇒ **Nada comprueba** (a) que la llave venga de un presign
+  **de ese usuario**, (b) que empiece por `kyc_ine/`, ni (c) que el objeto **exista** en el bucket.
+- **Por qué importa AHORA:** hasta v1.68 `ineOnFile` solo gobernaba un `422` y una casilla. Con
+  §M6-K, un `super_admin` **actúa** sobre ese booleano: abre la pantalla de revisión y **verifica o
+  rechaza una identidad**. Un cliente puede poner una cadena cualquiera y aparecer como *«INE en
+  archivo, en revisión»* sin haber subido nada — y el revisor se encuentra un `422 INE_NOT_ON_FILE`
+  o, peor, un objeto que no es suyo si acierta una llave ajena (las llaves son UUID, así que el
+  acierto es improbable, **no imposible**, y **no hay control que lo impida**).
+- **Disparador:** el primer pase que toque `PUT /users/me/kyc` o el presign. **Forma probable**
+  (decide el arquitecto, no backend): que el presign **registre** la llave emitida con su `userId` y
+  que el `PUT` **solo** acepte llaves de esa tabla; o, como mínimo, exigir el prefijo `kyc_ine/` y un
+  `HEAD` al objeto. ⛔ Lo segundo por sí solo **no** cierra (a).
+- **Comprobación de cierre:** un `PUT /users/me/kyc` con `ineFrontUploadKey: "cualquier/cosa.png"`
+  ⇒ `422`, y `GET /users/me/kyc` sigue con `ineOnFile: false`.
+
+### D-2 · `PATCH /admin/users/:id/kyc` sigue **aceptando** `capPerRequestCents`, que ya no se devuelve
+- **Dueño:** **backend** (`admin`). **Severidad:** Baja (cosmética de contrato; sin efecto de dinero).
+- **Qué es:** R-1 retiró `capPerRequestCents` de los DOS DTOs de **respuesta** (lo mandaba §11 desde
+  v1.59/D47 y el código lo publicaba cuatro revisiones después). El **DTO de petición**
+  (`admin.controller.ts`, `UpdateKycDto`) lo sigue aceptando y `AdminService.updateUserKyc` lo sigue
+  escribiendo en `capPerRequestCentsOverride` — una columna que **ya no tiene ni un lector**.
+- **Por qué NO se cerró en el mismo pase:** retirar un campo de **entrada** puede romper a un
+  llamador que hoy lo manda (el M6 actual no lo manda — medido: no aparece en `frontend/src`), y
+  §M6-K.4 describe el `Req` sin él pero no ordena rechazarlo. **Aceptar y no usar** es la conducta
+  segura mientras tanto.
+- **Disparador:** el pase que ejecute la deuda de DDL de abajo (D-3). **Forma:** retirar el campo del
+  DTO de petición **y** la columna, en el mismo commit.
+
+### D-3 · La deuda de DDL de `KycProfile` quedó **DISPARADA y sin ejecutar**: `legalName` y `capPerRequestCentsOverride` son columnas sin lectores
+- **Dueño:** **backend** (`prisma`), **con techlead**. **Severidad:** Baja. **No bloqueante.**
+- **Qué es:** `ARCHITECTURE §4.49.3` dice que la deuda de DDL registrada en §M5-K.5(a)/§M5-D.3 se
+  ejecuta «en el próximo pase con DDL de `KycProfile`» — y **M-54 lo es**. No se ejecutó, y el motivo
+  está escrito: *borrar columnas y publicar imágenes de identidad en la misma migración mezcla dos
+  riesgos que se revisan distinto*.
+- **Lo que cambió con R-1, y lo hace más barato:** tras esta ronda **ninguna de las dos se lee**.
+  `legalName` ya no entra en ningún `select` (su único escritor sigue siendo la anonimización del
+  soft-delete, que lo pone a `null`); `capPerRequestCentsOverride` ya no sale en ningún DTO y su
+  único escritor es el `PATCH` de D-2. **Cero lectores ⇒ el `DROP` no puede romper una lectura.**
+- **Disparador:** el próximo pase con DDL de `KycProfile` que **no** sea de PII publicada.
+  **Comprobación de cierre:** `rg -n 'legalName|capPerRequestCentsOverride' backend/src` ⇒ solo el
+  escritor de la anonimización (o cero, si D-2 se cierra en el mismo commit).
+
+### D-4 · La cifra que publica el barrido **no es la que gobierna `RSV-L1`** (y una parte del hallazgo del techlead NO pude reproducirla)
+- **Dueño:** ⚠️ **NO es de este frente** — el código es de `backend/src/jobs/` y
+  `modules/orders/guest-checkout.service.ts` (stream de inventario/bóveda, agente `SEC-SB-1`). Se
+  anota aquí **porque el techlead lo pidió al cerrar P-78**; **la corrección la enruta el orquestador
+  a su dueño.** **Severidad:** Baja-media (una métrica que responde otra pregunta). **No bloqueante.**
+- ⚠️ **Lo primero, porque es una corrección a quien me lo pasó:** el hallazgo llegó como *«descarta el
+  contador `legacy` y publica el del barrido subsumido»*. **Lo medí y NO es eso**
+  (`jobs/order-reservation-sweep.service.ts:32-40`, 2026-09-12): el job **sí** devuelve y **sí**
+  registra `legacySwept` —`return { swept, skipped, legacySwept }`, y el `logger.log` nombra los
+  tres—. No hay contador descartado.
+- **Lo que SÍ está mal, medido, y es el fondo del hallazgo:** el número publicado **no es el que
+  `RSV-L1` necesita para decidir**. Son dos preguntas distintas:
+  - `legacySwept` cuenta **PEDIDOS DE INVITADO** barridos (`guest-checkout.service.ts:444-483`:
+    `swept += 1` **por pedido**), y solo los que cumplen `guestEmail != null` **y**
+    `fulfillmentMode='direct_ship'` **y** `createdAt < cutoff`.
+  - `RSV-L1` condiciona retirar la rama legada a que sean **cero las PIEZAS** con
+    `status='reserved' AND reservedByOrderId IS NULL` — **de cualquier origen**, con o sin invitado,
+    con o sin `direct_ship`, sin corte por fecha.
+  ⇒ **`legacySwept = 0` NO implica «ya no quedan reservas sin dueño»**: implica «esta pasada no barrió
+  ningún pedido de invitado viejo», que es exactamente lo que una métrica que tiende a cero por
+  construcción diría **también** con piezas legadas vivas. *Parece que ya se puede retirar la rama.*
+- **Y un segundo hueco de la misma clase, medido de paso:** el `skipped` que el job devuelve es
+  **solo** el del barrido nuevo; los saltos del barrido legado (PI que no se pudo cancelar,
+  `guest-checkout.service.ts:474`) se registran en su propio log y **no entran en la tupla**.
+- **Clase:** la misma que `SB-D7` («tres cifras que mentían»). Una métrica que responde otra pregunta
+  es peor que no tenerla.
+- **Comprobación de cierre:** el job publica, **por separado**, el conteo de
+  `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL`, y
+  `RSV-L1` se lee contra ESE número (no contra `legacySwept`); y el `skipped` de la tupla suma los dos
+  barridos o se desdobla en dos campos con nombre.

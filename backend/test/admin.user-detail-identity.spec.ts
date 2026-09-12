@@ -152,7 +152,8 @@ describe('§M6-K.3 · `recentShipmentRecipients` — «¿a nombre de quién sale
     const findUnique = (
       svc as unknown as { prisma: { user: { findUnique: jest.Mock } } }
     ).prisma.user.findUnique;
-    const include = findUnique.mock.calls[0][0].include.shipmentRequests;
+    // ⭐ R-1: la consulta pasó de `include` a `select` (lista blanca en la BD).
+    const include = findUnique.mock.calls[0][0].select.shipmentRequests;
     expect(include.take).toBe(5);
     expect(include.orderBy).toEqual({ requestedAt: 'desc' });
     // `select` y no fila entera: de `ShipmentRequest` salen TRES columnas.

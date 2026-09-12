@@ -108,7 +108,11 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     // `clabe` no existe.
     expect(res.kycProfile.clabe).toBeUndefined();
     // Topes con el nombre del contrato (no *Override).
-    expect(res.kycProfile).toHaveProperty('capPerRequestCents');
+    // ⛔ v1.59 (D47, §M5-D.3 · §11) — `capPerRequestCents` SE RETIRÓ de los DOS DTOs de admin, y el
+    // código lo seguía publicando cuatro revisiones después. Lo levantó el candado de CONJUNTO DE
+    // CLAVES de `admin.user-detail-shape.spec.ts` (R-1, techlead): un aserto de VALOR no ve una
+    // clave que sobra. El override por-solicitud queda INERTE (columna, cero lectores).
+    expect(res.kycProfile).not.toHaveProperty('capPerRequestCents');
     expect(res.kycProfile).toHaveProperty('capPerMonthCents');
     expect(res.kycProfile.capPerRequestCentsOverride).toBeUndefined();
     expect(res.kycProfile.capPerMonthCentsOverride).toBeUndefined();

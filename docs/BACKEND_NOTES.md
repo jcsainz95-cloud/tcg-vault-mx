@@ -21071,3 +21071,148 @@ ejecutar**: borrar columnas y publicar imágenes de identidad en la misma migrac
 que se revisan distinto — **la decide backend con techlead**) · ⛔ ningún correo nuevo (el «noveno
 correo» de `DESIGN_SYSTEM §34.7` **no está en el contrato**) · ⛔ ninguna consulta a producción,
 ningún secreto, ningún dato real de cliente.
+
+---
+
+## P-78 · SEGUNDA RONDA — el fixture de identidad, la descarga REAL del INE y `R-1` (backend · 2026-09-12, medido)
+
+> Tres encargos en un commit: **(1)** el seed siembra por fin identidades de verdad, **(2)** se
+> escribe la prueba que nunca existió —que la INE **se descargue**— y **(3)** se cierra la condición
+> bloqueante del techlead (`R-1`), que es la **clase** detrás de las tres fugas de esta puerta.
+
+### P78.7 — El seed: qué sembré, y si el barrido del `:144` tenía razón de ser
+
+**⚠️ Lo primero, porque me lo pidieron medir antes de tocarlo: SÍ la tenía, y no lo quité.** El
+`deleteMany` de `KycProfile` (paso 3 del seed) existe por un motivo escrito y comprobable:
+`clabeEnc`/`rfcEnc` se cifran con la clave PII **del proceso que los escribió**, y en el arnés nativo
+esa clave es **efímera por arranque** ⇒ una fila de una corrida anterior devuelve `500`
+(«Unsupported state or unable to authenticate data») en la siguiente. **Se siembra DESPUÉS de él**, y
+los tres actores nuevos se siembran **sin una sola columna de PII cifrada** (`clabeEnc`/`clabeHmac`
+van a `null` en cada siembra): las llaves del INE son cadenas en claro y no tienen ese problema.
+
+**Tres actores, en `E2E_KYC_FIXTURES` (aparte de `E2E_USERS`, como `E2E_ACCOUNT_FIXTURES`):**
+
+| Actor | Estado | Por qué existe |
+|---|---|---|
+| `kyc.review@e2e.local` | `pending`, **las dos llaves + los dos objetos en el bucket**, `nameSource='derived'` | Sin el objeto se mediría **un marco vacío** (`naturalWidth = 0`), que es peor que no medir. El nombre **fabricado del correo** es lo que hace medible el aviso de cotejo de §M6-K.3 |
+| `kyc.reject@e2e.local` | `pending`, con imágenes | **Desechable.** Rechazar **escribe una decisión sobre una persona**: hacerlo sobre el `customer` compartido dejaría al resto de las suites con un KYC rechazado que no pidieron |
+| `kyc.none@e2e.local` | `none`, sin llaves, `nameSource='user'` | Estado **FIJO**. El KYC del `customer` del seed depende del **orden** de las suites (el flujo de venta sube INE y lo deja en `pending`) ⇒ afirmar «sin INE» sobre él mediría el orden de ejecución, no el producto |
+
+- **Las imágenes se suben al bucket** con **llave determinista** (`kyc_ine/e2e-fixtures/…`): una
+  segunda corrida **sobrescribe el mismo objeto** en vez de dejar un huérfano — la misma disciplina
+  que §M6-K.4.1 le impone al producto. Son PNG reales de 16×10, **distintos entre sí** (un test que
+  confunda frente con reverso tiene que poder fallar).
+- **Idempotencia real:** el `update` del upsert restaura **todas** las columnas de la decisión, así
+  que la corrida que rechaza a `kyc.reject` no deja el fixture gastado. *Un fixture que solo funciona
+  la primera vez es un test que se apaga solo.*
+- **Best effort con aviso fuerte:** sin `S3_ENDPOINT` (o con el almacenamiento caído) el seed
+  **avisa y sigue**; las filas quedan sembradas y lo único que no se puede medir es lo que de verdad
+  necesita el bucket. ⛔ No se reusó `UploadsService`: su API es `presign`/`presignGet`/`deleteObject`
+  y **añadirle un `putObject` solo para el seed** sería ensanchar la superficie del servicio de PII
+  por comodidad de fixture.
+
+### P78.8 — `G-3` / `D-S3-4`: la prueba que nunca había existido
+
+**Lo que había, dicho sin adornos:** `kyc-ine-links.e2e-spec.ts` afirmaba que la URL **contenía**
+`X-Amz-Signature=` y `response-content-disposition=attachment` —**la forma**— y **nunca hacía un
+`GET`**; el smoke de infraestructura solo hacía `PUT`. La cobertura real de la **lectura** del INE
+era **cero contra almacenamiento**. *Una URL bien formada y un objeto que no se puede bajar se leen
+igual en verde.*
+
+**Lo que se mide ahora (4 casos nuevos, todos contra almacenamiento real):**
+1. **Subir por el camino del producto** (`POST /uploads/presign` + `PUT` real) → atar con
+   `PUT /users/me/kyc` → pedir el enlace por **el endpoint de §M6-K** → **descargar**: `200`,
+   `Content-Disposition: attachment` y **los mismos bytes** (`Buffer.equals`).
+2. **La mitad negativa:** se cambia **un carácter** de `X-Amz-Signature` — todo lo demás idéntico —
+   ⇒ **no baja nada**. Sin este caso, el (1) pasaría igual contra un almacenamiento que sirve
+   cualquier cosa a cualquiera.
+3. ⭐ **§M6-K.4.1 contra almacenamiento REAL:** con el enlace de la primera imagen **aún firmado y sin
+   caducar**, se re-sube ⇒ ese enlace **ya no baja nada**, porque el objeto **se borró**. Es la
+   medición que los unitarios solo podían simular.
+4. **El fixture sembrado** se descarga y **el frente no es el reverso**.
+
+⚠️ **Matiz que NO se contradice:** `attachment` **no impide** pintar la imagen en un `<img>`
+(medición del orquestador, Chromium real, 3/3, origen cruzado); impide **navegar** a ella. Estas
+pruebas son de **servidor**: miden lo que el servidor manda, no lo que el navegador hace.
+
+⚠️ **Sobre los saltos:** los casos se saltan con aviso si el almacenamiento no responde, **salvo con
+`E2E_STRICT_INFRA=true`**. Medido: **lo ponen los dos arneses** (`e2e.yml:201` y
+`stack-native.sh:1310`, que lo fija por defecto), así que en el gate **no hay salto posible**.
+
+### P78.9 — `R-1` (techlead, BLOQUEANTE): la ficha 360° deja de proyectar por sustracción
+
+**El diagnóstico del techlead es correcto y la clase ya cobró tres veces:** `clabeSnapshotEnc`
+(S49-M1-R), `legalName` (D51) y las **object keys del INE** (P-78). Las tres por lo mismo — la ficha
+se derivaba con lista negra + spread de resto sobre la fila **cruda** del `include` — y mi parche de
+P-78 **añadía dos nombres más a la lista negra**: la columna número ocho habría salido sola.
+
+**Lo que cambió, y la comprobación de cierre que pidió:**
+
+| # | Comprobación | Resultado |
+|---|---|---|
+| (a) | `rg -n '\.\.\.rest' backend/src/modules/admin/admin.service.ts` | **0** (la prosa que explica por qué no lo hay dice «spread de resto», para que el `grep` mida el **código**) |
+| (b) | El `include` de `getUser` no lleva `kycProfile: true` ni `billingProfile: true` | **`getUser` ya no tiene `include`**: pide `select: ADMIN_USER_DETAIL_SELECT`. ⚠️ Queda un `include: { kycProfile: true }` en **`deleteUser`** (`:~1190`) — **no es una proyección**: no devuelve el usuario, lee las llaves para **purgar** los objetos del INE |
+| (c) | Test de los dos roles que falla **si sobra o si falta** una clave | `test/admin.user-detail-shape.spec.ts` (7 casos) |
+
+- **La lista blanca vive en el `select` de la CONSULTA.** Lo que no está enumerado **ni se lee de la
+  base**: ni `passwordHash`, ni `tokenVersion`, ni `googleId`, ni `clabeHmac` (blind index), ni
+  `legalName`. Las relaciones van acotadas una por una — `sellRequests` ya **no puede** traer
+  `clabeSnapshotEnc` ni queriendo. *Un filtro en memoria protege de lo que su autor recordó; un
+  `select` protege de lo que todavía no existe.*
+- **Un proyector por DTO:** `toAdminKycDTO` (que ya existía y **solo** usaba el `PATCH`) pasa a ser la
+  fuente única; `toAdminKycDetailDTO` le añade los dos enmascarados, `toAdminKycOperatorDTO` y
+  `toAdminBillingDTO` nacen con sus listas. La cabecera se parte en dos (`toAdminUserHeader` /
+  `…Super`) porque **el rol es parte de la forma** (§11: «dos DTOs, no uno con opcionales»).
+- **El candado cierra la CLASE, no el caso:** compara `Object.keys(...)` contra la lista del contrato
+  para los **dos** roles. El fixture mete **dos columnas intrusas** (`curp`, `ineSelfieUrl`) y una en
+  facturación (`cuentaBancaria`): son justo las que un candado de **valor** (`/kyc_ine\//`, el K-2 que
+  cazó mi fuga) **no habría visto nunca**.
+- **Dos divergencias contrato↔código que el candado sacó a la luz, y que se corrigen aquí:**
+  - ⛔ **`capPerRequestCents` SE RETIRA de los dos DTOs de admin.** §11 lo retiró en **v1.59 (D47)** y
+    el código lo seguía publicando **cuatro revisiones después**. Medido: el frontend **no lo lee**
+    (su fixture ya decía «sin `capPerRequestCents`»). El `PATCH` **lo sigue aceptando** en la
+    petición — anotado como **D-2** en `TECH_DEBT`.
+  - ✅ **`anonymizedAt` ENTRA** en la ficha del `super_admin` (solo ahí): §11 lo pide desde v2.1.9 y
+    el código lo excluía por herencia de `PATCH /status`, donde sí era ruido.
+  - ⛔ El **operador** pierde `authProvider`, `avatarUrl`, `mustChangePassword` y `anonymizedAt`:
+    `AdminUserDetailOperatorDTO` no los declara. Medido que no rompe al front: `M6View.tsx:362` pinta
+    `authProvider` con `{d.authProvider && …}` y el tipo los tiene opcionales.
+
+### P78.10 — Mutaciones de esta ronda (COPIA del árbol entero, 3 tiradas cada una)
+
+| Mutación | Spec | Proporción |
+|---|---|---|
+| **M-17** · el enlace de **LECTURA** se firma con **otro secreto** (la subida sigue correcta) | `kyc-ine-links.e2e` (integración, `E2E_STRICT_INFRA=true`) | **ROJO 3/3** (3 de 17 casos, exactamente los de descarga) |
+| **M-18** · el **seed** deja de subir las imágenes al bucket | ídem | **ROJO 3/3** |
+| **M-19** · la ficha vuelve a proyectar el KYC **por resta** | `admin.user-detail-shape` | **ROJO 3/3** |
+| **M-20** · el `select` de la consulta vuelve a leer las filas crudas | ídem | **ROJO 3/3** |
+| **M-21** · el **operador** recibe la cabecera del `super_admin` | ídem | **ROJO 3/3** |
+| **M-22** · `billingProfile` vuelve a la **lista negra** | ídem | **ROJO 3/3** |
+| **Fixture** · borrar las 3 filas **y** los 4 objetos ⇒ re-sembrar ⇒ vuelven, con estado exacto | `scratchpad/backend-P78/seed-check.js` | **3/3** |
+
+⚠️ **Un defecto DE MI ARNÉS, medido y corregido, porque cambia lo que se puede creer:** la primera
+tanda de M-17 reportó **0/3** mientras jest decía «1 failed». El runner hacía `jest … | tail -6`, así
+que el código de salida era el de `tail` — **siempre 0**. Con `set -o pipefail` la proporción real es
+**3/3**. *Un arnés que no propaga el fallo convierte cualquier mutación en «no reproducible».*
+
+### P78.11 — Gates de esta ronda
+
+| Gate | Resultado |
+|---|---|
+| `npm run lint` | **0 errores** (2 *warnings* preexistentes en `inventory`, ajenos) |
+| `npm run typecheck` | **exit 0** |
+| `npx jest` | **288 suites / 4724 pruebas, verde** |
+| Integración — `kyc-ine-links.e2e-spec.ts` | **17/17 verde** (13 de §M6-K + 4 de `G-3`) |
+| Integración — suite completa | **30/33 suites · 467/482**; los 3 rojos son los **mismos** que la línea base sobre `HEAD` sin mis cambios (`buylist-cycle`, `graded-estimate`, `pricing-visibility`), y `buylist-cycle` pasa **70/70 corriendo sola** ⇒ acoplamiento de estado entre suites, **preexistente** |
+
+**⚠️ NO MEDIDO (nuevo de esta ronda), con la medición que lo cerraría:**
+1. **Que el frontend real pinte la INE sembrada** (`naturalWidth > 0` contra el stack). Yo sembré el
+   dato y medí que **el objeto se descarga con los bytes correctos**; quien cierra el círculo es el
+   Playwright de frontend al retirar sus `mockOnly`. **Lo cerraría:** su corrida `@real` sobre un
+   stack con este commit y el seed corrido.
+2. **El comportamiento con R2 de verdad** (producción). Todo lo de `G-3` se midió contra
+   `scripts/s3-local`. R2 es S3-compatible y honra `response-content-disposition`, pero **yo no lo he
+   medido**. **Lo cerraría:** la misma prueba contra un bucket de staging/R2 — es de devops/seguridad,
+   y va junto a la comprobación de que **el bucket de producción es privado** (§4.49.0(a), abierta).
+3. **El `429` del tope por actor** sigue sin medirse de punta a punta (el throttler se omite bajo
+   `NODE_ENV=test`); ver `P78.5`. Sin cambios en esta ronda.

@@ -8,12 +8,76 @@
  * código; solo se distinguen por HTTP. Lo mismo vale para `Cache-Control`, que ninguna aserción de
  * unidad puede ver salir por el cable.
  *
- * ⚠️ **No hace falta MinIO/R2 vivo:** firmar un presigned GET es una operación **local** (HMAC sobre
- * la petición). Lo que se mide aquí es **quién puede pedirlo, qué sale y qué queda registrado** — no
- * que el objeto exista.
+ * ⚠️ **Los bloques K-1…K-8 no necesitan almacenamiento vivo:** firmar un presigned GET es una
+ * operación **local** (HMAC sobre la petición), así que ahí se mide **quién puede pedirlo, qué sale y
+ * qué queda registrado** — no que el objeto exista.
+ *
+ * ⭐⭐ **El bloque `G-3` SÍ lo necesita, y es el que nunca había existido** (`ARCHITECTURE §4.51.5`
+ * ficha **G-3** / desviación **D-S3-4**): hasta hoy esta suite afirmaba **la FORMA de la URL** y
+ * **nunca hacía un `GET`**, y el smoke de infraestructura solo hacía `PUT`. O sea que la ruta de
+ * LECTURA del INE —la única superficie por la que sale una imagen de identidad— llevaba tiempo
+ * leyéndose como «probada» y era «bien formateada». `N-1` (devops) midió que el almacenamiento local
+ * **sí honra `response-content-disposition`**, y eso desbloqueó cerrarlo de verdad.
  */
+import * as http from 'http';
+import * as https from 'https';
 import { E2EHarness } from './helpers/e2e-app';
-import { E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_KYC_FIXTURES, E2E_KYC_INE_IMAGES, E2E_USERS } from '../../prisma/e2e-fixtures';
+
+/** `E2E_STRICT_INFRA=true` (CI con toda la infra) ⇒ la ausencia de almacenamiento NO se salta. */
+const STRICT = process.env.E2E_STRICT_INFRA === 'true';
+
+/** `PUT` crudo contra el object storage (la subida que hace el navegador con la URL prefirmada). */
+function httpPut(url: string, body: Buffer, contentType: string, timeoutMs = 5000): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const mod = u.protocol === 'https:' ? https : http;
+    const req = mod.request(
+      {
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname + u.search,
+        method: 'PUT',
+        headers: { 'content-type': contentType, 'content-length': body.length },
+      },
+      (res) => {
+        res.on('data', () => undefined);
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      },
+    );
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('S3 PUT timeout')));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * `GET` crudo que **descarga el cuerpo entero**. Devuelve el `status`, las cabeceras y los BYTES:
+ * sin los bytes esto volvería a medir la forma, que es justo el defecto que `D-S3-4` describe.
+ */
+function httpGet(
+  url: string,
+  timeoutMs = 5000,
+): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const mod = u.protocol === 'https:' ? https : http;
+    const req = mod.request(
+      { hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET' },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }),
+        );
+      },
+    );
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('S3 GET timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 const FRONT_KEY = 'kyc_ine/2026-09-11/e2e-front.png';
 const BACK_KEY = 'kyc_ine/2026-09-11/e2e-back.png';
@@ -270,6 +334,179 @@ describe('E2E — §M6-K: leer el INE, decidir con motivo, y que el cliente lo s
       expect(row!.rejectionReason).toBeNull();
       expect(row!.reviewedAt).toBeNull();
       expect(row!.ineFrontKey).toBe('kyc_ine/2026-09-11/nuevo-front.png');
+    });
+  });
+
+  /**
+   * ⭐⭐ **G-3 / D-S3-4 — LA PRUEBA QUE NUNCA HA EXISTIDO: que la INE se DESCARGUE de verdad.**
+   * `ARCHITECTURE §4.51.5` (ficha **G-3**), §4.52.1 (**N-1** ✅: el almacenamiento local honra
+   * `response-content-disposition`).
+   *
+   * **Lo que había hasta hoy, dicho sin adornos:** este mismo fichero afirmaba
+   * `res.body.front.url).toContain('X-Amz-Signature=')` y `…toContain('response-content-disposition
+   * =attachment')` — **la forma de la URL** — y el smoke de infraestructura solo hacía `PUT`. La
+   * cobertura real de la LECTURA era **cero**. Una URL bien formada y un objeto que no se puede
+   * bajar se leen igual en verde.
+   *
+   * **Lo que mide este bloque:** se sube un objeto **por el camino del producto** (`POST
+   * /uploads/presign` + `PUT` real al almacenamiento), se ata al expediente por `PUT /users/me/kyc`,
+   * se pide el enlace **por el endpoint de §M6-K** y se **descarga**: `200`, la cabecera de descarga
+   * y **los mismos bytes que se subieron**. Y la mitad negativa, que es la que de verdad protege:
+   * **una firma manipulada no descarga nada**.
+   *
+   * ⚠️ **Matiz que NO se contradice aquí:** `Content-Disposition: attachment` **no impide** que un
+   * `<img>` pinte la imagen (medición del orquestador, Chromium real, 3/3, origen cruzado); impide
+   * **navegar** a ella. Esta prueba es de SERVIDOR: mide **lo que el servidor manda**, no lo que el
+   * navegador hace con ello.
+   */
+  describe('G-3 · la INE se DESCARGA de verdad (almacenamiento real), y una firma tocada no', () => {
+    /** Bytes distintivos: si la descarga devolviera «otro objeto», el aserto tiene que romperse. */
+    const SUBIDO = Buffer.from(E2E_KYC_INE_IMAGES.front, 'base64');
+
+    /** Sube por el camino del producto y devuelve la key, o `null` si no hay almacenamiento vivo. */
+    async function subirPorElCaminoDelProducto(): Promise<string | null> {
+      const presign = await h.api('POST', '/uploads/presign', {
+        token: customerToken,
+        json: { purpose: 'kyc_ine', contentType: 'image/png', contentLength: SUBIDO.length },
+      });
+      expect(presign.status).toBe(200);
+      let status: number;
+      try {
+        status = await httpPut(presign.body.uploadUrl, SUBIDO, 'image/png');
+      } catch (e) {
+        if (STRICT) throw e;
+        // eslint-disable-next-line no-console
+        console.warn(`[e2e] object storage no accesible (${(e as Error).message}); G-3 se salta.`);
+        return null;
+      }
+      if (status !== 200 && status !== 204) {
+        if (STRICT) throw new Error(`PUT presignado devolvió ${status}`);
+        // eslint-disable-next-line no-console
+        console.warn(`[e2e] PUT presignado devolvió ${status} (bucket ausente o firma divergente); G-3 se salta.`);
+        return null;
+      }
+      return presign.body.uploadKey as string;
+    }
+
+    it('subir → pedir el enlace → DESCARGAR: 200, `Content-Disposition: attachment` y los MISMOS bytes', async () => {
+      const key = await subirPorElCaminoDelProducto();
+      if (key === null) return;
+
+      // El expediente apunta al objeto REAL que acabamos de subir.
+      const put = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: key, ineBackUploadKey: key },
+      });
+      expect(put.status).toBe(200);
+
+      const links = await h.api('GET', `/admin/users/${userId}/kyc/ine-links`, { token: adminToken });
+      expect(links.status).toBe(200);
+
+      const bajada = await httpGet(links.body.front.url);
+      // 1) Se baja de verdad.
+      expect(bajada.status).toBe(200);
+      // 2) Es EL MISMO objeto, byte a byte. Esto es lo que la afirmación de forma no podía ver.
+      expect(bajada.body.equals(SUBIDO)).toBe(true);
+      // 3) Y el servidor manda la cabecera de descarga (S-B3): el vector que cierra es NAVEGAR al
+      //    objeto como documento de primer nivel en el origen del storage.
+      expect(String(bajada.headers['content-disposition'])).toContain('attachment');
+    });
+
+    it('⛔ la MITAD NEGATIVA: con la firma manipulada no se descarga nada', async () => {
+      const key = await subirPorElCaminoDelProducto();
+      if (key === null) return;
+      const put = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: key, ineBackUploadKey: key },
+      });
+      expect(put.status).toBe(200);
+      const links = await h.api('GET', `/admin/users/${userId}/kyc/ine-links`, { token: adminToken });
+      expect(links.status).toBe(200);
+
+      // Se toca UN carácter de la firma: la URL sigue siendo idéntica en todo lo demás, así que lo
+      // único que puede rechazarla es que la firma se VERIFIQUE. *Sin este caso, la prueba de
+      // arriba pasaría igual contra un almacenamiento que sirve cualquier cosa a cualquiera.*
+      const original = new URL(links.body.front.url);
+      const firma = original.searchParams.get('X-Amz-Signature');
+      expect(firma).toBeTruthy();
+      original.searchParams.set('X-Amz-Signature', `${firma!.slice(0, -1)}${firma!.endsWith('0') ? '1' : '0'}`);
+
+      const bajada = await httpGet(original.toString());
+      expect(bajada.status).not.toBe(200);
+      expect(bajada.status).toBeGreaterThanOrEqual(400);
+      expect(bajada.body.equals(SUBIDO)).toBe(false);
+    });
+
+    it('⭐ §M6-K.4.1 contra almacenamiento REAL: al sustituir la key, el objeto anterior YA NO se baja', async () => {
+      const primera = await subirPorElCaminoDelProducto();
+      if (primera === null) return;
+      const put1 = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: primera, ineBackUploadKey: primera },
+      });
+      expect(put1.status).toBe(200);
+      // Enlace de la PRIMERA imagen, todavía firmado y vigente (120 s).
+      const links1 = await h.api('GET', `/admin/users/${userId}/kyc/ine-links`, { token: adminToken });
+      expect(links1.status).toBe(200);
+      expect((await httpGet(links1.body.front.url)).status).toBe(200);
+
+      // El cliente vuelve a subir: la key vieja se sustituye y el objeto se borra en el MISMO flujo.
+      const segunda = await subirPorElCaminoDelProducto();
+      if (segunda === null) return;
+      const put2 = await h.api('PUT', '/users/me/kyc', {
+        token: customerToken,
+        json: { ineFrontUploadKey: segunda, ineBackUploadKey: segunda },
+      });
+      expect(put2.status).toBe(200);
+
+      // El enlace de antes SIGUE firmado y sin caducar — y aun así no baja nada, porque **el objeto
+      // ya no existe**. Es la medición que los unitarios solo podían simular: hasta v1.69 ese
+      // objeto se quedaba en el bucket donde ninguna purga lo alcanza (PII sin reloj).
+      const huerfano = await httpGet(links1.body.front.url);
+      expect(huerfano.status).not.toBe(200);
+      expect(huerfano.body.equals(SUBIDO)).toBe(false);
+    });
+
+    it('el FIXTURE sembrado (`kyc.review`) se descarga, y el frente NO es el reverso', async () => {
+      const review = await h.prisma.user.findUnique({
+        where: { email: E2E_KYC_FIXTURES.review.email },
+        select: { id: true },
+      });
+      // Si el seed de este pase no ha corrido, el actor no existe: se dice y se sale.
+      if (!review) {
+        if (STRICT) throw new Error('falta el actor `kyc.review`: corre el seed sintético');
+        // eslint-disable-next-line no-console
+        console.warn('[e2e] `kyc.review` no sembrado (seed antiguo); se salta.');
+        return;
+      }
+      const links = await h.api('GET', `/admin/users/${review.id}/kyc/ine-links`, { token: adminToken });
+      expect(links.status).toBe(200);
+
+      let frente;
+      try {
+        frente = await httpGet(links.body.front.url);
+      } catch (e) {
+        if (STRICT) throw e;
+        // eslint-disable-next-line no-console
+        console.warn(`[e2e] object storage no accesible (${(e as Error).message}); se salta.`);
+        return;
+      }
+      if (frente.status !== 200 && !STRICT) {
+        // eslint-disable-next-line no-console
+        console.warn(`[e2e] el objeto del fixture no está en el bucket (${frente.status}); re-siembra.`);
+        return;
+      }
+      const reverso = await httpGet(links.body.back.url);
+      expect(frente.status).toBe(200);
+      expect(reverso.status).toBe(200);
+      // Las dos imágenes del fixture son DISTINTAS a propósito: un test que confunda frente con
+      // reverso tiene que poder fallar.
+      expect(frente.body.equals(Buffer.from(E2E_KYC_INE_IMAGES.front, 'base64'))).toBe(true);
+      expect(reverso.body.equals(Buffer.from(E2E_KYC_INE_IMAGES.back, 'base64'))).toBe(true);
+      expect(frente.body.equals(reverso.body)).toBe(false);
+      // Y el actor del fixture es el del cotejo: nombre FABRICADO del correo.
+      const ficha = await h.api('GET', `/admin/users/${review.id}`, { token: adminToken });
+      expect(ficha.body.nameSource).toBe('derived');
     });
   });
 });
