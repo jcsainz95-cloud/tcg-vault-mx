@@ -1,5 +1,9 @@
 import { Transform } from 'class-transformer';
 import {
+  KYC_INE_KEY_MAX_LENGTH,
+  KYC_INE_KEY_PATTERN,
+} from '../../uploads/uploads.service';
+import {
   IsBoolean,
   IsEmail,
   IsIn,
@@ -89,8 +93,22 @@ export class BillingProfileDto {
   @trim() @IsEmail() @MaxLength(254) email!: string;
 }
 
+/**
+ * ⭐⭐ **v1.70 (`C15` / `SEC-PII-1`) — LAS KEYS DEJAN DE SER TEXTO LIBRE.**
+ *
+ * Aquí decía `@IsOptional() @IsString()` **y nada más**. `seguridad` lo midió con el `ValidationPipe`
+ * real: `'a'`, `'../otro/objeto'` y una key de **5.000 caracteres** daban **0 errores**, y con eso se
+ * satisfacían **las dos compuertas de cumplimiento** (intake y emisión de oferta).
+ *
+ * ⚠️ **El `@Matches` es el PRIMER filtro, NO el control.** El control vive en
+ * `UploadsService.assertOwnedIneKeys` (servicio): que la key **salga de un presign de ESTE usuario**
+ * y que **el objeto exista** (`HeadObject`). Un patrón solo prueba que la cadena *parece* nuestra.
+ * Por eso el 422 de negocio es `INE_UPLOAD_KEY_INVALID` y no el 400 del pipe.
+ */
 export class UpdateKycDto {
   @IsOptional() @IsString() @Length(18, 18) clabe?: string;
-  @IsOptional() @IsString() ineFrontUploadKey?: string;
-  @IsOptional() @IsString() ineBackUploadKey?: string;
+  @IsOptional() @IsString() @MaxLength(KYC_INE_KEY_MAX_LENGTH) @Matches(KYC_INE_KEY_PATTERN)
+  ineFrontUploadKey?: string;
+  @IsOptional() @IsString() @MaxLength(KYC_INE_KEY_MAX_LENGTH) @Matches(KYC_INE_KEY_PATTERN)
+  ineBackUploadKey?: string;
 }

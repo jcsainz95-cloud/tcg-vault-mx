@@ -260,6 +260,38 @@ export const ErrorCode = {
   BUYLIST_LINE_NOT_KEYABLE: 'BUYLIST_LINE_NOT_KEYABLE',
   BUYLIST_LIMIT_EXCEEDED: 'BUYLIST_LIMIT_EXCEEDED',
   INE_REQUIRED: 'INE_REQUIRED',
+  // ⭐ v1.69 (P-78, API_CONTRACT §M6-K.2.2) — 422. `GET /admin/users/:id/kyc/ine-links` sobre un
+  // usuario que EXISTE y NO tiene INE completo: sin `KycProfile`, o con UNA SOLA de las dos keys.
+  // ⛔ NO es 404 y la diferencia importa: el recurso *usuario* existe y la respuesta es ACCIONABLE
+  // («pídeselo»), no «te equivocaste de URL». `details: { frontOnFile, backOnFile }` le dice al
+  // revisor CUÁL falta, que es justo lo que va a tener que pedirle al cliente.
+  INE_NOT_ON_FILE: 'INE_NOT_ON_FILE',
+  // ⭐ v1.69 (P-78, API_CONTRACT §M6-K.4) — 422. `PATCH /admin/users/:id/kyc` con
+  // `kycStatus:'rejected'` y SIN motivo (ausente o vacío tras `trim()`).
+  // `details: { field: 'rejectionReason' }`. El motivo LE LLEGA AL CLIENTE (`GET /users/me/kyc`):
+  // sin él, el cliente ve «rechazado» y no sabe qué corregir — un rechazo que no se puede corregir
+  // no es un rechazo, es un callejón. ⚠️ El caso inverso (motivo SIN rechazar) es
+  // `VALIDATION_ERROR`, no éste: no es «falta un dato», es «este dato aquí no significa nada».
+  KYC_REJECTION_REASON_REQUIRED: 'KYC_REJECTION_REASON_REQUIRED',
+  // ⭐⭐ v1.70 (C15 / SEC-PII-1, `docs/SECURITY_NOTES.md §4.1`) — 422. La key de INE que el cliente
+  // manda **no la emitió este servidor para él**, o **su objeto no existe**. Cubre los DOS caminos
+  // de escritura: `PUT /users/me/kyc` (§1) y `POST /buylist/requests` (§6).
+  //
+  // EL DEFECTO QUE CIERRA, y estaba VIVO EN PRODUCCIÓN desde antes de P-78: las dos compuertas de
+  // cumplimiento medían `ineFrontKey != null && ineBackKey != null` — **un booleano que escribía el
+  // cliente**. Con `{front:'a', back:'b'}` un vendedor por encima del umbral pasaba el intake Y la
+  // emisión de la oferta, y **cobraba a su CLABE sin habernos dado jamás una identificación**.
+  //
+  // ⚠️ UN SOLO CÓDIGO PARA LOS TRES FALLOS (forma, dueño, existencia) A PROPÓSITO: distinguirlos le
+  // diría al cliente CUÁL falló, que es un oráculo gratis sobre qué keys existen y de quién son.
+  // `details: { field }` dice QUÉ CAMPO, no por qué.
+  INE_UPLOAD_KEY_INVALID: 'INE_UPLOAD_KEY_INVALID',
+  // ⭐ v1.70 (C20 / SEC-PII-7) — 500. `DELETE /admin/users/:id` en modo HARD cuando la imagen de INE
+  // **no se pudo borrar del bucket**. La cascada borraría la fila `KycProfile` con sus keys dentro,
+  // así que el ÚNICO puntero a esa imagen desaparecería y la purga de retención **nunca** la
+  // alcanzaría. Se aborta el borrado: el `super_admin` reintenta cuando el storage responda.
+  // ⛔ 500 y no 422: el actor no hizo nada mal y no hay nada que pueda corregir en su petición.
+  INE_PURGE_FAILED: 'INE_PURGE_FAILED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',
   CLABE_INVALID: 'CLABE_INVALID',
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
@@ -553,6 +585,14 @@ export const ErrorCode = {
   // El dial que gobierna el endpoint (`sealed_value_trend` / `sealed_restock_alerts`) está en `off`.
   // Se sirve como 404 (el recurso no existe públicamente hasta encender el flag). API_CONTRACT §2-S.
   FEATURE_DISABLED: 'FEATURE_DISABLED',
+
+  // ⭐⭐ v1.69 (P-78, API_CONTRACT §M6-K.2.2/K.2.4) — **500, y es el código del FALLO CERRADO.**
+  // La bitácora de `user.kyc.reveal_ine` NO pudo escribirse ⇒ **los enlaces firmados se descartan y
+  // el cuerpo no sale**. Una URL prefirmada que nadie recibió no es una fuga; una mirada a una
+  // identidad que no dejó fila SÍ es un agujero en la promesa de «queda constancia de quién miró».
+  // ⛔ Es 500 y no 422 a propósito (doctrina de `BusinessException.internal`): el actor no hizo nada
+  // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
+  AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

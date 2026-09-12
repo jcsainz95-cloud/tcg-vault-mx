@@ -1,10 +1,27 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  HttpCode,
+  Ip,
+  Logger,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
+import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { AuditService } from '../audit/audit.service';
 import { UserAuditScope } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
@@ -13,6 +30,18 @@ export class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
   @IsOptional() @IsInt() @Min(0) capPerRequestCents?: number;
   @IsOptional() @IsInt() @Min(0) capPerMonthCents?: number;
+  /**
+   * ⭐ v1.69 (P-78, §M6-K.4) — el motivo que **le llega al cliente** (`GET /users/me/kyc`).
+   *
+   * Aquí solo se declara la ESTRUCTURA (`@IsString`), para sobrevivir al `whitelist` del
+   * `ValidationPipe` global. **La regla vive en `AdminService.updateUserKyc`** y es semántica, no
+   * estructural: obligatorio **si y solo si** `kycStatus === 'rejected'`, 3–500 **tras `trim()`**.
+   * El pipe global solo sabe dar `400`; el contrato exige `422` (`KYC_REJECTION_REASON_REQUIRED` /
+   * `VALIDATION_ERROR`) — mismo patrón que `CreateAdminUserDto`.
+   * ⚠️ Sin `@IsNotEmpty()`: `''` tiene que llegar al servicio para que la respuesta sea
+   * `KYC_REJECTION_REASON_REQUIRED` (motivo vacío = motivo ausente) y no un `400` estructural.
+   */
+  @IsOptional() @IsString() rejectionReason?: string;
 }
 
 /**
@@ -56,6 +85,10 @@ class CreateAdminUserDto {
 @Controller('admin/users')
 @Roles(Role.vault_operator, Role.super_admin)
 export class AdminUsersController {
+  /** v1.69 (P-78): deja rastro del `AUDIT_WRITE_FAILED` en los logs del servidor — el que se come
+   * el 500 tiene que poder saber POR QUÉ no escribió la bitácora. ⛔ Nunca URLs ni keys. */
+  private readonly logger = new Logger(AdminUsersController.name);
+
   constructor(
     private readonly admin: AdminService,
     private readonly audit: AuditService,
@@ -151,6 +184,7 @@ export class AdminUsersController {
       dto.capPerRequestCents,
       dto.capPerMonthCents,
       user.id,
+      dto.rejectionReason,
     );
     await this.audit.log({
       actorUserId: user.id,
@@ -158,9 +192,115 @@ export class AdminUsersController {
       action: 'user.kyc.update',
       entityType: 'User',
       entityId: id,
-      after: dto as unknown,
+      // ⭐ v1.69 (P-78, §M6-K.4): **el motivo va en el `after`**, y ya NO se vuelca el DTO crudo.
+      // El motivo lo escribe un admin sobre un documento: es la DECISIÓN DE NEGOCIO, no PII del
+      // cliente — precedente idéntico en `buylist.item.reject`, que mete `reason` en su `after`.
+      // Se toma de `res` (la fila persistida) y no de `dto`: así la bitácora guarda el valor
+      // **normalizado** (`trim()`) que el cliente va a leer, no el que llegó por el cable. Los
+      // topes se conservan cuando el admin los tocó: son una decisión comercial auditada (§M6).
+      after: {
+        kycStatus: dto.kycStatus,
+        ...(dto.capPerRequestCents !== undefined
+          ? { capPerRequestCents: dto.capPerRequestCents }
+          : {}),
+        ...(dto.capPerMonthCents !== undefined ? { capPerMonthCents: dto.capPerMonthCents } : {}),
+        ...(res.rejectionReason ? { rejectionReason: res.rejectionReason } : {}),
+      },
     });
     return res;
+  }
+
+  /**
+   * ⭐⭐ **v1.69 (P-78, BK-1) — `GET /admin/users/:id/kyc/ine-links`. `super_admin` ÚNICAMENTE.**
+   * API_CONTRACT §M6-K.2 · ARCHITECTURE §3.4.c/§4.49.
+   *
+   * Dos enlaces prefirmados de **vida corta** (frente y reverso del INE), **auditados con fallo
+   * cerrado**. ⛔ `vault_operator` ⇒ `403`: la decisión (a) del dueño es literal —*«las imágenes solo
+   * yo las veo»*— y **el candado se verifica LLAMANDO con un token de operador**, no leyendo este
+   * decorador (candado K-1).
+   *
+   * **`@Throttle` 10/min** y no el global de 300: 10 llamadas por minuto es un ritmo **humano** de
+   * revisión. No es solo anti-abuso — junto con la bitácora es el **control de volumen**: un volcado
+   * masivo de identidades deja una fila por acto, es ruidoso y es consultable. *No impedimos que el
+   * dueño mire a sus clientes; hacemos que mirar deje huella.*
+   * ⭐ **Y el tope cuelga del ACTOR, no de la IP** (`ActorThrottlerGuard`, hallazgo de `seguridad`):
+   * la amenaza es **una sesión de `super_admin` abusada**, que cambia de IP cuando quiere — y el eje
+   * de IP es justo el que `P-RL-1` (ALTA, abierto) esquiva falsificando `X-Forwarded-For`.
+   *
+   * **`Cache-Control: no-store`** (hallazgo de `seguridad`): esta respuesta transporta **dos
+   * credenciales portadoras** —quien tenga las URLs tiene las imágenes, sin sesión—, así que no puede
+   * quedarse en una caché intermedia, en un proxy corporativo ni en el disco del navegador. El
+   * contrato ya exige `no-store` para `orders/guest/track`, que transporta **menos** que esto.
+   *
+   * ⛔ **SIN `@MoneyOut()`**, y es deliberado: aquí no sale dinero. Colgarlo del guard de dinero
+   * sería tomar prestada una autoridad que no le toca y **ensuciar la señal** que ese guard existe
+   * para marcar.
+   *
+   * ### ⛔⛔ FALLO CERRADO — el orden de estas cuatro líneas ES la norma (§M6-K.2.4)
+   * `firmar → await audit.log → responder`. Firmar **no es el acto auditable** (es local, no toca
+   * R2, no deja huella), así que auditar antes registraría miradas que quizá no ocurran. **Lo que
+   * hace cerrado el fallo es que el `await` está en el camino de la respuesta:** si la fila no se
+   * escribe, `res` **nunca se devuelve** — y una URL prefirmada que nadie recibió no es una fuga.
+   *
+   * **El `try/catch` de aquí NO traga, y por eso está permitido.** §M6-K.2.4 prohíbe el `try/catch`
+   * que se come el error, el `void` y el `.catch(() => {})`. Éste **convierte** el fallo en el
+   * código estable que el contrato exige (`500 AUDIT_WRITE_FAILED`) y **vuelve a lanzar**: el 200 es
+   * inalcanzable si la bitácora falló. *Auditoría «best effort» en una superficie de PII es
+   * auditoría opcional, y una auditoría opcional se apaga sola el día que la BD va lenta.*
+   * ⚠️ Un test que solo comprueba que la fila se escribe **no distingue** «falla cerrado» de «falla
+   * abierto y nadie lo vio»: el candado K-3 fuerza el fallo de `auditLog.create` y exige `500` **y**
+   * un cuerpo **sin ninguna `url`**.
+   */
+  @Get(':id/kyc/ine-links')
+  @Roles(Role.super_admin)
+  @UseGuards(ActorThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Header('Cache-Control', 'no-store')
+  @Header('X-Robots-Tag', 'noindex, nofollow')
+  async ineLinks(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; role: Role },
+    @Ip() ip: string,
+  ) {
+    const { links, ttl } = await this.admin.ineLinksUnaudited(id);
+    try {
+      await this.audit.log({
+        actorUserId: user.id,
+        // Redundante a propósito: si mañana el rol de esta persona cambia, la fila vieja sigue
+        // diciendo CON QUÉ AUTORIDAD se miró.
+        actorRole: user.role,
+        action: 'user.kyc.reveal_ine',
+        // ⚠️ `'User'` y NO `'KycProfile'`: así la fila aparece en
+        // `GET /admin/users/:id/audit?scope=target`, que es LA pantalla donde alguien va a preguntar
+        // «¿quién ha mirado la identidad de esta persona?».
+        entityType: 'User',
+        entityId: id,
+        ip,
+        // ⛔ Ni keys, ni URLs firmadas, ni bucket: una URL prefirmada es una CREDENCIAL PORTADORA, y
+        // guardarla en una fila de BD es guardar la llave junto a la puerta. Solo QUÉ documentos se
+        // emitieron y CON QUÉ VIDA.
+        // ⭐ v1.70 (C10(c)): `expiresInSeconds` es el TTL **EFECTIVO** (el que rigió tras el clamp),
+        // tomado de la MISMA resolución con la que se firmaron las URLs — nunca la constante 120.
+        // Y cuando hubo recorte, la fila lo dice: `ttlClamped`/`ttlRequested` solo viajan entonces
+        // (sin recorte la fila no engorda). *Un log rota; una fila no.*
+        after: {
+          documents: ['front', 'back'],
+          expiresInSeconds: ttl.seconds,
+          ...(ttl.clamped ? { ttlClamped: true, ttlRequested: ttl.requested } : {}),
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `AUDIT_WRITE_FAILED on user.kyc.reveal_ine (actor=${user.id}, target=${id}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      throw BusinessException.internal(
+        'AUDIT_WRITE_FAILED',
+        'Could not record the INE access in the audit log; the links were discarded',
+      );
+    }
+    return links;
   }
 
   @Patch(':id/status')

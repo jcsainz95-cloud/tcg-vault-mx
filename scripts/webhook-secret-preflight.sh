@@ -146,12 +146,25 @@ entorno_inalcanzable() {
   return 0
 }
 
+# ENMASCARADO EN ORIGEN (`S-MASK-1`, 2026-09-11) — ver la nota larga en
+# `scripts/secrets-preflight.sh`. Va a `stderr` A PROPÓSITO: el valor se consume
+# con `WH="$(./scripts/webhook-secret-preflight.sh resolve)"`, así que un
+# `::add-mask::` por stdout acabaría DENTRO del secreto. El runner de Actions
+# procesa los comandos de workflow también desde stderr.
+enmascarar() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] || return 0
+  [ -n "${1:-}" ] || return 0
+  printf '::add-mask::%s\n' "$1" >&2
+}
+
 aleatorio() {
   if command -v openssl >/dev/null 2>&1; then
-    printf 'whsec_efimero_%s' "$(openssl rand -hex 24)"
+    __wh="whsec_efimero_$(openssl rand -hex 24)"
   else
-    printf 'whsec_efimero_%s' "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    __wh="whsec_efimero_$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   fi
+  enmascarar "$__wh"
+  printf '%s' "$__wh"
 }
 
 SECRETO="${STRIPE_WEBHOOK_SECRET:-}"

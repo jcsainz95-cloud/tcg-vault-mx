@@ -38,7 +38,16 @@ jobs:
   semgrep:
     runs-on: ubuntu-latest
     container:
-      image: returntocorp/semgrep:latest
+      # CLAVADA (2026-09-11). Antes `:latest`. Una etiqueta MÓVIL en la imagen de
+      # un gate de seguridad significa dos cosas malas: el motor puede cambiar
+      # bajo los pies entre dos corridas del MISMO commit (un verde deja de ser
+      # reproducible), y el día que el registro cambie no hay «un número al que
+      # volver» — que es, literal, lo que nos pasó con `minio/minio:latest`
+      # (DEVOPS_NOTES §60). Verificado descargable anónimamente: HTTP 200.
+      # DISPARADOR para subirla: una regla nueva que necesitemos, o un aviso de
+      # seguridad del propio semgrep. Se sube a mano y se mide, no se «actualiza
+      # sola»: un motor que cambia solo es un gate que cambia solo.
+      image: returntocorp/semgrep:1.177.0
     env:
       # Lista de configs compartida por el informe completo y el gate, para que
       # NO haya drift entre ambos. (No se llama SEMGREP_RULES a propósito: ese

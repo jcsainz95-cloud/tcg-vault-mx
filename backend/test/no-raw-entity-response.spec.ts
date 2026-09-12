@@ -252,10 +252,12 @@ describe('S49-R1 · PATCH /admin/users/:id/kyc — no devuelve la entidad `KycPr
     expect(res).toMatchObject({
       userId: 'u1',
       kycStatus: 'verified',
-      capPerRequestCents: 300_000,
       capPerMonthCents: 1_000_000,
       ineOnFile: true,
     });
+    // ⛔ v1.59 (D47, §11): `capPerRequestCents` se retiró de los DOS DTOs de admin. Se afirma la
+    // AUSENCIA, no se omite el aserto: una clave que sobra es tan divergencia como una que falta.
+    expect(res).not.toHaveProperty('capPerRequestCents');
   });
 
   it('pide a Prisma un `select` (lista blanca): la PII cifrada ni siquiera se LEE de la BD', async () => {

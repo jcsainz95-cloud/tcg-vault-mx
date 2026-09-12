@@ -1588,6 +1588,26 @@ export class BuylistService implements OnModuleInit {
       });
     }
 
+    // ⭐⭐ **v1.70 (`C15` / `SEC-PII-1`) — LA COMPUERTA AML SE APOYA EN UN HECHO DEL SERVIDOR.**
+    // Hasta hoy `ineProvided` era `Boolean(front && back)` sobre **lo que escribió el cliente**:
+    // `{front:'a', back:'b'}` ⇒ `true` ⇒ el vendedor pasaba el intake **y** la emisión de la oferta
+    // y **cobraba a su CLABE sin habernos dado jamás una identificación**. `buildIneSubmission`
+    // valida (presign de ESTE usuario + `HeadObject`) **antes de nada** y lanza
+    // `422 INE_UPLOAD_KEY_INVALID`; lo que sobrevive a esa línea son keys nuestras con objeto detrás.
+    // ⚠️ Se llama AQUÍ —antes de la compuerta— y su resultado se reutiliza en el `upsert` de abajo:
+    // una sola validación, una sola rutina de escritura (`C17`).
+    // ⚠️ El corto-circuito NO es una excepción a la compuerta: sin keys **no hay nada que validar y
+    // nada que escribir**, y `buildIneSubmission` con `{front: undefined, back: undefined}` devuelve
+    // exactamente esto (su `assert` ignora los `undefined` y su `data` sale vacío). Evita una lectura
+    // de BD por solicitud en el 99% de los intakes, que no traen keys.
+    const ineSubmission =
+      ineUploadKeys?.front || ineUploadKeys?.back
+        ? await this.users.buildIneSubmission(userId, {
+            front: ineUploadKeys?.front,
+            back: ineUploadKeys?.back,
+          })
+        : { data: {} as Record<string, unknown>, supersededKeys: [] as string[] };
+
     // INE sobre el tope configurado.
     const ineProvided = Boolean(
       (ineUploadKeys?.front && ineUploadKeys?.back) || (kyc?.ineFrontKey && kyc?.ineBackKey),
@@ -1603,9 +1623,18 @@ export class BuylistService implements OnModuleInit {
     const hasPendingLine = itemsData.some((i) => i.itemStatus === 'precio_pendiente');
     const ineRequired = quotedTotalCents >= ineThreshold || hasPendingLine;
     if (ineRequired && !ineProvided) {
-      throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {
-        thresholdCents: ineThreshold,
-      });
+      // ⛔⛔ v1.69 (P-78, BK-6 · §M6-K.5) — **`details` VACÍO. El umbral ya NO viaja al vendedor.**
+      // Decisión (c) del dueño, literal: *«los topes dejan de mostrarse al cliente — pantalla Y
+      // MENSAJE DE ERROR»*. Aquí vivía `thresholdCents`, y era **el último sitio** que le imprimía
+      // al vendedor el número exacto a partir del cual le pedimos identificación — o sea, el manual
+      // de cómo quedarse un peso por debajo.
+      // ⛔ **No se fabrica otra cifra en su lugar** (ni «te faltan $X», ni «el máximo es $Y»): ese
+      // era el defecto. El remedio es una FRASE, y vive en el copy del front — *«supera nuestro
+      // límite; sube tu INE para continuar»*. **Una frase no es un dial** (patrón D43).
+      // ⚠️ La capacidad de avisar ANTES no se pierde: el cotizador pregunta con
+      // `GET /users/me/kyc?quotedTotalCents=N` y recibe un veredicto (`ineRequiredForTotal`), no el
+      // número — así §P.2.2 (pedir el INE en el paso de la dirección) sigue cumpliéndose.
+      throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {});
     }
 
     // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE
@@ -1613,21 +1642,26 @@ export class BuylistService implements OnModuleInit {
     const clabeEnc = this.pii.encrypt(effectiveClabe);
     // Persiste CLABE/INE en KYC. La CLABE solo se (re)escribe cuando vino en el body (`kycClabeFields`);
     // en el fallback ya está en archivo. El INE se actualiza si vienen keys nuevas.
+    // ⭐⭐ **v1.70 (`C17` / `SEC-PII-3`) — EL SEGUNDO CAMINO USA LA MISMA RUTINA QUE EL PRIMERO.**
+    // Este `upsert` era el **otro** escritor de INE, y rompía DOS invariantes de v1.69 a la vez:
+    //  · §M6-K.4.1 («al sustituir se borra el objeto viejo»): aquí la key se **pisaba** sin
+    //    `deleteObject` ⇒ huérfano invisible para la purga (`BL-42` c2), sin ni siquiera el
+    //    `logger.error` del otro camino.
+    //  · A6 («solo una subida de INE mueve el estado»): la rama `update` **no tocaba `kycStatus`** ⇒
+    //    un usuario `verified` cambiaba sus imágenes y **conservaba la insignia**, y el revisor veía
+    //    `verified` sobre **un documento que nadie revisó**. (Y la rama `create` hacía lo contrario:
+    //    ponía `pending` **aunque no viniera ni una key** — una CLABE no es una identidad.)
+    // Ahora las dos ramas se fusionan con `ineSubmission.data`, que decide **lo mismo** que el `PUT`.
     await this.prisma.kycProfile.upsert({
       where: { userId },
-      create: {
-        userId,
-        ...(kycClabeFields ?? {}),
-        ineFrontKey: ineUploadKeys?.front,
-        ineBackKey: ineUploadKeys?.back,
-        kycStatus: 'pending',
-      },
-      update: {
-        ...(kycClabeFields ?? {}),
-        ...(ineUploadKeys?.front ? { ineFrontKey: ineUploadKeys.front } : {}),
-        ...(ineUploadKeys?.back ? { ineBackKey: ineUploadKeys.back } : {}),
-      },
+      create: { userId, ...(kycClabeFields ?? {}), ...ineSubmission.data },
+      update: { ...(kycClabeFields ?? {}), ...ineSubmission.data },
     });
+    // Y el borrado de la imagen SUSTITUIDA, que este camino nunca hizo. Va después de persistir.
+    // (Sin keys sustituidas no hay nada que borrar: la lista viene vacía por construcción.)
+    if (ineSubmission.supersededKeys.length > 0) {
+      await this.users.purgeSupersededIneObjects(userId, ineSubmission.supersededKeys);
+    }
 
     // SEC-A2: el tope MENSUAL sufre TOCTOU si se lee `monthUsed` y luego se crea sin
     // atomicidad (N solicitudes concurrentes leen el mismo acumulado y todas pasan).

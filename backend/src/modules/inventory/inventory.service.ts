@@ -584,10 +584,8 @@ export class InventoryService {
     // UNA sola entrada por `(item / sealedProductId / clave de mercado)`. Sellado legacy sin mapping
     // (sin `tcgplayerProductId`) mantiene el comportamiento seguro: cae a `'sealed'`, sin duplicar.
     if (r.sealedNeedsEscalate) {
-      const pendingGradeKey =
-        r.sealedMapping.tcgplayerProductId != null
-          ? sealedMarketGradeKey(r.sealedMapping.tcgplayerProductId)
-          : r.gradeKey;
+      // P-79(d): la clave la da `sealedPendingGradeKeyOf` — UNA sola para los tres caminos de alta.
+      const pendingGradeKey = this.sealedPendingGradeKeyOf(r);
       await this.pricing.escalatePending(
         r.card.id,
         dto.productType,
@@ -777,6 +775,39 @@ export class InventoryService {
       sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
       sealedManualOverride,
     };
+  }
+
+  /**
+   * ⚠️ P-79(d) · **MONEY** — **la clave con la que el ALTA escala el pendiente de precio del sellado.**
+   *
+   * ### El defecto que cierra (lo sufría el dueño en la app publicada)
+   * Las dos claves del sellado existen **a propósito** y NO se unifican (§4.40.4d):
+   *  - `'sealed'` (la constante que devuelve `buildGradeKey` para sellado) = clave del **override
+   *    MANUAL** del admin (§4.19d);
+   *  - `sealedMarketGradeKey(productId)` ⇒ `sealed:tcg:<id>` = clave del **MERCADO por producto**.
+   *
+   * La **publicación** lee la referencia del sellado por la de MERCADO
+   * (`derivePublishSalePrice` → `sealedMarketGradeKeyForItem(item)`). El alta **SINGLE** ya escalaba
+   * con esa misma clave; el alta **POR LOTE** —que es la que dispara el flujo real de la app— y el
+   * alta por **AJUSTE «encontrada»** pasaban `r.gradeKey`, o sea el literal `'sealed'`. Consecuencia
+   * medida: el operador fijaba el precio en M2 sobre la fila `'sealed'`, la publicación buscaba
+   * `sealed:tcg:<id>`, no encontraba nada, y **la pieza volvía a la cola en bucle** — poner precio no
+   * servía de nada.
+   *
+   * Lo que se arregla es el **CAMINO**, no las claves: los tres caminos de alta piden la clave AQUÍ,
+   * así que ya no pueden derivar uno del otro. Sellado **legacy sin mapeo** (sin `tcgplayerProductId`)
+   * conserva el fallback seguro documentado: cae a `r.gradeKey` (`'sealed'`), porque sin `productId`
+   * no hay clave de mercado que construir y **no se inventa** un `sealed:tcg:null`. Ese caso queda
+   * SEÑALADO en `docs/BACKEND_NOTES.md` (la publicación tampoco lee esa clave — es un hueco distinto,
+   * de alcance cruzado catálogo/bóveda/admin, y va al arquitecto).
+   */
+  private sealedPendingGradeKeyOf(r: {
+    gradeKey: string;
+    sealedMapping: SealedItemMapping;
+  }): string {
+    return r.sealedMapping.tcgplayerProductId != null
+      ? sealedMarketGradeKey(r.sealedMapping.tcgplayerProductId)
+      : r.gradeKey;
   }
 
   /**
@@ -1143,10 +1174,14 @@ export class InventoryService {
             const r = await this.resolveCreation(line, actorUserId);
             if (r.sealedNeedsEscalate) {
               // v1.42 (BLOQ-2b): `sealedProductId` a la clave de la cola (ETB y blíster no colapsan).
+              // ⚠️ P-79(d) · MONEY: la clave es la de MERCADO (`sealed:tcg:<id>`), la MISMA que lee la
+              // publicación. Aquí iba `r.gradeKey` —el literal `'sealed'`, que es la clave del override
+              // MANUAL— así que el precio que el operador fijaba en M2 quedaba ilegible para el publish
+              // y la pieza volvía a la cola en bucle. Ver `sealedPendingGradeKeyOf`.
               await this.pricing.escalatePending(
                 r.card.id,
                 line.productType,
-                r.gradeKey,
+                this.sealedPendingGradeKeyOf(r),
                 'inventory',
                 undefined,
                 r.finish,
@@ -2707,10 +2742,12 @@ export class InventoryService {
     const r = await this.resolveCreation(line);
     if (r.sealedNeedsEscalate) {
       // v1.42 (BLOQ-2b): `sealedProductId` a la clave de la cola (ETB y blíster no colapsan).
+      // ⚠️ P-79(d) · MONEY: misma corrección que el alta por lote — la clave es la de MERCADO, no el
+      // literal `'sealed'` del override manual. Ver `sealedPendingGradeKeyOf`.
       await this.pricing.escalatePending(
         r.card.id,
         line.productType,
-        r.gradeKey,
+        this.sealedPendingGradeKeyOf(r),
         'inventory',
         undefined,
         r.finish,

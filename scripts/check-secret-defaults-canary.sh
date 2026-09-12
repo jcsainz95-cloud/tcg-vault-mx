@@ -362,6 +362,36 @@ m_nombre_pepper() {             # 4c. `MASTER_PEPPER` con default en script
   printf '%s\n' '#!/bin/sh' 'MASTER_PEPPER="${MASTER_PEPPER:-pepper_maestro_2026}"' > "$1/scripts/arnes-nuevo.sh"
   regenerar "$1"
 }
+m_nombre_salt() {               # 4c-bis. `MASTER_SALT` — el término que se ANCLÓ
+  # 2026-09-11: `FORMA_SECRETO` llevaba `SALT` SIN anclar y marcaba como secreto
+  # cualquier palabra española que lo contuviera («SALTADA», «SALTADOS»). Se
+  # ancló a `SALT(_|$)`. Este caso existe para que ese estrechamiento NO pueda
+  # convertirse en un agujero sin que algo se ponga rojo: una sal de verdad
+  # sigue teniendo que cazarse.
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'MASTER_SALT="${MASTER_SALT:-sal_maestra_2026}"' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_espanol_saltada() {           # VERDE. Español que CONTIENE «SALT» y no es una sal
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'N_VERIF_SALTADA=3' 'PASOS_SALTADOS=7' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_prefijo_resend_real() {       # 4c-quater. Clave Resend REAL: el ancla no la afloja
+  # 2026-09-12: `PREFIJOS_RE` llevaba `re_` SIN anclar y capturaba trozos de
+  # identificador (`nomb`+`re_producto`, `requi`+`re_real_stripe`). Se ancló con
+  # `\b`. Este caso existe para que el ancla no pueda convertirse en un agujero:
+  # una clave de Resend de verdad —que siempre va tras comilla, `=` o espacio—
+  # tiene que seguir capturándose.
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'export RESEND_API_KEY=re_AbCd123456XyZ' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
+m_prefijo_dentro_de_palabra() { # VERDE. `re_` DENTRO de un identificador no es una clave
+  mkdir -p "$1/scripts"
+  printf '%s\n' '#!/bin/sh' 'nombre_producto=x' 'require_real_stripe=y' 'ensure_wiring=z' > "$1/scripts/arnes-nuevo.sh"
+  regenerar "$1"
+}
 m_nombre_seed() {               # 4d. `SESSION_SEED` exportado en script
   mkdir -p "$1/scripts"
   printf '%s\n' '#!/bin/sh' 'export SESSION_SEED="semilla_de_sesion_2026"' > "$1/scripts/arnes-nuevo.sh"
@@ -424,6 +454,10 @@ caso ROJO  "3. \`: \"\${KYC_PROVIDER_PASSWORD:=lit}\"\` en un .sh"          "KYC
 caso ROJO  "4a. SMTP_RELAY_PASS (sufijo _PASS) con \`:-literal\`"          "SMTP_RELAY_PASS"       m_nombre_pass
 caso ROJO  "4b. VAULT_ADMIN_PIN (sufijo _PIN) escrito a pelo"              "VAULT_ADMIN_PIN"       m_nombre_pin
 caso ROJO  "4c. MASTER_PEPPER (PEPPER) con \`:-literal\` en script"        "MASTER_PEPPER"         m_nombre_pepper
+caso ROJO  "4c-bis. MASTER_SALT (SALT anclado) sigue cazandose"            "MASTER_SALT"           m_nombre_salt
+caso VERDE "4c-ter. Espanol con SALT (SALTADA/SALTADOS) NO es secreto"     ""                      m_espanol_saltada
+caso ROJO  "4c-quater. Clave Resend real (re_ anclado) sigue cazandose"    "RESEND_API_KEY"        m_prefijo_resend_real
+caso VERDE "4c-quinquies. re_ DENTRO de identificador NO es clave"         ""                      m_prefijo_dentro_de_palabra
 caso ROJO  "4d. SESSION_SEED (sufijo _SEED) exportado con literal"         "SESSION_SEED"          m_nombre_seed
 caso ROJO  "4e. RECOVERY_CODE (sufijo _CODE) usable en .env.example"       "RECOVERY_CODE"         m_nombre_code
 caso ROJO  "4f. CLABE_CIPHER (CIPHER) con respaldo \`|| '…'\` en workflow"  "CLABE_CIPHER"          m_nombre_cipher

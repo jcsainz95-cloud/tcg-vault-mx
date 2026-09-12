@@ -22,11 +22,14 @@
  */
 import { Finish, Prisma, PriceRefKind, PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
 import { deriveNumberParts } from '../src/common/card-order';
 import {
   E2E_ACCOUNT_FIXTURES,
   E2E_CARDS,
+  E2E_KYC_FIXTURES,
+  E2E_KYC_INE_IMAGES,
   E2E_GUEST_ORDER,
   E2E_ORDER_CARDS,
   E2E_ORDER_SET,
@@ -46,6 +49,10 @@ import { assertSeedTarget } from './seed-target-guard';
 const E2E_FIXTURE_EMAILS: string[] = [
   ...Object.values(E2E_USERS).map((u) => u.email),
   ...Object.values(E2E_ACCOUNT_FIXTURES).map((u) => u.email),
+  // P-78: los tres actores de identidad. Entran aquí para que el borrado de `BillingProfile` del
+  // paso 3 los alcance (misma razón que los de §4.47.10.4); su `KycProfile` lo restaura su propia
+  // siembra (paso 12), que es más fuerte que un borrado: deja el estado EXACTO, no «vacío».
+  ...Object.values(E2E_KYC_FIXTURES).map((u) => u.email),
 ];
 
 function todayUtc(): Date {
@@ -910,6 +917,165 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       },
     },
   });
+
+  // 12. ⭐⭐ P-78 (§M6-K) — LOS TRES ACTORES DE IDENTIDAD, con sus imágenes EN EL BUCKET.
+  //
+  // ### El hueco que cierra (medido por frontend, `FRONTEND_NOTES §71.7`)
+  // El paso 3 **borra** todos los `KycProfile` y hasta hoy nadie sembraba ninguno ⇒ en el stack real
+  // **no existía un solo usuario con INE en el expediente**, ni objeto que pintar. Cinco casos de
+  // `kyc-identity.spec.ts` seguían contra simulación **con el servidor ya entregado** (`c80bc26`).
+  //
+  // ### ⚠️ El borrado del paso 3 NO se toca, y TIENE razón de ser — medido antes de tocarlo
+  // Su comentario lo dice y el código lo confirma: `clabeEnc`/`rfcEnc` se cifran con la clave PII
+  // **del proceso que los escribió**, y en el stack nativo esa clave es **efímera por arranque** ⇒
+  // una fila de una corrida anterior devuelve `500` («Unsupported state or unable to authenticate
+  // data») en la siguiente. Por eso **se siembra DESPUÉS del borrado** y **sin una sola columna de
+  // PII cifrada**: las llaves del INE son cadenas en claro y no tienen ese problema.
+  // Y por eso el `update` de abajo pone `clabeEnc`/`clabeHmac` a `null`: si un E2E le guarda una
+  // CLABE a estos actores, la siguiente siembra la retira en vez de dejar una bomba de relojería.
+  //
+  // ### Idempotencia REAL, que es lo que hace útil al fixture
+  // El `update` restaura **todas** las columnas de la decisión (`kycStatus`, llaves,
+  // `rejectionReason`, `reviewedAt/By`, `verifiedAt/By`): la corrida que RECHAZA a `kyc.reject` deja
+  // la fila rechazada, y la siguiente siembra la devuelve a `pending`. *Un fixture que solo funciona
+  // la primera vez es un test que se apaga solo* (E2E-1).
+  for (const f of Object.values(E2E_KYC_FIXTURES)) {
+    const passwordHash = await argon2.hash(f.password);
+    // `derived` = nombre FABRICADO del correo (P-73): es el caso que hace legible el cotejo de
+    // §M6-K.3. `kyc.none` lleva nombre tecleado para que el contraste exista.
+    const nameSource = f.name === f.email.split('@')[0] ? 'derived' : 'user';
+    const user = await prisma.user.upsert({
+      where: { email: f.email },
+      create: {
+        email: f.email,
+        passwordHash,
+        name: f.name,
+        nameSource,
+        role: 'customer',
+        locale: 'es',
+        phone: f.phone,
+        authProvider: 'local',
+        emailVerified: true,
+      },
+      update: {
+        passwordHash,
+        name: f.name,
+        nameSource,
+        role: 'customer',
+        phone: f.phone,
+        authProvider: 'local',
+        status: 'active',
+        emailVerified: true,
+        mustChangePassword: false,
+      },
+      select: { id: true },
+    });
+    const kyc = {
+      kycStatus: f.kycStatus,
+      ineFrontKey: f.frontKey,
+      ineBackKey: f.backKey,
+      // Estado de decisión LIMPIO en cada siembra (§M6-K.4/K.7).
+      rejectionReason: null,
+      reviewedAt: null,
+      reviewedBy: null,
+      verifiedAt: null,
+      verifiedBy: null,
+      // ⛔ Ninguna PII cifrada: ver arriba (clave efímera por proceso).
+      clabeEnc: null,
+      clabeHmac: null,
+      capPerRequestCentsOverride: null,
+      capPerMonthCentsOverride: null,
+    };
+    await prisma.kycProfile.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, ...kyc },
+      update: kyc,
+    });
+    // ⭐ v1.70 (`C15`): el PERMISO de subida de cada key. Sin él, el fixture tendría keys que el
+    // producto **rechazaría** al re-registrarlas (`422 INE_UPLOAD_KEY_INVALID`) — un dato de prueba
+    // que el sistema no aceptaría no sirve para medir el sistema.
+    for (const key of [f.frontKey, f.backKey]) {
+      if (!key) continue;
+      await prisma.kycUploadGrant.upsert({
+        where: { objectKey: key },
+        create: { userId: user.id, objectKey: key, contentType: E2E_KYC_INE_IMAGES.contentType },
+        update: { userId: user.id },
+      });
+    }
+    // Dirección de origen: `kyc.review` la necesita para que el panel de cotejo de §M6-K.3 tenga
+    // algo que enseñar al lado del documento (y para poder vender, D36/D37).
+    const address = await prisma.address.findFirst({ where: { userId: user.id }, select: { id: true } });
+    if (!address) {
+      await prisma.address.create({
+        data: { userId: user.id, ...E2E_PICKUP_ADDRESS, recipientName: f.name, isDefault: true },
+      });
+    }
+  }
+  // 12b. Las DOS imágenes, EN EL BUCKET. Sin el objeto se mediría un marco vacío (`naturalWidth`
+  // = 0), que es peor que no medir: el `<img>` existe y el test pasa por la forma.
+  // **Best effort a propósito:** el seed corre también donde no hay object storage (`npm run
+  // seed:synthetic` a secas). Si no hay, **avisa fuerte** y sigue — las filas quedan sembradas y lo
+  // único que falla es lo que de verdad necesita el bucket.
+  await seedIneObjects();
+}
+
+/**
+ * Sube las dos imágenes del fixture de INE al object storage, con **llave determinista** (una
+ * segunda corrida **sobrescribe el mismo objeto** en vez de dejar un huérfano — la misma disciplina
+ * que §M6-K.4.1 le impone al producto).
+ *
+ * ⚠️ Lee `S3_*` del entorno con **los mismos defaults que `UploadsService`**: si alguien cambia el
+ * bucket en un sitio y no en el otro, el fixture apunta a un objeto que la app no sirve. No se
+ * reusa `UploadsService` porque su API es `presign`/`presignGet`/`deleteObject` (lo que el producto
+ * necesita) y **añadirle un `putObject` solo para el seed** sería ensanchar la superficie del
+ * servicio de PII por una comodidad de fixture.
+ */
+async function seedIneObjects(): Promise<void> {
+  const endpoint = process.env.S3_ENDPOINT;
+  if (!endpoint) {
+    console.warn(
+      '[seed-e2e] S3_ENDPOINT no definido: NO se suben las imágenes del INE. Las filas quedan ' +
+        'sembradas, pero la pantalla de revisión pintaría un marco vacío y el `GET` real del ' +
+        'enlace (G-3) no se puede medir.',
+    );
+    return;
+  }
+  const bucket = process.env.S3_BUCKET ?? 'tcg-photos';
+  const client = new S3Client({
+    region: process.env.S3_REGION ?? 'us-east-1',
+    endpoint,
+    forcePathStyle: (process.env.S3_FORCE_PATH_STYLE ?? 'true') === 'true',
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'minioadmin',
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? 'minioadmin',
+    },
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
+  });
+  const objetos: { key: string; body: Buffer }[] = [];
+  for (const f of Object.values(E2E_KYC_FIXTURES)) {
+    if (f.frontKey) objetos.push({ key: f.frontKey, body: Buffer.from(E2E_KYC_INE_IMAGES.front, 'base64') });
+    if (f.backKey) objetos.push({ key: f.backKey, body: Buffer.from(E2E_KYC_INE_IMAGES.back, 'base64') });
+  }
+  try {
+    for (const o of objetos) {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: o.key,
+          Body: o.body,
+          ContentType: E2E_KYC_INE_IMAGES.contentType,
+        }),
+      );
+    }
+    console.log(`✓ seed-e2e: ${objetos.length} imágenes de INE sembradas en ${bucket}.`);
+  } catch (e) {
+    console.warn(
+      `[seed-e2e] No se pudieron subir las imágenes del INE a ${bucket} (${(e as Error).message}). ` +
+        'Las filas quedan sembradas; lo que NO se puede medir sin ellas es la pantalla de revisión ' +
+        'con documento y el `GET` real del enlace firmado (G-3).',
+    );
+  }
 }
 
 // --------- CLI runner (npm run seed:synthetic / prisma db seed en modo synthetic) ---------

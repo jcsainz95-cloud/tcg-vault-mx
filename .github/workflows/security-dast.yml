@@ -329,8 +329,34 @@ jobs:
       - name: Publicar veredicto en la portada del run
         if: always()
         run: |
-          cat security/reports/dast-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null \
-            || echo "::warning::El candado no llegó a escribir resumen; revisa el log." 
+          # ---------------------------------------------------------------
+          # «NO MEDÍ NADA» Y «MEDÍ Y NO ENCONTRÉ NADA» NO SON LO MISMO, y hasta
+          # el 2026-09-11 se parecían demasiado: si el stack no arrancaba, esto
+          # dejaba un `::warning::` discreto y el run seguía su curso. Pasó de
+          # verdad (run 34650494939: `minio/minio:latest` dejó de ser descargable
+          # ⇒ `compose up` falló ⇒ el DAST no escaneó UNA SOLA petición) y el
+          # único rastro visible era una advertencia entre cientos de líneas.
+          # Ahora el hueco de medición se declara como lo que es: un ERROR, y en
+          # la portada del run, con todas las letras.
+          # ---------------------------------------------------------------
+          if [ -s security/reports/dast-summary.md ]; then
+            cat security/reports/dast-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::EL DAST NO MIDIÓ NADA: el candado no llegó a escribir resumen (el stack efímero no arrancó, o el barrido no corrió). Esto NO es «sin hallazgos»: es «sin medición»."
+            {
+              echo "## ⛔ DAST: SIN MEDICIÓN (no es lo mismo que «sin hallazgos»)"
+              echo ""
+              echo "El barrido **no llegó a ejecutarse**, así que este run **no dice nada**"
+              echo "sobre la seguridad de la aplicación corriendo. La salida \`blocking\`"
+              echo "queda **VACÍA** y \`deploy.yml\` exige \`blocking == 'false'\`, así que"
+              echo "**no promueve** (fail-closed, F1-1)."
+              echo ""
+              echo "Causa habitual: una **imagen externa** del compose dejó de poder"
+              echo "descargarse. Lo vigila \`scripts/check-compose-images.sh\`"
+              echo "(job \`compose-images\` de ci.yml). Revisa el paso «Levantar y"
+              echo "preparar el stack efímero»."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           {
             echo ""
             echo "<details><summary>Tiempos medidos de este barrido</summary>"

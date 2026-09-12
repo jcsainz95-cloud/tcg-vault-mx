@@ -87,7 +87,18 @@ MODO="${1:-write}"
 # Fuente ÚNICA de la forma. `check-secret-defaults.sh` la LEE de aquí (no la copia):
 # un hecho, un sitio. Si mañana añadimos `PASSPHRASE`, lo añadimos una vez.
 # INICIO_FORMA_SECRETO
-FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|SIGNING|UNSEAL|HMAC|SALT|CREDENTIAL|PEPPER|CIPHER|_KEY$|_KEYS$|_PWD$|_PASS$|_PIN$|_SEED$|_CODE$)'
+# ⚠️ `SALT(_|$)` VA ANCLADO A PROPÓSITO (2026-09-11). Era `SALT` a secas: el único
+# término corto de esta lista SIN anclar. Este repo se escribe en ESPAÑOL, y
+# «saltar / saltada / saltados / SALTADOS_ESPERADOS» contiene esas cuatro letras
+# — medido: 50+ apariciones en el árbol. Con `SALT` suelto, `N_VERIF_SALTADA=3`
+# (un CONTADOR de un canario) se clasificaba como secreto publicado.
+# No se estrecha el DETECTOR por comodidad: se estrecha porque clasificaba mal, y
+# el propio candado ya dice por qué importa — «un candado que suena por lo que no
+# es, se apaga, y entonces no suena por lo que sí». Lo que sigue reconociendo:
+# `FOO_SALT`, `SALT_KEY`, `MASTER_SALT`, `SALT`. Lo que deja de marcar: palabras
+# españolas que sólo CONTIENEN esas letras. Las dos direcciones están sondeadas
+# en el autotest (0) de `check-secret-defaults.sh`.
+FORMA_SECRETO='(SECRET|PASSWORD|PASSWD|PASSPHRASE|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY|SIGNING|UNSEAL|HMAC|SALT(_|$)|CREDENTIAL|PEPPER|CIPHER|_KEY$|_KEYS$|_PWD$|_PASS$|_PIN$|_SEED$|_CODE$)'
 # FIN_FORMA_SECRETO
 # Nombres que CONTIENEN esas palabras y NO son secretos. Se acierta por defecto a
 # «es secreto»: una variable de más en el manifiesto no rompe nada; una de menos
@@ -106,7 +117,20 @@ NO_SECRETO='(PUBLISHABLE|NEXT_PUBLIC_|PUBLIC_KEY|_LENGTH$|_TTL$|_DAYS$|_BYTES$|_
 # FIN_NO_SECRETO
 
 # --- Prefijos de secreto reconocibles ---------------------------------------
-PREFIJOS_RE='(whsec_[A-Za-z0-9_]{4,}|sk_live_[A-Za-z0-9_]{4,}|sk_test_[A-Za-z0-9_]{4,}|rk_live_[A-Za-z0-9_]{4,}|rk_test_[A-Za-z0-9_]{4,}|re_[A-Za-z0-9_]{6,}|AKIA[A-Z0-9]{12,}|ghp_[A-Za-z0-9]{20,}|xoxb-[A-Za-z0-9-]{10,}|SG\.[A-Za-z0-9_.-]{10,}|AIza[A-Za-z0-9_-]{20,})'
+# ⚠️ `\b` AL FRENTE, A PROPÓSITO (2026-09-12). Sin él, `re_` —el prefijo de
+# Resend, el único CORTO de esta lista— casaba DENTRO de identificadores:
+# `nomb`+`re_producto`, `requi`+`re_real_stripe`, `ensu`+`re_wiring`,
+# `__nomb`+`re_actual`. Medido: el manifiesto ya había acumulado SEIS entradas
+# así, y el rojo del 2026-09-12 era una séptima (`re_producto`, de un fichero de
+# reparación de datos en SQL). Un manifiesto de «valores publicados» lleno de
+# trozos de palabras españolas no es más seguro: es más ruidoso, y el ruido es lo
+# que enseña a regenerar sin leer.
+# El ancla NO afloja nada: una clave real va siempre tras comilla, `=` o espacio,
+# así que conserva `'re_test_key'` y `'re_live_x'` (literales REALES bajo
+# `RESEND_API_KEY`) y `re_AbCd123456`. Lo único que deja de capturar son trozos
+# de identificador, que nunca fueron un secreto publicado. Sondeado en las dos
+# direcciones en el canario de `check-secret-defaults`.
+PREFIJOS_RE='\b(whsec_[A-Za-z0-9_]{4,}|sk_live_[A-Za-z0-9_]{4,}|sk_test_[A-Za-z0-9_]{4,}|rk_live_[A-Za-z0-9_]{4,}|rk_test_[A-Za-z0-9_]{4,}|re_[A-Za-z0-9_]{6,}|AKIA[A-Z0-9]{12,}|ghp_[A-Za-z0-9]{20,}|xoxb-[A-Za-z0-9-]{10,}|SG\.[A-Za-z0-9_.-]{10,}|AIza[A-Za-z0-9_-]{20,})'
 
 # --- Ficheros ---------------------------------------------------------------
 # Solo versionados: lo que no está en git no está publicado.

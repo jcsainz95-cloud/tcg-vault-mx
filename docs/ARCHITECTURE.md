@@ -4,6 +4,83 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.67.4 — UNA DESVIACIÓN QUE ESCRIBÍ Y ERA FALSA, Y EL SEGUNDO MinIO: EL QUE BLOQUEA EL DESPLIEGUE**
+> (2026-09-11, arquitecto. Base: **v1.67.3, vigente entera salvo lo que esta rev retira**. Origen: refutación **con
+> medición** de devops + hallazgo suyo en `.github/workflows/e2e.yml`. **Cero contrato, cero DDL, cero endpoints,
+> cero variables nuevas.** `API_CONTRACT.md` **no se toca**. Sección nueva **§4.52**. Desviaciones **`D-S3-5..7`**;
+> **`D-S3-3` RETIRADA por falsa**.)
+>
+> **1. ⭐⭐ Me equivoqué y gana el dato: la caducidad del enlace presignado SÍ se comprobaba.** Escribí que
+> `s3-local` aceptaría una URL vencida —«la única regresión real»— **infiriéndolo** de que nuestra capa propia no
+> mira el reloj. Devops lo midió apagando esa capa (`S3_LOCAL_ALLOW_ANON=1`): la URL vencida **ya** recibe
+> `403 / «Request has expired»`. **s3rver comprueba la caducidad; lo que no verifica es la firma.** ⇒ **`G-4` y
+> `D-S3-3` retirados**, tachados con el motivo a la vista. **El enlace del INE nunca fue eterno y
+> `KYC_INE_VIEW_URL_TTL_SECONDS` siempre tuvo efecto real.** La regla que queda: *una afirmación sobre lo que un
+> **stack** hace se mide contra el stack, no contra la capa que uno está leyendo* (§4.52.1).
+>
+> **2. `N-1` verde ⇒ `G-3` desbloqueado:** s3rver **sí** honra `response-content-disposition`. Backend añade el `GET`
+> real de la URL de vista del INE al smoke (`200` + `Content-Disposition: attachment` + cuerpo idéntico).
+>
+> **3. ⭐⭐ El segundo MinIO, y este sí bloquea el despliegue:** `e2e.yml:140` levanta `bitnamilegacy/minio:latest`
+> como **service container** — etiqueta **móvil** en namespace **archivado**, el perfil exacto de `minio/minio:latest`
+> la víspera de romperse, y **fuera del alcance del candado de imágenes**. **Misma pieza (`s3-local`), y aquí en
+> forma B (proceso del runner), que es estrictamente mejor:** elimina la restricción que causó el problema —*un
+> service container no admite `command:`*, el motivo literal por el que se acabó en Bitnami— y **no paga** el coste
+> que la forma B tenía en el compose, porque en este job **no hay compose** (§4.52.3).
+>
+> **4. ⭐ Y de paso corrige una infidelidad invertida:** ese bucket se crea con `MINIO_DEFAULT_BUCKETS:
+> tcg-photos:download`, o sea **lectura anónima permitida** — la **inversa** de `mc anonymous set none` y de R2. La
+> ruta que gatea el despliegue era la **más laxa** de las cuatro (`D-S3-6`).
+>
+> **5. El candado de imágenes SÍ debe cubrir los `services:` de los workflows — pero no hoy, y el criterio de devops
+> de no taparlo era el correcto:** encenderlo sobre un inventario **no medido** (N-6) no protege, bloquea. Orden y
+> condición de encendido fijados en **§4.52.4**.
+>
+> ---
+> **Rev v1.67.3 — EL ALMACENAMIENTO DE OBJETOS DE LAS RUTAS NO-PRODUCCIÓN: SE UNIFICA EN `scripts/s3-local/` Y SE
+> RETIRA MinIO DE TODO `docker-compose*.yml`**
+> (2026-09-11, arquitecto. Base: **v1.67.2 + §§4.48–4.50, vigentes enteras**. Origen: la distribución comunitaria de
+> `minio/minio` y `minio/mc` dejó de servirse anónimamente en Docker Hub ⇒ `docker compose up` muere ⇒ **el DAST y el
+> E2E-real** —las dos únicas puertas que miran la aplicación **corriendo**— llevan días caídos. **Cero contrato, cero
+> DDL, cero endpoints, cero variables nuevas.** `API_CONTRACT.md` **no se toca** (no hay superficie HTTP implicada).
+> Sección nueva **§4.51**. Fila de §1 y nota de §8 actualizadas. Desviaciones **`D-S3-1..4`** en §4.51.10.)
+>
+> **1. ⭐⭐ El requisito real es corto y está medido, y por eso la pieza puede ser pequeña.** El backend usa **tres**
+> operaciones de S3 (`PutObject` presignado, `GetObject` presignado con `response-content-disposition`, `DeleteObject`
+> server-side) y necesita que **el bucket exista**. Ni políticas, ni versionado, ni multipart, ni `ListObjects`
+> (`uploads.service.ts:4-9,192-260`, único fichero del backend que importa `@aws-sdk`). **Nada más.** MinIO llevaba
+> meses sosteniendo una superficie que nadie ejercitaba.
+>
+> **2. ⭐⭐ Se unifica: `scripts/s3-local/` (s3rver + la verificación SigV4 de devops) pasa a ser el object storage de
+> TODA ruta no-producción** — nativa local, compose local, staging efímero de CI. **Producción NO se toca: sigue R2.**
+> El motivo no es preferencia de pieza: es que **no introduce ni un dominio de disponibilidad nuevo** (imágenes
+> `library/*` y registro npm ya son carga obligada de cada corrida), mientras que los tres candidatos de registro
+> —`localstack`, `adobe/s3mock`, `seaweedfs`— viven en la **misma clase de namespace de tercero que acaba de fallar**.
+>
+> **3. ⭐ Lo que se pierde está enumerado, y ninguna pieza la asierta un test hoy** (§4.51.5): motor de políticas de
+> bucket, `lifecycle` y HMAC de la firma **de cabecera**. Las dos primeras no las mira nadie; la tercera la cubre por
+> transitividad la ruta presignada. ⚠️ **CORREGIDO en v1.67.4:** esta rev escribió además una cuarta pérdida —la
+> **caducidad** de la URL presignada— y **era falsa**; devops la refutó midiendo. Ver **§4.52.1**.
+>
+> **4. ⭐ El agujero que se creía perdido no existía: la ruta de LECTURA del INE nunca se probó contra almacenamiento
+> real.** `kyc-ine-links.e2e-spec.ts:96-102` afirma la **forma de la URL**, no hace `GET`. Cambiar de pieza **no pierde**
+> esa cobertura porque no la había; y la pieza elegida **sí permite crearla** (§4.51.5, G-3).
+>
+> ---
+> **Rev v1.67.2 — P-79(c): LA COLA DE PUBLICACIÓN DE M1 ENSEÑA EL SELLADO CON FORMA DE CARTA SUELTA**
+> (2026-09-11, arquitecto. Base: **v1.67.1, vigente entera**. Origen: hallazgo del dueño sobre la app publicada,
+> medido por el orquestador fichero a fichero. Contrato **v1.69.1** (§M1 `GET /admin/inventory/pending-publish`,
+> §11 `PendingPublishRowDTO`). **Cero DDL, cero endpoints, cero códigos, un campo nuevo en un DTO.** Sección nueva
+> **§4.34a.1**. Desviaciones **`D-P79-1`/`D-P79-2`** en §9.)
+>
+> **Lo medido:** la pieza sellada **no se convirtió en carta** (en BD `productType='sealed'` y `sealedProductId`
+> intactos); la cola la **pinta** como single porque (a) la vista no tiene rama de sellado y (b) el DTO no lleva con
+> qué pintarla. El `· 1 ·` que ve el dueño es el número de la **carta ancla**, que §4.34a ya había declarado que
+> **deja de ser identidad**. Se cierra con **un** campo (`sealedProductName?`) y una norma de render en tres casos.
+> **Lo que NO cierra esta rev** (fichas propias en `PENDIENTES.md`): P-79(d) llave divergente de precios (backend, sin
+> contrato), P-79(b) precio manual obligatorio al publicar sellado (frontend), P-69 mercado en el paso 1 de captura.
+>
+> ---
 > **Rev v1.67.1 — LO QUE v1.67 DEJÓ SIN FIJAR Y CADA LADO RESOLVIÓ POR SU CUENTA: EL PERFIL DE FACTURACIÓN QUE NO
 > EXISTE, LA DIRECCIÓN QUE M6 PROYECTABA A MEDIAS, EL DESTINATARIO EMITIDO DOS VECES Y LA CONDICIÓN DE RELEASE**
 > (2026-09-11, arquitecto. Base: **v1.67, vigente entera**. Origen: hallazgos de QA/techlead del mismo día (F2-2,
@@ -3453,7 +3530,7 @@ identificador de contacto que se añada después.
 | Base de datos | **PostgreSQL 16** | Modelo fuertemente relacional (items, órdenes, precios, auditoría), constraints e índices, `JSONB` para snapshots (CFDI, direcciones) y `AuditLog`. Recomendado en PROJECT. |
 | Cache / colas / rate-limit | **Redis + BullMQ** | Jobs diarios (sync de precios, FX), barridos de plazos de buylist/disputas, y **rate-limiting** para respetar el free tier de las APIs (100/día, 250/día). |
 | Auth | **JWT** (access corto + refresh), hashing **argon2** | Sin dependencia de proveedor externo para el MVP; roles y KYC viven en `User`. Guards por rol y por acción. |
-| Object storage (SOLO INE de KYC) | **Object storage S3-compatible** (Cloudflare R2 o AWS S3 en prod; **MinIO** en local) vía **URLs prefirmadas**, **bucket privado + cifrado + retención** | **v1.2:** único uso = **imagen del INE del buylist** (`kyc_ine`). No hay fotos de producto/inventario (imagen de catálogo remota) ni de disputa (evidencia por correo). Presign PUT para subir, presign GET de vida corta para leer en back-office; retención por `INE_RETENTION_DAYS` (§3.4). |
+| Object storage (SOLO INE de KYC) | **Producción: Cloudflare R2** (S3-compatible) vía **URLs prefirmadas**, **bucket privado + cifrado + retención**. **Toda ruta NO-producción** (nativa, compose local, staging efímero de CI): **`scripts/s3-local/`** — ⛔ **MinIO retirado de los compose (v1.67.3 §4.51) Y del service container de `e2e.yml` (v1.67.4 §4.52)** | **v1.2:** único uso = **imagen del INE del buylist** (`kyc_ine`). No hay fotos de producto/inventario (imagen de catálogo remota) ni de disputa (evidencia por correo). Presign PUT para subir, presign GET de vida corta para leer en back-office; retención por `INE_RETENTION_DAYS` (§3.4). **La superficie S3 que el backend usa de verdad son 3 operaciones + «el bucket existe»** (§4.51.1): ni políticas, ni lifecycle, ni multipart, ni `ListObjects`. Por eso la ruta no-producción **no necesita** un servidor S3 completo — y **no debe** depender de una imagen de tercero en la única puerta que mira la app corriendo (§4.51.0). |
 | Frontend | **Next.js 14 (App Router) + React + TypeScript** | Storefront con SEO (server components para catálogo/ficha), y mismo framework para el panel admin responsive. **Sin captura de fotos de producto** (v1.2); la única subida es la imagen del INE en el flujo de KYC del buylist. |
 | Data fetching (front) | **TanStack Query** | Cache cliente, estados de carga/error consistentes con el contrato. |
 | Estilos | **Tailwind CSS** + componentes del **DESIGN_SYSTEM** (propiedad de ux-ui) | La estructura visual/tokens los define ux-ui; el arquitecto no fija el sistema de diseño. |
@@ -9257,6 +9334,62 @@ Los deltas M-37 son el **puente mínimo** money-safe hasta entonces.
   `422 PRICE_PENDING` (o override manual auditado, §4.34d). El job `sealed-price-ingest` (§4.19d) gana una fuente extra
   de grupos/productos a barrer: **los `SealedProduct` activos** (además de los items mapeados), de modo que un producto
   del catálogo tenga precio aunque aún no haya inventario — sin fabricar dato (null si TCGCSV no trae precio).
+
+#### 4.34a.1 P-79(c) — la cola «listas para publicar» de M1 y el último escalón de la cascada
+
+*El dueño da de alta un producto sellado y el panel se lo devuelve con forma de carta suelta. No se convirtió en
+carta: la pantalla le está enseñando el ancla.*
+
+**Medición (orquestador, 2026-09-11, fichero a fichero — esta sección no afirma nada que no esté en esta lista):**
+
+1. `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx:139-141` imprime **siempre**
+   `setName · number · finish`. `grep -c productType` sobre ese fichero = **0** ⇒ **no existe rama de sellado**.
+2. Aunque existiera, **no hay con qué pintarla**: el DTO de la cola no lleva el nombre del producto sellado
+   (`frontend/src/types/contract.ts:2581-2599`) y la proyección tampoco lo emite
+   (`backend/src/modules/inventory/inventory.service.ts:1801-1823`).
+3. El `· 1 ·` es el número de la **carta ancla** del set: el sellado se engancha a la carta de número más bajo
+   **solo** para satisfacer `InventoryItem.cardId NOT NULL`, y el propio código escribe que ahí **deja de ser
+   identidad** (`inventory.service.ts:820-829`, `resolveAnchorCardId`; doctrina §4.34a).
+4. La BD está sana: `productType='sealed'` y `sealedProductId` intactos. **El defecto es de presentación, no de
+   datos** — ninguna migración, ningún backfill, ninguna reparación de piezas.
+5. **Precedente que ya funciona:** la cola de M2 ramifica por
+   `productType === 'sealed' && sealedProductName` (`.../admin/m2/sections/PendingQueueSection.tsx:35`) y oculta el
+   número para sellado (`:99-103`). A la cola de M1 nunca se le hizo ese trabajo.
+
+**Decisión (contrato v1.69.1).** `PendingPublishRowDTO` gana **un solo** campo, `sealedProductName?: string`,
+presente **solo** para `productType='sealed'`. No se añade ningún booleano «es sellado»: `productType` **ya viaja**
+en ese DTO y es el discriminante.
+
+**Dónde se separa de §4.34a, y por qué (razón medida).** La cascada de §4.34a termina en `Card.name`. **En esta cola
+el último escalón se omite**: `SealedProduct.name` (vivo) → snapshot `InventoryItem.sealedProductName` → **ausente**.
+Caer al ancla *es* el defecto reportado, y aquí no hay nada que lo desmienta: la tabla no tiene imagen, ni columna
+`productType`, ni `gradeKey` — que es justo lo que M2 sí pinta (`PendingQueueSection.tsx:107-108`) y lo que le
+permite a M2 quedarse con el fallback sin engañar a nadie. Es la misma doctrina que esta pantalla ya aplica dos
+veces: `missing` vacío se pinta «por revisar» y `total` ausente **no** se degrada a `data.length`
+(`PendingPublishQueue.tsx:23-48,68-84`). *Ante un «no sé», no se pinta un valor que parezca bueno.* Las demás
+superficies de sellado (`/vault/holdings`, `/vault/sealed`, grid público, `sealed-sets`, cola de M2) **conservan la
+cascada completa**: ahí el fallback convive con imagen o con columnas que dicen que es sellado.
+
+**Lo que se pinta (normativo, tres casos)** — tabla completa en el Changelog v1.69.1 del contrato. Resumen: el
+sellado **nunca** enseña `card.number` ni `finish` (ambos son del ancla; el acabado de un sellado es siempre
+`normal`, misma regla que `FinishBadge.tsx:21`), y el sellado **sin** nombre resoluble se pinta «sellado sin
+identificar», nunca `card.name`. **Ninguna fila se oculta:** esta cola es la **red** del disparo de
+auto-publicación (contrato §M1); esconder una pieza porque no sabemos nombrarla la sacaría de la única pantalla
+donde alguien la encontraría.
+
+**Reparto.** **Backend (`inventory`)** — poblar el campo en la proyección de `pendingPublish`; el join es **gratis**:
+la query de la página ya existe (`inventory.service.ts:1790-1796`) y solo gana
+`sealedProduct: { select: { name: true } }` ⇒ **cero queries nuevas, cero N+1**; el barrido (`:1769-1785`) **no se
+toca** (sigue leyendo solo `id` + estado, que es lo que mantiene acotada la memoria). **Frontend
+(`(admin)/admin/m1`)** — tipar el campo, ramificar por `productType` y borrar `· number · finish` del caso sellado.
+**Ni el arquitecto ni ningún otro rol toca esos ficheros**: cada hallazgo va a su dueño (CLAUDE.md, regla 8).
+
+**NO MEDIDO.** Cuántas piezas selladas vivas caen en el tercer caso (sin `sealedProductId` **y** sin snapshot
+`sealedProductName`). Lo cierra un conteo: `SELECT count(*) FROM "InventoryItem" WHERE "productType"='sealed' AND
+"sealedProductId" IS NULL AND "sealedProductName" IS NULL AND "ownerType"='platform' AND "status"='in_stock';`.
+Si sale **0**, el tercer caso es puro seguro de vida (una proyección degradada o un backend viejo) y no hay trabajo
+de curaduría; si sale **> 0**, esas piezas necesitan identidad tecleada en M1 — **trabajo de captura, no de
+software** (§4.34a: ninguna migración adivina qué presentación era).
 
 #### 4.34b Un set → **N grupos** TCGCSV (crítico: promos / colecciones, incl. Mega Evolution)
 
@@ -19656,8 +19789,18 @@ con identidad nula— **dejan de resolverse como PSA 10 y pasan a `pending`**. N
 primera vez dicen la verdad**. Un `pending` visible entra a la cola del dueño y se repara; un PSA 10 silencioso no se
 descubre nunca. Ver §4.40.5(b).
 
+> ⚠️⚠️ **ENMENDADO POR §4.50.1 (v1.70, P-83) — LEER ANTES QUE EL PÁRRAFO (d) DE ABAJO.** Este párrafo declara
+> `'sealed'` *«la clave del override MANUAL del admin»*, es decir **una clave de precio**. **Eso se retira.**
+> `'sealed'` pasa a ser **una clave de COLA y nada más**: identifica una clase de pieza que espera precio, y **no
+> puede sostener una fila de `PriceReference`**, porque no distingue un ETB de un blíster anclados a la misma
+> `Card`. El valor que devuelve `buildGradeKey({productType:'sealed'})` **no cambia** y la unión discriminada
+> **tampoco**; lo que cambia es **para qué se admite ese valor**. La frase *«la colisión … deja de ser alcanzable
+> desde el buylist»* seguía siendo cierta y seguía sin cerrar el caso: la colisión se alcanzaba por el **alta de
+> inventario**, que es donde el dueño la sufrió (bucle de «FIJAR PRECIO»). Normas en `API_CONTRACT §M2-SK`.
+
 **(d) `sealed` no cambia de valor y su hueco tampoco se tapa aquí.** `buildGradeKey({productType:'sealed'})` sigue
-devolviendo `'sealed'`: **es, por diseño, la clave del override MANUAL del admin** (§4.19d), y la clave de mercado por
+devolviendo `'sealed'`: ~~**es, por diseño, la clave del override MANUAL del admin**~~ (§4.19d — **enmendado por
+§4.50.1: ya no es clave de precio**), y la clave de mercado por
 producto ya existe y es `sealedMarketGradeKey()` → `sealed:tcg:<productId>`. Lo único que cambia es que el tipo ya no
 admite campos de grado en la rama `sealed`. La colisión «dos sellados de la misma `Card` colapsan en `'sealed'`» es
 **real y está documentada desde v1.19**, pero **deja de ser alcanzable desde el buylist** en cuanto se cierra la
@@ -22456,6 +22599,11 @@ misma pieza**.
   medir: N llamadas iguales ⇒ una orden.
 - **Sustitución** (carrito distinto): no se puede «editar» un PI ya entregado al cliente sin riesgo de que un tab
   viejo lo confirme por el importe viejo ⇒ **cancelar primero, crear después** (B3, la misma doctrina del barrido).
+  > ⚠️ **v1.70 (§4.50.2, P-80) — DOS PRECISIONES SOBRE ESTA SECUENCIA.** (1) La cancelación **se queda dentro de la
+  > transacción** en este pase, con **disparador nombrado** para reabrirlo (§4.50.2). (2) **La llamada a Stripe no
+  > es transaccional**: tras confirmarse quedan dos escrituras y un commit, así que el estado «PI cancelado + orden
+  > `pending`» **ya es alcanzable** — se declara como **orden huérfana de pago** (`API_CONTRACT §4-R.9`), es
+  > money-safe, **no se reusa (se sustituye)** y la propia sustitución la **sana**.
   Si cancelar no confirma `canceled` (`processing`/`succeeded`) ⇒ `PAYMENT_IN_PROGRESS` y **cero escritura**: el
   dinero del cliente puede estar en vuelo, y ahí no se crea nada.
 - Siempre-sustituir habría sido más simple de escribir y peor de operar (N reintentos = N órdenes `failed`) y no
@@ -22876,6 +23024,584 @@ régimen de la CLABE (`reveal-clabe` intacto) ni el del RFC · ⛔ no cierra **B
 del INE) · ⛔ no normaliza `BUYLIST_LIMIT_EXCEEDED (per_month)` (§4.49.2.7) · ⛔ no borra `legalName` ni
 `capPerRequestCentsOverride` (§4.49.3) · ⛔ no limpia los objetos **huérfanos** que ya existan en R2 · ⛔ no pone
 límite de reintentos de subida.
+
+---
+
+### 4.50 CUATRO DECISIONES ACUMULADAS — la llave del sellado, Stripe en la transacción, la tercera rama y el sobre del invitado (v1.70, 2026-09-11, NORMATIVO, **DINERO + PII**)
+
+> **Marco, y cambia la naturaleza de tres de las cuatro:** **Stream B ya está publicado** (`efe65f5`). Esto no
+> decide sobre un candidato: decide sobre lo que está vivo. Por eso cada decisión dice, con todas las letras, **si
+> exige un despliegue o si es solo para lo siguiente**, y ninguna «mejora» algo que ya corre sin declararlo.
+>
+> **Naturaleza de mi pase:** `[código]` + `[docs]`. **No tengo shell** (`HECHOS.md`): todo lo que afirmo se sostiene
+> en fuente leída, con fichero:línea al lado, o va marcado **NO MEDIDO** con la medición que lo cerraría.
+
+| # | Origen | Decisión en una frase | ¿Despliegue? |
+|---|---|---|---|
+| **4.50.1** | `P-83` (backend) | **`'sealed'` es una clave de COLA, nunca una clave de PRECIO** | **Sí** (2 cambios), **cero migración** |
+| **4.50.2** | `P-80` (backend) | La cancelación **se queda** en la transacción; lo que cambia es que el estado que produce al fallar **se declara** y **se sana** | **Sí** (1 cambio) |
+| **4.50.3** | `P-81` (backend) | §M5-S tiene **tres** ramas; la de la carrera es `CONFLICT` — **gana el código** | **No** (documental) |
+| **4.50.4** | `SB-D6` (frontend) | El **sobre del reintento del invitado** es normativo; el gate E2E de §4-R vive en el carril **con claves** | **No** (documental) |
+
+#### 4.50.1 `P-83` — la llave del sellado, y la medición que descarta la opción que parecía obvia
+
+**El caso.** Backend cerró tres de los cuatro eslabones de P-79(d) (`d3b2543`) y escaló el último: con
+`tcgplayerProductId` nulo, `derivePublishSalePrice` hace `const ref = gk ? ctx.refs.get(...) : undefined`
+(`inventory.service.ts:1593`) ⇒ **no consulta ninguna referencia** ⇒ el override manual de un sellado **no mapeado**
+es ilegible por construcción y la pieza sigue en bucle. Su razón para no tocarlo es buena y la suscribo:
+`PriceReference` no distingue un producto de otro bajo `'sealed'`, así que **leer esa fila valuaría una caja con el
+precio de un sobre**, y el mismo patrón vive en otros cuatro lectores.
+
+**⭐ La medición que decide** `[código]`, y es la que convierte una elección de gusto en una de hecho:
+
+> **`sealedProductId` no existe en la población que habría que desambiguar.**
+> Un `InventoryItem` sellado tiene `sealedProductId` **si y solo si** tiene `tcgplayerProductId`:
+> - el único camino que lo escribe al alta lo deriva de un `SealedProduct` cuyo `tcgplayerProductId` es
+>   `Int @unique` **NOT NULL** (`inventory.service.ts:821-849` → `:984-1009` → `buildItemData :1110-1113`;
+>   `schema.prisma:612`);
+> - el backfill de M-39 liga **solo** piezas ya mapeadas (`sealed-product.service.ts:726`,
+>   `where { tcgplayerProductId: productId, sealedProductId: null }`) y su **paso 8** (`:734`) deja el
+>   `sealedProductId` **nulo** para las no mapeadas, explícitamente, *«porque no se pueden backfillar sin adivinar»*.
+
+⇒ **La opción (a) —`sealedProductId` en `PriceReference` + fallback simétrico en todos los lectores— es INERTE para
+el caso que pretende arreglar.** Añadiría una columna que vale `NULL` exactamente donde hace falta: dos sellados no
+mapeados anclados a la misma `Card` **seguirían compartiendo fila**. Se descarta **por inerte, no por cara**. *(Y de
+paso ahorra un segundo eje de llave para el dinero del sellado, con su fallback duplicado en cinco lectores: cinco
+sitios donde la próxima persona tiene que acordarse de la simetría.)*
+
+**La opción (b) —prohibir el alta de sellado sin mapeo— se descarta por su COSTE OPERATIVO, y por lo que lo
+encadena.** Convertiría un defecto de precio en un **bloqueo de entrada de mercancía real**, y lo haría atado a un
+defecto **abierto en producción**: `P-46` (*«sincronizar sellado devuelve 0 presentaciones»*) significa que hay sets
+**sin ninguna `SealedProduct` que elegir** ⇒ esas cajas no se podrían dar de alta en absoluto. *No se cierra una
+fuga de precio poniendo un candado en la puerta del almacén.* **Queda con disparador nombrado:** se reabre el día
+que `P-46` esté cerrado **y** medido (cero sets con 0 presentaciones), no antes.
+
+**La decisión: separar los dos usos de la llave.** Una fila de **cola** solo tiene que deduplicar *«esta clase de
+pieza espera precio»*; una fila de **precio** es dinero y **tiene que identificar al producto**. `'sealed'` sirve
+para lo primero y no puede servir para lo segundo. Las cuatro normas (SK-1…SK-4) y el reparto están en
+**`API_CONTRACT §M2-SK`**; aquí va solo lo que es razón de diseño:
+
+1. **`PriceReference` no cambia. Migración: NINGUNA.** *(Y por tanto no hay reversa que escribir: la reversa de
+   «cero DDL» es «cero DDL».)*
+2. **Ningún lector de dinero cae a `'sealed'`.** Es `§4.40.4(b)` aplicado sin excepción: `null` ⇒ **no hay
+   referencia** ⇒ `PRICE_PENDING` / «—», jamás un default. El `gk ? … : undefined` de backend **se ratifica**: no
+   era una omisión, era lo correcto, y ahora tiene una razón escrita en vez de una ausencia.
+3. ⭐ **La única excepción viva SE RETIRA, y es el cambio que hay que desplegar.** `admin.inventoryValue()`
+   (`admin.service.ts:1188`, `:1233`) hoy **sí** cae a `'sealed'` ⇒ **un ETB puede estar sumando el precio de un
+   blíster en el total de valuación del dueño**. Backend lo citó como «precedente del fallback, pero solo en lectura
+   agregada»; **lo retiro, y por su propio vecino**: dos líneas más abajo, la graduada sin identidad de slab **no
+   aporta clave y cae a `pendingPriceCount`** (`:1190-1192`), *«que es la verdad: no se puede valuar lo que no se
+   sabe qué grado es»*. El sellado sin identidad de producto está en el mismo caso exacto. **Efecto declarado:**
+   piezas que hoy suman a `atReferenceCents` pasan a `pendingPriceCount` — el total **baja** y el contador de
+   pendientes **sube**. *Un total mal sumado es la cifra con la que el dueño decide qué comprar; «es solo un
+   agregado» no es una defensa.*
+4. **El precio del sellado no mapeado ya tiene instrumento, y es la PIEZA:** `InventoryItem.listPriceCents`,
+   precedencia **#1** de §K (`derivePublishSalePrice :1584-1587` la resuelve **antes** de tocar ninguna clave). Vive
+   en la fila de la pieza ⇒ **no puede cruzarse con otra**. El override de MERCADO deja de aceptarse sin clave de
+   mercado (**`422 SEALED_MARKET_KEY_REQUIRED`**, el segundo cambio a desplegar), porque hoy esa escritura **tiene
+   éxito y no sirve de nada dos veces**: nadie la lee y no identifica al producto.
+
+**Lo que NO MEDÍ, y la medición que lo cierra:** cuántas filas legadas hay en producción bajo la llave equivocada
+(pendientes de pieza **mapeada** escalados como `'sealed'`, y `PriceReference` manuales bajo `'sealed'`). Las dos
+consultas —**solo `SELECT`**— ya están escritas en `docs/BACKEND_NOTES.md` P-79(d). **Cierra:** correrlas contra la
+BD de producción y anotar el número con fecha. **No bloquea esta decisión**, y ésa es una propiedad buscada: las dos
+salidas que M2 ofrecerá (mapear, o fijar el precio de la pieza) son money-safe **con censo o sin él**.
+
+#### 4.50.2 `P-80` — Stripe dentro de la transacción: la pregunta del fondo ya tenía respuesta en el código publicado
+
+**Lo que backend acotó, y lo suscribo:** el SDK traía `timeout` **80 000 ms** por defecto, **2,6×** el techo de
+nuestra propia transacción (`RESERVATION_TX_OPTIONS.timeout = 30_000`) — *el proveedor decidía cuánto duraba
+nuestra transacción*. Con `TIMEOUT_MS = 8_000`, el peor caso es **3 × 8 s = 24 s < 30 s**: la transacción siempre
+gana al SDK. Medido `[REPORTADO por backend]`: con 2 s de latencia **6/6 en `201`, 0 timeouts**; con 12 s,
+**1/6 cae** con el pool agotado; **3/3 tiradas** en ambos escenarios, y **en los dos la propiedad de dinero
+aguanta** (cero piezas con dos órdenes `pending` encima).
+
+**⭐ La pregunta que se me pidió decidir —*«¿qué pasa si la cancelación confirma y la transacción posterior
+falla?»*— tiene una respuesta que cambia el marco: ese estado YA ES ALCANZABLE, con el código publicado** `[código]`.
+La llamada a Stripe **no es transaccional y no puede serlo**: `closePaymentIntent` (`orders.service.ts:870`) cancela
+en el proveedor, y **después** quedan dos escrituras y un commit (`:889-896`). Si el commit falla, si la conexión se
+cae o si la transacción vence, el PI queda **cancelado en Stripe** y la orden queda **`pending` con sus piezas
+reservadas**. ⇒ **Meter la llamada dentro de la transacción no evita ese estado: solo estrecha su ventana.**
+
+*Ésa es la diferencia entre la pregunta que me llegó y la pregunta real.* No es *«¿qué nuevo fallo introduzco si la
+saco?»*, es *«¿qué hago con un fallo que ya tengo?»*.
+
+**DECISIÓN 1 — La cancelación NO sale de la transacción en este pase.** Razón, y no es inercia:
+
+- **El «qué PI cancelo» y el «qué escribo» tienen que decidirse bajo el MISMO candado.** La puerta es
+  `pg_advisory_xact_lock`, **de transacción**: muere con ella. Si la cancelación ocurre antes de tomar la puerta, se
+  decide sobre una **lectura vieja**, y dentro de la puerta el mundo puede haber cambiado: se habría cancelado el PI
+  de una orden que luego no se toca (matar un pago vivo de una orden que se deja `pending`), o se llegaría a la
+  puerta necesitando cancelar **otro** PI sin poder salir a Stripe. Arreglarlo exige un **bucle
+  compare-and-swap** (leer → cancelar fuera → puerta → releer → si el objetivo cambió, soltar y reintentar), que es
+  maquinaria real **a cambio de holgura de pool**, no de una propiedad de dinero.
+- **Lo que hoy falla bajo presión de pool falla BIEN:** `500`/timeout con **cero escrituras** —la transacción
+  entera se deshace—, no corrupción. Es **denegación de servicio en una rama rara del checkout**, no un defecto de
+  dinero. Y el instrumento para medirlo ya existe (`backend/test/integration/stripe-in-tx-pool.e2e-spec.ts`).
+- **Está acotado, no eliminado, y lo digo sin adorno:** con N suficientemente alto vuelve. Lo medido (1/6 a 12 s) es
+  **el mecanismo**; la acotación solo cambia la escala a la que aparece.
+
+**⭐ Disparador nombrado que REABRE esta decisión** (para que no se re-litigue por corazonada ni se olvide): se saca
+la cancelación de la transacción —con el bucle CAS— cuando se mida **cualquiera** de estas dos:
+(i) la concurrencia real de `POST /checkout/session` en producción alcanza el N donde el instrumento ya falla con la
+latencia **p95 real** de Stripe; o (ii) aparece **un solo** `Timed out fetching a new connection` en el log de
+producción en la ruta de checkout. **NO MEDIDO:** ninguna de las dos (no tengo shell ni acceso al log). **Dueño de
+la medición: devops** (contar `Timed out fetching a new connection` en el log de producción y la concurrencia p95 de
+`/checkout/session`). *Hasta que exista ese número, mover el diseño sería optimizar contra una carga imaginada.*
+
+**DECISIÓN 2 — El estado se declara: la orden «huérfana de pago».** Norma completa en
+**`API_CONTRACT §4-R.9`**. Las tres piezas del razonamiento:
+
+1. **Es money-safe, y por eso se puede declarar legal en vez de perseguirlo.** `Order.pending` + PI `canceled` ⇒
+   **cero PaymentIntents vivos** sobre esas piezas ⇒ la regla 1 de §4-R.2 (*un cobro por pieza*) **se cumple**. Lo
+   único que hay es una reserva que nadie va a cobrar, y el barrido (§4-R.4) ya la recoge por vencimiento.
+   ⛔ **No se acuña `OrderStatus` nuevo** ni columna de compensación: el hecho es **derivable del PI**, y una
+   segunda fuente para el mismo hecho es lo que O-1 prohíbe.
+2. ⭐ **Lo que SÍ hay que desplegar, y es la mitad del ciclo que hoy falta (O-4):** `paymentIntentForReuse`
+   (`orders.service.ts:933-935`) relee el PI y **devuelve su `clientSecret` sin mirar el estado** `[código]` ⇒ a un
+   cliente con una orden huérfana, «Reanudar pago» le entrega el `clientSecret` de un PI **cancelado** y se estrella
+   contra un error de Stripe que nadie le puede explicar. **Norma:** PI `canceled` ⇒ **la fila «REUSO» no aplica**
+   ⇒ se cae a **SUSTITUCIÓN**. Candado **R-10**.
+3. **La sustitución SANA la huérfana, y por eso el reintento del cliente ES la reparación** `[código]`:
+   `closePaymentIntent` sobre un PI ya cancelado **es idempotente** — Stripe lanza, el código desambigua
+   consultando el estado real y devuelve `{ closed: true }` (`:764-779`). ⇒ el segundo intento atraviesa la misma
+   secuencia y termina en `201`. ⛔ **Prohibido** «reparar» huérfanas con un job, un script o una compensación
+   asíncrona: sería un **tercer** camino capaz de sacar una pieza de `reserved`, y cada camino nuevo es un sitio más
+   donde se puede liberar la reserva de otro (el defecto exacto que la regla 2 de §4-R.2 cerró).
+
+#### 4.50.3 `P-81` — la tercera rama de §M5-S: **gana el código**, y digo por qué
+
+**El caso:** §M5-S norma dos desenlaces para `count !== 1` (*terminal/cerrada ⇒ `CONFLICT`; **en otro caso** ⇒
+`INVALID_TRANSITION`*) y el código tiene **tres**. La rama de la **carrera** —la relectura ve la fila **viva y en un
+estado admitido**— cae en «en otro caso» **por la letra**, pero el código responde `CONFLICT` **desde v1.68**;
+backend solo la hizo legible con `details.reason: 'CONCURRENT_UPDATE'` (`BACKEND_NOTES §68.2.6`, 40/40, mutación en
+rojo 3/3). **Es preexistente.**
+
+**Zanjo a favor del código y contra mi propia letra**, por dos razones que no son de gusto:
+
+1. **`INVALID_TRANSITION` produciría un `details` que se contradice a sí mismo.** Su carga útil es
+   `from` + `allowedFrom`, y en esta rama **`from` está DENTRO de `allowedFrom`**: el operador leería *«está en
+   `en_transito`; “recibir” solo aplica en `en_transito`»*. Eso es **exactamente el defecto I5** que se acaba de
+   cerrar, reintroducido por la letra del contrato. *Un código de error cuyo `details` no puede ser verdad no es un
+   código: es una plantilla mal rellenada.*
+2. **El remedio del operador es OTRO, y el código es lo único que se lo dice.** `INVALID_TRANSITION` = *«aquí no se
+   hace eso»* ⇒ **no reintentes, cambia de paso**. `CONFLICT` + `CONCURRENT_UPDATE` = *«alguien se te adelantó»* ⇒
+   **refresca y mira**; a menudo el trabajo **ya está hecho**. Dos remedios distintos no comparten código de error.
+
+**`reason` es aditivo y aparece SOLO en la rama de la carrera.** Las dos ramas de §M5-T conservan su `details` de
+siempre, sin `reason` ⇒ ningún consumidor existente cambia. ⛔ **El front no puede leer la *ausencia* de `reason`
+como señal de nada**: el discriminante de §M5-T sigue siendo `status`/`closedAt`. Candado **S-4** en el contrato.
+**No hay nada que desplegar:** el código publicado ya se comporta así; lo que faltaba era que el documento lo
+dijera.
+
+#### 4.50.4 `SB-D6` — el sobre del invitado, y cómo se prueba §4-R de verdad
+
+**(a) El correo del invitado en `sessionStorage`: se BENDICE, y se escribe como norma.**
+
+El contrato exige **token + correo, los dos o ninguno** (§4-R.3, §4-R.5) pero v1.68.1 solo bendijo la persistencia
+**del token**. El correo se quedó guardándose «porque hacía falta». **Medido por frontend:** sin él, **recargar la
+pestaña poda la reserva propia del invitado** — el primer quote sale sin reclamo, la pieza vuelve «ajena», la vista
+la poda (§4, «Deber del front») y la promesa de §4-R.3 **no se cumple**. *Un apaño que sostiene una promesa del
+contrato no es un apaño: es parte del contrato.*
+
+**Por qué es aceptable, con el argumento y no con la costumbre:** el correo ya está, **en esa misma pestaña**, en el
+campo del formulario, en el body de la petición y en la pantalla de confirmación. `sessionStorage` **no ensancha**
+su exposición: cualquier ejecución hostil capaz de leerlo de ahí puede leer el campo del formulario y —peor— el
+**token**, que es estrictamente más sensible y que este contrato **ya** bendijo en el mismo sitio. El riesgo
+marginal es cero; el hueco era **documental**. Y la regla que lo hace coherente: **el par es UNA credencial**;
+partirlo entre dos almacenes le daría al eslabón débil la vida del más largo ⇒ **un sobre, una clave, una escritura,
+un borrado**.
+
+**Alternativa descartada:** *retirar `email` de §4-R.3 y dejar el token como identidad entera.* Sería menos que
+guardar, pero **debilita un control declarado de dinero y PII** y **exige desplegar** backend y frontend para
+**perder** una comprobación. No se paga un despliegue por tener menos defensa.
+
+**Es documental: el código publicado ya lo hace así** `[código]` — `frontend/src/app/[locale]/(storefront)/checkout/
+guest-retry-token.ts`: sobre único `{token, expiresAt, email}` bajo una clave, correo normalizado (`trim` +
+minúsculas), purga en la lectura cuando vence o está malformado, borrado al confirmar el pago. **Nada que
+desplegar.** Lo que gana: deja de ser la decisión de un fichero y pasa a ser una regla con dueño ⇒ cambiarla pasa
+por el arquitecto (regla 9). Norma en **`API_CONTRACT §4-R.3 K.3-bis`**.
+
+**(b) El gate de §4-R sin Stripe: NO se declara una vía, y digo por qué NO.**
+
+La pregunta era buena: §4-R se queda sin gate de punta a punta mientras no exista una vía declarada para tener un
+pedido `pending` **reservado** sin Stripe (hoy `POST /checkout/session` da `503` sin clave y el pedido queda
+`failed` con la reserva liberada). **Decisión: no se declara esa vía.**
+
+- **Porque la alternativa obvia —un «proveedor de pago falso» seleccionable por entorno— es un camino de código
+  capaz de crear una orden `pending` con piezas reservadas y SIN PI real**, viviendo en el mismo módulo que el
+  dinero y a un `env` de distancia de producción. La regla 1 de §4-R.2 se apoya en que **el único que reserva es el
+  que va a cobrar**; un driver que reserve sin cobrar es, literalmente, el invariante con un interruptor. *No se
+  añade una puerta trasera al dinero para poder probar la puerta principal.*
+- **Porque el gate real ya existe y ya corre:** las claves **de prueba** viven en los secrets del repositorio desde
+  el 2026-09-07 y `e2e-real.yml` corrió con ellas (`HECHOS.md`, run `34477885121`, `MONEY_SKIPPED:` vacío)
+  `[REPORTADO]`. §4-R se prueba **ahí**, entero (R-1…R-10).
+- **Y el carril sin claves no se queda vacío: prueba el invariante que SÍ se puede medir sin proveedor** — la
+  **compensación**: `503 PAYMENT_PROVIDER_UNAVAILABLE` ∧ orden `failed` ∧ **cero piezas `reserved`** ∧
+  `reservedByOrderId`/`reservedUntil` limpios. *Ése es exactamente el estado que un fallo de proveedor debe dejar.*
+- ⛔ **Y la consecuencia dicha en voz alta:** un spec de §4-R **saltado** en el carril sin claves **no se lee como
+  verde**. El carril reporta *«N saltados por falta de clave»*, nunca *«pasó»* — misma doctrina que `MONEY_SKIPPED:`
+  y la misma lección de `HECHOS.md` (*una medición hecha en el sitio equivocado no dice «no hay clave»: dice «aquí
+  no la veo»*).
+
+**Dueños:** los specs los escribe **backend**; **QA** los ejecuta y reporta la proporción (O-3); **devops** mantiene
+los dos carriles y que el salto sea **visible en el resumen**. Tabla normativa en **`API_CONTRACT §4-R.10`**.
+
+#### 4.50.5 Reparto — quién implementa cada una
+
+| Rol | Tarea | Contrato | ¿Despliegue? |
+|---|---|---|---|
+| **backend** (`users`/`admin`) | **C10 entero**: guard de tope por `actorUserId` (reusando el mecanismo de `C7`), cabeceras `no-store` + `X-Robots-Tag`, y **un solo** TTL efectivo usado en firma + cuerpo + bitácora (+ `ttlClamped`/`ttlRequested`). Los **tres candados** de la sección | `§M6-K.2.0/.2.1/.2.3/.2.5` | No (§M6-K aún no existe en código) |
+| **backend** (`admin`) | **SK-2**: retirar el fallback a `'sealed'` de `admin.inventoryValue()` (`admin.service.ts:1188,1233`). Test: sellado **no mapeado** ⇒ suma a `pendingPriceCount`, **nunca** a `atReferenceCents` | `§M2-SK` | **Sí** |
+| **backend** (`pricing`) | **SK-3**: `POST /admin/pricing/override` con `productType:'sealed'` ∧ `gradeKey:'sealed'` ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`** | `§M2-SK`, §0 Errores | **Sí** |
+| **backend** (`orders`) | **R-10**: el reuso relee el estado del PI; `canceled` ⇒ **sustitución**, nunca `200 reused` con el `clientSecret` viejo | `§4-R.9` | **Sí** |
+| **backend** (`buylist`) | **Nada.** §M5-S ya se comporta como el contrato dice ahora. *(Si algo hubiera que hacer, sería no tocarlo.)* | `§M5-S` | No |
+| **frontend** (`(admin)/admin/m2`) | Las **dos salidas** de la fila de sellado sin mapear: «Ligar a su presentación» y «Fijar el precio de esta pieza». ⛔ No ofrecer «FIJAR PRECIO» de mercado ahí | `§M2-SK` | **Sí** |
+| **frontend** (`(admin)/admin/m5`) | Copia propia para `details.reason === 'CONCURRENT_UPDATE'` (audiencia **operador**); si no la hay, cae a la genérica de `CONFLICT`. **Opcional, no bloqueante** | `§M5-S` | No |
+| **frontend** (`checkout`) | **Nada que cambiar**: el sobre ya cumple K.3-bis. Lo que gana es que cambiarlo pasa por el arquitecto | `§4-R.3` | No |
+| **devops** | (1) Contar `Timed out fetching a new connection` en el log de producción de la ruta de checkout y la concurrencia p95 de `/checkout/session` — **es el disparador de §4.50.2**; (2) que el carril E2E sin claves reporte **los saltos** en el resumen. ⛔ **Cero migraciones, cero DDL, cero variables nuevas en todo este pase** | `§4-R.10` | — |
+
+#### 4.50.6 Desviaciones detectadas (no las corrijo yo; van al rol dueño)
+
+| # | Desviación | Dónde | Dueño | Estado |
+|---|---|---|---|---|
+| **D-SK-1** | `admin.inventoryValue()` valúa el sellado **no mapeado** cayendo a la llave `'sealed'`, que **no identifica producto** ⇒ el total puede sumar el precio de otra presentación. Contradice a su propio vecino (`:1190-1192`), que para la graduada sin identidad cae a `pendingPriceCount` | `admin.service.ts:1188`, `:1233` | **backend** | **Abierta.** Cierra con SK-2 |
+| **D-SK-2** | `POST /admin/pricing/override` acepta escribir dinero bajo `'sealed'` para una pieza sin mapeo: la fila **no la lee nadie** y **no identifica al producto** | `pricing.controller.ts` (ruta de override) | **backend** | **Abierta.** Cierra con SK-3 |
+| **D-PI-1** | El reuso devuelve el `clientSecret` de un PI **cancelado** sin mirar su estado ⇒ callejón sin salida para el cliente | `orders.service.ts:933-935` | **backend** | **Abierta.** Cierra con R-10 |
+| **D-M5S-1** | §M5-S del contrato normaba **dos** ramas y el código tiene **tres** (preexistente desde v1.68) | `buylist.service.ts` (`throwStepRejected`) | **arquitecto** | ✅ **Cerrada en v1.70**: el contrato se alinea con el código (§4.50.3) |
+| **D-SB-6** | El correo del invitado se persistía sin estar declarado en ningún documento | `frontend/.../guest-retry-token.ts` | **arquitecto** | ✅ **Cerrada en v1.70**: declarado en §4-R.3 K.3-bis |
+
+---
+
+### 4.51 EL OBJECT STORAGE DE LAS RUTAS NO-PRODUCCIÓN — se unifica en `scripts/s3-local/` y MinIO sale de los compose (v1.67.3-ci-object-storage, 2026-09-11, NORMATIVO, **INFRAESTRUCTURA**)
+
+> **Alcance, y solo este:** con qué pieza cubren su almacenamiento de objetos las rutas **no-producción** (nativa
+> local, compose local, staging efímero de CI). **Producción queda intacta: Cloudflare R2.** Esta sección **no**
+> decide nada de R2 y **no** toca `API_CONTRACT.md` (no hay superficie HTTP implicada: la elección es del lado del
+> servidor S3, no del cliente).
+>
+> **Propiedad de ficheros:** el arquitecto decide **la pieza y las propiedades que debe cumplir**. Los
+> `docker-compose*.yml`, `scripts/` y `.github/workflows/` los escribe **devops**; los tests, **backend**.
+
+#### 4.51.0 El hecho, y lo que el hecho NO es
+
+Medido (devops + orquestador, 2026-09-11): Docker Hub devuelve **401 a nivel de repositorio** para `minio/minio` y
+`minio/mc` (ni siquiera `tags/list`), mientras `library/postgres:16-alpine` devuelve **200**. Última release de
+`minio/minio`: `RELEASE.2025-10-15T…`, hace **once meses**; releases por año 2020:172 · 2022:186 · 2024:126 ·
+2025:33 · **2026:0**. `quay.io` —su registro oficial— es **inalcanzable desde este entorno** (CONNECT rechazado por
+el proxy), así que **nadie aquí puede verificar que una etiqueta exista ahí**.
+
+**Qué rompe, exactamente** (medido en los workflows): `docker-compose.staging.yml` es el stack que levantan
+`security-dast.yml` (`:19`) y `e2e-real.yml` (`:140`). Los dos están caídos. El carril de CI unitario/integración
+**no** usa MinIO (`ci.yml:11-13`), así que no está afectado. ⇒ **lo caído son las dos únicas puertas que miran la
+aplicación corriendo**, no el pipeline entero.
+
+⛔ **El argumento que NO sostiene esta decisión, y se declara para que nadie lo reviva:** «clavar una versión de hace
+once meses congela una dependencia sin parches en una puerta de seguridad». **Refutado con medición** (devops):
+producción **no** usa MinIO (usa R2), el DAST **no** lo escanea (los blancos son vitrina y API), **no** está expuesto
+(loopback del runner), y sus datos son sintéticos y viven minutos. Un CVE suyo aquí **no es alcanzable**. Para atrezo
+de CI, **estar congelado es reproducibilidad**, no deuda.
+
+**El argumento que SÍ sobrevive es DISPONIBILIDAD:** un proyecto que cerró un canal de distribución puede cerrar el
+otro, y clavar en un registro que **ni siquiera podemos alcanzar para verificar** es aceptar una dependencia **con
+cuenta atrás** justo donde ya nos mordió. Esta sección resuelve eso y nada más.
+
+#### 4.51.1 Qué necesita el backend del contrato de S3 — el cotejo, que es el corazón de la decisión
+
+`backend/src/modules/uploads/uploads.service.ts` es el **único** fichero del backend que importa `@aws-sdk`
+(medido). Su superficie completa:
+
+| # | Operación | Dónde | Forma exacta | ¿Obligatoria? |
+|---|---|---|---|---|
+| **S1** | **Presign PUT** (`PutObjectCommand` + `getSignedUrl`, 900 s) | `:192-199` | SigV4 en **query**, **path-style** (`forcePathStyle` default `true`, `:105`), con `ContentType` **y `ContentLength` incondicional** (candado P-UP-1) entre las cabeceras firmadas | **Sí.** Es la subida del INE (`purpose: 'kyc_ine'`), la ÚNICA subida del producto y es **PII** |
+| **S2** | **Presign GET** (`GetObjectCommand` + `getSignedUrl`, TTL `KYC_INE_VIEW_URL_TTL_SECONDS`, default 120, clamp ≤300) | `:224-251` | SigV4 en query **+ `ResponseContentDisposition: 'attachment'`** ⇒ viaja como `response-content-disposition` **dentro de la query firmada** (candado S-B3, §4.49.2.1) | **Sí.** Es la lectura del INE en back-office |
+| **S3** | **`DeleteObject`** server-side | `:257-260` | SigV4 en **cabecera** `Authorization:` (no presignado). Es el barrido de retención `INE_RETENTION_DAYS` | **Sí** |
+| **S4** | **El bucket existe** | `S3_BUCKET`, default `tcg-photos` | Sin él, S1 devuelve 403 y el arranque queda mal aprovisionado | **Sí** |
+| — | `ListObjects*`, multipart, versionado, tagging, SSE por-objeto, políticas de bucket **desde el código** | — | **NO APARECEN.** La retención enumera desde **BD**, no desde el bucket; el cifrado es del proveedor (R2), no una cabecera por objeto | **No** |
+
+⇒ **El requisito de una ruta no-producción es: SigV4 presignado (PUT y GET, con overrides de respuesta en la query),
+SigV4 de cabecera aceptado, `DeleteObject`, path-style, y un bucket creado al arrancar.** Esa es la vara con la que
+se miden los candidatos — no la marca.
+
+#### 4.51.2 Qué hace hoy MinIO en CI, y cuánto de eso **asierta** un test
+
+`docker-compose.yml` / `docker-compose.staging.yml`, servicio `createbuckets` (`mc`), hace **tres** cosas. Medido
+qué test observa cada una:
+
+| Lo que hace `mc` | ¿Lo asierta algún test? | Evidencia |
+|---|---|---|
+| `mc mb --ignore-existing` (crear bucket) | **Sí, indirectamente**: sin bucket, el PUT del smoke da 403 | `infra-smoke.e2e-spec.ts:144-153` |
+| `mc anonymous set none` (bucket privado) | **NO.** Ningún test hace una petición **sin firmar** contra el almacenamiento | Búsqueda sobre `backend/test/`: las únicas pruebas que tocan S3 real son `infra-smoke` (solo **PUT**) y `kyc-ine-links` (solo **forma de la URL**) |
+| `mc ilm rule add --expire-days … --prefix 'kyc_ine/'` | **NO.** Y la propia línea del compose lo declara no portante: cae en `\|\| … \|\| echo 'aviso: no se pudo fijar lifecycle …; backend sigue borrando por retencion.'` | `docker-compose.yml:115` |
+
+Y el hallazgo que cambia el diagnóstico del riesgo: **la ruta de LECTURA del INE nunca se ha probado contra un
+almacenamiento real.** `kyc-ine-links.e2e-spec.ts:96,102` comprueba que la URL **contiene** `X-Amz-Signature=` y
+`response-content-disposition=attachment`; **no hace `GET`**. ⇒ *«un reemplazo que no sostenga el presign de lectura
+nos deja sin probar la ruta de INE»* describe una cobertura que **hoy no existe con MinIO tampoco**. Lo que hay que
+exigirle a la pieza no es «no perder» esa cobertura: es **poder crearla** (G-3).
+
+#### 4.51.3 DECISIÓN — `scripts/s3-local/` es el object storage de **toda** ruta no-producción; MinIO y `mc` salen de los compose
+
+**Una pieza, tres rutas:** nativa local, compose local (`docker-compose.yml`) y staging efímero de CI
+(`docker-compose.staging.yml`) usan **`scripts/s3-local/`** (s3rver 3.7.1 + las tres añadiduras de devops).
+**Producción sigue en R2, sin cambio alguno.**
+
+Las cuatro razones, en orden de peso:
+
+1. **⭐⭐ No introduce ni un dominio de disponibilidad nuevo.** Las dependencias externas de s3-local son **imágenes
+   `library/*`** (Docker Official) y el **registro npm**. Las dos ya son **carga obligada de cada corrida de CI**
+   (el backend hace `npm ci`; Postgres y Redis son `library/*`, la clase que medimos **200**). Si cualquiera de las
+   dos cae, la corrida ya estaba muerta por otro sitio. Todo candidato de registro de tercero **añade un dominio de
+   fallo que hoy no tenemos** — y el incidente que estamos resolviendo es, literalmente, la caída de uno de esos.
+2. **⭐⭐ Cubre S1–S4, que es el requisito completo** (§4.51.1). Y cubre S1 y S2 **verificando la firma de verdad**:
+   devops implementó SigV4 sobre `crypto` precisamente porque s3rver **no la valida** (su código lo dice literal:
+   *«Signature version 4 calculation is unimplemeneted»*), y una URL presignada con el **secreto equivocado** devolvía
+   **200** — medido. Un stand-in que acepta cualquier firma convierte el smoke en un falso verde.
+3. **⭐ Mata la asimetría que hoy hace que un verde no signifique lo mismo en cada ruta.** Hoy corren **dos**
+   implementaciones distintas de S3 en las dos rutas no-producción, y un verde en una no dice nada de la otra; la
+   cabecera de `scripts/s3-local/server.js:28-32` ya avisa de esa clase de divergencia («*el arnés nativo y el de
+   Docker probarían configuraciones distintas y la diferencia no se vería en ningún diff*»). Una pieza ⇒ **una** lista
+   de huecos declarados, en **un** sitio, y esa lista ya está escrita. Hoy los huecos de la ruta de CI son implícitos.
+4. **⭐ Retira además `minio/mc`**, la segunda imagen inclavable, y con ella un init-container entero
+   (`createbuckets`): el bucket lo crea el propio servidor al arrancar (`configureBuckets`, `server.js:118-124`).
+   Menos superficie ajena y una pieza menos que pueda 401-ear mañana.
+
+**Contrapartida que se acepta con los ojos abiertos:** `s3-local` es **código nuestro**, y un bug suyo puede producir
+un falso verde. Es un riesgo **real**, pero es el riesgo que ya corremos en la ruta nativa y **está gestionado por
+construcción**: sus tres guardas nacieron de falsos verdes medidos, y su cabecera es **normativa** — todo hueco
+nuevo se declara ahí. Regla que se añade: **ningún hueco de `s3-local` puede quedar sin declarar en su cabecera**;
+tapar uno en silencio es la falta, no tenerlo.
+
+#### 4.51.4 Por qué NO los otros candidatos (cotejados contra §4.51.1, no contra la marca)
+
+| Candidato | Cubre S1–S4 | Por qué NO se elige |
+|---|---|---|
+| **`adobe/s3mock`** | S1/S2/S3/S4 funcionalmente sí (`initialBuckets` cubre S4 barato) | **No verifica SigV4 en absoluto** ⇒ reintroduce **exactamente** el falso verde que devops cerró (firma con secreto equivocado → 200), y esta vez **en la ruta que gatea el release**. Adoptarlo sería desandar una corrección medida. Además sigue siendo **namespace de tercero**: misma clase de disponibilidad que acaba de fallar, sin ganar nada a cambio |
+| **`localstack/localstack`** | La **más** fiel: es el único que plausiblemente cubre políticas, lifecycle, caducidad y overrides | (a) **Mismo riesgo de negocio, idéntico**: vendor comercial con corte free/pro en namespace de tercero — el patrón que cerró la distribución comunitaria de MinIO; (b) ~1 GB y decenas de segundos de arranque **en cada corrida de DAST y E2E**, para sostener **un bucket**; (c) el bucket exige un init-hook nuevo (`ready.d/*.sh`), o sea recuperamos el `createbuckets` que acabamos de quitar. **Paga fidelidad que ningún test consume** (§4.51.2) con el riesgo que estamos huyendo |
+| **`chrislusf/seaweedfs`** | S1/S3/S4 sí (verifica SigV4 con un fichero de identidades) | Es el candidato **del que menos sabemos** y el de peor encaje conceptual (un sistema de ficheros distribuido para guardar dos PNG de prueba): su gateway S3 es un subconjunto y su soporte de **`response-content-disposition`** (S2, el candado S-B3) está **NO MEDIDO**. Exige además un fichero de config nuevo. Tercero, otra vez |
+| **MinIO clavado en `quay.io`** | Sí, es la referencia | **No podemos verificar que la etiqueta exista** desde aquí (quay.io inalcanzable), y devops se niega a clavar a ciegas — **hace bien**: un compose que clava una etiqueta no verificable convierte un gate **rojo-conocido** en un gate **rojo-mañana**, que es peor. Y aun verificada, deja la **cuenta atrás** intacta en la única puerta que mira la app corriendo |
+
+#### 4.51.5 Lo que se pierde — enumerado, con qué lo cerraría (esto es la parte honesta)
+
+| # | Propiedad que MinIO daba y `s3-local` no | ¿La asierta un test hoy? | Veredicto y remedio |
+|---|---|---|---|
+| **G-1** | **Motor de políticas de bucket** (`mc anonymous set none`) | **No** (§4.51.2) | **Pérdida nominal, no efectiva.** La propiedad **observable** (petición sin firmar ⇒ 403) la garantiza `s3-local` **por construcción y en todo método**, incluida la lectura (`server.js:138-142,248-256`) — es igual de estricta o más. Lo que se deja de ejercitar es el **motor**, no el efecto. La propiedad **en producción** (bucket R2 privado) sigue siendo responsabilidad de `seguridad` y ya está marcada como supuesto no medido en §8 |
+| **G-2** | **`lifecycle` / `ilm`** sobre `kyc_ine/` | **No**, y el compose ya lo declara no portante (`docker-compose.yml:115`) | **Pérdida ≈ 0.** El mecanismo real de retención es el barrido del backend (S3, `DeleteObject` por `INE_RETENTION_DAYS`), que **sí** se ejercita |
+| **G-3** | **Presign GET verificado contra almacenamiento real**, con el `Content-Disposition: attachment` de vuelta | **No existe hoy** (`kyc-ine-links.e2e-spec.ts` solo mira la URL) | **No es una pérdida: es un hueco preexistente que esta pieza permite cerrar.** `s3-local` verifica la firma **también** en GET (el `response-content-disposition` va dentro de la query canónica, así que entra en la firma). **Acción (backend, no bloqueante de esta decisión):** añadir al smoke un `GET` real de la URL de vista ⇒ `200` + cuerpo idéntico al subido. ⚠️ **Condición de aceptación previa (devops, un `curl`):** que s3rver **honre** `response-content-disposition` en la respuesta — **NO MEDIDO**. Si no lo honra, se asierta `200` + cuerpo (que ya es más de lo que hay) y el **header** queda cubierto solo por el test de forma de URL, declarado aquí |
+| **G-4** | ~~Caducidad de la URL presignada (`X-Amz-Expires`)~~ | — | ❌ **RETIRADO en v1.67.4 — NO ERA UNA PÉRDIDA: EL AGUJERO NO EXISTÍA.** Lo escribí leyendo `server.js:165-233` (el verificador propio no compara `X-Amz-Expires` contra el reloj) y **concluí de ahí** que la URL vencida se aceptaría. **Eso era inferencia, no medición, y es falso:** devops lo midió con `S3_LOCAL_ALLOW_ANON=1` —que apaga **toda** la capa propia— y la URL vencida **ya** recibe `403 AccessDenied / «Request has expired»`, con `X-Amz-Expires`, `Expires` y `ServerTime` en el cuerpo. **s3rver sí comprueba la caducidad**; su hueco es la **firma**, no el reloj. Ver §4.52.1 |
+| **G-5** | **HMAC de la firma de CABECERA** (`Authorization:`, o sea `DeleteObject`) | **No** directamente | **Pérdida menor y acotada por transitividad:** el `S3Client` es **el mismo objeto** y las mismas credenciales que producen los presignados (`server.js:100-116` ↔ `uploads.service.ts:100-110`), así que una regresión de «secreto equivocado» **la caza S1**, que sí verifica. Lo que quedaría ciego es un fallo **exclusivo** del canonicalizado de cabecera del SDK. Ya está declarado en la cabecera de `s3-local` (`:58-61`) y **se mantiene declarado** |
+
+#### 4.51.6 Formas admisibles de cablearlo — **la forma la elige devops**; los invariantes no
+
+La pieza la fija el arquitecto; **cómo entra en el compose es de devops**. Dos formas son aceptables:
+
+- **Forma A (preferida) — servicio de compose sobre `library/node:<versión>-alpine`**, montando `scripts/s3-local/`
+  y arrancando `server.js`. Mantiene `docker compose up` **autocontenido** (un solo verbo levanta el stack, como hoy)
+  y deja la única imagen externa en la clase `library/*`, la que medimos sana. **Coste:** una imagen más (de la clase
+  buena) y un `npm ci` en el arranque del servicio si `node_modules` no viaja en el árbol.
+- **Forma B — proceso del runner**, como ya hace `stack-native.sh:408-449`, con el backend del compose apuntando al
+  gateway del host. **Coste:** el stack deja de levantarse con un solo verbo y su ciclo de vida pasa a ser de dos
+  piezas (más sitios donde un stack superviviente puede contaminar una corrida — el riesgo que `e2e-real.yml:317-346`
+  ya vigila). **Beneficio:** cero imágenes externas para el almacenamiento.
+
+**Invariantes que la forma elegida DEBE cumplir (normativo):**
+1. **El bucket `S3_BUCKET` existe antes de que el backend atienda su primera petición** (S4). Si no, el arranque falla
+   **ruidosamente**; nunca se degrada en silencio.
+2. **Las credenciales del stand-in son las mismas de `.env.example`/compose** — nunca el par fijo de s3rver
+   (`server.js:106-116` ya lo garantiza y **aborta con `exit 2`** si no puede). Dos rutas con credenciales distintas
+   prueban configuraciones distintas **sin que se vea en ningún diff**.
+3. **`S3_LOCAL_ALLOW_ANON` jamás se activa en un gate.** Existe solo para demostrar en rojo que la guarda funciona.
+4. **La publicación de puertos sigue en loopback** (`127.0.0.1:…`), criterio SEC-M4 sin cambio. ⚠️ En la **Forma A**,
+   `S3_LOCAL_HOST` debe valer `0.0.0.0` **dentro del contenedor** para que el backend lo alcance por la red de
+   compose: eso **no** debilita SEC-M4 —lo que expone al host es la **publicación** del puerto, que sigue en
+   loopback— pero **contradice el comentario literal de `server.js:71** («nunca 0.0.0.0»), escrito para el caso
+   proceso-en-el-host. Ver `D-S3-2`.
+5. **`forcePathStyle` sigue en `true`** en toda ruta no-producción (S1/S2 dependen de ello).
+6. **`check-compose-images.sh` sigue siendo el candado**: cualquier imagen que entre debe estar **clavada** por
+   `@sha256:` o etiqueta de versión. Este cambio **reduce** el conjunto vigilado; no lo exime.
+
+#### 4.51.7 Disparador de revisión (la deuda que esta decisión **sí** contrae)
+
+No hay ficha de deuda por «MinIO clavado» porque no se clava MinIO. La deuda que **sí** se contrae es *«el stand-in es
+código nuestro y su fidelidad es la que declara su cabecera»*. Su ficha:
+
+- **Qué se acepta:** G-1, G-2 y G-5 permanecen **abiertos y declarados** (ninguno lo asierta un test hoy).
+- **Qué NO se acepta y tiene dueño:** **G-3** (`GET` real en el smoke) → **backend**. **Desbloqueado**: N-1 salió ✅
+  (§4.51.8). ⚠️ **G-4 ya NO figura aquí: se retiró en v1.67.4 por falso** (§4.52.1).
+- **Disparador 1 — revisar la pieza:** que aparezca un requisito de producto que **necesite** una de las propiedades
+  perdidas *y* que un test la asierta. Concretamente: si R2 pasa a configurarse con **políticas o lifecycle desde el
+  código del backend** (hoy no: §4.51.1 mide que no existen), la ruta no-producción deja de poder ejercitar ese
+  camino y toca reabrir esta sección.
+- **Disparador 2 — revisar la forma:** que `library/node` o el registro npm dejen de resolverse anónimamente. **Qué
+  hacemos ese día:** no es un plan nuevo — **es el mismo día en que CI ya no puede construir el backend**, porque
+  ambos son carga obligada de toda corrida. Se atiende como caída de la cadena de build entera, no como incidente de
+  almacenamiento. *Esa es, precisamente, la propiedad por la que se elige esta pieza: no añade un día malo nuevo.*
+- **Disparador 3 — volver a mirar MinIO:** si `quay.io` se vuelve **alcanzable y verificable** desde el entorno de CI
+  **y** alguna de G-1/G-2/G-5 pasa a estar asertada por un test. Con las dos condiciones a la vez, y no antes: volver
+  por nostalgia reintroduce la cuenta atrás.
+- **Medición que cierra la ficha entera:** **G-3** implementado y verde ⇒ la ruta del INE (subida **y** lectura, con
+  firma verificada y **caducidad respetada — que ya lo está**, §4.52.1) queda cubierta de punta a punta **en las tres
+  rutas a la vez**, que es **más** de lo que MinIO daba antes del incidente.
+
+#### 4.51.8 Lo **NO MEDIDO**, con la medición que lo cerraría
+
+Se declara porque O-1 obliga; ninguno de estos cambia la decisión, pero todos son condición de aceptación del
+cableado:
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| N-1 | ~~Que s3rver **honre** `response-content-disposition`~~ | ✅ **MEDIDO 2026-09-11 por devops: SÍ lo honra** (`Content-Disposition: attachment`, cuerpo idéntico al subido). **G-3 desbloqueado y enrutado a backend** | ✅ cerrado |
+| N-2 | Que `library/node:<versión>-alpine` se descargue **anónimamente** desde el runner | `./scripts/check-compose-images.sh --resolve` tras el cambio (el modo que ya existe para esto) | devops |
+| N-3 | Si `scripts/s3-local/node_modules` viaja en el árbol o hay que `npm ci` en el arranque del servicio | `git ls-files scripts/s3-local \| head` | devops |
+| N-4 | Que ningún **otro** consumidor del stack dependa de la **consola** de MinIO (`:9011`) o de `mc` | `rg -n '9011\|mc alias\|minio/mc' .github scripts security` | devops |
+| N-5 | Que el resto de imágenes de `docker-compose*.yml` sigan resolviendo (este pase solo midió las de MinIO y el control `library/postgres`) | `./scripts/check-compose-images.sh --resolve` | devops |
+
+#### 4.51.9 Qué toca cada rol
+
+| Rol | Qué hace | ¿Bloqueante del release? |
+|---|---|---|
+| **devops** | (1) Retirar `minio` y `createbuckets` de `docker-compose.yml` **y** `docker-compose.staging.yml`; (2) cablear `s3-local` en la forma A o B respetando los 6 invariantes de §4.51.6; (3) medir N-2..N-5 (**N-1 ya cerrado ✅**); (4) **§4.52**: retirar el service container `bitnamilegacy/minio:latest` de `e2e.yml`; (5) actualizar `docs/DEVOPS_NOTES.md` §39.2.3 para que la lista de huecos cubra **las tres rutas**, no solo la nativa, y para que registre lo medido de la caducidad (§4.52.1) | **Sí** (1,2,3,4) |
+| **backend** | **G-3** (**desbloqueado**, N-1 ✅): añadir al smoke el `GET` real de la URL de vista del INE ⇒ `200` + `Content-Disposition: attachment` + cuerpo idéntico. ⛔ **No** toca `scripts/` ni compose ni workflows | No (no bloquea el desbloqueo del gate) |
+| **qa** | Verificar que `docker compose -f docker-compose.staging.yml up` levanta **sin ninguna imagen de tercero** y que `infra-smoke` pasa **en modo `E2E_STRICT_INFRA=true`** — el modo que **no** se salta a sí mismo | **Sí** |
+| **seguridad** | Confirmar que la superficie del DAST **no cambia** (el almacenamiento nunca fue blanco) y que G-1 sigue sin ser una propiedad afirmada por ningún gate. El supuesto de §8 sobre el **bucket privado de producción (R2)** sigue abierto y **no lo toca esta sección** | **Sí**, como visto bueno |
+| **frontend** | **Nada.** Cero cambios de contrato, cero cambios de URL, cero variables nuevas | — |
+
+#### 4.51.10 Desviaciones detectadas (no las corrijo yo; van al rol dueño)
+
+| # | Desviación | Dónde | Dueño | Estado |
+|---|---|---|---|---|
+| **D-S3-1** | Las imágenes de almacenamiento estaban en etiqueta **móvil** (`minio/minio:latest`, `minio/mc:latest`) en los **dos** compose ⇒ cuando el registro cambió no había «un número al que volver». Es la falta que `check-compose-images.sh` nació para impedir, cometida antes de que el candado existiera | `docker-compose.yml:77,106`; `docker-compose.staging.yml:81,107` | **devops** | **Abierta.** Cierra al retirar MinIO (§4.51.9) |
+| **D-S3-2** | `scripts/s3-local/server.js:71` afirma «**nunca 0.0.0.0**» como norma absoluta; en la **Forma A** (contenedor) el bind interno **debe** ser `0.0.0.0` y eso **no** viola SEC-M4, porque quien expone al host es la publicación del puerto. El comentario, tal cual, **induce a rechazar la forma correcta** | `scripts/s3-local/server.js:71` | **devops** | **Abierta.** Reformular como «nunca `0.0.0.0` **publicado al host**» |
+| **D-S3-3** | ~~El verificador SigV4 no evalúa `X-Amz-Expires` ⇒ una URL presignada vencida se acepta~~ | `scripts/s3-local/server.js:165-233` | ~~devops~~ | ❌ **RETIRADA en v1.67.4 — LA DESVIACIÓN ERA FALSA, la escribió el arquitecto por inferencia y no por medición.** Refutada con datos por devops (§4.52.1). **No hay nada que arreglar aquí** |
+| **D-S3-5** | `e2e.yml:140` levanta `bitnamilegacy/minio:latest`: **etiqueta móvil** en un **namespace archivado**, el perfil exacto de `minio/minio:latest` el día antes de romperse. Y el job **bloquea el despliegue**. Hoy resuelve (200 anónimo, medido), pero es una cuenta atrás sin vigilancia | `.github/workflows/e2e.yml:130-153` | **devops** | **Abierta.** Cierra con §4.52 |
+| **D-S3-6** | El mismo service container crea el bucket con `MINIO_DEFAULT_BUCKETS: tcg-photos:download` ⇒ política **`download` = lectura anónima permitida**, la **inversa** del `mc anonymous set none` de los compose y de R2. El bucket que guarda los INE sintéticos de `backend-e2e` es **públicamente legible**. Sin riesgo (datos sintéticos, `localhost`, efímero) pero es **infidelidad invertida**: la ruta que gatea el despliegue es la **más laxa** de todas | `.github/workflows/e2e.yml:145` | **devops** | **Abierta.** Cierra **sola** con §4.52: `s3-local` rechaza toda petición sin firmar |
+| **D-S3-7** | `scripts/check-compose-images.sh` enumera los `docker-compose*.yml` pero **no** los `services:` de `.github/workflows/` ⇒ el candado de imágenes **no veía** la imagen de `D-S3-5`, que es la que bloquea el despliegue. devops **declara** el hueco en vez de taparlo, y **hace bien** (taparlo hoy pone CI en rojo por un defecto que él no está autorizado a cerrar) | `scripts/check-compose-images.sh:63-70` | **devops** | **Abierta con orden y condición fijados en §4.52.4** |
+| **D-S3-4** | `infra-smoke.e2e-spec.ts` cubre la **subida** del INE pero **no la lectura**, y `kyc-ine-links.e2e-spec.ts` afirma la **forma de la URL** como si fuera la ruta. La cobertura real de la lectura del INE es **cero contra almacenamiento**, con MinIO o sin él | `backend/test/integration/infra-smoke.e2e-spec.ts:102-154`; `…/kyc-ine-links.e2e-spec.ts:96-102` | **backend** | **Abierta** = **G-3**. ✅ **Desbloqueada**: N-1 midió que s3rver **sí** honra `response-content-disposition` (§4.52.1) |
+
+---
+
+### 4.52 EL OTRO MinIO (`e2e.yml`), Y LA CADUCIDAD QUE SÍ EXISTÍA — corrección medida + el job que bloquea el despliegue (v1.67.4-ci-object-storage-2, 2026-09-11, NORMATIVO, **INFRAESTRUCTURA**)
+
+> Continúa **§4.51**, que sigue vigente entera **salvo `G-4` y `D-S3-3`**, retirados aquí. **Producción (R2) sigue sin
+> tocarse** y `API_CONTRACT.md` sigue sin tocarse.
+
+#### 4.52.1 Corrección: `G-4`/`D-S3-3` eran **falsos**. Gana el dato
+
+**Lo que escribí en v1.67.3:** que `scripts/s3-local/server.js:165-233` no compara `X-Amz-Expires` contra el reloj
+y que **por tanto** una URL presignada vencida se aceptaría; lo llamé «la única regresión real de cobertura».
+
+**Lo que midió devops (2026-09-11), al ver que su mutación salía `0/3` y decidir medir en vez de forzarla:** con
+`S3_LOCAL_ALLOW_ANON=1` —que apaga **toda** la capa propia y deja a s3rver solo— una URL vencida recibe
+**`403 AccessDenied` / «Request has expired»**, con `X-Amz-Expires`, `Expires` y `ServerTime` en el cuerpo.
+**s3rver comprueba la caducidad por su cuenta.** En la **misma** corrida, una firma con el **secreto equivocado**
+pasaba: el hueco de s3rver es la **firma**, no el **reloj**.
+
+**Dónde estuvo mi error, porque el patrón importa más que el caso:** leí un fichero, vi que **nuestra** capa no
+comprobaba X y concluí que **nadie** lo comprobaba. Eso es **inferencia sobre una sola capa presentada como medición
+del sistema**. La capa de abajo existía y hacía el trabajo. La regla que queda escrita: **una afirmación sobre lo que
+un stack hace o deja de hacer se mide contra el stack, no contra la capa que uno está leyendo** — y la forma de
+medirlo aquí era exactamente la que usó devops: **apagar la capa propia y volver a preguntar**.
+
+**Consecuencias normativas:**
+1. **El enlace del INE nunca fue eterno.** `KYC_INE_VIEW_URL_TTL_SECONDS` (§4.49.2.1) **siempre fue un dial con
+   efecto real** en toda ruta no-producción. Ninguna nota puede decir lo contrario. *Una desviación falsa envejece tan
+   mal como un pendiente sin medir: `seguridad` la habría leído como un agujero abierto y habría gastado un pase en
+   perseguir algo que no existe.*
+2. **La capa propia SE QUEDA**, y el motivo es **otro** del que yo escribí: no cierra un agujero —no lo había— sino
+   que es **defensa en profundidad que no depende de una interna de s3rver 3.7.x**, y **añade** validación de
+   **presencia y rango** de `X-Amz-Expires`. Eso es una decisión legítima y distinta; queda declarada como tal.
+3. **`G-4` retirado de §4.51.5. `D-S3-3` retirada de §4.51.10.** No se reescribe la historia: quedan tachados **con el
+   motivo a la vista**, para que nadie los re-derive.
+4. **`N-1` cerrado ✅** (s3rver **sí** honra `response-content-disposition`) ⇒ **`G-3` desbloqueado**: backend añade el
+   `GET` real al smoke (`200` + `Content-Disposition: attachment` + cuerpo idéntico).
+
+#### 4.52.2 El caso nuevo: `backend-e2e` de `e2e.yml` — **medido, no asumido**
+
+`.github/workflows/e2e.yml:130-153` levanta un **service container** `bitnamilegacy/minio:latest` para el job
+`backend-e2e`, que **sí bloquea el despliegue**. Hoy resuelve (200 anónimo, medido), pero es **etiqueta móvil** en un
+**namespace archivado** —perfil idéntico al de `minio/minio:latest` la víspera de romperse—, y el candado de imágenes
+no lo vigila (`D-S3-5`, `D-S3-7`).
+
+**La pregunta que hay que responder midiendo: ¿este job necesita algo que el stack efímero no?** Medido:
+
+| | Medición | Consecuencia |
+|---|---|---|
+| **¿Usa más superficie de S3?** | **NO.** El job corre `npm run test:integration` (`:322`) contra el **mismo** `uploads.service.ts`; el cotejo **S1–S4 de §4.51.1 aplica sin cambio**. Sus `S3_*` (`:188-194`) son las mismas variables, con `S3_FORCE_PATH_STYLE: "true"` | El requisito es **idéntico** |
+| **¿Exige algo el job que el efímero no?** | **SÍ, y va a favor:** `E2E_STRICT_INFRA: true` (`:198-219`) ⇒ aquí `infra-smoke` **no se salta a sí mismo**: el PUT presignado del INE **tiene** que dar 200/204 | El stand-in debe ser **de verdad** funcional, no un mock permisivo. `s3-local` lo es, y **verifica la firma** |
+| **¿Hay una restricción propia de este entorno?** | **SÍ, y es la que decide la forma:** un **service container de Actions no admite `command:`** — es, literal, el motivo por el que aquí **no** se pudo usar `minio/minio` oficial y se acabó en Bitnami (`:137-139`) | Cualquier opción basada en **imagen** arrastra esa restricción. **Un proceso del runner no la tiene** |
+| **¿Y el bucket?** | Lo crea `MINIO_DEFAULT_BUCKETS: tcg-photos:download` (`:145`) — env **propietaria de Bitnami**, y con política **`download` = lectura anónima** (`D-S3-6`) | La dependencia del bucket está atada a una **extensión de vendor**, no al protocolo S3 |
+
+#### 4.52.3 DECISIÓN — misma pieza, **forma B**: `scripts/s3-local/` como **proceso del runner**, sin service container
+
+**`backend-e2e` cubre su almacenamiento de objetos con `scripts/s3-local/`, arrancado como proceso de fondo del
+runner** (tras el `npm ci` de `:293`, en lugar del paso «Esperar a que MinIO responda» de `:294`). Se retira el
+service container `minio` de `e2e.yml`. **Ni una imagen de contenedor para el almacenamiento.**
+
+Es la **misma pieza** que §4.51 —el cotejo S1–S4 se midió idéntico— pero aquí la **forma B** (proceso del runner) no
+es una alternativa entre dos: es **estrictamente la mejor**, por una razón que el stack efímero no tenía:
+
+1. ⭐⭐ **Elimina la restricción que causó el problema.** Lo que empujó a este job a un namespace archivado fue que
+   *un service container no admite `command:`*. Un proceso del runner **no tiene esa restricción**, así que
+   desaparece la clase entera de búsqueda «qué imagen de MinIO arranca sola». Node ya está en el runner y el job ya
+   hace `npm ci`.
+2. ⭐ **Aquí no hay coste de forma B.** El argumento contra ella en §4.51.6 era romper la autocontención de
+   `docker compose up`. **En `e2e.yml` no hay compose**: la infraestructura ya son piezas sueltas del job. El coste
+   es cero y el beneficio (cero imágenes) es máximo.
+3. ⭐ **La readiness ya se hace desde el runner** (`:147-151`, porque la imagen no trae `curl`) ⇒ el paso de espera
+   **no se inventa, se reescribe**: pasa a sondear `s3-local`, donde **`403` = vivo y privado** (criterio ya
+   establecido, `stack-native.sh:1417`).
+4. ⭐ **Corrige `D-S3-6` sin trabajo extra:** el bucket deja de crearse con política `download` (lectura anónima) y
+   pasa a crearse por `configureBuckets`, con **toda** petición sin firmar rechazada. Este job pasa de ser la ruta
+   **más laxa** de las cuatro a ser tan estricta como las demás.
+5. **Cierra la dependencia de una env propietaria** (`MINIO_DEFAULT_BUCKETS`) por el mecanismo del propio stand-in.
+
+**Lo que se pierde es lo mismo de §4.51.5 (G-1, G-2, G-5) y por los mismos motivos medidos** — con una nota: en este
+job G-1 no solo no se pierde, **se gana**, porque lo que había era la política **inversa** (`D-S3-6`).
+
+**Invariantes (además de los 6 de §4.51.6):**
+- **El arranque del stand-in FALLA EL JOB si no queda escuchando.** ⛔ Prohibido `|| true`: con `E2E_STRICT_INFRA=true`
+  un almacenamiento ausente debe verse como rojo de infraestructura, que es justo lo que `:198-219` vino a arreglar.
+  **No se reintroduce un salto silencioso por la puerta de atrás.**
+- **Las credenciales siguen siendo las de la corrida**, no un literal: `S3_SECRET_ACCESS_KEY` ya vale
+  `e2e_${{ github.run_id }}_${{ github.run_attempt }}` (`:192`) y el stand-in las toma del entorno (S-88-1 intacto).
+- **`E2E_STRICT_INFRA: true` se queda.** Es la razón de que este job valga algo.
+- **`S3_LOCAL_ALLOW_ANON` no se define en este job.** Es palanca de demostración, no de gate (§4.51.6, inv. 3).
+
+#### 4.52.4 ¿Debe el candado de imágenes mirar los `services:` de los workflows? **Sí — y devops tuvo razón en no hacerlo hoy**
+
+**Decisión: sí, se extiende**, porque el hueco es del tamaño del incidente: la imagen que **bloquea el despliegue**
+vivía fuera del alcance del candado, y un candado que no cubre la puerta que gatea el deploy da una seguridad que no
+tiene. Pero **con orden y condición, no ya**:
+
+1. **Primero se retira** el service container de `e2e.yml` (§4.52.3).
+2. **Después** se extiende `check-compose-images.sh` a los `services:.*image:` de `.github/workflows/**`.
+3. **Condición de encendido:** el candado **solo** se enciende cuando el inventario ampliado sale **verde**, o con las
+   excepciones **nombradas una a una, con motivo y fecha** — nunca con una regla de dispensa genérica (misma doctrina
+   que la allowlist de hosts de §4.41.4: pertenencia **exacta**, nunca por sufijo).
+
+⭐ **Se ratifica el criterio de devops, que es el correcto:** encender hoy el candado pondría CI en rojo por un
+defecto que **él no está autorizado a corregir**, y sobre un inventario que **nadie ha medido** (N-6). *Un candado
+que se enciende sobre un inventario sin medir no protege: bloquea.* Declarar el hueco y dejar la decisión a quien le
+toca es la misma disciplina con la que se negó a clavar a ciegas en `quay.io`. **Se registra como `D-S3-7`, con
+dueño y orden, no como bug.**
+
+#### 4.52.5 NO MEDIDO en este pase
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| N-6 | Que **todas** las demás imágenes de `services:` de **todos** los workflows estén clavadas por versión (este pase solo miró `e2e.yml:109-153`) | `rg -n 'image:' .github/workflows/` + pasar el inventario por el candado ampliado en modo `--list` | devops (**prerequisito del paso 3 de §4.52.4**) |
+| N-7 | Que ningún otro job o script dependa del puerto `9001` (consola) o de `MINIO_DEFAULT_BUCKETS` | `rg -n '9001\|MINIO_DEFAULT_BUCKETS' .github scripts backend/test` | devops |
+| N-8 | Si `scripts/s3-local/` necesita `npm ci` propio en el job o sus dependencias ya viajan en el árbol (relacionado con N-3) | `git ls-files scripts/s3-local \| head` + arrancar el stand-in en el job | devops |
+
+#### 4.52.6 Qué toca cada rol (sustituye a §4.51.9 en lo que solape)
+
+| Rol | Qué hace | ¿Bloqueante? |
+|---|---|---|
+| **devops** | (1) `e2e.yml`: retirar el service `minio`, arrancar `s3-local` tras `npm ci`, reescribir el paso de readiness (`403` = vivo); (2) **no** cerrar G-4 — no existe; (3) declarar en la cabecera de `server.js` que **la caducidad la comprueba s3rver** y que la capa propia es **defensa en profundidad** + validación de presencia/rango, para que nadie vuelva a leerlo como agujero; (4) medir N-6..N-8; (5) extender el candado a los workflows **en el orden de §4.52.4** | **Sí** (1,3). (5) tras N-6 |
+| **backend** | **G-3** (desbloqueado): `GET` real de la URL de vista del INE en el smoke | No |
+| **qa** | Que `backend-e2e` pase **con `E2E_STRICT_INFRA=true`** y **sin ninguna imagen de almacenamiento**; y que un stand-in caído ponga el job **rojo**, no verde | **Sí** |
+| **seguridad** | Leer §4.52.1 **antes** de actuar sobre cualquier nota que hable de caducidad del enlace del INE: **ese agujero no existió**. Sigue abierto —y ajeno a esta sección— el supuesto de §8 sobre el bucket **privado de producción (R2)** | **Sí**, como visto bueno |
+| **frontend** | **Nada** | — |
 
 ---
 
@@ -23576,6 +24302,16 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
     ventana en que una URL filtrada abre un documento de identidad. **Cambiarlo pasa por `seguridad`.**
   - ⚠️ **Supuesto de infraestructura que este pase NO midió y que `seguridad` debe comprobar:** que el bucket de
     producción es **privado** (sin ACL de lectura pública). Con un bucket público el presign no protege nada.
+    **Sigue abierto en v1.67.3**: §4.51 retira MinIO de las rutas **no-producción** y **no toca R2** — esta comprobación
+    es de **producción** y ninguna ruta de CI la sustituye (§4.51.5, G-1).
+  - ⭐ **NUEVA v1.67.3 (§4.51): el object storage de las rutas NO-producción es `scripts/s3-local/`, no MinIO.**
+    Las `S3_*` **no cambian** de nombre ni de semántica: cambia **quién** las atiende en local/CI. Variables propias
+    del stand-in (`S3_LOCAL_HOST`, `S3_LOCAL_PORT`, `S3_LOCAL_DIR`, `S3_LOCAL_ALLOW_ANON`) son de **devops** y
+    **ninguna es un secreto**; `S3_LOCAL_ALLOW_ANON` **jamás** se activa en un gate (§4.51.6, invariante 3).
+    **Extendido en v1.67.4 (§4.52):** el service container `bitnamilegacy/minio:latest` de `e2e.yml` también se
+    retira; ese job pasa a `s3-local` como **proceso del runner**. ⚠️ **Para `seguridad`:** v1.67.3 llegó a escribir
+    que el enlace presignado del INE **no caducaba** en las rutas no-producción. **Era falso y está retirado**
+    (§4.52.1, medido): `KYC_INE_VIEW_URL_TTL_SECONDS` **siempre** tuvo efecto real. No hay agujero que perseguir ahí.
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Set destacado del hero (v1.9-set-chart):** `HOME_FEATURED_SET_ID` (**opcional**; id **nativo de pokemontcg.io** del `CardSet` a graficar en la home, ej. `sv8`). Si no se define o no resuelve a un `CardSet` local, aplica el fallback en cascada de §4.12b (mayor valor en el último snapshot → set más reciente por `releaseDate`). **El valor concreto lo fija devops/backend** por entorno; el arquitecto define solo el mecanismo. No es secreto. Reusa `POKEMONTCG_IO_API_KEY` para el `set-price-sync`.
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
@@ -23727,6 +24463,24 @@ Riesgos técnicos:
   2026-09-11: todos los `updateMany` guardan por `status:'reserved'` a secas. Consecuencia con reintentos: el webhook
   `payment_intent.canceled` de un PI viejo liberaría la reserva de la orden nueva. Norma: contrato §4-R.2 regla 2.
   **Comprobación:** candado R-2 verde; mutación m2 rojo.
+- **🔴 ABIERTA (v1.67.2) — `D-P79-1`: LA COLA «LISTAS PARA PUBLICAR» DE M1 PINTA TODA PIEZA COMO SINGLE, INCLUIDO EL
+  SELLADO.** **Dueño: frontend (`(admin)/admin/m1`).** Medido 2026-09-11 (orquestador):
+  `PendingPublishQueue.tsx:139-141` imprime siempre `setName · number · finish`; `grep -c productType` en ese fichero
+  = **0**. El dueño ve su ETB como `Weedle — CHAOS RISING · 1 · NORMAL` y lo lee como *«mi producto se convirtió en
+  carta»* — el `· 1 ·` es la **carta ancla**, que §4.34a declara que **no es identidad**. La cola de M2 ya ramifica
+  bien (`PendingQueueSection.tsx:35,99-103`); a la de M1 nunca se le hizo ese trabajo. Norma: contrato v1.69.1
+  (§M1 `pending-publish`, §11) y §4.34a.1 (tabla de tres casos). **Comprobación:** `grep -c productType
+  PendingPublishQueue.tsx` ≥ 1; con una fila sellada en la cola, la vista **no** contiene `card.number` ni `finish`,
+  y sin `sealedProductName` **no** contiene `card.name`; la fila **sigue** en la tabla (no se oculta).
+- **🔴 ABIERTA (v1.67.2) — `D-P79-2`: LA PROYECCIÓN DE `pending-publish` NO EMITE CON QUÉ NOMBRAR UN SELLADO.**
+  **Dueño: backend (`inventory`).** Medido 2026-09-11 (orquestador): `inventory.service.ts:1801-1823` proyecta
+  `card`/`productType`/`finish` y **ningún** dato de identidad de sellado (`frontend/src/types/contract.ts:2581-2599`
+  confirma el shape). Es la **misma clase** que BLOQ-2a/2b de v1.42 (`HoldingDTO` y la cola de M2), en la única
+  superficie de sellado a la que no llegó aquel barrido. Norma: contrato v1.69.1 — `sealedProductName?: string`,
+  `SealedProduct.name` → snapshot → **ausente** (⛔ sin caer a `Card.name`, §4.34a.1). **Comprobación:** sellado
+  mapeado ⇒ nombre del `SealedProduct`; con snapshot y sin FK ⇒ snapshot; sin ninguno ⇒ clave **ausente** del JSON;
+  `raw`/`graded` ⇒ clave ausente; y el contador de queries de la ruta **no sube** (el `include` viaja en el
+  `findMany` que ya existe, `:1790-1796`).
 
 - **⚠️ ABIERTA (v1.66) — `D-CS-1`: EL CONTRATO NO SABÍA QUE `sync-all` YA TENÍA CORTE, NI QUE `sync-status` YA
   TENÍA `summary`.** **Dueño del arreglo: arquitecto — CERRADA EN ESTE MISMO PASE** en cuanto a la prosa

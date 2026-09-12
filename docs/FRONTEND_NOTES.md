@@ -16316,3 +16316,137 @@ E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test e2e/m5-transit
 minuto y por IP**, y el `globalTeardown` purga las sesiones del disco al terminar. Tres de mis
 corridas se pusieron rojas por **timeout de 60 s esperando el throttler** — un rojo del arnés, no del
 producto; con espaciado, 3/3 verde.
+
+---
+
+## §71 · **P-78 · La verificación de identidad**: la pantalla que enseña la INE, el rechazo con motivo, los cuatro estados del cliente y los topes fuera de su vista (`DESIGN_SYSTEM §34` v4.2.1, `API_CONTRACT §M6-K` v1.69, `ARCHITECTURE §4.49.6` FE-1..FE-4) — 2026-09-11, rama `claude/tcg-hunt-orchestration-2`
+
+**El defecto, en una línea del dueño:** *guardamos la INE y nadie puede verla*, así que el panel deja
+marcar «verificado» sin haber mirado nada y el cliente ve «Pendiente» sin ningún botón para avanzar.
+**Dos callejones sin salida, uno en cada lado del mostrador** — y este pase cierra los dos.
+
+### 71.1 · Qué se construyó
+
+| Pieza | Fichero |
+|---|---|
+| **Pantalla de revisión** (ruta propia, `super_admin`) | `app/[locale]/(admin)/admin/m6/kyc/[userId]/{page,KycReviewView}.tsx` |
+| Marco del documento (rotación, estados de carga/caducidad/purga) | `components/domain/kyc/IdDocumentViewer.tsx` |
+| Visor a pantalla completa (zoom discreto, encuadre, caras, foco) | `components/domain/kyc/IdDocumentLightbox.tsx` |
+| Panel de cotejo (nombre + `nameSource` + direcciones + destinatarios) | `components/domain/kyc/KycIdentityPanel.tsx` |
+| Rechazo con motivo (presets + 3–500) | `components/domain/kyc/KycRejectDialog.tsx` |
+| Bloque de los cuatro estados del cliente | `components/domain/kyc/KycStateBlock.tsx` |
+| «Mi cuenta» reescrita; cotizador con el motivo del rechazo | `components/domain/account/KycSection.tsx`, `components/domain/BuylistKycForm.tsx` |
+| M6: columna + filtro de identidad, **fuera el selector de estado**, rótulos de bitácora | `(admin)/admin/m6/M6View.tsx` |
+| El veredicto lo da el servidor | `hooks/useSellRequirements.ts`, `components/domain/SellRequirementsPanel.tsx` |
+
+### 71.2 · Las cinco decisiones que conviene no deshacer (y por qué)
+
+1. **`<img src>` directo sobre el enlace firmado, ⛔ sin endpoint proxy.** Está medido —orquestador,
+   Chromium real, **3/3**, origen cruzado— que `Content-Disposition: attachment` **no** impide pintar
+   la imagen: solo impide **navegar** a ella (`API_CONTRACT §M6-K.2.1`). El E2E lo vuelve a medir en
+   Chromium con `naturalWidth > 0`, que es lo que distingue «hay un `<img>`» de «se ve la INE».
+2. **Los enlaces se piden UNA vez al montar, y jamás automáticamente.** `staleTime: Infinity`,
+   `gcTime: 0`, `refetchOnWindowFocus/Reconnect: false` y —la que más importa— **`retry: false`**:
+   *un reintento silencioso son tres filas de bitácora y tres de las diez por minuto por un acto que
+   nadie pidió*. Medido: **1 sola emisión en 3 minutos** de pantalla abierta con foco perdido y
+   recuperado (`KycReviewView.links.test.tsx`, **5/5** corridas).
+3. **«Volver a pedir el enlace» no desmonta nada.** Solo cambia `urls` en el padre ⇒ el `src` se
+   sustituye y **zoom, encuadre, rotación y cara sobreviven**, con el visor abierto. Medido en el
+   mismo fichero.
+4. **El veredicto del INE vive en su PROPIA consulta** (`['kyc-ine-required', total]`, con debounce
+   de 400 ms), no en la llave de `['kyc']`. **Medido**: con la llave compartida, el total cambia con
+   cada carta del carrito, toda la lista de requisitos vuelve a «Consultando…» y **dos casos de
+   `BuylistView.test` dejaban de encontrar el modal** de la solicitud.
+5. **El `Select` de estado KYC de la ficha se retiró de la interfaz.** Si se queda «por si acaso»,
+   siempre hay un camino de dos clics para marcar `verified` sin mirar y la pantalla de revisión es
+   decorativa. El `PATCH` **sigue aceptando `kycStatus`** (es con lo que la revisión decide): lo que
+   se retiró es **la puerta que permitía llamarlo sin haber visto nada**.
+
+### 71.3 · Lo que la pantalla NO hace, a propósito
+
+⛔ Ninguna comparación automática de nombres, ninguna marca verde, ningún «coincide» (regla 7 de §34,
+H13: el cotejo automático **está retirado por contrato**). ⛔ Ningún dinero en la pantalla de revisión.
+⛔ Ninguna descarga, impresión ni `target="_blank"`. ⛔ La INE **nunca** en un listado ni en una
+miniatura. ⛔ Ningún `userId` pintado; sin destinatario se escribe «Sin destinatario», **nunca** el
+`User.name`. ⛔ Ninguna cifra de tope en la superficie del cliente, **ni en un `title` ni en un
+`aria-label`**.
+
+### 71.4 · Cambios de contrato consumidos (v1.69) y el que se SUSTITUYÓ sin romperlo
+
+- `KycInfoDTO`: fuera `capPerRequestCents`/`capPerMonthCents`/`monthUsedCents`; entran
+  `rejectionReason?` (solo en `rejected`) e `ineRequiredForTotal?` (solo con `?quotedTotalCents=N`).
+- `AdminKycProfileDTO`: `+rejectionReason/reviewedAt/reviewedBy`, `−capPerRequestCents`.
+  ⛔ `verifiedBy`/`reviewedBy` **son ids: no se pintan**.
+- `AdminUserDetailDTO`: `+nameSource`, `+recentShipmentRecipients`, `+phone`.
+- `AdminIneLinksDTO` nuevo.
+- **§M5-I.6 se sustituye, no se rompe:** `useSellRequirements.ineExpected` pasa de
+  `overCaps && !ineOnFile` a `ineRequiredForTotal && !ineOnFile`. §P.2.2 sigue en pie —la INE se pide
+  **en el mismo paso de la dirección**—; lo que cambia es **quién compara**.
+- **`resolveErrorAudience` se invierte** para `INE_REQUIRED` (`sellRequestId` ⇒ operador; resto ⇒
+  vendedor). Con `details: {}` en el intake, la regla vieja dejaba el error **sin discriminador** y en
+  una pantalla de back-office habría caído en el copy del operador.
+
+### 71.5 · PII: lo que este código garantiza (petición de `seguridad`, vía orquestador)
+
+- **Los enlaces firmados no sobreviven a la pestaña.** Medido: no hay persistor de React Query en
+  `Providers.tsx` (caché en memoria) y la consulta usa `gcTime: 0` ⇒ se descarta al desmontar. Hay
+  candado por unidad **y** por E2E: `localStorage`+`sessionStorage` no contienen `X-Amz-Signature`
+  ni `kyc_ine`.
+- **Ningún enlace en un `href`**, ningún `download`, ningún `target="_blank"` (candado en los dos).
+- El copy del `429` dice que **el límite cuenta por revisor**, no por conexión.
+  ⚠️ **Es una desviación declarada de la cadena literal de §34.12** (`imgRateLimited`), pedida por
+  seguridad al mover el tope a la identidad del revisor: **queda a ratificación de ux-ui**.
+
+### 71.6 · Mocks y peticiones abiertas
+
+- **`kycStatus` en el listado y el filtro `?kycStatus=` son MOCK**: es la **petición A5** de §34.15 al
+  arquitecto, no está en el contrato. Contra un backend que no lo emita, la columna pinta «—» y el
+  filtro **no se resuelve en el cliente** (filtrar una página paginada fabricaría una cola falsa).
+- El resto del cableado sigue §M6-K **al pie de la letra** y el mock actúa de servidor falso
+  (`fixtures.ts`: `mockIneLinks`, `mockApplyAdminKycDecision`, `mockApplyClientKycUpdate`, con la
+  limpieza cruzada de `rejectionReason`/`verifiedAt` y el `pending` solo-si-hay-keys de §M6-K.4.1).
+- **`error.BUYLIST_LIMIT_EXCEEDED` NO se tocó**, y es deliberado: §34.9 y §M6-K.5 lo **serializan a
+  la rev siguiente** con motivo escrito (esa superficie es de Stream B y QA la está midiendo contra
+  v1.68.1). ⇒ **el tope MENSUAL sigue sin salida propia en la vista del cliente**; el copy aprobado
+  existe en §34.9 y espera al orquestador. El front **no pinta** `capCents`/`wouldBeCents` aunque
+  lleguen (no hay `_WITH_DETAILS` del lado del vendedor).
+- **Guard de la ruta: `SuperAdminOnly`, no redirección.** §34.1 pedía «el mismo trato que hoy da
+  `AdminShell` a un rol sin permiso (redirección)»; medido, ese trato **solo existe para el rol
+  `customer`** (`AdminShell.tsx:69`): un `vault_operator` se queda en el panel y cada módulo
+  solo-super usa `SuperAdminOnly` (M2, M6, M10). La revisión usa **el mismo patrón que `/admin/m6`**,
+  del que cuelga; divergir habría creado un segundo comportamiento de guard para una ruta que no es
+  más restringida que su padre. La autoridad sigue siendo el `403` del servidor.
+- El candado de literalidad de §26 se enseñó a leer **§34.12 como superseder** (`error-audience.test.ts`):
+  sigue atado al documento, y las filas marcadas `⏸️` se saltan por el motivo de arriba.
+
+### 71.7 · Censo de salvaguardas E2E — qué dejé marcado y por qué (10 → 7 ocurrencias)
+
+La primera versión del spec dejó **10 ocurrencias** de `mockOnly` (1 import + 1 mención en el
+comentario de cabecera + **8 llamadas**). Revisadas una por una, **tres no hacían falta** y se
+retiraron: los tres casos que afirman una **ausencia** —ningún control fija `kycStatus` (KY-9), el
+operador no ve el documento (KY-2), el cliente no lee ninguna cifra (KY-5)— valen **con cualquier
+dato**, así que se reescribieron agnósticos y se etiquetaron **`@real`**: es contra el servidor de
+verdad donde un `Select` reintroducido o un `capPerRequestCents` olvidado volverían a aparecer.
+Quedan **5 llamadas** (7 ocurrencias con el import y la mención).
+
+⚠️ Esos tres `@real` **solo pasan sobre un stack que lleve `c1e8af6`**: miden el bundle desplegado,
+que es justo su razón de ser. Si van rojos en un stack viejo, el rojo es correcto y dice *«esto
+todavía no está desplegado»*.
+
+Las cinco que quedan **no son un límite del arnés ni de un tercero**: el servidor existe desde
+`c80bc26` (§M6-K entero). Lo que falta es **el dato** — `seed-e2e.ts:144` **borra** todos los
+`KycProfile` y no siembra ninguno, así que en el stack real no hay usuario con INE en el expediente
+ni objeto en el bucket que pintar. Cuatro de las cinco se levantan **juntando backend y frontend
+esta semana**; la quinta (columna y filtro de identidad) espera a la **petición A5** al arquitecto,
+porque `kycStatus` en el listado **no está en el contrato**.
+
+### 71.8 · Cómo correr lo de este pase
+
+```bash
+cd frontend
+npm run lint && npm run typecheck && npx vitest run
+# E2E en mocks, en puerto propio para NO tocar el stack compartido de :3000
+E2E_MOCK_PORT=3117 E2E_MOCK_DIST_DIR=.next-e2e-p78 npx playwright test e2e/kyc-identity.spec.ts
+```
+⚠️ Si se levanta un frontend propio para medir, **se mata por PID**: un `pkill -f next-server` se
+lleva el `next start` del stack compartido (§70.4).

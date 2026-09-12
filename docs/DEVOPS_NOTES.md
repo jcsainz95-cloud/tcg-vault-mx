@@ -7427,12 +7427,34 @@ viene a cerrar. Lo que hace y lo que no:
 | Verifica la firma de peticiones con `Authorization:` (server-side) | ❌ solo comprueba el `accessKeyId` | ✅ |
 | **Políticas de bucket** (probar que el bucket es privado *por política*) | ❌ **no** | ✅ |
 | Versionado · lifecycle (`kyc_ine/` a N días) · multipart | ❌ | ✅ |
+| **Caduca la URL presignada** (`X-Amz-Expires`) | ✅ **dos capas**: la propia (mensaje detallado) y la de s3rver | ✅ |
+| Honra `response-content-disposition` en el GET presignado | ✅ **medido 2026-09-11** (`Content-Disposition: attachment`) | ✅ |
 
-> **⚠️ La consecuencia operativa, dicha en claro:** este stand-in **no sirve para verificar que el
-> bucket sea privado por política** (SEC-A5 / v1.2.1). Esa propiedad se sigue verificando **solo** en la
-> ruta Docker/CI (servicio `createbuckets` con `mc anonymous set none` y la regla de lifecycle de
-> `kyc_ine/`) y en R2 en producción. Que un `GET` anónimo dé 403 aquí es porque yo lo rechazo en el
-> borde, **no** porque haya una política evaluándose.
+> **⚠️⚠️ ACTUALIZADO 2026-09-11 — ESTA FICHA YA CUBRE LAS TRES RUTAS, NO SOLO LA NATIVA.**
+> Desde `ARCHITECTURE §4.51`, `s3-local` es el object storage de **toda ruta no-producción**: nativa,
+> compose local (`docker-compose.yml`) y **staging efímero de CI** (`docker-compose.staging.yml`).
+> **MinIO y `mc` salieron de los dos compose** (servicios `minio` y `createbuckets`, retirados). Antes
+> esta ficha describía «la ruta nativa» y los huecos de la ruta de CI eran **implícitos**; ahora hay
+> **una** implementación y **una** lista de huecos, que es ésta.
+>
+> **La consecuencia operativa, dicha en claro:** este stand-in **no sirve para verificar que el bucket
+> sea privado POR POLÍTICA** (SEC-A5 / v1.2.1), y **ya no queda ninguna ruta no-producción que lo
+> verifique**, porque `mc anonymous set none` se fue con `createbuckets`. Eso es **G-1** de §4.51.5, y
+> se acepta con dos datos medidos: (a) **ningún test lo aserta** —ni antes: ninguna prueba hacía una
+> petición sin firmar contra el almacenamiento—, y (b) el **efecto observable** (sin firma ⇒ 403) lo
+> garantiza este fichero **en todo método, incluida la lectura**, que es igual de estricto o más. Lo que
+> se deja de ejercitar es el **motor** de políticas, no su consecuencia. La propiedad **en producción**
+> (bucket R2 privado) sigue siendo de `seguridad` y sigue **sin medir** (ARCHITECTURE §8).
+>
+> **Y la caducidad (G-4), con una corrección medida al motivo con que se pidió:** se añadió verificación
+> de `X-Amz-Expires` contra el reloj. **Pero la premisa de `D-S3-3` («una URL vencida se aceptaría») es
+> FALSA**, y lo medí con `S3_LOCAL_ALLOW_ANON=1` —que desactiva toda la capa propia—: la URL vencida ya
+> recibía `403 AccessDenied / "Request has expired"`, con `<X-Amz-Expires>`, `<Expires>` y `<ServerTime>`
+> ⇒ **s3rver ya comprobaba la caducidad**. En la misma corrida, una firma con el secreto equivocado **sí**
+> pasaba (404) ⇒ lo que s3rver no hace es la **firma**, no la caducidad. **El enlace del INE nunca fue
+> eterno.** La capa propia se queda como defensa en profundidad (no depende de una interna de s3rver 3.7.x)
+> y porque además valida presencia y rango de `X-Amz-Expires`; el candado
+> `scripts/check-s3-local-expiry.sh` distingue **qué capa responde** por el texto del mensaje.
 
 **El añadido que más importa, y por qué existe.** `s3rver` **no verifica firmas SigV4**. No es una
 sospecha: lo dice su propio código, literal, en `lib/middleware/authentication.js`:
@@ -11132,3 +11154,786 @@ llamadas 54→54: es prosa» o «llamadas 54→55: es una marca nueva», y el mo
 Costo medido a ojo sobre el script actual (78 líneas): ~15 líneas más, 4 filas más en el baseline y
 2-3 casos más en el canario. Dueño: devops. **No lo decido solo:** el que paga el rojo es frontend, y
 la lectura del número la usa el techlead.
+
+---
+
+## 58. Ventana de despliegue de Stream B — condiciones C5, C8, C6 (2026-09-11)
+
+> **Contexto medido, no recordado.** `production` = `efe65f5` (merge de la PR #29,
+> medido: `git rev-parse origin/production` a las 21:41 UTC del 2026-09-11).
+> `main` = `5d2c62b`. Veredicto de seguridad en `SECURITY_NOTES` (commit `82525a0`):
+> **APROBADO CON CONDICIONES para modo prueba, RECHAZADO para dinero real.**
+>
+> **⚠️ Orden real de los hechos, sin maquillar.** El veredicto y `CLAUDE.md` piden
+> **C5 y C8 cerradas antes de publicar**. El dueño fusionó la PR #29 **con ese aviso
+> delante y antes de que C5 y C8 estuvieran cerradas** — decisión suya, no un orden
+> que se haya respetado. La ventana se abrió al fusionar; C8 (que solo existe durante
+> la ventana) se quedó sin correr en el instante correcto. Lo que sigue es el intento
+> de recuperarla desde donde estamos, no un cierre limpio.
+
+### 58.1 · C5 — check-runs sobre el SHA PUBLICADO (`efe65f5`, no `5d2c62b`)
+
+**El error clásico de C5 es medir un SHA parecido.** La fusión de #29 crea un commit
+NUEVO (`efe65f5`), y es ese el que sirve producción, no la punta de `main` (`5d2c62b`).
+Se mide `efe65f5`.
+
+```
+./scripts/check-candidate-checks.sh efe65f575fde7d33e6621f7a8350fd46f71f136f
+```
+
+- **`5d2c62b` (punta de main):** 57/57 en verde, `rc=0`, medido 3/3 a las 21:33 UTC
+  (higiene previa; NO es el SHA publicado).
+- **`efe65f5` (SHA publicado):** **C5 NO CIERRA. `rc=1`, 1 check-run en rojo, medido 3/3
+  a las 21:49 UTC** (43 check-runs · en rojo: 1 · sin terminar: 0 · saltados esperados: 9).
+  El rojo es **`dast-release / DAST contra el stack efímero` = failure**
+  (run `34650494939`).
+
+**Diagnóstico del rojo (hasta donde llega este entorno):**
+- El fallo NO es un hallazgo del DAST. Es el paso **«Levantar y preparar el stack
+  efímero»** (`security/scripts/dast-ephemeral.sh up`), que murió en **1 segundo** —
+  ANTES del `docker compose up --build` (que tarda minutos). El escaneo nunca corrió
+  (`Escanear` y `Candado` quedaron `skipped`), así que la salida `blocking` quedó VACÍA:
+  fail-closed, no promueve (deploy.yml exige `blocking == 'false'`).
+- La config del arnés de DAST es **byte a byte idéntica** entre `c8bee65` (producción
+  anterior) y `efe65f5`: `git diff --stat c8bee65 efe65f5 -- docker-compose.staging.yml
+  scripts/webhook-secret-preflight.sh scripts/secrets-preflight.sh
+  security/scripts/dast-ephemeral.sh .github/workflows/security-dast.yml` → **vacío**.
+- El **push anterior a `production` (`c8bee65`) tuvo `dast-release` = success** (medido
+  por API). El mismo arnés pasó allí y falló aquí.
+- `docker compose -f docker-compose.staging.yml --profile apps config` sobre el árbol de
+  `efe65f5`, con los secretos efímeros resueltos por los preflight, **interpola limpio
+  (`rc=0`)**: NO es un `${VAR:?}` que falte. (No hay demonio de Docker en este entorno,
+  así que el `up` vivo no se puede reproducir aquí.)
+- Precedente de flake del mismo workflow: `security-dast.yml` sobre `c1ed4cd` **falló a
+  las 04:01 y pasó a las 04:07 del 2026-09-11** (mismo SHA, dispatch).
+
+**Lectura:** todo apunta a un **fallo transitorio en el arranque del stack efímero**, no a
+una regresión de código ni de config. Pero **no lo doy por cerrado**: C5 está en rojo por
+su propia definición, y las dos vías para volverlo verde están bloqueadas desde aquí —
+(1) **re-ejecutar el job fallido** exige permiso de escritura sobre Actions que este token
+NO tiene (`POST …/rerun-failed-jobs` → 403 «Resource not accessible by integration»;
+scope efectivo `metadata=read`); (2) no hay evidencia de un bug real en mis rutas que
+arreglar. **Lo que cierra C5: el dueño (o quien tenga escritura en Actions) re-ejecuta el
+job `dast-release / DAST contra el stack efímero` del run `34650494939` desde la UI, y se
+re-mide `./scripts/check-candidate-checks.sh efe65f5` → `rc=0`.** Si el re-run vuelve a
+fallar en el mismo punto, entonces sí hay bug de arranque del stack (mi ruta) y se abre con
+los logs, que aquí están bloqueados por el proxy (403 en `…/logs`).
+
+**Canario del instrumento de C5** (`check-candidate-checks-canary.sh`): 14/14 en 3/3
+(21:33 UTC) — el guion distingue «no pude leer» de «no hay check-runs», que es la
+mentira contra la que existe.
+
+### 58.2 · C8 — censo de reservas legadas · el paso 1 de `ARCHITECTURE §4.48.7`
+
+**⛔ REQUIERE LA BASE DE DATOS DE PRODUCCIÓN. No es medible desde este entorno.**
+Medido: no hay `DATABASE_URL` de producción en el entorno, no hay CLI de Railway, y
+el Postgres de producción es un add-on de Railway cuyo `DATABASE_URL` solo se inyecta
+dentro del servicio. El censo lo tiene que correr **quien tenga esa credencial**, en la
+ventana. La consulta y el instrumento están listos.
+
+**El detalle que rompe la consulta de C8 tal cual está escrita en el veredicto:** C8(a)
+dice `WHERE status='reserved' AND "reservedByOrderId" IS NULL`, pero esa columna la crea
+`M-53`, que viaja en este release. **Antes** del `migrate deploy`, la columna NO existe
+en producción y esa consulta falla con `42703 column does not exist` — un 0 leído de un
+error cerraría `SEC-SB-1` con una mentira. Por eso hay dos fases:
+
+- **Fase PRE** (antes de `migrate deploy`, la columna no existe todavía):
+  `SELECT count(*) FROM "InventoryItem" WHERE status='reserved';`
+  — es exactamente el conjunto que `M-53` dejará en `NULL` (no hay backfill).
+- **Fase POST** (después de `migrate deploy`, la columna ya existe): la consulta literal
+  de C8(a). Cifra **definitiva** de `SEC-SB-1`. Si solo se puede una, que sea ésta.
+
+**Instrumento listo** (solo lee: abre `BEGIN TRANSACTION READ ONLY`, no imprime la
+credencial, exige `--target prod` y aborta si el host es local):
+
+```
+export DATABASE_URL='<DATABASE_URL del Postgres de producción en Railway>'   # NO se pega en el repo
+./scripts/release-reservation-census.sh --target prod          # detecta fase sola; corre PRE si M-53 no está, POST si sí
+unset DATABASE_URL
+```
+
+Canario del instrumento (`release-reservation-census-canary.sh`, bases desechables
+locales): **21/21 en 3/3** (21:39 UTC). Mutación m1 (rama PRE usa la consulta literal
+de C8(a)) ⇒ canario rojo 3/3. Mutación m2 (quitar el candado `--target prod` vs host
+local) ⇒ canario rojo 3/3.
+
+**Las tres cifras (más el paso 1 completo) que hay que anotar aquí con su hora:**
+
+| fecha UTC | fase | objetivo/huella | (a) legadas | (b) bóveda pending c/dueño | (c) filas InventoryItem | (c) tamaño | cotizada sin oferta | verificación saltada |
+|---|---|---|---|---|---|---|---|---|
+| _pendiente — necesita credencial de prod_ | | | | | | | | |
+
+- **(a)** = `SELECT count(*) FROM "InventoryItem" WHERE status='reserved' AND "reservedByOrderId" IS NULL;` (fase POST) — piezas congeladas de `SEC-SB-1`.
+- **(b)** = `SELECT count(*) FROM "Order" WHERE status='pending' AND "userId" IS NOT NULL;` — **si `>0` ⇒ se abre C9** (dueño backend).
+- **(c)** = `SELECT count(*) FROM "InventoryItem";` — duración del lock de `CREATE INDEX` de `M-53` (§5 de SECURITY_NOTES).
+
+### 58.3 · C6 — sonda del edge de Railway (X-Forwarded-For)
+
+**Seguridad la subió a paso de la ventana; la ventana se adelantó al fusionar, así que ya
+NO es un paso previo a la publicación.** Se corre en cuanto el dueño abra una ventana
+autorizada contra producción. No la ejecuto por mi cuenta: pega a producción.
+
+**Qué mide:** con `trust proxy = 1` (backend/src/main.ts:39), ¿el tracker del throttler
+cuenta por la IP que pone el edge de Railway (bypass ausente) o por la `X-Forwarded-For`
+que el cliente elige (bypass presente, `P-RL-1` explotable)?
+
+**Procedimiento** (`edge-xff-probe.sh`, se niega a correr sin `--i-have-a-window`, sin
+`TARGET_BASE_URL`, o contra un host local — verificado): 6 `POST /api/v1/auth/login`
+desde una IP con `X-Forwarded-For: 203.0.113.1..6` rotatorio y un correo inexistente
+(401, sin efecto de lado; NO toca el checkout de invitado). **6.º = 429 ⇒ bypass ausente,
+C6 cierra. 6.º = 401 (nunca 429) ⇒ bypass presente, C6 FALLA y el release queda rechazado
+retroactivamente hasta C7.** Se corre N rondas y se reporta la proporción (O-3).
+
+```
+TARGET_BASE_URL='https://<host-del-backend-de-produccion>' \
+  ./scripts/edge-xff-probe.sh --i-have-a-window --rounds 3
+```
+
+> **[RESULTADO C6 — se rellena en la ventana autorizada, con proporción N/N y qué cabeceras llegan]**
+
+---
+
+## 59. `S-MASK-1` — los secretos que GENERAMOS salían en claro en un log público (2026-09-11)
+
+> **Hallazgo del orquestador sobre el run `34650494939`. Dueño: devops (yo). Repo PÚBLICO.**
+
+### 59.1 · Qué falló, medido
+
+El bloque `env:` de **cada paso** se imprime en el log. GitHub tapa los secretos
+**registrados** (`secrets.*` → `***`), pero **no** los que el propio workflow **genera**:
+nunca pasaron por `::add-mask::`. Salían en claro y repetidos en cada paso:
+
+`POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `S3_SECRET_ACCESS_KEY`,
+`STAGING_JWT_ACCESS_SECRET`, `STAGING_JWT_REFRESH_SECRET`, **`STAGING_PII_ENCRYPTION_KEY`**,
+**`STAGING_PII_HMAC_KEY`**, `STAGING_POSTGRES_PASSWORD`, `STAGING_SEED_ADMIN_PASSWORD`,
+`STAGING_SEED_OPERATOR_PASSWORD`, `STRIPE_TEST_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET`,
+`RESEND_API_KEY`, `SEED_ADMIN_PASSWORD`.
+
+**Severidad, sin inflarla:** son **efímeros**, generados por corrida, para un stack que se
+destruye y que no tiene endpoint público. **El daño directo es BAJO.** Lo que no es bajo es
+la **clase**: es `S-88-1` una capa más abajo — el valor no está en el repo, está en el **log
+público del repo** — y dos de ellos son la pareja **cifrado + HMAC de PII**, cuyo formato
+exacto no hace falta enseñarle a nadie.
+
+⛔ **No se arregló borrando logs ni tocando la visibilidad del repo.** El arreglo es
+enmascarar **en origen**.
+
+### 59.2 · El arreglo: `::add-mask::` donde nacen
+
+Los valores nacen en **dos** sitios, y ahí se tapan:
+- `scripts/secrets-preflight.sh` → `generar()`, que ahora envuelve a `generar_crudo()`.
+  Un solo embudo: **toda** forma de secreto (actual o futura) sale ya tapada.
+- `scripts/webhook-secret-preflight.sh` → `aleatorio()` (el efímero de `P-WH-1`).
+
+**Por qué la máscara va a `stderr` y no a `stdout`** (y esto es lo que más fácil se rompe):
+el valor nace **dentro** de una sustitución de comandos — `$(generar "$n")` en `github-env`
+y en `env-file`, y `WH="$(… resolve)"` en el webhook. Un `::add-mask::` por **stdout** se
+metería **dentro del secreto**, y el fallo aparecería ocho pasos más tarde, en el `compose`,
+apuntando al sitio equivocado — el patrón exacto que persigue `S-88-1`. El runner de Actions
+procesa los comandos de workflow **también desde stderr**, así que ahí sí valen.
+
+Fuera de Actions (`GITHUB_ACTIONS != true`) **no se emite ninguna máscara**: la salida de un
+operador no se ensucia con algo que ahí no significa nada.
+
+### 59.3 · El candado y su canario
+
+| Artefacto | Qué hace |
+|---|---|
+| `scripts/check-secret-masking.sh` | Exige que **cada** valor generado del **catálogo completo** (derivado de los compose, no una lista a mano) lleve su `::add-mask::`; que **stdout** salga **limpio** de máscaras; y que fuera de CI no haya ruido. Nunca imprime un valor: solo nombres y longitudes. |
+| `scripts/check-secret-masking-canary.sh` | 4 mutaciones **sobre copia** (O-8/O-9): **m1** quitar el enmascarado (el defecto original) · **m2** máscara por stdout (corrompe el valor) · **m3** sin tapar el efímero de webhook · **m4** enmascarado **parcial** (tapa `*_PASSWORD`, deja las claves de PII). |
+
+**Mediciones (2026-09-11, este entorno):**
+- Candado: **6/6** verde. `github-env` **15/15** valores tapados; `env-file` **15/15**;
+  webhook resolve tapado y limpio.
+- Canario: **5/5**, con **m1, m2, m3 y m4 en ROJO 3/3** cada una.
+- **Sin regresión:** `check-secret-defaults-canary.sh` sigue **66/66**, y
+  `secrets-preflight.sh assert` sigue `rc=0` (15 exigidos por los compose).
+
+**Cableado en CI:** job `secret-masking` en `ci.yml` (candado + canario), y está en el
+`needs` de `ci-ok` ⇒ **exige `success`** (`check-ci-ok.sh` lo confirma en su mitad estática:
+«job `secret-masking` está en el needs de ci-ok»). `skipped` no es verde.
+
+### 59.4 · Lo que este candado NO cubre
+
+- **Los logs ya publicados no se tapan retroactivamente.** Los valores del run
+  `34650494939` (y de los anteriores) siguen ahí. Como son **efímeros y de un stack ya
+  destruido**, no hay nada que rotar; si alguna vez un valor **duradero** siguiera esta ruta,
+  la respuesta sería **rotarlo**, no borrar el log.
+- **Secretos que no nacen en estos dos guiones.** Si mañana un workflow genera un valor por
+  su cuenta (un `openssl rand` suelto en un `run:`), este candado **no lo ve**. Queda
+  anotado como lo que es: **NO MEDIDO**, y se cerraría extendiendo el candado a un barrido de
+  `openssl rand|/dev/urandom` en `.github/workflows/`.
+
+---
+
+## 60. El DAST colgaba de una imagen ajena, y nadie lo vigilaba (2026-09-11)
+
+> **Causa raíz del rojo de `C5`. Dueño: devops.** Diagnóstico del orquestador sobre el
+> paso 6 del run `34650494939`; la causa es **externa** y no es de nadie de este equipo.
+
+### 60.1 · Qué pasó, con el log
+
+```
+21:56:43  minio Error pull access denied for minio/minio, repository does not exist
+                or may require 'docker login': denied
+21:56:43  createbuckets  Interrupted
+21:56:43  postgres  Interrupted
+21:56:43  redis  Interrupted
+21:56:43  ✗  compose up falló
+```
+
+**Docker Hub dejó de servir `minio/minio` sin autenticación.** `postgres`, `redis` y
+`createbuckets` salen `Interrupted` solo porque compose aborta el lote cuando uno falla:
+no tienen nada. **Re-medido desde este entorno** (no me fío del log ajeno):
+
+| Imagen | Resultado anónimo |
+|---|---|
+| `library/postgres:16-alpine` | **HTTP 200** (control: el registro y mi salida funcionan) |
+| `minio/minio:latest` | **HTTP 401 UNAUTHORIZED** (a nivel de REPOSITORIO: `tags/list` también 401) |
+| `minio/mc:latest` | **HTTP 401 UNAUTHORIZED** |
+| `hub.docker.com/v2/repositories/minio/minio/tags` | `{"message":"object not found"}` |
+
+Esto explica lo que me desconcertaba con razón: **nuestro árbol era byte a byte idéntico**
+al de la release que pasó (`c8bee65`, con `dast-release` en `success`). No cambió nuestro
+código: **cambió lo que hay al otro lado.** Y como la etiqueta era `:latest` —**móvil**— no
+había ni siquiera un número al que volver.
+
+### 60.2 · La lección, que es más grande que MinIO
+
+**La única puerta que mira la aplicación CORRIENDO** llevaba meses colgando de que una
+imagen ajena siguiera siendo descargable, **y nadie lo vigilaba**. Es la clase de §56 con
+otro disfraz: cobertura que se cree viva y depende de algo que nadie mide.
+
+| Artefacto | Qué hace |
+|---|---|
+| `scripts/check-compose-images.sh` | Enumera **todas** las imágenes externas de **todos** los `docker-compose*.yml` (no una lista a mano: un compose nuevo entra solo) y exige que cada una esté **clavada** por versión o `@sha256:`. Rechaza `:latest`, `:stable`/`:main`/`:edge`/…, la etiqueta **implícita** y `${VAR}` sin resolver. Estático, **sin red**. |
+| `… --resolve` | Modo **con red**: comprueba que cada imagen clavada **existe y se descarga anónimamente**. Es lo que habría cazado esto **el día que pasó**, no en el deploy siguiente. Fuera del candado estático a propósito: un candado de PR no puede depender de que un registro ajeno esté de buenas. |
+| `scripts/check-compose-images-canary.sh` | 6 mutaciones **sobre copia**: `:latest` · etiqueta implícita · `${VAR}` · etiqueta que no es versión (`:alpine`) · **un compose NUEVO** con imagen móvil (prueba que la enumeración no es una lista) · y un **control inverso** con digest que debe seguir VERDE. |
+
+**Mediciones (2026-09-11):** candado **9 imágenes, 5 clavadas, 4 sin clavar** (las cuatro de
+MinIO) ⇒ rojo correcto. `--resolve` confirma `postgres`/`redis`/`python` en **200**.
+Canario **7/7**, con **m1…m5 ROJAS 3/3** y **m6 VERDE 3/3**.
+
+### 60.3 · «No medí nada» ≠ «medí y no encontré nada» — y hoy se parecían demasiado
+
+**La consecuencia que hay que escribir:** mientras esto estuvo roto, **el DAST no escaneó ni
+una petición** en el último push a producción, y el run salió verde salvo por ese job.
+
+**¿Es correcto?** En una mitad sí y en la otra no, y conviene separarlas:
+
+- **Lo que SÍ estaba bien (y es fail-closed):** la salida `blocking` queda **VACÍA** cuando el
+  candado no corre, y `deploy.yml` exige `blocking == 'false'` — un vacío **no promueve**.
+  Eso es `F1-1` y funcionó: nadie promovió nada apoyándose en un DAST que no midió.
+- **Lo que estaba MAL:** el hueco de medición se anunciaba con un `::warning::` discreto
+  («El candado no llegó a escribir resumen; revisa el log») entre cientos de líneas, y en la
+  portada del run no aparecía nada. Un job rojo llamado «DAST» se lee como «el DAST
+  encontró algo», no como «el DAST no existió». **No son lo mismo: uno es un hallazgo, el
+  otro es un agujero de cobertura**, y el segundo es más peligroso porque se cierra solo en
+  la cabeza del que lo lee.
+
+**Arreglado** (`security-dast.yml`): si no hay informe, ya no es un warning sino un
+**`::error::`** explícito —«EL DAST NO MIDIÓ NADA … Esto NO es "sin hallazgos": es "sin
+medición"»— y un bloque en la **portada del run** que lo dice con todas las letras, nombra el
+fail-closed y apunta al candado de imágenes como causa habitual.
+
+### 60.4 · Lo que queda ABIERTO y por qué (NO MEDIDO, con honestidad)
+
+**Las cuatro imágenes de MinIO siguen sin clavar**, así que el candado de §60.2 está **en rojo
+a propósito** y **todavía no cableado en `ci.yml`**: cablearlo antes de arreglar el pin
+pondría en rojo los PR de los tres agentes que están trabajando ahora mismo, por un defecto
+que ya está diagnosticado. **El cableado entra en el MISMO commit que el pin.**
+
+**Mi criterio sobre el origen** (decidido, no delegado): **se queda MinIO y se mueve a
+`quay.io`, su registro oficial, clavado a una `RELEASE.…` concreta.** Razones:
+- Es un cambio de **registro**, no de **stack**: mismo software, misma configuración
+  (`MINIO_ROOT_USER`/`PASSWORD`, puerto 9000, `mc` para los buckets). No cambia lo que el
+  DAST escanea, que es justo lo que no quiero mover en un gate de seguridad.
+- **Descartado `bitnamilegacy/minio`** (sí se descarga anónimamente, medido HTTP 200): es un
+  espacio **archivado**, sin actualizaciones de seguridad, y con convenciones de arranque
+  distintas. Cambiar una rotura externa por una imagen sin mantenimiento es mal negocio en
+  la dependencia de una puerta de seguridad.
+- **Descartado sustituir MinIO por `scripts/s3-local/`** (el S3 propio de la ruta nativa):
+  sería un **cambio de stack**, no de devops — pasa por el **arquitecto** primero.
+
+**Lo que me falta y no puedo medir desde aquí:** la etiqueta `RELEASE.…` exacta y su digest.
+**Medido:** `quay.io` → proxy **403 CONNECT**; `dl.min.io` y `min.io` → **403**;
+`mirror.gcr.io`/`ghcr.io` → no lo sirven; API de GitHub para `minio/minio` → no habilitada en
+esta sesión. **No voy a commitear una etiqueta adivinada** en el único gate que ya está roto.
+Se cierra con **una** orden desde un entorno con salida a `quay.io`:
+
+```
+curl -s 'https://quay.io/api/v1/repository/minio/minio/tag/?limit=5&onlyActiveTags=true'
+curl -s 'https://quay.io/api/v1/repository/minio/mc/tag/?limit=5&onlyActiveTags=true'
+```
+
+y con el `name` + `manifest_digest` que devuelva, el pin se clava **por digest** (inmutable) y
+se verifica con `./scripts/check-compose-images.sh --resolve`.
+
+### 60.5 · REEVALUACIÓN del origen, con un dato nuevo — y una inconsistencia mía corregida
+
+**El dato nuevo (me lo trajo el orquestador; lo RE-MEDÍ yo, no lo relayo).** `quay.io` está
+bloqueado por el proxy para los dos (`000`, CONNECT rechazado), pero el proxy **sí** permite
+lectura git anónima de repos públicos, así que conté las etiquetas yo mismo con
+`git ls-remote --tags`:
+
+| Repo | Releases por año | Última |
+|---|---|---|
+| `minio/minio` | 2018:**94** · 2019:**100** · 2020:**172** · 2021:**133** · 2022:**186** · 2023:**132** · 2024:**126** · 2025:**33** · **2026: 0** | `RELEASE.2025-10-15T17-29-55Z` |
+| `minio/mc` | 2022:**96** · 2023:**100** · 2024:**96** · 2025:**26** | `RELEASE.2025-08-13T08-35-41Z` |
+
+De ~10 releases al mes a **cero en once meses**. Junto al `401` de nivel de repositorio en
+Docker Hub, esto **no parece un repositorio caído: parece el cierre de la distribución
+comunitaria**.
+
+**La inconsistencia que me señalaron, y que acepto:** descarté `bitnamilegacy/minio` por
+«sin parches», y clavar `RELEASE.2025-10-15` es **también** clavar algo sin parches. Apliqué
+el criterio de forma asimétrica. **Concedido.** (Lo que sí sostengo de aquel descarte es la
+otra mitad, que no era la frescura: es un **reempaquetado de tercero** con convenciones de
+arranque distintas, y eso sí es riesgo de comportamiento.)
+
+**Pero la conclusión no se voltea, y aquí está la medición que lo sostiene.** «Congelar una
+dependencia sin mantenimiento en una puerta de seguridad» suena grave porque evoca
+producción. Medido, este MinIO **no es eso**:
+
+| Pregunta | Medido |
+|---|---|
+| ¿Producción usa MinIO? | **NO.** Producción usa **Cloudflare R2** (`DEVOPS_NOTES §1`, §11). MinIO es **local/CI**. |
+| ¿El DAST escanea MinIO? | **NO.** `ZAP_TARGETS` = solo la vitrina; `NUCLEI_TARGETS` = vitrina + API. MinIO **nunca** es blanco. |
+| ¿Está expuesto? | **NO.** `127.0.0.1:9010/9011`, solo loopback del runner. |
+| ¿Qué datos tiene? | **Sintéticos**, sembrados por el propio job. |
+| ¿Cuánto vive? | **Minutos**, y se destruye (`down -v`). |
+
+⇒ Un CVE de MinIO aquí **no es alcanzable por nadie, no aparece en el informe del DAST y no
+existe en producción**. Lo que la fiabilidad del gate necesita de MinIO **no es que esté
+parcheado: es que ARRANQUE**. Y para una pieza de atrezo de CI, **estar congelado es una
+virtud** (reproducibilidad), no un defecto.
+
+**El argumento que SÍ sobrevive, y es otro:** no es el parcheo, es la **disponibilidad**.
+Un proyecto que dejó de publicar hace once meses y que ya cerró un registro **puede cerrar el
+otro**. Clavar en `quay.io` —un registro que **ni el orquestador ni yo podemos alcanzar para
+verificar**— es aceptar una dependencia **con cuenta atrás** en la única puerta que mira la
+aplicación corriendo. Ése es el problema real, y no lo arregla ninguna etiqueta.
+
+### 60.6 · Decisión, y lo que NO decido yo
+
+**NO commiteo el pin.** Las etiquetas de arriba salen de **GitHub**, no del **registro**, y
+`quay.io` es inalcanzable para los dos: sería clavar un dato sin confirmar **en el sitio que
+importa** — exactamente lo que me negué a adivinar hace una hora. El orquestador dejó dicho
+«si `quay.io` tampoco te responde, dilo y esperamos». Lo digo: **no responde.**
+
+**Lo que propongo enrutar al ARQUITECTO** (no lo decido yo: es cambio de stack, `CLAUDE.md`):
+sustituir la pieza de S3 del stack efímero de CI. **El motivo NO es «MinIO tiene CVEs»** —ya
+está medido que aquí eso no muerde— **sino que su distribución se está cerrando y no podemos
+ni verificar que siga siendo descargable**. Datos para esa decisión, ya medidos:
+
+- Candidatos **verificados descargables anónimamente hoy** (HTTP 200 desde este entorno):
+  `adobe/s3mock`, `localstack/localstack`, `chrislusf/seaweedfs`.
+- Alternativa **ya dentro del repo y de propiedad devops**: `scripts/s3-local/` (s3rver), que
+  hoy da el S3 de la ruta **nativa** — pero su propia cabecera declara qué de MinIO **no**
+  reproduce, así que no es un reemplazo gratis.
+- Requisito real a cubrir: que el backend **arranque** y que exista el bucket `kyc_ine/`.
+  Nada más: esta pieza no se escanea y no viaja a producción.
+
+**Mientras tanto:** `dast-release` sigue rojo y **C5 sigue sin cerrar**. El candado de
+imágenes sigue **sin cablear** en `ci.yml` (pin y cableado entran juntos), decisión que el
+orquestador confirmó: poner en rojo los PR de los agentes en vuelo por un defecto ya
+diagnosticado es ruido, no información.
+
+---
+
+## 61. MinIO sale de los compose: `s3-local` es el object storage de toda ruta no-producción (2026-09-11)
+
+> Ejecuta `ARCHITECTURE §4.51` (decisión del arquitecto). **Forma elegida: A.** Desbloquea
+> `security-dast.yml` y `e2e-real.yml`, que llevaban caídos desde el 401 de Docker Hub.
+
+### 61.1 · Por qué la Forma A y no la B (la elección era mía)
+
+**Forma A — servicio de compose sobre `library/node:22-alpine`.** Razones, en orden:
+
+1. **`docker compose up` sigue levantando el stack con UN verbo.** Es literalmente el criterio que QA
+   tiene que verificar (§4.51.9). La Forma B parte el ciclo de vida en dos piezas y añade sitios donde un
+   stack superviviente contamina una corrida — el riesgo que `e2e-real.yml:317-346` ya vigila.
+2. **La única imagen que entra es `library/*`**, la clase que medí **HTTP 200** anónimo. No es «una imagen
+   externa menos»: es una imagen de **la clase que no nos ha fallado**, y que además **ya era carga
+   obligada** (el backend construye sobre Node).
+3. **El `npm ci` del arranque no añade un dominio de fallo nuevo** (§4.51.3 razón 1): el registro npm ya es
+   obligatorio en toda corrida. Medido: `npm ci --omit=dev` = **113 paquetes en 3 s**.
+
+### 61.2 · Qué cambió, exactamente
+
+| Antes | Ahora |
+|---|---|
+| `minio` (`minio/minio:latest`) + `createbuckets` (`minio/mc:latest`) en **los dos** compose | Un servicio **`s3`** (`node:22-alpine`) en los dos, que corre `scripts/s3-local/server.js` |
+| Bucket creado por un **init-container** con `mc mb` | Bucket creado por el **propio servidor antes de escuchar** (`configureBuckets`) ⇒ invariante 1 |
+| Consola MinIO en `:9001`/`:9011` | **No hay consola.** Medido (N-4): **nadie** la usaba |
+| `S3_ENDPOINT: http://minio:9000` | `S3_ENDPOINT: http://s3:9000` |
+| Volúmenes `minio_data` / `minio_staging` | `s3_data` / `s3_staging` |
+
+**Los 6 invariantes de §4.51.6, uno a uno:** (1) bucket antes de atender ✅ (`configureBuckets()` se
+resuelve **antes** del `listen`); (2) mismas credenciales que el backend ✅ (el servicio `s3` recibe
+**las mismas variables** que el backend en cada compose); (3) `S3_LOCAL_ALLOW_ANON` **no aparece** en
+ningún compose ni workflow ✅; (4) publicación en **loopback** ✅ (`127.0.0.1:9000` / `127.0.0.1:${STAGING_S3_PORT:-9010}`),
+con `S3_LOCAL_HOST=0.0.0.0` **dentro** del contenedor y el porqué escrito al lado (D-S3-2, también
+corregido en la cabecera de `server.js`); (5) `S3_FORCE_PATH_STYLE` sin tocar ✅; (6) el candado de
+imágenes **sigue y ahora está CABLEADO** ✅.
+
+### 61.3 · Mediciones (2026-09-11, este entorno)
+
+| # | Qué | Resultado |
+|---|---|---|
+| **N-1** | ¿s3rver honra `response-content-disposition` en el GET presignado? | ✅ **SÍ**: `Content-Disposition: attachment`, cuerpo idéntico al subido. **Desbloquea G-3 (backend).** |
+| **N-2** | ¿`node:22-alpine` se descarga anónimamente? | ✅ **HTTP 200** |
+| **N-3** | ¿`scripts/s3-local/node_modules` viaja en git? | ❌ **No** (sólo 3 ficheros) ⇒ `npm ci` en el arranque, medido en **3 s** |
+| **N-4** | ¿Alguien depende de la consola (`:9011`) o de `mc`? | ❌ **Nadie** (`grep` vacío en `.github`, `scripts`, `security`) |
+| **N-5** | ¿Resuelven el resto de imágenes? | ✅ **7/7 clavadas**, todas 200 (una dio 429 = límite de tasa, la misma imagen resolvió 200 en el otro compose) |
+| **G-4** | Caducidad del enlace de INE | ✅ **5/5** fresca aceptada · **5/5** vencida ⇒ 403 desde la **capa propia** · **5/5** mutada ⇒ 403 desde **s3rver**. Ver la corrección de premisa en §39.2.3 |
+| Candado imágenes | `check-compose-images.sh` | **7/7 clavadas, 0 sin clavar** · canario **7/7** (m1..m5 ROJAS 3/3, m6 VERDE 3/3) |
+| Arranque real | `npm ci` + `node server.js` con `S3_LOCAL_HOST=0.0.0.0`, en directorio limpio con los 3 ficheros | ✅ escucha, y el **healthcheck del compose** lee **HTTP 403 ⇒ vivo** (sin firmar = 403 por diseño) |
+| Interpolación | `docker compose -f <cada uno> --profile apps config` | ✅ **rc=0** en los dos |
+
+⏳ **NO MEDIDO — y es el que importa para QA:** que `docker compose up` levante el stack **de verdad**.
+**No hay demonio de Docker en este entorno** (medido: `docker info` falla), así que lo que valido es el
+comando exacto del contenedor por fuera de él, no el contenedor. **Lo cierra QA** con
+`docker compose -f docker-compose.staging.yml up` + `infra-smoke` en `E2E_STRICT_INFRA=true`.
+
+### 61.4 · ⚠️ Lo que este pase NO toca y alguien debe mirar: `e2e.yml` TAMBIÉN usa MinIO
+
+**Medido, y no estaba en el encargo:** además de los dos compose, `.github/workflows/e2e.yml:140` levanta
+un **service container** `bitnamilegacy/minio:latest` para el job `backend-e2e` (deploy-blocking).
+
+- **Hoy NO está roto:** medido **HTTP 200** anónimo.
+- **Pero es la misma clase de riesgo, dos veces:** etiqueta **móvil** (`:latest`) **y** namespace
+  **archivado** (`bitnamilegacy`, a donde Bitnami movió lo que vació en ago-2025). Es exactamente el
+  perfil de `minio/minio:latest` el día antes de romperse.
+- **Mi candado NO lo ve:** `check-compose-images.sh` enumera `docker-compose*.yml`, **no** los
+  `services:` de los workflows. Ése es un hueco **declarado** de mi propio candado.
+- **Por qué no lo arreglo en este pase:** cambiar el almacenamiento de `backend-e2e` es la misma clase de
+  decisión que el arquitecto acaba de tomar para los compose (§4.51) y le corresponde a él decidir si
+  `s3-local` cubre también esa ruta. Y extender el candado **hoy** pondría CI en rojo por un defecto que
+  no estoy autorizado a cerrar — el mismo error que evité con el pin. **Siguiente pase, vía arquitecto.**
+
+---
+
+## 62. El OTRO MinIO (`e2e.yml`) y el candado encendido sobre inventario medido (2026-09-11)
+
+> Ejecuta `ARCHITECTURE §4.52`. **`backend-e2e` queda sin NINGUNA imagen de almacenamiento.**
+
+### 62.1 · Forma B aquí, y por qué no es «una de dos»
+
+En el compose elegí la **A** porque la B rompía la autocontención de `docker compose up`. **Aquí la B es
+estrictamente mejor**, y por un motivo que estaba en el propio fichero: **un service container de Actions
+no admite `command:`** — literal, el motivo por el que aquí **no** sirvió `minio/minio` oficial y se acabó
+en `bitnamilegacy/minio:latest`. Un proceso del runner **no tiene esa restricción**, y **en este job no hay
+compose** que autocontener: la infraestructura ya son piezas sueltas y la readiness ya se sondeaba desde el
+runner. Coste cero, beneficio máximo: **cero imágenes de contenedor para el almacenamiento**.
+
+`scripts/s3-local/` arranca tras el `npm ci`, con `working-directory: scripts/s3-local`, y el paso de espera
+**no se inventa: se reescribe** — `403` = **vivo y privado**, así que vale cualquier respuesta HTTP y lo que
+significa caído es **no poder conectar**.
+
+**⛔ Sin `|| true` en ninguna línea.** Con `E2E_STRICT_INFRA: true`, un almacenamiento ausente **tiene** que
+salir rojo de infraestructura. El paso termina en `exit 1` con el log del stand-in volcado.
+
+### 62.2 · `D-S3-6` — el gate del deploy tenía el almacenamiento MÁS LAXO de los cuatro
+
+El bucket se creaba con `MINIO_DEFAULT_BUCKETS: tcg-photos:download`. **`download` es lectura anónima
+permitida**: la **inversa** de `mc anonymous set none` y de lo que hace producción. Sin riesgo real
+(sintéticos, `localhost`, efímero), pero es **infidelidad invertida** — probábamos contra algo **más
+permisivo** que producción, que es la dirección mala. **Se corrige solo**: `s3-local` rechaza toda petición
+sin firmar, en todo método. Este job pasa de ser el más laxo a ser tan estricto como los demás, y de paso
+se va la dependencia de una **env propietaria de vendor**.
+
+### 62.3 · El candado ampliado — encendido **después** de medir, no antes
+
+| # | Medición | Resultado |
+|---|---|---|
+| **N-6** | ¿Están clavadas **todas** las imágenes de `services:`/`container:` de **todos** los workflows? | **Sí, AHORA.** Al medir apareció **una** sin clavar que el arquitecto no vio: **`returntocorp/semgrep:latest`** (`security-sast.yml:41`), el `container:` del **gate SAST**. Clavada a **`1.177.0`** (verificada 200; su namespace sigue publicando). Inventario final: **12 imágenes, 12 clavadas, 0 sin clavar** |
+| **N-7** | ¿Alguien depende del puerto de consola (`9001`) o de `MINIO_DEFAULT_BUCKETS`? | **Nadie.** Las únicas apariciones estaban en el propio bloque retirado de `e2e.yml` y una línea de ayuda de `scripts/dev-up.sh`, ya corregida |
+| **N-8** | ¿`scripts/s3-local/` necesita su propio `npm ci` en ese job? | **Sí.** `node_modules` no viaja en git (3 ficheros versionados) y el `npm ci` del job es de `backend/`. Medido: **113 paquetes en 3 s** |
+
+**Condición de encendido de §4.52.4, cumplida por la vía buena:** el candado se enciende con el inventario
+ampliado **en verde**, **sin ninguna excepción nombrada**. No hizo falta dispensa: la única imagen que
+sobraba se clavó.
+
+**Proporciones:** candado **12/12 clavadas**; canario **10/10**, con **m1..m5 y m7..m9 ROJAS 3/3** y **m6
+(digest, control inverso) VERDE 3/3**. Las tres nuevas son justamente la cobertura nueva: **m7** service de
+workflow móvil (el caso `bitnamilegacy/minio:latest`), **m8** `container:` móvil (el caso `semgrep:latest`),
+**m9** un workflow **nuevo** con service móvil — que prueba que la enumeración de workflows **tampoco** es
+una lista a mano.
+
+### 62.4 · Por qué clavar `semgrep` no es un detalle cosmético
+
+Una etiqueta móvil en la imagen de un **gate de seguridad** significa dos cosas malas a la vez: el motor
+puede cambiar **entre dos corridas del mismo commit** (un verde deja de ser reproducible), y el día que el
+registro cambie **no hay número al que volver** — que es, literal, lo que nos pasó con `minio/minio:latest`.
+**Disparador para subirla:** una regla nueva que necesitemos o un aviso del propio semgrep; se sube **a mano
+y se mide**. Un motor que se actualiza solo es un gate que cambia solo.
+
+### 62.5 · Lo que sigue NO MEDIDO
+
+- **Que `backend-e2e` pase de verdad** con el stand-in como proceso. **No hay demonio de Docker ni runner
+  aquí**; validé el comando exacto por fuera (arranca, escucha, el sondeo lee `403 ⇒ vivo`). **Lo cierra QA**
+  (§4.52.6): `backend-e2e` verde con `E2E_STRICT_INFRA=true` **y** un stand-in caído poniendo el job **rojo**.
+- **Que `semgrep:1.177.0` produzca los mismos hallazgos que `:latest`.** Es un cambio de motor a versión fija;
+  lo dirá la primera corrida del gate SAST.
+
+---
+
+## 63. La clase: **un candado anclado a la forma de un fichero es una dependencia invisible desde el fichero** (2026-09-11)
+
+> Esto no es la ficha de un incidente: es la ficha de una **clase**. El incidente concreto
+> —cuatro rojos de CI, tres míos por la misma causa— es solo el caso que la hizo visible.
+
+### 63.1 · Qué pasó, y la causa real (que no es la que parecía)
+
+Reescribí `.github/workflows/e2e.yml` para sacar MinIO. **Tres candados míos se pusieron rojos**:
+`check-db-pool-limit`, `check-e2e-harness-gaps` y `check-e2e-provider-incapacitation` (éste con su
+canario). La pregunta correcta —que el orquestador hizo antes que yo— era: **¿es el candado el que
+tiene un anclaje desfasado, o el cambio el que perdió algo?** Porque **el arreglo es opuesto**.
+
+**Medido: era el CAMBIO, los tres.** Mi edición borró **el bloque `env:` entero del job
+`backend-e2e`** —76 líneas, 15 variables— incluidos:
+
+- `DATABASE_URL` con **`connection_limit=5&pool_timeout=10`**, que **no es preferencia**: es el tamaño
+  de pool con el que la carrera R-3 **ve** el fallo de dinero de `398c58a`. Sin él, Prisma usa
+  `num_cpus*2+1` y el candado **se afloja solo, en silencio**.
+- **`E2E_STRICT_INFRA: true`**, que es lo que hace que ese job valga algo.
+- `E2E_GRADING_PROVIDER_INCAPACITATED`, `NODE_ENV: test` y todas las `S3_*`.
+
+⚠️ **El atajo que NO se tomó:** aflojar los anclajes para que pasaran. Los candados tenían razón; el
+roto era mi diff. **Los tres vuelven a verde al restaurar el bloque**, sin tocar un solo candado.
+
+**La causa técnica, dicha sin adornos:** borré **por rango** (`desde el marcador A hasta el marcador
+B`) sin leer qué había en medio. Entre el servicio `minio` y `steps:` vivía el `env:` del job. *Una
+edición que borra lo que no ha leído no es una edición: es una apuesta.*
+
+### 63.2 · La clase, y por qué el aviso llegó tarde
+
+Los candados me avisaron **después de commitear**, no mientras escribía. Y no por descuido: **el
+anclaje vive dentro del candado, no al lado de lo anclado.** Desde `e2e.yml` no hay nada que diga
+«seis guiones dependen de mi forma». Es una **dependencia invisible desde el fichero**, y es la misma
+familia que §56 (cobertura que se cree viva y depende de algo que nadie mide) y que §60 (el DAST
+colgando de una imagen ajena que nadie vigilaba).
+
+**El artefacto que lo cierra:** `scripts/que-candados-vigilan.sh <fichero>` — responde «¿qué guiones
+se apoyan en la forma de esto?» **antes** de tocarlo, y distingue el que lo **ancla en código** del que
+solo lo **menciona en prosa** (romper un anclaje y desactualizar una nota no son lo mismo).
+
+Medido sobre `e2e.yml`: **seis** guiones lo anclan — los tres que se pusieron rojos **más**
+`check-stripe-webhook-failclosed-canary`, `check-workflow-cwd-canary` y `check-db-pool-limit-canary`.
+**Tres más de los que el incidente reveló**, que es exactamente el punto: el rojo enseñó la mitad.
+
+⚠️ **NO es un gate, y se declara así a propósito.** No falla nada ni bloquea nada: es la pregunta que
+hay que hacerse antes de reescribir un fichero con historia. Un gate que exigiera «declara tus
+anclajes» sería **otro anclaje más que mantener** — el defecto que persigue, una vuelta más arriba.
+
+**La regla que queda, y su comprobación:** antes de cambiar la **forma** de un fichero (renombrar un
+job, mover un `env:`, quitar un servicio), se corre `que-candados-vigilan.sh` sobre él **y se corren
+esos candados ANTES del commit**. Si uno sale rojo, se **mide** cuál de las dos cosas pasó; si es
+anclaje desfasado, se actualiza **y** se añade al canario el caso que lo habría cazado.
+
+### 63.3 · El otro rojo: `check-secret-defaults` sobre mis dos ficheros nuevos
+
+**Dos hallazgos, y uno era del detector, no míos.**
+
+1. **`N_VERIF_SALTADA=3` marcado como «secreto escrito en el repo» — FALSO POSITIVO REAL.** Medido:
+   `FORMA_SECRETO` llevaba **`SALT` sin anclar**, el **único** término corto de la lista sin anclas
+   (sus vecinos son `_KEY$`, `_PWD$`…). Este repo **se escribe en español** y
+   «salt**ar** / salt**ada** / salt**ados**» contiene esas cuatro letras: **50+ apariciones en el
+   árbol**, incluida `SALTADOS_ESPERADOS` de mi propio `check-candidate-checks.sh`. Solo la mía saltó
+   porque el detector descarta valores `0|1|true|false` y la mía valía `3`.
+   **Arreglo: anclar a `SALT(_|$)`** — no silenciar por ruta (eso es justo lo que `P-GL-2` nos tiene
+   fichado como mala práctica). **Con prueba en las dos direcciones**, que es lo que un estrechamiento
+   exige: el autotest del propio candado ahora sondea `FOO_SALT` (**se reconoce**) y
+   `N_VERIF_SALTADA`/`SALTADOS_ESPERADOS`/`PASOS_SALTADOS` (**se descartan**), y el canario gana dos
+   casos: **`MASTER_SALT` sigue saliendo ROJO** y el español sale **VERDE**. Canario **66/66 → 68/68**.
+   *El propio candado ya tenía escrita la razón por la que esto importa: «un candado que suena por lo
+   que no es, se apaga — y entonces no suena por lo que sí».*
+2. **URL con credencial dentro (`postgresql://tcg:x@…`) — CATCH LEGÍTIMO, y era mío.** Un caso de mi
+   canario que solo necesita una base **inalcanzable**: no hace falta usuario ni contraseña. **Se
+   quitó la forma de credencial**, no se exceptuó la ruta. Manifiesto regenerado en el mismo diff
+   (121 valores).
+
+### 63.4 · Estado de los candados tras el arreglo
+
+Todos en verde salvo uno que **no es mío**: `e2e-skip-census` (`mockOnly 92 → 99`), de los E2E nuevos
+de la revisión de identidad — **frontend**. El techo **no se sube sin su motivo**: subirlo por
+conveniencia es firmar el `--update` sin leerlo, que es el defecto que §57.5 ya describe.
+
+---
+
+## 64. El techo del censo E2E sube a 99 — y **este sube con fecha de caducidad corta** (2026-09-11)
+
+**Medido sobre `44deb2f`** (no sobre un commit anterior: ahí el techo quedaría por encima de lo que
+hay, que es justo el error de la vez pasada). `mockOnly` **92 → 99**; `needsSeed` 31, `harnessLimit` 4
+y `skipIfSeedMissing` 15 **sin cambio**. Gate `rc=0` **3/3**, canario **13/13 en 3/3**.
+
+**Frontend bajó el techo ANTES de pedir que lo subiera**, y eso merece quedar escrito porque es el
+comportamiento que el censo pretende provocar: de las 10 ocurrencias que añadió el spec de identidad
+retiró **tres**, reescribiendo agnósticos los casos que afirmaban una **ausencia** (una ausencia vale
+con cualquier dato) y etiquetándolos `@real`. **Re-medido por mí** sobre el fichero:
+**1 import + 5 llamadas + 1 mención = 7** ⇒ `92 + 7 = 99`. Cuadra.
+
+### 64.1 · Por qué este techo NO es como los anteriores
+
+**Cuatro de las cinco salvaguardas que quedan se levantan SEMBRANDO DATOS, no esperando a un
+tercero.** El servidor ya existe en la rama (`c80bc26`, `§M6-K` entero); lo que falta es el **dato**:
+`backend/prisma/seed-e2e.ts:144` **borra** todos los `KycProfile` de los actores E2E y no siembra
+ninguno, así que en el stack real no hay usuario con INE en el expediente, ni objeto en el bucket que
+pintar, ni nombre derivado contra el que medir el aviso de cotejo.
+
+| # | Qué deja de medirse | Qué la levanta | ¿Depende de fuera? |
+|---|---|---|---|
+| 1 | Las dos caras + panel de cotejo (`naturalWidth > 0`, que distingue «hay un `img`» de «se ve la INE») | `KycProfile` sembrado con las dos keys + sus objetos en el bucket | **No** |
+| 2 | El visor ampliado | El mismo sembrado | **No** |
+| 3 | El rechazo con motivo (`PATCH … {rejectionReason}`) | El mismo sembrado **+ un actor desechable** | **No** |
+| 5 | El estado «sin INE» del cliente | Actor propio de identidad, o `KycProfile` con estado fijo | **No** |
+| 4 | La columna y el filtro (`kycStatus`, `?kycStatus=`) | Que el **contrato** los declare (petición **A5**, `DESIGN_SYSTEM §34.15` → **arquitecto**) | **Sí** |
+
+⇒ **Cuatro de cinco tienen fecha «esta semana» y el sembrado ya está encargado a backend.** Solo la
+**(4)** cuelga de una decisión de contrato.
+
+**La consecuencia operativa, y es la que importa:** este techo **no está aquí para quedarse: está aquí
+para bajar**. Un techo que sube y se queda es exactamente el hábito que `§57.5` describe como el
+riesgo real del censo —«un rojo que casi siempre se explica enseña al equipo a firmar el `--update`
+sin leerlo»—. **Comprobación de que esto no pasó:** cuando el sembrado de `KycProfile` aterrice,
+`mockOnly` tiene que **BAJAR de 99**, y las cuatro salvaguardas de arriba deben desaparecer del spec.
+Si dentro de dos semanas sigue en 99 con el sembrado hecho, el número está mintiendo y hay que
+mirarlo — **dueño de esa revisión: devops (yo), disparador: el commit del sembrado**.
+
+⚠️ **NO MEDIDO:** que las cinco se levanten de verdad al sembrar. Lo mide **frontend** al retirarlas y
+**QA** al correr la suite `@real`; yo solo puedo medir el **número**, no si lo que hay debajo mide el
+producto. Distinguirlo importa: el censo es un **detector de huella textual**, no un censo de
+cobertura (`§57.5`).
+
+---
+
+## 65. El manifiesto desfasado **no era un secreto destapado**: era `re_` sin anclar (2026-09-12)
+
+> Medido sobre `6254c51`. **Corrige la atribución con la que me llegó el encargo**, que era
+> razonable pero no lo que había.
+
+### 65.1 · Qué faltaba de verdad en el manifiesto
+
+`gen-published-secrets-manifest.sh --check` decía **«NO cubre 1 literal»**, y ese literal era:
+
+```
+6372c5a287769dc40b3e876aeca67b4104845337d788244bf45649e07263f7a2  PREFIJO
+```
+
+**No era el `minioadmin` del sembrado de identidades.** Ese valor **ya estaba** en el manifiesto
+(medido: `sha256('minioadmin')` presente antes de regenerar). El hash que faltaba es
+**el trozo que el prefijo de Resend captura dentro del identificador español `nombre_producto`**, en un fichero de
+reparación de datos en SQL (`backend/prisma/data-repair/20260912_p79d_…sql`, de `8f8c35c`).
+
+⇒ **Consecuencia que importa y que corrige la alarma:** durante esas horas **no hubo ningún secreto
+real fuera del manifiesto**. La clase `S-88-1` **no estuvo abierta de facto**; lo que faltaba era el
+trozo de una palabra. Lo digo porque la frase que el propio candado imprime —«mientras esté
+desfasado, un literal recién commiteado NO lo rechaza ningún preflight»— es **cierta como regla** y
+**falsa como diagnóstico de este caso**, y confundirlas manda a alguien a buscar una fuga que no
+existió.
+
+### 65.2 · La causa: `re_` era el prefijo corto sin anclar (la misma clase que `SALT`)
+
+`PREFIJOS_RE` capturaba `re_[A-Za-z0-9_]{6,}` **sin límite de palabra**, así que casaba **dentro** de
+identificadores. Medido en el árbol: el fragmento de `require_real_stripe` (26 veces),
+el de `nombre_de_secreto` (13), el de `nombre_producto` (3), el de `ensure_wiring`, el de
+`__nombre_actual`… y `re_test_key` (6), que ése **sí** es un literal de verdad.
+
+Y **el manifiesto ya había acumulado SEIS entradas de esta clase**. Hoy llegaba la séptima.
+
+Es **exactamente** el defecto de `SALT` de ayer (§63.3): **un término corto sin anclar, en un repo que
+escribe en español**. Dos casos en dos días ⇒ no es un despiste, es una clase.
+
+**Arreglo: `\b` al frente de `PREFIJOS_RE`.** No afloja nada, y el corte cae justo donde debe porque
+una clave real **siempre** va tras comilla, `=` o espacio:
+
+| Cadena | Antes | Con `\b` | ¿Correcto? |
+|---|---|---|---|
+| `RESEND_API_KEY: 're_test_key'` | captura | **captura** | ✅ es un literal REAL bajo nombre de secreto |
+| `RESEND_API_KEY: 're_live_x'` | captura | **captura** | ✅ ídem |
+| `RESEND_API_KEY=re_AbCd…` (clave con forma real) | captura | **captura** | ✅ forma de clave real |
+| el fragmento dentro de `require_real_stripe` | captura | **no** | ✅ trozo de identificador |
+| ídem en `ensure_wiring` · `__nombre_actual` · `nombre_producto` | captura | **no** | ✅ ídem |
+
+### 65.3 · Regenerado **después de leerlo**, no a ciegas — y qué cambió exactamente
+
+Regenerar un manifiesto de seguridad a ciegas es firmar lo que haya, **incluidas las bajas**. Lo que
+medí antes de aceptarlo:
+
+- **Nada se perdió: 121 → 121 entradas.** El generador **conserva** los valores que ya no están en el
+  árbol y los re-etiqueta `(retirado del arbol …)` — que es lo correcto: *un valor publicado una vez
+  debe seguir rechazándose para siempre*, aunque desaparezca del código.
+- **Tres re-etiquetados**, y los mapeé uno a uno por hash: los fragmentos de `require_real_stripe`, `ensure_wiring` y `__nombre_actual`
+  — los tres, trozos de identificador. **Ninguno es un secreto.**
+- **El fragmento de `nombre_producto` NO entró** (verificado: 0 apariciones de su hash).
+- **Los dos literales REALES siguen dentro:** `re_test_key` y `re_live_x`, ambos asignados a
+  `RESEND_API_KEY` en specs del backend.
+
+**Proporciones:** `check-secret-defaults` **rc=0 en 3/3**; canario **70/70** (68 + los dos casos
+nuevos), con **una clave Resend con forma real ROJO** y **`re_` dentro de identificador VERDE**.
+
+### 65.4 · «¿Puede la regeneración ser parte del acto de commitear?» — respuesta medida: **no como hook, y además la premisa falla**
+
+Me lo preguntaron y la respuesta corta es **no sin añadir un anclaje que falla ABIERTO**. Pero antes,
+el dato que cambia la pregunta:
+
+**Ya está automatizado.** `check-secret-defaults.sh` **está cableado en `ci.yml`** (job
+`stripe-webhook-failclosed`) y `ci.yml` dispara **en `push` a `**` y en `pull_request`**. O sea: el
+control **sí corre solo en cada empujón**. La demora no fue de *ejecución*, fue de **observación** —
+el rojo estaba ahí y nadie miró CI hasta que alguien lo corrió a mano. Un hook no arregla eso.
+
+**Por qué un hook de pre-commit es mala idea AQUÍ** (y no en general):
+
+1. **Escribiría fuera de la ruta de quien commitea.** El hook tendría que hacer `git add
+   security/secretos-publicados.sha256` dentro del commit de, por ejemplo, **backend**. Este proyecto
+   trabaja con varios agentes sobre **el mismo árbol** y la regla «solo `git commit -- <rutas
+   propias>`» existe porque ya nos mordió (O-12: un `--amend` reescribió el commit de otro). Un hook
+   que mete ficheros de devops en el commit de backend es esa avería, automatizada.
+2. **Falla ABIERTO, que es el peor modo para un control de seguridad.** Los hooks viven en
+   `.git/hooks`, que **no se versiona**. Haría falta `core.hooksPath` configurado en cada clon y en
+   cada sesión de agente; **si falta, no pasa nada visible** y el control simplemente no existe. Un
+   candado cuya ausencia es silenciosa no es un candado.
+3. **No se puede mover al runtime.** El manifiesto existe **precisamente porque** el preflight corre
+   donde **no está el repo** (el contenedor lleva código construido, no el árbol). Calcular el
+   conjunto al vuelo —que sería la solución elegante, porque **quita** el anclaje en vez de añadirlo—
+   exige meter el repo en la imagen. No compensa.
+
+**Entonces, ¿qué sí mueve la aguja?** Lo que se hizo hoy: **quitar las clases de falso positivo**.
+Un gate que se pone rojo por un trozo de `nombre_producto` enseña a regenerar sin leer, y esa costumbre **es** el
+agujero — es la misma avería que `P-GL-2` tiene fichada (exceptuar por ruta) con otra cara. Con `re_`
+y `SALT` anclados, un rojo de este candado vuelve a significar **«hay un literal de verdad»**, que es
+la única condición bajo la cual merece la pena que alguien lo mire.
+
+**Lo que queda NO MEDIDO:** si existen más términos cortos sin anclar en `FORMA_SECRETO`/`PREFIJOS_RE`
+con el mismo defecto. Dos aparecieron en dos días. **Lo cerraría** un barrido que, para cada término
+de las dos expresiones, cuente cuántas capturas del árbol son **subcadena de un identificador** y
+cuántas van tras comilla/`=`/espacio. Dueño: devops. **No lo he corrido.**
+
+### 65.5 · Y una vuelta de tuerca que me mordió a mí mismo: **documentar el falso positivo lo volvió verdadero**
+
+Tras anclar `re_` y regenerar, el candado volvió a ponerse **rojo con tres literales nuevos**. No era
+una regresión del ancla: **eran mis propias notas**. Al escribir §65 puse los ejemplos entre comillas
+invertidas —el trozo de `nombre_producto`, el de `nombre_de_secreto`, una clave Resend de
+ejemplo—, y una comilla
+invertida **es un límite de palabra**: con el ancla puesta, esos ejemplos pasaron a tener **forma de
+clave real** y el generador los capturó, con razón.
+
+**Por qué esto no es un defecto del generador:** su cabecera lo declara a propósito —escanea
+**cualquier fichero versionado, incluidas las notas de `docs/`**— porque un secreto pegado en una nota
+**está igual de publicado** que uno en el código. Esa decisión es correcta y no se toca.
+
+**Y por qué tampoco se arregla exceptuando `docs/`:** eso es literalmente `P-GL-2`, la mala práctica
+que tenemos fichada (gitleaks eximía `docs/*.md` por ruta entera, así que una `sk_live_` pegada en una
+nota **no se cazaba**). La ruta no puede ser la excusa.
+
+**Lo que se hizo:** reescribir los ejemplos para que **no tengan forma de clave** — el identificador
+entero (`nombre_producto`, `require_real_stripe`, `ensure_wiring`) en vez del trozo suelto, y `re_AbCd…`
+con puntos suspensivos en vez de una cadena larga. Se explica exactamente igual de bien y deja de
+fabricar valores. Tras la reescritura: `--check` **al día (121 valores)**, regenerar es **idempotente**
+(sin diff) y el candado **rc=0 en 3/3**.
+
+> **La regla que queda:** al documentar un secreto o un prefijo, se escribe **en forma de marcador**
+> (identificador completo, `…`, `xxxx`, `<…>`), nunca con la forma exacta que el detector busca. Si no,
+> la nota que explica el falso positivo **crea uno**. Comprobación: tras editar una nota que hable de
+> secretos, `./scripts/gen-published-secrets-manifest.sh --check` antes de commitear.

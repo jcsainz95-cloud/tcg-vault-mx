@@ -393,3 +393,87 @@ export const E2E_SETTINGS = {
   buylist_cap_per_month_cents: 1000000,
   ine_threshold_cents: 300000,
 } as const;
+
+/**
+ * ⭐⭐ **P-78 (§M6-K) — LOS TRES ACTORES DE IDENTIDAD, y cada uno existe por un motivo medido.**
+ * (backend, 2026-09-11; hueco levantado por frontend: `FRONTEND_NOTES §71.7`.)
+ *
+ * **El hueco, dicho con la medición:** `seed-e2e.ts` **borra** todos los `KycProfile` de los actores
+ * E2E (paso 3) y **no siembra ninguno** ⇒ en el stack real **no hay un solo usuario con INE en el
+ * expediente**, ni objeto en el bucket que pintar. Por eso cinco casos de `kyc-identity.spec.ts`
+ * seguían contra simulación **pese a que el servidor de §M6-K existe desde `c80bc26`**.
+ *
+ * **Viven APARTE de `E2E_USERS`, igual que `E2E_ACCOUNT_FIXTURES`, y por la misma razón:** el bucle
+ * del seed y el **reset transaccional por-usuario** recorren `E2E_USERS`, así que un actor metido
+ * ahí se llevaría por delante (o le llegaría) estado de otras suites. Aquí el estado lo restaura
+ * **su propia siembra**, en cada corrida.
+ *
+ * | Actor | Por qué existe |
+ * |---|---|
+ * | **`review`** | Un `KycProfile` con **las DOS** llaves **y sus DOS objetos en el bucket**. Sin el objeto se mediría **un marco vacío**, que es peor que no medir: el `<img>` existiría y `naturalWidth` sería 0 |
+ * | **`reject`** | **Desechable.** Rechazar **escribe una decisión sobre una persona**; hacerlo sobre el `customer` compartido dejaría al resto de las suites con un KYC rechazado que no pidieron — la misma contaminación entre suites que ya costó una tanda |
+ * | **`none`** | Estado de identidad **FIJO**. El KYC del `customer` del seed depende del **orden** en que corran las suites (el flujo de venta sube INE y lo deja en `pending`), así que afirmar «sin INE» sobre él mediría el **orden de ejecución**, no el producto |
+ *
+ * **`nameSource: 'derived'`** en `review` y `reject` **es parte del fixture, no un descuido**: es el
+ * caso que hace legible el cotejo (§M6-K.3) — un nombre **fabricado del correo** (P-73) contra el
+ * que el revisor tiene que comparar la INE. `none` lleva nombre tecleado (`user`) para que el
+ * contraste exista.
+ *
+ * ⛔ **Ninguno lleva CLABE.** No es olvido: `clabeEnc` se cifra con la clave PII **del proceso que
+ * lo escribió**, y en el stack nativo esa clave es **efímera por arranque** ⇒ una fila sembrada por
+ * el proceso del seed daría `500` al leerla desde el servidor. Es exactamente el motivo por el que
+ * el paso 3 del seed borra los `KycProfile`, y por eso estos se siembran **con las columnas que NO
+ * son PII cifrada**: las llaves del INE son cadenas en claro.
+ *
+ * ⚠️ **v1.70 (`C15`): las keys tienen la FORMA CANÓNICA** (`kyc_ine/<AAAA-MM-DD>/<uuid>.<ext>`) y el
+ * seed les siembra su **`KycUploadGrant`**. No es cosmético: desde `C15` una key sin permiso —o con
+ * otra forma— **no se puede volver a registrar**, así que un fixture con keys inventadas sería un
+ * fixture que el producto rechaza. *El dato de prueba tiene que ser un dato que el sistema aceptaría.*
+ *
+ * Credenciales de FIXTURE de una BD sintética/efímera: **no son secretos**, misma doctrina que
+ * `E2E_USERS`/`E2E_ACCOUNT_FIXTURES`.
+ */
+export const E2E_KYC_FIXTURES = {
+  review: {
+    email: 'kyc.review@e2e.local',
+    password: 'KycReview123!',
+    /** = `email.split('@')[0]`: nombre FABRICADO ⇒ `nameSource='derived'` (el caso del cotejo). */
+    name: 'kyc.review',
+    phone: '5511110008',
+    frontKey: 'kyc_ine/2026-09-12/e2e0a001-0000-4000-8000-000000000001.png',
+    backKey: 'kyc_ine/2026-09-12/e2e0a001-0000-4000-8000-000000000002.png',
+    kycStatus: 'pending' as const,
+  },
+  reject: {
+    email: 'kyc.reject@e2e.local',
+    password: 'KycReject123!',
+    name: 'kyc.reject',
+    phone: '5511110009',
+    frontKey: 'kyc_ine/2026-09-12/e2e0a002-0000-4000-8000-000000000001.png',
+    backKey: 'kyc_ine/2026-09-12/e2e0a002-0000-4000-8000-000000000002.png',
+    kycStatus: 'pending' as const,
+  },
+  none: {
+    email: 'kyc.none@e2e.local',
+    password: 'KycNone123!',
+    name: 'E2E Sin Identidad',
+    phone: '5511110010',
+    frontKey: null,
+    backKey: null,
+    kycStatus: 'none' as const,
+  },
+} as const;
+
+/**
+ * Las DOS imágenes del fixture de INE. **PNG de verdad** (16×10, color sólido) y **distintas entre
+ * sí**: un test que confunda frente con reverso tiene que poder fallar. Se siembran en el bucket con
+ * **llave determinista**, así que una segunda corrida **sobrescribe el mismo objeto** en vez de
+ * dejar un huérfano — la misma disciplina que §M6-K.4.1 impone al producto.
+ *
+ * ⛔ No son fotos de una identificación real ni se parecen a una: son 160 píxeles de color plano.
+ */
+export const E2E_KYC_INE_IMAGES = {
+  front: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAFElEQVR42mOQz99EEmIY1TA0NQAAGTvIAcHNKH4AAAAASUVORK5CYII=',
+  back: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAIAAAAy3EnLAAAAFElEQVR42mPY5C9PEmIY1TA0NQAAq960AatE4Y4AAAAASUVORK5CYII=',
+  contentType: 'image/png',
+} as const;

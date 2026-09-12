@@ -62,6 +62,7 @@ import type {
   SetValuePointDTO,
   SetValueRange,
   KycInfoDTO,
+  KycStatus,
   FxDTO,
   FxAutomaticStatus,
   FxRateMode,
@@ -83,6 +84,8 @@ import type {
   PriceHistoryEntryDTO,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
+  AdminKycProfileDTO,
+  AdminIneLinksDTO,
   UserAuditEntryDTO,
   SettingsDTO,
   AuditLogDTO,
@@ -1489,17 +1492,71 @@ export const mockSellRequests: MockSellRequestRow[] = [
  */
 export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = { minimumRequestCents: 50000 };
 
-/** KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo. */
+/**
+ * KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo.
+ *
+ * ⚠️ v1.69 (P-78, §M6-K.5): **ya no lleva ninguna cifra de tope**. El umbral vive **solo** dentro
+ * de este servidor falso (`MOCK_INE_THRESHOLD_CENTS`, abajo) y su único efecto observable es el
+ * booleano `ineRequiredForTotal`: el número **ni aparece ni llega**, igual que en el backend.
+ *
+ * Mutable en memoria: `mockApplyClientKycUpdate` lo mueve como lo movería el servidor (`PUT
+ * /users/me/kyc`), para que el ciclo «subo → pending → me rechazan → vuelvo a subir» se pueda
+ * recorrer entero en modo mock.
+ */
 export const mockKyc: KycInfoDTO = {
   kycStatus: 'none',
   clabeMasked: undefined,
   // v1.15: sin CLABE ni INE en archivo por defecto (el checklist los marca como pendientes).
   clabeOnFile: false,
   ineOnFile: false,
-  capPerRequestCents: 300000, // MOCK: dial M10 default (MX$3,000).
-  capPerMonthCents: 1000000, // MOCK: dial M10 default (MX$10,000).
-  monthUsedCents: 0,
 };
+
+/**
+ * MOCK · el umbral de INE **del servidor falso**. ⛔ NO es un campo del DTO y no sale de aquí:
+ * §M6-K.5 retiró los tres números del cliente y lo único que cruza la frontera es el veredicto.
+ * (MX$3,000 = el dial M10 sembrado.)
+ */
+const MOCK_INE_THRESHOLD_CENTS = 300000;
+
+/**
+ * MOCK de `GET /users/me/kyc[?quotedTotalCents=N]`. La comparación la hace **el servidor falso**
+ * —igual que la hará el backend— y devuelve `ineRequiredForTotal` solo cuando se le pregunta.
+ * `rejectionReason` se emite **solo** en `rejected` (⛔ nunca residual de un rechazo anterior).
+ */
+export function mockKycFor(quotedTotalCents?: number): KycInfoDTO {
+  const { rejectionReason, ...rest } = mockKyc;
+  const dto: KycInfoDTO = { ...rest };
+  if (mockKyc.kycStatus === 'rejected' && rejectionReason) dto.rejectionReason = rejectionReason;
+  if (typeof quotedTotalCents === 'number' && Number.isFinite(quotedTotalCents)) {
+    dto.ineRequiredForTotal = quotedTotalCents >= MOCK_INE_THRESHOLD_CENTS;
+  }
+  return dto;
+}
+
+/**
+ * MOCK de `PUT /users/me/kyc` con la norma v1.69 (§1 / §M6-K.4.1), que es la que hace que «volver
+ * a subir» signifique algo:
+ * - `kycStatus` pasa a `pending` **si y solo si** viene al menos una key de INE;
+ * - una llamada **solo con `clabe`** no toca ni el estado ni el motivo (el defecto H8 medido);
+ * - al (re)subir INE, `rejectionReason` se limpia.
+ */
+export function mockApplyClientKycUpdate(input: {
+  clabe?: string;
+  ineFrontUploadKey?: string;
+  ineBackUploadKey?: string;
+}): KycInfoDTO {
+  if (input.clabe) {
+    mockKyc.clabeMasked = `****${input.clabe.slice(-4)}`;
+    mockKyc.clabeOnFile = true;
+  }
+  const hasIneKey = !!(input.ineFrontUploadKey || input.ineBackUploadKey);
+  if (hasIneKey) {
+    mockKyc.ineOnFile = !!(input.ineFrontUploadKey && input.ineBackUploadKey) || mockKyc.ineOnFile;
+    mockKyc.kycStatus = 'pending';
+    mockKyc.rejectionReason = undefined;
+  }
+  return mockKycFor();
+}
 
 /**
  * MOCK: libreta de direcciones del usuario (contrato §1 · GET /users/me/addresses).
@@ -3594,8 +3651,136 @@ export const mockAdminUsers: AdminUserSummaryDTO[] = [
   { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
   { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
   { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
+  // P-78: el caso que motiva la pantalla — INE subida, ESPERANDO revisión, y con el nombre
+  // FABRICADO del correo (`nameSource='derived'`, P-73). Es el usuario contra el que se mide que
+  // el aviso de «no cotejes con este nombre» aparece.
+  { id: 'u-780', email: 'jcsainz95@example.com', name: 'jcsainz95', role: 'customer', status: 'active', createdAt: '2026-09-02T11:05:00Z' },
   { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
 ];
+
+/**
+ * MOCK · estado KYC **sembrado** por usuario (el que tendría la BD antes de que nadie decida).
+ * `mockAdminKycDecisions` guarda encima lo que decide la pantalla de revisión, para que el mock
+ * se comporte como un servidor: lo que se rechaza sigue rechazado al recargar la ficha.
+ */
+const MOCK_SEEDED_KYC: Record<string, { kycStatus: KycStatus; ineOnFile: boolean }> = {
+  'u-777': { kycStatus: 'verified', ineOnFile: true },
+  'u-778': { kycStatus: 'none', ineOnFile: false },
+  'u-779': { kycStatus: 'rejected', ineOnFile: true },
+  'u-780': { kycStatus: 'pending', ineOnFile: true },
+};
+
+/** Decisiones tomadas en esta sesión de mock (PATCH /admin/users/:id/kyc). */
+const mockAdminKycDecisions: Record<string, Partial<AdminKycProfileDTO>> = {
+  // Sembrado: el rechazo de Caro ya trae su motivo, porque un `rejected` sin motivo no existe
+  // en el contrato v1.69 y una pantalla nunca debe poder pintarlo.
+  'u-779': {
+    rejectionReason: 'No se alcanza a leer: la foto está borrosa, con reflejo o cortada.',
+    reviewedAt: '2026-09-08T17:22:00Z',
+  },
+};
+
+function mockSeededKyc(id: string): { kycStatus: KycStatus; ineOnFile: boolean } {
+  return MOCK_SEEDED_KYC[id] ?? { kycStatus: 'none', ineOnFile: false };
+}
+
+/**
+ * MOCK · el listado con la columna «Identidad» (petición A5 del diseño: `kycStatus` en
+ * `AdminUserSummaryDTO`). ⚠️ Es **mock puro**: el contrato aún no lo declara.
+ */
+export function mockAdminUsersWithKyc(): AdminUserSummaryDTO[] {
+  return mockAdminUsers.map((u) => {
+    const seeded = mockSeededKyc(u.id);
+    const decided = mockAdminKycDecisions[u.id];
+    return u.role === 'customer'
+      ? { ...u, kycStatus: decided?.kycStatus ?? seeded.kycStatus }
+      : { ...u };
+  });
+}
+
+/**
+ * MOCK · el perfil KYC de la ficha, ya con lo que v1.69 añade (`rejectionReason`, `reviewedAt`,
+ * `verifiedAt`) y **sin `capPerRequestCents`** (retirado de los dos DTOs de admin en v1.59/D47).
+ */
+function mockKycProfileFor(id: string): AdminKycProfileDTO | null {
+  const base = mockAdminUsers.find((u) => u.id === id);
+  if (!base || base.role !== 'customer') return null;
+  const seeded = mockSeededKyc(id);
+  const decided = mockAdminKycDecisions[id] ?? {};
+  const kycStatus = decided.kycStatus ?? seeded.kycStatus;
+  const profile: AdminKycProfileDTO = {
+    kycStatus,
+    clabeMasked: id === 'u-777' ? '****1234' : id === 'u-780' ? '****9087' : undefined,
+    rfcMasked: id === 'u-777' ? 'XAX**********' : undefined,
+    ineOnFile: decided.ineOnFile ?? seeded.ineOnFile,
+    capPerMonthCents: 1000000,
+  };
+  // ⛔ El motivo SOLO existe en `rejected` (§M6-K.4: `verified` y `none` lo limpian).
+  if (kycStatus === 'rejected' && decided.rejectionReason) profile.rejectionReason = decided.rejectionReason;
+  if (decided.reviewedAt) profile.reviewedAt = decided.reviewedAt;
+  if (kycStatus === 'verified') profile.verifiedAt = decided.verifiedAt ?? '2026-08-15T12:00:00Z';
+  return profile;
+}
+
+/**
+ * MOCK de `PATCH /admin/users/:id/kyc` (§M6-K.4) con **la limpieza cruzada**, que es lo que la
+ * pantalla de revisión necesita para poder medirse sin backend:
+ * - `verified` ⇒ sella `verifiedAt` y **borra** `rejectionReason`;
+ * - `rejected` ⇒ escribe `rejectionReason` + `reviewedAt` y **borra** `verifiedAt`;
+ * - `none` ⇒ limpia el motivo (deshacer una decisión tomada por error). ⛔ No borra imágenes.
+ */
+export function mockApplyAdminKycDecision(
+  id: string,
+  input: { kycStatus: KycStatus; capPerMonthCents?: number; rejectionReason?: string },
+): AdminUserDetailDTO {
+  const now = new Date().toISOString();
+  const prev = mockAdminKycDecisions[id] ?? {};
+  const next: Partial<AdminKycProfileDTO> = { ...prev, kycStatus: input.kycStatus };
+  if (input.kycStatus === 'rejected') {
+    next.rejectionReason = input.rejectionReason;
+    next.reviewedAt = now;
+    next.verifiedAt = undefined;
+  } else {
+    next.rejectionReason = undefined;
+    next.reviewedAt = input.kycStatus === 'none' ? undefined : now;
+    next.verifiedAt = input.kycStatus === 'verified' ? now : undefined;
+  }
+  mockAdminKycDecisions[id] = next;
+  return mockAdminUserDetail(id);
+}
+
+/**
+ * MOCK · una imagen que **se parece a una INE** (SVG en `data:`), para poder ejercer el visor sin
+ * bucket: el `<img>` la decodifica de verdad, así que `naturalWidth` > 0 y el encuadre
+ * `object-contain` se comporta como con la foto real. Proporción ID-1 (85.6 × 54 mm ⇒ 1.586).
+ */
+function mockIneImage(side: 'front' | 'back', name: string): string {
+  const svg =
+    side === 'front'
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="856" height="540" viewBox="0 0 856 540"><rect width="856" height="540" fill="#e8ead9"/><rect x="0" y="0" width="856" height="64" fill="#1b5e20"/><text x="24" y="42" font-family="Helvetica" font-size="26" fill="#ffffff">INSTITUTO NACIONAL ELECTORAL</text><rect x="28" y="96" width="200" height="260" fill="#c9cbb8" stroke="#7a7c6a"/><text x="60" y="240" font-family="Helvetica" font-size="20" fill="#5a5c4a">FOTO</text><text x="256" y="140" font-family="Helvetica" font-size="18" fill="#4a4c3a">NOMBRE</text><text x="256" y="176" font-family="Helvetica" font-size="30" fill="#1a1a18">${name}</text><text x="256" y="228" font-family="Helvetica" font-size="18" fill="#4a4c3a">DOMICILIO</text><text x="256" y="258" font-family="Helvetica" font-size="22" fill="#1a1a18">AV. VALLARTA 1500 INT 4</text><text x="256" y="288" font-family="Helvetica" font-size="22" fill="#1a1a18">44160 GUADALAJARA, JAL.</text><text x="256" y="344" font-family="Helvetica" font-size="18" fill="#4a4c3a">CLAVE DE ELECTOR</text><text x="256" y="372" font-family="Helvetica" font-size="22" fill="#1a1a18">SNJC950412MOCK01</text><text x="28" y="420" font-family="Helvetica" font-size="18" fill="#4a4c3a">VIGENCIA 2031</text><text x="28" y="500" font-family="Helvetica" font-size="16" fill="#8a857a">MOCK — documento de demostración, no es una INE real</text></svg>`
+      : `<svg xmlns="http://www.w3.org/2000/svg" width="856" height="540" viewBox="0 0 856 540"><rect width="856" height="540" fill="#e3e6d6"/><rect x="0" y="0" width="856" height="48" fill="#37474f"/><text x="24" y="34" font-family="Helvetica" font-size="22" fill="#ffffff">REVERSO</text><rect x="28" y="80" width="800" height="120" fill="#ffffff" stroke="#9a9c8a"/><text x="44" y="150" font-family="monospace" font-size="28" fill="#1a1a18">IDMEX1234567890&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</text><text x="28" y="250" font-family="Helvetica" font-size="20" fill="#4a4c3a">CURP</text><text x="28" y="282" font-family="Helvetica" font-size="26" fill="#1a1a18">SNJC950412HJCLNR09</text><text x="28" y="340" font-family="Helvetica" font-size="20" fill="#4a4c3a">VIGENCIA</text><text x="28" y="372" font-family="Helvetica" font-size="26" fill="#1a1a18">2021 - 2031</text><text x="28" y="500" font-family="Helvetica" font-size="16" fill="#8a857a">MOCK — documento de demostración, no es una INE real</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * MOCK de `GET /admin/users/:id/kyc/ine-links` (§M6-K.2): **las dos caras en una sola respuesta**
+ * y un `expiresInSeconds` real. El `expiresAt` se calcula al vuelo para que la pantalla pueda
+ * medir la caducidad sin esperar dos minutos de reloj.
+ *
+ * ⛔ Aquí **no hay object keys** —ni en mock—: la forma del mock es la forma del contrato.
+ */
+export function mockIneLinks(userId: string): AdminIneLinksDTO {
+  const expiresInSeconds = 120;
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
+  const user = mockAdminUsers.find((u) => u.id === userId);
+  const name = (user?.name ?? 'TITULAR').toUpperCase();
+  return {
+    userId,
+    front: { url: mockIneImage('front', name), expiresAt },
+    back: { url: mockIneImage('back', name), expiresAt },
+    expiresInSeconds,
+  };
+}
 
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
@@ -3603,15 +3788,21 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
     ...base,
     locale: 'es',
     authProvider: id === 'u-778' ? 'google' : 'local',
-    kycProfile: {
-      kycStatus: base.status === 'blocked' ? 'rejected' : id === 'u-777' ? 'verified' : 'none',
-      clabeMasked: id === 'u-777' ? '****1234' : undefined,
-      rfcMasked: id === 'u-777' ? 'XAX**********' : undefined,
-      ineOnFile: id === 'u-777',
-      capPerRequestCents: 300000,
-      capPerMonthCents: 1000000,
-      monthUsedCents: id === 'u-777' ? 120000 : 0,
-    },
+    // ⭐ v1.69 (§M6-K.3): el origen del nombre va en la ficha SIEMPRE (los dos roles).
+    nameSource: id === 'u-780' ? 'derived' : id === 'u-778' ? 'google' : 'user',
+    // ⭐ v1.69: últimos 5 destinatarios de sus envíos — lista blanca, ⛔ sin calle ni teléfono.
+    recentShipmentRecipients:
+      id === 'u-780'
+        ? [
+            { shipmentId: 'shp-9001', recipientName: 'Juan Carlos Sainz', city: 'Guadalajara', state: 'JAL', createdAt: '2026-09-03T18:00:00Z' },
+            { shipmentId: 'shp-9002', recipientName: 'Marta Sainz', city: 'Guadalajara', state: 'JAL', createdAt: '2026-08-21T16:40:00Z' },
+            // `null` = envío anterior a M-52: la línea dice «Sin destinatario» y JAMÁS el User.name.
+            { shipmentId: 'shp-9003', recipientName: null, city: 'CDMX', state: 'CDMX', createdAt: '2026-07-02T12:10:00Z' },
+          ]
+        : id === 'u-777'
+          ? [{ shipmentId: 'shp-9010', recipientName: 'Ana López', city: 'CDMX', state: 'CDMX', createdAt: '2026-08-30T10:00:00Z' }]
+          : [],
+    kycProfile: mockKycProfileFor(id),
     billingProfile:
       id === 'u-777'
         ? { rfcMasked: 'XAX**********', razonSocial: 'Ana López', regimenFiscal: '626', usoCfdi: 'G03', postalCode: '06700', email: 'ana@example.com' }
@@ -3619,7 +3810,13 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
     addresses:
       id === 'u-777'
         ? [{ id: 'addr-1', recipientName: 'Ana López', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
-        : [],
+        : id === 'u-780'
+          ? [
+              { id: 'addr-80a', recipientName: 'Juan Carlos Sainz', line1: 'Av. Vallarta 1500', line2: 'Int. 4', neighborhood: 'Americana', city: 'Guadalajara', state: 'JAL', postalCode: '44160', country: 'MX', phone: '3312345678', isDefault: true },
+              // Fila anterior a M-52: sin destinatario. Se pinta «Sin destinatario», nunca el nombre.
+              { id: 'addr-80b', recipientName: null, line1: 'Calle Morelos 22', city: 'Zapopan', state: 'JAL', postalCode: '45010', country: 'MX', phone: '3398765432', isDefault: false },
+            ]
+          : [],
     orders: base.id === 'u-777' ? mockOrders : [],
     sellRequests:
       base.id === 'u-777'

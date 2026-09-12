@@ -21,7 +21,7 @@
 #
 # POLÍTICA DE GATE (arreglo 2026-08-19, ver DEVOPS_NOTES §24 — incidente Railway
 # «backend congelado 11 h»):
-#   - `backend-e2e` = DEPLOY-BLOCKING. Es integración REAL (Postgres+Redis+MinIO
+#   - `backend-e2e` = DEPLOY-BLOCKING. Es integración REAL (Postgres+Redis+s3-local
 #     como services); un fallo aquí es un bug real. Si falla, `e2e-ok` falla y el
 #     deploy se bloquea. NO cambia.
 #   - `frontend-e2e` (MOCK) = INFORMATIVO, NO deploy-blocking. Corre en cada
@@ -92,7 +92,9 @@ jobs:
           echo "frontend_e2e=$fe" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Backend E2E / integración: DB + Redis + MinIO reales como services.
+  # Backend E2E / integración: DB + Redis como services; el almacenamiento de
+  # objetos es `scripts/s3-local/` como PROCESO del runner (§4.52.3): cero
+  # imágenes de contenedor para S3.
   # ---------------------------------------------------------------------------
   backend-e2e:
     needs: detect
@@ -127,30 +129,6 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
-      minio:
-        # FIX (pull failure): antes `bitnami/minio:latest`. Bitnami vació su
-        # namespace en Docker Hub (migración a "Bitnami Secure Images", ago-2025):
-        # `bitnami/minio` ya NO tiene tags -> el pull en "Initialize containers"
-        # fallaba y ABORTABA backend-e2e antes de correr un test. Se apunta al
-        # namespace `bitnamilegacy/minio:latest`, que conserva la MISMA imagen
-        # (auto-arranca el server y crea buckets con MINIO_DEFAULT_BUCKETS), a
-        # donde Bitnami movió las imágenes. Alternativa (minio/minio oficial) no
-        # sirve como service de Actions: exige un `command` (server /data) que los
-        # service containers de GitHub no permiten pasar.
-        image: bitnamilegacy/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          # S-88-1 (antes `minioadmin_e2e`). Mismo motivo que Postgres arriba.
-          MINIO_ROOT_PASSWORD: e2e_${{ github.run_id }}_${{ github.run_attempt }}
-          MINIO_DEFAULT_BUCKETS: tcg-photos:download
-        ports: ["9000:9000", "9001:9001"]
-        # SIN --health-cmd a propósito: la imagen (minideb) NO trae `curl`, así que
-        # un healthcheck `curl .../minio/health/live` DENTRO del contenedor nunca
-        # pasa -> el service queda unhealthy y GitHub ABORTA el job antes de correr
-        # un solo test. La readiness de MinIO se comprueba desde el RUNNER (que sí
-        # tiene curl) en el paso "Esperar a que MinIO responda" de abajo.
-        # Postgres/Redis sí traen sus binarios (pg_isready/redis-cli) y conservan
-        # su healthcheck.
     env:
       # -----------------------------------------------------------------------
       # POOL FIJADO A MANO — MISMO CANDADO QUE EN `ci.yml` (SB-D2, COND-2).
@@ -291,17 +269,58 @@ jobs:
       - name: Install
         id: install
         run: npm ci
-      - name: Esperar a que MinIO responda (readiness desde el runner)
-        id: minio
+      # -----------------------------------------------------------------------
+      # ALMACENAMIENTO DE OBJETOS — `scripts/s3-local/` como PROCESO DEL RUNNER
+      # (ARCHITECTURE §4.52.3, forma B). CERO imágenes de contenedor.
+      #
+      # POR QUÉ AQUÍ LA FORMA B NO ES «una de dos» SINO LA CORRECTA: un service
+      # container de Actions **no admite `command:`** — ése fue, literal, el
+      # motivo por el que aquí no sirvió `minio/minio` oficial y se acabó en
+      # `bitnamilegacy/minio:latest` (etiqueta MÓVIL en namespace ARCHIVADO). Un
+      # proceso del runner no tiene esa restricción, y en este job no hay compose
+      # que autocontener: la infraestructura ya son piezas sueltas.
+      #
+      # Y corrige `D-S3-6` de paso: el bucket se creaba con
+      # `MINIO_DEFAULT_BUCKETS: tcg-photos:download`, y `download` es LECTURA
+      # ANÓNIMA PERMITIDA — la INVERSA de `mc anonymous set none` y de lo que hace
+      # producción. Este job era el almacenamiento MÁS LAXO de los cuatro, o sea
+      # infidelidad en la dirección mala. `s3-local` rechaza toda petición sin
+      # firmar, en todo método.
+      #
+      # ⛔ SIN `|| true` EN NINGUNA LÍNEA. Con `E2E_STRICT_INFRA: true`, un
+      # almacenamiento ausente TIENE que salir rojo de infraestructura; un salto
+      # silencioso por la puerta de atrás desharía justo lo que ese modo arregló.
+      # -----------------------------------------------------------------------
+      - name: Almacenamiento de objetos (s3-local, proceso del runner)
+        id: s3
+        working-directory: scripts/s3-local
+        env:
+          # Invariante: las credenciales de la CORRIDA, las mismas que recibe el
+          # backend por el `env:` del job (S-88-1: ningún literal).
+          S3_LOCAL_HOST: 127.0.0.1
+          S3_LOCAL_PORT: "9000"
+          S3_LOCAL_DIR: ${{ runner.temp }}/s3-local-data
         run: |
+          set -euo pipefail
+          # N-8 (medido): `scripts/s3-local/node_modules` NO viaja en git, así que
+          # este job necesita su propio `npm ci` (el de `:install` es de backend/).
+          npm ci --omit=dev --no-audit --no-fund
+          mkdir -p "$S3_LOCAL_DIR"
+          nohup node server.js > "${{ runner.temp }}/s3-local.log" 2>&1 &
+          echo "s3_pid=$!" >> "$GITHUB_OUTPUT"
+          # Readiness DESDE EL RUNNER, como ya se hacía. Criterio: `403` = VIVO Y
+          # PRIVADO (una petición sin firmar se rechaza por diseño), así que vale
+          # CUALQUIER respuesta HTTP; lo que significa caído es no poder conectar.
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
-              echo "MinIO arriba (bucket por defecto tcg-photos creado en el arranque)."
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:9000/" || echo 000)
+            if [ "$code" != "000" ]; then
+              echo "s3-local arriba (HTTP $code; 403 = vivo y privado). Bucket \`$S3_BUCKET\` creado al arrancar."
               exit 0
             fi
-            echo "Esperando MinIO... ($i)"; sleep 2
+            echo "Esperando s3-local... ($i)"; sleep 2
           done
-          echo "::error::MinIO no respondió en http://localhost:9000 tras ~60s."
+          echo "::error::s3-local no respondió en http://127.0.0.1:9000 tras ~60s. Con E2E_STRICT_INFRA=true esto es ROJO de infraestructura, no un salto."
+          echo "--- log del stand-in ---"; cat "${{ runner.temp }}/s3-local.log" || true
           exit 1
       - name: Prisma generate + migrate
         id: prisma
@@ -362,7 +381,7 @@ jobs:
           O_SCRIPT: ${{ steps.script_guard.outcome }}
           O_NODE: ${{ steps.setup_node.outcome }}
           O_INSTALL: ${{ steps.install.outcome }}
-          O_MINIO: ${{ steps.minio.outcome }}
+          O_S3: ${{ steps.s3.outcome }}
           O_PRISMA: ${{ steps.prisma.outcome }}
           O_SEED: ${{ steps.seed.outcome }}
           O_TESTS: ${{ steps.tests.outcome }}
@@ -375,7 +394,7 @@ jobs:
             echo "::error title=backend-e2e · LA SUITE CORRIÓ y falló::Dueño: backend. Los specs en rojo están anotados con fichero y línea en el paso anterior; el log completo en el artifact backend-e2e-log."
           else
             for par in "Resolver secretos:$O_SECRETS" "Guarda proveedor de paga:$O_PROVIDER" "Guard test:integration:$O_SCRIPT" \
-                       "setup-node:$O_NODE" "Install:$O_INSTALL" "Esperar MinIO:$O_MINIO" "Prisma generate + migrate:$O_PRISMA" "Seed sintético:$O_SEED"; do
+                       "setup-node:$O_NODE" "Install:$O_INSTALL" "Almacenamiento s3-local:$O_S3" "Prisma generate + migrate:$O_PRISMA" "Seed sintético:$O_SEED"; do
               nombre="${par%:*}"; res="${par##*:}"
               if [ "$res" = "failure" ]; then paso="$nombre"; break; fi
             done
@@ -390,7 +409,7 @@ jobs:
             echo
             echo "- **fase:** \`$fase\`"
             echo "- **paso decisivo:** $paso"
-            echo "- resultados: secrets=$O_SECRETS provider=$O_PROVIDER guard=$O_SCRIPT node=$O_NODE install=$O_INSTALL minio=$O_MINIO prisma=$O_PRISMA seed=$O_SEED tests=$O_TESTS"
+            echo "- resultados: secrets=$O_SECRETS provider=$O_PROVIDER guard=$O_SCRIPT node=$O_NODE install=$O_INSTALL s3=$O_S3 prisma=$O_PRISMA seed=$O_SEED tests=$O_TESTS"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
@@ -524,7 +543,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Gate final E2E — DEPLOY-BLOCKING.
-  # Bloquea SOLO por `backend-e2e` (integración real Postgres+Redis+MinIO). El
+  # Bloquea SOLO por `backend-e2e` (integración real Postgres+Redis+s3-local). El
   # `frontend-e2e` MOCK es INFORMATIVO (§24): su fallo NO tumba este gate ni el
   # deploy de Railway; el gate REAL de UI es e2e-real.yml. Con el soft-gate del
   # job MOCK, `needs.frontend-e2e.result` normalmente será 'success' aunque las
@@ -550,7 +569,7 @@ jobs:
             success) ;;
             failure)
               case "$FASE" in
-                suite-roja)   echo "::error::backend-e2e: LA SUITE CORRIÓ y falló (integración real DB/Redis/MinIO). Dueño: backend. Specs anotados en el job. Bloquea el deploy." ;;
+                suite-roja)   echo "::error::backend-e2e: LA SUITE CORRIÓ y falló (integración real DB/Redis/s3-local). Dueño: backend. Specs anotados en el job. Bloquea el deploy." ;;
                 infra-muerta) echo "::error::backend-e2e NO MIDIÓ NADA: el job murió en «${PASO:-?}» antes de ejecutar la suite. Dueño: devops. Ninguna suite de dinero/acceso corrió. Bloquea el deploy (DEVOPS_NOTES §52)." ;;
                 *)            echo "::error::backend-e2e falló y NO dejó fase (¿el paso de veredicto no corrió?). Dueño: devops. Bloquea el deploy." ;;
               esac

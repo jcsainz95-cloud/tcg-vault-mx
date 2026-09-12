@@ -426,7 +426,7 @@ describe('UsersService.getKyc — clabeOnFile refleja el estado real (§4.16c)',
     const settings = {
       getNumber: jest.fn().mockResolvedValue(300_000),
     } as unknown as SettingsService;
-    return new UsersService(prisma as PrismaService, settings, pii);
+    return new UsersService(prisma as PrismaService, settings, pii, {} as never);
   }
 
   it('CLABE en archivo → clabeOnFile=true (y simétrico con ineOnFile)', async () => {

@@ -20536,3 +20536,921 @@ cancelar el PaymentIntent … (estado succeeded)` siguen siendo la guarda B3 tra
 bloque de B1). A ellos se suman ahora los `ERROR … Timed out fetching a new connection` del caso
 **techo** de `stripe-in-tx-pool`: son **el sujeto de la medición**, provocados a propósito con 12 s
 de latencia inyectada, y el test pasa **con** ellos.
+
+---
+
+## P-79 (d) · **MONEY** — el sellado se apuntaba el precio en una llave y se leía de otra (backend · `inventory`+`pricing` · 2026-09-11, medido)
+
+**SHA de partida:** `159192d7f66309c91ce4e554f62a812616024779`.
+**Sección propia:** no toca ninguna sección previa de este documento.
+
+### El defecto, dicho como lo sufría el dueño
+Daba de alta un sellado, la pieza aparecía en la cola de **«FIJAR PRECIO» de M2**, le ponía precio…
+y **la pieza volvía a la cola**. Poner el precio no servía de nada, en bucle, en la app publicada.
+
+### Por qué pasaba (re-medido antes de tocar, no heredado)
+El sellado tiene **dos claves de precio, y las dos existen a propósito** (§4.40.4d):
+
+| clave | qué es | quién la usa |
+|---|---|---|
+| `'sealed'` (constante de `buildGradeKey`, `pricing.types.ts:682-684`) | **override MANUAL** del admin (§4.19d) | `POST /admin/pricing/override` |
+| `sealed:tcg:<tcgplayerProductId>` (`sealedMarketGradeKey()`, `pricing.types.ts:593`) | **mercado por producto** | ingest TCGCSV, catálogo, bóveda, publicación |
+
+La **publicación** lee por la de MERCADO: `inventory.service.ts` → `derivePublishSalePrice` →
+`this.pricing.sealedMarketGradeKeyForItem(item)`. Y de los **tres** caminos de alta que escalan el
+pendiente (`sealedNeedsEscalate`), **dos escalaban con la otra**:
+
+| camino | antes | medido |
+|---|---|---|
+| `createItem` (single) | `sealedMarketGradeKey(...)` | **ya correcto** |
+| `batchCreate` (**el que dispara la app real**) | `r.gradeKey` ⇒ literal `'sealed'` | **defectuoso** |
+| `adjust({reason:'encontrada'})` → `adjustFound` | `r.gradeKey` ⇒ literal `'sealed'` | **defectuoso** (hallazgo adicional, mismo defecto) |
+
+Resultado: la fila de la cola nacía bajo `'sealed'`, el operador fijaba ahí el precio, y el publish
+buscaba `sealed:tcg:<id>` — **no encontraba nada y re-escalaba**. Bucle.
+
+### El arreglo: se arregla el CAMINO, no las claves
+**Las dos claves NO se unifican.** Se introdujo un único constructor privado,
+`InventoryService.sealedPendingGradeKeyOf(r)`, y los **tres** caminos de alta piden la clave ahí. Ya
+no pueden derivar uno del otro.
+
+- Mapeado (`tcgplayerProductId != null`) ⇒ `sealed:tcg:<id>` — **la misma que lee el publish**.
+- **Legacy sin mapeo** ⇒ cae a `r.gradeKey` (`'sealed'`): sin `productId` no hay clave de mercado que
+  construir y **no se inventa** un `sealed:tcg:null`. Fallback seguro ya documentado en el single.
+
+### Cobertura que NO existía y por eso esto pasó inadvertido
+Hasta aquí el **único** camino de alta de sellado probado en camino feliz era
+`aportacion_en_especie` (que escala por otra vía, `resolveSealedMarketForAlta`, ya correcta) y todos
+los casos con `'compra'` eran **rechazos 422**. **No había una sola prueba del alta de sellado por
+COMPRA en camino feliz.** `backend/test/inventory.sealed-product-alta.spec.ts` gana el bloque
+`P-79(d)` con 7 pruebas: single, **lote**, **invariante** (la clave escalada se compara con la que
+pide la publicación al MISMO helper, `sealedMarketGradeKeyForItem`, no contra un literal paralelo),
+`qty>1` (una sola entrada), `listPriceCents` presente (no escala), legacy sin mapeo (fallback
+`'sealed'`) y el camino `encontrada`.
+
+**Mutaciones (sobre copia del árbol entero, nunca sobre el vivo), 3 tiradas cada una:**
+
+| mutación | resultado |
+|---|---|
+| M1 · lote vuelve a `r.gradeKey` | **rojo 3/3** (3 pruebas caen) |
+| M2 · `encontrada` vuelve a `r.gradeKey` | **rojo 3/3** |
+| M3 · single vuelve a `r.gradeKey` | **rojo 3/3** |
+
+### ⚠️ Lo que NO cerré, y por qué — **para el ARQUITECTO**
+
+**El agravante de `derivePublishSalePrice`:** con `tcgplayerProductId` nulo,
+`const ref = gk ? ctx.refs.get(...) : undefined` hace que **no se consulte ninguna referencia**, así
+que el override manual de un sellado **no mapeado** queda **ilegible por construcción** y esa pieza
+sigue en bucle aunque el operador le ponga precio. **No lo arreglé**, y no por pereza:
+
+1. **La clave `'sealed'` no discrimina identidad.** `PriceReference` **no tiene** columna
+   `sealedProductId` (sí la tiene `PendingPriceEntry`). Dos sellados distintos no mapeados anclados a
+   la **misma** Card comparten esa fila: leerla haría que la publicación valuara un ETB con el precio
+   de un blíster. Darle identidad exige **columna nueva en `schema.prisma`** — fuera de mi alcance y
+   decisión del arquitecto.
+2. **El precio derivado de publicación NO se persiste.** `claimListed` solo escribe `listPriceCents`
+   **cuando viene manual en la línea**; el storefront **re-resuelve** en lectura. Y el patrón
+   `gk ? … : undefined` es idéntico en `catalog.service.ts:614`, `sealed-catalog.service.ts:128`,
+   `vault.service.ts:372` y `admin.service.ts:944` — **todos fuera de mis módulos**. Arreglarlo solo
+   en el publish publicaría una pieza que la tienda seguiría pintando «—»: cambiaría un bucle por un
+   **precio fantasma**, que es peor.
+3. **Sí hay precedente del fallback**, pero solo en LECTURA AGREGADA: `admin.inventoryValue()`
+   (`admin.service.ts:944-990`) lee mercado y **cae a `'sealed'`**. Es un total de valuación, no un
+   precio de venta al cliente; el riesgo de cruce que ahí se acepta **no es aceptable** en el
+   publish.
+
+**Lo que cerraría el agravante (propuesta, no ejecutada):** que el arquitecto decida entre (a)
+`sealedProductId` en `PriceReference` + fallback simétrico en **todos** los lectores, o (b) que el
+sellado sin `tcgplayerProductId` **no sea dable de alta** y se cure en M2 antes. Es cambio de
+contrato/schema: regla 9.
+
+### ⚠️ Datos ya escritos con la clave equivocada — **NO escribí ninguna migración**
+
+**NO MEDIDO:** cuántas filas hay en producción. No tengo acceso a esa BD y **tocar datos de
+producción es decisión del dueño, no mía**. Las consultas exactas que lo contarían (solo `SELECT`):
+
+```sql
+-- (A) Pendientes de M2 escalados bajo la clave del OVERRIDE MANUAL cuando la pieza SÍ está mapeada.
+--     `SealedProduct.tcgplayerProductId` es NOT NULL, así que TODA entrada con sealedProductId
+--     tenía clave de mercado disponible: su `gradeKey` debería ser `sealed:tcg:<id>`.
+SELECT p.id,
+       p."cardId",
+       p."sealedProductId",
+       sp."tcgplayerProductId",
+       'sealed:tcg:' || sp."tcgplayerProductId" AS clave_correcta,
+       p.status,
+       p."createdAt"
+FROM "PendingPriceEntry" p
+JOIN "SealedProduct" sp ON sp.id = p."sealedProductId"
+WHERE p."productType" = 'sealed'
+  AND p."gradeKey"    = 'sealed'
+  AND p."sealedProductId" IS NOT NULL
+ORDER BY p."createdAt";
+-- conteo: SELECT count(*) FROM ... (mismo WHERE)
+
+-- (B) Variante LEGACY (pendiente sin sealedProductId) cuya pieza SÍ está mapeada por los campos
+--     M-37. No hay FK pendiente→pieza, así que se empareja por cardId; es una COTA SUPERIOR.
+SELECT DISTINCT p.id, p."cardId", i."tcgplayerProductId",
+       'sealed:tcg:' || i."tcgplayerProductId" AS clave_correcta
+FROM "PendingPriceEntry" p
+JOIN "InventoryItem" i
+  ON i."cardId" = p."cardId"
+ AND i."productType" = 'sealed'
+ AND i."tcgplayerProductId" IS NOT NULL
+WHERE p."productType" = 'sealed'
+  AND p."gradeKey"    = 'sealed'
+  AND p."sealedProductId" IS NULL
+  AND p.status = 'open';
+
+-- (C) El DINERO que el operador ya tecleó y quedó ilegible: overrides manuales escritos bajo
+--     'sealed' para cartas que tienen piezas selladas MAPEADAS. Son los precios que hay que
+--     recuperar (no borrar) si el dueño autoriza una migración de datos.
+SELECT r.id, r."cardId", r."priceMxnCents", r."capturedDate", r.source, r."isManualOverride"
+FROM "PriceReference" r
+WHERE r."productType" = 'sealed'
+  AND r."gradeKey"    = 'sealed'
+  AND (r."isManualOverride" = true OR r.source = 'manual')
+ORDER BY r."capturedDate" DESC;
+```
+
+Si (A) o (C) devuelven filas, **la decisión de re-apuntarlas es del dueño**; el arreglo de código
+por sí solo cura las altas **nuevas**, no las ya escritas.
+
+### Fuera de alcance (explícitamente NO tocado)
+`uploads`, `users`, `admin`, `audit`, `backend/prisma/schema.prisma` (otro agente backend en
+paralelo) y `frontend/` entero — incluidas la cola de M1 que pinta el sellado con forma de carta, el
+`ItemDetailModal.tsx:64-66` que obliga a teclear precio manual, y P-69.
+
+---
+
+# §SEC-SB-1 · El barrido llega a la bóveda: la reserva LEGADA que nadie podía reclamar (condición **C9**)
+
+> **Propiedad: backend.** Cierra la parte de código de `SEC-SB-1` (`docs/SECURITY_NOTES.md` §3.4,
+> commit `82525a0`) y de `SB-B1` (`docs/PENTEST_NOTES.md`). Rama de trabajo sobre `HEAD` = `2da899f`.
+> Ficheros tocados: `backend/src/modules/orders/orders.service.ts`,
+> `backend/src/modules/orders/guest-checkout.service.ts` (solo comentario),
+> `backend/test/orders.reservation-owner.spec.ts`,
+> `backend/test/integration/vault-legacy-reservation-sweep.e2e-spec.ts` (nuevo).
+> ⛔ **Ni una migración de datos. Ni una petición a producción.** El conteo se deja como `SELECT`
+> para la ventana autorizada (§SEC-SB-1.4).
+
+## §SEC-SB-1.1 — El equipo azul tiene razón, y ésta es la medición que lo sostiene
+
+Se me pidió **verificar, no relayar**, el argumento del blue team («"transitorio" es la palabra
+equivocada: lo indultado es toda la acumulación histórica»). **Lo confirmo, con tres mediciones
+propias sobre el árbol, no con su informe:**
+
+| # | Afirmación | Medición mía `[MEDIDO]` | Veredicto |
+|---|---|---|---|
+| 1 | La migración M-53 **no hizo backfill** ⇒ «legada» no es «lo que estaba en vuelo», es **toda** pieza que estuviera `reserved` en el instante del deploy | `backend/prisma/migrations/20260911130000_m53_reservation_owner/migration.sql`: dos `ADD COLUMN … NULL`, un FK, dos índices. **Cero `UPDATE`**, y el propio fichero lo declara: «⛔ SIN backfill». | **Confirmado** |
+| 2 | Antes de v1.68 **una orden de bóveda `pending` no se barría nunca** ⇒ la acumulación existe desde que existe el checkout de bóveda | `git show c8bee65:backend/src/modules/orders/guest-checkout.service.ts` (el commit que HOY corre en producción), `sweepStaleGuestOrders`: `where: { status:'pending', guestEmail: { not: null }, fulfillmentMode:'direct_ship', createdAt: { lt: cutoff } }`. Y `git show c8bee65:backend/src/jobs/guest-order-sweep.service.ts`: el job encadenaba **ese único** barrido. | **Confirmado, y es más ancho de lo reportado** — ver abajo |
+| 3 | Ninguno de los dos barridos cubre la legada de bóveda | `orders.service.ts:969` `reservedByOrderId: { not: null }` (la excluye por construcción) + `guest-checkout.service.ts:443` (`guestEmail NOT NULL` **y** `direct_ship`) + `jobs/order-reservation-sweep.service.ts:33-34` (encadena solo esos dos) | **Confirmado** |
+
+**Dónde el hallazgo es MÁS ancho que como está escrito en los dos informes** (aportación mía, no
+corrección de nadie): el filtro del barrido legado no es «bóveda sí, envío directo no», es
+**`guestEmail IS NOT NULL`**. Un usuario **con cuenta** que compra con **envío directo** también
+tiene `guestEmail IS NULL` ⇒ su reserva legada tampoco la barre nadie. El hueco es *toda orden
+`pending` de un usuario con cuenta*, en **sus dos** modos de entrega, no solo bóveda.
+
+**Dónde el red team también tiene razón y conviene no perderlo:** el impacto es **disponibilidad**,
+no titularidad. Lo verifiqué por el mismo mecanismo que ellos y además **lo dejé como aserción
+ejecutable** en el E2E: una pieza legada no la puede reclamar **ni su propio comprador** — el
+reintento del mismo cliente sobre esa pieza responde `409 ITEM_UNAVAILABLE` (`reserveItems` exige
+`listed|in_stock`). Es exactamente lo que la convierte en basura irrecuperable sin intervención
+humana: nadie la roba, y nadie la rescata.
+
+**Sobre la consecuencia de segundo orden (la rama `IS NULL` del guard «no podrá retirarse nunca»):**
+también confirmada, y ver §SEC-SB-1.5 — mi barrido la deja **retirable**, que hoy no lo es, pero el
+disparo de la retirada sigue siendo un número que **solo se mide en el target**.
+
+## §SEC-SB-1.2 — Dónde vive el barrido, y por qué ahí
+
+**Decisión: dentro de `OrdersService.sweepExpiredReservations`, como una segunda fuente de
+candidatos del MISMO bucle** (helper privado `legacyExpiredByOrder`). No un job nuevo, no un método
+separado encadenado por `jobs/`, y **no** ensanchar `GuestCheckoutService.sweepStaleGuestOrders`.
+
+Las tres razones, en orden de peso:
+
+1. **Una orden no puede ser barrida por dos caminos.** El barrido agrupa **por orden** porque por
+   orden se cancela el PaymentIntent (B3). Dos pasadas independientes sobre la misma orden podrían
+   cancelar su PI dos veces y liberar en dos transacciones distintas. Con una sola fuente de verdad
+   —un `Map<orderId, itemIds>` que se llena de dos consultas y se recorre una vez— eso es imposible
+   por construcción. Es el mismo criterio T2 que ya rige en `releaseReservationData`.
+2. **`guest-checkout.service.ts` es el dueño del ciclo de vida del pedido de INVITADO.** Meter ahí
+   el barrido de una orden de bóveda de un usuario **con cuenta** sería ponerle a ese servicio una
+   responsabilidad que no es suya. La regla de negocio de reservas vive en `orders/` (lo dice la
+   cabecera del propio job).
+3. **La política legada queda en UN sitio.** `sweepStaleGuestOrders` queda **subsumida** (su
+   cobertura es un subconjunto estricto de la nueva) y anotada como tal en su docblock: se retira
+   **con** la rama `IS NULL` del guard, en la misma ficha `RSV-L1`, no antes y no por separado.
+
+**El plazo de la legada se deriva, no se inventa.** Una pieza legada no tiene `reservedUntil` (M-53
+no tenía de dónde sacarlo). Su vencimiento es `Order.createdAt + ORDER_RESERVATION_TTL_MIN` — la
+única fecha que sí existe, y es el mismo TTL (60 min) que rige para todo lo demás (§4-R.1).
+
+### Las tres condiciones que impiden soltar una pieza con dueño vivo
+
+Soltar de más es peor que soltar de menos: le quitas a un cliente algo que está pagando. Ninguna de
+las tres es prescindible, y **cada una tiene su mutación** (§SEC-SB-1.3):
+
+| # | Condición | Qué protege |
+|---|---|---|
+| 1 | `Order.status = 'pending'` | Una legada bajo una orden `settled`/`refunded`/`chargeback` **tiene dueño: el que pagó**. No se toca aunque siga `reserved` por una anomalía; eso es runbook, no barrido. |
+| 2 | `Order.createdAt < now − 60 min` | El checkout de hace diez minutos que está en el 3-D Secure **no es basura**. |
+| 3 | **B3**: el PaymentIntent se cancela ANTES y tiene que quedar `canceled` | Es la guarda fuerte. La única vía por la que una legada aún podía reclamarse es el webhook de su propio PI; un PI cancelado ya no dispara `succeeded`. Si Stripe responde `processing`/`succeeded`, la orden se salta entera y se reintenta en la próxima pasada. |
+
+**Por qué la orden que encuentro es la dueña y no otra** (invariante, `[código]`): una pieza
+`reserved` está en las líneas de **como mucho una** orden `pending`. `reserveItems` exige
+`status ∈ {listed,in_stock}` para crear la `OrderItem`, y **toda** ruta que devuelve la pieza a ese
+estado (liberación, sustitución, webhook `failed|canceled`, barrido) marca su orden `failed` **en la
+misma transacción**. Las demás órdenes que mencionen la pieza son pasado terminal.
+
+**Observabilidad:** `sweepExpiredReservations` devuelve ahora `{ swept, skipped, legacy }` y registra
+aparte cuántas piezas legadas entraron en la pasada. `legacy` es una población que **se agota**:
+mientras no sea 0 en una pasada, la rama `IS NULL` del guard no se puede retirar.
+
+## §SEC-SB-1.3 — La prueba fija la PROPIEDAD, y las mutaciones lo demuestran
+
+`backend/test/integration/vault-legacy-reservation-sweep.e2e-spec.ts` (Postgres real, doble offline
+de Stripe). **No nombra** `legacyExpiredByOrder`, ni el `where`, ni el servicio: pide el **job
+programado** (el mismo que corre el cron) y mira `InventoryItem.status` / `Order.status`, que es lo
+que ve el dueño de la tienda. Si el barrido se reescribe en otro sitio, debe seguir verde.
+
+| Grupo | Caso | Propiedad |
+|---|---|---|
+| (1) nadie puede reclamarla ⇒ **acaba disponible** | bóveda de usuario con cuenta; invitado `direct_ship`; **lote** de 3 a la vez | `reserved` → `listed`/`platform`, orden `failed`, PI cancelado, y **se puede volver a vender** |
+| (2) con dueño vivo ⇒ **no se toca** | orden reciente; PI no cancelable; orden `settled`; reserva normal viva | sigue `reserved`, orden intacta |
+
+**Mutaciones (copia del árbol ENTERO en
+`scratchpad/backend-vault-sweep/base`, BD propia `tcg_vs1_mut`; 3 corridas cada una):**
+
+| Mutación | Qué quita | Resultado |
+|---|---|---|
+| **m-legacy** — `orders.service.ts` = `HEAD` (sin la cobertura nueva) | el barrido de la bóveda entero | **ROJO 3/3**: caen *bóveda* y *lote*; el caso de **invitado sigue verde** (lo cubría la rama legada vieja) y los 4 de «dueño vivo» también ⇒ la prueba distingue **qué mitad** faltaba |
+| **m-sin-plazo** — quita `createdAt < cutoff` | la protección del cliente que está pagando | **ROJO 3/3**, y cae **exactamente** el caso «la orden es RECIENTE» |
+| **m-sin-estado** — quita `status:'pending'` | la protección de la pieza ya pagada | **ROJO 3/3**, y cae **exactamente** el caso «la orden ya está LIQUIDADA» |
+
+Control sobre la misma copia y la misma BD: **7/7 verde**. Ninguna corrida salió «0 total» (el
+falso verde de ts-jest): todas reportan `7 total`.
+
+## §SEC-SB-1.4 — ⭐ Cuántas hay AHORA: la consulta exacta para la ventana autorizada
+
+**NO MEDIDO — no tengo acceso a la base de producción y no lo he pedido.** Estas consultas son de
+**solo lectura**, no escriben nada y no hay migración de datos que correr. Cierran `C8`(a) y la
+primera mitad de `RSV-L1`.
+
+```sql
+-- (A) EL NÚMERO. Es la condición de retirada de la rama `IS NULL` del guard
+--     (ARCHITECTURE §4.48.7(5) / SECURITY_NOTES C8(a)): mientras no sea 0, NO se retira.
+SELECT count(*) AS reservas_legadas
+FROM "InventoryItem"
+WHERE status = 'reserved' AND "reservedByOrderId" IS NULL;
+
+-- (B) DESGLOSE por clase: qué drena el barrido nuevo y qué NO.
+--     ⚠️ El `LATERAL` no es adorno: una pieza puede aparecer en las líneas de VARIAS órdenes
+--     (intentos anteriores ya terminales). Un `JOIN` directo contra "OrderItem" MULTIPLICA las
+--     filas e infla el conteo. Aquí se ancla en la ÚNICA orden `pending` que puede tenerla.
+SELECT
+  CASE
+    WHEN p.id IS NULL                                          THEN 'D_sin_orden_pending'
+    WHEN p."createdAt" >= now() - interval '60 minutes'         THEN 'C_pending_reciente'
+    WHEN p."guestEmail" IS NOT NULL AND p."fulfillmentMode" = 'direct_ship'
+                                                                THEN 'A_pending_legado_invitado'
+    ELSE 'B_pending_legado_cuenta'
+  END                              AS clase,
+  count(*)                         AS piezas,
+  count(DISTINCT p.id)             AS pedidos,
+  min(p."createdAt")               AS pedido_mas_viejo,
+  sum(oi."unitPriceCents")         AS valor_congelado_centavos
+FROM "InventoryItem" i
+LEFT JOIN LATERAL (
+  SELECT o.id, o."createdAt", o."guestEmail", o."fulfillmentMode"
+  FROM "OrderItem" oi2
+  JOIN "Order" o ON o.id = oi2."orderId"
+  WHERE oi2."inventoryItemId" = i.id AND o.status = 'pending'
+  ORDER BY o."createdAt" DESC
+  LIMIT 1
+) p ON true
+LEFT JOIN "OrderItem" oi ON oi."inventoryItemId" = i.id AND oi."orderId" = p.id
+WHERE i.status = 'reserved' AND i."reservedByOrderId" IS NULL
+GROUP BY 1
+ORDER BY 1;
+```
+
+**Cómo se leen las cuatro clases de (B):**
+
+| Clase | Qué es | ¿La drena el barrido nuevo? |
+|---|---|---|
+| **A** `pending_legado_invitado` | lo único que cubría el barrido legado | **Sí** (ya lo cubría; ahora por un solo camino) |
+| **B** `pending_legado_cuenta` | **el hueco de `SEC-SB-1`**: bóveda y envío directo de usuario con cuenta | **Sí** — en la **primera pasada** tras desplegar esto, si su PI se deja cancelar |
+| **C** `pending_reciente` | clientes que están pagando ahora mismo | **No, y es correcto**: entran en cuanto pasen los 60 min |
+| **D** `sin_orden_pending` | pieza `reserved` legada **sin ninguna orden `pending`** que la reclame | **No.** Ver §SEC-SB-1.5 |
+
+**Sobre la clase D, medido `[MEDIDO]`:** en producción **no debería existir**, porque *no hay ningún
+camino de aplicación que borre una `Order`* (`grep -rn "order\.delete\|order\.deleteMany\|orderItem\.delete"
+backend/src` → **vacío**; las únicas borradas están en `prisma/seed-e2e.ts` y en specs). La vi
+aparecer **una vez en una BD de pruebas** (una fila, de la resiembra del arnés, que sí borra órdenes
+en cascada), y por eso la consulta la mide: si en producción sale `> 0`, esa pieza **no la suelta
+ningún barrido** y hace falta decisión del dueño (liberación puntual) antes de poder retirar la rama
+legada. Es exactamente la diferencia entre «el conteo bajará» y «el conteo llegará a 0».
+
+**Si (A) sale `0`:** `SEC-SB-1` no tuvo víctimas y `RSV-L1` queda listo para su segunda mitad.
+**Si (A) sale `> 0`:** el número de la fila **B** es el inventario que estuvo atascado, y el barrido
+lo devuelve solo en la primera pasada (el cron corre cada 15 min).
+
+## §SEC-SB-1.5 — La rama legada del guard (`RSV-L1`): **NO se retira aquí**, y qué cambia
+
+**No la toqué**, tal y como se me pidió: sigue viva en los tres sitios
+(`reservation.ts:39-44`, `payments.service.ts:642-650`, `guest-checkout.service.ts` en el barrido
+subsumido). Retirarla hoy rompería reservas legadas vivas.
+
+**Lo que sí cambia, y es la respuesta a «¿la deja retirable?»:**
+
+- **Antes:** el contador de (A) **solo podía bajar por intervención humana**, porque ningún proceso
+  automático liberaba esas filas. La condición de retirada era inalcanzable por sí sola ⇒ la
+  relajación del eje de titularidad era **permanente de facto**, que es justo lo que el blue team
+  señala como el daño mayor.
+- **Ahora:** el contador **baja solo** en cada pasada del cron para las clases **A** y **B** —que es
+  toda la población que tiene una orden `pending` capaz de reclamarla— y **C** entra en cuanto vence.
+  La retirada pasa de «inalcanzable» a «esperar a que el barrido drene y medir».
+- **Con una excepción honesta:** la clase **D** (si existe) **no la drena nadie**, y basta una fila
+  para que (A) nunca sea 0. Por eso la consulta (B) la cuenta por separado: sin ese desglose,
+  «el conteo no baja» no distingue «el barrido no funciona» de «queda una fila de otra clase».
+
+**Cierre de `RSV-L1`, las dos mitades:** (1) `(A) = 0` medido en el target — sigue **NO MEDIDO**,
+es de ventana autorizada; (2) retirar los tres sitios — **backend, cuando (1) esté**. Esta entrega
+no cierra ninguna de las dos: hace que (1) sea **alcanzable**.
+
+## §SEC-SB-1.6 — Gates: qué medí, sobre qué árbol, y qué NO es mío
+
+⚠️ **El árbol vivo tiene trabajo sin commitear de otro agente backend** (KYC/admin/users/uploads +
+`schema.prisma`), y su cliente de Prisma generado en `node_modules` incluye columnas que **no están
+en ninguna migración de `HEAD`**. Por eso **todos** mis gates corren sobre una **copia del árbol
+completo** = `HEAD` (`2da899f`) **+ solo mis cuatro ficheros**, con `node_modules` **copiado** (no
+enlazado) y `prisma generate` **re-ejecutado dentro de la copia**, y contra **bases de datos
+propias** (`tcg_vs1`, `tcg_vs1_mut`, `tcg_vs1_base`, `tcg_vs1_b`). Ni una medición mía toca el árbol
+vivo ni las BD de los demás agentes.
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Unitarios (suite completa) | `npx jest` en la copia | **282 suites / 4638 pruebas, verde** |
+| Typecheck | `tsc --noEmit -p tsconfig.json` en la copia | **exit 0** (sobre el árbol VIVO falla con ~30 errores **que no son míos**: son del trabajo sin commitear del otro agente) |
+| Lint | `eslint` sobre `src/modules/orders/**` + mis dos specs | **exit 0** |
+| Integración — spec nuevo | `stack-native.sh test:integration --testPathPattern vault-legacy…` | **7/7 verde** |
+| Integración — suite completa, BD limpia | `stack-native.sh test:integration` (**2 corridas, BD limpia distinta cada una**) | **31/32 suites · 464/465 en las DOS (2/2, idéntico)**; el único rojo es `infra-smoke` («MinIO/S3: presign + PUT real», espera `403` y recibe `[200,204]`) |
+| **Línea base** del mismo comando sobre `HEAD` **sin mis ficheros**, BD limpia | ídem | **29/31 · 456/458**; rojos: **`infra-smoke` (el mismo)** y `buylist-step-guard` (carrera S-2 de 20 ms, ajena a mis módulos) |
+
+**Lectura de la línea base (O-1):** `infra-smoke` falla **igual con y sin mis cambios** ⇒ es del
+entorno (el S3 local sirve el objeto en vez de exigir firma), **no mío**, y es de **devops**.
+`buylist-step-guard` falló en la línea base y **no** con mis cambios ⇒ carrera conocida, ajena.
+En una corrida temprana sobre una BD **ya usada** vi también `stripe-in-tx-pool` en rojo con un
+`422` en el `POST /checkout/session` **de su propio montaje** (antes de que ningún barrido
+intervenga); **no se reprodujo** en las corridas sobre BD limpia. Lo anoto como **acoplamiento entre
+suites por estado de BD**, no como defecto de este cambio, y queda **NO MEDIDO** cuál es el `422`
+exacto: lo cerraría correr esa suite sola sobre la BD sucia y capturar `body.error.code`.
+
+## §SEC-SB-1.7 — Fuera de alcance (explícitamente NO tocado)
+
+`admin`, `users`, `uploads`, `buylist`, `backend/prisma/schema.prisma` (otro agente backend en
+paralelo), `backend/src/jobs/` (el job encadena `sweepExpiredReservations` sin cambios: la cobertura
+nueva entra por dentro, no por el envoltorio) y `frontend/` entero. Ninguna migración de datos,
+ninguna petición a producción, ningún secreto.
+
+---
+
+## P-78 · §M6-K — LA VERIFICACIÓN DE IDENTIDAD (backend · contrato **v1.69 + las tres correcciones de v1.70/C10** · 2026-09-11, medido)
+
+> **Frente de PII.** Es la primera vez que una imagen de identidad **sale** de este servidor. Lo que
+> sigue está escrito para que `seguridad` lo revise **leyéndolo**: cada candado con su motivo, y cada
+> hueco declarado como hueco. Contrato: `API_CONTRACT §M6-K` (+ `§M6-K.2.0/.2.1/.2.3/.2.5` de v1.70).
+> Reparto: `ARCHITECTURE §4.49.6` (**BK-1…BK-6**).
+
+### P78.1 — Qué quedó implementado, tarea por tarea
+
+| # | Qué | Dónde |
+|---|---|---|
+| **BK-1** | `GET /api/v1/admin/users/:id/kyc/ine-links` — `super_admin` only, TTL 120 (techo 300), `403/404/422 INE_NOT_ON_FILE/429/500 AUDIT_WRITE_FAILED`, **auditado con fallo cerrado** | `admin.controller.ts` (`ineLinks`), `admin.service.ts` (`ineLinksUnaudited`), `actor-throttler.guard.ts` |
+| **BK-2** | `PATCH …/kyc` acepta `rejectionReason` (3–500 tras `trim()`, **obligatorio si y solo si** `rejected`), sella `reviewedAt`/`reviewedBy`, limpia `verifiedAt` al rechazar y el motivo en todo estado ≠ `rejected`; el motivo va en el `after` del `user.kyc.update` | `admin.controller.ts`, `admin.service.ts` |
+| **BK-3** | `GET /users/me/kyc`: **+`rejectionReason`** (solo en `rejected`), **+`?quotedTotalCents=N` ⇒ `ineRequiredForTotal`**, y **−`capPerRequestCents`/`capPerMonthCents`/`monthUsedCents`** | `users.controller.ts`, `users.service.ts` |
+| **BK-4** | `PUT /users/me/kyc`: `pending` **solo** si vienen keys de INE (**defecto A6**), limpia `rejectionReason`/`reviewedAt`/`reviewedBy`, y **borra en R2 la key sustituida** | `users.service.ts`, `users.module.ts` |
+| **BK-5** | Ficha M6: `nameSource` (los **dos** DTOs) + `recentShipmentRecipients` (lista blanca sobre `addressSnapshot`, últimos 5, **solo** `super_admin`) | `admin.service.ts` |
+| **BK-6** | `422 INE_REQUIRED` del intake con **`details: {}`** | `buylist.service.ts` (una línea) |
+| **M-54** | `KycProfile.rejectionReason` / `reviewedAt` / `reviewedBy` — aditiva, nullable, sin backfill, sin índices, **serializada tras M-53** | `prisma/migrations/20260911140000_m54_kyc_review_decision/` |
+
+**Las tres correcciones de `seguridad` (C10), ya dentro:** (a) el tope de 10/min **cuelga de
+`actorUserId`** (`ActorThrottlerGuard`), (b) la respuesta lleva **`Cache-Control: no-store`** +
+`X-Robots-Tag: noindex, nofollow`, (c) la bitácora graba el **TTL EFECTIVO** y, si hubo recorte,
+`ttlClamped: true` + `ttlRequested`.
+
+### P78.2 — ⭐⭐ FUGA REAL ENCONTRADA Y CERRADA: `GET /admin/users/:id` devolvía las object keys del INE
+
+**Lo cazó el candado K-2 llamando al endpoint** (`test/integration/kyc-ine-links.e2e-spec.ts`), **no**
+la lectura del código, y contradice la medición 2 de `ARCHITECTURE §4.49.0` («ninguna ruta las
+expone»): esa medición miró `ADMIN_KYC_SELECT` + `toAdminKycDTO`, que son **el camino del `PATCH`**.
+La ficha 360° **no usa ninguno de los dos**: proyecta con `...rest` sobre la fila **cruda** del
+`include`, así que devolvía `"ineFrontKey": "kyc_ine/…"` y `"ineBackKey"` a `super_admin`.
+
+- **Tercera vez que esta misma puerta filtra por el mismo motivo:** `clabeSnapshotEnc` (S49-M1-R),
+  `legalName` (D51) y ahora las keys del INE. **Lo que se proyecta por resto publica cada columna del
+  schema por omisión.**
+- **Y estaba fijado como si fuera una decisión:** `test/admin.pii.spec.ts` afirmaba
+  `expect(res.kycProfile.ineFrontKey).toBe('kyc_ine/2026/front.jpg')` con el comentario «visibles al
+  super_admin (para servir la imagen por presigned GET)». Ese motivo **ya no existe** (el presigned
+  GET resuelve la key desde `:id`) y §M6-K.8 lo retira del contrato. **El aserto se invirtió.**
+  *Un test que fija una fuga como decisión la conserva hasta que alguien relee el contrato.*
+- Candado nuevo en las dos capas: unitario (`admin.user-detail-identity.spec.ts`, los **dos** roles) e
+  integración (K-2 por HTTP).
+
+### P78.3 — Decisiones de implementación que otros roles necesitan saber
+
+1. **La auditoría del revelado vive en el CONTROLLER** (`admin.controller.ts`), no en el servicio —
+   misma forma que el precedente `buylist.reveal_clabe`. El servicio se llama
+   **`ineLinksUnaudited`**: el nombre es el candado que queda cuando el comentario deja de leerse.
+   El `try/catch` **no traga**: convierte el fallo en `500 AUDIT_WRITE_FAILED` y **vuelve a lanzar**.
+2. **`@Throttle({ default: … })` + guard propio, y NO `@Throttle({ kycIneLinks: … })`.** El bloque de
+   `§M6-K.2.0` sugiere un limitador **con nombre**; **no se puede usar con la configuración actual**:
+   `ThrottlerModule.forRoot([{ name: 'default', … }])` solo itera los limitadores **registrados**, así
+   que un metadato bajo `kycIneLinks` **lo ignorarían los dos guards** (el global y el mío) y la ruta
+   quedaría con el global de 300/min. Registrar `kycIneLinks` en el módulo sería **peor**: ese
+   limitador se aplicaría a **todas** las rutas con su propio `limit: 10`. La conducta normativa
+   (10/min **por actor**) se cumple con el `default` del handler + `getTracker` por `req.user.id`.
+   ⚠️ **Pregunta al arquitecto:** si se quiere el limitador con nombre, hace falta decidir la
+   configuración del módulo — **no la cambio yo por mi cuenta**.
+3. **Un solo TTL efectivo por petición.** `UploadsService.resolveIneViewUrlTtl()` se llama **una vez**
+   y su `seconds` alimenta los tres sitios (firma de las dos URLs, cuerpo, fila de bitácora). ⛔ Nadie
+   re-lee el env: dos lecturas del mismo dial serían dos fuentes para un hecho.
+4. **`ResponseContentDisposition: 'attachment'` se CONSERVA** y el porqué está escrito en el
+   call-site con la medición (Chromium real, 3/3): **no impide** pintar la imagen en un `<img>`;
+   impide **navegar** a ella. ⛔ No se construyó ningún endpoint proxy.
+5. **Borrado del objeto sustituido:** ocurre **después** de persistir la key nueva (si se borrara
+   antes y la escritura fallara, el cliente se queda sin INE) y **un fallo del borrado no tumba la
+   petición** (se registra `error`; queda un huérfano, exactamente como antes de v1.69 — devolverle
+   un `500` al cliente por una tarea de limpieza nuestra sería peor). ⛔ El **rechazo no borra nada**.
+6. **`verifiedBy` ya solo se escribe al VERIFICAR.** Antes se escribía en **cualquier** `PATCH`, así
+   que «quién verificó» acababa nombrando a quien **rechazó**. Al rechazar se anula `verifiedAt`
+   (lo que manda §M6-K.4) y `verifiedBy` **no se toca**.
+7. **`after` del `user.kyc.update`** es `{ kycStatus, rejectionReason? }` **más los topes cuando el
+   admin los tocó** (superset deliberado: el `after` anterior volcaba el DTO entero y los topes son
+   una decisión comercial auditada). El motivo se toma de la **fila persistida**, ya `trim`ada.
+
+### P78.4 — ⚠️ Discrepancias con lo que me llegó, y lo que hice con cada una (regla 9: no las decido yo)
+
+| # | Discrepancia | Qué hice |
+|---|---|---|
+| **D-1** | El encargo pedía **`POST …/kyc/verify` y `…/kyc/reject`** y que `PATCH …/kyc` **dejara de aceptar `kycStatus`**. El contrato **dice lo contrario**: §M6-K.4 mantiene el `PATCH` con `kycStatus` + `rejectionReason`, y `DESIGN_SYSTEM §34.6` lo confirma con su historia («v4.2 pedía dos endpoints nuevos; el arquitecto resolvió con el que ya estaba») | **Implementé el contrato.** Si se quieren los dos endpoints, **pasa por el arquitecto** |
+| **D-2** | El encargo nombraba las columnas de M-54 como `kycRejectionReason` e **`ineSubmittedAt`**. `ARCHITECTURE §4.49.3` fija **tres**: `rejectionReason`, `reviewedAt`, `reviewedBy`. `ineSubmittedAt` **no existe en el contrato**: es una **petición abierta** al arquitecto (`DESIGN_SYSTEM §34.15 A3-res`) | M-54 = las **tres** del arquitecto. **No añadí `ineSubmittedAt`** |
+| **D-3** | §11 dice que `recentShipmentRecipients` ordena por **`ShipmentRequest.createdAt`**, y **esa columna no existe**: la tabla sella su alta en **`requestedAt`** | Ordeno y leo `requestedAt`, y lo emito bajo la clave `createdAt` que declara el DTO. **Sin migración** — no se añade una segunda columna de fecha para que cuadre un nombre |
+| **D-4** | El candado **K-2** dice «el JSON de `/kyc/ine-links` **no** matchea `/kyc_ine\//`». **Es insatisfacible por construcción**: la URL prefirmada **es** el path del objeto, y la key va dentro | Implementé el espíritu de §M6-K.2.3: **ninguna key como dato estructurado**, ni el bucket. El test lo dice con todas las letras y verifica el JSON **con las `url` vaciadas**. **Para K-2 el enunciado literal solo se puede exigir a `GET /admin/users` y `GET /admin/users/:id`** (ahí sí se cumple, medido) |
+| **D-5** | El contrato declara `?quotedTotalCents=N` «entero ≥ 0» pero **no dice qué código da una entrada mal formada** | `422 VALIDATION_ERROR` + `details.field` (patrón de `AdminService.range`). ⛔ **No se ignora en silencio**: omitir la clave ante `?quotedTotalCents=abc` haría que el cotizador concluyera «no hace falta INE» por un dedazo |
+| **D-6** | El **DEPLOY 2** de `§4.49.4` (retirar los tres números del DTO del cliente + `details: {}` del intake) **se entrega en el mismo commit** que el deploy 1, porque así me lo encargaron | **⚠️ Aviso a devops/frontend:** con este commit, `KycSection.tsx:115-130` y `useSellRequirements.ts:62-66` **dejan de recibir los tres campos**. Si el frontend de FE-3/FE-4 no entra en el mismo despliegue, el cliente ve huecos donde había cifras. **El orden de merge lo decide el orquestador** |
+
+### P78.5 — Gates: qué medí, sobre qué árbol, y qué NO medí
+
+Todas las mutaciones corrieron sobre una **copia del árbol ENTERO** en mi scratchpad
+(`scratchpad/backend-P78/tree`, `node_modules` enlazado, nunca el árbol vivo), **3 tiradas cada una**,
+con base verde y revertido verde:
+
+| Mutación | Spec que la caza | Proporción |
+|---|---|---|
+| M-1 · la auditoría se traga el error (fallo **abierto**) | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-2 · defecto **A6**: todo `PUT` vuelve a `pending` | `users.kyc-cycle` | **ROJO 3/3** |
+| M-3 · rechazar sin motivo se acepta | `admin.kyc-review` | **ROJO 3/3** |
+| M-4 · la key sustituida se queda **huérfana** en R2 | `users.kyc-cycle` | **ROJO 3/3** |
+| M-5 · el TTL pierde el techo duro | `uploads.ine-view-url` | **ROJO 3/3** |
+| M-6 · un tope vuelve a la vista del cliente | `users.kyc-cycle` | **ROJO 3/3** |
+| M-7 · el tope vuelve al eje de la **IP** | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-8 · la respuesta pierde `Cache-Control: no-store` | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-9 · el motivo **residual** se le enseña al cliente ya verificado | `users.kyc-cycle` | **ROJO 3/3** |
+| M-10 · el `addressSnapshot` **entero** viaja a la ficha | `admin.user-detail-identity` | **ROJO 3/3** |
+| M-11 · el intake vuelve a imprimir el umbral | `buylist.ine-pending` | **ROJO 3/3** |
+| M-12 · la bitácora graba el TTL como **constante** | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-13 · las object keys del INE vuelven a salir por la ficha 360° | `admin.user-detail-identity` **y** `admin.pii` | **ROJO 3/3 y 3/3** |
+| M-14 · la bitácora oculta que hubo **recorte** del TTL | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-15 · el TTL del `after` se re-deriva como constante | `admin.kyc-ine-links` | **ROJO 3/3** |
+| M-16 · el clamp pierde el valor **pedido** | `uploads.ine-view-url` | **ROJO 3/3** |
+
+| Gate | Resultado |
+|---|---|
+| `npm run lint` | **0 errores** (2 *warnings* preexistentes en `inventory`, ajenos) |
+| `npm run typecheck` | **exit 0** |
+| `npx jest` (unitarios) | **287 suites / 4717 pruebas, verde** |
+| Integración — spec nuevo (`kyc-ine-links.e2e-spec.ts`) | **13/13 verde** |
+| Integración — suite completa | **30/33 suites · 463/478** |
+| **Línea base** de la misma suite sobre `HEAD` **sin mis cambios** (árbol de `git archive HEAD`, misma BD) | **28/31 · 443/458** — **los MISMOS 3 rojos y los MISMOS 15 tests**: `buylist-cycle`, `graded-estimate`, `pricing-visibility` ⇒ **preexistentes, no son de P-78** (y `buylist-cycle` pasa **70/70 corriendo sola**: es acoplamiento de estado entre suites) |
+
+**⚠️ NO MEDIDO, con la medición que lo cerraría:**
+
+1. **El `429` real del tope por actor** (candado de §M6-K.2.0: *«11 llamadas con la misma sesión y
+   `X-Forwarded-For` distinto ⇒ `429` en la 11.ª»*). Bajo `NODE_ENV=test` **el throttler se omite a
+   propósito** (`AppThrottlerGuard`/`isThrottlerDisabled`), así que la suite de integración **no puede
+   verlo**. Lo que sí está medido es el **eje**: `getTracker` da el mismo cubo para dos IPs distintas
+   del mismo actor y cubos distintos para dos actores en la misma IP (unitario, mutación M-7 roja
+   3/3). **Lo cerraría:** un arnés con el throttler **encendido** (`NODE_ENV` ≠ `test`) que lance 11
+   peticiones con el mismo token rotando `X-Forwarded-For` y exija `429` en la 11.ª — es el mismo
+   arnés que pide `C7` para `change-password`, y **no existe todavía**.
+2. **Si el bucket de producción es privado de verdad** (`ARCHITECTURE §4.49.0(a)`). Sigue siendo de
+   `seguridad`: un `GET` anónimo sin firma a una key de `kyc_ine/` debe dar `403`. **Con un bucket
+   público-lectura, todo este frente es teatro.**
+3. **Cuántos objetos huérfanos hay YA en R2** por sobrescrituras pasadas. Esta entrega evita los
+   **futuros**; **no limpia los existentes**. Lo cerraría: listar el prefijo `kyc_ine/` y restar las
+   keys presentes en `KycProfile` (devops + ventana del dueño).
+4. **Cuántas filas de `KycProfile` tienen UNA sola key** (rama del `422 INE_NOT_ON_FILE` parcial).
+   Necesita consulta contra producción.
+5. **El TTL de punta a punta con el dial movido.** El candado de C10(c) («con `=240` la fila dice
+   240; con `=3600`, 300 + `ttlClamped`») está medido **en unitario** con `ConfigService` real y
+   mutaciones (M-12/M-14/M-15/M-16). **No** lo medí por HTTP: la suite de integración levanta la app
+   una vez por proceso y no re-lee el env por petición.
+
+### P78.6 — Fuera de alcance (explícitamente NO tocado)
+
+⛔ `inventory` y `pricing` (otro agente backend) · ⛔ `frontend/` entero · ⛔ el régimen de la CLABE
+(`reveal-clabe` intacto) y el del RFC · ⛔ `BUYLIST_LIMIT_EXCEEDED (per_month)` sigue emitiendo
+`capCents`/`wouldBeCents` (§M6-K.5 lo serializa a la revisión siguiente) · ⛔ `legalName` y
+`capPerRequestCentsOverride` siguen **inertes** (la deuda de DDL de §4.49.3 queda **disparada y sin
+ejecutar**: borrar columnas y publicar imágenes de identidad en la misma migración mezcla dos riesgos
+que se revisan distinto — **la decide backend con techlead**) · ⛔ ningún correo nuevo (el «noveno
+correo» de `DESIGN_SYSTEM §34.7` **no está en el contrato**) · ⛔ ninguna consulta a producción,
+ningún secreto, ningún dato real de cliente.
+
+---
+
+## P-78 · SEGUNDA RONDA — el fixture de identidad, la descarga REAL del INE y `R-1` (backend · 2026-09-12, medido)
+
+> Tres encargos en un commit: **(1)** el seed siembra por fin identidades de verdad, **(2)** se
+> escribe la prueba que nunca existió —que la INE **se descargue**— y **(3)** se cierra la condición
+> bloqueante del techlead (`R-1`), que es la **clase** detrás de las tres fugas de esta puerta.
+
+### P78.7 — El seed: qué sembré, y si el barrido del `:144` tenía razón de ser
+
+**⚠️ Lo primero, porque me lo pidieron medir antes de tocarlo: SÍ la tenía, y no lo quité.** El
+`deleteMany` de `KycProfile` (paso 3 del seed) existe por un motivo escrito y comprobable:
+`clabeEnc`/`rfcEnc` se cifran con la clave PII **del proceso que los escribió**, y en el arnés nativo
+esa clave es **efímera por arranque** ⇒ una fila de una corrida anterior devuelve `500`
+(«Unsupported state or unable to authenticate data») en la siguiente. **Se siembra DESPUÉS de él**, y
+los tres actores nuevos se siembran **sin una sola columna de PII cifrada** (`clabeEnc`/`clabeHmac`
+van a `null` en cada siembra): las llaves del INE son cadenas en claro y no tienen ese problema.
+
+**Tres actores, en `E2E_KYC_FIXTURES` (aparte de `E2E_USERS`, como `E2E_ACCOUNT_FIXTURES`):**
+
+| Actor | Estado | Por qué existe |
+|---|---|---|
+| `kyc.review@e2e.local` | `pending`, **las dos llaves + los dos objetos en el bucket**, `nameSource='derived'` | Sin el objeto se mediría **un marco vacío** (`naturalWidth = 0`), que es peor que no medir. El nombre **fabricado del correo** es lo que hace medible el aviso de cotejo de §M6-K.3 |
+| `kyc.reject@e2e.local` | `pending`, con imágenes | **Desechable.** Rechazar **escribe una decisión sobre una persona**: hacerlo sobre el `customer` compartido dejaría al resto de las suites con un KYC rechazado que no pidieron |
+| `kyc.none@e2e.local` | `none`, sin llaves, `nameSource='user'` | Estado **FIJO**. El KYC del `customer` del seed depende del **orden** de las suites (el flujo de venta sube INE y lo deja en `pending`) ⇒ afirmar «sin INE» sobre él mediría el orden de ejecución, no el producto |
+
+- **Las imágenes se suben al bucket** con **llave determinista** (`kyc_ine/e2e-fixtures/…`): una
+  segunda corrida **sobrescribe el mismo objeto** en vez de dejar un huérfano — la misma disciplina
+  que §M6-K.4.1 le impone al producto. Son PNG reales de 16×10, **distintos entre sí** (un test que
+  confunda frente con reverso tiene que poder fallar).
+- **Idempotencia real:** el `update` del upsert restaura **todas** las columnas de la decisión, así
+  que la corrida que rechaza a `kyc.reject` no deja el fixture gastado. *Un fixture que solo funciona
+  la primera vez es un test que se apaga solo.*
+- **Best effort con aviso fuerte:** sin `S3_ENDPOINT` (o con el almacenamiento caído) el seed
+  **avisa y sigue**; las filas quedan sembradas y lo único que no se puede medir es lo que de verdad
+  necesita el bucket. ⛔ No se reusó `UploadsService`: su API es `presign`/`presignGet`/`deleteObject`
+  y **añadirle un `putObject` solo para el seed** sería ensanchar la superficie del servicio de PII
+  por comodidad de fixture.
+
+### P78.8 — `G-3` / `D-S3-4`: la prueba que nunca había existido
+
+**Lo que había, dicho sin adornos:** `kyc-ine-links.e2e-spec.ts` afirmaba que la URL **contenía**
+`X-Amz-Signature=` y `response-content-disposition=attachment` —**la forma**— y **nunca hacía un
+`GET`**; el smoke de infraestructura solo hacía `PUT`. La cobertura real de la **lectura** del INE
+era **cero contra almacenamiento**. *Una URL bien formada y un objeto que no se puede bajar se leen
+igual en verde.*
+
+**Lo que se mide ahora (4 casos nuevos, todos contra almacenamiento real):**
+1. **Subir por el camino del producto** (`POST /uploads/presign` + `PUT` real) → atar con
+   `PUT /users/me/kyc` → pedir el enlace por **el endpoint de §M6-K** → **descargar**: `200`,
+   `Content-Disposition: attachment` y **los mismos bytes** (`Buffer.equals`).
+2. **La mitad negativa:** se cambia **un carácter** de `X-Amz-Signature` — todo lo demás idéntico —
+   ⇒ **no baja nada**. Sin este caso, el (1) pasaría igual contra un almacenamiento que sirve
+   cualquier cosa a cualquiera.
+3. ⭐ **§M6-K.4.1 contra almacenamiento REAL:** con el enlace de la primera imagen **aún firmado y sin
+   caducar**, se re-sube ⇒ ese enlace **ya no baja nada**, porque el objeto **se borró**. Es la
+   medición que los unitarios solo podían simular.
+4. **El fixture sembrado** se descarga y **el frente no es el reverso**.
+
+⚠️ **Matiz que NO se contradice:** `attachment` **no impide** pintar la imagen en un `<img>`
+(medición del orquestador, Chromium real, 3/3, origen cruzado); impide **navegar** a ella. Estas
+pruebas son de **servidor**: miden lo que el servidor manda, no lo que el navegador hace.
+
+⚠️ **Sobre los saltos:** los casos se saltan con aviso si el almacenamiento no responde, **salvo con
+`E2E_STRICT_INFRA=true`**. Medido: **lo ponen los dos arneses** (`e2e.yml:201` y
+`stack-native.sh:1310`, que lo fija por defecto), así que en el gate **no hay salto posible**.
+
+### P78.9 — `R-1` (techlead, BLOQUEANTE): la ficha 360° deja de proyectar por sustracción
+
+**El diagnóstico del techlead es correcto y la clase ya cobró tres veces:** `clabeSnapshotEnc`
+(S49-M1-R), `legalName` (D51) y las **object keys del INE** (P-78). Las tres por lo mismo — la ficha
+se derivaba con lista negra + spread de resto sobre la fila **cruda** del `include` — y mi parche de
+P-78 **añadía dos nombres más a la lista negra**: la columna número ocho habría salido sola.
+
+**Lo que cambió, y la comprobación de cierre que pidió:**
+
+| # | Comprobación | Resultado |
+|---|---|---|
+| (a) | `rg -n '\.\.\.rest' backend/src/modules/admin/admin.service.ts` | **0** (la prosa que explica por qué no lo hay dice «spread de resto», para que el `grep` mida el **código**) |
+| (b) | El `include` de `getUser` no lleva `kycProfile: true` ni `billingProfile: true` | **`getUser` ya no tiene `include`**: pide `select: ADMIN_USER_DETAIL_SELECT`. ⚠️ Queda un `include: { kycProfile: true }` en **`deleteUser`** (`:~1190`) — **no es una proyección**: no devuelve el usuario, lee las llaves para **purgar** los objetos del INE |
+| (c) | Test de los dos roles que falla **si sobra o si falta** una clave | `test/admin.user-detail-shape.spec.ts` (7 casos) |
+
+- **La lista blanca vive en el `select` de la CONSULTA.** Lo que no está enumerado **ni se lee de la
+  base**: ni `passwordHash`, ni `tokenVersion`, ni `googleId`, ni `clabeHmac` (blind index), ni
+  `legalName`. Las relaciones van acotadas una por una — `sellRequests` ya **no puede** traer
+  `clabeSnapshotEnc` ni queriendo. *Un filtro en memoria protege de lo que su autor recordó; un
+  `select` protege de lo que todavía no existe.*
+- **Un proyector por DTO:** `toAdminKycDTO` (que ya existía y **solo** usaba el `PATCH`) pasa a ser la
+  fuente única; `toAdminKycDetailDTO` le añade los dos enmascarados, `toAdminKycOperatorDTO` y
+  `toAdminBillingDTO` nacen con sus listas. La cabecera se parte en dos (`toAdminUserHeader` /
+  `…Super`) porque **el rol es parte de la forma** (§11: «dos DTOs, no uno con opcionales»).
+- **El candado cierra la CLASE, no el caso:** compara `Object.keys(...)` contra la lista del contrato
+  para los **dos** roles. El fixture mete **dos columnas intrusas** (`curp`, `ineSelfieUrl`) y una en
+  facturación (`cuentaBancaria`): son justo las que un candado de **valor** (`/kyc_ine\//`, el K-2 que
+  cazó mi fuga) **no habría visto nunca**.
+- **Dos divergencias contrato↔código que el candado sacó a la luz, y que se corrigen aquí:**
+  - ⛔ **`capPerRequestCents` SE RETIRA de los dos DTOs de admin.** §11 lo retiró en **v1.59 (D47)** y
+    el código lo seguía publicando **cuatro revisiones después**. Medido: el frontend **no lo lee**
+    (su fixture ya decía «sin `capPerRequestCents`»). El `PATCH` **lo sigue aceptando** en la
+    petición — anotado como **D-2** en `TECH_DEBT`.
+  - ✅ **`anonymizedAt` ENTRA** en la ficha del `super_admin` (solo ahí): §11 lo pide desde v2.1.9 y
+    el código lo excluía por herencia de `PATCH /status`, donde sí era ruido.
+  - ⛔ El **operador** pierde `authProvider`, `avatarUrl`, `mustChangePassword` y `anonymizedAt`:
+    `AdminUserDetailOperatorDTO` no los declara. Medido que no rompe al front: `M6View.tsx:362` pinta
+    `authProvider` con `{d.authProvider && …}` y el tipo los tiene opcionales.
+
+### P78.10 — Mutaciones de esta ronda (COPIA del árbol entero, 3 tiradas cada una)
+
+| Mutación | Spec | Proporción |
+|---|---|---|
+| **M-17** · el enlace de **LECTURA** se firma con **otro secreto** (la subida sigue correcta) | `kyc-ine-links.e2e` (integración, `E2E_STRICT_INFRA=true`) | **ROJO 3/3** (3 de 17 casos, exactamente los de descarga) |
+| **M-18** · el **seed** deja de subir las imágenes al bucket | ídem | **ROJO 3/3** |
+| **M-19** · la ficha vuelve a proyectar el KYC **por resta** | `admin.user-detail-shape` | **ROJO 3/3** |
+| **M-20** · el `select` de la consulta vuelve a leer las filas crudas | ídem | **ROJO 3/3** |
+| **M-21** · el **operador** recibe la cabecera del `super_admin` | ídem | **ROJO 3/3** |
+| **M-22** · `billingProfile` vuelve a la **lista negra** | ídem | **ROJO 3/3** |
+| **Fixture** · borrar las 3 filas **y** los 4 objetos ⇒ re-sembrar ⇒ vuelven, con estado exacto | `scratchpad/backend-P78/seed-check.js` | **3/3** |
+
+⚠️ **Un defecto DE MI ARNÉS, medido y corregido, porque cambia lo que se puede creer:** la primera
+tanda de M-17 reportó **0/3** mientras jest decía «1 failed». El runner hacía `jest … | tail -6`, así
+que el código de salida era el de `tail` — **siempre 0**. Con `set -o pipefail` la proporción real es
+**3/3**. *Un arnés que no propaga el fallo convierte cualquier mutación en «no reproducible».*
+
+### P78.11 — Gates de esta ronda
+
+| Gate | Resultado |
+|---|---|
+| `npm run lint` | **0 errores** (2 *warnings* preexistentes en `inventory`, ajenos) |
+| `npm run typecheck` | **exit 0** |
+| `npx jest` | **288 suites / 4724 pruebas, verde** |
+| Integración — `kyc-ine-links.e2e-spec.ts` | **17/17 verde** (13 de §M6-K + 4 de `G-3`) |
+| Integración — suite completa | **30/33 suites · 467/482**; los 3 rojos son los **mismos** que la línea base sobre `HEAD` sin mis cambios (`buylist-cycle`, `graded-estimate`, `pricing-visibility`), y `buylist-cycle` pasa **70/70 corriendo sola** ⇒ acoplamiento de estado entre suites, **preexistente** |
+
+**⚠️ NO MEDIDO (nuevo de esta ronda), con la medición que lo cerraría:**
+1. **Que el frontend real pinte la INE sembrada** (`naturalWidth > 0` contra el stack). Yo sembré el
+   dato y medí que **el objeto se descarga con los bytes correctos**; quien cierra el círculo es el
+   Playwright de frontend al retirar sus `mockOnly`. **Lo cerraría:** su corrida `@real` sobre un
+   stack con este commit y el seed corrido.
+2. **El comportamiento con R2 de verdad** (producción). Todo lo de `G-3` se midió contra
+   `scripts/s3-local`. R2 es S3-compatible y honra `response-content-disposition`, pero **yo no lo he
+   medido**. **Lo cerraría:** la misma prueba contra un bucket de staging/R2 — es de devops/seguridad,
+   y va junto a la comprobación de que **el bucket de producción es privado** (§4.49.0(a), abierta).
+3. **El `429` del tope por actor** sigue sin medirse de punta a punta (el throttler se omite bajo
+   `NODE_ENV=test`); ver `P78.5`. Sin cambios en esta ronda.
+
+---
+
+## P-78 · TERCERA RONDA — las dos ALTAS de `seguridad` (`C15`/`C14`) y tres eslabones de la cadena de custodia (backend · 2026-09-12, medido)
+
+> Veredicto de `seguridad`: **RECHAZADO para datos personales reales**, con dos ALTAS. **Una estaba
+> viva en `production` desde antes de este frente.** Esta ronda las cierra y, de paso, `C17`, `C19` y
+> `C20`. Fuente: `docs/SECURITY_NOTES.md` §4.1–§4.3, §5.
+
+### P78.12 — `C15` / `SEC-PII-1` (ALTA): la compuerta de identidad se pasaba con dos cadenas cualesquiera
+
+**El defecto, en una frase:** las **dos** compuertas de cumplimiento —el intake
+(`buylist.service.ts:1591-1606`) y la emisión de la oferta (`:3608-3615`)— medían lo mismo,
+`ineFrontKey != null && ineBackKey != null`, **y ese booleano lo escribía el cliente**. Con
+`{front:'a', back:'b'}` un vendedor **por encima del umbral AML** pasaba las dos y **cobraba a su
+CLABE sin habernos dado jamás una identificación**. `grep -rc HeadObject backend/src/` ⇒ **0**.
+
+**Se cierra con TRES comprobaciones, y ninguna sobra:**
+
+| # | Qué | Dónde | Qué deja pasar si falta |
+|---|---|---|---|
+| 1 | **Forma** anclada `^kyc_ine/<AAAA-MM-DD>/<uuid>.<ext>$` + `@MaxLength` | `KYC_INE_KEY_PATTERN` (`uploads.service.ts`), aplicada en **los dos DTOs** (`users.dto.ts`, `buylist.dto.ts` con `@ValidateNested`) | `'a'`, `'../otro/objeto'`, 5.000 caracteres |
+| 2 | **Dueño**: la key salió de **un presign de ESE `userId`** | tabla nueva **`KycUploadGrant`** (M-55), escrita por `POST /uploads/presign` | cualquier cadena con forma válida — y, si acertara una key ajena, **declarar suyo el documento de otro** |
+| 3 | **Existencia**: `HeadObject` | `UploadsService.objectExists` | quien pide un presign y **no sube nada**: un expediente que dice «tiene INE» sobre un bucket vacío |
+
+- **Un solo código (`422 INE_UPLOAD_KEY_INVALID`) para los tres fallos, a propósito:** distinguirlos
+  le diría al cliente **cuál** falló, que es un oráculo gratis sobre qué keys existen y de quién son.
+- **⚠️ Un fallo de RED del `HeadObject` NO se traduce a «no existe»: se propaga.** «No pude
+  preguntar» y «no está» son hechos distintos; confundirlos convierte un corte de red en un
+  expediente aceptado (o rechazado) por casualidad.
+- **La compuerta vive DENTRO de la rutina compartida** (`UsersService.buildIneSubmission`), que es el
+  **único escritor** de keys: quien añada un tercer camino y no pase por ahí, **no escribe**.
+
+### P78.13 — ⚠️ LA PREGUNTA QUE NO DECIDO YO: ¿hace falta migrar las filas que YA pasaron?
+
+**Sí hay un residuo, y no lo he resuelto porque no me toca.** `KycUploadGrant` nace **vacía**: toda
+fila de `KycProfile` anterior a M-55 tiene keys **no verificables**, y el control **solo actúa al
+escribir**. ⇒ **un expediente que pasó la compuerta con keys inventadas sigue contando como
+`ineOnFile: true`** y sigue satisfaciendo el umbral AML.
+
+- ⛔ **No hice backfill, y es una decisión, no un olvido:** inventar un permiso para cada key
+  existente sería **firmar retroactivamente lo que este control existe para comprobar**.
+- ⭐⭐ **MEDIDO el 2026-09-12 (por el DUEÑO, consola de Railway): `KycProfile` con INE ⇒ **1**, y con
+  llave de forma **no canónica** ⇒ **0**.** El residuo es **una sola fila**, y su llave **tiene la
+  forma que emite nuestro presign**. Sigue sin permiso en `KycUploadGrant` (la tabla nace vacía), así
+  que sigue siendo *no verificable* — pero la decisión del dueño es sobre **una** persona, no sobre
+  una población, y eso cambia cuál de las tres salidas sale más barata (re-pedir el documento a un
+  cliente es trivial; a doscientos, no).
+- **La medición que FALTA** (necesita ventana del dueño, contra producción): por esa
+  `KycProfile` con `ineFrontKey`/`ineBackKey`, un `HeadObject` contra el bucket. El resultado parte
+  las filas en tres: **objeto presente** (expediente real), **objeto ausente** (expediente falso o
+  purgado) y **key con forma no canónica** (nunca salió de nuestro presign).
+- **Las tres salidas posibles** —(a) marcar las falsas y **re-pedir el documento**, (b) aceptarlas y
+  anotarlo, (c) backfill de permisos para las que sí tienen objeto— **son del dueño**, no mías.
+  Yo dejo la migración lista para cualquiera de las tres: la tabla existe y el control ya distingue.
+
+### P78.14 — `C14` / `SEC-PII-2` (ALTA en marco real): el `no-store` no alcanzaba a los bytes
+
+El `Cache-Control: no-store` que puse en la segunda ronda protege **la respuesta que lleva los
+enlaces**. **La imagen la baja el navegador del bucket, por otra conexión**, y salía **sin metadato
+de caché ninguno** (`grep CacheControl` ⇒ vacío en el PUT y en el GET).
+
+- **Lo que rompía:** *una copia cacheada se sirve sin red* ⇒ el TTL de 120 s **no la alcanza**, la
+  firma caducada **no la alcanza**, y **volver a mirarla no deja fila de bitácora** — que es
+  exactamente la promesa del dueño. Y queda **en reposo fuera de la retención de 180 días**: nuestra
+  purga no llega al disco de un portátil.
+- **Las dos mitades:** `ResponseCacheControl: 'no-store'` en el `presignGet` (va **dentro de la query
+  firmada**) y `CacheControl: 'no-store'` en el `PutObjectCommand`, para que el objeto **nazca** con
+  el metadato. ⚠️ La segunda lo convierte en **cabecera firmada** ⇒ **tiene que ir en `headers` de la
+  respuesta del presign** (el front hace `{...presign.headers}`); es la misma clase que el BUG A1, y
+  por eso se declara en vez de dejarlo al azar.
+- **MEDIDO por HTTP contra almacenamiento real** (no por mecanismo): la descarga del enlace devuelve
+  `cache-control: no-store` — es el aserto nuevo del bloque `G-3`.
+
+### P78.15 — `C17`, `C19` y `C20`: tres eslabones más de la cadena de custodia
+
+- **`C17` / `SEC-PII-3`** — **una sola rutina de escritura de INE.** El intake era el **segundo**
+  escritor y rompía dos invariantes de v1.69 en el mismo `upsert`: **pisaba la key vieja sin borrar
+  el objeto** (huérfano invisible para la purga, `BL-42` c2) y **su rama `update` no tocaba
+  `kycStatus`** ⇒ un **`verified`** cambiaba sus imágenes y **conservaba la insignia**, con el
+  revisor viendo `verified` **sobre un documento que nadie revisó**. Ahora los dos caminos usan
+  `buildIneSubmission` + `purgeSupersededIneObjects`.
+  *(Y de paso: su rama `create` ponía `pending` **aunque no viniera ni una key** — una CLABE no es
+  una identidad.)*
+- **`C19` / `SEC-PII-5`** — `POST /uploads/presign` tenía **tope global por IP**, el eje que `P-RL-1`
+  esquiva: una manguera de objetos de 10 MiB **que nacen huérfanos**. Ahora **20/min por ACTOR**
+  (`ActorThrottlerGuard`, el mismo de `…/kyc/ine-links`). ⚠️ **El barrido de huérfanos de `C19` NO lo
+  hice**: es `backend + devops` y necesita ventana del dueño (ver «no medido»).
+- **`C20` / `SEC-PII-7`** — **el borrado de cuenta ya no declara una purga que no ocurrió.** Antes un
+  `deleteObject` que lanzaba se registraba en el log **y el flujo seguía**: la key se ponía a `null`
+  igual ⇒ la imagen quedaba en el bucket **sin ninguna fila que la referenciara**, invisible para
+  toda purga, con la cuenta marcada como anonimizada. Ahora: en **HARD** se **aborta** el borrado
+  (`500 INE_PURGE_FAILED` — la cascada se llevaría el único puntero) y en **SOFT** la key **se
+  conserva** para que la retención reintente. *Un puntero a PII es feo; **PII sin puntero es peor**.*
+
+### P78.16 — Mutaciones de esta ronda (COPIA del árbol entero, 3 tiradas, base verde y revertido verde)
+
+| Mutación | Spec | Proporción |
+|---|---|---|
+| **M-23** · la compuerta de `C15` desaparece de la rutina compartida | `users.kyc-cycle` | **ROJO 3/3** |
+| **M-24** · se quita el **`HeadObject`** (basta el permiso, sin objeto) | `uploads.ine-key-gate` | **ROJO 3/3** |
+| **M-25** · se quita la comprobación de **DUEÑO** | ídem | **ROJO 3/3** |
+| **M-26** · el PUT deja de fijar `CacheControl` (`C14`, escritura) | ídem | **ROJO 3/3** ⚠️ *ver abajo* |
+| **M-27** · el presign deja de **registrar** la key | ídem | **ROJO 3/3** |
+| **M-28** · el intake vuelve a escribir el INE por su cuenta (`C17`) | `buylist.ine-pending` | **ROJO 3/3** |
+| **M-29** · el borrado vuelve a declarar la purga fallida (`C20`) | `admin.user-management` | **ROJO 3/3** |
+| **M-30** · el patrón de key deja de estar anclado | `uploads.ine-key-gate` | **ROJO 3/3** |
+| **M-31** · se quita `ResponseCacheControl` del GET (`C14`, **lectura**) | `kyc-ine-links.e2e` (integración, STRICT) | **ROJO 3/3** |
+| **M-32** · la compuerta de `C15` desaparece (**el PoC por HTTP**) | ídem | **ROJO 3/3** |
+
+⚠️ **M-26 salió `0/3` en la primera tanda, y el fallo era del TEST, no de la mutación.** El aserto
+miraba `presign.headers['Cache-Control']` —el diccionario que yo construyo— y no el
+`PutObjectCommand` **que se firma**: quitar `CacheControl` del comando no movía ese aserto. *Medía la
+respuesta, no el objeto.* Reescrito para capturar el comando firmado **y** el header devuelto (las
+dos mitades: sin la segunda, la primera rompe la subida), la mutación sale **3/3**. Lo dejo escrito
+porque es exactamente el modo de fallo contra el que el encargo avisaba: *si no se pone roja, mide
+otra cosa*.
+
+### P78.17 — Gates de esta ronda
+
+| Gate | Resultado |
+|---|---|
+| `npm run lint` | **0 errores** (3 *warnings* preexistentes, ajenos) |
+| `npm run typecheck` | **exit 0** |
+| `npx jest` | **289 suites / 4748 pruebas, verde** |
+| Integración — `kyc-ine-links.e2e-spec.ts` | **23/23** (13 de §M6-K + 4 de `G-3` + 6 de `C15`/`C19` por HTTP) |
+| Integración — suite completa | **30/33 · 473/488**; los 3 rojos son los **mismos** de la línea base sin mis cambios |
+
+**⚠️ NO MEDIDO (nuevo), con la medición que lo cerraría:**
+1. **El `429` de `POST /uploads/presign`** (candado `C19`(a): 11 presigns con la misma sesión y XFF
+   rotatorio ⇒ `429` en el 11.º). Mismo impedimento que el `429` de `…/kyc/ine-links`: bajo
+   `NODE_ENV=test` el throttler se omite. **Lo cierra el mismo arnés** con el tope encendido.
+2. **El barrido de huérfanos de `kyc_ine/`** (`C19`(b), `BL-42` c2): listar el prefijo y restar las
+   keys vivas de `KycProfile`, **en modo informe**. Es `backend + devops` **y necesita ventana del
+   dueño contra el bucket real**; no se hace «por si acaso».
+3. **La sonda de caché de `C14`(c)** (cargar la imagen, dejar vencer el enlace, **desconectar la red**
+   y recargar). Yo medí `C14`(b) —la cabecera real por HTTP, 23/23— pero **la conducta de Chromium
+   no la he medido**: es de `seguridad`/devops y ⛔ con imagen de prueba, nunca con la INE de nadie.
+4. **Cuántas filas de producción tienen keys no verificables** (P78.13). Necesita ventana del dueño.
+
+---
+
+## P-79(d) · EL GUION DE REPARACIÓN EN PRODUCCIÓN — lo escribe backend, **lo ejecuta el dueño** (2026-09-12, medido)
+
+> **Ficheros:** `backend/prisma/data-repair/20260912_p79d_llave_de_precio_del_sellado.sql` (reparación)
+> y `…/20260912_p79d_DESHACER.sql` (reversa). **SQL puro**: no necesita Node, ni el repo, ni Prisma.
+> ⛔ **No es una migración de Prisma** y por eso NO vive en `prisma/migrations/`: `prisma migrate`
+> solo lee esa carpeta, así que esto no puede colarse en un despliegue por accidente.
+> **Por qué lo ejecuta el dueño:** desde este entorno **no se alcanza esa base** — medido: solo sale
+> TCP 443, una conexión a Postgres está bloqueada.
+
+### P79d.1 — Los números de partida (**medidos por el DUEÑO** en la consola de Railway, 2026-09-12)
+
+| Qué | Cuántas |
+|---|---|
+| `InventoryItem` `reserved` con `reservedByOrderId IS NULL` | **0** |
+| `KycProfile` con INE | **1** · con llave de forma **no canónica**: **0** |
+| `PendingPriceEntry` sellado con `gradeKey='sealed'` y `sealedProductId` poblado | **5** |
+| `PriceReference` `gradeKey='sealed'` con `isManualOverride=true` | **4** |
+
+⚠️ **Los dos primeros números cierran cosas que estaban abiertas, y se anotan con su fecha:**
+- **`0` reservas legadas** ⇒ cae la **primera mitad de `RSV-L1`** y la condición **`C8`**: **no hay
+  inventario atascado**. El barrido que entregó `SEC-SB-1` queda como **preventivo**, no como
+  remedio de una cola existente. (Anotado también en `TECH_DEBT`.)
+- **`1` INE en archivo, `0` con llave no canónica** ⇒ el residuo de **`C15`** (§P78.13) tiene el
+  tamaño más pequeño posible: **una sola fila**, y su llave **tiene la forma que emite nuestro
+  presign**. Sigue sin `KycUploadGrant` (la tabla nace vacía), así que sigue siendo *no verificable*
+  — pero la decisión del dueño es sobre **una** persona, no sobre una población.
+
+### P79d.2 — Las 5 de la cola son fáciles; las 4 de precios **no**, y ahí está el riesgo
+
+- **La cola** (`PendingPriceEntry`) son **avisos**, no dinero, y **cada uno sabe a qué producto
+  pertenece** (`sealedProductId`). `SealedProduct.tcgplayerProductId` es `NOT NULL`, así que la llave
+  correcta —`sealed:tcg:<id>`— **se deduce sin ambigüedad para las cinco**.
+- **Los precios** (`PriceReference`) son **el dinero que el dueño ya tecleó**, y esa tabla **no tiene
+  `sealedProductId`** (§M2-SK `SK-1`: no lo va a tener, y por qué). Una fila `gradeKey='sealed'` está
+  anclada a una **carta**, no a un producto ⇒ **si dos sellados cuelgan de la misma carta ancla, la
+  fila es AMBIGUA y moverla le pondría a una caja el precio de un sobre.**
+
+**Por eso el guion clasifica y solo repara lo inequívoco.** Cuatro veredictos posibles, y cada fila
+se imprime con **el importe en pesos, la fecha, la carta ancla y el nombre del producto**, para que el
+dueño **reconozca el precio que tecleó**:
+
+| Veredicto | Cuándo | Qué hace |
+|---|---|---|
+| **SE CORRIGE** | la carta ancla tiene **un solo** sellado con mapeo | re-etiqueta a `sealed:tcg:<id>` |
+| **AMBIGUO** | **dos o más** sellados cuelgan de esa carta | ⛔ no la toca, y dice **cuáles** son |
+| **SIN CANDIDATO** | ninguna pieza sellada mapeada cuelga de esa carta | ⛔ no la toca |
+| **COLISIÓN** | ya existe un precio con la llave correcta ese mismo día | ⛔ no la toca |
+
+### P79d.3 — Cómo está construido (las cinco propiedades que se pidieron)
+
+1. **Marcha en seco por defecto.** El fichero **termina en `ROLLBACK`**. Se pega tal cual, imprime
+   el plan y el «antes/después», **y no escribe nada**. Para aplicar, el dueño cambia **una palabra**
+   (`ROLLBACK` → `COMMIT`) y lo vuelve a pegar. *Un interruptor de una palabra, en la última línea.*
+2. **Respaldo antes de tocar.** `p79d_respaldo` (tabla nueva, se queda como comprobante) guarda
+   `(tabla, fila_id, etiqueta_anterior, etiqueta_nueva)` de **cada** fila que se va a mover.
+3. **Reversa escrita y ejecutable**, con los valores previos: al final del mismo fichero, y además
+   como **fichero hermano listo para pegar** (`…_DESHACER.sql`) — quitarle los `--` a mano a un
+   bloque de SQL es justo el tipo de paso que se hace mal a las tres de la mañana.
+4. **Idempotente por construcción.** Los `UPDATE` llevan `AND "gradeKey" = 'sealed'`: tras la primera
+   pasada ninguna fila lo cumple. El respaldo usa `ON CONFLICT DO NOTHING`.
+5. **Las ambiguas no se tocan.** Se listan aparte, al final, con su motivo.
+
+⚠️ **Un caso que NO se comprueba, y es porque la base ya lo impide (medido):** «dos precios genéricos
+de la misma carta, día y acabado» no puede existir — el índice único
+`PriceReference_variant_capturedDate_key` es **`NULLS NOT DISTINCT`**, así que Postgres rechaza el
+par. Lo medí intentando sembrarlo: `duplicate key value violates unique constraint`. **Escribí el
+guardarraíl y lo retiré al medir que era código muerto**, dejando dicho el porqué en el propio fichero
+(si alguien lo «arregla» otra vez sin medirlo, ahí está el motivo).
+
+### P79d.4 — El ensayo: qué medí y con qué proporción
+
+Base **local y desechable** (`p79d_probe`, creada con `prisma migrate deploy`), sembrada con **las
+cuatro variantes a la vez**: inequívoca, ambigua (dos sellados en la misma carta ancla), sin candidato
+y colisión — más un precio **raw** de control que no debe tocarse jamás, y un aviso de cola duplicado.
+
+Cada tirada: **sembrar → marcha en seco → aplicar → aplicar otra vez → deshacer**, comprobando:
+
+| Comprobación | Resultado |
+|---|---|
+| La marcha en seco **no escribe nada** (huella de la BD idéntica) y **no deja la tabla de respaldo** | ✅ |
+| Al aplicar, la **inequívoca** pasa a `sealed:tcg:111111` | ✅ |
+| La **ambigua**, la **sin candidato**, la de **colisión** y el **raw de control** quedan **intactos** | ✅ |
+| La cola: dos avisos re-etiquetados, el **duplicado** intacto | ✅ |
+| El respaldo tiene **exactamente** las 3 filas movidas | ✅ |
+| **Segunda pasada**: no mueve nada ni duplica el respaldo | ✅ |
+| **La reversa** devuelve la huella **exacta** del estado inicial | ✅ |
+
+**Proporción: 3/3** (arnés: `scratchpad/backend-P78/p79d-ensayo.sh`; siembra:
+`…/p79d-siembra.sql`). ⛔ Ni una consulta a producción: todo contra `p79d_probe`.
+
+**⚠️ NO MEDIDO, y lo digo porque cambia qué vale este ensayo:** el guion **no se ha corrido nunca
+contra los datos reales**. Lo que está medido es su **conducta** sobre un escenario que reproduce las
+cuatro variantes; lo que **no** sé es **cómo se reparten las 4 filas reales** entre esos cuatro
+veredictos. **Eso lo contesta el PASO 1 (la marcha en seco) en la consola del dueño**, y por eso el
+paso 1 existe: es la medición, no un trámite. **Hasta que él la pegue y lea las tablas, «cuántas se
+reparan» es desconocido.**

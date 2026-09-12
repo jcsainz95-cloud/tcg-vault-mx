@@ -586,12 +586,16 @@ export function BuylistView() {
               totalEstimatedCents={totalEstimatedCents}
               // §23.3f-bis: el consejo del faltante cambia con líneas sin precio (la cifra no).
               pendingCardCount={pendingCardCount}
-              // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
+              // Heads-up derivado de GET /users/me/kyc (⭐ v1.69: el VEREDICTO del servidor, no una
+              // comparación nuestra); el backend re-decide igualmente (SEC-A1).
               ineExpected={sellReq.ineExpected}
               clabeMasked={sellReq.clabeMasked}
               // v1.15: atajo "usar mi CLABE" (omite `clabe`) e INE en archivo (oculta uploaders).
               clabeOnFile={sellReq.clabeOnFile}
               ineOnFile={sellReq.ineOnFile}
+              // P-78 (§34.8.4): si la INE anterior fue rechazada, el motivo se lee AQUÍ también.
+              kycStatus={sellReq.kyc?.kycStatus}
+              rejectionReason={sellReq.kyc?.rejectionReason}
               onCreated={(sellRequestId) => {
                 setCreatedId(sellRequestId);
                 setRequestOpen(false);

@@ -2,7 +2,112 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.69**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.70**).
+>
+> **Changelog v1.70 — CUATRO DECISIONES ACUMULADAS, RESUELTAS DE UNA (2026-09-11, arquitecto; base v1.69.1, vigente
+> entera). ⚠️ Se escribe DESPUÉS de que Stream B se publicara (`efe65f5`): cada punto dice si exige despliegue o si
+> es solo para lo siguiente.**
+>
+> | # | Origen | Qué cambia | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | `C10` de `seguridad` | [`§M6-K.2.0/.2.1/.2.3/.2.5`](#M6-K): tope **por `actorUserId`**, `Cache-Control: no-store` + `X-Robots-Tag`, y `expiresInSeconds` = **TTL efectivo tras el clamp** (+ `ttlClamped`/`ttlRequested`) | **No: §M6-K aún no existe en código.** Backend lo está construyendo AHORA y lo recoge de una vez |
+> | **2** | `P-83` (backend) | [`§M2-SK`](#M2-SK): **`'sealed'` es clave de COLA, nunca de PRECIO**. `PriceReference` **NO** gana identidad (⛔ cero migración); ningún lector de dinero cae a `'sealed'`; override de sellado sin mapeo ⇒ **`422 SEALED_MARKET_KEY_REQUIRED`**; el precio del sellado sin mapear es `listPriceCents` **de la pieza** | **Sí, dos cosas:** retirar el fallback de `admin.inventoryValue()` y el `422` nuevo |
+> | **3** | `P-80` (backend) | [`§4-R.9`](#4-R): la **orden huérfana de pago** (PI `canceled` + orden `pending`) se declara **legal y money-safe**; **no se reusa, se sustituye**; la sustitución la **sana** porque cancelar es idempotente. La llamada a Stripe **NO** sale de la transacción en este pase (disparador en `ARCHITECTURE §4.49.2`) | **Sí, una:** el reuso debe **releer el estado del PI** y no devolver el `clientSecret` de uno cancelado |
+> | **4a** | `P-81` (backend) | [`§M5-S`](#M5-S): **tres ramas, no dos**. La rama de la **carrera** es `409 CONFLICT` + `details.reason: 'CONCURRENT_UPDATE'` — **gana el código**, y se dice por qué | **No: es documental**, el código publicado ya se comporta así |
+> | **4b** | `SB-D6` (frontend) | [`§4-R.3 K.3-bis`](#4-R): el **sobre del reintento del invitado** (`token` + `email` en `sessionStorage`) pasa a ser **normativo**. Y [`§4-R.10`](#4-R): el gate E2E de §4-R vive en el carril **con claves de prueba**; ⛔ **no** se construye un proveedor de pago falso | **No: es documental**, describe lo publicado |
+>
+> **1. ⭐⭐ `§M6-K` — LOS TRES HUECOS DE PII QUE `seguridad` ENCONTRÓ SIN CÓDIGO (`C10`), RECOGIDOS ENTEROS.**
+> **(a) El tope de `10/min` cambia de eje: cuelga de `actorUserId`, no de la IP** ([`§M6-K.2.0`](#M6-K), nueva). El
+> modelo de amenaza de esta superficie no es una IP anónima —el endpoint ya exige `super_admin`— sino **una sesión de
+> `super_admin` abusada**, y esa sesión cambia de IP cuando quiere; además, el tracker por IP es **justo el que
+> `P-RL-1` (ALTA, abierto) sabe esquivar** rotando `X-Forwarded-For`. *El único control preventivo del revelado de
+> identidades no puede colgar del eje que ya sabemos roto.* Reusa el mecanismo de `C7`; ⛔ no se escribe un segundo
+> guard con la misma idea. **(b) `Cache-Control: no-store` + `X-Robots-Tag: noindex, nofollow` pasan a ser
+> NORMATIVOS** en la respuesta de `ine-links` ([`§M6-K.2.3`](#M6-K)) — el propio contrato ya lo exige para
+> `POST /orders/guest/track`, **que lleva menos**: un token, no **dos credenciales portadoras hacia PII de
+> identidad**. **(c) `expiresInSeconds` deja de ser la constante `120`** y pasa a ser el **TTL efectivo tras el
+> clamp**, el mismo número en los tres sitios (firma, cuerpo y bitácora), con `ttlClamped`/`ttlRequested` cuando hubo
+> recorte ([`§M6-K.2.1`](#M6-K), [`§M6-K.2.5`](#M6-K)). *Misma clase que `S-FX-3`: una bitácora que afirma un número
+> que quizá no rigió.* Los tres traen **candado propio** para que se puedan medir y no solo leer.
+>
+> **2. ⭐⭐ `P-83` — LA LLAVE DEL SELLADO: NI COLUMNA NUEVA, NI PROHIBIR EL ALTA.** Las dos opciones que llegaron se
+> descartan **con medición**: (a) dar identidad a `PriceReference` sería **inerte** —`sealedProductId` es `NULL`
+> exactamente en la población no mapeada que pretende desambiguar (`deriveFromSealedProduct` + el paso 8 del backfill
+> de M-39, medido)—; (b) prohibir el alta sin mapeo **bloquearía la entrada de mercancía real** mientras `P-46`
+> (*«0 presentaciones»*) siga abierto en producción. La decisión es la tercera: **separar los dos usos de la
+> llave**. Detalle, las cuatro normas SK-1…SK-4 y el reparto en [`§M2-SK`](#M2-SK). **Cero migración.**
+>
+> **3. ⭐⭐ `P-80` — LA PREGUNTA DEL FONDO YA TENÍA RESPUESTA EN EL CÓDIGO PUBLICADO.** *«¿Qué pasa si la cancelación
+> confirma y la transacción posterior falla?»* — **ese estado es alcanzable HOY**: la llamada a Stripe **no es
+> transaccional**, y tras confirmarse quedan dos escrituras y un commit que pueden fallar. Meterla dentro de la
+> transacción **no lo evita: estrecha la ventana.** ⇒ el estado se **declara** (orden **huérfana de pago**), se
+> demuestra **money-safe** (cero PI vivos sobre esas piezas) y se le da **una sola vía de salida**: la sustitución,
+> que lo **sana** porque `closePaymentIntent` sobre un PI ya cancelado devuelve `{closed:true}` (medido,
+> `orders.service.ts:764-779`). El único cambio de conducta —y **hay que desplegarlo**— es que **el reuso deje de
+> entregar el `clientSecret` de un PI cancelado** (hoy lo entrega: `:933-935`, medido). Candado **R-10**.
+>
+> **4. `P-81` y `SB-D6` — las dos pequeñas, zanjadas.** §M5-S gana su **tercera rama** explícita (la carrera ⇒
+> `CONFLICT` + `reason`, con el argumento: `INVALID_TRANSITION` produciría un `details` que **se contradice a sí
+> mismo**, y el remedio del operador es *otro*); y el **sobre del reintento del invitado** deja de ser un apaño no
+> declarado que sostenía una promesa del contrato. **Ninguna de las dos exige despliegue.**
+>
+> **Changelog v1.69.1 — P-79(c) · LA COLA «LISTAS PARA PUBLICAR» DE M1 ENSEÑA EL SELLADO CON FORMA DE CARTA SUELTA
+> (2026-09-11, arquitecto; base **v1.69, vigente entera**). Cambio ADITIVO, RETROCOMPATIBLE y MONEY-SAFE:
+> **UN campo nuevo en UN DTO**. Cero endpoints, cero códigos, cero DDL, cero secciones renumeradas.**
+>
+> **Hallazgo del dueño sobre la app publicada, medido fichero a fichero (orquestador, 2026-09-11):** da de alta un
+> producto **sellado** y la cola «Listas para publicar» del panel se lo devuelve como
+> `Weedle — CHAOS RISING · 1 · NORMAL`. **La pieza NO se convirtió en carta:** en BD `productType='sealed'` y
+> `sealedProductId` siguen intactos. Falla la pantalla, por dos motivos encadenados:
+> - `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx:139-141` imprime **siempre**
+>   `setName · number · finish`; `grep -c productType` sobre ese fichero = **0** ⇒ no existe rama de sellado.
+> - Y aunque existiera, **no hay con qué pintarla**: el DTO de esta cola no lleva el nombre del producto sellado
+>   (`frontend/src/types/contract.ts:2581-2599`; proyección `backend/src/modules/inventory/inventory.service.ts:1801-1823`).
+> - El `· 1 ·` es el número de la **carta ancla** del set, y el propio backend declara que el ancla **deja de ser
+>   identidad** (`inventory.service.ts:820-829`, `resolveAnchorCardId`; ARCHITECTURE §4.34a). *La pantalla está
+>   enseñando justo el dato que el diseño ya había dictaminado que no identifica nada.*
+>
+> **1. ⭐ `PendingPublishRowDTO` gana UN campo, y solo uno: `sealedProductName?: string`** — presente **SOLO** cuando
+> `productType='sealed'` (ausente/omitido en `raw`/`graded`). **No hay campo nuevo para «es sellado»:** `productType`
+> **ya viaja** en este DTO desde v1.51 (§11) y es el discriminante. *Cada campo nuevo en una proyección es superficie
+> que alguien mantiene; aquí lo único que faltaba era el nombre.*
+> **Resolución server-side, y ⚠️ NO es la cascada completa de §4.34a:**
+> `SealedProduct.name` (vivo, vía `sealedProductId`) → snapshot por-pieza `InventoryItem.sealedProductName` (M-37) →
+> **AUSENTE**. ⛔ **En esta cola el último escalón NO cae a `Card.name`.** El nombre del ancla es *exactamente* el
+> defecto reportado, y aquí no hay nada que lo desmienta: esta tabla no tiene imagen, ni columna `productType`, ni
+> `gradeKey` — a diferencia de la cola de M2, que sí los pinta (`PendingQueueSection.tsx:107-108`) y por eso puede
+> permitirse el fallback al ancla. Misma doctrina que `missing` vacío y que `total` ausente en esta misma pantalla:
+> *ante un «no sé», no se pinta un valor que parezca bueno.* **La fila NUNCA se oculta por esto** (esta cola es la RED
+> del disparo de auto-publicación, §M1): sin nombre resoluble se pinta «sellado sin identificar», nunca vacío.
+>
+> **2. ⭐ QUÉ SE PINTA EN CADA CASO (normativo — frontend no improvisa; ux-ui pone la copia y las claves i18n):**
+>
+> | Caso | Nombre (línea 1) | Línea 2 (secundaria) | Número de carta | Acabado |
+> |---|---|---|---|---|
+> | **Single** (`raw`/`graded`) | `card.name` | `card.setName` | **sí** (`card.number`) | solo si **significativo**: `productType='raw'` **o** `finish !== 'normal'` (misma regla que `FinishBadge.tsx:21`) |
+> | **Sellado con nombre** (`sealed` + `sealedProductName`) | `sealedProductName` | `card.setName` + marca **«SELLADO»** | ⛔ **NUNCA** (es el ancla) | ⛔ **NUNCA** (siempre `normal`) |
+> | **Sellado legado sin nombre** (`sealed`, sin `sealedProductName`) | copia fija tipo «Sellado sin identificar» — ⛔ **jamás `card.name`** | `card.setName` + marca **«SELLADO»**, en tinta de atención | ⛔ **NUNCA** | ⛔ **NUNCA** |
+>
+> El `folio` (columna 1) ya identifica la fila de forma única en los tres casos, así que el tercero **sigue siendo
+> accionable**: el operador va al folio, no al nombre. `card: CardDTO` **se conserva** en el DTO (pertenencia al set y
+> render de singles); lo que cambia es **qué se pinta de él** cuando la pieza es sellada.
+>
+> **3. ⛔ QUÉ **NO** VIAJA (deliberado, para que nadie lo añada «de paso»):** `sealedProductId` (la fila ya es única por
+> `inventoryItemId`/`folio`, el deep-link de precio ya viaja como `pendingPriceEntryId`, y la llave de la cola de M2 no
+> se pinta aquí), `sealedImageUrl` (tabla de texto, sin imágenes), `sealedSubtype` (el subtipo ya está dentro del
+> nombre: «… Elite Trainer Box»), `sealedCondition`, `tcgplayerProductId`/`tcgplayerGroupId`, y **ningún precio nuevo**
+> —ni `sealedMarketRef`, ni sugerencia, ni herencia del costo de compra—: el alcance **D10 «SOLO VISIBILIDAD»** de esta
+> cola no se toca.
+>
+> **4. Reparto (stream «Inventario y vault»).** **Backend (`inventory`)** — poblar `sealedProductName` en la proyección
+> de `pendingPublish` (`inventory.service.ts:1801-1823`) con la resolución del punto 1; el join sale **gratis**: la
+> query de la página ya existe (`:1790-1796`) y solo gana
+> `include: { sealedProduct: { select: { name: true } } }` ⇒ **cero queries nuevas, cero N+1**; el barrido
+> (`:1769-1785`) **no** se toca. Tests: sellado mapeado ⇒ nombre del `SealedProduct`; sellado con snapshot y sin FK ⇒
+> snapshot; sellado sin ninguno ⇒ **campo ausente** (jamás `Card.name`); `raw`/`graded` ⇒ campo **ausente**; la fila
+> sigue en la cola en los tres casos. **Frontend (`(admin)/admin/m1`)** — tipar el campo en `types/contract.ts`,
+> ramificar `PendingPublishQueue.tsx:136-143` según la tabla del punto 2 y **borrar** `· number · finish` para sellado.
+> **No hay endpoint nuevo, no hay migración, no cambia ningún shape existente.**
 >
 > **Changelog v1.69 — P-78 · LA VERIFICACIÓN DE IDENTIDAD CIERRA EL CICLO (2026-09-11, arquitecto; base v1.68.1,
 > vigente entera). ⚠️⚠️ FRENTE DE PII ⇒ PASA POR SEGURIDAD ANTES DE PUBLICARSE.**
@@ -4921,6 +5026,15 @@
   puede corregir. **Longitud fuera de 3–500 ⇒ `422 VALIDATION_ERROR`** (`details: { field, min, max }`), y
   `rejectionReason` **con un `kycStatus` distinto de `rejected`** ⇒ **`422 VALIDATION_ERROR`** también: ⛔ un motivo
   aceptado y descartado en silencio es un motivo que el cliente nunca verá y que el admin cree haber mandado.
+- <a id="sealed-market-key-required"></a>**⭐ `422 SEALED_MARKET_KEY_REQUIRED` (NUEVO v1.70, P-83 — [`§M2-SK`](#M2-SK)):**
+  `POST /admin/pricing/override` con `productType: "sealed"` y `gradeKey: "sealed"` (la constante legada), es decir
+  sobre una pieza **sin mapeo** (`tcgplayerProductId IS NULL`). `details: { gradeKey: "sealed", remedy:
+  "map_or_price_the_piece" }`. **Existe porque esa escritura hoy tiene éxito y no sirve de nada, dos veces:** la fila
+  que crea **no la lee nadie** (la publicación solo lee `sealed:tcg:<productId>`) y **no distingue un producto de
+  otro** (un ETB y un blíster anclados a la misma `Card` comparten la fila). *Escribir dinero en una llave que no
+  identifica al producto es peor que no escribirlo.* **Remedio, y son dos, los dos existentes:** mapear la pieza a su
+  presentación (M2) **o** fijar el precio **de esa pieza** (`InventoryItem.listPriceCents`, precedencia #1 de §K).
+  **Hermano de `RECIPIENT_NAME_REQUIRED`:** *falta la identidad; consíguela y reintenta* — ⛔ jamás un fallback.
 - **⛔⛔ ~~`422 KYC_NOT_VERIFIED`~~ — RETIRADO EN v1.60 (D51) ANTES DE IMPLEMENTARSE. NO EXISTE Y NO SE IMPLEMENTA.**
   **Declarado en v1.59** como **un término de KYC** en `POST /admin/buylist/:id/pay-spei` (`ineRequired = true ∧
   kycStatus != 'verified'`), **nunca llegó al código** —llegó por la regla 9 y no se mergeó—, y **`PROJECT.md` D51
@@ -7447,6 +7561,40 @@ inválido/caducado o correo distinto ⇒ **no hay reclamo de propiedad** ⇒ la 
   `localStorage` compartido sigue prohibido (§4-G.2). Se envía **solo** en el body de
   `POST /checkout/guest/session`, nunca en URL.
 
+**⭐⭐ v1.70 (`SB-D6`) — K.3-bis. EL SOBRE DEL REINTENTO DEL INVITADO: `token` **Y** `email`, y es NORMATIVO.**
+
+> **Por qué existe esta cláusula:** §4-R.3 y §4-R.5 exigen **token + correo, los dos o ninguno**, pero v1.68.1 solo
+> bendijo la persistencia **del token**. El correo quedó guardándose «porque hacía falta», sin estar declarado.
+> **Medido por frontend:** sin él, **recargar la pestaña poda la reserva propia del invitado** — el primer quote
+> sale sin reclamo, la pieza vuelve «ajena», la vista la poda (§4, «Deber del front») y la promesa de §4-R.3 no se
+> cumple. *Un apaño que sostiene una promesa del contrato no es un apaño: es parte del contrato, y se escribe.*
+
+| Regla | Norma |
+|---|---|
+| **Qué se guarda** | **UN sobre, UNA clave**: `{ token, expiresAt, email }`. El correo es el **normalizado** (`trim` + minúsculas), el mismo que el servidor compara contra `order.guestEmail` |
+| **Dónde** | **`sessionStorage`** (ámbito pestaña). ⛔ `localStorage`, ⛔ cookie, ⛔ URL/query, ⛔ campo oculto de formulario. *La mitad más sensible del par ya vivía ahí: partir el par entre dos almacenes le daría al eslabón débil la vida del más largo* |
+| **Se escribe** | en **una sola escritura**, cuando `guest/session` responde (`201` o `200 reused`) con `checkoutToken` + `checkoutTokenExpiresAt` |
+| **Se borra** | (a) al confirmar el pago — un pedido pagado no se «reintenta»; (b) cuando `expiresAt <= now()` (purga en la lectura); (c) si el sobre está malformado. **Y por construcción al cerrar la pestaña** |
+| **Adónde viaja** | **solo** en el body de `POST /checkout/guest/quote` y `POST /checkout/guest/session`. ⛔ A ningún otro endpoint, ⛔ a ninguna analítica, ⛔ a ningún log de cliente |
+| **Sobres legados** | sin `email` (anteriores a v1.68.1) ⇒ se lee el token y el correo va **vacío**; el llamador decide si ya tiene un correo confirmado que poner. ⛔ **No se inventa un correo** |
+
+**Por qué guardar el correo es aceptable, dicho con el argumento y no con la costumbre:** el correo del invitado ya
+está, **en esa misma pestaña**, en el campo del formulario, en el body de la petición y en la pantalla de
+confirmación. `sessionStorage` **no ensancha** su exposición: cualquier ejecución hostil capaz de leerlo de ahí
+puede leer el campo del formulario y —peor— el **token**, que es estrictamente más sensible y que este contrato ya
+bendijo en el mismo sitio. *El riesgo marginal es cero; el hueco era documental.*
+
+**Alternativa descartada, y por qué:** *retirar `email` de §4-R.3 y dejar que el token sea la identidad entera.*
+Sería menos que guardar (nada nuevo que persistir) pero **debilita un control declarado de dinero y PII** —el par
+es defensa en profundidad frente a un token que se filtre por un camino que hoy no vemos— y **exige desplegar**
+backend y frontend para relajar una regla que hoy funciona. Se descarta: no se paga un despliegue por perder una
+comprobación.
+
+⚠️ **Esta cláusula es DOCUMENTAL: describe lo que el código publicado ya hace** (`frontend/src/app/[locale]/
+(storefront)/checkout/guest-retry-token.ts`, sobre único, purga por `expiresAt`, borrado al pagar). **No hay nada
+que desplegar por ella.** Lo que gana es que deja de ser una decisión de un fichero y pasa a ser una regla con
+dueño: cualquier cambio de este almacenamiento pasa por el arquitecto (regla 9).
+
 #### 4-R.4 Expiración — un solo barrido para las dos rutas
 
 Job **`order-reservation-sweep`** (sustituye a `guest-order-sweep`; cron `*/15 * * * *`; la env
@@ -7530,6 +7678,69 @@ Rollback: el artefacto anterior ignora las columnas.
 | **R-7** | aceptar el reclamo de invitado por correo | Invitado con el mismo `email` y **sin** `retryOfCheckoutToken` (o con uno de otro pedido) ⇒ `409 ITEM_UNAVAILABLE`; rojo si obtiene `200` |
 | **R-9** ⭐ *(v1.68.1)* | tratar la reserva propia **vencida** como ajena (`409`) o como reusable (`200`) | O1 con `reservedUntil` en el pasado y **sin** barrer ⇒ `POST /checkout/session` del mismo cliente, **mismo carrito** ⇒ **`201`**, `supersededOrderIds == [O1]`, PI1 `canceled` **antes** de crear PI2, O1 `failed`; rojo con `409 ITEM_UNAVAILABLE` o con `200 reused`. **Y la carrera con el barrido:** lanzar el barrido y la sesión solapados (5 escalonados) ⇒ en todos los desenlaces la pieza termina `reserved` por O2 **o** `listed` con O2 inexistente y respuesta `409 ITEM_UNAVAILABLE` — **nunca** `listed` con O2 `pending` (proporción reportada) |
 | **R-8** ⭐ *(v1.68.1)* | que el quote pode la reserva propia (volver a `isSellable` a secas) | Tras O1 (`201`), `POST /checkout/quote [X]` del **mismo** cliente ⇒ `items[0].reservedByYou === true`, `unavailableItems == []`, `ownReservation.orderId === O1`, `coversCart === true`, `breakdown.totalCents === O1.totalCents`; **otro** cliente ⇒ `X ∈ unavailableItems`, `ownReservation === null`. Invitado: solo con `retryOfCheckoutToken` + `email` correctos. **Y de punta a punta:** quote → «Pagar» → `session` ⇒ `200 reused` (rojo si la vista podó X) |
+| **R-10** ⭐⭐ *(v1.70, P-80)* | que el reuso entregue el `clientSecret` de un PI **cancelado** | Orden `pending` propia cuyo PI está `canceled` en Stripe (estado *huérfana de pago*, §4-R.9) + mismo carrito ⇒ **`201` con `supersededOrderIds: [O1]`** (sustitución), **nunca** `200 reused`; rojo si la respuesta trae el `clientSecret` de PI1 |
+
+#### 4-R.9 ⭐⭐ v1.70 (P-80) — LA ORDEN «HUÉRFANA DE PAGO»: el estado que la cancelación no transaccional ya produce
+
+> **Lo medido, y es lo que cambia el marco de la pregunta:** la llamada a Stripe de la sustitución **no es
+> transaccional y nunca podrá serlo**. Hoy vive **dentro** del `$transaction` (`orders.service.ts:867-896`), pero
+> **después** de que `closePaymentIntent` confirma quedan dos escrituras y un commit; si cualquiera de los tres
+> falla —timeout de la transacción, caída de la conexión, error del commit—, el PI queda **cancelado en Stripe** y
+> la orden queda **`pending` en la BD, con sus piezas reservadas**. ⇒ **El estado «PI cancelado + orden `pending`»
+> es alcanzable HOY, con el código publicado.** Meter la llamada dentro de la transacción **no lo evita: solo
+> estrecha la ventana.** Razón entera y la decisión de no mover la llamada: `ARCHITECTURE §4.50.2`.
+
+**Definición — orden huérfana de pago:** `Order.status='pending'` ∧ `stripePaymentIntentId` **no nulo** ∧ ese PI
+está **`canceled`** en Stripe. Sus piezas siguen `reserved` por ella hasta el TTL o el barrido.
+
+**Las tres normas que la vuelven un estado declarado en vez de un callejón:**
+
+1. **Es LEGAL y es MONEY-SAFE.** No viola la regla 1 de §4-R.2 (*«un cobro por pieza»*): hay **cero** PaymentIntents
+   vivos sobre esas piezas. Lo único que hay es una reserva que nadie va a cobrar. ⛔ **No se acuña un
+   `OrderStatus` nuevo** y ⛔ **no se escribe una columna de compensación**: el hecho ya es derivable del PI, y dos
+   fuentes para un hecho es lo que este contrato prohíbe.
+2. ⭐ **UNA HUÉRFANA NO SE REUSA — SE SUSTITUYE.** `POST /checkout/session` y `POST /checkout/guest/session`
+   **releen el estado del PI** antes de decidir «REUSO» (ya lo releen: el `clientSecret` no se persiste). Si el PI
+   está `canceled`, la fila «REUSO» de §4-R.2 **no aplica** y se cae a **SUSTITUCIÓN** (cancelar —no-op, ver 3— →
+   liberar → reservar → crear → PI nuevo ⇒ **`201`**). *Sin esta norma, el reuso devuelve el `clientSecret` de un PI
+   cancelado y el cliente se estrella contra un error de Stripe que nadie le puede explicar: la mitad del ciclo que
+   O-4 exige recorrer.* **Es un cambio de conducta y HAY QUE DESPLEGARLO** (hoy `paymentIntentForReuse`
+   `orders.service.ts:933-935` devuelve el `clientSecret` sin mirar el estado — medido).
+3. **La sustitución SANA la huérfana, y por eso el reintento es la reparación.** Cancelar un PI **ya cancelado** es
+   **idempotente**: `closePaymentIntent` desambigua consultando el estado real y devuelve `{ closed: true }`
+   (`orders.service.ts:764-779`, medido). ⇒ el segundo intento del cliente atraviesa la misma secuencia y termina en
+   `201`. ⛔ **Prohibido** «reparar» huérfanas con un job, un script o una compensación asíncrona: el barrido
+   (§4-R.4) ya las recoge por vencimiento y **la vía del cliente ya las cura**; un tercer camino a la misma
+   transición sería un tercer sitio donde se puede liberar la pieza de otro.
+
+**Lo que NO se decide aquí y queda con disparador nombrado:** sacar la cancelación fuera de la transacción para
+soltar la conexión del pool. **No se hace en este pase** — razón, números y el disparador medido que lo reabriría
+en `ARCHITECTURE §4.50.2`.
+
+#### 4-R.10 ⭐ v1.70 (`SB-D6`, segunda mitad) — CÓMO SE PRUEBA §4-R DE PUNTA A PUNTA, Y POR QUÉ NO HAY UNA VÍA SIN STRIPE
+
+> **La pregunta que llegó:** §4-R se queda sin gate real mientras no exista una vía declarada para tener un pedido
+> `pending` **con reserva viva** sin Stripe — hoy, sin clave, `POST /checkout/session` responde `503` y el pedido
+> queda `failed` con la reserva liberada. **Se declara aquí para que no quede implícito.**
+
+**Decisión: NO se declara ninguna vía de crear una reserva sin proveedor de pago. El gate de §4-R vive en el carril
+CON claves de prueba.**
+
+| Carril | Qué prueba de §4-R | Con qué |
+|---|---|---|
+| **Sin claves** (local / CI por defecto) | **Un solo invariante, y es real: la COMPENSACIÓN.** `POST /checkout/session` con el proveedor caído ⇒ **`503 PAYMENT_PROVIDER_UNAVAILABLE`** ∧ orden `failed` ∧ **cero piezas `reserved`** ∧ `reservedByOrderId`/`reservedUntil` limpios. *Ése es exactamente el estado que un fallo de proveedor debe dejar, y se puede medir sin proveedor.* Los specs de reuso/sustitución **se SALTAN con motivo nombrado** (`skip('sin STRIPE_TEST_SECRET_KEY')`) | doble de Stripe / ausencia de clave |
+| **Con claves de prueba** (`e2e-real.yml`) | **R-1 … R-10 completos**: reuso, sustitución, `PAYMENT_IN_PROGRESS`, reserva propia vencida, huérfana de pago | las claves **de prueba** que ya viven en los secrets del repositorio y que el runner ya usa (`HECHOS.md`) |
+
+**Por qué NO se construye un «proveedor de pago falso» seleccionable por entorno**, que era la alternativa obvia:
+sería **un camino de código capaz de crear una orden `pending` con piezas reservadas y sin PI real**, viviendo en el
+mismo módulo que el dinero y a un `env` de distancia de producción. La regla 1 de §4-R.2 (*un cobro por pieza*) se
+apoya en que **el único que reserva es el que va a cobrar**; un driver que reserve sin cobrar es, literalmente, el
+invariante con un interruptor. *No se añade una puerta trasera al dinero para poder probar la puerta principal.*
+
+⛔ **Y la consecuencia que hay que decir en voz alta:** un spec de §4-R que **se salta** en el carril sin claves
+**no puede leerse como verde**. El carril sin claves reporta *«N saltados por falta de clave»*, nunca *«pasó»*
+(misma doctrina que `MONEY_SKIPPED:` en `e2e-real.yml`). **Dueños:** los specs los escribe **backend**; **QA** los
+ejecuta y reporta la proporción; **devops** mantiene los dos carriles y que el salto sea **visible en el resumen**.
 
 ---
 
@@ -9681,6 +9892,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **La cola es visible en el dashboard** como parte de la cola de trabajo del back-office (ver `workQueue` abajo).
   > **Alcance (D10): SOLO VISIBILIDAD.** Esta cola **no captura precios de venta**, no los sugiere y no los hereda del
   > costo de compra.
+  > **⚠️ v1.69.1 (P-79c, ADITIVO) — EL SELLADO SE NOMBRA COMO SELLADO, NUNCA COMO SU CARTA ANCLA.** La fila gana
+  > `sealedProductName?: string`, **presente solo si `productType='sealed'`**, resuelto server-side
+  > `SealedProduct.name` (vivo) → snapshot `InventoryItem.sealedProductName` → **ausente** (⛔ **sin caer a
+  > `Card.name`**: el ancla existe para satisfacer `InventoryItem.cardId NOT NULL` y **no es identidad**, §4.34a).
+  > **Norma de render (obligatoria):** para `productType='sealed'` la vista **NO pinta `card.number` ni `finish`** —
+  > una ETB no tiene «#1» ni acabado— y sin `sealedProductName` pinta «sellado sin identificar», **jamás** el nombre
+  > del ancla. La fila **no se oculta** en ningún caso: el `folio` la deja accionable. Tabla completa de los tres casos
+  > (single / sellado con nombre / sellado legado) en el **Changelog v1.69.1** (cabecera).
   Err: `403`, `400 VALIDATION_ERROR`.
 
 - **`PATCH /api/v1/admin/inventory/items/:id` — campo aditivo de v1.53** *(va aquí, sobre el mismo endpoint del que
@@ -10606,6 +10825,72 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     compra ni se paga ⇒ jamás cuenta para el bounty ni dispara el auto-apagado — ARCHITECTURE §4.26e); al
     llegar a `targetQty` ⇒ `enabled=false` + `completedAt` + `AuditLog action=bounty.completed` (auto-apagado).
     Apagar/editar un bounty NO re-precia solicitudes ya cotizadas (montos snapshoteados, doctrina vigente).
+
+---
+
+<a id="M2-SK"></a>
+#### ⚠️⚠️⚠️ §M2-SK — **`'sealed'` ES UNA CLAVE DE COLA, NUNCA UNA CLAVE DE PRECIO** (v1.70 — NORMATIVA, **DINERO**; cierre de P-83)
+
+> **La frase que resuelve el caso, y todo lo demás son sus consecuencias.** Una fila de **cola** solo tiene que
+> deduplicar *«esta clase de pieza está esperando precio»*; una fila de **precio** es dinero y **tiene que
+> identificar al producto**. La constante `'sealed'` sirve para lo primero y **no puede** servir para lo segundo.
+
+**El defecto que cierra, dicho como lo sufre el dueño** (`BACKEND_NOTES` P-79(d)): da de alta un sellado, la pieza
+cae en la cola «FIJAR PRECIO» de M2, le pone precio… y **vuelve a la cola**. P-79(d) arregló los tres caminos de
+alta que escalaban con la llave equivocada; queda el **último eslabón**: la pieza **sin mapeo**
+(`tcgplayerProductId IS NULL`), para la que el override se escribe bajo `'sealed'` y la publicación busca
+`sealed:tcg:<productId>` — que no existe.
+
+**⭐ LA MEDICIÓN QUE DECIDE, y descarta la opción que parecía obvia** (arquitecto, 2026-09-11, sobre `main`):
+**`sealedProductId` no existe donde haría falta.** Un `InventoryItem` sellado tiene `sealedProductId` **si y solo
+si** tiene `tcgplayerProductId`, porque el único camino que lo escribe lo deriva de un `SealedProduct` cuyo
+`tcgplayerProductId` es `Int @unique` **NOT NULL** (`inventory.service.ts:821-849` `deriveFromSealedProduct` →
+`:984-1009` `resolveSealedMapping` → `buildItemData`), y el backfill de M-39 solo liga piezas **ya mapeadas**
+(`sealed-product.service.ts:726`, `where { tcgplayerProductId: productId, sealedProductId: null }`; su paso 8,
+`:734`, deja explícitamente `sealedProductId` **nulo** para las no mapeadas).
+⇒ **Añadir `sealedProductId` a `PriceReference` sería añadir una columna que vale `NULL` exactamente en la
+población que pretende desambiguar.** Dos sellados no mapeados anclados a la misma `Card` **seguirían compartiendo
+fila**. La opción se descarta **por inerte**, no por cara. *(Y de paso evita un segundo eje de llave para el dinero
+del sellado, con su `fallback` duplicado en los cinco lectores.)*
+
+**Las cuatro normas:**
+
+| # | Norma | Efecto |
+|---|---|---|
+| **SK-1** | ⛔ **`PriceReference` NO gana identidad de sellado.** **Cero migración, cero DDL, cero backfill** | Nada que desplegar por esta línea |
+| **SK-2** | ⛔ **Ninguna lectura de dinero cae a `'sealed'`.** Sin clave de mercado ⇒ **no hay referencia** ⇒ `PRICE_PENDING` / «—». Es la regla dura de `ARCHITECTURE §4.40.4(b)` aplicada al sellado, sin excepción | El `gk ? … : undefined` de `inventory.service.ts:1593` **se ratifica** (no era una omisión: era lo correcto) y sus cuatro gemelos (`catalog.service.ts:614`, `sealed-catalog.service.ts:128`, `vault.service.ts:372`, `admin.service.ts:944`) **también**. ⭐ **La ÚNICA excepción viva se RETIRA:** `admin.inventoryValue()` (`admin.service.ts:1188,1233`) hoy **sí** cae a `'sealed'` ⇒ **hay que desplegar su retirada** |
+| **SK-3** | ⛔ **`POST /admin/pricing/override` con `productType:'sealed'` EXIGE clave de mercado.** `gradeKey: 'sealed'` ⇒ **[`422 SEALED_MARKET_KEY_REQUIRED`](#sealed-market-key-required)** | Un override que hoy «funciona» y no sirve pasa a ser un rechazo **que dice qué hacer**. **Hay que desplegarlo** |
+| **SK-4** | ✅ **La vía de precio del sellado NO mapeado es LA PIEZA:** `InventoryItem.listPriceCents` (precedencia **#1** de §K, `derivePublishSalePrice` la resuelve **antes** de tocar ninguna clave). Vive en la fila de la pieza ⇒ **no puede cruzarse con otra**, y ya es manual, auditada y money-safe | La salida existe desde siempre; lo que faltaba era **decir que es ésa** |
+
+**Por qué NO se prohíbe el alta de sellado sin mapeo** (la otra opción que se me propuso, y es la que más cara
+habría salido): convertiría un defecto de precio en un **bloqueo de entrada de mercancía real**, y lo haría
+**encadenado a un defecto abierto**: `P-46` (*«sincronizar sellado devuelve 0 presentaciones»*, **abierto en
+producción**) significa que hay sets **sin ninguna `SealedProduct` que elegir**. Con el alta condicionada al mapeo,
+esas cajas **no se podrían dar de alta en absoluto**. *No se cierra una fuga de precio poniendo un candado en la
+puerta del almacén.* Queda como **opción futura con disparador nombrado**: se reabre el día que `P-46` esté cerrado
+**y** medido (cero sets con 0 presentaciones), no antes.
+
+**Qué ofrece M2 en la fila de un pendiente de sellado (normativo para `(admin)/admin/m2`; la representación es de
+ux-ui):**
+
+| Fila de la cola | Cómo se reconoce | Acciones que M2 ofrece |
+|---|---|---|
+| Sellado **mapeado** | `productType='sealed'` ∧ `gradeKey` empieza por `sealed:tcg:` | **FIJAR PRECIO** (override de mercado), como hoy |
+| Sellado **sin mapear** | `productType='sealed'` ∧ `gradeKey === 'sealed'` | ⭐ **Dos salidas, las dos reales:** (1) **«Ligar a su presentación»** → el endpoint de mapeo de M2, que es la cura de raíz; (2) **«Fijar el precio de esta pieza»** → `listPriceCents` de la pieza en M1. ⛔ **No se ofrece «FIJAR PRECIO» de mercado**: el servidor lo rechazaría con `SEALED_MARKET_KEY_REQUIRED` (SK-3) |
+
+⚠️ **El discriminante `gradeKey === 'sealed'` es exacto SOLO para las filas escaladas desde P-79(d) en adelante.**
+Las filas legadas escritas antes (pieza **mapeada** escalada bajo `'sealed'`) existen y hay que contarlas: las dos
+consultas de censo —**solo `SELECT`**— están en `BACKEND_NOTES` P-79(d). **NO MEDIDO:** cuántas hay en producción.
+**Medición que lo cierra:** correr esas dos consultas contra la BD de producción y anotar el número con fecha.
+Mientras el conteo sea desconocido, M2 **puede** enseñar una fila legada con las dos salidas de arriba; **ninguna de
+las dos hace daño** (mapear es la cura; fijar el precio de la pieza es money-safe), que es justo por qué esta
+decisión no depende del censo para ser segura.
+
+**Reparto:** **backend** (`pricing`, `inventory`, `admin`) — SK-2 (retirar el fallback de `inventoryValue`, con el
+efecto declarado: piezas que hoy suman a `atReferenceCents` pasan a `pendingPriceCount`, que **es la verdad** y es
+el mismo idioma que ya usa la graduada sin identidad dos líneas más abajo, `admin.service.ts:1190-1192`) y SK-3 (el
+`422`). **frontend** (`(admin)/admin/m2`) — las dos salidas de la tabla. **devops** — nada: cero migraciones, cero
+DDL, cero variables. Razón entera: `ARCHITECTURE §4.50.1`.
 
 ---
 
@@ -15646,10 +15931,34 @@ lleva `@HttpCode` explícito en cada ruta.
   >   closedAt: null }`, `count === 1`. **Los dos términos de T siguen dentro** (`closedAt: null` explícito; el
   >   término de estado ya excluye los terminales) — **§M5-T no se relaja**: S es *T dicha con más precisión*, como
   >   `NOT_ACCEPTED` lo es para `confirm-shipment`.
-  > - **`count !== 1` ⇒ releer (dentro de la `tx`) y distinguir:** terminal ∨ `closedAt ≠ null` ⇒ **`409 CONFLICT`**
-  >   `details: { status, closedAt }` (**sin cambio**, §M5-T; **T gana**); en otro caso ⇒ **`409 INVALID_TRANSITION`**
-  >   `details: { verb: "receive" | "verify", from: <status>, allowedFrom: string[], idempotentOn: string }`.
-  >   **Cero escritura** en ambos (la guarda va primero; los ítems no se mueven, `:5497`).
+  > - **`count !== 1` ⇒ releer (dentro de la `tx`) y distinguir. ⭐ v1.70 (P-81): son TRES ramas, no dos.**
+  >
+  >   | # | Qué ve la relectura | Respuesta | `details` |
+  >   |---|---|---|---|
+  >   | 1 | terminal ∨ `closedAt ≠ null` | **`409 CONFLICT`** (**sin cambio**, §M5-T; **T gana**) | `{ status, closedAt }` — ⛔ **sin `reason`** |
+  >   | 2 | viva y en un estado **NO admitido** (`status ∉ allowedFrom ∪ {idempotentOn}`) | **`409 INVALID_TRANSITION`** | `{ verb, from, allowedFrom, idempotentOn }` |
+  >   | 3 | ⭐ viva y en un estado **admitido** (la CARRERA: otro actor la movió entre el `updateMany` y la relectura) | **`409 CONFLICT`** | `{ status, closedAt, reason: "CONCURRENT_UPDATE" }` |
+  >
+  >   **Cero escritura** en las tres (la guarda va primero; los ítems no se mueven, `:5497`).
+  >
+  >   > **⚠️ v1.70 — POR QUÉ LA RAMA 3 ES `CONFLICT` Y NO `INVALID_TRANSITION`: zanjo a favor del código.** La letra
+  >   > de v1.68 decía *«en otro caso ⇒ `INVALID_TRANSITION`»*, y la rama 3 cae en «otro caso»; el código responde
+  >   > `CONFLICT` **desde v1.68** y backend solo la hizo legible (`details.reason`, `BACKEND_NOTES §68.2.6`). **Gana
+  >   > el código, por dos razones que no son de gusto:**
+  >   > 1. **`INVALID_TRANSITION` produciría un `details` que se contradice a sí mismo.** Su carga es
+  >   >    `from` + `allowedFrom`, y en la rama 3 `from` **está dentro de** `allowedFrom` ⇒ el operador leería
+  >   >    *«está en `en_transito`; “recibir” solo aplica en `en_transito`»*. Ése es exactamente el defecto `I5` que
+  >   >    se acaba de cerrar, reintroducido por la letra del contrato.
+  >   > 2. **La acción del operador es OTRA, y el código es lo que se la dice.** `INVALID_TRANSITION` = *«aquí no se
+  >   >    hace eso»* ⇒ **no reintentes**. `CONFLICT/CONCURRENT_UPDATE` = *«alguien se te adelantó»* ⇒ **refresca y
+  >   >    vuelve a mirar**; a menudo el trabajo **ya está hecho**. Dos remedios distintos no comparten código.
+  >   >
+  >   > **`reason` es ADITIVO y aparece SOLO en la rama 3.** Las dos ramas de §M5-T conservan su `details` de
+  >   > siempre, **sin** `reason` — ⛔ el front **no** puede leer la ausencia de `reason` como señal de nada: el
+  >   > discriminante de §M5-T sigue siendo `closedAt`/`status`. **Frontend (audiencia `operator`):** copia propia
+  >   > para `reason === 'CONCURRENT_UPDATE'` (*«Otra persona acaba de mover esta solicitud. Actualiza para ver su
+  >   > estado.»*) y, si no la tiene, **cae a la copia genérica de `CONFLICT`** — nunca a un error crudo.
+  >   > **Es documental: el código publicado ya se comporta así, no hay nada que desplegar por esta línea.**
   > - **Idempotencia sin cambio:** `status === idempotentOn` ⇒ `200`, estado actual, **la fecha no se re-sella**
   >   (`sealOnceTx`).
   > - **Código:** `INVALID_TRANSITION` es **nuevo y genérico** (`details.verb` lo especializa): un solo rótulo y un
@@ -15695,6 +16004,7 @@ lleva `@HttpCode` explícito en cada ruta.
   > | **S-1** ⭐⭐ | volver a `liveRequestWhere()` (o quitar el término de estado) | Matriz **11 × 2**: `receive` desde cada `SellRequestStatus` ⇒ `en_transito` → `200 recibida`; `recibida` → `200` sin re-sellar `receivedAt`; `cotizada|ofertada|aceptada|verificacion|aprobada` → **`409 INVALID_TRANSITION`** con `details.from` = ese estado y `allowedFrom == ["en_transito"]`; los 4 terminales → `409 CONFLICT`. Ídem `verify` (`recibida` → `200`; `verificacion` → `200` sin re-sellar; resto vivo → `INVALID_TRANSITION` con `allowedFrom == ["recibida"]`). **Y la fila de P1** (`status='verificacion'`, `closedAt` sellado) ⇒ `409 CONFLICT`, no `INVALID_TRANSITION` |
   > | **S-2** ⭐ | «arreglar» la cadena permitiendo `verify` desde `en_transito` | `confirm-shipment → receive → verify` con 20 ms ⇒ `200 · 200 · 200`, estado final `verificacion` con las dos fechas; `confirm-shipment → verify → receive` ⇒ `200 · 409 INVALID_TRANSITION · 200`, estado final `recibida` **sin** `verifiedAt` |
   > | **S-3** | cablear el botón en otro paso | `M5View`: «Marcar recibida» se renderiza **solo** con `status === 'en_transito'`; «Verificar» solo con `recibida` (test de render por estado, los 11) |
+  > | **S-4** ⭐ (v1.70, P-81) | devolver la **rama 3** al cuerpo compartido con la rama 1, o rotularla `INVALID_TRANSITION` | La carrera (`updateMany` toca 0 filas **y** la relectura ve la fila viva en un estado admitido) ⇒ **`409 CONFLICT`** con **`details.reason === 'CONCURRENT_UPDATE'`** y `details.closedAt === null`; y la rama 1 (terminal/cerrada) ⇒ `409 CONFLICT` **sin** la clave `reason`. Rojo si las dos ramas producen el mismo `details`. *(Ya medido por backend: 40/40, mutación en rojo 3/3 — `BACKEND_NOTES §68.2.6`.)* |
   > ### ⚠️⚠️ v1.56 — LOS DOS GANAN **GUARDA DE ESTADO** E **IDEMPOTENCIA DECLARADA**. Cierre de la CRÍTICA **P1**. Desviación **BL-35** (ARCHITECTURE §9).
   > *(Estos dos eran los **únicos** verbos de transición del ciclo sin guarda atómica: escribían con
   > `update({where:{id}})` mientras todos sus hermanos usan `updateMany` con el estado en el `where` + `count===1`.
@@ -17244,7 +17554,8 @@ Err `403`, `400 VALIDATION_ERROR`.
 ```
 GET /api/v1/admin/users/:id/kyc/ine-links
 Roles: super_admin  (⛔ vault_operator ⇒ 403 FORBIDDEN)
-Rate limit: @Throttle({ default: { ttl: 60_000, limit: 10 } })
+Rate limit: 10 / 60 s POR `actorUserId` (⛔ NO por IP — ver K.2.0)
+Cabeceras de respuesta OBLIGATORIAS: Cache-Control: no-store · X-Robots-Tag: noindex, nofollow  (K.2.3)
 ```
 
 Res `200`:
@@ -17254,11 +17565,42 @@ Res `200`:
   "back":      { "url": "https://<bucket-host>/…?X-Amz-Signature=…", "expiresAt": "2026-09-11T18:02:00.000Z" },
   "expiresInSeconds": 120 }
 ```
+> `expiresInSeconds` del cuerpo es el **TTL efectivo tras el clamp** (K.2.1), no la constante 120. Es el **mismo
+> número** que se graba en `after.expiresInSeconds` (K.2.5) y el mismo que el front pinta: *un hecho, un sitio.*
+
+**K.2.0 — ⭐ EL TOPE CUELGA DE `actorUserId`, NO DE LA IP (v1.70, C10(a) de `seguridad`).**
+
+```
+Guard propio (getTracker = req.user.id), NO el @Throttle global:
+  @Throttle({ kycIneLinks: { ttl: 60_000, limit: 10 } })  + tracker por actor
+Excedido ⇒ 429 TOO_MANY_REQUESTS
+```
+- **Por qué el eje del actor y no el de la red:** el modelo de amenaza de esta superficie **no es una IP anónima**
+  —el endpoint ya exige `super_admin`— sino **una sesión de `super_admin` abusada, robada o prestada**. Esa sesión
+  **cambia de IP cuando quiere** (móvil ↔ wifi ↔ VPN), así que un tope por IP no limita al único actor que puede
+  llegar aquí. *Un control de volumen en un eje que el atacante controla no es un control: es una molestia.*
+- **Y el eje de IP es, además, el que hoy se sabe esquivar:** `P-RL-1` (ALTA, **abierto**) rota `X-Forwarded-For`
+  contra el tracker global. Colgar de ese tracker **el único control preventivo del revelado de identidades** sería
+  heredarle el defecto. La bitácora (K.2.5) sigue siendo el control **detectivo**; éste es el **preventivo**, y los
+  dos hacen falta.
+- **Hermano exacto:** es la misma corrección que la condición `C7` pide para `change-password` (tope por `userId`),
+  por la misma razón. ⇒ **Cuando `C7` entregue el mecanismo de tracker por identidad, este endpoint lo REUSA**: ⛔ no
+  se escribe un segundo guard con la misma idea.
+- **Coste:** un `getTracker` en un guard. **Cero cambios de forma** en la petición y en la respuesta.
+- **Candado (backend, obligatorio):** 11 llamadas con **la misma sesión** y **`X-Forwarded-For` distinto en cada
+  una** ⇒ **`429` en la 11.ª**. *Un test que rota la sesión y fija la IP mide el tope viejo, no éste.*
 
 **K.2.1 — Caducidad: 120 segundos. Y digo por qué ése y no el default de 300.**
 - El dial es **`KYC_INE_VIEW_URL_TTL_SECONDS`** (env, default **120**), y el servidor **acota duro a ≤ 300**: un valor
-  mayor se clampa a 300 y se registra `warn`. *Un dial de caducidad que se puede subir sin techo es un dial que
-  algún día vale 24 h.*
+  mayor se clampa a 300. *Un dial de caducidad que se puede subir sin techo es un dial que algún día vale 24 h.*
+- ⭐ **v1.70 (C10(c)) — EL CLAMP SE REGISTRA, no solo se `warn`ea.** Cuando el valor de entorno se recorta, la
+  **misma fila de bitácora del acto** (K.2.5) lo lleva escrito: `after.ttlClamped: true` y `after.ttlRequested: <el
+  valor del env>`. El `warn` del log se conserva, pero un log rota y una fila no. *Sin esto, el día que alguien
+  ponga el dial en 3600 la bitácora dirá 300 y **no habrá dónde ver que alguien intentó 3600**.*
+- ⭐ **Y hay UN solo TTL efectivo por respuesta**, calculado una vez y usado en los **tres** sitios: el `expiresAt`
+  con que se firman las dos URLs, el `expiresInSeconds` del cuerpo y el `after.expiresInSeconds` de la fila. ⛔
+  **Prohibido** re-leer el env o re-derivar el número en cualquiera de los tres (dos lecturas del mismo dial en la
+  misma petición son dos fuentes para un hecho, y una de ellas mentirá el día del despliegue que cambia el dial).
 - **Por qué 120 basta:** el navegador **descarga la imagen en el primer segundo**; una vez descargada, la caducidad
   del enlace **no afecta** a la pestaña abierta. El revisor puede cotejar con calma: lo que caduca es la
   **capacidad de volver a pedir el objeto**, no lo que ya está en pantalla. Si caduca y necesita recargar, **vuelve
@@ -17304,7 +17646,20 @@ Res `200`:
 | `429 TOO_MANY_REQUESTS` | rate limit | — |
 | **`500 AUDIT_WRITE_FAILED`** | la bitácora no escribió ⇒ **los enlaces se descartan** (K.2.4) | — |
 
-**K.2.3 — Forma y prohibiciones.**
+**K.2.3 — Forma, CABECERAS y prohibiciones.**
+- ⭐⭐ **v1.70 (C10(b)) — CABECERAS NORMATIVAS de la respuesta `200`, y son obligatorias, no recomendadas:**
+  ```
+  Cache-Control: no-store
+  X-Robots-Tag: noindex, nofollow
+  ```
+  **Por qué, y con el precedente que ya existe en este contrato:** `POST /orders/guest/track` **ya** exige
+  `@Header('Cache-Control','no-store')` (`guest-orders.controller.ts:66-67`) **porque su respuesta lleva un token**.
+  Esta respuesta lleva **dos credenciales portadoras hacia PII de identidad** —quien tiene la URL tiene la imagen,
+  **sin sesión**—, que es estrictamente más sensible. *Un `200` con esas dos URLs guardado en una caché intermedia,
+  en el `bfcache` del navegador o en el log de un proxy corporativo es exactamente la fuga que el TTL de 120 s
+  intenta acotar; y el TTL no protege al que ya tiene la URL copiada, solo acorta su ventana.*
+  ⛔ **No basta con `no-cache`** (`no-cache` permite almacenar y revalidar; `no-store` prohíbe almacenar).
+  **Candado (backend):** aserción sobre las cabeceras de la respuesta `200`, no sobre el decorador.
 - ⛔ **La respuesta NO lleva `ineFrontKey`/`ineBackKey`** (invariante K.1.1), ni el nombre del bucket como dato
   estructurado, ni `kycStatus` (eso ya está en la ficha).
 - ⛔ **Nada de `GET /admin/users` ni de `GET /admin/users/:id` cambia para incrustar enlaces** (invariante K.1.2). La
@@ -17350,12 +17705,25 @@ la entidad mirada es un `User`; sufijo `reveal_ine` porque *revelar* es el verbo
 | `entityId` | **id del usuario MIRADO** | **a quién** |
 | `ip` | IP del actor | ya se proyecta solo a `super_admin` (`audit.service.ts:108`) |
 | `createdAt` | automático | **cuándo** |
-| `after` | **`{ documents: ['front','back'], expiresInSeconds: 120 }`** | **qué documento** se emitió y con qué vida |
+| `after` | ⭐ **v1.70 (C10(c)):** `{ documents: ['front','back'], expiresInSeconds: <TTL EFECTIVO tras el clamp>, ttlClamped?: true, ttlRequested?: <valor del env> }` | **qué documento** se emitió y **con qué vida REALMENTE rigió** |
+
+- ⭐⭐ **v1.70 (C10(c)) — `expiresInSeconds` NO es la constante 120: es el número que rigió.** K.2.1 define el TTL
+  como un **dial de entorno** (`KYC_INE_VIEW_URL_TTL_SECONDS`, default 120, clamp 300). Grabar `120` fijo significa
+  que **el día que alguien mueva el dial, la bitácora afirmará un número que nunca existió** — y una bitácora de PII
+  que miente en un campo no sostiene ninguno de los otros. Es la **misma clase exacta** que `S-FX-3` (*«la bitácora
+  puede afirmar un número que nunca rigió»*), que este equipo ya pagó una vez. Los dos campos opcionales
+  (`ttlClamped`/`ttlRequested`) se emiten **solo** cuando hubo recorte: sin recorte la fila no engorda.
+- **Candado (backend, obligatorio):** con `KYC_INE_VIEW_URL_TTL_SECONDS=240`, el `after.expiresInSeconds` de la fila
+  **es 240** y el `expiresInSeconds` del cuerpo **también**; con `=3600`, los dos son **300** y la fila trae
+  `ttlClamped: true, ttlRequested: 3600`. *Un test que solo comprueba el default de 120 no distingue «lee el dial»
+  de «escribe una constante».*
 
 - ⛔ **`after` NO lleva las keys, ni las URLs firmadas, ni el bucket.** Una URL prefirmada es una **credencial
   portadora**: guardarla en una fila de BD es guardar la llave junto a la puerta. *(`before`/`after` no se exponen
   nunca por `listForUser` — `audit.service.ts:99-109` — pero eso es una proyección, no un cifrado.)*
-- **La bitácora es el control de volumen, no solo el rastro:** 10 llamadas/min es un ritmo humano de revisión; un
+- **La bitácora es el control DETECTIVO; el tope de K.2.0 es el PREVENTIVO** (v1.70 — la redacción anterior decía
+  que la bitácora *era* el control de volumen, y `seguridad` tuvo razón al corregirlo): 10 llamadas/min **por
+  actor** es un ritmo humano de revisión; un
   volcado masivo de identidades **deja una fila por documento**, es ruidoso y es consultable. *No impedimos que el
   dueño mire a sus clientes: hacemos que mirar deje huella.*
 
@@ -18831,8 +19199,20 @@ LiveSellerRowDTO = { seller: { id: string, name: string, email: string, phone: s
 // Fase 8 / criterio 125. `missing` dice QUÉ LE FALTA; la pieza SALE SOLA de la cola cuando `missing` queda vacío
 // (auto-publicación: ubicación + precio ⇒ publicada, sin botón). `pendingPriceEntryId` = deep-link a la cola de
 // precio pendiente de M2. La pieza SIN UBICACIÓN sale SEÑALADA (la conversión no la exige, para no atorar el pago).
+// ⚠️ v1.69.1 (P-79c) — `sealedProductName?: string`: nombre del PRODUCTO SELLADO, presente SOLO cuando
+// productType='sealed' (ausente en raw/graded). Resolución server-side: `SealedProduct.name` (vivo, vía
+// `sealedProductId`) → snapshot por-pieza `InventoryItem.sealedProductName` (M-37) → AUSENTE. ⛔ En ESTA cola el
+// último escalón NO cae a `Card.name`: el ancla existe solo para satisfacer `InventoryItem.cardId NOT NULL` y NO es
+// identidad (§4.34a, `resolveAnchorCardId`), y pintarla era el defecto reportado («Weedle — CHAOS RISING · 1 ·
+// NORMAL» para una ETB). A diferencia de la cola de M2 —que pinta columnas `productType` y `gradeKey` y por eso
+// puede permitirse el fallback al ancla—, aquí la columna «pieza» es lo único que hay.
+// NORMA DE RENDER: con productType='sealed' la vista NO pinta `card.number` ni `finish`; sin `sealedProductName`
+// pinta «sellado sin identificar», JAMÁS `card.name`. La fila NUNCA se oculta (el `folio` la deja accionable).
+// NO viajan aquí (deliberado): sealedProductId, sealedImageUrl, sealedSubtype, sealedCondition, tcgplayerProductId/
+// GroupId ni precio nuevo alguno — el alcance D10 «SOLO VISIBILIDAD» de esta cola no se toca.
 PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, productType: ProductType,
                          finish: Finish, cardProductId: number | null,
+                         sealedProductName?: string,        // v1.69.1 — SOLO productType='sealed'
                          locationId: string | null, listPriceCents: number | null,
                          resolvedSalePriceCents: number | null, priceBasis: PriceBasis | null,
                          pendingPriceEntryId: string | null,
