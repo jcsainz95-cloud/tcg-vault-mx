@@ -11823,7 +11823,7 @@ cobertura (`§57.5`).
 
 **No era el `minioadmin` del sembrado de identidades.** Ese valor **ya estaba** en el manifiesto
 (medido: `sha256('minioadmin')` presente antes de regenerar). El hash que faltaba es
-**`re_producto`** — la subcadena del identificador español **`nomb`+`re_producto`**, en un fichero de
+**el trozo que el prefijo de Resend captura dentro del identificador español `nombre_producto`**, en un fichero de
 reparación de datos en SQL (`backend/prisma/data-repair/20260912_p79d_…sql`, de `8f8c35c`).
 
 ⇒ **Consecuencia que importa y que corrige la alarma:** durante esas horas **no hubo ningún secreto
@@ -11836,9 +11836,9 @@ existió.
 ### 65.2 · La causa: `re_` era el prefijo corto sin anclar (la misma clase que `SALT`)
 
 `PREFIJOS_RE` capturaba `re_[A-Za-z0-9_]{6,}` **sin límite de palabra**, así que casaba **dentro** de
-identificadores. Medido en el árbol: `re_real_stripe` (26 veces, de `requi`+`re_real_stripe`),
-`re_de_secreto` (13), `re_test_key` (6), `re_producto` (3), `re_wiring` (de `ensu`+`re_wiring`),
-`re_actual` (de `__nomb`+`re_actual`)…
+identificadores. Medido en el árbol: el fragmento de `require_real_stripe` (26 veces),
+el de `nombre_de_secreto` (13), el de `nombre_producto` (3), el de `ensure_wiring`, el de
+`__nombre_actual`… y `re_test_key` (6), que ése **sí** es un literal de verdad.
 
 Y **el manifiesto ya había acumulado SEIS entradas de esta clase**. Hoy llegaba la séptima.
 
@@ -11852,9 +11852,9 @@ una clave real **siempre** va tras comilla, `=` o espacio:
 |---|---|---|---|
 | `RESEND_API_KEY: 're_test_key'` | captura | **captura** | ✅ es un literal REAL bajo nombre de secreto |
 | `RESEND_API_KEY: 're_live_x'` | captura | **captura** | ✅ ídem |
-| `RESEND_API_KEY=re_AbCd123456` | captura | **captura** | ✅ forma de clave real |
-| `requi`+`re_real_stripe` | captura | **no** | ✅ trozo de identificador |
-| `ensu`+`re_wiring` · `__nomb`+`re_actual` · `nomb`+`re_producto` | captura | **no** | ✅ ídem |
+| `RESEND_API_KEY=re_AbCd…` (clave con forma real) | captura | **captura** | ✅ forma de clave real |
+| el fragmento dentro de `require_real_stripe` | captura | **no** | ✅ trozo de identificador |
+| ídem en `ensure_wiring` · `__nombre_actual` · `nombre_producto` | captura | **no** | ✅ ídem |
 
 ### 65.3 · Regenerado **después de leerlo**, no a ciegas — y qué cambió exactamente
 
@@ -11864,14 +11864,14 @@ medí antes de aceptarlo:
 - **Nada se perdió: 121 → 121 entradas.** El generador **conserva** los valores que ya no están en el
   árbol y los re-etiqueta `(retirado del arbol …)` — que es lo correcto: *un valor publicado una vez
   debe seguir rechazándose para siempre*, aunque desaparezca del código.
-- **Tres re-etiquetados**, y los mapeé uno a uno por hash: `re_real_stripe`, `re_wiring`, `re_actual`
+- **Tres re-etiquetados**, y los mapeé uno a uno por hash: los fragmentos de `require_real_stripe`, `ensure_wiring` y `__nombre_actual`
   — los tres, trozos de identificador. **Ninguno es un secreto.**
-- **`re_producto` NO entró** (verificado: 0 apariciones de su hash).
+- **El fragmento de `nombre_producto` NO entró** (verificado: 0 apariciones de su hash).
 - **Los dos literales REALES siguen dentro:** `re_test_key` y `re_live_x`, ambos asignados a
   `RESEND_API_KEY` en specs del backend.
 
 **Proporciones:** `check-secret-defaults` **rc=0 en 3/3**; canario **70/70** (68 + los dos casos
-nuevos), con **`RESEND_API_KEY=re_AbCd…` ROJO** y **`re_` dentro de identificador VERDE**.
+nuevos), con **una clave Resend con forma real ROJO** y **`re_` dentro de identificador VERDE**.
 
 ### 65.4 · «¿Puede la regeneración ser parte del acto de commitear?» — respuesta medida: **no como hook, y además la premisa falla**
 
@@ -11900,7 +11900,7 @@ el rojo estaba ahí y nadie miró CI hasta que alguien lo corrió a mano. Un hoo
    exige meter el repo en la imagen. No compensa.
 
 **Entonces, ¿qué sí mueve la aguja?** Lo que se hizo hoy: **quitar las clases de falso positivo**.
-Un gate que se pone rojo por `nombre_producto` enseña a regenerar sin leer, y esa costumbre **es** el
+Un gate que se pone rojo por un trozo de `nombre_producto` enseña a regenerar sin leer, y esa costumbre **es** el
 agujero — es la misma avería que `P-GL-2` tiene fichada (exceptuar por ruta) con otra cara. Con `re_`
 y `SALT` anclados, un rojo de este candado vuelve a significar **«hay un literal de verdad»**, que es
 la única condición bajo la cual merece la pena que alguien lo mire.
@@ -11909,3 +11909,30 @@ la única condición bajo la cual merece la pena que alguien lo mire.
 con el mismo defecto. Dos aparecieron en dos días. **Lo cerraría** un barrido que, para cada término
 de las dos expresiones, cuente cuántas capturas del árbol son **subcadena de un identificador** y
 cuántas van tras comilla/`=`/espacio. Dueño: devops. **No lo he corrido.**
+
+### 65.5 · Y una vuelta de tuerca que me mordió a mí mismo: **documentar el falso positivo lo volvió verdadero**
+
+Tras anclar `re_` y regenerar, el candado volvió a ponerse **rojo con tres literales nuevos**. No era
+una regresión del ancla: **eran mis propias notas**. Al escribir §65 puse los ejemplos entre comillas
+invertidas —`` `re_producto` ``, `` `re_de_secreto` ``, `RESEND_API_KEY=re_AbCd…`—, y una comilla
+invertida **es un límite de palabra**: con el ancla puesta, esos ejemplos pasaron a tener **forma de
+clave real** y el generador los capturó, con razón.
+
+**Por qué esto no es un defecto del generador:** su cabecera lo declara a propósito —escanea
+**cualquier fichero versionado, incluidas las notas de `docs/`**— porque un secreto pegado en una nota
+**está igual de publicado** que uno en el código. Esa decisión es correcta y no se toca.
+
+**Y por qué tampoco se arregla exceptuando `docs/`:** eso es literalmente `P-GL-2`, la mala práctica
+que tenemos fichada (gitleaks eximía `docs/*.md` por ruta entera, así que una `sk_live_` pegada en una
+nota **no se cazaba**). La ruta no puede ser la excusa.
+
+**Lo que se hizo:** reescribir los ejemplos para que **no tengan forma de clave** — el identificador
+entero (`nombre_producto`, `require_real_stripe`, `ensure_wiring`) en vez del trozo suelto, y `re_AbCd…`
+con puntos suspensivos en vez de una cadena larga. Se explica exactamente igual de bien y deja de
+fabricar valores. Tras la reescritura: `--check` **al día (121 valores)**, regenerar es **idempotente**
+(sin diff) y el candado **rc=0 en 3/3**.
+
+> **La regla que queda:** al documentar un secreto o un prefijo, se escribe **en forma de marcador**
+> (identificador completo, `…`, `xxxx`, `<…>`), nunca con la forma exacta que el detector busca. Si no,
+> la nota que explica el falso positivo **crea uno**. Comprobación: tras editar una nota que hable de
+> secretos, `./scripts/gen-published-secrets-manifest.sh --check` antes de commitear.
