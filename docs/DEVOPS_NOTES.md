@@ -11805,3 +11805,107 @@ mirarlo — **dueño de esa revisión: devops (yo), disparador: el commit del se
 **QA** al correr la suite `@real`; yo solo puedo medir el **número**, no si lo que hay debajo mide el
 producto. Distinguirlo importa: el censo es un **detector de huella textual**, no un censo de
 cobertura (`§57.5`).
+
+---
+
+## 65. El manifiesto desfasado **no era un secreto destapado**: era `re_` sin anclar (2026-09-12)
+
+> Medido sobre `6254c51`. **Corrige la atribución con la que me llegó el encargo**, que era
+> razonable pero no lo que había.
+
+### 65.1 · Qué faltaba de verdad en el manifiesto
+
+`gen-published-secrets-manifest.sh --check` decía **«NO cubre 1 literal»**, y ese literal era:
+
+```
+6372c5a287769dc40b3e876aeca67b4104845337d788244bf45649e07263f7a2  PREFIJO
+```
+
+**No era el `minioadmin` del sembrado de identidades.** Ese valor **ya estaba** en el manifiesto
+(medido: `sha256('minioadmin')` presente antes de regenerar). El hash que faltaba es
+**`re_producto`** — la subcadena del identificador español **`nomb`+`re_producto`**, en un fichero de
+reparación de datos en SQL (`backend/prisma/data-repair/20260912_p79d_…sql`, de `8f8c35c`).
+
+⇒ **Consecuencia que importa y que corrige la alarma:** durante esas horas **no hubo ningún secreto
+real fuera del manifiesto**. La clase `S-88-1` **no estuvo abierta de facto**; lo que faltaba era el
+trozo de una palabra. Lo digo porque la frase que el propio candado imprime —«mientras esté
+desfasado, un literal recién commiteado NO lo rechaza ningún preflight»— es **cierta como regla** y
+**falsa como diagnóstico de este caso**, y confundirlas manda a alguien a buscar una fuga que no
+existió.
+
+### 65.2 · La causa: `re_` era el prefijo corto sin anclar (la misma clase que `SALT`)
+
+`PREFIJOS_RE` capturaba `re_[A-Za-z0-9_]{6,}` **sin límite de palabra**, así que casaba **dentro** de
+identificadores. Medido en el árbol: `re_real_stripe` (26 veces, de `requi`+`re_real_stripe`),
+`re_de_secreto` (13), `re_test_key` (6), `re_producto` (3), `re_wiring` (de `ensu`+`re_wiring`),
+`re_actual` (de `__nomb`+`re_actual`)…
+
+Y **el manifiesto ya había acumulado SEIS entradas de esta clase**. Hoy llegaba la séptima.
+
+Es **exactamente** el defecto de `SALT` de ayer (§63.3): **un término corto sin anclar, en un repo que
+escribe en español**. Dos casos en dos días ⇒ no es un despiste, es una clase.
+
+**Arreglo: `\b` al frente de `PREFIJOS_RE`.** No afloja nada, y el corte cae justo donde debe porque
+una clave real **siempre** va tras comilla, `=` o espacio:
+
+| Cadena | Antes | Con `\b` | ¿Correcto? |
+|---|---|---|---|
+| `RESEND_API_KEY: 're_test_key'` | captura | **captura** | ✅ es un literal REAL bajo nombre de secreto |
+| `RESEND_API_KEY: 're_live_x'` | captura | **captura** | ✅ ídem |
+| `RESEND_API_KEY=re_AbCd123456` | captura | **captura** | ✅ forma de clave real |
+| `requi`+`re_real_stripe` | captura | **no** | ✅ trozo de identificador |
+| `ensu`+`re_wiring` · `__nomb`+`re_actual` · `nomb`+`re_producto` | captura | **no** | ✅ ídem |
+
+### 65.3 · Regenerado **después de leerlo**, no a ciegas — y qué cambió exactamente
+
+Regenerar un manifiesto de seguridad a ciegas es firmar lo que haya, **incluidas las bajas**. Lo que
+medí antes de aceptarlo:
+
+- **Nada se perdió: 121 → 121 entradas.** El generador **conserva** los valores que ya no están en el
+  árbol y los re-etiqueta `(retirado del arbol …)` — que es lo correcto: *un valor publicado una vez
+  debe seguir rechazándose para siempre*, aunque desaparezca del código.
+- **Tres re-etiquetados**, y los mapeé uno a uno por hash: `re_real_stripe`, `re_wiring`, `re_actual`
+  — los tres, trozos de identificador. **Ninguno es un secreto.**
+- **`re_producto` NO entró** (verificado: 0 apariciones de su hash).
+- **Los dos literales REALES siguen dentro:** `re_test_key` y `re_live_x`, ambos asignados a
+  `RESEND_API_KEY` en specs del backend.
+
+**Proporciones:** `check-secret-defaults` **rc=0 en 3/3**; canario **70/70** (68 + los dos casos
+nuevos), con **`RESEND_API_KEY=re_AbCd…` ROJO** y **`re_` dentro de identificador VERDE**.
+
+### 65.4 · «¿Puede la regeneración ser parte del acto de commitear?» — respuesta medida: **no como hook, y además la premisa falla**
+
+Me lo preguntaron y la respuesta corta es **no sin añadir un anclaje que falla ABIERTO**. Pero antes,
+el dato que cambia la pregunta:
+
+**Ya está automatizado.** `check-secret-defaults.sh` **está cableado en `ci.yml`** (job
+`stripe-webhook-failclosed`) y `ci.yml` dispara **en `push` a `**` y en `pull_request`**. O sea: el
+control **sí corre solo en cada empujón**. La demora no fue de *ejecución*, fue de **observación** —
+el rojo estaba ahí y nadie miró CI hasta que alguien lo corrió a mano. Un hook no arregla eso.
+
+**Por qué un hook de pre-commit es mala idea AQUÍ** (y no en general):
+
+1. **Escribiría fuera de la ruta de quien commitea.** El hook tendría que hacer `git add
+   security/secretos-publicados.sha256` dentro del commit de, por ejemplo, **backend**. Este proyecto
+   trabaja con varios agentes sobre **el mismo árbol** y la regla «solo `git commit -- <rutas
+   propias>`» existe porque ya nos mordió (O-12: un `--amend` reescribió el commit de otro). Un hook
+   que mete ficheros de devops en el commit de backend es esa avería, automatizada.
+2. **Falla ABIERTO, que es el peor modo para un control de seguridad.** Los hooks viven en
+   `.git/hooks`, que **no se versiona**. Haría falta `core.hooksPath` configurado en cada clon y en
+   cada sesión de agente; **si falta, no pasa nada visible** y el control simplemente no existe. Un
+   candado cuya ausencia es silenciosa no es un candado.
+3. **No se puede mover al runtime.** El manifiesto existe **precisamente porque** el preflight corre
+   donde **no está el repo** (el contenedor lleva código construido, no el árbol). Calcular el
+   conjunto al vuelo —que sería la solución elegante, porque **quita** el anclaje en vez de añadirlo—
+   exige meter el repo en la imagen. No compensa.
+
+**Entonces, ¿qué sí mueve la aguja?** Lo que se hizo hoy: **quitar las clases de falso positivo**.
+Un gate que se pone rojo por `nombre_producto` enseña a regenerar sin leer, y esa costumbre **es** el
+agujero — es la misma avería que `P-GL-2` tiene fichada (exceptuar por ruta) con otra cara. Con `re_`
+y `SALT` anclados, un rojo de este candado vuelve a significar **«hay un literal de verdad»**, que es
+la única condición bajo la cual merece la pena que alguien lo mire.
+
+**Lo que queda NO MEDIDO:** si existen más términos cortos sin anclar en `FORMA_SECRETO`/`PREFIJOS_RE`
+con el mismo defecto. Dos aparecieron en dos días. **Lo cerraría** un barrido que, para cada término
+de las dos expresiones, cuente cuántas capturas del árbol son **subcadena de un identificador** y
+cuántas van tras comilla/`=`/espacio. Dueño: devops. **No lo he corrido.**

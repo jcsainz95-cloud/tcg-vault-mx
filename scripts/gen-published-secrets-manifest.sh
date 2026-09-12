@@ -117,7 +117,20 @@ NO_SECRETO='(PUBLISHABLE|NEXT_PUBLIC_|PUBLIC_KEY|_LENGTH$|_TTL$|_DAYS$|_BYTES$|_
 # FIN_NO_SECRETO
 
 # --- Prefijos de secreto reconocibles ---------------------------------------
-PREFIJOS_RE='(whsec_[A-Za-z0-9_]{4,}|sk_live_[A-Za-z0-9_]{4,}|sk_test_[A-Za-z0-9_]{4,}|rk_live_[A-Za-z0-9_]{4,}|rk_test_[A-Za-z0-9_]{4,}|re_[A-Za-z0-9_]{6,}|AKIA[A-Z0-9]{12,}|ghp_[A-Za-z0-9]{20,}|xoxb-[A-Za-z0-9-]{10,}|SG\.[A-Za-z0-9_.-]{10,}|AIza[A-Za-z0-9_-]{20,})'
+# ⚠️ `\b` AL FRENTE, A PROPÓSITO (2026-09-12). Sin él, `re_` —el prefijo de
+# Resend, el único CORTO de esta lista— casaba DENTRO de identificadores:
+# `nomb`+`re_producto`, `requi`+`re_real_stripe`, `ensu`+`re_wiring`,
+# `__nomb`+`re_actual`. Medido: el manifiesto ya había acumulado SEIS entradas
+# así, y el rojo del 2026-09-12 era una séptima (`re_producto`, de un fichero de
+# reparación de datos en SQL). Un manifiesto de «valores publicados» lleno de
+# trozos de palabras españolas no es más seguro: es más ruidoso, y el ruido es lo
+# que enseña a regenerar sin leer.
+# El ancla NO afloja nada: una clave real va siempre tras comilla, `=` o espacio,
+# así que conserva `'re_test_key'` y `'re_live_x'` (literales REALES bajo
+# `RESEND_API_KEY`) y `re_AbCd123456`. Lo único que deja de capturar son trozos
+# de identificador, que nunca fueron un secreto publicado. Sondeado en las dos
+# direcciones en el canario de `check-secret-defaults`.
+PREFIJOS_RE='\b(whsec_[A-Za-z0-9_]{4,}|sk_live_[A-Za-z0-9_]{4,}|sk_test_[A-Za-z0-9_]{4,}|rk_live_[A-Za-z0-9_]{4,}|rk_test_[A-Za-z0-9_]{4,}|re_[A-Za-z0-9_]{6,}|AKIA[A-Z0-9]{12,}|ghp_[A-Za-z0-9]{20,}|xoxb-[A-Za-z0-9-]{10,}|SG\.[A-Za-z0-9_.-]{10,}|AIza[A-Za-z0-9_-]{20,})'
 
 # --- Ficheros ---------------------------------------------------------------
 # Solo versionados: lo que no está en git no está publicado.
