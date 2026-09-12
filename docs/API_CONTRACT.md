@@ -2,7 +2,38 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-11 (rev **v1.70**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-12 (rev **v1.71**).
+>
+> **Changelog v1.71 — `A5` · LA COLA DE REVISIÓN DE IDENTIDAD: EL LISTADO DE M6 DICE QUIÉN ESTÁ ESPERANDO
+> (2026-09-12, arquitecto; base v1.70, vigente entera). Cambio ADITIVO y RETROCOMPATIBLE: **UN campo en UN DTO + UN
+> filtro de query**. Cero endpoints, cero DDL, cero migración, cero secciones renumeradas.**
+>
+> | # | Origen | Qué cambia | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | `A5` (ux-ui, `DESIGN_SYSTEM §34.15`) | [`§M6-L`](#M6-L) + §11: **`AdminUserSummaryDTO` se DECLARA** (hoy no existía en §11) y gana **`kycStatus: KycStatus`**; `GET /admin/users` gana **`?kycStatus=`** | **Sí, backend.** Es lo único que enciende §34.10 |
+> | **2** | consecuencia de (1) | `?status=` y `?kycStatus=` **se validan** ⇒ `400 VALIDATION_ERROR`. ⛔ **Un filtro no reconocido NUNCA se ignora en esta lista** | **Sí, backend** (mismo punto de código) |
+> | **3** | `A3-res` (ux-ui) | **NO entra aquí: se separa en `A5-b`** ([`§M6-L.6`](#M6-L)) porque **exige migración** (`M-56`, `KycProfile.ineSubmittedAt`) y cruza dos work streams | **No en esta rev.** Es la ficha siguiente |
+>
+> **1. ⭐ EL PROBLEMA, EN UNA FRASE DEL DUEÑO:** *acabamos de publicar la pantalla donde reviso las INE y **no hay
+> forma de enterarse de que alguien está esperando revisión**.* Medido: `admin.service.ts:743-758` — el `select` del
+> listado no lee `kycProfile`, y el `where` no conoce `kycStatus`. La pantalla de revisión (§M6-K) existe y **no tiene
+> puerta de entrada**: se llega a ella abriendo fichas de una en una, a ciegas.
+>
+> **2. ⭐⭐ Y HAY UN DEFECTO VIVO, NO SOLO UN HUECO — ES LA PARTE URGENTE.** El frontend ya construyó columna y filtro
+> (`M6View.tsx:229-233,282-294`) y **ya manda `?kycStatus=`** al servidor real (`api.ts:4627-4635`). Un parámetro de
+> query que el servidor no conoce **se ignora en silencio** (no hay DTO de query en `admin.controller.ts:97-109`) ⇒
+> el operador elige *«Pendiente de revisión»*, **recibe la lista entera** y la ve como si estuviera filtrada.
+> ***Es una cola falsa por la puerta de enfrente*** — justo la que frontend evitó por la puerta de atrás al negarse a
+> filtrar en cliente una página ya paginada (y **hizo bien**: §M6-L.5 ratifica esa decisión). Por eso el punto 2 del
+> cuadro (validar y **no ignorar**) no es higiene: es el arreglo.
+>
+> **3. `A3-res` SE SEPARA, Y ÉSA ES LA DECISIÓN DE FONDO DE ESTA REV.** Un filtro sin orden útil sigue siendo una cola
+> a ciegas, y **no existe ninguna columna que signifique «cuándo lo mandó»**: `KycProfile` tiene `createdAt` (nace con
+> la CLABE), `updatedAt` (se mueve con cualquier escritura) y `reviewedAt`/`verifiedAt` (fechas de la **decisión**,
+> y `reviewedAt` se **borra** al resubir — `users.service.ts:446`). ⇒ el orden por antigüedad **exige una columna
+> nueva** y por tanto **una migración**, y `ineSubmittedAt` sirve además al cliente (*«Enviada el…»*, §34.8).
+> **Son dos fichas, no una:** `A5` (esta, sin DDL, un stream) y `A5-b` = `A3-res` (con `M-56`, dos streams).
+> ⛔ **`A5` NO inventa un orden que parezca una cola sin serlo** — el argumento entero en [`§M6-L.5`](#M6-L).
 >
 > **Changelog v1.70 — CUATRO DECISIONES ACUMULADAS, RESUELTAS DE UNA (2026-09-11, arquitecto; base v1.69.1, vigente
 > entera). ⚠️ Se escribe DESPUÉS de que Stream B se publicara (`efe65f5`): cada punto dice si exige despliegue o si
@@ -17457,8 +17488,16 @@ Query: `?q=&page=&pageSize=`. Res `200`: `{ data: LiveSellerRowDTO[], page, page
 Err `403`, `400 VALIDATION_ERROR`.
 
 ### M6 — Usuarios / KYC (`super_admin`; `vault_operator` lectura limitada)
-> **Estado v1.3: YA EXISTE en backend** (`AdminUsersController` + `AdminService.listUsers/getUser/updateUserKyc/updateUserStatus`). No requiere backend nuevo; falta **consumo de frontend** (M6 es `ModuleTodo` en UI). Shapes confirmados contra el código: el **listado** es paginado `{ data, page, pageSize, total }` con `data: { id, email, name, role, status, createdAt }[]` y filtros `q` (email/name) + `status`; la **ficha 360°** (`GET /admin/users/:id`) incluye `kycProfile` (CLABE/RFC **enmascarados** incluso para `super_admin`; `ineOnFile: boolean`), `billingProfile` (RFC enmascarado; `null` para `vault_operator`), `addresses`, `orders` (últimas 20), `sellRequests` (20), `disputes` (20) y `ownedItems` (bóveda). El `vault_operator` recibe **proyección reducida** (sin RFC/INE/billing).
-- `GET /api/v1/admin/users` — `?q=&status=&page=`
+> **Estado v1.3: YA EXISTE en backend** (`AdminUsersController` + `AdminService.listUsers/getUser/updateUserKyc/updateUserStatus`). No requiere backend nuevo; falta **consumo de frontend** (M6 es `ModuleTodo` en UI). Shapes confirmados contra el código: el **listado** es paginado `{ data, page, pageSize, total }` con `data: { id, email, name, role, status, createdAt }[]` y filtros `q` (email/name) + `status` — ⚠️ **esa forma es la de v1.3 y queda SUPERSEDIDA por [`§M6-L`](#M6-L) (v1.71): el listado gana `kycStatus` y el filtro `?kycStatus=`, y su forma se declara en §11 como `AdminUserSummaryDTO`**; la **ficha 360°** (`GET /admin/users/:id`) incluye `kycProfile` (CLABE/RFC **enmascarados** incluso para `super_admin`; `ineOnFile: boolean`), `billingProfile` (RFC enmascarado; `null` para `vault_operator`), `addresses`, `orders` (últimas 20), `sellRequests` (20), `disputes` (20) y `ownedItems` (bóveda). El `vault_operator` recibe **proyección reducida** (sin RFC/INE/billing).
+- `GET /api/v1/admin/users` — `?q=&status=&kycStatus=&page=&pageSize=` — Res `200`: `AdminUserListResponse` (§11).
+  > ⭐⭐ **v1.71 (`A5`) — `kycStatus` VIAJA EN EL DTO Y FILTRA. Norma entera, valores, errores, orden y candados:
+  > [`§M6-L`](#M6-L).** `AdminUserSummaryDTO` **se declara por primera vez en §11** en esta rev: era el **único**
+  > listado de admin sin forma declarada, que es exactamente la condición bajo la que este contrato ya se filtró tres
+  > veces (`R-1`, §11 M6).
+  > **Paginación (medido, `admin.controller.ts:101-108`, se documenta porque el contrato no la decía):** `page`
+  > default `1` y **normalizado a ≥ 1**; `pageSize` default **20** y **acotado duro a `[1,100]`**. Un `pageSize`
+  > fuera de rango **no es error**: se acota (conducta publicada; ⛔ no se cambia de paso en esta rev).
+  > Err `403`, **`400 VALIDATION_ERROR`** (`?status=` o `?kycStatus=` con un valor fuera de su enum — §M6-L.3/L.4).
 - `GET /api/v1/admin/users/:id` — **ficha 360°** (compras, bóveda, buylist, disputas, KYC). La CLABE y el RFC se devuelven **enmascarados también para `super_admin`** (`clabeMasked` = `****1234`, `rfcMasked` = parcial); la CLABE en claro solo por `reveal-clabe`. Para `vault_operator` se mantiene la proyección reducida de SEC-A4 (sin CLABE/RFC/INE keys ni billing profile; `ineOnFile` booleano).
   > **v1.67.1 (techlead F2-2, `D-CTA-8`) — `addresses: AddressDTO[]` es la `AddressDTO` COMPLETA de §11, con
   > `recipientName: string | null`, PARA LOS DOS ROLES (`AdminUserDetailDTO` y `AdminUserDetailOperatorDTO`).**
@@ -17907,6 +17946,262 @@ GET»***. **Se RETIRAN de la declaración.** Dos razones, y la segunda es la que
 | **K-8** | **Ningún dial llega al cliente** | `GET /users/me/kyc` **sin** `threshold`/`cap`/`monthUsed` en ninguna clave; `422 INE_REQUIRED` del intake con `details` **vacío** |
 | **K-9** | **El TTL se respeta y se acota** | `expiresInSeconds === 120`; con `KYC_INE_VIEW_URL_TTL_SECONDS=3600` ⇒ clampa a **300** |
 | **K-10** | **INE incompleto ⇒ `422 INE_NOT_ON_FILE`** con `frontOnFile`/`backOnFile` | usuario con **una sola** key |
+
+---
+
+<a id="M6-L"></a>
+### M6-L. LA COLA DE REVISIÓN — que se sepa quién está esperando (v1.71, **NORMATIVA**; `A5` de `DESIGN_SYSTEM §34.15`)
+
+> **Sección NUEVA. No renumera ni mueve nada.** Es el complemento de [`§M6-K`](#M6-K): K construye la pantalla donde
+> se mira la INE; **L construye la puerta por la que se llega a ella**. ⚠️ **Frente de PII: visto bueno de
+> `seguridad`** (`CLAUDE.md` paso 7) — el argumento está pre-hecho en **L.2**, y la conclusión medida es que **no hay
+> clase de dato nueva para ningún rol**.
+>
+> **Por qué existe, dicho con la medición (2026-09-12):** `admin.service.ts:743-758` no lee `kycProfile` en el
+> `select` del listado ni conoce `kycStatus` en el `where`. **La única superficie donde aparece hoy el estado de
+> identidad es la ficha de UNO** (`GET /admin/users/:id`) ⇒ para encontrar a quien espera hay que abrir usuarios de
+> uno en uno. *Un documento que el cliente sube, que nosotros custodiamos y que nadie sabe que hay que mirar es el
+> peor de los dos mundos: todo el coste de la PII y cero del beneficio.*
+
+**L.0 — INVARIANTES. Si algo de abajo parece contradecir uno de estos cinco, gana el invariante.**
+
+1. ⛔ **Esta sección NO acerca el listado al documento.** Viaja **un estado**, nunca una imagen, nunca una URL,
+   nunca una *object key*, nunca el motivo del rechazo. El invariante **K.1.2** («ningún enlace en un listado») queda
+   **intacto** y el candado **K-2** (el JSON de `GET /admin/users` no matchea `/kyc_ine\//`) **sigue valiendo tal cual**.
+2. ⛔ **`kycStatus` no gana consecuencia.** Filtrar por él **no** lo convierte en precondición de nada:
+   [`§M5-K.1–K.3`](#M5-K) y el invariante **K.1.6** siguen enteros — ni crear, ni ofertar, ni pagar leen `kycStatus`,
+   y `422 KYC_NOT_VERIFIED` sigue sin existir. **Aquí se lee para ORDENAR TRABAJO HUMANO, no para gatear dinero.**
+3. ⛔ **Un filtro no reconocido NUNCA se ignora en esta lista.** O filtra, o `400`. *Ignorar en silencio es la única
+   conducta que produce el daño que la ficha viene a evitar: una lista sin filtrar que el operador lee como su cola.*
+4. ⛔ **El filtro es SERVER-SIDE, siempre.** Nadie filtra en cliente una página ya paginada (L.5).
+5. ⛔ **Cero DDL en `A5`.** Si una decisión de esta sección pide una columna, es que pertenece a `A5-b` (L.6).
+
+---
+
+**L.1 — EL CAMPO: `kycStatus: KycStatus` en `AdminUserSummaryDTO`. Uno. Y digo qué NO viaja.**
+
+```
+AdminUserSummaryDTO  = { id, email, name, role, status, createdAt,  kycStatus: KycStatus }   // ← v1.71
+```
+
+- **Obligatorio, no opcional, y SIEMPRE con valor.** Un usuario **sin fila** en `KycProfile` emite **`'none'`**.
+  ⛔ **No se emite `null` ni se omite la clave**: «no tiene perfil» y «tiene perfil en `none`» son **el mismo hecho
+  para quien lee la cola** (no ha mandado nada), y distinguirlos en la lista obligaría a la pantalla a inventar un
+  tercer rótulo para una diferencia que no cambia ninguna acción.
+- **No estreno la derivación, la reuso:** `user.kycProfile?.kycStatus ?? 'none'` es **exactamente** lo que ya hace
+  `UserDTO` (`users.service.ts:88`) y `GET /users/me/kyc` (`:320`). **Un hecho, una regla, en las tres superficies.**
+- ⚠️ **Consecuencia para frontend, dicha explícita:** con el servidor real **la columna deja de pintar «—»** (§34.10
+  punto 1). El fallback puede quedarse —es barato y protege del mock— pero **es rama muerta contra el servidor**;
+  lo que ⛔ **no** puede hacerse es derivar el valor de otra cosa cuando falte.
+
+**Lo que NO viaja en el listado, con el motivo de cada uno** *(una proyección de lista es superficie que alguien
+mantiene, y ésta ya paga PII en `email` y `name`)*:
+
+| Campo | Por qué **no** |
+|---|---|
+| `rejectionReason` | **Texto libre que un admin escribe sobre un documento de identidad.** En una lista sale **de todos a la vez**: en la captura de pantalla, en el `Ctrl-F`, en el CSV que alguien pegue en un chat. Y **sería PII nueva para el `vault_operator`**, a quien §11 se lo niega por escrito. Vive en la ficha, que es donde se decide |
+| `ineOnFile` | Es **«esta persona tiene un documento de identidad guardado»**, dicho de todo el padrón a la vez. Y **no hace falta**: tras `A6` solo una subida de INE produce `'pending'`, así que la cola ya está descrita por el estado. Acercar el listado al documento es justo lo que L.0.1 prohíbe |
+| `ineSubmittedAt` | **No existe** (L.6). Llega con `A5-b`, no antes |
+| `reviewedAt` / `verifiedAt` / `verifiedBy` / `reviewedBy` | **Sin lector**: §34.10 no los pinta. Un campo de lista sin pantalla que lo use es superficie regalada |
+| `capPerMonthCents`, `clabeMasked`, `rfcMasked` | Dinero y PII bancaria/fiscal en una lista. Ni se discute |
+| `nameSource` | §M6 lo **autoriza** («el listado **puede** exponerlo») y **`A5` no lo ejerce**: resuelve otro problema (por qué el buscador no encuentra a «jcsainz95», P-73) y **no lo pide ninguna pantalla de §34.10**. Si se quiere, entra por su propia ficha con su pantalla detrás |
+| `phone`, `locale`, `emailVerified`, `deletedAt`, `anonymizedAt`, `updatedAt` | No son de esta ficha y **no se cuelan «ya que tocamos el `select`»**. ⭐ El `select` del listado es **lista blanca**, igual que `ADMIN_USER_DETAIL_SELECT` (`R-1`): lo que no está enumerado **ni se lee de la base** |
+
+---
+
+**L.2 — LOS DOS ROLES RECIBEN EL CAMPO. Medido, no supuesto.**
+
+`GET /admin/users` es legible por **`vault_operator` y `super_admin`** (`admin.controller.ts:85-86`). Por tanto todo
+lo que entre en este DTO **lo ve el operador**. La pregunta correcta no es *«¿es sensible?»* sino *«¿es sensible
+**para quien lee esta ruta**?»* (doctrina de §11):
+
+- **`kycStatus` NO es dato nuevo para el `vault_operator`:** `AdminKycProfileOperatorDTO` **ya lo incluye** (§11) y el
+  operador ya lo lee en cada ficha que abre. El listado **no le enseña una clase de información que no tuviera**;
+  le enseña la misma, agregada.
+- ⇒ **UN solo DTO de listado, no dos.** La doctrina de «dos DTOs por rol» (`AdminUserDetailDTO` /
+  `…OperatorDTO`) existe porque **allí sí** hay campos vedados al operador. Aquí no hay ninguno: partir el DTO sería
+  **una segunda proyección de las mismas columnas sin ninguna diferencia que proteger**, que es literalmente el error
+  que §M6-K.3 y `R-1` prohíben.
+- ⚠️ **Y la frontera queda escrita para la próxima:** el día que alguien quiera meter `rejectionReason` o `ineOnFile`
+  en esta lista, **eso sí parte el DTO** — y por eso la respuesta de hoy es que no entran (L.1).
+
+---
+
+**L.3 — EL FILTRO `?kycStatus=`.**
+
+| Caso | Norma |
+|---|---|
+| **Valores admitidos** | **Exactamente el enum `KycStatus` de §11**: `none` · `pending` · `verified` · `rejected`. ⛔ **No se escribe una segunda lista a mano en ningún sitio**: la paridad `schema.prisma` ↔ Prisma ↔ contrato ya está asertada por la suite documental, y una lista paralela es la forma en que esa paridad se rompe |
+| **Ausente o cadena vacía** | **No filtra.** `?kycStatus=` (vacío) ≡ no enviarlo, mismo trato que `?status=` hoy (`if (status)`, `admin.service.ts:745`). *Un `Select` en «Todas» manda cadena vacía; tratarla como inválida rompería la pantalla por su estado por defecto* |
+| **Valor fuera del enum** | ⛔ **`400 VALIDATION_ERROR`**, `details: { field: 'kycStatus', allowed: ['none','pending','verified','rejected'] }`. **NUNCA se ignora** (L.0.3) y **nunca se degrada a lista sin filtrar**. `400` y no `422`: es **query**, y es el código que ya usan los listados admin de este contrato (§M5 `live-sellers`, `pending-shipment-confirmation`) |
+| **Combinable con `?q=` y `?status=`** | **SÍ, los tres a la vez, en AND.** `?q=ana&status=active&kycStatus=pending` = *«cuentas activas, que casan con «ana», esperando revisión»*. Ninguna combinación está prohibida y ninguna es especial |
+| **Semántica de `none`** | `none` = **sin fila en `KycProfile`** ∪ **fila con `kycStatus='none'`**. Es la contrapartida exacta de la derivación de L.1, y el invariante que las ata está en el candado **L-2** |
+
+**⚠️ TRAMPA DE IMPLEMENTACIÓN, declarada porque es silenciosa y cara** *(medida en `admin.service.ts:744-746`)*: `q`
+ya ocupa **`where.OR`**. El caso `none` necesita **su propio `OR`**, y un segundo `where.OR = …` **no compone: pisa
+al primero** ⇒ el buscador desaparece y la lista se ensancha sin que nada falle. **Norma: el `where` se arma como
+`AND: [ …cláusula por filtro… ]`**, una cláusula por parámetro, nunca dos claves `OR` en el mismo objeto. El candado
+**L-3** existe solo para esto.
+
+---
+
+**L.4 — `status` vs `kycStatus`: NO los renombro, y digo por qué — más lo que sí hago para que no se confundan.**
+
+**Alternativa descartada: renombrar el filtro a `?identityStatus=` (o el de cuenta a `?accountStatus=`).**
+
+- **Coste real, beneficio nominal.** `?status=` está **publicado y en uso** (`api.ts:4630`) y `kycStatus` es **el
+  nombre que el concepto ya tiene** en cuatro superficies vivas: el enum del schema, `UserDTO`, `GET /users/me/kyc`,
+  `AdminKycProfileDTO` y el `PATCH /admin/users/:id/kyc`. **Estrenar un quinto nombre para el mismo hecho** es
+  exactamente lo que este proyecto persigue como defecto (*dos fuentes para un hecho*), y encima dejaría al frontend
+  con un nombre en la query y otro en el DTO de la **misma respuesta**.
+- **La confusión de lectura es real, pero su remedio no es el nombre: es que un valor cambiado de sitio no pueda
+  colar.** Los dos conjuntos son **disjuntos** — `UserStatus` = `active|blocked|deleted`, `KycStatus` =
+  `none|pending|verified|rejected`, **cero intersección** (medido, `schema.prisma:27-33,305-310`) ⇒ **`?status=pending`
+  y `?kycStatus=active` son imposibles de atender**, y lo correcto es que **contesten `400` diciendo el nombre del
+  campo**, no que fallen de una forma que el operador no entienda.
+
+**⇒ CONDICIÓN DE ESTA FICHA (pequeña, mismo punto de código): `?status=` SE VALIDA TAMBIÉN.**
+
+- Admitidos: **el enum `UserStatus` completo** (`active|blocked|deleted`). Se admite `deleted` porque **es un valor
+  legal del campo y ya viaja en el DTO**; negar un valor legítimo del propio enum sería una segunda mentira.
+  *(Medido: el frontend hoy solo manda `active|blocked` — admitir `deleted` no rompe nada y no obliga a nadie a
+  pintarlo.)*
+- Fuera del enum ⇒ **`400 VALIDATION_ERROR`**, `details: { field: 'status', allowed: [...] }`.
+- **Por qué es parte de esta ficha y no «arreglar de paso»:** sin ella, mi argumento de arriba —*«confundirlos es
+  imposible porque el valor cae en `400`»*— **sería una intención, no una propiedad**. Hoy el valor entra **crudo** a
+  Prisma (`where.status = status as never`, `:745`) y **lo que ocurre está NO MEDIDO** (ver L.9, `N-A5-1`). Una regla
+  que no se puede comprobar no es una regla.
+
+---
+
+**L.5 — EL ORDEN. Aquí es donde `A5` se queda corta, y lo digo en vez de disimularlo.**
+
+**Lo que hay hoy (medido, `admin.service.ts:753`): `orderBy: { createdAt: 'desc' }` — `User.createdAt`, la fecha de
+alta de la cuenta.** Con el filtro puesto, el revisor ve primero **la cuenta más nueva**, que no tiene ninguna
+relación con **quién lleva más esperando**.
+
+**`A5` NO cambia el orden.** Las tres alternativas, y por qué se descartan las tres:
+
+| Alternativa | Por qué **no** |
+|---|---|
+| `KycProfile.updatedAt asc` | **Miente, y miente hacia el lado peor.** `@updatedAt` se mueve con **cualquier** escritura de la fila: un `pending` que corrige su CLABE **salta al final de la cola** y el que más espera se vuelve el más escondido. Es el mismo fallo que `BL-22` resolvió al revés (*la más rara debe ser la más visible*). Y `A3-res` ya lo prohíbe por escrito: **⛔ no se deriva de `updatedAt`** |
+| `KycProfile.createdAt asc` | La fila **nace con la CLABE**, no con la INE (`buylist.service.ts:1657` la crea en el intake). Para un vendedor que guardó CLABE en marzo y subió INE ayer, esa fecha dice *«lleva 6 meses esperando»*. **Una fecha que contesta otra pregunta** |
+| `User.createdAt asc` (invertir el orden actual cuando hay filtro) | **La peor de las tres, y por eso se nombra:** *parecería* una cola («los más antiguos primero») y **no lo sería** — ordena por antigüedad de la **cuenta**. ⭐ ***Un orden que parece una cola sin serlo es peor que un orden que obviamente no lo es***: el segundo se ve, el primero se cree |
+| Derivarlo de `AuditLog` | La bitácora **no es fuente de verdad de ordenación** (y no registra el `PUT` del cliente). Ordenar un listado por un join a la tabla de auditoría es pagar una consulta cara por un dato que **debe ser una columna** |
+
+**⇒ Decisión: `A5` entrega la COLA (verla, filtrarla, contarla) y `A5-b` entrega el ORDEN.** Y la cola **ya sirve sin
+el orden**, con dos propiedades medibles que la hacen honesta:
+
+1. **`total` no miente.** El filtro es server-side ⇒ `total` es el **tamaño real de la cola**, no el de la página.
+   El operador **sabe cuántos esperan** aunque no sepa cuál lleva más.
+2. **La lista no es parcial.** Es la razón por la que **se ratifica la decisión de frontend de NO filtrar en
+   cliente**: un filtro sobre una página ya paginada habría dado una cola **falsa** —«todos los pendientes» que en
+   realidad son «los pendientes de la página 1»— y ese daño es **peor que un orden inútil**, porque el orden malo se
+   nota y la cola truncada no.
+
+⚠️ **Encargo a ux-ui, no a frontend** *(y por eso va aquí, no en una nota suelta)*: mientras el orden sea el de alta,
+**la pantalla no debe prometer una cola** (⛔ nada de *«el más antiguo primero»*, ⛔ nada de *«siguiente en la
+cola»*). Con el orden de `A5-b` esa promesa pasa a ser cierta y **entonces** se puede escribir.
+
+---
+
+**L.6 — `A5-b` (= `A3-res`): `KycProfile.ineSubmittedAt`. La ficha hermana, con `M-56`. NO ENTRA EN v1.71.**
+
+**Por qué es otra ficha y no un punto más de ésta** — tres razones, todas medidas:
+
+1. **Exige DDL** (`A5` no tiene ninguno) ⇒ migración **`M-56`**, aditiva y nullable. `M-54` y `M-55` ya existen
+   (`backend/prisma/migrations/`), así que **el número siguiente es `M-56`**.
+2. **Cruza dos work streams.** `A5` vive entero en `admin` + `(admin)` = stream **«Admin y auditoría»**.
+   `ineSubmittedAt` se escribe en `users.service.ts` (**«Cuentas y acceso»**), se lee en `buylist` y toca
+   `prisma/schema.prisma` (**zona compartida**). Eso **se serializa**, y serializarlo **bloquearía `A5`** — que es lo
+   único que hoy impide que la revisión sea usable.
+3. **Sirve a dos superficies a la vez**, y por eso merece su ficha en vez de ser un apéndice: el **cliente**
+   (*«Enviada el {date}»*, la clave `account.kyc.pending.since` que ux-ui dejó **preparada y sin usar**, §34.8/§34.12)
+   y el **admin** (el orden de la cola).
+
+**Lo que ya está resuelto para quien la implemente, para que no lo re-derive** *(medido 2026-09-12)*:
+
+- ⭐ **Tiene UN SOLO ESCRITOR, y ya existe.** `UsersService.buildIneSubmission` (`users.service.ts:412-450`) es el
+  **único** sitio que mueve la identidad, **por los dos caminos**: el `PUT /users/me/kyc` lo llama (`:479`) y el
+  intake de buylist también (`buylist.service.ts:1603-1658`, fusionado en `A6`). ⇒ `ineSubmittedAt = now()` va
+  **dentro del `if (keys.front || keys.back)` de `:443-448`**, junto a `kycStatus='pending'`, **en la misma línea de
+  decisión**. *Cero riesgo de dos escritores con dos criterios: ése ya era el defecto que `A6` cerró.*
+- **Semántica exacta:** *«cuándo entró la subida que produjo el `pending` vigente»*. **Se REESCRIBE en cada
+  resubida** (no es «la primera vez»): tras un rechazo, el reloj que importa es el de la **corrección**, no el del
+  intento fallido. ⛔ No se toca en el `PATCH` del admin, ni en un `PUT` solo-CLABE.
+- **Nulos:** sin backfill (no hay de dónde sacarlo; inventarlo sería exactamente lo que `recipientName: null`
+  prohíbe en §M6-K.3). Las filas anteriores a `M-56` quedan `null` ⇒ **`ORDER BY ineSubmittedAt ASC NULLS FIRST`**:
+  un `pending` sin fecha **es, por construcción, anterior a la migración** ⇒ es **el que más lleva esperando** y
+  **debe salir primero**. *(Mismo criterio de `BL-22`: lo que no se puede fechar se trata como lo más urgente, no
+  como lo más escondido.)*
+- **Alcance del orden:** la cola se ordena así **cuando `?kycStatus=pending`**; sin filtro de identidad el listado
+  **conserva `createdAt desc`** (es el padrón de usuarios, no una cola). ⛔ El orden **no se hace configurable** con
+  un `?sort=`: un parámetro de ordenación es una superficie nueva con su validación y sus casos, y aquí hay
+  **exactamente dos** órdenes con nombre propio.
+- **DTO:** `ineSubmittedAt: string | null` entra **también en `AdminUserSummaryDTO`** — *un orden que el operador no
+  puede ver es un orden que no puede comprobar*, y la columna ya se lee para el `ORDER BY` (coste de consulta:
+  cero). **Qué se pinta con ella lo decide ux-ui**, no este contrato. Y en `GET /users/me/kyc` entra **solo** si
+  `kycStatus === 'pending'` (es lo único que la copy del cliente usa).
+- **Índice: NO en `M-56`.** La población de `KycProfile` es un subconjunto pequeño del padrón y el orden se aplica
+  sobre el **subconjunto ya filtrado**. Un índice se añade cuando una medición lo pida, no por si acaso (`N-A5-3`).
+
+---
+
+**L.7 — REPARTO, MIGRACIÓN Y DESPLIEGUE.**
+
+| Rol | Qué hace en `A5` | ¿Bloqueante? |
+|---|---|---|
+| **backend** (`admin`, stream «Admin y auditoría») | `listUsers` + `admin.controller.ts`: (1) `kycProfile: { select: { kycStatus: true } }` en el `select` **de lista blanca**; (2) derivar `?? 'none'`; (3) `where` armado con **`AND: []`** (L.3); (4) validar **`status` y `kycStatus`** ⇒ `400`; (5) los candados `L-1…L-6` | **Sí.** Es la ficha entera |
+| **frontend** (`(admin)` M6) | **Nada obligatorio.** El componente y el filtro **ya existen** (`M6View.tsx:229-233,282-294`) y **ya mandan el parámetro** (`api.ts:4631`). Limpieza opcional: retirar el comentario `MOCK: pendiente de contrato` de `contract.ts:3609-3616` y `api.ts:4613-4618`, y **subir `kycStatus` a obligatorio** en el tipo. ⛔ **NO se añade filtrado en cliente** — ratificado en L.5 | No |
+| **ux-ui** | L.5: que la pantalla **no prometa una cola** mientras el orden sea el de alta | No |
+| **qa** | Ejecutar `L-1…L-6`. La partición (`L-2`) es la que caza el caso `none` sin fila | **Sí** |
+| **seguridad** | Visto bueno de frente PII con el argumento de **L.2** ya medido: **cero clase de dato nueva, cero rol nuevo**. `K-2` debe seguir verde **sobre la respuesta nueva** | **Sí**, como visto bueno |
+| **devops** | **Nada.** Cero variables de entorno, cero DDL, cero índices, cero cambios de despliegue | — |
+
+**¿Migración? NO. Medido:** todo lo que `A5` necesita ya está en la base — `KycProfile.kycStatus` existe
+(`schema.prisma:471`, enum `KycStatus` `:305-310`) y la relación `User → KycProfile` ya es navegable por Prisma
+(`userId @unique`, `:460`). **`A5` es una proyección y un `where`: cero DDL, cero backfill, cero índice.**
+
+**¿Tolera salir por partes? SÍ, y en un solo sentido — esto sale sobre algo YA PUBLICADO Y EN USO:**
+
+- ✅ **Backend solo, sin frontend: FUNCIONA Y ES LA VÍA RECOMENDADA.** La columna se enciende sola (el componente ya
+  está) y el filtro empieza a filtrar (el parámetro ya se manda). **Retrocompatible con el frontend publicado:** un
+  campo nuevo en el DTO no rompe a un cliente que lo declara opcional.
+- ⛔ **Frontend solo, sin backend: es el estado de HOY, y es el defecto.** El `Select` ofrece «Pendiente de revisión»
+  y el servidor **ignora el parámetro** ⇒ lista entera con cara de cola filtrada (changelog, punto 2).
+- ⚠️ **Condicional, con su medición:** si se comprueba que ese `Select` **ya está en producción**, esto **no es una
+  mejora sino la corrección de un defecto vivo** y entra en el siguiente despliegue. Si **aún no** salió, basta con
+  que backend **no vaya después** que él. **Medición que lo cierra (orquestador, 30 s):**
+  `git merge-base --is-ancestor c1e8af6 9050d59` — hoy **NO MEDIDO** (`N-A5-2`). ⛔ **Si sale que ya está vivo y el
+  backend no puede ir en el mismo despliegue, el remedio es OCULTAR el `Select`** (dueño: frontend) — ⛔ **jamás**
+  filtrar en cliente para tapar el hueco.
+
+---
+
+**L.8 — CANDADOS (los escribe backend; los ejecuta QA). Sin estos, `A5` no está verificada.**
+
+| # | Candado | Cómo se comprueba |
+|---|---|---|
+| **L-1** | **El campo viaja para los DOS roles** | `GET /admin/users` con token `super_admin` **y** con token `vault_operator`: **toda** fila trae `kycStatus` ∈ `KycStatus`. ⛔ Ninguna fila sin la clave |
+| **L-2** | ⭐ **PARTICIÓN: el filtro devuelve exactamente lo que el DTO afirma** | Las 4 llamadas (`none`/`pending`/`verified`/`rejected`): cada fila devuelta trae **ese** `kycStatus`, **y la suma de los 4 `total` == el `total` sin filtro**. *Esto caza de una vez el caso «usuario sin fila en `KycProfile`»: si `none` no lo incluye, la suma no cuadra* |
+| **L-3** | ⭐ **`q` + `kycStatus` es INTERSECCIÓN, no unión** | Sembrar A (casa con `q`, `verified`) y B (no casa con `q`, `none`). `?q=<q>&kycStatus=none` ⇒ **ni A ni B**. *Falla en rojo si alguien implementó con un segundo `where.OR` — la trampa de L.3* |
+| **L-4** | **Valor inválido ⇒ `400`, y NO lista sin filtrar** | `?kycStatus=banana` ⇒ `400 VALIDATION_ERROR` con `details.field='kycStatus'`. ⛔ **Nunca `200`** |
+| **L-5** | **Los dos ejes no se cruzan** | `?status=pending` ⇒ `400` (`details.field='status'`) **y** `?kycStatus=active` ⇒ `400` (`details.field='kycStatus'`). *Es la prueba de que L.4 es una propiedad y no una intención* |
+| **L-6** | **El listado sigue sin acercarse al documento** | `K-2` **re-ejecutado sobre la respuesta nueva**: el JSON de `GET /admin/users` no matchea `/kyc_ine\//`, y no contiene `rejectionReason` ni `ineOnFile` con ningún rol |
+| **L-7** *(de `A5-b`, no de ésta)* | **La cola ordena por espera, y los nulos van primero** | Con `?kycStatus=pending`: tres filas con `ineSubmittedAt` `null` / antiguo / reciente ⇒ ese **orden exacto** |
+
+---
+
+**L.9 — NO MEDIDO en este pase, con la medición que lo cierra** *(O-1: se declara porque ninguna de las tres cambia
+la decisión, pero las tres son condición de aceptación)*:
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| **N-A5-1** | **Qué contesta hoy `GET /admin/users?status=banana`.** El valor entra crudo a Prisma (`:745`, medido); **que eso produzca un `500` es INFERENCIA, no medición** — y este contrato ya se equivocó así una vez (`D-S3-3`: leí una capa y afirmé sobre el stack) | `curl` con token `super_admin` contra staging/local, o un `supertest` de una línea. **No cambia la norma de L.4** (validar es correcto igual), solo si se reporta como «defecto» o como «hueco» | backend |
+| **N-A5-2** | **Si el `Select` de identidad está VIVO en producción** (`9050d59`) | `git merge-base --is-ancestor c1e8af6 9050d59` | orquestador |
+| **N-A5-3** | **Cuántas filas tienen `User` y `KycProfile`, y cuántas están en `pending`.** De esto depende (a) si el orden de `A5` duele hoy o solo en el papel y (b) si `M-56` necesita índice | `SELECT count(*) …` con **usuario de solo lectura** o **corrido por el dueño donde la credencial ya vive**. ⛔ Nunca una credencial por conversación | orquestador / dueño |
+
+---
 
 #### Alta de usuario por rol desde admin (v1.7-admin-users — NUEVO backend)
 > Hoy no existe alta de usuarios en back-office: los clientes se **auto-registran** como `customer` y el staff
@@ -19532,6 +19827,28 @@ AdminOrderDetailDTO = { id: string, userId: string | null, orderNumber: string |
 //     «resuelva» la necesidad devolviendo el blob crudo. **Lo prohibido es el snapshot sin proyectar.**
 AdminOrderBillingDTO = { rfcMasked: string, razonSocial: string, regimenFiscal: string,
                          usoCfdi: string, postalCode: string, email: string }
+
+// ---------- M6 — LISTADO (`GET /admin/users`) ----------
+// ⭐⭐ v1.71 (`A5`, §M6-L) — SE DECLARA POR PRIMERA VEZ. Era el ÚNICO listado de admin sin forma declarada en §11:
+// el contrato lo describía de pasada en §M6 («data: { id, email, name, role, status, createdAt }»), y ésa es
+// EXACTAMENTE la condición bajo la que este documento ya se filtró tres veces (`R-1`: la única relación con forma
+// declarada fue la única que no filtró). Se declara con su lista blanca y con su negativa explícita.
+// ⛔ FUERA, y cada «no» tiene motivo escrito en §M6-L.1: `rejectionReason` (texto libre sobre un documento de
+//    identidad, y PII NUEVA para el `vault_operator`, a quien §11 se la niega), `ineOnFile` (acerca el listado al
+//    documento — invariante K.1.2), `nameSource` (autorizado por §M6 pero SIN pantalla que lo pida: no se ejerce),
+//    `reviewedAt`/`verifiedAt`/`verifiedBy` (sin lector), `capPerMonthCents`/`clabeMasked`/`rfcMasked` (dinero y PII),
+//    `phone`/`locale`/`emailVerified`/`deletedAt`/`anonymizedAt`/`updatedAt` (no son de esta ficha).
+// ⚠️ UN SOLO DTO, NO DOS POR ROL — y es una decisión medida, no un olvido: esta ruta la leen `vault_operator` Y
+//    `super_admin` (`admin.controller.ts:85-86`), y `kycStatus` NO es dato nuevo para el operador
+//    (`AdminKycProfileOperatorDTO` ya lo incluye). Partir el DTO sería una segunda proyección de las mismas columnas
+//    SIN ninguna diferencia que proteger. El día que alguien quiera meter aquí `rejectionReason`, eso SÍ lo parte.
+// `kycStatus` es OBLIGATORIO y SIEMPRE tiene valor: un usuario sin fila en `KycProfile` emite 'none' — la misma
+//    derivación que ya usan `UserDTO` y `GET /users/me/kyc` (`users.service.ts:88,320`). ⛔ Ni `null` ni omitido.
+AdminUserSummaryDTO = { id: string, email: string, name: string, role: Role, status: UserStatus,
+                        createdAt: string,
+                        kycStatus: KycStatus }   // ⭐ v1.71 (A5, §M6-L.1): 'none' cuando no hay perfil
+                     // 🚧 `A5-b` (§M6-L.6) añadirá `ineSubmittedAt: string | null` — exige `M-56`. NO está en v1.71.
+AdminUserListResponse = { data: AdminUserSummaryDTO[], page: number, pageSize: number, total: number }
 
 // ---------- M6 — ficha 360° (`GET /admin/users/:id`) ----------
 // ⚠️ LA FORMA INCLUYE LAS RELACIONES. El fallo S49-M1-R no fue olvidar un campo de la RAÍZ: fue que
