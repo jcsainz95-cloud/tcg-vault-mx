@@ -11914,7 +11914,8 @@ cuántas van tras comilla/`=`/espacio. Dueño: devops. **No lo he corrido.**
 
 Tras anclar `re_` y regenerar, el candado volvió a ponerse **rojo con tres literales nuevos**. No era
 una regresión del ancla: **eran mis propias notas**. Al escribir §65 puse los ejemplos entre comillas
-invertidas —`` `re_producto` ``, `` `re_de_secreto` ``, `RESEND_API_KEY=re_AbCd…`—, y una comilla
+invertidas —el trozo de `nombre_producto`, el de `nombre_de_secreto`, una clave Resend de
+ejemplo—, y una comilla
 invertida **es un límite de palabra**: con el ancla puesta, esos ejemplos pasaron a tener **forma de
 clave real** y el generador los capturó, con razón.
 
