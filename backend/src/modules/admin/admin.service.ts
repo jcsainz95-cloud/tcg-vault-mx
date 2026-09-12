@@ -36,6 +36,44 @@ import {
 } from '../../common/validation/credentials';
 
 /**
+ * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
+ * `GET /admin/users`, DERIVADOS del schema.**
+ *
+ * ⛔ **Ni una lista escrita a mano.** Prisma genera un objeto en runtime por cada enum, así que
+ * `Object.values(...)` es la lista canónica y **no puede desincronizarse** del `schema.prisma` (misma
+ * doctrina que `common/enum-values.ts`; aquí se derivan en el call-site porque son **filtros de UN
+ * endpoint**, y `UserStatus` está excluido de aquel fichero a propósito — allí vive la regla de
+ * `PATCH /status`, que acepta un SUBCONJUNTO).
+ *
+ * **Clase E** (§4.37): si mañana el schema gana un `KycStatus`, este filtro **debe** aceptarlo el
+ * mismo día — un filtro que no puede nombrar un estado que la BD sí guarda es un filtro que miente.
+ * ⚠️ Es la diferencia con `UpdateStatusDto`, que es **clase R** y por eso NO deriva.
+ */
+const KYC_STATUS_FILTER_VALUES: readonly KycStatus[] = Object.values(KycStatus);
+const USER_STATUS_FILTER_VALUES: readonly UserStatus[] = Object.values(UserStatus);
+
+/**
+ * ⭐ v1.71 (`A5`, §M6-L.0.3) — **o filtra, o `400`. Lo que NUNCA hace es ignorar.**
+ *
+ * *Ignorar en silencio es la única conducta que produce el daño que `A5` viene a evitar: una lista
+ * SIN FILTRAR que el operador lee como su cola.* Y degradar a lista completa es peor que fallar,
+ * porque el fallo se ve y la cola falsa no.
+ *
+ * `400` (no `422`): es **query**, y es el código que ya usan los listados admin de este contrato.
+ * `details.field` es obligatorio — el operador tiene que poder distinguir cuál de los dos ejes
+ * rechazó (`status` vs `kycStatus`), que es justo lo que hace innecesario renombrarlos (§M6-L.4).
+ */
+function assertEnumFilter<T extends string>(field: string, value: string, allowed: readonly T[]): T {
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} filter '${value}'`, {
+      field,
+      allowed: [...allowed],
+    });
+  }
+  return value as T;
+}
+
+/**
  * v2.1.9 (R1) — **lista BLANCA de columnas de `KycProfile` que pueden salir de una respuesta admin.**
  *
  * Lo que deja fuera es el punto: `rfcEnc`, `clabeEnc` (PII cifrada en reposo), `ineFrontKey`/
@@ -740,20 +778,111 @@ export class AdminService {
     };
   }
 
-  async listUsers(q: string | undefined, status: string | undefined, page: number, pageSize: number) {
-    const where: Prisma.UserWhereInput = {};
-    if (status) where.status = status as never;
-    if (q) where.OR = [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }];
-    const [data, total] = await Promise.all([
+  /**
+   * `GET /admin/users` — padrón de usuarios con filtros server-side. **API_CONTRACT §M6-L**
+   * (`A5`, v1.71) · ARCHITECTURE §4.53.
+   *
+   * ### Qué cambió en v1.71 y por qué
+   * El listado **no sabía nada de identidad**: el estado de KYC solo existía en la ficha de UNO, así
+   * que para encontrar a quien espera revisión había que abrir usuarios de uno en uno. Peor: el
+   * frontend **ya mandaba `?kycStatus=`** y este método **lo descartaba en silencio** ⇒ el operador
+   * elegía «Pendiente de revisión» y recibía **el padrón entero con cara de cola filtrada**
+   * (medido el 2026-09-12 contra la app real: `?kycStatus=pending` ⇒ `200` con `total` == el total
+   * sin filtro). Una cola falsa es peor que no tener cola.
+   *
+   * ### ⚠️ EL `where` SE ARMA COMO `AND: [...]`, y esto NO es estilo (candado `L-3`)
+   * `q` ocupa **`where.OR`** y el caso `kycStatus='none'` necesita **su propio `OR`** (sin fila ∪ fila
+   * en `none`). Dos claves `OR` en el mismo objeto **no componen: la segunda pisa a la primera**, y lo
+   * hace **sin fallar** — el buscador desaparece y la lista se ensancha. Por eso cada filtro aporta
+   * **una cláusula** al array `AND` y **nadie escribe `where.OR` directamente**.
+   *
+   * ### Validación: un valor fuera del enum es `400`, NUNCA una lista sin filtrar
+   * `status` entraba **crudo** a Prisma (`where.status = status as never`, desviación `D-A5-2`).
+   * **Medido el 2026-09-12 contra la app real (`N-A5-1`): `?status=banana` ⇒ `500 INTERNAL`** — un
+   * `PrismaClientValidationError` escapando como error interno. No era una inferencia y no era
+   * inofensivo: era un defecto vivo. Ahora los dos ejes validan contra **el enum derivado del
+   * schema** (⛔ ni una lista escrita a mano) y contestan `400 VALIDATION_ERROR` con `details.field`.
+   *
+   * ⛔ **El orden NO cambia en esta ficha** (`createdAt desc`): no existe hoy una fecha que signifique
+   * «cuándo mandó la INE» — `KycProfile.updatedAt` se mueve con cualquier escritura y `createdAt`
+   * nace con la CLABE. Un orden que **parece** una cola sin serlo es peor que uno que obviamente no
+   * lo es (§M6-L.5). Llega con `A5-b` (`M-56`, `ineSubmittedAt`), que **no se adelanta aquí**.
+   */
+  async listUsers(params: {
+    q?: string;
+    status?: string;
+    kycStatus?: string;
+    page: number;
+    pageSize: number;
+  }) {
+    const { q, page, pageSize } = params;
+
+    // Cada filtro = UNA cláusula del AND. Nunca `where.OR` a pelo (ver el docstring: candado L-3).
+    const and: Prisma.UserWhereInput[] = [];
+
+    // `?status=` — enum `UserStatus` COMPLETO (`active|blocked|deleted`). `deleted` se admite porque
+    // es un valor legal del campo y ya viaja en el DTO; negarlo sería una segunda mentira (§M6-L.4).
+    if (params.status) {
+      and.push({ status: assertEnumFilter('status', params.status, USER_STATUS_FILTER_VALUES) });
+    }
+
+    // `?q=` — el buscador por email/nombre. Su `OR` vive DENTRO de su cláusula, no en la raíz.
+    if (q) {
+      and.push({
+        OR: [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }],
+      });
+    }
+
+    // `?kycStatus=` — enum `KycStatus`. `none` = **sin fila** en `KycProfile` ∪ **fila con `none`**:
+    // es la contrapartida EXACTA de la derivación `?? 'none'` de abajo, y lo que hace que la partición
+    // del candado `L-2` cuadre (la suma de los cuatro `total` == el `total` sin filtro).
+    if (params.kycStatus) {
+      const value = assertEnumFilter('kycStatus', params.kycStatus, KYC_STATUS_FILTER_VALUES);
+      and.push(
+        value === KycStatus.none
+          ? { OR: [{ kycProfile: { is: null } }, { kycProfile: { is: { kycStatus: KycStatus.none } } }] }
+          : { kycProfile: { is: { kycStatus: value } } },
+      );
+    }
+
+    const where: Prisma.UserWhereInput = and.length > 0 ? { AND: and } : {};
+
+    const [rows, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        select: { id: true, email: true, name: true, role: true, status: true, createdAt: true },
+        // ⭐ LISTA BLANCA, igual que `ADMIN_USER_DETAIL_SELECT` (`R-1`): lo que no está enumerado
+        // **ni se lee de la base**. De `KycProfile` sale **el estado y nada más** — ni
+        // `rejectionReason` (texto libre sobre un documento de identidad, y PII nueva para el
+        // `vault_operator`), ni las keys de la INE, ni la CLABE. §M6-L.1 enumera cada «no».
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          kycProfile: { select: { kycStatus: true } },
+        },
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.user.count({ where }),
     ]);
+
+    const data = rows.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      status: u.status,
+      createdAt: u.createdAt,
+      // ⭐ LA MISMA derivación que `UserDTO` (`users.service.ts:88`) y `GET /users/me/kyc` (`:320`):
+      // `?? 'none'`. UN hecho, UNA regla, en las TRES superficies. ⛔ Ni `null` ni clave omitida:
+      // «no tiene perfil» y «tiene perfil en none» son el mismo hecho para quien lee la cola.
+      kycStatus: u.kycProfile?.kycStatus ?? KycStatus.none,
+    }));
+
     return { data, page, pageSize, total };
   }
 

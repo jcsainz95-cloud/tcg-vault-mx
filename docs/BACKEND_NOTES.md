@@ -21454,3 +21454,115 @@ cuatro variantes; lo que **no** sé es **cómo se reparten las 4 filas reales** 
 veredictos. **Eso lo contesta el PASO 1 (la marcha en seco) en la consola del dueño**, y por eso el
 paso 1 existe: es la medición, no un trámite. **Hasta que él la pegue y lea las tablas, «cuántas se
 reparan» es desconocido.**
+
+---
+
+## `A5` · §M6-L — LA COLA DE REVISIÓN DE IDENTIDAD: el filtro que estaba publicado y **mentía** (backend · `admin` · 2026-09-12, medido)
+
+> Norma: `API_CONTRACT §M6-L` (v1.71) · `ARCHITECTURE §4.53`. Commit: `2257b1d`.
+> **Cero DDL, cero migración, cero índices, cero variables de entorno** — tal como el contrato lo
+> especificó. Esto es una **proyección y un `where`**.
+
+### A5.1 — Lo que contestaba el endpoint ANTES (medición, no inferencia)
+
+`N-A5-1` estaba abierto en el contrato: *«que `?status=banana` produzca un `500` es INFERENCIA»*.
+**Medido el 2026-09-12 contra la app REAL (`AppModule` completo, guards y filtro global incluidos) y
+Postgres REAL**, sobre el árbol **sin tocar** (`git archive HEAD` de `63f077c`, Postgres 16 local,
+`prisma migrate deploy` + siembra sintética):
+
+| Petición (token `super_admin`) | Respuesta ANTES | Lectura |
+|---|---|---|
+| `GET /admin/users` | `200`, `total: 10`, claves `id,email,name,role,status,createdAt` | sin `kycStatus` |
+| `GET /admin/users?kycStatus=pending` | **`200`, `total: 10`** — *idéntico al listado sin filtrar* | ⭐⭐ **la cola falsa**: el operador elige «Pendiente de revisión» y recibe el padrón entero |
+| `GET /admin/users?status=banana` | ⭐ **`500 INTERNAL`** (`{"error":{"code":"INTERNAL",…}}`) | **defecto vivo**, no un hueco: `PrismaClientValidationError` escapando como error interno |
+| `GET /admin/users?zzz=1` | `200`, `total: 10` | descarte silencioso (`D-A5-3`) |
+
+⇒ **`N-A5-1` CERRADO: hoy da `500`.** `D-A5-2` no era «una validación que falta»: era **un 500 que
+cualquiera podía disparar desde la barra de direcciones**. Y la fila del medio es la que da urgencia
+a la ficha: no estábamos añadiendo una mejora, estábamos **retirando una mentira ya publicada**.
+
+### A5.2 — Lo implementado, y la trampa que el contrato avisó
+
+**`backend/src/modules/admin/admin.service.ts` · `listUsers`** y **`admin.controller.ts` · `list`**:
+
+1. **`kycStatus` en cada fila, obligatorio y siempre con valor.** Sin fila en `KycProfile` ⇒ `'none'`,
+   con **la misma derivación `?? 'none'`** que `UserDTO` (`users.service.ts:88`) y `GET /users/me/kyc`
+   (`:320`). ⛔ Ni `null` ni clave omitida. *Un hecho, una regla, tres superficies.*
+2. **`select` de LISTA BLANCA** (doctrina `R-1`): de `KycProfile` sale **`kycStatus` y nada más**. Ni
+   `rejectionReason` (texto libre sobre un documento de identidad, **PII nueva para el
+   `vault_operator`**), ni `ineFrontKey`/`ineBackKey`, ni `clabeEnc`/`rfcEnc`/`clabeHmac`. Lo que no
+   está enumerado **ni se lee de la base**.
+3. ⚠️ **El `where` se arma como `AND: [ …una cláusula por filtro… ]`.** Esto **no es estilo**: `q` ya
+   ocupaba `where.OR` y el caso `none` necesita **su propio `OR`** (sin fila ∪ fila en `none`). Dos
+   claves `OR` en el mismo objeto **no componen: la segunda pisa a la primera**, y lo hace **sin que
+   nada falle** — el buscador desaparece y la lista se ensancha. Candado `L-3`, y su mutación abajo
+   enseña el daño exacto.
+4. **Los dos ejes validan** contra el enum **derivado del schema** (`Object.values(KycStatus)` /
+   `Object.values(UserStatus)`; ⛔ ninguna lista escrita a mano que se pueda desincronizar) ⇒
+   `400 VALIDATION_ERROR` con `details.field` y `details.allowed`. **Cadena vacía ≡ ausente** (el
+   `Select` en «Todas» manda `?kycStatus=`, y tratarlo como inválido rompería la pantalla por su
+   estado por defecto).
+5. **Query desconocida ⇒ `400`** (lista blanca de cinco llaves), y **parámetro repetido** (`?q=a&q=b`,
+   que llega como array) también: leerlo como `undefined` sería el mismo descarte silencioso con otro
+   disfraz. ⚠️ **ACOTADO A ESTE ENDPOINT** (`D-A5-3`): ⛔ no es una regla global de «rechazar toda
+   query desconocida» — eso rompería clientes en rutas que hoy toleran parámetros de más, y pasaría
+   por el arquitecto.
+
+⛔ **Lo que NO entró, a propósito:** el **orden** de la cola. No existe hoy una fecha que signifique
+*«cuándo mandó la INE»*, y `A5` es cero-DDL. Sigue `createdAt desc` (hay un candado que lo fija) y el
+orden llega con **`A5-b`** (`M-56`, `ineSubmittedAt`, `NULLS FIRST`), **especificada y no
+implementada**. ⛔ **No se adelantó nada de ella.**
+
+### A5.3 — Para quien lea esto desde fuera de backend
+
+- **frontend:** la columna **deja de pintar «—»** contra el servidor real y el `Select` **filtra de
+  verdad**. El campo es **obligatorio** en la respuesta: puede subirse a obligatorio en el tipo. ⛔ El
+  fallback que derive el valor de otra cosa es rama muerta contra el servidor.
+- **Un valor inválido en la query ahora es `400`, no `200` ni `500`.** El cuerpo trae
+  `error.details.field` (`status` | `kycStatus` | la llave desconocida) — es lo que permite decirle al
+  operador **cuál** de los dos ejes rechazó.
+- **seguridad:** **cero clase de dato nueva para cualquiera de los dos roles** (`kycStatus` ya estaba
+  en `AdminKycProfileOperatorDTO`, que el operador ya leía en cada ficha). `K-2` re-ejecutado **sobre
+  la respuesta nueva** y con los dos tokens: el JSON del listado no matchea `/kyc_ine\//`, ni
+  `rejectionReason`, ni `ineOnFile`, ni `clabe`, ni `rfc` — incluido un usuario **rechazado con motivo
+  escrito en la BD**, cuyo motivo **no sale por el listado**.
+
+### A5.4 — Candados y mutaciones (el candado que no se pone rojo no es un candado)
+
+| Fichero | Qué fija | Verde |
+|---|---|---|
+| `backend/test/admin.users-kyc-filter.spec.ts` | **el `where` que se manda a Prisma**, la lista blanca del `select`, la derivación, los `400` y la paginación publicada | **23/23** |
+| `backend/test/integration/admin-users-kyc-queue.e2e-spec.ts` | `L-1…L-6` **por HTTP real** contra Postgres real, con los **dos** roles | **21/21** |
+
+**Suites completas (2026-09-12):** `npm run lint` **0 errores** (3 avisos preexistentes, ajenos) ·
+`npm run typecheck` **limpio** · `npx jest` **290/290 suites, 4771/4771 pruebas** ·
+`npm run test:integration` **34/34 suites, 507 pruebas + 2 saltadas** (las que exigen almacenamiento
+vivo), **0 rojas**.
+
+**Mutación por arreglo, sobre copia del ÁRBOL ENTERO** (`git archive HEAD` — O-9: hay suites que leen
+los documentos del repo; copiar solo `backend/` las pondría rojas **por falta de ficheros**). Control
+sin mutar sobre la misma copia: **23/23 + 21/21 verdes**.
+
+| # | Mutación | Qué debería romper | Resultado |
+|---|---|---|---|
+| **m1** | quitar el `AND: [...]` (`Object.assign({}, ...and)`, que es **exactamente** la trampa de §M6-L.3) | el filtro por texto al combinarse | 🔴 **3/3** — unit 6 rojas, integración 2 rojas |
+| **m2** | quitar la validación de enum (`assertEnumFilter` devuelve el valor) | el `400` del valor inválido | 🔴 **3/3** — unit 4, integración 4 |
+| **m3** | quitar la derivación (`?? null` en vez de `?? 'none'`) | `kycStatus` siempre con valor | 🔴 **3/3** — unit 1, integración 4 |
+| **m4** | quitar el rechazo de query desconocida | `D-A5-3` | 🔴 **3/3** — unit 2, integración 1 |
+
+⭐ **Lo que enseña `m1`, y por eso se anota entero:** bajo la mutación, `?q=<TAG>&kycStatus=none`
+devolvió **los 2 esperados + 8 usuarios que no casan con el texto** (`admin@e2e.local`,
+`customer@e2e.local`, …). O sea: **el buscador desapareció y la lista se ensanchó, con `200` y sin un
+solo error**. Es la cola falsa otra vez, y sin el candado `L-3` habría salido publicada.
+⭐ **Y lo que enseña `m2`:** con la validación fuera, `?status=banana` **vuelve a contestar `500`** —
+la mutación **reproduce el defecto medido en A5.1**, que es la mejor prueba de que el arreglo es el
+que cierra `N-A5-1`.
+
+### A5.5 — NO MEDIDO en este pase, con la medición que lo cierra
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-A5-1b` | **Qué tarda el filtro sobre el padrón REAL.** Todo lo de arriba se midió sobre la BD sintética (≈10–16 usuarios). El `where` de `none` incluye un `kycProfile: { is: null }` (anti-join) y **no hay índice** — sobre un padrón pequeño no se distingue de nada | `EXPLAIN ANALYZE` de la consulta con `?kycStatus=none` en staging/prod, **usuario de solo lectura** o corrido por el dueño. Enlaza con `N-A5-3` (cuántas filas hay) | backend / dueño |
+| `N-A5-1c` | **Si algún cliente vivo manda hoy una query de más a `GET /admin/users`** y por tanto empezaría a recibir `400`. Medido **en el repo**: el único llamador es `frontend/src/lib/api.ts`, que manda exactamente las cinco llaves admitidas ⇒ **no rompe al frontend publicado**. Lo que **no** puedo medir desde aquí es un cliente fuera del repo (curl guardado, integración de terceros) | `grep` de los registros de acceso del backend en staging/prod por `GET /admin/users` con query fuera de la lista blanca | devops |
+| `N-A5-1d` | **Que la columna se pinte bien en la pantalla.** Medí la **respuesta**, no el render: `A5` es backend-solo y la columna ya existía en `M6View.tsx` | Abrir M6 contra el backend nuevo (QA / Playwright) | qa / frontend |
+
