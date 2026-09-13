@@ -1,9 +1,10 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { OrderStatus, Prisma, Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { parseAdminListFilters } from '../../common/admin-list-filters';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../payments/stripe.service';
@@ -18,6 +19,10 @@ import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from './guest-checkout.constants'
  * M3 — Ventas / órdenes. vault_operator (lectura); super_admin (reembolso, money-out).
  * API_CONTRACT §M3.
  */
+/** `P-84` · clase **E** (§4.37): los estados de pedido por los que el back-office puede filtrar,
+ * DERIVADOS del schema — nunca una lista escrita a mano. */
+const ORDER_STATUS_FILTER_VALUES: readonly OrderStatus[] = Object.values(OrderStatus);
+
 @Controller('admin/orders')
 @Roles(Role.vault_operator, Role.super_admin)
 export class AdminOrdersController {
@@ -55,7 +60,15 @@ export class AdminOrdersController {
     const p = f.page;
     const ps = f.pageSize;
     const where: Prisma.OrderWhereInput = {};
-    if (status) where.status = status as never;
+    // `P-84` — AQUÍ había un `status as never`: el valor crudo entraba al `where` y Prisma
+    // reventaba con `PrismaClientValidationError`, que el filtro global manda a **`500 INTERNAL`**
+    // (medido por HTTP: `?status=banana` ⇒ `500`). El contrato §M3 ya exigía `400 VALIDATION_ERROR`
+    // aquí, así que esto NO es conducta nueva — es código que dejó de incumplir lo publicado.
+    // Clase **E**: derivado de `OrderStatus`. Si el schema gana un estado, el operador debe poder
+    // filtrar por él el mismo día; una lista a mano volvería invisible en el back-office un estado
+    // que la BD sí guarda.
+    const statusFilter = parseEnumFilter('status', status, ORDER_STATUS_FILTER_VALUES);
+    if (statusFilter) where.status = statusFilter;
     if (userId) where.userId = userId;
     // v1.21-guest-checkout (§M3): filtro opcional por naturaleza del pedido.
     if (guest === 'true') where.guestEmail = { not: null };

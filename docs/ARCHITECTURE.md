@@ -4,6 +4,16 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.72 — `P-84`: EL FILTRO DE ENUM EN QUERY ES UNA CONVENCIÓN, NO SEIS ARREGLOS**
+> (2026-09-13, arquitecto. Base: **v1.71, vigente entera; esta rev no retira nada**. Origen: seis sitios que meten un
+> token de query **crudo** en un `where` de Prisma con `as never` ⇒ **`500` disparable desde la barra de direcciones**.
+> Subsección nueva **§4.37.1**; **§4.37 gana seis filas** de inventario (los seis ejes son **clase E**);
+> `API_CONTRACT` sube a **v1.72** con la convención transversal **§0-Q**. **Cero DDL, cero migración, cero endpoints,
+> cero campos nuevos.** Desviación **`D-EQ-1`** (§9), enrutada a **backend**; arrastra la deuda **`H3`**, cuyo
+> disparador queda **alcanzado**. ⭐ **Orden de trabajo: primero el helper único en `common/`, después los seis
+> llamadores** — al revés se escribe seis veces la misma decisión y se gana una **quinta** forma de `details`.)
+>
+> ---
 > **Rev v1.71 — `A5`: LA COLA DE REVISIÓN DE IDENTIDAD, Y POR QUÉ EL ORDEN ES OTRA FICHA**
 > (2026-09-12, arquitecto. Base: **v1.67.4, vigente entera; esta rev no retira nada**. Origen: petición `A5` de
 > ux-ui (`DESIGN_SYSTEM §34.15`) + el hueco que dejó §4.49. Sección nueva **§4.53**; `API_CONTRACT` sube a **v1.71**
@@ -14474,6 +14484,12 @@ API_CONTRACT §Enums.
 | **`RawCondition`** | **⚠️ R — RECLASIFICADO (v2.1.9)** | **PROJECT §H, LOCKED:** «el raw se opera **únicamente en NM**; se **eliminan** los grados LP/MP/HP/DMG». Hoy tiene un solo valor y derivar es *equivalente por accidente*, no *correcto por construcción* |
 | `UserStatus` en `PATCH /admin/users/:id/status` | **R** | Acepta `active\|blocked` pero **no** `deleted` (lo fija el `DELETE`). Ya está bien resuelto: es el **ejemplar** de la clase |
 | `PriceBasis`, `MarketBracket`, `SealedSpreadSource` | **E** (derivados/no-BD) | `PriceBasis` espeja el enum de BD; `MarketBracket` y `SealedSpreadSource` **no son enums de BD** (constantes de código) y su lista canónica vive en el contrato |
+| **`OrderStatus`** en `?status=` de `GET /admin/orders` | **E** (v1.72, P-84) | Cola de back-office sobre **todas** las órdenes. Ninguna cláusula de `PROJECT.md` la recorta; un estado nuevo en el schema significa **órdenes reales** en él que el operador debe poder listar el mismo día |
+| **`DisputeStatus`** en `?status=` de `GET /admin/disputes` | **E** (v1.72, P-84) | Los dos terminales (`resuelta_recompra`, `rechazada`) **tienen que ser listables**: son el registro de un money-out (§4.48.4, candado D-1) |
+| **`ShipmentStatus`** en `?status=` de `GET /admin/shipments` | **E** (v1.72, P-84) | ⚠️ **NO se reusa `ShipmentActiveStage`** (subconjunto que existe como **proyección al cliente** de `HoldingDTO.shipmentState`): usarlo como dominio del filtro admin escondería `entregado` y `cancelado` de la cola de M4. **Dominio ≠ proyección** |
+| **`InventoryStatus`** en `?status=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | `lost`, `damaged`, `withdrawn`, `in_custody` son **justo los que hay que poder listar** para cuadrar el almacén. Un estado nuevo = **piezas físicas** en ese estado |
+| **`OwnerType`** en `?ownerType=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | Eje **anti-double-sell** (custodia del cliente vs stock de plataforma); los dos valores son legítimos y ninguna cláusula recorta el filtro |
+| **`VaultZone`** en `?zone=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | Espeja `VaultLocation.zone`. ⚠️ `details.field` = **`"zone"`** (el query param), **no** `"location.zone"` (la ruta de Prisma, `inventory.service.ts:2228`) |
 
 **El caso `RawCondition`, explicado — es el que enseña la diferencia.** La lista pasó de `@IsIn(['NM'])` a la lista
 derivada. **Hoy no ensanchó nada** y el resultado es idéntico. Pero «raw = solo NM» **no es un hecho del schema**: es
@@ -14487,6 +14503,57 @@ mecánica: es **exactamente** el mecanismo que produjo los dos bugs de enum de v
 humano en PROJECT.md, derivar la **borra**.* Y el comentario de `enum-values.ts:43-48` ya intuía esta distinción
 (excluye `UserStatus` con el argumento correcto): esta sección la convierte de **comentario en un archivo** en **norma
 verificable con inventario**.
+
+---
+
+### 4.37.1 La aplicación nº1 de la clase E: el FILTRO DE ENUM EN QUERY (v1.72, P-84, NORMATIVO)
+
+> **§4.37 contesta *«¿qué valores?»*. Esta subsección contesta *«¿y qué pasa con los que NO son?»* — y lo que hoy pasa
+> es un `500`.** La conducta observable (códigos, `details`, cadena vacía) vive **UNA vez** en el contrato:
+> **API_CONTRACT [§0-Q](API_CONTRACT.md#enum-query-filter)**. Aquí va solo lo que es de arquitectura: **por qué es una
+> convención transversal y no tres líneas sueltas**, y el **censo de la divergencia**.
+
+**El mecanismo, medido (2026-09-13, sobre `c12b940`).** Seis sitios meten el token de query **crudo** en un `where` de
+Prisma con `as never`. Prisma lanza `PrismaClientValidationError`; el filtro global de excepciones **no mapea nada de
+Prisma** (`backend/src/common/filters/all-exceptions.filter.ts:51-52`) ⇒ sale **`500 INTERNAL`**, *disparable desde la
+barra de direcciones por cualquiera con sesión admin*. Los seis: `orders/admin-orders.controller.ts:58`,
+`disputes/disputes.service.ts:159`, `shipments/shipments.service.ts:373`, `inventory/inventory.service.ts:2224`, `:2226`
+y `:2228`. *(Camino de código leído; **NO ejecutado** — la prueba por ruta la escribe backend, y es ella la que convierte
+esto en medición.)*
+
+**Por qué CONVENCIÓN y no tres arreglos.** Porque el agujero no está en los seis sitios: está en que **la conducta nunca
+se declaró**. La prueba es que el backend ya tiene **CUATRO** implementaciones del mismo helper, todas correctas en
+conducta y **divergentes en la forma del `details`** — y ninguna se llama desde las otras:
+
+| # | Helper | `details` que emite | Sitios |
+|---|---|---|---|
+| 1 | `validateEnum` — `catalog/catalog.service.ts:783-788` **y verbatim** en `catalog/sealed-catalog.service.ts:212-221` | `{ field, value, allowed }` | 6 params públicos |
+| 2 | `assertEnumFilter` — `admin/admin.service.ts:66-74` (**el ejemplar**, A5/`63f077c`) | `{ field, allowed }` | 2 params de `GET /admin/users` |
+| 3 | Inline en el controller — `inventory/inventory.controller.ts:405-411`, `:455-467`, `:507-513` | `{ <nombreDelCampo>: value, allowed }` — **sin `field`** | 4 params de §M1 |
+| 4 | Inline CSV — `buylist/buylist.service.ts:2210-2219` | `{ invalidStatus: string[] }` — **sin `field` ni `allowed`** | 1 param de §M5 |
+
+Con los seis sitios de P-84 pasarían a ser **~10 llamadores** de un helper que existe cuatro veces. **Eso es la deuda
+`H3` de `docs/TECH_DEBT.md:590-598`** («mover `validateEnum` a `common/`»), que hasta hoy se justificaba solo por
+duplicación; **P-84 le añade el argumento que faltaba**: no es que haya cuatro copias, es que **emiten cuatro
+respuestas distintas al mismo error del mismo operador**. ⇒ **Disparador de `H3` ALCANZADO** (el dueño de esa nota es
+**backend**; el arquitecto no escribe en `TECH_DEBT.md`).
+
+**Orden de trabajo que esto implica (dueño: backend).** **Primero** el helper único en `common/` con la forma de §0-Q
+(`field` + `allowed` obligatorios), **después** los seis sitios como llamadores. Al revés —seis arreglos y luego
+consolidar— se escriben seis veces la misma decisión y se gana una quinta forma de `details`.
+
+**Lo que esta convención NO es.** ⛔ No es la regla de **llaves de query desconocidas**, que sigue **acotada a
+`GET /admin/users`** por decisión explícita (`D-A5-3`; `admin/admin.controller.ts:91` y `:109-116` lo declaran ⛔ «no
+se convierte en regla global»). §0-Q norma **el valor de un parámetro conocido**; el censo de parámetros es otra
+discusión y no se abre aquí.
+
+**Desviación menor detectada de paso, que NO es de esta clase y NO se arregla aquí** *(se documenta porque §4.37 exige
+una sola declaración por enum, y estas dos son copias a mano de enums clase **E**)*: `admin/admin.service.ts:704`
+valida `locale` contra el literal **`['es','en']`** teniendo `LOCALE_VALUES` en `common/enum-values.ts:82`, y
+`admin/admin.controller.ts:30` valida `kycStatus` con `@IsIn(['none','pending','verified','rejected'])` teniendo
+`KycStatus` derivable. **Ninguna de las dos produce `500`** —ambas rechazan antes del `as never` (`:747` y `:1127`),
+medido 2026-09-13; son **cuerpo**, no query— así que **no entran en P-84**. Quedan anotadas como paridad pendiente,
+dueño **backend**.
 
 ---
 
@@ -24526,6 +24593,18 @@ Riesgos técnicos:
 > en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
 > nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
 
+- **🔴 ABIERTA (v1.72) — `D-EQ-1`: SEIS FILTROS DE ENUM DE QUERY ENTRAN CRUDOS A PRISMA ⇒ `500` DISPARABLE DESDE LA
+  BARRA DE DIRECCIONES.** **Dueño: backend** (módulos `orders`, `disputes`, `shipments`, `inventory` + el helper
+  compartido en `common/`). Medido 2026-09-13 sobre `c12b940`: `orders/admin-orders.controller.ts:58`,
+  `disputes/disputes.service.ts:159`, `shipments/shipments.service.ts:373`, `inventory/inventory.service.ts:2224`,
+  `:2226` y `:2228` hacen `where.x = <token de query> as never`; el filtro global no mapea errores de Prisma
+  (`common/filters/all-exceptions.filter.ts:51-52`) ⇒ **`500 INTERNAL`**. **No es sólo un incumplimiento nuevo:** para
+  `GET /admin/orders` la conducta `400` **ya estaba comprometida** por la línea «Filtros de lista admin» de
+  API_CONTRACT §0 (hoy precisada). Norma: **API_CONTRACT [§0-Q](API_CONTRACT.md#enum-query-filter)** (conducta, forma
+  del `details`, censo) y **§4.37 + §4.37.1** (clase **E** para los seis ejes, y por qué va primero el helper único).
+  **Cierra con:** helper en `common/` con `details: { field, allowed }` + los seis sitios como llamadores + **una
+  prueba por ruta** (el camino de código está leído, **no ejecutado**). **Arrastra:** `H3` de `TECH_DEBT.md:590-598`
+  (disparador alcanzado) y la alineación **aditiva** de `details.field` en §M1 (3 params), §M5 (1 param CSV).
 - **🔴 ABIERTA (v1.67) — `D-CTA-1`: `mustChangePassword` NO VIAJA EN EL `user` DE `login|google|register`, Y EL
   FRONT LO LEE.** **Dueño: backend (`auth`).** Medido 2026-09-11: `auth.service.ts:47-57` (`publicUser`) no lo emite;
   `AuthForm.tsx:65` lo consulta. El aviso de contraseña temporal **nunca se ha mostrado en producción**. Norma:
