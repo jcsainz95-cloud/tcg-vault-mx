@@ -212,3 +212,58 @@ test.describe('Compra · ficha de carta', () => {
     await expect(page.getByRole('heading', { name: 'Charizard' })).toBeVisible();
   });
 });
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * D-EQ-3 · EL ENLACE DE SELLADO GUARDADO EN FAVORITOS
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * MEDIDO (2026-09-13, stack nativo real, con UN sellado `box` publicado):
+ *   · `GET /catalog/sealed`                   ⇒ `total: 1`
+ *   · `GET /catalog/cards?productType=sealed` ⇒ `total: 0`   (guardarraíl H9)
+ *   · `GET /catalog/cards?sealedSubtype=box`  ⇒ `total: 0`
+ *   · navegador en `/es/compra?productType=sealed` ⇒ «Ninguna carta coincide».
+ * El contrato v1.73 (§2) retira los dos parámetros ⇒ cuando backend empiece a responder
+ * `400`, ese mismo enlace pasaría de «rejilla vacía» a «pantalla rota». Este test es el
+ * que sostiene que no: el front no manda esos parámetros a ninguna parte, y el enlace
+ * sigue llevando a sellado — a la vitrina que sí lo sirve (§2-S).
+ */
+test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sellado', () => {
+  // `@real` porque este test es AGNÓSTICO al entorno (no afirma ningún dato de fixture: solo la
+  // ruta de aterrizaje, el aviso y el filtro aplicado) y porque lo que hay que demostrar es
+  // justamente que el enlace funciona **contra el servidor**, que es donde moría.
+  test('@real ?productType=sealed&sealedSubtype=box aterriza en /sellado con su presentación', async ({
+    page,
+  }) => {
+    await page.goto('/es/compra?productType=sealed&sealedSubtype=box');
+
+    await page.waitForURL(/\/es\/sellado\?.*sealedSubtype=box/, { timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: t('es', 'sealed.title') })).toBeVisible();
+    // Se explica el salto de pantalla: cambiar la URL del usuario sin decir nada parece un fallo.
+    await expect(page.getByRole('status')).toContainText(t('es', 'sealed.fromCatalog.body'));
+    // El filtro llegó APLICADO y VISIBLE (nada de filtros fantasma).
+    await expect(page.getByLabel(t('es', 'sealed.filters.subtype'))).toHaveValue('box');
+    // Y en ningún momento el callejón sin salida de Compra.
+    await expect(page.getByText(t('es', 'catalog.emptyTitle'))).toHaveCount(0);
+  });
+
+  test('@real ninguna petición a /catalog/cards lleva `sealed` ni `sealedSubtype`', async ({
+    page,
+  }) => {
+    const cards: string[] = [];
+    const sealed: string[] = [];
+    page.on('request', (r) => {
+      const u = r.url();
+      if (u.includes('/catalog/cards')) cards.push(u);
+      if (/\/catalog\/sealed(\?|$)/.test(u)) sealed.push(u);
+    });
+
+    await page.goto('/es/compra?productType=sealed&sealedSubtype=box');
+    await page.waitForURL(/\/es\/sellado/, { timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: t('es', 'sealed.title') })).toBeVisible();
+
+    // v1.73 §2: los dos parámetros SALEN del contrato de `/catalog/cards`.
+    expect(cards.filter((u) => /productType=sealed|sealedSubtype=/.test(u))).toEqual([]);
+    // Y la consulta acaba donde el contrato dice que vive el sellado (§2-S).
+    expect(sealed.length).toBeGreaterThan(0);
+  });
+});

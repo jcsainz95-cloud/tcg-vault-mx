@@ -22,6 +22,7 @@ import { SealedProductService } from './sealed-product.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { SEALED_GROUP_KIND_VALUES } from '../../common/enum-values';
 import {
   BatchCreateInventoryRequest,
   BulkPublishRequest,
@@ -36,7 +37,7 @@ import {
   SealedSyncRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
-import { AcquisitionType, Finish, ProductType, SealedGroupKind } from '@prisma/client';
+import { AcquisitionType, Finish, ProductType } from '@prisma/client';
 
 /**
  * v1.28 (P-17, §M1): valores válidos de los filtros aditivos de `GET /admin/inventory/items`.
@@ -54,7 +55,27 @@ const PRODUCT_TYPE_FILTER_VALUES: readonly ProductType[] = Object.values(Product
 
 /** v1.51 (fase 8, §M1): filtros de `GET /admin/inventory/pending-publish`. */
 const ACQUISITION_TYPE_FILTER_VALUES: readonly AcquisitionType[] = Object.values(AcquisitionType);
-const PENDING_PUBLISH_MISSING_VALUES: readonly string[] = ['location', 'price'];
+
+/**
+ * ⭐ **`?missing=` — CLASE L (LITERAL), API_CONTRACT §0-Q punto 3 / ARCHITECTURE §4.37.**
+ *
+ * *El dominio no existe en el schema porque no describe un dato persistido, sino un **modo de la
+ * consulta**.* `location | price` no nombra estados: nombra **qué le falta a la fila**. Por eso no
+ * hay enum que derivar (`rg 'enum .*Missing' prisma/schema.prisma` ⇒ **0**, medido 2026-09-13) y no
+ * hay cláusula de `PROJECT.md` que citar — **no se está recortando nada**, así que no es clase R.
+ *
+ * **Su declaración canónica es la línea del endpoint en `API_CONTRACT §M1`**
+ * (`Query: ?missing=location|price&…`), y la paridad es a **DOS bandas**: contrato ↔ este literal.
+ * No hay tercera porque no hay schema que espejar. Lo sostiene `C-EQ-1`
+ * (`test/integration/enum-query-axes.e2e-spec.ts`), que además comprueba lo que la clase L ⛔ **no**
+ * autoriza: que **no exista** un enum homónimo en el schema. El día que alguien lo cree, este
+ * literal deja de ser legítimo y hay que derivarlo.
+ *
+ * ⚠️ Se **exporta** para que `C-EQ-1` mida la paridad contra el literal REAL del call-site y no
+ * contra una copia suya: una segunda copia en la prueba haría que la prueba pasara justo cuando la
+ * norma se rompe.
+ */
+export const PENDING_PUBLISH_MISSING_VALUES = ['location', 'price'] as const;
 
 /**
  * M1 — Inventario y bóveda. vault_operator + super_admin. API_CONTRACT §M1.
@@ -174,13 +195,17 @@ export class InventoryController {
     if (!setId || setId.trim() === '') {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'setId is required');
     }
-    if (origin != null && origin !== '' && origin !== 'set_main' && origin !== 'promo_collection') {
-      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid origin '${origin}'`);
-    }
+    // ⭐ `D-EQ-2` (v1.73) — `?origin=` al helper único, y es el eje que incumplía §0-Q punto 2 MÁS
+    // fuerte que ningún otro: su `400` llegaba con `details` **VACÍO** (`{}`), sin `field` ni
+    // `allowed` — medido, no supuesto. Además comparaba contra DOS LITERALES a mano teniendo
+    // `enum SealedGroupKind` en el schema sobre columna persistida ⇒ clase E, se DERIVA (§0-Q punto
+    // 3). Y `origin !== ''` descartaba la cadena vacía pero **no `' '`**: la media conformidad que
+    // se lee como conformidad entera, porque un espacio es truthy y no es la cadena vacía.
+    const originFilter = parseEnumFilter('origin', origin, SEALED_GROUP_KIND_VALUES);
     return this.sealedProduct!.listSealedProducts({
       setId,
       q,
-      origin: origin ? (origin as SealedGroupKind) : undefined,
+      origin: originFilter,
       principalOnly: principalOnly === 'true' || principalOnly === '1',
     });
   }
@@ -495,12 +520,11 @@ export class InventoryController {
     // Filtros validados contra sus enums → 400 VALIDATION_ERROR (mismo patrón que `GET
     // /admin/inventory/items`). Un filtro inválido que se ignorara en silencio devolvería una cola
     // MÁS GRANDE de la que el operador pidió, y él la leería como si fuera la filtrada.
-    if (missing != null && !PENDING_PUBLISH_MISSING_VALUES.includes(missing)) {
-      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid missing '${missing}'`, {
-        missing,
-        allowed: PENDING_PUBLISH_MISSING_VALUES,
-      });
-    }
+    // ⭐ `D-EQ-2` (v1.73) — `?missing=` al helper único. Su `throw` propio emitía `details.missing`
+    // (la llave del campo) y NO `details.field`, que §0-Q punto 2 declara OBLIGATORIO SIEMPRE: el
+    // operador de una cola con dos ejes de enum no podía saber CUÁL le rechazaron. Y `missing != null`
+    // dejaba pasar `''` y `' '` a la validación ⇒ `400` donde la fila 1 manda `200`.
+    const missingFilter = parseEnumFilter('missing', missing, PENDING_PUBLISH_MISSING_VALUES);
     // `P-84`/§0-Q: misma alineación aditiva de `details` (antes `{ acquisitionType, allowed }`).
     const acquisitionTypeFilter = parseEnumFilter(
       'acquisitionType',
@@ -508,7 +532,7 @@ export class InventoryController {
       ACQUISITION_TYPE_FILTER_VALUES,
     );
     return this.inventory.pendingPublish({
-      missing: missing as 'location' | 'price' | undefined,
+      missing: missingFilter,
       acquisitionType: acquisitionTypeFilter,
       setId,
       page: Math.max(1, parseInt(page, 10) || 1),

@@ -16450,3 +16450,149 @@ E2E_MOCK_PORT=3117 E2E_MOCK_DIST_DIR=.next-e2e-p78 npx playwright test e2e/kyc-i
 ```
 ⚠️ Si se levanta un frontend propio para medir, **se mata por PID**: un `pkill -f next-server` se
 lleva el `next start` del stack compartido (§70.4).
+
+---
+
+## §72 · `D-EQ-3` — el enlace de sellado que moría en la rejilla de singles (contrato v1.73 §2 / §2-S) — 2026-09-13, parte de `1e37c6b`
+
+### 72.1 · Qué veía el usuario. Medido con navegador, no leído.
+
+El encargo llegaba con una premisa fuerte: *«la rejilla se ve bien en desarrollo y sale VACÍA contra
+el servidor real»*. Lo primero fue **medirla**, porque nadie había ejecutado esas URLs ni contra el
+servidor ni contra la pantalla.
+
+**Preparación de la medición.** El seed sintético **no siembra sellado publicado**
+(`GET /catalog/sealed` ⇒ `total: 0`; es lo que ya decía `catalog.spec.ts:60`), así que una medición
+sobre él no distingue *«el filtro no funciona»* de *«no hay nada que devolver»*. Se publicó **una**
+pieza por la vía del contrato — `POST /admin/inventory/items` (`productType:'sealed'`,
+`sealedSubtype:'box'`, `listPriceCents: 250000`) + `POST /admin/inventory/items/bulk-publish` ⇒
+`INV-000058`, `listed`, `priceSource: manual` — y **con ella** se midió.
+
+**Servidor** (stack nativo, backend `:3099`, 2026-09-13):
+
+| Petición | `total` |
+|---|---|
+| `GET /catalog/sealed` | **1** ← hay sellado publicado |
+| `GET /catalog/cards?productType=sealed` | **0** |
+| `GET /catalog/cards?sealedSubtype=box` | **0** |
+| `GET /catalog/cards?productType=sealed&sealedSubtype=box` | **0** |
+
+⭐ La primera fila es la que da valor a las otras tres. **La segunda cierra el «⚠️ NO MEDIDO por
+HTTP» que el arquitecto dejó declarado en `API_CONTRACT §2`**: su derivación a partir del `where` de
+`H9` era correcta, y ahora está medida.
+
+**Navegador** (frontend `:3000`, `NEXT_PUBLIC_USE_MOCKS=false`), que es lo que el encargo pedía y lo
+que no se puede deducir de leer el `where`:
+
+| URL | Lo que veía el usuario |
+|---|---|
+| `/es/compra?productType=sealed` | «Sin publicaciones disponibles» · «Sin resultados» · **«Ninguna carta coincide · Prueba con otros filtros o limpia la búsqueda»**, con un chip removible que decía **`sealed`** (el token crudo del enum) y el panel de tipo mostrando `Todo · Raw (NM) · Graded` — ninguno activo. La pestaña **«Producto sellado»** estaba a diez centímetros y **nada la señalaba**. |
+| `/es/compra?sealedSubtype=box` | **8 resultados: el catálogo entero, sin filtrar.** El parámetro se descartaba **en silencio** y la petición salía pelada (`/catalog/cards`, sin query). |
+| `/es/compra?productType=sealed&sealedSubtype=box` | Igual que la primera, con **dos** chips crudos: `sealed` y `box`. |
+| `/es/catalog?productType=sealed` | Idéntico (misma vista tras el alias de ruta). |
+
+### 72.2 · ⚠️ La premisa refutada, con el dato (O-2)
+
+**«Contra mocks ese filtro SÍ devuelve tejas» es FALSO a día de hoy.** Está escrito así en
+`API_CONTRACT.md:7065` y en el encargo, y viene de leer `fixtures.ts:551,562` — donde, en efecto,
+`mockListings` trae dos piezas `productType:'sealed'` (`inv-1008` box, `inv-1009` etb).
+
+**Medido renderizando `CatalogView` en modo mock con `?productType=sealed`:
+`tejas=0`, `vacío=true`, conteo `"Sin resultados"`.** Es decir: **exactamente lo mismo que contra el
+servidor real.**
+
+La razón está aguas abajo del fixture: `fixtures.ts` → `groupMockListings` **ya filtra
+`raw|graded`** antes de construir los grupos (paridad `H9`, que alguien puso en su momento). Las
+piezas selladas existen en el fixture porque las consumen **la bóveda y el back-office**, pero
+**nunca llegan a la rejilla**.
+
+**Qué cambia esto y qué no.** El defecto es real y el arreglo es el mismo — pero **el argumento de
+urgencia era otro**. No es «el mock miente»: es que **el callejón sin salida es idéntico en los dos
+entornos y nadie lo notó porque nadie hizo clic en el enlace**. Lo que sí sigue en pie, entero, es
+el argumento del **orden**: cuando backend cierre el dominio, ese enlace pasa de *«rejilla vacía»* a
+*«pantalla rota»*. Por eso frontend va primero.
+
+Se dejó el hecho **anclado en el código** (`fixtures.ts`, cabecera de `groupMockListings`) con la
+medición y un ⛔ explícito: quitar ese `filter` **sí** reintroduciría la mentira.
+
+### 72.3 · La decisión de UX, y por qué ésta y no otra
+
+`PROJECT.md §A` exige que **Compra** filtre por tipo de producto **incluyendo sellado**, y **no dice
+por qué endpoint**; `§2-S` lo cumple. Así que el problema no era de contrato: era **qué ve quien hoy
+llega por un enlace con sellado**. Tres opciones sobre la mesa:
+
+1. **Redirigir a la vía dedicada conservando el filtro.** ✅ **Elegida.**
+2. Una pestaña/conmutador visible entre cartas y sellado. → **Ya existe** (`StoreTabs`, «Producto
+   sellado» → `/sellado`) **y no rescató a nadie**: el usuario del enlace no llegó por la pestaña.
+   Una pestaña no atiende a quien entra por la puerta de al lado.
+3. Dejar el parámetro fuera y caer al catálogo sin filtro, con un aviso. → **Descartada**: tira una
+   intención **inequívoca** («enséñame sellado») que **sabemos honrar**, y deja al usuario en la
+   rejilla equivocada leyendo una disculpa.
+
+Lo que decanta la (1) sobre la (3) es que `sealedSubtype` mapea **1:1**: `§2-S` acepta **el mismo
+parámetro con el mismo dominio** (los siete de `SealedSubtype`, `API_CONTRACT:7349`). La
+redirección conserva el filtro **exacto**, no uno parecido. El propio contrato lo llama «sustituto
+exacto».
+
+**⛔ Lo que NO se arrastra, y por qué es la parte importante.** `q`, `rarity`, `finish`, `condition`
+y el rango de precio **no viajan**. O `§2-S` no los tiene, o —y esto es lo que decide— **la vitrina
+de sellado no puede MOSTRARLOS**: no hay caja de búsqueda, y su selector de set se puebla con los
+sets de la página ya cargada, así que un `setId` entrante quedaría **aplicado sin aparecer en
+pantalla**. Un filtro activo que el usuario no ve es exactamente la clase de mentira que `D-EQ-3`
+viene a quitar; arrastrarlo sería **moverla de sitio**, no cerrarla. `sealedSubtype` sí se arrastra
+porque su `Select` lista los siete valores ⇒ **cualquier** valor que llegue se ve aplicado.
+
+**El salto de pantalla se dice.** Cambiarle la URL a alguien sin explicárselo parece un fallo
+nuestro. La redirección añade `?from=compra` y `/sellado` pinta una nota sobria (`rule-note`, §7.5)
+en `role="status"` / `aria-live="polite"` — la página cambió sola bajo sus pies, y quien no la ve
+necesita que se le diga (§8.2). Es nota, **no banner de alarma**: no ha pasado nada malo.
+
+**`replace`, no `push`:** esto no es un paso de navegación del usuario sino la corrección de una URL
+que el contrato ya no tiene. Dejarla en el historial haría que «atrás» devolviera al callejón.
+
+**Efecto secundario buscado:** `/sellado?sealedSubtype=box` pasa a ser un enlace **compartible por
+derecho propio**, cosa que antes no era (la vista arrancaba siempre con `{}`).
+
+### 72.4 · Qué se tocó
+
+| Fichero | Cambio |
+|---|---|
+| `lib/api.ts` | `CatalogProductType = Exclude<ProductType,'sealed'>` y `CatalogFilters.productType` pasa a ese tipo; **`sealedSubtype` sale** de `CatalogFilters` y de la query de `/catalog/cards`. **El compilador es el candado**: el parámetro retirado ya no es expresable, no depende de la disciplina del siguiente que escriba una llamada. |
+| `catalog/CatalogView.tsx` | `sealedIntentOf()` + `sealedHref()`; `useEffect` que hace `router.replace`; `enabled: !sealedIntent` en la query (no se gasta una petición cuya respuesta ya sabemos inútil, y mañana un `400`); **retorno temprano** que no pinta la rejilla —ni tejas ni «Ninguna carta coincide»— mientras redirige. `parseUrlFilters` deja de aceptar `sealed`/`sealedSubtype`; se va el chip de subtipo. |
+| `sellado/SealedShopView.tsx` | Lee `?sealedSubtype=` de la URL (validado contra `SEALED_SUBTYPES`) y `?from=compra` para la nota de procedencia. |
+| `components/domain/ShopFilters.tsx` | Se alinea al tipo nuevo; muere el `sealedSubtype: undefined` que ya no significaba nada. |
+| `lib/mock/fixtures.ts` | Solo comentario: la paridad `H9` del mock queda **anclada con su medición** (§72.2). |
+| `messages/{es,en}.json` | `catalog.sealedRedirect`, `sealed.fromCatalog.body`. |
+
+**Un subtipo inválido no inventa intención.** `?sealedSubtype=zzz` a secas es basura, no una
+petición de sellado: se ignora y la vista sigue siendo Compra. `?productType=sealed&sealedSubtype=zzz`
+sí redirige, pero **sin arrastrar la basura**. Los dos casos tienen test.
+
+### 72.5 · Colores y mutación
+
+- **Antes:** 6 rojos / 23 (4 en `CatalogView.test.tsx`, 2 en `SealedShopView.test.tsx`).
+  *(Dos de los tests nuevos ya pasaban antes del arreglo: el del subtipo inválido y el de paridad de
+  mocks — este último es el que refutó la premisa.)*
+- **Después:** `23/23` en esos dos ficheros; **`156/156` ficheros y `1754/1754` pruebas** en la
+  suite unitaria completa; `tsc --noEmit` y `next lint --max-warnings=0` limpios.
+- **E2E `@real` contra el stack vivo:** `4/4` en `catalog.spec.ts` (2 nuevos + 2 que ya existían).
+- **Mutación — sobre una copia del árbol ENTERO** (`git archive HEAD | tar -x`, con `docs/` dentro;
+  `node_modules` enlazado, no copiado), **nunca sobre el árbol vivo**. Línea base de la copia:
+  `23/23` verde.
+
+  | Mutante | Qué deshace | Rojo |
+  |---|---|---|
+  | **M1** | `sealedIntentOf` devuelve `null` — la redirección entera (= el estado anterior) | **3/3** (4 pruebas) |
+  | **M2** | Redirige, pero **pierde** el `sealedSubtype` por el camino | **3/3** (2 pruebas) |
+  | **M4** | Desaparece la nota de procedencia: la URL cambia sola y nadie lo explica | **3/3** (1 prueba) |
+
+### 72.6 · Cómo correr lo de este pase
+
+```bash
+cd frontend
+npx tsc --noEmit && npx next lint --max-warnings=0 && npx vitest run
+# E2E contra el stack real ya levantado (scripts/stack-native.sh up --seed)
+E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test e2e/catalog.spec.ts
+```
+⚠️ Para que el E2E de sellado sea **concluyente** hace falta ≥1 sellado **publicado**: el seed no
+siembra ninguno (§72.1). Sin él, `/sellado` sale vacío y el test mide el arnés, no el producto.

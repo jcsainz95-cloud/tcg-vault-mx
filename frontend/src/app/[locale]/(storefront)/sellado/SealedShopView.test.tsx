@@ -16,9 +16,12 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
-// StoreTabs lee ?type=graded con useSearchParams (pestaña Gradeadas).
+// StoreTabs lee ?type=graded con useSearchParams (pestaña Gradeadas). Desde D-EQ-3 la
+// propia vista lee además `?sealedSubtype=` y `?from=compra` de la URL, así que el holder
+// es mutable por test (mismo patrón que CatalogView.test).
+const { urlParams } = vi.hoisted(() => ({ urlParams: { current: new URLSearchParams() } }));
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => urlParams.current,
 }));
 
 const BOX = 'Surging Sparks Booster Box';
@@ -26,6 +29,7 @@ const ETB = 'Twilight Masquerade ETB';
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  urlParams.current = new URLSearchParams();
 });
 
 describe('SealedShopView · grid y conteos', () => {
@@ -126,5 +130,49 @@ describe('SealedShopView · filtros', () => {
       expect(screen.queryAllByText(BOX).length).toBeGreaterThan(0);
       expect(screen.queryByText(ETB)).toBeNull();
     });
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * D-EQ-3 · LA VITRINA DE SELLADO ES EL DESTINO DEL ENLACE QUE COMPRA YA NO SIRVE
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * Contrato §2-S: `GET /catalog/sealed?sealedSubtype=` es el «sustituto exacto» del
+ * `?sealedSubtype=` que v1.73 retiró de `GET /catalog/cards`. Para que la redirección de
+ * Compra CONSERVE el filtro (y no solo lo tire), esta vista tiene que leerlo de la URL —
+ * y el usuario tiene que ver por qué cambió de pantalla, o el salto parece un fallo.
+ */
+describe('SealedShopView · D-EQ-3: llega de Compra con su filtro puesto', () => {
+  it('?sealedSubtype=etb arranca con la presentación aplicada y VISIBLE en su select', async () => {
+    urlParams.current = new URLSearchParams('sealedSubtype=etb');
+    const spy = vi.spyOn(api, 'getSealedGroups');
+    renderWithProviders(<SealedShopView />, 'es');
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ sealedSubtype: 'etb' })));
+    // Nada de filtros invisibles: el control refleja lo que está aplicado.
+    expect((screen.getByLabelText('Presentación') as HTMLSelectElement).value).toBe('etb');
+  });
+
+  it('un subtipo inexistente no se aplica (no hay filtro fantasma)', async () => {
+    urlParams.current = new URLSearchParams('sealedSubtype=no-existe');
+    const spy = vi.spyOn(api, 'getSealedGroups');
+    renderWithProviders(<SealedShopView />, 'es');
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy).toHaveBeenCalledWith(expect.not.objectContaining({ sealedSubtype: 'no-existe' }));
+  });
+
+  it('?from=compra explica el salto de pantalla; sin él no se dice nada', async () => {
+    urlParams.current = new URLSearchParams('from=compra');
+    const { unmount } = renderWithProviders(<SealedShopView />, 'es');
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'El producto sellado tiene su propia vitrina',
+    );
+    unmount();
+
+    urlParams.current = new URLSearchParams();
+    renderWithProviders(<SealedShopView />, 'es');
+    await screen.findAllByText(BOX);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

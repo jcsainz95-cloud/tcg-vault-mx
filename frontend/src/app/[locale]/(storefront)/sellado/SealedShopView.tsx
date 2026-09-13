@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getSealedGroups, type SealedFilters, type SealedSort } from '@/lib/api';
 import {
@@ -50,7 +51,29 @@ function extractEmail(text: string): string {
 export function SealedShopView() {
   const t = useTranslations('sealed');
   const tSub = useTranslations('status.sealedSubtype');
-  const [filters, setFilters] = useState<SealedFilters>({});
+  const searchParams = useSearchParams();
+
+  /**
+   * D-EQ-3 · esta vitrina es el DESTINO de los enlaces de sellado que Compra ya no puede servir
+   * (contrato v1.73 §2 retiró `?sealedSubtype=` y `sealed` de `GET /catalog/cards`; el sustituto
+   * exacto es `GET /catalog/sealed?sealedSubtype=`, §2-S). Para que la redirección conserve el
+   * filtro de verdad —y no solo lo tire— hay que leerlo aquí. Efecto secundario deseado:
+   * `/sellado?sealedSubtype=box` pasa a ser un enlace compartible por derecho propio.
+   *
+   * Se lee SOLO `sealedSubtype`, porque es el único filtro de §2-S cuyo control muestra los siete
+   * valores del enum ⇒ cualquier valor que llegue se ve aplicado. `setId` y `q` NO se leen: el
+   * selector de set se puebla con los sets de la página cargada y no hay caja de búsqueda, así que
+   * un valor entrante quedaría aplicado SIN aparecer en pantalla — un filtro fantasma, que es la
+   * clase de mentira que D-EQ-3 vino a quitar, no a mover de sitio.
+   */
+  const [filters, setFilters] = useState<SealedFilters>(() => {
+    const sub = searchParams?.get('sealedSubtype');
+    return sub && (SEALED_SUBTYPES as readonly string[]).includes(sub)
+      ? { sealedSubtype: sub as SealedSubtype }
+      : {};
+  });
+  /** Llegó desviado desde Compra: se le dice, o el cambio de URL parece un fallo nuestro. */
+  const cameFromCatalog = searchParams?.get('from') === 'compra';
 
   const query = useQuery({
     queryKey: ['sealed-groups', filters],
@@ -89,6 +112,20 @@ export function SealedShopView() {
       </div>
 
       <StoreTabs />
+
+      {/*
+        D-EQ-3 · aviso de procedencia. `role="status"` + `aria-live="polite"`: la página cambió sola
+        bajo los pies del usuario, y quien no ve la pantalla necesita que se le diga (§8.2). Es una
+        nota de regla (`rule-note`, §7.5 variante sobria), NO un banner de alarma: no ha pasado nada
+        malo — lo compró bien, solo estaba llamando a la puerta de al lado.
+      */}
+      {cameFromCatalog && (
+        <div className="gutter">
+          <p role="status" aria-live="polite" className="rule-note my-5 text-[13px] leading-relaxed text-muted">
+            {t('fromCatalog.body')}
+          </p>
+        </div>
+      )}
 
       {/* Call-out anti-buylist (§2-S): SOLO VENTA. Reventa por correo, nunca por la plataforma. */}
       <div className="gutter">

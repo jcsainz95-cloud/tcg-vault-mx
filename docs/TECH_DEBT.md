@@ -670,9 +670,28 @@ aparece, con la bandera SÍ).
   `if (q.X)` en cualquiera de los seis ejes pone **exactamente una** prueba en rojo — medido **3/3 por eje,
   7 mutaciones** (los 6 ejes + retirar `echoValue`), sobre copia del árbol entero y base efímera.
 
-#### H3-b · `?missing=` de `pending-publish` es el último validador inline, y su clase la decide el arquitecto — **ABIERTA (2026-09-13, `P-89`)**
+#### H3-b · `?missing=` de `pending-publish` sigue inline, y su clase la decide el arquitecto — **ABIERTA (2026-09-13, `P-89`; título y citas CORREGIDOS 2026-09-13 por `H3-d`)**
 - **Dueño:** backend. **Severidad:** Baja (aceptada). **Bloquea:** nada.
-- **Deuda:** `inventory/inventory.controller.ts:491-495` valida `?missing=` **inline**, cinco líneas por
+- **⚠️⚠️ TRES correcciones a esta misma ficha (techlead, verificadas contra el árbol en `H3-d`).** Se dejan
+  escritas en vez de reescribir la ficha en silencio, porque *una ficha que afirma un estado que nadie volvió
+  a medir es lo que manda a alguien a rehacer lo que ya está hecho* (O-5) — y ésta lo afirmaba tres veces:
+  1. **El título decía «el ÚLTIMO validador inline» y no lo era.** Censado el 2026-09-13 con
+     `rg "VALIDATION_ERROR', \`invalid " backend/src/` (descontando el de fechas, que no es enum), y
+     **después** del arreglo de `H3-d`, sobreviven **SEIS** validadores inline de enum — **cuatro de ellos
+     fuera de `inventory`**: `admin-bounties.controller.ts:120` (`state`) y `:152` (`sort`);
+     `pricing.controller.ts:292` (`reason`); `admin/admin.controller.ts:472` (`axis`). Los otros dos son de
+     `inventory`: `:178` (`origin`, ficha `H3-e`) y `:499` (éste). *«El último» era falso el día que se
+     escribió, y contarlos costó un `rg`.*
+  2. **La cita `:491-495` apuntaba a los DECORADORES `@Query`, no al validador.** El validador está en
+     **`:498-503`**.
+  3. **Sobreviven DOS cosas que la ficha no nombraba**, y las dos importan:
+     - **el cast de `:511`** — `missing as 'location' | 'price' | undefined`: es el **mismo patrón**
+       `readonly string[]` → re-cast que `H3-c` acaba de erradicar del resto del fichero. `H3-c` se declaró
+       RESUELTA y este superviviente estaba a trece líneas.
+     - **`:501` emite el array `allowed` POR REFERENCIA** (`allowed: PENDING_PUBLISH_MISSING_VALUES`), no la
+       **copia** que §0-Q punto 2 exige y que el helper sí hace (`enum-filter.ts`, `allowed: [...allowed]`).
+       Un consumidor que lo mutara (`.sort()`, `.push()`) envenenaría el dominio del proceso entero.
+- **Deuda:** `inventory/inventory.controller.ts:498-503` valida `?missing=` **inline**, cinco líneas por
   encima de una llamada al helper compartido, y emite `{missing, allowed}` — **sin `field`**, que §0-Q punto
   2 exige *siempre*. Medido por HTTP el 2026-09-13 (admin real, base efímera):
   `?missing=` ⇒ `400 {"missing":"","allowed":[...]}`; `?missing=%20` ⇒ `400`; `?missing=bogus` ⇒ `400`;
@@ -685,10 +704,29 @@ aparece, con la bandera SÍ).
   **enum**»*, y **si esto es un enum a esos efectos es una pregunta abierta del arquitecto**, no una que
   backend pueda contestarse a sí mismo (regla 9 + regla de conflicto de `CLAUDE.md`).
 - **No alcanzable desde el front hoy:** `frontend/src/lib/api.ts:3625` llama sin query (medido por techlead).
-- **Disparador:** cuando el arquitecto decida si una unión de literales entra en §0-Q. **Si SÍ:** migrar a
-  `parseEnumFilter` (gana `field`, y `?missing=` pasa a `200` sin filtrar) — mecánico, el destino existe.
-  **Si NO:** dejar el inline y anotar en §M1 que este `400` es correcto y no es §0-Q, para que la próxima
-  revisión no lo cuente como incumplimiento.
+- **⭐ DATO NUEVO para la decisión del arquitecto (`H3-d`, 2026-09-13): «unión de literales» NO es una sola
+  clase, y los candidatos que se agruparon bajo ese nombre se parten en dos.** La pregunta útil no es *«¿el
+  tipo en TypeScript es una unión?»* sino *«¿hay un enum de PRISMA detrás?»* — porque de eso depende si el
+  dominio puede **crecer solo** y dejar el filtro mintiendo:
+
+  | Param | Tipo en `src/` | ¿Enum de Prisma detrás? | Qué es realmente |
+  |---|---|---|---|
+  | `?missing=` (esta ficha) | `('location'\|'price')[]` | **NO** (`rg 'enum.*[Mm]issing' schema.prisma` ⇒ 0) | unión pura — **la pregunta abierta** |
+  | `?axis=` (`admin.controller.ts:472`) | `'sale'\|'buy'` inline | **NO** | unión pura — **misma pregunta** |
+  | `?sort=` (`admin-bounties.controller.ts:152`) | `ADMIN_BOUNTY_SORT_VALUES` | **NO** | unión pura, y además **no es un filtro** sino un orden con default |
+  | `?reason=` (`pricing.controller.ts:292`) | `PendingReason` (`common/pricing-curve.ts:574`) | **SÍ** — `enum PendingPriceReason` (`schema.prisma:394-397`), columna persistida `PendingPriceEntry.reason` (`:1093`) con `@@index` | ⚠️ **NO es unión pura: es un enum de Prisma TRANSCRITO A MANO** |
+  | `?origin=` (`inventory.controller.ts:178`) | dos literales inline | **SÍ** — `enum SealedGroupKind` (`schema.prisma:82-85`) | ⚠️ **ídem** (ficha `H3-e`) |
+
+  **Los dos de abajo no necesitan que se resuelva `H3-b`:** §0-Q punto 3 ya los norma («derivado, no
+  transcrito»), y el riesgo es el concreto que este repo ya pagó — si el schema gana un valor, la lista
+  escrita a mano **no lo acepta** y el operador no puede filtrar por un estado que **sí existe en su base**
+  (es el bug de `SealedSubtype`/`upc` de `enum-values.ts`). *Se encargaron `?reason=` y `?axis=` juntos como
+  «misma clase»; medidos, no lo son.*
+- **Disparador:** cuando el arquitecto decida si una unión de literales **pura** entra en §0-Q. **Si SÍ:**
+  migrar a `parseEnumFilter` (gana `field`, y `?missing=` pasa a `200` sin filtrar) — mecánico, el destino
+  existe. **Si NO:** dejar el inline y anotar en §M1 que este `400` es correcto y no es §0-Q, para que la
+  próxima revisión no lo cuente como incumplimiento. **En los dos casos**, el cast de `:511` y la referencia
+  de `:501` se arreglan igual: no dependen de la decisión.
 
 #### H3-c · Los filtros de `inventory.controller.ts` se declaraban `readonly string[]` y obligaban a re-castear — **RESUELTA (2026-09-13, `P-89`)**
 - **Dueño:** backend. **Severidad:** Baja (tipos, no conducta). **Estado:** **RESUELTA**.
@@ -704,6 +742,71 @@ aparece, con la bandera SÍ).
   siguen en `200`.
 - **Comprobación:** `npx tsc --noEmit` en verde **con los casts fuera** es la prueba de que eran redundantes;
   si alguien revierte el tipo del array, tsc vuelve a exigirlos.
+
+#### H3-d · Los dos ejes de enum de `pricing` estaban fuera del censo de §0-Q — **RESUELTA (2026-09-13)**
+- **Dueño:** backend. **Severidad:** Media (uno es **pantalla de dinero**). **Estado:** **RESUELTA**.
+- **Deuda:** el censo de `API_CONTRACT §0-Q punto 4` **no mencionaba `pricing`**, así que `P-84` (seis ejes
+  admin) y `P-89` (seis del catálogo público) pasaron por al lado de sus dos ejes. Medido por HTTP con token
+  `super_admin` sobre `3c1bd1e`: `?context=` de `GET /admin/pricing/pending` daba **`422`** en vacío, espacio
+  **y** token inválido (§0-Q manda `200`/`200`/**`400`** — punto 2 ratifica `400` *«es query, no cuerpo»*), y
+  `?finish=` de `GET /admin/pricing/bounties` daba `400` en vacío y espacio.
+  ⚠️ **`pending` es la cola de precios pendientes**: un `Select` en «Todas» manda cadena vacía (§M6-L.3), así
+  que la pantalla se rompía **por su estado por defecto**.
+- **El `422` NO era conducta publicada** (se comprobó ANTES de retirarlo, porque si lo fuera era del
+  arquitecto por la regla 9): `rg 'PendingPriceContext' docs/API_CONTRACT.md` ⇒ **0 resultados**, y la única
+  línea que describe el parámetro (`API_CONTRACT.md:10610`) declara dominio y «omitido = todos» **sin código
+  de error**. El `422` vivía en un comentario del controller, como *«mismo estilo que el resto del controller»*.
+- ⭐ **Lo que delató el de `bounties`, y es lo que esta ficha quiere que se recuerde:** en el **mismo handler**,
+  `state` y `setId` **sí** descartaban el vacío. **Nadie decidió la diferencia.** Y al medirlo apareció que la
+  cosa era peor de lo que se creía — los **cuatro** parámetros salieron con **TRES** conductas distintas ante
+  la misma entrada, cada una con el operador que su autor tenía a mano:
+
+  | Param | `?x=` | `?x=%20` | Operador |
+  |---|---|---|---|
+  | `state` | `200` | `200` | `.trim()` + `.filter(v => v !== '')` ✅ |
+  | `setId` | `200` | `200` | `trimmed()` ✅ |
+  | `sort` | `200` | ⛔ `400` | `raw === ''` — **medio arreglo** |
+  | `finish` | ⛔ `400` | ⛔ `400` | `!== undefined` |
+
+  *El `sort` se encargó como «ya conforme»; la medición lo refutó.* Es la **misma trampa del `if (status)` de
+  `P-84`** por la otra cara: allí `' '` era *truthy* y pasaba, aquí `' '` **no es `''`** y pasa.
+- **Fix:** `context` y `finish` migran a `parseEnumFilter` (helper único, dominios **derivados** de Prisma);
+  `sort` recibe solo el `trim()` — **no se migra**, porque su dominio es una unión de literales pura y eso es
+  la pregunta abierta de `H3-b`. `parseFinish` se borra (era la quinta copia del helper).
+- **Comprobación:** `test/integration/pricing-enum-filters-empty.e2e-spec.ts` (19/19). Mutaciones sobre copia
+  del árbol ENTERO y base efímera: reintroducir el `422` inline (**3/3**, mata 5 pruebas, todas de `context`),
+  reintroducir `finish !== undefined` (**3/3**, mata 2), revertir el `trim()` de `sort` (**3/3**, mata **1** —
+  exactamente la que descubrió el medio arreglo).
+
+#### H3-e · `?origin=` de `GET /admin/inventory/sealed-products` — enum de Prisma inline y `400` SIN `details` — **ABIERTA (2026-09-13, `H3-d`)**
+- **Dueño:** backend (**work stream «Inventario y vault»**, no el de `pricing`). **Severidad:** Baja.
+  **Bloquea:** nada.
+- **Deuda:** `inventory/inventory.controller.ts:177-179` compara contra **dos literales escritos a mano**
+  (`origin !== 'set_main' && origin !== 'promo_collection'`) y detrás hay un **enum de Prisma**:
+  `enum SealedGroupKind` (`schema.prisma:82-85`), columna persistida (`:625`, `:656`). Es la misma clase que
+  `?reason=`: **enum de Prisma transcrito a mano**, que §0-Q punto 3 prohíbe («derivado, no transcrito»).
+- ⚠️ **Incumple §0-Q punto 2 más fuerte que ningún otro eje del censo:** su `400` emite `details` **VACÍO**
+  (`{}` — medido, no supuesto), sin `field` **ni** `allowed`. Los demás al menos emiten uno de los dos.
+  Y `' '` ⇒ `400` (el medio arreglo de `sort`, otra vez: descarta `''` pero no el espacio).
+- **Por qué NO se arregló aquí:** es de **otro work stream**, y el pase que lo encontró era del de `pricing`.
+  Se mide y se enruta, no se cruza (CLAUDE.md, «una sesión = un work stream»).
+- **Nadie lo había nombrado:** no está en el censo de §0-Q punto 4, ni en el encargo, ni en la ficha `H3-b`.
+  Salió de censar `src/` **después** del arreglo, que es la mitad del trabajo que el censo original no hizo.
+- **Comprobación:** congelado por prueba en el bloque CENSO de
+  `test/integration/pricing-enum-filters-empty.e2e-spec.ts`. **Disparador:** el próximo pase que toque
+  `inventory`.
+
+#### H3-f · `?sealedSubtype=` de `GET /catalog/cards` es ESTRUCTURALMENTE vacío — **ABIERTA (2026-09-13, QA)**
+- **Dueño:** backend + **decisión de producto**. **Severidad:** Baja. **Bloquea:** nada.
+- **Deuda (QA, medido):** `catalog.service.ts:1155` aplica `singlesPublishedWhere` (`:510-516`), que excluye
+  `productType:'sealed'` (**guardarraíl H9**). Así que `?sealedSubtype=box` devuelve **0** incluso con sellado
+  publicado en la BD: el eje admite medir `200`/`400`, **nunca un total discriminante**.
+- **⚠️ Preexistente: NO lo introdujo `P-89`.** Se anota porque cambia lo que significa el verde de ese eje —
+  una prueba que solo puede comprobar el código de estado no distingue «filtra bien» de «no filtra nada».
+- ⛔ **No se arregla sin que alguien decida si H9 debe seguir.** Quitar el guardarraíl es decisión de producto
+  (¿debe `/catalog/cards` devolver sellado?), no una limpieza. **Disparador:** que el arquitecto o el dueño
+  resuelvan si `sealedSubtype` tiene sentido en el endpoint de **singles**; si no lo tiene, lo honesto es
+  **retirar el parámetro**, no arreglar el filtro.
 
 #### H4 · Faltaban 2 tests de regresión de grupos (precio divergente + sort/paginación) — RESUELTO (2026-08-22)
 - **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test). **Estado:** **RESUELTO**.
@@ -7055,3 +7158,214 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   es la urgencia — hoy nadie va a tomar una decisión equivocada a partir de ella, porque el número que
   importa se midió por fuera. Cuando se retire la rama legada, esta métrica **tiene que** ser la que
   se mire, o el siguiente que la consulte volverá a creerse `legacySwept`.
+
+---
+
+## Backend · 2026-09-13 · `D-EQ-2` / `C-EQ-1`
+
+### EQ-D0 · ⚠️ ALTA — La BÓVEDA ignora en silencio sus filtros de sellado (backend · Inventario y vault, 2026-09-13)
+
+- **Dueño:** **backend** (stream «Inventario y vault»). **Severidad:** **Alta**. **No bloqueante** para
+  este merge (no es regresión de este pase: es un defecto preexistente que `C-EQ-1` **descubrió**).
+- ⭐ **Sale de `EQ-D1` a ficha propia por petición del techlead, y su argumento va más allá de la
+  etiqueta:** *«es la única fila de las 22 donde quien recibe la mentira **no es personal nuestro** y
+  **no tiene cómo notarlo**»*. Las otras 21 las sufre un operador que puede sospechar de una cola rara;
+  ésta la sufre el **cliente**, en su propia bóveda.
+- ⭐⭐ **Y lo que la desbloquea HOY: su defecto NO depende de la decisión de clase del arquitecto.**
+  Ignorar un filtro en silencio lo prohíbe **§0-Q punto 1** *sea cual sea la clase* del eje. Por tanto
+  **no tiene que esperar a los otros 21** ni a que §0-Q gane filas.
+- **Qué es, medido (2026-09-13):** `vault.service.ts` hace
+  `if (q.sealedSubtype && SEALED_SUBTYPE_SET.has(q.sealedSubtype))` (y lo mismo con `q.condition`). Un
+  valor fuera de dominio **no da `400`: desaparece**, y el cliente recibe **todo su sellado con cara de
+  lista filtrada**. Es **exactamente** el defecto de `?kycStatus=` que `A5` cerró en `GET /admin/users`
+  —`200` con el total del padrón entero—, esta vez en pantalla de cliente.
+- **Ejes afectados (4):** `?sealedSubtype=` y `?condition=` en `GET /vault/sealed` **y** en
+  `GET /admin/vaults/:userId/sealed`.
+- **Comprobación de cierre:** los cuatro pasan de `SIN_CLASE_DECLARADA` al `REGISTRO` de
+  `backend/test/integration/enum-query-axes.e2e-spec.ts` y sus siete propiedades de §0-Q salen verdes
+  sin excepción; y el trinquete de esa suite baja de 22 a 18.
+
+### EQ-D0b · MEDIA — Los dos `?report=` de exportación devuelven OTRO informe del pedido (backend · Admin y auditoría, 2026-09-13)
+
+- **Dueño:** **backend** (stream «Admin y auditoría»). **Severidad:** **Media**. No bloqueante.
+- **Sale del bloque de los ocho `?sort=` a ficha propia** porque no es un clamp de orden: `admin.service.ts`
+  hace `if (report === 'pnl') … if (report === 'iva') … ` y **cualquier otra cosa cae a `inventory`**.
+  El operador pide `?report=pnl2026` y **se descarga un CSV con otro informe dentro**.
+- ⭐ **Por qué sube de severidad respecto de un clamp de pantalla (techlead):** es un **export**. Un
+  fichero descargado **tiene vida media más larga que una pantalla** — se reenvía, se archiva, se abre
+  meses después, y para entonces nadie recuerda qué se pidió. Un clamp de orden se nota al mirar; un
+  CSV mal rotulado no.
+- **Rutas:** `GET /admin/finance/export.csv?report=` y `GET /admin/reports/export.csv?report=`.
+- **Comprobación de cierre:** las dos salen de `SIN_CLASE_DECLARADA`; un `?report=` fuera de dominio
+  devuelve `400` con `field`+`allowed` y **no** un fichero.
+
+### EQ-D1 · Los 22 ejes de query de DOMINIO CERRADO que §0-Q no registra (backend · descubierto por `C-EQ-1`, 2026-09-13)
+
+- **Dueño:** **backend**, repartido por stream en la tabla. **Severidad:** **Media** para el conjunto —
+  ⚠️ **salvo las filas promovidas a `EQ-D0` (bóveda, Alta) y `EQ-D0b` (`?report=`, Media-export)**, que
+  se listan abajo por completitud del censo pero **se trabajan desde su propia ficha**. **No bloqueante.**
+
+> ⭐ **No salieron de una lista que alguien recordara: salieron de que el candado los encontró.** Es
+> justo la diferencia que `C-EQ-1` existe para marcar — *una suite no puede fallar por un parámetro que
+> nunca le contaron*, y los tres ejes que `P-84`/`P-89` se saltaron se saltaron **por no estar en el
+> censo**, no por descuido.
+
+**Medición:** `censusQueryAxes` sobre `backend/src` (2026-09-13, sobre `2e40a8b` + este pase) ⇒ **176
+`@Query` en código, 18 ficheros**, con la ruta resuelta. Cruzados contra el registro de §0-Q punto 4 y
+contra la lista de ejes no-enum, quedan **22** cuyo dominio **sí** es cerrado y que **el registro no
+contiene**.
+
+⛔ **No se arreglan aquí y no es por esfuerzo:** la **clase la decide el arquitecto** (regla 9) y
+varios son de work streams distintos.
+
+⚠️ **CORRECCIÓN (techlead, condición `C1`) — aquí decía que la cola estaba «fijada con `toEqual`» y
+que «no puede crecer ni encoger en silencio». La mitad de CRECER era falsa:** el test solo comprobaba
+que cada llave siguiera existiendo en el código (encogimiento). *En un pase que existe para cerrar la
+clase «afirmación de mecanismo que nadie mide», esta ficha estaba abriendo una instancia nueva de esa
+misma clase.* Corregido en las dos puntas: la suite tiene ahora un **TRINQUETE**
+—`SIN_CLASE_DECLARADA.length ≤ 22` y `QUERY_SIN_NOMBRE.length ≤ 2`, **números que solo bajan**— y esta
+línea dice lo que el test hace. *Una fecha de caducidad no falla; un número sí.* Sin el tope, ir de 22
+a 40 son **dieciocho diffs de una línea**, cada uno intachable en su PR; con él, la entrada nº 23
+obliga a **subir el número a mano** y eso se ve en la revisión.
+
+| Eje(s) | Conducta MEDIDA hoy | Qué norma de §0-Q toca | Dueño · stream |
+|---|---|---|---|
+| ⚠️ `GET /vault/sealed?sealedSubtype=` · `?condition=` | `vault.service.ts`: `if (q.x && SET.has(q.x))` ⇒ **el filtro se IGNORA EN SILENCIO**; el cliente recibe **todo su sellado con cara de lista filtrada** | punto 1 ⛔ *«prohibido ignorar el filtro»* — **es el defecto de `?kycStatus=` que `A5` cerró**, vivo en la bóveda del CLIENTE | backend · Inventario y vault |
+| ⚠️ `GET /admin/vaults/:userId/sealed?sealedSubtype=` · `?condition=` | ídem (mismo servicio) | ídem | backend · Inventario y vault |
+| `GET /admin/shipments?kind=` | `if (kind === 'guest_direct_ship')… if (kind === 'vault_withdrawal')…` ⇒ lo desconocido se **ignora en silencio** | punto 1 fila 3: debería ser `400` | backend · Órdenes y dinero |
+| `GET /admin/users/:id/audit?scope=` | cae al default `target` ante basura ⇒ **clamp silencioso** | punto 6 ⛔ *«prohibido el clamp silencioso»*: devuelve una lista distinta de la pedida | backend · Admin y auditoría |
+| `GET /admin/pricing/graded-estimates/review?reason=` | `400` con `details.{field, invalid, allowed}` | **CUARTA forma de `details`** (`invalid` no es `invalidStatus` del punto 5 ni está declarada) | backend · Catálogo y precios |
+| `GET /admin/finance/export.csv?report=` · `GET /admin/reports/export.csv?report=` | `if(report==='pnl')… if(report==='iva')…` ⇒ **cualquier otra cosa cae a `inventory`** | punto 1 fila 3 con el signo peor: devuelve **otro informe** del pedido, sin avisar | backend · Admin y auditoría |
+| `?range=` ×4 (`/catalog/featured-set/value-history`, `/catalog/sealed/:id/value-history`, `/catalog/sets/:id/value-history`, `/vault/portfolio/history`) | `normalizeRange` ⇒ **clamp silencioso a `'1m'`** sobre un dominio de 8 literales | punto 6 ⛔ clamp silencioso | backend · Catálogo y precios + Inventario y vault |
+| `?sort=` ×8 (`/catalog/cards`, `/catalog/sealed`, `/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/admin/vaults/:id/sealed`, `/vault/master-sets`, `/vault/sealed`) | todos caen a su default ante basura | punto 6 ⛔ clamp silencioso; y §0-Q **no declara su dominio** (solo registra el de `bounties`) | backend · varios |
+| `GET /catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 · §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo | **backend** · Catálogo y precios — ⚠️ ver `EQ-D3`: la precondición YA se cumplió |
+
+- **Impacto:** el peor es el de la bóveda — un filtro que miente en una pantalla del **cliente**, que es
+  la misma clase de defecto por la que existe `A5`. Los `?report=` de finanzas devuelven **un informe
+  distinto** del pedido. Los ocho `?sort=` y los cuatro `?range=` son clamp silencioso: molesto, no
+  peligroso.
+- **Disparador:** el arquitecto decide su clase (o los declara no-enum con su motivo); entonces cada
+  stream migra los suyos al helper único y **los borra de `SIN_CLASE_DECLARADA`**.
+- **Comprobación de cierre:** cada eje pasa de `SIN_CLASE_DECLARADA` al `REGISTRO` de
+  `enum-query-axes.e2e-spec.ts` y **sus siete propiedades de §0-Q salen verdes sin excepción**.
+
+### EQ-D2 · Tres ejes que SÍ están en el registro de §0-Q y no cumplen (backend, 2026-09-13)
+
+- **Dueño:** **backend** (Catálogo y precios). **Severidad:** **Baja-Media**. No bloqueante.
+
+No son de los 22 (están registrados) ni de los cuatro de `D-EQ-2` (no eran del encargo), así que
+quedan **fijados como excepciones MEDIDAS, por propiedad**, dentro de `C-EQ-1` — con su motivo al lado
+y su conducta de hoy congelada, de modo que **cerrarlas pone la suite en rojo y obliga a venir a
+borrar la excepción**. ⛔ Una excepción **por propiedad**, no por fila: apagar la fila entera por un
+defecto convertiría un hueco conocido en seis huecos invisibles.
+
+| Eje | Qué incumple (medido por HTTP) | Dueño · stream |
+|---|---|---|
+| `GET /admin/buylist?status=` (CSV) | **la cota del eco no se le aplica**: arma `details.invalidStatus` con los tokens **crudos**, sin pasar por `assertEnumFilter` ⇒ 5 KB de query vuelven íntegros. Misma amplificación de `P-89.C1`, aquí con sesión admin | backend · Catálogo y precios (`buylist.service.ts`) |
+| `GET /admin/pricing/bounties?state=` | `parseStates` hace `trim()` de **cada token** ⇒ `?state=%20activa` **FILTRA**. §0-Q punto 5 recorta el espacio solo donde es **sintaxis de lista** (la coma de un eje CSV), y este eje **no es CSV** — medido: `?state=activa,apagada` ⇒ `400`, es **repetible**, no CSV. Luego el espacio rodea al TOKEN ⇒ punto 1 manda `400`. Su `throw` inline tampoco acota el eco | backend · Catálogo y precios (`admin-bounties.controller.ts`) |
+| `GET /admin/pricing/bounties?sort=` | `throw` inline sin la cota del eco (punto 2 la exige *«dondequiera que el valor recibido se devuelva al cliente»*) | ídem |
+
+- **Impacto:** el de `?state=` es el único con consecuencia observable para el operador (un filtro que
+  acepta un token con basura alrededor es un filtro que «arregla» entrada mal formada en silencio —
+  §0-Q punto 1 lo prohíbe por eso: *el día que un cliente mande basura por un bug propio, nadie se
+  entera*). Los dos de la cota son amplificación **con sesión admin**, no pública.
+- **Por qué no se arreglaron en este pase:** `?state=` es **repetible**, no escalar ni CSV, así que
+  migrarlo al helper único **cambia la forma del eje** ⇒ arquitecto (regla 9). Los otros dos son
+  arreglos de una línea, pero fuera del encargo de `D-EQ-2`, y meter cambios no pedidos en un pase que
+  toca zona compartida es exactamente cómo se pierde la revisabilidad de un diff.
+- **Comprobación de cierre:** desaparece la entrada `excepciones` de esas filas en
+  `enum-query-axes.e2e-spec.ts` y la suite sigue verde.
+
+### EQ-D3 · La mitad BACKEND de `D-EQ-3` se quedó sin dueño, y su precondición YA se cumplió (backend · Catálogo y precios, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Baja** (nadie se rompe hoy). **Disparador: cumplido ya** — no
+  espera a nada.
+- ⭐ **Es el tercer artefacto que caduca en este mismo pase** (techlead, condición `C7`), y por eso se
+  escribe con dueño y disparador en vez de con una nota. Los otros dos fueron el censo de §0-Q (lo
+  retiró el arquitecto en v1.73) y el bloque CENSO de `pricing-enum-filters-empty.e2e-spec.ts` (lo
+  retiré yo en este pase, al ponerse rojo).
+- **Qué es:** §0-Q punto 4 declara el dominio de `?productType=` de `GET /catalog/cards` **sin
+  `sealed`** (clase R, cláusula en §2), y `?sealedSubtype=` **retirado**. El backend **aún acepta los
+  dos**. Se dejó así a propósito: el orden era *frontend primero*, porque `400`-ear antes de que el
+  front dejara de mandarlo convierte un enlace profundo de «rejilla vacía» en **«pantalla rota»**.
+- ⭐ **La precondición está CUMPLIDA, medido el 2026-09-13:** frontend cerró `D-EQ-3` (`494c3ce`,
+  `docs/FRONTEND_NOTES.md` §72) — `parseUrlFilters` **dejó de aceptar** `sealed`/`sealedSubtype`, y
+  `CatalogView` redirige a `/sellado` en vez de pedir la rejilla. Su propio informe lo dice: *«cuando
+  backend cierre el dominio, ese enlace pasa de "rejilla vacía" a …»*.
+- ⚠️ **Y lo que pasa mientras no se cierre:** la excepción `error` de esa fila en
+  `enum-query-axes.e2e-spec.ts` (y su test hermano de `?productType=sealed ⇒ 200`) se quedan en
+  **verde permanente afirmando que el contrato está incumplido**. Un pin sin fecha de cobro es una
+  afirmación de estado que nadie va a volver a mirar.
+- **Comprobación de cierre:** `?productType=` de `/catalog/cards` pasa a `ProductType` **menos**
+  `sealed`, se retira `?sealedSubtype=` de ese endpoint, y **desaparecen** de `C-EQ-1` tanto la
+  excepción `error` como la entrada de `SIN_CLASE_DECLARADA` (el trinquete baja de 22 a 21).
+
+### EQ-D4 · La exención de `@Query()` sin nombre es la puerta más barata para entrar sin clase (backend, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Media**. No bloqueante hoy (medido: cero ejes de dominio
+  cerrado ocultos ahora mismo).
+- ⭐ **Lo nombró techlead cuando se le pidió que buscara el agujero de `C-EQ-1`, y es el correcto:**
+  la lista `QUERY_SIN_NOMBRE` exime **dos sitios enteros con una línea cada uno**, y lo que esas líneas
+  afirman —qué llaves expone cada sitio— vive **solo en prosa**. Comparado con las otras dos listas, es
+  barata de un modo asimétrico: `SIN_CLASE_DECLARADA` te obliga a una fila con medición y dueño;
+  `QUERY_SIN_NOMBRE` te exime **un endpoint entero** con una cadena.
+- **Medido el 2026-09-13:**
+  - `ADMIN_USERS_QUERY_KEYS` (`admin.controller.ts:92`) es `const` **sin `export`** ⇒ la prueba no
+    puede leerlo aunque quiera; hoy son `q status kycStatus page pageSize`.
+  - `RejectedItemsQueryDto` (`buylist.dto.ts:314-318`) hoy son `userId`/`page`/`pageSize` — **los tres
+    no-enum**, limpio.
+- **El fallo, y es silencioso:** el día que alguien añada `@IsEnum() status?: SellRequestStatus` a ese
+  DTO **hay un eje de dominio cerrado nuevo y el descubrimiento no puede verlo**. No sale rojo: **no
+  sale nada**.
+- **Dirección:** exportar las dos listas de llaves (la constante y los campos del DTO, vía
+  `class-validator` metadata o una constante hermana) y **cruzarlas contra las tres listas** como si
+  fueran `@Query` con nombre.
+- **Comprobación de cierre:** añadir a mano un campo de enum a `RejectedItemsQueryDto` pone `C-EQ-1` en
+  **rojo**; y `QUERY_SIN_NOMBRE` deja de eximir la ruta para pasar a declarar sus llaves.
+
+### EQ-D5 · `ROUTE_DECORATOR` no conoce `@Sse` ni `@Search`, y su fallo es silencioso (backend, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Baja** hoy. No bloqueante.
+- **Medido:** `grep -rn '@Sse\|@Search' --include=*.ts backend/src` ⇒ **0 ocurrencias**. El riesgo es
+  futuro, no actual.
+- **Por qué se anota igual:** el modo de fallo es **el peor de los dos posibles**. Un `@Query` bajo un
+  `@Sse` no queda fuera del censo con estruendo: cae **en el segmento del handler anterior**, y si ese
+  handler ya declara un parámetro con ese nombre, **la llave colapsa en una ya registrada y la suite
+  sale VERDE**. Es la clase «candado roto al revés» que el canario existe para cazar, entrando por la
+  única puerta que el canario no cubre (el canario prueba el dialecto que el escáner conoce).
+- ⚠️ **Y el ancla de `enum-query-axes.e2e-spec.ts` no lo atraparía:** es un **suelo**
+  (`toBeGreaterThanOrEqual(170)`) contra **176** medidos ⇒ **6 de holgura**. Un colapso de una o dos
+  llaves cabe dentro de ella sin sonar.
+- **Comprobación de cierre:** `ROUTE_DECORATOR` incluye `Sse|Search` (y cualquier decorador de ruta que
+  Nest añada), **o** el ancla pasa de suelo a igualdad exacta con un número que se actualiza a mano.
+
+### EQ-D6 · `@Req()` + `request.query` es ciego por construcción (backend, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Baja**. No bloqueante; **cero exposición hoy**.
+- **Medido:** un solo sitio, `payments/webhooks.controller.ts:25` — y es **`@Post('stripe')`**, sin
+  query, así que hoy no expone ningún eje.
+- **Qué es:** un handler que lee `request.query.x` a mano **no tiene `@Query` que enumerar**, así que el
+  descubrimiento no puede verlo. Nada impide un `GET` mañana.
+- **Comprobación de cierre:** el escáner cuenta también los `request.query.<llave>` / `req.query.<llave>`
+  de `src/` y los cruza contra las tres listas; o se declara la prohibición con su propio candado.
+
+### EQ-D7 · El intermitente de `buylist-step-guard` no es ajeno: es de diseño, y se contradice a sí mismo (backend · Catálogo y precios, 2026-09-13)
+
+- **Dueño:** **backend** (stream «Catálogo y precios»). **Severidad:** **Media** (ruido de CI, no
+  defecto de producto). **No bloqueante** para este merge.
+- **De dónde sale:** en las 4 corridas completas de la suite de integración de este pase, **3 salieron
+  enteramente verdes y 1 tuvo esta roja**. Medida aparte, **5/5 verde**. Yo la reporté como «ajena
+  porque mi diff no toca buylist» — cierto, pero **incompleto**: techlead leyó el test y el problema
+  es suyo, no del entorno.
+- **Qué es, medido (`buylist-step-guard.e2e-spec.ts:245-261`):** el verde depende de que **20 ms de
+  reloj de pared** basten para que `receive` confirme antes de que arranque `verify`. *Eso no es un
+  primitivo de sincronización: es una apuesta sobre la carga de la máquina.*
+- ⭐ **Y la incoherencia interna, que es lo que decide el arreglo:** el comentario de `:246-249` invoca
+  **O-3** —*«se reporta la proporción, no un "funcionó"»*— y la línea siguiente convierte la proporción
+  en binario con `expect(resultados).toEqual(Array(5).fill('200·200·verificacion'))`. **Si la propiedad
+  es determinista** porque la serializa Postgres, **el `sleep` es el instrumento equivocado**; **si no
+  lo es**, **`5/5` es la aserción equivocada**. No pueden ser las dos a la vez.
+- **Comprobación de cierre:** o el test deja de depender del reloj (se serializa con el mecanismo real
+  —el `where` re-evaluado, un `advisory lock`, o esperar el `receive`— y entonces `toEqual` es legítimo
+  con 1 tirada), o conserva la carrera y **reporta proporción** con un umbral declarado. Y el fichero
+  deja de afirmar O-3 mientras hace lo contrario.

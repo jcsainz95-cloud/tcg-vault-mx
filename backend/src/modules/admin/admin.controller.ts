@@ -25,6 +25,7 @@ import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { AuditService } from '../audit/audit.service';
 import { UserAuditScope } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
+import { parseEnumFilter } from '../../common/enum-filter';
 
 export class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
@@ -89,6 +90,21 @@ class CreateAdminUserDto {
  * de **este** endpoint, no una política del backend.
  */
 const ADMIN_USERS_QUERY_KEYS = ['q', 'status', 'kycStatus', 'page', 'pageSize'] as const;
+
+/**
+ * ⭐ **`?axis=` de `GET /admin/reports/pricing-brackets` — CLASE L (LITERAL), §0-Q punto 3 / §4.37.**
+ *
+ * *No nombra un dato persistido: nombra **qué lado del negocio agregar**, que es una pregunta sobre
+ * la consulta.* Medido el 2026-09-13: `rg 'enum .*[Aa]xis' backend/prisma/schema.prisma` ⇒ **0**. Por
+ * eso no hay enum que derivar **y no hay nada que citar**, porque no se está recortando nada — no es
+ * clase R, y exigirle una cláusula de `PROJECT.md` sería pedirle que justifique un recorte que no
+ * hizo. *(Quedar sin casilla fue **la causa** de que este eje viviera meses fuera de toda norma: `L`
+ * existe desde v1.73 justamente para que no vuelva a pasar.)*
+ *
+ * **Declaración canónica: la línea del endpoint en `API_CONTRACT §M9`** (``axis?` (`sale | buy`;
+ * omitido = ambos)`). Paridad a **dos bandas** —contrato ↔ este literal— sostenida por `C-EQ-1`.
+ */
+export const PRICING_BRACKETS_AXIS_VALUES = ['sale', 'buy'] as const;
 
 /** M6 Usuarios: lista/ficha para vault_operator (limitado) + super_admin. */
 @Controller('admin/users')
@@ -468,13 +484,12 @@ export class AdminReportsController {
     @Query('to') to?: string,
     @Query('axis') axis?: string,
   ) {
-    if (axis !== undefined && axis !== 'sale' && axis !== 'buy') {
-      throw BusinessException.validation('VALIDATION_ERROR', `invalid axis '${axis}'`, {
-        field: 'axis',
-        allowed: ['sale', 'buy'],
-      });
-    }
-    return this.admin.pricingBrackets(from, to, axis);
+    // ⭐ `D-EQ-2` (v1.73) — §0-Q completo en el helper ÚNICO. Aquí vivía un `throw` propio con
+    // `422` (es QUERY ⇒ `400`, punto 2) que además NO descartaba el vacío: `?axis=` y `?axis=%20`
+    // —lo que manda un `Select` en «Ambos»— daban error en vez del listado sin filtrar. El helper
+    // resuelve las cuatro conductas de una vez y acota el eco del valor, que el `throw` no acotaba.
+    const parsedAxis = parseEnumFilter('axis', axis, PRICING_BRACKETS_AXIS_VALUES);
+    return this.admin.pricingBrackets(from, to, parsedAxis);
   }
 
   @Get('export.csv')

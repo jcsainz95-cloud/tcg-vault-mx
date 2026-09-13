@@ -28,12 +28,29 @@ import { BusinessException } from './business.exception';
  * Cuando `P-84` empezó, este helper existía **cuatro veces** con tres formas de `details` distintas
  * para el mismo error:
  *
- * | copia | `details` que emite |
- * |---|---|
- * | `admin.service.ts` (`A5`) | `{ field, allowed }` |
- * | `buylist.service.ts` (CSV de `status`) | `{ invalidStatus }` |
- * | `catalog.service.ts` · `validateEnum` | `{ field, allowed }` |
- * | `inventory.controller.ts` (`finish`/`productType`, inline ×2) | `{ finish, allowed }` / `{ productType, allowed }` |
+ * | copia | `details` que emite | `message` |
+ * |---|---|---|
+ * | `admin.service.ts` (`A5`) | `{ field, allowed }` | `invalid ${field} filter '${value}'` |
+ * | `buylist.service.ts` (CSV de `status`) | `{ invalidStatus }` | — |
+ * | `catalog.service.ts` · `validateEnum` | **`{ field, value, allowed }`** | `Invalid ${field} filter` (**sin el valor**) |
+ * | `inventory.controller.ts` (`finish`/`productType`, inline ×2) | `{ finish, allowed }` / `{ productType, allowed }` | — |
+ *
+ * ⚠️ **Esa fila del catálogo decía `{ field, allowed }` hasta hoy, y era el artefacto más caro del
+ * fichero** (QA/techlead, condición de veredicto de `P-89`). Leída literal, afirmaba que **migrar el
+ * catálogo no retiraba ninguna llave** — y `echoValue`, treinta líneas más abajo, existe justamente
+ * porque eso **no era verdad**. La tabla desmentía el motivo de la bandera que la propia tabla
+ * justificaba. Verificado contra el árbol, no contra la memoria:
+ * `git show 8d29988:backend/src/modules/catalog/catalog.service.ts` **`:783-789`** ⇒
+ * `{ field, value, allowed }`. *Es la misma clase de defecto que abrió `P-84` → `P-89` → `P-90`: una
+ * prosa que afirma un estado que nadie volvió a medir.*
+ *
+ * ⭐ **Y al corregirla aparece un hecho que nadie había dicho: `P-89` ENSANCHÓ el eco, no solo lo
+ * conservó.** La columna `message` de arriba lo enseña — el catálogo emitía `Invalid ${field}
+ * filter`, **sin el valor del cliente**; el helper al que migró lo emite **con** el valor. Así que en
+ * los seis ejes del catálogo el valor pasó de viajar **una** vez (`details.value`) a viajar **dos**
+ * (`message` + `details.value`). La amplificación que QA midió (`?condition=<5000 chars>` ⇒ **10 137
+ * bytes** de respuesta, sin sesión) es **mitad herencia y mitad `P-89`**, y decirlo importa porque la
+ * mitad nueva es la que este fichero podía haber evitado. Se acota abajo (`ENUM_FILTER_ECHO_MAX`).
  *
  * Añadir seis llamadores más a una copia **deja la clase abierta**: el séptimo eje se cae por el
  * mismo agujero. Se declara una vez, y los call-sites la importan.
@@ -113,7 +130,60 @@ import { BusinessException } from './business.exception';
  * §0-Q son `field` + `allowed`, y quien recibe el `400` ya tiene el valor (lo mandó él). Vive aquí,
  * en UN sitio, precisamente para que la variación no vuelva a ser una copia del helper — que es la
  * deuda `H3` entera.
+ *
+ * ### ⭐ `H3-d` — y desde hoy esa prohibición es un CANDADO, no este párrafo
+ * QA/techlead lo midieron y tenían razón: `grep -rn echoValue backend/test/` solo daba pruebas de
+ * **conducta**, ninguna que **congelara los call-sites**. Eran 6/6 correctos y nada impedía que el
+ * séptimo eje la encendiera y §0-Q volviera a tener dos formas de `details` — *un docstring que
+ * prohíbe algo que ningún test comprueba es exactamente la deuda que `P-84` → `P-89` → `P-90` vienen
+ * pagando*. El censo vive en `test/enum-filter.spec.ts` («censo CONGELADO de call-sites») y fija los
+ * **seis**: 4 en `catalog.service.ts`, 2 en `sealed-catalog.service.ts`. Encenderla en un eje nuevo
+ * pone ese test en rojo, y la salida no es apagar el test: es ir al **arquitecto** (regla 9), porque
+ * ensanchar el dominio de `details` es cambiar §0-Q.
+ *
+ * ⚠️ El censo mira **código** (`stripComments`), no texto — si mirara texto, este mismo párrafo lo
+ * dispararía y habría que meter este fichero en una lista blanca. Ése era el defecto que `H3-d` le
+ * quitó a `enum-values-parity.spec.ts`, y no se replica aquí.
  */
+/**
+ * **Tope del eco del valor del cliente. El tamaño de la respuesta NO lo decide quien la pide.**
+ *
+ * ### El defecto (QA, condición de veredicto de `P-89`, medido por HTTP sobre `3c1bd1e`)
+ * `GET /catalog/cards?condition=<5000 chars>` ⇒ **10 137 bytes de respuesta por ~5 KB de petición**,
+ * **sin sesión** (el catálogo es `@Public()`). El valor salía **dos veces** —`message` y
+ * `details.value`— íntegro y sin tope: ~2× de amplificación a coste cero para el emisor.
+ *
+ * ⚠️ **No es XSS, y decirlo evita el arreglo equivocado.** QA lo midió: `Content-Type:
+ * application/json`, `nosniff`, y un `<script>` sale **escapado como dato**. El problema no es que el
+ * valor se interprete: es que **viaja**. Por eso la respuesta no es «sanear» (no hay nada que sanear)
+ * sino **acotar**.
+ *
+ * ### Por qué 64 y no un número redondo cualquiera
+ * El eco existe para que el cliente reconozca **su** token — un error de dedo, un `holofil` por
+ * `holofoil`. Medido el 2026-09-13 sobre `schema.prisma`: el valor de enum **más largo de todo el
+ * esquema** es `first_edition_holofoil`, **22 caracteres**, sobre **157** valores. 64 deja casi **3×**
+ * de holgura sobre el token legítimo más largo que podría existir, y un valor de más de 64 caracteres
+ * **no es un near-miss de ningún token**: es otra cosa. La holgura no se afirma, se **vigila**:
+ * `test/enum-filter.spec.ts` falla si alguien mete en el schema un valor que no quepa aquí.
+ *
+ * ### Se trunca DICIÉNDOLO, y ahí está el punto
+ * Se emite `…(+N)` con los caracteres omitidos. Un truncado silencioso convierte *«mandaste esto»* en
+ * una **afirmación falsa** sobre lo que el cliente mandó — y este proyecto ya sabe lo que cuesta una
+ * prosa que afirma un estado que no midió (la tabla de arriba). Con el `+N`, el mensaje sigue siendo
+ * verdadero: *«empezaba así, y había N caracteres más»*.
+ *
+ * ### ⛔ El tope NO es configurable por entorno
+ * Un `ENUM_FILTER_ECHO_MAX` leído de env sería un botón para reabrir el agujero en producción sin
+ * tocar código. Es una constante, y su prueba es la que la sostiene.
+ */
+export const ENUM_FILTER_ECHO_MAX = 64;
+
+/** El valor del cliente, acotado y **declarando** lo que omitió. Ver `ENUM_FILTER_ECHO_MAX`. */
+function echoSafe(value: string): string {
+  if (value.length <= ENUM_FILTER_ECHO_MAX) return value;
+  return `${value.slice(0, ENUM_FILTER_ECHO_MAX)}…(+${value.length - ENUM_FILTER_ECHO_MAX})`;
+}
+
 export function assertEnumFilter<T extends string>(
   field: string,
   value: string,
@@ -121,9 +191,12 @@ export function assertEnumFilter<T extends string>(
   opts?: { echoValue?: boolean },
 ): T {
   if (!(allowed as readonly string[]).includes(value)) {
-    throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} filter '${value}'`, {
+    // ⚠️ El eco va acotado en LAS DOS puntas (`message` y `details.value`). Acotar solo una deja la
+    // amplificación intacta: eran las dos las que copiaban el valor entero.
+    const shown = echoSafe(value);
+    throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} filter '${shown}'`, {
       field,
-      ...(opts?.echoValue ? { value } : {}),
+      ...(opts?.echoValue ? { value: shown } : {}),
       allowed: [...allowed],
     });
   }

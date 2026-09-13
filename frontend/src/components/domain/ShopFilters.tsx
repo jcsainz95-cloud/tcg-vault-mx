@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { CatalogFacetsDTO, ProductType, SealedSubtype } from '@/types/contract';
+import type { CatalogFacetsDTO } from '@/types/contract';
+import type { CatalogProductType } from '@/lib/api';
 import type { CatalogFilters } from '@/lib/api';
 import { groupRarities, type RarityGroup } from '@/lib/rarity-groups';
 import { FINISH_ORDER } from '@/lib/finish';
@@ -28,7 +29,6 @@ const RARITY_PREVIEW = 8;
  */
 export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
   const tType = useTranslations('shop.type');
-  const tSub = useTranslations('status.sealedSubtype');
 
   return (
     <div>
@@ -48,7 +48,7 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
             <TypeChip
               active={!filters.productType}
               label={tType('all')}
-              onClick={() => onChange({ ...filters, productType: undefined, sealedSubtype: undefined })}
+              onClick={() => onChange({ ...filters, productType: undefined })}
             />
             {/* Compra lista SINGLES: `GroupedListingDTO.productType ∈ {raw, graded}` — NUNCA
                 sealed (contrato §DTOs, H9: el sellado tiene su propio catálogo agrupado, §2-S, y
@@ -57,13 +57,17 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
                 SALIDA: filtrar por ella solo podía devolver «Ninguna carta coincide», porque el
                 endpoint jamás emite un grupo sellado. Un filtro que nunca puede acertar es peor
                 que no ofrecerlo — y ya hay una ruta que sí lleva ahí. Con él se va su sub-filtro
-                de presentación, que solo se abría bajo esa casilla. */}
-            {(['raw', 'graded'] as ProductType[]).map((pt) => (
+                de presentación, que solo se abría bajo esa casilla.
+                ⭐ **D-EQ-3 / contrato v1.73:** el panel llevaba razón, pero quitar la casilla
+                dejaba viva la otra puerta — la URL. `?productType=sealed` seguía entrando y
+                muriendo en la rejilla vacía; eso se cierra en `CatalogView` (`sealedIntentOf`),
+                y el TIPO (`CatalogProductType`) ya no admite `sealed` para que no vuelva. */}
+            {(['raw', 'graded'] as CatalogProductType[]).map((pt) => (
               <TypeChip
                 key={pt}
                 active={filters.productType === pt}
                 label={tType(pt)}
-                onClick={() => onChange({ ...filters, productType: pt, sealedSubtype: undefined })}
+                onClick={() => onChange({ ...filters, productType: pt })}
               />
             ))}
           </div>

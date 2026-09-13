@@ -5,9 +5,12 @@ import {
   Finish,
   GradingCompany,
   Locale,
+  PendingPriceContext,
+  PendingPriceReason,
   ProductType,
   RawCondition,
   SealedCondition,
+  SealedGroupKind,
   SealedSubtype,
 } from '@prisma/client';
 import {
@@ -15,12 +18,17 @@ import {
   FINISH_VALUES,
   GRADING_COMPANY_VALUES,
   LOCALE_VALUES,
+  PENDING_PRICE_CONTEXT_VALUES,
+  PENDING_PRICE_REASON_VALUES,
   PRODUCT_TYPE_VALUES,
   SEALED_CONDITION_VALUES,
+  SEALED_GROUP_KIND_VALUES,
   SEALED_SUBTYPE_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
+// `H3-d`: un candado de código mira CÓDIGO. Ver el docstring del helper.
+import { stripComments } from './helpers/strip-comments';
 
 /**
  * v2.1.8 — **un enum se declara UNA vez, y su declaración espeja el schema.**
@@ -73,6 +81,15 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   GradingCompany: ['CGC', 'PSA'],
   AcquisitionType: ['aportacion_en_especie', 'buylist', 'compra'],
   Locale: ['en', 'es'],
+  // ⭐ `D-EQ-2` (v1.73) — los TRES que estaban transcritos a mano en un filtro de query. Entran aquí
+  // porque entrar aquí **es** lo que les da la tercera banda: la que ya falló dos veces
+  // (`PriceSource` sin `tcgcsv_singles`, `SealedSubtype` sin `upc`) fue siempre schema ↔ CONTRATO, y
+  // nadie comparaba esas dos. `PendingPriceContext` ni siquiera TENÍA línea canónica en el contrato
+  // hasta v1.73 (`rg PendingPriceContext docs/API_CONTRACT.md` ⇒ 0), así que su paridad a tres
+  // bandas **no podía correr** — no es que pasara: es que no existía.
+  PendingPriceReason: ['no_market', 'premium_at_floor'],
+  PendingPriceContext: ['buylist', 'catalog', 'inventory', 'portfolio'],
+  SealedGroupKind: ['promo_collection', 'set_main'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -84,6 +101,9 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   GradingCompany,
   AcquisitionType,
   Locale,
+  PendingPriceReason,
+  PendingPriceContext,
+  SealedGroupKind,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -95,6 +115,9 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   GradingCompany: GRADING_COMPANY_VALUES,
   AcquisitionType: ACQUISITION_TYPE_VALUES,
   Locale: LOCALE_VALUES,
+  PendingPriceReason: PENDING_PRICE_REASON_VALUES,
+  PendingPriceContext: PENDING_PRICE_CONTEXT_VALUES,
+  SealedGroupKind: SEALED_GROUP_KIND_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
@@ -185,6 +208,28 @@ describe('CLASE R — `RawCondition` expresa una REGLA, no el schema (D4, §4.37
     expect(src).not.toMatch(/export const RAW_CONDITION_VALUES/);
   });
 
+  /**
+   * ### ⚠️ Este candado vigilaba PROSA, y por eso tenía lista blanca (techlead, `P-89` → `H3-d`)
+   * Corría la regex sobre el **fichero entero**, así que un **comentario** lo disparaba. La prueba de
+   * que el defecto era real son las dos líneas que hubo que quitar de aquí:
+   *
+   * ```ts
+   * if (f.endsWith(join('common', 'business-rules.ts'))) return false; // ahí VIVE la regla
+   * if (f.endsWith(join('common', 'enum-values.ts'))) return false;    // ahí vive el porqué (comentario)
+   * ```
+   *
+   * Ninguno de los dos ficheros tenía el patrón **en código**: `business-rules.ts:13,39` y
+   * `enum-values.ts:53` lo mencionan **en prosa**, explicando justamente esta regla. *«Cada fichero que
+   * quiera explicar la regla tiene que pedirle permiso al test»* — y la exención era del fichero
+   * **entero**, así que un `RAW_CONDITION_VALUES` de verdad dentro de `business-rules.ts` habría
+   * pasado sin que nada sonara. El candado era, a la vez, **demasiado sensible** (prosa) y
+   * **demasiado ciego** (los dos ficheros que más importan).
+   *
+   * Se arregla como ya lo hacía su hermano de abajo (`offenders()`): **mirando código, no texto**.
+   * Cero lista blanca. El canario (`scripts/check-enum-parity-lock-canary.sh`) demuestra las dos
+   * mitades: que **sigue mordiendo** un `@IsIn` que derive la condición del enum, y que **ya no
+   * muerde** un comentario que lo mencione.
+   */
   it('ningún `@IsIn` de `src/` deriva la condición del enum de Prisma', () => {
     const SRC = join(__dirname, '..', 'src');
     const walkAll = (dir: string): string[] =>
@@ -193,11 +238,9 @@ describe('CLASE R — `RawCondition` expresa una REGLA, no el schema (D4, §4.37
         if (e.isDirectory()) return walkAll(full);
         return e.isFile() && e.name.endsWith('.ts') ? [full] : [];
       });
-    const offenders = walkAll(SRC).filter((f) => {
-      if (f.endsWith(join('common', 'business-rules.ts'))) return false; // ahí VIVE la regla
-      if (f.endsWith(join('common', 'enum-values.ts'))) return false; // ahí vive el porqué (comentario)
-      return /Object\.values\(RawCondition\)|RAW_CONDITION_VALUES/.test(readFileSync(f, 'utf8'));
-    });
+    const offenders = walkAll(SRC).filter((f) =>
+      /Object\.values\(RawCondition\)|RAW_CONDITION_VALUES/.test(stripComments(readFileSync(f, 'utf8'))),
+    );
     expect(offenders.map((f) => f.replace(SRC, 'src'))).toEqual([]);
   });
 });
@@ -220,10 +263,20 @@ describe('residuo — ninguna lista literal de estos enums sobrevive en `src/`',
   function offenders(values: readonly string[]): string[] {
     const hits: string[] = [];
     for (const f of walk(SRC)) {
-      if (f.endsWith(join('common', 'enum-values.ts'))) continue; // ahí VIVE la declaración
-      const src = readFileSync(f, 'utf8');
+      // `H3-d`: mismo `stripComments` que el candado de arriba. Éste ya quitaba `//` (por eso era «el
+      // hermano bueno»), pero NO el comentario de bloque — y la prosa larga de este repo vive en
+      // bloques. Unificarlos deja UNA definición de «esto es código», que es la misma lección que el
+      // helper de enums: una conducta en dos sitios son dos conductas esperando a divergir.
+      //
+      // ⭐ Y al unificarlas, la ÚLTIMA lista blanca del fichero se quedó sin trabajo. Aquí decía
+      //   `if (f.endsWith(join('common','enum-values.ts'))) continue; // ahí VIVE la declaración`
+      // y era falso: lo que vive ahí en CÓDIGO es `Object.values(SealedSubtype)`, que no tiene ni un
+      // literal y por tanto este detector nunca lo vio. Lo que lo disparaba era la **tabla de su
+      // docstring** (`box etb bundle tin blister upc collection`). Medido al quitarla: **30/30
+      // verdes**. Este fichero ya no exime a NADIE por su nombre.
+      const src = stripComments(readFileSync(f, 'utf8'));
       for (const line of src.split('\n')) {
-        const code = line.replace(/\/\/.*$/, '');
+        const code = line;
         if (!/\[|new Set/.test(code)) continue;
         const found = values.filter((v) => new RegExp(`['"\`]${v}['"\`]`).test(code));
         if (found.length >= 2) hits.push(`${f.replace(SRC, 'src')} :: ${line.trim().slice(0, 90)}`);
@@ -245,5 +298,27 @@ describe('residuo — ninguna lista literal de estos enums sobrevive en `src/`',
     expect(offenders(PRODUCT_TYPE_VALUES)).toEqual([]);
     expect(offenders(GRADING_COMPANY_VALUES)).toEqual([]);
     expect(offenders(ACQUISITION_TYPE_VALUES)).toEqual([]);
+  });
+
+  /**
+   * ⭐ `D-EQ-2` (v1.73) — **este detector encontró una copia que NADIE había nombrado.**
+   *
+   * El encargo traía tres enums que derivar (`?reason=`, `?context=`, `?origin=`). Al añadirlos al
+   * detector de residuo apareció una **CUARTA** copia de `SealedGroupKind` que no estaba en ninguna
+   * ficha: `@IsIn(['set_main','promo_collection'])` en el DTO de
+   * `POST /admin/inventory/sealed-sets/:setId/groups` (`inventory/dto/inventory.dto.ts`). No era de
+   * §0-Q —es **cuerpo**, no query (§0-Q punto 7)— pero sí de §4.37, y es el mismo mecanismo que dejó
+   * a `upc`/`collection` fuera de ocho listas: *el que deriva el filtro y no el alta cierra la mitad
+   * del bug y deja la otra esperando*.
+   *
+   * ⚠️ `PendingPriceContext` entra aquí aunque sus valores (`catalog`, `portfolio`, `buylist`,
+   * `inventory`) son palabras comunes: medido el 2026-09-13, **cero falsos positivos** en `src/`. Si
+   * mañana alguien escribe `['catalog','inventory']` para otra cosa, el rojo es legítimo — se resuelve
+   * nombrando la constante, no apagando el detector.
+   */
+  it('`D-EQ-2` — PendingPriceReason, PendingPriceContext y SealedGroupKind: cero listas a mano', () => {
+    expect(offenders(PENDING_PRICE_REASON_VALUES)).toEqual([]);
+    expect(offenders(PENDING_PRICE_CONTEXT_VALUES)).toEqual([]);
+    expect(offenders(SEALED_GROUP_KIND_VALUES)).toEqual([]);
   });
 });

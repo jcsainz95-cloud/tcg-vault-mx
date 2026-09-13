@@ -21868,3 +21868,384 @@ un único test genérico habría dado el mismo verde sin poder distinguir seis a
 | `N-P89-2` | **Si alguna pantalla del catálogo puede emitir un valor de SOLO ESPACIOS** en estos cuatro ejes. Medido: el serializador descarta `undefined` y `''` pero **no `' '`** (`frontend/src/lib/api-client.ts:74-79`), y `getCatalog` sí reenvía los cuatro ejes (`api.ts:292-295`) ⇒ **era alcanzable**, no inalcanzable. Lo que no sé es si alguna pantalla lo produce. *(Tras `P-89` el desenlace sería `200` igualmente; la pregunta es si el front manda blancos.)* | recorrer los filtros del catálogo con Playwright mirando la URL emitida | frontend / qa |
 | `N-P89-3` | **Si una unión de literales (`?missing=`) entra en §0-Q.** Medí la conducta, no la norma | decisión del **arquitecto** (`H3-b`) | arquitecto |
 | `N-P89-4` | **El andamiaje agrupar→ordenar→paginar** sigue duplicado. No lo toqué y no lo medí en este pase | extraer `sortAndPaginateGroups`/`groupBy` y comparar salida byte a byte | backend |
+
+---
+
+## H3-d — `pricing` no estaba en el censo, y uno de sus dos ejes es la cola del dinero
+
+> **Pase:** 2026-09-13, backend, sobre `3c1bd1e` (`main`, con `P-84` y `P-89` dentro).
+> **Escribo en:** `backend/`, `docs/BACKEND_NOTES.md`, `docs/TECH_DEBT.md`. ⛔ No toco `API_CONTRACT.md`
+> ni `ARCHITECTURE.md`: el arquitecto va después de mí a refrescar el censo §0-Q.
+
+### H3-d.1 — Si solo se lee un párrafo
+
+**Tercera aparición del mismo defecto en una semana, y esta vez en una pantalla de dinero.** El censo de
+§0-Q punto 4 **no menciona `pricing`**, así que `P-84` (seis ejes admin) y `P-89` (seis del catálogo) pasaron
+por al lado de sus dos ejes. `GET /admin/pricing/pending` —la **cola de precios pendientes**— contestaba
+`422` a `?context=` **vacío**, y un `Select` en «Todas» manda cadena vacía: la pantalla se rompía por su
+estado por defecto.
+
+**Y lo que el censo no vio no fue solo lo que faltaba, sino lo que había:** el censo se escribió mirando los
+módulos que alguien recordaba. Censar `src/` **después** del arreglo (un `rg`, treinta segundos) sacó
+**dos ejes más** que nadie había nombrado — y uno de ellos, `?origin=`, emite un `400` con `details` **vacío**.
+
+### H3-d.2 — Color ANTES de tocar nada (HTTP real, token `super_admin`, base virgen)
+
+`test/integration/pricing-enum-filters-empty.e2e-spec.ts` escrito primero y corrido contra el árbol sin
+modificar: **8 fallidas / 10 pasadas de 18**.
+
+| Entrada | Antes | §0-Q manda | ¿Roja? |
+|---|---|---|---|
+| `/admin/pricing/pending?context=` | `422` | `200` | 🔴 |
+| `/admin/pricing/pending?context=%20` | `422` | `200` | 🔴 |
+| `/admin/pricing/pending?context=bogus` | `422` | **`400`** | 🔴 |
+| `/admin/pricing/pending?context=%20inventory` | `422` | `400` | 🔴 |
+| `/admin/pricing/bounties?finish=` | `400` | `200` | 🔴 |
+| `/admin/pricing/bounties?finish=%20` | `400` | `200` | 🔴 |
+| `/admin/pricing/bounties?sort=%20` | `400` | `200` | 🔴 **(no estaba en el encargo)** |
+| eco acotado (`?context=<5000 chars>`) | sin tope | acotado | 🔴 |
+| `/admin/pricing/bounties?state=` y `=%20` | `200` | `200` | ✅ ya conformaba |
+
+### H3-d.3 — El `422`: ¿conducta publicada? **NO. El contrato CALLA.**
+
+Se comprobó **antes** de retirarlo, porque si el contrato lo declarara sería del arquitecto (regla 9) y yo
+paraba. Medido:
+
+- `rg 'PendingPriceContext' docs/API_CONTRACT.md` ⇒ **0 resultados**.
+- La única línea que describe el parámetro (`API_CONTRACT.md:10610`, «v1.26 (P-6, dos buckets)») declara el
+  dominio (`catalog | portfolio | buylist | inventory`) y el «omitido = todos, retro-compatible»,
+  **sin un solo código de error**.
+- Los `422` de la sección M2 (`:10666`, `:10704-10709`, `:10834-10843`…) son todos de **cuerpo** de request
+  (`POST /admin/inventory/items`, overrides, bounties), ninguno de query.
+- §0-Q punto 2 lo ratifica al revés: *«`400` y no `422`, ratificado: es **query**, no cuerpo»*.
+
+El `422` vivía **solo en un comentario del propio controller** («mismo estilo que el resto del controller»).
+Eso es una costumbre de módulo, no una norma — y es exactamente la clase de cosa que §0-Q existe para
+sustituir.
+
+### H3-d.4 — ⚠️ REFUTO el encargo: `sort` no «descartaba el vacío». Descartaba la mitad.
+
+El encargo decía que en el mismo controller `state` y `sort` **sí** descartan el vacío y `finish` no, y que
+por tanto el arreglo era «alinear `finish` con sus vecinos». **El argumento es bueno y la premisa era medio
+falsa.** `parseSort` hacía `raw === ''` — comparación **exacta**, y `' '` no es la cadena vacía:
+
+```
+GET /admin/pricing/bounties?sort=       ⇒ 200   ✅
+GET /admin/pricing/bounties?sort=%20    ⇒ 400   ⛔   <- medido, no leído
+```
+
+Los **cuatro** parámetros del mismo handler salieron con **TRES** conductas distintas ante la misma entrada
+(`state`/`setId` con `trim()`, `sort` con `=== ''`, `finish` con `!== undefined`). Es la deuda `H3` en
+miniatura y en un solo fichero: *la conducta no la fija quien la escribe bien una vez, la fija tenerla en un
+sitio.* Es además **la misma trampa del `if (status)` de `P-84` por la otra cara** — allí `' '` era *truthy*
+y pasaba; aquí `' '` **no es `''`** y pasa.
+
+`sort` se arregla con el `trim()` y **no se migra al helper**: su dominio es una unión de literales pura y
+esa decisión es de `H3-b`.
+
+### H3-d.5 — Las seis condiciones de los veredictos de `P-89`
+
+| # | Condición | Qué hice |
+|---|---|---|
+| 1 | eco doble y sin tope en endpoint público (QA) | `ENUM_FILTER_ECHO_MAX = 64` en el helper único, acotando **las dos puntas** (`message` **y** `details.value`) y **declarando** el truncado (`…(+N)`) |
+| 2 | la tabla de `enum-filter.ts:35` miente | corregida contra `git show 8d29988:…` — y al corregirla salió un hecho nuevo (abajo) |
+| 3 | «`echoValue` no es punto de extensión» es prosa | censo **congelado** de los 6 call-sites (`test/enum-filter.spec.ts`) |
+| 4 | el candado de paridad vigila PROSA | mira código (`test/helpers/strip-comments.ts`), **cero** listas blancas, + canario nuevo |
+| 5 | la ficha `H3-b` es imprecisa | tres correcciones verificadas contra el árbol (`TECH_DEBT.md`) |
+| 6 | `?sealedSubtype=` estructuralmente vacío | anotado como `H3-f`, **no arreglado** (decisión de producto) |
+
+#### Por qué 64, y por qué no es un número inventado
+El eco existe para que el cliente reconozca **su** token (un `holofil` por `holofoil`). Medido sobre
+`schema.prisma`: el valor de enum **más largo de todo el esquema** es `first_edition_holofoil`, **22
+caracteres**, sobre **157** valores. 64 deja casi **3×** de holgura, y un valor de más de 64 caracteres **no
+es un near-miss de ningún token**. ⭐ **La holgura no se afirma, se vigila:** un test la **deriva** del schema
+y se pone rojo si alguien mete un valor de enum que no quepa (mutación `m8`, 3/3).
+
+#### ⭐ Al corregir la tabla (condición 2) apareció un hecho que nadie había dicho: `P-89` ENSANCHÓ el eco
+La tabla decía que el helper del catálogo emitía `{ field, allowed }`; el árbol dice
+`{ field, value, allowed }` (`git show 8d29988:…/catalog.service.ts:783-789`). Eso es lo que QA/techlead
+señalaron. **Pero al mirar el `message` de esa misma versión sale más:**
+
+```
+antes de P-89 (catálogo):  `Invalid ${field} filter`            <- SIN el valor del cliente
+después de P-89 (helper):  `invalid ${field} filter '${value}'` <- CON el valor
+```
+
+Así que en los seis ejes del catálogo el valor pasó de viajar **una** vez (`details.value`) a viajar **dos**
+(`message` + `details.value`). La amplificación que QA midió (10 137 bytes por ~5 KB, sin sesión) es **mitad
+herencia y mitad `P-89`** — y la mitad nueva la introduje yo. Se dice porque la ficha de `echoValue`
+justificaba la bandera con *«no retirar una llave publicada»*, y ese argumento **no cubre** haber añadido el
+valor al `message`, que nadie había publicado.
+
+#### El candado que vigilaba prosa (condición 4), y por qué NO copié su defecto
+`enum-values-parity.spec.ts:196-201` corría su regex sobre el **fichero entero**; el síntoma eran dos
+exenciones **por nombre de fichero** creciéndole al lado. Verificado: los dos ficheros exentos mencionan el
+patrón **solo en prosa** (`business-rules.ts:13,39`, `enum-values.ts:53`). La lista blanca era a la vez
+**demasiado sensible** (prosa) y **demasiado ciega** (eximía el fichero entero, así que un
+`RAW_CONDITION_VALUES` de verdad ahí dentro habría pasado).
+
+Arreglado con `stripComments` (bloque **y** línea; el hermano de `:226` solo quitaba `//`), unificado entre
+los dos detectores, y **las tres listas blancas se quedaron sin trabajo**: medido quitándolas, 30/30 verdes.
+⚠️ **El candado NUEVO de la condición 3 se escribió con el mismo `stripComments` a propósito** — el fichero
+que más menciona `echoValue` es el docstring de `enum-filter.ts`, y un censo ingenuo lo habría contado como
+call-site y habría pedido su propia lista blanca. *No se copia el defecto que se acaba de quitar.*
+
+### H3-d.6 — ⛔ Lo que NO migré, y el dato que cambia la pregunta del arquitecto
+
+Se encargó **medir, no migrar**, `?reason=` y `?axis=`, «uniones de literales, misma clase que `H3-b`».
+**Medidos, NO son la misma clase entre sí**, y la diferencia decide:
+
+| Param | ¿Enum de Prisma detrás? | Qué es |
+|---|---|---|
+| `?axis=` (`admin.controller.ts:472`) | **NO** (`grep -icE '^enum .*axis' schema.prisma` ⇒ 0) | unión pura ⇒ `H3-b`, la pregunta abierta |
+| `?reason=` (`pricing.controller.ts:292`) | **SÍ** — `enum PendingPriceReason` (`schema.prisma:394-397`), columna persistida `PendingPriceEntry.reason` (`:1093`) con `@@index([reason])` | **enum de Prisma TRANSCRITO A MANO** (`VALID_PENDING_REASONS`, `:48`) ⇒ lo prohíbe §0-Q punto 3, **no depende de `H3-b`** |
+
+Y censando `src/` salió un tercero que **nadie** había nombrado: **`?origin=`** de
+`GET /admin/inventory/sealed-products` (`inventory.controller.ts:177-179`) — dos literales inline sobre
+`enum SealedGroupKind` (`schema.prisma:82-85`), y su `400` emite `details` **VACÍO** (`{}`, medido): ni
+`field` ni `allowed`. Es de **otro work stream** (`inventory`), así que se mide y se enruta: ficha `H3-e`.
+
+**Los tres quedan congelados por prueba** (bloque `CENSO` de `pricing-enum-filters-empty.e2e-spec.ts`) con
+`expect` sobre la conducta de HOY: no para bendecirla, sino para que **el cambio no pueda ser silencioso**
+cuando el arquitecto decida.
+
+### H3-d.7 — Verificación
+
+- **Árbol:** el vivo para construir; **copia del árbol ENTERO** (`git archive HEAD | tar -x`, con
+  `node_modules` enlazado) para las mutaciones — nunca un subárbol: hay suites que leen `docs/` y
+  `schema.prisma`.
+- **Base:** **virgen y efímera**, creada para este pase: `tcg_be_h3d` (suites) y `tcg_be_h3d_mut`
+  (mutaciones). ⛔ **No se usó `tcg_marketplace`** (sucia; 15 rojas falsas, `P-87`).
+- **`NODE_ENV=test`** fijado explícitamente (sin él, el throttler mete 429 y el rojo parece código, `P-89`).
+- **Suites:** `tsc --noEmit` **0** · `eslint` **0 errores** (3 avisos preexistentes) · unitarias **292/292
+  suites, 4810/4810 pruebas** · integración **38/38 suites, 587 pasadas + 2 skip**.
+- **Línea base sobre la copia SIN mutar: 64/64 (unit) y 19/19 (integ).** Sin ella, un rojo no distingue «la
+  mutación mordió» de «la copia estaba rota».
+- **Mutaciones — 8 × 3 tiradas = 24/24 rojas**, cada una matando **exactamente** lo suyo:
+
+| Mutación | Qué reintroduce | Prueba(s) que mueren | Proporción |
+|---|---|---|---|
+| `m1` | el `422` inline de `?context=` | 5, **todas de `context`** | 🔴 **3/3** |
+| `m2` | `finish !== undefined` | 2, las de `finish` vacío | 🔴 **3/3** |
+| `m3` | `sort` con `raw === ''` | **1** — la que descubrió el medio arreglo | 🔴 **3/3** |
+| `m4` | retirar el tope del eco | 4 unit + 1 integ | 🔴 **3/3** |
+| `m5` | el candado vuelve a vigilar PROSA | **mitad 2** del canario (4) + el candado + «sin lista blanca» | 🔴 **3/3** |
+| `m6` | `stripComments` demasiado agresivo (candado SIEMPRE VERDE) | **mitad 1** del canario (4) + censo de `echoValue` | 🔴 **3/3** |
+| `m7` | un **séptimo** eje enciende `echoValue` | el censo congelado | 🔴 **3/3** |
+| `m8` | tope por debajo del enum más largo del schema | la prueba de holgura derivada | 🔴 **3/3** |
+
+⭐ **`m5` y `m6` son el par que hace útil al canario**, y por eso están los dos: `m5` prueba que sigue
+mordiendo el defecto real (candado que se come la prosa), `m6` que caza el fallo **silencioso** — un candado
+roto hacia el otro lado queda **siempre verde**, y un siempre-verde es indistinguible de uno que funciona
+hasta el día que se le necesita.
+
+- **Integridad de la copia:** tras las 8 mutaciones, los 4 ficheros tocados vuelven a ser **idénticos** a
+  `HEAD` (`diff` contra `git show HEAD:…`) y la base vuelve a 64/64.
+
+### H3-d.8 — NO MEDIDO, con la medición que lo cierra
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-H3d-1` | **Si alguna pantalla admin manda `?context=`/`?finish=` vacío o en blanco.** El arreglo lo hace inocuo en las dos direcciones, así que no bloqueaba; lo que no sé es si ya estaba rompiéndose en producción | recorrer M2 y la consola de bounties con Playwright mirando la URL emitida | frontend / qa |
+| `N-H3d-2` | **Si algún cliente fuera del repo lee el `details.value` largo** que hoy se trunca a 64. Heredado de `N-P89-1`: no se puede medir desde aquí. El truncado se **declara** (`…(+N)`) para que un cliente que lo lea pueda notarlo | registros de acceso, o decisión del arquitecto | devops / arquitecto |
+| `N-H3d-3` | **Si una unión de literales PURA (`?missing=`, `?axis=`, `?sort=`) entra en §0-Q.** Medí la conducta y la clase; la norma no me toca | decisión del **arquitecto** (`H3-b`) | arquitecto |
+| `N-H3d-4` | **Si `?reason=` y `?origin=` deben migrarse YA** por §0-Q punto 3 (son enums de Prisma transcritos, no uniones). Mi lectura es que sí y que **no dependen de `H3-b`** — pero es lectura de norma, no medición | ratificación del arquitecto en §0-Q; `?origin=` además es de otro work stream | arquitecto / backend (inventario) |
+| `N-H3d-5` | **Si el guardarraíl H9 debe seguir** haciendo estructuralmente vacío a `?sealedSubtype=` de `/catalog/cards` (`H3-f`) | decisión de producto: ¿debe ese endpoint devolver sellado? Si no, lo honesto es retirar el parámetro | arquitecto / dueño |
+
+---
+
+## `D-EQ-2` + `C-EQ-1` — los cuatro ejes al helper único, y el candado que cierra la clase
+
+> **Pase de backend, 2026-09-13, contrato v1.73 (`2e40a8b`).** Rutas tocadas: `backend/` y este
+> documento. ⛔ No se tocó `frontend/` (un agente frontend trabajaba en paralelo), ni
+> `docs/API_CONTRACT.md`, ni `docs/ARCHITECTURE.md`.
+
+### D-EQ-2.0 — Si solo se lee un párrafo
+
+Los cuatro ejes de `D-EQ-2` (`?reason=`, `?axis=`, `?missing=`, `?origin=`) están **migrados al helper
+único** `common/enum-filter.ts` y cumplen §0-Q. Y existe **`C-EQ-1`**
+(`backend/test/integration/enum-query-axes.e2e-spec.ts`), que desde hoy es **la única autoridad**
+sobre si un eje de query cumple §0-Q: *«¿cumple `GET /x?y=`?»* **se contesta corriendo esa suite**, no
+leyendo un documento. Su mitad de descubrimiento **encontró 22 ejes de dominio cerrado que el registro
+de §0-Q no contiene** (más una cuarta copia a mano de `SealedGroupKind` que salió por otro camino).
+⛔ **Ninguno de esos 22 se arregló**: la clase la decide el arquitecto (regla 9) y varios son de otros
+work streams. Están **enrutados** en `docs/TECH_DEBT.md` y **con TRINQUETE en la suite** (`≤ 22`, un
+número que solo baja), así que la cola no puede crecer en silencio.
+
+### D-EQ-2.1 — El color ANTES de tocar nada
+
+Base **virgen y efímera**: `tcg_be_deq2` (creada para este pase con `prisma migrate deploy`, nunca
+`tcg_marketplace` — `P-87`). `NODE_ENV=test` en todas las corridas (sin él, el throttler devuelve
+`429` y produce el rojo masivo que QA ya se comió una vez).
+
+| Qué | Antes (`2e40a8b`) |
+|---|---|
+| Suite **unitaria** | **292/292 suites · 4810/4810**, exit 0 |
+| Las 4 suites de enum de integración | **4/4 · 81/81**, exit 0 |
+| ⭐ **`C-EQ-1` recién escrita, sobre el código sin arreglar** | **18 fallidas / 173 pasadas / 191** |
+
+Las 18 se reparten así, y **17 son exactamente los cuatro ejes de `D-EQ-2`**:
+
+| Eje | Propiedades de §0-Q en rojo | nº |
+|---|---|---|
+| `?reason=` | vacío · espacios · forma del `400` · no-normalizar · cota del eco | 5 |
+| `?axis=` | vacío · espacios · forma del `400` · no-normalizar · cota del eco | 5 |
+| `?missing=` | vacío · espacios · forma del `400` · cota del eco | 4 |
+| `?origin=` | espacios · forma del `400` · cota del eco | 3 |
+| *(la 18ª)* | la mitad de descubrimiento, por las rutas con `@Query()` sin nombre | 1 |
+
+### D-EQ-2.2 — Qué se hizo con cada eje
+
+| Eje | Clase | Qué incumplía (medido) | Qué se hizo |
+|---|---|---|---|
+| `GET /admin/pricing/pending?reason=` | **E** derivada | `422` (es query ⇒ `400`), vacío y `' '` tratados como error, sin cota del eco; y la lista era un **enum de Prisma transcrito a mano** sobre la columna **persistida e indexada** `PendingPriceEntry.reason` | `parseEnumFilter` + dominio derivado (`PENDING_PRICE_REASON_VALUES`) |
+| `GET /admin/reports/pricing-brackets?axis=` | **L** (nueva en §4.37) | `422`, vacío ⇒ error, sin cota | `parseEnumFilter` + literal `PRICING_BRACKETS_AXIS_VALUES` junto al call-site, con **paridad contrato ↔ literal** |
+| `GET /admin/inventory/pending-publish?missing=` | **L** | `details.missing` en vez de `details.field` (§0-Q punto 2 lo exige **siempre**), `missing != null` dejaba pasar `''` y `' '`, sin cota | `parseEnumFilter` + literal `PENDING_PUBLISH_MISSING_VALUES` exportado, con paridad a dos bandas |
+| `GET /admin/inventory/sealed-products?origin=` | **E** derivada | `details` llegaba **VACÍO** (`{}`) — ni `field` ni `allowed`, el incumplimiento más fuerte del lote; dos literales a mano teniendo `enum SealedGroupKind`; `origin !== ''` descartaba la cadena vacía **pero no `' '`** | `parseEnumFilter` + dominio derivado (`SEALED_GROUP_KIND_VALUES`) |
+
+**Zona compartida (`common/enum-values.ts`), llevada en serie por un solo agente** como pidió el
+arquitecto: tres exports nuevos —`PENDING_PRICE_REASON_VALUES`, `PENDING_PRICE_CONTEXT_VALUES`,
+`SEALED_GROUP_KIND_VALUES`— con su **paridad a tres bandas** (`schema.prisma` ↔ `enum-values.ts` ↔
+línea canónica del contrato) añadida a `test/enum-values-parity.spec.ts`.
+
+### D-EQ-2.3 — ⭐ Lo que el DESCUBRIMIENTO encontró, y que nadie había nombrado
+
+Esto es el resultado más valioso del pase y por eso va con su medición. El escáner
+(`test/helpers/query-axis-census.ts`) enumeró **176 `@Query` en código, en 18 ficheros**, con la
+**ruta resuelta** (prefijo del `@Controller` incluido). Cruzados contra el registro de §0-Q, aparecen
+**22 ejes de dominio cerrado medido que el registro NO contiene**. ⛔ Medidos y **enrutados**, no
+arreglados. Ver `docs/TECH_DEBT.md`, ficha **`EQ-D1`**.
+
+Lo más grave de los 22, porque es el defecto que `A5` ya cerró una vez en otro sitio:
+
+> **La bóveda IGNORA EN SILENCIO sus filtros de sellado.** `vault.service.ts` hace
+> `if (q.sealedSubtype && SEALED_SUBTYPE_SET.has(q.sealedSubtype))`: un valor fuera de dominio **no
+> da `400` — desaparece**, y el cliente recibe **todo su sellado con cara de lista filtrada**. Son
+> cuatro ejes (`?sealedSubtype=` y `?condition=` en `GET /vault/sealed` **y** en
+> `GET /admin/vaults/:userId/sealed`). §0-Q punto 1 lo prohíbe expresamente: *el fallo se ve y la cola
+> falsa no*. Dueño: **backend**, stream «Inventario y vault».
+
+Y **tres hallazgos sobre ejes que SÍ están en el registro** (no son de los 22, y tampoco son de los
+cuatro de `D-EQ-2`, así que no se tocaron — están **fijados con `expect` como excepciones medidas**
+dentro de `C-EQ-1`, con su motivo al lado):
+
+1. `GET /admin/buylist?status=` (CSV) — **la cota del eco no se le aplica**: arma
+   `details.invalidStatus` con los tokens crudos sin pasar por `assertEnumFilter`, así que 5 KB de
+   query vuelven íntegros. Misma amplificación de `P-89.C1`, aquí con sesión admin.
+2. `GET /admin/pricing/bounties?state=` — `parseStates` hace `trim()` de **cada token**, así que
+   `?state=%20activa` **filtra**. §0-Q punto 5 solo recorta el espacio donde es **sintaxis de lista**
+   (la coma de un eje CSV) y este eje **no es CSV** — medido: `?state=activa,apagada` ⇒ `400`, no
+   parte por coma, es **repetible**. Luego el espacio rodea al **token** ⇒ §0-Q punto 1 manda `400`.
+   Su `throw` inline tampoco acota el eco.
+3. `GET /admin/pricing/bounties?sort=` — mismo `throw` inline sin cota del eco.
+
+**Un cuarto hallazgo, por otro camino:** al meter los tres enums nuevos en el detector de **residuo**
+de `enum-values-parity.spec.ts` saltó una **cuarta copia a mano de `SealedGroupKind`** que no estaba en
+ninguna ficha: `@IsIn(['set_main','promo_collection'])` en el DTO de
+`POST /admin/inventory/sealed-sets/:setId/groups`. No es §0-Q (es **cuerpo**, no query — §0-Q punto 7)
+pero sí §4.37, y es el mismo mecanismo que dejó `upc`/`collection` fuera de ocho listas: *el que deriva
+el filtro y no el alta cierra la mitad del bug*. **Sí se arregló** (una línea, mismo enum, misma clase
+E ya decidida por el arquitecto) y quedó con su test de residuo.
+
+### D-EQ-2.4 — ⚠️ Desviación CONSCIENTE de la especificación de `C-EQ-1`: **tres listas, no dos**
+
+§4.37.1-a pide cruzar los `@Query` contra **dos** listas: (a) los ejes del registro y (b) los que no
+son de dominio cerrado. Con los 22 de arriba sobre la mesa, esas dos listas obligan a elegir entre
+**mentir** (meterlos en (b) es declarar falso que su dominio es abierto, y entierra justo lo que el
+descubrimiento acaba de encontrar) o **rojo permanente** por algo que este pase no puede decidir ni
+arreglar. Se añadió una tercera, `SIN_CLASE_DECLARADA`, con la conducta de HOY medida y el dueño al
+lado. **La propiedad que importa se conserva entera:** un `@Query` que no esté en **ninguna** de las
+tres ⇒ **ROJO**. **Esto es decisión del arquitecto si quiere otra cosa** — lo digo en vez de asumirlo.
+
+> ⚠️ **CORRECCIÓN (techlead, `C1`): aquí decía que la tercera lista estaba «fijada con `toEqual`» y que
+> «no puede crecer ni encoger en silencio». Era FALSO en la mitad de crecer** — el test solo comprobaba
+> que cada llave siguiera existiendo en el código. *Este pase existe para cerrar la clase «afirmación
+> de mecanismo que nadie mide», y yo abrí una instancia nueva de esa misma clase en mi propia nota.*
+> Ahora hay **trinquete**: `SIN_CLASE_DECLARADA.length ≤ 22` y `QUERY_SIN_NOMBRE.length ≤ 2`, más el
+> control de duplicados. *Una fecha de caducidad no falla; un número sí.* Y el argumento que lo hace
+> bloqueante: *«hay que escribirlo a mano» y «nadie lo nota» son compatibles* — de 22 a 40 hay
+> dieciocho diffs de una línea, cada uno intachable en su PR.
+
+### D-EQ-2.5 — El canario, y el hecho de que me cazó a mí
+
+`test/enum-query-census-canary.spec.ts`, sobre **fuentes sintéticas** (⛔ nunca mutando el árbol vivo,
+O-8), con las dos mitades:
+
+- **m1 · MUERDE:** un `@Query` sin clase ⇒ huérfano; un endpoint **nuevo** que reusa un nombre ya
+  registrado en **otra ruta** ⇒ huérfano igual (es lo que justifica resolver la ruta y no solo el
+  nombre); un `@Query()` desnudo nuevo ⇒ huérfano.
+- **m2 · NO ES CIEGO:** el escáner no devuelve vacío; un `@Query` **comentado** no cuenta como eje
+  (tres formas de comentario); dos `@Controller` en un fichero no colapsan en un prefijo.
+
+> ⚠️⚠️ **La primera versión de m2 estaba MAL y la mutación lo demostró: VERDE 3/3.** Ponía el
+> comentario **antes** del `@Get(...)`, y ahí `stripComments` es **inerte** — el escáner solo mira
+> dentro del **segmento** de un handler, así que la prosa de fichero ya quedaba fuera por otro motivo.
+> **Medido sobre copia del árbol: con y sin `stripComments`, el censo de `src/` da 176 ejes idénticos.**
+> Con ello **refuto mi propio docstring**, que afirmaba que sin `stripComments` el de
+> `common/enum-filter.ts` se contaría como eje: **es falso**. Donde sí importa es en un `@Query`
+> **comentado dentro de un handler** (el parámetro que alguien silenció al depurar): escáner normal ⇒
+> 1 eje, escáner en modo texto ⇒ **2**, uno **fantasma**. Corregido el canario y corregidos los dos
+> docstrings que daban el motivo equivocado. *Un canario verde por accidente afirma una cobertura que
+> no existe — es peor que no tenerlo.*
+
+### D-EQ-2.6 — Verificación
+
+Base **virgen y efímera** `tcg_be_deq2`; mutaciones sobre **copia del árbol ENTERO** (`tar` de todo el
+repo, no solo `backend/` — las suites leen `docs/`) y **base aparte** `tcg_be_deq2_mut`, ambas
+destruidas al terminar.
+
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` · `eslint` | 0 errores, 0 avisos nuevos |
+| Suite **unitaria** | **293/293 suites · 4830/4830**, exit 0 |
+| Suite de **integración** completa | **3 corridas: 2/3 enteramente verdes** (39 suites, 776/776 + 2 skips) |
+| `C-EQ-1` | **191/191**, exit 0 |
+
+> ⚠️ **La corrida 1 de 3 tuvo UNA roja**, en `buylist-step-guard` §M5-S S-2 — una prueba de **carrera**
+> (tres llamadas con 20 ms de desfase). Medida aparte, **5/5 en verde**; y mi diff **no toca ni un
+> fichero de `buylist`** (`git diff --stat`). Se reporta como **2/3** y no como «verde», porque una
+> sola tirada no verifica nada probabilístico (O-3) y tampoco lo hace ocultarla.
+
+**Mutaciones (3/3 cada una, sobre la copia):**
+
+| Mutación | Qué reintroduce | Resultado |
+|---|---|---|
+| `M1` | `?reason=` vuelve al enum transcrito + `throw` propio con `422` | **3/3 rojo** (5 pruebas) |
+| `M2` | `?axis=` vuelve al `throw` inline | **3/3 rojo** (5 pruebas) |
+| `M3` | `?missing=` vuelve a `details.missing` y `!= null` | **3/3 rojo** (4 pruebas) |
+| `M4` | `?origin=` vuelve a los dos literales y `details` vacío | **3/3 rojo** (3 pruebas) |
+| `M5` | un `@Query('eje_sin_clase')` nuevo en un controller real | **3/3 rojo** — el descubrimiento lo nombra |
+| `M6a` | el escáner mira **texto** en vez de código | **3/3 rojo** en el canario *(tras corregirlo; antes: **VERDE 3/3** — ver D-EQ-2.5)* |
+| `M6b` | el escáner devuelve `[]` (**ciego**) | **3/3 rojo** en el canario **y** en `C-EQ-1` |
+
+### D-EQ-2.7 — NO MEDIDO, con la medición que lo cerraría
+
+| # | Qué no sé | Cómo se cierra | Quién |
+|---|---|---|---|
+| `N-EQ-1` | **Si alguna pantalla admin manda `?reason=`, `?axis=`, `?missing=` u `?origin=` vacío o en blanco hoy.** El arreglo lo hace inocuo en las dos direcciones, pero no sé si ya se estaba rompiendo en producción | recorrer M2, M9 y las dos colas de M1 con Playwright mirando la URL emitida | frontend / qa |
+| `N-EQ-2` | **Si algún cliente fuera del repo depende del `422` que `?reason=`/`?axis=` devolvían.** El contrato no lo declaraba (por eso se corrigió), pero «no declarado» ≠ «nadie lo usa» | registros de acceso de producción | devops |
+| `N-EQ-3` | **Si los 22 ejes sin clase declarada deben entrar en §0-Q, y con qué dominio.** Medí su conducta; la clase es **decisión del arquitecto** (regla 9) | §0-Q punto 4 gana (o no) esas filas | **arquitecto** |
+| `N-EQ-4` | **Si la tercera lista de `C-EQ-1` es aceptable** o el arquitecto prefiere otra forma de no mentir con dos | ratificación en §4.37.1-a | **arquitecto** |
+| `N-EQ-5` | **Cuánto tarda `C-EQ-1` cuando el registro llegue a 50 filas.** Hoy son 25 filas × 7 propiedades = 191 pruebas en ~8 s; es lineal, pero no lo he medido a escala | correrla con el registro ampliado | backend |
+
+### D-EQ-2.8 — Veredicto del techlead: APROBADO CON CONDICIONES, y qué se hizo con cada una
+
+**Las dos bloqueantes eran ciertas y están corregidas.** Las dos son la misma clase de defecto que este
+pase vino a cerrar, cometida por mí dentro del pase — lo cual es el mejor argumento posible de que la
+clase es real y no se cierra por buena voluntad.
+
+| # | Qué | Estado |
+|---|---|---|
+| ⛔ `C1` | El test titulado *«no puede crecer ni encogerse»* solo implementaba **encoger**, y `TECH_DEBT.md` afirmaba la mitad que faltaba como hecha | **Corregido.** Trinquete: `SIN_CLASE_DECLARADA.length ≤ 22`, `QUERY_SIN_NOMBRE.length ≤ 2`, + sin duplicados. Las dos afirmaciones de prosa, reescritas |
+| ⛔ `C2` | El comentario **en el call-site** de `stripComments` seguía dando el motivo que yo mismo había refutado, a 95 líneas del docstring corregido | **Corregido.** Reescrito con el mecanismo medido, y en el sitio que lee quien decida quitarlo. *La corrección había llegado al docstring de cabecera y no al comentario en línea, que está en la peor posición posible* |
+| nit | `scanSource` envolvía su cuerpo en un bloque `{ }` desnudo que no hacía nada | **Corregido** (bloque fuera, cuerpo des-indentado) |
+| `C3` | La exención de `@Query()` sin nombre es la puerta más barata para entrar sin clase | Anotado: **`EQ-D4`**, con la medición (`ADMIN_USERS_QUERY_KEYS` no está exportado; `RejectedItemsQueryDto` hoy limpio) |
+| `C4` | `ROUTE_DECORATOR` sin `Sse\|Search`, con fallo **silencioso** y ancla de suelo con 6 de holgura | Anotado: **`EQ-D5`** (medido: 0 ocurrencias hoy) |
+| `C5` | `@Req()` + `request.query` es ciego por construcción | Anotado: **`EQ-D6`** (medido: 1 sitio, `@Post`, sin exposición) |
+| `C6` | `EQ-D1` sin severidad, y la bóveda enterrada entre clamps de orden | **Hecho:** severidad en las cuatro fichas; la bóveda sale a **`EQ-D0` (Alta)** y los `?report=` a **`EQ-D0b`** |
+| `C7` | La fila de `D-EQ-3` ya estaba caduca: la precondición se cumplió | **Hecho:** dueño y disparador en **`EQ-D3`**; verificado que frontend (`494c3ce`, FRONTEND_NOTES §72) dejó de mandar `sealed`/`sealedSubtype` |
+| `C8` | El intermitente de `buylist-step-guard` es de diseño, no ajeno | Anotado: **`EQ-D7`**. ⭐ **Acepto la corrección:** yo lo reporté como ajeno *porque mi diff no lo toca* — cierto pero **incompleto**. La incoherencia que señala es real y la verifiqué: `:246-249` invoca O-3 (*«se reporta la proporción»*) y `:261` la vuelve binaria con `toEqual` de 5/5 |
+
+⭐ **Lo desbloqueado que conviene no perder de vista:** `EQ-D0` (la bóveda) **no depende de la decisión
+de clase del arquitecto** — ignorar un filtro en silencio lo prohíbe §0-Q punto 1 sea cual sea la
+clase —, así que es la única de las 22 que puede cerrarse **ya**, sin esperar a §0-Q.

@@ -1,4 +1,8 @@
-import { assertEnumFilter, parseEnumFilter } from '../src/common/enum-filter';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
+import { assertEnumFilter, parseEnumFilter, ENUM_FILTER_ECHO_MAX } from '../src/common/enum-filter';
+// `H3-d`: un candado de código mira CÓDIGO. Ver el docstring del helper.
+import { stripComments } from './helpers/strip-comments';
 import { BusinessException } from '../src/common/business.exception';
 
 /**
@@ -141,5 +145,133 @@ describe('§0-Q · `parseEnumFilter` — ausente / vacío / token / basura', () 
 
   it('`\'a,b\'` (lo que SÍ llega hoy al repetir el parámetro) ⇒ 400: no es del dominio', () => {
     expect(capture(() => parseEnumFilter('status', 'pending,settled', ALLOWED)).getStatus()).toBe(400);
+  });
+});
+
+/**
+ * ### `P-89.C1` — el ECO del valor del cliente está ACOTADO (QA, condición de veredicto)
+ *
+ * QA midió sobre `3c1bd1e`: `GET /catalog/cards?condition=<5000 chars>` ⇒ **10 137 bytes de respuesta
+ * por ~5 KB de petición, sin sesión** (el catálogo es `@Public()`). El valor salía **dos veces**
+ * —`message` y `details.value`— íntegro y sin tope. No es XSS (QA lo midió: `application/json`,
+ * `nosniff`, `<script>` escapado como dato): es **amplificación**.
+ *
+ * ⛔ **El tope se prueba en las DOS puntas.** Acotar solo `details.value` habría dejado la mitad del
+ * eco intacta — y es justo la mitad que `P-89` AÑADIÓ (el helper del catálogo emitía `Invalid
+ * ${field} filter`, sin valor; ver la tabla de `enum-filter.ts`).
+ */
+describe('§0-Q · el eco del valor ofensor está ACOTADO (`ENUM_FILTER_ECHO_MAX`)', () => {
+  const ALLOWED_E = ['pending', 'settled'] as const;
+  const LONG = 'A'.repeat(5000);
+
+  it('⭐ el `message` NO crece con la entrada del cliente', () => {
+    const err = capture(() => assertEnumFilter('status', LONG, ALLOWED_E));
+    expect(err.message.includes(LONG)).toBe(false);
+    expect(err.message.length).toBeLessThan(200);
+  });
+
+  it('⭐ `details.value` (con `echoValue`) tampoco: es la OTRA punta del mismo eco', () => {
+    const err = capture(() => assertEnumFilter('status', LONG, ALLOWED_E, { echoValue: true }));
+    const value = (err.details as { value: string }).value;
+    expect(value.includes(LONG)).toBe(false);
+    expect(value.length).toBeLessThanOrEqual(ENUM_FILTER_ECHO_MAX + 16);
+  });
+
+  it('el truncado se DECLARA (`…(+N)`): no miente sobre lo que el cliente mandó', () => {
+    const err = capture(() => assertEnumFilter('status', LONG, ALLOWED_E, { echoValue: true }));
+    expect((err.details as { value: string }).value).toContain(`…(+${5000 - ENUM_FILTER_ECHO_MAX})`);
+  });
+
+  it('⛔ un token CORTO viaja ÍNTEGRO: el tope no rompe el caso normal (que es el 99 %)', () => {
+    const err = capture(() => assertEnumFilter('status', 'pendng', ALLOWED_E, { echoValue: true }));
+    expect(err.message).toContain("'pendng'");
+    expect((err.details as { value: string }).value).toBe('pendng');
+  });
+
+  it('el borde exacto: `ENUM_FILTER_ECHO_MAX` chars pasan enteros, uno más se trunca', () => {
+    const exact = 'B'.repeat(ENUM_FILTER_ECHO_MAX);
+    const plusOne = 'B'.repeat(ENUM_FILTER_ECHO_MAX + 1);
+    expect((capture(() => assertEnumFilter('s', exact, ALLOWED_E, { echoValue: true })).details as { value: string }).value).toBe(exact);
+    expect((capture(() => assertEnumFilter('s', plusOne, ALLOWED_E, { echoValue: true })).details as { value: string }).value).toContain('…(+1)');
+  });
+
+  /**
+   * ⭐ **La holgura del tope no se AFIRMA, se VIGILA.** 64 se eligió porque el valor de enum más largo
+   * de todo `schema.prisma` mide **22** (`first_edition_holofoil`), sobre 157 valores. Si mañana
+   * alguien mete un valor de enum más largo que el tope, el eco truncaría un token LEGÍTIMO y el
+   * cliente no podría reconocer lo que mandó. Esto se rompe antes de que eso pase.
+   */
+  it('⭐ el tope conserva holgura sobre el valor de enum MÁS LARGO del schema (derivado, no afirmado)', () => {
+    const schema = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
+    const values = [...schema.matchAll(/^enum \w+ \{([\s\S]*?)^\}/gm)].flatMap((m) =>
+      m[1]
+        .split('\n')
+        .map((l) => l.replace(/\/\/.*$/, '').trim())
+        .filter((l) => l.length > 0 && /^\w+$/.test(l)),
+    );
+    expect(values.length).toBeGreaterThan(100); // el parser encontró el schema de verdad
+    const longest = values.reduce((a, b) => (b.length > a.length ? b : a));
+    expect(longest.length).toBeLessThan(ENUM_FILTER_ECHO_MAX);
+  });
+});
+
+/**
+ * ### `P-89.C3` — «`echoValue` no es un punto de extensión» deja de ser PROSA y pasa a ser CANDADO
+ *
+ * QA/techlead lo midieron: `grep -rn echoValue backend/test/` solo daba pruebas de **conducta**,
+ * ninguna que **congelara los call-sites**. Hoy son 6/6 correctos —los seis ejes del catálogo
+ * público, que ya emitían `details.value` **antes** del helper— y **nada** impedía que el séptimo eje
+ * la encendiera y §0-Q volviera a tener dos formas de `details`. Es decir: el docstring prohibía algo
+ * que ningún test comprobaba, que es la definición de la deuda que abrió `P-84` → `P-89` → `P-90`.
+ *
+ * ⚠️ **Este censo mira CÓDIGO, no texto** (`stripComments`). Es la lección de `H3-d` aplicada al
+ * candado nuevo: el fichero que más menciona `echoValue` es el docstring de `enum-filter.ts`, y un
+ * censo ingenuo lo contaría como call-site y pediría lista blanca — el defecto exacto que este mismo
+ * pase acaba de quitarle a `enum-values-parity.spec.ts`. **No se copia el defecto.**
+ */
+describe('§0-Q · `echoValue` NO es un punto de extensión — censo CONGELADO de call-sites', () => {
+  const SRC = join(__dirname, '..', 'src');
+
+  /**
+   * Los ÚNICOS seis call-sites legítimos, con su razón: son los ejes cuyo `400` ya emitía
+   * `details.value` **antes** de que existiera el helper (`git show
+   * 8d29988:…/catalog.service.ts:783-789` ⇒ `{ field, value, allowed }`). La bandera existe para **no
+   * retirar una llave ya publicada** de un endpoint `@Public()` —cuyos clientes no se pueden medir—,
+   * no para dar a elegir.
+   */
+  const EXPECTED_CALL_SITES: Record<string, number> = {
+    'src/modules/catalog/catalog.service.ts': 4, // productType, condition, finish, sealedSubtype
+    'src/modules/catalog/sealed-catalog.service.ts': 2, // sealedSubtype, condition
+  };
+
+  function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) return walk(full);
+      return e.isFile() && e.name.endsWith('.ts') ? [full] : [];
+    });
+  }
+
+  it('⭐ CERO call-sites nuevos: encender `echoValue` en un eje NUEVO rompe aquí, a propósito', () => {
+    const census: Record<string, number> = {};
+    for (const f of walk(SRC)) {
+      if (f === join(SRC, 'common', 'enum-filter.ts')) continue; // ahí se DECLARA la bandera
+      const code = stripComments(readFileSync(f, 'utf8'));
+      const hits = code.match(/echoValue\s*:\s*true/g);
+      if (hits) census[f.replace(SRC, 'src').split(sep).join('/')] = hits.length;
+    }
+    // Si esto se pone rojo, la pregunta NO es «cómo lo apago»: es **por qué** un eje nuevo necesita
+    // emitir `details.value`. §0-Q punto 2 declara `field` + `allowed` como el dominio, y `value` como
+    // OPCIONAL heredado. Un eje nuevo no hereda nada — nace conforme. Si de verdad hace falta, eso es
+    // un cambio de §0-Q y va por el ARQUITECTO (regla 9), no por esta línea.
+    expect(census).toEqual(EXPECTED_CALL_SITES);
+  });
+
+  it('el censo mira CÓDIGO: el docstring de `enum-filter.ts` menciona `echoValue` y NO cuenta', () => {
+    const declSrc = readFileSync(join(SRC, 'common', 'enum-filter.ts'), 'utf8');
+    // En el fichero crudo hay menciones en prosa...
+    expect(declSrc.match(/echoValue/g)!.length).toBeGreaterThan(3);
+    // ...y en el CÓDIGO, cero `echoValue: true` (solo la firma `echoValue?: boolean` y el uso).
+    expect(stripComments(declSrc).match(/echoValue\s*:\s*true/g)).toBeNull();
   });
 });

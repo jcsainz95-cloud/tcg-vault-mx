@@ -1,10 +1,17 @@
 import { Body, Controller, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
-import { FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../common/enum-values';
+import {
+  FINISH_VALUES,
+  PENDING_PRICE_CONTEXT_VALUES,
+  PENDING_PRICE_REASON_VALUES,
+  PRODUCT_TYPE_VALUES,
+} from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
+// `H3-d`: §0-Q (ausente/vacío/token/inválido) en UN solo sitio. No se re-teclea aquí.
+import { parseEnumFilter } from '../../common/enum-filter';
 import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
 import { isCanonicalGradeKey } from './pricing.types';
 // v1.51.19 (BL-25, §4.39m.8): disparador (c) — el override puede volver resoluble el precio de una
@@ -41,11 +48,19 @@ import { PriceIngestService } from './price-ingest.service';
 // v1.28 (P-18/P-22): consola de precios por variante (M-30) — validación/upsert/auditoría.
 import { VariantControlsService } from './variant-controls.service';
 
-/** P-6 (§M2): valores válidos del query `?context=` de `GET /admin/pricing/pending`. */
-const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = Object.values(PendingPriceContext);
-
-/** v2.0 (§M2): valores válidos del query `?reason=` de `GET /admin/pricing/pending`. */
-const VALID_PENDING_REASONS: readonly PendingReason[] = ['no_market', 'premium_at_floor'];
+/**
+ * Dominios de los dos filtros de enum de `GET /admin/pricing/pending` (§M2) — **los dos clase E**,
+ * derivados en `common/enum-values.ts` (§0-Q punto 3 · §4.37). ⛔ Aquí no se re-listan: re-listar un
+ * enum en N sitios son N copias que pueden desfasarse.
+ *
+ * ⭐ `D-EQ-2` — `?reason=` estaba **transcrito a mano** aquí (`['no_market','premium_at_floor']`), y
+ * el arquitecto ratificó que eso ya era incumplimiento: detrás hay `enum PendingPriceReason` sobre la
+ * **columna persistida e indexada** `PendingPriceEntry.reason`. *En una cola de DINERO, una lista
+ * escrita a mano deja de aceptar la tercera razón el día que el schema la gane — y ese día habrá
+ * filas en ella que el dueño no podrá ver.*
+ */
+const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = PENDING_PRICE_CONTEXT_VALUES;
+const VALID_PENDING_REASONS: readonly PendingReason[] = PENDING_PRICE_REASON_VALUES;
 
 /**
  * v2.1 (§4.36.8a): cap de sondas del dry-run. La tabla de referencia del editor necesita los 10
@@ -237,32 +252,57 @@ export class PricingController {
   /**
    * P-6 (§M2): dos buckets. Query param opcional `?context=` — **VENTA** = `context=inventory`;
    * **COMPRA** = vista READ-ONLY sobre `context=buylist`. Sin `context` → todos (back-compat).
-   * Validación estricta: un valor fuera del enum `PendingPriceContext` → 422 VALIDATION_ERROR
-   * (mismo estilo que el resto del controller). Producir el precio de COMPRA es WRITE del stream
-   * buylist (`itemDecision`) — FUERA DE ALCANCE aquí; este endpoint es solo lectura.
+   * Producir el precio de COMPRA es WRITE del stream buylist (`itemDecision`) — FUERA DE ALCANCE
+   * aquí; este endpoint es solo lectura.
+   *
+   * ### ⚠️ `H3-d` (2026-09-13) — `?context=` es un filtro de enum en query: **[§0-Q]** lo norma
+   * Este eje **nunca estuvo en el censo de §0-Q punto 4**, así que `P-84` y `P-89` pasaron por al
+   * lado. Medido por HTTP con token `super_admin` sobre `3c1bd1e`, incumplía **dos** puntos:
+   *
+   * | Entrada | Antes | §0-Q |
+   * |---|---|---|
+   * | `?context=` (vacía) | `422` | **`200`**, no filtra (punto 1 fila 1) |
+   * | `?context=%20` (un espacio) | `422` | **`200`**, no filtra — `' '` es **truthy** en JS |
+   * | `?context=bogus` | `422` | **`400`** (punto 2: *«`400` y no `422`, ratificado: es query»*) |
+   *
+   * ⚠️ **Y ésta es la cola de precios PENDIENTES: pantalla de dinero.** Un `Select` en «Todas» manda
+   * cadena vacía (§M6-L.3); con el `422`, la pantalla se rompía **por su estado por defecto**.
+   *
+   * **El `422` no era conducta publicada, se comprobó antes de retirarlo:** `rg 'PendingPriceContext'
+   * docs/API_CONTRACT.md` ⇒ **0 resultados**, y la única línea que describe este parámetro
+   * (`API_CONTRACT.md:10610`) declara el dominio y el «omitido = todos» **sin código de error**. El
+   * `422` vivía solo en este comentario, como *«mismo estilo que el resto del controller»* — una
+   * costumbre de módulo, no una norma. *(Si el contrato lo hubiera declarado, esto era del arquitecto
+   * por la regla 9 y no se tocaba.)*
+   *
+   * ⭐ **v1.73 (`D-EQ-2`): `?reason=` se migra AQUÍ, y con ello los dos ejes de este endpoint quedan
+   * en el helper único.** El arquitecto cerró la pregunta que `H3-d` dejó abierta y ratificó el dato
+   * que la decidía: **un enum de Prisma transcrito a mano ya era incumplimiento**, sin pregunta que
+   * esperar. `?reason=` traía los mismos tres defectos que `?context=` (`422` donde toca `400`, y el
+   * vacío/espacio tratados como error) sobre **la misma pantalla de dinero**.
    */
   @Get('pending')
   pending(@Query('context') context?: string, @Query('reason') reason?: string) {
-    if (context !== undefined && !VALID_PENDING_CONTEXTS.includes(context as PendingPriceContext)) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        `invalid context '${context}'`,
-        { field: 'context', allowed: VALID_PENDING_CONTEXTS },
-      );
-    }
+    // §0-Q completo (ausente/vacío/token/inválido) en el helper ÚNICO: `common/enum-filter.ts`.
+    // `VALID_PENDING_CONTEXTS` es `Object.values(PendingPriceContext)` ⇒ **clase E derivada**, no
+    // transcrita: si el schema gana un contexto, el operador puede filtrarlo el mismo día.
+    const parsedContext = parseEnumFilter('context', context, VALID_PENDING_CONTEXTS);
     // v2.0 (P-48, §M2): filtro `?reason=`. Distinguir las dos razones es lo que hace TRIABLE la cola:
     // `no_market` la cura sola el siguiente barrido; `premium_at_floor` (el guardarraíl) necesita que
     // el dueño mire — es la señal inequívoca de que el dato de mercado de esa chase está mal.
-    if (reason !== undefined && !VALID_PENDING_REASONS.includes(reason as PendingReason)) {
-      throw BusinessException.validation('VALIDATION_ERROR', `invalid reason '${reason}'`, {
-        field: 'reason',
-        allowed: VALID_PENDING_REASONS,
-      });
-    }
-    return this.pricing.pendingQueue(
-      context as PendingPriceContext | undefined,
-      reason as PendingReason | undefined,
-    );
+    //
+    // ⭐ `D-EQ-2` (v1.73) — AQUÍ vivía un enum de Prisma TRANSCRITO A MANO, con su propio `throw`.
+    // Se encargó como «unión de literales»; medido el 2026-09-13, no lo era, y ese dato es el que
+    // decidió la clase:
+    //   · `PendingReason` es un alias TS (`common/pricing-curve.ts`), pero detrás hay un enum de
+    //     PRISMA — `enum PendingPriceReason`, COLUMNA PERSISTIDA `PendingPriceEntry.reason`, con su
+    //     `@@index([reason])`. Existe la columna ⇒ existe la clase E ⇒ se DERIVA (§0-Q punto 3).
+    //   · Su `throw` propio traía `422` (es query ⇒ `400`) y no descartaba el vacío ni el espacio,
+    //     así que un `Select` en «Todas» rompía la cola de dinero **por su estado por defecto**.
+    // Las cuatro conductas quedan en el helper único, que además acota el eco del valor (§0-Q
+    // punto 2) — la cota que este `throw` no tenía y por la que 5 KB de query volvían íntegros.
+    const parsedReason = parseEnumFilter('reason', reason, VALID_PENDING_REASONS);
+    return this.pricing.pendingQueue(parsedContext, parsedReason);
   }
 
   /**

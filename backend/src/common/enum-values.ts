@@ -3,8 +3,11 @@ import {
   Finish,
   GradingCompany,
   Locale,
+  PendingPriceContext,
+  PendingPriceReason,
   ProductType,
   SealedCondition,
+  SealedGroupKind,
   SealedSubtype,
 } from '@prisma/client';
 
@@ -80,3 +83,47 @@ export const ACQUISITION_TYPE_VALUES = Object.values(AcquisitionType);
 
 /** Idiomas de la plataforma. */
 export const LOCALE_VALUES = Object.values(Locale);
+
+/**
+ * ### `D-EQ-2` (v1.73) — los TRES enums que estaban **transcritos a mano** en un filtro de query
+ *
+ * El arquitecto cerró la pregunta que `H3-b` dejó abierta, y la ratificó con el dato: **un enum de
+ * Prisma transcrito a mano ya era incumplimiento de §0-Q punto 3, sin pregunta abierta que esperar.**
+ * El criterio es operable en diez segundos — `rg 'enum <Nombre>' prisma/schema.prisma`: si devuelve
+ * algo, **no se transcribe, se deriva**. Los tres de abajo devolvían algo.
+ *
+ * *La razón de fondo, en una línea: **un filtro que no puede nombrar un estado que la BD sí guarda es
+ * un filtro que miente**.* Si el schema gana un valor, **habrá filas en él** — y en dos de estos tres
+ * esas filas son de **dinero**.
+ */
+
+/**
+ * `?reason=` de `GET /admin/pricing/pending` (§M2) — **clase E**, línea canónica en §Enums.
+ *
+ * ⚠️ **La cola de precios pendientes es una pantalla de DINERO.** Esto vivía como
+ * `['no_market','premium_at_floor']` escrito a mano en `pricing.controller.ts`, y detrás hay un enum
+ * de Prisma sobre una **columna persistida e INDEXADA** (`PendingPriceEntry.reason`, con su
+ * `@@index([reason])`). Una tercera razón en el schema significa **filas reales** que la cola no
+ * podría filtrar: el bug de `SealedSubtype`/`upc`, esta vez sobre dinero.
+ */
+export const PENDING_PRICE_REASON_VALUES = Object.values(PendingPriceReason);
+
+/**
+ * `?context=` de `GET /admin/pricing/pending` (§M2) — **clase E**.
+ *
+ * Ya se derivaba en su call-site (`Object.values(PendingPriceContext)`); lo que le faltaba era vivir
+ * **aquí**, que es lo que le da su **paridad a tres bandas**: el contrato no tenía línea canónica
+ * para este enum hasta v1.73 (`rg PendingPriceContext docs/API_CONTRACT.md` ⇒ **0**), así que la
+ * tercera banda —la que ya falló dos veces, `PriceSource` y `SealedSubtype`— **no podía correr**.
+ * Los dos buckets de M2 (VENTA/COMPRA) son una **lectura** sobre el enum completo, no un recorte.
+ */
+export const PENDING_PRICE_CONTEXT_VALUES = Object.values(PendingPriceContext);
+
+/**
+ * `?origin=` de `GET /admin/inventory/sealed-products` (§M1) — **clase E**.
+ *
+ * Estaba como dos comparaciones inline (`origin !== 'set_main' && origin !== 'promo_collection'`) y
+ * **declarado fuera de §Enums** en el contrato: otra copia de prosa. Detrás hay
+ * `enum SealedGroupKind` sobre columna persistida.
+ */
+export const SEALED_GROUP_KIND_VALUES = Object.values(SealedGroupKind);
