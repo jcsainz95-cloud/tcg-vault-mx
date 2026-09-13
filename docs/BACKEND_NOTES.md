@@ -22249,3 +22249,101 @@ clase es real y no se cierra por buena voluntad.
 ⭐ **Lo desbloqueado que conviene no perder de vista:** `EQ-D0` (la bóveda) **no depende de la decisión
 de clase del arquitecto** — ignorar un filtro en silencio lo prohíbe §0-Q punto 1 sea cual sea la
 clase —, así que es la única de las 22 que puede cerrarse **ya**, sin esperar a §0-Q.
+
+---
+
+## C-EQ-1.b (2026-09-13) — el candado sabía decir «200»; ahora sabe decir «FILTRA»
+
+**Dueño: backend. Parte de `91d4318`. Base virgen y efímera `tcg_be_vault_p93` (creada de cero,
+41 migraciones); mutaciones sobre copia del árbol ENTERO (`tar` del repo completo — las suites leen
+`docs/` y `prisma/schema.prisma`), misma base.**
+
+### El hallazgo de QA, y por qué manda sobre todo lo demás
+
+`C-EQ-1` es, por `ARCHITECTURE §4.37.1-a`, **NORMATIVA y «la ÚNICA autoridad»** sobre si un eje de
+query cumple §0-Q. QA midió que **no cerraba la clase «valida y no filtra»**, que es exactamente el
+modo de fallo de `P-93` (la bóveda del cliente). Usar el candado para certificar su propio arreglo no
+lo certifica — por eso el candado fue primero.
+
+### Los dos agujeros, reproducidos por mí ANTES de tocar nada
+
+| Mutación | Dónde | Qué reintroduce | Color **antes** del arreglo |
+|---|---|---|---|
+| `QA-M3` | `inventory.controller.ts:204` | `parseEnumFilter` sigue **validando** (basura ⇒ `400`) pero el valor **se tira** (`origin: undefined`) | **3/3 VERDE** (N=3) — 192/192 |
+| `QA-M4` | controller nuevo con `@Query('rarity')` + `@Query('action')` | endpoint nuevo que reusa dos nombres exentos **en otra ruta** | **3/3 VERDE** (N=3) — 192/192, censo **176 → 178** (el escáner SÍ lo ve) |
+
+`QA-M4` confirmado además fuera de la suite: `censusQueryAxes` devuelve
+`GET /vault/qa-m4-probe::rarity` y `::action`. **El escáner no estaba ciego: el cruce los absolvía.**
+
+### Agujero 1 — la propiedad `filtra` no comprobaba que filtrara
+
+Decía, entero: `filtra: (_row, res) => expect(res.status).toBe(200)`. Ahora la fila **mide el
+resultado**, con tres aserciones que cierran tres modos distintos:
+
+1. **hay datos que filtrar** — con el fixture vacío, «filtra» no es observable y el `200` sería un
+   verde *por omisión*; ahora eso es un rojo que se nombra, no un silencio;
+2. **el token CAMBIA el resultado** (`valid` ≠ sin filtrar) ⇒ ésta es literalmente `QA-M3`;
+3. **el token DISCRIMINA** (`valid` ≠ `alterno`) ⇒ *«devolver vacío ante cualquier token»* también
+   es rojo. Sin ella, un filtro que borra la lista pasaría la (2) tan campante.
+
+La observación es **conteo + contenido** (`Obs.huella`), no solo conteo: medido,
+`/admin/pricing/pending?reason=no_market` y `?reason=premium_at_floor` devuelven **una fila cada
+uno** — un filtro que siempre devolviera la primera daría el mismo `1`. Dos filas declaran su propia
+observación: el **XLSX** (bytes) y `pricing-brackets` (`{sale?, buy?}`: el eje decide qué mitad se
+emite). Estabilidad de la huella medida antes de escribirla, **N=2 por eje sobre los 26: estable en
+todos**.
+
+⭐ **Refuto el encargo con el dato, y a favor:** *«hoy solo `?missing=` tiene datos que lo hacen
+medible»* es **falso**. Recorrí los 26 ejes contando sin filtro y por cada token del dominio:
+**18 eran medibles ya** (orders 1, items 15, pending-publish 1, users 10, buylist 2,
+pricing/pending 2, cards 8, xlsx 7 396 bytes, brackets). Los **8** que no lo eran (disputes,
+shipments, bounties ×3, catalog/sealed ×2, sealed-products/origin) lo eran por **fixture vacío**, no
+por naturaleza.
+
+⚠️ **Y ocho `valid` estaban mal elegidos**, lo que importa aunque el fixture tuviera datos:
+`?status=settled` en `/admin/orders` devolvía **1 de 1** — la lista entera. Verde con filtro y sin
+filtro. Se reeligieron **con el conteo delante**.
+
+### El fixture propio (`sembrarFixture`), y por qué no marcar «no medible» y seguir
+
+`?origin=` —donde QA plantó `QA-M3`— era uno de los ocho sin datos. Marcarlo «no medible» habría
+dejado `QA-M3` **verde**, o sea no habría cerrado nada. Se siembra lo mínimo, todo con prefijo
+`CEQ1-`, **idempotente** (limpia antes de crear) y barrido en `afterAll`: un `CardSet` propio + 2
+`SealedProduct` (origen distinto), 2 piezas selladas de plataforma `listed` con precio, 2 filas M-30
+de bounty (estados y acabados distintos), 2 disputas y 2 solicitudes de envío. **Set propio y no el
+del seed**: colgar los `SealedProduct` del set compartido volteaba su `needsSync` a `false` para todas
+las demás suites. Resultado: **26/26 ejes medibles, cero marcas de «no medible»**.
+
+Y un candado del candado: `alterno` **solo** puede omitirse si el dominio declarado tiene un token
+(hoy `?condition=` de `/catalog/cards`, `['NM']` por política). Lo comprueba un test, no un comentario.
+
+### Agujero 2 — `NO_ENUM` cruzaba por nombre (`QA-M4`)
+
+Se parte en dos, y la partición es el arreglo:
+
+- **`NO_ENUM_TRANSVERSAL`** (por nombre, **113** sitios): `?page=`, `?pageSize=`, `?q=`, `?from=`,
+  `?to=`, identificadores y montos. Su dominio es abierto **por la FORMA del valor**: un `?page=` es
+  un número en cualquier ruta, presente o futura. Fijarlos por ruta serían 113 entradas que solo
+  dicen «esto sigue siendo un número» — *una lista que hay que actualizar para que no moleste es una
+  lista que se actualiza sin mirar*.
+- **`NO_ENUM_POR_RUTA`** (por `MÉTODO /ruta::param`, **15** sitios, `toEqual` + tope ≤ 15):
+  `?rarity=`, `?action=`, `?entityType=` y las banderas booleanas. Aquí la exención **no** se sigue
+  del nombre sino de una **medición de ESA ruta** («`Card.rarity` es `String`»), y esa medición ⛔ no
+  se hereda. Con el tope, la salida barata ante el rojo —añadir la llave— deja de ser un diff de una
+  línea.
+
+### Mutaciones DESPUÉS del arreglo (copia del árbol entero, base `tcg_be_vault_p93`)
+
+| Mutación | Resultado |
+|---|---|
+| `QA-M3` (valida y tira el valor) | **3/3 ROJA** (N=3) — falla `GET /admin/inventory/sealed-products?origin=` en la aserción (2) |
+| `QA-M4` (endpoint nuevo con `rarity`+`action`) | **3/3 ROJA** (N=3) — el descubrimiento los nombra: `GET /vault/qa-m4-probe::rarity`, `::action` |
+
+### Estado al cierre de la fase 1
+
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` · `eslint` | 0 errores |
+| `C-EQ-1` | **193/193** (era 192; +1 el candado del candado) |
+| Integración completa | **39 suites · 780/780**, exit 0 |
+| Unitaria completa | **293 suites · 4830/4830**, exit 0 |

@@ -25,15 +25,28 @@
  *    **Tabla-dirigida a propósito:** una fila de datos por eje, no un `describe` escrito a mano — *si
  *    añadir un eje cuesta escribir un bloque nuevo, el eje número veinticinco no se añade*.
  *
+ *    ⭐⭐ **`QA-M3` (2026-09-13) — la propiedad «FILTRA» no comprobaba que filtrara.** Se titulaba
+ *    *«un token del dominio FILTRA (u ordena)»* y su cuerpo entero era
+ *    `expect(res.status).toBe(200)`. QA dejó `parseEnumFilter` **validando** y **tirando el valor**
+ *    en `inventory.controller.ts:204`: `C-EQ-1` **3/3 VERDE** y la suite backend entera verde
+ *    —integración 39/39 · 776, unitarias 293/293 · 4830—, *sin un solo test que mordiera*. Y lo
+ *    delicado es dónde vivía: §4.37.1-a declara este fichero **NORMATIVO** y «la ÚNICA autoridad»,
+ *    o sea **la caducidad-con-autoridad que este pase vino a matar, reintroducida en el candado**.
+ *    Ahora cada fila mide **el resultado**: hay datos que filtrar · el token lo **cambia** · y el
+ *    token **discrimina** de un segundo token. Con fixture propio (`sembrarFixture`) para los ocho
+ *    ejes que no tenían datos con qué demostrarlo.
+ *
  * 2. ⭐ **DESCUBRIMIENTO** — falla ante el eje que **nadie registró**. *Una suite no puede fallar por
  *    un parámetro que nunca le contaron.* `?context=`, `?reason=` y `?axis=` no se saltaron por
  *    descuido en `P-84`/`P-89`: **no estaban en el censo**, y un censo escrito a mano no puede
  *    enterarse de lo que nadie le contó. Aquí el inventario **se lee del código**
  *    (`helpers/query-axis-census.ts`, **sobre código y no texto**) y se cruza contra listas explícitas.
  *
- * ### ⚠️ Tres listas, no dos — y es una desviación CONSCIENTE de la especificación, con su motivo
+ * ### ⚠️ CUATRO listas, no dos — y es una desviación CONSCIENTE de la especificación, con su motivo
  * §4.37.1-a pide cruzar contra **dos** listas: (a) los ejes del registro y (b) los que no son de
- * dominio cerrado. Al correr el descubrimiento por primera vez (2026-09-13, **176** `@Query` en
+ * dominio cerrado. La (b) está **partida en dos** desde `QA-M4` (por nombre lo que es transversal
+ * por la FORMA del valor; por `MÉTODO /ruta::param` lo que es una **medición de esa ruta**) — ver
+ * `NO_ENUM_TRANSVERSAL` / `NO_ENUM_POR_RUTA`, con el defecto medido al lado. Al correr el descubrimiento por primera vez (2026-09-13, **176** `@Query` en
  * código) apareció lo que ninguna de las dos listas admite sin mentir: **22 ejes de dominio cerrado
  * medido que el registro de §0-Q no contiene** (la bóveda, `?kind=`, `?scope=`, `?report=`,
  * `?range=`, ocho `?sort=`…). Meterlos en (b) sería **declarar falso** que su dominio es abierto —
@@ -101,8 +114,31 @@ interface AxisRow {
   readonly clazz: 'E' | 'R' | 'L' | 'ORDEN';
   /** El dominio DECLARADO: derivado del enum (E/R) o el literal junto al call-site (L/ORDEN). */
   readonly allowed: readonly string[];
-  /** Un token legítimo del dominio (para la fila 2 del punto 1: «filtra»). */
+  /**
+   * ⭐ Un token legítimo del dominio **que CAMBIA el resultado** respecto de no filtrar.
+   *
+   * ⚠️ No vale cualquier token del dominio, y la diferencia es el agujero que `QA-M3` midió: hasta
+   * hoy la propiedad `filtra` solo miraba el **código de estado**, así que un `valid` que devolviera
+   * *exactamente la lista entera* pasaba igual. Se eligen **con el conteo del fixture delante**
+   * (`fixture-conteos`, abajo): `?status=settled` daba `1` de `1` — verde con y sin filtro.
+   */
   readonly valid: string;
+  /**
+   * ⭐ Un SEGUNDO token del dominio cuyo resultado **difiere del de `valid`**. Es lo que distingue
+   * *«filtra por el valor que le mandé»* de *«devuelve vacío ante cualquier token»* — la mutación
+   * hermana de `QA-M3`, que un `valid ≠ sin filtrar` por sí solo NO atrapa.
+   *
+   * Obligatorio siempre que el dominio declarado tenga **≥2** tokens; lo vigila un test propio, no
+   * este comentario. Se omite **solo** cuando `allowed.length === 1` (hoy: `?condition=` de
+   * `/catalog/cards`, cuyo dominio es `['NM']` por política — `business-rules.ts:44`).
+   */
+  readonly alterno?: string;
+  /**
+   * Cómo se OBSERVA el resultado de este endpoint. Por defecto, una lista paginada
+   * (`{ total, data }`). Los dos que no lo son lo declaran: el XLSX (bytes) y
+   * `/admin/reports/pricing-brackets` (dos arrays hermanos, sin `data`).
+   */
+  readonly obs?: Obs;
   /** Querystring obligatoria del endpoint (p. ej. `setId=…`), sin el `?`. */
   readonly extra?: (ctx: Ctx) => string;
   readonly auth: 'admin' | 'public';
@@ -127,12 +163,62 @@ interface AxisRow {
    * pone rojo y tiene que venir aquí a moverla — ⛔ el cambio no puede ser silencioso.
    */
   readonly excepciones?: {
-    readonly [K in Propiedad]?: { readonly motivo: string; readonly hoy: (res: ApiRes) => void };
+    readonly [K in Propiedad]?: {
+      readonly motivo: string;
+      readonly hoy: (res: ApiRes, extra: Extra) => void;
+    };
   };
 }
 
 type Propiedad = 'vacio' | 'espacios' | 'filtra' | 'error' | 'value' | 'sinNormalizar' | 'cota';
 type ApiRes = { status: number; body: ErrorBody; text: string };
+
+/**
+ * ⭐ **La observación del resultado — lo que convierte `filtra` en una medición y no en un `200`.**
+ *
+ * `huella` es el **conteo más el contenido** de lo devuelto. El conteo solo no basta: medido el
+ * 2026-09-13 sobre el fixture, `/admin/pricing/pending?reason=no_market` y `?reason=premium_at_floor`
+ * devuelven **una fila cada uno** — un eje que filtrara «bien de menos» (siempre la primera fila)
+ * daría el mismo `1` en los dos. Con el cuerpo dentro, se distinguen.
+ *
+ * ⚠️ La huella tiene que ser **estable entre dos llamadas idénticas** o la suite se vuelve
+ * intermitente. Medido antes de escribir esto, N=2 por eje sobre las 26 filas: **estable en todas**
+ * (`scratchpad/be-vault`, `zz-probe3`). Si algún día un endpoint mete un `now()` en su DTO, la fila
+ * declara su propia `huella` — no se afloja la propiedad para todos.
+ */
+interface Obs {
+  /** Huella observable de la respuesta: dos resultados distintos ⇒ huellas distintas. */
+  readonly huella: (res: ApiRes) => string;
+  /** ¿El resultado SIN filtrar trae algo? Con cero filas, «filtra» NO es observable aquí. */
+  readonly hayDatos: (res: ApiRes) => boolean;
+}
+
+type Lista = { total?: number; data?: unknown[] };
+const filas = (res: ApiRes): number => {
+  const b = res.body as unknown as Lista;
+  return b?.total ?? b?.data?.length ?? -1;
+};
+/** El caso normal: lista paginada `{ total, data }` (23 de las 26 filas). */
+const OBS_LISTA: Obs = {
+  huella: (res) => `n=${filas(res)}|${JSON.stringify((res.body as unknown as Lista)?.data ?? null)}`,
+  hayDatos: (res) => filas(res) > 0,
+};
+/** `GET /admin/inventory/export.xlsx` — el cuerpo es un XLSX binario: se observa su TAMAÑO. */
+const OBS_XLSX: Obs = {
+  huella: (res) => `bytes=${res.text.length}`,
+  hayDatos: (res) => res.text.length > 0,
+};
+/** `GET /admin/reports/pricing-brackets` — `{ sale?, buy? }`: el eje decide qué MITAD se emite. */
+const OBS_BRACKETS: Obs = {
+  huella: (res) => JSON.stringify(res.body),
+  hayDatos: (res) => {
+    const b = res.body as unknown as { sale?: unknown[]; buy?: unknown[] };
+    return (b?.sale?.length ?? 0) + (b?.buy?.length ?? 0) > 0;
+  },
+};
+
+/** Las respuestas extra que la propiedad `filtra` necesita (no filtrar, y el token alterno). */
+type Extra = { base?: ApiRes; alterno?: ApiRes };
 
 interface Ctx {
   setId: string;
@@ -148,29 +234,33 @@ interface Ctx {
  * que la v1.73 retiró.
  */
 const REGISTRO: readonly AxisRow[] = [
-  { route: 'GET /admin/orders', param: 'status', clazz: 'E', allowed: Object.values(OrderStatus), valid: 'settled', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/disputes', param: 'status', clazz: 'E', allowed: Object.values(DisputeStatus), valid: 'abierta', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/shipments', param: 'status', clazz: 'E', allowed: Object.values(ShipmentStatus), valid: 'solicitado', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/inventory/items', param: 'status', clazz: 'E', allowed: Object.values(InventoryStatus), valid: 'in_stock', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/inventory/items', param: 'ownerType', clazz: 'E', allowed: Object.values(OwnerType), valid: 'platform', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/orders', param: 'status', clazz: 'E', allowed: Object.values(OrderStatus), valid: 'pending', alterno: 'settled', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/disputes', param: 'status', clazz: 'E', allowed: Object.values(DisputeStatus), valid: 'abierta', alterno: 'resuelta_recompra', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/shipments', param: 'status', clazz: 'E', allowed: Object.values(ShipmentStatus), valid: 'solicitado', alterno: 'entregado', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/items', param: 'status', clazz: 'E', allowed: Object.values(InventoryStatus), valid: 'in_stock', alterno: 'listed', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/items', param: 'ownerType', clazz: 'E', allowed: Object.values(OwnerType), valid: 'customer', alterno: 'platform', auth: 'admin', echoValue: false },
   // ⚠️ `details.field` = `"zone"` (el query param), NO `"location.zone"` (la ruta de Prisma).
-  { route: 'GET /admin/inventory/items', param: 'zone', clazz: 'E', allowed: Object.values(VaultZone), valid: 'platform_stock', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/inventory/items', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'normal', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/inventory/items', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'raw', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/inventory/pending-publish', param: 'acquisitionType', clazz: 'E', allowed: Object.values(AcquisitionType), valid: 'compra', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/items', param: 'zone', clazz: 'E', allowed: Object.values(VaultZone), valid: 'customer_custody', alterno: 'platform_stock', auth: 'admin', echoValue: false },
+  // ⚠️ `valid: 'reverse_holo'` y no `'normal'`: el fixture es 15/15 `normal` ⇒ `?finish=normal` devuelve
+  // la lista ENTERA y la fila salía verde con y sin filtro. `alterno` recupera la discriminación.
+  { route: 'GET /admin/inventory/items', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'reverse_holo', alterno: 'normal', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/items', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'graded', alterno: 'raw', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/pending-publish', param: 'acquisitionType', clazz: 'E', allowed: Object.values(AcquisitionType), valid: 'compra', alterno: 'buylist', auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE L: `location | price` no existe en el schema — nombra QUÉ LE FALTA a la fila.
-  { route: 'GET /admin/inventory/pending-publish', param: 'missing', clazz: 'L', allowed: PENDING_PUBLISH_MISSING_VALUES, valid: 'price', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/inventory/export.xlsx', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'raw', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/pending-publish', param: 'missing', clazz: 'L', allowed: PENDING_PUBLISH_MISSING_VALUES, valid: 'price', alterno: 'location', auth: 'admin', echoValue: false },
+  // El cuerpo es un XLSX binario: no hay `data` que contar ⇒ se observa su TAMAÑO (`OBS_XLSX`).
+  { route: 'GET /admin/inventory/export.xlsx', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'raw', alterno: 'graded', obs: OBS_XLSX, auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE E derivada: `enum SealedGroupKind` existe en el schema ⇒ ⛔ no se transcribe.
-  { route: 'GET /admin/inventory/sealed-products', param: 'origin', clazz: 'E', allowed: Object.values(SealedGroupKind), valid: 'set_main', auth: 'admin', echoValue: false, extra: (c) => `setId=${c.setId}` },
-  { route: 'GET /admin/users', param: 'status', clazz: 'E', allowed: Object.values(UserStatus), valid: 'active', auth: 'admin', echoValue: false },
-  { route: 'GET /admin/users', param: 'kycStatus', clazz: 'E', allowed: Object.values(KycStatus), valid: 'pending', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/inventory/sealed-products', param: 'origin', clazz: 'E', allowed: Object.values(SealedGroupKind), valid: 'set_main', alterno: 'promo_collection', auth: 'admin', echoValue: false, extra: (c) => `setId=${c.setId}` },
+  { route: 'GET /admin/users', param: 'status', clazz: 'E', allowed: Object.values(UserStatus), valid: 'blocked', alterno: 'active', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/users', param: 'kycStatus', clazz: 'E', allowed: Object.values(KycStatus), valid: 'pending', alterno: 'none', auth: 'admin', echoValue: false },
   {
     route: 'GET /admin/buylist',
     param: 'status',
     clazz: 'E',
     allowed: Object.values(SellRequestStatus),
     valid: 'pagada',
+    alterno: 'cotizada',
     auth: 'admin',
     echoValue: false,
     csv: true,
@@ -190,15 +280,17 @@ const REGISTRO: readonly AxisRow[] = [
       },
     },
   },
-  { route: 'GET /admin/pricing/pending', param: 'context', clazz: 'E', allowed: Object.values(PendingPriceContext), valid: 'inventory', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/pricing/pending', param: 'context', clazz: 'E', allowed: Object.values(PendingPriceContext), valid: 'catalog', alterno: 'inventory', auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE E derivada: `enum PendingPriceReason` sobre COLUMNA PERSISTIDA E INDEXADA.
-  { route: 'GET /admin/pricing/pending', param: 'reason', clazz: 'E', allowed: Object.values(PendingPriceReason), valid: 'no_market', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/pricing/pending', param: 'reason', clazz: 'E', allowed: Object.values(PendingPriceReason), valid: 'no_market', alterno: 'premium_at_floor', auth: 'admin', echoValue: false },
   {
     route: 'GET /admin/pricing/bounties',
     param: 'state',
     clazz: 'L',
     allowed: BOUNTY_STATE_VALUES,
-    valid: 'activa',
+    // El fixture de esta suite siembra una fila `rebasada` y otra `completada` (ver `sembrarFixture`).
+    valid: 'rebasada',
+    alterno: 'completada',
     auth: 'admin',
     echoValue: false,
     excepciones: {
@@ -225,7 +317,7 @@ const REGISTRO: readonly AxisRow[] = [
       },
     },
   },
-  { route: 'GET /admin/pricing/bounties', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'normal', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/pricing/bounties', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'normal', alterno: 'reverse_holo', auth: 'admin', echoValue: false },
   {
     // §0-Q punto 6: un `?sort=` **no es un filtro**, es un ORDEN CON DEFAULT. Su fila 1 es distinta
     // (vacío ⇒ el default declarado, no «no filtra»), pero observable igual: `200`. Las otras dos
@@ -234,7 +326,11 @@ const REGISTRO: readonly AxisRow[] = [
     param: 'sort',
     clazz: 'ORDEN',
     allowed: ADMIN_BOUNTY_SORT_VALUES,
-    valid: 'attention_first',
+    // ⚠️ `valid: 'price_desc'` y no `'attention_first'`: medido, `attention_first` ES el default ⇒ su
+    // salida es **idéntica** a la de `?sort=` vacío y la fila no podría distinguir «ordena» de «no
+    // hace nada». `alterno` vuelve a ser el default, así que la pareja prueba que el token MANDA.
+    valid: 'price_desc',
+    alterno: 'attention_first',
     auth: 'admin',
     echoValue: false,
     excepciones: {
@@ -251,13 +347,15 @@ const REGISTRO: readonly AxisRow[] = [
     },
   },
   // ⭐ `D-EQ-2` · CLASE L: `rg 'enum .*[Aa]xis' schema.prisma` ⇒ 0. Es un MODO de la consulta.
-  { route: 'GET /admin/reports/pricing-brackets', param: 'axis', clazz: 'L', allowed: PRICING_BRACKETS_AXIS_VALUES, valid: 'sale', auth: 'admin', echoValue: false },
+  // `{ sale?, buy? }`: el eje decide qué MITAD se emite, no cuántas filas ⇒ `OBS_BRACKETS`.
+  { route: 'GET /admin/reports/pricing-brackets', param: 'axis', clazz: 'L', allowed: PRICING_BRACKETS_AXIS_VALUES, valid: 'sale', alterno: 'buy', obs: OBS_BRACKETS, auth: 'admin', echoValue: false },
   {
     route: 'GET /catalog/cards',
     param: 'productType',
     clazz: 'R',
     allowed: Object.values(ProductType).filter((v) => v !== 'sealed'),
-    valid: 'raw',
+    valid: 'graded',
+    alterno: 'raw',
     auth: 'public',
     echoValue: true,
     excepciones: {
@@ -275,10 +373,12 @@ const REGISTRO: readonly AxisRow[] = [
       },
     },
   },
-  { route: 'GET /catalog/cards', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'normal', auth: 'public', echoValue: true },
+  { route: 'GET /catalog/cards', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'reverse_holo', alterno: 'normal', auth: 'public', echoValue: true },
+  // ⛔ SIN `alterno`: `ACCEPTED_RAW_CONDITIONS` es `['NM']` (`business-rules.ts:44`, política de
+  // PROJECT.md §E) — no hay segundo token con el que discriminar. Lo vigila el test de coherencia.
   { route: 'GET /catalog/cards', param: 'condition', clazz: 'R', allowed: ACCEPTED_RAW_CONDITIONS, valid: 'NM', auth: 'public', echoValue: true },
-  { route: 'GET /catalog/sealed', param: 'sealedSubtype', clazz: 'E', allowed: Object.values(SealedSubtype), valid: 'box', auth: 'public', echoValue: true },
-  { route: 'GET /catalog/sealed', param: 'condition', clazz: 'E', allowed: Object.values(SealedCondition), valid: 'mint', auth: 'public', echoValue: true },
+  { route: 'GET /catalog/sealed', param: 'sealedSubtype', clazz: 'E', allowed: Object.values(SealedSubtype), valid: 'box', alterno: 'etb', auth: 'public', echoValue: true },
+  { route: 'GET /catalog/sealed', param: 'condition', clazz: 'E', allowed: Object.values(SealedCondition), valid: 'mint', alterno: 'minor_box_damage', auth: 'public', echoValue: true },
 ];
 
 /** `GET /admin/orders` ⇒ `/admin/orders` (el arnés ya antepone `/api/v1`). */
@@ -299,6 +399,102 @@ const exceptuadas = (p: Propiedad) => REGISTRO.filter((r) => r.excepciones?.[p])
 const LARGO = 'A'.repeat(5000);
 const BASURA = 'no_soy_un_token_valido';
 
+/**
+ * ⭐⭐ **EL FIXTURE DE `C-EQ-1` — sin él, «filtra» no se puede medir y el verde es por OMISIÓN.**
+ *
+ * ### De dónde sale (medido el 2026-09-13 sobre BD virgen, antes de escribirlo)
+ * Se recorrieron los **26** ejes del registro contando el resultado **sin filtrar** y el de **cada**
+ * token de su dominio. Ocho ejes devolvían **cero filas con y sin filtro**, así que la mutación
+ * *«valida y tira el valor»* era **invisible** en ellos por construcción — incluido `?origin=`, que
+ * es justo donde QA plantó `QA-M3`. Con la siembra de abajo quedan **26/26 medibles**.
+ *
+ * ### Reglas que se respetan aquí, y por qué
+ *  - **Se siembra lo MÍNIMO y se nombra**: todo lo que crea lleva el prefijo `CEQ1-` (o el
+ *    `externalId` `ceq1-fixture-set`), así que `limpiarFixture` puede barrerlo **sin adivinar**.
+ *  - **Es idempotente**: limpia ANTES de crear. Una corrida que se cayó a mitad no envenena la
+ *    siguiente — y este proyecto ya pagó una contaminación de fixture entre specs (`vault-shipments`).
+ *  - **Set PROPIO, no el del seed**: `?origin=` necesita `SealedProduct`s, y colgarlos del set del
+ *    fixture compartido volteaba su `needsSync` a `false` para todas las demás suites. Un set propio
+ *    no le cambia el mundo a nadie.
+ *  - ⛔ **No toca dinero de nadie**: filas nuevas, propias y efímeras; ningún `update` sobre datos
+ *    del seed.
+ */
+const CEQ1_SET_EXTERNAL_ID = 'ceq1-fixture-set';
+const CEQ1_SEALED_PRODUCT_IDS = [990001, 990002];
+const CEQ1_BOUNTY_PRICES = [50_000, 900_000];
+
+async function limpiarFixture(h: E2EHarness): Promise<void> {
+  await h.prisma.dispute.deleteMany({ where: { description: { startsWith: 'CEQ1-' } } });
+  await h.prisma.shipmentRequest.deleteMany({ where: { carrier: { startsWith: 'CEQ1-' } } });
+  await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: 'CEQ1-' } } });
+  await h.prisma.sealedProduct.deleteMany({ where: { tcgplayerProductId: { in: CEQ1_SEALED_PRODUCT_IDS } } });
+  await h.prisma.cardSet.deleteMany({ where: { externalId: CEQ1_SET_EXTERNAL_ID } });
+  await h.prisma.variantPriceOverride.deleteMany({ where: { bountyPriceCents: { in: CEQ1_BOUNTY_PRICES } } });
+}
+
+/** Siembra y devuelve el `setId` propio (el que usa `?setId=` de `sealed-products`). */
+async function sembrarFixture(h: E2EHarness): Promise<string> {
+  await limpiarFixture(h);
+
+  // (a) `GET /admin/inventory/sealed-products?origin=` — DOS presentaciones con `origin` distinto.
+  //     Es el eje donde QA plantó `QA-M3`: sin estas dos filas, la mutación es invisible.
+  const set = await h.prisma.cardSet.create({
+    data: { externalId: CEQ1_SET_EXTERNAL_ID, name: 'C-EQ-1 fixture', series: 'CEQ1' },
+  });
+  await h.prisma.sealedProduct.createMany({
+    data: [
+      { setId: set.id, tcgplayerProductId: CEQ1_SEALED_PRODUCT_IDS[0], tcgplayerGroupId: 990101, name: 'CEQ1 caja', subtype: 'box', origin: 'set_main', active: true },
+      { setId: set.id, tcgplayerProductId: CEQ1_SEALED_PRODUCT_IDS[1], tcgplayerGroupId: 990102, name: 'CEQ1 promo', subtype: 'etb', origin: 'promo_collection', active: true },
+    ],
+  });
+
+  const card = await h.prisma.card.findFirstOrThrow({ select: { id: true } });
+
+  // (b) `GET /catalog/sealed?sealedSubtype=` · `?condition=` — dos piezas SELLADAS de plataforma,
+  //     `listed` y con `listPriceCents` (el catálogo solo lista lo que tiene precio resuelto > 0).
+  await h.prisma.inventoryItem.createMany({
+    data: [
+      { folio: 'CEQ1-SELLADO-1', cardId: card.id, productType: 'sealed', sealedSubtype: 'box', sealedCondition: 'mint', status: 'listed', ownerType: 'platform', listPriceCents: 123_400, acquisitionType: 'compra' },
+      { folio: 'CEQ1-SELLADO-2', cardId: card.id, productType: 'sealed', sealedSubtype: 'etb', sealedCondition: 'minor_box_damage', status: 'listed', ownerType: 'platform', listPriceCents: 567_800, acquisitionType: 'compra' },
+    ],
+  });
+
+  // (c) `GET /admin/pricing/bounties?state=` · `?finish=` · `?sort=` — dos filas M-30 en ESTADOS y
+  //     acabados distintos. El `state` NO es columna: se deriva (`bounty-state.ts:56`), así que se
+  //     siembran los insumos y se toma el estado que salga (medido: `rebasada` y `completada`).
+  const cards = await h.prisma.card.findMany({ select: { id: true }, take: 2 });
+  await h.prisma.variantPriceOverride.createMany({
+    data: [
+      { cardId: cards[0].id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', bountyEnabled: true, bountyPriceCents: CEQ1_BOUNTY_PRICES[0] },
+      { cardId: cards[1]?.id ?? cards[0].id, productType: 'raw', gradeKey: 'raw:NM', finish: 'reverse_holo', bountyEnabled: false, bountyPriceCents: CEQ1_BOUNTY_PRICES[1], bountyCompletedAt: new Date() },
+    ],
+    skipDuplicates: true,
+  });
+
+  // (d) `GET /admin/disputes?status=` — dos disputas en estados distintos.
+  const cliente = await h.prisma.user.findFirstOrThrow({ where: { email: E2E_USERS.customer.email }, select: { id: true } });
+  const pieza = await h.prisma.inventoryItem.findFirstOrThrow({ where: { folio: 'CEQ1-SELLADO-1' }, select: { id: true } });
+  const manana = new Date(Date.now() + 86_400_000);
+  await h.prisma.dispute.createMany({
+    data: [
+      { userId: cliente.id, inventoryItemId: pieza.id, status: 'abierta', description: 'CEQ1-fixture abierta', deadlineAt: manana },
+      { userId: cliente.id, inventoryItemId: pieza.id, status: 'resuelta_recompra', description: 'CEQ1-fixture resuelta', deadlineAt: manana },
+    ],
+  });
+
+  // (e) `GET /admin/shipments?status=` — dos solicitudes de envío en estados distintos. `carrier`
+  //     lleva la marca `CEQ1-` porque es el campo libre que la limpieza puede barrer sin adivinar.
+  const direccion = { line1: 'CEQ1 1', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX' };
+  await h.prisma.shipmentRequest.createMany({
+    data: [
+      { userId: cliente.id, addressSnapshot: direccion, status: 'solicitado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-a' },
+      { userId: cliente.id, addressSnapshot: direccion, status: 'entregado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-b' },
+    ],
+  });
+
+  return set.id;
+}
+
 describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   let h: E2EHarness;
   let adminToken: string;
@@ -307,15 +503,11 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   beforeAll(async () => {
     h = await E2EHarness.create();
     adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
-    // `GET /admin/inventory/sealed-products` exige `?setId=` ANTES de mirar `?origin=`: sin un set
-    // real, la fila 1 («vacío ⇒ 200») no se podría medir — daría el `400` del setId y se leería
-    // como conformidad.
-    const set = await h.prisma.cardSet.findFirst({ select: { id: true } });
-    if (!set) throw new Error('fixture sin CardSet: `?origin=` no se puede ejercitar');
-    ctx = { setId: set.id };
-  }, 120000);
+    ctx = { setId: await sembrarFixture(h) };
+  }, 180000);
 
   afterAll(async () => {
+    if (h) await limpiarFixture(h);
     await h?.close();
   });
 
@@ -323,13 +515,51 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     h.api<ErrorBody>('GET', url(row, ctx, value), row.auth === 'admin' ? { token: adminToken } : {}) as Promise<ApiRes>;
 
   /** La aserción conforme de cada propiedad, en UN sitio: la excepción usa la misma llave. */
-  const CONFORME: Record<Propiedad, (row: AxisRow, res: ApiRes) => void> = {
+  const CONFORME: Record<Propiedad, (row: AxisRow, res: ApiRes, extra: Extra) => void> = {
     // Punto 1 fila 1 — vacío ≡ ausente ⇒ `200`. En un `?sort=` (punto 6): el DEFAULT, también `200`.
     vacio: (_row, res) => expect(res.status).toBe(200),
     // ⚠️ Las dos mitades, no una: `if (x)` deja pasar `' '` (un espacio es truthy) y `raw === ''` no
     // lo atrapa (un espacio no es la cadena vacía).
     espacios: (_row, res) => expect(res.status).toBe(200),
-    filtra: (_row, res) => expect(res.status).toBe(200),
+    /**
+     * ⭐⭐ **Punto 1 fila 2 — y es la propiedad que `QA-M3` demostró VACÍA.**
+     *
+     * Aquí decía, entero: `filtra: (_row, res) => expect(res.status).toBe(200)`. **Miraba el código
+     * de estado y nada más.** QA lo midió con una mutación en `inventory.controller.ts:204` que
+     * dejaba `parseEnumFilter` **validando** (basura ⇒ `400` igual) y **tiraba el valor**: `C-EQ-1`
+     * salió **3/3 VERDE** y la suite backend entera también — *ningún test del proyecto mordía*.
+     * Reproducido por mí antes de tocar nada: **3/3 verde** (N=3, `QA-M3`) y **3/3 verde** (N=3,
+     * `QA-M4`). Un título que dice «FILTRA» sobre una aserción que no lo comprueba es la
+     * caducidad-con-autoridad que este fichero existe para matar, **dentro del fichero**.
+     *
+     * Ahora son tres aserciones, y cada una cierra un modo de fallo distinto:
+     *
+     *  1. **el fixture tiene con qué** — sin filas que excluir, «filtra» no es observable y el `200`
+     *     sería un verde **por omisión**. Es la mitad que convierte un hueco en un rojo: el día que
+     *     un endpoint se quede sin fixture, esto lo dice en vez de callarlo;
+     *  2. **el token CAMBIA el resultado** (`valid` ≠ sin filtrar) ⇒ *validar y tirar el valor* es
+     *     ROJO. Ésta es literalmente `QA-M3`;
+     *  3. **el token DISCRIMINA** (`valid` ≠ `alterno`) ⇒ *devolver vacío ante cualquier token*
+     *     también es ROJO. Sin ella, un filtro que borra la lista pasaría la (2) tan campante.
+     */
+    filtra: (row, res, extra) => {
+      expect(res.status).toBe(200);
+      const base = extra.base!;
+      expect(base.status).toBe(200);
+      const obs = row.obs ?? OBS_LISTA;
+      // (1) medible: si el fixture está vacío, esto NO se puede afirmar — y se dice, no se calla.
+      expect(`${idOf(row)} · hay datos SIN filtrar`).toBe(
+        obs.hayDatos(base) ? `${idOf(row)} · hay datos SIN filtrar` : `${idOf(row)} · FIXTURE VACÍO`,
+      );
+      // (2) `QA-M3`: el token cambia el resultado.
+      expect(obs.huella(res)).not.toBe(obs.huella(base));
+      // (3) el token discrimina (solo donde el dominio tiene con qué: ver `alterno`).
+      if (row.alterno !== undefined) {
+        const alt = extra.alterno!;
+        expect(alt.status).toBe(200);
+        expect(obs.huella(res)).not.toBe(obs.huella(alt));
+      }
+    },
     error: (row, res) => {
       // `400` y no `422`: es query, no cuerpo. Un `422` aquí es incumplimiento, no estilo de módulo.
       expect(res.status).toBe(400);
@@ -373,7 +603,9 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   const TITULO: Record<Propiedad, string> = {
     vacio: 'punto 1 · fila 1 — la cadena VACÍA no filtra (o da el default): `200`, ⛔ nunca `400`',
     espacios: 'punto 1 · fila 1 — SOLO ESPACIOS (`%20`) se trata igual que el vacío: `200`',
-    filtra: 'punto 1 · fila 2 — un token del dominio FILTRA (u ordena): `200`',
+    filtra:
+      'punto 1 · fila 2 — ⭐ un token del dominio FILTRA DE VERDAD (u ORDENA): el resultado CAMBIA ' +
+      'respecto de no filtrar y DISCRIMINA de otro token (⛔ `QA-M3`: `200` no demuestra nada)',
     error: 'punto 1 · fila 3 + punto 2 — basura ⇒ `400` con `field` y `allowed` (⛔ NO `422`)',
     value: 'punto 2 — `details.value`: obligatorio en los 6 públicos, ⛔ PROHIBIDO en el resto',
     sinNormalizar: 'punto 1 · ⛔ el `trim()` decide si viene VACÍO, NO «arregla» el token',
@@ -382,10 +614,25 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
 
   const PROPIEDADES: readonly Propiedad[] = ['vacio', 'espacios', 'filtra', 'error', 'value', 'sinNormalizar', 'cota'];
 
+  /**
+   * Las respuestas EXTRA que solo la propiedad `filtra` necesita: el resultado **sin filtrar** y el
+   * del token **alterno**. Se piden aquí y no dentro de `CONFORME` para que la aserción siga siendo
+   * pura (recibe respuestas, no hace red) — y para que la excepción medida reciba exactamente lo
+   * mismo que la fila conforme.
+   */
+  const extrasDe = async (p: Propiedad, row: AxisRow): Promise<Extra> =>
+    p !== 'filtra'
+      ? {}
+      : {
+          base: await get(row, ''),
+          ...(row.alterno !== undefined ? { alterno: await get(row, row.alterno) } : {}),
+        };
+
   for (const p of PROPIEDADES) {
     describe(TITULO[p], () => {
       it.each(exigidas(p))('%s ⇒ conforme', async (_id, row) => {
-        CONFORME[p](row, await get(row, VALOR[p](row)));
+        const res = await get(row, VALOR[p](row));
+        CONFORME[p](row, res, await extrasDe(p, row));
       });
 
       const conExcepcion = exceptuadas(p);
@@ -399,7 +646,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
           it.each(conExcepcion)('%s — hoy NO conforma, y aquí está por qué', async (_id, row) => {
             const exc = row.excepciones![p]!;
             expect(exc.motivo.length).toBeGreaterThan(80); // una excepción sin motivo no es una excepción
-            exc.hoy(await get(row, VALOR[p](row)));
+            const res = await get(row, VALOR[p](row));
+            exc.hoy(res, await extrasDe(p, row));
           });
         });
       }
@@ -411,6 +659,22 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
    * R). Mientras `D-EQ-3` no cierre, el token se sigue aceptando: se fija para que deje de
    * aceptarse **con ruido**, no en silencio.
    */
+  /**
+   * ⭐ **El candado del candado.** `valid` y `alterno` son la munición de la propiedad `filtra`: si
+   * una fila nueva se escribe sin `alterno`, la aserción (3) se salta **en silencio** y la fila
+   * vuelve a la conformidad de mentira que `QA-M3` midió. Aquí se exige que la omisión solo sea
+   * legítima donde es estructural — dominio de UN solo token — y que los dos tokens sean del
+   * dominio DECLARADO y distintos entre sí.
+   */
+  it('⭐ coherencia del REGISTRO — `alterno` solo se omite si el dominio tiene UN token', () => {
+    const malas = REGISTRO.filter(
+      (r) =>
+        !r.allowed.includes(r.valid) ||
+        (r.alterno === undefined ? r.allowed.length > 1 : !r.allowed.includes(r.alterno) || r.alterno === r.valid),
+    ).map((r) => `${idOf(r)} (valid=${r.valid}, alterno=${r.alterno ?? '—'}, |dominio|=${r.allowed.length})`);
+    expect(malas).toEqual([]);
+  });
+
   it('⛔ `D-EQ-3` (frontend primero) — `/catalog/cards?productType=sealed` HOY devuelve `200`', async () => {
     const row = REGISTRO.find((r) => r.route === 'GET /catalog/cards' && r.param === 'productType')!;
     expect((await get(row, 'sealed')).status).toBe(200);
@@ -418,14 +682,35 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
 });
 describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declarada', () => {
   /**
-   * Llaves de query cuyo dominio **NO es cerrado**: texto libre, identificadores, fechas, números,
-   * banderas booleanas y paginación. Los gobierna la línea anterior de §0 del contrato, no §0-Q
-   * (punto 7: *«filtros que no son de dominio cerrado»*).
+   * ⭐⭐ **`NO_ENUM` se parte en DOS, y la partición es el arreglo de `QA-M4`.**
    *
-   * Se cruzan **por nombre** (no por ruta) porque son transversales por construcción: un `?page=` es
-   * el mismo `?page=` en las veinticinco rutas que lo declaran.
+   * ### El defecto, medido
+   * Esta lista se cruzaba **entera por nombre**. QA plantó un endpoint NUEVO con `@Query('rarity')`
+   * y `@Query('action')` —dos nombres de aquí— y el descubrimiento salió **3/3 VERDE** (censo
+   * 176 → 178: el escáner **sí lo veía**; era el cruce el que lo absolvía). Reproducido por mí antes
+   * de tocar nada: **3/3 verde** (N=3). Es exactamente el hueco que el canario `m1` ya demuestra
+   * cerrado del lado del **registro** —*«un endpoint NUEVO que reusa un nombre ya registrado en OTRA
+   * ruta ⇒ huérfano igual»*— y que seguía **abierto de este lado**.
+   *
+   * ### Por qué NO se cierra pasándolo todo a `MÉTODO /ruta::param`
+   * Porque de las dos mitades, **una sí es transversal de verdad y la otra no**, y tratarlas igual
+   * rompe algo en las dos direcciones:
+   *
+   *  - **`TRANSVERSAL` (113 sitios, medido)** — `?page=`, `?pageSize=`, `?q=`, `?from=`, `?to=`, los
+   *    identificadores y los montos. Su dominio es abierto **por la FORMA del valor**: un `?page=`
+   *    es un número y un `?setId=` es un uuid **en cualquier ruta**, presente o futura. Fijarlos por
+   *    ruta obligaría a tocar esta lista en cada endpoint paginado nuevo — 113 entradas que solo
+   *    dicen «esto sigue siendo un número» y que nadie leería. Una lista que hay que actualizar para
+   *    que no moleste es una lista que se actualiza **sin mirar**.
+   *  - **`POR_RUTA` (15 sitios, fijados con `toEqual`)** — `?rarity=`, `?action=`, `?entityType=` y
+   *    las banderas booleanas. Aquí la exención **no** se sigue del nombre: se sigue de una
+   *    **medición de ESA ruta** («`Card.rarity` es `String`, no enum», «esto es un booleano»). Esa
+   *    medición ⛔ **no se hereda** a una ruta nueva: mañana `?rarity=` puede ser un enum en otro
+   *    endpoint, y `?action=` de `/admin/audit-log` es texto libre **porque su columna lo es**, no
+   *    porque se llame `action`. Con la lista fijada por llave, el endpoint de `QA-M4` sale
+   *    **huérfano** y el descubrimiento se pone ROJO, que es lo que tenía que pasar desde el principio.
    */
-  const NO_ENUM: readonly string[] = [
+  const NO_ENUM_TRANSVERSAL: readonly string[] = [
     // Paginación y búsqueda libre (§0, línea de «filtros de lista admin»).
     'page',
     'pageSize',
@@ -446,21 +731,32 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     'maxPriceCents',
     'quotedTotalCents',
     'date',
-    // Texto libre sobre columnas `String` del schema (medido 2026-09-13: `Card.rarity`,
-    // `AuditLog.action`, `AuditLog.entityType` son `String`, no enums).
-    'rarity',
-    'action',
-    'entityType',
-    // Banderas booleanas (`'true'`/`'1'`): no son dominios de enum.
-    'force',
-    'guest',
-    'live',
-    'needsManual',
-    'awaitingGuide',
-    'offerReissueAlert',
-    'onlyAlerts',
-    'principalOnly',
-    'gradingHighlight',
+  ];
+
+  /**
+   * ⭐ **La exención que es una medición DE ESA RUTA, y por eso va por `MÉTODO /ruta::param`.**
+   *
+   * Texto libre sobre columnas `String` del schema (medido 2026-09-13: `Card.rarity`,
+   * `AuditLog.action`, `AuditLog.entityType` son `String`, no enums) y banderas booleanas
+   * (`'true'`/`'1'`). ⛔ **Fijada con `toEqual` y con tope**: un `@Query('rarity')` en una ruta nueva
+   * no hereda esta exención — hay que medir la ruta nueva y escribirla aquí a mano.
+   */
+  const NO_ENUM_POR_RUTA: readonly string[] = [
+    'GET /admin/audit-log::action',
+    'GET /admin/audit-log::entityType',
+    'GET /admin/buylist::awaitingGuide',
+    'GET /admin/buylist::live',
+    'GET /admin/buylist::offerReissueAlert',
+    'GET /admin/buylist/pending-shipment-confirmation::onlyAlerts',
+    'GET /admin/inventory/sealed-products::principalOnly',
+    'GET /admin/orders::guest',
+    'GET /admin/orders::needsManual',
+    'GET /buylist/cards::rarity',
+    'GET /catalog/cards::gradingHighlight',
+    'GET /catalog/cards::rarity',
+    'POST /admin/catalog/backfill::force',
+    'POST /admin/catalog/refresh-variants-all::force',
+    'POST /admin/catalog/sync-all::force',
   ];
 
   /**
@@ -536,11 +832,14 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     expect(sites.some((s) => s.key === 'GET /catalog/cards::finish')).toBe(true);
   });
 
-  it('⭐ ningún `@Query` fuera de las tres listas (si sale uno: su clase la decide el ARQUITECTO)', () => {
+  it('⭐ ningún `@Query` fuera de las CUATRO listas (si sale uno: su clase la decide el ARQUITECTO)', () => {
     const huerfanos = sites
       .filter(
         (s) =>
-          !(s.param !== null && NO_ENUM.includes(s.param)) &&
+          !(s.param !== null && NO_ENUM_TRANSVERSAL.includes(s.param)) &&
+          // ⭐ `QA-M4`: por LLAVE, no por nombre. Un endpoint nuevo con `@Query('rarity')` NO hereda
+          // la exención medida de `/catalog/cards` — sale huérfano, que es el punto.
+          !NO_ENUM_POR_RUTA.includes(s.key) &&
           !registrados.has(s.key) &&
           !SIN_CLASE_DECLARADA.includes(s.key) &&
           !QUERY_SIN_NOMBRE.includes(s.key),
@@ -578,9 +877,15 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(22);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
+    // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
+    // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,
+    // intachable en su PR, y la exención por-ruta se volvería otra lista por nombre disfrazada.
+    // Medido el 2026-09-13: 15 sitios (3 de texto libre + 12 banderas booleanas).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(15);
     // Sin duplicados: dos entradas iguales inflarían la cola sin tocar el tope.
     expect(new Set(SIN_CLASE_DECLARADA).size).toBe(SIN_CLASE_DECLARADA.length);
     expect(new Set(QUERY_SIN_NOMBRE).size).toBe(QUERY_SIN_NOMBRE.length);
+    expect(new Set(NO_ENUM_POR_RUTA).size).toBe(NO_ENUM_POR_RUTA.length);
   });
 
   it('la cola de enrutamiento no puede ENCOGER en silencio tampoco: lo que lista sigue existiendo', () => {
@@ -589,6 +894,8 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // hay que quitarlo de aquí — la cola tampoco puede afirmar un estado que ya no es.
     expect(SIN_CLASE_DECLARADA.filter((k) => !vistos.includes(k))).toEqual([]);
     expect(QUERY_SIN_NOMBRE.filter((k) => !vistos.includes(k))).toEqual([]);
+    // Ídem para las exenciones medidas por ruta: si el endpoint se fue, la medición ya no aplica.
+    expect(NO_ENUM_POR_RUTA.filter((k) => !vistos.includes(k))).toEqual([]);
   });
 
   it('el registro de §0-Q existe ENTERO en el código (un eje registrado que nadie expone es un registro caduco)', () => {
