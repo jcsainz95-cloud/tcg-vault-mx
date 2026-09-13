@@ -24,6 +24,7 @@ import { PricingService, PriceInfo, MONEY_REF_WHERE, isBetterRef } from '../pric
 import { toCardDTO } from '../catalog/catalog.service';
 import { IneViewUrlTtl, UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
 import { toAddressDTO } from '../users/address-dto';
@@ -53,25 +54,17 @@ const KYC_STATUS_FILTER_VALUES: readonly KycStatus[] = Object.values(KycStatus);
 const USER_STATUS_FILTER_VALUES: readonly UserStatus[] = Object.values(UserStatus);
 
 /**
- * ⭐ v1.71 (`A5`, §M6-L.0.3) — **o filtra, o `400`. Lo que NUNCA hace es ignorar.**
+ * ⭐ v1.71 (`A5`, §M6-L.0.3) → **consolidado en `common/enum-filter.ts` por `P-84`.**
  *
- * *Ignorar en silencio es la única conducta que produce el daño que `A5` viene a evitar: una lista
- * SIN FILTRAR que el operador lee como su cola.* Y degradar a lista completa es peor que fallar,
- * porque el fallo se ve y la cola falsa no.
+ * *O filtra, o `400`. Lo que NUNCA hace es ignorar* — y lo que tampoco hace es `500`. La conducta
+ * que `A5` publicó aquí resultó ser la que faltaba en **otros seis ejes** de cuatro módulos
+ * (`P-84`), así que el helper dejó de ser privado de este servicio: era ya la **cuarta copia** del
+ * mismo código con **tres formas de `details` distintas** (deuda `H3`). Vive una sola vez en
+ * `common/enum-filter.ts`, con el razonamiento de clase E/R al lado; aquí solo se importa.
  *
- * `400` (no `422`): es **query**, y es el código que ya usan los listados admin de este contrato.
- * `details.field` es obligatorio — el operador tiene que poder distinguir cuál de los dos ejes
- * rechazó (`status` vs `kycStatus`), que es justo lo que hace innecesario renombrarlos (§M6-L.4).
+ * ⚠️ La conducta de `GET /admin/users` **no cambia**: mismo `400`, mismo `VALIDATION_ERROR`, mismos
+ * `details.field`/`details.allowed`. Lo único que se movió es dónde está escrita.
  */
-function assertEnumFilter<T extends string>(field: string, value: string, allowed: readonly T[]): T {
-  if (!(allowed as readonly string[]).includes(value)) {
-    throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} filter '${value}'`, {
-      field,
-      allowed: [...allowed],
-    });
-  }
-  return value as T;
-}
 
 /**
  * v2.1.9 (R1) — **lista BLANCA de columnas de `KycProfile` que pueden salir de una respuesta admin.**
@@ -822,8 +815,14 @@ export class AdminService {
 
     // `?status=` — enum `UserStatus` COMPLETO (`active|blocked|deleted`). `deleted` se admite porque
     // es un valor legal del campo y ya viaja en el DTO; negarlo sería una segunda mentira (§M6-L.4).
-    if (params.status) {
-      and.push({ status: assertEnumFilter('status', params.status, USER_STATUS_FILTER_VALUES) });
+    // `P-84`/§0-Q: `parseEnumFilter` (no `assertEnumFilter`) porque el `if (params.status)` de `A5`
+    // **no cubría el espacio en blanco**: `' '` es truthy ⇒ llegaba al validador ⇒ `400`. Medido por
+    // HTTP el 2026-09-13: `GET /admin/users?status=%20` ⇒ **`400`**, cuando §0-Q exige `200` (vacío o
+    // espacios ≡ ausente). El censo del contrato daba este endpoint por conforme; lo era **salvo en
+    // ese borde**. Aquí se cierra con el mismo helper que los seis ejes nuevos.
+    const statusFilter = parseEnumFilter('status', params.status, USER_STATUS_FILTER_VALUES);
+    if (statusFilter) {
+      and.push({ status: statusFilter });
     }
 
     // `?q=` — el buscador por email/nombre. Su `OR` vive DENTRO de su cláusula, no en la raíz.
@@ -836,8 +835,8 @@ export class AdminService {
     // `?kycStatus=` — enum `KycStatus`. `none` = **sin fila** en `KycProfile` ∪ **fila con `none`**:
     // es la contrapartida EXACTA de la derivación `?? 'none'` de abajo, y lo que hace que la partición
     // del candado `L-2` cuadre (la suma de los cuatro `total` == el `total` sin filtro).
-    if (params.kycStatus) {
-      const value = assertEnumFilter('kycStatus', params.kycStatus, KYC_STATUS_FILTER_VALUES);
+    const value = parseEnumFilter('kycStatus', params.kycStatus, KYC_STATUS_FILTER_VALUES);
+    if (value) {
       and.push(
         value === KycStatus.none
           ? { OR: [{ kycProfile: { is: null } }, { kycProfile: { is: { kycStatus: KycStatus.none } } }] }

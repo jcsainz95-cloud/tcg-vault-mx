@@ -18,6 +18,7 @@ import {
   VaultZone,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { BusinessException } from '../../common/business.exception';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
@@ -52,6 +53,12 @@ import { toCardDTO } from '../catalog/catalog.service';
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
+
+/** `P-84` · clase **E** (§4.37): los tres ejes de enum de `GET /admin/inventory/items`, DERIVADOS
+ * del schema — ni una lista escrita a mano. */
+const INVENTORY_STATUS_FILTER_VALUES: readonly InventoryStatus[] = Object.values(InventoryStatus);
+const OWNER_TYPE_FILTER_VALUES: readonly OwnerType[] = Object.values(OwnerType);
+const VAULT_ZONE_FILTER_VALUES: readonly VaultZone[] = Object.values(VaultZone);
 
 /**
  * v1.36-sealed-alta (M-37, P-35) — proyección de los 4 campos aditivos del alta de SELLADO, ya
@@ -2221,11 +2228,24 @@ export class InventoryService {
     pageSize: number;
   }) {
     const where: Prisma.InventoryItemWhereInput = {};
-    if (q.status) where.status = q.status as never;
+    // `P-84` — TRES ejes de enum vivían aquí como `as never`: el valor crudo entraba al `where`,
+    // Prisma reventaba y el filtro global lo convertía en **`500 INTERNAL`**. Medido por HTTP antes
+    // del arreglo: `?status=banana`, `?ownerType=banana` y `?zone=banana` ⇒ `500` los tres.
+    //
+    // Que sean TRES en la MISMA petición es justo por lo que `details.field` es obligatorio: un `400`
+    // que no diga cuál rechazó deja al operador adivinando entre `status`, `ownerType` y `zone`.
+    //
+    // Clase **E** los tres (derivados de `InventoryStatus`/`OwnerType`/`VaultZone`): un filtro del
+    // back-office existe para rebanar la tabla entera, así que un valor nuevo del schema debe ser
+    // filtrable el mismo día. Con lista a mano, el estado nuevo quedaría invisible en la consola.
+    const statusFilter = parseEnumFilter('status', q.status, INVENTORY_STATUS_FILTER_VALUES);
+    if (statusFilter) where.status = statusFilter;
     if (q.cardId) where.cardId = q.cardId;
-    if (q.ownerType) where.ownerType = q.ownerType as never;
+    const ownerTypeFilter = parseEnumFilter('ownerType', q.ownerType, OWNER_TYPE_FILTER_VALUES);
+    if (ownerTypeFilter) where.ownerType = ownerTypeFilter;
     if (q.locationId) where.locationId = q.locationId;
-    if (q.zone) where.location = { zone: q.zone as never };
+    const zoneFilter = parseEnumFilter('zone', q.zone, VAULT_ZONE_FILTER_VALUES);
+    if (zoneFilter) where.location = { zone: zoneFilter };
     if (q.finish) where.finish = q.finish;
     if (q.productType) where.productType = q.productType;
     if (q.q) where.OR = [{ folio: { contains: q.q, mode: 'insensitive' } }];

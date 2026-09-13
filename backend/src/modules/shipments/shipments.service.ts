@@ -18,6 +18,10 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { computeShipmentBreakdown } from '../../common/money';
+import { parseEnumFilter } from '../../common/enum-filter';
+
+/** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
+const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(ShipmentStatus);
 
 /** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
 type EnrichedShipmentItem = ShipmentItem & {
@@ -370,7 +374,11 @@ export class ShipmentsService {
     kind?: string,
   ) {
     const where: Prisma.ShipmentRequestWhereInput = {};
-    if (status) where.status = status as never;
+    // `P-84` — aquí había un `status as never`: valor crudo al `where`, Prisma revienta y el filtro
+    // global lo convierte en **`500 INTERNAL`** (medido por HTTP: `?status=banana` ⇒ `500`).
+    // Clase **E**: derivado de `ShipmentStatus`.
+    const statusFilter = parseEnumFilter('status', status, SHIPMENT_STATUS_FILTER_VALUES);
+    if (statusFilter) where.status = statusFilter;
     // v1.7-admin-users: filtro opcional por ShipmentRequest.userId (simetría con /admin/orders).
     // Nota v1.21: un envío directo de invitado tiene `userId=null`, así que este filtro
     // simplemente no lo devuelve (comportamiento correcto para la ficha 360° de un usuario).

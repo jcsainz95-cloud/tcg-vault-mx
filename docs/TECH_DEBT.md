@@ -587,15 +587,37 @@
 - **Disparador:** al próximo cambio de la forma de `K`, extraer un helper único `variantKey(item)` en
   `pricing`/`common` y hacer que los 3 sitios lo consuman.
 
-#### H3 · Duplicación del andamiaje agrupar→ordenar→paginar y de `validateEnum` entre `CatalogService` y `SealedCatalogService`
+#### H3 · Duplicación del andamiaje agrupar→ordenar→paginar y del helper de validar enum — **MITAD RESUELTA (2026-09-13, `P-84`)**
 - **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
-- **Deuda:** el andamiaje **agrupar → ordenar → paginar** sobre grupos, y el helper `validateEnum`, están
-  **duplicados** entre `CatalogService` y `SealedCatalogService` (`validateEnum` aparece **verbatim** en
-  ambos). Un cambio de semántica obliga a tocar los dos servicios en sincronía. Rutas:
-  `backend/src/modules/catalog/catalog.service.ts` + `backend/src/modules/catalog/sealed-catalog.service.ts`.
-- **No-bloqueante:** las copias son **correctas y uniformes hoy**; el riesgo es de **divergencia futura**.
-- **Disparador:** al próximo cambio del andamiaje, extraer `sortAndPaginateGroups` / `groupBy` genéricos y
-  mover `validateEnum` a `common/`, y hacer que ambos servicios los consuman.
+- **Deuda (original):** el andamiaje **agrupar → ordenar → paginar** sobre grupos, y el helper
+  `validateEnum`, **duplicados** entre `CatalogService` y `SealedCatalogService` (`validateEnum` aparece
+  **verbatim** en ambos). Disparador declarado: *«mover `validateEnum` a `common/`»*.
+
+**✅ Mitad del enum — RESUELTA.** El disparador se cumplió por `P-84`: el helper existe **una vez** en
+`backend/src/common/enum-filter.ts` (`assertEnumFilter` + `parseEnumFilter`), y la conducta está normada en
+`API_CONTRACT §0-Q` / `ARCHITECTURE §4.37.1`. Medido el 2026-09-13, el censo de copias **bajó de 4 a 2** y
+las formas divergentes de `details` **de 3 a 1**:
+
+| Antes de `P-84` (4 copias, 3 formas de `details`) | Ahora |
+|---|---|
+| `admin/admin.service.ts:66-74` → `{field,allowed}` | **importa** `common/enum-filter` |
+| `inventory/inventory.controller.ts` ×3 inline → `{<campo>,allowed}` **sin `field`** | **importa**; `details` alineado a `{field,allowed}` |
+| `buylist/buylist.service.ts` inline CSV → `{invalidStatus}` | conserva `invalidStatus` (publicado) **+** `field`/`allowed` — aditivo |
+| `catalog/catalog.service.ts:783-788` + copia verbatim en `sealed-catalog.service.ts:212-221` → `{field,value,allowed}` | ⚠️ **siguen duplicadas** |
+
+Nuevos llamadores del helper único: **7** (los 6 ejes de `P-84` + `/admin/users`), más los 4 alineados de
+inventario y el CSV de buylist. Pruebas: `backend/test/enum-filter.spec.ts` (unitaria del helper, incluida la
+frontera *vacío ≡ ausente* vs *`' pending'` ⇒ `400`*) y las dos suites de integración de `P-84`.
+
+- **⚠️ Lo que QUEDA ABIERTO (no-bloqueante, medido 2026-09-13):**
+  1. **Las dos `validateEnum` del catálogo** (`catalog/catalog.service.ts:783-788` y su copia verbatim en
+     `sealed-catalog.service.ts:212-221`) **no se migraron**. No es olvido: son del work stream *Catálogo y
+     precios*, `§0-Q` punto 4 las declara **ya conformes** (emiten `{field,value,allowed}`, y `value` es
+     opcional-conforme), y migrarlas desde el stream de `P-84` habría tocado módulos de otro stream sin
+     cerrar ningún defecto. Su migración es **mecánica** hoy: el destino ya existe.
+  2. **El andamiaje agrupar→ordenar→paginar** sigue duplicado e **intacto** — `P-84` no lo tocó.
+- **Disparador (actualizado):** al próximo cambio en `catalog`/`sealed-catalog`, migrar sus dos `validateEnum`
+  a `common/enum-filter.ts` (conservando `details.value`) y extraer `sortAndPaginateGroups`/`groupBy`.
 
 #### H4 · Faltaban 2 tests de regresión de grupos (precio divergente + sort/paginación) — RESUELTO (2026-08-22)
 - **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test). **Estado:** **RESUELTO**.
