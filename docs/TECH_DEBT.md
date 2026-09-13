@@ -670,9 +670,28 @@ aparece, con la bandera SÍ).
   `if (q.X)` en cualquiera de los seis ejes pone **exactamente una** prueba en rojo — medido **3/3 por eje,
   7 mutaciones** (los 6 ejes + retirar `echoValue`), sobre copia del árbol entero y base efímera.
 
-#### H3-b · `?missing=` de `pending-publish` es el último validador inline, y su clase la decide el arquitecto — **ABIERTA (2026-09-13, `P-89`)**
+#### H3-b · `?missing=` de `pending-publish` sigue inline, y su clase la decide el arquitecto — **ABIERTA (2026-09-13, `P-89`; título y citas CORREGIDOS 2026-09-13 por `H3-d`)**
 - **Dueño:** backend. **Severidad:** Baja (aceptada). **Bloquea:** nada.
-- **Deuda:** `inventory/inventory.controller.ts:491-495` valida `?missing=` **inline**, cinco líneas por
+- **⚠️⚠️ TRES correcciones a esta misma ficha (techlead, verificadas contra el árbol en `H3-d`).** Se dejan
+  escritas en vez de reescribir la ficha en silencio, porque *una ficha que afirma un estado que nadie volvió
+  a medir es lo que manda a alguien a rehacer lo que ya está hecho* (O-5) — y ésta lo afirmaba tres veces:
+  1. **El título decía «el ÚLTIMO validador inline» y no lo era.** Censado el 2026-09-13 con
+     `rg "VALIDATION_ERROR', \`invalid " backend/src/` (descontando el de fechas, que no es enum), y
+     **después** del arreglo de `H3-d`, sobreviven **SEIS** validadores inline de enum — **cuatro de ellos
+     fuera de `inventory`**: `admin-bounties.controller.ts:120` (`state`) y `:152` (`sort`);
+     `pricing.controller.ts:292` (`reason`); `admin/admin.controller.ts:472` (`axis`). Los otros dos son de
+     `inventory`: `:178` (`origin`, ficha `H3-e`) y `:499` (éste). *«El último» era falso el día que se
+     escribió, y contarlos costó un `rg`.*
+  2. **La cita `:491-495` apuntaba a los DECORADORES `@Query`, no al validador.** El validador está en
+     **`:498-503`**.
+  3. **Sobreviven DOS cosas que la ficha no nombraba**, y las dos importan:
+     - **el cast de `:511`** — `missing as 'location' | 'price' | undefined`: es el **mismo patrón**
+       `readonly string[]` → re-cast que `H3-c` acaba de erradicar del resto del fichero. `H3-c` se declaró
+       RESUELTA y este superviviente estaba a trece líneas.
+     - **`:501` emite el array `allowed` POR REFERENCIA** (`allowed: PENDING_PUBLISH_MISSING_VALUES`), no la
+       **copia** que §0-Q punto 2 exige y que el helper sí hace (`enum-filter.ts`, `allowed: [...allowed]`).
+       Un consumidor que lo mutara (`.sort()`, `.push()`) envenenaría el dominio del proceso entero.
+- **Deuda:** `inventory/inventory.controller.ts:498-503` valida `?missing=` **inline**, cinco líneas por
   encima de una llamada al helper compartido, y emite `{missing, allowed}` — **sin `field`**, que §0-Q punto
   2 exige *siempre*. Medido por HTTP el 2026-09-13 (admin real, base efímera):
   `?missing=` ⇒ `400 {"missing":"","allowed":[...]}`; `?missing=%20` ⇒ `400`; `?missing=bogus` ⇒ `400`;
@@ -685,10 +704,29 @@ aparece, con la bandera SÍ).
   **enum**»*, y **si esto es un enum a esos efectos es una pregunta abierta del arquitecto**, no una que
   backend pueda contestarse a sí mismo (regla 9 + regla de conflicto de `CLAUDE.md`).
 - **No alcanzable desde el front hoy:** `frontend/src/lib/api.ts:3625` llama sin query (medido por techlead).
-- **Disparador:** cuando el arquitecto decida si una unión de literales entra en §0-Q. **Si SÍ:** migrar a
-  `parseEnumFilter` (gana `field`, y `?missing=` pasa a `200` sin filtrar) — mecánico, el destino existe.
-  **Si NO:** dejar el inline y anotar en §M1 que este `400` es correcto y no es §0-Q, para que la próxima
-  revisión no lo cuente como incumplimiento.
+- **⭐ DATO NUEVO para la decisión del arquitecto (`H3-d`, 2026-09-13): «unión de literales» NO es una sola
+  clase, y los candidatos que se agruparon bajo ese nombre se parten en dos.** La pregunta útil no es *«¿el
+  tipo en TypeScript es una unión?»* sino *«¿hay un enum de PRISMA detrás?»* — porque de eso depende si el
+  dominio puede **crecer solo** y dejar el filtro mintiendo:
+
+  | Param | Tipo en `src/` | ¿Enum de Prisma detrás? | Qué es realmente |
+  |---|---|---|---|
+  | `?missing=` (esta ficha) | `('location'\|'price')[]` | **NO** (`rg 'enum.*[Mm]issing' schema.prisma` ⇒ 0) | unión pura — **la pregunta abierta** |
+  | `?axis=` (`admin.controller.ts:472`) | `'sale'\|'buy'` inline | **NO** | unión pura — **misma pregunta** |
+  | `?sort=` (`admin-bounties.controller.ts:152`) | `ADMIN_BOUNTY_SORT_VALUES` | **NO** | unión pura, y además **no es un filtro** sino un orden con default |
+  | `?reason=` (`pricing.controller.ts:292`) | `PendingReason` (`common/pricing-curve.ts:574`) | **SÍ** — `enum PendingPriceReason` (`schema.prisma:394-397`), columna persistida `PendingPriceEntry.reason` (`:1093`) con `@@index` | ⚠️ **NO es unión pura: es un enum de Prisma TRANSCRITO A MANO** |
+  | `?origin=` (`inventory.controller.ts:178`) | dos literales inline | **SÍ** — `enum SealedGroupKind` (`schema.prisma:82-85`) | ⚠️ **ídem** (ficha `H3-e`) |
+
+  **Los dos de abajo no necesitan que se resuelva `H3-b`:** §0-Q punto 3 ya los norma («derivado, no
+  transcrito»), y el riesgo es el concreto que este repo ya pagó — si el schema gana un valor, la lista
+  escrita a mano **no lo acepta** y el operador no puede filtrar por un estado que **sí existe en su base**
+  (es el bug de `SealedSubtype`/`upc` de `enum-values.ts`). *Se encargaron `?reason=` y `?axis=` juntos como
+  «misma clase»; medidos, no lo son.*
+- **Disparador:** cuando el arquitecto decida si una unión de literales **pura** entra en §0-Q. **Si SÍ:**
+  migrar a `parseEnumFilter` (gana `field`, y `?missing=` pasa a `200` sin filtrar) — mecánico, el destino
+  existe. **Si NO:** dejar el inline y anotar en §M1 que este `400` es correcto y no es §0-Q, para que la
+  próxima revisión no lo cuente como incumplimiento. **En los dos casos**, el cast de `:511` y la referencia
+  de `:501` se arreglan igual: no dependen de la decisión.
 
 #### H3-c · Los filtros de `inventory.controller.ts` se declaraban `readonly string[]` y obligaban a re-castear — **RESUELTA (2026-09-13, `P-89`)**
 - **Dueño:** backend. **Severidad:** Baja (tipos, no conducta). **Estado:** **RESUELTA**.
@@ -704,6 +742,71 @@ aparece, con la bandera SÍ).
   siguen en `200`.
 - **Comprobación:** `npx tsc --noEmit` en verde **con los casts fuera** es la prueba de que eran redundantes;
   si alguien revierte el tipo del array, tsc vuelve a exigirlos.
+
+#### H3-d · Los dos ejes de enum de `pricing` estaban fuera del censo de §0-Q — **RESUELTA (2026-09-13)**
+- **Dueño:** backend. **Severidad:** Media (uno es **pantalla de dinero**). **Estado:** **RESUELTA**.
+- **Deuda:** el censo de `API_CONTRACT §0-Q punto 4` **no mencionaba `pricing`**, así que `P-84` (seis ejes
+  admin) y `P-89` (seis del catálogo público) pasaron por al lado de sus dos ejes. Medido por HTTP con token
+  `super_admin` sobre `3c1bd1e`: `?context=` de `GET /admin/pricing/pending` daba **`422`** en vacío, espacio
+  **y** token inválido (§0-Q manda `200`/`200`/**`400`** — punto 2 ratifica `400` *«es query, no cuerpo»*), y
+  `?finish=` de `GET /admin/pricing/bounties` daba `400` en vacío y espacio.
+  ⚠️ **`pending` es la cola de precios pendientes**: un `Select` en «Todas» manda cadena vacía (§M6-L.3), así
+  que la pantalla se rompía **por su estado por defecto**.
+- **El `422` NO era conducta publicada** (se comprobó ANTES de retirarlo, porque si lo fuera era del
+  arquitecto por la regla 9): `rg 'PendingPriceContext' docs/API_CONTRACT.md` ⇒ **0 resultados**, y la única
+  línea que describe el parámetro (`API_CONTRACT.md:10610`) declara dominio y «omitido = todos» **sin código
+  de error**. El `422` vivía en un comentario del controller, como *«mismo estilo que el resto del controller»*.
+- ⭐ **Lo que delató el de `bounties`, y es lo que esta ficha quiere que se recuerde:** en el **mismo handler**,
+  `state` y `setId` **sí** descartaban el vacío. **Nadie decidió la diferencia.** Y al medirlo apareció que la
+  cosa era peor de lo que se creía — los **cuatro** parámetros salieron con **TRES** conductas distintas ante
+  la misma entrada, cada una con el operador que su autor tenía a mano:
+
+  | Param | `?x=` | `?x=%20` | Operador |
+  |---|---|---|---|
+  | `state` | `200` | `200` | `.trim()` + `.filter(v => v !== '')` ✅ |
+  | `setId` | `200` | `200` | `trimmed()` ✅ |
+  | `sort` | `200` | ⛔ `400` | `raw === ''` — **medio arreglo** |
+  | `finish` | ⛔ `400` | ⛔ `400` | `!== undefined` |
+
+  *El `sort` se encargó como «ya conforme»; la medición lo refutó.* Es la **misma trampa del `if (status)` de
+  `P-84`** por la otra cara: allí `' '` era *truthy* y pasaba, aquí `' '` **no es `''`** y pasa.
+- **Fix:** `context` y `finish` migran a `parseEnumFilter` (helper único, dominios **derivados** de Prisma);
+  `sort` recibe solo el `trim()` — **no se migra**, porque su dominio es una unión de literales pura y eso es
+  la pregunta abierta de `H3-b`. `parseFinish` se borra (era la quinta copia del helper).
+- **Comprobación:** `test/integration/pricing-enum-filters-empty.e2e-spec.ts` (19/19). Mutaciones sobre copia
+  del árbol ENTERO y base efímera: reintroducir el `422` inline (**3/3**, mata 5 pruebas, todas de `context`),
+  reintroducir `finish !== undefined` (**3/3**, mata 2), revertir el `trim()` de `sort` (**3/3**, mata **1** —
+  exactamente la que descubrió el medio arreglo).
+
+#### H3-e · `?origin=` de `GET /admin/inventory/sealed-products` — enum de Prisma inline y `400` SIN `details` — **ABIERTA (2026-09-13, `H3-d`)**
+- **Dueño:** backend (**work stream «Inventario y vault»**, no el de `pricing`). **Severidad:** Baja.
+  **Bloquea:** nada.
+- **Deuda:** `inventory/inventory.controller.ts:177-179` compara contra **dos literales escritos a mano**
+  (`origin !== 'set_main' && origin !== 'promo_collection'`) y detrás hay un **enum de Prisma**:
+  `enum SealedGroupKind` (`schema.prisma:82-85`), columna persistida (`:625`, `:656`). Es la misma clase que
+  `?reason=`: **enum de Prisma transcrito a mano**, que §0-Q punto 3 prohíbe («derivado, no transcrito»).
+- ⚠️ **Incumple §0-Q punto 2 más fuerte que ningún otro eje del censo:** su `400` emite `details` **VACÍO**
+  (`{}` — medido, no supuesto), sin `field` **ni** `allowed`. Los demás al menos emiten uno de los dos.
+  Y `' '` ⇒ `400` (el medio arreglo de `sort`, otra vez: descarta `''` pero no el espacio).
+- **Por qué NO se arregló aquí:** es de **otro work stream**, y el pase que lo encontró era del de `pricing`.
+  Se mide y se enruta, no se cruza (CLAUDE.md, «una sesión = un work stream»).
+- **Nadie lo había nombrado:** no está en el censo de §0-Q punto 4, ni en el encargo, ni en la ficha `H3-b`.
+  Salió de censar `src/` **después** del arreglo, que es la mitad del trabajo que el censo original no hizo.
+- **Comprobación:** congelado por prueba en el bloque CENSO de
+  `test/integration/pricing-enum-filters-empty.e2e-spec.ts`. **Disparador:** el próximo pase que toque
+  `inventory`.
+
+#### H3-f · `?sealedSubtype=` de `GET /catalog/cards` es ESTRUCTURALMENTE vacío — **ABIERTA (2026-09-13, QA)**
+- **Dueño:** backend + **decisión de producto**. **Severidad:** Baja. **Bloquea:** nada.
+- **Deuda (QA, medido):** `catalog.service.ts:1155` aplica `singlesPublishedWhere` (`:510-516`), que excluye
+  `productType:'sealed'` (**guardarraíl H9**). Así que `?sealedSubtype=box` devuelve **0** incluso con sellado
+  publicado en la BD: el eje admite medir `200`/`400`, **nunca un total discriminante**.
+- **⚠️ Preexistente: NO lo introdujo `P-89`.** Se anota porque cambia lo que significa el verde de ese eje —
+  una prueba que solo puede comprobar el código de estado no distingue «filtra bien» de «no filtra nada».
+- ⛔ **No se arregla sin que alguien decida si H9 debe seguir.** Quitar el guardarraíl es decisión de producto
+  (¿debe `/catalog/cards` devolver sellado?), no una limpieza. **Disparador:** que el arquitecto o el dueño
+  resuelvan si `sealedSubtype` tiene sentido en el endpoint de **singles**; si no lo tiene, lo honesto es
+  **retirar el parámetro**, no arreglar el filtro.
 
 #### H4 · Faltaban 2 tests de regresión de grupos (precio divergente + sort/paginación) — RESUELTO (2026-08-22)
 - **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test). **Estado:** **RESUELTO**.
