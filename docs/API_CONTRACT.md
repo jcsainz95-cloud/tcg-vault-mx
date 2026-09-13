@@ -2,7 +2,30 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-13 (rev **v1.72**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-13 (rev **v1.73**).
+>
+> **Changelog v1.73 — §0-Q DEJA DE LLEVAR UN CENSO DE ESTADO, Y SE CIERRAN LAS SEIS PREGUNTAS ABIERTAS QUE `P-84` /
+> `P-89` / `H3-d` DEVOLVIERON (2026-09-13, arquitecto; base v1.72, vigente entera salvo lo que esta rev retira).
+> **Cero DDL, cero migración, cero endpoints nuevos. UN parámetro retirado y UN dominio recortado (los dos en §2, y
+> los dos BREAKING con orden de despliegue escrito).****
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **§0-Q punto 4 RETIRA el censo de estado** y lo sustituye por un **registro de CLASE** (qué eje existe, qué dominio acepta, E/R/L). El **estado** pasa a vivir en una suite ejecutable del backend, **`C-EQ-1`**, que además **descubre** los `@Query` sin clase declarada. *Un censo de estado dentro de un documento normativo caduca **con autoridad**, y ya caducó dos veces en tres días* | §0-Q · nuevo punto 0 | **Sí, backend** (el candado) |
+> | **2** | **§0-Q punto 1 fila 3: se CORRIGE el mecanismo y se CIERRA su nota `NO MEDIDO`.** No llega ningún array al handler (`transform: true`); `?x=a&x=b` ⇒ `'a,b'`, **medido**. Con ello **desaparece la excepción** que §M5 tenía abierta | §0-Q · §M5 | **No** (la conducta ya se cumple) |
+> | **3** | **§0-Q punto 3 gana la clase `L` (LITERAL)**: una unión pura **sí** entra en §0-Q, y su línea canónica es la del propio endpoint. Ratifica que un **enum de Prisma transcrito a mano** ya era incumplimiento, sin pregunta abierta | §0-Q · §M1 · §M2 · §M9 | **Sí, backend** (`?reason=`, `?origin=`, `?axis=`, `?missing=`) |
+> | **4** | **§0-Q punto 5: los tokens de un CSV SÍ se recortan** — regla única *«se recorta la SINTAXIS, nunca el TOKEN»*. Cierra la asimetría entre `?status=%20pagada` (filtra) y `' pending'` escalar (`400`) **sin excepciones** | §0-Q · §M5 | **No** (es lo que el código ya hace) |
+> | **5** | **§0-Q punto 2: `details.value` pasa de «opcional» a CONDICIONAL** (obligatorio en los dos catálogos públicos, ⛔ prohibido en ejes nuevos) y **se NORMA la cota del eco** del valor del cliente, en `details.value` **y** en `message` | §0-Q | **No** (ya implementado y con candado) |
+> | **6** | **§0-Q punto 6: los ejes de ORDEN (`?sort=`)** quedan normados (vacío ⇒ **default**, malo ⇒ `400` con la forma del punto 2, ⛔ sin *clamp* silencioso) | §0-Q · §M2-B.1 | **No** |
+> | **7** | ⛔ **`GET /catalog/cards?sealedSubtype=` se RETIRA** y **`?productType=` pierde `sealed`** (pasa a clase **R**): los dos eran **estructuralmente vacíos** por el guardarraíl `H9`. El sellado se sirve por **§2-S** | §2 | **Sí — FRONTEND PRIMERO, backend después** |
+> | **8** | **§Enums gana `PendingPriceContext`** (no existía: `rg` ⇒ 0) y **recupera `SealedGroupKind`**, que estaba declarado fuera de su línea canónica | §Enums · §M1 · §M2 | **No** (habilita la paridad a tres bandas) |
+>
+> **Lo que NO cambia y se dice explícito:** ningún shape de respuesta `200`, ninguna paginación, ningún filtro no-enum,
+> la doctrina de **llaves de query desconocidas** (sigue ⛔ acotada a `GET /admin/users`, `D-A5-3`), los enums **en el
+> cuerpo**, y **el texto del `message`** (§0-Q punto 2 norma su **cota**, no su contenido).
+> **Desviaciones enrutadas:** **`D-EQ-2`** (los cuatro ejes que incumplen §0-Q, dueño **backend**) y **`D-EQ-3`**
+> (los dos ejes de sellado de §2, dueños **frontend** → **backend**, en ese orden), ambas en **ARCHITECTURE §9**.
+> ⛔ **Ninguna de las dos se escribe en §0-Q**: una desviación es una afirmación de estado, y §0-Q ya no las admite.
 >
 > **Changelog v1.72 — `P-84` · SE CIERRA LA CLASE «ENUM DE QUERY CRUDO A PRISMA ⇒ `500`» (2026-09-13, arquitecto;
 > base v1.71, vigente entera). Cambio de CONDUCTA (un `500` pasa a `400`), **cero endpoints nuevos, cero DDL, cero
@@ -10,7 +33,10 @@
 >
 > | # | Qué cambia | Dónde | ¿Hay que desplegar? |
 > |---|---|---|---|
-> | **1** | **NUEVA convención transversal [§0-Q](#enum-query-filter) — «filtro de enum en query»**: *o filtra, o `400`; nunca llega crudo a Prisma*. Declara la conducta **UNA vez** (conducta, forma del `details`, cadena vacía, valor no escalar, clase E/R, censo de 14 ejes) y las secciones por endpoint **la referencian** | §0 Convenciones | — (es la norma) |
+> | **1** | **NUEVA convención transversal [§0-Q](#enum-query-filter) — «filtro de enum en query»**: *o filtra, o `400`; nunca llega crudo a Prisma*. Declara la conducta **UNA vez** (conducta, forma del `details`, cadena vacía, ~~valor no escalar~~, clase E/R, ~~censo de 14 ejes~~) y las secciones por endpoint **la referencian** | §0 Convenciones | — (es la norma) |
+> *(⚠️ **Enmendado por v1.73**, dos veces: el **censo de estado se RETIRA** de §0-Q —el estado vive en `C-EQ-1`— y el
+> **«valor no escalar» resultó no existir** en esta app. Este renglón se conserva tachado porque es el registro de lo
+> que v1.72 decidió, no una descripción de lo vigente.)*
 > | **2** | **`GET /admin/orders`** (§M3): se **desambigua** que su `?status=` escalar **sí** está normado (la línea de «Filtros de lista admin» hablaba del **CSV de §M5**). El código lo incumple hoy | §0 · §M3 | **Sí, backend** |
 > | **3** | **`GET /admin/disputes`** (§M8), **`GET /admin/shipments`** (§M4), **`GET /admin/inventory/items`** (§M1, **tres** ejes): el contrato **callaba** y ahora decide — los **seis** ejes son **clase E** (dominio = enum completo, derivado) | §M1 · §M4 · §M8 | **Sí, backend** |
 > | **4** | **Alineación ADITIVA del `details`**: `?finish=`/`?productType=`/`?acquisitionType=` de §M1 y el CSV de §M5 ganan **`details.field`** (y §M5 además `details.allowed`). ⛔ **Cero llaves retiradas del CSV**: `invalidStatus` se conserva | §M1 · §M5 | **Sí, backend** (aditivo, no rompe pruebas vivas) |
@@ -4946,59 +4972,143 @@
 - **Fechas:** ISO-8601 UTC.
 - **Paginación:** query `?page=1&pageSize=20`; respuesta `{ data: [...], page, pageSize, total }`.
 - **Filtros de lista admin (`q`, `from`, `to`, `minCents`, `maxCents`) — CONVENCIÓN TRANSVERSAL (v1.25-buylist-orders-pagination):** nombres y semántica **idénticos** en `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3), y compatibles con los listados que ya los usaban parcialmente. Todos **opcionales**; omitir todos = listado como antes de v1.25. **`q`:** texto libre, `trim`, **case-insensitive**, contains, OR entre los campos definidos por endpoint; vacío/whitespace = ausente; **máx 200 chars**. **`from`/`to`:** ISO-8601 sobre `createdAt`, **`gte`/`lte`** (rango inclusivo por día; sólo `from` = desde, sólo `to` = hasta). **Semántica de borde de día (v1.25.1 — aclaración de semántica de fecha, aditiva):** un valor **date-only** (`YYYY-MM-DD`, sin componente horario — lo que emite un `<input type=date>`) se interpreta en el **borde del día en UTC**: **`from` = inicio de día (`00:00:00.000Z`)** y **`to` = fin de día INCLUSIVO (`23:59:59.999Z`)**. Un valor con **componente horario** (datetime ISO completo, p. ej. `2026-08-20T14:30:00Z`) se usa **tal cual** (`gte`/`lte` exactos, sin ajuste). Así `to=YYYY-MM-DD` **incluye** todo lo cerrado ese mismo día — sin la omisión silenciosa de tratar `to` date-only como medianoche UTC (que excluiría casi todo el día en una cola money-adjacent). El backend materializa este borde en su **helper de parseo** de fechas (mismo helper para ambos endpoints). Un **rango invertido** (`from` > `to`) simplemente devuelve **vacío** — no es error (no se exige validación `from ≤ to`). **`minCents`/`maxCents`:** enteros **≥ 0** sobre el campo de monto que cada endpoint declara (`quotedTotalCents` en buylist, `totalCents` en orders), `gte`/`lte`. **Validación → `400 VALIDATION_ERROR`** (mismo patrón que la paginación): `page`/`pageSize` no numéricos o `pageSize>100`, fecha no parseable, monto no entero o negativo, `maxCents < minCents`, `q` > 200 chars, o un token de `status` (CSV, §M5) que no sea enum válido (`details.invalidStatus`). **Seguridad:** estos filtros **sólo REDUCEN** el conjunto ya autorizado por rol admin — no habilitan IDOR ni enumeración cruzada, no cambian el shape ni la proyección PII por rol, y `q` **nunca** busca sobre CLABE/RFC/INE/datos de pago. **⚠️ Precisión v1.72 (P-84) — el alcance de la cláusula de `status` de ESTA línea:** describe el **CSV multi-token de §M5** (`details.invalidStatus`) y **NO agota** el caso del `?status=` **escalar** de `GET /admin/orders` (§M3), que no es CSV (`orders/admin-orders.controller.ts:58`, medido 2026-09-13). La conducta de **todo** parámetro de query cuyo dominio es un enum —ese `?status=` incluido— la norma **[§0-Q](#enum-query-filter)**, justo abajo, que **manda sobre esta línea en lo que toca a enums**. *Se precisa en vez de reescribirse porque la ambigüedad era real: un lector podía concluir que `/admin/orders` ya estaba normado (y por tanto que su `500` era solo un incumplimiento) o que no lo estaba (y por tanto que faltaba decidir). Las dos lecturas cabían, y esa es la definición de línea ambigua.*
-- **<a id="enum-query-filter"></a>Filtro de ENUM en query — CONVENCIÓN TRANSVERSAL «§0-Q» (v1.72, P-84; NORMATIVA; ARCHITECTURE §4.37 y §4.37.1).** ⭐ ***O filtra, o `400`. Lo que NUNCA hace es llegar crudo a Prisma.***
+- **<a id="enum-query-filter"></a>Filtro de ENUM en query — CONVENCIÓN TRANSVERSAL «§0-Q» (v1.72, P-84; **reescrita en v1.73**; NORMATIVA; ARCHITECTURE §4.37 y §4.37.1).** ⭐ ***O filtra, o `400`. Lo que NUNCA hace es llegar crudo a Prisma.***
 
-  **A quién aplica.** A **todo** parámetro de query —de cualquier endpoint, público o admin— cuyo dominio aceptado sea un **enum**. Esta línea es la **única** declaración de la conducta: las secciones por endpoint **la referencian por nombre (§0-Q) y no repiten el párrafo**. *(Es el corolario de ARCHITECTURE §4.37 aplicado a mí mismo: re-listar una regla en N sitios son N copias que pueden desfasarse, y las de prosa son las peores porque **ningún test las mira**. Hoy el backend tiene **cuatro** implementaciones distintas del mismo helper —censo en §4.37.1— precisamente porque esta conducta nunca se declaró **una** vez.)*
+  <!-- CANON: filtro-de-enum-en-query -->
+
+  **A quién aplica.** A **todo** parámetro de query —de cualquier endpoint, público o admin— cuyo dominio aceptado sea un **conjunto cerrado de tokens**: un enum de Prisma, un subconjunto suyo, o una unión de literales sin enum detrás (punto 3, clases **E / R / L**). Esta línea es la **única** declaración de la conducta: las secciones por endpoint **la referencian por nombre (§0-Q) y no repiten el párrafo**. *(Es el corolario de ARCHITECTURE §4.37 aplicado a mí mismo: re-listar una regla en N sitios son N copias que pueden desfasarse, y las de prosa son las peores porque **ningún test las mira**.)*
+
+  **0 · ⚠️⚠️ QUÉ CLASE DE AFIRMACIÓN ES CADA LÍNEA DE AQUÍ — se lee ANTES que el resto (v1.73, NORMATIVO).**
+
+  §0-Q contiene **exclusivamente afirmaciones de clase (A) —decisión— de ARCHITECTURE §0-B.2**: qué conducta es obligatoria, qué forma tiene el error, qué dominio acepta cada eje y de qué clase es. ⛔ **No contiene, y no puede volver a contener, ninguna afirmación de clase (B) —descripción del estado del código—:** ni «este eje ya está conforme», ni «este otro lo incumple», ni una coordenada `fichero:línea` de una implementación.
+
+  **Por qué es norma y no higiene, dicho con el dato.** La v1.72 sí traía un censo de estado, rotulado *«se actualiza cuando cambie»*. **Caducó dos veces en tres días** (`P-84` cerró seis ejes que el censo seguía marcando ⛔; `P-89` migró el catálogo mientras el censo lo citaba «✅ conforme» sobre líneas que ya eran un comentario), y la segunda caducidad **causó trabajo**: una ficha de deuda citó el censo como autoridad para **no mirar** el catálogo. Un censo de estado dentro de un documento **normativo** no envejece como una nota: envejece **con autoridad**, porque el contrato manda sobre el código. *Lo único que lo mantenía sincronizado era la disciplina, y la disciplina ya falló las veces que hacía falta para saber que no sirve.*
+
+  **Dónde vive el estado, entonces.** En **una sola suite ejecutable del backend**, que es la **única autoridad** sobre si un eje cumple §0-Q hoy (**`C-EQ-1`**, punto 4). Un pendiente de esta clase **se mide corriendo la suite**, no leyendo este documento.
+
+  **Corolario de redacción, que evita la mitad de la podredumbre:** en §0-Q los artefactos se citan **por símbolo y fichero** (`parseEnumFilter` en `common/enum-filter.ts`), ⛔ **nunca por número de línea**. *Un número de línea es una afirmación de estado que caduca en el primer commit que inserta una línea encima.*
 
   **1 · Tres conductas, y ninguna cuarta.**
 
   | Entrada | Conducta |
   |---|---|
-  | **Ausente**, cadena **vacía**, o **solo espacios** (tras `trim()`) | **No filtra** por ese eje. `200`, listado como si el parámetro no viniera. **Nunca `400`.** *(Un `Select` en «Todas» manda cadena vacía; tratarla como inválida rompe la pantalla por su estado por defecto — §M6-L.3. El `trim()` es parte de la norma, no un detalle: hoy los seis sitios usan `if (status)`, y `' '` es **truthy** ⇒ un espacio viaja a Prisma.)* |
-  | **Token del dominio aceptado** (punto 3) | **Filtra** por ese valor. |
-  | **Cualquier otra cosa** — token fuera del dominio, **o valor no escalar** (`?status=a&status=b`, que el parser de query entrega como **array**) | ⛔ **`400 VALIDATION_ERROR`** con la forma del punto 2, **antes de tocar Prisma**. |
+  | **Ausente**, cadena **vacía**, o **solo espacios** (tras `trim()`) | **No filtra** por ese eje. `200`, listado como si el parámetro no viniera. **Nunca `400`.** *(Un `Select` en «Todas» manda cadena vacía; tratarla como inválida rompe la pantalla por su estado por defecto — §M6-L.3. El `trim()` es parte de la norma, no un detalle: `if (x)` deja pasar `' '` porque **un espacio es truthy**, y `raw === ''` no lo atrapa porque **un espacio no es la cadena vacía**. Las dos mitades, no una.)* |
+  | **Token del dominio aceptado** (punto 3) | **Filtra** por ese valor. En un eje **CSV**, ver punto 5. |
+  | **Cualquier otra cosa** — cualquier valor que no sea un token del dominio | ⛔ **`400 VALIDATION_ERROR`** con la forma del punto 2, **antes de tocar Prisma**. |
 
   ⛔ **Prohibido ignorar el filtro** y devolver el listado sin filtrar: *el fallo se ve y la cola falsa no* (§M6-L.0.3; es el defecto exacto que `A5` cerró en `?kycStatus=`, medido el 2026-09-12: `200` con el `total` del padrón entero).
-  ⛔ **Prohibido que el valor llegue a Prisma sin validar** (`where.x = v as never`): el error que Prisma lanza **no lo mapea el filtro global de excepciones** (`backend/src/common/filters/all-exceptions.filter.ts:51-52`) y sale **`500 INTERNAL`** — *un `500` disparable desde la barra de direcciones por cualquiera con sesión admin*. **El propio código ya tenía escrito el argumento** (`catalog/catalog.service.ts:49-50`: «produciría un `PrismaClientValidationError` (500); en cambio se rechaza con `400`»); lo que faltaba era que fuera **norma** y no una buena costumbre de un módulo.
+  ⛔ **Prohibido que el valor llegue a Prisma sin validar** (`where.x = v as never`): el error que Prisma lanza **no lo mapea el filtro global de excepciones** (`all-exceptions.filter.ts`) y sale **`500 INTERNAL`** — *un `500` disparable desde la barra de direcciones por cualquiera con sesión admin*.
+  ⛔ **Prohibido normalizar el token en silencio.** El `trim()` de la fila 1 decide si el parámetro viene **vacío**; ⛔ **no «arregla» el token**. `' pending'` en un eje escalar es **entrada mal formada ⇒ `400`**, no un `pending` con adornos. *Vacío es una intención («no me filtres»); un token con basura alrededor es un error del cliente, y corregírselo en silencio es lo que hace que su bug no se vea nunca.*
+
+  > **⚠️ El PARÁMETRO REPETIDO (`?x=a&x=b`) — v1.73 corrige la explicación de la v1.72, que describía un mecanismo que esta app no tiene.**
+  > La v1.72 escribía en esta tabla *«valor no escalar … que el parser de query entrega como **array**»*, y remataba con una nota marcada **NO MEDIDO** que predecía `TypeError ⇒ 500`. **Medido por HTTP (backend, confirmado por QA con `cmp -s`) y refutado:** el `ValidationPipe` global va con `transform: true` (`main.ts`) y el parámetro se declara `@Query('x') x?: string`, así que Nest **coacciona el array al metatipo `String` antes del handler**: `['a','b']` ⇒ `'a,b'`. `GET /admin/buylist?status=pagada&status=bogus` y `?status=pagada,bogus` devuelven cuerpos **byte a byte idénticos**. **No llega ningún array, no hay `TypeError` y no hay `500`.** La nota `NO MEDIDO` queda **CERRADA**: ya se midió.
+  > **Y por eso el «no escalar» deja de ser una cuarta categoría de esta tabla** — no por indulgencia, sino porque **no existe**. `?x=a&x=b` es indistinguible de `?x=a,b`, y lo que pasa entonces lo decide la clase del eje, sin excepción ninguna:
+  > - **Eje ESCALAR:** `'a,b'` **no es un token del dominio** ⇒ cae solo en la fila 3 ⇒ **`400`**. Es la misma conducta que §0-Q ya exigía, alcanzada por un mecanismo distinto del que la v1.72 describía — y por tanto **sin cláusula propia**.
+  > - **Eje CSV** (punto 5): `?x=a&x=b` ≡ `?x=a,b` es una petición **legítima** de dos tokens, y se evalúa token a token. **No es una excepción a la norma: es la norma del eje CSV.**
+  > *Esto cierra la discrepancia que techlead aceptó sólo de forma transitoria («una cláusula normativa con una excepción conocida es como empiezan a ignorarse las normas»). **La norma cambia; la excepción desaparece.** El test que backend dejó fijando la conducta medida pasa de documentar una discrepancia a documentar la norma.*
+  > ⛔ **Lo que SÍ queda prohibido, y es donde vivía el riesgo de verdad:** declarar un eje de enum con un **tipo distinto de `string`** (`string[]`, `unknown` sin cribar) o retirar `transform: true`. Cualquiera de las dos **devuelve el array al handler** y con él la ruta cruda a Prisma. Es cambio de contrato: pasa por el **arquitecto** (regla 9). El cinturón `typeof !== 'string'` del helper compartido se conserva **por eso**, y no porque hoy sea alcanzable.
 
   **2 · La forma del error: UNA sola, la que `A5` ya publicó (§M6-L.3/L.4).** `400 VALIDATION_ERROR` con:
 
-  - **`details.field` — OBLIGATORIO SIEMPRE**, incluso en endpoints de un solo eje. Es el **nombre del query param tal como el cliente lo envió** (`"zone"`), ⛔ **nunca** la ruta interna de Prisma (`"location.zone"`) ni el nombre de la columna si difiere. Sin él, el operador de `GET /admin/inventory/items` —que tiene **tres** ejes de enum— no puede saber **cuál** le rechazaron.
-  - **`details.allowed` — OBLIGATORIO.** El **dominio aceptado completo**, tal como lo declara la **línea canónica de §Enums**. Se emite **derivado**, no transcrito (punto 3).
-  - **`details.value` — OPCIONAL.** El token ofensor. Se **admite** porque el helper del catálogo ya lo emite (`catalog/catalog.service.ts:783-788`); **no se exige** porque quien recibe el `400` ya tiene el valor — lo mandó él. *Un superconjunto de las llaves obligatorias es conforme; lo que no es conforme es que falte `field` o `allowed`.*
-  - **`details.invalidStatus: string[]` — SOLO en endpoints CSV**, con los tokens ofensores. Es **aditivo**: no sustituye a `field`/`allowed`. Único endpoint CSV hoy: `GET /admin/buylist` (§M5).
-  - **`400` y no `422`, ratificado:** es **query**, no cuerpo — y es el código que ya usan los listados admin de este contrato (§M5 `live-sellers` y `pending-shipment-confirmation`, §M6-L.3/L.4, §M1 `?finish=`/`?productType=`).
+  - **`details.field` — OBLIGATORIO SIEMPRE**, incluso en endpoints de un solo eje. Es el **nombre del query param tal como el cliente lo envió** (`"zone"`), ⛔ **nunca** la ruta interna de Prisma (`"location.zone"`) ni el nombre de la columna si difiere. Sin él, el operador de `GET /admin/inventory/items` —que tiene **cinco** ejes de dominio cerrado en la misma petición— no puede saber **cuál** le rechazaron.
+  - **`details.allowed` — OBLIGATORIO.** El **dominio aceptado completo**, tal como lo declara su **línea canónica** (punto 3: §Enums para las clases E y R; la línea del propio endpoint para la clase L). Se emite **derivado** de esa fuente, no transcrito.
+  - **`details.value` — CONDICIONAL (v1.73; antes «opcional»).** El token ofensor, **acotado** (abajo).
+    - ✅ **Se emite, y se declara obligatorio, en los seis ejes de dominio cerrado de los dos catálogos PÚBLICOS** (`GET /catalog/cards` y `GET /catalog/sealed`), porque **ya estaba publicado ahí antes de que §0-Q existiera** y sus clientes no son solo el nuestro: retirarlo sería quitar una llave de una respuesta pública a cambio de nada.
+    - ⛔ **Prohibido en cualquier eje NUEVO.** El dominio de `details` de §0-Q son `field` + `allowed`; quien recibe el `400` ya tiene el valor, lo mandó él.
+    - *Esto deja de ser una tolerancia («un superconjunto es conforme») y pasa a ser una **decisión con censo**: la lista de call-sites con derecho a la llave legada vive **congelada en una prueba** (`enum-filter.spec.ts`, censo de call-sites de `echoValue`), no en la disciplina de quien escriba el siguiente eje. Encenderla en un eje nuevo pone esa prueba en rojo, y la salida no es apagarla: es venir al arquitecto, porque ensanchar el dominio de `details` **es** cambiar §0-Q.*
+  - **⭐ COTA DEL ECO DEL VALOR DEL CLIENTE — NORMATIVA (v1.73).** *El tamaño de una respuesta no lo decide quien la pide.* **Dondequiera que el valor recibido se devuelva al cliente —`details.value`, el `message`, o cualquier campo futuro— va ACOTADO**, y el truncado **se declara** (sufijo con el número de caracteres omitidos), ⛔ nunca en silencio: *un truncado mudo convierte «mandaste esto» en una afirmación falsa sobre lo que el cliente mandó*.
+    - Siguiendo la convención de §0 («el contrato norma **forma y origen**, no el valor»): el contrato fija que la cota **existe**, que es **una sola** para todas las puntas del eco, que se **deriva** del token legítimo más largo que el dominio puede llegar a tener (el valor de enum más largo del schema) **con holgura**, y que vive **en código con una prueba que la sostiene**. ⛔ **NO es configurable por entorno** — una cota leída de env es un botón para reabrir el agujero en producción sin tocar código. El **número** no se transcribe aquí: es clase (B).
+    - **De dónde sale:** QA midió `GET /catalog/cards?condition=<5000 chars>` ⇒ **10 137 bytes de respuesta**, **sin sesión** (el catálogo es `@Public()`), con el valor viajando **íntegro y dos veces**. ⚠️ **No es XSS** —`Content-Type: application/json`, `nosniff`, el valor sale escapado como dato—, así que el arreglo **no es sanear** (no hay nada que sanear) **sino acotar**.
+  - **`details.invalidStatus: string[]` — SOLO en ejes CSV** (punto 5), con **todos** los tokens ofensores. Es **aditivo**: no sustituye a `field`/`allowed`, y es más informativo que un escalar porque nombra todos los malos de una vez.
+  - **`400` y no `422`, ratificado:** es **query**, no cuerpo — y es el código que ya usan los listados admin de este contrato (§M5 `live-sellers` y `pending-shipment-confirmation`, §M6-L.3/L.4, §M1 `?finish=`/`?productType=`). ⛔ **Un `422` en un eje de query es incumplimiento, no «estilo del módulo»** — y se dice porque así se justificó el que había.
+  - **El TEXTO del `message` sigue SIN normarse, y eso no cambia en v1.73.** §0 ya lo fija: el contrato devuelve **enums** y **`errorCode`**; `message` es un fallback legible en EN y **el frontend traduce**. Lo que v1.73 añade **no es texto, es estructura**: *el `message` está sujeto a la cota del eco como cualquier otra punta*. Un endpoint público no deja de ser público porque el dato viaje en la cadena del mensaje.
 
-  **3 · Qué dominio se acepta — la clase la decide ARCHITECTURE §4.37, y SIN CLÁUSULA CITABLE NO HAY CLASE R.**
-  El dominio por defecto de un filtro de lista es el **enum COMPLETO — clase E**, derivado de Prisma en **una** declaración (`common/enum-values.ts`), nunca escrito a mano. Un **subconjunto (clase R)** solo es legítimo si se puede **citar la cláusula de `PROJECT.md`** que lo fija, escrita **al lado de la lista** (ejemplares vivos: `ACCEPTED_RAW_CONDITIONS` en el `?condition=` público, `catalog/catalog.service.ts:52-55`; `UserStatus` en `PATCH /admin/users/:id/status`). ⛔ **Un subconjunto sin cláusula citable no es clase R: es una restricción inventada**, y la regla de conflicto de `CLAUDE.md` la prohíbe.
-  **La razón de fondo, en una línea:** *un filtro que no puede nombrar un estado que la BD sí guarda es un filtro que miente* — si el schema gana un valor, **habrá filas en él** y el operador tiene que poder verlas el mismo día.
+  **3 · Qué dominio se acepta — TRES clases, y la clase se declara (ARCHITECTURE §4.37).**
+
+  | Clase | Cuándo | Declaración canónica del dominio | Qué exige |
+  |---|---|---|---|
+  | **E — ESPEJO** | El dominio **es** un enum de Prisma completo | La línea del enum en **§Enums** | **Derivado** en una sola declaración (`common/enum-values.ts`), ⛔ nunca transcrito. Paridad a **tres bandas**: `schema.prisma` ↔ `enum-values.ts` ↔ §Enums |
+  | **R — REGLA** | El dominio es un **subconjunto** de un enum de Prisma | La línea del enum en **§Enums** + la **cláusula citada** que lo recorta | Lista **literal** con la cláusula de `PROJECT.md` (o de este contrato) **al lado**, + prueba de lista exacta **y** de subconjunto del enum |
+  | **L — LITERAL** *(NUEVA, v1.73)* | El dominio **no existe en el schema**: no describe un dato persistido sino un **modo de la consulta** | **La línea del propio endpoint en este contrato** (que pasa a ser canónica) | Lista **literal** junto a su único call-site, + paridad a **dos** bandas: contrato ↔ literal. ⛔ No hay tercera banda porque no hay schema que espejar |
+
+  **La pregunta que separa R de L, y es la que backend planteó bien (`H3-b`):** *¿el dominio nombra valores que la base de datos guarda?*
+  - **Sí, y los recorta ⇒ R.** Exige cláusula citable, porque está **quitando** algo que el sistema sí sabe representar. ⛔ **Un subconjunto sin cláusula citable no es clase R: es una restricción inventada**, y la regla de conflicto de `CLAUDE.md` la prohíbe. *(Ejemplares: `ACCEPTED_RAW_CONDITIONS` —`common/business-rules.ts`— en el `?condition=` público, por `PROJECT §H`; `UserStatus` en `PATCH /admin/users/:id/status`.)*
+  - **No, no existe en la BD en absoluto ⇒ L.** `?missing=location|price` no nombra estados: nombra **qué le falta a la fila**, que es una pregunta sobre la consulta. `?axis=sale|buy` nombra **qué lado del negocio agregar**. No hay enum que derivar y **no hay nada que citar**, porque no se está recortando nada.
+  - **⭐ Respuesta a la pregunta abierta de `H3-b`(a): SÍ, una unión pura entra en §0-Q.** §0-Q existe por la **conducta ante entrada fuera de dominio** —vacío ⇒ `200`, basura ⇒ `400` con `field` + `allowed`—, y esa conducta **no depende de dónde salga la lista**. El operador que recibe el `400` no sabe, ni le importa, si detrás hay una tabla. *Dejar fuera a las uniones puras habría creado exactamente la segunda forma de `details` que §0-Q nació para impedir.*
+  - **⭐ Respuesta a `H3-b`(b): SÍ, un enum de Prisma TRANSCRITO A MANO es incumplimiento de este punto, sin pregunta abierta que esperar.** Backend leyó bien la norma y hizo bien en devolvérmela en vez de asumirla; la ratifico: si existe la columna, existe la clase **E**, y transcribir la lista es el bug de `SealedSubtype`/`upc` esperando a repetirse. **El criterio, operable en diez segundos:** `rg 'enum <Nombre>' backend/prisma/schema.prisma` ⇒ si devuelve algo, **no se transcribe**.
+
+  **La razón de fondo de la clase E, en una línea:** *un filtro que no puede nombrar un estado que la BD sí guarda es un filtro que miente* — si el schema gana un valor, **habrá filas en él** y el operador tiene que poder verlas el mismo día.
   ⚠️ **Trampa nombrada, porque es la que se va a cometer: un subconjunto que YA EXISTE con otro propósito no autoriza a reusarlo aquí.** `ShipmentActiveStage` (§Enums) es un subconjunto de `ShipmentStatus`, pero es la **proyección al CLIENTE** de `HoldingDTO.shipmentState`; usarlo como dominio del `?status=` **admin** de §M4 escondería `entregado` y `cancelado` de la cola del operador. Dominio ≠ proyección.
 
-  **4 · CENSO VIGENTE (medido 2026-09-13 sobre `c12b940`; se actualiza cuando cambie; backend implementa).**
+  **4 · REGISTRO DE EJES — CLASE, no estado (v1.73; sustituye al censo de la v1.72).**
 
-  | Endpoint | Param | Enum (§Enums) | Clase | Estado medido |
-  |---|---|---|---|---|
-  | `GET /admin/orders` (§M3) | `status` | `OrderStatus` | **E** | ⛔ **crudo a Prisma** — `orders/admin-orders.controller.ts:58` |
-  | `GET /admin/disputes` (§M8) | `status` | `DisputeStatus` | **E** | ⛔ **crudo** — `disputes/disputes.service.ts:159` |
-  | `GET /admin/shipments` (§M4) | `status` | `ShipmentStatus` | **E** | ⛔ **crudo** — `shipments/shipments.service.ts:373` |
-  | `GET /admin/inventory/items` (§M1) | `status` | `InventoryStatus` | **E** | ⛔ **crudo** — `inventory/inventory.service.ts:2224` |
-  | `GET /admin/inventory/items` (§M1) | `ownerType` | `OwnerType` | **E** | ⛔ **crudo** — `inventory/inventory.service.ts:2226` |
-  | `GET /admin/inventory/items` (§M1) | `zone` | `VaultZone` (vía `VaultLocation.zone`) | **E** | ⛔ **crudo** — `inventory/inventory.service.ts:2228`; ⚠️ `details.field` = **`zone`** |
-  | `GET /admin/inventory/items` (§M1) | `finish`, `productType` | `Finish`, `ProductType` | **E** | ✅ valida — `inventory/inventory.controller.ts:455-467`. ⚠️ `details` **sin `field`** (usa la llave `{ finish }` / `{ productType }`): **alineación aditiva** |
-  | `GET /admin/inventory/pending-publish` (§M1) | `acquisitionType` | `AcquisitionType` | **E** | ✅ valida — `inventory/inventory.controller.ts:507-513`. Misma alineación aditiva |
-  | `GET /admin/inventory/export.xlsx` (§M1) | `productType` | `ProductType` | **E** | ✅ valida — `inventory/inventory.controller.ts:405-411`. Misma alineación aditiva |
-  | `GET /admin/users` (§M6) | `status`, `kycStatus` | `UserStatus`, `KycStatus` | **E** | ✅ **CONFORME — es el ejemplar** (`admin/admin.service.ts:66-74`) |
-  | `GET /admin/buylist` (§M5) | `status` **(CSV)** | `SellRequestStatus` | **E** | ✅ valida tokens — `buylist/buylist.service.ts:2205-2224`. ⚠️ `details` **sin `field`/`allowed`**: aditivo. ⚠️ **no escalar**: ver nota |
-  | `GET /catalog/cards` (§2) | `productType`, `finish`, `sealedSubtype` | `ProductType`, `Finish`, `SealedSubtype` | **E** | ✅ conforme — `catalog/catalog.service.ts:1129-1133` (`details` trae `field`+`value`+`allowed`) |
-  | `GET /catalog/cards` (§2) | `condition` | `RawCondition` | **R** (PROJECT §H) | ✅ conforme — `catalog/catalog.service.ts:52-55` |
-  | `GET /catalog/sealed` (§2-S) | `sealedSubtype`, `condition` | `SealedSubtype`, `SealedCondition` | **E** | ✅ conforme — `catalog/sealed-catalog.service.ts:241-243` |
+  Esta tabla dice **qué eje existe y qué dominio acepta**: es una **decisión** y solo cambia cuando el arquitecto decide. ⛔ **No dice, y no puede decir, si el código lo cumple hoy.**
 
-  > ⚠️ **Nota sobre el valor NO ESCALAR, dicha porque es la única del censo que no está medida en su efecto.** `?status=a&status=b` entrega un **array** al handler. En los seis sitios ⛔ ese array entra a Prisma; en `GET /admin/buylist` el servicio llama `status.split(',')` sobre él (`buylist/buylist.service.ts:2206`) y `Array.prototype.split` **no existe**. **Camino de código leído, NO ejecutado (NO MEDIDO):** lo esperable es `TypeError` ⇒ `500`. Sea cual sea el desenlace real, la norma es la misma —**`400`**— y **la prueba que lo cierre es del backend**, no una afirmación de este documento.
+  | Endpoint | Param | Dominio | Clase |
+  |---|---|---|---|
+  | `GET /admin/orders` (§M3) | `status` | `OrderStatus` | **E** |
+  | `GET /admin/disputes` (§M8) | `status` | `DisputeStatus` | **E** |
+  | `GET /admin/shipments` (§M4) | `status` | `ShipmentStatus` | **E** |
+  | `GET /admin/inventory/items` (§M1) | `status` | `InventoryStatus` | **E** |
+  | `GET /admin/inventory/items` (§M1) | `ownerType` | `OwnerType` | **E** |
+  | `GET /admin/inventory/items` (§M1) | `zone` | `VaultZone` (vía `VaultLocation.zone`) — ⚠️ `details.field` = **`"zone"`** | **E** |
+  | `GET /admin/inventory/items` (§M1) | `finish` · `productType` | `Finish` · `ProductType` | **E** |
+  | `GET /admin/inventory/pending-publish` (§M1) | `acquisitionType` | `AcquisitionType` | **E** |
+  | `GET /admin/inventory/pending-publish` (§M1) | `missing` | `location \| price` — canónico en **§M1** | **L** |
+  | `GET /admin/inventory/export.xlsx` (§M1) | `productType` | `ProductType` | **E** |
+  | `GET /admin/inventory/sealed-products` (§M1) | `origin` | `SealedGroupKind` | **E** |
+  | `GET /admin/users` (§M6) | `status` · `kycStatus` | `UserStatus` · `KycStatus` | **E** |
+  | `GET /admin/buylist` (§M5) | `status` **(CSV, punto 5)** | `SellRequestStatus` | **E** |
+  | `GET /admin/pricing/pending` (§M2) | `context` | `PendingPriceContext` | **E** |
+  | `GET /admin/pricing/pending` (§M2) | `reason` | `PendingPriceReason` | **E** |
+  | `GET /admin/pricing/bounties` (§M2-B.1) | `state` **(repetible)** | `BountyState` — canónico en **§M2-B.0** | **L** |
+  | `GET /admin/pricing/bounties` (§M2-B.1) | `finish` | `Finish` | **E** |
+  | `GET /admin/pricing/bounties` (§M2-B.1) | `sort` | **no es filtro: es ORDEN** — punto 6 | — |
+  | `GET /admin/reports/pricing-brackets` (§M9) | `axis` | `sale \| buy` — canónico en **la línea del endpoint** | **L** |
+  | `GET /catalog/cards` (§2) | `productType` | `ProductType` **menos `sealed`** — cláusula en **§2** (`/catalog/cards` es la rejilla de **SINGLES**; el sellado se sirve por §2-S) | **R** |
+  | `GET /catalog/cards` (§2) | `finish` | `Finish` | **E** |
+  | `GET /catalog/cards` (§2) | `condition` | `ACCEPTED_RAW_CONDITIONS` — cláusula `PROJECT §H` | **R** |
+  | `GET /catalog/sealed` (§2-S) | `sealedSubtype` | `SealedSubtype` | **E** |
+  | `GET /catalog/sealed` (§2-S) | `condition` | `SealedCondition` | **E** |
 
-  **5 · Lo que §0-Q NO norma** *(se dice para que no se sobre-aplique)*:
-  - **Llaves de query DESCONOCIDAS.** Rechazarlas sigue siendo doctrina **acotada a `GET /admin/users`** (`D-A5-3`, `admin/admin.controller.ts:91` y `:109-116`, que lo declara ⛔ «no se convierte en regla global»). §0-Q norma **el valor de un parámetro conocido**, no el censo de parámetros.
+  > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
+
+  **⭐ `C-EQ-1` — EL CANDADO QUE SUSTITUYE A LA DISCIPLINA (NORMATIVO; lo escribe BACKEND, no el arquitecto).**
+  El estado de conformidad vive en **una sola suite del backend**, que es su **única autoridad**. La suite tiene que hacer **dos** cosas, y la segunda es la que impide que el problema vuelva:
+  1. **Ejercitar, por HTTP y por cada fila de esta tabla, las tres conductas del punto 1 y la forma del punto 2** (`field` obligatorio, `allowed` = el dominio declarado, `400` y no `422`, y el `value` **solo** donde el punto 2 lo declara). Un eje que se desalinee pone la suite en rojo **el día que se desalinea**, no tres días después cuando alguien relee un párrafo.
+  2. **⭐ DESCUBRIR los ejes que nadie registró.** Es lo que faltaba: *una suite no puede fallar por un parámetro que nunca le contaron.* La suite **enumera los `@Query(...)` de los controllers** y los cruza contra **dos listas explícitas**: los ejes de dominio cerrado (esta tabla) y los que **no** lo son (`q`, `from`, `to`, `page`, `setId`, …). Un `@Query` que no esté en ninguna de las dos ⇒ **rojo**, con el mensaje *«eje de query nuevo: decide su clase con el arquitecto o decláralo como no-enum»*. *Los tres ejes que `P-84` y `P-89` se saltaron —`?context=`, `?reason=`, `?axis=`— se saltaron porque **no estaban en el censo**, y un censo escrito a mano no puede enterarse de lo que no le contaron.* Precedente vivo de la técnica en este mismo proyecto: el censo congelado de call-sites de `echoValue` en `enum-filter.spec.ts`, que mira **código** (`stripComments`) y no texto.
+  - **Cómo se lee el resultado:** *«¿cumple `GET /x?y=` con §0-Q?»* se contesta **corriendo `C-EQ-1`**. Si alguien lo contesta citando este documento, está contestando una pregunta de clase (B) con una fuente de clase (A) — que es, literalmente, el error que v1.73 vino a cerrar.
+
+  **5 · Ejes CSV: qué se recorta y qué no (v1.73 — normaliza la asimetría que techlead levantó).**
+
+  Un eje CSV acepta **una lista de tokens** separados por coma (`?status=pagada,rechazada`); hoy el único es `GET /admin/buylist` (§M5). La regla única, que vale para los dos tipos de eje y **no es una excepción para ninguno**:
+
+  > ⭐ **Se recorta la SINTAXIS, nunca el TOKEN.**
+
+  - En un eje **escalar** no hay sintaxis que recortar, así que el `trim()` **solo decide si el valor viene vacío** (punto 1, fila 1) y el token se valida **exacto**: `' pending'` ⇒ **`400`**.
+  - En un eje **CSV**, la coma es el separador y **el espacio alrededor del separador es sintaxis de lista, no parte del token** — `a, b` es lo que escribe cualquier humano y lo que emite un `join(', ')`. Por tanto: se hace `trim()` de **cada token**, se **descartan los tokens vacíos** (`a,,b` ≡ `a,b`; `?status=` y `?status=%20` ⇒ **no filtra**, coherente con el punto 1 fila 1), y **el token resultante se valida exacto**. ⇒ `?status=%20pagada` **filtra** por `pagada`; `?status=pag%20ada` ⇒ **`400`**.
+  - **Un solo token se comporta idéntico a un escalar** (`where.status = token`, no `{ in: [...] }`).
+  - **Todos** los tokens malos se reportan de una vez en `details.invalidStatus`, además de `field`/`allowed` (punto 2).
+
+  *Por qué se norma así y no «igual que el escalar»: las dos respuestas opuestas a `?status=%20pagada` que techlead midió **no eran una incoherencia**, eran dos objetos distintos sin regla que los distinguiera — en un eje el valor del parámetro **es** el token, en el otro es una **lista de tokens**. **Lo que faltaba era la frase, no el arreglo**: esta norma se escribe para que la conducta esté decidida, no para pedir un cambio. Si el código coincide con ella, lo dice `C-EQ-1`, no este párrafo.*
+
+  **6 · Ejes de ORDEN (`?sort=`): §0-Q les aplica el error, no el «no filtra» (v1.73 — cierra la clase que `H3-d` dejó sin decidir).**
+
+  Un `?sort=` **no es un filtro**: es un **orden con default**. Por eso su fila 1 es distinta y las otras dos son iguales:
+
+  | Entrada | Conducta |
+  |---|---|
+  | Ausente / vacía / **solo espacios** (tras `trim()`) | **El default declarado del endpoint** (`attention_first` en §M2-B.1). ⛔ Nunca `400`, y ⛔ nunca «sin orden»: la paginación de una lista sin orden total no es estable |
+  | Token del dominio | Ese orden |
+  | Cualquier otra cosa | ⛔ **`400 VALIDATION_ERROR`** con **la misma forma del punto 2** (`field` + `allowed`) |
+
+  ⛔ **Prohibido el *clamp* silencioso** (caer al default ante un valor inválido): devuelve una lista distinta de la pedida y el operador creería estar en otro sitio — misma familia que ignorar un filtro. El dominio de un `?sort=` es **clase L** salvo que exista un enum detrás.
+
+  **7 · Lo que §0-Q NO norma** *(se dice para que no se sobre-aplique)*:
+  - **Llaves de query DESCONOCIDAS.** Rechazarlas sigue siendo doctrina **acotada a `GET /admin/users`** (`D-A5-3`, que lo declara ⛔ «no se convierte en regla global»). §0-Q norma **el valor de un parámetro conocido**. ⚠️ **Matiz v1.73:** el **descubrimiento** de `C-EQ-1` (punto 4) **no** contradice esto — inventariar los parámetros en una **prueba** para que ninguno se quede sin clase declarada no es lo mismo que **rechazarlos en tiempo de petición**.
   - **Enums en el CUERPO** de un request: los gobierna el DTO / `ValidationPipe` (`@IsIn`), con los códigos que cada endpoint ya declara.
-  - **Filtros que no son enum** (`q`, `from`/`to`, `minCents`/`maxCents`, paginación): los gobierna la línea anterior de §0.
+  - **Filtros que no son de dominio cerrado** (`q`, `from`/`to`, `minCents`/`maxCents`, paginación, `setId`, `cardId`): los gobierna la línea anterior de §0.
+  - **Si un eje puede o no devolver filas.** §0-Q norma la **conducta ante el valor**, no la **utilidad del filtro**. Un eje que por construcción no puede devolver nada es un defecto **de su sección**, no de §0-Q — y su cura es **retirar el parámetro**, no arreglar el filtro (caso resuelto en v1.73: `?sealedSubtype=` de `GET /catalog/cards`, §2).
 - **i18n:** el contrato NO devuelve texto traducido. Devuelve **enums** y **`errorCode`**; el frontend traduce (ES/EN). Datos de catálogo en inglés por diseño.
 - **Datos de contacto y valores de configuración — el contrato describe la FORMA y el ORIGEN, no transcribe el
   VALOR (convención transversal, v1.50.4).** Cuando un campo de respuesta transporta un **dato de infraestructura
@@ -5492,6 +5602,25 @@ MarketBracket       = lt_3 | r3_10 | r10_25 | r25_80 | r80_300 | gte_300  // v2.
 PendingPriceReason  = no_market | premium_at_floor      // v2.0: por qué una variante entró a la cola de precio pendiente.
                     // no_market = sin referencia de mercado. premium_at_floor = guardarraíl §4.36.5 (rareza premium que
                     // aterrizó en el piso/bin: su dato de mercado está mal). Distinguirlos es lo que hace TRIABLE la cola.
+                    // ⚠️ v1.73 — CLASE E, y se dice porque NO se estaba tratando como tal: es un enum de BD
+                    // (`enum PendingPriceReason` en `schema.prisma`) sobre una COLUMNA PERSISTIDA E INDEXADA
+                    // (`PendingPriceEntry.reason`). El dominio del filtro `?reason=` de §M2 se DERIVA de aquí; ⛔ no se
+                    // transcribe (§0-Q punto 3). Si el schema gana una tercera razón, la cola de dinero tiene que poder
+                    // filtrarla el mismo día — es el bug de `SealedSubtype`/`upc` con otro nombre.
+PendingPriceContext = catalog | portfolio | buylist | inventory
+                    // ⚠️ DECLARACIÓN CANÓNICA AÑADIDA EN v1.73. Espeja `enum PendingPriceContext` de `schema.prisma`.
+                    // Existía como enum de BD y como dominio del filtro `?context=` de `GET /admin/pricing/pending`
+                    // (§M2) desde v1.26 (P-6), pero NUNCA tuvo línea en este bloque: `rg PendingPriceContext
+                    // docs/API_CONTRACT.md` ⇒ 0 resultados (medido 2026-09-13). Consecuencia concreta, no cosmética: el
+                    // `details.allowed` que ese endpoint emite NO TENÍA banda de contrato contra la que verificarse, así
+                    // que la paridad a TRES bandas de §4.37 no podía correr sobre él. CLASE E: los dos buckets de M2
+                    // (VENTA=`inventory`, COMPRA=`buylist`) son una LECTURA sobre el enum completo, no un recorte.
+SealedGroupKind     = set_main | promo_collection
+                    // ⚠️ DECLARACIÓN CANÓNICA MOVIDA AQUÍ EN v1.73. Espeja `enum SealedGroupKind` de `schema.prisma`.
+                    // Estaba declarada FUERA de este bloque (en los DTOs de sellado de §M1), que es exactamente lo que
+                    // §4.37 prohíbe: «el enum se enumera en su LÍNEA CANÓNICA y en ningún otro sitio». Allí queda una
+                    // REFERENCIA con la semántica de cada valor; el DOMINIO es esta línea.
+                    // CLASE E — dominio del filtro `?origin=` de `GET /admin/inventory/sealed-products` (§M1, §0-Q).
 BuylistRuleMode     = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): desaparece la distinción fixed/pct como modos excluyentes. Solo retención de filas históricas (SellRequestItem.ruleMode legacy).
 SalesRuleMode       = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): ídem. El `fixed` de venta era la causa raíz (documentado como PISO, implementado como precio absoluto).
 BuylistCategory     = comun | reverse_holo | ex_plus    // DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode). Retención legacy; nada nuevo lo usa.
@@ -6574,10 +6703,10 @@ SealedCatalogResponse = { set: SetRefDTO, tcgcsvGroupId: number | null, groupRes
                           anchorCardId: string, data: SealedCatalogProductDTO[] }
 // ===== v1.39 (P-38): módulo de PRODUCTO SELLADO robusto — entidad SealedProduct persistida =====
 // enum SealedSubtype gana `upc` (Ultra Premium Collection) y `collection` (colecciones/cajas especiales).
-// SealedGroupKind = tipo de grupo TCGCSV asociado a un set: `set_main` (grupo principal, booster box/ETB/bundle…) |
-//   `promo_collection` (grupo APARTE de promo/colección — blísters/tins/colecciones promo, incl. Mega Evolution). Un
-//   set tiene 1 set_main + N promo_collection (§4.34b).
-SealedGroupKind = "set_main" | "promo_collection"
+// SealedGroupKind — ⚠️ v1.73: el DOMINIO vive en su LÍNEA CANÓNICA de §Enums (§4.37: «el enum se enumera una vez y
+//   toda otra mención lo REFERENCIA»). Aquí queda solo la SEMÁNTICA de cada valor, que no es una lista: `set_main` =
+//   grupo principal del set (booster box/ETB/bundle…); `promo_collection` = grupo APARTE de promo/colección
+//   (blísters/tins/colecciones promo, incl. Mega Evolution). Un set tiene 1 set_main + N promo_collection (§4.34b).
 // Presentación sellada REAL de un set, con IDENTIDAD PROPIA (NO anclada a un single). `tcgplayerProductId` = clave de
 // identidad (== productId TCGplayer; == clave de precio sealed:tcg:<productId>). `subtype` incl. `upc`; `subtypeInferred`
 // = true si se infirió por nombre, false si un humano lo curó. `subtype` es SIEMPRE no-null (schema NOT NULL): un sellado
@@ -6927,10 +7056,17 @@ Req: `{ name?, phone?, locale? }` → Res `200`: **la misma forma que `GET /user
 ### GET /api/v1/catalog/cards — `public`  (sección "Compra")
 Storefront **"Compra"**: lista **SOLO inventario publicado CON precio de venta fijado** (`status=listed`, `sellable=true`, `salePriceCents != null`). **Excluye** items `pending`/sin precio/"precio pendiente" — el comprador **nunca** ve "precio pendiente".
 > **Cambio semántico v1.1:** en v1 podían mostrarse pendientes no comprables; en **v1.1 NO se listan**. La ruta **se mantiene** `/catalog/cards` (el rótulo de UI "Compra" lo controla el front); no se renombra para no romper el contrato (decisión en ARCHITECTURE §4.9).
-Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPriceCents=&sealedSubtype=&page=&pageSize=&sort=`
+Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPriceCents=&page=&pageSize=&sort=`
+- **Los ejes de dominio cerrado de este endpoint (`productType`, `condition`, `finish`) los norma [§0-Q](#enum-query-filter)** (conducta, forma del `400`, y el `details.value` que esta superficie pública emite). Registro de clases: §0-Q punto 4.
 - `rarity`: valor **tal cual pokemontcg.io** (taxonomía abierta; usar los valores de `GET /catalog/facets`).
-- `productType`: `raw | graded | sealed`. `condition`: para raw solo `NM`.
-- `finish` (v1.6-finish, opcional): `normal | reverse_holo | holofoil | first_edition_holofoil`; filtra por `InventoryItem.finish`. Valor inválido → `400 VALIDATION_ERROR`.
+- **⛔⛔ `productType`: `raw | graded`. CLASE R (§0-Q punto 3) — `sealed` SALE DEL DOMINIO en v1.73, y esta línea es su cláusula citable.**
+  **`GET /catalog/cards` es la rejilla de SINGLES**; el sellado publicado se sirve por **`GET /catalog/sealed` (§2-S)**, que tiene su propia agrupación, su propia condición (`SealedCondition`) y su propio `?sealedSubtype=`.
+  > **Por qué se decide así, con el dato.** El backend ya excluye el sellado de esta consulta de forma **estructural**: la lectura pasa por un guardarraíl (**`H9`**, `singlesPublishedWhere` en `catalog/catalog.service.ts`) que añade `productType: { not: 'sealed' }` al `where`. ⇒ `?productType=sealed` pedía una fila que la misma consulta prohíbe: **dos cláusulas contradictorias en un `AND`**, resultado vacío **por construcción**. *(Derivado de leer el `where`; ⚠️ **NO MEDIDO por HTTP** por el arquitecto. La medición que lo cierra: `GET /catalog/cards?productType=sealed` con ≥1 sellado publicado ⇒ esperado `total: 0`. QA ya midió el caso hermano `?sealedSubtype=box` ⇒ 0.)*
+  > **Un dominio que acepta un token que la consulta no puede servir es la misma mentira que §0-Q persigue, con el signo invertido:** allí un filtro que no puede nombrar lo que la BD guarda; aquí uno que nombra lo que nunca va a devolver. La cura honesta **no es arreglar el filtro** (eso sería derogar `H9`, que es otra decisión y no ésta): es **retirar el token del dominio**, y decirlo con un `400` que trae `allowed: ["raw","graded"]` — que es, además, el único mensaje que puede enrutar al cliente a §2-S.
+  > **⚠️ ES BREAKING, Y EL ORDEN NO ES NEGOCIABLE: PRIMERO FRONTEND, DESPUÉS BACKEND.** Hay consumidor vivo (`frontend/src/lib/api.ts` `getCatalog`, y `CatalogView.tsx`, que acepta `?type=sealed` desde la URL y le pinta un chip). Si backend empieza a responder `400` antes de que el front deje de mandarlo, un deep-link existente pasa de *«rejilla vacía»* a *«pantalla rota»*. Mismo trámite de productor/consumidor que v1.4-finance. *(⚠️ Y el dato que hace esto urgente aunque parezca cosmético: contra **mocks** ese filtro **sí devuelve tejas** —los fixtures traen piezas `productType:'sealed'`—, así que la pantalla se ve **bien en desarrollo y vacía contra el servidor**. Es el modo de fallo que este proyecto persigue por todas partes.)*
+- **⛔ `sealedSubtype` — RETIRADO del contrato en v1.73** (`H3-f`). Era **estructuralmente vacío** por el mismo guardarraíl `H9`: `sealedSubtype` solo es no-nulo en piezas `productType='sealed'`, y esas nunca entran a esta consulta. **Medido por QA:** `?sealedSubtype=box` ⇒ **0 resultados** con sellado publicado en la BD. **No lo introdujo `P-89`: es preexistente**, y `P-89` hizo bien en no «arreglarlo» (arreglar el filtro habría sido derogar `H9` por la puerta de atrás). **Sustituto exacto y ya conforme: `GET /catalog/sealed?sealedSubtype=` (§2-S).** Retirar el parámetro **no toca ningún criterio de `PROJECT.md`**: §A exige que **la sección «Compra»** filtre por tipo de producto incluyendo sellado y que el sellado **se venda en Compra** — y no dice **por qué endpoint**; §2-S lo cumple. *(Por eso esto **NO es pregunta al dueño**: solo lo sería si `PROJECT.md` exigiera **una sola rejilla mezclada**, y no lo dice.)*
+- `condition`: para raw solo `NM` — **clase R**, cláusula `PROJECT §H` (LOCKED). Valor inválido → `400 VALIDATION_ERROR` (§0-Q).
+- `finish` (v1.6-finish, opcional): **clase E**, dominio = el enum `Finish` completo (§Enums; ⛔ no se re-lista aquí, §4.37); filtra por `InventoryItem.finish`. Valor inválido → `400 VALIDATION_ERROR` (§0-Q).
 - `setId` — **v1.33 (P-27):** si el `setId` es el **principal** de un master combinado (mapa
   `config/master-set-groups.ts`), el filtro **expande** a `setId IN partSetIds` (incluye el inventario publicado de
   todas las partes, p. ej. `cel25` + `cel25c`). ADITIVO: para un set normal el filtro es idéntico a hoy. Se respeta la
@@ -7031,6 +7167,13 @@ Res `200`:
 - `rarities`: `distinct` de `Card.rarity` sobre inventario publicado, **espejando pokemontcg.io tal cual** (lista **NO** cerrada).
 - `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**. **v1.33 (P-27):** igual que `GET /catalog/sets`, un subset de un master combinado se **pliega** en su principal (Celebrations una vez) y la entrada gana `partSetIds?` (aditivo/opcional).
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
+  > **🚧 v1.73 — PREGUNTA ABIERTA, DECLARADA PARA QUE NADIE LA DÉ POR RESUELTA.** v1.73 retiró `?sealedSubtype=` de
+  > `GET /catalog/cards` y le quitó `sealed` a su `?productType=` (§2, `D-EQ-3`), porque el guardarraíl `H9` los deja
+  > estructuralmente vacíos. **Esta faceta alimenta esos filtros** ⇒ si sigue anunciando `sealed` y sus subtipos, está
+  > ofreciendo al panel de Compra opciones que la rejilla de singles ya no acepta. **⚠️ NO SE DECIDE AQUÍ, y se dice por
+  > qué: NO HE MEDIDO qué emite este endpoint hoy** con sellado publicado. La medición que lo cierra es un
+  > `GET /catalog/facets` en esa condición, mirando si `productTypes` trae `"sealed"` y si `sealedSubtypes` viene no
+  > vacío. *Decidir sin medir es exactamente lo que v1.73 vino a cerrar; se deja abierta, no se resuelve a ojo.*
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
 - **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.41.5).** Esta faceta alimenta los **chips
   de texto** «Sets buscados» de la home y el **filtro de texto** de Compra: ninguna de las dos es una teja con imagen,
@@ -9989,6 +10132,12 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   publicar»** (fase 8, D10, criterio 125). *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
   Query: `?missing=location|price&acquisitionType=&setId=&page=&pageSize=` (todos opcionales; `pageSize` ≤ 100).
   Res `200`: `{ data: PendingPublishRowDTO[], page, pageSize, total }` (§11).
+  > **⚠️ v1.73 — `?missing=` y `?acquisitionType=` los norma [§0-Q](#enum-query-filter)** (conducta ante vacío,
+  > `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
+  > dominio **`location | price`** no existe en el schema —no nombra un estado persistido, nombra **qué le falta a la
+  > fila**, que es una pregunta sobre la consulta— y por tanto **ESTA LÍNEA es su declaración canónica**; el backend la
+  > declara literal junto a su único call-site, con paridad **contrato ↔ literal** (dos bandas; no hay tercera porque no
+  > hay enum que espejar). `?acquisitionType=` es **clase E** (`AcquisitionType`, §Enums, derivado).
   > **Predicado de la cola:** `ownerType='platform'` ∧ `status='in_stock'` ∧ ( `locationId IS NULL` **∨** precio de
   > venta **no resoluble** ). Cada fila dice **QUÉ LE FALTA** (`missing: ("location" | "price")[]`) y, si falta
   > precio, trae `pendingPriceEntryId` para el **deep-link a la cola de precio pendiente de M2**.
@@ -10397,6 +10546,12 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   de un set (`SealedProduct`, `active=true`) — la FUENTE del alta dedicada de la pestaña «Sellado». `vault_operator+`.
   Query: `?setId=<id LOCAL de CardSet>` (**requerido**) `&q?` (filtro por nombre) `&origin?=set_main|promo_collection`
   `&principalOnly?=true` (solo presentaciones «cabecera»).
+  - **⚠️ v1.73 — `?origin=` lo norma [§0-Q](#enum-query-filter), y es CLASE E.** Su dominio es el enum
+    **`SealedGroupKind`** (línea canónica en §Enums, movida allí en v1.73), que se **DERIVA** del schema; ⛔ **no se
+    transcribe** (§0-Q punto 3: si existe la columna, existe la clase E). Conducta: ausente/vacío/solo espacios ⇒
+    **no filtra**; token válido ⇒ filtra; cualquier otra cosa ⇒ **`400 VALIDATION_ERROR`** con
+    `details.field: "origin"` **y** `details.allowed` — las dos llaves son **obligatorias** (punto 2), y se dice
+    explícito porque el `400` que este endpoint emitía traía `details` **vacío**.
   - **Orden (§4.34c):** principales primero — `(isPrincipal desc, sortOrder asc, name asc)`; `sortOrder` canónico
     `upc=0, etb=1, box=2, bundle=3, tin=4, blister=5, collection=6`.
   - **Presentación SEPARADA por `origin` (v1.39.1, decisión del humano) — para frontend/ux-ui:** el alta muestra **dos
@@ -10604,9 +10759,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. **v2.1:** `{ data: PendingPriceEntry[], counts: PendingPriceCountsDTO }`.
   - **v1.8-ronda-c:** cada `PendingPriceEntry` trae **`finish`** — dos acabados de la misma carta sin precio son **entradas separadas** (antes colapsaban en una).
   - **v1.42 (BLOQ-2b):** para sellado, la entrada trae **`sealedProductId`** (+ `sealedProductName`/`sealedSubtype` de display). Dos presentaciones distintas del mismo set (ETB vs blíster) son **entradas separadas** por `sealedProductId` — antes colapsaban bajo el `gradeKey` legacy `'sealed'`. El override de una **no** cierra la otra (money-safe).
-  - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (`catalog | portfolio | buylist | inventory`; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
+  - **⚠️ v1.73 — `?context=` y `?reason=` los norma [§0-Q](#enum-query-filter), y los DOS son CLASE E.** Sus dominios
+    son los enums **`PendingPriceContext`** y **`PendingPriceReason`** (líneas canónicas en §Enums; la primera **añadida
+    en v1.73**, porque el filtro llevaba desde v1.26 sin banda de contrato). Se **DERIVAN** del schema; ⛔ **no se
+    transcriben** — `PendingPriceReason` es una **columna persistida e indexada** (`PendingPriceEntry.reason`), así que
+    una lista escrita a mano deja de aceptar la tercera razón el día que el schema la gane, **en una cola de dinero**.
+    Conducta obligatoria: vacío/solo espacios ⇒ **no filtra** (`200`); token inválido ⇒ **`400 VALIDATION_ERROR`** con
+    `details.field` + `details.allowed`. ⛔ **`422` es incumplimiento, no estilo del módulo** (§0-Q punto 2): es query,
+    no cuerpo. *(El `422` que este endpoint usaba **no era conducta publicada** — ninguna línea de este contrato lo
+    declaraba —, por eso se corrige en vez de conservarse; si lo hubiera declarado, el cambio sería mío por la regla 9
+    y no se habría tocado sin pasar por aquí.)*
+  - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (dominio: el enum `PendingPriceContext` de §Enums; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
   - **v2.0 (P-48) — cada entrada gana `reason: PendingPriceReason | null`** y el endpoint el **filtro `?reason=`**
-    (`no_market | premium_at_floor`; omitido = todas, retro-compatible; `null` en filas históricas). Distinguirlos es
+    (dominio: el enum `PendingPriceReason` de §Enums, ⛔ no re-listado aquí desde v1.73 —§4.37—; omitido = todas, retro-compatible; `null` en filas históricas). Distinguirlos es
     lo que hace **triable** la cola: `no_market` la cura sola el siguiente barrido; **`premium_at_floor` necesita que
     el dueño mire** (es el **guardarraíl** §4.36.5: una rareza premium cuyo precio aterrizó en el piso/bin, señal
     inequívoca de que **su dato de mercado está mal**). Volumen esperado de `premium_at_floor`: **≈3 de 333** cartas de
@@ -11071,10 +11236,17 @@ tarifa es un activo distinto** —es la estrategia de compra en una pantalla— 
 `super_admin`**. Un lector con menos rol tendría una pantalla donde cada botón contesta `403`.
 
 Query: `?state=&setId=&finish=&q=&page=&pageSize=&sort=`
+- **⚠️ v1.73 — los cuatro ejes de dominio cerrado de este handler los norma [§0-Q](#enum-query-filter)**, y **no era así
+  cuando se escribieron**: `state`, `setId`, `sort` y `finish` salieron con **tres** conductas distintas ante la misma
+  entrada vacía, escritos por la misma mano en el mismo fichero. *Nadie decidió eso; se coló tres veces porque cada uno
+  se escribió con el operador que su autor tenía a mano.* **`state` es clase L** (`BountyState` de §M2-B.0 es un estado
+  **derivado**, no una columna) y **`finish` es clase E** (`Finish`, §Enums). **`sort` no es un filtro: es un orden**,
+  y lo norma **§0-Q punto 6** — vacío/solo espacios ⇒ **el default**, token malo ⇒ **`400`** con `field` + `allowed`,
+  ⛔ nunca *clamp* silencioso al default.
 - `state` — **repetible** (`?state=rebasada&state=invalida`), valores del enum de §M2-B.0. Omitido ⇒ **todos**.
 - `setId`, `finish` — filtros de identidad. `q` — nombre o número de carta.
 - `page`/`pageSize` — paginación estándar de §0 (`pageSize ≤ 100`, default 20).
-- `sort` — `attention_first` (**default**) | `price_desc` | `updated_desc`.
+- `sort` — `attention_first` (**default**) | `price_desc` | `updated_desc`. **Ésta es su línea canónica (clase L).**
   **`attention_first` es el default a propósito, y es la decisión de producto de este endpoint:** ordena
   `rebasada`/`invalida` **primero** (las que están costando dinero silenciosamente), luego `activa`, luego
   `completada`, luego `apagada`; dentro de cada grupo `bountyPriceCents` **desc** (espejo de la vitrina), desempate
@@ -12554,6 +12726,14 @@ se mueven en el mismo cambio o no se mueve ninguna**: media banda es una diverge
   Agrega las operaciones **consumadas** por eje × `MarketBracket` para responder «¿qué tan rápido rota cada bracket y
   con qué margen?». Es lo que evita que la calibración de la curva vuelva a ser una corazonada.
   Query: `from?`, `to?` (fechas ISO), `axis?` (`sale | buy`; omitido = ambos).
+  > **⚠️ v1.73 — `?axis=` lo norma [§0-Q](#enum-query-filter), y es CLASE L.** **Ésta es su declaración canónica**: el
+  > dominio `sale | buy` **no existe en el schema** (`rg 'enum .*[Aa]xis' backend/prisma/schema.prisma` ⇒ **0**) porque
+  > no nombra un dato persistido sino **qué lado del negocio agregar** — una pregunta sobre la consulta. Por eso no hay
+  > enum que derivar ni cláusula de `PROJECT.md` que citar (§0-Q punto 3: una unión pura **no recorta nada**, así que no
+  > es clase R). El backend la declara literal junto a su único call-site, con paridad **contrato ↔ literal**.
+  > Conducta obligatoria: ausente/vacío/solo espacios ⇒ **ambos ejes** (`200`, no filtra); token inválido ⇒
+  > **`400 VALIDATION_ERROR`** con `details.field: "axis"` + `details.allowed`. ⛔ **`422` es incumplimiento** (§0-Q
+  > punto 2: es query, no cuerpo).
   Res `200`:
   ```json
   { "from": "2026-08-01", "to": "2026-08-24",
@@ -15819,6 +15999,17 @@ lleva `@HttpCode` explícito en cada ruta.
   - **v1.25-buylist-orders-pagination (§M5, TODOS aditivos y opcionales — omitidos = comportamiento de HOY):** el front deja de traer la lista completa y filtrar en memoria; pide server-side la pestaña «Cerradas» paginada + filtrada. Respuesta sin cambios: `{ data, page, pageSize, total }` (mismo `AdminBuylistDTO[]`).
     - **`status` — pasa a aceptar LISTA CSV (aditivo, la opción más simple):** `status=pagada,rechazada,abandonada` filtra por **cualquiera** de esos estados (`SellRequestStatus IN (...)`). Así la pestaña «Cerradas» (que agrupa `pagada|rechazada|abandonada`) se pide en UNA llamada server-side. **Compat total:** un solo valor (`status=verificacion`) se comporta **idéntico a hoy** (es el caso `IN` de un elemento); **omitir `status` = SIN filtro de estado = HOY.** Cada token debe ser un `SellRequestStatus` válido; token desconocido → `400 VALIDATION_ERROR` (`details.invalidStatus`). Se descartó un parámetro/alias nuevo (`closed=true`): CSV es aditivo sobre un parámetro que ya existe y no añade vocabulario.
       **⭐ v1.72 (P-84) — encaje con [§0-Q](#enum-query-filter), aditivo y sin ruptura.** Éste es el **único** endpoint CSV del contrato, y su `details.invalidStatus: string[]` **se conserva tal cual** (está publicado, tiene pruebas vivas —`backend/test/buylist.admin-list-filters.spec.ts:63`, `buylist.is-payable-live.spec.ts:415`— y es más informativo que un escalar cuando fallan varios tokens). Lo que §0-Q **añade** es `details.field: "status"` y `details.allowed` (el dominio completo de `SellRequestStatus`, **clase E**, derivado): *tres llaves, cero llaves retiradas, cero pruebas rotas*. **Por qué no al revés** (declarar `invalidStatus` como la forma canónica y que los demás la copien): en los otros cinco ejes solo hay **un** token, y `invalidStatus: ['bogus']` no dice **de qué campo** es — que es precisamente lo que un endpoint de tres ejes necesita. `field` es el hecho común; `invalidStatus` es el detalle del caso CSV.
+      **⭐ v1.73 — la SINTAXIS de lista queda normada en [§0-Q punto 5](#enum-query-filter), y NO es una excepción.**
+      Dos precisiones que hasta hoy solo vivían en el código: **(a)** se hace `trim()` de **cada token** y se descartan
+      los vacíos ⇒ `?status=%20pagada` **filtra** por `pagada` y `?status=pagada,,rechazada` ≡ `?status=pagada,rechazada`
+      *(el espacio alrededor de la coma es **sintaxis de lista**, no parte del token — `a, b` es lo que escribe un humano
+      y lo que emite un `join(', ')`; el token en sí se sigue validando **exacto**, así que `?status=pag%20ada` es
+      `400`)*; **(b)** `?status=pagada&status=bogus` es **indistinguible** de `?status=pagada,bogus` —medido por HTTP,
+      cuerpos **byte a byte idénticos**— y por tanto es una petición CSV **legítima de dos tokens**, no un «valor no
+      escalar» que haya que rechazar. *Esto retira la única excepción conocida que tenía §0-Q: la v1.72 exigía a este
+      endpoint un `400` por «no escalar» que **es inimplementable en el handler** (el `ValidationPipe` con
+      `transform: true` destruye la distinción antes de llegar). **Se corrige la norma, no se le pone una excepción** —
+      una cláusula normativa con una excepción documentada es como empiezan a ignorarse las normas.*
     - **`q?: string` (búsqueda server-side, sustituye el buscador client-side):** contains **case-insensitive** sobre **folio** (`SellRequest.id`) y **vendedor** (`User.name`, `User.email` vía el join que ya existe para `seller`). Semántica OR entre campos (la fila hace match si `q` aparece en cualquiera). Trim; `q` vacío/whitespace = **ausente** (sin filtro). Máx **200** chars (más largo → `400 VALIDATION_ERROR`). Sustituye 1:1 el filtro de `M5View` (`id | userId | seller.name | seller.email`); `userId` como identificador exacto sigue disponible por el parámetro `userId=`.
     - **`from?` / `to?` (rango de fecha, ISO-8601):** sobre `createdAt`, **`gte`/`lte`** — **misma semántica que `GET /admin/orders`**. **Borde de día (v1.25.1, §Convenciones):** un valor **date-only** (`YYYY-MM-DD`) se ancla al borde del día en UTC — `from` = `00:00:00.000Z`, `to` = fin de día **INCLUSIVO** `23:59:59.999Z` — así `to` **incluye** las solicitudes cerradas ese mismo día (caso de uso del PO en la pestaña «Cerradas»); un datetime ISO completo se usa tal cual. Fecha no parseable → `400 VALIDATION_ERROR`.
     - **`minCents?` / `maxCents?` (rango de MONTO, enteros ≥ 0):** aplican sobre **`quotedTotalCents`** — `gte minCents`, `lte maxCents`. **Por qué `quotedTotalCents` y NO `approvedTotalCents`:** `quotedTotalCents` es `Int @default(0)` — **siempre existe** para toda solicitud (snapshot histórico de la cotización), mientras que `approvedTotalCents` es **nullable** y sólo se puebla tras aprobar/ajustar; filtrar por él **excluiría** justo las solicitudes `rechazada`/`abandonada` (sin aprobado) que dominan la pestaña «Cerradas», rompiendo el caso de uso del PO. `quotedTotalCents` también es estable (el rechazo por-ítem NO lo recalcula — BL-1). **No** se ofrece filtro por `approvedTotalCents` en esta versión (si el PO lo pide luego, sería un par de params separados, aditivo). No negativo / no entero / `maxCents < minCents` → `400 VALIDATION_ERROR`.
