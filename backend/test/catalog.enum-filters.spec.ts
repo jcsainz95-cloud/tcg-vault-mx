@@ -56,6 +56,31 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
     });
   });
 
+  /**
+   * `P-89` · §0-Q punto 1 fila 1 — **un espacio es VACÍO: no filtra, no lanza, y el `where` sale
+   * SIN el eje.** El test de HTTP (`test/integration/catalog-enum-filters-empty.e2e-spec.ts`) mide
+   * el `200`; éste mide lo que el `200` no puede ver: que el eje **no entró en el `where`**. Un
+   * `200` con `where.productType = ' '` sería un listado vacío que parece filtrado — la «cola falsa»
+   * que §0-Q prohíbe, del otro lado.
+   */
+  it.each(['productType', 'condition', 'finish', 'sealedSubtype'] as const)(
+    '⭐ `?%s=" "` (solo espacios) ⇒ NO lanza y el eje NO aparece en el `where`',
+    async (param) => {
+      const { svc, prisma } = build();
+      await expect(svc.listCards({ page: 1, pageSize: 20, [param]: ' ' })).resolves.toBeDefined();
+      const where = prisma.inventoryItem.findMany.mock.calls[0][0].where;
+      // `condition` viaja al `where` como `rawCondition`: se comprueba la ruta de Prisma, no el param.
+      expect(where[param === 'condition' ? 'rawCondition' : param]).toBeUndefined();
+    },
+  );
+
+  it('⭐ `details.value` sigue publicándose en el 400 (llave ya publicada, ⛔ no se retira)', async () => {
+    const { svc } = build();
+    await expect(svc.listCards({ page: 1, pageSize: 20, finish: 'bogus' })).rejects.toMatchObject({
+      details: { field: 'finish', value: 'bogus' },
+    });
+  });
+
   it('valores válidos (productType=raw, condition=NM, sealedSubtype=etb) pasan a Prisma', async () => {
     const { svc, prisma } = build();
     await svc.listCards({ page: 1, pageSize: 20, productType: 'raw', condition: 'NM' });

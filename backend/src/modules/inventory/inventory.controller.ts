@@ -42,11 +42,18 @@ import { AcquisitionType, Finish, ProductType, SealedGroupKind } from '@prisma/c
  * v1.28 (P-17, §M1): valores válidos de los filtros aditivos de `GET /admin/inventory/items`.
  * Un valor fuera del enum → 400 VALIDATION_ERROR (contrato); omitido = comportamiento actual.
  */
-const FINISH_FILTER_VALUES: readonly string[] = Object.values(Finish);
-const PRODUCT_TYPE_FILTER_VALUES: readonly string[] = Object.values(ProductType);
+//
+// ⚠️ `readonly Finish[]`, NO `readonly string[]` (`P-89`, condición de techlead). El tipo no es
+// cosmético: con `readonly string[]` el genérico `T` de `parseEnumFilter` colapsa a `string`, el
+// helper devuelve `string`, y el call-site tiene que **volver a afirmar** el tipo con
+// `as Finish | undefined` — es decir, la comprobación que el helper tipado acababa de devolver se
+// tira a la basura una línea después. Los otros cinco módulos los tipan bien y no llevan cast
+// (`shipments/shipments.service.ts:24` + `:380`).
+const FINISH_FILTER_VALUES: readonly Finish[] = Object.values(Finish);
+const PRODUCT_TYPE_FILTER_VALUES: readonly ProductType[] = Object.values(ProductType);
 
 /** v1.51 (fase 8, §M1): filtros de `GET /admin/inventory/pending-publish`. */
-const ACQUISITION_TYPE_FILTER_VALUES: readonly string[] = Object.values(AcquisitionType);
+const ACQUISITION_TYPE_FILTER_VALUES: readonly AcquisitionType[] = Object.values(AcquisitionType);
 const PENDING_PUBLISH_MISSING_VALUES: readonly string[] = ['location', 'price'];
 
 /**
@@ -409,7 +416,7 @@ export class InventoryController {
     const productTypeFilter = parseEnumFilter('productType', productType, PRODUCT_TYPE_FILTER_VALUES);
     const buffer = await this.inventory.exportInventoryXlsx({
       setId: setId || undefined,
-      productType: productTypeFilter as ProductType | undefined,
+      productType: productTypeFilter,
     });
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader(
@@ -462,8 +469,8 @@ export class InventoryController {
       locationId,
       zone,
       q,
-      finish: finishFilter as Finish | undefined,
-      productType: productTypeFilter as ProductType | undefined,
+      finish: finishFilter,
+      productType: productTypeFilter,
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });
@@ -502,7 +509,7 @@ export class InventoryController {
     );
     return this.inventory.pendingPublish({
       missing: missing as 'location' | 'price' | undefined,
-      acquisitionType: acquisitionTypeFilter as AcquisitionType | undefined,
+      acquisitionType: acquisitionTypeFilter,
       setId,
       page: Math.max(1, parseInt(page, 10) || 1),
       // `pageSize` ≤ 100 (contrato §M1), como el resto de los listados de back-office.

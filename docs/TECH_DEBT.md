@@ -587,7 +587,7 @@
 - **Disparador:** al próximo cambio de la forma de `K`, extraer un helper único `variantKey(item)` en
   `pricing`/`common` y hacer que los 3 sitios lo consuman.
 
-#### H3 · Duplicación del andamiaje agrupar→ordenar→paginar y del helper de validar enum — **MITAD RESUELTA (2026-09-13, `P-84`)**
+#### H3 · Duplicación del andamiaje agrupar→ordenar→paginar y del helper de validar enum — **MITAD RESUELTA (2026-09-13, `P-84` + `P-89`)**
 - **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
 - **Deuda (original):** el andamiaje **agrupar → ordenar → paginar** sobre grupos, y el helper
   `validateEnum`, **duplicados** entre `CatalogService` y `SealedCatalogService` (`validateEnum` aparece
@@ -603,21 +603,107 @@ las formas divergentes de `details` **de 3 a 1**:
 | `admin/admin.service.ts:66-74` → `{field,allowed}` | **importa** `common/enum-filter` |
 | `inventory/inventory.controller.ts` ×3 inline → `{<campo>,allowed}` **sin `field`** | **importa**; `details` alineado a `{field,allowed}` |
 | `buylist/buylist.service.ts` inline CSV → `{invalidStatus}` | conserva `invalidStatus` (publicado) **+** `field`/`allowed` — aditivo |
-| `catalog/catalog.service.ts:783-788` + copia verbatim en `sealed-catalog.service.ts:212-221` → `{field,value,allowed}` | ⚠️ **siguen duplicadas** |
+| `catalog/catalog.service.ts:783-788` + copia verbatim en `sealed-catalog.service.ts:212-221` → `{field,value,allowed}` | **importan** `common/enum-filter` (`P-89`); `details.value` **conservado** vía `echoValue` |
 
 Nuevos llamadores del helper único: **7** (los 6 ejes de `P-84` + `/admin/users`), más los 4 alineados de
 inventario y el CSV de buylist. Pruebas: `backend/test/enum-filter.spec.ts` (unitaria del helper, incluida la
 frontera *vacío ≡ ausente* vs *`' pending'` ⇒ `400`*) y las dos suites de integración de `P-84`.
 
+**✅ `P-89` (2026-09-13) — la mitad del enum queda CERRADA: 4 copias → 2 → CERO.**
+
+> ### ⛔ CORRECCIÓN de lo que esta ficha afirmaba, porque era FALSO y ahora está MEDIDO
+> Este punto decía: *«`§0-Q` punto 4 las declara **ya conformes**»*, y con eso se justificó **no** migrarlas.
+> **La frase era falsa, y el modo en que era falsa importa más que el hecho.** Lo eran en **la forma del
+> `details`** (`{field,value,allowed}`, con `value` opcional-conforme) — **no** en **§0-Q punto 1 fila 1**,
+> que es la fila del filtro **vacío**. Los seis ejes escribían `if (q.X)`, y en JS **`' '` es truthy**: un
+> espacio entraba a validar y salía **`400`** donde la norma manda **`200` sin filtrar**.
+>
+> **La afirmación era de LECTURA (del censo del contrato); ahora es de MEDICIÓN, por HTTP**, contra la app
+> real, endpoint **`@Public()` y sin token** (`backend/test/integration/catalog-enum-filters-empty.e2e-spec.ts`,
+> 2026-09-13): **6 de 6 ejes reales en rojo** antes de migrar.
+>
+> | Ruta · eje | antes (`8d29988`) | después |
+> |---|---|---|
+> | `GET /catalog/cards?productType=%20` (`catalog.service.ts:1129`) | `400` | `200` |
+> | `GET /catalog/cards?condition=%20` (`:1130`) | `400` | `200` |
+> | `GET /catalog/cards?finish=%20` (`:1132`) | `400` | `200` |
+> | `GET /catalog/cards?sealedSubtype=%20` (`:1133`) | `400` | `200` |
+> | `GET /catalog/sealed?sealedSubtype=%20` (`sealed-catalog.service.ts:241`) | `400` | `200` |
+> | `GET /catalog/sealed?condition=%20` (`sealed-catalog.service.ts:243`) | `400` | `200` |
+>
+> ⚠️ **Y el «eje conforme» que había en la medición de partida NO era un eje.** `GET
+> /catalog/sealed?productType=%20` daba `200`, pero no por conformidad: `catalog.controller.ts:79-88` **no
+> declara** ese `@Query` y `listSealed` fija `productType:'sealed'` en el `where`. Es una **llave
+> desconocida** y se ignora. Probado en la misma suite: `?productType=bogus` ⇒ `200` (un eje daría `400`) y
+> `?productType=raw` ⇒ `200` con sellado. El sexto eje **real** era `?condition=` de `/catalog/sealed`, que
+> **nadie había medido**, y estaba rojo igual.
+>
+> **La lección, que es la que vale para la próxima ficha:** este documento ya había demostrado —en `P-84`,
+> con `/admin/users`— que el censo de §0-Q punto 4 se equivocaba. Citarlo como autoridad después de eso fue
+> tratar una lectura como una medición. Una ficha de deuda que cita un censo sin re-medirlo **manda a no
+> hacer trabajo que sí hacía falta**, que es el mismo coste que mandar a rehacer trabajo ya hecho.
+
+**El pago concreto, que era el motivo de verdad (techlead):** migrar **borró SEIS `as never`** —
+`catalog.service.ts:1129-1133` (cuatro) y `sealed-catalog.service.ts:241,243` (dos). `as never` es
+literalmente *«cállate, compilador»*, y es la instrucción que dejó vivir meses los seis `500` de `P-84` sin
+que nadie los viera. Los dominios pasaron de `Set<string>` a `readonly <EnumDePrisma>[]`, así que el
+genérico `T` de `parseEnumFilter` resuelve al enum y el `where` de Prisma vuelve a estar comprobado.
+Medido tras el cambio: `rg 'as never' backend/src/modules/catalog/` ⇒ **2 aciertos, ambos dentro de
+comentarios que explican por qué ya no hay ninguno**; **0 en código**.
+
+`details.value` **no se retiró**: era una llave ya publicada por dos endpoints `@Public()` (clientes no
+medibles), y §0-Q punto 2 la declara opcional-conforme. Se conserva con la bandera `echoValue` del helper
+único — declarada en UN sitio, con su candado (`test/enum-filter.spec.ts`, las dos mitades: por defecto NO
+aparece, con la bandera SÍ).
+
 - **⚠️ Lo que QUEDA ABIERTO (no-bloqueante, medido 2026-09-13):**
-  1. **Las dos `validateEnum` del catálogo** (`catalog/catalog.service.ts:783-788` y su copia verbatim en
-     `sealed-catalog.service.ts:212-221`) **no se migraron**. No es olvido: son del work stream *Catálogo y
-     precios*, `§0-Q` punto 4 las declara **ya conformes** (emiten `{field,value,allowed}`, y `value` es
-     opcional-conforme), y migrarlas desde el stream de `P-84` habría tocado módulos de otro stream sin
-     cerrar ningún defecto. Su migración es **mecánica** hoy: el destino ya existe.
-  2. **El andamiaje agrupar→ordenar→paginar** sigue duplicado e **intacto** — `P-84` no lo tocó.
-- **Disparador (actualizado):** al próximo cambio en `catalog`/`sealed-catalog`, migrar sus dos `validateEnum`
-  a `common/enum-filter.ts` (conservando `details.value`) y extraer `sortAndPaginateGroups`/`groupBy`.
+  1. **El andamiaje agrupar→ordenar→paginar** sigue duplicado e **intacto** entre `CatalogService` y
+     `SealedCatalogService` — ni `P-84` ni `P-89` lo tocaron. **Es el único residuo de esta ficha.**
+  2. *(No es residuo de H3, es deuda NUEVA — ver `H3-b` justo debajo.)* El último validador inline de
+     `inventory.controller.ts` (`?missing=`) sigue sin migrar, y **a propósito**.
+- **Disparador (actualizado):** al próximo cambio en `catalog`/`sealed-catalog` que toque la lectura de
+  grupos, extraer `sortAndPaginateGroups`/`groupBy`. **La mitad del enum ya no tiene disparador: está
+  hecha.**
+- **Comprobación de que la mitad del enum está cerrada** (cualquiera puede repetirla):
+  `rg 'validateEnum' backend/src/` ⇒ solo comentarios; `rg 'as never' backend/src/modules/catalog/` ⇒ 0 en
+  código; y la suite `catalog-enum-filters-empty.e2e-spec.ts` en verde (28/28). Mutación: reintroducir el
+  `if (q.X)` en cualquiera de los seis ejes pone **exactamente una** prueba en rojo — medido **3/3 por eje,
+  7 mutaciones** (los 6 ejes + retirar `echoValue`), sobre copia del árbol entero y base efímera.
+
+#### H3-b · `?missing=` de `pending-publish` es el último validador inline, y su clase la decide el arquitecto — **ABIERTA (2026-09-13, `P-89`)**
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Bloquea:** nada.
+- **Deuda:** `inventory/inventory.controller.ts:491-495` valida `?missing=` **inline**, cinco líneas por
+  encima de una llamada al helper compartido, y emite `{missing, allowed}` — **sin `field`**, que §0-Q punto
+  2 exige *siempre*. Medido por HTTP el 2026-09-13 (admin real, base efímera):
+  `?missing=` ⇒ `400 {"missing":"","allowed":[...]}`; `?missing=%20` ⇒ `400`; `?missing=bogus` ⇒ `400`;
+  `?missing=location` ⇒ `200`. Es decir: **el filtro vacío da `400`**, igual que daba el catálogo.
+- **⛔ POR QUÉ NO SE MIGRÓ, que es el punto entero de esta ficha:** `missing` **no es un enum**. Su dominio
+  es `['location','price']`, una **unión de literales de TypeScript** que el contrato declara como el tipo
+  de un campo de DTO (`missing: ("location" | "price")[]`, §M1 / §11) y que **no tiene línea en §Enums** —
+  y §0-Q punto 2 exige que `details.allowed` sea *«el dominio aceptado completo, tal como lo declara la
+  **línea canónica de §Enums**»*. §0-Q dice aplicar *«a todo parámetro de query cuyo dominio aceptado sea un
+  **enum**»*, y **si esto es un enum a esos efectos es una pregunta abierta del arquitecto**, no una que
+  backend pueda contestarse a sí mismo (regla 9 + regla de conflicto de `CLAUDE.md`).
+- **No alcanzable desde el front hoy:** `frontend/src/lib/api.ts:3625` llama sin query (medido por techlead).
+- **Disparador:** cuando el arquitecto decida si una unión de literales entra en §0-Q. **Si SÍ:** migrar a
+  `parseEnumFilter` (gana `field`, y `?missing=` pasa a `200` sin filtrar) — mecánico, el destino existe.
+  **Si NO:** dejar el inline y anotar en §M1 que este `400` es correcto y no es §0-Q, para que la próxima
+  revisión no lo cuente como incumplimiento.
+
+#### H3-c · Los filtros de `inventory.controller.ts` se declaraban `readonly string[]` y obligaban a re-castear — **RESUELTA (2026-09-13, `P-89`)**
+- **Dueño:** backend. **Severidad:** Baja (tipos, no conducta). **Estado:** **RESUELTA**.
+- **Deuda (techlead, `P-84`):** `inventory.controller.ts:45-49` declaraba los tres dominios como
+  `readonly string[]` en vez de `readonly Finish[]` / `readonly ProductType[]` / `readonly AcquisitionType[]`.
+  Eso **colapsaba el genérico `T` de `parseEnumFilter` a `string`**, así que el helper devolvía `string` y el
+  call-site tenía que **volver a afirmar** el tipo (`as Finish | undefined` en `:412` y `:465-466`) — la
+  comprobación que el helper acababa de devolver se tiraba una línea después. Los otros cinco módulos los
+  tipan bien y no llevan cast (`shipments/shipments.service.ts:24` + `:380`).
+- **Fix:** los tres arrays pasan a `readonly <EnumDePrisma>[]` y **los tres casts se retiran** (incluido el de
+  `acquisitionType` en `:500`, que la ficha original no nombraba). **Cero cambio de conducta**: medido por
+  HTTP tras el cambio, `?finish=%20`, `?productType=%20` (items y `export.xlsx`) y `?acquisitionType=%20`
+  siguen en `200`.
+- **Comprobación:** `npx tsc --noEmit` en verde **con los casts fuera** es la prueba de que eran redundantes;
+  si alguien revierte el tipo del array, tsc vuelve a exigirlos.
 
 #### H4 · Faltaban 2 tests de regresión de grupos (precio divergente + sort/paginación) — RESUELTO (2026-08-22)
 - **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test). **Estado:** **RESUELTO**.

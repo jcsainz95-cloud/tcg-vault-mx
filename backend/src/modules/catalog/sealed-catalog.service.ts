@@ -9,10 +9,15 @@ import { PriceBasis, SealedSpreadSource, sealedPriceBasisOf } from '../../common
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+// P-89 (deuda H3): aquí vivía una copia VERBATIM del `validateEnum` de `catalog.service.ts`. El
+// validador es ahora UNO, en `common/`.
+import { parseEnumFilter } from '../../common/enum-filter';
 
-// v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí.
-const SEALED_CONDITIONS = new Set<string>(SEALED_CONDITION_VALUES);
-const SEALED_SUBTYPES = new Set<string>(SEALED_SUBTYPE_VALUES);
+// v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí. CLASE E (§0-Q punto 3).
+// P-89: `readonly <Enum>[]` en vez de `Set<string>`, para que el genérico de `parseEnumFilter`
+// resuelva al enum y el `where` de Prisma deje de necesitar `as never`.
+const SEALED_CONDITIONS: readonly SealedCondition[] = SEALED_CONDITION_VALUES;
+const SEALED_SUBTYPES: readonly SealedSubtype[] = SEALED_SUBTYPE_VALUES;
 const RANGES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
@@ -209,17 +214,6 @@ export class SealedCatalogService {
     };
   }
 
-  private validateEnum(field: string, value: string, allowed: Set<string>): string {
-    if (!allowed.has(value)) {
-      throw BusinessException.badRequest('VALIDATION_ERROR', `Invalid ${field} filter`, {
-        field,
-        value,
-        allowed: [...allowed],
-      });
-    }
-    return value;
-  }
-
   // ---------------------------------------------------------------------------
   // GET /catalog/sealed — grid AGREGADO por producto+condición.
   // ---------------------------------------------------------------------------
@@ -237,10 +231,14 @@ export class SealedCatalogService {
       status: 'listed',
       ownerType: 'platform',
     };
-    if (q.sealedSubtype)
-      where.sealedSubtype = this.validateEnum('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES) as never;
-    if (q.condition)
-      where.sealedCondition = this.validateEnum('condition', q.condition, SEALED_CONDITIONS) as never;
+    // P-89 — §0-Q punto 1 fila 1: `if (q.X)` dejaba pasar `' '` (truthy en JS) a validar ⇒ `400`
+    // donde la norma manda `200` sin filtrar. Medido por HTTP en los DOS ejes
+    // (`test/integration/catalog-enum-filters-empty.e2e-spec.ts`). `echoValue` conserva
+    // `details.value`, que este endpoint público ya publicaba.
+    const sealedSubtype = parseEnumFilter('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES, { echoValue: true });
+    if (sealedSubtype) where.sealedSubtype = sealedSubtype;
+    const condition = parseEnumFilter('condition', q.condition, SEALED_CONDITIONS, { echoValue: true });
+    if (condition) where.sealedCondition = condition;
     const cardWhere: Prisma.CardWhereInput = {};
     if (q.setId) cardWhere.setId = q.setId;
     if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
@@ -396,7 +394,10 @@ export class SealedCatalogService {
         { field: 'product' },
       );
     }
-    if (!dto.sealedCondition || !SEALED_CONDITIONS.has(dto.sealedCondition)) {
+    // ⚠️ Esto NO es §0-Q: es un campo del CUERPO, no un filtro de query. Su `details` es `{field}`
+    // (sin `allowed`) y su vacío es un ERROR, no un «no filtres» — por eso no usa el helper. Solo
+    // cambia de `Set.has` a `Array.includes` porque la lista pasó a `readonly SealedCondition[]`.
+    if (!dto.sealedCondition || !(SEALED_CONDITIONS as readonly string[]).includes(dto.sealedCondition)) {
       throw BusinessException.validation('VALIDATION_ERROR', 'valid sealedCondition is required', {
         field: 'sealedCondition',
       });
