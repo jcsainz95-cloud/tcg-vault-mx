@@ -21708,7 +21708,23 @@ Es el **mismo borde** de `P-84`, con dos diferencias que conviene no mezclar:
 | Desenlace | **`500 INTERNAL`** (el valor llegaba crudo a Prisma) | **`400`** (el token sí se validaba; falla el *vacío*) |
 | Severidad | mayor: un `500` entierra los `500` de verdad | **menor**: no hay excepción no mapeada |
 | Exposición | requiere **sesión admin** | **`@Public()`**: sin token, desde la barra de direcciones |
-| Alcance del cliente | el front lo alcanza | el cliente tipado **no** lo alcanza (`frontend/src/lib/api.ts:293-295`) |
+| Alcance del cliente | el front lo alcanza | ⚠️ **ver `P-89.1-bis`**: lo alcanza *menos*, no *nada* |
+
+### P-89.1-bis — ⚠️ CORRIJO una afirmación que me llegó heredada y que repetí sin medir
+
+Me llegó —y la escribí— que *«el cliente tipado no alcanza estos ejes,
+`frontend/src/lib/api.ts:293-295`»*. **Medido: es falsa tal como está dicha.** `getCatalog` **sí**
+reenvía los cuatro ejes a `/catalog/cards` (`frontend/src/lib/api.ts:292-295`: `productType`,
+`condition`, `finish`, `sealedSubtype`).
+
+Lo que de verdad protege al front es **otra línea y otro mecanismo**: el serializador de query
+(`frontend/src/lib/api-client.ts:74-79`) **descarta `undefined` y `''`** — pero **no descarta `' '`**.
+⇒ el estado «Todas» (`''`) nunca llega al servidor y por eso nunca vio este `400`; pero **cualquier
+valor de solo espacios que una pantalla produjera viajaría tal cual** y habría recibido el `400`.
+
+**La diferencia importa para enrutar trabajo:** «no alcanzable» habría cerrado la pregunta; «alcanzable
+solo si alguna pantalla emite blancos» la deja abierta, y es `N-P89-2`. ⛔ **Lo que NO puedo medir desde
+backend es si alguna pantalla emite blancos** — es de frontend/QA, y no es mío arreglarlo.
 
 **Y esto ya había pasado.** `P-84` demostró que ese mismo censo se equivocaba con `/admin/users`; aun
 así, `P-84` **paró** la consolidación de `H3` **citando el censo**. Citar una lectura como si fuera una
@@ -21849,6 +21865,6 @@ un único test genérico habría dado el mismo verde sin poder distinguir seis a
 | # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
 |---|---|---|---|
 | `N-P89-1` | **Si algún cliente fuera del repo lee `details.value`** del `400` del catálogo. Por eso se conservó en vez de retirarla: no se puede medir desde aquí | registros de acceso/uso de terceros, o decisión explícita del arquitecto de retirarla en §0-Q | devops / arquitecto |
-| `N-P89-2` | **Que la pantalla de Compra mande vacío y no `undefined`** al poner un filtro en «Todas». Medí la **respuesta**, no el render; el cliente tipado no alcanza estos ejes (`api.ts:293-295`) | abrir el catálogo contra este backend (QA / Playwright) | qa / frontend |
+| `N-P89-2` | **Si alguna pantalla del catálogo puede emitir un valor de SOLO ESPACIOS** en estos cuatro ejes. Medido: el serializador descarta `undefined` y `''` pero **no `' '`** (`frontend/src/lib/api-client.ts:74-79`), y `getCatalog` sí reenvía los cuatro ejes (`api.ts:292-295`) ⇒ **era alcanzable**, no inalcanzable. Lo que no sé es si alguna pantalla lo produce. *(Tras `P-89` el desenlace sería `200` igualmente; la pregunta es si el front manda blancos.)* | recorrer los filtros del catálogo con Playwright mirando la URL emitida | frontend / qa |
 | `N-P89-3` | **Si una unión de literales (`?missing=`) entra en §0-Q.** Medí la conducta, no la norma | decisión del **arquitecto** (`H3-b`) | arquitecto |
 | `N-P89-4` | **El andamiaje agrupar→ordenar→paginar** sigue duplicado. No lo toqué y no lo medí en este pase | extraer `sortAndPaginateGroups`/`groupBy` y comparar salida byte a byte | backend |
