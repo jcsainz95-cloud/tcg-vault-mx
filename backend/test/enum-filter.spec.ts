@@ -43,6 +43,26 @@ describe('§0-Q · `assertEnumFilter` — la forma del error, que es UNA sola', 
     expect(JSON.stringify(err.details)).not.toContain('location.zone');
   });
 
+  /**
+   * `P-89` — `echoValue` existe para **no retirar** `details.value` del catálogo público, no para
+   * dar a elegir. Las dos mitades se afirman: que por defecto **no** aparece (§0-Q punto 2 no la
+   * exige, y un call-site nuevo no debe emitirla) y que con la bandera **sí** (la llave publicada).
+   */
+  it('⭐ `details.value` NO se emite por defecto — §0-Q no la exige', () => {
+    const err = capture(() => assertEnumFilter('status', 'banana', ALLOWED));
+    expect(err.details).not.toHaveProperty('value');
+  });
+
+  it('⭐ `echoValue: true` ⇒ `details.value` con el token ofensor, SIN mover `field`/`allowed`', () => {
+    const err = capture(() => assertEnumFilter('status', 'banana', ALLOWED, { echoValue: true }));
+    expect(err.details).toMatchObject({ field: 'status', value: 'banana', allowed: [...ALLOWED] });
+  });
+
+  it('⭐ `echoValue` NO relaja la validación: un token válido sigue pasando y uno inválido cayendo', () => {
+    expect(assertEnumFilter('status', 'pending', ALLOWED, { echoValue: true })).toBe('pending');
+    expect(capture(() => assertEnumFilter('status', 'banana', ALLOWED, { echoValue: true })).getStatus()).toBe(400);
+  });
+
   it('`details.allowed` es una COPIA: mutarla no envenena la lista derivada del schema', () => {
     const err = capture(() => assertEnumFilter('status', 'x', ALLOWED));
     (err.details as { allowed: string[] }).allowed.push('inyectado');
@@ -72,6 +92,18 @@ describe('§0-Q · `parseEnumFilter` — ausente / vacío / token / basura', () 
     const err = capture(() => parseEnumFilter('status', 'banana', ALLOWED));
     expect(err.getStatus()).toBe(400);
     expect(err.details).toMatchObject({ field: 'status', allowed: [...ALLOWED] });
+  });
+
+  /**
+   * `P-89` — `parseEnumFilter` **propaga** `echoValue` a `assertEnumFilter`. Sin esta propagación el
+   * catálogo público perdería `details.value` y nadie se enteraría: los dos endpoints son
+   * `@Public()` y ningún cliente tipado nuestro lee esa llave (`frontend/src/lib/api.ts`, 0 hits
+   * medidos 2026-09-13).
+   */
+  it('⭐ `echoValue` se PROPAGA a través de `parseEnumFilter`, y el vacío sigue sin lanzar', () => {
+    const err = capture(() => parseEnumFilter('status', 'banana', ALLOWED, { echoValue: true }));
+    expect(err.details).toMatchObject({ field: 'status', value: 'banana' });
+    expect(parseEnumFilter('status', ' ', ALLOWED, { echoValue: true })).toBeUndefined();
   });
 
   /**

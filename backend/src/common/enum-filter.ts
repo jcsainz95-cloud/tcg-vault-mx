@@ -38,6 +38,21 @@ import { BusinessException } from './business.exception';
  * Añadir seis llamadores más a una copia **deja la clase abierta**: el séptimo eje se cae por el
  * mismo agujero. Se declara una vez, y los call-sites la importan.
  *
+ * ### `P-89` (2026-09-13) — las DOS copias que `P-84` dejó vivas están migradas: quedan **CERO**
+ * `P-84` cerró la mitad (4 copias ⇒ 2). Las dos restantes eran las del catálogo público
+ * (`catalog/catalog.service.ts` y su copia **verbatim** en `sealed-catalog.service.ts`), y `P-84` las
+ * dejó **citando el censo de §0-Q punto 4, que las declara «✅ conforme»**. El censo se equivocaba,
+ * igual que se había equivocado con `/admin/users`: lo eran en **la forma del `details`**, no en
+ * **§0-Q punto 1 fila 1** — sus seis ejes escribían `if (q.X)` y `' '` es truthy ⇒ `400` donde la
+ * norma manda `200`. Medido por HTTP, **6/6 ejes rojos**, endpoint `@Public()`:
+ * `test/integration/catalog-enum-filters-empty.e2e-spec.ts`.
+ *
+ * El pago no fue solo el `400`: eran **seis `as never`**. `Set<string>` colapsaba el genérico `T` a
+ * `string`, así que el call-site tenía que anular al compilador para meter el valor en el `where` —
+ * y `as never` es la instrucción que dejó vivir meses los seis `500` de `P-84` sin que nadie los
+ * viera. Con los dominios declarados `readonly <EnumDePrisma>[]`, `T` resuelve al enum y los seis
+ * `as never` desaparecen (`rg 'as never' backend/src/modules/catalog/` ⇒ **0 en código**).
+ *
  * ### ⚠️ La lista `allowed` decide la CLASE, y la clase NO la decide este fichero
  * Igual que en `common/enum-values.ts`, la pregunta se contesta **por endpoint**: *si mañana alguien
  * añade un valor a este enum en `schema.prisma`, ¿este endpoint debe aceptarlo solo?*
@@ -56,6 +71,25 @@ import { BusinessException } from './business.exception';
 /**
  * Comprueba que `value` pertenece a `allowed`; si no, `400 VALIDATION_ERROR`.
  *
+ * ### ⚠️ Se EXPORTA con cero llamadores directos de producción, y es a propósito (`P-89`)
+ * Medido el 2026-09-13: el único llamador en `src/` es `parseEnumFilter`, aquí abajo (`rg
+ * assertEnumFilter backend/src/` ⇒ esta declaración, esa llamada, y un comentario en
+ * `admin/admin.service.ts:818`). **No es código muerto y no se des-exporta**, por dos razones:
+ *
+ *  1. **Es la costura, y tiene pruebas propias.** La forma del `400` (§0-Q punto 2: `field`
+ *     obligatorio, `allowed` obligatorio, `allowed` es una **copia**) es una propiedad de ESTA
+ *     función. `test/enum-filter.spec.ts` la ejercita directa; medirla a través de `parseEnumFilter`
+ *     acoplaría las pruebas de la **forma del error** a la lógica de **ausente/vacío**, que es
+ *     justamente la separación por la que hay dos funciones y no una.
+ *  2. **Es la mitad que sirve cuando el valor YA se sabe presente** — un token de un CSV, un
+ *     parámetro de ruta, un campo que otro guard ya cribó. Ese caso existe hoy (el CSV de
+ *     `GET /admin/buylist`) y no la usa **por una razón medida, no por olvido**: ese endpoint emite
+ *     `details.invalidStatus` con **todos** los tokens malos de una vez, y lanzar por token perdería
+ *     la lista (`buylist/buylist.service.ts:2205-2224`).
+ *
+ * Lo que sí sería un problema —y por eso se deja escrito— es que quedara exportada **sin pruebas**:
+ * entonces no sería una costura, sería superficie.
+ *
  * `400` y no `422`: es **query**, y es el código que ya usan los listados admin de este contrato.
  *
  * **`details.field` es obligatorio y es el punto entero.** `GET /admin/inventory/items` admite
@@ -67,15 +101,29 @@ import { BusinessException } from './business.exception';
  * riesgo: rechazar una llave desconocida **puede romper a un cliente que hoy funciona**, mientras que
  * validar un enum que ya devuelve `500` no puede romper a nadie —quien lo manda ya está recibiendo un
  * `500`—. Por eso `A5` se acotó a su endpoint y `P-84` no amplía de lo segundo a lo primero.
+ *
+ * ### `echoValue` (P-89) — existe para NO RETIRAR una llave ya publicada, no para dar a elegir
+ * El catálogo público emitía `details.value` desde antes de este helper, y §0-Q punto 2 lo declara
+ * **OPCIONAL** («se admite porque el helper del catálogo ya lo emite; no se exige»). Migrar el
+ * catálogo aquí **sin** esta bandera habría **retirado una llave de la respuesta publicada de un
+ * endpoint `@Public()`** —cuyos clientes no son solo el nuestro y por tanto **no se pueden medir**—
+ * a cambio de nada: `field` y `allowed` no cambian.
+ *
+ * ⛔ **No es un punto de extensión.** Un call-site NUEVO no la enciende: el dominio de `details` de
+ * §0-Q son `field` + `allowed`, y quien recibe el `400` ya tiene el valor (lo mandó él). Vive aquí,
+ * en UN sitio, precisamente para que la variación no vuelva a ser una copia del helper — que es la
+ * deuda `H3` entera.
  */
 export function assertEnumFilter<T extends string>(
   field: string,
   value: string,
   allowed: readonly T[],
+  opts?: { echoValue?: boolean },
 ): T {
   if (!(allowed as readonly string[]).includes(value)) {
     throw BusinessException.badRequest('VALIDATION_ERROR', `invalid ${field} filter '${value}'`, {
       field,
+      ...(opts?.echoValue ? { value } : {}),
       allowed: [...allowed],
     });
   }
@@ -134,6 +182,7 @@ export function parseEnumFilter<T extends string>(
   field: string,
   raw: unknown,
   allowed: readonly T[],
+  opts?: { echoValue?: boolean },
 ): T | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw !== 'string') {
@@ -146,5 +195,5 @@ export function parseEnumFilter<T extends string>(
   // `trim()` SOLO para decidir si viene vacío. El valor que se valida es el que mandó el cliente,
   // sin recortar: `' pending'` es entrada mal formada (`400`), no un `pending` con adornos.
   if (raw.trim() === '') return undefined;
-  return assertEnumFilter(field, raw, allowed);
+  return assertEnumFilter(field, raw, allowed, opts);
 }

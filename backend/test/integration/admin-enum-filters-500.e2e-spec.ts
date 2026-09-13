@@ -89,8 +89,19 @@ describe('`P-84` — valor fuera de enum en filtro admin ⇒ `400`, NUNCA `500`'
   }
 
   /**
-   * §0-Q punto 1, fila 3 — **valor NO ESCALAR ⇒ `400`.** `?status=a&status=b` llega al handler como
-   * **array**, y un array entra al `where` de Prisma igual de crudo que un token inválido.
+   * §0-Q punto 1, fila 3 — **valor NO ESCALAR ⇒ `400`.**
+   *
+   * ⚠️ **Corrección `P-89` (QA):** este docstring repetía el mecanismo que §0-Q punto 1 fila 3
+   * SUPONE —«llega al handler como **array**»— y que **este mismo commit ya había refutado con
+   * medición** en `common/enum-filter.ts:117-131`: el `ValidationPipe` global va con
+   * `transform: true` (`src/main.ts:56`) y el parámetro se declara `@Query('x') x?: string`, así que
+   * Nest **coacciona el array al metatipo `String` ANTES del handler** ⇒ `['a','b']` llega como
+   * `'a,b'`. Al handler **no llega ningún array**.
+   *
+   * Lo que esta prueba mide, por tanto, es el **desenlace** —`400`, que es lo que §0-Q manda— **por
+   * un mecanismo distinto del que el contrato describe**: `'a,b'` no pertenece al dominio. El
+   * desenlace es el mismo y la prueba sigue siendo válida; lo que era falso era la explicación, y
+   * una explicación falsa en un test es la que manda a alguien a «arreglar» lo que no está roto.
    */
   async function esperaNoEscalar(base: string, field: string) {
     const res = await get(`${base}${base.includes('?') ? '&' : '?'}${field}=a&${field}=b`);
@@ -115,8 +126,9 @@ describe('`P-84` — valor fuera de enum en filtro admin ⇒ `400`, NUNCA `500`'
     });
   });
 
-  describe('§0-Q.1 — valor NO ESCALAR (`?x=a&x=b` ⇒ array) ⇒ `400`, en los SEIS ejes', () => {
-    it.each(EJES)('`GET %s` · `?%s=a&%s=b` ⇒ 400 con `details.field` (⛔ nunca 500)', async (base, field) => {
+  // ⚠️ `P-89`: el título decía «⇒ array». Medido: llega `'a,b'` (ver el docstring de `esperaNoEscalar`).
+  describe('§0-Q.1 — parámetro REPETIDO (`?x=a&x=b`) ⇒ `400`, en los SEIS ejes', () => {
+    it.each(EJES)('`GET %s` · `?%s` repetido ⇒ 400 con `details.field` (⛔ nunca 500)', async (base, field) => {
       await esperaNoEscalar(base, field);
     });
   });
