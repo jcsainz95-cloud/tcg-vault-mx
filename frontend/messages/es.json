@@ -350,7 +350,8 @@
       "p5": "<b>TCG HUNT no gradea cartas ni intermedia el servicio de gradeo.</b> La cuota de PSA, el envío internacional, el retorno a México, los seguros y los tiempos de espera corren por tu cuenta.",
       "p6": "<b>Los precios de mercado cambian todos los días</b> y este estimado puede quedar desactualizado en cualquier momento.",
       "back": "Volver al valor estimado"
-    }
+    },
+    "sealedRedirect": "Te estamos llevando a Producto sellado…"
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -3585,6 +3586,9 @@
       "countValue": "{count, plural, one {# pieza} other {# piezas}}",
       "pendingLabel": "Precio pendiente",
       "valuationNote": "Valuado al valor de mercado de referencia; las piezas sin mercado se excluyen del total."
+    },
+    "fromCatalog": {
+      "body": "El producto sellado tiene su propia vitrina, así que te trajimos aquí desde Compra. Las cajas, ETB y demás producto cerrado se compran en esta pantalla."
     }
   },
   "cardDetail": {

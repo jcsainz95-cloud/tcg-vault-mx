@@ -3,10 +3,15 @@ import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { CatalogView } from './CatalogView';
 
-// Aisla la vista del router de Next (mismo patrón que BuylistView.test).
+// Aisla la vista del router de Next (mismo patrón que BuylistView.test). El `replace`
+// es un espía ESTABLE (hoisted): D-EQ-3 asserta a dónde manda la vista al llegar un
+// enlace de sellado, y con un `vi.fn()` nuevo por llamada no habría nada que mirar.
+const { routerSpies } = vi.hoisted(() => ({
+  routerSpies: { push: vi.fn(), replace: vi.fn() },
+}));
 vi.mock('@/i18n/navigation', () => ({
   usePathname: () => '/',
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => routerSpies,
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
@@ -23,6 +28,8 @@ vi.mock('next/navigation', () => ({
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  routerSpies.push.mockClear();
+  routerSpies.replace.mockClear();
   window.localStorage.clear();
   urlParams.current = new URLSearchParams();
 });
@@ -118,5 +125,90 @@ describe('CatalogView · §22.4b nota al pie de Compra', () => {
     expect(screen.queryByText(/no evaluamos esta carta/i)).not.toBeInTheDocument();
     expect(document.getElementById('nota-estimado')).toBeNull();
     expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * D-EQ-3 · UN ENLACE DE SELLADO NO PUEDE MORIR EN LA REJILLA DE SINGLES
+ * ═══════════════════════════════════════════════════════════════════════════════════
+ * `GET /catalog/cards` **excluye el sellado por construcción** (guardarraíl `H9`,
+ * `catalog.service.ts` `singlesPublishedWhere`), y el contrato v1.73 (§2) retiró
+ * `?sealedSubtype=` y le quitó `sealed` a `?productType=`.
+ *
+ * MEDIDO CONTRA EL SERVIDOR REAL (2026-09-13, stack nativo `1e37c6b`, con UN sellado
+ * `box` PUBLICADO — `GET /catalog/sealed` ⇒ `total: 1`):
+ *   · `GET /catalog/cards?productType=sealed`  ⇒ `total: 0`
+ *   · `GET /catalog/cards?sealedSubtype=box`   ⇒ `total: 0`
+ * y en el navegador `/es/compra?productType=sealed` ⇒ «Ninguna carta coincide».
+ * Contra MOCKS la misma URL pintaba tejas (los fixtures traen `box` y `etb`): la
+ * pantalla se veía bien en desarrollo y vacía contra el servidor.
+ *
+ * La cura no es «arreglar el filtro» (eso derogaría `H9`): es dejar de mandar el
+ * parámetro Y llevar al usuario a la vitrina que SÍ sirve sellado (§2-S, `/sellado`),
+ * conservando la presentación, que es el único filtro con equivalente EXACTO ahí.
+ */
+describe('CatalogView · D-EQ-3: el sellado tiene su propia vitrina, no un callejón sin salida', () => {
+  it('?productType=sealed NO consulta la rejilla de singles: manda a /sellado', async () => {
+    urlParams.current = new URLSearchParams('productType=sealed');
+    renderWithProviders(<CatalogView />, 'es');
+
+    await vi.waitFor(() => expect(routerSpies.replace).toHaveBeenCalledWith('/sellado?from=compra'));
+    // Y NO se pinta la rejilla de singles: ni tejas, ni el vacío «Ninguna carta coincide»,
+    // que es justo lo que el usuario veía hoy sin ninguna explicación.
+    expect(screen.queryByText('Ninguna carta coincide')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Añadir al carrito' })).not.toBeInTheDocument();
+  });
+
+  it('?productType=sealed&sealedSubtype=box conserva la presentación al redirigir', async () => {
+    urlParams.current = new URLSearchParams('productType=sealed&sealedSubtype=box');
+    renderWithProviders(<CatalogView />, 'es');
+
+    await vi.waitFor(() =>
+      expect(routerSpies.replace).toHaveBeenCalledWith('/sellado?sealedSubtype=box&from=compra'),
+    );
+  });
+
+  it('?sealedSubtype=etb SOLO (sin productType) también es intención de sellado', async () => {
+    // Hoy este parámetro se descartaba EN SILENCIO (`parseUrlFilters` exigía
+    // `productType==='sealed'`) y el usuario veía el catálogo entero sin filtrar,
+    // sin que nada dijera que su filtro se había ignorado. Medido en el navegador:
+    // `/es/compra?sealedSubtype=box` ⇒ «8 resultados», petición `/catalog/cards` pelada.
+    urlParams.current = new URLSearchParams('sealedSubtype=etb');
+    renderWithProviders(<CatalogView />, 'es');
+
+    await vi.waitFor(() =>
+      expect(routerSpies.replace).toHaveBeenCalledWith('/sellado?sealedSubtype=etb&from=compra'),
+    );
+  });
+
+  it('un subtipo que NO existe no inventa intención: sigue en Compra y no redirige', async () => {
+    urlParams.current = new URLSearchParams('sealedSubtype=no-existe');
+    renderWithProviders(<CatalogView />, 'es');
+
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+    expect(routerSpies.replace).not.toHaveBeenCalled();
+  });
+
+  it('?productType=sealed con un subtipo inválido redirige, pero sin arrastrar basura', async () => {
+    urlParams.current = new URLSearchParams('productType=sealed&sealedSubtype=no-existe');
+    renderWithProviders(<CatalogView />, 'es');
+
+    await vi.waitFor(() => expect(routerSpies.replace).toHaveBeenCalledWith('/sellado?from=compra'));
+  });
+
+  /**
+   * PARIDAD DE MOCKS (§H9). El fixture `mockListings` trae piezas `productType:'sealed'`
+   * (`inv-1008` box, `inv-1009` etb) porque las consumen la bóveda y el back-office. Si la
+   * rama mock de `getCatalog` las deja pasar, Compra pinta EN DESARROLLO dos tejas que el
+   * servidor real NUNCA devuelve — el mismo modo de fallo de este ticket, pero sin filtro
+   * de por medio y por tanto invisible.
+   */
+  it('la rejilla de Compra (sin filtros) no pinta NINGUNA teja de sellado', async () => {
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+
+    expect(screen.queryByText('Surging Sparks Booster Box')).not.toBeInTheDocument();
+    expect(screen.queryByText('Twilight Masquerade ETB')).not.toBeInTheDocument();
   });
 });
