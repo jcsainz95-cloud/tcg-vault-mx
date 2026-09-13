@@ -17,6 +17,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
@@ -31,12 +32,26 @@ const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
   ShipmentStatus.enviado,
 ];
 
-// v1.23-sealed-sales: filtros válidos de la pestaña «Sellado» (se ignoran silenciosamente si no matchean).
-// v2.1.8: DERIVADOS del schema. Antes eran listas de cinco a mano y `upc`/`collection` no
-// estaban: el filtro de la bóveda los ignoraba EN SILENCIO (el cliente pedía sus UPC y recibía todo
-// su sellado). Tolerar basura desconocida está bien; esconder un valor que SÍ existe en el schema, no.
-const SEALED_SUBTYPE_SET = new Set<string>(SEALED_SUBTYPE_VALUES);
-const SEALED_CONDITION_SET = new Set<string>(SEALED_CONDITION_VALUES);
+/**
+ * ⭐⭐ **`EQ-D0` / `P-93` (2026-09-13) — el ORDEN de la pestaña «Sellado» de la bóveda.**
+ *
+ * Dominio **declarado por el contrato**, no inventado aquí: `API_CONTRACT.md` §3, línea del
+ * endpoint — *«Query: `?sealedSubtype=&condition=&sort=` (`sort` default `value_desc`; también
+ * `count_desc | name_asc`)»*, y §M1 declara la hermana admin con *«Query igual a `GET /vault/sealed`»*.
+ * Es un literal de **clase L** (§4.37): no hay `enum` homónimo en `schema.prisma` — es un MODO de la
+ * consulta, no una columna. Su paridad **contrato ↔ literal** la vigila `C-EQ-1` (bloque de clase L),
+ * que es lo que impide que este array y esa línea se separen en silencio.
+ *
+ * ⛔ **La clase FORMAL de este eje en el registro de §0-Q punto 4 la escribe el ARQUITECTO** (regla 9).
+ * Lo que se arregla aquí es la conducta que §0-Q punto 6 prohíbe **sea cual sea la clase**: el
+ * **clamp silencioso**. Antes, `?sort=zzz` caía al `else` y devolvía el orden por valor **sin
+ * decirlo** — una lista distinta de la pedida, con cara de la pedida.
+ */
+export const VAULT_SEALED_SORT_VALUES = ['value_desc', 'count_desc', 'name_asc'] as const;
+export type VaultSealedSort = (typeof VAULT_SEALED_SORT_VALUES)[number];
+
+/** El default declarado por el contrato para `?sort=` (§3: *«`sort` default `value_desc`»*). */
+const VAULT_SEALED_SORT_DEFAULT: VaultSealedSort = 'value_desc';
 
 /**
  * `HoldingDTO` del contrato (§3 `GET /vault/holdings`), **declarado** (v2.1.9, T-2).
@@ -324,12 +339,29 @@ export class VaultService {
       productType: 'sealed',
       status: { notIn: NOT_ON_HAND }, // «en bóveda»: mismo filtro que el scope user_vault (§DTOs)
     };
-    if (q.sealedSubtype && SEALED_SUBTYPE_SET.has(q.sealedSubtype)) {
-      where.sealedSubtype = q.sealedSubtype as SealedSubtype;
-    }
-    if (q.condition && SEALED_CONDITION_SET.has(q.condition)) {
-      where.sealedCondition = q.condition as SealedCondition;
-    }
+    // ⭐⭐ `EQ-D0` / `P-93` — aquí estaba el defecto, y era de UNA forma en dos sitios:
+    //     `if (q.x && SET.has(q.x))`
+    // Si el valor NO pertenece al dominio, la condición entera se cae y el `where` sale **sin ese
+    // filtro**: el cliente pide «mi sellado, filtrado a cajas» y recibe **toda su bóveda** con cara
+    // de lista filtrada. QA lo midió por HTTP con sesión de cliente sobre `91d4318`:
+    // `?sealedSubtype=zzz` ⇒ `200` con los 2 grupos; `?condition=zzz` ⇒ ídem.
+    //
+    // §0-Q punto 1 fila 3 lo prohíbe: *el fallo se ve y la cola falsa no*. Y lo prohíbe **sea cual
+    // sea la clase** que el arquitecto acabe asignando a estos ejes, que es justo lo que permitió
+    // cerrarlo sin esperar a §0-Q. Es el defecto de `?kycStatus=` que `A5` cerró, vivo en la bóveda
+    // del CLIENTE — donde quien recibe la mentira no es personal nuestro y **no tiene cómo notarlo**.
+    //
+    // El helper único (`parseEnumFilter`) trae las tres conductas de §0-Q de una pieza: ausente y
+    // vacío (incluido `' '`, que es truthy y se colaba) ⇒ no filtra; token ⇒ filtra; basura ⇒ `400`
+    // con `field` + `allowed` DERIVADO del enum y con la cota del eco. ⛔ Sin `echoValue`: el dominio
+    // de `details` de §0-Q es `field` + `allowed`, y ensancharlo es cambiar el contrato (regla 9).
+    const sealedSubtype = parseEnumFilter('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPE_VALUES);
+    if (sealedSubtype) where.sealedSubtype = sealedSubtype;
+    const condition = parseEnumFilter('condition', q.condition, SEALED_CONDITION_VALUES);
+    if (condition) where.sealedCondition = condition;
+
+    // El ORDEN se valida ANTES de la lectura: un `400` por `?sort=` no debe costar una consulta.
+    const sort = parseEnumFilter('sort', q.sort, VAULT_SEALED_SORT_VALUES) ?? VAULT_SEALED_SORT_DEFAULT;
 
     const items = (await this.prisma.inventoryItem.findMany({
       where,
@@ -401,12 +433,27 @@ export class VaultService {
       };
     });
 
-    const sort = q.sort ?? 'value_desc';
+    // ⛔ `switch` exhaustivo y NO una cadena con `else` final: el `else` era el clamp silencioso.
+    // Con el dominio ya validado arriba, `sort` solo puede ser uno de los tres — y si mañana alguien
+    // añade un cuarto valor al literal sin tocar esto, el `default` **revienta ruidosamente** en vez
+    // de ordenar por el valor equivocado en silencio.
     const byName = (a: { productName: string }, b: { productName: string }) =>
       a.productName.localeCompare(b.productName);
-    if (sort === 'count_desc') rows.sort((a, b) => b.count - a.count || byName(a, b));
-    else if (sort === 'name_asc') rows.sort(byName);
-    else rows.sort((a, b) => (b.totalMarketValueMxnCents ?? -1) - (a.totalMarketValueMxnCents ?? -1) || byName(a, b));
+    switch (sort) {
+      case 'count_desc':
+        rows.sort((a, b) => b.count - a.count || byName(a, b));
+        break;
+      case 'name_asc':
+        rows.sort(byName);
+        break;
+      case 'value_desc':
+        rows.sort((a, b) => (b.totalMarketValueMxnCents ?? -1) - (a.totalMarketValueMxnCents ?? -1) || byName(a, b));
+        break;
+      default: {
+        const nunca: never = sort;
+        throw new Error(`orden de bóveda sellada no contemplado: ${String(nunca)}`);
+      }
+    }
 
     return { data: rows, totalValueMxnCents, pendingPriceCount, currency: 'MXN' as const };
   }

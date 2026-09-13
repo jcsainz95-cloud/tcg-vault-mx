@@ -22347,3 +22347,104 @@ Se parte en dos, y la partición es el arreglo:
 | `C-EQ-1` | **193/193** (era 192; +1 el candado del candado) |
 | Integración completa | **39 suites · 780/780**, exit 0 |
 | Unitaria completa | **293 suites · 4830/4830**, exit 0 |
+
+---
+
+## EQ-D0 / P-93 (2026-09-13) — la bóveda del CLIENTE ya no ignora sus filtros en silencio
+
+**Dueño: backend (stream «Inventario y vault»). Misma base virgen y efímera `tcg_be_vault_p93`;
+mutaciones sobre copia del árbol ENTERO.**
+
+### Lo que se midió ANTES de cambiar conducta publicada — y por qué NO es `D-EQ-3` otra vez
+
+El encargo lo pedía explícitamente: *«mide si algún punto del frontend manda esos parámetros y con
+qué valores **antes** de decidir; si resulta que la pantalla de bóveda puede emitir algo fuera de
+dominio, **para y dímelo**»*. Medido (solo lectura de `frontend/`, 2026-09-13):
+
+| Qué | Medición | Fichero |
+|---|---|---|
+| `getVaultSealed()` | `apiRequest('/vault/sealed')` — **sin querystring**, sin parámetros | `frontend/src/lib/api.ts:612-614` |
+| `getAdminVaultSealed(userId)` | `apiRequest('/admin/vaults/<id>/sealed')` — **sin querystring** | `frontend/src/lib/api.ts:618-620` |
+| Consumidores | **uno solo**: `SealedVaultPanel.tsx:35` | `grep -rn 'getVaultSealed\|getAdminVaultSealed' frontend/src` |
+| El panel | **sin control de filtro ni de orden**, y **no lee la URL** (ni `useSearchParams` ni nada equivalente) | `SealedVaultPanel.tsx` |
+
+⇒ **Ninguna pantalla puede emitir hoy un valor fuera de dominio por estos tres ejes**: el `400` nuevo
+es **inalcanzable desde el producto**. Por eso **no aplica** el patrón de `D-EQ-3` (allí el front SÍ
+mandaba `productType=sealed`, y por eso iba primero). **No paro: sigo.**
+
+### El defecto, y el `?sort=` que el encargo pidió medir
+
+- `?sealedSubtype=` y `?condition=` (`vault.service.ts:327`, `:330`): `if (q.x && SET.has(q.x))`. Si
+  el valor no está en el dominio, **la condición entera se cae** y el `where` sale sin ese filtro. Lo
+  reprodujo QA por HTTP con sesión de cliente: `?sealedSubtype=zzz` ⇒ `200` con **la bóveda entera**.
+- ⭐ **`?sort=` — medido, y hacía lo mismo con otro nombre**: `const sort = q.sort ?? 'value_desc'` y
+  una cadena de `if/else` cuyo `else` final se tragaba todo ⇒ `?sort=zzz` devolvía el orden por valor
+  **sin decirlo**. Es **clamp silencioso**, §0-Q punto 6, y tampoco depende de la clase.
+  **Su dominio NO se inventó**: lo declara la línea del endpoint del contrato (§3 — *«`sort` default
+  `value_desc`; también `count_desc | name_asc`»*; §M1 dice *«Query igual a `GET /vault/sealed`»*).
+  Es un literal de **clase L** con paridad **contrato ↔ literal** vigilada por `C-EQ-1`, igual que
+  `?missing=` y `?axis=` en `D-EQ-2`.
+
+### El arreglo
+
+`parseEnumFilter` por eje (las tres conductas de §0-Q de una pieza: ausente/vacío/`' '` ⇒ no filtra ·
+token ⇒ filtra · basura ⇒ `400` con `field` + `allowed` **derivado** y con la cota del eco), y un
+`switch` **exhaustivo** con `const nunca: never` en el `default` en vez del `else` que clampaba: si
+mañana alguien añade un cuarto valor al literal sin tocar el orden, **no compila**. ⛔ Sin
+`echoValue`: no son de los seis ejes públicos, y ensanchar `details` es cambiar §0-Q (regla 9).
+
+Se arregla **en el servicio**, así que las dos rutas hermanas quedan cerradas de una vez
+(`admin-vaults.service.ts:54` delega en `VaultService.sealedTab`).
+
+### ⚠️ El hallazgo del cierre: había un test VERDE que afirmaba el defecto
+
+`backend/test/vault-sealed.spec.ts` tenía *«un subtipo INEXISTENTE se sigue ignorando (tolerar basura
+desconocida SÍ es correcto)»*, que exigía `where.sealedSubtype === undefined` — o sea **congelaba**
+que `?sealedSubtype=zzz` devolviera la bóveda entera. Venía de `v2.1.8`, que arreglaba otra cosa
+(`upc`/`collection` faltaban en una lista escrita a mano) y **de paso dejó escrita como decisión la
+mitad que no había mirado**. *Un defecto con prueba verde deja de parecer un defecto: parece una
+decisión con prueba.* Reescrito a la norma, con el historial dentro para que la lección no se pierda.
+
+### Colores, con su N
+
+| Momento | Medición |
+|---|---|
+| **ANTES** (copia del árbol con solo la constante inerte añadida) | `vault-sealed-enum-filters` **10 rojas / 29** — y las 10 son exactamente las violaciones: `?sealedSubtype=zzz`, `?condition=zzz`, `?sort=zzz`, `?sealedSubtype=%20box` y la cota del eco, ×2 rutas |
+| **DESPUÉS** | `vault-sealed-enum-filters` **27/27**; `C-EQ-1` **238/238**; `vault-sealed.spec.ts` 16/16 |
+
+**Mutaciones (copia del árbol ENTERO, base `tcg_be_vault_p93`):**
+
+| Mutación | Qué reintroduce | Resultado |
+|---|---|---|
+| `M-V1` | vuelve el `if (q.x && SET.has(q.x))` (ignora en silencio) | **3/3 ROJA** (N=3) — 24 casos en integración; **3/3 ROJA** también en la unitaria |
+| `M-V2` | vuelve el clamp silencioso del ORDEN | **3/3 ROJA** (N=3) — 10 casos en integración; **3/3 ROJA** en la unitaria |
+| `M-V3` | añade un valor al literal del orden sin tocar el `switch` | **no compila** (`never`) — muerde antes que cualquier test |
+| `M-V3b` | el literal del orden se separa de la línea del contrato (`name_asc` → `name_desc`) | **3/3 ROJA** (N=3) — cae la paridad contrato↔literal **y** las dos filas de `?sort=` |
+
+### El trinquete: **22 → 16**
+
+Los **seis** ejes salieron de `SIN_CLASE_DECLARADA` al `REGISTRO` de `C-EQ-1`, con sus siete
+propiedades verdes **sin excepción**. La ficha `EQ-D0` preveía 18 (cuatro ejes); son **seis** porque
+el `?sort=` de las dos rutas entró también.
+
+⛔ **Lo que el registro NO finge:** la **fila de §0-Q punto 4** de esos seis ejes **sigue sin
+existir**. Van marcados `filaEn0Q: 'PENDIENTE-ARQUITECTO'` y hay un test que fija exactamente cuáles
+son. Meterlos sin decirlo habría convertido una transcripción de decisiones en un censo de estado —
+justo lo que la v1.73 retiró del contrato.
+
+### Estado al cierre de la fase 2
+
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` | 0 errores |
+| `eslint src/**/*.ts test/**/*.ts` | 0 errores, 3 avisos **preexistentes** (`IsObject`, `actorUserId`, `normalizeSetName` — ficheros que no toco) |
+| Unitaria completa | **293 suites · 4832/4832**, exit 0 |
+| Integración completa | **40 suites · 852/852**, exit 0 — **3/3 tiradas verdes** (N=3; sin intermitentes en esta corrida) |
+
+### Para el ARQUITECTO (regla 9) — lo que este pase NO podía cerrar
+
+| # | Qué | Por qué es suyo |
+|---|---|---|
+| `N-EQD0-1` | **La fila de §0-Q punto 4 para los seis ejes de la bóveda.** La conducta ya conforma y está medida; el registro del contrato no los nombra | añadir filas a §0-Q es cambiar el contrato |
+| `N-EQD0-2` | **Ratificar la clase que este pase MIDIÓ**: `sealedSubtype`/`condition` = **E** derivadas de `SealedSubtype`/`SealedCondition` (mismo nombre y mismo enum que `/catalog/sealed`, que §0-Q ya registra como E); `sort` = **ORDEN** con dominio **L** tomado de la línea del endpoint de §3 | la clase la decide él |
+| `N-EQD0-3` | **Si `?sort=` de la bóveda debería declararse en §0-Q punto 4 junto con los otros seis `?sort=` que siguen abiertos**, o uno a uno | es una decisión de forma del registro |

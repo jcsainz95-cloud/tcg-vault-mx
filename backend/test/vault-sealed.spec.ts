@@ -1,4 +1,4 @@
-import { VaultService } from '../src/modules/vault/vault.service';
+import { VaultService, VAULT_SEALED_SORT_VALUES } from '../src/modules/vault/vault.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 
@@ -197,13 +197,49 @@ describe('VaultService.sealedTab — agregación + valuación de la bóveda sell
     expect(unfiltered.data).toHaveLength(2);
   });
 
-  it('un subtipo INEXISTENTE se sigue ignorando (tolerar basura desconocida SÍ es correcto)', async () => {
-    // La distinción del hallazgo: ignorar un valor que el schema NO conoce está bien; ignorar uno
-    // que SÍ conoce es esconder un bug. Este test fija que el arreglo no volvió estricto lo otro.
+  /**
+   * ⭐⭐ **`EQ-D0` / `P-93` — este test AFIRMABA EL DEFECTO, y por eso el defecto sobrevivió.**
+   *
+   * Se titulaba *«un subtipo INEXISTENTE se sigue ignorando (tolerar basura desconocida SÍ es
+   * correcto)»* y exigía `where.sealedSubtype === undefined`: o sea **congelaba** que
+   * `?sealedSubtype=zzz` devolviera la bóveda entera. Su razonamiento —*«ignorar un valor que el
+   * schema NO conoce está bien; ignorar uno que SÍ conoce es esconder un bug»*— era el de `v2.1.8`,
+   * que arreglaba otra cosa (`upc`/`collection` faltaban en una lista escrita a mano) y **de paso
+   * dejó escrita como decisión la mitad que no había mirado**.
+   *
+   * §0-Q punto 1 fila 3 dice lo contrario y no admite matiz: ante un valor fuera del dominio, `400`.
+   * *El fallo se ve y la cola falsa no.* Y aquí el que recibe la cola falsa es **el cliente**, que no
+   * tiene otro camino para enterarse de que su «filtrado a cajas» le devolvió todo.
+   *
+   * **Se deja anotado en vez de borrado** porque es la lección: un test verde puede estar sosteniendo
+   * un defecto, y entonces el defecto ya no parece un defecto — parece una decisión con prueba.
+   */
+  it('⭐ `EQ-D0` — un subtipo FUERA DEL DOMINIO ⇒ `400`, ⛔ NUNCA la bóveda entera', async () => {
     const { prisma, svc } = build([], new Map());
-    await svc.sealedTab('u1', { sealedSubtype: 'no_existe' });
-    const where = (prisma.inventoryItem.findMany as jest.Mock).mock.calls[0][0].where;
-    expect(where.sealedSubtype).toBeUndefined();
+    await expect(svc.sealedTab('u1', { sealedSubtype: 'no_existe' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field: 'sealedSubtype' },
+    });
+    // Y el `400` se decide ANTES de leer: un valor inválido no debe costar una consulta.
+    expect((prisma.inventoryItem.findMany as jest.Mock).mock.calls).toHaveLength(0);
+  });
+
+  it('⭐ `EQ-D0` — `?sort=` fuera del dominio ⇒ `400` (⛔ el clamp silencioso del punto 6)', async () => {
+    const { svc } = build([], new Map());
+    await expect(svc.sealedTab('u1', { sort: 'no_existe' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { field: 'sort', allowed: [...VAULT_SEALED_SORT_VALUES] },
+    });
+  });
+
+  it('⭐ `EQ-D0` — vacío y solo-espacios NO filtran (§0-Q punto 1 fila 1: `200`, nunca `400`)', async () => {
+    for (const vacio of ['', ' ', '\t']) {
+      const { prisma, svc } = build([], new Map());
+      await svc.sealedTab('u1', { sealedSubtype: vacio, condition: vacio, sort: vacio });
+      const where = (prisma.inventoryItem.findMany as jest.Mock).mock.calls[0][0].where;
+      expect(where.sealedSubtype).toBeUndefined();
+      expect(where.sealedCondition).toBeUndefined();
+    }
   });
 
   it('el filtro de `condition` viaja igual (los DOS valores del enum)', async () => {

@@ -95,6 +95,7 @@ import { BOUNTY_STATE_VALUES } from '../../src/modules/pricing/bounty-state';
 import { ADMIN_BOUNTY_SORT_VALUES } from '../../src/modules/pricing/admin-bounties.service';
 import { PENDING_PUBLISH_MISSING_VALUES } from '../../src/modules/inventory/inventory.controller';
 import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.controller';
+import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -141,7 +142,25 @@ interface AxisRow {
   readonly obs?: Obs;
   /** Querystring obligatoria del endpoint (p. ej. `setId=…`), sin el `?`. */
   readonly extra?: (ctx: Ctx) => string;
-  readonly auth: 'admin' | 'public';
+  /**
+   * Ruta REAL a golpear cuando `route` lleva parámetros de ruta (`:userId`). `route` no se toca:
+   * es la llave del cruce con el censo de código y tiene que seguir siendo la del escáner.
+   */
+  readonly path?: (ctx: Ctx) => string;
+  readonly auth: 'admin' | 'public' | 'customer';
+  /**
+   * ⭐ **¿Esta fila TRANSCRIBE §0-Q punto 4, o solo mide una conducta que ya conforma?**
+   *
+   * `'transcrita'` (default) = el registro de §0-Q punto 4 contiene la fila, con su clase decidida
+   * por el arquitecto. `'PENDIENTE-ARQUITECTO'` = la **conducta** ya cumple §0-Q (medida aquí, por
+   * HTTP) pero **la fila del contrato todavía no existe**: escribirla es cambiar §0-Q y eso es del
+   * arquitecto (regla 9).
+   *
+   * ⚠️ Existe para que este registro **no mienta sobre lo que es**. Meter una fila sin decirlo
+   * convertiría una transcripción de decisiones en un censo de estado — que es exactamente lo que la
+   * v1.73 retiró del contrato y lo que este fichero existe para no repetir.
+   */
+  readonly filaEn0Q?: 'transcrita' | 'PENDIENTE-ARQUITECTO';
   /**
    * §0-Q punto 2: `details.value` es **CONDICIONAL**. ✅ obligatorio en los seis ejes de dominio
    * cerrado de los DOS catálogos públicos (ya estaba publicado antes de que §0-Q existiera);
@@ -222,6 +241,8 @@ type Extra = { base?: ApiRes; alterno?: ApiRes };
 
 interface Ctx {
   setId: string;
+  /** `:userId` de las rutas admin de bóveda — el CLIENTE del fixture, no el admin. */
+  userId: string;
 }
 
 /**
@@ -379,14 +400,40 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /catalog/cards', param: 'condition', clazz: 'R', allowed: ACCEPTED_RAW_CONDITIONS, valid: 'NM', auth: 'public', echoValue: true },
   { route: 'GET /catalog/sealed', param: 'sealedSubtype', clazz: 'E', allowed: Object.values(SealedSubtype), valid: 'box', alterno: 'etb', auth: 'public', echoValue: true },
   { route: 'GET /catalog/sealed', param: 'condition', clazz: 'E', allowed: Object.values(SealedCondition), valid: 'mint', alterno: 'minor_box_damage', auth: 'public', echoValue: true },
+
+  // ==========================================================================================
+  // ⭐⭐ `EQ-D0` / `P-93` — LA BÓVEDA, que hasta hoy IGNORABA EN SILENCIO los filtros del CLIENTE.
+  //
+  // Las seis filas salen de `SIN_CLASE_DECLARADA` (22 → 16) porque su **conducta** ya cumple §0-Q:
+  // se arregló en `vault.service.ts` (un `parseEnumFilter` por eje y un `switch` exhaustivo en vez
+  // del `else` que clampaba). Lo que NO se arregló aquí —y no se podía— es la **fila de §0-Q punto
+  // 4**: escribirla es cambiar el contrato ⇒ arquitecto (regla 9). Por eso van marcadas
+  // `PENDIENTE-ARQUITECTO`: el registro dice **lo que son**, no lo que convendría que fueran.
+  //
+  // Clases MEDIDAS, no elegidas: `sealedSubtype`/`condition` son **E** derivadas de los enums de
+  // Prisma `SealedSubtype`/`SealedCondition` — el MISMO nombre de eje sobre el MISMO enum que
+  // `/catalog/sealed`, que §0-Q ya registra como E (dos filas más arriba). `sort` es **ORDEN** con
+  // dominio de clase L declarado en la línea del endpoint del contrato (§3), con su paridad a dos
+  // bandas abajo. ⛔ Ninguna lleva `echoValue`: no son de los seis públicos.
+  // ==========================================================================================
+  { route: 'GET /vault/sealed', param: 'sealedSubtype', clazz: 'E', allowed: Object.values(SealedSubtype), valid: 'box', alterno: 'etb', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /vault/sealed', param: 'condition', clazz: 'E', allowed: Object.values(SealedCondition), valid: 'mint', alterno: 'minor_box_damage', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /vault/sealed', param: 'sort', clazz: 'ORDEN', allowed: VAULT_SEALED_SORT_VALUES, valid: 'count_desc', alterno: 'name_asc', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/vaults/:userId/sealed', path: (c) => `/admin/vaults/${c.userId}/sealed`, param: 'sealedSubtype', clazz: 'E', allowed: Object.values(SealedSubtype), valid: 'box', alterno: 'etb', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/vaults/:userId/sealed', path: (c) => `/admin/vaults/${c.userId}/sealed`, param: 'condition', clazz: 'E', allowed: Object.values(SealedCondition), valid: 'mint', alterno: 'minor_box_damage', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/vaults/:userId/sealed', path: (c) => `/admin/vaults/${c.userId}/sealed`, param: 'sort', clazz: 'ORDEN', allowed: VAULT_SEALED_SORT_VALUES, valid: 'count_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
 ];
 
-/** `GET /admin/orders` ⇒ `/admin/orders` (el arnés ya antepone `/api/v1`). */
-const pathOf = (row: AxisRow) => row.route.slice(row.route.indexOf(' ') + 1);
+/**
+ * `GET /admin/orders` ⇒ `/admin/orders` (el arnés ya antepone `/api/v1`). Si la fila declara `path`,
+ * manda ése: `route` lleva el `:userId` literal porque es la llave del censo, no una URL.
+ */
+const pathOf = (row: AxisRow, ctx: Ctx) =>
+  row.path ? row.path(ctx) : row.route.slice(row.route.indexOf(' ') + 1);
 
 function url(row: AxisRow, ctx: Ctx, value: string): string {
   const extra = row.extra ? `${row.extra(ctx)}&` : '';
-  return `${pathOf(row)}?${extra}${row.param}=${value}`;
+  return `${pathOf(row, ctx)}?${extra}${row.param}=${value}`;
 }
 
 const idOf = (row: AxisRow) => `${row.route}?${row.param}=`;
@@ -432,8 +479,8 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.variantPriceOverride.deleteMany({ where: { bountyPriceCents: { in: CEQ1_BOUNTY_PRICES } } });
 }
 
-/** Siembra y devuelve el `setId` propio (el que usa `?setId=` de `sealed-products`). */
-async function sembrarFixture(h: E2EHarness): Promise<string> {
+/** Siembra y devuelve el contexto de rutas (`setId` propio + el `userId` del cliente del fixture). */
+async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   await limpiarFixture(h);
 
   // (a) `GET /admin/inventory/sealed-products?origin=` — DOS presentaciones con `origin` distinto.
@@ -449,6 +496,7 @@ async function sembrarFixture(h: E2EHarness): Promise<string> {
   });
 
   const card = await h.prisma.card.findFirstOrThrow({ select: { id: true } });
+  const cliente = await h.prisma.user.findFirstOrThrow({ where: { email: E2E_USERS.customer.email }, select: { id: true } });
 
   // (b) `GET /catalog/sealed?sealedSubtype=` · `?condition=` — dos piezas SELLADAS de plataforma,
   //     `listed` y con `listPriceCents` (el catálogo solo lista lo que tiene precio resuelto > 0).
@@ -472,7 +520,6 @@ async function sembrarFixture(h: E2EHarness): Promise<string> {
   });
 
   // (d) `GET /admin/disputes?status=` — dos disputas en estados distintos.
-  const cliente = await h.prisma.user.findFirstOrThrow({ where: { email: E2E_USERS.customer.email }, select: { id: true } });
   const pieza = await h.prisma.inventoryItem.findFirstOrThrow({ where: { folio: 'CEQ1-SELLADO-1' }, select: { id: true } });
   const manana = new Date(Date.now() + 86_400_000);
   await h.prisma.dispute.createMany({
@@ -492,18 +539,33 @@ async function sembrarFixture(h: E2EHarness): Promise<string> {
     ],
   });
 
-  return set.id;
+  // (f) ⭐ `EQ-D0` — la BÓVEDA DEL CLIENTE (`/vault/sealed` y su hermana admin). Tres piezas y no
+  //     dos: con dos grupos de una pieza y sin mercado, `value_desc`, `count_desc` y `name_asc`
+  //     COINCIDEN y el eje de ORDEN no sería observable (el `QA-M3` del punto 6). Con dos `box` el
+  //     conteo desempata, y con el nombre invertido respecto del conteo los dos órdenes son opuestos.
+  await h.prisma.inventoryItem.createMany({
+    data: [
+      { folio: 'CEQ1-BOVEDA-1', cardId: card.id, productType: 'sealed', sealedSubtype: 'box', sealedCondition: 'mint', sealedProductName: 'ZZZ Caja CEQ1', tcgplayerProductId: 970001, status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-BOVEDA-2', cardId: card.id, productType: 'sealed', sealedSubtype: 'box', sealedCondition: 'mint', sealedProductName: 'ZZZ Caja CEQ1', tcgplayerProductId: 970001, status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-BOVEDA-3', cardId: card.id, productType: 'sealed', sealedSubtype: 'etb', sealedCondition: 'minor_box_damage', sealedProductName: 'AAA ETB CEQ1', tcgplayerProductId: 970002, status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+    ],
+  });
+
+  return { setId: set.id, userId: cliente.id };
 }
 
 describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   let h: E2EHarness;
   let adminToken: string;
+  /** `/vault/sealed` es del CLIENTE: se mide con sesión de cliente, que es como la vive quien la sufre. */
+  let clienteToken: string;
   let ctx: Ctx;
 
   beforeAll(async () => {
     h = await E2EHarness.create();
     adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
-    ctx = { setId: await sembrarFixture(h) };
+    clienteToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    ctx = await sembrarFixture(h);
   }, 180000);
 
   afterAll(async () => {
@@ -511,8 +573,11 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     await h?.close();
   });
 
+  const tokenDe = (row: AxisRow): Record<string, string> =>
+    row.auth === 'admin' ? { token: adminToken } : row.auth === 'customer' ? { token: clienteToken } : {};
+
   const get = (row: AxisRow, value: string): Promise<ApiRes> =>
-    h.api<ErrorBody>('GET', url(row, ctx, value), row.auth === 'admin' ? { token: adminToken } : {}) as Promise<ApiRes>;
+    h.api<ErrorBody>('GET', url(row, ctx, value), tokenDe(row)) as Promise<ApiRes>;
 
   /** La aserción conforme de cada propiedad, en UN sitio: la excepción usa la misma llave. */
   const CONFORME: Record<Propiedad, (row: AxisRow, res: ApiRes, extra: Extra) => void> = {
@@ -666,6 +731,25 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
    * legítima donde es estructural — dominio de UN solo token — y que los dos tokens sean del
    * dominio DECLARADO y distintos entre sí.
    */
+  /**
+   * ⭐ **La cola de enrutamiento no desaparece: se muda.** Las seis filas de la bóveda salieron de
+   * `SIN_CLASE_DECLARADA` (22 → 16) porque su CONDUCTA ya cumple §0-Q — pero su **fila en §0-Q punto
+   * 4 sigue sin existir**, y eso lo decide el arquitecto (regla 9). Fijado con `toEqual` para que
+   * ni se olvide ni crezca en silencio: si alguien mete una fila nueva marcándola
+   * `PENDIENTE-ARQUITECTO` sin escribirla aquí, esto se pone rojo.
+   */
+  it('⭐ las filas SIN fila en §0-Q punto 4 están NOMBRADAS (⇒ arquitecto, regla 9)', () => {
+    const pendientes = REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO').map(idOf).sort();
+    expect(pendientes).toEqual([
+      'GET /admin/vaults/:userId/sealed?condition=',
+      'GET /admin/vaults/:userId/sealed?sealedSubtype=',
+      'GET /admin/vaults/:userId/sealed?sort=',
+      'GET /vault/sealed?condition=',
+      'GET /vault/sealed?sealedSubtype=',
+      'GET /vault/sealed?sort=',
+    ]);
+  });
+
   it('⭐ coherencia del REGISTRO — `alterno` solo se omite si el dominio tiene UN token', () => {
     const malas = REGISTRO.filter(
       (r) =>
@@ -788,9 +872,6 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     'GET /admin/inventory/master-sets::sort',
     'GET /admin/vaults::sort',
     'GET /admin/vaults/:userId/master-sets::sort',
-    'GET /admin/vaults/:userId/sealed::condition',
-    'GET /admin/vaults/:userId/sealed::sealedSubtype',
-    'GET /admin/vaults/:userId/sealed::sort',
     'GET /catalog/cards::sealedSubtype',
     'GET /catalog/cards::sort',
     'GET /catalog/featured-set/value-history::range',
@@ -799,9 +880,6 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     'GET /catalog/sets/:id/value-history::range',
     'GET /vault/master-sets::sort',
     'GET /vault/portfolio/history::range',
-    'GET /vault/sealed::condition',
-    'GET /vault/sealed::sealedSubtype',
-    'GET /vault/sealed::sort',
   ];
 
   /**
@@ -875,7 +953,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
   it('⭐ TRINQUETE — la cola de enrutamiento solo puede ENCOGER (nunca crecer en silencio)', () => {
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
-    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(22);
+    // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
+    // se paga.* Las seis salieron porque su CONDUCTA ya cumple §0-Q (`vault.service.ts`), no porque
+    // alguien decidiera que ya no molestan — y la fila del contrato que les falta se sigue diciendo,
+    // ahora dentro del registro (`filaEn0Q: 'PENDIENTE-ARQUITECTO'`), que es donde se ve.
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(16);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
     // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,
@@ -936,12 +1018,25 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         re: /`axis\?` \(`([a-z |]+)`; omitido = ambos\)/,
         enunciado: /enum\s+\w*[Aa]xis\w*\s*\{/,
       },
+      {
+        // ⭐ `EQ-D0` — el ORDEN de la bóveda. §3, línea del endpoint de `GET /vault/sealed`:
+        // «Query: `?sealedSubtype=&condition=&sort=` (`sort` default `value_desc`; también
+        // `count_desc | name_asc`)». El DEFAULT es parte del dominio, así que el grupo 1 entra.
+        param: 'sort (bóveda)',
+        literal: VAULT_SEALED_SORT_VALUES,
+        re: /`sort` default `([a-z_]+)`; también `([a-z_ |]+)`/,
+        enunciado: /enum\s+\w*[Ss]ort\w*\s*\{/,
+      },
     ];
 
     it.each(L.map((l) => [l.param, l] as const))('`?%s=` — el literal == la línea del contrato', (_p, l) => {
       const m = l.re.exec(contrato);
       if (!m) throw new Error(`el contrato no declara el dominio de ?${l.param}= en su línea canónica`);
-      const delContrato = m[1]
+      // El dominio puede venir repartido en varios grupos (el `?sort=` de la bóveda declara su
+      // DEFAULT aparte de las alternativas): se unen todos los grupos capturados.
+      const delContrato = m
+        .slice(1)
+        .join('|')
         .split('|')
         .map((v) => v.trim())
         .filter((v) => v.length > 0);
