@@ -106,47 +106,58 @@ export function censusQueryAxes(srcDir: string): QueryAxisSite[] {
 export function scanSource(relFile: string, rawSource: string): QueryAxisSite[] {
   const sites: QueryAxisSite[] = [];
 
-  {
-    // ⭐ AQUÍ y no después: el candado mira CÓDIGO. Si mirara el fichero crudo, el docstring de
-    // `common/enum-filter.ts` —que EXPLICA `@Query('status') status?: string`— se contaría como un
-    // eje real, y la salida sería una lista blanca por nombre de fichero. Ése fue el defecto que
-    // `H3-d` le quitó a `enum-values-parity.spec.ts`; no se replica.
-    const code = stripComments(rawSource);
-    if (!code.includes('@Query')) return sites;
+  // ⭐⭐ **Si vienes a quitar este `stripComments`, lee esto: el motivo NO es el que parece.**
+  //
+  // Aquí decía que sin él se contaría como eje el docstring de `common/enum-filter.ts`, que EXPLICA
+  // `@Query('status') status?: string`. **Eso es falso y está medido** (2026-09-13, sobre copia del
+  // árbol entero): con y sin `stripComments`, el censo de `src/` da **176** ejes idénticos. Ese
+  // fichero no tiene ni un decorador de ruta, y abajo solo se mira DENTRO del segmento de un
+  // handler, así que su prosa ya quedaba fuera por otro motivo.
+  //
+  // **Lo que sí depende de esta línea** es el `@Query` **comentado dentro de un handler** — el
+  // parámetro que alguien silenció al depurar y no borró. Medido: escáner normal ⇒ 1 eje; sin
+  // `stripComments` ⇒ **2**, uno **fantasma**. Un eje fantasma no da un rojo honesto: da un rojo por
+  // un parámetro que no existe, y lo que eso enseña es a apagar el candado.
+  //
+  // Lo vigila el canario (`test/enum-query-census-canary.spec.ts`, m2). ⚠️ Su PRIMERA versión ponía
+  // el comentario ANTES del `@Get` y salió VERDE 3/3 ante la mutación que quita esta línea: el
+  // canario afirmaba una cobertura que no tenía. Por eso el motivo va escrito aquí, en el sitio que
+  // lee quien esté decidiendo si esto se puede quitar (techlead, condición `C2`).
+  const code = stripComments(rawSource);
+  if (!code.includes('@Query')) return sites;
 
-    // Prefijos de `@Controller`, con su posición: el que aplica a un handler es el ÚLTIMO que quedó
-    // por encima de él en el fichero.
-    const prefixes: { at: number; prefix: string }[] = [];
-    for (const m of code.matchAll(CONTROLLER_DECORATOR)) {
-      prefixes.push({ at: m.index ?? 0, prefix: literalArg(m[1]) });
-    }
+  // Prefijos de `@Controller`, con su posición: el que aplica a un handler es el ÚLTIMO que quedó
+  // por encima de él en el fichero.
+  const prefixes: { at: number; prefix: string }[] = [];
+  for (const m of code.matchAll(CONTROLLER_DECORATOR)) {
+    prefixes.push({ at: m.index ?? 0, prefix: literalArg(m[1]) });
+  }
 
-    const routes = [...code.matchAll(ROUTE_DECORATOR)].map((m) => ({
-      at: m.index ?? 0,
-      method: m[1].toUpperCase(),
-      path: literalArg(m[2]),
-    }));
+  const routes = [...code.matchAll(ROUTE_DECORATOR)].map((m) => ({
+    at: m.index ?? 0,
+    method: m[1].toUpperCase(),
+    path: literalArg(m[2]),
+  }));
 
-    for (let i = 0; i < routes.length; i++) {
-      const r = routes[i];
-      const end = i + 1 < routes.length ? routes[i + 1].at : code.length;
-      const segment = code.slice(r.at, end);
-      const params = [...segment.matchAll(QUERY_DECORATOR)];
-      if (params.length === 0) continue;
+  for (let i = 0; i < routes.length; i++) {
+    const r = routes[i];
+    const end = i + 1 < routes.length ? routes[i + 1].at : code.length;
+    const segment = code.slice(r.at, end);
+    const params = [...segment.matchAll(QUERY_DECORATOR)];
+    if (params.length === 0) continue;
 
-      const prefix = prefixes.filter((p) => p.at < r.at).pop()?.prefix ?? '';
-      const route = `${r.method} ${joinRoute(prefix, r.path)}`;
+    const prefix = prefixes.filter((p) => p.at < r.at).pop()?.prefix ?? '';
+    const route = `${r.method} ${joinRoute(prefix, r.path)}`;
 
-      for (const q of params) {
-        const named = literalArg(q[1]);
-        const param = named === '' ? null : named;
-        sites.push({
-          file: relFile,
-          route,
-          param,
-          key: `${route}::${param ?? '<sin nombre>'}`,
-        });
-      }
+    for (const q of params) {
+      const named = literalArg(q[1]);
+      const param = named === '' ? null : named;
+      sites.push({
+        file: relFile,
+        route,
+        param,
+        key: `${route}::${param ?? '<sin nombre>'}`,
+      });
     }
   }
 

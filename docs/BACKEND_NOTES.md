@@ -22069,8 +22069,8 @@ sobre si un eje de query cumple §0-Q: *«¿cumple `GET /x?y=`?»* **se contesta
 leyendo un documento. Su mitad de descubrimiento **encontró 22 ejes de dominio cerrado que el registro
 de §0-Q no contiene** (más una cuarta copia a mano de `SealedGroupKind` que salió por otro camino).
 ⛔ **Ninguno de esos 22 se arregló**: la clase la decide el arquitecto (regla 9) y varios son de otros
-work streams. Están **enrutados** en `docs/TECH_DEBT.md` y **fijados en la suite**, así que la cola no
-puede crecer en silencio.
+work streams. Están **enrutados** en `docs/TECH_DEBT.md` y **con TRINQUETE en la suite** (`≤ 22`, un
+número que solo baja), así que la cola no puede crecer en silencio.
 
 ### D-EQ-2.1 — El color ANTES de tocar nada
 
@@ -22155,8 +22155,16 @@ son de dominio cerrado. Con los 22 de arriba sobre la mesa, esas dos listas obli
 descubrimiento acaba de encontrar) o **rojo permanente** por algo que este pase no puede decidir ni
 arreglar. Se añadió una tercera, `SIN_CLASE_DECLARADA`, con la conducta de HOY medida y el dueño al
 lado. **La propiedad que importa se conserva entera:** un `@Query` que no esté en **ninguna** de las
-tres ⇒ **ROJO**. Y la tercera está fijada con `toEqual`, así que no puede crecer ni encoger en
-silencio. **Esto es decisión del arquitecto si quiere otra cosa** — lo digo en vez de asumirlo.
+tres ⇒ **ROJO**. **Esto es decisión del arquitecto si quiere otra cosa** — lo digo en vez de asumirlo.
+
+> ⚠️ **CORRECCIÓN (techlead, `C1`): aquí decía que la tercera lista estaba «fijada con `toEqual`» y que
+> «no puede crecer ni encoger en silencio». Era FALSO en la mitad de crecer** — el test solo comprobaba
+> que cada llave siguiera existiendo en el código. *Este pase existe para cerrar la clase «afirmación
+> de mecanismo que nadie mide», y yo abrí una instancia nueva de esa misma clase en mi propia nota.*
+> Ahora hay **trinquete**: `SIN_CLASE_DECLARADA.length ≤ 22` y `QUERY_SIN_NOMBRE.length ≤ 2`, más el
+> control de duplicados. *Una fecha de caducidad no falla; un número sí.* Y el argumento que lo hace
+> bloqueante: *«hay que escribirlo a mano» y «nadie lo nota» son compatibles* — de 22 a 40 hay
+> dieciocho diffs de una línea, cada uno intachable en su PR.
 
 ### D-EQ-2.5 — El canario, y el hecho de que me cazó a mí
 
@@ -22219,3 +22227,25 @@ destruidas al terminar.
 | `N-EQ-3` | **Si los 22 ejes sin clase declarada deben entrar en §0-Q, y con qué dominio.** Medí su conducta; la clase es **decisión del arquitecto** (regla 9) | §0-Q punto 4 gana (o no) esas filas | **arquitecto** |
 | `N-EQ-4` | **Si la tercera lista de `C-EQ-1` es aceptable** o el arquitecto prefiere otra forma de no mentir con dos | ratificación en §4.37.1-a | **arquitecto** |
 | `N-EQ-5` | **Cuánto tarda `C-EQ-1` cuando el registro llegue a 50 filas.** Hoy son 25 filas × 7 propiedades = 191 pruebas en ~8 s; es lineal, pero no lo he medido a escala | correrla con el registro ampliado | backend |
+
+### D-EQ-2.8 — Veredicto del techlead: APROBADO CON CONDICIONES, y qué se hizo con cada una
+
+**Las dos bloqueantes eran ciertas y están corregidas.** Las dos son la misma clase de defecto que este
+pase vino a cerrar, cometida por mí dentro del pase — lo cual es el mejor argumento posible de que la
+clase es real y no se cierra por buena voluntad.
+
+| # | Qué | Estado |
+|---|---|---|
+| ⛔ `C1` | El test titulado *«no puede crecer ni encogerse»* solo implementaba **encoger**, y `TECH_DEBT.md` afirmaba la mitad que faltaba como hecha | **Corregido.** Trinquete: `SIN_CLASE_DECLARADA.length ≤ 22`, `QUERY_SIN_NOMBRE.length ≤ 2`, + sin duplicados. Las dos afirmaciones de prosa, reescritas |
+| ⛔ `C2` | El comentario **en el call-site** de `stripComments` seguía dando el motivo que yo mismo había refutado, a 95 líneas del docstring corregido | **Corregido.** Reescrito con el mecanismo medido, y en el sitio que lee quien decida quitarlo. *La corrección había llegado al docstring de cabecera y no al comentario en línea, que está en la peor posición posible* |
+| nit | `scanSource` envolvía su cuerpo en un bloque `{ }` desnudo que no hacía nada | **Corregido** (bloque fuera, cuerpo des-indentado) |
+| `C3` | La exención de `@Query()` sin nombre es la puerta más barata para entrar sin clase | Anotado: **`EQ-D4`**, con la medición (`ADMIN_USERS_QUERY_KEYS` no está exportado; `RejectedItemsQueryDto` hoy limpio) |
+| `C4` | `ROUTE_DECORATOR` sin `Sse\|Search`, con fallo **silencioso** y ancla de suelo con 6 de holgura | Anotado: **`EQ-D5`** (medido: 0 ocurrencias hoy) |
+| `C5` | `@Req()` + `request.query` es ciego por construcción | Anotado: **`EQ-D6`** (medido: 1 sitio, `@Post`, sin exposición) |
+| `C6` | `EQ-D1` sin severidad, y la bóveda enterrada entre clamps de orden | **Hecho:** severidad en las cuatro fichas; la bóveda sale a **`EQ-D0` (Alta)** y los `?report=` a **`EQ-D0b`** |
+| `C7` | La fila de `D-EQ-3` ya estaba caduca: la precondición se cumplió | **Hecho:** dueño y disparador en **`EQ-D3`**; verificado que frontend (`494c3ce`, FRONTEND_NOTES §72) dejó de mandar `sealed`/`sealedSubtype` |
+| `C8` | El intermitente de `buylist-step-guard` es de diseño, no ajeno | Anotado: **`EQ-D7`**. ⭐ **Acepto la corrección:** yo lo reporté como ajeno *porque mi diff no lo toca* — cierto pero **incompleto**. La incoherencia que señala es real y la verifiqué: `:246-249` invoca O-3 (*«se reporta la proporción»*) y `:261` la vuelve binaria con `toEqual` de 5/5 |
+
+⭐ **Lo desbloqueado que conviene no perder de vista:** `EQ-D0` (la bóveda) **no depende de la decisión
+de clase del arquitecto** — ignorar un filtro en silencio lo prohíbe §0-Q punto 1 sea cual sea la
+clase —, así que es la única de las 22 que puede cerrarse **ya**, sin esperar a §0-Q.

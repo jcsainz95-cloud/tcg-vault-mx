@@ -554,7 +554,36 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     ).toEqual([]);
   });
 
-  it('la cola de enrutamiento está FIJADA: no puede crecer (ni encogerse) en silencio', () => {
+  /**
+   * ⭐ **TRINQUETE — estos dos números solo pueden BAJAR.** (techlead, condición `C1`.)
+   *
+   * La primera versión de este bloque se titulaba *«no puede crecer ni encogerse»* y solo
+   * comprobaba lo segundo: que toda llave de la cola siguiera existiendo en el código. **La mitad de
+   * «crecer» no estaba implementada**, y `docs/TECH_DEBT.md` la afirmaba como hecha — o sea, este
+   * pase, que existe para cerrar la clase *«afirmación de mecanismo que nadie mide»*, estaba
+   * **abriendo una instancia nueva de esa misma clase**. techlead lo leyó y tiene razón.
+   *
+   * **Por qué un número y no una fecha de caducidad: una fecha no falla; un número sí.** Y el
+   * argumento que lo hace bloqueante: *«hay que escribirlo a mano» y «nadie lo nota» son
+   * compatibles* — de 22 a 40 hay **dieciocho diffs de una línea**, cada uno intachable en su PR.
+   * Con el tope, la entrada nº 23 deja de ser un diff de una línea y pasa a ser una conversación:
+   * hay que **subir el número a mano**, y eso se ve en la revisión.
+   *
+   * ⛔ **Subir cualquiera de estos dos topes es cambiar la deuda aceptada**, no arreglar un test.
+   * *Un número que solo puede bajar es una deuda que se paga; una lista sin número es una deuda que
+   * crece.*
+   */
+  it('⭐ TRINQUETE — la cola de enrutamiento solo puede ENCOGER (nunca crecer en silencio)', () => {
+    // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
+    // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(22);
+    expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
+    // Sin duplicados: dos entradas iguales inflarían la cola sin tocar el tope.
+    expect(new Set(SIN_CLASE_DECLARADA).size).toBe(SIN_CLASE_DECLARADA.length);
+    expect(new Set(QUERY_SIN_NOMBRE).size).toBe(QUERY_SIN_NOMBRE.length);
+  });
+
+  it('la cola de enrutamiento no puede ENCOGER en silencio tampoco: lo que lista sigue existiendo', () => {
     const vistos = sites.map((s) => s.key);
     // Todo lo que está en la cola sigue existiendo en el código: si alguien lo arregló o lo retiró,
     // hay que quitarlo de aquí — la cola tampoco puede afirmar un estado que ya no es.

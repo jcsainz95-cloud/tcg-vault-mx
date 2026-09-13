@@ -7163,7 +7163,47 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
 
 ## Backend · 2026-09-13 · `D-EQ-2` / `C-EQ-1`
 
-### EQ-D1 · 22 ejes de query de DOMINIO CERRADO que §0-Q no registra (backend · descubierto por `C-EQ-1`, 2026-09-13)
+### EQ-D0 · ⚠️ ALTA — La BÓVEDA ignora en silencio sus filtros de sellado (backend · Inventario y vault, 2026-09-13)
+
+- **Dueño:** **backend** (stream «Inventario y vault»). **Severidad:** **Alta**. **No bloqueante** para
+  este merge (no es regresión de este pase: es un defecto preexistente que `C-EQ-1` **descubrió**).
+- ⭐ **Sale de `EQ-D1` a ficha propia por petición del techlead, y su argumento va más allá de la
+  etiqueta:** *«es la única fila de las 22 donde quien recibe la mentira **no es personal nuestro** y
+  **no tiene cómo notarlo**»*. Las otras 21 las sufre un operador que puede sospechar de una cola rara;
+  ésta la sufre el **cliente**, en su propia bóveda.
+- ⭐⭐ **Y lo que la desbloquea HOY: su defecto NO depende de la decisión de clase del arquitecto.**
+  Ignorar un filtro en silencio lo prohíbe **§0-Q punto 1** *sea cual sea la clase* del eje. Por tanto
+  **no tiene que esperar a los otros 21** ni a que §0-Q gane filas.
+- **Qué es, medido (2026-09-13):** `vault.service.ts` hace
+  `if (q.sealedSubtype && SEALED_SUBTYPE_SET.has(q.sealedSubtype))` (y lo mismo con `q.condition`). Un
+  valor fuera de dominio **no da `400`: desaparece**, y el cliente recibe **todo su sellado con cara de
+  lista filtrada**. Es **exactamente** el defecto de `?kycStatus=` que `A5` cerró en `GET /admin/users`
+  —`200` con el total del padrón entero—, esta vez en pantalla de cliente.
+- **Ejes afectados (4):** `?sealedSubtype=` y `?condition=` en `GET /vault/sealed` **y** en
+  `GET /admin/vaults/:userId/sealed`.
+- **Comprobación de cierre:** los cuatro pasan de `SIN_CLASE_DECLARADA` al `REGISTRO` de
+  `backend/test/integration/enum-query-axes.e2e-spec.ts` y sus siete propiedades de §0-Q salen verdes
+  sin excepción; y el trinquete de esa suite baja de 22 a 18.
+
+### EQ-D0b · MEDIA — Los dos `?report=` de exportación devuelven OTRO informe del pedido (backend · Admin y auditoría, 2026-09-13)
+
+- **Dueño:** **backend** (stream «Admin y auditoría»). **Severidad:** **Media**. No bloqueante.
+- **Sale del bloque de los ocho `?sort=` a ficha propia** porque no es un clamp de orden: `admin.service.ts`
+  hace `if (report === 'pnl') … if (report === 'iva') … ` y **cualquier otra cosa cae a `inventory`**.
+  El operador pide `?report=pnl2026` y **se descarga un CSV con otro informe dentro**.
+- ⭐ **Por qué sube de severidad respecto de un clamp de pantalla (techlead):** es un **export**. Un
+  fichero descargado **tiene vida media más larga que una pantalla** — se reenvía, se archiva, se abre
+  meses después, y para entonces nadie recuerda qué se pidió. Un clamp de orden se nota al mirar; un
+  CSV mal rotulado no.
+- **Rutas:** `GET /admin/finance/export.csv?report=` y `GET /admin/reports/export.csv?report=`.
+- **Comprobación de cierre:** las dos salen de `SIN_CLASE_DECLARADA`; un `?report=` fuera de dominio
+  devuelve `400` con `field`+`allowed` y **no** un fichero.
+
+### EQ-D1 · Los 22 ejes de query de DOMINIO CERRADO que §0-Q no registra (backend · descubierto por `C-EQ-1`, 2026-09-13)
+
+- **Dueño:** **backend**, repartido por stream en la tabla. **Severidad:** **Media** para el conjunto —
+  ⚠️ **salvo las filas promovidas a `EQ-D0` (bóveda, Alta) y `EQ-D0b` (`?report=`, Media-export)**, que
+  se listan abajo por completitud del censo pero **se trabajan desde su propia ficha**. **No bloqueante.**
 
 > ⭐ **No salieron de una lista que alguien recordara: salieron de que el candado los encontró.** Es
 > justo la diferencia que `C-EQ-1` existe para marcar — *una suite no puede fallar por un parámetro que
@@ -7176,9 +7216,17 @@ contra la lista de ejes no-enum, quedan **22** cuyo dominio **sí** es cerrado y
 contiene**.
 
 ⛔ **No se arreglan aquí y no es por esfuerzo:** la **clase la decide el arquitecto** (regla 9) y
-varios son de work streams distintos. Están **fijados con `toEqual`** en la lista
-`SIN_CLASE_DECLARADA` de `backend/test/integration/enum-query-axes.e2e-spec.ts`, así que la cola **no
-puede crecer ni encoger en silencio**.
+varios son de work streams distintos.
+
+⚠️ **CORRECCIÓN (techlead, condición `C1`) — aquí decía que la cola estaba «fijada con `toEqual`» y
+que «no puede crecer ni encoger en silencio». La mitad de CRECER era falsa:** el test solo comprobaba
+que cada llave siguiera existiendo en el código (encogimiento). *En un pase que existe para cerrar la
+clase «afirmación de mecanismo que nadie mide», esta ficha estaba abriendo una instancia nueva de esa
+misma clase.* Corregido en las dos puntas: la suite tiene ahora un **TRINQUETE**
+—`SIN_CLASE_DECLARADA.length ≤ 22` y `QUERY_SIN_NOMBRE.length ≤ 2`, **números que solo bajan**— y esta
+línea dice lo que el test hace. *Una fecha de caducidad no falla; un número sí.* Sin el tope, ir de 22
+a 40 son **dieciocho diffs de una línea**, cada uno intachable en su PR; con él, la entrada nº 23
+obliga a **subir el número a mano** y eso se ve en la revisión.
 
 | Eje(s) | Conducta MEDIDA hoy | Qué norma de §0-Q toca | Dueño · stream |
 |---|---|---|---|
@@ -7190,7 +7238,7 @@ puede crecer ni encoger en silencio**.
 | `GET /admin/finance/export.csv?report=` · `GET /admin/reports/export.csv?report=` | `if(report==='pnl')… if(report==='iva')…` ⇒ **cualquier otra cosa cae a `inventory`** | punto 1 fila 3 con el signo peor: devuelve **otro informe** del pedido, sin avisar | backend · Admin y auditoría |
 | `?range=` ×4 (`/catalog/featured-set/value-history`, `/catalog/sealed/:id/value-history`, `/catalog/sets/:id/value-history`, `/vault/portfolio/history`) | `normalizeRange` ⇒ **clamp silencioso a `'1m'`** sobre un dominio de 8 literales | punto 6 ⛔ clamp silencioso | backend · Catálogo y precios + Inventario y vault |
 | `?sort=` ×8 (`/catalog/cards`, `/catalog/sealed`, `/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/admin/vaults/:id/sealed`, `/vault/master-sets`, `/vault/sealed`) | todos caen a su default ante basura | punto 6 ⛔ clamp silencioso; y §0-Q **no declara su dominio** (solo registra el de `bounties`) | backend · varios |
-| `GET /catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 · §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo | `D-EQ-3` — **frontend primero**, orden no negociable |
+| `GET /catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 · §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo | **backend** · Catálogo y precios — ⚠️ ver `EQ-D3`: la precondición YA se cumplió |
 
 - **Impacto:** el peor es el de la bóveda — un filtro que miente en una pantalla del **cliente**, que es
   la misma clase de defecto por la que existe `A5`. Los `?report=` de finanzas devuelven **un informe
@@ -7202,6 +7250,8 @@ puede crecer ni encoger en silencio**.
   `enum-query-axes.e2e-spec.ts` y **sus siete propiedades de §0-Q salen verdes sin excepción**.
 
 ### EQ-D2 · Tres ejes que SÍ están en el registro de §0-Q y no cumplen (backend, 2026-09-13)
+
+- **Dueño:** **backend** (Catálogo y precios). **Severidad:** **Baja-Media**. No bloqueante.
 
 No son de los 22 (están registrados) ni de los cuatro de `D-EQ-2` (no eran del encargo), así que
 quedan **fijados como excepciones MEDIDAS, por propiedad**, dentro de `C-EQ-1` — con su motivo al lado
@@ -7225,3 +7275,97 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   toca zona compartida es exactamente cómo se pierde la revisabilidad de un diff.
 - **Comprobación de cierre:** desaparece la entrada `excepciones` de esas filas en
   `enum-query-axes.e2e-spec.ts` y la suite sigue verde.
+
+### EQ-D3 · La mitad BACKEND de `D-EQ-3` se quedó sin dueño, y su precondición YA se cumplió (backend · Catálogo y precios, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Baja** (nadie se rompe hoy). **Disparador: cumplido ya** — no
+  espera a nada.
+- ⭐ **Es el tercer artefacto que caduca en este mismo pase** (techlead, condición `C7`), y por eso se
+  escribe con dueño y disparador en vez de con una nota. Los otros dos fueron el censo de §0-Q (lo
+  retiró el arquitecto en v1.73) y el bloque CENSO de `pricing-enum-filters-empty.e2e-spec.ts` (lo
+  retiré yo en este pase, al ponerse rojo).
+- **Qué es:** §0-Q punto 4 declara el dominio de `?productType=` de `GET /catalog/cards` **sin
+  `sealed`** (clase R, cláusula en §2), y `?sealedSubtype=` **retirado**. El backend **aún acepta los
+  dos**. Se dejó así a propósito: el orden era *frontend primero*, porque `400`-ear antes de que el
+  front dejara de mandarlo convierte un enlace profundo de «rejilla vacía» en **«pantalla rota»**.
+- ⭐ **La precondición está CUMPLIDA, medido el 2026-09-13:** frontend cerró `D-EQ-3` (`494c3ce`,
+  `docs/FRONTEND_NOTES.md` §72) — `parseUrlFilters` **dejó de aceptar** `sealed`/`sealedSubtype`, y
+  `CatalogView` redirige a `/sellado` en vez de pedir la rejilla. Su propio informe lo dice: *«cuando
+  backend cierre el dominio, ese enlace pasa de "rejilla vacía" a …»*.
+- ⚠️ **Y lo que pasa mientras no se cierre:** la excepción `error` de esa fila en
+  `enum-query-axes.e2e-spec.ts` (y su test hermano de `?productType=sealed ⇒ 200`) se quedan en
+  **verde permanente afirmando que el contrato está incumplido**. Un pin sin fecha de cobro es una
+  afirmación de estado que nadie va a volver a mirar.
+- **Comprobación de cierre:** `?productType=` de `/catalog/cards` pasa a `ProductType` **menos**
+  `sealed`, se retira `?sealedSubtype=` de ese endpoint, y **desaparecen** de `C-EQ-1` tanto la
+  excepción `error` como la entrada de `SIN_CLASE_DECLARADA` (el trinquete baja de 22 a 21).
+
+### EQ-D4 · La exención de `@Query()` sin nombre es la puerta más barata para entrar sin clase (backend, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Media**. No bloqueante hoy (medido: cero ejes de dominio
+  cerrado ocultos ahora mismo).
+- ⭐ **Lo nombró techlead cuando se le pidió que buscara el agujero de `C-EQ-1`, y es el correcto:**
+  la lista `QUERY_SIN_NOMBRE` exime **dos sitios enteros con una línea cada uno**, y lo que esas líneas
+  afirman —qué llaves expone cada sitio— vive **solo en prosa**. Comparado con las otras dos listas, es
+  barata de un modo asimétrico: `SIN_CLASE_DECLARADA` te obliga a una fila con medición y dueño;
+  `QUERY_SIN_NOMBRE` te exime **un endpoint entero** con una cadena.
+- **Medido el 2026-09-13:**
+  - `ADMIN_USERS_QUERY_KEYS` (`admin.controller.ts:92`) es `const` **sin `export`** ⇒ la prueba no
+    puede leerlo aunque quiera; hoy son `q status kycStatus page pageSize`.
+  - `RejectedItemsQueryDto` (`buylist.dto.ts:314-318`) hoy son `userId`/`page`/`pageSize` — **los tres
+    no-enum**, limpio.
+- **El fallo, y es silencioso:** el día que alguien añada `@IsEnum() status?: SellRequestStatus` a ese
+  DTO **hay un eje de dominio cerrado nuevo y el descubrimiento no puede verlo**. No sale rojo: **no
+  sale nada**.
+- **Dirección:** exportar las dos listas de llaves (la constante y los campos del DTO, vía
+  `class-validator` metadata o una constante hermana) y **cruzarlas contra las tres listas** como si
+  fueran `@Query` con nombre.
+- **Comprobación de cierre:** añadir a mano un campo de enum a `RejectedItemsQueryDto` pone `C-EQ-1` en
+  **rojo**; y `QUERY_SIN_NOMBRE` deja de eximir la ruta para pasar a declarar sus llaves.
+
+### EQ-D5 · `ROUTE_DECORATOR` no conoce `@Sse` ni `@Search`, y su fallo es silencioso (backend, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Baja** hoy. No bloqueante.
+- **Medido:** `grep -rn '@Sse\|@Search' --include=*.ts backend/src` ⇒ **0 ocurrencias**. El riesgo es
+  futuro, no actual.
+- **Por qué se anota igual:** el modo de fallo es **el peor de los dos posibles**. Un `@Query` bajo un
+  `@Sse` no queda fuera del censo con estruendo: cae **en el segmento del handler anterior**, y si ese
+  handler ya declara un parámetro con ese nombre, **la llave colapsa en una ya registrada y la suite
+  sale VERDE**. Es la clase «candado roto al revés» que el canario existe para cazar, entrando por la
+  única puerta que el canario no cubre (el canario prueba el dialecto que el escáner conoce).
+- ⚠️ **Y el ancla de `enum-query-axes.e2e-spec.ts` no lo atraparía:** es un **suelo**
+  (`toBeGreaterThanOrEqual(170)`) contra **176** medidos ⇒ **6 de holgura**. Un colapso de una o dos
+  llaves cabe dentro de ella sin sonar.
+- **Comprobación de cierre:** `ROUTE_DECORATOR` incluye `Sse|Search` (y cualquier decorador de ruta que
+  Nest añada), **o** el ancla pasa de suelo a igualdad exacta con un número que se actualiza a mano.
+
+### EQ-D6 · `@Req()` + `request.query` es ciego por construcción (backend, 2026-09-13)
+
+- **Dueño:** **backend**. **Severidad:** **Baja**. No bloqueante; **cero exposición hoy**.
+- **Medido:** un solo sitio, `payments/webhooks.controller.ts:25` — y es **`@Post('stripe')`**, sin
+  query, así que hoy no expone ningún eje.
+- **Qué es:** un handler que lee `request.query.x` a mano **no tiene `@Query` que enumerar**, así que el
+  descubrimiento no puede verlo. Nada impide un `GET` mañana.
+- **Comprobación de cierre:** el escáner cuenta también los `request.query.<llave>` / `req.query.<llave>`
+  de `src/` y los cruza contra las tres listas; o se declara la prohibición con su propio candado.
+
+### EQ-D7 · El intermitente de `buylist-step-guard` no es ajeno: es de diseño, y se contradice a sí mismo (backend · Catálogo y precios, 2026-09-13)
+
+- **Dueño:** **backend** (stream «Catálogo y precios»). **Severidad:** **Media** (ruido de CI, no
+  defecto de producto). **No bloqueante** para este merge.
+- **De dónde sale:** en las 4 corridas completas de la suite de integración de este pase, **3 salieron
+  enteramente verdes y 1 tuvo esta roja**. Medida aparte, **5/5 verde**. Yo la reporté como «ajena
+  porque mi diff no toca buylist» — cierto, pero **incompleto**: techlead leyó el test y el problema
+  es suyo, no del entorno.
+- **Qué es, medido (`buylist-step-guard.e2e-spec.ts:245-261`):** el verde depende de que **20 ms de
+  reloj de pared** basten para que `receive` confirme antes de que arranque `verify`. *Eso no es un
+  primitivo de sincronización: es una apuesta sobre la carga de la máquina.*
+- ⭐ **Y la incoherencia interna, que es lo que decide el arreglo:** el comentario de `:246-249` invoca
+  **O-3** —*«se reporta la proporción, no un "funcionó"»*— y la línea siguiente convierte la proporción
+  en binario con `expect(resultados).toEqual(Array(5).fill('200·200·verificacion'))`. **Si la propiedad
+  es determinista** porque la serializa Postgres, **el `sleep` es el instrumento equivocado**; **si no
+  lo es**, **`5/5` es la aserción equivocada**. No pueden ser las dos a la vez.
+- **Comprobación de cierre:** o el test deja de depender del reloj (se serializa con el mecanismo real
+  —el `where` re-evaluado, un `advisory lock`, o esperar el `receive`— y entonces `toEqual` es legítimo
+  con 1 tirada), o conserva la carrera y **reporta proporción** con un umbral declarado. Y el fichero
+  deja de afirmar O-3 mientras hace lo contrario.
