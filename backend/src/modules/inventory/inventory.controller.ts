@@ -21,6 +21,7 @@ import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
 import { SealedProductService } from './sealed-product.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
+import { parseEnumFilter } from '../../common/enum-filter';
 import {
   BatchCreateInventoryRequest,
   BulkPublishRequest,
@@ -402,16 +403,13 @@ export class InventoryController {
     @Query('setId') setId?: string,
     @Query('productType') productType?: string,
   ) {
-    if (productType != null && !PRODUCT_TYPE_FILTER_VALUES.includes(productType)) {
-      throw BusinessException.badRequest(
-        'VALIDATION_ERROR',
-        `invalid productType '${productType}'`,
-        { productType, allowed: PRODUCT_TYPE_FILTER_VALUES },
-      );
-    }
+    // `P-84`/§0-Q: mismo helper y mismo `details.field` que el resto. Antes emitía
+    // `{ productType, allowed }` — sin `field`, que §0-Q exige. Cambio ADITIVO y sin consumidores
+    // (`rg 'details\.(productType|allowed)' frontend/` ⇒ cero, medido 2026-09-13).
+    const productTypeFilter = parseEnumFilter('productType', productType, PRODUCT_TYPE_FILTER_VALUES);
     const buffer = await this.inventory.exportInventoryXlsx({
       setId: setId || undefined,
-      productType: productType as ProductType | undefined,
+      productType: productTypeFilter as ProductType | undefined,
     });
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader(
@@ -452,19 +450,11 @@ export class InventoryController {
     @Query('pageSize') pageSize = '20',
   ) {
     // Contrato §M1 v1.28: validados contra sus enums → 400 VALIDATION_ERROR si inválidos.
-    if (finish != null && !FINISH_FILTER_VALUES.includes(finish)) {
-      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid finish '${finish}'`, {
-        finish,
-        allowed: FINISH_FILTER_VALUES,
-      });
-    }
-    if (productType != null && !PRODUCT_TYPE_FILTER_VALUES.includes(productType)) {
-      throw BusinessException.badRequest(
-        'VALIDATION_ERROR',
-        `invalid productType '${productType}'`,
-        { productType, allowed: PRODUCT_TYPE_FILTER_VALUES },
-      );
-    }
+    // `P-84`/§0-Q — estos dos YA validaban contra el enum derivado (por eso eran los únicos ejes de
+    // enum de este endpoint que **no** daban `500`): es el patrón que el resto copió. Lo que cambia es
+    // solo la forma del `details`, que usaba la llave del campo (`{ finish }`) en vez de `field`.
+    const finishFilter = parseEnumFilter('finish', finish, FINISH_FILTER_VALUES);
+    const productTypeFilter = parseEnumFilter('productType', productType, PRODUCT_TYPE_FILTER_VALUES);
     return this.inventory.listItems({
       status,
       cardId,
@@ -472,8 +462,8 @@ export class InventoryController {
       locationId,
       zone,
       q,
-      finish: finish as Finish | undefined,
-      productType: productType as ProductType | undefined,
+      finish: finishFilter as Finish | undefined,
+      productType: productTypeFilter as ProductType | undefined,
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });
@@ -504,16 +494,15 @@ export class InventoryController {
         allowed: PENDING_PUBLISH_MISSING_VALUES,
       });
     }
-    if (acquisitionType != null && !ACQUISITION_TYPE_FILTER_VALUES.includes(acquisitionType)) {
-      throw BusinessException.badRequest(
-        'VALIDATION_ERROR',
-        `invalid acquisitionType '${acquisitionType}'`,
-        { acquisitionType, allowed: ACQUISITION_TYPE_FILTER_VALUES },
-      );
-    }
+    // `P-84`/§0-Q: misma alineación aditiva de `details` (antes `{ acquisitionType, allowed }`).
+    const acquisitionTypeFilter = parseEnumFilter(
+      'acquisitionType',
+      acquisitionType,
+      ACQUISITION_TYPE_FILTER_VALUES,
+    );
     return this.inventory.pendingPublish({
       missing: missing as 'location' | 'price' | undefined,
-      acquisitionType: acquisitionType as AcquisitionType | undefined,
+      acquisitionType: acquisitionTypeFilter as AcquisitionType | undefined,
       setId,
       page: Math.max(1, parseInt(page, 10) || 1),
       // `pageSize` ≤ 100 (contrato §M1), como el resto de los listados de back-office.

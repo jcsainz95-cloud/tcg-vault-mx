@@ -21566,3 +21566,123 @@ que cierra `N-A5-1`.
 | `N-A5-1c` | **Si algún cliente vivo manda hoy una query de más a `GET /admin/users`** y por tanto empezaría a recibir `400`. Medido **en el repo**: el único llamador es `frontend/src/lib/api.ts`, que manda exactamente las cinco llaves admitidas ⇒ **no rompe al frontend publicado**. Lo que **no** puedo medir desde aquí es un cliente fuera del repo (curl guardado, integración de terceros) | `grep` de los registros de acceso del backend en staging/prod por `GET /admin/users` con query fuera de la lista blanca | devops |
 | `N-A5-1d` | **Que la columna se pinte bien en la pantalla.** Medí la **respuesta**, no el render: `A5` es backend-solo y la columna ya existía en `M6View.tsx` | Abrir M6 contra el backend nuevo (QA / Playwright) | qa / frontend |
 
+
+---
+
+## P-84 — «o filtra, o `400`»: el mismo `500` de `A5` vivía en otros seis ejes
+
+Contrato: `API_CONTRACT §0-Q` (`#enum-query-filter`, v1.72) · `ARCHITECTURE §4.37.1` · deuda `H3`.
+
+### P-84.1 — El defecto MEDIDO (no solo leído), antes de tocar código
+
+Lo que estaba medido al recibir el encargo era el **camino de código**: seis `where.x = v as never`.
+Nadie había **ejecutado** esas rutas, así que lo primero fue escribir las seis pruebas y correrlas
+contra la app real. Resultado sobre `c12b940` + Postgres **virgen** (`admin@e2e.local`):
+
+| Ruta | Eje | Antes | Ahora |
+|---|---|---|---|
+| `GET /admin/orders` | `status` | **`500 INTERNAL`** | `400 VALIDATION_ERROR` |
+| `GET /admin/disputes` | `status` | **`500 INTERNAL`** | `400` |
+| `GET /admin/shipments` | `status` | **`500 INTERNAL`** | `400` |
+| `GET /admin/inventory/items` | `status` | **`500 INTERNAL`** | `400` |
+| `GET /admin/inventory/items` | `ownerType` | **`500 INTERNAL`** | `400` |
+| `GET /admin/inventory/items` | `zone` | **`500 INTERNAL`** | `400` |
+
+**6/6 en rojo**, los seis con `PrismaClientValidationError: Invalid value for argument ... Expected
+<Enum>` en el cuerpo del log. **Ninguno estaba protegido aguas arriba** — no había `ValidationPipe`,
+DTO ni `@IsIn` que los cubriera. La hipótesis del encargo queda confirmada, no asumida.
+
+### P-84.2 — Tres cosas que la medición REFUTÓ
+
+**(a) El séptimo sitio NO da `500`.** `§0-Q` punto 4 anota, marcado `NO MEDIDO`, que
+`GET /admin/buylist?status=a&status=b` entregaría un **array**, que `.split(',')` lanzaría `TypeError`
+y que saldría `500`. **Los tres eslabones son falsos en esta app.** Medido por HTTP:
+`?status=pagada&status=bogus` ⇒ `400 { invalidStatus: ['bogus'] }`, **byte a byte idéntico** a
+`?status=pagada,bogus`. `.split` funcionó, luego era una **cadena**.
+
+La causa está aguas arriba del handler: el `ValidationPipe` global va con `transform: true`
+(`src/main.ts:56`) y los parámetros se declaran `@Query('status') status?: string`, así que Nest
+**coacciona el array al metatipo `String`** antes de que el handler exista: `['a','b']` ⇒ `'a,b'`.
+Por eso **no se tocó** la conducta no-escalar de buylist: no hay defecto que cerrar.
+
+**(b) `GET /admin/users` no era del todo conforme**, aunque el censo lo marca ✅ *«es el ejemplar»*.
+`A5` usaba `if (params.status)`, y **`' '` es truthy en JS**: medido, `?status=%20` ⇒ **`400`**, cuando
+`§0-Q` exige `200` (vacío o espacios ≡ ausente). Cerrado con el mismo helper que los seis ejes.
+
+**(c) El `trim()` de `§0-Q` NO normaliza tokens — y la señal la dio una prueba viva.** La primera
+implementación recortaba el valor antes de validarlo, lo que convertía `' pending'` en válido y puso
+en rojo `test/admin.users-kyc-filter.spec.ts:218-223` (*«mayúsculas/espacios NO se arreglan»*): **1 roja
+de 4771**. La lectura correcta de `§0-Q` punto 1 es que el `trim()` decide si la entrada está **vacía**
+(una intención: *«no me filtres»*), **no** que arregle un token mal formado. Vacío ⇒ `200` sin filtrar;
+`' pending'` ⇒ `400`. Queda declarado en positivo en `test/enum-filter.spec.ts`.
+
+### P-84.3 — Qué se implementó
+
+**Primero el helper, después los llamadores** (orden fijado por el arquitecto, y es el que impide
+escribir la misma decisión seis veces): `backend/src/common/enum-filter.ts`.
+
+- `assertEnumFilter(field, value, allowed)` — el de `A5`, movido tal cual. `400 VALIDATION_ERROR` con
+  `details.field` (**nombre del query param**, ⛔ nunca la ruta de Prisma: `zone`, no `location.zone`)
+  y `details.allowed` (copia, para que mutarla no envenene la lista derivada).
+- `parseEnumFilter(field, raw, allowed)` — las **tres conductas** de `§0-Q` punto 1 en un sitio:
+  ausente/vacío/solo-espacios ⇒ `undefined` (no filtra, `200`); token del dominio ⇒ filtra; lo demás
+  ⇒ `400`. El borde que se colaba **no era la validación sino el `if (status)` que la precedía**.
+
+**Clase E en los seis**, derivados de `Object.values(<enum de Prisma>)` — ni una lista a mano. El
+argumento es el del contrato y lo comparto: *un filtro que no puede nombrar un estado que la BD sí
+guarda es un filtro que miente*. ⚠️ Respetada la trampa nombrada: `ShipmentStatus` **completo**, ⛔ no
+`ShipmentActiveStage` (que es la proyección al **cliente** y escondería `entregado`/`cancelado` de la
+cola de M4).
+
+**Alineaciones aditivas de `details` (cero llaves retiradas donde había consumidores):** los 4 ejes que
+ya validaban en `inventory.controller.ts` (`finish`, `productType` ×2, `acquisitionType`) pasan de
+`{ <campo>, allowed }` a `{ field, allowed }`; el CSV de `buylist` **conserva `invalidStatus`** y gana
+`field`/`allowed`. Censo de copias del helper: **4 → 2**; formas de `details`: **3 → 1** (ver `H3`).
+
+### P-84.4 — Verificación
+
+Todo sobre **Postgres virgen y efímero** (cluster propio), **no** sobre la base compartida sucia de
+`P-87`: cero rojas de residuo, ninguna del tipo `Expected "Av. E2E 123"`.
+
+| Suite | Resultado |
+|---|---|
+| `npm test` (unitarias) | **291/291 suites, 4782/4782**, exit 0 |
+| `npm run test:integration` (app real + Postgres real) | **36/36 suites, 541 pasadas + 2 saltadas, 0 rojas**, exit 0 |
+| `npm run typecheck` / `npm run lint` | limpios (3 warnings preexistentes, 0 errores) |
+
+Suites nuevas: `test/enum-filter.spec.ts` (helper, 11), `test/integration/admin-enum-filters-500.e2e-spec.ts`
+(los 6 ejes) y `test/integration/enum-query-filter-scalar.e2e-spec.ts` (buylist + `/admin/users` +
+alineación de inventario) — **34/34** entre las dos.
+
+**Mutación de reintroducción, sobre copia del ÁRBOL ENTERO** (`git archive HEAD | tar -x` + los ficheros
+en curso superpuestos — O-9: copiar solo `backend/` pone rojas las suites de paridad documental **por
+falta de ficheros**, no por defecto). Cada mutación se corrió **3 veces** (O-3) y se revirtió antes de la
+siguiente. Control sin mutar sobre la misma copia, **antes y después de las 8**: `11/11` unit + `34/34`
+integración, verde las dos veces — así que ninguna roja viene de un árbol destrozado.
+
+| # | Mutación (reintroduce el defecto) | Qué debe romper | Resultado |
+|---|---|---|---|
+| **m1** | `orders`: vuelve `where.status = status as never` | `?status=banana` ⇒ `400` | 🔴 **3/3** (3 rojas; `500` en el cuerpo) |
+| **m2** | `disputes`: ídem | ídem | 🔴 **3/3** (3 rojas; `500`) |
+| **m3** | `shipments`: ídem | ídem | 🔴 **3/3** (3 rojas; `500`) |
+| **m4** | `inventory.status`: ídem | ídem | 🔴 **3/3** (3 rojas; `500`) |
+| **m5** | `inventory.ownerType`: ídem | ídem | 🔴 **3/3** (3 rojas; `500`) |
+| **m6** | `inventory.zone`: ídem | ídem | 🔴 **3/3** (3 rojas; `500`) |
+| **m7** | `parseEnumFilter`: `raw.trim() === ''` → `raw === ''` (se pierde el blanco) | vacío/espacios ≡ ausente | 🔴 **3/3** — unit 2, integración 8 |
+| **m8** | `assertEnumFilter`: se retira `details.field` | que el operador sepa QUÉ eje falló | 🔴 **3/3** — unit 3, integración 15 |
+
+⭐ **Lo que enseñan m1–m6, y por eso se anotan las seis por separado:** cada mutación **reproduce el `500`
+literal** en su eje y **solo en el suyo** (3 rojas de 23, nunca más), que es la prueba de que las seis
+pruebas son **independientes** y de que el arreglo de cada eje es el que cierra **ese** eje. Un solo test
+genérico habría dado el mismo verde y no habría distinguido seis arreglos de uno.
+⭐ **Lo que enseña m8:** retirar `details.field` tumba **15 de 34** pruebas de integración. No es
+redundancia: es que en `GET /admin/inventory/items` **tres ejes comparten endpoint**, y sin `field` el
+`400` de los tres es indistinguible — exactamente el daño que `§0-Q` punto 2 nombra.
+
+### P-84.5 — NO MEDIDO, con la medición que lo cierra
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-P84-1` | **Si algún cliente vivo manda hoy uno de estos filtros con un valor fuera de enum** y por tanto pasa de `500` a `400`. No puede romper a nadie *por definición* (quien lo manda ya recibía un `500`), pero el volumen se desconoce | `grep` de los registros de acceso en staging/prod por `GET /admin/{orders,disputes,shipments,inventory/items}` con `status`/`ownerType`/`zone` fuera de dominio | devops |
+| `N-P84-2` | **Que las pantallas admin manden vacío y no `undefined`** al poner un `Select` en «Todas». El `200` con vacío está medido **en la respuesta**; el render no | Abrir M1/M3/M4/M8 contra este backend (QA / Playwright) | qa / frontend |
+| `N-P84-3` | **Si `§0-Q` quiere forzar `400` en el no-escalar de `buylist`.** Hoy `?status=a&status=b` ≡ `?status=a,b` (medido) y es **inimplementable en el handler**: el pipe destruye la distinción antes de llegar. Forzarlo exigiría `@Req()` o cambiar el tipo del parámetro | Decisión del **arquitecto** sobre `§0-Q` punto 1 fila 3 (ver «discrepancias» del informe de `P-84`) | arquitecto |

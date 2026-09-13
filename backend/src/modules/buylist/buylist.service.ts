@@ -2211,11 +2211,16 @@ export class BuylistService implements OnModuleInit {
         const valid = Object.values(SellRequestStatus) as string[];
         const invalidStatus = tokens.filter((t) => !valid.includes(t));
         if (invalidStatus.length > 0) {
-          throw BusinessException.badRequest(
-            'VALIDATION_ERROR',
-            'Invalid status token',
-            { invalidStatus },
-          );
+          // `P-84`/§0-Q — **aditivo: tres llaves, cero retiradas, cero pruebas rotas.**
+          // `invalidStatus` está PUBLICADO y tiene pruebas vivas (`test/buylist.admin-list-filters.spec.ts`,
+          // `test/buylist.is-payable-live.spec.ts`), y sobre un CSV es más informativo que un escalar
+          // porque nombra **todos** los tokens malos. Lo que §0-Q añade es `field`/`allowed`, que es el
+          // hecho COMÚN a los 14 ejes del censo: `invalidStatus: ['bogus']` no dice de qué campo es.
+          throw BusinessException.badRequest('VALIDATION_ERROR', 'Invalid status token', {
+            field: 'status',
+            allowed: valid,
+            invalidStatus,
+          });
         }
         where.status =
           tokens.length === 1

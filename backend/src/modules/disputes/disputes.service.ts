@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { DisputeStatus, Prisma } from '@prisma/client';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
 import { DISPUTE_EVIDENCE_CONTACT } from './disputes.constants';
+
+/** `P-84` · clase **E** (§4.37): estados de disputa filtrables, DERIVADOS del schema. */
+const DISPUTE_STATUS_FILTER_VALUES: readonly DisputeStatus[] = Object.values(DisputeStatus);
 
 /**
  * v2.1.9 (S49-R4) — **`Dispute` se proyecta; nunca sale la fila cruda.**
@@ -156,7 +160,11 @@ export class DisputesService {
     userId?: string,
   ) {
     const where: Prisma.DisputeWhereInput = {};
-    if (status) where.status = status as never;
+    // `P-84` — aquí había un `status as never`: valor crudo al `where`, Prisma revienta y el filtro
+    // global lo convierte en **`500 INTERNAL`** (medido por HTTP: `?status=banana` ⇒ `500`).
+    // Clase **E**: derivado de `DisputeStatus`.
+    const statusFilter = parseEnumFilter('status', status, DISPUTE_STATUS_FILTER_VALUES);
+    if (statusFilter) where.status = statusFilter;
     // v1.7-admin-users: filtro opcional por Dispute.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
     const [rows, total] = await Promise.all([
