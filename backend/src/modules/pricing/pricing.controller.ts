@@ -5,6 +5,8 @@ import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } fro
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
+// `H3-d`: §0-Q (ausente/vacío/token/inválido) en UN solo sitio. No se re-teclea aquí.
+import { parseEnumFilter } from '../../common/enum-filter';
 import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
 import { isCanonicalGradeKey } from './pricing.types';
 // v1.51.19 (BL-25, §4.39m.8): disparador (c) — el override puede volver resoluble el precio de una
@@ -237,32 +239,62 @@ export class PricingController {
   /**
    * P-6 (§M2): dos buckets. Query param opcional `?context=` — **VENTA** = `context=inventory`;
    * **COMPRA** = vista READ-ONLY sobre `context=buylist`. Sin `context` → todos (back-compat).
-   * Validación estricta: un valor fuera del enum `PendingPriceContext` → 422 VALIDATION_ERROR
-   * (mismo estilo que el resto del controller). Producir el precio de COMPRA es WRITE del stream
-   * buylist (`itemDecision`) — FUERA DE ALCANCE aquí; este endpoint es solo lectura.
+   * Producir el precio de COMPRA es WRITE del stream buylist (`itemDecision`) — FUERA DE ALCANCE
+   * aquí; este endpoint es solo lectura.
+   *
+   * ### ⚠️ `H3-d` (2026-09-13) — `?context=` es un filtro de enum en query: **[§0-Q]** lo norma
+   * Este eje **nunca estuvo en el censo de §0-Q punto 4**, así que `P-84` y `P-89` pasaron por al
+   * lado. Medido por HTTP con token `super_admin` sobre `3c1bd1e`, incumplía **dos** puntos:
+   *
+   * | Entrada | Antes | §0-Q |
+   * |---|---|---|
+   * | `?context=` (vacía) | `422` | **`200`**, no filtra (punto 1 fila 1) |
+   * | `?context=%20` (un espacio) | `422` | **`200`**, no filtra — `' '` es **truthy** en JS |
+   * | `?context=bogus` | `422` | **`400`** (punto 2: *«`400` y no `422`, ratificado: es query»*) |
+   *
+   * ⚠️ **Y ésta es la cola de precios PENDIENTES: pantalla de dinero.** Un `Select` en «Todas» manda
+   * cadena vacía (§M6-L.3); con el `422`, la pantalla se rompía **por su estado por defecto**.
+   *
+   * **El `422` no era conducta publicada, se comprobó antes de retirarlo:** `rg 'PendingPriceContext'
+   * docs/API_CONTRACT.md` ⇒ **0 resultados**, y la única línea que describe este parámetro
+   * (`API_CONTRACT.md:10610`) declara el dominio y el «omitido = todos» **sin código de error**. El
+   * `422` vivía solo en este comentario, como *«mismo estilo que el resto del controller»* — una
+   * costumbre de módulo, no una norma. *(Si el contrato lo hubiera declarado, esto era del arquitecto
+   * por la regla 9 y no se tocaba.)*
+   *
+   * ⛔ **`?reason=` (abajo) NO se migra en este pase, y no por olvido.** Ver su comentario.
    */
   @Get('pending')
   pending(@Query('context') context?: string, @Query('reason') reason?: string) {
-    if (context !== undefined && !VALID_PENDING_CONTEXTS.includes(context as PendingPriceContext)) {
-      throw BusinessException.validation(
-        'VALIDATION_ERROR',
-        `invalid context '${context}'`,
-        { field: 'context', allowed: VALID_PENDING_CONTEXTS },
-      );
-    }
+    // §0-Q completo (ausente/vacío/token/inválido) en el helper ÚNICO: `common/enum-filter.ts`.
+    // `VALID_PENDING_CONTEXTS` es `Object.values(PendingPriceContext)` ⇒ **clase E derivada**, no
+    // transcrita: si el schema gana un contexto, el operador puede filtrarlo el mismo día.
+    const parsedContext = parseEnumFilter('context', context, VALID_PENDING_CONTEXTS);
     // v2.0 (P-48, §M2): filtro `?reason=`. Distinguir las dos razones es lo que hace TRIABLE la cola:
     // `no_market` la cura sola el siguiente barrido; `premium_at_floor` (el guardarraíl) necesita que
     // el dueño mire — es la señal inequívoca de que el dato de mercado de esa chase está mal.
+    //
+    // ⛔⛔ NO SE MIGRA EN ESTE PASE, Y ES DECISIÓN AJENA (regla 9) — pero el dato que la decide
+    // CAMBIA respecto de como se enunció. Se encargó como «unión de literales, misma clase que
+    // `H3-b`». Medido el 2026-09-13, NO lo es:
+    //   · `PendingReason` es un alias TS (`common/pricing-curve.ts:574`), pero detrás hay un enum de
+    //     PRISMA — `enum PendingPriceReason` (`schema.prisma:394-397`), COLUMNA PERSISTIDA
+    //     `PendingPriceEntry.reason` (`schema.prisma:1093`), con su `@@index([reason])`.
+    //   · Luego `VALID_PENDING_REASONS` (arriba, `:48`) es un enum de Prisma **TRANSCRITO A MANO**,
+    //     que es exactamente lo que §0-Q punto 3 prohíbe («derivado, no transcrito») y la clase que
+    //     `enum-values.ts` existe para cerrar. Si el schema gana una tercera razón, esta lista NO la
+    //     acepta y la cola de dinero no la puede filtrar — el bug de `SealedSubtype`/`upc`, otra vez.
+    //   · `?axis=` de `/admin/reports/pricing-brackets` SÍ es unión pura (`rg 'enum.*[Aa]xis'
+    //     schema.prisma` ⇒ 0). Los dos que se encargaron juntos NO son la misma clase.
+    // Conducta de hoy CONGELADA por prueba (`test/integration/pricing-enum-filters-empty.e2e-spec.ts`,
+    // bloque CENSO) para que el arquitecto decida con dato y el cambio no pueda ser silencioso.
     if (reason !== undefined && !VALID_PENDING_REASONS.includes(reason as PendingReason)) {
       throw BusinessException.validation('VALIDATION_ERROR', `invalid reason '${reason}'`, {
         field: 'reason',
         allowed: VALID_PENDING_REASONS,
       });
     }
-    return this.pricing.pendingQueue(
-      context as PendingPriceContext | undefined,
-      reason as PendingReason | undefined,
-    );
+    return this.pricing.pendingQueue(parsedContext, reason as PendingReason | undefined);
   }
 
   /**

@@ -21,6 +21,8 @@ import {
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
+// `H3-d`: un candado de código mira CÓDIGO. Ver el docstring del helper.
+import { stripComments } from './helpers/strip-comments';
 
 /**
  * v2.1.8 — **un enum se declara UNA vez, y su declaración espeja el schema.**
@@ -185,6 +187,28 @@ describe('CLASE R — `RawCondition` expresa una REGLA, no el schema (D4, §4.37
     expect(src).not.toMatch(/export const RAW_CONDITION_VALUES/);
   });
 
+  /**
+   * ### ⚠️ Este candado vigilaba PROSA, y por eso tenía lista blanca (techlead, `P-89` → `H3-d`)
+   * Corría la regex sobre el **fichero entero**, así que un **comentario** lo disparaba. La prueba de
+   * que el defecto era real son las dos líneas que hubo que quitar de aquí:
+   *
+   * ```ts
+   * if (f.endsWith(join('common', 'business-rules.ts'))) return false; // ahí VIVE la regla
+   * if (f.endsWith(join('common', 'enum-values.ts'))) return false;    // ahí vive el porqué (comentario)
+   * ```
+   *
+   * Ninguno de los dos ficheros tenía el patrón **en código**: `business-rules.ts:13,39` y
+   * `enum-values.ts:53` lo mencionan **en prosa**, explicando justamente esta regla. *«Cada fichero que
+   * quiera explicar la regla tiene que pedirle permiso al test»* — y la exención era del fichero
+   * **entero**, así que un `RAW_CONDITION_VALUES` de verdad dentro de `business-rules.ts` habría
+   * pasado sin que nada sonara. El candado era, a la vez, **demasiado sensible** (prosa) y
+   * **demasiado ciego** (los dos ficheros que más importan).
+   *
+   * Se arregla como ya lo hacía su hermano de abajo (`offenders()`): **mirando código, no texto**.
+   * Cero lista blanca. El canario (`scripts/check-enum-parity-lock-canary.sh`) demuestra las dos
+   * mitades: que **sigue mordiendo** un `@IsIn` que derive la condición del enum, y que **ya no
+   * muerde** un comentario que lo mencione.
+   */
   it('ningún `@IsIn` de `src/` deriva la condición del enum de Prisma', () => {
     const SRC = join(__dirname, '..', 'src');
     const walkAll = (dir: string): string[] =>
@@ -193,11 +217,9 @@ describe('CLASE R — `RawCondition` expresa una REGLA, no el schema (D4, §4.37
         if (e.isDirectory()) return walkAll(full);
         return e.isFile() && e.name.endsWith('.ts') ? [full] : [];
       });
-    const offenders = walkAll(SRC).filter((f) => {
-      if (f.endsWith(join('common', 'business-rules.ts'))) return false; // ahí VIVE la regla
-      if (f.endsWith(join('common', 'enum-values.ts'))) return false; // ahí vive el porqué (comentario)
-      return /Object\.values\(RawCondition\)|RAW_CONDITION_VALUES/.test(readFileSync(f, 'utf8'));
-    });
+    const offenders = walkAll(SRC).filter((f) =>
+      /Object\.values\(RawCondition\)|RAW_CONDITION_VALUES/.test(stripComments(readFileSync(f, 'utf8'))),
+    );
     expect(offenders.map((f) => f.replace(SRC, 'src'))).toEqual([]);
   });
 });
@@ -220,10 +242,20 @@ describe('residuo — ninguna lista literal de estos enums sobrevive en `src/`',
   function offenders(values: readonly string[]): string[] {
     const hits: string[] = [];
     for (const f of walk(SRC)) {
-      if (f.endsWith(join('common', 'enum-values.ts'))) continue; // ahí VIVE la declaración
-      const src = readFileSync(f, 'utf8');
+      // `H3-d`: mismo `stripComments` que el candado de arriba. Éste ya quitaba `//` (por eso era «el
+      // hermano bueno»), pero NO el comentario de bloque — y la prosa larga de este repo vive en
+      // bloques. Unificarlos deja UNA definición de «esto es código», que es la misma lección que el
+      // helper de enums: una conducta en dos sitios son dos conductas esperando a divergir.
+      //
+      // ⭐ Y al unificarlas, la ÚLTIMA lista blanca del fichero se quedó sin trabajo. Aquí decía
+      //   `if (f.endsWith(join('common','enum-values.ts'))) continue; // ahí VIVE la declaración`
+      // y era falso: lo que vive ahí en CÓDIGO es `Object.values(SealedSubtype)`, que no tiene ni un
+      // literal y por tanto este detector nunca lo vio. Lo que lo disparaba era la **tabla de su
+      // docstring** (`box etb bundle tin blister upc collection`). Medido al quitarla: **30/30
+      // verdes**. Este fichero ya no exime a NADIE por su nombre.
+      const src = stripComments(readFileSync(f, 'utf8'));
       for (const line of src.split('\n')) {
-        const code = line.replace(/\/\/.*$/, '');
+        const code = line;
         if (!/\[|new Set/.test(code)) continue;
         const found = values.filter((v) => new RegExp(`['"\`]${v}['"\`]`).test(code));
         if (found.length >= 2) hits.push(`${f.replace(SRC, 'src')} :: ${line.trim().slice(0, 90)}`);
