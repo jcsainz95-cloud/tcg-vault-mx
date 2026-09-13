@@ -22051,3 +22051,171 @@ hasta el día que se le necesita.
 | `N-H3d-3` | **Si una unión de literales PURA (`?missing=`, `?axis=`, `?sort=`) entra en §0-Q.** Medí la conducta y la clase; la norma no me toca | decisión del **arquitecto** (`H3-b`) | arquitecto |
 | `N-H3d-4` | **Si `?reason=` y `?origin=` deben migrarse YA** por §0-Q punto 3 (son enums de Prisma transcritos, no uniones). Mi lectura es que sí y que **no dependen de `H3-b`** — pero es lectura de norma, no medición | ratificación del arquitecto en §0-Q; `?origin=` además es de otro work stream | arquitecto / backend (inventario) |
 | `N-H3d-5` | **Si el guardarraíl H9 debe seguir** haciendo estructuralmente vacío a `?sealedSubtype=` de `/catalog/cards` (`H3-f`) | decisión de producto: ¿debe ese endpoint devolver sellado? Si no, lo honesto es retirar el parámetro | arquitecto / dueño |
+
+---
+
+## `D-EQ-2` + `C-EQ-1` — los cuatro ejes al helper único, y el candado que cierra la clase
+
+> **Pase de backend, 2026-09-13, contrato v1.73 (`2e40a8b`).** Rutas tocadas: `backend/` y este
+> documento. ⛔ No se tocó `frontend/` (un agente frontend trabajaba en paralelo), ni
+> `docs/API_CONTRACT.md`, ni `docs/ARCHITECTURE.md`.
+
+### D-EQ-2.0 — Si solo se lee un párrafo
+
+Los cuatro ejes de `D-EQ-2` (`?reason=`, `?axis=`, `?missing=`, `?origin=`) están **migrados al helper
+único** `common/enum-filter.ts` y cumplen §0-Q. Y existe **`C-EQ-1`**
+(`backend/test/integration/enum-query-axes.e2e-spec.ts`), que desde hoy es **la única autoridad**
+sobre si un eje de query cumple §0-Q: *«¿cumple `GET /x?y=`?»* **se contesta corriendo esa suite**, no
+leyendo un documento. Su mitad de descubrimiento **encontró 22 ejes de dominio cerrado que el registro
+de §0-Q no contiene** (más una cuarta copia a mano de `SealedGroupKind` que salió por otro camino).
+⛔ **Ninguno de esos 22 se arregló**: la clase la decide el arquitecto (regla 9) y varios son de otros
+work streams. Están **enrutados** en `docs/TECH_DEBT.md` y **fijados en la suite**, así que la cola no
+puede crecer en silencio.
+
+### D-EQ-2.1 — El color ANTES de tocar nada
+
+Base **virgen y efímera**: `tcg_be_deq2` (creada para este pase con `prisma migrate deploy`, nunca
+`tcg_marketplace` — `P-87`). `NODE_ENV=test` en todas las corridas (sin él, el throttler devuelve
+`429` y produce el rojo masivo que QA ya se comió una vez).
+
+| Qué | Antes (`2e40a8b`) |
+|---|---|
+| Suite **unitaria** | **292/292 suites · 4810/4810**, exit 0 |
+| Las 4 suites de enum de integración | **4/4 · 81/81**, exit 0 |
+| ⭐ **`C-EQ-1` recién escrita, sobre el código sin arreglar** | **18 fallidas / 173 pasadas / 191** |
+
+Las 18 se reparten así, y **17 son exactamente los cuatro ejes de `D-EQ-2`**:
+
+| Eje | Propiedades de §0-Q en rojo | nº |
+|---|---|---|
+| `?reason=` | vacío · espacios · forma del `400` · no-normalizar · cota del eco | 5 |
+| `?axis=` | vacío · espacios · forma del `400` · no-normalizar · cota del eco | 5 |
+| `?missing=` | vacío · espacios · forma del `400` · cota del eco | 4 |
+| `?origin=` | espacios · forma del `400` · cota del eco | 3 |
+| *(la 18ª)* | la mitad de descubrimiento, por las rutas con `@Query()` sin nombre | 1 |
+
+### D-EQ-2.2 — Qué se hizo con cada eje
+
+| Eje | Clase | Qué incumplía (medido) | Qué se hizo |
+|---|---|---|---|
+| `GET /admin/pricing/pending?reason=` | **E** derivada | `422` (es query ⇒ `400`), vacío y `' '` tratados como error, sin cota del eco; y la lista era un **enum de Prisma transcrito a mano** sobre la columna **persistida e indexada** `PendingPriceEntry.reason` | `parseEnumFilter` + dominio derivado (`PENDING_PRICE_REASON_VALUES`) |
+| `GET /admin/reports/pricing-brackets?axis=` | **L** (nueva en §4.37) | `422`, vacío ⇒ error, sin cota | `parseEnumFilter` + literal `PRICING_BRACKETS_AXIS_VALUES` junto al call-site, con **paridad contrato ↔ literal** |
+| `GET /admin/inventory/pending-publish?missing=` | **L** | `details.missing` en vez de `details.field` (§0-Q punto 2 lo exige **siempre**), `missing != null` dejaba pasar `''` y `' '`, sin cota | `parseEnumFilter` + literal `PENDING_PUBLISH_MISSING_VALUES` exportado, con paridad a dos bandas |
+| `GET /admin/inventory/sealed-products?origin=` | **E** derivada | `details` llegaba **VACÍO** (`{}`) — ni `field` ni `allowed`, el incumplimiento más fuerte del lote; dos literales a mano teniendo `enum SealedGroupKind`; `origin !== ''` descartaba la cadena vacía **pero no `' '`** | `parseEnumFilter` + dominio derivado (`SEALED_GROUP_KIND_VALUES`) |
+
+**Zona compartida (`common/enum-values.ts`), llevada en serie por un solo agente** como pidió el
+arquitecto: tres exports nuevos —`PENDING_PRICE_REASON_VALUES`, `PENDING_PRICE_CONTEXT_VALUES`,
+`SEALED_GROUP_KIND_VALUES`— con su **paridad a tres bandas** (`schema.prisma` ↔ `enum-values.ts` ↔
+línea canónica del contrato) añadida a `test/enum-values-parity.spec.ts`.
+
+### D-EQ-2.3 — ⭐ Lo que el DESCUBRIMIENTO encontró, y que nadie había nombrado
+
+Esto es el resultado más valioso del pase y por eso va con su medición. El escáner
+(`test/helpers/query-axis-census.ts`) enumeró **176 `@Query` en código, en 18 ficheros**, con la
+**ruta resuelta** (prefijo del `@Controller` incluido). Cruzados contra el registro de §0-Q, aparecen
+**22 ejes de dominio cerrado medido que el registro NO contiene**. ⛔ Medidos y **enrutados**, no
+arreglados. Ver `docs/TECH_DEBT.md`, ficha **`EQ-D1`**.
+
+Lo más grave de los 22, porque es el defecto que `A5` ya cerró una vez en otro sitio:
+
+> **La bóveda IGNORA EN SILENCIO sus filtros de sellado.** `vault.service.ts` hace
+> `if (q.sealedSubtype && SEALED_SUBTYPE_SET.has(q.sealedSubtype))`: un valor fuera de dominio **no
+> da `400` — desaparece**, y el cliente recibe **todo su sellado con cara de lista filtrada**. Son
+> cuatro ejes (`?sealedSubtype=` y `?condition=` en `GET /vault/sealed` **y** en
+> `GET /admin/vaults/:userId/sealed`). §0-Q punto 1 lo prohíbe expresamente: *el fallo se ve y la cola
+> falsa no*. Dueño: **backend**, stream «Inventario y vault».
+
+Y **tres hallazgos sobre ejes que SÍ están en el registro** (no son de los 22, y tampoco son de los
+cuatro de `D-EQ-2`, así que no se tocaron — están **fijados con `expect` como excepciones medidas**
+dentro de `C-EQ-1`, con su motivo al lado):
+
+1. `GET /admin/buylist?status=` (CSV) — **la cota del eco no se le aplica**: arma
+   `details.invalidStatus` con los tokens crudos sin pasar por `assertEnumFilter`, así que 5 KB de
+   query vuelven íntegros. Misma amplificación de `P-89.C1`, aquí con sesión admin.
+2. `GET /admin/pricing/bounties?state=` — `parseStates` hace `trim()` de **cada token**, así que
+   `?state=%20activa` **filtra**. §0-Q punto 5 solo recorta el espacio donde es **sintaxis de lista**
+   (la coma de un eje CSV) y este eje **no es CSV** — medido: `?state=activa,apagada` ⇒ `400`, no
+   parte por coma, es **repetible**. Luego el espacio rodea al **token** ⇒ §0-Q punto 1 manda `400`.
+   Su `throw` inline tampoco acota el eco.
+3. `GET /admin/pricing/bounties?sort=` — mismo `throw` inline sin cota del eco.
+
+**Un cuarto hallazgo, por otro camino:** al meter los tres enums nuevos en el detector de **residuo**
+de `enum-values-parity.spec.ts` saltó una **cuarta copia a mano de `SealedGroupKind`** que no estaba en
+ninguna ficha: `@IsIn(['set_main','promo_collection'])` en el DTO de
+`POST /admin/inventory/sealed-sets/:setId/groups`. No es §0-Q (es **cuerpo**, no query — §0-Q punto 7)
+pero sí §4.37, y es el mismo mecanismo que dejó `upc`/`collection` fuera de ocho listas: *el que deriva
+el filtro y no el alta cierra la mitad del bug*. **Sí se arregló** (una línea, mismo enum, misma clase
+E ya decidida por el arquitecto) y quedó con su test de residuo.
+
+### D-EQ-2.4 — ⚠️ Desviación CONSCIENTE de la especificación de `C-EQ-1`: **tres listas, no dos**
+
+§4.37.1-a pide cruzar los `@Query` contra **dos** listas: (a) los ejes del registro y (b) los que no
+son de dominio cerrado. Con los 22 de arriba sobre la mesa, esas dos listas obligan a elegir entre
+**mentir** (meterlos en (b) es declarar falso que su dominio es abierto, y entierra justo lo que el
+descubrimiento acaba de encontrar) o **rojo permanente** por algo que este pase no puede decidir ni
+arreglar. Se añadió una tercera, `SIN_CLASE_DECLARADA`, con la conducta de HOY medida y el dueño al
+lado. **La propiedad que importa se conserva entera:** un `@Query` que no esté en **ninguna** de las
+tres ⇒ **ROJO**. Y la tercera está fijada con `toEqual`, así que no puede crecer ni encoger en
+silencio. **Esto es decisión del arquitecto si quiere otra cosa** — lo digo en vez de asumirlo.
+
+### D-EQ-2.5 — El canario, y el hecho de que me cazó a mí
+
+`test/enum-query-census-canary.spec.ts`, sobre **fuentes sintéticas** (⛔ nunca mutando el árbol vivo,
+O-8), con las dos mitades:
+
+- **m1 · MUERDE:** un `@Query` sin clase ⇒ huérfano; un endpoint **nuevo** que reusa un nombre ya
+  registrado en **otra ruta** ⇒ huérfano igual (es lo que justifica resolver la ruta y no solo el
+  nombre); un `@Query()` desnudo nuevo ⇒ huérfano.
+- **m2 · NO ES CIEGO:** el escáner no devuelve vacío; un `@Query` **comentado** no cuenta como eje
+  (tres formas de comentario); dos `@Controller` en un fichero no colapsan en un prefijo.
+
+> ⚠️⚠️ **La primera versión de m2 estaba MAL y la mutación lo demostró: VERDE 3/3.** Ponía el
+> comentario **antes** del `@Get(...)`, y ahí `stripComments` es **inerte** — el escáner solo mira
+> dentro del **segmento** de un handler, así que la prosa de fichero ya quedaba fuera por otro motivo.
+> **Medido sobre copia del árbol: con y sin `stripComments`, el censo de `src/` da 176 ejes idénticos.**
+> Con ello **refuto mi propio docstring**, que afirmaba que sin `stripComments` el de
+> `common/enum-filter.ts` se contaría como eje: **es falso**. Donde sí importa es en un `@Query`
+> **comentado dentro de un handler** (el parámetro que alguien silenció al depurar): escáner normal ⇒
+> 1 eje, escáner en modo texto ⇒ **2**, uno **fantasma**. Corregido el canario y corregidos los dos
+> docstrings que daban el motivo equivocado. *Un canario verde por accidente afirma una cobertura que
+> no existe — es peor que no tenerlo.*
+
+### D-EQ-2.6 — Verificación
+
+Base **virgen y efímera** `tcg_be_deq2`; mutaciones sobre **copia del árbol ENTERO** (`tar` de todo el
+repo, no solo `backend/` — las suites leen `docs/`) y **base aparte** `tcg_be_deq2_mut`, ambas
+destruidas al terminar.
+
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` · `eslint` | 0 errores, 0 avisos nuevos |
+| Suite **unitaria** | **293/293 suites · 4830/4830**, exit 0 |
+| Suite de **integración** completa | **3 corridas: 2/3 enteramente verdes** (39 suites, 776/776 + 2 skips) |
+| `C-EQ-1` | **191/191**, exit 0 |
+
+> ⚠️ **La corrida 1 de 3 tuvo UNA roja**, en `buylist-step-guard` §M5-S S-2 — una prueba de **carrera**
+> (tres llamadas con 20 ms de desfase). Medida aparte, **5/5 en verde**; y mi diff **no toca ni un
+> fichero de `buylist`** (`git diff --stat`). Se reporta como **2/3** y no como «verde», porque una
+> sola tirada no verifica nada probabilístico (O-3) y tampoco lo hace ocultarla.
+
+**Mutaciones (3/3 cada una, sobre la copia):**
+
+| Mutación | Qué reintroduce | Resultado |
+|---|---|---|
+| `M1` | `?reason=` vuelve al enum transcrito + `throw` propio con `422` | **3/3 rojo** (5 pruebas) |
+| `M2` | `?axis=` vuelve al `throw` inline | **3/3 rojo** (5 pruebas) |
+| `M3` | `?missing=` vuelve a `details.missing` y `!= null` | **3/3 rojo** (4 pruebas) |
+| `M4` | `?origin=` vuelve a los dos literales y `details` vacío | **3/3 rojo** (3 pruebas) |
+| `M5` | un `@Query('eje_sin_clase')` nuevo en un controller real | **3/3 rojo** — el descubrimiento lo nombra |
+| `M6a` | el escáner mira **texto** en vez de código | **3/3 rojo** en el canario *(tras corregirlo; antes: **VERDE 3/3** — ver D-EQ-2.5)* |
+| `M6b` | el escáner devuelve `[]` (**ciego**) | **3/3 rojo** en el canario **y** en `C-EQ-1` |
+
+### D-EQ-2.7 — NO MEDIDO, con la medición que lo cerraría
+
+| # | Qué no sé | Cómo se cierra | Quién |
+|---|---|---|---|
+| `N-EQ-1` | **Si alguna pantalla admin manda `?reason=`, `?axis=`, `?missing=` u `?origin=` vacío o en blanco hoy.** El arreglo lo hace inocuo en las dos direcciones, pero no sé si ya se estaba rompiendo en producción | recorrer M2, M9 y las dos colas de M1 con Playwright mirando la URL emitida | frontend / qa |
+| `N-EQ-2` | **Si algún cliente fuera del repo depende del `422` que `?reason=`/`?axis=` devolvían.** El contrato no lo declaraba (por eso se corrigió), pero «no declarado» ≠ «nadie lo usa» | registros de acceso de producción | devops |
+| `N-EQ-3` | **Si los 22 ejes sin clase declarada deben entrar en §0-Q, y con qué dominio.** Medí su conducta; la clase es **decisión del arquitecto** (regla 9) | §0-Q punto 4 gana (o no) esas filas | **arquitecto** |
+| `N-EQ-4` | **Si la tercera lista de `C-EQ-1` es aceptable** o el arquitecto prefiere otra forma de no mentir con dos | ratificación en §4.37.1-a | **arquitecto** |
+| `N-EQ-5` | **Cuánto tarda `C-EQ-1` cuando el registro llegue a 50 filas.** Hoy son 25 filas × 7 propiedades = 191 pruebas en ~8 s; es lineal, pero no lo he medido a escala | correrla con el registro ampliado | backend |

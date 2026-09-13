@@ -7158,3 +7158,70 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
   es la urgencia — hoy nadie va a tomar una decisión equivocada a partir de ella, porque el número que
   importa se midió por fuera. Cuando se retire la rama legada, esta métrica **tiene que** ser la que
   se mire, o el siguiente que la consulte volverá a creerse `legacySwept`.
+
+---
+
+## Backend · 2026-09-13 · `D-EQ-2` / `C-EQ-1`
+
+### EQ-D1 · 22 ejes de query de DOMINIO CERRADO que §0-Q no registra (backend · descubierto por `C-EQ-1`, 2026-09-13)
+
+> ⭐ **No salieron de una lista que alguien recordara: salieron de que el candado los encontró.** Es
+> justo la diferencia que `C-EQ-1` existe para marcar — *una suite no puede fallar por un parámetro que
+> nunca le contaron*, y los tres ejes que `P-84`/`P-89` se saltaron se saltaron **por no estar en el
+> censo**, no por descuido.
+
+**Medición:** `censusQueryAxes` sobre `backend/src` (2026-09-13, sobre `2e40a8b` + este pase) ⇒ **176
+`@Query` en código, 18 ficheros**, con la ruta resuelta. Cruzados contra el registro de §0-Q punto 4 y
+contra la lista de ejes no-enum, quedan **22** cuyo dominio **sí** es cerrado y que **el registro no
+contiene**.
+
+⛔ **No se arreglan aquí y no es por esfuerzo:** la **clase la decide el arquitecto** (regla 9) y
+varios son de work streams distintos. Están **fijados con `toEqual`** en la lista
+`SIN_CLASE_DECLARADA` de `backend/test/integration/enum-query-axes.e2e-spec.ts`, así que la cola **no
+puede crecer ni encoger en silencio**.
+
+| Eje(s) | Conducta MEDIDA hoy | Qué norma de §0-Q toca | Dueño · stream |
+|---|---|---|---|
+| ⚠️ `GET /vault/sealed?sealedSubtype=` · `?condition=` | `vault.service.ts`: `if (q.x && SET.has(q.x))` ⇒ **el filtro se IGNORA EN SILENCIO**; el cliente recibe **todo su sellado con cara de lista filtrada** | punto 1 ⛔ *«prohibido ignorar el filtro»* — **es el defecto de `?kycStatus=` que `A5` cerró**, vivo en la bóveda del CLIENTE | backend · Inventario y vault |
+| ⚠️ `GET /admin/vaults/:userId/sealed?sealedSubtype=` · `?condition=` | ídem (mismo servicio) | ídem | backend · Inventario y vault |
+| `GET /admin/shipments?kind=` | `if (kind === 'guest_direct_ship')… if (kind === 'vault_withdrawal')…` ⇒ lo desconocido se **ignora en silencio** | punto 1 fila 3: debería ser `400` | backend · Órdenes y dinero |
+| `GET /admin/users/:id/audit?scope=` | cae al default `target` ante basura ⇒ **clamp silencioso** | punto 6 ⛔ *«prohibido el clamp silencioso»*: devuelve una lista distinta de la pedida | backend · Admin y auditoría |
+| `GET /admin/pricing/graded-estimates/review?reason=` | `400` con `details.{field, invalid, allowed}` | **CUARTA forma de `details`** (`invalid` no es `invalidStatus` del punto 5 ni está declarada) | backend · Catálogo y precios |
+| `GET /admin/finance/export.csv?report=` · `GET /admin/reports/export.csv?report=` | `if(report==='pnl')… if(report==='iva')…` ⇒ **cualquier otra cosa cae a `inventory`** | punto 1 fila 3 con el signo peor: devuelve **otro informe** del pedido, sin avisar | backend · Admin y auditoría |
+| `?range=` ×4 (`/catalog/featured-set/value-history`, `/catalog/sealed/:id/value-history`, `/catalog/sets/:id/value-history`, `/vault/portfolio/history`) | `normalizeRange` ⇒ **clamp silencioso a `'1m'`** sobre un dominio de 8 literales | punto 6 ⛔ clamp silencioso | backend · Catálogo y precios + Inventario y vault |
+| `?sort=` ×8 (`/catalog/cards`, `/catalog/sealed`, `/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/admin/vaults/:id/sealed`, `/vault/master-sets`, `/vault/sealed`) | todos caen a su default ante basura | punto 6 ⛔ clamp silencioso; y §0-Q **no declara su dominio** (solo registra el de `bounties`) | backend · varios |
+| `GET /catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 · §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo | `D-EQ-3` — **frontend primero**, orden no negociable |
+
+- **Impacto:** el peor es el de la bóveda — un filtro que miente en una pantalla del **cliente**, que es
+  la misma clase de defecto por la que existe `A5`. Los `?report=` de finanzas devuelven **un informe
+  distinto** del pedido. Los ocho `?sort=` y los cuatro `?range=` son clamp silencioso: molesto, no
+  peligroso.
+- **Disparador:** el arquitecto decide su clase (o los declara no-enum con su motivo); entonces cada
+  stream migra los suyos al helper único y **los borra de `SIN_CLASE_DECLARADA`**.
+- **Comprobación de cierre:** cada eje pasa de `SIN_CLASE_DECLARADA` al `REGISTRO` de
+  `enum-query-axes.e2e-spec.ts` y **sus siete propiedades de §0-Q salen verdes sin excepción**.
+
+### EQ-D2 · Tres ejes que SÍ están en el registro de §0-Q y no cumplen (backend, 2026-09-13)
+
+No son de los 22 (están registrados) ni de los cuatro de `D-EQ-2` (no eran del encargo), así que
+quedan **fijados como excepciones MEDIDAS, por propiedad**, dentro de `C-EQ-1` — con su motivo al lado
+y su conducta de hoy congelada, de modo que **cerrarlas pone la suite en rojo y obliga a venir a
+borrar la excepción**. ⛔ Una excepción **por propiedad**, no por fila: apagar la fila entera por un
+defecto convertiría un hueco conocido en seis huecos invisibles.
+
+| Eje | Qué incumple (medido por HTTP) | Dueño · stream |
+|---|---|---|
+| `GET /admin/buylist?status=` (CSV) | **la cota del eco no se le aplica**: arma `details.invalidStatus` con los tokens **crudos**, sin pasar por `assertEnumFilter` ⇒ 5 KB de query vuelven íntegros. Misma amplificación de `P-89.C1`, aquí con sesión admin | backend · Catálogo y precios (`buylist.service.ts`) |
+| `GET /admin/pricing/bounties?state=` | `parseStates` hace `trim()` de **cada token** ⇒ `?state=%20activa` **FILTRA**. §0-Q punto 5 recorta el espacio solo donde es **sintaxis de lista** (la coma de un eje CSV), y este eje **no es CSV** — medido: `?state=activa,apagada` ⇒ `400`, es **repetible**, no CSV. Luego el espacio rodea al TOKEN ⇒ punto 1 manda `400`. Su `throw` inline tampoco acota el eco | backend · Catálogo y precios (`admin-bounties.controller.ts`) |
+| `GET /admin/pricing/bounties?sort=` | `throw` inline sin la cota del eco (punto 2 la exige *«dondequiera que el valor recibido se devuelva al cliente»*) | ídem |
+
+- **Impacto:** el de `?state=` es el único con consecuencia observable para el operador (un filtro que
+  acepta un token con basura alrededor es un filtro que «arregla» entrada mal formada en silencio —
+  §0-Q punto 1 lo prohíbe por eso: *el día que un cliente mande basura por un bug propio, nadie se
+  entera*). Los dos de la cota son amplificación **con sesión admin**, no pública.
+- **Por qué no se arreglaron en este pase:** `?state=` es **repetible**, no escalar ni CSV, así que
+  migrarlo al helper único **cambia la forma del eje** ⇒ arquitecto (regla 9). Los otros dos son
+  arreglos de una línea, pero fuera del encargo de `D-EQ-2`, y meter cambios no pedidos en un pase que
+  toca zona compartida es exactamente cómo se pierde la revisabilidad de un diff.
+- **Comprobación de cierre:** desaparece la entrada `excepciones` de esas filas en
+  `enum-query-axes.e2e-spec.ts` y la suite sigue verde.

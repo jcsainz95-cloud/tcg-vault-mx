@@ -32,10 +32,12 @@
  * módulo, no una norma. §0-Q punto 2 ratifica **`400` y no `422`** *«es query, no cuerpo»*. No hay
  * nada que retirar del contrato: hay un hueco del censo que se rellena.
  *
- * ### ⛔ Lo que este fichero MIDE pero NO exige (decisión del arquitecto, regla 9)
- * `?reason=` de este mismo endpoint y `?axis=` de `GET /admin/reports/pricing-brackets` están
- * medidos abajo en un `describe` marcado **CENSO**, con `expect` sobre la conducta de HOY, para que
- * el arquitecto decida con dato. Ver la nota de ese bloque: **no son la misma clase entre sí**.
+ * ### ⭐ v1.73 — el bloque CENSO de este fichero está RETIRADO, y su historia está al final
+ * `?reason=`, `?axis=` y `?origin=` se medían aquí con `expect` sobre la conducta de HOY para que el
+ * arquitecto decidiera con dato. **Decidió** (§0-Q punto 3, clase `L`), backend los migró en
+ * `D-EQ-2`, y el pin se puso rojo el mismo pase — que es para lo que estaba. Desde v1.73 el estado
+ * de conformidad de CUALQUIER eje de §0-Q tiene una sola autoridad: **`C-EQ-1`**
+ * (`test/integration/enum-query-axes.e2e-spec.ts`). Ver la nota del final de este fichero.
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
@@ -156,66 +158,23 @@ describe('`H3-d` · §0-Q en `pricing` — los dos ejes que el censo no listó',
   });
 
   /**
-   * ### CENSO — ⛔ medido, **NO arreglado**: la decisión es del ARQUITECTO (regla 9)
+   * ### ⭐ El bloque CENSO de este fichero se RETIRÓ en `D-EQ-2` (v1.73), y por qué importa cómo
    *
-   * techlead nombró `?reason=` y `?axis=` como «uniones de literales, misma clase que `H3-b`».
-   * **Medido, NO son la misma clase entre sí**, y la diferencia es la que decide:
+   * Aquí vivían tres `expect` que **congelaban la conducta de HOY** de `?reason=`, `?axis=` y
+   * `?origin=` —los tres fuera de norma— *«para que el arquitecto decida con dato y el cambio no
+   * pueda ser silencioso»*. **Funcionó exactamente así:** el arquitecto decidió (§0-Q punto 3,
+   * clase **L** nueva + «un enum de Prisma transcrito a mano ya era incumplimiento»), backend migró
+   * los tres al helper único, y **estos tres tests se pusieron rojos el mismo pase** — que es lo que
+   * un pin existe para hacer. No se «arreglaron»: se **retiran**, porque afirmaban un estado que ya
+   * no es cierto.
    *
-   * | Param | Tipo en `src/` | ¿Hay enum de Prisma detrás? | Clase real |
-   * |---|---|---|---|
-   * | `?reason=` de `/admin/pricing/pending` | `PendingReason = 'no_market'\|'premium_at_floor'` (`common/pricing-curve.ts:574`) | **SÍ** — `enum PendingPriceReason` (`schema.prisma:394-397`), **columna persistida** `PendingPriceEntry.reason` (`:1093`) | **la misma que `H3-d`**: un enum de Prisma **transcrito a mano** (`pricing.controller.ts:48`), que §0-Q punto 3 prohíbe expresamente («derivado, no transcrito») |
-   * | `?axis=` de `/admin/reports/pricing-brackets` | `'sale' \| 'buy'` inline (`admin/admin.controller.ts:471`) | **NO** — `rg "enum.*[Aa]xis" schema.prisma` ⇒ 0 | unión de literales pura ⇒ **`H3-b`**, la pregunta abierta |
+   * ⛔ **Y no se reescriben aquí con la conducta nueva.** El estado de conformidad de un eje de §0-Q
+   * tiene **una sola autoridad** desde v1.73: `C-EQ-1`
+   * (`test/integration/enum-query-axes.e2e-spec.ts`), que los mide **a los cuatro** por HTTP sobre
+   * siete propiedades cada uno. Copiar esas aserciones aquí crearía **dos fuentes para un hecho** —
+   * que es, literalmente, la clase de defecto que `P-84 → P-89 → P-90 → D-EQ-2` viene pagando.
    *
-   * Los `expect` de abajo congelan la conducta de **HOY** para que el cambio, cuando el arquitecto lo
-   * decida, **sea visible** en vez de silencioso. Si mañana estos tests se ponen rojos, no es una
-   * regresión: es que alguien movió la conducta y tiene que venir aquí a decir por qué.
+   * `?missing=` (`GET /admin/inventory/pending-publish`) es el cuarto eje de `D-EQ-2` y nunca estuvo
+   * en este fichero: también vive en `C-EQ-1`.
    */
-  describe('CENSO (no se exige §0-Q; conducta de HOY congelada para el arquitecto)', () => {
-    it('`?reason=` (enum de Prisma TRANSCRITO a mano) ⇒ hoy `422`, y el vacío NO se descarta', async () => {
-      expect((await get('/admin/pricing/pending?reason=')).status).toBe(422);
-      expect((await get('/admin/pricing/pending?reason=%20')).status).toBe(422);
-      expect((await get('/admin/pricing/pending?reason=bogus')).status).toBe(422);
-      // Y el token válido sí funciona: no está roto, está fuera de norma.
-      expect((await get('/admin/pricing/pending?reason=no_market')).status).toBe(200);
-    });
-
-    it('`?axis=` (unión de literales PURA, sin enum de Prisma) ⇒ hoy `422`, y el vacío NO se descarta', async () => {
-      expect((await get('/admin/reports/pricing-brackets?axis=')).status).toBe(422);
-      expect((await get('/admin/reports/pricing-brackets?axis=%20')).status).toBe(422);
-      expect((await get('/admin/reports/pricing-brackets?axis=bogus')).status).toBe(422);
-      expect((await get('/admin/reports/pricing-brackets?axis=sale')).status).toBe(200);
-    });
-
-    /**
-     * ### ⚠️⚠️ El eje que NADIE había nombrado: `?origin=` de `GET /admin/inventory/sealed-products`
-     *
-     * Encontrado censando `src/` tras el arreglo, **no** venía en el encargo ni en la ficha `H3-b`.
-     * `inventory/inventory.controller.ts:177-179` compara contra **dos literales escritos a mano**
-     * (`origin !== 'set_main' && origin !== 'promo_collection'`) — y detrás hay un **enum de Prisma**:
-     * `enum SealedGroupKind` (`schema.prisma:82-85`), columna persistida (`:625`, `:656`). Es la
-     * MISMA clase que `?reason=`: enum de Prisma transcrito a mano, prohibido por §0-Q punto 3.
-     *
-     * Incumple además §0-Q punto 2 **más fuerte que ningún otro eje del censo**: su `400` no lleva
-     * `details` **en absoluto** — ni `field` ni `allowed`. Los demás al menos emiten una de las dos.
-     *
-     * ⛔ **NO se arregla aquí y la razón es de proceso, no de esfuerzo:** `inventory` es de OTRO work
-     * stream («Inventario y vault»), y este pase es del stream de `pricing`. Se mide y se enruta.
-     */
-    it('⚠️ `?origin=` de inventory (enum de Prisma inline, `details` VACÍO) ⇒ hoy `400` sin `field`', async () => {
-      const vacio = await get('/admin/inventory/sealed-products?setId=nope&origin=');
-      const espacio = await get('/admin/inventory/sealed-products?setId=nope&origin=%20');
-      const bogus = await get('/admin/inventory/sealed-products?setId=nope&origin=bogus');
-
-      // `''` SÍ se descarta (`origin !== ''`), pero `' '` NO — la media conformidad de `sort`, otra vez.
-      expect(espacio.status).toBe(400);
-      expect(bogus.status).toBe(400);
-      // ⛔ Y el `400` no dice de qué campo es ni qué se aceptaba: `details` llega VACÍO (`{}`), no
-      // ausente — medido, no supuesto. §0-Q punto 2 exige `field` y `allowed`, y aquí no hay ninguno.
-      expect(bogus.body.error.details).toEqual({});
-      expect(bogus.body.error.details.field).toBeUndefined();
-      expect(bogus.body.error.details.allowed).toBeUndefined();
-      // El vacío no llega a validarse por `origin`: pasa de largo (su desenlace lo decide el `setId`).
-      expect(vacio.body.error.details).toEqual({});
-    });
-  });
 });

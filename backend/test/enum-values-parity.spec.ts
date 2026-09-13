@@ -5,9 +5,12 @@ import {
   Finish,
   GradingCompany,
   Locale,
+  PendingPriceContext,
+  PendingPriceReason,
   ProductType,
   RawCondition,
   SealedCondition,
+  SealedGroupKind,
   SealedSubtype,
 } from '@prisma/client';
 import {
@@ -15,8 +18,11 @@ import {
   FINISH_VALUES,
   GRADING_COMPANY_VALUES,
   LOCALE_VALUES,
+  PENDING_PRICE_CONTEXT_VALUES,
+  PENDING_PRICE_REASON_VALUES,
   PRODUCT_TYPE_VALUES,
   SEALED_CONDITION_VALUES,
+  SEALED_GROUP_KIND_VALUES,
   SEALED_SUBTYPE_VALUES,
 } from '../src/common/enum-values';
 // v2.1.9 (D4): `RawCondition` es CLASE R — ya NO se deriva. Vive literal en `business-rules.ts`.
@@ -75,6 +81,15 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   GradingCompany: ['CGC', 'PSA'],
   AcquisitionType: ['aportacion_en_especie', 'buylist', 'compra'],
   Locale: ['en', 'es'],
+  // ⭐ `D-EQ-2` (v1.73) — los TRES que estaban transcritos a mano en un filtro de query. Entran aquí
+  // porque entrar aquí **es** lo que les da la tercera banda: la que ya falló dos veces
+  // (`PriceSource` sin `tcgcsv_singles`, `SealedSubtype` sin `upc`) fue siempre schema ↔ CONTRATO, y
+  // nadie comparaba esas dos. `PendingPriceContext` ni siquiera TENÍA línea canónica en el contrato
+  // hasta v1.73 (`rg PendingPriceContext docs/API_CONTRACT.md` ⇒ 0), así que su paridad a tres
+  // bandas **no podía correr** — no es que pasara: es que no existía.
+  PendingPriceReason: ['no_market', 'premium_at_floor'],
+  PendingPriceContext: ['buylist', 'catalog', 'inventory', 'portfolio'],
+  SealedGroupKind: ['promo_collection', 'set_main'],
 };
 
 /** Los enums de Prisma de clase E, por nombre (para el `it.each` de tres bandas). */
@@ -86,6 +101,9 @@ const PRISMA_ENUMS: Record<string, Record<string, string>> = {
   GradingCompany,
   AcquisitionType,
   Locale,
+  PendingPriceReason,
+  PendingPriceContext,
+  SealedGroupKind,
 };
 
 /** Las listas DERIVADAS que consume `src/`, por nombre. */
@@ -97,6 +115,9 @@ const DERIVED_VALUES: Record<string, readonly string[]> = {
   GradingCompany: GRADING_COMPANY_VALUES,
   AcquisitionType: ACQUISITION_TYPE_VALUES,
   Locale: LOCALE_VALUES,
+  PendingPriceReason: PENDING_PRICE_REASON_VALUES,
+  PendingPriceContext: PENDING_PRICE_CONTEXT_VALUES,
+  SealedGroupKind: SEALED_GROUP_KIND_VALUES,
 };
 
 describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts ⇄ contrato', () => {
@@ -277,5 +298,27 @@ describe('residuo — ninguna lista literal de estos enums sobrevive en `src/`',
     expect(offenders(PRODUCT_TYPE_VALUES)).toEqual([]);
     expect(offenders(GRADING_COMPANY_VALUES)).toEqual([]);
     expect(offenders(ACQUISITION_TYPE_VALUES)).toEqual([]);
+  });
+
+  /**
+   * ⭐ `D-EQ-2` (v1.73) — **este detector encontró una copia que NADIE había nombrado.**
+   *
+   * El encargo traía tres enums que derivar (`?reason=`, `?context=`, `?origin=`). Al añadirlos al
+   * detector de residuo apareció una **CUARTA** copia de `SealedGroupKind` que no estaba en ninguna
+   * ficha: `@IsIn(['set_main','promo_collection'])` en el DTO de
+   * `POST /admin/inventory/sealed-sets/:setId/groups` (`inventory/dto/inventory.dto.ts`). No era de
+   * §0-Q —es **cuerpo**, no query (§0-Q punto 7)— pero sí de §4.37, y es el mismo mecanismo que dejó
+   * a `upc`/`collection` fuera de ocho listas: *el que deriva el filtro y no el alta cierra la mitad
+   * del bug y deja la otra esperando*.
+   *
+   * ⚠️ `PendingPriceContext` entra aquí aunque sus valores (`catalog`, `portfolio`, `buylist`,
+   * `inventory`) son palabras comunes: medido el 2026-09-13, **cero falsos positivos** en `src/`. Si
+   * mañana alguien escribe `['catalog','inventory']` para otra cosa, el rojo es legítimo — se resuelve
+   * nombrando la constante, no apagando el detector.
+   */
+  it('`D-EQ-2` — PendingPriceReason, PendingPriceContext y SealedGroupKind: cero listas a mano', () => {
+    expect(offenders(PENDING_PRICE_REASON_VALUES)).toEqual([]);
+    expect(offenders(PENDING_PRICE_CONTEXT_VALUES)).toEqual([]);
+    expect(offenders(SEALED_GROUP_KIND_VALUES)).toEqual([]);
   });
 });
