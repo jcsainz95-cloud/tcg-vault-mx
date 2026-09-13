@@ -21686,3 +21686,169 @@ redundancia: es que en `GET /admin/inventory/items` **tres ejes comparten endpoi
 | `N-P84-1` | **Si algún cliente vivo manda hoy uno de estos filtros con un valor fuera de enum** y por tanto pasa de `500` a `400`. No puede romper a nadie *por definición* (quien lo manda ya recibía un `500`), pero el volumen se desconoce | `grep` de los registros de acceso en staging/prod por `GET /admin/{orders,disputes,shipments,inventory/items}` con `status`/`ownerType`/`zone` fuera de dominio | devops |
 | `N-P84-2` | **Que las pantallas admin manden vacío y no `undefined`** al poner un `Select` en «Todas». El `200` con vacío está medido **en la respuesta**; el render no | Abrir M1/M3/M4/M8 contra este backend (QA / Playwright) | qa / frontend |
 | `N-P84-3` | **Si `§0-Q` quiere forzar `400` en el no-escalar de `buylist`.** Hoy `?status=a&status=b` ≡ `?status=a,b` (medido) y es **inimplementable en el handler**: el pipe destruye la distinción antes de llegar. Forzarlo exigiría `@Req()` o cambiar el tipo del parámetro | Decisión del **arquitecto** sobre `§0-Q` punto 1 fila 3 (ver «discrepancias» del informe de `P-84`) | arquitecto |
+
+---
+
+## P-89 — el catálogo público: el censo decía «conforme» y eran **6 de 6** en rojo
+
+Contrato: `API_CONTRACT §0-Q` (`#enum-query-filter`) · deuda `H3` (mitad del enum: **cerrada**) · `H3-b`/`H3-c` (nuevas).
+
+### P-89.1 — Lo primero, porque es lo que hay que leer si solo se lee un párrafo
+
+`§0-Q punto 4` declara **«✅ conforme»** a `GET /catalog/cards` y `GET /catalog/sealed`. **No lo eran.**
+Lo eran en **la forma del `details`** (`{field,value,allowed}`) — **no** en **§0-Q punto 1 fila 1**, la
+fila del filtro **vacío**. Los seis ejes escribían `if (q.X)`, y en JS **`' '` es truthy**: un espacio
+—lo que manda un `<input>` que el usuario tocó y dejó en blanco— pasaba el `if`, entraba a validar y
+salía **`400`** donde la norma manda **`200` sin filtrar**.
+
+Es el **mismo borde** de `P-84`, con dos diferencias que conviene no mezclar:
+
+| | `P-84` (seis ejes admin) | `P-89` (seis ejes del catálogo) |
+|---|---|---|
+| Desenlace | **`500 INTERNAL`** (el valor llegaba crudo a Prisma) | **`400`** (el token sí se validaba; falla el *vacío*) |
+| Severidad | mayor: un `500` entierra los `500` de verdad | **menor**: no hay excepción no mapeada |
+| Exposición | requiere **sesión admin** | **`@Public()`**: sin token, desde la barra de direcciones |
+| Alcance del cliente | el front lo alcanza | el cliente tipado **no** lo alcanza (`frontend/src/lib/api.ts:293-295`) |
+
+**Y esto ya había pasado.** `P-84` demostró que ese mismo censo se equivocaba con `/admin/users`; aun
+así, `P-84` **paró** la consolidación de `H3` **citando el censo**. Citar una lectura como si fuera una
+medición, después de haberla refutado, es el error que esta ficha deja escrito.
+
+### P-89.2 — Lo que la medición REFUTÓ (gana el dato)
+
+**El «eje conforme» no era un eje.** La medición de partida decía *5 de 6*, con
+`GET /catalog/sealed?productType=%20` ⇒ `200` como el conforme. Medido: `catalog.controller.ts:79-88`
+**no declara** `@Query('productType')` para esa ruta, y `listSealed` fija `productType:'sealed'` en el
+`where` (`sealed-catalog.service.ts`). Es una **llave desconocida**, y la doctrina de llaves desconocidas
+sigue ⛔ acotada a `GET /admin/users` (`D-A5-3`) ⇒ se ignora en silencio.
+
+Probado en la suite, porque «es una llave desconocida» también hay que medirlo y no asumirlo:
+
+- `?productType=bogus` ⇒ **`200`** — un eje vivo daría `400`.
+- `?productType=raw` ⇒ **`200`** con sellado — un eje vivo daría lista vacía en una rejilla de sellado.
+
+**El sexto eje real es `GET /catalog/sealed?condition=`** (⇒ `sealedCondition`), y **nadie lo había
+medido**. Estaba rojo igual. ⇒ el resultado no es *5 de 6*: es **6 de 6**.
+
+### P-89.3 — Color de las seis pruebas ANTES de migrar (HTTP real, sin token)
+
+`backend/test/integration/catalog-enum-filters-empty.e2e-spec.ts`, sobre `8d29988`:
+
+| Ruta · eje | antes | después |
+|---|---|---|
+| `/catalog/cards?productType=%20` (`catalog.service.ts:1129`) | 🔴 `400` | ✅ `200` |
+| `/catalog/cards?condition=%20` (`:1130`) | 🔴 `400` | ✅ `200` |
+| `/catalog/cards?finish=%20` (`:1132`) | 🔴 `400` | ✅ `200` |
+| `/catalog/cards?sealedSubtype=%20` (`:1133`) | 🔴 `400` | ✅ `200` |
+| `/catalog/sealed?sealedSubtype=%20` (`sealed-catalog.service.ts:241`) | 🔴 `400` | ✅ `200` |
+| `/catalog/sealed?condition=%20` (`sealed-catalog.service.ts:243`) | 🔴 `400` | ✅ `200` |
+
+Verde desde el principio, y **se conserva**: la cadena **vacía** (`?x=`) ya daba `200` en los seis (`''`
+es falsy), el token inválido sigue dando `400` con `field`+`allowed`+`value`, y `?condition=%20NM` sigue
+dando `400` — el `trim()` decide si está **vacío**, ⛔ **no «arregla» el token**.
+
+### P-89.4 — El pago de verdad: seis `as never`
+
+`as never` es literalmente *«cállate, compilador»*, y es la instrucción que dejó vivir meses los seis
+`500` de `P-84`. Los dominios eran `Set<string>`, lo que colapsa el genérico `T` de `parseEnumFilter` a
+`string` y obliga al call-site a re-afirmar el tipo. Declarados `readonly <EnumDePrisma>[]`, `T` resuelve
+al enum y el `where` de Prisma vuelve a estar comprobado.
+
+Medido tras el cambio: `rg 'as never' backend/src/modules/catalog/` ⇒ **2 aciertos, los dos dentro de
+comentarios que explican por qué ya no hay ninguno**. **0 en código.** Igual con `validateEnum`: las dos
+copias (una **verbatim** de la otra) están retiradas; lo que queda son dos comentarios que lo cuentan.
+
+### P-89.5 — ⚠️ `details.value` NO se retiró, y la bandera que lo sostiene
+
+`parseEnumFilter` emite `{field, allowed}`. Migrar el catálogo sin más **habría retirado
+`details.value`**, una llave **ya publicada** por dos endpoints `@Public()`. §0-Q punto 2 la declara
+**opcional-conforme** («se admite…; no se exige»), así que retirarla sería legal — pero los clientes de
+un endpoint público **no se pueden medir** (en el repo hay cero consumidores: `rg 'details\.value'
+frontend/src` ⇒ 0), y el precio de conservarla es un parámetro opcional en **un** fichero.
+
+⇒ `assertEnumFilter`/`parseEnumFilter` ganan `opts?: { echoValue?: boolean }`. ⛔ **No es un punto de
+extensión**: un call-site nuevo no la enciende. Y tiene candado por las **dos** mitades — por defecto
+`value` **no** aparece, con la bandera **sí** (`test/enum-filter.spec.ts`).
+
+### P-89.6 — Clase E / R, eje por eje (§0-Q punto 3)
+
+Comprobado contra `Object.values(<enum de Prisma>)` el 2026-09-13:
+
+| Eje | Lista de hoy | ¿coincide con el enum? | Clase | Veredicto |
+|---|---|---|---|---|
+| `cards.productType` | `PRODUCT_TYPE_VALUES` | sí — `graded,sealed,raw` | **E** (derivada) | sin cambio de dominio |
+| `cards.finish` | `FINISH_VALUES` | sí — `normal,reverse_holo,holofoil,first_edition_holofoil` | **E** | sin cambio |
+| `cards.sealedSubtype` | `SEALED_SUBTYPE_VALUES` | sí — los 7 | **E** | sin cambio |
+| `sealed.sealedSubtype` | `SEALED_SUBTYPE_VALUES` | sí — los 7 | **E** | sin cambio |
+| `sealed.condition` | `SEALED_CONDITION_VALUES` | sí — `mint,minor_box_damage` | **E** | sin cambio |
+| `cards.condition` | `ACCEPTED_RAW_CONDITIONS` = `['NM']` | **sí, pero…** | **R** (PROJECT §H, citada en `catalog.service.ts`) | ⛔ **no se toca** |
+
+⚠️ **La fila de `condition` es la interesante.** Hoy coincide con el enum porque el schema tiene **un
+solo** valor (`enum RawCondition { NM }`, `prisma/schema.prisma:50-52`) — es decir, coincide **por
+accidente, no por construcción**, que es exactamente la trampa que `common/enum-values.ts` documenta al
+contar por qué `RawCondition` **salió** de ese fichero. Tiene cláusula citable, luego es clase R legítima
+(§0-Q punto 3: *sin cláusula citable no hay clase R*) y **se queda con su lista literal**.
+
+> **Aviso al que pase por aquí:** el candado `test/enum-values-parity.spec.ts:199-201` vigila el **TEXTO**
+> del fichero, no el AST. Un **comentario** que nombre `Object.values(RawCondition)` o el nombre de la
+> lista derivada lo pone rojo. Me pasó (1 roja de 4791) escribiendo justo la nota que **prohíbe** derivarla.
+> El candado hizo lo correcto y **no se debilitó**: se reescribió el comentario sin los literales. Si vuelve
+> a saltar por esto, la respuesta es reescribir el texto, ⛔ **nunca** relajar el candado.
+
+### P-89.7 — Las condiciones de `P-84` que eran mías (QA + techlead)
+
+| # | Origen | Qué era | Qué hice |
+|---|---|---|---|
+| 1 | techlead (bloqueaba cierre de stream) | `TECH_DEBT` H3 afirmaba que §0-Q «las declara ya conformes» | **Corregido y medido**: conformes en la **forma del `details`**, no en §0-Q punto 1 fila 1. Tabla de 6 filas por HTTP, con fecha y `fichero:línea` |
+| 2 | techlead | el disparador de H3 no decía el **pago** | Dicho y ya **hecho**: seis `as never` borrados (`catalog.service.ts:1129-1133`, `sealed-catalog.service.ts:241,243`) |
+| 3 | techlead (deuda nueva) | `?missing=` inline, sin `field`, y `?missing=` vacío ⇒ `400` | ⛔ **NO migrado, a propósito** — ver `P-89.8`. Abierta como **`H3-b`** con su medición |
+| 4 | techlead (deuda de tipos) | `inventory.controller.ts:45-49` `readonly string[]` ⇒ casts de vuelta | **Resuelto** (`H3-c`): tres arrays tipados, **tres** casts retirados (`:412`, `:465-466`, `:500`), `tsc` verde sin ellos |
+| 5 | QA (menor) | el docstring de `esperaNoEscalar` repetía el mecanismo del **array** que este repo ya había refutado | **Corregido**: dice que llega `'a,b'`, que el desenlace (`400`) es el que §0-Q pide, y que el mecanismo del contrato es otro |
+| 6 | QA (menor) | plantilla de `it.each` con tres `%s` y dos valores ⇒ imprimía `` `?status=a&%s=b` `` | **Corregido**: título con dos `%s` |
+| 7 | QA/techlead (menor) | `assertEnumFilter` exportada con **cero** llamadores directos de producción | **Se queda exportada**, con el porqué escrito en su docstring. Re-medido: único llamador en `src/` es `parseEnumFilter` |
+
+### P-89.8 — ⛔ `?missing=` de `pending-publish` NO se migró, y es una decisión, no un olvido
+
+Medido por HTTP el 2026-09-13 (admin real, base efímera):
+`?missing=` ⇒ `400 {"missing":"","allowed":["location","price"]}` · `?missing=%20` ⇒ `400` ·
+`?missing=bogus` ⇒ `400` · `?missing=location` ⇒ `200`. Es decir: el defecto del filtro vacío **existe**
+aquí también, y el `details` **no trae `field`**.
+
+**No se toca porque `missing` no es un enum.** Su dominio es `['location','price']`, una **unión de
+literales de TypeScript** que el contrato declara como tipo de un campo de DTO (§M1: `missing:
+("location" | "price")[]`) y que **no tiene línea en §Enums** — y §0-Q punto 2 exige que `details.allowed`
+sea *«el dominio aceptado completo, tal como lo declara la línea canónica de §Enums»*. Si una unión de
+literales cuenta como «enum» a efectos de §0-Q **es pregunta del arquitecto** (regla 9). Backend no se la
+contesta a sí mismo: el fix es de tres líneas y la decisión es de otro.
+
+### P-89.9 — Verificación
+
+- **Árbol:** el vivo para construir; **copia del árbol ENTERO** (`git archive HEAD | tar -x`) para las
+  mutaciones — nunca un subárbol: hay suites que leen `docs/` y `schema.prisma`, y copiar solo `backend/`
+  las pone rojas **por falta de ficheros**.
+- **Base:** **virgen y efímera**, creada para este pase: `tcg_be_p89` (suites) y `tcg_be_p89_mut`
+  (mutaciones), con rol propio. ⛔ **No se usó `tcg_marketplace`** (sucia; produce 15 rojas falsas, P-87).
+- **Suites:** `tsc --noEmit` 0 · `eslint` 0 errores (3 avisos preexistentes) · unitarias **291/291 suites,
+  4791/4791 pruebas** · integración **37/37 suites, 569 pasadas + 2 skip**.
+- **Mutaciones — 7 mutaciones × 3 tiradas, 21/21 rojas, y cada una mata EXACTAMENTE una prueba:**
+
+| Mutación | Qué reintroduce | Prueba que muere | Proporción |
+|---|---|---|---|
+| `m1`–`m4` | el `if (q.X)` de antes de `P-89` en los 4 ejes de `/catalog/cards` | `?<eje>=%20 ⇒ 200`, **solo el suyo** | 🔴 **3/3** cada una |
+| `m5`–`m6` | ídem en los 2 ejes de `/catalog/sealed` | ídem | 🔴 **3/3** cada una |
+| `m7` | retirar `echoValue: true` de un eje | `conserva details.value` | 🔴 **3/3** |
+| `m1` (unit) | ídem, contra el candado unitario | `el eje NO aparece en el where` | 🔴 **3/3** |
+
+**Línea base sobre la copia sin mutar: 28/28 verdes** — sin ella, un rojo no distingue «la mutación mordió»
+de «la copia estaba rota».
+⭐ **Lo que enseña que cada mutación mate solo una prueba:** los seis ejes se arreglan **por separado**, y
+un único test genérico habría dado el mismo verde sin poder distinguir seis arreglos de uno.
+
+### P-89.10 — NO MEDIDO, con la medición que lo cierra
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-P89-1` | **Si algún cliente fuera del repo lee `details.value`** del `400` del catálogo. Por eso se conservó en vez de retirarla: no se puede medir desde aquí | registros de acceso/uso de terceros, o decisión explícita del arquitecto de retirarla en §0-Q | devops / arquitecto |
+| `N-P89-2` | **Que la pantalla de Compra mande vacío y no `undefined`** al poner un filtro en «Todas». Medí la **respuesta**, no el render; el cliente tipado no alcanza estos ejes (`api.ts:293-295`) | abrir el catálogo contra este backend (QA / Playwright) | qa / frontend |
+| `N-P89-3` | **Si una unión de literales (`?missing=`) entra en §0-Q.** Medí la conducta, no la norma | decisión del **arquitecto** (`H3-b`) | arquitecto |
+| `N-P89-4` | **El andamiaje agrupar→ordenar→paginar** sigue duplicado. No lo toqué y no lo medí en este pase | extraer `sortAndPaginateGroups`/`groupBy` y comparar salida byte a byte | backend |
