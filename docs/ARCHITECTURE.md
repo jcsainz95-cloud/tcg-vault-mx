@@ -4,6 +4,35 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.76 — ⭐⭐ ESTE DOCUMENTO PROMETÍA UNA GARANTÍA QUE EL CÓDIGO NO DA (§4.54.4), Y UN ACUSE QUE SE FIRMA
+> CON MX$0.00 NO ES UN ACUSE**
+> (2026-09-14, arquitecto. Base: **v1.73 + §4.54/§4.55, vigentes enteras salvo la fila que esta rev corrige**.
+> Origen: `pentest` **`REL-B` (Alta)** y **`REL-A` (Media)** en `docs/PENTEST_NOTES.md`, más tres enrutes menores de
+> techlead/frontend. `API_CONTRACT` sube a **v1.76**.)
+>
+> **⚠️ Sobre el número:** el encabezado de este documento no registró entrada para las revs **v1.74** y **v1.75**
+> (que sí añadieron §4.54 y §4.55 y movieron `API_CONTRACT`). Esta rev se numera **v1.76** para que el par
+> `ARCHITECTURE v1.76 ↔ API_CONTRACT v1.76` se pueda citar sin ambigüedad. ⛔ **NO MEDIDO** por qué faltan esas dos
+> entradas; no se reconstruyen de memoria.
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **`§4.54.4` SE CORRIGE: la unicidad de `AV-5`/`AV-6` NO la da el motor.** La fila «`TRANSITIONS` ⇒ `AV-5`, `AV-6`» era **falsa**, y lo está midiendo el pentester en vivo: `AV-5` **13/13 tiradas con duplicado** (3–10 correos por transición única, N=10), `AV-6` **4/5**. *Un documento normativo que promete una garantía inexistente es cómo el siguiente agente hereda el defecto creyéndolo resuelto.* | §4.54.4 (fila) · §4.54.4-a (nueva) | **Sí, backend** |
+> | **2** | ⭐⭐ **LA NORMA, y ⛔ NO es una columna nueva:** la precondición de estado baja al `WHERE` (`updateMany` + `count === 1`) y **el derecho a avisar es del ganador del CAS**. `shippedAt` **ya es** el sello de `AV-5`; estrenar `shippedNoticeSentAt` sería **dos fuentes para un hecho** (§0-B). ⛔ **Cero DDL.** | §4.54.4-a · `API_CONTRACT §R.4.c` · §M4 | **Sí, backend** |
+> | **3** | ⭐⭐ **`D-ACUSE-1` NUEVA (transversal): un acuse se calcula SIEMPRE sobre una magnitud que fija el SERVIDOR.** Cierra la **clase** de `REL-A` —no el caso—: el `samplePriceCents` del acuse deja de ser elegible por quien firma. **Explorar es libre; acusar es sobre una magnitud fija.** | §4.56.1 · `API_CONTRACT §M10-IVA.2` punto 3 | **Sí, backend** · ⛔ **frontend NO cambia** (ya manda `10000` fijo) |
+> | **4** | **`D-TX-1` NUEVA: los errores TRANSITORIOS del motor dejan de ser `500`** ⇒ **`503 BUSY_TRY_AGAIN`**, para reintentos serializables agotados **y** para `P2028`. ⛔ Y la prohibición que viene con ella: **nada de mapeo global de Prisma** (`P2002`→409, `P2025`→404) — eso cambiaría en silencio la conducta de decenas de rutas | §4.56.2 · `API_CONTRACT §0-T` (nueva) | **Sí, backend** |
+> | **5** | **`AV-D2` DECIDIDA: `mail-shell.ts` vive en `backend/src/common/`.** Medido: **cuatro** importadores cruzan módulo (`admin`, `orders`, `shipments`, `disputes`), no cinco | §4.56.3 | **Sí, backend** (mover, cero conducta) |
+> | **6** | **`F-IVA-1` y `F-IVA-2` RESUELTAS a favor del frontend**: `MasterSetVariantDTO.buyable` entra en la tabla de §M10-IVA.3 (`salePriceCents` → `displayPriceCents` + `ivaIncluded` + `ivaRatePct`) y `ClientShipmentDTO` gana `priceConvention` + `ivaIncluded` | `API_CONTRACT §M10-IVA.3` · §5 | **Sí, backend**; luego frontend |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **`D-AVISO-2` sigue entero** — sellar
+> y luego enviar, post-commit, best-effort, un sello por evento. Lo que esta rev corrige es **de qué cuelga** el
+> «una sola vez» de dos de los once, no el mecanismo. **(b)** ⛔ **Las TRES columnas de `M-57` siguen siendo tres**:
+> `AV-5`/`AV-6` **no estrenan columna**, y ahora por una razón **medida** en vez de una falsa. **(c)** ⛔ El acuse del
+> criterio **188** sigue **obligatorio**; esta rev lo **endurece**, no lo afloja. **(d)** ⛔ `IVA-7` intacto.
+> **Desviaciones enrutadas:** **`D-AV-4`** (REL-B, **backend**, BLOQUEANTE), **`D-IVA-14`** (REL-A, **backend**),
+> **`D-AV-5`** (el `500` de los transitorios, **backend**), en **§9**.
+>
+> ---
 > **Rev v1.73 — UN CENSO DE ESTADO DENTRO DE UN DOCUMENTO NORMATIVO CADUCA *CON AUTORIDAD*: §0-Q PIERDE EL SUYO**
 > (2026-09-13, arquitecto. Base: **v1.72, vigente entera salvo lo que esta rev retira**. Origen: `techlead` y `QA`
 > levantaron por separado que el censo de `API_CONTRACT §0-Q` punto 4 —rotulado *«CENSO VIGENTE … se actualiza cuando
@@ -23990,7 +24019,7 @@ esta subsección es su continuación: **se mide primero, y lo medido encoge el c
 | «Construir los disparadores» | ⛔ **Los tres existen** (`PROJECT §R.8`) |
 | «Hacer que los plazos digan fecha y hora» | ⛔ **Resuelto desde antes de esta ronda** — `deadlineRow`/`offerTermsCopy`, con el comentario literal *«criterio 154: nunca "en 2 días"»* |
 | ⭐⭐ «Construir la lista corta de motivos de rechazo» (**criterio 212**) | ⛔⛔ **YA ESTÁ CONSTRUIDA, Y CON LOS SEIS MOTIVOS DE `PROJECT §R.9`** — ver 4.54.1 |
-| «Construir once mecanismos de anti-duplicado» | ⛔ **Ocho de once NO estrenan columna**: su «una sola vez» ya la da una guarda del motor que está medida (4.54.4) |
+| «Construir once mecanismos de anti-duplicado» | ⛔ **Ocho de once NO estrenan columna** (y **siguen siendo ocho tras v1.76**): su «una sola vez» la da una guarda del motor (4.54.4). ⚠️ **v1.76:** de esas ocho, **`AV-5` y `AV-6` estaban AFIRMADAS, no medidas** — el pentester las midió duplicando (**13/13** y **4/5**) y su guarda **hay que construirla**, aunque **siga sin costar columna** (4.54.4-a) |
 | La campana | ✅ **Esto sí es nuevo**, y es la única decisión de arquitectura de verdad de §R |
 
 #### 4.54.1 ⭐⭐ El criterio 212 ya está construido — y la «propuesta» de la pregunta 87 es lo que ya está en pantalla
@@ -24088,7 +24117,11 @@ UPDATE … SET <sello> = now() WHERE id = :id AND <sello> IS NULL   →  count =
 #### 4.54.4 ⭐ Por qué sólo TRES columnas nuevas: el aviso cuelga del SELLO DEL HECHO, no de la petición HTTP
 
 **La pregunta correcta no es «¿cómo evito mandar dos correos?» sino «¿qué impide que este hecho ocurra dos veces?».**
-Y en ocho de los once casos **ese guardián ya existe**, porque este sistema **ya tuvo que impedir cobrar dos veces**:
+Y en ~~ocho~~ **SEIS** de los once casos **ese guardián ya existe**, porque este sistema **ya tuvo que impedir cobrar
+dos veces**. ⚠️ **v1.76: eran ocho hasta que alguien lo midió.** En `AV-5` y `AV-6` el guardián **no existía** — yo
+lo afirmé sin medirlo (fila tachada abajo, diagnóstico en **4.54.4-a**). **La pregunta sigue siendo la correcta; lo
+que estaba mal era mi respuesta sobre quién la contestaba.** ⛔ Y el presupuesto **no cambia**: los dos se cierran
+**sin estrenar columna**:
 
 | Garantía que ya existe | Avisos que cubre |
 |---|---|
@@ -24096,7 +24129,7 @@ Y en ocho de los once casos **ese guardián ya existe**, porque este sistema **y
 | `sealOnceTx` — la fecha **no se re-sella** en la repetición idempotente | `AV-8` |
 | Early-return por estado destino (`settled`, `refunded`) ⇒ **el reintento de Stripe no duplica** | `AV-2`, `AV-3` |
 | Corto-circuito idempotente de `pay-spei` (medido en `SEC-B1`) | `AV-9` |
-| La tabla `TRANSITIONS` de M4 (a `enviado` sólo desde `guia`; de `cancelado` no se sale) | `AV-5`, `AV-6` |
+| ~~La tabla `TRANSITIONS` de M4 (a `enviado` sólo desde `guia`; de `cancelado` no se sale)~~ 🔴 **v1.76: FALSO — medido duplicando 13/13 y 4/5. Ver 4.54.4-a** | ~~`AV-5`, `AV-6`~~ |
 
 **⇒ Sólo estrenan columna los TRES casos donde el disparador SÍ puede repetirse sobre el mismo hecho:**
 
@@ -24109,7 +24142,88 @@ Y en ocho de los once casos **ese guardián ya existe**, porque este sistema **y
 **Las tres: nullable, sin default, sin backfill, sin índice, y ⛔ fuera de todo DTO** (`API_CONTRACT §R.6`). *Son un
 hecho sobre NUESTRO envío de correo, no sobre el pedido ni sobre la solicitud.*
 
-**4.54.4-a El ciclo de una guía se reinicia por VALOR, no por evento.** El sello de `AV-4`/`AV-7` se limpia —en la
+**4.54.4-a ⭐⭐ LA FILA TACHADA: ESCRIBÍ QUE `TRANSITIONS` ERA UNA GUARDA Y NO LO ES. Y LA NORMA QUE LA SUSTITUYE
+(v1.76, `REL-B`, NORMATIVO).**
+
+> **Una tabla de transiciones consultada sobre una LECTURA no es una guarda: es una opinión sobre el pasado.**
+> La guarda está en el motor sólo si la precondición viaja en el `WHERE` de la escritura.
+
+**Lo medido, y no es mío: es del pentester, en vivo, sobre el stack corriendo** (`docs/PENTEST_NOTES.md · REL-B`,
+severidad **Alta**, envío sintético sembrado en `guia`, correos contados por `subject=` del `NoopMailAdapter`):
+
+| Aviso | Tiradas | Resultado |
+|---|---|---|
+| **`AV-5`** (`{to:'enviado'}`), **N = 10 concurrentes** | **13 trials** | **13/13 con duplicado** — `{5,3,10,4,4,7,4,10}` + `{4,5,3,3,6}`. **De 3 a 10 correos por una transición única** |
+| **`AV-6`** (`{to:'cancelado'}`), **N = 10 concurrentes** | **5 trials** | **4/5 con duplicado** — `{3,7,7,5,1}`. *El `1` es que una tirada serializó sola: **es carrera, no determinismo***
+
+**El mecanismo, que sí verifiqué yo leyendo el fichero** (`backend/src/modules/shipments/shipments.service.ts`,
+2026-09-14, `0e22415`) — tres piezas y las tres hacen falta:
+1. `:571` `findUnique` → `:573-579` valida contra `TRANSITIONS` **sobre esa lectura**;
+2. `:600` `tx.shipmentRequest.update({ where: { id }, data })` — **el `WHERE` lleva `id` y NADA MÁS**, bajo
+   `READ COMMITTED` ⇒ **las N escrituras commitean**, la última gana y **ninguna se entera**;
+3. `:944`/`:953` `notifyStatus` llama `claimAndNotify(id, **null**, …)` ⇒ el bloque `if (sealField)` de `:910` **se
+   salta entero** ⇒ **cada petición manda su correo**.
+
+⭐ **Y el contraste que lo vuelve inexcusable está a 130 líneas en el MISMO fichero:** `:811` llama
+`claimAndNotify(id, 'trackingNoticeSentAt', …)` y `:788` baja su comparación al `WHERE`. *La casa ya tenía la
+cerradura puesta en la puerta de al lado.* El movimiento de inventario de `:612-616` **sí** está protegido
+(`updateMany` + `count !== 1 → continue`): **protegimos la pieza y dejamos suelto el correo.**
+
+⚠️⚠️ **Por qué esto entra en el documento y no sólo en el informe del pentester:** §4.54.4 **afirmaba una garantía
+que no existe**, y una afirmación así no se queda quieta — **autoriza**. El siguiente agente que lea «la da el
+MOTOR» no vuelve a mirar el `WHERE`, y hereda el defecto **creyéndolo resuelto**. *El error no fue del código: el
+código nunca prometió nada. Lo prometí yo.* (Es `O-1` aplicada al arquitecto: afirmé un mecanismo que no medí.)
+
+---
+
+**⭐⭐ LA NORMA (`D-AVISO-3`), y es la respuesta a la pregunta que §4.54.4 ya hacía bien: *«¿qué impide que este
+HECHO ocurra dos veces?»***
+
+```
+UPDATE "ShipmentRequest" SET status = :to, <marca de tiempo de :to> = now()
+ WHERE id = :id AND status = :from                      →  count === 1  ⇒ la transición es MÍA ⇒ SE MANDA
+                                                        →  count === 0  ⇒ ⛔ no transicioné ⇒ ⛔ NO se manda
+```
+
+**Las cuatro cláusulas, y ninguna es opcional:**
+
+1. ⭐ **La precondición de estado baja al `WHERE`, y el cuerpo entero cuelga del `count === 1`.** La validación
+   contra `TRANSITIONS` **se queda** —da el `409` legible y el mensaje— pero **deja de ser la guarda**: es el
+   filtro amable, no el cerrojo. El cerrojo es el `updateMany`. Bajo `READ COMMITTED`, Postgres re-evalúa el
+   `WHERE` sobre la versión ya actualizada (`EvalPlanQual`) ⇒ **exactamente UNA** de las N puede devolver `1`.
+   ⛔ **Es el mismo mecanismo que `setTracking` ya usa a 130 líneas** (§R.4.b) y que `buylist-sweep` usa desde
+   v1.18: **no se estrena nada**.
+2. ⭐ **El derecho a avisar es del ganador del CAS, y de nadie más.** `notifyStatus` se llama **sólo** en la rama
+   `count === 1`, **post-commit**. Los perdedores **no avisan**, y eso no es una omisión: es que **no ocurrió
+   ningún hecho suyo**.
+3. ⛔⛔ **NO se estrenan `shippedNoticeSentAt` ni `cancelledNoticeSentAt`. CERO DDL.** Y el porqué es doctrina de
+   este repositorio, no ahorro: **`ShipmentRequest.shippedAt` YA ES el sello de `AV-5`** — la misma escritura
+   atómica que gana la transición la pone, pasa de `NULL` a fecha **exactamente una vez**, y nada la vuelve a
+   `NULL`. Una columna `shippedNoticeSentAt` sería **una segunda fila que afirma el mismo hecho con la misma vida**
+   (§0-B, §4.37): el día que discrepen, **una de las dos miente y no hay forma de saber cuál**. Para `AV-6` no hace
+   falta ninguna: `cancelado` es **terminal** (`TRANSITIONS['cancelado'] = []`) ⇒ con la precondición en el `WHERE`
+   se entra **una sola vez en la vida del envío**. *La pregunta correcta seguía siendo la correcta; lo que estaba
+   mal era mi respuesta sobre quién la contestaba.*
+4. ⚠️ **El perdedor NO recibe `409` si el envío quedó donde él pedía.** Tras perder el CAS se **relee** la fila:
+   - `status === to` ⇒ **`200` con la fila actual, y ⛔ SIN correo.** *Dos operadores que pulsan «Enviar» a la vez
+     querían lo mismo, y lo consiguieron.* Es el **mismo patrón de early-return por estado destino** que §4.54.4
+     ya acredita para `AV-2`/`AV-3`, aplicado aquí.
+   - cualquier otro estado ⇒ **`409 CONFLICT`**, que es lo que ya devuelve una transición ilegal. **La forma del
+     error no cambia**; lo que cambia es que ahora también lo produce una carrera, y eso **se declara en el
+     contrato** (`API_CONTRACT §M4`) para que el frontend no lo lea como un bug nuevo.
+
+**⚠️ Lo que esta norma NO cierra sola, y hay que decirlo o la garantía se lee más grande de lo que es.** El CAS
+garantiza **un correo por transición**. «Un aviso por **ciclo**» (criterio 205) sólo se sigue de ahí **si el ciclo
+no se puede reabrir** — y hoy hay una vía para reabrirlo: **`REL-C`/`D-AV-1`**, las dos escrituras de `setTracking`
+que pueden **sobrescribir un `enviado` con `guia`** (el pentester midió **0/25** y fue honesto: *no la reprodujo*;
+el mecanismo está en el código). Si esa regresión ocurre, el envío puede volver a `guia` y ganar **otra** transición
+legítima a `enviado` ⇒ **segundo `AV-5`, esta vez sin que nada esté roto**.
+⇒ **`REL-C` deja de ser cosmética: es la segunda mitad de esta norma.** Se cierra **igual y en el mismo pase** —
+el estado esperado al `WHERE` de las dos escrituras de `setTracking`— y **por eso las dos van juntas a backend**.
+
+**4.54.4-b El ciclo de una guía se reinicia por VALOR, no por evento.** *(Era `4.54.4-a` hasta v1.76; se renumera
+para que la corrección de `REL-B` quede primera. ⛔ Su contenido no cambia ni una palabra.)* El sello de
+`AV-4`/`AV-7` se limpia —en la
 misma escritura que cambia la etiqueta— **si y solo si el par `(carrier, trackingNumber)` queda distinto**. *Un
 correo con un número que ya no existe es peor que no haber mandado ninguno; reenviar el mismo número es el ruido que
 `D-AVISO-2` existe para matar.* ⚠️ Y **no rompe el criterio 210**: ese criterio recorre un envío **con una sola
@@ -24288,6 +24402,159 @@ es exactamente la capacidad que se degrada primero cuando se optimiza por obedie
 - ⛔ **En ningún caso se "resuelve" poniéndole un `DEFAULT` a la columna.** Ésa **es** la mutación que `IVA-3(c)` y
   el criterio **214** existen para poner en rojo, y es exactamente la que el dueño descartó al corregir su primera
   respuesta (`PROJECT §Q.10.e`, decisión 83).
+
+---
+
+### 4.56 LO QUE SALIÓ DE LOS GATES DE CIERRE: tres normas y un traslado (v1.76, NORMATIVO)
+
+> *Tres de las cuatro no se descubrieron construyendo: las encontró alguien **atacando** o **revisando** lo ya
+> construido. Se escriben como **normas de clase**, no como parches del caso, porque un parche del caso vuelve por
+> otra puerta y esta sección existe para cerrar la puerta, no el agujero.*
+
+#### 4.56.1 ⭐⭐ `D-ACUSE-1` — **UN ACUSE SE CALCULA SOBRE UNA MAGNITUD QUE FIJA EL SERVIDOR** (`REL-A`, DINERO)
+
+**El defecto, medido en vivo por el pentester** (`PENTEST_NOTES · REL-A`, **Media**, dial movido `100 → 50` y
+**restaurado a 100**): el acuse del criterio **188** se satisface con **MX$0.00**.
+
+```
+PUT /admin/settings/iva-transfer  { ivaTransferPct: 50,
+                                    acknowledgement: { samplePriceCents: 1, previewedNetDeltaCents: 0 } }
+→ 200.  El dial SE MOVIÓ.  "Costo mostrado" = MX$0.00.
+   Costo REAL del mismo movimiento a MX$100:  −690 centavos por unidad  (~7 % del precio).
+```
+
+Umbral medido: con `L ∈ {1, 2, 5, 10}` el delta **redondea a 0**; `L=30 ⇒ −2`; `L=100 ⇒ −7`; `L=10000 ⇒ −689`.
+El validador razonó **`L = 0`** —su comentario lo dice: *«0 is rejected because it makes every net delta 0, which
+would turn the acknowledgement into a no-op»*— y **se le escapó `L ∈ [1,10]`, que hace exactamente lo mismo**.
+
+⚠️⚠️ **Esto no es un borde aritmético: derrota la protección entera, y por el camino que yo mismo nombré.** Al
+prohibir publicar la puerta sin el bloque del costo escribí que *«un acuse que promete un efecto inexistente es peor
+que no tener acuse: enseña a firmar»*. **Aquí el acuse promete un efecto de CERO y el efecto real es del 7 %.** Es
+la misma frase cumplida por el otro extremo. Y es **Media** sólo porque lo alcanza `super_admin` — **que es el
+dueño, o sea justo la persona a la que el acuse protege**. *Un control cuyo único usuario es al que protege no se
+califica por quién puede saltárselo.*
+
+---
+
+**LA NORMA, y es de CLASE, no de este endpoint:**
+
+> ⭐⭐ **El valor que un acuse confirma se calcula sobre una magnitud que fija el SERVIDOR.**
+> ⛔⛔ **Queda PROHIBIDO todo acuse cuyo efecto confirmado dependa de un argumento que viaja en la MISMA petición
+> que lo confirma.** *Un control cuyo parámetro elige la parte controlada no es un control: es una casilla.*
+
+**El corolario que la hace usable, y que es la mitad que la gente se salta:**
+
+> **EXPLORAR es libre; ACUSAR es sobre una magnitud FIJA.** `GET …/preview?samplePriceCents=` **conserva su eje
+> entero y sus cotas `[1, 100_000_000]`** (§M10-IVA.2): es una lectura **sin efectos**, y la pregunta *«¿y sobre
+> una pieza de MX$2 000?»* es legítima y el dueño tiene derecho a hacérsela. Lo que ⛔ no puede es que **ese mismo
+> número decida contra qué compara el servidor para permitir la escritura**.
+
+**Forma concreta en `PUT /admin/settings/iva-transfer`** (interfaz exacta: `API_CONTRACT §M10-IVA.2` punto 3):
+`acknowledgement.samplePriceCents` **sólo admite el `L` CANÓNICO** (`IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT`
+= `10_000` = MX$100.00); cualquier otro valor es **`422 VALIDATION_ERROR`** *antes* de la comparación, y ⛔ **el dial
+no se escribe**.
+
+**Las cuatro decisiones que hay detrás, con su porqué, porque cada una tuvo una alternativa razonable:**
+
+1. ⛔ **Contra «subir la cota inferior» (que es lo que el propio hallazgo sugería).** **No cierra la clase, y es
+   aritmética, no opinión.** El delta es ≈ `L · (r/100)/(1+r/100) · Δt/100`. Para **cualquier** cota inferior `B`
+   existe un `Δt` y un `r` que lo devuelven a 0: con `r = 16` hace falta `L ≳ 363` para que `Δt = 1` dé un centavo;
+   **con `r = 1`, hace falta `L ≳ 5 050`**. ⇒ una cota elegida contra el `r` de hoy **se rompe sola** el día que se
+   mueva `iva_pct`, y se rompe **en silencio**. *Poner un número más grande en el mismo sitio equivocado es el
+   parche del caso.*
+2. ⛔ **Contra «que el acuse se calcule sobre un precio REPRESENTATIVO del catálogo»** (una mediana, el más
+   vendido). **Es la opción que más me gustaba y la descarto por escrito:** una estadística **se mueve entre que el
+   dueño mira la pantalla y pulsa guardar**, así que produciría `409 IVA_TRANSFER_ACK_STALE` **por una razón que no
+   es la que se está decidiendo**. El propio código ya tiene escrita esa doctrina para la comisión de Stripe:
+   *«un acuse que caducara por algo que no es lo que se está decidiendo enseñaría a reintentar sin leer»*. **Un
+   acuse que caduca sin motivo entrena exactamente la conducta que el acuse existe para impedir.** ⇒ **constante,
+   no estadística.**
+3. ⛔ **Contra «ignorar el campo y usar el canónico por dentro».** Sería la opción sin fricción, y es la que ⛔ no se
+   toma: **ignorar en silencio un campo de dinero** deja al operador creyendo que su número contó. Es la misma
+   clase que ya está censada como `D-A5-3` (*«un parámetro desconocido se ignora en silencio»*). ⇒ **se rechaza con
+   `422`, no se ignora.** *Si el campo no manda, el servidor lo dice; no lo finge.*
+4. ⛔ **Contra retirar el campo del cuerpo.** Se **conserva** —con un único valor legal— por dos razones medidas:
+   **(a)** el frontend **ya manda `10000` fijo y hardcodeado** (`IvaTransferSection.tsx:26` `SAMPLE_PRICE_CENTS`,
+   `:147`) ⇒ **esta norma le cuesta CERO rework**, y *el 17 % del gasto de este proyecto se fue en rehacer lo ya
+   hecho*; **(b)** el campo deja constancia, en el cuerpo que se audita, de **sobre qué `L` se firmó** — que es
+   justo el hecho que `REL-A` volvió ambiguo.
+
+**⛔ Lo que NO se añade, y se dice porque es la defensa que alguien propondrá:** ⛔ **ninguna comprobación de
+«delta ≠ 0» en tiempo de ejecución.** Con el `L` canónico fijo, un delta de `0` sólo puede significar **que es
+verdad** (`iva_pct = 0` ⇒ no hay IVA que trasladar ⇒ mover el dial **no cuesta nada**), y bloquearlo dejaría el dial
+**encerrado** en esa configuración. *Un acuse de cero deja de ser un problema en cuanto no se puede fabricar.* Lo
+que sí se pide es un **candado de prueba** (`IVA-14`, `API_CONTRACT §M10-IVA.2`): con el `L` canónico y `r ≥ 1`,
+**todo movimiento de un punto produce delta ≠ 0** — se pondría rojo el día que alguien baje la constante o
+reabra la elección al llamante, que es **cuando** hay que enterarse, y no en el dial del dueño.
+
+#### 4.56.2 `D-TX-1` — un error TRANSITORIO del motor tiene código propio: **`503 BUSY_TRY_AGAIN`**
+
+**Dos huecos, el mismo síntoma, y los dos salen hoy como `500 INTERNAL`:**
+
+| Caso | Estado hoy (medido) | Por qué el `500` es una mentira |
+|---|---|---|
+| **Reintentos serializables AGOTADOS** | `serializable-retry.ts` propaga el error original ⇒ `500`. *El helper hizo lo correcto al no inventarse un código: «eso lo decide el arquitecto».* Medido: con 4 altas simultáneas × 12 rondas, **5 intentos bastan (8/8 verdes)**; con 3, **10/10 rojas**. ⛔ **NO MEDIDO** qué pasa con ~50 a la vez | **No se rompió nada.** El motor cumplió el contrato de `SERIALIZABLE` y abortó para que se reintente |
+| **`P2028`, timeout de transacción** | `500` (medido por el pentester: un candado de fila sostenido **5,4 s**). ⛔ **No se arregla con reintento** — una tx que no cupo en su ventana vuelve a no caber | Tampoco se escribió nada: **rollback del motor**. Y es **transitorio**, que es justo lo que un `500` niega |
+
+⚠️ **Por qué se decide HOY y no tras el primer incidente:** es **superficie de API**, y la forma en que se
+descubriría es *«un cliente contando que no pudo vender»*. Una decisión de contrato tomada durante un incidente se
+toma mal y se toma con prisa.
+
+> **NORMA:** un fallo **transitorio del motor de base de datos, sin escritura parcial y no accionable por el
+> cliente**, responde **`503 BUSY_TRY_AGAIN`**. Forma exacta, cabecera `Retry-After` y las dos prohibiciones:
+> **`API_CONTRACT §0-T`**.
+
+- ⭐ **UN código para los dos casos, y es decisión.** *Dos nombres para el mismo remedio son dos nombres, no dos
+  decisiones.* Lo que el cliente puede hacer es idéntico —**esperar y volver a intentarlo**— y este contrato ya
+  separa códigos **por remedio**, no por causa interna (precedente: `BUYLIST_RAW_ONLY` vs
+  `BUYLIST_LINE_NOT_KEYABLE`, dos códigos **porque el remedio difiere**). **La distinción operativa vive en el
+  LOG**, y ahí sí es obligatoria: `P2028` significa que **algo sostuvo un candado de fila más allá de su ventana**
+  —un defecto nuestro que hay que investigar— mientras que agotar reintentos bajo carga es **la cola esperable**.
+  *Al cliente se le dice qué hacer; al operador, qué pasó.*
+- ⛔⛔ **Y LA PROHIBICIÓN QUE VIENE CON LA NORMA, que vale tanto como ella: ⛔ NADA de mapeo GLOBAL de Prisma.**
+  `AllExceptionsFilter` gana **una tabla CERRADA de dos entradas** (`P2034`/`40001`/`40P01` tras agotar reintentos,
+  y `P2028`). **Todo lo demás de Prisma sigue saliendo `500 INTERNAL`, exactamente como hoy.** ⛔ Traducir
+  `P2002 → 409` o `P2025 → 404` de forma transversal **cambiaría en silencio la conducta de decenas de rutas** que
+  hoy tienen su propia semántica de conflicto y de «no existe» —y las cambiaría **sin que ninguna prueba de esas
+  rutas lo pidiera**. *Un mapeo global es una decisión de producto disfrazada de higiene.* Cada ruta que quiera
+  mapear un código de Prisma lo decide **su dueño**, y si eso cambia su superficie, **pasa por el arquitecto**
+  (regla 9).
+- ⛔ **El cliente ⛔ NO reintenta solo.** El servidor **ya reintentó cinco veces**; un reintento automático del
+  navegador añade carga a un sistema que está perdiendo la pelea. El reintento es **una acción del usuario**.
+  Detalle de UI en `API_CONTRACT §0-T`.
+
+#### 4.56.3 `AV-D2` DECIDIDA — el esqueleto de correo se muda a `backend/src/common/mail-shell.ts`
+
+**La decisión que la ficha de deuda estaba esperando** (`TECH_DEBT · AV-D2`, que la condiciona explícitamente a
+*«decisión previa del arquitecto/techlead»*): **`common/`**, tal como recomienda el techlead y tal como **el propio
+fichero ya declara en su cabecera**.
+
+- **Medido (2026-09-14, `0e22415`):** `buylist/mail-shell.ts` lo importan **seis** ficheros, de los cuales
+  **CUATRO cruzan módulo** — `admin/mail/kyc-notice.templates.ts`, `orders/mail/order-notice.templates.ts`,
+  `shipments/mail/shipment-notice.templates.ts`, `disputes/mail/dispute-notice.templates.ts` —, más dos del propio
+  `buylist` y la suite `test/buylist.mail-shell.spec.ts`. ⚠️ **Cuatro que cruzan, no cinco**: la ficha decía
+  «cinco ficheros lo importan» contando los de casa, y esa cifra se lee como cinco módulos.
+- **Por qué `common/` y ⛔ no `mail/`:** §4.11 dejó a `mail/` siendo **el puerto y los adaptadores**, y §4.54.5
+  ratificó que **⛔ no se toca `mail/` por dentro**. Meter ahí un esqueleto de presentación obligaría a cinco
+  módulos a importar de un módulo — **exactamente el acoplamiento que se está deshaciendo**, mudado de sitio.
+  **Precedente idéntico y reciente:** D56 mudó `displayPriceCentsOf`/`taxBaseCentsOf` a `common/money.ts` con este
+  argumento literal: *«la aritmética del dinero es del núcleo; la puerta del dial es de settings»*. Aquí:
+  **el esqueleto del correo es del núcleo; los correos de compra son de `buylist`.**
+- ⛔ **Es un TRASLADO: cero conducta, cero contrato, cero HTML distinto.** El mismo pase cierra **`BE-43`**
+  (el `layout()` duplicado de `mail/mail.templates.ts`), que es la mitad que hace que valga la pena. Si el HTML
+  renderizado cambia **una coma**, el traslado está mal hecho.
+- ⚠️ **`src/common/` es ZONA COMPARTIDA** (`CLAUDE.md`): este traslado **lo hace UN solo stream**, y el
+  orquestador lo serializa. *Fue la razón correcta por la que no se hizo antes; sigue siéndolo.*
+
+#### 4.56.4 ⚠️ NO MEDIDO en este pase (arquitecto)
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-AR76-1` | **Que el CAS con la precondición en el `WHERE` baje `AV-5` a 1/1 correo bajo N=10.** Lo que sé es el **mecanismo** (`EvalPlanQual` bajo `READ COMMITTED`) y que **el mismo patrón ya está medido** en `setTracking` (8/25 → 0) y en `buylist-sweep`. ⛔ **Que funcione aquí es inferencia hasta que alguien lo tire** | repetir el arnés de `REL-B` con **N ≥ 10 y al menos 10 trials** por aviso, y reportar la **proporción** (`O-3`) | backend construye · **qa/pentester** mide |
+| `N-AR76-2` | **Si `REL-C` es reproducible.** El pentester midió **0/25** y fue explícito: *«no la reproduje»*. Yo leí el mismo mecanismo en `:788`/`:807` y **estoy normando sobre él** (4.54.4-a, última cláusula) | un arnés que **retrase** la escritura de `setTracking` hasta caer dentro de la ventana de `guia→enviado` | backend / pentester |
+| `N-AR76-3` | **Cuántas `SellRequest`/`ShipmentRequest` vivas hay hoy**, y por tanto si el CAS de `updateStatus` cambia algo para alguien **hoy**. Sé que **no hay ventas reales** (`HECHOS.md`), no cuántas filas sintéticas quedan | `count(*)` con **usuario de solo lectura**, o corrido **por el dueño**. ⛔ Nunca una credencial por conversación | orquestador / dueño |
+| `N-AR76-4` | **Qué contesta hoy el `PUT` del dial con `acknowledgement.samplePriceCents` ausente pero `previewedNetDeltaCents` presente.** Leí que `parseIvaTransferAck` devuelve `null` si **cualquiera** de los dos falta ⇒ caería en `422 IVA_TRANSFER_ACK_REQUIRED`; **no lo disparé** | un `supertest` de dos líneas con token `super_admin` | backend |
+| `N-AR76-5` | **Que `P2028` produzca hoy `500` por HTTP.** Lo tengo del pentester y del propio `serializable-retry.ts` (que lo excluye del reintento a propósito); **yo no lo tiré** | sostener un candado de fila > 5 s y pegarle a la ruta | backend |
 
 ---
 
@@ -25056,6 +25323,45 @@ Riesgos técnicos:
 > mío**: así llama `PROJECT §R.2` a la **regla de canal de tres cláusulas**; se cita, no se renumera. *(`D-AVISO-2`
 > —sellar y luego enviar, §4.54.3— sí es mío, y por eso lleva la palabra entera y no el prefijo corto.)*
 
+- **🔴 ABIERTA / ⛔ BLOQUEANTE (v1.76) — `D-AV-4`: `PATCH /admin/shipments/:id/status` MANDA DE 3 A 10 CORREOS POR
+  UNA TRANSICIÓN ÚNICA, Y ESTE DOCUMENTO DECÍA QUE NO PODÍA.** **Dueño: backend** (`shipments`).
+  **Medido EN VIVO por el pentester el 2026-09-14** (`PENTEST_NOTES · REL-B`, **Alta**): `AV-5` **13/13 trials con
+  duplicado** con N=10 concurrentes (`{5,3,10,4,4,7,4,10}` + `{4,5,3,3,6}`); `AV-6` **4/5**.
+  **Mecanismo, verificado por el arquitecto leyendo `shipments.service.ts` (`0e22415`):** `:600` hace
+  `update({ where: { id }, data })` —**sin el estado en el `WHERE`**, bajo `READ COMMITTED`— y `:944`/`:953` llaman
+  `claimAndNotify(id, **null**, …)` ⇒ el sello de `:910` **se salta**. A 130 líneas, `:811` **sí** pasa
+  `'trackingNoticeSentAt'` y `:788` **sí** baja la comparación al `WHERE`.
+  ⚠️ **La mitad que es MÍA y por eso encabeza esta ficha:** `§4.54.4` afirmaba que esa unicidad *«la da el MOTOR»*
+  vía `TRANSITIONS`. **Era falso**, y una afirmación así **autoriza**: el siguiente lector no vuelve a mirar el
+  `WHERE`. **Corregido en §4.54.4 (fila tachada) y §4.54.4-a.**
+  **Cierra con** (norma completa en **§4.54.4-a**, interfaz en `API_CONTRACT §R.4.c` y §M4): precondición de estado
+  en el `WHERE` con `updateMany` + `count === 1`; el aviso **sólo** en la rama ganadora; **`200` idempotente** si el
+  perdedor relee y el envío ya está en `to`, **`409`** en cualquier otro estado. ⛔ **CERO DDL**: `shippedAt` ya es
+  el sello, y `cancelado` es terminal.
+  ⚠️ **Y no cierra sola:** «un aviso por **ciclo**» exige además **`REL-C`/`D-AV-1`** (el `setTracking` que puede
+  devolver un `enviado` a `guia` y reabrir el ciclo). **Las dos van juntas, al mismo dueño y en el mismo pase.**
+  ⛔ **El arquitecto no lo corrige.**
+- **🟡 ABIERTA (v1.76) — `D-IVA-14`: EL ACUSE DEL DIAL DE IVA SE FIRMA CON MX$0.00 CUANDO EL COSTO REAL ES ~7 %.**
+  **Dueño: backend** (`settings`). **Medido EN VIVO por el pentester el 2026-09-14** (`PENTEST_NOTES · REL-A`,
+  **Media**; dial movido `100 → 50` y **restaurado a 100**): con `acknowledgement.samplePriceCents = 1` el delta
+  neto **redondea a 0**, el acuse cuadra y el dial se mueve **habiendo «mostrado» MX$0.00**. Umbral medido:
+  `L ≤ 10 ⇒ 0`; `L = 10000 ⇒ −689`.
+  **`D-IVA-13` acotó `samplePriceCents` a `[1, 100_000_000]` y cerró el extremo ALTO** (el `500` de `grossUpTotal`);
+  **este es el extremo BAJO**, y el validador lo dice de sí mismo: razonó `L = 0` y no `L ∈ [1,10]`.
+  **Cierra con** (norma de clase en **§4.56.1**, interfaz en `API_CONTRACT §M10-IVA.2` punto 3):
+  `acknowledgement.samplePriceCents` **sólo admite el `L` canónico `10_000`**; cualquier otro ⇒
+  **`422 VALIDATION_ERROR`** ⛔ **sin escribir**. ⛔ El eje del `/preview` **no se toca** (explorar es libre).
+  ⛔ **Y no se cierra subiendo la cota inferior**: no cierra la clase — con `r = 1` haría falta `L ≳ 5 050`, así que
+  cualquier cota fijada contra el `r` de hoy se rompe sola al mover `iva_pct`, y en silencio.
+  ⭐ **Coste para frontend: CERO.** `IvaTransferSection.tsx:26/:147` ya manda `10000` fijo (medido).
+- **🟡 ABIERTA (v1.76) — `D-AV-5`: UN CONFLICTO DEL MOTOR Y UN TIMEOUT DE TRANSACCIÓN SALEN COMO `500`.**
+  **Dueño: backend** (`common` + `AllExceptionsFilter`). **Medido 2026-09-14** (el pentester para `P2028`, 5,4 s
+  con un candado de fila sostenido; `serializable-retry.ts` lo declara de sí mismo para los reintentos agotados,
+  y **hace bien** en no inventarse el código: *«eso lo decide el arquitecto»*).
+  **Cierra con** **`API_CONTRACT §0-T`**: **`503 BUSY_TRY_AGAIN`** para los dos casos, `Retry-After`, y ⛔ **una
+  tabla CERRADA de dos entradas en el filtro** — ⛔ **prohibido** el mapeo global de Prisma (`P2002`→409,
+  `P2025`→404), que cambiaría en silencio la conducta de decenas de rutas. Ver **§4.56.2**.
+  ⚠️ **NO MEDIDO por el arquitecto** que hoy salga `500` por HTTP en ninguno de los dos (`N-AR76-5`).
 - **🟡 ABIERTA (v1.74) — `D-AV-1`: `setTracking` NO VALIDA LA TRANSICIÓN, Y EL CONTRATO YA DECÍA QUE NO DEBÍA
   REGRESAR EL ESTADO.** **Dueño: backend** (`shipments`). **Medido 2026-09-14** (lectura del código, `a13b4e6`;
   la comprobación **por HTTP** es `N-AV-3`, §4.54.6).
@@ -25070,9 +25376,20 @@ Riesgos técnicos:
   arregle** — el sello `trackingNoticeSentAt` (§4.54.4) impide el correo repetido **aunque** el estado regrese. Lo
   que queda abierto es **la regresión de estado**, que es un defecto de M4 por su cuenta: un envío entregado que
   reaparece en la cola de guías **es una cola falsa**, y *el fallo se ve y la cola falsa no*.
-  **Cierra con:** la misma guarda que ya usa `updateStatus` (tabla `TRANSITIONS` + `updateMany`/`count === 1`), y una
+  **Cierra con:** ~~la misma guarda que ya usa `updateStatus`~~ 🔴 **v1.76 — CORREGIDO: `updateStatus` tampoco la
+  tenía** (`D-AV-4`). La guarda es la de **§4.54.4-a**: el estado esperado **en el `WHERE`** de las **dos**
+  escrituras (`:788` y `:807`) + `count === 1`, que es la misma que `setTracking` ya aplica a la **etiqueta** y
+  que le falta al **estado**. Y una
   decisión del **arquitecto** sobre qué código devolver a la re-captura ilegal (`409 CONFLICT`, por paridad con
   `updateStatus`). ⛔ **El arquitecto no lo corrige.**
+  ⭐⭐ **ACTUALIZACIÓN v1.76 — SUBE DE PRIORIDAD, y la frase de arriba («`AV-4` no depende de que esto se arregle»)
+  **sigue siendo cierta pero ya no es la parte que importa**.** El pentester midió el mismo fichero (`REL-C`,
+  **Baja**, **0/25 — y fue explícito en que NO la reprodujo**): las dos escrituras de `setTracking` (`:788` y
+  `:807`) **tampoco llevan el estado en su precondición**, así que pueden **sobrescribir un `enviado` con `guia`**.
+  Con `D-AV-4` cerrada, ésa pasa a ser **la única vía que queda para reabrir el ciclo** de `AV-5` — y un ciclo
+  reabierto produce un **segundo correo perfectamente legítimo**, que es el fallo del criterio 205 sin que nada
+  parezca roto. ⇒ **`D-AV-1` y `D-AV-4` se cierran EN EL MISMO PASE**, con la misma técnica (estado esperado al
+  `WHERE`). *Lo que era una cola falsa ahora es además la puerta trasera del anti-duplicado.*
 - **🟡 ABIERTA (v1.74) — `D-AV-2`: DOS CAMINOS LLEGAN AL ESTADO `guia` Y SÓLO UNO TRAE LA ETIQUETA.**
   **Dueño: backend** (`shipments`), con **decisión previa del arquitecto**. **Medido 2026-09-14.**
   `TRANSITIONS` declara `picking: ['guia', 'cancelado']`, así que `PATCH /admin/shipments/:id/status { to: 'guia' }`
