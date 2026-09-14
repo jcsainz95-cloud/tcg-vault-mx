@@ -1,11 +1,9 @@
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
-import { plainToInstance } from 'class-transformer';
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-import { TrackingDto } from '../src/modules/shipments/dto/shipments.dto';
 
 /**
  * ⭐⭐ **`shippingCostIvaCents` — LA COLUMNA YA SE LEE: el bloque «nadie la lee» CADUCÓ, como estaba
@@ -49,7 +47,7 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
     status: 'guia',
     shippingFeeCents: 20300,
     shippingCostCents: 20300, // BRUTO: la factura del carrier, IVA incluido (§4.44.f-ter)
-    shippingCostIvaCents: 2800, // el IVA acreditable congelado — interno, y en D-1 ni se lee
+    shippingCostIvaCents: 2800, // el IVA acreditable congelado — dato INTERNO de costo (§M4)
     ivaCents: 2800,
     processingFeeCents: 1200,
     totalCents: 21500,
