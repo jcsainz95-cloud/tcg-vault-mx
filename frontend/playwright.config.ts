@@ -28,6 +28,13 @@ const isCI = !!process.env.CI;
 const isReal = process.env.E2E_REAL === '1';
 
 /**
+ * ¿La APP bajo prueba habla con el backend REAL? Misma regla que `e2e/utils/env.ts` (`IS_REAL`),
+ * repetida aquí porque el config no puede importar del arnés. Gobierna SOLO el `timeout` de abajo.
+ */
+const talksToRealBackend =
+  process.env.E2E_MOCKS !== '1' && (!!process.env.E2E_BASE_URL || isReal);
+
+/**
  * Puerto del server de MOCKS que levanta Playwright. Parametrizable para poder correr la suite de
  * mocks **sin chocar** con un stack real ya escuchando en :3000 (el caso normal cuando devops tiene
  * la plataforma arriba). No aplica cuando `E2E_BASE_URL` viene dado: ahí no levantamos nada.
@@ -76,7 +83,24 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
   workers: isCI ? 1 : undefined,
-  timeout: 60_000,
+  /**
+   * ⭐ **B-2 — 120 s CONTRA BACKEND REAL, y el motivo no es «la red va lenta».**
+   *
+   * `POST /auth/login` está limitado por el producto a **5 por 60 s y por IP**
+   * (`@Throttle({ ttl: 60_000, limit: 5 })`, medido 2026-09-14: `200×5` y luego `429×5`, con
+   * recuperación a los 62 s). El subset `@real` necesita **más de cinco logins** —seis actores del
+   * seed más los que se teclean POR FORMULARIO, que son producto bajo prueba—, así que un caso
+   * puede tener que **esperar a que la ventana del throttler se abra**. Esa espera es una deuda que
+   * el arnés le paga al producto, no lentitud de la UI.
+   *
+   * Con 60 s era **imposible por aritmética**: la ventana dura 60 s, el caso entero dura 60 s, y el
+   * resultado medido era un plantón MUDO de 60 s sin una sola acción de Playwright (traza de
+   * `admin.spec.ts:17`). 120 s = una ventana completa (66 s con margen) **más** el caso.
+   *
+   * ⛔ `expect.timeout` NO se toca: los asertos no se vuelven más laxos. Lo único que se alarga es
+   * el sitio donde el arnés espera su turno — y `reserveLoginSlot` lo dice en voz alta si no cabe.
+   */
+  timeout: talksToRealBackend ? 120_000 : 60_000,
   expect: { timeout: 15_000 },
   // En real, solo el subset @real (smoke de flujos de dinero + gancho de grading contra el stack).
   grep: isReal ? /@real/ : undefined,
@@ -84,9 +108,19 @@ export default defineConfig({
   // del gancho de grading). Corre cuando TODOS los workers terminaron — un `afterAll` no sirve:
   // corre por worker y apagaría el dial con otros workers todavía navegando.
   globalTeardown: './e2e/global-teardown.ts',
+  /**
+   * ⭐ `./e2e/reporters/not-measured.ts` va en TODAS las configuraciones, y no es decoración.
+   *
+   * QA midió dos corridas del MISMO código con `55/3/1` y `50/3/6`: los fallos eran estables y lo
+   * que bailaba era **cuántos casos llegaban a ejercitarse**. Ninguno de los reporters de arriba
+   * dice QUÉ se saltó ni POR QUÉ — `list` pinta un guión y sigue. Sin esa lista, un verde con seis
+   * saltos y uno con uno se leen igual, que es exactamente cómo un E2E de Disputas se saltó justo
+   * en el caso en que la pantalla fallaba. El reporter imprime el censo nominal y lo deja en JSON;
+   * solo tumba la corrida si alguien fija `E2E_EXPECT_NOT_MEASURED`.
+   */
   reporter: isCI
-    ? [['list'], ['html', { open: 'never' }], ['github']]
-    : [['list'], ['html', { open: 'never' }]],
+    ? [['list'], ['html', { open: 'never' }], ['github'], ['./e2e/reporters/not-measured.ts']]
+    : [['list'], ['html', { open: 'never' }], ['./e2e/reporters/not-measured.ts']],
   use: {
     baseURL: BASE_URL,
     locale: 'es-MX',

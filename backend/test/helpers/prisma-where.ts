@@ -52,6 +52,16 @@ export function matchesCond(value: unknown, cond: unknown): boolean {
       case 'notIn':
         return !(c.notIn as unknown[]).some((v) => igual(value, v));
       case 'not':
+        // ⭐⭐ **SEMÁNTICA DE SQL, NO DE JS** (2026-09-14, `D-AVISO-2`). Prisma traduce
+        // `{ not: v }` a `col <> v` **a secas**, y en SQL `NULL <> 'x'` es UNKNOWN ⇒ la fila **NO
+        // casa**. Con la semántica de JS (`null !== 'x'` ⇒ true) el fake decía que sí, y entonces
+        // una prueba unitaria podía dar verde a un `where` que en Postgres **no encuentra la fila**
+        // — que es exactamente el defecto con el signo cambiado que `setTracking` tuvo que esquivar
+        // con una rama `{ carrier: null }` explícita. *Un fake que no coincide con el motor en los
+        // nulos no está simulando el motor: está inventando otro.*
+        // `{ not: null }` sigue significando `IS NOT NULL`, que es lo que Prisma emite.
+        if (c.not === null) return value !== null && value !== undefined;
+        if (value === null || value === undefined) return false;
         return !matchesCond(value, c.not);
       case 'gt':
         return (value as number) > (c.gt as number);

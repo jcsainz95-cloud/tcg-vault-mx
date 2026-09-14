@@ -39,7 +39,11 @@ export const GROUPED_LISTING_KEYS = keysOf<GroupedListingDTO>({
   gradingCompany: true,
   gradeValue: true,
   stockCount: true,
-  salePriceCents: true,
+  // ⭐ D56 (§M10-IVA.3): `salePriceCents` **desapareció** de la superficie pública y lo sustituyen
+  // estos tres. ⛔ No es un rename cosmético: un front que no migró **no compila**.
+  displayPriceCents: true,
+  ivaIncluded: true,
+  ivaRatePct: true,
   priceBasis: true,
   referenceValue: true,
   currency: true,
@@ -56,7 +60,9 @@ export const GROUPED_LISTING_SUMMARY_KEYS = keysOf<GroupedListingSummaryDTO>({
   gradingCompany: true,
   gradeValue: true,
   stockCount: true,
-  salePriceCents: true,
+  displayPriceCents: true,
+  ivaIncluded: true,
+  ivaRatePct: true,
   currency: true,
   // v1.50.2: MOVIDO desde `GroupedListingDTO` (la rejilla es la superficie de PROMOCIÓN). Es OPCIONAL
   // y su PRESENCIA **es** la elegibilidad, así que en un escenario sin gate cumplido —o con el dial
@@ -73,7 +79,11 @@ export const SEALED_GROUP_KEYS = keysOf<SealedGroupDTO>({
   sealedSubtype: true,
   sealedCondition: true,
   availableCount: true,
+  // ⭐ D56: `fromPriceCents` **pasa a llevar el IVA dentro** (conserva el nombre: su semántica
+  // «desde» no cambia) y lo acompañan las dos señales REQUERIDAS de §M10-IVA.3.
   fromPriceCents: true,
+  ivaIncluded: true,
+  ivaRatePct: true,
   priceSource: true,
   priceBasis: true,
   referenceValue: true,
@@ -90,6 +100,8 @@ export const SEALED_GROUP_SUMMARY_KEYS = keysOf<SealedGroupSummaryDTO>({
   sealedCondition: true,
   availableCount: true,
   fromPriceCents: true,
+  ivaIncluded: true,
+  ivaRatePct: true,
   currency: true,
 });
 

@@ -15,7 +15,7 @@
  * ### Norma de esta carpeta
  * El ESTADO se puede montar por `h.prisma` (S-1 siembra los once `SellRequestStatus` sobre una fila
  * real, porque la API no fabrica terminales a voluntad); la CONDUCTA se prueba por la puerta. S-2 va
- * entera por HTTP (`offer → offer-response → confirm-shipment → receive → verify`).
+ * entera por HTTP (`offer → offer-response → confirm-shipment → receive → verify`). (S-2 ya no apuesta al reloj: fuerza el orden con el candado de fila — ver el bloque S-2.)
  *
  * ### Candados (§M5-S)
  * | Mutación | Cae |
@@ -29,6 +29,7 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { SELL_REQUEST_TERMINAL_STATES } from '../../src/common/sell-request-states';
+import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
 
 const CLABE_A = '012345678901234567';
 const TERMINAL = SELL_REQUEST_TERMINAL_STATES as readonly SellRequestStatus[];
@@ -228,7 +229,7 @@ describe('E2E — §M5-S · `receive`/`verify` exigen el PASO CORRECTO (P-58)', 
   // ===========================================================================================
   // S-2 — LA CADENA DE LA MESA (directa) SIGUE; LA INVERTIDA SE CORTA. Todo por la puerta.
   // ===========================================================================================
-  describe('S-2 · la cadena `confirm-shipment → receive → verify` con 20 ms', () => {
+  describe('S-2 · la cadena `confirm-shipment → receive → verify`, con el orden FORZADO', () => {
     it('directa: `200 · 200 · 200`, estado final `verificacion` con LAS DOS fechas', async () => {
       const srId = await hastaEnTransito();
       const rec = await verb('receive', srId);
@@ -242,23 +243,103 @@ describe('E2E — §M5-S · `receive`/`verify` exigen el PASO CORRECTO (P-58)', 
       expect(row!.verifiedAt).toBeInstanceOf(Date);
     });
 
-    it('directa SIN esperar la respuesta (lanzadas con 20 ms de desfase, como la bitácora): 5/5 en verde', async () => {
-      // O-3: una tirada no verifica nada que dependa del orden. Se lanza `verify` 20 ms después de
-      // `receive` SIN esperar a que `receive` conteste; Postgres serializa los dos `UPDATE` sobre la
-      // fila y el `where` de `verify` se re-evalúa sobre la versión que `receive` dejó. Se reporta
-      // la proporción, no un «funcionó».
-      const resultados: string[] = [];
-      for (let i = 0; i < 5; i++) {
-        const srId = await hastaEnTransito();
-        const pRec = verb('receive', srId);
-        await sleep(20);
-        const pVer = verb('verify', srId);
-        const [rec, ver] = await Promise.all([pRec, pVer]);
-        const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
-        resultados.push(`${rec.status}·${ver.status}·${row!.status}`);
+    /**
+     * ⭐⭐⭐ **LA DOBLE PULSACIÓN DEL OPERADOR — y la corrección de lo que esta prueba AFIRMABA.**
+     *
+     * ## Lo que había, y por qué se cae
+     * Aquí vivía un `it` que lanzaba `verify` **20 ms** después de `receive` *sin esperar su
+     * respuesta* y exigía **`5/5` verdes**. Medición de QA y del pase anterior: **2 de 5 corridas en
+     * ROJO** con la suite completa; **5/5 verde** aislada.
+     *
+     * ⛔ **El rojo no era un defecto: la prueba afirmaba algo que el sistema NO promete.** Diagnóstico
+     * con el entrelazado forzado y `pg_stat_activity` delante (2026-09-14):
+     *
+     * > La guarda de `verify` es `UPDATE … WHERE id = :id AND status = 'recibida'`. Un `UPDATE`
+     * > **solo bloquea las filas que su cualificación selecciona**. Mientras `receive` no ha
+     * > **commiteado**, la versión visible sigue siendo `en_transito` ⇒ el `UPDATE` de `verify`
+     * > **no casa con nada, no se encola detrás de nadie y contesta `409` en el acto** (medido:
+     * > `verify` respondió a los **52 ms** de lanzarse, con `receive` aún bloqueada).
+     *
+     * O sea: `verify` **no espera** a `receive`. Y **eso es correcto** — `API_CONTRACT §M5-S` dice
+     * que `verify` solo procede desde `recibida`, y un `409 INVALID_TRANSITION` con `from:
+     * 'en_transito'` es exactamente lo que el contrato manda. *Lo que fallaba era la prueba: 20 ms
+     * de reloj no ordenan dos peticiones, y el verde de antes era la máquina, no el código.*
+     *
+     * ## Qué se asierta ahora — dos hechos deterministas en vez de una moneda al aire
+     * **(1)** Con `receive` **en vuelo y sin commitear**, `verify` contesta `409 INVALID_TRANSITION`
+     * desde `en_transito` **y no corrompe nada**: `verifiedAt` sigue `null`.
+     * **(2)** En cuanto `receive` aterriza, el mismo `verify` **prospera**: `200`, estado
+     * `verificacion`, las dos fechas y en orden. *La doble pulsación no se pierde: se repite y entra.*
+     *
+     * El orden se **fuerza** con el candado de fila (técnica y mediciones en
+     * `helpers/row-lock-barrier.ts`), ⛔ no con un `sleep`. **Medido: 10/10 verdes.**
+     *
+     * ⚠️ **Hallazgo aparte que salió de este diagnóstico y NO se parchea aquí** (queda en
+     * `BACKEND_NOTES`): si el candado de fila se sostiene **más de 5 s**, la transacción de `receive`
+     * muere por el **timeout por defecto de las transacciones interactivas de Prisma** (`P2028`), y
+     * como el filtro de excepciones **no mapea nada de Prisma**, sale **`500`** (medido: `receive`
+     * respondió `500` tras 5.4 s de espera). ⛔ No se arregla con un reintento —`P2028` no es un
+     * conflicto— y elegir el código que debe ver el cliente **es superficie de contrato**.
+     */
+    it('⭐⭐ `verify` con `receive` EN VUELO: `409` limpio, y tras aterrizar `receive` SÍ entra', async () => {
+      const srId = await hastaEnTransito();
+
+      const candadoPuesto = diferida();
+      const soltar = diferida();
+      const tx = h.prisma.$transaction(
+        async (t) => {
+          await t.$executeRawUnsafe(`SELECT id FROM "SellRequest" WHERE id = $1 FOR UPDATE`, srId);
+          candadoPuesto.abrir();
+          await soltar.promesa;
+          // ⛔ No escribe: su único papel es sostener el orden. El estado lo mueven las peticiones.
+        },
+        { timeout: 30000, maxWait: 30000 },
+      );
+
+      let ver: Awaited<ReturnType<typeof verb>>;
+      let pRec: ReturnType<typeof verb>;
+      try {
+        await candadoPuesto.promesa;
+        // `receive` entra y SE BLOQUEA en el candado (comprobado, no supuesto).
+        pRec = verb('receive', srId);
+        await esperarBloqueoDeFila(h.prisma, 'SellRequest', 1);
+        // `verify` llega con `receive` en vuelo: su `where` no casa con la versión visible.
+        ver = await verb('verify', srId);
+      } finally {
+        // ⛔ Se suelta SIEMPRE y cuanto antes: la transacción de `receive` tiene su propio límite de
+        // vida, y un candado abandonado convierte un fallo legible en un plantón del `afterAll`.
+        soltar.abrir();
       }
-      expect(resultados).toEqual(Array(5).fill('200·200·verificacion'));
-    });
+      await tx;
+
+      // (1) El `409` del contrato, con su `details` normativo y CERO escritura.
+      expect(ver.status).toBe(409);
+      expect(ver.body.error.code).toBe('INVALID_TRANSITION');
+      expect(ver.body.error.details).toEqual({
+        verb: 'verify',
+        from: 'en_transito',
+        allowedFrom: ['recibida'],
+        idempotentOn: 'verificacion',
+      });
+
+      const rec = await pRec;
+      expect(rec.status).toBe(200);
+      const tras = await h.prisma.sellRequest.findUniqueOrThrow({ where: { id: srId } });
+      expect(tras.status).toBe('recibida');
+      expect(tras.receivedAt).toBeInstanceOf(Date);
+      // ⛔ `B-I4`: el `409` no pudo sellar nada. Un `verifiedAt` aquí sería un pago habilitado sin
+      // verificación — el defecto exacto que §M5-S existe para cerrar.
+      expect(tras.verifiedAt).toBeNull();
+
+      // (2) Y la repetición del operador entra: la doble pulsación no pierde el paso, lo retrasa.
+      const ver2 = await verb('verify', srId);
+      expect(ver2.status).toBe(200);
+      const fin = await h.prisma.sellRequest.findUniqueOrThrow({ where: { id: srId } });
+      expect(fin.status).toBe('verificacion');
+      expect(fin.receivedAt).toBeInstanceOf(Date);
+      expect(fin.verifiedAt).toBeInstanceOf(Date);
+      expect(fin.verifiedAt!.getTime()).toBeGreaterThanOrEqual(fin.receivedAt!.getTime());
+    }, 60000);
 
     it('invertida: `confirm-shipment → verify → receive` ⇒ `200 · 409 INVALID_TRANSITION · 200`, final `recibida` SIN `verifiedAt`', async () => {
       // Hasta v1.67 esta cadena terminaba en `recibida` con `verifiedAt` sellado — un estado que

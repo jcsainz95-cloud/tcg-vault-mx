@@ -4,6 +4,7 @@ import { OrdersService } from '../src/modules/orders/orders.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * H-1 (v1.24-sealed-dedup) — el gating del precio de VENTA del sellado (gate del mercado por dial +
@@ -177,12 +178,13 @@ describe('H-1 — mismo precio en catálogo, Compra (orders) y grid para overrid
   it('los tres sitios coinciden en EXPECTED (mercado×spread, no gratis)', async () => {
     // --- catálogo: toListingDTO con contexto pre-cargado (mercado priceado) ---
     const pricingCat = realPricing();
-    const catalog = new CatalogService({} as any, pricingCat);
+    const catalog = new CatalogService({} as any, pricingCat, ivaDialsStub() as never);
     const dto = await catalog.toListingDTO(sealedPiece() as any, {
       reference: PRICED,
       sealedSpreads: CTX_ON,
     });
-    expect(dto.salePriceCents).toBe(EXPECTED);
+    // ⭐ D56: el DTO publica `P`; `EXPECTED` es el `L` que resuelve el sellado (§M10-IVA.3).
+    expect(dto.displayPriceCents).toBe(EXPECTED + Math.round((EXPECTED * 16) / 100));
     expect(dto.sellable).toBe(true);
 
     // --- Compra: orders.salePriceOf (private) con loaders espiados ---
@@ -208,7 +210,12 @@ describe('H-1 — mismo precio en catálogo, Compra (orders) y grid para overrid
     const prismaGrid = {
       inventoryItem: { findMany: jest.fn(async () => [sealedPiece()]) },
     } as any;
-    const sealedCatalog = new SealedCatalogService(prismaGrid, pricingGrid, {} as any, {} as any);
+    const sealedCatalog = new SealedCatalogService(
+      prismaGrid,
+      pricingGrid,
+      ivaDialsStub() as any,
+      {} as any,
+    );
     const priced = await (sealedCatalog as any).loadPricedSealed({});
     expect(priced).toHaveLength(1);
     expect(priced[0].salePriceCents).toBe(EXPECTED);

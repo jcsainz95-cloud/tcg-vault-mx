@@ -88,6 +88,12 @@ import type {
   AdminIneLinksDTO,
   UserAuditEntryDTO,
   SettingsDTO,
+  EditableSettingsPatch,
+  IvaTransferPositionDTO,
+  IvaTransferPreviewDTO,
+  IvaTransferUpdateRequest,
+  IvaTransferUpdateResponse,
+  MePendingsResponse,
   AuditLogDTO,
   PnlDTO,
   InventoryValueDTO,
@@ -432,11 +438,101 @@ export const mockReferenceByCardId: Record<string, number | null> = {
   'c-milotic-fa': 210000,
 };
 
+// ---- M10: Config (diales). Va ANTES del catálogo porque el catálogo DERIVA de estos diales. ----
+export let mockSettings: SettingsDTO = {
+  shippingFeeCents: 17500,
+  aportacionPct: 70,
+  ivaPct: 16,
+  salesMarkupPct: 10,
+  stripeFeePct: 3.6,
+  stripeFeeFixedCents: 300,
+  buylistCapPerRequestCents: 300000,
+  buylistCapPerMonthCents: 1000000,
+  ineThresholdCents: 300000,
+  repoCapPerCardCents: 5000000,
+  fxBufferPct: 3,
+  // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
+  // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo
+  // número de dinero son la clase de mentira que ya costó un bloqueante en este panel.
+  fxManualOverrideRate: 19,
+  pricingProviderRaw: 'pokemontcg_io',
+  pricingProviderGraded: 'pokemonpricetracker',
+  pricingProviderSealed: 'manual',
+  // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
+  priceProvider: 'pokemontcg_io',
+  catalogSyncFromDate: '2024/01/01',
+  // v1.51-one-dial (M-48 —era `M-46`, v1.54(1)): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
+  // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
+  // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
+  // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
+  // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
+  gradingHookEnabled: 'on',
+};
+/**
+ * ⭐⭐ **EL DIAL DE TRASLACIÓN, EN SU PROPIA VARIABLE Y ⛔ FUERA DE `mockSettings`** (contrato v1.75,
+ * `N-IVA9-2`, candado `IVA-8(f)`).
+ *
+ * Vivía dentro de `mockSettings` porque el contrato decía que el dial entraba en
+ * `GET /admin/settings` como solo-lectura. **Era falso** —la clave nunca estuvo en el
+ * `SETTING_DTO_MAP` del backend— y v1.75 lo corrigió: su única superficie de lectura es
+ * `GET /admin/settings/iva-transfer`.
+ *
+ * ⛔ **Que esté fuera es la mitad del candado, no un detalle de organización:** dentro de
+ * `mockSettings`, `setMockSettings` —que es `PUT /admin/settings`— podía moverlo con un patch, y el
+ * simulador habría ofrecido **una segunda puerta al dial** que el servidor real cierra con
+ * `422 VALIDATION_ERROR`. **Seed real = 100**, y aquí igual: el mock no inventa una posición de
+ * margen distinta de la sembrada.
+ *
+ * ⛔ **Se mueve SOLO con `applyMockIvaTransfer`**, que es `PUT /admin/settings/iva-transfer`.
+ */
+let mockIvaTransferPct = 100;
+
+/**
+ * ⭐⭐ **CRITERIO 196 — LA SEMILLA GUARDA `L`; `P` SE DERIVA DEL MISMO DIAL QUE EL SERVIDOR.**
+ *
+ * *«con el dial en un valor distinto del default, el modo mock no muestra una cifra que el sistema
+ * real no produciría»*. Si estos literales fueran `displayPriceCents`, mover el dial de traslación
+ * desde su propia pantalla de admin **no movería un solo precio del catálogo simulado**: la vitrina
+ * diría `MX$100` mientras el checkout cobraría sobre `116`. **Parecería real y estaría mal**, que es
+ * la frase exacta del criterio.
+ *
+ * ⇒ El fixture guarda el **precio de lista `L`** —que es lo que estos números ya eran— y
+ * `deriveMockListing` calcula `P = round(L × (1 + t·r))` con **`t` y `r` leídos de `mockSettings`**,
+ * la misma fila que la pantalla del dial escribe.
+ */
+type MockListingSeed = Omit<ListingDTO, 'displayPriceCents' | 'ivaIncluded' | 'ivaRatePct'> & {
+  /** `L` — precio de lista, **sin IVA**. Es lo que el admin teclea y lo que el P&L recupera. */
+  listPriceCents?: number;
+};
+
+/**
+ * `P = round(L × (1 + t·r))`, **la misma expresión que `backend/src/common/money.ts`**, con el dial
+ * de traslación (`t`) y la tasa (`r`) vivos.
+ *
+ * ⛔ **Esto NO contradice «el frontend nunca multiplica».** Esa regla gobierna el **código de
+ * producción**, que consume `displayPriceCents` tal como llega. Aquí no hay servidor: esto **es** el
+ * simulador del servidor, y su trabajo es producir la cifra que el servidor produciría. La
+ * alternativa —clavar `P` en el fixture— es exactamente el defecto que el criterio 196 nombra.
+ */
+function deriveMockListing(seed: MockListingSeed): ListingDTO {
+  const { listPriceCents, ...rest } = seed;
+  const r = mockSettings.ivaPct / 100;
+  const t = mockIvaTransferPct / 100;
+  return {
+    ...rest,
+    ...(listPriceCents != null
+      ? { displayPriceCents: Math.round(listPriceCents * (1 + t * r)) }
+      : {}),
+    ivaIncluded: true,
+    ivaRatePct: mockSettings.ivaPct,
+  };
+}
+
 /**
  * Vitrina de "Compra": SOLO inventario publicado con precio de venta fijado
- * (sellable=true, salePriceCents != null). Nunca "precio pendiente" (v1.1).
+ * (sellable=true, `listPriceCents != null`). Nunca "precio pendiente" (v1.1).
  */
-export const mockListings: ListingDTO[] = [
+const mockListingSeeds: MockListingSeed[] = [
   {
     inventoryItemId: 'inv-1001',
     card: cardById('c-charizard'),
@@ -448,7 +544,7 @@ export const mockListings: ListingDTO[] = [
     certNumber: '82749163',
     referenceValue: { status: 'priced', referenceMxnCents: 4850000, source: 'pokemonpricetracker', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 5335000,
+    listPriceCents: 5335000,
     sellable: true,
   },
   {
@@ -459,7 +555,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 140800,
+    listPriceCents: 140800,
     sellable: true,
   },
   // v1.38-grouped-listings (P-30): dos copias FÍSICAS más del MISMO Blastoise raw NM normal.
@@ -473,7 +569,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 140800,
+    listPriceCents: 140800,
     sellable: true,
   },
   {
@@ -485,7 +581,7 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     // Precio manual por pieza distinto (§4.26b): el grupo muestra el más barato «desde».
     priceBasis: 'market' as const,
-    salePriceCents: 145000,
+    listPriceCents: 145000,
     sellable: true,
   },
   {
@@ -497,7 +593,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'reverse_holo',
     referenceValue: { status: 'priced', referenceMxnCents: 9500, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 10450,
+    listPriceCents: 10450,
     sellable: true,
   },
   {
@@ -508,7 +604,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'reverse_holo',
     referenceValue: { status: 'priced', referenceMxnCents: 22000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 24200,
+    listPriceCents: 24200,
     sellable: true,
   },
   {
@@ -519,7 +615,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 180000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 198000,
+    listPriceCents: 198000,
     sellable: true,
   },
   {
@@ -532,7 +628,7 @@ export const mockListings: ListingDTO[] = [
     certNumber: '01245678',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, source: 'pokemonpricetracker', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 1045000,
+    listPriceCents: 1045000,
     sellable: true,
   },
   {
@@ -543,7 +639,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 210000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 231000,
+    listPriceCents: 231000,
     sellable: true,
   },
   // Sellado: precio manual del admin en MXN, sin rareza/condición (finish siempre normal).
@@ -555,7 +651,7 @@ export const mockListings: ListingDTO[] = [
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, source: 'manual', capturedDate: '2026-08-13' },
     priceBasis: 'market' as const,
-    salePriceCents: 320000,
+    listPriceCents: 320000,
     sellable: true,
   },
   {
@@ -566,10 +662,48 @@ export const mockListings: ListingDTO[] = [
     finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 105000, source: 'manual', capturedDate: '2026-08-12' },
     priceBasis: 'market' as const,
-    salePriceCents: 105000,
+    listPriceCents: 105000,
     sellable: true,
   },
 ];
+
+/**
+ * El catálogo simulado, **ya derivado**. Es un `const` con **identidad estable** —treinta y ocho
+ * sitios lo importan por referencia— así que el re-derivado tras mover el dial se hace **en sitio**
+ * (`refreshMockListings`), ⛔ nunca reasignando el array.
+ */
+export const mockListings: ListingDTO[] = mockListingSeeds.map(deriveMockListing);
+
+/**
+ * ⭐ **Re-deriva el catálogo cuando el dial se mueve.** Lo llama `applyMockIvaTransfer` (y
+ * `setMockSettings`, porque `ivaPct` también entra en `P`).
+ *
+ * ⛔ **Muta los elementos, no la variable**: `mockListings.length = 0` + `push` mantiene la misma
+ * referencia de array. Reasignar `mockListings` dejaría a todos los importadores apuntando al array
+ * viejo — un fixture congelado que *parece* vivo, que es el mismo defecto del criterio 196 con otro
+ * disfraz.
+ */
+/**
+ * ⭐ **`L` (precio de LISTA, sin IVA) de una pieza del fixture** — el dato que `ListingDTO` ⛔ ya no
+ * lleva, porque §M10-IVA.3 lo retiró de la superficie pública.
+ *
+ * Existe para las **superficies de admin del simulador**, donde `PROJECT §Q.5` dice que *«el admin
+ * NO se convierte en superficie solo-con-IVA: ve base, IVA, neto, exhibido y dial»*. Sin él, el gate
+ * de ROI del gancho de grading compararía un estimado de mercado (**neto**) contra el precio
+ * **exhibido** (con IVA dentro) — peras y manzanas, con un 16 % de sesgo en el umbral.
+ *
+ * ⛔ No se recupera dividiendo `P / (1+t·r)`: **el redondeo no es invertible** y eso inventaría un
+ * `L` que puede diferir en un centavo del real.
+ */
+export function mockListPriceCents(inventoryItemId: string): number | null {
+  return mockListingSeeds.find((x) => x.inventoryItemId === inventoryItemId)?.listPriceCents ?? null;
+}
+
+export function refreshMockListings(): void {
+  const derived = mockListingSeeds.map(deriveMockListing);
+  mockListings.length = 0;
+  mockListings.push(...derived);
+}
 
 // ===== v1.44-graded-estimate: «gancho de grading» (PROJECT §O, contrato §DTOs base) =====
 // MOCK: pendiente de backend real. Reproduce lo que el SERVIDOR ya resolvió, nunca su cálculo:
@@ -704,7 +838,7 @@ export function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
 
 /**
  * Agrupa piezas SINGLES vendibles en publicaciones únicas (K = cardId, productType, gradeKey, finish).
- * Money-safe: excluye no-vendibles, sin precio y sellado (H9). salePriceCents del grupo = MÍNIMO;
+ * Money-safe: excluye no-vendibles, sin precio y sellado (H9). displayPriceCents del grupo = MÍNIMO;
  * representativeInventoryItemId = la pieza más barata. stockCount = nº de piezas del grupo.
  *
  * ⭐ **ESTE `filter` ES LA PARIDAD `H9` DEL MOCK, y está MEDIDA (D-EQ-3, 2026-09-13).** `mockListings`
@@ -718,7 +852,7 @@ export function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
  */
 export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   const singles = items.filter(
-    (l) => l.sellable && l.salePriceCents != null && (l.productType === 'raw' || l.productType === 'graded'),
+    (l) => l.sellable && l.displayPriceCents != null && (l.productType === 'raw' || l.productType === 'graded'),
   );
   const map = new Map<string, ListingDTO[]>();
   for (const l of singles) {
@@ -729,7 +863,7 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   }
   const groups: GroupedListingDTO[] = [];
   for (const bucket of map.values()) {
-    const sorted = [...bucket].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
+    const sorted = [...bucket].sort((a, b) => (a.displayPriceCents ?? 0) - (b.displayPriceCents ?? 0));
     const rep = sorted[0];
     const group: GroupedListingDTO = {
       representativeInventoryItemId: rep.inventoryItemId,
@@ -741,7 +875,10 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
       gradingCompany: rep.gradingCompany,
       gradeValue: rep.gradeValue,
       stockCount: sorted.length,
-      salePriceCents: rep.salePriceCents!,
+      // §M10-IVA.3 — el «desde» del grupo es el `P` del representante: **ya lleva el IVA dentro**.
+      displayPriceCents: rep.displayPriceCents!,
+      ivaIncluded: rep.ivaIncluded,
+      ivaRatePct: rep.ivaRatePct,
       // v2.0: el basis del grupo = el del REPRESENTANTE (la pieza más barata).
       priceBasis: rep.priceBasis,
       referenceValue: rep.referenceValue,
@@ -777,12 +914,12 @@ export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse 
     (l) =>
       l.card.id === cardId &&
       l.sellable &&
-      l.salePriceCents != null &&
+      l.displayPriceCents != null &&
       (l.productType === 'raw' || l.productType === 'graded'),
   );
   const card = cardUnits[0]?.card ?? mockCards.find((c) => c.id === cardId);
   if (!card) throw new ApiFixtureNotFound('Card not found');
-  const units = [...cardUnits].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
+  const units = [...cardUnits].sort((a, b) => (a.displayPriceCents ?? 0) - (b.displayPriceCents ?? 0));
   const listings = groupMockListings(cardUnits);
   // v1.44: `gradedEstimates` vive en la RAÍZ (nivel CARTA) y NO va gateado por el ROI. Solo se emite
   // si la carta tiene grupos RAW publicados; sin ningún grado, el campo se OMITE (nunca `[]`).
@@ -813,8 +950,8 @@ export const mockFacets: CatalogFacetsDTO = {
   // v1.6-finish: distinct de InventoryItem.finish sobre lo publicado (para el filtro de acabado).
   finishes: Array.from(new Set(mockListings.map((l) => l.finish))),
   price: {
-    minCents: Math.min(...mockListings.map((l) => l.salePriceCents ?? 0)),
-    maxCents: Math.max(...mockListings.map((l) => l.salePriceCents ?? 0)),
+    minCents: Math.min(...mockListings.map((l) => l.displayPriceCents ?? 0)),
+    maxCents: Math.max(...mockListings.map((l) => l.displayPriceCents ?? 0)),
     currency: 'MXN',
   },
 };
@@ -1042,6 +1179,19 @@ export const mockOrderDetail: OrderDetailDTO = {
   status: 'settled',
   createdAt: '2026-08-10T18:20:00Z',
   settledAt: '2026-08-10T18:22:00Z',
+  /*
+   * ⭐⭐ **`IVA_EXCLUSIVE`, Y NI UNA CIFRA CAMBIA — ES EL FIXTURE DEL CRITERIO 190.**
+   *
+   * Este pedido se liquidó el **2026-08-10**, ⇒ **antes del corte del IVA**. *Un pedido ya cobrado
+   * ⛔ no se reinterpreta solo*: sigue cumpliendo la identidad vieja
+   * `total == subtotal + iva + fee` (`140800 + 22528 + 5192 == 168520`) y su renglón de IVA
+   * **sí suma**, porque así se cobró.
+   *
+   * ⭐ **Y por eso vale como fixture, no solo como dato**: el mock sirve hoy las **dos**
+   * convenciones a la vez —ésta y la `IVA_INCLUSIVE` que `computeBreakdown` produce para los
+   * pedidos nuevos—, así que cualquiera puede ver en `dev` que el rótulo lo decide **la fila** y no
+   * un ajuste global. Un mock con una sola convención no puede enseñar esa diferencia.
+   */
   breakdown: {
     subtotalCents: 140800,
     ivaCents: 22528,
@@ -1049,6 +1199,8 @@ export const mockOrderDetail: OrderDetailDTO = {
     processingFeeCents: 5192,
     totalCents: 168520,
     currency: 'MXN',
+    priceConvention: 'IVA_EXCLUSIVE',
+    ivaIncluded: false,
   },
   // v1.51-b: la línea de un pedido NO trae un `CardDTO` — trae el snapshot congelado + la
   // miniatura resuelta en lectura. El mock lo replica pieza por pieza.
@@ -1086,6 +1238,7 @@ export const mockOrderDetailLegacy: OrderDetailDTO = {
   status: 'settled',
   createdAt: '2024-11-02T17:40:00Z',
   settledAt: '2024-11-02T17:41:00Z',
+  // Pedido de **2024**: `IVA_EXCLUSIVE` sin discusión (criterio **190**). `65500 + 10480 + 3149 == 79129`.
   breakdown: {
     subtotalCents: 65500,
     ivaCents: 10480,
@@ -1093,6 +1246,8 @@ export const mockOrderDetailLegacy: OrderDetailDTO = {
     processingFeeCents: 3149,
     totalCents: 79129,
     currency: 'MXN',
+    priceConvention: 'IVA_EXCLUSIVE',
+    ivaIncluded: false,
   },
   items: [
     {
@@ -1563,8 +1718,51 @@ export function mockApplyClientKycUpdate(input: {
     mockKyc.ineOnFile = !!(input.ineFrontUploadKey && input.ineBackUploadKey) || mockKyc.ineOnFile;
     mockKyc.kycStatus = 'pending';
     mockKyc.rejectionReason = undefined;
+    // §R.2.0 razón 3: el lazo de extinción de la campana es ÉSTE, y ya existía. El `since` del
+    // pendiente se limpia con el motivo — *un rechazo anterior no sobrevive a la corrección que lo
+    // responde*. Derivando, la campana se apaga aquí sin que nadie escriba «apaga la campana».
+    mockKycRejectedAt = undefined;
   }
   return mockKycFor();
+}
+
+/**
+ * MOCK de `GET /me/pendings` (§R.2). **DERIVADO, igual que el backend**: no hay lista guardada que
+ * mantener sincronizada, así que el simulador **no puede** mentir por desincronización — que es la
+ * primera de las cinco razones por las que la campana se deriva (§R.2.0).
+ *
+ * ⛔⛔ **La lista blanca es la del contrato y NADA MÁS** (criterio **204**). En particular este
+ * resolutor **no menciona `SellOfferState`** en ninguna dirección: con una oferta en
+ * `pending_authorization` devuelve **exactamente lo mismo** que sin ella. *Si algún día aparece esa
+ * referencia aquí, el candado `C-AV-8` está en rojo.*
+ *
+ * ⛔ `kycStatus === 'none'` **no** es un pendiente (sería fabricarle una tarea a un comprador que
+ * nunca vende) y `'pending'` tampoco (su acción es esperar, y esperar es nuestro trabajo, no suyo).
+ *
+ * ⚠️ La cláusula (b) del predicado —`SellRequest` viva con `ineRequired ∧ ¬ineProvided`— es hoy,
+ * casi con certeza, **vacía**: el intake contesta `422 INE_REQUIRED` antes de crear una fila así.
+ * El simulador **no la finge**: fingirla aquí le enseñaría a la pantalla un estado que el sistema
+ * real no produce.
+ */
+export function mockMePendings(): MePendingsResponse {
+  if (mockKyc.kycStatus !== 'rejected') return { pendings: [] };
+  return {
+    pendings: [{ code: 'identity_action_required', since: mockKycRejectedAt ?? MOCK_KYC_REJECTED_AT_SEED }],
+  };
+}
+
+/** MOCK: el `reviewedAt` del rechazo, que es el `since` del pendiente derivado (§R.2.3). */
+const MOCK_KYC_REJECTED_AT_SEED = '2026-09-12T17:20:00Z';
+let mockKycRejectedAt: string | undefined;
+
+/**
+ * MOCK: pone al comprador en `rejected` para poder recorrer la campana sin backend. ⛔ No es un
+ * endpoint del contrato: es el equivalente de que un operador rechace desde el back-office.
+ */
+export function setMockKycRejected(reason: string, reviewedAt = MOCK_KYC_REJECTED_AT_SEED) {
+  mockKyc.kycStatus = 'rejected';
+  mockKyc.rejectionReason = reason;
+  mockKycRejectedAt = reviewedAt;
 }
 
 /**
@@ -1739,7 +1937,23 @@ export const mockPickingList: PickingListEntryDTO[] = [
 
 export const mockDashboard: DashboardDTO = {
   profitPeriodCents: 1284000,
-  salesPeriod: { count: 42, amountCents: 5620000 },
+  /*
+   * §M10-IVA.7 — bruto **y** neto. Las cifras cumplen la identidad NORMATIVA del contrato, ⛔ no son
+   * tres números sueltos que se parecen:
+   *   `grossAmountCents ≡ netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents`
+   *   `5_620_000 == 4_565_000 + 210_000 + 620_000 + 225_000`  ✅
+   * ⭐ Y `netAmountCents` **coincide al centavo con `mockPnl.incomeCents`**, que es lo que el candado
+   * `IVA-10(b)` asierta como igualdad entre los dos endpoints. Un fixture que los dejara distintos
+   * enseñaría a leer el tablero y el P&L como dos cifras que «más o menos» cuadran.
+   */
+  salesPeriod: {
+    count: 42,
+    grossAmountCents: 1_591_998,
+    netAmountCents: 1_250_000,
+    ivaCents: 208_400,
+    netShippingRevenueCents: 52_500,
+    processingFeeCents: 81_098,
+  },
   workQueue: { shipments: 3, buylist: 5, disputes: 1, pendingPrices: 7 },
   inventoryValueCents: 18500000,
   custodyValueCents: 9200000,
@@ -2116,11 +2330,26 @@ function countsByFinishFor(cardId: string, pieces: ScopePiece[]): { counts: Mast
  */
 function cheapestListedFor(cardId: string, finish: Finish): { inventoryItemId: string; salePriceCents: number } | null {
   const candidates = mockListings.filter(
-    (l) => l.card.id === cardId && l.finish === finish && l.sellable && l.salePriceCents != null,
+    (l) => l.card.id === cardId && l.finish === finish && l.sellable && l.displayPriceCents != null,
   );
   if (candidates.length === 0) return null;
-  const best = candidates.reduce((a, b) => ((a.salePriceCents ?? 0) <= (b.salePriceCents ?? 0) ? a : b));
-  return { inventoryItemId: best.inventoryItemId, salePriceCents: best.salePriceCents! };
+  const best = candidates.reduce((a, b) => ((a.displayPriceCents ?? 0) <= (b.displayPriceCents ?? 0) ? a : b));
+  /*
+   * ⚠️⚠️ **HUECO DE CONTRATO — `MasterSetVariantDTO.buyable` NO ESTÁ EN LA TABLA DE §M10-IVA.3.**
+   *
+   * Es **superficie de cliente** (el contrato lo dice: *«`buyable` SOLO scope cliente (iii)»*) y
+   * **pinta un precio de compra** —el CTA «Comprar MX$X» de `CellDrawer`—, pero el arquitecto
+   * enumeró seis DTOs y éste no está entre ellos. **El importe correcto es `P`** (si no, el cajón
+   * del binder sería la única superficie de la tienda mostrando la base limpia mientras el resto
+   * muestra el exhibido), pero **el campo se sigue llamando `salePriceCents`**, que es justo el
+   * nombre que §M10-IVA.3 retiró *porque conservarlo cambiando el significado es el defecto de D54
+   * un nivel más abajo*.
+   *
+   * ⇒ **Se manda `P` con el nombre viejo, marcado, y se pide el rename al arquitecto.** ⛔ No lo
+   * renombro yo: `API_CONTRACT.md` no es mío. Anotado en `docs/FRONTEND_NOTES.md`.
+   * `// MOCK: pendiente de contrato`
+   */
+  return { inventoryItemId: best.inventoryItemId, salePriceCents: best.displayPriceCents! };
 }
 
 /**
@@ -3887,37 +4116,119 @@ export function mockUserAudit(userId: string): UserAuditEntryDTO[] {
 }
 
 // ---- M10: Config y bitácora ----
-export let mockSettings: SettingsDTO = {
-  shippingFeeCents: 17500,
-  aportacionPct: 70,
-  ivaPct: 16,
-  salesMarkupPct: 10,
-  stripeFeePct: 3.6,
-  stripeFeeFixedCents: 300,
-  buylistCapPerRequestCents: 300000,
-  buylistCapPerMonthCents: 1000000,
-  ineThresholdCents: 300000,
-  repoCapPerCardCents: 5000000,
-  fxBufferPct: 3,
-  // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
-  // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo
-  // número de dinero son la clase de mentira que ya costó un bloqueante en este panel.
-  fxManualOverrideRate: 19,
-  pricingProviderRaw: 'pokemontcg_io',
-  pricingProviderGraded: 'pokemonpricetracker',
-  pricingProviderSealed: 'manual',
-  // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
-  priceProvider: 'pokemontcg_io',
-  catalogSyncFromDate: '2024/01/01',
-  // v1.51-one-dial (M-48 —era `M-46`, v1.54(1)): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
-  // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
-  // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
-  // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
-  // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
-  gradingHookEnabled: 'on',
-};
-export function setMockSettings(patch: Partial<SettingsDTO>) {
+/**
+ * `PUT /admin/settings` — el patch es PARCIAL y ⛔ **RECHAZA CLAVES DESCONOCIDAS**, como el servidor.
+ *
+ * ⭐⭐ **Por qué la validación existe además del tipo, y no es redundancia:** el `Partial<SettingsDTO>`
+ * cierra la puerta **en compilación**, pero un `...patch` la deja abierta **en ejecución** —un
+ * `as any`, un objeto que viene de JSON, un test con `@ts-expect-error`— y la clave **aterriza en el
+ * objeto igual**. Medido: un solo `setMockSettings({ ivaTransferPct: 0 })` con el error suprimido
+ * metía el dial dentro de `mockSettings`, que es exactamente lo que el candado `IVA-8(f)` asierta
+ * **por ausencia** sobre `GET /admin/settings`.
+ *
+ * ⇒ El simulador contesta lo mismo que el servidor: **`422 VALIDATION_ERROR`, y la fila no se
+ * mueve** (`IVA-8(b)`). *Un simulador que acepta lo que el servidor rechaza enseña a escribir el
+ * cliente que fallará en producción.*
+ */
+export function setMockSettings(patch: EditableSettingsPatch) {
+  const desconocidas = Object.keys(patch).filter((k) => !(k in mockSettings));
+  if (desconocidas.length > 0) {
+    throw new ApiFixtureError(422, 'VALIDATION_ERROR', `unknown setting key(s): ${desconocidas.join(', ')}`);
+  }
   mockSettings = { ...mockSettings, ...patch };
+  // `ivaPct` entra en `P = round(L × (1 + t·r))`: si cambia, el catálogo simulado tiene que
+  // re-derivarse o el mock empieza a mostrar precios de una tasa que ya no rige (criterio **196**).
+  refreshMockListings();
+}
+
+// ---- M10 · §M10-IVA: el dial de traslación del IVA (simulador) ----
+/**
+ * ⚠️ **SIMULADOR, no la fuente.** En producción **la cifra la calcula el servidor**
+ * (`ARCHITECTURE §4.44.i`) y esta función **no corre**: existe para que la pantalla del dial se
+ * pueda ejercitar sin backend. Reproduce **las tres filas publicadas en el contrato**
+ * (§M10-IVA.2, `ivaRatePct = 16`, `samplePriceCents = 10000`, Stripe `0.036`/`300`):
+ *
+ * | `ivaTransferPct` | `displayPriceCents` | neto | `ivaCents` | `totalChargedCents` |
+ * |---|---|---|---|---|
+ * | 100 | 11600 | 10000 | 1600 | 12469 |
+ * |  50 | 10800 |  9310 | 1490 | 11634 |
+ * |   0 | 10000 |  8621 | 1379 | 10799 |
+ *
+ * ⚠️ El orden de redondeo **no es libre**: se redondea **la comisión** y luego se suma
+ * (`P + round(fee)`). Redondear el total daría `11635` en la fila del 50 % — un centavo de
+ * diferencia con el contrato, que es exactamente la clase de discrepancia que este proyecto no
+ * acepta en una superficie de dinero.
+ */
+function mockIvaTransferPosition(ivaTransferPct: number, samplePriceCents: number): IvaTransferPositionDTO {
+  const r = mockSettings.ivaPct / 100;
+  const t = ivaTransferPct / 100;
+  const displayPriceCents = Math.round(samplePriceCents * (1 + t * r));
+  const taxBaseCents = Math.round(displayPriceCents / (1 + r));
+  // RESIDUAL, nunca 0 (candado `IVA-8(a)`): mover el dial reduce el NETO, no el IVA registrado.
+  const ivaCents = displayPriceCents - taxBaseCents;
+  const varRate = (mockSettings.stripeFeePct / 100) * (1 + r);
+  const fixed = mockSettings.stripeFeeFixedCents * (1 + r);
+  const feeCents = Math.round((displayPriceCents + fixed) / (1 - varRate) - displayPriceCents);
+  return {
+    ivaTransferPct,
+    displayPriceCents,
+    taxBaseCents,
+    ivaCents,
+    netRevenueCents: taxBaseCents,
+    totalChargedCents: displayPriceCents + feeCents,
+  };
+}
+
+export function mockIvaTransferPreview(params: {
+  ivaTransferPct: number;
+  samplePriceCents: number;
+}): IvaTransferPreviewDTO {
+  const current = mockIvaTransferPosition(mockIvaTransferPct, params.samplePriceCents);
+  const proposed = mockIvaTransferPosition(params.ivaTransferPct, params.samplePriceCents);
+  return {
+    ivaRatePct: mockSettings.ivaPct,
+    samplePriceCents: params.samplePriceCents,
+    current,
+    proposed,
+    netDeltaPerUnitCents: proposed.netRevenueCents - current.netRevenueCents,
+  };
+}
+
+/**
+ * `PUT /admin/settings/iva-transfer` simulado. Aplica **las mismas tres negativas** que el
+ * contrato, y en el mismo orden, porque son las que la pantalla tiene que saber manejar:
+ * `422 VALIDATION_ERROR` → `422 IVA_TRANSFER_ACK_REQUIRED` → `409 IVA_TRANSFER_ACK_STALE`.
+ * ⛔ Ninguna de las tres escribe.
+ */
+export function applyMockIvaTransfer(body: IvaTransferUpdateRequest): IvaTransferUpdateResponse {
+  const next = body.ivaTransferPct;
+  if (!Number.isInteger(next) || next < 0 || next > 100) {
+    throw new ApiFixtureError(422, 'VALIDATION_ERROR', 'ivaTransferPct must be an integer between 0 and 100');
+  }
+  const changes = next !== mockIvaTransferPct;
+  const ack = body.acknowledgement;
+  if (changes && (!ack || typeof ack.samplePriceCents !== 'number' || typeof ack.previewedNetDeltaCents !== 'number')) {
+    throw new ApiFixtureError(422, 'IVA_TRANSFER_ACK_REQUIRED', 'acknowledgement is required when the value changes');
+  }
+  if (changes && ack) {
+    const expected = mockIvaTransferPreview({ ivaTransferPct: next, samplePriceCents: ack.samplePriceCents })
+      .netDeltaPerUnitCents;
+    if (expected !== ack.previewedNetDeltaCents) {
+      throw new ApiFixtureError(409, 'IVA_TRANSFER_ACK_STALE', 'the acknowledged delta is stale', {
+        expectedNetDeltaCents: expected,
+      });
+    }
+  }
+  mockIvaTransferPct = next;
+  // ⭐ **CRITERIO 196**: mover el dial mueve los precios del catálogo simulado, igual que en el
+  // sistema real. Sin esta línea la pantalla del dial diría «cediendo esto pierdes MX$6.90 por
+  // unidad», se guardaría, y **no se movería un solo precio del mock** — el mismo acuse vacío que
+  // §M10-IVA.9.f.3(C) describe para el sistema real.
+  refreshMockListings();
+  return {
+    ivaTransferPct: next,
+    preview: mockIvaTransferPreview({ ivaTransferPct: next, samplePriceCents: ack?.samplePriceCents ?? 10000 }),
+  };
 }
 
 export const mockAuditLog: AuditLogDTO[] = [
@@ -3936,7 +4247,14 @@ export const mockPnl: PnlDTO = {
   shippingRevenueCents: 52_500,
   cogsCents: 640_000,
   stripeFeesCents: 48_300,
+  // §M10-IVA.8 — **NETO** (`Σ shippingCostCents − shippingCostIvaCents`). El nombre no cambia; la
+  // base sí. Antes este término era BRUTO mientras `shippingRevenueCents` era neto, y esa asimetría
+  // restaba una pérdida que no existía.
   shippingCostCents: 31_800,
+  // §M10-IVA.8 — envíos LIQUIDADOS del periodo con costo en `0`. **Señal para un humano**, ⛔ no un
+  // importe y ⛔ no una afirmación fiscal. En el fixture va `> 0` **a propósito**: el aviso es una
+  // rama de render que, con un `0` clavado, nadie vería nunca en `dev`.
+  shippingCostMissingCount: 2,
   profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
 };
 
@@ -4009,6 +4327,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     sealedCondition: 'mint',
     availableCount: 4,
     fromPriceCents: 320000,
+    // §M10-IVA.3 — el sellado conserva el NOMBRE y cambia el SIGNIFICADO: con el IVA dentro.
+    ivaIncluded: true,
+    ivaRatePct: mockSettings.ivaPct,
     priceSource: 'subtype_spread',
     priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
@@ -4023,6 +4344,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     sealedCondition: 'mint',
     availableCount: 7,
     fromPriceCents: 105000,
+    // §M10-IVA.3 — el sellado conserva el NOMBRE y cambia el SIGNIFICADO: con el IVA dentro.
+    ivaIncluded: true,
+    ivaRatePct: mockSettings.ivaPct,
     priceSource: 'subtype_spread',
     priceBasis: 'market',
     referenceValue: { status: 'priced', referenceMxnCents: 98000, source: 'tcgcsv', capturedDate: '2026-08-12' },
@@ -4038,6 +4362,9 @@ export const mockSealedGroups: SealedGroupDTO[] = [
     sealedCondition: 'minor_box_damage',
     availableCount: 2,
     fromPriceCents: 298000,
+    // §M10-IVA.3 — el sellado conserva el NOMBRE y cambia el SIGNIFICADO: con el IVA dentro.
+    ivaIncluded: true,
+    ivaRatePct: mockSettings.ivaPct,
     // Se vende por OVERRIDE manual ⇒ basis "override" ⇒ la ficha NO muestra «Valor de mercado».
     priceSource: 'override',
     priceBasis: 'override',
@@ -4059,7 +4386,11 @@ function sealedListingsForGroup(group: SealedGroupDTO): ListingDTO[] {
     // v2.0: el sellado DERIVA su basis de `priceSource` (override⇒override; spread⇒market).
     priceBasis: group.priceBasis,
     // Precios ascendentes desde fromPriceCents (mock de dispersión de precio dentro del grupo).
-    salePriceCents: group.fromPriceCents + i * 500,
+    // §M10-IVA.3: `fromPriceCents` ya lleva el IVA dentro ⇒ las piezas que se derivan de él también,
+    // y heredan la convención del grupo en vez de declararla por su cuenta.
+    displayPriceCents: group.fromPriceCents + i * 500,
+    ivaIncluded: group.ivaIncluded,
+    ivaRatePct: group.ivaRatePct,
     sellable: true,
   }));
 }
@@ -5323,9 +5654,17 @@ export function mockGradedEstimatePreview(
             ) ?? null
           : null;
       const cost = tier?.costMxnCents ?? null;
+      /*
+       * ⭐ **El gate compara contra `L`, NO contra el exhibido** (§M10-IVA.3: *«en `/admin/*` viajan
+       * AMBAS»*). `psa10MxnCents` es una referencia de **mercado**, que es **neta**; medirla contra
+       * `displayPriceCents` —que lleva el IVA dentro— movería el umbral de ROI un 16 % y el gancho
+       * dejaría de promocionar cartas que sí califican. Es la clase de defecto que el criterio 191
+       * persigue: *dos convenciones mezcladas comparan mal*.
+       */
+      const listPriceCents = mockListPriceCents(g.representativeInventoryItemId) ?? g.displayPriceCents;
       const threshold =
-        cost != null ? Math.ceil((g.salePriceCents + cost) * (1 + cfg.minUpsidePct / 100)) : null;
-      const maxAllowed = Math.round(g.salePriceCents * cfg.maxRawMultiple);
+        cost != null ? Math.ceil((listPriceCents + cost) * (1 + cfg.minUpsidePct / 100)) : null;
+      const maxAllowed = Math.round(listPriceCents * cfg.maxRawMultiple);
       // El override MANUAL no decae cuando `manualFreshnessDays === null` (v1.50.2): en el fixture
       // todas las cifras son manuales, así que la prueba de frescura solo aplica si hay ventana.
       const stale =
@@ -5340,7 +5679,7 @@ export function mockGradedEstimatePreview(
               ? 'STALE'
               : publishedSlabGrades.length > 0
                 ? 'SLAB_PUBLISHED'
-                : psa10 <= g.salePriceCents
+                : psa10 <= listPriceCents
                   ? 'NOT_ABOVE_RAW'
                   : psa10 > maxAllowed
                     ? 'ABOVE_MAX_MULTIPLE'
@@ -5354,7 +5693,7 @@ export function mockGradedEstimatePreview(
       return {
         representativeInventoryItemId: g.representativeInventoryItemId,
         finish: g.finish,
-        salePriceCents: g.salePriceCents,
+        salePriceCents: listPriceCents,
         psa10MxnCents: psa10,
         psa9MxnCents: psa9,
         capturedDate,
@@ -5362,7 +5701,7 @@ export function mockGradedEstimatePreview(
         gradingCostTier: tier ? { ...tier } : null,
         gradingCostMxnCents: cost,
         thresholdMxnCents: threshold,
-        netUpsidePsa9MxnCents: psa9 != null && cost != null ? psa9 - g.salePriceCents - cost : null,
+        netUpsidePsa9MxnCents: psa9 != null && cost != null ? psa9 - listPriceCents - cost : null,
         maxAllowedPsa10MxnCents: maxAllowed,
         publishedSlabGrades,
         // v1.50.3-c: en el fixture TODA cifra del gancho es un override manual (la fase 2 del

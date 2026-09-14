@@ -29,6 +29,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
+import { IvaTransferSection } from './sections/IvaTransferSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -414,6 +415,14 @@ export function M10View() {
           )}
         </QueryState>
       </section>
+
+      {/* ⭐ Sección 1a: EL DIAL DE TRASLACIÓN DEL IVA (§M10-IVA, criterio 213). Va en su propia
+          sección y NO en la retícula de diales de arriba, y no es estética: es **la única puerta**
+          del dial y la única que exige el ACUSE del costo en pesos antes de guardar (criterio
+          188). Meterlo entre los demás lo haría guardarse con el mismo botón que una tarifa de
+          envío — un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene
+          guardián, y aquí el guardián es el servidor (`PUT /admin/settings/iva-transfer`). */}
+      <IvaTransferSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}

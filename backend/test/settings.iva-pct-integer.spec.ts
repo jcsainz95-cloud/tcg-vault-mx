@@ -167,14 +167,20 @@ describe('iva_pct — el dial no puede aceptar lo que `Order.ivaRatePct` (Int) n
   //    alguien proponga relajar el rango vea, en centavos, lo que se reabre.
   // ---------------------------------------------------------------------------------------------
 
-  it('DOCUMENTA EL DAÑO — cobrar a 8.5 y archivar 8 no cuadra: 850 ≠ 800 centavos sobre MX$100', () => {
+  it('DOCUMENTA EL DAÑO — cobrar a 8.5 y archivar 8 no cuadra, y D56 NO lo cura', () => {
+    // ⚠️ D56 cambió la ARITMÉTICA (el IVA pasó a ser RESIDUAL del subtotal) pero ⛔ **no cierra este
+    // agujero**: el residual se calcula con el float vivo igual que antes, así que la divergencia
+    // entre lo cobrado y la tasa archivada **sigue ahí**. Las cifras cambian; el defecto no. *Por eso
+    // el candado sigue siendo el VALIDADOR y no la fórmula.*
     const fee = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
-    const cobradoConElFloat = computeCartBreakdown(10000, 8.5, fee);
-    const loQueDiriaLaFilaTruncada = computeCartBreakdown(10000, Math.trunc(8.5), fee);
+    const cobradoConElFloat = computeCartBreakdown(10850, 8.5, fee);
+    const loQueDiriaLaFilaTruncada = computeCartBreakdown(10850, Math.trunc(8.5), fee);
 
+    // `10850 − round(10850/1.085) = 10850 − 10000 = 850`.
     expect(cobradoConElFloat.ivaCents).toBe(850);
-    expect(loQueDiriaLaFilaTruncada.ivaCents).toBe(800);
-    // 50 centavos por cada MX$100 de subtotal, y una fila que declara la tasa equivocada.
-    expect(cobradoConElFloat.ivaCents - loQueDiriaLaFilaTruncada.ivaCents).toBe(50);
+    // La fila truncada declara 8 % ⇒ `10850 − round(10850/1.08) = 10850 − 10046 = 804`.
+    expect(loQueDiriaLaFilaTruncada.ivaCents).toBe(804);
+    // La orden queda diciendo una tasa que NO es la que se cobró, y el desglose fiscal no cuadra.
+    expect(cobradoConElFloat.ivaCents).not.toBe(loQueDiriaLaFilaTruncada.ivaCents);
   });
 });

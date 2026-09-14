@@ -11937,3 +11937,174 @@ fabricar valores. Tras la reescritura: `--check` **al día (121 valores)**, rege
 > (identificador completo, `…`, `xxxx`, `<…>`), nunca con la forma exacta que el detector busca. Si no,
 > la nota que explica el falso positivo **crea uno**. Comprobación: tras editar una nota que hable de
 > secretos, `./scripts/gen-published-secrets-manifest.sh --check` antes de commitear.
+
+---
+
+## 60. `B-3` — el gate de dinero SÍ corre en CI, y lleva tres noches en rojo sin que nadie lo mire (2026-09-14)
+
+**SHA medido: `9328880` (rama `claude/tcg-hunt-orchestration-2`).** Encargo: QA rechazó el corte
+diciendo que «la puerta E2E de dinero no se puede correr — ni aquí, ni en CI», y marcó la parte de CI
+como **no medida por ella**. Esto es esa medición.
+
+**Veredicto corto: la mitad local es cierta; la mitad de CI es FALSA, y el mensaje que la produjo era
+mío.** Y debajo del bloqueante falso había uno verdadero, que nadie estaba mirando.
+
+### 60.1 · El mensaje que mintió, y por qué mentía
+
+`scripts/stripe-test-key-preflight.sh` clasifica **lo que le llega por el entorno**. No tiene token, no
+llama a la API de GitHub, no sabe qué secrets existen. Su rama `ausente` decía, literal:
+
+> `secret NO configurado en GitHub`
+
+En la máquina de un agente esa frase se imprime **siempre**: allí no existe ninguna variable de GitHub,
+por construcción. Era una afirmación constante sobre un sistema que el script nunca miró — la misma
+clase que este propio fichero persigue (§31.7, «un detector que se cree a sí mismo»), movida del
+criterio al mensaje.
+
+El camino del daño, entero: `stack-native.sh up --gate` → `e2e-capability-gate.sh` → `describir ausente`
+→ `COBRO: NO DISPONIBLE [EXIGIDA]` → QA lo lee → «el gate de dinero tampoco corre en CI» → bloqueante
+de release. Cuatro saltos, ninguna medición.
+
+### 60.2 · Lo que sí se puede medir, y cómo (sin leer NUNCA un valor)
+
+El proxy de este entorno **bloquea** `GET /repos/{owner}/{repo}/actions/secrets` (403, «Access to this
+GitHub Actions path is not permitted through this proxy»), y también los blobs de
+`productionresultssa*.blob.core.windows.net`, o sea **logs y artefactos descargados**. Lo que **sí**
+responde 200: `/actions/runs`, `/actions/runs/<id>/jobs`, `/actions/runs/<id>/artifacts`,
+`/actions/workflows/<fichero>/runs` y `/commits/<sha>/check-runs`.
+
+Con eso basta, porque el propio arnés **codifica su veredicto en el nombre de un artefacto**.
+`e2e-real.yml` sube `SIN-MEDIR-comprar-invitado-retirar` con `if: always() && env.MONEY_GATE == 'off'`
+— es decir, **si y solo si el gate de dinero está apagado**.
+
+```
+GET /repos/<owner>/<repo>/actions/workflows/e2e-real.yml/runs
+GET /repos/<owner>/<repo>/actions/runs/<id>/artifacts   # ¿está el artefacto SIN-MEDIR-…?
+```
+
+| Corrida nocturna | SHA | ¿artefacto `SIN-MEDIR-…`? | ⇒ gate de dinero |
+|---|---|---|---|
+| #35 · 2026-09-11 | `abecf73f` | **no** | **ON** |
+| #36 · 2026-09-12 | `de8dfd01` | **no** | **ON** |
+| #37 · 2026-09-13 | `3c1bd1e8` | **no** | **ON** |
+
+Comprobado además que el paso que sube ese artefacto **existía en los tres SHA** (`git show
+<sha>:.github/workflows/e2e-real.yml | grep -c SIN-MEDIR-…` → `1`, `1`, `1`). Sin esa comprobación la
+ausencia no probaría nada.
+
+**Conclusión, con su cadena:** `MONEY_GATE=on` exige `SECRET_VERDICT=real` **y** `PUB_VERDICT=real`
+(`stripe-test-key-preflight.sh`, «Las DOS claves tienen que ser reales»). Luego **`STRIPE_TEST_SECRET_KEY`
+y `STRIPE_TEST_PUBLISHABLE_KEY` existen en los secrets de GitHub y clasifican como credenciales reales.**
+Nunca se leyó, imprimió ni pidió un valor.
+
+**Segunda vía, independiente, que confirma lo mismo** (útil porque no depende de artefactos): el paso
+«Resolver secretos sin literales públicos» de `e2e.yml` murió en la corrida **#1136** (`874ee0c7`,
+2026-09-11). Su primer comando es `webhook-secret-preflight.sh assert`, y **todas** sus rutas de aborto
+viven dentro de `if hay_stripe_real`; la rama `else` no aborta nunca. El arreglo que lo puso verde en
+**#1139** (`5e6ab3c4`) fue **añadir `STRIPE_WEBHOOK_UNREACHABLE: "1"`** y nada más — una bandera que
+**solo se lee dentro de esa misma rama**. Si la clave no existiera, ese arreglo no habría cambiado nada.
+
+**Corolario que también se deduce:** ese mismo camino exige `[ -z "$SECRETO" ]`, luego
+**`STRIPE_TEST_WEBHOOK_SECRET` NO existe** en los secrets. No hace falta: el stack de CI es efímero y
+no es alcanzable desde Stripe, así que se genera uno irrepetible por corrida (§50.4).
+
+### 60.3 · El bloqueante de verdad: tres nocturnas rojas
+
+| Corrida | Fecha | Rama | Resultado | Paso que falla |
+|---|---|---|---|---|
+| #35 | 2026-09-11 | `main` | **failure** | `Playwright smoke — flujos críticos (REAL)` |
+| #36 | 2026-09-12 | `main` | **failure** | `Playwright smoke — flujos críticos (REAL)` |
+| #37 | 2026-09-13 | `main` | **failure** | `Playwright smoke — flujos críticos (REAL)` |
+
+Las últimas verdes fueron #30 (2026-09-10) y anteriores. Y lo que dice el propio preflight cuando el
+gate está ON, textual:
+
+> *«Un rojo en `checkout` · `guest-checkout` · `shipments` a partir de aquí **es un bug de producto**, no
+> falta de entorno.»*
+
+**No es de mis rutas.** Es de `backend/` o `frontend/` según el fallo, y hay que enrutarlo. **No pude
+medir cuál** (§60.6).
+
+### 60.4 · Lo que de verdad NO se verifica hoy, en lenguaje del dueño
+
+Dos cosas distintas, que el informe de QA mezclaba en una:
+
+**(a) En la máquina del equipo (local) — cierto y esperado.** Aquí no hay credencial de Stripe ni salida
+a `api.stripe.com`, así que el gate de dinero sale `off` **siempre**. Es correcto que `up --gate` se
+ponga rojo: significa «esta máquina no puede probar el dinero», no «el dinero no se prueba».
+
+**(b) En la ruta que publica a producción — cierto, y es MÍO.** Medido en las dos corridas de `deploy.yml`
+sobre `production` (`34795516952` y `34796677574`, 2/2): el job **`e2e-real` sale `skipped`**. La cadena
+es `secrets-gate` → `deploy-ci-gate` (`if: ready == 'true'`) → `preflight` → `e2e-real`. `secrets-gate`
+comprueba los **cinco secrets del CD por Actions** (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+`VERCEL_PROJECT_ID`, `PROD_BASE_URL`); al menos uno falta, devuelve `ready=false`, y **todo lo que cuelga
+de él se salta, incluido el gate de dinero**. Como Vercel y Railway publican solos al recibir el push
+(§56), el resultado es: **se publica sin que el gate de dinero haya corrido sobre ese SHA.**
+
+Los flujos que ese salto deja sin comprobar en la publicación son exactamente tres, y conviene nombrarlos
+como los vive el dueño:
+
+1. **Comprar con tarjeta** (`checkout.spec.ts`) — un cliente con cuenta paga un pedido.
+2. **Comprar como invitado** (`guest-checkout.spec.ts`) — un cliente sin cuenta paga.
+3. **Retirar / envíos** (`shipments.spec.ts`) — el cobro del envío al retirar de la bóveda.
+
+Lo que **sí** corre sobre el SHA publicado: `dast-release` (verde, con su autoprueba de canario) — y solo
+eso.
+
+**Matiz honesto:** la nocturna de `e2e-real.yml` SÍ ejercita esos tres flujos sobre `main` con el gate ON.
+Así que no es que nadie los pruebe jamás; es que **no los prueba la puerta que decide publicar**, y hoy
+además los está probando **en rojo**.
+
+### 60.5 · El gate de seguridad: qué está vivo y qué no
+
+| Pieza | Estado medido | Cómo se midió |
+|---|---|---|
+| **SAST por PR** | **vivo y verde** | `security-sast.yml` corre en `push`+`pull_request` a `**`; verde en las 6 últimas de `main` y en `HEAD 9328880` |
+| **DAST** | **corre, NO bloquea** | `dast-release` verde en las 2 corridas de `production`, con artefactos `dast-ephemeral-reports` + `dast-selftest-reports` |
+| **DAST en `report_only`** | **con fecha de caducidad** | `check-dast-report-only-expiry.sh` → vigente hasta **2026-10-06** (22 días); lo sube a bloqueante **seguridad**, no yo |
+| **Candado del DAST** | **muerde** | `check-dast-gate-live.sh` → 10/10 verdes, incluida «sin informe, el candado sale ROJO» |
+| **Imágenes externas clavadas** | **12/12** | `check-compose-images.sh` → 0 sin clavar. La doctrina de §-imágenes sigue en pie |
+| **Huecos del arnés E2E** | **7/7 cableados** | `check-e2e-harness-gaps.sh` |
+
+La caída de la puerta dinámica por una imagen ajena **no se ha repetido**: las 12 imágenes externas están
+clavadas por versión y el candado lo comprueba en cada PR.
+
+### 60.6 · Lo que NO pude medir, y qué lo cerraría
+
+| No medido | Por qué | Qué lo cierra |
+|---|---|---|
+| **Por qué fallan las 3 nocturnas** | los logs y los artefactos viven en `*.blob.core.windows.net`, que el proxy **rechaza** (403 CONNECT) | abrir el `playwright-report-real` de la corrida `34758781303` desde un navegador, o que QA relance `e2e-real.yml` por `workflow_dispatch` y lea el resumen |
+| **Qué secrets existen, por lista** | `/actions/secrets` **403** por el proxy | lo de §60.2 es suficiente para los dos que importaban; para el resto, el dueño lo ve en *Settings > Secrets and variables > Actions* |
+| **Cuál de los 5 secrets de deploy falta** | `secrets-gate` no publica el nombre, solo `ready=false` | se deduciría del log del job (bloqueado) o mirándolo en Settings |
+| **Si las claves siguen siendo válidas hoy** | el preflight juzga **forma**, no autentica; y aquí no hay egress a Stripe | la propia nocturna: si murieran por credencial revocada, el fallo sería de autenticación |
+
+### 60.7 · El candado que impide que el mensaje vuelva a mentir
+
+`scripts/check-secret-absence-wording.sh` (job **`secret-absence-wording`** de `ci.yml`, en el `needs` de
+`ci-ok`). Comprueba tres cosas y trae **su propio canario**:
+
+1. fuera de GitHub Actions, el veredicto de ausencia **no afirma nada** sobre los secrets de GitHub;
+2. fuera de GitHub Actions, **dice dónde se midió** (un mensaje que calla el dónde vuelve a leerse como universal);
+3. dentro de GitHub Actions (simulado), **sí** puede hablar del runner — ahí la medición aplica;
+4. **canario:** sobre una **copia** con la frase vieja reinyectada, el candado sale **rojo**.
+
+Medido: `5/5` verdes, canario rojo `1/1` por corrida (la mutación es determinista, no hay carrera que
+promediar). `shellcheck -S error` limpio. `check-ci-ok.sh` estática: 21 jobs, 20 en `needs`.
+
+> **La regla que queda:** un script sin token **no afirma** qué hay en GitHub. Dice qué le llegó y **en
+> qué entorno lo midió**. Si hace falta el hecho de GitHub, se mide contra la API — y cuando la API de
+> secrets está cerrada, se mide por el **efecto observable** (el nombre de un artefacto, un job saltado),
+> nunca por el valor. Comprobación: `./scripts/check-secret-absence-wording.sh` antes de commitear
+> cualquier cambio en el preflight de Stripe.
+
+### 60.8 · Lo que NO hay que pedirle al dueño (O-6)
+
+**Nada de Stripe.** Estaba a punto de pedirle que creara `STRIPE_TEST_SECRET_KEY` y
+`STRIPE_TEST_PUBLISHABLE_KEY` en GitHub — y **ya están puestos**, medido en §60.2. Esa petición habría
+sido la tercera del mismo patrón (el Docker que no hacía falta, las credenciales del staging que no
+existe). **Se retira explícitamente: no se pide.**
+
+Lo que queda abierto **no es una petición, es trabajo nuestro**: enrutar el rojo de las nocturnas al rol
+dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-gate` en la ruta de
+publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
+cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.

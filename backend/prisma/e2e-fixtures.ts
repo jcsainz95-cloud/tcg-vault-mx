@@ -108,6 +108,42 @@ export const E2E_PICKUP_ADDRESS = {
 } as const;
 
 /**
+ * ⚠️ v1.67 (`M-52`) — **QUIEN RECIBE en la dirección por defecto de los DOS customers.**
+ *
+ * **Por qué existe y no es una constante más:** `M-52` añadió `Address.recipientName` y la puerta
+ * `422 RECIPIENT_NAME_REQUIRED` en `POST /shipments[/quote]`, pero el seed de los customers
+ * principales siguió creando la fila **sin destinatario**. Resultado medido: desde el 2026-09-11 la
+ * pantalla de retiro se quedaba en *«Falta el nombre de quien recibe»* y el smoke de
+ * *retirar → envío* **moría antes de llegar al cobro** — un gate de dinero ciego, con **cero**
+ * respuestas ≥ 400 que lo delataran.
+ *
+ * ⛔ **NO va dentro de `E2E_PICKUP_ADDRESS`**, aunque se siembren juntos, por DOS razones medidas:
+ *  1. `resolvePickupAddressSnapshot` (buylist) **no congela `recipientName`** — el contrato lo deja
+ *     fuera de `M-52` a propósito (§7: *«follow-up del stream buylist, `D-CTA-5`»*). Meterlo en la
+ *     constante lo colaría en `SellRequest.pickupAddressSnapshot` (`seed-e2e.ts:698`) y el fixture
+ *     dejaría de parecerse a lo que el producto escribe.
+ *  2. `buylist-cycle.e2e-spec.ts:1411` deriva de esa constante las PARTES del domicilio que **ningún
+ *     correo del ciclo puede llevar** (criterio 173h). El destinatario no es una parte del domicilio:
+ *     ensanchar esa lista cambiaría el significado de una prueba de PII sin decirlo.
+ *
+ * ⚠️ **Por qué NO es `User.name` (no se copia a ciegas de los fixtures de cuenta, que sí usan
+ * `f.name`):** el contrato prohíbe **dos veces** derivar el destinatario del nombre de la cuenta
+ * (§3 *«⛔ Sin fallback a `User.name`: puede ser un nombre fabricado»*; §M4 *«copiado de
+ * `Address.recipientName` tal cual, ⛔ jamás de `User.name`»*). Si el fixture los hiciera coincidir,
+ * una regresión que reintrodujera ese fallback **pintaría el nombre correcto por casualidad** y la
+ * suite no la vería. Es EXACTAMENTE la disciplina que este fichero ya aplica a `User.phone` vs
+ * `Address.phone`: *valores DISTINTOS a propósito, para que un test que los confunda falle en vez de
+ * pasar por casualidad*. Y es fiel al dominio: `Address.recipientName` es «quien recibe en ESTA
+ * dirección» (`schema.prisma:562`), que puede no ser el titular.
+ *
+ * Distinto por customer: un test que confunda las dos libretas falla en vez de pasar.
+ */
+export const E2E_ADDRESS_RECIPIENT: Readonly<Record<string, string>> = {
+  [E2E_USERS.customer.email]: 'Rosa Elena Domínguez',
+  [E2E_USERS.customer2.email]: 'Héctor Domínguez Cruz',
+};
+
+/**
  * v1.51.20 (M-46, §4.39) — **las DOS solicitudes de venta del seed.** Existen porque `seed-e2e` no
  * creaba **ninguna** `SellRequest`, y ésa era la razón de raíz de que **doce** pruebas de UI del
  * ciclo se saltaran siempre (`test.skip('sin solicitud ofertada en este entorno')`): el arnés no

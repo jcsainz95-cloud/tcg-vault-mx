@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { codigoDeFichero } from './helpers/codigo-de-fichero';
 
 /**
  * v1.51.20 — **DOS INVARIANTES DE CÓDIGO QUE NINGÚN TEST DE RUNTIME BARATO ATRAPA**, y que ya se
@@ -25,15 +26,26 @@ import { join } from 'node:path';
 
 const SRC = join(__dirname, '..', 'src');
 
-function read(rel: string): string {
-  return readFileSync(join(SRC, rel), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^[ \t]*\/\/.*$/gm, '');
+/**
+ * ⭐⭐ v2 + no-vacuidad POR CONTENIDO (techlead, 2026-09-14). Aquí vivía el algoritmo v1 —regex
+ * global de bloques y luego colas de línea— que **se queda ciego a trozos**: un comentario de línea
+ * o una cadena que contengan la apertura de bloque abren un bloque fantasma que se traga el código
+ * hasta el siguiente cierre. Los tres ficheros de abajo hoy no tienen ninguno, pero **están a un
+ * comentario de tenerlo**, y lo que este fichero vigila son **proyecciones de dinero**: un verde por
+ * ceguera aquí dice «el cliente no ve el ciclo de la oferta» sobre un texto que nunca se leyó.
+ * Las anclas son la función concreta que cada `it` de más abajo recorta.
+ */
+function read(rel: string, ...anclas: string[]): string {
+  return codigoDeFichero(join(SRC, rel), anclas);
 }
 
-const BUYLIST = read('modules/buylist/buylist.service.ts');
-const INVENTORY = read('modules/inventory/inventory.service.ts');
-const PRICING = read('modules/pricing/pricing.service.ts');
+const BUYLIST = read(
+  'modules/buylist/buylist.service.ts',
+  'function toCustomerSellRequestDTO(',
+  'export class BuylistService',
+);
+const INVENTORY = read('modules/inventory/inventory.service.ts', 'export class InventoryService');
+const PRICING = read('modules/pricing/pricing.service.ts', 'export class PricingService');
 
 // ============================================================================================
 describe('BL-29 — la proyección de CLIENTE no puede heredar el ciclo por descuido', () => {

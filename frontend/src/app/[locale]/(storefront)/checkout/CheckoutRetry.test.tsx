@@ -67,7 +67,7 @@ function customerSession(over: Partial<CheckoutSessionResponse> = {}): CheckoutS
   return {
     orderId: 'ord-1',
     orderNumber: 'TCG-000001',
-    breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 1160, currency: 'MXN' },
+    breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 1160, currency: 'MXN', priceConvention: 'IVA_EXCLUSIVE', ivaIncluded: false },
     stripe: { paymentIntentId: 'pi_1', clientSecret: 'pi_1_secret' },
     reused: false,
     reservedUntil: IN_30_MIN(),
@@ -80,7 +80,7 @@ function guestSession(over: Partial<GuestCheckoutSessionResponse> = {}): GuestCh
   return {
     orderId: 'ord-g-1',
     orderNumber: 'TCG-000123',
-    breakdown: { subtotalCents: 1000, shippingFeeCents: 17500, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 18660, currency: 'MXN' },
+    breakdown: { subtotalCents: 1000, shippingFeeCents: 17500, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 18660, currency: 'MXN', priceConvention: 'IVA_EXCLUSIVE', ivaIncluded: false },
     checkoutToken: 'tok-first',
     checkoutTokenExpiresAt: new Date(Date.now() + 120 * 60_000).toISOString(),
     stripe: { paymentIntentId: 'pi_g1', clientSecret: 'pi_g1_secret' },
@@ -99,8 +99,8 @@ function storedIds(): string[] {
 function customerQuote(over: Partial<CheckoutQuoteResponse> = {}): CheckoutQuoteResponse {
   const l = mockListings.find((x) => x.inventoryItemId === 'inv-1002')!;
   return {
-    items: [{ inventoryItemId: 'inv-1002', card: orderItemCard(l), unitPriceCents: l.salePriceCents ?? 0 }],
-    breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 1160, currency: 'MXN' },
+    items: [{ inventoryItemId: 'inv-1002', card: orderItemCard(l), unitPriceCents: l.displayPriceCents ?? 0 }],
+    breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 1160, currency: 'MXN', priceConvention: 'IVA_EXCLUSIVE', ivaIncluded: false },
     unavailableItems: [],
     ownReservation: null,
     ...over,

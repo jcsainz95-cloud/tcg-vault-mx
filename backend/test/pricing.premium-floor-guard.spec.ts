@@ -12,6 +12,7 @@ import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { ConfigService } from '@nestjs/config';
+import { ivaDialsStub } from './helpers/iva-dials';
 import {
   DEFAULT_PRICING_CURVE,
   premiumFloorGuard,
@@ -302,9 +303,9 @@ function listingHarness(rarity: string | null, referenceMxnCents: number | null)
 describe('E4 — efecto del guardarraíl en Compra y en el checkout', () => {
   it('la ficha NO publica una chase en el piso: sellable=false y priceBasis="pending"', async () => {
     const { pricing, item } = listingHarness(CHASE, 100);
-    const dto = await new CatalogService({} as PrismaService, pricing).toListingDTO(item as never);
+    const dto = await new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never).toListingDTO(item as never);
     expect(dto.sellable).toBe(false);
-    expect(dto.salePriceCents).toBeUndefined();
+    expect(dto.displayPriceCents).toBeUndefined();
     expect(dto.priceBasis).toBe('pending');
     // v2.1.9 (D2): la frase que estaba aquí («la referencia sigue viajando porque el DTO alimenta
     // superficies admin») quedó DEROGADA — `toPublicPriceInfo` ya recortaba por superficie, así que
@@ -314,9 +315,9 @@ describe('E4 — efecto del guardarraíl en Compra y en el checkout', () => {
 
   it('la misma carta con mercado REAL sí se publica', async () => {
     const { pricing, item } = listingHarness(CHASE, 50000);
-    const dto = await new CatalogService({} as PrismaService, pricing).toListingDTO(item as never);
+    const dto = await new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never).toListingDTO(item as never);
     expect(dto.sellable).toBe(true);
-    expect(dto.salePriceCents).toBe(57500);
+    expect(dto.displayPriceCents).toBe(66700); // `P` de `L = 57500`
     expect(dto.priceBasis).toBe('market');
   });
 
@@ -326,6 +327,8 @@ describe('E4 — efecto del guardarraíl en Compra y en el checkout', () => {
     const settings = {
       getNumber: jest.fn(async () => 16),
       getStripeFee: jest.fn(async () => ({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 })),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
     } as unknown as SettingsService;
     const orders = new OrdersService(prisma, pricing, settings, {} as StripeService, {} as CatalogService);
     await expect(orders.quote(['i1'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });

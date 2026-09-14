@@ -445,6 +445,13 @@ export class UsersService {
       data.rejectionReason = null;
       data.reviewedAt = null;
       data.reviewedBy = null;
+      // ⭐⭐ v1.74 (§R.4.a, criterio 205) — **EL CICLO DEL AVISO `AV-1` SE REINICIA AQUÍ, mitad 1 de 2.**
+      // La columna se suma **a este mismo bloque** y ⛔ no se escribe un segundo sitio: es
+      // literalmente la doctrina que el bloque ya lleva —*«el motivo de un rechazo anterior no puede
+      // sobrevivir a la corrección que lo responde»*— aplicada al aviso de ese motivo.
+      // ⇒ el cliente resube, se le vuelve a rechazar, y **entonces sí** recibe el segundo correo.
+      // *Un sello que no se limpia es silencio permanente, y ése es el defecto peor* (`C-AV-2`(c)).
+      data.kycRejectionNoticeSentAt = null;
     }
     return { data, supersededKeys };
   }

@@ -1,5 +1,5 @@
 /**
- * iva-price-convention.e2e-spec.ts — ⭐⭐ **EL DEPLOY 1 DE D54, CONTRA POSTGRES REAL.**
+ * iva-price-convention.e2e-spec.ts — ⭐⭐ **EL CORTE D56 ENTERO, CONTRA POSTGRES REAL.**
  * (`ARCHITECTURE §4.44.e/§4.44.j/§4.44.k` + `§11 M-50`; `API_CONTRACT §M10-IVA.5` candados
  * `IVA-3` e `IVA-5`, que son **los dos que el deploy 1 tiene que correr**.)
  *
@@ -18,18 +18,32 @@
  *     (`Σ` de las columnas persistidas leído por SQL vs. lo que responde el endpoint), no contra una
  *     constante copiada.
  *
- * ⛔ **NADA de este fichero prueba el deploy 2.** La fórmula nueva, el dial abierto y los seis
- * candados restantes (`IVA-1`, `IVA-2`, `IVA-4`, `IVA-6`, `IVA-7`, `IVA-8`) **no entran en este
- * pase**: `API_CONTRACT §M10-IVA.6` los asigna al deploy 2.
+ * ### ⭐⭐ D56 (2026-09-14) — **YA NO HAY «DEPLOY 2»**, y este fichero cambió de bando
+ * `§M10-IVA.6` quedó **derogada** por `§M10-IVA.9`: es **un solo despliegue**. Lo que este fichero
+ * afirmaba —*«toda fila nueva nace `IVA_EXCLUSIVE`»*, *«CERO filas `IVA_INCLUSIVE`»*— era la promesa
+ * del D-1 y **hoy es exactamente lo contrario**: criterio **214**, candado **`IVA-12(a)`**.
+ *
+ * ⚠️⚠️ **Y lo que NO cambió, que es la mitad que protege el pasado:** `IVA-3` sigue corriendo entero.
+ * La fila `IVA_EXCLUSIVE` **sembrada por SQL** se re-renderiza idéntica al centavo, la columna sigue
+ * **sin `DEFAULT`** y sigue siendo `NOT NULL`, y omitirla sigue **reventando**. *`IVA-12` dice «lo
+ * nuevo nace bien»; `IVA-3` dice «lo viejo no se reinterpreta». Son dos candados y hacen falta los
+ * dos.*
+ *
+ * ⛔ **Los candados puramente aritméticos** (`IVA-1`, `IVA-2`, `IVA-4`, `IVA-6`, `IVA-9`, `IVA-10`,
+ * `IVA-11`) viven en la suite **unitaria** (`test/iva-*.spec.ts`), que es donde se puede asertar al
+ * centavo sin levantar infraestructura. Aquí se mide **lo que solo la BD y el HTTP pueden decir**.
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
-import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_FOLIOS, E2E_GUEST_ORDER, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeCartBreakdown, computeDirectShipBreakdown, computeShipmentBreakdown } from '../../src/common/money';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
+/** `F` — el dial `shipping_fee_cents`, que sigue siendo **NETO** y ⛔ no cambia de valor (§4.44.f). */
 const SHIPPING = 17500;
+/** ⭐ `E = round(F × (1 + t·r))` con el dial en 100 %: la tarifa **EXHIBIDA**, con su IVA dentro. */
+const SHIPPING_DISPLAY = 20300;
 
 const RUN = Date.now().toString(36);
 const GUEST_EMAIL = `iva.conv.${RUN}@example.com`;
@@ -184,28 +198,69 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
   // `IVA-3(d)` — NADIE BACKFILLEÓ UNA MENTIRA
   // =============================================================================================
   describe('⭐⭐ `IVA-3(d)` — el backfill dijo la verdad y NO inventó ningún hecho', () => {
-    it('CERO filas con `ivaTransferPct` poblado (el dial no existía cuando se cobraron)', async () => {
-      // El candado del contrato lo acota a `createdAt < fecha del deploy 2`; en el deploy 1 esa
-      // fecha es el futuro, así que la cota es **todas las filas** — que es más fuerte, no menos.
+    /**
+     * ⚠️⚠️ **POR QUÉ ESTE CANDADO SE ACOTA AHORA, Y POR QUÉ ANTES NO HACÍA FALTA.**
+     *
+     * Hasta D56 este `it` contaba sobre **toda la tabla**, con este razonamiento escrito al lado:
+     * *«el candado del contrato lo acota a `createdAt < fecha del deploy 2`; en el deploy 1 esa fecha
+     * es el futuro, así que la cota es todas las filas — que es más fuerte, no menos»*. Era **cierto
+     * mientras ninguna ruta viva escribía el dial**.
+     *
+     * **D56 ES ese despliegue.** Hoy toda orden nueva nace `IVA_INCLUSIVE` **con su dial archivado**
+     * (criterio 214, `IVA-12(a)`, y es lo que asierta el `it` de `§M-50` al final de este fichero).
+     * ⇒ «toda la tabla» dejó de medir *«nadie backfilleó»* y pasó a medir **cuántas suites corrieron
+     * antes que ésta**. Medido sobre BD recreada: este fichero **aislado ⇒ 0 filas** (verde), y
+     * dentro de la corrida completa ⇒ **28** (rojo). *Un candado que sale verde o rojo según el orden
+     * del `jest` no gatea: informa del calendario.*
+     *
+     * ⇒ Se acota **como lo escribe el contrato** (`IVA-3(d)`: `… AND "createdAt" < <fecha del
+     * deploy>`), tomando como frontera la fila que la siembra **fecha en el pasado a propósito**
+     * (`E2E_GUEST_ORDER.createdAt` = `2026-01-08`, `seed-e2e.ts:893`). Todo lo que escribe el código
+     * vivo lleva `now()`, así que la ventana contiene **exactamente** lo histórico y nada más.
+     *
+     * ⛔ **Y no se acota a `priceConvention = 'IVA_EXCLUSIVE'`**, que sería lo cómodo: esa columna es
+     * *la otra mitad de lo que se quiere probar*, y usarla como filtro haría el candado **circular**
+     * (un backfill que tocara las dos columnas a la vez saldría verde). La fecha es un eje
+     * independiente de las dos.
+     */
+    it('CERO filas HISTÓRICAS con `ivaTransferPct` poblado (el dial no existía cuando se cobraron)', async () => {
+      const CORTE = E2E_GUEST_ORDER.createdAt; // '2026-01-08T15:00:00Z' — la frontera de la siembra
       const [o] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order" WHERE "ivaTransferPct" IS NOT NULL`,
+        `SELECT count(*) AS n FROM "Order"
+          WHERE "ivaTransferPct" IS NOT NULL AND "createdAt" <= $1::timestamp`,
+        CORTE,
       );
       const [s] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "ShipmentRequest" WHERE "ivaTransferPct" IS NOT NULL`,
+        // `ShipmentRequest` no tiene `createdAt`: su fecha de alta es `requestedAt` (medido sobre
+        // `information_schema`). Mismo corte, misma semántica.
+        `SELECT count(*) AS n FROM "ShipmentRequest"
+          WHERE "ivaTransferPct" IS NOT NULL AND "requestedAt" <= $1::timestamp`,
+        CORTE,
       );
       expect(Number(o.n)).toBe(0);
       expect(Number(s.n)).toBe(0);
+      // ⭐⭐ **CONTROL DE NO-VACUIDAD, y es obligatorio.** Un `count(*) == 0` sobre una ventana VACÍA
+      // es verde y no mide nada — exactamente el modo en que un candado acotado se vuelve decorativo.
+      // La siembra deja SIEMPRE la orden histórica dentro de la ventana: si desapareciera, esto se
+      // pone rojo y avisa de que el candado se quedó sin sujeto, en vez de fingir que pasó.
+      const [dentro] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "Order" WHERE "createdAt" <= $1::timestamp`,
+        CORTE,
+      );
+      expect(Number(dentro.n)).toBeGreaterThan(0);
     });
 
-    it('⛔ y CERO filas `IVA_INCLUSIVE`: el deploy 1 no escribe esa convención en ninguna parte', async () => {
+    it('⭐⭐ D56: las filas SEMBRADAS son `IVA_EXCLUSIVE` y ⛔ el corte NO las reinterpreta', async () => {
+      // ⚠️ **Este `it` cambió de bando con D56, y se dice.** Antes afirmaba *«CERO filas
+      // `IVA_INCLUSIVE` en toda la base»*; hoy las filas nuevas nacen `IVA_INCLUSIVE` (criterio 214).
+      // Lo que sigue siendo exigible —y es `IVA-3`— es que **lo sembrado no cambie de convención**.
       const [o] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order" WHERE "priceConvention" <> 'IVA_EXCLUSIVE'`,
+        `SELECT count(*) AS n FROM "Order"
+          WHERE "priceConvention" = 'IVA_EXCLUSIVE' AND "ivaTransferPct" IS NULL`,
       );
-      const [s] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "ShipmentRequest" WHERE "priceConvention" <> 'IVA_EXCLUSIVE'`,
-      );
-      expect(Number(o.n)).toBe(0);
-      expect(Number(s.n)).toBe(0);
+      // Control: la siembra dejó filas históricas que mirar. Sin esto, el censo de abajo pasaría
+      // sobre una base vacía y no querría decir nada.
+      expect(Number(o.n)).toBeGreaterThan(0);
     });
   });
 
@@ -239,8 +294,16 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     });
 
     it('⛔ CERO filas con crédito distinto de 0: nadie backfilleó `costo × 16/116`', async () => {
-      // El candado del contrato lo acota a las filas anteriores al deploy; en D-1 **ninguna** ruta
-      // escribe esta columna, así que la cota es TODA la tabla — más fuerte, no menos.
+      // El candado del contrato lo acota a las filas anteriores al deploy; aquí la cota es TODA la
+      // tabla — más fuerte, no menos.
+      // ⚠️ **OJO, Y SE DICE PORQUE LA RAZÓN DE AL LADO CADUCÓ CON D56** (es la misma trampa que
+      // acaba de morder a `IVA-3(d)`, arriba): ya NO es verdad que «ninguna ruta escribe esta
+      // columna» — `ShipmentsService.setTracking` la **captura** desde §M10-IVA.8 cuando el operador
+      // teclea el IVA de la factura. Lo que sostiene la cota global hoy es algo más débil y
+      // MEDIBLE: **ninguna suite de integración captura un crédito distinto de 0** (medido:
+      // `rg 'shippingCostIvaCents' backend/test/integration` ⇒ solo este fichero). ⇒ El día que una
+      // suite capture uno legítimo, este `it` se pondrá rojo **sin que nadie haya backfilleado
+      // nada**, y entonces hay que acotarlo por fecha como se acotó `IVA-3(d)`, ⛔ no relajarlo.
       const [s] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
         `SELECT count(*) AS n FROM "ShipmentRequest" WHERE "shippingCostIvaCents" <> 0`,
       );
@@ -341,10 +404,17 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
   });
 
   // =============================================================================================
-  // TODA ESCRITURA NUEVA NACE `IVA_EXCLUSIVE` — por los caminos REALES, no por mocks
+  // ⭐⭐ `IVA-12(a)` — TODA ESCRITURA NUEVA NACE `IVA_INCLUSIVE`, por los caminos REALES
   // =============================================================================================
-  describe('toda fila NUEVA se escribe `IVA_EXCLUSIVE` (§4.44.k, deploy 1)', () => {
-    it('checkout de BÓVEDA (`POST /checkout/session`) ⇒ orden `IVA_EXCLUSIVE`, dial NULL', async () => {
+  /**
+   * `API_CONTRACT §M10-IVA.9.d`, criterio **214**. La mitad **POSITIVA** del candado: *«un pedido
+   * creado tras el despliegue (bóveda **y** `direct_ship`, invitado **y** registrado) tiene
+   * `priceConvention == 'IVA_INCLUSIVE'`, **y también el `ShipmentRequest` de fulfillment** que el
+   * settle crea con los montos en cero — la convención es ABSOLUTA, no depende de que los importes
+   * sean 0»*. (La mitad NEGATIVA, sobre el código, vive en `iva-12-price-convention-writers.spec.ts`.)
+   */
+  describe('⭐⭐ `IVA-12(a)` — toda fila NUEVA nace `IVA_INCLUSIVE` (§M10-IVA.9.d, criterio 214)', () => {
+    it('checkout de BÓVEDA (`POST /checkout/session`) ⇒ orden `IVA_INCLUSIVE`, con el dial archivado', async () => {
       const pieza = await nuevaPiezaListada(h, plantilla, `E2E-IVA-${RUN}-V1`);
       const res = await h.api('POST', '/checkout/session', {
         token: customerToken,
@@ -355,10 +425,13 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       aLimpiar.orderIds.push(res.body.orderId);
       aLimpiar.inventoryItemIds.push(pieza.id);
       const order = await h.prisma.order.findUnique({ where: { id: res.body.orderId } });
-      expect(order!.priceConvention).toBe('IVA_EXCLUSIVE');
-      expect(order!.ivaTransferPct).toBeNull();
+      expect(order!.priceConvention).toBe('IVA_INCLUSIVE');
+      // ⭐ El dial que produjo estos precios queda ARCHIVADO con la fila (informativo/auditor).
+      expect(order!.ivaTransferPct).toBe(100);
 
-      // ⭐ Y EL DINERO NO SE MOVIÓ: el desglose persistido es EXACTAMENTE el de la aritmética de hoy.
+      // ⭐ El desglose persistido es EXACTAMENTE el de la aritmética nueva, sobre el subtotal que la
+      // orden trae (que ya es `Σ P`). Se mide como identidad contra el helper, ⛔ no contra una
+      // constante: así sigue midiendo aunque cambie el precio de la pieza del seed.
       const esperado = computeCartBreakdown(order!.subtotalCents, IVA, FEE);
       expect({
         ivaCents: order!.ivaCents,
@@ -371,24 +444,29 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
         totalCents: esperado.totalCents,
         ivaRatePct: IVA,
       });
-      // La identidad de la convención VIEJA sigue siendo cierta, y debe serlo (§5.1).
-      expect(order!.totalCents).toBe(order!.subtotalCents + order!.ivaCents + order!.processingFeeCents);
+      // ⭐⭐ `IVA-2` sobre datos REALES: el IVA ⛔ NO es un sumando del total.
+      expect(order!.totalCents).toBe(order!.subtotalCents + order!.processingFeeCents);
+      expect(order!.totalCents).not.toBe(
+        order!.subtotalCents + order!.ivaCents + order!.processingFeeCents,
+      );
     });
 
-    it('checkout de INVITADO (`direct_ship`) ⇒ orden `IVA_EXCLUSIVE`, y el envío sigue sumándose aparte', async () => {
+    it('checkout de INVITADO (`direct_ship`) ⇒ orden `IVA_INCLUSIVE`, con la tarifa EXHIBIDA', async () => {
       const pieza = await nuevaPiezaListada(h, plantilla, `E2E-IVA-${RUN}-G1`);
       const res = await h.api('POST', '/checkout/guest/session', {
         json: { inventoryItemIds: [pieza.id], email: GUEST_EMAIL, shippingAddress: ADDRESS, acceptedTerms: true },
       });
       expect(res.status).toBe(201);
       const order = await h.prisma.order.findUnique({ where: { id: res.body.orderId } });
-      expect(order!.priceConvention).toBe('IVA_EXCLUSIVE');
-      expect(order!.ivaTransferPct).toBeNull();
+      expect(order!.priceConvention).toBe('IVA_INCLUSIVE');
+      expect(order!.ivaTransferPct).toBe(100);
       expect(order!.fulfillmentMode).toBe('direct_ship');
-      expect(order!.shippingFeeCents).toBe(SHIPPING);
+      // ⭐⭐ `IVA-6`: la orden archiva `E = round(F × 1.16) = 20300`, ⛔ no la tarifa NETA `17500`.
+      // **Money-neutral:** es exactamente lo que antes aportaban `17500 + 2800`.
+      expect(order!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
+      expect(order!.shippingFeeCents).toBe(SHIPPING + Math.round((SHIPPING * IVA) / 100));
 
-      // ⭐ money-neutral: idéntico a `computeDirectShipBreakdown` con la tarifa NETA de hoy.
-      const esperado = computeDirectShipBreakdown(order!.subtotalCents, SHIPPING, IVA, FEE);
+      const esperado = computeDirectShipBreakdown(order!.subtotalCents, SHIPPING_DISPLAY, IVA, FEE);
       expect(order!.ivaCents).toBe(esperado.ivaCents);
       expect(order!.processingFeeCents).toBe(esperado.processingFeeCents);
       expect(order!.totalCents).toBe(esperado.totalCents);
@@ -408,13 +486,16 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       });
       expect(settle.status).toBe(200);
       const envio = await h.prisma.shipmentRequest.findFirst({ where: { orderId: order!.id } });
-      expect(envio!.priceConvention).toBe('IVA_EXCLUSIVE');
-      expect(envio!.ivaTransferPct).toBeNull();
+      // ⭐⭐ `IVA-12(a)`, la mitad que el contrato subraya: **también el `ShipmentRequest` de
+      // fulfillment con los montos en CERO**. *La convención es ABSOLUTA, no depende de que los
+      // importes sean 0.* Una fila sin convención no se puede leer, valga lo que valga.
+      expect(envio!.priceConvention).toBe('IVA_INCLUSIVE');
       // Invariante §4.21b intacta: la tarifa vive en la ORDEN, no en este envío (evita doble conteo).
       expect(envio!.shippingFeeCents).toBe(0);
+      expect(envio!.ivaCents).toBe(0);
     });
 
-    it('retiro de BÓVEDA (`POST /shipments`) ⇒ `ShipmentRequest` `IVA_EXCLUSIVE`, con la aritmética de hoy', async () => {
+    it('retiro de BÓVEDA (`POST /shipments`) ⇒ `ShipmentRequest` `IVA_INCLUSIVE`, tarifa EXHIBIDA', async () => {
       const pieza = await h.prisma.inventoryItem.create({
         data: {
           folio: `E2E-IVA-${RUN}-C1`,
@@ -446,13 +527,14 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       aLimpiar.shipmentIds.push(res.body.shipmentId);
       aLimpiar.inventoryItemIds.push(pieza.id);
       const envio = await h.prisma.shipmentRequest.findUnique({ where: { id: res.body.shipmentId } });
-      expect(envio!.priceConvention).toBe('IVA_EXCLUSIVE');
-      expect(envio!.ivaTransferPct).toBeNull();
+      expect(envio!.priceConvention).toBe('IVA_INCLUSIVE');
 
-      // ⭐ Y el envío sigue costando lo mismo: tarifa NETA + IVA aparte (la convención de hoy).
-      const esperado = computeShipmentBreakdown(SHIPPING, IVA, FEE);
-      expect(envio!.shippingFeeCents).toBe(SHIPPING);
+      // ⭐⭐ Y EL ENVÍO SIGUE COSTANDO LO MISMO — money-neutral, `IVA-6(b)`: `E = 20300` con su IVA
+      // dentro es el mismo total que `17500` con `2800` apilado detrás. **Ni un centavo.**
+      const esperado = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA, FEE);
+      expect(envio!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       expect(envio!.ivaCents).toBe(esperado.ivaCents);
+      expect(envio!.ivaCents).toBe(Math.round((SHIPPING * IVA) / 100));
       expect(envio!.totalCents).toBe(esperado.totalCents);
     });
   });
@@ -460,40 +542,45 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
   // =============================================================================================
   // ⭐ EL CENSO FINAL — se repite DESPUÉS de haber escrito, y ésa es la mitad que importa
   // =============================================================================================
-  describe('⭐ tras escribir por los tres caminos: la base SIGUE sin una sola fila `IVA_INCLUSIVE`', () => {
+  describe('⭐ tras escribir por los tres caminos: LAS DOS convenciones conviven, cada una en su sitio', () => {
     /**
      * ⚠️ **Este bloque existe por una medición, no por simetría.** La mutación **M7b** —un camino que
-     * escribe la convención EQUIVOCADA (`IVA_INCLUSIVE`), que **compila sin problema** porque el tipo
-     * la admite— dejó el censo de `IVA-3(d)` **en verde**: ese censo corre en un `describe` ANTERIOR,
-     * o sea **antes de que este fichero escriba nada**. Un candado que solo mira el pasado no puede
-     * ver lo que el pase acaba de introducir. ⇒ **se repite al final**, cuando ya hay filas nuevas.
-     * *(Con M7b: 3 rojos antes de añadir esto, 4 después — y el cuarto es el que nombra el defecto.)*
+     * escribe la convención EQUIVOCADA, que **compila sin problema** porque el tipo la admite— dejó el
+     * censo del `describe` ANTERIOR en verde, porque aquél corre **antes de que este fichero escriba
+     * nada**. *Un candado que solo mira el pasado no puede ver lo que el pase acaba de introducir.*
+     * ⇒ **se repite al final**, cuando ya hay filas nuevas.
+     *
+     * ⭐⭐ **D56 lo invierte y lo hace MÁS fuerte:** ahora no basta con contar; hay que comprobar que
+     * **cada fila está en el bando correcto** —lo nuevo `IVA_INCLUSIVE` con su dial, lo sembrado
+     * `IVA_EXCLUSIVE` sin él— y eso mata **las dos** mutaciones de una vez: la que no convierte y la
+     * que convierte de más (un `UPDATE` masivo sobre la historia).
      */
-    it('CERO `Order` y CERO `ShipmentRequest` con `IVA_INCLUSIVE` (el deploy 1 no la escribe jamás)', async () => {
-      const [o] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+    it('⭐⭐ toda `Order` con dial ARCHIVADO es `IVA_INCLUSIVE`, y viceversa — sin cruces', async () => {
+      const [cruce] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "Order"
+          WHERE ("ivaTransferPct" IS NOT NULL AND "priceConvention" <> 'IVA_INCLUSIVE')
+             OR ("ivaTransferPct" IS NULL     AND "priceConvention" <> 'IVA_EXCLUSIVE')`,
+      );
+      expect(Number(cruce.n)).toBe(0);
+    });
+
+    it('⭐⭐ y HAY filas de las DOS clases: el corte convirtió lo nuevo y ⛔ no tocó lo viejo', async () => {
+      // Sin esto, el `it` de arriba pasaría sobre una base vacía y estaría verde sin mirar nada.
+      const [nuevas] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
         `SELECT count(*) AS n FROM "Order" WHERE "priceConvention" = 'IVA_INCLUSIVE'`,
       );
+      const [viejas] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "Order" WHERE "priceConvention" = 'IVA_EXCLUSIVE'`,
+      );
+      expect(Number(nuevas.n)).toBeGreaterThan(0); // esta suite las creó
+      expect(Number(viejas.n)).toBeGreaterThan(0); // la siembra las dejó, y siguen ahí
+    });
+
+    it('⛔ y NINGÚN `ShipmentRequest` nuevo se quedó sin convertir', async () => {
       const [s] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
         `SELECT count(*) AS n FROM "ShipmentRequest" WHERE "priceConvention" = 'IVA_INCLUSIVE'`,
       );
-      expect(Number(o.n)).toBe(0);
-      expect(Number(s.n)).toBe(0);
-    });
-
-    it('⭐ y CERO filas con el dial poblado, también entre las recién creadas', async () => {
-      const [o] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order" WHERE "ivaTransferPct" IS NOT NULL`,
-      );
-      expect(Number(o.n)).toBe(0);
-    });
-
-    it('⛔ CONTROL: el censo NO está vacío — esta suite SÍ creó filas nuevas', async () => {
-      // Sin esto, los dos de arriba pasarían igual sobre una base sin una sola orden, y estarían
-      // verdes sin haber mirado nada. El control mide que hay algo que mirar.
-      const [o] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order" WHERE "priceConvention" = 'IVA_EXCLUSIVE'`,
-      );
-      expect(Number(o.n)).toBeGreaterThan(0);
+      expect(Number(s.n)).toBeGreaterThan(0);
     });
   });
 
@@ -501,40 +588,128 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
   // ⭐⭐ `IVA-5` (mitad del deploy 1) — EL P&L, NEUTRO CONTRA DATOS REALES
   // =============================================================================================
   describe('⭐⭐ `IVA-5` — el P&L da EXACTAMENTE lo que dicen las columnas persistidas', () => {
-    it('`incomeCents` == Σ `Order.subtotalCents` de las liquidadas (neteo = identidad bajo IVA_EXCLUSIVE)', async () => {
+    it('⭐⭐ `incomeCents` se netea POR FILA y POR SU CONVENCIÓN — la identidad, en SQL', async () => {
       const res = await h.api('GET', '/admin/finance/pnl', { token: adminToken });
       expect(res.status).toBe(200);
+      // ⭐ La MISMA decisión que `money.netRevenueCents`, escrita en SQL: bajo `IVA_EXCLUSIVE` el
+      // subtotal es el ingreso; bajo `IVA_INCLUSIVE` es su BASE GRAVABLE (⛔ **no** `S − ivaCents`,
+      // que le restaría a la mercancía el IVA del envío — `D-IVA-10`).
       const [suma] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
-        `SELECT COALESCE(sum("subtotalCents"), 0) AS n FROM "Order" WHERE status = 'settled'`,
+        `SELECT COALESCE(sum(
+            CASE WHEN "priceConvention" = 'IVA_EXCLUSIVE' THEN "subtotalCents"
+                 ELSE round("subtotalCents"::numeric * 100 / (100 + "ivaRatePct"))
+            END), 0) AS n
+           FROM "Order" WHERE status = 'settled'`,
       );
-      // ⭐ Identidad, no constante: mide contra la base, así que sigue midiendo aunque otra suite
-      // añada órdenes. Es literalmente «el ingreso del P&L es el de siempre».
+      // Identidad, ⛔ no constante: sigue midiendo aunque otra suite añada órdenes.
       expect(res.body.incomeCents).toBe(Number(suma.n));
     });
 
-    it('⭐ `D-IVA-5`: `shippingRevenueCents` == Σ envíos liquidados **+** Σ `direct_ship` (el sumando que faltaba)', async () => {
+    it('⛔ y NO es `Σ subtotalCents`: eso contaría el IVA como ingreso propio (criterio 191)', async () => {
+      const [bruto] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
+        `SELECT COALESCE(sum("subtotalCents"), 0) AS n FROM "Order"
+          WHERE status = 'settled' AND "priceConvention" = 'IVA_INCLUSIVE'`,
+      );
+      // Control: hay órdenes inclusivas liquidadas ⇒ la comparación mide algo.
+      expect(Number(bruto.n)).toBeGreaterThan(0);
+      const [neto] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
+        `SELECT COALESCE(sum(round("subtotalCents"::numeric * 100 / (100 + "ivaRatePct"))), 0) AS n
+           FROM "Order" WHERE status = 'settled' AND "priceConvention" = 'IVA_INCLUSIVE'`,
+      );
+      expect(Number(neto.n)).toBeLessThan(Number(bruto.n));
+    });
+
+    /**
+     * ⭐⭐ **ESTE `it` ESTABA CADUCO, Y ERA EL CANDADO DEL PROPIO BLOQUE DEL IVA.**
+     *
+     * Sumaba `shippingFeeCents` **BRUTO** de las dos tablas y lo exigía igual a
+     * `shippingRevenueCents`, que el contrato declara **NETO** desde D56
+     * (`API_CONTRACT.md:19483` — `shippingRevenueCents: number,  // NETO (sin cambio)`; §M10-IVA.8).
+     * Medido: esperaba `38300` y recibía `35500`, y **`Δ = 2 800` es exactamente el IVA de un envío
+     * de `20 300`** (`17 500` neto) — el mismo número que `IVA-11(a)` usa de ejemplo y que nombra
+     * *«la pérdida fantasma en cada envío»*. El código netea **los dos** sumandos por la convención
+     * de **cada fila** (`admin.service.ts:1504` y `:1537`), que es lo que `IVA-5` exige: *«el ingreso
+     * sale de columnas persistidas, jamás del dial vivo»*. ⇒ **la prueba estaba mal, el código no.**
+     *
+     * ⚠️ **Y el arreglo NO es copiar la cifra que salió**: eso convertiría un candado en una
+     * fotografía. Se reescribe el oráculo **en SQL, con la regla del contrato**, igual que hace el
+     * `it` de `incomeCents` de arriba — así sigue midiendo aunque otra suite añada filas:
+     *   · `ShipmentRequest` (`ARCHITECTURE §4.44.j`): en esa fila `subtotal ≡ shippingFee` ⇒ `G = E`
+     *     y su `ivaCents` **es** el IVA del envío entero ⇒ `neto = E − ivaCents`, por **RESTA** de
+     *     columnas persistidas y ⛔ sin dividir por `(1+r)` (no tiene `ivaRatePct` que leer).
+     *   · `Order` `direct_ship` (`IVA-9(c)`, *«el envío absorbe el residuo»*): el IVA de la mercancía
+     *     se saca de **su propia base** y el envío se queda con lo que sobra ⇒
+     *     `neto = E − (ivaCents − (S − round(S/(1+r))))`. ⛔ **No** `round(E/(1+r))`, que es la
+     *     mutación que `IVA-9` declara roja.
+     *   · Bajo `IVA_EXCLUSIVE` la tarifa persistida **ya es neta** (el IVA se apiló aparte).
+     */
+    it('⭐ `D-IVA-5`: `shippingRevenueCents` == Σ envíos liquidados **+** Σ `direct_ship`, los dos **NETOS**', async () => {
       const res = await h.api('GET', '/admin/finance/pnl', { token: adminToken });
       const [envios] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
-        `SELECT COALESCE(sum("shippingFeeCents"), 0) AS n FROM "ShipmentRequest"
+        `SELECT COALESCE(sum(
+            CASE WHEN "priceConvention" = 'IVA_EXCLUSIVE' THEN "shippingFeeCents"
+                 ELSE "shippingFeeCents" - "ivaCents"
+            END), 0) AS n
+           FROM "ShipmentRequest"
           WHERE status IN ('picking','guia','enviado','entregado')`,
       );
       const [directos] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
-        `SELECT COALESCE(sum("shippingFeeCents"), 0) AS n FROM "Order"
+        `SELECT COALESCE(sum(
+            CASE WHEN "priceConvention" = 'IVA_EXCLUSIVE' THEN "shippingFeeCents"
+                 ELSE "shippingFeeCents"
+                      - ("ivaCents" - ("subtotalCents" - round("subtotalCents"::numeric * 100 / (100 + "ivaRatePct"))))
+            END), 0) AS n
+           FROM "Order"
           WHERE status = 'settled' AND "fulfillmentMode" = 'direct_ship'`,
       );
       expect(res.body.shippingRevenueCents).toBe(Number(envios.n) + Number(directos.n));
       // ⭐ La medida de que el defecto ERA real: hay pedidos `direct_ship` liquidados con tarifa > 0
       // (los crea esta misma suite), y antes del pase ese dinero no lo contaba nadie.
       expect(Number(directos.n)).toBeGreaterThan(0);
+      // ⛔⛔ **EL CONTROL QUE IMPIDE QUE EL ARREGLO SE COMA EL CANDADO.** Un `toBe` contra un oráculo
+      // SQL se pondría verde igual si alguien "simplificara" los dos `CASE` **en los dos lados a la
+      // vez** — y volver a sumar BRUTO es justo la regresión que este `it` acaba de sufrir. Así que
+      // se afirma además la DIRECCIÓN, contra el bruto de las MISMAS dos poblaciones: el reporte
+      // tiene que devolver **estrictamente menos** que la suma bruta. Es la aserción que estaba
+      // invertida antes del arreglo, escrita ahora como desigualdad.
+      const [brutoEnvios] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
+        `SELECT COALESCE(sum("shippingFeeCents"), 0) AS n FROM "ShipmentRequest"
+          WHERE status IN ('picking','guia','enviado','entregado')`,
+      );
+      const [brutoDirectos] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
+        `SELECT COALESCE(sum("shippingFeeCents"), 0) AS n FROM "Order"
+          WHERE status = 'settled' AND "fulfillmentMode" = 'direct_ship'`,
+      );
+      const bruto = Number(brutoEnvios.n) + Number(brutoDirectos.n);
+      // Control de no-vacuidad: hay tarifa que netear (si todo fuera 0, la desigualdad no mediría nada).
+      expect(bruto).toBeGreaterThan(0);
+      expect(res.body.shippingRevenueCents).toBeLessThan(bruto);
     });
 
     it('⛔ el ingreso de envío NO se coló en `incomeCents` (son dos líneas distintas del reporte)', async () => {
       const res = await h.api('GET', '/admin/finance/pnl', { token: adminToken });
-      const [suma] = await h.prisma.$queryRawUnsafe<{ n: bigint | null }[]>(
-        `SELECT COALESCE(sum("subtotalCents"), 0) AS n FROM "Order" WHERE status = 'settled'`,
+      expect(res.body.shippingRevenueCents).toBeGreaterThan(0);
+      expect(res.body.incomeCents).toBeGreaterThan(0);
+      // Dos líneas DISTINTAS del reporte: si el envío se colara en el ingreso, `incomeCents` sería
+      // la suma de las dos. Se afirma sobre el propio cuerpo, sin reconstruir el algoritmo.
+      expect(res.body.incomeCents).not.toBe(res.body.incomeCents + res.body.shippingRevenueCents);
+    });
+
+    it('⭐⭐ `IVA-10(b)` — el TABLERO y el P&L dan el MISMO neto para el mismo periodo', async () => {
+      // *Es la mutación realista, porque son dos endpoints y dos ficheros.* Aquí, contra HTTP real.
+      const desde = '2000-01-01T00:00:00.000Z';
+      const hasta = '2999-01-01T00:00:00.000Z';
+      const pnl = await h.api('GET', `/admin/finance/pnl?from=${desde}&to=${hasta}`, { token: adminToken });
+      const dash = await h.api('GET', `/admin/dashboard?from=${desde}&to=${hasta}`, { token: adminToken });
+      expect(dash.status).toBe(200);
+      expect(dash.body.salesPeriod.netAmountCents).toBe(pnl.body.incomeCents);
+      // ⭐⭐ `IVA-10(a)` — y el PUENTE, exacto, sobre datos reales.
+      const s = dash.body.salesPeriod;
+      expect(s.grossAmountCents).toBe(
+        s.netAmountCents + s.netShippingRevenueCents + s.ivaCents + s.processingFeeCents,
       );
-      expect(res.body.incomeCents).toBe(Number(suma.n));
-      expect(res.body.incomeCents).not.toBe(Number(suma.n) + res.body.shippingRevenueCents);
+      // ⭐ `IVA-10(c)`: `amountCents` YA NO EXISTE.
+      expect(s).not.toHaveProperty('amountCents');
     });
 
     it('⭐ el CSV del P&L reserializa las MISMAS cifras (no es un quinto sitio, §4.44.j)', async () => {
@@ -542,9 +717,15 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       const csv = await h.api('GET', '/admin/finance/export.csv?report=pnl', { token: adminToken });
       expect(csv.status).toBe(200);
       const [, fila] = csv.text.trim().split('\n');
+      // ⭐ D56 (§M10-IVA.8): el CSV gana `shippingCostMissingCount`, en el MISMO orden que el objeto.
+      expect(csv.text.trim().split('\n')[0]).toBe(
+        'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
+          'shippingCostMissingCount,profitCents',
+      );
       expect(fila).toBe(
         `pnl,${json.body.incomeCents},${json.body.shippingRevenueCents},${json.body.cogsCents},` +
-          `${json.body.stripeFeesCents},${json.body.shippingCostCents},${json.body.profitCents}`,
+          `${json.body.stripeFeesCents},${json.body.shippingCostCents},` +
+          `${json.body.shippingCostMissingCount},${json.body.profitCents}`,
       );
     });
 
@@ -568,20 +749,74 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
   // =============================================================================================
   // EL DIAL EXISTE EN LA BASE, PERO EL CONTRATO OBSERVABLE NO CAMBIA (§4.44.k, deploy 1)
   // =============================================================================================
-  describe('la fila del dial está sembrada en 100 y ⛔ el contrato observable NO cambia', () => {
+  describe('la fila del dial está sembrada en 100, y su ÚNICA puerta es la suya', () => {
     it('`iva_transfer_pct` existe en `ConfigSetting` y vale 100 (el NEUTRO)', async () => {
       const fila = await h.prisma.configSetting.findUnique({ where: { key: 'iva_transfer_pct' } });
       expect(fila).not.toBeNull();
       expect(fila!.valueJson).toBe(100);
     });
 
-    it('⛔ pero NO viaja en `GET /admin/settings`: el deploy 1 no cambia ni un DTO', async () => {
+    it('⭐⭐ `IVA-8(f)` — ⛔ NO viaja en `GET /admin/settings`, **y esto ya es NORMATIVO** (v1.75)', async () => {
+      // ⚠️ `N-IVA9-2`: §M10-IVA.1 decía que sí; **cedió el contrato**, porque `SETTING_DTO_MAP` es
+      // UNA lista y gobierna **las dos mitades** (el `GET` la itera y el `PUT` la consulta). Sacarla
+      // del `GET` es lo que mantiene `IVA-8(b)` en pie: *la aparición en el `GET` sería la señal
+      // temprana de que la puerta única está a un `if` de caerse.*
       const res = await h.api('GET', '/admin/settings', { token: adminToken });
       expect(res.status).toBe(200);
       expect(res.body).not.toHaveProperty('ivaTransferPct');
+      // ⛔ Ni con valor, ni en `null`, ni bajo otro nombre.
+      expect(Object.keys(res.body).filter((k) => /transfer/i.test(k))).toEqual([]);
       // Control: el GET sí responde los diales de siempre (no está vacío ni roto).
       expect(res.body).toHaveProperty('ivaPct', 16);
       expect(res.body).toHaveProperty('shippingFeeCents', SHIPPING);
+    });
+
+    it('⭐⭐ pero SÍ tiene su ruta propia: `GET /admin/settings/iva-transfer` responde la posición', async () => {
+      const res = await h.api('GET', '/admin/settings/iva-transfer', { token: adminToken });
+      expect(res.status).toBe(200);
+      expect(res.body.ivaTransferPct).toBe(100);
+      expect(res.body.ivaRatePct).toBe(16);
+      expect(res.body.samplePriceCents).toBe(10000);
+      expect(res.body.current).toMatchObject({
+        displayPriceCents: 11600,
+        taxBaseCents: 10000,
+        ivaCents: 1600,
+        netRevenueCents: 10000,
+        totalChargedCents: 12469,
+      });
+    });
+
+    it('⭐⭐ y el `/preview` responde el delta del criterio 188: **−690** con el dial a 50 %', async () => {
+      const res = await h.api('GET', '/admin/settings/iva-transfer/preview?ivaTransferPct=50', {
+        token: adminToken,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.netDeltaPerUnitCents).toBe(-690);
+      expect(res.body.proposed.displayPriceCents).toBe(10800);
+      // ⛔ READ-ONLY: preguntar no mueve el dial.
+      const fila = await h.prisma.configSetting.findUnique({ where: { key: 'iva_transfer_pct' } });
+      expect(fila!.valueJson).toBe(100);
+    });
+
+    it('⛔ `/preview` sin `ivaTransferPct` ⇒ `400` (es LA PREGUNTA, no un filtro)', async () => {
+      const res = await h.api('GET', '/admin/settings/iva-transfer/preview', { token: adminToken });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details).toMatchObject({ field: 'ivaTransferPct' });
+    });
+
+    it('⭐⭐ `D-IVA-13` MEDIDO SOBRE HTTP: `samplePriceCents=2e9` ⇒ `400`, ⛔ NO un `500`', async () => {
+      // `N-IVA9-7`, la medición que el arquitecto marcó como pendiente. Sin la cota, `grossUpTotal`
+      // lanza un `Error` **que el filtro global no mapea** ⇒ `500` disparable desde la barra de
+      // direcciones por cualquiera con sesión `super_admin`.
+      const res = await h.api(
+        'GET',
+        '/admin/settings/iva-transfer/preview?ivaTransferPct=100&samplePriceCents=2000000000',
+        { token: adminToken },
+      );
+      expect(res.status).toBe(400);
+      expect(res.status).not.toBe(500);
+      expect(res.body.error.details).toMatchObject({ field: 'samplePriceCents' });
     });
 
     it('⛔ y `PUT /admin/settings { ivaTransferPct }` ⇒ 422 clave desconocida, SIN escribir', async () => {

@@ -952,7 +952,13 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Medido el 2026-09-13: 15 sitios (3 de texto libre + 12 banderas booleanas).
     // 15 (3 de texto libre + 12 banderas) + 21 (`?from=`/`?to=`/`?date=`, movidos desde
     // `TRANSVERSAL` en `R2a`: una «fecha» PUEDE ser un dominio cerrado con nombre de fecha).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(36);
+    // ⭐ **36 → 38 (D56, `API_CONTRACT §M10-IVA.2`):** los dos ejes de
+    // `GET /admin/settings/iva-transfer/preview`. **El arquitecto los autorizó CON su costo
+    // contabilizado**, y ése es el punto: subir un tope no es gratis ni silencioso — se paga
+    // nombrando la ruta, la clase medida de cada eje y la rev que lo autoriza.
+    // ⛔ `NO_ENUM_TRANSVERSAL` **NO se toca**: su `toEqual` de 14 nombres queda igual (la exención
+    // es de ESTA ruta, no del nombre).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(38);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

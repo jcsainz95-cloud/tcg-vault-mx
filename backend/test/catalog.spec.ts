@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { computeSealedSalePrice } from '../src/common/money';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.1 — "Compra" = inventario PUBLICADO con precio (API_CONTRACT §catalog). El comprador
@@ -138,7 +139,7 @@ describe('CatalogService.listCards — regla dura de "Compra"', () => {
         }),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
     expect(captured.ownerType).toBe('platform');
@@ -148,7 +149,10 @@ describe('CatalogService.listCards — regla dura de "Compra"', () => {
     expect(res.data).toHaveLength(1);
     expect(res.data[0].representativeInventoryItemId).toBe('ok');
     expect(res.data[0].stockCount).toBe(1);
-    expect(res.data[0].salePriceCents).toBe(11500);
+    // ⭐ D56: la rejilla publica `P = round(L × 1.16)` (§M10-IVA.3). `L = 11500` ⇒ `13340`.
+    expect(res.data[0].displayPriceCents).toBe(13340);
+    expect(res.data[0].ivaIncluded).toBe(true);
+    expect(res.data[0].ivaRatePct).toBe(16);
     expect(res.data[0].currency).toBe('MXN');
     expect(res.total).toBe(1); // total = nº de GRUPOS.
   });
@@ -163,7 +167,7 @@ describe('CatalogService.listCards — regla dura de "Compra"', () => {
         }),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     // Rango que excluye el único item (11500 < 20000) → lista vacía.
     const res = await svc.listCards({
       page: 1,
@@ -207,14 +211,14 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
       itemOf({ id: 't2', listPriceCents: 12000 }),
       itemOf({ id: 't3', listPriceCents: 18000 }),
     ];
-    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing(), ivaDialsStub() as never);
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
     expect(res.data).toHaveLength(1);
     expect(res.total).toBe(1); // total = nº de GRUPOS, no de piezas (antes salían 3 filas).
     const g = res.data[0];
     expect(g.stockCount).toBe(3);
-    expect(g.salePriceCents).toBe(12000); // mínimo del grupo…
+    expect(g.displayPriceCents).toBe(13920); // `P` del mínimo del grupo (`L = 12000`)…
     expect(g.representativeInventoryItemId).toBe('t2'); // …= la pieza vendible más barata.
     expect(g.productType).toBe('raw');
     expect(g.rawCondition).toBe('NM');
@@ -227,18 +231,21 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
       itemOf({ id: 'A', cardId: 'pending', card: cardOf({ id: 'pending' }), listPriceCents: 11500 }),
       itemOf({ id: 'B', cardId: 'pending', card: cardOf({ id: 'pending' }), listPriceCents: null }),
     ];
-    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing(), ivaDialsStub() as never);
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
     expect(res.data).toHaveLength(1);
     expect(res.data[0].stockCount).toBe(1); // B (sin precio) NO cuenta.
     expect(res.data[0].representativeInventoryItemId).toBe('A');
-    expect(res.data[0].salePriceCents).toBe(11500);
+    // ⭐ D56: la rejilla publica `P = round(L × 1.16)` (§M10-IVA.3). `L = 11500` ⇒ `13340`.
+    expect(res.data[0].displayPriceCents).toBe(13340);
+    expect(res.data[0].ivaIncluded).toBe(true);
+    expect(res.data[0].ivaRatePct).toBe(16);
   });
 
   it('money-safe: grupo AGOTADO (todas las piezas sin precio) DESAPARECE de Compra', async () => {
     const items = [itemOf({ id: 'x', cardId: 'pending', card: cardOf({ id: 'pending' }), listPriceCents: null })];
-    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing(), ivaDialsStub() as never);
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
     expect(res.data).toHaveLength(0); // stockCount=0 ⇒ no se emite fila.
@@ -256,7 +263,7 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
       itemOf({ id: 'r1', productType: 'raw', listPriceCents: 12000 }),
       itemOf({ id: 'g1', productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: '10', listPriceCents: 90000 }),
     ];
-    const svc = new CatalogService(prismaWith(items) as PrismaService, p);
+    const svc = new CatalogService(prismaWith(items) as PrismaService, p, ivaDialsStub() as never);
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
     expect(res.data).toHaveLength(2);
@@ -274,13 +281,13 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
       itemOf({ id: 'u-caro', listPriceCents: 15000 }),
       itemOf({ id: 'u-barato', listPriceCents: 12000 }),
     ];
-    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing(), ivaDialsStub() as never);
     const { listings, units } = await svc.getCard('c1');
 
     // Grilla de la ficha = grupos.
     expect(listings).toHaveLength(1);
     expect(listings[0].stockCount).toBe(2);
-    expect(listings[0].salePriceCents).toBe(12000);
+    expect(listings[0].displayPriceCents).toBe(13920);
     expect(listings[0].representativeInventoryItemId).toBe('u-barato');
     // `units` = por-pieza, cheapest-first, para agregar inventoryItemId DISTINTOS al carrito.
     expect(units.map((u) => u.inventoryItemId)).toEqual(['u-barato', 'u-caro']);
@@ -298,24 +305,25 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
       itemOf({ id: 'div-caro', listPriceCents: 18000, createdAt: new Date('2026-08-05') }),
       itemOf({ id: 'div-barato', listPriceCents: 9900, createdAt: new Date('2026-08-02') }),
     ];
-    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing(), ivaDialsStub() as never);
 
     // (a) Listado de Compra: 1 grupo, representante = la pieza más barata, precio del grupo = mínimo.
     const list = await svc.listCards({ page: 1, pageSize: 20 });
     expect(list.data).toHaveLength(1);
     expect(list.total).toBe(1);
     expect(list.data[0].stockCount).toBe(2);
-    expect(list.data[0].salePriceCents).toBe(9900); // mínimo = piso «desde».
+    expect(list.data[0].displayPriceCents).toBe(11484); // `P` del mínimo = piso «desde» (`L = 9900`).
     expect(list.data[0].representativeInventoryItemId).toBe('div-barato');
 
     // (b) Ficha: `listings` (grupo) muestra el mínimo; `units[]` trae AMBAS piezas cheapest-first,
     // cada una con su salePriceCents EXACTO por-pieza (no el del grupo) para el cobro re-cotizado.
     const { listings, units } = await svc.getCard('c1');
     expect(listings).toHaveLength(1);
-    expect(listings[0].salePriceCents).toBe(9900);
+    expect(listings[0].displayPriceCents).toBe(11484);
     expect(listings[0].stockCount).toBe(2);
     expect(units.map((u) => u.inventoryItemId)).toEqual(['div-barato', 'div-caro']);
-    expect(units.map((u) => u.salePriceCents)).toEqual([9900, 18000]); // precio EXACTO por pieza, divergente.
+    // `P` EXACTO por pieza (`L ∈ {9900, 18000}`), divergente. ⛔ Nunca el del grupo.
+    expect(units.map((u) => u.displayPriceCents)).toEqual([11484, 20880]);
     expect(units.every((u) => u.sellable)).toBe(true);
   });
 
@@ -334,8 +342,9 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
     const items = specs.map((s) =>
       itemOf({ id: `it-${s.cardId}`, cardId: s.cardId, listPriceCents: s.price, card: cardOf({ id: s.cardId }) }),
     );
-    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
-    const ascExpected = [5000, 8000, 12000, 15000, 20000];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing(), ivaDialsStub() as never);
+    // ⭐ D56: la rejilla publica `P`; el ORDEN se calcula sobre `L` (monótono ⇒ mismo orden).
+    const ascExpected = [5800, 9280, 13920, 17400, 23200];
 
     // price_asc, pageSize=2 (cruza 3 páginas: 2 + 2 + 1). Recolecta todas las páginas.
     const seen: string[] = [];
@@ -346,7 +355,7 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
       expect(res.data.length).toBe(page === 3 ? 1 : 2);
       for (const g of res.data) {
         seen.push(g.representativeInventoryItemId);
-        collected.push(g.salePriceCents);
+        collected.push(g.displayPriceCents);
       }
     }
     // Orden global ascendente correcto a través de las páginas.
@@ -358,7 +367,7 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
     // price_desc: mismo conjunto, orden inverso; una sola página grande para el orden global.
     const desc = await svc.listCards({ page: 1, pageSize: 10, sort: 'price_desc' });
     expect(desc.total).toBe(5);
-    expect(desc.data.map((g) => g.salePriceCents)).toEqual([...ascExpected].reverse());
+    expect(desc.data.map((g) => g.displayPriceCents)).toEqual([...ascExpected].reverse());
   });
 });
 
@@ -376,7 +385,7 @@ describe('CatalogService.facets — facetas dinámicas sobre inventario publicad
       itemOf({ id: 'c', productType: 'sealed', sealedSubtype: 'box', listPriceCents: 300000, card: cardOf({ id: 'c3', rarity: 'Common' }) }),
     ];
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => items) } };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const f = await svc.facets();
 
     expect(f.rarities).toEqual(expect.arrayContaining(['Illustration Rare', 'Common']));
@@ -386,7 +395,9 @@ describe('CatalogService.facets — facetas dinámicas sobre inventario publicad
     expect(f.sets[1].year).toBe(1999);
     expect(f.productTypes).toEqual(expect.arrayContaining(['raw', 'sealed']));
     expect(f.sealedSubtypes).toEqual(expect.arrayContaining(['etb', 'box']));
-    expect(f.price).toEqual({ minCents: 5000, maxCents: 450000, currency: 'MXN' });
+    // ⭐ La faceta de precio es la que el comprador ve en el control de rango ⇒ `P`, coherente con
+    // el filtro `minPriceCents`/`maxPriceCents`. `L ∈ {5000, 450000}` ⇒ `P ∈ {5800, 522000}`.
+    expect(f.price).toEqual({ minCents: 5800, maxCents: 522000, currency: 'MXN' });
   });
 });
 
@@ -399,7 +410,7 @@ describe('CatalogService.getListing — 404 si no es visible en Compra', () => {
         ]),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     await expect(svc.getListing('pending')).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
@@ -466,7 +477,7 @@ describe('H9 / SB-D5 — la vista de SINGLES excluye el sellado (P-35 ancla-a-si
 
   it('listCards: el sellado NO aparece en el listado de singles (solo raw/graded)', async () => {
     const prisma = prismaHonoringWhere([rawSingle(), sealedBox()]);
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
     // v1.38-grouped-listings: el listado son GRUPOS → representativeInventoryItemId. El single raw sobrevive
@@ -480,7 +491,7 @@ describe('H9 / SB-D5 — la vista de SINGLES excluye el sellado (P-35 ancla-a-si
 
   it('getCard: la ficha del single (cardId ancla) NO mezcla la caja sellada, aunque sea la más reciente', async () => {
     const prisma = prismaHonoringWhere([rawSingle(), sealedBox()]);
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const { listings } = await svc.getCard('anchor');
 
     // Sin guardarraíl, `sealedBox` (createdAt más nuevo) sería listings[0] y pintaría la ficha como sellado.
@@ -491,15 +502,18 @@ describe('H9 / SB-D5 — la vista de SINGLES excluye el sellado (P-35 ancla-a-si
 
   it('el MISMO sellado SÍ aparece en GET /catalog/sealed (catálogo de sellado, servicio aparte)', async () => {
     const prisma = prismaHonoringWhere([rawSingle(), sealedBox()]);
-    const catalog = new CatalogService(prisma as PrismaService, pricing());
-    const settings = { getString: jest.fn(async () => 'off') } as unknown as SettingsService;
+    const catalog = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
+    const settings = {
+      getString: jest.fn(async () => 'off'),
+      ...ivaDialsStub(),
+    } as unknown as SettingsService;
     const sealed = new SealedCatalogService(prisma as PrismaService, pricing(), settings, catalog);
 
     const res = await sealed.listSealed({ page: 1, pageSize: 20 });
     expect(res.data).toHaveLength(1);
     expect(res.data[0].representativeItemId).toBe('box1');
     expect(res.data[0].sealedSubtype).toBe('box');
-    expect(res.data[0].fromPriceCents).toBe(450000);
+    expect(res.data[0].fromPriceCents).toBe(522000); // `P` de `L = 450000`
   });
 });
 

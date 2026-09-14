@@ -11,10 +11,18 @@ import {
   GUEST_CHECKOUT_TOKEN_TTL_MIN,
   GUEST_TRACKING_TTL_DAYS,
 } from '../src/modules/orders/guest-checkout.constants';
+import { IVA_DIALS_NEUTRAL, ivaDialsStub } from './helpers/iva-dials';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
+/** `F` — el dial `shipping_fee_cents`, que sigue siendo **NETO** y no cambia de valor (§4.44.f). */
 const SHIPPING = 17500;
+/**
+ * ⭐ `E = round(F × (1 + t·r))` — la tarifa **EXHIBIDA**, con su IVA dentro. Con el dial en 100 %
+ * vale `20300`, que es **exactamente** lo que antes aportaban `17500 + 2800` (money-neutral,
+ * `IVA-6(b)`).
+ */
+const SHIPPING_DISPLAY = 20300;
 
 const ADDRESS = {
   line1: 'Av. Reforma 100',
@@ -66,6 +74,8 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
   };
   const settings: any = {
     getNumber: jest.fn(async (key: string) => (key.includes('shipping') ? SHIPPING : IVA)),
+    // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+    ...ivaDialsStub(),
     getStripeFee: jest.fn(async () => FEE),
   };
   const stripe: any = {
@@ -94,6 +104,8 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     {} as never,
   );
   jest.spyOn(orders, 'priceCartForOrder').mockImplementation(async (ids: string[]) => ({
+    // ⭐ D56: el carrito preciado viaja CON los diales que produjeron sus precios (§M10-IVA.3).
+    ivaDials: IVA_DIALS_NEUTRAL,
     items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
@@ -118,6 +130,7 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
   // v1.21.3-quote-prune: el QUOTE usa la variante tolerante (poda por ítem). Por defecto todo
   // resuelve (`unavailableItems: []`); cada test de poda la re-mockea con sus muertos.
   jest.spyOn(orders, 'priceCartForQuote').mockImplementation(async (ids: string[]) => ({
+    ivaDials: IVA_DIALS_NEUTRAL,
     items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
@@ -210,18 +223,19 @@ describe('GuestCheckoutService.createSession', () => {
     expect(order.fulfillmentMode).toBe('direct_ship');
     expect(order.orderNumber).toBe('TCG-000123');
     expect(order.shippingAddressSnapshot).toMatchObject({ city: 'Ciudad de México', country: 'MX' });
-    expect(order.shippingFeeCents).toBe(SHIPPING);
+    // ⭐ La orden archiva la tarifa EXHIBIDA (§M10-IVA.4: `shippingFeeCents = E`, con IVA dentro).
+    expect(order.shippingFeeCents).toBe(SHIPPING_DISPLAY);
     expect(order.status).toBe('pending');
   });
 
   it('INVARIANTE 2: UN SOLO PaymentIntent por el total (cartas + envío + IVA + fee)', async () => {
     const { svc, stripe } = buildService();
     const res = await svc.createSession(validDto() as never);
-    const expected = computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE);
+    const expected = computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE);
     expect(stripe.createPaymentIntent).toHaveBeenCalledTimes(1);
     expect(stripe.createPaymentIntent.mock.calls[0][0].amountCents).toBe(expected.totalCents);
     expect(res.breakdown).toEqual(expected);
-    expect(res.breakdown.shippingFeeCents).toBe(SHIPPING);
+    expect(res.breakdown.shippingFeeCents).toBe(SHIPPING_DISPLAY);
   });
 
   it('la metadata del PaymentIntent NO lleva userId (no hay usuario) y marca el pedido como guest', async () => {
@@ -296,7 +310,7 @@ describe('GuestCheckoutService.quote', () => {
     const { svc } = buildService();
     const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
     expect(res.fulfillmentMode).toBe('direct_ship');
-    expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
+    expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
     expect(res.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
   });
 
@@ -310,7 +324,8 @@ describe('GuestCheckoutService.quote', () => {
       // La señal de shape "destino bóveda" es la AUSENCIA de la línea de envío (ni 0 ni presente).
       expect(res.vaultBreakdown).not.toHaveProperty('shippingFeeCents');
       // IVA solo sobre las cartas (no sobre subtotal + envío como en el direct_ship).
-      expect(res.vaultBreakdown.ivaCents).toBe(Math.round((25000 * IVA) / 100));
+      // ⭐ RESIDUAL del subtotal (que ya lleva el IVA dentro), ⛔ no `round(S × r)`.
+      expect(res.vaultBreakdown.ivaCents).toBe(25000 - Math.round((25000 * 100) / (100 + IVA)));
       // Total de bóveda = grossUp(subtotal + iva), y NO el total con envío.
       expect(res.vaultBreakdown.totalCents).toBe(expectedVault.totalCents);
     });
@@ -318,8 +333,8 @@ describe('GuestCheckoutService.quote', () => {
     it('el `breakdown` direct_ship SIGUE con envío y sus fórmulas (no cambia); vaultBreakdown < breakdown', async () => {
       const { svc } = buildService();
       const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
-      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
-      expect(res.breakdown.shippingFeeCents).toBe(SHIPPING);
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
+      expect(res.breakdown.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       // El destino bóveda ahorra el envío: su total es estrictamente menor.
       expect(res.vaultBreakdown.totalCents).toBeLessThan(res.breakdown.totalCents);
     });
@@ -327,6 +342,7 @@ describe('GuestCheckoutService.quote', () => {
     it('carrito 100 % podado ⇒ `vaultBreakdown` en CEROS presente, SIN shippingFeeCents', async () => {
       const { svc, orders } = buildService();
       (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
+        ivaDials: IVA_DIALS_NEUTRAL,
         items: [],
         subtotalCents: 0,
         lines: [],
@@ -340,6 +356,10 @@ describe('GuestCheckoutService.quote', () => {
         processingFeeCents: 0,
         totalCents: 0,
         currency: 'MXN',
+        // ⭐ El cero también tiene convención (§M10-IVA.4): sin ella el front no sabría si el
+        // rótulo «IVA incluido» aplica a la línea siguiente.
+        priceConvention: 'IVA_INCLUSIVE',
+        ivaIncluded: true,
       });
       expect(res.vaultBreakdown).not.toHaveProperty('shippingFeeCents');
     });
@@ -374,12 +394,13 @@ describe('GuestCheckoutService.quote', () => {
       const { svc } = buildService();
       const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
       expect(res.unavailableItems).toEqual([]);
-      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
     });
 
     it('mezcla: cotiza SOLO los válidos y devuelve los muertos en `unavailableItems`', async () => {
       const { svc, orders } = buildService();
       (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
+        ivaDials: IVA_DIALS_NEUTRAL,
         items: [{ id: 'viva', folio: 'INV-viva' }],
         subtotalCents: 25000,
         lines: [
@@ -399,7 +420,7 @@ describe('GuestCheckoutService.quote', () => {
       } as never);
       expect(res.items.map((i) => i.inventoryItemId)).toEqual(['viva']);
       // El breakdown se calcula SOLO con los válidos (con envío: sí hay algo que mandar).
-      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
       expect(res.unavailableItems).toEqual([
         { inventoryItemId: 'vendida', cardName: 'Antique Skull Fossil' },
         { inventoryItemId: 'borrada', cardName: null },
@@ -409,6 +430,7 @@ describe('GuestCheckoutService.quote', () => {
     it('carrito 100 % muerto ⇒ items: [], breakdown EN CEROS con shippingFeeCents: 0, y conserva fulfillmentMode/notices', async () => {
       const { svc, orders, prisma } = buildService();
       (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
+        ivaDials: IVA_DIALS_NEUTRAL,
         items: [],
         subtotalCents: 0,
         lines: [],
@@ -424,6 +446,8 @@ describe('GuestCheckoutService.quote', () => {
         subtotalCents: 0,
         shippingFeeCents: 0,
         ivaCents: 0,
+        priceConvention: 'IVA_INCLUSIVE',
+        ivaIncluded: true,
         ivaRatePct: IVA,
         processingFeeCents: 0,
         totalCents: 0,

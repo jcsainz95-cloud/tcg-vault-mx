@@ -3,6 +3,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.53-b (I-2, enrutado por el gate QA/techlead) — **el hueco que un `!` tapaba con un comentario.**
@@ -142,7 +143,7 @@ function serviceWith(items: Array<Record<string, unknown>>): CatalogService {
     },
     card: { findUnique: jest.fn(async () => CARD()) },
   } as unknown as PrismaService;
-  return new CatalogService(prisma, pricingWithRealKey());
+  return new CatalogService(prisma, pricingWithRealKey(), ivaDialsStub() as never);
 }
 
 /** Lo que el cliente REALMENTE recibe: un campo `undefined` desaparece al serializar. */
@@ -154,7 +155,7 @@ describe('I-2 — la cadena de QA existe: la pieza legacy SÍ llega al agrupador
     // Esta es la afirmación que desmiente el comentario anterior («en la práctica no llega ninguna»).
     expect(detail.units).toHaveLength(1);
     expect(detail.units[0].sellable).toBe(true);
-    expect(detail.units[0].salePriceCents).toBe(500_000);
+    expect(detail.units[0].displayPriceCents).toBe(580_000); // `P` de `L = 500000`
     // Y su precio es el override EXPLÍCITO del admin, no un PSA 10 inventado: por eso el hallazgo
     // NO es una fuga de dinero. `priceBasis` lo dice en el propio DTO.
     expect(detail.units[0].priceBasis).toBe('override');

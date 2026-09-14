@@ -62,7 +62,9 @@ const listing = (over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSu
   finish: 'normal',
   gradeKey: 'raw:NM',
   stockCount: 1,
-  salePriceCents: 140800,
+  displayPriceCents: 140800,
+  ivaIncluded: true,
+  ivaRatePct: 16,
   currency: 'MXN',
   ...over,
 });

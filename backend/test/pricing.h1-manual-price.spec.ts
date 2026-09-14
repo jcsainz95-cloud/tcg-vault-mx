@@ -8,6 +8,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { firstPresentAmount, hasManualPrice, isPresentAmount } from '../src/common/money';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
+import { ivaDialsStub } from './helpers/iva-dials';
 import {
   BulkPublishLineInput,
   CreateItemDto,
@@ -112,9 +113,9 @@ describe('E5-bis — el predicado H-1 es UNO (§4.36.6)', () => {
 describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TODAS las superficies', () => {
   it('storefront / ficha (`toListingDTO`): cobra la CURVA, no $0 — y es vendible', async () => {
     const pricing = pricingMock();
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
-    expect(dto.salePriceCents).toBe(CURVE_PRICE);
+    expect(dto.displayPriceCents).toBe(CURVE_PRICE + Math.round((CURVE_PRICE * 16) / 100));
     expect(dto.priceBasis).toBe('market'); // NO 'override': el 0 no es un override
     expect(dto.sellable).toBe(true); // antes: false, la pieza desaparecía de Compra
   });
@@ -125,10 +126,13 @@ describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TO
     const settings = {
       getNumber: jest.fn(async () => 16),
       getStripeFee: jest.fn(async () => ({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 })),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
     } as unknown as SettingsService;
     const svc = new OrdersService(prisma, pricing, settings, {} as StripeService, {} as CatalogService);
     const res = await svc.quote(['i1']);
-    expect(res.items[0].unitPriceCents).toBe(CURVE_PRICE);
+    // ⭐ D56: el checkout congela `P`, y sigue siendo el MISMO número que publica el storefront.
+    expect(res.items[0].unitPriceCents).toBe(CURVE_PRICE + Math.round((CURVE_PRICE * 16) / 100));
   });
 
   it('publicación (`resolvePublishSalePrice`): deriva por la curva en vez de listar a $0', async () => {
@@ -162,9 +166,9 @@ describe('E5-bis — una pieza con `listPriceCents = 0` da el MISMO precio en TO
 
   it('el override MANUAL legítimo (`> 0`) sigue ganando en todas partes (no se cambió nada sano)', async () => {
     const pricing = pricingMock();
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM({ listPriceCents: 9900 }) as never);
-    expect(dto.salePriceCents).toBe(9900);
+    expect(dto.displayPriceCents).toBe(11484); // `P` de `L = 9900`
     expect(dto.priceBasis).toBe('override');
   });
 });

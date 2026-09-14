@@ -53,12 +53,12 @@ describe('api (rama mock, v1.1)', () => {
     const res = await getCatalog({});
     expect(res.data.length).toBeGreaterThan(0);
     // v1.38-grouped-listings: cada GRUPO trae stockCount≥1 (vivo) y salePriceCents del grupo (nunca 0).
-    expect(res.data.every((g) => g.stockCount >= 1 && g.salePriceCents > 0)).toBe(true);
+    expect(res.data.every((g) => g.stockCount >= 1 && g.displayPriceCents > 0)).toBe(true);
   });
 
   it('getCatalog filtra por rango de precio (centavos)', async () => {
     const res = await getCatalog({ maxPriceCents: 50000 });
-    expect(res.data.every((l) => (l.salePriceCents ?? 0) <= 50000)).toBe(true);
+    expect(res.data.every((l) => (l.displayPriceCents ?? 0) <= 50000)).toBe(true);
   });
 
   it('getCatalogFacets devuelve rarezas, sets con año (desc) y rango de precio', async () => {
@@ -308,7 +308,7 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
     expect(res.stripe.clientSecret).toBeTruthy();
     expect(res.stripe.paymentIntentId).toBeTruthy();
     // El total = subtotal + IVA + fee (BreakdownDTO); mayor que el subtotal de la carta.
-    expect(res.breakdown.totalCents).toBeGreaterThan(group.salePriceCents);
+    expect(res.breakdown.totalCents).toBeGreaterThan(group.displayPriceCents);
   });
 
   it('createShipment cobra el envío settled y devuelve clientSecret; MX-only y ITEM_NOT_SETTLED', async () => {

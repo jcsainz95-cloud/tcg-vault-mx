@@ -7,6 +7,7 @@ import {
   type InjectedSession,
   type SeedRole,
   sessionFor,
+  sessionForCredentials,
 } from './env';
 
 /**
@@ -50,6 +51,19 @@ import {
 
 export { IS_REAL, sessionFor };
 export type { SeedRole, InjectedSession };
+
+/**
+ * ⭐ **B-2 — pide ranura antes de TECLEAR el formulario de login.**
+ *
+ * `sessionFor` acota los canjes **por API**, pero el throttler del producto
+ * (`{ ttl: 60_000, limit: 5 }` por IP sobre `POST /auth/login`, medido 2026-09-14) **no distingue**
+ * quién dispara: un login por formulario —que es el producto bajo prueba— gasta exactamente el
+ * mismo cupo. Los specs que escriben credenciales tienen que pasar por aquí, o vuelven a dejar sin
+ * cupo a los demás workers y el siguiente caso muere **60 s en blanco, sin decir por qué**.
+ *
+ * Se re-exporta desde `./auth` para que ningún spec tenga que importar `./state` (plumbing).
+ */
+export { reserveLoginSlot } from './state';
 
 /** Regex de estructura de moneda MXN (`MX$1,234.00`): asserts por FORMATO, no por monto de fixture. */
 export const MONEY_RE = /MX\$[\d,]+\.\d{2}/;
@@ -127,6 +141,28 @@ export async function loginAs(page: Page, role: SeedRole = 'customer'): Promise<
       ...(temp ? { mustChangePassword: true, hasPassword: true, nameSource: 'user' } : {}),
     },
   };
+  await injectSession(page, session);
+  return session;
+}
+
+/**
+ * Igual que `loginAs`, pero para un actor que **no está en el seed**: los DESECHABLES que
+ * `utils/temp-actors.ts` da de alta por `POST /admin/users` para poder medir la contraseña temporal
+ * de §33.8 sin depender de cuándo se resembró por última vez.
+ *
+ * Solo tiene sentido en REAL (en mock el actor con temporal se inyecta con `loginAs('customerTemp')`,
+ * que es lo que sigue haciendo el spec). Se marca explícito en vez de degradar en silencio.
+ */
+export async function loginAsDisposable(
+  page: Page,
+  actor: { email: string; password: string },
+): Promise<InjectedSession> {
+  if (!IS_REAL) {
+    throw new Error(
+      'loginAsDisposable solo aplica contra el backend real: en mock usa loginAs(page, "customerTemp").',
+    );
+  }
+  const session = await sessionForCredentials(`disposable(${actor.email})`, actor);
   await injectSession(page, session);
   return session;
 }

@@ -28,6 +28,125 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.53 — ⭐⭐ **D56: EL BLOQUE INDIVISIBLE DEL IVA, COMPLETO** (2026-09-14)
+
+> Propiedad: **backend**. Implementa `API_CONTRACT §M10-IVA` entera (v1.75) y `ARCHITECTURE §4.44` +
+> `§4.55`. **Las doce piezas que el censo `§M10-IVA.9.f` marcaba como NO construidas**, menos las tres
+> de frontend (14, 15, 16), que no son mías.
+>
+> ⚠️ **Lo que NO medí, arriba del todo y sin adornos:** **no tengo Postgres en este entorno**
+> (`pg_isready` ⇒ *no response*, `DATABASE_URL` sin definir). ⇒ **la suite de INTEGRACIÓN/E2E la
+> escribí pero NO la corrí.** La actualicé entera —era obligatorio: afirmaba *«toda fila nueva nace
+> `IVA_EXCLUSIVE`»*, que D56 invierte— y **QA es quien la mide**. Lo que sí corrí, entero y verde, es
+> la suite **unitaria**: **313 suites / 5 150 pruebas**.
+
+### 0.53.1 — La forma del cambio, en una frase por pieza
+
+| Pieza (§M10-IVA.9.f) | Dónde vive ahora |
+|---|---|
+| **7 · derivación de `P`** | `common/money.ts` `displayPriceCentsOf` (se **mudó** desde `modules/settings/iva-transfer.ts`, que la re-exporta). Cableada en **dos** sitios y solo dos: `catalog.toListingRow` (storefront) y `orders.derivedSaleDecision` (checkout) |
+| **8 · los tres breakdowns** | `common/money.ts` `inclusiveBreakdown` — **un solo cuerpo** del que derivan `computeCartBreakdown`, `computeShipmentBreakdown` y `computeDirectShipBreakdown`. `BreakdownDTO` gana `priceConvention` + `ivaIncluded` |
+| **9 · los tres campos de cliente** | `ListingDTO`, `GroupedListingDTO`, `GroupedListingSummaryDTO` (`salePriceCents` → **`displayPriceCents`** + `ivaIncluded` + `ivaRatePct`) y `SealedGroupDTO`/`…Summary` (`fromPriceCents` conserva el nombre, gana los dos campos) |
+| **10 · asignación del IVA del envío** | `common/money.ts` `netShippingRevenueCents` — *el residual del residual*. El cuerpo que había en `admin.service.ts` era **literalmente** la mutación que `IVA-9` declara roja |
+| **11 · P&L del costo de envío** | `admin.pnl()`: `netShippingCostCents(s)` (RESTA) + `shippingCostMissingCount`; captura en `TrackingDto.shippingCostIvaCents` → `setTracking` |
+| **12 · tarjeta bruto/neto** | `admin.dashboard()`: `salesPeriod` con las seis cifras de §M10-IVA.7. `amountCents` **desaparece** |
+| **13 · flip a `IVA_INCLUSIVE`** | Los **cinco** escritores usan `PRICE_CONVENTION_OF_NEW_ROWS` (una constante, ⛔ no cinco literales) y archivan `Order.ivaTransferPct` |
+| **6 · `GET …/iva-transfer/preview`** | `settings.controller.ts`, con `parseRequiredIntQuery` y las dos cotas |
+| **17 · los siete candados** | `test/iva-1-neutralidad`, `iva-2-grossup-base`, `iva-4-redondeo`, `iva-6-envio`, `iva-9-asignacion-envio`, `iva-10-tablero`, `iva-11-costo-envio` — todos con **canario** |
+
+### 0.53.2 — ⛔ Las tres discrepancias con el contrato, ENRUTADAS AL ARQUITECTO (regla 9)
+
+**Ninguna bloquea, ninguna se «arregló» por mi cuenta, y las tres están asertadas con el valor
+MEDIDO y su razón escrita al lado.**
+
+| # | Qué dice el contrato | Qué medí | Qué hice |
+|---|---|---|---|
+| **`N-BE-IVA-1`** | `§M10-IVA.5` (`IVA-2`): la mutación `G = S + iva` produce **`14164`** | **`14139`**. `grossUpTotal(13200) = ceil((13200 + 1.16·300)/(1 − 1.16·0.036)) = ceil(14138.6)`. El `14164` sale de aplicar *«+13.6 %»* sobre `12469` en vez de correr el gross-up; el factor real es **1.1339** | Asierto **lo NORMATIVO** (*«rojo si `totalCents > 12469`»*) tal cual, y la ilustración con el valor **medido**. *Un test que asierta un número que el código no puede dar no mide el código: mide el documento.* |
+| **`N-BE-IVA-2`** | `§M10-IVA.7`: la tarjeta de ventas *«ya es de campos financieros ⇒ `super_admin`; `vault_operator` no la recibe (**sin cambio**)»* | **`vault_operator` SÍ la recibe hoy**: `salesPeriod` vive en `card`, que se devuelve a los dos roles (`admin.service.ts`, antes de este pase) | **Sin regresión y sin exposición nueva**: `vault_operator` conserva `count` + `grossAmountCents` (el rename de lo que ya veía) y **los cuatro campos financieros nuevos van SOLO a `super_admin`**. ⛔ Retirarle la tarjeta entera habría sido un cambio de conducta que el contrato describe como «sin cambio» |
+| **`N-BE-IVA-3`** | `§2`: `minPriceCents`/`maxPriceCents` del catálogo — el contrato **no dice** sobre qué precio filtran tras D56 | Filtraban sobre `L`. Bajo la convención nueva, el comprador **ve y teclea `P`** | Filtro y faceta pasan a **`P`** (coherente con lo que ve); el **orden** sigue sobre `L` (monótono ⇒ mismo resultado, y sin depender del redondeo). Si el arquitecto prefiere `L`, es **una línea** en `catalog.service.ts` |
+
+### 0.53.3 — ⭐⭐ `N-IVA9-7` MEDIDO: el `500` del `/preview`… y el que el contrato no vio
+
+El contrato dejó esto como **NO MEDIDO**: *«que el `/preview` sin cota produzca hoy un `500`. No
+puede medirse: el endpoint no existe»*. **Medido ahora, y son DOS hallazgos:**
+
+1. **La norma era correcta.** Sin cota, `samplePriceCents = 2e9` ⇒ `P = 2.32e9 > MAX_CENTS` ⇒
+   `grossUpTotal` lanza un **`Error` pelado** (*«total exceeds MAX_CENTS»*) que el filtro global ⛔
+   **no mapea** ⇒ **`500` desde la barra de direcciones** con sesión `super_admin`. Con la cota:
+   **`400`** con `details.field`. Asertado en `settings.iva-transfer-preview-endpoint.spec.ts` y en el
+   e2e.
+2. ⚠️ **Y NO era solo del `/preview`: el `PUT` del ACUSE tenía el MISMO `500`, y ya existía.**
+   `validateSamplePriceCents` admitía hasta `MAX_CENTS`; con ese `L`, `displayPriceCentsOf` da
+   `2 491 081 030` y `grossUpTotal` lanza. ⇒ **la cota `[1, 100_000_000]` se aplicó a las DOS
+   puertas**, no solo a la que el contrato nombró. *La norma preventiva del arquitecto acertó en la
+   clase y se quedó corta en el alcance.*
+
+### 0.53.4 — ⭐⭐ EL HALLAZGO QUE MÁS ME PREOCUPA: `stripComments` se quedaba CIEGO
+
+**Es un instrumento de pruebas, y del que cuelgan siete candados** (`enum-values-parity`,
+`price-convention-writers`/`IVA-12`, `query-axis-census`, `sell-request-states` y tres `IVA-*`).
+
+**El defecto:** quitaba **primero** los bloques con una regex global y **después** las colas de línea.
+Con eso, una línea `//` que contuviera la secuencia de apertura de bloque —como
+`// … viaja solo en /admin/*`, que vive en **cinco** ficheros de `src/`— **abría un bloque** que se
+comía el fichero hasta el siguiente cierre.
+
+**Lo que costó, medido:** en `guest-checkout.service.ts` se tragó **la escritura de la columna
+`ivaTransferPct`**, y mi censo del criterio **209** reportó que ese fichero *«no la emite»*. **Verde,
+sobre código que sí estaba ahí.** ⇒ reescrito como **autómata de un paso** (código / cadena /
+plantilla / línea / bloque), con canario propio: `test/strip-comments.spec.ts`.
+
+> *Un candado cuyo instrumento puede quedarse ciego necesita una prueba del instrumento, no del
+> candado.* Lo destapó una prueba nueva al **esperar un fichero en un conjunto exacto y no
+> encontrarlo** — ⛔ no un rojo del candado que se apoyaba en él.
+
+### 0.53.5 — Decisiones de implementación que otros roles necesitan saber
+
+- ⭐⭐ **UN SOLO `switch` sobre `PriceConvention` en todo `backend/src`**: `money.ivaIsIncluded`.
+  `netRevenueCents`, `netShippingRevenueCents`, `shipmentNetRevenueCents` y el desglose **delegan**.
+  `IVA-12(b)` nombra al lector **en singular** y así sigue siendo (el censo da `{money.ts: 1}`).
+- ⭐ **`ShipmentRequest` netea por RESTA, ⛔ nunca con la tasa**: esa tabla **no tiene `ivaRatePct`**
+  y usar el dial vivo haría que un P&L histórico cambiara al mover `iva_pct` (incumple `IVA-5`).
+  Helper propio: `shipmentNetRevenueCents`.
+- ⭐ **`CatalogService` gana `SettingsService` `@Optional()`** (⛔ y sin valor por defecto: sin diales
+  **LANZA**). El `@Optional()` es por los tests unitarios que lo construyen a mano; en la app
+  `SettingsModule` es `@Global` y siempre se inyecta.
+- ⭐ **Los diales se izan UNA vez por petición** (`fetchSellable`, `priceCartForOrder`,
+  `priceCartForQuote`). ⛔ Jamás por pieza: dos líneas del mismo carrito derivadas con posiciones
+  distintas del dial darían un subtotal que no corresponde a ninguna posición.
+- ⭐ **`PricedCart` lleva los diales que produjeron sus precios** y la orden archiva **ése**, ⛔ no una
+  segunda lectura: entre preciar y escribir cabe un `PUT /admin/settings/iva-transfer`.
+- ⚠️ **El umbral de `AMOUNT_TOO_LARGE` se movió, y es conducta**: bajo `IVA_EXCLUSIVE` la base del
+  gross-up era `S × 1.16`, así que `2e9` desbordaba; bajo `IVA_INCLUSIVE` **`G = S`** y `2e9` **cabe**
+  (`grossUpTotal(2e9) ≈ 2.087e9`). ⛔ **El guardarraíl no se debilitó**: sigue rechazando exactamente
+  lo que no cabe en `Int32`. Lo que cambió es el importe, porque cambió el total.
+- ⭐ **El gate de curaduría de graduadas razona sobre `L`, ⛔ nunca sobre `P`.** Los estimados PSA son
+  cifras de MERCADO (sin IVA); darle `P` movería el umbral `salePrice × maxRawMultiple` un `t·r`
+  **sin que nadie decida moverlo**. Por eso `SellableRow` lleva `listPriceCents` en el sobre.
+- ⭐ **El admin sigue viendo `L`** (`PROJECT §Q.5`): el diagnóstico de curaduría conserva
+  `salePriceCents` y vale el precio de LISTA.
+- **`C-EQ-1`:** `NO_ENUM_POR_RUTA` gana **dos** entradas y su tope pasa de **36 a 38**.
+  ⛔ **`NO_ENUM_TRANSVERSAL` NO se tocó**: su `toEqual` de 14 nombres queda igual.
+- ⚠️ **COSTE EN CONSULTAS, medido y dicho**: `SettingsService` ⛔ **no cachea** (cada `getNumber` es
+  un `findUnique`). `getIvaDials` usa **`getRawMany` ⇒ UNA query** para las dos filas, no dos. Neto
+  por ruta: **catálogo +1** (antes no leía ningún dial de IVA), **`quote`/`createSession` ±0** (leían
+  `iva_pct` por su cuenta y ya no). Se iza **una vez por petición**, ⛔ nunca por pieza.
+
+### 0.53.6 — Para FRONTEND, lo que rompe a propósito
+
+| Antes | Ahora | Por qué rompe |
+|---|---|---|
+| `ListingDTO.salePriceCents` | **`displayPriceCents`** + `ivaIncluded` + `ivaRatePct` | *Un front que no migrara seguiría pintando la mentira sin que nada fallara.* Con el rename, **no compila** |
+| `GroupedListingDTO.salePriceCents` · `…SummaryDTO` | ídem | ídem |
+| `SealedGroupDTO.fromPriceCents` | **mismo nombre**, ahora con IVA dentro, + los dos campos REQUERIDOS | la semántica «desde» no cambia; lo que impide pintar la mentira son los dos campos nuevos |
+| `BreakdownDTO` | + `priceConvention` + `ivaIncluded` | la línea de IVA **INFORMA, no suma**: `total = subtotal + envío + comisión` |
+| `dashboard.salesPeriod.amountCents` | **`grossAmountCents`** (+ 4 campos para `super_admin`) | la tarjeta pasa de una cifra a dos (`IVA-10(c)`) |
+| — | `GET /admin/settings/iva-transfer/preview` | **ya existe**: `IvaTransferSection.tsx` dejaba de dar `404` |
+
+⛔ **Y lo que NO cambió:** valuación de bóveda/portafolio, «valor de mercado», estimados PSA,
+cotizador de buylist y sus cinco correos, y `GET /admin/settings` (el dial **sigue sin salir ahí**,
+`IVA-8(f)`).
+
 ## 0.52 — **§31.5(c): las dos rayas del bloque de marca eran dos bloques grises de 216×72** (2026-09-10)
 
 > Propiedad: **backend** (`src/modules/buylist/mail-shell.ts`). Lo levantó **frontend** midiendo con
@@ -22448,3 +22567,974 @@ justo lo que la v1.73 retiró del contrato.
 | `N-EQD0-1` | **La fila de §0-Q punto 4 para los seis ejes de la bóveda.** La conducta ya conforma y está medida; el registro del contrato no los nombra | añadir filas a §0-Q es cambiar el contrato |
 | `N-EQD0-2` | **Ratificar la clase que este pase MIDIÓ**: `sealedSubtype`/`condition` = **E** derivadas de `SealedSubtype`/`SealedCondition` (mismo nombre y mismo enum que `/catalog/sealed`, que §0-Q ya registra como E); `sort` = **ORDEN** con dominio **L** tomado de la línea del endpoint de §3 | la clase la decide él |
 | `N-EQD0-3` | **Si `?sort=` de la bóveda debería declararse en §0-Q punto 4 junto con los otros seis `?sort=` que siguen abiertos**, o uno a uno | es una decisión de forma del registro |
+
+---
+
+## D56 / §M10-IVA.9 — LA PUERTA DEL DIAL DE TRASLACIÓN DEL IVA (backend · `settings` · 2026-09-14, medido)
+
+> **Alcance de este pase:** `backend/src/modules/settings/`, `backend/src/common/error-codes.ts`
+> (dos códigos) y `backend/test/`. ⛔ **No toca** `prisma/`, `orders`, `payments`, `shipments`,
+> `mail`, `users`, `buylist` ni `frontend/` (había otros dos agentes escribiendo en el mismo árbol).
+> **Medido sobre `HEAD = fc2295f` + este pase.**
+
+### Qué quedó construido
+
+| Ruta | Qué hace |
+|---|---|
+| `GET /api/v1/admin/settings/iva-transfer` | Lectura del dial (§M10-IVA.1). Devuelve `{ ivaTransferPct, ivaRatePct, samplePriceCents, current: IvaTransferPositionDTO }`. `super_admin`, sin efectos |
+| `PUT /api/v1/admin/settings/iva-transfer` | **La puerta ÚNICA** (§M10-IVA.2, criterio **213**). `{ ivaTransferPct, acknowledgement: { samplePriceCents, previewedNetDeltaCents } }` → `{ ivaTransferPct, preview }`. `super_admin`, transaccional, auditado |
+
+**Ficheros nuevos:** `src/modules/settings/iva-transfer.ts` (aritmética PURA + el candado de la
+puerta), `test/settings.iva-transfer-gate.spec.ts`, `test/helpers/price-convention-writers.ts`,
+`test/iva-12-price-convention-writers.spec.ts`.
+
+**Códigos nuevos** (`common/error-codes.ts`): `IVA_TRANSFER_ACK_REQUIRED` (422),
+`IVA_TRANSFER_ACK_STALE` (409). Los dos ya estaban normados en el contrato; sólo faltaba el enum.
+
+### Las decisiones que otro rol necesita saber
+
+1. **El delta NO depende de los diales de Stripe.** `netDeltaPerUnitCents` sale de `iva_pct`, del
+   dial vigente y del propuesto. `totalChargedCents` sí usa la comisión, pero es **informativo**.
+   ⇒ un cambio de comisión entre que la pantalla muestra la cifra y el operador guarda **no**
+   produce un `409`. *Un acuse que caducara por algo que no es lo que se está decidiendo enseñaría a
+   reintentar sin leer.*
+2. **El acuse es del MOVIMIENTO, no del destino.** Con el dial en `100`, ir a `50` cuesta `−690`;
+   con el dial ya en `50`, ir a `0` cuesta `−689`. Confirmar `−690` en el segundo caso ⇒ `409`.
+3. **Candado propio (`pg_advisory_xact_lock`, clave `64_440_950`), y el orden es la regla:**
+   candado → releer el vigente **con el `tx`** → validar el acuse → escribir → auditar. Mismo patrón
+   y mismo motivo que `lockFxGate` (`S-FX-1`). ⛔ Clave distinta a propósito: compartirla
+   serializaría dos diales que no comparten ningún invariante.
+4. **Idempotente:** un `PUT` con el valor vigente no pide acuse, **no escribe y no audita**.
+5. **Aritmética ENTERA.** `P = L + round(L·t·r/10000)` y `base = round(P·100/(100+r))`; el IVA sale
+   por **RESTA**. ⛔ Ningún `1.16` en el camino del dinero. Cota medida: el producto intermedio
+   máximo (`MAX_CENTS × 100 × 100 ≈ 2.1e13`) cabe exacto en `Number.MAX_SAFE_INTEGER`.
+6. **`IVA-8(b)` intacto:** `iva_transfer_pct` **sigue fuera de `SETTING_DTO_MAP`** ⇒
+   `PUT /admin/settings { ivaTransferPct }` sigue siendo `422` clave desconocida.
+7. **`IVA-7` intacto y medido por ausencia:** `getStripeFee()` no contiene ninguna referencia al
+   dial, y hay un test que lee su cuerpo y lo exige.
+8. **`D-AV-3` corregido:** el comentario de `settings.constants.ts` que difería la puerta al
+   «DEPLOY 2» está derogado **con su cita** y con la lista fila a fila de lo que **sigue vigente**
+   (§M10-IVA.9.b). Se corrigieron además otras dos menciones al deploy 2 en el mismo fichero.
+
+### Lo medido (⚠️ y lo NO medido)
+
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` | **0 errores** atribuibles a este pase (los únicos errores del árbol estaban en `src/modules/shipments/mail/shipment-notice.templates.ts`, **fichero de otro agente, en vuelo**) |
+| `settings.iva-transfer-gate.spec.ts` | **52/52** |
+| `iva-12-price-convention-writers.spec.ts` | **12/12** |
+| `settings.iva-transfer-pct.spec.ts` (prosa actualizada, aserciones intactas) | **32/32** |
+| **Batería de mutación** (copia del árbol ENTERO, `scratchpad/be-iva/mut`) | **14/14 en ROJO** |
+| Integración / HTTP real | ⚠️ **NO MEDIDO en este pase** — requiere Postgres y la corre QA |
+
+**Las mutaciones, una a una** (N=1 cada una salvo donde se indica; ninguna es probabilística —son
+deterministas sobre el árbol copiado—):
+
+| # | Qué reintroduce | Resultado |
+|---|---|---|
+| M1 | `netRevenueCents = displayPriceCents` (el P&L cuenta el IVA como ingreso) | **ROJA**, 13 fallos |
+| M2 | el IVA por multiplicación en vez de por residual | **ROJA**, 5 fallos |
+| M3 | divisor `10_000` → `1_000` en `P` | **ROJA**, 12 fallos |
+| M4 | `floor` en vez de `round` en la base | **ROJA**, 7 fallos |
+| M5′ | **el acuse deja de ser obligatorio** (se autorrellena) | **ROJA**, 3 fallos |
+| M6′ | **el acuse RANCIO se acepta** (sin `409`) | **ROJA**, 2 fallos |
+| M7 | `S-FX-1`: el candado se toma **después** de leer el vigente | **ROJA**, 1 fallo |
+| M8′ | la bitácora no se escribe dentro de la transacción | **ROJA**, 2 fallos |
+| M9 | `validateIvaTransferPct`: `isInt` → `isNum` (`37.5` pasa) | **ROJA**, 2 fallos |
+| M10 | `getStripeFee()` lee `IVA_TRANSFER_PCT` (rompe `IVA-7`) | **ROJA**, 3 fallos |
+| M11′ | el escáner de `IVA-12` se queda **ciego** (censo vacío) | **ROJA**, 3 fallos |
+| M12 | **escritor NUEVO de `IVA_EXCLUSIVE`** en la misma línea que uno censado | **ROJA**, 1 fallo |
+| M13 | el patrón de escritor deja de casar | **ROJA**, 7 fallos |
+| M14 | escritor nuevo por variable ⇒ `unclassified` | **ROJA**, 1 fallo |
+
+> ⚠️ **Dos correcciones del INSTRUMENTO, dichas porque cambian lo que el número significa.**
+> **(a)** La primera tirada dio `11/13`, y **uno de los dos supervivientes era un error mío de
+> medición**: la mutación de `isInt→isNum` se aplicó al **primer** `return isInt(...)` del fichero,
+> que es el de `validateIvaPct`, no el del dial. Con el ancla correcta: **ROJA**. *Una mutación que
+> no toca lo que dice tocar no mide nada.*
+> **(b)** El otro superviviente era **un hueco real y lo cerró la mutación**: el escáner de `IVA-12`
+> clasificaba **línea a línea**, así que **dos escritores en la misma línea contaban como uno**. Se
+> reescribió para clasificar **por aparición**, y el canario `m8` reintroduce exactamente esa
+> mutación. *Un candado que cuenta líneas mide el formateador, no el código.*
+> **(c)** `M5`, `M6`, `M8` y `M11` en su primera forma (`if (false && …)`) ponían el rojo **por
+> error de compilación**, no por aserción — `false &&` mata el estrechamiento de tipos de TS. Se
+> repitieron con variantes que **compilan** (`M5′`, `M6′`, `M8′`, `M11′`) y las cuatro siguen rojas
+> **por aserción**. *Un rojo de compilador no demuestra que el test mira lo que dice mirar.*
+
+### ⛔ `IVA-12` NO ESTÁ CERRADO, y el candado lo dice en voz alta
+
+**Censo medido (`backend/src`, tras este pase): 5 escritores de `IVA_EXCLUSIVE`, 1 lector, 0 sin
+clasificar.** Los cinco viven en `modules/orders` (×3, `guest-checkout` incluido),
+`modules/payments` (×1) y `modules/shipments` (×1).
+
+⛔⛔ **Y cambiar esos cinco literales NO es la conversión: sería un defecto de dinero.** Medido:
+`rg "displayPriceCents" backend/src` ⇒ **0**. La derivación de `P` (§M10-IVA.3/.4) **no existe**,
+así que hoy `subtotalCents` **no lleva el IVA dentro**. Etiquetar esa misma fila como
+`IVA_INCLUSIVE` haría que `netRevenueCents()` devolviera `subtotal − iva` = **8400** donde el
+criterio **191** exige **10000**: el P&L **no reventaría, MENTIRÍA**, y `IVA-1` quedaría en rojo.
+
+⇒ `iva-12-price-convention-writers.spec.ts` deja un **trinquete** (por fichero y por cuenta, no por
+línea: las líneas se mueven con ediciones ajenas) que **no deja crecer** el censo y que **obliga a
+pasar por ese fichero** para cerrar `IVA-12`. La forma final del candado es
+`ESCRITORES_PENDIENTES = {}`.
+
+### Para el ARQUITECTO (regla 9) — tres cosas que este pase NO podía decidir
+
+| # | Qué | Por qué es suyo |
+|---|---|---|
+| `N-IVA9-1` | ⭐⭐ **`GET /admin/settings/iva-transfer/preview` NO se construyó.** §M10-IVA.2 lo define con `?ivaTransferPct=&samplePriceCents=`, o sea **dos ejes de query nuevos**; el changelog v1.74 (d) declara ⛔ *«CERO parámetros de query nuevos en toda la rev ⇒ §0-Q y `C-EQ-1` no se tocan»*. **Las dos frases no pueden ser ciertas a la vez.** Construirlo pone `C-EQ-1` en rojo (dos huérfanos) salvo que crezcan sus listas de exención — que es justo lo que (d) prohíbe. **Consecuencia práctica: el frontend no tiene hoy de dónde sacar el delta para el criterio 188 antes de guardar.** Opciones que el arquitecto puede tomar: (i) autorizar los dos ejes y dos líneas en `C-EQ-1`; (ii) mover el preview a `POST …/preview` con cuerpo; (iii) devolver el juego de posiciones desde el `GET`. ⛔ No elijo yo: cambia el contrato |
+| `N-IVA9-2` | **¿Viaja `ivaTransferPct` en `GET /admin/settings`?** §M10 y §M10-IVA.1 dicen que **sí** (*«READ-ONLY en este `GET`»*, y la lista del DTO lo nombra). El comentario que §M10-IVA.9.b **ratifica** dice que **no** (*«ni sale en `GET /admin/settings`»*), y hay un e2e vigente que asierta la ausencia (`test/integration/iva-price-convention.e2e-spec.ts`). **No lo cambié**: sigue fuera del DTO. Si la respuesta es «sí», es una línea aquí y un e2e que se corrige |
+| `N-IVA9-3` | **Forma del `GET /admin/settings/iva-transfer`.** §M10-IVA.1 lo nombra como superficie de lectura pero **no publica su DTO**. Se devolvió `{ ivaTransferPct, ivaRatePct, samplePriceCents, current }` **reutilizando `IvaTransferPositionDTO`** y ⛔ sin inventar nombres de campo nuevos. Falta ratificarlo |
+
+---
+
+## §R · CENTRO DE AVISOS — los ONCE correos, la campana DERIVADA y M-57 (backend · `avisos` · 2026-09-14, medido)
+
+> **Qué implementa:** `API_CONTRACT §R` completa (R.0–R.10) y `ARCHITECTURE §4.54`.
+> **Qué NO decide:** el **texto** de cada correo y la **forma** de la campana son de **ux-ui**; lo de
+> aquí es *qué* aviso existe, *de qué* cuelga, *a quién* llega y *cómo* sale **una sola vez**.
+> **Medido sobre `fc2295f`** (rama `claude/tcg-hunt-orchestration-2`).
+
+### 1. La regla que gobierna los once: `D-AVISO-2` — **sellar y LUEGO enviar**
+
+```
+UPDATE … SET <sello> = now() WHERE id = :id AND <sello> IS NULL   →  count === 1  ⇒ SE MANDA
+                                                                  →  count === 0  ⇒ ⛔ NO se manda
+```
+
+⛔ **No se inventó el mecanismo: se heredó.** El precedente vivo es `jobs/buylist-sweep.service.ts`
+(`sendReminders`), que ya reclama el derecho a avisar exactamente así y con su motivo escrito —*«dos
+corridas concurrentes tampoco pueden mandarlo dos veces»*—. §R **aplica doctrina, no la estrena**.
+
+**Las tres propiedades del envío, y las tres son invariantes de este pase:**
+1. **POST-COMMIT.** El sello se reclama **fuera** de la transacción de negocio. Meterlo dentro ataría
+   el dinero al correo: *un fallo de Resend podría revertir un pago*.
+2. **BEST-EFFORT.** Todo el envío va dentro de un `try`. ⛔ Nunca propaga, nunca revierte una
+   transición, nunca hace que el webhook de Stripe responda `!= 2xx`.
+3. **⚠️ El precio, dicho entero:** si el envío falla **después** de sellar, **ese correo no vuelve a
+   salir**. Se acepta a propósito —es la misma decisión que el barrido ya tomó— y la red de seguridad
+   es **la pantalla**, que siempre tiene el dato.
+
+⭐ **Orden dentro del envoltorio: primero se resuelve el DESTINATARIO, luego se reclama el sello.** Al
+revés, un envío sin destinatario (cuenta anonimizada, envío huérfano) **quemaría el aviso para
+siempre**. Candado: *«el sello NO se quema cuando no hay destinatario»*.
+
+### 2. M-57 — **tres** columnas, y por qué no once
+
+| Sello | Por qué hace falta |
+|---|---|
+| `KycProfile.kycRejectionNoticeSentAt` | `updateUserKyc` hace `upsert` y **no mira el estado actual** ⇒ N rechazos = N correos. **Es el ÚNICO de los once sin guarda de motor** |
+| `ShipmentRequest.trackingNoticeSentAt` | `setTracking` **no tenía ninguna guarda** (`D-AV-1`) |
+| `SellRequest.guideNoticeSentAt` | `adminGuide` es **re-capturable a propósito** («se corrige el número, no se mueve la fecha») |
+
+**Los otros OCHO no estrenan columna**: su «una sola vez» ya la da una guarda que este sistema
+construyó para **no cobrar dos veces** (`updateMany` + `count === 1`, `sealOnceTx`, los early-return
+de `settled`/`refunded`, el corto-circuito de `pay-spei` y la tabla `TRANSITIONS` de M4).
+
+**Las tres: nullable, sin `@default`, sin backfill, sin índice y ⛔ FUERA DE TODO DTO.** Candado
+`test/avisos.seals-out-of-dto.spec.ts`, que mide las dos mitades (el esquema **y** las proyecciones).
+
+⭐ **Reinicio por VALOR, no por evento** (§R.4.b): los sellos de guía (`AV-4`/`AV-7`) se limpian **en
+la misma escritura que cambia la etiqueta**, si y solo si el par `(carrier, trackingNumber)` queda
+**distinto**. Re-capturar el mismo número **no reenvía**; corregirlo **sí avisa**.
+
+### 3. Dónde vive cada aviso (⛔ no hay módulo `notifications`)
+
+| Módulo | Avisos | Fichero de plantillas |
+|---|---|---|
+| `admin` | `AV-1` | `admin/mail/kyc-notice.templates.ts` |
+| `orders` (disparado desde `payments`) | `AV-2`, `AV-3` | `orders/mail/order-notice.templates.ts` |
+| `shipments` | `AV-4`, `AV-5`, `AV-6` | `shipments/mail/shipment-notice.templates.ts` |
+| `buylist` | `AV-7`, `AV-8`, `AV-9` | `buylist/buylist-notice.templates.ts` |
+| `disputes` | `AV-10`, `AV-11` | `disputes/mail/dispute-notice.templates.ts` |
+
+⛔ **`mail/` no se tocó por dentro**: cada módulo inyecta `MAIL_PORT` `@Optional()` y renderiza su
+plantilla local — el patrón que estrenaron `buylist` (v1.18) y `orders` (v1.21). **§4.11 no cambia.**
+
+⭐⭐ **Y la defensa de contenido es de FORMA, no de disciplina: ninguna plantilla recibe la FILA.**
+Reciben **campos sueltos**. `Order.ivaTransferPct` y `ShipmentRequest.ivaTransferPct` son columnas, así
+que un correo que renderizara «la orden» **filtraría el dial sin que nadie lo escribiera** (criterio
+209). Lo vigila `C-AV-9`, que busca el nombre **y** el valor en el JSON/HTML de los once.
+
+### 4. La campana: `GET /api/v1/me/pendings`
+
+**Derivada, lista blanca cerrada de UN código, cero query, `no-store`, `customer+`.** ⛔ Sin tabla
+`Notification`, sin bandeja, sin «marcar como leído». Resolutor: `users/pendings.service.ts`
+(la **única** pieza compartida del centro de avisos).
+
+- ⛔ **El resolutor no contiene ninguna referencia a `SellOfferState`** — medido **por lo negativo
+  sobre el código** en `C-AV-8`, con su canario (y midiendo **líneas de código**, no comentarios: el
+  docblock **nombra** la prohibición, y nombrarla no es referenciarla).
+- ⚠️ **Decisión de borde que tomé yo y declaro:** una fila `rejected` **anterior a M-54** no tiene
+  `reviewedAt`. `since` cae a `updatedAt` en vez de omitir el pendiente. *Omitirlo escondería una
+  obligación real por un detalle de migración, que es fallar hacia el lado equivocado.*
+- ⚠️ **La cláusula (b) del predicado es hoy inalcanzable por la API** (el intake responde
+  `422 INE_REQUIRED`). Se implementó igual, y el E2E la **siembra por SQL**. ⛔ QA no debe perseguirla
+  por el camino del cotizador.
+
+### 5. `D-AV-1` CERRADA — y las dos decisiones de borde que **son del arquitecto**
+
+`setTracking` escribía `status:'guia'` **incondicionalmente**: un envío `entregado` o `cancelado`
+**volvía a `guia`** — una **cola falsa**, y *el fallo se ve mientras que la cola falsa no*. Ahora:
+
+| estado actual | conducta | de dónde sale |
+|---|---|---|
+| `solicitado`, `picking` | escribe etiqueta **y** `status:'guia'` | `TRANSITIONS` |
+| `guia`, `enviado`, `entregado` | escribe etiqueta, ⛔ **no toca `status`** | §M4, literal: *«idempotente sobre carrier/tracking; no regresa el estado si ya está en `guia`/posterior»* |
+| `cancelado` | **`409 CONFLICT`**, cero escritura | `TRANSITIONS['cancelado'] = []` |
+
+⚠️ **Para el ARQUITECTO (regla 9), dos ratificaciones:**
+1. **`entregado` responde `200`, no `409`.** Tomé la lectura literal del contrato («no regresa el
+   estado»), que **no dice «rechaza»**: corregir el número de una guía ya entregada es legítimo
+   (devolución, reclamación al transportista) y lo único prohibido era **el retroceso**.
+2. **`cancelado` responde `409`** — por paridad con `updateStatus`, que es lo que `ARCHITECTURE §9`
+   sugiere entre paréntesis. **Es el único rechazo NUEVO del pase**, y ⛔ **no cierra ningún camino
+   que la pantalla ofrezca**: medido, `M4View.tsx:244` **oculta el botón de captura** en `cancelado`
+   y en `entregado`. Si el arquitecto prefiere otro código, es una línea.
+
+**`N-AV-3` (§4.54.6) queda CONTESTADA en su mitad de conducta:** hoy `POST /admin/shipments/:id/tracking`
+sobre un envío `entregado` responde **`200` y conserva el estado**; sobre `cancelado`, **`409`**.
+Medido con la suite unitaria (`avisos.shipments.spec.ts`), ⛔ **no por HTTP** — la comprobación por
+HTTP sigue siendo de QA.
+
+### 6. El hallazgo del pase: **el mock incompleto era el canario de un fallo real**
+
+Al cablear `AV-2`/`AV-3` se pusieron rojos dos specs de `payments` cuyo mock de Prisma **no tenía
+`prisma.user`**. La lectura fácil era «arreglar el fixture». La correcta: **esa lectura del
+destinatario estaba FUERA del `try`**, o sea una consulta a la BD **sin red** en el camino del webhook
+de Stripe ⇒ un hipo de la BD habría hecho que el webhook respondiera `!= 2xx` y **Stripe habría
+reintentado un settle ya aplicado**. Es exactamente lo que `C-AV-10` existe para impedir. Se movió la
+resolución del destinatario **dentro** del `try` en los cinco envoltorios (`payments`, `shipments`,
+`buylist`, `disputes`, `admin`), y quedó un test que lo fija con el mock **deliberadamente
+incompleto**. *Los dos specs rojos no eran ruido: eran la medición.*
+
+### 7. Los candados, y dónde corre cada uno
+
+| Candado | Dónde | Corre sin infra |
+|---|---|---|
+| `C-AV-1` (conteo exacto, por exceso) | mitad envíos en `avisos.shipments.spec.ts`; mitad mudos en `avisos.orders.spec.ts` / `avisos.kyc-cycle.spec.ts`; **el recorrido COMPLETO es de QA** | parcial |
+| `C-AV-2` (un aviso por ciclo) | `avisos.kyc-cycle.spec.ts` + `integration/avisos.e2e-spec.ts` | sí / no |
+| `C-AV-3` (dos y ninguno al entregar) | `avisos.shipments.spec.ts` | sí |
+| `C-AV-4` (la guía con su número) | `avisos.shipments.spec.ts` (comprador) · `avisos.buylist.spec.ts` (vendedor + plazo) | sí |
+| `C-AV-5` (registrado e invitado) | `avisos.orders.spec.ts` | sí |
+| `C-AV-6` (la campana) | (c) y (d) en `avisos.pendings.spec.ts` + E2E; **(a) y (b) son de frontend/QA** | parcial |
+| `C-AV-7` (el predicado) | `avisos.pendings.spec.ts` + E2E (cláusula (b) **sembrada por SQL**) | sí / no |
+| `C-AV-8` (la oferta no se filtra) | `avisos.pendings.spec.ts` (por lo negativo sobre el código) + E2E (byte a byte) | sí / no |
+| `C-AV-9` (ni cifras, ni derecho, ni diales) | `avisos.copy-guard.spec.ts` — **los once a la vez**, es/en, + los **seis presets** leídos del frontend | sí |
+| `C-AV-10` (el correo no tumba el dinero) | repartido: `orders`, `buylist`, `disputes`, `kyc-cycle` | sí |
+| `C-AV-11` (destinatario) | `avisos.shipments.spec.ts` | sí |
+
+**Cada bloque trae su CANARIO** (ablación que demuestra que el candado muerde). Y
+`avisos.copy-guard.spec.ts` es **exhaustivo sobre los exports** de los cinco ficheros de plantillas:
+*una plantilla nueva rompe el test hasta que alguien la clasifique.*
+
+### 8. Lo que NO medí, y no lo relleno con una suposición
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `N-AV-B1` | ~~**Nada de esto corrió contra Postgres**: este entorno no tiene BD (`pg_isready` ⇒ *no response*; `DATABASE_URL` ausente). La suite **unitaria** sí corrió entera; `test/integration/avisos.e2e-spec.ts` **NO se ha ejecutado ni una vez**~~ ⇒ **CERRADO el 2026-09-14** (ver §B-1/QA-B1 al final de este documento): el entorno **sí** tiene Postgres 16 vivo, `avisos.e2e-spec.ts` corrió **10/10 verde** y se le sumó `avisos-sellos.e2e-spec.ts`, que cierra los otros dos sellos contra BD real. ⚠️ **Con un hallazgo abierto dentro** (`D-AVISO-2` bajo concurrencia desde `NULL`) | — (cerrado) |
+| `N-AV-B2` | **El recorrido COMPLETO del `C-AV-1`** (un pedido y una solicitud de venta de punta a punta, contando la bandeja) **no está escrito como una sola corrida**. El instrumento sí está: el E2E espía el `MAIL_PORT` de la app, que es la bandeja | un E2E de ciclo completo, o la corrida de QA con ese espía |
+| `N-AV-B3` | **`N-AV-1`/`N-AV-2` (§4.54.6) siguen abiertos**: cuántas filas `kycStatus='rejected'` hay **hoy en producción**. ⚠️ **Es la decisión de si `AV-1` necesita interruptor de despliegue**, y es del dueño/arquitecto, ⛔ no mía. Si hay filas viejas, el primer despliegue les manda correo de un rechazo que ya olvidaron | un `count(*)` con usuario de solo lectura, o corrido por el dueño |
+| `N-AV-B4` | **`N-AV-4`**: si el reclamo de un pedido de invitado exige el mismo correo. **No bloquea** —la regla de §R.5 (`guestEmail` gana) es correcta en los dos casos y hay candado para ello— pero no lo leí | leer §4-G.9 + `order-claim.service.ts` |
+
+---
+
+## B-1 / QA-B1 — **«el producto está bien, la instrumentación no»**: las cinco rojas de D56, dos candados que no gateaban y el hueco de los sellos (backend · `test/integration` · 2026-09-14, medido)
+
+**Encargo:** QA rechazó el corte con ese veredicto y enrutó siete cosas. **Qué se tocó: sólo
+`backend/test/`.** ⛔ **Cero cambios en `backend/src/`** — se comprueba con
+`git diff --stat` del commit: no aparece ningún fichero de `src/`.
+
+**Dónde se midió:** BD **propia y exclusiva** de este agente (`tcg_beqab1`, O-8 aplicado al recurso
+BD), **recreada desde cero** antes de cada corrida, con el bloque de entorno de devops
+(`scripts/stack-native.sh test:integration` con `DATABASE_URL` propia). ⛔ No se tocó
+`tcg_marketplace`, que es la que sirve el stack vivo de los otros agentes.
+
+### 1. Las cinco rojas: **las cinco eran de la PRUEBA**, y cada una con su cita
+
+QA acertó la dirección en las cinco. El rename de D56 `salePriceCents → displayPriceCents`
+(`P = round(L × 1.16)`) se propagó al producto y **no** a estos cinco puntos del código de prueba.
+
+| # | Fichero:línea | Lado malo | Cita que lo decide |
+|---|---|---|---|
+| 1 | `catalog-checkout-webhook:176` | **prueba** | `API_CONTRACT:19414` — `subtotalCents … = Σ displayPriceCents ⇒ YA lleva el IVA dentro`. El fichero **ya estaba migrado** en `:105`; éste se quedó. ⭐ Y el `P` se aplica **por línea** (`IVA-4(a)`: `Σ items[].unitPriceCents == subtotalCents` exacto), ⛔ no `P(Σ L)` |
+| 2 | `checkout-reservation-owner:408` | **prueba** | §M10-IVA.3 — *«`unitPriceCents` es el `P` congelado»*. El test escribía un **`L`** en `listPriceCents` y exigía que el quote devolviera **ese mismo número**. Se separan los dos nombres (`nuevoL` vs `frozenUnit`) para que no se puedan volver a cruzar |
+| 3 | `graded-estimate:614` | **prueba** | `precioAntes` se leyó de `displayPriceCents` (**`P`**) y se comparaba contra `E2E_LIST_OVERRIDE_CENTS`, que es el **`L`** (`e2e-fixtures.ts:380`). ⇒ el ancla es `P(L)`. **El 8f que también fallaba era CASCADA de éste**: 8e aborta antes del bloque de recaptura de su final y 8f se queda sin filas |
+| 4 | `graded-estimate-inv-d-inverse:198` | **prueba**, y **medio migrada** | `API_CONTRACT:730` — *«`salePriceCents` DESAPARECE DE LA SUPERFICIE PÚBLICA»*. Leía `esperado.salePriceCents` de una **ficha pública** ⇒ `undefined`, y su comentario afirmaba que ahí venía el `L`. **Nunca vino**: la ficha jamás devolvió un `L`. Ahora compara **`P` contra `P`**, que es lo que el oráculo quería decir |
+| 5 ⭐⭐ | `iva-price-convention:585` | **prueba** | `API_CONTRACT:19483` — `shippingRevenueCents: number,  // NETO (sin cambio)`. Sumaba **BRUTO** de las dos tablas. `Δ 2 800` = el IVA de un envío de `20 300` (17 500 neto), el mismo número de `IVA-11(a)`. El código netea **los dos** sumandos por la convención **de cada fila** (`admin.service.ts:1504` y `:1537`) |
+
+⚠️ **La 5 es el candado del propio bloque del IVA, así que no se arregló copiando la cifra que salió**
+—eso lo convertiría en una fotografía—: **se reescribió el oráculo en SQL con la regla del contrato**,
+igual que hace el `it` de `incomeCents` de al lado. Y se le añadió **la dirección** como desigualdad
+(`shippingRevenueCents < Σ bruto`), porque un `toBe` contra un oráculo SQL se pondría verde si alguien
+“simplificara” los dos `CASE` **en los dos lados a la vez**, que es exactamente la regresión que este
+`it` acababa de sufrir.
+
+### 2. Los dos candados que no gateaban
+
+**`IVA-3(d)` (`iva-price-convention:210`) — dependía del orden.** Contaba `ivaTransferPct IS NOT NULL`
+sobre **toda la tabla**, con este razonamiento al lado: *«en el deploy 1 esa fecha es el futuro, así que
+la cota es todas las filas — más fuerte, no menos»*. Era cierto **mientras ninguna ruta viva escribía el
+dial**; **D56 ES ese despliegue**. Medido: **aislada ⇒ 0 filas** (verde), **en la corrida completa ⇒ 28**
+(rojo). Se acota **como lo escribe el contrato** (`… AND "createdAt" < <fecha del deploy>`), anclando
+la frontera en la fila que la siembra fecha en el pasado a propósito (`E2E_GUEST_ORDER.createdAt` =
+`2026-01-08`), **+ control de no-vacuidad** (un `count == 0` sobre una ventana vacía es verde y no mide
+nada). ⛔ **No** se acotó por `priceConvention`, que sería circular: esa columna es *la otra mitad* de lo
+que se quiere probar.
+*(`ShipmentRequest` no tiene `createdAt`: su fecha de alta es `requestedAt` — medido sobre
+`information_schema`.)*
+
+**`IVA-11(d)`, el `it` de al lado, tenía la MISMA trampa latente** y se dejó anotada en el código: ya no
+es verdad que *«ninguna ruta escribe esta columna»* (`setTracking` la captura desde §M10-IVA.8); lo que
+sostiene su cota global hoy es que **ninguna suite de integración captura un crédito ≠ 0** (medido).
+
+**`pricing-visibility` — el intermitente 1/3, y el indeterminismo NO estaba donde se veía el rojo.**
+QA lo atribuyó a indexar `listings[0]`. Eso es **la mitad**. La causa raíz estaba en otro fichero:
+`stripe-in-tx-pool.e2e-spec.ts:58` elegía su carta plantilla con un **`findFirstOrThrow` sin `orderBy`**
+⇒ unas veces `charizard` y otras `common`; y esa suite **clona 24 piezas `listed` sin `listPriceCents`**
+(precio de mercado) y **las deja vivas**. Cuando le tocaba `common`, esas piezas caían en el **mismo
+grupo** que el override `E2E-LST-0002`, eran **más baratas** y **le robaban la representación** ⇒ la
+ficha publicaba `priceBasis:'market'`.
+
+> **Demostrado, no supuesto.** Inyecté a mano una pieza contaminante en `common` y la ficha devolvió
+> exactamente `[{"rep":"canary-pollute-1","basis":"market","precio":8120}]` — el `'market'` de QA,
+> reproducido a voluntad. Retirada la pieza, verde otra vez.
+
+Dos arreglos: **(a)** la plantilla se fija por folio, como ya hacían sus dos suites hermanas; **(b)**
+`pricing-visibility` localiza el grupo **por su representante**, y si no lo encuentra **lanza con el
+censo de grupos dentro del mensaje** en vez de asertar en silencio sobre el grupo equivocado.
+**Medido: 10/10 verde**, y la carta plantilla fue `e2e-charizard` en **10/10**.
+
+### 3. El hueco de los sellos de M-57 — cerrado, y con un HALLAZGO dentro
+
+Nuevo: **`backend/test/integration/avisos-sellos.e2e-spec.ts`** (11 `it`). Cubre contra Postgres real
+`trackingNoticeSentAt` y `guideNoticeSentAt` (antes **sólo `kycRejectionNoticeSentAt`** se ejercitaba
+contra BD), el reinicio del ciclo **por VALOR** (§R.4.b) y el **criterio 210 por HTTP**.
+
+**Por qué un unitario no podía cerrarlo:** la garantía de `D-AVISO-2` **no es un `if`**, es
+`updateMany({ where: { id, [sello]: null } })` **+ `count === 1`**, y con Prisma mockeado ese `count`
+**es una constante que escribe el propio test**. La prueba medía su suposición sobre Postgres.
+
+> ### ⚠️⚠️ HALLAZGO ABIERTO — `D-AVISO-2` **no se cumple** al partir del sello en `NULL` (envíos)
+>
+> **Medido: con `N = 8` capturas simultáneas del MISMO número sobre un envío nuevo, salen 2 y hasta 3
+> correos. 3 de 5 corridas en rojo (`2, 2, 3`; las otras 2 dieron 1), BD recreada cada vez.**
+>
+> **Mecanismo:** `setTracking` decide si reinicia el ciclo con
+> `labelChanged = shipment.carrier !== carrier || …` calculado sobre una **lectura PREVIA** al update
+> (`shipments.service.ts:735`). Con N concurrentes **las N leen el estado anterior**, las N se creen
+> «el cambio» y las N escriben `trackingNoticeSentAt: null` ⇒ una puede **borrar el pestillo que otra
+> acababa de echar**. *El pestillo funciona; lo que falla es que se le puede quitar el cerrojo desde
+> fuera.* Es la promesa de «no mandar dos veces» al cliente (§R.4 / criterio 209).
+>
+> ⛔ **NO se parcheó**, y se dice por qué: **este encargo era de instrumentación** («arregla la
+> instrumentación, no el producto») y el arreglo es de **producto** — mover la decisión al MOTOR
+> (`§4.48.4`, *«la guarda va en el motor»*) con un `updateMany` condicionado al valor viejo, lo que
+> toca semántica de `NULL` en Prisma y el entrelazado de dos escrituras. **Se enruta al arquitecto.**
+>
+> ⛔ **Tampoco se asertó en rojo ni se debilitó**: un candado 3/5 **no gatea** (es la misma regla por
+> la que se arregló `pricing-visibility` en este mismo pase). Lo que **sí** queda asertado, y es
+> determinista, es el pestillo **una vez echado**: con el sello puesto, 8 concurrentes ⇒ **CERO**
+> correos, contra Postgres real. El hallazgo queda escrito **en el propio spec**, donde se va a buscar.
+>
+> ⚠️ `guideNoticeSentAt` tiene **la misma forma** de decisión previa; partiendo de `NULL` dio **5/5
+> verde**, pero **5/5 no es una demostración** y por eso su candado se escribió en la forma
+> determinista. Su guarda de negocio corre dentro de una transacción y **estrecha la ventana, no la
+> cierra**.
+
+### 4. Dos intermitentes AJENOS que aparecieron al medir (ninguno lo introduce este pase)
+
+| # | Qué | Medición | Dueño |
+|---|---|---|---|
+| `QAB1-1` | **`guest-chargeback.e2e-spec.ts` sembraba filas DELIBERADAMENTE CORRUPTAS y no las barría.** El caso D4 necesita un `ShipmentRequest` con `orderId` → orden `vault`. Esa fila **envenena `GET /admin/shipments` para todas las suites de atrás**: `adminList` mapea con `withAdminKind` ⇒ `isDirectShipFulfillment` ⇒ **`409` en un GET**. Rompía `enum-query-axes` (3 fallos), que **es inocente: aislada pasa 3/3**. Intermitente porque `adminList` pagina (`requestedAt asc`, `pageSize` 20) y la fila corrupta es tardía | **1 de 3** corridas completas | **ARREGLADO aquí** (es instrumentación y es `backend/test/`): se registra y se barre en el `afterAll`. ⛔ El caso D4 no se toca: mide lo que debe |
+| `QAB1-2` | **`buylist-step-guard.e2e-spec.ts` · `S-2`** lanza `receive`→`verify` con **20 ms** de desfase y exige **5/5**. Bajo la carga de la suite completa, una iteración recibe `409` — que es **la guarda funcionando**, no un defecto del producto | **2 de 5** corridas completas (`N=5`, BD recreada cada vez); **aislada 5/5 verde (N=5)** | **NO tocado.** Es un candado sensible a la carga de la máquina, y **es el único rojo que queda** en la suite de integración. Se reporta; el arreglo es de quien lo escribió (§M5-S) |
+
+### 5. Lo que NO medí (⛔ no se rellena con una suposición)
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `N-QAB1-1` | **No reproduje yo el `1/3` original de `pricing-visibility`**: mis corridas completas cayeron del lado bueno. Lo que sí demostré es **el mecanismo**, inyectando la pieza contaminante a mano, y que el arreglo lo elimina en origen (10/10). La proporción `1/3` es **de QA**, no mía | volver a correr la suite completa con la plantilla despinada |
+| `N-QAB1-2` | **No medí si `guideNoticeSentAt` es realmente seguro** bajo concurrencia desde `NULL`: 5/5 verde **no demuestra** ausencia de carrera, sólo que no salió en 5 tiradas | N≥30, o leer la transacción de `adminGuide` con el entrelazado en la mano |
+| `N-QAB1-3` | **No medí el coste del hallazgo en producción** (cuántos envíos reales podrían recibir doble correo): depende de si dos operadores capturan a la vez, y **no hay datos de producción** (`HECHOS.md`: la tienda no ha procesado ninguna venta real) | — |
+| `N-QAB1-4` | **No corrí la suite E2E de frontend (Playwright)** ni el DAST: no son mías y el árbol lo comparten otros dos agentes | QA |
+
+### 6. Las mediciones, con su `N` y sobre qué árbol
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| **Reproducción del rechazo** (árbol `9328880`, BD recreada) | las 5 suites que QA marcó | **5 suites / 8 `it` en rojo**, deterministas. QA acertó la dirección en las cinco |
+| **Integración COMPLETA, `N = 5`** (BD recreada **cada** corrida) | `stack-native.sh test:integration` con `DATABASE_URL` propia | **42 suites · 912 pruebas**. **3/5 corridas 912/912 verde**; **2/5** con **1** rojo, siempre el mismo y **ajeno**: `buylist-step-guard · S-2` (`QAB1-2`) |
+| **Las 5 suites que QA marcó** | dentro de esas mismas 5 corridas | **5/5 verde** |
+| `pricing-visibility` + su contaminador | `N = 10`, BD recreada | **10/10 verde**, y la carta plantilla fue `e2e-charizard` en **10/10** (antes: sin `orderBy`, indeterminada) |
+| **Canario del diagnóstico** | pieza contaminante inyectada a mano en `common` | la ficha devolvió `[{"rep":"canary-pollute-1","basis":"market","precio":8120}]` ⇒ **el `'market'` de QA, reproducido a voluntad**. Retirada: verde |
+| `avisos` + `avisos-sellos` | `N = 5`, BD recreada | **5/5 verde · 21/21** |
+| **El hallazgo abierto** (`D-AVISO-2` desde `NULL`, envíos) | `N = 5`, `N_concurrentes = 8` | **3/5 en ROJO** (`2, 2, 3` correos; 2/5 dieron 1) |
+| `guideNoticeSentAt` desde `NULL` | `N = 5`, `N_concurrentes = 8` | **5/5 verde** — ⛔ **no es una demostración**, y por eso no se convirtió en candado |
+| **Unitarios sobre copia del ÁRBOL ENTERO** (`git archive`/`tar` con `docs/` dentro — si no, las suites de paridad documental salen rojas por falta de ficheros, no por defecto) | `9328880` **vs** árbol de trabajo | **313 suites · 5 150 pruebas** en los **DOS**, verde. **El TOTAL no se movió** ⇒ ⛔ ningún unitario apagado ni perdido |
+| **Typecheck** | `tsc --noEmit` | limpio |
+
+**Delta de la suite de integración: 902 → 912 pruebas (+10) y 41 → 42 suites (+1).** Todo el `+` es
+`avisos-sellos.e2e-spec.ts`. ⛔ **Ninguna prueba se borró, se saltó ni se debilitó**: los dos candados
+que se reescribieron (`IVA-3(d)` y `D-IVA-5`) salieron **más fuertes**, con control de no-vacuidad y
+con la dirección asertada como desigualdad.
+
+---
+
+## §BE-AV2 (2026-09-14) — `D-AVISO-2` bajo concurrencia: la decisión baja al MOTOR, en tres sitios
+
+> **Sobre qué sha:** el defecto se midió sobre **`f8c7040`**; el arreglo se midió sobre el árbol de
+> trabajo de ese mismo sha (el orquestador commiteó a mitad una instantánea WIP, `64a70f7`, con mi
+> trabajo dentro — ver la trampa de método al final, que casi me cuesta el diagnóstico).
+
+### 1. El defecto, y el mecanismo CONFIRMADO con un canario
+
+El pase anterior dejó abierto que `POST /admin/shipments/:id/tracking` manda **dos correos** cuando
+llegan capturas simultáneas del **mismo** número. Confirmado y ampliado:
+
+| Camino | Antes (`f8c7040`) | Después |
+|---|---|---|
+| `setTracking` (envíos, `trackingNoticeSentAt`) | **8 de 25** tiradas con 2 correos | **0 de 65** (40 con 8 concurrentes + 25 con 16) |
+| `adminGuide` (buylist, `guideNoticeSentAt`) | **6 de 25** tiradas con 2 correos | **0 de 65** |
+
+⭐ **`guideNoticeSentAt` SÍ comparte el defecto.** El pase anterior midió `5/5 verde` y escribió que
+*«5/5 no es una demostración»*: tenía razón. Con `p ≈ 0.24`, cinco verdes seguidos salen el **25 %**
+de las veces. **Y su transacción no lo salvaba**: serializa las escrituras por el candado de fila,
+pero cada petición sigue decidiendo con el valor que leyó **antes** de esperar, y el sello se reclama
+**post-commit y fuera** de la transacción. *La transacción estrechaba la ventana; no la cerraba.*
+
+**El mecanismo que describió el orquestador es CORRECTO**, y no me limité a leerlo: lo aislé con un
+canario. Misma carrera, misma concurrencia, `N = 25`, **con la etiqueta ya escrita en la fila** ⇒
+`labelChanged` falso para todas ⇒ nadie borra el sello ⇒ **0/25 rojas**, contra **8/25** con las
+columnas en `NULL`. La única variable que cambia entre los dos es el borrado del sello.
+
+### 2. El arreglo: `UPDATE … WHERE <la etiqueta es distinta>`, y `count === 1` manda
+
+La comparación se baja al `WHERE`, así que **decidir y escribir son una sola operación**. Bajo
+`READ COMMITTED`, Postgres **re-evalúa la cualificación sobre la versión ya actualizada** de la fila
+(`EvalPlanQual`) cuando dos `UPDATE` compiten ⇒ **exactamente UNA** obtiene `count === 1`.
+`labelChanged` deja de ser una opinión sobre el pasado y pasa a ser **lo que el motor hizo**.
+
+> ⚠️ **`carrier IS NULL OR …` NO es defensivo, es obligatorio.** Medido: Prisma 5 traduce
+> `{ not: v }` a **`col <> $1` a secas** (SQL emitido, capturado con el log de consultas). En SQL
+> `NULL <> 'DHL'` es UNKNOWN ⇒ **no casa**. Sin la rama explícita de `null`, la **primera** captura
+> —que es justo la que avisa— no limpiaría el sello y **el correo no saldría nunca**: el defecto con
+> el signo cambiado, de dos correos a **cero**.
+
+### 3. El candado: se FUERZA el entrelazado, no se espera
+
+⛔ **La prueba obvia —8 peticiones a la vez— NO sirve como candado**, y se comprobó midiéndola:
+`p ≈ 0.32` por tirada significa que **una sola tirada deja pasar la regresión 2 de cada 3 veces**.
+El candado nuevo abre una transacción propia, hace `SELECT … FOR UPDATE`, deja dentro el estado de
+«otra captura ya terminó y ya avisó», y suelta; la petición que espera queda **comprobada en
+`pg_stat_activity`**, no supuesta (`test/integration/helpers/row-lock-barrier.ts`).
+
+**Ablación (`f8c7040` restaurado verbatim, `N = 10` corridas): ROJO 10/10 en los dos `it`. Con el
+arreglo: VERDE 10/10.** Determinista en las dos direcciones.
+
+### 4. ⭐ El TERCER sitio, y es la misma raíz: `SERIALIZABLE` sin reintento ⇒ `500`
+
+`POST /buylist/requests` con dos altas simultáneas daba **`500 INTERNAL`**
+(`PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock`).
+
+**Sí es la misma familia** —concurrencia sobre estado compartido— pero conviene decir en qué se
+diferencia, porque el remedio es otro: los dos primeros eran un **defecto de corrección** (se perdía
+el pestillo y salía un correo de más); éste es un **defecto de contrato con el motor**. En
+`SERIALIZABLE`, un `40001` **no es una avería: es el precio del nivel de aislamiento**. Pedimos la
+garantía (`SEC-A2`, el TOCTOU del tope mensual AML) y **no pagábamos el precio** ⇒ la factura se la
+pasábamos al cliente en forma de `500`. ⛔ La respuesta **no** es bajar el aislamiento.
+
+**Y se arregló como candado transversal, no como tres parches**, porque la omisión estaba **seis
+veces**: `backend/src/common/serializable-retry.ts` (`runSerializable`) es ahora el **único** sitio
+que puede nombrar `TransactionIsolationLevel.Serializable`, y `test/serializable-retry.guard.spec.ts`
+lo vigila recorriendo `src/`. Los seis cuerpos se auditaron uno a uno: **cero efectos fuera de la
+BD** (correo y Stripe ya eran post-commit), que es la condición que hace seguro re-ejecutarlos.
+
+| Medición | Antes (`f8c7040`) | Después |
+|---|---|---|
+| `buylist-intake-concurrency.e2e-spec.ts` (4 altas simultáneas × 12 rondas = 48 altas) | **ROJO 10/10 corridas**, con `500` en la mayoría de las rondas | **VERDE 10/10**, cero `5xx`, con **doble control de no-vacuidad** (≥1 alta creada **y** ≥1 conflicto real observado) |
+
+⚠️ **El presupuesto de reintentos está MEDIDO, no elegido: son 5, y con 3 no basta.** Con `SERIALIZABLE_ATTEMPTS = 3`
+esta misma suite sale **roja 10/10** por reintentos agotados (`P2034` propagado ⇒ `500`). Es aritmética: con N
+transacciones serializables peleando por el MISMO predicado, el SSI puede abortar a N−1 por ronda y cada reintento
+vuelve a entrar en la pelea. Con **5**: **8/8 y luego 10/10 verdes**. ⛔ **NO MEDIDO** con ~50 concurrentes — ahí el
+`500` volvería, y por eso el código de contrato para «reintentos agotados» sigue enrutado al arquitecto.
+
+⚠️ **Y esta suite se cayó dos veces por SU PROPIO aislamiento antes de quedar verde; las dos las cazó su control de
+no-vacuidad, y las dos quedan escritas porque son la lección:** (1) colgada de `customer2`, otras suites ya habían
+consumido el **cupo mensual AML** ⇒ 48 altas en `422` y **cero concurrencia que medir** (verde aislada, **roja 2 de 3
+corridas completas**); (2) con un usuario recién registrado, `403` por `@RequireEmailVerified()`. Se resolvió
+**prestando el tope** a `customer2` en el `beforeAll` y **devolviéndolo** en el `afterAll`. *Un candado de concurrencia
+que comparte cupo con el resto de la suite mide el orden de los ficheros, no el código.*
+
+### 5. `buylist-step-guard · S-2` — era la PRUEBA la que estaba mal, no el producto
+
+El intermitente (**2/5 rojo bajo carga, 5/5 verde aislada**) lo llevé a causa raíz con
+`pg_stat_activity` delante, y **no es un tercer comprobar-y-actuar**:
+
+> La guarda de `verify` es `UPDATE … WHERE id = :id AND status = 'recibida'`. Un `UPDATE` **solo
+> bloquea las filas que su cualificación selecciona**. Mientras `receive` no ha **commiteado**, la
+> versión visible sigue siendo `en_transito` ⇒ el `UPDATE` de `verify` **no casa con nada, no se
+> encola detrás de nadie y contesta `409` en el acto** (medido: respondió a los **52 ms**, con
+> `receive` aún bloqueada).
+
+O sea: `verify` **no espera** a `receive`, y **eso es correcto** (`§M5-S`). Lo que fallaba era la
+prueba, que afirmaba que 20 ms de reloj ordenan dos peticiones. ⛔ Tampoco valía la salida fácil de
+aceptar el `409` como resultado válido: eso borra la propiedad que la prueba existe para fijar. Se
+reescribió con el orden **forzado**, y ahora asierta **dos hechos deterministas**: (1) con `receive`
+en vuelo, `verify` da `409 INVALID_TRANSITION` **sin corromper nada** (`verifiedAt` sigue `null`,
+`B-I4`); (2) en cuanto `receive` aterriza, el mismo `verify` **prospera**. *La doble pulsación no se
+pierde: se retrasa.* **Medido: 10/10 verde, y el conteo de la suite no baja (29 `it`).**
+
+### 6. ⚠️ Hallazgo NUEVO que dejo escrito y NO parcheo — es superficie de CONTRATO
+
+Del diagnóstico de S-2 salió otro `500`: si el candado de fila se sostiene **más de 5 s**, la
+transacción de `receive` muere por el **timeout por defecto de las transacciones interactivas de
+Prisma** (`P2028`) y, como `AllExceptionsFilter` **no mapea nada de Prisma**, sale **`500`**
+(medido: `receive` respondió `500` tras 5.4 s de espera). ⛔ **No** se arregla con un reintento
+—`P2028` no es un conflicto, y reintentar una transacción que no cupo en su ventana la vuelve a no
+caber—. Y elegir **qué código ve el cliente** es superficie de API. ⇒ **Al arquitecto**, junto con
+el mismo hueco ya censado en `§4.37.1` (los `500` de Prisma sin mapear).
+**Realismo:** en producción dos `receive` concurrentes se serializan en milisegundos; este `500`
+exige una retención patológica del candado. **NO MEDIDO** si algún camino real lo produce.
+
+### 7. Lo que se endureció de paso (y por qué cuenta como parte del arreglo)
+
+- **`test/helpers/prisma-where.ts` ya no miente sobre los nulos.** `{ not: v }` evaluaba con
+  semántica de **JS** (`null !== 'x'` ⇒ true) cuando Prisma emite **SQL** (`NULL <> 'x'` ⇒ no casa).
+  Un fake que no coincide con el motor en los nulos **no simula el motor: inventa otro**, y habría
+  dado verde a un `where` que en Postgres no encuentra la fila. Ahora respeta la semántica SQL.
+- **Cinco fakes de unitarios pasaron de `update: jest.fn()` a fila viva + `where` evaluado.** Con un
+  mock que devuelve lo que le digan, el `count` —que **es** la garantía— lo escribe el propio test.
+  Dos casos nuevos en `shipments.tracking-cost.spec.ts` cubren justo lo que el mock no podía ver: la
+  re-captura idempotente **no** limpia el sello, y la primera captura (columnas en `NULL`) **sí**.
+
+### 8. Lo que NO medí
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `N-AV2-1` | **No medí el comportamiento con los reintentos AGOTADOS** (`> 3` conflictos seguidos). Con 4 altas simultáneas basta y sobra; con 50 a la vez, no está medido — y ahí seguiría saliendo `500` | una corrida de carga con `N ≥ 50` concurrentes |
+| `N-AV2-2` | **No medí si hay más transacciones `Serializable` fuera de `buylist`/`shipments`**… salvo por el censo del candado nuevo, que recorre `src/` entero y hoy da **6** | ya está cerrado por `serializable-retry.guard.spec.ts` |
+| `N-AV2-3` | **No corrí Playwright ni el DAST**: no son míos y el árbol lo comparte un agente de frontend | QA |
+| `N-AV2-4` | **No medí el coste en producción** de los correos duplicados: la tienda no ha procesado ventas reales (`HECHOS.md`) | — |
+
+### 9. ⚠️ Una trampa de MÉTODO que casi me come el diagnóstico, escrita porque volverá
+
+La primera ablación la hice restaurando el código defectuoso con **`git show HEAD:…`**. Salió
+**verde 10/10** y estuve a punto de concluir que «la ventana depende de la carga de la máquina».
+Era falso: **`HEAD` se había movido bajo mis pies** —el orquestador commiteó una instantánea WIP
+(`64a70f7`) **con mi arreglo dentro**— así que `git show HEAD:` me devolvía **el arreglo**. La
+ablación medía el código nuevo contra sí mismo, y el «hallazgo» que casi escribo era un artefacto.
+
+> *Una ablación vale exactamente lo que vale el sha que restaura.* ⛔ **Nunca `HEAD` en un árbol
+> compartido: el sha, literal.**
+
+### 10. Las mediciones de este pase, con su `N` y sobre qué árbol
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| **`D-AVISO-2` en envíos, ANTES** | `f8c7040`, BD propia, `N = 25` tiradas × **8** simultáneas | **8/25 con DOS correos** |
+| **`D-AVISO-2` en buylist, ANTES** | ídem | **6/25 con DOS correos** (el `5/5 verde` del pase anterior era suerte: `0.76⁵ ≈ 25 %`) |
+| **Canario del mecanismo** | misma carrera, **etiqueta ya escrita** ⇒ nadie borra el sello, `N = 25` | **0/25** ⇒ la causa es el borrado del sello, no el sello |
+| **`D-AVISO-2` en envíos, DESPUÉS** | `N = 40` × 8 simultáneas **+** `N = 25` × 16 simultáneas | **0/65** |
+| **`D-AVISO-2` en buylist, DESPUÉS** | ídem | **0/65** |
+| **Ablación de los 2 candados de aviso** | `f8c7040` restaurado **por sha**, `N = 10` corridas | **ROJO 10/10**; con el arreglo, **VERDE 10/10** |
+| **Ablación de los 3 candados juntos** (avisos + intake) | `f8c7040`, `N = 10` corridas | **3 rojos en 10/10 corridas**, siempre los mismos |
+| **`buylist-intake-concurrency`** | `N = 10` corridas aisladas | **VERDE 10/10** (con 3 intentos de reintento: **ROJO 10/10**) |
+| **`buylist-step-guard` (S-2 reescrita)** | `N = 3` aisladas + 4 corridas completas | **29/29 verde** en todas; el intermitente **2/5** del pase anterior **no reaparece** |
+| **Integración COMPLETA** | `N = 3` con **BD recreada cada corrida** (+2 corridas previas) | **43 suites · 916 pruebas, 3/3 verdes** |
+| **Unitarios sobre copia del ÁRBOL ENTERO** (con `docs/` dentro) | dos copias, antes y después | **315 suites · 5 167 pruebas**, verde |
+| **Typecheck** | `tsc --noEmit` | limpio |
+
+**Delta de integración: 912 → 916 (+4) y 42 → 43 suites (+1).** El `+1` es
+`buylist-intake-concurrency.e2e-spec.ts` (+2 `it`); los otros `+2` son los dos candados de
+entrelazado forzado de `avisos-sellos`. **Delta de unitarios: 5 150 → 5 167 (+17) y 313 → 315
+suites (+2)** (`serializable-retry` y su candado transversal, más dos casos nuevos en
+`shipments.tracking-cost`).
+⛔ **Ninguna prueba se borró, se saltó ni se debilitó.** El único `it` sustituido —el de `S-2`— se
+cambió **porque afirmaba algo falso**, y su reemplazo asierta **dos** hechos donde antes había uno
+que dependía del reloj; el conteo de la suite **no baja** (29 `it`).
+
+## §BE-SEED-M52 (2026-09-14) — el seed de los customers no se enteró de `M-52`, y eso dejó CIEGO el gate de retiro
+
+**El defecto, en una línea.** `M-52` (`f5513cd`, 2026-09-11) añadió `Address.recipientName` y la puerta
+`422 RECIPIENT_NAME_REQUIRED` en `POST /shipments[/quote]`. El bucle de fixtures de cuenta
+(`seed-e2e.ts:~1031`) sí lo rellenaba; **el de los customers principales (`:674`) no**. Un campo nuevo
+relleno en **un sitio de dos**.
+
+**Lo que costó, medido.** La pantalla de retiro se quedaba en *«Falta el nombre de quien recibe»* con
+**cero respuestas ≥ 400** —la puerta ni se alcanzaba— así que `shipments.spec.ts` moría en
+`getByTestId('amount-breakdown')` (**:39**), **antes** del cobro. *Retirar* es uno de los tres flujos de
+dinero del gate de navegador (`DEVOPS_NOTES §31`): tres nocturnas (`#35`–`#37`) en rojo sin que nadie
+pudiera ver el cobro. La primera roja es la del día de `M-52`; la última verde, la víspera.
+
+**Ablación de datos (no de git), sobre el stack nativo:**
+
+| `Address.recipientName` del `customer` | `shipments.spec.ts` muere en |
+|---|---|
+| `NULL` (estado previo) | **:39** `amount-breakdown` — *«Falta el nombre de quien recibe»* |
+| sembrado (arreglo) | **:63** `dialog «Pagar envío»` — *«No pudimos contactar al procesador de pago»* (**3/3**) |
+
+O sea: ahora muere **donde sus dos hermanas** (`checkout.spec.ts:79`, `guest-checkout.spec.ts:154`), por
+falta de `STRIPE_SECRET_KEY` en el stack —**hueco de entorno, no de producto**— y no antes.
+
+### El valor NO es `User.name`, y es una decisión, no un descuido
+
+`E2E_ADDRESS_RECIPIENT` (`e2e-fixtures.ts`) da `Rosa Elena Domínguez` / `Héctor Domínguez Cruz`, **distintos
+de `User.name`** (`E2E Customer` / `E2E Customer Two`). Razón: el contrato prohíbe **dos veces** derivar el
+destinatario del nombre de la cuenta (§3 *«⛔ Sin fallback a `User.name`»*; §M4 *«copiado tal cual, ⛔ jamás
+de `User.name`»*). **Si el fixture los hiciera coincidir, una regresión que reintrodujera ese fallback
+pintaría el nombre correcto por casualidad y la suite no la vería.** Es la disciplina que `e2e-fixtures.ts`
+ya aplicaba a `User.phone` vs `Address.phone`.
+
+⚠️ **`:1031` se queda con `f.name` a propósito**: ahí el panel de cotejo de §M6-K.3 compara el nombre de la
+cuenta con el del documento, y un destinatario distinto del titular volvería el fixture mudo justo en lo que
+la pantalla mide. Misma pregunta, respuesta opuesta, por la razón simétrica.
+
+⛔ **`recipientName` NO entra en `E2E_PICKUP_ADDRESS`**, aunque se siembren juntos: (a) el buylist **no** lo
+congela —el contrato lo deja fuera de `M-52` a propósito (§7, follow-up `D-CTA-5`)—, y (b)
+`buylist-cycle.e2e-spec.ts:1411` deriva de esa constante las partes del domicilio que ningún correo puede
+llevar (criterio 173h); el destinatario no es una parte del domicilio.
+
+### El agravante estructural: una siembra que NO reafirma su invariante
+
+Los dos bloques hacían `findFirst` y **solo creaban si faltaba**, así que un `create` con el campo **no
+arregla ninguna BD ya sembrada**. Ahora los dos **restauran** (medido: con las 5 direcciones a `NULL`, la
+re-siembra devuelve las 5). Y el `findFirst` va con **`orderBy` explícito**: sin orden remediaba una
+dirección *al azar* y podía dejar sin destinatario justo la **predeterminada**, que es la que la pantalla
+auto-selecciona. ⛔ No se toca `isDefault`: forzarlo dejaría dos predeterminadas.
+
+### Barrido del resto de `M-50`…`M-57`: no hay más sitios a medias
+
+El seed solo crea filas en **tres** sitios (2 `Address`, 1 `Order`; **ningún** `ShipmentRequest`).
+`Order.ivaTransferPct` queda `null` y es **honesto**: nullable sin backfill, y el pedido del fixture está
+fechado `2026-01-08`, anterior a `M-50`. `M-53` (reserva) y `M-57` (sellos de aviso) son nullable y las filas
+sembradas están en estados previos; **no hay ningún `@Cron` en `src/`**, así que un sello nulo no dispara
+ningún aviso espontáneo. `M-54` los escribe explícitos. `User.nameSource` estaba cubierto.
+
+---
+
+# `REL-B` (ALTA) y `REL-C` — la máquina de estados de envíos vivía en un `if`, y la clase de candados ciegos · 2026-09-14
+
+> **Ancla de todo lo de abajo:** las ablaciones se corrieron sobre una copia FIJA de **`0e22415`**
+> (`git archive 0e22415 | tar -x`), ⛔ **nunca sobre `HEAD`** — que en este árbol se movió tres veces
+> mientras medía. Lo que no medí va marcado **NO MEDIDO**.
+
+## 1 · Lo que estaba roto, y la proporción ANTES/DESPUÉS
+
+`PATCH /api/v1/admin/shipments/:id/status` validaba `TRANSITIONS` **sobre una lectura previa** y después
+escribía con `update({ where: { id } })` — **sin el estado en el `WHERE`**. Bajo `READ COMMITTED`, N
+peticiones simultáneas leen el mismo estado, las N pasan la validación, **las N commitean** (*lost update*
+silencioso) y las N llaman a `notifyStatus`.
+
+| medición (BD propia, 25 tiradas de **10** `PATCH` simultáneos) | antes (`0e22415`) | después |
+|---|---|---|
+| `AV-5` (`{to:'enviado'}`) — tiradas con **más de un correo** | **25/25** (6 en una tirada, **10** en las otras 24) | **0/25** — exactamente 1 correo por tirada |
+| `AV-6` (`{to:'cancelado'}`) — tiradas con más de un correo | **25/25** (10 correos en las 25) | **0/25** |
+
+*(El pentester midió `13/13` y `4/5` con su propio arnés. La diferencia es que el suyo sembraba la fila sin
+etiqueta; el mío la siembra ya en `guia` con guía capturada, que es el estado real desde el que se pulsa
+«Enviar». Su `4/5` de `AV-6` es justo el motivo de lo que sigue.)*
+
+## 2 · ⛔ La proporción NO es el candado — el entrelazado se FUERZA
+
+Un `4/5` significa que **1 de cada 5 corridas habría salido verde con el defecto dentro**. Los candados que
+se quedan viven en `test/integration/avisos-sellos.e2e-spec.ts` (bloque B) y usan la barrera de candado de
+fila que ya existía (`helpers/row-lock-barrier.ts`):
+
+```
+prueba:  BEGIN; SELECT … FOR UPDATE      ⇐ la fila ('guia') queda bloqueada
+A:       PATCH {to:'enviado'} → lee 'guia' (el SELECT llano no se bloquea) → UPDATE se BLOQUEA
+B:       PATCH {to:'enviado'} → lee 'guia' TAMBIÉN → se encola detrás de A
+         (las DOS esperas se VERIFICAN en pg_stat_activity — ⛔ ni un sleep)
+prueba:  COMMIT
+```
+
+**Ablación (`0e22415` literal, `N = 10` corridas): los tres `it` nuevos salen ROJOS 10/10. Con el arreglo,
+VERDES 10/10.** No es una proporción: es el mismo entrelazado en toda máquina.
+
+## 3 · ⭐⭐ `REL-C` era REAL, y el `0/25` del pentester no era una defensa
+
+Él fue honesto: *«el mecanismo está en el código; mi arnés serializaba la cadena»*. **Con entrelazado
+forzado sale ROJO 10/10**: `setTracking` leído en `picking` escribía `status:'guia'` dentro de `data`, y si
+mientras tanto otro operador completaba `guia → enviado`, **la captura devolvía el envío a `guia`**.
+
+**Y esto no es cosmético: es la premisa del contrato.** `§R.4.c` decide **cero columnas nuevas** porque el
+CAS hace único el aviso — pero el CAS garantiza *un aviso por **TRANSICIÓN***, y *un aviso por **CICLO***
+(criterio 205) solo se sigue **si el estado no retrocede**. Con el estado regresado a `guia`, el envío gana
+**otra** transición legítima a `enviado` ⇒ **segundo `AV-5` con las dos peticiones perfectamente
+serializadas**. ⇒ `REL-B` **no estaba cerrada sin `REL-C`**.
+
+### ⚠️ Y había un TERCER retrocesor que nadie había nombrado
+
+Barriendo *todos* los escritores de `ShipmentRequest.status` encontré que **`payments.service.ts` era el
+único capaz de retroceder de verdad**: el webhook `payment_intent.succeeded` hacía
+`if (shipment.status === 'solicitado') update({ where: { id } , data: { status: 'picking' } })`. Un webhook
+que viaja mientras el operador avanza `solicitado → picking → guia → enviado` **devuelve la fila a
+`picking`**. Los otros dos escritores de `payments` van a `cancelado`, que es terminal y por tanto monótono
+— se les bajó la precondición igual, pero **el que importaba era ése**.
+
+## 4 · Lo que se decidió sobre el SELLO de `AV-5`/`AV-6`, y por qué
+
+**⛔ CERO columnas nuevas** — coincide con `API_CONTRACT §R.4.c` cláusula 3 (llegué a la misma conclusión
+antes de leerla, por el camino contrario: medir qué sostiene la unicidad). El argumento, entero:
+
+1. **`ShipmentRequest.shippedAt` YA ES el sello de `AV-5`.** La misma escritura atómica que gana la
+   transición lo pone, pasa de `NULL` a fecha **exactamente una vez**, y nada lo devuelve a `NULL`. Una
+   columna aparte sería **una segunda fila afirmando el mismo hecho con la misma vida**. Para `AV-6` no hace
+   falta ninguna: `cancelado` es terminal.
+2. **La columna habría arreglado el correo y dejado vivo el defecto de fondo.** Sin el `WHERE`, las N
+   peticiones **commitean todas** y el perdedor devuelve `200` afirmando un éxito que no tuvo. *El `WHERE`
+   arregla la máquina de estados; el sello solo tapa su síntoma más visible.*
+3. **Mecanismo heredado, no estrenado:** el de `setTracking` (`§R.4.b`) y el de `buylist-sweep` desde v1.18.
+
+**⭐ Y la premisa se VIGILA, no se confía** — `test/shipments.state-monotonic.spec.ts`:
+ - **(A)** el grafo `TRANSITIONS` es **acíclico** (se lee la tabla REAL del servicio, no una copia — que es
+   justo cómo `§4.54.4` llegó a afirmar una garantía que el código no daba);
+ - **(B)** un **censo por aparición** de toda escritura sobre `shipmentRequest` en `src/`
+   (`test/helpers/shipment-status-writers.ts`): si el bloque `data` toca `status` —o es **opaco**— el `where`
+   tiene que llevar `status`. Tercera clase **`unclassified` = ROJO**, a propósito.
+   **Ablación: el censo sale rojo sobre `0e22415`.**
+
+Si (A) o (B) se caen, **la decisión de «cero columnas» deja de sostenerse y vuelve al arquitecto**. Está
+escrito en el mensaje de fallo del propio test: *no se arregla aflojando el candado*.
+
+## 5 · La conducta nueva del endpoint (`§M4` / `§R.4.c` cláusula 4)
+
+| situación | respuesta | correo |
+|---|---|---|
+| gana el CAS (`count === 1`) | `200` con la fila actualizada | ✅ **uno** |
+| pierde el CAS y, al releer, `status === to` (doble clic, dos pestañas) | ⭐ **`200` idempotente** | ⛔ ninguno |
+| pierde el CAS y quedó en **otro** estado | `409 CONFLICT` | ⛔ ninguno |
+| transición ilegal según `TRANSITIONS` | `409 CONFLICT` *(sin cambio)* | ⛔ ninguno |
+
+⚠️ **Para el frontend:** el `409` de este endpoint ahora **también lo puede producir una carrera**, no solo un
+botón mal habilitado. **El doble clic NO da `409`: da `200` sin segundo correo.** Un `PATCH` repetido en
+serie sobre un estado ya terminal sigue dando `409` — lo rechaza `TRANSITIONS` antes de llegar al CAS.
+
+⚠️ **Cambio menor de `setTracking`, dicho porque cambia conducta:** el correo `AV-4` ahora se dispara **solo
+si la escritura de la etiqueta aterrizó** (`relabelled.count === 1`). Antes se llamaba siempre y lo filtraba
+el sello; ya no basta, porque con la guarda de `cancelado` una captura puede **no escribir nada** — y
+entonces el correo anunciaría una guía que no está en la fila.
+
+## 6 · Los candados CIEGOS — lo que medí, incluido lo que REFUTA la premisa del encargo
+
+**⚠️ Primero, una corrección de método propia:** empecé midiendo la ceguera como *«líneas no vacías con v1 vs
+con v2»* y **ese número no significa nada**: la v1 **borra** la línea de comentario y la v2 **conserva el
+`\n`**, así que las dos salidas no son comparables por conteo. La medición correcta es **mecanística**: la
+ceguera ocurre si y solo si **la secuencia de apertura de bloque aparece dentro de un comentario de línea o
+de una cadena**. Barriendo `backend/src` así, son **siete** ficheros:
+
+| fichero | aperturas fantasma | dónde |
+|---|---|---|
+| `modules/buylist/mail-shell.ts` | **31** | cadenas (CSS `* { … }`, condicionales de Outlook) |
+| `modules/orders/mail/guest-order.templates.ts` | 3 | cadenas |
+| `common/error-codes.ts` | 2 | comentarios de línea (`/checkout/guest/*`) |
+| `modules/mail/mail.templates.ts` | 2 | cadenas |
+| `modules/uploads/uploads.service.ts` | 2 | `image/*` y una cadena |
+| `modules/orders/guest-checkout.service.ts` | 1 | comentario de línea |
+| `modules/pricing/pricing.controller.ts` | 1 | comentario de línea (`/admin/*`) |
+
+**⇒ De mis ocho candados, el que estaba CIEGO HOY era `pricing.publish-trigger.spec.ts`** (lee
+`pricing.controller.ts`): la v1 se comía **108 líneas de código** del controller, y sus
+`not.toContain('forwardRef')` salían **verdes por ceguera**.
+
+**⚠️ Y lo que NO era cierto del encargo:** `buylist.mail-shell.spec.ts:687,741` y
+`buylist.cycle-mail-pii.spec.ts:651,677` **no leen `mail-shell.ts`** — leen `buylist-mail.templates.ts` y
+`buylist-sweep.service.ts`, que **no tienen ninguna apertura fantasma**. Estaban a un comentario de estarlo,
+no ciegos. Se migraron igual, pero la diferencia importa: *decir «ciego» de un candado que ve entrena a
+descreer del aviso el día que uno lo esté de verdad.*
+
+### La puerta única, y su no-vacuidad POR CONTENIDO
+
+`test/helpers/codigo-de-fichero.ts` — todos los candados leen por ahí. Dos mitades, **y ninguna es «no está
+vacío»**:
+
+1. ⭐ **ANCLAS** — fragmentos de **código** que el texto limpio tiene que seguir conteniendo. *Es la única
+   mitad que detecta la ceguera **PARCIAL***. Para los barridos de `src/` entero, `anclasEstructurales()`
+   toma **la primera y la última** declaración de primer nivel: un bloque fantasma abierto a mitad se come
+   **todo lo que va detrás**, así que anclar solo por el principio no ancla nada.
+2. **COTA INDEPENDIENTE** — el texto limpio conserva al menos tantas líneas no vacías como líneas del
+   original que *no parecen comentario*. Es un conteo **por otra vía**. Medido sobre los 223 `.ts` de
+   `src/`: con la v2 se cumple en **todos** (cero rojos falsos) y con la v1 **muerde** en
+   `pricing.controller.ts`, `uploads.service.ts` y `guest-checkout.service.ts`. **⚠️ En `mail-shell.ts` NO
+   muerde** — lo que se pierde son cadenas cuyas líneas empiezan por `*` — **y por eso la cota no basta sola
+   y las anclas no son decorativas.**
+
+⭐ **La comprobación vive SEPARADA del limpiador** (`comprobarNoVacuidad`), para que el canario pueda
+**inyectarle un limpiador roto** (la v1). Si estuviera pegada a `stripComments` —que hoy es correcto— *solo
+se sabría que no salta, no que sabría saltar*. El canario está en `test/codigo-de-fichero.spec.ts`, e incluye
+el contraejemplo explícito: **un control de «no está vacío» PASA sobre el texto mutilado**.
+
+### Los ocho, migrados
+
+`avisos.pendings.spec.ts` (`C-AV-8`) · `avisos.seals-out-of-dto.spec.ts` · `buylist.mail-shell.spec.ts` ·
+`buylist.cycle-mail-pii.spec.ts` · `buylist.projection-and-queue-key.spec.ts` ·
+`pricing.publish-trigger.spec.ts` · `sell-request-states.spec.ts` (tenía una **copia local** de la v1 que
+**eclipsaba** al helper del repo: mismo nombre, `function stripComments` — *un helper arreglado no arregla a
+quien lo tapa con su propia versión*) · `serializable-retry.guard.spec.ts` (`readFileSync` **crudo**).
+
+⚠️ **De `serializable-retry.guard.spec.ts`, la mitad peligrosa no era el rojo falso:** contaba
+`runSerializable(` sobre texto crudo, así que **un llamador COMENTADO seguía contándose** — el candado habría
+dicho «seis» con **cinco** transacciones serializables vivas.
+
+## 7 · Totales
+
+| suite | antes (línea base del encargo) | después |
+|---|---|---|
+| unitaria | 315 suites / 5167 | **317 / 5193** |
+| integración | 43 / 916 | ver el informe del pase |
+
+El total **sube**, que es la señal de que nada dejó de compilar.
+
+## 8 · `§0-T` — `503 BUSY_TRY_AGAIN` (implementado en este mismo pase)
+
+`AllExceptionsFilter` gana una **tabla CERRADA de DOS entradas**, y va **después** de `BusinessException` y
+de `HttpException`: una regla de negocio sale intacta y a la primera.
+
+| entrada | garantía que la hace segura | etiqueta del log |
+|---|---|---|
+| reintentos serializables agotados (`P2034` / `40001` / `40P01`) | el rollback es del motor: **no dejó nada escrito** | `reintentos-agotados` |
+| `P2028` (timeout de transacción) | tampoco escribió nada; ⛔ **no se reintenta en el servidor** | `P2028` |
+
+- **`Retry-After: 1`** (segundos, normativo) y **`details: {}`** — asertado con igualdad **exacta**, no con
+  `toMatchObject`: *un dato que el cliente no puede usar, publicado en el contrato, es una promesa que habrá
+  que sostener.*
+- ⭐ **El filtro decide con `isSerializationConflict`, la MISMA función con la que `runSerializable` decide
+  si reintenta.** Una segunda lista de códigos en el filtro habría permitido que un día divergieran: un
+  error que se reintenta y no se traduce, o al revés. *Una fuente, dos lectores.*
+- ⛔⛔ **Nada de mapeo global de Prisma** (regla 3). El candado lo mide **por exceso**:
+  `test/busy-try-again.spec.ts` exige que **`P2002`, `P2025`, `P2003`, `P2000` y `P1001` sigan saliendo
+  `500 INTERNAL`** y **sin `Retry-After`**. Esa prohibición es más fácil de romper que de cumplir — añadir
+  `P2002 → 409` parece higiene.
+- **La distinción de los dos casos vive en el LOG y ahí es obligatoria**, y también tiene candado: `P2028`
+  señala **un defecto nuestro**, agotar reintentos es la cola esperable. ⛔ Rojo si dejan de distinguirse.
+
+⚠️ **Para el frontend (obligación de `§0-T` regla 4, NO es mía):** se muestra un aviso con **acción del
+usuario** («Volver a intentar»), ⛔ **jamás un reintento automático** —el servidor ya reintentó cinco veces—
+y ⛔ **el formulario no se limpia**: no se escribió nada.
+
+**⚠️ NO MEDIDO por mí:** que el `503` salga **por HTTP** en un caso real (haría falta provocar un `P2028` o
+agotar los cinco reintentos contra la BD viva). Lo que sí está medido es el filtro, unitario, con los
+errores de Prisma construidos a mano — que es donde vive la traducción. La medición que lo cerraría:
+`ARCHITECTURE §4.56.4 · N-AR76-5`.
+
+---
+
+# `REL-A` (MEDIA) — el acuse del dial de IVA se firmaba con MX$0.00, y el `L` ya no lo elige quien firma · 2026-09-14
+
+> **Ancla de las ablaciones:** el árbol **ANTES** es una copia FIJA de **`a5aa07e`**
+> (`git archive a5aa07e | tar -x`, árbol ENTERO — hay suites que leen `docs/`), ⛔ nunca `HEAD`.
+> El árbol **DESPUÉS** es el de trabajo con este cambio. Lo que no medí va marcado **NO MEDIDO**.
+
+## 1 · Qué estaba roto
+
+`validateSamplePriceCents` era un **rango** `[1, 100_000_000]` y rechazaba `0` con un argumento correcto
+pero **incompleto** — *«0 … makes every net delta 0, which would turn the acknowledgement into a no-op»*.
+El delta es una diferencia de `round(P/(1+r))`, así que **para `L` diminuto también redondea a `0`**. El
+pentester firmó `{ samplePriceCents: 1, previewedNetDeltaCents: 0 }`, el acuse cuadró, y el dial pasó de
+`100` a `50` habiendo «mostrado» **MX$0.00** cuando el costo real a MX$100 es **−690 centavos/unidad**.
+
+**Y el `L` del cuerpo no solo colaba el `0`: decidía contra qué comparaba el servidor.** Ésa es la clase, y
+es la que cierra `D-ACUSE-1`.
+
+## 2 · Qué se implementó (`ARCHITECTURE §4.56.1`, `API_CONTRACT §M10-IVA.2` punto 3)
+
+| | Antes | Ahora |
+|---|---|---|
+| `acknowledgement.samplePriceCents` | rango `[1, 1e8]` | **sólo el `L` canónico `10_000`** ⇒ `422 VALIDATION_ERROR`, `details.field = 'acknowledgement.samplePriceCents'`, `message` que nombra el canónico |
+| `samplePriceCents` del preview de la ESCRITURA | `ack?.samplePriceCents ?? DEFAULT` | **`IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT`, y punto** |
+| eje del `GET …/preview` | `[1, 1e8]` | ⛔ **sin cambio** — explorar es libre |
+| `validateSamplePriceCents` | existía | **retirada**; la sustituye `validateAckSamplePriceCents` |
+
+**Dónde ocurre el `422`:** en `parseIvaTransferAck`, que corre **antes de abrir la transacción** ⇒ antes
+del `pg_advisory_xact_lock`, antes de releer el dial y antes de comparar el delta. Medido por lo negativo:
+el doble no registra **ningún** candado tomado en los 25 rechazos.
+
+**⛔ Lo que NO se añadió, por decisión del arquitecto y verificado que sigue abierto:** ninguna comprobación
+de «delta ≠ 0» en ejecución. Con `iva_pct = 0` el dial **se puede mover** acusando `0` (2 tests), porque ahí
+el `0` es verdad y bloquearlo dejaría el dial **encerrado**.
+
+## 3 · Proporciones ANTES / DESPUÉS, con su `N` y su árbol
+
+| Medición | ANTES (`a5aa07e`) | DESPUÉS (árbol de trabajo) |
+|---|---|---|
+| **PoC del pentester, servicio + doble, `N = 25`** | **25/25 el dial se movió a 50** · 0/25 rechazos | **0/25 movió** · **25/25 `422`** |
+| **PoC del pentester, HTTP + Postgres reales, `N = 10`** | **10/10 → `200`** (fila `ConfigSetting` movida) | **10/10 → `422`** (fila en `100`) |
+| **Suite de integración `iva-transfer-ack-canonical.e2e-spec.ts` (21 casos)** | **9 rojos / 21** | **21/21 verdes** |
+
+⚠️ **El dial quedó en `100`, verificado por SQL tras la última corrida** (`select "valueJson" from
+"ConfigSetting" where key='iva_transfer_pct'` ⇒ `100`). Cada `it` que escribe lo devuelve, el `beforeEach`
+lo reafirma y el `afterAll` lo **restaura y lo relee** — *un test de una puerta de dinero que deja la puerta
+abierta es un defecto, no un test.*
+
+## 4 · El candado `IVA-14` y su canario (`test/settings.iva-transfer-ack-canonical.spec.ts`)
+
+Tres mitades, porque la aritmética sola no detecta que se reabra la elección al llamante:
+
+1. **La constante fijada** — `IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT === 10_000`.
+2. **El barrido**, sobre `ivaTransferPreview` REAL (⛔ no una reimplementación dentro del test): `r ∈ [2,100] ×
+   t → t+1` = **9 900** movimientos, **0** deltas nulos. **El canario** repite el mismo barrido con la
+   constante rebajada: `9 000 ⇒ 1`, `5 000 ⇒ 4`, `1 000 ⇒ 461`, `100 ⇒ 6 806`, `10 ⇒ 9 589`, `1 ⇒ 9 900`
+   ceros ⇒ **el `toBe(0)` se pone rojo con cualquier rebaja real**.
+3. **Por AUSENCIA, sobre el código** (`codigoDeFichero`, con sus anclas): el cuerpo de `setIvaTransferPct`
+   contiene `const samplePriceCents = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;` y ⛔ **no lee
+   `ack.samplePriceCents` en ninguna forma**. *Si mañana alguien relajara el validador y la escritura
+   siguiera leyendo el campo del cuerpo, `REL-A` volvería entera sin que una sola prueba de conducta
+   cambiara de color.*
+
+## 5 · ⚠️ REFUTACIÓN MEDIDA AL CONTRATO — `IVA-14` no puede escribirse con «`r ≥ 1`, TODOS»
+
+`ARCHITECTURE §4.56.1` y `§M10-IVA.2` piden el candado así: *«con el `L` canónico y `r ≥ 1`, **todo**
+movimiento de un punto produce delta ≠ 0»*. **Es falso por exactamente un caso**, y es un empate de redondeo
+real, no un defecto:
+
+```
+r = 1, L = 10 000:   P(49) = 10 049 → base round(1 004 900/101) = 9 950
+                     P(50) = 10 050 → base round(1 005 000/101) = 9 950     ⇒ delta = 0
+```
+
+Barrido exhaustivo (`r ∈ [1,100] × t → t+1`, **10 000** movimientos): **1** cero con `r ≥ 1`, **0** con
+`r ≥ 2`. **No cambia ninguna decisión** —`r = 1` con `L = 10 000` es justo el régimen que el propio
+arquitecto señaló al descartar la cota inferior (*«con `r = 1` hace falta `L ≳ 5 050`»*)— pero **el candado
+se escribió sobre lo medido, no sobre la frase**: redactado como «todos» habría **nacido rojo**, y un candado
+que nace rojo se desactiva el primer día. Queda documentado en la cabecera del spec. ⛔ **No toqué el
+contrato** (regla 9): si el arquitecto quiere, la frase se corrige en su documento.
+
+## 6 · Frontend: **cero rework**, comprobado antes de tocar nada (⛔ no relayado)
+
+`IvaTransferSection.tsx:26` `SAMPLE_PRICE_CENTS = 10000` → `:92` lo manda al `/preview` → `:147` el acuse
+manda `data.samplePriceCents`, o sea **lo que el servidor le devolvió**. ⚠️ **Matiz que el contrato no dice
+y conviene saber:** el acuse no manda el literal, manda **el eco del preview**. Con la pantalla actual es
+`10000` siempre; si alguien cableara el eje del `/preview` a un control de la UI, el acuse empezaría a
+mandar ese valor y **el `422` nuevo sería lo que lo cazaría** — que es el comportamiento correcto, pero es
+un `422` que el front vería, no un no-op silencioso.
+
+## 7 · Lo que NO cambia, verificado
+
+`IVA-7` (`getStripeFee()` sin una sola referencia al dial) · `IVA-8(b)` (`PUT /admin/settings
+{ivaTransferPct}` ⇒ `422` clave desconocida, medido sobre HTTP) · `IVA-8(f)` (ausente de `GET
+/admin/settings`, medido sobre HTTP) · `409 IVA_TRANSFER_ACK_STALE` con el `L` canónico (el `422` no se lo
+comió) · idempotencia sin acuse · criterio 209 · `priceConvention` `NOT NULL` sin default.
+
+## 8 · Totales, y una autorrefutación de método
+
+- **Unitarias:** `319 suites / 5303 pruebas`, todas verdes. Base `a5aa07e` (medida por el orquestador):
+  `318 / 5207`. Δ = **+1 suite** (la nueva) **+96 pruebas** (93 del spec nuevo + 3 filas añadidas a la tabla
+  de `samplePriceCents` del gate spec).
+- **Integración:** `44 suites / 940 pruebas` (938 verdes + 2 saltadas históricas). Base: `43 / 919`. Δ =
+  **+1 / +21**.
+- ⚠️ **Autorrefutación:** mi primera corrida de integración dio **8 suites rojas / 41 pruebas** con
+  `429 RATE_LIMITED`, y estuve a punto de reportarlas como preexistentes. Lo eran **de mi arnés, no del
+  árbol**: copié el bloque de entorno de `stack-native.sh` y con él `export NODE_ENV=development`, que apaga
+  el *bypass* del throttler (`AppThrottlerGuard.shouldSkip` → `isThrottlerDisabled()` exige
+  `NODE_ENV === 'test'`) y deja el login en su límite real de **5/min**. Sin esa variable: **44/44**. *Antes
+  de llamar rojo a un rojo, hay que comprobar que el arnés trae lo que la suite lee.*
+
+## 9 · Lo que NO medí
+
+- **NO MEDIDO:** el flujo desde la **pantalla real** del dueño (Next corriendo). Lo que sí medí es el
+  contrato HTTP que esa pantalla consume y las tres líneas del componente que lo producen.
+- **NO MEDIDO:** concurrencia real de dos `PUT` simultáneos con el `L` canónico. Es conducta de
+  `lockIvaTransferGate`, que no toqué, y su orden sigue medido por el gate spec.
+- **NO MEDIDO:** que `iva_pct = 0` sea alcanzable por la puerta de `iva_pct` en vivo; el caso «dial no
+  encerrado» se mide con la tasa sembrada en `0` en el doble.

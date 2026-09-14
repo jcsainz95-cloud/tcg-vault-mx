@@ -2,6 +2,7 @@ import { PriceIngestService } from '../src/modules/pricing/price-ingest.service'
 import { InventoryPublishPort, VariantPublishRef } from '../src/modules/inventory/inventory-publish.port';
 import * as fs from 'fs';
 import * as path from 'path';
+import { codigoDeFichero } from './helpers/codigo-de-fichero';
 
 /**
  * v1.51.19 — **§4.39m.8: el disparador (c) desde `pricing`.**
@@ -24,11 +25,38 @@ const read = (...p: string[]) => fs.readFileSync(path.join(SRC, ...p), 'utf8');
  * ⚠️ Estas guardas miran **CÓDIGO, no prosa**. Sin quitar los comentarios, un fichero que *documenta*
  * «`forwardRef` está prohibido» fallaría el test que verifica que no se usa — y el arreglo obvio
  * (borrar la explicación) sería exactamente al revés de lo que queremos.
+ *
+ * ⭐⭐ **Y aquí la ceguera NO era hipotética: este candado está CIEGO HOY** *(medido 2026-09-14)*.
+ * La v1 que vivía en estas tres líneas quita primero los bloques con una regex global; en
+ * `pricing.controller.ts:336` hay un **comentario de línea** que contiene la apertura de bloque
+ * (`/admin/*`), así que abre un bloque fantasma que se come el código hasta el siguiente cierre
+ * — **108 líneas de código del controller que este fichero creía estar mirando y no miraba**. Un
+ * `not.toContain('forwardRef')` sobre un texto mutilado sale **verde por ceguera**.
+ * `codigoDeFichero` trae la v2 **y** exige que las anclas sobrevivan: si vuelve a pasar, **revienta**.
  */
-const code = (...p: string[]) =>
-  read(...p)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+const code = (...p: string[]) => {
+  const ancla = ANCLAS[p[p.length - 1]];
+  if (!ancla) {
+    // ⛔ Un fichero sin ancla es un fichero del que no sabemos si se leyó entero. Se declara aquí,
+    // no se exime: es la tercera clase del censo de `price-convention-writers`, en miniatura.
+    throw new Error(`pricing.publish-trigger: falta el ancla de \`${p.join('/')}\` en ANCLAS.`);
+  }
+  return codigoDeFichero(path.join(SRC, ...p), [ancla]);
+};
+
+/**
+ * ⭐ **No-vacuidad POR CONTENIDO, una ancla por fichero** — ⛔ no «no está vacío», que es justo el
+ * control que ya existía en otro candado de este repo y que **no vio el fallo PARCIAL**.
+ */
+const ANCLAS: Record<string, string> = {
+  'pricing.service.ts': 'export class PricingService',
+  'pricing.controller.ts': 'export class PricingController',
+  'price-ingest.service.ts': 'export class PriceIngestService',
+  'inventory.service.ts': 'export class InventoryService',
+  'inventory-publish.module.ts': '@Module',
+  'inventory.module.ts': '@Module',
+  'pricing.module.ts': '@Module',
+};
 
 // =============================================================================================
 describe('⚠️⚠️ (1) el consumidor es una HOJA del grafo — nunca `PricingService`', () => {

@@ -16596,3 +16596,779 @@ E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test e2e/catalog.sp
 ```
 ⚠️ Para que el E2E de sellado sea **concluyente** hace falta ≥1 sellado **publicado**: el seed no
 siembra ninguno (§72.1). Sin él, `/sellado` sale vacío y el test mide el arnés, no el producto.
+
+---
+
+## §73 · `P-97` — M8 Disputas se veía ROTA cuando solo estaba VACÍA — 2026-09-14, commit `bb30997`
+
+### 73.1 · Qué veía el dueño. Reproducido con navegador, no deducido.
+
+Entró a `/es/admin/m8` y vio **el título «M8 · Disputas» y nada más**. Ni tabla, ni mensaje, ni
+filtro: una pantalla en blanco. La pantalla estaba **sana** — había **cero disputas** — y se leía
+como **rota**.
+
+La causa, medida en `ce7017b`: `M8View.tsx:88` pintaba `(query.data ?? []).map(...)` **sin rama de
+vacío**. Con cero filas, el `<div className="flex flex-col gap-2">` se renderiza **vacío** y debajo
+no hay ficha (`active` es `null`). El DOM que escupe la prueba roja es literalmente la captura del
+dueño:
+
+```
+<h1 class="text-h1 font-bold">M8 · Disputes</h1>
+<div class="grid gap-6 lg:grid-cols-[280px,1fr]">
+  <div class="flex flex-col gap-2" />   ← esto es todo
+</div>
+```
+
+Reproducido **con navegador** en una copia del árbol con `mockDisputes = []`
+(Playwright + Chromium, `E2E_DEV_SERVER=1`): capturas antes/después en el scratchpad del pase. El
+«antes» es idéntico a lo que reportó el dueño.
+
+**Corroboración independiente que ya estaba en el repo:** `e2e/admin.spec.ts:396-398` se salta el
+smoke de M8 en modo real con `needsSeed('ninguna disputa sembrada (GET /admin/disputes → total 0)')`.
+Es decir: el stack real lleva tiempo con `total: 0` — la condición exacta del defecto — y el único
+E2E que miraba esa pantalla **se saltaba justo en ese caso**. Ése fue el agujero por el que se coló.
+
+### 73.2 · El arreglo: componente compartido, y UN solo copy (a propósito)
+
+`EmptyState` (`frontend/src/components/ui/EmptyState.tsx`) **sí es un componente reutilizable** y ya
+lo usan §M3, §M4, §M5, §M1, §M6, `vaults` y `m2/sections`. M8 era de los pocos sitios que no lo
+usaba. **No hay dos sitios que mantener de acuerdo**: se usa el mismo componente y el copy vive en
+`messages/{es,en}.json` como el de todos los demás.
+
+**Un solo copy, y esto es la decisión, no un olvido.** §M4 distingue dos casos porque **tiene
+filtro**: «Sin envíos con ese filtro» (no hay nada que case con lo que pediste) vs «Nada que
+preparar por ahora» (no hay nada). **M8 no tiene filtro**, así que el primer caso **no existe**:
+cero disputas es cero disputas. Pintar «sin disputas con ese filtro» sin filtro en pantalla sería
+mentirle al operador sobre por qué no ve nada.
+
+Copy nuevo (DESIGN_SYSTEM §8.1, «cola admin vacía» ⇒ estado positivo, título + 1 frase):
+
+| clave | ES | EN |
+|---|---|---|
+| `admin.m8.empty` | Sin disputas por ahora. | No disputes right now. |
+| `admin.m8.emptyBody` | Cuando un cliente abra una disputa aparecerá aquí para resolverla. | When a customer opens a dispute it will show up here to resolve. |
+
+⚠️ **`EmptyState` acepta `tone` y NO lo usa**: `EmptyState.tsx:15` desestructura
+`{ title, body, action }` — `tone` se declara en la interfaz (`EmptyState.tsx:6`) y se descarta. Se
+sigue pasando `tone="positive"` por coherencia con §M4:341 y `PendingQueueSection.tsx:270,296`, que
+hacen lo mismo, pero **hoy no pinta distinto**. Es deuda cosmética, no funcional; queda anotada aquí
+y no se arregla en este pase (cambiaría el aspecto de 3 pantallas más, y eso lo decide ux-ui).
+
+### 73.3 · Qué se tocó
+
+| Fichero | Cambio |
+|---|---|
+| `app/[locale]/(admin)/admin/m8/M8View.tsx` | Rama de vacío con `EmptyState`. El bloque del grid se reindenta 2 espacios: el diff son 91+/78−, pero `git diff -w` son **3 hunks**. |
+| `messages/{es,en}.json` | `admin.m8.empty`, `admin.m8.emptyBody`. |
+| `app/[locale]/(admin)/admin/m8/M8View.test.tsx` | 2 pruebas nuevas: render con lista vacía ⇒ existe el mensaje (ES y EN) + ausencia de acciones. |
+| `e2e/admin.spec.ts` | Invariante `@real` **«la pantalla nunca está en blanco»** (o ficha de disputa, o estado vacío), **sin `needsSeed`**: afirma el invariante, no el dato, así que es concluyente venga o no venga la fila. |
+
+### 73.4 · Colores y mutación
+
+- **Antes del arreglo:** `2 fallidas / 4 pasadas` en `M8View.test.tsx`.
+- **Después:** `6/6` en ese fichero; suite unitaria completa **`156/156` ficheros y `1756/1756`
+  pruebas** — control en `ce7017b` (árbol limpio): `156/156` y **`1754/1754`**. El total sube
+  exactamente **+2**, que son las pruebas nuevas: no es «la suite no corrió». `tsc --noEmit` y
+  `next lint` limpios.
+- **Mutación — sobre una copia del árbol ENTERO** (`git archive HEAD | tar -x`, `docs/` incluido;
+  `node_modules` enlazado), **nunca sobre el árbol vivo**. SHA de la copia: `bb30997`. Línea base de
+  la copia: `6/6` verde.
+
+  | Mutante | Qué deshace | Rojo |
+  |---|---|---|
+  | **M1** | La condición del vacío pasa a `false` — exactamente el defecto de `ce7017b` | **3/3** (2 pruebas) |
+
+  Restaurada la copia, vuelve a `6/6` y el fichero es **byte a byte** el de `HEAD`.
+
+### 73.5 · Barrido del resto de admin: la misma clase, dónde queda
+
+Revisadas **todas** las vistas de `(admin)` (`m1`…`m10`, `vaults`, dashboard, cuenta). El patrón
+«lista renderizada sin rama de vacío» queda **solo en tres sitios**, y ninguno es tan grave como M8
+porque los tres conservan cabeceras visibles:
+
+| Sitio | Qué pasa con lista vacía | Gravedad |
+|---|---|---|
+| `m10/M10View.tsx:482` | `DataTable` de bitácora sin rama de vacío. `DataTable` **no trae estado vacío propio** (`DataTable.tsx:26-78`): pinta `<thead>` y un `<tbody>` vacío. Se ve la tabla con columnas y cero filas, más el pie de paginación. **No** es pantalla en blanco. | Media |
+| `m1/SealedTab.tsx:310` | `detail.data.groups.map(...)` dentro de un `<ul>` **sin cabecera**: con `groups: []` la región queda **totalmente vacía** (la más parecida a M8). | Media-alta |
+| `m2/sections/RarityHealthSection.tsx:199` | `health.data.rarities.map(...)` en una tabla con `<thead>`: cero filas ⇒ columnas sin filas. | Baja |
+
+Un cuarto caso, **`m2/sections/GradedEstimateReviewSection.tsx:393`**, es **deliberado y está
+documentado en el propio código** (`:391`: «`data: []` NO es un logro que celebrar con un
+placeholder: es una lista vacía»). No se toca.
+
+Todo lo demás ya tiene rama de vacío: `m3:221`, `m4:228` y `:336`, `m5/M5View:598` y `:754`,
+`m5/BuylistCycleQueues` (las 4 colas), `m6:313`, `:841`, `:878`, `:974`, `m7:195`,
+`m1/PendingPublishQueue:107`, `m1/SealedTab:183`, `m1/GradedTab:223`, `m1/SealedGroupLinker:64`,
+`m2/PendingQueueSection:265,291`, `m2/CatalogSyncSection:791`, `m2/GradedEstimateCaptureSection:174,232`,
+`m2/bounties/BountiesView:452`, `vaults/VaultsView:128`, `m6/kyc/KycReviewView:253`.
+`m9/M9View` no tiene listas de servidor (pinta una constante `METRICS`).
+
+⛔ Los tres sitios de la tabla **no se tocaron en este pase** (encargo acotado a M8); van al
+orquestador para que los enrute.
+
+### 73.6 · El filtro por estado de M8: **NO lo recomiendo hoy** (y qué sí)
+
+El contrato expone el eje (`API_CONTRACT.md:5050` — `GET /admin/disputes` · `status` ·
+`DisputeStatus` · clase E; y `:18655` — `?status=&userId=&page=`), y `api.ts:4079`
+(`getAdminDisputes()`) no lo manda. **Aun así, un `<Select>` de estado no es lo que esta pantalla
+necesita**, por tres medidas:
+
+1. **El dominio son 4 valores** (`status-map.ts:114-118`: `abierta`, `en_revision`,
+   `resuelta_recompra`, `rechazada`) y la pantalla ya los agrupa de hecho en **dos**: `RESOLVED`
+   (`M8View.tsx:21`) decide si se ofrecen acciones. Un filtro de 4 opciones sobre una cola que hoy
+   tiene **0 filas** en el stack real (`e2e/admin.spec.ts:397`) es un control que estorba.
+2. **El problema real no es filtrar: es que la cola se trunca en silencio.** `api.ts:4079-4083` pide
+   `/admin/disputes` **sin `page` ni `pageSize`**, se queda con `res.data` y **tira el sobre de
+   paginación**. El default del contrato es **`pageSize: 20`** (`API_CONTRACT.md:4162`). Como la
+   lista incluye también las **terminales** (nada las excluye), el día que haya >20 disputas el
+   operador verá 20 y **no habrá ningún control para llegar al resto** — y las abiertas quedarán
+   enterradas bajo las resueltas. Eso no lo arregla un filtro opcional: lo arregla **separar
+   abiertas de cerradas** (dos consultas fijas, como hace §M5 con sus colas) **o** paginar.
+3. **Si algún día se añade el eje, hacen falta los DOS copys**, como en §M4 — y eso es un cambio de
+   pantalla, no un añadido de campo.
+
+**Recomendación al arquitecto/ux-ui, en una línea:** antes que un filtro, **una separación fija
+«Abiertas / Cerradas»** (dos `useQuery` con `?status=`, la de abiertas por defecto) **o**
+paginación explícita. Sin una de las dos, M8 tiene un **truncado silencioso a 20** esperando a que
+la tienda crezca. **No lo implemento**: es decisión de pantalla y va por ux-ui → arquitecto.
+
+### 73.7 · Peticiones abiertas (no bloquean este pase)
+
+- **Al arquitecto:** ninguna. El contrato ya trae todo lo que M8 consume; nada se mockeó.
+- **A ux-ui:** (a) el veredicto sobre §73.6 (separación Abiertas/Cerradas vs paginación vs filtro);
+  (b) `EmptyState.tone` es una prop **muerta** (§73.2) — o se pinta o se retira de la interfaz.
+- **Al orquestador:** enrutar los tres sitios de §73.5.
+
+### 73.8 · Cómo correr lo de este pase
+
+```bash
+cd frontend
+npx tsc --noEmit && npx vitest run "src/app/[locale]/(admin)/admin/m8/M8View.test.tsx"
+npx vitest run                     # control: 156 ficheros / 1756 pruebas
+# Visual (reproduce el defecto tal como lo vio el dueño): sobre una COPIA del árbol,
+# con `mockDisputes = []` en src/lib/mock/fixtures.ts
+E2E_DEV_SERVER=1 E2E_MOCK_PORT=3014 npx playwright test e2e/admin.spec.ts -g "nunca está en blanco"
+```
+
+## §74 · **El bloque del IVA, lado frontend** — §M10-IVA.3/.4/.7/.8 + criterios 188/189/190/192/194/195/196/208/209, y **P-98** (2026-09-14, rama `claude/tcg-hunt-orchestration-2`, sobre `HEAD = f776de6`)
+
+> Encargo: cerrar la parte de frontend del bloque D56. Contrato de referencia: **v1.75**
+> (`§M10-IVA.3`, `§M10-IVA.4`, `§M10-IVA.9` y el censo `§M10-IVA.9.f`).
+> **Medido sobre `f776de6`.** Había un agente de backend escribiendo `backend/` en paralelo: **no
+> toqué `backend/` ni `docs/` salvo este fichero**, que es mío.
+
+### 74.1 · La regla que gobernó todo, y cómo se volvió ejecutable
+
+> ⛔ **EL FRONTEND NUNCA MULTIPLICA.** `displayPriceCents` = la cifra que se pinta y la que se suma;
+> ya lleva el IVA dentro.
+
+Una regla que solo vive en un documento se pierde en el tercer refactor. **Se volvió candado**:
+`frontend/src/test/frontend-never-multiplies.test.ts` barre `src/` **entera** (sin tests) y prohíbe
+**siete patrones** —`× 1.16`, `/ 1.16`, `ivaRatePct / 100`, `1 + ivaRate…`, `× (1 + …)`, el IVA como
+sumando— sobre el código **con los comentarios retirados**, para que una prohibición no salte por su
+propia documentación.
+
+**Por qué sobre el fuente y no sobre un render:** un IVA calculado en el cliente **no produce una
+pantalla rota**. Produce una pantalla impecable que cobra distinto del servidor en una fracción de
+los casos, por el redondeo. *Un defecto que no se ve no se encuentra probando pantallas: se
+encuentra prohibiendo la operación.*
+
+**Las dos únicas excepciones están argumentadas en el propio fichero**: `lib/mock/fixtures.ts` y
+`lib/api.ts` **son el simulador del servidor** — su trabajo es producir la cifra que el servidor
+produciría, y clavarla sería el defecto del criterio **196**. ⛔ Ninguna pantalla está en esa lista.
+
+### 74.2 · Lo implementado, superficie por superficie
+
+| # | Superficie | Qué cambió |
+|---|---|---|
+| 1 | `types/contract.ts` | `ListingDTO`, `GroupedListingDTO`, `GroupedListingSummaryDTO`: `salePriceCents` → **`displayPriceCents`** + `ivaIncluded` + `ivaRatePct`. `SealedGroupDTO`/`…SummaryDTO`: `fromPriceCents` conserva nombre y gana los dos campos |
+| 2 | `BreakdownDTO` | + `priceConvention` + `ivaIncluded` (§M10-IVA.4). La forma no cambia; el significado sí |
+| 3 | `components/ui/IvaLabel.tsx` ⭐ **nuevo** | **El único sitio del repo que rotula una convención de IVA.** Sin default |
+| 4 | `components/ui/PriceTag.tsx` | Consume `displayPriceCents`; el rótulo lo delega a `IvaLabel` |
+| 5 | `components/ui/AmountBreakdown.tsx` | El renglón de IVA **informa, no suma** bajo `IVA_INCLUSIVE` (criterio **189**). `data-price-convention` + `data-informative` |
+| 6 | `CatalogTile`, `ListingCard`, `CardDetailView`, `FeaturedCarousel`, `GradedShelf` | Precio exhibido + rótulo por fila |
+| 7 | `SealedShopView`, `SealedDetailView` | Íd. sobre `fromPriceCents` |
+| 8 | `AdminDashboard.tsx` | ⭐ **Tarjeta bruto/neto** (§M10-IVA.7, pieza **16** del censo) |
+| 9 | `m7/M7View.tsx` | `shippingCostMissingCount` como **aviso**, y el costo de envío rotulado **neto** (§M10-IVA.8) |
+| 10 | `m10/IvaTransferSection.tsx` | Helper de signo unificado; se retira el comentario que decía que el dial vive en `GET /admin/settings` (v1.75 lo desmiente) |
+| 11 | `lib/api.ts` | Desglose del mock **inclusivo**, filtro y orden de catálogo por el precio exhibido |
+| 12 | `lib/mock/fixtures.ts` | El fixture guarda **`L`** y **deriva `P` del dial vivo** (criterio **196**) |
+| 13 | `messages/{es,en}.json` | `common.ivaIncluded`, `checkout.ivaIncluded(+Hint)`, `subtotalHintIvaIncluded`, `dashboard.salesGross/salesNet`, `pnl.shippingCostMissing` |
+
+### 74.3 · ⭐⭐ Tres decisiones que no eran obvias, dichas con su razón
+
+**(a) El rótulo lo decide el DATO, por fila, y `IvaLabel` NO tiene default.**
+`ivaIncluded === undefined` ⇒ **no se pinta rótulo**. Un default a `true` rotularía «IVA incluido»
+sobre cifras que no lo llevan —la mentira que §M10-IVA existe para evitar— y uno a `false` haría lo
+simétrico tras el encendido. *Un rótulo de impuesto adivinado es peor que ninguno: se lee como un
+hecho.* Y por fila, ⛔ nunca por ajuste global: la misma pantalla pinta hoy una orden nueva y mañana
+una de hace seis meses (criterio **190**).
+
+**(b) La copia estática que afirmaba «sin IVA» se RETIRÓ, no se sustituyó por otra afirmación.**
+`catalog.eyebrow` («Catálogo · MXN sin IVA») y `catalog.referenceExplainerNoMarket` eran **hechos que
+pasan a ser falsos**. Se les quitó la cláusula fiscal en vez de escribir la contraria: la convención
+la dice cada cifra, y una cabecera de página **no puede saberla antes de que carguen los datos**.
+
+**(c) El fixture de pedidos liquidados queda `IVA_EXCLUSIVE`, y ni una cifra cambia.**
+`ord-9001` (2026-08-10) y `ord-9003` (2024) son **anteriores al corte**: siguen cumpliendo
+`total == subtotal + IVA + comisión`. ⭐ Y por eso valen como fixture: el mock sirve **las dos
+convenciones a la vez**, así que en `dev` se ve que el rótulo depende de la fila y no de un ajuste.
+
+### 74.4 · ⭐ Dos defectos encontrados de paso, los dos PREEXISTENTES y ninguno del IVA
+
+**1. `format.ts:16` — P-98, y era dinero.** La normalización a `MX$` iba anclada en `^`; con el signo
+delante **no disparaba**. Medido con `Intl` (Node 22): `es` `-690` → **`-$6.90`**, sin `MX`. Solo en
+**español**, que es el idioma del dueño, y ahí `$` se lee como **dólar**. Las dos superficies que hoy
+pueden pasar un negativo —medidas, no supuestas— son **la utilidad del tablero**
+(`AdminDashboard.tsx:74`, `profitPeriodCents`) y **la del P&L** (`M7View.tsx:115`, `profitCents`):
+las dos **en pérdida**. Arreglado por **presencia**, no por posición, y `signedMoneyCents` —que vivía
+duplicado en `IvaTransferSection` como rodeo de este mismo defecto— se unificó como
+`formatSignedMoneyCents`.
+
+**2. ⭐⭐ El gross-up del mock no llevaba el IVA de la comisión, y NUNCA fue cierto.** Medido contra
+`backend/src/common/money.ts:772` (`grossUpTotal`), que escala `pct` y `fixed` por `(1 + r)`: con base
+`11600` el servidor cobra **12469** y el mock cobraba **12345** — **124 centavos menos por pedido**,
+en `dev` y en todo test que corriera contra mocks. **Es preexistente**: el corte del IVA solo lo
+destapó. Corregido, y bloqueado contra las tres filas publicadas del contrato.
+
+**3. `setMockSettings` aceptaba claves desconocidas en ejecución.** Lo encontró una prueba que yo
+escribí para otra cosa: el `Partial<SettingsDTO>` cierra la puerta **en compilación**, pero `...patch`
+la deja abierta en ejecución, y un `setMockSettings({ ivaTransferPct: 0 })` metía el dial dentro de
+`mockSettings` — justo lo que `IVA-8(f)` asierta **por ausencia**. Ahora contesta
+`422 VALIDATION_ERROR`, como el servidor (`IVA-8(b)`).
+
+### 74.5 · ⛔ SOLICITUDES AL ARQUITECTO — dos, y la primera es de dinero
+
+**`F-IVA-1` · ⚠️ BLOQUEANTE PARA UNA SUPERFICIE DE CLIENTE — `MasterSetVariantDTO.buyable` no está en
+la tabla de §M10-IVA.3.**
+El contrato dice de él *«`buyable` SOLO scope cliente (iii)»* y **pinta un precio de compra**: el CTA
+«Comprar MX$X» de `components/master-set/CellDrawer.tsx:240`. Pero §M10-IVA.3 enumera **seis** DTOs y
+deja éste fuera ⇒ conserva el nombre `salePriceCents`, **que es exactamente el nombre que esa sección
+retiró** *«porque dejar el mismo nombre cambiando su significado es el defecto de D54 un nivel más
+abajo»*.
+**Mientras tanto:** el simulador emite ahí el **`P`** (marcado `// MOCK: pendiente de contrato` en
+`fixtures.ts` `cheapestListedFor`) para que el cajón del binder no sea la única superficie mostrando
+la base limpia, y la pantalla **⛔ no rotula convención**, porque sin `ivaIncluded` no hay ninguna que
+afirmar.
+**Petición:** `salePriceCents` → `displayPriceCents`, + `ivaIncluded` + `ivaRatePct`.
+**Dónde muerde si se olvida:** `src/test/frontend-never-multiplies.test.ts` lo lista **explícitamente**
+como `HUECO_DE_CONTRATO` con `toEqual`; cuando el arquitecto renombre, esa línea se cae sola.
+
+**`F-IVA-2` · `ShipmentDTO` (contrato §5) no trae la convención de precio.**
+El rastreo de un retiro **compone el `BreakdownDTO` en el cliente**
+(`shipments/[id]/ShipmentDetailView.tsx` `shipmentBreakdown`) a partir de montos sueltos, y no hay
+ningún campo del que leer `priceConvention`. ⛔ **No se rellena**: `IVA_EXCLUSIVE` sería cierto hoy y
+falso tras el encendido; `IVA_INCLUSIVE` sería falso para todo retiro ya cobrado (criterio **190**).
+⛔ **Y no se deduce de la aritmética** —mirar si `total == subtotal + iva + fee`— porque eso es
+inventar una regla que el contrato no tiene, con un importe fiscal de por medio.
+**Mientras tanto:** `AmountBreakdown` acepta la convención **opcional** (`BreakdownView`) y, cuando
+falta, **no afirma ninguna**. Hay prueba de ello, y se pondría roja si alguien le pusiera un default.
+**Petición:** `priceConvention` (o `ivaIncluded`) en `ShipmentDTO`.
+
+### 74.6 · ⛔ SOLICITUD A UX-UI — `DESIGN_SYSTEM` sigue diciendo «sin IVA» como literal fijo
+
+`DESIGN_SYSTEM.md:1148, 1355, 1392, 1487, 1858, 5449, 5472, 5483` fijan *«sin IVA»* como el sufijo del
+precio. El rótulo inclusivo —*«IVA 16 % incluido»*— lo fijan hoy **`PROJECT.md` criterio 195** y
+**`API_CONTRACT §M10-IVA.4`**, y el contrato dice expresamente *«lo fija DESIGN_SYSTEM»*.
+**Se implementó por PROJECT + contrato** (regla de conflicto: `PROJECT.md` manda sobre el contrato, y
+el contrato sobre el código), y queda pedida la actualización de §7.3 / §21.8 / §31 para que los tres
+documentos digan lo mismo. **No lo escribo yo**: `DESIGN_SYSTEM.md` es de ux-ui.
+
+### 74.7 · ⚠️ LO QUE **NO** MEDÍ, dicho explícito para que nadie lo lea como cero
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `F-N1` | **Que el backend emita hoy estos campos.** Todo lo de aquí se midió **contra el contrato v1.75 y contra los mocks**, ⛔ **no contra el backend corriendo**. El censo §M10-IVA.9.f daba las piezas 7/8/9 como **NO construidas** y había un agente escribiendo `backend/` mientras yo trabajaba | QA levantando el stack y corriendo el E2E de checkout contra el backend real, una vez ese agente cierre |
+| `F-N2` | **Que las cifras del fixture del tablero (`mockDashboard.salesPeriod`) sean las que el backend producirá.** Las **construí yo** para que cumplan la identidad de `IVA-10(a)` y coincidan con `mockPnl.incomeCents`; son un fixture coherente, ⛔ no una observación | el candado `IVA-10(b)` de backend, contra el stack |
+| `F-N3` | **El E2E de Playwright.** ⛔ **No lo corrí**: los specs viven en `frontend/e2e/` y necesitan el stack levantado. Los 1818 unitarios sí | `npx playwright test` con el stack arriba (lo ejecuta QA) |
+| `F-N4` | **`mockDashboard.profitPeriodCents` (1 284 000) NO cuadra con `mockPnl.profitCents` (582 400).** Es **preexistente** y **ajeno al IVA**; lo vi al tocar la tarjeta y **no lo cambié** porque tocarlo arriesga pruebas que no son de este pase | decidir si el tablero y el P&L deben cuadrar también en utilidad — es pregunta de contrato, no mía |
+| `F-N5` | **Que `samplePriceCents` necesitara ajuste por la cota `[1, 100_000_000]`.** **Medido: NO hacía falta.** La pantalla manda `SAMPLE_PRICE_CENTS = 10000` fijo (`IvaTransferSection.tsx:25`), cuatro órdenes de magnitud dentro de la cota. Lo dejo escrito porque el encargo lo pedía «si hace falta» y **no hacía falta** | — |
+
+### 74.8 · Cómo correr lo de este pase, y las mutaciones que lo verifican
+
+```bash
+cd frontend
+npx tsc --noEmit                   # limpio
+npx next lint --dir src            # limpio
+npx vitest run                     # 161 ficheros / 1818 pruebas
+```
+
+**Las siete mutaciones, corridas sobre una COPIA del árbol ENTERO** (no de `frontend/`: los candados
+de barrido leen rutas del repo). **7/7 muerden, N=1 cada una** — y N=1 es el N correcto aquí, no un
+atajo: ninguna depende de una carrera, un temporizador ni un orden de ejecución; son barridos de
+fuente y aritmética entera, deterministas por construcción.
+
+| # | Mutación | Qué se pone rojo |
+|---|---|---|
+| M1 | restaurar el ancla `^` en `format.ts` (**P-98**) | `format.test.ts` — 2 casos |
+| M2 | `grossUpBase = subtotal + iva` en el mock (**`IVA-2`**) | `iva-inclusive-mock.test.ts` — 2 casos |
+| M3 | `ivaIncluded` fijo a `false` en `AmountBreakdown` (**criterio 189**) | `AmountBreakdown.test.tsx` |
+| M4 | una pantalla multiplica por `1.16` | `frontend-never-multiplies.test.ts` |
+| M5 | `IvaLabel` gana `ivaIncluded = true` por defecto | `IvaLabel.test.tsx` |
+| M6 | el dial se cuela en una pantalla de cliente (**criterio 209**) | el canario de `IvaTransferSection.test.tsx` |
+| M7 | el dial deja de re-derivar el catálogo (**criterio 196**) | `iva-inclusive-mock.test.ts` |
+
+---
+
+## 75 · B-2 · El arnés E2E caducó con D56 — y debajo había una avería más vieja
+
+**Fecha de medición: 2026-09-14.** Stack nativo (`./scripts/stack-native.sh up --gate`), Postgres 16
++ Redis + s3-local + backend `:3099` + frontend `:3000` con `mocks=false`.
+
+Esto cierra el hallazgo B-2 de QA (*«el arnés E2E de Playwright quedó caduco por el rename de D56»*).
+Lo que sigue distingue, caso por caso, **si estaba mal la PRUEBA o la UI** — porque poner verdes unas
+pruebas rojas es exactamente la forma en que se debilita un candado, y la única defensa es decir con
+qué se cotejó cada una.
+
+### 75.1 · Resultado, con su N
+
+| Suite | Antes (medido por QA) | Después (medido por mí) |
+|---|---|---|
+| `@real` contra el stack | 32 pasaron · **23 fallaron** · 3 saltadas · 1 no corrió | **50 pasaron · 3 fallaron** · 6 saltadas — **2 de 2 corridas idénticas** sobre `f8c7040` |
+| mock (`E2E_MOCK_PORT=3010`) | *(QA no la midió)* **196 pasaron · 6 fallaron** · 3 saltadas | **201 pasaron · 0 fallaron** · 4 saltadas |
+
+Los **3 rojos que quedan son los de B-3 (devops)**: `checkout.spec.ts:64`, `guest-checkout.spec.ts:136`
+y `shipments.spec.ts:30` mueren esperando el modal de pago (`dialog «Completar pago»` / `«Pagar envío»`) porque este entorno **no tiene clave de
+prueba de Stripe ni salida a `api.stripe.com`**. ⛔ **No los tapé** y no los toqué.
+
+### 75.2 · ⚠️ Corrección a la clasificación de QA: `shipments.spec.ts` NO era un rojo de cobro
+
+QA contó tres rojos «por capacidad de COBRO ausente». Dos lo eran. El tercero —`shipments.spec.ts:30`—
+**moría en la línea 41, ANTES de tocar Stripe**, en un rótulo de IVA caduco. Medido en el propio
+desglose del retiro contra el stack: `Envío MX$203.00 · «IVA 16 % incluido» MX$28.00 · Comisión
+MX$12.48 · Total MX$215.48` — o sea `total == envío + comisión`, con el IVA **informando**, que es lo
+que manda el criterio **189**. Un hueco de entorno estaba **escondiendo** un rótulo caduco. Arreglado
+el rótulo, ese test llega ahora hasta el modal de pago y falla ahí, que es donde le toca.
+
+### 75.3 · Prueba o UI, caso por caso
+
+| # | Síntoma | ¿Quién estaba mal? | Con qué lo coteje |
+|---|---|---|---|
+| 1 | `grading.ts:312` — *«necesita TRES cartas raw y hay 0»* (12 rojas) | **la PRUEBA** | `API_CONTRACT §M10-IVA.3`: *«`salePriceCents` DESAPARECE de la superficie pública»*. Medido: `GET /catalog/cards` devuelve `displayPriceCents`, `ivaIncluded:true`, `ivaRatePct:16` y **seis** grupos raw |
+| 2 | `m5-scenario.ts:104` — misma forma, **otra mecha** | **la PRUEBA** (QA no lo vio) | igual que arriba. Aquí no daba rojo: daba **`skip`** — ver §75.4 |
+| 3 | `pricing-curve.spec.ts:169` exige «sin IVA» | **la PRUEBA** | `PROJECT.md §Q`, tabla de superficies: *«Ficha de carta — precio grande y filas de variante · ¿Precio con IVA dentro? **SÍ**»*. La UI pinta «IVA 16 % incluido» porque el servidor manda `ivaIncluded:true` |
+| 4 | `catalog.spec.ts:240/262` — `heading {name:'Sellado'}` casa dos | **la PRUEBA** | modo estricto de Playwright: el `h1` «Sellado» y el `h3` «Aún no hay **sellado** en stock». `GET /catalog/sealed` ⇒ `total:0` en este entorno ⇒ el vacío SIEMPRE está |
+| 5 | `catalog.spec.ts:66/170`, `checkout.spec.ts:25/94`, `guest-checkout.spec.ts:56` — «sin IVA» / «IVA 16%» (6 rojas **en mock**, invisibles para QA) | **la PRUEBA** | las cinco superficies pintan «IVA 16 % incluido» (leído del DOM de los fallos). `PROJECT.md §Q` marca **SÍ** en todas |
+| 6 | `catalog.spec.ts:264` — `sealed.length > 0` | **la PRUEBA** | afirma **tráfico HTTP** y en mock el cliente resuelve **en proceso**: cero peticiones. Rojo permanente en mock y, peor, el assert hermano pasaba **en vacío**. Pasa a `realOnly` |
+| 7 | 6 plantones de 60 s en `admin`/`admin-fx`/`account` | **la PRUEBA (el arnés)** | inanición del cupo de `POST /auth/login` — §75.5 |
+| 8 | `m5-transitions` — `422 CLABE_NOT_OWN_NAME` | **la PRUEBA (el arnés)** | `API_CONTRACT §6`: `clabe` es **opcional si hay una en archivo**, y mandar una distinta da ese 422 (v1.60/D51: match de **blind index**, no de nombres). El arnés horneaba el literal SIEMPRE |
+| 9 | `m5-transitions` — `500 INTERNAL` en el intake | **la PRUEBA provocaba un defecto REAL del producto** — §75.7 | log del backend: `PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock` (`buylist.service.ts:1679`) |
+
+**Ninguna UI resultó estar mal.** Lo digo explícito porque el encargo pedía decirlo en las dos
+direcciones: busqué el caso contrario y no apareció.
+
+### 75.4 · La lección del hallazgo 1 no es el nombre: es el `?? 0`
+
+`(g.salePriceCents ?? 0) > 0` no falló por el rename. Falló porque **`?? 0` convirtió un campo
+inexistente en un cero**, y «cero» es una afirmación: el arnés concluyó que el catálogo estaba vacío
+y **acusó al seed**. QA pidió buscar más sitios con esa forma. Encontré uno, y era peor:
+
+`m5-scenario.ts` filtraba con `typeof row.salePriceCents === 'number'` ⇒ `false` en todas las filas ⇒
+`M5SeedUnavailable` ⇒ **`m5-transitions.spec.ts` se SALTABA ENTERO, en verde**. La misma bomba salía
+por la puerta del `skip` en vez de por la del rojo. *Una suite apagada por un rename no gatea, y
+encima culpa al seed.*
+
+Los dos sitios ahora **denuncian la ausencia antes de filtrar**: si el DTO deja de traer
+`displayPriceCents`, el mensaje dice «el DTO público cambió de forma», no «el seed está vacío».
+
+### 75.5 · ⭐ La avería de fondo: el arnés violaba el límite de `POST /auth/login`
+
+Esto no lo causó D56 y es el hallazgo más grande del pase.
+
+**Medido (2026-09-14, `:3099`):** diez intentos seguidos ⇒ `200 200 200 200 200 429 429 429 429 429`,
+y vuelta a `200` a los **62 s**. Es `@Throttle({ ttl: 60_000, limit: 5 })` sobre `POST /auth/login`
+(`backend/src/modules/auth/auth.controller.ts:25`), por IP; un intento bloqueado **no** alarga la
+ventana.
+
+El arnés lo excedía por dos vías: hay **seis** actores en `SeedRole` (no tres), y **los logins por
+FORMULARIO —que son el producto bajo prueba— no pasaban por `sharedOnce`**. Al agotarse el cupo,
+`loginViaApi` entraba en una escalera de `1+2+4+8+16+32 = 63 s`… con `timeout: 60_000` por test. **La
+escalera no cabía nunca.** El resultado, leído en la traza de `admin.spec.ts:17`: entre `Create page`
+y el timeout, **cero acciones de Playwright**. Un plantón mudo de 60 s que se lee como «la UI no
+carga» (la pantalla se queda en «Verificando sesión…» sencillamente porque nadie navegó).
+
+**Reproducido 3/3** con 2 workers sobre `admin`+`admin-fx`+`account` (6 rojas cada vez) y **1/1** con
+`--workers=1` (2 rojas, **otras distintas**). No es intermitencia: es inanición, y por eso cambia de
+víctima según el orden. *Un gate cuyo rojo depende de quién llegue primero al cupo no clasifica nada.*
+
+El arreglo tiene tres piezas y ninguna toca el throttler (es defensa legítima del producto):
+
+1. **`reserveLoginSlot` (`e2e/utils/state.ts`)** — cupo compartido **entre procesos** (fichero +
+   candado, como `sharedOnce`), 5 por 66 s. **Todo** login pide ranura: por API y por formulario.
+2. **`playwright.config.ts`: `timeout` 120 s SOLO contra backend real.** Con 60 s era imposible por
+   aritmética (la ventana dura 60 s). ⛔ `expect.timeout` no se tocó: **ningún aserto se relajó**;
+   solo se le da sitio al arnés para pagar el peaje del producto.
+3. **El cupo NO se purga en el teardown**, y eso lo aprendí midiendo: la primera versión sí lo
+   borraba, y cinco corridas seguidas de `m5-transitions` dieron **2 de 5 rojas** con `429` — cada
+   corrida arrancaba el contador a cero mientras el servidor seguía en la misma ventana. Las
+   entradas son marcas de tiempo, no credenciales.
+
+Tras el arreglo: **3/3 corridas verdes** de las tres specs (13 pasan, 0 fallan), con dos casos
+esperando ~1 min su ranura **y diciéndolo** (`E2E_LOGIN_DEBUG=1`).
+
+### 75.6 · Relación con la nocturna `e2e-real.yml` en rojo desde el 11-sep
+
+**NO MEDIDO: cuál smoke falla en CI.** El informe de Playwright de esas corridas no se puede
+descargar desde aquí (el proxy rechaza `*.blob.core.windows.net` con 403), así que **no afirmo** que
+ésta sea la causa.
+
+Lo que **sí** sostengo: la avería de §75.5 es **anterior a D56**, es **determinista**, y **reproduce
+con `workers: 1`**, que es la configuración de CI (`workers: isCI ? 1 : undefined`). Es el candidato
+más fuerte que tengo. Lo que lo cerraría: una corrida de `e2e-real.yml` con estos commits, o que
+alguien con acceso al artefacto mire si los rojos de #35–#37 son timeouts de 60 s sin acciones.
+
+### 75.7 · Hallazgo de PRODUCTO que sale de aquí y **no es mío** → backend
+
+`POST /buylist/requests`, dos intakes **simultáneos del mismo vendedor**, responde **`500 INTERNAL`**:
+
+```
+PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock.
+  at BuylistService.createRequest (backend/src/modules/buylist/buylist.service.ts:1679)
+```
+
+La transacción SERIALIZABLE del tope mensual **no reintenta**, y un conflicto de serialización es una
+condición *esperada* en ese nivel de aislamiento: el remedio canónico es reintentar, no propagar un
+500 al cliente. El arnés **dejó de dispararlo** (`m5Scenario()` construye bajo candado de fichero,
+un worker a la vez) pero ⛔ **no lo tapa**: queda escrito aquí y va al arquitecto/backend.
+
+### 75.8 · Peticiones abiertas
+
+- **A ux-ui (repetida, §74.6):** `DESIGN_SYSTEM.md` sigue diciendo *«sin IVA»* como literal fijo. Este
+  pase retiró **seis** asserts que copiaban ese literal; mientras el documento no se actualice, el
+  siguiente que escriba una pantalla volverá a ponerlo.
+- **A backend:** §75.7, y que el seed limpie `clabeEnc`/`clabeHmac` **también** de `customer2` (hoy
+  solo lo hace de los actores de KYC), porque la clave PII es efímera por arranque en el stack nativo.
+
+### 75.9 · ⚠️ Lo que NO medí en este pase
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| `F-N6` | **Los tres rojos de Stripe.** No hay clave de prueba ni egress; son B-3 | devops abriendo la puerta de cobro y QA re-corriendo |
+| `F-N7` | **Que ésta sea la causa de la nocturna en rojo** (§75.6) | el artefacto de `e2e-real.yml`, hoy inalcanzable tras el proxy |
+| `F-N8` | **El comportamiento del cupo con `retries: 2` de CI.** Aquí `retries` es 0 | una corrida con `CI=1` |
+| `F-N9` | **Que las cuatro `account.spec` saltadas pasen.** La causa del `skip` SÍ la medí: `POST /auth/login` de `temporal.customer@e2e.local` y `temporal.operator@e2e.local` responde **`401 INVALID_CREDENTIALS`** ⇒ sus temporales ya se consumieron (TECH_DEBT GA-D3). Lo que **no** medí es que el flujo pase con el seed fresco — y ⛔ **no resembré a propósito**: `--seed` purga filas de evidencia y el cupo mensual de otros | `./scripts/stack-native.sh up --seed` y re-correr `account.spec.ts` |
+
+### 75.10 · Cómo re-medir esto
+
+```bash
+./scripts/stack-native.sh up --gate          # stack real, y verify:head en verde
+cd frontend
+E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test   # subset @real
+E2E_MOCK_PORT=3010 npx playwright test                              # suite de mocks
+E2E_LOGIN_DEBUG=1 …                                                 # + traza del cupo de login
+```
+
+## 76 · El conteo de saltadas bailaba entre corridas idénticas — la causa era que **la suite se come sus propios fixtures**
+
+**Fecha de medición: 2026-09-14.** Stack nativo vivo (Postgres 16 + Redis + s3-local + backend `:3099` +
+frontend `:3000` con `mocks=false`), sirviendo el árbol `3dd09ed`. Ablaciones ancladas en ese **SHA
+literal** (`git archive 3dd09ed` a un árbol aparte), nunca en `HEAD`.
+
+Cierra el hallazgo MENOR de la 2ª pasada de QA: *«el conteo de saltadas de Playwright es inestable entre
+corridas del MISMO código»* (`55/3/1` contra `50/3/6`).
+
+### 76.1 · La causa raíz, en una frase
+
+**Dos fixtures del seed son de UN SOLO USO, y el caso que los mide es el que los destruye.** No hay nada
+que los regenere entre corridas, así que el número de saltadas no es una propiedad del código: es una
+función de **cuánto hace que alguien sembró**.
+
+| Fixture | Quién se lo come | A cuántos casos afecta |
+|---|---|---|
+| Las dos contraseñas TEMPORALES (`temporal.customer@e2e.local`, `temporal.operator@e2e.local`) | `account.spec.ts`: cambiar la temporal por la definitiva **es** lo que §33.8 pide comprobar ⇒ al terminar, `mustChangePassword=false` | **4** |
+| El ÚNICO pedido de invitado sin reclamar (`TCG-E2E-GUEST-0001`) | `claimable-orders.spec.ts`: reclamarlo **es** lo que el caso mide ⇒ al terminar, `claimedAt != null` | **1** |
+
+4 + 1 = **los cinco casos de diferencia** que QA vio. No es intermitencia: es un **trinquete**, monótono
+y de una sola dirección. Medido en la BD (solo lectura):
+
+```
+temporal.customer@e2e.local | mustChangePassword=false | updatedAt 11:41:28
+temporal.operator@e2e.local | mustChangePassword=false | updatedAt 11:41:30
+TCG-E2E-GUEST-0001          | claimedAt 11:42:29
+```
+
+y contra la API, antes de tocar nada: `POST /auth/login` de los dos temporales ⇒ **`401`**.
+
+### 76.2 · ⚠️ Dos correcciones a la descripción del encargo, con el dato
+
+1. **Los cinco que bailan NO son los seis que saltan.** El sexto —`orders-resume.spec.ts:94`— **no baila**:
+   salta en **6 de 6** corridas medidas, porque depende de que exista un pedido `pending` con reserva viva
+   y sin clave de Stripe `POST /checkout/session` responde `503` y el pedido queda `failed`. Es **B-3**
+   (capacidad de entorno) disfrazado de `skipIfSeedMissing`. Confundirlo con los otros cinco manda a
+   arreglar lo que no se puede arreglar desde aquí.
+2. **El censo estático ya estaba ROJO antes de este pase, y por prosa.** `scripts/check-e2e-skip-census.sh`
+   cuenta por palabra completa (`grep -rwo`), así que un comentario que explica que un caso **no** lleva
+   salvaguarda se cuenta como salvaguarda. Medido: `needsSeed` 32 contra un baseline de 31, en rojo desde
+   **`bb30997`** (P-97), por una sola línea de comentario de `admin.spec.ts`. Reescrita la frase sin el
+   token, el censo vuelve a verde **sin tocar el baseline de devops**.
+
+### 76.3 · El rango de cobertura, antes y después (N=3 cada uno)
+
+Subconjunto con saltos dinámicos: `account.spec.ts` + `claimable-orders.spec.ts` + `orders-resume.spec.ts`
+⇒ **11 casos `@real`**. Mismo stack, mismas corridas seguidas, sin resembrar entre ellas.
+
+| | corrida 1 | corrida 2 | corrida 3 | **rango de saltadas** |
+|---|---|---|---|---|
+| **ANTES** (`3dd09ed`, árbol de ablación) | 10 pasan · **1 salta** | 4 pasan · **6 saltan** | 5 pasan · **6 saltan** | **1 … 6** |
+| **DESPUÉS** (este pase) | 9 pasan · **2 saltan** | 9 pasan · **2 saltan** | 9 pasan · **2 saltan** | **2 … 2** |
+
+La corrida «antes #1» salió con la cara buena porque el **agente de backend resembró** justo antes
+(`f07a50c`, `backend(seed M-52)`, 11:37) — o sea que el trinquete quedó reproducido de las dos caras en la
+misma serie, sin que yo resembrara nada. Es también la prueba en vivo de O-14: mi instrumento estaba
+siendo mutado por otro agente, y solo lo supe porque miré la BD y el `git log`.
+
+Después del arreglo, **los 4 casos de `account.spec.ts` se ejercitan en 3 de 3** y ya no aparecen jamás en
+el censo. Las 2 saltadas que quedan son `claimable-orders` (fixture de un solo uso, §76.5) y
+`orders-resume:94` (B-3, sin Stripe).
+
+**Y la suite `@real` ENTERA, misma tarde, mismo stack:**
+
+| | pasan | fallan | **saltan** | ejercitados de 59 |
+|---|---|---|---|---|
+| QA, corrida 1 *(suya, N=1 — O-15)* | 55 | 3 | **1** | 58 |
+| QA, corrida 2 *(suya, N=1)* | 50 | 3 | **6** | 53 |
+| yo, ANTES (`3dd09ed`) | 50 | 3 | **6** | 53 |
+| **yo, DESPUÉS** | **54** | 3 | **2** | **57** |
+
+Los 3 rojos son exactamente los mismos tres de siempre (`checkout`, `guest-checkout`, `shipments`: modal de
+pago sin clave de Stripe, B-3). No los toqué y no los tapé.
+
+⚠️ **Honestidad sobre el residuo:** el baile no queda en CERO, queda en **UNO**. Los 4 de `account.spec.ts`
+dejaron de bailar del todo; `claimable-orders` sigue valiendo 1 salto o 0 según si alguien sembró (§76.5).
+La diferencia con antes es que ese único caso **sale con nombre y apellidos en el informe de cada corrida**
+en vez de esconderse detrás de un «3 fallos» idéntico.
+
+**Suite de MOCKS, sin regresión:** `201 pasan · 0 fallan · 4 saltan` — el mismo resultado que §75.1. Las 4
+saltadas son `solo-real` y el censo dinámico las clasifica como tales.
+
+### 76.4 · El arreglo: la suite se fabrica su propio actor, por el contrato
+
+`e2e/utils/temp-actors.ts` (nuevo). Cada corrida da de alta su actor con `POST /admin/users` **sin
+`password`** ⇒ el backend autogenera una temporal de alta entropía, la devuelve una vez en `tempPassword` y
+deja `mustChangePassword=true` (API_CONTRACT §«Alta de usuario por rol desde admin»). Al acabar,
+`DELETE /admin/users/:id` lo borra **en duro** (sin historial económico). Verificado contra el stack vivo:
+
+```
+POST /admin/users (sin password)  -> 201  { user.id, tempPassword(24), mustChangePassword: true }
+GET  /admin/users?q=e2e-disposable-temp-  -> 200, sirve para barrer huérfanos
+DELETE /admin/users/:id           -> 200, y el listado queda en 0 (hard delete, sin fila anonimizada)
+```
+
+Es el mismo patrón que `utils/grading.ts` ya usaba con el gancho de grading: **sembrar por el endpoint que
+el producto usa de verdad** en vez de exigirle la fila al seed. Y mide MÁS, no menos: el alta por admin con
+temporal es, literalmente, cómo nace un operador aquí.
+
+Lo que **no** se hizo, y por qué:
+
+- ⛔ **No se resiembra desde el test.** `--seed` purga evidencia de PoC/pentest y reinicia cupos mensuales
+  de otras suites.
+- ⛔ **No se quitaron los saltos a lo bruto.** Se sustituyó su *causa*. Donde la causa no se puede quitar,
+  el salto se queda — con su razón medida y declarado en el informe.
+- ⛔ **El helper nuevo NO salta nunca.** Si `POST /admin/users` no cumple el contrato, es ROJO. Cambiar un
+  salto dinámico por otro habría movido el problema, no cerrado.
+
+**Coste de cupo de `POST /auth/login`** (`{ttl:60_000, limit:5}` por IP): **+1 por corrida** (el `admin`, que
+`sessionFor` cachea y que otras suites iban a gastar igual). Los cuatro logins de `account.spec.ts` son los
+mismos de antes; lo que cambia es que ahora los cuatro **llegan a medir** en vez de rebotar en un 401.
+
+### 76.5 · `claimable-orders`: por qué este SÍ se queda saltando (con la aritmética)
+
+Se puede fabricar el pedido: medido en el backend, `listClaimable` filtra por
+`{ guestEmail, userId: null, claimedAt: null }` y **no** por estado, así que hasta el `failed` que deja el
+`503` sin Stripe valdría. Pero `POST /checkout/guest/session` está limitado a **5 por hora y por IP**
+(contrato §4-G.2) y la suite ya gasta 1 en `guest-checkout.spec.ts`. A 2 por corrida:
+
+```
+corrida 1: 2   corrida 2: 4   corrida 3: 6  > 5  ⇒ 429 RATE_LIMITED
+```
+
+Cambiaría un salto que se explica solo por **un flake nuevo en un flujo de dinero** — exactamente la avería
+de la inanición del cupo de login (§75.5). No se hace. Lo que sí se arregló es **la razón**, que antes
+acusaba al seed de algo que el seed no había hecho:
+
+> *«el ÚNICO pedido de invitado del seed (TCG-E2E-GUEST-0001) ya está RECLAMADO: se lo comió una corrida
+> anterior de ESTE mismo caso… El seed hizo su trabajo; el fixture es de un solo uso.»*
+
+La distinción se **mide** (`seedGuestOrderAlreadyClaimed()` en `utils/orders.ts`), no se supone.
+
+### 76.6 · Que el informe diga qué NO se midió: censo DINÁMICO
+
+`e2e/reporters/not-measured.ts` (nuevo, cableado en `playwright.config.ts` en las dos configuraciones).
+
+**Antes de construirlo se miró lo que ya existe**: `scripts/check-e2e-skip-census.sh` (devops) cuenta las
+salvaguardas **en el fuente** contra un baseline, y su canario demuestra que muerde. No sirve para esto, y
+no por estar mal hecho: las dos caras de QA —1 y 6 saltadas— salen del **mismo fuente**. Son dos preguntas:
+
+- censo **ESTÁTICO** → ¿cuántas escotillas hay escritas? *(ya existía; no se toca)*
+- censo **DINÁMICO** → ¿cuántas se **abrieron hoy**, cuáles y por qué? *(esto)*
+
+Imprime la lista nominal (`fichero:línea`, título y razón, agrupada por clasificación) y la deja en JSON
+(`E2E_NOT_MEASURED_JSON`, default `test-results/not-measured.json`) para poder **diferenciar dos corridas**
+en vez de compararlas de memoria.
+
+Y trae su interruptor con canario: `E2E_EXPECT_NOT_MEASURED=<n>` pone la corrida en rojo si el número no
+cuadra. Medido:
+
+```
+E2E_EXPECT_NOT_MEASURED=2  (y hay 2) -> rc=0
+E2E_EXPECT_NOT_MEASURED=1  (y hay 2) -> rc=1  + «::error title=cobertura E2E::… dejó 2 caso(s) SIN MEDIR»
+```
+
+⛔ Queda **opt-in**: cablear un gate es de devops. Aquí está el instrumento y su contrato de uso.
+
+### 76.7 · Un defecto que me hice yo, dicho entero
+
+Al quitar la salvaguarda del tercer caso del cliente quité también, sin verlo, **la espera** que hacía su
+`Promise.race(alerta | cambio de URL)`: sin ella el `page.goto('/es/account/password')` salía antes de que
+la sesión se persistiera, la guarda rebotaba a `/es/login` y el caso moría buscando un H1 que estaba en otra
+página. Medido **3 de 3** (la captura de `error-context.md` mostraba «Iniciar sesión»). Repuesto como
+`page.waitForURL(...)`, sin el salto. **La lección:** una salvaguarda de salto puede estar haciendo dos
+trabajos; al quitarla hay que preguntarse cuál era el segundo.
+
+### 76.8 · ⚠️ Lo que **NO** medí en este pase
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| `F-N10` | **Que los 4 de `account.spec.ts` pasen con el seed FRESCO y con actor desechable a la vez.** Ya no hace falta para el gate (el desechable es independiente del seed), pero no lo comprobé | `up --seed` + la serie de 3 |
+| `F-N11` | **Los tres rojos de Stripe** (`checkout`, `guest-checkout`, `shipments`). Siguen siendo B-3 y no los toqué | devops abriendo la puerta de cobro |
+| `F-N12` | **Un intermitente ajeno en `account.spec.ts:226` (facturación §33.6d)**: salió `flaky` 1 de 6 corridas, salvado por `retries: 2`. NO lo diagnostiqué y NO es de este hallazgo | N≥10 de ese caso aislado |
+| `F-N13` | **Si el frontend servido en `:3000` corresponde a HEAD.** El stack sirve `3dd09ed` y HEAD ya avanzó; mis cambios son todos de `e2e/` y de config, **cero** en `src/`, así que la app bajo prueba es la misma — pero no corrí `verify:head` después de que HEAD se moviera | `./scripts/stack-native.sh verify:head` |
+| `F-N14` | **El baseline del censo estático con los números nuevos.** `skipIfSeedMissing` baja de 15 a 10 y `mockOnly` de 99 a 98: el gate sale VERDE (bajar no es delito) y avisa de regenerar. **El baseline es de devops**, no lo toqué | `./scripts/check-e2e-skip-census.sh --update --motivo "…"` (devops) |
+
+### 76.9 · Cómo re-medir esto
+
+```bash
+# 1. La causa, sin correr nada: ¿están vivos los fixtures de un solo uso?
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3099/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"temporal.customer@e2e.local","password":"Temporal123!"}'   # 401 = ya consumido
+
+# 2. El rango: TRES corridas seguidas, sin resembrar entre ellas (el fenómeno ES la variación)
+cd frontend
+for i in 1 2 3; do
+  CI=1 E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 \
+  E2E_NOT_MEASURED_JSON=/tmp/nm-$i.json npx playwright test \
+    e2e/account.spec.ts e2e/claimable-orders.spec.ts e2e/orders-resume.spec.ts
+done
+jq -r '.notMeasured' /tmp/nm-*.json      # tiene que salir el MISMO número las tres veces
+
+# 3. El candado del censo dinámico muerde
+E2E_EXPECT_NOT_MEASURED=1 CI=1 E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 \
+  npx playwright test e2e/claimable-orders.spec.ts   # rc=1 si hay un número distinto
+```
+
+---
+
+## §77 · **Los tres candados ciegos del frontend, cerrados** — un solo limpiador, tres canarios (2026-09-14, rama `claude/tcg-hunt-orchestration-2`, base `0e22415`)
+
+> El techlead midió el hallazgo: *«la v2 de `stripComments` arregló el helper, no la clase»*. El
+> algoritmo v1 —borrar bloques con una regex global y **luego** quitar colas de línea— seguía vivo
+> en tres sitios de `frontend/`. **No era teórico: uno de ellos es el candado que gobierna todo el
+> corte del IVA en el front, y estaba ciego HOY.**
+
+### 77.1 · El defecto, en una frase
+
+Un comentario de línea que contenga la secuencia de apertura de bloque —p. ej.
+`// … el portal de una solicitud (/buylist/requests/…), que es «ventas».`— **abre un bloque** para
+la primera regex, que se come el fichero hasta el siguiente cierre. El candado **no se pone rojo:
+deja de ver**. Y un candado que no ve **pasa**.
+
+### 77.2 · Cuánta ceguera había — medido, no estimado
+
+| Candado | Fichero | Ceguera medida sobre `0e22415` |
+|---|---|---|
+| ⭐⭐⭐ **`§M10-IVA.3` · «el frontend nunca multiplica»** | `src/test/frontend-never-multiplies.test.ts:62` | **107 ficheros y ≥413 líneas de código** de `src/` fuera de su alcance |
+| **`C-AV-8` · la campana no conoce `SellOfferState`** | `src/components/layout/PendingsBell.test.tsx:135` | **0 líneas vivas** en sus dos ficheros. Se migró igual: lo que decide si ve es *el próximo comentario que alguien escriba* |
+| **El arnés E2E** | `src/test/e2e-harness.test.ts:36` | **3 specs** de `e2e/` (`buylist` 4 líneas, `master-set` 5, `buylist-offer` 1) |
+
+**El caso que lo prueba**, y es el que el techlead señaló: `StorefrontHeader.tsx:95` abre el bloque
+y el siguiente cierre está en `:109`. En esa ventana hay **13 líneas con código** y el v1 se las
+comía **todas** —la tabla de navegación entera (`/buylist`, `/vault`, `/orders`, `/account`,
+`/login`) y la apertura del `<header>`—. *Se afirman **12**, no 13, porque una de ellas (`:106`,
+`return (`) aparece igual en otro sitio del fichero y por contenido no se puede demostrar.*
+
+⚠️ **Lo que NO se encontró, dicho igual de fuerte:** leídas las ventanas borradas, **no escondían
+ningún defecto real**. El producto no estaba comprometido. Lo que estaba comprometido era **el
+instrumento de la regla**.
+
+### 77.3 · ⭐ El control nuevo es POR CONTENIDO, y ésa es la lección
+
+`PendingsBell.test.tsx:140-141` **ya traía** un control de no-vacuidad, con su comentario al lado:
+*«si el stripper se rompiera y vaciara el fichero, el candado quedaría mirando al vacío»*.
+
+**El autor conocía el modo de fallo. Blindó el caso TOTAL. El que ocurre de verdad es el PARCIAL.**
+Un candado puede estar ciego a trozos y **pasar todos sus propios controles**.
+
+⇒ `exigirQueConserveElCodigo` no pregunta *«¿queda algo?»*: pregunta *«¿queda lo que había?»* —
+cada una de las **N** líneas con código del original tiene que seguir teniendo contenido. Y el
+canario lo demuestra colocando la inyección **después** del `export`: así el control viejo pasa
+**en verde** sobre la misma salida ciega.
+
+### 77.4 · ⭐⭐ Un solo limpiador, y por qué NO es el autómata de `backend/`
+
+`frontend/src/test/strip-comments.ts` es **el único** de este lado, y **no reimplementa** el
+algoritmo de `backend/test/helpers/strip-comments.ts`: le pregunta al **escáner de TypeScript** qué
+caracteres son **token** y cuáles son **trivia**. Los comentarios son trivia por definición del
+lenguaje, no por una heurística nuestra.
+
+La razón no es de gusto, es **medida** (los dos árboles, 2026-09-14):
+
+| Instrumento | pierde código | retiene PROSA |
+|---|---|---|
+| autómata v2 de `backend/` | 0 ficheros | **5** en `frontend/src` + **3** en `backend/src` |
+| escáner de TypeScript (el nuevo) | **0** | **0** |
+
+El autómata **no es ciego** —su v2 arregló eso— pero **se desincroniza con un literal de expresión
+regular que lleve un número impar de comillas** (su límite documentado), y a partir de ahí conserva
+los comentarios. En `frontend/` pasa en `api-client.ts:216`, `e2e-harness.test.ts:119`,
+`grading.ts`, `PendingsBell.test.tsx` y `FxRateCard.test.tsx`. *Para una prohibición eso es un rojo
+falso, y un rojo falso enseña a callar el candado reescribiendo el comentario.*
+
+**Sobre `.tsx` además importa de verdad**: el autómata trata el texto JSX como código, así que un
+apóstrofo en una frase abriría una «cadena» que no cierra.
+
+### 77.5 · ⇒ SOLICITUD AL ROL **BACKEND** (no es ruta mía)
+
+`backend/test/helpers/strip-comments.ts` **retiene prosa** en tres ficheros de `backend/src` por el
+límite de arriba: `modules/buylist/mail-shell.ts` (`:121-140`), `modules/mail/mail.templates.ts`
+(`:30,45-48,64-66` — el detonante es `.replace(/'/g, '&#39;')` en `:27`) y
+`modules/orders/mail/guest-order.templates.ts` (`:65,126,166`). **No es ceguera** (no pierde
+código), así que no es bloqueante; pero cualquier candado que **cuente apariciones** sobre esos
+ficheros está contando prosa. Se re-mide con el script del scratchpad `cmp3.mjs` o reproduciendo el
+caso de `strip-comments.test.ts` («un literal de EXPRESIÓN REGULAR con comilla suelta…»).
+
+### 77.6 · El barrido de mi ruta — respuesta completa
+
+Barrida `frontend/` entera (`src/`, `e2e/`, `scripts/`, raíz; excluidos `node_modules/`, `.next*/`):
+**no hay un cuarto sitio con esa forma.** Los tres eran los tres.
+
+Lo único que queda tocando comentarios es de **otra clase**, y se deja como está:
+
+| Sitio | Qué hace | Por qué no aplica |
+|---|---|---|
+| `src/lib/mock/payability-contract.test.ts:64` | quita las glosas `//` de un bloque **cercado de Markdown** de `API_CONTRACT.md` | no lleva regex de bloque ⇒ **no tiene el modo de fallo**; y no es TypeScript |
+| `src/test/e2e-paid-provider-guard.test.ts:283` | compara contra el fichero **crudo**, sin limpiar | no limpiar no ciega: el sesgo va a **rojo falso**, la dirección segura |
+
+### 77.7 · Cómo re-medir esto
+
+```bash
+cd frontend
+npx vitest run src/test/strip-comments.test.ts \
+               src/test/frontend-never-multiplies.test.ts \
+               src/test/e2e-harness.test.ts \
+               src/components/layout/PendingsBell.test.tsx
+# El canario que más enseña, aislado:
+npx vitest run src/test/frontend-never-multiplies.test.ts -t 'ventana 95-109'
+```
+
+### 77.8 · Totales y lo que **NO** medí
+
+Suite completa: **162 ficheros / 1843 pruebas, todas verdes** (base 161/1818 ⇒ +1 fichero y +25
+pruebas, que son exactamente los canarios). `tsc --noEmit` limpio, `next lint` limpio,
+`scripts/check-format-mix.sh` verde.
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| `F-N15` | **Si los otros 8 sitios con el v1 que el techlead censó fuera de `frontend/` siguen vivos.** Son ruta de backend/devops, no los toqué ni los conté | que el rol dueño corra el mismo barrido en su ruta |
+| `F-N16` | **Si el escáner de TypeScript cuesta tiempo de CI apreciable.** Medido en local: ~2 s para los 462 ficheros de `src/`, una sola vez gracias a la memoización de `codigoDe`; la suite completa pasó de no-medido a **151 s** | comparar la duración del job de vitest en CI antes/después |
+| `F-N17` | **Los 31 candados del repo, uno a uno.** Barrí **el patrón** en mi ruta, no audité cada candado buscando otras formas de ceguera | una auditoría por candado, que es trabajo de techlead/QA |

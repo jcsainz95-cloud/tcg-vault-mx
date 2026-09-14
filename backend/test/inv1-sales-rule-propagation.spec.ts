@@ -5,6 +5,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * INV-1 — Prueba de propagación END-TO-END (backend, sin DB real):
@@ -74,7 +75,7 @@ function wire(item: any) {
   const { prisma, configStore } = makePrisma(item);
   const settings = new SettingsService(prisma);
   const pricing = new PricingService(prisma, settings, fxStub, {} as any, {} as any, {} as any);
-  const catalog = new CatalogService(prisma, pricing);
+  const catalog = new CatalogService(prisma, pricing, ivaDialsStub() as never);
   return { prisma, configStore, settings, pricing, catalog };
 }
 
@@ -117,7 +118,7 @@ function platformItem(over: Partial<any> = {}) {
 }
 
 describe('INV-1 — propagación de la CURVA a /catalog (Settings+Pricing+Catalog reales)', () => {
-  it('mover un PUNTO de la curva MUEVE el salePriceCents de toListingDTO (repricio EN LECTURA)', async () => {
+  it('mover un PUNTO de la curva MUEVE el displayPriceCents de toListingDTO (repricio EN LECTURA)', async () => {
     const item = platformItem();
     const { prisma, pricing, catalog } = wire(item);
 
@@ -126,7 +127,7 @@ describe('INV-1 — propagación de la CURVA a /catalog (Settings+Pricing+Catalo
     expect(before.sale.points[1]).toEqual({ marketCents: 8000, multiplierBp: 11500 });
 
     const dto0 = await catalog.toListingDTO(item as never);
-    expect(dto0.salePriceCents).toBe(11500);
+    expect(dto0.displayPriceCents).toBe(13340); // `P` de `L = 11500`
     expect(dto0.priceBasis).toBe('market');
     expect(dto0.sellable).toBe(true);
 
@@ -138,7 +139,7 @@ describe('INV-1 — propagación de la CURVA a /catalog (Settings+Pricing+Catalo
 
     const dto1 = await catalog.toListingDTO(item as never);
     // $100 × 1.40 = $140 (múltiplo de $5, el redondeo no lo mueve). SIN re-publicar la pieza.
-    expect(dto1.salePriceCents).toBe(14000);
+    expect(dto1.displayPriceCents).toBe(16240); // `P` de `L = 14000`
     expect(dto1.sellable).toBe(true);
   });
 
@@ -148,12 +149,12 @@ describe('INV-1 — propagación de la CURVA a /catalog (Settings+Pricing+Catalo
 
     const page0 = await catalog.listCards({ page: 1, pageSize: 20 });
     expect(page0.data).toHaveLength(1);
-    expect(page0.data[0].salePriceCents).toBe(11500);
+    expect(page0.data[0].displayPriceCents).toBe(13340);
 
     await persistCurve(prisma, curveWithTopMultiplier(20000));
 
     const page1 = await catalog.listCards({ page: 1, pageSize: 20 });
-    expect(page1.data[0].salePriceCents).toBe(20000); // propagación en la ruta pública real.
+    expect(page1.data[0].displayPriceCents).toBe(23200); // propagación en la ruta pública real.
   });
 
   it('subir el PISO por encima del mercado cambia el basis a "floor" (y la ficha oculta el mercado)', async () => {
@@ -166,7 +167,7 @@ describe('INV-1 — propagación de la CURVA a /catalog (Settings+Pricing+Catalo
     await persistCurve(prisma, curveWithFloor(200000));
 
     const dto = await catalog.toListingDTO(item as never);
-    expect(dto.salePriceCents).toBe(200000);
+    expect(dto.displayPriceCents).toBe(232000);
     expect(dto.priceBasis).toBe('floor'); // §N.7: con `floor` el bloque «Valor de mercado» DESAPARECE
   });
 
@@ -175,13 +176,13 @@ describe('INV-1 — propagación de la CURVA a /catalog (Settings+Pricing+Catalo
     const { prisma, catalog } = wire(item);
 
     const dto0 = await catalog.toListingDTO(item as never);
-    expect(dto0.salePriceCents).toBe(4242);
+    expect(dto0.displayPriceCents).toBe(4921); // `P` de `L = 4242`
     expect(dto0.priceBasis).toBe('override');
 
     await persistCurve(prisma, curveWithTopMultiplier(20000));
 
     const dto1 = await catalog.toListingDTO(item as never);
-    expect(dto1.salePriceCents).toBe(4242); // el override gana; mover la curva NO lo mueve (criterio 89).
+    expect(dto1.displayPriceCents).toBe(4921); // el override gana; mover la curva NO lo mueve (criterio 89).
   });
 
   it('SettingsService.update NO puede escribir pricing_curve (no está en SETTING_DTO_MAP)', async () => {

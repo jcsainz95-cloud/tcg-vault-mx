@@ -43,7 +43,40 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
     customerToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
   }, 60000);
 
+  /**
+   * ⚠️⚠️ **FILAS DELIBERADAMENTE CORRUPTAS QUE ESTA SUITE SIEMBRA — Y QUE HAY QUE BARRER.**
+   *
+   * El caso `§4.21h viii` (D4) necesita **datos imposibles por invariante** (un `ShipmentRequest`
+   * con `orderId` apuntando a una orden `vault`) para comprobar que el discriminador **lanza en vez
+   * de asumir**. Sembrarlos está bien; **dejarlos vivos no**, porque la BD de integración se COMPARTE
+   * y esa fila **envenena `GET /admin/shipments` para todas las suites que corren después**:
+   * `adminList` mapea cada fila con `withAdminKind` ⇒ `isDirectShipFulfillment` ⇒ **`409 CONFLICT`**
+   * en un **GET**.
+   *
+   * **Medido (esta ronda, BD recreada cada vez):** la suite completa dio **1 de 3 corridas en rojo**
+   * con **3 fallos** en `enum-query-axes.e2e-spec.ts` — `GET /admin/shipments?status=…` devolvía
+   * `409` donde el eje exige `200`—, y `enum-query-axes` **es inocente**: aislada pasa **3/3**.
+   * Es intermitente porque `adminList` pagina (`orderBy: requestedAt asc`, `pageSize` 20): la fila
+   * corrupta es tardía, así que sólo cae en la primera página cuando esa corrida acumuló pocos
+   * envíos. *Un candado ajeno que se pone rojo según cuántas filas dejó otro no gatea: informa del
+   * volumen.*
+   *
+   * ⛔ No se toca el caso D4 (mide lo que debe y es valioso): lo que se añade es **la escoba**.
+   */
+  const corruptos: { shipmentIds: string[]; orderIds: string[] } = { shipmentIds: [], orderIds: [] };
+
   afterAll(async () => {
+    // Orden explícito: el envío cuelga de la orden por FK.
+    if (corruptos.shipmentIds.length > 0) {
+      await h.prisma.shipmentItem.deleteMany({
+        where: { shipmentRequestId: { in: corruptos.shipmentIds } },
+      });
+      await h.prisma.shipmentRequest.deleteMany({ where: { id: { in: corruptos.shipmentIds } } });
+    }
+    if (corruptos.orderIds.length > 0) {
+      await h.prisma.orderItem.deleteMany({ where: { orderId: { in: corruptos.orderIds } } });
+      await h.prisma.order.deleteMany({ where: { id: { in: corruptos.orderIds } } });
+    }
     await h?.close();
   });
 
@@ -388,6 +421,7 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
           priceConvention: 'IVA_EXCLUSIVE',
         },
       });
+      corruptos.orderIds.push(order.id);
       const shipment = await h.prisma.shipmentRequest.create({
         data: {
           userId: customer!.id,
@@ -401,6 +435,9 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
           priceConvention: 'IVA_EXCLUSIVE',
         },
       });
+      // ⭐ Se registra ANTES de asertar: si una aserción falla, la escoba del `afterAll` tiene que
+      // barrer igual. Una fila venenosa que sobrevive al fallo contamina a TODAS las suites de atrás.
+      corruptos.shipmentIds.push(shipment.id);
 
       // La transición terminal NO puede tratarlo como envío directo "por si acaso".
       const res = await h.api('PATCH', `/admin/shipments/${shipment.id}/status`, {

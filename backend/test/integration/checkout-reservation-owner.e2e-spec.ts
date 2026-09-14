@@ -14,6 +14,7 @@ import { E2EHarness } from './helpers/e2e-app';
 import { OrderReservationSweepJobService } from '../../src/jobs/order-reservation-sweep.service';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { P } from './helpers/iva-display';
 
 const RUN = Date.now().toString(36);
 const ADDRESS = {
@@ -364,6 +365,15 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
     let orderQ: string;
     let piQ: string;
     let frozenUnit: number;
+    /**
+     * ⭐ D56 — **el `L` nuevo que se escribe en la pieza, nombrado aparte del `P` que se lee.**
+     * `InventoryItem.listPriceCents` es **precio de LISTA**; el quote publica su **`P`**
+     * (`API_CONTRACT §M10-IVA.3`: *«`unitPriceCents` es el `P` congelado»*). Antes de este arreglo
+     * el test escribía un `L` y luego exigía que el quote devolviera **ese mismo número**, que es
+     * justo la confusión que D56 existe para matar: la superficie de cliente **nunca** publica el
+     * `L`. Se separan los dos nombres para que no se puedan volver a cruzar.
+     */
+    let nuevoL: number;
     let frozenBreakdown: Record<string, unknown>;
 
     it('antes de reservar: quote sin reservedByYou y ownReservation: null (siempre presente)', async () => {
@@ -381,7 +391,8 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
       orderQ = s.body.orderId;
       piQ = s.body.stripe.paymentIntentId;
       frozenBreakdown = s.body.breakdown;
-      await h.prisma.inventoryItem.update({ where: { id: Q }, data: { listPriceCents: frozenUnit + 50000 } });
+      nuevoL = frozenUnit + 50000;
+      await h.prisma.inventoryItem.update({ where: { id: Q }, data: { listPriceCents: nuevoL } });
       const res = await quote(tokenC, [Q]);
       expect(res.status).toBe(200);
       expect(res.body.unavailableItems).toEqual([]);
@@ -405,7 +416,8 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
       const q2 = res.body.items.find((i: any) => i.inventoryItemId === Q2);
       expect(q.reservedByYou).toBe(true);
       expect(q2).not.toHaveProperty('reservedByYou');
-      expect(q.unitPriceCents).toBe(frozenUnit + 50000); // en lectura: el override manual nuevo
+      // En lectura: el override manual nuevo, **exhibido** ⇒ `P(L)`, ⛔ no el `L` crudo (§M10-IVA.3).
+      expect(q.unitPriceCents).toBe(P(nuevoL));
       expect(res.body.ownReservation).toMatchObject({ orderId: orderQ, coversCart: false, expired: false });
       expect(res.body.breakdown).not.toEqual(frozenBreakdown);
     });

@@ -11,7 +11,7 @@ import { VAULT_WITHDRAWALS_HREF } from '../../vault/vaultTabs';
 import { CardImage } from '@/components/ui/CardImage';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
-import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
+import { AmountBreakdown, type BreakdownView } from '@/components/ui/AmountBreakdown';
 import { QueryState } from '@/components/ui/QueryState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { useShipmentClientSteps } from '@/lib/pipelines';
@@ -24,12 +24,27 @@ function addrField(snapshot: ShipmentDTO['addressSnapshot'], key: keyof AddressD
 }
 
 /**
- * Construye un `BreakdownDTO` (para AmountBreakdown, variante envío) a partir de los montos del
+ * Construye la vista del desglose (para AmountBreakdown, variante envío) a partir de los montos del
  * retiro (contrato §5: `shippingFeeCents` = subtotal). `ivaRatePct` no viaja en el DTO de rastreo →
  * se deriva de iva/fee (default 16 si no se puede). Devuelve null si el retiro no trae montos (p. ej.
  * aún `solicitado` sin desglose).
+ *
+ * ⚠️⚠️ **`priceConvention` / `ivaIncluded` VAN AUSENTES A PROPÓSITO — hueco de contrato, §M10-IVA.4.**
+ * `ShipmentDTO` (contrato §5) **no trae la convención de precio**, y este objeto lo compone el
+ * cliente: **no hay ningún campo del que leerla**. ⛔ No se inventa ninguna de las dos —rellenar
+ * `IVA_EXCLUSIVE` sería cierto hoy y falso tras el encendido; `IVA_INCLUSIVE` sería falso para todo
+ * retiro ya cobrado (criterio **190**)— y `AmountBreakdown` responde a la ausencia **no afirmando
+ * ninguna convención**.
+ *
+ * ⛔ **Y NO se deduce de la aritmética.** Sería tentador mirar si `total == subtotal + iva + fee`
+ * (exclusivo) o `total == subtotal + fee` (inclusivo) y decidir; **eso es inventar una regla que el
+ * contrato no tiene**, con un importe fiscal de por medio y sin nada que la ponga roja si cambia el
+ * gross-up.
+ *
+ * ⇒ **SOLICITUD AL ARQUITECTO**: `priceConvention` (o `ivaIncluded`) en `ShipmentDTO`.
+ * Registrada en `docs/FRONTEND_NOTES.md`. `// MOCK: pendiente de contrato`
  */
-function shipmentBreakdown(s: ShipmentDTO): BreakdownDTO | null {
+function shipmentBreakdown(s: ShipmentDTO): BreakdownView | null {
   if (s.totalCents == null) return null;
   const subtotalCents = s.shippingFeeCents ?? 0;
   const ivaCents = s.ivaCents ?? 0;

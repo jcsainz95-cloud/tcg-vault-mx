@@ -42,6 +42,8 @@ const ORDER_WITH_EMPTY_BLOB: OrderDetailDTO = {
     processingFeeCents: 645,
     totalCents: 9925,
     currency: 'MXN',
+    priceConvention: 'IVA_EXCLUSIVE',
+    ivaIncluded: false,
   },
   items: [{ inventoryItemId: 'inv-legacy-3', card: { imageSmallUrl: null }, unitPriceCents: 8000 }],
   cfdiStatus: 'no_aplica',

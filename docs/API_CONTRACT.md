@@ -2,7 +2,82 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-13 (rev **v1.73**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-14 (rev **v1.76**).
+>
+> **Changelog v1.76 — ⭐⭐ DOS CONTROLES QUE NO CONTROLABAN: EL ANTI-DUPLICADO DE `AV-5`/`AV-6` Y EL ACUSE DEL DIAL
+> DE IVA (2026-09-14, arquitecto; base v1.75, vigente entera salvo las filas que esta rev corrige). Origen:
+> `pentest` **`REL-B` (Alta)** y **`REL-A` (Media)**, medidos EN VIVO. ⛔ CERO DDL. ⛔ Cero endpoints nuevos.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **`§R.3` SE CORRIGE: `AV-5` y `AV-6` NO están protegidos por `TRANSITIONS`.** Medido: `AV-5` **13/13 trials con duplicado** (3–10 correos por transición única, N=10), `AV-6` **4/5**. Las dos filas decían **MOTOR** y era **falso** | §R.3 (dos filas) · §R.4.c (nueva) | **Sí, backend** (BLOQUEANTE) |
+> | **2** | ⭐⭐ **`§R.4.c` NUEVA — la regla de una sola vez cuando el hecho es UNA TRANSICIÓN**: la precondición baja al `WHERE` (`updateMany` + `count === 1`) y **avisa sólo el ganador**. ⛔ **CERO columnas nuevas**: `shippedAt` ya es el sello y `cancelado` es terminal | §R.4.c · §R.6 (ratifica «tres y ninguna más») | **Sí, backend** |
+> | **3** | **`PATCH /admin/shipments/:id/status` declara su conducta bajo CARRERA**: `200` **idempotente** si otro ya lo dejó en `to` (⛔ **sin segundo correo**), `409 CONFLICT` en cualquier otro estado. ⛔ **La forma del endpoint NO cambia** | §M4 | **Sí, backend** |
+> | **4** | ⭐⭐ **`acknowledgement.samplePriceCents` deja de ser elegible por quien firma**: sólo admite el `L` **canónico** `10_000`; otro valor ⇒ **`422`** ⛔ sin escribir. Cierra `REL-A` (acuse firmable con **MX$0.00** siendo el costo real **~7 %**). ⛔ **El eje del `/preview` NO se toca** | §M10-IVA.2 punto 3 · candado `IVA-14` | **Sí, backend** · ⛔ **frontend cero rework** (ya manda `10000`) |
+> | **5** | **`§0-T` NUEVA — `503 BUSY_TRY_AGAIN`** para el fallo **transitorio** del motor (reintentos serializables agotados y `P2028`), que hoy salen `500`. ⛔ Con su prohibición: **nada de mapeo global de Prisma** | §0-T (nueva) · «Códigos comunes» | **Sí, backend** |
+> | **6** | **`F-IVA-1` RESUELTA (frontend tenía razón):** `MasterSetVariantDTO.buyable` **entra** en la tabla de §M10-IVA.3 — `salePriceCents` → `displayPriceCents` + `ivaIncluded` + `ivaRatePct`. Es **superficie de cliente que pinta un precio** y se me quedó fuera de las seis filas | §M10-IVA.3 · §M1/§DTOs | **Sí, backend**; luego frontend |
+> | **7** | **`F-IVA-2` RESUELTA:** `ClientShipmentDTO` gana **`priceConvention` + `ivaIncluded`** ⇒ el rastreo de un retiro deja de componer un desglose **sin saber qué convención afirma** | §5 (`ClientShipmentDTO`) · §M10-IVA.3 | **Sí, backend**; luego frontend |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **`D-AVISO-2` entero** — sellar y
+> luego enviar, post-commit, best-effort, **un sello por evento**. Lo que la rev corrige es **de qué cuelga** el
+> «una sola vez» de dos avisos, ⛔ no el mecanismo. **(b)** ⛔ **`§R.6` sigue siendo TRES columnas y ninguna más.**
+> **(c)** ⛔ El acuse del criterio **188** sigue obligatorio: esta rev lo **endurece**. **(d)** ⛔ `IVA-7` y
+> `IVA-8(b)/(f)` intactos. **(e)** ⛔ **Nada aquí autoriza a encender `IVA_INCLUSIVE`** (§M10-IVA.9.f).
+> **Desviaciones enrutadas:** `D-AV-4` (BLOQUEANTE), `D-IVA-14`, `D-AV-5`, y `D-AV-1` **sube de prioridad** —
+> todas en **ARCHITECTURE §9**; el porqué entero, en **ARCHITECTURE §4.54.4-a** y **§4.56**.
+>
+> **Changelog v1.75 — SE RESUELVEN LOS TRES CHOQUES QUE BLOQUEAN AL FRONTEND (`N-IVA9-1/2/3`) Y SE PUBLICA EL
+> INVENTARIO REAL DEL CORTE DEL IVA ([§M10-IVA.9.f](#M10-IVA9f)) (2026-09-14, arquitecto; base v1.74, vigente
+> entera salvo la frase que esta rev corrige). ⛔ Cero DDL, cero endpoints nuevos que no estuvieran ya normados
+> desde v1.64.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **`N-IVA9-1` RESUELTO — se AUTORIZAN los dos ejes de `GET …/iva-transfer/preview`**, y **la frase que se corrige es la MÍA**: el punto **(d)** del changelog v1.74 (*«CERO parámetros de query nuevos en toda la rev»*) era **falso al escribirse**, porque la misma rev metió `§M10-IVA.2` —normativa desde v1.64, con esos dos ejes— dentro de este corte (`§M10-IVA.9.c` nombra `/preview` literalmente). **Su paréntesis SÍ era cierto y sobrevive intacto: §0-Q punto 4 no gana ni una fila** | §M10-IVA.2 · §0-Q punto 7 · el (d) de v1.74 | **Sí, backend** (el endpoint + dos líneas en `C-EQ-1`) |
+> | **2** | ⭐ **El `/preview` gana su CONTRATO DE QUERY, que v1.64 no publicó**: cuál eje es obligatorio, cuál opcional, sus cotas, y el `400` de cada uno. ⭐ **Y `samplePriceCents` gana COTA SUPERIOR** porque sin ella la ruta es alcanzable hasta hacer **lanzar `grossUpTotal`** | §M10-IVA.2 | **Sí, backend** |
+> | **3** | ⭐⭐ **`N-IVA9-2` RESUELTO — CEDE `§M10-IVA.1`: `ivaTransferPct` ⛔ NO viaja en `GET /admin/settings`.** Su única superficie de lectura es `GET /admin/settings/iva-transfer`. El comentario del código y el e2e que asierta la ausencia tenían razón; **la fila «Lectura» de §M10-IVA.1 y las dos menciones de §M10 eran mías y estaban mal** | §M10-IVA.1 · §M10 · candado `IVA-8(f)` **nuevo** | **No** (es lo que el código ya hace) |
+> | **4** | **`N-IVA9-3` RATIFICADO.** `GET /admin/settings/iva-transfer` devuelve `IvaTransferStateDTO` = `{ ivaTransferPct, ivaRatePct, samplePriceCents, current }`, exactamente lo que backend construyó, **reutilizando `IvaTransferPositionDTO` y sin nombres nuevos**. ⛔ **Sin parámetros de query** | §M10-IVA.2 | **No** (ya construido) |
+> | **5** | ⭐⭐ **[§M10-IVA.9.f](#M10-IVA9f) NUEVA — EL INVENTARIO DEL CORTE, PIEZA POR PIEZA, CON LA MEDICIÓN AL LADO**, y **la única costura por la que se puede partir**. *No cambia ninguna norma: dice qué está construido y qué no, para que la decisión de publicar se tome con los números delante* | §M10-IVA.9.f (nueva) | — (es un censo) |
+> | **6** | **§0-Q punto 7 gana el criterio que separa «dominio cerrado de TOKENS» de «rango numérico acotado»**, que estaba implícito y por eso se podía leer de dos formas. ⛔ **El registro de ejes del punto 4 NO se toca** | §0-Q punto 7 | **No** (es la conducta que ya se aplica a `page`/`minCents`) |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **`IVA-7` intacto** (`getStripeFee()`
+> nunca lee el dial). **(b)** ⛔ **`IVA-8(b)` intacto**: `iva_transfer_pct` **sigue fuera de `SETTING_DTO_MAP`** ⇒
+> `PUT /admin/settings { ivaTransferPct }` sigue siendo `422` clave desconocida. La decisión **3** de arriba **lo
+> refuerza**, no lo afloja. **(c)** El **acuse en pesos** del criterio 188 sigue **obligatorio** en el `PUT`.
+> **(d)** ⛔ **Ninguna de las doce filas de `IVA-*` cambia de exigencia**; `IVA-8` gana una **sub-medición** y nada más.
+> **(e)** ⛔ **Nada aquí autoriza a encender `IVA_INCLUSIVE`**: quién puede y qué falta lo dice §M10-IVA.9.f.
+> **Desviaciones enrutadas:** **`D-IVA-11`** (el reparto del IVA del envío implementado contradice `IVA-9`, dueño
+> **backend**), **`D-IVA-12`** (la pantalla del dial consume un endpoint que no existe, dueño **backend** — el
+> frontend no tiene rework) y **`D-IVA-13`** (el `/preview` sin cota es un `500` por construir), en **ARCHITECTURE §9**.
+>
+> **Changelog v1.74 — EL CENTRO DE AVISOS ([§R](#seccion-R)) Y LA DEROGACIÓN DEL «DEPLOY 2» DEL IVA
+> ([§M10-IVA.9](#M10-IVA9)) (2026-09-14, arquitecto; base v1.73, vigente entera). Dos requisitos APROBADOS por el
+> dueño: `PROJECT §R` (**D55**, criterios 198–212) y `PROJECT §Q.10.e` (**D56**, criterios 213–214).**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **Sección NUEVA [§R](#seccion-R) — el centro de avisos.** Norma **los ONCE correos** (`AV-1`…`AV-11`), **la campana** (`GET /me/pendings`), la **regla de una sola vez** (`D-AVISO-2`, sellar-y-luego-enviar), la **resolución del destinatario** y **lo que NO avisa**, verificable por ausencia | §R (nueva) | **Sí** — backend (los once + el endpoint), frontend (la campana), ux-ui (el texto) |
+> | **2** | ⭐⭐ **LA CAMPANA SE DERIVA, NO SE PERSISTE.** ⛔ **No hay tabla `Notification`, no hay bandeja, no hay «marcar como leído».** `GET /api/v1/me/pendings` responde desde el estado que ya existe, sobre una **lista blanca cerrada de códigos** (hoy **uno**) | §R.2 | **Sí, backend** |
+> | **3** | **DDL mínimo (M-57): TRES columnas de SELLO**, nullable, sin backfill, sin índice y **fuera de todo DTO** — `KycProfile.kycRejectionNoticeSentAt`, `ShipmentRequest.trackingNoticeSentAt`, `SellRequest.guideNoticeSentAt`. **Los otros ocho avisos NO estrenan columna**: su «una sola vez» ya la da una guarda del motor que está medida | §R.4 · §R.6 | **Sí, backend** (migración aditiva) |
+> | **4** | ⭐ **`§M10-IVA.6` QUEDA DEROGADA: son UN despliegue y no dos** (D56/pregunta 82). `PUT /admin/settings/iva-transfer` **entra en este corte** con su acuse en pesos, y **los ONCE candados `IVA-*` corren aquí**. ⛔ Deroga además, **citándola**, la nota de `backend/src/modules/settings/settings.constants.ts:63-69` | §M10-IVA.9 (nueva) · §M10-IVA.6 | **Sí, backend + frontend** |
+> | **5** | **Candado NUEVO `IVA-12`** — *por lo negativo*: tras el despliegue **ningún camino escribe `IVA_EXCLUSIVE`** y toda `Order`/`ShipmentRequest` nueva nace `IVA_INCLUSIVE` (criterio **214**) | §M10-IVA.5 | **Sí, backend** |
+>
+> **Lo que NO cambia, y se dice explícito porque es donde alguien aflojaría:**
+> **(a)** ⛔ **`IVA-7` sigue intacto**: `getStripeFee()` **nunca** lee `iva_transfer_pct` — *mover un precio no mueve una
+> comisión*. **(b)** ⛔ **`IVA-8(b)` sigue intacto**: `PUT /admin/settings { ivaTransferPct }` sigue dando **`422` clave
+> desconocida**; la puerta es **UNA**, y ahora existe. **(c)** El **seed 100** y el **criterio 190** siguen vigentes, y
+> la columna `priceConvention` sigue **`NOT NULL` sin default** en las dos tablas. **(d)** ~~⛔ **CERO parámetros de
+> query nuevos** en toda la rev~~ ⇒ **[§0-Q](#enum-query-filter) y `C-EQ-1` no se tocan** (el registro de ejes del
+> punto 4 queda **idéntico**).
+> *(🔴 **CORREGIDO EN v1.75, y la mitad tachada era FALSA AL ESCRIBIRSE.** Esta misma rev metió `§M10-IVA.2` dentro
+> del corte —`§M10-IVA.9.c` nombra `/preview` literalmente— y ese endpoint trae **dos** ejes de query desde **v1.64**.
+> Escribí «en toda la rev» pensando solo en §R. **Lo que sí era cierto, y sigue siéndolo, es el paréntesis**: el
+> registro del punto 4 queda idéntico, porque los dos ejes **no son de dominio cerrado de tokens**. `C-EQ-1` sí
+> crece: **dos entradas en su lista de NO-enums**, que vive en la suite de backend y no en este documento. Detalle y
+> razón: changelog **v1.75** punto 1 y §M10-IVA.2.)*
+> **(e)** ⛔ **No se rehace ninguno de los avisos que ya funcionan** (§R.1).
+> **Desviaciones enrutadas:** **`D-AV-1`** y **`D-AV-2`** (los dos caminos a `guia` y el `setTracking` sin guarda de
+> transición), dueño **backend**, en **ARCHITECTURE §9**.
 >
 > **Changelog v1.73 — §0-Q DEJA DE LLEVAR UN CENSO DE ESTADO, Y SE CIERRAN LAS SEIS PREGUNTAS ABIERTAS QUE `P-84` /
 > `P-89` / `H3-d` DEVOLVIERON (2026-09-13, arquitecto; base v1.72, vigente entera salvo lo que esta rev retira).
@@ -657,8 +732,12 @@
 > `super_admin`), **DOS endpoints nuevos** (`GET /admin/settings/iva-transfer/preview` y
 > `PUT /admin/settings/iva-transfer`), **DTO nuevo** `IvaTransferPreviewDTO`, **dos códigos de error nuevos**
 > (`IVA_TRANSFER_ACK_REQUIRED` 422, `IVA_TRANSFER_ACK_STALE` 409) y **los OCHO candados `IVA-1…IVA-8`**.
-> **`ivaTransferPct` se LEE en `GET /admin/settings` y se RECHAZA en `PUT /admin/settings`** (`422`, clave
-> desconocida) — **mismo precedente exacto que `fxRateMode`**. El endpoint propio existe porque el criterio **188**
+> ~~**`ivaTransferPct` se LEE en `GET /admin/settings`**~~ **y se RECHAZA en `PUT /admin/settings`** (`422`, clave
+> desconocida) — **mismo precedente exacto que `fxRateMode`**.
+> *(🔴 **La mitad tachada la DEROGA v1.75, `N-IVA9-2`** — y la deroga **el precedente que ella misma invoca**:
+> `fxRateMode` **tampoco** sale en ese `GET`. **Lectura del dial: solo `GET /admin/settings/iva-transfer`.** Ver
+> §M10-IVA.1 y el candado `IVA-8(f)`.)*
+> El endpoint propio existe porque el criterio **188**
 > dice *«falla si el dial se puede guardar sin que la cifra en pesos se haya mostrado»*, y **una norma que solo vive
 > en la UI no se puede poner roja desde el servidor**: el `PUT` **exige acuse** del delta que el servidor recalcula
 > (patrón de `acknowledgeNoAutomaticRate`, `FX-12`).
@@ -5108,6 +5187,8 @@
   - **Llaves de query DESCONOCIDAS.** Rechazarlas sigue siendo doctrina **acotada a `GET /admin/users`** (`D-A5-3`, que lo declara ⛔ «no se convierte en regla global»). §0-Q norma **el valor de un parámetro conocido**. ⚠️ **Matiz v1.73:** el **descubrimiento** de `C-EQ-1` (punto 4) **no** contradice esto — inventariar los parámetros en una **prueba** para que ninguno se quede sin clase declarada no es lo mismo que **rechazarlos en tiempo de petición**.
   - **Enums en el CUERPO** de un request: los gobierna el DTO / `ValidationPipe` (`@IsIn`), con los códigos que cada endpoint ya declara.
   - **Filtros que no son de dominio cerrado** (`q`, `from`/`to`, `minCents`/`maxCents`, paginación, `setId`, `cardId`): los gobierna la línea anterior de §0.
+  - **⭐ Un RANGO NUMÉRICO ACOTADO no es un dominio cerrado de TOKENS, y por tanto NO es §0-Q (v1.75 — el criterio estaba implícito y se podía leer de dos formas).** `?page=`, `?minCents=`, `?maxCents=` y —desde v1.75— `?ivaTransferPct=<0..100>` y `?samplePriceCents=` **tienen dominio acotado**, y aun así ninguno entra en el punto 4. **El criterio, operable en diez segundos y sin opinión:** *¿`details.allowed` se puede **enumerar** en la respuesta?* Si el dominio es un conjunto de **identificadores simbólicos**, sí ⇒ **§0-Q**. Si es un **intervalo de números**, enumerarlo es absurdo (`allowed: [0,1,2,…,100]`) y el `message` que **nombra los dos extremos** es la forma correcta del error ⇒ **NO es §0-Q**: lo gobierna la línea anterior de §0, y su cota la declara **su propia sección**. *Esto no es una exención de conveniencia: es que las dos clases producen errores con forma distinta, y meter un intervalo en el punto 4 obligaría a emitir una lista de 101 elementos o a inventar una segunda forma de `details` — que es exactamente lo que §0-Q nació para impedir.*
+    - ⚠️ **Y no los absuelve de `C-EQ-1`:** un eje así **sigue teniendo que aparecer** en la lista de **NO-enums** de la suite (hoy `NO_ENUM_TRANSVERSAL` / `NO_ENUM_POR_RUTA`), o el descubrimiento lo marca **huérfano y rojo**, como debe. **La exención es de la conducta del punto 1, ⛔ no del censo.** *Lo que §0-Q no norma sigue teniendo que estar declarado en algún sitio; «no aplica» no es lo mismo que «nadie lo mira».*
   - **Si un eje puede o no devolver filas.** §0-Q norma la **conducta ante el valor**, no la **utilidad del filtro**. Un eje que por construcción no puede devolver nada es un defecto **de su sección**, no de §0-Q — y su cura es **retirar el parámetro**, no arreglar el filtro (caso resuelto en v1.73: `?sealedSubtype=` de `GET /catalog/cards`, §2).
 - **i18n:** el contrato NO devuelve texto traducido. Devuelve **enums** y **`errorCode`**; el frontend traduce (ES/EN). Datos de catálogo en inglés por diseño.
 - **Datos de contacto y valores de configuración — el contrato describe la FORMA y el ORIGEN, no transcribe el
@@ -5144,7 +5225,55 @@
 ```json
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
 ```
-- **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, `500 INTERNAL`.
+- **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, **`503 BUSY_TRY_AGAIN`** (§0-T), `500 INTERNAL`.
+
+##### <a id="0-T"></a>⚠️ §0-T — **`503 BUSY_TRY_AGAIN`: EL FALLO TRANSITORIO DEL MOTOR DEJA DE SER UN `500`** (v1.76, **NORMATIVO, TRANSVERSAL**; razón entera en `ARCHITECTURE §4.56.2`)
+
+> **Un `500` afirma «se rompió algo». Cuando el motor aborta una transacción serializable, o una transacción no
+> cabe en su ventana, ⛔ NO se rompió nada y ⛔ no se escribió nada: el motor hizo su trabajo.** Decirle `500` al
+> cliente es describirle mal su situación **y** quitarle la única acción que sí le sirve.
+
+```json
+HTTP/1.1 503 Service Unavailable
+Retry-After: 1
+{ "error": { "code": "BUSY_TRY_AGAIN", "message": "the request could not be completed right now; try again", "details": {} } }
+```
+
+**Cuándo se emite — los DOS casos, y son los únicos:**
+
+| Caso | Origen | Garantía que lo hace seguro |
+|---|---|---|
+| **Reintentos serializables AGOTADOS** | `runSerializable` agota sus intentos (`P2034` / SQLSTATE `40001` / `40P01`) | Una transacción abortada por conflicto **no dejó nada escrito**: el rollback es del motor |
+| **Timeout de transacción** | `P2028` | Tampoco escribió nada. ⛔ Y ⛔ **no se reintenta en el servidor**: una tx que no cupo en su ventana vuelve a no caber, y reintentarla multiplica la carga |
+
+**Las reglas, y las tres prohibiciones que valen tanto como el código nuevo:**
+
+1. ⭐ **UN código para los dos casos.** Lo que el cliente puede hacer es **idéntico** —esperar y reintentar—, y este
+   contrato separa códigos **por remedio**, no por causa interna (precedente: `BUYLIST_RAW_ONLY` vs
+   `BUYLIST_LINE_NOT_KEYABLE` son dos **porque el remedio difiere**). **La distinción vive en el LOG**, y ahí es
+   obligatoria: `P2028` señala **un defecto nuestro** (algo sostuvo un candado de fila más allá de su ventana);
+   agotar reintentos bajo carga es **la cola esperable**.
+2. ⛔ **`details` VACÍO.** Nada de `reason`, nada de nombres de código de Prisma, nada de conteos de intentos. *Un
+   dato que el cliente no puede usar, publicado en el contrato, es una promesa que habrá que sostener.*
+3. ⛔⛔ **PROHIBIDO el mapeo GLOBAL de Prisma.** `AllExceptionsFilter` gana **una tabla CERRADA de dos entradas**
+   (las de arriba). **Todo lo demás de Prisma sigue saliendo `500 INTERNAL`, exactamente como hoy.** ⛔ Traducir
+   `P2002 → 409` o `P2025 → 404` de forma transversal **cambiaría en silencio la conducta de decenas de rutas**
+   que ya tienen su propia semántica de conflicto y de «no existe», y lo haría **sin que ninguna prueba lo
+   pidiera**. *Un mapeo global es una decisión de producto disfrazada de higiene.* Una ruta que quiera mapear un
+   código de Prisma lo decide **su dueño**, y si cambia su superficie **pasa por el arquitecto** (regla 9).
+4. ⛔ **El cliente NO reintenta solo.** El servidor **ya reintentó** (hoy, cinco veces, medido). Un reintento
+   automático del navegador añade carga a un sistema que está perdiendo la pelea. ⇒ **obligación del frontend:**
+   se muestra un aviso con **acción del usuario** («Volver a intentar»), ⛔ **jamás un retry automático**, y ⛔ **el
+   formulario no se limpia** — lo que el cliente escribió sigue ahí, porque no se escribió nada.
+5. ⚠️ **`Retry-After: 1` es NORMATIVO** y la unidad es **segundos**. Un `503` sin `Retry-After` invita a martillear.
+6. ⛔ **`BUSY_TRY_AGAIN` NO es un código de negocio y ⛔ no sustituye a ninguno.** Una `BusinessException` (tope
+   excedido, `409`, …) **sale intacta y a la primera**: es una decisión, no una carrera. *Reintentar una regla de
+   negocio es preguntar lo mismo esperando otra respuesta.*
+
+⚠️ **NO MEDIDO por el arquitecto:** que hoy salga `500` por HTTP en cualquiera de los dos casos. Lo tengo de
+`PENTEST_NOTES` (`P2028`, candado sostenido **5,4 s**) y del propio `serializable-retry.ts`, que declara su `500`
+de sí mismo y **hace bien en no inventarse el código**. La medición que lo cierra está en
+`ARCHITECTURE §4.56.4 · N-AR76-5`.
 - **`422 FINISH_NOT_AVAILABLE` (v1.6-finish):** el `finish` enviado (cotizador, alta de inventario, solicitud) **no** está en `Card.availableFinishes`. Guardarraíl SEC-A1: el cliente no puede cotizar/vender un acabado inexistente para pagar de más. Afecta `POST /buylist/quote`, `POST /buylist/requests`, `POST /admin/inventory/items`.
 - **`422 BUYLIST_RAW_ONLY` (v1.53 — MONEY, ARCHITECTURE §4.40):** se envió `productType` distinto de `"raw"` a una ruta de buylist. **El cotizador y el pipeline de compra son solo raw** (`PROJECT.md` §E, §K LOCKED, criterio 61). Afecta `POST /buylist/quote`, `POST /buylist/quote/batch` y `POST /buylist/requests`. `details: { index?: number, productType: "graded" | "sealed" }` (`index` solo en las rutas con `items[]`, para que el front señale la línea).
   - **Por qué es un `422` de negocio y no el `400 VALIDATION_ERROR` de un `@IsIn`:** en **`/quote/batch` degrada POR-ÍTEM** (`ok:false`, HTTP `200`, correlación por `index`), igual que `NOT_FOUND` / `FINISH_NOT_AVAILABLE` / `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`. Un rechazo de forma en el `ValidationPipe` tumbaría el request completo y con él **las demás líneas raw legítimas** del grid. En `POST /buylist/quote` y `POST /buylist/requests` es un `422` de request completo (y en `requests`, **la solicitud no se crea**).
@@ -5438,7 +5567,10 @@
   `details: { expectedNetDeltaCents }`; **sin escritura parcial**). **No** introduce ningún otro código: el resto
   reusa **`422 VALIDATION_ERROR`** (`ivaTransferPct` no entero —p. ej. `37.5`— o fuera de `[0, 100]`, con el
   `message` **nombrando los dos extremos**; y **`ivaTransferPct` enviado a `PUT /admin/settings`**, que es clave
-  desconocida en **ese** endpoint, mismo precedente que `fxRateMode`). ⛔ **Ninguno de los dos aparece jamás en
+  desconocida en **ese** endpoint, mismo precedente que `fxRateMode`). ⭐ **v1.75 — y el `/preview` añade un `400
+  VALIDATION_ERROR`, no un `422`**, porque sus dos ejes viajan en **query** y no en el cuerpo (§0-Q punto 2, *«es
+  query, no cuerpo»*). ⛔ **Que el MISMO valor inválido dé `400` en el `GET` y `422` en el `PUT` es correcto y no se
+  «armoniza»**: son dos superficies distintas y la doctrina ya está decidida. ⛔ **Ninguno de los dos aparece jamás en
   superficie de cliente**: el dial no viaja fuera de `/admin/*`. Candado `IVA-8`.
 - **Códigos nuevos del MODO del tipo de cambio (v1.63 — detalle en [`§M2-F`](#M2-F)):** `422 FX_MANUAL_RATE_MISSING`
   (`PUT /admin/fx/mode {mode:"manual"}` **sin** tasa manual guardada: no hay número al que volver — `details:
@@ -6319,7 +6451,9 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean, displayed: boolean,
                         marketReferenceMxnCents?: number | null, capturedDate?: string | null,
                         pricing?: VariantPricingDTO,
-                        buyable?: { inventoryItemId: string, salePriceCents: number } | null }
+                        // ⭐⭐ v1.76 (`F-IVA-1`) — `salePriceCents` MUERE AQUÍ TAMBIÉN. Ver §M10-IVA.3.
+                        buyable?: { inventoryItemId: string, displayPriceCents: number,
+                                    ivaIncluded: boolean, ivaRatePct: number } | null }
 // v1.28 (P-18/P-22). `suggestedCents` = lo que da la REGLA HOY sobre la referencia del acabado; `overrideCents` = el
 // override manual persistido (VariantPriceOverride, M-30); `effectiveCents` = el precio RESUELTO con la precedencia
 // normativa; `source` = qué peldaño ganó. `bounty` viene (solo si existe fila) con su estado para la consola.
@@ -7490,7 +7624,9 @@ para CUALQUIER set del catálogo, tenga o no piezas el usuario: las celdas/varia
   para completitud (X/Y) y `buyable`. La whitelist SEC-A1 no cambia. Mismo criterio en la vista admin de bóveda
   (`GET /admin/vaults/:userId/master-sets`) y en el binder M1 (`GET /admin/inventory/master-sets/:setId`).
 - **`buyable` (SOLO esta vista):** cada variante **faltante** (`covered=false`) trae
-  `buyable: { inventoryItemId, salePriceCents } | null` — la pieza **`listed` más barata** de plataforma para ese
+  ⭐⭐ **v1.76 (`F-IVA-1`)** `buyable: { inventoryItemId, displayPriceCents, ivaIncluded, ivaRatePct } | null`
+  *(era `salePriceCents`; **es superficie de cliente que PINTA un precio** y por eso entra en §M10-IVA.3 — ver ahí
+  el porqué y la petición de frontend que lo levantó)* — la pieza **`listed` más barata** de plataforma para ese
   `(cardId, finish)`, **SOLO un single** (`productType ∈ {raw, graded}`; **v1.42/BLOQ-3b: sellado EXCLUIDO** — ya no se
   ofrece un ETB sellado para llenar la casilla de un single), resoluble a ficha vía `GET /catalog/listings/:inventoryItemId`
   y comprable por el checkout normal §4. `null` si no hay single publicado. **No** hay compra dentro del binder: el CTA lleva al flujo de
@@ -8806,6 +8942,11 @@ ClientShipmentDTO = {
   status: ShipmentStatus,               // solicitado | picking | guia | enviado | entregado | cancelado
   addressSnapshot: object,              // dirección MX (snapshot)
   shippingFeeCents: number, ivaCents: number, processingFeeCents: number, totalCents: number, // total del envío
+  // ⭐⭐ v1.76 (`F-IVA-2`) — LA CONVENCIÓN DEL ENVÍO, CONGELADA. Vienen de `ShipmentRequest.priceConvention`
+  // (NOT NULL desde M-50). ⛔ NO se derivan de la aritmética ni se rellenan con un default: la ausencia de este
+  // par es lo que hoy obliga al front a componer un desglose SIN SABER QUÉ CONVENCIÓN AFIRMA. Ver §M10-IVA.3.
+  priceConvention: "IVA_EXCLUSIVE" | "IVA_INCLUSIVE",
+  ivaIncluded: boolean,                        // = (priceConvention === "IVA_INCLUSIVE")
   carrier?: string, trackingNumber?: string,   // guía/tracking cuando existe (status >= guia)
   requestedAt: string, pickingAt?: string, shippedAt?: string, deliveredAt?: string,
   items: ClientShipmentItemDTO[]
@@ -14254,6 +14395,36 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/shipments/:id/tracking` — Req `{ carrier, trackingNumber, shippingCostCents? }` → avanza a `guia`.
   - **`shippingCostCents?` (v1.4-finance, NUEVO):** costo real que **la plataforma paga a la paquetería** por este envío (MXN centavos). **Distinto** de `ShipmentRequest.shippingFeeCents` (ingreso cobrado al cliente). **Opcional** (si se omite, no se modifica; el valor persistido arranca en `0` por default de columna, M-16) y **editable** re-invocando este endpoint (idempotente sobre carrier/tracking; no regresa el estado si ya está en `guia`/posterior). **Validación:** entero **≥ 0** (`422 VALIDATION_ERROR` si negativo o no entero). Alimenta el P&L de M7 (se resta, acotado por `pickingAt`). Queda en `AuditLog` (`action: shipment.tracking`, con `carrier`/`trackingNumber`/`shippingCostCents` en `after`).
   - Nota: `shippingCostCents` es un dato **interno de costo**; **no** se expone al cliente (`GET /shipments/:id` del comprador NO lo incluye).
+  - > **⭐⭐ v1.74 — ESTE ENDPOINT, Y NO EL `PATCH` DE ESTADO, ES EL QUE MANDA EL CORREO DE LA GUÍA (`AV-4`,
+    > [§R.3.a](#seccion-R)).** Es el **único** camino que garantiza que existan `carrier` **y** `trackingNumber`: el
+    > `PATCH /status { to: 'guia' }` es legal desde `picking` y deja los dos en `null`. ⇒ **colgar `AV-4` del estado
+    > mandaría un correo de guía sin número**, que es el criterio 198 servido al revés.
+    > **Una sola vez:** el sello `trackingNoticeSentAt` (§R.4.b) — **se limpia sólo si el par `(carrier,
+    > trackingNumber)` queda DISTINTO**, así que **re-capturar el mismo número no reenvía** y **corregir el número
+    > sí avisa**. ⚠️ **Desviación medida `D-AV-1` (`ARCHITECTURE §9`, dueño backend):** la frase *«no regresa el
+    > estado si ya está en `guia`/posterior»* de la línea de arriba **el código NO la cumple** — `setTracking`
+    > escribe `status:'guia'` **incondicionalmente y sin consultar la tabla `TRANSITIONS`**. ⛔ **`AV-4` no depende
+    > de que se corrija** (el sello lo cubre), pero la desviación **es real y se enruta, no se arregla aquí**.
+  - > **⭐ v1.74 — `PATCH /status` manda `AV-5` (`to='enviado'`) y `AV-6` (`to='cancelado'`), y NINGUNO al pasar a
+    > `entregado`** (criterio **210**, *confirmado explícitamente por el dueño*). ~~Su «una sola vez» **no estrena
+    > columna**: la da la tabla `TRANSITIONS`.~~ **Destinatario: [§R.5](#seccion-R)** — ⛔ jamás el `addressSnapshot`.
+  - > 🔴⭐⭐ **v1.76 (`REL-B`) — LA CONDUCTA BAJO CARRERA, QUE ESTE ENDPOINT NUNCA DECLARÓ, Y LA FRASE TACHADA DE
+    > ARRIBA ERA MÍA Y ERA FALSA.** Medido en vivo: `AV-5` **13/13 trials con duplicado** (3–10 correos por una
+    > transición única, N=10 concurrentes), `AV-6` **4/5**. *Una tabla de transiciones consultada sobre una LECTURA
+    > no es una guarda.*
+    > **Lo que este endpoint debe contestar, y ⛔ su forma NO cambia (mismo `Req`, mismo cuerpo de éxito):**
+    >
+    > | Situación | Respuesta | Correo |
+    > |---|---|---|
+    > | Gana el CAS (`updateMany … WHERE status = :from` ⇒ `count === 1`) | **`200`** con la fila actualizada | ✅ **UNO** |
+    > | Pierde el CAS y, al releer, **`status === to`** (doble clic, dos pestañas, reintento del cliente HTTP) | ⭐ **`200` idempotente** con la fila actual | ⛔ **NINGUNO** |
+    > | Pierde el CAS y el envío quedó en **otro** estado | **`409 CONFLICT`** (mismo código y misma forma que una transición ilegal) | ⛔ **NINGUNO** |
+    > | La transición es ilegal según `TRANSITIONS` | **`409 CONFLICT`** *(sin cambio)* | ⛔ **NINGUNO** |
+    >
+    > ⚠️ **Para el frontend: el `409` ahora también lo puede producir una CARRERA**, no sólo un botón mal
+    > habilitado. **Se declara aquí para que no se lea como un defecto nuevo.** ⛔ Y el doble clic **no** produce
+    > `409`: produce `200` sin segundo correo, que es lo que el operador quería. Regla completa: **[§R.4.c](#seccion-R)**.
+    > ⛔ **CERO columnas nuevas** (`shippedAt` ya es el sello; `cancelado` es terminal) ⇒ **§R.6 no cambia**.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -18102,7 +18273,14 @@ es quien pudo mirar; y solo el `super_admin` puede mirar (K.2).*
 | **Al rechazar** | se escriben `rejectionReason`, **`reviewedAt = now()`** y **`reviewedBy = actor.id`**; `verifiedAt` **se pone a `null`** (dejó de estar verificado) |
 | **`none`** | sigue aceptándose (deshacer una decisión tomada por error). **Limpia `rejectionReason`.** ⛔ **No borra imágenes** |
 | **Auditoría** | el `user.kyc.update` que ya existe (`admin.controller.ts:155-162`) **lleva el motivo en `after`** — `{ kycStatus, rejectionReason? }`. **Precedente idéntico:** `buylist.item.reject` mete `reason` en `after` (`admin-buylist.controller.ts:599-603`). El motivo lo escribe un admin sobre un documento: **no es PII del cliente**, es la decisión de negocio |
-| **Contenido del motivo** | ⚠️ **Norma para quien escribe la pantalla (ux-ui):** el motivo **lo lee el cliente**. Se ofrecen **motivos sugeridos** (foto borrosa / no se lee el reverso / documento vencido / el nombre no corresponde a la cuenta) + texto libre. ⛔ **El copy no puede afirmar que cotejamos la CLABE contra un titular** (criterio 183(c) sigue vigente) |
+| **Contenido del motivo** | ⚠️ **Norma para quien escribe la pantalla (ux-ui):** el motivo **lo lee el cliente**. Se ofrecen **motivos sugeridos** (foto borrosa / no se lee el reverso / documento vencido / el nombre no corresponde a la cuenta) + texto libre. ⛔ **El copy no puede afirmar que cotejamos la CLABE contra un titular** (criterio 183(c) sigue vigente). **⭐ v1.74 — esta fila la PRECISA [§R.1.a](#seccion-R)**: los motivos sugeridos **ya están construidos** y son **SEIS** (`unreadable · missingSide · notAnId · expired · nameMismatch · other`), que empatan uno a uno con `PROJECT §R.9` (criterio **212**, pregunta **87**). ⛔ **La lista de esta fila era de CUATRO y queda superada por la de seis**: es copy, no contrato — su única fuente es el array `PRESETS` de `KycRejectDialog.tsx` + las dos tablas de mensajes. **Y el criterio 201 aplica a los seis**: ⛔ ninguno menciona topes ni umbrales |
+
+> **⭐ v1.74 — LO QUE ESTE `PATCH` DISPARA AHORA, Y NO EXISTÍA: el correo `AV-1`.** Rechazar **manda un aviso al
+> cliente con el motivo** ([§R.3](#seccion-R)), gobernado por el sello `kycRejectionNoticeSentAt`
+> (**UN aviso por ciclo**, `D-AVISO-2` / §R.4.a). ⛔ **La forma de este endpoint NO cambia** —mismos campos, mismos
+> códigos, misma auditoría—: lo único nuevo es un efecto **post-commit y best-effort** que ⛔ **nunca** puede hacer
+> fallar el `PATCH`. ⚠️ Y el bloque que limpia `rejectionReason`/`reviewedAt`/`reviewedBy` al resubir **gana una
+> cuarta columna**: la del sello.
 
 **K.4.1 — ⛔ EL RECHAZO **NO** BORRA LAS IMÁGENES. Y la decisión tiene dos mitades, porque una sola se equivoca.**
 - **NO se borran al rechazar.** *Borrar en el rechazo destruye la única evidencia de **por qué** rechazamos.* Si el
@@ -18711,9 +18889,15 @@ la decisión, pero las tres son condición de aceptación)*:
   **Qué desaparecerá de la pantalla de frontend M10:** el campo `catalogSyncFromDate` y su editor — **trabajo de
   frontend, y NO se hace hasta que backend retire la clave del DTO** (si la pantalla la quita antes, el dial
   queda vivo y sin superficie, que es el peor de los dos mundos). Orden y compuertas: `§M2-CS.4`.
-- ⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
-  `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**. Ver §M10-IVA.
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, ivaTransferPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** 🚧 **v1.66 / v1.66.1: `catalogSyncFromDate` se RETIRA de este DTO y de este `PUT` — `estado: PROYECTADA`, todavía NO retirado del código** (cuando aterrice: mismo trato que `stripeFeeIvaPct` y `fxRateMode`, enviarlo caerá en `422 VALIDATION_ERROR` como cualquier clave desconocida; **ver el recuadro de estado arriba y `D-CS-5`**). ⛔ **Su semántica no se repite aquí y su antiguo default no se cita en ninguna parte**: el corte del sync de catálogo **dejará de ser un dial** para ser un valor derivado, y **vive entero en [`§M2-CS.4`](#M2-CS4)** (`<!-- CANON: corte-de-catalogo -->`, §0-B.3 reglas 8 y 10). *La frase que esta línea tenía —«frontera por defecto … editable sin redeploy … `ConfigSetting` de primera clase», con un literal de fecha— describía un mando destinado a desaparecer: **se retira, no se anota**.* Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- 🔴 ~~⚠️ **v1.64:** la lista de abajo gana **`ivaTransferPct`** (entero `[0,100]`, seed **`100`**) — **READ-ONLY en este
+  `GET`; se ESCRIBE solo por [`PUT /admin/settings/iva-transfer`](#M10-IVA)**.~~
+  **DEROGADO EN v1.75 (`N-IVA9-2`): `ivaTransferPct` ⛔ NO ESTÁ EN ESTE DTO Y NO SALE EN ESTE `GET`.** Su **única**
+  superficie de lectura es [`GET /admin/settings/iva-transfer`](#M10-IVA) y su única puerta de escritura
+  `PUT /admin/settings/iva-transfer`. **La razón es de mecanismo, no de estilo:** `SETTING_DTO_MAP` es **una sola
+  lista** y gobierna **lectura y escritura**, así que «sale en el `GET` pero se rechaza en el `PUT`» exigiría partir
+  el mapa en dos — y esa segunda lista sería justamente por donde `IVA-8(b)` se cae un día. **Candado `IVA-8(f)`**,
+  por ausencia. Razón entera: §M10-IVA.1.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** 🚧 **v1.66 / v1.66.1: `catalogSyncFromDate` se RETIRA de este DTO y de este `PUT` — `estado: PROYECTADA`, todavía NO retirado del código** (cuando aterrice: mismo trato que `stripeFeeIvaPct` y `fxRateMode`, enviarlo caerá en `422 VALIDATION_ERROR` como cualquier clave desconocida; **ver el recuadro de estado arriba y `D-CS-5`**). ⛔ **Su semántica no se repite aquí y su antiguo default no se cita en ninguna parte**: el corte del sync de catálogo **dejará de ser un dial** para ser un valor derivado, y **vive entero en [`§M2-CS.4`](#M2-CS4)** (`<!-- CANON: corte-de-catalogo -->`, §0-B.3 reglas 8 y 10). *La frase que esta línea tenía —«frontera por defecto … editable sin redeploy … `ConfigSetting` de primera clase», con un literal de fecha— describía un mando destinado a desaparecer: **se retira, no se anota**.* Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48 / ⚠️⚠️ v1.65:** `priceProvider` (`price_provider`) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy. ⛔ **Su enum, la semántica de cada valor, su SEED y la prohibición de afirmar aquí el valor VIGENTE de un entorno NO se transcriben en esta línea: viven en [`§M10-PP`](#M10-PP)** (marca `<!-- CANON: proveedor-de-precio -->`, §0-B.3 regla 8). Fuera del enum ⇒ `422 VALIDATION_ERROR`. *(Esta línea llegó a afirmar a la vez un «valor vigente» y un «seed original» distintos entre sí y distintos del código; ésa es exactamente la clase de frase que §M10-PP existe para que no se vuelva a escribir.)* **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
 - ⚠️⚠️ **v1.63 (§M2-F) — `fxManualOverrideRate` SIGUE en este DTO, pero ESTE `PUT` ya no decide si la tasa manual
   RIGE.** Desde v1.63 eso lo decide el ajuste **`fx_rate_mode`**, que ⛔ **NO se expone aquí y NO se edita por este
   endpoint** (enviar `fxRateMode` en el body cae en `422 VALIDATION_ERROR` como cualquier clave desconocida, mismo
@@ -19009,8 +19193,11 @@ la decisión, pero las tres son condición de aceptación)*:
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
-- ⚠️⚠️ **v1.64 (§M10-IVA) — `ivaTransferPct` ENTRA EN EL `GET` PERO SE RECHAZA EN ESTE `PUT`.** Mismo precedente
-  **exacto** que `fxRateMode` (v1.63): el dial se **lee** aquí junto a los demás, y enviarlo en el cuerpo de
+- ⚠️⚠️ **v1.64, ENMENDADO EN v1.75 (§M10-IVA) — `ivaTransferPct` ⛔ NI ENTRA EN EL `GET` NI SE ACEPTA EN ESTE `PUT`.**
+  ~~Mismo precedente **exacto** que `fxRateMode` (v1.63): el dial se **lee** aquí junto a los demás~~ 🔴 **y esa mitad
+  era falsa: `fxRateMode` NO se lee aquí tampoco** (la línea de arriba lo dice: *«NO se expone aquí»*) ⇒ **el
+  precedente que invoqué apuntaba justo al revés de como lo cité**, y el paralelismo correcto es el **completo**:
+  fuera del `GET` **y** fuera del `PUT`, con **una** puerta propia. Enviarlo en el cuerpo de
   `PUT /admin/settings` cae en **`422 VALIDATION_ERROR`** (clave desconocida). **Su única puerta es
   [`PUT /admin/settings/iva-transfer`](#M10-IVA)**, la que impone el **acuse del costo en pesos** que exige el
   criterio **188** de `PROJECT.md`. ⛔ `ivaPct` (la **TASA**) **sigue editándose aquí y no cambia**: son **dos diales
@@ -19099,23 +19286,132 @@ distintos. Mezclarlas en una frase es lo que hizo que un documento y el código 
 | **Clave / DTO** | `iva_transfer_pct` / **`ivaTransferPct`** |
 | **Tipo** | **entero** en **`[0, 100]`** — **FRACCIÓN DE TRASLACIÓN**, ⛔ **no puntos de IVA** |
 | **Seed** | **`100`** |
-| **Lectura** | `GET /admin/settings` (junto a los demás) y `GET /admin/settings/iva-transfer` |
+| **Lectura** | ⭐ **SOLO `GET /admin/settings/iva-transfer`** (y el `preview` de abajo). ⛔ **NO viaja en `GET /admin/settings`** *(v1.75, `N-IVA9-2` — **corrige** la fila anterior, que decía «`GET /admin/settings` (junto a los demás)»)* |
 | **Escritura** | **SOLO** `PUT /admin/settings/iva-transfer` (`super_admin`) |
 | **Auditoría** | `settings.update` con `before`/`after`, **en la MISMA transacción** que la escritura |
+
+> ⭐⭐ **v1.75 — `N-IVA9-2`, RESUELTO, Y CEDE ESTE DOCUMENTO. `ivaTransferPct` ⛔ NO SALE EN `GET /admin/settings`.**
+> **El choque era real y lo causé yo:** esta fila y dos líneas de §M10 decían que sí; el comentario de
+> `settings.constants.ts` (que §M10-IVA.9.b **ratifica** fila a fila) dice que **no**, y hay un e2e vigente que
+> asierta la ausencia (`test/integration/iva-price-convention.e2e-spec.ts`). **Cede la fila «Lectura», y no por
+> antigüedad sino por un mecanismo medido:**
+> - **`SETTING_DTO_MAP` es UNA sola lista y gobierna LAS DOS MITADES** — `getAllDto()` la itera para **leer** y el
+>   `PUT` genérico la consulta para **aceptar la clave** (medido 2026-09-14 en `settings.service.ts`). ⇒ *«que salga
+>   en el `GET` pero se rechace en el `PUT`»* **no es una línea: es desacoplar el mapa en dos listas**, y la segunda
+>   lista sería exactamente la superficie por la que alguien, un día, mete la clave en la primera. **`IVA-8(b)` —la
+>   puerta ÚNICA— vive hoy de que ese mapa sea uno solo.** *Un invariante que se sostiene por la forma del dato es
+>   más fuerte que uno que se sostiene por una lista paralela que hay que acordarse de no tocar.*
+> - **Y el costo de que no salga es CERO**, medido: la única pantalla que lo necesita es la del dial, que **ya llama
+>   a su propia ruta** (`IvaTransferSection.tsx`). Nadie más lo pide.
+> - **Lo que esto compra, dicho como decisión y no como accidente:** el dial **no es un ajuste más**. Tiene recurso
+>   propio, puerta propia y acuse propio. Sacarlo del `GET` genérico hace que **el modelo mental coincida con la
+>   norma**: *lo que está en `/admin/settings` se escribe por `PUT /admin/settings`; esto no está, y por eso no.*
+> - ⇒ **Nueva sub-medición `IVA-8(f)`** (§M10-IVA.5): por **ausencia**, sobre el JSON de `GET /admin/settings`.
 
 ⛔ **`37.5` ⇒ `422 VALIDATION_ERROR`.** El entero **no es gusto: es la columna** — `Order.ivaTransferPct` es `Int` y
 un decimal se truncaría en silencio mientras el precio se calculó con él. Es el mismo defecto que ya cerraron
 `validateIvaPct` y `validateAportacionPct`; la **decisión de columna** que aquellos comentarios dejaron esperando
 está tomada en `ARCHITECTURE §4.44.g`: **sigue siendo `Int`**.
 
-##### §M10-IVA.2 — Los dos endpoints nuevos
+##### §M10-IVA.2 — Los TRES endpoints del dial *(v1.75: eran «los dos»; el tercero —la lectura— ya existía sin DTO publicado)*
 
-**`GET /api/v1/admin/settings/iva-transfer/preview`** — `super_admin`. **READ-ONLY, sin efectos, cacheable: no.**
+**1 · `GET /api/v1/admin/settings/iva-transfer`** — `super_admin`. **READ-ONLY, sin efectos. ⛔ SIN parámetros de query.**
 
 ```
-Query: ?ivaTransferPct=<0..100>&samplePriceCents=<int>=10000
+Res 200: IvaTransferStateDTO
+```
+
+```ts
+IvaTransferStateDTO = {
+  ivaTransferPct: number,              // el dial VIGENTE
+  ivaRatePct: number,                  // la TASA vigente (dial `iva_pct`). ⛔ NO es el dial
+  samplePriceCents: number,            // el `L` de ejemplo con el que se calculó `current` (= 10000)
+  current: IvaTransferPositionDTO      // la posición de HOY, con ese `L`
+}
+```
+
+> ⭐ **v1.75 — `N-IVA9-3` RATIFICADO SIN CAMBIOS.** Es **exactamente** lo que backend construyó, y se ratifica por lo
+> que **no** hizo: **reutilizó `IvaTransferPositionDTO` en vez de inventar nombres de campo nuevos**, que es la regla
+> que impide que el mismo hecho tenga dos formas según por dónde salga. *Un implementador que se niega a bautizar un
+> campo que el contrato no bautizó está haciendo su trabajo, no esquivándolo.*
+> **La redundancia aparente (`ivaTransferPct` arriba y dentro de `current`) se ACEPTA, y se dice por qué**: las dos
+> copias las produce **la misma expresión, en la misma respuesta, en el mismo proceso** ⇒ **no pueden divergir**.
+> ⛔ No es el caso de «dos fuentes para un hecho», que es sobre datos **persistidos** en dos sitios. A cambio, el
+> front tiene **un solo modelo de lectura** para esta ruta y para el `preview`, que es donde sí se paga la diferencia.
+
+**2 · `GET /api/v1/admin/settings/iva-transfer/preview`** — `super_admin`. **READ-ONLY, sin efectos, cacheable: no.**
+
+```
+Query: ?ivaTransferPct=<0..100>&samplePriceCents=<1..100000000>   (el segundo OPCIONAL, default 10000)
 Res 200: IvaTransferPreviewDTO
 ```
+
+> ⭐⭐ **v1.75 — `N-IVA9-1` RESUELTO: LOS DOS EJES QUEDAN AUTORIZADOS, Y LA FRASE QUE SE CORRIGE ES LA MÍA.**
+>
+> **El choque, dicho sin adornos:** esta especificación es normativa **desde v1.64**; el punto **(d)** del changelog
+> **v1.74** declaró *«CERO parámetros de query nuevos en toda la rev»* **mientras esa misma rev metía este endpoint
+> dentro del corte** (§M10-IVA.9.c lo nombra: *«abre `GET/PUT /admin/settings/iva-transfer` y su `/preview`»*). **Las
+> dos frases no podían ser ciertas a la vez, y la que nació mal es la de v1.74**: escribí «en toda la rev» pensando
+> en §R y sobre-afirmé el alcance. **Backend hizo lo correcto al no construirlo y devolvérmelo** *(regla 9)*.
+>
+> **Por qué se autorizan los dos ejes y no se mueve el endpoint — las cinco razones, y la quinta es una advertencia
+> sobre esta misma decisión:**
+> 1. **Corregir una afirmación falsa cuesta una línea; mover el endpoint cuesta rehacer una pantalla ya construida.**
+>    *No se rediseña una interfaz para tapar un error de redacción del changelog.*
+> 2. **El paréntesis de (d) era cierto y sobrevive: §0-Q punto 4 NO gana ni una fila.** Los dos ejes **no son dominio
+>    cerrado de TOKENS**: `ivaTransferPct` es un **entero acotado** y `samplePriceCents` un **importe** — la misma
+>    clase que `page`, `minCents` y `maxCents`, que §0-Q punto 7 ya excluye (y donde v1.75 escribe el criterio que lo
+>    separa). **Lo que crece es la lista de NO-enums de `C-EQ-1`, que vive en la suite de backend, no aquí.**
+>    **Costo entero, medido** (`backend/test/helpers/query-axis-cross.ts`, 2026-09-14): **dos entradas en
+>    `NO_ENUM_POR_RUTA`** —⛔ **no** en `NO_ENUM_TRANSVERSAL`, cuyo `toEqual` de 14 nombres **no se toca**, porque la
+>    exención aquí es **de esta ruta**, no del nombre— **y subir su tope de `36` a `38`**, con la medición escrita al
+>    lado de cada una (*«entero acotado, no dominio de tokens»*).
+> 3. **`C-EQ-1` no falló: hizo su trabajo.** Su mitad de **descubrimiento** existe para que ningún eje nuevo se cuele
+>    sin clase declarada. Se topó con dos y **obligó al arquitecto a declararlos**. *Un candado que fuerza una
+>    decisión no es un obstáculo; la salida ⛔ no es esquivarlo cambiando el verbo del endpoint.*
+> 4. **Contra `POST …/preview`:** convertiría en `POST` una operación **sin efectos** solo para rodear un candado de
+>    query. Los dos `POST` de cotización que este contrato ya tiene (`/checkout/quote`, `/shipments/quote`) son `POST`
+>    porque su entrada es **un carrito**, no dos enteros. *Elegir el verbo por el candado que se quiere esquivar es
+>    cómo se pierde el significado de los verbos* — y no ahorra validación: un cuerpo también se valida.
+> 5. ⚠️ **Contra «devolver el juego de posiciones desde el `GET`», que es la opción que MÁS me gusta, y por eso la
+>    descarto por escrito y con su medición.** Una sola llamada, cero ejes, el front sin computar nada: es más limpia.
+>    La descartan **dos hechos del árbol, no una preferencia**: **(a)** la pantalla **ya está construida** contra
+>    `/preview` (`frontend/src/lib/api.ts` `getIvaTransferPreview`, `IvaTransferSection.tsx`, commit `90b60a8`), y
+>    rehacerla **por un error mío de redacción** es el retrabajo que este proyecto ya mide como su mayor fuga; **(b)**
+>    congelaría `samplePriceCents` en el servidor, y el acuse del criterio 188 **está atado a un `samplePriceCents`**
+>    — hoy el front manda `10000` fijo, así que no se pierde nada **hoy**, pero se cerraría por contrato la pregunta
+>    *«¿y sobre una pieza de MX$2 000?»*, que el requisito sí contempla.
+>    ⭐ **Y se dice entero: si la pantalla no estuviera construida, ésa sería mi elección.** La opción que gana lo hace
+>    **por el estado del árbol**, no por ser la mejor en abstracto. *Que nadie lea esto como doctrina de diseño.*
+>
+> **⛔ EL CONTRATO DE QUERY, que v1.64 no publicó y por eso había que adivinarlo:**
+>
+> | Eje | Obligatoriedad | Dominio | Si no cumple |
+> |---|---|---|---|
+> | `ivaTransferPct` | **OBLIGATORIO** | entero en **`[0, 100]`** | **`400 VALIDATION_ERROR`**, `details: { field: 'ivaTransferPct' }`, `message` que **nombra los dos extremos** |
+> | `samplePriceCents` | **OPCIONAL** — ausente, vacío o solo espacios ⇒ **`10000`** | entero en **`[1, 100_000_000]`** (MX$1 000 000) | **`400 VALIDATION_ERROR`**, `details: { field: 'samplePriceCents' }`, `message` que **nombra los dos extremos** |
+>
+> - ⛔ **`ivaTransferPct` ausente NO es «no filtres»: es `400`.** No es un filtro — **es la pregunta**. La fila 1 de
+>   §0-Q («vacío ⇒ no filtra») **no aplica aquí y por eso se dice**: un preview sin posición propuesta no tiene
+>   respuesta que dar, y devolver la vigente sería contestar otra pregunta.
+> - **`400` en la query y `422` en el cuerpo del `PUT`, para el MISMO valor inválido, es CORRECTO y ya es doctrina**
+>   (§0-Q punto 2: *«es query, no cuerpo»*). ⛔ No se «armoniza».
+> - ⭐⭐ **LA COTA SUPERIOR DE `samplePriceCents` NO ES HIGIENE: SIN ELLA LA RUTA ES UN `500` DESDE LA BARRA DE
+>   DIRECCIONES.** `totalChargedCents` sale de `grossUpTotal`, que **LANZA** cuando el total excede `MAX_CENTS`
+>   (`common/money.ts`, *«total exceeds MAX_CENTS — order amount not representable»*), y ese `Error` **no lo mapea el
+>   filtro global**. Con `samplePriceCents = 2_000_000_000` y el dial en 100, `P = 2.32e9 > MAX_CENTS` ⇒ **excepción**.
+>   Es **exactamente la clase** que §0-Q existe para cerrar (*«un `500` disparable desde la barra de direcciones por
+>   cualquiera con sesión admin»*). **La cota `100_000_000` se elige MEDIDA, no redonda por gusto:** con el dial en
+>   100 y `r = 16`, `P = 1.16e8` y su gross-up ≈ `1.21e8` — **casi veinte veces por debajo** de `MAX_CENTS`, así que
+>   ningún dial ni ninguna comisión configurable puede acercarlo al techo. ⚠️ **NO MEDIDO por mí que hoy produzca un
+>   `500`: el endpoint no existe todavía.** Esto es una **norma sobre código por escribir**, no una afirmación de
+>   estado; la medición que la cierra es un `GET …?samplePriceCents=2000000000` una vez construido.
+>
+> **`C-EQ-1` y este endpoint, para que no haya ambigüedad al implementarlo:** los dos ejes **quedan fuera del punto 4
+> de §0-Q** (no son tokens) y **dentro del censo de `C-EQ-1`** como NO-enums por ruta. ⛔ **Un eje que no aparezca en
+> ninguna de las dos listas sigue siendo rojo**, y debe serlo.
+
+**Los cuerpos compartidos por los tres:**
 
 ```ts
 IvaTransferPreviewDTO = {
@@ -19149,20 +19445,78 @@ IvaTransferPositionDTO = {
   ⇒ pasar de **100 → 50** da `netDeltaPerUnitCents = −690` (**−MX$6.90 por unidad**), que es literalmente la cifra
   que el criterio **188** exige mostrar antes de guardar.
 
-**`PUT /api/v1/admin/settings/iva-transfer`** — `super_admin`, auditado, **transaccional**.
+**3 · `PUT /api/v1/admin/settings/iva-transfer`** — `super_admin`, auditado, **transaccional**. **LA PUERTA ÚNICA.**
 
 ```
 Req: { ivaTransferPct: number,
-       acknowledgement: { samplePriceCents: number, previewedNetDeltaCents: number } }
+       acknowledgement: { samplePriceCents: 10000,        // ⛔ v1.76: SÓLO el L CANÓNICO. Ver el bloque de abajo
+                          previewedNetDeltaCents: number } }
 Res 200: { ivaTransferPct: number, preview: IvaTransferPreviewDTO }
 ```
 
 | Código | Cuándo | Efecto |
 |---|---|---|
 | **`422 VALIDATION_ERROR`** | `ivaTransferPct` no entero, o fuera de `[0, 100]`. El `message` **nombra los dos extremos** | ⛔ **no escribe** |
+| **`422 VALIDATION_ERROR`** ⭐ **v1.76** | `acknowledgement.samplePriceCents` **presente y distinto de `10000`** (el `L` canónico). `details: { field: 'acknowledgement.samplePriceCents' }`; el `message` **nombra el valor canónico**. ⛔ Se rechaza **ANTES** de comparar el delta | ⛔ **no escribe** |
 | **`422 IVA_TRANSFER_ACK_REQUIRED`** | falta `acknowledgement` (o alguno de sus dos campos) **y el valor CAMBIA** | ⛔ **no escribe** |
-| **`409 IVA_TRANSFER_ACK_STALE`** | el `previewedNetDeltaCents` **no coincide** con el que el servidor recalcula para ese `samplePriceCents` y ese `ivaTransferPct`. `details: { expectedNetDeltaCents }` | ⛔ **no escribe** |
+| **`409 IVA_TRANSFER_ACK_STALE`** | el `previewedNetDeltaCents` **no coincide** con el que el servidor recalcula **al `L` canónico** para ese `ivaTransferPct`. `details: { expectedNetDeltaCents }` | ⛔ **no escribe** |
 | **`200`** | todo cuadra | escribe **y** audita, **en la misma transacción** |
+
+> ⭐⭐ **v1.76 — `REL-A` CERRADA: EL ACUSE SE CALCULA SOBRE UN `L` QUE FIJA EL SERVIDOR, ⛔ NO SOBRE UNO QUE ELIGE
+> QUIEN FIRMA** (`ARCHITECTURE §4.56.1`, norma **`D-ACUSE-1`**).
+>
+> **El defecto, medido EN VIVO** (pentester, dial movido `100 → 50` y **restaurado**):
+> ```
+> PUT … { ivaTransferPct: 50, acknowledgement: { samplePriceCents: 1, previewedNetDeltaCents: 0 } }  → 200
+> ```
+> El dial **se movió** habiendo «mostrado» **MX$0.00**, cuando el costo real a MX$100 es **−690 centavos por
+> unidad (~7 %)**. Umbral: `L ∈ {1,2,5,10} ⇒ delta 0`; `L = 30 ⇒ −2`; `L = 100 ⇒ −7`; `L = 10000 ⇒ −689`.
+> El validador **rechazaba `L = 0`** —y lo decía: *«0 … would turn the acknowledgement into a no-op»*— pero
+> **`L ∈ [1,10]` hace exactamente lo mismo**.
+>
+> **⚠️ No es un borde aritmético: derrota la protección entera.** El acuse existe porque **el dueño lo exigió**
+> (criterios **188** / **213**) para no firmar a ciegas un cambio que mueve **todos** sus precios. *Un acuse que
+> promete un efecto inexistente es peor que no tener acuse: enseña a firmar.* **Aquí prometía CERO y el efecto era
+> del 7 %.**
+>
+> **LA NORMA (de clase, no de este endpoint):** ⛔⛔ **el valor que un acuse confirma se calcula sobre una magnitud
+> que fija el SERVIDOR. Queda PROHIBIDO todo acuse cuyo efecto confirmado dependa de un argumento que viaja en la
+> MISMA petición que lo confirma.** *Un control cuyo parámetro elige la parte controlada no es un control.*
+>
+> **Y su corolario, que es la mitad que evita que la norma se lea como una amputación:**
+> ⭐ **EXPLORAR ES LIBRE; ACUSAR ES SOBRE UNA MAGNITUD FIJA.** El eje `samplePriceCents` del **`/preview`**
+> **conserva su dominio entero `[1, 100_000_000]`** — es una lectura **sin efectos**, y la pregunta *«¿y sobre una
+> pieza de MX$2 000?»* es legítima. Lo que ⛔ no puede es que ese número **decida contra qué compara el servidor
+> para permitir la escritura**.
+>
+> **Las cuatro decisiones, con su porqué:**
+> 1. ⛔ **No se sube la cota inferior.** **No cierra la clase, y es aritmética:** el delta es
+>    ≈ `L · (r/100)/(1+r/100) · Δt/100` ⇒ con `r = 16` hace falta `L ≳ 363` para que `Δt = 1` dé un centavo, pero
+>    **con `r = 1` hace falta `L ≳ 5 050`**. Una cota elegida contra el `r` de hoy **se rompe sola al mover
+>    `iva_pct`, y en silencio**. *Poner un número más grande en el mismo sitio equivocado es el parche del caso.*
+> 2. ⛔ **No se calcula sobre un precio «representativo» del catálogo** (mediana, más vendido). Es la opción que
+>    más me gustaba: **una estadística se mueve entre que el dueño mira la pantalla y pulsa guardar** ⇒ produciría
+>    `409 IVA_TRANSFER_ACK_STALE` **por algo que no es lo que se está decidiendo**, y el propio código ya tiene
+>    escrito por qué eso es malo: *«un acuse que caducara por algo que no es lo que se está decidiendo enseñaría a
+>    reintentar sin leer»*. ⇒ **constante, no estadística.**
+> 3. ⛔ **No se IGNORA el campo** usando el canónico por dentro. Ignorar en silencio un campo de dinero deja al
+>    operador creyendo que su número contó — misma clase que `D-A5-3`. ⇒ **`422` explícito.** *Si el campo no
+>    manda, el servidor lo dice; no lo finge.*
+> 4. **El campo SE CONSERVA** (con un único valor legal) por dos hechos medidos: **(a)** el frontend **ya manda
+>    `10000` fijo** (`IvaTransferSection.tsx:26` `SAMPLE_PRICE_CENTS`, `:147`) ⇒ **cero rework**; **(b)** deja
+>    constancia, en el cuerpo auditado, de **sobre qué `L` se firmó**.
+>
+> ⛔ **Lo que NO se añade, y se dice porque alguien lo propondrá:** ⛔ **ninguna comprobación de «delta ≠ 0» en
+> ejecución.** Con el `L` canónico, un delta `0` sólo puede ser **verdad** (`iva_pct = 0` ⇒ no hay IVA que
+> trasladar ⇒ mover el dial **no cuesta nada**), y bloquearlo **encerraría el dial** en esa configuración. *Un
+> acuse de cero deja de ser un problema en cuanto no se puede fabricar.*
+> ⇒ En su lugar, **candado `IVA-14`** *(⚠️ **se salta el 13 a propósito**: los candados van `IVA-1..IVA-12` y
+> **`D-IVA-13` ya existe** como desviación. Reusar el número en dos espacios de nombres vecinos es **cómo se
+> discute media hora sobre cuál de los dos se citó** — misma doctrina que `FX-24`/`FX-R2`)*: con el `L` canónico y
+> `r ≥ 1`, **todo movimiento de un punto produce
+> `netDeltaPerUnitCents ≠ 0`** (verificable sin levantar nada: es aritmética pura). Se pondría **rojo** el día que
+> alguien baje la constante o reabra la elección al llamante — que es **cuándo** hay que enterarse, no en el dial
+> del dueño. **Cifra de control:** `r = 16`, `L = 10000`, `100 → 99` ⇒ **`−14`**; `100 → 50` ⇒ **`−690`**.
 
 - **El acuse solo se exige cuando el valor CAMBIA.** Un `PUT` con el mismo valor vigente es idempotente y no pide
   acuse (no hay margen que ceder).
@@ -19191,6 +19545,31 @@ ivaRatePct        : number     // la TASA, para el rótulo «IVA 16 % incluido»
 | `SealedGroupDTO` | `fromPriceCents` | `fromPriceCents` **pasa a llevar el IVA dentro** + `ivaIncluded` + `ivaRatePct` |
 | `OrderItemPreview` / `OrderItemDTO` | `unitPriceCents` | `unitPriceCents` **es el `P` congelado**; se acompaña de `ivaIncluded` a nivel de `breakdown` |
 | `BreakdownDTO` | ver §M10-IVA.4 | ver §M10-IVA.4 |
+| ⭐⭐ **`MasterSetVariantDTO.buyable`** *(v1.76, `F-IVA-1`)* | `{ inventoryItemId, salePriceCents }` | `{ inventoryItemId, displayPriceCents, ivaIncluded, ivaRatePct }` |
+| ⭐⭐ **`ClientShipmentDTO`** *(v1.76, `F-IVA-2`)* | — | **gana `priceConvention` + `ivaIncluded`** (⛔ aditivo; ningún importe cambia de nombre) |
+
+> ⭐⭐ **v1.76 — LAS DOS FILAS NUEVAS SALEN DE QUE EL FRONTEND SE NEGARA A RELLENARLAS A OJO, Y TENÍA RAZÓN LAS DOS
+> VECES** (`FRONTEND_NOTES §74.5`, `F-IVA-1`/`F-IVA-2`).
+>
+> **`F-IVA-1` — `buyable` era el hueco, y era de dinero.** Esta tabla enumeraba **seis** DTOs y dejaba fuera
+> `MasterSetVariantDTO.buyable`, que **pinta un precio de compra al cliente** (el CTA «Comprar MX$X» de
+> `components/master-set/CellDrawer.tsx:240`) ⇒ conservaba **el nombre exacto que esta misma sección retiró**,
+> *«porque dejar el mismo nombre cambiando su significado es el defecto de D54 un nivel más abajo»*. **El hueco es
+> mío**: lo que el contrato llama *«`buyable` SOLO scope cliente (iii)»* es, para esta sección, **superficie
+> pública**, y la regla no admite excepción por vivir dentro de un binder. ⭐ Y el rename **es la red**: un front
+> que no migre **no compila**.
+> **Mientras backend no lo emita**, el simulador del front emite ahí el `P` marcado `// MOCK: pendiente de
+> contrato`, y la pantalla ⛔ **no rotula convención** — *sin `ivaIncluded` no hay ninguna que afirmar*. **Es la
+> conducta correcta y se ratifica**: ⛔ **nada afirma una convención que no recibió.**
+>
+> **`F-IVA-2` — un desglose compuesto en el cliente sin saber qué convención afirma.** El rastreo de un retiro
+> arma su `BreakdownDTO` a partir de importes sueltos (`ShipmentDetailView.tsx` `shipmentBreakdown`) y **no tenía
+> de dónde leer la convención**. ⛔ **Y no se deduce de la aritmética** —mirar si `total == subtotal + iva + fee`—
+> porque eso es **inventar una regla que el contrato no tiene, con un importe fiscal de por medio**. ⛔ **Ni se
+> rellena con un default**: `IVA_EXCLUSIVE` sería cierto hoy y **falso tras el encendido**, y `IVA_INCLUSIVE` sería
+> falso **para todo retiro ya cobrado** — que es el criterio **190** exacto. ⇒ **el dato existe y es NOT NULL en la
+> fila desde M-50** (`ShipmentRequest.priceConvention`): lo único que faltaba era **publicarlo**. *Cuando el hecho
+> ya está en la tabla, la discusión no es qué default poner: es por qué no viaja.*
 
 - ⭐ **`salePriceCents` NO se reinterpreta: DESAPARECE de la superficie pública.** Dejar el mismo nombre cambiando
   su significado es **el defecto de D54 un nivel más abajo**, y además un front que no migrara **seguiría pintando
@@ -19265,7 +19644,7 @@ DirectShipBreakdownDTO = BreakdownDTO & { shippingFeeCents: number }  // shippin
 | **IVA-9** ⭐⭐ *(v1.64(3) — resuelve `IVA-R1`)* | **recalcular `Order.ivaCents` a partir de las partes**, o repartir el IVA del envío por su cuenta (`round(E/(1+r))`) en vez de por el residual | **El candado de la ASIGNACIÓN, y son una IDENTIDAD y una FLECHA.** Fixture: pedido `direct_ship` **`IVA_INCLUSIVE`** con `subtotalCents = 11600`, `shippingFeeCents = 20300`, `ivaRatePct = 16`, `ivaCents = 4400`. **(a)** ⭐⭐ **la identidad, EXACTA, cero centavos de deriva:** `netRevenueCents + netShippingRevenueCents + ivaCents == subtotalCents + shippingFeeCents` (`10000 + 17500 + 4400 == 31900`). **Rojo con ±1 centavo** — *es lo que separa «resuelto» de «declarado»*. **(b)** ⭐ **la mercancía, contra el criterio 191:** `netRevenueCents == 10000`. **⛔ Rojo con `7200`**, que es lo que da `subtotalCents − ivaCents` — **la fórmula que este contrato publicó en v1.64 y que era falsa** (`ARCHITECTURE §9 · D-IVA-10`): *le resta a la mercancía el IVA del envío*. **(c)** **el envío absorbe el residuo:** `netShippingRevenueCents == 20300 − (4400 − 1600) == 17500`. **(d)** ⭐⭐ **la FLECHA, por lo negativo:** se altera `ivaCents` a `4401` **a pelo en la BD** ⇒ **`netShippingRevenueCents` cambia y `Order.ivaCents` NO se recalcula ni se "corrige"** — *rojo si algún camino reescribe `ivaCents` desde las partes: es un número FISCAL y es la única fuente de la factura del cliente*. **(e)** **caso bóveda** (`E = 0`): `netShippingRevenueCents == 0` y `netRevenueCents == round(S/1.16)` — *rojo si el caso `E = 0` no se prueba: **es el que escondía el defecto**, porque ahí las dos fórmulas coinciden* |
 | **IVA-10** ⭐ *(v1.64(3) — D55(b), tablero)* | que el tablero y el P&L tengan **dos definiciones de «neto»**, o que la diferencia bruto↔neto deje de ser explicable | **El candado de la coherencia POR CONSTRUCCIÓN.** **(a)** ⭐⭐ **la identidad del puente, exacta:** `grossAmountCents == netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents`, sobre un periodo con **al menos una orden `vault` y una `direct_ship`**, y en las **dos** convenciones. **(b)** ⭐ **contra el P&L, como IGUALDAD y no como dos cálculos parecidos:** para el **mismo periodo**, `salesPeriod.netAmountCents == GET /admin/finance/pnl → incomeCents`. **Rojo si difieren en un centavo** — *es la mutación realista, porque son dos endpoints y dos ficheros*. **(c)** **`amountCents` YA NO EXISTE** en el DTO (se renombró a `grossAmountCents`): rojo si sobrevive, aunque valga lo mismo — *un «amount» que convive con otro «amount» distinto es la ambigüedad que este pase existe para matar*. **(d)** **`grossAmountCents == Σ Order.totalCents`** sigue siendo *«lo que el cliente pagó»*, con comisión y envío dentro: rojo si alguien lo netea |
 | **IVA-11** ⭐⭐ *(v1.64(4) — D55(c)+(d), preguntas 68 y 69)* | **comparar peras con manzanas en la línea de envío** —costo BRUTO contra ingreso NETO—, **o dejar que un `shippingCostCents = 0` pase por «costó cero»** | **El candado de la regla del dueño *«trátalo como si no hubiera margen»*, y son DOS mitades que miden cosas distintas.** ⭐ **(a) LA IDENTIDAD, exacta pero CONDICIONADA AL FIXTURE** *(⛔ **no es global y no debe serlo**: la tarifa se fija por tabla y el costo real del carrier varía por destino y peso ⇒ **un no-cero en producción es legítimo**. Asertarlo siempre sería `FX-20` otra vez: un candado que rechaza conducta correcta)*: envío `IVA_INCLUSIVE` con `shippingFeeCents = 20300` **y factura del carrier idéntica** (`shippingCostCents = 20300` **BRUTO**, `shippingCostIvaCents = 2800`) ⇒ **`netShippingRevenueCents − netShippingCostCents == 0` EXACTO** (`17500 − 17500`). **Rojo con `−2800`**, que es lo que sale si el costo se resta **bruto** contra ingreso **neto** — *la pérdida fantasma en cada envío, que es justo lo que la decisión 68 existe para evitar*. **(b)** ⭐⭐ **QUE EL `0` NO SIGNIFIQUE DOS COSAS:** dos envíos liquidados, uno con `shippingCostCents = 20300` y otro con **`0`** ⇒ **`shippingCostMissingCount == 1`**. **Rojo si es `0`** — *un cero silencioso convierte el ingreso de ese envío en ganancia fantasma, y `@default(0)` lo produce sin que nadie escriba nada*. ⛔ **No se aserta que el importe sea distinto: se asierta que el CONTADOR lo señala** — para las filas existentes «costó cero» y «no se capturó» son **indistinguibles**, y un candado que fingiera distinguirlas estaría midiendo un backfill inventado. **(c)** **el crédito se CAPTURA, no se deriva:** `netShippingCostCents == shippingCostCents − shippingCostIvaCents` **por resta**, ⛔ **sin ninguna división por `(1+r)` ni lectura del dial vivo** — *rojo si aparece, porque `ShipmentRequest` no tiene `ivaRatePct` y un P&L histórico cambiaría al mover `iva_pct`, incumpliendo `IVA-5`*. **(d)** **filas históricas:** `shippingCostIvaCents == 0` ⇒ `net == bruto` (**dirección conservadora**), y `SELECT count(*) FROM "ShipmentRequest" WHERE "shippingCostIvaCents" <> 0 AND <anterior al deploy>` **== 0** — *nadie backfilleó un crédito fiscal que nadie verificó* |
-| **IVA-8** ⭐ | **vaciar el desglose fiscal** o **abrir una segunda puerta al dial** | **El candado del criterio 192 y de la puerta.** **(a)** dial `0 %`, exhibido `10000` ⇒ **`Order.ivaCents == 1379`**, ⛔ **jamás `0`, jamás `null`** — *mover el dial reduce el NETO, nunca el IVA registrado* — y el CSV de `GET /admin/finance/iva` **suma exactamente eso**. **(b)** `PUT /admin/settings { "ivaTransferPct": 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) **y la fila sigue en `100`**. **(c)** `PUT /admin/settings/iva-transfer { "ivaTransferPct": 50 }` **sin `acknowledgement`** ⇒ **`422 IVA_TRANSFER_ACK_REQUIRED`** **y la fila sigue en `100`**; con un `previewedNetDeltaCents` que no cuadra ⇒ **`409 IVA_TRANSFER_ACK_STALE`**, **sin escritura**. **(d)** `37.5` ⇒ `422 VALIDATION_ERROR` cuyo `message` **nombra los dos extremos**; `-1` y `101` también. **(e)** ⭐ **por lo negativo, sobre el seed: `SETTING_DEFAULTS['iva_transfer_pct'] === 100`** y el seed **sigue sin lógica** (el bucle sobre `SETTING_DEFAULTS`) — *rojo si aparece una derivación en `prisma/seed.ts`* |
+| **IVA-8** ⭐ | **vaciar el desglose fiscal** o **abrir una segunda puerta al dial** | **El candado del criterio 192 y de la puerta.** **(a)** dial `0 %`, exhibido `10000` ⇒ **`Order.ivaCents == 1379`**, ⛔ **jamás `0`, jamás `null`** — *mover el dial reduce el NETO, nunca el IVA registrado* — y el CSV de `GET /admin/finance/iva` **suma exactamente eso**. **(b)** `PUT /admin/settings { "ivaTransferPct": 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) **y la fila sigue en `100`**. **(c)** `PUT /admin/settings/iva-transfer { "ivaTransferPct": 50 }` **sin `acknowledgement`** ⇒ **`422 IVA_TRANSFER_ACK_REQUIRED`** **y la fila sigue en `100`**; con un `previewedNetDeltaCents` que no cuadra ⇒ **`409 IVA_TRANSFER_ACK_STALE`**, **sin escritura**. **(d)** `37.5` ⇒ `422 VALIDATION_ERROR` cuyo `message` **nombra los dos extremos**; `-1` y `101` también. **(e)** ⭐ **por lo negativo, sobre el seed: `SETTING_DEFAULTS['iva_transfer_pct'] === 100`** y el seed **sigue sin lógica** (el bucle sobre `SETTING_DEFAULTS`) — *rojo si aparece una derivación en `prisma/seed.ts`*. **(f)** ⭐ *(v1.75, `N-IVA9-2`)* **POR AUSENCIA, sobre el JSON de `GET /admin/settings`: la llave `ivaTransferPct` NO EXISTE en el cuerpo** — ni con valor, ni en `null`, ni bajo otro nombre. **Rojo en cuanto aparezca, aunque sea «solo lectura»**, porque la llave en el DTO significa que la clave entró en `SETTING_DTO_MAP`, **y ese mapa es el que gobierna también el `PUT`**: la aparición en el `GET` es **la señal temprana de que (b) está a un `if` de caerse**. ⇒ *este e2e ya existe y ya asierta la ausencia; lo que v1.75 hace es volverlo NORMATIVO en vez de huérfano* |
 
 ##### §M10-IVA.8 — El P&L: el costo del envío se captura **BRUTO** y se netea **al leer** (v1.64(4), D55(c)+(d), **deploy 2**)
 
@@ -19342,7 +19721,19 @@ salesPeriod = {
   *«neto»* **ES** `pnl.incomeCents` (mercancía, sin IVA, **sin comisión y sin envío**). **La igualdad de
   `IVA-10(b)` deja de ser una propiedad deseable del diseño y pasa a ser lo que el dueño pidió.**
 
-##### §M10-IVA.6 — Orden de entrega, para el orquestador
+##### <a id="M10-IVA6"></a>§M10-IVA.6 — Orden de entrega, para el orquestador — ⛔⛔ **DEROGADA POR [§M10-IVA.9](#M10-IVA9) (v1.74, D56)**
+
+> ⛔⛔ **ESTA SUBSECCIÓN YA NO ES NORMATIVA. Se conserva ENTERA y sin tachar porque es el registro de lo que v1.64
+> decidió y de POR QUÉ, y porque su reparto de trabajo (qué toca backend, qué toca frontend, qué candado cubre qué)
+> **sigue siendo exacto**: lo único que muere es la FRONTERA entre las dos columnas.**
+> **El dueño decidió UN SOLO DESPLIEGUE** (`PROJECT §Q.10.e`, pregunta **82**: *«haz el cambio de una vez cuando
+> despliegues»*). ⇒ **la columna «Deploy 1» y la columna «Deploy 2» son el MISMO corte**, y **los ONCE candados
+> corren aquí**. La norma vigente es **[§M10-IVA.9](#M10-IVA9)**.
+> **Por qué el motivo murió, con su medición:** el escalonado existía *«para no mover el desglose de pedidos ya
+> cobrados»*, y el dueño estableció que **no hay ninguno** (*«la tienda no ha procesado ninguna venta real»*,
+> `HECHOS.md` 2026-09-14). **Una cautela que protege un conjunto vacío no protege nada.**
+> ⚠️ **Lo que NO muere con ella:** `decks-meta-v1` (criterio **197**) sigue exigiendo **implementado Y PUBLICADO EN
+> PRODUCCIÓN**; con un solo despliegue eso ocurre **antes**, ⛔ **no por defecto**.
 
 **Son DOS deploys y ⛔ nunca uno** (`ARCHITECTURE §4.44.k`). **`decks-meta-v1` se desbloquea con el DEPLOY 2
 PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criterio **197**).
@@ -19358,6 +19749,189 @@ PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criter
 (`ARCHITECTURE §9 · D-IVA-10`), la asignación del IVA del envío (`§4.44.j.1`, candado **`IVA-9`**) y la tarjeta
 **bruto/neto** del tablero (§M10-IVA.7, candado **`IVA-10`**). ⛔ **Nada de esto toca D-1**, que sigue con su
 promesa intacta de **cero cambios de contrato observable** y sus candados en verde.
+
+##### <a id="M10-IVA9"></a>§M10-IVA.9 — ⭐⭐ **D56: UN SOLO DESPLIEGUE, Y LA PUERTA DEL DIAL ABRE EN ESTE CORTE** (v1.74, **NORMATIVO, DINERO**; `PROJECT §Q.10.e`, criterios **213** y **214**)
+
+> **Esta subsección SUSTITUYE a [§M10-IVA.6](#M10-IVA6).** Todo lo demás de §M10-IVA —el dial (IVA.1), los dos
+> endpoints (IVA.2), los DTOs de cliente (IVA.3), el `BreakdownDTO` (IVA.4), los candados (IVA.5), el tablero (IVA.7)
+> y el P&L (IVA.8)— **queda VIGENTE Y SIN UN SOLO CAMBIO DE FORMA**. Lo único que cambia es **CUÁNDO**.
+
+**IVA.9.a — Las tres decisiones del dueño que esta subsección ejecuta (2026-09-14, `PROJECT §Q.10.e`). ⛔ No se re-preguntan.**
+
+| # | Decisión textual | Consecuencia de contrato |
+|---|---|---|
+| **82** | *«haz el cambio de una vez cuando despliegues»* | **No hay deploy 2.** §M10-IVA.6 derogada |
+| **83** | *«Deja los dos modelos, prende ahora el último.»* | `PriceConvention` **se queda** (las dos ramas, la columna, el `switch` de `netRevenueCents`) **y las filas nuevas nacen `IVA_INCLUSIVE`** |
+| **84** | dial al **100 %**, **con puerta** | `PUT /admin/settings/iva-transfer` **entra en este corte**, con el acuse en pesos del criterio **188** |
+
+**IVA.9.b — ⛔⛔ LA DEROGACIÓN QUE HAY QUE ESCRIBIR CON SU CITA, PORQUE VIVE EN EL CÓDIGO Y CONTRADICE A ESTE CONTRATO.**
+
+`backend/src/modules/settings/settings.constants.ts:63-69` afirma **hoy, literalmente**:
+
+> *«**DEPLOY 1: la fila existe (la siembra M-50) pero NADIE la lee.** No está en `SETTING_DTO_MAP` a propósito ⇒ ni
+> sale en `GET /admin/settings` ni se puede escribir por `PUT /admin/settings` […]. Su única puerta será
+> `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**, y esa puerta abre en el **DEPLOY 2**
+> (§M10-IVA.2, candado `IVA-8(b)/(c)`).»*
+
+**De ese párrafo, la decisión 82 deroga EXACTAMENTE UNA frase: *«esa puerta abre en el DEPLOY 2»*. Abre AQUÍ.**
+**⛔ Y NO deroga NADA MÁS del mismo párrafo, que es donde está la trampa:**
+
+| Frase del comentario | Estado tras D56 |
+|---|---|
+| «no está en `SETTING_DTO_MAP` a propósito» | ✅ **VIGENTE.** La clave **sigue fuera** del mapa. `PUT /admin/settings { ivaTransferPct: 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) y la fila **no se mueve**. Candado **`IVA-8(b)`**, sin cambios |
+| «su única puerta será `PUT /admin/settings/iva-transfer`» | ✅ **VIGENTE, y ahora EXISTE.** **UNA** puerta, no dos |
+| «con acuse del costo en pesos» | ✅ **VIGENTE E INTACTO.** ⛔ **Adelantar la puerta NO afloja el acuse**: `422 IVA_TRANSFER_ACK_REQUIRED` y `409 IVA_TRANSFER_ACK_STALE` siguen siendo obligatorios (§M10-IVA.2). *Un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene guardián; una puerta sin acuse **es** el botón a ciegas que §Q.0 prohíbe* |
+| «que esa puerta abre en el DEPLOY 2» | ⛔ **DEROGADA.** No hay deploy 2 |
+
+⛔⛔ **Y el candado que NO se toca, dicho aparte para que nadie lo arrastre en la limpieza: `IVA-7`.**
+`getStripeFee()` ⛔ **NUNCA** lee `IVA_TRANSFER_PCT`. `iva_pct` (la **TASA**) e `iva_transfer_pct` (la **FRACCIÓN DE
+TRASLACIÓN**) son **dos filas independientes y ninguna deriva de la otra**. *Si el dial de traslación entrara en el
+cálculo de la comisión, **mover un precio movería una comisión**.* **Esto no cambió, no cambia y no está en el
+alcance de D56.**
+
+**IVA.9.c — El reparto, ya sin frontera. Sustituye a la tabla de §M10-IVA.6.**
+
+| | **Corte único (este)** |
+|---|---|
+| **Backend** | `M-50` entera · `netRevenueCents` cableado · **deriva `P`** · **escribe `IVA_INCLUSIVE`** · emite los tres campos de §M10-IVA.3 · **abre `GET/PUT /admin/settings/iva-transfer` y su `/preview`** (§M10-IVA.2) · tarjeta bruto/neto (§M10-IVA.7) · P&L del costo de envío (§M10-IVA.8) |
+| **Frontend** | consume `displayPriceCents` en las **13 superficies** · **la pantalla del dial con el acuse en pesos** (criterio **188**) · la tarjeta **bruto/neto** · arregla el mock (criterio **196**) |
+| **Contrato observable** | §M10-IVA.3, §M10-IVA.4, §M10-IVA.7 y §M10-IVA.2 — **todo a la vez** |
+| **Candados a correr** | **LOS DOCE**: `IVA-1`…`IVA-11` **+ `IVA-12`** (abajo). ⛔ Ya no hay un subconjunto «de D-1» |
+
+> ⚠️⚠️ **v1.75 — ESTA TABLA NO CAMBIA, Y SE DICE PORQUE ES LA QUE SE LEYÓ CORTA.** La fila «Backend» reparte **nueve**
+> cosas, y **`deriva P` y `escribe IVA_INCLUSIVE` son dos de ellas**. Un encargo que pida *«la puerta del dial +
+> encender `IVA_INCLUSIVE`»* **pide dos piezas de nueve** y **no** es este corte. **Qué hay construido de cada una,
+> con la medición al lado, y qué pasa si se publica solo un trozo: [§M10-IVA.9.f](#M10-IVA9f).** *La tabla estaba
+> bien; lo que faltó fue leerla entera antes de trocearla.*
+
+**IVA.9.d — ⭐ EL CANDADO NUEVO, Y ES EL DEL CRITERIO 214: `IVA-12`.** *(Se añade a la tabla de §M10-IVA.5; los once
+anteriores no cambian ni una letra.)*
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **IVA-12** ⭐⭐ *(v1.74, D56 — criterio **214**)* | **que una fila nueva siga naciendo bajo la convención vieja** — dejar vivo cualquier camino que escriba `priceConvention: 'IVA_EXCLUSIVE'`; **o** «simplificar» quitando la columna o poniéndole un `DEFAULT` de cortesía | **El candado de «un solo despliegue», y son una medición POSITIVA y una NEGATIVA.** **(a)** **por HTTP:** un pedido creado tras el despliegue (bóveda **y** `direct_ship`, invitado **y** registrado) tiene `priceConvention == 'IVA_INCLUSIVE'`, **y también el `ShipmentRequest` de fulfillment** que el settle crea con los montos en cero — *la convención es absoluta, no depende de que los importes sean 0*. **(b)** ⭐ **por lo negativo, sobre el CÓDIGO:** `rg "IVA_EXCLUSIVE" backend/src` **no devuelve ningún ESCRITOR**; solo el **lector** (el `switch` de `money.ts`) y fixtures/pruebas. **Rojo en cuanto reaparezca un escritor**, aunque ese día los números cuadren. **(c)** ⛔ **`IVA-3` sigue corriendo y sigue mordiendo**: la fila `IVA_EXCLUSIVE` **sembrada por SQL** se re-renderiza idéntica al centavo, la columna **sigue sin `DEFAULT`** y sigue siendo `NOT NULL`, y el `default:` del lector **sigue lanzando**. *`IVA-12` dice «lo nuevo nace bien»; `IVA-3` dice «lo viejo no se reinterpreta». Son dos candados y hacen falta los dos* |
+
+**IVA.9.e — ⛔ Lo que D56 NO autoriza, y se escribe porque *«un solo despliegue»* invita a aflojar.**
+- ⛔ **No autoriza retirar `priceConvention` ni `ivaTransferPct` de las filas.** La decisión **83** las conserva **a
+  propósito** y con su historia: el dueño **corrigió** su primera respuesta (*«deja solo nuestro nuevo modelo»*) tras
+  ver la bifurcación medida. *Reañadir la columna con ventas ya hechas es mucho más caro, porque entonces sí hay
+  filas que nadie puede etiquetar sin adivinar.*
+- ⛔ **No autoriza publicar `ivaTransferPct` en superficie de cliente** (criterio **209**, §M10-IVA.3): viaja **solo**
+  en `/admin/*`. **Y eso incluye los correos** — ver [§R.8](#seccion-R).
+- ⛔ **No autoriza desbloquear `decks-meta-v1` antes de publicar** (criterio **197**).
+
+<a id="M10-IVA9f"></a>
+##### ⭐⭐ §M10-IVA.9.f — **EL INVENTARIO DEL CORTE, Y LA ÚNICA COSTURA POR LA QUE SE PUEDE PARTIR** (v1.75, arquitecto; **CENSO, no norma**)
+
+> ⚠️⚠️ **QUÉ CLASE DE AFIRMACIÓN ES ESTA SUBSECCIÓN, porque importa (§0-B.2).** Todo lo demás de §M10-IVA es **clase
+> (A) — decisión**. Esta subsección es **clase (B) — descripción del estado del código**, y por tanto **CADUCA**.
+> Lleva **fecha de medición** en cada fila y **el artefacto que la sostiene**. ⛔ **Nadie enruta trabajo desde aquí sin
+> re-medir.** Se escribe dentro del contrato, en contra de la doctrina de §0-Q punto 0, **por una sola razón y con
+> fecha de retiro**: el dueño tomó la decisión **82** (*«un solo despliegue»*) **creyendo que lo que faltaba era
+> encender algo**, y tiene derecho a ver el tamaño real **antes** de que se publique, no después. **Se retira de este
+> documento en cuanto el corte se publique o se difiera.**
+
+**IVA.9.f.1 — El inventario, pieza por pieza.** *(Medido por el arquitecto el **2026-09-14** sobre la rama
+`claude/tcg-hunt-orchestration-2`, con un agente de backend escribiendo `backend/` en el mismo instante ⇒ **el árbol
+se movía mientras medía**; las filas que dicen ✅ son de artefactos estables, las que dicen ❌ se midieron **por
+ausencia total del símbolo**, que es la clase de medición que un commit concurrente no puede volver verde por
+accidente.)*
+
+| # | Pieza (§M10-IVA.9.c) | Estado | La medición que lo sostiene |
+|---|---|---|---|
+| 1 | **`M-50` — el DDL entero** (enum `PriceConvention`, las 4 columnas de convención, `shippingCostIvaCents`, el seed del dial en 100) | ✅ **CONSTRUIDO** | `prisma/migrations/20260909120000_m50_price_convention/migration.sql` — los 6 pasos, con el backfill explícito y sin `DEFAULT` en `priceConvention`; `schema.prisma:170,1172,1177,1267,1274,1275` |
+| 2 | **`netRevenueCents`** — el `switch` con su `default` que **lanza** | ✅ **CONSTRUIDO** | `common/money.ts:495-514` |
+| 3 | **`netRevenueCents` CABLEADO al P&L** | ✅ **CONSTRUIDO** | `admin.service.ts:1523` (`incomeCents += netRevenueCents(o)`) y `:1550` |
+| 4 | **Los escritores estampan la convención** (5 escritores) | ✅ **CONSTRUIDO** — estampan `IVA_EXCLUSIVE`, que es la conducta de **hoy** | `orders` ×3, `payments` ×1, `shipments` ×1 (censo de `iva-12-price-convention-writers.spec.ts`) |
+| 5 | **`GET`/`PUT /admin/settings/iva-transfer`** con acuse, candado y auditoría transaccional | ✅ **CONSTRUIDO** | `settings.controller.ts:91` y el `PUT`; `settings/iva-transfer.ts`; `settings.iva-transfer-gate.spec.ts` |
+| 6 | **`GET …/iva-transfer/preview`** | ❌ **NO CONSTRUIDO** | `rg 'iva-transfer/preview' backend/src` ⇒ solo el **comentario** que explica por qué no se construyó (`settings.controller.ts:83-86`). **Causa: `N-IVA9-1`, resuelto en v1.75** |
+| 7 | ⭐⭐ **LA DERIVACIÓN DE `P` CABLEADA** (§M10-IVA.3/.4) | ❌ **NO CONSTRUIDA** | `rg 'displayPriceCents' backend/src` ⇒ **10 aciertos, TODOS dentro de `modules/settings/iva-transfer.ts`**. **Cero usos fuera de ese módulo.** Es aritmética pura para el acuse; **nada del checkout la llama** |
+| 8 | ⭐⭐ **`BreakdownDTO` inclusivo** (`priceConvention`, `ivaIncluded`, y la identidad (b)) | ❌ **NO CONSTRUIDO, y el código vigente es el que `IVA-2` declara ROJO** | `money.ts:358-365`: el DTO tiene **6 campos**, sin `priceConvention` ni `ivaIncluded`. `computeCartBreakdown` (`:389-390`) sigue haciendo `iva = round(subtotal × r)` y **`base = subtotal + iva`** — literalmente `grossUpBase = subtotal + iva`, que es la mutación de **`IVA-2`**. Igual en `computeShipmentBreakdown` y `computeDirectShipBreakdown` |
+| 9 | **Los tres campos de §M10-IVA.3 en los DTOs de cliente** (y el retiro de `salePriceCents`) | ❌ **NO CONSTRUIDO** | `rg 'ivaIncluded' backend/src` ⇒ **0** |
+| 10 | ⭐ **La asignación del IVA del envío** (§M10-IVA.4/`IVA-9`) | ❌ **NO CONSTRUIDA — y lo construido HOY la CONTRADICE** | `admin.service.ts:460-473` (`netShippingRevenueOfOrder`) reparte con **`round(E/(1+r))`**, que es **exactamente** la mutación que `IVA-9` declara ROJA (*«repartir el IVA del envío por su cuenta … en vez de por el residual»*). **Hoy es inalcanzable** (ninguna fila es `IVA_INCLUSIVE`) y el propio código lo dice; **deja de serlo el mismo segundo que se encienda la convención**. ⇒ **`ARCHITECTURE §9 · D-IVA-11`** |
+| 11 | **§M10-IVA.8 — el P&L del costo de envío NETO + `shippingCostMissingCount` + la CAPTURA de `shippingCostIvaCents`** | ❌ **NO CONSTRUIDO** | `admin.service.ts:1555` suma **`s.shippingCostCents`** en bruto; `rg 'shippingCostMissingCount' backend/src` ⇒ **0**; y la captura **no acepta la columna**: `shipments/dto/shipments.dto.ts:30` declara solo `shippingCostCents` |
+| 12 | **§M10-IVA.7 — la tarjeta bruto/neto del tablero** | ❌ **NO CONSTRUIDA** | `admin.service.ts:1959` sigue emitiendo `salesPeriod: { count, amountCents }`; `rg 'grossAmountCents' backend/src` ⇒ **0** |
+| 13 | ⭐⭐ **ESCRIBIR `IVA_INCLUSIVE`** (criterio **214**) | ❌ **NO HECHO, Y A PROPÓSITO** | El censo de `IVA-12` deja `ESCRITORES_PENDIENTES` **no vacío** y actúa de **trinquete**: no deja crecer el censo y obliga a pasar por ese fichero. *Backend no cerró el criterio 214 porque cerrarlo hoy produciría un P&L falso — ver f.2* |
+| 14 | **Frontend — `displayPriceCents` en las 13 superficies** | ❌ **NO CONSTRUIDO** | `rg 'displayPriceCents\|grossAmountCents\|ivaIncluded\|priceConvention' frontend/src` ⇒ **12 aciertos en 4 ficheros**, y los 4 son del **dial** (`contract.ts`, `fixtures.ts`, `IvaTransferSection.tsx(.test)`). **Ninguna superficie de venta migrada** |
+| 15 | **Frontend — la pantalla del dial** (criterio **188**) | ⚠️ **CONSTRUIDA, Y HOY APUNTA A UN ENDPOINT QUE NO EXISTE** | `IvaTransferSection.tsx:109-110` y `api.ts:4937` llaman a `/admin/settings/iva-transfer/preview`. **Funciona bajo mocks y da `404` contra el backend real.** ⛔ **El frontend NO tiene rework**: construyó lo que el contrato dice. ⇒ **`ARCHITECTURE §9 · D-IVA-12`** |
+| 16 | **Frontend — la tarjeta bruto/neto** | ❌ **NO CONSTRUIDA** | se sigue del punto 12: el campo no existe en el backend |
+| 17 | **Los candados `IVA-1`, `IVA-2`, `IVA-4`, `IVA-6`, `IVA-9`, `IVA-10`, `IVA-11`** | ❌ **NO ESCRITOS** | los ficheros de `backend/test` que citan ids `IVA-*` cubren **`IVA-3`, `IVA-5`, `IVA-7`, `IVA-8`, `IVA-12`** y los helpers de dinero. **Los siete que faltan son justamente los que exigen que exista la derivación**: no se pueden escribir antes que la pieza 7 |
+
+**⇒ El resumen que el dueño necesita, en una frase:** de las **17 piezas del corte, 5 están construidas** — y las
+cinco son **el andamiaje que no mueve ni un centavo** (la columna, el helper, el cableado del P&L, el sello de la
+convención vieja y la puerta del dial). **Las 12 que faltan son el cambio de precio en sí.**
+
+**IVA.9.f.2 — ⛔⛔ POR QUÉ «ENCENDERLO» NO ES ENCENDER NADA: el flip SOLO, sin la pieza 7, NO REVIENTA — MIENTE.**
+
+**La cadena, medida y sin un solo paso inferido:**
+
+```
+hoy:   subtotalCents = Σ L            (base LIMPIA: la pieza 7 no existe ⇒ nada le mete el IVA dentro)
+flip:  priceConvention = 'IVA_INCLUSIVE'
+       ⇒ netRevenueCents(fila) = subtotal − iva            (money.ts:505-506)
+       ⇒ incomeCents += eso                                 (admin.service.ts:1523)
+       ⇒ el P&L resta un IVA que NUNCA estuvo dentro
+```
+
+Con el fixture del criterio **191** (`L = 10000`): el P&L reportaría **8400** donde el criterio exige **10000**.
+**`IVA-1` en rojo, `IVA-5` en rojo, y el reporte no revienta: se cree.** *Es literalmente el defecto que §M10-IVA
+existe para evitar, cometido por el atajo de saltarse §M10-IVA.* **Backend hizo lo correcto al no cerrar el criterio
+214**, y su trinquete `IVA-12` es lo que impide que alguien lo cierre «cambiando cinco literales».
+
+**IVA.9.f.3 — ⭐⭐ LA COSTURA, Y ES UNA SOLA. La respuesta corta a *«¿se puede partir?»* es: SÍ, pero no por donde se
+intentó.**
+
+**(A) El BLOQUE INDIVISIBLE — o entran las siete piezas, o no entra ninguna.** Piezas **7, 8, 9, 10, 11, 13** y sus
+candados (**17**), más el consumo de frontend (**14**). **No es una lista de tareas: es un solo hecho dicho de siete
+maneras**, y cada intento de partirlo produce un número falso:
+
+| Si se publica sin… | El número que miente |
+|---|---|
+| la **derivación** (7) pero con el **flip** (13) | el P&L: `8400` donde el criterio 191 exige `10000` |
+| la **derivación** (7) pero con el **breakdown inclusivo** (8) | la vitrina dice `100` y el checkout cobra sobre `116` |
+| el **breakdown inclusivo** (8) pero con la derivación (7) | `IVA-2`: `grossUpBase = subtotal + iva` sobre un subtotal que **ya** lleva IVA ⇒ **+13.6 % a todos los clientes** |
+| los **tres campos de cliente** (9) | el front pinta `salePriceCents` (base limpia) mientras se cobra `P` |
+| la **asignación del envío** (10) | `IVA-9`: la mercancía pierde el IVA del envío (**−2 800** por pedido con envío) |
+| el **P&L del costo de envío** (11) | `IVA-11(a)`: ingreso **neto** contra costo **bruto** ⇒ **pérdida fantasma de 2 800 en cada envío** |
+
+**(B) Lo que SÍ se puede diferir sin que ningún número mienta — y es poco, pero es real.** La pieza **12** (la tarjeta
+**bruto/neto** del tablero, §M10-IVA.7) y su candado `IVA-10`, con la pieza **16**. **Razón:** `amountCents` es
+`Σ Order.totalCents` = *«lo que el cliente pagó»*, **y eso es cierto bajo las dos convenciones**. Diferirla no
+produce una cifra falsa: produce **una cifra menos**. ⚠️ **Pero es alcance APROBADO (D55(b), pregunta 70)**, así que
+diferirla **es decisión del dueño, no mía**; yo solo mido que **se puede**.
+
+**(C) ⛔ Lo que NO se puede publicar solo, y es justamente lo que se intentó publicar solo: LA PUERTA DEL DIAL
+(pieza 5 + 6 + 15).** La puerta **por encima** del bloque es correcta y es el criterio **213**. La puerta **sin** el
+bloque es **peor que no tenerla**: la pantalla le dice al dueño *«cediendo esto, pierdes MX$6.90 por unidad»*, él
+acepta, el servidor valida el acuse contra su propia aritmética… **y no se mueve un centavo, porque nadie lee el
+dial**. ⇒ **el acuse del criterio 188 pasa a certificar una consecuencia que no ocurre.** *Un acuse que promete un
+efecto inexistente es peor que la ausencia de acuse: enseña a firmar.*
+⇒ **REGLA, y es la que contesta la pregunta del encargo: si el bloque (A) se difiere, la puerta se difiere con él.**
+La puerta **exige** el bloque; el bloque **no** exige la puerta.
+
+**(D) ⇒ La respuesta entera, dicha como el encargo pidió que se dijera si era el caso: es «NADA, O TODO», con UNA
+excepción medida.** Las opciones coherentes son exactamente **tres**:
+
+| Opción | Qué entra | ¿Miente algún número? | ¿Cumple las decisiones del dueño? |
+|---|---|---|---|
+| **1 · TODO** | bloque (A) + puerta (C) + tarjeta (B) | **No** | ✅ **82, 83 y 84 completas.** Criterios 213 y 214 cerrados |
+| **2 · TODO MENOS LA TARJETA** | bloque (A) + puerta (C); se difiere **12/16** | **No** | ✅ 82, 83, 84. ⚠️ **difiere D55(b)**, que ya está aprobado ⇒ **lo decide él** |
+| **3 · NADA DEL IVA** | §R sale sola; §M10-IVA entero espera al siguiente corte | **No** | ⛔ **82, 83 y 84 quedan abiertas**, y se dice claro: *no es «un solo despliegue más tarde», es que hoy no se cumple ninguna de las tres* |
+
+⛔ **La opción que NO existe, y es la que estaba en curso:** publicar **5** (la puerta) sin **(A)**. **No es una
+opción intermedia: es la opción 3 con un botón encima que promete lo que no hace.**
+
+**IVA.9.f.4 — ⚠️ LO QUE NO MEDÍ, dicho explícito para que nadie lo lea como cero.**
+
+| # | Afirmación **NO MEDIDA** | Medición que la cierra | Dueño |
+|---|---|---|---|
+| `N-IVA9-4` | **El TAMAÑO en trabajo del bloque (A).** Este censo dice **qué falta**, ⛔ **no cuánto cuesta**. Las 13 superficies de frontend y los siete candados son un volumen que **no he estimado y no me corresponde estimar** | que backend y frontend lo dimensionen sobre este censo | orquestador |
+| `N-IVA9-5` | **Si `M-50` está aplicada en `production`.** El encabezado de la migración afirma que **no** (*«staging y producción NO la tienen: D-1 está SIN PUBLICAR»*), pero eso es **un comentario**, no una consulta. ⚠️ **Y `PROJECT §Q.10.e` argumenta la decisión 83 diciendo que la columna está *«leída en producción»* — las dos frases no pueden ser ciertas a la vez.** ⛔ **No la resuelvo inventando cuál gana.** Es la misma pregunta que **`ARCHITECTURE §9 · N-IVA-1`**, y **decide el plan de rollback entero** (`ARCHITECTURE §4.55.5`) | `prisma migrate status` contra la BD de producción, o `git merge-base --is-ancestor <sha de M-50> production`. ⛔ **Nunca una credencial por conversación** | orquestador / devops |
+| `N-IVA9-6` | **Si alguna de las 5 piezas ✅ se movió mientras yo medía.** Había un agente de backend escribiendo `backend/` durante todo este pase | re-correr el censo sobre un sha fijado, tras el cierre de ese agente | orquestador (O-14) |
+| `N-IVA9-7` | **Que el `/preview` sin cota produzca hoy un `500`.** **No puede medirse: el endpoint no existe.** La cota de §M10-IVA.2 es **norma preventiva**, no descripción | `GET …/preview?samplePriceCents=2000000000` una vez construido | backend |
+
+⛔ **Y las preguntas 85, 86 y 87 del dueño siguen ABIERTAS.** Nada de esta subsección las contesta, las supone ni las
+roza; si una decisión de las de arriba dependiera de ellas, esta subsección lo diría.
 
 #### <a id="M10-ops"></a>Ops — disparo manual de jobs internos (`admin/jobs/*`, `super_admin`, auditado)
 > **Superficie interna de operaciones** (no consumida por clientes): permite al súper-admin **disparar a mano** los
@@ -20262,6 +20836,477 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
                                emailVerified: boolean, authProvider: AuthProvider, createdAt: string },
                         tempPassword?: string, mustChangePassword: boolean }
 ```
+
+---
+
+## <a id="seccion-R"></a>R. CENTRO DE AVISOS — los ONCE correos y la CAMPANA (v1.74, **NORMATIVA**; `PROJECT §R` / **D55**, criterios **198–212**; razón entera en `ARCHITECTURE §4.54`)
+
+<!-- CANON: centro-de-avisos -->
+
+> **Sección NUEVA. ⛔ No renumera ni mueve nada.** Todo lo que v1.74 añade para `PROJECT §R` vive aquí; fuera de aquí
+> solo hay **punteros**.
+> **Qué fija esta sección:** *qué* aviso existe, *de qué* acción del operador cuelga, *a quién* llega, *cómo* se
+> garantiza que sale **una sola vez**, *qué* tiene que llevar y *qué* tiene **prohibido** llevar.
+> **Qué NO fija, y es de otro rol:** el **texto** de cada correo y la **forma** de la campana (icono, contador, cómo
+> se abre, móvil) son de **ux-ui** (`PROJECT §R.6`); el **QUÉ** y el **PORQUÉ** son de `PROJECT §R` y **mandan sobre
+> este documento**.
+
+---
+
+**R.0 — ⚠️ LOS IDS DE ESTA SECCIÓN LOS ASIGNO YO AQUÍ, Y SON TRES ESPACIOS DE NOMBRES DISTINTOS.**
+
+| Prefijo | Qué nombra | Quién lo usa |
+|---|---|---|
+| **`AV-1`…`AV-11`** | **los once correos** del catálogo aprobado (R.3) | todos |
+| **`C-AV-<n>`** | los **candados** de esta sección (R.9) | backend/frontend los escriben, **QA los ejecuta** |
+| **`D-AV-<n>`** | las **desviaciones** medidas del código actual | viven en **`ARCHITECTURE §9`**, ⛔ **no aquí** |
+
+⛔ **Un `AV-<n>` sin fila en R.3 no existe.** Y ⛔ **`D-AVISO-1` no es mío**: así llama `PROJECT §R.2` a la **regla de
+canal de tres cláusulas**, y se cita, no se renombra. *Un identificador compartido entre dos espacios de nombres no
+es un nombre: es una colisión esperando a un incidente* (misma norma que `IVA-<n>`/`IVA-R*` y `FX-24`/`FX-R2`).
+
+> ⚠️⚠️ **DESAMBIGUACIÓN OBLIGATORIA, Y SE ESCRIBE ANTES DE QUE ALGUIEN SE EQUIVOQUE: ESTA SECCIÓN ES `§R`, Y
+> [`§M5-R`](#M5-R) ES OTRA COSA.** `§M5-R` es el **invariante R del buylist** (*«no se aprueba lo que no ha
+> llegado»*) y **sus subapartados también se llaman `R.1`…`R.7`**. **Regla de cita, sin excepción:** este centro de
+> avisos se cita **siempre** como **`§R.<n>`** o `API_CONTRACT §R`; el invariante del buylist, **siempre** con su
+> prefijo, **`§M5-R.<n>`** — que es como ya se cita hoy en las cuatro referencias que tiene. ⛔ **Un `R.3` a secas
+> dentro del bloque de §M5 significa `§M5-R.3`**, y ⛔ **nunca al revés**.
+
+---
+
+**R.1 — ⭐⭐ INVENTARIO MEDIDO: LO QUE YA EXISTE Y ⛔ NO SE REHACE (2026-09-14, sobre `a13b4e6`).**
+
+*`PROJECT §R.8` existe justo para esto, y este proyecto midió que **el 17 % del gasto se fue en rehacer trabajo ya
+hecho**. Lo que sigue se mide antes de presupuestar, no después.*
+
+| Pieza | Estado medido | Fuente |
+|---|---|---|
+| El **mecanismo de correo** | ✅ **existe entero** — puerto, adaptadores y el patrón «cada módulo inyecta `MAIL_PORT` `@Optional()` y renderiza su plantilla local» | `mail/mail.port.ts`, `mail.module.ts`, `resend-mail.adapter.ts`, `noop-mail.adapter.ts` |
+| **Plantillas vivas** | ✅ **tres juegos**: `mail.templates.ts` (auth), `orders/mail/guest-order.templates.ts` (invitado), `buylist/buylist-mail.templates.ts` (**6 del buylist**) | idem |
+| Los **tres disparadores** que el dueño pidió asegurar | ✅ **los tres existen** | `shipments/admin-shipments.controller.ts` `@Patch(':id/status')` y `@Post(':id/tracking')`; `buylist/admin-buylist.controller.ts` `@Post(':id/receive')` |
+| **Plazos con fecha Y HORA** en `America/Mexico_City` (criterio **154**) | ✅ **resuelto desde antes de esta ronda** — `formatDateTime` con `dateStyle:'full'`/`timeStyle:'short'` y el comentario literal *«criterio 154: nunca "en 2 días"»* | `buylist/buylist-mail.templates.ts` (`deadlineRow`, `offerTermsCopy`) |
+| ⭐⭐ **El criterio 212 — «lista corta + campo libre»** | ✅ **YA ESTÁ CONSTRUIDO, Y CON LOS SEIS MOTIVOS DE `PROJECT §R.9`** — ver R.1.a | `frontend/src/components/domain/kyc/KycRejectDialog.tsx` |
+| El **motivo del rechazo** y su **lazo de resubida** | ✅ obligatorio (`422 KYC_REJECTION_REASON_REQUIRED`), llega al cliente, y resubir devuelve a `pending` limpiando el motivo | `admin.service.ts` `updateUserKyc`; `users.service.ts` (rama «trae keys de INE») |
+| **Aviso en vivo del pago fallido** | ✅ existe y está tratado como **información**, no como error (`role="status"`) | `CheckoutRetryNotice.tsx` |
+| ⛔ **Cualquier cosa para la CAMPANA** | ⛔ **cero**: `rg '^model Notification' backend/prisma/schema.prisma` ⇒ **0**; `rg -i 'notification\|bell' frontend/src` ⇒ **0 coincidencias de dominio** | medido |
+| ⛔ **Correo de KYC** | ⛔ **cero** | `PROJECT §R.3` |
+| ⛔ **Correo en el módulo de envíos** | ⛔ **cero**: el módulo **no importa** `MAIL_PORT` | `rg MAIL_PORT backend/src` ⇒ sin `shipments/` |
+| ⛔ **Confirmación al cliente REGISTRADO** | ⛔ **cero**: `if (!order.guestEmail) return null` | `orders/guest-order-mail.service.ts` |
+
+**R.1.a — ⭐⭐ EL HALLAZGO QUE ENCOGE EL CORTE: EL CRITERIO 212 NO ES TRABAJO NUEVO, Y LA «PROPUESTA» DE LA PREGUNTA 87
+ES LO QUE YA ESTÁ EN PANTALLA.**
+
+`KycRejectDialog.tsx` ya ofrece **seis motivos de un clic** —`unreadable · missingSide · notAnId · expired ·
+nameMismatch · other`— que **empatan uno a uno con los seis de `PROJECT §R.9`**, ya bilingües
+(`frontend/messages/{es,en}.json` › `admin.m6.kycReview.rejectPreset`), ya con **«Otro» vaciando el campo y exigiendo
+texto**, ya con el botón **deshabilitado** si el motivo no cumple 3–500, y ya con los dos avisos de §34.6b
+(*«el cliente lee este texto tal cual»* · *«no escribas datos de otra persona»*).
+
+**⇒ Consecuencias, y las tres son decisiones de contrato, no comentarios:**
+1. ⛔ **NO se añade `rejectionReasonCode` ni ninguna columna de catálogo de motivos.** El preset **escribe una frase
+   completa y editable** en el `rejectionReason` que ya existe, y **esa frase es la que lee el cliente**. Una columna
+   de código sería **una segunda fuente para el mismo hecho** a cambio de cero conducta nueva.
+2. ⛔ **`PATCH /admin/users/:id/kyc` NO cambia de forma** (§M6-K.4 sigue exacto). **Cero DDL por el criterio 212.**
+3. ✅ **El criterio 201 («ningún motivo menciona topes ni umbrales») ya se cumple en los seis presets** — medido
+   sobre las dos tablas de mensajes. Lo que queda es **mantenerlo**, y eso es el candado **`C-AV-9`**.
+4. ⚠️ **Lo único que le falta al 212 es el correo (`AV-1`)** — y el copy del botón ya lo promete
+   (*«Rechazar y avisar»*). **Ese desfase es de ux-ui/frontend**, y se cierra solo cuando `AV-1` exista.
+
+**R.1.b — ⚠️ RESIDUAL CONOCIDO, DECLARADO, Y ⛔ NO RESUELTO EN ESTE CORTE.** El motivo viaja **verbatim en el idioma
+en que lo escribió el operador**, así que un cliente con `locale='en'` puede recibir el motivo en español dentro de un
+correo en inglés. **Es una conducta que YA existe** (el portal ya lo muestra así desde v1.69) y **nadie pidió
+cambiarla**; resolverla exige el catálogo de códigos que el punto 1 acaba de rechazar. **Se registra aquí para que no
+se lea como un descubrimiento de QA**, y se enruta como **deuda no bloqueante** (`TECH_DEBT.md`, dueño backend).
+
+---
+
+**R.2 — ⭐⭐ LA CAMPANA: `GET /api/v1/me/pendings`. SE DERIVA, ⛔ NO SE PERSISTE.**
+
+**R.2.0 — La decisión, con su porqué, porque `PROJECT §R.6` la delegó explícitamente al arquitecto.**
+
+> ⭐ **No hay tabla de avisos. No hay bandeja. No hay «marcar como leído». El pendiente se DERIVA del estado que ya
+> existe, cada vez que se pregunta.**
+
+**Cinco razones, y la primera es doctrina de este proyecto:**
+1. ⭐⭐ **Dos fuentes para un mismo hecho.** Una fila que dijera *«te falta la identidad»* sería una **segunda
+   fuente** de un hecho cuya primera fuente es `KycProfile.kycStatus`. El día que discrepen, **la campana miente** —
+   y `PROJECT §R.1` nombró ese defecto exacto: *«una lista que le repite para siempre algo que ya resolvió»*.
+2. ⭐ **El criterio 202(c) sale GRATIS y por construcción.** *«Resuelto el pendiente, desaparece»*: derivando, el
+   pendiente se apaga **el mismo instante** en que deja de ser verdad, porque **no hay nada que apagar**. Con tabla,
+   202(c) es código que alguien tiene que acordarse de escribir, y el día que se olvide **falla en silencio**.
+3. **El lazo de extinción YA EXISTE y está medido:** resubir el INE devuelve el estado a `pending` y limpia
+   `rejectionReason`/`reviewedAt`/`reviewedBy` (`users.service.ts`, doctrina literal: *«el motivo de un rechazo
+   anterior no puede sobrevivir a la corrección que lo responde»*).
+4. **La tabla no tendría su segundo trabajo.** Lo único que una tabla compra de verdad es **historial**, y el
+   historial está **explícitamente en fase 2** (pregunta **68**). Se pagaría el esquema, la paginación, el borrado y
+   la privacidad **hoy** por una capacidad que **no entra hoy**.
+5. **Coste:** una consulta por `KycProfile.userId`, que **ya es `@unique`**. ⛔ Sin índice nuevo, sin DDL.
+
+⚠️ **Y la mitad que evita que «derivar» se convierta en el riesgo nº 1 (criterio 204): se deriva de una LISTA BLANCA
+CERRADA, ⛔ JAMÁS de «cambió un estado».** Ver R.2.3.
+
+**R.2.1 — El endpoint.**
+
+```
+GET /api/v1/me/pendings
+Roles: customer+          (⛔ sin sesión ⇒ 401; NO es @Public)
+Cabeceras de respuesta OBLIGATORIAS: Cache-Control: no-store
+Query: ⛔ NINGUNA.
+```
+
+Res `200`:
+```ts
+MePendingsResponse = {
+  pendings: PendingDTO[]        // ⭐ puede venir VACÍO, y vacío es la respuesta normal
+}
+PendingDTO = {
+  code: PendingCode,            // dominio CERRADO — R.2.3
+  since: string                 // ISO-8601. Desde cuándo es verdad el pendiente
+}
+```
+
+- ⛔ **`GET /me/pendings` NO DECLARA NINGÚN PARÁMETRO DE QUERY, Y ES DELIBERADO.** ⇒ **esta rev no toca
+  [§0-Q](#enum-query-filter) ni su registro de ejes del punto 4, y `C-EQ-1` sigue verde sin cambios.** *No hay eje que
+  clasificar porque no hay eje.* ⚠️ **Añadirle un `?code=` (o cualquier otro) más adelante es cambio de contrato:
+  pasa por el arquitecto (regla 9) y **obliga** a darle clase **E/R/L** en §0-Q — un eje nuevo sin clase pone
+  `C-EQ-1` en rojo, y ésa es exactamente la mitad de descubrimiento que ese candado tiene.
+- ⛔ **Sin paginación y sin `total`.** El dominio tiene **un** código hoy y una **lista blanca cerrada** siempre: un
+  listado que no puede crecer sin que el arquitecto lo escriba **no se pagina**.
+- ⛔ **`Cache-Control: no-store`.** Es estado por usuario, y un `304` de un proxy pintaría la campana de otro.
+- ⭐ **`{ "pendings": [] }` es la respuesta correcta y frecuente, ⛔ no un `204` ni un `404`.** El front **oculta la
+  campana** con la lista vacía (criterio **202(c)**: *falla si queda un indicador vacío*).
+- ⛔ **Este endpoint no escribe nada.** No marca leído, no sella, no audita. *Un `GET` que muta es la vía por la que
+  un prefetch del navegador despacha un aviso que el cliente nunca vio.*
+
+**R.2.2 — Para un INVITADO, la campana NO APLICA, y se declara (criterio 203).**
+El invitado **no tiene sesión** ⇒ `GET /me/pendings` ⇒ **`401`**, y ⛔ **no se inventa una variante tokenizada**.
+**No es un hueco:** el único pendiente del corte es **la identidad**, y la identidad **exige cuenta** (`KycProfile`
+cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no se le muestre.
+*Ésa es la forma exacta que el criterio 203 admite: «o va por correo, o está **declarado como no aplicable**».*
+
+**R.2.3 — ⭐⭐ `PendingCode`: LISTA BLANCA CERRADA. ÉSTE ES EL CANDADO DEL CRITERIO 204.**
+
+**Dominio en el primer corte — UN código, y su línea canónica es ÉSTA:**
+
+| `code` | Significa, para el cliente | Predicado (**derivado**, server-side) | `since` |
+|---|---|---|---|
+| **`identity_action_required`** | *«tienes que (volver a) subir tu identificación»* | **(a)** `KycProfile.kycStatus === 'rejected'` **· O ·** **(b)** existe ≥1 `SellRequest` **no terminal** y `closedAt IS NULL` del usuario con `ineRequired = true` **y** `ineProvided = false` | `(a)` → `KycProfile.reviewedAt`; `(b)` → `SellRequest.createdAt` de la más antigua. Si aplican las dos, **la más antigua** |
+
+- **Por qué el código nombra la OBLIGACIÓN y no el estado interno** (`identity_action_required`, ⛔ no
+  `kyc_rejected`): es lo único que le toca **a él**, y sobrevive a que mañana la cláusula (b) tenga otro origen. *Un
+  código que nombra nuestro estado obliga a ux-ui a traducirlo; uno que nombra su tarea, no.*
+- ⚠️ **La cláusula (b) es hoy, casi con certeza, VACÍA — y se declara en vez de omitirse.** Medido: el intake lanza
+  **`422 INE_REQUIRED`** cuando `ineRequired && !ineProvided` (`buylist.service.ts`), así que
+  `POST /buylist/requests` **no puede crear** una fila que la satisfaga. **Se conserva igualmente** porque el
+  predicado debe nombrar **la obligación**, no la alcanzabilidad de hoy: el día que ese intake cambie, la campana ya
+  está bien. **⛔ QA no debe perseguirla:** `C-AV-7` la prueba **sembrando la fila por SQL**.
+- ⛔⛔ **`kycStatus === 'none'` NO ES UN PENDIENTE, y es una decisión, no un olvido.** Un comprador que nunca vende
+  **no tiene ninguna obligación de identidad**; encenderle la campana sería **fabricarle una tarea** — exactamente el
+  ruido que `PROJECT §R.2` existe para evitar, y lo contrario de *«disponible, no impuesto»*. **Si el dueño quisiera
+  pedir la identidad a todos, eso es una regla de negocio nueva (quién está obligado) y se le PREGUNTA** (`§R.10`).
+- ⛔ **`kycStatus === 'pending'` NO ES UN PENDIENTE**: *«el cliente no tiene nada que hacer y se le dice»*
+  (§M6-K.7). Un pendiente cuya acción es esperar **no es suyo, es nuestro**.
+- ⛔ **`kycStatus === 'verified'` no produce nada** — ni campana ni correo (pregunta **71**: *«no se manda nada»*).
+
+**⛔⛔ LAS CUATRO PROHIBICIONES DEL DOMINIO. Ésta es la mitad que hace de la campana un mecanismo seguro:**
+1. ⛔ **PROHIBIDO derivar un pendiente de «cambió un estado».** El dominio es esta tabla y **solo** esta tabla. Un
+   código nuevo **es cambio de contrato** y lo escribe el arquitecto (regla 9).
+2. ⛔⛔ **PROHIBIDO que `SellOfferState` toque este endpoint, en cualquier dirección.** `pending_authorization` es
+   **admin-only** y *«EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE […] le filtraría el orden de magnitud de nuestro
+   tope»* (`schema.prisma`). Con una oferta en `pending_authorization`, `GET /me/pendings` responde **exactamente lo
+   mismo** que sin ella. **Candado `C-AV-8`, y se verifica en las DOS superficies** (bandeja **y** portal), porque el
+   criterio **204** lo exige así.
+3. ⛔ **PROHIBIDO que la campana lleve EVENTOS** (pedido enviado, pago recibido, guía capturada…). Eso es la **clase
+   B** de `PROJECT §R.1` y está en **fase 2** (pregunta 68). **Construirla es fallar el criterio 202(d) por exceso.**
+4. ⛔ **PROHIBIDO que el `PendingDTO` lleve dinero, cifras, topes o umbrales.** Dos campos, y ninguno es un número de
+   negocio. *Un pendiente no es un resumen.*
+
+---
+
+**R.3 — ⭐⭐ EL CATÁLOGO NORMATIVO DE LOS ONCE. De qué cuelga cada uno y qué le garantiza salir UNA sola vez.**
+
+*Ninguno estrena disparador: los once cuelgan de acciones que el operador **ya hace** (`PROJECT §R.8`).*
+**`SELLO` = la columna nueva de R.6. `MOTOR` = una guarda que ya existe y está medida ⇒ ⛔ NO estrena columna.**
+
+| # | Correo | Cuelga de (medido) | Destinatario (R.5) | «Una sola vez» lo garantiza |
+|---|---|---|---|---|
+| **AV-1** | **Rechazo de identidad, con motivo** | `AdminService.updateUserKyc`, rama `kycStatus==='rejected'` | `User.email` del `:id` | ⭐ **SELLO** `kycRejectionNoticeSentAt`. **Es el ÚNICO que no tiene guarda de motor**: el `upsert` **no mira el estado actual**, así que N rechazos seguidos serían N correos (`PROJECT §R.4`) |
+| **AV-2** | **Pedido liquidado — SOLO al REGISTRADO** | el settle de `PaymentsService` (las **dos** ramas: bóveda y `direct_ship`), **post-commit** | `Order.user.email` | **MOTOR**: el settle hace early-return con `status === 'settled'` ⇒ un reintento de Stripe no duplica |
+| **AV-3** | **Reembolso** | `onChargeRefunded`, **solo el reembolso TOTAL** (el parcial ⛔ no transiciona y ⛔ no avisa) | `guestEmail ?? user.email` | **MOTOR**: `if (order.status === 'refunded') return` |
+| **AV-4** | **Guía al COMPRADOR** (transportista + número) | ⭐ **`ShipmentsService.setTracking` — ⛔ JAMÁS el cambio de estado.** Ver R.3.a | R.5 (envío) | ⭐ **SELLO** `trackingNoticeSentAt`: `setTracking` **no tiene ninguna guarda** (`D-AV-1`) |
+| **AV-5** | **Salida del envío (`enviado`)** | `ShipmentsService.updateStatus(to='enviado')` | R.5 (envío) | 🔴 **v1.76 — CORREGIDO.** ~~MOTOR: la tabla `TRANSITIONS`~~ **era FALSO** (medido: **13/13 trials duplicaron**, 3–10 correos). **MOTOR sí, pero el que hay que construir: `updateMany` con `status = 'guia'` en el `WHERE` + `count === 1`** ⇒ **R.4.c**. ⛔ Sigue **sin columna nueva**: `shippedAt` es el sello |
+| **AV-6** | **Envío cancelado** | `updateStatus(to='cancelado')` | R.5 (envío) | 🔴 **v1.76 — CORREGIDO.** ~~MOTOR: `TRANSITIONS['cancelado'] = []`~~ **era FALSO** (medido: **4/5 trials duplicaron**). Que `cancelado` sea terminal impide **salir**, ⛔ no impide que **N peticiones entren a la vez** ⇒ **R.4.c**. ⛔ Sin columna nueva |
+| **AV-7** | **Guía al VENDEDOR** (+ **el plazo para enviar**) | `BuylistService.adminGuide` (guarda `updateMany` + `count === 1`) | `SellRequest.user.email` | ⭐ **SELLO** `guideNoticeSentAt`: `adminGuide` es **re-capturable a propósito** («se corrige el número, no se mueve la fecha»). Ver R.4.b |
+| **AV-8** | **Acuse de recibido al VENDEDOR** | `BuylistService.receive` | `SellRequest.user.email` | **MOTOR**: `stepWhere('receive')` + `count === 1` + `sealOnceTx('receivedAt')`; la repetición idempotente **no transiciona** |
+| **AV-9** | **Buylist PAGADA** | `BuylistService.paySpei` | `SellRequest.user.email` | **MOTOR**: corto-circuito idempotente sobre la fila ya `pagada` (medido en `SEC-B1`) |
+| **AV-10** | **Disputa resuelta con RECOMPRA** | `DisputesService.resolve('repurchase')` | `Dispute.user.email` | **MOTOR**: `updateMany` sobre `DISPUTE_RESOLVABLE_STATES` + `count === 1`; ⛔ **no es idempotente a propósito** |
+| **AV-11** | **Disputa RECHAZADA** | `DisputesService.resolve('reject')` | `Dispute.user.email` | **MOTOR**: idéntico a `AV-10` |
+
+⭐ **Lectura que hay que hacer en voz alta, porque cambia el presupuesto: de los once, OCHO no estrenan ni una
+columna.** Su «una sola vez» **ya está construida y medida** — son las guardas `count === 1`, los `sealOnceTx` y los
+early-return que este sistema ya usa para no cobrar dos veces. *El aviso se cuelga del sello del hecho, no de la
+petición HTTP.*
+
+> 🔴⭐⭐ **v1.76 — LA FRASE DE ARRIBA SIGUE SIENDO CIERTA, PERO DOS DE LAS OCHO NO ESTABAN «YA CONSTRUIDAS Y
+> MEDIDAS»: ESTABAN AFIRMADAS.** `AV-5` y `AV-6` decían **MOTOR** citando `TRANSITIONS`, y el pentester lo midió en
+> vivo: **`AV-5` 13/13 trials con duplicado** (de 3 a 10 correos por una transición única, N=10 concurrentes) y
+> **`AV-6` 4/5**. **Una tabla de transiciones consultada sobre una LECTURA no es una guarda: es una opinión sobre
+> el pasado.** ⇒ **`R.4.c`** dice qué se construye, y **sigue siendo CERO DDL** — por lo que `R.6` no cambia ni una
+> línea. *El error no estaba en el presupuesto: estaba en dar por medido lo que sólo estaba escrito.*
+> (Diagnóstico completo, con las tres piezas del mecanismo: `ARCHITECTURE §4.54.4-a`.)
+
+**R.3.a — ⛔⛔ `AV-4` CUELGA DE LA CAPTURA DE LA ETIQUETA, ⛔ NO DEL ESTADO `guia`. Y NO ES ESTILO: SON DOS CAMINOS
+MEDIDOS Y SOLO UNO TRAE EL NÚMERO.**
+
+Medido sobre `shipments.service.ts`:
+- **Camino 1 — `POST /admin/shipments/:id/tracking`** (`setTracking`): escribe `carrier`, `trackingNumber` **y**
+  `status: 'guia'`. ⇒ **los dos datos existen, siempre.**
+- **Camino 2 — `PATCH /admin/shipments/:id/status { to: 'guia' }`**: es **legal desde `picking`** (`TRANSITIONS`) y
+  deja `carrier` y `trackingNumber` en **`null`**. ⇒ **estado `guia` SIN etiqueta.**
+
+⇒ **Si `AV-4` colgara del estado, mandaría un correo de guía sin número** — que es **el fallo que el criterio 198
+describe, servido al revés**. Por eso:
+- ✅ **`AV-4` se dispara en `setTracking`, y en ningún otro sitio.**
+- ✅ **`AV-5` NO exige etiqueta**: si el envío llegó a `enviado` por el camino 2, el correo dice que **salió** y
+  ⛔ **NO inventa un número** (criterio **207**, en su lectura general: *ningún aviso inventa un dato que no tiene*).
+  Si hay `carrier`/`trackingNumber`, los repite **tal cual** están en la fila.
+- ⚠️ Que el camino 2 permita un `guia` sin etiqueta **es una desviación del código**, `D-AV-2`, **dueño backend**, y
+  vive en `ARCHITECTURE §9`. ⛔ **Este contrato no la corrige y `AV-4` no depende de que se corrija.**
+
+---
+
+**R.4 — ⭐⭐ `D-AVISO-2` — LA REGLA DE UNA SOLA VEZ: **SELLAR Y LUEGO ENVIAR** (NORMATIVA, transversal).**
+
+> **Se RECLAMA el derecho a avisar con una escritura condicional, y SOLO si la reclamación gana se manda el correo.**
+> ```
+> UPDATE … SET <sello> = now() WHERE id = :id AND <sello> IS NULL     →  count === 1  ⇒ mandar
+>                                                                     →  count === 0  ⇒ ⛔ NO mandar, y salir
+> ```
+
+- ⛔ **El orden es sellar → enviar, y NO al revés.** **Precedente vivo y medido en este mismo repositorio:**
+  `jobs/buylist-sweep.service.ts` (`sendReminders`) ya hace exactamente esto, con su motivo escrito: *«el sello se
+  escribe con `updateMany` + `count === 1` sobre `… IS NULL`, así que **dos corridas concurrentes tampoco pueden
+  mandarlo dos veces**»*. **§R no inventa el mecanismo: lo hereda** (igual que `PROJECT §R.4` hereda el ciclo).
+- ⚠️ **La consecuencia se dice entera, porque es el precio del mecanismo:** si el envío falla **después** de sellar,
+  **ese correo no vuelve a salir**. **Se acepta a propósito**, y es la misma decisión que el barrido ya tomó: *un
+  segundo recordatorio idéntico destruye la credibilidad del primero*. El correo es **best-effort** (nunca revierte
+  una transición, nunca hace fallar un webhook) y la red de seguridad es **la pantalla**, que siempre tiene el dato.
+- ⛔ **El sello NO se escribe dentro de la transacción de negocio.** Reclamar es una escritura **aparte y posterior
+  al commit**: meterla dentro haría que **un fallo del correo pudiera revertir un pago**. *El aviso cuelga del hecho;
+  el hecho no cuelga del aviso.*
+- ⛔ **Un sello por evento, JAMÁS una marca global.** `PROJECT §R.4` lo dice citando el precedente
+  (`offerAcceptReminderSentAt` **y** `shipReminderSentAt`, dos columnas): *«una marca global» apaga avisos que nadie
+  quiso apagar*.
+
+**R.4.a — Cuándo se REINICIA el ciclo de `AV-1` (criterio 205, sus tres mitades).**
+`kycRejectionNoticeSentAt` se pone a **`null`** en **dos** momentos, y en ningún otro:
+1. ⭐ **El cliente resube el INE** (`PUT /users/me/kyc` con keys de INE). **La columna se suma al bloque que YA
+   limpia `rejectionReason`, `reviewedAt` y `reviewedBy`** — ⛔ no se escribe un segundo sitio. *Es literalmente la
+   doctrina que ese bloque ya lleva escrita: «el motivo de un rechazo anterior no puede sobrevivir a la corrección
+   que lo responde».*
+2. **La decisión pasa a `verified` o a `none`** (se deshizo el rechazo) ⇒ lo que el aviso afirmaba **dejó de ser
+   verdad**. Es una línea más en el objeto `decision` de `updateUserKyc`.
+⛔ **Un segundo rechazo consecutivo NO lo limpia.** Ése es exactamente el criterio **205(a)**: dos rechazos sin
+resubida ⇒ **UN** correo, y el portal muestra **el motivo NUEVO** (que ya funciona: el `upsert` lo sobrescribe y
+`GET /users/me/kyc` lo devuelve).
+
+**R.4.b — Cuándo se REINICIA el ciclo de una GUÍA (`AV-4`, `AV-7`), y por qué NO es una excepción al criterio 210.**
+Los dos disparadores son **re-capturables a propósito** (uno por diseño explícito, otro por ausencia de guarda), y
+**re-capturar suele significar que el número anterior ya no sirve**.
+> **El sello se limpia —en la MISMA escritura que cambia la etiqueta— si y solo si el par
+> `(carrier, trackingNumber)` queda DISTINTO del que tenía la fila.** Idéntico ⇒ **no se limpia** ⇒ **no se
+> re-envía** (una re-captura idempotente no avisa de nada).
+
+- **Por qué es la regla correcta:** *un correo con un número de guía que ya no existe es peor que no haber mandado
+  ninguno*; y *reenviar el mismo número dos veces es el ruido que `D-AVISO-2` existe para matar*.
+- ⚠️ **Y por qué NO rompe el criterio 210** (*«exactamente dos correos y ninguno al entregar»*): ese criterio recorre
+  **un envío completo con UNA captura**. Una **corrección** de etiqueta es **otro escenario**, y produce un tercer
+  correo **a propósito**. **Se escribe aquí para que QA no lo lea como un fallo por exceso** — el conteo del 210 se
+  mide sobre el recorrido que el criterio describe, no sobre uno con una corrección dentro.
+
+**R.4.c — ⭐⭐ v1.76 (`REL-B`) — CUANDO EL HECHO ES UNA **TRANSICIÓN**: LA PRECONDICIÓN BAJA AL `WHERE` Y AVISA EL
+GANADOR. ⛔ CERO COLUMNAS NUEVAS.** *(Aplica a `AV-5` y `AV-6`; el porqué entero, en `ARCHITECTURE §4.54.4-a`.)*
+
+```
+UPDATE "ShipmentRequest" SET status = :to, <sello temporal de :to> = now()
+ WHERE id = :id AND status = :from             →  count === 1  ⇒ la transición es MÍA   ⇒ SE MANDA el aviso
+                                               →  count === 0  ⇒ no transicioné          ⇒ ⛔ NO se manda
+```
+
+**Las cuatro cláusulas, y ninguna es opcional:**
+
+1. ⭐ **La validación contra `TRANSITIONS` SE QUEDA, pero deja de ser la guarda.** Sigue dando el `409` legible y su
+   `message`; **el cerrojo es el `updateMany`**. Bajo `READ COMMITTED`, Postgres re-evalúa el `WHERE` sobre la
+   versión ya actualizada de la fila (`EvalPlanQual`) ⇒ **exactamente UNA** de N peticiones concurrentes devuelve
+   `count === 1`. ⛔ **No se estrena mecanismo:** es el mismo que `setTracking` ya usa (**R.4.b**) y el mismo que
+   `jobs/buylist-sweep.service.ts` usa desde v1.18.
+2. ⭐ **El derecho a avisar es del ganador del CAS y de nadie más.** El aviso se dispara **sólo** en la rama
+   `count === 1`, **post-commit** y **best-effort** (R.4 sin cambios). Los perdedores **no avisan**, y no es una
+   omisión: **no ocurrió ningún hecho suyo**.
+3. ⛔⛔ **NO se crean `shippedNoticeSentAt` ni `cancelledNoticeSentAt`. `R.6` sigue diciendo TRES y ninguna más.**
+   **`ShipmentRequest.shippedAt` YA ES el sello de `AV-5`**: la misma escritura atómica que gana la transición lo
+   pone, pasa de `NULL` a fecha **exactamente una vez** y nada lo devuelve a `NULL`. Una columna aparte sería **una
+   segunda fila afirmando el mismo hecho con la misma vida** — y el día que discrepen **una miente y no se sabe
+   cuál**. Para `AV-6` no hace falta ninguna: `cancelado` es **terminal**, así que con la precondición en el
+   `WHERE` se entra **una sola vez en la vida del envío**.
+4. ⚠️ **El PERDEDOR no recibe `409` si el envío quedó donde él pedía.** Tras perder el CAS se **relee** la fila:
+   - `status === to` ⇒ **`200` con la fila actual, ⛔ SIN correo.** *Dos operadores que pulsan «Enviar» a la vez
+     querían lo mismo, y lo consiguieron.* Es el **mismo early-return por estado destino** que R.3 ya acredita para
+     `AV-2`/`AV-3`.
+   - cualquier otro estado ⇒ **`409 CONFLICT`** (ver §M4).
+
+⚠️⚠️ **Lo que esta regla NO cierra sola, y hay que decirlo o se lee más grande de lo que es.** El CAS garantiza
+**un aviso por TRANSICIÓN**. «Un aviso por **CICLO**» (criterio 205) sólo se sigue de ahí **si el ciclo no se puede
+reabrir**, y hoy hay una vía: **`D-AV-1`/`REL-C`** — las dos escrituras de `setTracking` **tampoco** llevan el
+estado en su precondición y pueden **devolver un `enviado` a `guia`**. Si eso ocurre, el envío puede ganar **otra**
+transición legítima a `enviado` ⇒ **segundo `AV-5` sin que nada parezca roto**. ⇒ **`D-AV-1` deja de ser cosmética
+y se cierra EN EL MISMO PASE**, con la misma técnica.
+
+---
+
+**R.5 — ⭐ RESOLUCIÓN DEL DESTINATARIO (NORMATIVA). *Un correo mandado al inbox equivocado no es un aviso: es una fuga.***
+
+**Envíos (`AV-4`, `AV-5`, `AV-6`) — en este orden exacto:**
+```
+1.  shipment.userId != null        →  User.email                      // retiro de BÓVEDA
+2.  shipment.orderId != null       →  order.guestEmail ?? order.user.email   // fulfillment de un pedido
+3.  ninguno de los dos             →  ⛔ NO SE MANDA NADA + log.warn   // estado imposible; no se adivina
+```
+- ⭐ **`guestEmail` GANA cuando existe, incluso si el pedido fue RECLAMADO** (`claimedAt != null`). **Precedente
+  idéntico y deliberado:** el reenvío del enlace de seguimiento ya va *«SIEMPRE a `Order.guestEmail`, JAMÁS al correo
+  que venga en el request»*. Es la dirección con la que compró y a la que ya le llegó la confirmación.
+- ⛔ **Nunca se toma la dirección del `addressSnapshot`, ni del body, ni de una sesión.** Se resuelve **por id**.
+
+**Pedidos (`AV-2`, `AV-3`):**
+- **`AV-2` se dispara SI Y SOLO SI `order.guestEmail == null` y `order.userId != null`.** Es la **negación exacta**
+  del `if (!order.guestEmail) return null` que ya existe ⇒ **ningún pedido recibe dos confirmaciones**. ⛔ Esa mitad
+  es la que sostiene el criterio **206**, que *falla por exceso*.
+- **`AV-3` va a `guestEmail ?? user.email`** (el reembolso le toca a los dos).
+
+**Buylist (`AV-7`, `AV-8`, `AV-9`) y Disputas (`AV-10`, `AV-11`):** `SellRequest.userId` y `Dispute.userId` son
+**`NOT NULL`** ⇒ siempre `user.email`. **No hay buylist ni disputa de invitado**, y por eso no hay rama.
+
+**R.5.a — ⛔ LAS DOS NEGATIVAS DEL DESTINATARIO, QUE VALEN TANTO COMO LAS REGLAS.**
+1. ⛔ **No se escribe a un `User` con `anonymizedAt != null`.** Una cuenta anonimizada **ya no es de nadie**;
+   escribirle es mandar datos de una persona a una dirección que el borrado debía cerrar.
+2. ⛔ **No se escribe a un destinatario resuelto a `null`, ni se sustituye por otro «parecido».** Se **loggea** y se
+   sale — exactamente como ya hace el resto del sistema (*«mail skipped … no recipient email»*).
+
+**R.5.b — El CANAL por destinatario (criterio 203, `PROJECT §R.2`).** Para un **invitado**, todo aviso que le
+corresponda **va por correo o no va**. Los avisos `▫️` de `PROJECT §R.3` que para un registrado no mandan correo, se
+declaran así para el invitado:
+
+| Aviso `▫️` | Para el INVITADO |
+|---|---|
+| **Pago fallido** | ✅ **Mismo canal, y aplica**: lo ve en vivo en la pantalla del checkout (`CheckoutRetryNotice`), que es pública |
+| **Entregado** | ✅ **Aplica**: tiene la caja en la mano (cláusula (c)) |
+| **Buylist «aprobada»** | ⛔ **NO APLICA**: el buylist es `customer`; un invitado no puede vender |
+| **Disputa abierta / en revisión** | ⛔ **NO APLICA**: `POST /disputes` es `customer`; un invitado no puede abrirla |
+| **Bóveda** («tu carta ya está en tu bóveda») | ⛔ **NO APLICA**: la bóveda exige cuenta |
+| **La CAMPANA** | ⛔ **NO APLICA** — R.2.2 |
+
+---
+
+**R.6 — 🗄️ DDL: LAS TRES COLUMNAS (migración **M-57**). ⛔ Y NINGUNA MÁS.**
+
+```prisma
+// KycProfile   — el ciclo de AV-1 (PROJECT §R.4, criterio 205)
+kycRejectionNoticeSentAt  DateTime?
+// ShipmentRequest — el ciclo de AV-4 (setTracking no tiene guarda: D-AV-1)
+trackingNoticeSentAt      DateTime?
+// SellRequest  — el ciclo de AV-7 (adminGuide es re-capturable a propósito)
+guideNoticeSentAt         DateTime?
+```
+
+- **Las tres: `NULLABLE`, ⛔ sin `@default`, ⛔ sin backfill, ⛔ sin índice.** `null` **es la verdad** en toda fila
+  existente («nunca se avisó»), y se leen **por id** dentro de una operación que ya cargó la fila.
+- ⛔⛔ **Las tres son INTERNAS: no entran en NINGÚN DTO, ni de cliente ni de admin.** No son un hecho del pedido ni de
+  la solicitud: son un hecho **sobre nuestro propio envío de correo**. *Publicarlas convierte un detalle de
+  implementación en una promesa de contrato.* **La lista blanca de proyección de `ShipmentRequest`
+  (`toAdminShipmentRow`) ya impide que se auto-publiquen, y ése es justo el caso para el que se escribió.**
+- ⚠️ **Si el dueño quisiera ver en el back-office «¿se le avisó?»**, eso es **una capacidad nueva que nadie ha
+  pedido** y es **cambio de contrato**: pasa por el arquitecto (regla 9). ⛔ No se cuela de contrabando.
+- ⛔ **Ninguna otra tabla cambia. ⛔ No hay `Notification`, ni `NotificationRead`, ni `NotificationPreference`**
+  (esta última está **explícitamente fuera del MVP**, `PROJECT §R.6`: *nadie lo pidió*).
+
+---
+
+**R.7 — ⭐ LOS QUE NO AVISAN: SE VERIFICA POR AUSENCIA (criterio 206, y falla POR EXCESO).**
+
+**Los TRES que no producen absolutamente nada —ni correo, ni campana— y los decidió el dueño uno a uno:**
+
+| Evento | Estado | Qué debe ocurrir | Por qué (suyo, literal) |
+|---|---|---|---|
+| **Identidad VERIFICADA** | `kycStatus='verified'` | **bandeja vacía + la campana NO cambia** | *«no se manda nada»* (**71**). ⛔ Y nada puede decir «se te subieron los topes»: son política interna |
+| **Pago FALLIDO** | `Order.status='failed'` | **bandeja vacía + la campana NO cambia** | *«avisa al momento […] se avisa en la plataforma»* (**72**). ⭐ Que se vea en vivo en la pantalla **no** viola el criterio: **es la razón** por la que no manda correo |
+| **CONTRACARGO** | `Order.status='chargeback'` | **bandeja vacía + la campana NO cambia** | *«me avisa Stripe, no lo genera el cliente en nuestro portal»* (**73**) |
+
+**Y los demás que este contrato declara mudos** (`PROJECT §R.3`): `Order` `pending`; envío `solicitado` y `picking`;
+envío **`entregado`** (⛔ criterio **210**, *confirmado explícitamente* — **falla si aparece «porque parecía
+razonable»**); buylist `verificacion` y **`aprobada`**; y los correos de buylist **que ya existen** (**⛔ no se
+rehacen** — §R **añade**, no reescribe lo que funciona; **medido: SEIS plantillas** en
+`buylist-mail.templates.ts`, para `cotizada`/`ofertada`/oferta cancelada/recordatorio/`expirada`/piezas
+rechazadas); el restock del sellado (**opt-in, ya existe, no se toca**); la bóveda (*«tu carta ya está en tu bóveda»*
+**es el mismo `settled` visto desde otro sitio** — duplicarlo sería **dos correos por un hecho**); y la disputa
+`abierta`/`en_revision` (**la abrió él**).
+
+⛔⛔ **Y la prohibición absoluta, que es el riesgo nº 1 de todo §R:** `SellOfferState` en **`pending_authorization`**
+⇒ **CERO en las dos superficies** (bandeja **y** portal): ni correo, ni entrada en la campana, ni cambio de estado
+visible, ni «marca de actividad». Candado **`C-AV-8`**.
+
+**R.7.a — ⛔ EL CONTRACARGO: LO QUE ESTE CONTRATO **NO** DECIDE, Y NO ES UN OLVIDO.**
+`PROJECT` deja **ABIERTA la pregunta 86**: *cuando hay un contracargo, ¿qué le pasa al pedido y a lo que ya está en
+su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el dueño.**
+⇒ **Aquí no se diseña nada de eso.** Lo único normado es lo ya decidido: **el contracargo no manda ningún aviso** y
+**no enciende ninguna campana** (su código **no está** en el dominio cerrado de R.2.3, así que la negativa se cumple
+**por construcción**, no por disciplina). **El día que la 86 se conteste, abre trabajo NUEVO** — probablemente un
+`PendingCode` nuevo y quizá un correo —, y **entra por el arquitecto**, no por interpretación de esta sección.
+
+---
+
+**R.8 — ⛔ PROHIBICIONES DE CONTENIDO (aplican a los ONCE, venga el texto que venga).**
+
+| # | Prohibición | De dónde sale |
+|---|---|---|
+| **1** | ⛔ **Ningún aviso INVENTA una cifra.** Todo aviso con dinero **repite al centavo** lo que muestra la pantalla de **esa misma** orden o solicitud, **leyendo las columnas PERSISTIDAS de la fila** — ⛔ jamás recalculando desde un dial vivo | criterio **207**, y es la doctrina de `IVA-5` aplicada al correo |
+| **2** | ⛔⛔ **Y repite la CONVENCIÓN.** Si la orden es `IVA_INCLUSIVE`, **el IVA NO es un sumando**: la línea de IVA **informa** (§M10-IVA.4). **Un correo que desglose el IVA de una orden `IVA_INCLUSIVE` como si sumara ES UN FALLO** | criterio **207**, segunda mitad · **D54** |
+| **3** | ⛔⛔ **`ivaTransferPct` NO viaja a NINGÚN correo.** Es `/admin/*` y nada más. ⚠️ **Y el riesgo es concreto**: `Order.ivaTransferPct` es ahora una columna de la fila, así que un correo que renderice «la orden» **lo filtra sin que nadie lo escriba** | criterio **209** · §M10-IVA.3 |
+| **4** | ⛔ **CERO afirmaciones jurídicas** sobre el IVA y **cero vocabulario del traslado**, tampoco en negativo | criterios **195** y **208** (**D53**) |
+| **5** | ⛔ **Ningún aviso menciona topes, umbrales ni acumulados.** Aplica a los once **y a los seis motivos de rechazo** | criterio **201** · `HECHOS.md` (c) |
+| **6** | ⛔ **`AV-8` no adelanta NINGÚN veredicto ni ninguna cifra de la verificación**, que aún no ha ocurrido. Dice que llegaron y que están en revisión | criterio **211** |
+| **7** | ⛔ **Ningún correo lleva el domicilio de recogida, la CLABE, el RFC ni una object key de INE.** `reveal-clabe` sigue siendo **el único** punto del contrato que devuelve una CLABE en claro | §M5 · §M6-K.1 |
+| **8** | ✅ **Todo plazo se dice con FECHA Y HORA en `America/Mexico_City`, ⛔ nunca «en 2 días»** — y **reusando el formateador que ya existe** (`deadlineRow`/`offerTermsCopy`). ⛔ **No se escribe un segundo formateador**: el correo y la pantalla dicen **el mismo string** | criterios **154**/**161(d)** · `PROJECT §R.5.a` |
+| **9** | ✅ **Idioma:** `User.locale` (o `Order.locale` para el invitado), igual que las plantillas vivas | §4-G |
+
+---
+
+**R.9 — CANDADOS. Los escriben backend/frontend; **QA los ejecuta**. Sin éstos, §R no está verificada.**
+
+| # | Candado | Cómo se comprueba |
+|---|---|---|
+| **C-AV-1** ⭐⭐ | **EXACTAMENTE ONCE, Y NI UNO MÁS** (criterio **206**) | Se recorre el ciclo **completo** de un pedido y de una solicitud de venta contra el stack corriendo y se cuenta la bandeja. **Rojo por exceso y rojo por defecto.** ⭐ Y los **tres mudos** aparte: con **identidad aprobada**, **pago fallido** y **contracargo**, la bandeja está **vacía** **y** `GET /me/pendings` devuelve **lo mismo que antes** |
+| **C-AV-2** ⭐⭐ | **UN AVISO POR CICLO** (criterio **205**) | Se rechaza **dos veces seguidas** la misma identidad, con motivos distintos, **sin resubida**: **(a)** llega **UN** correo; **(b)** `GET /users/me/kyc` trae el motivo **NUEVO**; **(c)** el cliente **resube**, se rechaza otra vez y **entonces sí** llega el segundo. **Rojo con dos en (a), y rojo con cero en (c)** — *un sello que no se limpia es silencio permanente, y es el defecto peor* |
+| **C-AV-3** ⭐⭐ | **DOS de envío y NINGUNO al entregar** (criterio **210**) | Un envío completo: **captura de guía** ⇒ 1 · **`enviado`** ⇒ 1 · **`entregado`** ⇒ **0**. **Rojo con uno, rojo con tres, y rojo si el de entregado aparece** |
+| **C-AV-4** ⭐ | **La guía llega con el NÚMERO** (criterios **198**/**199**) | El correo del comprador trae `carrier` **y** `trackingNumber` **idénticos** a los de la fila; el del vendedor trae además **el plazo con fecha y hora**. ⛔ **Rojo si el back-office tiene el número y la bandeja no** |
+| **C-AV-5** ⭐ | **El registrado recibe confirmación, igual que el invitado** (criterio **200**) | **Dos pedidos idénticos**, uno de invitado y uno de registrado: **las dos bandejas reciben**, y **ninguna recibe dos** |
+| **C-AV-6** ⭐⭐ | **La CAMPANA: las cuatro mitades** (criterio **202**) | **(a)** con un pendiente vivo se navega catálogo → carrito → checkout **sin que ninguna pantalla obligue a despacharlo**; **(b)** la campana se ve en las **tres** situaciones; **(c)** resuelto ⇒ `{"pendings":[]}` y **la campana desaparece**; **(d)** ⛔ **la campana no lista eventos** — rojo si aparece una bandeja |
+| **C-AV-7** | **El predicado del pendiente, en sus dos cláusulas** | `rejected` ⇒ 1 pendiente; resubir ⇒ **0**; `none`, `pending` y `verified` ⇒ **0**. Y la cláusula (b) **sembrada por SQL** (única forma de crear el estado, R.2.3) ⇒ 1 |
+| **C-AV-8** ⭐⭐ | **⛔ LA OFERTA PENDIENTE DE AUTORIZACIÓN NO SE FILTRA** (criterio **204**) | Con una oferta en `pending_authorization`: bandeja **vacía** **y** `GET /me/pendings` **byte a byte idéntico** al de antes de crearla. **Se verifica en las DOS superficies.** ⭐ Y **por lo negativo sobre el código**: el resolutor de pendientes **no contiene ninguna referencia a `SellOfferState`** — rojo en cuanto aparezca |
+| **C-AV-9** ⭐ | **Ni cifras, ni derecho, ni diales** (criterios **201**/**207**/**208**/**209**) | Test de copy sobre **las plantillas nuevas** y sobre los **seis presets de rechazo**: **por ausencia**, no aparece vocabulario del traslado, ni cita de norma, ni «tope»/«umbral»/«límite de $». ⭐⭐ **Y el que muerde de verdad:** el JSON/HTML de los once correos **no contiene `ivaTransferPct` en ninguna forma** |
+| **C-AV-10** ⭐⭐ | **El correo NO puede tumbar el dinero** | Con el `MailPort` **lanzando siempre**: el settle liquida, `receive` transiciona, `pay-spei` paga, `resolve` resuelve, y **el webhook de Stripe responde `2xx`**. **Rojo si un fallo de correo revierte o propaga** |
+| **C-AV-11** | **Destinatario correcto** (R.5) | Retiro de bóveda ⇒ `User.email`. Fulfillment de pedido de invitado ⇒ `guestEmail`. **Pedido RECLAMADO ⇒ sigue yendo a `guestEmail`.** Envío sin `userId` **ni** `orderId` ⇒ **cero correos** y un `warn` |
+
+---
+
+**R.10 — ⛔ LO QUE §R NO DECIDE, Y LAS PREGUNTAS QUE SIGUEN ABIERTAS. ⛔ No se rellenan por interpretación.**
+
+| | Qué | Estado |
+|---|---|---|
+| **85** | La **redacción** de la regla de canal (dos cláusulas vs. tres) | **ABIERTA — NO BLOQUEA.** ⛔ **No cambia ni uno de los once correos**: si el dueño prefiere otra formulación, cambian las palabras de `PROJECT §R.2`, **no este catálogo** |
+| **86** | **Qué le pasa al PEDIDO y a la BÓVEDA durante un contracargo** | **ABIERTA — política de negocio, ⛔ FUERA DE ALCANCE.** Ver R.7.a. **Este contrato deja el hueco explícito y no lo rellena** |
+| **87** | **La lista concreta de motivos de rechazo** | **ABIERTA — pero ⭐ MEDIDA:** los seis que propone `PROJECT §R.9` **ya están en pantalla y ya empatan uno a uno** (R.1.a). Si el dueño **quita** o **añade** alguno, es **copy + el array `PRESETS`**: ⛔ **cero contrato, cero DDL, cero endpoints** |
+| — | El **texto** de cada correo y la **forma** de la campana | **ux-ui** (`PROJECT §R.6`), dentro de R.8 y de los dos límites de `PROJECT §R.0.a` |
+| — | **Historial** de avisos en el portal · **bandeja** · **marcar como leído** · **preferencias de aviso** · **recordatorios con plazo nuevos** | ⛔ **FASE 2** (preguntas **68** y **77**). **Construirlos es fallar el criterio 202(d) por exceso** |
 
 ---
 

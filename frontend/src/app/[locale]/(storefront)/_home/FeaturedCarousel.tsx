@@ -15,6 +15,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Shelf } from '../_shared/Shelf';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 import { FinishLabel } from '../_shared/FinishLabel';
 import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { useGradingFootnote } from '../_shared/grading/GradingFootnote';
@@ -136,26 +137,34 @@ function tileMeta(l: GroupedListingSummaryDTO): string {
   return l.gradingCompany ? `${base} · ${l.gradingCompany} ${l.gradeValue ?? ''}`.trim() : base;
 }
 
-/** Precio de la teja: SIEMPRE formateado del server; sin precio ⇒ "pendiente", nunca $0. */
+/**
+ * Precio de la teja: SIEMPRE formateado del server; sin precio ⇒ "pendiente", nunca $0.
+ *
+ * ⛔ §M10-IVA.3 — `displayPriceCents` **ya lleva el IVA dentro**: se pinta tal cual y **aquí no se
+ * multiplica nada**. El rótulo de convención sale de `ivaIncluded`, que viaja **por fila**.
+ */
 function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; locale: AppLocale; big?: boolean }) {
-  if (l.salePriceCents == null) {
+  if (l.displayPriceCents == null) {
     return <PendingPriceLabel className="mt-3 block" />;
   }
   return (
-    <p
-      className={cn(
-        'tabular font-medium leading-none text-text',
-        big ? 'text-[17px] lg:text-[25px]' : 'mt-3 text-[15px] lg:text-[17px]',
-      )}
-    >
-      {formatMoneyCents(l.salePriceCents, locale)}
-    </p>
+    <>
+      <p
+        className={cn(
+          'tabular font-medium leading-none text-text',
+          big ? 'text-[17px] lg:text-[25px]' : 'mt-3 text-[15px] lg:text-[17px]',
+        )}
+      >
+        {formatMoneyCents(l.displayPriceCents, locale)}
+      </p>
+      <IvaLabel ivaIncluded={l.ivaIncluded} ivaRatePct={l.ivaRatePct} className="mt-1 block" />
+    </>
   );
 }
 
 /**
  * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las piezas
- * más caras del inventario publicado (el backend ordena por salePriceCents server-side).
+ * más caras del inventario publicado (el backend ordena por el precio exhibido server-side).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
  * §20.3). v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA, así que
  * cada teja es un `GroupedListingSummaryDTO` (v2.1.9/D2: la rejilla ya no recibe `priceBasis`

@@ -74,6 +74,8 @@ export class AdminShipmentsController {
       dto.carrier,
       dto.trackingNumber,
       dto.shippingCostCents,
+      // ⭐ §M10-IVA.8: el IVA acreditable de la factura del carrier, CONGELADO al capturar.
+      dto.shippingCostIvaCents,
     );
     await this.audit.log({
       actorUserId: user.id,
@@ -85,6 +87,9 @@ export class AdminShipmentsController {
         carrier: dto.carrier,
         trackingNumber: dto.trackingNumber,
         shippingCostCents: res.shippingCostCents,
+        // La bitácora registra el crédito capturado junto al bruto: son el mismo hecho y la resta
+        // del P&L no se puede auditar viendo solo uno de los dos.
+        shippingCostIvaCents: res.shippingCostIvaCents,
       },
     });
     return res;

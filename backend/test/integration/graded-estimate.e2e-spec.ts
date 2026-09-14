@@ -20,6 +20,7 @@ import {
   E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from '../../prisma/e2e-fixtures';
+import { L, P } from './helpers/iva-display';
 
 describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
   let h: E2EHarness;
@@ -239,7 +240,9 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const mine = vitrina.body.data.find((g: any) => g.card.id === cardId);
     expect(mine).toBeDefined();
     expect(mine.gradingHighlight[0].estimate.referenceMxnCents).toBe(PSA10_CENTS);
-    expect(mine.salePriceCents).toBe(E2E_LIST_OVERRIDE_CENTS); // el precio de venta NO cambió
+    // ⭐ D56: la teja publica `P = round(L × 1.16)`; el GATE sigue midiendo sobre `L` ⇒ criterio 108
+    // intacto: encender el gancho no mueve ningún precio.
+    expect(mine.displayPriceCents).toBe(P(E2E_LIST_OVERRIDE_CENTS));
     // Todo lo que entra a la vitrina está destacado (nada «no destacado» se cuela al paginar).
     expect(vitrina.body.data.every((g: any) => g.gradingHighlight != null)).toBe(true);
   });
@@ -300,7 +303,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
 
   it('8) criterio 104/108 — subir `minUpsidePct` vacía la vitrina AL VUELO, sin mover ningún precio', async () => {
     const antes = await h.api('GET', `/catalog/cards/${cardId}`);
-    const precioAntes = antes.body.listings.find((l: any) => l.productType === 'raw').salePriceCents;
+    const precioAntes = antes.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents;
 
     const put = await h.api('PUT', '/admin/pricing/graded-estimates', {
       token: adminToken,
@@ -315,7 +318,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const despues = await h.api('GET', `/catalog/cards/${cardId}`);
     const raw = despues.body.listings.find((l: any) => l.productType === 'raw');
     expect(raw.gradingHighlight).toBeUndefined(); // el badge desaparece…
-    expect(raw.salePriceCents).toBe(precioAntes); // …y el precio de venta NO se movió
+    expect(raw.displayPriceCents).toBe(precioAntes); // …y el precio de venta NO se movió
     // PARTICIÓN §4.38-0: la FICHA sigue mostrando sus dos cifras (el dial de curaduría no la apaga).
     expect(despues.body.gradedEstimates).toHaveLength(2);
   });
@@ -347,7 +350,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const raw = ficha.body.listings.find((l: any) => l.productType === 'raw');
     expect(raw.gradingHighlight).toBeUndefined(); // el badge desaparece…
     expect(ficha.body.gradedEstimates).toHaveLength(2); // …pero la FICHA sigue informando (alcance)
-    expect(raw.salePriceCents).toBe(E2E_LIST_OVERRIDE_CENTS); // y ningún precio se movió
+    expect(raw.displayPriceCents).toBe(P(E2E_LIST_OVERRIDE_CENTS)); // y ningún precio se movió
 
     // El diagnóstico de admin lo explica con la razón accionable.
     const preview = await h.api('GET', `/admin/pricing/graded-estimates/preview?cardId=${cardId}`, {
@@ -460,8 +463,8 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(vitrina.body.data.find((g: any) => g.card.id === cardId)).toBeUndefined(); // (3) ni la vitrina
 
     // …y el precio de venta de la carta NO se movió por nada de esto (el estimado nunca fue dinero).
-    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(
-      E2E_LIST_OVERRIDE_CENTS,
+    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents).toBe(
+      P(E2E_LIST_OVERRIDE_CENTS),
     );
 
     // (4) v1.50.3-c (QA) — **el DIAGNÓSTICO de admin distingue «caducó» de «nunca se capturó».**
@@ -574,7 +577,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(incoherente.status).toBe(200);
 
     const antes = await h.api('GET', `/catalog/cards/${cardId}`);
-    const precioAntes = antes.body.listings.find((l: any) => l.productType === 'raw').salePriceCents;
+    const precioAntes = antes.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents;
     expect(antes.body.gradedEstimates.length).toBeGreaterThan(0);
     const revisionAntes = await h.api('GET', '/admin/pricing/graded-estimates/review?pageSize=100', {
       token: adminToken,
@@ -607,8 +610,14 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
       expect(lista.body.data.find((x: any) => x.cardId === cardId)).toBeUndefined();
     }
     // (3) …y NINGÚN precio de venta cambió: el estimado nunca fue dinero (§4.38q.3).
-    expect(despues.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(precioAntes);
-    expect(precioAntes).toBe(E2E_LIST_OVERRIDE_CENTS);
+    expect(despues.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents).toBe(precioAntes);
+    // ⭐ D56: `precioAntes` se leyó de `displayPriceCents` de la FICHA ⇒ es el **`P`**. El fixture
+    // `E2E_LIST_OVERRIDE_CENTS` es el **`L`** («listPriceCents del common override», `e2e-fixtures.ts:380`)
+    // ⇒ el ancla es `P(L)`, ⛔ no el `L` crudo: la superficie pública dejó de publicar el precio de
+    // lista (`API_CONTRACT:730`, §M10-IVA.3). Se conserva el ancla contra la CONSTANTE —y no solo la
+    // igualdad antes/después de :613— porque sin ella el `it` pasaría igual si el precio se hubiera
+    // movido a otro valor **estable**.
+    expect(precioAntes).toBe(P(E2E_LIST_OVERRIDE_CENTS));
     // (4) …y la AUSENCIA de estimado NO es un «precio pendiente» (doctrina §4.38b.4): borrar no encola.
     expect(
       await h.prisma.pendingPriceEntry.findMany({ where: { cardId, productType: 'graded' } }),
@@ -649,7 +658,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     // hubiera corrido nunca otro día (fue el BLOQ-A que QA cazó).
     const filasSlabAntes = (await gradedRows(conSlab.id, 'graded:PSA:10')).length;
     expect(filasSlabAntes).toBeGreaterThan(0);
-    expect(slabAntes.salePriceCents).toBeGreaterThan(0); // el slab se está VENDIENDO con ese precio
+    expect(slabAntes.displayPriceCents).toBeGreaterThan(0); // el slab se está VENDIENDO con ese precio
     // La fila `graded:PSA:10` de esta carta NO es un estimado: con el slab publicado es la referencia de
     // mercado REAL de una pieza física — y por eso la ficha no la muestra como estimado (INV-D lectura).
     expect(fichaSlabAntes.body.gradedEstimates).toBeUndefined();
@@ -664,7 +673,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     // despublicar una pieza real por «limpiar» es una acción de negocio, no una limpieza.
     const fichaSlabDespues = await h.api('GET', `/catalog/cards/${conSlab.id}`);
     const slabDespues = fichaSlabDespues.body.listings.find((l: any) => l.productType === 'graded');
-    expect(slabDespues.salePriceCents).toBe(slabAntes.salePriceCents);
+    expect(slabDespues.displayPriceCents).toBe(slabAntes.displayPriceCents);
     expect(await gradedRows(conSlab.id, 'graded:PSA:10')).toHaveLength(filasSlabAntes);
 
     // ⛔ La inferencia que NO hay que hacer (§4.38q.2): este `DELETE` **no** es el remedio de INV-D
@@ -733,8 +742,8 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     // …y el precio del slab sigue sin moverse tras TODO el ejercicio.
     const fichaSlabFinal = await h.api('GET', `/catalog/cards/${conSlab.id}`);
     expect(
-      fichaSlabFinal.body.listings.find((l: any) => l.productType === 'graded').salePriceCents,
-    ).toBe(slabAntes.salePriceCents);
+      fichaSlabFinal.body.listings.find((l: any) => l.productType === 'graded').displayPriceCents,
+    ).toBe(slabAntes.displayPriceCents);
 
     // Se recapturan los estimados de la carta del fixture para que los tests siguientes (9) partan del
     // mismo estado que antes de este caso.
@@ -804,7 +813,15 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const antes = await h.api('GET', `/catalog/cards/${cuarta.id}`);
     expect(antes.status).toBe(200);
     const grupoRaw = antes.body.listings.find((l: any) => l.productType === 'raw');
-    const precioRaw = grupoRaw.salePriceCents;
+    // ⭐ D56: la ficha publica `P` (con IVA dentro) y el DIAGNÓSTICO de admin publica `L` (§Q.5).
+    // `precioRaw` es el **`L`**, porque es contra lo que compara la cota de curaduría (los estimados
+    // PSA son cifras de MERCADO, sin IVA). Con el dial en el neutro, `L = round(P/1.16)` recupera el
+    // valor **exacto** —medido: cero contraejemplos en `L = 1..2 000 000`—, así que el test no tiene
+    // que clavar el precio ni pedirlo dos veces.
+    const precioExhibido = grupoRaw.displayPriceCents;
+    expect(precioExhibido).toBeGreaterThan(0);
+    expect(grupoRaw.ivaIncluded).toBe(true);
+    const precioRaw = L(precioExhibido);
     expect(precioRaw).toBeGreaterThan(0);
     // La carta parte LIMPIA: sin esto, un residuo de otra corrida haría verde este caso por accidente.
     expect(antes.body.gradedEstimates).toBeUndefined();
@@ -863,7 +880,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(porDefecto.body.data.find((x: any) => x.cardId === cuarta.id)).toBeDefined();
 
     // (4) …y NINGÚN precio de venta se movió: el estimado nunca fue dinero (criterio 112).
-    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(precioRaw);
+    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents).toBe(precioExhibido);
 
     // (5) El bucle se cierra con el remedio de §4.38(q) y la carta queda LIBRE otra vez (el fixture no
     //     se degrada corrida a corrida, que es justo por lo que esta carta existe).
@@ -877,7 +894,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     expect(tras.body.data.find((x: any) => x.cardId === cuarta.id)).toBeUndefined();
     const fichaFinal = await h.api('GET', `/catalog/cards/${cuarta.id}`);
     expect(fichaFinal.body.gradedEstimates).toBeUndefined();
-    expect(fichaFinal.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(precioRaw);
+    expect(fichaFinal.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents).toBe(precioExhibido);
   });
 
   /**
@@ -932,8 +949,8 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const ficha = await h.api('GET', `/catalog/cards/${cardId}`);
     expect(ficha.body.gradedEstimates).toBeUndefined();
     expect(ficha.body.listings.every((l: any) => l.gradingHighlight === undefined)).toBe(true);
-    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').salePriceCents).toBe(
-      E2E_LIST_OVERRIDE_CENTS,
+    expect(ficha.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents).toBe(
+      P(E2E_LIST_OVERRIDE_CENTS),
     );
   });
 });

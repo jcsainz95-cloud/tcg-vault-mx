@@ -66,3 +66,27 @@ export async function anyResumableOrder(): Promise<OrderRow | null> {
     ) ?? null
   );
 }
+
+/**
+ * Folio del **único** pedido de invitado sin reclamar que siembra `backend/prisma/seed-e2e.ts`
+ * (`e2e-fixtures.ts` → `E2E_GUEST_ORDER.orderNumber`). Está aquí, y no en el spec, porque lo que
+ * hace falta saber es una propiedad de los PEDIDOS del cliente, que es de lo que trata este módulo.
+ */
+const SEED_GUEST_ORDER_NUMBER = 'TCG-E2E-GUEST-0001';
+
+/**
+ * ¿El pedido de invitado del seed ya está en el historial del `customer`?
+ *
+ * Existe para que el salto de `claimable-orders.spec.ts` diga **la causa real** en vez de acusar al
+ * seed. Son dos mundos distintos y hasta hoy los dos salían con el mismo texto:
+ *
+ *   · `true`  ⇒ una corrida anterior de ESE MISMO caso lo reclamó. El seed hizo su trabajo; el
+ *               fixture es de un solo uso y la suite se lo comió. Se repone con `--seed`.
+ *   · `false` ⇒ no está ni sin reclamar ni reclamado: el seed real no lo sembró.
+ *
+ * Es una LECTURA (`GET /orders`), no toca nada y no gasta cupo de login (reusa la sesión cacheada).
+ */
+export async function seedGuestOrderAlreadyClaimed(): Promise<boolean> {
+  if (!IS_REAL) return false;
+  return (await myOrders()).some((o) => o.orderNumber === SEED_GUEST_ORDER_NUMBER);
+}

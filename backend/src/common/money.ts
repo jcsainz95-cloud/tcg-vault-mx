@@ -356,12 +356,30 @@ export function sealedPriceBasisOf(result: SealedSpreadResult): PriceBasis {
 }
 
 export interface BreakdownDTO {
+  /**
+   * ⚠️⚠️ **Bajo `IVA_INCLUSIVE` esto es `Σ displayPriceCents` ⇒ YA LLEVA EL IVA DENTRO**
+   * (`API_CONTRACT §M10-IVA.4`). Bajo `IVA_EXCLUSIVE` (filas anteriores al corte D56) es la base
+   * limpia de siempre. **La diferencia la dice `priceConvention`, nunca el nombre del campo.**
+   */
   subtotalCents: number;
+  /**
+   * **RESIDUAL** del agregado `G = subtotal + envío`: `G − round(G/(1+r))`. ⛔ **Jamás 0**, ni con
+   * el dial de traslación en 0 % (`IVA-8(a)`): mover el dial reduce el NETO, nunca el impuesto.
+   */
   ivaCents: number;
   ivaRatePct: number;
   processingFeeCents: number;
   totalCents: number;
   currency: 'MXN';
+  /**
+   * ⭐⭐ v1.64/D56 (`API_CONTRACT §M10-IVA.4`, ADITIVO y NORMATIVO) — **la convención de ESTE
+   * desglose**. Sin ella, `subtotalCents` es un número sin interpretación: el mismo entero significa
+   * «base limpia» o «precio con IVA dentro» según con qué regla se cobró, y **ninguna de las dos
+   * lecturas revienta**. *Un importe cuya convención no viaja con él se lee mal en silencio.*
+   */
+  priceConvention: PriceConvention;
+  /** `= (priceConvention === 'IVA_INCLUSIVE')`. La señal que el front pinta («IVA 16 % incluido»). */
+  ivaIncluded: boolean;
 }
 
 /**
@@ -374,139 +392,115 @@ export interface DirectShipBreakdownDTO extends BreakdownDTO {
 }
 
 /**
- * Desglose de compra de cartas. ARCHITECTURE §5.1.
- *   subtotal = Σ salePrice
- *   iva      = round(subtotal × ivaPct/100)                (IVA grava el subtotal)
- *   base     = subtotal + iva                              (lo que la plataforma recibe íntegro)
- *   total    = ceil((base + (1+ivaFee)·fija) / (1 − (1+ivaFee)·pct))   (gross-up con IVA de Stripe)
- *   fee      = total − base                                (línea visible; incluye el IVA de la comisión Stripe)
+ * ⭐⭐ **`P` — EL PRECIO EXHIBIDO, en aritmética ENTERA** (`ARCHITECTURE §4.44.b/.c`, regla **R1**).
+ *
+ * `P = round(L × (1 + t·r))`, evaluado como **`L + round(L × t × r / 10000)`** con `t` (fracción de
+ * traslación) y `r` (TASA) enteros en `[0,100]`.
+ *
+ * ### Por qué entera y no `L × 1.16`
+ * Es **la misma cifra** —`round(L × (1+t·r)) = L + round(L × t·r)` porque sumar un entero conmuta
+ * con el redondeo (§4.44.c.1-ter punto 1)— pero evita meter `1.16`, que **no es representable en
+ * binario**, en una multiplicación que decide dinero. Cota: `L × t × r ≤ MAX_CENTS × 100 × 100 ≈
+ * 2.1e13`, muy por debajo de `Number.MAX_SAFE_INTEGER` ⇒ el producto intermedio es **exacto**.
+ *
+ * ### La regla madre, dicha en una línea
+ * **`L` no cambia nunca. `P` se deriva. El dial mueve `P`, jamás `L`.** Con `t = 100` (el neutro)
+ * reproduce **al centavo** el `L × (1+r)` de hoy: es lo que sostiene el criterio **185** y `IVA-1`.
+ *
+ * ⚠️ **Vive en `common/money.ts` y no en `modules/settings/`** para que el catálogo y el checkout no
+ * tengan que importar del módulo del dial para derivar un precio. *La aritmética del dinero es del
+ * núcleo; la puerta del dial es de settings.*
  */
-export function computeCartBreakdown(
-  subtotalCents: number,
-  ivaPct: number,
-  fee: StripeFeeConfig,
-): BreakdownDTO {
-  const ivaCents = Math.round((subtotalCents * ivaPct) / 100);
-  const baseCents = subtotalCents + ivaCents;
-  const totalCents = grossUpTotal(baseCents, fee);
-  const processingFeeCents = totalCents - baseCents;
-  return {
-    subtotalCents,
-    ivaCents,
-    ivaRatePct: ivaPct,
-    processingFeeCents,
-    totalCents,
-    currency: 'MXN',
-  };
+export function displayPriceCentsOf(
+  listPriceCents: number,
+  ivaTransferPct: number,
+  ivaRatePct: number,
+): number {
+  return listPriceCents + Math.round((listPriceCents * ivaTransferPct * ivaRatePct) / 10_000);
 }
 
 /**
- * Desglose de retiro/envío. ARCHITECTURE §5.1.
- * El IVA grava la tarifa de envío; el fee es gross-up (sin IVA).
- * En el DTO, subtotalCents = tarifa de envío (ver API_CONTRACT §5).
+ * ⭐ **Los DOS diales que derivan `P`, juntos.** (`SettingsService.getIvaDials`.)
+ *
+ * ⛔ **Son dos filas `ConfigSetting` INDEPENDIENTES y ninguna deriva de la otra** (`IVA-7`).
+ * Que viajen en el mismo objeto ⛔ **no las acopla**: es que `P = round(L × (1 + t·r))` necesita las
+ * dos **a la vez y del mismo instante**, para que dos líneas del mismo carrito no se deriven con
+ * posiciones distintas del dial.
  */
-export function computeShipmentBreakdown(
-  shippingFeeCents: number,
-  ivaPct: number,
-  fee: StripeFeeConfig,
-): BreakdownDTO {
-  const ivaCents = Math.round((shippingFeeCents * ivaPct) / 100);
-  const baseCents = shippingFeeCents + ivaCents;
-  const totalCents = grossUpTotal(baseCents, fee);
-  const processingFeeCents = totalCents - baseCents;
-  return {
-    subtotalCents: shippingFeeCents,
-    ivaCents,
-    ivaRatePct: ivaPct,
-    processingFeeCents,
-    totalCents,
-    currency: 'MXN',
-  };
+export interface IvaDials {
+  /** `t` — **FRACCIÓN DE TRASLACIÓN**, entero `[0,100]`. ⛔ **No son puntos de IVA.** */
+  ivaTransferPct: number;
+  /** `r` — la **TASA** del impuesto, entero `[0,100]`. ⛔ **No es el dial.** */
+  ivaRatePct: number;
 }
 
 /**
- * v1.21-guest-checkout (§4-G.1/§4-G.2) — desglose de una compra con ENVÍO DIRECTO (`direct_ship`).
- * ADITIVA: `computeCartBreakdown` y `computeShipmentBreakdown` NO se tocan.
+ * ⭐ **`E` — LA TARIFA DE ENVÍO EXHIBIDA: el envío entra en la regla madre COMO UN `L` MÁS**
+ * (`ARCHITECTURE §4.44.f`, criterio **189**, candado **`IVA-6`**).
  *
- * Diferencia estructural con el flujo de bóveda: el envío se cobra en el MISMO PaymentIntent que
- * las cartas (el invitado no tiene bóveda desde donde pedir un segundo retiro), así que:
- *   subtotal = Σ salePrice                      (solo cartas; es lo que el DTO llama subtotalCents)
- *   iva      = round((subtotal + envío) × ivaPct/100)   (el IVA grava cartas Y tarifa de envío)
- *   base     = subtotal + envío + iva           (lo que la plataforma debe recibir íntegro)
- *   total    = grossUp(base)                    (misma fórmula de gross-up, incl. IVA de la comisión)
- *   fee      = total − base
+ * `E = round(F × (1 + t·r))`, con `F` = el dial `shipping_fee_cents`, que **sigue siendo NETO y no
+ * cambia de valor**.
  *
- * `shippingFeeCents` viaja aparte del `subtotalCents` para que la UI lo muestre como línea propia
- * y para que el P&L (M7) lo lea de `Order.shippingFeeCents` sin doble conteo (ARCHITECTURE §4.21b).
+ * ⚠️ **Money-neutral por construcción con el dial en 100 %:** `round(17500 × 1.16) = 20300`, que es
+ * **exactamente** lo que hoy aportan `17500 + round(17500 × 0.16) = 17500 + 2800`. **Ni un centavo.**
+ *
+ * **Por qué existe como función propia en vez de llamar a `displayPriceCentsOf` a pelo:** para que
+ * el sitio donde se decide *«el envío lleva su IVA dentro»* sea **nombrable y único**. Es la decisión
+ * que el criterio 189 obliga (*«ningún importe de IVA sumado después del precio exhibido»*) y la que
+ * `IVA-6` pone en rojo si alguien vuelve a apilar `round(E × r)` detrás de la tarifa.
  */
-export function computeDirectShipBreakdown(
-  subtotalCents: number,
-  shippingFeeCents: number,
-  ivaPct: number,
-  fee: StripeFeeConfig,
-): DirectShipBreakdownDTO {
-  const taxableCents = subtotalCents + shippingFeeCents;
-  const ivaCents = Math.round((taxableCents * ivaPct) / 100);
-  const baseCents = taxableCents + ivaCents;
-  const totalCents = grossUpTotal(baseCents, fee);
-  const processingFeeCents = totalCents - baseCents;
-  return {
-    subtotalCents,
-    shippingFeeCents,
-    ivaCents,
-    ivaRatePct: ivaPct,
-    processingFeeCents,
-    totalCents,
-    currency: 'MXN',
-  };
+export function shippingFeeDisplayCentsOf(
+  shippingFeeNetCents: number,
+  dials: IvaDials,
+): number {
+  return displayPriceCentsOf(shippingFeeNetCents, dials.ivaTransferPct, dials.ivaRatePct);
 }
 
 /**
- * ⭐⭐ **`netRevenueCents` — EL INGRESO PROPIO DE UNA FILA DE DINERO, y el ÚNICO lugar donde vive
- * esa decisión** (v1.64-iva-inclusive, `ARCHITECTURE §4.44.j`, criterio **191**).
+ * ⭐ **La BASE GRAVABLE a partir de un importe que YA lleva el IVA dentro: `round(G / (1 + r))`**,
+ * en aritmética entera (`round(G × 100 / (100 + r))`).
  *
- * **El defecto que existe para evitar.** `admin.service.ts` hacía `incomeCents += o.subtotalCents`.
- * El día que `subtotalCents` pase a llevar el IVA dentro (deploy 2), ese reporte **no reventaría:
- * MENTIRÍA**, contando el impuesto que se le debe al SAT como ingreso propio. Un reporte que revienta
- * se arregla; uno que miente se cree.
+ * ⛔ **El IVA se saca por RESTA (`G − taxBase`), nunca por `round(G × r)`**: es la regla **R2** de
+ * `ARCHITECTURE §4.44.c`, y es lo que hace de `taxBase + iva ≡ G` una **identidad** en vez de una
+ * coincidencia que se descuadra un centavo (`IVA-4(b)`).
  *
- * **Por qué UN helper y no cuatro `if` a mano.** Los sitios que leen dinero de una fila como INGRESO
- * son varios (§4.44.j) y van a crecer. Cuatro copias de la misma decisión son cuatro sitios donde
- * puede divergir; uno solo se muta una vez y pone rojos todos los candados a la vez.
- *
- * ⛔ **Se deriva SOLO de columnas PERSISTIDAS de ESA fila.** ⛔ Nunca del dial vivo, ⛔ nunca de
- * `ivaTransferPct` (que es informativo/auditor), ⛔ nunca recalculando desde el precio de lista. Por
- * eso una orden de hace un año sigue aportando **exactamente** lo que aportaba, y por eso mover el
- * dial **no puede** cambiar ni un centavo de un periodo ya cerrado (criterio **190**, candado
- * `IVA-5` ⭐⭐).
- *
- * ⚠️⚠️ **EL `default` LANZA, Y ESO ES LA FUNCIONALIDAD, no una paranoia.** Un `?? row.subtotalCents`
- * o un `: 'IVA_EXCLUSIVE'` de cortesía es **exactamente la mutación que `IVA-3` mata**: haría que una
- * fila sin convención —la que un camino de escritura olvidó etiquetar— se **interprete en silencio
- * bajo la convención que hoy es mayoría**, y el día del deploy 2 esa mayoría cambia de bando. La
- * columna es `NOT NULL` y **sin default de BD** justamente para que ese estado no exista; si aun así
- * llega aquí (mock incompleto, fila sembrada a mano, `select` que olvidó la columna), **es un error
- * de programación y tiene que sonar**, no producir una cifra plausible.
- *
- * En el **DEPLOY 1** devuelve `row.subtotalCents` para **toda** fila, porque **todas** son
- * `IVA_EXCLUSIVE`: el P&L queda **bit a bit el de hoy**. Ése es el punto entero del deploy 1 — dejar
- * el reporte probado NEUTRO **antes** de que exista la otra rama.
+ * ⛔ **Y la flecha va en UN SOLO SENTIDO (regla R3): precio → desglose.** Prohibido reconstruir `P`
+ * desde `taxBase` (`taxBase × (1+r)` puede diferir un centavo, y esa dirección convierte un desglose
+ * en un **recobro**).
  */
-export function netRevenueCents(row: {
-  subtotalCents: number;
-  ivaCents: number;
-  priceConvention: PriceConvention;
-}): number {
-  switch (row.priceConvention) {
-    // El IVA se cobró APARTE: el subtotal ya es el ingreso propio. Bit a bit lo de hoy.
+export function taxBaseCentsOf(grossAmountCents: number, ivaRatePct: number): number {
+  return Math.round((grossAmountCents * 100) / (100 + ivaRatePct));
+}
+
+/**
+ * ⭐⭐ **EL ÚNICO `switch` SOBRE `PriceConvention` DE TODO `backend/src`** — el **lector** que
+ * `IVA-12(b)` nombra en singular y que `IVA-3` exige conservar.
+ *
+ * ### Por qué UNO y no uno por helper
+ * Cada `case 'IVA_EXCLUSIVE'` extra es un sitio donde la decisión puede divergir **y** una fila más
+ * en el censo de `IVA-12`. Con un solo switch, `netRevenueCents`, `netShippingRevenueCents` y el
+ * desglose comparten literalmente la misma rama: **no pueden interpretarse distinto la misma fila**.
+ *
+ * ### ⚠️⚠️ EL `default` LANZA, Y ESO ES LA FUNCIONALIDAD, no una paranoia
+ * Un `?? false` o un `: 'IVA_EXCLUSIVE'` de cortesía es **exactamente la mutación que `IVA-3` mata**:
+ * haría que una fila sin convención —la que un camino de escritura olvidó etiquetar— se interprete en
+ * silencio bajo la convención que ese día sea mayoría. La columna es `NOT NULL` **y sin default de
+ * BD** justamente para que ese estado no exista; si aun así llega aquí (mock incompleto, fila
+ * sembrada a mano, `select` que olvidó la columna) **es un error de programación y tiene que sonar**,
+ * no producir una cifra plausible.
+ */
+export function ivaIsIncluded(priceConvention: PriceConvention): boolean {
+  switch (priceConvention) {
+    // El IVA se cobró APARTE: el subtotal es base limpia. Es la convención de toda fila cobrada
+    // antes de D56, y ⛔ NO se borra — `IVA-3`: una orden ya cobrada no se reinterpreta sola.
     case 'IVA_EXCLUSIVE':
-      return row.subtotalCents;
-    // El IVA viaja DENTRO del subtotal ⇒ no es ingreso propio, es impuesto trasladado.
+      return false;
+    // El IVA viaja DENTRO del precio exhibido (la convención con la que se cobra desde D56).
     case 'IVA_INCLUSIVE':
-      return row.subtotalCents - row.ivaCents;
+      return true;
     default:
       throw new Error(
-        `netRevenueCents: unknown priceConvention ${JSON.stringify(row.priceConvention)} — ` +
+        `ivaIsIncluded: unknown priceConvention ${JSON.stringify(priceConvention)} — ` +
           'a money row without a convention has no interpretation and MUST NOT be guessed ' +
           '(ARCHITECTURE §4.44.e/§4.44.j, candado IVA-3)',
       );
@@ -514,8 +508,253 @@ export function netRevenueCents(row: {
 }
 
 /**
+ * ⭐⭐ **LA CONVENCIÓN CON LA QUE NACE TODA FILA DE DINERO NUEVA** (D56, criterio **214**).
+ *
+ * ⛔ **No es un default de cortesía y no sustituye a la columna**: la columna sigue siendo `NOT NULL`
+ * **sin `DEFAULT` de BD** (`IVA-3(c)`), así que un camino de escritura que olvide estamparla sigue
+ * reventando con violación de `NOT NULL`. Lo que esta constante hace es que los **cinco** escritores
+ * digan lo mismo **desde una sola fuente**: antes eran cinco literales, y `ARCHITECTURE §4.35a` ya
+ * documenta lo que cuesta que una decisión de dinero viva copiada en cinco sitios.
+ */
+export const PRICE_CONVENTION_OF_NEW_ROWS: PriceConvention = 'IVA_INCLUSIVE';
+
+/**
+ * ⭐⭐ **EL CUERPO ÚNICO DE LOS TRES DESGLOSES** (`ARCHITECTURE §4.44.c`, `API_CONTRACT §M10-IVA.4`).
+ *
+ * ```
+ * G        = S + E                       // (4) BASE DEL GROSS-UP  ⚠️⚠️ NO es `S + E + iva`
+ * taxBase  = round( G / (1 + r) )        // (5) base gravable, UNA sola vez, sobre el AGREGADO
+ * iva      = G − taxBase                 // (6) RESIDUAL. Jamás se calcula por su cuenta
+ * total    = grossUpTotal(G, fee)        // (7) sin cambio
+ * fee      = total − G                   // (8) sin cambio
+ * ```
+ *
+ * ⚠️⚠️ **LA LÍNEA DE MAYOR RIESGO DE TODO EL CAMBIO, y por eso vive en UN solo sitio: `G = S + E`.**
+ * Bajo `IVA_INCLUSIVE` el IVA **ya está dentro de `S`**; sumarlo otra vez a la base del gross-up lo
+ * **cobra dos veces**: con el fixture de `IVA-1` (`S = 11600`) daría `G = 13200` ⇒ `totalCents =
+ * 14164` en vez de `12469` — **+13.6 % a TODOS los clientes, en silencio, sin log**. Candado
+ * **`IVA-2`**. *Tres copias de esta línea eran tres sitios donde reintroducir el mismo defecto.*
+ *
+ * ⛔ **Norma de nombres, obligatoria porque el nombre ERA el defecto** (§4.44.d): la base del
+ * gross-up se llama **`grossUpBaseCents`** y la gravable **`taxBaseCents`**. **Prohibido que
+ * sobreviva un identificador `baseCents` a secas**, que es como se alimentaba `subtotal + iva`.
+ */
+function inclusiveBreakdown(
+  subtotalCents: number,
+  shippingFeeCents: number,
+  ivaRatePct: number,
+  fee: StripeFeeConfig,
+): {
+  ivaCents: number;
+  processingFeeCents: number;
+  totalCents: number;
+  priceConvention: PriceConvention;
+  ivaIncluded: boolean;
+} {
+  const grossUpBaseCents = subtotalCents + shippingFeeCents;
+  const taxBaseCents = taxBaseCentsOf(grossUpBaseCents, ivaRatePct);
+  const totalCents = grossUpTotal(grossUpBaseCents, fee);
+  return {
+    // RESIDUAL (R2/R3): el redondeo lo absorbe el IVA, jamás el precio exhibido.
+    ivaCents: grossUpBaseCents - taxBaseCents,
+    processingFeeCents: totalCents - grossUpBaseCents,
+    totalCents,
+    // ⭐⭐ D56 / criterio **214**: toda fila NUEVA nace bajo la convención nueva. Es la MISMA
+    // decisión que toman los cinco escritores, tomada una vez y en el sitio donde se hace el dinero.
+    priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+    ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
+  };
+}
+
+
+/**
+ * Desglose de compra de cartas (bóveda). `ARCHITECTURE §4.44.c`, `API_CONTRACT §M10-IVA.4`.
+ *
+ * ⚠️ `subtotalCents` entra **YA DERIVADO**: es `Σ P` (`Σ displayPriceCents`), no `Σ L`. Quien lo
+ * suma es el checkout, que congela cada `P` por línea (regla **R1**: se redondea una vez POR UNIDAD,
+ * y el subtotal es **suma exacta de enteros** ⇒ el criterio **194** se cumple por construcción).
+ */
+export function computeCartBreakdown(
+  subtotalCents: number,
+  ivaPct: number,
+  fee: StripeFeeConfig,
+): BreakdownDTO {
+  return {
+    subtotalCents,
+    ivaRatePct: ivaPct,
+    currency: 'MXN',
+    ...inclusiveBreakdown(subtotalCents, 0, ivaPct, fee),
+  };
+}
+
+/**
+ * Desglose de retiro/envío de bóveda. En el DTO, `subtotalCents` = **la tarifa de envío exhibida**
+ * `E` (ver `API_CONTRACT §5`), que bajo `IVA_INCLUSIVE` **ya lleva su IVA dentro**
+ * (`E = round(F × (1+t·r))`, §4.44.f).
+ *
+ * ⚠️ **Money-neutral con el dial en 100 %**: `round(17500 × 1.16) = 20300`, que es **exactamente** lo
+ * que hoy aportan `17500 + 2800`. Candado `IVA-6`.
+ */
+export function computeShipmentBreakdown(
+  shippingFeeCents: number,
+  ivaPct: number,
+  fee: StripeFeeConfig,
+): BreakdownDTO {
+  return {
+    subtotalCents: shippingFeeCents,
+    ivaRatePct: ivaPct,
+    currency: 'MXN',
+    // El «subtotal» de esta fila ES la tarifa ⇒ el agregado `G` es la tarifa sola. Se pasa por el
+    // primer parámetro (y `0` de envío) para que `G` sea `E` y no `2E`.
+    ...inclusiveBreakdown(shippingFeeCents, 0, ivaPct, fee),
+  };
+}
+
+/**
+ * v1.21-guest-checkout (§4-G.1/§4-G.2) — desglose de una compra con **ENVÍO DIRECTO**
+ * (`direct_ship`): el envío se cobra en el MISMO PaymentIntent que las cartas.
+ *
+ * ⚠️⚠️ **Aquí es donde el criterio 189 se gana o se pierde.** Hasta D56 esta función apilaba
+ * `round((S+E) × r)` **después** del precio exhibido. Ahora `S` y `E` llevan su IVA dentro y el total
+ * es `grossUpTotal(S + E)` — **ningún importe de IVA sumado después del precio exhibido**, que es
+ * literalmente lo que el criterio exige. Candados `IVA-2(b)` y `IVA-6`.
+ */
+export function computeDirectShipBreakdown(
+  subtotalCents: number,
+  shippingFeeCents: number,
+  ivaPct: number,
+  fee: StripeFeeConfig,
+): DirectShipBreakdownDTO {
+  return {
+    subtotalCents,
+    shippingFeeCents,
+    ivaRatePct: ivaPct,
+    currency: 'MXN',
+    ...inclusiveBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
+  };
+}
+
+/**
+ * ⭐⭐ **`netRevenueCents` — EL INGRESO PROPIO DE MERCANCÍA DE UNA FILA DE DINERO, y el ÚNICO lugar
+ * donde vive esa decisión** (`ARCHITECTURE §4.44.j`, criterio **191**).
+ *
+ * **El defecto que existe para evitar.** `admin.service.ts` hacía `incomeCents += o.subtotalCents`.
+ * Con `subtotalCents` llevando el IVA dentro, ese reporte **no revienta: MIENTE**, contando el
+ * impuesto que se le debe al SAT como ingreso propio. *Un reporte que revienta se arregla; uno que
+ * miente se cree.*
+ *
+ * ⭐⭐ **LA FÓRMULA ES `round(S/(1+r))`, ⛔ NO `S − ivaCents`, y la diferencia es de 2 800 por pedido
+ * con envío.** Bajo `IVA_INCLUSIVE`, `Order.ivaCents` es el residual del **AGREGADO** `G = S + E`
+ * (regla R2) ⇒ **incluye el IVA del envío**; restarlo entero del subtotal **le quita a la mercancía
+ * un IVA que no es suyo**. Con el caso real (`S = 11600`, `E = 20300`, `ivaCents = 4400`) daría
+ * **`7200`** donde son **`10000`**. Es el defecto que `ARCHITECTURE §9 · D-IVA-10` corrigió y que
+ * `IVA-9(b)` pone en rojo.
+ *
+ * ⛔ **Se deriva SOLO de columnas PERSISTIDAS de ESA fila.** ⛔ Nunca del dial vivo, ⛔ nunca de
+ * `ivaTransferPct`, ⛔ nunca recalculando desde el precio de lista. Por eso una orden de hace un año
+ * sigue aportando **exactamente** lo que aportaba, y por eso mover el dial **no puede** cambiar ni un
+ * centavo de un periodo ya cerrado (criterio **190**, candado `IVA-5` ⭐⭐).
+ */
+export function netRevenueCents(row: {
+  subtotalCents: number;
+  ivaRatePct: number;
+  priceConvention: PriceConvention;
+}): number {
+  // El IVA se cobró APARTE ⇒ el subtotal YA es el ingreso propio. Bit a bit lo de antes de D56.
+  // El IVA viaja DENTRO ⇒ el ingreso propio es la BASE GRAVABLE de la mercancía, por su propia base.
+  return ivaIsIncluded(row.priceConvention)
+    ? taxBaseCentsOf(row.subtotalCents, row.ivaRatePct)
+    : row.subtotalCents;
+}
+
+/**
+ * ⭐⭐ **`netShippingRevenueCents` — EL IVA DEL ENVÍO ES «EL RESIDUAL DEL RESIDUAL»**
+ * (`ARCHITECTURE §4.44.j.1`, candado **`IVA-9`**).
+ *
+ * ```
+ * ivaMercanciaCents = S − round(S / (1+r))         // el IVA de la mercancía, por su propia base
+ * ivaEnvioCents     = ivaCents − ivaMercanciaCents // ⭐ EL ENVÍO ABSORBE EL RESIDUO
+ * netShipping       = E − ivaEnvioCents
+ * ```
+ *
+ * ⭐ **La identidad, y es EXACTA — cero centavos de deriva:**
+ * `netRevenueCents + netShippingRevenueCents + ivaCents ≡ subtotalCents + shippingFeeCents`
+ * (`10000 + 17500 + 4400 = 31900 = 11600 + 20300`). **`IVA-9(a)` la asierta con ±0.**
+ *
+ * **Por qué el ENVÍO absorbe el centavo y no la mercancía:** (1) la mercancía ya tiene fórmula
+ * canónica y publicada (criterio 191) y es la cifra grande y auditada; (2) el envío es, por decisión
+ * del dueño (§4.44.f-bis), *«costo operativo trasladado, no una venta»* ⇒ es el sitio correcto para
+ * aparcar un centavo de asignación; (3) es **R3** un nivel más abajo: *el residual absorbe el
+ * redondeo, jamás la cifra autoritativa*.
+ *
+ * ⛔⛔ **PROHIBIDO RECALCULAR `Order.ivaCents` A PARTIR DE LAS PARTES.** La flecha va
+ * `ivaCents → partes`, **nunca** `partes → ivaCents`: `ivaCents` es **fiscal** y es la única fuente
+ * de la factura manual (criterio 192). `IVA-9(d)` lo mide alterando `ivaCents` a pelo en la BD y
+ * exigiendo que **esta** cifra se mueva y aquélla no.
+ *
+ * ⛔ **Y NO es `round(E/(1+r))`**, que es la mutación que `IVA-9` declara roja: repartir el IVA del
+ * envío por su cuenta puede diferir del residual agregado en ±1 centavo y rompe la identidad.
+ */
+export function netShippingRevenueCents(o: {
+  subtotalCents: number;
+  shippingFeeCents: number;
+  ivaCents: number;
+  ivaRatePct: number;
+  priceConvention: PriceConvention;
+}): number {
+  // Bajo `IVA_EXCLUSIVE` la tarifa persistida YA es neta (el IVA se apiló aparte, en `ivaCents`).
+  if (!ivaIsIncluded(o.priceConvention)) return o.shippingFeeCents;
+  const ivaMercanciaCents = o.subtotalCents - taxBaseCentsOf(o.subtotalCents, o.ivaRatePct);
+  const ivaEnvioCents = o.ivaCents - ivaMercanciaCents;
+  return o.shippingFeeCents - ivaEnvioCents;
+}
+
+/**
+ * ⭐ **El ingreso neto de una `ShipmentRequest` (retiro de bóveda), y por qué NO puede usar
+ * {@link netRevenueCents}.**
+ *
+ * **`ShipmentRequest` NO TIENE `ivaRatePct`** (medido: `schema.prisma`; solo `Order` lo tiene), así
+ * que `round(E/(1+r))` obligaría a leer **el dial VIVO** y entonces **un P&L histórico cambiaría el
+ * día que alguien mueva `iva_pct`** — que es exactamente lo que `IVA-5` prohíbe.
+ *
+ * ⇒ Se netea **por RESTA de columnas persistidas**: en esta fila `subtotalCents ≡ shippingFeeCents`
+ * (así lo escribe `computeShipmentBreakdown`) y por tanto `G = E` ⇒ `ivaCents` **es** el IVA del
+ * envío, entero, sin reparto que hacer. **`net = E − ivaCents = round(E/(1+r))`, exacto y sin leer
+ * ningún dial.** *El dato primario manda; la tasa se queda donde está congelada.*
+ *
+ * Las filas de **fulfillment** de `direct_ship` llevan `shippingFeeCents = 0` e `ivaCents = 0` a
+ * propósito (el ingreso vive en `Order.shippingFeeCents`) ⇒ aportan `0` bajo las dos convenciones.
+ */
+export function shipmentNetRevenueCents(s: {
+  shippingFeeCents: number;
+  ivaCents: number;
+  priceConvention: PriceConvention;
+}): number {
+  return ivaIsIncluded(s.priceConvention) ? s.shippingFeeCents - s.ivaCents : s.shippingFeeCents;
+}
+
+/**
+ * ⭐ **El COSTO NETO del envío: una RESTA, ⛔ jamás una división** (`API_CONTRACT §M10-IVA.8`,
+ * `ARCHITECTURE §4.44.f-ter`, candado **`IVA-11(c)`**).
+ *
+ * `shippingCostCents` es **BRUTO** —el importe TOTAL de la factura de la paquetería, IVA incluido, que
+ * es la cifra que trae el papel— y `shippingCostIvaCents` es el **IVA acreditable CONGELADO al
+ * capturar**. ⛔ Nunca `costo/(1+r)`: `ShipmentRequest` no tiene `ivaRatePct` y derivarlo haría que un
+ * P&L histórico cambiara al mover el dial (incumple `IVA-5`).
+ *
+ * **Filas históricas:** `shippingCostIvaCents = 0` ⇒ `neto = bruto`. Es la dirección **conservadora**
+ * (subestima la ganancia, no la infla) y dice la verdad: *«no consta crédito»*. ⛔ Sin backfill.
+ */
+export function netShippingCostCents(s: {
+  shippingCostCents: number;
+  shippingCostIvaCents: number;
+}): number {
+  return s.shippingCostCents - s.shippingCostIvaCents;
+}
+
+/**
  * Gross-up del total para que, tras la comisión Stripe (pct + fija) MÁS el IVA que
- * Stripe MX cobra sobre esa comisión, la plataforma reciba íntegro `baseCents`.
+ * Stripe MX cobra sobre esa comisión, la plataforma reciba íntegro `grossUpBaseCents`.
  *
  * C1: la deducción real de Stripe es `(1 + ivaFee) × (pct × total + fija)`. Resolviendo
  * `total − (1+ivaFee)(pct·total + fija) = base`:
@@ -530,7 +769,7 @@ export function netRevenueCents(row: {
  * lo traduce a `AMOUNT_TOO_LARGE` (422). El clamp UNITARIO de `clampCents` es red de última instancia
  * aparte; el agregado es la señal fuerte y visible (ver nota MS-3 en `clampCents`).
  */
-export function grossUpTotal(baseCents: number, fee: StripeFeeConfig): number {
+export function grossUpTotal(grossUpBaseCents: number, fee: StripeFeeConfig): number {
   const ivaMul = 1 + fee.stripeFeeIvaPct;
   if (fee.stripeFeeIvaPct < 0 || !Number.isFinite(fee.stripeFeeIvaPct)) {
     throw new Error('stripeFeeIvaPct must be a finite number >= 0');
@@ -540,7 +779,7 @@ export function grossUpTotal(baseCents: number, fee: StripeFeeConfig): number {
     throw new Error('effective stripe pct (stripePct × (1 + stripeFeeIvaPct)) must be in [0, 1)');
   }
   const effectiveFixed = fee.stripeFixedCents * ivaMul;
-  const total = Math.ceil((baseCents + effectiveFixed) / (1 - effectivePct));
+  const total = Math.ceil((grossUpBaseCents + effectiveFixed) / (1 - effectivePct));
   // MS-2: agregado no representable en Int32 → se RECHAZA (nunca se clampa: recortar = subcobro).
   if (total > MAX_CENTS) {
     throw new Error('total exceeds MAX_CENTS (Int32) — order amount not representable');

@@ -38,13 +38,89 @@
 /**
  * Devuelve `src` sin comentarios, **conservando los saltos de línea** para que los números de línea
  * y el análisis línea-a-línea sigan cuadrando con el fichero original.
+ *
+ * ### ⭐⭐ v2 (D56, 2026-09-14) — SE REESCRIBIÓ COMO AUTÓMATA, Y NO ES COSMÉTICA: LA v1 SE QUEDABA CIEGA
+ *
+ * **El defecto, medido, y lo encontró una prueba nueva al no ver código que sí existía.** La v1
+ * quitaba **primero** los bloques con una regex global y **después** las colas de línea. Con eso, una
+ * línea de comentario que contuviera la secuencia de apertura de bloque —p. ej.
+ * `// el dial viaja solo en /admin/*` — **abría un bloque que se comía el fichero** hasta el siguiente
+ * cierre. Medido: en `guest-checkout.service.ts` se tragó **la escritura de la columna
+ * `ivaTransferPct`**, y el censo de `iva-derivacion-cableada.spec.ts` reportó *«ese fichero no la
+ * emite»* — **un VERDE por ceguera** sobre una columna de dinero.
+ *
+ * ⚠️ **Y no era un caso de laboratorio:** el mismo patrón vive en **cuatro** ficheros más de `src/`
+ * (`uploads.service.ts` con `image/*`, `pricing.controller.ts` y `error-codes.ts` con `/admin/*` y
+ * `/checkout/guest/*`). *Un instrumento que deja de ver el código no falla: pasa.*
+ *
+ * **La v2 recorre el texto UNA vez con estados** —código, cadena `'`/`"`, plantilla `` ` ``,
+ * comentario de línea, comentario de bloque— así que el orden ya no decide nada: dentro de un `//`
+ * la secuencia de bloque es texto, y dentro de un bloque `//` es texto. **Y las cadenas se
+ * conservan**, que es lo correcto para un instrumento que busca literales en código.
+ *
+ * ⚠️ **Su límite, dicho y no escondido:** no distingue una división de una expresión regular
+ * (`a / b` vs `/re/`), así que un literal de regex que contenga `//` o la apertura de bloque podría
+ * confundirlo. ⛔ **No lo uses para decidir conducta de producción.** Es un instrumento de pruebas, y
+ * lo que cierra su límite es el canario (`strip-comments.spec.ts`).
  */
 export function stripComments(src: string): string {
-  // Bloques primero: pueden contener `//` dentro y abarcar varias líneas. Los saltos de línea del
-  // bloque se preservan (se sustituye cada carácter que no sea `\n` por nada, el `\n` se mantiene).
-  const noBlocks = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ''));
-  return noBlocks
-    .split('\n')
-    .map((line) => line.replace(/\/\/.*$/, ''))
-    .join('\n');
+  let out = '';
+  let i = 0;
+  // Estados mutuamente excluyentes. `codigo` es el implícito (ninguno activo).
+  let linea = false;
+  let bloque = false;
+  let comilla: "'" | '"' | '`' | null = null;
+
+  while (i < src.length) {
+    const c = src[i];
+    const d = src[i + 1];
+
+    if (linea) {
+      // Solo el salto de línea cierra un `//`. ⛔ La apertura de bloque aquí es TEXTO.
+      if (c === '\n') {
+        linea = false;
+        out += c;
+      }
+      i += 1;
+      continue;
+    }
+    if (bloque) {
+      // Solo el cierre de bloque lo cierra. Los saltos se preservan para no mover los números.
+      if (c === '*' && d === '/') {
+        bloque = false;
+        i += 2;
+        continue;
+      }
+      if (c === '\n') out += c;
+      i += 1;
+      continue;
+    }
+    if (comilla) {
+      out += c;
+      // Escape: el siguiente carácter es literal, incluida otra comilla o una barra.
+      if (c === '\\' && i + 1 < src.length) {
+        out += d;
+        i += 2;
+        continue;
+      }
+      if (c === comilla) comilla = null;
+      i += 1;
+      continue;
+    }
+    // --- código ---
+    if (c === '/' && d === '/') {
+      linea = true;
+      i += 2;
+      continue;
+    }
+    if (c === '/' && d === '*') {
+      bloque = true;
+      i += 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') comilla = c as "'" | '"' | '`';
+    out += c;
+    i += 1;
+  }
+  return out;
 }

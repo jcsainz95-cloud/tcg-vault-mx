@@ -11,7 +11,20 @@ import {
   SettingKey,
   SettingKeyType,
   validateBuylistCrossDials,
+  validateIvaTransferPct,
 } from './settings.constants';
+// ⭐⭐ v1.74 (D56, §M10-IVA.9 / §4.55) — la ARITMÉTICA de la puerta del dial, PURA y sin infra. Vive
+// aparte por el mismo motivo que la curva y la banda del FX: se asierta al centavo contra las cifras
+// que `PROJECT §Q.4` publica **sin levantar nada**. ⛔ Y entra aquí como función, no como lectura:
+// `getStripeFee()` sigue sin conocer `IVA_TRANSFER_PCT` (candado `IVA-7`).
+import {
+  IvaDials,
+  IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
+  IvaTransferPreviewDTO,
+  ivaTransferPreview,
+  lockIvaTransferGate,
+  validateAckSamplePriceCents,
+} from './iva-transfer';
 // v1.63 (§M2-F.1/§M2-F.5, §4.43c) — la regla del MODO de la FX. Se importa la función PURA de
 // `common/` (no `FxService`, que depende de este servicio): I-FX2 e I-FX4 aplican a las DOS puertas
 // que escriben `fx_manual_override_rate`, y ésta es una de las dos.
@@ -257,6 +270,247 @@ export class SettingsService implements OnModuleInit {
       // [0,100] → fracción). Matemáticamente idéntico al centavo (16/100 = 0.16); el neteo NO cambia.
       // La clave de BD `stripe_fee_iva_pct` queda inerte: NUNCA se lee (jamás cae a la fila vieja ni a 0).
       stripeFeeIvaPct: (await this.getNumber(SettingKey.IVA_PCT)) / 100,
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // ⭐⭐ LA PUERTA ÚNICA DEL DIAL DE TRASLACIÓN DEL IVA (§M10-IVA.1/.2/.9, §4.55, criterio 213)
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Lee el dial de traslación. ⛔ **No pasa por `SETTING_DTO_MAP`** —la clave sigue fuera del mapa a
+   * propósito (`IVA-8(b)`)— sino por la fila a pelo, exactamente como `getStripeFee()` lee `iva_pct`.
+   * **Son dos filas `ConfigSetting` independientes y ninguna deriva de la otra** (`IVA-7`).
+   */
+  async getIvaTransferPct(db: SettingRowReader = this.prisma): Promise<number> {
+    return this.getNumber(SettingKey.IVA_TRANSFER_PCT, db);
+  }
+
+  /**
+   * ⭐⭐ **LOS DOS DIALES QUE DERIVAN `P`, LEÍDOS JUNTOS Y UNA SOLA VEZ POR PETICIÓN**
+   * (`ARCHITECTURE §4.44.b/.c`, `API_CONTRACT §M10-IVA.3`).
+   *
+   * `P = round(L × (1 + t·r))` necesita **la TASA `r`** (`iva_pct`) y **la fracción trasladada `t`**
+   * (`iva_transfer_pct`). Se leen **por el mismo camino y en el mismo instante** para que el catálogo
+   * y el checkout no puedan derivar dos precios distintos por haber leído el dial en dos momentos.
+   *
+   * ⛔⛔ **Esto NO acopla `iva_pct` con `iva_transfer_pct`: siguen siendo dos filas independientes y
+   * ninguna deriva de la otra** (`IVA-7`). Leerlas juntas ⛔ no es derivar una de la otra. Y
+   * `getStripeFee()` **sigue sin contener una sola referencia a `IVA_TRANSFER_PCT`**: si el dial de
+   * traslación entrara en el cálculo de la comisión, **mover un precio movería una comisión**.
+   */
+  async getIvaDials(): Promise<IvaDials> {
+    // ⭐ **UNA query, no dos.** Este camino es **caliente**: lo recorre cada carga del catálogo y
+    // cada cotización. `getRawMany` trae las dos filas en un `findMany`; el fallback a
+    // `SETTING_DEFAULTS` es el mismo que hace `get()`, escrito aquí porque `getRawMany` —a propósito—
+    // distingue «la fila no existe» de «existe con el valor del seed».
+    const filas = await this.getRawMany([SettingKey.IVA_TRANSFER_PCT, SettingKey.IVA_PCT]);
+    const leer = (k: SettingKeyType) =>
+      Number(filas.has(k) ? filas.get(k) : SETTING_DEFAULTS[k]);
+    return {
+      ivaTransferPct: leer(SettingKey.IVA_TRANSFER_PCT),
+      ivaRatePct: leer(SettingKey.IVA_PCT),
+    };
+  }
+
+  /**
+   * ⭐ **El preview: lo que costaría mover el dial, EN PESOS, calculado POR EL SERVIDOR.**
+   *
+   * *Si el frontend computara el delta, el acuse probaría que el front sabe multiplicar, **no que el
+   * dueño vio el costo real**.* (`ARCHITECTURE §4.44.i`, criterio 188.)
+   *
+   * ⚠️ **Qué se lee con `db` y qué no, y por qué importa.** `iva_pct` (la TASA) y el dial vigente se
+   * leen **con el handle que se pase** —dentro de la puerta, el `tx`—, porque los dos entran en el
+   * `netDeltaPerUnitCents` que el acuse confirma. Los diales de **Stripe** se leen fuera: solo
+   * alimentan `totalChargedCents`, que es **informativo**, y ⛔ no participan en el delta. *Un acuse
+   * que caducara por un cambio de comisión enseñaría a reintentar sin leer.*
+   */
+  async previewIvaTransfer(
+    proposedPct: number,
+    samplePriceCents: number = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
+    db: SettingRowReader = this.prisma,
+  ): Promise<IvaTransferPreviewDTO> {
+    const [currentPct, ivaRatePct, fee] = await Promise.all([
+      this.getIvaTransferPct(db),
+      this.getNumber(SettingKey.IVA_PCT, db),
+      this.getStripeFee(),
+    ]);
+    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents, fee });
+  }
+
+  /**
+   * ⭐⭐ **La ESCRITURA del dial: la única, con acuse, transaccional y auditada.**
+   *
+   * El orden **es** la regla, y es el de `S-FX-1`: **candado → releer → validar el acuse → escribir →
+   * auditar dentro de la misma transacción**. Con la lectura fuera del candado, dos `PUT`
+   * concurrentes ven ambos el mismo vigente, los dos acuses cuadran, y el segundo commitea un valor
+   * cuyo costo en pesos **nunca se le mostró a nadie**.
+   *
+   * **Los CUATRO rechazos, y los cuatro ⛔ SIN ESCRIBIR** (§M10-IVA.2, candados `IVA-8(c)/(d)`,
+   * `IVA-14`):
+   *  - `422 VALIDATION_ERROR` — no entero o fuera de `[0,100]`; el `message` nombra los dos extremos.
+   *  - ⭐⭐ `422 VALIDATION_ERROR` — `acknowledgement.samplePriceCents` **distinto del `L` canónico**
+   *    `10_000` (`D-ACUSE-1`, `REL-A`). Se rechaza **ANTES de comparar el delta**, y de hecho antes
+   *    de entrar a la transacción: ni siquiera se toma el candado.
+   *  - `422 IVA_TRANSFER_ACK_REQUIRED` — **el valor CAMBIA** y falta el acuse (o uno de sus campos).
+   *  - `409 IVA_TRANSFER_ACK_STALE` — el delta confirmado no es el que el servidor recalcula.
+   *    `details: { expectedNetDeltaCents }`.
+   *
+   * ⭐⭐ **`D-ACUSE-1` — sobre qué se calcula el delta que el acuse confirma.** Sobre el `L`
+   * **canónico**, que fija el servidor; ⛔ **nunca** sobre el `samplePriceCents` del cuerpo. El
+   * pentester movió el dial `100 → 50` firmando `{ samplePriceCents: 1, previewedNetDeltaCents: 0 }`:
+   * con un `L` diminuto el delta **redondea a 0**, el acuse cuadraba, y el dial se movía habiendo
+   * «mostrado» **MX$0.00** cuando el costo real a MX$100 es **−690 centavos/unidad (~7 %)**.
+   *
+   * **Idempotencia:** un `PUT` con el valor vigente ⛔ **no pide acuse y no escribe** — no hay margen
+   * que ceder, así que no hay nada que acusar ni nada que auditar. *Una entrada de bitácora que dice
+   * «cambió de 100 a 100» es ruido que compite con las que sí importan.*
+   */
+  async setIvaTransferPct(
+    input: { ivaTransferPct: unknown; acknowledgement?: unknown },
+    actorUserId?: string,
+    auditWithin?: (
+      tx: Prisma.TransactionClient,
+      change: { before: number; after: number },
+    ) => Promise<void>,
+  ): Promise<{ ivaTransferPct: number; preview: IvaTransferPreviewDTO }> {
+    // (1) La forma del valor, ANTES de tocar nada. Mismo validador exacto que usaría el `PUT`
+    // genérico si la clave estuviera en el mapa — no hay una segunda regla para la misma columna.
+    const msg = validateIvaTransferPct(input.ivaTransferPct);
+    if (msg) {
+      throw BusinessException.validation('VALIDATION_ERROR', `ivaTransferPct ${msg}`, {
+        field: 'ivaTransferPct',
+      });
+    }
+    const proposedPct = input.ivaTransferPct as number;
+
+    // (2) La forma del ACUSE, también antes del candado: un acuse mal formado es `422` y no `409`.
+    // ⚠️ `ack` puede ser `undefined` legítimamente (caso idempotente); lo que ⛔ no puede es venir
+    // con basura dentro y colarse hasta la comparación como `NaN`, que cuadraría con nada y
+    // produciría un `409` que miente sobre la causa.
+    const ack = this.parseIvaTransferAck(input.acknowledgement);
+
+    const fee = await this.getStripeFee();
+
+    return this.prisma.$transaction(async (tx) => {
+      // (3) LA PUERTA. Se toma ANTES de leer el vigente: leer fuera es validar el estado de antes
+      // del candado, que es el defecto entero de `S-FX-1`.
+      await lockIvaTransferGate(tx);
+
+      const currentPct = await this.getIvaTransferPct(tx);
+      const ivaRatePct = await this.getNumber(SettingKey.IVA_PCT, tx);
+      // ⭐⭐ `D-ACUSE-1` (`ARCHITECTURE §4.56.1`, `REL-A`): **el `L` lo fija EL SERVIDOR**, y por eso
+      // aquí se lee la CONSTANTE y ⛔ no `ack.samplePriceCents`. No es una redundancia con el `422`
+      // de `validateAckSamplePriceCents` —que ya garantiza que son el mismo número—: es **la
+      // dirección del dato**. *Un acuse cuyo efecto confirmado depende de un argumento que viaja en
+      // la misma petición que lo confirma no es un control, es una casilla.* El campo del cuerpo
+      // sobrevive para dejar constancia auditada de sobre qué `L` se firmó, ⛔ no para decidirlo.
+      const samplePriceCents = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;
+      const preview = ivaTransferPreview({
+        currentPct,
+        proposedPct,
+        ivaRatePct,
+        samplePriceCents,
+        fee,
+      });
+
+      // (4) Idempotente: el valor no se mueve ⇒ ni acuse, ni escritura, ni bitácora.
+      if (proposedPct === currentPct) return { ivaTransferPct: currentPct, preview };
+
+      // (5) El acuse es OBLIGATORIO en cuanto el valor cambia. ⛔ La fila NO se escribe.
+      if (!ack) {
+        throw BusinessException.validation(
+          'IVA_TRANSFER_ACK_REQUIRED',
+          'changing ivaTransferPct requires `acknowledgement: { samplePriceCents, ' +
+            'previewedNetDeltaCents }` — the peso cost of the margin being given up must have been ' +
+            'shown before saving (PROJECT criterio 188)',
+          { field: 'acknowledgement' },
+        );
+      }
+
+      // (6) Y tiene que ser EL delta de ESTE movimiento, recalculado aquí dentro.
+      if (ack.previewedNetDeltaCents !== preview.netDeltaPerUnitCents) {
+        throw BusinessException.conflict(
+          'IVA_TRANSFER_ACK_STALE',
+          `acknowledged net delta ${ack.previewedNetDeltaCents} does not match the server's ` +
+            `recomputation for samplePriceCents=${samplePriceCents} and ivaTransferPct=` +
+            `${proposedPct} (current is ${currentPct})`,
+          { expectedNetDeltaCents: preview.netDeltaPerUnitCents },
+        );
+      }
+
+      await tx.configSetting.upsert({
+        where: { key: SettingKey.IVA_TRANSFER_PCT },
+        create: {
+          key: SettingKey.IVA_TRANSFER_PCT,
+          valueJson: proposedPct as unknown as object,
+          updatedBy: actorUserId,
+        },
+        update: { valueJson: proposedPct as unknown as object, updatedBy: actorUserId },
+      });
+
+      // Dentro del alcance del fallo: si la bitácora revienta, el dial revierte. Es imposible que
+      // exista uno sin el otro, en cualquier orden de fallo (misma doctrina que `update()`).
+      if (auditWithin) await auditWithin(tx, { before: currentPct, after: proposedPct });
+
+      return { ivaTransferPct: proposedPct, preview };
+    });
+  }
+
+  /**
+   * Normaliza el `acknowledgement` del body. `undefined`/ausente ⇒ `null` (lo interpreta el caller:
+   * es obligatorio solo si el valor cambia). Cualquier otra malformación ⇒ `422 VALIDATION_ERROR`.
+   *
+   * ⚠️ **Dónde corre esto, y es la mitad que `REL-A` hace obligatoria:** el caller lo invoca **antes
+   * de abrir la transacción**, así que el `422` de `samplePriceCents` llega **antes de tomar el
+   * candado, antes de releer el dial y antes de comparar el delta**. Un rechazo que ocurriera
+   * después de la comparación sería indistinguible de un `409` para quien lo lee, y —peor— habría
+   * corrido la aritmética con el `L` que eligió el llamante.
+   *
+   * ⚠️ **`previewedNetDeltaCents` se exige ENTERO y puede ser NEGATIVO** —de hecho, bajar el dial
+   * **siempre** da negativo: es margen cedido—. Un `-690.0` es entero en JS y se acepta; un `-690.5`
+   * no, porque el servidor jamás produce medio centavo y aceptarlo abriría una comparación que
+   * nunca cuadra por un motivo que no se ve.
+   */
+  private parseIvaTransferAck(
+    raw: unknown,
+  ): { samplePriceCents: number; previewedNetDeltaCents: number } | null {
+    if (raw === undefined || raw === null) return null;
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'acknowledgement must be an object { samplePriceCents, previewedNetDeltaCents }',
+        { field: 'acknowledgement' },
+      );
+    }
+    const obj = raw as Record<string, unknown>;
+    // ⚠️ Un acuse a medias (`{ samplePriceCents }` sin delta) NO es un acuse: el contrato lo manda
+    // al MISMO `422 IVA_TRANSFER_ACK_REQUIRED` que la ausencia total («falta `acknowledgement` o
+    // alguno de sus dos campos»), así que se trata como ausente y lo decide el caller.
+    if (obj.samplePriceCents === undefined || obj.previewedNetDeltaCents === undefined) return null;
+
+    const sampleMsg = validateAckSamplePriceCents(obj.samplePriceCents);
+    if (sampleMsg) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        `acknowledgement.samplePriceCents ${sampleMsg}`,
+        { field: 'acknowledgement.samplePriceCents' },
+      );
+    }
+    if (
+      typeof obj.previewedNetDeltaCents !== 'number' ||
+      !Number.isInteger(obj.previewedNetDeltaCents)
+    ) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'acknowledgement.previewedNetDeltaCents must be an integer number of cents (negative means ' +
+          'margin given up)',
+        { field: 'acknowledgement.previewedNetDeltaCents' },
+      );
+    }
+    return {
+      samplePriceCents: obj.samplePriceCents as number,
+      previewedNetDeltaCents: obj.previewedNetDeltaCents,
     };
   }
 

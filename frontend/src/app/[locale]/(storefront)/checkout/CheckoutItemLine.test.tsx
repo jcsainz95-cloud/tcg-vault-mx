@@ -59,6 +59,8 @@ const ZERO_BREAKDOWN = {
   processingFeeCents: 0,
   totalCents: 12500,
   currency: 'MXN' as const,
+  priceConvention: 'IVA_EXCLUSIVE' as const,
+  ivaIncluded: false,
 };
 
 function quote(card: OrderItemCardDTO): CheckoutQuoteResponse {

@@ -55,3 +55,32 @@ orquestador el 2026-09-10.
   commit lo lanza el orquestador**, con `git commit -- <sus rutas>` y un mensaje que diga que lo escribió el
   agente y que el orquestador lo verificó. No es un incumplimiento de O-10 por parte del agente: es que no
   tiene la herramienta. Esperar su commit es esperar algo que no puede ocurrir.
+
+## La tienda NUNCA ha procesado una venta real (dueño, 2026-09-14)
+
+Establecido por el dueño, literal: **«no hay pedidos viejos, la tienda no ha procesado ninguna venta
+real»**. No se re-pregunta.
+
+**Por qué está aquí y no en PENDIENTES:** borra de un plumazo una clase entera de restricciones de
+diseño que este proyecto ha estado respetando.
+
+- **El escalonado «deploy 1 / deploy 2» del IVA pierde su motivo.** El código dice literalmente que
+  bajo `IVA_EXCLUSIVE` «el P&L queda bit a bit el de hoy» (`common/money.ts:492`) y que la rama
+  `IVA_INCLUSIVE` «en el deploy 1 es INALCANZABLE» (`admin.service.ts:452`). Esa cautela existe para
+  no mover el desglose de pedidos ya cobrados. **Si no hay pedidos cobrados, no hay nada que no mover.**
+- **La pregunta «¿qué pasa con los pedidos viejos?» deja de existir.** No hay migración de datos, no
+  hay dos convenciones conviviendo en el historial, no hay factura emitida con un desglose que
+  contradiga el nuevo.
+- **Toda ficha que diga «cuidado con los pedidos vivos» hay que re-medirla** antes de enrutar trabajo
+  desde ella (O-5).
+
+⚠️ **Lo que este hecho NO dice:** no dice que la columna `Order.priceConvention` sobre, ni que el
+escalonado fuera un error. Dice que **su restricción ya no aplica**. Que el diseño siga siendo el
+correcto es una pregunta abierta, no una conclusión — y es exactamente lo que el dueño pidió revisar:
+*«puede que ya no sirva»*.
+
+**Medido por el orquestador el 2026-09-14**, sobre `ce7017b`, para acompañar el hecho:
+`priceConvention` es NOT NULL y sin `@default` en `schema.prisma:1160`; **siete** sitios de producción
+la escriben y **los siete** ponen `IVA_EXCLUSIVE`; **cero** escriben `IVA_INCLUSIVE`; no existe dial en
+`settings` que la cambie; y el frontend **no conoce** ni `ivaIncluded` ni `priceConvention`
+(`grep` ⇒ 0 fuera de pruebas).

@@ -169,7 +169,8 @@ describe('E2E — SEC-M43-1 / M-44: un ESTIMADO no puede destruir la referencia 
     expect(l).toBeDefined();
     expect(l!.priceBasis).toBe('market');
     expect(l!.referenceValue).toMatchObject({ referenceMxnCents: MERCADO_CENTS });
-    expect((l!.salePriceCents as number) > MERCADO_CENTS).toBe(true);
+    // ⭐ D56: `P` (con IVA dentro) sigue por encima del mercado, que es lo que este caso mide.
+    expect((l!.displayPriceCents as number) > MERCADO_CENTS).toBe(true);
     // Y el número del ataque no aparece en NINGUNA parte de la superficie pública de la carta.
     expect(JSON.stringify(body)).not.toContain(String(ESTIMADO_CENTS));
     // La ruta por-pieza dice lo mismo: la pieza es comprable.

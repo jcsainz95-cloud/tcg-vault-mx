@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { analizarFuente, codigoDe, exigirQueConserveElCodigo } from './strip-comments';
 
 /**
  * Candado del ARNÉS E2E (hallazgo de devops sobre IMPORTANTE-2).
@@ -30,11 +31,20 @@ function specFiles(dir: string): string[] {
  * cabecera del archivo y se mueve al reescribirla — que es justo lo que le pasó al candado nº2
  * (8 ocurrencias de `@real`, **3 de ellas en comentarios**). Lo que hay que medir es el
  * comportamiento del arnés, y el comportamiento está en el código.
- * (El `[^:]` evita comerse el `//` de una URL `http://…`.)
+ *
+ * ### ⚠️ Aquí vivía el limpiador v1, y estaba CIEGO en tres specs (medido 2026-09-14, `0e22415`)
+ *
+ * El v1 borraba los bloques con una regex global **antes** de quitar las colas de línea, así que un
+ * `//` que llevara la secuencia de apertura de bloque abría un bloque que se comía el archivo hasta
+ * el siguiente cierre. Medido sobre `e2e/`: **`buylist.spec.ts` (4 líneas), `master-set.spec.ts`
+ * (5) y `buylist-offer.spec.ts` (1)** quedaban fuera del alcance de los candados de este archivo.
+ *
+ * ⚠️ **Y este archivo tenía además el otro filo**: el `[^:]` que evitaba comerse el `//` de una URL
+ * no basta, y su propio `DECLARATION` (`:119`, con `['"` + backtick + `]`) desincroniza a cualquier
+ * limpiador que cuente comillas a mano. El limpiador nuevo no las cuenta: le pregunta al escáner de
+ * TypeScript qué es token y qué es trivia.
  */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-}
+const stripComments = (src: string, file: string): string => analizarFuente(src, file).limpio;
 
 describe('arnés E2E · el modo se pregunta UNA vez', () => {
   const e2eDir = join(__dirname, '..', '..', 'e2e');
@@ -44,7 +54,7 @@ describe('arnés E2E · el modo se pregunta UNA vez', () => {
       .filter((f) => {
         // Se ignoran los comentarios: la prohibición es sobre el CÓDIGO, y explicar por qué no se
         // usa la variable es exactamente lo que queremos que siga escrito.
-        return /process\.env\.E2E_REAL/.test(stripComments(readFileSync(f, 'utf8')));
+        return /process\.env\.E2E_REAL/.test(codigoDe(f));
       })
       .map((f) => f.split('/').pop()!);
     expect(
@@ -125,7 +135,7 @@ const DECLARATION =
  * candado más estricto, nunca uno más laxo.
  */
 function parseSpec(file: string): SpecSegment[] {
-  const code = stripComments(readFileSync(file, 'utf8'));
+  const code = codigoDe(file);
   const marks: { kind: 'describe' | 'test'; title: string; index: number }[] = [];
   DECLARATION.lastIndex = 0;
   for (let m = DECLARATION.exec(code); m !== null; m = DECLARATION.exec(code)) {
@@ -319,14 +329,73 @@ describe('arnés E2E · el estado compartido no deja tokens legibles', () => {
   });
 
   it('el `globalTeardown` purga la sesión SIEMPRE, aunque falle la restauración del dial', () => {
-    const src = stripComments(
-      readFileSync(join(__dirname, '..', '..', 'e2e', 'global-teardown.ts'), 'utf8'),
-    );
+    const src = codigoDe(join(__dirname, '..', '..', 'e2e', 'global-teardown.ts'));
     expect(src, 'el teardown ya no borra los tokens de la corrida').toMatch(/clearSessions\(\)/);
     // Fuera del `if (IS_REAL)` y en un `finally`: si restaurar el dial revienta (stack caído a
     // mitad), los tokens se borran igual. Es el caso en que más molesta dejarlos.
     expect(src, 'la purga tiene que estar en un `finally`, no colgando del camino feliz').toMatch(
       /finally\s*\{[\s\S]*clearSessions\(\)/,
     );
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * ⭐⭐ **EL CANARIO DEL LIMPIADOR DE ESTE ARCHIVO** — «un candado sin canario no está demostrado».
+ *
+ * Los tres candados de arriba miden **sobre el texto limpio**. Si el limpiador deja de ver un
+ * trozo, ninguno de ellos se pone rojo: **pasan**. Aquí se reintroduce el defecto que el candado
+ * nº1 vigila —un spec que le pregunta al entorno en vez de a `IS_REAL`— **en un archivo real y
+ * detrás de la trampa real**, y se exige el rojo.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe('arnés E2E · canario del limpiador', () => {
+  const e2eDir = join(__dirname, '..', '..', 'e2e');
+  /** El limpiador retirado, palabra por palabra, para poder medir contra él. */
+  const v1 = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('⭐ el v1 estaba ciego en specs REALES de `e2e/`; el limpiador de hoy no', () => {
+    const ciegosPorSpec = specFiles(e2eDir)
+      .map((f) => {
+        const src = readFileSync(f, 'utf8');
+        const lineas = src.split('\n');
+        const vivas = new Set(v1(src).split('\n').map((l) => l.trim()));
+        const perdidas = analizarFuente(src, f).lineasConCodigo.filter(
+          (n) => !vivas.has(lineas[n - 1].trim()),
+        );
+        return { f: f.split('/').pop()!, perdidas: perdidas.length };
+      })
+      .filter((x) => x.perdidas > 0);
+    // Medido 2026-09-14 sobre `0e22415`: buylist (4), master-set (5), buylist-offer (1).
+    expect(
+      ciegosPorSpec.length,
+      `specs que el v1 no miraba enteros: ${JSON.stringify(ciegosPorSpec)}`,
+    ).toBeGreaterThanOrEqual(3);
+    // Y el de hoy: `codigoDe` valida por contenido cada archivo que el candado va a mirar, así que
+    // si alguno se cegara, esto reventaría con el número de línea delante en vez de pasar.
+    for (const f of specFiles(e2eDir)) expect(() => codigoDe(f)).not.toThrow();
+  });
+
+  it('⛔ canario: `process.env.E2E_REAL` escondido tras un `//` con apertura de bloque SE VE', () => {
+    const spec = join(e2eDir, 'master-set.spec.ts');
+    const original = readFileSync(spec, 'utf8');
+    const lineas = original.split('\n');
+    const trasImports = lineas.findIndex((l) => l.trim() !== '' && !/^import\b/.test(l.trim()));
+    expect(trasImports, 'no se encontró dónde acaban los imports').toBeGreaterThan(0);
+    const mutado = [
+      ...lineas.slice(0, trasImports),
+      '// el dial del arnés viaja solo en /admin/*, no en un spec',
+      'const MODO_DEL_ARNES = process.env.E2E_REAL;',
+      ...lineas.slice(trasImports),
+    ].join('\n');
+
+    // ROJO exigido: el candado de hoy lo caza.
+    expect(stripComments(mutado, spec)).toMatch(/process\.env\.E2E_REAL/);
+    // Y la mitad que duele: con el v1, ese mismo defecto pasaba en VERDE.
+    expect(v1(mutado)).not.toMatch(/process\.env\.E2E_REAL/);
+    // El fichero mutado sigue parseando y el limpiador nuevo no pierde ni una línea suya.
+    expect(() =>
+      exigirQueConserveElCodigo(mutado, stripComments(mutado, spec), spec),
+    ).not.toThrow();
   });
 });

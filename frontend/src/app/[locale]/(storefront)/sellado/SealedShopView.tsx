@@ -14,6 +14,7 @@ import {
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { Select } from '@/components/ui/Select';
@@ -264,8 +265,16 @@ function SealedGroupTile({ group }: { group: SealedGroupSummaryDTO }) {
         <p className="tabular mt-3 text-base font-medium leading-none text-text">
           {formatMoneyCents(group.fromPriceCents, locale)}
         </p>
+        {/* ⛔ §M10-IVA.3 — `fromPriceCents` CONSERVA el nombre y CAMBIA el significado: bajo
+            `IVA_INCLUSIVE` **ya lleva el IVA dentro**. Por eso el sufijo ya no es el literal
+            `withoutIva`: lo dice `ivaIncluded`, que viaja por grupo. */}
         <p className="mt-1.5 font-mono text-[10px] leading-none text-muted">
-          {t('fromPrice')} · {t('withoutIva')}
+          {t('fromPrice')} ·{' '}
+          <IvaLabel
+            ivaIncluded={group.ivaIncluded}
+            ivaRatePct={group.ivaRatePct}
+            className="text-[10px] leading-none"
+          />
         </p>
         <StockBadge
           variant={stockVariantFromCount(group.availableCount)}

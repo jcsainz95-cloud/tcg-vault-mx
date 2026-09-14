@@ -2,6 +2,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * P-27 (v1.33-master-set-multipart, §4.31d) — STOREFRONT del master set combinado. Con fixtures:
@@ -97,7 +98,7 @@ describe('CatalogService.listSets / facets — plegado del master set combinado'
       },
       cardSet: { findMany: jest.fn() },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const { data } = await svc.listSets();
 
     // El subset NO aparece como entrada propia.
@@ -119,7 +120,7 @@ describe('CatalogService.listSets / facets — plegado del master set combinado'
       },
       cardSet: { findMany: jest.fn() },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const f = await svc.facets();
 
     expect(f.sets.map((s) => s.id)).toEqual(['sv08-local', 'cel25-local']); // 2024 antes que 2021
@@ -137,7 +138,7 @@ describe('CatalogService.listSets / facets — plegado del master set combinado'
         ]),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const { data } = await svc.listSets();
 
     expect(prisma.cardSet.findMany).toHaveBeenCalled();
@@ -163,7 +164,7 @@ describe('CatalogService.listCards — expansión de setId del principal', () =>
         }),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     const res = await svc.listCards({ setId: 'cel25-local', page: 1, pageSize: 20 });
 
     expect(captured.card.setId).toEqual({ in: ['cel25-local', 'cel25c-local'] });
@@ -182,7 +183,7 @@ describe('CatalogService.listCards — expansión de setId del principal', () =>
         }),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricing());
+    const svc = new CatalogService(prisma as PrismaService, pricing(), ivaDialsStub() as never);
     await svc.listCards({ setId: 'sv08-local', page: 1, pageSize: 20 });
 
     expect(captured.card.setId).toBe('sv08-local'); // string, no { in: [...] }

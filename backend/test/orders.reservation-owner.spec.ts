@@ -2,6 +2,7 @@ import { OrdersService } from '../src/modules/orders/orders.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 import {
   GUEST_ORDER_RESERVATION_TTL_MIN,
 } from '../src/modules/orders/guest-checkout.constants';
@@ -77,7 +78,8 @@ function buildOrders(stripe: Partial<Record<keyof StripeService, jest.Mock>> = {
   const svc = new OrdersService(
     prisma as PrismaService,
     {} as never,
-    {} as SettingsService,
+    // ⭐ D56: la derivación de `P` necesita los dos diales (§4.44.b). Neutro (t=100, r=16).
+    ivaDialsStub() as unknown as SettingsService,
     stripe as unknown as StripeService,
     {} as never,
   );
@@ -335,7 +337,8 @@ describe('SB-D7 · priceCartForQuote: `reservedUntil` desconocido es `null`, no 
     const svc = new OrdersService(
       prisma as PrismaService,
       pricing,
-      {} as SettingsService,
+      // ⭐ D56: la derivación de `P` necesita los dos diales (§4.44.b). Neutro (t=100, r=16).
+    ivaDialsStub() as unknown as SettingsService,
       {} as StripeService,
       {} as never,
     );

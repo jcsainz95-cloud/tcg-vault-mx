@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { t } from './utils/i18n';
+import { ivaLabelRe, t } from './utils/i18n';
 import { IS_REAL, MONEY_RE, loginAs, mockOnly } from './utils/auth';
 
 /**
@@ -166,7 +166,14 @@ test.describe('@real P-48 contra el stack vivo', () => {
     await page.goto(href);
     await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
     await expect(page.getByText(MONEY_RE).first()).toBeVisible();
-    await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
+    // ⚠️ **Este assert decía `common.withoutIva` («sin IVA») y quedó CADUCO con §M10-IVA.3.**
+    // `PROJECT.md §Q` (tabla de superficies) manda: *«Ficha de carta — precio grande y filas de
+    // variante · ¿Precio con IVA dentro? **SÍ**»*, y el contrato retira `salePriceCents` en favor
+    // de `displayPriceCents` + `ivaIncluded`. La UI pinta el rótulo INCLUSIVO porque el servidor
+    // manda `ivaIncluded:true` (medido contra el stack: `GET /catalog/cards` ⇒ `ivaIncluded:true`,
+    // `ivaRatePct:16`). El rojo era de la PRUEBA, no del producto — y afirmar «sin IVA» sobre una
+    // cifra que ya lo lleva dentro es exactamente la mentira que §M10-IVA existe para impedir.
+    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
   });
 
   test('@real el editor de la curva carga del servidor y el dry-run responde', async ({ page }) => {
