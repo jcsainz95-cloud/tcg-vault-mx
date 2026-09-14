@@ -710,8 +710,12 @@
 > `super_admin`), **DOS endpoints nuevos** (`GET /admin/settings/iva-transfer/preview` y
 > `PUT /admin/settings/iva-transfer`), **DTO nuevo** `IvaTransferPreviewDTO`, **dos códigos de error nuevos**
 > (`IVA_TRANSFER_ACK_REQUIRED` 422, `IVA_TRANSFER_ACK_STALE` 409) y **los OCHO candados `IVA-1…IVA-8`**.
-> **`ivaTransferPct` se LEE en `GET /admin/settings` y se RECHAZA en `PUT /admin/settings`** (`422`, clave
-> desconocida) — **mismo precedente exacto que `fxRateMode`**. El endpoint propio existe porque el criterio **188**
+> ~~**`ivaTransferPct` se LEE en `GET /admin/settings`**~~ **y se RECHAZA en `PUT /admin/settings`** (`422`, clave
+> desconocida) — **mismo precedente exacto que `fxRateMode`**.
+> *(🔴 **La mitad tachada la DEROGA v1.75, `N-IVA9-2`** — y la deroga **el precedente que ella misma invoca**:
+> `fxRateMode` **tampoco** sale en ese `GET`. **Lectura del dial: solo `GET /admin/settings/iva-transfer`.** Ver
+> §M10-IVA.1 y el candado `IVA-8(f)`.)*
+> El endpoint propio existe porque el criterio **188**
 > dice *«falla si el dial se puede guardar sin que la cifra en pesos se haya mostrado»*, y **una norma que solo vive
 > en la UI no se puede poner roja desde el servidor**: el `PUT` **exige acuse** del delta que el servidor recalcula
 > (patrón de `acknowledgeNoAutomaticRate`, `FX-12`).
@@ -5493,7 +5497,10 @@
   `details: { expectedNetDeltaCents }`; **sin escritura parcial**). **No** introduce ningún otro código: el resto
   reusa **`422 VALIDATION_ERROR`** (`ivaTransferPct` no entero —p. ej. `37.5`— o fuera de `[0, 100]`, con el
   `message` **nombrando los dos extremos**; y **`ivaTransferPct` enviado a `PUT /admin/settings`**, que es clave
-  desconocida en **ese** endpoint, mismo precedente que `fxRateMode`). ⛔ **Ninguno de los dos aparece jamás en
+  desconocida en **ese** endpoint, mismo precedente que `fxRateMode`). ⭐ **v1.75 — y el `/preview` añade un `400
+  VALIDATION_ERROR`, no un `422`**, porque sus dos ejes viajan en **query** y no en el cuerpo (§0-Q punto 2, *«es
+  query, no cuerpo»*). ⛔ **Que el MISMO valor inválido dé `400` en el `GET` y `422` en el `PUT` es correcto y no se
+  «armoniza»**: son dos superficies distintas y la doctrina ya está decidida. ⛔ **Ninguno de los dos aparece jamás en
   superficie de cliente**: el dial no viaja fuera de `/admin/*`. Candado `IVA-8`.
 - **Códigos nuevos del MODO del tipo de cambio (v1.63 — detalle en [`§M2-F`](#M2-F)):** `422 FX_MANUAL_RATE_MISSING`
   (`PUT /admin/fx/mode {mode:"manual"}` **sin** tasa manual guardada: no hay número al que volver — `details:
