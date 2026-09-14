@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { SELL_REQUEST_LIVE_STATES } from '../../common/sell-request-states';
@@ -29,6 +29,10 @@ import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
 import { toAddressDTO } from '../users/address-dto';
 import { netRevenueCents } from '../../common/money';
+// v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
+// `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { kycRejectedTemplate } from './mail/kyc-notice.templates';
 import {
   MIN_PASSWORD_LENGTH,
   isStrongPassword,
@@ -633,6 +637,9 @@ export class AdminService {
     private readonly pricing: PricingService,
     private readonly pii: PiiCryptoService,
     private readonly uploads: UploadsService,
+    // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y el envío es
+    // best-effort: ⛔ un fallo del correo NO puede hacer fallar `PATCH /admin/users/:id/kyc`.
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -1131,6 +1138,14 @@ export class AdminService {
       reviewedBy: actorUserId ?? null,
       ...(kycStatus === 'verified' ? { verifiedBy: actorUserId, verifiedAt: now } : {}),
       ...(isRejection ? { verifiedAt: null } : {}),
+      // ⭐⭐ v1.74 (§R.4.a, criterio 205) — **EL CICLO DEL AVISO SE REINICIA AQUÍ, mitad 2 de 2.**
+      // La decisión que pasa a `verified` o a `none` **deshace el rechazo** ⇒ lo que el aviso
+      // afirmaba **dejó de ser verdad** ⇒ el sello se limpia y un rechazo futuro vuelve a avisar.
+      // ⛔ **Un segundo rechazo consecutivo NO lo limpia**: dos rechazos sin resubida ⇒ **UN** correo
+      // (y el portal muestra el motivo NUEVO, que el `upsert` ya sobrescribe). La mitad 1 vive en
+      // `users.service.ts`, en el MISMO bloque que ya limpia `rejectionReason`/`reviewedAt`/
+      // `reviewedBy` — ⛔ no se escribe un tercer sitio.
+      ...(isRejection ? {} : { kycRejectionNoticeSentAt: null }),
     };
     const row = await this.prisma.kycProfile.upsert({
       select: ADMIN_KYC_SELECT,
@@ -1138,7 +1153,60 @@ export class AdminService {
       create: { userId: id, ...decision },
       update: decision,
     });
+    // ⭐ `AV-1` (§R.3) — POST-COMMIT y best-effort. ⛔ El sello se reclama FUERA del `upsert`: dentro
+    // ataría la decisión de un operador al estado de un proveedor de correo.
+    if (isRejection) await this.notifyKycRejected(id, trimmedReason as string);
     return toAdminKycDTO(row);
+  }
+
+  /**
+   * ⭐⭐ **`AV-1` — `D-AVISO-2` en su caso más delicado: el ÚNICO de los once SIN guarda de motor.**
+   *
+   * `updateUserKyc` hace `upsert` y **no mira el estado actual**, así que rechazar N veces seguidas
+   * escribe N decisiones válidas. Hoy eso es inofensivo **por el motivo equivocado** —porque no se
+   * manda nada—; en cuanto existe el correo son **N correos en un minuto**, y quien los reciba no va
+   * a pensar «qué sistema tan comunicativo».
+   *
+   * ```
+   * UPDATE KycProfile SET kycRejectionNoticeSentAt = now()
+   *   WHERE userId = :id AND kycRejectionNoticeSentAt IS NULL
+   *      count === 1 ⇒ se manda        count === 0 ⇒ ⛔ NO se manda
+   * ```
+   * **Destinatario:** `User.email` del `:id` (§R.5), resuelto **por id**. ⛔ Nunca una cuenta
+   * anonimizada (§R.5.a): ya no es de nadie.
+   * **Best-effort:** todo va dentro del `try` —incluida la lectura del usuario—, porque una consulta
+   * sin red en el camino de un `PATCH` convierte un hipo de la BD en un `500` sobre una decisión que
+   * **ya está escrita**.
+   */
+  private async notifyKycRejected(userId: string, reason: string): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`kyc rejection mail skipped for ${userId}: MAIL_PORT unavailable`);
+        return;
+      }
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true, locale: true, anonymizedAt: true },
+      });
+      if (!user?.email || user.anonymizedAt) {
+        this.logger.warn(`kyc rejection mail skipped for ${userId}: no recipient email`);
+        return;
+      }
+      const sealed = await this.prisma.kycProfile.updateMany({
+        where: { userId, kycRejectionNoticeSentAt: null },
+        data: { kycRejectionNoticeSentAt: new Date() },
+      });
+      // ⚠️ `count === 0` ⇒ **ya se avisó de este ciclo**: el cliente no ha resubido nada, así que el
+      // segundo rechazo NO produce un segundo correo (criterio 205(a)). El motivo nuevo sí le llega:
+      // lo lee en el portal, que siempre tiene el dato — esa es la red de seguridad del mecanismo.
+      if (sealed.count !== 1) return;
+      const msg = kycRejectedTemplate({ reason }, user.name ?? '', user.locale);
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `kyc rejection mail failed for ${userId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /**

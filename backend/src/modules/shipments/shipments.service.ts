@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   Address,
   Card,
@@ -19,6 +19,13 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { computeShipmentBreakdown } from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
+import {
+  ShipmentNoticeParams,
+  shipmentCancelledTemplate,
+  shipmentGuideTemplate,
+  shipmentShippedTemplate,
+} from './mail/shipment-notice.templates';
 
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
 const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(ShipmentStatus);
@@ -70,6 +77,10 @@ export class ShipmentsService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly stripe: StripeService,
+    // v1.74 (§R) — el correo de los avisos `AV-4`/`AV-5`/`AV-6`. `@Optional()` por el MISMO motivo
+    // que en `buylist` y en `orders`: los tests unitarios legacy construyen el servicio a mano, y el
+    // envío es **best-effort** (⛔ jamás puede hacer fallar el `PATCH`/`POST` que lo dispara).
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
 
   private async breakdown() {
@@ -567,7 +578,7 @@ export class ShipmentsService {
     // único discriminador canónico del sistema (ARCHITECTURE §4.21d).
     const isDirectShip = await this.isDirectShipFulfillment(shipment);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.shipmentRequest.update({ where: { id }, data });
 
       if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
@@ -630,8 +641,52 @@ export class ShipmentsService {
       }
       return toAdminShipmentRow(updated); // S49-R4
     });
+    // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort: el correo cuelga del hecho, y el hecho
+    // no cuelga del correo. ⛔ Un fallo del proveedor no revierte la transición ni tumba el `PATCH`.
+    await this.notifyStatus(shipment, to);
+    return result;
   }
 
+  /**
+   * ⭐⭐ v1.74 — **`D-AV-1` CERRADA: la captura de guía ya NO REGRESA EL ESTADO** (`ARCHITECTURE §9`).
+   *
+   * ### El defecto, medido
+   * Este método escribía `data: { carrier, trackingNumber, status: 'guia', … }`
+   * **incondicionalmente**: no consultaba `TRANSITIONS`, no comparaba el estado actual y no tenía
+   * guarda de motor — a diferencia de su hermano `updateStatus`, que sí la tiene. ⇒ capturar una
+   * guía sobre un envío **`entregado`** o **`cancelado`** lo **devolvía a `guia`**.
+   * **Y no era solo una omisión del código:** `API_CONTRACT §M4` afirma de este endpoint, desde
+   * v1.4-finance, que es *«idempotente sobre carrier/tracking; **no regresa el estado si ya está en
+   * `guia`/posterior**»*. Era una línea de contrato que el código no cumplía.
+   * *Un envío entregado que reaparece en la cola de guías es una **cola falsa**, y el fallo se ve
+   * mientras que la cola falsa no.*
+   *
+   * ### La regla, entera, y de dónde sale cada mitad
+   * | estado actual | qué hace | de dónde sale |
+   * |---|---|---|
+   * | `solicitado`, `picking` | escribe etiqueta **y** `status:'guia'` | `TRANSITIONS` (avance legal) |
+   * | `guia`, `enviado`, `entregado` | escribe etiqueta, ⛔ **NO toca `status`** | §M4, literal |
+   * | `cancelado` | **`409 CONFLICT`**, cero escritura | `TRANSITIONS['cancelado'] = []` |
+   *
+   * ⚠️ **Las dos decisiones que NO son mías y se declaran** (`ARCHITECTURE §9` las enruta al
+   * arquitecto, y este pase toma la lectura **más conservadora** de cada una):
+   *  1. **`entregado` responde `200` y no `409`** porque el contrato dice *«no regresa el estado»*,
+   *     no *«rechaza»*: corregir el número de una guía de un paquete ya entregado es legítimo (una
+   *     devolución, una reclamación al transportista) y lo único prohibido era **el retroceso**.
+   *  2. **`cancelado` sí responde `409`**, por paridad con `updateStatus` y porque de `cancelado` no
+   *     sale ninguna transición: escribirle una etiqueta a un envío que no va a salir es la cola
+   *     falsa otra vez. ⚠️ **Es el único rechazo NUEVO de este pase**, y ⛔ no cierra un camino que
+   *     la pantalla ofrezca: medido, `M4View.tsx` **oculta el botón de captura** en `cancelado` y en
+   *     `entregado`. Si el arquitecto prefiere otro código, es una línea.
+   *
+   * ### `AV-4` — el correo de la guía, y por qué cuelga de AQUÍ (§R.3.a)
+   * Éste es el **único** camino que garantiza `carrier` **y** `trackingNumber`. El `PATCH /status
+   * { to:'guia' }` es legal desde `picking` y los deja en `null` (`D-AV-2`, abierta) ⇒ colgar el
+   * correo del **estado** mandaría una guía **sin número**.
+   * **Una sola vez (`D-AVISO-2`):** el sello `trackingNoticeSentAt`, que se **limpia en esta misma
+   * escritura** si y solo si el par `(carrier, trackingNumber)` queda **DISTINTO** (§R.4.b) ⇒
+   * re-capturar el mismo número **no reenvía**; corregirlo **sí avisa**.
+   */
   async setTracking(
     id: string,
     carrier: string,
@@ -640,18 +695,185 @@ export class ShipmentsService {
   ) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
+    const allowed = ShipmentsService.TRANSITIONS[shipment.status] ?? [];
+    // `guia` alcanzable ⇒ la captura AVANZA. Ya en `guia`/posterior ⇒ se conserva el estado. De un
+    // terminal del que no sale nada y que no es `guia`/posterior (`cancelado`) ⇒ 409.
+    const advances = allowed.includes('guia');
+    const alreadyAtOrPastGuia = ShipmentsService.GUIA_OR_LATER.includes(shipment.status);
+    if (!advances && !alreadyAtOrPastGuia) {
+      throw BusinessException.conflict(
+        'CONFLICT',
+        `Cannot capture a tracking label on a ${shipment.status} shipment`,
+        { status: shipment.status },
+      );
+    }
+    // §R.4.b — el ciclo del aviso se reinicia por VALOR, no por evento, y **en la misma escritura**
+    // que cambia la etiqueta: una re-captura idempotente no avisa de nada, y un correo con un número
+    // que ya no existe es peor que no haber mandado ninguno.
+    const labelChanged =
+      shipment.carrier !== carrier || shipment.trackingNumber !== trackingNumber;
     // S49-R4: proyectado (antes devolvía la entidad `ShipmentRequest` cruda).
-    return toAdminShipmentRow(
+    const row = toAdminShipmentRow(
       await this.prisma.shipmentRequest.update({
         where: { id },
         data: {
           carrier,
           trackingNumber,
-          status: 'guia',
+          ...(advances ? { status: 'guia' as ShipmentStatus } : {}),
+          ...(labelChanged ? { trackingNoticeSentAt: null } : {}),
           // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
           ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
         },
       }),
     );
+    // ⛔ POST-COMMIT y best-effort: el sello se reclama FUERA de la escritura de negocio. Meterlo
+    // dentro haría que un fallo del correo pudiera revertir la captura de una etiqueta ya comprada.
+    await this.claimAndNotify(id, 'trackingNoticeSentAt', shipment, (l, p) =>
+      shipmentGuideTemplate({ ...p, carrier, trackingNumber }, l),
+    );
+    return row;
+  }
+
+  // ===============================================================================================
+  // §R — LOS TRES AVISOS DE ENVÍO. **Best-effort, post-commit, y jamás propagan** (§R.4).
+  // ===============================================================================================
+
+  /** Estados en los que el envío **ya está en `guia` o más allá** (§M4: «no regresa el estado»). */
+  private static readonly GUIA_OR_LATER: readonly ShipmentStatus[] = ['guia', 'enviado', 'entregado'];
+
+  /**
+   * ⭐ **§R.5 — RESOLUCIÓN DEL DESTINATARIO.** *Un correo mandado al inbox equivocado no es un aviso:
+   * es una fuga.* El orden es exacto y no es negociable:
+   * ```
+   * 1. shipment.userId != null  →  User.email                             // retiro de BÓVEDA
+   * 2. shipment.orderId != null →  order.guestEmail ?? order.user.email   // fulfillment de un pedido
+   * 3. ninguno                  →  ⛔ NADA + log.warn                      // estado imposible
+   * ```
+   * - ⭐ **`guestEmail` GANA cuando existe, incluso si el pedido fue RECLAMADO** (`claimedAt != null`):
+   *   es la dirección con la que compró y a la que ya le llegó la confirmación. Precedente idéntico y
+   *   deliberado: el reenvío del enlace de seguimiento ya va *siempre* a `Order.guestEmail`.
+   * - ⛔ **Jamás se toma la dirección del `addressSnapshot`, ni del body, ni de una sesión**: se
+   *   resuelve **por id**.
+   * - ⛔ **No se escribe a un `User` con `anonymizedAt != null`** (§R.5.a): una cuenta anonimizada ya
+   *   no es de nadie, y escribirle es mandar datos de una persona a una dirección que el borrado
+   *   debía cerrar.
+   */
+  private async resolveRecipient(
+    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>,
+  ): Promise<{ email: string; locale: string | null; orderNumber: string | null } | null> {
+    if (shipment.userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: shipment.userId },
+        select: { email: true, locale: true, anonymizedAt: true },
+      });
+      if (!user || user.anonymizedAt) return null;
+      return { email: user.email, locale: user.locale, orderNumber: null };
+    }
+    if (shipment.orderId) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: shipment.orderId },
+        select: {
+          orderNumber: true,
+          guestEmail: true,
+          locale: true,
+          user: { select: { email: true, locale: true, anonymizedAt: true } },
+        },
+      });
+      if (!order) return null;
+      if (order.guestEmail) {
+        return {
+          email: order.guestEmail,
+          locale: order.locale ?? order.user?.locale ?? null,
+          orderNumber: order.orderNumber,
+        };
+      }
+      if (!order.user || order.user.anonymizedAt) return null;
+      return {
+        email: order.user.email,
+        locale: order.locale ?? order.user.locale,
+        orderNumber: order.orderNumber,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * `D-AVISO-2` — **SE SELLA Y LUEGO SE ENVÍA.** La reclamación es una escritura condicional y solo
+   * la ganadora manda el correo:
+   * ```
+   * UPDATE … SET <sello> = now() WHERE id = :id AND <sello> IS NULL  →  count === 1 ⇒ mandar
+   *                                                                  →  count === 0 ⇒ ⛔ salir
+   * ```
+   * ⚠️ **El precio se dice entero:** si el envío falla **después** de sellar, ese correo **no vuelve
+   * a salir**. Se acepta a propósito —es la misma decisión que el barrido ya tomó— y la red de
+   * seguridad es **la pantalla**, que siempre tiene el dato.
+   * `sealField = null` ⇒ el aviso NO tiene sello porque su «una sola vez» la da el MOTOR (`AV-5` y
+   * `AV-6`: la tabla `TRANSITIONS`). ⛔ Un sello por evento, jamás una marca global.
+   */
+  private async claimAndNotify(
+    id: string,
+    sealField: 'trackingNoticeSentAt' | null,
+    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId'>,
+    build: (locale: string | null, params: ShipmentNoticeParams) => Omit<MailMessage, 'to'>,
+  ): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`shipment mail skipped for ${id}: MAIL_PORT unavailable`);
+        return;
+      }
+      const to = await this.resolveRecipient(shipment);
+      if (!to) {
+        // §R.5.a — se loggea y se sale. ⛔ No se sustituye por un destinatario «parecido».
+        this.logger.warn(`shipment mail skipped for ${id}: no recipient email`);
+        return;
+      }
+      if (sealField) {
+        const sealed = await this.prisma.shipmentRequest.updateMany({
+          where: { id, [sealField]: null },
+          data: { [sealField]: new Date() },
+        });
+        if (sealed.count !== 1) return; // ya se avisó de este hecho: ⛔ no se manda un segundo correo.
+      }
+      const msg = build(to.locale, {
+        shipmentId: id,
+        orderNumber: to.orderNumber,
+      });
+      await this.mail.send({ ...msg, to: to.email });
+    } catch (e) {
+      // ⛔ NUNCA propaga: un fallo de correo no revierte una transición ni tumba el endpoint.
+      this.logger.error(
+        `shipment mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * ⭐⭐ **Criterio 210, y se verifica POR EXCESO Y POR DEFECTO: DOS correos de envío y NINGUNO al
+   * entregar.** Este `switch` es la forma verificable de esa frase — `entregado` **no tiene rama**, y
+   * su ausencia es la mitad que falla por exceso. *No se añade «porque parecía razonable»:
+   * el dueño lo confirmó explícitamente (pregunta 74) con el contraargumento delante.*
+   *
+   * **Una sola vez, sin estrenar columna:** la da el MOTOR — `TRANSITIONS` sólo llega a `enviado`
+   * desde `guia`, y de `cancelado` no se sale (`TRANSITIONS['cancelado'] = []`).
+   */
+  private async notifyStatus(
+    shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId' | 'carrier' | 'trackingNumber'>,
+    to: ShipmentStatus,
+  ): Promise<void> {
+    if (to === 'enviado') {
+      await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
+        shipmentShippedTemplate(
+          { ...p, carrier: shipment.carrier, trackingNumber: shipment.trackingNumber },
+          l,
+        ),
+      );
+      return;
+    }
+    if (to === 'cancelado') {
+      await this.claimAndNotify(shipment.id, null, shipment, (l, p) =>
+        shipmentCancelledTemplate(p, l),
+      );
+    }
+    // ⛔ `entregado`, `picking`, `guia`, `solicitado`: CERO correos (criterio 210 / §R.7).
   }
 }

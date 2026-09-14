@@ -17,7 +17,13 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
   function buildService() {
     const prisma: any = {
       shipmentRequest: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'ship1' }),
+        // ⚠️ v1.74 (`D-AV-1`): la fila trae AHORA `status` y la etiqueta previa. Antes era
+        // `{ id: 'ship1' }` a secas, y ese fixture dejó de ser válido el día que `setTracking`
+        // empezó a consultar `TRANSITIONS` — que es exactamente el defecto que cerró. *Un fixture
+        // sin el campo que la regla mira no prueba la regla: la esquiva.*
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'ship1', status: 'picking', carrier: null, trackingNumber: null }),
         update: jest.fn().mockImplementation(({ data }) => ({ id: 'ship1', ...data })),
       },
     };
@@ -34,7 +40,15 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 9000);
     expect(prisma.shipmentRequest.update).toHaveBeenCalledWith({
       where: { id: 'ship1' },
-      data: { carrier: 'DHL', trackingNumber: 'TRACK123', status: 'guia', shippingCostCents: 9000 },
+      data: {
+        carrier: 'DHL',
+        trackingNumber: 'TRACK123',
+        status: 'guia',
+        // v1.74 (§R.4.b): la etiqueta CAMBIÓ (la fila venía sin ella) ⇒ el sello del aviso se
+        // limpia **en la misma escritura**, que es lo que hace que corregir un número sí avise.
+        trackingNoticeSentAt: null,
+        shippingCostCents: 9000,
+      },
     });
   });
 

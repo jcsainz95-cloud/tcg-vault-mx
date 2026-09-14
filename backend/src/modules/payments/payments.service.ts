@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { MovementReason, Order, OrderItem, Prisma } from '@prisma/client';
 import Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,6 +7,13 @@ import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
+// v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
+// LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import {
+  orderRefundedTemplate,
+  orderSettledTemplate,
+} from '../orders/mail/order-notice.templates';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -24,7 +31,84 @@ export class PaymentsService {
     private readonly guestMail: GuestOrderMailService,
     // B3 (v1.21.2): las anomalías de inventario al liquidar quedan en la bitácora, no solo en logs.
     private readonly audit: AuditService,
+    // v1.74 (§R): `@Optional()` — los tests unitarios construyen este servicio a mano, y sobre todo:
+    // ⛔ **un fallo de correo NUNCA puede hacer que el webhook de Stripe responda != 2xx** (un 5xx
+    // haría que Stripe reintentara un settle ya aplicado). Candado `C-AV-10`.
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
+
+  /**
+   * ⭐ **§R — el envoltorio best-effort de los dos avisos de pedido.** Post-commit, nunca propaga, y
+   * ⛔ **nunca loguea el correo del destinatario**. Mismo régimen que `GuestOrderMailService`, que es
+   * el precedente vivo: *«un 5xx haría que Stripe reintentara un settle ya aplicado»*.
+   */
+  private async safeNotify(
+    orderId: string,
+    build: () => Promise<{ to: string; subject: string; html: string; text: string } | null>,
+  ): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`order notice mail skipped for ${orderId}: MAIL_PORT unavailable`);
+        return;
+      }
+      // ⚠️⚠️ **LA RESOLUCIÓN DEL DESTINATARIO VA DENTRO DEL `try`, Y NO ES DETALLE.** Resolverla
+      // fuera dejaba una consulta a la BD en el camino del webhook **sin red**: un fallo suyo
+      // propagaba, el webhook respondía != 2xx y **Stripe reintentaba un settle ya aplicado**. Es
+      // exactamente lo que `C-AV-10` mide, y se descubrió porque dos specs con un mock sin
+      // `prisma.user` se pusieron rojos — *el mock incompleto era el canario del fallo real*.
+      const msg = await build();
+      if (!msg) return;
+      await this.mail.send(msg);
+    } catch (e) {
+      this.logger.error(
+        `order notice mail failed for ${orderId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * ⭐⭐ **`AV-2` — LA NEGACIÓN EXACTA DEL `if (!order.guestEmail) return null`** (§R.5, criterio 200).
+   *
+   * Se manda **si y solo si** `guestEmail == null` **y** `userId != null`. Las dos mitades importan:
+   * la primera garantiza que **ningún pedido reciba dos confirmaciones** (criterio **206**, que falla
+   * por exceso); la segunda, que no se intente escribir a un pedido sin dueño.
+   * ⛔ **Y no se le escribe a una cuenta anonimizada** (§R.5.a).
+   * **Una sola vez, sin columna:** el early-return por `status === 'settled'` del settle ⇒ un
+   * reintento de Stripe no duplica.
+   */
+  private async notifyOrderSettled(order: Order & { items: OrderItem[] }): Promise<void> {
+    if (order.guestEmail || !order.userId) return;
+    await this.safeNotify(order.id, async () => {
+      const user = await this.prisma.user.findUnique({
+        where: { id: order.userId as string },
+        select: { email: true, locale: true, anonymizedAt: true },
+      });
+      if (!user?.email || user.anonymizedAt) {
+        this.logger.warn(`order notice mail skipped for ${order.id}: no recipient email`);
+        return null;
+      }
+      return {
+        // ⛔ La plantilla recibe CAMPOS SUELTOS, jamás la fila: `Order.ivaTransferPct` es una
+        // columna, y un correo que renderizara «la orden» lo filtraría solo (criterio 209).
+        ...orderSettledTemplate(
+          {
+            orderNumber: order.orderNumber ?? '',
+            items: order.items.map((oi) => {
+              const snap = readFrozenCardFacts(oi.cardSnapshot);
+              return {
+                name: snap.name ?? '',
+                setName: snap.setName ?? '',
+                number: snap.number ?? '',
+              };
+            }),
+            totalCents: order.totalCents,
+          },
+          order.locale ?? user.locale,
+        ),
+        to: user.email,
+      };
+    });
+  }
 
   verifyAndParse(payload: Buffer, signature: string): Stripe.Event {
     return this.stripe.constructEvent(payload, signature);
@@ -202,6 +286,10 @@ export class PaymentsService {
             this.logger.error(`No se pudo auditar la anomalía de settle: ${(e as Error).message}`),
           );
       }
+      // v1.74 (§R) — `AV-2`, POST-COMMIT y best-effort. Las DOS ramas del settle lo mandan (bóveda
+      // aquí, `direct_ship` en `settleDirectShipOrder`): el criterio 200 no distingue por ruta de
+      // fulfillment, distingue por **quién recibe**.
+      await this.notifyOrderSettled(order);
       return;
     }
     // ¿Es el pago de un envío? Avanza a picking.
@@ -385,6 +473,10 @@ export class PaymentsService {
       .catch((e: unknown) =>
         this.logger.error(`guest confirmation mail failed for ${order.id}: ${(e as Error).message}`),
       );
+    // v1.74 (§R) — `AV-2` para el pedido de envío directo **de un cliente REGISTRADO**. Los dos
+    // envíos son mutuamente excluyentes por construcción (`guestEmail` poblado ⇔ el de arriba;
+    // `guestEmail` nulo ⇔ éste), así que ⛔ nadie recibe dos confirmaciones.
+    await this.notifyOrderSettled(order);
   }
 
   /** payment_intent.payment_failed → Order failed + libera reserva (reserved→listed). */
@@ -464,6 +556,31 @@ export class PaymentsService {
     await this.prisma.order.update({
       where: { id: order.id },
       data: { status: 'refunded', refundedAt: new Date() },
+    });
+    // ⭐ `AV-3` (§R.3) — POST-COMMIT y best-effort. Destinatario: `guestEmail ?? user.email` (§R.5:
+    // *el reembolso le toca a los dos*). ⛔ Nunca a una cuenta anonimizada (§R.5.a).
+    await this.safeNotify(order.id, async () => {
+      const recipient = order.guestEmail
+        ? { email: order.guestEmail, locale: order.locale }
+        : await this.prisma.user
+            .findUnique({
+              where: { id: order.userId ?? '' },
+              select: { email: true, locale: true, anonymizedAt: true },
+            })
+            .then((u) =>
+              u && !u.anonymizedAt ? { email: u.email, locale: order.locale ?? u.locale } : null,
+            );
+      if (!recipient) {
+        this.logger.warn(`order notice mail skipped for ${order.id}: no recipient email`);
+        return null;
+      }
+      return {
+        ...orderRefundedTemplate(
+          { orderNumber: order.orderNumber ?? '', totalCents: order.totalCents },
+          recipient.locale,
+        ),
+        to: recipient.email,
+      };
     });
   }
 

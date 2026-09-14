@@ -38,7 +38,7 @@ import {
 // v1.53 (§4.40.3.1, MONEY): la lista blanca del buylist es una DECISIÓN DE PRODUCTO declarada
 // literal (`PROJECT.md` §E/§K LOCKED/criterio 61), NO un espejo de `PRODUCT_TYPE_VALUES`.
 import { BUYLIST_ACCEPTED_PRODUCT_TYPES } from '../../common/business-rules';
-import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   offerTermsCopy,
   sellItemRejectedTemplate,
@@ -47,6 +47,14 @@ import {
   sellRequestNotPursuedTemplate,
   buylistPortalUrl,
 } from './buylist-mail.templates';
+// v1.74 (§R.3) — los TRES avisos nuevos del ciclo: la guía al vendedor, el acuse de recibido y el
+// pago. Viven en un fichero aparte; el porqué está en su cabecera (el candado de exhaustividad de
+// los CINCO correos del ciclo de oferta no se afloja para meter tres que no son de ese ciclo).
+import {
+  sellGuideTemplate,
+  sellPaidTemplate,
+  sellReceivedTemplate,
+} from './buylist-notice.templates';
 // v1.51 (D14, criterio 154): los plazos del ciclo son DÍAS HÁBILES `America/Mexico_City`. El front
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
@@ -4405,6 +4413,71 @@ export class BuylistService implements OnModuleInit {
     }
   }
 
+  /**
+   * ⭐⭐ **`D-AVISO-2` (§R.4) — SE SELLA Y LUEGO SE ENVÍA.** El helper de los tres avisos nuevos del
+   * ciclo (`AV-7`, `AV-8`, `AV-9`).
+   *
+   * ```
+   * UPDATE SellRequest SET <sello> = now() WHERE id = :id AND <sello> IS NULL
+   *    count === 1  ⇒ se manda        count === 0  ⇒ ⛔ NO se manda, y se sale
+   * ```
+   * **El mecanismo no se inventa: se hereda** de `jobs/buylist-sweep.service.ts`, que ya reclama el
+   * derecho a avisar exactamente así, con su motivo escrito: *«dos corridas concurrentes tampoco
+   * pueden mandarlo dos veces»*.
+   *
+   * - `sealField === null` ⇒ el aviso **no estrena columna** porque su «una sola vez» ya la da el
+   *   MOTOR (`AV-8`: `stepWhere('receive')` + `count === 1`; `AV-9`: el corto-circuito idempotente de
+   *   `pay-spei`). ⛔ **Un sello por evento, jamás una marca global.**
+   * - **Destinatario (§R.5):** `SellRequest.userId` es `NOT NULL` ⇒ **siempre** `user.email`; no hay
+   *   buylist de invitado y por eso no hay rama. ⛔ Y **no se escribe a una cuenta anonimizada**
+   *   (§R.5.a): ya no es de nadie.
+   * - **Best-effort:** cualquier fallo se loggea y ⛔ **no propaga** — no revierte una transición ni
+   *   tumba el endpoint que lo disparó. La red de seguridad es la pantalla, que siempre tiene el dato.
+   * - ⚠️ **El precio, entero:** si el envío falla DESPUÉS de sellar, ese correo no vuelve a salir.
+   *   Se acepta a propósito: *un segundo aviso idéntico destruye la credibilidad del primero.*
+   */
+  private async claimAndNotifySellRequest(
+    id: string,
+    sealField: 'guideNoticeSentAt' | null,
+    build: (user: {
+      name: string | null;
+      email: string;
+      locale: string | null;
+    }) => MailMessage | null,
+  ): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`buylist notice mail skipped for ${id}: MAIL_PORT unavailable`);
+        return;
+      }
+      const row = await this.prisma.sellRequest.findUnique({
+        where: { id },
+        select: {
+          user: { select: { name: true, email: true, locale: true, anonymizedAt: true } },
+        },
+      });
+      const user = row?.user;
+      if (!user?.email || user.anonymizedAt) {
+        this.logger.warn(`buylist notice mail skipped for ${id}: no recipient email`);
+        return;
+      }
+      if (sealField) {
+        const sealed = await this.prisma.sellRequest.updateMany({
+          where: { id, [sealField]: null },
+          data: { [sealField]: new Date() },
+        });
+        if (sealed.count !== 1) return; // otra corrida ganó: NO se manda un segundo correo.
+      }
+      const msg = build({ name: user.name, email: user.email, locale: user.locale });
+      if (!msg) return;
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist notice mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   /** **CORREO 5 — cancelamos la oferta.** Mismo régimen best-effort post-commit. */
   private async sendOfferCancelledMail(
     req: { id: string; offerSentAt: Date | null },
@@ -4774,7 +4847,7 @@ export class BuylistService implements OnModuleInit {
   async adminGuide(id: string, carrier: string, trackingNumber: string) {
     const days = await this.settings.getNumber(SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS);
     const now = new Date();
-    return this.prisma.$transaction(async (tx) => {
+    const res = await this.prisma.$transaction(async (tx) => {
       const before = await tx.sellRequest.findUnique({
         where: { id },
         select: {
@@ -4801,6 +4874,13 @@ export class BuylistService implements OnModuleInit {
           },
         );
       }
+      // ⭐ v1.74 (§R.4.b) — **el ciclo del aviso `AV-7` se reinicia por VALOR, no por evento**, y se
+      // limpia **en la MISMA escritura** que cambia la etiqueta. `adminGuide` es re-capturable a
+      // propósito, así que sin esto una corrección de número mandaría un segundo correo idéntico —y
+      // un correo con un número de guía que ya no existe es peor que no haber mandado ninguno.
+      const labelChanged =
+        before.shipmentCarrier !== carrier.trim() ||
+        before.shipmentTrackingNumber !== trackingNumber.trim();
       const guard = await tx.sellRequest.updateMany({
         // La guarda es del MOTOR (patrón `count===1`), no un `if` sobre la lectura de arriba.
         where: { id, status: 'aceptada', closedAt: null },
@@ -4808,6 +4888,7 @@ export class BuylistService implements OnModuleInit {
           shipmentCarrier: carrier.trim(),
           shipmentTrackingNumber: trackingNumber.trim(),
           guideSentAt: now,
+          ...(labelChanged ? { guideNoticeSentAt: null } : {}),
           // Solo se congela si NO había fecha: re-capturar corrige el número, no mueve el plazo.
           ...(before.shipDeadlineAt == null
             ? { shipDeadlineAt: addBusinessDays(now, days) }
@@ -4845,6 +4926,29 @@ export class BuylistService implements OnModuleInit {
         shipDeadlineAt: after?.shipDeadlineAt ?? null,
       };
     });
+    // ⭐ `AV-7` (§R.3) — POST-COMMIT y best-effort. ⛔ El sello NO se reclama dentro de la
+    // transacción de negocio: meterlo dentro haría que un fallo del correo pudiera revertir la
+    // captura de una etiqueta que ya se pagó. *El aviso cuelga del hecho; el hecho no cuelga del
+    // aviso.*
+    await this.claimAndNotifySellRequest(id, 'guideNoticeSentAt', (user) =>
+      res.shipmentCarrier && res.shipmentTrackingNumber
+        ? sellGuideTemplate(
+            {
+              folio: id,
+              carrier: res.shipmentCarrier,
+              trackingNumber: res.shipmentTrackingNumber,
+              shipDeadlineAt: res.shipDeadlineAt,
+              portalUrl: buylistPortalUrl(id, user.locale),
+            },
+            user.name ?? '',
+            user.locale,
+          )
+        : // ⛔ Sin los dos datos NO se manda nada: es la misma regla de `AV-4` (§R.3.a) — un correo
+          // de guía sin número es el criterio 198 servido al revés. Inalcanzable hoy (los dos son
+          // obligatorios en el DTO), y por eso es una guarda y no una rama con copy.
+          null,
+    );
+    return res;
   }
 
   /**
@@ -5562,6 +5666,17 @@ export class BuylistService implements OnModuleInit {
       );
     });
     if (!row) throw BusinessException.notFound();
+    // ⭐ `AV-8` (§R.3, pregunta 75) — ACUSE DE RECIBIDO, post-commit y best-effort. **Sin sello**: la
+    // «una sola vez» ya la da el motor (`stepWhere('receive')` + `count === 1` + `sealOnceTx`), así
+    // que una repetición idempotente **no transiciona** y no llega hasta aquí.
+    // ⛔ Criterio 211: este correo NO adelanta veredicto ni cifra — la verificación aún no ocurrió.
+    await this.claimAndNotifySellRequest(id, null, (user) =>
+      sellReceivedTemplate(
+        { folio: id, portalUrl: buylistPortalUrl(id, user.locale) },
+        user.name ?? '',
+        user.locale,
+      ),
+    );
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
     // es justamente el rol de MENOR confianza del back-office (SEC-A4) — no debe ver PII bancaria.
     return this.adminSellRequestDTO(row, await this.adminCycleDials());
@@ -7425,6 +7540,28 @@ export class BuylistService implements OnModuleInit {
         'Payment allowed only after receipt/verification and approval',
       );
     }
+    // ⭐ `AV-9` (§R.3) — SE TE PAGÓ. Llegar aquí significa que **esta** llamada hizo la transición
+    // (`count === 1`): el reintento idempotente sale antes, por el corto-circuito de `status ===
+    // 'pagada'`, y por eso este aviso **no estrena columna** (medido en `SEC-B1`).
+    // ⛔ Criterio 207: el importe se RELEE de la columna persistida `payoutNetCents`; ⛔ no se
+    // recalcula `bruto − envío` fuera de la transacción que lo decidió (B-2). Una segunda fuente
+    // para una cifra de dinero es exactamente el defecto que este proyecto paga más caro.
+    const settlement = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      select: { payoutNetCents: true, speiReference: true },
+    });
+    await this.claimAndNotifySellRequest(id, null, (user) =>
+      sellPaidTemplate(
+        {
+          folio: id,
+          payoutNetCents: settlement?.payoutNetCents ?? 0,
+          speiReference: settlement?.speiReference ?? speiReference,
+          portalUrl: buylistPortalUrl(id, user.locale),
+        },
+        user.name ?? '',
+        user.locale,
+      ),
+    );
     return paid;
   }
 

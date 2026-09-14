@@ -1,10 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { DisputeStatus, Prisma } from '@prisma/client';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
 import { DISPUTE_EVIDENCE_CONTACT } from './disputes.constants';
+// v1.74 (§R.3) — `AV-10` (recompra) y `AV-11` (rechazada). Puerto global `@Optional()`, plantilla
+// local, envío best-effort POST-COMMIT: ⛔ un fallo de correo no revierte una resolución de dinero.
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import {
+  disputeRejectedTemplate,
+  disputeRepurchaseTemplate,
+} from './mail/dispute-notice.templates';
 
 /** `P-84` · clase **E** (§4.37): estados de disputa filtrables, DERIVADOS del schema. */
 const DISPUTE_STATUS_FILTER_VALUES: readonly DisputeStatus[] = Object.values(DisputeStatus);
@@ -76,10 +83,55 @@ export const DISPUTE_RESOLVABLE_STATES = ['abierta', 'en_revision'] as const sat
 
 @Injectable()
 export class DisputesService {
+  private readonly logger = new Logger(DisputesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    // v1.74 (§R): `@Optional()` — los tests unitarios construyen el servicio a mano, y el envío es
+    // **best-effort**: ⛔ jamás puede hacer fallar `POST /admin/disputes/:id/resolve` (`C-AV-10`).
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
+
+  /**
+   * ⭐ **§R — el aviso de una disputa resuelta.** POST-COMMIT, best-effort y **sin sello**: la «una
+   * sola vez» la da el MOTOR (`updateMany` sobre `DISPUTE_RESOLVABLE_STATES` + `count === 1`), que
+   * además ⛔ **no es idempotente a propósito** — la segunda resolución es `409` y no llega aquí.
+   *
+   * **Destinatario (§R.5):** `Dispute.userId` es `NOT NULL` ⇒ siempre `user.email`; no hay disputa de
+   * invitado y por eso no hay rama. ⛔ Nunca a una cuenta anonimizada (§R.5.a).
+   * ⚠️ **Todo —incluida la lectura del destinatario— va dentro del `try`**: una consulta a la BD en
+   * el camino de una resolución de DINERO, sin red, convertiría un hipo del correo en un `500` sobre
+   * una decisión ya escrita.
+   */
+  private async notifyResolved(
+    id: string,
+    resolution: 'repurchase' | 'reject',
+    resolutionText: string | null,
+  ): Promise<void> {
+    try {
+      if (!this.mail) {
+        this.logger.warn(`dispute mail skipped for ${id}: MAIL_PORT unavailable`);
+        return;
+      }
+      const row = await this.prisma.dispute.findUnique({
+        where: { id },
+        select: { user: { select: { email: true, locale: true, anonymizedAt: true } } },
+      });
+      const user = row?.user;
+      if (!user?.email || user.anonymizedAt) {
+        this.logger.warn(`dispute mail skipped for ${id}: no recipient email`);
+        return;
+      }
+      const build = resolution === 'repurchase' ? disputeRepurchaseTemplate : disputeRejectedTemplate;
+      const msg = build({ folio: id, resolution: resolutionText }, user.locale);
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `dispute mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
 
   /**
    * Crea disputa de condición (raw o sellado). Ventana = 7 días desde entrega. API_CONTRACT §7.
@@ -268,6 +320,9 @@ export class DisputesService {
     // `updateMany` no devuelve filas ⇒ la relectura es la única forma de responder lo ya escrito.
     const row = await this.prisma.dispute.findUnique({ where: { id } });
     if (!row) throw BusinessException.notFound();
+    // ⭐ `AV-10`/`AV-11` (§R.3) — POST-COMMIT. El correo repite `resolution` **releído de la fila**,
+    // que es el MISMO campo que el cliente ve en `GET /disputes/:id` (criterio 207).
+    await this.notifyResolved(id, resolution, row.resolution);
     // S49-R4: proyectado.
     return toAdminDisputeRow(row);
   }
