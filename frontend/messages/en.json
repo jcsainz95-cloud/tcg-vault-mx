@@ -1770,6 +1770,8 @@
     },
     "m8": {
       "title": "M8 · Disputes",
+      "empty": "No disputes right now.",
+      "emptyBody": "When a customer opens a dispute it will show up here to resolve.",
       "resolveRepurchase": "Resolve with repurchase",
       "resolveReject": "Reject dispute",
       "resolveConfirm": "Confirm resolution",

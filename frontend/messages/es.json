@@ -1770,6 +1770,8 @@
     },
     "m8": {
       "title": "M8 · Disputas",
+      "empty": "Sin disputas por ahora.",
+      "emptyBody": "Cuando un cliente abra una disputa aparecerá aquí para resolverla.",
       "resolveRepurchase": "Resolver con recompra",
       "resolveReject": "Rechazar disputa",
       "resolveConfirm": "Confirmar resolución",
