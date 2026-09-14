@@ -144,6 +144,38 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
   const moverEstado = (id: string, to: string) =>
     h.api('PATCH', `/admin/shipments/${id}/status`, { token: adminToken, json: { to } });
 
+  /**
+   * ⭐⭐ **`REL-B` — LAS DOS PETICIONES LEEN EL MISMO ESTADO, POR CONSTRUCCIÓN.**
+   *
+   * Abre una transacción propia, bloquea la fila con `SELECT … FOR UPDATE` y suelta dentro dos
+   * `PATCH /status` **idénticos**. Cada uno hace su `findUnique` —que **no** se bloquea: un `SELECT`
+   * llano ignora el candado de fila bajo `READ COMMITTED`— y se queda esperando en su `UPDATE`.
+   * ⛔ Las dos esperas se **verifican** en `pg_stat_activity` (`cuantas = 1`, luego `2`): si el
+   * producto dejara de escribir esa tabla con un `UPDATE`, esto revienta en vez de pasar en falso.
+   * Al soltar el candado, las dos siguen creyendo el estado viejo — que es exactamente el escenario
+   * del doble clic del operador, sin depender de la carga de la máquina.
+   */
+  async function dosPatchSobreLaMismaLectura(id: string, to: string) {
+    const candadoPuesto = diferida();
+    const ambasBloqueadas = diferida();
+    const tx = h.prisma.$transaction(
+      async (t) => {
+        await t.$executeRawUnsafe(`SELECT id FROM "ShipmentRequest" WHERE id = $1 FOR UPDATE`, id);
+        candadoPuesto.abrir();
+        await ambasBloqueadas.promesa;
+      },
+      { timeout: 30000, maxWait: 30000 },
+    );
+    await candadoPuesto.promesa;
+    const a = moverEstado(id, to);
+    await esperarBloqueoDeFila(h.prisma, 'ShipmentRequest', 1);
+    const b = moverEstado(id, to);
+    await esperarBloqueoDeFila(h.prisma, 'ShipmentRequest', 2);
+    ambasBloqueadas.abrir();
+    await tx;
+    return Promise.all([a, b]);
+  }
+
   const capturarGuiaVendedor = (id: string, carrier: string, trackingNumber: string) =>
     h.api('POST', `/admin/buylist/${id}/guide`, {
       token: adminToken,
@@ -401,6 +433,134 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
       expect(repetido.status).toBe(409);
       expect(bandeja).toHaveLength(0);
     });
+
+    /**
+     * ⭐⭐⭐ **`REL-B` (pentester, ALTA) — EL `it` DE ARRIBA ERA EL CANDADO CIEGO, Y ÉSTE ES EL QUE VE.**
+     *
+     * *«Un segundo `enviado` es 409 y no puede haber un segundo correo»* — cierto **en serie**, que
+     * es como lo probaba el `it` anterior. **En concurrencia era falso**, y el defecto vivía a la
+     * vista: `updateStatus` validaba `TRANSITIONS` sobre una lectura previa y escribía con
+     * `update({ where: { id } })`, **sin el estado en el `WHERE`**. N peticiones leen el mismo
+     * `guia`, las N pasan la validación, las N escriben, las N avisan.
+     *
+     * **Medido antes del arreglo (`0e22415`, BD propia, 25 tiradas de 10 `PATCH` simultáneos):**
+     * | aviso | tiradas con duplicado | correos por tirada |
+     * |---|---|---|
+     * | `AV-5` (`{to:'enviado'}`) | **25/25** | 6 y 10 (×24) |
+     * | `AV-6` (`{to:'cancelado'}`) | **25/25** | 10 (×25) |
+     * **Después: `0/25` y `0/25`, exactamente 1 correo por tirada.** *(El pentester midió `13/13` y
+     * `4/5` con su propio arnés; la diferencia es que el suyo sembraba la fila sin etiqueta.)*
+     *
+     * ### ⛔ Pero la proporción NO es el candado — disparar N y contar correos no gatea
+     * `AV-6` salió `4/5` en el arnés del pentester: **1 de cada 5 corridas habría dado verde con el
+     * defecto dentro**. Aquí el entrelazado se **fuerza** con la barrera de candado de fila, y las
+     * dos peticiones leen el estado viejo **por construcción**, no por suerte:
+     * ```
+     * prueba:  BEGIN; SELECT … FOR UPDATE      ⇐ la fila ('guia') queda bloqueada
+     * A:       PATCH {to:'enviado'} → lee 'guia' (el SELECT llano no se bloquea) → UPDATE se BLOQUEA
+     * B:       PATCH {to:'enviado'} → lee 'guia' TAMBIÉN → UPDATE se encola detrás de A
+     *          (las DOS esperas se VERIFICAN en pg_stat_activity — ⛔ ni un sleep)
+     * prueba:  COMMIT                          ⇐ se sueltan en orden
+     * ```
+     * Con el defecto: A escribe y avisa, B escribe encima y **avisa otra vez** ⇒ `[200,200]`, 2
+     * correos. Con el arreglo: el `WHERE` de B se re-evalúa contra la fila ya `enviado`
+     * (`EvalPlanQual`), `count === 0` ⇒ **`409` y cero correos** ⇒ `[200,409]`, 1 correo.
+     *
+     * **Ablación (`0e22415` literal, copia propia, `N = 10` corridas): ROJO 10/10. Con el arreglo:
+     * VERDE 10/10.** ⛔ Nunca `HEAD` en un árbol compartido — el sha, literal.
+     */
+    it('⭐⭐ ENTRELAZADO FORZADO `AV-5`: dos `PATCH` que leyeron el MISMO estado ⇒ UN correo y un 409', async () => {
+      const id = await nuevoEnvio('b3');
+      await capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-B3`);
+      bandeja.length = 0;
+
+      const [a, b] = await dosPatchSobreLaMismaLectura(id, 'enviado');
+      await new Promise((r) => setTimeout(r, 300));
+
+      // ⛔ Rojo con 2: es el correo «tu paquete va en camino» dos veces por una salida. Criterio 205.
+      expect(bandeja).toHaveLength(1);
+      // …y la perdedora recibe el MISMO 409 que habría recibido llegando un ms más tarde.
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      expect(
+        (await h.prisma.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true } }))
+          .status,
+      ).toBe('enviado');
+    }, 60000);
+
+    /**
+     * ⭐⭐ La otra mitad de `REL-B`. `AV-6` importa aparte porque su mensaje **se contradice al
+     * repetirse**: N correos «tu envío quedó cancelado» sugieren N cancelaciones distintas de algo
+     * que solo se cancela una vez. (Pentester: `4/5` tiradas con duplicado — y el `1/5` que serializó
+     * es exactamente por qué esto se fuerza en vez de tirar los dados.)
+     */
+    it('⭐⭐ ENTRELAZADO FORZADO `AV-6`: dos `PATCH {cancelado}` sobre la misma lectura ⇒ UN correo', async () => {
+      const id = await nuevoEnvio('b4');
+      await capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-B4`);
+      bandeja.length = 0;
+
+      const [a, b] = await dosPatchSobreLaMismaLectura(id, 'cancelado');
+      await new Promise((r) => setTimeout(r, 300));
+
+      expect(bandeja).toHaveLength(1);
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+    }, 60000);
+
+    /**
+     * ⭐⭐⭐ **`REL-C` — EL `0/25` DEL PENTESTER NO ERA UNA DEFENSA: ERA UN ARNÉS QUE NO LLEGABA.**
+     *
+     * Él lo marcó **Baja** y fue honesto: *«el mecanismo está en el código; mi arnés serializaba la
+     * cadena y no forcé que la escritura cayera en la ventana exacta»*. Con la barrera de candado de
+     * fila la ventana **se abre a voluntad** y el defecto sale **10/10**:
+     * ```
+     * prueba:  BEGIN; SELECT … FOR UPDATE       ⇐ la fila ('picking') queda bloqueada
+     * B:       POST /tracking → lee 'picking'   ⇐ `advances = true`, y con ello `data.status='guia'`
+     * B:       UPDATE …                         ⇐ SE BLOQUEA (verificado en pg_stat_activity)
+     * prueba:  UPDATE … SET status='enviado'; COMMIT   ⇐ otro operador completó la cadena
+     * B:       (despierta) → escribe status='guia'     ⇐ ⛔ REGRESIÓN
+     * ```
+     * **Y no es cosmético: es la premisa del sello.** `AV-5` no estrena columna porque `guia →
+     * enviado` ocurre *como mucho una vez*; con el estado regresado a `guia`, **ocurre otra vez** y
+     * el cliente recibe un segundo «va en camino» **con las dos peticiones perfectamente
+     * serializadas**. Por eso `REL-B` no estaba cerrada sin esto.
+     *
+     * El arreglo: el avance sale de `data` y se escribe aparte con `WHERE status IN ('solicitado',
+     * 'picking')` — un predicado sobre el estado **real**, no sobre el leído ⇒ no puede retroceder.
+     * **Ablación: ROJO 10/10 en `0e22415`; VERDE 10/10 con el arreglo.**
+     */
+    it('⭐⭐ ENTRELAZADO FORZADO `REL-C`: capturar guía con estado caduco NO regresa `enviado` a `guia`', async () => {
+      const id = await nuevoEnvio('b5');
+      bandeja.length = 0;
+
+      const candadoPuesto = diferida();
+      const bBloqueada = diferida();
+      const tx = h.prisma.$transaction(
+        async (t) => {
+          await t.$executeRawUnsafe(`SELECT id FROM "ShipmentRequest" WHERE id = $1 FOR UPDATE`, id);
+          candadoPuesto.abrir();
+          await bBloqueada.promesa;
+          // Otro operador completó la cadena mientras la captura esperaba: picking → guia → enviado.
+          await t.$executeRawUnsafe(
+            `UPDATE "ShipmentRequest" SET status = 'enviado', "shippedAt" = now() WHERE id = $1`,
+            id,
+          );
+        },
+        { timeout: 30000, maxWait: 30000 },
+      );
+
+      await candadoPuesto.promesa;
+      const captura = capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-B5`);
+      await esperarBloqueoDeFila(h.prisma, 'ShipmentRequest');
+      bBloqueada.abrir();
+      await tx;
+      await captura;
+
+      // ⛔ Rojo con `guia`: el envío ya salió y la cola de guías lo reclama otra vez — y con él,
+      // otra transición `guia → enviado` y otro `AV-5`.
+      expect(
+        (await h.prisma.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true } }))
+          .status,
+      ).toBe('enviado');
+    }, 60000);
   });
 
   // ===============================================================================================

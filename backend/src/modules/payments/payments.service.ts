@@ -298,8 +298,15 @@ export class PaymentsService {
       where: { stripePaymentIntentId: paymentIntentId },
     });
     if (shipment && shipment.status === 'solicitado') {
-      await this.prisma.shipmentRequest.update({
-        where: { id: shipment.id },
+      // ⭐⭐ `REL-B/REL-C` — precondición EN EL `WHERE`, no en el `if` de arriba. Éste era el ÚNICO
+      // escritor del sistema capaz de **retroceder** el estado de un envío: el `if` decide sobre una
+      // lectura sin candado, así que un operador que avanzara `solicitado → picking → guia →
+      // enviado` mientras el webhook viajaba dejaba que esta escritura devolviera la fila a
+      // `picking` — reabriendo el camino a `enviado` y con él **un segundo `AV-5`**. La monotonía
+      // del grafo es la premisa de que `AV-5`/`AV-6` no necesiten columna de sello
+      // (`shipments.service.ts#claimAndNotify`), así que este `WHERE` es parte de ese candado.
+      await this.prisma.shipmentRequest.updateMany({
+        where: { id: shipment.id, status: 'solicitado' },
         data: { status: 'picking', pickingAt: new Date() },
       });
     }
@@ -523,8 +530,11 @@ export class PaymentsService {
       where: { stripePaymentIntentId: paymentIntentId },
     });
     if (shipment && shipment.status === 'solicitado') {
-      await this.prisma.shipmentRequest.update({
-        where: { id: shipment.id },
+      // `REL-B/REL-C`: la precondición baja al motor. `cancelado` es terminal, así que esto no puede
+      // retroceder nada — pero sí puede cancelar un envío que otro acababa de mover a `picking`, y
+      // un envío que ya está en la cola de picking no se cancela por un webhook rezagado.
+      await this.prisma.shipmentRequest.updateMany({
+        where: { id: shipment.id, status: 'solicitado' },
         data: { status: 'cancelado' },
       });
       this.logger.debug(`Shipment ${shipment.id} cancelado por ${cause}.`);
@@ -669,8 +679,12 @@ export class PaymentsService {
 
       if (isLive) {
         // Sale de la cola de picking en la MISMA transacción (pickingList() filtra status:'picking').
-        await tx.shipmentRequest.update({
-          where: { id: shipment!.id },
+        // `REL-B/REL-C`: la precondición (`isLive`, leído sin candado) baja al `WHERE`. Una `$tx` no
+        // basta —`READ COMMITTED` no bloquea el `findFirst` de arriba— y `needsManual` ya es
+        // monótono, así que el peor caso de `count === 0` es «otro lo cerró primero», no una
+        // regresión de estado.
+        await tx.shipmentRequest.updateMany({
+          where: { id: shipment!.id, status: { in: ['solicitado', 'picking', 'guia'] } },
           data: { status: 'cancelado' },
         });
         // La pieza NO se toca: queda CONGELADA en `picking` (fuera de venta) hasta que un humano

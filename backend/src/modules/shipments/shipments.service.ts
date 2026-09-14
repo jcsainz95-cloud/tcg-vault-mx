@@ -566,6 +566,34 @@ export class ShipmentsService {
    * reason='withdrawal'), CONSERVANDO ownerType/ownerUserId/ownershipStatus (histórico
    * intacto). Idempotente: un item ya `withdrawn` no duplica movimiento. Todo en UNA
    * transacción con la actualización del envío. API_CONTRACT §M4, ARCHITECTURE §3.3/§9.
+   *
+   * ### ⭐⭐ `REL-B` (pentester, ALTA, 2026-09-14) — LA TRANSICIÓN SE RECLAMA, NO SE ESCRIBE
+   *
+   * **El defecto, medido en vivo por el pentester y reproducido aquí:** este método validaba
+   * `TRANSITIONS` sobre una lectura **previa** y después escribía con
+   * `update({ where: { id } })` — **sin el estado en el `WHERE`**. Bajo `READ COMMITTED`, N
+   * `PATCH {to:'enviado'}` simultáneos leen los N el mismo `guia`, los N pasan la validación, los
+   * N escriben y **los N llaman a `notifyStatus`** ⇒ N correos «tu paquete va en camino» por **una
+   * sola** transición. *La máquina de estados vivía en un `if` de JavaScript, y un `if` sobre un
+   * dato caduco no es una máquina de estados: es una opinión sobre el pasado.*
+   *
+   * | medición | antes (`0e22415`) | después |
+   * |---|---|---|
+   * | `AV-5`, 25 tiradas de 10 `PATCH` simultáneos | **25/25 con duplicado** (hasta 10 correos) | **0/25** |
+   * | `AV-6`, 25 tiradas de 10 `PATCH` simultáneos | **25/25 con duplicado** (10 correos) | **0/25** |
+   * | entrelazado FORZADO (`avisos-sellos`, bloque B) | **ROJO 10/10** | **VERDE 10/10** |
+   *
+   * **El arreglo es el que ya vivía 130 líneas más abajo** (`setTracking`, `D-AVISO-2`): la
+   * precondición **baja al motor**. `updateMany({ where: { id, status: <el que leí> } })` y
+   * `count === 1` ⇔ *esta* petición fue la que hizo la transición. Bajo `READ COMMITTED` Postgres
+   * re-evalúa el `WHERE` contra la versión ya actualizada de la fila (`EvalPlanQual`) cuando dos
+   * `UPDATE` compiten por ella ⇒ **exactamente una** puede ganar. La perdedora ve `count === 0` y
+   * recibe el mismo **409** que habría recibido si hubiera llegado un milisegundo después —
+   * que es, literalmente, lo que le pasó.
+   *
+   * ⛔ **`notifyStatus` queda DETRÁS de esa reclamación**, así que «quién avisa» dejó de ser una
+   * carrera y pasó a ser un hecho del motor. Ver el docstring de `notifyStatus` para el porqué
+   * de que `AV-5`/`AV-6` **no estrenen columna de sello**.
    */
   async updateStatus(id: string, to: ShipmentStatus) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
@@ -577,7 +605,7 @@ export class ShipmentsService {
         `Invalid transition ${shipment.status} -> ${to}`,
       );
     }
-    const data: Prisma.ShipmentRequestUpdateInput = { status: to };
+    const data: Prisma.ShipmentRequestUpdateManyMutationInput = { status: to };
     if (to === 'picking') data.pickingAt = new Date();
     if (to === 'enviado') data.shippedAt = new Date();
     if (to === 'entregado') data.deliveredAt = new Date();
@@ -597,7 +625,23 @@ export class ShipmentsService {
     const isDirectShip = await this.isDirectShipFulfillment(shipment);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.shipmentRequest.update({ where: { id }, data });
+      // ⭐⭐ `REL-B` — LA PRECONDICIÓN DE ESTADO VIVE EN EL `WHERE`, no en el `if` de arriba.
+      // `count === 1` ⇔ esta petición fue la que movió el envío de `shipment.status` a `to`.
+      // ⛔ Nunca `update({ where: { id } })`: eso escribe aunque otro ya haya hecho la transición,
+      // y entonces el aviso de más abajo sale N veces por un hecho que ocurrió UNA.
+      const claimed = await tx.shipmentRequest.updateMany({
+        where: { id, status: shipment.status },
+        data,
+      });
+      if (claimed.count !== 1) {
+        // Otra petición ganó la misma transición mientras ésta validaba. Es el MISMO 409 que
+        // habría dado llegar un milisegundo más tarde — y el motor lo dice sin ambigüedad.
+        throw BusinessException.conflict(
+          'CONFLICT',
+          `Invalid transition ${shipment.status} -> ${to}`,
+        );
+      }
+      const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
 
       if (isDirectShip && (to === 'enviado' || to === 'entregado')) {
         const fromStatus = to === 'enviado' ? 'picking' : 'shipped';
@@ -767,17 +811,36 @@ export class ShipmentsService {
         { status: shipment.status },
       );
     }
-    // Lo que se escribe SIEMPRE, cambie o no la etiqueta. El sello NO va aquí: va solo en la
-    // escritura condicional de abajo, que es la que tiene derecho a reiniciar el ciclo.
+    // Lo que se escribe SIEMPRE, cambie o no la etiqueta. ⛔ **`status` ya NO va aquí** (`REL-C`):
+    // el avance de estado tiene su propia escritura, con su propia precondición en el motor. El
+    // sello tampoco: va solo en la escritura condicional de abajo, la que reinicia el ciclo.
     const data = {
       carrier,
       trackingNumber,
-      ...(advances ? { status: 'guia' as ShipmentStatus } : {}),
       // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
       ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
       // ⭐ §M10-IVA.8 / `IVA-11(c)`: el crédito se CAPTURA junto al bruto y se congela con él.
       ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
     };
+    // ⭐⭐ `REL-C` — **EL AVANCE DE ESTADO, Y SU PRECONDICIÓN ES UN CONJUNTO, NO UNA LECTURA.**
+    // `advances` se calculó sobre `shipment.status`, leído ANTES y sin candado: si entre la lectura
+    // y la escritura otro operador completó `guia → enviado`, escribir `status:'guia'` dentro de
+    // `data` **REGRESABA EL ESTADO** y volvía a abrir el camino a `enviado` — o sea, un **segundo
+    // `AV-5`**. *(El pentester lo marcó BAJA con `0/25` porque su arnés serializaba la cadena; con
+    // el entrelazado forzado sale **ROJO 10/10**: un `0/25` no era una defensa, era un instrumento
+    // que no llegaba.)*
+    //
+    // El `WHERE` no lleva «el estado que leí» sino **los estados desde los que este avance es
+    // legal**, que es un predicado estable y lo evalúa el motor en el instante de escribir. ⇒ esta
+    // escritura **no puede retroceder nada**: `guia`, `enviado`, `entregado` y `cancelado` no casan.
+    // Y eso es justo lo que hace cierta la premisa de `notifyStatus`: el grafo de estados es
+    // ACÍCLICO, así que `guia → enviado` ocurre **como mucho una vez** en la vida de la fila.
+    if (advances) {
+      await this.prisma.shipmentRequest.updateMany({
+        where: { id, status: { in: [...ShipmentsService.PRE_GUIA] } },
+        data: { status: 'guia' },
+      });
+    }
     // ⭐⭐ §R.4.b + `D-AVISO-2` bajo concurrencia — el ciclo del aviso se reinicia por VALOR, no por
     // evento, y **la comparación la hace el MOTOR en el mismo `UPDATE`** que escribe la etiqueta
     // (ver el docstring): `count === 1` ⇔ *esta* petición fue la que dejó la etiqueta distinta, y
@@ -785,9 +848,13 @@ export class ShipmentsService {
     // previa: bajo N concurrentes las N leerían el valor viejo y las N se creerían «el cambio».
     // ⚠️ Las ramas `: null` son obligatorias — Prisma traduce `{ not: v }` a `col <> v`, que en SQL
     // NO casa con `NULL`, y el primer `setTracking` de un envío tiene las dos columnas en `NULL`.
+    // ⚠️ `status: { not: 'cancelado' }` (`REL-C`): el 409 de arriba se decidió sobre la lectura
+    // previa, así que una cancelación simultánea se le colaba. Sin esta rama, la etiqueta aterrizaba
+    // sobre un envío que ya no sale — la **cola falsa** que este método dice impedir.
     const relabelled = await this.prisma.shipmentRequest.updateMany({
       where: {
         id,
+        status: { not: 'cancelado' },
         OR: [
           { carrier: null },
           { carrier: { not: carrier } },
@@ -797,20 +864,29 @@ export class ShipmentsService {
       },
       data: { ...data, trackingNoticeSentAt: null },
     });
+    if (relabelled.count !== 1) {
+      // La etiqueta no cambió (o la cambió otra petición simultánea): se escriben los costos del
+      // transportista igual —una re-captura idempotente que los trae es legítima— ⛔ SIN tocar el
+      // sello y ⛔ sin tocar el estado.
+      await this.prisma.shipmentRequest.updateMany({
+        where: { id, status: { not: 'cancelado' } },
+        data,
+      });
+    }
     // S49-R4: proyectado (antes devolvía la entidad `ShipmentRequest` cruda).
     const row = toAdminShipmentRow(
-      relabelled.count === 1
-        ? // La condicional ya escribió `data` entero: solo hace falta leer la fila resultante.
-          await this.prisma.shipmentRequest.findUniqueOrThrow({ where: { id } })
-        : // La etiqueta no cambió (o la cambió otra petición simultánea): se escribe el resto —
-          // `status` y los costos del transportista— ⛔ SIN tocar el sello.
-          await this.prisma.shipmentRequest.update({ where: { id }, data }),
+      await this.prisma.shipmentRequest.findUniqueOrThrow({ where: { id } }),
     );
     // ⛔ POST-COMMIT y best-effort: el sello se reclama FUERA de la escritura de negocio. Meterlo
     // dentro haría que un fallo del correo pudiera revertir la captura de una etiqueta ya comprada.
-    await this.claimAndNotify(id, 'trackingNoticeSentAt', shipment, (l, p) =>
-      shipmentGuideTemplate({ ...p, carrier, trackingNumber }, l),
-    );
+    // ⚠️ Y **solo avisa quien escribió la etiqueta** (`relabelled.count === 1`). Antes se llamaba
+    // siempre y el sello lo filtraba; ya no basta, porque con la guarda de `cancelado` una captura
+    // puede no escribir NADA — y entonces el correo anunciaría una guía que no está en la fila.
+    if (relabelled.count === 1) {
+      await this.claimAndNotify(id, 'trackingNoticeSentAt', shipment, (l, p) =>
+        shipmentGuideTemplate({ ...p, carrier, trackingNumber }, l),
+      );
+    }
     return row;
   }
 
@@ -820,6 +896,17 @@ export class ShipmentsService {
 
   /** Estados en los que el envío **ya está en `guia` o más allá** (§M4: «no regresa el estado»). */
   private static readonly GUIA_OR_LATER: readonly ShipmentStatus[] = ['guia', 'enviado', 'entregado'];
+
+  /**
+   * ⭐ `REL-C` — Estados **anteriores** a `guia`: los únicos desde los que capturar una etiqueta
+   * puede AVANZAR el envío. Es el `WHERE` del avance de `setTracking`, y por eso es un conjunto
+   * derivado de `TRANSITIONS` y no una lista suelta: `s ∈ PRE_GUIA ⇔ 'guia' ∈ TRANSITIONS[s]`.
+   * ⛔ Que sea un predicado sobre el estado REAL (y no sobre el que se leyó) es lo que hace
+   * imposible que una captura retroceda un `enviado`.
+   */
+  private static readonly PRE_GUIA: readonly ShipmentStatus[] = (
+    Object.keys(ShipmentsService.TRANSITIONS) as ShipmentStatus[]
+  ).filter((s) => ShipmentsService.TRANSITIONS[s].includes('guia'));
 
   /**
    * ⭐ **§R.5 — RESOLUCIÓN DEL DESTINATARIO.** *Un correo mandado al inbox equivocado no es un aviso:
@@ -887,8 +974,35 @@ export class ShipmentsService {
    * ⚠️ **El precio se dice entero:** si el envío falla **después** de sellar, ese correo **no vuelve
    * a salir**. Se acepta a propósito —es la misma decisión que el barrido ya tomó— y la red de
    * seguridad es **la pantalla**, que siempre tiene el dato.
-   * `sealField = null` ⇒ el aviso NO tiene sello porque su «una sola vez» la da el MOTOR (`AV-5` y
-   * `AV-6`: la tabla `TRANSITIONS`). ⛔ Un sello por evento, jamás una marca global.
+   *
+   * ### ⭐⭐ `sealField = null` — POR QUÉ `AV-5`/`AV-6` NO ESTRENAN COLUMNA (decisión `REL-B`)
+   * Esta línea decía ya *«su una sola vez la da el MOTOR»* y **era falsa cuando se escribió**: el
+   * motor no decidía nada, porque `updateStatus` escribía con `where: { id }` a secas. El pentester
+   * lo midió: `13/13` tiradas con duplicado. ⇒ la frase no era una garantía, era una intención.
+   *
+   * **Ahora es cierta, y se sostiene en DOS hechos, no en uno** (los dos se cerraron en este pase):
+   *  1. **La transición se RECLAMA** — `updateMany({ where: { id, status: <el leído> } })` +
+   *     `count === 1`. De N peticiones simultáneas, **una** hace la transición; las demás reciben
+   *     `409` **antes** de llegar al correo.
+   *  2. **El grafo de `TRANSITIONS` es ACÍCLICO y nadie lo retrocede** — `enviado` solo se alcanza
+   *     desde `guia`, de `enviado` solo se sale a `entregado`, y de `cancelado` no se sale. Así que
+   *     `→ enviado` y `→ cancelado` ocurren **como mucho una vez en la vida de la fila**.
+   *     ⚠️ Este segundo hecho es el frágil, y **era falso hasta este pase**: `setTracking` (`REL-C`)
+   *     y `payments.settle` podían **regresar** el estado con una escritura sin precondición,
+   *     reabriendo el camino a `enviado` ⇒ un segundo `AV-5` legítimo. Por eso el arreglo de
+   *     `REL-B` **no está completo sin el de `REL-C`**: la premisa del sello es la monotonía.
+   *
+   * **⇒ La columna no aporta nada que el motor no dé ya, y sí cuesta**: una migración en una zona
+   * compartida (`prisma/schema.prisma`), dos campos más que un DTO puede filtrar (hay un candado
+   * entero, `avisos.seals-out-of-dto`, vigilando justo eso), y **una segunda fuente para un mismo
+   * hecho** — la fila diría «ya avisé» y el estado diría «la transición ya ocurrió», y el día que
+   * discrepen habrá que decidir cuál manda. *Un sello se estrena cuando el ciclo puede REPETIRSE
+   * (`trackingNoticeSentAt`: recapturar una etiqueta distinta es un hecho nuevo). `AV-5`/`AV-6` no
+   * repiten: son aristas de un grafo sin ciclos.*
+   *
+   * ⛔ **Y la premisa se vigila**, no se confía: `shipments.state-monotonic.spec.ts` pone rojo si
+   * alguien añade un ciclo a `TRANSITIONS` o escribe `status` de un `ShipmentRequest` sin llevar la
+   * precondición al `WHERE`. Si esa premisa se cae, la decisión correcta pasa a ser la columna.
    */
   private async claimAndNotify(
     id: string,
@@ -933,8 +1047,10 @@ export class ShipmentsService {
    * su ausencia es la mitad que falla por exceso. *No se añade «porque parecía razonable»:
    * el dueño lo confirmó explícitamente (pregunta 74) con el contraargumento delante.*
    *
-   * **Una sola vez, sin estrenar columna:** la da el MOTOR — `TRANSITIONS` sólo llega a `enviado`
-   * desde `guia`, y de `cancelado` no se sale (`TRANSITIONS['cancelado'] = []`).
+   * **Una sola vez, sin estrenar columna:** la da el MOTOR, y desde `REL-B` eso es verdad literal y
+   * no una intención — se llega aquí **solo** si `updateStatus` ganó la reclamación de la transición
+   * (`updateMany … count === 1`), y el grafo de `TRANSITIONS` es acíclico. El argumento entero, con
+   * lo que costaría la alternativa, está en el docstring de `claimAndNotify`.
    */
   private async notifyStatus(
     shipment: Pick<ShipmentRequest, 'id' | 'userId' | 'orderId' | 'carrier' | 'trackingNumber'>,

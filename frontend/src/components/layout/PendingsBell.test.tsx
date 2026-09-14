@@ -8,6 +8,7 @@ import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
 import { PendingsBell } from './PendingsBell';
+import { analizarFuente, codigoDe } from '@/test/strip-comments';
 
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
@@ -130,15 +131,67 @@ describe('C-AV-8 · la campana no conoce `SellOfferState`', () => {
    * en su cabecera para que quien lo edite la lea, y un candado que mirara el fichero crudo
    * castigaría justo a quien documenta la regla. Lo que no puede existir es una **referencia
    * ejecutable**.
+   *
+   * ### ⭐⭐ Aquí estaba el limpiador v1, y el control que lo acompañaba miraba el sitio equivocado
+   *
+   * La línea de abajo decía —con su comentario al lado— *«si el stripper se rompiera y vaciara el
+   * fichero, el candado quedaría mirando al vacío»*, y comprobaba `toMatch(/export (function|const)/)`.
+   *
+   * **El autor conocía el modo de fallo y blindó el caso TOTAL. El que ocurre de verdad es el
+   * PARCIAL:** el v1 se comía la ventana que hubiera entre un `//` con la secuencia de apertura de
+   * bloque y el siguiente cierre — doce líneas en `StorefrontHeader.tsx`— y dejaba las otras
+   * doscientas. *Un candado puede estar ciego a trozos y pasar todos sus propios controles.*
+   *
+   * ⚠️ **Medido hoy (2026-09-14, `0e22415`): en estos dos ficheros el v1 NO estaba perdiendo ni una
+   * línea** — la ceguera viva estaba en el candado del IVA, no aquí. Se migra igual, porque lo que
+   * decide si este candado ve es **el próximo comentario que alguien escriba** en la ruta de la
+   * campana, y eso no es una propiedad que se pueda comprobar una vez.
+   *
+   * ⇒ `codigoDe` limpia **y** comprueba, por contenido, que las N líneas de código siguen ahí.
    */
-  const sinComentarios = (src: string) =>
-    src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-
   it.each(rutaDeLaCampana)('%s no menciona `SellOfferState` ni `pending_authorization`', (rel) => {
-    const src = sinComentarios(readFileSync(join(process.cwd(), rel), 'utf8'));
+    const src = codigoDe(join(process.cwd(), rel), rel);
     expect(src).not.toMatch(/SellOfferState|pending_authorization/);
-    // Si el stripper se rompiera y vaciara el fichero, el candado quedaría mirando al vacío.
     expect(src).toMatch(/export (function|const)/);
+  });
+
+  /**
+   * ⭐ **El canario: se reintroduce el defecto REAL que `C-AV-8` vigila y se exige el rojo.**
+   *
+   * El defecto es *«la campana deriva de un cambio de estado»*: una referencia **ejecutable** a
+   * `SellOfferState` / `pending_authorization` en la ruta de la campana. Se inyecta en el fichero
+   * real, **después** de un comentario que lleva la secuencia de apertura de bloque — que es la
+   * trampa exacta que cegaba al v1.
+   */
+  it('⭐ canario: una referencia EJECUTABLE detrás de un `//` con apertura de bloque se ve', () => {
+    const rel = 'src/components/layout/PendingsBell.tsx';
+    const original = readFileSync(join(process.cwd(), rel), 'utf8');
+    const lineas = original.split('\n');
+    /*
+     * ⭐ **La inyección va DESPUÉS del `export`, y esa colocación es el hallazgo entero.** Si se
+     * pone antes, el bloque que el v1 abre se traga también la línea del `export` y el viejo
+     * control de no-vacuidad **sí** habría gritado. Puesto después, el `export` sobrevive: el
+     * control de no-vacuidad pasa **en verde** y la fuga desaparece igual. *Ése es el caso
+     * PARCIAL, y es el que ocurre de verdad.*
+     */
+    const iExport = lineas.findIndex((l) => /^export (function|const)/.test(l));
+    expect(iExport, 'no se encontró el export del componente').toBeGreaterThan(-1);
+    const mutado = [
+      ...lineas.slice(0, iExport + 1),
+      '  // el dial de la campana viaja solo en /admin/*, nunca al cliente',
+      "  const FUGA: string = 'pending_authorization';",
+      ...lineas.slice(iExport + 1),
+    ].join('\n');
+
+    // ROJO exigido con el limpiador de hoy.
+    expect(analizarFuente(mutado, rel).limpio).toMatch(/SellOfferState|pending_authorization/);
+    // Y la mitad que duele: con el v1, ese mismo defecto pasaba en VERDE — el `//` de arriba abre
+    // un bloque que se come la fuga entera.
+    const v1 = mutado.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    expect(v1).not.toMatch(/pending_authorization/);
+    // ⭐⭐ Y AQUÍ ESTÁ EL PUNTO: el control de no-vacuidad que había antes —«¿queda algo?»—
+    //     pasaba **en verde** sobre esa misma salida ciega.
+    expect(v1).toMatch(/export (function|const)/);
   });
 
   it('el dominio de códigos es la lista blanca del contrato, y HOY tiene exactamente uno', () => {
