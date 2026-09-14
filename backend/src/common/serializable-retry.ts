@@ -96,8 +96,34 @@ export function isSerializationConflict(e: unknown): boolean {
   const meta = (e as { meta?: unknown } | null)?.meta as { code?: unknown } | undefined;
   const sqlstate = typeof meta?.code === 'string' ? meta.code : undefined;
   if (sqlstate === '40001' || sqlstate === '40P01') return true;
+  // ⭐⭐ **EL RESPALDO POR TEXTO, ACOTADO A ERRORES DEL MOTOR** (techlead, 2026-09-14).
+  //
+  // Aquí decía `/\b(40001|40P01)\b/.test(e.message)` **sobre CUALQUIER error**, y eso es *texto en
+  // vez de estructura* **dentro del camino del dinero**: una `BusinessException` cuyo mensaje
+  // contuviera `40001` —un folio, un importe en centavos, un id— **se reintentaría hasta 5 veces**,
+  // ejecutando `fn` cinco veces con su rollback y devolviendo el error cinco veces más tarde. El
+  // respaldo existe para una razón concreta (una sentencia cruda que aflora el `SQLSTATE` sin
+  // traducir), y esa razón **solo se da en errores de Prisma**.
+  //
+  // ⛔ La comprobación de forma va PRIMERO y el texto después: quien no es un error del motor no
+  // llega a la regex. *Un reintento decidido por una subcadena de un mensaje no es una decisión:
+  // es una coincidencia.*
+  if (!esErrorDelMotor(e)) return false;
   const msg = e instanceof Error ? e.message : '';
   return /\b(40001|40P01)\b/.test(msg);
+}
+
+/**
+ * ¿Este error viene del MOTOR (Prisma/pg) y no de nuestra lógica de negocio?
+ * Se identifica por la **familia de la clase**, no por su mensaje. `PrismaClientUnknownRequestError`
+ * es la que trae las sentencias crudas sin traducir — el único caso por el que el respaldo existe.
+ */
+function esErrorDelMotor(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError ||
+    e instanceof Prisma.PrismaClientUnknownRequestError ||
+    e instanceof Prisma.PrismaClientRustPanicError
+  );
 }
 
 /** Lo mínimo que este helper necesita de Prisma — estructural, para no atar `common/` al servicio. */
@@ -138,8 +164,12 @@ export async function runSerializable<T>(
         ...(options.maxWait !== undefined ? { maxWait: options.maxWait } : {}),
       });
     } catch (e) {
-      // ⛔ El último intento propaga el error ORIGINAL: el cliente ve hoy lo mismo que veía antes, y
-      // nadie se inventa un código de contrato por su cuenta.
+      // ⛔ El último intento propaga el error ORIGINAL, y **sigue siendo lo correcto** aunque el
+      // contrato ya declare el código: quien traduce es `AllExceptionsFilter` (§0-T), que es el
+      // único sitio que conoce la respuesta HTTP. Este helper **no se inventa un código de contrato
+      // por su cuenta** y, sobre todo, **no lo duplica**: el filtro decide con ESTA MISMA función
+      // (`isSerializationConflict`), así que «qué se reintenta» y «qué sale `503`» no pueden
+      // divergir. *Una fuente, dos lectores.*
       if (intento >= attempts || !isSerializationConflict(e)) throw e;
       options.logger?.warn(
         `serializable-retry${options.label ? ` [${options.label}]` : ''}: conflicto de ` +

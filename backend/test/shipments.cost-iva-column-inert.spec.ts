@@ -64,6 +64,20 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
     items: [],
   };
 
+  /**
+   * ⭐ `REL-C` (2026-09-14): `setTracking` escribe con **hasta tres `updateMany`** —avance de estado,
+   * etiqueta condicional y resto— y ya **no** usa `update`. La que trae los costos del transportista
+   * es la de la ETIQUETA; se localiza por su forma (lleva `carrier`), ⛔ no por su posición, para que
+   * esta prueba no lea la escritura equivocada si mañana cambia el orden.
+   */
+  function escrituraDeEtiqueta(prisma: any): any {
+    const call = prisma.shipmentRequest.updateMany.mock.calls
+      .map((c: any) => c[0])
+      .find((c: any) => 'carrier' in (c.data ?? {}));
+    expect(call).toBeDefined();
+    return call.data;
+  }
+
   function buildService() {
     const prisma: any = {
       shipmentRequest: {
@@ -126,7 +140,7 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
   it('⭐⭐ `IVA-11(c)`: el crédito se CAPTURA — `setTracking` lo escribe cuando se lo dan…', async () => {
     const { svc, prisma } = buildService();
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 20300, 2800);
-    expect(prisma.shipmentRequest.update.mock.calls[0][0].data).toMatchObject({
+    expect(escrituraDeEtiqueta(prisma)).toMatchObject({
       shippingCostCents: 20300,
       shippingCostIvaCents: 2800,
     });
@@ -138,7 +152,7 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
     // dirección CONSERVADORA (subestima la ganancia, no la infla).
     const { svc, prisma } = buildService();
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 20300);
-    const data = prisma.shipmentRequest.update.mock.calls[0][0].data;
+    const data = escrituraDeEtiqueta(prisma);
     expect(data).not.toHaveProperty('shippingCostIvaCents');
     expect(data.shippingCostCents).toBe(20300);
   });

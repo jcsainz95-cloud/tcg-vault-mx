@@ -7,7 +7,17 @@ function build(shipment: any, itemStatus: string, fulfillmentMode: string | null
   const state = { status: itemStatus };
   const movements: any[] = [];
   const tx: any = {
-    shipmentRequest: { update: jest.fn(async ({ data }: any) => ({ id: shipment.id, ...data })) },
+    shipmentRequest: {
+      update: jest.fn(async ({ data }: any) => ({ id: shipment.id, ...data })),
+      // `REL-B`: la transición se RECLAMA con `updateMany` + `count === 1` (la precondición de
+      // estado vive en el `WHERE`, no en un `if` sobre la lectura previa).
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        if (where.status !== undefined && where.status !== shipment.status) return { count: 0 };
+        Object.assign(shipment, data);
+        return { count: 1 };
+      }),
+      findUniqueOrThrow: jest.fn(async () => ({ ...shipment })),
+    },
     shipmentItem: { findMany: jest.fn(async () => [{ inventoryItemId: 'item-1' }]) },
     inventoryItem: {
       findUnique: jest.fn(async () => ({ id: 'item-1', status: state.status })),

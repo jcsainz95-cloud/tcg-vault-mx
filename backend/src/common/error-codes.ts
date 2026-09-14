@@ -10,6 +10,15 @@ export const ErrorCode = {
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
   INTERNAL: 'INTERNAL',
+  /**
+   * ⭐⭐ `§0-T` (v1.76) — **el fallo TRANSITORIO del motor deja de ser un `500`.**
+   * *Un `500` afirma «se rompió algo». Cuando Postgres aborta una transacción serializable, o una
+   * transacción no cabe en su ventana, ⛔ no se rompió nada y ⛔ no se escribió nada: el motor hizo
+   * su trabajo.* Sale con `503` y `Retry-After: 1`, y `details` **vacío**.
+   * ⛔ **No es un código de negocio y no sustituye a ninguno**: una `BusinessException` sale intacta
+   * y a la primera — es una decisión, no una carrera.
+   */
+  BUSY_TRY_AGAIN: 'BUSY_TRY_AGAIN',
 
   // Auth
   EMAIL_TAKEN: 'EMAIL_TAKEN',

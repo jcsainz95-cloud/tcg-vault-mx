@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { codigoDeFichero, codigoDeTexto } from './helpers/codigo-de-fichero';
 import { join } from 'path';
 import { PendingsService, PENDING_CODES } from '../src/modules/users/pendings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -107,22 +108,26 @@ describe('⭐⭐ C-AV-8 — la oferta PENDIENTE DE AUTORIZACIÓN no se filtra, y
    * Con lista blanca cerrada, la negativa **no depende de la disciplina del siguiente que escriba un
    * pendiente**: depende de que el arquitecto añada una fila, que es cambio de contrato.
    */
-  const fuente = readFileSync(
-    join(__dirname, '..', 'src', 'modules', 'users', 'pendings.service.ts'),
-    'utf8',
-  );
-
   /**
-   * ⚠️ **Se miden las LÍNEAS DE CÓDIGO, no los comentarios**, y la distinción es deliberada: el
-   * docblock del resolutor **explica la prohibición** y nombrar la prohibición no es referenciar el
-   * estado. Un candado que confundiera las dos cosas obligaría a escribir la regla sin poder
-   * nombrarla — y una regla que no se puede escribir no se cumple.
+   * ⚠️ **Se mide el CÓDIGO, no los comentarios**, y la distinción es deliberada: el docblock del
+   * resolutor **explica la prohibición**, y nombrar la prohibición no es referenciar el estado. Un
+   * candado que confundiera las dos cosas obligaría a escribir la regla sin poder nombrarla — y una
+   * regla que no se puede escribir no se cumple.
+   *
+   * ⭐⭐ **Aquí vivía el algoritmo v1** (regex global de bloques + colas de línea), que se queda
+   * **ciego a trozos**: un comentario de línea que contenga la apertura de bloque abre un bloque
+   * fantasma que se come el código hasta el siguiente cierre. `pendings.service.ts` **hoy** no tiene
+   * ninguno (medido 2026-09-14, barrido mecanístico sobre `src/`: los siete que sí lo tienen son
+   * otros) — pero *«hoy no»* no es una defensa: **es un comentario de distancia**, y este candado es
+   * el riesgo nº 1 de todo §R. `codigoDeFichero` trae la v2 **y** su control de no-vacuidad POR
+   * CONTENIDO (anclas): si el limpiador se comiera el resolutor, esto **revienta** en vez de decir
+   * «no encontré la referencia» sobre un fichero vacío.
    */
-  const codigo = fuente
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter((l) => !l.trimStart().startsWith('//'))
-    .join('\n');
+  const codigo = codigoDeFichero(
+    join(__dirname, '..', 'src', 'modules', 'users', 'pendings.service.ts'),
+    // Anclas: el resolutor entero y sus dos consultas. Si alguna falta, no se leyó el fichero.
+    ['class PendingsService', 'kycProfile.findUnique', 'sellRequest.findFirst'],
+  );
 
   it('⛔ el resolutor NO contiene ninguna referencia a `SellOfferState` ni a sus valores', () => {
     for (const aguja of [/SellOfferState/, /offerState/, /pending_authorization/, /offerSentAt/]) {
@@ -136,12 +141,13 @@ describe('⭐⭐ C-AV-8 — la oferta PENDIENTE DE AUTORIZACIÓN no se filtra, y
   it('CANARIO: el detector SÍ encuentra la referencia cuando está en código', () => {
     const conDefecto = `${codigo}\nconst x = { offerState: 'pending_authorization' };`;
     expect(/pending_authorization/.test(conDefecto)).toBe(true);
-    // …y sigue ignorando un comentario que solo la nombra.
-    const soloComentario = `${codigo}\n// jamás leer pending_authorization aquí`;
-    const limpio = soloComentario
-      .split('\n')
-      .filter((l) => !l.trimStart().startsWith('//'))
-      .join('\n');
+    // …y sigue ignorando un comentario que solo la nombra — con el MISMO limpiador que usa el
+    // candado de arriba, ⛔ no con una copia que podría divergir de él en silencio.
+    const limpio = codigoDeTexto(
+      `${codigo}\n// jamás leer pending_authorization aquí`,
+      'canario C-AV-8',
+      ['class PendingsService'],
+    );
     expect(/pending_authorization/.test(limpio)).toBe(false);
   });
 

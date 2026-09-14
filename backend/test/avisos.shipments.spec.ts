@@ -33,6 +33,17 @@ function buildHarness(opts: {
   const tx = {
     shipmentRequest: {
       update: jest.fn().mockImplementation(({ data }) => Object.assign(row, data)),
+      // ⭐⭐ `REL-B` (2026-09-14): `updateStatus` ya **no** escribe con `update({ where: { id } })`.
+      // RECLAMA la transición con `updateMany({ where: { id, status: <el leído> } })` y solo avisa si
+      // `count === 1`. El fake **evalúa el `where`**, así que si alguien quitara el `status` de esa
+      // precondición estas pruebas seguirían verdes — pero las de integración con entrelazado
+      // forzado (`avisos-sellos`, bloque B) no, y son las que mandan sobre la carrera.
+      updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
+        if (!matchesWhere(row as any, where)) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      }),
+      findUniqueOrThrow: jest.fn().mockImplementation(async () => ({ ...row })),
     },
     shipmentItem: { findMany: jest.fn().mockResolvedValue([]) },
     inventoryItem: { updateMany: jest.fn(), findUnique: jest.fn() },

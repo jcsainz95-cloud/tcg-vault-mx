@@ -54,27 +54,62 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
     return { svc, prisma, fila };
   }
 
-  /** Lo que quedó escrito en la fila, venga del `updateMany` condicional o del `update` de resto. */
-  const escrito = (prisma: any) => ({
-    ...(prisma.shipmentRequest.updateMany.mock.calls[0]?.[0]?.data ?? {}),
-    ...(prisma.shipmentRequest.update.mock.calls[0]?.[0]?.data ?? {}),
-  });
+  /**
+   * ⭐⭐ **LAS TRES ESCRITURAS DE `setTracking`, IDENTIFICADAS POR SU FORMA Y NO POR SU ORDEN**
+   * (`REL-C`, 2026-09-14). El método dejó de escribir `status` dentro de `data` —ahí vivía la
+   * REGRESIÓN DE ESTADO: `advances` se calculaba sobre una lectura previa, así que una captura
+   * rezagada devolvía un `enviado` a `guia`— y ahora el avance es **su propia escritura**, con la
+   * precondición en el `WHERE`:
+   *
+   * | escritura | `where` | `data` |
+   * |---|---|---|
+   * | **avance** (solo si procede) | `status IN (solicitado, picking)` | `{ status: 'guia' }` |
+   * | **condicional** (§R.4.b) | etiqueta DISTINTA + `status ≠ cancelado` | etiqueta, costos, `trackingNoticeSentAt: null` |
+   * | **resto** (solo si la condicional no casó) | `status ≠ cancelado` | etiqueta, costos — ⛔ sin sello |
+   *
+   * Se buscan por forma para que estas pruebas no se rompan si mañana cambia el orden — y sobre todo
+   * para que **no pasen por accidente** leyendo la escritura equivocada.
+   */
+  const escrituras = (prisma: any) => {
+    const calls: any[] = prisma.shipmentRequest.updateMany.mock.calls.map((c: any) => c[0]);
+    return {
+      todas: calls,
+      avance: calls.find((c) => 'status' in (c.data ?? {})),
+      condicional: calls.find((c) => 'trackingNoticeSentAt' in (c.data ?? {})),
+      resto: calls.find(
+        (c) => !('status' in (c.data ?? {})) && !('trackingNoticeSentAt' in (c.data ?? {})),
+      ),
+    };
+  };
+
+  /** Lo que quedó escrito en la fila, sumando las escrituras que de verdad corrieron. */
+  const escrito = (prisma: any) =>
+    Object.assign({}, ...escrituras(prisma).todas.map((c: any) => c.data ?? {}));
 
   it('persists shippingCostCents when provided and advances to guia', async () => {
     const { svc, prisma, fila } = buildService();
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 9000);
+    const { avance, condicional, resto } = escrituras(prisma);
+    // ⭐ `REL-C`: el avance de estado es su PROPIA escritura, y su precondición vive en el `WHERE`.
+    // ⛔ Rojo si `status` vuelve a viajar dentro de `data` junto a la etiqueta: eso es exactamente lo
+    // que permitía devolver un `enviado` a `guia` (y con él, un segundo `AV-5`).
+    expect(avance.data).toEqual({ status: 'guia' });
+    // ⚠️ El conjunto es **`['picking']` y nada más**, y no es un olvido: sale DERIVADO de
+    // `TRANSITIONS` (`s ∈ PRE_GUIA ⇔ 'guia' ∈ TRANSITIONS[s]`), y de `solicitado` **no** se salta a
+    // `guia` — hay que pasar por `picking` primero. Capturar una etiqueta sobre un `solicitado` ya
+    // daba `409` antes de este pase; aquí solo se comprueba que la derivación no inventó estados.
+    expect(avance.where).toEqual({ id: 'ship1', status: { in: ['picking'] } });
     // La escritura de la etiqueta es la CONDICIONAL, y casó: la fila venía sin etiqueta.
-    expect(prisma.shipmentRequest.updateMany).toHaveBeenCalledTimes(1);
-    expect(prisma.shipmentRequest.updateMany.mock.calls[0][0].data).toEqual({
+    expect(condicional.data).toEqual({
       carrier: 'DHL',
       trackingNumber: 'TRACK123',
-      status: 'guia',
       // v1.74 (§R.4.b): la etiqueta CAMBIÓ (la fila venía sin ella) ⇒ el sello del aviso se
       // limpia **en la misma escritura**, que es lo que hace que corregir un número sí avise.
       trackingNoticeSentAt: null,
       shippingCostCents: 9000,
     });
-    // ⛔ Y no se escribió DOS veces: con la condicional casando, el `update` de resto no corre.
+    // ⛔ Y no se escribió el resto: con la condicional casando, esa tercera escritura no corre.
+    expect(resto).toBeUndefined();
     expect(prisma.shipmentRequest.update).not.toHaveBeenCalled();
     expect(fila).toMatchObject({ status: 'guia', shippingCostCents: 9000, trackingNoticeSentAt: null });
   });
@@ -86,7 +121,7 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
   });
 
   it('is editable: re-invoking updates the persisted cost', async () => {
-    const { svc, prisma, fila } = buildService();
+    const { svc, fila } = buildService();
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 0);
     expect(fila.shippingCostCents).toBe(0);
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 12000);
@@ -107,16 +142,20 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
       trackingNoticeSentAt: new Date('2026-09-01T00:00:00Z'),
     });
     await svc.setTracking('ship1', 'DHL', 'TRACK123', 12000);
-    expect(prisma.shipmentRequest.updateMany.mock.results).toHaveLength(1);
-    await expect(prisma.shipmentRequest.updateMany.mock.results[0].value).resolves.toEqual({ count: 0 });
+    const { avance, condicional, resto } = escrituras(prisma);
+    // Ya estaba en `guia` ⇒ no hay nada que avanzar (y el `WHERE` del avance tampoco casaría).
+    expect(avance).toBeUndefined();
+    expect(prisma.shipmentRequest.updateMany).toHaveBeenCalledTimes(2);
+    expect(condicional).toBeDefined();
+    expect(resto).toBeDefined();
     // ⛔ Rojo si el sello se limpia: sería el segundo correo del mismo número de guía.
     expect(fila.trackingNoticeSentAt).toEqual(new Date('2026-09-01T00:00:00Z'));
     expect(fila.shippingCostCents).toBe(12000);
     // ⛔ Y el sello NO viaja en la escritura de resto: sólo puede limpiarlo la condicional, que es
-    // la única que comprueba que la etiqueta de verdad cambió.
-    expect(prisma.shipmentRequest.update.mock.calls[0][0].data).not.toHaveProperty(
-      'trackingNoticeSentAt',
-    );
+    // la única que comprueba que la etiqueta de verdad cambió. Tampoco viaja `status` (`REL-C`).
+    expect(resto.data).not.toHaveProperty('trackingNoticeSentAt');
+    expect(resto.data).not.toHaveProperty('status');
+    expect(resto.where).toEqual({ id: 'ship1', status: { not: 'cancelado' } });
   });
 
   /**
@@ -128,12 +167,16 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
   it('⭐ primera captura (columnas en `NULL`): la condicional SÍ casa y limpia el sello', async () => {
     const { svc, prisma, fila } = buildService();
     await svc.setTracking('ship1', 'DHL', 'TRACK123');
-    await expect(prisma.shipmentRequest.updateMany.mock.results[0].value).resolves.toEqual({ count: 1 });
+    const { condicional, resto } = escrituras(prisma);
+    // La condicional casó ⇒ no hubo escritura de resto.
+    expect(resto).toBeUndefined();
     expect(fila.trackingNoticeSentAt).toBeNull();
-    const where = prisma.shipmentRequest.updateMany.mock.calls[0][0].where;
-    expect(where.OR).toEqual(
+    expect(condicional.where.OR).toEqual(
       expect.arrayContaining([{ carrier: null }, { trackingNumber: null }]),
     );
+    // ⭐ `REL-C`: y la condicional tampoco escribe sobre un envío ya cancelado — el `409` de arriba
+    // se decidió sobre una lectura previa, así que una cancelación simultánea se le colaba.
+    expect(condicional.where.status).toEqual({ not: 'cancelado' });
   });
 });
 

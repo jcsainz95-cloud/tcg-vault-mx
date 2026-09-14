@@ -35,6 +35,16 @@ function build(opts: {
         shipmentUpdates.push({ where, data });
         return {};
       }),
+      // ⭐ `REL-B`/`REL-C` (2026-09-14): la cancelación del contracargo baja su precondición al
+      // `WHERE` (`status IN (solicitado, picking, guia)`), porque `isLive` se decidía sobre un
+      // `findFirst` sin candado — y bajo `READ COMMITTED` una `$transaction` no lo bloquea.
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        shipmentUpdates.push({ where, data });
+        const estado: string = opts.shipment?.status ?? '';
+        const permitidos: string[] | undefined = where.status?.in;
+        if (permitidos && !permitidos.includes(estado)) return { count: 0 };
+        return { count: 1 };
+      }),
     },
     inventoryItem: {
       findUnique: jest.fn(async () => ({ ...itemState })),
@@ -103,8 +113,17 @@ describe('Contracargo direct_ship — envío NO terminal ⇒ congelar (casos i y
       });
       await svc.onChargeDispute(dispute);
 
-      // El envío sale de la cola de picking EN LA MISMA transacción.
-      expect(shipmentUpdates).toEqual([{ where: { id: 'shp-1' }, data: { status: 'cancelado' } }]);
+      // El envío sale de la cola de picking EN LA MISMA transacción, y ⭐ su precondición de estado
+      // viaja en el `WHERE` (`REL-B`/`REL-C`, 2026-09-14): `isLive` se decidía sobre un `findFirst`
+      // **sin candado**, y bajo `READ COMMITTED` una `$transaction` no lo bloquea. ⛔ Rojo si el
+      // `where` vuelve a ser `{ id }` a secas — esa era la forma que decidía sobre una lectura ya
+      // caduca. La lista es exactamente la de `isLive`, ni un estado más.
+      expect(shipmentUpdates).toEqual([
+        {
+          where: { id: 'shp-1', status: { in: ['solicitado', 'picking', 'guia'] } },
+          data: { status: 'cancelado' },
+        },
+      ]);
       // La pieza queda CONGELADA: ni un solo write sobre el inventario.
       expect(itemUpdates).toHaveLength(0);
       expect(itemState.status).toBe('picking');

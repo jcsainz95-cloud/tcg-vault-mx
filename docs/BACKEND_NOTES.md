@@ -23210,3 +23210,210 @@ El seed solo crea filas en **tres** sitios (2 `Address`, 1 `Order`; **ningún** 
 fechado `2026-01-08`, anterior a `M-50`. `M-53` (reserva) y `M-57` (sellos de aviso) son nullable y las filas
 sembradas están en estados previos; **no hay ningún `@Cron` en `src/`**, así que un sello nulo no dispara
 ningún aviso espontáneo. `M-54` los escribe explícitos. `User.nameSource` estaba cubierto.
+
+---
+
+# `REL-B` (ALTA) y `REL-C` — la máquina de estados de envíos vivía en un `if`, y la clase de candados ciegos · 2026-09-14
+
+> **Ancla de todo lo de abajo:** las ablaciones se corrieron sobre una copia FIJA de **`0e22415`**
+> (`git archive 0e22415 | tar -x`), ⛔ **nunca sobre `HEAD`** — que en este árbol se movió tres veces
+> mientras medía. Lo que no medí va marcado **NO MEDIDO**.
+
+## 1 · Lo que estaba roto, y la proporción ANTES/DESPUÉS
+
+`PATCH /api/v1/admin/shipments/:id/status` validaba `TRANSITIONS` **sobre una lectura previa** y después
+escribía con `update({ where: { id } })` — **sin el estado en el `WHERE`**. Bajo `READ COMMITTED`, N
+peticiones simultáneas leen el mismo estado, las N pasan la validación, **las N commitean** (*lost update*
+silencioso) y las N llaman a `notifyStatus`.
+
+| medición (BD propia, 25 tiradas de **10** `PATCH` simultáneos) | antes (`0e22415`) | después |
+|---|---|---|
+| `AV-5` (`{to:'enviado'}`) — tiradas con **más de un correo** | **25/25** (6 en una tirada, **10** en las otras 24) | **0/25** — exactamente 1 correo por tirada |
+| `AV-6` (`{to:'cancelado'}`) — tiradas con más de un correo | **25/25** (10 correos en las 25) | **0/25** |
+
+*(El pentester midió `13/13` y `4/5` con su propio arnés. La diferencia es que el suyo sembraba la fila sin
+etiqueta; el mío la siembra ya en `guia` con guía capturada, que es el estado real desde el que se pulsa
+«Enviar». Su `4/5` de `AV-6` es justo el motivo de lo que sigue.)*
+
+## 2 · ⛔ La proporción NO es el candado — el entrelazado se FUERZA
+
+Un `4/5` significa que **1 de cada 5 corridas habría salido verde con el defecto dentro**. Los candados que
+se quedan viven en `test/integration/avisos-sellos.e2e-spec.ts` (bloque B) y usan la barrera de candado de
+fila que ya existía (`helpers/row-lock-barrier.ts`):
+
+```
+prueba:  BEGIN; SELECT … FOR UPDATE      ⇐ la fila ('guia') queda bloqueada
+A:       PATCH {to:'enviado'} → lee 'guia' (el SELECT llano no se bloquea) → UPDATE se BLOQUEA
+B:       PATCH {to:'enviado'} → lee 'guia' TAMBIÉN → se encola detrás de A
+         (las DOS esperas se VERIFICAN en pg_stat_activity — ⛔ ni un sleep)
+prueba:  COMMIT
+```
+
+**Ablación (`0e22415` literal, `N = 10` corridas): los tres `it` nuevos salen ROJOS 10/10. Con el arreglo,
+VERDES 10/10.** No es una proporción: es el mismo entrelazado en toda máquina.
+
+## 3 · ⭐⭐ `REL-C` era REAL, y el `0/25` del pentester no era una defensa
+
+Él fue honesto: *«el mecanismo está en el código; mi arnés serializaba la cadena»*. **Con entrelazado
+forzado sale ROJO 10/10**: `setTracking` leído en `picking` escribía `status:'guia'` dentro de `data`, y si
+mientras tanto otro operador completaba `guia → enviado`, **la captura devolvía el envío a `guia`**.
+
+**Y esto no es cosmético: es la premisa del contrato.** `§R.4.c` decide **cero columnas nuevas** porque el
+CAS hace único el aviso — pero el CAS garantiza *un aviso por **TRANSICIÓN***, y *un aviso por **CICLO***
+(criterio 205) solo se sigue **si el estado no retrocede**. Con el estado regresado a `guia`, el envío gana
+**otra** transición legítima a `enviado` ⇒ **segundo `AV-5` con las dos peticiones perfectamente
+serializadas**. ⇒ `REL-B` **no estaba cerrada sin `REL-C`**.
+
+### ⚠️ Y había un TERCER retrocesor que nadie había nombrado
+
+Barriendo *todos* los escritores de `ShipmentRequest.status` encontré que **`payments.service.ts` era el
+único capaz de retroceder de verdad**: el webhook `payment_intent.succeeded` hacía
+`if (shipment.status === 'solicitado') update({ where: { id } , data: { status: 'picking' } })`. Un webhook
+que viaja mientras el operador avanza `solicitado → picking → guia → enviado` **devuelve la fila a
+`picking`**. Los otros dos escritores de `payments` van a `cancelado`, que es terminal y por tanto monótono
+— se les bajó la precondición igual, pero **el que importaba era ése**.
+
+## 4 · Lo que se decidió sobre el SELLO de `AV-5`/`AV-6`, y por qué
+
+**⛔ CERO columnas nuevas** — coincide con `API_CONTRACT §R.4.c` cláusula 3 (llegué a la misma conclusión
+antes de leerla, por el camino contrario: medir qué sostiene la unicidad). El argumento, entero:
+
+1. **`ShipmentRequest.shippedAt` YA ES el sello de `AV-5`.** La misma escritura atómica que gana la
+   transición lo pone, pasa de `NULL` a fecha **exactamente una vez**, y nada lo devuelve a `NULL`. Una
+   columna aparte sería **una segunda fila afirmando el mismo hecho con la misma vida**. Para `AV-6` no hace
+   falta ninguna: `cancelado` es terminal.
+2. **La columna habría arreglado el correo y dejado vivo el defecto de fondo.** Sin el `WHERE`, las N
+   peticiones **commitean todas** y el perdedor devuelve `200` afirmando un éxito que no tuvo. *El `WHERE`
+   arregla la máquina de estados; el sello solo tapa su síntoma más visible.*
+3. **Mecanismo heredado, no estrenado:** el de `setTracking` (`§R.4.b`) y el de `buylist-sweep` desde v1.18.
+
+**⭐ Y la premisa se VIGILA, no se confía** — `test/shipments.state-monotonic.spec.ts`:
+ - **(A)** el grafo `TRANSITIONS` es **acíclico** (se lee la tabla REAL del servicio, no una copia — que es
+   justo cómo `§4.54.4` llegó a afirmar una garantía que el código no daba);
+ - **(B)** un **censo por aparición** de toda escritura sobre `shipmentRequest` en `src/`
+   (`test/helpers/shipment-status-writers.ts`): si el bloque `data` toca `status` —o es **opaco**— el `where`
+   tiene que llevar `status`. Tercera clase **`unclassified` = ROJO**, a propósito.
+   **Ablación: el censo sale rojo sobre `0e22415`.**
+
+Si (A) o (B) se caen, **la decisión de «cero columnas» deja de sostenerse y vuelve al arquitecto**. Está
+escrito en el mensaje de fallo del propio test: *no se arregla aflojando el candado*.
+
+## 5 · La conducta nueva del endpoint (`§M4` / `§R.4.c` cláusula 4)
+
+| situación | respuesta | correo |
+|---|---|---|
+| gana el CAS (`count === 1`) | `200` con la fila actualizada | ✅ **uno** |
+| pierde el CAS y, al releer, `status === to` (doble clic, dos pestañas) | ⭐ **`200` idempotente** | ⛔ ninguno |
+| pierde el CAS y quedó en **otro** estado | `409 CONFLICT` | ⛔ ninguno |
+| transición ilegal según `TRANSITIONS` | `409 CONFLICT` *(sin cambio)* | ⛔ ninguno |
+
+⚠️ **Para el frontend:** el `409` de este endpoint ahora **también lo puede producir una carrera**, no solo un
+botón mal habilitado. **El doble clic NO da `409`: da `200` sin segundo correo.** Un `PATCH` repetido en
+serie sobre un estado ya terminal sigue dando `409` — lo rechaza `TRANSITIONS` antes de llegar al CAS.
+
+⚠️ **Cambio menor de `setTracking`, dicho porque cambia conducta:** el correo `AV-4` ahora se dispara **solo
+si la escritura de la etiqueta aterrizó** (`relabelled.count === 1`). Antes se llamaba siempre y lo filtraba
+el sello; ya no basta, porque con la guarda de `cancelado` una captura puede **no escribir nada** — y
+entonces el correo anunciaría una guía que no está en la fila.
+
+## 6 · Los candados CIEGOS — lo que medí, incluido lo que REFUTA la premisa del encargo
+
+**⚠️ Primero, una corrección de método propia:** empecé midiendo la ceguera como *«líneas no vacías con v1 vs
+con v2»* y **ese número no significa nada**: la v1 **borra** la línea de comentario y la v2 **conserva el
+`\n`**, así que las dos salidas no son comparables por conteo. La medición correcta es **mecanística**: la
+ceguera ocurre si y solo si **la secuencia de apertura de bloque aparece dentro de un comentario de línea o
+de una cadena**. Barriendo `backend/src` así, son **siete** ficheros:
+
+| fichero | aperturas fantasma | dónde |
+|---|---|---|
+| `modules/buylist/mail-shell.ts` | **31** | cadenas (CSS `* { … }`, condicionales de Outlook) |
+| `modules/orders/mail/guest-order.templates.ts` | 3 | cadenas |
+| `common/error-codes.ts` | 2 | comentarios de línea (`/checkout/guest/*`) |
+| `modules/mail/mail.templates.ts` | 2 | cadenas |
+| `modules/uploads/uploads.service.ts` | 2 | `image/*` y una cadena |
+| `modules/orders/guest-checkout.service.ts` | 1 | comentario de línea |
+| `modules/pricing/pricing.controller.ts` | 1 | comentario de línea (`/admin/*`) |
+
+**⇒ De mis ocho candados, el que estaba CIEGO HOY era `pricing.publish-trigger.spec.ts`** (lee
+`pricing.controller.ts`): la v1 se comía **108 líneas de código** del controller, y sus
+`not.toContain('forwardRef')` salían **verdes por ceguera**.
+
+**⚠️ Y lo que NO era cierto del encargo:** `buylist.mail-shell.spec.ts:687,741` y
+`buylist.cycle-mail-pii.spec.ts:651,677` **no leen `mail-shell.ts`** — leen `buylist-mail.templates.ts` y
+`buylist-sweep.service.ts`, que **no tienen ninguna apertura fantasma**. Estaban a un comentario de estarlo,
+no ciegos. Se migraron igual, pero la diferencia importa: *decir «ciego» de un candado que ve entrena a
+descreer del aviso el día que uno lo esté de verdad.*
+
+### La puerta única, y su no-vacuidad POR CONTENIDO
+
+`test/helpers/codigo-de-fichero.ts` — todos los candados leen por ahí. Dos mitades, **y ninguna es «no está
+vacío»**:
+
+1. ⭐ **ANCLAS** — fragmentos de **código** que el texto limpio tiene que seguir conteniendo. *Es la única
+   mitad que detecta la ceguera **PARCIAL***. Para los barridos de `src/` entero, `anclasEstructurales()`
+   toma **la primera y la última** declaración de primer nivel: un bloque fantasma abierto a mitad se come
+   **todo lo que va detrás**, así que anclar solo por el principio no ancla nada.
+2. **COTA INDEPENDIENTE** — el texto limpio conserva al menos tantas líneas no vacías como líneas del
+   original que *no parecen comentario*. Es un conteo **por otra vía**. Medido sobre los 223 `.ts` de
+   `src/`: con la v2 se cumple en **todos** (cero rojos falsos) y con la v1 **muerde** en
+   `pricing.controller.ts`, `uploads.service.ts` y `guest-checkout.service.ts`. **⚠️ En `mail-shell.ts` NO
+   muerde** — lo que se pierde son cadenas cuyas líneas empiezan por `*` — **y por eso la cota no basta sola
+   y las anclas no son decorativas.**
+
+⭐ **La comprobación vive SEPARADA del limpiador** (`comprobarNoVacuidad`), para que el canario pueda
+**inyectarle un limpiador roto** (la v1). Si estuviera pegada a `stripComments` —que hoy es correcto— *solo
+se sabría que no salta, no que sabría saltar*. El canario está en `test/codigo-de-fichero.spec.ts`, e incluye
+el contraejemplo explícito: **un control de «no está vacío» PASA sobre el texto mutilado**.
+
+### Los ocho, migrados
+
+`avisos.pendings.spec.ts` (`C-AV-8`) · `avisos.seals-out-of-dto.spec.ts` · `buylist.mail-shell.spec.ts` ·
+`buylist.cycle-mail-pii.spec.ts` · `buylist.projection-and-queue-key.spec.ts` ·
+`pricing.publish-trigger.spec.ts` · `sell-request-states.spec.ts` (tenía una **copia local** de la v1 que
+**eclipsaba** al helper del repo: mismo nombre, `function stripComments` — *un helper arreglado no arregla a
+quien lo tapa con su propia versión*) · `serializable-retry.guard.spec.ts` (`readFileSync` **crudo**).
+
+⚠️ **De `serializable-retry.guard.spec.ts`, la mitad peligrosa no era el rojo falso:** contaba
+`runSerializable(` sobre texto crudo, así que **un llamador COMENTADO seguía contándose** — el candado habría
+dicho «seis» con **cinco** transacciones serializables vivas.
+
+## 7 · Totales
+
+| suite | antes (línea base del encargo) | después |
+|---|---|---|
+| unitaria | 315 suites / 5167 | **317 / 5193** |
+| integración | 43 / 916 | ver el informe del pase |
+
+El total **sube**, que es la señal de que nada dejó de compilar.
+
+## 8 · `§0-T` — `503 BUSY_TRY_AGAIN` (implementado en este mismo pase)
+
+`AllExceptionsFilter` gana una **tabla CERRADA de DOS entradas**, y va **después** de `BusinessException` y
+de `HttpException`: una regla de negocio sale intacta y a la primera.
+
+| entrada | garantía que la hace segura | etiqueta del log |
+|---|---|---|
+| reintentos serializables agotados (`P2034` / `40001` / `40P01`) | el rollback es del motor: **no dejó nada escrito** | `reintentos-agotados` |
+| `P2028` (timeout de transacción) | tampoco escribió nada; ⛔ **no se reintenta en el servidor** | `P2028` |
+
+- **`Retry-After: 1`** (segundos, normativo) y **`details: {}`** — asertado con igualdad **exacta**, no con
+  `toMatchObject`: *un dato que el cliente no puede usar, publicado en el contrato, es una promesa que habrá
+  que sostener.*
+- ⭐ **El filtro decide con `isSerializationConflict`, la MISMA función con la que `runSerializable` decide
+  si reintenta.** Una segunda lista de códigos en el filtro habría permitido que un día divergieran: un
+  error que se reintenta y no se traduce, o al revés. *Una fuente, dos lectores.*
+- ⛔⛔ **Nada de mapeo global de Prisma** (regla 3). El candado lo mide **por exceso**:
+  `test/busy-try-again.spec.ts` exige que **`P2002`, `P2025`, `P2003`, `P2000` y `P1001` sigan saliendo
+  `500 INTERNAL`** y **sin `Retry-After`**. Esa prohibición es más fácil de romper que de cumplir — añadir
+  `P2002 → 409` parece higiene.
+- **La distinción de los dos casos vive en el LOG y ahí es obligatoria**, y también tiene candado: `P2028`
+  señala **un defecto nuestro**, agotar reintentos es la cola esperable. ⛔ Rojo si dejan de distinguirse.
+
+⚠️ **Para el frontend (obligación de `§0-T` regla 4, NO es mía):** se muestra un aviso con **acción del
+usuario** («Volver a intentar»), ⛔ **jamás un reintento automático** —el servidor ya reintentó cinco veces—
+y ⛔ **el formulario no se limpia**: no se escribió nada.
+
+**⚠️ NO MEDIDO por mí:** que el `503` salga **por HTTP** en un caso real (haría falta provocar un `P2028` o
+agotar los cinco reintentos contra la BD viva). Lo que sí está medido es el filtro, unitario, con los
+errores de Prisma construidos a mano — que es donde vive la traducción. La medición que lo cerraría:
+`ARCHITECTURE §4.56.4 · N-AR76-5`.

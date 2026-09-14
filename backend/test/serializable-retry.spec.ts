@@ -70,8 +70,35 @@ describe('isSerializationConflict — la línea entre «reintenta» y «no toque
     // ⛔ Mirar solo `P2034` dejaría fuera justo el camino que menos se prueba.
     expect(isSerializationConflict({ meta: { code: '40001' } })).toBe(true);
     expect(isSerializationConflict({ meta: { code: '40P01' } })).toBe(true);
+    // ⚠️ El respaldo por TEXTO existe solo para errores del MOTOR, así que se prueba con uno.
+    expect(
+      isSerializationConflict(
+        new Prisma.PrismaClientUnknownRequestError('could not serialize access (SQLSTATE 40001)', {
+          clientVersion: 'test',
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  /**
+   * ⭐⭐ **DEUDA CERRADA (techlead, 2026-09-14): «texto en vez de estructura» DENTRO DEL CAMINO DEL
+   * DINERO.** El respaldo por mensaje corría sobre **cualquier** error, así que un error de negocio
+   * cuyo texto contuviera `40001` —un folio, un importe en centavos, un id— se habría reintentado
+   * **5 veces**, ejecutando el cuerpo cinco veces y devolviendo el error mucho más tarde. Ahora el
+   * respaldo exige primero que el error venga de Prisma/pg. *Un reintento decidido por una subcadena
+   * de un mensaje no es una decisión: es una coincidencia.*
+   */
+  it('⛔⛔ un error de NEGOCIO cuyo mensaje contiene `40001` NO se reintenta', () => {
+    // El importe en centavos de MX$400.01 es, literalmente, `40001`.
+    expect(
+      isSerializationConflict(
+        BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'cap exceeded: 40001 cents'),
+      ),
+    ).toBe(false);
+    // Y un `Error` pelado tampoco, aunque traiga el SQLSTATE: no viene del motor.
+    expect(isSerializationConflict(new Error('folio 40P01 rechazado'))).toBe(false);
     expect(isSerializationConflict(new Error('could not serialize access (SQLSTATE 40001)'))).toBe(
-      true,
+      false,
     );
   });
 

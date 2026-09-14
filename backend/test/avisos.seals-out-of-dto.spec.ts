@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { codigoDeFichero } from './helpers/codigo-de-fichero';
 
 /**
  * # ⛔⛔ LAS TRES COLUMNAS DE M-57 SON INTERNAS: FUERA DE TODO DTO (§R.6)
@@ -57,6 +58,19 @@ describe('(1) el ESQUEMA declara las tres columnas como sellos, y nada más', ()
 });
 
 describe('(2) NINGUNA proyección las publica — ni al cliente ni al back-office', () => {
+  /**
+   * ⭐ **Ancla de no-vacuidad POR CONTENIDO, una por fichero.** ⛔ No es «el texto no está vacío»:
+   * el modo de fallo real es el **PARCIAL** —el limpiador conserva el 90 % y pierde justo la región
+   * vigilada—, y eso solo lo ve un fragmento de código que **tiene que seguir estando ahí**.
+   */
+  const ANCLAS: Record<string, string> = {
+    'modules/shipments/shipments.service.ts': 'function toAdminShipmentRow',
+    'modules/buylist/buylist.service.ts': 'export class BuylistService',
+    'modules/admin/admin.service.ts': 'export class AdminService',
+    'modules/users/users.service.ts': 'export class UsersService',
+    'modules/orders/orders.service.ts': 'export class OrdersService',
+  };
+
   /** Ficheros donde vive **toda** proyección que pueda tocar las tres tablas. */
   const PROYECCIONES = [
     'modules/shipments/shipments.service.ts',
@@ -67,14 +81,12 @@ describe('(2) NINGUNA proyección las publica — ni al cliente ni al back-offic
   ];
 
   it.each(PROYECCIONES)('⛔ `%s` no emite ningún sello en una respuesta', (rel) => {
-    const fuente = readFileSync(join(SRC, rel), 'utf8');
-    // Se miden las LÍNEAS DE CÓDIGO: los docblocks explican los sellos a propósito, y explicar una
-    // columna no es publicarla. (Misma distinción, y por el mismo motivo, que en `C-AV-8`.)
-    const codigo = fuente
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split('\n')
-      .filter((l) => !l.trimStart().startsWith('//'))
-      .join('\n');
+    // Se mide el CÓDIGO: los docblocks explican los sellos a propósito, y explicar una columna no es
+    // publicarla. (Misma distinción, y por el mismo motivo, que en `C-AV-8`.)
+    // ⭐ v2 + no-vacuidad POR CONTENIDO: aquí vivía el algoritmo v1, que ante un comentario con la
+    // apertura de bloque se come el fichero hasta el siguiente cierre. Si se comiera la proyección,
+    // este `it` diría «no hay ningún sello publicado» **sobre un fichero que no leyó**.
+    const codigo = codigoDeFichero(join(SRC, rel), [ANCLAS[rel]]);
     for (const sello of SELLOS) {
       // Las apariciones legítimas en código son **escrituras y guardas**, nunca campos de salida:
       // `data: { … }`, `where: { … }` y la comparación del sello. Se comprueba que ninguna línea que

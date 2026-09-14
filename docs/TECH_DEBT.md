@@ -7442,3 +7442,65 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** `mail-shell.ts` (o su sucesor) vive en `backend/src/common/`, los cinco
   ficheros de plantillas lo importan desde ahí, y **BE-43** se cierra con él (el `layout()` duplicado
   de `mail/mail.templates.ts` desaparece en el mismo pase).
+
+---
+
+## Backend · 2026-09-14 · Cierre de `REL-B`/`REL-C` y de la clase de candados ciegos
+
+### REL-D1 · `PRICE_CONVENTION_OF_NEW_ROWS` se estampa A MANO en cinco sitios teniendo el desglose al lado (backend · Órdenes y dinero, 2026-09-14)
+
+- **Dueño:** **backend**. **Severidad:** **Baja** (**dos fuentes para el mismo hecho**; hoy **no pueden
+  divergir**). **No bloqueante.** **Enrutada por el techlead**, no por un gate.
+- **Medido (2026-09-14):** `orders.service.ts:1369-1380`, `guest-checkout.service.ts:232` y
+  `shipments.service.ts:258-265` escriben la constante **a mano** cuando el `breakdown` que tienen
+  delante ya trae `priceConvention` (`common/money.ts:564`).
+- **Por qué NO es un defecto hoy, dicho con el dato:** las dos fuentes valen lo mismo por construcción
+  — `computeShipmentBreakdown`/`computeOrderBreakdown` fijan `priceConvention` **desde la misma
+  constante**. Lo que cuesta es el día que alguien cambie una y no las otras cinco.
+- **Por qué no se cierra en este pase:** este pase tocaba la **máquina de estados** de envíos, y mezclar
+  un refactor de columnas de dinero en el mismo diff hace que el gate no pueda distinguir qué mide.
+  *Un cambio que no arregla nada hoy no viaja con un bloqueante.*
+- **Comprobación de cierre:** los cinco sitios escriben `breakdown.priceConvention`; el censo de
+  `helpers/price-convention-writers.ts` sigue en **cero escritores** de la convención vieja; y la suite
+  de `IVA-12` sigue verde sin tocarla.
+
+### REL-D2 · El resolutor de `pendings.service.ts` no escala al SEGUNDO código (backend · Cuentas y acceso, 2026-09-14)
+
+- **Dueño:** **backend**. **Severidad:** **Baja**. **No bloqueante — y se paga cuando llegue el segundo
+  código, no hoy.** Enrutada por el techlead.
+- **Qué es:** la lista blanca cerrada (`PENDING_CODES`, un solo valor) **es correcta y ⛔ NO se toca** —
+  es lo que sostiene el criterio **204** y el candado `C-AV-8`. Lo que no escala es el **resolutor**
+  (`pendings.service.ts:91-129`): predicados incrustados en el método y consultas **en serie**.
+- **Por qué no se generaliza ya:** con **un** código, una tabla de resolutores es más máquina que
+  problema; y ampliar `PendingCode` es **cambio de contrato** (arquitecto). *Generalizar para un caso
+  que no existe es inventarse el segundo caso.*
+- **Comprobación de cierre:** al añadir el segundo código, el resolutor pasa a una tabla
+  `code → predicado` y las consultas se paralelizan; `avisos.pendings.spec.ts` sigue verde **sin
+  cambiar sus aserciones de ausencia**.
+
+### REL-D3 · El agotamiento de los 5 reintentos serializables no es una señal visible en producción (backend · Órdenes y dinero, 2026-09-14)
+
+- **Dueño:** **backend** (con **devops** para el destino de la señal). **Severidad:** **Media** — es
+  observabilidad de un camino de dinero. **No bloqueante para este corte.** Enrutada por el techlead.
+- **Qué es:** `runSerializable` **loggea cada reintento** (`logger.warn`), pero el caso que importa —
+  *«se agotaron los cinco y el cliente se llevó el error»*— sale por el mismo sitio y **sin nombre
+  propio**. El techlead lo pidió literal: que se sepa **antes de que lo cuente un cliente**.
+- **Por qué no se cierra aquí:** el destino (métrica, alerta, canal) es decisión de **devops**, y
+  elegirlo yo sería fijar infraestructura desde `backend/`.
+- **⚠️ Y se cruza con `§0-T`:** el contrato v1.76 estrena **`503 BUSY_TRY_AGAIN`** para exactamente este
+  caso. La señal debe colgarse de **ese** punto, no de un tercero, o habrá dos sitios que cuenten lo
+  mismo. **NO MEDIDO:** cuántas veces se agotan hoy los cinco en producción — no hay instrumento.
+- **Comprobación de cierre:** existe un contador/alerta de «reintentos agotados» distinguible de
+  «hubo un reintento», y el log del agotamiento distingue `40001` de `P2028` (defecto nuestro).
+
+### REL-D4 · ⚠️ El respaldo por texto de `isSerializationConflict` — CERRADO en este pase, se deja la ficha por trazabilidad
+
+- **Estado:** **CERRADO 2026-09-14** (`src/common/serializable-retry.ts`). Se anota porque la ficha la
+  abrió el techlead y su cierre **cambia conducta** en el camino del dinero.
+- **Qué era:** el respaldo `/\b(40001|40P01)\b/` corría **sobre el mensaje de CUALQUIER error**. Una
+  `BusinessException` cuyo texto contuviera `40001` —un folio, un importe en centavos— **se habría
+  reintentado 5 veces**, ejecutando el cuerpo cinco veces y devolviendo el error mucho más tarde.
+- **Cómo se cerró:** la comprobación de **forma** va primero (`PrismaClientKnownRequestError` /
+  `PrismaClientUnknownRequestError` / `PrismaClientRustPanicError`); quien no es error del motor **no
+  llega a la regex**. Regresión en `test/serializable-retry.spec.ts` («un error de NEGOCIO cuyo mensaje
+  contiene `40001` NO se reintenta»), que sale **roja** con el respaldo viejo.
