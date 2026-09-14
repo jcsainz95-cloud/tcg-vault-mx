@@ -16596,3 +16596,156 @@ E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test e2e/catalog.sp
 ```
 ⚠️ Para que el E2E de sellado sea **concluyente** hace falta ≥1 sellado **publicado**: el seed no
 siembra ninguno (§72.1). Sin él, `/sellado` sale vacío y el test mide el arnés, no el producto.
+
+---
+
+## §73 · `P-97` — M8 Disputas se veía ROTA cuando solo estaba VACÍA — 2026-09-14, commit `bb30997`
+
+### 73.1 · Qué veía el dueño. Reproducido con navegador, no deducido.
+
+Entró a `/es/admin/m8` y vio **el título «M8 · Disputas» y nada más**. Ni tabla, ni mensaje, ni
+filtro: una pantalla en blanco. La pantalla estaba **sana** — había **cero disputas** — y se leía
+como **rota**.
+
+La causa, medida en `ce7017b`: `M8View.tsx:88` pintaba `(query.data ?? []).map(...)` **sin rama de
+vacío**. Con cero filas, el `<div className="flex flex-col gap-2">` se renderiza **vacío** y debajo
+no hay ficha (`active` es `null`). El DOM que escupe la prueba roja es literalmente la captura del
+dueño:
+
+```
+<h1 class="text-h1 font-bold">M8 · Disputes</h1>
+<div class="grid gap-6 lg:grid-cols-[280px,1fr]">
+  <div class="flex flex-col gap-2" />   ← esto es todo
+</div>
+```
+
+Reproducido **con navegador** en una copia del árbol con `mockDisputes = []`
+(Playwright + Chromium, `E2E_DEV_SERVER=1`): capturas antes/después en el scratchpad del pase. El
+«antes» es idéntico a lo que reportó el dueño.
+
+**Corroboración independiente que ya estaba en el repo:** `e2e/admin.spec.ts:396-398` se salta el
+smoke de M8 en modo real con `needsSeed('ninguna disputa sembrada (GET /admin/disputes → total 0)')`.
+Es decir: el stack real lleva tiempo con `total: 0` — la condición exacta del defecto — y el único
+E2E que miraba esa pantalla **se saltaba justo en ese caso**. Ése fue el agujero por el que se coló.
+
+### 73.2 · El arreglo: componente compartido, y UN solo copy (a propósito)
+
+`EmptyState` (`frontend/src/components/ui/EmptyState.tsx`) **sí es un componente reutilizable** y ya
+lo usan §M3, §M4, §M5, §M1, §M6, `vaults` y `m2/sections`. M8 era de los pocos sitios que no lo
+usaba. **No hay dos sitios que mantener de acuerdo**: se usa el mismo componente y el copy vive en
+`messages/{es,en}.json` como el de todos los demás.
+
+**Un solo copy, y esto es la decisión, no un olvido.** §M4 distingue dos casos porque **tiene
+filtro**: «Sin envíos con ese filtro» (no hay nada que case con lo que pediste) vs «Nada que
+preparar por ahora» (no hay nada). **M8 no tiene filtro**, así que el primer caso **no existe**:
+cero disputas es cero disputas. Pintar «sin disputas con ese filtro» sin filtro en pantalla sería
+mentirle al operador sobre por qué no ve nada.
+
+Copy nuevo (DESIGN_SYSTEM §8.1, «cola admin vacía» ⇒ estado positivo, título + 1 frase):
+
+| clave | ES | EN |
+|---|---|---|
+| `admin.m8.empty` | Sin disputas por ahora. | No disputes right now. |
+| `admin.m8.emptyBody` | Cuando un cliente abra una disputa aparecerá aquí para resolverla. | When a customer opens a dispute it will show up here to resolve. |
+
+⚠️ **`EmptyState` acepta `tone` y NO lo usa**: `EmptyState.tsx:15` desestructura
+`{ title, body, action }` — `tone` se declara en la interfaz (`EmptyState.tsx:6`) y se descarta. Se
+sigue pasando `tone="positive"` por coherencia con §M4:341 y `PendingQueueSection.tsx:270,296`, que
+hacen lo mismo, pero **hoy no pinta distinto**. Es deuda cosmética, no funcional; queda anotada aquí
+y no se arregla en este pase (cambiaría el aspecto de 3 pantallas más, y eso lo decide ux-ui).
+
+### 73.3 · Qué se tocó
+
+| Fichero | Cambio |
+|---|---|
+| `app/[locale]/(admin)/admin/m8/M8View.tsx` | Rama de vacío con `EmptyState`. El bloque del grid se reindenta 2 espacios: el diff son 91+/78−, pero `git diff -w` son **3 hunks**. |
+| `messages/{es,en}.json` | `admin.m8.empty`, `admin.m8.emptyBody`. |
+| `app/[locale]/(admin)/admin/m8/M8View.test.tsx` | 2 pruebas nuevas: render con lista vacía ⇒ existe el mensaje (ES y EN) + ausencia de acciones. |
+| `e2e/admin.spec.ts` | Invariante `@real` **«la pantalla nunca está en blanco»** (o ficha de disputa, o estado vacío), **sin `needsSeed`**: afirma el invariante, no el dato, así que es concluyente venga o no venga la fila. |
+
+### 73.4 · Colores y mutación
+
+- **Antes del arreglo:** `2 fallidas / 4 pasadas` en `M8View.test.tsx`.
+- **Después:** `6/6` en ese fichero; suite unitaria completa **`156/156` ficheros y `1756/1756`
+  pruebas** — control en `ce7017b` (árbol limpio): `156/156` y **`1754/1754`**. El total sube
+  exactamente **+2**, que son las pruebas nuevas: no es «la suite no corrió». `tsc --noEmit` y
+  `next lint` limpios.
+- **Mutación — sobre una copia del árbol ENTERO** (`git archive HEAD | tar -x`, `docs/` incluido;
+  `node_modules` enlazado), **nunca sobre el árbol vivo**. SHA de la copia: `bb30997`. Línea base de
+  la copia: `6/6` verde.
+
+  | Mutante | Qué deshace | Rojo |
+  |---|---|---|
+  | **M1** | La condición del vacío pasa a `false` — exactamente el defecto de `ce7017b` | **3/3** (2 pruebas) |
+
+  Restaurada la copia, vuelve a `6/6` y el fichero es **byte a byte** el de `HEAD`.
+
+### 73.5 · Barrido del resto de admin: la misma clase, dónde queda
+
+Revisadas **todas** las vistas de `(admin)` (`m1`…`m10`, `vaults`, dashboard, cuenta). El patrón
+«lista renderizada sin rama de vacío» queda **solo en tres sitios**, y ninguno es tan grave como M8
+porque los tres conservan cabeceras visibles:
+
+| Sitio | Qué pasa con lista vacía | Gravedad |
+|---|---|---|
+| `m10/M10View.tsx:482` | `DataTable` de bitácora sin rama de vacío. `DataTable` **no trae estado vacío propio** (`DataTable.tsx:26-78`): pinta `<thead>` y un `<tbody>` vacío. Se ve la tabla con columnas y cero filas, más el pie de paginación. **No** es pantalla en blanco. | Media |
+| `m1/SealedTab.tsx:310` | `detail.data.groups.map(...)` dentro de un `<ul>` **sin cabecera**: con `groups: []` la región queda **totalmente vacía** (la más parecida a M8). | Media-alta |
+| `m2/sections/RarityHealthSection.tsx:199` | `health.data.rarities.map(...)` en una tabla con `<thead>`: cero filas ⇒ columnas sin filas. | Baja |
+
+Un cuarto caso, **`m2/sections/GradedEstimateReviewSection.tsx:393`**, es **deliberado y está
+documentado en el propio código** (`:391`: «`data: []` NO es un logro que celebrar con un
+placeholder: es una lista vacía»). No se toca.
+
+Todo lo demás ya tiene rama de vacío: `m3:221`, `m4:228` y `:336`, `m5/M5View:598` y `:754`,
+`m5/BuylistCycleQueues` (las 4 colas), `m6:313`, `:841`, `:878`, `:974`, `m7:195`,
+`m1/PendingPublishQueue:107`, `m1/SealedTab:183`, `m1/GradedTab:223`, `m1/SealedGroupLinker:64`,
+`m2/PendingQueueSection:265,291`, `m2/CatalogSyncSection:791`, `m2/GradedEstimateCaptureSection:174,232`,
+`m2/bounties/BountiesView:452`, `vaults/VaultsView:128`, `m6/kyc/KycReviewView:253`.
+`m9/M9View` no tiene listas de servidor (pinta una constante `METRICS`).
+
+⛔ Los tres sitios de la tabla **no se tocaron en este pase** (encargo acotado a M8); van al
+orquestador para que los enrute.
+
+### 73.6 · El filtro por estado de M8: **NO lo recomiendo hoy** (y qué sí)
+
+El contrato expone el eje (`API_CONTRACT.md:5050` — `GET /admin/disputes` · `status` ·
+`DisputeStatus` · clase E; y `:18655` — `?status=&userId=&page=`), y `api.ts:4079`
+(`getAdminDisputes()`) no lo manda. **Aun así, un `<Select>` de estado no es lo que esta pantalla
+necesita**, por tres medidas:
+
+1. **El dominio son 4 valores** (`status-map.ts:114-118`: `abierta`, `en_revision`,
+   `resuelta_recompra`, `rechazada`) y la pantalla ya los agrupa de hecho en **dos**: `RESOLVED`
+   (`M8View.tsx:21`) decide si se ofrecen acciones. Un filtro de 4 opciones sobre una cola que hoy
+   tiene **0 filas** en el stack real (`e2e/admin.spec.ts:397`) es un control que estorba.
+2. **El problema real no es filtrar: es que la cola se trunca en silencio.** `api.ts:4079-4083` pide
+   `/admin/disputes` **sin `page` ni `pageSize`**, se queda con `res.data` y **tira el sobre de
+   paginación**. El default del contrato es **`pageSize: 20`** (`API_CONTRACT.md:4162`). Como la
+   lista incluye también las **terminales** (nada las excluye), el día que haya >20 disputas el
+   operador verá 20 y **no habrá ningún control para llegar al resto** — y las abiertas quedarán
+   enterradas bajo las resueltas. Eso no lo arregla un filtro opcional: lo arregla **separar
+   abiertas de cerradas** (dos consultas fijas, como hace §M5 con sus colas) **o** paginar.
+3. **Si algún día se añade el eje, hacen falta los DOS copys**, como en §M4 — y eso es un cambio de
+   pantalla, no un añadido de campo.
+
+**Recomendación al arquitecto/ux-ui, en una línea:** antes que un filtro, **una separación fija
+«Abiertas / Cerradas»** (dos `useQuery` con `?status=`, la de abiertas por defecto) **o**
+paginación explícita. Sin una de las dos, M8 tiene un **truncado silencioso a 20** esperando a que
+la tienda crezca. **No lo implemento**: es decisión de pantalla y va por ux-ui → arquitecto.
+
+### 73.7 · Peticiones abiertas (no bloquean este pase)
+
+- **Al arquitecto:** ninguna. El contrato ya trae todo lo que M8 consume; nada se mockeó.
+- **A ux-ui:** (a) el veredicto sobre §73.6 (separación Abiertas/Cerradas vs paginación vs filtro);
+  (b) `EmptyState.tone` es una prop **muerta** (§73.2) — o se pinta o se retira de la interfaz.
+- **Al orquestador:** enrutar los tres sitios de §73.5.
+
+### 73.8 · Cómo correr lo de este pase
+
+```bash
+cd frontend
+npx tsc --noEmit && npx vitest run "src/app/[locale]/(admin)/admin/m8/M8View.test.tsx"
+npx vitest run                     # control: 156 ficheros / 1756 pruebas
+# Visual (reproduce el defecto tal como lo vio el dueño): sobre una COPIA del árbol,
+# con `mockDisputes = []` en src/lib/mock/fixtures.ts
+E2E_DEV_SERVER=1 E2E_MOCK_PORT=3014 npx playwright test e2e/admin.spec.ts -g "nunca está en blanco"
+```
