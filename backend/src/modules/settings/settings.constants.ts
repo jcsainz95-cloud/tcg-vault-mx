@@ -60,13 +60,27 @@ export const SettingKey = {
   // otra** — `getStripeFee()` ⛔ NUNCA lee esta clave (candado `IVA-7`): si el dial de traslación
   // entrara ahí, **mover un precio movería una comisión**.
   //
-  // ⚠️ **DEPLOY 1: la fila existe (la siembra M-50) pero NADIE la lee.** No está en
-  // `SETTING_DTO_MAP` a propósito ⇒ ni sale en `GET /admin/settings` ni se puede escribir por
+  // ⚠️ **NO está en `SETTING_DTO_MAP`, y eso SIGUE VIGENTE**: no se puede escribir por
   // `PUT /admin/settings` (que valida contra ese mapa con `hasOwnProperty` ⇒ `422` clave desconocida;
-  // mismo precedente exacto que `stripeFeeIvaPct` desde v1.40 y que `fxRateMode`). Su única puerta
-  // será `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**, y esa puerta abre en el
-  // **DEPLOY 2** (§M10-IVA.2, candado `IVA-8(b)/(c)`). *Un dial que gobierna dinero y cuyo único
-  // guardián es una pantalla no tiene guardián.*
+  // mismo precedente exacto que `stripeFeeIvaPct` desde v1.40 y que `fxRateMode`). Su **única**
+  // puerta es `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**
+  // (§M10-IVA.2, candado `IVA-8(b)/(c)`). *Un dial que gobierna dinero y cuyo único guardián es una
+  // pantalla no tiene guardián.*
+  //
+  // ⛔⛔ **DEROGADO (v1.74 / D56 / `API_CONTRACT §M10-IVA.9.b`, `ARCHITECTURE §4.55.2`, 2026-09-14):**
+  // este párrafo decía *«…y esa puerta abre en el **DEPLOY 2**»* y decía, en presente, *«DEPLOY 1: la
+  // fila existe pero NADIE la lee»*. **No hay deploy 2**: el dueño decidió UN SOLO despliegue
+  // (pregunta 82) porque *«la tienda no ha procesado ninguna venta real»* (`HECHOS.md` 2026-09-14) y
+  // **una cautela que protege un conjunto vacío no protege nada**. ⇒ **La puerta abre AQUÍ**, y este
+  // dial **SÍ se lee**: `GET /admin/settings/iva-transfer` y `PUT /admin/settings/iva-transfer`
+  // (`settings.controller.ts`, `modules/settings/iva-transfer.ts`).
+  //
+  // ⛔ **La derogación es de UNA frase y de ninguna más** (`§M10-IVA.9.b`, tabla fila a fila):
+  // siguen **vigentes e intactos** «no está en `SETTING_DTO_MAP` a propósito», «su única puerta es
+  // `PUT /admin/settings/iva-transfer`» y «con acuse del costo en pesos» —`422
+  // IVA_TRANSFER_ACK_REQUIRED` y `409 IVA_TRANSFER_ACK_STALE` **no se aflojan** por adelantar la
+  // puerta—. *Un comentario que contradice al contrato en el fichero que gobierna un dial de dinero
+  // es una trampa de diagnóstico, y este proyecto ya pagó una (`ARCHITECTURE §4.35a`).*
   IVA_TRANSFER_PCT: 'iva_transfer_pct',
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
@@ -276,8 +290,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SHIPPING_FEE_CENTS]: 17500, // MX$175
   [SettingKey.APORTACION_PCT]: 70,
   [SettingKey.IVA_PCT]: 16,
-  // ⭐ v1.64 (M-50, §4.44.g) — seed **100**: EL NEUTRO. Con el dial ahí, la fórmula del deploy 2
-  // reproduce el cobro de hoy AL CENTAVO (§4.44.a). ⛔ Sin lógica y sin sentinel: a diferencia del
+  // ⭐ v1.64 (M-50, §4.44.g) — seed **100**: EL NEUTRO. Con el dial ahí, la fórmula de §4.44.a
+  // reproduce el cobro de hoy AL CENTAVO. ⛔ Sin lógica y sin sentinel: a diferencia del
   // FX (`FX-6`), aquí «ausente» y «100» significan **lo mismo** —en instalación limpia porque es el
   // valor que el dueño eligió, y en producción antes del backfill porque es el neutro—, así que no
   // hay ninguna decisión que perder por caer al default. Candado `IVA-8(e)`.
@@ -721,8 +735,8 @@ export function validateIvaPct(v: unknown): string | null {
  * ⛔ **NO son puntos de IVA y NO es la tasa.** `t = 100` significa *«traslado el IVA entero»* (el
  * neutro: reproduce el cobro de hoy al centavo); `t = 0` significa *«lo absorbo entero»*. Bajar el
  * dial **⛔ no baja el impuesto: baja el precio exhibido**, y esa diferencia **sale del margen**. Es
- * un **dial de margen**, y por eso su puerta (deploy 2) exige que el servidor haya mostrado el costo
- * en pesos antes de guardar (criterio 188).
+ * un **dial de margen**, y por eso su puerta —`PUT /admin/settings/iva-transfer`, ABIERTA desde
+ * v1.74/D56— exige que el servidor haya mostrado el costo en pesos antes de guardar (criterio 188).
  *
  * **Por qué ENTERO, con la misma razón exacta que `iva_pct` y `aportacion_pct`: es la COLUMNA.**
  * `Order.ivaTransferPct` es `Int` (M-50). Un `37.5` **no revienta: se TRUNCA en silencio a `37`**
