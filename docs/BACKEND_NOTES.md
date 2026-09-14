@@ -127,6 +127,10 @@ plantilla / línea / bloque), con canario propio: `test/strip-comments.spec.ts`.
   `salePriceCents` y vale el precio de LISTA.
 - **`C-EQ-1`:** `NO_ENUM_POR_RUTA` gana **dos** entradas y su tope pasa de **36 a 38**.
   ⛔ **`NO_ENUM_TRANSVERSAL` NO se tocó**: su `toEqual` de 14 nombres queda igual.
+- ⚠️ **COSTE EN CONSULTAS, medido y dicho**: `SettingsService` ⛔ **no cachea** (cada `getNumber` es
+  un `findUnique`). `getIvaDials` usa **`getRawMany` ⇒ UNA query** para las dos filas, no dos. Neto
+  por ruta: **catálogo +1** (antes no leía ningún dial de IVA), **`quote`/`createSession` ±0** (leían
+  `iva_pct` por su cuenta y ya no). Se iza **una vez por petición**, ⛔ nunca por pieza.
 
 ### 0.53.6 — Para FRONTEND, lo que rompe a propósito
 

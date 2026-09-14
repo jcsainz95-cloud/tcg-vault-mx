@@ -299,12 +299,18 @@ export class SettingsService implements OnModuleInit {
    * `getStripeFee()` **sigue sin contener una sola referencia a `IVA_TRANSFER_PCT`**: si el dial de
    * traslación entrara en el cálculo de la comisión, **mover un precio movería una comisión**.
    */
-  async getIvaDials(db: SettingRowReader = this.prisma): Promise<IvaDials> {
-    const [ivaTransferPct, ivaRatePct] = await Promise.all([
-      this.getIvaTransferPct(db),
-      this.getNumber(SettingKey.IVA_PCT, db),
-    ]);
-    return { ivaTransferPct, ivaRatePct };
+  async getIvaDials(): Promise<IvaDials> {
+    // ⭐ **UNA query, no dos.** Este camino es **caliente**: lo recorre cada carga del catálogo y
+    // cada cotización. `getRawMany` trae las dos filas en un `findMany`; el fallback a
+    // `SETTING_DEFAULTS` es el mismo que hace `get()`, escrito aquí porque `getRawMany` —a propósito—
+    // distingue «la fila no existe» de «existe con el valor del seed».
+    const filas = await this.getRawMany([SettingKey.IVA_TRANSFER_PCT, SettingKey.IVA_PCT]);
+    const leer = (k: SettingKeyType) =>
+      Number(filas.has(k) ? filas.get(k) : SETTING_DEFAULTS[k]);
+    return {
+      ivaTransferPct: leer(SettingKey.IVA_TRANSFER_PCT),
+      ivaRatePct: leer(SettingKey.IVA_PCT),
+    };
   }
 
   /**
