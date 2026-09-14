@@ -17256,3 +17256,119 @@ jq -r '.notMeasured' /tmp/nm-*.json      # tiene que salir el MISMO número las 
 E2E_EXPECT_NOT_MEASURED=1 CI=1 E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 \
   npx playwright test e2e/claimable-orders.spec.ts   # rc=1 si hay un número distinto
 ```
+
+---
+
+## §77 · **Los tres candados ciegos del frontend, cerrados** — un solo limpiador, tres canarios (2026-09-14, rama `claude/tcg-hunt-orchestration-2`, base `0e22415`)
+
+> El techlead midió el hallazgo: *«la v2 de `stripComments` arregló el helper, no la clase»*. El
+> algoritmo v1 —borrar bloques con una regex global y **luego** quitar colas de línea— seguía vivo
+> en tres sitios de `frontend/`. **No era teórico: uno de ellos es el candado que gobierna todo el
+> corte del IVA en el front, y estaba ciego HOY.**
+
+### 77.1 · El defecto, en una frase
+
+Un comentario de línea que contenga la secuencia de apertura de bloque —p. ej.
+`// … el portal de una solicitud (/buylist/requests/…), que es «ventas».`— **abre un bloque** para
+la primera regex, que se come el fichero hasta el siguiente cierre. El candado **no se pone rojo:
+deja de ver**. Y un candado que no ve **pasa**.
+
+### 77.2 · Cuánta ceguera había — medido, no estimado
+
+| Candado | Fichero | Ceguera medida sobre `0e22415` |
+|---|---|---|
+| ⭐⭐⭐ **`§M10-IVA.3` · «el frontend nunca multiplica»** | `src/test/frontend-never-multiplies.test.ts:62` | **107 ficheros y ≥413 líneas de código** de `src/` fuera de su alcance |
+| **`C-AV-8` · la campana no conoce `SellOfferState`** | `src/components/layout/PendingsBell.test.tsx:135` | **0 líneas vivas** en sus dos ficheros. Se migró igual: lo que decide si ve es *el próximo comentario que alguien escriba* |
+| **El arnés E2E** | `src/test/e2e-harness.test.ts:36` | **3 specs** de `e2e/` (`buylist` 4 líneas, `master-set` 5, `buylist-offer` 1) |
+
+**El caso que lo prueba**, y es el que el techlead señaló: `StorefrontHeader.tsx:95` abre el bloque
+y el siguiente cierre está en `:109`. En esa ventana hay **13 líneas con código** y el v1 se las
+comía **todas** —la tabla de navegación entera (`/buylist`, `/vault`, `/orders`, `/account`,
+`/login`) y la apertura del `<header>`—. *Se afirman **12**, no 13, porque una de ellas (`:106`,
+`return (`) aparece igual en otro sitio del fichero y por contenido no se puede demostrar.*
+
+⚠️ **Lo que NO se encontró, dicho igual de fuerte:** leídas las ventanas borradas, **no escondían
+ningún defecto real**. El producto no estaba comprometido. Lo que estaba comprometido era **el
+instrumento de la regla**.
+
+### 77.3 · ⭐ El control nuevo es POR CONTENIDO, y ésa es la lección
+
+`PendingsBell.test.tsx:140-141` **ya traía** un control de no-vacuidad, con su comentario al lado:
+*«si el stripper se rompiera y vaciara el fichero, el candado quedaría mirando al vacío»*.
+
+**El autor conocía el modo de fallo. Blindó el caso TOTAL. El que ocurre de verdad es el PARCIAL.**
+Un candado puede estar ciego a trozos y **pasar todos sus propios controles**.
+
+⇒ `exigirQueConserveElCodigo` no pregunta *«¿queda algo?»*: pregunta *«¿queda lo que había?»* —
+cada una de las **N** líneas con código del original tiene que seguir teniendo contenido. Y el
+canario lo demuestra colocando la inyección **después** del `export`: así el control viejo pasa
+**en verde** sobre la misma salida ciega.
+
+### 77.4 · ⭐⭐ Un solo limpiador, y por qué NO es el autómata de `backend/`
+
+`frontend/src/test/strip-comments.ts` es **el único** de este lado, y **no reimplementa** el
+algoritmo de `backend/test/helpers/strip-comments.ts`: le pregunta al **escáner de TypeScript** qué
+caracteres son **token** y cuáles son **trivia**. Los comentarios son trivia por definición del
+lenguaje, no por una heurística nuestra.
+
+La razón no es de gusto, es **medida** (los dos árboles, 2026-09-14):
+
+| Instrumento | pierde código | retiene PROSA |
+|---|---|---|
+| autómata v2 de `backend/` | 0 ficheros | **5** en `frontend/src` + **3** en `backend/src` |
+| escáner de TypeScript (el nuevo) | **0** | **0** |
+
+El autómata **no es ciego** —su v2 arregló eso— pero **se desincroniza con un literal de expresión
+regular que lleve un número impar de comillas** (su límite documentado), y a partir de ahí conserva
+los comentarios. En `frontend/` pasa en `api-client.ts:216`, `e2e-harness.test.ts:119`,
+`grading.ts`, `PendingsBell.test.tsx` y `FxRateCard.test.tsx`. *Para una prohibición eso es un rojo
+falso, y un rojo falso enseña a callar el candado reescribiendo el comentario.*
+
+**Sobre `.tsx` además importa de verdad**: el autómata trata el texto JSX como código, así que un
+apóstrofo en una frase abriría una «cadena» que no cierra.
+
+### 77.5 · ⇒ SOLICITUD AL ROL **BACKEND** (no es ruta mía)
+
+`backend/test/helpers/strip-comments.ts` **retiene prosa** en tres ficheros de `backend/src` por el
+límite de arriba: `modules/buylist/mail-shell.ts` (`:121-140`), `modules/mail/mail.templates.ts`
+(`:30,45-48,64-66` — el detonante es `.replace(/'/g, '&#39;')` en `:27`) y
+`modules/orders/mail/guest-order.templates.ts` (`:65,126,166`). **No es ceguera** (no pierde
+código), así que no es bloqueante; pero cualquier candado que **cuente apariciones** sobre esos
+ficheros está contando prosa. Se re-mide con el script del scratchpad `cmp3.mjs` o reproduciendo el
+caso de `strip-comments.test.ts` («un literal de EXPRESIÓN REGULAR con comilla suelta…»).
+
+### 77.6 · El barrido de mi ruta — respuesta completa
+
+Barrida `frontend/` entera (`src/`, `e2e/`, `scripts/`, raíz; excluidos `node_modules/`, `.next*/`):
+**no hay un cuarto sitio con esa forma.** Los tres eran los tres.
+
+Lo único que queda tocando comentarios es de **otra clase**, y se deja como está:
+
+| Sitio | Qué hace | Por qué no aplica |
+|---|---|---|
+| `src/lib/mock/payability-contract.test.ts:64` | quita las glosas `//` de un bloque **cercado de Markdown** de `API_CONTRACT.md` | no lleva regex de bloque ⇒ **no tiene el modo de fallo**; y no es TypeScript |
+| `src/test/e2e-paid-provider-guard.test.ts:283` | compara contra el fichero **crudo**, sin limpiar | no limpiar no ciega: el sesgo va a **rojo falso**, la dirección segura |
+
+### 77.7 · Cómo re-medir esto
+
+```bash
+cd frontend
+npx vitest run src/test/strip-comments.test.ts \
+               src/test/frontend-never-multiplies.test.ts \
+               src/test/e2e-harness.test.ts \
+               src/components/layout/PendingsBell.test.tsx
+# El canario que más enseña, aislado:
+npx vitest run src/test/frontend-never-multiplies.test.ts -t 'ventana 95-109'
+```
+
+### 77.8 · Totales y lo que **NO** medí
+
+Suite completa: **162 ficheros / 1843 pruebas, todas verdes** (base 161/1818 ⇒ +1 fichero y +25
+pruebas, que son exactamente los canarios). `tsc --noEmit` limpio, `next lint` limpio,
+`scripts/check-format-mix.sh` verde.
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| `F-N15` | **Si los otros 8 sitios con el v1 que el techlead censó fuera de `frontend/` siguen vivos.** Son ruta de backend/devops, no los toqué ni los conté | que el rol dueño corra el mismo barrido en su ruta |
+| `F-N16` | **Si el escáner de TypeScript cuesta tiempo de CI apreciable.** Medido en local: ~2 s para los 462 ficheros de `src/`, una sola vez gracias a la memoización de `codigoDe`; la suite completa pasó de no-medido a **151 s** | comparar la duración del job de vitest en CI antes/después |
+| `F-N17` | **Los 31 candados del repo, uno a uno.** Barrí **el patrón** en mi ruta, no audité cada candado buscando otras formas de ceguera | una auditoría por candado, que es trabajo de techlead/QA |
