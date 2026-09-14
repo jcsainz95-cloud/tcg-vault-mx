@@ -23,7 +23,7 @@ import {
   IvaTransferPreviewDTO,
   ivaTransferPreview,
   lockIvaTransferGate,
-  validateSamplePriceCents,
+  validateAckSamplePriceCents,
 } from './iva-transfer';
 // v1.63 (§M2-F.1/§M2-F.5, §4.43c) — la regla del MODO de la FX. Se importa la función PURA de
 // `common/` (no `FxService`, que depende de este servicio): I-FX2 e I-FX4 aplican a las DOS puertas
@@ -346,11 +346,21 @@ export class SettingsService implements OnModuleInit {
    * concurrentes ven ambos el mismo vigente, los dos acuses cuadran, y el segundo commitea un valor
    * cuyo costo en pesos **nunca se le mostró a nadie**.
    *
-   * **Los tres rechazos, y los tres ⛔ SIN ESCRIBIR** (§M10-IVA.2, candado `IVA-8(c)/(d)`):
+   * **Los CUATRO rechazos, y los cuatro ⛔ SIN ESCRIBIR** (§M10-IVA.2, candados `IVA-8(c)/(d)`,
+   * `IVA-14`):
    *  - `422 VALIDATION_ERROR` — no entero o fuera de `[0,100]`; el `message` nombra los dos extremos.
+   *  - ⭐⭐ `422 VALIDATION_ERROR` — `acknowledgement.samplePriceCents` **distinto del `L` canónico**
+   *    `10_000` (`D-ACUSE-1`, `REL-A`). Se rechaza **ANTES de comparar el delta**, y de hecho antes
+   *    de entrar a la transacción: ni siquiera se toma el candado.
    *  - `422 IVA_TRANSFER_ACK_REQUIRED` — **el valor CAMBIA** y falta el acuse (o uno de sus campos).
    *  - `409 IVA_TRANSFER_ACK_STALE` — el delta confirmado no es el que el servidor recalcula.
    *    `details: { expectedNetDeltaCents }`.
+   *
+   * ⭐⭐ **`D-ACUSE-1` — sobre qué se calcula el delta que el acuse confirma.** Sobre el `L`
+   * **canónico**, que fija el servidor; ⛔ **nunca** sobre el `samplePriceCents` del cuerpo. El
+   * pentester movió el dial `100 → 50` firmando `{ samplePriceCents: 1, previewedNetDeltaCents: 0 }`:
+   * con un `L` diminuto el delta **redondea a 0**, el acuse cuadraba, y el dial se movía habiendo
+   * «mostrado» **MX$0.00** cuando el costo real a MX$100 es **−690 centavos/unidad (~7 %)**.
    *
    * **Idempotencia:** un `PUT` con el valor vigente ⛔ **no pide acuse y no escribe** — no hay margen
    * que ceder, así que no hay nada que acusar ni nada que auditar. *Una entrada de bitácora que dice
@@ -389,7 +399,13 @@ export class SettingsService implements OnModuleInit {
 
       const currentPct = await this.getIvaTransferPct(tx);
       const ivaRatePct = await this.getNumber(SettingKey.IVA_PCT, tx);
-      const samplePriceCents = ack?.samplePriceCents ?? IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;
+      // ⭐⭐ `D-ACUSE-1` (`ARCHITECTURE §4.56.1`, `REL-A`): **el `L` lo fija EL SERVIDOR**, y por eso
+      // aquí se lee la CONSTANTE y ⛔ no `ack.samplePriceCents`. No es una redundancia con el `422`
+      // de `validateAckSamplePriceCents` —que ya garantiza que son el mismo número—: es **la
+      // dirección del dato**. *Un acuse cuyo efecto confirmado depende de un argumento que viaja en
+      // la misma petición que lo confirma no es un control, es una casilla.* El campo del cuerpo
+      // sobrevive para dejar constancia auditada de sobre qué `L` se firmó, ⛔ no para decidirlo.
+      const samplePriceCents = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;
       const preview = ivaTransferPreview({
         currentPct,
         proposedPct,
@@ -445,6 +461,12 @@ export class SettingsService implements OnModuleInit {
    * Normaliza el `acknowledgement` del body. `undefined`/ausente ⇒ `null` (lo interpreta el caller:
    * es obligatorio solo si el valor cambia). Cualquier otra malformación ⇒ `422 VALIDATION_ERROR`.
    *
+   * ⚠️ **Dónde corre esto, y es la mitad que `REL-A` hace obligatoria:** el caller lo invoca **antes
+   * de abrir la transacción**, así que el `422` de `samplePriceCents` llega **antes de tomar el
+   * candado, antes de releer el dial y antes de comparar el delta**. Un rechazo que ocurriera
+   * después de la comparación sería indistinguible de un `409` para quien lo lee, y —peor— habría
+   * corrido la aritmética con el `L` que eligió el llamante.
+   *
    * ⚠️ **`previewedNetDeltaCents` se exige ENTERO y puede ser NEGATIVO** —de hecho, bajar el dial
    * **siempre** da negativo: es margen cedido—. Un `-690.0` es entero en JS y se acepta; un `-690.5`
    * no, porque el servidor jamás produce medio centavo y aceptarlo abriría una comparación que
@@ -467,7 +489,7 @@ export class SettingsService implements OnModuleInit {
     // alguno de sus dos campos»), así que se trata como ausente y lo decide el caller.
     if (obj.samplePriceCents === undefined || obj.previewedNetDeltaCents === undefined) return null;
 
-    const sampleMsg = validateSamplePriceCents(obj.samplePriceCents);
+    const sampleMsg = validateAckSamplePriceCents(obj.samplePriceCents);
     if (sampleMsg) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',

@@ -23417,3 +23417,124 @@ y ⛔ **el formulario no se limpia**: no se escribió nada.
 agotar los cinco reintentos contra la BD viva). Lo que sí está medido es el filtro, unitario, con los
 errores de Prisma construidos a mano — que es donde vive la traducción. La medición que lo cerraría:
 `ARCHITECTURE §4.56.4 · N-AR76-5`.
+
+---
+
+# `REL-A` (MEDIA) — el acuse del dial de IVA se firmaba con MX$0.00, y el `L` ya no lo elige quien firma · 2026-09-14
+
+> **Ancla de las ablaciones:** el árbol **ANTES** es una copia FIJA de **`a5aa07e`**
+> (`git archive a5aa07e | tar -x`, árbol ENTERO — hay suites que leen `docs/`), ⛔ nunca `HEAD`.
+> El árbol **DESPUÉS** es el de trabajo con este cambio. Lo que no medí va marcado **NO MEDIDO**.
+
+## 1 · Qué estaba roto
+
+`validateSamplePriceCents` era un **rango** `[1, 100_000_000]` y rechazaba `0` con un argumento correcto
+pero **incompleto** — *«0 … makes every net delta 0, which would turn the acknowledgement into a no-op»*.
+El delta es una diferencia de `round(P/(1+r))`, así que **para `L` diminuto también redondea a `0`**. El
+pentester firmó `{ samplePriceCents: 1, previewedNetDeltaCents: 0 }`, el acuse cuadró, y el dial pasó de
+`100` a `50` habiendo «mostrado» **MX$0.00** cuando el costo real a MX$100 es **−690 centavos/unidad**.
+
+**Y el `L` del cuerpo no solo colaba el `0`: decidía contra qué comparaba el servidor.** Ésa es la clase, y
+es la que cierra `D-ACUSE-1`.
+
+## 2 · Qué se implementó (`ARCHITECTURE §4.56.1`, `API_CONTRACT §M10-IVA.2` punto 3)
+
+| | Antes | Ahora |
+|---|---|---|
+| `acknowledgement.samplePriceCents` | rango `[1, 1e8]` | **sólo el `L` canónico `10_000`** ⇒ `422 VALIDATION_ERROR`, `details.field = 'acknowledgement.samplePriceCents'`, `message` que nombra el canónico |
+| `samplePriceCents` del preview de la ESCRITURA | `ack?.samplePriceCents ?? DEFAULT` | **`IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT`, y punto** |
+| eje del `GET …/preview` | `[1, 1e8]` | ⛔ **sin cambio** — explorar es libre |
+| `validateSamplePriceCents` | existía | **retirada**; la sustituye `validateAckSamplePriceCents` |
+
+**Dónde ocurre el `422`:** en `parseIvaTransferAck`, que corre **antes de abrir la transacción** ⇒ antes
+del `pg_advisory_xact_lock`, antes de releer el dial y antes de comparar el delta. Medido por lo negativo:
+el doble no registra **ningún** candado tomado en los 25 rechazos.
+
+**⛔ Lo que NO se añadió, por decisión del arquitecto y verificado que sigue abierto:** ninguna comprobación
+de «delta ≠ 0» en ejecución. Con `iva_pct = 0` el dial **se puede mover** acusando `0` (2 tests), porque ahí
+el `0` es verdad y bloquearlo dejaría el dial **encerrado**.
+
+## 3 · Proporciones ANTES / DESPUÉS, con su `N` y su árbol
+
+| Medición | ANTES (`a5aa07e`) | DESPUÉS (árbol de trabajo) |
+|---|---|---|
+| **PoC del pentester, servicio + doble, `N = 25`** | **25/25 el dial se movió a 50** · 0/25 rechazos | **0/25 movió** · **25/25 `422`** |
+| **PoC del pentester, HTTP + Postgres reales, `N = 10`** | **10/10 → `200`** (fila `ConfigSetting` movida) | **10/10 → `422`** (fila en `100`) |
+| **Suite de integración `iva-transfer-ack-canonical.e2e-spec.ts` (21 casos)** | **9 rojos / 21** | **21/21 verdes** |
+
+⚠️ **El dial quedó en `100`, verificado por SQL tras la última corrida** (`select "valueJson" from
+"ConfigSetting" where key='iva_transfer_pct'` ⇒ `100`). Cada `it` que escribe lo devuelve, el `beforeEach`
+lo reafirma y el `afterAll` lo **restaura y lo relee** — *un test de una puerta de dinero que deja la puerta
+abierta es un defecto, no un test.*
+
+## 4 · El candado `IVA-14` y su canario (`test/settings.iva-transfer-ack-canonical.spec.ts`)
+
+Tres mitades, porque la aritmética sola no detecta que se reabra la elección al llamante:
+
+1. **La constante fijada** — `IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT === 10_000`.
+2. **El barrido**, sobre `ivaTransferPreview` REAL (⛔ no una reimplementación dentro del test): `r ∈ [2,100] ×
+   t → t+1` = **9 900** movimientos, **0** deltas nulos. **El canario** repite el mismo barrido con la
+   constante rebajada: `9 000 ⇒ 1`, `5 000 ⇒ 4`, `1 000 ⇒ 461`, `100 ⇒ 6 806`, `10 ⇒ 9 589`, `1 ⇒ 9 900`
+   ceros ⇒ **el `toBe(0)` se pone rojo con cualquier rebaja real**.
+3. **Por AUSENCIA, sobre el código** (`codigoDeFichero`, con sus anclas): el cuerpo de `setIvaTransferPct`
+   contiene `const samplePriceCents = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;` y ⛔ **no lee
+   `ack.samplePriceCents` en ninguna forma**. *Si mañana alguien relajara el validador y la escritura
+   siguiera leyendo el campo del cuerpo, `REL-A` volvería entera sin que una sola prueba de conducta
+   cambiara de color.*
+
+## 5 · ⚠️ REFUTACIÓN MEDIDA AL CONTRATO — `IVA-14` no puede escribirse con «`r ≥ 1`, TODOS»
+
+`ARCHITECTURE §4.56.1` y `§M10-IVA.2` piden el candado así: *«con el `L` canónico y `r ≥ 1`, **todo**
+movimiento de un punto produce delta ≠ 0»*. **Es falso por exactamente un caso**, y es un empate de redondeo
+real, no un defecto:
+
+```
+r = 1, L = 10 000:   P(49) = 10 049 → base round(1 004 900/101) = 9 950
+                     P(50) = 10 050 → base round(1 005 000/101) = 9 950     ⇒ delta = 0
+```
+
+Barrido exhaustivo (`r ∈ [1,100] × t → t+1`, **10 000** movimientos): **1** cero con `r ≥ 1`, **0** con
+`r ≥ 2`. **No cambia ninguna decisión** —`r = 1` con `L = 10 000` es justo el régimen que el propio
+arquitecto señaló al descartar la cota inferior (*«con `r = 1` hace falta `L ≳ 5 050`»*)— pero **el candado
+se escribió sobre lo medido, no sobre la frase**: redactado como «todos» habría **nacido rojo**, y un candado
+que nace rojo se desactiva el primer día. Queda documentado en la cabecera del spec. ⛔ **No toqué el
+contrato** (regla 9): si el arquitecto quiere, la frase se corrige en su documento.
+
+## 6 · Frontend: **cero rework**, comprobado antes de tocar nada (⛔ no relayado)
+
+`IvaTransferSection.tsx:26` `SAMPLE_PRICE_CENTS = 10000` → `:92` lo manda al `/preview` → `:147` el acuse
+manda `data.samplePriceCents`, o sea **lo que el servidor le devolvió**. ⚠️ **Matiz que el contrato no dice
+y conviene saber:** el acuse no manda el literal, manda **el eco del preview**. Con la pantalla actual es
+`10000` siempre; si alguien cableara el eje del `/preview` a un control de la UI, el acuse empezaría a
+mandar ese valor y **el `422` nuevo sería lo que lo cazaría** — que es el comportamiento correcto, pero es
+un `422` que el front vería, no un no-op silencioso.
+
+## 7 · Lo que NO cambia, verificado
+
+`IVA-7` (`getStripeFee()` sin una sola referencia al dial) · `IVA-8(b)` (`PUT /admin/settings
+{ivaTransferPct}` ⇒ `422` clave desconocida, medido sobre HTTP) · `IVA-8(f)` (ausente de `GET
+/admin/settings`, medido sobre HTTP) · `409 IVA_TRANSFER_ACK_STALE` con el `L` canónico (el `422` no se lo
+comió) · idempotencia sin acuse · criterio 209 · `priceConvention` `NOT NULL` sin default.
+
+## 8 · Totales, y una autorrefutación de método
+
+- **Unitarias:** `319 suites / 5303 pruebas`, todas verdes. Base `a5aa07e` (medida por el orquestador):
+  `318 / 5207`. Δ = **+1 suite** (la nueva) **+96 pruebas** (93 del spec nuevo + 3 filas añadidas a la tabla
+  de `samplePriceCents` del gate spec).
+- **Integración:** `44 suites / 940 pruebas` (938 verdes + 2 saltadas históricas). Base: `43 / 919`. Δ =
+  **+1 / +21**.
+- ⚠️ **Autorrefutación:** mi primera corrida de integración dio **8 suites rojas / 41 pruebas** con
+  `429 RATE_LIMITED`, y estuve a punto de reportarlas como preexistentes. Lo eran **de mi arnés, no del
+  árbol**: copié el bloque de entorno de `stack-native.sh` y con él `export NODE_ENV=development`, que apaga
+  el *bypass* del throttler (`AppThrottlerGuard.shouldSkip` → `isThrottlerDisabled()` exige
+  `NODE_ENV === 'test'`) y deja el login en su límite real de **5/min**. Sin esa variable: **44/44**. *Antes
+  de llamar rojo a un rojo, hay que comprobar que el arnés trae lo que la suite lee.*
+
+## 9 · Lo que NO medí
+
+- **NO MEDIDO:** el flujo desde la **pantalla real** del dueño (Next corriendo). Lo que sí medí es el
+  contrato HTTP que esa pantalla consume y las tres líneas del componente que lo producen.
+- **NO MEDIDO:** concurrencia real de dos `PUT` simultáneos con el `L` canónico. Es conducta de
+  `lockIvaTransferGate`, que no toqué, y su orden sigue medido por el gate spec.
+- **NO MEDIDO:** que `iva_pct = 0` sea alcanzable por la puerta de `iva_pct` en vivo; el caso «dial no
+  encerrado» se mide con la tasa sembrada en `0` en el doble.

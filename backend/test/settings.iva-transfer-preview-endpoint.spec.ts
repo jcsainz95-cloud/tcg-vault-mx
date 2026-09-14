@@ -198,9 +198,15 @@ describe('⭐⭐ la COTA no es higiene: sin ella la ruta es un `500` desde la ba
   });
 
   it('⭐⭐ y el `PUT` del ACUSE tenía el MISMO `500`: la cota cierra las DOS puertas', async () => {
-    // ⚠️ Esto es lo que el contrato **no** anticipó (ver la cabecera). `validateSamplePriceCents`
+    // ⚠️ Esto es lo que el contrato **no** anticipó (ver la cabecera). El validador del acuse
     // admitía hasta `MAX_CENTS`; con ese `L`, `displayPriceCentsOf` da `2 491 081 030` y
     // `grossUpTotal` lanza ⇒ `500` en la puerta que gobierna el dial.
+    //
+    // ⭐ **v1.76 · `D-ACUSE-1`:** el `422` de esta línea **ya no lo produce la cota superior**, sino
+    // que el acuse sólo admite el `L` CANÓNICO (`validateAckSamplePriceCents`) — cuatro órdenes de
+    // magnitud por debajo. *El caso sobrevive porque el CÓDIGO DE ESTADO y la puerta que protege son
+    // los mismos; sólo cambió cuál de los dos candados llega primero.* La cota superior sigue siendo
+    // la única defensa del `/preview`, que conserva su eje entero, y eso lo miden los `it` de arriba.
     const c = controller();
     const e: any = await capturar(
       c.updateIvaTransfer(

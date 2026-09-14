@@ -280,9 +280,18 @@ describe('⭐⭐ `PUT /admin/settings/iva-transfer` — el ACUSE es la puerta (`
     expect(h.dial()).toBe(50);
   });
 
-  it('el acuse se valida contra SU `samplePriceCents`, no contra el de por defecto', async () => {
+  it('⭐⭐ `D-ACUSE-1` — el acuse ⛔ YA NO se valida contra SU `samplePriceCents`: `L = 50 000` es `422`', async () => {
+    // ⚠️⚠️ **ESTE TEST ESTÁ INVERTIDO A PROPÓSITO, y la versión anterior era el hallazgo `REL-A`.**
+    // Decía *«el acuse se valida contra SU `samplePriceCents`, no contra el de por defecto»* y
+    // afirmaba un `200`. Esa frase **era** el agujero: si el `L` contra el que se compara lo elige
+    // quien firma, basta elegirlo diminuto para que el delta redondee a `0` y el acuse cuadre con
+    // MX$0.00 — que es lo que el pentester hizo en vivo, moviendo el dial `100 → 50`.
+    // `L = 50 000` solo era su versión respetable; el mecanismo es el mismo.
+    // Desde v1.76 el `L` lo fija el SERVIDOR (`ARCHITECTURE §4.56.1`, `§M10-IVA.2` punto 3).
+    // La batería entera vive en `settings.iva-transfer-ack-canonical.spec.ts` (candado `IVA-14`).
     const h = harness();
-    // Con `L = 50000`: neto(100) = 50000, neto(50) = round(54000×100/116) = 46552 ⇒ delta −3448.
+    // La aritmética NO cambió: a `L = 50 000` el movimiento sigue costando −3448 por unidad. Lo que
+    // cambió es que ese número **ya no puede autorizar una escritura**.
     const esperado = ivaTransferPreview({
       currentPct: 100,
       proposedPct: 50,
@@ -291,13 +300,23 @@ describe('⭐⭐ `PUT /admin/settings/iva-transfer` — el ACUSE es la puerta (`
       fee: FEE,
     }).netDeltaPerUnitCents;
     expect(esperado).toBe(-3_448);
-    const res = await h.svc.setIvaTransferPct(
-      { ivaTransferPct: 50, acknowledgement: { samplePriceCents: 50_000, previewedNetDeltaCents: esperado } },
-      'u1',
-      auditWithin,
-    );
-    expect(res.ivaTransferPct).toBe(50);
-    expect(h.dial()).toBe(50);
+    const err = await h.svc
+      .setIvaTransferPct(
+        { ivaTransferPct: 50, acknowledgement: { samplePriceCents: 50_000, previewedNetDeltaCents: esperado } },
+        'u1',
+        auditWithin,
+      )
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(BusinessException);
+    expect((err as BusinessException).code).toBe('VALIDATION_ERROR');
+    expect((err as BusinessException).getStatus()).toBe(422);
+    expect((err as BusinessException).details).toMatchObject({
+      field: 'acknowledgement.samplePriceCents',
+    });
+    expect(h.dial()).toBe(100);
+    expect(h.audited).toHaveLength(0);
+    // ⭐ Y la lectura conserva su eje: preguntar por `L = 50 000` sigue estando permitido.
+    expect((await h.svc.previewIvaTransfer(50, 50_000)).netDeltaPerUnitCents).toBe(-3_448);
   });
 
   it('⭐ IDEMPOTENTE: el mismo valor vigente no pide acuse, no escribe y ⛔ no deja bitácora', async () => {
@@ -385,12 +404,15 @@ describe('⭐ `IVA-8(d)` — la validación del valor, y el `message` nombra LOS
     expect(res.ivaTransferPct).toBe(v);
   });
 
-  it.each([0, -1, 1.5, '10000', null])(
+  it.each([0, -1, 1, 1.5, '10000', null, 9_999, 10_001])(
     '⛔ `acknowledgement.samplePriceCents = %p` ⇒ `422 VALIDATION_ERROR`, sin escribir',
     async (sample) => {
-      // `L = 0` daría delta 0 para CUALQUIER par de posiciones ⇒ un acuse que siempre cuadra, o sea
-      // **ningún acuse**. *La forma más barata de desactivar una puerta de dinero es encontrarle el
-      // argumento que la vuelve trivial.*
+      // ⚠️ **La lista de esta tabla era `[0, -1, 1.5, '10000', null]` y el `1` NO estaba** — ése es
+      // `REL-A` en una línea. `L = 0` daría delta 0 para CUALQUIER par de posiciones, sí; pero
+      // **`L = 1` también**, y ése pasaba. *La forma más barata de desactivar una puerta de dinero es
+      // encontrarle el argumento que la vuelve trivial — y el validador solo razonó el borde `0`.*
+      // Desde `D-ACUSE-1` el único valor legal es el `L` canónico, así que los vecinos `9 999` y
+      // `10 001` también entran en la tabla: la puerta ya no es un rango.
       const h = harness();
       const err = await h.svc
         .setIvaTransferPct(
