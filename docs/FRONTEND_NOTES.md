@@ -16907,3 +16907,153 @@ fuente y aritmética entera, deterministas por construcción.
 | M5 | `IvaLabel` gana `ivaIncluded = true` por defecto | `IvaLabel.test.tsx` |
 | M6 | el dial se cuela en una pantalla de cliente (**criterio 209**) | el canario de `IvaTransferSection.test.tsx` |
 | M7 | el dial deja de re-derivar el catálogo (**criterio 196**) | `iva-inclusive-mock.test.ts` |
+
+---
+
+## 75 · B-2 · El arnés E2E caducó con D56 — y debajo había una avería más vieja
+
+**Fecha de medición: 2026-09-14.** Stack nativo (`./scripts/stack-native.sh up --gate`), Postgres 16
++ Redis + s3-local + backend `:3099` + frontend `:3000` con `mocks=false`.
+
+Esto cierra el hallazgo B-2 de QA (*«el arnés E2E de Playwright quedó caduco por el rename de D56»*).
+Lo que sigue distingue, caso por caso, **si estaba mal la PRUEBA o la UI** — porque poner verdes unas
+pruebas rojas es exactamente la forma en que se debilita un candado, y la única defensa es decir con
+qué se cotejó cada una.
+
+### 75.1 · Resultado, con su N
+
+| Suite | Antes (medido por QA) | Después (medido por mí) |
+|---|---|---|
+| `@real` contra el stack | 32 pasaron · **23 fallaron** · 3 saltadas · 1 no corrió | **50 pasaron · 3 fallaron** · 6 saltadas — **2 de 2 corridas idénticas** sobre `f8c7040` |
+| mock (`E2E_MOCK_PORT=3010`) | *(QA no la midió)* **196 pasaron · 6 fallaron** · 3 saltadas | **201 pasaron · 0 fallaron** · 4 saltadas |
+
+Los **3 rojos que quedan son los de B-3 (devops)**: `checkout.spec.ts:64`, `guest-checkout.spec.ts:136`
+y `shipments.spec.ts:30` mueren esperando el modal de pago (`dialog «Completar pago»` / `«Pagar envío»`) porque este entorno **no tiene clave de
+prueba de Stripe ni salida a `api.stripe.com`**. ⛔ **No los tapé** y no los toqué.
+
+### 75.2 · ⚠️ Corrección a la clasificación de QA: `shipments.spec.ts` NO era un rojo de cobro
+
+QA contó tres rojos «por capacidad de COBRO ausente». Dos lo eran. El tercero —`shipments.spec.ts:30`—
+**moría en la línea 41, ANTES de tocar Stripe**, en un rótulo de IVA caduco. Medido en el propio
+desglose del retiro contra el stack: `Envío MX$203.00 · «IVA 16 % incluido» MX$28.00 · Comisión
+MX$12.48 · Total MX$215.48` — o sea `total == envío + comisión`, con el IVA **informando**, que es lo
+que manda el criterio **189**. Un hueco de entorno estaba **escondiendo** un rótulo caduco. Arreglado
+el rótulo, ese test llega ahora hasta el modal de pago y falla ahí, que es donde le toca.
+
+### 75.3 · Prueba o UI, caso por caso
+
+| # | Síntoma | ¿Quién estaba mal? | Con qué lo coteje |
+|---|---|---|---|
+| 1 | `grading.ts:312` — *«necesita TRES cartas raw y hay 0»* (12 rojas) | **la PRUEBA** | `API_CONTRACT §M10-IVA.3`: *«`salePriceCents` DESAPARECE de la superficie pública»*. Medido: `GET /catalog/cards` devuelve `displayPriceCents`, `ivaIncluded:true`, `ivaRatePct:16` y **seis** grupos raw |
+| 2 | `m5-scenario.ts:104` — misma forma, **otra mecha** | **la PRUEBA** (QA no lo vio) | igual que arriba. Aquí no daba rojo: daba **`skip`** — ver §75.4 |
+| 3 | `pricing-curve.spec.ts:169` exige «sin IVA» | **la PRUEBA** | `PROJECT.md §Q`, tabla de superficies: *«Ficha de carta — precio grande y filas de variante · ¿Precio con IVA dentro? **SÍ**»*. La UI pinta «IVA 16 % incluido» porque el servidor manda `ivaIncluded:true` |
+| 4 | `catalog.spec.ts:240/262` — `heading {name:'Sellado'}` casa dos | **la PRUEBA** | modo estricto de Playwright: el `h1` «Sellado» y el `h3` «Aún no hay **sellado** en stock». `GET /catalog/sealed` ⇒ `total:0` en este entorno ⇒ el vacío SIEMPRE está |
+| 5 | `catalog.spec.ts:66/170`, `checkout.spec.ts:25/94`, `guest-checkout.spec.ts:56` — «sin IVA» / «IVA 16%» (6 rojas **en mock**, invisibles para QA) | **la PRUEBA** | las cinco superficies pintan «IVA 16 % incluido» (leído del DOM de los fallos). `PROJECT.md §Q` marca **SÍ** en todas |
+| 6 | `catalog.spec.ts:264` — `sealed.length > 0` | **la PRUEBA** | afirma **tráfico HTTP** y en mock el cliente resuelve **en proceso**: cero peticiones. Rojo permanente en mock y, peor, el assert hermano pasaba **en vacío**. Pasa a `realOnly` |
+| 7 | 6 plantones de 60 s en `admin`/`admin-fx`/`account` | **la PRUEBA (el arnés)** | inanición del cupo de `POST /auth/login` — §75.5 |
+| 8 | `m5-transitions` — `422 CLABE_NOT_OWN_NAME` | **la PRUEBA (el arnés)** | `API_CONTRACT §6`: `clabe` es **opcional si hay una en archivo**, y mandar una distinta da ese 422 (v1.60/D51: match de **blind index**, no de nombres). El arnés horneaba el literal SIEMPRE |
+| 9 | `m5-transitions` — `500 INTERNAL` en el intake | **la PRUEBA provocaba un defecto REAL del producto** — §75.7 | log del backend: `PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock` (`buylist.service.ts:1679`) |
+
+**Ninguna UI resultó estar mal.** Lo digo explícito porque el encargo pedía decirlo en las dos
+direcciones: busqué el caso contrario y no apareció.
+
+### 75.4 · La lección del hallazgo 1 no es el nombre: es el `?? 0`
+
+`(g.salePriceCents ?? 0) > 0` no falló por el rename. Falló porque **`?? 0` convirtió un campo
+inexistente en un cero**, y «cero» es una afirmación: el arnés concluyó que el catálogo estaba vacío
+y **acusó al seed**. QA pidió buscar más sitios con esa forma. Encontré uno, y era peor:
+
+`m5-scenario.ts` filtraba con `typeof row.salePriceCents === 'number'` ⇒ `false` en todas las filas ⇒
+`M5SeedUnavailable` ⇒ **`m5-transitions.spec.ts` se SALTABA ENTERO, en verde**. La misma bomba salía
+por la puerta del `skip` en vez de por la del rojo. *Una suite apagada por un rename no gatea, y
+encima culpa al seed.*
+
+Los dos sitios ahora **denuncian la ausencia antes de filtrar**: si el DTO deja de traer
+`displayPriceCents`, el mensaje dice «el DTO público cambió de forma», no «el seed está vacío».
+
+### 75.5 · ⭐ La avería de fondo: el arnés violaba el límite de `POST /auth/login`
+
+Esto no lo causó D56 y es el hallazgo más grande del pase.
+
+**Medido (2026-09-14, `:3099`):** diez intentos seguidos ⇒ `200 200 200 200 200 429 429 429 429 429`,
+y vuelta a `200` a los **62 s**. Es `@Throttle({ ttl: 60_000, limit: 5 })` sobre `POST /auth/login`
+(`backend/src/modules/auth/auth.controller.ts:25`), por IP; un intento bloqueado **no** alarga la
+ventana.
+
+El arnés lo excedía por dos vías: hay **seis** actores en `SeedRole` (no tres), y **los logins por
+FORMULARIO —que son el producto bajo prueba— no pasaban por `sharedOnce`**. Al agotarse el cupo,
+`loginViaApi` entraba en una escalera de `1+2+4+8+16+32 = 63 s`… con `timeout: 60_000` por test. **La
+escalera no cabía nunca.** El resultado, leído en la traza de `admin.spec.ts:17`: entre `Create page`
+y el timeout, **cero acciones de Playwright**. Un plantón mudo de 60 s que se lee como «la UI no
+carga» (la pantalla se queda en «Verificando sesión…» sencillamente porque nadie navegó).
+
+**Reproducido 3/3** con 2 workers sobre `admin`+`admin-fx`+`account` (6 rojas cada vez) y **1/1** con
+`--workers=1` (2 rojas, **otras distintas**). No es intermitencia: es inanición, y por eso cambia de
+víctima según el orden. *Un gate cuyo rojo depende de quién llegue primero al cupo no clasifica nada.*
+
+El arreglo tiene tres piezas y ninguna toca el throttler (es defensa legítima del producto):
+
+1. **`reserveLoginSlot` (`e2e/utils/state.ts`)** — cupo compartido **entre procesos** (fichero +
+   candado, como `sharedOnce`), 5 por 66 s. **Todo** login pide ranura: por API y por formulario.
+2. **`playwright.config.ts`: `timeout` 120 s SOLO contra backend real.** Con 60 s era imposible por
+   aritmética (la ventana dura 60 s). ⛔ `expect.timeout` no se tocó: **ningún aserto se relajó**;
+   solo se le da sitio al arnés para pagar el peaje del producto.
+3. **El cupo NO se purga en el teardown**, y eso lo aprendí midiendo: la primera versión sí lo
+   borraba, y cinco corridas seguidas de `m5-transitions` dieron **2 de 5 rojas** con `429` — cada
+   corrida arrancaba el contador a cero mientras el servidor seguía en la misma ventana. Las
+   entradas son marcas de tiempo, no credenciales.
+
+Tras el arreglo: **3/3 corridas verdes** de las tres specs (13 pasan, 0 fallan), con dos casos
+esperando ~1 min su ranura **y diciéndolo** (`E2E_LOGIN_DEBUG=1`).
+
+### 75.6 · Relación con la nocturna `e2e-real.yml` en rojo desde el 11-sep
+
+**NO MEDIDO: cuál smoke falla en CI.** El informe de Playwright de esas corridas no se puede
+descargar desde aquí (el proxy rechaza `*.blob.core.windows.net` con 403), así que **no afirmo** que
+ésta sea la causa.
+
+Lo que **sí** sostengo: la avería de §75.5 es **anterior a D56**, es **determinista**, y **reproduce
+con `workers: 1`**, que es la configuración de CI (`workers: isCI ? 1 : undefined`). Es el candidato
+más fuerte que tengo. Lo que lo cerraría: una corrida de `e2e-real.yml` con estos commits, o que
+alguien con acceso al artefacto mire si los rojos de #35–#37 son timeouts de 60 s sin acciones.
+
+### 75.7 · Hallazgo de PRODUCTO que sale de aquí y **no es mío** → backend
+
+`POST /buylist/requests`, dos intakes **simultáneos del mismo vendedor**, responde **`500 INTERNAL`**:
+
+```
+PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock.
+  at BuylistService.createRequest (backend/src/modules/buylist/buylist.service.ts:1679)
+```
+
+La transacción SERIALIZABLE del tope mensual **no reintenta**, y un conflicto de serialización es una
+condición *esperada* en ese nivel de aislamiento: el remedio canónico es reintentar, no propagar un
+500 al cliente. El arnés **dejó de dispararlo** (`m5Scenario()` construye bajo candado de fichero,
+un worker a la vez) pero ⛔ **no lo tapa**: queda escrito aquí y va al arquitecto/backend.
+
+### 75.8 · Peticiones abiertas
+
+- **A ux-ui (repetida, §74.6):** `DESIGN_SYSTEM.md` sigue diciendo *«sin IVA»* como literal fijo. Este
+  pase retiró **seis** asserts que copiaban ese literal; mientras el documento no se actualice, el
+  siguiente que escriba una pantalla volverá a ponerlo.
+- **A backend:** §75.7, y que el seed limpie `clabeEnc`/`clabeHmac` **también** de `customer2` (hoy
+  solo lo hace de los actores de KYC), porque la clave PII es efímera por arranque en el stack nativo.
+
+### 75.9 · ⚠️ Lo que NO medí en este pase
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| `F-N6` | **Los tres rojos de Stripe.** No hay clave de prueba ni egress; son B-3 | devops abriendo la puerta de cobro y QA re-corriendo |
+| `F-N7` | **Que ésta sea la causa de la nocturna en rojo** (§75.6) | el artefacto de `e2e-real.yml`, hoy inalcanzable tras el proxy |
+| `F-N8` | **El comportamiento del cupo con `retries: 2` de CI.** Aquí `retries` es 0 | una corrida con `CI=1` |
+| `F-N9` | **Que las cuatro `account.spec` saltadas pasen.** La causa del `skip` SÍ la medí: `POST /auth/login` de `temporal.customer@e2e.local` y `temporal.operator@e2e.local` responde **`401 INVALID_CREDENTIALS`** ⇒ sus temporales ya se consumieron (TECH_DEBT GA-D3). Lo que **no** medí es que el flujo pase con el seed fresco — y ⛔ **no resembré a propósito**: `--seed` purga filas de evidencia y el cupo mensual de otros | `./scripts/stack-native.sh up --seed` y re-correr `account.spec.ts` |
+
+### 75.10 · Cómo re-medir esto
+
+```bash
+./scripts/stack-native.sh up --gate          # stack real, y verify:head en verde
+cd frontend
+E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test   # subset @real
+E2E_MOCK_PORT=3010 npx playwright test                              # suite de mocks
+E2E_LOGIN_DEBUG=1 …                                                 # + traza del cupo de login
+```
