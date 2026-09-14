@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Save } from 'lucide-react';
 import { getIvaTransferPreview, updateIvaTransfer } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import { formatMoneyCents } from '@/lib/format';
+import { formatMoneyCents, formatSignedMoneyCents } from '@/lib/format';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { IvaTransferPositionDTO, IvaTransferPreviewDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -27,24 +27,6 @@ const SAMPLE_PRICE_CENTS = 10000;
 
 const MIN_PCT = 0;
 const MAX_PCT = 100;
-
-/**
- * ⚠️ **`formatMoneyCents` pierde el «MX» en los NEGATIVOS, y aquí el número clave es negativo.**
- * Medido: `Intl` en `es-MX` devuelve `-$6.90`, y la normalización a `MX$` de `format.ts` ancla en
- * `^\$` — con el signo delante **no dispara**. En `en-US` sí (`-MX$6.90`), así que el defecto es
- * **solo en español**, que es el idioma del dueño.
- *
- * Se compone el signo **fuera** del formateador en vez de tocar el helper compartido de dinero:
- * es una superficie de DINERO usada por media app y este cambio no es el sitio para moverla. El
- * defecto va reportado al dueño del helper.
- *
- * El signo es el **menos tipográfico** `−` (U+2212), no un guion: a tamaño de cifra el guion se lee
- * como un separador.
- */
-function signedMoneyCents(cents: number, locale: AppLocale): string {
-  const abs = formatMoneyCents(Math.abs(cents), locale);
-  return cents < 0 ? `\u2212${abs}` : abs;
-}
 
 /** El dial es **entero** (§M10-IVA.1): `Order.ivaTransferPct` es `Int` y `37.5` es `422`. */
 function parsePct(text: string): number | null {
@@ -215,7 +197,7 @@ export function IvaTransferSection() {
                     : 'tabular mt-2 font-mono text-2xl text-text'
                 }
               >
-                {signedMoneyCents(data.netDeltaPerUnitCents, locale)}
+                {formatSignedMoneyCents(data.netDeltaPerUnitCents, locale)}
               </p>
               <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
                 {data.netDeltaPerUnitCents === 0
@@ -256,7 +238,7 @@ export function IvaTransferSection() {
 
             {ackStale !== null && (
               <Banner variant="warning" role="alert" title={t('stale.title')}>
-                {t('stale.body', { amount: signedMoneyCents(ackStale, locale) })}
+                {t('stale.body', { amount: formatSignedMoneyCents(ackStale, locale) })}
               </Banner>
             )}
             {mutation.isSuccess && (

@@ -44,7 +44,9 @@ function listing(over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSu
     finish: 'holofoil',
     gradeKey: 'raw:NM',
     stockCount: 2,
-    salePriceCents: 140800,
+    displayPriceCents: 140800,
+    ivaIncluded: true,
+    ivaRatePct: 16,
     currency: 'MXN',
     ...over,
   };

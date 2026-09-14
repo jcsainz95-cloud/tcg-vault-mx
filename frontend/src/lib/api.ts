@@ -351,12 +351,17 @@ export async function getCatalog(
   // v1.50.2: la rejilla usa el DTO del Summary (sin `priceBasis`/`referenceValue`, con el marcador
   // `gradingHighlight` ya resuelto por el servidor).
   let data = fx.groupMockSummaries(pieces);
+  /*
+   * ⛔ §M10-IVA.3 — el filtro y el orden de precio van contra **`displayPriceCents`**, la cifra que
+   * el cliente ve. Filtrar por la base limpia haría que «hasta MX$100» dejara fuera piezas que la
+   * teja rotula en MX$100 — el filtro y la vitrina discreparían **sobre el mismo número**.
+   */
   if (filters.minPriceCents != null)
-    data = data.filter((g) => g.salePriceCents >= filters.minPriceCents!);
+    data = data.filter((g) => g.displayPriceCents >= filters.minPriceCents!);
   if (filters.maxPriceCents != null)
-    data = data.filter((g) => g.salePriceCents <= filters.maxPriceCents!);
-  if (filters.sort === 'price_asc') data.sort((a, b) => a.salePriceCents - b.salePriceCents);
-  if (filters.sort === 'price_desc') data.sort((a, b) => b.salePriceCents - a.salePriceCents);
+    data = data.filter((g) => g.displayPriceCents <= filters.maxPriceCents!);
+  if (filters.sort === 'price_asc') data.sort((a, b) => a.displayPriceCents - b.displayPriceCents);
+  if (filters.sort === 'price_desc') data.sort((a, b) => b.displayPriceCents - a.displayPriceCents);
   // v1.50: la vitrina «Joyas para gradear» = subconjunto YA CURADO del catálogo (mismo DTO, misma
   // teja). El filtro es la PRESENCIA del marcador; el orden lo dicta el fixture (lo resolvió el
   // servidor). El cliente no reevalúa el gate ni deriva ganancia/costo alguno.
@@ -788,28 +793,100 @@ export async function deleteGradedEstimate(
 }
 
 // ---------- Checkout / órdenes ----------
-const IVA_PCT = 16; // MOCK: default del dial M10; el backend lo devuelve en BreakdownDTO.
-const STRIPE_PCT = 0.036;
-const STRIPE_FIXED = 300;
-
-/** Réplica local de la fórmula de gross-up (ARCHITECTURE §5.1) para el mock. */
-export function computeBreakdown(subtotalCents: number, ivaBaseCents = subtotalCents): BreakdownDTO {
-  const ivaCents = Math.round((ivaBaseCents * IVA_PCT) / 100);
-  const baseCents = subtotalCents + ivaCents;
-  const totalCents = Math.ceil((baseCents + STRIPE_FIXED) / (1 - STRIPE_PCT));
-  const processingFeeCents = totalCents - baseCents;
-  return { subtotalCents, ivaCents, ivaRatePct: IVA_PCT, processingFeeCents, totalCents, currency: 'MXN' };
+/**
+ * ⭐⭐ **CRITERIO 196 — EL MOCK YA NO CONTRADICE AL SISTEMA REAL, y tenía DOS defectos, no uno.**
+ *
+ * El criterio lo escribe así: *«con el dial en un valor distinto del default, el modo mock no
+ * muestra una cifra que el sistema real no produciría … lo que no puede es parecer real y estar
+ * mal»*. Lo que había aquí parecía real y estaba mal por partida doble:
+ *
+ * **(1) El `16` clavado** (`const IVA_PCT = 16`, el hecho 11 de `PROJECT §Q`). Mover `ivaPct` desde
+ * la pantalla de diales dejaba el checkout del mock en 16 % para siempre. **Ahora se lee de
+ * `fx.mockSettings`**, que es el mismo objeto que esa pantalla escribe.
+ *
+ * **(2) ⭐ EL GROSS-UP NO LLEVABA EL IVA DE LA COMISIÓN, y eso NUNCA fue cierto** — ni antes del
+ * corte del IVA. Medido contra `backend/src/common/money.ts:772` (`grossUpTotal`), que hace
+ * `ceil((base + fixed×(1+ivaStripe)) / (1 − pct×(1+ivaStripe)))`: con base `11600` el backend cobra
+ * **12469** y este mock cobraba **12345** — **124 centavos de menos por pedido**, en desarrollo y en
+ * todo test que corra contra mocks. Era un defecto **preexistente** que el corte del IVA destapa,
+ * ⛔ no una consecuencia de él.
+ *
+ * ⛔ **Y sigue sin multiplicar por su cuenta el precio de las piezas**: `displayPriceCents` llega ya
+ * derivado del dial desde `fixtures.ts`. Aquí solo se **suma** y se aplica el gross-up.
+ */
+function mockIvaRatePct(): number {
+  return fx.mockSettings.ivaPct;
 }
 
-/** Breakdown en CEROS del contrato (v1.21.3): carrito 100 % no disponible ⇒ 200, nunca error. */
+/**
+ * Réplica local del gross-up del servidor (`backend/src/common/money.ts` `grossUpTotal`,
+ * `ARCHITECTURE §5.1`). **Copiada de la fórmula, no aproximada**: la comisión de Stripe **lleva su
+ * propio IVA**, así que el porcentaje y el fijo se escalan por `(1 + r)` ANTES de despejar.
+ *
+ * Verificado contra las tres filas publicadas del contrato (§M10-IVA.2 / criterio **188**), con
+ * `ivaPct = 16` y Stripe `3.6 %` / `300`:
+ * `11600 → 12469` · `10800 → 11634` · `10000 → 10799`.
+ */
+function mockGrossUpTotal(grossUpBaseCents: number): number {
+  const ivaMul = 1 + mockIvaRatePct() / 100;
+  const effectivePct = (fx.mockSettings.stripeFeePct / 100) * ivaMul;
+  const effectiveFixed = fx.mockSettings.stripeFeeFixedCents * ivaMul;
+  return Math.ceil((grossUpBaseCents + effectiveFixed) / (1 - effectivePct));
+}
+
+/**
+ * ⭐⭐ **EL DESGLOSE DEL MOCK, BAJO `IVA_INCLUSIVE`** (§M10-IVA.4).
+ *
+ * `subtotalCents` llega como **`Σ displayPriceCents`** ⇒ **ya lleva el IVA dentro**. De ahí salen
+ * las dos reglas que este mock tiene que respetar para no mentir:
+ *
+ * - **El IVA es RESIDUAL**: `G − round(G / (1+r))` sobre el agregado `G = subtotal + envío`.
+ *   ⛔ **Jamás `round(subtotal × r)`**, que es lo que había y que ahora cobraría el impuesto **dos
+ *   veces** sobre un subtotal que ya lo trae.
+ * - **`grossUpBase = subtotal + envío`**, ⛔ **NO `subtotal + iva`**. Esa suma es literalmente la
+ *   mutación que el candado **`IVA-2`** declara roja: sobre un subtotal inclusivo produce
+ *   **+13.6 % a todos los clientes, en silencio**.
+ *
+ * ⇒ La identidad que cumple, y que es la **(b)** del contrato:
+ * `totalCents == subtotalCents + shippingFeeCents + processingFeeCents`. **El IVA no es sumando.**
+ */
+export function computeBreakdown(subtotalCents: number, shippingFeeCents?: number): BreakdownDTO {
+  const ivaRatePct = mockIvaRatePct();
+  const grossCents = subtotalCents + (shippingFeeCents ?? 0);
+  const ivaCents = grossCents - Math.round(grossCents / (1 + ivaRatePct / 100));
+  const totalCents = mockGrossUpTotal(grossCents);
+  const processingFeeCents = totalCents - grossCents;
+  return {
+    subtotalCents,
+    ...(shippingFeeCents != null ? { shippingFeeCents } : {}),
+    ivaCents,
+    ivaRatePct,
+    processingFeeCents,
+    totalCents,
+    currency: 'MXN',
+    priceConvention: 'IVA_INCLUSIVE',
+    ivaIncluded: true,
+  };
+}
+
+/**
+ * Breakdown en CEROS del contrato (v1.21.3): carrito 100 % no disponible ⇒ 200, nunca error.
+ *
+ * ⚠️ **`ivaCents: 0` aquí NO incumple `IVA-8(a)`** (*«el IVA jamás es 0»*): ese candado habla de una
+ * **orden**, y esto no es una orden — es el desglose de **un carrito vacío**, donde todo vale 0
+ * porque no hay nada que cobrar. La convención sí viaja, para que la pantalla no tenga que
+ * adivinarla justo en el caso en que no hay cifras de las que deducirla.
+ */
 function zeroBreakdown(withShipping = false): BreakdownDTO {
   return {
     subtotalCents: 0,
     ivaCents: 0,
-    ivaRatePct: IVA_PCT,
+    ivaRatePct: mockIvaRatePct(),
     processingFeeCents: 0,
     totalCents: 0,
     currency: 'MXN',
+    priceConvention: 'IVA_INCLUSIVE',
+    ivaIncluded: true,
     ...(withShipping ? { shippingFeeCents: 0 } : {}),
   };
 }
@@ -875,7 +952,7 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
   // 422 PRICE_PENDING se evalúa DESPUÉS de la poda (solo ítems válidos), contrato §4.
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
-  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   return delay({
     // v1.51-b: `card` es un `OrderItemCardDTO` (§4) — snapshot congelado + `imageSmallUrl`
     // resuelta en lectura. Ya NO hace falta ningún `as unknown as`: el tipo del front y lo
@@ -883,7 +960,9 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
-      unitPriceCents: l.salePriceCents ?? 0,
+      // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
+      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
+      unitPriceCents: l.displayPriceCents ?? 0,
       ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     })),
     // MOCK: el simulador no guarda el desglose congelado de la orden; con `coversCart` el backend real
@@ -930,7 +1009,7 @@ export async function createCheckoutSession(
     .filter((l): l is ListingDTO => !!l);
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
-  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   // v1.68 (§4-R.2): la tabla de decisión del reintento del MISMO cliente (`lib/mock/reservation`).
   return delay(mockCheckoutSessionOutcome(inventoryItemIds, mockCallerCustomer(), subtotal, null));
 }
@@ -1145,7 +1224,7 @@ export async function getShipmentQuote(
   const ineligible = holdings
     .filter((h) => h!.ownershipStatus !== 'settled')
     .map((h) => ({ inventoryItemId: h!.inventoryItemId, reason: 'ITEM_NOT_SETTLED' }));
-  return delay({ breakdown: computeBreakdown(SHIPPING, SHIPPING), eligibleItemIds: eligible, ineligible });
+  return delay({ breakdown: computeBreakdown(SHIPPING), eligibleItemIds: eligible, ineligible });
 }
 
 export async function getShipments(): Promise<ShipmentDTO[]> {
@@ -1216,7 +1295,7 @@ export async function createShipment(
   return delay({
     shipmentId,
     status: 'solicitado',
-    breakdown: computeBreakdown(SHIPPING, SHIPPING),
+    breakdown: computeBreakdown(SHIPPING),
     stripe: { paymentIntentId: `pi_mock_${shipmentId}`, clientSecret: `pi_mock_${shipmentId}_secret_mock` },
   });
 }
@@ -5116,23 +5195,19 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
 const MOCK_SHIPPING_FEE_CENTS = 17500;
 
 /**
- * MOCK: réplica local de `computeDirectShipBreakdown` (contrato §4-G / ARCHITECTURE §5.1)
- * — el IVA grava cartas + envío y el fee es gross-up sobre esa base.
+ * MOCK: réplica local de `computeDirectShipBreakdown` (contrato §4-G / ARCHITECTURE §5.1).
+ *
+ * ⭐ **Ya no tiene fórmula propia: delega en `computeBreakdown` con la línea de envío.** Tener dos
+ * copias de la misma aritmética de dinero es cómo se consigue que una se arregle y la otra no —
+ * y es justo lo que pasó aquí con el gross-up sin IVA de la comisión.
+ *
+ * ⚠️ **§M10-IVA.4 — bajo `IVA_INCLUSIVE` el envío TAMBIÉN lleva su IVA dentro** y es
+ * *money-neutral*: `round(17500 × 1.16) = 20300`, exactamente lo que hoy aportan `17500 + 2800`.
+ * `MOCK_SHIPPING_FEE_CENTS` se mantiene en el **valor del dial** y el mock **no lo multiplica**;
+ * si el servidor real pasa a emitir `20300`, es el servidor quien lo dice, no esta réplica.
  */
 function computeGuestBreakdown(subtotalCents: number, shippingFeeCents: number): BreakdownDTO {
-  const ivaCents = Math.round(((subtotalCents + shippingFeeCents) * IVA_PCT) / 100);
-  const baseCents = subtotalCents + shippingFeeCents + ivaCents;
-  const totalCents = Math.ceil((baseCents + STRIPE_FIXED) / (1 - STRIPE_PCT));
-  const processingFeeCents = totalCents - baseCents;
-  return {
-    subtotalCents,
-    shippingFeeCents,
-    ivaCents,
-    ivaRatePct: IVA_PCT,
-    processingFeeCents,
-    totalCents,
-    currency: 'MXN',
-  };
+  return computeBreakdown(subtotalCents, shippingFeeCents);
 }
 
 /**
@@ -5186,14 +5261,16 @@ export async function getGuestCheckoutQuote(
     .filter((l): l is ListingDTO => !!l);
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
-  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   return delay({
     // v1.51-b: MISMA forma que §4 — `OrderItemCardDTO`, no el `CardDTO` del fixture. El
     // checkout de invitado pintaba el mismo hueco gris por la misma causa.
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
-      unitPriceCents: l.salePriceCents ?? 0,
+      // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
+      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
+      unitPriceCents: l.displayPriceCents ?? 0,
       ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     })),
     fulfillmentMode: 'direct_ship' as const,
@@ -5255,7 +5332,7 @@ export async function createGuestCheckoutSession(
     .filter((l): l is ListingDTO => !!l);
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
-  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = items.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   // v1.68 (§4-R.3): la reserva propia existe SOLO con `retryOfCheckoutToken` válido y el mismo
   // correo; sin él, conducta de hoy (una reserva viva suya cuenta como ajena ⇒ ITEM_UNAVAILABLE).
   const email = input.email.trim().toLowerCase();
@@ -5312,7 +5389,7 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
     throw new ApiClientError(404, { code: 'INVALID_TOKEN', message: 'Invalid link' });
   }
   const listings = fx.mockListings.filter((l) => l.sellable).slice(0, 2);
-  const subtotal = listings.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   const shipped = token.includes('shipped');
   return delay<GuestOrderTrackingDTO>({
     orderNumber: 'TCG-000123',
@@ -5331,7 +5408,9 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
       gradingCompany: l.gradingCompany,
       gradeValue: l.gradeValue,
       imageSmallUrl: l.card.imageSmallUrl,
-      unitPriceCents: l.salePriceCents ?? 0,
+      // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
+      // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva.
+      unitPriceCents: l.displayPriceCents ?? 0,
     })),
     breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
     shipping: {

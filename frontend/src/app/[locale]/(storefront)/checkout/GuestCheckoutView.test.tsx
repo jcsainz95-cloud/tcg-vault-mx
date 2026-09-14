@@ -61,7 +61,15 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     expect(breakdown).toBeInTheDocument();
     expect(screen.getByText('Subtotal')).toBeInTheDocument();
     expect(screen.getByText('Envío')).toBeInTheDocument();
-    expect(screen.getByText('IVA 16%')).toBeInTheDocument();
+    /*
+     * ⭐⭐ **CRITERIO 189 — bajo `IVA_INCLUSIVE` la línea de IVA INFORMA, no suma**, y el mock ya
+     * emite esa convención. El rótulo es **de importe** y nada más (criterios **195** y **208**):
+     * ni «trasladado», ni «conforme a la ley», ni en negativo.
+     */
+    expect(screen.getByText('IVA 16 % incluido')).toBeInTheDocument();
+    expect(breakdown.getAttribute('data-price-convention')).toBe('IVA_INCLUSIVE');
+    // ⛔ El renglón va marcado como informativo: es lo que impide que alguien lo vuelva un sumando.
+    expect(breakdown.querySelector('[data-informative="true"]')).not.toBeNull();
     // §29 (v3.6): «Comisión de plataforma» — la línea ya no nombra al procesador de pago.
     expect(screen.getByText('Comisión de plataforma')).toBeInTheDocument();
     expect(

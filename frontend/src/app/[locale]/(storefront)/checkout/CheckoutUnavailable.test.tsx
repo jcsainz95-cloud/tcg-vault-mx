@@ -67,14 +67,14 @@ function pruneSplit(ids: string[], dead: Dead) {
 function customerQuote(ids: string[], dead: Dead): CheckoutQuoteResponse {
   const { live, unavailableItems } = pruneSplit(ids, dead);
   const listings = live.map(listingFor);
-  const subtotal = listings.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   return {
     // v1.51-b: el preview es `{ inventoryItemId, card, unitPriceCents }` y `card` es un
     // `OrderItemCardDTO` (§4). `productType`/`rawCondition` van DENTRO de `card`.
     items: listings.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: orderItemCard(l),
-      unitPriceCents: l.salePriceCents ?? 0,
+      unitPriceCents: l.displayPriceCents ?? 0,
     })),
     breakdown: {
       subtotalCents: subtotal,
@@ -83,6 +83,8 @@ function customerQuote(ids: string[], dead: Dead): CheckoutQuoteResponse {
       processingFeeCents: 0,
       totalCents: subtotal,
       currency: 'MXN',
+      priceConvention: 'IVA_EXCLUSIVE',
+      ivaIncluded: false,
     },
     unavailableItems,
   };
@@ -92,13 +94,13 @@ function customerQuote(ids: string[], dead: Dead): CheckoutQuoteResponse {
 function guestQuote(ids: string[], dead: Dead): GuestCheckoutQuoteResponse {
   const { live, unavailableItems } = pruneSplit(ids, dead);
   const listings = live.map(listingFor);
-  const subtotal = listings.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const subtotal = listings.reduce((s, l) => s + (l.displayPriceCents ?? 0), 0);
   const shipping = live.length > 0 ? 17500 : 0;
   return {
     items: listings.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: orderItemCard(l),
-      unitPriceCents: l.salePriceCents ?? 0,
+      unitPriceCents: l.displayPriceCents ?? 0,
     })),
     fulfillmentMode: 'direct_ship',
     breakdown: {
@@ -109,6 +111,8 @@ function guestQuote(ids: string[], dead: Dead): GuestCheckoutQuoteResponse {
       processingFeeCents: 0,
       totalCents: subtotal + shipping,
       currency: 'MXN',
+      priceConvention: 'IVA_EXCLUSIVE',
+      ivaIncluded: false,
     },
     // v1.21.4-dual-breakdown (§4-G.1): segundo desglose (destino bóveda) — mismo subtotal SIN
     // envío. Siempre presente en el 200 (ceros cuando todo el carrito murió).
@@ -119,6 +123,8 @@ function guestQuote(ids: string[], dead: Dead): GuestCheckoutQuoteResponse {
       processingFeeCents: 0,
       totalCents: subtotal,
       currency: 'MXN',
+      priceConvention: 'IVA_EXCLUSIVE' as const,
+      ivaIncluded: false,
     },
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     unavailableItems,

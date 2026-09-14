@@ -75,10 +75,40 @@ export function AdminDashboard() {
               masked={!isSuperAdmin}
               maskedLabel={tm('masked')}
             />
+            {/*
+             * ⭐⭐ **§M10-IVA.7 — LA TARJETA PASA DE UNA CIFRA A DOS: BRUTO Y NETO** (D55(b),
+             * pregunta **70** del dueño: *«Hagamos ventas brutas con iva y ventas netas sin iva»*).
+             *
+             * `amountCents` **desapareció** del DTO y fue el compilador quien trajo aquí — que es
+             * justo lo que el rename buscaba: *un «amount» conviviendo con otro «amount» distinto
+             * es la ambigüedad que este pase existe para matar*.
+             *
+             * **Qué es cada una, dicho donde se pinta:**
+             * - **bruto** = `Σ Order.totalCents` = **lo que el cliente pagó**, con comisión y envío
+             *   dentro.
+             * - **neto**  = `Σ netRevenueCents(o)` = **mercancía**, sin IVA, sin comisión y sin
+             *   envío. ⭐ Sale **del mismo helper** que `pnl.incomeCents`, así que **es el mismo
+             *   número** que el P&L de M7 (candado `IVA-10(b)` lo asierta como igualdad entre los
+             *   dos endpoints). *El dueño preguntó si era el mismo número; lo es por construcción.*
+             *
+             * ⛔ **El front NO calcula ninguna de las dos, ni la diferencia entre ellas.** La
+             * identidad `bruto ≡ neto + envío neto + IVA + comisión` la garantiza el servidor; si
+             * esta pantalla la recompusiera, estaría publicando **una tercera definición de neto**,
+             * que es exactamente lo que §M10-IVA.7 rechaza por escrito.
+             */}
             <StatCard
               label={t('sales')}
               value={query.data.salesPeriod.count}
-              sub={formatMoneyCents(query.data.salesPeriod.amountCents, locale)}
+              sub={
+                <span className="flex flex-col gap-0.5">
+                  <span data-testid="sales-gross">
+                    {t('salesGross')}: {formatMoneyCents(query.data.salesPeriod.grossAmountCents, locale)}
+                  </span>
+                  <span data-testid="sales-net">
+                    {t('salesNet')}: {formatMoneyCents(query.data.salesPeriod.netAmountCents, locale)}
+                  </span>
+                </span>
+              }
             />
             <StatCard
               label={t('workQueue')}

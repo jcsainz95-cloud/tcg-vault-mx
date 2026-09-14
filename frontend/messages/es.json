@@ -23,6 +23,7 @@
     "noResults": "Sin resultados",
     "all": "Todos",
     "withoutIva": "sin IVA",
+    "ivaIncluded": "IVA {rate} % incluido",
     "updatedDaily": "Precio de referencia de mercado, actualizado a diario",
     "errorTitle": "Algo salió mal",
     "errorGeneric": "No se pudo cargar la información.",
@@ -306,7 +307,7 @@
   "catalog": {
     "title": "Comprar",
     "subtitle": "Nuestro inventario publicado a la venta. Solo listamos lo que tiene precio.",
-    "eyebrow": "Catálogo · MXN sin IVA",
+    "eyebrow": "Catálogo · MXN",
     "piecesAvailable": "{count, plural, =0 {Sin publicaciones disponibles} one {# publicación disponible} other {# publicaciones disponibles}}",
     "resultsCount": "{count, plural, =0 {Sin resultados} one {# resultado} other {# resultados}}",
     "filterSet": "Set",
@@ -435,7 +436,7 @@
       "raw": "Raw"
     },
     "referenceExplainerWithMarket": "El valor de mercado es la referencia del día con la que valuamos las cartas. El precio de venta se calcula a partir de ella.",
-    "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta, sin IVA."
+    "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta."
   },
   "price": {
     "pendingLabel": "Precio pendiente",
@@ -450,10 +451,13 @@
     "removeItem": "Quitar",
     "subtotal": "Subtotal",
     "subtotalHint": "Precio de venta de las cartas, sin IVA.",
+    "subtotalHintIvaIncluded": "Precio de venta de las cartas, con IVA incluido.",
     "platformFee": "Comisión de plataforma",
     "platformFeeHint": "Nuestra comisión por operar tu compra en TCG HUNT. Ya está incluida en el total que ves aquí.",
     "iva": "IVA {rate}%",
     "ivaHint": "Impuesto al Valor Agregado desglosado.",
+    "ivaIncluded": "IVA {rate} % incluido",
+    "ivaIncludedHint": "Ya está dentro del subtotal y del envío. No se suma al total.",
     "shipping": "Envío",
     "total": "Total a pagar",
     "pay": "Pagar {amount}",
@@ -1236,6 +1240,8 @@
     "dashboard": {
       "profit": "Ganancia del periodo",
       "sales": "Ventas del periodo",
+      "salesGross": "Bruto",
+      "salesNet": "Neto",
       "workQueue": "Cola de trabajo",
       "inventoryValue": "Valor de inventario",
       "custodyValue": "Valor en bóveda",
@@ -2841,7 +2847,8 @@
         "shippingRevenue": "Ingreso por envío (cobrado)",
         "cogs": "Costo de lo vendido",
         "stripeFees": "Comisiones Stripe",
-        "shippingCost": "Costo de envío (paquetería)",
+        "shippingCost": "Costo de envío (paquetería, neto)",
+        "shippingCostMissing": "{count, plural, one {# envío liquidado no tiene costo de paquetería capturado. Revísalo: su ingreso cuenta completo como ganancia.} other {# envíos liquidados no tienen costo de paquetería capturado. Revísalos: su ingreso cuenta completo como ganancia.}}",
         "profit": "Ganancia del periodo"
       },
       "values": {

@@ -101,7 +101,9 @@ function grp(c: CardDTO): GroupedListingSummaryDTO {
     finish: 'normal',
     gradeKey: 'raw:NM',
     stockCount: 1,
-    salePriceCents: 140800,
+    displayPriceCents: 140800,
+    ivaIncluded: true,
+    ivaRatePct: 16,
     currency: 'MXN',
     card: c,
   };

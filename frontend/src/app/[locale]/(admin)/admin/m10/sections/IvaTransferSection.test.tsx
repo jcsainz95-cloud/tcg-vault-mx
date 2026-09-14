@@ -189,6 +189,13 @@ describe('criterio 209 · `ivaTransferPct` sólo existe en superficie de admin',
     // La capa de API y el servidor falso: hablan con `/admin/*`, no pintan nada.
     'src/lib/api.ts',
     'src/lib/mock/fixtures.ts',
+    /*
+     * ⭐ **El candado del criterio 196**, que tiene que nombrar el dial para moverlo y comprobar que
+     * los precios del simulador se mueven con él. ⛔ Se lista **este fichero**, no `*.test.ts`
+     * entero: un fixture de test que metiera el dial en un DTO de cliente **sería** la fuga que este
+     * candado busca, y excluir todos los tests la dejaría pasar.
+     */
+    'src/lib/mock/iva-inclusive-mock.test.ts',
   ];
 
   function walk(dir: string): string[] {

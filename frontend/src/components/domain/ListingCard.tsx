@@ -77,7 +77,9 @@ export function ListingCard({ listing, onAdd, inCart = false }: ListingCardProps
       <div className="mt-3">
         <PriceTag
           reference={listing.referenceValue}
-          salePriceCents={listing.salePriceCents}
+          displayPriceCents={listing.displayPriceCents}
+          ivaIncluded={listing.ivaIncluded}
+          ivaRatePct={listing.ivaRatePct}
           mode="sale"
         />
       </div>

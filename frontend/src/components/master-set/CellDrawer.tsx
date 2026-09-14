@@ -237,6 +237,15 @@ function VariantSlots({
                           setAddedId(v.buyable!.inventoryItemId);
                         }}
                       >
+                        {/*
+                         * ⚠️ **HUECO DE CONTRATO — §M10-IVA.3 no enumera `MasterSetVariantDTO`.**
+                         * El importe que llega **ya es `P`** (con el IVA dentro, como el resto de la
+                         * tienda), pero el campo conserva el nombre `salePriceCents`, que §M10-IVA.3
+                         * retiró de la superficie pública. ⛔ No lo renombro yo: el contrato es del
+                         * arquitecto. Por eso **este CTA no rotula convención**: sin `ivaIncluded`
+                         * en el DTO, la pantalla ⛔ no afirma ninguna.
+                         * Solicitud registrada en `docs/FRONTEND_NOTES.md`.
+                         * `// MOCK: pendiente de contrato` */}
                         {t('buyCta', { price: formatMoneyCents(v.buyable.salePriceCents, locale) })}
                       </Button>
                     ) : (

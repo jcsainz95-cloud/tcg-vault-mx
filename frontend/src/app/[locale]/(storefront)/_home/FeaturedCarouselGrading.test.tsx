@@ -63,7 +63,9 @@ function grp(id: string, over: Partial<GroupedListingSummaryDTO> = {}): GroupedL
     finish: 'normal',
     gradeKey: 'raw:NM',
     stockCount: 1,
-    salePriceCents: 480_000,
+    displayPriceCents: 480_000,
+    ivaIncluded: true,
+    ivaRatePct: 16,
     currency: 'MXN',
     ...over,
   };

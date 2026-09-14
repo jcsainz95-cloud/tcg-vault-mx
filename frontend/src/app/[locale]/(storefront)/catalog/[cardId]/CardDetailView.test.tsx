@@ -55,7 +55,9 @@ function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
     rawCondition: 'NM',
     finish: 'normal',
     referenceValue: refValue,
-    salePriceCents: 140800,
+    displayPriceCents: 140800,
+    ivaIncluded: true,
+    ivaRatePct: 16,
     priceBasis: 'market',
     sellable: true,
     ...over,
@@ -72,7 +74,9 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
     finish: 'normal',
     gradeKey: 'raw:NM',
     stockCount: 1,
-    salePriceCents: 140800,
+    displayPriceCents: 140800,
+    ivaIncluded: true,
+    ivaRatePct: 16,
     // v2.0 (P-48): el mercado fijó el precio ⇒ la ficha SÍ muestra «Valor de mercado» (§21.8a).
     priceBasis: 'market',
     referenceValue: refValue,
@@ -159,8 +163,8 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
   it('un grupo con varias piezas agrega ids DISTINTOS de units (cheapest-first) hasta agotar el stock', async () => {
     const listings = [grp({ representativeInventoryItemId: 'inv-a', stockCount: 2 })];
     const units = [
-      unit('inv-a', { salePriceCents: 140800 }),
-      unit('inv-a2', { salePriceCents: 145000 }),
+      unit('inv-a', { displayPriceCents: 140800 }),
+      unit('inv-a2', { displayPriceCents: 145000 }),
     ];
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -182,7 +186,7 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
     ];
     const units = [
       unit('inv-a'),
-      unit('inv-c', { finish: 'holofoil', sellable: false, salePriceCents: undefined }),
+      unit('inv-c', { finish: 'holofoil', sellable: false, displayPriceCents: undefined }),
     ];
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -336,8 +340,8 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     // El piso ganó: el mercado no produjo el precio, así que el número no explica nada. La
     // referencia SIGUE viajando en el DTO y aun así no se pinta.
     mockDetail(
-      [grp({ priceBasis: 'floor', salePriceCents: 2500 })],
-      [unit('inv-a', { priceBasis: 'floor', salePriceCents: 2500 })],
+      [grp({ priceBasis: 'floor', displayPriceCents: 2500 })],
+      [unit('inv-a', { priceBasis: 'floor', displayPriceCents: 2500 })],
     );
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
@@ -347,7 +351,7 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(screen.queryByText('MX$1,280.00')).toBeNull();
     // La nota al pie cambia con el bloque y NO menciona el mercado ni insinúa que falte algo.
     expect(
-      screen.getByText('El precio de venta es el precio publicado de esta carta, sin IVA.'),
+      screen.getByText('El precio de venta es el precio publicado de esta carta.'),
     ).toBeInTheDocument();
     expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
   });
@@ -380,8 +384,8 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     // Sin mercado: 3 hechos. La celda de venta ocupa la fila completa y el divisor lo hereda la
     // celda que NO abre fila — «Acabado», no «Condición». (El bug era `sm:border-l` hardcodeado.)
     mockDetail(
-      [grp({ priceBasis: 'floor', salePriceCents: 2500 })],
-      [unit('inv-a', { priceBasis: 'floor', salePriceCents: 2500 })],
+      [grp({ priceBasis: 'floor', displayPriceCents: 2500 })],
+      [unit('inv-a', { priceBasis: 'floor', displayPriceCents: 2500 })],
     );
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
     await screen.findByText('Precio de venta');

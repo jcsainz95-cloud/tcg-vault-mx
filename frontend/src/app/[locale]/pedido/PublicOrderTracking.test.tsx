@@ -40,6 +40,8 @@ const DTO: GuestOrderTrackingDTO = {
     processingFeeCents: 6800,
     totalCents: 190428,
     currency: 'MXN',
+    priceConvention: 'IVA_EXCLUSIVE',
+    ivaIncluded: false,
   },
   shipping: {
     city: 'Guadalajara',

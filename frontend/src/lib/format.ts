@@ -2,7 +2,30 @@ import type { AppLocale } from '@/i18n/routing';
 
 const localeTag: Record<AppLocale, string> = { es: 'es-MX', en: 'en-US' };
 
-/** Convierte centavos MXN a texto localizado: `MX$ 1,250.00` (DESIGN_SYSTEM §9.3). */
+/**
+ * Convierte centavos MXN a texto localizado: `MX$ 1,250.00` (DESIGN_SYSTEM §9.3).
+ *
+ * ⚠️⚠️ **P-98 — POR QUÉ LA NORMALIZACIÓN NO VA ANCLADA EN `^`, y es un defecto de DINERO.**
+ * La versión anterior hacía `.replace(/^\$/, 'MX$')`. **Con un importe NEGATIVO el signo va
+ * delante del símbolo y el ancla no dispara.** Medido con `Intl` y estos mismos parámetros
+ * (Node 22, 2026-09-14):
+ *
+ * | locale | cents | `Intl` devuelve | con el ancla `^` | con esta versión |
+ * |---|---|---|---|---|
+ * | `es` | `-690` | `-$6.90` | **`-$6.90`** ⛔ | `-MX$6.90` ✅ |
+ * | `es` | `690` | `$6.90` | `MX$6.90` ✅ | `MX$6.90` ✅ |
+ * | `en` | `-690` | `-MX$6.90` | `-MX$6.90` ✅ | `-MX$6.90` ✅ |
+ * | `en` | `690` | `MX$6.90` | `MX$6.90` ✅ | `MX$6.90` ✅ |
+ *
+ * ⛔ **El defecto era SOLO en español**, que es el idioma del dueño y el de su tienda, y ahí
+ * **`$` a secas se lee como dólar**: un P&L en pérdida decía `-$16,855.20`. No es un detalle
+ * tipográfico — es la moneda equivocada en la única cifra que duele.
+ *
+ * **Se arregla por PRESENCIA, no por posición:** si el texto ya trae `MX$` no se toca; si no,
+ * se antepone `MX` al **primer** `$`, esté donde esté. `String.prototype.replace` con una
+ * cadena sustituye solo la primera ocurrencia, y un texto sin `$` queda intacto (no-op seguro
+ * si algún día `Intl` emite `MXN 6.90`).
+ */
 export function formatMoneyCents(cents: number, locale: AppLocale = 'es'): string {
   const value = cents / 100;
   const formatted = new Intl.NumberFormat(localeTag[locale], {
@@ -13,7 +36,24 @@ export function formatMoneyCents(cents: number, locale: AppLocale = 'es'): strin
     maximumFractionDigits: 2,
   }).format(value);
   // Intl uses "$" for MXN in es-MX; normalise to "MX$" per DESIGN_SYSTEM.
-  return formatted.replace(/^MX\$/, 'MX$').replace(/^\$/, 'MX$');
+  return formatted.includes('MX$') ? formatted : formatted.replace('$', 'MX$');
+}
+
+/**
+ * Importe **con signo tipográfico**, para las cifras donde el signo ES el mensaje (el delta del
+ * dial de traslación del IVA, criterio **188**).
+ *
+ * Vivía duplicado en `IvaTransferSection.tsx` como rodeo de **P-98**: allí se componía el signo
+ * fuera del formateador **porque el formateador perdía el `MX`**. Arreglado el helper, el rodeo
+ * sobraba y se unifica aquí — lo único que aporta de propio es el **menos tipográfico** `−`
+ * (U+2212) en lugar del guion-menos (U+002D) que devuelve `Intl`: a tamaño de cifra el guion se
+ * lee como un separador.
+ *
+ * ⛔ No antepone `+` a los positivos: el delta de ceder margen nunca es una ganancia que anunciar.
+ */
+export function formatSignedMoneyCents(cents: number, locale: AppLocale = 'es'): string {
+  const abs = formatMoneyCents(Math.abs(cents), locale);
+  return cents < 0 ? `−${abs}` : abs;
 }
 
 /** Fecha localizada corta: ES "13 ago 2026", EN "Aug 13, 2026". */

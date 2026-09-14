@@ -16749,3 +16749,161 @@ npx vitest run                     # control: 156 ficheros / 1756 pruebas
 # con `mockDisputes = []` en src/lib/mock/fixtures.ts
 E2E_DEV_SERVER=1 E2E_MOCK_PORT=3014 npx playwright test e2e/admin.spec.ts -g "nunca está en blanco"
 ```
+
+## §74 · **El bloque del IVA, lado frontend** — §M10-IVA.3/.4/.7/.8 + criterios 188/189/190/192/194/195/196/208/209, y **P-98** (2026-09-14, rama `claude/tcg-hunt-orchestration-2`, sobre `HEAD = f776de6`)
+
+> Encargo: cerrar la parte de frontend del bloque D56. Contrato de referencia: **v1.75**
+> (`§M10-IVA.3`, `§M10-IVA.4`, `§M10-IVA.9` y el censo `§M10-IVA.9.f`).
+> **Medido sobre `f776de6`.** Había un agente de backend escribiendo `backend/` en paralelo: **no
+> toqué `backend/` ni `docs/` salvo este fichero**, que es mío.
+
+### 74.1 · La regla que gobernó todo, y cómo se volvió ejecutable
+
+> ⛔ **EL FRONTEND NUNCA MULTIPLICA.** `displayPriceCents` = la cifra que se pinta y la que se suma;
+> ya lleva el IVA dentro.
+
+Una regla que solo vive en un documento se pierde en el tercer refactor. **Se volvió candado**:
+`frontend/src/test/frontend-never-multiplies.test.ts` barre `src/` **entera** (sin tests) y prohíbe
+**siete patrones** —`× 1.16`, `/ 1.16`, `ivaRatePct / 100`, `1 + ivaRate…`, `× (1 + …)`, el IVA como
+sumando— sobre el código **con los comentarios retirados**, para que una prohibición no salte por su
+propia documentación.
+
+**Por qué sobre el fuente y no sobre un render:** un IVA calculado en el cliente **no produce una
+pantalla rota**. Produce una pantalla impecable que cobra distinto del servidor en una fracción de
+los casos, por el redondeo. *Un defecto que no se ve no se encuentra probando pantallas: se
+encuentra prohibiendo la operación.*
+
+**Las dos únicas excepciones están argumentadas en el propio fichero**: `lib/mock/fixtures.ts` y
+`lib/api.ts` **son el simulador del servidor** — su trabajo es producir la cifra que el servidor
+produciría, y clavarla sería el defecto del criterio **196**. ⛔ Ninguna pantalla está en esa lista.
+
+### 74.2 · Lo implementado, superficie por superficie
+
+| # | Superficie | Qué cambió |
+|---|---|---|
+| 1 | `types/contract.ts` | `ListingDTO`, `GroupedListingDTO`, `GroupedListingSummaryDTO`: `salePriceCents` → **`displayPriceCents`** + `ivaIncluded` + `ivaRatePct`. `SealedGroupDTO`/`…SummaryDTO`: `fromPriceCents` conserva nombre y gana los dos campos |
+| 2 | `BreakdownDTO` | + `priceConvention` + `ivaIncluded` (§M10-IVA.4). La forma no cambia; el significado sí |
+| 3 | `components/ui/IvaLabel.tsx` ⭐ **nuevo** | **El único sitio del repo que rotula una convención de IVA.** Sin default |
+| 4 | `components/ui/PriceTag.tsx` | Consume `displayPriceCents`; el rótulo lo delega a `IvaLabel` |
+| 5 | `components/ui/AmountBreakdown.tsx` | El renglón de IVA **informa, no suma** bajo `IVA_INCLUSIVE` (criterio **189**). `data-price-convention` + `data-informative` |
+| 6 | `CatalogTile`, `ListingCard`, `CardDetailView`, `FeaturedCarousel`, `GradedShelf` | Precio exhibido + rótulo por fila |
+| 7 | `SealedShopView`, `SealedDetailView` | Íd. sobre `fromPriceCents` |
+| 8 | `AdminDashboard.tsx` | ⭐ **Tarjeta bruto/neto** (§M10-IVA.7, pieza **16** del censo) |
+| 9 | `m7/M7View.tsx` | `shippingCostMissingCount` como **aviso**, y el costo de envío rotulado **neto** (§M10-IVA.8) |
+| 10 | `m10/IvaTransferSection.tsx` | Helper de signo unificado; se retira el comentario que decía que el dial vive en `GET /admin/settings` (v1.75 lo desmiente) |
+| 11 | `lib/api.ts` | Desglose del mock **inclusivo**, filtro y orden de catálogo por el precio exhibido |
+| 12 | `lib/mock/fixtures.ts` | El fixture guarda **`L`** y **deriva `P` del dial vivo** (criterio **196**) |
+| 13 | `messages/{es,en}.json` | `common.ivaIncluded`, `checkout.ivaIncluded(+Hint)`, `subtotalHintIvaIncluded`, `dashboard.salesGross/salesNet`, `pnl.shippingCostMissing` |
+
+### 74.3 · ⭐⭐ Tres decisiones que no eran obvias, dichas con su razón
+
+**(a) El rótulo lo decide el DATO, por fila, y `IvaLabel` NO tiene default.**
+`ivaIncluded === undefined` ⇒ **no se pinta rótulo**. Un default a `true` rotularía «IVA incluido»
+sobre cifras que no lo llevan —la mentira que §M10-IVA existe para evitar— y uno a `false` haría lo
+simétrico tras el encendido. *Un rótulo de impuesto adivinado es peor que ninguno: se lee como un
+hecho.* Y por fila, ⛔ nunca por ajuste global: la misma pantalla pinta hoy una orden nueva y mañana
+una de hace seis meses (criterio **190**).
+
+**(b) La copia estática que afirmaba «sin IVA» se RETIRÓ, no se sustituyó por otra afirmación.**
+`catalog.eyebrow` («Catálogo · MXN sin IVA») y `catalog.referenceExplainerNoMarket` eran **hechos que
+pasan a ser falsos**. Se les quitó la cláusula fiscal en vez de escribir la contraria: la convención
+la dice cada cifra, y una cabecera de página **no puede saberla antes de que carguen los datos**.
+
+**(c) El fixture de pedidos liquidados queda `IVA_EXCLUSIVE`, y ni una cifra cambia.**
+`ord-9001` (2026-08-10) y `ord-9003` (2024) son **anteriores al corte**: siguen cumpliendo
+`total == subtotal + IVA + comisión`. ⭐ Y por eso valen como fixture: el mock sirve **las dos
+convenciones a la vez**, así que en `dev` se ve que el rótulo depende de la fila y no de un ajuste.
+
+### 74.4 · ⭐ Dos defectos encontrados de paso, los dos PREEXISTENTES y ninguno del IVA
+
+**1. `format.ts:16` — P-98, y era dinero.** La normalización a `MX$` iba anclada en `^`; con el signo
+delante **no disparaba**. Medido con `Intl` (Node 22): `es` `-690` → **`-$6.90`**, sin `MX`. Solo en
+**español**, que es el idioma del dueño, y ahí `$` se lee como **dólar**. Las dos superficies que hoy
+pueden pasar un negativo —medidas, no supuestas— son **la utilidad del tablero**
+(`AdminDashboard.tsx:74`, `profitPeriodCents`) y **la del P&L** (`M7View.tsx:115`, `profitCents`):
+las dos **en pérdida**. Arreglado por **presencia**, no por posición, y `signedMoneyCents` —que vivía
+duplicado en `IvaTransferSection` como rodeo de este mismo defecto— se unificó como
+`formatSignedMoneyCents`.
+
+**2. ⭐⭐ El gross-up del mock no llevaba el IVA de la comisión, y NUNCA fue cierto.** Medido contra
+`backend/src/common/money.ts:772` (`grossUpTotal`), que escala `pct` y `fixed` por `(1 + r)`: con base
+`11600` el servidor cobra **12469** y el mock cobraba **12345** — **124 centavos menos por pedido**,
+en `dev` y en todo test que corriera contra mocks. **Es preexistente**: el corte del IVA solo lo
+destapó. Corregido, y bloqueado contra las tres filas publicadas del contrato.
+
+**3. `setMockSettings` aceptaba claves desconocidas en ejecución.** Lo encontró una prueba que yo
+escribí para otra cosa: el `Partial<SettingsDTO>` cierra la puerta **en compilación**, pero `...patch`
+la deja abierta en ejecución, y un `setMockSettings({ ivaTransferPct: 0 })` metía el dial dentro de
+`mockSettings` — justo lo que `IVA-8(f)` asierta **por ausencia**. Ahora contesta
+`422 VALIDATION_ERROR`, como el servidor (`IVA-8(b)`).
+
+### 74.5 · ⛔ SOLICITUDES AL ARQUITECTO — dos, y la primera es de dinero
+
+**`F-IVA-1` · ⚠️ BLOQUEANTE PARA UNA SUPERFICIE DE CLIENTE — `MasterSetVariantDTO.buyable` no está en
+la tabla de §M10-IVA.3.**
+El contrato dice de él *«`buyable` SOLO scope cliente (iii)»* y **pinta un precio de compra**: el CTA
+«Comprar MX$X» de `components/master-set/CellDrawer.tsx:240`. Pero §M10-IVA.3 enumera **seis** DTOs y
+deja éste fuera ⇒ conserva el nombre `salePriceCents`, **que es exactamente el nombre que esa sección
+retiró** *«porque dejar el mismo nombre cambiando su significado es el defecto de D54 un nivel más
+abajo»*.
+**Mientras tanto:** el simulador emite ahí el **`P`** (marcado `// MOCK: pendiente de contrato` en
+`fixtures.ts` `cheapestListedFor`) para que el cajón del binder no sea la única superficie mostrando
+la base limpia, y la pantalla **⛔ no rotula convención**, porque sin `ivaIncluded` no hay ninguna que
+afirmar.
+**Petición:** `salePriceCents` → `displayPriceCents`, + `ivaIncluded` + `ivaRatePct`.
+**Dónde muerde si se olvida:** `src/test/frontend-never-multiplies.test.ts` lo lista **explícitamente**
+como `HUECO_DE_CONTRATO` con `toEqual`; cuando el arquitecto renombre, esa línea se cae sola.
+
+**`F-IVA-2` · `ShipmentDTO` (contrato §5) no trae la convención de precio.**
+El rastreo de un retiro **compone el `BreakdownDTO` en el cliente**
+(`shipments/[id]/ShipmentDetailView.tsx` `shipmentBreakdown`) a partir de montos sueltos, y no hay
+ningún campo del que leer `priceConvention`. ⛔ **No se rellena**: `IVA_EXCLUSIVE` sería cierto hoy y
+falso tras el encendido; `IVA_INCLUSIVE` sería falso para todo retiro ya cobrado (criterio **190**).
+⛔ **Y no se deduce de la aritmética** —mirar si `total == subtotal + iva + fee`— porque eso es
+inventar una regla que el contrato no tiene, con un importe fiscal de por medio.
+**Mientras tanto:** `AmountBreakdown` acepta la convención **opcional** (`BreakdownView`) y, cuando
+falta, **no afirma ninguna**. Hay prueba de ello, y se pondría roja si alguien le pusiera un default.
+**Petición:** `priceConvention` (o `ivaIncluded`) en `ShipmentDTO`.
+
+### 74.6 · ⛔ SOLICITUD A UX-UI — `DESIGN_SYSTEM` sigue diciendo «sin IVA» como literal fijo
+
+`DESIGN_SYSTEM.md:1148, 1355, 1392, 1487, 1858, 5449, 5472, 5483` fijan *«sin IVA»* como el sufijo del
+precio. El rótulo inclusivo —*«IVA 16 % incluido»*— lo fijan hoy **`PROJECT.md` criterio 195** y
+**`API_CONTRACT §M10-IVA.4`**, y el contrato dice expresamente *«lo fija DESIGN_SYSTEM»*.
+**Se implementó por PROJECT + contrato** (regla de conflicto: `PROJECT.md` manda sobre el contrato, y
+el contrato sobre el código), y queda pedida la actualización de §7.3 / §21.8 / §31 para que los tres
+documentos digan lo mismo. **No lo escribo yo**: `DESIGN_SYSTEM.md` es de ux-ui.
+
+### 74.7 · ⚠️ LO QUE **NO** MEDÍ, dicho explícito para que nadie lo lea como cero
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `F-N1` | **Que el backend emita hoy estos campos.** Todo lo de aquí se midió **contra el contrato v1.75 y contra los mocks**, ⛔ **no contra el backend corriendo**. El censo §M10-IVA.9.f daba las piezas 7/8/9 como **NO construidas** y había un agente escribiendo `backend/` mientras yo trabajaba | QA levantando el stack y corriendo el E2E de checkout contra el backend real, una vez ese agente cierre |
+| `F-N2` | **Que las cifras del fixture del tablero (`mockDashboard.salesPeriod`) sean las que el backend producirá.** Las **construí yo** para que cumplan la identidad de `IVA-10(a)` y coincidan con `mockPnl.incomeCents`; son un fixture coherente, ⛔ no una observación | el candado `IVA-10(b)` de backend, contra el stack |
+| `F-N3` | **El E2E de Playwright.** ⛔ **No lo corrí**: los specs viven en `frontend/e2e/` y necesitan el stack levantado. Los 1818 unitarios sí | `npx playwright test` con el stack arriba (lo ejecuta QA) |
+| `F-N4` | **`mockDashboard.profitPeriodCents` (1 284 000) NO cuadra con `mockPnl.profitCents` (582 400).** Es **preexistente** y **ajeno al IVA**; lo vi al tocar la tarjeta y **no lo cambié** porque tocarlo arriesga pruebas que no son de este pase | decidir si el tablero y el P&L deben cuadrar también en utilidad — es pregunta de contrato, no mía |
+| `F-N5` | **Que `samplePriceCents` necesitara ajuste por la cota `[1, 100_000_000]`.** **Medido: NO hacía falta.** La pantalla manda `SAMPLE_PRICE_CENTS = 10000` fijo (`IvaTransferSection.tsx:25`), cuatro órdenes de magnitud dentro de la cota. Lo dejo escrito porque el encargo lo pedía «si hace falta» y **no hacía falta** | — |
+
+### 74.8 · Cómo correr lo de este pase, y las mutaciones que lo verifican
+
+```bash
+cd frontend
+npx tsc --noEmit                   # limpio
+npx next lint --dir src            # limpio
+npx vitest run                     # 161 ficheros / 1818 pruebas
+```
+
+**Las siete mutaciones, corridas sobre una COPIA del árbol ENTERO** (no de `frontend/`: los candados
+de barrido leen rutas del repo). **7/7 muerden, N=1 cada una** — y N=1 es el N correcto aquí, no un
+atajo: ninguna depende de una carrera, un temporizador ni un orden de ejecución; son barridos de
+fuente y aritmética entera, deterministas por construcción.
+
+| # | Mutación | Qué se pone rojo |
+|---|---|---|
+| M1 | restaurar el ancla `^` en `format.ts` (**P-98**) | `format.test.ts` — 2 casos |
+| M2 | `grossUpBase = subtotal + iva` en el mock (**`IVA-2`**) | `iva-inclusive-mock.test.ts` — 2 casos |
+| M3 | `ivaIncluded` fijo a `false` en `AmountBreakdown` (**criterio 189**) | `AmountBreakdown.test.tsx` |
+| M4 | una pantalla multiplica por `1.16` | `frontend-never-multiplies.test.ts` |
+| M5 | `IvaLabel` gana `ivaIncluded = true` por defecto | `IvaLabel.test.tsx` |
+| M6 | el dial se cuela en una pantalla de cliente (**criterio 209**) | el canario de `IvaTransferSection.test.tsx` |
+| M7 | el dial deja de re-derivar el catálogo (**criterio 196**) | `iva-inclusive-mock.test.ts` |
