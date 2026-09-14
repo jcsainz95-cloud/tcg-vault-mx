@@ -42,8 +42,11 @@ function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
   return (u.rawCondition ?? 'NM') === (g.rawCondition ?? 'NM');
 }
 
+// ⛔ §M10-IVA.3: se ordena por el precio EXHIBIDO (`displayPriceCents`), que es la cifra que el
+// cliente compara. Bajo `IVA_INCLUSIVE` ordenar por la base limpia daría **otro orden** en cuanto el
+// dial de traslación no fuera uniforme, y la pieza «más barata» del bloque «desde» dejaría de serlo.
 const byPriceThenId = (a: ListingDTO, b: ListingDTO) =>
-  (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0) ||
+  (a.displayPriceCents ?? 0) - (b.displayPriceCents ?? 0) ||
   a.inventoryItemId.localeCompare(b.inventoryItemId);
 
 export function CardDetailView({ cardId }: { cardId: string }) {
@@ -222,14 +225,21 @@ function Detail({
         {
           key: 'salePrice',
           label: tcat('salePrice'),
-          note: primary.salePriceCents != null ? tc('withoutIva') : undefined,
+          // ⛔ §M10-IVA.3/criterio 190 — el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla.
+          // Antes era el literal `withoutIva`, que bajo `IVA_INCLUSIVE` sería falso.
+          note:
+            primary.displayPriceCents != null
+              ? primary.ivaIncluded
+                ? tc('ivaIncluded', { rate: primary.ivaRatePct })
+                : tc('withoutIva')
+              : undefined,
           // §21.8b-3: sin «Valor de mercado», la celda de venta ocupa la fila completa. La cifra
           // CONSERVA su tamaño y su posición: nada crece para compensar (§21.8c).
           fullRow: !showMarketValue,
           node:
-            primary.salePriceCents != null ? (
+            primary.displayPriceCents != null ? (
               <span className="tabular text-3xl font-medium leading-none text-text">
-                {formatMoneyCents(primary.salePriceCents, locale)}
+                {formatMoneyCents(primary.displayPriceCents, locale)}
               </span>
             ) : (
               // Sin precio: «precio pendiente» honesto, jamás MX$0.00 (§7.3).
@@ -310,8 +320,10 @@ function Detail({
                   mercado» entra si y solo si `priceBasis === 'market'`; con floor/override/bounty/
                   pending NO se renderiza (ni en cero, ni tachado, ni atenuado, ni «—»). La UI
                   OBEDECE `priceBasis`: está PROHIBIDO inferirlo comparando `referenceValue` contra
-                  `salePriceCents` (el DTO sigue trayendo la referencia porque alimenta superficies
-                  de admin y de valuación — que viaje no autoriza a pintarla). */}
+                  `displayPriceCents` (el DTO sigue trayendo la referencia porque alimenta superficies
+                  de admin y de valuación — que viaje no autoriza a pintarla). ⛔ Bajo §M10-IVA.3 esa
+                  comparación sería además de peras y manzanas: `referenceValue` es NETO y
+                  `displayPriceCents` lleva el IVA dentro. */}
               <FactGrid facts={facts} />
 
               {/* Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units) */}
@@ -359,9 +371,9 @@ function Detail({
                       certNumber={repUnit?.certNumber}
                     />
                     <div className="mt-2 flex items-baseline gap-3">
-                      {g.salePriceCents != null ? (
+                      {g.displayPriceCents != null ? (
                         <span className="tabular text-[17px] font-medium leading-none text-text">
-                          {formatMoneyCents(g.salePriceCents, locale)}
+                          {formatMoneyCents(g.displayPriceCents, locale)}
                         </span>
                       ) : (
                         <PendingPriceLabel hint className="text-[11px] leading-normal tracking-[0.06em]" />

@@ -2,6 +2,7 @@ import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * A2 (cierra BE-7): en retiros, la "reserva" es la ShipmentRequest (bloquea los items vía
@@ -31,6 +32,8 @@ describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', (
     prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     const settings: any = {
       getNumber: jest.fn().mockResolvedValue(17500),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
       getStripeFee: jest
         .fn()
         .mockResolvedValue({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 }),

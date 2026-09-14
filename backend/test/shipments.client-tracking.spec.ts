@@ -99,8 +99,23 @@ describe('ShipmentsService — ClientShipmentDTO enriquecido (v1.17)', () => {
 
 describe('ShipmentsService.updateStatus — transición terminal a entregado (v1.17)', () => {
   function makeTx(items: any[], itemState: Record<string, any>) {
+    /** La fila viva del fake. `makeService` le vuelca el envío del caso (ver allí el porqué). */
+    const fila: any = { id: 'shp1' };
     return {
-      shipmentRequest: { update: jest.fn(async ({ data }: any) => ({ id: 'shp1', ...data })) },
+      fila,
+      shipmentRequest: {
+        update: jest.fn(async ({ data }: any) => ({ id: 'shp1', ...data })),
+        // ⭐ `REL-B`: la transición se RECLAMA (`updateMany` + `count === 1`), con la precondición
+        // de estado en el `WHERE`. El fake la **evalúa**, así que lo que estas pruebas ejercitan es
+        // el camino real. ⛔ Si el `where` afirmara sobre una columna que la fila no modela, el
+        // `count: 0` saldría por la razón equivocada — por eso `makeService` vuelca el envío.
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          if (where.status !== undefined && where.status !== fila.status) return { count: 0 };
+          Object.assign(fila, data);
+          return { count: 1 };
+        }),
+        findUniqueOrThrow: jest.fn(async () => ({ ...fila })),
+      },
       shipmentItem: { findMany: jest.fn().mockResolvedValue(items) },
       inventoryItem: {
         findUnique: jest.fn(async ({ where }: any) => itemState[where.id] ?? null),
@@ -111,6 +126,9 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
   }
 
   function makeService(shipment: any, tx: any) {
+    // La fila del `tx` y el envío que `findUnique` devuelve tienen que ser **el mismo hecho**: si
+    // divergen, la reclamación de `REL-B` daría `count: 0` por una razón que no es la del producto.
+    Object.assign(tx.fila, shipment);
     const prisma: any = {
       shipmentRequest: { findUnique: jest.fn().mockResolvedValue(shipment) },
       $transaction: jest.fn(async (cb: any) => cb(tx)),

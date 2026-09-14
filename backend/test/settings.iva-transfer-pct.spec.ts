@@ -7,20 +7,27 @@ import {
 } from '../src/modules/settings/settings.constants';
 
 /**
- * ⭐ **`iva_transfer_pct` — EL DIAL DE TRASLACIÓN, EN EL DEPLOY 1: SEMBRADO, VALIDADO Y MUDO.**
+ * ⭐ **`iva_transfer_pct` — EL DIAL DE TRASLACIÓN: SEMBRADO, VALIDADO, Y FUERA DEL `PUT` GENÉRICO.**
  * (`ARCHITECTURE §4.44.g` + `§11 M-50.4`; `API_CONTRACT §M10-IVA.1` y `§M10-IVA.5` candado `IVA-8(e)`.)
+ *
+ * ⚠️⚠️ **ACTUALIZADO POR v1.74 / D56 (`§M10-IVA.9`, `ARCHITECTURE §4.55`, 2026-09-14).** Este fichero
+ * decía «EN EL DEPLOY 1 … y esa puerta abre en el DEPLOY 2». **No hay deploy 2**: la puerta
+ * —`GET/PUT /admin/settings/iva-transfer`— **abre en este corte** y se mide en
+ * `settings.iva-transfer-gate.spec.ts`. ⛔ **Lo que NO cambia, y es lo que este fichero sigue
+ * midiendo:** la clave **sigue fuera de `SETTING_DTO_MAP`** (`IVA-8(b)`), el seed sigue en **100**
+ * (`IVA-8(e)`) y el validador sigue siendo **entero** — *la puerta es UNA, y adelantarla no la
+ * duplica ni afloja el acuse*.
  *
  * **Qué es y qué NO es.** Es la **FRACCIÓN DE IVA QUE SE TRASLADA** al precio exhibido, en puntos
  * porcentuales enteros `[0,100]`. ⛔ **No son puntos de IVA** y ⛔ **no es la tasa**. Bajar el dial
  * **no baja el impuesto: baja el precio exhibido**, y esa diferencia sale del **margen**.
  *
- * **Qué prueba este fichero, que es exactamente lo que el deploy 1 debe tener y nada más:**
+ * **Qué prueba este fichero, y sigue siendo exactamente lo que tiene que probar tras D56:**
  *  - el seed es **100** (el NEUTRO) y **sin lógica** — candado `IVA-8(e)`;
  *  - el validador es **ENTERO**, por la misma razón que `iva_pct` y `aportacion_pct`: **la COLUMNA**;
- *  - ⛔ y la clave **NO está en `SETTING_DTO_MAP`**, así que en el deploy 1 **ni sale por
- *    `GET /admin/settings` ni entra por `PUT /admin/settings`** — el contrato observable no cambia
- *    (`§4.44.k`) y la segunda puerta no existe (`IVA-8(b)`). Su única puerta será
- *    `PUT /admin/settings/iva-transfer` **con acuse**, y esa abre en el **DEPLOY 2**.
+ *  - ⛔ y la clave **NO está en `SETTING_DTO_MAP`**, así que **no entra por `PUT /admin/settings`**
+ *    y la segunda puerta no existe (`IVA-8(b)`). Su **única** puerta es
+ *    `PUT /admin/settings/iva-transfer` **con acuse**, y desde v1.74/D56 **ya existe**.
  *
  * ### Cómo se comprobó que esto es un candado
  * Mutación **M11**, sobre una COPIA del árbol: `validateIvaTransferPct` relajado de `isInt` a
@@ -28,7 +35,7 @@ import {
  * cableado sin una sola prueba propia. Con él: **10 rojos**. *Por eso se corre la batería de
  * mutación antes de decir que algo está probado.*
  */
-describe('`iva_transfer_pct` — el dial en el DEPLOY 1 (§4.44.g)', () => {
+describe('`iva_transfer_pct` — seed, validador y la NO-puerta del `PUT` genérico (§4.44.g)', () => {
   describe('⭐ el validador es ENTERO, y el «entero» es la COLUMNA (`Order.ivaTransferPct` es `Int`)', () => {
     it.each([0, 1, 37, 50, 99, 100])('acepta %s (el criterio 187 exige 0/37/50/100)', (v) => {
       expect(validateIvaTransferPct(v)).toBeNull();
@@ -69,7 +76,7 @@ describe('`iva_transfer_pct` — el dial en el DEPLOY 1 (§4.44.g)', () => {
     });
 
     it('es un literal, no una derivación de `iva_pct` (⛔ los dos diales son independientes)', () => {
-      // Media pieza de `IVA-7` ya afirmable en el deploy 1: si alguien derivara uno del otro, mover
+      // Media pieza de `IVA-7`, afirmable sin levantar nada: si alguien derivara uno del otro, mover
       // la TASA movería el PRECIO EXHIBIDO de todo el catálogo. Son dos filas y ninguna cuelga de la otra.
       expect(SETTING_DEFAULTS[SettingKey.IVA_PCT]).toBe(16);
       expect(SETTING_DEFAULTS[SettingKey.IVA_TRANSFER_PCT]).toBe(100);
@@ -83,11 +90,12 @@ describe('`iva_transfer_pct` — el dial en el DEPLOY 1 (§4.44.g)', () => {
     });
   });
 
-  describe('⛔ DEPLOY 1: el dial NO tiene puerta y NO viaja (contrato observable sin cambios)', () => {
-    it('⭐ NO está en `SETTING_DTO_MAP` ⇒ ni sale del `GET` ni entra por el `PUT` genérico', () => {
+  describe('⛔ el dial NO entra por el `PUT` genérico: su puerta es OTRA y es UNA (`IVA-8(b)`)', () => {
+    it('⭐ NO está en `SETTING_DTO_MAP` ⇒ no entra por el `PUT` genérico (sigue vigente tras D56)', () => {
       // No hace falta código de rechazo: hace falta NO estar aquí. `update()` valida contra este mapa
       // con `hasOwnProperty` ⇒ `422 unknown setting key`. Mismo precedente exacto que `stripeFeeIvaPct`
-      // (v1.40) y que `fxRateMode` (v1.63). Candado `IVA-8(b)`.
+      // (v1.40) y que `fxRateMode` (v1.63). Candado `IVA-8(b)`, **que D56 NO deroga**: adelantar la
+      // puerta propia no convierte el `PUT` genérico en una segunda puerta.
       expect(Object.prototype.hasOwnProperty.call(SETTING_DTO_MAP, 'ivaTransferPct')).toBe(false);
       expect(Object.values(SETTING_DTO_MAP)).not.toContain(SettingKey.IVA_TRANSFER_PCT);
     });

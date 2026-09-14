@@ -12,6 +12,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Shelf } from '../_shared/Shelf';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 
 /**
  * «Cartas gradeadas» (makeover 1a §6): 4 tejas con chip de grado (empresa + valor) REAL del
@@ -78,10 +79,15 @@ export function GradedShelf() {
                 <p lang="en" className="mt-1.5 font-mono text-[11px] leading-snug text-muted">
                   {l.card.setName} · #{l.card.number}
                 </p>
-                {l.salePriceCents != null ? (
-                  <p className="tabular mt-3 text-[17px] font-medium leading-none text-text">
-                    {formatMoneyCents(l.salePriceCents, locale)}
-                  </p>
+                {/* ⛔ §M10-IVA.3: `displayPriceCents` YA lleva el IVA dentro. La vitrina lo pinta
+                    tal cual; el rótulo de convención cuelga de `ivaIncluded`, por fila. */}
+                {l.displayPriceCents != null ? (
+                  <>
+                    <p className="tabular mt-3 text-[17px] font-medium leading-none text-text">
+                      {formatMoneyCents(l.displayPriceCents, locale)}
+                    </p>
+                    <IvaLabel ivaIncluded={l.ivaIncluded} ivaRatePct={l.ivaRatePct} className="mt-1 block" />
+                  </>
                 ) : (
                   <PendingPriceLabel className="mt-3 block" />
                 )}

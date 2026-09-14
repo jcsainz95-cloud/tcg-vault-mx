@@ -15,7 +15,7 @@ describe('M7View · Finanzas (P&L)', () => {
     expect(screen.getByText('Ingreso por envío (cobrado)')).toBeInTheDocument();
     expect(screen.getByText('Costo de lo vendido')).toBeInTheDocument();
     expect(screen.getByText('Comisiones Stripe')).toBeInTheDocument();
-    expect(screen.getByText('Costo de envío (paquetería)')).toBeInTheDocument();
+    expect(screen.getByText('Costo de envío (paquetería, neto)')).toBeInTheDocument();
     expect(screen.getByText('Ganancia del periodo')).toBeInTheDocument();
 
     // Ganancia mock = 1250000 + 52500 − 640000 − 48300 − 31800 = 582400 cts = MX$5,824.00.
@@ -60,5 +60,47 @@ describe('M7View · Finanzas (P&L)', () => {
     expect(filename).toMatch(/\.csv$/);
     expect(csv).toContain('profitCents');
     spy.mockRestore();
+  });
+});
+
+/**
+ * ⭐ **§M10-IVA.8 — `shippingCostMissingCount`: hacer VISIBLE una ambigüedad que no se puede
+ * resolver.**
+ *
+ * `ShipmentRequest.shippingCostCents` es `@default(0)` ⇒ en las filas existentes **«costó cero» y
+ * «no se capturó» son indistinguibles**. ⛔ No se hace nullable (exigiría un backfill que **inventa**
+ * esa distinción) y ⛔ el contador **no es una afirmación fiscal**: es una señal para un humano.
+ */
+describe('M7View · §M10-IVA.8 el cero del costo de envío que significa dos cosas', () => {
+  it('avisa de los envíos liquidados SIN costo capturado, sin sumarlos a ninguna línea', async () => {
+    renderWithProviders(<M7View />, 'es');
+    const aviso = await screen.findByTestId('shipping-cost-missing');
+    expect(aviso).toHaveTextContent(/2 envíos liquidados no tienen costo/);
+    // ⛔ Es un AVISO, no un renglón del P&L: no lleva signo ni entra en la fórmula.
+    expect(aviso.textContent).not.toMatch(/^[+−-]/);
+  });
+
+  /**
+   * ⭐ **La mitad que evita el «indicador vacío» del criterio 202(c):** con `0` no hay nada que
+   * revisar y **no se pinta aviso**. ⛔ Rojo si alguien lo cambia por un `??` y deja el banner fijo
+   * diciendo «0 envíos».
+   */
+  it('⛔ con el contador en 0 NO se pinta aviso', async () => {
+    const { mockPnl } = await import('@/lib/mock/fixtures');
+    const previo = mockPnl.shippingCostMissingCount;
+    mockPnl.shippingCostMissingCount = 0;
+    try {
+      renderWithProviders(<M7View />, 'es');
+      expect(await screen.findByText('Estado de resultados (P&L)')).toBeInTheDocument();
+      expect(screen.queryByTestId('shipping-cost-missing')).toBeNull();
+    } finally {
+      mockPnl.shippingCostMissingCount = previo;
+    }
+  });
+
+  /** El rótulo dice **neto**: sus dos términos de envío están ahora en la misma base (§M10-IVA.8). */
+  it('el renglón del costo de envío se rotula NETO', async () => {
+    renderWithProviders(<M7View />, 'es');
+    expect(await screen.findByText('Costo de envío (paquetería, neto)')).toBeInTheDocument();
   });
 });

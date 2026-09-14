@@ -1,5 +1,4 @@
 import { ConfigService } from '@nestjs/config';
-import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as templates from '../src/modules/buylist/buylist-mail.templates';
 // ⚠️ SOLO LECTURA: `mail/` es del stream «Cuentas y acceso». ML-2 barre sus dos correos, no los toca.
@@ -7,6 +6,7 @@ import * as accountTemplates from '../src/modules/mail/mail.templates';
 import { MailMessage, MailPort } from '../src/modules/mail/mail.port';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { codigoDeFichero } from './helpers/codigo-de-fichero';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
@@ -14,6 +14,24 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { variantKey } from '../src/common/variant-key';
+
+/**
+ * ⭐ **Anclas de no-vacuidad POR CONTENIDO** para `buylist-mail.templates.ts` (techlead, 2026-09-14).
+ * Aquí vivía el algoritmo v1 de `stripComments` —regex global de bloques, luego colas de línea— que
+ * **se queda ciego a trozos**: basta un comentario de línea (o una cadena) con la apertura de bloque
+ * para que se trague el código hasta el siguiente cierre. Este fichero **hoy** no tiene ninguna
+ * (medido con barrido mecanístico sobre `src/`: las siete que sí existen viven en `mail-shell.ts`,
+ * `pricing.controller.ts`, `uploads.service.ts`, `guest-checkout.service.ts`, `error-codes.ts`,
+ * `mail.templates.ts` y `guest-order.templates.ts`) — pero está **a un comentario** de tenerla, y
+ * estos `it` son aserciones de AUSENCIA: sobre un texto mutilado salen **verdes por ceguera**.
+ * ⛔ Las anclas NO son «el texto no está vacío»: son **las tres plantillas repartidas por el
+ * fichero** — principio, medio y final —, que es lo único que detecta la ceguera PARCIAL.
+ */
+const ANCLAS_PLANTILLAS = [
+  'export function sellItemRejectedTemplate',
+  'export function sellOfferTemplate',
+  'export function sellOfferReminderTemplate',
+];
 
 /**
  * ⚠️⚠️ v1.54 · **B-1 — LO PROHIBIDO SE BUSCA EN LOS CINCO CORREOS, NO EN CUATRO.**
@@ -647,9 +665,7 @@ describe('⚠️ (3-bis) los correos 2 y 3 son seguros POR CONSTRUCCIÓN, y eso 
     // alguien hace que el barrido cargue `pickupAddressSnapshot`, este test cae y hay que escribirles
     // su productor —o quitar el dato—. La misma disciplina de `(4)`, aplicada al otro emisor.
     const ruta = join(__dirname, '..', 'src', 'jobs', 'buylist-sweep.service.ts');
-    const codigo = readFileSync(ruta, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
+    const codigo = codigoDeFichero(ruta, ['export class BuylistSweepJobService']);
     for (const campo of ['pickupAddress', 'postalCode', 'neighborhood', 'clabe']) {
       expect(codigo.toLowerCase()).not.toContain(campo.toLowerCase());
     }
@@ -673,9 +689,7 @@ describe('⚠️ (4) el detector detecta, y el módulo no sabe componer una dire
     // Se leen los comentarios FUERA: este spec habla de código, y los comentarios de la plantilla
     // explican justamente qué se quitó.
     const ruta = join(__dirname, '..', 'src', 'modules', 'buylist', 'buylist-mail.templates.ts');
-    const codigo = readFileSync(ruta, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
+    const codigo = codigoDeFichero(ruta, ANCLAS_PLANTILLAS);
     for (const campo of ['pickupAddress', 'postalCode', 'neighborhood', 'line1', 'clabe']) {
       expect(codigo.toLowerCase()).not.toContain(campo.toLowerCase());
     }

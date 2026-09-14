@@ -8,6 +8,7 @@ import { getSealedGroupDetail } from '@/lib/api';
 import type { SealedGroupDetailResponse } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 import { useCart } from '@/lib/cart';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../../catalog/CartAddedToast';
@@ -163,7 +164,12 @@ function Detail({
               <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
                 {formatMoneyCents(group.fromPriceCents, locale)}
               </div>
-              <div className="mt-2 font-mono text-[11px] leading-none text-muted">{t('withoutIva')}</div>
+              {/* ⛔ §M10-IVA.3 — el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla. */}
+              <IvaLabel
+                ivaIncluded={group.ivaIncluded}
+                ivaRatePct={group.ivaRatePct}
+                className="mt-2 block text-[11px] leading-none"
+              />
             </div>
             {showMarketValue && (
               <div className="border-b border-border py-6 sm:border-l sm:pl-7">

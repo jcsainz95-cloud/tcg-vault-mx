@@ -32,7 +32,9 @@ function listingsOf(group: SealedGroupDTO, ids: string[]): ListingDTO[] {
     finish: 'normal',
     referenceValue: group.referenceValue,
     priceBasis: group.priceBasis,
-    salePriceCents: group.fromPriceCents + i * 500,
+    displayPriceCents: group.fromPriceCents + i * 500,
+    ivaIncluded: true,
+    ivaRatePct: 16,
     sellable: true,
   }));
 }

@@ -6,6 +6,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.13-sales-pricing (§4.14d) · ⛔ SUPERSEDED por v2.0 (P-48, ARCHITECTURE §4.36.5b).
@@ -150,9 +151,9 @@ function pricingMock(referenceMxnCents: number | null): PricingService {
 describe('call-site — toListingDTO resuelve por la CURVA y expone `priceBasis`', () => {
   it('una Common SIN PriceReference YA NO se publica (el piso no gana): sellable=false, basis pending', async () => {
     const pricing = pricingMock(null);
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(itemOf() as never);
-    expect(dto.salePriceCents).toBeUndefined();
+    expect(dto.displayPriceCents).toBeUndefined();
     expect(dto.sellable).toBe(false);
     expect(dto.priceBasis).toBe('pending');
     // Criterio 84: al seam se le pasa el MERCADO y la rareza SOLO para el veredicto — nunca el acabado,
@@ -164,18 +165,18 @@ describe('call-site — toListingDTO resuelve por la CURVA y expone `priceBasis`
 
   it('con mercado publica por la curva y marca `priceBasis="market"`', async () => {
     const pricing = pricingMock(100000);
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(itemOf() as never);
-    expect(dto.salePriceCents).toBe(115000);
+    expect(dto.displayPriceCents).toBe(133400); // `P` de `L = 115000`
     expect(dto.sellable).toBe(true);
     expect(dto.priceBasis).toBe('market');
   });
 
   it('listPriceCents (override POR PIEZA) sigue ganando y marca `priceBasis="override"`', async () => {
     const pricing = pricingMock(100000);
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(itemOf({ listPriceCents: 99999 }) as never);
-    expect(dto.salePriceCents).toBe(99999);
+    expect(dto.displayPriceCents).toBe(115999); // `P` de `L = 99999`
     expect(dto.priceBasis).toBe('override');
     expect(pricing.computeSalePriceForItem).not.toHaveBeenCalled();
   });
@@ -189,6 +190,8 @@ describe('call-site — orders.salePriceOf cobra EXACTAMENTE lo que publica el s
     const settings = {
       getNumber: jest.fn().mockResolvedValue(16),
       getStripeFee: jest.fn().mockResolvedValue({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 }),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
     } as unknown as SettingsService;
     return new OrdersService(prisma, pricing, settings, {} as StripeService, {} as CatalogService);
   }
@@ -196,7 +199,9 @@ describe('call-site — orders.salePriceOf cobra EXACTAMENTE lo que publica el s
   it('con mercado cobra el precio de la curva (mismo número que la ficha)', async () => {
     const svc = buildOrders(pricingMock(100000));
     const res = await svc.quote(['i1']);
-    expect(res.items[0].unitPriceCents).toBe(115000);
+    // ⭐ D56: el checkout congela `P = round(L × 1.16)`; `L = 115000` ⇒ `133400`. Y sigue siendo
+    // **el MISMO número que la ficha**, que es lo que este candado mide.
+    expect(res.items[0].unitPriceCents).toBe(133400);
   });
 
   it('sin mercado → PRICE_PENDING (el piso NO gana; jamás se cobra un precio inventado)', async () => {

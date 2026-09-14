@@ -62,7 +62,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
         findUnique: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
       },
-      shipmentRequest: { findUnique: jest.fn(), update: jest.fn() },
+      // `REL-B`/`REL-C`: las dos escrituras de envío del webhook llevan ahora su precondición de
+      // estado en el `WHERE` (`updateMany` + `count`), no en el `if` sobre la lectura previa.
+      shipmentRequest: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
     // v1.21-guest-checkout: 3ª dependencia (correo del invitado). Este bloque solo cubre la ruta
@@ -314,17 +316,33 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     prisma.order.findUnique.mockResolvedValue(null);
     prisma.shipmentRequest.findUnique.mockResolvedValue({ id: 's1', status: 'solicitado' });
     await payments.onPaymentCanceled('pi_ship');
-    expect(prisma.shipmentRequest.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 's1' }, data: { status: 'cancelado' } }),
+    // ⭐ `REL-C`: `where` lleva el estado esperado. ⛔ Rojo si vuelve a ser `{ id }` a secas: un
+    // webhook rezagado cancelaría un envío que otro acababa de mover a `picking`.
+    expect(prisma.shipmentRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1', status: 'solicitado' },
+        data: { status: 'cancelado' },
+      }),
     );
+    expect(prisma.shipmentRequest.update).not.toHaveBeenCalled();
   });
 
   it('payment for a shipment advances solicitado → picking', async () => {
     prisma.order.findUnique.mockResolvedValue(null);
     prisma.shipmentRequest.findUnique.mockResolvedValue({ id: 's1', status: 'solicitado' });
     await payments.onPaymentSucceeded(piOf('pi_ship'));
-    expect(prisma.shipmentRequest.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 's1' }, data: expect.objectContaining({ status: 'picking' }) }),
+    // ⭐⭐ `REL-C`: **ÉSTE era el único escritor del sistema capaz de RETROCEDER un estado.** Sin el
+    // `status` en el `WHERE`, un webhook que viajó mientras el operador avanzaba
+    // `solicitado → picking → guia → enviado` devolvía la fila a `picking` — y con ella el camino a
+    // `enviado` otra vez, o sea **un segundo `AV-5`**. La monotonía del grafo es la premisa de que
+    // `AV-5`/`AV-6` no necesiten columna de sello (§R.4.c cláusula 3), así que este `WHERE` es parte
+    // de ese candado. ⛔ Rojo si vuelve a ser `{ id }` a secas.
+    expect(prisma.shipmentRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1', status: 'solicitado' },
+        data: expect.objectContaining({ status: 'picking' }),
+      }),
     );
+    expect(prisma.shipmentRequest.update).not.toHaveBeenCalled();
   });
 });

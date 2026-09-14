@@ -1,10 +1,28 @@
-import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as buylistTemplates from '../src/modules/buylist/buylist-mail.templates';
 import { ctaRows, isSafeMailUrl } from '../src/modules/buylist/mail-shell';
 import { offerTermsCopy, sellOfferTemplate } from '../src/modules/buylist/buylist-mail.templates';
 import * as accountTemplates from '../src/modules/mail/mail.templates';
 import { MailMessage } from '../src/modules/mail/mail.port';
+import { codigoDeFichero } from './helpers/codigo-de-fichero';
+
+/**
+ * ⭐ **Anclas de no-vacuidad POR CONTENIDO** para `buylist-mail.templates.ts` (techlead, 2026-09-14).
+ * Aquí vivía el algoritmo v1 de `stripComments` —regex global de bloques, luego colas de línea— que
+ * **se queda ciego a trozos**: basta un comentario de línea (o una cadena) con la apertura de bloque
+ * para que se trague el código hasta el siguiente cierre. Este fichero **hoy** no tiene ninguna
+ * (medido con barrido mecanístico sobre `src/`: las siete que sí existen viven en `mail-shell.ts`,
+ * `pricing.controller.ts`, `uploads.service.ts`, `guest-checkout.service.ts`, `error-codes.ts`,
+ * `mail.templates.ts` y `guest-order.templates.ts`) — pero está **a un comentario** de tenerla, y
+ * estos `it` son aserciones de AUSENCIA: sobre un texto mutilado salen **verdes por ceguera**.
+ * ⛔ Las anclas NO son «el texto no está vacío»: son **las tres plantillas repartidas por el
+ * fichero** — principio, medio y final —, que es lo único que detecta la ceguera PARCIAL.
+ */
+const ANCLAS_PLANTILLAS = [
+  'export function sellItemRejectedTemplate',
+  'export function sellOfferTemplate',
+  'export function sellOfferReminderTemplate',
+];
 
 /**
  * # §31.14 — LOS CANDADOS DEL ESQUELETO DE CORREO
@@ -680,11 +698,10 @@ describe('§31.10 — correo 6: fuera «y no nos debes nada», en los dos idioma
 
   it('⛔ y NINGUNA otra cadena de los ocho se tocó en este pase (§31.0)', () => {
     // Ancla estructural: la frase retirada no puede sobrevivir escondida en ninguna plantilla.
-    const fuente = readFileSync(
+    const codigo = codigoDeFichero(
       join(__dirname, '..', 'src', 'modules', 'buylist', 'buylist-mail.templates.ts'),
-      'utf8',
+      ANCLAS_PLANTILLAS,
     );
-    const codigo = fuente.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     expect(codigo).not.toContain('no nos debes nada');
     expect(codigo).not.toContain('owe us nothing');
   });
@@ -734,12 +751,10 @@ function dineroEn(texto: string): string[] {
  */
 describe('⭐ N1 (R3) — la marca la pone el esqueleto, y exactamente una vez', () => {
   it('⚠️ ninguna plantilla de buylist llama a `brandRows` (código, sin comentarios)', () => {
-    const codigo = readFileSync(
+    const codigo = codigoDeFichero(
       join(__dirname, '..', 'src', 'modules', 'buylist', 'buylist-mail.templates.ts'),
-      'utf8',
-    )
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
+      ANCLAS_PLANTILLAS,
+    );
     expect(codigo).not.toContain('brandRows');
   });
 

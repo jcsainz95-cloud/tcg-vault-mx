@@ -22,9 +22,134 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
+> **ESTADO AL 2026-09-14 (17ª ronda — ✅ DECISIÓN DEL DUEÑO, **APROBADA Y VIGENTE** — LEER PRIMERO; ESTA ES
+> LA MÁS RECIENTE. NO toca D54, ni D53, ni ninguna anterior. Son DOS frentes: **(1)** un requisito NUEVO
+> —**el centro de avisos, §R**, que queda como **D55**— y **(2)** una RE-LECTURA de §Q a la luz de un hecho
+> nuevo del dueño, que queda como **D56**):**
+> **✅ ESTO YA ES EJECUTABLE.** El dueño **contestó las 17 preguntas del bloque (68–84) el 2026-09-14**. §R
+> es **alcance vigente**, los criterios **198–214** son **criterios vigentes que QA verifica y el DoD
+> exige**, y **el arquitecto arranca**. El estado de borrador —que duró unas horas del mismo día— **queda
+> cerrado**. §Q.10 **sigue sin cambiar ni una coma de D54**: lo que hace es **encenderla**.
+> **Siguen abiertas SOLO tres preguntas, y NINGUNA bloquea al arquitecto**: la **85** (redacción de la regla
+> de canal, ver abajo), la **86** (qué le pasa a un pedido en contracargo — **la levantó él mismo y nadie la
+> ha contestado**) y la **87** (la lista corta de motivos de rechazo: **se propone, él aprueba**).
+>
+> **⚠️⚠️ LA ÚNICA CONTRADICCIÓN ENTRE SUS 17 RESPUESTAS, DICHA ENTERA — Y SE RESUELVE A FAVOR DE SUS CASOS
+> CONCRETOS, NO DE SU REGLA ABSTRACTA.** En la **69** adoptó *«tal cual»* la regla de canal propuesta:
+> **correo solo si (a) tiene que hacer algo o (b) se movió su dinero**. Pero en la **74** mandó **dos**
+> correos de envío (**guía y salida**) y en la **75** mandó el **acuse de recibido** al vendedor — y
+> **ninguno de los tres cumple (a) ni (b)**: el cliente no tiene que hacer nada y no se movió un peso.
+> **Leída al pie, su regla prohíbe tres correos que él mismo acaba de ordenar.**
+> **⭐ La salida no es elegir entre sus respuestas: es que sus respuestas revelan una TERCERA cláusula que la
+> regla no tenía escrita, y él la formuló dos veces sin llamarla así.** En la **72** dijo que el pago fallido
+> no manda correo porque ***«avisa al momento […] se avisa en la plataforma»***; en la **73**, que el
+> contracargo no manda nada porque ***«me avisa Stripe, no lo genera el cliente en nuestro portal»***. **Las
+> dos razones son la misma y no son (a) ni (b): son «ya se enteró por otra vía».** Y es también la razón por
+> la que **excluyó `entregado`** teniendo la caja en la mano. ⇒ **La regla vigente queda con tres cláusulas**
+> (§R.2, **`D-AVISO-1`**), y **con ella sus 17 respuestas encajan sin excepción**. **⛔ Lo que NO se hizo:
+> tocar ninguno de los nueve correos que él decidió.** La **85** solo confirma la **redacción**; el alcance
+> **no depende de ella**.
+>
+> **(1) §R — CENTRO DE AVISOS (correo + portal). D55. El criterio del dueño es «DISPONIBLE, NO IMPUESTO».**
+> **De dónde sale, y la segunda frase manda sobre la primera**: el dueño pidió *«correo y que haya también en
+> el portal para notificar […] Es lo primero que ve un cliente cuando entra a su cuenta»*, **y él mismo lo
+> corrigió acto seguido**: *«no quiero fijarlo a que sea lo primero que vean, sino que lo tengan disponible
+> cuando hacen alguna de esas acciones de que hay algo pendiente»*, y remató *«mi punto no era construirlo,
+> era el porqué no de hacerlo tan estricto»*. **⛔ Por eso §R NO especifica una pantalla de aterrizaje, ni un
+> interstitial, ni un muro que haya que despachar antes de comprar.** Estaba **aflojando una rigidez**, no
+> encargando una estructura, y el documento se escribe desde ahí.
+> **⭐ LA DECISIÓN DE PRODUCTO NO ES «QUÉ AVISAMOS», ES «QUÉ NO AVISAMOS».** Hay **30 cambios de estado
+> posibles** (medidos: `OrderStatus` 5, `SellRequestStatus` 11, `ShipmentStatus` 6, `DisputeStatus` 4,
+> `KycStatus` 4 — `schema.prisma:147,177,195,255,305`). **Avisar de los 30 por correo es no avisar de
+> ninguno**: la gente filtra el remitente y entonces **se pierde el que importa**. §R.3 fija el catálogo
+> aprobado: **11 correos nuevos** sobre las 13 plantillas que ya existen, y **el resto no manda ninguno** —
+> **tres de ellos no producen NADA, ni campana**, por decisión expresa suya (**identidad aprobada**, **pago
+> fallido**, **contracargo**). §R.4 fija **cuándo NO se avisa**.
+> **⚠ Y no aceptó el borrador: lo corrigió en tres sitios** —quitó el correo de pago fallido, **añadió** la
+> salida del envío y el acuse de recibido al vendedor—, **los tres hacia si el cliente puede o no enterarse
+> por su cuenta**. De ahí sale la cláusula (c) de §R.2.
+> **⭐ Y EL ALCANCE ES MÁS PEQUEÑO DE LO QUE PARECÍA, MEDIDO: NO HAY QUE CONSTRUIR NI UN DISPARADOR.** El
+> dueño pidió *«asegúrate que tengamos el botón, si no cómo detonamos»*. **Los tres existen** (medido por el
+> orquestador sobre `ce7017b`): mover estados de envío es `PATCH /admin/shipments/:id/status` y
+> `POST /:id/tracking` —con `picking→guia`, `guia→enviado`, `enviado→entregado`, `cancelado`—; marcar una
+> venta recibida es `POST /admin/buylist/:id/receive`, **con auditoría**; y el aviso en vivo del pago fallido
+> es `CheckoutRetryNotice.tsx`. ⇒ **Los cuatro correos se cuelgan de acciones que él ya hace hoy.** Lo que
+> falta es **el correo y la campana**, no el circuito.
+> **⚠ LO QUE HOY ESTÁ MEDIDO, Y ES PEOR DE LO QUE PARECE**: **dentro del portal no existe ningún aviso**
+> (`grep -rli notification` en `backend/src/modules` ⇒ **0**); **el comprador REGISTRADO no recibe
+> confirmación de pedido** —solo el invitado, `guest-order-mail.service.ts:60`—; **la guía de envío no avisa
+> en NINGUNA de las dos direcciones** (ni la del comprador, ni la que el vendedor necesita para mandarnos sus
+> cartas: `buylist.service.ts:4774` la captura y **nadie se la manda**); y **rechazar una identidad no avisa
+> nada** (`grep -rn kyc backend/src/modules/mail/` ⇒ **0**).
+> **⚠ EL CASO QUE OBLIGA A CONTESTAR «¿CUÁNDO NO SE AVISA?» ANTES DEL PRIMER AVISO**: hoy se puede **rechazar
+> una identidad N veces seguidas** sin que el cliente haya hecho nada. **Es inofensivo hoy por el motivo
+> equivocado: porque no se manda nada.** El día que exista el correo son **N correos en un minuto**. §R.4
+> propone la regla —**un aviso por ciclo**— y **no la inventa**: es **la que este sistema ya aplica** en el
+> barrido del buylist (*«UNO por plazo, UNA sola vez»*, `jobs/buylist-sweep.service.ts:186`, sellada en
+> columna propia por evento: `offerAcceptReminderSentAt`, `shipReminderSentAt`). **El dueño la adoptó tal
+> cual (pregunta 76): *«un aviso por vuelta»*.**
+> **⛔ LO QUE EL DUEÑO YA DESCARTÓ Y NO SE REABRE**: el aviso de **«el valor de tu bóveda subió/bajó»**.
+> **✅ EL CORTE APROBADO (pregunta 80): LOS CUATRO CORREOS, TAL CUAL** —guía al comprador, **guía al
+> vendedor**, confirmación al registrado, rechazo de identidad con motivo—. Los cuatro son **el mismo defecto
+> visto cuatro veces: alguien mueve mercancía o dinero y el otro lado no se entera.** A ellos se suman los
+> que él decidió uno a uno al contestar el catálogo: **salida del envío** (74), **acuse de recibido al
+> vendedor** (75), **reembolso**, **pago de buylist** y **disputas**.
+> **⭐⭐ LA SUPERFICIE DE PORTAL LA CAMBIÓ ÉL, Y A MEJOR (pregunta 78): UNA CAMPANA ARRIBA A LA DERECHA,
+> SIEMPRE VISIBLE CUANDO HAYA ALGO PENDIENTE.** El borrador proponía **tres sitios de acción**; él contestó
+> con **un indicador permanente**. **No es una contradicción con su «disponible, no impuesto»: es su mejor
+> expresión** —está **siempre ahí** y **nunca se planta delante**—, y **subsume los tres sitios por
+> construcción**: si está siempre visible, está visible en el carrito, en el flujo de venta y en la bóveda.
+> **⛔ La FORMA de la campana es de ux-ui; este documento fija QUÉ muestra y CUÁNDO.**
+> **Historial de avisos dentro del portal: FASE 2** (pregunta 68). El primer corte muestra **solo lo que le
+> falta hacer**.
+>
+> **(2) §Q.10 — EL IVA, RELEÍDO CON EL HECHO NUEVO. ⛔ D54 NO SE TOCA.**
+> **El hecho, del dueño, 2026-09-14, en `HECHOS.md`**: ***«no hay pedidos viejos, la tienda no ha procesado
+> ninguna venta real»***.
+> **Qué borra**: la pregunta *«¿qué pasa con los pedidos viejos?»* **deja de existir**, y el **escalonado
+> «deploy 1 / deploy 2» pierde su motivo declarado** — existía para no mover el desglose de pedidos ya
+> cobrados (`common/money.ts:491-493`, `admin.service.ts:452`), y **no hay pedidos cobrados**.
+> **⛔ Qué NO borra, y es donde el product-owner se planta**: **no borra el criterio 190**, y **no vacía de
+> sentido lo construido**. Ver §Q.10.
+> **VEREDICTO DEL PRODUCT-OWNER SOBRE «PUEDE QUE YA NO SIRVA»: SÍ SIRVE, Y HAY MÁS CONSTRUIDO DE LO QUE EL
+> ENCARGO SUPONÍA.** Medido hoy sobre `ce7017b`: **(a)** `priceConvention` **se LEE en producción**, no solo
+> se escribe — `money.ts:500` hace `switch` sobre ella y de ahí sale **qué cuenta como ingreso en el P&L**
+> (`admin.service.ts:468` y `:1485`); **(b)** **no es una columna, son dos** — `Order.priceConvention`
+> (`schema.prisma:1160`) **y `ShipmentRequest.priceConvention`** (`schema.prisma:1262`), más `ivaTransferPct`
+> (`Int`, nullable, sin backfill); **(c)** **el dial NO está por construir entero**: la clave existe
+> (`SettingKey.IVA_TRANSFER_PCT = 'iva_transfer_pct'`, `settings.constants.ts:70`), **con default 100**
+> (`:284`) y **validador de entero [0,100]** (`:943`) — **lo que falta es la PUERTA de escritura**
+> (`PUT /admin/settings/iva-transfer`, declarada *«abre en el DEPLOY 2»* en `settings.constants.ts:67-68`) y
+> **cualquier lector que lo use para calcular un precio** (`grep IVA_TRANSFER_PCT` en `settings.service.ts`
+> ⇒ **0**).
+> **⭐ Y el argumento de tirar la columna se cae por su propia premisa**: *«si nunca va a haber dos
+> convenciones vivas, nadie la lee»* — **pero D54 es exactamente el día en que hay dos**. Hoy todo es
+> `IVA_EXCLUSIVE` (**medido: cero filas `IVA_INCLUSIVE`**) y D54 **ordena que pase a `IVA_INCLUSIVE`**. El
+> único mundo sin dos convenciones es **el que ya decidimos no tener**.
+> **⭐⭐ Y LO QUE ÉL DECIDIÓ EL 2026-09-14, QUE ES LO QUE ENCIENDE D54 (preguntas 82, 83 y 84):**
+> **(82) UN SOLO DESPLIEGUE**: *«haz el cambio de una vez cuando despliegues»*. **El escalonado «deploy 1 /
+> deploy 2» queda DEROGADO** — su motivo era proteger pedidos cobrados que no existen.
+> **(83) ⭐ SE QUEDAN LOS DOS MODELOS, Y SE ENCIENDE EL NUEVO: *«Deja los dos modelos, prende ahora el
+> último.»* ⚠ Y ESTA DECISIÓN CAMBIÓ SOBRE LA MARCHA — se escribe con su historia porque una decisión que se
+> discutió es más sólida que una que nadie discutió.** Su **primera** respuesta fue *«deja solo nuestro nuevo
+> modelo de IVA, quita lo demás»*. Con la bifurcación medida delante —que **conservar el registro por pedido
+> cuesta casi cero porque ya existe**, que es **dato fiscal** (*el día que alguien pregunte cómo se cobró un
+> pedido de marzo, hay respuesta*), y que **reañadirlo con ventas hechas es mucho más caro**— **corrigió**.
+> ⇒ **La columna se queda. El modo `IVA_INCLUSIVE` se enciende ya.** El veredicto del product-owner de que lo
+> construido sirve **queda ratificado por él**, no por el equipo.
+> **(84) EL DIAL ARRANCA EN 100 %, Y LA PUERTA PARA MOVERLO ES REQUISITO DE ESTE CORTE, NO «más adelante».**
+> Eso **deroga** la nota del código que decía que `PUT /admin/settings/iva-transfer` *«abre en el DEPLOY 2»*
+> (`settings.constants.ts:67-68`): **ya no hay deploy 2**. **⛔ Un dial encendido sin puerta es un valor que
+> nadie puede corregir cuando el mercado le diga que se equivocó** — y la pantalla sigue obligada a decir
+> **el costo en pesos ANTES de guardar** (criterio **188**, intacto).
+> **(81) NO la contestó, y el supuesto se mantiene**: la **pregunta 57** se cierra **por el hecho**, y **el
+> criterio 190 SE MANTIENE** (§Q.10.b).
+> **Ver §R** (requisito **vigente**, D55), **§Q.10** (D56 — **no cambia D54, la enciende**), los criterios
+> **198–214** (**vigentes**) y el bloque de **preguntas 68–87**.
+>
 > **ESTADO AL 2026-09-09 (16ª ronda del bloque v2.1 — ✅ DECISIÓN DEL DUEÑO, **APROBADA Y VIGENTE** — LEER
-> PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 15ª (D53, nombrado de la comisión) ni ninguna anterior: es OTRO
-> FRENTE —**qué cifra se exhibe: la base o lo que se paga**—):**
+> DESPUÉS DE LA 17ª, PERO ES LA ÚLTIMA **APROBADA**. NO toca la 15ª (D53, nombrado de la comisión) ni ninguna
+> anterior: es OTRO FRENTE —**qué cifra se exhibe: la base o lo que se paga**—):**
 > **D54 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, EN TODA SUPERFICIE DE CLIENTE, CON UN DIAL DE TRASLACIÓN
 > PARCIAL (CONTINUO, NO UN INTERRUPTOR), **UNO SOLO Y GLOBAL**, EXPRESADO COMO **FRACCIÓN DE TRASLACIÓN
 > 0–100 %**, EDITABLE DESDE ADMIN, QUE **ARRANCA EN 100 %**. LA **COMISIÓN DE PLATAFORMA SE QUEDA FUERA** DEL
@@ -5735,6 +5860,466 @@ momento» es parte de la decisión**, no un adorno: **queda como PENDIENTE ABIER
   el caso **(B)** del criterio **185**, y la **pregunta 65** (base del IVA sobre la comisión embebida), que
   **hoy no aplica precisamente porque la comisión está fuera**.
 
+#### Q.10 ⚠️ RE-LECTURA (2026-09-14, 17ª ronda): la tienda nunca ha vendido — qué deja de aplicar y qué NO
+
+> **⛔ ESTA SUBSECCIÓN NO CAMBIA D54.** No mueve el dial, ni la comisión, ni las superficies, ni un criterio
+> vigente. Lo único que hace es **decir qué restricción murió** y **plantarse en lo que sigue vivo**, porque
+> el dueño pidió explícitamente *«que también cheque lo que está construido, puede que ya no sirva»* — y
+> **«revísalo» no es «tíralo»**.
+
+**El hecho (dueño, 2026-09-14, `HECHOS.md`)**: ***«no hay pedidos viejos, la tienda no ha procesado ninguna
+venta real»***. No se re-pregunta.
+
+##### Q.10.a Lo que el hecho SÍ borra
+
+| Lo que muere | Por qué |
+|---|---|
+| La pregunta *«¿qué pasa con los pedidos viejos?»* | **No hay pedidos viejos.** No hay migración de importes, ni dos convenciones conviviendo en el historial, ni una factura emitida con un desglose que el cambio contradiga |
+| El **motivo declarado** del escalonado «deploy 1 / deploy 2» | El código dice que bajo `IVA_EXCLUSIVE` *«el P&L queda bit a bit el de hoy»* (`common/money.ts:491-493`) y que la rama `IVA_INCLUSIVE` *«en el deploy 1 es INALCANZABLE»* (`admin.service.ts:452`). Esa cautela existe **para no mover el desglose de pedidos ya cobrados**. **Sin pedidos cobrados, no protege nada** |
+| La **pregunta 57** (*«¿las órdenes ya cobradas se congelan?»*) **como decisión de negocio** | **Se queda sin sujeto**: no hay ninguna. Se propone cerrarla por el hecho — pregunta **81** |
+
+##### Q.10.b ⛔ Lo que el hecho NO borra — y aquí el product-owner se planta
+
+- **⛔ El criterio 190 NO se deroga. Cambia de papel, no de texto.** Hoy dice que una orden creada antes del
+  cambio se re-renderiza idéntica al centavo después. **Hoy no tiene sujeto real**, pero **sigue siendo
+  verificable con órdenes de prueba**, y **el día que haya una venta real vuelve a tener sujeto**. Derogarlo
+  sería **tirar el único candado que impide reinterpretar historia justo el día que empiece a haber
+  historia**, y ese día **nadie se va a acordar de volver a escribirlo**. *(Coste de mantenerlo: cero, la
+  prueba ya existe. Coste de quitarlo y equivocarse: el desglose fiscal de pedidos reales.)*
+- **⛔ La columna `priceConvention` NO sobra, y el argumento en contra se cae por su propia premisa.** El
+  argumento era *«si nunca va a haber dos convenciones vivas, es una columna que nadie lee»*. **D54 es
+  exactamente el día en que hay dos**: hoy **toda** fila es `IVA_EXCLUSIVE` y **D54 ordena que las nuevas
+  nazcan `IVA_INCLUSIVE`**. El único mundo en que la columna sobra es **el mundo en que D54 no se hace**.
+- **⭐ Y no es cierto que nadie la lea hoy — MEDIDO, cierra el «NO MEDIDO» con que llegó este encargo.**
+  `money.ts:495-514` (`netRevenueCents`) hace **`switch` sobre ella** y de ahí sale **qué cuenta como ingreso
+  propio en el P&L**; la consumen `admin.service.ts:468` y `admin.service.ts:1485`. **No es una columna
+  archivada: es la que decide una cifra de negocio.** Y su `default:` **lanza a propósito**
+  (`money.ts:507-512`) — para que una fila sin etiqueta **no se interprete en silencio bajo la convención que
+  hoy es mayoría**, que es **justo el riesgo del día del cambio**.
+
+##### Q.10.c Inventario de lo construido — MÁS de lo que el encargo suponía (medido 2026-09-14, `ce7017b`)
+
+| Pieza | Estado medido | Fuente |
+|---|---|---|
+| Columna de convención en **`Order`** | ✅ `NOT NULL`, **sin `@default`** | `schema.prisma:1160` |
+| Columna de convención en **`ShipmentRequest`** — **⚠ SON DOS, no una** | ✅ `NOT NULL`, sin default | `schema.prisma:1262` |
+| Congelado del dial por fila (`ivaTransferPct`, `Int`, nullable, sin backfill) | ✅ existe | `schema.prisma:1247-1260` |
+| El cálculo, **con las dos ramas** | ✅ | `money.ts:500-506` |
+| **Quién la escribe** | ⛔ **cero** sitios ponen `IVA_INCLUSIVE`; todos ponen `IVA_EXCLUSIVE` | `payments.service.ts:330`, `orders.service.ts:1282` y `:1464`, `guest-checkout.service.ts:221`, `shipments.service.ts:236` |
+| **La CLAVE del dial** | ✅ **existe**, con **default 100** y **validador entero [0,100]** | `settings.constants.ts:70`, `:284`, `:943` |
+| **La PUERTA del dial** (`PUT /admin/settings/iva-transfer`) | ⛔ **no existe** — el propio código dice que *«abre en el DEPLOY 2»* | `settings.constants.ts:67-68` |
+| **Alguien que LEA el dial para calcular un precio** | ⛔ **cero** | `grep IVA_TRANSFER_PCT` en `settings.service.ts` ⇒ 0 |
+| El **contrato** | ✅ especificado entero (`ivaIncluded`, semántica de `subtotalCents`, la identidad que sustituye a `total = subtotal + iva + fee`) | `API_CONTRACT.md:19182-19235` |
+| El **frontend** | ⛔ **no conoce** ni `ivaIncluded` ni `priceConvention` | `grep` en `frontend/src` ⇒ 0 |
+
+**⇒ Lectura de producto: está construido y APAGADO A PROPÓSITO.** Lo que falta no es diseño: es **la puerta
+del dial, el lado que escribe `IVA_INCLUSIVE` y la pantalla**.
+
+##### Q.10.d ⚠️ Regla de conflicto — lo que el contrato decidió y este documento NO fijaba
+
+**Se revisó, y NO hay decisión tomada a espaldas del dueño.** `API_CONTRACT.md:19182-19235` fija **nombres de
+campo y forma de DTO** —`ivaIncluded`, el rename de `salePriceCents` a `displayPriceCents`, las tres
+identidades comprobables—, y **eso es precisamente lo que §Q delegó al arquitecto** («el **CÓMO** —modelo de
+datos, fórmula, orden de las operaciones, nombres de campo— **es del arquitecto**», §Q encabezado). **Además
+el contrato arrastra los supuestos con su número de pregunta abierta** (§M10-IVA.3 cita *«todo el cotizador y
+las ofertas de buylist y sus cinco correos (supuesto, pregunta 56)»*). **⇒ No hay nada que subir por la regla
+de conflicto.** Se deja escrito porque **la próxima ronda no debería tener que volver a comprobarlo**.
+
+**⚠ Lo único que el contrato añade y este documento no decía**: **`ivaTransferPct` NO viaja a ninguna
+superficie de cliente** —es *«fuga comercial»*, `API_CONTRACT.md:19199-19201`—. **Es la decisión correcta y
+este documento la ratifica** (criterio **209**), pero **se registra aquí para que deje de vivir solo en el
+contrato**: que el cliente sepa qué fracción de IVA absorbemos **es información comercial nuestra**.
+
+##### Q.10.e ✅ LO QUE EL DUEÑO DECIDIÓ EL 2026-09-14 (D56) — y es lo que ENCIENDE D54
+
+| # | Decisión | Literal / consecuencia |
+|---|---|---|
+| **82** | **UN SOLO DESPLIEGUE** | *«haz el cambio de una vez cuando despliegues»*. **El escalonado «deploy 1 / deploy 2» queda DEROGADO**: su motivo era proteger pedidos cobrados, y **no hay** |
+| **83** | **Se quedan los DOS modelos; se enciende el nuevo** | *«Deja los dos modelos, prende ahora el último.»* La columna de convención **se queda**; `IVA_INCLUSIVE` **se enciende ya** |
+| **84** | **Dial al 100 %, CON PUERTA para moverlo** | El arranque no cambia; **la puerta pasa a ser requisito de ESTE corte** |
+| **81** | *(no contestada)* | Se cierra **la pregunta 57 por el hecho** y **el criterio 190 SE MANTIENE** (§Q.10.b) |
+
+**⭐⭐ LA 83 CAMBIÓ SOBRE LA MARCHA, Y SE ESCRIBE CON SU HISTORIA.** Su **primera** respuesta fue ***«deja
+solo nuestro nuevo modelo de IVA, quita lo demás»***. Se le puso la bifurcación **medida** delante:
+
+- **Quitar el modo viejo pero CONSERVAR el registro por pedido** (la columna) **cuesta casi cero, porque ya
+  existe** —está construida, probada y **leída en producción** (§Q.10.b)— y es **dato fiscal**: *el día que
+  alguien pregunte cómo se cobró un pedido de marzo, hay respuesta*.
+- **Quitarlo también** deja el sistema **sin manera de distinguir si algo cambia después**, y **reañadirlo
+  con ventas ya hechas es mucho más caro** — porque entonces sí hay filas que nadie puede etiquetar
+  retroactivamente sin adivinar.
+
+**Corrigió a: *«deja los dos modelos, prende ahora el último.»*** ⇒ **El veredicto de que lo construido sirve
+queda ratificado por el dueño**, no por el equipo. **Se deja escrito el giro a propósito**: una decisión que
+se discutió con cifras delante **es más sólida que una que nadie discutió**, y **la próxima ronda no debería
+tener que volver a levantar el mismo argumento**.
+
+**⚠️ LO QUE LA 84 DEROGA EN EL CÓDIGO, DICHO CON SU CITA.** `settings.constants.ts:67-68` declara que la
+única puerta del dial *«será `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**, y esa
+puerta abre en el **DEPLOY 2**»*. **Ya no hay deploy 2** (decisión 82) ⇒ **la puerta abre en este corte**
+(criterio **213**). **⛔ Y el «acuse del costo en pesos» NO se afloja por adelantarse**: el criterio **188**
+—*la pantalla dice en pesos, ANTES de guardar, cuánto margen se cede*— **sigue intacto**. Un dial encendido
+sin puerta es **un valor que nadie puede corregir el día que el mercado diga que se equivocó**; una puerta
+sin acuse es **exactamente el botón que §Q.0 prohíbe mover a ciegas**.
+
+**⛔ Lo que NO cambia, y conviene decirlo porque «un solo despliegue» invita a aflojar**: el **bloqueo de
+`decks-meta-v1`** sigue igual (§Q.8, criterio **197**) — exige **implementado Y PUBLICADO**, y con un solo
+despliegue eso simplemente ocurre **antes**, no **por defecto**.
+
+### R. Centro de avisos — correo + portal (transversal — ✅ VIGENTE v2.2, D55, 17ª ronda)
+
+> **✅ ESTA SECCIÓN ES ALCANCE VIGENTE. El dueño contestó las 13 preguntas de §R el 2026-09-14** (68–80) y
+> **el arquitecto arranca**. Los criterios **198–212** son **vigentes**: QA los verifica y el DoD los exige.
+> Lo que sigue fija el **QUÉ** y el **POR QUÉ**. **El CÓMO —modelo de datos, cola, reintentos, si hay tabla
+> de avisos o se derivan al vuelo— es del arquitecto**, y **la FORMA de la campana y el texto de cada correo
+> son de ux-ui**; este documento **no toca ninguna de las dos cosas**.
+> **⭐ Y el tamaño del trabajo es menor de lo que parece, medido**: **no hay que construir ni un
+> disparador**. Los tres botones que el dueño pidió asegurar —*«asegúrate que tengamos el botón, si no cómo
+> detonamos»*— **ya existen** (§R.8). Lo que falta es **el correo y la campana**, no el circuito.
+
+#### R.0 ⭐ El criterio del dueño: DISPONIBLE, NO IMPUESTO
+
+**Lo que pidió primero**: *«Quiero correo y que haya también en el portal para notificar, no solo esto sino
+también todos los avisos que mandamos que valgan la pena. Es lo primero que ve un cliente cuando entra a su
+cuenta: qué cambios hubo. Tal vez en la bóveda, falta su KYC — que ahí se le notifique. Cambios en su
+solicitud de lo que nos vende, etc.»*
+
+**Y lo que corrigió él mismo — ⭐ ESTA SEGUNDA VERSIÓN MANDA SOBRE LA PRIMERA**: *«Cuando alguien ingresa a su
+cuenta creo depende a dónde lo tenemos que mandar antes: si está comprando con su carrito listo para cerrar,
+vendiendo mismo caso, desde mi cuenta sin carrito bóveda. Lo que quiero decir es no quiero fijarlo a que sea
+lo primero que vean, sino que lo tengan disponible cuando hacen alguna de esas acciones de que hay algo
+pendiente.»* Y remató: *«mi punto no era construirlo, era el porqué no de hacerlo tan estricto»*.
+
+**⛔ QUÉ SIGNIFICA ESO PARA ESTE DOCUMENTO, DICHO SIN ADORNOS.** La primera frase, leída al pie, produce
+**una pantalla de aterrizaje obligatoria**. **Él la retiró.** Por eso §R **NO especifica**: ni pantalla de
+bienvenida, ni interstitial, ni muro que haya que despachar antes de comprar, ni badge que bloquee. **Lo que
+especifica es que el aviso esté DISPONIBLE mientras el cliente actúa** — en la lista que él nombró:
+**carrito listo para cerrar**, **vendiendo**, y **«desde mi cuenta sin carrito → bóveda»**.
+
+> **⚠️ Nota de método, escrita porque este equipo ya se equivocó aquí una vez**: en el primer pase, el
+> orquestador **convirtió la primera frase en regla de diseño** y le devolvió una arquitectura. El dueño
+> estaba **aflojando una rigidez**, no encargando una estructura. **Si un rol futuro lee §R.0 y siente el
+> impulso de fijar el aviso como primera pantalla: es exactamente lo que él descartó.**
+
+##### R.0.a ⭐ Y ÉL RESOLVIÓ EL «DÓNDE» MEJOR QUE EL BORRADOR: UNA CAMPANA (pregunta 78, 2026-09-14)
+
+**Decisión del dueño**: **una campana arriba a la derecha, SIEMPRE VISIBLE cuando haya algo pendiente.**
+
+**El borrador proponía tres sitios de acción** —carrito, flujo de venta, bóveda—. **Él contestó con un
+indicador permanente**, y **es mejor por dos razones que conviene dejar escritas**:
+
+1. **Subsume los tres sitios por construcción.** Si está siempre visible, **está visible en los tres**, y
+   **no hay que mantener una lista de pantallas que alguien olvidará ampliar** cuando nazca la cuarta.
+2. **Es la mejor expresión de su propio criterio, no una excepción a él.** Una campana **está siempre ahí y
+   nunca se planta delante**: eso es **literalmente** *«disponible, no impuesto»*. **⛔ Lo que sigue
+   prohibido es lo que él descartó**: pantalla de aterrizaje, interstitial, o un badge que **impida** seguir.
+
+**⛔ Lo que este documento NO decide de la campana**: **su forma** —icono, color, si lleva contador, cómo se
+abre, cómo se ve en móvil—. **Eso es de ux-ui.** Lo que §R fija es **QUÉ muestra** (solo pendientes vivos,
+§R.1) y **CUÁNDO se ve** (**cuando haya algo pendiente, y entonces siempre**).
+
+**⚠ Consecuencia aceptada**: **sin pendientes, no hay campana que mirar.** No es un estado vacío que haya que
+diseñar con gracia — **es que no hay nada que decir**, y decirlo sería justo el ruido que §R.2 evita.
+
+#### R.1 Dos clases de aviso, y no son la misma cosa
+
+La frase corregida del dueño distingue dos cosas que conviene **no** mezclar:
+
+| Clase | Qué es | Cuándo se apaga | Ejemplo suyo |
+|---|---|---|---|
+| **A · PENDIENTE VIVO** (condición) | Algo que **sigue siendo verdad** y que **le toca a él** resolver | Cuando **deja de ser verdad** | *«en la bóveda, falta su KYC»* |
+| **B · EVENTO** (cosa que pasó) | Un **cambio** que ya ocurrió y no se deshace | Cuando lo lee (o nunca: es historial) | *«cambios en su solicitud de lo que nos vende»* |
+
+**Por qué importa y no es taxonomía de adorno**: un **pendiente vivo** tiene sentido **exhibirlo en el punto
+de acción** —es justo lo que él describió—; un **evento** tiene sentido **guardarlo**. Mezclarlos produce el
+defecto clásico: **una lista que le repite para siempre algo que ya resolvió**, o **un pendiente que
+desaparece porque alguien lo marcó como leído sin hacer nada**.
+
+**✅ DECIDIDO (pregunta 68, 2026-09-14): el MVP lleva SOLO la clase A** —pendientes vivos, en la campana— y
+**la clase B (historial) queda en FASE 2**.
+**Consecuencia asumida, dicha entera**: el cliente **no tendrá una lista de «qué cambió desde la última
+vez»** dentro del portal en el primer corte — **que es parte de lo que él describió al principio**. Lo que sí
+tendrá: **lo que le falta hacer** en la campana, y **el relato de lo que pasó en su correo y en la pantalla
+de cada pedido y cada solicitud**, donde **ya vive hoy**.
+**Por qué es el corte correcto y no un recorte**: un pendiente vivo **se apaga solo** cuando deja de ser
+verdad; un historial hay que **marcarlo como leído, paginarlo y decidir cuándo se borra** — y eso es **la
+mitad del trabajo de §R** para algo que **el correo ya cubre**.
+
+#### R.2 ⭐ La regla de canal — TRES cláusulas, y la tercera la escribió él sin nombrarla (`D-AVISO-1`)
+
+**✅ DECIDIDO (pregunta 69, 2026-09-14).** El dueño adoptó la regla *«tal cual»* —*«como ya definí antes»*—.
+**La regla vigente es ésta:**
+
+> **Va por CORREO si:**
+> **(a)** el cliente **tiene que HACER algo**; **o**
+> **(b)** **se movió su dinero**; **o**
+> **(c)** **algo suyo cambió de manos y NO tiene forma de enterarse en ese momento por otra vía.**
+>
+> **⛔ Y no va por correo si ya se enteró** — porque **la pantalla se lo dijo**, porque **tiene la caja en la
+> mano**, o porque **se lo dice su banco**. **Lo demás: portal, o nada.**
+
+**⚠️⚠️ DE DÓNDE SALE LA CLÁUSULA (c), Y POR QUÉ NO ES UN AÑADIDO DEL EQUIPO.** La regla propuesta tenía
+**solo (a) y (b)**, y el dueño la aceptó tal cual. **Pero sus respuestas concretas no caben en ella**: en la
+**74** mandó **dos** correos de envío —**guía y salida**— y en la **75** mandó el **acuse de recibido** al
+vendedor, y en **los tres el cliente no tiene que hacer nada y no se movió un peso**. **Leída al pie, su
+regla abstracta prohíbe tres correos que él mismo acababa de ordenar.**
+
+**⭐ La salida no fue elegir entre sus respuestas, sino leer la razón que él dio dos veces**: el pago fallido
+no manda correo porque ***«avisa al momento […] se avisa en la plataforma»*** (**72**), y el contracargo no
+manda nada porque ***«me avisa Stripe, no lo genera el cliente en nuestro portal»*** (**73**). **Las dos
+razones son la misma, y no son (a) ni (b): son «ya se enteró por otra vía».** Es también, exactamente, por lo
+que **excluyó `entregado`** (**74**) teniendo la caja en la mano. ⇒ **(c) no se inventó: se transcribió.**
+
+**Se resolvió a favor de sus CASOS CONCRETOS y en contra de la redacción abstracta**, y el motivo es que
+**sobre los casos deliberó uno a uno, y la regla la ratificó de pasada** (*«como ya definí antes»*). **⛔ No
+se tocó ninguno de los nueve correos que decidió.** **La pregunta 85 confirma solo la REDACCIÓN**, y **el
+alcance no depende de ella**: si prefiere otra formulación, cambian las palabras de este recuadro, **no los
+correos**.
+
+**Por qué la regla es restrictiva a propósito**: hay **30 cambios de estado posibles** (`OrderStatus` 5,
+`SellRequestStatus` 11, `ShipmentStatus` 6, `DisputeStatus` 4, `KycStatus` 4 —
+`schema.prisma:147,177,195,255,305`). **Avisar de los 30 por correo es no avisar de ninguno**: el cliente
+**filtra el remitente** y entonces **se pierde el que importa** —la guía, el pago, el rechazo—. **Lo que se
+deja fuera vale tanto como lo que se mete**, y por eso §R.3 lista **explícitamente los NO, con su razón**.
+
+**✅ Y el canal depende TAMBIÉN de quién recibe (pregunta 70, contestada: *«70 sí es por correo»*).** Se
+**generaliza** la decisión que él ya había tomado para la confirmación de pedido:
+
+> **Para un INVITADO, todo aviso que le corresponda va por correo o no va.** Para un **registrado**, manda
+> la regla de las tres cláusulas.
+
+**Por qué**: el invitado **no tiene portal**, así que **cualquier aviso que solo viva ahí, para él, no
+existe**. **Consecuencia asumida**: un invitado puede recibir **más** correos que un registrado por el mismo
+pedido. **No es una incoherencia: es que no tiene dónde ir a mirarlo.**
+
+#### R.3 ✅ El catálogo APROBADO — y sobre todo, los NO
+
+**✅ CATÁLOGO APROBADO — el dueño lo contestó evento por evento el 2026-09-14.**
+
+**Leyenda**: **📧 correo** · **▫️ sin correo; se ve donde ya vive hoy** · **⛔ nada, en ningún sitio**.
+
+> **⚠️⚠️ QUÉ SIGNIFICA EXACTAMENTE «▫️», Y ES UNA CONSECUENCIA DE SU RESPUESTA 68 QUE HAY QUE DECIR EN VOZ
+> ALTA PARA QUE NADIE CONSTRUYA DE MÁS.** El borrador usaba *«▫️ solo portal»* dando por hecho que habría
+> **una lista de eventos dentro del portal**. **La respuesta 68 mandó esa lista a fase 2**: la campana
+> muestra **solo pendientes vivos**, no eventos. ⇒ **«▫️» NO significa «aparece en la campana»**: significa
+> **«no manda correo, y el cliente lo sigue viendo donde ya lo ve hoy»** — la pantalla de su pedido, la de su
+> solicitud de venta, la de su identidad.
+> **⛔ Nadie construye una bandeja de eventos por leer un «▫️» en esta tabla.** **Y la consecuencia es
+> buena**: **encoge el trabajo**, no lo amplía — **los «▫️» no son trabajo nuevo, son lo que ya funciona.**
+
+**Identidad / KYC** *(hoy: **cero** avisos — `grep -rn kyc backend/src/modules/mail/` ⇒ 0)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Identidad RECHAZADA** | **📧** | **Tiene que hacer algo** (volver a subirla) y **el motivo es obligatorio** (`HECHOS.md`, 2026-09-11). ⭐ **Es el caso que originó este requisito**: el dueño rechazó una y **no supo si al cliente le llegaba algo**. **El lazo sí cierra** —resubir devuelve el estado a `pending`, `users.service.ts:444`—: **falta el aviso, no el circuito** |
+| **Identidad VERIFICADA** | **⛔ NADA** *(pregunta **71**: ***«no se manda nada»***)* | **No tiene nada que hacer.** ⚠ El borrador proponía portal; **él fue más lejos: ni correo ni aviso**. Y ⛔ **nada de esto puede decir «se te subieron los topes»**: los topes **dejan de mostrarse al cliente**, son política interna (`HECHOS.md`, 2026-09-11 (c)) |
+| **Identidad PENDIENTE** (acaba de subirla) | **⛔** | **Se lo acaba de decir la pantalla.** Un correo aquí es ruido puro |
+| **Falta la identidad** *(pendiente vivo, clase A)* | **🔔 CAMPANA** | ⭐ **Es el ejemplo textual del dueño** (*«en la bóveda, falta su KYC»*) y **el único pendiente vivo del primer corte** |
+
+**Pedidos** *(hoy: confirmación **solo a invitados** — `guest-order-mail.service.ts:60`: `if (!order.guestEmail) return null`)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Pedido liquidado (`settled`)** | **📧 a TODOS** | **Se movió su dinero.** ⭐ **Hueco medido**: el cliente **registrado** —el que tiene cuenta, el que más nos importa— **no recibe nada hoy** |
+| **Pedido fallido (`failed`)** | **▫️ SIN CORREO** *(pregunta **72**: ***«avisa al momento […] se avisa en la plataforma»***)* | **Ya se enteró: la plataforma se lo dice en vivo** — `CheckoutRetryNotice.tsx`, y **tratado como información, no como error** (`role="status"`, `:48,:54,:62`). **Es la cláusula (c) en acción.** ⚠ **Riesgo residual, aceptado y escrito**: ese aviso **solo lo ve quien está en la página**; un 3DS que falle **con la pestaña ya cerrada** deja al cliente creyendo que compró. **Él decidió que no se le escriba; queda registrado, no reabierto** |
+| **Reembolsado (`refunded`)** | **📧** | **Su dinero volvió.** Cláusula (b) |
+| **Contracargo (`chargeback`)** | **⛔ NADA** *(pregunta **73**: ***«me avisa Stripe, no lo genera el cliente en nuestro portal»***)* | **Ya se enteró por su banco, y normalmente lo inició él.** Escribirle *«detectamos un contracargo»* sería **poner una pantalla nuestra en medio de una investigación bancaria**. ⚠ **Pero eso deja una pregunta distinta sin contestar —y la levantó él mismo—: el cliente no sabe QUÉ LE PASA A SU PEDIDO. Es la pregunta 86, ABIERTA, fuera del alcance de §R** |
+| **Pedido `pending`** | **⛔** | Estado interno de segundos |
+
+**Envíos — lo que TE COMPRAN** *(hoy: **cero** — el módulo no importa correo)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Hay guía (`guia`, con `carrier` + `trackingNumber`)** | **📧** | ⭐⭐ **El que más duele de todos.** Alguien te paga y **no se entera de nada hasta que le tocan el timbre**. El dato existe y está capturado; **solo no sale** |
+| **SALIDA (`enviado`)** | **📧** *(pregunta **74**: **DOS correos**, guía y salida)* | ⚠ **El borrador proponía uno solo; él pidió dos.** **Cláusula (c)**: su paquete **salió de nuestras manos** y **no tiene forma de saberlo** — la guía se captura antes de que nada se mueva |
+| **Entregado (`entregado`)** | **▫️ SIN CORREO** *(pregunta **74**, ⛔ **confirmado explícitamente**)* | **Ya tiene la caja en la mano: cláusula (c) al revés.** ⚠ **El contraargumento se le puso delante y lo descartó**: es el evento que **abre la ventana de disputa**, y el correo habría sido **la última oportunidad de que revisara antes de que el plazo corra**. **Decisión suya, registrada** |
+| **Cancelado (`cancelado`)** | **📧** | Su solicitud **no procede**: probablemente **tenga que rehacerla** |
+| **`solicitado` / `picking`** | **⛔** | **Son nuestro taller**, no su información |
+
+**Venta / buylist — lo que TE VENDEN** *(hoy: **6 plantillas**, `buylist-mail.templates.ts` — ofertamos · recordatorio · cancelamos · piezas rechazadas · se venció · no se siguió)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Aceptada ⇒ AQUÍ VA TU GUÍA** | **📧** | ⭐⭐ **El segundo que más duele, y es simétrico del anterior.** `buylist.service.ts:4774` (`adminGuide`) **captura transportista y número y lo audita** (`buylist.tracking.capture`) — **y no existe ninguna plantilla que se lo mande**. ⇒ **el vendedor no puede saber que su etiqueta prepagada existe**, y encima **corre contra un plazo de envío** que el sistema sí vigila (`sendShipReminders`, `jobs/buylist-sweep.service.ts:275`) |
+| **PAGADA** | **📧** | **Se movió su dinero** — y **medido: no hay plantilla de pago** entre las 6 |
+| **RECIBIDA** (llegaron sus cartas) | **📧 ACUSE DE RECIBIDO** *(pregunta **75**: **sí, correo**)* | ⚠ **El borrador proponía no mandarlo; él dijo que sí, «como acuse de recibido».** **Tenía razón**: es **el momento de máxima ansiedad del vendedor** —acaba de mandar cartas caras por paquetería—, y **no puede saber que llegaron**. **Cláusula (c)**. Y **el botón ya existe**: `POST /admin/buylist/:id/receive`, con auditoría |
+| **En verificación** | **⛔** | **Es nuestro taller** |
+| **Aprobada** | **▫️** | El dinero llega en `pagada`; **avisar dos veces diluye el que importa** |
+| **Cotizada / ofertada / vencida / no se siguió / piezas rechazadas / cancelada** | **📧 ya existen** | **⛔ No se rehacen.** §R **añade**, no reescribe lo que funciona |
+| **⛔⛔ Oferta PENDIENTE DE AUTORIZACIÓN** | **⛔ NADA, NI PORTAL NI CORREO — NO ES UN SUPUESTO, ES UNA PROHIBICIÓN** | `SellOfferState` es **admin-only** y *«EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE […] le filtraría el orden de magnitud de nuestro tope»* (`schema.prisma:211-213`). **⚠️ ÉSTE ES EL RIESGO NÚMERO UNO DE TODO §R**: un centro de avisos que se derive ingenuamente de *«cambió un estado»* **filtra esto solo**. Es el criterio **204** |
+
+**Disputas** *(hoy: cero)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Abierta** | **▫️** | **La abrió él** |
+| **En revisión** | **▫️** | Sin acción |
+| **Resuelta con recompra** | **📧** | **Dinero** |
+| **Rechazada** | **📧** | **Decisión que le afecta** y sobre la que querrá responder |
+
+**Bóveda** *(hoy: cero — y **no tiene estados propios**: 6 rutas, **todas `@Get`**)*
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **«Tu carta ya está en tu bóveda»** | **▫️** | ⚠ **No es un evento nuevo: es el mismo `settled`**, visto desde la bóveda. **Duplicarlo como aviso propio sería mandar dos correos por un solo hecho** |
+| **«Falta tu KYC»** (pendiente vivo) | **🔔 CAMPANA** | **El ejemplo del dueño.** Clase A, §R.1 |
+| **⛔ «El valor de tu bóveda subió/bajó»** | **⛔ DESCARTADO POR EL DUEÑO — NO SE REABRE** | El dato **existe** (hay foto diaria del portafolio) y **eso no cambia nada**: **él dijo que no** |
+
+**Catálogo**
+
+| Evento | Propuesta | Razón |
+|---|---|---|
+| **Volvió a haber existencias de un sellado** | **📧 ya existe** | Es **opt-in** y **él lo pidió**. No se toca |
+
+**⇒ TOTAL APROBADO: 11 correos nuevos**, sobre las **13 plantillas que ya existen**:
+**(1)** rechazo de identidad · **(2)** pedido liquidado a registrados · **(3)** reembolso · **(4)** guía al
+comprador · **(5)** salida del envío · **(6)** envío cancelado · **(7)** guía al vendedor · **(8)** acuse de
+recibido al vendedor · **(9)** buylist pagada · **(10)** disputa resuelta con recompra · **(11)** disputa
+rechazada.
+
+**⭐ Y la cuenta que de verdad define esta sección**: de los **30 cambios de estado posibles**, **la gran
+mayoría no manda ningún correo**, y **tres no producen absolutamente nada, ni campana** —identidad aprobada,
+pago fallido y contracargo—, **los tres por decisión expresa del dueño**. **Eso no es un vacío: es el
+producto.** La forma verificable de esta frase es el **criterio 206** (*la bandeja recibe exactamente los
+correos del catálogo y **ninguno más**, y falla **por exceso**, no solo por defecto*).
+
+**⚠️ Dónde queda el saldo del corte, comparado con el borrador de la mañana**: él **quitó** un correo
+(pago fallido) y **añadió dos** (salida del envío y acuse de recibido), y **subió de nivel un aviso**
+(identidad aprobada pasó de portal a nada). **No aceptó el borrador: lo corrigió en tres sitios**, y en los
+tres **hacia lo que el cliente puede o no puede saber por su cuenta** — que es, exactamente, la cláusula (c)
+de §R.2.
+
+#### R.4 ⭐ «¿CUÁNDO NO SE AVISA?» — hay que contestarlo ANTES del primer aviso, no después
+
+**El caso, medido**: hoy se puede **rechazar una identidad N veces seguidas** sin que el cliente haya hecho
+nada (el `upsert` no mira el estado actual). **Hoy es inofensivo por el motivo equivocado: porque no se manda
+nada.** **En cuanto exista el correo del rechazo, son N correos en un minuto** — y el cliente que los reciba
+no va a pensar «qué sistema tan comunicativo».
+
+**✅ REGLA VIGENTE (pregunta 76, contestada 2026-09-14: ***«un aviso por vuelta»***) — y NO ES INVENTADA, ya
+vive en este sistema:**
+
+> **UN AVISO POR CICLO.** Un evento avisa **una vez**. **El ciclo se reinicia cuando el cliente actúa.**
+> **Corregir el motivo de un rechazo actualiza el portal y NO re-envía correo.**
+
+**De dónde sale**: el barrido del buylist ya hace exactamente esto —*«el recordatorio (D23): UNO por plazo,
+UNA sola vez»* (`jobs/buylist-sweep.service.ts:186`)— y **lo sella en una columna por evento**
+(`offerAcceptReminderSentAt`, `shipReminderSentAt`, `:203,:267,:283`), **no en una marca global**. Aplicado
+al KYC: el ciclo **se reinicia al resubir**, que es **un lazo que ya existe** —`users.service.ts:443-448`
+devuelve el estado a `pending` y **limpia `rejectionReason`, `reviewedAt` y `reviewedBy`**, con la doctrina
+ya escrita en `:373-374`: *«el motivo de un rechazo anterior no puede sobrevivir a la corrección que lo
+responde»*—. ⇒ **§R.4 no inventa un ciclo: lo hereda.**
+
+**⛔ Por qué esto es criterio (205) y no una nota de buenas intenciones**: *«no mandes correos repetidos»*
+**no es verificable**; *«dos rechazos consecutivos sin resubida ⇒ exactamente un correo, y el portal muestra
+el motivo NUEVO»* **sí lo es**.
+
+#### R.5 Avisos con PLAZO — NO se replican, y su preocupación de fondo YA ESTABA RESUELTA
+
+**✅ DECIDIDO (pregunta 77, 2026-09-14): el aviso previo NO se replica.** El buylist sigue siendo el único
+sitio con recordatorio de vencimiento —a **1 día hábil**, **una sola vez**—, y **no nace ninguno nuevo** (ni
+para la ventana de disputa, ni para nada más). **Por qué es el lado correcto**: cada recordatorio es **un
+barrido más, un sello más y un plazo que mantener coherente con el que lo dispara**.
+
+##### R.5.a ⭐ «Asegúrate que en algún momento se enteren de los plazos» — ya estaba, y lo resolvió el código
+
+**El dueño pidió**: *«asegúrate que en algún momento se enteren de los plazos, checa si los comentamos»*.
+**La respuesta es que sí, y desde antes de esta ronda** *(medido 2026-09-14)*:
+
+- `buylist-mail.templates.ts:271` — `deadlineRow` renderiza **fecha Y HORA explícitas** en
+  **`America/Mexico_City`** (`:277`), con el comentario **`(criterio 154: nunca «en 2 días»)`**.
+- `offerTermsCopy` mete **los dos plazos** —aceptar y enviar— en el correo de oferta y en el de aceptada,
+  desde **una sola fuente**, porque el contrato exige que el correo y la pantalla digan **el mismo string**
+  (`:341-349`, criterio 161(d)).
+- Y **el criterio 154 ya era criterio vigente** desde D14 (`buylist.service.ts:50`): los plazos son **días
+  hábiles de `America/Mexico_City`** y **el front no los recalcula**.
+
+**⇒ Su preocupación estaba resuelta, y no por casualidad: alguien ya había pensado que *«en 2 días»* no dice
+ni desde cuándo ni en qué huso.** **No hay trabajo nuevo aquí.** Se escribe en §R para que **la próxima vez
+que alguien pregunte por los plazos, la respuesta esté en el documento** y no haya que volver a medirla.
+
+#### R.6 Lo que §R NO decide, a propósito
+
+- **El CÓMO entero**: si hay tabla de avisos o se derivan al vuelo, la cola, los reintentos, el agrupado.
+  **Del arquitecto.**
+- **La FORMA de la campana** —icono, contador, cómo se abre, cómo se ve en móvil—: **de ux-ui**, dentro de
+  los dos límites que §R sí fija: **muestra solo pendientes vivos** y **nunca se planta delante** (§R.0.a).
+- **El texto exacto de cada correo**: de ux-ui, con **una restricción heredada que sigue vigente**: ⛔ **cero
+  afirmaciones jurídicas** y **cero vocabulario del traslado** (D53, criterio **195**).
+- **Preferencias de aviso por parte del cliente** (que elija qué recibir): **NO es alcance del MVP** — nadie
+  lo pidió. Si el dueño lo quiere, **se pregunta** (**no estuvo en la lista 68–80 porque él no lo mencionó**;
+  se deja dicho aquí para que **no entre de contrabando**).
+
+#### R.7 ✅ EL CORTE APROBADO (pregunta 80, 2026-09-14: ***«los cuatro»***)
+
+**El dueño aprobó los cuatro correos núcleo tal cual se le propusieron — incluida la guía al vendedor, que
+el borrador añadió a la lista del encargo.** El argumento que aceptó es uno solo:
+
+> **Los cuatro son EL MISMO DEFECTO VISTO CUATRO VECES: alguien mueve mercancía o dinero, y el otro lado no
+> se entera.** No son cuatro funcionalidades: son **cuatro agujeros del mismo tubo**.
+
+| # | Correo | Por qué éste, y el botón del que cuelga |
+|---|---|---|
+| 1 | **Guía al COMPRADOR** (`ShipmentStatus` → `guia`) | **Te pagó y no sabe nada hasta que le tocan el timbre.** Cuelga de `POST /admin/shipments/:id/tracking` — **ya existe** |
+| 2 | **Guía al VENDEDOR** (buylist `aceptada`, `buylist.service.ts:4774`) | **Simétrico del 1 y peor**: el vendedor **no puede actuar sin la guía** y **corre contra un plazo que sí vigilamos** (`sendShipReminders`). Hoy le **recordamos que envíe sin haberle mandado con qué** |
+| 3 | **Confirmación al cliente REGISTRADO** | **El invitado sí la recibe y el que tiene cuenta no** (`guest-order-mail.service.ts:60`). Es **el momento del dinero** |
+| 4 | **Rechazo de identidad, con motivo** | **El caso que originó todo el requisito.** El motivo **ya es obligatorio** y el **lazo de resubida ya cierra** (`users.service.ts:443-448`). ⛔ **No sale sin la regla de §R.4**, o son N correos |
+
+**Y al aprobar el catálogo evento por evento, el corte creció a 11 correos** (§R.3): a los cuatro se suman
+**salida del envío** y **acuse de recibido al vendedor** —que **él añadió**—, más reembolso, buylist pagada,
+envío cancelado y las dos de disputas.
+
+**Superficie de portal: la CAMPANA con los pendientes vivos** (§R.0.a). En el primer corte eso es, en la
+práctica, **«te falta la identidad»**. **⛔ Sin historial de eventos, sin bandeja, sin marcar como leído.**
+
+**⚠ Qué queda fuera y en fase 2, para que nadie lo dé por prometido**: el **historial de avisos en el
+portal** (pregunta 68) y **cualquier recordatorio con plazo nuevo** (pregunta 77).
+
+#### R.8 ⭐ Los disparadores YA EXISTEN — el alcance es más chico de lo que parecía
+
+**El dueño pidió asegurarlo**: *«asegúrate que tengamos el botón, si no cómo detonamos»*. **Medido sobre
+`ce7017b` por el orquestador — los tres existen**:
+
+| Lo que hay que detonar | El botón que ya existe |
+|---|---|
+| **Mover estados de envío** (incluida la captura de guía) | `PATCH /admin/shipments/:id/status` y `POST /admin/shipments/:id/tracking`, con las transiciones `picking→guia`, `guia→enviado`, `enviado→entregado` y `cancelado` |
+| **Marcar una venta como recibida** | `POST /admin/buylist/:id/receive`, **con auditoría** |
+| **Avisar del pago fallido al momento** | `CheckoutRetryNotice.tsx`, y **tratado como información, no como error** (`role="status"`, `:48,:54,:62`) |
+
+**⇒ Los once correos se cuelgan de acciones que el operador YA HACE.** **No hay que construir ningún
+disparador, ni inventar un estado, ni pedirle al dueño que apriete un botón nuevo.** Lo que falta es **la
+plantilla, el envío y la campana**.
+
+**Por qué esto está escrito en `PROJECT.md` y no solo en un informe**: **cambia el tamaño del trabajo**, y un
+rol que lea §R sin este apartado **presupuestará de más** — o peor, **propondrá construir un disparador que
+ya existe**, que es la clase de retrabajo que este proyecto ya midió y que cuesta tanto como diseñar.
+
+#### R.9 Los motivos de rechazo de identidad (pregunta 79: **lista corta + campo libre**)
+
+**✅ DECIDIDO**: el rechazo lleva **una lista corta de motivos** —un clic, cero carga para quien revisa— **y
+un campo libre** para cuando ninguno encaje. **Es una mezcla, no una de las dos opciones** que se le
+ofrecieron, y **la propuso el orquestador y él la aceptó**.
+
+**Por qué la mezcla es mejor que cualquiera de las dos puras**: el motivo lo escribe **una persona con prisa
+en un back-office** y **llega tal cual a un cliente**. Solo texto libre **garantiza que algún día llegue algo
+mal redactado**; solo lista **garantiza que algún día no haya casilla para el caso raro**, y entonces se
+elige la casilla equivocada, **que es peor que un texto torpe**.
+
+**⚠️ LA LISTA DE MOTIVOS ES UNA PROPUESTA Y LA APRUEBA EL DUEÑO.** Se deriva de **para qué mira él una
+identidad**, que está medido: la vista de revisión muestra la INE **junto al nombre y las direcciones del
+cliente, «para cotejar identidad contra destino de envío»** (`HECHOS.md`, 2026-09-11 (d)). **⛔ No se
+inventan motivos que él nunca haya usado.** Propuesta, **a confirmar** (pregunta **87**):
+
+1. **No se lee** (foto borrosa, con reflejo, o cortada).
+2. **Falta un lado** (solo frente o solo reverso).
+3. **El nombre no coincide** con el de la cuenta.
+4. **El documento está vencido.**
+5. **No es una identificación válida** (es otro documento).
+6. **Otro** → **campo libre, obligatorio si se elige**.
+
+**⛔ Restricción que aplica a los seis, venga el texto que venga**: **ningún motivo puede mencionar topes ni
+umbrales** — son política interna (`HECHOS.md`, 2026-09-11 (c)). Es el criterio **201**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
   *(Ojo — esta línea NO responde la **pregunta abierta 26**: lo que está fuera es la plataforma como
@@ -5983,6 +6568,36 @@ metiera de contrabando alcance que nadie pidió** amparándose en un «ya que es
   no al precio exhibido quedó CONTESTADO (pregunta 52, 2026-09-09): NO entra, se queda fuera** —con carácter
   **temporal** y **dueño asignado**, §Q.9—. Lo único que sigue abierto es **si se separa del mando `iva_pct`**
   (**pregunta 61**), que **no cambia cuánto cobra**.
+
+**⚠️ Fuera de alcance de §R (17ª ronda — D55 APROBADA el 2026-09-14).** §R **ya es alcance vigente**; esta
+lista es **lo que la aprobación NO arrastra**. Se escribió **antes** de aprobar, a propósito y por la misma
+doctrina que §Q, para que **nadie meta de contrabando alcance que nadie pidió** amparándose en un *«ya que
+estamos con los avisos»*. **Si el dueño quiere alguna de estas, basta que lo diga — pero entra como alcance
+nuevo, no como parte de §R**:
+
+- **Avisos por SMS, WhatsApp o push del navegador.** El dueño dijo **«correo y […] en el portal»**. **Dos
+  canales, no cuatro.**
+- **Preferencias de aviso del cliente** (que elija qué recibir, silenciar categorías, resumen diario).
+  **Nadie lo pidió.** *(Ojo: el correo de restock **ya es opt-in** y **eso no cambia**.)*
+- **Historial de avisos dentro del portal**, con marcado de leído y contador. **Es la clase B de §R.1 y el
+  dueño la mandó a FASE 2** (pregunta **68**, contestada). ⛔ **Y con ella se va la «bandeja de eventos»
+  entera**: la campana muestra **pendientes vivos y nada más** (§R.3, nota sobre el símbolo «▫️»).
+- **Avisar de los 30 cambios de estado.** **Es el error que §R existe para evitar** (§R.2).
+- **⛔ El correo de «entregado».** **No es un olvido: el dueño lo descartó explícitamente** (pregunta 74),
+  con el contraargumento de la ventana de disputa delante. **Quien lo proponga otra vez, que lea §R.3.**
+- **⛔ El correo de «pago fallido».** Igual: **descartado por él** (pregunta 72), porque **la plataforma ya
+  avisa en vivo**. El riesgo residual —la pestaña cerrada— **está registrado en §R.3, no reabierto**.
+- **Cualquier aviso de identidad APROBADA**, en cualquier canal. *«No se manda nada»* (pregunta 71).
+- **⛔ El aviso de «el valor de tu bóveda subió/bajó».** **El dueño ya lo descartó.** El dato existe y **eso
+  no lo reabre**.
+- **Recordatorios con plazo nuevos** fuera del buylist (ventana de disputa, carrito abandonado, pedido sin
+  recoger). **Supuesto: no se replican en el MVP** (§R.5, pregunta **77**).
+- **Avisos al ADMIN o al operador** (*«hay 4 solicitudes esperando»*). **§R es del CLIENTE.** El back-office
+  tiene sus propias colas y **el dueño no pidió esto**.
+- **Cambiar, refundir o «mejorar» las 13 plantillas que ya funcionan.** **§R añade.** *(La única excepción
+  propuesta, y va marcada como tal: fundir `guia` + `enviado` en un solo correo — pregunta **74**.)*
+- **Un centro de avisos como pantalla de aterrizaje obligatoria.** **⛔ El dueño lo retiró explícitamente**
+  (§R.0). No es que esté fuera de alcance: **es que él lo quitó**.
 
 ## Restricciones y preferencias técnicas
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
@@ -8463,6 +9078,116 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    Decks Meta con el motor devolviendo base + IVA apilado es un fallo de release**, porque su **piso de
    descuento compara contra costo de adquisición** y con dos convenciones mezcladas **compara mal**.
 
+> ### ✅ CRITERIOS 198–214 — **VIGENTES** (17ª ronda, 2026-09-14, §R/D55 + §Q.10/D56)
+> **QA los verifica y el DoD los exige**, desde la aprobación del dueño del **2026-09-14**. Existen porque
+> **un criterio es la única forma de que una decisión de producto no se convierta en una buena intención**, y
+> porque **la regla de §R.4 tiene que existir ANTES del primer aviso, no después**.
+> **Los criterios 1–197 no se tocan.** Son de **§R (avisos)**: **198–208**, **210**, **211** y **212**. Son de
+> **§Q.10 (IVA)**: **209**, **213** y **214**.
+
+198. **La guía de envío llega al COMPRADOR** *(hoy: **cero** — el módulo de envíos no importa
+   correo)*: se captura transportista y número de rastreo en un envío (`ShipmentStatus` → `guia`) y **el
+   comprador recibe un correo con el transportista y el número**, y lo ve en su pedido dentro del portal.
+   **⛔ Falla si el número existe en el back-office y el cliente no tiene forma de conocerlo.**
+199. **⭐ La guía llega al VENDEDOR — y es el caso que hoy deja a alguien sin poder actuar**
+   *(hoy: `buylist.service.ts:4774` captura transportista y número, lo audita como
+   `buylist.tracking.capture`, y **no existe plantilla que lo mande**)*: al capturar la etiqueta de una
+   solicitud aceptada, **el vendedor recibe un correo con el transportista, el número y el plazo para
+   enviar**. **⛔ Falla si el sistema le manda el recordatorio de envío (`sendShipReminders`) sin haberle
+   mandado antes la guía con la que enviar.**
+200. **El cliente REGISTRADO recibe confirmación de pedido, igual que el invitado** *(hoy
+   `guest-order-mail.service.ts:60` hace `if (!order.guestEmail) return null` ⇒ **solo invitados**)*: un
+   pedido liquidado de un cliente con cuenta **manda correo de confirmación**, y **sus cifras son las mismas
+   del checkout al centavo** (hereda el criterio **193**). **Se verifica con dos pedidos idénticos, uno de
+   invitado y uno de registrado: ambas bandejas reciben.**
+201. **Rechazar una identidad avisa, y avisa CON EL MOTIVO** *(hoy: **cero** —
+   `grep -rn kyc backend/src/modules/mail/` ⇒ 0; el motivo **ya es obligatorio**, `HECHOS.md` 2026-09-11)*:
+   al rechazar, el cliente **recibe un correo con el motivo** y **puede volver a subir la identidad desde el
+   portal**. **⛔ El correo NO menciona topes ni umbrales** — son política interna (`HECHOS.md` (c)).
+202. **⭐ LA CAMPANA: DISPONIBLE, NO IMPUESTO — las DOS mitades son el criterio** *(pregunta **78**: campana
+   arriba a la derecha, siempre visible cuando haya algo pendiente; §R.0.a)*:
+   **(a) NI IMPUESTO** — un cliente con un pendiente vivo **entra a su cuenta, navega el catálogo, abre el
+   carrito y llega al checkout sin que ninguna pantalla lo obligue a despachar un aviso primero**. **⛔ Falla
+   si existe pantalla de aterrizaje de avisos, interstitial o un badge que impida seguir.**
+   **(b) NI ESCONDIDO** — ese mismo cliente **ve la campana en las tres situaciones que él nombró**: carrito
+   listo para cerrar, flujo de venta, y su cuenta/bóveda sin carrito. **⛔ Falla si en alguna de las tres no
+   está.** *(Con «siempre visible» esto se cumple por construcción; el criterio existe para que **una
+   pantalla nueva no la pierda sin que nadie se entere**.)*
+   **(c) SIN PENDIENTES, NO HAY CAMPANA** — resuelto el pendiente, **desaparece**. **⛔ Falla si queda un
+   indicador vacío**, que es el ruido que §R.2 evita.
+   **(d) SOLO PENDIENTES VIVOS** — la campana **no lista eventos** (pedido enviado, pago recibido…). **⛔ Una
+   bandeja de eventos es fase 2** (pregunta 68) y **construirla es fallar este criterio por exceso.**
+203. **Para el INVITADO, el correo es el único canal** *(generaliza la decisión del dueño, pregunta **70**:
+   *«70 sí es por correo»*)*: se toma un aviso que para un registrado **no manda correo** y se comprueba que,
+   **para el invitado**, o **va por correo** o **está declarado como no aplicable a invitados**. **⛔ Falla si
+   un aviso que le corresponde vive solo en una superficie a la que no puede entrar.**
+204. **⛔⛔ EL AVISO NO FILTRA LA OFERTA PENDIENTE DE AUTORIZACIÓN — ES EL RIESGO NÚMERO UNO DE
+   §R** *(`SellOfferState` es **admin-only**: «EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE […] le filtraría el
+   orden de magnitud de nuestro tope», `schema.prisma:211-213`; ya es doctrina en el criterio del correo,
+   §P)*: con una oferta en `pending_authorization`, **la bandeja del vendedor está vacía Y su portal no
+   muestra absolutamente nada** —ni un aviso, ni un cambio de estado, ni una marca de actividad—. **Se
+   verifica en las DOS superficies, no solo en el correo.** **⛔ Un centro de avisos que se derive
+   ingenuamente de «cambió un estado» falla aquí, y falla en silencio.**
+205. **⭐ UN AVISO POR CICLO — verificable, no buena intención** *(§R.4; hoy se puede rechazar N
+   veces seguidas y **es inofensivo solo porque no se manda nada**)*: se **rechaza dos veces seguidas** una
+   identidad **sin que el cliente haya resubido nada**, con motivos distintos, y: **(a)** llega **exactamente
+   UN correo**; **(b)** el portal muestra **el motivo NUEVO**, no el viejo; **(c)** el cliente **resube**,
+   se rechaza otra vez y **entonces sí llega un segundo correo** —porque el ciclo se reinició
+   (`users.service.ts:444`)—. **⛔ Falla con dos correos en (a), y falla también si en (c) no llega ninguno**
+   (un sello que no se limpia es **silencio permanente**, que es el defecto contrario y es peor).
+206. **Los que NO avisan, no avisan — se verifica por AUSENCIA** *(§R.3; el catálogo completo de eventos son
+   **30**: `schema.prisma:147,177,195,255,305`, y **11 mandan correo**)*: se recorre el ciclo completo de un
+   pedido y de una solicitud de venta y **la bandeja recibe exactamente los 11 correos del catálogo de §R.3 y
+   ninguno más**. **⛔ Falla por exceso, no solo por defecto** — y ése es el punto entero de la sección:
+   *«avisar de los 30 es no avisar de ninguno»*.
+   **Y los TRES que no producen NADA se verifican aparte, porque el dueño los decidió uno a uno**: con
+   **identidad aprobada**, **pago fallido** y **contracargo**, **la bandeja está vacía Y la campana no
+   cambia**. *(El pago fallido **sí** se ve en vivo en la pantalla —`CheckoutRetryNotice.tsx`—: eso **no**
+   viola el criterio, es **la razón** por la que no manda correo.)*
+207. **Ningún aviso inventa una cifra** *(extiende el criterio **193** a los avisos nuevos)*: todo
+   aviso que lleve dinero —confirmación, reembolso, pago de buylist— **repite al centavo** lo que muestra la
+   pantalla de esa misma orden o solicitud. **⛔ Y bajo D54 repite la CONVENCIÓN también**: un correo que
+   desglose el IVA de una orden `IVA_INCLUSIVE` como si sumara **es un fallo**.
+208. **Cero afirmaciones jurídicas en los avisos nuevos** *(ratifica **D53** y el criterio
+   **195**, y se dice aquí porque **un correo es superficie de cliente** y es justo donde alguien escribiría
+   de más)*: se corre el test de copy contra **las plantillas nuevas** y **no aparece** vocabulario del
+   traslado ni cita de norma alguna. **Se verifica por ausencia.**
+209. **[§Q.10.d — IVA, no §R] `ivaTransferPct` no viaja a ninguna superficie de cliente**
+   *(ratifica en `PROJECT.md` una decisión que hoy **solo vive en el contrato**,
+   `API_CONTRACT.md:19199-19201`: que el cliente sepa qué fracción de IVA absorbemos es **fuga comercial**,
+   de la misma clase que la que cerró v2.1.6)*: el dial **viaja solo en `/admin/*`**. **⛔ Falla si aparece
+   en un DTO público, en un correo o en el HTML de una página de cliente.** **Y aplica a los avisos de §R
+   igual que a las pantallas.**
+210. **⭐ DOS correos de envío, y NINGUNO al entregar** *(pregunta **74**, contestada; se verifica **por
+   exceso y por defecto a la vez**, porque el dueño decidió las dos mitades)*: se recorre un envío completo y
+   **llegan exactamente dos correos** —**al capturar la guía** y **a la salida (`enviado`)**— y **al pasar a
+   `entregado` NO llega ninguno**. **⛔ Falla con uno, falla con tres, y falla si el de entregado aparece
+   «porque parecía razonable».** *(El contraargumento de la ventana de disputa se le puso delante y lo
+   descartó: §R.3.)*
+211. **El acuse de recibido llega al VENDEDOR** *(pregunta **75**, contestada: **sí, correo**)*: al marcar la
+   solicitud como recibida —`POST /admin/buylist/:id/receive`, **botón que ya existe**— el vendedor **recibe
+   un correo diciendo que sus cartas llegaron y que están en revisión**. **⛔ Y ese correo NO adelanta ningún
+   veredicto ni ninguna cifra de la verificación**, que aún no ha ocurrido.
+212. **El rechazo de identidad ofrece LISTA CORTA + CAMPO LIBRE** *(pregunta **79**, contestada: la mezcla;
+   la lista concreta es la **pregunta 87**, que él aprueba)*: la pantalla de rechazo ofrece **motivos de un
+   clic** y **un campo libre**; **elegir «Otro» EXIGE texto** —**⛔ falla si deja mandar «Otro» vacío**, que
+   es un rechazo sin motivo y **el motivo es obligatorio**—; y **lo que llegue al cliente, venga de la lista
+   o del campo libre, NO menciona topes ni umbrales** (criterio **201**).
+213. **⭐ La PUERTA del dial existe en este corte, con su acuse en pesos** *(pregunta **84**: dial al 100 %
+   **con puerta**; deroga la nota de `settings.constants.ts:67-68` que la difería al «deploy 2», porque
+   **la pregunta 82 eliminó el deploy 2**)*: el **súper administrador** puede **cambiar la fracción de
+   traslación desde admin, sin redeploy**, con **auditoría** (quién, cuándo, valor anterior → nuevo), y **la
+   pantalla dice en PESOS, ANTES de guardar, cuánto margen se cede** (criterio **188**, intacto). **⛔ Falla
+   si el dial se enciende sin puerta** —un valor que nadie puede corregir cuando el mercado diga que se
+   equivocó— **y falla igual si la puerta existe sin el acuse**, que es el botón a ciegas que §Q.0 prohíbe.
+214. **⭐ UN SOLO DESPLIEGUE, y no queda ninguna fila sin convención** *(preguntas **82** y **83**: *«haz el
+   cambio de una vez»* y *«deja los dos modelos, prende ahora el último»*)*: tras el despliegue, **toda orden
+   y todo envío NUEVOS nacen `IVA_INCLUSIVE`**, **la columna de convención sigue siendo `NOT NULL` y sin
+   default** en las **dos** tablas (`Order`, `ShipmentRequest`), y **el helper que la lee sigue lanzando ante
+   una fila sin convención** (`money.ts:507-512`). **⛔ Falla si alguien «simplifica» quitando la columna o
+   poniéndole un default de cortesía** — es **exactamente la mutación** que el dueño descartó al corregir su
+   primera respuesta (§Q.10.e), y **el criterio 190 sigue vigente** aunque hoy no haya historia que proteger.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
@@ -10129,6 +10854,57 @@ promesa:**
    Ver **§Q** (vigente, con **Q.0** y **Q.9** nuevas), criterios **185–197** (vigentes), **Fuera de alcance de
    §Q**, y las banderas **«la comisión sigue fuera del precio exhibido»**, **«el dial de IVA es un dial de
    MARGEN»** y **«Fiscal/Legal — desglose de IVA en factura»**.
+
+**Decisiones de la 17ª ronda (2026-09-14) — el dueño contestó 17 preguntas (68–84) en una tarde:**
+
+117. **D55 — HAY CENTRO DE AVISOS: CORREO Y PORTAL, PERO «DISPONIBLE, NO IMPUESTO». ONCE CORREOS NUEVOS,
+   UNA CAMPANA CON LOS PENDIENTES VIVOS, Y VEINTITANTOS EVENTOS QUE DELIBERADAMENTE NO AVISAN.**
+   **De dónde sale**: el dueño pidió *«correo y que haya también en el portal para notificar»* **y él mismo
+   corrigió** la parte rígida — *«no quiero fijarlo a que sea lo primero que vean, sino que lo tengan
+   disponible cuando hacen alguna de esas acciones de que hay algo pendiente»*, y remató *«mi punto no era
+   construirlo, era el porqué no de hacerlo tan estricto»*. **La segunda versión manda sobre la primera.**
+   **Qué queda decidido**: **(1)** **once correos nuevos** sobre las 13 plantillas que ya existen (§R.3);
+   **(2)** una **campana arriba a la derecha**, **siempre visible cuando haya algo pendiente**, que muestra
+   **solo pendientes vivos** — **el historial de eventos es fase 2** (pregunta 68); **(3)** la **regla de
+   canal de tres cláusulas** (§R.2, `D-AVISO-1`); **(4)** **un aviso por vuelta**, con el ciclo reiniciándose
+   cuando el cliente actúa (§R.4); **(5)** **tres eventos no producen NADA, ni campana** —identidad aprobada,
+   pago fallido y contracargo—, **los tres por decisión expresa suya**; **(6)** el rechazo de identidad lleva
+   **lista corta de motivos + campo libre** (§R.9).
+   **⛔ Lo que NO entra**: SMS/WhatsApp/push, preferencias de aviso del cliente, historial en el portal,
+   recordatorios de plazo nuevos, avisos al admin, el correo de «entregado», el de «pago fallido», y
+   **cualquier pantalla de aterrizaje** — *eso último no está «fuera de alcance»: **él lo retiró***.
+   **⛔ Y no se reabre**: el aviso de **«el valor de tu bóveda subió/bajó»**, que **descartó**.
+   **⚠ La única contradicción entre sus 17 respuestas** —su regla de dos cláusulas prohibía tres correos que
+   él mismo ordenó— **se resolvió a favor de sus casos concretos**, transcribiendo la tercera cláusula de las
+   razones que él dio en la 72 y la 73. **Pregunta 85, abierta, solo de redacción.**
+   **⭐ El alcance es más chico de lo que parece: los tres disparadores YA EXISTEN** (§R.8). No hay que
+   construir ninguno.
+   Ver **§R** (vigente), criterios **198–208, 210–212** (vigentes), **Fuera de alcance de §R**, y las
+   preguntas **68–80** (contestadas) y **85, 86, 87** (abiertas, ninguna bloquea).
+
+118. **D56 — D54 SE ENCIENDE: UN SOLO DESPLIEGUE, LOS DOS MODELOS SE QUEDAN, Y LA PUERTA DEL DIAL ES
+   REQUISITO DE ESTE CORTE.** *(⛔ **NO modifica D54**: la ejecuta.)*
+   **De dónde sale**: el hecho que el dueño estableció el **2026-09-14** —***«no hay pedidos viejos, la
+   tienda no ha procesado ninguna venta real»***— y su encargo de revisar *«lo que está construido, puede que
+   ya no sirva»*.
+   **Qué queda decidido**: **(1)** **un solo despliegue** — *«haz el cambio de una vez cuando despliegues»*
+   ⇒ **el escalonado «deploy 1 / deploy 2» queda DEROGADO**, porque su motivo era proteger pedidos cobrados
+   que no existen; **(2)** ***«Deja los dos modelos, prende ahora el último»*** — **la columna de convención
+   se queda** y `IVA_INCLUSIVE` **se enciende ya**; **(3)** **el dial arranca en 100 %** y **la puerta para
+   moverlo entra en este corte**, con su acuse del costo en pesos (criterio **188**, intacto).
+   **⭐ La (2) CAMBIÓ SOBRE LA MARCHA y se registra con su historia**: su primera respuesta fue *«deja solo
+   nuestro nuevo modelo de IVA, quita lo demás»*, y **corrigió** al ver medido que **conservar el registro
+   por pedido cuesta casi cero porque ya existe**, que es **dato fiscal**, y que **reañadirlo con ventas
+   hechas sale mucho más caro**. **Una decisión que se discutió con cifras delante es más sólida que una que
+   nadie discutió** (§Q.10.e).
+   **⛔ Lo que NO se deroga, aunque hoy no tenga sujeto**: **el criterio 190**. Quitarlo sería tirar el único
+   candado que impide reinterpretar historia **justo el día que empiece a haber historia** — y ese día nadie
+   se acordaría de reescribirlo. **Mantenerlo cuesta cero: la prueba ya existe.**
+   **⛔ Lo que tampoco cambia**: el bloqueo de **`decks-meta-v1`** (criterio 197) — con un solo despliegue eso
+   ocurre **antes**, no **por defecto**.
+   **Pregunta 81 NO contestada** ⇒ se mantiene el supuesto (cerrar la 57, mantener el 190).
+   Ver **§Q.10** (con **Q.10.e** nueva), criterios **209, 213, 214** (vigentes), y las preguntas **82, 83,
+   84** (contestadas).
 
 ---
 
@@ -11888,3 +12664,304 @@ ese frente:**
    medido por `IVA-4`—; **(b)** se deja como está y se registra en `docs/TECH_DEBT.md`; **o (c)** se le pide al
    **arquitecto** que evalúe persistir el neto **por línea** en vez de derivarlo del agregado (**eso es
    rediseño y abre trabajo**, por eso no se asume).
+
+## Preguntas — centro de avisos (§R) e IVA releído (§Q.10) — v2.2, 17ª ronda, 2026-09-14
+
+> **✅ ESTADO AL 2026-09-14: EL DUEÑO CONTESTÓ LAS 17 (68–84) EN UNA TARDE.** §R es **alcance vigente**
+> (D55), §Q.10 también (D56), y **los criterios 198–214 los verifica QA**. **Quedan abiertas SOLO tres, y
+> ninguna bloquea al arquitecto: la 85, la 86 y la 87.**
+> **El planteamiento original de cada pregunta se CONSERVA verbatim abajo, no se borra** —doctrina
+> D51/D52/D53—: es **lo que el dueño tuvo delante al decidir**, y sin eso una respuesta corta no se entiende
+> dentro de un año.
+>
+> **LAS 17 RESPUESTAS, EN UNA TABLA:**
+>
+> | # | Respuesta | ¿Coincidió con el supuesto del borrador? |
+> |---|---|---|
+> | **68** | Portal: **solo pendientes vivos**. Historial → **fase 2** | ✅ sí |
+> | **69** | La regla de canal, **tal cual** (*«como ya definí antes»*) | ✅ sí — **pero ver `D-AVISO-1`: sus casos concretos revelaron una tercera cláusula** |
+> | **70** | **Se generaliza**: *«70 sí es por correo»* | ✅ sí |
+> | **71** | Identidad aprobada: ***«no se manda nada»*** | ⚠️ **NO — fue más lejos**: el borrador decía portal; él dijo **nada** |
+> | **72** | Pago fallido: **sin correo** (*«avisa al momento […] se avisa en la plataforma»*) | ⚠️ **NO — al revés**: el borrador proponía correo |
+> | **73** | Contracargo: **nada** (*«me avisa Stripe, no lo genera el cliente en nuestro portal»*) | ✅ sí |
+> | **74** | **DOS correos: guía y salida.** ⛔ **Sin el de entregado**, confirmado explícitamente | ⚠️ **NO — añadió uno**: el borrador proponía solo la guía |
+> | **75** | Recepción de cartas: **SÍ correo**, como acuse de recibido | ⚠️ **NO — añadió uno**: el borrador proponía no mandarlo |
+> | **76** | ***«Un aviso por vuelta»*** — la regla tal cual | ✅ sí |
+> | **77** | **No se replica** el aviso previo de plazo | ✅ sí *(y su preocupación de fondo **ya estaba resuelta**: §R.5.a)* |
+> | **78** | ⭐ **Campana arriba a la derecha, siempre visible cuando haya algo pendiente** | ⚠️ **NO — lo resolvió mejor**: el borrador proponía **tres sitios**; él, **un indicador permanente** |
+> | **79** | **Mezcla**: lista corta de motivos **+ campo libre** | ⚠️ **NO — es una tercera opción**, y la propuso el orquestador |
+> | **80** | ***«Los cuatro»***, tal cual, incluida la guía al vendedor | ✅ sí |
+> | **81** | **No contestada** ⇒ se mantiene el supuesto: cerrar la **57**, **mantener el criterio 190** | — |
+> | **82** | **De una vez**, un solo despliegue (*«haz el cambio de una vez cuando despliegues»*) | ✅ sí |
+> | **83** | ⭐ ***«Deja los dos modelos, prende ahora el último»*** — **y cambió de opinión sobre la marcha** | ⚠️ **su PRIMERA respuesta fue otra**: ver §Q.10.e |
+> | **84** | **100 %**, **con puerta** para moverlo ⇒ **la puerta es requisito de este corte** | ✅ sí, **y añadió la puerta** |
+>
+> **⚠️⚠️ LA ÚNICA CONTRADICCIÓN ENTRE SUS 17 RESPUESTAS — y cómo se resolvió.** La **69** adoptó una regla de
+> **dos** cláusulas —*(a) tiene que hacer algo, (b) se movió su dinero*— que, **leída al pie, prohíbe los
+> tres correos que él mismo ordenó en la 74 y la 75**. **Se resolvió a favor de sus casos concretos**, porque
+> **sobre ellos deliberó uno a uno y la regla la ratificó de pasada**, y porque **la razón que dio en la 72 y
+> la 73 es literalmente una tercera cláusula**: *«ya se enteró por otra vía»*. **⛔ No se tocó ninguno de los
+> once correos.** La **85** confirma **solo la redacción** (§R.2, `D-AVISO-1`).
+>
+> **Numeración**: sigue la serie (la **67** fue la última antes de este bloque).
+> **68–80 eran del CENTRO DE AVISOS** y **81–84 del IVA**.
+> **⛔ Lo que este bloque NO pregunta, a propósito**: **(a)** si el aviso debe ser lo primero que vea el
+> cliente — **él ya lo retiró** (*«no quiero fijarlo a que sea lo primero que vean»*) y volver a preguntarlo
+> sería hacerle repetirse; **(b)** el aviso de **valor de la bóveda** — **ya lo descartó**; **(c)** nada de
+> lo que **D54 ya decidió el 2026-09-09** (qué entra al precio, un dial o varios, en qué unidad, con qué
+> valor inicial, si la comisión entra, si el envío lleva el IVA dentro). **Eso está contestado y
+> re-preguntarlo le gasta el tiempo** (regla **O-6**).
+> **⛔ Y lo que este bloque tampoco pregunta ya**: nada de lo que él contestó el **2026-09-14**.
+> **Re-preguntárselo le haría repetirse** (regla **O-6**). La tabla de arriba es la respuesta.
+
+### Centro de avisos (§R)
+
+68. **[ABIERTA — con SUPUESTO — es la que más alcance mueve] ¿El portal lleva SOLO «lo que te falta hacer»,
+   o también el HISTORIAL de lo que pasó?**
+   **Supuesto tomado**: **solo lo que le falta hacer** (pendientes vivos, clase A de §R.1). El **historial
+   queda en fase 2**.
+   **Por qué ése es el lado seguro**: un pendiente vivo **se apaga solo** cuando deja de ser verdad; un
+   historial hay que **marcarlo como leído, paginarlo y decidir cuándo se borra**, y **es la mitad del
+   trabajo de §R**. Además el relato de lo que pasó **ya existe hoy** en la pantalla de cada pedido y de cada
+   solicitud, y ahora también en su correo.
+   **La consecuencia de este supuesto, dicha entera**: **el cliente no tendrá una lista de «qué cambió desde
+   la última vez»** dentro del portal en el primer corte — que es **parte de lo que usted describió al
+   principio**. Si eso es lo que más le importa, **dígalo y cambia el corte**.
+   **Qué confirmar**: **(a)** solo pendientes vivos —**supuesto**—; **(b)** pendientes **e** historial desde
+   el día uno; **o (c)** historial sí, pero **solo de los eventos que además mandaron correo**.
+69. **[ABIERTA — con SUPUESTO — de aquí cuelga TODO el catálogo] ¿Adopta la regla de canal?**
+   **Regla propuesta**: **va por CORREO solo si (a) el cliente tiene que HACER algo, o (b) se MOVIÓ SU
+   DINERO. Todo lo demás: disponible en el portal y nada más.**
+   **Por qué se la proponemos y no la asumimos en silencio**: hay **30 cambios de estado posibles**.
+   **Avisar de los 30 por correo es no avisar de ninguno** — el cliente **filtra el remitente** y entonces
+   **se pierde el que importa**: la guía, el pago, el rechazo. Con esta regla, **21 de los 30 no mandan
+   correo**.
+   **Qué confirmar**: **(a)** la regla tal cual —**supuesto**—; **(b)** más restrictiva (**solo dinero**);
+   **o (c)** más generosa, y entonces **díganos qué añade**, sabiendo el costo de arriba.
+70. **[ABIERTA — con SUPUESTO — usted ya decidió el caso particular, preguntamos si se generaliza] «Invitados
+   solo correo, porque no pueden entrar al portal»: ¿es regla general?**
+   **De dónde sale**: usted lo decidió para la **confirmación de pedido**. Leída en general, dice algo
+   fuerte: **el canal depende de QUIÉN recibe, no solo del evento**.
+   **Supuesto tomado**: **se generaliza** — *para un invitado, todo aviso que le corresponda va por correo o
+   no va*.
+   **La consecuencia**: **un invitado puede recibir más correos que un registrado por el mismo pedido**. **No
+   es una incoherencia: es que no tiene dónde ir a mirarlo.**
+   **Qué confirmar**: **(a)** se generaliza —**supuesto**—; **o (b)** aplica solo a la confirmación de pedido
+   y el resto de avisos **simplemente no existen** para un invitado.
+71. **[✅ CONTESTADA — 2026-09-14 — ***«no se manda nada»*** — ⚠️ MÁS RESTRICTIVO QUE EL SUPUESTO: ni correo
+   NI portal] Cuando usted APRUEBA una identidad, ¿el cliente recibe correo?**
+   **Supuesto tomado**: **no. Solo el portal.** No tiene nada que hacer.
+   **⛔ Y una restricción que no se negocia, venga la respuesta que venga**: **el aviso NO puede decir «se te
+   subieron los topes»**. Los topes **dejan de mostrarse al cliente** — son política interna, y eso lo
+   decidió usted el 2026-09-11.
+   **Qué confirmar**: **(a)** solo portal —**supuesto**—; **o (b)** también correo (*«ya está verificada tu
+   identidad»*, sin cifras).
+72. **[✅ CONTESTADA — 2026-09-14 — NO, sin correo: ***«avisa al momento […] se avisa en la plataforma»***
+   — ⚠️ CONTRARIO AL SUPUESTO. El riesgo residual de la pestaña cerrada queda REGISTRADO en §R.3, no
+   reabierto] Un pago que FALLA, ¿avisa por correo?**
+   **Supuesto tomado**: **sí**.
+   **Por qué, y no es obvio**: normalmente la pantalla se lo dice. Pero **el 3DS puede fallar con la pestaña
+   ya cerrada**, y entonces **el cliente cree que compró y no compró**. Ése es el caso que el correo cubre.
+   **Qué confirmar**: **(a)** sí —**supuesto**—; **o (b)** no, solo portal, para no mandar malas noticias que
+   él ya vio.
+73. **[⚠️ ABIERTA — SUPUESTO FUERTE, y se pregunta PRECISAMENTE PORQUE TOCA DINERO] Un CONTRACARGO,
+   ¿avisa al cliente?**
+   **Supuesto tomado**: **NO. Ni correo ni portal.**
+   **Por qué**: un contracargo es un proceso **entre nosotros y su banco**, y **normalmente lo inició él con
+   su banco**. Escribirle *«detectamos un contracargo»* es, en el mejor caso, ruido; en el peor, **ponemos
+   una pantalla nuestra en medio de una investigación bancaria**.
+   **⛔ Por qué no lo cerramos solos**: es **el único evento del catálogo donde el silencio es la propuesta**,
+   y el silencio en algo que toca dinero **tiene que ser una decisión suya, no un olvido nuestro**.
+   **Qué confirmar**: **(a)** nada —**supuesto**—; **(b)** solo portal; **o (c)** correo, y entonces
+   **dígannos qué quiere que diga**, porque el texto aquí importa más que en ningún otro.
+74. **[✅ CONTESTADA — 2026-09-14 — **DOS**: guía y salida. ⛔ **Sin el de entregado**, confirmado
+   explícitamente — ⚠️ AÑADE UNO sobre el supuesto] Del envío al comprador: ¿cuántos correos quiere?**
+   **Hoy**: **cero**, en cualquier estado.
+   **Supuesto tomado**: **UNO solo**, el de **«hay guía»** (con transportista y número). **`enviado` y
+   `entregado` solo en el portal.**
+   **El contraargumento honesto, para que decida con él delante**: **`entregado` es el evento que abre la
+   ventana de disputa**. Un correo ahí es **la última oportunidad de que abra la caja y revise antes de que
+   el plazo corra**.
+   **Qué confirmar**: **(a)** un solo correo, el de la guía —**supuesto**—; **(b)** dos: guía **y**
+   entregado; **o (c)** tres, añadiendo `enviado`.
+75. **[✅ CONTESTADA — 2026-09-14 — **SÍ, correo**, «como acuse de recibido» — ⚠️ CONTRARIO AL SUPUESTO: el
+   contraargumento de la ansiedad del vendedor era el bueno] Cuando RECIBIMOS las cartas de un vendedor,
+   ¿se lo decimos por correo?**
+   **Supuesto tomado**: **no, solo portal.** No es accionable.
+   **El contraargumento honesto**: es **el momento de máxima ansiedad del vendedor** — acaba de mandar cartas
+   caras por paquetería y **no sabe si llegaron**. Un correo de *«llegaron, las estamos revisando»* **no le
+   pide nada, pero le quita el miedo**, y es barato.
+   **Qué confirmar**: **(a)** solo portal —**supuesto**—; **o (b)** correo también.
+76. **[⚠️ ABIERTA — con REGLA PROPUESTA — HAY QUE CONTESTARLA ANTES DEL PRIMER AVISO, NO DESPUÉS] ¿CUÁNDO
+   NO se avisa? El caso de los dos rechazos seguidos.**
+   **El hecho medido**: hoy se puede **rechazar una identidad N veces seguidas** sin que el cliente haya
+   hecho nada. **Hoy es inofensivo por el motivo equivocado: porque no se manda nada.** **El día que exista
+   el correo, son N correos en un minuto.**
+   **Regla propuesta — y no es inventada, es la que su sistema ya aplica**: **UN AVISO POR CICLO.** Un evento
+   avisa **una vez**; **el ciclo se reinicia cuando el cliente actúa**; **corregir el motivo actualiza el
+   portal y NO re-envía correo**. El barrido del buylist ya hace exactamente esto (*«UNO por plazo, UNA sola
+   vez»*), sellado por evento.
+   **Por qué se lo preguntamos a usted y no lo decidimos nosotros**: porque la otra mitad de la regla es
+   suya: **si usted rechaza dos veces con motivos distintos, ¿el cliente debe enterarse del segundo motivo
+   por correo, o le basta verlo en el portal?** El supuesto dice **portal**.
+   **Qué confirmar**: **(a)** la regla tal cual —**propuesta**—; **(b)** que el motivo corregido **sí**
+   mande un correo nuevo; **o (c)** otra cosa, y **dígala en forma de «avisa una vez por…»** para que se
+   pueda verificar.
+77. **[ABIERTA — con SUPUESTO — es alcance nuevo, por eso se pregunta] «Tu oferta vence pronto» ya existe
+   para el buylist. ¿Se replica a otros eventos con plazo?**
+   **Lo que ya funciona**: a **1 día hábil** de vencer, **una sola vez**, con su sello propio.
+   **Supuesto tomado**: **no se replica en el MVP.**
+   **Por qué**: cada recordatorio nuevo es **un barrido más, un sello más y un plazo que mantener coherente
+   con el que lo dispara**. Y **no está medido qué otros plazos corren contra el cliente fuera del buylist**
+   — **se lo decimos como NO MEDIDO en vez de inventarle una lista**.
+   **Qué confirmar**: **(a)** no se replica —**supuesto**—; **o (b)** sí, y **díganos para qué plazo**
+   (el candidato obvio es **la ventana de disputa**).
+78. **[✅ CONTESTADA — 2026-09-14 — ⭐ **NO SON TRES SITIOS: ES UNA CAMPANA**, arriba a la derecha, siempre
+   visible cuando haya algo pendiente. **Lo resolvió mejor que el borrador** y **subsume los tres**: §R.0.a]
+   Los TRES sitios donde debe estar «hay algo pendiente»: ¿son los que usted nombró?**
+   **Lo que entendimos, literal de usted**: **(1)** carrito **listo para cerrar**; **(2)** **vendiendo**
+   (flujo de venta); **(3)** **su cuenta sin carrito → bóveda**.
+   **Por qué lo confirmamos en vez de darlo por hecho**: es **el corazón de su corrección** —*disponible, no
+   impuesto*— y **el criterio 202 se verifica exactamente contra esta lista**. Si falta un sitio, el criterio
+   nace incompleto.
+   **Qué confirmar**: **(a)** los tres, tal cual; **o (b)** añadir/quitar alguno.
+79. **[✅ CONTESTADA — 2026-09-14 — **LAS DOS: lista corta de motivos + campo libre**. ⚠️ Es una TERCERA
+   opción que no estaba en la pregunta; la propuso el orquestador y él la aceptó. **La lista concreta se
+   propone en §R.9 y la aprueba él: pregunta 87**] El correo de rechazo de identidad: ¿lleva su motivo TAL
+   CUAL lo escribió?**
+   **Lo que ya está decidido y no se reabre**: **rechazar exige motivo y el motivo le llega al cliente**
+   (usted, 2026-09-11).
+   **Supuesto tomado**: el correo **reproduce el motivo textual** que escribió el revisor, dentro de una
+   plantilla neutra.
+   **Por qué se pregunta igual**: ese texto lo escribe una persona **con prisa, en un back-office**, y va a
+   llegar **tal cual** a un cliente. **O se asume eso a ojos abiertos, o hacen falta motivos predefinidos** —
+   y **los motivos predefinidos son alcance nuevo**, por eso no se asumen.
+   **Qué confirmar**: **(a)** motivo textual —**supuesto**—; **o (b)** una lista corta de motivos
+   predefinidos (**y entonces díganos cuáles**).
+80. **[⚠️ ABIERTA — ES LA DECISIÓN DE CORTE, Y ES SUYA] ¿Acepta el mínimo publicable que le proponemos?**
+   **Propuesta (§R.7): CUATRO correos y UNA superficie de portal.**
+   **Los cuatro correos**: **(1)** la **guía al comprador**; **(2)** la **guía al vendedor**; **(3)** la
+   **confirmación de pedido al cliente registrado**; **(4)** el **rechazo de identidad con motivo**.
+   **El argumento, que es uno solo**: los cuatro son **el mismo defecto visto cuatro veces — alguien mueve
+   mercancía o dinero y el otro lado no se entera**. No son cuatro funcionalidades: son **cuatro agujeros del
+   mismo tubo**. El (4) además es **el caso que originó todo esto**.
+   **La superficie de portal**: **solo los pendientes vivos**, en los tres sitios de la pregunta 78 — que es
+   **literalmente su frase corregida**. **Sin historial, sin campana con contador, sin marcar como leído.**
+   **Qué se queda fuera, para que decida con los ojos abiertos**: el historial en el portal, los cinco
+   correos «buenos de tener» (fallido, reembolso, envío cancelado, buylist pagada, disputas) y **cualquier
+   recordatorio con plazo nuevo**.
+   **Qué confirmar**: **(a)** el corte tal cual —**recomendación**—; **(b)** más chico (**díganos cuál de los
+   cuatro se cae**); **o (c)** más grande (**díganos qué entra**, sabiendo que cada correo nuevo **compite
+   por la atención de los cuatro que sí importan**).
+
+### IVA releído a la luz de «la tienda nunca ha vendido» (§Q.10)
+
+81. **[⚠️ NO CONTESTADA el 2026-09-14 — ⇒ **SE MANTIENE EL SUPUESTO**: la pregunta 57 se cierra por el
+   hecho y **el criterio 190 SE MANTIENE**. Si él quiere lo contrario, que lo diga; el equipo avanza con
+   esto] La pregunta 57 («¿las órdenes ya cobradas se congelan?») se quedó sin sujeto.**
+   **Por qué**: usted estableció que **no hay pedidos viejos**. **No hay ninguna orden cobrada que congelar.**
+   **Lo que proponemos**: dar la **57 por contestada en (a) —se congelan, sin excepción—** y seguir.
+   **⛔ Y lo que NO proponemos, aunque parezca lo lógico: derogar el criterio 190.** Ese criterio dice que
+   una orden **no cambia de significado sola**. Hoy no tiene sujeto, **pero se sigue verificando con órdenes
+   de prueba y el día que haya una venta real vuelve a tenerlo** — y **ese día nadie se va a acordar de
+   volver a escribirlo**. Mantenerlo **cuesta cero**: la prueba ya existe. **Quitarlo y equivocarse cuesta el
+   desglose fiscal de pedidos reales.**
+   **Qué confirmar**: **(a)** cerrar la 57 y **mantener el 190** —**recomendación**—; **o (b)** quitar
+   también el 190.
+82. **[✅ CONTESTADA — 2026-09-14 — **DE UNA VEZ**: ***«haz el cambio de una vez cuando despliegues»***.
+   ⇒ **El escalonado «deploy 1 / deploy 2» queda DEROGADO**, y con él la nota del código que difería la
+   puerta del dial (criterio 213)] El IVA estaba planeado en DOS despliegues. ¿Lo encendemos de una vez?**
+   **Por qué existía el escalonado**: para **no mover el desglose de pedidos ya cobrados** — el código lo
+   dice con esas palabras. **Sin pedidos cobrados, esa cautela no protege nada.**
+   **Qué le preguntamos exactamente**: **si quiere que el precio con IVA dentro salga en un solo
+   despliegue.** ⛔ **Lo que NO le preguntamos** es cómo se hace: **partir o no un despliegue es riesgo de
+   release y lo deciden el arquitecto y devops**, con lo que usted responda como entrada.
+   **Qué confirmar**: **(a)** de una vez, en un solo despliegue —**recomendación, ya que no hay nada que
+   proteger**—; **o (b)** mantener los dos pasos por prudencia, aunque cuesten un ciclo más.
+83. **[✅ CONTESTADA — 2026-09-14 — ⭐ ***«Deja los dos modelos, prende ahora el último.»*** ⚠️ Y **CAMBIÓ DE
+   OPINIÓN SOBRE LA MARCHA**: su primera respuesta fue *«deja solo nuestro nuevo modelo de IVA, quita lo
+   demás»*, y **corrigió con la bifurcación medida delante**. La historia entera, con las dos cifras que le
+   hicieron cambiar, está en **§Q.10.e** — **se conserva a propósito: una decisión que se discutió es más
+   sólida que una que nadie discutió**] ¿Confirma que lo construido del IVA se QUEDA?**
+   **Nuestro veredicto, medido**: **sí sirve, y hay más construido de lo que creíamos.** La columna de
+   convención **no es un archivo muerto: se LEE en producción** y de ella sale **qué cuenta como ingreso en
+   su P&L**. Y **el dial ya existe a medias** —la clave, su valor inicial 100 y su validador—: **lo que falta
+   es la pantalla que lo mueve y el lado que escribe la convención nueva**.
+   **El argumento de tirarlo, y por qué se cae**: *«si nunca hay dos convenciones vivas, nadie lee esa
+   columna»*. **Pero D54 es exactamente el día en que hay dos**: hoy **todo** es IVA por fuera y **D54 ordena
+   que lo nuevo nazca con el IVA dentro**. **El único mundo en que esa columna sobra es el mundo en que D54
+   no se hace.**
+   **Qué confirmar**: **(a)** se queda todo —**recomendación**—; **o (b)** usted quiere que revisemos alguna
+   pieza concreta, y **díganos cuál**.
+84. **[⚠️ ABIERTA — NUEVA, Y LA ABRE EL PROPIO HECHO] El arranque del dial en 100 % lo eligió usted **porque
+   era NEUTRAL**. Sin ventas, ya nada es neutral ni deja de serlo. ¿Sigue siendo 100 %?**
+   **De dónde sale**: el **2026-09-09** usted eligió **traslación 100 %** con este argumento delante: *«el
+   día del deploy nadie paga distinto y tu margen no se mueve»*. **Ese argumento se apoyaba en que ya había
+   clientes pagando.** **No los hay.**
+   **Qué cambia, en concreto**: **no hay ningún cliente al que el cambio le suba el precio**, no hay una
+   vitrina que ya nadie conozca, no hay expectativa que romper. **Puede arrancar en el valor que quiera, y no
+   cuesta nada.**
+   **Supuesto tomado**: **se queda en 100 %** — es lo que usted eligió, **y absorber IVA sigue siendo ceder
+   margen** *(§Q.4: con el dial al 0 % el neto cae de MX$100.00 a MX$86.21 por cada 100 de base)*. **Lo que
+   desaparece no es el costo de absorber: es el costo de TRANSICIÓN.**
+   **⛔ Nadie del equipo mueve ese 100 % sin decisión escrita suya** — eso no cambia (§Q.0).
+   **Qué confirmar**: **(a)** arranca en 100 % —**supuesto, y es lo que usted ya eligió**—; **o (b)** ya que
+   no hay nada que romper, quiere **arrancar en otro valor**, y **díganos cuál**.
+   **✅ CONTESTADA — 2026-09-14: (a) 100 %, Y CON PUERTA PARA MOVERLO.** Lo segundo **no estaba en la
+   pregunta y lo añadió él**: ⇒ **`PUT /admin/settings/iva-transfer` deja de ser «más adelante» y pasa a ser
+   requisito de este corte** (criterio **213**), lo que **deroga** la nota de `settings.constants.ts:67-68`
+   que la difería al deploy 2 — **porque la pregunta 82 eliminó el deploy 2**.
+
+### ⚠️ LAS TRES QUE SIGUEN ABIERTAS (85–87) — ninguna bloquea al arquitecto
+
+85. **[ABIERTA — NO BLOQUEA — ES DE REDACCIÓN, NO DE ALCANCE. La levanta el product-owner al escribir sus 17
+   respuestas] Su regla de canal tenía DOS cláusulas y sus decisiones usan TRES. ¿Le parece bien la
+   tercera, escrita así?**
+   **El hecho, y es una contradicción entre dos respuestas suyas del mismo día**: en la **69** adoptó *«tal
+   cual»* la regla **correo solo si (a) tiene que hacer algo, o (b) se movió su dinero**. Pero en la **74**
+   mandó **dos** correos de envío y en la **75** el **acuse de recibido**, y **en los tres el cliente no
+   tiene que hacer nada y no se movió un peso**. **Leída al pie, su regla prohíbe tres correos que usted
+   mismo ordenó.**
+   **⭐ Lo que hicimos, y por qué no es una decisión nuestra**: **usted ya dio la razón, dos veces**. El pago
+   fallido no manda correo porque *«avisa al momento […] se avisa en la plataforma»* (**72**); el contracargo
+   no manda nada porque *«me avisa Stripe, no lo genera el cliente en nuestro portal»* (**73**). **Eso no es
+   (a) ni (b): es «ya se enteró por otra vía»** — y es también por lo que excluyó **entregado**, teniendo la
+   caja en la mano. **La tercera cláusula se transcribió de sus respuestas, no se inventó.**
+   **La regla quedó escrita así** (§R.2): *«Va por correo si (a) tiene que hacer algo, (b) se movió su
+   dinero, o **(c) algo suyo cambió de manos y no tiene forma de enterarse en ese momento por otra vía**. Y
+   no va si ya se enteró — porque la pantalla se lo dijo, porque tiene la caja en la mano, o porque se lo
+   dice su banco.»*
+   **⛔ Por qué NO bloquea, y conviene que lo sepa antes de contestar**: **no cambia ni uno de los once
+   correos**. Si prefiere otra formulación, **cambian las palabras de ese recuadro, no el catálogo**.
+   **Qué confirmar**: **(a)** la redacción de tres cláusulas —**vigente**—; **o (b)** otra forma de decirlo,
+   y **dígala en forma de regla**, para que el catálogo futuro se pueda derivar de ella sin volver a
+   preguntarle evento por evento.
+86. **[⚠️ ABIERTA — LA LEVANTÓ USTED MISMO AL CERRAR EL CONTRACARGO — ⛔ FUERA DEL ALCANCE DE §R, y por eso
+   es pregunta y no criterio] Cuando hay un contracargo, el cliente sabe que puso la reclamación… pero ¿QUÉ
+   LE PASA A SU PEDIDO?**
+   **De dónde sale**: al decidir que el contracargo **no manda ningún aviso** (**73**) —porque *«me avisa
+   Stripe»*— quedó una pregunta **distinta y sin contestar**: **el cliente sabe lo que hizo con su banco,
+   pero no sabe qué pasa con lo suyo de este lado**.
+   **Lo que nadie ha decidido**: **¿el pedido se cancela? ¿se queda parado? ¿y lo que ya está en su
+   bóveda —se congela, se retira, se le puede seguir enviando—?**
+   **⛔ Por qué NO lo asumimos ni lo metimos en §R**: **no es un problema de avisos, es una política de
+   negocio sobre dinero en disputa**, y `CLAUDE.md` dice que **ante duda de alcance se pregunta**. Meterlo en
+   §R sería inventarle una política escondida dentro de un requisito de correos.
+   **⛔ Y por qué NO bloquea §R**: §R ya está cerrado con *«contracargo: nada»*. **Esta pregunta abre trabajo
+   NUEVO el día que usted la conteste**, no antes.
+   **Qué confirmar**: **qué quiere que le pase al pedido y a la bóveda** mientras un contracargo está vivo, y
+   **si el cliente debe enterarse de eso** — que es, esta vez sí, una pregunta de aviso.
+87. **[ABIERTA — NO BLOQUEA — ES APROBAR UNA LISTA, NO DECIDIR ALCANCE] Los motivos de rechazo de identidad:
+   ¿son éstos?**
+   **De dónde sale**: usted eligió **lista corta + campo libre** (**79**). **La lista concreta la propone el
+   equipo y la aprueba usted** — **⛔ no se inventan motivos que usted nunca haya usado.**
+   **De dónde salen los seis propuestos**: de **para qué mira usted una identidad**, que está medido — la
+   vista de revisión muestra la INE **junto al nombre y las direcciones, «para cotejar identidad contra
+   destino de envío»** (`HECHOS.md`, 2026-09-11 (d)).
+   **La propuesta** (§R.9): **(1)** no se lee · **(2)** falta un lado · **(3)** el nombre no coincide ·
+   **(4)** documento vencido · **(5)** no es una identificación válida · **(6)** otro → **campo libre
+   obligatorio**.
+   **⛔ Restricción que aplica a los seis**: **ninguno menciona topes ni umbrales** (criterio **201**).
+   **Qué confirmar**: **(a)** los seis tal cual; **(b)** quitar los que nunca use —**menos casillas es
+   mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
+   con **sus palabras**, porque **ese texto lo va a leer un cliente**.

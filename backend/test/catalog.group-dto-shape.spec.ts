@@ -6,6 +6,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 import { computeSealedSalePrice } from '../src/common/money';
+import { ivaDialsStub } from './helpers/iva-dials';
 // D-e (techlead, v2.1.9): las claves se declaran UNA vez y el COMPILADOR las mantiene completas
 // (`Record<keyof DTO, true>`). Antes vivían duplicadas a mano en dos specs y sin vínculo con la
 // interfaz — un candado de forma cuya forma de referencia se mantiene a mano.
@@ -170,7 +171,7 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
       inventoryItem: { findMany: jest.fn(async () => items), count: jest.fn(async () => items.length) },
       card: { findUnique: jest.fn(async () => CARD()) },
     } as unknown as PrismaService;
-    return new CatalogService(prisma, pricingMock());
+    return new CatalogService(prisma, pricingMock(), ivaDialsStub() as never);
   }
 
   it('`GET /catalog/cards/:cardId → listings[]` (FICHA): el grupo trae `priceBasis` — antes `undefined` en el 100%', async () => {
@@ -221,12 +222,13 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
       inventoryItem: { findMany: jest.fn(async () => [ITEM()]), count: jest.fn(async () => 1) },
       card: { findUnique: jest.fn(async () => CARD()) },
     } as unknown as PrismaService;
-    const detail = await new CatalogService(prisma, pricing).getCard('c1');
+    const detail = await new CatalogService(prisma, pricing, ivaDialsStub() as never).getCard('c1');
     const group = detail.listings[0];
     // La condición EXACTA que evalúa `CardDetailView.tsx`.
     expect(group.priceBasis === 'market').toBe(true);
     expect(group.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: 500000 });
-    expect(group.salePriceCents).toBe(575000); // $5,000 × 1.15
+    // `L = 575000` ($5,000 × 1.15) ⇒ `P = 667000`.
+    expect(group.displayPriceCents).toBe(667000);
   });
 
   it('el basis del grupo es el del REPRESENTANTE: un override POR PIEZA más barato manda', async () => {
@@ -235,7 +237,7 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
     const detail = await build([ITEM(), ITEM({ id: 'i2', listPriceCents: 1000 })]).getCard('c1');
     expect(detail.listings[0]).toMatchObject({
       priceBasis: 'override',
-      salePriceCents: 1000,
+      displayPriceCents: 1160, // `P` de `L = 1000`
       stockCount: 2,
     });
   });
@@ -251,7 +253,7 @@ describe('B-1 — `GroupedListingDTO` trae `priceBasis` (el campo que rompía la
       },
       card: { findUnique: jest.fn(async () => CARD()) },
     } as unknown as PrismaService;
-    const res = await new CatalogService(prisma, pricing).listCards({ page: 1, pageSize: 20 } as never);
+    const res = await new CatalogService(prisma, pricing, ivaDialsStub() as never).listCards({ page: 1, pageSize: 20 } as never);
     expect(res.data).toHaveLength(0);
   });
 });
@@ -279,9 +281,11 @@ describe('B-2 — `SealedGroupDTO` trae `priceBasis` y `currency`', () => {
         getNumber: jest.fn(async () => 0),
         // La ficha lee los dos feature-flags (`trendEnabled`/`restockEnabled`).
         getString: jest.fn(async () => 'off'),
+        // ⭐ D56: `fromPriceCents` se DERIVA con los dos diales (§M10-IVA.3).
+        ...ivaDialsStub(),
       } as unknown as SettingsService,
       // La ficha construye `listings[]` por-pieza con el `toListingDTO` de CatalogService.
-      new CatalogService(prisma, pricingMock()),
+      new CatalogService(prisma, pricingMock(), ivaDialsStub() as never),
     );
   }
 
@@ -322,6 +326,7 @@ describe('B-2 — `SealedGroupDTO` trae `priceBasis` y `currency`', () => {
         card: { findUnique: jest.fn(async () => CARD()) },
       } as unknown as PrismaService,
       pricingMock(),
+      ivaDialsStub() as never,
     ).getCard('c1');
     const { group } = await buildSealed([SEALED()]).sealedDetail('s1');
     // Es el punto de P-48: el front no ramifica por tipo de producto, compara el MISMO campo.
@@ -340,7 +345,7 @@ describe('D2 — la REJILLA de singles no recibe `priceBasis` ni `referenceValue
       inventoryItem: { findMany: jest.fn(async () => items), count: jest.fn(async () => items.length) },
       card: { findUnique: jest.fn(async () => CARD()) },
     } as unknown as PrismaService;
-    return new CatalogService(prisma, pricingMock());
+    return new CatalogService(prisma, pricingMock(), ivaDialsStub() as never);
   }
 
   it('CONJUNTO EXACTO de la rejilla = el del grupo MENOS las dos señales', async () => {
@@ -354,6 +359,6 @@ describe('D2 — la REJILLA de singles no recibe `priceBasis` ni `referenceValue
   it('lo que la rejilla SÍ necesita sigue intacto (el recorte no apaga funcionalidad)', async () => {
     const res = await build([ITEM(), ITEM({ id: 'i2' })]).listCards({ page: 1, pageSize: 20 } as never);
     expect(res.data[0]).toMatchObject({ stockCount: 2, currency: 'MXN', productType: 'raw' });
-    expect(res.data[0].salePriceCents).toBeGreaterThan(0);
+    expect(res.data[0].displayPriceCents).toBeGreaterThan(0);
   });
 });

@@ -11,6 +11,7 @@ import { ListingSpec } from '@/components/domain/ListingSpec';
 import { RarityLabel } from '@/components/domain/RarityLabel';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
+import { IvaLabel } from '@/components/ui/IvaLabel';
 import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { cn } from '@/lib/cn';
 
@@ -83,11 +84,20 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
           mono muted; se omite sola en sellado o sin rareza (RarityLabel). */}
       <RarityLabel rarity={card.rarity} productType={listing.productType} className="mt-1.5" />
 
-      {/* Precio «desde» del grupo: cifra tabular en sans; sin precio JAMÁS $0 — pendiente honesto (§7.3). */}
-      {listing.salePriceCents != null ? (
-        <p className="tabular mt-2.5 text-[15px] font-medium leading-none text-text sm:text-[17px]">
-          {formatMoneyCents(listing.salePriceCents, locale)}
-        </p>
+      {/* Precio «desde» del grupo: cifra tabular en sans; sin precio JAMÁS $0 — pendiente honesto (§7.3).
+          ⛔ §M10-IVA.3: `displayPriceCents` **ya lleva el IVA dentro**; la teja lo pinta tal cual y
+          ⛔ no multiplica. El rótulo de convención cuelga de `ivaIncluded`, que viaja por fila. */}
+      {listing.displayPriceCents != null ? (
+        <>
+          <p className="tabular mt-2.5 text-[15px] font-medium leading-none text-text sm:text-[17px]">
+            {formatMoneyCents(listing.displayPriceCents, locale)}
+          </p>
+          <IvaLabel
+            ivaIncluded={listing.ivaIncluded}
+            ivaRatePct={listing.ivaRatePct}
+            className="mt-1 block"
+          />
+        </>
       ) : (
         <PendingPriceLabel className="mt-2.5 block" />
       )}

@@ -23,6 +23,7 @@
     "noResults": "No results",
     "all": "All",
     "withoutIva": "before VAT",
+    "ivaIncluded": "{rate} % VAT included",
     "updatedDaily": "Market reference price, updated daily",
     "errorTitle": "Something went wrong",
     "errorGeneric": "We couldn't load the data.",
@@ -65,7 +66,19 @@
     "sealed": "Sealed",
     "buy": "Shop",
     "myAccount": "My account",
-    "ordersAndSales": "Purchases & sales"
+    "ordersAndSales": "Purchases & sales",
+    "pendings": {
+      "aria": "Pending: {count, plural, one {# thing to do} other {# things to do}}",
+      "title": "Your pending items",
+      "since": "Since {date}",
+      "codes": {
+        "identity_action_required": {
+          "title": "Your ID is missing",
+          "body": "Upload your ID again from your account. We tell you there what happened with the last one.",
+          "action": "Go to my account"
+        }
+      }
+    }
   },
   "account": {
     "eyebrow": "ACCOUNT",
@@ -294,7 +307,7 @@
   "catalog": {
     "title": "Shop",
     "subtitle": "Our published inventory for sale. We only list what has a price.",
-    "eyebrow": "Catalog · MXN before VAT",
+    "eyebrow": "Catalog · MXN",
     "piecesAvailable": "{count, plural, =0 {No listings available} one {# listing available} other {# listings available}}",
     "resultsCount": "{count, plural, =0 {No results} one {# result} other {# results}}",
     "filterSet": "Set",
@@ -423,7 +436,7 @@
       "raw": "Raw"
     },
     "referenceExplainerWithMarket": "Market value is the day's reference we value cards with. The sale price is derived from it.",
-    "referenceExplainerNoMarket": "The sale price is this card's listed price, before tax."
+    "referenceExplainerNoMarket": "The sale price is this card's listed price."
   },
   "price": {
     "pendingLabel": "Price pending",
@@ -438,10 +451,13 @@
     "removeItem": "Remove",
     "subtotal": "Subtotal",
     "subtotalHint": "Card sale price, before VAT.",
+    "subtotalHintIvaIncluded": "Card sale price, VAT included.",
     "platformFee": "Platform fee",
     "platformFeeHint": "Our fee for handling your purchase on TCG HUNT. It's already included in the total shown here.",
     "iva": "VAT {rate}%",
     "ivaHint": "Value Added Tax, itemized.",
+    "ivaIncluded": "{rate} % VAT included",
+    "ivaIncludedHint": "Already inside the subtotal and shipping. It is not added to the total.",
     "shipping": "Shipping",
     "total": "Total due",
     "pay": "Pay {amount}",
@@ -1224,6 +1240,8 @@
     "dashboard": {
       "profit": "Period profit",
       "sales": "Period sales",
+      "salesGross": "Gross",
+      "salesNet": "Net",
       "workQueue": "Work queue",
       "inventoryValue": "Inventory value",
       "custodyValue": "Custody value",
@@ -1770,6 +1788,8 @@
     },
     "m8": {
       "title": "M8 · Disputes",
+      "empty": "No disputes right now.",
+      "emptyBody": "When a customer opens a dispute it will show up here to resolve.",
       "resolveRepurchase": "Resolve with repurchase",
       "resolveReject": "Reject dispute",
       "resolveConfirm": "Confirm resolution",
@@ -2767,6 +2787,48 @@
         "pageInfo": "Page {page} of {totalPages} · {total} records",
         "prev": "Previous",
         "next": "Next"
+      },
+      "ivaTransfer": {
+        "title": "IVA carried into the displayed price",
+        "subtitle": "What fraction of the IVA is added to the price the buyer sees. The rest comes out of our net. The server computes the peso figure on a sample price, and you have to see it before saving.",
+        "label": "Fraction carried",
+        "hint": "Integer from 0 to 100. Current value: {current}%.",
+        "invalid": "Enter an integer between {min} and {max}.",
+        "sampleNote": "Every figure is computed on a {price} list piece.",
+        "save": "Save the fraction",
+        "saved": "Fraction saved at {pct}%. It is in the audit log.",
+        "delta": {
+          "eyebrow": "How our net changes, per piece",
+          "body": "At this position we keep {amount} less on every {price} list piece. Multiply it by the pieces you expect to sell.",
+          "none": "This position does not move our net."
+        },
+        "blocked": {
+          "invalid": "Fix the fraction before saving.",
+          "unchanged": "This is the current fraction: there is nothing to save.",
+          "quoting": "Computing the cost of this position…"
+        },
+        "stale": {
+          "title": "The cost changed while you were deciding",
+          "body": "Nothing was saved. With the current figures this position moves our net by {amount} per piece. Check it and save again if you still agree."
+        },
+        "empty": {
+          "title": "No figures for this position",
+          "body": "The server did not return the cost of this position, so the dial stays put: a margin change is not saved without seeing what it costs. Try again."
+        },
+        "table": {
+          "caption": "Current IVA rate: {rate}%.",
+          "concept": "Item",
+          "current": "Current",
+          "proposed": "Proposed",
+          "rows": {
+            "dial": "Fraction carried",
+            "display": "Displayed price",
+            "taxBase": "Taxable base",
+            "iva": "IVA",
+            "net": "Our net",
+            "charged": "Total the buyer pays"
+          }
+        }
       }
     },
     "m7": {
@@ -2785,7 +2847,8 @@
         "shippingRevenue": "Shipping revenue (collected)",
         "cogs": "Cost of goods sold",
         "stripeFees": "Stripe fees",
-        "shippingCost": "Shipping cost (carrier)",
+        "shippingCost": "Shipping cost (carrier, net)",
+        "shippingCostMissing": "{count, plural, one {# settled shipment has no carrier cost captured. Review it: its revenue counts in full as profit.} other {# settled shipments have no carrier cost captured. Review them: their revenue counts in full as profit.}}",
         "profit": "Profit for the period"
       },
       "values": {
@@ -3421,7 +3484,9 @@
     "PAYMENT_IN_PROGRESS": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
     "PAYMENT_IN_PROGRESS_GUEST": "Your previous attempt with this email already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check your email or wait a moment before retrying.",
     "INE_NOT_ON_FILE": "This user has no ID on file.",
-    "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix."
+    "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix.",
+    "IVA_TRANSFER_ACK_REQUIRED": "You have to see the peso cost before saving this fraction. Recompute it and save from there.",
+    "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again."
   },
   "payment": {
     "title": "Payment",

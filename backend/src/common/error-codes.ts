@@ -10,6 +10,15 @@ export const ErrorCode = {
   CONFLICT: 'CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
   INTERNAL: 'INTERNAL',
+  /**
+   * ⭐⭐ `§0-T` (v1.76) — **el fallo TRANSITORIO del motor deja de ser un `500`.**
+   * *Un `500` afirma «se rompió algo». Cuando Postgres aborta una transacción serializable, o una
+   * transacción no cabe en su ventana, ⛔ no se rompió nada y ⛔ no se escribió nada: el motor hizo
+   * su trabajo.* Sale con `503` y `Retry-After: 1`, y `details` **vacío**.
+   * ⛔ **No es un código de negocio y no sustituye a ninguno**: una `BusinessException` sale intacta
+   * y a la primera — es una decisión, no una carrera.
+   */
+  BUSY_TRY_AGAIN: 'BUSY_TRY_AGAIN',
 
   // Auth
   EMAIL_TAKEN: 'EMAIL_TAKEN',
@@ -580,6 +589,19 @@ export const ErrorCode = {
   // sentidos. `details: { currentRate, fallbackRate: 18 }`. **El modo NO cambia.** 422.
   // ⛔ NO se pide con `stale`: ahí hay un número real que el humano puede ver y juzgar.
   FX_NO_AUTOMATIC_RATE: 'FX_NO_AUTOMATIC_RATE',
+
+  // ── DIAL DE TRASLACIÓN DEL IVA (v1.64/v1.74 · API_CONTRACT §M10-IVA.2/§M10-IVA.9 · ARCH §4.55) ──
+  // Los DOS códigos del ACUSE de `PUT /admin/settings/iva-transfer`, que es la **única** puerta del
+  // dial `iva_transfer_pct`. ⛔ Ninguno de los dos aparece jamás en superficie de cliente: el dial
+  // viaja solo en `/admin/*` (criterio 209).
+  //  · El `PUT` **cambia el valor** y viene SIN `acknowledgement` (o sin alguno de sus dos campos).
+  //    El criterio 188 exige que el costo en PESOS se haya mostrado antes de guardar, y *una norma
+  //    que solo vive en la UI no se puede poner roja desde el servidor*. **La fila NO se escribe.** 422.
+  IVA_TRANSFER_ACK_REQUIRED: 'IVA_TRANSFER_ACK_REQUIRED',
+  //  · El `previewedNetDeltaCents` del acuse NO coincide con el que el servidor recalcula para ese
+  //    `samplePriceCents` y ese `ivaTransferPct` ⇒ el dueño está confirmando una cifra que ya no es
+  //    la suya. `details: { expectedNetDeltaCents }`. **Sin escritura parcial.** 409.
+  IVA_TRANSFER_ACK_STALE: 'IVA_TRANSFER_ACK_STALE',
 
   // Sellado / producto cerrado (v1.23-sealed-sales) — endpoints FEATURE-FLAGGED de §2-S.
   // El dial que gobierna el endpoint (`sealed_value_trend` / `sealed_restock_alerts`) está en `off`.

@@ -40,7 +40,10 @@ type OrdenFake = {
 
 type EnvioFake = {
   shippingFeeCents: number;
+  /** **BRUTO** — el importe TOTAL de la factura de la paquetería, IVA incluido (§4.44.f-ter). */
   shippingCostCents: number;
+  /** El **IVA acreditable congelado** al capturar. `0` en toda fila histórica (§M10-IVA.8). */
+  shippingCostIvaCents: number;
   processingFeeCents: number;
   ivaCents: number;
   priceConvention: 'IVA_EXCLUSIVE' | 'IVA_INCLUSIVE';
@@ -61,6 +64,9 @@ const orden = (o: Partial<OrdenFake> = {}): OrdenFake => ({
 const envio = (e: Partial<EnvioFake> = {}): EnvioFake => ({
   shippingFeeCents: 17500,
   shippingCostCents: 9000,
+  // ⭐ `0` = «no consta crédito» ⇒ `neto = bruto`. Es la dirección CONSERVADORA y es lo que dicen
+  // TODAS las filas anteriores al corte: ⛔ nadie backfilleó un crédito fiscal que nadie verificó.
+  shippingCostIvaCents: 0,
   processingFeeCents: 800,
   ivaCents: 2800,
   priceConvention: 'IVA_EXCLUSIVE',
@@ -74,6 +80,17 @@ const envio = (e: Partial<EnvioFake> = {}): EnvioFake => ({
  * mide la neutralidad. ⛔ No se toca cuando cambie el código nuevo: si hay que tocarlo, es que la
  * neutralidad se rompió.
  */
+/**
+ * ⚠️ **D56 — la comparación de neutralidad se hace sobre las SEIS cifras heredadas.**
+ * El reporte gana una SÉPTIMA (`shippingCostMissingCount`, §M10-IVA.8), que es **aditiva** y no
+ * existía en el algoritmo viejo: compararla contra él sería comparar contra la nada. Se asierta
+ * aparte, en su propio bloque. *La neutralidad se afirma de lo que existía; lo nuevo se prueba nuevo.*
+ */
+function seisCifras(p: Awaited<ReturnType<AdminService['pnl']>>) {
+  const { shippingCostMissingCount: _nuevo, ...heredadas } = p;
+  return heredadas;
+}
+
 function pnlLegacy(ordenes: OrdenFake[], envios: EnvioFake[]) {
   let incomeCents = 0;
   let stripeFeesCents = 0;
@@ -164,7 +181,7 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
 
     it.each(escenarios)('$nombre — las SEIS cifras son idénticas a las del algoritmo viejo', async ({ ordenes, envios }) => {
       const { service } = servicio(ordenes, envios);
-      expect(await service.pnl()).toEqual(pnlLegacy(ordenes, envios));
+      expect(seisCifras(await service.pnl())).toEqual(pnlLegacy(ordenes, envios));
     });
 
     it('⭐ y sobre 200 escenarios generados al azar (solo bóveda), también', async () => {
@@ -189,7 +206,7 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
           envio({ shippingFeeCents: rnd(50000), shippingCostCents: rnd(30000), processingFeeCents: rnd(3000) }),
         );
         const { service } = servicio(ordenes, envios);
-        expect(await service.pnl()).toEqual(pnlLegacy(ordenes, envios));
+        expect(seisCifras(await service.pnl())).toEqual(pnlLegacy(ordenes, envios));
       }
     });
 
@@ -199,12 +216,15 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
       const { service } = servicio(ordenes, envios);
       const esperado = pnlLegacy(ordenes, envios);
       const [header, row] = (await service.exportCsv('pnl')).trim().split('\n');
+      // ⭐ D56: el CSV gana `shippingCostMissingCount` **en el mismo orden que el objeto**.
       expect(header).toBe(
-        'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents',
+        'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
+          'shippingCostMissingCount,profitCents',
       );
+      const missing = envios.filter((e) => e.shippingCostCents === 0).length;
       expect(row).toBe(
         `pnl,${esperado.incomeCents},${esperado.shippingRevenueCents},${esperado.cogsCents},` +
-          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${esperado.profitCents}`,
+          `${esperado.stripeFeesCents},${esperado.shippingCostCents},${missing},${esperado.profitCents}`,
       );
     });
   });
@@ -303,6 +323,28 @@ describe('P&L — DEPLOY 1 (§4.44.j): neutralidad demostrada + `D-IVA-5`', () =
     it('el ingreso de envío de bóveda también se netea por la convención de SU fila', async () => {
       const { service } = servicio([], [envio({ shippingFeeCents: 20300, ivaCents: 2800, priceConvention: 'IVA_INCLUSIVE' })]);
       expect((await service.pnl()).shippingRevenueCents).toBe(20300 - 2800);
+    });
+
+    it('⭐⭐ D56 — el COSTO de envío se netea por RESTA del crédito CONGELADO (`IVA-11(c)`)', async () => {
+      const { service } = servicio([], [envio({ shippingCostCents: 20300, shippingCostIvaCents: 2800 })]);
+      // ⛔ Ni división por `(1+r)` ni lectura del dial: `20300 − 2800`.
+      expect((await service.pnl()).shippingCostCents).toBe(17500);
+    });
+
+    it('⭐ filas históricas: `shippingCostIvaCents = 0` ⇒ `neto = bruto` (dirección conservadora)', async () => {
+      const { service } = servicio([], [envio({ shippingCostCents: 9000, shippingCostIvaCents: 0 })]);
+      expect((await service.pnl()).shippingCostCents).toBe(9000);
+    });
+
+    it('⭐⭐ `IVA-11(b)` — que el `0` NO signifique dos cosas: el contador lo SEÑALA', async () => {
+      // Dos envíos liquidados, uno con costo capturado y otro en `0`. ⛔ No se asierta que el
+      // importe sea distinto: se asierta que el CONTADOR lo señala. Para las filas existentes
+      // «costó cero» y «no se capturó» son **indistinguibles**, y un candado que fingiera
+      // distinguirlas estaría midiendo un backfill inventado.
+      const { service } = servicio([], [envio({ shippingCostCents: 20300, shippingCostIvaCents: 2800 }), envio({ shippingCostCents: 0 })]);
+      const p = await service.pnl();
+      expect(p.shippingCostMissingCount).toBe(1);
+      expect(p.shippingCostMissingCount).not.toBe(0);
     });
 
     it('⭐⭐ NO hay dial que mover: el servicio del P&L ni siquiera tiene acceso a `SettingsService`', async () => {

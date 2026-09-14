@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { LOCALES, t } from './utils/i18n';
-import { credentialsFor, mockOnly } from './utils/auth';
+import { credentialsFor, IS_REAL, mockOnly, reserveLoginSlot } from './utils/auth';
 
 /**
  * Flujo: registro / login (PROJECT §A, contrato §1) + toggle de idioma en el
@@ -21,6 +21,10 @@ test.describe('auth · login y registro (ES/EN)', () => {
       const creds = credentialsFor('customer');
       await page.getByLabel(t(locale, 'auth.email')).fill(creds.email);
       await page.getByLabel(t(locale, 'auth.password')).fill(creds.password);
+      // B-2: contra un backend real este formulario gasta cupo de `POST /auth/login`
+      // (`{ttl:60_000, limit:5}` por IP). Son dos locales ⇒ dos logins; sin pedir ranura, dejan
+      // el cupo a uno del límite y el siguiente caso de otro worker se queda 60 s en blanco.
+      if (IS_REAL) await reserveLoginSlot(`auth.spec · login por formulario [${locale}]`);
       await page.getByRole('button', { name: t(locale, 'auth.loginCta') }).click();
 
       // Sesión creada (local en mock, JWT real contra el backend); redirige al home del locale.

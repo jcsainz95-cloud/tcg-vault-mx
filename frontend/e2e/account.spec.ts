@@ -5,9 +5,15 @@ import {
   harnessLimit,
   IS_REAL,
   loginAs,
+  loginAsDisposable,
   needsSeed,
-  skipIfSeedMissing,
+  reserveLoginSlot,
 } from './utils/auth';
+import {
+  disposeTempPasswordActor,
+  provisionTempPasswordActor,
+  type TempPasswordActor,
+} from './utils/temp-actors';
 
 /**
  * Stream A · «Mi cuenta», contraseña y contraseña temporal BLOQUEANTE (contrato v1.67/v1.67.1;
@@ -18,13 +24,29 @@ import {
  *   4. navegación §33.1/§33.2 y móvil 390 px sin desborde horizontal
  *   5. facturación (§33.6d): vacío → alta en línea → RFC enmascarado
  *
- * Etiquetado (techlead F2-1, `utils/auth.ts`): los flujos de temporal, el cambio normal y la
- * facturación están escritos de forma AGNÓSTICA y taggeados `@real`; contra el backend real usan los
- * ACTORES del seed (`customerTemp` / `operatorTemp`, `utils/env.ts`) y, si el seed no los sembró (o
- * su temporal ya se consumió en una corrida anterior), se SALTAN con la razón (`skipIfSeedMissing`).
- * `needsSeed` queda solo donde falta una fila concreta (usuario con `nameSource='derived'`);
- * `harnessLimit` donde el arnés no puede entrar (solo-Google: sin contraseña ni Google). Este spec ya
- * no usa `mockOnly`: ningún caso depende de un dato de fixture.
+ * ⭐⭐ **ACTORES DESECHABLES, y por qué dejaron de ser los del seed (QA, 2ª pasada, 2026-09-14).**
+ *
+ * Hasta `3dd09ed` estos flujos usaban los actores COMPARTIDOS del seed (`customerTemp` /
+ * `operatorTemp`). El problema no era que faltara el dato: era que **este mismo spec lo destruye al
+ * medirlo** — cambiar la temporal por la definitiva es, literalmente, lo que §33.8 pide comprobar.
+ * Resultado medido sobre `3dd09ed`: `POST /auth/login` de `temporal.customer@e2e.local` y
+ * `temporal.operator@e2e.local` ⇒ **`401 INVALID_CREDENTIALS`**, y los CUATRO casos se saltaban.
+ * La cobertura del gate dependía de cuándo se sembró por última vez, no del código:
+ *
+ *     primera corrida tras `--seed` → 4 casos MIDEN   ·   segunda y siguientes → 4 casos NO miden
+ *
+ * y las dos corridas salían con el mismo «3 fallos» en el informe. Eso es lo que QA vio bailar
+ * (`55/3/1` contra `50/3/6`).
+ *
+ * Ahora cada corrida **fabrica su propio actor** por la API del contrato (`utils/temp-actors.ts`:
+ * `POST /admin/users` sin `password` ⇒ temporal de alta entropía devuelta una vez) y lo borra al
+ * acabar. No se resiembra nada (⛔ `--seed` purga evidencia y cupos ajenos), no se toca a ningún otro
+ * actor, y el flujo que se prueba es MÁS fiel: así es como nace de verdad un operador aquí.
+ *
+ * Etiquetado (techlead F2-1, `utils/auth.ts`): `needsSeed` queda solo donde falta una fila concreta
+ * (usuario con `nameSource='derived'`); `harnessLimit` donde el arnés no puede entrar (solo-Google:
+ * sin contraseña ni Google). Este spec ya no tiene NINGÚN salto dinámico ni de fixture: ningún caso
+ * depende de un dato de fixture **ni de que alguien haya resembrado**.
  *
  * ⚠ Orden: los casos del cliente temporal van en SERIE (mismo worker, en orden): el que solo mira el
  * rebote y «Cerrar sesión» va ANTES del que consume la temporal; el cambio «normal» va DESPUÉS y entra
@@ -46,32 +68,11 @@ async function loginWith(page: Page, email: string, password: string) {
   await page.goto('/es/login');
   await page.getByLabel(t('es', 'auth.email')).fill(email);
   await page.getByLabel(t('es', 'auth.password')).fill(password);
+  // B-2: un login por FORMULARIO gasta el mismo cupo de `POST /auth/login` que uno por API
+  // (`{ttl:60_000, limit:5}` por IP). Este spec hace CUATRO, y desde los actores desechables los
+  // cuatro LLEGAN A MEDIR: antes, dos se gastaban solo para descubrir un 401 y saltarse.
+  if (IS_REAL) await reserveLoginSlot('account.spec · login por formulario');
   await page.getByRole('button', { name: t('es', 'auth.loginCta') }).click();
-}
-
-/**
- * Login por formulario de un actor sembrado. Si el backend real contesta «Correo o contraseña
- * incorrectos» el actor no está (seed sin correr / temporal ya consumida): se salta con la razón.
- */
-async function loginSeedActor(page: Page, role: 'customerTemp' | 'operatorTemp', password?: string) {
-  const creds = credentialsFor(role);
-  await loginWith(page, creds.email, password ?? creds.password);
-  if (IS_REAL) {
-    // Tres salidas posibles del login real: (a) 401 ⇒ el actor no está sembrado; (b) 200 CON bandera ⇒
-    // aterriza en la página de contraseña (lo que este spec mide); (c) 200 SIN bandera ⇒ aterriza en el
-    // home del rol: la temporal ya se consumió en una corrida anterior. (a) y (c) se saltan con la razón.
-    const invalid = page.getByRole('alert').filter({ hasText: t('es', 'error.INVALID_CREDENTIALS') });
-    await Promise.race([
-      invalid.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined),
-      page.waitForURL((u) => !/\/login$/.test(u.pathname), { timeout: 10_000 }).catch(() => undefined),
-    ]);
-    const landedOnPassword = /\/account\/password/.test(page.url());
-    skipIfSeedMissing(
-      !landedOnPassword,
-      `${role} (${creds.email}) con mustChangePassword=true en seed-e2e.ts (83ec86e) — o su temporal ya se consumió en una corrida anterior: re-sembrar`,
-    );
-  }
-  return creds;
 }
 
 async function changeTemporaryPassword(page: Page, current: string, next: string) {
@@ -84,15 +85,28 @@ async function changeTemporaryPassword(page: Page, current: string, next: string
 test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', () => {
   test.describe.configure({ mode: 'serial' });
 
+  /**
+   * Cliente DESECHABLE de ESTA corrida, con su temporal recién emitida. Se da de alta una vez para
+   * los tres casos en serie —que es como el producto la usa: se emite una y se consume una— y se
+   * borra en duro al acabar. Si el alta falla, el `beforeAll` revienta y los tres casos salen
+   * ROJOS: es un desacuerdo con el contrato, no un dato que falte.
+   */
+  let actor: TempPasswordActor | null = null;
+
+  test.beforeAll(async () => {
+    actor = await provisionTempPasswordActor('customer');
+  });
+
+  test.afterAll(async () => {
+    await disposeTempPasswordActor(actor);
+    actor = null;
+  });
+
   test('@real con la bandera activa, la tienda pública rebota (paso 3) y «Cerrar sesión» sale a /login', async ({ page }) => {
     // Sesión por API del actor con temporal (en mock: bandera inyectada por `loginAs`). No consume la
     // temporal: solo mira el rebote y la salida.
-    if (IS_REAL) {
-      const ok = await loginAs(page, 'customerTemp').then(() => true, () => false);
-      skipIfSeedMissing(!ok, 'customerTemp con mustChangePassword=true en seed-e2e.ts (login por API falló)');
-    } else {
-      await loginAs(page, 'customerTemp');
-    }
+    if (IS_REAL) await loginAsDisposable(page, actor!);
+    else await loginAs(page, 'customerTemp');
     await page.goto('/es/catalog');
     await expect(page).toHaveURL(/\/es\/account\/password\?next=%2Fcatalog&reason=required$/);
     await page.getByRole('button', { name: t('es', 'nav.logout') }).click();
@@ -100,8 +114,12 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
   });
 
   test('@real cliente con temporal: login → /account/password (sin «Continuar») → cambio → «Listo» → tienda', async ({ page }) => {
-    const creds = await loginSeedActor(page, 'customerTemp');
+    const creds = actor!;
+    await loginWith(page, creds.email, creds.password);
 
+    // Sin salvaguarda y a propósito: la temporal se emitió en el `beforeAll` de ESTA corrida, así
+    // que aterrizar en otro sitio ya no significa «alguien no resembró» — significa que §33.8 no
+    // está bloqueando, que es justo lo que este caso vigila.
     await expect(page).toHaveURL(/\/es\/account\/password$/);
     await expect(page.getByRole('heading', { level: 1, name: t('es', 'auth.changePassword.title') })).toBeVisible();
     await expect(page.getByText(t('es', 'auth.changePassword.body'))).toBeVisible();
@@ -129,18 +147,21 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
   });
 
   test('@real cuenta con contraseña: /account/password cambia y ofrece «Cambiar otra vez» sin redirigir', async ({ page }) => {
-    // En real entra el actor ya con su definitiva (el caso anterior la fijó): cambiar la contraseña del
-    // `customer` compartido revocaría la sesión que usan los demás workers. En mock, cualquier cliente.
-    const creds = IS_REAL ? { ...credentialsFor('customerTemp'), password: DEFINITIVA } : credentialsFor('customer');
+    // En real entra el DESECHABLE con su definitiva (el caso anterior, en serie, se la acaba de
+    // fijar): cambiar la contraseña del `customer` compartido revocaría la sesión que usan los demás
+    // workers. En mock, cualquier cliente.
+    const creds = IS_REAL ? { email: actor!.email, password: DEFINITIVA } : credentialsFor('customer');
     await loginWith(page, creds.email, creds.password);
-    if (IS_REAL) {
-      const invalid = page.getByRole('alert').filter({ hasText: t('es', 'error.INVALID_CREDENTIALS') });
-      const missing = await Promise.race([
-        invalid.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true, () => false),
-        page.waitForURL((u) => !/\/login/.test(u.pathname), { timeout: 10_000 }).then(() => false, () => false),
-      ]);
-      skipIfSeedMissing(missing, 'customerTemp con la definitiva del caso anterior (el flujo de temporal no corrió)');
-    }
+    // Antes había aquí una salvaguarda por si «el flujo de temporal no corrió». Ya no puede pasar:
+    // el modo `serial` deja este caso sin ejecutar si el anterior falló, y el actor es de esta
+    // corrida. Un 401 aquí sería un defecto de `POST /auth/change-password`, no un dato que falte.
+    //
+    // ⚠️ Pero la salvaguarda que quité hacía DOS cosas, y la segunda no era opcional: su
+    // `Promise.race(alerta | cambio de URL)` **esperaba a que el login aterrizara**. Sin esa espera
+    // el `goto` de abajo sale ANTES de que la sesión se persista, la guarda rebota a `/es/login` y
+    // el caso muere buscando un H1 que está en otra página. Medido **3/3** al quitarla (captura de
+    // `error-context.md`: la pantalla era «Iniciar sesión»). Se queda la espera, sin el salto.
+    await page.waitForURL((u) => !/\/login$/.test(u.pathname), { timeout: 30_000 });
     await page.goto('/es/account/password');
     await expect(page.getByRole('heading', { level: 1, name: t('es', 'account.password.changeTitle') })).toBeVisible();
     await page.getByLabel(t('es', 'account.password.current')).fill(creds.password);
@@ -154,8 +175,21 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
 });
 
 test.describe('cuenta · contraseña temporal bloqueante (§33.8) · operador', () => {
+  /** Operador DESECHABLE de esta corrida. Mismo trato que el cliente de arriba. */
+  let actor: TempPasswordActor | null = null;
+
+  test.beforeAll(async () => {
+    actor = await provisionTempPasswordActor('vault_operator');
+  });
+
+  test.afterAll(async () => {
+    await disposeTempPasswordActor(actor);
+    actor = null;
+  });
+
   test('@real operador con temporal y marcador de /admin/m4: rebote con banner y next → cambio → «Listo» → M4', async ({ page }) => {
-    const creds = await loginSeedActor(page, 'operatorTemp');
+    const creds = actor!;
+    await loginWith(page, creds.email, creds.password);
     await expect(page).toHaveURL(/\/es\/admin\/account\/password$/);
 
     // Paso 3 de §33.8: cualquier módulo rebota a la página de contraseña con next + reason.

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { t } from './utils/i18n';
+import { ivaLabelRe, t } from './utils/i18n';
 import { loginAs, mockOnly, IS_REAL, MONEY_RE } from './utils/auth';
 
 /**
@@ -38,7 +38,23 @@ test.describe('retiro · envío nacional', () => {
     const breakdown = page.getByTestId('amount-breakdown');
     await expect(breakdown).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.shipping'))).toBeVisible();
-    await expect(breakdown.getByText(t('es', 'checkout.iva', { rate: 16 }))).toBeVisible();
+    // (B-2) ESTE ASSERT PEDIA `checkout.iva` («IVA 16%») Y QUEDO CADUCO CON §M10-IVA.4.
+    //
+    // `PROJECT.md §Q` (tabla de superficies, enmienda `D-IVA-8`) lo fija para el envío: *«SÍ, su
+    // cifra exhibida lleva el IVA dentro»* (criterio **189**), y el criterio **190** manda que el
+    // rótulo lo decida el DATO (`BreakdownDTO.ivaIncluded`), no la pantalla. Medido contra el
+    // stack (2026-09-14, `9328880`) en el propio desglose del retiro: Envío MX$203.00 ·
+    // «IVA 16 % incluido» MX$28.00 · Comisión MX$12.48 · Total MX$215.48 — o sea
+    // `total == envío + comisión`, con el IVA INFORMANDO y no sumando. La prueba era la
+    // equivocada; el producto hace lo que `PROJECT.md` manda.
+    //
+    // ⚠️ Y no es un fallo de COBRO: esta línea muere ANTES de tocar Stripe. Contarla con los
+    // tres rojos de «falta capacidad de cobro» ocultaba un rótulo caduco detrás de un hueco de
+    // entorno.
+    await expect(breakdown.getByText(ivaLabelRe('es', 'checkout.ivaIncluded'))).toBeVisible();
+    // El IVA bajo `IVA_INCLUSIVE` INFORMA: el desglose lo declara en su atributo, que es el dato
+    // y no el texto. Sin esto, el assert de arriba pasaría igual con un rótulo pegado a mano.
+    await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
     await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
 
     await page.getByRole('button', { name: t('es', 'shipments.requestWithdrawal') }).click();

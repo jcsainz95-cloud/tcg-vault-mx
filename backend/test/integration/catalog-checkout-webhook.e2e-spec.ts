@@ -16,6 +16,7 @@ import { computeCartBreakdown } from '../../src/common/money';
 // v2.0 (P-48, §4.36.1): el precio de venta sale de la CURVA. El E2E lo calcula con la MISMA pura que
 // el backend — si alguien mueve un dial del seed, este test se mueve con él y no miente.
 import { DEFAULT_PRICING_CURVE, resolveSaleFromCurve } from '../../src/common/pricing-curve';
+import { P } from './helpers/iva-display';
 
 /** Precio de venta que la curva del seed produce para un mercado dado. */
 const salePrice = (marketCents: number) => resolveSaleFromCurve(marketCents, DEFAULT_PRICING_CURVE).cents as number;
@@ -58,7 +59,8 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       expect(byId.body.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: E2E_CARDS.charizard.refNmCents });
       // v2.0: salePrice = redondeo↑(max(piso, mercado × markup(mercado))); el valor de mercado sigue
       // siendo la referencia. $1,000 × 1.15 = $1,150 (ya múltiplo de $25, el redondeo no lo mueve).
-      expect(byId.body.salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents));
+      // ⭐ D56: `P` en superficie de cliente; `salePrice(...)` es el `L` de la curva (§M10-IVA.3).
+      expect(byId.body.displayPriceCents).toBe(P(salePrice(E2E_CARDS.charizard.refNmCents)));
       expect(byId.body.priceBasis).toBe('market'); // §N.7: SÍ se muestra «Valor de mercado» en la ficha
       expect(byId.body.sellable).toBe(true);
 
@@ -71,7 +73,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       expect((list.body.data as any[]).length).toBeGreaterThan(0);
       for (const l of list.body.data as any[]) {
         expect(l.stockCount).toBeGreaterThanOrEqual(1);
-        expect(l.salePriceCents).toBeGreaterThan(0);
+        expect(l.displayPriceCents).toBeGreaterThan(0);
         expect(typeof l.representativeInventoryItemId).toBe('string');
       }
     });
@@ -79,7 +81,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
     it('override manual de listPrice se refleja como salePrice', async () => {
       const res = await h.api('GET', `/catalog/listings/${itemId.listedCommonOverride}`);
       expect(res.status).toBe(200);
-      expect(res.body.salePriceCents).toBe(E2E_LIST_OVERRIDE_CENTS);
+      expect(res.body.displayPriceCents).toBe(P(E2E_LIST_OVERRIDE_CENTS));
       expect(res.body.sellable).toBe(true);
     });
 
@@ -99,7 +101,8 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         json: { inventoryItemIds: [itemId.listedCharizard] },
       });
       expect(res.status).toBe(200);
-      const subtotal = salePrice(E2E_CARDS.charizard.refNmCents);
+      // ⭐ D56: el subtotal del quote es `Σ P`, no `Σ L` (§M10-IVA.3, regla R1).
+      const subtotal = P(salePrice(E2E_CARDS.charizard.refNmCents));
       const expected = computeCartBreakdown(subtotal, IVA, FEE);
       expect(res.body.breakdown).toMatchObject({
         subtotalCents: expected.subtotalCents,
@@ -109,8 +112,10 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         totalCents: expected.totalCents,
         currency: 'MXN',
       });
-      // Coherencia: total = subtotal + IVA + fee; el fee NO lleva IVA.
-      expect(expected.totalCents).toBe(expected.subtotalCents + expected.ivaCents + expected.processingFeeCents);
+      // ⭐⭐ `IVA-2` sobre HTTP real: `total = subtotal + fee`. El IVA **informa, no suma**.
+      expect(expected.totalCents).toBe(expected.subtotalCents + expected.processingFeeCents);
+      expect(res.body.breakdown.priceConvention).toBe('IVA_INCLUSIVE');
+      expect(res.body.breakdown.ivaIncluded).toBe(true);
       // v1.21.3-quote-prune: `unavailableItems` SIEMPRE presente; `[]` cuando todo el carrito
       // resuelve (compatibilidad: la forma previa no cambia, solo se suma el `[]` aditivo).
       expect(res.body.unavailableItems).toEqual([]);
@@ -167,7 +172,12 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         [viva1.id, viva2.id].sort(),
       );
       // El breakdown se calcula SOLO con las vivas.
-      const unit = salePrice(E2E_CARDS.charizard.refNmCents);
+      // ⭐ D56: el subtotal es **Σ `displayPriceCents`** (`API_CONTRACT §M10-IVA.4`, l. 19414:
+      // *«bajo `IVA_INCLUSIVE` = Σ displayPriceCents ⇒ YA lleva el IVA dentro»*), así que el `P` se
+      // aplica **por línea** y luego se suma — ⛔ no `P(Σ L)`. Con `n = 1` las dos coinciden (y por
+      // eso el caso de :105 no lo distinguía); con `n = 2` sólo la primera respeta `IVA-4(a)`
+      // (`Σ items[].unitPriceCents == subtotalCents` **exacto**). `salePrice(...)` sigue siendo el `L`.
+      const unit = P(salePrice(E2E_CARDS.charizard.refNmCents));
       expect(res.body.breakdown).toEqual(computeCartBreakdown(unit * 2, IVA, FEE));
       expect(res.body.unavailableItems).toEqual([
         { inventoryItemId: vendida.id, cardName: E2E_CARDS.charizard.name },
@@ -192,6 +202,9 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         processingFeeCents: 0,
         totalCents: 0,
         currency: 'MXN',
+        // ⭐ El cero también tiene convención (§M10-IVA.4).
+        priceConvention: 'IVA_INCLUSIVE',
+        ivaIncluded: true,
       });
     });
 

@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { matchesWhere } from './helpers/prisma-where';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
@@ -90,9 +91,12 @@ function build(opts: Opts = {}) {
       findUnique: jest.fn(async () => ({ ...request })),
       findMany: jest.fn(async () => (opts.rows ?? []).map((r) => ({ ...request, ...r }))),
       count: jest.fn(async () => (opts.rows ?? []).length),
+      // ⭐ 2026-09-14: el `where` de `adminGuide` ya no es plano — lleva un `OR` con la comparación
+      // de la ETIQUETA, porque la decisión de reiniciar el ciclo del aviso la hace el MOTOR. El
+      // recorrido «cada clave contra la fila» no sabe leer `OR`; `matchesWhere` sí, y además
+      // respeta la semántica SQL de `NULL` en `not`.
       updateMany: jest.fn(async ({ where, data }: any) => {
-        const { id: _id, ...rest } = where;
-        if (!Object.entries(rest).every(([k, c]) => matches(request[k], c))) return { count: 0 };
+        if (!matchesWhere(request, where)) return { count: 0 };
         Object.assign(request, data);
         return { count: 1 };
       }),

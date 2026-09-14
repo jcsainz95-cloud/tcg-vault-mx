@@ -490,6 +490,18 @@ model KycProfile {
   rejectionReason            String?
   reviewedAt                 DateTime?
   reviewedBy                 String?
+  // ⭐ v1.74 (§R.6, M-57) — EL SELLO DE `AV-1` (rechazo de identidad). `D-AVISO-2`: se RECLAMA el
+  // derecho a avisar con `updateMany … WHERE kycRejectionNoticeSentAt IS NULL` + `count === 1`, y
+  // solo la reclamación ganadora manda el correo. Es el ÚNICO de los once sin guarda de motor: el
+  // `upsert` de `updateUserKyc` no mira el estado actual ⇒ N rechazos seguidos serían N correos.
+  // ⛔ NULLABLE, sin default, SIN BACKFILL y sin índice: `null` **es la verdad** en toda fila
+  // existente («nunca se avisó»), y se lee por `userId`, que ya es `@unique`.
+  // ⛔ FUERA DE TODO DTO (cliente y admin): es un hecho sobre NUESTRO envío de correo, no sobre la
+  // identidad. Candado: `test/avisos.seals-out-of-dto.spec.ts`.
+  // Se pone a `null` en DOS sitios y en ninguno más (§R.4.a): al RESUBIR el INE (mismo bloque que
+  // ya limpia `rejectionReason`/`reviewedAt`/`reviewedBy`) y al pasar la decisión a `verified`/`none`.
+  // ⛔ Un segundo rechazo consecutivo NO lo limpia (criterio 205(a): dos rechazos ⇒ UN correo).
+  kycRejectionNoticeSentAt   DateTime?
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -1264,6 +1276,16 @@ model ShipmentRequest {
   stripePaymentIntentId String?        @unique
   carrier               String?
   trackingNumber        String?
+  // ⭐ v1.74 (§R.6, M-57) — EL SELLO DE `AV-4` (la guía al COMPRADOR). `setTracking` es el único
+  // camino que garantiza que existan `carrier` Y `trackingNumber` (§R.3.a), y **no tenía ninguna
+  // guarda** de repetición (`D-AV-1`) ⇒ sin sello, cada re-captura mandaría otro correo.
+  // ⭐ §R.4.b — el ciclo se reinicia POR VALOR, no por evento: el sello se limpia **en la misma
+  // escritura que cambia la etiqueta** si y solo si el par `(carrier, trackingNumber)` queda
+  // DISTINTO. Re-capturar el mismo número ⇒ no se limpia ⇒ no se reenvía.
+  // ⛔ NULLABLE, sin default, sin backfill, sin índice y ⛔ FUERA DE TODO DTO: la lista blanca
+  // `toAdminShipmentRow` ya impide que se auto-publique, y ése es justo el caso para el que se
+  // escribió. Candado: `test/avisos.seals-out-of-dto.spec.ts`.
+  trackingNoticeSentAt  DateTime?
   requestedAt           DateTime       @default(now())
   pickingAt             DateTime?
   shippedAt             DateTime?
@@ -1403,6 +1425,15 @@ model SellRequest {
   // la ve ⇒ NO expira (correcto por §P.13: la etiqueta depende de NOSOTROS).
   shipDeadlineAt             DateTime?
   shipReminderSentAt         DateTime?
+  // ⭐ v1.74 (§R.6, M-57) — EL SELLO DE `AV-7` (la guía al VENDEDOR). `adminGuide` es
+  // **re-capturable a propósito** («se corrige el número, NO se mueve la fecha»), así que su guarda
+  // de motor (`count === 1` sobre `status='aceptada'`) NO impide el segundo correo: lo impide esto.
+  // ⭐ §R.4.b — se limpia en la MISMA escritura que cambia la etiqueta, si y solo si el par
+  // `(shipmentCarrier, shipmentTrackingNumber)` queda DISTINTO. *Un correo con un número de guía
+  // que ya no existe es peor que no haber mandado ninguno; reenviar el mismo es el ruido que
+  // `D-AVISO-2` existe para matar.*
+  // ⛔ NULLABLE, sin default, sin backfill, sin índice y ⛔ fuera de todo DTO (cliente y admin).
+  guideNoticeSentAt          DateTime?
   // «Ya lo mandé» (§P.13). Lo fija el CLIENTE: DETIENE el reloj y NO mueve el estado ni el conteo de
   // «en camino» (criterios 138/156).
   sellerShippedDeclaredAt    DateTime?

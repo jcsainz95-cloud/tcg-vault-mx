@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Card, CardSet, Finish, GradingCompany, InventoryItem, Prisma, ProductType, RawCondition, SealedCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 // MERGE v1.50.2: `GradedEstimateRef` (gancho de grading) entra JUNTO a lo de main. Lo que se BORRA es
@@ -11,10 +11,20 @@ import {
   GradedEstimateRef,
   toPublicPriceInfo,
 } from '../pricing/pricing.service';
+// ⭐ D56 (§4.44.b): los DOS diales que derivan `P`. `SettingsModule` es `@Global`.
+import { SettingsService } from '../settings/settings.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
 // visibilidad del «Valor de mercado» en las dos fichas.
-import { sealedPriceBasisOf, PriceBasis, hasManualPrice } from '../../common/money';
+import {
+  PRICE_CONVENTION_OF_NEW_ROWS,
+  PriceBasis,
+  displayPriceCentsOf,
+  hasManualPrice,
+  ivaIsIncluded,
+  sealedPriceBasisOf,
+} from '../../common/money';
+import type { IvaDials } from '../../common/money';
 import { PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
@@ -105,6 +115,48 @@ export interface CardDTO {
 }
 
 /**
+ * ⭐ **Una pieza vendible: su DTO público (`P`) + su `L`.**
+ *
+ * `L` viaja **en el sobre y no en el DTO** (`ARCHITECTURE §4.44.i`: el cliente recibe la cifra ya
+ * hecha, nunca los ingredientes). Lo consumen el gate de curaduría de graduadas y el orden del
+ * representante, que razonan en **escala de mercado** (sin IVA).
+ */
+interface SellableRow {
+  item: ItemWithCard;
+  dto: ListingDTO;
+  /** `L` — precio de LISTA, sin IVA. `fetchSellable` solo emite filas con `L != null`. */
+  listPriceCents: number;
+}
+
+/**
+ * Contexto pre-cargado de `toListingDTO`/`toListingRow` (BE-25: sin N+1).
+ */
+interface ListingCtx {
+  // BE-25 (§4.17c): contexto pre-cargado por `fetchSellable` (referencia del lote + reglas de
+  // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
+  // resuelve todo por sí mismo (uso single).
+  reference?: PriceInfo;
+  // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
+  curve?: PricingCurve;
+  // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
+  // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
+  sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
+  // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
+  pricedFinishes?: Iterable<Finish>;
+  // v1.28 (P-18, §4.26b): fila M-30 de la variante (del lote de `fetchSellable`; `null` = sin
+  // fila). Su presencia va atada a `curve` (batch); en uso single se resuelve aquí mismo.
+  variantOverride?: VariantPriceOverride | null;
+  /**
+   * ⭐⭐ **LOS DOS DIALES QUE DERIVAN `P`** (`ARCHITECTURE §4.44.b`), izados **una vez por
+   * petición** por `fetchSellable`. Sin ellos (uso single) se leen aquí mismo.
+   *
+   * ⛔ **Jamás por pieza dentro de un bucle**: dos piezas de la misma rejilla derivadas con
+   * posiciones distintas del dial darían dos precios que el cliente no puede comparar.
+   */
+  ivaDials?: IvaDials;
+}
+
+/**
  * `ListingDTO` del contrato (§DTOs), **declarado** (v2.1.9, T-2). El retorno de `toListingDTO` era
  * **inferido**: la misma clase que B-1 cerró en `GroupedListingDTO` seguía abierta en el DTO
  * por-pieza, que es el que alimenta `units[]`, `GET /catalog/listings/:id` y la ficha de sellado.
@@ -122,7 +174,22 @@ export interface ListingDTO {
   gradeValue?: string;
   certNumber?: string;
   referenceValue: PriceInfo;
-  salePriceCents?: number;
+  /**
+   * ⭐⭐ **`P` — EL PRECIO EXHIBIDO, CON EL IVA DENTRO** (`API_CONTRACT §M10-IVA.3`, `ARCHITECTURE
+   * §4.44.i`). **La cifra que se pinta y la que se suma.**
+   *
+   * ⛔ **SUSTITUYE a `salePriceCents`; no lo acompaña.** Dejar el mismo nombre cambiando su
+   * significado es **el defecto de D54 un nivel más abajo**: un front que no migrara **seguiría
+   * pintando la mentira sin que nada fallara**. Con el rename, un front que no migró **no compila**.
+   * *El compilador sostiene la diferencia; el test es la red.*
+   *
+   * ⛔ **El frontend NUNCA multiplica**: recibe el número ya hecho, jamás los ingredientes.
+   */
+  displayPriceCents?: number;
+  /** `true` bajo `IVA_INCLUSIVE`. La señal que gobierna el rótulo, ⛔ no una inferencia del front. */
+  ivaIncluded: boolean;
+  /** La **TASA**, para el rótulo «IVA 16 % incluido». ⛔ **NO es el dial de traslación** (crit. 209). */
+  ivaRatePct: number;
   /** v2.0 (P-48, §N.7): QUÉ determinó el precio. REQUERIDO — su ausencia es lo que invirtió B-1. */
   priceBasis: PriceBasis;
   sellable: boolean;
@@ -275,7 +342,12 @@ export interface GroupedListingSummaryDTO {
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   stockCount: number;
-  salePriceCents: number;
+  /** `P` del representante (la pieza vendible más barata) — **semántica «desde»**, con IVA dentro. */
+  displayPriceCents: number;
+  /** `true` bajo `IVA_INCLUSIVE` (§M10-IVA.3). */
+  ivaIncluded: boolean;
+  /** La **TASA** (§M10-IVA.3). ⛔ **NO es el dial.** */
+  ivaRatePct: number;
   currency: 'MXN';
   /**
    * v1.50.2 (contrato §DTOs base, ARCHITECTURE §4.38e) — **MOVIDO desde `GroupedListingDTO`**.
@@ -311,7 +383,12 @@ export interface GroupedListingDTO {
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   stockCount: number;
-  salePriceCents: number;
+  /** `P` del representante (la pieza vendible más barata) — **semántica «desde»**, con IVA dentro. */
+  displayPriceCents: number;
+  /** `true` bajo `IVA_INCLUSIVE` (§M10-IVA.3). */
+  ivaIncluded: boolean;
+  /** La **TASA** (§M10-IVA.3). ⛔ **NO es el dial.** */
+  ivaRatePct: number;
   /**
    * v2.0 (P-48) — el basis del REPRESENTANTE (la pieza más barata). Las piezas de un grupo comparten
    * clave K ⇒ comparten curva y override de variante ⇒ comparten basis, SALVO que alguna traiga
@@ -469,7 +546,35 @@ export class CatalogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    /**
+     * ⭐⭐ **Los DOS diales que derivan `P`** (`ARCHITECTURE §4.44.b`, `API_CONTRACT §M10-IVA.3`).
+     * `SettingsModule` es `@Global`, así que en la aplicación **siempre** se inyecta.
+     *
+     * ⚠️ **`@Optional()` es por los tests unitarios que construyen el servicio a mano**, y viene con
+     * su consecuencia dicha: sin él **y** sin `ctx.ivaDials`, `toListingRow` **LANZA**. ⛔ No hay
+     * valor por defecto, y eso es la decisión: un `?? { ivaTransferPct: 100 }` de cortesía serviría
+     * el precio de la posición equivocada del dial **sin que nada fallara** — la misma clase de
+     * defecto que el `default` que lanza en `ivaIsIncluded`. *Un dial de dinero que se puede
+     * «suponer» no es un dial.*
+     */
+    @Optional() private readonly settings?: SettingsService,
   ) {}
+
+  /**
+   * Resuelve los dos diales: del contexto del lote (BE-25) o, en uso single, de `SettingsService`.
+   * ⛔ **Sin ninguno de los dos, LANZA.** Ver la nota del constructor.
+   */
+  private async ivaDialsOf(ctx?: ListingCtx): Promise<IvaDials> {
+    if (ctx?.ivaDials) return ctx.ivaDials;
+    if (!this.settings) {
+      throw new Error(
+        'CatalogService: no IVA dials — pass `ctx.ivaDials` or inject SettingsService. ' +
+          'A display price derived from an assumed dial would be silently wrong ' +
+          '(ARCHITECTURE §4.44.b, API_CONTRACT §M10-IVA.3).',
+      );
+    }
+    return this.settings.getIvaDials();
+  }
 
   /**
    * v1.1 — "Compra" = inventario PUBLICADO con precio de venta RESOLVIBLE (ARCHITECTURE §4.9):
@@ -522,9 +627,7 @@ export class CatalogService {
    * request y resuelve las referencias en **un** lote (`getReferencesBatch`) en vez de 2 lecturas de
    * settings + 1 `getReference` **por ítem** (N+1). Cada DTO se construye con el contexto pre-cargado.
    */
-  private async fetchSellable(
-    where: Prisma.InventoryItemWhereInput,
-  ): Promise<{ item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[]> {
+  private async fetchSellable(where: Prisma.InventoryItemWhereInput): Promise<SellableRow[]> {
     const items = await this.prisma.inventoryItem.findMany({
       where,
       include: { card: { include: { set: true } } },
@@ -567,18 +670,24 @@ export class CatalogService {
         }),
     );
 
-    const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
+    // ⭐ BE-25 + §4.44.b: los dos diales, **una lectura por petición**. ⛔ Jamás dentro del bucle:
+    // dos piezas de la misma rejilla derivadas con posiciones distintas del dial darían dos precios
+    // que el cliente no puede comparar.
+    const ivaDials = await this.ivaDialsOf();
+    const out: SellableRow[] = [];
     for (const item of items) {
       const reference = this.refFromBatch(refs, item);
-      const dto = await this.toListingDTO(item, {
+      const { dto, listPriceCents } = await this.toListingRow(item, {
         reference,
         curve,
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
         variantOverride:
           item.productType === 'sealed' ? null : this.variantOverrideOf(variantOverrides, item),
+        ivaDials,
       });
-      if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
+      // ⚠️ El filtro mira **`L`** (`listPriceCents`), no `P`: la regla de publicación es de MARGEN.
+      if (dto.sellable && listPriceCents != null) out.push({ item, dto, listPriceCents });
     }
     return out;
   }
@@ -645,25 +754,27 @@ export class CatalogService {
    */
   // v2.1.9 (T-2): retorno DECLARADO. Era inferido, así que perder un campo requerido no era un
   // error de compilación — la misma clase que B-1 cerró en el DTO de GRUPO, abierta en el de PIEZA.
-  async toListingDTO(
+  async toListingDTO(item: ItemWithCard, ctx?: ListingCtx): Promise<ListingDTO> {
+    return (await this.toListingRow(item, ctx)).dto;
+  }
+
+  /**
+   * ⭐⭐ **El DTO público MÁS el `L` del que salió su `P`.**
+   *
+   * **Por qué dos cifras y no una.** `ListingDTO` publica **`P`** (con IVA dentro) porque es lo que
+   * el cliente ve y suma. Pero hay consumidores INTERNOS que razonan sobre el **precio de lista**:
+   * el gate de curaduría de graduadas (`rawSalePriceCents × maxRawMultiple` contra estimados de
+   * MERCADO, que son **sin IVA**) y el orden del representante del grupo. Darles `P` haría que el
+   * gancho comparara un precio **con impuesto dentro** contra una referencia **sin él** — un sesgo
+   * silencioso de `t·r` en una decisión comercial. *Mezclar las dos escalas es exactamente cómo un
+   * margen acaba comparándose contra un precio con impuesto.*
+   *
+   * ⛔ **`L` NO se publica** (no está en `ListingDTO`): vive en el sobre, no en el DTO.
+   */
+  private async toListingRow(
     item: ItemWithCard,
-    ctx?: {
-      // BE-25 (§4.17c): contexto pre-cargado por `fetchSellable` (referencia del lote + reglas de
-      // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
-      // resuelve todo por sí mismo (uso single).
-      reference?: PriceInfo;
-      // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
-      curve?: PricingCurve;
-      // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
-      // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
-      sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
-      // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
-      pricedFinishes?: Iterable<Finish>;
-      // v1.28 (P-18, §4.26b): fila M-30 de la variante (del lote de `fetchSellable`; `null` = sin
-      // fila). Su presencia va atada a `curve` (batch); en uso single se resuelve aquí mismo.
-      variantOverride?: VariantPriceOverride | null;
-    },
-  ): Promise<ListingDTO> {
+    ctx?: ListingCtx,
+  ): Promise<{ dto: ListingDTO; listPriceCents?: number }> {
     let referenceValue: PriceInfo;
     let salePriceCents: number | undefined;
     // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
@@ -756,9 +867,23 @@ export class CatalogService {
     }
 
     // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0).
+    // ⚠️ La regla de publicación se evalúa sobre **`L`** y no sobre `P`: `P` es `L` con un factor
+    // ≥ 1 encima, así que «`> 0`» no cambia de veredicto — pero el criterio es de **margen**, y el
+    // margen es `L`. *Evaluar una regla comercial sobre un precio con impuesto dentro es cómo se
+    // mueven umbrales sin que nadie decida moverlos.*
     const sellable = salePriceCents != null && salePriceCents > 0 && item.status === 'listed';
 
-    return {
+    // ⭐⭐ **LA DERIVACIÓN DE `P`, EN EL ÚNICO SITIO POR EL QUE PASA TODA PIEZA DEL STOREFRONT.**
+    // `P = round(L × (1 + t·r))` (`ARCHITECTURE §4.44.b`, `API_CONTRACT §M10-IVA.3`). El servidor
+    // manda la cifra **ya hecha**; ⛔ el frontend no multiplica nada (§4.44.i). Si el front la
+    // compusiera, cada superficie sería un sitio donde el precio puede salir distinto.
+    const dials = await this.ivaDialsOf(ctx);
+    const displayPriceCents =
+      salePriceCents == null
+        ? undefined
+        : displayPriceCentsOf(salePriceCents, dials.ivaTransferPct, dials.ivaRatePct);
+
+    const dto: ListingDTO = {
       inventoryItemId: item.id,
       card: toCardDTO(item.card, ctx?.pricedFinishes),
       productType: item.productType,
@@ -782,13 +907,22 @@ export class CatalogService {
       // `GET /catalog/listings/:id` — el endpoint del PoC del pentester, que SIN TOKEN devolvía
       // `priceBasis:"override"` + el número que la UI tiene PROHIBIDO pintar.
       referenceValue: toPublicPriceInfo(referenceValue, priceBasis),
-      salePriceCents,
+      // ⭐ `P`, no `L`. ⛔ `salePriceCents` **desapareció** de la superficie pública (§M10-IVA.3):
+      // no se reinterpreta un nombre, se cambia — así un front que no migró **no compila**.
+      displayPriceCents,
+      ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
+      // La **TASA**, para el rótulo. ⛔ `ivaTransferPct` NO viaja aquí (criterio **209**): que el
+      // cliente pueda leer qué fracción absorbemos es una **fuga comercial**.
+      ivaRatePct: dials.ivaRatePct,
       // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad. `referenceValue` sigue
       // viajando (el mismo DTO alimenta superficies admin y de valuación); el front OBEDECE esto.
       priceBasis,
       sellable,
       // v1.2 (M-13): sin fotos propias — la imagen es la de catálogo remota (CardDTO.imageSmallUrl/Large).
     };
+    // `L` viaja en el SOBRE, ⛔ nunca dentro del DTO: lo consumen el gate de curaduría y el orden
+    // del representante, que razonan en escala de MERCADO (sin IVA).
+    return { dto, listPriceCents: salePriceCents };
   }
 
   /**
@@ -894,7 +1028,7 @@ export class CatalogService {
    * POR SLAB ⇒ NO va a nivel de grupo (se expone por pieza en `units[]` de la ficha).
    */
   private buildGroups(
-    rows: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[],
+    rows: SellableRow[],
     // v1.44-graded-estimate (§4.38e): contexto del gancho. Ausente/`null` ⇒ ningún grupo trae
     // `gradingHighlight` (dial off, o superficie que no lo compone) — el DTO sale EXACTAMENTE como hoy.
     grading?: GradingContext | null,
@@ -927,12 +1061,16 @@ export class CatalogService {
       else groups.set(keys.variantKey, { gradeKey: keys.gradeKey, members: [r] });
     }
     return [...groups.values()].map(({ gradeKey, members }) => {
-      // Representante = pieza vendible MÁS BARATA (el precio del grupo = su salePriceCents = mínimo).
-      const cheapest = [...members].sort(
-        (a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0),
-      )[0];
+      // Representante = pieza vendible MÁS BARATA. ⚠️ Se ordena por **`L`** y no por `P`: `P` es
+      // monótono en `L`, pero dos `L` distintos pueden dar el MISMO `P` al redondear ⇒ ordenar por
+      // `P` podría elegir otro representante que el de antes del corte. Ordenar por `L` deja la
+      // elección **bit a bit la de siempre**.
+      const cheapest = [...members].sort((a, b) => a.listPriceCents - b.listPriceCents)[0];
       const item = cheapest.item;
-      const salePriceCents = cheapest.dto.salePriceCents!; // garantizado por fetchSellable (nunca null aquí)
+      /** `L` del representante — escala de MERCADO (sin IVA). Alimenta gates y diagnóstico admin. */
+      const listPriceCents = cheapest.listPriceCents;
+      /** `P` del representante — la cifra que se pinta. `fetchSellable` garantiza que no es `null`. */
+      const displayPriceCents = cheapest.dto.displayPriceCents!;
 
       // v1.50-graded-estimate (§4.38c/e) — GATE DE CURADURÍA, a nivel de GRUPO: compara contra
       // `salePriceCents`, que ES del grupo. Una carta con `normal` y `reverse_holo` publicados tiene UN
@@ -941,7 +1079,10 @@ export class CatalogService {
       const highlightResult = grading
         ? evaluateGradingHighlight<GradedEstimateRef>({
             productType: item.productType,
-            rawSalePriceCents: salePriceCents,
+            // ⚠️⚠️ **`L`, ⛔ NUNCA `P`.** El gate compara contra estimados de MERCADO (PSA 10/9),
+            // que son cifras **sin IVA**. Meterle el precio con impuesto dentro movería el umbral
+            // `salePrice × maxRawMultiple` un `t·r` hacia arriba **sin que nadie decida moverlo**.
+            rawSalePriceCents: listPriceCents,
             estimates: grading.byCard.get(item.cardId) ?? [],
             // v1.50.2 (§4.38l, INV-D): si la carta tiene un SLAB PUBLICADO de ese grado, esa fila no es
             // un estimado — es el precio de mercado REAL de la pieza. La guarda de LECTURA la omite.
@@ -973,7 +1114,9 @@ export class CatalogService {
         gradingCompany: item.gradingCompany ?? undefined,
         gradeValue: item.gradeValue ?? undefined,
         stockCount: members.length,
-        salePriceCents,
+        displayPriceCents,
+        ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
+        ivaRatePct: cheapest.dto.ivaRatePct,
         // v2.0 (P-48, contrato §DTOs `GroupedListingDTO`) — REQUERIDO, y se omitía.
         //
         // Es el basis del REPRESENTANTE (la pieza más barata). Todas las piezas de un grupo comparten
@@ -1013,7 +1156,9 @@ export class CatalogService {
         gradingCompany: dto.gradingCompany,
         gradeValue: dto.gradeValue,
         stockCount: dto.stockCount,
-        salePriceCents: dto.salePriceCents,
+        displayPriceCents: dto.displayPriceCents,
+        ivaIncluded: dto.ivaIncluded,
+        ivaRatePct: dto.ivaRatePct,
         currency: dto.currency,
         // v1.50.2 (ADITIVO): presente ⇔ el gate de ROI **y** el de confianza (§4.38k) se cumplen.
         // Omitido en cualquier otro caso (incluido el dial `off`) ⇒ la teja se ve EXACTAMENTE como hoy
@@ -1023,7 +1168,10 @@ export class CatalogService {
       return {
         dto,
         summary,
-        salePriceCents,
+        /** `P` — el que se filtra y se ordena de cara al cliente (es lo que ve). */
+        displayPriceCents,
+        /** `L` — el que consumen los gates y el diagnóstico de admin (escala de mercado). */
+        listPriceCents,
         // 'newest' del grupo = la pieza más nueva (createdAt desc) — contrato §2 GET /catalog/cards.
         newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
         // Claves de ORDEN de la vitrina (`sort=grading_showcase`) y del diagnóstico de admin. NINGUNA
@@ -1168,14 +1316,20 @@ export class CatalogService {
     // (criterio 101). No es un error: es la feature apagada.
     if (onlyHighlighted) groups = groups.filter((g) => g.summary.gradingHighlight != null);
 
-    // Rango de precio sobre el salePriceCents del GRUPO (contrato §2): el mínimo del grupo (= el del
+    // Rango de precio sobre el precio EXHIBIDO del GRUPO (contrato §2): el mínimo del grupo (= el del
     // representante). En el caso normal todas las piezas comparten precio, así que equivale a filtrar por
     // pieza; ante un listPriceCents manual divergente, el grupo se conserva/descarta por su precio único.
-    if (q.minPriceCents != null) groups = groups.filter((g) => g.salePriceCents >= q.minPriceCents!);
-    if (q.maxPriceCents != null) groups = groups.filter((g) => g.salePriceCents <= q.maxPriceCents!);
+    //
+    // ⭐ **Desde D56 el filtro se evalúa sobre `P`, no sobre `L`, y es deliberado**: es el precio que
+    // el comprador **ve y teclea** en el control de rango. Filtrar por `L` haría que una carta
+    // exhibida en MX$116 desapareciera de «hasta MX$120», que es la clase de incoherencia que el
+    // criterio 189 existe para cerrar. Enrutado al arquitecto en `docs/BACKEND_NOTES.md` (el
+    // contrato no lo enuncia); el **orden** no cambia porque `P` es monótono en `L`.
+    if (q.minPriceCents != null) groups = groups.filter((g) => g.displayPriceCents >= q.minPriceCents!);
+    if (q.maxPriceCents != null) groups = groups.filter((g) => g.displayPriceCents <= q.maxPriceCents!);
 
-    if (q.sort === 'price_asc') groups.sort((a, b) => a.salePriceCents - b.salePriceCents);
-    else if (q.sort === 'price_desc') groups.sort((a, b) => b.salePriceCents - a.salePriceCents);
+    if (q.sort === 'price_asc') groups.sort((a, b) => a.listPriceCents - b.listPriceCents);
+    else if (q.sort === 'price_desc') groups.sort((a, b) => b.listPriceCents - a.listPriceCents);
     else if (q.sort === 'grading_showcase') {
       // v1.44 (§4.38f) — nombre deliberadamente NEUTRO: no nombra el criterio, así que ajustar la
       // política comercial es un cambio server-side con CERO impacto en contrato y cliente. Criterio
@@ -1244,7 +1398,9 @@ export class CatalogService {
       }))
       .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
 
-    const prices = rows.map((r) => r.dto.salePriceCents ?? 0);
+    // ⭐ La faceta de precio es lo que el comprador ve en el control de rango ⇒ **`P`**, coherente
+    // con el filtro `minPriceCents`/`maxPriceCents` de arriba.
+    const prices = rows.map((r) => r.dto.displayPriceCents ?? 0);
     return {
       rarities,
       sets,
@@ -1274,12 +1430,13 @@ export class CatalogService {
     // v1.38-grouped-listings (P-30, §4.9a): `listings` = publicaciones AGRUPADAS (una por
     // (productType,gradeKey,finish) con stockCount≥1), cheapest-first — es la grilla de la ficha.
     const listings = this.buildGroups(rows, grading)
-      .sort((a, b) => a.salePriceCents - b.salePriceCents)
+      // Orden por `L` (ver `buildGroups`): mismo resultado que por `P` y sin depender del redondeo.
+      .sort((a, b) => a.listPriceCents - b.listPriceCents)
       .map((g) => g.dto);
     // `units` = TODAS las piezas vendibles POR-PIEZA (cheapest-first) para el add-to-cart por
     // inventoryItemId (el carrito sigue por-pieza, §4-G) y para exponer el certNumber de cada slab.
     const units = [...rows]
-      .sort((a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0))
+      .sort((a, b) => a.listPriceCents - b.listPriceCents)
       .map((r) => r.dto);
 
     // v1.44-graded-estimate (§4.38-0/e, API_CONTRACT §2) — FICHA: `gradedEstimates` a nivel de CARTA y
@@ -1359,11 +1516,12 @@ export class CatalogService {
     const today = previewToday;
     const groups = this.buildGroups(rows)
       .filter((g) => g.dto.productType === 'raw')
-      .sort((a, b) => a.salePriceCents - b.salePriceCents)
+      .sort((a, b) => a.listPriceCents - b.listPriceCents)
       .map((g) => {
         const r: GradingHighlightResult<GradedEstimateRef> = evaluateGradingHighlight<GradedEstimateRef>({
           productType: 'raw',
-          rawSalePriceCents: g.salePriceCents,
+          // ⚠️ `L`, ⛔ no `P`: el gate compara contra estimados de MERCADO (sin IVA). Ver `buildGroups`.
+          rawSalePriceCents: g.listPriceCents,
           estimates,
           publishedSlabGrades,
           today,
@@ -1372,7 +1530,10 @@ export class CatalogService {
         return {
           representativeInventoryItemId: g.dto.representativeInventoryItemId,
           finish: g.dto.finish,
-          salePriceCents: g.salePriceCents,
+          // ⭐ Superficie **ADMIN**: aquí `salePriceCents` **sigue siendo `L`** y ⛔ no se renombra.
+          // `PROJECT §Q.5`: *«el admin NO se convierte en superficie solo-con-IVA»* — es donde se
+          // toma la decisión de margen, y el margen es `L`.
+          salePriceCents: g.listPriceCents,
           psa10MxnCents: r.psa10MxnCents,
           psa9MxnCents: r.psa9MxnCents,
           capturedDate: r.capturedDate,
@@ -1541,7 +1702,8 @@ export class CatalogService {
       const publishedSlabGrades = slabsByCard.get(card.id) ?? [];
       const r = evaluateGradingHighlight<GradedEstimateRef>({
         productType: 'raw',
-        rawSalePriceCents: g.salePriceCents,
+        // ⚠️ `L`, ⛔ no `P` (ver `buildGroups`).
+        rawSalePriceCents: g.listPriceCents,
         estimates,
         publishedSlabGrades,
         today,
@@ -1564,7 +1726,8 @@ export class CatalogService {
         number: card.number,
         representativeInventoryItemId: g.dto.representativeInventoryItemId,
         finish: g.dto.finish,
-        salePriceCents: g.salePriceCents,
+        // ⭐ Superficie ADMIN: `L`, sin IVA (`PROJECT §Q.5`).
+        salePriceCents: g.listPriceCents,
         psa10MxnCents: r.psa10MxnCents,
         psa9MxnCents: r.psa9MxnCents,
         capturedDate: r.capturedDate,

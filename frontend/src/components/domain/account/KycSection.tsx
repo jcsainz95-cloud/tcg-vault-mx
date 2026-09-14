@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getKyc, updateKyc } from '@/lib/api';
 import { getBadgeSpec } from '@/lib/status-map';
+import { PENDINGS_QUERY_KEY } from '@/hooks/usePendings';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -65,6 +66,12 @@ export function KycSection() {
       qc.setQueryData(['kyc'], kyc);
       // La lista de requisitos del cotizador lee el mismo endpoint con el total cotizado.
       qc.invalidateQueries({ queryKey: ['kyc'] });
+      // ⭐ Criterio **202(c)**: resuelto el pendiente, la campana **desaparece**. Resubir el INE
+      // devuelve el KYC a `pending`, y `pending` ⛔ NO es un pendiente (§R.2.3: *un pendiente cuya
+      // acción es esperar no es suyo, es nuestro*). Como la campana se **deriva**, basta con
+      // volver a preguntar: no hay nada que apagar a mano — y ésa es justo la mitad del criterio
+      // que, con una tabla de avisos, sería código que alguien tiene que acordarse de escribir.
+      qc.invalidateQueries({ queryKey: PENDINGS_QUERY_KEY });
       setIneSaved(true);
       setUpdateOpen(false);
       setIneFront(null);

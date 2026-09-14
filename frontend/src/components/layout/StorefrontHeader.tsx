@@ -8,6 +8,7 @@ import { useSession } from '@/lib/session';
 import { useCart } from '@/lib/cart';
 import { cn } from '@/lib/cn';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
+import { PendingsBell } from '@/components/layout/PendingsBell';
 
 /**
  * Marca TCG HUNT en topbar (§17.3): solo-mira 28px + wordmark en `--font-brand` 700,
@@ -145,6 +146,15 @@ export function StorefrontHeader() {
           <div className="hidden lg:block">
             <LocaleToggle />
           </div>
+
+          {/* ⭐ LA CAMPANA (`PROJECT §R.0.a`, criterio 202). Va **arriba a la derecha** y en el
+              ÚNICO header de la tienda: con eso está en las tres situaciones que el dueño nombró
+              —carrito listo, flujo de venta, cuenta/bóveda sin carrito— sin mantener una lista de
+              pantallas que alguien olvidará ampliar. **NO se oculta en el flujo de venta**: lo que
+              §33.1/P-28 desambigua ahí son los DOS carritos, y la campana no es un carrito.
+              ⛔ Se pinta **fuera** de `lg:` también: esconderla en móvil sería fallar 202(b).
+              Con `{"pendings":[]}` el componente devuelve `null` y aquí no queda hueco (202c). */}
+          <PendingsBell />
 
           {/* §33.1: sin bloque de perfil (nombre + Cerrar sesión) en el header. «Mi cuenta» vive en
               el nav en los dos estados; el nombre no es rótulo y «Cerrar sesión» está en /account. */}

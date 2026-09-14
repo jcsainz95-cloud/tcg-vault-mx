@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { t } from './utils/i18n';
+import { ivaLabelRe, t } from './utils/i18n';
 import { IS_REAL, mockOnly, MONEY_RE } from './utils/auth';
 
 /**
@@ -53,7 +53,12 @@ test.describe('guest checkout · identidad y desglose', () => {
     const breakdown = page.getByTestId('amount-breakdown');
     await expect(breakdown.getByText(t('es', 'checkout.subtotal'))).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.shipping'))).toBeVisible();
-    await expect(breakdown.getByText(t('es', 'checkout.iva', { rate: 16 }))).toBeVisible();
+    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
+    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
+    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
+    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
+    await expect(breakdown.getByText(ivaLabelRe('es', 'checkout.ivaIncluded'))).toBeVisible();
+    await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
     await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
     await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
 

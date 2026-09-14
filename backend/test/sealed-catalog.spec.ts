@@ -4,6 +4,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { computeSealedSalePrice } from '../src/common/money';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.23-sealed-sales (§2-S) — SealedCatalogService: grid AGREGADO por producto+condición
@@ -118,6 +119,8 @@ function build(opts: {
       if (key === 'sealed_restock_alerts') return opts.restock ?? 'off';
       return 'off';
     }),
+    // ⭐ D56: `fromPriceCents` se DERIVA con los dos diales (§M10-IVA.3). Neutro: t=100, r=16.
+    ...ivaDialsStub(),
   } as unknown as SettingsService;
 
   const catalog = {
@@ -138,7 +141,10 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     expect(res.total).toBe(1);
     const g = res.data[0];
     expect(g.availableCount).toBe(2);
-    expect(g.fromPriceCents).toBe(50000);
+    // ⭐ D56: `fromPriceCents` lleva el IVA dentro. `L = 50000` ⇒ `P = round(L × 1.16) = 58000`.
+    expect(g.fromPriceCents).toBe(58000);
+    expect(g.ivaIncluded).toBe(true);
+    expect(g.ivaRatePct).toBe(16);
     expect(g.representativeItemId).toBe('b'); // el más barato
     // v2.1.9 (D2): la REJILLA ya no recibe `priceSource` (de él se DERIVA `priceBasis`, así que
     // dejarlo publicaría la misma señal con otro nombre). El basis/source se afirman en la FICHA.
@@ -207,7 +213,8 @@ describe('SealedCatalogService.listSealed — grid agregado por producto+condici
     const { svc } = build({ items, refs, sourceOn: true });
     const res = await svc.listSealed({ page: 1, pageSize: 20 });
     expect(res.total).toBe(1);
-    expect(res.data[0].fromPriceCents).toBe(118000);
+    // `L = 100000 × 1.18 = 118000` ⇒ `P = 118000 + 18880 = 136880`.
+    expect(res.data[0].fromPriceCents).toBe(136880);
     // v2.1.9 (D2): `priceSource` y `referenceValue` salieron de la REJILLA. Que el precio DERIVADO
     // sigue siendo el correcto se ve en `fromPriceCents` (100000 × 1.18); la procedencia se afirma
     // en la ficha (`catalog.group-dto-shape.spec.ts`).

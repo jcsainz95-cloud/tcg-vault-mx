@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import { anclasEstructurales, codigoDeTexto } from './helpers/codigo-de-fichero';
 import { join } from 'node:path';
 import { SellRequestStatus } from '@prisma/client';
 import {
@@ -44,14 +45,37 @@ const SOURCES: { path: string; text: string }[] = sourceFiles().map((p) => ({
 
 /**
  * Quita comentarios de línea y de bloque. **Sin esto el guard sería inservible**: este repo documenta
- * los sets EN PROSA dentro de los docblocks (y este pase añadió varios), así que buscar el literal a
- * pelo daría positivo sobre la explicación de por qué el literal no debe existir.
+ * los sets EN PROSA dentro de los docblocks, así que buscar el literal a pelo daría positivo sobre la
+ * explicación de por qué el literal no debe existir.
+ *
+ * ⭐⭐ **Aquí vivía una COPIA LOCAL del algoritmo v1 que ECLIPSABA al helper del repo** (mismo
+ * nombre, `function stripComments`), así que el arreglo de la v2 no llegaba a este fichero: *un
+ * helper arreglado no arregla a quien no lo llama, y menos a quien lo tapa con su propia versión.*
+ * Este barrido recorre **`src/` entero**, y siete de sus ficheros tienen una apertura de bloque
+ * dentro de un comentario o de una cadena (medido 2026-09-14) ⇒ la copia local **sí** se comía
+ * código. La no-vacuidad es **por contenido y GLOBAL**: se exige que el conjunto limpio conserve
+ * anclas que viven en ficheros distintos, porque la ceguera de esta clase es **parcial**.
  */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
-}
+const CODE = SOURCES.map((f) => ({
+  path: f.path,
+  text: codigoDeTexto(f.text, f.path, anclasEstructurales(f.text, f.path)),
+}));
 
-const CODE = SOURCES.map((f) => ({ path: f.path, text: stripComments(f.text) }));
+it('⛔ NO-VACUIDAD GLOBAL POR CONTENIDO: el barrido limpio conserva código de módulos distintos', () => {
+  // La ceguera de esta clase es **parcial**: se pierde una región, no el fichero. Por eso se
+  // comprueban anclas de módulos separados, y no un «hay texto» que cualquier mutilación satisface.
+  const todo = CODE.map((f) => f.text).join('\n');
+  for (const ancla of [
+    'export class BuylistService',
+    'export class ShipmentsService',
+    'export class PricingController',
+    'export const SELL_REQUEST_TERMINAL_STATES',
+  ]) {
+    expect({ ancla, presente: todo.includes(ancla) }).toEqual({ ancla, presente: true });
+  }
+  // Y el barrido de verdad recorre `src/` entero, no dos ficheros sueltos.
+  expect(CODE.length).toBeGreaterThan(100);
+});
 
 // ============================================================================================
 describe('§4.39c — la FUENTE ÚNICA: composición de los subconjuntos', () => {

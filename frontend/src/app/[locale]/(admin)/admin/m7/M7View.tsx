@@ -106,6 +106,25 @@ export function M7View() {
                 <PnlLine sign="−" label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
                 <PnlLine sign="−" label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
               </div>
+              {/*
+               * ⭐ **§M10-IVA.8 — `shippingCostMissingCount`: UNA SEÑAL PARA UN HUMANO, NO UN
+               * IMPORTE.** `ShipmentRequest.shippingCostCents` es `@default(0)`, así que en las
+               * filas existentes **«costó cero» y «no se capturó» son indistinguibles**. El
+               * contador **señala** esa ambigüedad; ⛔ no la resuelve, ⛔ no se suma a ninguna línea
+               * y ⛔ no lleva signo. *Un cero silencioso convierte el ingreso de ese envío en
+               * ganancia fantasma.*
+               *
+               * ⛔ **Y no se pinta cuando vale 0** — si no hay nada que revisar, no hay aviso:
+               * la clase de defecto del criterio **202(c)** (*«falla si queda un indicador
+               * vacío»*). El `> 0` es la condición, no un `??`.
+               */}
+              {pnl.data.shippingCostMissingCount > 0 && (
+                <div data-testid="shipping-cost-missing">
+                  <Banner variant="warning" role="status">
+                    {t('pnl.shippingCostMissing', { count: pnl.data.shippingCostMissingCount })}
+                  </Banner>
+                </div>
+              )}
               <div className="mt-1 flex items-center justify-between border-t-2 border-border-strong pt-3">
                 <span className="flex items-center gap-2 font-semibold">
                   <TrendingUp size={18} className={pnl.data.profitCents >= 0 ? 'text-success' : 'text-danger'} />

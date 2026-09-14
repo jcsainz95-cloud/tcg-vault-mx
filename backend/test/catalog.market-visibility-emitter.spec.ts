@@ -7,6 +7,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
 import { computeSealedSalePrice } from '../src/common/money';
 import { onWire } from './helpers/dto-keys';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v2.1.9 · D2 (API_CONTRACT §DTOs `ListingDTO` / §N.7 · ARCHITECTURE §4.36.7b.2) —
@@ -127,7 +128,7 @@ function buildCatalog(items: Array<Record<string, unknown>>, ref = MARKET_REF as
     inventoryItem: { findMany: jest.fn(async () => items), count: jest.fn(async () => items.length) },
     card: { findUnique: jest.fn(async () => CARD()) },
   } as unknown as PrismaService;
-  return new CatalogService(prisma, pricingMock(ref));
+  return new CatalogService(prisma, pricingMock(ref), ivaDialsStub() as never);
 }
 
 describe('D2 · el proyector — `toPublicPriceInfo` parametrizado por `priceBasis`', () => {
@@ -216,7 +217,7 @@ describe('D2 · REJILLA de singles — las dos señales no viajan, en el JSON', 
     expect(row).not.toHaveProperty('priceBasis');
     expect(row).not.toHaveProperty('referenceValue');
     // Y el precio de venta —lo único que la rejilla necesita— sigue ahí.
-    expect(row.salePriceCents).toBe(575_000);
+    expect(row.displayPriceCents).toBe(667_000); // `P` de `L = 575000`
   });
 
   it('tampoco con basis `override`: la rejilla NO publica el mapa de qué cartas llevan precio a mano', async () => {
@@ -262,8 +263,9 @@ describe('D2 · SELLADO — la ficha recorta el número; la rejilla pierde tambi
         getBool: jest.fn(async () => false),
         getNumber: jest.fn(async () => 0),
         getString: jest.fn(async () => 'off'),
+        ...ivaDialsStub(),
       } as unknown as SettingsService,
-      new CatalogService(prisma, pricing),
+      new CatalogService(prisma, pricing, ivaDialsStub() as never),
     );
   }
 
@@ -295,7 +297,7 @@ describe('D2 · SELLADO — la ficha recorta el número; la rejilla pierde tambi
   it('la rejilla de sellado conserva lo que sí necesita (precio «desde», conteo, identidad)', async () => {
     const res = await buildSealed([SEALED({ listPriceCents: 999_000 })]).listSealed({ page: 1, pageSize: 20 } as never);
     expect(res.data[0]).toMatchObject({
-      fromPriceCents: 999_000,
+      fromPriceCents: 1_158_840, // `P` de `L = 999000`
       availableCount: 1,
       productName: 'Surging Sparks Booster Box',
       currency: 'MXN',

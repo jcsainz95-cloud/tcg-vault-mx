@@ -268,8 +268,15 @@ export function sellItemRejectedTemplate(
  * **S15-B1:** todo valor dinámico pasa por `escapeHtml`.
  */
 
-/** Fecha **Y HORA** explícitas en `America/Mexico_City` (criterio 154: nunca «en 2 días»). */
-function formatDateTime(date: Date | null, locale: Locale): string {
+/**
+ * Fecha **Y HORA** explícitas en `America/Mexico_City` (criterio 154: nunca «en 2 días»).
+ *
+ * ⭐ v1.74 (§R.8 fila 8) — **se EXPORTA, y esa es la mitad que importa**: el aviso `AV-7` (la guía al
+ * vendedor) tiene que decir el plazo de envío **con el mismo string** que ya dice la pantalla y que
+ * dice el recordatorio del barrido. ⛔ **No se escribe un segundo formateador**: dos formateadores
+ * son dos verdades sobre la misma fecha, y la que el vendedor recuerde será la que le convenga a él.
+ */
+export function formatDateTime(date: Date | null, locale: Locale): string {
   if (!date) return '—';
   return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'es-MX', {
     dateStyle: 'full',
@@ -278,8 +285,12 @@ function formatDateTime(date: Date | null, locale: Locale): string {
   }).format(date);
 }
 
-/** MXN desde centavos, sin inventar decimales. */
-function money(cents: number, locale: Locale): string {
+/**
+ * MXN desde centavos, sin inventar decimales.
+ * ⭐ v1.74 — **exportada por la misma razón que `formatDateTime`**: `AV-9` (buylist pagada) repite
+ * **al centavo** la columna persistida `payoutNetCents`, y tiene que escribirla igual que la pantalla.
+ */
+export function money(cents: number, locale: Locale): string {
   return new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'es-MX', {
     style: 'currency',
     currency: 'MXN',

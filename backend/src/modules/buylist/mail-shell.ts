@@ -477,6 +477,29 @@ export function isSafeMailUrl(url: string): boolean {
   }
 }
 
+/**
+ * ⭐ v1.74 (§R) — **el origen público del front, UNA vez para los ONCE avisos nuevos.**
+ *
+ * Es el MISMO mecanismo que {@link buylistPortalUrl} (variable dedicada `APP_PUBLIC_URL`, sin path y
+ * sin barra final) y por la MISMA razón: ⛔ prohibido rellenarla copiando la allow-list de CORS, que
+ * en producción va separada por comas y produciría `https://a,https://b/es/...` — un href roto en un
+ * correo. *(Los enlaces de `orders` derivan su origen de `APP_BASE_URL.split(',')[0]`; ese footgun
+ * heredado está registrado en BL-21 y no se migra aquí.)*
+ *
+ * **Sin origen configurado ⇒ `undefined`, y el correo SALE IGUAL**: las plantillas degradan el CTA a
+ * instrucción de texto. ⛔ Jamás un href relativo, parcial o a medias.
+ *
+ * Vive en el esqueleto y no repetido en cinco módulos porque es exactamente el mismo hecho —*dónde
+ * vive el portal*— y **dos fuentes para un hecho** es la doctrina que este proyecto más repite.
+ */
+export function appUrl(path: string, locale?: string | null): string | undefined {
+  const origin = envOr(process.env.APP_PUBLIC_URL, '').trim().replace(/\/+$/, '');
+  if (!origin) return undefined;
+  const l = locale === 'en' ? 'en' : 'es';
+  const rel = path.replace(/^\/+/, '');
+  return rel ? `${origin}/${l}/${rel}` : `${origin}/${l}`;
+}
+
 /** Letra chica: sans **13px** (§31.4: «letra chica» es una jerarquía, no un tamaño ilegible). */
 export function smallPrintRow(text: string): string {
   return padded(

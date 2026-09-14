@@ -7,6 +7,7 @@ import { PokemonTcgIoClient } from '../src/modules/catalog/pokemontcg-io.client'
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * P-54 / M-47 (v1.52-set-logos) — IMÁGENES DE SET: `CardSet.logoUrl` / `CardSet.symbolUrl`.
@@ -548,7 +549,7 @@ describe('M-47 (B) — GET /buylist/sets expone logoUrl (fuente de la teja del C
         }),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, catalogPricing());
+    const svc = new CatalogService(prisma as PrismaService, catalogPricing(), ivaDialsStub() as never);
     const res = await svc.listSetsWithImportedCards();
 
     expect(captured.select.logoUrl).toBe(true);
@@ -673,7 +674,7 @@ describe('M-47 (C) — logoUrl NO entra en las superficies que §4.39.5 PROHÍBE
 
   it('GET /catalog/facets → sets[] SIN logoUrl (chips de texto de la home, §5.3.2 hallazgo 7)', async () => {
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => [sellableItem()]) } };
-    const svc = new CatalogService(prisma as PrismaService, storefrontPricing());
+    const svc = new CatalogService(prisma as PrismaService, storefrontPricing(), ivaDialsStub() as never);
     const f = await svc.facets();
     expect(f.sets.length).toBeGreaterThan(0);
     for (const s of f.sets) {
@@ -684,7 +685,7 @@ describe('M-47 (C) — logoUrl NO entra en las superficies que §4.39.5 PROHÍBE
 
   it('GET /catalog/sets → data[] SIN logoUrl (hoy no alimenta ninguna retícula de tejas)', async () => {
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => [sellableItem()]) } };
-    const svc = new CatalogService(prisma as PrismaService, storefrontPricing());
+    const svc = new CatalogService(prisma as PrismaService, storefrontPricing(), ivaDialsStub() as never);
     const res = await svc.listSets();
     expect(res.data.length).toBeGreaterThan(0);
     for (const s of res.data) {

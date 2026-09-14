@@ -36,6 +36,7 @@ import {
   E2E_FOLIOS,
   E2E_LIST_OVERRIDE_CENTS,
   E2E_LOCATIONS,
+  E2E_ADDRESS_RECIPIENT,
   E2E_PICKUP_ADDRESS,
   E2E_SELL_REQUESTS,
   E2E_SET,
@@ -663,17 +664,46 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // `addressId` eso dejaba a `customer2` **sin poder crear ninguna solicitud** — y `customer2` es
   // justo quien ejercita `CLABE_NOT_OWN_NAME` en la suite. Sirve para DOS cosas a la vez: destino de
   // los retiros de la bóveda y ORIGEN de las solicitudes de venta.
+  //
+  // ⚠️ v1.67 (`M-52`) — **Y CON `recipientName`.** Esta fila nacía SIN destinatario mientras el
+  // bucle de fixtures de cuenta (§12) sí lo ponía: **un campo nuevo rellenado en la mitad de los
+  // sitios**. Desde que `POST /shipments[/quote]` exige destinatario (`422
+  // RECIPIENT_NAME_REQUIRED`), eso dejaba la pantalla de retiro en «Falta el nombre de quien
+  // recibe» y el smoke de *retirar → envío* moría ANTES del cobro — sin una sola respuesta ≥ 400
+  // que lo delatara. El valor NO es `User.name` a propósito: ver `E2E_ADDRESS_RECIPIENT`.
+  //
+  // ⚠️ **Se RESTAURA en cada siembra, no solo al crear.** El bucle reusa la fila existente
+  // (`findFirst`), así que un `create` con el campo no arregla ninguna BD ya sembrada — ni la que
+  // `vault-shipments.e2e-spec.ts:38` deja con `recipientName: null` adrede para reproducir el caso
+  // «fila anterior a M-52». Misma disciplina que los fixtures temporales, que restauran hash y flag
+  // cada vez: *una siembra que no restaura el invariante deja el fixture a merced de la corrida
+  // anterior.*
   const addressIdByUser: Record<string, string> = {};
   for (const email of [E2E_USERS.customer.email, E2E_USERS.customer2.email]) {
     const uid = userIds[email];
-    const existingAddr = await prisma.address.findFirst({ where: { userId: uid } });
-    addressIdByUser[email] =
-      existingAddr?.id ??
-      (
+    const recipientName = E2E_ADDRESS_RECIPIENT[email];
+    // ⚠️ `orderBy` EXPLÍCITO, y no es cosmético: `findFirst` sin orden devuelve **la fila que el
+    // planificador quiera**, y una BD de larga vida tiene más de una dirección por customer (las que
+    // crea `account-profile.e2e-spec.ts` por `POST /users/me/addresses`). Sin orden, la siembra
+    // remediaba **una dirección al azar** y podía dejar la PREDETERMINADA sin destinatario — que es
+    // justo la que la pantalla de retiro auto-selecciona. Se prefiere la predeterminada; a igualdad,
+    // la más antigua (la del propio seed).
+    const existingAddr = await prisma.address.findFirst({
+      where: { userId: uid },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    });
+    if (existingAddr) {
+      // ⛔ Solo `recipientName`: NO se toca `isDefault`. Forzarlo aquí marcaría como predeterminada
+      // una fila que quizá creó un spec, y dejaría DOS predeterminadas para el mismo usuario.
+      await prisma.address.update({ where: { id: existingAddr.id }, data: { recipientName } });
+      addressIdByUser[email] = existingAddr.id;
+    } else {
+      addressIdByUser[email] = (
         await prisma.address.create({
-          data: { userId: uid, ...E2E_PICKUP_ADDRESS, isDefault: true },
+          data: { userId: uid, ...E2E_PICKUP_ADDRESS, recipientName, isDefault: true },
         })
       ).id;
+    }
   }
 
   // 9. ⚠️ LAS DOS SOLICITUDES DE VENTA DEL CICLO (M-46, §4.39).
@@ -1004,8 +1034,25 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     }
     // Dirección de origen: `kyc.review` la necesita para que el panel de cotejo de §M6-K.3 tenga
     // algo que enseñar al lado del documento (y para poder vender, D36/D37).
-    const address = await prisma.address.findFirst({ where: { userId: user.id }, select: { id: true } });
-    if (!address) {
+    //
+    // ⚠️ **Aquí `f.name` SÍ es el valor correcto** —y es la ÚNICA dirección del seed donde lo es—
+    // porque el panel de cotejo de §M6-K.3 existe para comparar el nombre de la cuenta con el del
+    // documento: un destinatario distinto del titular volvería el fixture mudo justo en lo que la
+    // pantalla mide. Para los customers principales la elección es la opuesta y por la razón
+    // simétrica (ver `E2E_ADDRESS_RECIPIENT`): allí coincidir escondería un fallback prohibido.
+    //
+    // ⚠️ **Se RESTAURA, no solo se crea.** Este bloque era `if (!address) create`, así que una BD ya
+    // sembrada se quedaba con lo que hubiera: puesto el campo a `NULL` por una corrida previa, la
+    // siguiente siembra **no lo devolvía** (medido). Es la MISMA forma del defecto de `M-52` en
+    // §8 —un invariante de fixture que la siembra no reafirma— y se cierra igual.
+    const address = await prisma.address.findFirst({
+      where: { userId: user.id },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    });
+    if (address) {
+      await prisma.address.update({ where: { id: address.id }, data: { recipientName: f.name } });
+    } else {
       await prisma.address.create({
         data: { userId: user.id, ...E2E_PICKUP_ADDRESS, recipientName: f.name, isDefault: true },
       });

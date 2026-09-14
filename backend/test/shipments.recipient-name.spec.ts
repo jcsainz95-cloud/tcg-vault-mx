@@ -2,6 +2,7 @@ import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.67 (M-52, Stream A · B5; contrato §0 `RECIPIENT_NAME_REQUIRED`, §5 «snapshot de NUEVE campos»;
@@ -46,6 +47,8 @@ function build(recipientName: string | null, userName = 'Nombre De Cuenta') {
   prisma.$transaction = jest.fn((fn: any) => fn(prisma));
   const settings: any = {
     getNumber: jest.fn().mockResolvedValue(17500),
+    // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+    ...ivaDialsStub(),
     getStripeFee: jest.fn().mockResolvedValue({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 }),
   };
   const stripe: any = { createPaymentIntent: jest.fn().mockResolvedValue({ id: 'pi_1', clientSecret: 'cs' }) };
@@ -94,7 +97,9 @@ describe('ShipmentsService — 422 RECIPIENT_NAME_REQUIRED en quote y create (v1
     const { svc } = build('Ana Pérez');
     const res = await svc.quote('userA', ['item1'], 'addr1');
     expect(res.eligibleItemIds).toEqual(['item1']);
-    expect(res.breakdown.subtotalCents).toBe(17500);
+    // ⭐ D56: el «subtotal» del retiro ES la tarifa EXHIBIDA `E = round(F × 1.16) = 20300`, que es
+    // exactamente lo que antes aportaban `17500 + 2800` (money-neutral, `IVA-6(b)`).
+    expect(res.breakdown.subtotalCents).toBe(20300);
   });
 
   it('una dirección no-MX sigue siendo ADDRESS_NOT_MX (se evalúa antes que el destinatario)', async () => {

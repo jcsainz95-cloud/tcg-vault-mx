@@ -200,6 +200,39 @@ export interface CardDTO {
   separateProducts?: CardProductDTO[];
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §M10-IVA.3 — ⛔⛔ **EL FRONTEND NUNCA MULTIPLICA.**
+//
+// `displayPriceCents` = `P` = **la cifra que se pinta y la que se suma; YA lleva el IVA dentro**.
+// Si en este repositorio aparece un `× 1.16`, un `× (1 + ivaRatePct/100)` o un `/ 1.16` sobre un
+// importe de cliente, **eso es el defecto**, no una optimización.
+//
+// `salePriceCents` ⛔ **NO se reinterpretó: DESAPARECIÓ de la superficie pública.** Dejar el mismo
+// nombre cambiando su significado habría sido el defecto de D54 un nivel más abajo, y un front que
+// no migrara **habría seguido pintando la mentira sin que nada fallara**. Con el rename, un front
+// que no migró **no compila**. *El compilador sostiene la diferencia; el test es la red.*
+//
+// `ivaIncluded` **no es decorado: gobierna el rótulo**, y por eso viaja por fila y no se deduce de
+// un ajuste global. Una orden histórica (`IVA_EXCLUSIVE`) tiene que seguir diciendo «sin IVA»
+// **para siempre** (criterio **190**): un pedido ya cobrado ⛔ no se reinterpreta solo.
+//
+// `ivaRatePct` es **la TASA** (16). ⛔ **No es el dial de traslación** (`ivaTransferPct`), que no
+// viaja a ninguna superficie de cliente (criterio **209**).
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Los tres campos de §M10-IVA.3, juntos porque **juntos se emiten y juntos se leen**: el importe
+ * sin su convención es un número sin unidad.
+ */
+export interface DisplayPriceFields {
+  /** `P`. La cifra que se pinta y la que se suma. ⛔ **Ya lleva el IVA dentro.** */
+  displayPriceCents: number;
+  /** `true` bajo `IVA_INCLUSIVE`. **Gobierna el rótulo**, ⛔ no se supone. */
+  ivaIncluded: boolean;
+  /** La TASA, para el rótulo «IVA 16 % incluido». ⛔ NO es el dial de traslación. */
+  ivaRatePct: number;
+}
+
 export interface ListingDTO {
   inventoryItemId: string;
   card: CardDTO;
@@ -218,8 +251,17 @@ export interface ListingDTO {
   // mercado TCGCSV y salePriceCents = override o mercado×spread (ARCHITECTURE §4.23b).
   sealedCondition?: SealedCondition;
   referenceValue: PriceInfo;
-  salePriceCents?: number;
-  // v2.0 (P-48): QUÉ determinó `salePriceCents`. En el eje de VENTA solo puede valer
+  /**
+   * §M10-IVA.3 — **sustituye a `salePriceCents`**, que ya no existe en superficie pública.
+   * Opcional con la misma semántica de antes: ausente ⇒ la pieza no tiene precio resoluble
+   * (`PRICE_PENDING`). ⛔ Money-safe: **ausente, nunca `0`**.
+   */
+  displayPriceCents?: number;
+  /** §M10-IVA.3. `true` ⇒ el rótulo es «IVA {ivaRatePct} % incluido»; `false` ⇒ «sin IVA». */
+  ivaIncluded: boolean;
+  /** §M10-IVA.3. La TASA. ⛔ NO es `ivaTransferPct` (criterio **209**). */
+  ivaRatePct: number;
+  // v2.0 (P-48): QUÉ determinó `displayPriceCents`. En el eje de VENTA solo puede valer
   // market|floor|override|pending ("bounty" vive en el eje de compra). REGLA DE VISIBILIDAD
   // (contrato, no sugerencia): el bloque «Valor de mercado» de la FICHA se muestra si y solo si
   // `priceBasis === 'market'`. `referenceValue` sigue viajando aunque no se muestre (alimenta
@@ -278,20 +320,62 @@ export interface SetValueHistoryResponse {
   change: { absMxnCents: number; pct: number | null; direction: 'up' | 'down' | 'flat' };
 }
 
+/**
+ * La convención de precio de **este desglose** (§M10-IVA.4). Viaja **por fila**, ⛔ nunca se
+ * deduce de un ajuste global: una orden ya cobrada bajo `IVA_EXCLUSIVE` tiene que seguir
+ * leyéndose igual para siempre (criterio **190**).
+ */
+export type PriceConvention = 'IVA_EXCLUSIVE' | 'IVA_INCLUSIVE';
+
+/**
+ * §M10-IVA.4 — ⚠️⚠️ **LA FORMA NO CAMBIA; EL SIGNIFICADO SÍ, Y POR ESO GANA DOS CAMPOS.**
+ *
+ * **Las tres identidades normativas que el cliente puede comprobar:**
+ * ```
+ * (a)  Σ items[].unitPriceCents  ==  subtotalCents                              (criterio 194)
+ * (b)  totalCents  ==  subtotalCents + shippingFeeCents + processingFeeCents
+ * (c)  ivaCents  <  subtotalCents     y  ⛔ jamás 0
+ * ```
+ *
+ * ⚠️⚠️ **(b) SUSTITUYE a la vieja `total = subtotal + iva + fee`.** Bajo `IVA_INCLUSIVE` **el IVA
+ * NO es un sumando del total: ya está dentro de `subtotalCents`** ⇒ **la línea de IVA del checkout
+ * INFORMA, no suma** (criterio **189**). Un cliente que asierte la fórmula vieja **fallará, y debe
+ * fallar**.
+ *
+ * ⛔ **El front no recalcula ninguna de las tres.** Las comprueba, como mucho; **nunca** las usa
+ * para derivar un importe que el servidor ya mandó.
+ */
 export interface BreakdownDTO {
+  /** ⚠️ Bajo `IVA_INCLUSIVE` = `Σ displayPriceCents` ⇒ **YA lleva el IVA dentro**. */
   subtotalCents: number;
+  /**
+   * Bajo `IVA_INCLUSIVE` es el **RESIDUAL** `G − round(G/(1+r))`, y ⛔ **NUNCA 0** — ni con el
+   * dial de traslación en 0 %. Mover el dial reduce **nuestro neto**, jamás el IVA registrado.
+   */
   ivaCents: number;
   ivaRatePct: number;
+  /** Comisión de plataforma (§29). **Sigue SUMANDO** bajo las dos convenciones. */
   processingFeeCents: number;
   totalCents: number;
   currency: 'MXN';
   /**
+   * §M10-IVA.4 (ADITIVO, NORMATIVO). La convención de **este** desglose. La emite el servidor por
+   * fila; ⛔ el front no la infiere ni la asume.
+   */
+  priceConvention: PriceConvention;
+  /** `=== (priceConvention === 'IVA_INCLUSIVE')`. Es lo que gobierna el rótulo de la línea de IVA. */
+  ivaIncluded: boolean;
+  /**
    * v1.21-guest-checkout (ADITIVO, opcional): SOLO presente en un pedido
    * `fulfillmentMode='direct_ship'` (hoy = pedido de invitado, contrato §4-G), donde el
    * envío se cobra en el MISMO PaymentIntent que las cartas. Ausente en compras a bóveda
-   * y en retiros (ahí el shape y las fórmulas NO cambian). Con `shippingFeeCents`:
-   *   ivaCents = round((subtotalCents + shippingFeeCents) × ivaRatePct/100)
-   *   totalCents = subtotalCents + shippingFeeCents + ivaCents + processingFeeCents
+   * y en retiros (ahí el shape NO cambia).
+   *
+   * ⚠️ **§M10-IVA.4 — bajo `IVA_INCLUSIVE` el envío TAMBIÉN lleva su IVA dentro**, y es
+   * *money-neutral*: `round(17500 × 1.16) == 20300`, exactamente lo que hoy aportan
+   * `17500 + 2800`. Lo obliga el criterio **189** (*«ningún importe de IVA sumado después del
+   * precio exhibido»*).
+   *
    * OJO: es una LÍNEA APARTE; NO se resta del subtotal (asimetría deliberada con §5,
    * donde en un retiro `subtotalCents` ES la tarifa de envío).
    */
@@ -634,7 +718,15 @@ export interface GroupedListingDTO {
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   stockCount: number;
-  salePriceCents: number;
+  /**
+   * §M10-IVA.3 — **sustituye a `salePriceCents`**. Semántica «desde» (el del representante = la
+   * pieza más barata del grupo), **sin cambio**; lo que cambia es que **ya lleva el IVA dentro**.
+   */
+  displayPriceCents: number;
+  /** §M10-IVA.3. Gobierna el rótulo; ⛔ no se supone. */
+  ivaIncluded: boolean;
+  /** §M10-IVA.3. La TASA. ⛔ NO es `ivaTransferPct`. */
+  ivaRatePct: number;
   // v2.0 (P-48): el basis del REPRESENTANTE (la pieza más barata del grupo). Gobierna la regla de
   // visibilidad del bloque «Valor de mercado» en la ficha (§21.8). El basis EXACTO por pieza vive
   // en `units[]` (ListingDTO.priceBasis).
@@ -664,7 +756,12 @@ export interface GroupedListingSummaryDTO {
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   stockCount: number;
-  salePriceCents: number;
+  /** §M10-IVA.3 — **sustituye a `salePriceCents`**. Semántica «desde». **Ya lleva el IVA dentro.** */
+  displayPriceCents: number;
+  /** §M10-IVA.3. Gobierna el rótulo; ⛔ no se supone. */
+  ivaIncluded: boolean;
+  /** §M10-IVA.3. La TASA. ⛔ NO es `ivaTransferPct`. */
+  ivaRatePct: number;
   currency: 'MXN';
   // v1.50.2 (ADITIVO): MARCADOR DE CURADURÍA de la TEJA de Compra y de la VITRINA del home. Vive
   // AQUÍ —y no en `GroupedListingDTO`— porque la unidad de render de las dos superficies de
@@ -1435,9 +1532,41 @@ export interface SellOfferResponseDTO {
 }
 
 // ---- Admin (contrato §10-11) ----
+/**
+ * §M10-IVA.7 — **VENTAS BRUTAS Y NETAS** (D55(b), pregunta **70**).
+ *
+ * ⛔ **`amountCents` DESAPARECIÓ** (se renombró a `grossAmountCents`). **Rompe al front — y debe
+ * romperlo**: la tarjeta pasa de una cifra a dos, y *un «amount» conviviendo con otro «amount»
+ * distinto es la ambigüedad que este pase entero existe para matar*.
+ *
+ * ⭐ **Identidad NORMATIVA y exacta** —lo que hace la diferencia **explicable** en vez de sospechosa:
+ * ```
+ * grossAmountCents ≡ netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents
+ * ```
+ * ⛔ **El neto NO es «bruto − IVA»**: eso dejaría la comisión dentro y no coincidiría con
+ * `incomeCents` del P&L ⇒ **tres números**, peor que el problema que se quiso cerrar.
+ * `netAmountCents` sale **del mismo helper** que `pnl.incomeCents` ⇒ no pueden divergir
+ * (candado `IVA-10(b)` lo asierta como **igualdad entre los dos endpoints**).
+ *
+ * **Rol: `super_admin`.** `vault_operator` no recibe esta tarjeta (sin cambio).
+ */
+export interface DashboardSalesPeriodDTO {
+  count: number;
+  /** `Σ Order.totalCents` ← **lo que el cliente pagó**, con comisión y envío DENTRO. */
+  grossAmountCents: number;
+  /** `Σ netRevenueCents(o)` ← ⭐ **el MISMO helper que `pnl.incomeCents`**. Mercancía, sin IVA, sin comisión y sin envío. */
+  netAmountCents: number;
+  /** `Σ Order.ivaCents`. */
+  ivaCents: number;
+  /** `Σ netShippingRevenueCents(o)`. */
+  netShippingRevenueCents: number;
+  /** `Σ Order.processingFeeCents`. */
+  processingFeeCents: number;
+}
+
 export interface DashboardDTO {
   profitPeriodCents?: number;
-  salesPeriod: { count: number; amountCents: number };
+  salesPeriod: DashboardSalesPeriodDTO;
   workQueue: { shipments: number; buylist: number; disputes: number; pendingPrices: number };
   inventoryValueCents?: number;
   custodyValueCents?: number;
@@ -1586,6 +1715,23 @@ export interface MasterSetVariantDTO {
   finish: Finish;
   count: number;
   covered: boolean;
+  /**
+   * ⚠️⚠️ **HUECO DE CONTRATO, SOLICITADO AL ARQUITECTO — §M10-IVA.3 no enumera este DTO.**
+   *
+   * `buyable` es **superficie de cliente** (el contrato lo dice arriba: *«SOLO scope cliente (iii)»*)
+   * y **pinta un precio de compra** —el CTA «Comprar MX$X» de `CellDrawer`—, pero la tabla de
+   * §M10-IVA.3 enumera **seis** DTOs y deja éste fuera. ⇒ el campo conserva el nombre
+   * `salePriceCents`, que esa misma sección **retiró** de la superficie pública *porque conservar el
+   * nombre cambiando el significado es el defecto de D54 un nivel más abajo*.
+   *
+   * **Mientras tanto**, el simulador emite aquí el **`P`** (`fixtures.ts` `cheapestListedFor`), para
+   * que el cajón del binder no sea la única superficie de la tienda mostrando la base limpia; y la
+   * pantalla **⛔ no rotula convención**, porque sin `ivaIncluded` no hay ninguna que afirmar.
+   *
+   * ⇒ **Petición:** `salePriceCents` → `displayPriceCents`, + `ivaIncluded` + `ivaRatePct`.
+   * Registrada en `docs/FRONTEND_NOTES.md`. El candado que la recuerda:
+   * `src/test/frontend-never-multiplies.test.ts`.
+   */
   buyable?: { inventoryItemId: string; salePriceCents: number } | null;
   // SOLO mode="quoter" (frontend, WS-cotizador): NO viaja del backend en ningún endpoint del
   // contrato — el cotizador compone este campo 100% client-side a partir de POST
@@ -3210,7 +3356,19 @@ export interface SealedGroupDTO {
   sealedSubtype: SealedSubtype | null;
   sealedCondition: SealedCondition;
   availableCount: number;
+  /**
+   * §M10-IVA.3 — ⚠️ **CONSERVA EL NOMBRE Y CAMBIA EL SIGNIFICADO: ahora lleva el IVA dentro.**
+   * Es la única fila de la tabla de §M10-IVA.3 donde el arquitecto NO renombró, y se dice por qué
+   * para que nadie lo lea como un descuido: `fromPriceCents` **no afirma convención** —dice
+   * «desde»—, mientras que `salePriceCents` sí la afirmaba por oposición a «precio con IVA». El
+   * riesgo que el rename cerraba en los otros DTOs aquí lo cierra **`ivaIncluded`, que es
+   * obligatorio**: no hay forma de pintar esta cifra sin leer su convención al lado.
+   */
   fromPriceCents: number;
+  /** §M10-IVA.3. Gobierna el rótulo; ⛔ no se supone. */
+  ivaIncluded: boolean;
+  /** §M10-IVA.3. La TASA. ⛔ NO es `ivaTransferPct`. */
+  ivaRatePct: number;
   /** Detalle propio del sellado: QUÉ spread aplicó. Se CONSERVA en v2.0. */
   priceSource: SealedSpreadSource;
   // v2.0 (P-48): DERIVADO de `priceSource` por el backend, para que el front tenga UNA sola regla de
@@ -3231,7 +3389,12 @@ export interface SealedGroupSummaryDTO {
   sealedSubtype: SealedSubtype | null;
   sealedCondition: SealedCondition;
   availableCount: number;
+  /** §M10-IVA.3 — mismo nombre, **con el IVA dentro**. Ver `SealedGroupDTO.fromPriceCents`. */
   fromPriceCents: number;
+  /** §M10-IVA.3. Gobierna el rótulo; ⛔ no se supone. */
+  ivaIncluded: boolean;
+  /** §M10-IVA.3. La TASA. ⛔ NO es `ivaTransferPct`. */
+  ivaRatePct: number;
   currency: 'MXN';
 }
 export interface SealedGroupListResponse {
@@ -3775,6 +3938,22 @@ export interface SettingsDTO {
   shippingFeeCents: number;
   aportacionPct: number;
   ivaPct: number;
+  /*
+   * ⭐⭐ **`ivaTransferPct` NO ESTÁ AQUÍ, Y SU AUSENCIA ES NORMATIVA** (contrato v1.75,
+   * `N-IVA9-2`, candado `IVA-8(f)`).
+   *
+   * Hasta v1.74 el contrato decía que el dial entraba en este `GET` como READ-ONLY. **Era falso**:
+   * la clave nunca estuvo en `SETTING_DTO_MAP` del backend y un e2e vigente asertaba su ausencia.
+   * El arquitecto cedió y **la fila «Lectura» de §M10-IVA.1 se retiró**; este tipo es el reflejo
+   * de esa cesión.
+   *
+   * ⛔ **No se vuelve a declarar «solo lectura».** La llave en el DTO significa que la clave entró
+   * en `SETTING_DTO_MAP`, **y ese mapa gobierna también el `PUT`**: verla en el `GET` es la señal
+   * temprana de que el `422 VALIDATION_ERROR` de `IVA-8(b)` está a un `if` de caerse.
+   *
+   * **Su única superficie de lectura es `GET /admin/settings/iva-transfer`** (`IvaTransferStateDTO`)
+   * y su única puerta de escritura `PUT /admin/settings/iva-transfer`, con acuse en pesos.
+   */
   salesMarkupPct: number;
   stripeFeePct: number;
   stripeFeeFixedCents: number;
@@ -3818,6 +3997,20 @@ export interface SettingsDTO {
    */
   gradingHookEnabled?: OnOff;
 }
+
+/**
+ * ⭐ Lo que `PUT /admin/settings` SÍ acepta.
+ *
+ * **v1.75 — el `Omit<…, 'ivaTransferPct'>` SE RETIRA, y no por relajar la regla sino porque ya no
+ * hay nada que omitir**: la clave dejó de existir en `SettingsDTO` (`N-IVA9-2`). Omitir un campo
+ * inexistente es `Omit` sobre un nombre muerto, y ese nombre muerto **sobreviviría a un rename**
+ * sin que nada avisara. La prohibición sigue sostenida por el compilador, un escalón antes: el
+ * dial **no está en el tipo del que este patch se deriva**, así que no se puede ni teclear.
+ *
+ * Su puerta propia, con acuse en pesos, es `PUT /admin/settings/iva-transfer`
+ * (§M10-IVA.2, criterios **213** y **188**), y el servidor es la red: `IVA-8(b)`.
+ */
+export type EditableSettingsPatch = Partial<SettingsDTO>;
 
 /** Diales de tipo interruptor del contrato (`on | off`). */
 export type OnOff = 'on' | 'off';
@@ -4043,7 +4236,26 @@ export interface PnlDTO {
   shippingRevenueCents: number;
   cogsCents: number;
   stripeFeesCents: number;
+  /**
+   * §M10-IVA.8 — ⚠️ **NETO**: `Σ (shippingCostCents − shippingCostIvaCents)`. La columna se captura
+   * **BRUTA** (el importe TOTAL de la factura de la paquetería, IVA incluido) y se netea **al
+   * leer**, por **RESTA** — ⛔ nunca por división entre `(1+r)` ni leyendo el dial vivo, que haría
+   * que un P&L histórico cambiara al mover `ivaPct` (incumpliría `IVA-5`).
+   *
+   * ⛔ **`profitCents` NO cambia de fórmula**; lo que cambia es que sus dos términos de envío están
+   * ahora en la **misma base**. *Antes uno era neto y el otro bruto: eso restaba una pérdida que no
+   * existía.*
+   */
   shippingCostCents: number;
+  /**
+   * §M10-IVA.8 (⭐ NUEVO) — nº de envíos **LIQUIDADOS** del periodo con costo en `0`.
+   *
+   * ⭐ **Hace VISIBLE una ambigüedad que no se puede resolver**: `shippingCostCents` es
+   * `@default(0)`, así que en las filas existentes **«costó cero» y «no se capturó» son
+   * indistinguibles**. ⛔ **No es una afirmación fiscal**: es una señal para un humano —*«estos N
+   * envíos no tienen costo: revísalos»*—. La pantalla lo rotula así y ⛔ **no lo suma a nada**.
+   */
+  shippingCostMissingCount: number;
   profitCents: number;
 }
 
@@ -4326,4 +4538,139 @@ export interface ClaimOrdersResponse {
     orderId: string;
     code: 'ORDER_ALREADY_CLAIMED' | 'CLAIM_EMAIL_MISMATCH' | 'NOT_FOUND';
   }[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §R.2 — LA CAMPANA: `GET /api/v1/me/pendings`. SE **DERIVA**, ⛔ NO SE PERSISTE.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ⭐⭐ **LISTA BLANCA CERRADA** (contrato §R.2.3). Hoy tiene **UN** valor, y añadir otro es
+ * **cambio de contrato** que escribe el arquitecto (regla 9), ⛔ no una deducción del front.
+ *
+ * El código nombra **la obligación del cliente**, no nuestro estado interno
+ * (`identity_action_required`, ⛔ no `kyc_rejected`): sobrevive a que mañana el predicado tenga
+ * otro origen, y no obliga a traducir vocabulario de back-office a superficie de cliente.
+ *
+ * ⛔⛔ **`SellOfferState` no toca este dominio en ninguna dirección** (§R.2.3 prohibición 2,
+ * criterio **204**): `pending_authorization` es admin-only y el cliente **no debe enterarse de que
+ * existe**. Por eso el tipo es una unión cerrada y no un `string`: un código que el arquitecto no
+ * escribió **no compila**.
+ */
+export type PendingCode = 'identity_action_required';
+
+/**
+ * ⛔ **Dos campos, y ninguno es un número de negocio** (§R.2.3 prohibición 4): un pendiente **no es
+ * un resumen**. Nada de dinero, cifras, topes ni umbrales.
+ */
+export interface PendingDTO {
+  code: PendingCode;
+  /** ISO-8601. Desde cuándo es verdad el pendiente. */
+  since: string;
+}
+
+/**
+ * ⭐ `{ "pendings": [] }` es la respuesta **correcta y frecuente** — ⛔ no un `204` ni un `404`.
+ * Con la lista vacía el front **no pinta campana** (criterio **202(c)**: *falla si queda un
+ * indicador vacío*).
+ *
+ * ⛔ Sin paginación y sin `total`: un listado que no puede crecer sin que el arquitecto escriba una
+ * fila **no se pagina** (§R.2.1).
+ */
+export interface MePendingsResponse {
+  pendings: PendingDTO[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §M10-IVA.2 — EL DIAL DE TRASLACIÓN DEL IVA. `super_admin`, DINERO.
+// ⛔ **Nada de esto viaja a superficie de cliente** (criterio **209**): `ivaTransferPct` vive
+// **solo** en `/admin/*`. Que el cliente pueda leer qué fracción absorbemos es fuga comercial.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/** Una posición del dial, **calculada por el servidor**. ⛔ El frontend no multiplica nada. */
+export interface IvaTransferPositionDTO {
+  /** Entero `[0, 100]`. **FRACCIÓN DE TRASLACIÓN**, ⛔ no puntos de IVA. */
+  ivaTransferPct: number;
+  /** `P` = el precio EXHIBIDO. */
+  displayPriceCents: number;
+  /** `round(P / (1 + r))`. */
+  taxBaseCents: number;
+  /** `P − taxBaseCents` (RESIDUAL). ⛔ Nunca 0, ni con el dial en 0 %. */
+  ivaCents: number;
+  /** = `taxBaseCents`. Lo que nos queda. */
+  netRevenueCents: number;
+  /** Gross-up con los diales de Stripe vigentes: lo que el cliente pagaría. */
+  totalChargedCents: number;
+}
+
+/**
+ * `GET /admin/settings/iva-transfer/preview` (§M10-IVA.2). **READ-ONLY, sin efectos.**
+ *
+ * ⭐ **La cifra la calcula EL SERVIDOR.** Si el front computara el delta, el acuse probaría que el
+ * front sabe multiplicar, **no que el dueño vio el costo real** (`ARCHITECTURE §4.44.i`).
+ */
+export interface IvaTransferPreviewDTO {
+  /** La TASA vigente (dial `ivaPct`). ⛔ NO es el dial de traslación. */
+  ivaRatePct: number;
+  /** El `L` de ejemplo (default 10000 = MX$100.00). */
+  samplePriceCents: number;
+  /** Con el dial **VIGENTE**. ⭐ Es también la fuente del valor actual del dial. */
+  current: IvaTransferPositionDTO;
+  /** Con el `ivaTransferPct` de la query. */
+  proposed: IvaTransferPositionDTO;
+  /** `proposed.netRevenueCents − current.netRevenueCents`. **Negativo = margen cedido.** */
+  netDeltaPerUnitCents: number;
+}
+
+/**
+ * `GET /admin/settings/iva-transfer` (§M10-IVA.2 punto 1, v1.75). `super_admin`, **READ-ONLY, sin
+ * efectos y ⛔ SIN parámetros de query**.
+ *
+ * ⭐ **Es la ÚNICA superficie de lectura del dial** desde que `N-IVA9-2` lo sacó de
+ * `GET /admin/settings`.
+ *
+ * **La redundancia aparente (`ivaTransferPct` arriba y dentro de `current`) está ACEPTADA por el
+ * contrato, con su razón:** las dos copias las produce **la misma expresión, en la misma respuesta,
+ * en el mismo proceso** ⇒ no pueden divergir. ⛔ No es «dos fuentes para un hecho», que es sobre
+ * datos **persistidos** en dos sitios. A cambio, el front tiene **un solo modelo de lectura** para
+ * esta ruta y para el `preview`.
+ */
+export interface IvaTransferStateDTO {
+  /** El dial VIGENTE. */
+  ivaTransferPct: number;
+  /** La TASA vigente (dial `ivaPct`). ⛔ NO es el dial de traslación. */
+  ivaRatePct: number;
+  /** El `L` de ejemplo con el que se calculó `current` (= 10000). */
+  samplePriceCents: number;
+  /** La posición de HOY, con ese `L`. */
+  current: IvaTransferPositionDTO;
+}
+
+/**
+ * ⭐ **El ACUSE del criterio 213/188.** ⛔ No es un dato: es la prueba de que el costo en pesos se
+ * mostró **antes** de guardar. Se manda **tal cual lo devolvió el `preview`**; si no cuadra con lo
+ * que el servidor recalcula ⇒ `409 IVA_TRANSFER_ACK_STALE` y **no escribe**.
+ */
+export interface IvaTransferAcknowledgementDTO {
+  samplePriceCents: number;
+  previewedNetDeltaCents: number;
+}
+
+/**
+ * `PUT /admin/settings/iva-transfer` (§M10-IVA.2). `super_admin`, auditado, transaccional.
+ *
+ * El acuse **solo se exige cuando el valor CAMBIA**: un `PUT` con el valor vigente es idempotente
+ * y no pide acuse (no hay margen que ceder).
+ *
+ * ⛔ **Es la ÚNICA puerta del dial.** `PUT /admin/settings { ivaTransferPct }` responde
+ * `422 VALIDATION_ERROR` (clave desconocida) y **no mueve la fila** — candado `IVA-8(b)`.
+ */
+export interface IvaTransferUpdateRequest {
+  ivaTransferPct: number;
+  acknowledgement?: IvaTransferAcknowledgementDTO;
+}
+
+export interface IvaTransferUpdateResponse {
+  ivaTransferPct: number;
+  preview: IvaTransferPreviewDTO;
 }

@@ -2,6 +2,7 @@ import { OrdersService } from './orders.service';
 import { GuestCheckoutService } from './guest-checkout.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { ivaDialsStub } from '../../../test/helpers/iva-dials';
 import {
   FROZEN_CARD_FACT_KEYS,
   FrozenCardFacts,
@@ -61,6 +62,8 @@ function settingsMock() {
   return {
     getNumber: jest.fn(async (key: string) => (key === 'shipping_fee_cents' ? SHIPPING : IVA)),
     getStripeFee: jest.fn(async () => FEE),
+    // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+    ...ivaDialsStub(),
   } as unknown as SettingsService;
 }
 
@@ -116,6 +119,9 @@ function orderRow(items: unknown[]) {
     subtotalCents: 25000,
     ivaCents: 4000,
     ivaRatePct: IVA,
+    // ⭐ D56: una orden HISTÓRICA (cobrada antes del corte) es `IVA_EXCLUSIVE`, y así se renderiza
+    // —idéntica al centavo— para siempre (`IVA-3`). ⛔ Sin convención, el lector LANZA a propósito.
+    priceConvention: 'IVA_EXCLUSIVE',
     processingFeeCents: 1400,
     totalCents: 30400,
     cfdiStatus: 'registrado',
@@ -223,14 +229,17 @@ describe('IMG-2 — POST /checkout/quote (EL CARRITO: la queja original)', () =>
   it('MONEY-SAFE: la miniatura no mueve ni un centavo del desglose ni del unitPrice', async () => {
     const { svc } = buildOrders();
     const res = await svc.quote(['inv-1']);
-    expect(res.items[0].unitPriceCents).toBe(25000);
+    // ⭐ D56: la línea congela `P = round(L × 1.16)`; el subtotal es `Σ P`.
+    expect(res.items[0].unitPriceCents).toBe(29000);
     expect(res.breakdown).toEqual({
-      subtotalCents: 25000,
-      ivaCents: 4000,
+      subtotalCents: 29000,
+      ivaCents: 4000, // residual: 29000 − round(29000/1.16) = 29000 − 25000
       ivaRatePct: IVA,
       processingFeeCents: expect.any(Number),
       totalCents: expect.any(Number),
       currency: 'MXN',
+      priceConvention: 'IVA_INCLUSIVE',
+      ivaIncluded: true,
     });
     expect(res.breakdown.totalCents).toBe(29000 + res.breakdown.processingFeeCents);
   });
@@ -294,9 +303,10 @@ describe('IMG-3 — POST /checkout/guest/quote (mismo hueco gris, misma causa)',
   it('MONEY-SAFE: los DOS desgloses del invitado siguen intactos', async () => {
     const { guest } = buildGuest();
     const res = await guest.quote({ inventoryItemIds: ['inv-1'] } as never);
-    expect(res.items[0].unitPriceCents).toBe(25000);
-    expect(res.breakdown.subtotalCents).toBe(25000);
-    expect(res.breakdown.shippingFeeCents).toBe(SHIPPING);
+    expect(res.items[0].unitPriceCents).toBe(29000);
+    expect(res.breakdown.subtotalCents).toBe(29000);
+    // ⭐ `E = round(F × 1.16)`: la tarifa EXHIBIDA, con su IVA dentro (§4.44.f).
+    expect(res.breakdown.shippingFeeCents).toBe(SHIPPING + Math.round((SHIPPING * 16) / 100));
     expect(res.vaultBreakdown).not.toHaveProperty('shippingFeeCents');
     expect(res.unavailableItems).toEqual([]);
   });
@@ -428,6 +438,10 @@ describe('IMG-4 — GET /orders/:orderId — PEDIDO HISTÓRICO (la prueba decisi
       processingFeeCents: 1400,
       totalCents: 30400,
       currency: 'MXN',
+      // ⭐ `IVA-3`: la convención sale de LA COLUMNA DE ESA FILA. Una orden histórica se renderiza
+      // `IVA_EXCLUSIVE` **para siempre** — el corte no la reinterpreta, ni mover el dial tampoco.
+      priceConvention: 'IVA_EXCLUSIVE',
+      ivaIncluded: false,
     });
     expect(res.status).toBe('settled');
     expect(res.stripePaymentIntentId).toBe('pi_1');
@@ -563,6 +577,10 @@ describe('IMG-5 — ⛔ el histórico NO RELLENA un hecho ausente (§5.2.9 / con
       processingFeeCents: 1400,
       totalCents: 30400,
       currency: 'MXN',
+      // ⭐ `IVA-3`: la convención sale de LA COLUMNA DE ESA FILA. Una orden histórica se renderiza
+      // `IVA_EXCLUSIVE` **para siempre** — el corte no la reinterpreta, ni mover el dial tampoco.
+      priceConvention: 'IVA_EXCLUSIVE',
+      ivaIncluded: false,
     });
   });
 

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { credentialsFor, mockOnly, MONEY_RE } from './utils/auth';
+import { credentialsFor, IS_REAL, mockOnly, MONEY_RE, reserveLoginSlot } from './utils/auth';
 
 /**
  * Stream A · P-55 (DESIGN_SYSTEM §33.11, ARCHITECTURE §4.47.6): el carrito de venta sobrevive
@@ -53,6 +53,8 @@ test.describe('carrito de venta · sobrevive al inicio de sesión (P-55)', () =>
     const creds = credentialsFor('customer');
     await page.getByLabel(t('es', 'auth.email')).fill(creds.email);
     await page.getByLabel(t('es', 'auth.password')).fill(creds.password);
+    // B-2: mismo cupo de `POST /auth/login` que un login por API (ver `reserveLoginSlot`).
+    if (IS_REAL) await reserveLoginSlot('sell-cart-persist · login por formulario');
     await page.getByRole('button', { name: t('es', 'auth.loginCta') }).click();
 
     // Vuelve al cotizador con la lista conservada y RE-COTIZADA (el CTA de enviar vive).

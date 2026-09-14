@@ -3,11 +3,14 @@ import { Locale, Order, OrderStatus, Prisma, ShipmentRequest, ShipmentStatus } f
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import {
+  PRICE_CONVENTION_OF_NEW_ROWS,
+  shippingFeeDisplayCentsOf,
   BreakdownDTO,
   computeCartBreakdown,
   computeDirectShipBreakdown,
   DirectShipBreakdownDTO,
 } from '../../common/money';
+import type { IvaDials } from '../../common/money';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
@@ -88,12 +91,20 @@ export class GuestCheckoutService {
       dto.retryOfCheckoutToken && dto.email
         ? await this.resolveRetryClaim(dto.retryOfCheckoutToken, normalizeEmail(dto.email))
         : null;
-    const { items, lines, subtotalCents, unavailableItems, ownReservation, reservedByYou, frozenOrder } =
-      await this.orders.priceCartForQuote(
-        dto.inventoryItemIds,
-        claimedOrderId ? { orderId: claimedOrderId } : undefined,
-      );
-    const computed = await this.quoteBreakdowns(subtotalCents, lines.length === 0);
+    const {
+      items,
+      lines,
+      subtotalCents,
+      ivaDials,
+      unavailableItems,
+      ownReservation,
+      reservedByYou,
+      frozenOrder,
+    } = await this.orders.priceCartForQuote(
+      dto.inventoryItemIds,
+      claimedOrderId ? { orderId: claimedOrderId } : undefined,
+    );
+    const computed = await this.quoteBreakdowns(subtotalCents, lines.length === 0, ivaDials);
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
     const breakdown: DirectShipBreakdownDTO = frozenOrder
       ? { ...this.orders.breakdownOf(frozenOrder), shippingFeeCents: frozenOrder.shippingFeeCents }
@@ -150,11 +161,11 @@ export class GuestCheckoutService {
 
     // ⛔ v1.68.1: el precio, FUERA de la transacción (misma razón que la ruta de bóveda: dentro, cada
     // checkout pediría una segunda conexión para `PricingService` y N concurrentes agotan el pool).
-    const { items, lines, subtotalCents } = await this.orders.priceCartOutsideGate(
+    const { items, lines, subtotalCents, ivaDials } = await this.orders.priceCartOutsideGate(
       dto.inventoryItemIds,
       claimedOrderId ? { orderId: claimedOrderId } : undefined,
     );
-    const breakdownPre = await this.breakdownFor(subtotalCents);
+    const breakdownPre = await this.breakdownFor(subtotalCents, ivaDials);
 
     const outcome = await this.prisma.$transaction(
       async (
@@ -214,11 +225,13 @@ export class GuestCheckoutService {
             ivaCents: breakdown.ivaCents,
             totalCents: breakdown.totalCents,
             ivaRatePct: breakdown.ivaRatePct,
-            // v1.64-iva-inclusive (M-50, §4.44.k · DEPLOY 1) — misma regla que el checkout de bóveda:
-            // toda orden nueva nace `IVA_EXCLUSIVE` (la convención con la que se acaba de cobrar) y
-            // `ivaTransferPct` se queda en `NULL`. Sin default de BD detrás: si esta línea se cae, el
-            // `INSERT` revienta (§4.44.e, candado `IVA-3(e)`).
-            priceConvention: 'IVA_EXCLUSIVE',
+            // ⭐⭐ D56 / criterio **214** — misma regla que el checkout de bóveda: toda orden nueva
+            // nace bajo la convención con la que se acaba de cobrar, y desde el corte es
+            // `IVA_INCLUSIVE` (`subtotalCents` y `shippingFeeCents` llevan el IVA dentro). Sin
+            // default de BD detrás: si esta línea se cae, el `INSERT` revienta (candado `IVA-3(e)`).
+            priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // ⭐ La posición del dial que produjo estos precios (informativa/auditora, `/admin/*`).
+            ivaTransferPct: ivaDials.ivaTransferPct,
             cfdiStatus: 'registrado',
             items: { create: lines },
           },
@@ -534,14 +547,19 @@ export class GuestCheckoutService {
   private async quoteBreakdowns(
     subtotalCents: number,
     empty: boolean,
+    // ⚠️ Los MISMOS diales que derivaron cada `P` del carrito, ⛔ no una segunda lectura.
+    ivaDials: IvaDials,
   ): Promise<{ breakdown: DirectShipBreakdownDTO; vaultBreakdown: BreakdownDTO }> {
-    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
+    const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();
     if (empty) {
       const zero = this.orders.zeroCartBreakdown(ivaPct);
       return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero };
     }
-    const shippingFeeCents = await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS);
+    const shippingFeeCents = shippingFeeDisplayCentsOf(
+      await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
+      ivaDials,
+    );
     return {
       breakdown: computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
       vaultBreakdown: computeCartBreakdown(subtotalCents, ivaPct, fee),
@@ -549,9 +567,17 @@ export class GuestCheckoutService {
   }
 
   /** Desglose con envío DENTRO de la orden (§4-G.0-2). La tarifa reusa el dial `SHIPPING_FEE_CENTS`. */
-  private async breakdownFor(subtotalCents: number): Promise<DirectShipBreakdownDTO> {
-    const shippingFeeCents = await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS);
-    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
+  private async breakdownFor(
+    subtotalCents: number,
+    ivaDials: IvaDials,
+  ): Promise<DirectShipBreakdownDTO> {
+    // ⭐ `E = round(F × (1 + t·r))` — el envío entra en la regla madre **como un `L` más**
+    // (§4.44.f): `F` (el dial `shipping_fee_cents`) sigue siendo NETO y no cambia de valor.
+    const shippingFeeCents = shippingFeeDisplayCentsOf(
+      await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
+      ivaDials,
+    );
+    const ivaPct = ivaDials.ivaRatePct;
     const fee = await this.settings.getStripeFee();
     // MS-2 (BE-27): el pedido de invitado también PERSISTE una Order; un agregado no representable en
     // Int32 → 422 AMOUNT_TOO_LARGE vía la fuente única `orders.representableOrThrow` (no se persiste

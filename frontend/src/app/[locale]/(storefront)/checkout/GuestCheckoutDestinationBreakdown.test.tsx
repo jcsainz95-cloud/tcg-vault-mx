@@ -51,6 +51,8 @@ function guestQuote(ids: string[]): GuestCheckoutQuoteResponse {
       processingFeeCents: 1900,
       totalCents: SHIP_TOTAL_CENTS,
       currency: 'MXN',
+      priceConvention: 'IVA_EXCLUSIVE',
+      ivaIncluded: false,
     },
     vaultBreakdown: {
       subtotalCents: 25000,
@@ -59,6 +61,8 @@ function guestQuote(ids: string[]): GuestCheckoutQuoteResponse {
       processingFeeCents: 1400,
       totalCents: VAULT_TOTAL_CENTS,
       currency: 'MXN',
+      priceConvention: 'IVA_EXCLUSIVE' as const,
+      ivaIncluded: false,
     },
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     unavailableItems: [],

@@ -4,6 +4,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { computeCartBreakdown } from '../src/common/money';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
@@ -55,6 +56,8 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     };
     const settings: any = {
       getNumber: jest.fn(async () => IVA),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
       getStripeFee: jest.fn(async () => FEE),
     };
     // Solo se toca si un ítem VÁLIDO no trae `listPriceCents` (ruta PRICE_PENDING).
@@ -92,9 +95,11 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     const res = await svc.quote(['a', 'b', 'no-existe', 'd']);
 
     expect(res.items.map((i: any) => i.inventoryItemId)).toEqual(['a', 'd']);
-    expect(res.items.map((i: any) => i.unitPriceCents)).toEqual([10000, 15000]);
+    // ⭐ D56: la línea congela `P = round(L × 1.16)`, ⛔ no `L` (§M10-IVA.3, criterio 185).
+    expect(res.items.map((i: any) => i.unitPriceCents)).toEqual([11600, 17400]);
     // El breakdown se calcula SOLO con los válidos (los podados no suman al total).
-    expect(res.breakdown).toEqual(computeCartBreakdown(25000, IVA, FEE));
+    // `Σ P = 29000` — **suma exacta de enteros** (regla R1 ⇒ criterio 194 por construcción).
+    expect(res.breakdown).toEqual(computeCartBreakdown(29000, IVA, FEE));
     expect(res.unavailableItems).toEqual([
       { inventoryItemId: 'b', cardName: 'Card b' },
       { inventoryItemId: 'no-existe', cardName: null },
@@ -124,6 +129,8 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     expect(res.breakdown).toEqual({
       subtotalCents: 0,
       ivaCents: 0,
+      priceConvention: 'IVA_INCLUSIVE',
+      ivaIncluded: true,
       ivaRatePct: IVA,
       processingFeeCents: 0,
       totalCents: 0,
@@ -135,7 +142,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
   it('compatibilidad: si todo el carrito resuelve, la forma previa NO cambia (solo se suma `[]`)', async () => {
     const { svc } = build([piece('a'), piece('d', { listPriceCents: 15000 })]);
     const res = await svc.quote(['a', 'd']);
-    expect(res.breakdown).toEqual(computeCartBreakdown(25000, IVA, FEE));
+    expect(res.breakdown).toEqual(computeCartBreakdown(29000, IVA, FEE));
     expect(res.items).toHaveLength(2);
     expect(res.unavailableItems).toEqual([]); // SIEMPRE presente, [] cuando todo resuelve
   });
@@ -144,7 +151,8 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     const { svc } = build([piece('a')]);
     const res = await svc.quote(['a', 'a']);
     expect(res.items).toHaveLength(1);
-    expect(res.breakdown.subtotalCents).toBe(10000);
+    // `P` de una pieza de `L = 10000` con el dial en 100 %: **11600**, la cifra del criterio 185.
+    expect(res.breakdown.subtotalCents).toBe(11600);
   });
 
   describe('PRICE_PENDING (422) conserva su semántica pero se evalúa DESPUÉS de la poda', () => {

@@ -128,12 +128,48 @@ clasificar() {
   echo "real"
 }
 
-# describir <veredicto> <nombre_var> -> frase corta para humanos
+# describir <veredicto> -> frase corta para humanos
+#
+# EL DEFECTO QUE CIERRA LA RAMA `ausente` (B-3, medido el 2026-09-14)
+#
+#   Este script clasifica LO QUE LE LLEGA POR EL ENTORNO. No consulta GitHub, no
+#   tiene token, no sabe qué secrets existen. Y sin embargo la rama `ausente`
+#   afirmaba, literal: «secret NO configurado en GitHub».
+#
+#   Esa frase se imprime igual cuando el script corre en la máquina de un agente
+#   —donde NINGUNA variable de GitHub existe jamás, por construcción—, así que
+#   decía siempre lo mismo y era una afirmación sobre un sistema que nunca miró.
+#
+#   Coste real: QA corrió `./scripts/stack-native.sh up --seed --gate` en local,
+#   leyó esta frase a través de `e2e-capability-gate.sh`, y reportó como
+#   bloqueante que «el gate de dinero tampoco corre en CI». MEDIDO contra la API
+#   de GitHub (DEVOPS_NOTES §60): es FALSO. Las tres corridas nocturnas de
+#   `e2e-real.yml` del 11, 12 y 13 de septiembre NO produjeron el artefacto
+#   `SIN-MEDIR-comprar-invitado-retirar` —que se sube exactamente cuando
+#   `MONEY_GATE == 'off'` y que existía en los tres SHA—, luego el gate de dinero
+#   estaba **ON** y las dos claves existen en GitHub y clasifican como `real`.
+#
+#   Es la misma clase que este fichero ya persigue (§31.7: «un detector que se
+#   cree a sí mismo»), aplicada al mensaje en vez de al criterio: el script
+#   afirmaba un estado que no midió. Ahora dice lo único que sabe —que la
+#   variable llegó vacía— y nombra el entorno en el que lo midió.
+#
+#   Lo vigila `scripts/check-secret-absence-wording.sh` (ci.yml, job
+#   `secret-absence-wording`), con su canario.
 describir() {
   case "$1" in
     real)    echo "clave con forma de credencial real" ;;
     relleno) echo "VALOR DE RELLENO (no es una credencial)" ;;
-    ausente) echo "secret NO configurado en GitHub" ;;
+    ausente)
+      if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        # Aquí SÍ hay runner: la variable venía de un `secrets.*` del workflow.
+        # Aun así no se afirma más de lo medible: vacío en el runner significa
+        # «o el secret no existe, o el workflow no lo mapeó a este job».
+        echo "llegó VACÍA al runner: el secret no existe en GitHub, o el workflow no lo pasó a este job"
+      else
+        echo "llegó VACÍA a este proceso (entorno LOCAL); esto NO dice nada sobre los secrets de GitHub"
+      fi
+      ;;
     live)    echo "CLAVE LIVE — prohibida en staging/E2E" ;;
     formato) echo "formato desconocido (no es sk_test_/pk_test_/rk_test_)" ;;
   esac
@@ -260,6 +296,12 @@ resumen "> **Qué significa el verde de este run:** que los flujos NO monetarios
 resumen "> **NO significa** que comprar, comprar-como-invitado y retirar funcionen: hoy **nadie los ha probado** en este run."
 resumen "> Se ejecutan solos, sin tocar nada, en cuanto existan los secrets \`STRIPE_TEST_SECRET_KEY\` y \`STRIPE_TEST_PUBLISHABLE_KEY\` (§31.1)."
 resumen "> La ruta de promoción a producción (\`require_real_stripe: true\`) **no los salta jamás**: allí esto es un rojo inmediato."
+# B-3 (2026-09-14): fuera del runner, este veredicto habla SOLO de la máquina que
+# lo corre. Decirlo aquí evita que un `off` local se lea como «en CI tampoco».
+if [ -z "${GITHUB_ACTIONS:-}" ]; then
+  resumen ""
+  resumen "> ⚠️ **Esto se midió FUERA de GitHub Actions.** Aquí no hay secrets ni salida a \`api.stripe.com\`, así que el gate de dinero sale \`off\` **siempre**, exista o no la credencial en CI. Para saber qué hace CI, mira la corrida nocturna de \`e2e-real.yml\`: si NO subió el artefacto \`SIN-MEDIR-comprar-invitado-retirar\`, el gate de dinero estaba **ON**. Ver DEVOPS_NOTES §60."
+fi
 echo "::warning title=SIN GATE DE DINERO — 3 smokes SALTADOS::$MOTIVO. Se saltan checkout · guest-checkout · shipments (no ejecutados, NO aprobados) y corre el resto del E2E real. Este verde NO cubre los flujos de dinero. Arreglo: secrets STRIPE_TEST_SECRET_KEY y STRIPE_TEST_PUBLISHABLE_KEY (DEVOPS_NOTES 31.1)."
 salida money_gate off
 salida secret_verdict "$SECRET_VERDICT"

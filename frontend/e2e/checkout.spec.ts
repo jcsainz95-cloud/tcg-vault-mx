@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { t } from './utils/i18n';
+import { ivaLabelRe, t } from './utils/i18n';
 import { loginAs, IS_REAL, MONEY_RE } from './utils/auth';
 
 /**
@@ -22,7 +22,14 @@ test.describe('checkout · desglose y CFDI', () => {
     const breakdown = page.getByTestId('amount-breakdown');
     await expect(breakdown).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.subtotal'))).toBeVisible();
-    await expect(breakdown.getByText(t('es', 'checkout.iva', { rate: 16 }))).toBeVisible();
+    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
+    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
+    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
+    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
+    await expect(breakdown.getByText(ivaLabelRe('es', 'checkout.ivaIncluded'))).toBeVisible();
+    // El atributo es el DATO; el texto solo su consecuencia. Sin él, un rótulo pegado a mano
+    // pasaría igual.
+    await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
     await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.total'))).toBeVisible();
 
@@ -91,7 +98,11 @@ test.describe('checkout · desglose y CFDI', () => {
     await page.goto('/en/checkout');
 
     const breakdown = page.getByTestId('amount-breakdown');
-    await expect(breakdown.getByText(t('en', 'checkout.iva', { rate: 16 }))).toBeVisible();
+    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
+    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
+    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
+    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
+    await expect(breakdown.getByText(ivaLabelRe('en', 'checkout.ivaIncluded'))).toBeVisible();
     await expect(page.getByText(t('en', 'checkout.cfdiNotice'))).toBeVisible();
     // Política de ventas finales visible en inglés.
     await expect(page.getByText(t('en', 'checkout.finalSaleNotice'))).toBeVisible();

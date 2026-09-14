@@ -15,6 +15,31 @@ beforeEach(() => {
 });
 
 describe('M8View · Disputas (resolve)', () => {
+  /**
+   * P-97 — el dueño entró a `/es/admin/m8` con cero disputas y vio el título y NADA más: la lista
+   * se pintaba con `(query.data ?? []).map(...)` sin rama de vacío, así que una pantalla SANA se
+   * leía como una pantalla ROTA. Aquí no hay filtro que culpar (a diferencia de §M4, que distingue
+   * «sin envíos con ese filtro» de «nada que preparar»): cero disputas es **cero disputas**, y es
+   * una buena noticia — de ahí el `tone="positive"` de DESIGN_SYSTEM §8.1 («cola admin vacía»).
+   */
+  it('con cero disputas pinta el estado vacío, no una pantalla en blanco', async () => {
+    vi.spyOn(api, 'getAdminDisputes').mockResolvedValue([]);
+    renderWithProviders(<M8View />, 'es');
+
+    expect(await screen.findByText('Sin disputas por ahora.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Cuando un cliente abra una disputa aparecerá aquí para resolverla.'),
+    ).toBeInTheDocument();
+    // Y nada de la ficha de detalle: sin disputa activa no hay acciones que ofrecer.
+    expect(screen.queryByRole('button', { name: 'Resolver con recompra' })).not.toBeInTheDocument();
+  });
+
+  it('en EN el vacío también tiene copy (paridad de catálogo)', async () => {
+    vi.spyOn(api, 'getAdminDisputes').mockResolvedValue([]);
+    renderWithProviders(<M8View />, 'en');
+    expect(await screen.findByText('No disputes right now.')).toBeInTheDocument();
+  });
+
   it('lista las disputas y muestra los botones de resolución para la activa', async () => {
     renderWithProviders(<M8View />, 'es');
     expect(await screen.findByText('dsp-5001')).toBeInTheDocument();

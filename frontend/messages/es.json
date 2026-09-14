@@ -23,6 +23,7 @@
     "noResults": "Sin resultados",
     "all": "Todos",
     "withoutIva": "sin IVA",
+    "ivaIncluded": "IVA {rate} % incluido",
     "updatedDaily": "Precio de referencia de mercado, actualizado a diario",
     "errorTitle": "Algo salió mal",
     "errorGeneric": "No se pudo cargar la información.",
@@ -65,7 +66,19 @@
     "sealed": "Sellado",
     "buy": "Comprar",
     "myAccount": "Mi cuenta",
-    "ordersAndSales": "Compras y ventas"
+    "ordersAndSales": "Compras y ventas",
+    "pendings": {
+      "aria": "Pendientes: {count, plural, one {# cosa por hacer} other {# cosas por hacer}}",
+      "title": "Tus pendientes",
+      "since": "Desde el {date}",
+      "codes": {
+        "identity_action_required": {
+          "title": "Falta tu identificación",
+          "body": "Vuelve a subir tu INE desde tu cuenta. Ahí te decimos qué pasó con la anterior.",
+          "action": "Ir a mi cuenta"
+        }
+      }
+    }
   },
   "account": {
     "eyebrow": "CUENTA",
@@ -294,7 +307,7 @@
   "catalog": {
     "title": "Comprar",
     "subtitle": "Nuestro inventario publicado a la venta. Solo listamos lo que tiene precio.",
-    "eyebrow": "Catálogo · MXN sin IVA",
+    "eyebrow": "Catálogo · MXN",
     "piecesAvailable": "{count, plural, =0 {Sin publicaciones disponibles} one {# publicación disponible} other {# publicaciones disponibles}}",
     "resultsCount": "{count, plural, =0 {Sin resultados} one {# resultado} other {# resultados}}",
     "filterSet": "Set",
@@ -423,7 +436,7 @@
       "raw": "Raw"
     },
     "referenceExplainerWithMarket": "El valor de mercado es la referencia del día con la que valuamos las cartas. El precio de venta se calcula a partir de ella.",
-    "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta, sin IVA."
+    "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta."
   },
   "price": {
     "pendingLabel": "Precio pendiente",
@@ -438,10 +451,13 @@
     "removeItem": "Quitar",
     "subtotal": "Subtotal",
     "subtotalHint": "Precio de venta de las cartas, sin IVA.",
+    "subtotalHintIvaIncluded": "Precio de venta de las cartas, con IVA incluido.",
     "platformFee": "Comisión de plataforma",
     "platformFeeHint": "Nuestra comisión por operar tu compra en TCG HUNT. Ya está incluida en el total que ves aquí.",
     "iva": "IVA {rate}%",
     "ivaHint": "Impuesto al Valor Agregado desglosado.",
+    "ivaIncluded": "IVA {rate} % incluido",
+    "ivaIncludedHint": "Ya está dentro del subtotal y del envío. No se suma al total.",
     "shipping": "Envío",
     "total": "Total a pagar",
     "pay": "Pagar {amount}",
@@ -1224,6 +1240,8 @@
     "dashboard": {
       "profit": "Ganancia del periodo",
       "sales": "Ventas del periodo",
+      "salesGross": "Bruto",
+      "salesNet": "Neto",
       "workQueue": "Cola de trabajo",
       "inventoryValue": "Valor de inventario",
       "custodyValue": "Valor en bóveda",
@@ -1770,6 +1788,8 @@
     },
     "m8": {
       "title": "M8 · Disputas",
+      "empty": "Sin disputas por ahora.",
+      "emptyBody": "Cuando un cliente abra una disputa aparecerá aquí para resolverla.",
       "resolveRepurchase": "Resolver con recompra",
       "resolveReject": "Rechazar disputa",
       "resolveConfirm": "Confirmar resolución",
@@ -2767,6 +2787,48 @@
         "pageInfo": "Página {page} de {totalPages} · {total} registros",
         "prev": "Anterior",
         "next": "Siguiente"
+      },
+      "ivaTransfer": {
+        "title": "Traslación del IVA al precio exhibido",
+        "subtitle": "Qué fracción del IVA se suma al precio que ve el comprador. El resto sale de nuestro neto. La cifra en pesos la calcula el servidor sobre un precio de ejemplo, y hay que verla antes de guardar.",
+        "label": "Fracción trasladada",
+        "hint": "Entero de 0 a 100. Valor vigente: {current} %.",
+        "invalid": "Escribe un entero entre {min} y {max}.",
+        "sampleNote": "Todas las cifras están calculadas sobre una pieza de lista de {price}.",
+        "save": "Guardar la fracción",
+        "saved": "Fracción guardada en {pct} %. Queda en la bitácora.",
+        "delta": {
+          "eyebrow": "Lo que cambia nuestro neto, por pieza",
+          "body": "Con esta posición nos quedamos con {amount} menos por cada pieza de lista de {price}. Multiplícalo por las piezas que vendas.",
+          "none": "Esta posición no mueve nuestro neto."
+        },
+        "blocked": {
+          "invalid": "Corrige la fracción para poder guardar.",
+          "unchanged": "Es la fracción vigente: no hay nada que guardar.",
+          "quoting": "Calculando el costo de esta posición…"
+        },
+        "stale": {
+          "title": "El costo cambió mientras decidías",
+          "body": "No se guardó nada. Con las cifras de ahora, esta posición mueve nuestro neto en {amount} por pieza. Revísalo y vuelve a guardar si sigues de acuerdo."
+        },
+        "empty": {
+          "title": "Sin cifras para esta posición",
+          "body": "El servidor no devolvió el costo de esta posición, así que el dial no se puede mover: no se guarda un cambio de margen sin haber visto lo que cuesta. Vuelve a intentarlo."
+        },
+        "table": {
+          "caption": "Tasa de IVA vigente: {rate} %.",
+          "concept": "Concepto",
+          "current": "Vigente",
+          "proposed": "Propuesta",
+          "rows": {
+            "dial": "Fracción trasladada",
+            "display": "Precio exhibido",
+            "taxBase": "Base gravable",
+            "iva": "IVA",
+            "net": "Neto para nosotros",
+            "charged": "Total que paga el comprador"
+          }
+        }
       }
     },
     "m7": {
@@ -2785,7 +2847,8 @@
         "shippingRevenue": "Ingreso por envío (cobrado)",
         "cogs": "Costo de lo vendido",
         "stripeFees": "Comisiones Stripe",
-        "shippingCost": "Costo de envío (paquetería)",
+        "shippingCost": "Costo de envío (paquetería, neto)",
+        "shippingCostMissing": "{count, plural, one {# envío liquidado no tiene costo de paquetería capturado. Revísalo: su ingreso cuenta completo como ganancia.} other {# envíos liquidados no tienen costo de paquetería capturado. Revísalos: su ingreso cuenta completo como ganancia.}}",
         "profit": "Ganancia del periodo"
       },
       "values": {
@@ -3421,7 +3484,9 @@
     "PAYMENT_IN_PROGRESS": "Tu intento anterior ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa ese pedido antes de reintentar.",
     "PAYMENT_IN_PROGRESS_GUEST": "Tu intento anterior con este correo ya tiene un pago en curso o cobrado, así que no abrimos otro: no se cobra dos veces. Revisa tu correo o espera un momento antes de reintentar.",
     "INE_NOT_ON_FILE": "Este usuario no tiene INE en el expediente.",
-    "KYC_REJECTION_REASON_REQUIRED": "Sin motivo no se puede rechazar: el cliente tiene que saber qué corregir."
+    "KYC_REJECTION_REASON_REQUIRED": "Sin motivo no se puede rechazar: el cliente tiene que saber qué corregir.",
+    "IVA_TRANSFER_ACK_REQUIRED": "Hay que ver el costo en pesos antes de guardar esta fracción. Vuelve a calcularlo y guarda desde ahí.",
+    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar."
   },
   "payment": {
     "title": "Pago",
