@@ -23,7 +23,7 @@
  *    `400`), la forma del punto 2 (`field` obligatorio, `allowed` = el dominio **declarado**, `400` y
  *    **no `422`**, `value` **solo** donde el punto 2 lo declara) y la **cota del eco**.
  *    **Tabla-dirigida a propósito:** una fila de datos por eje, no un `describe` escrito a mano — *si
- *    añadir un eje cuesta escribir un bloque nuevo, el eje número veinticinco no se añade*.
+ *    añadir un eje cuesta escribir un bloque nuevo, el eje número treinta y tres no se añade*.
  *
  *    ⭐⭐ **`QA-M3` (2026-09-13) — la propiedad «FILTRA» no comprobaba que filtrara.** Se titulaba
  *    *«un token del dominio FILTRA (u ordena)»* y su cuerpo entero era
@@ -90,6 +90,13 @@ import {
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { censusQueryAxes } from '../helpers/query-axis-census';
+import {
+  huerfanos,
+  NO_ENUM_POR_RUTA,
+  NO_ENUM_TRANSVERSAL,
+  QUERY_SIN_NOMBRE,
+  SIN_CLASE_DECLARADA,
+} from '../helpers/query-axis-cross';
 import { ACCEPTED_RAW_CONDITIONS } from '../../src/common/business-rules';
 import { BOUNTY_STATE_VALUES } from '../../src/modules/pricing/bounty-state';
 import { ADMIN_BOUNTY_SORT_VALUES } from '../../src/modules/pricing/admin-bounties.service';
@@ -201,31 +208,87 @@ type ApiRes = { status: number; body: ErrorBody; text: string };
  * daría el mismo `1` en los dos. Con el cuerpo dentro, se distinguen.
  *
  * ⚠️ La huella tiene que ser **estable entre dos llamadas idénticas** o la suite se vuelve
- * intermitente. Medido antes de escribir esto, N=2 por eje sobre las 26 filas: **estable en todas**
- * (`scratchpad/be-vault`, `zz-probe3`). Si algún día un endpoint mete un `now()` en su DTO, la fila
- * declara su propia `huella` — no se afloja la propiedad para todos.
+ * intermitente.
+ *
+ * ⭐⭐ **`R3` — aquí decía «Medido antes de escribir esto, N=2 por eje sobre las 26 filas: estable en
+ * todas», y la frase se volvió FALSA sin que nadie la tocara.** Esa medición se hizo sobre las 26
+ * filas de la fase 1; luego entraron las **seis de la bóveda** y la frase pasó a cubrirlas **sin
+ * haberlas medido**. Es la clase que `ARCHITECTURE §4.37.1-a` declara mortal —una afirmación de
+ * estado que envejece con autoridad— **dentro del fichero que se declara NORMATIVO**, y es la tercera
+ * vez en este mismo fichero (`QA-M3` la primera, `C2` la segunda).
+ *
+ * **La cura no es corregir el número: es que deje de ser prosa.** La estabilidad la comprueba ahora
+ * un test, `huella ESTABLE entre dos llamadas idénticas`, **sobre las filas que haya** — así una fila
+ * nueva se mide sola y ninguna frase puede volver a cubrir lo que nadie miró. Si algún día un
+ * endpoint mete un `now()` en su DTO, ese test lo dice y la fila declara su propia `huella`; no se
+ * afloja la propiedad para todos.
  */
 interface Obs {
   /** Huella observable de la respuesta: dos resultados distintos ⇒ huellas distintas. */
   readonly huella: (res: ApiRes) => string;
   /** ¿El resultado SIN filtrar trae algo? Con cero filas, «filtra» NO es observable aquí. */
   readonly hayDatos: (res: ApiRes) => boolean;
+  /**
+   * ⭐⭐ **Distancia entre dos huellas, y el SUELO DE RUIDO del instrumento.**
+   *
+   * ### De dónde sale: el candado de estabilidad cazó un defecto MÍO
+   * La fila del XLSX observaba `bytes=<longitud>` y `filtra` exigía solo `!==`. **El XLSX no es
+   * estable byte a byte**: medido N=40 repartidas en ~80 s sobre la MISMA consulta, la longitud toma
+   * **12 valores distintos con un spread de 18 bytes** (`exceljs` escribe la fecha de creación dentro
+   * del ZIP, y el DEFLATE de esa cadena cambia de tamaño). Consecuencia doble, y la segunda es la
+   * grave:
+   *
+   *  1. la prueba de estabilidad salía **intermitente** (7254 vs 7250, cazado en una corrida);
+   *  2. ⛔ **`filtra` podía pasar por RUIDO**: dos respuestas idénticas en contenido daban longitudes
+   *     distintas, así que el `!==` se satisfacía **sin que el filtro hiciera nada** — o sea, en esa
+   *     fila `QA-M3` no estaba realmente cerrada. *Un `!==` sobre un instrumento ruidoso no es una
+   *     medición.*
+   *
+   * Por eso la comparación es **distancia contra un umbral medido**, no igualdad: `filtra` exige
+   * superar el ruido, y la estabilidad exige quedarse por debajo. Para todo lo demás (JSON) el
+   * instrumento es exacto y el umbral es `0`, con lo que se reduce a `!==` / `===`.
+   */
+  readonly distancia?: (a: string, b: string) => number;
+  /** Umbral de ruido MEDIDO del instrumento. Por defecto `0`: la respuesta es byte-determinista. */
+  readonly ruido?: number;
 }
+
+/** Instrumento exacto (JSON): dos huellas o son la misma o están infinitamente lejos. */
+const DISTANCIA_EXACTA = (a: string, b: string): number => (a === b ? 0 : Number.POSITIVE_INFINITY);
+const distanciaDe = (obs: Obs) => obs.distancia ?? DISTANCIA_EXACTA;
+const ruidoDe = (obs: Obs) => obs.ruido ?? 0;
 
 type Lista = { total?: number; data?: unknown[] };
 const filas = (res: ApiRes): number => {
   const b = res.body as unknown as Lista;
   return b?.total ?? b?.data?.length ?? -1;
 };
-/** El caso normal: lista paginada `{ total, data }` (23 de las 26 filas). */
+/** El caso normal: lista paginada `{ total, data }` — todas las filas menos las dos de abajo. */
 const OBS_LISTA: Obs = {
   huella: (res) => `n=${filas(res)}|${JSON.stringify((res.body as unknown as Lista)?.data ?? null)}`,
   hayDatos: (res) => filas(res) > 0,
 };
-/** `GET /admin/inventory/export.xlsx` — el cuerpo es un XLSX binario: se observa su TAMAÑO. */
+/**
+ * `GET /admin/inventory/export.xlsx` — el cuerpo es un XLSX binario: se observa su TAMAÑO, **con
+ * suelo de ruido**.
+ *
+ * **Las tres cifras que justifican el 64, medidas el 2026-09-14 sobre BD efímera:**
+ *
+ * | Qué | Valor |
+ * |---|---|
+ * | Ruido del instrumento (N=40 de la MISMA consulta, ~80 s) | **18 bytes** (12 valores distintos) |
+ * | Señal más PEQUEÑA que `filtra` necesita distinguir (sin filtro 7 391 vs `raw` 7 246) | **145 bytes** |
+ * | Señal entre dos tokens (`raw` 7 246 vs `graded` 6 738) | **508 bytes** |
+ *
+ * `64` deja **3.5×** de holgura sobre el ruido medido y se queda **2.3×** por debajo de la señal más
+ * pequeña. Si algún día el fixture encoge hasta que esas dos se crucen, la fila se pondrá roja —
+ * y la salida NO será subir el umbral: será sembrar más filas o dejar de observar bytes.
+ */
 const OBS_XLSX: Obs = {
   huella: (res) => `bytes=${res.text.length}`,
   hayDatos: (res) => res.text.length > 0,
+  distancia: (a, b) => Math.abs(Number(a.slice(6)) - Number(b.slice(6))),
+  ruido: 64,
 };
 /** `GET /admin/reports/pricing-brackets` — `{ sale?, buy? }`: el eje decide qué MITAD se emite. */
 const OBS_BRACKETS: Obs = {
@@ -246,8 +309,16 @@ interface Ctx {
 }
 
 /**
- * ⭐ **EL REGISTRO — transcripción de §0-Q punto 4 (25 filas: las 24 de la tabla + el `?sort=` que
- * la tabla registra en su última columna como «no es filtro: es ORDEN — punto 6»).**
+ * ⭐ **EL REGISTRO — 32 filas: las 26 que transcriben §0-Q punto 4 + las 6 de la bóveda.**
+ *
+ * Las **26 transcritas** son las 24 de la tabla de §0-Q punto 4, el `?sort=` que esa tabla registra
+ * en su última columna como «no es filtro: es ORDEN — punto 6», y el `?origin=` de `sealed-products`.
+ * Las **6 restantes** (`EQ-D0`, la bóveda) son conducta YA conforme cuya **fila de §0-Q todavía no
+ * existe**: van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'` y las fija un test propio.
+ *
+ * ⚠️ **`R3`: el conteo va fijado con un literal en el trinquete**, no escrito aquí y ya. Este
+ * docstring decía «25 filas» cuando había 32 — y el pase entero defiende que *un número sí falla y
+ * una fecha no*. Si el registro crece, el trinquete lo dice antes que esta prosa.
  *
  * Es una afirmación de **clase (A) — decisión**, y por eso sí se transcribe: cambia solo cuando el
  * arquitecto lo decide. Lo que ⛔ **no** se transcribe es el **dominio** de una clase E: ése se
@@ -450,10 +521,14 @@ const BASURA = 'no_soy_un_token_valido';
  * ⭐⭐ **EL FIXTURE DE `C-EQ-1` — sin él, «filtra» no se puede medir y el verde es por OMISIÓN.**
  *
  * ### De dónde sale (medido el 2026-09-13 sobre BD virgen, antes de escribirlo)
- * Se recorrieron los **26** ejes del registro contando el resultado **sin filtrar** y el de **cada**
- * token de su dominio. Ocho ejes devolvían **cero filas con y sin filtro**, así que la mutación
- * *«valida y tira el valor»* era **invisible** en ellos por construcción — incluido `?origin=`, que
- * es justo donde QA plantó `QA-M3`. Con la siembra de abajo quedan **26/26 medibles**.
+ * Se recorrieron los **26** ejes que el registro tenía entonces, contando el resultado **sin
+ * filtrar** y el de **cada** token de su dominio. Ocho devolvían **cero filas con y sin filtro**, así
+ * que la mutación *«valida y tira el valor»* era **invisible** en ellos por construcción — incluido
+ * `?origin=`, que es justo donde QA plantó `QA-M3`. Con la siembra de abajo quedaron **26/26
+ * medibles**; las **6 de la bóveda** entraron después (`EQ-D0`) con su propia siembra (bloque `f`),
+ * y las mide el mismo bucle de propiedades. Total hoy: **32/32**, sin marcas de «no medible».
+ *
+ * ⚠️ El total NO se afirma aquí: lo fija el trinquete con un literal (`R3`).
  *
  * ### Reglas que se respetan aquí, y por qué
  *  - **Se siembra lo MÍNIMO y se nombra**: todo lo que crea lleva el prefijo `CEQ1-` (o el
@@ -616,13 +691,16 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       expect(`${idOf(row)} · hay datos SIN filtrar`).toBe(
         obs.hayDatos(base) ? `${idOf(row)} · hay datos SIN filtrar` : `${idOf(row)} · FIXTURE VACÍO`,
       );
-      // (2) `QA-M3`: el token cambia el resultado.
-      expect(obs.huella(res)).not.toBe(obs.huella(base));
+      // (2) `QA-M3`: el token cambia el resultado — por ENCIMA del ruido del instrumento, no solo
+      //     «distinto» (ver `Obs.distancia`: en el XLSX un `!==` se satisfacía por ruido).
+      const dist = distanciaDe(obs);
+      const ruido = ruidoDe(obs);
+      expect(dist(obs.huella(res), obs.huella(base))).toBeGreaterThan(ruido);
       // (3) el token discrimina (solo donde el dominio tiene con qué: ver `alterno`).
       if (row.alterno !== undefined) {
         const alt = extra.alterno!;
         expect(alt.status).toBe(200);
-        expect(obs.huella(res)).not.toBe(obs.huella(alt));
+        expect(dist(obs.huella(res), obs.huella(alt))).toBeGreaterThan(ruido);
       }
     },
     error: (row, res) => {
@@ -759,6 +837,30 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     expect(malas).toEqual([]);
   });
 
+  /**
+   * ⭐⭐ **`R3` — la estabilidad de la huella deja de ser una frase y pasa a ser una medición.**
+   *
+   * La propiedad `filtra` compara huellas entre peticiones distintas. Si la huella de un endpoint no
+   * fuera **estable entre dos llamadas idénticas** (un `now()` en el DTO, un orden no determinista),
+   * la fila saldría roja **por el instrumento**, no por el producto — y la salida barata sería
+   * aflojar la propiedad para todos.
+   *
+   * Hasta hoy eso se afirmaba en prosa («N=2 por eje sobre las 26 filas: estable en todas») y la
+   * frase **caducó sola** cuando entraron las seis de la bóveda. Ahora se mide **sobre las filas que
+   * haya**: una fila nueva se comprueba sola, y ninguna frase puede volver a cubrir lo que nadie
+   * miró. N=2 por fila, que es lo que hace falta para detectar no-determinismo por llamada.
+   */
+  it.each(REGISTRO.map((r) => [idOf(r), r] as const))(
+    '%s — huella ESTABLE entre dos llamadas idénticas (si no, la propiedad `filtra` mide el instrumento)',
+    async (_id, row) => {
+      const obs = row.obs ?? OBS_LISTA;
+      const a = await get(row, row.valid);
+      const b = await get(row, row.valid);
+      // Por debajo del ruido DECLARADO del instrumento (0 para todo lo que es JSON ⇒ igualdad).
+      expect(distanciaDe(obs)(obs.huella(a), obs.huella(b))).toBeLessThanOrEqual(ruidoDe(obs));
+    },
+  );
+
   it('⛔ `D-EQ-3` (frontend primero) — `/catalog/cards?productType=sealed` HOY devuelve `200`', async () => {
     const row = REGISTRO.find((r) => r.route === 'GET /catalog/cards' && r.param === 'productType')!;
     expect((await get(row, 'sealed')).status).toBe(200);
@@ -766,136 +868,15 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
 });
 describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declarada', () => {
   /**
-   * ⭐⭐ **`NO_ENUM` se parte en DOS, y la partición es el arreglo de `QA-M4`.**
+   * ⭐⭐ **`R1` — las cuatro listas y EL CRUCE viven en `test/helpers/query-axis-cross.ts`.**
    *
-   * ### El defecto, medido
-   * Esta lista se cruzaba **entera por nombre**. QA plantó un endpoint NUEVO con `@Query('rarity')`
-   * y `@Query('action')` —dos nombres de aquí— y el descubrimiento salió **3/3 VERDE** (censo
-   * 176 → 178: el escáner **sí lo veía**; era el cruce el que lo absolvía). Reproducido por mí antes
-   * de tocar nada: **3/3 verde** (N=3). Es exactamente el hueco que el canario `m1` ya demuestra
-   * cerrado del lado del **registro** —*«un endpoint NUEVO que reusa un nombre ya registrado en OTRA
-   * ruta ⇒ huérfano igual»*— y que seguía **abierto de este lado**.
-   *
-   * ### Por qué NO se cierra pasándolo todo a `MÉTODO /ruta::param`
-   * Porque de las dos mitades, **una sí es transversal de verdad y la otra no**, y tratarlas igual
-   * rompe algo en las dos direcciones:
-   *
-   *  - **`TRANSVERSAL` (113 sitios, medido)** — `?page=`, `?pageSize=`, `?q=`, `?from=`, `?to=`, los
-   *    identificadores y los montos. Su dominio es abierto **por la FORMA del valor**: un `?page=`
-   *    es un número y un `?setId=` es un uuid **en cualquier ruta**, presente o futura. Fijarlos por
-   *    ruta obligaría a tocar esta lista en cada endpoint paginado nuevo — 113 entradas que solo
-   *    dicen «esto sigue siendo un número» y que nadie leería. Una lista que hay que actualizar para
-   *    que no moleste es una lista que se actualiza **sin mirar**.
-   *  - **`POR_RUTA` (15 sitios, fijados con `toEqual`)** — `?rarity=`, `?action=`, `?entityType=` y
-   *    las banderas booleanas. Aquí la exención **no** se sigue del nombre: se sigue de una
-   *    **medición de ESA ruta** («`Card.rarity` es `String`, no enum», «esto es un booleano»). Esa
-   *    medición ⛔ **no se hereda** a una ruta nueva: mañana `?rarity=` puede ser un enum en otro
-   *    endpoint, y `?action=` de `/admin/audit-log` es texto libre **porque su columna lo es**, no
-   *    porque se llame `action`. Con la lista fijada por llave, el endpoint de `QA-M4` sale
-   *    **huérfano** y el descubrimiento se pone ROJO, que es lo que tenía que pasar desde el principio.
+   * No es una mudanza de higiene: el **canario** (`test/enum-query-census-canary.spec.ts`) tenía su
+   * propia `huerfanos()` con **tres** listas y `noEnum` **por nombre** — o sea certificaba el cruce
+   * que `QA-M4` refutó, no el que se embarca. techlead lo razonó y no hay vuelta: *el canario no
+   * importaba ni una lista del spec, luego revertir la partición no podía poner roja ninguna
+   * aserción suya*. Ahora los dos importan **la misma función y las mismas listas**, y eso lo
+   * comprueba el propio canario (su test de costura mira este fichero).
    */
-  const NO_ENUM_TRANSVERSAL: readonly string[] = [
-    // Paginación y búsqueda libre (§0, línea de «filtros de lista admin»).
-    'page',
-    'pageSize',
-    'q',
-    'from',
-    'to',
-    // Identificadores.
-    'setId',
-    'cardId',
-    'userId',
-    'actorUserId',
-    'locationId',
-    'groupId',
-    // Montos y fechas.
-    'minCents',
-    'maxCents',
-    'minPriceCents',
-    'maxPriceCents',
-    'quotedTotalCents',
-    'date',
-  ];
-
-  /**
-   * ⭐ **La exención que es una medición DE ESA RUTA, y por eso va por `MÉTODO /ruta::param`.**
-   *
-   * Texto libre sobre columnas `String` del schema (medido 2026-09-13: `Card.rarity`,
-   * `AuditLog.action`, `AuditLog.entityType` son `String`, no enums) y banderas booleanas
-   * (`'true'`/`'1'`). ⛔ **Fijada con `toEqual` y con tope**: un `@Query('rarity')` en una ruta nueva
-   * no hereda esta exención — hay que medir la ruta nueva y escribirla aquí a mano.
-   */
-  const NO_ENUM_POR_RUTA: readonly string[] = [
-    'GET /admin/audit-log::action',
-    'GET /admin/audit-log::entityType',
-    'GET /admin/buylist::awaitingGuide',
-    'GET /admin/buylist::live',
-    'GET /admin/buylist::offerReissueAlert',
-    'GET /admin/buylist/pending-shipment-confirmation::onlyAlerts',
-    'GET /admin/inventory/sealed-products::principalOnly',
-    'GET /admin/orders::guest',
-    'GET /admin/orders::needsManual',
-    'GET /buylist/cards::rarity',
-    'GET /catalog/cards::gradingHighlight',
-    'GET /catalog/cards::rarity',
-    'POST /admin/catalog/backfill::force',
-    'POST /admin/catalog/refresh-variants-all::force',
-    'POST /admin/catalog/sync-all::force',
-  ];
-
-  /**
-   * ⭐ **La cola de enrutamiento: ejes de dominio CERRADO medido que §0-Q NO registra.**
-   *
-   * Salieron **de este descubrimiento**, no de una lista que alguien recordara — que es exactamente
-   * la diferencia que `C-EQ-1` existe para marcar. Cada uno lleva su medición y su dueño. ⛔ **No se
-   * arreglan aquí**: la clase la decide el arquitecto (regla 9) y el código es de otros work
-   * streams. Están fijados con `toEqual` ⇒ **la cola no puede crecer en silencio**.
-   *
-   * | Eje | Conducta medida (2026-09-13) | Por qué incumple §0-Q | Stream |
-   * |---|---|---|---|
-   * | `/vault/sealed?sealedSubtype=` · `?condition=` | `vault.service.ts` `if (q.x && SET.has(q.x))` ⇒ **el filtro se IGNORA EN SILENCIO** | punto 1 ⛔ «prohibido ignorar el filtro»: *el fallo se ve y la cola falsa no*. Es el defecto de `?kycStatus=` que `A5` cerró, vivo en la bóveda del CLIENTE | Inventario y vault |
-   * | `/admin/vaults/:userId/sealed?sealedSubtype=` · `?condition=` | ídem (mismo servicio) | ídem | Inventario y vault |
-   * | `/admin/shipments?kind=` | `shipments.service.ts` `if (kind === 'guest_direct_ship')…` ⇒ **ignora en silencio** lo desconocido | punto 1 fila 3: debería ser `400` | Órdenes y dinero |
-   * | `/admin/users/:id/audit?scope=` | `admin.controller.ts` cae al default `target` ante basura ⇒ **clamp silencioso** | punto 6 ⛔ «prohibido el clamp silencioso»: devuelve una lista distinta de la pedida | Admin y auditoría |
-   * | `/admin/pricing/graded-estimates/review?reason=` | `400` con `details.{field,invalid,allowed}` | **CUARTA forma de `details`**: `invalid` no es `invalidStatus` (punto 2) ni está declarada | Catálogo y precios |
-   * | `/admin/finance/export.csv?report=` · `/admin/reports/export.csv?report=` | `admin.service.ts` `if(report==='pnl')…if(report==='iva')…` ⇒ **cualquier otra cosa cae a `inventory`** | punto 1 fila 3 con el signo peor: devuelve **otro informe** del pedido | Admin y auditoría |
-   * | `?range=` ×4 (`/catalog/…/value-history`, `/vault/portfolio/history`) | `normalizeRange` ⇒ **clamp silencioso a `'1m'`** | punto 6 ⛔ clamp silencioso | Catálogo y precios · Inventario y vault |
-   * | `?sort=` ×8 (catálogo, sellado, master-sets, bóvedas) | todos caen a su default ante basura | punto 6 ⛔ clamp silencioso; y §0-Q **no declara su dominio** (solo registra el de `bounties`) | varios |
-   * | `/catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 y §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo ⇒ `D-EQ-3`, **frontend primero** | Catálogo y precios |
-   */
-  const SIN_CLASE_DECLARADA: readonly string[] = [
-    'GET /admin/finance/export.csv::report',
-    'GET /admin/pricing/graded-estimates/review::reason',
-    'GET /admin/reports/export.csv::report',
-    'GET /admin/shipments::kind',
-    'GET /admin/users/:id/audit::scope',
-    'GET /admin/inventory/master-sets::sort',
-    'GET /admin/vaults::sort',
-    'GET /admin/vaults/:userId/master-sets::sort',
-    'GET /catalog/cards::sealedSubtype',
-    'GET /catalog/cards::sort',
-    'GET /catalog/featured-set/value-history::range',
-    'GET /catalog/sealed::sort',
-    'GET /catalog/sealed/:inventoryItemId/value-history::range',
-    'GET /catalog/sets/:id/value-history::range',
-    'GET /vault/master-sets::sort',
-    'GET /vault/portfolio/history::range',
-  ];
-
-  /**
-   * Los `@Query()` **sin nombre** (la query entera). El escáner no puede ver sus llaves, así que el
-   * hueco se cierra **diciéndolo**: cada sitio se declara con dónde vive su lista de llaves. Un
-   * `@Query()` desnudo nuevo ⇒ **rojo**, porque sería un endpoint entero fuera del inventario.
-   */
-  const QUERY_SIN_NOMBRE: readonly string[] = [
-    // `ADMIN_USERS_QUERY_KEYS` (`admin.controller.ts`): `q status kycStatus page pageSize`. Lee la
-    // query ENTERA a propósito (`D-A5-3`): con params sueltos, una llave desconocida se descartaba
-    // en silencio y el operador recibía el padrón entero con cara de cola filtrada.
-    'GET /admin/users::<sin nombre>',
-    // `RejectedItemsQueryDto`: `userId page pageSize` — los tres NO son de dominio cerrado.
-    'GET /admin/buylist/rejected-items::<sin nombre>',
-  ];
-
   const sites = censusQueryAxes(SRC);
   const registrados = new Set(REGISTRO.map((r) => `${r.route}::${r.param}`));
 
@@ -910,24 +891,21 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     expect(sites.some((s) => s.key === 'GET /catalog/cards::finish')).toBe(true);
   });
 
-  it('⭐ ningún `@Query` fuera de las CUATRO listas (si sale uno: su clase la decide el ARQUITECTO)', () => {
-    const huerfanos = sites
-      .filter(
-        (s) =>
-          !(s.param !== null && NO_ENUM_TRANSVERSAL.includes(s.param)) &&
-          // ⭐ `QA-M4`: por LLAVE, no por nombre. Un endpoint nuevo con `@Query('rarity')` NO hereda
-          // la exención medida de `/catalog/cards` — sale huérfano, que es el punto.
-          !NO_ENUM_POR_RUTA.includes(s.key) &&
-          !registrados.has(s.key) &&
-          !SIN_CLASE_DECLARADA.includes(s.key) &&
-          !QUERY_SIN_NOMBRE.includes(s.key),
-      )
-      .map((s) => `${s.key}   @ ${s.file}`);
+  /** Las cinco fuentes de clase, tal como las cruza `huerfanos()` — la MISMA que usa el canario. */
+  const LISTAS = {
+    transversal: NO_ENUM_TRANSVERSAL,
+    porRuta: NO_ENUM_POR_RUTA,
+    registro: [...registrados],
+    sinClase: SIN_CLASE_DECLARADA,
+    sinNombre: QUERY_SIN_NOMBRE,
+  };
 
+  it('⭐ ningún `@Query` fuera de las CINCO listas (si sale uno: su clase la decide el ARQUITECTO)', () => {
+    const porFichero = new Map(sites.map((s) => [s.key, s.file]));
     expect(
-      huerfanos,
       // El mensaje es parte del candado: quien lo tope tiene que saber que la salida NO es añadirlo
-      // a `NO_ENUM` sin medir.
+      // a `NO_ENUM_TRANSVERSAL` sin medir — esa lista absuelve GLOBALMENTE y tiene tope (`R2a`).
+      huerfanos(sites, LISTAS).map((k) => `${k}   @ ${porFichero.get(k)}`),
     ).toEqual([]);
   });
 
@@ -951,6 +929,15 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
    * crece.*
    */
   it('⭐ TRINQUETE — la cola de enrutamiento solo puede ENCOGER (nunca crecer en silencio)', () => {
+    // ⭐⭐ `R3` — el tamaño del REGISTRO, con LITERAL. La prosa de este fichero llegó a decir «25
+    // filas», «26 filas» y «las 26» cuando había **32**, y una de esas frases afirmaba haber medido
+    // la estabilidad «sobre las 26 filas» — cubriendo las seis de la bóveda **sin haberlas medido**.
+    // Es la clase que §4.37.1-a declara mortal, dentro del fichero que se declara «la ÚNICA
+    // autoridad», y ya van tres veces aquí (`QA-M3`, `C2`, ésta). *Ya que el pase entero defiende
+    // que un número sí falla y una fecha no*, el conteo se fija donde falla.
+    // 26 transcritas de §0-Q punto 4 + 6 de la bóveda (`EQ-D0`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'`).
+    expect(REGISTRO.length).toBe(32);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(6);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
@@ -963,11 +950,59 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,
     // intachable en su PR, y la exención por-ruta se volvería otra lista por nombre disfrazada.
     // Medido el 2026-09-13: 15 sitios (3 de texto libre + 12 banderas booleanas).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(15);
+    // 15 (3 de texto libre + 12 banderas) + 21 (`?from=`/`?to=`/`?date=`, movidos desde
+    // `TRANSVERSAL` en `R2a`: una «fecha» PUEDE ser un dominio cerrado con nombre de fecha).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(36);
+    // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
+    //
+    // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
+    // ⇒ **3/3 VERDE, N=3**. El fondo está ratificado —QA enumeró los 113 sitios y ninguno es de
+    // dominio cerrado—, así que lo que se congela NO es la decisión sino la lista: **17 nombres**.
+    //
+    // ⛔ Va con `toEqual` y no con `length <= 17` a propósito: esta lista absuelve **globalmente**
+    // (un nombre exime TODAS las rutas, presentes y futuras), así que sustituir un nombre por otro
+    // sin cambiar el conteo es tan peligroso como añadirlo. `?date=today|yesterday|week` —el caso
+    // que QA puso encima— **entraba sin un solo rojo**; ahora entra con uno.
+    expect([...NO_ENUM_TRANSVERSAL].sort()).toEqual([
+      'actorUserId', 'cardId', 'groupId', 'locationId', 'maxCents', 'maxPriceCents', 'minCents',
+      'minPriceCents', 'page', 'pageSize', 'q', 'quotedTotalCents', 'setId', 'userId',
+    ]);
     // Sin duplicados: dos entradas iguales inflarían la cola sin tocar el tope.
     expect(new Set(SIN_CLASE_DECLARADA).size).toBe(SIN_CLASE_DECLARADA.length);
     expect(new Set(QUERY_SIN_NOMBRE).size).toBe(QUERY_SIN_NOMBRE.length);
     expect(new Set(NO_ENUM_POR_RUTA).size).toBe(NO_ENUM_POR_RUTA.length);
+    expect(new Set(NO_ENUM_TRANSVERSAL).size).toBe(NO_ENUM_TRANSVERSAL.length);
+  });
+
+  /**
+   * ⭐⭐ **`R2b` — la quinta puerta y media: las `excepciones`, que NO añaden una entrada sino que
+   * DEBILITAN una aserción.**
+   *
+   * Las otras cuatro listas crecen sumando una llave; ésta crece **apagando una propiedad para una
+   * fila**. Y la peor de todas sería `excepciones: { filtra: … }`: borraría, para esa fila, la
+   * aserción **(1)** —la del fixture vacío—, que es justo la que convierte un hueco silencioso en un
+   * rojo con nombre. Hoy hay **5 excepciones en 4 filas** y **ninguna es de `filtra`** (QA lo
+   * verificó); mañana, sin esto, la primera entraría con un diff de una línea.
+   *
+   * ⛔ **Y el guardián que había no guarda:** `expect(exc.motivo.length).toBeGreaterThan(80)` exige
+   * **prosa**, que es exactamente lo que este stream ha medido tres veces que **no sostiene nada**
+   * (`QA-M3`, `C2`, `R3`). Ochenta caracteres de texto no son una medición. El censo sí.
+   */
+  it('⭐ CENSO de `excepciones` — fijado y con tope: una excepción nueva NO es un diff de una línea', () => {
+    const censo = REGISTRO.flatMap((r) =>
+      Object.keys(r.excepciones ?? {}).map((prop) => `${idOf(r)}::${prop}`),
+    ).sort();
+    expect(censo).toEqual([
+      'GET /admin/buylist?status=::cota',
+      'GET /admin/pricing/bounties?sort=::cota',
+      'GET /admin/pricing/bounties?state=::cota',
+      'GET /admin/pricing/bounties?state=::sinNormalizar',
+      'GET /catalog/cards?productType=::error',
+    ]);
+    // El tope, por si alguien sustituye una por otra: son 5, en 4 filas, y el número solo baja.
+    expect(censo.length).toBeLessThanOrEqual(5);
+    // ⛔ NINGUNA sobre `filtra`: apagar esa propiedad es apagar la aserción del fixture vacío.
+    expect(censo.filter((k) => k.endsWith('::filtra'))).toEqual([]);
   });
 
   it('la cola de enrutamiento no puede ENCOGER en silencio tampoco: lo que lista sigue existiendo', () => {
