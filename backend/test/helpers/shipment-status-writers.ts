@@ -44,7 +44,7 @@
  * regex de bloques de la v1, que se queda ciega a trozos) y recorta el argumento de la llamada
  * contando llaves/paréntesis, respetando cadenas. Un `where` construido en una variable aparte sale
  * como `unclassified`, que **también es rojo**. Lo que cierra el límite es el **canario**
- * (`shipments.state-monotonic-canary.spec.ts`), que reintroduce cada defecto y exige el rojo.
+ * (el bloque CANARIO de `shipments.state-monotonic.spec.ts`), que reintroduce cada defecto y exige el rojo.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -68,13 +68,13 @@ export interface StatusWriteSite {
 const VERBOS = ['update', 'updateMany', 'upsert'] as const;
 
 /**
- * Recorta el texto entre el paréntesis de apertura en `open` y su pareja, contando llaves,
- * corchetes y paréntesis y **saltando cadenas**. Devuelve `null` si no cierra (fuente truncada).
+ * Recorta el interior del delimitador que empieza en `inicio` (`(`, `{` o `[`), contando
+ * anidamiento y **saltando cadenas**. Devuelve `null` si no cierra (fuente truncada).
  */
-function argumento(src: string, open: number): string | null {
+function recorteBalanceado(src: string, inicio: number): string | null {
   let prof = 0;
   let comilla: string | null = null;
-  for (let i = open; i < src.length; i++) {
+  for (let i = inicio; i < src.length; i++) {
     const c = src[i];
     if (comilla) {
       if (c === '\\') i += 1;
@@ -88,22 +88,25 @@ function argumento(src: string, open: number): string | null {
     if (c === '(' || c === '{' || c === '[') prof += 1;
     else if (c === ')' || c === '}' || c === ']') {
       prof -= 1;
-      if (prof === 0) return src.slice(open + 1, i);
+      if (prof === 0) return src.slice(inicio + 1, i);
     }
   }
   return null;
 }
 
 /**
- * Devuelve el valor de la propiedad `clave` en el **primer nivel** de un objeto literal, como texto.
- * `null` si no está. `'<opaco>'` si la propiedad viene en forma abreviada (`data` a secas) o su
- * valor es un identificador — el caso que **no se puede mirar por dentro** y por eso exige guarda.
+ * Devuelve el valor de la propiedad `clave` en el **primer nivel** del INTERIOR de un objeto
+ * literal (⛔ sin sus llaves exteriores):
+ *  - `null`      — la propiedad no está en el primer nivel (⭐ un `status` ANIDADO no cuenta);
+ *  - `'<opaco>'` — viene abreviada (`data`) o su valor no es un objeto literal: **no se puede
+ *                  mirar por dentro**, y por eso el sitio pasa a exigir guarda;
+ *  - el INTERIOR del objeto, si el valor es un objeto literal.
  */
-export function propiedadDePrimerNivel(cuerpo: string, clave: string): string | null {
+export function valorDeClave(interior: string, clave: string): string | null {
   let prof = 0;
   let comilla: string | null = null;
-  for (let i = 0; i < cuerpo.length; i++) {
-    const c = cuerpo[i];
+  for (let i = 0; i < interior.length; i++) {
+    const c = interior[i];
     if (comilla) {
       if (c === '\\') i += 1;
       else if (c === comilla) comilla = null;
@@ -121,33 +124,27 @@ export function propiedadDePrimerNivel(cuerpo: string, clave: string): string | 
       prof -= 1;
       continue;
     }
-    if (prof !== 0) continue;
-    if (!cuerpo.startsWith(clave, i)) continue;
-    // Frontera de identificador: `data` no casa dentro de `metadata`.
-    const antes = i === 0 ? '' : cuerpo[i - 1];
-    if (/[A-Za-z0-9_$]/.test(antes)) continue;
-    const resto = cuerpo.slice(i + clave.length);
-    const m = /^\s*(:)?/.exec(resto);
-    if (!m) continue;
-    if (!m[1]) {
-      // Forma abreviada `{ …, data }` / `{ …, data }` ⇒ opaco.
-      if (/^\s*[,}\n]/.test(resto)) return '<opaco>';
+    if (prof !== 0 || !interior.startsWith(clave, i)) continue;
+    // Frontera de identificador: `data` no casa dentro de `metadata`, ni `status` en `orderStatus`.
+    if (i > 0 && /[A-Za-z0-9_$]/.test(interior[i - 1])) continue;
+    const resto = interior.slice(i + clave.length);
+    const dosPuntos = /^\s*:/.exec(resto);
+    if (!dosPuntos) {
+      // Forma abreviada `{ …, data }` ⇒ opaco. Cualquier otra cosa es otro identificador.
+      if (/^\s*(,|$)/.test(resto)) return '<opaco>';
       continue;
     }
-    const valor = resto.slice(m[0].length).trimStart();
-    if (valor.startsWith('{')) {
-      const cerrado = argumento(`(${valor}`, 0);
-      return cerrado === null ? '<opaco>' : cerrado;
-    }
-    // `where: algo` / `data: algo` ⇒ no se puede mirar por dentro.
-    return '<opaco>';
+    const valor = resto.slice(dosPuntos[0].length).trimStart();
+    if (!valor.startsWith('{')) return '<opaco>';
+    const dentro = recorteBalanceado(valor, 0);
+    return dentro === null ? '<opaco>' : dentro;
   }
   return null;
 }
 
-/** ¿Este texto menciona la columna `status` como propiedad (⛔ no como parte de `orderStatus`)? */
-function mencionaStatus(texto: string): boolean {
-  return /(^|[^A-Za-z0-9_$'"])status\s*:/.test(texto) || /(^|[^A-Za-z0-9_$])status\s*,/.test(texto);
+/** ¿Este bloque lleva `status` en su PRIMER nivel? (`'<opaco>'` no lo lleva: no se puede saber.) */
+function llevaStatus(bloque: string | null): boolean {
+  return bloque !== null && bloque !== '<opaco>' && valorDeClave(bloque, 'status') !== null;
 }
 
 /**
@@ -163,17 +160,20 @@ export function clasificarEscriturasDeEstado(fuente: string, file: string): Stat
     const verb = m[1];
     if (!(VERBOS as readonly string[]).includes(verb)) continue;
     const line = src.slice(0, m.index).split('\n').length;
-    const cuerpo = argumento(src, m.index + m[0].length - 1);
-    const where = cuerpo === null ? null : propiedadDePrimerNivel(cuerpo, 'where');
-    const data = cuerpo === null ? null : propiedadDePrimerNivel(cuerpo, 'data');
+    const args = recorteBalanceado(src, m.index + m[0].length - 1);
+    const abre = args === null ? -1 : args.indexOf('{');
+    const arg = abre === -1 ? null : recorteBalanceado(args!, abre);
+    const where = arg === null ? null : valorDeClave(arg, 'where');
+    const data = arg === null ? null : valorDeClave(arg, 'data');
     let kind: StatusWriteKind;
-    if (cuerpo === null || where === null || data === null) {
+    if (arg === null || where === null || data === null) {
+      // Forma que este censo no sabe leer. ⛔ Cuenta como ROJO: que la clasifique un humano.
       kind = 'unclassified';
-    } else if (data !== '<opaco>' && !mencionaStatus(data)) {
+    } else if (data !== '<opaco>' && !llevaStatus(data)) {
       // No puede mover el estado ⇒ la premisa de monotonía no le afecta.
       kind = 'sin-status';
     } else {
-      kind = where !== '<opaco>' && mencionaStatus(where) ? 'guarded' : 'unguarded';
+      kind = llevaStatus(where) ? 'guarded' : 'unguarded';
     }
     sitios.push({ file, line, verb, kind, key: `${file}:${line} ${verb}` });
   }
