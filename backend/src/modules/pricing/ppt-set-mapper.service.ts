@@ -166,9 +166,21 @@ export function extractRemoteSets(body: unknown): PptRemoteSet[] {
   return [];
 }
 
-/** Normaliza un nombre de set: minúsculas, sin no-alfanuméricos (`"Sword & Shield"` → `swordshield`). */
+/**
+ * Normaliza un nombre de set: PLIEGA diacríticos (NFD + quita marcas combinantes, `é`→`e`), minúsculas,
+ * sin no-alfanuméricos (`"Sword & Shield"` → `swordshield`, `"Pokémon GO"` → `"pokemongo"`).
+ *
+ * ⚠️ El plegado de acento (P-46-ter) NO es cosmético: sin él, `"Pokémon GO"` normalizaba a `"pokmongo"`
+ * (la `é` caía por no ser `[a-z0-9]`) y NUNCA empataba con el `"Pokemon GO"` (ASCII) de TCGplayer ⇒ el
+ * set quedaba SIN groupId ⇒ todo `PRICE_PENDING`. Money-safe: sólo AÑADE la letra que se caía; no
+ * colapsa dos sets distintos (ninguno difiere sólo por un acento) y el match sigue exigiendo ÚNICO.
+ */
 export function normalizeSetName(name: string | null | undefined): string {
-  return (name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (name ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
 }
 
 /**
