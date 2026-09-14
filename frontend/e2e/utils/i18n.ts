@@ -39,3 +39,28 @@ export function t(locale: Locale, keyPath: string, vars?: Record<string, string 
   }
   return interpolate(raw, vars);
 }
+
+/**
+ * (§M10-IVA.3/.4) EL ROTULO DE CONVENCION DE IVA, CON LA TASA SIN HORNEAR.
+ *
+ * Las claves del rotulo llevan la tasa dentro (`«IVA {rate} % incluido»`, `«IVA {rate}%»`), y la
+ * tasa es **DATO del servidor** (`ivaRatePct`, por fila). Un `{ rate: 16 }` literal en un assert es
+ * una segunda fuente para un hecho del que el backend ya es dueno: el dia que el dial cambie, el
+ * test se pone rojo hablando de la UI cuando el que cambio fue el entorno.
+ *
+ * Esto lee la plantilla del **diccionario** (DESIGN_SYSTEM 9: los asserts no copian textos) y
+ * sustituye el hueco de la tasa por un numero. Se afirma la **copy exacta**; no se afirma el dial.
+ *
+ * @param key `'common.ivaIncluded'`, `'checkout.ivaIncluded'`, `'checkout.iva'`... - la clave manda
+ *   **que convencion** se esta afirmando, y eso sigue siendo una decision del test.
+ */
+export function ivaLabelRe(locale: Locale, key: string): RegExp {
+  const SLOT = '\u0001';
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    t(locale, key, { rate: SLOT })
+      .split(SLOT)
+      .map(esc)
+      .join('\\d+(?:[.,]\\d+)?'),
+  );
+}

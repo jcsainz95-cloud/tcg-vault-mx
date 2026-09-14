@@ -6,6 +6,7 @@ import {
   IS_REAL,
   loginAs,
   needsSeed,
+  reserveLoginSlot,
   skipIfSeedMissing,
 } from './utils/auth';
 
@@ -46,6 +47,10 @@ async function loginWith(page: Page, email: string, password: string) {
   await page.goto('/es/login');
   await page.getByLabel(t('es', 'auth.email')).fill(email);
   await page.getByLabel(t('es', 'auth.password')).fill(password);
+  // B-2: un login por FORMULARIO gasta el mismo cupo de `POST /auth/login` que uno por API
+  // (`{ttl:60_000, limit:5}` por IP). Este spec hace hasta CUATRO —dos de ellos solo para
+  // descubrir que el actor temporal ya se consumió— y era el que dejaba secos a los demás.
+  if (IS_REAL) await reserveLoginSlot('account.spec · login por formulario');
   await page.getByRole('button', { name: t('es', 'auth.loginCta') }).click();
 }
 

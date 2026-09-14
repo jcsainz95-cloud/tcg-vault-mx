@@ -1,4 +1,5 @@
-import { IS_REAL, apiAs, apiAsOk } from './env';
+import { IS_REAL, apiAs, apiAsOk, resolveApiBaseUrl } from './env';
+import { withFileLock } from './state';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────────────
@@ -142,13 +143,13 @@ async function createQuotedRequest(): Promise<CreatedRequest> {
   const addressId = await pickupAddressId();
   const cardId = await mostValuableRawCardId();
   const line = { cardId, productType: 'raw' as const, rawCondition: 'NM', finish: 'normal' };
-  // §6 (v1.15): `clabe` es opcional **si hay una en archivo**. `customer2` no la tiene todavía
-  // (`422 CLABE_REQUIRED`, medido), así que el arnés manda la misma CLABE de prueba que ya teclea
-  // el smoke de vender (`buylist.spec.ts`): el backend la cifra en su KYC y a partir de ahí el
-  // fallback server-side la resuelve sola.
-  const clabe = '002010077777777771';
+  /**
+   * CLABE de prueba, la misma que teclea el smoke de vender (`buylist.spec.ts`). ⚠️ **Solo se manda
+   * cuando el servidor la PIDE**, nunca «por si acaso» — ver `create` abajo.
+   */
+  const CLABE = '002010077777777771';
 
-  const create = (copies: number) =>
+  const create = (copies: number, clabe?: string) =>
     apiAs<{
       sellRequestId: string;
       items: { id: string }[];
@@ -156,10 +157,38 @@ async function createQuotedRequest(): Promise<CreatedRequest> {
     }>(SELLER, 'POST', '/buylist/requests', {
       items: Array.from({ length: copies }, () => line),
       addressId,
-      clabe,
+      ...(clabe ? { clabe } : {}),
     });
 
+  /**
+   * ⭐ **B-2 — la CLABE se OMITE y solo se manda si el servidor la pide. Y no es un detalle.**
+   *
+   * Antes iba SIEMPRE el literal. §6 del contrato dice que `clabe` es **opcional si hay una en
+   * archivo**, y que mandar una que **no coincida** con la de archivo da `422 CLABE_NOT_OWN_NAME`
+   * (v1.60/D51: es un match de **blind index** de CLABE contra CLABE; no compara ningún nombre).
+   *
+   * Medido (2026-09-14, stack `9328880`): `POST /buylist/requests` de `customer2` respondía
+   * `422 CLABE_NOT_OWN_NAME` ⇒ el vendedor **YA tiene** CLABE en archivo, escrita por una corrida
+   * anterior, y su blind index no casa con el literal. En el stack nativo la clave PII es
+   * **efímera por arranque** (`backend/prisma/seed-e2e.ts` lo documenta y por eso pone
+   * `clabeEnc`/`clabeHmac` a `null`… pero **solo para los actores de KYC**, y `customer2` no es
+   * uno). O sea: el arnés horneaba un dato del que el servidor ya es dueño, y al segundo arranque
+   * se contradecía a sí mismo.
+   *
+   * El orden correcto es el del contrato: **omitir → si `422 CLABE_REQUIRED`, capturar y
+   * reintentar**. Es exactamente lo que hace un cliente de verdad, y es idempotente entre corridas
+   * y entre arranques del backend.
+   */
   let res = await create(1);
+  // ¿El vendedor NO tiene CLABE en archivo? El servidor lo dice y solo entonces se captura.
+  let usedClabe: string | undefined;
+  if (
+    res.status === 422 &&
+    (res.body as { error?: { code?: string } })?.error?.code === 'CLABE_REQUIRED'
+  ) {
+    usedClabe = CLABE;
+    res = await create(1, usedClabe);
+  }
   if (res.status === 422) {
     const body = res.body as unknown as { error?: { code?: string; details?: Record<string, number> } };
     const details = body.error?.details ?? {};
@@ -180,7 +209,7 @@ async function createQuotedRequest(): Promise<CreatedRequest> {
     if (body.error?.code !== 'BUYLIST_MINIMUM_NOT_MET' || !minimum || !unit) {
       throw new Error(`POST /buylist/requests rechazó la siembra: ${JSON.stringify(res.body).slice(0, 300)}`);
     }
-    res = await create(Math.ceil(minimum / unit));
+    res = await create(Math.ceil(minimum / unit), usedClabe);
   }
   if (res.status !== 201) {
     throw new Error(`POST /buylist/requests respondió ${res.status}: ${JSON.stringify(res.body).slice(0, 300)}`);
@@ -266,7 +295,30 @@ function takeFrom(pool: Map<string, CreatedRequest[]>, status: string): CreatedR
  */
 export async function m5Scenario(): Promise<M5Scenario> {
   if (!IS_REAL) return MOCK_SCENARIO;
+  // ⭐ **B-2 — UN SOLO worker construye a la vez, y no es prudencia: es un `500` medido.**
+  //
+  // El comentario de abajo ya decía que dos `POST /buylist/requests` simultáneos del MISMO vendedor
+  // rompen la transacción SERIALIZABLE del tope mensual… y luego afirmaba que «el arnés no lo
+  // provoca». **Lo provocaba.** `m5Scenario()` se llama UNA VEZ POR TEST y los dos casos de
+  // `m5-transitions.spec.ts` corren en workers distintos: medido 2026-09-14 (stack `9328880`),
+  // `POST /buylist/requests` respondió `500 INTERNAL` y el log del backend trae
+  // `PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock`
+  // (`buylist.service.ts:1679`). La serie de dentro no sirve de nada si dos procesos entran a la vez.
+  //
+  // El candado es de FICHERO (entre PROCESOS): los workers de Playwright no comparten memoria — la
+  // misma razón por la que existen `sharedOnce` y el cupo de login. No es `sharedOnce` porque cada
+  // worker necesita **sus propias** filas (`takeFrom` rota por worker); lo que hace falta es
+  // EXCLUSIÓN, no compartir el resultado.
+  //
+  // ⚠️ Que el backend conteste `500` a dos intakes concurrentes del mismo vendedor **sigue siendo un
+  // hallazgo de producto** (una transacción SERIALIZABLE sin reintento), y va en el informe. El
+  // arnés deja de dispararlo; no lo tapa.
+  return withFileLock(`m5:build:${await resolveApiBaseUrl()}:${SELLER}`, buildM5Scenario, {
+    timeoutMs: 180_000,
+  });
+}
 
+async function buildM5Scenario(): Promise<M5Scenario> {
   const pool = await sellerPool();
   // ⚠️ Todo EN SERIE. Medido: dos `POST /buylist/requests` simultáneos del MISMO vendedor hacen que
   // el backend responda `500` (`PrismaClientKnownRequestError: write conflict or deadlock`,

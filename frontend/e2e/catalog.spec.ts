@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { t } from './utils/i18n';
-import { mockOnly, needsSeed, MONEY_RE } from './utils/auth';
+import { ivaLabelRe, t } from './utils/i18n';
+import { mockOnly, needsSeed, realOnly, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: "Compra" (antes "Catálogo") — vitrina de inventario publicado CON precio
@@ -62,8 +62,11 @@ test.describe('Compra · listado y filtros', () => {
     needsSeed('ningún grupo sellado publicado (GET /catalog/sealed → total 0)');
     await page.goto('/es/sellado');
     await expect(page.getByText('Surging Sparks Booster Box').first()).toBeVisible();
-    // Precio siempre visible (sin IVA), nunca «precio pendiente» en la vitrina.
-    await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
+    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
+    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
+    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
+    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
+    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
     await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
   });
 
@@ -167,7 +170,11 @@ test.describe('Compra · ficha de carta', () => {
     // v2.0 (P-48): la nota al pie tiene DOS variantes; con bloque de mercado va la «WithMarket».
     await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toBeVisible();
     await expect(page.getByText(t('es', 'catalog.marketValue')).first()).toBeVisible();
-    await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
+    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
+    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
+    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
+    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
+    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
     await expect(
       page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first(),
     ).toBeEnabled();
@@ -255,6 +262,15 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
   test('@real ninguna petición a /catalog/cards lleva `sealed` ni `sealedSubtype`', async ({
     page,
   }) => {
+    // (B-2) SOLO-REAL, y no por comodidad: EN MOCK ESTE TEST NO PUEDE MEDIR NADA.
+    //
+    // Lo que afirma es TRÁFICO DE RED («ninguna petición lleva estos parámetros» / «la consulta
+    // acaba en /catalog/sealed»), y en modo mock `src/lib/api.ts` resuelve contra los fixtures
+    // EN PROCESO: no sale una sola petición HTTP. Medido en la corrida de mocks del 2026-09-14:
+    // `sealed.length` = 0 ⇒ rojo permanente, y —peor— el primer assert pasaba **en vacío** (una
+    // lista vacía no contiene nada prohibido). Un test que no puede fallar por el motivo correcto
+    // y sí falla por el incorrecto no gatea: clasifica mal en las dos direcciones.
+    realOnly('afirma PETICIONES HTTP y en mock el cliente resuelve en proceso (cero red)');
     const cards: string[] = [];
     const sealed: string[] = [];
     page.on('request', (r) => {

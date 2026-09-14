@@ -51,6 +51,19 @@ import {
 export { IS_REAL, sessionFor };
 export type { SeedRole, InjectedSession };
 
+/**
+ * ⭐ **B-2 — pide ranura antes de TECLEAR el formulario de login.**
+ *
+ * `sessionFor` acota los canjes **por API**, pero el throttler del producto
+ * (`{ ttl: 60_000, limit: 5 }` por IP sobre `POST /auth/login`, medido 2026-09-14) **no distingue**
+ * quién dispara: un login por formulario —que es el producto bajo prueba— gasta exactamente el
+ * mismo cupo. Los specs que escriben credenciales tienen que pasar por aquí, o vuelven a dejar sin
+ * cupo a los demás workers y el siguiente caso muere **60 s en blanco, sin decir por qué**.
+ *
+ * Se re-exporta desde `./auth` para que ningún spec tenga que importar `./state` (plumbing).
+ */
+export { reserveLoginSlot } from './state';
+
 /** Regex de estructura de moneda MXN (`MX$1,234.00`): asserts por FORMATO, no por monto de fixture. */
 export const MONEY_RE = /MX\$[\d,]+\.\d{2}/;
 

@@ -285,3 +285,111 @@ export async function sharedOnce<T>(
     lock,
   );
 }
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════
+ * CUPO DE `POST /auth/login` COMPARTIDO ENTRE WORKERS (B-2 · causa raíz de los plantones de 60 s)
+ * ═════════════════════════════════════════════════════════════════════════════════════
+ *
+ * **EL DEFECTO QUE ESTO CIERRA, medido (2026-09-14, stack `9328880`, `:3099`):**
+ *   · `POST /auth/login` responde `200 200 200 200 200 429 429 429 429 429` a diez intentos
+ *     seguidos, y vuelve a `200` **62 s** después ⇒ el throttler del producto es
+ *     `{ ttl: 60_000, limit: 5 }` por IP (`backend/src/modules/auth/auth.controller.ts:25`),
+ *     y **un intento bloqueado NO alarga la ventana**.
+ *   · `sharedOnce` ya acotaba los canjes **por API** a uno por rol… pero **hay SEIS roles**
+ *     (`SeedRole`) y, sobre todo, **los logins por FORMULARIO no pasaban por ahí**: cada test que
+ *     teclea credenciales —que es el producto bajo prueba— gasta cupo sin que nadie lo cuente.
+ *   · Cuando el cupo se agota, `loginViaApi` entra en su escalera de reintentos
+ *     `1+2+4+8+16+32 = 63 s`… **más larga que el `timeout: 60_000` de un test**. Resultado
+ *     medido en la traza: el test se queda **60 s sin emitir UNA SOLA llamada de Playwright** y
+ *     muere con «Test timeout of 60000ms exceeded» **sin decir por qué**. La pantalla se queda en
+ *     «Verificando sesión…» simplemente porque nunca se navegó.
+ *   · Reproducido **3/3** con 2 workers (6 rojas cada vez) y **1/1** con `--workers=1` (2 rojas,
+ *     otras distintas): NO es intermitencia, es **inanición de cupo** — y por eso cambia de
+ *     víctima según el orden.
+ *
+ * **LA REGLA:** el arnés **obedece el límite del producto** en vez de chocar contra él. El
+ * throttler ⛔ no se toca (es una defensa legítima, y el arnés que lo viola es el que está mal).
+ *
+ * **Por qué un fichero compartido y no un contador en memoria:** cada worker de Playwright es un
+ * PROCESO. Un contador por proceso cuenta una fracción del gasto real y deja pasar la estampida
+ * — exactamente el mismo error que `sharedOnce` vino a arreglar para los canjes por API.
+ */
+const LOGIN_BUDGET_KEY = 'login-budget:v1';
+
+/** Límite del producto: `@Throttle({ ttl: 60_000, limit: 5 })` sobre `POST /auth/login`. */
+const LOGIN_LIMIT = Number(process.env.E2E_LOGIN_LIMIT ?? 5);
+
+/**
+ * Ventana con MARGEN: el throttler mide 60 000 ms desde el primer impacto y el arnés no comparte
+ * su reloj. 6 s de colchón cuestan poco y evitan que el intento «justo en el filo» sea el que
+ * arranque otra ventana de inanición.
+ */
+const LOGIN_WINDOW_MS = Number(process.env.E2E_LOGIN_WINDOW_MS ?? 66_000);
+
+/** Ranuras ya gastadas (epoch ms), las viejas podadas. */
+function liveSlots(now: number): number[] {
+  const stored = readState<number[]>(LOGIN_BUDGET_KEY);
+  const slots = Array.isArray(stored?.value) ? stored!.value : [];
+  return slots.filter((at) => typeof at === 'number' && now - at < LOGIN_WINDOW_MS);
+}
+
+/**
+ * Reserva UNA ranura de `POST /auth/login`. Bloquea hasta que la haya, o **lanza diciendo
+ * exactamente qué pasa** si la espera no cabe en el presupuesto.
+ *
+ * ⛔ **No se rinde en silencio y ⛔ no se salta el test.** Un `skip` aquí convertiría la inanición
+ * de cupo en un verde, que es la avería que todo este bloque existe para impedir.
+ *
+ * @param label quién pide la ranura (rol o nombre del flujo). Sale en el mensaje de error.
+ * @param maxWaitMs techo de espera. Por defecto **75 s**: una ventana COMPLETA del throttler
+ *   (66 s con margen) más holgura. Cabe dentro del `timeout: 120_000` que `playwright.config.ts`
+ *   aplica cuando se habla con el backend real — y ése es el punto: la escalera vieja de 63 s
+ *   convivía con un `timeout` de 60 s, o sea **no podía completarse nunca**.
+ */
+export async function reserveLoginSlot(label: string, maxWaitMs = 75_000): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    const waitMs = await withFileLock(
+      LOGIN_BUDGET_KEY,
+      async () => {
+        const now = Date.now();
+        const slots = liveSlots(now);
+        if (slots.length < LOGIN_LIMIT) {
+          writeState(LOGIN_BUDGET_KEY, [...slots, now]);
+          if (process.env.E2E_LOGIN_DEBUG === '1') {
+            console.log(`[e2e][login-budget] «${label}» toma la ranura ${slots.length + 1}/${LOGIN_LIMIT}`);
+          }
+          return 0;
+        }
+        // La ranura más vieja es la primera que sale de la ventana.
+        return Math.max(250, Math.min(...slots) + LOGIN_WINDOW_MS - now);
+      },
+      { timeoutMs: 60_000 },
+    );
+    if (waitMs === 0) return;
+    if (process.env.E2E_LOGIN_DEBUG === '1') {
+      console.log(`[e2e][login-budget] «${label}» espera ${Math.ceil(waitMs / 1000)} s (cupo lleno)`);
+    }
+    if (Date.now() + waitMs > deadline) {
+      throw new Error(
+        `Cupo de POST /auth/login agotado y la espera (${Math.ceil(waitMs / 1000)} s) no cabe en ` +
+          `el presupuesto de «${label}». El producto limita ese endpoint a ${LOGIN_LIMIT} por ` +
+          `${Math.round(LOGIN_WINDOW_MS / 1000)} s POR IP y todos los workers salen de la misma; ` +
+          `esto NO es un fallo de la UI. Corre con menos workers, o reduce los logins del subset ` +
+          `(cada login por FORMULARIO gasta cupo igual que uno por API).`,
+      );
+    }
+    await sleep(waitMs);
+  }
+}
+
+/** Cuántas ranuras de login se han gastado en la ventana viva. Para decirlo en voz alta. */
+export function loginSlotsUsed(): number {
+  return liveSlots(Date.now()).length;
+}
+
+/** Olvida el gasto acumulado (lo llama el `globalTeardown`: el cupo no es de nadie entre corridas). */
+export function clearLoginBudget(): void {
+  clearState(LOGIN_BUDGET_KEY);
+}

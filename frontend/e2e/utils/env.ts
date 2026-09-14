@@ -1,4 +1,9 @@
-import { clearStateByPrefix, clearTokenState, sharedOnce } from './state';
+import {
+  clearStateByPrefix,
+  clearTokenState,
+  reserveLoginSlot,
+  sharedOnce,
+} from './state';
 
 /**
  * Plumbing de ENTORNO de los E2E: qué backend hay detrás, con qué credenciales se entra y cómo
@@ -185,20 +190,31 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * Canje de credenciales por `TokenPair` contra el backend real.
  *
  * Corre SIEMPRE dentro del candado de `sharedOnce`, así que es el único login de su rol en toda
- * la corrida. El reintento ante `429` se mantiene como red de seguridad para el caso en que otra
- * cosa (otra suite, un humano, un `curl` de QA) haya gastado el cupo de la ventana: seis intentos
- * con backoff exponencial cubren **más de 60 s**, que es la ventana COMPLETA del throttler
- * (`@Throttle({ ttl: 60_000, limit: 5 })`). El de antes —4 intentos, ~15 s— se rendía DENTRO de
- * la ventana: por eso «reintentaba, pero no lo suficiente».
+ * la corrida.
+ *
+ * ⭐⭐ **B-2 — ahora PIDE RANURA ANTES de disparar, y ésa es la corrección de fondo.** La versión
+ * anterior chocaba contra el throttler y *después* reintentaba con una escalera de
+ * `1+2+4+8+16+32 = 63 s`. Su comentario decía que esa escalera «cubre la ventana COMPLETA del
+ * throttler», y era cierto **de la ventana y falso del test**: `playwright.config.ts` fija
+ * `timeout: 60_000`, así que la escalera **no cabía nunca** y el caso moría a los 60 s **sin
+ * emitir una sola llamada de Playwright** — un plantón mudo que se lee como «la UI no carga».
+ * Medido en la traza de `admin.spec.ts:17` (2026-09-14): entre `Create page` y el timeout, CERO
+ * acciones. Evitar el 429 es barato; recuperarse de él, dentro de un test, es imposible.
+ *
+ * La escalera se queda **corta y como red**, no como plan: si algo ajeno al arnés gastó el cupo
+ * (otra corrida, un `curl` de QA), se reintenta pidiendo ranura otra vez.
  */
 async function loginViaApi(
   apiBase: string,
   role: SeedRole,
   creds: { email: string; password: string },
 ): Promise<InjectedSession> {
-  const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
+  // Red de seguridad corta: el plan es NO llegar al 429 (`reserveLoginSlot`). Si aun así llega,
+  // es que el cupo lo gastó algo fuera del arnés; se pide ranura de nuevo y se reintenta.
+  const ATTEMPTS = 3;
   let last = '';
-  for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    await reserveLoginSlot(`loginAs('${role}')`);
     const res = await fetch(`${apiBase}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -211,7 +227,7 @@ async function loginViaApi(
     last = `${res.status} ${await res.text().catch(() => '')}`;
     // Solo el 429 es transitorio. Un 401 es credencial mala: reintentarlo solo gasta cupo.
     if (res.status !== 429) break;
-    await sleep(BACKOFF_MS[attempt]);
+    await sleep(1_000);
   }
   throw new Error(
     `loginAs('${role}') falló contra el backend real (${apiBase}): ${last}. ` +
@@ -246,6 +262,14 @@ function sessionKey(apiBase: string, role: SeedRole, email: string): string {
  * 3 canjes). Aislar corridas concurrentes es para lo que existe `E2E_STATE_DIR`.
  */
 export function clearSessions(): number {
+  // ⛔⛔ **EL CUPO DE LOGIN NO SE PURGA AQUÍ, y lo aprendí midiendo.** La primera versión sí lo
+  // borraba («el cupo no es de nadie entre corridas»), y eso es falso: **el throttler del backend
+  // NO se entera de que tu corrida terminó**. Medido 2026-09-14 con cinco corridas seguidas de
+  // `m5-transitions.spec.ts` — **2 de 5 rojas** con `429 RATE_LIMITED`, porque cada corrida
+  // arrancaba con el contador a cero mientras el servidor seguía dentro de la misma ventana de
+  // 60 s. Las entradas son **marcas de tiempo, no credenciales** (no hay nada que proteger) y se
+  // podan solas al salir de la ventana: dejarlas es lo correcto, borrarlas es mentirle al arnés
+  // sobre el estado del servidor.
   // Dos redes, y las dos hacen falta: por CLAVE (lo que esta corrida escribió) y por CONTENIDO
   // (los archivos que dejaron corridas anteriores a este arreglo, que no llevan la clave en el
   // sobre — son exactamente los `0644` que QA encontró y que nadie iba a limpiar nunca).
