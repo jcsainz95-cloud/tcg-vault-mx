@@ -206,7 +206,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 async function loginViaApi(
   apiBase: string,
-  role: SeedRole,
+  label: string,
   creds: { email: string; password: string },
 ): Promise<InjectedSession> {
   // Red de seguridad corta: el plan es NO llegar al 429 (`reserveLoginSlot`). Si aun así llega,
@@ -214,7 +214,7 @@ async function loginViaApi(
   const ATTEMPTS = 3;
   let last = '';
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    await reserveLoginSlot(`loginAs('${role}')`);
+    await reserveLoginSlot(`loginAs('${label}')`);
     const res = await fetch(`${apiBase}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -230,9 +230,28 @@ async function loginViaApi(
     await sleep(1_000);
   }
   throw new Error(
-    `loginAs('${role}') falló contra el backend real (${apiBase}): ${last}. ` +
+    `loginAs('${label}') falló contra el backend real (${apiBase}): ${last}. ` +
       `¿Stack arriba y seed:synthetic corrido?`,
   );
+}
+
+/**
+ * Sesión por API de un actor que **no está en `CREDENTIALS`** — hoy, los actores DESECHABLES que
+ * `utils/temp-actors.ts` da de alta por `POST /admin/users` para medir §33.8 sin depender de que
+ * alguien haya resembrado. `label` solo viaja a los mensajes (ranura de cupo y error): nunca al
+ * servidor.
+ *
+ * ⛔ **Sin `sharedOnce` a propósito.** El caché de `sessionFor` existe para no canjear el mismo
+ * actor del seed una vez por worker; un desechable **nace en esta corrida y muere con ella**, así
+ * que cachearlo entre corridas sería reintroducir justo el acoplamiento histórico que este arreglo
+ * viene a cerrar. El cupo de `POST /auth/login` sí se respeta: `loginViaApi` pide ranura.
+ */
+export async function sessionForCredentials(
+  label: string,
+  creds: { email: string; password: string },
+): Promise<InjectedSession> {
+  const apiBase = await resolveApiBaseUrl();
+  return loginViaApi(apiBase, label, creds);
 }
 
 /**

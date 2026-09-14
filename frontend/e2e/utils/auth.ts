@@ -7,6 +7,7 @@ import {
   type InjectedSession,
   type SeedRole,
   sessionFor,
+  sessionForCredentials,
 } from './env';
 
 /**
@@ -140,6 +141,28 @@ export async function loginAs(page: Page, role: SeedRole = 'customer'): Promise<
       ...(temp ? { mustChangePassword: true, hasPassword: true, nameSource: 'user' } : {}),
     },
   };
+  await injectSession(page, session);
+  return session;
+}
+
+/**
+ * Igual que `loginAs`, pero para un actor que **no está en el seed**: los DESECHABLES que
+ * `utils/temp-actors.ts` da de alta por `POST /admin/users` para poder medir la contraseña temporal
+ * de §33.8 sin depender de cuándo se resembró por última vez.
+ *
+ * Solo tiene sentido en REAL (en mock el actor con temporal se inyecta con `loginAs('customerTemp')`,
+ * que es lo que sigue haciendo el spec). Se marca explícito en vez de degradar en silencio.
+ */
+export async function loginAsDisposable(
+  page: Page,
+  actor: { email: string; password: string },
+): Promise<InjectedSession> {
+  if (!IS_REAL) {
+    throw new Error(
+      'loginAsDisposable solo aplica contra el backend real: en mock usa loginAs(page, "customerTemp").',
+    );
+  }
+  const session = await sessionForCredentials(`disposable(${actor.email})`, actor);
   await injectSession(page, session);
   return session;
 }

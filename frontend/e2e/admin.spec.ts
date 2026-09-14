@@ -412,8 +412,14 @@ test.describe('admin · M8 disputas', () => {
    *
    * Este test afirma el INVARIANTE, no el dato: *la pantalla nunca está en blanco*. Con disputas
    * enseña la ficha (panel de evidencia); sin disputas enseña el estado vacío. Por eso corre en los
-   * DOS modos y **no lleva `needsSeed`**: el caso que rompía es justamente el que el seed real no
-   * siembra — el de arriba se salta con `total: 0`, y ése era el agujero por el que se coló P-97.
+   * DOS modos y **no lleva NINGUNA salvaguarda de salto**: el caso que rompía es justamente el que
+   * el seed real no siembra — el de arriba se salta con `total: 0`, y ése era el agujero por el que
+   * se coló P-97.
+   *
+   * ⚠️ La redacción anterior decía aquí el nombre del helper en prosa, y eso tenía un coste medido:
+   * `scripts/check-e2e-skip-census.sh` cuenta por PALABRA (`grep -rwo`), así que una frase que
+   * explica que NO hay salvaguarda se contaba como una salvaguarda. Medido 2026-09-14: el censo
+   * llevaba en ROJO desde `bb30997` (32 vs baseline 31) por esta línea y solo por ella.
    * En mock hay fixtures ⇒ ejercita la rama con datos; en real (hoy `total: 0`) ejercita el vacío.
    */
   test('@real la pantalla nunca está en blanco: o ficha de disputa, o estado vacío', async ({

@@ -108,9 +108,19 @@ export default defineConfig({
   // del gancho de grading). Corre cuando TODOS los workers terminaron — un `afterAll` no sirve:
   // corre por worker y apagaría el dial con otros workers todavía navegando.
   globalTeardown: './e2e/global-teardown.ts',
+  /**
+   * ⭐ `./e2e/reporters/not-measured.ts` va en TODAS las configuraciones, y no es decoración.
+   *
+   * QA midió dos corridas del MISMO código con `55/3/1` y `50/3/6`: los fallos eran estables y lo
+   * que bailaba era **cuántos casos llegaban a ejercitarse**. Ninguno de los reporters de arriba
+   * dice QUÉ se saltó ni POR QUÉ — `list` pinta un guión y sigue. Sin esa lista, un verde con seis
+   * saltos y uno con uno se leen igual, que es exactamente cómo un E2E de Disputas se saltó justo
+   * en el caso en que la pantalla fallaba. El reporter imprime el censo nominal y lo deja en JSON;
+   * solo tumba la corrida si alguien fija `E2E_EXPECT_NOT_MEASURED`.
+   */
   reporter: isCI
-    ? [['list'], ['html', { open: 'never' }], ['github']]
-    : [['list'], ['html', { open: 'never' }]],
+    ? [['list'], ['html', { open: 'never' }], ['github'], ['./e2e/reporters/not-measured.ts']]
+    : [['list'], ['html', { open: 'never' }], ['./e2e/reporters/not-measured.ts']],
   use: {
     baseURL: BASE_URL,
     locale: 'es-MX',
