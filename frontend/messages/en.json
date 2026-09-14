@@ -65,7 +65,19 @@
     "sealed": "Sealed",
     "buy": "Shop",
     "myAccount": "My account",
-    "ordersAndSales": "Purchases & sales"
+    "ordersAndSales": "Purchases & sales",
+    "pendings": {
+      "aria": "Pending: {count, plural, one {# thing to do} other {# things to do}}",
+      "title": "Your pending items",
+      "since": "Since {date}",
+      "codes": {
+        "identity_action_required": {
+          "title": "Your ID is missing",
+          "body": "Upload your ID again from your account. We tell you there what happened with the last one.",
+          "action": "Go to my account"
+        }
+      }
+    }
   },
   "account": {
     "eyebrow": "ACCOUNT",
@@ -2769,6 +2781,48 @@
         "pageInfo": "Page {page} of {totalPages} · {total} records",
         "prev": "Previous",
         "next": "Next"
+      },
+      "ivaTransfer": {
+        "title": "IVA carried into the displayed price",
+        "subtitle": "What fraction of the IVA is added to the price the buyer sees. The rest comes out of our net. The server computes the peso figure on a sample price, and you have to see it before saving.",
+        "label": "Fraction carried",
+        "hint": "Integer from 0 to 100. Current value: {current}%.",
+        "invalid": "Enter an integer between {min} and {max}.",
+        "sampleNote": "Every figure is computed on a {price} list piece.",
+        "save": "Save the fraction",
+        "saved": "Fraction saved at {pct}%. It is in the audit log.",
+        "delta": {
+          "eyebrow": "How our net changes, per piece",
+          "body": "At this position we keep {amount} less on every {price} list piece. Multiply it by the pieces you expect to sell.",
+          "none": "This position does not move our net."
+        },
+        "blocked": {
+          "invalid": "Fix the fraction before saving.",
+          "unchanged": "This is the current fraction: there is nothing to save.",
+          "quoting": "Computing the cost of this position…"
+        },
+        "stale": {
+          "title": "The cost changed while you were deciding",
+          "body": "Nothing was saved. With the current figures this position moves our net by {amount} per piece. Check it and save again if you still agree."
+        },
+        "empty": {
+          "title": "No figures for this position",
+          "body": "The server did not return the cost of this position, so the dial stays put: a margin change is not saved without seeing what it costs. Try again."
+        },
+        "table": {
+          "caption": "Current IVA rate: {rate}%.",
+          "concept": "Item",
+          "current": "Current",
+          "proposed": "Proposed",
+          "rows": {
+            "dial": "Fraction carried",
+            "display": "Displayed price",
+            "taxBase": "Taxable base",
+            "iva": "IVA",
+            "net": "Our net",
+            "charged": "Total the buyer pays"
+          }
+        }
       }
     },
     "m7": {
@@ -3423,7 +3477,9 @@
     "PAYMENT_IN_PROGRESS": "Your previous attempt already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check that order before retrying.",
     "PAYMENT_IN_PROGRESS_GUEST": "Your previous attempt with this email already has a payment in progress or charged, so we will not open another one: you are never charged twice. Check your email or wait a moment before retrying.",
     "INE_NOT_ON_FILE": "This user has no ID on file.",
-    "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix."
+    "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix.",
+    "IVA_TRANSFER_ACK_REQUIRED": "You have to see the peso cost before saving this fraction. Recompute it and save from there.",
+    "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again."
   },
   "payment": {
     "title": "Payment",

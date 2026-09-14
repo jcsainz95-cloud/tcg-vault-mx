@@ -88,6 +88,12 @@ import type {
   AdminIneLinksDTO,
   UserAuditEntryDTO,
   SettingsDTO,
+  EditableSettingsPatch,
+  IvaTransferPositionDTO,
+  IvaTransferPreviewDTO,
+  IvaTransferUpdateRequest,
+  IvaTransferUpdateResponse,
+  MePendingsResponse,
   AuditLogDTO,
   PnlDTO,
   InventoryValueDTO,
@@ -1563,8 +1569,51 @@ export function mockApplyClientKycUpdate(input: {
     mockKyc.ineOnFile = !!(input.ineFrontUploadKey && input.ineBackUploadKey) || mockKyc.ineOnFile;
     mockKyc.kycStatus = 'pending';
     mockKyc.rejectionReason = undefined;
+    // §R.2.0 razón 3: el lazo de extinción de la campana es ÉSTE, y ya existía. El `since` del
+    // pendiente se limpia con el motivo — *un rechazo anterior no sobrevive a la corrección que lo
+    // responde*. Derivando, la campana se apaga aquí sin que nadie escriba «apaga la campana».
+    mockKycRejectedAt = undefined;
   }
   return mockKycFor();
+}
+
+/**
+ * MOCK de `GET /me/pendings` (§R.2). **DERIVADO, igual que el backend**: no hay lista guardada que
+ * mantener sincronizada, así que el simulador **no puede** mentir por desincronización — que es la
+ * primera de las cinco razones por las que la campana se deriva (§R.2.0).
+ *
+ * ⛔⛔ **La lista blanca es la del contrato y NADA MÁS** (criterio **204**). En particular este
+ * resolutor **no menciona `SellOfferState`** en ninguna dirección: con una oferta en
+ * `pending_authorization` devuelve **exactamente lo mismo** que sin ella. *Si algún día aparece esa
+ * referencia aquí, el candado `C-AV-8` está en rojo.*
+ *
+ * ⛔ `kycStatus === 'none'` **no** es un pendiente (sería fabricarle una tarea a un comprador que
+ * nunca vende) y `'pending'` tampoco (su acción es esperar, y esperar es nuestro trabajo, no suyo).
+ *
+ * ⚠️ La cláusula (b) del predicado —`SellRequest` viva con `ineRequired ∧ ¬ineProvided`— es hoy,
+ * casi con certeza, **vacía**: el intake contesta `422 INE_REQUIRED` antes de crear una fila así.
+ * El simulador **no la finge**: fingirla aquí le enseñaría a la pantalla un estado que el sistema
+ * real no produce.
+ */
+export function mockMePendings(): MePendingsResponse {
+  if (mockKyc.kycStatus !== 'rejected') return { pendings: [] };
+  return {
+    pendings: [{ code: 'identity_action_required', since: mockKycRejectedAt ?? MOCK_KYC_REJECTED_AT_SEED }],
+  };
+}
+
+/** MOCK: el `reviewedAt` del rechazo, que es el `since` del pendiente derivado (§R.2.3). */
+const MOCK_KYC_REJECTED_AT_SEED = '2026-09-12T17:20:00Z';
+let mockKycRejectedAt: string | undefined;
+
+/**
+ * MOCK: pone al comprador en `rejected` para poder recorrer la campana sin backend. ⛔ No es un
+ * endpoint del contrato: es el equivalente de que un operador rechace desde el back-office.
+ */
+export function setMockKycRejected(reason: string, reviewedAt = MOCK_KYC_REJECTED_AT_SEED) {
+  mockKyc.kycStatus = 'rejected';
+  mockKyc.rejectionReason = reason;
+  mockKycRejectedAt = reviewedAt;
 }
 
 /**
@@ -3915,9 +3964,98 @@ export let mockSettings: SettingsDTO = {
   // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
   // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
   gradingHookEnabled: 'on',
+  // v1.64 (§M10-IVA): FRACCIÓN DE TRASLACIÓN del IVA, entero [0,100]. **Seed real = 100** y el
+  // fixture lo representa igual: el mock no inventa una posición de margen distinta de la sembrada.
+  // ⛔ READ-ONLY por esta puerta — se mueve SOLO con `applyMockIvaTransfer`.
+  ivaTransferPct: 100,
 };
-export function setMockSettings(patch: Partial<SettingsDTO>) {
+export function setMockSettings(patch: EditableSettingsPatch) {
   mockSettings = { ...mockSettings, ...patch };
+}
+
+// ---- M10 · §M10-IVA: el dial de traslación del IVA (simulador) ----
+/**
+ * ⚠️ **SIMULADOR, no la fuente.** En producción **la cifra la calcula el servidor**
+ * (`ARCHITECTURE §4.44.i`) y esta función **no corre**: existe para que la pantalla del dial se
+ * pueda ejercitar sin backend. Reproduce **las tres filas publicadas en el contrato**
+ * (§M10-IVA.2, `ivaRatePct = 16`, `samplePriceCents = 10000`, Stripe `0.036`/`300`):
+ *
+ * | `ivaTransferPct` | `displayPriceCents` | neto | `ivaCents` | `totalChargedCents` |
+ * |---|---|---|---|---|
+ * | 100 | 11600 | 10000 | 1600 | 12469 |
+ * |  50 | 10800 |  9310 | 1490 | 11634 |
+ * |   0 | 10000 |  8621 | 1379 | 10799 |
+ *
+ * ⚠️ El orden de redondeo **no es libre**: se redondea **la comisión** y luego se suma
+ * (`P + round(fee)`). Redondear el total daría `11635` en la fila del 50 % — un centavo de
+ * diferencia con el contrato, que es exactamente la clase de discrepancia que este proyecto no
+ * acepta en una superficie de dinero.
+ */
+function mockIvaTransferPosition(ivaTransferPct: number, samplePriceCents: number): IvaTransferPositionDTO {
+  const r = mockSettings.ivaPct / 100;
+  const t = ivaTransferPct / 100;
+  const displayPriceCents = Math.round(samplePriceCents * (1 + t * r));
+  const taxBaseCents = Math.round(displayPriceCents / (1 + r));
+  // RESIDUAL, nunca 0 (candado `IVA-8(a)`): mover el dial reduce el NETO, no el IVA registrado.
+  const ivaCents = displayPriceCents - taxBaseCents;
+  const varRate = (mockSettings.stripeFeePct / 100) * (1 + r);
+  const fixed = mockSettings.stripeFeeFixedCents * (1 + r);
+  const feeCents = Math.round((displayPriceCents + fixed) / (1 - varRate) - displayPriceCents);
+  return {
+    ivaTransferPct,
+    displayPriceCents,
+    taxBaseCents,
+    ivaCents,
+    netRevenueCents: taxBaseCents,
+    totalChargedCents: displayPriceCents + feeCents,
+  };
+}
+
+export function mockIvaTransferPreview(params: {
+  ivaTransferPct: number;
+  samplePriceCents: number;
+}): IvaTransferPreviewDTO {
+  const current = mockIvaTransferPosition(mockSettings.ivaTransferPct, params.samplePriceCents);
+  const proposed = mockIvaTransferPosition(params.ivaTransferPct, params.samplePriceCents);
+  return {
+    ivaRatePct: mockSettings.ivaPct,
+    samplePriceCents: params.samplePriceCents,
+    current,
+    proposed,
+    netDeltaPerUnitCents: proposed.netRevenueCents - current.netRevenueCents,
+  };
+}
+
+/**
+ * `PUT /admin/settings/iva-transfer` simulado. Aplica **las mismas tres negativas** que el
+ * contrato, y en el mismo orden, porque son las que la pantalla tiene que saber manejar:
+ * `422 VALIDATION_ERROR` → `422 IVA_TRANSFER_ACK_REQUIRED` → `409 IVA_TRANSFER_ACK_STALE`.
+ * ⛔ Ninguna de las tres escribe.
+ */
+export function applyMockIvaTransfer(body: IvaTransferUpdateRequest): IvaTransferUpdateResponse {
+  const next = body.ivaTransferPct;
+  if (!Number.isInteger(next) || next < 0 || next > 100) {
+    throw new ApiFixtureError(422, 'VALIDATION_ERROR', 'ivaTransferPct must be an integer between 0 and 100');
+  }
+  const changes = next !== mockSettings.ivaTransferPct;
+  const ack = body.acknowledgement;
+  if (changes && (!ack || typeof ack.samplePriceCents !== 'number' || typeof ack.previewedNetDeltaCents !== 'number')) {
+    throw new ApiFixtureError(422, 'IVA_TRANSFER_ACK_REQUIRED', 'acknowledgement is required when the value changes');
+  }
+  if (changes && ack) {
+    const expected = mockIvaTransferPreview({ ivaTransferPct: next, samplePriceCents: ack.samplePriceCents })
+      .netDeltaPerUnitCents;
+    if (expected !== ack.previewedNetDeltaCents) {
+      throw new ApiFixtureError(409, 'IVA_TRANSFER_ACK_STALE', 'the acknowledged delta is stale', {
+        expectedNetDeltaCents: expected,
+      });
+    }
+  }
+  mockSettings = { ...mockSettings, ivaTransferPct: next };
+  return {
+    ivaTransferPct: next,
+    preview: mockIvaTransferPreview({ ivaTransferPct: next, samplePriceCents: ack?.samplePriceCents ?? 10000 }),
+  };
 }
 
 export const mockAuditLog: AuditLogDTO[] = [

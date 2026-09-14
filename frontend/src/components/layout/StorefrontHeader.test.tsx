@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
-import { renderWithIntl } from '@/test/render';
+// ⚠️ `renderWithProviders`, no `renderWithIntl`: desde §R el header monta la CAMPANA
+// (`PendingsBell`), que consulta `GET /me/pendings` con TanStack Query. Sin `QueryClientProvider`
+// el header entero deja de renderizar. En el árbol real el provider ya está por encima
+// (`app/[locale]/layout.tsx` → `Providers`), así que esto alinea el test con la app, no la app con
+// el test. Con la sesión mock el endpoint devuelve `{pendings: []}` ⇒ la campana no se pinta y
+// ninguna de las aserciones de nav/carrito de abajo ve un elemento nuevo.
+import { renderWithProviders } from '@/test/render';
 import { StorefrontHeader } from './StorefrontHeader';
 import { setStoredUser } from '@/lib/session';
 import { setToken } from '@/lib/api-client';
@@ -38,7 +44,7 @@ describe('StorefrontHeader — sesión', () => {
   });
 
   it('sin sesión muestra "Mi cuenta" (→ /login) y NO el logout', () => {
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     expect(screen.getByRole('link', { name: 'Mi cuenta' })).toHaveAttribute('href', '/login');
     expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();
   });
@@ -50,7 +56,7 @@ describe('StorefrontHeader — sesión', () => {
    */
   it('CA-1: con sesión el nav tiene exactamente cinco entradas, sin nombre ni «Cerrar sesión»', async () => {
     setStoredUser(user);
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
 
     const account = await screen.findByRole('link', { name: 'Mi cuenta' });
     expect(account).toHaveAttribute('href', '/account');
@@ -64,14 +70,14 @@ describe('StorefrontHeader — sesión', () => {
 
   it('nunca pinta el nombre ni el correo del usuario (regla 2: el nombre no es rótulo)', async () => {
     setStoredUser({ ...user, name: '' });
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     await screen.findByRole('link', { name: 'Mi cuenta' });
     expect(screen.queryByText('ash@example.com')).not.toBeInTheDocument();
   });
 
   it('«Envíos» sale del menú y «Compras y ventas» apunta a /orders', async () => {
     setStoredUser(user);
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     expect(await screen.findByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('href', '/orders');
     expect(screen.queryByRole('link', { name: 'Mis retiros' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Mis órdenes' })).not.toBeInTheDocument();
@@ -80,21 +86,21 @@ describe('StorefrontHeader — sesión', () => {
   it('«Mi bóveda» se activa también en /shipments (§33.1: el retiro es una acción sobre la bóveda)', async () => {
     mockPathname = '/shipments';
     setStoredUser(user);
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     expect(await screen.findByRole('link', { name: 'Mi bóveda' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('en /buylist/requests/:id se activa «Compras y ventas», no «Vender»', async () => {
     mockPathname = '/buylist/requests/sr-1';
     setStoredUser(user);
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     expect(await screen.findByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Vender' })).not.toHaveAttribute('aria-current');
   });
 
   it('el drawer móvil lleva las mismas cinco entradas y ningún «Cerrar sesión»', async () => {
     setStoredUser(user);
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     await screen.findByRole('link', { name: 'Mi cuenta' });
     fireEvent.click(screen.getByRole('button', { name: 'Menú' }));
     expect(screen.getAllByRole('link', { name: 'Mi cuenta' })).toHaveLength(2);
@@ -103,19 +109,19 @@ describe('StorefrontHeader — sesión', () => {
   });
 
   it('en inglés el nav de venta se etiqueta "Sell" (ruta interna /buylist)', () => {
-    renderWithIntl(<StorefrontHeader />, 'en');
+    renderWithProviders(<StorefrontHeader />, 'en');
     const sell = screen.getByRole('link', { name: 'Sell' });
     expect(sell).toHaveAttribute('href', '/buylist');
   });
 
   it('en español el nav de venta se etiqueta "Vender"', () => {
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     const vender = screen.getByRole('link', { name: 'Vender' });
     expect(vender).toHaveAttribute('href', '/buylist');
   });
 
   it('sin sesión el nav público muestra Comprar, Vender y Mi cuenta (oculta bóveda y órdenes)', () => {
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     // "Comprar" agrupa Cartas sueltas + Producto sellado; apunta a /catalog por default.
     expect(screen.getByRole('link', { name: 'Comprar' })).toHaveAttribute('href', '/catalog');
     expect(screen.getByRole('link', { name: 'Vender' })).toHaveAttribute('href', '/buylist');
@@ -127,7 +133,7 @@ describe('StorefrontHeader — sesión', () => {
 
   it('con sesión el nav agrega "Mi bóveda" (/vault) y "Compras y ventas" (/orders)', async () => {
     setStoredUser(user);
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     const vault = await screen.findByRole('link', { name: 'Mi bóveda' });
     expect(vault).toHaveAttribute('href', '/vault');
     expect(screen.getByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('href', '/orders');
@@ -135,14 +141,14 @@ describe('StorefrontHeader — sesión', () => {
 
   it('P-28: fuera del flujo de venta muestra el carrito de compra en el header', () => {
     mockPathname = '/catalog';
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     const cart = screen.getByRole('link', { name: /Carrito/ });
     expect(cart).toHaveAttribute('href', '/checkout');
   });
 
   it('P-28: en /buylist (Vender) OCULTA el carrito de compra del header (queda solo el FAB de venta)', () => {
     mockPathname = '/buylist';
-    renderWithIntl(<StorefrontHeader />, 'es');
+    renderWithProviders(<StorefrontHeader />, 'es');
     // El único "carrito" en la página de Vender debe ser el FAB de venta (fuera del header),
     // así "CARRITO 1" (compra) ya no compite con el "5" del cotizador.
     expect(screen.queryByRole('link', { name: /Carrito/ })).toBeNull();
@@ -153,7 +159,7 @@ describe('StorefrontHeader — sesión', () => {
     // queda definida en px sobre el padre inmediato del header (el wrapper del layout del
     // storefront) — es lo que consume el sticky del binder quoter vía
     // `lg:top-[var(--app-header-h,0px)]` para no quedar tapado por el header (z-40 opaco).
-    const { container, unmount } = renderWithIntl(<StorefrontHeader />, 'es');
+    const { container, unmount } = renderWithProviders(<StorefrontHeader />, 'es');
     expect(container.style.getPropertyValue('--app-header-h')).toMatch(/^\d+px$/);
     unmount();
     expect(container.style.getPropertyValue('--app-header-h')).toBe('');

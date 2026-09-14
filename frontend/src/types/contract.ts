@@ -3775,6 +3775,19 @@ export interface SettingsDTO {
   shippingFeeCents: number;
   aportacionPct: number;
   ivaPct: number;
+  /**
+   * ⭐⭐ **v1.64 (§M10-IVA) — ENTRA EN EL `GET` PERO SE RECHAZA EN EL `PUT`.** Entero `[0, 100]`,
+   * seed **100**. Es la **fracción de traslación** del IVA, ⛔ no puntos de IVA.
+   *
+   * ⛔ **SU ÚNICA PUERTA ES `PUT /admin/settings/iva-transfer`** (`super_admin`, con el acuse en
+   * pesos de los criterios **213** y **188**). `PUT /admin/settings { ivaTransferPct }` contesta
+   * `422 VALIDATION_ERROR` (clave desconocida) y **la fila no se mueve** — candado `IVA-8(b)`.
+   * Por eso `updateSettings` **no acepta esta clave**: el compilador sostiene la prohibición y el
+   * servidor es la red, no al revés.
+   *
+   * ⛔ **NO viaja a ninguna superficie de cliente** (criterio **209**). Vive solo en `/admin/*`.
+   */
+  ivaTransferPct: number;
   salesMarkupPct: number;
   stripeFeePct: number;
   stripeFeeFixedCents: number;
@@ -3818,6 +3831,14 @@ export interface SettingsDTO {
    */
   gradingHookEnabled?: OnOff;
 }
+
+/**
+ * ⭐ Lo que `PUT /admin/settings` SÍ acepta. `ivaTransferPct` queda **fuera por tipo**, no por
+ * disciplina: el contrato lo declara **READ-ONLY en ese `GET`** y le da una puerta propia con
+ * acuse (§M10-IVA.1/§M10-IVA.2). Sin este `Omit`, `Partial<SettingsDTO>` invitaba a mandarlo y el
+ * único guardián habría sido un `422` en producción.
+ */
+export type EditableSettingsPatch = Partial<Omit<SettingsDTO, 'ivaTransferPct'>>;
 
 /** Diales de tipo interruptor del contrato (`on | off`). */
 export type OnOff = 'on' | 'off';
@@ -4326,4 +4347,115 @@ export interface ClaimOrdersResponse {
     orderId: string;
     code: 'ORDER_ALREADY_CLAIMED' | 'CLAIM_EMAIL_MISMATCH' | 'NOT_FOUND';
   }[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §R.2 — LA CAMPANA: `GET /api/v1/me/pendings`. SE **DERIVA**, ⛔ NO SE PERSISTE.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ⭐⭐ **LISTA BLANCA CERRADA** (contrato §R.2.3). Hoy tiene **UN** valor, y añadir otro es
+ * **cambio de contrato** que escribe el arquitecto (regla 9), ⛔ no una deducción del front.
+ *
+ * El código nombra **la obligación del cliente**, no nuestro estado interno
+ * (`identity_action_required`, ⛔ no `kyc_rejected`): sobrevive a que mañana el predicado tenga
+ * otro origen, y no obliga a traducir vocabulario de back-office a superficie de cliente.
+ *
+ * ⛔⛔ **`SellOfferState` no toca este dominio en ninguna dirección** (§R.2.3 prohibición 2,
+ * criterio **204**): `pending_authorization` es admin-only y el cliente **no debe enterarse de que
+ * existe**. Por eso el tipo es una unión cerrada y no un `string`: un código que el arquitecto no
+ * escribió **no compila**.
+ */
+export type PendingCode = 'identity_action_required';
+
+/**
+ * ⛔ **Dos campos, y ninguno es un número de negocio** (§R.2.3 prohibición 4): un pendiente **no es
+ * un resumen**. Nada de dinero, cifras, topes ni umbrales.
+ */
+export interface PendingDTO {
+  code: PendingCode;
+  /** ISO-8601. Desde cuándo es verdad el pendiente. */
+  since: string;
+}
+
+/**
+ * ⭐ `{ "pendings": [] }` es la respuesta **correcta y frecuente** — ⛔ no un `204` ni un `404`.
+ * Con la lista vacía el front **no pinta campana** (criterio **202(c)**: *falla si queda un
+ * indicador vacío*).
+ *
+ * ⛔ Sin paginación y sin `total`: un listado que no puede crecer sin que el arquitecto escriba una
+ * fila **no se pagina** (§R.2.1).
+ */
+export interface MePendingsResponse {
+  pendings: PendingDTO[];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §M10-IVA.2 — EL DIAL DE TRASLACIÓN DEL IVA. `super_admin`, DINERO.
+// ⛔ **Nada de esto viaja a superficie de cliente** (criterio **209**): `ivaTransferPct` vive
+// **solo** en `/admin/*`. Que el cliente pueda leer qué fracción absorbemos es fuga comercial.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/** Una posición del dial, **calculada por el servidor**. ⛔ El frontend no multiplica nada. */
+export interface IvaTransferPositionDTO {
+  /** Entero `[0, 100]`. **FRACCIÓN DE TRASLACIÓN**, ⛔ no puntos de IVA. */
+  ivaTransferPct: number;
+  /** `P` = el precio EXHIBIDO. */
+  displayPriceCents: number;
+  /** `round(P / (1 + r))`. */
+  taxBaseCents: number;
+  /** `P − taxBaseCents` (RESIDUAL). ⛔ Nunca 0, ni con el dial en 0 %. */
+  ivaCents: number;
+  /** = `taxBaseCents`. Lo que nos queda. */
+  netRevenueCents: number;
+  /** Gross-up con los diales de Stripe vigentes: lo que el cliente pagaría. */
+  totalChargedCents: number;
+}
+
+/**
+ * `GET /admin/settings/iva-transfer/preview` (§M10-IVA.2). **READ-ONLY, sin efectos.**
+ *
+ * ⭐ **La cifra la calcula EL SERVIDOR.** Si el front computara el delta, el acuse probaría que el
+ * front sabe multiplicar, **no que el dueño vio el costo real** (`ARCHITECTURE §4.44.i`).
+ */
+export interface IvaTransferPreviewDTO {
+  /** La TASA vigente (dial `ivaPct`). ⛔ NO es el dial de traslación. */
+  ivaRatePct: number;
+  /** El `L` de ejemplo (default 10000 = MX$100.00). */
+  samplePriceCents: number;
+  /** Con el dial **VIGENTE**. ⭐ Es también la fuente del valor actual del dial. */
+  current: IvaTransferPositionDTO;
+  /** Con el `ivaTransferPct` de la query. */
+  proposed: IvaTransferPositionDTO;
+  /** `proposed.netRevenueCents − current.netRevenueCents`. **Negativo = margen cedido.** */
+  netDeltaPerUnitCents: number;
+}
+
+/**
+ * ⭐ **El ACUSE del criterio 213/188.** ⛔ No es un dato: es la prueba de que el costo en pesos se
+ * mostró **antes** de guardar. Se manda **tal cual lo devolvió el `preview`**; si no cuadra con lo
+ * que el servidor recalcula ⇒ `409 IVA_TRANSFER_ACK_STALE` y **no escribe**.
+ */
+export interface IvaTransferAcknowledgementDTO {
+  samplePriceCents: number;
+  previewedNetDeltaCents: number;
+}
+
+/**
+ * `PUT /admin/settings/iva-transfer` (§M10-IVA.2). `super_admin`, auditado, transaccional.
+ *
+ * El acuse **solo se exige cuando el valor CAMBIA**: un `PUT` con el valor vigente es idempotente
+ * y no pide acuse (no hay margen que ceder).
+ *
+ * ⛔ **Es la ÚNICA puerta del dial.** `PUT /admin/settings { ivaTransferPct }` responde
+ * `422 VALIDATION_ERROR` (clave desconocida) y **no mueve la fila** — candado `IVA-8(b)`.
+ */
+export interface IvaTransferUpdateRequest {
+  ivaTransferPct: number;
+  acknowledgement?: IvaTransferAcknowledgementDTO;
+}
+
+export interface IvaTransferUpdateResponse {
+  ivaTransferPct: number;
+  preview: IvaTransferPreviewDTO;
 }

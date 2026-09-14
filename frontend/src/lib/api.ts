@@ -146,6 +146,11 @@ import type {
   ResetPasswordResponse,
   DeleteUserResponse,
   SettingsDTO,
+  EditableSettingsPatch,
+  IvaTransferPreviewDTO,
+  IvaTransferUpdateRequest,
+  IvaTransferUpdateResponse,
+  MePendingsResponse,
   AuditLogDTO,
   KycStatus,
   CardDTO,
@@ -2125,6 +2130,30 @@ export async function updateKyc(input: UpdateKycInput): Promise<KycInfoDTO> {
   // la llamada trae al menos una key de INE; una llamada solo-CLABE no toca ni el estado ni el
   // motivo. Al (re)subir INE se limpia `rejectionReason`.
   return delay(fx.mockApplyClientKycUpdate(input));
+}
+
+// ---------- §R.2 · LA CAMPANA: pendientes VIVOS del usuario, DERIVADOS ----------
+/**
+ * `GET /api/v1/me/pendings` (contrato §R.2.1). `customer+`; ⛔ **sin sesión ⇒ `401`**, y ⛔ no
+ * existe variante tokenizada para el invitado (§R.2.2, criterio **203**): el único pendiente del
+ * corte es la identidad, y la identidad **exige cuenta**, así que para el invitado el pendiente
+ * **no existe** — no es que se le esconda.
+ *
+ * ⛔ **NO declara ningún parámetro de query, y es deliberado.** Añadirle uno es cambio de contrato
+ * y pasa por el arquitecto (regla 9).
+ *
+ * ⛔ **No pagina y no trae `total`**: el dominio es una **lista blanca cerrada** que no puede
+ * crecer sin que el arquitecto escriba una fila.
+ *
+ * ⭐ **`{ pendings: [] }` es la respuesta normal**, ⛔ no un `204` ni un `404`. El front **no pinta
+ * campana** con la lista vacía (criterio **202(c)**).
+ *
+ * ⛔ **Este `GET` no escribe nada**: no marca leído, no sella, no audita. *Un `GET` que muta es la
+ * vía por la que un prefetch del navegador despacha un aviso que el cliente nunca vio.*
+ */
+export async function getMePendings(): Promise<MePendingsResponse> {
+  if (!config.useMocks) return apiRequest<MePendingsResponse>('/me/pendings');
+  return delay(fx.mockMePendings());
 }
 
 // ---------- Uploads (contrato §8 — SOLO INE de KYC / kyc_ine) ----------
@@ -4886,10 +4915,64 @@ export async function getSettings(): Promise<SettingsDTO> {
  * Edición de diales (contrato PUT /admin/settings). El body es PARCIAL (solo las
  * keys a cambiar); NO existe PATCH /admin/settings/:key.
  */
-export async function updateSettings(patch: Partial<SettingsDTO>): Promise<SettingsDTO> {
+export async function updateSettings(patch: EditableSettingsPatch): Promise<SettingsDTO> {
   if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings', { method: 'PUT', body: patch });
   fx.setMockSettings(patch);
   return delay(fx.mockSettings);
+}
+
+// ---------- Admin M10 · EL DIAL DE TRASLACIÓN DEL IVA (contrato §M10-IVA.2) ----------
+/**
+ * `GET /admin/settings/iva-transfer/preview` — `super_admin`, **READ-ONLY y sin efectos**.
+ *
+ * ⭐ **La cifra en pesos la calcula el SERVIDOR** (`ARCHITECTURE §4.44.i`). El front manda la
+ * posición propuesta y el precio de ejemplo, y recibe las **dos** posiciones y el delta. ⛔ El
+ * front **no multiplica**: si lo hiciera, el acuse de `updateIvaTransfer` probaría que el front
+ * sabe multiplicar, no que el dueño vio el costo real.
+ *
+ * `samplePriceCents` es el `L` de ejemplo; el contrato le da `10000` por defecto y aquí se manda
+ * **siempre explícito** porque es la mitad del acuse: el servidor recalcula el delta **para ese
+ * mismo `samplePriceCents`**, y omitirlo dejaría el acuse colgando de un default.
+ */
+export async function getIvaTransferPreview(params: {
+  ivaTransferPct: number;
+  samplePriceCents: number;
+}): Promise<IvaTransferPreviewDTO> {
+  if (!config.useMocks) {
+    return apiRequest<IvaTransferPreviewDTO>('/admin/settings/iva-transfer/preview', {
+      query: { ivaTransferPct: params.ivaTransferPct, samplePriceCents: params.samplePriceCents },
+    });
+  }
+  return delay(fx.mockIvaTransferPreview(params));
+}
+
+/**
+ * `PUT /admin/settings/iva-transfer` — `super_admin`, **auditado y transaccional**. ⭐ **La ÚNICA
+ * puerta del dial** (§M10-IVA.2): `PUT /admin/settings { ivaTransferPct }` es `422` por clave
+ * desconocida, y por eso `EditableSettingsPatch` ni siquiera deja escribirlo.
+ *
+ * El `acknowledgement` **no es un dato de negocio: es la prueba de que el costo se mostró antes de
+ * guardar** (criterio **213**, que hereda el **188**). Se manda **tal cual lo devolvió el
+ * `preview`** — recomponerlo a mano es reinventar el número que el acuse existe para fijar.
+ * - falta y el valor CAMBIA ⇒ `422 IVA_TRANSFER_ACK_REQUIRED`, **no escribe**.
+ * - no cuadra con lo que el servidor recalcula ⇒ `409 IVA_TRANSFER_ACK_STALE`
+ *   (`details: { expectedNetDeltaCents }`), **no escribe**.
+ * - el valor NO cambia ⇒ idempotente, y el acuse no se exige (no hay margen que ceder).
+ */
+export async function updateIvaTransfer(
+  body: IvaTransferUpdateRequest,
+): Promise<IvaTransferUpdateResponse> {
+  if (!config.useMocks) {
+    return apiRequest<IvaTransferUpdateResponse>('/admin/settings/iva-transfer', {
+      method: 'PUT',
+      body,
+    });
+  }
+  try {
+    return await delay(fx.applyMockIvaTransfer(body));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 export interface AuditLogFilters {
