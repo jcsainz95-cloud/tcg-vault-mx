@@ -14,7 +14,13 @@ import { computeShipmentBreakdown } from '../../src/common/money';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
+/** `F` — el dial, **NETO** (§4.44.f). */
 const SHIPPING = 17500;
+/**
+ * ⭐ `E = round(F × (1+t·r)) = 20300` — la tarifa EXHIBIDA, con su IVA dentro (D56, `IVA-6`).
+ * Derivada de `F`, no clavada: **money-neutral** queda dicho en la definición (`17500 + 2800`).
+ */
+const SHIPPING_DISPLAY = SHIPPING + Math.round((SHIPPING * IVA) / 100);
 
 describe('E2E — Bóveda/portafolio y retiros', () => {
   let h: E2EHarness;
@@ -136,9 +142,11 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       const notSettled = (res.body.ineligible as any[]).find((i) => i.inventoryItemId === itemId.custPending);
       expect(notSettled.reason).toBe('ITEM_NOT_SETTLED');
 
-      const expected = computeShipmentBreakdown(SHIPPING, IVA, FEE);
+      const expected = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA, FEE);
       expect(res.body.breakdown).toMatchObject({
-        subtotalCents: SHIPPING,
+        // ⭐ D56: el «subtotal» del retiro ES `E`. Money-neutral: `20300` es lo que antes aportaban
+        // `17500 + 2800`, así que `totalCents` ⛔ no se movió (`IVA-6(b)`).
+        subtotalCents: SHIPPING_DISPLAY,
         ivaCents: expected.ivaCents,
         processingFeeCents: expected.processingFeeCents,
         totalCents: expected.totalCents,

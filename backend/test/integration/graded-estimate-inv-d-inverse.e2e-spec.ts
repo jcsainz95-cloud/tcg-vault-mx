@@ -33,6 +33,7 @@
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_CARDS, E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { P } from './helpers/iva-display';
 
 describe('E2E — GE-1 / INV-D inverso: un estimado JAMÁS precia un slab publicado (M-43)', () => {
   let h: E2EHarness;
@@ -195,7 +196,8 @@ describe('E2E — GE-1 / INV-D inverso: un estimado JAMÁS precia un slab public
       (x: Record<string, unknown>) => x.productType === 'graded' && x.gradeValue === '10',
     );
     expect(esperado.salePriceCents).toBeGreaterThan(PRECIO_HEREDADO_CENTS);
-    expect(l!.salePriceCents).toBe(esperado.salePriceCents);
+    // ⭐ D56: la ficha publica `P`; `esperado.salePriceCents` es el `L` que devuelve la pura.
+    expect(l!.displayPriceCents).toBe(P(esperado.salePriceCents!));
   });
 
   it('D) ⚠️ EL TRAMPOLÍN — la re-afirmación del MISMO día RECLASIFICA la fila, no crea una segunda', async () => {

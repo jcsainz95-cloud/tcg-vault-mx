@@ -12,7 +12,6 @@ import {
   NameSource,
   MarketBracket,
   OrderStatus,
-  PriceConvention,
   Prisma,
   ProductType,
   Role,

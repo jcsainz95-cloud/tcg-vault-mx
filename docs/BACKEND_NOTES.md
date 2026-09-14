@@ -28,6 +28,121 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.53 — ⭐⭐ **D56: EL BLOQUE INDIVISIBLE DEL IVA, COMPLETO** (2026-09-14)
+
+> Propiedad: **backend**. Implementa `API_CONTRACT §M10-IVA` entera (v1.75) y `ARCHITECTURE §4.44` +
+> `§4.55`. **Las doce piezas que el censo `§M10-IVA.9.f` marcaba como NO construidas**, menos las tres
+> de frontend (14, 15, 16), que no son mías.
+>
+> ⚠️ **Lo que NO medí, arriba del todo y sin adornos:** **no tengo Postgres en este entorno**
+> (`pg_isready` ⇒ *no response*, `DATABASE_URL` sin definir). ⇒ **la suite de INTEGRACIÓN/E2E la
+> escribí pero NO la corrí.** La actualicé entera —era obligatorio: afirmaba *«toda fila nueva nace
+> `IVA_EXCLUSIVE`»*, que D56 invierte— y **QA es quien la mide**. Lo que sí corrí, entero y verde, es
+> la suite **unitaria**: **313 suites / 5 150 pruebas**.
+
+### 0.53.1 — La forma del cambio, en una frase por pieza
+
+| Pieza (§M10-IVA.9.f) | Dónde vive ahora |
+|---|---|
+| **7 · derivación de `P`** | `common/money.ts` `displayPriceCentsOf` (se **mudó** desde `modules/settings/iva-transfer.ts`, que la re-exporta). Cableada en **dos** sitios y solo dos: `catalog.toListingRow` (storefront) y `orders.derivedSaleDecision` (checkout) |
+| **8 · los tres breakdowns** | `common/money.ts` `inclusiveBreakdown` — **un solo cuerpo** del que derivan `computeCartBreakdown`, `computeShipmentBreakdown` y `computeDirectShipBreakdown`. `BreakdownDTO` gana `priceConvention` + `ivaIncluded` |
+| **9 · los tres campos de cliente** | `ListingDTO`, `GroupedListingDTO`, `GroupedListingSummaryDTO` (`salePriceCents` → **`displayPriceCents`** + `ivaIncluded` + `ivaRatePct`) y `SealedGroupDTO`/`…Summary` (`fromPriceCents` conserva el nombre, gana los dos campos) |
+| **10 · asignación del IVA del envío** | `common/money.ts` `netShippingRevenueCents` — *el residual del residual*. El cuerpo que había en `admin.service.ts` era **literalmente** la mutación que `IVA-9` declara roja |
+| **11 · P&L del costo de envío** | `admin.pnl()`: `netShippingCostCents(s)` (RESTA) + `shippingCostMissingCount`; captura en `TrackingDto.shippingCostIvaCents` → `setTracking` |
+| **12 · tarjeta bruto/neto** | `admin.dashboard()`: `salesPeriod` con las seis cifras de §M10-IVA.7. `amountCents` **desaparece** |
+| **13 · flip a `IVA_INCLUSIVE`** | Los **cinco** escritores usan `PRICE_CONVENTION_OF_NEW_ROWS` (una constante, ⛔ no cinco literales) y archivan `Order.ivaTransferPct` |
+| **6 · `GET …/iva-transfer/preview`** | `settings.controller.ts`, con `parseRequiredIntQuery` y las dos cotas |
+| **17 · los siete candados** | `test/iva-1-neutralidad`, `iva-2-grossup-base`, `iva-4-redondeo`, `iva-6-envio`, `iva-9-asignacion-envio`, `iva-10-tablero`, `iva-11-costo-envio` — todos con **canario** |
+
+### 0.53.2 — ⛔ Las tres discrepancias con el contrato, ENRUTADAS AL ARQUITECTO (regla 9)
+
+**Ninguna bloquea, ninguna se «arregló» por mi cuenta, y las tres están asertadas con el valor
+MEDIDO y su razón escrita al lado.**
+
+| # | Qué dice el contrato | Qué medí | Qué hice |
+|---|---|---|---|
+| **`N-BE-IVA-1`** | `§M10-IVA.5` (`IVA-2`): la mutación `G = S + iva` produce **`14164`** | **`14139`**. `grossUpTotal(13200) = ceil((13200 + 1.16·300)/(1 − 1.16·0.036)) = ceil(14138.6)`. El `14164` sale de aplicar *«+13.6 %»* sobre `12469` en vez de correr el gross-up; el factor real es **1.1339** | Asierto **lo NORMATIVO** (*«rojo si `totalCents > 12469`»*) tal cual, y la ilustración con el valor **medido**. *Un test que asierta un número que el código no puede dar no mide el código: mide el documento.* |
+| **`N-BE-IVA-2`** | `§M10-IVA.7`: la tarjeta de ventas *«ya es de campos financieros ⇒ `super_admin`; `vault_operator` no la recibe (**sin cambio**)»* | **`vault_operator` SÍ la recibe hoy**: `salesPeriod` vive en `card`, que se devuelve a los dos roles (`admin.service.ts`, antes de este pase) | **Sin regresión y sin exposición nueva**: `vault_operator` conserva `count` + `grossAmountCents` (el rename de lo que ya veía) y **los cuatro campos financieros nuevos van SOLO a `super_admin`**. ⛔ Retirarle la tarjeta entera habría sido un cambio de conducta que el contrato describe como «sin cambio» |
+| **`N-BE-IVA-3`** | `§2`: `minPriceCents`/`maxPriceCents` del catálogo — el contrato **no dice** sobre qué precio filtran tras D56 | Filtraban sobre `L`. Bajo la convención nueva, el comprador **ve y teclea `P`** | Filtro y faceta pasan a **`P`** (coherente con lo que ve); el **orden** sigue sobre `L` (monótono ⇒ mismo resultado, y sin depender del redondeo). Si el arquitecto prefiere `L`, es **una línea** en `catalog.service.ts` |
+
+### 0.53.3 — ⭐⭐ `N-IVA9-7` MEDIDO: el `500` del `/preview`… y el que el contrato no vio
+
+El contrato dejó esto como **NO MEDIDO**: *«que el `/preview` sin cota produzca hoy un `500`. No
+puede medirse: el endpoint no existe»*. **Medido ahora, y son DOS hallazgos:**
+
+1. **La norma era correcta.** Sin cota, `samplePriceCents = 2e9` ⇒ `P = 2.32e9 > MAX_CENTS` ⇒
+   `grossUpTotal` lanza un **`Error` pelado** (*«total exceeds MAX_CENTS»*) que el filtro global ⛔
+   **no mapea** ⇒ **`500` desde la barra de direcciones** con sesión `super_admin`. Con la cota:
+   **`400`** con `details.field`. Asertado en `settings.iva-transfer-preview-endpoint.spec.ts` y en el
+   e2e.
+2. ⚠️ **Y NO era solo del `/preview`: el `PUT` del ACUSE tenía el MISMO `500`, y ya existía.**
+   `validateSamplePriceCents` admitía hasta `MAX_CENTS`; con ese `L`, `displayPriceCentsOf` da
+   `2 491 081 030` y `grossUpTotal` lanza. ⇒ **la cota `[1, 100_000_000]` se aplicó a las DOS
+   puertas**, no solo a la que el contrato nombró. *La norma preventiva del arquitecto acertó en la
+   clase y se quedó corta en el alcance.*
+
+### 0.53.4 — ⭐⭐ EL HALLAZGO QUE MÁS ME PREOCUPA: `stripComments` se quedaba CIEGO
+
+**Es un instrumento de pruebas, y del que cuelgan siete candados** (`enum-values-parity`,
+`price-convention-writers`/`IVA-12`, `query-axis-census`, `sell-request-states` y tres `IVA-*`).
+
+**El defecto:** quitaba **primero** los bloques con una regex global y **después** las colas de línea.
+Con eso, una línea `//` que contuviera la secuencia de apertura de bloque —como
+`// … viaja solo en /admin/*`, que vive en **cinco** ficheros de `src/`— **abría un bloque** que se
+comía el fichero hasta el siguiente cierre.
+
+**Lo que costó, medido:** en `guest-checkout.service.ts` se tragó **la escritura de la columna
+`ivaTransferPct`**, y mi censo del criterio **209** reportó que ese fichero *«no la emite»*. **Verde,
+sobre código que sí estaba ahí.** ⇒ reescrito como **autómata de un paso** (código / cadena /
+plantilla / línea / bloque), con canario propio: `test/strip-comments.spec.ts`.
+
+> *Un candado cuyo instrumento puede quedarse ciego necesita una prueba del instrumento, no del
+> candado.* Lo destapó una prueba nueva al **esperar un fichero en un conjunto exacto y no
+> encontrarlo** — ⛔ no un rojo del candado que se apoyaba en él.
+
+### 0.53.5 — Decisiones de implementación que otros roles necesitan saber
+
+- ⭐⭐ **UN SOLO `switch` sobre `PriceConvention` en todo `backend/src`**: `money.ivaIsIncluded`.
+  `netRevenueCents`, `netShippingRevenueCents`, `shipmentNetRevenueCents` y el desglose **delegan**.
+  `IVA-12(b)` nombra al lector **en singular** y así sigue siendo (el censo da `{money.ts: 1}`).
+- ⭐ **`ShipmentRequest` netea por RESTA, ⛔ nunca con la tasa**: esa tabla **no tiene `ivaRatePct`**
+  y usar el dial vivo haría que un P&L histórico cambiara al mover `iva_pct` (incumple `IVA-5`).
+  Helper propio: `shipmentNetRevenueCents`.
+- ⭐ **`CatalogService` gana `SettingsService` `@Optional()`** (⛔ y sin valor por defecto: sin diales
+  **LANZA**). El `@Optional()` es por los tests unitarios que lo construyen a mano; en la app
+  `SettingsModule` es `@Global` y siempre se inyecta.
+- ⭐ **Los diales se izan UNA vez por petición** (`fetchSellable`, `priceCartForOrder`,
+  `priceCartForQuote`). ⛔ Jamás por pieza: dos líneas del mismo carrito derivadas con posiciones
+  distintas del dial darían un subtotal que no corresponde a ninguna posición.
+- ⭐ **`PricedCart` lleva los diales que produjeron sus precios** y la orden archiva **ése**, ⛔ no una
+  segunda lectura: entre preciar y escribir cabe un `PUT /admin/settings/iva-transfer`.
+- ⚠️ **El umbral de `AMOUNT_TOO_LARGE` se movió, y es conducta**: bajo `IVA_EXCLUSIVE` la base del
+  gross-up era `S × 1.16`, así que `2e9` desbordaba; bajo `IVA_INCLUSIVE` **`G = S`** y `2e9` **cabe**
+  (`grossUpTotal(2e9) ≈ 2.087e9`). ⛔ **El guardarraíl no se debilitó**: sigue rechazando exactamente
+  lo que no cabe en `Int32`. Lo que cambió es el importe, porque cambió el total.
+- ⭐ **El gate de curaduría de graduadas razona sobre `L`, ⛔ nunca sobre `P`.** Los estimados PSA son
+  cifras de MERCADO (sin IVA); darle `P` movería el umbral `salePrice × maxRawMultiple` un `t·r`
+  **sin que nadie decida moverlo**. Por eso `SellableRow` lleva `listPriceCents` en el sobre.
+- ⭐ **El admin sigue viendo `L`** (`PROJECT §Q.5`): el diagnóstico de curaduría conserva
+  `salePriceCents` y vale el precio de LISTA.
+- **`C-EQ-1`:** `NO_ENUM_POR_RUTA` gana **dos** entradas y su tope pasa de **36 a 38**.
+  ⛔ **`NO_ENUM_TRANSVERSAL` NO se tocó**: su `toEqual` de 14 nombres queda igual.
+
+### 0.53.6 — Para FRONTEND, lo que rompe a propósito
+
+| Antes | Ahora | Por qué rompe |
+|---|---|---|
+| `ListingDTO.salePriceCents` | **`displayPriceCents`** + `ivaIncluded` + `ivaRatePct` | *Un front que no migrara seguiría pintando la mentira sin que nada fallara.* Con el rename, **no compila** |
+| `GroupedListingDTO.salePriceCents` · `…SummaryDTO` | ídem | ídem |
+| `SealedGroupDTO.fromPriceCents` | **mismo nombre**, ahora con IVA dentro, + los dos campos REQUERIDOS | la semántica «desde» no cambia; lo que impide pintar la mentira son los dos campos nuevos |
+| `BreakdownDTO` | + `priceConvention` + `ivaIncluded` | la línea de IVA **INFORMA, no suma**: `total = subtotal + envío + comisión` |
+| `dashboard.salesPeriod.amountCents` | **`grossAmountCents`** (+ 4 campos para `super_admin`) | la tarjeta pasa de una cifra a dos (`IVA-10(c)`) |
+| — | `GET /admin/settings/iva-transfer/preview` | **ya existe**: `IvaTransferSection.tsx` dejaba de dar `404` |
+
+⛔ **Y lo que NO cambió:** valuación de bóveda/portafolio, «valor de mercado», estimados PSA,
+cotizador de buylist y sus cinco correos, y `GET /admin/settings` (el dial **sigue sin salir ahí**,
+`IVA-8(f)`).
+
 ## 0.52 — **§31.5(c): las dos rayas del bloque de marca eran dos bloques grises de 216×72** (2026-09-10)
 
 > Propiedad: **backend** (`src/modules/buylist/mail-shell.ts`). Lo levantó **frontend** midiendo con

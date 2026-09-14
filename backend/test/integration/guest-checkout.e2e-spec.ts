@@ -17,7 +17,14 @@ import { computeDirectShipBreakdown } from '../../src/common/money';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
+/** `F` — el dial `shipping_fee_cents`, **NETO** y sin cambiar de valor con D56 (§4.44.f). */
 const SHIPPING = 17500;
+/**
+ * ⭐ `E = round(F × (1+t·r)) = 20300` — la tarifa **EXHIBIDA**, con su IVA dentro (`IVA-6`).
+ * Se DERIVA de `F` en vez de clavarse: así el fixture dice **por qué** vale eso, y **money-neutral**
+ * queda asertado en la propia definición (`20300 = 17500 + 2800`).
+ */
+const SHIPPING_DISPLAY = SHIPPING + Math.round((SHIPPING * IVA) / 100);
 
 /**
  * Correos ÚNICOS por corrida: la suite de integración comparte BD entre ejecuciones y un pedido de
@@ -114,8 +121,19 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.status).toBe(200);
       expect(res.body.fulfillmentMode).toBe('direct_ship');
       unitPriceCents = res.body.items[0].unitPriceCents;
-      expect(res.body.breakdown).toEqual(computeDirectShipBreakdown(unitPriceCents, SHIPPING, IVA, FEE));
-      expect(res.body.breakdown.shippingFeeCents).toBe(SHIPPING);
+      // ⭐ `unitPriceCents` YA es `P` (lo devuelve el servidor derivado, §M10-IVA.3).
+      expect(res.body.breakdown).toEqual(
+        computeDirectShipBreakdown(unitPriceCents, SHIPPING_DISPLAY, IVA, FEE),
+      );
+      // ⭐⭐ `IVA-6`: la tarifa exhibida lleva su IVA dentro, y es money-neutral (`17500 + 2800`).
+      expect(res.body.breakdown.shippingFeeCents).toBe(SHIPPING_DISPLAY);
+      expect(res.body.breakdown.priceConvention).toBe('IVA_INCLUSIVE');
+      // ⛔ Y el IVA NO suma al total (identidad (b) de §M10-IVA.4).
+      expect(res.body.breakdown.totalCents).toBe(
+        res.body.breakdown.subtotalCents +
+          res.body.breakdown.shippingFeeCents +
+          res.body.breakdown.processingFeeCents,
+      );
       // Avisos como BANDERAS (el texto lo pinta el front con su i18n).
       expect(res.body.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
       // v1.21.3-quote-prune: `unavailableItems` SIEMPRE presente; `[]` cuando todo resuelve.
@@ -140,7 +158,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       );
       // Breakdown SOLO con las vivas (2 × unitPrice) — la poda no suma al total.
       expect(res.body.breakdown).toEqual(
-        computeDirectShipBreakdown(unitPriceCents * 2, SHIPPING, IVA, FEE),
+        computeDirectShipBreakdown(unitPriceCents * 2, SHIPPING_DISPLAY, IVA, FEE),
       );
       expect(res.body.unavailableItems).toEqual([
         { inventoryItemId: vendida.id, cardName: 'E2E Charizard' },
@@ -171,6 +189,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         processingFeeCents: 0,
         totalCents: 0,
         currency: 'MXN',
+        priceConvention: 'IVA_INCLUSIVE',
+        ivaIncluded: true,
       });
       // `fulfillmentMode`/`notices` se conservan: nunca pantalla de error, solo carrito vacío + aviso.
       expect(res.body.fulfillmentMode).toBe('direct_ship');
@@ -252,7 +272,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const ttlMin = (new Date(res.body.checkoutTokenExpiresAt).getTime() - Date.now()) / 60000;
       expect(ttlMin).toBeGreaterThan(110);
       expect(ttlMin).toBeLessThanOrEqual(120);
-      expect(res.body.breakdown).toEqual(computeDirectShipBreakdown(unitPriceCents, SHIPPING, IVA, FEE));
+      expect(res.body.breakdown).toEqual(
+        computeDirectShipBreakdown(unitPriceCents, SHIPPING_DISPLAY, IVA, FEE),
+      );
       // UN solo PaymentIntent por el total (cartas + envío + IVA + fee).
       const intents = h.stripe.createdIntents.filter((i) => i.metadata.orderId === orderId);
       expect(intents).toHaveLength(1);
@@ -264,7 +286,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(order!.userId).toBeNull();
       expect(order!.guestEmail).toBe(GUEST_EMAIL.toLowerCase());
       expect(order!.fulfillmentMode).toBe('direct_ship');
-      expect(order!.shippingFeeCents).toBe(SHIPPING);
+      // ⭐ D56: la orden archiva la tarifa EXHIBIDA `E` (§M10-IVA.4), no la NETA `F`.
+      expect(order!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       expect(order!.claimedAt).toBeNull();
       expect(order!.shippingAddressSnapshot).toMatchObject({ city: 'Ciudad de México', country: 'MX' });
     });
@@ -1125,7 +1148,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         guestEmail: GUEST_EMAIL.toLowerCase(),
         orderNumber,
         fulfillmentMode: 'direct_ship',
-        shippingFeeCents: SHIPPING,
+        shippingFeeCents: SHIPPING_DISPLAY,
       });
     });
   });

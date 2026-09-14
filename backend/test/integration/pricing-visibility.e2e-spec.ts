@@ -22,6 +22,7 @@ import {
   GROUPED_LISTING_KEYS as GROUPED_LISTING_KEYS_ALL,
   GROUPED_LISTING_SUMMARY_KEYS as GROUPED_LISTING_SUMMARY_KEYS_ALL,
 } from '../helpers/dto-keys';
+import { P } from './helpers/iva-display';
 
 const salePrice = (marketCents: number) => resolveSaleFromCurve(marketCents, DEFAULT_PRICING_CURVE).cents as number;
 
@@ -82,7 +83,10 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
       expect(listings.length).toBeGreaterThan(0);
       // La condición EXACTA que evalúa el front para pintar «Valor de mercado».
       for (const g of listings) expect(g.priceBasis).toBe('market');
-      expect(listings[0].salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents!));
+      // ⭐ D56: la ficha publica `P` (§M10-IVA.3). `salePrice(...)` sigue siendo el `L` de la curva.
+      expect(listings[0].displayPriceCents).toBe(P(salePrice(E2E_CARDS.charizard.refNmCents!)));
+      expect(listings[0].ivaIncluded).toBe(true);
+      expect(listings[0].ivaRatePct).toBe(16);
       // `units[]` es el ListingDTO por-pieza: ya lo traía, y se fija para que no se pierda.
       const { units } = await fichaListings(E2E_CARDS.charizard.externalId);
       for (const u of units) expect(u.priceBasis).toBeDefined();
@@ -129,7 +133,7 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
         expect(group).not.toHaveProperty('priceBasis');
         expect(group).not.toHaveProperty('referenceValue');
         // Lo que la rejilla SÍ necesita sigue ahí (el recorte no apagó funcionalidad).
-        expect(group.salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents!));
+        expect(group.displayPriceCents).toBe(P(salePrice(E2E_CARDS.charizard.refNmCents!)));
       });
 
       it('FICHA con basis `market`: el número de mercado SÍ viaja (dirección «no lo mando nunca»)', async () => {
@@ -233,7 +237,7 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
       const inv = await h.prisma.inventoryItem.findUnique({ where: { folio: E2E_FOLIOS.listedCharizard } });
       const byId = await h.api('GET', `/catalog/listings/${inv!.id}`);
       expect(byId.status).toBe(200);
-      expect(byId.body.salePriceCents).toBe(salePrice(E2E_CARDS.charizard.refNmCents!));
+      expect(byId.body.displayPriceCents).toBe(P(salePrice(E2E_CARDS.charizard.refNmCents!)));
       expect(byId.body.priceBasis).toBe('market');
     });
   });

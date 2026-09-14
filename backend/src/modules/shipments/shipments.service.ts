@@ -20,7 +20,6 @@ import { StripeService } from '../payments/stripe.service';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
   computeShipmentBreakdown,
-  netShippingCostCents,
   shippingFeeDisplayCentsOf,
 } from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
