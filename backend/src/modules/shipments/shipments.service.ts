@@ -587,9 +587,12 @@ export class ShipmentsService {
    * precondición **baja al motor**. `updateMany({ where: { id, status: <el que leí> } })` y
    * `count === 1` ⇔ *esta* petición fue la que hizo la transición. Bajo `READ COMMITTED` Postgres
    * re-evalúa el `WHERE` contra la versión ya actualizada de la fila (`EvalPlanQual`) cuando dos
-   * `UPDATE` compiten por ella ⇒ **exactamente una** puede ganar. La perdedora ve `count === 0` y
-   * recibe el mismo **409** que habría recibido si hubiera llegado un milisegundo después —
-   * que es, literalmente, lo que le pasó.
+   * `UPDATE` compiten por ella ⇒ **exactamente una** puede ganar.
+   *
+   * ⭐ **Y el perdedor NO recibe `409` si el envío quedó donde él pedía** (§R.4.c cláusula 4, §M4):
+   * relee y, si `status === to`, devuelve **`200` idempotente sin correo**. *Dos operadores que
+   * pulsan «Enviar» a la vez querían lo mismo y lo consiguieron;* convertir eso en un error de
+   * pantalla castiga al operador por la latencia de la red. `409` solo si quedó en **otro** estado.
    *
    * ⛔ **`notifyStatus` queda DETRÁS de esa reclamación**, así que «quién avisa» dejó de ser una
    * carrera y pasó a ser un hecho del motor. Ver el docstring de `notifyStatus` para el porqué
@@ -634,12 +637,15 @@ export class ShipmentsService {
         data,
       });
       if (claimed.count !== 1) {
-        // Otra petición ganó la misma transición mientras ésta validaba. Es el MISMO 409 que
-        // habría dado llegar un milisegundo más tarde — y el motor lo dice sin ambigüedad.
-        throw BusinessException.conflict(
-          'CONFLICT',
-          `Invalid transition ${shipment.status} -> ${to}`,
-        );
+        // ⭐ §R.4.c cláusula 4 — **EL PERDEDOR NO RECIBE `409` SI EL ENVÍO QUEDÓ DONDE PEDÍA.**
+        // Se RELEE (instantánea nueva: bajo `READ COMMITTED` cada sentencia ve lo ya commiteado):
+        //   · `status === to`  ⇒ `200` idempotente con la fila actual, ⛔ SIN correo. Dos operadores
+        //     que pulsan «Enviar» a la vez querían lo mismo y lo consiguieron; convertir eso en un
+        //     error en pantalla castiga al operador por la latencia de la red.
+        //   · cualquier otro estado ⇒ `409`, el mismo de una transición ilegal (§M4).
+        const actual = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+        if (actual.status === to) return { gane: false, row: toAdminShipmentRow(actual) };
+        throw BusinessException.conflict('CONFLICT', `Invalid transition ${actual.status} -> ${to}`);
       }
       const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
 
@@ -670,7 +676,7 @@ export class ShipmentsService {
             },
           });
         }
-        return toAdminShipmentRow(updated); // S49-R4
+        return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
       }
 
       if (!isDirectShip && to === 'entregado') {
@@ -701,12 +707,14 @@ export class ShipmentsService {
           });
         }
       }
-      return toAdminShipmentRow(updated); // S49-R4
+      return { gane: true, row: toAdminShipmentRow(updated) }; // S49-R4
     });
     // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort: el correo cuelga del hecho, y el hecho
     // no cuelga del correo. ⛔ Un fallo del proveedor no revierte la transición ni tumba el `PATCH`.
-    await this.notifyStatus(shipment, to);
-    return result;
+    // ⭐ §R.4.c cláusula 2 — **avisa el GANADOR del CAS y nadie más.** El perdedor idempotente sale
+    // por aquí con `gane: false`: no omite un correo suyo, es que **no ocurrió ningún hecho suyo**.
+    if (result.gane) await this.notifyStatus(shipment, to);
+    return result.row;
   }
 
   /**
@@ -992,13 +1000,23 @@ export class ShipmentsService {
    *     reabriendo el camino a `enviado` ⇒ un segundo `AV-5` legítimo. Por eso el arreglo de
    *     `REL-B` **no está completo sin el de `REL-C`**: la premisa del sello es la monotonía.
    *
-   * **⇒ La columna no aporta nada que el motor no dé ya, y sí cuesta**: una migración en una zona
-   * compartida (`prisma/schema.prisma`), dos campos más que un DTO puede filtrar (hay un candado
-   * entero, `avisos.seals-out-of-dto`, vigilando justo eso), y **una segunda fuente para un mismo
-   * hecho** — la fila diría «ya avisé» y el estado diría «la transición ya ocurrió», y el día que
-   * discrepen habrá que decidir cuál manda. *Un sello se estrena cuando el ciclo puede REPETIRSE
-   * (`trackingNoticeSentAt`: recapturar una etiqueta distinta es un hecho nuevo). `AV-5`/`AV-6` no
-   * repiten: son aristas de un grafo sin ciclos.*
+   * **⇒ CERO columnas nuevas** (§R.4.c cláusula 3, decisión del arquitecto v1.76), y el argumento
+   * que decide **no es el ahorro**:
+   *  - **`ShipmentRequest.shippedAt` YA ES el sello de `AV-5`.** La misma escritura atómica que gana
+   *    la transición lo pone, pasa de `NULL` a fecha **exactamente una vez**, y nada lo devuelve a
+   *    `NULL`. Una columna aparte sería **una segunda fila afirmando el mismo hecho con la misma
+   *    vida** — y el día que discrepen, *una miente y no se sabe cuál*. Para `AV-6` no hace falta
+   *    ninguna: `cancelado` es **terminal**.
+   *  - ⭐ **La columna arreglaría el correo y dejaría vivo el defecto de fondo.** Sin el `WHERE`, las
+   *    N peticiones **commitean todas** la transición (un *lost update* silencioso) y el perdedor
+   *    devuelve `200` afirmando un éxito que no tuvo. Con sello, eso **seguiría igual**: *el `WHERE`
+   *    arregla la máquina de estados; el sello solo tapa su síntoma más visible.*
+   *  - **El mecanismo es HEREDADO, no estrenado:** el mismo de `setTracking` (§R.4.b) y el de
+   *    `jobs/buylist-sweep.service.ts` desde v1.18.
+   *
+   * *Un sello se estrena cuando el ciclo puede REPETIRSE (`trackingNoticeSentAt`: recapturar una
+   * etiqueta distinta es un hecho nuevo). `AV-5`/`AV-6` no repiten: son aristas de un grafo sin
+   * ciclos.*
    *
    * ⛔ **Y la premisa se vigila**, no se confía: `shipments.state-monotonic.spec.ts` pone rojo si
    * alguien añade un ciclo a `TRANSITIONS` o escribe `status` de un `ShipmentRequest` sin llevar la

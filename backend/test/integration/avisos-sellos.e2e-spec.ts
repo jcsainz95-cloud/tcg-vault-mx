@@ -469,7 +469,7 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
      * **Ablación (`0e22415` literal, copia propia, `N = 10` corridas): ROJO 10/10. Con el arreglo:
      * VERDE 10/10.** ⛔ Nunca `HEAD` en un árbol compartido — el sha, literal.
      */
-    it('⭐⭐ ENTRELAZADO FORZADO `AV-5`: dos `PATCH` que leyeron el MISMO estado ⇒ UN correo y un 409', async () => {
+    it('⭐⭐ ENTRELAZADO FORZADO `AV-5`: dos `PATCH` sobre la misma lectura ⇒ UN correo, dos `200`', async () => {
       const id = await nuevoEnvio('b3');
       await capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-B3`);
       bandeja.length = 0;
@@ -479,8 +479,10 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
 
       // ⛔ Rojo con 2: es el correo «tu paquete va en camino» dos veces por una salida. Criterio 205.
       expect(bandeja).toHaveLength(1);
-      // …y la perdedora recibe el MISMO 409 que habría recibido llegando un ms más tarde.
-      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      // ⭐ §R.4.c cláusula 4: la PERDEDORA no recibe `409` — el envío quedó donde ella pedía, así que
+      // recibe `200` idempotente y ningún correo. ⛔ Rojo con un `409`: el doble clic del operador
+      // pasaría a ser un error en pantalla por algo que SÍ consiguió.
+      expect([a.status, b.status]).toEqual([200, 200]);
       expect(
         (await h.prisma.shipmentRequest.findUniqueOrThrow({ where: { id }, select: { status: true } }))
           .status,
@@ -502,7 +504,7 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
       await new Promise((r) => setTimeout(r, 300));
 
       expect(bandeja).toHaveLength(1);
-      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      expect([a.status, b.status]).toEqual([200, 200]);
     }, 60000);
 
     /**
