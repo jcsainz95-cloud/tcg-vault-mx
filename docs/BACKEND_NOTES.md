@@ -23153,3 +23153,60 @@ suites (+2)** (`serializable-retry` y su candado transversal, más dos casos nue
 ⛔ **Ninguna prueba se borró, se saltó ni se debilitó.** El único `it` sustituido —el de `S-2`— se
 cambió **porque afirmaba algo falso**, y su reemplazo asierta **dos** hechos donde antes había uno
 que dependía del reloj; el conteo de la suite **no baja** (29 `it`).
+
+## §BE-SEED-M52 (2026-09-14) — el seed de los customers no se enteró de `M-52`, y eso dejó CIEGO el gate de retiro
+
+**El defecto, en una línea.** `M-52` (`f5513cd`, 2026-09-11) añadió `Address.recipientName` y la puerta
+`422 RECIPIENT_NAME_REQUIRED` en `POST /shipments[/quote]`. El bucle de fixtures de cuenta
+(`seed-e2e.ts:~1031`) sí lo rellenaba; **el de los customers principales (`:674`) no**. Un campo nuevo
+relleno en **un sitio de dos**.
+
+**Lo que costó, medido.** La pantalla de retiro se quedaba en *«Falta el nombre de quien recibe»* con
+**cero respuestas ≥ 400** —la puerta ni se alcanzaba— así que `shipments.spec.ts` moría en
+`getByTestId('amount-breakdown')` (**:39**), **antes** del cobro. *Retirar* es uno de los tres flujos de
+dinero del gate de navegador (`DEVOPS_NOTES §31`): tres nocturnas (`#35`–`#37`) en rojo sin que nadie
+pudiera ver el cobro. La primera roja es la del día de `M-52`; la última verde, la víspera.
+
+**Ablación de datos (no de git), sobre el stack nativo:**
+
+| `Address.recipientName` del `customer` | `shipments.spec.ts` muere en |
+|---|---|
+| `NULL` (estado previo) | **:39** `amount-breakdown` — *«Falta el nombre de quien recibe»* |
+| sembrado (arreglo) | **:63** `dialog «Pagar envío»` — *«No pudimos contactar al procesador de pago»* (**3/3**) |
+
+O sea: ahora muere **donde sus dos hermanas** (`checkout.spec.ts:79`, `guest-checkout.spec.ts:154`), por
+falta de `STRIPE_SECRET_KEY` en el stack —**hueco de entorno, no de producto**— y no antes.
+
+### El valor NO es `User.name`, y es una decisión, no un descuido
+
+`E2E_ADDRESS_RECIPIENT` (`e2e-fixtures.ts`) da `Rosa Elena Domínguez` / `Héctor Domínguez Cruz`, **distintos
+de `User.name`** (`E2E Customer` / `E2E Customer Two`). Razón: el contrato prohíbe **dos veces** derivar el
+destinatario del nombre de la cuenta (§3 *«⛔ Sin fallback a `User.name`»*; §M4 *«copiado tal cual, ⛔ jamás
+de `User.name`»*). **Si el fixture los hiciera coincidir, una regresión que reintrodujera ese fallback
+pintaría el nombre correcto por casualidad y la suite no la vería.** Es la disciplina que `e2e-fixtures.ts`
+ya aplicaba a `User.phone` vs `Address.phone`.
+
+⚠️ **`:1031` se queda con `f.name` a propósito**: ahí el panel de cotejo de §M6-K.3 compara el nombre de la
+cuenta con el del documento, y un destinatario distinto del titular volvería el fixture mudo justo en lo que
+la pantalla mide. Misma pregunta, respuesta opuesta, por la razón simétrica.
+
+⛔ **`recipientName` NO entra en `E2E_PICKUP_ADDRESS`**, aunque se siembren juntos: (a) el buylist **no** lo
+congela —el contrato lo deja fuera de `M-52` a propósito (§7, follow-up `D-CTA-5`)—, y (b)
+`buylist-cycle.e2e-spec.ts:1411` deriva de esa constante las partes del domicilio que ningún correo puede
+llevar (criterio 173h); el destinatario no es una parte del domicilio.
+
+### El agravante estructural: una siembra que NO reafirma su invariante
+
+Los dos bloques hacían `findFirst` y **solo creaban si faltaba**, así que un `create` con el campo **no
+arregla ninguna BD ya sembrada**. Ahora los dos **restauran** (medido: con las 5 direcciones a `NULL`, la
+re-siembra devuelve las 5). Y el `findFirst` va con **`orderBy` explícito**: sin orden remediaba una
+dirección *al azar* y podía dejar sin destinatario justo la **predeterminada**, que es la que la pantalla
+auto-selecciona. ⛔ No se toca `isDefault`: forzarlo dejaría dos predeterminadas.
+
+### Barrido del resto de `M-50`…`M-57`: no hay más sitios a medias
+
+El seed solo crea filas en **tres** sitios (2 `Address`, 1 `Order`; **ningún** `ShipmentRequest`).
+`Order.ivaTransferPct` queda `null` y es **honesto**: nullable sin backfill, y el pedido del fixture está
+fechado `2026-01-08`, anterior a `M-50`. `M-53` (reserva) y `M-57` (sellos de aviso) son nullable y las filas
+sembradas están en estados previos; **no hay ningún `@Cron` en `src/`**, así que un sello nulo no dispara
+ningún aviso espontáneo. `M-54` los escribe explícitos. `User.nameSource` estaba cubierto.
