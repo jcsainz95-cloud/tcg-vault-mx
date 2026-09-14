@@ -195,9 +195,16 @@ describe('E2E — GE-1 / INV-D inverso: un estimado JAMÁS precia un slab public
     const esperado = fichaSlabbed.listings.find(
       (x: Record<string, unknown>) => x.productType === 'graded' && x.gradeValue === '10',
     );
-    expect(esperado.salePriceCents).toBeGreaterThan(PRECIO_HEREDADO_CENTS);
-    // ⭐ D56: la ficha publica `P`; `esperado.salePriceCents` es el `L` que devuelve la pura.
-    expect(l!.displayPriceCents).toBe(P(esperado.salePriceCents!));
+    // ⭐⭐ D56 — **las DOS fichas son superficie PÚBLICA, así que las dos publican `P` y ninguna
+    // publica `salePriceCents`** (`API_CONTRACT:730`: *«`salePriceCents` DESAPARECE DE LA SUPERFICIE
+    // PÚBLICA»*; §M10-IVA.3 lo sustituye por `displayPriceCents`). La versión anterior leía
+    // `esperado.salePriceCents` de `fichaSlabbed` —campo que ya no existe ⇒ `undefined`— y su
+    // comentario afirmaba que ahí venía el `L`. **No venía**: la ficha nunca devolvió un `L`.
+    // ⇒ Se comparan **`P` contra `P`**, que además es lo que el ORÁCULO quería decir desde el
+    // principio: *dos piezas con la misma referencia de mercado resuelven el MISMO precio exhibido*,
+    // sin reimplementar la curva ni la conversión del IVA en ningún lado.
+    expect(esperado.displayPriceCents).toBeGreaterThan(P(PRECIO_HEREDADO_CENTS));
+    expect(l!.displayPriceCents).toBe(esperado.displayPriceCents);
   });
 
   it('D) ⚠️ EL TRAMPOLÍN — la re-afirmación del MISMO día RECLASIFICA la fila, no crea una segunda', async () => {

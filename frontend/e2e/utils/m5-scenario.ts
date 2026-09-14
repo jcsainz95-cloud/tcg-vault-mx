@@ -98,11 +98,27 @@ async function pickupAddressId(): Promise<string> {
  */
 async function mostValuableRawCardId(): Promise<string> {
   const catalog = await apiAsOk<{
-    data: { card: { id: string }; productType: string; salePriceCents: number | null }[];
+    // §M10-IVA.3 / D56: `salePriceCents` DESAPARECIÓ de la superficie pública; la cifra de la
+    // rejilla es `displayPriceCents` (con el IVA dentro). Aquí solo se usa para ORDENAR, así que
+    // la convención da igual — lo que NO da igual es leer el nombre viejo.
+    data: { card: { id: string }; productType: string; displayPriceCents: number }[];
   }>(SELLER, 'GET', '/catalog/cards?pageSize=50');
-  const raw = catalog.data
-    .filter((row) => row.productType === 'raw' && typeof row.salePriceCents === 'number')
-    .sort((a, b) => (b.salePriceCents ?? 0) - (a.salePriceCents ?? 0));
+  const rawAll = catalog.data.filter((row) => row.productType === 'raw');
+  const priced = rawAll.filter((row) => typeof row.displayPriceCents === 'number');
+  // ⛔ **Un campo que desaparece NO puede salir por la puerta del `skip`.** Antes, el filtro leía
+  // `typeof row.salePriceCents === 'number'`: tras D56 daba `false` en TODAS las filas y esto
+  // lanzaba `M5SeedUnavailable` ⇒ `m5-transitions.spec.ts` se **SALTABA ENTERO**, en verde, con el
+  // mensaje «el catálogo no tiene cartas raw». Una suite apagada por un rename **no gatea**, y
+  // encima acusaba al seed. Si el catálogo trae raw pero sin el campo, eso es un cambio de DTO:
+  // ROJO, y con nombre y apellido.
+  if (rawAll.length > 0 && priced.length === 0) {
+    throw new Error(
+      `GET /catalog/cards devolvió ${rawAll.length} grupos raw y NINGUNO trae \`displayPriceCents\` ` +
+        `(§M10-IVA.3 lo declara requerido). No es el seed: el DTO público de catálogo cambió de ` +
+        `forma. Primera fila: ${JSON.stringify(rawAll[0]).slice(0, 300)}`,
+    );
+  }
+  const raw = [...priced].sort((a, b) => b.displayPriceCents - a.displayPriceCents);
   if (raw.length === 0) {
     throw new M5SeedUnavailable('el catálogo publicado no tiene ninguna carta raw con precio');
   }

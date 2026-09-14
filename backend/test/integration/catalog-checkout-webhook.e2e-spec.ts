@@ -172,7 +172,12 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
         [viva1.id, viva2.id].sort(),
       );
       // El breakdown se calcula SOLO con las vivas.
-      const unit = salePrice(E2E_CARDS.charizard.refNmCents);
+      // ⭐ D56: el subtotal es **Σ `displayPriceCents`** (`API_CONTRACT §M10-IVA.4`, l. 19414:
+      // *«bajo `IVA_INCLUSIVE` = Σ displayPriceCents ⇒ YA lleva el IVA dentro»*), así que el `P` se
+      // aplica **por línea** y luego se suma — ⛔ no `P(Σ L)`. Con `n = 1` las dos coinciden (y por
+      // eso el caso de :105 no lo distinguía); con `n = 2` sólo la primera respeta `IVA-4(a)`
+      // (`Σ items[].unitPriceCents == subtotalCents` **exacto**). `salePrice(...)` sigue siendo el `L`.
+      const unit = P(salePrice(E2E_CARDS.charizard.refNmCents));
       expect(res.body.breakdown).toEqual(computeCartBreakdown(unit * 2, IVA, FEE));
       expect(res.body.unavailableItems).toEqual([
         { inventoryItemId: vendida.id, cardName: E2E_CARDS.charizard.name },

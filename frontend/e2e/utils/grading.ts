@@ -70,7 +70,11 @@ export interface GradingCard {
   id: string;
   /** Nombre visible: sirve de ancla para esperar a que la ficha/teja resuelva. */
   name: string;
-  /** Precio raw publicado, cuando la carta lo tiene. Los montos se derivan de él, nunca se hornean. */
+  /**
+   * Precio raw **BASE (sin IVA)** con el que el gate compara, leído del diagnóstico de admin
+   * (§M10-IVA.3: ⛔ **no** es el `displayPriceCents` del catálogo público, que lleva el IVA dentro).
+   * Los montos se derivan de él, nunca se hornean.
+   */
   salePriceCents?: number;
 }
 
@@ -130,15 +134,38 @@ interface GradedEstimateConfig {
   gradingCostTiers: GradingCostTier[];
 }
 
+/**
+ * Fila de `GET /catalog/cards` — **superficie PÚBLICA**.
+ *
+ * ⚠️⚠️ §M10-IVA.3 / D56: aquí **ya NO existe `salePriceCents`**. Lo sustituye `displayPriceCents`,
+ * que es **otra cifra** (lleva el IVA DENTRO), no un rename cosmético. Este tipo lo declara
+ * **requerido y no-nulo** porque el contrato lo emite siempre (money-safe: un grupo sin precio
+ * resoluble **no se publica**, así que no hay fila con precio ausente).
+ *
+ * ⛔⛔ **NI UN `?? 0` SOBRE UN CAMPO DE DINERO.** El fallo que cazó QA (23 rojas, 12 de ellas por
+ * esta sola línea) no fue el rename: fue que el filtro decía `(g.salePriceCents ?? 0) > 0` y, al
+ * desaparecer el campo, `undefined ?? 0` volvió **cero** — un campo INEXISTENTE se leyó como «esta
+ * carta vale $0» y el arnés se quedó sin cartas, denunciando al SEED en vez de a sí mismo.
+ * Un `?? 0` sobre dinero convierte «no sé» en «cero», y «cero» es una afirmación.
+ */
 interface CatalogGroup {
   representativeInventoryItemId: string;
   card: { id: string; name: string };
   productType: 'raw' | 'graded' | 'sealed';
-  salePriceCents?: number | null;
+  /** §M10-IVA.3 — sustituye a `salePriceCents`. Semántica «desde» y **con el IVA dentro**. */
+  displayPriceCents: number;
 }
 
 interface PreviewGroup {
+  /**
+   * ⚠️ **Éste SÍ sigue llamándose así, y no es un descuido.** D56 retiró `salePriceCents` de la
+   * superficie **pública**; este DTO es **admin-only** (`GET /admin/pricing/graded-estimates/preview`,
+   * `super_admin`) y el contrato lo mantiene: es *«el ÚNICO sitio donde los insumos del gate se
+   * exponen»* (`API_CONTRACT` · `GradedEstimatePreviewDTO`). Es la **BASE sin IVA**, que es contra
+   * lo que el gate compara.
+   */
   salePriceCents: number | null;
+  representativeInventoryItemId: string;
   psa10MxnCents: number | null;
   psa9MxnCents: number | null;
   /** Grados de esa carta con un slab PUBLICADO: con uno, el `DELETE` de ese grado da `409` (INV-D). */
@@ -259,9 +286,43 @@ async function hasAnyEstimate(cardId: string): Promise<boolean> {
 }
 
 /** Grados con slab PUBLICADO en cualquiera de los grupos raw de la carta (INV-D ⇒ `409` al borrar). */
-async function publishedSlabGrades(cardId: string): Promise<string[]> {
-  const preview = await previewOf(cardId);
+function slabGradesIn(preview: PreviewResponse): string[] {
   return [...new Set(preview.groups.flatMap((g) => g.publishedSlabGrades ?? []))];
+}
+
+async function publishedSlabGrades(cardId: string): Promise<string[]> {
+  return slabGradesIn(await previewOf(cardId));
+}
+
+/**
+ * El precio raw **contra el que el gate compara**: `salePriceCents`, la BASE **sin IVA**, leída del
+ * diagnóstico de admin — el único sitio que expone los insumos del gate.
+ *
+ * ⛔ **NO se deriva de `displayPriceCents` del catálogo público.** Esa cifra lleva el IVA dentro
+ * (§M10-IVA.3), así que usarla aquí sería exactamente lo que D56 existe para impedir: el cliente
+ * **reinterpretando** un número del servidor. Serían dos fuentes para un hecho, con un 16 % de
+ * desviación silenciosa en un arnés que **deriva dinero**. El catálogo público se usa para
+ * DESCUBRIR y ORDENAR cartas; la aritmética del gate sale del gate.
+ */
+async function gateRawPriceCents(group: CatalogGroup, preview: PreviewResponse): Promise<number> {
+  const match =
+    preview.groups.find(
+      (g) => g.representativeInventoryItemId === group.representativeInventoryItemId,
+    ) ?? (preview.groups.length === 1 ? preview.groups[0] : undefined);
+  if (!match || typeof match.salePriceCents !== 'number') {
+    throw new Error(
+      `El diagnóstico de ${group.card.name} (${group.card.id}) no trae el precio raw del grupo ` +
+        `${group.representativeInventoryItemId}: ` +
+        `${JSON.stringify(preview.groups).slice(0, 400)}. Sin la BASE (sin IVA) no se pueden ` +
+        `derivar montos que pasen el gate — y ⛔ no se sustituye por displayPriceCents, que lleva ` +
+        `el IVA dentro (§M10-IVA.3).`,
+    );
+  }
+  return match.salePriceCents;
+}
+
+async function gateRawPriceOf(group: CatalogGroup): Promise<number> {
+  return gateRawPriceCents(group, await previewOf(group.card.id));
 }
 
 /**
@@ -309,9 +370,26 @@ async function seedRealScenario(): Promise<GradingScenario> {
     '/catalog/cards?pageSize=100',
   );
   const groups = catalog.data ?? [];
-  const rawGroups = groups
-    .filter((g) => g.productType === 'raw' && (g.salePriceCents ?? 0) > 0)
-    .sort((a, b) => (b.salePriceCents ?? 0) - (a.salePriceCents ?? 0));
+  // §M10-IVA.3: la cifra pública es `displayPriceCents`. Aquí solo DESCUBRE y ORDENA (la
+  // aritmética del gate sale de `gateRawPriceCents`).
+  //
+  // ⭐ **El campo AUSENTE se denuncia ANTES de filtrar, y ése es el arreglo de verdad.** El rename
+  // solo cambia el nombre; lo que dejó a la suite muda fue tratar la ausencia como un valor. Si un
+  // día el servidor deja de emitir el campo, esto dice *«el DTO cambió»* en vez de *«el seed está
+  // vacío»* — el arnés se acusa a sí mismo, que es lo que QA necesitaba leer y no leyó.
+  const rawAll = groups.filter((g) => g.productType === 'raw');
+  const withoutPrice = rawAll.filter((g) => typeof g.displayPriceCents !== 'number');
+  if (withoutPrice.length > 0) {
+    throw new Error(
+      `GET /catalog/cards devolvió ${withoutPrice.length} de ${rawAll.length} grupos raw SIN ` +
+        `\`displayPriceCents\` (§M10-IVA.3 lo declara requerido y money-safe). Esto NO es un ` +
+        `problema del seed: es que el DTO público de catálogo cambió de forma. Primera fila: ` +
+        `${JSON.stringify(withoutPrice[0]).slice(0, 300)}`,
+    );
+  }
+  const rawGroups = rawAll
+    .filter((g) => g.displayPriceCents > 0)
+    .sort((a, b) => b.displayPriceCents - a.displayPriceCents);
 
   if (rawGroups.length < 3) {
     throw new Error(
@@ -350,13 +428,14 @@ async function seedRealScenario(): Promise<GradingScenario> {
 
   // 4. Siembra por la vía del contrato.
   const [gradeHigh, gradeLow] = [...cfg.grades].sort((a, b) => Number(b) - Number(a));
-  const { psa10, psa9 } = amountsThatPassTheGate(curated.salePriceCents!, cfg);
+  const curatedRaw = await gateRawPriceOf(curated);
+  const { psa10, psa9 } = amountsThatPassTheGate(curatedRaw, cfg);
   await captureEstimate(curated.card.id, gradeHigh, psa10);
   await captureEstimate(curated.card.id, gradeLow, psa9);
   // `informed`: SOLO el grado alto. Sin PSA 9 no hay promoción (§O.4) ⇒ ficha con una cifra y
   // teja sin badge. Coherente de magnitud (por encima del raw, muy por debajo del múltiplo máximo)
   // para que el motivo sea `NO_PSA9` y no una incoherencia.
-  await captureEstimate(informed.card.id, gradeHigh, informed.salePriceCents! * 8);
+  await captureEstimate(informed.card.id, gradeHigh, (await gateRawPriceOf(informed)) * 8);
 
   // 5. VERIFICACIÓN con el diagnóstico del backend: quien dice si el gate pasó es el servidor.
   const curatedPreview = await previewOf(curated.card.id);
@@ -386,15 +465,20 @@ async function seedRealScenario(): Promise<GradingScenario> {
   //    `DELETE` responde `409` por INV-D y el test mediría la guarda en vez del borrado.
   const usedCardIds = new Set([curated.card.id, informed.card.id]);
   let deletableGroup: CatalogGroup | null = null;
+  let deletableRawCents: number | null = null;
   const slabbed: string[] = [];
   for (const g of rawGroups) {
     if (usedCardIds.has(g.card.id)) continue;
-    const slabs = await publishedSlabGrades(g.card.id);
+    // Un solo diagnóstico por candidata: de él salen las DOS cosas que hacen falta —si tiene slab
+    // publicado (descalifica) y su precio raw BASE (con el que el smoke deriva la cifra incoherente).
+    const preview = await previewOf(g.card.id);
+    const slabs = slabGradesIn(preview);
     if (slabs.length > 0) {
       slabbed.push(`${g.card.name} (slab publicado: PSA ${slabs.join(', PSA ')})`);
       continue;
     }
     deletableGroup = g;
+    deletableRawCents = await gateRawPriceCents(g, preview);
     break;
   }
   if (!deletableGroup) {
@@ -449,7 +533,7 @@ async function seedRealScenario(): Promise<GradingScenario> {
     deletable: {
       id: deletableGroup.card.id,
       name: deletableGroup.card.name,
-      salePriceCents: deletableGroup.salePriceCents ?? undefined,
+      salePriceCents: deletableRawCents ?? undefined,
     },
     detailGrades: [...cfg.grades].sort((a, b) => Number(b) - Number(a)),
     badgeGrades: [...cfg.highlightGrades].sort((a, b) => Number(b) - Number(a)),

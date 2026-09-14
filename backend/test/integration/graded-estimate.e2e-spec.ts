@@ -611,7 +611,13 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     }
     // (3) …y NINGÚN precio de venta cambió: el estimado nunca fue dinero (§4.38q.3).
     expect(despues.body.listings.find((l: any) => l.productType === 'raw').displayPriceCents).toBe(precioAntes);
-    expect(precioAntes).toBe(E2E_LIST_OVERRIDE_CENTS);
+    // ⭐ D56: `precioAntes` se leyó de `displayPriceCents` de la FICHA ⇒ es el **`P`**. El fixture
+    // `E2E_LIST_OVERRIDE_CENTS` es el **`L`** («listPriceCents del common override», `e2e-fixtures.ts:380`)
+    // ⇒ el ancla es `P(L)`, ⛔ no el `L` crudo: la superficie pública dejó de publicar el precio de
+    // lista (`API_CONTRACT:730`, §M10-IVA.3). Se conserva el ancla contra la CONSTANTE —y no solo la
+    // igualdad antes/después de :613— porque sin ella el `it` pasaría igual si el precio se hubiera
+    // movido a otro valor **estable**.
+    expect(precioAntes).toBe(P(E2E_LIST_OVERRIDE_CENTS));
     // (4) …y la AUSENCIA de estimado NO es un «precio pendiente» (doctrina §4.38b.4): borrar no encola.
     expect(
       await h.prisma.pendingPriceEntry.findMany({ where: { cardId, productType: 'graded' } }),

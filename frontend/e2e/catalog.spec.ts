@@ -237,7 +237,13 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
     await page.goto('/es/compra?productType=sealed&sealedSubtype=box');
 
     await page.waitForURL(/\/es\/sellado\?.*sealedSubtype=box/, { timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: t('es', 'sealed.title') })).toBeVisible();
+    // ⚠️ `exact: true` NO es cosmético. Sin él, `name: 'Sellado'` casa por SUBCADENA y engancha
+    // DOS encabezados cuando la vitrina está vacía —el `h1` «Sellado» y el `h3` «Aún no hay
+    // **sellado** en stock»—, y el modo estricto de Playwright tumba el test. Medido en este
+    // entorno: `GET /catalog/sealed` ⇒ `total: 0`, así que el estado vacío SIEMPRE está ahí. El
+    // localizador era el defectuoso; la pantalla es correcta (el vacío es dato del seed, no un
+    // fallo — `sealed.emptyTitle` existe justo para eso).
+    await expect(page.getByRole('heading', { name: t('es', 'sealed.title'), exact: true })).toBeVisible();
     // Se explica el salto de pantalla: cambiar la URL del usuario sin decir nada parece un fallo.
     await expect(page.getByRole('status')).toContainText(t('es', 'sealed.fromCatalog.body'));
     // El filtro llegó APLICADO y VISIBLE (nada de filtros fantasma).
@@ -259,7 +265,8 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
 
     await page.goto('/es/compra?productType=sealed&sealedSubtype=box');
     await page.waitForURL(/\/es\/sellado/, { timeout: 15_000 });
-    await expect(page.getByRole('heading', { name: t('es', 'sealed.title') })).toBeVisible();
+    // Mismo motivo que arriba: `exact: true` o el `h3` del estado vacío entra en el localizador.
+    await expect(page.getByRole('heading', { name: t('es', 'sealed.title'), exact: true })).toBeVisible();
 
     // v1.73 §2: los dos parámetros SALEN del contrato de `/catalog/cards`.
     expect(cards.filter((u) => /productType=sealed|sealedSubtype=/.test(u))).toEqual([]);

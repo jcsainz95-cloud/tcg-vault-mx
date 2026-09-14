@@ -31,6 +31,26 @@ async function marketBlockState(page: Page): Promise<{ block: boolean; explainer
   return { block, explainer: withMarket ? 'with' : noMarket ? 'no' : 'none' };
 }
 
+/**
+ * §M10-IVA.3 · el rótulo de convención de la ficha, **con la TASA sin hornear**.
+ *
+ * `common.ivaIncluded` es *«IVA {rate} % incluido»*; esto lo convierte en
+ * `/IVA \d+(?:[.,]\d+)? % incluido/` leyendo el diccionario (DESIGN_SYSTEM §9: los asserts no
+ * copian textos). Se afirma la **copy exacta** sin afirmar el **dial** del servidor: la tasa es
+ * DATO —viaja por fila en `ivaRatePct`— y hornear un `16` aquí sería volver a tener dos fuentes
+ * para un hecho, que es justo lo que §M10-IVA cierra.
+ */
+function ivaIncludedRe(locale: 'es' | 'en'): RegExp {
+  const SLOT = '';
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    t(locale, 'common.ivaIncluded', { rate: SLOT })
+      .split(SLOT)
+      .map(esc)
+      .join('\\d+(?:[.,]\\d+)?'),
+  );
+}
+
 /** Href de las primeras `n` fichas de carta de la vitrina (descubrimiento, sin hardcodear ids). */
 async function firstCardHrefs(page: Page, n: number): Promise<string[]> {
   await page.goto('/es/catalog');
@@ -166,7 +186,14 @@ test.describe('@real P-48 contra el stack vivo', () => {
     await page.goto(href);
     await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
     await expect(page.getByText(MONEY_RE).first()).toBeVisible();
-    await expect(page.getByText(t('es', 'common.withoutIva')).first()).toBeVisible();
+    // ⚠️ **Este assert decía `common.withoutIva` («sin IVA») y quedó CADUCO con §M10-IVA.3.**
+    // `PROJECT.md §Q` (tabla de superficies) manda: *«Ficha de carta — precio grande y filas de
+    // variante · ¿Precio con IVA dentro? **SÍ**»*, y el contrato retira `salePriceCents` en favor
+    // de `displayPriceCents` + `ivaIncluded`. La UI pinta el rótulo INCLUSIVO porque el servidor
+    // manda `ivaIncluded:true` (medido contra el stack: `GET /catalog/cards` ⇒ `ivaIncluded:true`,
+    // `ivaRatePct:16`). El rojo era de la PRUEBA, no del producto — y afirmar «sin IVA» sobre una
+    // cifra que ya lo lleva dentro es exactamente la mentira que §M10-IVA existe para impedir.
+    await expect(page.getByText(ivaIncludedRe('es')).first()).toBeVisible();
   });
 
   test('@real el editor de la curva carga del servidor y el dry-run responde', async ({ page }) => {
