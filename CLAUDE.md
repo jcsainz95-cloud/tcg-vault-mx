@@ -213,6 +213,34 @@ verifiqué.
 **Comprobación:** tras el informe de uno de esos tres, `git status` y commit acotado en el mismo pase. Esperar su
 commit es esperar algo que no puede ocurrir.
 
+### O-14 · Mientras un gate mide, el árbol es suyo: no lanzo construcción encima
+Cuando **qa**, **techlead**, **pentester** o **seguridad** están midiendo, el árbol de trabajo es **su instrumento**.
+No lanzo a backend/frontend/devops a escribir en él hasta que el gate entregue. Si hay que arreglar algo urgente,
+espero, o se lo digo al gate para que mida sobre un sha fijado.
+
+> *De dónde viene:* lancé a backend a cerrar dos condiciones bloqueantes **mientras QA auditaba ese mismo árbol**.
+> QA lo detectó porque **mi propio candado la salvó**: `stack-native.sh up --gate` abortó con `SEC-OPS-1`
+> («servido `6f6ad9e9fa2e` · esperado `c07ba84564ef`»). Sin ese candado habría medido contra un binario que **no
+> era el auditado**, y su veredicto habría certificado un árbol que ya no existía. Ella lo nombró exacto: *«es O-8
+> en el recurso árbol de trabajo»* — allí era el scratchpad, aquí es el árbol entero. Su veredicto se salvó porque
+> midió sobre copias con sha verificado, **no por suerte**.
+
+**Comprobación:** antes de lanzar construcción, `git log --oneline -1` y la lista de agentes vivos. Si hay un gate
+corriendo, el encargo espera. Y todo veredicto dice **sobre qué sha** se emitió; si no lo dice, se le pregunta antes
+de fusionar.
+
+### O-15 · Relayar una proporción es afirmarla: si no la medí, la marco
+Cuando un agente me da un número probabilístico y yo lo paso a otro agente o al dueño, **ese número pasa a ser
+mío**. O lo mido, o lo relayo diciendo **de quién es y con qué N**.
+
+> *De dónde viene:* backend reportó que un intermitente era «**5/5 verde aislada**» y yo lo relayé como hecho. QA lo
+> midió con N=10: **8/10 verdes, 2/10 rojas**. Con ~20 % de fallo, sacar 5/5 por suerte tiene probabilidad
+> **0.8⁵ ≈ 33 %** — backend midió N=5 y le tocó. Es **O-3 incumplida por mí al relayar**: la regla existía para las
+> mediciones propias y el agujero estaba en las ajenas. Un «5/5» sin N visible se lee como certeza y no lo es.
+
+**Comprobación:** toda proporción en un mensaje mío lleva su **N** y su autor. `5/5` sin N es una afirmación sin
+medición, y se trata como **NO MEDIDO**.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
   se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus
