@@ -1,3 +1,355 @@
+# VEREDICTO BLUE TEAM — **CIERRE DE RELEASE** · SHA **`da6a237`** (rama `claude/tcg-hunt-orchestration-2`) · `origin/production`=`efe65f5` · informe del red team sobre `e0892e6` · 2026-09-14
+
+> ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `da6a237`
+>
+> **De este corte no queda ningún hallazgo crítico ni alto abierto.** Las tres del pase
+> (`REL-A`, `REL-B`, `REL-C`) están **cerradas y verificadas por mí en vivo**, no recibidas: re-corrí
+> la prueba de concepto del red team (dial movido con un acuse de **MX$0.00**) y hoy da **422 sin
+> tocar el dial**; monté yo la carrera de los correos (**10 `PATCH` simultáneos × 12 tiradas** para
+> `AV-5` y otras 12 para `AV-6`) y sale **un correo por transición, 0/12 y 0/12**; y **ablacioné los
+> dos candados nuevos sobre una copia del árbol ENTERO anclada en `da6a237` literal**: el censo de
+> monotonía se pone **rojo 3/3** y la suite de entrelazado forzado **roja 3/3** en cuanto se le quita
+> el estado al `WHERE`, y verde al restaurar.
+>
+> ### ⛔ Pero el **DoD NO queda cerrado**, y la causa es UNA, heredada y ajena a este corte
+> **`P-RL-1` (Alta) sigue abierta** y hoy la re-medí: rotando `X-Forwarded-For` el tope de
+> `POST /auth/login` **no dispara — 8/8**. No la introduce este corte, este corte no la agrava, y
+> **retenerlo no la mitiga** (ya está publicada). Lo que la cierra es **una medición de seis
+> peticiones** que solo el dueño puede autorizar (`C6`, §5.1).
+>
+> ### La lectura que le pido al humano, dicha entera
+> Si el DoD se lee **literal** («sin altos abiertos, punto»), entonces esto es **RECHAZADO hasta
+> medir `C6`**. Mi recomendación medida es la otra: **publicar `da6a237` y medir `C6` en la primera
+> ventana**, porque lo que se publica **cierra** una Alta viva (`REL-B`: correos duplicados a
+> clientes reales) y **no abre ninguna**.
+
+---
+
+## 0. Procedencia: sobre qué midió cada cosa, y qué medí **yo**
+
+**Convención:** `[MEDIDO]` = lo ejecuté yo hoy, con su **N** · `[código]` = leído en fuente sobre
+`da6a237` · `[REPORTADO por X]` = medición ajena, citada como suya · `NO MEDIDO` = no lo llamo seguro.
+
+| Qué | Procedencia |
+|---|---|
+| **Backend vivo** `:3099` | `./scripts/stack-native.sh verify:head da6a237` ⇒ **✔ 3 asertos en verde** (*«el commit cambió, el código no»*). Todas mis mediciones HTTP son contra **este** binario |
+| ⚠️ **Frontend vivo** `:3000` | **horneado en `e0892e6`, NO en `da6a237`** `[MEDIDO]`. El delta `e0892e6..da6a237` del frontend son **5 ficheros y los 5 son de prueba** (`*.test.ts(x)`, `src/test/strip-comments.ts`), así que el bundle es equivalente — pero **quien corra un gate de Playwright contra este stack está midiendo `e0892e6`**, no `da6a237` |
+| Suite unitaria de backend | **319 suites / 5.303 pruebas en verde**, corrida **por mí** sobre `git archive da6a237` del árbol **entero** con `node_modules` enlazado `[MEDIDO]`. Coincide con la del orquestador, medida aparte |
+| Integración (2 specs del corte) | `avisos-sellos` + `iva-transfer-ack-canonical` ⇒ **36/36 verde** `[MEDIDO]` contra Postgres real |
+| Suite E2E completa / Playwright | **NO la corrí** — es de QA (`43/916` y `55/3/1` `[REPORTADO por QA]` sobre `e0892e6`) |
+| Producción | **FUERA DE ALCANCE.** No la toqué, ni con una petición |
+
+**Higiene:** no escribí, pedí ni registré el **valor** de ningún secreto (repo público). El secreto
+efímero del webhook lo tomé del **entorno del proceso vivo** para poder firmar eventos legítimos, y
+**no aparece en ningún fichero, log ni salida**. Los datos sintéticos que sembré están **borrados**
+(§8).
+
+---
+
+## 1. Lo que se me pidió juzgar: **el `0/25` del pentester era un artefacto del arnés**
+
+El red team marcó `REL-C` **Baja** porque no la reprodujo en 25 intentos, y **dijo que su arnés
+serializaba**. Backend la forzó y salió **ROJO 10/10**. Ese es un modo de fallo **de nuestra propia
+fase de seguridad**, no de su honestidad: *un cero es un dato solo si el instrumento llegaba.*
+
+### 1.1 Mi respuesta a «¿cuántas defensas declaradas “aguantó” descansan en ese mismo cero?»
+
+Clasifiqué sus **once controles positivos** por si su evidencia dependía de **concurrencia** o de que
+**algo NO ocurriera**, y **re-medí todos los que sí**. Resultado:
+
+| Control positivo del red team | Su evidencia | Lo que medí yo | Veredicto |
+|---|---|---|---|
+| `D-AVISO-2` de KYC (`AV-1`) | **[código]** — CAS leído, nunca disparado | **10 tiradas × 8 rechazos simultáneos ⇒ 1 correo por tirada, 0/10 duplicados** | **CONFIRMADO en vivo** |
+| Doble venta en checkout (`reserveItems`) | **[código]**, él mismo lo marcó **NO MEDIDO** | 10 tiradas × 8 checkouts simultáneos: **3–4 `409 ITEM_UNAVAILABLE` por tirada, ninguna tirada con los 8 en éxito**. El solape real **NO MEDIDO** (§7.1) | **PARCIAL** |
+| Tope mensual AML del buylist | **[código]**, marcado **NO MEDIDO** | 8 tiradas × 8 altas simultáneas con tope = uso+`100 000`: **exactamente 2×`201` + 6×`422` cada tirada, acumulado nunca rebasa el tope, 0/8** | **CONFIRMADO en vivo** (y no vacío: sí hubo altas) |
+| Webhook de Stripe rechaza toda forja | [VIVO] suyo | sin firma **400**, firma bogus **400**, **firma válida con `t` de hace 1 h ⇒ 400** (ventana anti-replay) | **CONFIRMADO + ampliado** |
+| Idempotencia del webhook | **[código]** (él midió la firma, no la idempotencia) | **6 tiradas × 8 entregas idénticas firmadas** sobre una orden `pending` sembrada ⇒ **orden `settled` una vez, 1 movimiento de inventario, 1 fila `ProcessedStripeEvent`, 0/6 anomalías**; y **re-entrega con `event.id` NUEVO ⇒ no-op** | **CONFIRMADO en vivo** |
+| `IVA-8(b)` (dial por la puerta genérica) | [VIVO] suyo 3/3 | 3/3 **422**, dial intacto en **100** | **CONFIRMADO** |
+| `IVA-8(f)` / criterio **209** | [VIVO]+[código] | `ivaTransferPct` ausente de `/admin/settings` (31 claves) y **0 apariciones** en 16 sondas de superficie de cliente (8 endpoints × anónimo/cliente) y **0** en el registro de correos | **CONFIRMADO** |
+| `/preview` sin el siguiente `500` | [VIVO] suyo | 13 valores de `samplePriceCents` (11×`400`, 2×`200`) + 8 de `ivaTransferPct` (6×`400`, 2×`200`). **Ningún `5xx`** | **CONFIRMADO** |
+| `me/pendings` sin IDOR, 401 al anónimo | [VIVO] suyo | anónimo **401**, cliente **200** con `Cache-Control: no-store`, y `?userId=<otro>` **se ignora** | **CONFIRMADO** |
+| Motivo de rechazo escapado | **[código]** | inyección en vivo (`<script>`, `&`, comillas, `\r\nBcc:`, `\nSubject:`) ⇒ **`to` y `subject` intactos**, cuerpo verbatim, HTML escapado (`escapeHtml`, y el candado `C-AV-9` con canario lo vigila) | **CONFIRMADO** |
+| AuthZ por rol (12/12) | [VIVO] suyo | **18/18** en lectura (6 endpoints × anónimo/2 clientes) **+ la escritura del dial**: operador **403**, cliente **403**, anónimo **401**, dial intacto | **CONFIRMADO + ampliado a la escritura** |
+| JWT sin `alg:none` | [VIVO] suyo | **12/12 `401`**: `alg:none` con y sin firma, rol elevado con firma vieja, firma alterada, `tv` adulterado, `sub` de otro | **CONFIRMADO** |
+
+**⇒ Ninguna de las once resultó ser un falso positivo de defensa.** Las dos que descansaban en un
+cero no medido (`D-AVISO-2` de KYC, tope AML) **aguantan cuando se las dispara de verdad**.
+
+### 1.2 Y la otra mitad, que es la que da crédito a lo anterior: **mi propio arnés produjo TRES ceros falsos hoy**
+
+No lo escondo porque es la lección del pase:
+
+1. **`AV-1` de KYC:** primera corrida **0/10 duplicados**… con **8×`422`** en todas las tiradas. El
+   campo era `rejectionReason`, no `kycRejectionReason`: **no llegué al código**. Corregido ⇒ la
+   medición real (y verde) es la de arriba.
+2. **Idempotencia del webhook:** primera corrida **0/6 anomalías** con la orden **sin crear** — mi
+   `INSERT` violaba una clave foránea y `psql` abortaba el lote **en silencio**. Corregido ⇒ la
+   medición real es la de arriba.
+3. **Solape de reservas (doble venta):** **0/10 solapes** medidos con una consulta que leía una
+   **columna que no existe** (`Order.updatedAt`). Ese `0/10` **queda descartado**, no reportado.
+
+*Los tres tenían la misma forma que el `0/25`: verde por no haber medido.* Por eso **toda proporción
+de este documento va acompañada de su control de no-vacuidad** (cuántos `201` hubo, cuántos correos
+salieron, cuántos conflictos se observaron).
+
+---
+
+## 2. Las tres del pase — **CERRADAS**, con mi medición al lado
+
+### 2.1 `REL-B` (Alta) — **CERRADA** `[MEDIDO]`
+
+| Medición mía, hoy | Resultado |
+|---|---|
+| `AV-5`: 12 tiradas × **10 `PATCH {to:'enviado'}` simultáneos** sobre un envío en `guia` | **1 correo por tirada · 0/12 con duplicado** (antes: 13/13 del red team, 25/25 de backend) |
+| `AV-6`: 12 tiradas × 10 `PATCH {to:'cancelado'}` | **1 correo por tirada · 0/12** |
+| **Ablación** (copia del árbol entero en `da6a237` literal): `where: { id, status }` → `where: { id }` | censo `shipments.state-monotonic` **ROJO 3/3**; integración `avisos-sellos` **ROJA 3/3** (caen los dos bloques de entrelazado forzado); restaurado ⇒ **15/15 verde** |
+
+El arreglo es el correcto: la precondición **baja al motor** (`updateMany` + `count === 1`) y el
+correo cuelga del ganador. Y el perdedor recibe `200` idempotente si el envío quedó donde pedía.
+⚠️ **Matiz observado, no bloqueante:** en mis tiradas el perdedor recibió `409` en 2–8 de cada 10
+peticiones — **no viene del CAS sino de la validación PREVIA** (`TRANSITIONS['enviado']` no incluye
+`enviado`), que ocurre antes de la transacción. Es decir: dos operadores que pulsan a la vez pueden
+ver `200` **o** `409` según la latencia. No es un problema de seguridad; es una **inconsistencia de
+contrato** que conviene que **arquitecto/backend** decidan a propósito (§6, `OBS-1`).
+
+### 2.2 `REL-C` (el red team la puso Baja; **era Alta de hecho**) — **CERRADA** `[MEDIDO]`
+
+Confirmo la re-clasificación: *el CAS garantiza un aviso por **TRANSICIÓN**; el criterio 205 promete
+uno por **CICLO**, y eso solo se sigue si el estado **no retrocede**.* `REL-B` **no estaba cerrada
+sin esto**.
+
+| Medición mía | Resultado |
+|---|---|
+| `setTracking` sobre un envío ya en `enviado` (determinista) | **0/5 regresiones** — el estado se queda en `enviado` |
+| Carrera caótica: `POST tracking` + 3 `PATCH` simultáneos desde `picking`, 10 tiradas | **0/10 regresiones**; por tirada **exactamente 1 `AV-4` + 1 `AV-5`**, nunca dos |
+| El censo de escritores del estado (`shipment-status-writers.ts`) | **verde**, y **muerde**: rojo 3/3 con la ablación |
+
+El **tercer retrocesor** (`payments.service.ts`, `payment_intent.succeeded → solicitado→picking`)
+lleva el estado en el `WHERE` `[código]`. ⚠️ **Corrección de procedencia al orquestador:** ese
+arreglo **no está en el delta `e0892e6..da6a237`**; entró en `3bfb370`, que es **posterior** al
+commit del informe del red team (`0e22415`) y anterior a `a5aa07e`. No cambia el estado (está
+puesto), sí cambia quién puede decir que lo midió sobre qué árbol.
+
+El censo clasifica `unclassified` como **rojo** y trae canario: es el candado correcto, porque vigila
+**la premisa** (monotonía) y no el síntoma (el correo).
+
+### 2.3 `REL-A` (Media) — **CERRADA** `[MEDIDO]`
+
+| Medición mía | Resultado |
+|---|---|
+| La PoC literal del red team: `{"ivaTransferPct":50,"acknowledgement":{"samplePriceCents":1,"previewedNetDeltaCents":0}}` | **422 `VALIDATION_ERROR`**, mensaje que nombra el `L` canónico; **dial intacto en 100** (verificado por SQL) |
+| **Carrera del dial**: 2 `PUT` simultáneos (a 50 y a 0) con **acuses ambos válidos para el vigente**, 10 tiradas | **exactamente un `200` por tirada, el otro `409 IVA_TRANSFER_ACK_STALE`, 10/10**; dial devuelto a **100** |
+| **Ablación** (copia, `da6a237` literal): el `L` vuelve a elegirlo el llamante | `settings.iva-transfer-ack-canonical` **ROJO 3/3** (16 pruebas caídas); restaurado ⇒ verde |
+
+`D-ACUSE-1` es la norma correcta y está donde debe: el `422` ocurre **antes del candado**, y el delta
+se calcula sobre la constante del servidor, no sobre el cuerpo. La **dirección del dato** es lo que
+arregla la clase entera, no el rango.
+
+### 2.4 `REL-D` (Info) — **ABIERTA**, no bloqueante · dueño **devops**
+
+`npm audit --omit=dev` **re-medido hoy**: backend **0 críticas · 0 altas · 5 moderate** (cadena
+`qs`→`body-parser`→`express`→`@nestjs/*`); frontend **limpio**. Ver §4 (deuda aceptada).
+
+---
+
+## 3. Hallazgos ABIERTOS, por severidad
+
+### 3.1 `P-RL-1` — **ALTA** · el tope de fuerza bruta se evade rotando `X-Forwarded-For` · **ABIERTA, heredada**
+
+**Ubicación:** `backend/src/main.ts:39` (`app.set('trust proxy', 1)`) + `AppThrottlerGuard`
+(`backend/src/common/guards/app-throttler.guard.ts`) con el `getTracker` por defecto de
+`@nestjs/throttler@6.5.0`, que devuelve `req.ip` `[código]`.
+**Endpoints afectados:** `POST /auth/login` (5/min), `register`, `google`, `forgot-password` (10/h),
+checkout de invitado (5/h) — todo lo que topa **por IP**.
+
+**Medición de hoy `[MEDIDO]`:**
+
+| Sonda | Resultado |
+|---|---|
+| 8 logins fallidos desde la misma IP | `401×5` y luego **`429×3`** — el tope **existe y muerde** |
+| 8 logins fallidos **rotando `X-Forwarded-For`** | **`401×8`** — **el tope no dispara** |
+| `XFF: "<rotatoria>, 9.9.9.9"` (la de la **derecha** fija) | **`429` a la 6.ª** |
+| `XFF: "9.9.9.9, <rotatoria>"` (la de la **izquierda** fija) | **`401×8`, sin tope** |
+
+⇒ **el tracker es la entrada de MÁS A LA DERECHA** de `X-Forwarded-For`. Eso reduce toda la
+incertidumbre a **un solo hecho no medido**: si el edge de Railway **añade** la IP real como última
+entrada (lo normal), en producción **el atacante no controla el tracker y `P-RL-1` no es explotable
+allí**; si la respeta tal cual, **sí lo es**.
+
+📌 **Corrección técnica a `scripts/edge-xff-probe.sh`** (dueño **devops**): su cabecera dice que
+express toma *«la penúltima entrada»*. **Medido: toma la última.** La conclusión operativa del script
+no cambia, pero la frase sí, y alguien va a decidir mirándola.
+
+**Rol dueño:** **devops** (`C6`: correr el probe en ventana autorizada) y **backend** (`C7`: un
+backstop que **no dependa de la IP** — p. ej. tope por cuenta/credencial, que es lo único que protege
+si el edge falla). **Hoy no existe ningún backstop por cuenta** `[código]`.
+
+### 3.2 `SEC-CR-1` — **Media** · `POST /auth/logout` **no revoca nada**, y el refresco sobrevive · **ABIERTA** (era `C18`/`SEC-PII-4`)
+
+**Ubicación:** `backend/src/modules/auth/auth.controller.ts:64-69` — el cuerpo del método es
+`return;` `[código]`.
+**Medición `[MEDIDO]`:** sesión nueva ⇒ `logout` **204** ⇒ el **access** anterior sigue dando `200`
+**y el refresh anterior también da `200`**. Es decir: cerrar sesión **no acorta nada**; el portador
+real dura lo que dure el refresh (30 días).
+**Lo que abarata el arreglo:** el JWT **ya lleva `tv` (`tokenVersion`)** y el guard/refresh lo
+comparan; el reseteo de contraseña y el borrado de cuenta **ya lo incrementan**
+(`admin.service.ts:1331,1455`). **La palanca existe; `logout` no la tira.**
+**Rol dueño:** **backend**. **Comprobación de cierre:** tras `logout`, access ⇒ **401** y refresh ⇒
+**401**, **3/3**.
+
+### 3.3 `REL-D` — **Info** · 5 `moderate` de producción en backend · **ABIERTA** · dueño **devops**
+
+### 3.4 Heredadas que **no re-ataqué** y que siguen como estaban
+
+`SEC-PII-3` (Media, sustitución que no borra el objeto viejo), `SEC-PII-5` (Media, presign sin tope
+por actor), `SEC-PII-6` (**NO MEDIDO**, ¿el bucket de producción es privado?), `SEC-PII-7` (Media,
+el borrado de cuenta promete purga), `SEC-SB-2`, `SEC-SB-3`, `SB-B1/B2/B4/B5`, `P-SEED-1`, `P-GL-2`,
+`P-NAME-1`, `P-REDIR-1`, `P-BILL-DoS`, `B62-3`. **Su superficie no cambió en este corte** (el delta
+toca `settings` y `shipments`), así que **no las re-medí**: sus fichas anteriores mandan, y eso es
+una decisión de alcance, no una afirmación de que sigan igual.
+
+---
+
+## 4. Deuda de seguridad **ACEPTADA** (no bloqueante) — con su disparador
+
+| Id | Sev. | Dueño | Impacto aceptado | **Disparador para dejar de aceptarla** |
+|---|---|---|---|---|
+| `REL-D` (`qs`/`express`/`@nestjs/*`, 5 moderate) | Info | devops | Sin altas ni críticas en producción; el gate de `npm audit` PROD ya existe en CI | Que una suba a **high/critical**, o la ventana ordinaria de bumps (lo que llegue antes) |
+| `C2-bis` — `report_only: true` en `dast-release` | Media | devops (lo decide **seguridad**) | **Medido hoy:** `report_only` **NO abre el gate de promoción** — `blocking` se calcula en todos los modos y `promote-*` exige `== 'false'` `[código]`. Solo decide si el run se pinta rojo | **2026-10-06** (quedan 22 días; el candado `check-dast-report-only-expiry.sh` lo pone rojo solo) **o antes si se habilita `sk_live_`** — lo que ocurra primero |
+| El `409`/`200` del perdedor de la transición (`OBS-1`) | Info | backend + arquitecto | Dos operadores simultáneos ven códigos distintos según la latencia; **el efecto es idéntico y correcto** | Que el contrato prometa uno de los dos, o que la UI muestre el `409` como error al operador |
+| El motivo de rechazo viaja **verbatim** al cliente | Baja | humano (operador) | El **sistema** nunca añade cifras ni topes — candado `C-AV-9` con canario, criterios 201/207/208/209 verdes `[MEDIDO: 5.303 pruebas]`. Pero **un operador puede teclear una cifra** | El primer motivo real que contenga un número, o que el catálogo de motivos deje de ser cerrado |
+| `400` del webhook con el mensaje de la librería de Stripe (*«No signatures found…»*) | Info | backend | Le dice al forjador **qué** falló; **no** filtra el secreto ni el estado de la config | Que el mensaje llegue a incluir datos de configuración |
+| `NoopMailAdapter` registra el **cuerpo** del correo (enlaces con token en claro) | Info | devops | Solo en local/CI; producción usa Resend `[código]` | Que `NoopMailAdapter` quede cableado en cualquier entorno con datos reales |
+| `forbidNonWhitelisted: false` global (`main.ts:55`) | Baja | backend | Las claves desconocidas se **descartan** en silencio en vez de `422`; hoy lo compensa la validación por endpoint (`IVA-8(b)` da `422`, medido 3/3) | Un endpoint nuevo de dinero que confíe en el DTO sin validación propia (`B62-3`) |
+| Tope por actor en memoria (`PII-D`) | Info | devops | `numReplicas: 1` | Subir réplicas |
+| Lo aceptado en los veredictos previos (`BL-42`, residuo pre-M-55, URL firmada portadora, candado del GET solo en integración) | — | — | **Sin cambio** | Sin cambio |
+
+---
+
+## 5. CONDICIONES — numeradas, con **rol dueño** y **comprobación de cierre**
+
+### 5.1 Bloquean cerrar el **DoD** (no bloquean publicar `da6a237`)
+
+| # | Dueño | Condición | Comprobación de cierre |
+|---|---|---|---|
+| **C6** ⭐ | **devops** + **autorización del dueño** | Medir el edge de Railway: `TARGET_BASE_URL='https://<host-backend-prod>' ./scripts/edge-xff-probe.sh --i-have-a-window`. **Seis peticiones, sin efecto de lado** (login con correo inexistente) | El veredicto del script, **con fecha y SHA**, en `DEVOPS_NOTES §58.3`. Si el edge **añade** ⇒ `P-RL-1` **se cierra como no explotable en producción**; si **respeta** el header entrante ⇒ `P-RL-1` **ALTA confirmada** y `C7` pasa a bloquear la publicación |
+| **C7** | **backend** | Backstop de fuerza bruta **que no dependa de la IP** (tope por cuenta/credencial, con retardo o bloqueo temporal) | Test: N intentos fallidos contra la **misma cuenta** desde IPs distintas ⇒ el (N+1) no llega al `argon2`, **5/5**. ⚠️ **Obligatorio antes de `sk_live_`, y obligatorio ya si `C6` sale mal** |
+| **C18-bis** (era `C18`) | **backend** | `logout` revoca de verdad (`tokenVersion++`) | Tras `logout`: access ⇒ **401** y refresh ⇒ **401**, **3/3** |
+| **C2-bis** | **devops** | Retirar `report_only: true` de `dast-release` | Fecha límite **2026-10-06** (§4) |
+| **C19b** | **backend + devops** | Barrido de huérfanos de `kyc_ine/`, primera corrida **en modo informe** | El número, con fecha, en `DEVOPS_NOTES.md` |
+
+### 5.2 Bloquean **dinero real** (`sk_live_…`) — heredadas, ninguna cerrada
+
+**C3** (humano/QA) · **C6** y **C7** (arriba) · **C12** (pase **vivo** del red team sobre el corte
+publicado) · **C13** (pentest de tercero + canal de divulgación).
+
+### 5.3 Higiene de la ventana de publicación
+
+**C5** (devops): `./scripts/check-candidate-checks.sh <SHA publicado>` ⇒ `rc=0`, citando SHA y hora.
+**C-FE** (devops, **nuevo**): si se va a correr cualquier gate de UI contra el stack nativo, **hornear
+el frontend** (`up --gate`) — hoy sirve `e0892e6` (§0).
+
+---
+
+## 6. Lo que **NO ataqué** — dicho explícito, porque un hueco declarado vale más que una cobertura supuesta
+
+1. **Producción.** Ni una petición. Fuera de alcance por permiso, no por capacidad.
+2. **Doble venta de verdad, de punta a punta.** Sin `STRIPE_TEST_SECRET_KEY` el `POST /checkout/session`
+   acaba en **`503 PAYMENT_PROVIDER_UNAVAILABLE` y libera la reserva**, así que no pude sostener dos
+   reservas vivas a la vez. Lo que sí medí: bajo 8 checkouts simultáneos **siempre hubo 3–4
+   `409 ITEM_UNAVAILABLE`** (el CAS rechaza contención, 10/10 tiradas). **Qué lo cerraría:** el dueño
+   exporta una clave de **prueba** de Stripe y se repite la tirada midiendo solape real.
+3. **Contracargo / reembolso / `convert-to-inventory` doble / pago SPEI del buylist.** No los ejercité
+   en vivo este pase. La puerta de entrada (firma del webhook) sí está medida.
+4. **Toda la superficie de PII/INE** (`uploads/presign`, `kyc/ine-links`): **no cambió en este corte**;
+   me apoyo en el veredicto del 2026-09-12 y **no lo re-verifiqué**.
+5. **Frontend**: nada de XSS en la UI, CSP en el navegador, ni Playwright. Y el bundle vivo **no es**
+   `da6a237` (§0).
+6. **DAST/ZAP/nuclei/sqlmap**: no corridos (no hay staging).
+7. **Multi-réplica**: el almacenamiento del throttler es en memoria; con `numReplicas > 1` los topes se
+   multiplican por réplica. `numReplicas: 1` hoy `[REPORTADO por devops, 2026-09-12]`.
+8. **Redis/BullMQ y la política del bucket de producción.**
+
+---
+
+## 7. Lo que **SÍ está protegido** (la mitad que casi nunca se escribe)
+
+Con mis mediciones de hoy, y para que el dueño sepa qué **no** tiene que preocuparle:
+
+- **Nadie que no sea `super_admin` mueve el dial que reprecia la tienda.** Operador y cliente **403**,
+  anónimo **401**, y el dial no se movió en ninguno de los intentos `[MEDIDO]`.
+- **El dial no se puede mover “sin ver el costo”**, ni con un truco aritmético, ni con dos peticiones
+  a la vez `[MEDIDO: 10/10]`.
+- **Un cliente recibe UN correo por hecho**, aunque el operador haga doble clic diez veces
+  `[MEDIDO: 0/12 + 0/12 + 0/10]`.
+- **Un webhook repetido no cobra ni mueve inventario dos veces**, ni aunque llegue 8 veces a la vez, ni
+  aunque Stripe cambie el `event.id` `[MEDIDO: 0/6]`.
+- **Un vendedor no rebasa su tope mensual AML** ni disparando 8 altas simultáneas `[MEDIDO: 0/8]`.
+- **Nadie lee el pedido de otro** (`403`), ni la campana de otro, ni sin sesión (`401`) `[MEDIDO]`.
+- **El porcentaje de traslado de IVA no sale a ninguna superficie de cliente, ni por correo**
+  `[MEDIDO: 16 sondas + registro de correos]`.
+- **El JWT no se puede forjar** por ninguna de las seis vías clásicas `[MEDIDO: 12/12]`.
+- **CORS es lista blanca real**: un origen hostil **no recibe `Access-Control-Allow-Origin`**; el
+  legítimo sí `[MEDIDO]`. Cabeceras de seguridad presentes (CSP, HSTS 1 año + subdominios, `nosniff`,
+  `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: no-referrer`, COOP/CORP).
+- **Sin inyección SQL**: no hay `$queryRawUnsafe` con entrada de usuario — los dos que existen llevan
+  SQL constante y parámetro `$1` `[código]`.
+- **Sin secretos en el repositorio**: ningún `.env` rastreado salvo `.env.example`; ninguna coincidencia
+  de credencial viva en el árbol `[MEDIDO]`.
+- **El `503 BUSY_TRY_AGAIN` nuevo (§0-T) no filtra nada**: `details: {}`, sin códigos de Prisma ni
+  conteos, con `Retry-After` `[código]`.
+
+---
+
+## 8. Estado de la BD tras mi pase (entorno local desechable)
+
+Todo lo sintético que sembré está **borrado y verificado por SQL**: envíos `sec-blue-*` (**0**),
+órdenes `sec-blue-wh-*` (**0**), `ProcessedStripeEvent evt_secblue*` (**0**), las 16 solicitudes de
+buylist de la prueba del tope (**0**, y el `capPerMonthCentsOverride` de `customer2` **restaurado a
+NULL**), las 24 órdenes `failed` huérfanas de las tiradas de checkout (**0**), el expediente
+`kyc.review@e2e.local` **devuelto a `pending` con el motivo de la prueba de inyección borrado**, la
+pieza de inventario **de vuelta a `listed`**, y el **dial de IVA en 100** (verificado por SQL).
+⚠️ Quedan entradas inocuas de `AuditLog` (`settings.update`, `shipment.status`, `user.kyc.update`) y
+la suite de integración **resembró** parte del fixture: si alguien va a correr un gate de Playwright,
+que haga `./scripts/stack-native.sh up --seed` antes.
+
+---
+
+## 9. 🚩 Banderas para el humano
+
+1. ⭐ **Hay una medición de seis peticiones que decide si tu tienda tiene hoy un problema de fuerza
+   bruta o no.** Es `C6` y **necesita tu permiso**, porque toca producción (sin crear nada: intenta
+   entrar con un correo que no existe). Si el edge de Railway se comporta como un balanceador normal,
+   `P-RL-1` **muere ahí mismo** y el DoD queda limpio. Es lo más barato y lo más decisivo que hay
+   sobre la mesa.
+2. **Cerrar sesión hoy no cierra la sesión.** El botón responde bien, pero el permiso sigue vivo hasta
+   30 días. No hay señal de que se haya abusado, y el arreglo es pequeño (la palanca ya existe), pero
+   **si un cliente te dice «creo que alguien entró a mi cuenta», cambiarle la contraseña sí revoca; el
+   logout no**.
+3. **Antes de mover dinero real siguen en pie**: pentest de un tercero y un canal para que alguien te
+   reporte fallos (`C13`), más `C6`/`C7`. Un equipo que se audita a sí mismo tiene un punto ciego por
+   construcción.
+4. **Hay INEs reales en producción.** Nada de este corte las toca, y lo que se midió el 2026-09-12
+   sigue siendo lo que sé de ellas. Lo legal (plazo de conservación LFPDPPP y que el aviso de
+   privacidad mencione el registro de accesos) **sigue siendo tuyo**.
+5. **Lo que compraste con este corte, en una línea:** antes, un doble clic del operador podía mandarle
+   **diez correos** a un cliente por un solo envío, y el dial que fija **todos tus precios** se podía
+   mover firmando que costaba **cero**. Hoy las dos cosas son imposibles, y hay un candado que se pone
+   rojo si alguien las reabre.
+
+---
+
+## 10. Lo **mínimo** para que esto pase a APROBADO sin condiciones
+
+1. **`C6` medido** (devops, con tu ventana) — y si sale mal, **`C7` cerrado** (backend).
+2. **`C18-bis` cerrado** (backend): `logout` revoca, 3/3.
+3. **`C2-bis`**: `report_only: false` en `dast-release` a más tardar el **2026-10-06**.
+
+Con esas tres, **no queda ningún alto ni crítico abierto** y la fase de seguridad del DoD se cierra.
+Lo demás de §4 queda **registrado y aceptado**, que es lo que el DoD pide.
+
+---
+
 # VEREDICTO BLUE TEAM (RE-EMISIÓN) — frente **PII / identidad** · candidato `8f8c35c` (rama `claude/tcg-hunt-orchestration-2`; `main` sigue en `8aeec21`) · `origin/production`=`efe65f5` · 2026-09-12
 
 > ## ⭐ VEREDICTO — **LEVANTO EL RECHAZO**
