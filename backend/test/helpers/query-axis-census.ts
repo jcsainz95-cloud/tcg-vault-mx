@@ -6,8 +6,13 @@
  * llevaba **escrito a mano** no se saltó `?context=`, `?reason=` y `?axis=` por descuido: **no
  * estaban en él**, y una lista escrita a mano no puede enterarse de lo que nadie le contó. Este
  * fichero es el que se entera: recorre los controllers, resuelve la **ruta** de cada handler y
- * devuelve los ejes de query que ese handler declara. La suite cruza esa salida contra dos listas
- * explícitas y pone **rojo** lo que no esté en ninguna.
+ * devuelve los ejes de query que ese handler declara. **El cruce NO vive aquí**: vive en
+ * `helpers/query-axis-cross.ts` (`huerfanos()`), que confronta esta salida contra **cinco** fuentes de
+ * clase —el registro de §0-Q y cuatro listas de exención— y pone **rojo** lo que no esté en ninguna.
+ *
+ * ⚠️ Aquí decía «contra **dos** listas explícitas» y se quedó atrás dos veces seguidas (`QA-M4` partió
+ * la de exención en dos; `EQ-D0` es la quinta fuente). Por eso el cruce se extrajo a su propio fichero
+ * (`R1`): así hay **un** sitio que contar, y lo cuenta el código, no esta frase.
  *
  * ### ⚠️ Mira CÓDIGO, no texto — y aquí va MEDIDO dónde importa, no donde suena bien
  * Pasa por `stripComments` **antes** de buscar. La versión primera de este docstring decía que sin
