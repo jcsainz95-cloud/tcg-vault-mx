@@ -2,7 +2,29 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-13 (rev **v1.73**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-14 (rev **v1.74**).
+>
+> **Changelog v1.74 — EL CENTRO DE AVISOS ([§R](#seccion-R)) Y LA DEROGACIÓN DEL «DEPLOY 2» DEL IVA
+> ([§M10-IVA.9](#M10-IVA9)) (2026-09-14, arquitecto; base v1.73, vigente entera). Dos requisitos APROBADOS por el
+> dueño: `PROJECT §R` (**D55**, criterios 198–212) y `PROJECT §Q.10.e` (**D56**, criterios 213–214).**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **Sección NUEVA [§R](#seccion-R) — el centro de avisos.** Norma **los ONCE correos** (`AV-1`…`AV-11`), **la campana** (`GET /me/pendings`), la **regla de una sola vez** (`D-AVISO-2`, sellar-y-luego-enviar), la **resolución del destinatario** y **lo que NO avisa**, verificable por ausencia | §R (nueva) | **Sí** — backend (los once + el endpoint), frontend (la campana), ux-ui (el texto) |
+> | **2** | ⭐⭐ **LA CAMPANA SE DERIVA, NO SE PERSISTE.** ⛔ **No hay tabla `Notification`, no hay bandeja, no hay «marcar como leído».** `GET /api/v1/me/pendings` responde desde el estado que ya existe, sobre una **lista blanca cerrada de códigos** (hoy **uno**) | §R.2 | **Sí, backend** |
+> | **3** | **DDL mínimo (M-57): TRES columnas de SELLO**, nullable, sin backfill, sin índice y **fuera de todo DTO** — `KycProfile.kycRejectionNoticeSentAt`, `ShipmentRequest.trackingNoticeSentAt`, `SellRequest.guideNoticeSentAt`. **Los otros ocho avisos NO estrenan columna**: su «una sola vez» ya la da una guarda del motor que está medida | §R.4 · §R.6 | **Sí, backend** (migración aditiva) |
+> | **4** | ⭐ **`§M10-IVA.6` QUEDA DEROGADA: son UN despliegue y no dos** (D56/pregunta 82). `PUT /admin/settings/iva-transfer` **entra en este corte** con su acuse en pesos, y **los ONCE candados `IVA-*` corren aquí**. ⛔ Deroga además, **citándola**, la nota de `backend/src/modules/settings/settings.constants.ts:63-69` | §M10-IVA.9 (nueva) · §M10-IVA.6 | **Sí, backend + frontend** |
+> | **5** | **Candado NUEVO `IVA-12`** — *por lo negativo*: tras el despliegue **ningún camino escribe `IVA_EXCLUSIVE`** y toda `Order`/`ShipmentRequest` nueva nace `IVA_INCLUSIVE` (criterio **214**) | §M10-IVA.5 | **Sí, backend** |
+>
+> **Lo que NO cambia, y se dice explícito porque es donde alguien aflojaría:**
+> **(a)** ⛔ **`IVA-7` sigue intacto**: `getStripeFee()` **nunca** lee `iva_transfer_pct` — *mover un precio no mueve una
+> comisión*. **(b)** ⛔ **`IVA-8(b)` sigue intacto**: `PUT /admin/settings { ivaTransferPct }` sigue dando **`422` clave
+> desconocida**; la puerta es **UNA**, y ahora existe. **(c)** El **seed 100** y el **criterio 190** siguen vigentes, y
+> la columna `priceConvention` sigue **`NOT NULL` sin default** en las dos tablas. **(d)** ⛔ **CERO parámetros de
+> query nuevos** en toda la rev ⇒ **[§0-Q](#enum-query-filter) y `C-EQ-1` no se tocan** (el registro de ejes del
+> punto 4 queda **idéntico**). **(e)** ⛔ **No se rehace ninguno de los avisos que ya funcionan** (§R.1).
+> **Desviaciones enrutadas:** **`D-AV-1`** y **`D-AV-2`** (los dos caminos a `guia` y el `setTracking` sin guarda de
+> transición), dueño **backend**, en **ARCHITECTURE §9**.
 >
 > **Changelog v1.73 — §0-Q DEJA DE LLEVAR UN CENSO DE ESTADO, Y SE CIERRAN LAS SEIS PREGUNTAS ABIERTAS QUE `P-84` /
 > `P-89` / `H3-d` DEVOLVIERON (2026-09-13, arquitecto; base v1.72, vigente entera salvo lo que esta rev retira).
@@ -14254,6 +14276,19 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/shipments/:id/tracking` — Req `{ carrier, trackingNumber, shippingCostCents? }` → avanza a `guia`.
   - **`shippingCostCents?` (v1.4-finance, NUEVO):** costo real que **la plataforma paga a la paquetería** por este envío (MXN centavos). **Distinto** de `ShipmentRequest.shippingFeeCents` (ingreso cobrado al cliente). **Opcional** (si se omite, no se modifica; el valor persistido arranca en `0` por default de columna, M-16) y **editable** re-invocando este endpoint (idempotente sobre carrier/tracking; no regresa el estado si ya está en `guia`/posterior). **Validación:** entero **≥ 0** (`422 VALIDATION_ERROR` si negativo o no entero). Alimenta el P&L de M7 (se resta, acotado por `pickingAt`). Queda en `AuditLog` (`action: shipment.tracking`, con `carrier`/`trackingNumber`/`shippingCostCents` en `after`).
   - Nota: `shippingCostCents` es un dato **interno de costo**; **no** se expone al cliente (`GET /shipments/:id` del comprador NO lo incluye).
+  - > **⭐⭐ v1.74 — ESTE ENDPOINT, Y NO EL `PATCH` DE ESTADO, ES EL QUE MANDA EL CORREO DE LA GUÍA (`AV-4`,
+    > [§R.3.a](#seccion-R)).** Es el **único** camino que garantiza que existan `carrier` **y** `trackingNumber`: el
+    > `PATCH /status { to: 'guia' }` es legal desde `picking` y deja los dos en `null`. ⇒ **colgar `AV-4` del estado
+    > mandaría un correo de guía sin número**, que es el criterio 198 servido al revés.
+    > **Una sola vez:** el sello `trackingNoticeSentAt` (§R.4.b) — **se limpia sólo si el par `(carrier,
+    > trackingNumber)` queda DISTINTO**, así que **re-capturar el mismo número no reenvía** y **corregir el número
+    > sí avisa**. ⚠️ **Desviación medida `D-AV-1` (`ARCHITECTURE §9`, dueño backend):** la frase *«no regresa el
+    > estado si ya está en `guia`/posterior»* de la línea de arriba **el código NO la cumple** — `setTracking`
+    > escribe `status:'guia'` **incondicionalmente y sin consultar la tabla `TRANSITIONS`**. ⛔ **`AV-4` no depende
+    > de que se corrija** (el sello lo cubre), pero la desviación **es real y se enruta, no se arregla aquí**.
+  - > **⭐ v1.74 — `PATCH /status` manda `AV-5` (`to='enviado'`) y `AV-6` (`to='cancelado'`), y NINGUNO al pasar a
+    > `entregado`** (criterio **210**, *confirmado explícitamente por el dueño*). Su «una sola vez» **no estrena
+    > columna**: la da la tabla `TRANSITIONS`. **Destinatario: [§R.5](#seccion-R)** — ⛔ jamás el `addressSnapshot`.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 
@@ -18102,7 +18137,14 @@ es quien pudo mirar; y solo el `super_admin` puede mirar (K.2).*
 | **Al rechazar** | se escriben `rejectionReason`, **`reviewedAt = now()`** y **`reviewedBy = actor.id`**; `verifiedAt` **se pone a `null`** (dejó de estar verificado) |
 | **`none`** | sigue aceptándose (deshacer una decisión tomada por error). **Limpia `rejectionReason`.** ⛔ **No borra imágenes** |
 | **Auditoría** | el `user.kyc.update` que ya existe (`admin.controller.ts:155-162`) **lleva el motivo en `after`** — `{ kycStatus, rejectionReason? }`. **Precedente idéntico:** `buylist.item.reject` mete `reason` en `after` (`admin-buylist.controller.ts:599-603`). El motivo lo escribe un admin sobre un documento: **no es PII del cliente**, es la decisión de negocio |
-| **Contenido del motivo** | ⚠️ **Norma para quien escribe la pantalla (ux-ui):** el motivo **lo lee el cliente**. Se ofrecen **motivos sugeridos** (foto borrosa / no se lee el reverso / documento vencido / el nombre no corresponde a la cuenta) + texto libre. ⛔ **El copy no puede afirmar que cotejamos la CLABE contra un titular** (criterio 183(c) sigue vigente) |
+| **Contenido del motivo** | ⚠️ **Norma para quien escribe la pantalla (ux-ui):** el motivo **lo lee el cliente**. Se ofrecen **motivos sugeridos** (foto borrosa / no se lee el reverso / documento vencido / el nombre no corresponde a la cuenta) + texto libre. ⛔ **El copy no puede afirmar que cotejamos la CLABE contra un titular** (criterio 183(c) sigue vigente). **⭐ v1.74 — esta fila la PRECISA [§R.1.a](#seccion-R)**: los motivos sugeridos **ya están construidos** y son **SEIS** (`unreadable · missingSide · notAnId · expired · nameMismatch · other`), que empatan uno a uno con `PROJECT §R.9` (criterio **212**, pregunta **87**). ⛔ **La lista de esta fila era de CUATRO y queda superada por la de seis**: es copy, no contrato — su única fuente es el array `PRESETS` de `KycRejectDialog.tsx` + las dos tablas de mensajes. **Y el criterio 201 aplica a los seis**: ⛔ ninguno menciona topes ni umbrales |
+
+> **⭐ v1.74 — LO QUE ESTE `PATCH` DISPARA AHORA, Y NO EXISTÍA: el correo `AV-1`.** Rechazar **manda un aviso al
+> cliente con el motivo** ([§R.3](#seccion-R)), gobernado por el sello `kycRejectionNoticeSentAt`
+> (**UN aviso por ciclo**, `D-AVISO-2` / §R.4.a). ⛔ **La forma de este endpoint NO cambia** —mismos campos, mismos
+> códigos, misma auditoría—: lo único nuevo es un efecto **post-commit y best-effort** que ⛔ **nunca** puede hacer
+> fallar el `PATCH`. ⚠️ Y el bloque que limpia `rejectionReason`/`reviewedAt`/`reviewedBy` al resubir **gana una
+> cuarta columna**: la del sello.
 
 **K.4.1 — ⛔ EL RECHAZO **NO** BORRA LAS IMÁGENES. Y la decisión tiene dos mitades, porque una sola se equivoca.**
 - **NO se borran al rechazar.** *Borrar en el rechazo destruye la única evidencia de **por qué** rechazamos.* Si el
@@ -19342,7 +19384,19 @@ salesPeriod = {
   *«neto»* **ES** `pnl.incomeCents` (mercancía, sin IVA, **sin comisión y sin envío**). **La igualdad de
   `IVA-10(b)` deja de ser una propiedad deseable del diseño y pasa a ser lo que el dueño pidió.**
 
-##### §M10-IVA.6 — Orden de entrega, para el orquestador
+##### <a id="M10-IVA6"></a>§M10-IVA.6 — Orden de entrega, para el orquestador — ⛔⛔ **DEROGADA POR [§M10-IVA.9](#M10-IVA9) (v1.74, D56)**
+
+> ⛔⛔ **ESTA SUBSECCIÓN YA NO ES NORMATIVA. Se conserva ENTERA y sin tachar porque es el registro de lo que v1.64
+> decidió y de POR QUÉ, y porque su reparto de trabajo (qué toca backend, qué toca frontend, qué candado cubre qué)
+> **sigue siendo exacto**: lo único que muere es la FRONTERA entre las dos columnas.**
+> **El dueño decidió UN SOLO DESPLIEGUE** (`PROJECT §Q.10.e`, pregunta **82**: *«haz el cambio de una vez cuando
+> despliegues»*). ⇒ **la columna «Deploy 1» y la columna «Deploy 2» son el MISMO corte**, y **los ONCE candados
+> corren aquí**. La norma vigente es **[§M10-IVA.9](#M10-IVA9)**.
+> **Por qué el motivo murió, con su medición:** el escalonado existía *«para no mover el desglose de pedidos ya
+> cobrados»*, y el dueño estableció que **no hay ninguno** (*«la tienda no ha procesado ninguna venta real»*,
+> `HECHOS.md` 2026-09-14). **Una cautela que protege un conjunto vacío no protege nada.**
+> ⚠️ **Lo que NO muere con ella:** `decks-meta-v1` (criterio **197**) sigue exigiendo **implementado Y PUBLICADO EN
+> PRODUCCIÓN**; con un solo despliegue eso ocurre **antes**, ⛔ **no por defecto**.
 
 **Son DOS deploys y ⛔ nunca uno** (`ARCHITECTURE §4.44.k`). **`decks-meta-v1` se desbloquea con el DEPLOY 2
 PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criterio **197**).
@@ -19358,6 +19412,70 @@ PUBLICADO EN PRODUCCIÓN**, no con la aprobación de D54 ni con el merge (criter
 (`ARCHITECTURE §9 · D-IVA-10`), la asignación del IVA del envío (`§4.44.j.1`, candado **`IVA-9`**) y la tarjeta
 **bruto/neto** del tablero (§M10-IVA.7, candado **`IVA-10`**). ⛔ **Nada de esto toca D-1**, que sigue con su
 promesa intacta de **cero cambios de contrato observable** y sus candados en verde.
+
+##### <a id="M10-IVA9"></a>§M10-IVA.9 — ⭐⭐ **D56: UN SOLO DESPLIEGUE, Y LA PUERTA DEL DIAL ABRE EN ESTE CORTE** (v1.74, **NORMATIVO, DINERO**; `PROJECT §Q.10.e`, criterios **213** y **214**)
+
+> **Esta subsección SUSTITUYE a [§M10-IVA.6](#M10-IVA6).** Todo lo demás de §M10-IVA —el dial (IVA.1), los dos
+> endpoints (IVA.2), los DTOs de cliente (IVA.3), el `BreakdownDTO` (IVA.4), los candados (IVA.5), el tablero (IVA.7)
+> y el P&L (IVA.8)— **queda VIGENTE Y SIN UN SOLO CAMBIO DE FORMA**. Lo único que cambia es **CUÁNDO**.
+
+**IVA.9.a — Las tres decisiones del dueño que esta subsección ejecuta (2026-09-14, `PROJECT §Q.10.e`). ⛔ No se re-preguntan.**
+
+| # | Decisión textual | Consecuencia de contrato |
+|---|---|---|
+| **82** | *«haz el cambio de una vez cuando despliegues»* | **No hay deploy 2.** §M10-IVA.6 derogada |
+| **83** | *«Deja los dos modelos, prende ahora el último.»* | `PriceConvention` **se queda** (las dos ramas, la columna, el `switch` de `netRevenueCents`) **y las filas nuevas nacen `IVA_INCLUSIVE`** |
+| **84** | dial al **100 %**, **con puerta** | `PUT /admin/settings/iva-transfer` **entra en este corte**, con el acuse en pesos del criterio **188** |
+
+**IVA.9.b — ⛔⛔ LA DEROGACIÓN QUE HAY QUE ESCRIBIR CON SU CITA, PORQUE VIVE EN EL CÓDIGO Y CONTRADICE A ESTE CONTRATO.**
+
+`backend/src/modules/settings/settings.constants.ts:63-69` afirma **hoy, literalmente**:
+
+> *«**DEPLOY 1: la fila existe (la siembra M-50) pero NADIE la lee.** No está en `SETTING_DTO_MAP` a propósito ⇒ ni
+> sale en `GET /admin/settings` ni se puede escribir por `PUT /admin/settings` […]. Su única puerta será
+> `PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**, y esa puerta abre en el **DEPLOY 2**
+> (§M10-IVA.2, candado `IVA-8(b)/(c)`).»*
+
+**De ese párrafo, la decisión 82 deroga EXACTAMENTE UNA frase: *«esa puerta abre en el DEPLOY 2»*. Abre AQUÍ.**
+**⛔ Y NO deroga NADA MÁS del mismo párrafo, que es donde está la trampa:**
+
+| Frase del comentario | Estado tras D56 |
+|---|---|
+| «no está en `SETTING_DTO_MAP` a propósito» | ✅ **VIGENTE.** La clave **sigue fuera** del mapa. `PUT /admin/settings { ivaTransferPct: 50 }` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida) y la fila **no se mueve**. Candado **`IVA-8(b)`**, sin cambios |
+| «su única puerta será `PUT /admin/settings/iva-transfer`» | ✅ **VIGENTE, y ahora EXISTE.** **UNA** puerta, no dos |
+| «con acuse del costo en pesos» | ✅ **VIGENTE E INTACTO.** ⛔ **Adelantar la puerta NO afloja el acuse**: `422 IVA_TRANSFER_ACK_REQUIRED` y `409 IVA_TRANSFER_ACK_STALE` siguen siendo obligatorios (§M10-IVA.2). *Un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene guardián; una puerta sin acuse **es** el botón a ciegas que §Q.0 prohíbe* |
+| «que esa puerta abre en el DEPLOY 2» | ⛔ **DEROGADA.** No hay deploy 2 |
+
+⛔⛔ **Y el candado que NO se toca, dicho aparte para que nadie lo arrastre en la limpieza: `IVA-7`.**
+`getStripeFee()` ⛔ **NUNCA** lee `IVA_TRANSFER_PCT`. `iva_pct` (la **TASA**) e `iva_transfer_pct` (la **FRACCIÓN DE
+TRASLACIÓN**) son **dos filas independientes y ninguna deriva de la otra**. *Si el dial de traslación entrara en el
+cálculo de la comisión, **mover un precio movería una comisión**.* **Esto no cambió, no cambia y no está en el
+alcance de D56.**
+
+**IVA.9.c — El reparto, ya sin frontera. Sustituye a la tabla de §M10-IVA.6.**
+
+| | **Corte único (este)** |
+|---|---|
+| **Backend** | `M-50` entera · `netRevenueCents` cableado · **deriva `P`** · **escribe `IVA_INCLUSIVE`** · emite los tres campos de §M10-IVA.3 · **abre `GET/PUT /admin/settings/iva-transfer` y su `/preview`** (§M10-IVA.2) · tarjeta bruto/neto (§M10-IVA.7) · P&L del costo de envío (§M10-IVA.8) |
+| **Frontend** | consume `displayPriceCents` en las **13 superficies** · **la pantalla del dial con el acuse en pesos** (criterio **188**) · la tarjeta **bruto/neto** · arregla el mock (criterio **196**) |
+| **Contrato observable** | §M10-IVA.3, §M10-IVA.4, §M10-IVA.7 y §M10-IVA.2 — **todo a la vez** |
+| **Candados a correr** | **LOS DOCE**: `IVA-1`…`IVA-11` **+ `IVA-12`** (abajo). ⛔ Ya no hay un subconjunto «de D-1» |
+
+**IVA.9.d — ⭐ EL CANDADO NUEVO, Y ES EL DEL CRITERIO 214: `IVA-12`.** *(Se añade a la tabla de §M10-IVA.5; los once
+anteriores no cambian ni una letra.)*
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **IVA-12** ⭐⭐ *(v1.74, D56 — criterio **214**)* | **que una fila nueva siga naciendo bajo la convención vieja** — dejar vivo cualquier camino que escriba `priceConvention: 'IVA_EXCLUSIVE'`; **o** «simplificar» quitando la columna o poniéndole un `DEFAULT` de cortesía | **El candado de «un solo despliegue», y son una medición POSITIVA y una NEGATIVA.** **(a)** **por HTTP:** un pedido creado tras el despliegue (bóveda **y** `direct_ship`, invitado **y** registrado) tiene `priceConvention == 'IVA_INCLUSIVE'`, **y también el `ShipmentRequest` de fulfillment** que el settle crea con los montos en cero — *la convención es absoluta, no depende de que los importes sean 0*. **(b)** ⭐ **por lo negativo, sobre el CÓDIGO:** `rg "IVA_EXCLUSIVE" backend/src` **no devuelve ningún ESCRITOR**; solo el **lector** (el `switch` de `money.ts`) y fixtures/pruebas. **Rojo en cuanto reaparezca un escritor**, aunque ese día los números cuadren. **(c)** ⛔ **`IVA-3` sigue corriendo y sigue mordiendo**: la fila `IVA_EXCLUSIVE` **sembrada por SQL** se re-renderiza idéntica al centavo, la columna **sigue sin `DEFAULT`** y sigue siendo `NOT NULL`, y el `default:` del lector **sigue lanzando**. *`IVA-12` dice «lo nuevo nace bien»; `IVA-3` dice «lo viejo no se reinterpreta». Son dos candados y hacen falta los dos* |
+
+**IVA.9.e — ⛔ Lo que D56 NO autoriza, y se escribe porque *«un solo despliegue»* invita a aflojar.**
+- ⛔ **No autoriza retirar `priceConvention` ni `ivaTransferPct` de las filas.** La decisión **83** las conserva **a
+  propósito** y con su historia: el dueño **corrigió** su primera respuesta (*«deja solo nuestro nuevo modelo»*) tras
+  ver la bifurcación medida. *Reañadir la columna con ventas ya hechas es mucho más caro, porque entonces sí hay
+  filas que nadie puede etiquetar sin adivinar.*
+- ⛔ **No autoriza publicar `ivaTransferPct` en superficie de cliente** (criterio **209**, §M10-IVA.3): viaja **solo**
+  en `/admin/*`. **Y eso incluye los correos** — ver [§R.8](#seccion-R).
+- ⛔ **No autoriza desbloquear `decks-meta-v1` antes de publicar** (criterio **197**).
 
 #### <a id="M10-ops"></a>Ops — disparo manual de jobs internos (`admin/jobs/*`, `super_admin`, auditado)
 > **Superficie interna de operaciones** (no consumida por clientes): permite al súper-admin **disparar a mano** los
@@ -20262,6 +20380,431 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
                                emailVerified: boolean, authProvider: AuthProvider, createdAt: string },
                         tempPassword?: string, mustChangePassword: boolean }
 ```
+
+---
+
+## <a id="seccion-R"></a>R. CENTRO DE AVISOS — los ONCE correos y la CAMPANA (v1.74, **NORMATIVA**; `PROJECT §R` / **D55**, criterios **198–212**; razón entera en `ARCHITECTURE §4.54`)
+
+<!-- CANON: centro-de-avisos -->
+
+> **Sección NUEVA. ⛔ No renumera ni mueve nada.** Todo lo que v1.74 añade para `PROJECT §R` vive aquí; fuera de aquí
+> solo hay **punteros**.
+> **Qué fija esta sección:** *qué* aviso existe, *de qué* acción del operador cuelga, *a quién* llega, *cómo* se
+> garantiza que sale **una sola vez**, *qué* tiene que llevar y *qué* tiene **prohibido** llevar.
+> **Qué NO fija, y es de otro rol:** el **texto** de cada correo y la **forma** de la campana (icono, contador, cómo
+> se abre, móvil) son de **ux-ui** (`PROJECT §R.6`); el **QUÉ** y el **PORQUÉ** son de `PROJECT §R` y **mandan sobre
+> este documento**.
+
+---
+
+**R.0 — ⚠️ LOS IDS DE ESTA SECCIÓN LOS ASIGNO YO AQUÍ, Y SON TRES ESPACIOS DE NOMBRES DISTINTOS.**
+
+| Prefijo | Qué nombra | Quién lo usa |
+|---|---|---|
+| **`AV-1`…`AV-11`** | **los once correos** del catálogo aprobado (R.3) | todos |
+| **`C-AV-<n>`** | los **candados** de esta sección (R.9) | backend/frontend los escriben, **QA los ejecuta** |
+| **`D-AV-<n>`** | las **desviaciones** medidas del código actual | viven en **`ARCHITECTURE §9`**, ⛔ **no aquí** |
+
+⛔ **Un `AV-<n>` sin fila en R.3 no existe.** Y ⛔ **`D-AVISO-1` no es mío**: así llama `PROJECT §R.2` a la **regla de
+canal de tres cláusulas**, y se cita, no se renombra. *Un identificador compartido entre dos espacios de nombres no
+es un nombre: es una colisión esperando a un incidente* (misma norma que `IVA-<n>`/`IVA-R*` y `FX-24`/`FX-R2`).
+
+> ⚠️⚠️ **DESAMBIGUACIÓN OBLIGATORIA, Y SE ESCRIBE ANTES DE QUE ALGUIEN SE EQUIVOQUE: ESTA SECCIÓN ES `§R`, Y
+> [`§M5-R`](#M5-R) ES OTRA COSA.** `§M5-R` es el **invariante R del buylist** (*«no se aprueba lo que no ha
+> llegado»*) y **sus subapartados también se llaman `R.1`…`R.7`**. **Regla de cita, sin excepción:** este centro de
+> avisos se cita **siempre** como **`§R.<n>`** o `API_CONTRACT §R`; el invariante del buylist, **siempre** con su
+> prefijo, **`§M5-R.<n>`** — que es como ya se cita hoy en las cuatro referencias que tiene. ⛔ **Un `R.3` a secas
+> dentro del bloque de §M5 significa `§M5-R.3`**, y ⛔ **nunca al revés**.
+
+---
+
+**R.1 — ⭐⭐ INVENTARIO MEDIDO: LO QUE YA EXISTE Y ⛔ NO SE REHACE (2026-09-14, sobre `a13b4e6`).**
+
+*`PROJECT §R.8` existe justo para esto, y este proyecto midió que **el 17 % del gasto se fue en rehacer trabajo ya
+hecho**. Lo que sigue se mide antes de presupuestar, no después.*
+
+| Pieza | Estado medido | Fuente |
+|---|---|---|
+| El **mecanismo de correo** | ✅ **existe entero** — puerto, adaptadores y el patrón «cada módulo inyecta `MAIL_PORT` `@Optional()` y renderiza su plantilla local» | `mail/mail.port.ts`, `mail.module.ts`, `resend-mail.adapter.ts`, `noop-mail.adapter.ts` |
+| **Plantillas vivas** | ✅ **tres juegos**: `mail.templates.ts` (auth), `orders/mail/guest-order.templates.ts` (invitado), `buylist/buylist-mail.templates.ts` (**6 del buylist**) | idem |
+| Los **tres disparadores** que el dueño pidió asegurar | ✅ **los tres existen** | `shipments/admin-shipments.controller.ts` `@Patch(':id/status')` y `@Post(':id/tracking')`; `buylist/admin-buylist.controller.ts` `@Post(':id/receive')` |
+| **Plazos con fecha Y HORA** en `America/Mexico_City` (criterio **154**) | ✅ **resuelto desde antes de esta ronda** — `formatDateTime` con `dateStyle:'full'`/`timeStyle:'short'` y el comentario literal *«criterio 154: nunca "en 2 días"»* | `buylist/buylist-mail.templates.ts` (`deadlineRow`, `offerTermsCopy`) |
+| ⭐⭐ **El criterio 212 — «lista corta + campo libre»** | ✅ **YA ESTÁ CONSTRUIDO, Y CON LOS SEIS MOTIVOS DE `PROJECT §R.9`** — ver R.1.a | `frontend/src/components/domain/kyc/KycRejectDialog.tsx` |
+| El **motivo del rechazo** y su **lazo de resubida** | ✅ obligatorio (`422 KYC_REJECTION_REASON_REQUIRED`), llega al cliente, y resubir devuelve a `pending` limpiando el motivo | `admin.service.ts` `updateUserKyc`; `users.service.ts` (rama «trae keys de INE») |
+| **Aviso en vivo del pago fallido** | ✅ existe y está tratado como **información**, no como error (`role="status"`) | `CheckoutRetryNotice.tsx` |
+| ⛔ **Cualquier cosa para la CAMPANA** | ⛔ **cero**: `rg '^model Notification' backend/prisma/schema.prisma` ⇒ **0**; `rg -i 'notification\|bell' frontend/src` ⇒ **0 coincidencias de dominio** | medido |
+| ⛔ **Correo de KYC** | ⛔ **cero** | `PROJECT §R.3` |
+| ⛔ **Correo en el módulo de envíos** | ⛔ **cero**: el módulo **no importa** `MAIL_PORT` | `rg MAIL_PORT backend/src` ⇒ sin `shipments/` |
+| ⛔ **Confirmación al cliente REGISTRADO** | ⛔ **cero**: `if (!order.guestEmail) return null` | `orders/guest-order-mail.service.ts` |
+
+**R.1.a — ⭐⭐ EL HALLAZGO QUE ENCOGE EL CORTE: EL CRITERIO 212 NO ES TRABAJO NUEVO, Y LA «PROPUESTA» DE LA PREGUNTA 87
+ES LO QUE YA ESTÁ EN PANTALLA.**
+
+`KycRejectDialog.tsx` ya ofrece **seis motivos de un clic** —`unreadable · missingSide · notAnId · expired ·
+nameMismatch · other`— que **empatan uno a uno con los seis de `PROJECT §R.9`**, ya bilingües
+(`frontend/messages/{es,en}.json` › `admin.m6.kycReview.rejectPreset`), ya con **«Otro» vaciando el campo y exigiendo
+texto**, ya con el botón **deshabilitado** si el motivo no cumple 3–500, y ya con los dos avisos de §34.6b
+(*«el cliente lee este texto tal cual»* · *«no escribas datos de otra persona»*).
+
+**⇒ Consecuencias, y las tres son decisiones de contrato, no comentarios:**
+1. ⛔ **NO se añade `rejectionReasonCode` ni ninguna columna de catálogo de motivos.** El preset **escribe una frase
+   completa y editable** en el `rejectionReason` que ya existe, y **esa frase es la que lee el cliente**. Una columna
+   de código sería **una segunda fuente para el mismo hecho** a cambio de cero conducta nueva.
+2. ⛔ **`PATCH /admin/users/:id/kyc` NO cambia de forma** (§M6-K.4 sigue exacto). **Cero DDL por el criterio 212.**
+3. ✅ **El criterio 201 («ningún motivo menciona topes ni umbrales») ya se cumple en los seis presets** — medido
+   sobre las dos tablas de mensajes. Lo que queda es **mantenerlo**, y eso es el candado **`C-AV-9`**.
+4. ⚠️ **Lo único que le falta al 212 es el correo (`AV-1`)** — y el copy del botón ya lo promete
+   (*«Rechazar y avisar»*). **Ese desfase es de ux-ui/frontend**, y se cierra solo cuando `AV-1` exista.
+
+**R.1.b — ⚠️ RESIDUAL CONOCIDO, DECLARADO, Y ⛔ NO RESUELTO EN ESTE CORTE.** El motivo viaja **verbatim en el idioma
+en que lo escribió el operador**, así que un cliente con `locale='en'` puede recibir el motivo en español dentro de un
+correo en inglés. **Es una conducta que YA existe** (el portal ya lo muestra así desde v1.69) y **nadie pidió
+cambiarla**; resolverla exige el catálogo de códigos que el punto 1 acaba de rechazar. **Se registra aquí para que no
+se lea como un descubrimiento de QA**, y se enruta como **deuda no bloqueante** (`TECH_DEBT.md`, dueño backend).
+
+---
+
+**R.2 — ⭐⭐ LA CAMPANA: `GET /api/v1/me/pendings`. SE DERIVA, ⛔ NO SE PERSISTE.**
+
+**R.2.0 — La decisión, con su porqué, porque `PROJECT §R.6` la delegó explícitamente al arquitecto.**
+
+> ⭐ **No hay tabla de avisos. No hay bandeja. No hay «marcar como leído». El pendiente se DERIVA del estado que ya
+> existe, cada vez que se pregunta.**
+
+**Cinco razones, y la primera es doctrina de este proyecto:**
+1. ⭐⭐ **Dos fuentes para un mismo hecho.** Una fila que dijera *«te falta la identidad»* sería una **segunda
+   fuente** de un hecho cuya primera fuente es `KycProfile.kycStatus`. El día que discrepen, **la campana miente** —
+   y `PROJECT §R.1` nombró ese defecto exacto: *«una lista que le repite para siempre algo que ya resolvió»*.
+2. ⭐ **El criterio 202(c) sale GRATIS y por construcción.** *«Resuelto el pendiente, desaparece»*: derivando, el
+   pendiente se apaga **el mismo instante** en que deja de ser verdad, porque **no hay nada que apagar**. Con tabla,
+   202(c) es código que alguien tiene que acordarse de escribir, y el día que se olvide **falla en silencio**.
+3. **El lazo de extinción YA EXISTE y está medido:** resubir el INE devuelve el estado a `pending` y limpia
+   `rejectionReason`/`reviewedAt`/`reviewedBy` (`users.service.ts`, doctrina literal: *«el motivo de un rechazo
+   anterior no puede sobrevivir a la corrección que lo responde»*).
+4. **La tabla no tendría su segundo trabajo.** Lo único que una tabla compra de verdad es **historial**, y el
+   historial está **explícitamente en fase 2** (pregunta **68**). Se pagaría el esquema, la paginación, el borrado y
+   la privacidad **hoy** por una capacidad que **no entra hoy**.
+5. **Coste:** una consulta por `KycProfile.userId`, que **ya es `@unique`**. ⛔ Sin índice nuevo, sin DDL.
+
+⚠️ **Y la mitad que evita que «derivar» se convierta en el riesgo nº 1 (criterio 204): se deriva de una LISTA BLANCA
+CERRADA, ⛔ JAMÁS de «cambió un estado».** Ver R.2.3.
+
+**R.2.1 — El endpoint.**
+
+```
+GET /api/v1/me/pendings
+Roles: customer+          (⛔ sin sesión ⇒ 401; NO es @Public)
+Cabeceras de respuesta OBLIGATORIAS: Cache-Control: no-store
+Query: ⛔ NINGUNA.
+```
+
+Res `200`:
+```ts
+MePendingsResponse = {
+  pendings: PendingDTO[]        // ⭐ puede venir VACÍO, y vacío es la respuesta normal
+}
+PendingDTO = {
+  code: PendingCode,            // dominio CERRADO — R.2.3
+  since: string                 // ISO-8601. Desde cuándo es verdad el pendiente
+}
+```
+
+- ⛔ **`GET /me/pendings` NO DECLARA NINGÚN PARÁMETRO DE QUERY, Y ES DELIBERADO.** ⇒ **esta rev no toca
+  [§0-Q](#enum-query-filter) ni su registro de ejes del punto 4, y `C-EQ-1` sigue verde sin cambios.** *No hay eje que
+  clasificar porque no hay eje.* ⚠️ **Añadirle un `?code=` (o cualquier otro) más adelante es cambio de contrato:
+  pasa por el arquitecto (regla 9) y **obliga** a darle clase **E/R/L** en §0-Q — un eje nuevo sin clase pone
+  `C-EQ-1` en rojo, y ésa es exactamente la mitad de descubrimiento que ese candado tiene.
+- ⛔ **Sin paginación y sin `total`.** El dominio tiene **un** código hoy y una **lista blanca cerrada** siempre: un
+  listado que no puede crecer sin que el arquitecto lo escriba **no se pagina**.
+- ⛔ **`Cache-Control: no-store`.** Es estado por usuario, y un `304` de un proxy pintaría la campana de otro.
+- ⭐ **`{ "pendings": [] }` es la respuesta correcta y frecuente, ⛔ no un `204` ni un `404`.** El front **oculta la
+  campana** con la lista vacía (criterio **202(c)**: *falla si queda un indicador vacío*).
+- ⛔ **Este endpoint no escribe nada.** No marca leído, no sella, no audita. *Un `GET` que muta es la vía por la que
+  un prefetch del navegador despacha un aviso que el cliente nunca vio.*
+
+**R.2.2 — Para un INVITADO, la campana NO APLICA, y se declara (criterio 203).**
+El invitado **no tiene sesión** ⇒ `GET /me/pendings` ⇒ **`401`**, y ⛔ **no se inventa una variante tokenizada**.
+**No es un hueco:** el único pendiente del corte es **la identidad**, y la identidad **exige cuenta** (`KycProfile`
+cuelga de `User`). ⇒ para el invitado **no existe el pendiente**, no es que no se le muestre.
+*Ésa es la forma exacta que el criterio 203 admite: «o va por correo, o está **declarado como no aplicable**».*
+
+**R.2.3 — ⭐⭐ `PendingCode`: LISTA BLANCA CERRADA. ÉSTE ES EL CANDADO DEL CRITERIO 204.**
+
+**Dominio en el primer corte — UN código, y su línea canónica es ÉSTA:**
+
+| `code` | Significa, para el cliente | Predicado (**derivado**, server-side) | `since` |
+|---|---|---|---|
+| **`identity_action_required`** | *«tienes que (volver a) subir tu identificación»* | **(a)** `KycProfile.kycStatus === 'rejected'` **· O ·** **(b)** existe ≥1 `SellRequest` **no terminal** y `closedAt IS NULL` del usuario con `ineRequired = true` **y** `ineProvided = false` | `(a)` → `KycProfile.reviewedAt`; `(b)` → `SellRequest.createdAt` de la más antigua. Si aplican las dos, **la más antigua** |
+
+- **Por qué el código nombra la OBLIGACIÓN y no el estado interno** (`identity_action_required`, ⛔ no
+  `kyc_rejected`): es lo único que le toca **a él**, y sobrevive a que mañana la cláusula (b) tenga otro origen. *Un
+  código que nombra nuestro estado obliga a ux-ui a traducirlo; uno que nombra su tarea, no.*
+- ⚠️ **La cláusula (b) es hoy, casi con certeza, VACÍA — y se declara en vez de omitirse.** Medido: el intake lanza
+  **`422 INE_REQUIRED`** cuando `ineRequired && !ineProvided` (`buylist.service.ts`), así que
+  `POST /buylist/requests` **no puede crear** una fila que la satisfaga. **Se conserva igualmente** porque el
+  predicado debe nombrar **la obligación**, no la alcanzabilidad de hoy: el día que ese intake cambie, la campana ya
+  está bien. **⛔ QA no debe perseguirla:** `C-AV-7` la prueba **sembrando la fila por SQL**.
+- ⛔⛔ **`kycStatus === 'none'` NO ES UN PENDIENTE, y es una decisión, no un olvido.** Un comprador que nunca vende
+  **no tiene ninguna obligación de identidad**; encenderle la campana sería **fabricarle una tarea** — exactamente el
+  ruido que `PROJECT §R.2` existe para evitar, y lo contrario de *«disponible, no impuesto»*. **Si el dueño quisiera
+  pedir la identidad a todos, eso es una regla de negocio nueva (quién está obligado) y se le PREGUNTA** (`§R.10`).
+- ⛔ **`kycStatus === 'pending'` NO ES UN PENDIENTE**: *«el cliente no tiene nada que hacer y se le dice»*
+  (§M6-K.7). Un pendiente cuya acción es esperar **no es suyo, es nuestro**.
+- ⛔ **`kycStatus === 'verified'` no produce nada** — ni campana ni correo (pregunta **71**: *«no se manda nada»*).
+
+**⛔⛔ LAS CUATRO PROHIBICIONES DEL DOMINIO. Ésta es la mitad que hace de la campana un mecanismo seguro:**
+1. ⛔ **PROHIBIDO derivar un pendiente de «cambió un estado».** El dominio es esta tabla y **solo** esta tabla. Un
+   código nuevo **es cambio de contrato** y lo escribe el arquitecto (regla 9).
+2. ⛔⛔ **PROHIBIDO que `SellOfferState` toque este endpoint, en cualquier dirección.** `pending_authorization` es
+   **admin-only** y *«EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE […] le filtraría el orden de magnitud de nuestro
+   tope»* (`schema.prisma`). Con una oferta en `pending_authorization`, `GET /me/pendings` responde **exactamente lo
+   mismo** que sin ella. **Candado `C-AV-8`, y se verifica en las DOS superficies** (bandeja **y** portal), porque el
+   criterio **204** lo exige así.
+3. ⛔ **PROHIBIDO que la campana lleve EVENTOS** (pedido enviado, pago recibido, guía capturada…). Eso es la **clase
+   B** de `PROJECT §R.1` y está en **fase 2** (pregunta 68). **Construirla es fallar el criterio 202(d) por exceso.**
+4. ⛔ **PROHIBIDO que el `PendingDTO` lleve dinero, cifras, topes o umbrales.** Dos campos, y ninguno es un número de
+   negocio. *Un pendiente no es un resumen.*
+
+---
+
+**R.3 — ⭐⭐ EL CATÁLOGO NORMATIVO DE LOS ONCE. De qué cuelga cada uno y qué le garantiza salir UNA sola vez.**
+
+*Ninguno estrena disparador: los once cuelgan de acciones que el operador **ya hace** (`PROJECT §R.8`).*
+**`SELLO` = la columna nueva de R.6. `MOTOR` = una guarda que ya existe y está medida ⇒ ⛔ NO estrena columna.**
+
+| # | Correo | Cuelga de (medido) | Destinatario (R.5) | «Una sola vez» lo garantiza |
+|---|---|---|---|---|
+| **AV-1** | **Rechazo de identidad, con motivo** | `AdminService.updateUserKyc`, rama `kycStatus==='rejected'` | `User.email` del `:id` | ⭐ **SELLO** `kycRejectionNoticeSentAt`. **Es el ÚNICO que no tiene guarda de motor**: el `upsert` **no mira el estado actual**, así que N rechazos seguidos serían N correos (`PROJECT §R.4`) |
+| **AV-2** | **Pedido liquidado — SOLO al REGISTRADO** | el settle de `PaymentsService` (las **dos** ramas: bóveda y `direct_ship`), **post-commit** | `Order.user.email` | **MOTOR**: el settle hace early-return con `status === 'settled'` ⇒ un reintento de Stripe no duplica |
+| **AV-3** | **Reembolso** | `onChargeRefunded`, **solo el reembolso TOTAL** (el parcial ⛔ no transiciona y ⛔ no avisa) | `guestEmail ?? user.email` | **MOTOR**: `if (order.status === 'refunded') return` |
+| **AV-4** | **Guía al COMPRADOR** (transportista + número) | ⭐ **`ShipmentsService.setTracking` — ⛔ JAMÁS el cambio de estado.** Ver R.3.a | R.5 (envío) | ⭐ **SELLO** `trackingNoticeSentAt`: `setTracking` **no tiene ninguna guarda** (`D-AV-1`) |
+| **AV-5** | **Salida del envío (`enviado`)** | `ShipmentsService.updateStatus(to='enviado')` | R.5 (envío) | **MOTOR**: la tabla `TRANSITIONS` — a `enviado` solo se llega desde `guia`, y desde `enviado` solo se puede ir a `entregado` |
+| **AV-6** | **Envío cancelado** | `updateStatus(to='cancelado')` | R.5 (envío) | **MOTOR**: `TRANSITIONS['cancelado'] = []` — de `cancelado` no se sale |
+| **AV-7** | **Guía al VENDEDOR** (+ **el plazo para enviar**) | `BuylistService.adminGuide` (guarda `updateMany` + `count === 1`) | `SellRequest.user.email` | ⭐ **SELLO** `guideNoticeSentAt`: `adminGuide` es **re-capturable a propósito** («se corrige el número, no se mueve la fecha»). Ver R.4.b |
+| **AV-8** | **Acuse de recibido al VENDEDOR** | `BuylistService.receive` | `SellRequest.user.email` | **MOTOR**: `stepWhere('receive')` + `count === 1` + `sealOnceTx('receivedAt')`; la repetición idempotente **no transiciona** |
+| **AV-9** | **Buylist PAGADA** | `BuylistService.paySpei` | `SellRequest.user.email` | **MOTOR**: corto-circuito idempotente sobre la fila ya `pagada` (medido en `SEC-B1`) |
+| **AV-10** | **Disputa resuelta con RECOMPRA** | `DisputesService.resolve('repurchase')` | `Dispute.user.email` | **MOTOR**: `updateMany` sobre `DISPUTE_RESOLVABLE_STATES` + `count === 1`; ⛔ **no es idempotente a propósito** |
+| **AV-11** | **Disputa RECHAZADA** | `DisputesService.resolve('reject')` | `Dispute.user.email` | **MOTOR**: idéntico a `AV-10` |
+
+⭐ **Lectura que hay que hacer en voz alta, porque cambia el presupuesto: de los once, OCHO no estrenan ni una
+columna.** Su «una sola vez» **ya está construida y medida** — son las guardas `count === 1`, los `sealOnceTx` y los
+early-return que este sistema ya usa para no cobrar dos veces. *El aviso se cuelga del sello del hecho, no de la
+petición HTTP.*
+
+**R.3.a — ⛔⛔ `AV-4` CUELGA DE LA CAPTURA DE LA ETIQUETA, ⛔ NO DEL ESTADO `guia`. Y NO ES ESTILO: SON DOS CAMINOS
+MEDIDOS Y SOLO UNO TRAE EL NÚMERO.**
+
+Medido sobre `shipments.service.ts`:
+- **Camino 1 — `POST /admin/shipments/:id/tracking`** (`setTracking`): escribe `carrier`, `trackingNumber` **y**
+  `status: 'guia'`. ⇒ **los dos datos existen, siempre.**
+- **Camino 2 — `PATCH /admin/shipments/:id/status { to: 'guia' }`**: es **legal desde `picking`** (`TRANSITIONS`) y
+  deja `carrier` y `trackingNumber` en **`null`**. ⇒ **estado `guia` SIN etiqueta.**
+
+⇒ **Si `AV-4` colgara del estado, mandaría un correo de guía sin número** — que es **el fallo que el criterio 198
+describe, servido al revés**. Por eso:
+- ✅ **`AV-4` se dispara en `setTracking`, y en ningún otro sitio.**
+- ✅ **`AV-5` NO exige etiqueta**: si el envío llegó a `enviado` por el camino 2, el correo dice que **salió** y
+  ⛔ **NO inventa un número** (criterio **207**, en su lectura general: *ningún aviso inventa un dato que no tiene*).
+  Si hay `carrier`/`trackingNumber`, los repite **tal cual** están en la fila.
+- ⚠️ Que el camino 2 permita un `guia` sin etiqueta **es una desviación del código**, `D-AV-2`, **dueño backend**, y
+  vive en `ARCHITECTURE §9`. ⛔ **Este contrato no la corrige y `AV-4` no depende de que se corrija.**
+
+---
+
+**R.4 — ⭐⭐ `D-AVISO-2` — LA REGLA DE UNA SOLA VEZ: **SELLAR Y LUEGO ENVIAR** (NORMATIVA, transversal).**
+
+> **Se RECLAMA el derecho a avisar con una escritura condicional, y SOLO si la reclamación gana se manda el correo.**
+> ```
+> UPDATE … SET <sello> = now() WHERE id = :id AND <sello> IS NULL     →  count === 1  ⇒ mandar
+>                                                                     →  count === 0  ⇒ ⛔ NO mandar, y salir
+> ```
+
+- ⛔ **El orden es sellar → enviar, y NO al revés.** **Precedente vivo y medido en este mismo repositorio:**
+  `jobs/buylist-sweep.service.ts` (`sendReminders`) ya hace exactamente esto, con su motivo escrito: *«el sello se
+  escribe con `updateMany` + `count === 1` sobre `… IS NULL`, así que **dos corridas concurrentes tampoco pueden
+  mandarlo dos veces**»*. **§R no inventa el mecanismo: lo hereda** (igual que `PROJECT §R.4` hereda el ciclo).
+- ⚠️ **La consecuencia se dice entera, porque es el precio del mecanismo:** si el envío falla **después** de sellar,
+  **ese correo no vuelve a salir**. **Se acepta a propósito**, y es la misma decisión que el barrido ya tomó: *un
+  segundo recordatorio idéntico destruye la credibilidad del primero*. El correo es **best-effort** (nunca revierte
+  una transición, nunca hace fallar un webhook) y la red de seguridad es **la pantalla**, que siempre tiene el dato.
+- ⛔ **El sello NO se escribe dentro de la transacción de negocio.** Reclamar es una escritura **aparte y posterior
+  al commit**: meterla dentro haría que **un fallo del correo pudiera revertir un pago**. *El aviso cuelga del hecho;
+  el hecho no cuelga del aviso.*
+- ⛔ **Un sello por evento, JAMÁS una marca global.** `PROJECT §R.4` lo dice citando el precedente
+  (`offerAcceptReminderSentAt` **y** `shipReminderSentAt`, dos columnas): *«una marca global» apaga avisos que nadie
+  quiso apagar*.
+
+**R.4.a — Cuándo se REINICIA el ciclo de `AV-1` (criterio 205, sus tres mitades).**
+`kycRejectionNoticeSentAt` se pone a **`null`** en **dos** momentos, y en ningún otro:
+1. ⭐ **El cliente resube el INE** (`PUT /users/me/kyc` con keys de INE). **La columna se suma al bloque que YA
+   limpia `rejectionReason`, `reviewedAt` y `reviewedBy`** — ⛔ no se escribe un segundo sitio. *Es literalmente la
+   doctrina que ese bloque ya lleva escrita: «el motivo de un rechazo anterior no puede sobrevivir a la corrección
+   que lo responde».*
+2. **La decisión pasa a `verified` o a `none`** (se deshizo el rechazo) ⇒ lo que el aviso afirmaba **dejó de ser
+   verdad**. Es una línea más en el objeto `decision` de `updateUserKyc`.
+⛔ **Un segundo rechazo consecutivo NO lo limpia.** Ése es exactamente el criterio **205(a)**: dos rechazos sin
+resubida ⇒ **UN** correo, y el portal muestra **el motivo NUEVO** (que ya funciona: el `upsert` lo sobrescribe y
+`GET /users/me/kyc` lo devuelve).
+
+**R.4.b — Cuándo se REINICIA el ciclo de una GUÍA (`AV-4`, `AV-7`), y por qué NO es una excepción al criterio 210.**
+Los dos disparadores son **re-capturables a propósito** (uno por diseño explícito, otro por ausencia de guarda), y
+**re-capturar suele significar que el número anterior ya no sirve**.
+> **El sello se limpia —en la MISMA escritura que cambia la etiqueta— si y solo si el par
+> `(carrier, trackingNumber)` queda DISTINTO del que tenía la fila.** Idéntico ⇒ **no se limpia** ⇒ **no se
+> re-envía** (una re-captura idempotente no avisa de nada).
+
+- **Por qué es la regla correcta:** *un correo con un número de guía que ya no existe es peor que no haber mandado
+  ninguno*; y *reenviar el mismo número dos veces es el ruido que `D-AVISO-2` existe para matar*.
+- ⚠️ **Y por qué NO rompe el criterio 210** (*«exactamente dos correos y ninguno al entregar»*): ese criterio recorre
+  **un envío completo con UNA captura**. Una **corrección** de etiqueta es **otro escenario**, y produce un tercer
+  correo **a propósito**. **Se escribe aquí para que QA no lo lea como un fallo por exceso** — el conteo del 210 se
+  mide sobre el recorrido que el criterio describe, no sobre uno con una corrección dentro.
+
+---
+
+**R.5 — ⭐ RESOLUCIÓN DEL DESTINATARIO (NORMATIVA). *Un correo mandado al inbox equivocado no es un aviso: es una fuga.***
+
+**Envíos (`AV-4`, `AV-5`, `AV-6`) — en este orden exacto:**
+```
+1.  shipment.userId != null        →  User.email                      // retiro de BÓVEDA
+2.  shipment.orderId != null       →  order.guestEmail ?? order.user.email   // fulfillment de un pedido
+3.  ninguno de los dos             →  ⛔ NO SE MANDA NADA + log.warn   // estado imposible; no se adivina
+```
+- ⭐ **`guestEmail` GANA cuando existe, incluso si el pedido fue RECLAMADO** (`claimedAt != null`). **Precedente
+  idéntico y deliberado:** el reenvío del enlace de seguimiento ya va *«SIEMPRE a `Order.guestEmail`, JAMÁS al correo
+  que venga en el request»*. Es la dirección con la que compró y a la que ya le llegó la confirmación.
+- ⛔ **Nunca se toma la dirección del `addressSnapshot`, ni del body, ni de una sesión.** Se resuelve **por id**.
+
+**Pedidos (`AV-2`, `AV-3`):**
+- **`AV-2` se dispara SI Y SOLO SI `order.guestEmail == null` y `order.userId != null`.** Es la **negación exacta**
+  del `if (!order.guestEmail) return null` que ya existe ⇒ **ningún pedido recibe dos confirmaciones**. ⛔ Esa mitad
+  es la que sostiene el criterio **206**, que *falla por exceso*.
+- **`AV-3` va a `guestEmail ?? user.email`** (el reembolso le toca a los dos).
+
+**Buylist (`AV-7`, `AV-8`, `AV-9`) y Disputas (`AV-10`, `AV-11`):** `SellRequest.userId` y `Dispute.userId` son
+**`NOT NULL`** ⇒ siempre `user.email`. **No hay buylist ni disputa de invitado**, y por eso no hay rama.
+
+**R.5.a — ⛔ LAS DOS NEGATIVAS DEL DESTINATARIO, QUE VALEN TANTO COMO LAS REGLAS.**
+1. ⛔ **No se escribe a un `User` con `anonymizedAt != null`.** Una cuenta anonimizada **ya no es de nadie**;
+   escribirle es mandar datos de una persona a una dirección que el borrado debía cerrar.
+2. ⛔ **No se escribe a un destinatario resuelto a `null`, ni se sustituye por otro «parecido».** Se **loggea** y se
+   sale — exactamente como ya hace el resto del sistema (*«mail skipped … no recipient email»*).
+
+**R.5.b — El CANAL por destinatario (criterio 203, `PROJECT §R.2`).** Para un **invitado**, todo aviso que le
+corresponda **va por correo o no va**. Los avisos `▫️` de `PROJECT §R.3` que para un registrado no mandan correo, se
+declaran así para el invitado:
+
+| Aviso `▫️` | Para el INVITADO |
+|---|---|
+| **Pago fallido** | ✅ **Mismo canal, y aplica**: lo ve en vivo en la pantalla del checkout (`CheckoutRetryNotice`), que es pública |
+| **Entregado** | ✅ **Aplica**: tiene la caja en la mano (cláusula (c)) |
+| **Buylist «aprobada»** | ⛔ **NO APLICA**: el buylist es `customer`; un invitado no puede vender |
+| **Disputa abierta / en revisión** | ⛔ **NO APLICA**: `POST /disputes` es `customer`; un invitado no puede abrirla |
+| **Bóveda** («tu carta ya está en tu bóveda») | ⛔ **NO APLICA**: la bóveda exige cuenta |
+| **La CAMPANA** | ⛔ **NO APLICA** — R.2.2 |
+
+---
+
+**R.6 — 🗄️ DDL: LAS TRES COLUMNAS (migración **M-57**). ⛔ Y NINGUNA MÁS.**
+
+```prisma
+// KycProfile   — el ciclo de AV-1 (PROJECT §R.4, criterio 205)
+kycRejectionNoticeSentAt  DateTime?
+// ShipmentRequest — el ciclo de AV-4 (setTracking no tiene guarda: D-AV-1)
+trackingNoticeSentAt      DateTime?
+// SellRequest  — el ciclo de AV-7 (adminGuide es re-capturable a propósito)
+guideNoticeSentAt         DateTime?
+```
+
+- **Las tres: `NULLABLE`, ⛔ sin `@default`, ⛔ sin backfill, ⛔ sin índice.** `null` **es la verdad** en toda fila
+  existente («nunca se avisó»), y se leen **por id** dentro de una operación que ya cargó la fila.
+- ⛔⛔ **Las tres son INTERNAS: no entran en NINGÚN DTO, ni de cliente ni de admin.** No son un hecho del pedido ni de
+  la solicitud: son un hecho **sobre nuestro propio envío de correo**. *Publicarlas convierte un detalle de
+  implementación en una promesa de contrato.* **La lista blanca de proyección de `ShipmentRequest`
+  (`toAdminShipmentRow`) ya impide que se auto-publiquen, y ése es justo el caso para el que se escribió.**
+- ⚠️ **Si el dueño quisiera ver en el back-office «¿se le avisó?»**, eso es **una capacidad nueva que nadie ha
+  pedido** y es **cambio de contrato**: pasa por el arquitecto (regla 9). ⛔ No se cuela de contrabando.
+- ⛔ **Ninguna otra tabla cambia. ⛔ No hay `Notification`, ni `NotificationRead`, ni `NotificationPreference`**
+  (esta última está **explícitamente fuera del MVP**, `PROJECT §R.6`: *nadie lo pidió*).
+
+---
+
+**R.7 — ⭐ LOS QUE NO AVISAN: SE VERIFICA POR AUSENCIA (criterio 206, y falla POR EXCESO).**
+
+**Los TRES que no producen absolutamente nada —ni correo, ni campana— y los decidió el dueño uno a uno:**
+
+| Evento | Estado | Qué debe ocurrir | Por qué (suyo, literal) |
+|---|---|---|---|
+| **Identidad VERIFICADA** | `kycStatus='verified'` | **bandeja vacía + la campana NO cambia** | *«no se manda nada»* (**71**). ⛔ Y nada puede decir «se te subieron los topes»: son política interna |
+| **Pago FALLIDO** | `Order.status='failed'` | **bandeja vacía + la campana NO cambia** | *«avisa al momento […] se avisa en la plataforma»* (**72**). ⭐ Que se vea en vivo en la pantalla **no** viola el criterio: **es la razón** por la que no manda correo |
+| **CONTRACARGO** | `Order.status='chargeback'` | **bandeja vacía + la campana NO cambia** | *«me avisa Stripe, no lo genera el cliente en nuestro portal»* (**73**) |
+
+**Y los demás que este contrato declara mudos** (`PROJECT §R.3`): `Order` `pending`; envío `solicitado` y `picking`;
+envío **`entregado`** (⛔ criterio **210**, *confirmado explícitamente* — **falla si aparece «porque parecía
+razonable»**); buylist `verificacion` y **`aprobada`**; y los correos de buylist **que ya existen** (**⛔ no se
+rehacen** — §R **añade**, no reescribe lo que funciona; **medido: SEIS plantillas** en
+`buylist-mail.templates.ts`, para `cotizada`/`ofertada`/oferta cancelada/recordatorio/`expirada`/piezas
+rechazadas); el restock del sellado (**opt-in, ya existe, no se toca**); la bóveda (*«tu carta ya está en tu bóveda»*
+**es el mismo `settled` visto desde otro sitio** — duplicarlo sería **dos correos por un hecho**); y la disputa
+`abierta`/`en_revision` (**la abrió él**).
+
+⛔⛔ **Y la prohibición absoluta, que es el riesgo nº 1 de todo §R:** `SellOfferState` en **`pending_authorization`**
+⇒ **CERO en las dos superficies** (bandeja **y** portal): ni correo, ni entrada en la campana, ni cambio de estado
+visible, ni «marca de actividad». Candado **`C-AV-8`**.
+
+**R.7.a — ⛔ EL CONTRACARGO: LO QUE ESTE CONTRATO **NO** DECIDE, Y NO ES UN OLVIDO.**
+`PROJECT` deja **ABIERTA la pregunta 86**: *cuando hay un contracargo, ¿qué le pasa al pedido y a lo que ya está en
+su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el dueño.**
+⇒ **Aquí no se diseña nada de eso.** Lo único normado es lo ya decidido: **el contracargo no manda ningún aviso** y
+**no enciende ninguna campana** (su código **no está** en el dominio cerrado de R.2.3, así que la negativa se cumple
+**por construcción**, no por disciplina). **El día que la 86 se conteste, abre trabajo NUEVO** — probablemente un
+`PendingCode` nuevo y quizá un correo —, y **entra por el arquitecto**, no por interpretación de esta sección.
+
+---
+
+**R.8 — ⛔ PROHIBICIONES DE CONTENIDO (aplican a los ONCE, venga el texto que venga).**
+
+| # | Prohibición | De dónde sale |
+|---|---|---|
+| **1** | ⛔ **Ningún aviso INVENTA una cifra.** Todo aviso con dinero **repite al centavo** lo que muestra la pantalla de **esa misma** orden o solicitud, **leyendo las columnas PERSISTIDAS de la fila** — ⛔ jamás recalculando desde un dial vivo | criterio **207**, y es la doctrina de `IVA-5` aplicada al correo |
+| **2** | ⛔⛔ **Y repite la CONVENCIÓN.** Si la orden es `IVA_INCLUSIVE`, **el IVA NO es un sumando**: la línea de IVA **informa** (§M10-IVA.4). **Un correo que desglose el IVA de una orden `IVA_INCLUSIVE` como si sumara ES UN FALLO** | criterio **207**, segunda mitad · **D54** |
+| **3** | ⛔⛔ **`ivaTransferPct` NO viaja a NINGÚN correo.** Es `/admin/*` y nada más. ⚠️ **Y el riesgo es concreto**: `Order.ivaTransferPct` es ahora una columna de la fila, así que un correo que renderice «la orden» **lo filtra sin que nadie lo escriba** | criterio **209** · §M10-IVA.3 |
+| **4** | ⛔ **CERO afirmaciones jurídicas** sobre el IVA y **cero vocabulario del traslado**, tampoco en negativo | criterios **195** y **208** (**D53**) |
+| **5** | ⛔ **Ningún aviso menciona topes, umbrales ni acumulados.** Aplica a los once **y a los seis motivos de rechazo** | criterio **201** · `HECHOS.md` (c) |
+| **6** | ⛔ **`AV-8` no adelanta NINGÚN veredicto ni ninguna cifra de la verificación**, que aún no ha ocurrido. Dice que llegaron y que están en revisión | criterio **211** |
+| **7** | ⛔ **Ningún correo lleva el domicilio de recogida, la CLABE, el RFC ni una object key de INE.** `reveal-clabe` sigue siendo **el único** punto del contrato que devuelve una CLABE en claro | §M5 · §M6-K.1 |
+| **8** | ✅ **Todo plazo se dice con FECHA Y HORA en `America/Mexico_City`, ⛔ nunca «en 2 días»** — y **reusando el formateador que ya existe** (`deadlineRow`/`offerTermsCopy`). ⛔ **No se escribe un segundo formateador**: el correo y la pantalla dicen **el mismo string** | criterios **154**/**161(d)** · `PROJECT §R.5.a` |
+| **9** | ✅ **Idioma:** `User.locale` (o `Order.locale` para el invitado), igual que las plantillas vivas | §4-G |
+
+---
+
+**R.9 — CANDADOS. Los escriben backend/frontend; **QA los ejecuta**. Sin éstos, §R no está verificada.**
+
+| # | Candado | Cómo se comprueba |
+|---|---|---|
+| **C-AV-1** ⭐⭐ | **EXACTAMENTE ONCE, Y NI UNO MÁS** (criterio **206**) | Se recorre el ciclo **completo** de un pedido y de una solicitud de venta contra el stack corriendo y se cuenta la bandeja. **Rojo por exceso y rojo por defecto.** ⭐ Y los **tres mudos** aparte: con **identidad aprobada**, **pago fallido** y **contracargo**, la bandeja está **vacía** **y** `GET /me/pendings` devuelve **lo mismo que antes** |
+| **C-AV-2** ⭐⭐ | **UN AVISO POR CICLO** (criterio **205**) | Se rechaza **dos veces seguidas** la misma identidad, con motivos distintos, **sin resubida**: **(a)** llega **UN** correo; **(b)** `GET /users/me/kyc` trae el motivo **NUEVO**; **(c)** el cliente **resube**, se rechaza otra vez y **entonces sí** llega el segundo. **Rojo con dos en (a), y rojo con cero en (c)** — *un sello que no se limpia es silencio permanente, y es el defecto peor* |
+| **C-AV-3** ⭐⭐ | **DOS de envío y NINGUNO al entregar** (criterio **210**) | Un envío completo: **captura de guía** ⇒ 1 · **`enviado`** ⇒ 1 · **`entregado`** ⇒ **0**. **Rojo con uno, rojo con tres, y rojo si el de entregado aparece** |
+| **C-AV-4** ⭐ | **La guía llega con el NÚMERO** (criterios **198**/**199**) | El correo del comprador trae `carrier` **y** `trackingNumber` **idénticos** a los de la fila; el del vendedor trae además **el plazo con fecha y hora**. ⛔ **Rojo si el back-office tiene el número y la bandeja no** |
+| **C-AV-5** ⭐ | **El registrado recibe confirmación, igual que el invitado** (criterio **200**) | **Dos pedidos idénticos**, uno de invitado y uno de registrado: **las dos bandejas reciben**, y **ninguna recibe dos** |
+| **C-AV-6** ⭐⭐ | **La CAMPANA: las cuatro mitades** (criterio **202**) | **(a)** con un pendiente vivo se navega catálogo → carrito → checkout **sin que ninguna pantalla obligue a despacharlo**; **(b)** la campana se ve en las **tres** situaciones; **(c)** resuelto ⇒ `{"pendings":[]}` y **la campana desaparece**; **(d)** ⛔ **la campana no lista eventos** — rojo si aparece una bandeja |
+| **C-AV-7** | **El predicado del pendiente, en sus dos cláusulas** | `rejected` ⇒ 1 pendiente; resubir ⇒ **0**; `none`, `pending` y `verified` ⇒ **0**. Y la cláusula (b) **sembrada por SQL** (única forma de crear el estado, R.2.3) ⇒ 1 |
+| **C-AV-8** ⭐⭐ | **⛔ LA OFERTA PENDIENTE DE AUTORIZACIÓN NO SE FILTRA** (criterio **204**) | Con una oferta en `pending_authorization`: bandeja **vacía** **y** `GET /me/pendings` **byte a byte idéntico** al de antes de crearla. **Se verifica en las DOS superficies.** ⭐ Y **por lo negativo sobre el código**: el resolutor de pendientes **no contiene ninguna referencia a `SellOfferState`** — rojo en cuanto aparezca |
+| **C-AV-9** ⭐ | **Ni cifras, ni derecho, ni diales** (criterios **201**/**207**/**208**/**209**) | Test de copy sobre **las plantillas nuevas** y sobre los **seis presets de rechazo**: **por ausencia**, no aparece vocabulario del traslado, ni cita de norma, ni «tope»/«umbral»/«límite de $». ⭐⭐ **Y el que muerde de verdad:** el JSON/HTML de los once correos **no contiene `ivaTransferPct` en ninguna forma** |
+| **C-AV-10** ⭐⭐ | **El correo NO puede tumbar el dinero** | Con el `MailPort` **lanzando siempre**: el settle liquida, `receive` transiciona, `pay-spei` paga, `resolve` resuelve, y **el webhook de Stripe responde `2xx`**. **Rojo si un fallo de correo revierte o propaga** |
+| **C-AV-11** | **Destinatario correcto** (R.5) | Retiro de bóveda ⇒ `User.email`. Fulfillment de pedido de invitado ⇒ `guestEmail`. **Pedido RECLAMADO ⇒ sigue yendo a `guestEmail`.** Envío sin `userId` **ni** `orderId` ⇒ **cero correos** y un `warn` |
+
+---
+
+**R.10 — ⛔ LO QUE §R NO DECIDE, Y LAS PREGUNTAS QUE SIGUEN ABIERTAS. ⛔ No se rellenan por interpretación.**
+
+| | Qué | Estado |
+|---|---|---|
+| **85** | La **redacción** de la regla de canal (dos cláusulas vs. tres) | **ABIERTA — NO BLOQUEA.** ⛔ **No cambia ni uno de los once correos**: si el dueño prefiere otra formulación, cambian las palabras de `PROJECT §R.2`, **no este catálogo** |
+| **86** | **Qué le pasa al PEDIDO y a la BÓVEDA durante un contracargo** | **ABIERTA — política de negocio, ⛔ FUERA DE ALCANCE.** Ver R.7.a. **Este contrato deja el hueco explícito y no lo rellena** |
+| **87** | **La lista concreta de motivos de rechazo** | **ABIERTA — pero ⭐ MEDIDA:** los seis que propone `PROJECT §R.9` **ya están en pantalla y ya empatan uno a uno** (R.1.a). Si el dueño **quita** o **añade** alguno, es **copy + el array `PRESETS`**: ⛔ **cero contrato, cero DDL, cero endpoints** |
+| — | El **texto** de cada correo y la **forma** de la campana | **ux-ui** (`PROJECT §R.6`), dentro de R.8 y de los dos límites de `PROJECT §R.0.a` |
+| — | **Historial** de avisos en el portal · **bandeja** · **marcar como leído** · **preferencias de aviso** · **recordatorios con plazo nuevos** | ⛔ **FASE 2** (preguntas **68** y **77**). **Construirlos es fallar el criterio 202(d) por exceso** |
 
 ---
 
