@@ -17057,3 +17057,202 @@ E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npx playwright test   # subset @re
 E2E_MOCK_PORT=3010 npx playwright test                              # suite de mocks
 E2E_LOGIN_DEBUG=1 …                                                 # + traza del cupo de login
 ```
+
+## 76 · El conteo de saltadas bailaba entre corridas idénticas — la causa era que **la suite se come sus propios fixtures**
+
+**Fecha de medición: 2026-09-14.** Stack nativo vivo (Postgres 16 + Redis + s3-local + backend `:3099` +
+frontend `:3000` con `mocks=false`), sirviendo el árbol `3dd09ed`. Ablaciones ancladas en ese **SHA
+literal** (`git archive 3dd09ed` a un árbol aparte), nunca en `HEAD`.
+
+Cierra el hallazgo MENOR de la 2ª pasada de QA: *«el conteo de saltadas de Playwright es inestable entre
+corridas del MISMO código»* (`55/3/1` contra `50/3/6`).
+
+### 76.1 · La causa raíz, en una frase
+
+**Dos fixtures del seed son de UN SOLO USO, y el caso que los mide es el que los destruye.** No hay nada
+que los regenere entre corridas, así que el número de saltadas no es una propiedad del código: es una
+función de **cuánto hace que alguien sembró**.
+
+| Fixture | Quién se lo come | A cuántos casos afecta |
+|---|---|---|
+| Las dos contraseñas TEMPORALES (`temporal.customer@e2e.local`, `temporal.operator@e2e.local`) | `account.spec.ts`: cambiar la temporal por la definitiva **es** lo que §33.8 pide comprobar ⇒ al terminar, `mustChangePassword=false` | **4** |
+| El ÚNICO pedido de invitado sin reclamar (`TCG-E2E-GUEST-0001`) | `claimable-orders.spec.ts`: reclamarlo **es** lo que el caso mide ⇒ al terminar, `claimedAt != null` | **1** |
+
+4 + 1 = **los cinco casos de diferencia** que QA vio. No es intermitencia: es un **trinquete**, monótono
+y de una sola dirección. Medido en la BD (solo lectura):
+
+```
+temporal.customer@e2e.local | mustChangePassword=false | updatedAt 11:41:28
+temporal.operator@e2e.local | mustChangePassword=false | updatedAt 11:41:30
+TCG-E2E-GUEST-0001          | claimedAt 11:42:29
+```
+
+y contra la API, antes de tocar nada: `POST /auth/login` de los dos temporales ⇒ **`401`**.
+
+### 76.2 · ⚠️ Dos correcciones a la descripción del encargo, con el dato
+
+1. **Los cinco que bailan NO son los seis que saltan.** El sexto —`orders-resume.spec.ts:94`— **no baila**:
+   salta en **6 de 6** corridas medidas, porque depende de que exista un pedido `pending` con reserva viva
+   y sin clave de Stripe `POST /checkout/session` responde `503` y el pedido queda `failed`. Es **B-3**
+   (capacidad de entorno) disfrazado de `skipIfSeedMissing`. Confundirlo con los otros cinco manda a
+   arreglar lo que no se puede arreglar desde aquí.
+2. **El censo estático ya estaba ROJO antes de este pase, y por prosa.** `scripts/check-e2e-skip-census.sh`
+   cuenta por palabra completa (`grep -rwo`), así que un comentario que explica que un caso **no** lleva
+   salvaguarda se cuenta como salvaguarda. Medido: `needsSeed` 32 contra un baseline de 31, en rojo desde
+   **`bb30997`** (P-97), por una sola línea de comentario de `admin.spec.ts`. Reescrita la frase sin el
+   token, el censo vuelve a verde **sin tocar el baseline de devops**.
+
+### 76.3 · El rango de cobertura, antes y después (N=3 cada uno)
+
+Subconjunto con saltos dinámicos: `account.spec.ts` + `claimable-orders.spec.ts` + `orders-resume.spec.ts`
+⇒ **11 casos `@real`**. Mismo stack, mismas corridas seguidas, sin resembrar entre ellas.
+
+| | corrida 1 | corrida 2 | corrida 3 | **rango de saltadas** |
+|---|---|---|---|---|
+| **ANTES** (`3dd09ed`, árbol de ablación) | 10 pasan · **1 salta** | 4 pasan · **6 saltan** | 5 pasan · **6 saltan** | **1 … 6** |
+| **DESPUÉS** (este pase) | 9 pasan · **2 saltan** | 9 pasan · **2 saltan** | 9 pasan · **2 saltan** | **2 … 2** |
+
+La corrida «antes #1» salió con la cara buena porque el **agente de backend resembró** justo antes
+(`f07a50c`, `backend(seed M-52)`, 11:37) — o sea que el trinquete quedó reproducido de las dos caras en la
+misma serie, sin que yo resembrara nada. Es también la prueba en vivo de O-14: mi instrumento estaba
+siendo mutado por otro agente, y solo lo supe porque miré la BD y el `git log`.
+
+Después del arreglo, **los 4 casos de `account.spec.ts` se ejercitan en 3 de 3** y ya no aparecen jamás en
+el censo. Las 2 saltadas que quedan son `claimable-orders` (fixture de un solo uso, §76.5) y
+`orders-resume:94` (B-3, sin Stripe).
+
+**Y la suite `@real` ENTERA, misma tarde, mismo stack:**
+
+| | pasan | fallan | **saltan** | ejercitados de 59 |
+|---|---|---|---|---|
+| QA, corrida 1 *(suya, N=1 — O-15)* | 55 | 3 | **1** | 58 |
+| QA, corrida 2 *(suya, N=1)* | 50 | 3 | **6** | 53 |
+| yo, ANTES (`3dd09ed`) | 50 | 3 | **6** | 53 |
+| **yo, DESPUÉS** | **54** | 3 | **2** | **57** |
+
+Los 3 rojos son exactamente los mismos tres de siempre (`checkout`, `guest-checkout`, `shipments`: modal de
+pago sin clave de Stripe, B-3). No los toqué y no los tapé.
+
+⚠️ **Honestidad sobre el residuo:** el baile no queda en CERO, queda en **UNO**. Los 4 de `account.spec.ts`
+dejaron de bailar del todo; `claimable-orders` sigue valiendo 1 salto o 0 según si alguien sembró (§76.5).
+La diferencia con antes es que ese único caso **sale con nombre y apellidos en el informe de cada corrida**
+en vez de esconderse detrás de un «3 fallos» idéntico.
+
+**Suite de MOCKS, sin regresión:** `201 pasan · 0 fallan · 4 saltan` — el mismo resultado que §75.1. Las 4
+saltadas son `solo-real` y el censo dinámico las clasifica como tales.
+
+### 76.4 · El arreglo: la suite se fabrica su propio actor, por el contrato
+
+`e2e/utils/temp-actors.ts` (nuevo). Cada corrida da de alta su actor con `POST /admin/users` **sin
+`password`** ⇒ el backend autogenera una temporal de alta entropía, la devuelve una vez en `tempPassword` y
+deja `mustChangePassword=true` (API_CONTRACT §«Alta de usuario por rol desde admin»). Al acabar,
+`DELETE /admin/users/:id` lo borra **en duro** (sin historial económico). Verificado contra el stack vivo:
+
+```
+POST /admin/users (sin password)  -> 201  { user.id, tempPassword(24), mustChangePassword: true }
+GET  /admin/users?q=e2e-disposable-temp-  -> 200, sirve para barrer huérfanos
+DELETE /admin/users/:id           -> 200, y el listado queda en 0 (hard delete, sin fila anonimizada)
+```
+
+Es el mismo patrón que `utils/grading.ts` ya usaba con el gancho de grading: **sembrar por el endpoint que
+el producto usa de verdad** en vez de exigirle la fila al seed. Y mide MÁS, no menos: el alta por admin con
+temporal es, literalmente, cómo nace un operador aquí.
+
+Lo que **no** se hizo, y por qué:
+
+- ⛔ **No se resiembra desde el test.** `--seed` purga evidencia de PoC/pentest y reinicia cupos mensuales
+  de otras suites.
+- ⛔ **No se quitaron los saltos a lo bruto.** Se sustituyó su *causa*. Donde la causa no se puede quitar,
+  el salto se queda — con su razón medida y declarado en el informe.
+- ⛔ **El helper nuevo NO salta nunca.** Si `POST /admin/users` no cumple el contrato, es ROJO. Cambiar un
+  salto dinámico por otro habría movido el problema, no cerrado.
+
+**Coste de cupo de `POST /auth/login`** (`{ttl:60_000, limit:5}` por IP): **+1 por corrida** (el `admin`, que
+`sessionFor` cachea y que otras suites iban a gastar igual). Los cuatro logins de `account.spec.ts` son los
+mismos de antes; lo que cambia es que ahora los cuatro **llegan a medir** en vez de rebotar en un 401.
+
+### 76.5 · `claimable-orders`: por qué este SÍ se queda saltando (con la aritmética)
+
+Se puede fabricar el pedido: medido en el backend, `listClaimable` filtra por
+`{ guestEmail, userId: null, claimedAt: null }` y **no** por estado, así que hasta el `failed` que deja el
+`503` sin Stripe valdría. Pero `POST /checkout/guest/session` está limitado a **5 por hora y por IP**
+(contrato §4-G.2) y la suite ya gasta 1 en `guest-checkout.spec.ts`. A 2 por corrida:
+
+```
+corrida 1: 2   corrida 2: 4   corrida 3: 6  > 5  ⇒ 429 RATE_LIMITED
+```
+
+Cambiaría un salto que se explica solo por **un flake nuevo en un flujo de dinero** — exactamente la avería
+de la inanición del cupo de login (§75.5). No se hace. Lo que sí se arregló es **la razón**, que antes
+acusaba al seed de algo que el seed no había hecho:
+
+> *«el ÚNICO pedido de invitado del seed (TCG-E2E-GUEST-0001) ya está RECLAMADO: se lo comió una corrida
+> anterior de ESTE mismo caso… El seed hizo su trabajo; el fixture es de un solo uso.»*
+
+La distinción se **mide** (`seedGuestOrderAlreadyClaimed()` en `utils/orders.ts`), no se supone.
+
+### 76.6 · Que el informe diga qué NO se midió: censo DINÁMICO
+
+`e2e/reporters/not-measured.ts` (nuevo, cableado en `playwright.config.ts` en las dos configuraciones).
+
+**Antes de construirlo se miró lo que ya existe**: `scripts/check-e2e-skip-census.sh` (devops) cuenta las
+salvaguardas **en el fuente** contra un baseline, y su canario demuestra que muerde. No sirve para esto, y
+no por estar mal hecho: las dos caras de QA —1 y 6 saltadas— salen del **mismo fuente**. Son dos preguntas:
+
+- censo **ESTÁTICO** → ¿cuántas escotillas hay escritas? *(ya existía; no se toca)*
+- censo **DINÁMICO** → ¿cuántas se **abrieron hoy**, cuáles y por qué? *(esto)*
+
+Imprime la lista nominal (`fichero:línea`, título y razón, agrupada por clasificación) y la deja en JSON
+(`E2E_NOT_MEASURED_JSON`, default `test-results/not-measured.json`) para poder **diferenciar dos corridas**
+en vez de compararlas de memoria.
+
+Y trae su interruptor con canario: `E2E_EXPECT_NOT_MEASURED=<n>` pone la corrida en rojo si el número no
+cuadra. Medido:
+
+```
+E2E_EXPECT_NOT_MEASURED=2  (y hay 2) -> rc=0
+E2E_EXPECT_NOT_MEASURED=1  (y hay 2) -> rc=1  + «::error title=cobertura E2E::… dejó 2 caso(s) SIN MEDIR»
+```
+
+⛔ Queda **opt-in**: cablear un gate es de devops. Aquí está el instrumento y su contrato de uso.
+
+### 76.7 · Un defecto que me hice yo, dicho entero
+
+Al quitar la salvaguarda del tercer caso del cliente quité también, sin verlo, **la espera** que hacía su
+`Promise.race(alerta | cambio de URL)`: sin ella el `page.goto('/es/account/password')` salía antes de que
+la sesión se persistiera, la guarda rebotaba a `/es/login` y el caso moría buscando un H1 que estaba en otra
+página. Medido **3 de 3** (la captura de `error-context.md` mostraba «Iniciar sesión»). Repuesto como
+`page.waitForURL(...)`, sin el salto. **La lección:** una salvaguarda de salto puede estar haciendo dos
+trabajos; al quitarla hay que preguntarse cuál era el segundo.
+
+### 76.8 · ⚠️ Lo que **NO** medí en este pase
+
+| # | **NO MEDIDO** | Qué lo cerraría |
+|---|---|---|
+| `F-N10` | **Que los 4 de `account.spec.ts` pasen con el seed FRESCO y con actor desechable a la vez.** Ya no hace falta para el gate (el desechable es independiente del seed), pero no lo comprobé | `up --seed` + la serie de 3 |
+| `F-N11` | **Los tres rojos de Stripe** (`checkout`, `guest-checkout`, `shipments`). Siguen siendo B-3 y no los toqué | devops abriendo la puerta de cobro |
+| `F-N12` | **Un intermitente ajeno en `account.spec.ts:226` (facturación §33.6d)**: salió `flaky` 1 de 6 corridas, salvado por `retries: 2`. NO lo diagnostiqué y NO es de este hallazgo | N≥10 de ese caso aislado |
+| `F-N13` | **Si el frontend servido en `:3000` corresponde a HEAD.** El stack sirve `3dd09ed` y HEAD ya avanzó; mis cambios son todos de `e2e/` y de config, **cero** en `src/`, así que la app bajo prueba es la misma — pero no corrí `verify:head` después de que HEAD se moviera | `./scripts/stack-native.sh verify:head` |
+| `F-N14` | **El baseline del censo estático con los números nuevos.** `skipIfSeedMissing` baja de 15 a 10 y `mockOnly` de 99 a 98: el gate sale VERDE (bajar no es delito) y avisa de regenerar. **El baseline es de devops**, no lo toqué | `./scripts/check-e2e-skip-census.sh --update --motivo "…"` (devops) |
+
+### 76.9 · Cómo re-medir esto
+
+```bash
+# 1. La causa, sin correr nada: ¿están vivos los fixtures de un solo uso?
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3099/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"temporal.customer@e2e.local","password":"Temporal123!"}'   # 401 = ya consumido
+
+# 2. El rango: TRES corridas seguidas, sin resembrar entre ellas (el fenómeno ES la variación)
+cd frontend
+for i in 1 2 3; do
+  CI=1 E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 \
+  E2E_NOT_MEASURED_JSON=/tmp/nm-$i.json npx playwright test \
+    e2e/account.spec.ts e2e/claimable-orders.spec.ts e2e/orders-resume.spec.ts
+done
+jq -r '.notMeasured' /tmp/nm-*.json      # tiene que salir el MISMO número las tres veces
+
+# 3. El candado del censo dinámico muerde
+E2E_EXPECT_NOT_MEASURED=1 CI=1 E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 \
+  npx playwright test e2e/claimable-orders.spec.ts   # rc=1 si hay un número distinto
+```

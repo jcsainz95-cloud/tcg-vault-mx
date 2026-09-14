@@ -155,6 +155,13 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
     // Antes había aquí una salvaguarda por si «el flujo de temporal no corrió». Ya no puede pasar:
     // el modo `serial` deja este caso sin ejecutar si el anterior falló, y el actor es de esta
     // corrida. Un 401 aquí sería un defecto de `POST /auth/change-password`, no un dato que falte.
+    //
+    // ⚠️ Pero la salvaguarda que quité hacía DOS cosas, y la segunda no era opcional: su
+    // `Promise.race(alerta | cambio de URL)` **esperaba a que el login aterrizara**. Sin esa espera
+    // el `goto` de abajo sale ANTES de que la sesión se persista, la guarda rebota a `/es/login` y
+    // el caso muere buscando un H1 que está en otra página. Medido **3/3** al quitarla (captura de
+    // `error-context.md`: la pantalla era «Iniciar sesión»). Se queda la espera, sin el salto.
+    await page.waitForURL((u) => !/\/login$/.test(u.pathname), { timeout: 30_000 });
     await page.goto('/es/account/password');
     await expect(page.getByRole('heading', { level: 1, name: t('es', 'account.password.changeTitle') })).toBeVisible();
     await page.getByLabel(t('es', 'account.password.current')).fill(creds.password);

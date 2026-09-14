@@ -119,7 +119,9 @@ export default class NotMeasuredReporter implements Reporter {
     const reason = skipReason(test, result);
     this.entries.push({
       location: `${relative(this.rootDir, test.location.file)}:${test.location.line}`,
-      title: test.titlePath().filter(Boolean).slice(1).join(' > '),
+      // `titlePath()` = [proyecto, fichero, ...describes, título]. Se cortan los dos primeros: el
+      // proyecto no distingue nada aquí y el fichero ya viaja en `location`.
+      title: test.titlePath().filter(Boolean).slice(2).join(' > '),
       category: classify(reason),
       reason: reason || 'sin razón declarada',
     });
