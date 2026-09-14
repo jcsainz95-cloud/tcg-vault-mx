@@ -22566,3 +22566,154 @@ pasar por ese fichero** para cerrar `IVA-12`. La forma final del candado es
 | `N-IVA9-1` | ⭐⭐ **`GET /admin/settings/iva-transfer/preview` NO se construyó.** §M10-IVA.2 lo define con `?ivaTransferPct=&samplePriceCents=`, o sea **dos ejes de query nuevos**; el changelog v1.74 (d) declara ⛔ *«CERO parámetros de query nuevos en toda la rev ⇒ §0-Q y `C-EQ-1` no se tocan»*. **Las dos frases no pueden ser ciertas a la vez.** Construirlo pone `C-EQ-1` en rojo (dos huérfanos) salvo que crezcan sus listas de exención — que es justo lo que (d) prohíbe. **Consecuencia práctica: el frontend no tiene hoy de dónde sacar el delta para el criterio 188 antes de guardar.** Opciones que el arquitecto puede tomar: (i) autorizar los dos ejes y dos líneas en `C-EQ-1`; (ii) mover el preview a `POST …/preview` con cuerpo; (iii) devolver el juego de posiciones desde el `GET`. ⛔ No elijo yo: cambia el contrato |
 | `N-IVA9-2` | **¿Viaja `ivaTransferPct` en `GET /admin/settings`?** §M10 y §M10-IVA.1 dicen que **sí** (*«READ-ONLY en este `GET`»*, y la lista del DTO lo nombra). El comentario que §M10-IVA.9.b **ratifica** dice que **no** (*«ni sale en `GET /admin/settings`»*), y hay un e2e vigente que asierta la ausencia (`test/integration/iva-price-convention.e2e-spec.ts`). **No lo cambié**: sigue fuera del DTO. Si la respuesta es «sí», es una línea aquí y un e2e que se corrige |
 | `N-IVA9-3` | **Forma del `GET /admin/settings/iva-transfer`.** §M10-IVA.1 lo nombra como superficie de lectura pero **no publica su DTO**. Se devolvió `{ ivaTransferPct, ivaRatePct, samplePriceCents, current }` **reutilizando `IvaTransferPositionDTO`** y ⛔ sin inventar nombres de campo nuevos. Falta ratificarlo |
+
+---
+
+## §R · CENTRO DE AVISOS — los ONCE correos, la campana DERIVADA y M-57 (backend · `avisos` · 2026-09-14, medido)
+
+> **Qué implementa:** `API_CONTRACT §R` completa (R.0–R.10) y `ARCHITECTURE §4.54`.
+> **Qué NO decide:** el **texto** de cada correo y la **forma** de la campana son de **ux-ui**; lo de
+> aquí es *qué* aviso existe, *de qué* cuelga, *a quién* llega y *cómo* sale **una sola vez**.
+> **Medido sobre `fc2295f`** (rama `claude/tcg-hunt-orchestration-2`).
+
+### 1. La regla que gobierna los once: `D-AVISO-2` — **sellar y LUEGO enviar**
+
+```
+UPDATE … SET <sello> = now() WHERE id = :id AND <sello> IS NULL   →  count === 1  ⇒ SE MANDA
+                                                                  →  count === 0  ⇒ ⛔ NO se manda
+```
+
+⛔ **No se inventó el mecanismo: se heredó.** El precedente vivo es `jobs/buylist-sweep.service.ts`
+(`sendReminders`), que ya reclama el derecho a avisar exactamente así y con su motivo escrito —*«dos
+corridas concurrentes tampoco pueden mandarlo dos veces»*—. §R **aplica doctrina, no la estrena**.
+
+**Las tres propiedades del envío, y las tres son invariantes de este pase:**
+1. **POST-COMMIT.** El sello se reclama **fuera** de la transacción de negocio. Meterlo dentro ataría
+   el dinero al correo: *un fallo de Resend podría revertir un pago*.
+2. **BEST-EFFORT.** Todo el envío va dentro de un `try`. ⛔ Nunca propaga, nunca revierte una
+   transición, nunca hace que el webhook de Stripe responda `!= 2xx`.
+3. **⚠️ El precio, dicho entero:** si el envío falla **después** de sellar, **ese correo no vuelve a
+   salir**. Se acepta a propósito —es la misma decisión que el barrido ya tomó— y la red de seguridad
+   es **la pantalla**, que siempre tiene el dato.
+
+⭐ **Orden dentro del envoltorio: primero se resuelve el DESTINATARIO, luego se reclama el sello.** Al
+revés, un envío sin destinatario (cuenta anonimizada, envío huérfano) **quemaría el aviso para
+siempre**. Candado: *«el sello NO se quema cuando no hay destinatario»*.
+
+### 2. M-57 — **tres** columnas, y por qué no once
+
+| Sello | Por qué hace falta |
+|---|---|
+| `KycProfile.kycRejectionNoticeSentAt` | `updateUserKyc` hace `upsert` y **no mira el estado actual** ⇒ N rechazos = N correos. **Es el ÚNICO de los once sin guarda de motor** |
+| `ShipmentRequest.trackingNoticeSentAt` | `setTracking` **no tenía ninguna guarda** (`D-AV-1`) |
+| `SellRequest.guideNoticeSentAt` | `adminGuide` es **re-capturable a propósito** («se corrige el número, no se mueve la fecha») |
+
+**Los otros OCHO no estrenan columna**: su «una sola vez» ya la da una guarda que este sistema
+construyó para **no cobrar dos veces** (`updateMany` + `count === 1`, `sealOnceTx`, los early-return
+de `settled`/`refunded`, el corto-circuito de `pay-spei` y la tabla `TRANSITIONS` de M4).
+
+**Las tres: nullable, sin `@default`, sin backfill, sin índice y ⛔ FUERA DE TODO DTO.** Candado
+`test/avisos.seals-out-of-dto.spec.ts`, que mide las dos mitades (el esquema **y** las proyecciones).
+
+⭐ **Reinicio por VALOR, no por evento** (§R.4.b): los sellos de guía (`AV-4`/`AV-7`) se limpian **en
+la misma escritura que cambia la etiqueta**, si y solo si el par `(carrier, trackingNumber)` queda
+**distinto**. Re-capturar el mismo número **no reenvía**; corregirlo **sí avisa**.
+
+### 3. Dónde vive cada aviso (⛔ no hay módulo `notifications`)
+
+| Módulo | Avisos | Fichero de plantillas |
+|---|---|---|
+| `admin` | `AV-1` | `admin/mail/kyc-notice.templates.ts` |
+| `orders` (disparado desde `payments`) | `AV-2`, `AV-3` | `orders/mail/order-notice.templates.ts` |
+| `shipments` | `AV-4`, `AV-5`, `AV-6` | `shipments/mail/shipment-notice.templates.ts` |
+| `buylist` | `AV-7`, `AV-8`, `AV-9` | `buylist/buylist-notice.templates.ts` |
+| `disputes` | `AV-10`, `AV-11` | `disputes/mail/dispute-notice.templates.ts` |
+
+⛔ **`mail/` no se tocó por dentro**: cada módulo inyecta `MAIL_PORT` `@Optional()` y renderiza su
+plantilla local — el patrón que estrenaron `buylist` (v1.18) y `orders` (v1.21). **§4.11 no cambia.**
+
+⭐⭐ **Y la defensa de contenido es de FORMA, no de disciplina: ninguna plantilla recibe la FILA.**
+Reciben **campos sueltos**. `Order.ivaTransferPct` y `ShipmentRequest.ivaTransferPct` son columnas, así
+que un correo que renderizara «la orden» **filtraría el dial sin que nadie lo escribiera** (criterio
+209). Lo vigila `C-AV-9`, que busca el nombre **y** el valor en el JSON/HTML de los once.
+
+### 4. La campana: `GET /api/v1/me/pendings`
+
+**Derivada, lista blanca cerrada de UN código, cero query, `no-store`, `customer+`.** ⛔ Sin tabla
+`Notification`, sin bandeja, sin «marcar como leído». Resolutor: `users/pendings.service.ts`
+(la **única** pieza compartida del centro de avisos).
+
+- ⛔ **El resolutor no contiene ninguna referencia a `SellOfferState`** — medido **por lo negativo
+  sobre el código** en `C-AV-8`, con su canario (y midiendo **líneas de código**, no comentarios: el
+  docblock **nombra** la prohibición, y nombrarla no es referenciarla).
+- ⚠️ **Decisión de borde que tomé yo y declaro:** una fila `rejected` **anterior a M-54** no tiene
+  `reviewedAt`. `since` cae a `updatedAt` en vez de omitir el pendiente. *Omitirlo escondería una
+  obligación real por un detalle de migración, que es fallar hacia el lado equivocado.*
+- ⚠️ **La cláusula (b) del predicado es hoy inalcanzable por la API** (el intake responde
+  `422 INE_REQUIRED`). Se implementó igual, y el E2E la **siembra por SQL**. ⛔ QA no debe perseguirla
+  por el camino del cotizador.
+
+### 5. `D-AV-1` CERRADA — y las dos decisiones de borde que **son del arquitecto**
+
+`setTracking` escribía `status:'guia'` **incondicionalmente**: un envío `entregado` o `cancelado`
+**volvía a `guia`** — una **cola falsa**, y *el fallo se ve mientras que la cola falsa no*. Ahora:
+
+| estado actual | conducta | de dónde sale |
+|---|---|---|
+| `solicitado`, `picking` | escribe etiqueta **y** `status:'guia'` | `TRANSITIONS` |
+| `guia`, `enviado`, `entregado` | escribe etiqueta, ⛔ **no toca `status`** | §M4, literal: *«idempotente sobre carrier/tracking; no regresa el estado si ya está en `guia`/posterior»* |
+| `cancelado` | **`409 CONFLICT`**, cero escritura | `TRANSITIONS['cancelado'] = []` |
+
+⚠️ **Para el ARQUITECTO (regla 9), dos ratificaciones:**
+1. **`entregado` responde `200`, no `409`.** Tomé la lectura literal del contrato («no regresa el
+   estado»), que **no dice «rechaza»**: corregir el número de una guía ya entregada es legítimo
+   (devolución, reclamación al transportista) y lo único prohibido era **el retroceso**.
+2. **`cancelado` responde `409`** — por paridad con `updateStatus`, que es lo que `ARCHITECTURE §9`
+   sugiere entre paréntesis. **Es el único rechazo NUEVO del pase**, y ⛔ **no cierra ningún camino
+   que la pantalla ofrezca**: medido, `M4View.tsx:244` **oculta el botón de captura** en `cancelado`
+   y en `entregado`. Si el arquitecto prefiere otro código, es una línea.
+
+**`N-AV-3` (§4.54.6) queda CONTESTADA en su mitad de conducta:** hoy `POST /admin/shipments/:id/tracking`
+sobre un envío `entregado` responde **`200` y conserva el estado**; sobre `cancelado`, **`409`**.
+Medido con la suite unitaria (`avisos.shipments.spec.ts`), ⛔ **no por HTTP** — la comprobación por
+HTTP sigue siendo de QA.
+
+### 6. El hallazgo del pase: **el mock incompleto era el canario de un fallo real**
+
+Al cablear `AV-2`/`AV-3` se pusieron rojos dos specs de `payments` cuyo mock de Prisma **no tenía
+`prisma.user`**. La lectura fácil era «arreglar el fixture». La correcta: **esa lectura del
+destinatario estaba FUERA del `try`**, o sea una consulta a la BD **sin red** en el camino del webhook
+de Stripe ⇒ un hipo de la BD habría hecho que el webhook respondiera `!= 2xx` y **Stripe habría
+reintentado un settle ya aplicado**. Es exactamente lo que `C-AV-10` existe para impedir. Se movió la
+resolución del destinatario **dentro** del `try` en los cinco envoltorios (`payments`, `shipments`,
+`buylist`, `disputes`, `admin`), y quedó un test que lo fija con el mock **deliberadamente
+incompleto**. *Los dos specs rojos no eran ruido: eran la medición.*
+
+### 7. Los candados, y dónde corre cada uno
+
+| Candado | Dónde | Corre sin infra |
+|---|---|---|
+| `C-AV-1` (conteo exacto, por exceso) | mitad envíos en `avisos.shipments.spec.ts`; mitad mudos en `avisos.orders.spec.ts` / `avisos.kyc-cycle.spec.ts`; **el recorrido COMPLETO es de QA** | parcial |
+| `C-AV-2` (un aviso por ciclo) | `avisos.kyc-cycle.spec.ts` + `integration/avisos.e2e-spec.ts` | sí / no |
+| `C-AV-3` (dos y ninguno al entregar) | `avisos.shipments.spec.ts` | sí |
+| `C-AV-4` (la guía con su número) | `avisos.shipments.spec.ts` (comprador) · `avisos.buylist.spec.ts` (vendedor + plazo) | sí |
+| `C-AV-5` (registrado e invitado) | `avisos.orders.spec.ts` | sí |
+| `C-AV-6` (la campana) | (c) y (d) en `avisos.pendings.spec.ts` + E2E; **(a) y (b) son de frontend/QA** | parcial |
+| `C-AV-7` (el predicado) | `avisos.pendings.spec.ts` + E2E (cláusula (b) **sembrada por SQL**) | sí / no |
+| `C-AV-8` (la oferta no se filtra) | `avisos.pendings.spec.ts` (por lo negativo sobre el código) + E2E (byte a byte) | sí / no |
+| `C-AV-9` (ni cifras, ni derecho, ni diales) | `avisos.copy-guard.spec.ts` — **los once a la vez**, es/en, + los **seis presets** leídos del frontend | sí |
+| `C-AV-10` (el correo no tumba el dinero) | repartido: `orders`, `buylist`, `disputes`, `kyc-cycle` | sí |
+| `C-AV-11` (destinatario) | `avisos.shipments.spec.ts` | sí |
+
+**Cada bloque trae su CANARIO** (ablación que demuestra que el candado muerde). Y
+`avisos.copy-guard.spec.ts` es **exhaustivo sobre los exports** de los cinco ficheros de plantillas:
+*una plantilla nueva rompe el test hasta que alguien la clasifique.*
+
+### 8. Lo que NO medí, y no lo relleno con una suposición
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `N-AV-B1` | **Nada de esto corrió contra Postgres**: este entorno no tiene BD (`pg_isready` ⇒ *no response*; `DATABASE_URL` ausente). La suite **unitaria** sí corrió entera; `test/integration/avisos.e2e-spec.ts` **NO se ha ejecutado ni una vez** | que QA corra `npm run test:integration` |
+| `N-AV-B2` | **El recorrido COMPLETO del `C-AV-1`** (un pedido y una solicitud de venta de punta a punta, contando la bandeja) **no está escrito como una sola corrida**. El instrumento sí está: el E2E espía el `MAIL_PORT` de la app, que es la bandeja | un E2E de ciclo completo, o la corrida de QA con ese espía |
+| `N-AV-B3` | **`N-AV-1`/`N-AV-2` (§4.54.6) siguen abiertos**: cuántas filas `kycStatus='rejected'` hay **hoy en producción**. ⚠️ **Es la decisión de si `AV-1` necesita interruptor de despliegue**, y es del dueño/arquitecto, ⛔ no mía. Si hay filas viejas, el primer despliegue les manda correo de un rechazo que ya olvidaron | un `count(*)` con usuario de solo lectura, o corrido por el dueño |
+| `N-AV-B4` | **`N-AV-4`**: si el reclamo de un pedido de invitado exige el mismo correo. **No bloquea** —la regla de §R.5 (`guestEmail` gana) es correcta en los dos casos y hay candado para ello— pero no lo leí | leer §4-G.9 + `order-claim.service.ts` |

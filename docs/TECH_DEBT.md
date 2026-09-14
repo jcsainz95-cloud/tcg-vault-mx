@@ -7404,3 +7404,41 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   —el `where` re-evaluado, un `advisory lock`, o esperar el `receive`— y entonces `toEqual` es legítimo
   con 1 tirada), o conserva la carrera y **reporta proporción** con un umbral declarado. Y el fichero
   deja de afirmar O-3 mientras hace lo contrario.
+
+---
+
+## Backend · 2026-09-14 · §R centro de avisos (M-57, `AV-1…AV-11`)
+
+### AV-D1 · El motivo del rechazo viaja en el idioma del OPERADOR, no en el del cliente (backend · Cuentas y acceso, 2026-09-14)
+
+- **Dueño:** **backend**. **Severidad:** **Baja**. **No bloqueante**, y **enrutada por el arquitecto**
+  (`API_CONTRACT §R.1.b` · `ARCHITECTURE §4.54.1`), no descubierta por un gate.
+- **Qué es:** `AV-1` repite `KycProfile.rejectionReason` **verbatim**. El operador lo escribe en su
+  idioma, así que un cliente con `locale='en'` puede leer el motivo **en español** dentro de un correo
+  **en inglés**.
+- **Por qué no se arregla aquí:** resolverlo exige un **catálogo de códigos de motivo**, y el contrato
+  lo **rechaza explícitamente** (§R.1.a punto 1: sería **una segunda fuente para el mismo hecho** a
+  cambio de cero conducta nueva). *Arreglarlo por el camino barato —traducir en el correo— crearía dos
+  redacciones del mismo rechazo, y la que el cliente reclamaría sería la que no está en la fila.*
+- **Conducta que YA existía:** el portal lo muestra así desde v1.69; §R **no la empeora**, solo la
+  hereda en un canal nuevo. Se registra para que no se lea como un hallazgo de QA.
+- **Comprobación de cierre:** o el dueño decide que los seis motivos se persistan por **código**
+  (cambio de contrato, arquitecto), o se declara aceptado y esta ficha se cierra como tal.
+
+### AV-D2 · El esqueleto de correo §31 vive en `buylist/` y ahora lo importan CUATRO módulos más (backend, 2026-09-14)
+
+- **Dueño:** **backend**, con **decisión previa del arquitecto/techlead** sobre dónde debe vivir.
+  **Severidad:** **Baja** (acoplamiento de presentación, cero conducta). **No bloqueante.**
+- **Medido:** `buylist/mail-shell.ts` lo importan ahora `admin/mail/kyc-notice.templates.ts`,
+  `orders/mail/order-notice.templates.ts`, `shipments/mail/shipment-notice.templates.ts` y
+  `disputes/mail/dispute-notice.templates.ts`, además de `buylist-mail.templates.ts`.
+- **Por qué se hizo así y no de otra:** las dos alternativas eran **peores**. Duplicar el esqueleto
+  cuatro veces multiplica por cinco la deuda **BE-43**; escribir un estilo nuevo rompe lo único que
+  `DESIGN_SYSTEM §31` vino a garantizar —*que los correos se hablen entre sí*—. El fichero ya declara
+  en su cabecera que su sitio es `src/common/` y que moverlo es **el pase 2 de §31.15**.
+- **Por qué no se movió en este pase:** `src/common/` es **zona compartida** y este work stream no la
+  tiene asignada. *Un helper compartido colocado en la zona compartida por un stream que no la tiene
+  es la forma educada de pisar a otro.*
+- **Comprobación de cierre:** `mail-shell.ts` (o su sucesor) vive en `backend/src/common/`, los cinco
+  ficheros de plantillas lo importan desde ahí, y **BE-43** se cierra con él (el `layout()` duplicado
+  de `mail/mail.templates.ts` desaparece en el mismo pase).
