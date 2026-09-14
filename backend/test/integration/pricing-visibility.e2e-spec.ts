@@ -78,6 +78,49 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
       return res.body as { card: unknown; listings: any[]; units: any[] };
     }
 
+    /**
+     * ⭐⭐ **EL GRUPO SE BUSCA POR IDENTIDAD, ⛔ NO POR POSICIÓN — y esto nació de un intermitente.**
+     *
+     * `listings[]` viene ordenado **por precio** (`catalog.service.ts:1434`,
+     * `.sort((a,b) => a.listPriceCents - b.listPriceCents)`), así que `listings[0]` no es *«el grupo
+     * de esta pieza»*: es *«el grupo más barato que haya hoy»*. Medido por QA: estas aserciones
+     * fallaban **1 de cada 3** corridas con `priceBasis: 'market'` donde se esperaba `'override'`,
+     * porque otra suite dejaba piezas clonadas **más baratas** en el mismo grupo y le robaban la
+     * representación a `E2E-LST-0002`. *(La causa raíz de aquella contaminación se cerró aparte, en
+     * `stripe-in-tx-pool.e2e-spec.ts`: allí la carta plantilla se elegía con un `findFirstOrThrow`
+     * sin `orderBy`. Esto de aquí es la otra mitad: un candado no debe depender de que nadie más
+     * escriba en la BD compartida.)*
+     *
+     * ⇒ Se localiza el grupo por su **representante**, que es el único identificador estable que el
+     * DTO publica. Si la pieza del fixture deja de ser representante, esto falla con un mensaje que
+     * **dice lo que pasó**, en vez de asertar en silencio sobre el grupo equivocado.
+     */
+    async function grupoDe(externalId: string, folio: string) {
+      const { listings, units } = await fichaListings(externalId);
+      const pieza = await h.prisma.inventoryItem.findUniqueOrThrow({
+        where: { folio },
+        select: { id: true },
+      });
+      const grupo = listings.find((g) => g.representativeInventoryItemId === pieza.id);
+      if (!grupo) {
+        // ⚠️ Se lanza con el censo de grupos DENTRO del mensaje. `expect(...).toBeDefined()` diría
+        // sólo «recibí undefined», que es justo el diagnóstico que costó encontrar este defecto.
+        throw new Error(
+          `No hay ningún grupo representado por la pieza ${folio} (id ${pieza.id}). ` +
+            `Lo más probable: otra suite dejó una pieza MÁS BARATA en el mismo grupo y le robó la ` +
+            `representación. Grupos vistos: ` +
+            JSON.stringify(
+              listings.map((g) => ({
+                rep: g.representativeInventoryItemId,
+                basis: g.priceBasis,
+                precio: g.displayPriceCents,
+              })),
+            ),
+        );
+      }
+      return { grupo, listings, units, piezaId: pieza.id };
+    }
+
     it('`GET /catalog/cards/:cardId` — el grupo del charizard trae `priceBasis: "market"`', async () => {
       const { listings } = await fichaListings(E2E_CARDS.charizard.externalId);
       expect(listings.length).toBeGreaterThan(0);
@@ -98,10 +141,11 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
     });
 
     it('un override manual POR PIEZA da `priceBasis: "override"` ⇒ el front NO pinta el bloque', async () => {
-      // El seed publica esta carta con `listPriceCents` override (E2E-LST-0002).
-      const { listings } = await fichaListings(E2E_CARDS.common.externalId);
-      expect(listings[0].priceBasis).toBe('override');
-      expect(listings[0].priceBasis === 'market').toBe(false); // el mercado NO produjo este precio
+      // El seed publica esta carta con `listPriceCents` override (E2E-LST-0002), y es ESA pieza —no
+      // «la primera del array»— el sujeto de la aserción.
+      const { grupo } = await grupoDe(E2E_CARDS.common.externalId, E2E_FOLIOS.listedCommonOverride);
+      expect(grupo.priceBasis).toBe('override');
+      expect(grupo.priceBasis === 'market').toBe(false); // el mercado NO produjo este precio
     });
 
     it('`referenceValue` público sigue SIN procedencia (S48-M2 no se rompió al arreglar B-1)', async () => {
@@ -143,17 +187,23 @@ describe('E2E — regla de visibilidad de «Valor de mercado» (§N.7) contra ba
       });
 
       it('FICHA con basis `override`: `priceBasis` viaja, el NÚMERO no', async () => {
-        const { listings } = await fichaListings(E2E_CARDS.common.externalId);
-        expect(listings[0].priceBasis).toBe('override');
-        expect(listings[0].referenceValue).toEqual({ status: expect.any(String) });
-        expect(listings[0].referenceValue).not.toHaveProperty('referenceMxnCents');
+        const { grupo } = await grupoDe(E2E_CARDS.common.externalId, E2E_FOLIOS.listedCommonOverride);
+        expect(grupo.priceBasis).toBe('override');
+        expect(grupo.referenceValue).toEqual({ status: expect.any(String) });
+        expect(grupo.referenceValue).not.toHaveProperty('referenceMxnCents');
       });
 
       it('`GET /catalog/listings/:id` SIN TOKEN — el PoC del pentester, cerrado', async () => {
-        const { listings, units } = await fichaListings(E2E_CARDS.common.externalId);
-        const overrideUnit = units.find((u: any) => u.priceBasis === 'override');
+        const { grupo, units, piezaId } = await grupoDe(
+          E2E_CARDS.common.externalId,
+          E2E_FOLIOS.listedCommonOverride,
+        );
+        // El PoC se dispara sobre LA pieza del override, localizada por su id —⛔ no por «la primera
+        // que tenga basis override», que es otra forma de indexar por casualidad.
+        const overrideUnit = units.find((u: any) => u.inventoryItemId === piezaId);
         expect(overrideUnit).toBeDefined();
-        expect(listings[0].priceBasis).toBe('override');
+        expect(overrideUnit.priceBasis).toBe('override');
+        expect(grupo.priceBasis).toBe('override');
         const res = await h.api('GET', `/catalog/listings/${overrideUnit.inventoryItemId}`);
         expect(res.status).toBe(200);
         // `priceBasis` se conserva (la UI lo OBEDECE); el número que tenía prohibido pintar, no.

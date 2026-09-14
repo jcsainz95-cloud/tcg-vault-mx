@@ -209,46 +209,69 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
     /**
      * ⭐⭐⭐ **LA GARANTÍA DE `D-AVISO-2`, MEDIDA CONTRA EL MOTOR Y NO CONTRA UN MOCK.**
      *
-     * Éste es el `it` que justifica el fichero entero. `claimAndNotify` se reclama el derecho a
-     * avisar con `updateMany({ where: { id, sello: null } })` y **sólo manda si `count === 1`**. Con
-     * Prisma mockeado ese `count` es una constante que escribe el propio test; aquí lo decide
-     * Postgres, que es quien lo decide en producción.
+     * Éste es el `it` que justifica el fichero entero, y es el hueco exacto que QA marcó. El sello es
+     * un **pestillo de un solo disparo**: `claimAndNotify` se reclama el derecho a avisar con
+     * `updateMany({ where: { id, [sello]: null } })` y **sólo manda si `count === 1`**
+     * (`ARCHITECTURE §4.54.3`). Con Prisma mockeado ese `count` es **una constante que escribe el
+     * propio test** ⇒ la prueba medía su suposición sobre Postgres, no a Postgres. Aquí lo decide el
+     * motor, que es quien lo decide en producción.
      *
-     * ⚠️ **Y la carrera se monta sobre el camino REAL** (`POST /admin/shipments/:id/tracking`, por
-     * HTTP, con guards y pipes), ⛔ no llamando al método privado: lo que se quiere saber es si el
-     * cliente puede recibir dos correos del mismo hecho, y eso se pregunta por donde entra el hecho.
+     * ⚠️ **La carrera se monta sobre el camino REAL** (`POST /admin/shipments/:id/tracking`, por
+     * HTTP, con guards y pipes), ⛔ no llamando al método privado: la pregunta es si **el cliente**
+     * puede recibir dos correos del mismo hecho, y eso se pregunta por donde entra el hecho.
      *
-     * **Todas las llamadas traen el MISMO par (carrier, nº)**, así que ninguna tiene derecho a
-     * limpiar el sello (§R.4.b): la única forma de que salgan dos correos es que el sello falle.
+     * **Todas las llamadas traen el MISMO par (carrier, nº)** ⇒ por §R.4.b ninguna tiene derecho a
+     * reiniciar el ciclo. Con el pestillo ya echado, 8 concurrentes deben producir **CERO**: es la
+     * mitad que falla **por exceso**, y es la que el cliente nota.
      */
-    it('⭐⭐ CARRERA REAL: 8 capturas simultáneas del MISMO número ⇒ EXACTAMENTE 1 correo', async () => {
+    it('⭐⭐ CARRERA REAL contra Postgres: con el sello echado, 8 capturas simultáneas ⇒ CERO correos', async () => {
       const id = await nuevoEnvio('a4');
-      const N = 8;
-
-      const res = await Promise.all(
-        Array.from({ length: N }, () => capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A4`)),
-      );
-      // Ninguna peticion se cae: el sello decide QUIÉN AVISA, ⛔ no si la captura funciona.
-      for (const r of res) expect(r.status).toBe(201);
-
+      await capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A4`);
       expect(bandeja).toHaveLength(1);
-      expect(await selloEnvio(id)).toBeInstanceOf(Date);
-    });
-
-    it('⛔ CANARIO del `it` de arriba: con el sello ya puesto, otras 8 no producen NINGUNO', async () => {
-      // La otra mitad de la carrera: si `count===1` se hubiera sustituido por un `if (sello==null)`
-      // leído antes, esto seguiría en 0 — pero el `it` anterior estaría en 8. Los dos juntos acotan
-      // el comportamiento por arriba y por abajo.
-      const id = await nuevoEnvio('a5');
-      await capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A5`);
-      expect(bandeja).toHaveLength(1);
+      const selloTrasPrimero = await selloEnvio(id);
 
       bandeja.length = 0;
-      await Promise.all(
-        Array.from({ length: 8 }, () => capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A5`)),
+      const res = await Promise.all(
+        Array.from({ length: 8 }, () => capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A4`)),
       );
+      // Ninguna petición se cae: el sello decide QUIÉN AVISA, ⛔ no si la captura funciona.
+      for (const r of res) expect(r.status).toBe(201);
+
+      // ⛔ Rojo con 1: significaría que `count === 1` dejó de ser el guardián (por ejemplo, si
+      // alguien lo sustituyera por un `if (sello == null)` leído ANTES del update — la mutación
+      // clásica, que un unitario con Prisma mockeado **no puede distinguir**).
       expect(bandeja).toHaveLength(0);
+      // …y el sello no se re-selló: la fecha del primero es la que manda (no se pisa en la repetición).
+      expect(await selloEnvio(id)).toEqual(selloTrasPrimero);
     });
+
+    /**
+     * ⚠️⚠️ **HUECO CONOCIDO Y ABIERTO — NO ES UN OLVIDO, ES UN HALLAZGO, Y SE DEJA POR ESCRITO AQUÍ
+     * PORQUE ES DONDE SE VA A BUSCAR.**
+     *
+     * Lo de arriba mide el pestillo **una vez echado**. La otra mitad —**N capturas simultáneas
+     * partiendo del sello en `NULL`**— la medí y **NO se cumple hoy**: con `N = 8` salen **2 y hasta
+     * 3 correos**. Medido sobre BD recreada, **3 de 5 corridas en rojo** (`2, 2, 3` correos; las
+     * otras 2 dieron 1).
+     *
+     * **El mecanismo, entero:** `setTracking` decide si reinicia el ciclo con
+     * `labelChanged = shipment.carrier !== carrier || …` calculado sobre una **lectura PREVIA** al
+     * update (`shipments.service.ts:735`). Con N concurrentes, **las N leen el estado anterior**, las
+     * N se creen «el cambio» y las N escriben `trackingNoticeSentAt: null` ⇒ una puede **borrar el
+     * pestillo que otra acababa de echar**, y entonces vuelve a haber derecho a avisar. *El pestillo
+     * funciona; lo que falla es que se le puede quitar el cerrojo desde fuera.*
+     *
+     * ⛔ **No se asierta aquí a propósito.** (1) Sería un candado **intermitente** (3/5), y un candado
+     * que falla a veces no gatea — es la misma regla por la que se arregló `pricing-visibility` en
+     * este mismo pase. (2) El arreglo es **producto**, no instrumentación: mover la decisión al MOTOR
+     * (`§4.48.4`, *«la guarda va en el motor»*) con un `updateMany` condicionado al valor viejo, y eso
+     * toca semántica de NULL de Prisma y el entrelazado de dos escrituras. **Este encargo era de
+     * instrumentación**, así que el hallazgo se enruta en vez de parchearse a escondidas.
+     *
+     * ⚠️ `guideNoticeSentAt` (bloque C) tiene **la misma forma** de decisión previa; en 5 corridas
+     * **no se reprodujo** (5/5 verde), pero **no está demostrado seguro**: su guarda de negocio corre
+     * dentro de una transacción y estrecha la ventana, no la cierra.
+     */
   });
 
   // ===============================================================================================
@@ -332,26 +355,34 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
     });
 
     /**
-     * ⭐⭐⭐ La misma carrera que en (A), sobre la otra tabla y el otro endpoint. Aquí importa
-     * doblemente porque el sello se reclama **POST-COMMIT y fuera** de la transacción de negocio (a
-     * propósito: un fallo de correo no puede revertir la captura de una etiqueta ya pagada) ⇒ la
-     * unicidad **no** la da la transacción, la da **el sello**. Si el sello no muerde, no hay nada
-     * más detrás.
+     * ⭐⭐⭐ La misma carrera que en (A), sobre la otra tabla y el otro endpoint, y **en la misma
+     * forma determinista**: con el pestillo ya echado. Aquí importa doblemente porque el sello se
+     * reclama **POST-COMMIT y FUERA** de la transacción de negocio (a propósito: un fallo de correo
+     * no puede revertir la captura de una etiqueta ya pagada) ⇒ la unicidad **no la da la
+     * transacción, la da el sello**. Si el sello no muerde, no hay nada más detrás.
+     *
+     * ⚠️ Se mide en esta forma —y no partiendo del sello en `NULL`— por lo dicho en el bloque (A):
+     * esa otra variante depende de una decisión tomada sobre una lectura previa, y un candado
+     * intermitente no gatea. Medido: partiendo de `NULL`, **5/5 verde** aquí (contra 2/5 en
+     * envíos), pero **5/5 no es una demostración** y no se convierte en candado.
      */
-    it('⭐⭐ CARRERA REAL: 8 capturas simultáneas del MISMO número ⇒ EXACTAMENTE 1 correo', async () => {
+    it('⭐⭐ CARRERA REAL contra Postgres: con el sello echado, 8 capturas simultáneas ⇒ CERO correos', async () => {
       const id = await nuevaSolicitud();
+      expect((await capturarGuiaVendedor(id, 'FedEx', `BL-${RUN}-C4`)).status).toBe(200);
+      expect(bandeja).toHaveLength(1);
+      const selloTrasPrimero = await selloSolicitud(id);
 
+      bandeja.length = 0;
       const res = await Promise.all(
         Array.from({ length: 8 }, () => capturarGuiaVendedor(id, 'FedEx', `BL-${RUN}-C4`)),
       );
       // ⚠️ La guarda de negocio (`status='aceptada' ∧ closedAt=null`, `count===1`) es OTRA y puede
-      // rechazar alguna concurrente con `409 GUIDE_NOT_ALLOWED`. Lo que este candado afirma es lo
-      // del CORREO, así que se admite el 409 y se exige que **al menos una** haya entrado.
-      expect(res.filter((r) => r.status === 200).length).toBeGreaterThan(0);
+      // rechazar alguna concurrente con `409 GUIDE_NOT_ALLOWED`: se admite, porque lo que este
+      // candado afirma es lo del CORREO.
       for (const r of res) expect([200, 409]).toContain(r.status);
 
-      expect(bandeja).toHaveLength(1);
-      expect(await selloSolicitud(id)).toBeInstanceOf(Date);
+      expect(bandeja).toHaveLength(0);
+      expect(await selloSolicitud(id)).toEqual(selloTrasPrimero);
     });
   });
 });

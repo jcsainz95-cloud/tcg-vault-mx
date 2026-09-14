@@ -22832,7 +22832,148 @@ incompleto**. *Los dos specs rojos no eran ruido: eran la medición.*
 
 | # | Afirmación **NO MEDIDA** | Qué la cerraría |
 |---|---|---|
-| `N-AV-B1` | **Nada de esto corrió contra Postgres**: este entorno no tiene BD (`pg_isready` ⇒ *no response*; `DATABASE_URL` ausente). La suite **unitaria** sí corrió entera; `test/integration/avisos.e2e-spec.ts` **NO se ha ejecutado ni una vez** | que QA corra `npm run test:integration` |
+| `N-AV-B1` | ~~**Nada de esto corrió contra Postgres**: este entorno no tiene BD (`pg_isready` ⇒ *no response*; `DATABASE_URL` ausente). La suite **unitaria** sí corrió entera; `test/integration/avisos.e2e-spec.ts` **NO se ha ejecutado ni una vez**~~ ⇒ **CERRADO el 2026-09-14** (ver §B-1/QA-B1 al final de este documento): el entorno **sí** tiene Postgres 16 vivo, `avisos.e2e-spec.ts` corrió **10/10 verde** y se le sumó `avisos-sellos.e2e-spec.ts`, que cierra los otros dos sellos contra BD real. ⚠️ **Con un hallazgo abierto dentro** (`D-AVISO-2` bajo concurrencia desde `NULL`) | — (cerrado) |
 | `N-AV-B2` | **El recorrido COMPLETO del `C-AV-1`** (un pedido y una solicitud de venta de punta a punta, contando la bandeja) **no está escrito como una sola corrida**. El instrumento sí está: el E2E espía el `MAIL_PORT` de la app, que es la bandeja | un E2E de ciclo completo, o la corrida de QA con ese espía |
 | `N-AV-B3` | **`N-AV-1`/`N-AV-2` (§4.54.6) siguen abiertos**: cuántas filas `kycStatus='rejected'` hay **hoy en producción**. ⚠️ **Es la decisión de si `AV-1` necesita interruptor de despliegue**, y es del dueño/arquitecto, ⛔ no mía. Si hay filas viejas, el primer despliegue les manda correo de un rechazo que ya olvidaron | un `count(*)` con usuario de solo lectura, o corrido por el dueño |
 | `N-AV-B4` | **`N-AV-4`**: si el reclamo de un pedido de invitado exige el mismo correo. **No bloquea** —la regla de §R.5 (`guestEmail` gana) es correcta en los dos casos y hay candado para ello— pero no lo leí | leer §4-G.9 + `order-claim.service.ts` |
+
+---
+
+## B-1 / QA-B1 — **«el producto está bien, la instrumentación no»**: las cinco rojas de D56, dos candados que no gateaban y el hueco de los sellos (backend · `test/integration` · 2026-09-14, medido)
+
+**Encargo:** QA rechazó el corte con ese veredicto y enrutó siete cosas. **Qué se tocó: sólo
+`backend/test/`.** ⛔ **Cero cambios en `backend/src/`** — se comprueba con
+`git diff --stat` del commit: no aparece ningún fichero de `src/`.
+
+**Dónde se midió:** BD **propia y exclusiva** de este agente (`tcg_beqab1`, O-8 aplicado al recurso
+BD), **recreada desde cero** antes de cada corrida, con el bloque de entorno de devops
+(`scripts/stack-native.sh test:integration` con `DATABASE_URL` propia). ⛔ No se tocó
+`tcg_marketplace`, que es la que sirve el stack vivo de los otros agentes.
+
+### 1. Las cinco rojas: **las cinco eran de la PRUEBA**, y cada una con su cita
+
+QA acertó la dirección en las cinco. El rename de D56 `salePriceCents → displayPriceCents`
+(`P = round(L × 1.16)`) se propagó al producto y **no** a estos cinco puntos del código de prueba.
+
+| # | Fichero:línea | Lado malo | Cita que lo decide |
+|---|---|---|---|
+| 1 | `catalog-checkout-webhook:176` | **prueba** | `API_CONTRACT:19414` — `subtotalCents … = Σ displayPriceCents ⇒ YA lleva el IVA dentro`. El fichero **ya estaba migrado** en `:105`; éste se quedó. ⭐ Y el `P` se aplica **por línea** (`IVA-4(a)`: `Σ items[].unitPriceCents == subtotalCents` exacto), ⛔ no `P(Σ L)` |
+| 2 | `checkout-reservation-owner:408` | **prueba** | §M10-IVA.3 — *«`unitPriceCents` es el `P` congelado»*. El test escribía un **`L`** en `listPriceCents` y exigía que el quote devolviera **ese mismo número**. Se separan los dos nombres (`nuevoL` vs `frozenUnit`) para que no se puedan volver a cruzar |
+| 3 | `graded-estimate:614` | **prueba** | `precioAntes` se leyó de `displayPriceCents` (**`P`**) y se comparaba contra `E2E_LIST_OVERRIDE_CENTS`, que es el **`L`** (`e2e-fixtures.ts:380`). ⇒ el ancla es `P(L)`. **El 8f que también fallaba era CASCADA de éste**: 8e aborta antes del bloque de recaptura de su final y 8f se queda sin filas |
+| 4 | `graded-estimate-inv-d-inverse:198` | **prueba**, y **medio migrada** | `API_CONTRACT:730` — *«`salePriceCents` DESAPARECE DE LA SUPERFICIE PÚBLICA»*. Leía `esperado.salePriceCents` de una **ficha pública** ⇒ `undefined`, y su comentario afirmaba que ahí venía el `L`. **Nunca vino**: la ficha jamás devolvió un `L`. Ahora compara **`P` contra `P`**, que es lo que el oráculo quería decir |
+| 5 ⭐⭐ | `iva-price-convention:585` | **prueba** | `API_CONTRACT:19483` — `shippingRevenueCents: number,  // NETO (sin cambio)`. Sumaba **BRUTO** de las dos tablas. `Δ 2 800` = el IVA de un envío de `20 300` (17 500 neto), el mismo número de `IVA-11(a)`. El código netea **los dos** sumandos por la convención **de cada fila** (`admin.service.ts:1504` y `:1537`) |
+
+⚠️ **La 5 es el candado del propio bloque del IVA, así que no se arregló copiando la cifra que salió**
+—eso lo convertiría en una fotografía—: **se reescribió el oráculo en SQL con la regla del contrato**,
+igual que hace el `it` de `incomeCents` de al lado. Y se le añadió **la dirección** como desigualdad
+(`shippingRevenueCents < Σ bruto`), porque un `toBe` contra un oráculo SQL se pondría verde si alguien
+“simplificara” los dos `CASE` **en los dos lados a la vez**, que es exactamente la regresión que este
+`it` acababa de sufrir.
+
+### 2. Los dos candados que no gateaban
+
+**`IVA-3(d)` (`iva-price-convention:210`) — dependía del orden.** Contaba `ivaTransferPct IS NOT NULL`
+sobre **toda la tabla**, con este razonamiento al lado: *«en el deploy 1 esa fecha es el futuro, así que
+la cota es todas las filas — más fuerte, no menos»*. Era cierto **mientras ninguna ruta viva escribía el
+dial**; **D56 ES ese despliegue**. Medido: **aislada ⇒ 0 filas** (verde), **en la corrida completa ⇒ 28**
+(rojo). Se acota **como lo escribe el contrato** (`… AND "createdAt" < <fecha del deploy>`), anclando
+la frontera en la fila que la siembra fecha en el pasado a propósito (`E2E_GUEST_ORDER.createdAt` =
+`2026-01-08`), **+ control de no-vacuidad** (un `count == 0` sobre una ventana vacía es verde y no mide
+nada). ⛔ **No** se acotó por `priceConvention`, que sería circular: esa columna es *la otra mitad* de lo
+que se quiere probar.
+*(`ShipmentRequest` no tiene `createdAt`: su fecha de alta es `requestedAt` — medido sobre
+`information_schema`.)*
+
+**`IVA-11(d)`, el `it` de al lado, tenía la MISMA trampa latente** y se dejó anotada en el código: ya no
+es verdad que *«ninguna ruta escribe esta columna»* (`setTracking` la captura desde §M10-IVA.8); lo que
+sostiene su cota global hoy es que **ninguna suite de integración captura un crédito ≠ 0** (medido).
+
+**`pricing-visibility` — el intermitente 1/3, y el indeterminismo NO estaba donde se veía el rojo.**
+QA lo atribuyó a indexar `listings[0]`. Eso es **la mitad**. La causa raíz estaba en otro fichero:
+`stripe-in-tx-pool.e2e-spec.ts:58` elegía su carta plantilla con un **`findFirstOrThrow` sin `orderBy`**
+⇒ unas veces `charizard` y otras `common`; y esa suite **clona 24 piezas `listed` sin `listPriceCents`**
+(precio de mercado) y **las deja vivas**. Cuando le tocaba `common`, esas piezas caían en el **mismo
+grupo** que el override `E2E-LST-0002`, eran **más baratas** y **le robaban la representación** ⇒ la
+ficha publicaba `priceBasis:'market'`.
+
+> **Demostrado, no supuesto.** Inyecté a mano una pieza contaminante en `common` y la ficha devolvió
+> exactamente `[{"rep":"canary-pollute-1","basis":"market","precio":8120}]` — el `'market'` de QA,
+> reproducido a voluntad. Retirada la pieza, verde otra vez.
+
+Dos arreglos: **(a)** la plantilla se fija por folio, como ya hacían sus dos suites hermanas; **(b)**
+`pricing-visibility` localiza el grupo **por su representante**, y si no lo encuentra **lanza con el
+censo de grupos dentro del mensaje** en vez de asertar en silencio sobre el grupo equivocado.
+**Medido: 10/10 verde**, y la carta plantilla fue `e2e-charizard` en **10/10**.
+
+### 3. El hueco de los sellos de M-57 — cerrado, y con un HALLAZGO dentro
+
+Nuevo: **`backend/test/integration/avisos-sellos.e2e-spec.ts`** (11 `it`). Cubre contra Postgres real
+`trackingNoticeSentAt` y `guideNoticeSentAt` (antes **sólo `kycRejectionNoticeSentAt`** se ejercitaba
+contra BD), el reinicio del ciclo **por VALOR** (§R.4.b) y el **criterio 210 por HTTP**.
+
+**Por qué un unitario no podía cerrarlo:** la garantía de `D-AVISO-2` **no es un `if`**, es
+`updateMany({ where: { id, [sello]: null } })` **+ `count === 1`**, y con Prisma mockeado ese `count`
+**es una constante que escribe el propio test**. La prueba medía su suposición sobre Postgres.
+
+> ### ⚠️⚠️ HALLAZGO ABIERTO — `D-AVISO-2` **no se cumple** al partir del sello en `NULL` (envíos)
+>
+> **Medido: con `N = 8` capturas simultáneas del MISMO número sobre un envío nuevo, salen 2 y hasta 3
+> correos. 3 de 5 corridas en rojo (`2, 2, 3`; las otras 2 dieron 1), BD recreada cada vez.**
+>
+> **Mecanismo:** `setTracking` decide si reinicia el ciclo con
+> `labelChanged = shipment.carrier !== carrier || …` calculado sobre una **lectura PREVIA** al update
+> (`shipments.service.ts:735`). Con N concurrentes **las N leen el estado anterior**, las N se creen
+> «el cambio» y las N escriben `trackingNoticeSentAt: null` ⇒ una puede **borrar el pestillo que otra
+> acababa de echar**. *El pestillo funciona; lo que falla es que se le puede quitar el cerrojo desde
+> fuera.* Es la promesa de «no mandar dos veces» al cliente (§R.4 / criterio 209).
+>
+> ⛔ **NO se parcheó**, y se dice por qué: **este encargo era de instrumentación** («arregla la
+> instrumentación, no el producto») y el arreglo es de **producto** — mover la decisión al MOTOR
+> (`§4.48.4`, *«la guarda va en el motor»*) con un `updateMany` condicionado al valor viejo, lo que
+> toca semántica de `NULL` en Prisma y el entrelazado de dos escrituras. **Se enruta al arquitecto.**
+>
+> ⛔ **Tampoco se asertó en rojo ni se debilitó**: un candado 3/5 **no gatea** (es la misma regla por
+> la que se arregló `pricing-visibility` en este mismo pase). Lo que **sí** queda asertado, y es
+> determinista, es el pestillo **una vez echado**: con el sello puesto, 8 concurrentes ⇒ **CERO**
+> correos, contra Postgres real. El hallazgo queda escrito **en el propio spec**, donde se va a buscar.
+>
+> ⚠️ `guideNoticeSentAt` tiene **la misma forma** de decisión previa; partiendo de `NULL` dio **5/5
+> verde**, pero **5/5 no es una demostración** y por eso su candado se escribió en la forma
+> determinista. Su guarda de negocio corre dentro de una transacción y **estrecha la ventana, no la
+> cierra**.
+
+### 4. Dos intermitentes AJENOS que aparecieron al medir (ninguno lo introduce este pase)
+
+| # | Qué | Medición | Dueño |
+|---|---|---|---|
+| `QAB1-1` | **`guest-chargeback.e2e-spec.ts` sembraba filas DELIBERADAMENTE CORRUPTAS y no las barría.** El caso D4 necesita un `ShipmentRequest` con `orderId` → orden `vault`. Esa fila **envenena `GET /admin/shipments` para todas las suites de atrás**: `adminList` mapea con `withAdminKind` ⇒ `isDirectShipFulfillment` ⇒ **`409` en un GET**. Rompía `enum-query-axes` (3 fallos), que **es inocente: aislada pasa 3/3**. Intermitente porque `adminList` pagina (`requestedAt asc`, `pageSize` 20) y la fila corrupta es tardía | **1 de 3** corridas completas | **ARREGLADO aquí** (es instrumentación y es `backend/test/`): se registra y se barre en el `afterAll`. ⛔ El caso D4 no se toca: mide lo que debe |
+| `QAB1-2` | **`buylist-step-guard.e2e-spec.ts` · `S-2`** lanza `receive`→`verify` con **20 ms** de desfase y exige **5/5**. Bajo la carga de la suite completa, una iteración recibe `409` — que es **la guarda funcionando**, no un defecto del producto | **2 de 5** corridas completas (`N=5`, BD recreada cada vez); **aislada 5/5 verde (N=5)** | **NO tocado.** Es un candado sensible a la carga de la máquina, y **es el único rojo que queda** en la suite de integración. Se reporta; el arreglo es de quien lo escribió (§M5-S) |
+
+### 5. Lo que NO medí (⛔ no se rellena con una suposición)
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `N-QAB1-1` | **No reproduje yo el `1/3` original de `pricing-visibility`**: mis corridas completas cayeron del lado bueno. Lo que sí demostré es **el mecanismo**, inyectando la pieza contaminante a mano, y que el arreglo lo elimina en origen (10/10). La proporción `1/3` es **de QA**, no mía | volver a correr la suite completa con la plantilla despinada |
+| `N-QAB1-2` | **No medí si `guideNoticeSentAt` es realmente seguro** bajo concurrencia desde `NULL`: 5/5 verde **no demuestra** ausencia de carrera, sólo que no salió en 5 tiradas | N≥30, o leer la transacción de `adminGuide` con el entrelazado en la mano |
+| `N-QAB1-3` | **No medí el coste del hallazgo en producción** (cuántos envíos reales podrían recibir doble correo): depende de si dos operadores capturan a la vez, y **no hay datos de producción** (`HECHOS.md`: la tienda no ha procesado ninguna venta real) | — |
+| `N-QAB1-4` | **No corrí la suite E2E de frontend (Playwright)** ni el DAST: no son mías y el árbol lo comparten otros dos agentes | QA |
+
+### 6. Las mediciones, con su `N` y sobre qué árbol
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| **Reproducción del rechazo** (árbol `9328880`, BD recreada) | las 5 suites que QA marcó | **5 suites / 8 `it` en rojo**, deterministas. QA acertó la dirección en las cinco |
+| **Integración COMPLETA, `N = 5`** (BD recreada **cada** corrida) | `stack-native.sh test:integration` con `DATABASE_URL` propia | **42 suites · 912 pruebas**. **3/5 corridas 912/912 verde**; **2/5** con **1** rojo, siempre el mismo y **ajeno**: `buylist-step-guard · S-2` (`QAB1-2`) |
+| **Las 5 suites que QA marcó** | dentro de esas mismas 5 corridas | **5/5 verde** |
+| `pricing-visibility` + su contaminador | `N = 10`, BD recreada | **10/10 verde**, y la carta plantilla fue `e2e-charizard` en **10/10** (antes: sin `orderBy`, indeterminada) |
+| **Canario del diagnóstico** | pieza contaminante inyectada a mano en `common` | la ficha devolvió `[{"rep":"canary-pollute-1","basis":"market","precio":8120}]` ⇒ **el `'market'` de QA, reproducido a voluntad**. Retirada: verde |
+| `avisos` + `avisos-sellos` | `N = 5`, BD recreada | **5/5 verde · 21/21** |
+| **El hallazgo abierto** (`D-AVISO-2` desde `NULL`, envíos) | `N = 5`, `N_concurrentes = 8` | **3/5 en ROJO** (`2, 2, 3` correos; 2/5 dieron 1) |
+| `guideNoticeSentAt` desde `NULL` | `N = 5`, `N_concurrentes = 8` | **5/5 verde** — ⛔ **no es una demostración**, y por eso no se convirtió en candado |
+| **Unitarios sobre copia del ÁRBOL ENTERO** (`git archive`/`tar` con `docs/` dentro — si no, las suites de paridad documental salen rojas por falta de ficheros, no por defecto) | `9328880` **vs** árbol de trabajo | **313 suites · 5 150 pruebas** en los **DOS**, verde. **El TOTAL no se movió** ⇒ ⛔ ningún unitario apagado ni perdido |
+| **Typecheck** | `tsc --noEmit` | limpio |
+
+**Delta de la suite de integración: 902 → 912 pruebas (+10) y 41 → 42 suites (+1).** Todo el `+` es
+`avisos-sellos.e2e-spec.ts`. ⛔ **Ninguna prueba se borró, se saltó ni se debilitó**: los dos candados
+que se reescribieron (`IVA-3(d)` y `D-IVA-5`) salieron **más fuertes**, con control de no-vacuidad y
+con la dirección asertada como desigualdad.

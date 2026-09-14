@@ -30,7 +30,7 @@
  */
 import { Logger } from '@nestjs/common';
 import { E2EHarness } from './helpers/e2e-app';
-import { E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { RESERVATION_TX_OPTIONS } from '../../src/modules/orders/reservation';
 
 const RUN = Date.now().toString(36);
@@ -55,8 +55,26 @@ describe('H-3 / I3 — Stripe DENTRO de la transacción: presión sobre el pool 
 
   beforeAll(async () => {
     h = await E2EHarness.create();
-    const base = await h.prisma.inventoryItem.findFirstOrThrow({
-      where: { status: 'listed', ownerType: 'platform', productType: 'raw' },
+    // ⭐⭐ **LA PLANTILLA SE FIJA POR FOLIO, Y NO ES COSMÉTICO: ERA LA FUENTE DE UN INTERMITENTE.**
+    //
+    // Aquí había un `findFirstOrThrow({ where: { status:'listed', ownerType:'platform',
+    // productType:'raw' } })` **sin `orderBy`**. Sin orden, Postgres devuelve la fila que le
+    // conviene ⇒ la carta plantilla salía **unas veces `charizard` y otras `common`**. Y esta suite
+    // **clona 24 piezas `listed` SIN `listPriceCents`** sobre esa carta (precio derivado del mercado
+    // ⇒ `priceBasis: 'market'`) y **las deja vivas** (el helper de limpieza las devuelve a `listed`,
+    // no las borra).
+    //
+    // Consecuencia medida: cuando le tocaba `common`, esas 24 piezas caían en el **MISMO grupo**
+    // (`raw/normal/NM`) que la pieza del override `E2E-LST-0002` y, siendo **más baratas**, se
+    // volvían el **representante** del grupo ⇒ la ficha pasaba a publicar `priceBasis: 'market'` y
+    // `pricing-visibility.e2e-spec.ts` se ponía roja ~**1 de cada 3** corridas, en un fichero que no
+    // tiene ningún defecto. *El indeterminismo no estaba donde se veía el rojo.*
+    //
+    // ⇒ Se ancla a la MISMA pieza que usan sus dos suites hermanas (`checkout-reservation-owner`,
+    // `iva-price-convention`), que ya lo hacían bien. ⛔ Nada de esto cambia lo que I3 mide: la
+    // medición es sobre el **pool** y la **carrera**, y le da igual de qué carta sea el clon.
+    const base = await h.prisma.inventoryItem.findUniqueOrThrow({
+      where: { folio: E2E_FOLIOS.listedCharizard },
       select: { cardId: true, locationId: true },
     });
     template = { cardId: base.cardId, locationId: base.locationId! };
