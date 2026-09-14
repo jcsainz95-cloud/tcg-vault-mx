@@ -22448,3 +22448,121 @@ justo lo que la v1.73 retiró del contrato.
 | `N-EQD0-1` | **La fila de §0-Q punto 4 para los seis ejes de la bóveda.** La conducta ya conforma y está medida; el registro del contrato no los nombra | añadir filas a §0-Q es cambiar el contrato |
 | `N-EQD0-2` | **Ratificar la clase que este pase MIDIÓ**: `sealedSubtype`/`condition` = **E** derivadas de `SealedSubtype`/`SealedCondition` (mismo nombre y mismo enum que `/catalog/sealed`, que §0-Q ya registra como E); `sort` = **ORDEN** con dominio **L** tomado de la línea del endpoint de §3 | la clase la decide él |
 | `N-EQD0-3` | **Si `?sort=` de la bóveda debería declararse en §0-Q punto 4 junto con los otros seis `?sort=` que siguen abiertos**, o uno a uno | es una decisión de forma del registro |
+
+---
+
+## D56 / §M10-IVA.9 — LA PUERTA DEL DIAL DE TRASLACIÓN DEL IVA (backend · `settings` · 2026-09-14, medido)
+
+> **Alcance de este pase:** `backend/src/modules/settings/`, `backend/src/common/error-codes.ts`
+> (dos códigos) y `backend/test/`. ⛔ **No toca** `prisma/`, `orders`, `payments`, `shipments`,
+> `mail`, `users`, `buylist` ni `frontend/` (había otros dos agentes escribiendo en el mismo árbol).
+> **Medido sobre `HEAD = fc2295f` + este pase.**
+
+### Qué quedó construido
+
+| Ruta | Qué hace |
+|---|---|
+| `GET /api/v1/admin/settings/iva-transfer` | Lectura del dial (§M10-IVA.1). Devuelve `{ ivaTransferPct, ivaRatePct, samplePriceCents, current: IvaTransferPositionDTO }`. `super_admin`, sin efectos |
+| `PUT /api/v1/admin/settings/iva-transfer` | **La puerta ÚNICA** (§M10-IVA.2, criterio **213**). `{ ivaTransferPct, acknowledgement: { samplePriceCents, previewedNetDeltaCents } }` → `{ ivaTransferPct, preview }`. `super_admin`, transaccional, auditado |
+
+**Ficheros nuevos:** `src/modules/settings/iva-transfer.ts` (aritmética PURA + el candado de la
+puerta), `test/settings.iva-transfer-gate.spec.ts`, `test/helpers/price-convention-writers.ts`,
+`test/iva-12-price-convention-writers.spec.ts`.
+
+**Códigos nuevos** (`common/error-codes.ts`): `IVA_TRANSFER_ACK_REQUIRED` (422),
+`IVA_TRANSFER_ACK_STALE` (409). Los dos ya estaban normados en el contrato; sólo faltaba el enum.
+
+### Las decisiones que otro rol necesita saber
+
+1. **El delta NO depende de los diales de Stripe.** `netDeltaPerUnitCents` sale de `iva_pct`, del
+   dial vigente y del propuesto. `totalChargedCents` sí usa la comisión, pero es **informativo**.
+   ⇒ un cambio de comisión entre que la pantalla muestra la cifra y el operador guarda **no**
+   produce un `409`. *Un acuse que caducara por algo que no es lo que se está decidiendo enseñaría a
+   reintentar sin leer.*
+2. **El acuse es del MOVIMIENTO, no del destino.** Con el dial en `100`, ir a `50` cuesta `−690`;
+   con el dial ya en `50`, ir a `0` cuesta `−689`. Confirmar `−690` en el segundo caso ⇒ `409`.
+3. **Candado propio (`pg_advisory_xact_lock`, clave `64_440_950`), y el orden es la regla:**
+   candado → releer el vigente **con el `tx`** → validar el acuse → escribir → auditar. Mismo patrón
+   y mismo motivo que `lockFxGate` (`S-FX-1`). ⛔ Clave distinta a propósito: compartirla
+   serializaría dos diales que no comparten ningún invariante.
+4. **Idempotente:** un `PUT` con el valor vigente no pide acuse, **no escribe y no audita**.
+5. **Aritmética ENTERA.** `P = L + round(L·t·r/10000)` y `base = round(P·100/(100+r))`; el IVA sale
+   por **RESTA**. ⛔ Ningún `1.16` en el camino del dinero. Cota medida: el producto intermedio
+   máximo (`MAX_CENTS × 100 × 100 ≈ 2.1e13`) cabe exacto en `Number.MAX_SAFE_INTEGER`.
+6. **`IVA-8(b)` intacto:** `iva_transfer_pct` **sigue fuera de `SETTING_DTO_MAP`** ⇒
+   `PUT /admin/settings { ivaTransferPct }` sigue siendo `422` clave desconocida.
+7. **`IVA-7` intacto y medido por ausencia:** `getStripeFee()` no contiene ninguna referencia al
+   dial, y hay un test que lee su cuerpo y lo exige.
+8. **`D-AV-3` corregido:** el comentario de `settings.constants.ts` que difería la puerta al
+   «DEPLOY 2» está derogado **con su cita** y con la lista fila a fila de lo que **sigue vigente**
+   (§M10-IVA.9.b). Se corrigieron además otras dos menciones al deploy 2 en el mismo fichero.
+
+### Lo medido (⚠️ y lo NO medido)
+
+| Qué | Resultado |
+|---|---|
+| `tsc --noEmit` | **0 errores** atribuibles a este pase (los únicos errores del árbol estaban en `src/modules/shipments/mail/shipment-notice.templates.ts`, **fichero de otro agente, en vuelo**) |
+| `settings.iva-transfer-gate.spec.ts` | **52/52** |
+| `iva-12-price-convention-writers.spec.ts` | **12/12** |
+| `settings.iva-transfer-pct.spec.ts` (prosa actualizada, aserciones intactas) | **32/32** |
+| **Batería de mutación** (copia del árbol ENTERO, `scratchpad/be-iva/mut`) | **14/14 en ROJO** |
+| Integración / HTTP real | ⚠️ **NO MEDIDO en este pase** — requiere Postgres y la corre QA |
+
+**Las mutaciones, una a una** (N=1 cada una salvo donde se indica; ninguna es probabilística —son
+deterministas sobre el árbol copiado—):
+
+| # | Qué reintroduce | Resultado |
+|---|---|---|
+| M1 | `netRevenueCents = displayPriceCents` (el P&L cuenta el IVA como ingreso) | **ROJA**, 13 fallos |
+| M2 | el IVA por multiplicación en vez de por residual | **ROJA**, 5 fallos |
+| M3 | divisor `10_000` → `1_000` en `P` | **ROJA**, 12 fallos |
+| M4 | `floor` en vez de `round` en la base | **ROJA**, 7 fallos |
+| M5′ | **el acuse deja de ser obligatorio** (se autorrellena) | **ROJA**, 3 fallos |
+| M6′ | **el acuse RANCIO se acepta** (sin `409`) | **ROJA**, 2 fallos |
+| M7 | `S-FX-1`: el candado se toma **después** de leer el vigente | **ROJA**, 1 fallo |
+| M8′ | la bitácora no se escribe dentro de la transacción | **ROJA**, 2 fallos |
+| M9 | `validateIvaTransferPct`: `isInt` → `isNum` (`37.5` pasa) | **ROJA**, 2 fallos |
+| M10 | `getStripeFee()` lee `IVA_TRANSFER_PCT` (rompe `IVA-7`) | **ROJA**, 3 fallos |
+| M11′ | el escáner de `IVA-12` se queda **ciego** (censo vacío) | **ROJA**, 3 fallos |
+| M12 | **escritor NUEVO de `IVA_EXCLUSIVE`** en la misma línea que uno censado | **ROJA**, 1 fallo |
+| M13 | el patrón de escritor deja de casar | **ROJA**, 7 fallos |
+| M14 | escritor nuevo por variable ⇒ `unclassified` | **ROJA**, 1 fallo |
+
+> ⚠️ **Dos correcciones del INSTRUMENTO, dichas porque cambian lo que el número significa.**
+> **(a)** La primera tirada dio `11/13`, y **uno de los dos supervivientes era un error mío de
+> medición**: la mutación de `isInt→isNum` se aplicó al **primer** `return isInt(...)` del fichero,
+> que es el de `validateIvaPct`, no el del dial. Con el ancla correcta: **ROJA**. *Una mutación que
+> no toca lo que dice tocar no mide nada.*
+> **(b)** El otro superviviente era **un hueco real y lo cerró la mutación**: el escáner de `IVA-12`
+> clasificaba **línea a línea**, así que **dos escritores en la misma línea contaban como uno**. Se
+> reescribió para clasificar **por aparición**, y el canario `m8` reintroduce exactamente esa
+> mutación. *Un candado que cuenta líneas mide el formateador, no el código.*
+> **(c)** `M5`, `M6`, `M8` y `M11` en su primera forma (`if (false && …)`) ponían el rojo **por
+> error de compilación**, no por aserción — `false &&` mata el estrechamiento de tipos de TS. Se
+> repitieron con variantes que **compilan** (`M5′`, `M6′`, `M8′`, `M11′`) y las cuatro siguen rojas
+> **por aserción**. *Un rojo de compilador no demuestra que el test mira lo que dice mirar.*
+
+### ⛔ `IVA-12` NO ESTÁ CERRADO, y el candado lo dice en voz alta
+
+**Censo medido (`backend/src`, tras este pase): 5 escritores de `IVA_EXCLUSIVE`, 1 lector, 0 sin
+clasificar.** Los cinco viven en `modules/orders` (×3, `guest-checkout` incluido),
+`modules/payments` (×1) y `modules/shipments` (×1).
+
+⛔⛔ **Y cambiar esos cinco literales NO es la conversión: sería un defecto de dinero.** Medido:
+`rg "displayPriceCents" backend/src` ⇒ **0**. La derivación de `P` (§M10-IVA.3/.4) **no existe**,
+así que hoy `subtotalCents` **no lleva el IVA dentro**. Etiquetar esa misma fila como
+`IVA_INCLUSIVE` haría que `netRevenueCents()` devolviera `subtotal − iva` = **8400** donde el
+criterio **191** exige **10000**: el P&L **no reventaría, MENTIRÍA**, y `IVA-1` quedaría en rojo.
+
+⇒ `iva-12-price-convention-writers.spec.ts` deja un **trinquete** (por fichero y por cuenta, no por
+línea: las líneas se mueven con ediciones ajenas) que **no deja crecer** el censo y que **obliga a
+pasar por ese fichero** para cerrar `IVA-12`. La forma final del candado es
+`ESCRITORES_PENDIENTES = {}`.
+
+### Para el ARQUITECTO (regla 9) — tres cosas que este pase NO podía decidir
+
+| # | Qué | Por qué es suyo |
+|---|---|---|
+| `N-IVA9-1` | ⭐⭐ **`GET /admin/settings/iva-transfer/preview` NO se construyó.** §M10-IVA.2 lo define con `?ivaTransferPct=&samplePriceCents=`, o sea **dos ejes de query nuevos**; el changelog v1.74 (d) declara ⛔ *«CERO parámetros de query nuevos en toda la rev ⇒ §0-Q y `C-EQ-1` no se tocan»*. **Las dos frases no pueden ser ciertas a la vez.** Construirlo pone `C-EQ-1` en rojo (dos huérfanos) salvo que crezcan sus listas de exención — que es justo lo que (d) prohíbe. **Consecuencia práctica: el frontend no tiene hoy de dónde sacar el delta para el criterio 188 antes de guardar.** Opciones que el arquitecto puede tomar: (i) autorizar los dos ejes y dos líneas en `C-EQ-1`; (ii) mover el preview a `POST …/preview` con cuerpo; (iii) devolver el juego de posiciones desde el `GET`. ⛔ No elijo yo: cambia el contrato |
+| `N-IVA9-2` | **¿Viaja `ivaTransferPct` en `GET /admin/settings`?** §M10 y §M10-IVA.1 dicen que **sí** (*«READ-ONLY en este `GET`»*, y la lista del DTO lo nombra). El comentario que §M10-IVA.9.b **ratifica** dice que **no** (*«ni sale en `GET /admin/settings`»*), y hay un e2e vigente que asierta la ausencia (`test/integration/iva-price-convention.e2e-spec.ts`). **No lo cambié**: sigue fuera del DTO. Si la respuesta es «sí», es una línea aquí y un e2e que se corrige |
+| `N-IVA9-3` | **Forma del `GET /admin/settings/iva-transfer`.** §M10-IVA.1 lo nombra como superficie de lectura pero **no publica su DTO**. Se devolvió `{ ivaTransferPct, ivaRatePct, samplePriceCents, current }` **reutilizando `IvaTransferPositionDTO`** y ⛔ sin inventar nombres de campo nuevos. Falta ratificarlo |

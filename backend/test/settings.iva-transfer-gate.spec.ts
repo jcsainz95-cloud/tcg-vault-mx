@@ -10,6 +10,8 @@ import {
   taxBaseCentsOf,
 } from '../src/modules/settings/iva-transfer';
 import { StripeFeeConfig, grossUpTotal } from '../src/common/money';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * ⭐⭐ **LA PUERTA DEL DIAL DE TRASLACIÓN DEL IVA — `PUT /admin/settings/iva-transfer`.**
@@ -444,10 +446,7 @@ describe('⛔⛔ `IVA-7` — mover un PRECIO no mueve una COMISIÓN, y D56 no lo
     // *Rojo en cuanto aparezca, aunque los números cuadren ese día.* Se recorta el cuerpo de la
     // función y se mira dentro: si el dial de traslación entrara ahí, mover un precio movería una
     // comisión para TODO el catálogo, y los números del día del cambio no lo delatarían.
-    const src = require('node:fs').readFileSync(
-      require('node:path').join(__dirname, '../src/modules/settings/settings.service.ts'),
-      'utf8',
-    ) as string;
+    const src = readFileSync(join(__dirname, '../src/modules/settings/settings.service.ts'), 'utf8');
     const i = src.indexOf('async getStripeFee(');
     expect(i).toBeGreaterThan(-1);
     const cuerpo = src.slice(i, src.indexOf('\n  }', i));
