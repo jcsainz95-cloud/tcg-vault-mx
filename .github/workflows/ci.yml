@@ -680,6 +680,22 @@ jobs:
         run: ./scripts/check-e2e-skip-census-canary.sh
 
   # ---------------------------------------------------------------------------
+  # B-3 (2026-09-14): un script sin token no puede AFIRMAR qué secrets existen en
+  # GitHub. `stripe-test-key-preflight.sh` lo hacía —«secret NO configurado en
+  # GitHub», impreso también en local, donde esa variable nunca existe— y QA lo
+  # elevó a bloqueante: «el gate de dinero tampoco corre en CI». Medido contra la
+  # API de Actions: falso, las nocturnas corrían con el gate de dinero ON. El
+  # mensaje mandó a investigar un hueco inexistente y tapó el real (esas mismas
+  # nocturnas están ROJAS). El candado trae su propio canario. Ver DEVOPS_NOTES §60.
+  # ---------------------------------------------------------------------------
+  secret-absence-wording:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: El veredicto de ausencia no afirma lo que no midió (+ canario)
+        run: ./scripts/check-secret-absence-wording.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
   # bloques copiados a mano con dos criterios, y un gate nuevo añadido a `needs`
   # SIN su bloque quedaba skipped = verde. Ahora `scripts/check-ci-ok.sh` lee
@@ -690,7 +706,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census, secret-absence-wording]
     if: always()
     runs-on: ubuntu-latest
     steps:
