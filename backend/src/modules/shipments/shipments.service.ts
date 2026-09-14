@@ -702,6 +702,42 @@ export class ShipmentsService {
    * **Una sola vez (`D-AVISO-2`):** el sello `trackingNoticeSentAt`, que se **limpia en esta misma
    * escritura** si y solo si el par `(carrier, trackingNumber)` queda **DISTINTO** (§R.4.b) ⇒
    * re-capturar el mismo número **no reenvía**; corregirlo **sí avisa**.
+   *
+   * ### ⭐⭐ `D-AVISO-2` bajo CONCURRENCIA — la decisión vive en el MOTOR, no en una lectura previa
+   * **El defecto que esto cierra, medido (2026-09-14, `f8c7040`, BD propia, `N=25` tiradas de `8`
+   * capturas simultáneas del MISMO número sobre un envío nuevo): **8/25 tiradas mandaban 2 correos**.
+   * El mecanismo era un *comprobar-y-actuar* de manual:
+   * ```ts
+   * const shipment = await prisma.findUnique(...);              // lectura
+   * const labelChanged = shipment.carrier !== carrier || …;     // decisión sobre un estado CADUCO
+   * await prisma.update({ data: { …, trackingNoticeSentAt: null } });   // escritura
+   * ```
+   * Las N peticiones leen el valor **anterior**, las N concluyen «la etiqueta cambió» y las N
+   * escriben `trackingNoticeSentAt: null` ⇒ una **borra el pestillo que otra acababa de echar** y
+   * vuelve a haber derecho a avisar. *El sello de `claimAndNotify` funcionaba; lo que fallaba es que
+   * se le podía quitar el cerrojo desde fuera.*
+   *
+   * **La forma correcta, y es la misma de `jobs/buylist-sweep.service.ts` y la del propio sello:** la
+   * comparación se **baja al `WHERE`**, así que decidir y escribir son **UNA sola operación**:
+   * ```sql
+   * UPDATE "ShipmentRequest" SET carrier=…, "trackingNumber"=…, "trackingNoticeSentAt"=NULL
+   *  WHERE id=… AND (carrier IS NULL OR carrier <> … OR "trackingNumber" IS NULL OR "trackingNumber" <> …)
+   * ```
+   * Bajo `READ COMMITTED`, Postgres **re-evalúa el `WHERE` sobre la versión ya actualizada** de la
+   * fila (`EvalPlanQual`) cuando dos `UPDATE` compiten por ella ⇒ **exactamente UNA** de las N puede
+   * devolver `count === 1`; para el resto la etiqueta **ya coincide** y no borran nada.
+   * `labelChanged` deja de ser una opinión sobre el pasado y pasa a ser **lo que el motor hizo**.
+   *
+   * ⚠️ **`carrier IS NULL OR …` NO es defensivo, es obligatorio** (medido: Prisma 5 traduce
+   * `{ not: v }` a `col <> $1` **a secas**). En SQL, `NULL <> 'DHL'` es `NULL`, o sea **falso** ⇒ sin
+   * la rama explícita de `null` la **primera** captura de un envío recién creado (que es justo el
+   * caso donde ambas columnas son `NULL`) no casaría con el `WHERE`, no limpiaría el sello y **no
+   * avisaría nunca**. El defecto cambiado de signo: de dos correos a **cero**.
+   *
+   * ⛔ **El segundo `update` no puede fusionarse con el condicional.** Cuando la etiqueta **no**
+   * cambia, el `WHERE` no casa —por diseño— y aun así hay que escribir `status`/costos (una
+   * re-captura idempotente que trae el costo del transportista es legítima). Por eso son dos
+   * escrituras y no una, y por eso el sello viaja **solo** en la condicional.
    */
   async setTracking(
     id: string,
@@ -729,26 +765,44 @@ export class ShipmentsService {
         { status: shipment.status },
       );
     }
-    // §R.4.b — el ciclo del aviso se reinicia por VALOR, no por evento, y **en la misma escritura**
-    // que cambia la etiqueta: una re-captura idempotente no avisa de nada, y un correo con un número
-    // que ya no existe es peor que no haber mandado ninguno.
-    const labelChanged =
-      shipment.carrier !== carrier || shipment.trackingNumber !== trackingNumber;
+    // Lo que se escribe SIEMPRE, cambie o no la etiqueta. El sello NO va aquí: va solo en la
+    // escritura condicional de abajo, que es la que tiene derecho a reiniciar el ciclo.
+    const data = {
+      carrier,
+      trackingNumber,
+      ...(advances ? { status: 'guia' as ShipmentStatus } : {}),
+      // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
+      ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
+      // ⭐ §M10-IVA.8 / `IVA-11(c)`: el crédito se CAPTURA junto al bruto y se congela con él.
+      ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
+    };
+    // ⭐⭐ §R.4.b + `D-AVISO-2` bajo concurrencia — el ciclo del aviso se reinicia por VALOR, no por
+    // evento, y **la comparación la hace el MOTOR en el mismo `UPDATE`** que escribe la etiqueta
+    // (ver el docstring): `count === 1` ⇔ *esta* petición fue la que dejó la etiqueta distinta, y
+    // por tanto la única con derecho a limpiar el pestillo. ⛔ Nunca un `if` sobre una lectura
+    // previa: bajo N concurrentes las N leerían el valor viejo y las N se creerían «el cambio».
+    // ⚠️ Las ramas `: null` son obligatorias — Prisma traduce `{ not: v }` a `col <> v`, que en SQL
+    // NO casa con `NULL`, y el primer `setTracking` de un envío tiene las dos columnas en `NULL`.
+    const relabelled = await this.prisma.shipmentRequest.updateMany({
+      where: {
+        id,
+        OR: [
+          { carrier: null },
+          { carrier: { not: carrier } },
+          { trackingNumber: null },
+          { trackingNumber: { not: trackingNumber } },
+        ],
+      },
+      data: { ...data, trackingNoticeSentAt: null },
+    });
     // S49-R4: proyectado (antes devolvía la entidad `ShipmentRequest` cruda).
     const row = toAdminShipmentRow(
-      await this.prisma.shipmentRequest.update({
-        where: { id },
-        data: {
-          carrier,
-          trackingNumber,
-          ...(advances ? { status: 'guia' as ShipmentStatus } : {}),
-          ...(labelChanged ? { trackingNoticeSentAt: null } : {}),
-          // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
-          ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
-          // ⭐ §M10-IVA.8 / `IVA-11(c)`: el crédito se CAPTURA junto al bruto y se congela con él.
-          ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
-        },
-      }),
+      relabelled.count === 1
+        ? // La condicional ya escribió `data` entero: solo hace falta leer la fila resultante.
+          await this.prisma.shipmentRequest.findUniqueOrThrow({ where: { id } })
+        : // La etiqueta no cambió (o la cambió otra petición simultánea): se escribe el resto —
+          // `status` y los costos del transportista— ⛔ SIN tocar el sello.
+          await this.prisma.shipmentRequest.update({ where: { id }, data }),
     );
     // ⛔ POST-COMMIT y best-effort: el sello se reclama FUERA de la escritura de negocio. Meterlo
     // dentro haría que un fallo del correo pudiera revertir la captura de una etiqueta ya comprada.

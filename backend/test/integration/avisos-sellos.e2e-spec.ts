@@ -48,6 +48,18 @@ import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.po
 
 const RUN = Date.now().toString(36);
 
+/**
+ * ⭐ **Los dos números de los candados de carrera desde `NULL`** (bloques A y C).
+ *
+ * `CONC` es cuántas capturas simultáneas entran; `TRIALS`, cuántas veces se repite la tirada. El
+ * segundo NO es decorativo: el defecto que vigilan es **probabilístico** (medido `p ≈ 0.32` en
+ * envíos y `p ≈ 0.24` en buylist), así que **una sola tirada no verifica nada** — dejaría pasar la
+ * regresión 2 de cada 3 veces. Con 20 tiradas la fuga baja a `0.68²⁰ ≈ 0.02 %` (envíos) y
+ * `0.76²⁰ ≈ 0.4 %` (buylist). ⛔ Bajarlos es **debilitar el candado**.
+ */
+const CONC = 8;
+const TRIALS = 20;
+
 describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`, contra BD real', () => {
   let h: E2EHarness;
   let adminToken: string;
@@ -246,32 +258,52 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
     });
 
     /**
-     * ⚠️⚠️ **HUECO CONOCIDO Y ABIERTO — NO ES UN OLVIDO, ES UN HALLAZGO, Y SE DEJA POR ESCRITO AQUÍ
-     * PORQUE ES DONDE SE VA A BUSCAR.**
+     * ⭐⭐⭐ **LA OTRA MITAD, LA QUE ROMPÍA: LA CARRERA PARTIENDO DEL SELLO EN `NULL`.**
+     * *(Hasta el 2026-09-14 esto era un **hueco documentado** en este mismo sitio: el defecto estaba
+     * medido y sin arreglar. Ya no — y por eso ahora es un candado y no un párrafo.)*
      *
-     * Lo de arriba mide el pestillo **una vez echado**. La otra mitad —**N capturas simultáneas
-     * partiendo del sello en `NULL`**— la medí y **NO se cumple hoy**: con `N = 8` salen **2 y hasta
-     * 3 correos**. Medido sobre BD recreada, **3 de 5 corridas en rojo** (`2, 2, 3` correos; las
-     * otras 2 dieron 1).
+     * **El defecto que vigila, medido (`f8c7040`, BD propia, `TRIALS` tiradas de `CONC`
+     * simultáneas): 8 de 25 tiradas mandaban DOS correos.** Mecanismo: `setTracking` decidía si
+     * reiniciar el ciclo con `labelChanged = shipment.carrier !== carrier || …` calculado sobre una
+     * **lectura PREVIA** al update. Con N concurrentes las N leen el valor viejo, las N se creen «el
+     * cambio» y las N escriben `trackingNoticeSentAt: null` ⇒ una **borra el pestillo que otra
+     * acababa de echar**. *El pestillo funcionaba; se le podía quitar el cerrojo desde fuera.*
      *
-     * **El mecanismo, entero:** `setTracking` decide si reinicia el ciclo con
-     * `labelChanged = shipment.carrier !== carrier || …` calculado sobre una **lectura PREVIA** al
-     * update (`shipments.service.ts:735`). Con N concurrentes, **las N leen el estado anterior**, las
-     * N se creen «el cambio» y las N escriben `trackingNoticeSentAt: null` ⇒ una puede **borrar el
-     * pestillo que otra acababa de echar**, y entonces vuelve a haber derecho a avisar. *El pestillo
-     * funciona; lo que falla es que se le puede quitar el cerrojo desde fuera.*
+     * **Canario que aisló la causa (misma carrera, misma concurrencia, `N=25`):** con la etiqueta
+     * **ya escrita** en la fila —⇒ `labelChanged` falso para todas, nadie borra el sello— salieron
+     * **0/25 rojas**, contra 8/25 con las columnas en `NULL`. La única variable que cambia es el
+     * borrado del sello.
      *
-     * ⛔ **No se asierta aquí a propósito.** (1) Sería un candado **intermitente** (3/5), y un candado
-     * que falla a veces no gatea — es la misma regla por la que se arregló `pricing-visibility` en
-     * este mismo pase. (2) El arreglo es **producto**, no instrumentación: mover la decisión al MOTOR
-     * (`§4.48.4`, *«la guarda va en el motor»*) con un `updateMany` condicionado al valor viejo, y eso
-     * toca semántica de NULL de Prisma y el entrelazado de dos escrituras. **Este encargo era de
-     * instrumentación**, así que el hallazgo se enruta en vez de parchearse a escondidas.
+     * ### ⚠️ Por qué este candado repite la tirada `TRIALS` veces y NO una sola
+     * El defecto es **probabilístico** (`p ≈ 0.32` por tirada). Un candado de UNA tirada lo dejaría
+     * pasar 2 de cada 3 veces: sería un candado que **no gatea**, exactamente la clase que el censo
+     * de pruebas apagadas de este proyecto existe para impedir. Con 20 tiradas, la probabilidad de
+     * que el defecto se cuele entero es `0.68²⁰ ≈ 0.02 %`. **Ablación medida (2026-09-14):
+     * reintroducido el `labelChanged` sobre la lectura previa, este `it` sale ROJO 5/5 corridas;
+     * con el arreglo, VERDE en 65/65 tiradas** (40 con 8 concurrentes + 25 con 16).
      *
-     * ⚠️ `guideNoticeSentAt` (bloque C) tiene **la misma forma** de decisión previa; en 5 corridas
-     * **no se reprodujo** (5/5 verde), pero **no está demostrado seguro**: su guarda de negocio corre
-     * dentro de una transacción y estrecha la ventana, no la cierra.
+     * ⛔ **Bajar `TRIALS` es debilitar el candado**, no acelerarlo: cuesta ~4 s y compra el 99.98 %.
      */
+    it('⭐⭐ CARRERA REAL desde el sello en NULL: N tiradas × 8 simultáneas ⇒ SIEMPRE UN correo', async () => {
+      const correosPorTirada: number[] = [];
+      for (let i = 0; i < TRIALS; i++) {
+        const id = await nuevoEnvio(`a5-${i}`);
+        bandeja.length = 0;
+        const res = await Promise.all(
+          Array.from({ length: CONC }, () =>
+            capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A5-${i}`),
+          ),
+        );
+        for (const r of res) expect(r.status).toBe(201);
+        // El aviso es POST-COMMIT y best-effort: se le deja aterrizar antes de contar la bandeja.
+        await new Promise((r) => setTimeout(r, 120));
+        correosPorTirada.push(bandeja.length);
+      }
+      // ⛔ Rojo con 2 (el defecto original) **y también con 0** (el defecto con el signo cambiado:
+      // si alguien quitara la rama `carrier: null` del `WHERE`, la primera captura —que tiene las
+      // dos columnas en `NULL`— dejaría de casar y NO avisaría nunca).
+      expect(correosPorTirada).toEqual(Array.from({ length: TRIALS }, () => 1));
+    }, 120000);
   });
 
   // ===============================================================================================
@@ -361,10 +393,9 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
      * no puede revertir la captura de una etiqueta ya pagada) ⇒ la unicidad **no la da la
      * transacción, la da el sello**. Si el sello no muerde, no hay nada más detrás.
      *
-     * ⚠️ Se mide en esta forma —y no partiendo del sello en `NULL`— por lo dicho en el bloque (A):
-     * esa otra variante depende de una decisión tomada sobre una lectura previa, y un candado
-     * intermitente no gatea. Medido: partiendo de `NULL`, **5/5 verde** aquí (contra 2/5 en
-     * envíos), pero **5/5 no es una demostración** y no se convierte en candado.
+     * ⚠️ La variante desde `NULL` vive en el `it` siguiente, y hasta el 2026-09-14 **no existía**:
+     * se había medido `5/5 verde` y se había escrito, con razón, que *«5/5 no es una demostración»*.
+     * No lo era: con `N = 25` salieron **6 rojas**. El `5/5` fue suerte (`0.76⁵ ≈ 25 %`).
      */
     it('⭐⭐ CARRERA REAL contra Postgres: con el sello echado, 8 capturas simultáneas ⇒ CERO correos', async () => {
       const id = await nuevaSolicitud();
@@ -384,5 +415,40 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
       expect(bandeja).toHaveLength(0);
       expect(await selloSolicitud(id)).toEqual(selloTrasPrimero);
     });
+
+    /**
+     * ⭐⭐⭐ **EL TERCER SITIO DE LA MISMA CLASE — y el que enseña que una transacción NO basta.**
+     *
+     * `adminGuide` hacía el mismo *comprobar-y-actuar* que `setTracking`, pero **dentro de una
+     * `$transaction`**, y eso invitaba a suponerlo seguro. No lo era: la transacción serializa las
+     * ESCRITURAS por el candado de fila, pero cada petición sigue decidiendo `labelChanged` con el
+     * valor que leyó **antes** de esperar, y el sello se reclama **POST-COMMIT y fuera** de la
+     * transacción ⇒ el `guideNoticeSentAt: null` de la segunda aterriza **después** de que la
+     * primera reclamara. **Medido: 6 de 25 tiradas con DOS correos** (`N = 25`, 8 simultáneas). *La
+     * transacción estrechaba la ventana; no la cerraba.*
+     *
+     * ⚠️ Y es el caso que más se parece a lo que el dueño describió el primer día —*«rechacé dos
+     * veces en menos de un min… no sé si se debería bloquear»*—: **un aviso por ciclo** (§R.4,
+     * criterio 205). **Ablación medida: con el `labelChanged` de la lectura previa reintroducido,
+     * este `it` sale ROJO 5/5 corridas; con el arreglo, VERDE en 65/65 tiradas.**
+     */
+    it('⭐⭐ CARRERA REAL desde el sello en NULL: N tiradas × 8 simultáneas ⇒ SIEMPRE UN correo', async () => {
+      const correosPorTirada: number[] = [];
+      for (let i = 0; i < TRIALS; i++) {
+        const id = await nuevaSolicitud();
+        bandeja.length = 0;
+        const res = await Promise.all(
+          Array.from({ length: CONC }, () => capturarGuiaVendedor(id, 'FedEx', `BL-${RUN}-C5-${i}`)),
+        );
+        // Igual que arriba: la guarda de negocio puede devolver `409` a alguna concurrente. Lo que
+        // este candado afirma es lo del CORREO, no cuántas capturas ganan.
+        for (const r of res) expect([200, 409]).toContain(r.status);
+        await new Promise((r) => setTimeout(r, 120));
+        correosPorTirada.push(bandeja.length);
+      }
+      // ⛔ Rojo con 2 (el defecto) y con 0 (el mismo defecto con el signo cambiado: sin la rama
+      // `shipmentCarrier: null` del `WHERE`, la PRIMERA captura no casaría y no avisaría nunca).
+      expect(correosPorTirada).toEqual(Array.from({ length: TRIALS }, () => 1));
+    }, 120000);
   });
 });
