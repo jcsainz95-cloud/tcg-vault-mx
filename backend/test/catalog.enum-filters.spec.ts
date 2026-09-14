@@ -3,6 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { DISABLED_GRADED_ESTIMATE_CONFIG } from '../src/common/graded-estimate';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * MENOR (QA) — los filtros enum del endpoint PÚBLICO GET /catalog/cards se validan contra la
@@ -30,7 +31,7 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
       getGradedEstimatesBatch: jest.fn(async () => new Map()),
       getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
-    return { svc: new CatalogService(prisma as PrismaService, pricing), prisma };
+    return { svc: new CatalogService(prisma as PrismaService, pricing, ivaDialsStub() as never), prisma };
   }
 
   it('?condition=LP (raw ya no admite LP) → 400 VALIDATION_ERROR, sin tocar Prisma', async () => {

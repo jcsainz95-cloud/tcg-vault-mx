@@ -5,7 +5,15 @@ import { PricingService, PriceInfo, MONEY_REF_WHERE, toPublicPriceInfo } from '.
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
-import { PriceBasis, SealedSpreadSource, sealedPriceBasisOf } from '../../common/money';
+import {
+  PRICE_CONVENTION_OF_NEW_ROWS,
+  PriceBasis,
+  SealedSpreadSource,
+  displayPriceCentsOf,
+  ivaIsIncluded,
+  sealedPriceBasisOf,
+} from '../../common/money';
+import type { IvaDials } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CardDTO, CatalogService, ListingDTO, toCardDTO } from './catalog.service';
 import { SEALED_CONDITION_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
@@ -51,7 +59,12 @@ export interface SealedGroupSummaryDTO {
   sealedSubtype: SealedSubtype | null;
   sealedCondition: SealedCondition;
   availableCount: number;
+  /** `P` del representante — **con el IVA DENTRO** (§M10-IVA.3). Semántica «desde». */
   fromPriceCents: number;
+  /** `true` bajo `IVA_INCLUSIVE`. */
+  ivaIncluded: boolean;
+  /** La **TASA**, para el rótulo. ⛔ **NO es el dial** (criterio 209). */
+  ivaRatePct: number;
   currency: 'MXN';
 }
 
@@ -63,7 +76,18 @@ export interface SealedGroupDTO {
   sealedSubtype: SealedSubtype | null;
   sealedCondition: SealedCondition;
   availableCount: number;
+  /**
+   * ⭐ **`P` del representante — `fromPriceCents` PASA A LLEVAR EL IVA DENTRO** (§M10-IVA.3).
+   * ⚠️ **El nombre NO cambia y ésa es la excepción del contrato**: aquí la semántica «desde» ya era
+   * la misma y el contrato lo dice explícitamente (*«`fromPriceCents` pasa a llevar el IVA dentro`»*).
+   * Lo que impide que un front sin migrar pinte la mentira son los **dos campos nuevos**, que son
+   * REQUERIDOS: omitirlos no compila.
+   */
   fromPriceCents: number;
+  /** `true` bajo `IVA_INCLUSIVE`. */
+  ivaIncluded: boolean;
+  /** La **TASA**, para el rótulo. ⛔ **NO es el dial** (criterio 209). */
+  ivaRatePct: number;
   /** Detalle PROPIO del sellado: qué spread aplicó. Se conserva además de `priceBasis`. */
   priceSource: SealedSpreadSource;
   /**
@@ -155,8 +179,13 @@ export class SealedCatalogService {
     return `c:${item.cardId}:${item.sealedSubtype ?? ''}:${cond}`;
   }
 
-  /** Construye el SealedGroupDTO de un grupo (miembros no vacíos). Representante = pieza más barata. */
-  private toGroupDTO(members: PricedSealed[]): SealedGroupDTO {
+  /**
+   * Construye el `SealedGroupDTO` de un grupo (miembros no vacíos). Representante = pieza más barata.
+   *
+   * ⭐ `fromPriceCents` sale de **derivar `P` sobre el `L` del representante** con los diales que se
+   * le pasan (⛔ nunca leídos aquí dentro: el grid los iza una vez por petición).
+   */
+  private toGroupDTO(members: PricedSealed[], dials: IvaDials): SealedGroupDTO {
     const sorted = [...members].sort((a, b) => a.salePriceCents - b.salePriceCents);
     const cheapest = sorted[0];
     const item = cheapest.item;
@@ -176,7 +205,16 @@ export class SealedCatalogService {
       sealedSubtype: (item.sealedSubtype ?? null) as SealedSubtype | null,
       sealedCondition: (item.sealedCondition ?? 'mint') as SealedCondition,
       availableCount: members.length,
-      fromPriceCents: cheapest.salePriceCents,
+      // ⭐⭐ `P = round(L × (1 + t·r))` — la MISMA función que deriva el precio de una carta y el que
+      // congela el checkout. *Si el sellado tuviera su propia derivación, la vitrina y el cobro
+      // podrían separarse un centavo sin que nada fallara.*
+      fromPriceCents: displayPriceCentsOf(
+        cheapest.salePriceCents,
+        dials.ivaTransferPct,
+        dials.ivaRatePct,
+      ),
+      ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
+      ivaRatePct: dials.ivaRatePct,
       priceSource: cheapest.source,
       // v2.0 (P-48, contrato §DTOs) — REQUERIDO, y se omitía. El sellado NO cambia de matemática
       // (conserva su spread por presentación, §K/§4.23a): solo DERIVA su basis de `priceSource`
@@ -199,8 +237,8 @@ export class SealedCatalogService {
    * `priceSource`. Se construye desde el DTO de ficha (una sola fuente de agrupación y de precio,
    * SEC-A1) por lista blanca; el tipo propio hace que emitir cualquiera de los tres aquí NO COMPILE.
    */
-  private toGroupSummaryDTO(members: PricedSealed[]): SealedGroupSummaryDTO {
-    const g = this.toGroupDTO(members);
+  private toGroupSummaryDTO(members: PricedSealed[], dials: IvaDials): SealedGroupSummaryDTO {
+    const g = this.toGroupDTO(members, dials);
     return {
       representativeItemId: g.representativeItemId,
       card: g.card,
@@ -210,6 +248,8 @@ export class SealedCatalogService {
       sealedCondition: g.sealedCondition,
       availableCount: g.availableCount,
       fromPriceCents: g.fromPriceCents,
+      ivaIncluded: g.ivaIncluded,
+      ivaRatePct: g.ivaRatePct,
       currency: g.currency,
     };
   }
@@ -255,9 +295,11 @@ export class SealedCatalogService {
       else groups.set(k, [p]);
     }
 
+    // ⭐ Los diales, UNA lectura por petición (BE-25 + §4.44.b).
+    const dials = await this.settings.getIvaDials();
     // v2.1.9 (D2): la REJILLA emite `SealedGroupSummaryDTO` — sin priceBasis/referenceValue/priceSource.
     const cards = [...groups.values()].map((members) => ({
-      dto: this.toGroupSummaryDTO(members),
+      dto: this.toGroupSummaryDTO(members, dials),
       newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
     }));
 
@@ -298,14 +340,21 @@ export class SealedCatalogService {
     const priced = await this.loadPricedSealed(groupWhere);
     if (priced.length === 0) throw BusinessException.notFound(); // el grupo no tiene piezas vendibles
 
-    const group = this.toGroupDTO(priced);
+    const dials = await this.settings.getIvaDials();
+    const group = this.toGroupDTO(priced, dials);
     const sealedCtx = await this.pricing.loadSealedSpreads();
     // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`).
     const listings: ListingDTO[] = await Promise.all(
       [...priced]
         .sort((a, b) => a.salePriceCents - b.salePriceCents)
         .map((p) =>
-          this.catalog.toListingDTO(p.item, { reference: p.marketRef, sealedSpreads: sealedCtx }),
+          // ⭐ Los diales se pasan izados: ⛔ una lectura por pieza sería N+1 **y** abriría la puerta
+          // a que dos piezas de la misma ficha se derivaran con posiciones distintas del dial.
+          this.catalog.toListingDTO(p.item, {
+            reference: p.marketRef,
+            sealedSpreads: sealedCtx,
+            ivaDials: dials,
+          }),
         ),
     );
 

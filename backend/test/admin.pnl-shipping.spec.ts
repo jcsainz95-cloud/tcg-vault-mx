@@ -42,9 +42,9 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       shipmentRequest: {
         findMany: jest.fn().mockResolvedValue([
           // Envío con costo capturado: ingreso 17500, costo real 9000.
-          { shippingFeeCents: 17500, shippingCostCents: 9000, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
+          { shippingFeeCents: 17500, shippingCostCents: 9000, shippingCostIvaCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
           // Envío histórico/sin captura: costo = 0 (default de columna), no rompe el cálculo.
-          { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
+          { shippingFeeCents: 17500, shippingCostCents: 0, shippingCostIvaCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
         ]),
       },
     };
@@ -56,7 +56,7 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
     );
   });
 
-  it('returns the 6-key shape and subtracts shippingCostCents', async () => {
+  it('returns the 7-key shape and subtracts the NET shippingCostCents', async () => {
     const p = await service.pnl();
     // income = 100000 ; shippingRevenue = 17500 + 17500 = 35000
     // cogs = 30000 ; stripeFees = 4000 + 800 + 800 = 5600 ; shippingCost = 9000 + 0 = 9000
@@ -66,6 +66,9 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
       cogsCents: 30000,
       stripeFeesCents: 5600,
       shippingCostCents: 9000,
+      // ⭐ D56 (§M10-IVA.8): la SÉPTIMA cifra. Uno de los dos envíos tiene costo `0` ⇒ el contador
+      // lo SEÑALA. ⛔ No afirma que costara cero: afirma que hay que revisarlo.
+      shippingCostMissingCount: 1,
       profitCents: 100000 + 35000 - 30000 - 5600 - 9000,
     });
     // No debe existir la clave vieja.
@@ -75,19 +78,20 @@ describe('AdminService.pnl — ingreso vs costo de envío (v1.4-finance)', () =>
   it('subtracting the shipping cost lowers profit vs treating it as 0', async () => {
     const withCost = await service.pnl();
     prisma.shipmentRequest.findMany.mockResolvedValue([
-      { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
-      { shippingFeeCents: 17500, shippingCostCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
+      { shippingFeeCents: 17500, shippingCostCents: 0, shippingCostIvaCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
+      { shippingFeeCents: 17500, shippingCostCents: 0, shippingCostIvaCents: 0, processingFeeCents: 800, ivaCents: 2800, priceConvention: 'IVA_EXCLUSIVE' },
     ]);
     const withoutCost = await service.pnl();
     expect(withoutCost.profitCents - withCost.profitCents).toBe(9000);
   });
 
-  it('exportCsv(pnl) mirrors the new 6-column shape', async () => {
+  it('exportCsv(pnl) mirrors the new 7-column shape', async () => {
     const csv = await service.exportCsv('pnl');
     const [header, row] = csv.trim().split('\n');
     expect(header).toBe(
-      'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents',
+      'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
+        'shippingCostMissingCount,profitCents',
     );
-    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,${100000 + 35000 - 30000 - 5600 - 9000}`);
+    expect(row).toBe(`pnl,100000,35000,30000,5600,9000,1,${100000 + 35000 - 30000 - 5600 - 9000}`);
   });
 });

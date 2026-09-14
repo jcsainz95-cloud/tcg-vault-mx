@@ -2,6 +2,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../src/common/card-order';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.3 — Cotizador (API_CONTRACT §6): búsqueda pública sobre TODA la tabla `Card`
@@ -97,7 +98,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
       // No debe tocar inventoryItem en absoluto.
       inventoryItem: { findMany: jest.fn() },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
 
     const res = await svc.searchAllCards({ setId: 'sv8', rarity: 'Illustration Rare', page: 2, pageSize: 20 });
 
@@ -145,7 +146,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
         count: jest.fn(async () => 1),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     await svc.searchAllCards({ q: 'pika', page: 1, pageSize: 20 });
 
     expect(capturedWhere.OR).toEqual([
@@ -165,7 +166,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
         count: jest.fn(async () => 0),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     await svc.searchAllCards({ q: 'pika', page: 1, pageSize: 20 });
 
     // v1.40 (§4.22b, Enmienda B): búsqueda de texto en varios sets → nombre primero; el desempate tras
@@ -195,7 +196,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
         count: jest.fn(async () => rows.length),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.searchAllCards({ q: 'tropius', page: 1, pageSize: 20 });
     // Mismo `name` → decide `set.releaseDate` desc: 2024 > 2020 > 2005. La impresión nueva encabeza.
     expect(res.data.map((c) => c.id)).toEqual(['trop-new', 'trop-mid', 'trop-old']);
@@ -213,7 +214,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
         count: jest.fn(async () => rows.length),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.searchAllCards({ q: 'tropius', page: 1, pageSize: 20 });
     // `nulls: 'last'` ⇒ el set sin fecha va al FINAL, aun teniendo el número más alto.
     expect(res.data.map((c) => c.id)).toEqual(['trop-new', 'trop-old', 'trop-null']);
@@ -230,7 +231,7 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
         count: jest.fn(async () => 0),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.searchAllCards({ page: 1, pageSize: 50 });
     expect(capturedArgs.where).toEqual({});
     expect(capturedArgs.skip).toBe(0);
@@ -258,7 +259,7 @@ describe('CatalogService.listSetsWithImportedCards — sets del cotizador', () =
         }),
       },
     };
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.listSetsWithImportedCards();
 
     // Solo sets con al menos una carta importada.
@@ -275,7 +276,7 @@ describe('CatalogService.listSetsWithImportedCards — sets del cotizador', () =
       { id: 'sv8', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08' },
       { id: 'sv7', name: 'Stellar Crown', series: 'SV', releaseDate: '2024/09/13' },
     ]);
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.listSetsWithImportedCards();
     // Con orden solo-por-año los tres empatarían (2024); la fecha completa los distingue.
     expect(res.data.map((s) => s.id)).toEqual(['sv8', 'sv7', 'sv6']);
@@ -287,7 +288,7 @@ describe('CatalogService.listSetsWithImportedCards — sets del cotizador', () =
       { id: 'swsh9', name: 'Brilliant Stars', series: 'SWSH', releaseDate: '2022/02/25' },
       { id: 'zx', name: 'Astral Radiance', series: 'SWSH', releaseDate: '2022/02/25' },
     ]);
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.listSetsWithImportedCards();
     expect(res.data.map((s) => s.name)).toEqual([
       'Astral Radiance',
@@ -303,7 +304,7 @@ describe('CatalogService.listSetsWithImportedCards — sets del cotizador', () =
       { id: 'nodate-a', name: 'Alpha Promos', series: null, releaseDate: null },
       { id: 'sv8', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08' },
     ]);
-    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const svc = new CatalogService(prisma as PrismaService, pricingStub(), ivaDialsStub() as never);
     const res = await svc.listSetsWithImportedCards();
     // Con fecha primero (desc); sin fecha al final, entre sí por nombre asc.
     expect(res.data.map((s) => s.id)).toEqual(['sv8', 'base1', 'nodate-a', 'nodate-b']);

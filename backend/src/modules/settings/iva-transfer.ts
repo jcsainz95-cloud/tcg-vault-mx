@@ -25,7 +25,27 @@
  * **Cota de rango:** `L × t × r ≤ MAX_CENTS × 100 × 100 ≈ 2.1e13`, muy por debajo de
  * `Number.MAX_SAFE_INTEGER` (`9.0e15`) ⇒ el producto intermedio es **exacto**, no aproximado.
  */
-import { MAX_CENTS, StripeFeeConfig, grossUpTotal } from '../../common/money';
+import {
+  StripeFeeConfig,
+  displayPriceCentsOf,
+  grossUpTotal,
+  taxBaseCentsOf,
+} from '../../common/money';
+import type { IvaDials } from '../../common/money';
+
+/**
+ * ⭐ **v1.75/D56 — `displayPriceCentsOf` y `taxBaseCentsOf` SE MUDARON a `common/money.ts`, y se
+ * re-exportan desde aquí para no romper a nadie.**
+ *
+ * **Por qué se mudan:** desde D56 esa misma aritmética la necesitan el **catálogo** y el **checkout**
+ * para derivar `P` en cada lectura. Dejarlas en el módulo del dial obligaría a `catalog` y a `orders`
+ * a importar de `modules/settings/` para hacer una multiplicación de dinero. *La aritmética del
+ * dinero es del núcleo; la puerta del dial es de settings.* Y, sobre todo: **una sola definición** —
+ * si el preview del acuse y el precio que se cobra salieran de dos funciones distintas, el acuse del
+ * criterio 188 podría cuadrar contra una cifra que el checkout no produce.
+ */
+export { displayPriceCentsOf, taxBaseCentsOf };
+export type { IvaDials };
 
 /** `IvaTransferPositionDTO` de `API_CONTRACT §M10-IVA.2`. Una posición del dial, en pesos. */
 export interface IvaTransferPositionDTO {
@@ -61,30 +81,25 @@ export interface IvaTransferPreviewDTO {
 export const IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT = 10_000;
 
 /**
- * ⭐ **`P` — el precio exhibido, en aritmética ENTERA.**
+ * ⭐⭐ **LA COTA SUPERIOR DE `samplePriceCents` — MX$1 000 000 — Y NO ES HIGIENE: SIN ELLA LA RUTA ES
+ * UN `500` DESDE LA BARRA DE DIRECCIONES** (`API_CONTRACT §M10-IVA.2`, `ARCHITECTURE §9 · D-IVA-13`).
  *
- * `P = L + round(L × t × r / 10000)`, con `t` = puntos de traslación y `r` = puntos de la tasa.
- * Con `t = 100` (el neutro) reproduce **al centavo** el `L × (1 + r)` de hoy: es lo que sostiene el
- * criterio **185** y el candado `IVA-1`.
- */
-export function displayPriceCentsOf(
-  listPriceCents: number,
-  ivaTransferPct: number,
-  ivaRatePct: number,
-): number {
-  return listPriceCents + Math.round((listPriceCents * ivaTransferPct * ivaRatePct) / 10_000);
-}
-
-/**
- * ⭐ **La base gravable a partir del exhibido: `round(P / (1 + r))`, en aritmética ENTERA.**
+ * `totalChargedCents` sale de `grossUpTotal`, que **LANZA** cuando el total excede `MAX_CENTS`
+ * (*«total exceeds MAX_CENTS — order amount not representable»*), y ese `Error` **no lo mapea el
+ * filtro global**. Con `samplePriceCents = 2_000_000_000` y el dial en 100, `P = 2.32e9 > MAX_CENTS`
+ * ⇒ excepción ⇒ **`500` disparable por cualquiera con sesión `super_admin`**, que es exactamente la
+ * clase que §0-Q existe para cerrar.
  *
- * ⛔ **El IVA se saca por RESTA (`P − base`), nunca por `round(P × r)`**: es la regla `R2` de
- * `ARCHITECTURE §4.44.c` y lo que hace que `base + iva == P` sea una **identidad** y no una
- * coincidencia que se descuadra un centavo (candado `IVA-4(b)`).
+ * ⚠️ **MEDIDO en este pase, y NO era solo del `/preview`:** el validador anterior admitía hasta
+ * `MAX_CENTS`, así que **el `PUT` del acuse ya tenía el mismo `500`** —`validateSamplePriceCents`
+ * aceptaba `2_147_483_647`, `displayPriceCentsOf` lo lleva a `2 491 081 030` y `grossUpTotal` lanza—.
+ * La cota se aplica a **las dos puertas**, no solo a la que el contrato nombró.
+ *
+ * **La cifra se elige MEDIDA, no redonda por gusto:** con el dial en 100 y `r = 16`, `P = 1.16e8` y
+ * su gross-up ≈ `1.21e8` — **casi veinte veces por debajo** de `MAX_CENTS`, así que ningún dial ni
+ * ninguna comisión configurable puede acercarlo al techo.
  */
-export function taxBaseCentsOf(displayPriceCents: number, ivaRatePct: number): number {
-  return Math.round((displayPriceCents * 100) / (100 + ivaRatePct));
-}
+export const IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX = 100_000_000;
 
 /**
  * Una posición del dial, entera. **El servidor la calcula; ⛔ el frontend no multiplica nada**
@@ -150,10 +165,15 @@ export function ivaTransferPreview(params: {
  * puerta de dinero es encontrarle el argumento que la vuelve trivial.*
  */
 export function validateSamplePriceCents(v: unknown): string | null {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_CENTS
+  return typeof v === 'number' &&
+    Number.isInteger(v) &&
+    v >= 1 &&
+    v <= IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX
     ? null
-    : `must be an integer in [1, ${MAX_CENTS}] (cents of the sample list price \`L\`; 0 is rejected ` +
-        'because it makes every net delta 0, which would turn the acknowledgement into a no-op)';
+    : `must be an integer in [1, ${IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX}] (cents of the sample list ` +
+        'price `L`; 0 is rejected because it makes every net delta 0, which would turn the ' +
+        'acknowledgement into a no-op, and the upper bound is what keeps `grossUpTotal` from ' +
+        'throwing an unmapped 500 — see IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX)';
 }
 
 /**

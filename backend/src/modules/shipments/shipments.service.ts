@@ -17,7 +17,12 @@ import { ErrorCodeType } from '../../common/error-codes';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
-import { computeShipmentBreakdown } from '../../common/money';
+import {
+  PRICE_CONVENTION_OF_NEW_ROWS,
+  computeShipmentBreakdown,
+  netShippingCostCents,
+  shippingFeeDisplayCentsOf,
+} from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
@@ -55,7 +60,11 @@ function toAdminShipmentRow(s: ShipmentRequest) {
     addressSnapshot: s.addressSnapshot,
     status: s.status,
     shippingFeeCents: s.shippingFeeCents,
+    // ⚠️ Los DOS, y en pareja: `shippingCostCents` es **BRUTO** (el total de la factura) y
+    // `shippingCostIvaCents` su **IVA acreditable congelado**. Publicar solo el bruto dejaba al
+    // operador sin poder comprobar la resta que el P&L hace con su captura. Admin-only (§M4).
     shippingCostCents: s.shippingCostCents,
+    shippingCostIvaCents: s.shippingCostIvaCents,
     ivaCents: s.ivaCents,
     processingFeeCents: s.processingFeeCents,
     totalCents: s.totalCents,
@@ -83,11 +92,19 @@ export class ShipmentsService {
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
 
+  /**
+   * ⭐ El desglose del retiro de bóveda. La tarifa EXHIBIDA `E = round(F × (1 + t·r))` lleva su IVA
+   * dentro (§4.44.f); `F` (el dial `shipping_fee_cents`) sigue siendo NETO y no cambia de valor.
+   * **Money-neutral con el dial en 100 %:** `round(17500 × 1.16) = 20300 = 17500 + 2800`.
+   */
   private async breakdown() {
-    const shippingFeeCents = await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS);
-    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
+    const dials = await this.settings.getIvaDials();
+    const shippingFeeCents = shippingFeeDisplayCentsOf(
+      await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
+      dials,
+    );
     const fee = await this.settings.getStripeFee();
-    return computeShipmentBreakdown(shippingFeeCents, ivaPct, fee);
+    return computeShipmentBreakdown(shippingFeeCents, dials.ivaRatePct, fee);
   }
 
   private async validateAddress(userId: string, addressId: string) {
@@ -241,10 +258,10 @@ export class ShipmentsService {
             ivaCents: breakdown.ivaCents,
             processingFeeCents: breakdown.processingFeeCents,
             totalCents: breakdown.totalCents,
-            // v1.64-iva-inclusive (M-50, §4.44.f/§4.44.k · DEPLOY 1) — el envío entra en la
-            // convención igual que una carta. Hoy `computeShipmentBreakdown` apila
-            // `round(envío × r)` DESPUÉS de la tarifa ⇒ es `IVA_EXCLUSIVE`, y así se archiva.
-            priceConvention: 'IVA_EXCLUSIVE',
+            // ⭐⭐ D56 / criterio **214** — el envío entra en la convención igual que una carta
+            // (§4.44.f, criterio 189): `shippingFeeCents` ES `E` y **lleva su IVA dentro**, así que
+            // la fila nace `IVA_INCLUSIVE`. ⛔ Ya no se apila `round(envío × r)` detrás.
+            priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
             items: { create: inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
           },
         });
@@ -692,6 +709,12 @@ export class ShipmentsService {
     carrier: string,
     trackingNumber: string,
     shippingCostCents?: number,
+    /**
+     * ⭐ §M10-IVA.8 — el **IVA acreditable** de la factura del carrier. Opcional y editable, igual
+     * que el bruto; omitirlo **no modifica** la columna (default `0` ⇒ `neto = bruto`, dirección
+     * conservadora). ⛔ No se deriva del bruto: se **captura**.
+     */
+    shippingCostIvaCents?: number,
   ) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
@@ -723,6 +746,8 @@ export class ShipmentsService {
           ...(labelChanged ? { trackingNoticeSentAt: null } : {}),
           // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
           ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
+          // ⭐ §M10-IVA.8 / `IVA-11(c)`: el crédito se CAPTURA junto al bruto y se congela con él.
+          ...(shippingCostIvaCents !== undefined ? { shippingCostIvaCents } : {}),
         },
       }),
     );

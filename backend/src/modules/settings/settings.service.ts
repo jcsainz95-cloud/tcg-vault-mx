@@ -18,6 +18,7 @@ import {
 // que `PROJECT §Q.4` publica **sin levantar nada**. ⛔ Y entra aquí como función, no como lectura:
 // `getStripeFee()` sigue sin conocer `IVA_TRANSFER_PCT` (candado `IVA-7`).
 import {
+  IvaDials,
   IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
   IvaTransferPreviewDTO,
   ivaTransferPreview,
@@ -283,6 +284,27 @@ export class SettingsService implements OnModuleInit {
    */
   async getIvaTransferPct(db: SettingRowReader = this.prisma): Promise<number> {
     return this.getNumber(SettingKey.IVA_TRANSFER_PCT, db);
+  }
+
+  /**
+   * ⭐⭐ **LOS DOS DIALES QUE DERIVAN `P`, LEÍDOS JUNTOS Y UNA SOLA VEZ POR PETICIÓN**
+   * (`ARCHITECTURE §4.44.b/.c`, `API_CONTRACT §M10-IVA.3`).
+   *
+   * `P = round(L × (1 + t·r))` necesita **la TASA `r`** (`iva_pct`) y **la fracción trasladada `t`**
+   * (`iva_transfer_pct`). Se leen **por el mismo camino y en el mismo instante** para que el catálogo
+   * y el checkout no puedan derivar dos precios distintos por haber leído el dial en dos momentos.
+   *
+   * ⛔⛔ **Esto NO acopla `iva_pct` con `iva_transfer_pct`: siguen siendo dos filas independientes y
+   * ninguna deriva de la otra** (`IVA-7`). Leerlas juntas ⛔ no es derivar una de la otra. Y
+   * `getStripeFee()` **sigue sin contener una sola referencia a `IVA_TRANSFER_PCT`**: si el dial de
+   * traslación entrara en el cálculo de la comisión, **mover un precio movería una comisión**.
+   */
+  async getIvaDials(db: SettingRowReader = this.prisma): Promise<IvaDials> {
+    const [ivaTransferPct, ivaRatePct] = await Promise.all([
+      this.getIvaTransferPct(db),
+      this.getNumber(SettingKey.IVA_PCT, db),
+    ]);
+    return { ivaTransferPct, ivaRatePct };
   }
 
   /**

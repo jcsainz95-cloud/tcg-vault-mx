@@ -6,6 +6,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.28 (P-18, ARCHITECTURE §4.26b) — PROPAGACIÓN del sellOverride por variante (M-30) a TODOS los
@@ -114,11 +115,12 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
 }
 
 describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
-  it('sellOverride pisa la regla: salePriceCents = override; la referencia NO cambia', async () => {
+  it('sellOverride pisa la regla: `L` = override; la referencia NO cambia', async () => {
     const pricing = buildPricing({ referenceMxnCents: 10000, override: overrideRow(9900) });
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(rawItem());
-    expect(dto.salePriceCents).toBe(9900);
+    // `P` de `L = 9900` con el dial neutro.
+    expect(dto.displayPriceCents).toBe(11484);
     expect(dto.sellable).toBe(true);
     // v2.1.9 (D2): la referencia de mercado NO cambia — pero con `priceBasis='override'` ya NO VIAJA
     // en superficie pública. El mercado no produjo este precio, así que el número no explica nada y
@@ -129,36 +131,36 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
 
   it('listPriceCents POR PIEZA gana al sellOverride de la variante (intención más específica)', async () => {
     const pricing = buildPricing({ referenceMxnCents: 10000, override: overrideRow(9900) });
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(rawItem({ listPriceCents: 12345 }));
-    expect(dto.salePriceCents).toBe(12345);
+    expect(dto.displayPriceCents).toBe(14320); // `P` de `L = 12345`
   });
 
   it('sin fila M-30 el precio sale de la CURVA (mercado $100 ⇒ $115) con basis "market"', async () => {
     const pricing = buildPricing({ referenceMxnCents: 10000 });
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(rawItem());
-    expect(dto.salePriceCents).toBe(11500);
+    expect(dto.displayPriceCents).toBe(13340); // `P` de `L = 11500`
     expect(dto.priceBasis).toBe('market');
   });
 
   it('quitar el override (fila ausente) SIN market → sin precio (no vendible; el piso NO gana)', async () => {
     const pricing = buildPricing({ referenceMxnCents: null });
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(rawItem({ card: { ...CARD, rarity: 'Illustration Rare' } }));
-    expect(dto.salePriceCents).toBeUndefined();
+    expect(dto.displayPriceCents).toBeUndefined();
     expect(dto.sellable).toBe(false);
   });
 
   it('ruta batch (ctx): usa el override del LOTE sin re-consultar single', async () => {
     const pricing = buildPricing({ referenceMxnCents: 10000 });
-    const svc = new CatalogService({} as PrismaService, pricing);
+    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
     const dto = await svc.toListingDTO(rawItem(), {
       reference: { status: 'priced', referenceMxnCents: 10000 },
       curve: DEFAULT_PRICING_CURVE,
       variantOverride: overrideRow(8800) as never,
     });
-    expect(dto.salePriceCents).toBe(8800);
+    expect(dto.displayPriceCents).toBe(10208); // `P` de `L = 8800`
     expect(pricing.getVariantOverride).not.toHaveBeenCalled();
   });
 });

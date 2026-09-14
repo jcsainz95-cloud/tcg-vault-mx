@@ -28,7 +28,12 @@ import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
 import { toAddressDTO } from '../users/address-dto';
-import { netRevenueCents } from '../../common/money';
+import {
+  netRevenueCents,
+  netShippingCostCents,
+  netShippingRevenueCents,
+  shipmentNetRevenueCents,
+} from '../../common/money';
 // v1.74 (§R.3) — `AV-1`: el correo del rechazo de identidad, con su motivo. Puerto global
 // `@Optional()`, plantilla local al módulo, envío best-effort POST-COMMIT.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -436,42 +441,16 @@ function toAdminKycDTO(k: {
 }
 
 /**
- * ⭐ **v1.64 (`D-IVA-5` + §4.44.j sitio 3) — el INGRESO DE ENVÍO de una orden `direct_ship`, neteado
- * por la convención de ESA orden.**
+ * ⚠️⚠️ **`netShippingRevenueOfOrder` SE RETIRÓ, y la nota queda porque el cuerpo que tenía era
+ * LITERALMENTE la mutación que `IVA-9` declara ROJA.**
  *
- * **En el DEPLOY 1 devuelve `o.shippingFeeCents` tal cual, para toda fila**, porque toda fila es
- * `IVA_EXCLUSIVE` y bajo esa convención la tarifa persistida ya es NETA (hoy `computeDirectShipBreakdown`
- * apila el IVA aparte, en `Order.ivaCents`). El neteo es, literalmente, la identidad. *Eso es lo que
- * hace verificable que este sumando nuevo no reinterpreta nada: solo cuenta lo que ya nadie contaba.*
- *
- * ⚠️⚠️ **PUNTO ABIERTO PARA EL DEPLOY 2 — marca interna `IVA-R1` (no es un candado de contrato).**
- * Bajo `IVA_INCLUSIVE`, `Order.ivaCents` es el **residual del AGREGADO** `G = S + E` (regla R2 de
- * §4.44.c): el IVA que corresponde a la línea de envío **no está persistido por separado**, así que
- * repartirlo entre mercancía y envío es una **decisión de asignación** y **no la tomo yo aquí**. Lo que
- * este helper hace es aplicar al envío la misma regla de base gravable que §4.44.c aplica al agregado
- * —`taxBase = round(E / (1 + r))`, con `r` leído de la columna congelada `ivaRatePct`—, que es la
- * lectura más directa de «`E` lleva su IVA dentro» (§4.44.f). **Suma de las dos partes puede diferir
- * del residual agregado en ±1 centavo**, y ésa es exactamente la clase de detalle que decide el
- * arquitecto y no el implementador. **Queda enrutado en `BACKEND_NOTES` como pregunta del deploy 2;
- * en el deploy 1 esta rama es INALCANZABLE** (ninguna fila es `IVA_INCLUSIVE`) y se prueba que lo es.
- *
- * ⛔ Igual que `netRevenueCents`, **solo columnas persistidas de esa fila**: nunca el dial vivo.
+ * Repartía el IVA del envío con **`round(E/(1+r))`** —«el IVA del envío por su cuenta»—, que puede
+ * diferir del residual agregado en ±1 centavo y **rompe la identidad exacta** de §4.44.j.1. Era
+ * inalcanzable mientras ninguna fila fuese `IVA_INCLUSIVE`; **dejó de serlo el mismo segundo del
+ * corte**. La norma del arquitecto es *«el IVA del envío es el RESIDUAL DEL RESIDUAL»* —el envío
+ * absorbe el residuo— y vive en **`money.netShippingRevenueCents`**, un solo cuerpo para el P&L y
+ * para el tablero, ⛔ derivado solo de columnas persistidas de esa fila y jamás del dial vivo.
  */
-function netShippingRevenueOfOrder(o: {
-  shippingFeeCents: number;
-  ivaRatePct: number;
-  priceConvention: PriceConvention;
-}): number {
-  // El IVA embebido en la línea de envío, derivado de la propia línea y de la TASA congelada.
-  // Bajo IVA_EXCLUSIVE `netRevenueCents` ignora este valor y devuelve `shippingFeeCents` intacto.
-  const shippingIvaCents =
-    o.shippingFeeCents - Math.round(o.shippingFeeCents / (1 + o.ivaRatePct / 100));
-  return netRevenueCents({
-    subtotalCents: o.shippingFeeCents,
-    ivaCents: shippingIvaCents,
-    priceConvention: o.priceConvention,
-  });
-}
 
 /**
  * Ventana de fechas de los reportes. v2.1.6 (fase de seguridad) — **valida**: antes hacía
@@ -1523,7 +1502,7 @@ export class AdminService {
       incomeCents += netRevenueCents(o);
       stripeFeesCents += o.processingFeeCents;
       if (o.fulfillmentMode === 'direct_ship') {
-        directShipShippingRevenueCents += netShippingRevenueOfOrder(o);
+        directShipShippingRevenueCents += netShippingRevenueCents(o);
       }
       for (const it of o.items) {
         cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
@@ -1543,18 +1522,32 @@ export class AdminService {
     // mismo periodo/conjunto de envíos (por `pickingAt`) para que caigan en el mismo lapso.
     let shippingRevenueCents = directShipShippingRevenueCents;
     let shippingCostCents = 0;
+    // ⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(b)` — **QUE EL `0` NO SIGNIFIQUE DOS COSAS.**
+    // `shippingCostCents` es `@default(0)`, así que «costó cero» y «no se capturó» son
+    // **indistinguibles** en las filas existentes. ⛔ No se hace nullable (exigiría un backfill que
+    // INVENTA la distinción): el contador la hace **visible** en vez de resolverla falsamente. *Es
+    // una señal para un humano —«estos N envíos no tienen costo: revísalos»—, ⛔ no una afirmación
+    // fiscal.* Un cero silencioso convierte el ingreso de ese envío en **ganancia fantasma**.
+    let shippingCostMissingCount = 0;
     for (const s of shipments) {
       // v1.64 (§4.44.j, sitio 2): neteado por la convención de ESTA `ShipmentRequest`. En el retiro
       // de bóveda el «subtotal» del desglose ES la tarifa de envío (`computeShipmentBreakdown`
       // devuelve `subtotalCents: shippingFeeCents`), así que la fila se lee con esa correspondencia.
-      shippingRevenueCents += netRevenueCents({
-        subtotalCents: s.shippingFeeCents,
-        ivaCents: s.ivaCents,
-        priceConvention: s.priceConvention,
-      });
-      shippingCostCents += s.shippingCostCents; // sin captura => 0 (default de columna)
+      // ⚠️ Helper PROPIO y no `netRevenueCents`: `ShipmentRequest` **no tiene `ivaRatePct`** y usar
+      // el dial vivo haría que un P&L histórico cambiara al mover `iva_pct` (incumple `IVA-5`).
+      shippingRevenueCents += shipmentNetRevenueCents(s);
+      // ⭐⭐ `API_CONTRACT §M10-IVA.8` / `IVA-11(a)` — **NETO contra NETO.** Sumar el costo **BRUTO**
+      // contra un ingreso **NETO** resta `2 800` de pérdida FANTASMA en cada envío, y evitar
+      // exactamente eso es lo que la decisión 68 del dueño dice (*«el costo de envío con el IVA que
+      // yo pague, trátalo como si no hubiera margen»*). El neto es una **RESTA** del crédito
+      // CONGELADO al capturar, ⛔ jamás una división por `(1+r)` ni una lectura del dial vivo.
+      shippingCostCents += netShippingCostCents(s);
+      if (s.shippingCostCents === 0) shippingCostMissingCount += 1;
       stripeFeesCents += s.processingFeeCents;
     }
+    // ⛔ `profitCents` NO cambia de fórmula. Lo que cambia es que sus dos términos de envío están
+    // ahora en la **MISMA base (neta)**: antes uno era neto y el otro bruto, y eso restaba una
+    // pérdida que no existía.
     const profitCents =
       incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents;
     return {
@@ -1563,6 +1556,7 @@ export class AdminService {
       cogsCents,
       stripeFeesCents,
       shippingCostCents,
+      shippingCostMissingCount,
       profitCents,
     };
   }
@@ -1714,7 +1708,14 @@ export class AdminService {
   async exportCsv(report: string, from?: string, to?: string): Promise<string> {
     if (report === 'pnl') {
       const p = await this.pnl(from, to);
-      return `report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents\npnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},${p.shippingCostCents},${p.profitCents}\n`;
+      // §M10-IVA.8: el CSV gana `shippingCostMissingCount` **en el mismo orden que el objeto** — un
+      // CSV cuyo orden de columnas no es el del DTO es dos contratos para una cifra.
+      return (
+        'report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,' +
+        'shippingCostMissingCount,profitCents\n' +
+        `pnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},` +
+        `${p.shippingCostCents},${p.shippingCostMissingCount},${p.profitCents}\n`
+      );
     }
     if (report === 'iva') {
       const iva = await this.ivaReport(from, to);
@@ -1904,10 +1905,27 @@ export class AdminService {
     const isSuperAdmin = role === Role.super_admin;
     const period = this.resolvePeriod(from, to);
 
-    const [salesCount, salesAgg, shipmentsQueue, buylistQueue, disputesQueue, pendingPrices, buylistPeriodAgg, buylistPeriodCount, lastSync, lastFx, users, salesSettled, buylistPaid, withdrawals] =
+    const [salesCount, settledOfPeriod, shipmentsQueue, buylistQueue, disputesQueue, pendingPrices, buylistPeriodAgg, buylistPeriodCount, lastSync, lastFx, users, salesSettled, buylistPaid, withdrawals] =
       await Promise.all([
         this.prisma.order.count({ where: { status: 'settled', settledAt: period } }),
-        this.prisma.order.aggregate({ where: { status: 'settled', settledAt: period }, _sum: { totalCents: true } }),
+        // ⭐⭐ §M10-IVA.7 — **YA NO ES UN `_sum`.** `netAmountCents` sale de `netRevenueCents(o)`, que
+        // es **por fila y depende de su convención**, así que no se puede agregar en SQL sin meter la
+        // decisión de negocio dentro de una expresión de Prisma. Se traen las **seis columnas** que
+        // alimentan la tarjeta y se suma en memoria, con el **mismo helper** que el P&L ⇒ `IVA-10(b)`
+        // (`salesPeriod.netAmountCents == pnl.incomeCents`) es cierto **por construcción**, no por
+        // dos cálculos parecidos que hay que acordarse de mantener iguales.
+        this.prisma.order.findMany({
+          where: { status: 'settled', settledAt: period },
+          select: {
+            totalCents: true,
+            subtotalCents: true,
+            shippingFeeCents: true,
+            ivaCents: true,
+            ivaRatePct: true,
+            processingFeeCents: true,
+            priceConvention: true,
+          },
+        }),
         this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
         // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
         // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
@@ -1955,8 +1973,51 @@ export class AdminService {
     const invValue = isSuperAdmin ? await this.inventoryValue() : null;
     const custody = isSuperAdmin ? await this.custodyValue() : null;
 
+    // ⭐⭐ §M10-IVA.7 (D55(b), pregunta 70) — **VENTAS BRUTAS Y NETAS**, y la diferencia es
+    // EXPLICABLE por una identidad, no por «dos números parecidos»:
+    //
+    //     grossAmountCents ≡ netAmountCents + netShippingRevenueCents + ivaCents + processingFeeCents
+    //
+    // ⛔ Se RECHAZA definir el neto como «bruto − IVA»: dejaría la comisión de plataforma dentro y
+    // **no coincidiría con `incomeCents` del P&L** ⇒ tres números, que es peor que el problema que
+    // el dueño quiso cerrar. Candado `IVA-10`.
+    const salesPeriod = settledOfPeriod.reduce(
+      (acc, o) => ({
+        count: acc.count,
+        // «Lo que el cliente pagó», con comisión y envío DENTRO. Cierto bajo **las dos** convenciones.
+        grossAmountCents: acc.grossAmountCents + o.totalCents,
+        // ⭐ MISMO helper que `pnl.incomeCents`: no pueden divergir.
+        netAmountCents: acc.netAmountCents + netRevenueCents(o),
+        ivaCents: acc.ivaCents + o.ivaCents,
+        netShippingRevenueCents: acc.netShippingRevenueCents + netShippingRevenueCents(o),
+        processingFeeCents: acc.processingFeeCents + o.processingFeeCents,
+      }),
+      {
+        count: salesCount,
+        grossAmountCents: 0,
+        netAmountCents: 0,
+        ivaCents: 0,
+        netShippingRevenueCents: 0,
+        processingFeeCents: 0,
+      },
+    );
+
     const card = {
-      salesPeriod: { count: salesCount, amountCents: salesAgg._sum.totalCents ?? 0 },
+      // ⚠️ **MEDIDO, y se dice porque contradice una frase del contrato.** §M10-IVA.7 afirma que
+      // esta tarjeta *«ya es de campos financieros ⇒ `super_admin`; `vault_operator` no la recibe
+      // (sin cambio)»*. **Hoy sí la recibe** (`amountCents` viaja en `card`, que se devuelve a los
+      // dos roles). ⇒ Se resuelve **sin regresión y sin exposición nueva**: `vault_operator` conserva
+      // exactamente lo que ya veía —el conteo y el bruto, renombrado— y **los cuatro campos
+      // financieros nuevos van SOLO a `super_admin`**, junto al resto del dinero. ⛔ Retirarle la
+      // tarjeta entera habría sido un cambio de conducta que el contrato describe como «sin cambio».
+      // Enrutado al arquitecto en `docs/BACKEND_NOTES.md`.
+      salesPeriod: {
+        count: salesPeriod.count,
+        // ⛔ `amountCents` DESAPARECE del DTO (se renombra). **Rompe al front — y debe romperlo**:
+        // la tarjeta pasa de una cifra a dos. *Un «amount» conviviendo con otro «amount» distinto es
+        // la ambigüedad que este pase entero existe para matar* (`IVA-10(c)`).
+        grossAmountCents: salesPeriod.grossAmountCents,
+      },
       workQueue: {
         shipments: shipmentsQueue,
         buylist: buylistQueue,
@@ -1977,6 +2038,9 @@ export class AdminService {
       return {
         profitPeriodCents: pnl!.profitCents,
         ...card,
+        // §M10-IVA.7: el desglose bruto↔neto es DINERO ⇒ `super_admin`, como el resto del dinero de
+        // este método. `count` y `grossAmountCents` ya vienen de `card`.
+        salesPeriod,
         inventoryValueCents: invValue!.atReferenceCents,
         custodyValueCents: custody!.totalCustodyValueCents,
       };

@@ -2,6 +2,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * S48-M2 (v2.1.6, fase de seguridad / API_CONTRACT §M2) — **el DTO es CERRADO**.
@@ -102,25 +103,25 @@ describe('S48-M2 — `toPublicPriceInfo` es el único cuerpo que decide qué sal
 
 describe('S48-M2 — `GET /catalog/*` (ANÓNIMO): el `referenceValue` no filtra procedencia', () => {
   it('`isManualOverride` NO viaja — ni siquiera con una referencia fijada a mano', async () => {
-    const svc = new CatalogService({} as PrismaService, pricingMock());
+    const svc = new CatalogService({} as PrismaService, pricingMock(), ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
     expect(dto.referenceValue).not.toHaveProperty('isManualOverride');
   });
 
   it('`source` TAMPOCO viaja: `PriceSource` incluye `manual`, así que filtraba la MISMA señal', async () => {
-    const svc = new CatalogService({} as PrismaService, pricingMock());
+    const svc = new CatalogService({} as PrismaService, pricingMock(), ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
     expect(dto.referenceValue).not.toHaveProperty('source');
   });
 
   it('CONJUNTO EXACTO de claves (§M2): ni una de más — «publicar de más no rompe a nadie, FILTRA»', async () => {
-    const svc = new CatalogService({} as PrismaService, pricingMock());
+    const svc = new CatalogService({} as PrismaService, pricingMock(), ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
     expect(Object.keys(dto.referenceValue).sort()).toEqual(['capturedDate', 'referenceMxnCents', 'status']);
   });
 
   it('la CARGA y la frescura sí llegan: el comprador ve el valor y qué tan fresco es', async () => {
-    const svc = new CatalogService({} as PrismaService, pricingMock());
+    const svc = new CatalogService({} as PrismaService, pricingMock(), ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
     expect(dto.referenceValue).toMatchObject({
       status: 'priced',
@@ -130,15 +131,16 @@ describe('S48-M2 — `GET /catalog/*` (ANÓNIMO): el `referenceValue` no filtra 
   });
 
   it('el PRECIO no cambia por la proyección (esto es presentación, no dinero)', async () => {
-    const svc = new CatalogService({} as PrismaService, pricingMock());
+    const svc = new CatalogService({} as PrismaService, pricingMock(), ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
-    expect(dto.salePriceCents).toBe(115000); // $1,000 × 1.15
+    // `L = 115000` ($1,000 × 1.15) ⇒ `P = round(L × 1.16) = 133400` (§M10-IVA.3).
+    expect(dto.displayPriceCents).toBe(133400);
     expect(dto.priceBasis).toBe('market');
     expect(dto.sellable).toBe(true);
   });
 
   it('NO se tocan `referenceValue` como concepto ni `priceBasis`: siguen viajando (§N.7 los MANDA)', async () => {
-    const svc = new CatalogService({} as PrismaService, pricingMock());
+    const svc = new CatalogService({} as PrismaService, pricingMock(), ivaDialsStub() as never);
     const dto = await svc.toListingDTO(ITEM() as never);
     // Seguridad reclasificó a la baja la «fuga» de estos dos porque están mandados por escrito.
     // Este test es el candado para que una sobrecorrección futura no los quite.

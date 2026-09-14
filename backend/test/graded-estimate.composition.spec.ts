@@ -5,6 +5,7 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { Logger } from '@nestjs/common';
+import { ivaDialsStub } from './helpers/iva-dials';
 import {
   DEFAULT_GRADING_COST_TIERS,
   toGradedEstimateConfigDTO,
@@ -185,7 +186,7 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
   const settings = new SettingsService(prisma);
   const fx = { getCurrent: jest.fn(async () => null) } as unknown as FxService;
   const pricing = new PricingService(prisma, settings, fx, {} as any, {} as any, {} as any);
-  const catalog = new CatalogService(prisma, pricing);
+  const catalog = new CatalogService(prisma, pricing, ivaDialsStub() as never);
   return { catalog, pricing, prisma, priceRefFindMany, configStore, queryLog };
 }
 
@@ -463,7 +464,9 @@ describe('Dial ÚNICO `gradingHookEnabled` (seed `off`, fail-closed) — §M10, 
       return rest;
     };
     expect(on.data.map(strip)).toEqual(off.data.map(strip));
-    expect(on.data[0].salePriceCents).toBe(100_000);
+    // ⭐ D56: la rejilla publica `P`; el GATE de curaduría sigue midiendo sobre `L` (§4.38e) ⇒ el
+    // criterio 108 se conserva: encender el gancho no mueve ningún precio.
+    expect(on.data[0].displayPriceCents).toBe(116_000);
     expect(on.data[0].gradingHighlight).toBeDefined(); // …y el gancho SÍ apareció con el dial on
   });
 });
@@ -525,7 +528,7 @@ describe('GU-A8 — una clave corrupta apaga SOLO su superficie (§4.38d)', () =
       corrupt(SettingKey.GRADED_ESTIMATE_GRADES, ['11']),
     ]) {
       const list: any = await wire(A_ITEMS, A_REFS, cfg).catalog.listCards({ page: 1, pageSize: 20 });
-      expect(list.data[0].salePriceCents).toBe(100_000);
+      expect(list.data[0].displayPriceCents).toBe(116_000);
     }
   });
 
@@ -563,7 +566,7 @@ describe('Doctrina (b) — las filas PSA son INFORMATIVAS (§4.38b)', () => {
   it('no fijan el precio de venta ni la referencia de mercado del grupo raw', async () => {
     const { catalog } = wire(A_ITEMS, A_REFS, ON);
     const list: any = await catalog.listCards({ page: 1, pageSize: 20 });
-    expect(list.data[0].salePriceCents).toBe(100_000); // el override manual por pieza, no los MX$9,000
+    expect(list.data[0].displayPriceCents).toBe(116_000); // `P` del override manual, no los MX$9,000
     // v2.1.9 (D2, de `main`): la REJILLA ya no emite `referenceValue` ni `priceBasis`. La afirmación
     // de la doctrina (b) se traslada a la FICHA, que es la superficie que sí los lleva: la fila PSA no
     // puede haber poblado la referencia de mercado del grupo RAW.

@@ -59,11 +59,26 @@ const READER_PREFIX = /case\s+(['"`])\s*$/;
 /** Cuánto contexto se mira hacia atrás: suficiente para un salto de línea y sangría de Prettier. */
 const VENTANA = 120;
 
+/**
+ * ⭐⭐ **Los `.spec.ts` co-ubicados en `src/` NO entran al censo, y NO es una escapatoria: es lo que
+ * el contrato dice.**
+ *
+ * `IVA-12(b)` exige literalmente que `rg "IVA_EXCLUSIVE" backend/src` *«no devuelva ningún ESCRITOR;
+ * solo el **lector** … **y fixtures/pruebas**»*. Un fixture que siembra una orden histórica
+ * `IVA_EXCLUSIVE` —para probar precisamente que `IVA-3` la sigue renderizando igual— **tiene que**
+ * llevar ese literal: prohibírselo obligaría a borrar el candado hermano.
+ *
+ * **Y el criterio que lo hace seguro, medido:** `tsconfig.build.json` excluye `*.spec.ts`, así
+ * que **esos ficheros no se compilan a `dist/` y no existen en el binario que sirve dinero**. Lo que
+ * el censo mide es el **código que corre en producción**, que es lo que `IVA-12` quiere proteger.
+ * *Un candado que se pone rojo por una prueba enseña a borrar la prueba.*
+ */
 function walkTs(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const full = join(dir, e.name);
     if (e.isDirectory()) return walkTs(full);
-    return e.isFile() && e.name.endsWith('.ts') ? [full] : [];
+    if (!e.isFile() || !e.name.endsWith('.ts')) return [];
+    return e.name.endsWith('.spec.ts') || e.name.endsWith('.e2e-spec.ts') ? [] : [full];
   });
 }
 

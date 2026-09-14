@@ -7,6 +7,7 @@ import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
 import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, releaseReservationData, reservationGuard } from '../orders/reservation';
+import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -413,9 +414,11 @@ export class PaymentsService {
             ivaCents: 0,
             processingFeeCents: 0,
             totalCents: 0,
-            // v1.64 (M-50, DEPLOY 1): la convención se escribe SIEMPRE, también en el envío de
-            // fulfillment con montos en cero (el ingreso vive en `Order.shippingFeeCents`).
-            priceConvention: 'IVA_EXCLUSIVE',
+            // ⭐⭐ D56 / criterio **214**, `IVA-12(a)`: la convención se escribe SIEMPRE, también en
+            // el envío de fulfillment con **montos en cero** (el ingreso vive en
+            // `Order.shippingFeeCents`). *La convención es ABSOLUTA: no depende de que los importes
+            // sean 0.* Una fila sin convención no se puede leer, valga lo que valga.
+            priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
             items: { create: order.items.map((oi) => ({ inventoryItemId: oi.inventoryItemId })) },
           },
         });

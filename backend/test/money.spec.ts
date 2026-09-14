@@ -52,40 +52,55 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
     });
   });
 
-  describe('computeCartBreakdown', () => {
-    it('applies 16% IVA on subtotal and gross-up fee INCLUDING Stripe fee IVA', () => {
-      const b = computeCartBreakdown(100000, 16, fee);
-      expect(b.subtotalCents).toBe(100000);
-      expect(b.ivaCents).toBe(16000); // 16% de 100000
+  /**
+   * ⚠️⚠️ **D56 — ESTE BLOQUE CAMBIÓ DE SIGNIFICADO, Y LAS CIFRAS DE ANTES ERAN LA MUTACIÓN.**
+   *
+   * Hasta el corte, `computeCartBreakdown(100000, 16, fee)` hacía `iva = round(S × r)` y
+   * `grossUpBase = S + iva` ⇒ `total = 121419`. Bajo `IVA_INCLUSIVE` el `subtotalCents` que entra
+   * **ya lleva el IVA dentro** (`Σ P`), así que sumarle el IVA otra vez a la base del gross-up **lo
+   * cobra dos veces**: es literalmente la mutación de `IVA-2`. La aritmética normativa está en
+   * `iva-2-breakdowns.spec.ts`; aquí quedan las propiedades que **no** dependen de la convención.
+   */
+  describe('computeCartBreakdown (bajo `IVA_INCLUSIVE`, §M10-IVA.4)', () => {
+    it('el IVA es RESIDUAL del subtotal y la base del gross-up es el subtotal, NO subtotal+iva', () => {
+      const b = computeCartBreakdown(116000, 16, fee);
+      expect(b.subtotalCents).toBe(116000);
+      // residual: 116000 − round(116000/1.16) = 116000 − 100000
+      expect(b.ivaCents).toBe(16000);
       expect(b.ivaRatePct).toBe(16);
-      // base = 116000; total = ceil((116000 + 1.16*300)/0.95824) = ceil(121418.9) = 121419
+      expect(b.priceConvention).toBe('IVA_INCLUSIVE');
+      expect(b.ivaIncluded).toBe(true);
+      // ⭐ `G = S` (⛔ no `S + iva`): total = ceil((116000 + 1.16·300)/0.95824) = 121419
       expect(b.totalCents).toBe(121419);
-      expect(b.processingFeeCents).toBe(b.totalCents - 116000); // 5419
-      // total = subtotal + iva + fee
-      expect(b.totalCents).toBe(b.subtotalCents + b.ivaCents + b.processingFeeCents);
+      expect(b.processingFeeCents).toBe(b.totalCents - 116000);
+      // ⭐ La identidad (b) de §M10-IVA.4: el IVA **NO es un sumando** del total.
+      expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
       expect(b.currency).toBe('MXN');
-      // Netea exactamente base = subtotal + iva.
+      // Netea exactamente `G = subtotal`.
       const net = b.totalCents - stripeDeduction(b.totalCents);
       expect(net).toBeGreaterThanOrEqual(116000);
       expect(net).toBeLessThan(116000 + 1);
     });
 
-    it('the product IVA (16% on subtotal) is NOT applied to the fee line itself', () => {
+    it('la comisión se calcula sobre `G`, y `taxBase + iva ≡ subtotal` es una IDENTIDAD', () => {
       const b = computeCartBreakdown(50000, 16, fee);
-      // El IVA del DESGLOSE grava el subtotal, no el fee. El fee cubre comisión+IVA de Stripe.
-      const base = b.subtotalCents + b.ivaCents;
-      expect(b.processingFeeCents).toBe(b.totalCents - base);
+      expect(b.processingFeeCents).toBe(b.totalCents - b.subtotalCents);
+      // R2: el residual hace que la identidad sea exacta, no aproximada.
+      expect(b.subtotalCents - b.ivaCents + b.ivaCents).toBe(b.subtotalCents);
     });
   });
 
-  describe('computeShipmentBreakdown', () => {
-    it('taxes shipping fee with IVA, subtotal = shipping fee, fee includes Stripe IVA', () => {
-      const b = computeShipmentBreakdown(17500, 16, fee);
-      expect(b.subtotalCents).toBe(17500); // en retiros subtotal = tarifa de envío
-      expect(b.ivaCents).toBe(2800); // 16% de 17500
-      // base = 20300; total = ceil((20300 + 1.16*300)/0.95824) = ceil(21547.9) = 21548
+  describe('computeShipmentBreakdown (bajo `IVA_INCLUSIVE`)', () => {
+    it('la tarifa exhibida ya lleva su IVA dentro; el residual sale por resta', () => {
+      // `E = round(17500 × 1.16) = 20300` lo deriva `shippingFeeDisplayCentsOf` aguas arriba.
+      const b = computeShipmentBreakdown(20300, 16, fee);
+      expect(b.subtotalCents).toBe(20300); // en retiros subtotal = tarifa de envío EXHIBIDA
+      expect(b.ivaCents).toBe(2800); // 20300 − round(20300/1.16) = 20300 − 17500
+      expect(b.priceConvention).toBe('IVA_INCLUSIVE');
+      // `G = 20300`; total = ceil((20300 + 1.16·300)/0.95824) = 21548 — **el MISMO de antes**
       expect(b.totalCents).toBe(21548);
-      expect(b.totalCents).toBe(b.subtotalCents + b.ivaCents + b.processingFeeCents);
+      // ⛔ El IVA ya no suma: `total = subtotal + fee`.
+      expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
       const net = b.totalCents - stripeDeduction(b.totalCents);
       expect(net).toBeGreaterThanOrEqual(20300);
       expect(net).toBeLessThan(20300 + 1);

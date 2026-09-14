@@ -5,6 +5,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { BusinessException } from '../src/common/business.exception';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * Fix correctness #1: la reserva de checkout debe ser ATÓMICA (pieza única). Dos
@@ -46,6 +47,8 @@ describe('OrdersService.createSession — reserva atómica (fix #1)', () => {
     };
     const settings: any = {
       getNumber: jest.fn().mockResolvedValue(16),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
       getStripeFee: jest
         .fn()
         .mockResolvedValue({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 }),
@@ -135,6 +138,8 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
     };
     const settings: any = {
       getNumber: jest.fn().mockResolvedValue(16),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
       getStripeFee: jest
         .fn()
         .mockResolvedValue({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 }),

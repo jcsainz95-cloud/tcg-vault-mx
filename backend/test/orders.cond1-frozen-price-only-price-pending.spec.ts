@@ -5,6 +5,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { BusinessException } from '../src/common/business.exception';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * ⭐⭐ **COND-1 (techlead, 2026-09-11) — el respaldo al precio CONGELADO solo lo abre `PRICE_PENDING`.**
@@ -27,7 +28,13 @@ import { BusinessException } from '../src/common/business.exception';
  */
 
 const FROZEN_PRICE = 12_345;
+/** `L` que resuelve el catálogo. */
 const CATALOG_PRICE = 99_900;
+/**
+ * ⭐ D56: la línea congela **`P = round(L × (1 + t·r))`**, no `L` (§M10-IVA.3). Con el dial neutro
+ * (t=100, r=16): `99 900 + 15 984 = 115 884`.
+ */
+const CATALOG_DISPLAY_PRICE = 115_884;
 
 const item = {
   id: 'item-1',
@@ -70,7 +77,8 @@ function build(saleSeam: () => Promise<unknown>, itemOver: Record<string, unknow
   const svc = new OrdersService(
     prisma as PrismaService,
     pricing as PricingService,
-    {} as SettingsService,
+    // ⭐ D56: la derivación de `P` necesita los dos diales (§4.44.b). Neutro (t=100, r=16).
+    ivaDialsStub() as unknown as SettingsService,
     {} as StripeService,
     {} as CatalogService,
   );
@@ -112,7 +120,7 @@ describe('COND-1 · priceCartForOrder (session — lo que el PaymentIntent cobra
   it('camino feliz: si el catálogo resuelve, gana el precio de catálogo (no el congelado)', async () => {
     const { svc } = build(seamOk);
     const out = await svc.priceCartForOrder(['item-1'], ownReserved as any);
-    expect(out.lines[0].unitPriceCents).toBe(CATALOG_PRICE);
+    expect(out.lines[0].unitPriceCents).toBe(CATALOG_DISPLAY_PRICE);
   });
 });
 
@@ -155,6 +163,6 @@ describe('COND-1 · priceCartForQuote (lectura del carrito)', () => {
   it('camino feliz: el catálogo resuelve ⇒ precio de catálogo', async () => {
     const { svc } = buildQuote(seamOk);
     const out = await svc.priceCartForQuote(['item-1'], { userId: 'u-1' });
-    expect(out.lines[0].unitPriceCents).toBe(CATALOG_PRICE);
+    expect(out.lines[0].unitPriceCents).toBe(CATALOG_DISPLAY_PRICE);
   });
 });

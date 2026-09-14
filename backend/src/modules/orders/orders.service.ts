@@ -25,7 +25,17 @@ import {
   reservationGuard,
   reservedUntilFrom,
 } from './reservation';
-import { computeCartBreakdown, BreakdownDTO, PriceBasis, sealedPriceBasisOf, hasManualPrice } from '../../common/money';
+import {
+  computeCartBreakdown,
+  BreakdownDTO,
+  PRICE_CONVENTION_OF_NEW_ROWS,
+  PriceBasis,
+  displayPriceCentsOf,
+  ivaIsIncluded,
+  sealedPriceBasisOf,
+  hasManualPrice,
+} from '../../common/money';
+import type { IvaDials } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import {
   CARD_IMAGE_SELECT,
@@ -84,12 +94,41 @@ export type QuoteOwner = { userId: string } | { orderId: string };
  * `unitPriceCents`.
  */
 interface SaleDecision {
+  /**
+   * ⭐⭐ **`P` — el precio EXHIBIDO, con el IVA DENTRO** (`ARCHITECTURE §4.44.b`, criterio **194**).
+   * Es lo que el cliente ve, lo que suma el carrito y **lo que se congela en `OrderItem`**. Se
+   * redondea **una vez por unidad** (regla **R1**) ⇒ el subtotal es **suma exacta de enteros**.
+   */
   unitPriceCents: number;
+  /**
+   * ⭐ **`L` — el precio de LISTA, SIN IVA**, del que se derivó `P`. **No se persiste en la orden**
+   * (la fila se reproduce desde `subtotal/iva/ivaRatePct/priceConvention`); viaja aquí porque la
+   * **instrumentación** de §N.8 y los gates de curaduría razonan sobre el precio de lista, ⛔ no
+   * sobre el exhibido. *Mezclarlos es cómo un margen se compara contra un precio con impuesto dentro.*
+   */
+  listPriceCents: number;
   priceBasis: PriceBasis;
   /** Mercado CRUDO en centavos que entró al cálculo. `null` = no lo hubo (jamás un 0 inventado). */
   marketMxnCents: number | null;
   marketBracket: MarketBracket | null;
   finish: Finish;
+}
+
+/**
+ * ⭐ **Un carrito YA PRECIADO: las líneas con su `P` congelado + LOS DIALES QUE LO PRODUJERON.**
+ *
+ * `ivaDials` viaja con el carrito **a propósito**: la fila que se persista tiene que archivar
+ * `ivaTransferPct` **el que se usó para derivar estos precios**, no el que devuelva una segunda
+ * lectura del dial. Entre preciar y escribir cabe un `PUT /admin/settings/iva-transfer`, y una orden
+ * que archivara una posición del dial distinta de la que cobró **sería una fila que se contradice a
+ * sí misma** — el mismo defecto que la columna de convención existe para impedir, un nivel más abajo.
+ */
+interface PricedCart {
+  items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+  /** `Σ P` — **suma exacta de enteros** (regla R1 ⇒ criterio 194 por construcción). */
+  subtotalCents: number;
+  lines: OrderLineData[];
+  ivaDials: IvaDials;
 }
 
 /** Línea de orden lista para persistir: el snapshot de dinero + su instrumentación. */
@@ -191,6 +230,25 @@ export class OrdersService {
   }
 
   /**
+   * ⭐⭐ **LA DERIVACIÓN DE `P`, EN EL ÚNICO SITIO POR EL QUE PASA TODO PRECIO DE VENTA DEL CHECKOUT**
+   * (`ARCHITECTURE §4.44.b/.c`, `API_CONTRACT §M10-IVA.3`, criterio **185**).
+   *
+   * `resolveSaleDecision` resuelve `L` por las cuatro precedencias de §4.36.6 y **termina aquí**:
+   * `P = round(L × (1 + t·r))`. Ponerlo en un solo sitio es lo que hace que *«la vitrina dice 100 y
+   * el checkout cobra sobre 116»* **no pueda ocurrir por olvido de una rama**.
+   *
+   * ⚠️ **`marketMxnCents` y `marketBracket` NO se derivan: siguen en la escala del MERCADO** (§N.8).
+   * Meterles el IVA dentro haría que la instrumentación de la curva midiera otra cosa desde el día
+   * del corte, y la calibración compararía brackets nuevos contra histórico viejo.
+   */
+  private derivedSaleDecision(d: SaleDecision, dials: IvaDials): SaleDecision {
+    return {
+      ...d,
+      unitPriceCents: displayPriceCentsOf(d.listPriceCents, dials.ivaTransferPct, dials.ivaRatePct),
+    };
+  }
+
+  /**
    * v2.0 (P-48, §4.36.7c / PROJECT §N.8) — la DECISIÓN de venta completa: el monto Y la
    * instrumentación que se congela con él (mercado CRUDO, `priceBasis`, `marketBracket`, `finish`).
    *
@@ -203,8 +261,12 @@ export class OrdersService {
   ): Promise<SaleDecision> {
     // Sin mercado (override/bounty sin referencia, o pendiente): `marketMxnCents`/`marketBracket` van
     // en `null`. Honesto; jamás un 0 inventado (§4.36.7c).
-    const instrument = (unitPriceCents: number, basis: PriceBasis, marketMxnCents: number | null): SaleDecision => ({
-      unitPriceCents,
+    const instrument = (listPriceCents: number, basis: PriceBasis, marketMxnCents: number | null): SaleDecision => ({
+      // ⚠️ `unitPriceCents` sale IGUAL a `L` aquí y lo DERIVA `derivedSaleDecision` (el único sitio).
+      // Se deja así, y no derivando en las cuatro ramas, porque cuatro derivaciones son cuatro
+      // sitios donde una puede faltar — y la que falte cobra el precio sin IVA sin que nada falle.
+      unitPriceCents: listPriceCents,
+      listPriceCents,
       priceBasis: basis,
       marketMxnCents,
       marketBracket: marketBracketOf(marketMxnCents),
@@ -315,11 +377,21 @@ export class OrdersService {
    */
   private async buildLines(
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
+    /**
+     * ⭐ Los dos diales que derivan `P`, **izados una vez por petición**. Si se omite, se leen aquí
+     * (uso single). ⛔ Nunca se leen **por ítem**: dos ítems del mismo carrito derivados con diales
+     * distintos producirían un subtotal que no corresponde a ninguna posición del dial.
+     */
+    dials?: IvaDials,
   ): Promise<{ subtotalCents: number; lines: OrderLineData[] }> {
+    const iva = dials ?? (await this.settings.getIvaDials());
     const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     for (const item of items) {
-      const d = await this.resolveSaleDecision(item);
+      const d = this.derivedSaleDecision(await this.resolveSaleDecision(item), iva);
+      // R1: el subtotal es la SUMA EXACTA de los precios exhibidos (enteros ya redondeados por
+      // unidad) ⇒ el criterio 194 (`Σ items[].unitPriceCents == subtotalCents`) se cumple **por
+      // construcción**, no por cuidado del implementador.
       subtotalCents += d.unitPriceCents;
       lines.push({
         inventoryItemId: item.id,
@@ -354,11 +426,7 @@ export class OrdersService {
      * precio congelado es el respaldo si el de catálogo ya no resuelve.
      */
     ownReserved: Map<string, OrderItem> = new Map(),
-  ): Promise<{
-    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
-    subtotalCents: number;
-    lines: OrderLineData[];
-  }> {
+  ): Promise<PricedCart> {
     const items = await this.loadItems(inventoryItemIds);
     for (const item of items) {
       const mine = item.status === 'reserved' && ownReserved.has(item.id);
@@ -366,13 +434,16 @@ export class OrdersService {
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
       }
     }
+    // ⭐ Los diales se izan **una vez por carrito**, ⛔ jamás por ítem: dos líneas derivadas con
+    // posiciones distintas del dial darían un subtotal que no corresponde a ninguna posición.
+    const ivaDials = await this.settings.getIvaDials();
     const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     for (const item of items) {
       const frozen = ownReserved.get(item.id);
       let line: OrderLineData;
       try {
-        line = (await this.buildLines([item])).lines[0];
+        line = (await this.buildLines([item], ivaDials)).lines[0];
       } catch (e) {
         // Una pieza ya reservada por mí conserva su precio congelado: no se re-precia ni se rompe
         // el reintento porque el catálogo dejó de resolver (§4-R.2 regla 5).
@@ -383,7 +454,7 @@ export class OrdersService {
       subtotalCents += line.unitPriceCents;
       lines.push(line);
     }
-    return { items, subtotalCents, lines };
+    return { items, subtotalCents, lines, ivaDials };
   }
 
   /**
@@ -406,11 +477,7 @@ export class OrdersService {
     inventoryItemIds: string[],
     /** Sin identidad (invitado sin `retryOfCheckoutToken`) no hay reserva propia: conducta de hoy. */
     owner?: { userId: string } | { orderId: string },
-  ): Promise<{
-    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
-    subtotalCents: number;
-    lines: OrderLineData[];
-  }> {
+  ): Promise<PricedCart> {
     if (!owner) return this.priceCartForOrder(inventoryItemIds);
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const own = await this.findOwnLiveReservations(this.prisma, inventoryItemIds, owner, new Date());
@@ -448,10 +515,7 @@ export class OrdersService {
     // v1.68.1 (§4-R.5): quién pregunta. Sin identidad ⇒ conducta de hoy, literal.
     owner?: QuoteOwner,
     now = new Date(),
-  ): Promise<{
-    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
-    subtotalCents: number;
-    lines: OrderLineData[];
+  ): Promise<PricedCart & {
     unavailableItems: UnavailableCartItemDTO[];
     ownReservation: OwnReservationDTO | null;
     /** Piezas del carrito reservadas por una orden PROPIA (`items[].reservedByYou: true`). */
@@ -531,6 +595,8 @@ export class OrdersService {
     // Precios: CONGELADOS de la orden propia si rige (§4-R.2 regla 5: lo que el PI cobra); si no, en
     // lectura, como hoy. `PRICE_PENDING` se evalúa sobre los válidos SIN reserva propia; una pieza
     // propia sin precio en lectura cae a su precio congelado (ya lo tuvo al reservarse).
+    // ⭐ Izados una vez por carrito (ver `priceCartForOrder`).
+    const ivaDials = await this.settings.getIvaDials();
     const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     for (const item of valid) {
@@ -540,7 +606,7 @@ export class OrdersService {
         line = this.frozenLine(item, frozen);
       } else if (reservedByYou.has(item.id)) {
         try {
-          line = (await this.buildLines([item])).lines[0];
+          line = (await this.buildLines([item], ivaDials)).lines[0];
         } catch (e) {
           const own = ownOrders.flatMap((o) => o.items).find((oi) => oi.inventoryItemId === item.id);
           // ⚠ COND-1: SOLO `PRICE_PENDING`. Ver {@link isPricePending}.
@@ -548,12 +614,21 @@ export class OrdersService {
           line = this.frozenLine(item, own);
         }
       } else {
-        line = (await this.buildLines([item])).lines[0];
+        line = (await this.buildLines([item], ivaDials)).lines[0];
       }
       subtotalCents += line.unitPriceCents;
       lines.push(line);
     }
-    return { items: valid, subtotalCents, lines, unavailableItems, ownReservation, reservedByYou, frozenOrder };
+    return {
+      items: valid,
+      subtotalCents,
+      lines,
+      ivaDials,
+      unavailableItems,
+      ownReservation,
+      reservedByYou,
+      frozenOrder,
+    };
   }
 
   /** Línea de quote con el precio CONGELADO de la `OrderItem` propia (la instrumentación viaja tal cual se congeló). */
@@ -599,10 +674,19 @@ export class OrdersService {
    * Session (`createSession`, abajo) NO usa esta ruta: sigue estricta.
    */
   async quote(inventoryItemIds: string[], userId?: string) {
-    const { items, subtotalCents, lines, unavailableItems, ownReservation, reservedByYou, frozenOrder } =
-      await this.priceCartForQuote(inventoryItemIds, userId ? { userId } : undefined);
+    const {
+      items,
+      subtotalCents,
+      lines,
+      ivaDials,
+      unavailableItems,
+      ownReservation,
+      reservedByYou,
+      frozenOrder,
+    } = await this.priceCartForQuote(inventoryItemIds, userId ? { userId } : undefined);
     const previews = this.toOrderItemPreviews(items, lines, reservedByYou);
-    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
+    // ⚠️ La MISMA `r` que derivó cada `P` (ver `createSession`): ⛔ no una segunda lectura del dial.
+    const ivaPct = ivaDials.ivaRatePct;
     // v1.68.1 (§4-R.5): con reserva propia que cubre el carrito y no vencida, el desglose es el
     // CONGELADO de esa orden (lo que el PI cobra), para que pantalla y cobro no discrepen.
     const breakdown: BreakdownDTO = frozenOrder
@@ -658,6 +742,10 @@ export class OrdersService {
       processingFeeCents: 0,
       totalCents: 0,
       currency: 'MXN',
+      // ⭐ El cero también tiene convención: es la que tendría el pedido si el carrito no estuviera
+      // vacío. Sin ella, el front no sabría si el rótulo «IVA incluido» aplica a la línea siguiente.
+      priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+      ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
     };
   }
 
@@ -952,6 +1040,12 @@ export class OrdersService {
       processingFeeCents: order.processingFeeCents,
       totalCents: order.totalCents,
       currency: 'MXN',
+      // ⭐⭐ `IVA-3`: la convención sale de **la columna de ESA fila**, ⛔ jamás del dial vivo ni de
+      // la constante de filas nuevas. Es lo que hace que una orden cobrada bajo `IVA_EXCLUSIVE` se
+      // siga renderizando **idéntica al centavo** después del corte, y también después de mover el
+      // dial. *Una orden ya cobrada no se reinterpreta sola.*
+      priceConvention: order.priceConvention,
+      ivaIncluded: ivaIsIncluded(order.priceConvention),
     };
   }
 
@@ -1222,7 +1316,6 @@ export class OrdersService {
     inventoryItemIds: string[],
     billingProfileId: string | undefined,
   ): Promise<CheckoutSessionResult> {
-    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
 
     const billingSnapshot = billingProfileId
@@ -1232,7 +1325,7 @@ export class OrdersService {
     // ⛔ El precio se resuelve FUERA de la transacción (y antes del candado): dentro, cada checkout
     // necesitaría una SEGUNDA conexión para `PricingService` y N concurrentes agotan el pool
     // (v1.68.1; ver `priceCartOutsideGate`). La atomicidad la da `reserveItems`, no esta lectura.
-    const { items, subtotalCents: subtotal, lines: orderItemsData } =
+    const { items, subtotalCents: subtotal, lines: orderItemsData, ivaDials } =
       await this.priceCartOutsideGate(inventoryItemIds, { userId });
 
     const outcome = await this.prisma.$transaction(async (tx): Promise<SessionOutcome> => {
@@ -1251,7 +1344,13 @@ export class OrdersService {
 
       // MS-2 (BE-27): un agregado no representable en Int32 → 422 AMOUNT_TOO_LARGE (nunca se persiste
       // un overflow ni se clampa el total). El mapeo es la fuente única `representableOrThrow`.
-      const breakdown = this.representableOrThrow(() => computeCartBreakdown(subtotal, ivaPct, fee));
+      // ⚠️ La TASA es **la misma `r` con la que se derivó cada `P`** (`ivaDials.ivaRatePct`), ⛔ no
+      // una segunda lectura de `iva_pct`: entre preciar y cobrar cabe un `PUT /admin/settings`, y un
+      // desglose calculado con una tasa distinta de la que produjo el subtotal **no cuadra con su
+      // propia fila**.
+      const breakdown = this.representableOrThrow(() =>
+        computeCartBreakdown(subtotal, ivaDials.ivaRatePct, fee),
+      );
       // v1.21 (M-25): el número legible sale de la secuencia (nextval es no transaccional; un hueco
       // en la secuencia es inocuo, un número duplicado no). Solo se consume si se crea orden, y se pide
       // POR EL `tx` (v1.68.1: no gasta una segunda conexión del pool).
@@ -1273,13 +1372,18 @@ export class OrdersService {
           ivaCents: breakdown.ivaCents,
           totalCents: breakdown.totalCents,
           ivaRatePct: breakdown.ivaRatePct,
-          // v1.64-iva-inclusive (M-50, §4.44.k · DEPLOY 1) — TODA orden nueva nace `IVA_EXCLUSIVE`,
-          // que es la convención con la que ESTE código la acaba de cobrar. La conducta NO cambia:
-          // el deploy 1 es puramente aditivo. ⛔ Se escribe EXPLÍCITAMENTE y no por default de BD:
-          // la columna no tiene default justamente para que un camino que olvide esta línea REVIENTE
-          // en vez de heredar un significado equivocado en silencio (§4.44.e, candado `IVA-3(e)`).
-          // ⛔ `ivaTransferPct` se queda en `NULL`: bajo `IVA_EXCLUSIVE` el dial no participó.
-          priceConvention: 'IVA_EXCLUSIVE',
+          // ⭐⭐ D56 / criterio **214** (`API_CONTRACT §M10-IVA.9.d`) — TODA orden nueva nace bajo la
+          // convención con la que ESTE código la acaba de cobrar, y desde el corte ésa es
+          // `IVA_INCLUSIVE`: `subtotalCents` es `Σ P` y **lleva el IVA dentro**.
+          // ⛔ Se escribe EXPLÍCITAMENTE y no por default de BD: la columna no tiene default
+          // justamente para que un camino que olvide esta línea REVIENTE en vez de heredar un
+          // significado equivocado en silencio (§4.44.e, candado `IVA-3(e)`).
+          priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+          // ⭐ La posición del dial que produjo estos precios, archivada con la fila. Es
+          // **INFORMATIVA/AUDITORA**: el dinero se reproduce desde
+          // `subtotal/shipping/iva/fee/total/ivaRatePct/priceConvention`, ⛔ jamás desde aquí.
+          // ⛔ Y ⛔ NO viaja a ninguna superficie de cliente ni a ningún correo (criterio **209**).
+          ivaTransferPct: ivaDials.ivaTransferPct,
           cfdiStatus: 'registrado',
           billingSnapshot: billingSnapshot ?? undefined,
           items: { create: orderItemsData },
@@ -1459,9 +1563,10 @@ export class OrdersService {
             ivaCents: 0,
             processingFeeCents: 0,
             totalCents: 0,
-            // v1.64 (M-50, DEPLOY 1): la convención se escribe SIEMPRE, también en el envío de
-            // montos-en-cero. Un cero también tiene convención, y una fila sin ella no se puede leer.
-            priceConvention: 'IVA_EXCLUSIVE',
+            // ⭐⭐ D56 / criterio **214** — la convención se escribe SIEMPRE, **también en el envío de
+            // montos-en-cero**: *la convención es ABSOLUTA, no depende de que los importes sean 0*
+            // (`IVA-12(a)`). Un cero también tiene convención, y una fila sin ella no se puede leer.
+            priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
             items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
           },
         });

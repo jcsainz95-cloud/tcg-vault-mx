@@ -13,6 +13,7 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { UploadsService } from '../src/modules/uploads/uploads.service';
 import { DEFAULT_PRICING_CURVE, marketBracketOf } from '../src/common/pricing-curve';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * E6 (ARCHITECTURE §4.36.7c · PROJECT §N.8, criterio 95) — **INSTRUMENTACIÓN**.
@@ -67,6 +68,8 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
     } as unknown as PricingService;
     const settings = {
       getNumber: jest.fn(async () => 16),
+      // ⭐ D56: los dos diales que derivan `P` (§4.44.b). Neutro = el arranque del sistema.
+      ...ivaDialsStub(),
       getStripeFee: jest.fn(async () => ({ stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 })),
     } as unknown as SettingsService;
     return new OrdersService(prisma, pricing, settings, {} as StripeService, {} as CatalogService);
@@ -76,7 +79,7 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
     const svc = ordersWith(10000); // $100 de mercado ⇒ venta $115
     const { lines } = await svc.priceCartForOrder(['i1']);
     expect(lines[0]).toMatchObject({
-      unitPriceCents: 11500, // (1) precio final
+      unitPriceCents: 13340, // `P` de `L = 11500` // (1) precio final
       marketMxnCents: 10000, // (2) mercado CRUDO del día
       priceBasis: 'market', // (3) qué lo determinó
       finish: 'holofoil', // (4) acabado
@@ -95,7 +98,7 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
     const svc = ordersWith(10000, { listPriceCents: 9999 });
     const { lines } = await svc.priceCartForOrder(['i1']);
     expect(lines[0]).toMatchObject({
-      unitPriceCents: 9999,
+      unitPriceCents: 11599, // `P` de `L = 9999`
       priceBasis: 'override',
       marketMxnCents: null,
       marketBracket: null,
@@ -106,7 +109,7 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
     const svc = ordersWith(114); // $1.14 ⇒ gana el piso $25
     const { lines } = await svc.priceCartForOrder(['i1']);
     expect(lines[0]).toMatchObject({
-      unitPriceCents: 2500,
+      unitPriceCents: 2900, // `P` de `L = 2500`
       priceBasis: 'floor',
       marketMxnCents: 114,
       marketBracket: 'lt_3',

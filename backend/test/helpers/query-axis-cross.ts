@@ -73,8 +73,10 @@ import type { QueryAxisSite } from './query-axis-census';
  *    en cada endpoint paginado nuevo, y *un tope que hay que subir para que no moleste se sube sin
  *    mirar*. Es la misma frase con la que se justifica cruzar por nombre; no se puede invocar para
  *    una mitad e ignorar en la otra.
- *  - **`POR_RUTA` (36 sitios, fijados con `toEqual` + tope)** — `?rarity=`, `?action=`,
- *    `?entityType=`, las doce banderas booleanas y —desde `R2a`— los veintiún `?from=`/`?to=`/`?date=`.
+ *  - **`POR_RUTA` (38 sitios, fijados con `toEqual` + tope)** — `?rarity=`, `?action=`,
+ *    `?entityType=`, las doce banderas booleanas, los veintiún `?from=`/`?to=`/`?date=` de `R2a` y
+ *    —desde D56— los **dos** del `/preview` del dial de IVA (`ivaTransferPct`, `samplePriceCents`:
+ *    entero acotado e importe, ⛔ no dominios de tokens).
  *    Aquí la exención **no** se sigue del nombre: se sigue de una **medición de ESA ruta**
  *    («`Card.rarity` es `String`, no enum», «esto es un booleano», «esto es una fecha y no atajos»).
  *    Esa medición ⛔ **no se hereda** a una ruta nueva: mañana `?rarity=` puede ser un enum en otro
@@ -173,6 +175,22 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/reports/pricing-brackets::from',
   'GET /admin/reports/pricing-brackets::to',
   'GET /admin/shipments/picking-list::date',
+
+  // ⭐⭐ **`GET /admin/settings/iva-transfer/preview` — los DOS ejes del preview del dial de IVA**
+  // (`API_CONTRACT §M10-IVA.2`, `N-IVA9-1` **RESUELTO en v1.75**).
+  //
+  // **Medición que los sitúa aquí y ⛔ NO en `TRANSVERSAL`:**
+  //  - `ivaTransferPct` es un **ENTERO ACOTADO `[0,100]`**, ⛔ no un dominio de tokens. Su validador
+  //    vive en `settings.controller.ts` (`parseRequiredIntQuery`) y **rechaza con `400` + `details.
+  //    {field}`** cualquier cosa fuera del rango — ⛔ no ignora, ⛔ no clampa.
+  //  - `samplePriceCents` es un **IMPORTE** en `[1, 100_000_000]`, misma clase que `minCents`/
+  //    `maxCents`, que §0-Q punto 7 ya excluye. Su cota superior ⛔ no es higiene: sin ella
+  //    `grossUpTotal` **lanza** y la ruta es un `500` desde la barra de direcciones.
+  //
+  // ⛔ **`NO_ENUM_TRANSVERSAL` NO se toca**: la exención es **de esta ruta**, no del nombre. Mañana
+  // un `?ivaTransferPct=` en otro endpoint tendría que declararse de nuevo, y debe.
+  'GET /admin/settings/iva-transfer/preview::ivaTransferPct',
+  'GET /admin/settings/iva-transfer/preview::samplePriceCents',
 ];
 
 /**

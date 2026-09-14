@@ -9,6 +9,7 @@ import { FxService } from '../src/modules/pricing/fx.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { DEFAULT_GRADING_COST_TIERS } from '../src/common/graded-estimate';
+import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
  * v1.44-graded-estimate — DIALES M2 del gancho + diagnóstico de curaduría
@@ -195,7 +196,7 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
   const settings = new SettingsService(prisma);
   const fx = { getCurrent: jest.fn(async () => null) } as unknown as FxService;
   const pricing = new PricingService(prisma, settings, fx, {} as any, {} as any, {} as any);
-  const catalog = new CatalogService(prisma, pricing);
+  const catalog = new CatalogService(prisma, pricing, ivaDialsStub() as never);
   const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
   const ctrl = new GradedEstimatesController(pricing, catalog, prisma, audit);
   return { ctrl, catalog, pricing, prisma, audit, upsert, configStore };
@@ -437,7 +438,7 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     const despues: any = await catalog.listCards({ page: 1, pageSize: 20, gradingHighlight: 'true' });
     expect(despues).toMatchObject({ data: [], total: 0 }); // sin job, sin materialización
     const listado: any = await catalog.listCards({ page: 1, pageSize: 20 });
-    expect(listado.data[0].salePriceCents).toBe(100_000); // ningún precio de venta cambió
+    expect(listado.data[0].displayPriceCents).toBe(116_000); // ningún precio de venta cambió
     // …y la FICHA sigue mostrando sus cifras (partición §4.38-0: el dial de curaduría no la apaga).
     const ficha: any = await catalog.getCard('ca');
     expect(ficha.gradedEstimates).toHaveLength(2);
