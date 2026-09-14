@@ -350,7 +350,8 @@
       "p5": "<b>TCG HUNT does not grade cards and does not broker grading services.</b> PSA fees, international shipping, return shipping to Mexico, insurance and turnaround times are entirely on you.",
       "p6": "<b>Market prices change every day</b> and this estimate may become outdated at any time.",
       "back": "Back to the estimated value"
-    }
+    },
+    "sealedRedirect": "Taking you to Sealed product…"
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -3585,6 +3586,9 @@
       "countValue": "{count, plural, one {# piece} other {# pieces}}",
       "pendingLabel": "Price pending",
       "valuationNote": "Valued at reference market value; pieces without a market price are excluded from the total."
+    },
+    "fromCatalog": {
+      "body": "Sealed product has its own shop, so we brought you here from Shop. Booster boxes, ETBs and the rest of the sealed product are bought on this screen."
     }
   },
   "cardDetail": {

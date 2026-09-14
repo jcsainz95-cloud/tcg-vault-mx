@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
-import { SEALED_SUBTYPES, type Finish, type GroupedListingSummaryDTO, type SealedSubtype } from '@/types/contract';
+import { SEALED_SUBTYPES, type Finish, type GroupedListingSummaryDTO } from '@/types/contract';
 import { FINISH_ORDER } from '@/lib/finish';
 import { useCart } from '@/lib/cart';
 import { useRouter } from '@/i18n/navigation';
@@ -28,6 +28,59 @@ import { pageHasGradingFigures } from '../_shared/grading/estimates';
 const SORTS: CatalogSort[] = ['newest', 'price_asc', 'price_desc'];
 /** pageSize del contrato (§2, default del backend); solo para el fallback del total de páginas. */
 const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * D-EQ-3 · ¿ESTA URL PIDE SELLADO? (contrato v1.73 §2 + §2-S)
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * `GET /catalog/cards` es la rejilla de SINGLES y **excluye el sellado por construcción**
+ * (guardarraíl `H9`). v1.73 retiró `?sealedSubtype=` y le quitó `sealed` a `?productType=`.
+ *
+ * MEDIDO POR HTTP (2026-09-13, stack nativo real, con UN sellado `box` publicado ⇒
+ * `GET /catalog/sealed` ⇒ `total: 1`): `?productType=sealed` ⇒ `total: 0`, `?sealedSubtype=box`
+ * ⇒ `total: 0`. Y MEDIDO EN EL NAVEGADOR, que es lo que importa aquí: `/es/compra?productType=sealed`
+ * pintaba **«Ninguna carta coincide · Prueba con otros filtros»** con un chip crudo `sealed` y la
+ * pestaña «Producto sellado» a diez centímetros, sin decir nada. Y `/es/compra?sealedSubtype=box`
+ * (sin `productType`) **descartaba el parámetro EN SILENCIO** y devolvía el catálogo entero.
+ *
+ * **POR QUÉ REDIRIGIR Y NO SOLO DEJAR DE MANDAR EL PARÁMETRO** (decisión de frontend; `PROJECT.md`
+ * §A exige que Compra filtre por tipo **incluyendo sellado** y NO dice por qué endpoint):
+ *   · La intención de `?productType=sealed` es inequívoca — «enséñame sellado» — y **tenemos
+ *     exactamente una superficie que lo sirve** (§2-S, `/sellado`). Tirar la intención y dejar al
+ *     usuario en la rejilla de singles descarta información que sí sabemos honrar.
+ *   · Es la única opción que convierte un enlace que hoy funciona A MEDIAS en uno que funciona.
+ *     La pestaña «Producto sellado» ya existe (`StoreTabs`) y aun así el usuario no la usó: llegó
+ *     por enlace. Una pestaña no rescata a quien entra por la puerta de al lado.
+ *   · `sealedSubtype` mapea **1:1**: §2-S acepta el mismo parámetro con el mismo dominio (los siete
+ *     de `SealedSubtype`). La redirección **conserva el filtro exacto**, no uno parecido.
+ *
+ * ⛔ **Lo que NO se arrastra, y por qué.** `q`, `rarity`, `finish`, `condition` y el rango de precio
+ * NO viajan: o §2-S no los tiene, o la vitrina de sellado **no puede MOSTRARLOS** (no hay caja de
+ * búsqueda, y su selector de set se puebla con los sets de la página cargada). Un filtro aplicado
+ * que el usuario no ve en pantalla es exactamente la clase de mentira que este ticket corrige. Lo
+ * que sí se arrastra se ve en su control. El salto de pantalla se explica con `?from=compra`.
+ */
+function sealedIntentOf(sp: ReadonlyURLSearchParams | null): { sealedSubtype?: string } | null {
+  if (!sp) return null;
+  const sub = sp.get('sealedSubtype');
+  const validSub =
+    sub && (SEALED_SUBTYPES as readonly string[]).includes(sub) ? sub : undefined;
+  // `?productType=sealed` (o el `?type=sealed` de la sub-navegación) es intención explícita.
+  const asksSealed = sp.get('productType') === 'sealed' || sp.get('type') === 'sealed';
+  // Un `?sealedSubtype=` VÁLIDO a secas también lo es: nombra una presentación de producto cerrado
+  // y no significa nada más en todo el sistema. Uno inválido NO inventa intención (`?sealedSubtype=zzz`
+  // es basura, no una petición de sellado): se ignora y la vista sigue siendo Compra.
+  if (!asksSealed && !validSub) return null;
+  return validSub ? { sealedSubtype: validSub } : {};
+}
+
+/** Destino de §2-S para una intención de sellado, con su marca de procedencia. */
+function sealedHref(intent: { sealedSubtype?: string }): string {
+  const qs = new URLSearchParams();
+  if (intent.sealedSubtype) qs.set('sealedSubtype', intent.sealedSubtype);
+  qs.set('from', 'compra');
+  return `/sellado?${qs.toString()}`;
+}
 
 /**
  * Vitrina «Comprar»: inventario publicado con precio (DESIGN_SYSTEM §7.1/§7.16).
@@ -52,6 +105,10 @@ export function CatalogView() {
   // La pestaña Gradeadas usa ?type=graded; los enlaces del Home usan ?productType=graded.
   const gradedTab =
     searchParams?.get('type') === 'graded' || searchParams?.get('productType') === 'graded';
+
+  // D-EQ-3: esta URL pide sellado ⇒ no es de esta vista. Se resuelve ANTES que nada (ver el
+  // bloque de `sealedIntentOf`): sin consultar la rejilla de singles y sin pintarla.
+  const sealedIntent = useMemo(() => sealedIntentOf(searchParams), [searchParams]);
 
   // Los filtros se inicializan desde la URL (enlaces del Home: ?setId=, ?productType=…).
   const [filters, setFilters] = useState<CatalogFilters>(() => parseUrlFilters(searchParams));
@@ -90,11 +147,20 @@ export function CatalogView() {
       const next: CatalogFilters = { ...f, ...fromUrl, page: undefined };
       if (!gradedTab && f.productType === 'graded' && fromUrl.productType == null)
         next.productType = undefined;
-      if (next.productType !== 'sealed') next.sealedSubtype = undefined;
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlKey]);
+
+  /**
+   * D-EQ-3 · la única salida honesta para un enlace de sellado: llevarlo a §2-S.
+   * `replace` (no `push`) porque esto no es un paso de navegación del usuario: es la corrección
+   * de una URL que ya no existe en el contrato — dejarla en el historial haría que «atrás»
+   * devolviera al callejón sin salida.
+   */
+  useEffect(() => {
+    if (sealedIntent) router.replace(sealedHref(sealedIntent));
+  }, [sealedIntent, router]);
 
   /**
    * Todo cambio de filtro u orden pasa por aquí: resetea la página (el
@@ -121,6 +187,10 @@ export function CatalogView() {
     // R5: paginar/filtrar no desmonta la grilla — se sigue mostrando la página
     // anterior mientras llega la nueva (isLoading solo en el primer fetch).
     placeholderData: keepPreviousData,
+    // D-EQ-3: con intención de sellado esta rejilla no se consulta. No es una optimización —
+    // es lo que impide gastar una petición cuya respuesta ya sabemos que no sirve (y, cuando
+    // backend cierre el dominio, un `400` de camino a una pantalla que ya nos vamos a ir).
+    enabled: !sealedIntent,
   });
 
   const activeChips = useMemo(
@@ -170,6 +240,23 @@ export function CatalogView() {
       className="w-full border-b border-border-strong bg-transparent pb-2.5 text-[13px] text-text outline-none placeholder:text-muted focus:border-text focus-visible:shadow-focus"
     />
   );
+
+  /**
+   * D-EQ-3 · mientras la redirección se resuelve NO se pinta la rejilla de singles. Ni con tejas ni
+   * —sobre todo— con «Ninguna carta coincide»: ese vacío es literalmente el defecto que este
+   * cambio corrige, y verlo parpadear medio segundo camino a `/sellado` lo dejaría intacto para el
+   * ojo del usuario. Se anuncia el traslado en una región viva, que es lo que un lector de pantalla
+   * necesita cuando la página cambia sola bajo sus pies (§8.2).
+   */
+  if (sealedIntent) {
+    return (
+      <div className="gutter py-16">
+        <p role="status" aria-live="polite" className="text-[15px] leading-relaxed text-muted">
+          {t('sealedRedirect')}
+        </p>
+      </div>
+    );
+  }
 
   return (
     // §22.4b: la nota al pie de Compra se renderiza si LA PÁGINA ACTUAL muestra ≥ 1 badge, y se
@@ -344,14 +431,12 @@ function parseUrlFilters(sp: ReadonlyURLSearchParams | null): CatalogFilters {
   const q = sp.get('q');
   if (q) f.q = q;
   const pt = sp.get('productType') ?? (sp.get('type') === 'graded' ? 'graded' : null);
-  if (pt === 'raw' || pt === 'graded' || pt === 'sealed') f.productType = pt;
+  // ⛔ D-EQ-3 / contrato v1.73 §2: `sealed` NO es un valor de este filtro — la rejilla de singles no
+  // puede servirlo (`H9`). Esa URL ya no llega hasta aquí: `sealedIntentOf` la desvía a §2-S antes.
+  // `sealedSubtype` tampoco se lee: se retiró del contrato y su lectura vive ahora en `/sellado`.
+  if (pt === 'raw' || pt === 'graded') f.productType = pt;
   const finish = sp.get('finish');
   if (finish && (FINISH_ORDER as string[]).includes(finish)) f.finish = finish as Finish;
-  const sub = sp.get('sealedSubtype');
-  // T-1: la lista blanca es la del CONTRATO (`SEALED_SUBTYPES`, los siete), no una copia local de
-  // cinco: `?sealedSubtype=upc` se descartaba en silencio aunque el backend lo sirve (200).
-  if (f.productType === 'sealed' && sub && (SEALED_SUBTYPES as readonly string[]).includes(sub))
-    f.sealedSubtype = sub as SealedSubtype;
   const rarity = sp.get('rarity');
   if (rarity) {
     const list = rarity.split(',').map((r) => r.trim()).filter(Boolean);
@@ -401,12 +486,11 @@ function buildChips(filters: CatalogFilters, sets?: { id: string; name: string }
     chips.push({
       key: 'type',
       label: filters.productType,
-      remove: (f) => ({ ...f, productType: undefined, sealedSubtype: undefined }),
+      remove: (f) => ({ ...f, productType: undefined }),
     });
   }
-  if (filters.sealedSubtype) {
-    chips.push({ key: 'subtype', label: filters.sealedSubtype, remove: (f) => ({ ...f, sealedSubtype: undefined }) });
-  }
+  // (D-EQ-3: el chip de `sealedSubtype` se va con el filtro. Era, además, el que pintaba el token
+  // crudo «box» junto a un «sealed» igual de crudo sobre una rejilla vacía.)
   if (filters.finish) {
     // v1.6-finish: chip del acabado activo (etiqueta cruda; la localizada vive en el panel de filtros).
     chips.push({ key: 'finish', label: filters.finish, remove: (f) => ({ ...f, finish: undefined }) });

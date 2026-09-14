@@ -20,6 +20,7 @@ import {
   ProductType,
   RawCondition,
   SealedCondition,
+  SealedGroupKind,
   SealedSubtype,
 } from '@prisma/client';
 // v2.1.8: las listas de valores se DERIVAN del schema (una sola declaración, `common/enum-values.ts`).
@@ -29,6 +30,7 @@ import {
   GRADING_COMPANY_VALUES,
   PRODUCT_TYPE_VALUES,
   SEALED_CONDITION_VALUES,
+  SEALED_GROUP_KIND_VALUES,
   SEALED_SUBTYPE_VALUES,
 } from '../../../common/enum-values';
 // v2.1.9 (D4, §4.37): `RawCondition` es CLASE R — NO se deriva del schema. «Raw = solo NM» es
@@ -354,5 +356,15 @@ export class SealedSyncRequestDto {
  */
 export class SealedSetGroupLinkRequestDto {
   @IsInt() @Min(1) tcgplayerGroupId!: number;
-  @IsIn(['set_main', 'promo_collection']) kind!: 'set_main' | 'promo_collection';
+  /**
+   * ⭐ `D-EQ-2` (v1.73) — **la CUARTA copia a mano de `SealedGroupKind`, y la encontró el detector de
+   * residuo al derivar las otras tres.** Aquí decía `@IsIn(['set_main','promo_collection'])`.
+   *
+   * No era un incumplimiento de §0-Q (§0-Q punto 7: los enums del **CUERPO** los gobierna el DTO),
+   * pero sí de §4.37: *el enum se enumera en su LÍNEA CANÓNICA y en ningún otro sitio*. Y la
+   * pregunta que decide la clase se contesta igual que en el `?origin=` de al lado: si el schema
+   * gana un tercer tipo de grupo, **este endpoint debe poder enlazarlo el mismo día** ⇒ clase **E**,
+   * se deriva. *(Hoy no ensancha nada — el enum tiene exactamente estos dos valores.)*
+   */
+  @IsIn(SEALED_GROUP_KIND_VALUES) kind!: SealedGroupKind;
 }

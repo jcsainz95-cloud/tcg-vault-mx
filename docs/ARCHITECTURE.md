@@ -4,6 +4,21 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.73 — UN CENSO DE ESTADO DENTRO DE UN DOCUMENTO NORMATIVO CADUCA *CON AUTORIDAD*: §0-Q PIERDE EL SUYO**
+> (2026-09-13, arquitecto. Base: **v1.72, vigente entera salvo lo que esta rev retira**. Origen: `techlead` y `QA`
+> levantaron por separado que el censo de `API_CONTRACT §0-Q` punto 4 —rotulado *«CENSO VIGENTE … se actualiza cuando
+> cambie»*— marcaba ⛔ los **seis** ejes que `P-84` ya había cerrado y ✅ un catálogo que `P-89` midió **rojo**, citando
+> líneas que hoy son un comentario. **Segunda caducidad en tres días, y la primera ya había costado trabajo real**:
+> `P-89` nació porque una ficha de deuda citó ese censo como autoridad para **no mirar** el catálogo.
+> **La decisión de fondo, que es más que actualizar filas:** §0-Q deja de llevar estado. Declara **solo la norma**
+> —clase (A) de §0-B.2— y el estado pasa a una **suite ejecutable**, **`C-EQ-1`**, que además **descubre** los ejes que
+> nadie registró. *Lo único que mantenía sincronizado al censo era la disciplina, y la disciplina ya falló las veces
+> que hacían falta para saber que no sirve.* **§4.37 gana la tercera clase, `L` (LITERAL)**; **§4.37.1** gana el
+> apartado del candado. `API_CONTRACT` sube a **v1.73**. **Cero DDL, cero migración, cero endpoints.**
+> Desviaciones **`D-EQ-2`** (cuatro ejes que incumplen §0-Q, **backend**) y **`D-EQ-3`** (los dos ejes de sellado de
+> §2, **frontend → backend**, en ese orden) en §9; **`D-EQ-1` se CIERRA**.)
+>
+> ---
 > **Rev v1.72 — `P-84`: EL FILTRO DE ENUM EN QUERY ES UNA CONVENCIÓN, NO SEIS ARREGLOS**
 > (2026-09-13, arquitecto. Base: **v1.71, vigente entera; esta rev no retira nada**. Origen: seis sitios que meten un
 > token de query **crudo** en un `where` de Prisma con `as never` ⇒ **`500` disparable desde la barra de direcciones**.
@@ -14432,28 +14447,48 @@ sea revisable y reversible por partes. Zona compartida `backend/src/common/` —
 
 ### 4.37 Listas de validación: ESPEJO del schema vs REGLA de negocio (v2.1.9, NORMATIVO, transversal)
 
-> **Toda lista de valores aceptados por la API pertenece a exactamente UNA de dos clases, y la clase se declara.**
-> Confundirlas tiene daños opuestos y silenciosos: derivar una **regla** la **borra**; escribir a mano un **espejo** lo
-> deja **desfasado**.
+> **Toda lista de valores aceptados por la API pertenece a exactamente UNA de ~~dos~~ TRES clases, y la clase se
+> declara.** Confundirlas tiene daños opuestos y silenciosos: derivar una **regla** la **borra**; escribir a mano un
+> **espejo** lo deja **desfasado**; y tratar una lista que **no está en el schema** como si fuera cualquiera de las dos
+> manda a buscar un enum que no existe — o, peor, deja el eje **fuera de toda norma** (v1.73).
 
-**La pregunta que decide la clase (única, y se contesta por endpoint, no por enum):**
+**Las DOS preguntas que deciden la clase, en este orden (se contestan por endpoint, no por enum):**
 
-> *Si mañana alguien añade un valor a este enum en `schema.prisma`, ¿este endpoint debe aceptarlo **solo**, sin que
-> nadie tome una decisión?*
+> **P1 — ¿este dominio nombra valores que la BASE DE DATOS guarda?**
+> **P2 (solo si P1 = sí) — *Si mañana alguien añade un valor a este enum en `schema.prisma`, ¿este endpoint debe
+> aceptarlo **solo**, sin que nadie tome una decisión?***
 
-- **Sí** ⇒ clase **E (ESPEJO)**. El dominio del enum **es** la regla; rechazar un valor del schema sería mentirle al
-  cliente sobre lo que el sistema sabe representar.
-- **No / depende** ⇒ clase **R (REGLA)**. La lista **expresa una decisión de PROJECT.md**, y el schema solo es el
-  contenedor donde esa decisión vive junto a otras.
+- **P1 sí · P2 sí** ⇒ clase **E (ESPEJO)**. El dominio del enum **es** la regla; rechazar un valor del schema sería
+  mentirle al cliente sobre lo que el sistema sabe representar.
+- **P1 sí · P2 no/depende** ⇒ clase **R (REGLA)**. La lista **expresa una decisión de PROJECT.md** (o de una cláusula
+  citable del contrato), y el schema solo es el contenedor donde esa decisión vive junto a otras. Está **recortando**
+  algo que el sistema sí sabe representar, y por eso **exige la cita**.
+- **P1 no** ⇒ clase **L (LITERAL)** *(NUEVA, v1.73)*. El dominio **no existe en el schema** porque no describe un dato
+  persistido, sino un **modo de la consulta**: `?missing=location|price` («qué le falta a la fila»), `?axis=sale|buy`
+  («qué lado del negocio agregar»), `?sort=attention_first|…` («en qué orden»), `BountyState` (un estado **derivado**,
+  no una columna). **No hay enum que derivar y no hay nada que citar, porque no se está recortando nada.**
+  - **Su declaración canónica es la línea del endpoint en `API_CONTRACT.md`** —no §Enums, que es el bloque de los enums
+    de BD—, y la paridad es a **DOS bandas**: contrato ↔ literal junto al call-site. No hay tercera porque no hay
+    schema que espejar.
+  - ⛔ **Una clase L NO se convierte en R por costumbre.** Exigirle una cláusula de `PROJECT.md` a una unión pura es
+    pedirle que justifique un recorte que no hizo, y el efecto práctico medido es peor que el trámite: los tres ejes que
+    `P-84` y `P-89` se saltaron (`?missing=`, `?axis=`, `?sort=`) se saltaron **porque nadie sabía en qué casilla
+    ponerlos**, y quedar sin casilla es quedar **fuera de §0-Q** — que es como un eje termina devolviendo `422` y un
+    `details` sin `field` durante meses sin que ningún test lo note.
+  - **⭐ Lo que L NO autoriza, y es la trampa:** si existe el enum en `schema.prisma`, **no hay clase L posible**.
+    El criterio es operable en diez segundos — `rg 'enum <Nombre>' backend/prisma/schema.prisma`: si devuelve algo, es
+    **E** (o **R** con cita), y transcribir la lista a mano es el bug de `SealedSubtype`/`upc` esperando a repetirse.
+    Medido el 2026-09-13: `PendingPriceReason` y `SealedGroupKind` estaban transcritos a mano y **los dos** tienen su
+    `enum` y su columna.
 
 **Qué exige cada clase (verificable, no disciplina):**
 
-| | Clase **E — ESPEJO** | Clase **R — REGLA** |
-|---|---|---|
-| **Dónde vive** | `backend/src/common/enum-values.ts`, **una sola** declaración `Object.values(<PrismaEnum>)` | **En su sitio** (el DTO/guard del endpoint), literal y explícita |
-| **Documentación obligatoria** | La línea canónica del enum en **API_CONTRACT §Enums**, con su referencia `schema.prisma:líneas` al lado | La **cláusula de PROJECT.md citada al lado de la lista** (`// PROJECT §H — raw = solo NM`) |
-| **Test que la sostiene** | Paridad **contra el archivo `schema.prisma` en disco** *y* **contra la línea del contrato**. **PROHIBIDO** comparar `Object.values(e)` con `Object.values(e)` | (1) la lista es **exactamente** la esperada y (2) es **subconjunto** del enum de Prisma |
-| **Qué falla si el schema crece** | El test de paridad, hasta que se actualice el contrato — que es el punto | **Nada**, a propósito: la regla no se mueve sola. El test de subconjunto sí falla si el schema **pierde** el valor |
+| | Clase **E — ESPEJO** | Clase **R — REGLA** | Clase **L — LITERAL** *(v1.73)* |
+|---|---|---|---|
+| **Dónde vive** | `backend/src/common/enum-values.ts`, **una sola** declaración `Object.values(<PrismaEnum>)` | **En su sitio** (el DTO/guard del endpoint), literal y explícita | Junto a su **único** call-site, literal |
+| **Documentación obligatoria** | La línea canónica del enum en **API_CONTRACT §Enums**, con su referencia a `schema.prisma` al lado | La **cláusula citada al lado de la lista** (`// PROJECT §H — raw = solo NM`) | **La línea del endpoint en API_CONTRACT es la canónica**, con la marca de clase |
+| **Test que la sostiene** | Paridad **contra el archivo `schema.prisma` en disco** *y* **contra la línea del contrato**. **PROHIBIDO** comparar `Object.values(e)` con `Object.values(e)` | (1) la lista es **exactamente** la esperada y (2) es **subconjunto** del enum de Prisma | Paridad **contrato ↔ literal** (dos bandas) + (3) que **no exista** un enum homónimo en `schema.prisma` |
+| **Qué falla si el schema crece** | El test de paridad, hasta que se actualice el contrato — que es el punto | **Nada**, a propósito: la regla no se mueve sola. El test de subconjunto sí falla si el schema **pierde** el valor | **Nada** — y es correcto: el schema no habla de esto. Lo que sí falla es si alguien **crea** el enum y deja el literal |
 
 **Por qué la paridad tiene que leer el ARCHIVO, y no `Object.values`.** `enum-values-parity.spec.ts:58` hace
 `expect([...derived].sort()).toEqual(Object.values(prismaEnum).sort())` con `derived = Object.values(prismaEnum)`:
@@ -14489,7 +14524,14 @@ API_CONTRACT §Enums.
 | **`ShipmentStatus`** en `?status=` de `GET /admin/shipments` | **E** (v1.72, P-84) | ⚠️ **NO se reusa `ShipmentActiveStage`** (subconjunto que existe como **proyección al cliente** de `HoldingDTO.shipmentState`): usarlo como dominio del filtro admin escondería `entregado` y `cancelado` de la cola de M4. **Dominio ≠ proyección** |
 | **`InventoryStatus`** en `?status=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | `lost`, `damaged`, `withdrawn`, `in_custody` son **justo los que hay que poder listar** para cuadrar el almacén. Un estado nuevo = **piezas físicas** en ese estado |
 | **`OwnerType`** en `?ownerType=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | Eje **anti-double-sell** (custodia del cliente vs stock de plataforma); los dos valores son legítimos y ninguna cláusula recorta el filtro |
-| **`VaultZone`** en `?zone=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | Espeja `VaultLocation.zone`. ⚠️ `details.field` = **`"zone"`** (el query param), **no** `"location.zone"` (la ruta de Prisma, `inventory.service.ts:2228`) |
+| **`VaultZone`** en `?zone=` de `GET /admin/inventory/items` | **E** (v1.72, P-84) | Espeja `VaultLocation.zone`. ⚠️ `details.field` = **`"zone"`** (el query param), **no** `"location.zone"` (la ruta de Prisma) |
+| **`PendingPriceReason`** en `?reason=` de `GET /admin/pricing/pending` | **E** (v1.73) | ⚠️ **Estaba transcrito a mano**, y no era una unión de literales: hay `enum PendingPriceReason` en `schema.prisma` sobre la **columna persistida e indexada** `PendingPriceEntry.reason`. Una tercera razón en el schema significa **filas de dinero** que la cola no podría filtrar. Su línea canónica de §Enums ya existía |
+| **`PendingPriceContext`** en `?context=` de `GET /admin/pricing/pending` | **E** (v1.73) | Enum de BD sin línea canónica en el contrato hasta v1.73 (`rg` ⇒ 0), así que la **paridad a tres bandas no podía correr sobre él**. Los dos buckets de M2 (VENTA/COMPRA) son una **lectura** sobre el enum completo, no un recorte |
+| **`SealedGroupKind`** en `?origin=` de `GET /admin/inventory/sealed-products` | **E** (v1.73) | Enum de BD transcrito a mano en el controller, y **declarado fuera de §Enums** (otra copia de prosa). Se mueve a su línea canónica y se deriva |
+| **`ProductType`** en `?productType=` de `GET /catalog/cards` | **⚠️ R — RECLASIFICADO (v1.73)** | **Pierde `sealed`.** No es un capricho: el guardarraíl **`H9`** (`singlesPublishedWhere`) añade `productType: { not: 'sealed' }` al mismo `where` ⇒ el token pedía una fila que la consulta prohíbe. **Cláusula citable = la línea de `API_CONTRACT §2`** («`/catalog/cards` es la rejilla de SINGLES; el sellado se sirve por §2-S»). *Un dominio que acepta un token que su consulta no puede servir es la mentira de §4.37 con el signo invertido* |
+| `location \| price` en `?missing=` de `GET /admin/inventory/pending-publish` | **L** (v1.73) | No nombra estados: nombra **qué le falta a la fila**. `rg 'enum .*Missing' schema.prisma` ⇒ 0 |
+| `sale \| buy` en `?axis=` de `GET /admin/reports/pricing-brackets` | **L** (v1.73) | `rg 'enum .*[Aa]xis' schema.prisma` ⇒ **0** (medido). Es un modo de agregación, no un dato |
+| `BountyState` en `?state=` · `AdminBountySort` en `?sort=` de `GET /admin/pricing/bounties` | **L** (v1.73) | `BountyState` es un estado **derivado** (§M2-B.0), no una columna; `sort` es un **orden con default** (API_CONTRACT §0-Q punto 6), no un filtro |
 
 **El caso `RawCondition`, explicado — es el que enseña la diferencia.** La lista pasó de `@IsIn(['NM'])` a la lista
 derivada. **Hoy no ensanchó nada** y el resultado es idéntico. Pero «raw = solo NM» **no es un hecho del schema**: es
@@ -14541,6 +14583,73 @@ respuestas distintas al mismo error del mismo operador**. ⇒ **Disparador de `H
 **Orden de trabajo que esto implica (dueño: backend).** **Primero** el helper único en `common/` con la forma de §0-Q
 (`field` + `allowed` obligatorios), **después** los seis sitios como llamadores. Al revés —seis arreglos y luego
 consolidar— se escriben seis veces la misma decisión y se gana una quinta forma de `details`.
+*(✅ **Ejecutado**: `P-84` consolidó 4 copias ⇒ 2 y migró los seis ejes; `P-89` cerró las dos del catálogo público ⇒
+`common/enum-filter.ts` es hoy la única. Los tres pases —`P-84`, `P-89`, `H3-d`— tienen doble veredicto **APROBADO**.
+⚠️ **«Ejecutado» es una afirmación de clase (B) con fecha de escritura**: lo que diga el estado **hoy** es `C-EQ-1`,
+abajo, no este paréntesis.)*
+
+---
+
+#### ⭐⭐ 4.37.1-a — POR QUÉ EL CENSO SALIÓ DEL CONTRATO, Y QUÉ LO SUSTITUYE (`C-EQ-1`, v1.73, NORMATIVO)
+
+> **La decisión, en una línea: un censo de ESTADO dentro de un documento NORMATIVO no envejece como una nota —
+> envejece CON AUTORIDAD.** Por eso `API_CONTRACT §0-Q` declara ahora **solo la norma**, y el estado vive donde se mide.
+
+**El dato que la fuerza, y es un patrón, no un incidente.** El censo de §0-Q punto 4 se rotuló *«CENSO VIGENTE … se
+actualiza cuando cambie»* y **caducó dos veces en tres días**:
+
+| Cuándo | Qué afirmaba el censo | Qué era verdad | Qué costó |
+|---|---|---|---|
+| tras `P-84` | ⛔ «crudo a Prisma» en **seis** ejes | los seis ya estaban migrados al helper único | el documento normativo afirmaba **defecto de lo arreglado** |
+| desde su primera escritura | ✅ «conforme» el catálogo público | **6/6 ejes rojos** por §0-Q punto 1 fila 1 (`if (q.X)`, y `' '` es truthy) | ⭐ **trabajo real**: una ficha de deuda **citó el censo como autoridad para NO mirar el catálogo**. `P-89` existe por eso |
+| tras `P-89` / `H3-d` | ✅ «conforme», citando `catalog.service.ts:1129-1133` y `:52-55` | esas líneas hoy son **un comentario** | coordenadas muertas que mandan a leer el sitio equivocado |
+
+**La lección generalizable, que es la que importa y no la fila concreta:** *la jerarquía `PROJECT › contrato › código`
+es autoridad para **decidir**, no para **describir** (§0-B.1).* Un censo de estado escrito en el contrato **hereda la
+autoridad de lo que lo rodea**, y entonces la afirmación caducada **gana** contra el código que la contradice. Es la
+cuarta repetición en tres días de la misma clase: *una afirmación obtenida leyendo, usada como si estuviera medida.*
+
+⛔ **Y la salida NO podía ser «actualizarlo mejor».** Si la respuesta a *«¿qué lo mantiene sincronizado?»* es
+**disciplina**, la respuesta ya está medida: **no funciona**. Tres pases con doble veredicto APROBADO pasaron por encima
+de ese censo sin actualizarlo. No es que a alguien se le olvidara: es que **nada falla cuando se desactualiza**.
+
+**`C-EQ-1` — el candado. Dueño: BACKEND.** *(No es del arquitecto: es una suite en `backend/test/`. El arquitecto la
+**especifica**, backend la **escribe**, devops solo la ve correr en CI como el resto. Si hiciera falta cablearla aparte
+en un workflow, eso sí sería de devops — y **no hace falta**: corre con la suite de integración que ya existe.)*
+**Dos obligaciones, y la segunda es la que cierra la clase:**
+
+1. **CONFORMIDAD — ejercitar por HTTP cada fila del registro de §0-Q punto 4:** las tres conductas del punto 1
+   (ausente/vacío/`' '` ⇒ `200` sin filtrar · token ⇒ filtra · basura ⇒ `400`), la forma del punto 2 (`field`
+   obligatorio, `allowed` = el dominio **declarado**, **`400` y no `422`**, `value` **solo** donde el punto 2 lo
+   declara) y la **cota del eco**. *Tabla-dirigida: una fila de datos por eje, no un `describe` escrito a mano por eje —
+   si añadir un eje cuesta escribir un bloque nuevo, el eje número veinticinco no se añade.*
+2. **⭐ DESCUBRIMIENTO — fallar ante el eje que NADIE registró.** Es lo que faltaba, y es la diferencia entre un candado
+   y una lista. *Una suite no puede fallar por un parámetro que nunca le contaron.* La suite **enumera los `@Query(...)`
+   de los controllers** y los cruza contra **dos listas explícitas**: (a) los ejes de dominio cerrado del registro de
+   §0-Q y (b) los que **no** lo son (`q`, `from`, `to`, `page`, `pageSize`, `setId`, `cardId`, `userId`, …). Un `@Query`
+   que no esté en **ninguna** ⇒ **rojo**, con el mensaje *«eje de query nuevo: decide su clase con el arquitecto
+   (regla 9) o decláralo como no-enum»*.
+   - **Por qué esto y no un censo mejor escrito, con el dato:** los tres ejes que `P-84` y `P-89` **no tocaron**
+     —`?context=`, `?reason=`, `?axis=`— no se saltaron por descuido: **no estaban en el censo**, y un censo escrito a
+     mano no puede enterarse de lo que nadie le contó. `H3-d` los encontró **midiendo**, no leyendo.
+   - **La técnica ya existe y ya muerde aquí:** el «censo CONGELADO de call-sites» de `echoValue` en
+     `test/enum-filter.spec.ts`, que mira **código** (`stripComments`) y no texto — precisamente para que un párrafo que
+     *habla* de la bandera no lo dispare. ⚠️ Ese matiz **se replica**: mirar texto fue el defecto que `H3-d` le quitó a
+     `enum-values-parity.spec.ts`.
+   - ⛔ **Descubrir no es rechazar.** Inventariar los parámetros en una **prueba** para que ninguno se quede sin clase
+     **no** amplía la doctrina de llaves de query desconocidas, que sigue acotada a `GET /admin/users` (`D-A5-3`).
+3. **Regla de uso:** *«¿cumple `GET /x?y=` con §0-Q?»* se contesta **corriendo `C-EQ-1`**. Quien lo conteste citando
+   `API_CONTRACT.md` está contestando una pregunta de clase (B) con una fuente de clase (A) — el error exacto que v1.73
+   vino a cerrar.
+
+**Qué se pierde al retirar el censo, dicho para decidirlo con los ojos abiertos.** El censo tenía **un** uso legítimo:
+era la lista de *«qué le falta a backend»*. Eso no desaparece; cambia de sitio y de naturaleza. Las desviaciones
+vigentes viven en **§9, con fecha de medición y dueño** (`D-EQ-2`, `D-EQ-3`) —que es donde `CLAUDE.md` manda ponerlas—
+y la lista **siempre actual** es la salida en rojo de `C-EQ-1`. La diferencia práctica: un pendiente de §9 **dice cuándo
+se midió** (O-5); uno de `C-EQ-1` **se mide al leerlo**. Ninguno de los dos puede afirmar, con autoridad normativa, un
+estado que nadie comprobó.
+
+---
 
 **Lo que esta convención NO es.** ⛔ No es la regla de **llaves de query desconocidas**, que sigue **acotada a
 `GET /admin/users`** por decisión explícita (`D-A5-3`; `admin/admin.controller.ts:91` y `:109-116` lo declaran ⛔ «no
@@ -24593,8 +24702,51 @@ Riesgos técnicos:
 > en `TECH_DEBT.md`). **Los respeto y sigo numerando desde `D-IVA-4`.** *Un id compartido entre dos espacios de
 > nombres no es un nombre: es una colisión esperando a un incidente* — misma norma que `FX-24`/`FX-R2`.
 
-- **🔴 ABIERTA (v1.72) — `D-EQ-1`: SEIS FILTROS DE ENUM DE QUERY ENTRAN CRUDOS A PRISMA ⇒ `500` DISPARABLE DESDE LA
-  BARRA DE DIRECCIONES.** **Dueño: backend** (módulos `orders`, `disputes`, `shipments`, `inventory` + el helper
+- **🟡 ABIERTA (v1.73) — `D-EQ-2`: CUATRO EJES DE QUERY DE DOMINIO CERRADO INCUMPLEN §0-Q, Y NINGUNO ESTABA EN EL CENSO
+  QUE `P-84` ESCRIBIÓ.** **Dueño: backend** (`pricing`, `admin`, `inventory`). **Medido 2026-09-13** — `?reason=`,
+  `?axis=` y `?missing=` **por HTTP** (`H3-d`; los dos de `pricing` quedaron **congelados** en el bloque CENSO de
+  `test/integration/pricing-enum-filters-empty.e2e-spec.ts`, para que este cambio no pueda ser silencioso);
+  `?origin=` **leído en el controller y NO EJECUTADO** (su prueba la escribe backend, y es ella la que lo convierte en
+  medición). ⚠️ *Esta lista lleva fecha porque un pendiente sin fecha de medición se trata como NO MEDIDO (O-5); la
+  lista **siempre actual** es la salida en rojo de `C-EQ-1`.*
+  | Eje | Qué incumple | Cómo cierra |
+  |---|---|---|
+  | `GET /admin/pricing/pending?reason=` | **`422`** (debe ser `400`, §0-Q punto 2) · vacío ⇒ `422` (debe ser `200`) · dominio **transcrito a mano** de un enum de Prisma con columna indexada (§0-Q punto 3, **clase E**) | `parseEnumFilter` + dominio derivado de `PendingPriceReason` |
+  | `GET /admin/reports/pricing-brackets?axis=` | **`422`** · vacío ⇒ `422` | `parseEnumFilter` + literal `['sale','buy']` junto al call-site (**clase L**, canónica en el contrato) |
+  | `GET /admin/inventory/pending-publish?missing=` | `details` **sin `field`** (emite `{ missing, allowed }`) · vacío ⇒ `400` | `parseEnumFilter` + literal `['location','price']` (**clase L**) |
+  | `GET /admin/inventory/sealed-products?origin=` | `details` **VACÍO** (`{}`: ni `field` ni `allowed`) · `' '` ⇒ `400` · dominio **transcrito a mano** de `SealedGroupKind` | `parseEnumFilter` + dominio derivado (**clase E**) |
+  **Norma:** `API_CONTRACT` [§0-Q](API_CONTRACT.md#enum-query-filter) puntos 1–4 y §4.37 (clases **E**/**L**).
+  **Cierra con:** los cuatro como llamadores del helper único **+ `C-EQ-1`** (§4.37.1-a), que es lo que impide el
+  quinto. ⚠️ **`?origin=` es de OTRO work stream** («Inventario y vault»): lo serializa el orquestador, no se cuela en
+  el pase de `pricing`.
+- **🟡 ABIERTA (v1.73) — `D-EQ-3`: `GET /catalog/cards` DECLARA DOS EJES DE SELLADO QUE NO PUEDEN DEVOLVER NADA.**
+  **Dueños: frontend PRIMERO, backend DESPUÉS** (el orden **no es negociable**: si el servidor empieza a rechazar antes
+  de que el cliente deje de enviar, un deep-link existente pasa de «rejilla vacía» a «pantalla rota»).
+  **El mecanismo:** `singlesPublishedWhere` (`catalog/catalog.service.ts`, guardarraíl **H9**) añade
+  `productType: { not: 'sealed' }` al mismo `where` donde el filtro mete `productType: 'sealed'` o
+  `sealedSubtype: <x>` ⇒ conjunto vacío **por construcción**. **Medido por QA (HTTP):** `?sealedSubtype=box` ⇒ **0**
+  con sellado publicado en la BD. ⚠️ `?productType=sealed`: **derivado de leer el `where`, NO MEDIDO por HTTP** — la
+  medición que lo cierra es la misma con `?productType=sealed` ⇒ esperado `total: 0`.
+  **⭐ Y el agravante, que es lo que lo saca de «cosmético»:** contra **mocks** esos filtros **sí devuelven tejas** (los
+  fixtures traen piezas `productType:'sealed'`), así que la pantalla se ve **bien en desarrollo y vacía contra el
+  servidor**. *(Consumidor vivo: `frontend/src/lib/api.ts` `getCatalog` manda `sealedSubtype`; `CatalogView.tsx` acepta
+  `?type=sealed` y `?sealedSubtype=` desde la URL y les pinta chips.)*
+  **Norma:** `API_CONTRACT §2` (v1.73: `sealedSubtype` **retirado**; `productType` pasa a **clase R** sin `sealed`) y
+  §2-S, que es el sustituto exacto y **ya conforme**. **No toca ningún criterio de `PROJECT.md`**: §A exige que *la
+  sección* «Compra» filtre por tipo de producto incluyendo sellado y que el sellado se venda en Compra — **no dice por
+  qué endpoint**, y §2-S lo cumple. **Preexistente: `P-89` NO lo introdujo**, y backend hizo bien en no «arreglar el
+  filtro» (habría derogado `H9` por la puerta de atrás).
+  **Pregunta que NO se decide aquí, por falta de medición:** si `GET /catalog/facets` debe dejar de emitir facetas de
+  sellado para esta rejilla. **NO MEDIDO** qué emite hoy; la medición que lo cerraría es un `GET /catalog/facets` con
+  sellado publicado, mirando si aparecen `sealedSubtypes`/`productTypes` con sellado. *Se deja abierta a propósito en
+  vez de decidirla a ciegas: decidir sin medir es exactamente lo que esta rev vino a cerrar.*
+- **🟢 CERRADA (v1.72 → v1.73) — `D-EQ-1`: SEIS FILTROS DE ENUM DE QUERY ENTRAN CRUDOS A PRISMA ⇒ `500` DISPARABLE DESDE
+  LA BARRA DE DIRECCIONES.** Cerrada por `P-84` (helper único + los seis llamadores) y `P-89` (las dos copias del
+  catálogo público), **doble veredicto APROBADO**. ⚠️ La verificación **vigente** de que sigue cerrada no es esta línea:
+  es **`C-EQ-1`** (§4.37.1-a). *El texto original se conserva abajo como registro de lo medido el 2026-09-13 sobre
+  `c12b940`; sus `fichero:línea` son de aquel árbol y **no se actualizan** — una coordenada en una desviación cerrada es
+  historia, no una instrucción.*
+  <br>**Dueño: backend** (módulos `orders`, `disputes`, `shipments`, `inventory` + el helper
   compartido en `common/`). Medido 2026-09-13 sobre `c12b940`: `orders/admin-orders.controller.ts:58`,
   `disputes/disputes.service.ts:159`, `shipments/shipments.service.ts:373`, `inventory/inventory.service.ts:2224`,
   `:2226` y `:2228` hacen `where.x = <token de query> as never`; el filtro global no mapea errores de Prisma

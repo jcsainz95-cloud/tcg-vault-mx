@@ -23,6 +23,10 @@ import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } fr
 import { variantKey } from '../../common/variant-key';
 // v2.1.9 (D4): lista de CLASE R — «raw = solo NM» (PROJECT §H). Ver `common/business-rules.ts`.
 import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
+// P-89 (deuda H3): el validador de filtro de enum vive UNA vez en `common/`. Antes había aquí una
+// copia privada (`validateEnum`) y otra VERBATIM en `sealed-catalog.service.ts`.
+import { parseEnumFilter } from '../../common/enum-filter';
+import { FINISH_VALUES, PRODUCT_TYPE_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 // v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
@@ -45,16 +49,28 @@ import {
   toGradedEstimateConfigDTO,
 } from '../../common/graded-estimate';
 
-// Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
-// fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
-// se rechaza con 400 VALIDATION_ERROR (ver `validateEnum`).
-const PRODUCT_TYPES = new Set<string>(Object.values(ProductType));
-// v2.1.9 (D4, §4.37): el filtro público de condición es CLASE R, no un espejo del schema. PROJECT §H:
-// «el filtro de condición para raw refleja únicamente NM». Derivarlo de `RawCondition` haría que un
-// valor nuevo del enum se volviera filtrable en Compra el mismo día, sin decisión de nadie.
-const RAW_CONDITIONS = new Set<string>(ACCEPTED_RAW_CONDITIONS);
-const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
-const FINISHES = new Set<string>(Object.values(Finish));
+// Dominios aceptados por los filtros de enum del endpoint PÚBLICO (§0-Q punto 3).
+//
+// P-89: eran `Set<string>`. El tipo importa y no es cosmético: `Set<string>` obligaba a `as never`
+// en los cuatro call-sites —«cállate, compilador»—, que es la instrucción que dejó vivir meses los
+// seis `500` de `P-84`. Declarados como `readonly <EnumDePrisma>[]`, el genérico `T` de
+// `parseEnumFilter` resuelve al enum y el `where` de Prisma vuelve a estar tipado.
+//
+// CLASE E (§0-Q punto 3 / ARCHITECTURE §4.37) — se DERIVAN del schema vía `common/enum-values.ts`:
+// si mañana el schema gana un valor, el filtro público debe aceptarlo solo (habrá filas en él).
+const PRODUCT_TYPES: readonly ProductType[] = PRODUCT_TYPE_VALUES;
+const SEALED_SUBTYPES: readonly SealedSubtype[] = SEALED_SUBTYPE_VALUES;
+const FINISHES: readonly Finish[] = FINISH_VALUES;
+// CLASE R, con cláusula citable (§0-Q punto 3: sin cláusula NO hay clase R) — v2.1.9 (D4, §4.37):
+// el filtro público de condición NO es un espejo del schema. PROJECT §H: «el filtro de condición
+// para raw refleja únicamente NM». Derivarlo de `RawCondition` haría que un valor nuevo del enum se
+// volviera filtrable en Compra el mismo día, sin decisión de nadie.
+// ⚠️ Medido 2026-09-13 (P-89): HOY el schema tiene UN solo valor, así que esta lista y el dominio
+// del enum **coinciden**. Es exactamente la trampa que `common/enum-values.ts` documenta: coinciden
+// **por accidente, no por construcción**. ⛔ No se deriva del enum — el día que el schema gane un
+// valor, la coincidencia es lo que se rompe, y derivarla lo publicaría sin que nadie lo decidiera.
+// (El candado que lo vigila es `test/enum-values-parity.spec.ts`, y vigila el TEXTO del fichero.)
+const RAW_CONDITIONS: readonly RawCondition[] = ACCEPTED_RAW_CONDITIONS;
 
 /**
  * `CardDTO` del contrato (§DTOs), **declarado como INTERFAZ que espeja el CONTRATO** (v2.1.9, T-2).
@@ -776,22 +792,6 @@ export class CatalogService {
   }
 
   /**
-   * Valida un valor de filtro enum del endpoint público. Devuelve el valor si es válido;
-   * si no, lanza 400 VALIDATION_ERROR (nunca deja que un enum inválido llegue a Prisma y
-   * produzca un 500 PrismaClientValidationError).
-   */
-  private validateEnum(field: string, value: string, allowed: Set<string>): string {
-    if (!allowed.has(value)) {
-      throw BusinessException.badRequest('VALIDATION_ERROR', `Invalid ${field} filter`, {
-        field,
-        value,
-        allowed: [...allowed],
-      });
-    }
-    return value;
-  }
-
-  /**
    * v1.33 (P-27, §4.31d) — expande el filtro `setId` de Compra cuando el id es el PRINCIPAL de un
    * master combinado: devuelve `{ in: partSetIds }` (set-ids locales reales de las partes importadas,
    * ≥2) para listar el inventario de todas las partes. Para un set normal, un subset, o un principal
@@ -1125,12 +1125,22 @@ export class CatalogService {
     // Endpoint PÚBLICO: los filtros enum se validan contra la taxonomía real ANTES de
     // llegar a Prisma. Un valor inválido (p. ej. ?condition=LP, ?productType=foo) hoy
     // rompía con PrismaClientValidationError (500); ahora responde 400 VALIDATION_ERROR.
+    //
+    // P-89 — `if (q.X)` era el borde que fallaba §0-Q punto 1 fila 1: en JS **`' '` es truthy**, así
+    // que un espacio entraba a validar y salía `400` donde la norma manda `200` sin filtrar (medido
+    // por HTTP en los CUATRO ejes: `test/integration/catalog-enum-filters-empty.e2e-spec.ts`).
+    // `parseEnumFilter` decide `ausente | vacío | token | basura` en un solo sitio. `echoValue`
+    // conserva `details.value`, que este endpoint público ya publicaba.
     const extra: Prisma.InventoryItemWhereInput = {};
-    if (q.productType) extra.productType = this.validateEnum('productType', q.productType, PRODUCT_TYPES) as never;
-    if (q.condition) extra.rawCondition = this.validateEnum('condition', q.condition, RAW_CONDITIONS) as never;
+    const productType = parseEnumFilter('productType', q.productType, PRODUCT_TYPES, { echoValue: true });
+    if (productType) extra.productType = productType;
+    const condition = parseEnumFilter('condition', q.condition, RAW_CONDITIONS, { echoValue: true });
+    if (condition) extra.rawCondition = condition;
     // v1.6-finish: filtro por acabado sobre InventoryItem.finish. Valor inválido → 400.
-    if (q.finish) extra.finish = this.validateEnum('finish', q.finish, FINISHES) as never;
-    if (q.sealedSubtype) extra.sealedSubtype = this.validateEnum('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES) as never;
+    const finish = parseEnumFilter('finish', q.finish, FINISHES, { echoValue: true });
+    if (finish) extra.finish = finish;
+    const sealedSubtype = parseEnumFilter('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES, { echoValue: true });
+    if (sealedSubtype) extra.sealedSubtype = sealedSubtype;
     const cardWhere: Prisma.CardWhereInput = {};
     // v1.33 (P-27, §4.31d): si `setId` es el PRINCIPAL de un master combinado, EXPANDE a
     // `setId IN partSetIds` (incluye el inventario publicado de todas las partes: cel25 + cel25c).

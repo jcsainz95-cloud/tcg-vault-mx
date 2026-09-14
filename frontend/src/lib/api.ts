@@ -249,16 +249,30 @@ function mockTempPassword(): string {
 // deliberadamente neutro (no nombra el criterio). Solo es válido junto a `gradingHighlight: true`.
 export type CatalogSort = 'price_asc' | 'price_desc' | 'newest' | 'grading_showcase';
 
+/**
+ * ⛔ **v1.73 (D-EQ-3, contrato §2) — `GET /catalog/cards` es la rejilla de SINGLES: `sealed` SALE
+ * del dominio de `?productType=`.** No es una preferencia de UI: el backend excluye el sellado de
+ * esa consulta de forma ESTRUCTURAL (guardarraíl `H9`, `singlesPublishedWhere` añade
+ * `productType: { not: 'sealed' }`), así que pedirlo eran dos cláusulas contradictorias en un `AND`.
+ *
+ * MEDIDO POR HTTP (2026-09-13, stack nativo real, con UN sellado `box` PUBLICADO —
+ * `GET /catalog/sealed` ⇒ `total: 1`): `GET /catalog/cards?productType=sealed` ⇒ **`total: 0`**;
+ * `?sealedSubtype=box` ⇒ **`total: 0`**. El tipo lo hace inexpresable en vez de dejarlo
+ * a la disciplina de quien escriba la próxima llamada. El sellado se pide por `getSealedGroups`
+ * (§2-S).
+ */
+export type CatalogProductType = Exclude<ProductType, 'sealed'>;
+
 export interface CatalogFilters {
   q?: string;
   setId?: string;
   /** una o varias rarezas crudas (valor tal cual pokemontcg.io); se manda como CSV a la API */
   rarity?: string[];
-  productType?: ProductType;
+  /** ⛔ `sealed` NO: v1.73 lo sacó del dominio de este endpoint. Ver `CatalogProductType`. */
+  productType?: CatalogProductType;
   condition?: RawCondition;
   /** v1.6-finish: filtra por InventoryItem.finish (normal | reverse_holo | holofoil | first_edition_holofoil). */
   finish?: Finish;
-  sealedSubtype?: SealedSubtype;
   minPriceCents?: number;
   maxPriceCents?: number;
   sort?: CatalogSort;
@@ -292,7 +306,8 @@ export async function getCatalog(
       productType: filters.productType,
       condition: filters.condition,
       finish: filters.finish,
-      sealedSubtype: filters.sealedSubtype,
+      // ⛔ v1.73: `sealedSubtype` RETIRADO del contrato de este endpoint (era estructuralmente
+      // vacío por `H9`). Su sustituto EXACTO y ya conforme es `getSealedGroups` (§2-S).
       minPriceCents: filters.minPriceCents,
       maxPriceCents: filters.maxPriceCents,
       sort: filters.sort,

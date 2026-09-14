@@ -706,6 +706,15 @@ export function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
  * Agrupa piezas SINGLES vendibles en publicaciones únicas (K = cardId, productType, gradeKey, finish).
  * Money-safe: excluye no-vendibles, sin precio y sellado (H9). salePriceCents del grupo = MÍNIMO;
  * representativeInventoryItemId = la pieza más barata. stockCount = nº de piezas del grupo.
+ *
+ * ⭐ **ESTE `filter` ES LA PARIDAD `H9` DEL MOCK, y está MEDIDA (D-EQ-3, 2026-09-13).** `mockListings`
+ * SÍ trae piezas `productType:'sealed'` (`inv-1008` box, `inv-1009` etb) porque las consumen la
+ * bóveda y el back-office, así que leyendo solo el fixture parece que la rejilla de Compra pintaría
+ * sellado en desarrollo y nada contra el servidor. **No es así, y se comprobó renderizando:**
+ * `CatalogView` con `?productType=sealed` en modo mock da **0 tejas / «Ninguna carta coincide»**,
+ * igual que el servidor real (`GET /catalog/cards?productType=sealed` ⇒ `total: 0`). El mock **no**
+ * miente aquí. ⛔ Quien quite este `filter` reintroduce la mentira: la rejilla pintaría en
+ * desarrollo dos productos que el backend nunca devuelve.
  */
 export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   const singles = items.filter(
