@@ -1,4 +1,5 @@
 import { BuylistService } from '../src/modules/buylist/buylist.service';
+import { matchesWhere } from './helpers/prisma-where';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -29,10 +30,14 @@ function buildHarness(opts: {
         if (select?.user) return { user: opts.user === undefined ? USER : opts.user };
         return { ...row };
       }),
+      // ⭐⭐ **EVALÚA EL `where` DE VERDAD** (`helpers/prisma-where`). Desde el 2026-09-14 por aquí
+      // pasan DOS escrituras condicionales distintas: el sello (`… IS NULL`) y la de la ETIQUETA
+      // (`shipmentCarrier IS NULL OR shipmentCarrier <> …`), que sustituyó al `if` sobre la lectura
+      // previa. El fake anterior buscaba la clave del sello a mano y **no sabía leer un `OR`**:
+      // habría devuelto un `count` inventado justo en la línea que decide si se manda un segundo
+      // correo. ⚠️ `matchesWhere` respeta la semántica SQL de `NULL` en `not`.
       updateMany: jest.fn().mockImplementation(async ({ where, data }: any) => {
-        const sealField = Object.keys(where).find((k) => k === 'guideNoticeSentAt');
-        if (sealField && row[sealField] != null) return { count: 0 };
-        if (where.status && where.status !== row.status) return { count: 0 };
+        if (!matchesWhere(row, where)) return { count: 0 };
         Object.assign(row, data);
         return { count: 1 };
       }),

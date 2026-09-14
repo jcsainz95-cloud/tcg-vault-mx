@@ -22977,3 +22977,179 @@ contra BD), el reinicio del ciclo **por VALOR** (§R.4.b) y el **criterio 210 po
 `avisos-sellos.e2e-spec.ts`. ⛔ **Ninguna prueba se borró, se saltó ni se debilitó**: los dos candados
 que se reescribieron (`IVA-3(d)` y `D-IVA-5`) salieron **más fuertes**, con control de no-vacuidad y
 con la dirección asertada como desigualdad.
+
+---
+
+## §BE-AV2 (2026-09-14) — `D-AVISO-2` bajo concurrencia: la decisión baja al MOTOR, en tres sitios
+
+> **Sobre qué sha:** el defecto se midió sobre **`f8c7040`**; el arreglo se midió sobre el árbol de
+> trabajo de ese mismo sha (el orquestador commiteó a mitad una instantánea WIP, `64a70f7`, con mi
+> trabajo dentro — ver la trampa de método al final, que casi me cuesta el diagnóstico).
+
+### 1. El defecto, y el mecanismo CONFIRMADO con un canario
+
+El pase anterior dejó abierto que `POST /admin/shipments/:id/tracking` manda **dos correos** cuando
+llegan capturas simultáneas del **mismo** número. Confirmado y ampliado:
+
+| Camino | Antes (`f8c7040`) | Después |
+|---|---|---|
+| `setTracking` (envíos, `trackingNoticeSentAt`) | **8 de 25** tiradas con 2 correos | **0 de 65** (40 con 8 concurrentes + 25 con 16) |
+| `adminGuide` (buylist, `guideNoticeSentAt`) | **6 de 25** tiradas con 2 correos | **0 de 65** |
+
+⭐ **`guideNoticeSentAt` SÍ comparte el defecto.** El pase anterior midió `5/5 verde` y escribió que
+*«5/5 no es una demostración»*: tenía razón. Con `p ≈ 0.24`, cinco verdes seguidos salen el **25 %**
+de las veces. **Y su transacción no lo salvaba**: serializa las escrituras por el candado de fila,
+pero cada petición sigue decidiendo con el valor que leyó **antes** de esperar, y el sello se reclama
+**post-commit y fuera** de la transacción. *La transacción estrechaba la ventana; no la cerraba.*
+
+**El mecanismo que describió el orquestador es CORRECTO**, y no me limité a leerlo: lo aislé con un
+canario. Misma carrera, misma concurrencia, `N = 25`, **con la etiqueta ya escrita en la fila** ⇒
+`labelChanged` falso para todas ⇒ nadie borra el sello ⇒ **0/25 rojas**, contra **8/25** con las
+columnas en `NULL`. La única variable que cambia entre los dos es el borrado del sello.
+
+### 2. El arreglo: `UPDATE … WHERE <la etiqueta es distinta>`, y `count === 1` manda
+
+La comparación se baja al `WHERE`, así que **decidir y escribir son una sola operación**. Bajo
+`READ COMMITTED`, Postgres **re-evalúa la cualificación sobre la versión ya actualizada** de la fila
+(`EvalPlanQual`) cuando dos `UPDATE` compiten ⇒ **exactamente UNA** obtiene `count === 1`.
+`labelChanged` deja de ser una opinión sobre el pasado y pasa a ser **lo que el motor hizo**.
+
+> ⚠️ **`carrier IS NULL OR …` NO es defensivo, es obligatorio.** Medido: Prisma 5 traduce
+> `{ not: v }` a **`col <> $1` a secas** (SQL emitido, capturado con el log de consultas). En SQL
+> `NULL <> 'DHL'` es UNKNOWN ⇒ **no casa**. Sin la rama explícita de `null`, la **primera** captura
+> —que es justo la que avisa— no limpiaría el sello y **el correo no saldría nunca**: el defecto con
+> el signo cambiado, de dos correos a **cero**.
+
+### 3. El candado: se FUERZA el entrelazado, no se espera
+
+⛔ **La prueba obvia —8 peticiones a la vez— NO sirve como candado**, y se comprobó midiéndola:
+`p ≈ 0.32` por tirada significa que **una sola tirada deja pasar la regresión 2 de cada 3 veces**.
+El candado nuevo abre una transacción propia, hace `SELECT … FOR UPDATE`, deja dentro el estado de
+«otra captura ya terminó y ya avisó», y suelta; la petición que espera queda **comprobada en
+`pg_stat_activity`**, no supuesta (`test/integration/helpers/row-lock-barrier.ts`).
+
+**Ablación (`f8c7040` restaurado verbatim, `N = 10` corridas): ROJO 10/10 en los dos `it`. Con el
+arreglo: VERDE 10/10.** Determinista en las dos direcciones.
+
+### 4. ⭐ El TERCER sitio, y es la misma raíz: `SERIALIZABLE` sin reintento ⇒ `500`
+
+`POST /buylist/requests` con dos altas simultáneas daba **`500 INTERNAL`**
+(`PrismaClientKnownRequestError: Transaction failed due to a write conflict or a deadlock`).
+
+**Sí es la misma familia** —concurrencia sobre estado compartido— pero conviene decir en qué se
+diferencia, porque el remedio es otro: los dos primeros eran un **defecto de corrección** (se perdía
+el pestillo y salía un correo de más); éste es un **defecto de contrato con el motor**. En
+`SERIALIZABLE`, un `40001` **no es una avería: es el precio del nivel de aislamiento**. Pedimos la
+garantía (`SEC-A2`, el TOCTOU del tope mensual AML) y **no pagábamos el precio** ⇒ la factura se la
+pasábamos al cliente en forma de `500`. ⛔ La respuesta **no** es bajar el aislamiento.
+
+**Y se arregló como candado transversal, no como tres parches**, porque la omisión estaba **seis
+veces**: `backend/src/common/serializable-retry.ts` (`runSerializable`) es ahora el **único** sitio
+que puede nombrar `TransactionIsolationLevel.Serializable`, y `test/serializable-retry.guard.spec.ts`
+lo vigila recorriendo `src/`. Los seis cuerpos se auditaron uno a uno: **cero efectos fuera de la
+BD** (correo y Stripe ya eran post-commit), que es la condición que hace seguro re-ejecutarlos.
+
+| Medición | Antes (`f8c7040`) | Después |
+|---|---|---|
+| `buylist-intake-concurrency.e2e-spec.ts` (4 altas simultáneas × 12 rondas = 48 altas) | **ROJO 10/10 corridas**, con `500` en la mayoría de las rondas | **VERDE 10/10**, cero `5xx`, con **doble control de no-vacuidad** (≥1 alta creada **y** ≥1 conflicto real observado) |
+
+⚠️ **El presupuesto de reintentos está MEDIDO, no elegido: son 5, y con 3 no basta.** Con `SERIALIZABLE_ATTEMPTS = 3`
+esta misma suite sale **roja 10/10** por reintentos agotados (`P2034` propagado ⇒ `500`). Es aritmética: con N
+transacciones serializables peleando por el MISMO predicado, el SSI puede abortar a N−1 por ronda y cada reintento
+vuelve a entrar en la pelea. Con **5**: **8/8 y luego 10/10 verdes**. ⛔ **NO MEDIDO** con ~50 concurrentes — ahí el
+`500` volvería, y por eso el código de contrato para «reintentos agotados» sigue enrutado al arquitecto.
+
+⚠️ **Y esta suite se cayó dos veces por SU PROPIO aislamiento antes de quedar verde; las dos las cazó su control de
+no-vacuidad, y las dos quedan escritas porque son la lección:** (1) colgada de `customer2`, otras suites ya habían
+consumido el **cupo mensual AML** ⇒ 48 altas en `422` y **cero concurrencia que medir** (verde aislada, **roja 2 de 3
+corridas completas**); (2) con un usuario recién registrado, `403` por `@RequireEmailVerified()`. Se resolvió
+**prestando el tope** a `customer2` en el `beforeAll` y **devolviéndolo** en el `afterAll`. *Un candado de concurrencia
+que comparte cupo con el resto de la suite mide el orden de los ficheros, no el código.*
+
+### 5. `buylist-step-guard · S-2` — era la PRUEBA la que estaba mal, no el producto
+
+El intermitente (**2/5 rojo bajo carga, 5/5 verde aislada**) lo llevé a causa raíz con
+`pg_stat_activity` delante, y **no es un tercer comprobar-y-actuar**:
+
+> La guarda de `verify` es `UPDATE … WHERE id = :id AND status = 'recibida'`. Un `UPDATE` **solo
+> bloquea las filas que su cualificación selecciona**. Mientras `receive` no ha **commiteado**, la
+> versión visible sigue siendo `en_transito` ⇒ el `UPDATE` de `verify` **no casa con nada, no se
+> encola detrás de nadie y contesta `409` en el acto** (medido: respondió a los **52 ms**, con
+> `receive` aún bloqueada).
+
+O sea: `verify` **no espera** a `receive`, y **eso es correcto** (`§M5-S`). Lo que fallaba era la
+prueba, que afirmaba que 20 ms de reloj ordenan dos peticiones. ⛔ Tampoco valía la salida fácil de
+aceptar el `409` como resultado válido: eso borra la propiedad que la prueba existe para fijar. Se
+reescribió con el orden **forzado**, y ahora asierta **dos hechos deterministas**: (1) con `receive`
+en vuelo, `verify` da `409 INVALID_TRANSITION` **sin corromper nada** (`verifiedAt` sigue `null`,
+`B-I4`); (2) en cuanto `receive` aterriza, el mismo `verify` **prospera**. *La doble pulsación no se
+pierde: se retrasa.* **Medido: 10/10 verde, y el conteo de la suite no baja (29 `it`).**
+
+### 6. ⚠️ Hallazgo NUEVO que dejo escrito y NO parcheo — es superficie de CONTRATO
+
+Del diagnóstico de S-2 salió otro `500`: si el candado de fila se sostiene **más de 5 s**, la
+transacción de `receive` muere por el **timeout por defecto de las transacciones interactivas de
+Prisma** (`P2028`) y, como `AllExceptionsFilter` **no mapea nada de Prisma**, sale **`500`**
+(medido: `receive` respondió `500` tras 5.4 s de espera). ⛔ **No** se arregla con un reintento
+—`P2028` no es un conflicto, y reintentar una transacción que no cupo en su ventana la vuelve a no
+caber—. Y elegir **qué código ve el cliente** es superficie de API. ⇒ **Al arquitecto**, junto con
+el mismo hueco ya censado en `§4.37.1` (los `500` de Prisma sin mapear).
+**Realismo:** en producción dos `receive` concurrentes se serializan en milisegundos; este `500`
+exige una retención patológica del candado. **NO MEDIDO** si algún camino real lo produce.
+
+### 7. Lo que se endureció de paso (y por qué cuenta como parte del arreglo)
+
+- **`test/helpers/prisma-where.ts` ya no miente sobre los nulos.** `{ not: v }` evaluaba con
+  semántica de **JS** (`null !== 'x'` ⇒ true) cuando Prisma emite **SQL** (`NULL <> 'x'` ⇒ no casa).
+  Un fake que no coincide con el motor en los nulos **no simula el motor: inventa otro**, y habría
+  dado verde a un `where` que en Postgres no encuentra la fila. Ahora respeta la semántica SQL.
+- **Cinco fakes de unitarios pasaron de `update: jest.fn()` a fila viva + `where` evaluado.** Con un
+  mock que devuelve lo que le digan, el `count` —que **es** la garantía— lo escribe el propio test.
+  Dos casos nuevos en `shipments.tracking-cost.spec.ts` cubren justo lo que el mock no podía ver: la
+  re-captura idempotente **no** limpia el sello, y la primera captura (columnas en `NULL`) **sí**.
+
+### 8. Lo que NO medí
+
+| # | Afirmación **NO MEDIDA** | Qué la cerraría |
+|---|---|---|
+| `N-AV2-1` | **No medí el comportamiento con los reintentos AGOTADOS** (`> 3` conflictos seguidos). Con 4 altas simultáneas basta y sobra; con 50 a la vez, no está medido — y ahí seguiría saliendo `500` | una corrida de carga con `N ≥ 50` concurrentes |
+| `N-AV2-2` | **No medí si hay más transacciones `Serializable` fuera de `buylist`/`shipments`**… salvo por el censo del candado nuevo, que recorre `src/` entero y hoy da **6** | ya está cerrado por `serializable-retry.guard.spec.ts` |
+| `N-AV2-3` | **No corrí Playwright ni el DAST**: no son míos y el árbol lo comparte un agente de frontend | QA |
+| `N-AV2-4` | **No medí el coste en producción** de los correos duplicados: la tienda no ha procesado ventas reales (`HECHOS.md`) | — |
+
+### 9. ⚠️ Una trampa de MÉTODO que casi me come el diagnóstico, escrita porque volverá
+
+La primera ablación la hice restaurando el código defectuoso con **`git show HEAD:…`**. Salió
+**verde 10/10** y estuve a punto de concluir que «la ventana depende de la carga de la máquina».
+Era falso: **`HEAD` se había movido bajo mis pies** —el orquestador commiteó una instantánea WIP
+(`64a70f7`) **con mi arreglo dentro**— así que `git show HEAD:` me devolvía **el arreglo**. La
+ablación medía el código nuevo contra sí mismo, y el «hallazgo» que casi escribo era un artefacto.
+
+> *Una ablación vale exactamente lo que vale el sha que restaura.* ⛔ **Nunca `HEAD` en un árbol
+> compartido: el sha, literal.**
+
+### 10. Las mediciones de este pase, con su `N` y sobre qué árbol
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| **`D-AVISO-2` en envíos, ANTES** | `f8c7040`, BD propia, `N = 25` tiradas × **8** simultáneas | **8/25 con DOS correos** |
+| **`D-AVISO-2` en buylist, ANTES** | ídem | **6/25 con DOS correos** (el `5/5 verde` del pase anterior era suerte: `0.76⁵ ≈ 25 %`) |
+| **Canario del mecanismo** | misma carrera, **etiqueta ya escrita** ⇒ nadie borra el sello, `N = 25` | **0/25** ⇒ la causa es el borrado del sello, no el sello |
+| **`D-AVISO-2` en envíos, DESPUÉS** | `N = 40` × 8 simultáneas **+** `N = 25` × 16 simultáneas | **0/65** |
+| **`D-AVISO-2` en buylist, DESPUÉS** | ídem | **0/65** |
+| **Ablación de los 2 candados de aviso** | `f8c7040` restaurado **por sha**, `N = 10` corridas | **ROJO 10/10**; con el arreglo, **VERDE 10/10** |
+| **Ablación de los 3 candados juntos** (avisos + intake) | `f8c7040`, `N = 10` corridas | **3 rojos en 10/10 corridas**, siempre los mismos |
+| **`buylist-intake-concurrency`** | `N = 10` corridas aisladas | **VERDE 10/10** (con 3 intentos de reintento: **ROJO 10/10**) |
+| **`buylist-step-guard` (S-2 reescrita)** | `N = 3` aisladas + 4 corridas completas | **29/29 verde** en todas; el intermitente **2/5** del pase anterior **no reaparece** |
+| **Integración COMPLETA** | `N = 3` con **BD recreada cada corrida** (+2 corridas previas) | **43 suites · 916 pruebas, 3/3 verdes** |
+| **Unitarios sobre copia del ÁRBOL ENTERO** (con `docs/` dentro) | dos copias, antes y después | **315 suites · 5 167 pruebas**, verde |
+| **Typecheck** | `tsc --noEmit` | limpio |
+
+**Delta de integración: 912 → 916 (+4) y 42 → 43 suites (+1).** El `+1` es
+`buylist-intake-concurrency.e2e-spec.ts` (+2 `it`); los otros `+2` son los dos candados de
+entrelazado forzado de `avisos-sellos`. **Delta de unitarios: 5 150 → 5 167 (+17) y 313 → 315
+suites (+2)** (`serializable-retry` y su candado transversal, más dos casos nuevos en
+`shipments.tracking-cost`).
+⛔ **Ninguna prueba se borró, se saltó ni se debilitó.** El único `it` sustituido —el de `S-2`— se
+cambió **porque afirmaba algo falso**, y su reemplazo asierta **dos** hechos donde antes había uno
+que dependía del reloj; el conteo de la suite **no baja** (29 `it`).

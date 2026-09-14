@@ -23,6 +23,7 @@ import {
   shippingFeeDisplayCentsOf,
 } from '../../common/money';
 import { parseEnumFilter } from '../../common/enum-filter';
+import { runSerializable } from '../../common/serializable-retry';
 import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   ShipmentNoticeParams,
@@ -218,7 +219,8 @@ export class ShipmentsService {
     // propósito (A2/BE-7: no bloquear una conexión de DB en una llamada de red; el rollback
     // compensatorio borra la ShipmentRequest si Stripe falla). Nota: el índice único parcial
     // sobre ShipmentItem.inventoryItemId (defensa en profundidad) queda como deuda BE-42.
-    const shipment = await this.prisma.$transaction(
+    const shipment = await runSerializable(
+      this.prisma,
       async (tx) => {
         // Un item no puede estar en dos envíos activos (re-verificado DENTRO de la tx).
         const active = await tx.shipmentItem.findFirst({
@@ -265,7 +267,7 @@ export class ShipmentsService {
           },
         });
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { label: 'createShipmentRequest', logger: this.logger },
     );
 
     // M3: idempotency-key derivada en servidor (`pi-shipment-<id>`); header del cliente = override.

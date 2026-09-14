@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { matchesWhere } from './helpers/prisma-where';
 import { join } from 'path';
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -68,7 +69,25 @@ describe('⛔ CONTRA-CANDADO — el costo de envío no se cuela en NINGUNA respu
       shipmentRequest: {
         findUnique: jest.fn().mockResolvedValue({ ...rawRow }),
         findMany: jest.fn().mockResolvedValue([{ ...rawRow }]),
-        update: jest.fn().mockResolvedValue({ ...rawRow }),
+        // ⭐ 2026-09-14 (`D-AVISO-2`): `setTracking` escribe la etiqueta con un `updateMany`
+        // CONDICIONADO al valor viejo (la decisión la hace el motor, no un `if` sobre una lectura
+        // previa). El fake mantiene una fila viva y **evalúa el `where`**, así que lo que estas
+        // pruebas leen es lo que de verdad quedaría escrito.
+        ...(() => {
+          const fila: Record<string, unknown> = { ...rawRow };
+          return {
+            findUniqueOrThrow: jest.fn(async () => ({ ...fila })),
+            update: jest.fn(async ({ data }: any) => {
+              Object.assign(fila, data);
+              return { ...fila };
+            }),
+            updateMany: jest.fn(async ({ where, data }: any) => {
+              if (!matchesWhere(fila, where)) return { count: 0 };
+              Object.assign(fila, data);
+              return { count: 1 };
+            }),
+          };
+        })(),
       },
     };
     return {

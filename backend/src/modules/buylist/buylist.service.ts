@@ -58,6 +58,7 @@ import {
 // v1.51 (D14, criterio 154): los plazos del ciclo son DÍAS HÁBILES `America/Mexico_City`. El front
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
+import { runSerializable } from '../../common/serializable-retry';
 import {
   deriveRejectedReason,
   rejectDeadlines,
@@ -1676,7 +1677,8 @@ export class BuylistService implements OnModuleInit {
     // Se lee el acumulado y se crea la solicitud DENTRO de una transacción SERIALIZABLE:
     // dos solicitudes concurrentes cerca del tope entran en conflicto de serialización y
     // solo una prospera, cerrando el bypass del límite AML/mensual.
-    const request = await this.prisma.$transaction(
+    const request = await runSerializable(
+      this.prisma,
       async (tx) => {
         const monthUsed = await this.monthUsedCentsTx(tx, userId);
         if (monthUsed + quotedTotalCents > capPerMonth) {
@@ -1708,7 +1710,7 @@ export class BuylistService implements OnModuleInit {
           include: { items: { include: { card: true } } },
         });
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { label: 'createRequest', logger: this.logger },
     );
 
     // v2.1.6 — AHORA sí: la solicitud EXISTE, así que la cola refleja un hecho real. Va DESPUÉS del
@@ -3677,7 +3679,8 @@ export class BuylistService implements OnModuleInit {
       ? null
       : addBusinessDays(now, acceptDeadlineDays);
 
-    const updated = await this.prisma.$transaction(
+    const updated = await runSerializable(
+      this.prisma,
       async (tx) => {
         // ---- A3. ⚠️⚠️ §M5-A · BL-38 — TOPE MENSUAL, DENTRO DE LA TRANSACCIÓN SERIALIZABLE ----
         //
@@ -3850,7 +3853,7 @@ export class BuylistService implements OnModuleInit {
       // ⚠️ §M5-A.5 · BL-38 — **SERIALIZABLE**, por la MISMA razón que el intake (SEC-A2) y `pay-spei`
       // (AML-1): el tope mensual se lee y se escribe en el mismo boundary o dos emisiones concurrentes
       // del mismo vendedor leen el mismo acumulado y **las dos pasan**.
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { label: 'authorizeOffer', logger: this.logger },
     );
     if (!updated) throw BusinessException.notFound();
 
@@ -6835,7 +6838,8 @@ export class BuylistService implements OnModuleInit {
     // solicitud a rechazada" (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón
     // que `createRequest`/SEC-A2), haciendo verdadera la afirmación del doc «mismo transaction
     // boundary». Sin esto, count y update eran awaits secuenciales no atómicos. Dentro se usa `tx`.
-    await this.prisma.$transaction(
+    await runSerializable(
+      this.prisma,
       async (tx) => {
         // ¿Queda algún ítem NO-rechazado en la solicitud? (convertida_inventario cuenta como vivo).
         const nonRejectedCount = await tx.sellRequestItem.count({
@@ -6853,7 +6857,7 @@ export class BuylistService implements OnModuleInit {
           data: { status: 'rechazada', closedAt: new Date() },
         });
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { label: 'rejectAllItems', logger: this.logger },
     );
   }
 
@@ -6894,7 +6898,8 @@ export class BuylistService implements OnModuleInit {
     // estado (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón que
     // `createRequest`/SEC-A2), para que "todos los ítems rechazados" y "solicitud rechazada" no
     // puedan divergir tras un commit exitoso. Dentro se usa `tx`.
-    const transitioned = await this.prisma.$transaction(
+    const transitioned = await runSerializable(
+      this.prisma,
       async (tx) => {
         // Precondición (idéntica a la regla f): cierra SÓLO si TODOS los ítems ya están `rechazada`.
         // Cualquier ítem vivo (aprobada/ajustada/convertida_inventario/verificacion/…) bloquea el
@@ -6944,7 +6949,7 @@ export class BuylistService implements OnModuleInit {
         }
         return true;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { label: 'rejectRequest', logger: this.logger },
     );
     return { request: await this.adminGet(id), transitioned };
   }
@@ -7349,7 +7354,8 @@ export class BuylistService implements OnModuleInit {
     // settings dentro alargaría la ventana de conflicto de un camino de DINERO SALIENTE sin
     // aportar a ninguna precondición — solo alimentan la FORMA de la respuesta.
     const dials = await this.adminCycleDials();
-    const paid = await this.prisma.$transaction(
+    const paid = await runSerializable(
+      this.prisma,
       async (tx) => {
         // ⚠️⚠️ v1.51.22 · **B-2 — EL IMPORTE SE RELEE DENTRO DE LA TRANSACCIÓN.**
         //
@@ -7520,7 +7526,7 @@ export class BuylistService implements OnModuleInit {
         // variable local del método (`paid` es lo que se devuelve tal cual al controller).
         return row ? this.adminSellRequestDTO(row, dials) : null;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      { label: 'markPaid', logger: this.logger },
     );
     if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({

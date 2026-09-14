@@ -1,4 +1,5 @@
 import { ShipmentsService } from '../src/modules/shipments/shipments.service';
+import { matchesWhere } from './helpers/prisma-where';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
@@ -40,11 +41,18 @@ function buildHarness(opts: {
   const prisma: any = {
     shipmentRequest: {
       findUnique: jest.fn().mockImplementation(async () => ({ ...row })),
+      findUniqueOrThrow: jest.fn().mockImplementation(async () => ({ ...row })),
       update: jest.fn().mockImplementation(async ({ data }) => Object.assign(row, data)),
-      // El sello: `updateMany` sobre `… IS NULL` ⇒ gana UNA sola reclamación (`D-AVISO-2`).
+      // ⭐⭐ `updateMany` **EVALÚA EL `where` DE VERDAD** (`helpers/prisma-where`), y desde el
+      // 2026-09-14 eso importa el doble: por aquí pasan AHORA las DOS escrituras condicionales de
+      // `D-AVISO-2` — la del sello (`… IS NULL`) y la de la ETIQUETA (`carrier IS NULL OR carrier
+      // <> …`), que es la que sustituyó al `if` sobre la lectura previa. El fake anterior cogía
+      // «la única clave que no es `id`» y **no sabía leer un `OR`**: con el `where` nuevo habría
+      // dado un `count` inventado, que es justo lo que un mock no debe poder hacer aquí.
+      // ⚠️ `matchesWhere` respeta la semántica SQL de `NULL` en `not` ⇒ si alguien quitara la rama
+      // `{ carrier: null }`, la primera captura dejaría de casar y ESTAS pruebas se pondrían rojas.
       updateMany: jest.fn().mockImplementation(async ({ where, data }) => {
-        const field = Object.keys(where).find((k) => k !== 'id') as string;
-        if ((row as any)[field] != null) return { count: 0 };
+        if (!matchesWhere(row as any, where)) return { count: 0 };
         Object.assign(row, data);
         return { count: 1 };
       }),

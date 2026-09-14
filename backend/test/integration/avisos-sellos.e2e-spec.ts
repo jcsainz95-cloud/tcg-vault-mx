@@ -2,6 +2,7 @@ import { SellRequestStatus } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
+import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
 
 /**
  * # avisos-sellos.e2e-spec.ts — ⭐⭐ **LOS OTROS DOS SELLOS DE M-57, CONTRA POSTGRES REAL**
@@ -49,17 +50,42 @@ import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.po
 const RUN = Date.now().toString(36);
 
 /**
- * ⭐ **Los dos números de los candados de carrera desde `NULL`** (bloques A y C).
+ * ⭐⭐⭐ **LA BARRERA DE CANDADO DE FILA — por qué estos candados NO lanzan N peticiones a la vez y
+ * cruzan los dedos.** *(2026-09-14.)*
  *
- * `CONC` es cuántas capturas simultáneas entran; `TRIALS`, cuántas veces se repite la tirada. El
- * segundo NO es decorativo: el defecto que vigilan es **probabilístico** (medido `p ≈ 0.32` en
- * envíos y `p ≈ 0.24` en buylist), así que **una sola tirada no verifica nada** — dejaría pasar la
- * regresión 2 de cada 3 veces. Con 20 tiradas la fuga baja a `0.68²⁰ ≈ 0.02 %` (envíos) y
- * `0.76²⁰ ≈ 0.4 %` (buylist). ⛔ Bajarlos es **debilitar el candado**.
+ * El defecto que vigilan los bloques (A) y (C) es un *comprobar-y-actuar*: la captura decide si
+ * reinicia el ciclo del aviso comparando contra una lectura **previa** al update. La forma obvia de
+ * probarlo es disparar 8 capturas simultáneas y contar correos, y eso **sí reproduce el defecto**:
+ * medido sobre `f8c7040`, **8 de 25 tiradas** mandaban dos correos en envíos y **6 de 25** en
+ * buylist. Pero como candado es malo, y por una razón aritmética: `p ≈ 0.32` por tirada significa
+ * que **una sola tirada deja pasar la regresión 2 de cada 3 veces**. Para que gatee hacen falta ~20
+ * tiradas (`0.68²⁰ ≈ 0.02 %`), o sea **~7 s de suite** para comprar una certeza que sigue siendo
+ * estadística.
+ *
+ * ⇒ **El entrelazado no se espera: se FUERZA**, y entonces el defecto sale **siempre**. La prueba
+ * abre una transacción propia, hace `SELECT … FOR UPDATE` sobre la fila y deja dentro **el estado
+ * que produce una captura completa de otro operador** (etiqueta escrita **y** sello echado). Con el
+ * candado puesto se lanza la segunda captura: lee el estado **viejo** (`carrier IS NULL`) sin
+ * bloquearse, y se **queda esperando** en su `UPDATE` — espera que la prueba **verifica en
+ * `pg_stat_activity`**, ⛔ no supone ni duerme. Al soltar, la segunda escribe con una decisión
+ * tomada sobre un estado **que ya caducó**. 100 % reproducible, 250 ms, y sin depender de la carga
+ * de la máquina.
+ *
+ * *(La técnica, con sus dos mediciones, vive en `helpers/row-lock-barrier.ts`.)*
+ *
+ * **Ablación medida (`f8c7040` restaurado verbatim, BD propia, `N = 10` corridas):** estos dos `it`
+ * salen **ROJOS 10/10**; con el arreglo, **VERDES 10/10**. *(La versión probabilística, por
+ * contraste, habría salido verde con el defecto dentro ~2 corridas de cada 3 si fuera de una sola
+ * tirada — que es como se escriben estas pruebas cuando nadie mide la `p`.)*
+ *
+ * ### ⚠️ Y una trampa de método que casi me come, escrita aquí porque volverá
+ * La primera ablación la hice con `git show HEAD:…` para restaurar el código defectuoso. Salió
+ * **verde 10/10** y estuve a punto de concluir que la ventana «depende de la carga». Era falso:
+ * `HEAD` **se había movido bajo mis pies** (el orquestador commiteó una instantánea WIP **con mi
+ * arreglo dentro**), así que `git show HEAD:` me estaba devolviendo **el arreglo**, no el defecto.
+ * La ablación medía el código nuevo contra sí mismo. *Una ablación vale exactamente lo que vale el
+ * sha que restaura:* ⛔ nunca `HEAD` en un árbol compartido — **el sha, literal**.
  */
-const CONC = 8;
-const TRIALS = 20;
-
 describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`, contra BD real', () => {
   let h: E2EHarness;
   let adminToken: string;
@@ -262,48 +288,77 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
      * *(Hasta el 2026-09-14 esto era un **hueco documentado** en este mismo sitio: el defecto estaba
      * medido y sin arreglar. Ya no — y por eso ahora es un candado y no un párrafo.)*
      *
-     * **El defecto que vigila, medido (`f8c7040`, BD propia, `TRIALS` tiradas de `CONC`
+     * **El defecto que vigila, medido (`f8c7040`, BD propia, 25 tiradas de 8 capturas
      * simultáneas): 8 de 25 tiradas mandaban DOS correos.** Mecanismo: `setTracking` decidía si
      * reiniciar el ciclo con `labelChanged = shipment.carrier !== carrier || …` calculado sobre una
      * **lectura PREVIA** al update. Con N concurrentes las N leen el valor viejo, las N se creen «el
      * cambio» y las N escriben `trackingNoticeSentAt: null` ⇒ una **borra el pestillo que otra
      * acababa de echar**. *El pestillo funcionaba; se le podía quitar el cerrojo desde fuera.*
      *
-     * **Canario que aisló la causa (misma carrera, misma concurrencia, `N=25`):** con la etiqueta
-     * **ya escrita** en la fila —⇒ `labelChanged` falso para todas, nadie borra el sello— salieron
-     * **0/25 rojas**, contra 8/25 con las columnas en `NULL`. La única variable que cambia es el
-     * borrado del sello.
+     * **Canario que aisló la causa (misma carrera, misma concurrencia, `N=25`, mismo sha):** con la
+     * etiqueta **ya escrita** en la fila —⇒ `labelChanged` falso para todas, nadie borra el sello—
+     * salieron **0/25 rojas**, contra **8/25** con las columnas en `NULL`. La única variable que
+     * cambia entre los dos es el borrado del sello ⇒ la causa es ésa y no el sello en sí.
      *
-     * ### ⚠️ Por qué este candado repite la tirada `TRIALS` veces y NO una sola
-     * El defecto es **probabilístico** (`p ≈ 0.32` por tirada). Un candado de UNA tirada lo dejaría
-     * pasar 2 de cada 3 veces: sería un candado que **no gatea**, exactamente la clase que el censo
-     * de pruebas apagadas de este proyecto existe para impedir. Con 20 tiradas, la probabilidad de
-     * que el defecto se cuele entero es `0.68²⁰ ≈ 0.02 %`. **Ablación medida (2026-09-14):
-     * reintroducido el `labelChanged` sobre la lectura previa, este `it` sale ROJO 5/5 corridas;
-     * con el arreglo, VERDE en 65/65 tiradas** (40 con 8 concurrentes + 25 con 16).
-     *
-     * ⛔ **Bajar `TRIALS` es debilitar el candado**, no acelerarlo: cuesta ~4 s y compra el 99.98 %.
+     * ### El entrelazado, forzado paso a paso (ver la cabecera del fichero para el porqué)
+     * ```
+     * prueba:  BEGIN; SELECT … FOR UPDATE            ⇐ la fila queda bloqueada
+     * B:       POST /tracking → lee (carrier NULL)   ⇐ decide «la etiqueta cambia» sobre esto
+     * B:       UPDATE …                              ⇐ SE BLOQUEA (verificado en pg_stat_activity)
+     * prueba:  UPDATE … SET etiqueta, sello=now(); COMMIT   ⇐ «otra captura terminó y ya avisó»
+     * B:       (despierta)                           ⇐ ¿borra el sello que acaba de aparecer?
+     * ```
+     * Con el defecto: sí lo borra —su `labelChanged` es de antes— y manda **el segundo correo**.
+     * Con el arreglo: su `WHERE` se re-evalúa contra la fila **ya actualizada** (`EvalPlanQual`), la
+     * etiqueta coincide, `count === 0`, el sello no se toca y **no hay correo**.
      */
-    it('⭐⭐ CARRERA REAL desde el sello en NULL: N tiradas × 8 simultáneas ⇒ SIEMPRE UN correo', async () => {
-      const correosPorTirada: number[] = [];
-      for (let i = 0; i < TRIALS; i++) {
-        const id = await nuevoEnvio(`a5-${i}`);
-        bandeja.length = 0;
-        const res = await Promise.all(
-          Array.from({ length: CONC }, () =>
-            capturarGuiaEnvio(id, 'DHL', `TRK-${RUN}-A5-${i}`),
-          ),
-        );
-        for (const r of res) expect(r.status).toBe(201);
-        // El aviso es POST-COMMIT y best-effort: se le deja aterrizar antes de contar la bandeja.
-        await new Promise((r) => setTimeout(r, 120));
-        correosPorTirada.push(bandeja.length);
-      }
-      // ⛔ Rojo con 2 (el defecto original) **y también con 0** (el defecto con el signo cambiado:
-      // si alguien quitara la rama `carrier: null` del `WHERE`, la primera captura —que tiene las
-      // dos columnas en `NULL`— dejaría de casar y NO avisaría nunca).
-      expect(correosPorTirada).toEqual(Array.from({ length: TRIALS }, () => 1));
-    }, 120000);
+    it('⭐⭐ ENTRELAZADO FORZADO: una captura que decidió con datos caducos NO borra el sello ajeno', async () => {
+      const id = await nuevoEnvio('a5');
+      const trk = `TRK-${RUN}-A5`;
+      expect(await selloEnvio(id)).toBeNull();
+      bandeja.length = 0;
+
+      const candadoPuesto = diferida();
+      const bBloqueada = diferida();
+      // La transacción que sostiene el candado y que, ya dentro, deja el estado que produce una
+      // captura COMPLETA de otro operador: etiqueta escrita y sello echado (o sea, ya avisó).
+      const tx = h.prisma.$transaction(
+        async (t) => {
+          await t.$executeRawUnsafe(
+            `SELECT id FROM "ShipmentRequest" WHERE id = $1 FOR UPDATE`,
+            id,
+          );
+          candadoPuesto.abrir();
+          await bBloqueada.promesa;
+          await t.$executeRawUnsafe(
+            `UPDATE "ShipmentRequest"
+                SET carrier = $2, "trackingNumber" = $3, "trackingNoticeSentAt" = now()
+              WHERE id = $1`,
+            id,
+            'DHL',
+            trk,
+          );
+        },
+        { timeout: 30000, maxWait: 30000 },
+      );
+
+      await candadoPuesto.promesa;
+      const peticionB = capturarGuiaEnvio(id, 'DHL', trk);
+      await esperarBloqueoDeFila(h.prisma, 'ShipmentRequest');
+      bBloqueada.abrir();
+      await tx;
+
+      const res = await peticionB;
+      // La captura NO falla: el sello decide QUIÉN AVISA, ⛔ no si la captura funciona.
+      expect(res.status).toBe(201);
+      // El aviso es POST-COMMIT y best-effort: se le deja aterrizar antes de contar la bandeja.
+      await new Promise((r) => setTimeout(r, 200));
+
+      // ⛔ Rojo con 1: es el segundo correo del mismo hecho — la promesa que §R.4 le hizo al dueño.
+      expect(bandeja).toHaveLength(0);
+      // …y el sello sigue puesto: nadie le quitó el cerrojo desde fuera.
+      expect(await selloEnvio(id)).toBeInstanceOf(Date);
+    }, 60000);
   });
 
   // ===============================================================================================
@@ -425,30 +480,60 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
      * valor que leyó **antes** de esperar, y el sello se reclama **POST-COMMIT y fuera** de la
      * transacción ⇒ el `guideNoticeSentAt: null` de la segunda aterriza **después** de que la
      * primera reclamara. **Medido: 6 de 25 tiradas con DOS correos** (`N = 25`, 8 simultáneas). *La
-     * transacción estrechaba la ventana; no la cerraba.*
+     * transacción estrechaba la ventana; no la cerraba.* ⚠️ El pase anterior midió aquí **5/5 verde**
+     * y escribió, con razón, que *«5/5 no es una demostración»*. No lo era: con `p ≈ 0.24`, cinco
+     * verdes seguidos salen el **25 %** de las veces.
      *
      * ⚠️ Y es el caso que más se parece a lo que el dueño describió el primer día —*«rechacé dos
      * veces en menos de un min… no sé si se debería bloquear»*—: **un aviso por ciclo** (§R.4,
-     * criterio 205). **Ablación medida: con el `labelChanged` de la lectura previa reintroducido,
-     * este `it` sale ROJO 5/5 corridas; con el arreglo, VERDE en 65/65 tiradas.**
+     * criterio 205).
+     *
+     * El entrelazado se **fuerza** igual que en (A) —y por la misma razón medida, que está en la
+     * cabecera del fichero—: la prueba bloquea la fila, deja dentro el estado de «otra captura ya
+     * terminó y ya avisó», y suelta. **Ablación: ROJO 10/10 con el `labelChanged` de la lectura
+     * previa; VERDE 10/10 con el arreglo.**
      */
-    it('⭐⭐ CARRERA REAL desde el sello en NULL: N tiradas × 8 simultáneas ⇒ SIEMPRE UN correo', async () => {
-      const correosPorTirada: number[] = [];
-      for (let i = 0; i < TRIALS; i++) {
-        const id = await nuevaSolicitud();
-        bandeja.length = 0;
-        const res = await Promise.all(
-          Array.from({ length: CONC }, () => capturarGuiaVendedor(id, 'FedEx', `BL-${RUN}-C5-${i}`)),
-        );
-        // Igual que arriba: la guarda de negocio puede devolver `409` a alguna concurrente. Lo que
-        // este candado afirma es lo del CORREO, no cuántas capturas ganan.
-        for (const r of res) expect([200, 409]).toContain(r.status);
-        await new Promise((r) => setTimeout(r, 120));
-        correosPorTirada.push(bandeja.length);
-      }
-      // ⛔ Rojo con 2 (el defecto) y con 0 (el mismo defecto con el signo cambiado: sin la rama
-      // `shipmentCarrier: null` del `WHERE`, la PRIMERA captura no casaría y no avisaría nunca).
-      expect(correosPorTirada).toEqual(Array.from({ length: TRIALS }, () => 1));
-    }, 120000);
+    it('⭐⭐ ENTRELAZADO FORZADO: una captura que decidió con datos caducos NO borra el sello ajeno', async () => {
+      const id = await nuevaSolicitud();
+      const trk = `BL-${RUN}-C5`;
+      expect(await selloSolicitud(id)).toBeNull();
+      bandeja.length = 0;
+
+      const candadoPuesto = diferida();
+      const bBloqueada = diferida();
+      const tx = h.prisma.$transaction(
+        async (t) => {
+          await t.$executeRawUnsafe(`SELECT id FROM "SellRequest" WHERE id = $1 FOR UPDATE`, id);
+          candadoPuesto.abrir();
+          await bBloqueada.promesa;
+          await t.$executeRawUnsafe(
+            `UPDATE "SellRequest"
+                SET "shipmentCarrier" = $2, "shipmentTrackingNumber" = $3,
+                    "guideSentAt" = now(), "guideNoticeSentAt" = now()
+              WHERE id = $1`,
+            id,
+            'FedEx',
+            trk,
+          );
+        },
+        { timeout: 30000, maxWait: 30000 },
+      );
+
+      await candadoPuesto.promesa;
+      const peticionB = capturarGuiaVendedor(id, 'FedEx', trk);
+      await esperarBloqueoDeFila(h.prisma, 'SellRequest');
+      bBloqueada.abrir();
+      await tx;
+
+      const res = await peticionB;
+      // La guarda de negocio (`status='aceptada' ∧ closedAt=null`) sigue siendo otra cosa y puede
+      // responder `409`: lo que este candado afirma es lo del CORREO.
+      expect([200, 409]).toContain(res.status);
+      await new Promise((r) => setTimeout(r, 200));
+
+      // ⛔ Rojo con 1: el segundo correo del mismo hecho.
+      expect(bandeja).toHaveLength(0);
+      expect(await selloSolicitud(id)).toBeInstanceOf(Date);
+    }, 60000);
   });
 });
