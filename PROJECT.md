@@ -12965,3 +12965,167 @@ ese frente:**
    **Qué confirmar**: **(a)** los seis tal cual; **(b)** quitar los que nunca use —**menos casillas es
    mejor**: una casilla que no aplica **se acaba eligiendo por pereza**—; **o (c)** añadir los que le falten,
    con **sus palabras**, porque **ese texto lo va a leer un cliente**.
+
+---
+
+## Pedidos a preparar (rediseño de la cola de envíos/picking, M4)
+
+> **BORRADOR — pendiente de aprobación del dueño (2026-09-15).**
+> Sección NUEVA, escrita por product-owner a nivel de PRODUCTO (qué debe hacer y por qué, desde la
+> óptica del operador). **No** define contrato de datos (arquitecto) ni diseño visual (ux-ui). Los
+> **requisitos del dueño** van marcados como tales; los **aportes del equipo** van marcados como
+> **(PROPUESTA — validar con el dueño)** para que no se lean como decididos.
+
+### 1. Problema y objetivo (lenguaje llano)
+
+Cuando un pedido está listo para prepararse, el operador tiene que salir físicamente a **juntar las
+cartas** y luego **moverlas** a su destino. Hoy la pantalla M4 («Retiros / envíos») tiene dos bloques:
+la **cola de envíos de clientes** (tarjetas por envío) y una **«Lista de picking»** que solo enseña
+**ubicación · folio · id de envío**. Con eso, el operador que va al archivero **no sabe qué carta está
+tomando** (no ve nombre, set ni acabado), **no sabe a nombre de quién** ni **a dónde va** el pedido, y
+la tarjeta de envío **omite la calle** del destino.
+
+El sistema físico del dueño es concreto y hay que respetarlo:
+- **(a)** su inventario propio se guarda con **una carpeta por set**;
+- **(b)** las bóvedas de clientes viven en un **archivero alfabético por apellido**, con **una bóveda
+  por cliente**.
+
+**Objetivo:** que la cola le diga al operador, sin ambigüedad, **qué carta juntar**, **de dónde
+sacarla y a dónde llevarla**, y le deje **confirmar que ya lo hizo y avanzar al siguiente paso**,
+dejando registro de **quién lo preparó**. En una frase: *convertir una lista que solo ordena por
+ubicación en una hoja de trabajo que se puede seguir con las manos y firmar al terminar.*
+
+**Renombrado (REQUISITO DEL DUEÑO):** la sección **«Lista de picking» pasa a llamarse «Pedidos a
+preparar»** en toda la interfaz de operador (el dueño prefiere ese nombre; «picking» es jerga interna).
+
+### 2. Alcance y NO-alcance
+
+**Dentro de alcance:**
+- Rediseño de la vista de trabajo del operador en M4 para preparar pedidos: **qué información se ve** y
+  **qué acciones puede ejecutar** al preparar. Absorbe la actual «Lista de picking» y la tarjeta de
+  envío en una sola experiencia coherente de «Pedidos a preparar».
+- Distinguir con claridad **los dos destinos** de un movimiento: **a la BÓVEDA de un cliente** o
+  **preparación PARA ENVÍO** (a domicilio).
+- **Confirmar preparado + firma** (quién preparó) y **avanzar el paso** correcto según el destino:
+  envío → conseguir/capturar la **guía**; bóveda → **cambio de ubicación**.
+
+**Fuera de alcance (por ahora):**
+- **No** se cambia la **política de envíos** ni la tarifa (§D): sigue nacional, manual, MX$175, solo
+  cartas `settled`. Este rediseño es de **operación y visibilidad**, no de reglas de negocio de envío.
+- **No** se introduce impresión automática de guías con paquetería (la guía sigue capturándose a mano,
+  §D/§M5). Reimpresión de etiquetas queda como **PREGUNTA ABIERTA** (ver §6).
+- **No** se rediseña M5 (buylist) ni el pipeline de compra a vendedores; solo la salida hacia
+  cliente (envío/bóveda).
+- **No** se define aquí el **contrato de datos** ni la **maquetación**: eso es handoff a arquitecto y
+  ux-ui (ver §7).
+
+### 3. Flujo del operador, paso a paso
+
+1. **Entra un pedido a preparar.** Cuando un pedido queda listo para trabajarse, aparece en la lista
+   **«Pedidos a preparar»**. Cada renglón/tarjeta deja claro, de un vistazo, **su destino**:
+   **«Para bóveda»** o **«Para enviar»** (REQUISITO DEL DUEÑO #1: destino clarísimo, sin ambigüedad).
+   *(PROPUESTA — validar: dos cubetas/filtro visibles, «Para enviar» vs «Para bóveda», para que el
+   operador trabaje una tanda de cada tipo sin mezclar.)*
+2. **El operador elige qué atender.** *(PROPUESTA — validar: mostrar la **antigüedad del pedido** y
+   sugerir atender **lo más viejo primero**.)*
+3. **Va a juntar las cartas.** Para cada carta, la cola le dice **qué es** (nombre + set + acabado, tal
+   como se muestran en la tienda — REQUISITO DEL DUEÑO #2) y **de dónde sacarla**:
+   - si es **inventario propio** → el **SET** bien visible, porque mapea a su **carpeta por set**
+     *(PROPUESTA — validar);*
+   - si sale de una **bóveda de cliente** → el **APELLIDO** bien visible (+ nombre completo), porque
+     mapea a su **archivero alfabético** *(PROPUESTA — validar);*
+   - la **ubicación actual** cuando aplique, resolviendo el caso en que la carta aún no tiene ubicación
+     asignada (hoy aparece como «UNASSIGNED») con un texto que el operador entienda *(PROPUESTA —
+     validar).*
+4. **Palomea lo que ya juntó.** En pedidos de varias cartas, **una casilla por carta** para ir
+   marcando conforme las toma; el pedido no se puede dar por preparado hasta que todas estén palomeadas
+   *(PROPUESTA — validar).*
+5. **Marca «preparado» + firma.** El operador confirma que **ya movió / ya preparó** el pedido
+   (REQUISITO DEL DUEÑO #3) y queda registrado **quién lo preparó** (REQUISITO DEL DUEÑO #4) y
+   **cuándo**, en la **bitácora/auditoría** *(PROPUESTA — validar el registro en bitácora).*
+6. **Avanza al siguiente paso según el destino** (REQUISITO DEL DUEÑO #3):
+   - **Envío a domicilio** → el siguiente paso es **conseguir/capturar la GUÍA** (se conecta con la
+     captura de guía que ya existe en M4).
+   - **Bóveda de cliente** → el único siguiente paso es el **CAMBIO DE UBICACIÓN** (a la bóveda/archivero
+     del cliente); **no** hay guía.
+
+### 4. Datos que la cola debe desplegar (lista de operador)
+
+Por cada pedido y por cada carta dentro del pedido, el operador debe poder ver:
+
+- **Destino del movimiento**: **«Para bóveda»** o **«Para enviar»** (lo más prominente — REQUISITO DEL
+  DUEÑO #1).
+- **Qué carta**: **nombre + set + acabado**, con la misma nomenclatura de la tienda (REQUISITO DEL
+  DUEÑO #2).
+- **(PROPUESTA — validar)** **Condición/grado** junto al acabado (p. ej. NM, PSA 9).
+- **(PROPUESTA — validar)** **Miniatura de la imagen** de la carta.
+- **(PROPUESTA — validar)** **Cantidad**.
+- **(PROPUESTA — validar)** Para destino **BÓVEDA**: **apellido** del cliente bien visible **+ nombre
+  completo** (mapea al archivero alfabético).
+- **(PROPUESTA — validar)** Para destino **ENVÍO**: **SET** bien visible (mapea a su carpeta por set) y
+  el **destino de envío completo, incluida la calle** (hoy la tarjeta omite la calle).
+- **(PROPUESTA — validar)** **Ubicación actual** en bóveda cuando aplique, con caso resuelto para las
+  cartas sin ubicación asignada («UNASSIGNED»).
+- **(PROPUESTA — validar)** **Antigüedad del pedido** (para atender lo más viejo primero).
+- **(PROPUESTA — validar)** **Quién preparó + cuándo**, una vez marcado.
+- **Referencia del pedido/envío** (folio/identificador) para trazar.
+
+### 5. Criterios de aceptación (verificables)
+
+*(Los que dependen de una PROPUESTA aún no aprobada se marcan; el resto son firmes por venir de
+requisito literal del dueño.)*
+
+1. La sección antes llamada «Lista de picking» aparece en la interfaz de operador con el título
+   **«Pedidos a preparar»** (REQUISITO DEL DUEÑO). No queda ninguna etiqueta visible «picking» de cara
+   al operador.
+2. Cada pedido en la cola muestra su **destino** de forma inequívoca: **«Para bóveda»** o **«Para
+   enviar»**, distinguible **sin abrir el detalle**.
+3. Para cada carta a mover, el operador ve **nombre + set + acabado** (misma nomenclatura que la
+   tienda). Ninguna carta aparece solo como folio/id sin identidad legible.
+4. El operador puede **marcar un pedido como «preparado»**, y al hacerlo **queda registrado quién lo
+   preparó y cuándo** (consultable en bitácora/auditoría).
+5. Al marcar «preparado», el sistema ofrece el **siguiente paso correcto según destino**: para
+   **envío**, la captura de **guía**; para **bóveda**, el **cambio de ubicación**. No se ofrece guía a
+   un movimiento de bóveda ni cambio de ubicación a bóveda a un envío a domicilio.
+6. En un envío a domicilio, el operador ve el **destino completo, incluida la calle**.
+7. **(PROPUESTA — validar)** En un pedido de varias cartas, cada carta tiene su **casilla** para
+   palomear, y el pedido no se puede dar por «preparado» hasta que todas estén palomeadas.
+8. **(PROPUESTA — validar)** La cola puede **filtrarse/separarse** en «Para enviar» vs «Para bóveda».
+9. **(PROPUESTA — validar)** Cada pedido muestra su **antigüedad**, y la lista permite atender **lo más
+   viejo primero**.
+10. **(PROPUESTA — validar)** Para destino bóveda se ve el **apellido** (+ nombre completo); para
+    destino envío se ve el **SET** de forma prominente.
+11. **(PROPUESTA — validar)** Las cartas sin ubicación asignada se muestran con un estado entendible
+    (no un código críptico tipo «UNASSIGNED») que le dice al operador qué hacer.
+
+### 6. Preguntas abiertas para el dueño
+
+1. **¿Un mismo pedido puede mezclar cartas que van a BÓVEDA con cartas que se PREPARAN PARA ENVÍO?**
+   Si puede pasar, ¿se trabaja como **un pedido con dos destinos** (y el operador ejecuta los dos
+   siguientes pasos) o se **parte en dos** al entrar a la cola? Esto define si «destino» es del pedido o
+   de cada carta.
+2. **¿Qué pasa si, al preparar, una carta NO se encuentra** (no está en su ubicación, falta, o no está
+   en NM)? ¿Se marca la carta como faltante y el pedido queda **parcial/bloqueado**? ¿Avisa a alguien?
+   ¿Se puede preparar el resto del pedido?
+3. **El «quién preparó», ¿se toma automáticamente del usuario logueado, o se captura a mano?**
+   (afecta si dos operadores comparten una sesión física, y qué tan fuerte es la accountability).
+4. **¿Se necesita imprimir/reimprimir alguna etiqueta** (de la carta, del paquete o de la ubicación de
+   bóveda) como parte de este flujo, o basta con la captura de guía que ya existe?
+5. **Para bóveda: ¿el «cambio de ubicación» lo teclea el operador** (elige/escribe la nueva ubicación
+   dentro del archivero del cliente) **o el sistema propone** la ubicación de la bóveda de ese cliente?
+6. **De la lista de PROPUESTAS del §4/§5** (miniatura, condición/grado, cantidad, apellido/SET
+   prominentes, antigüedad, dos cubetas, casillas por carta): **¿cuáles quiere sí y cuáles no?** Menos
+   elementos en pantalla suele ser mejor para trabajar rápido.
+
+### 7. Handoff sugerido
+
+En este orden, una vez el dueño apruebe (o ajuste) este borrador:
+
+1. **arquitecto** — el contrato de la cola necesita crecer: hoy el renglón de «Pedidos a preparar»
+   (la fila de picking en M4) solo lleva ubicación, folio e id de envío. Para cumplir estos requisitos
+   necesitará, como mínimo: **identidad de la carta** (nombre + set + acabado, y condición/grado e
+   imagen si el dueño los aprueba), **destino** (bóveda vs envío), **cliente/apellido**, **ubicación
+   actual**, y **preparó-por** (+ cuándo). El arquitecto decide la forma exacta y la ruta.
+2. **ux-ui** — diseña cómo se ve y se opera (jerarquía visual del destino, las dos cubetas, las
+   casillas, dónde caen apellido/SET/miniatura), sobre el contrato ya definido.
+3. **backend + frontend** — implementan en paralelo sobre contrato y sistema de diseño.
