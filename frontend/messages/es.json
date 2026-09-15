@@ -1494,6 +1494,7 @@
       "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
       "recipient": "Para",
       "recipientMissing": "SIN DESTINATARIO (retiro anterior a v1.67)",
+      "street": "Calle",
       "customer": "Cliente",
       "postalCode": "CP",
       "phone": "Tel",
