@@ -281,6 +281,29 @@ describe('BuylistKycForm — gating proactivo de cuenta/KYC', () => {
     // El backend usa el INE de archivo: la solicitud no reenvía keys de INE.
     expect(spy.mock.calls[0][0].ineUploadKeys).toBeUndefined();
   });
+
+  it('con INE RECHAZADA pero archivo aún presente (ineOnFile) GANA el rechazo, no la nota verde', () => {
+    // Precedencia: `ineOnFile:true` no puede tapar un `kycStatus:'rejected'`. Si el verde
+    // ganara, el vendedor nunca vería POR QUÉ falló ni que debe re-subir la INE.
+    renderWithProviders(
+      <BuylistKycForm
+        items={RAW_ITEMS}
+        onCreated={() => {}}
+        ineOnFile
+        kycStatus="rejected"
+        rejectionReason="No se alcanza a leer: la foto está borrosa."
+      />,
+      'es',
+    );
+    // NO se muestra la nota verde de "ya en archivo".
+    expect(
+      screen.queryByText('Tu INE ya está en archivo; no necesitas volver a subirlo.'),
+    ).not.toBeInTheDocument();
+    // SÍ se muestra el motivo del rechazo y se piden los uploaders para re-subir.
+    expect(screen.getByText('No pudimos verificar tu identidad')).toBeInTheDocument();
+    expect(screen.getByText('«No se alcanza a leer: la foto está borrosa.»')).toBeInTheDocument();
+    expect(screen.getByText('INE (anverso)')).toBeInTheDocument();
+  });
 });
 
 /**
