@@ -1213,11 +1213,15 @@
 > | Campo | Qué era | Qué es tras D51 | Qué se hace |
 > |---|---|---|---|
 > | **`KycProfile.legalName`** | el sitio donde viviría el nombre del titular **para el cotejo** | ⛔ **CAMPO MUERTO.** Sin cotejo **no tiene ningún uso**, y **nunca tuvo escritor** (medido en v1.59: su único escritor lo pone a `null`) | **SE RETIRA de `AdminKycProfileDTO` y `AdminKycProfileOperatorDTO`** (§11). **Cero DDL** —la columna se conserva **INERTE**, precedente exacto de `capPerRequestCentsOverride`— y **cero impacto de frontend: MEDIDO, `legalName` no aparece ni una vez en `frontend/`** |
-> | **`KycProfile.kycStatus`** | escrito en dos sitios, **cero lectores de dinero**; la v1.59 iba a convertirlo en precondición de `pay-spei` | **Vuelve a ser lo que siempre fue: anotación de back-office SIN CONSECUENCIA.** No gatea creación, ni emisión, ni pago | **Se queda** (tiene consumidores reales: badge y selector de M6, y `GET /users/me/kyc`). ⚠️ **Se le escribe la advertencia que le faltaba**: **`'verified'` NO significa que se haya verificado nada** — tras D51 **no existe acto de verificación en el sistema** |
+> | **`KycProfile.kycStatus`** | escrito en dos sitios, **cero lectores de dinero**; la v1.59 iba a convertirlo en precondición de `pay-spei` | **Anotación de back-office, con UNA excepción ACOTADA (v1.71, D-INE-UMBRAL — ver §M5-K).** No gatea emisión ni pago; **no gatea creación por DEBAJO del umbral INE**; **AL/POR ENCIMA del umbral, `rejected` bloquea `createRequest` con `422 KYC_REJECTED`**. Bloquea **SOLO `rejected`** (nunca `none`/`pending`) | **Se queda** (tiene consumidores reales: badge y selector de M6, y `GET /users/me/kyc`). ⚠️ **Se le escribe la advertencia que le faltaba**: **`'verified'` NO significa que se haya verificado nada** — tras D51 **no existe acto de verificación en el sistema**; la excepción v1.71 gatea sobre el **veredicto de rechazo**, no sobre `'verified'` |
 > ⚠️⚠️ **NORMA, y es la que impide que esto se rehaga solo:** **ninguna regla nueva se cuelga de `kycStatus` sin pasar
 > por el arquitecto** (regla 9), **y la primera pregunta que tendrá que contestar es la 40** —*¿de dónde sale el nombre
 > del titular?*—, **que está CERRADA con «no existe fuente».** *Un enum con un valor llamado `verified` es una invitación
 > permanente a construirle encima una regla; por eso la advertencia va en el DTO y no solo aquí.*
+> ✅ **La excepción v1.71 (D-INE-UMBRAL) ES ese paso por el arquitecto (regla 9) y NO reabre la pregunta 40:** gatea
+> sobre el **veredicto del admin (`kycStatus === 'rejected'`)**, que ya existe, **no sobre el nombre del titular de la
+> CLABE** —que es lo que la pregunta 40 mató—. Por eso es implementable donde `KYC_NOT_VERIFIED` no lo era: son
+> controles distintos aunque suenen parecidos. La regla completa y su borde viven en **[`§M5-K`](#M5-K)**.
 >
 > **F. `BL-42` — SU CAMINO 3 GANA NORMA DE PRODUCTO (D50), Y NO DEPENDÍA DEL COTEJO.**
 > La *`cotizada` que no muere* —el camino que dejé abierto **a propósito** por ser decisión de producto— **la cierra
@@ -5381,7 +5385,11 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
   retira el control entero**: el cotejo INE ↔ titular de la CLABE **no se puede ejecutar** porque **no existe fuente
   del nombre del titular de la cuenta** (pregunta 40, cerrada por el humano midiendo su banco).
   ⛔ **Este código NO se implementa, NO se emite y NO se testea.** **`pay-spei` no lleva NINGÚN término de KYC**, y
-  **`kycStatus` NO es precondición de dinero en ningún endpoint** —ni crear, ni ofertar, ni pagar—.
+  **`kycStatus` NO gatea ofertar ni pagar, ni crear por debajo del umbral INE.**
+  ⚠️ **ÚNICA excepción, acotada (v1.71, `D-INE-UMBRAL` — regla 9, ver [`§M5-K.6`](#M5-K)):** al/por encima del umbral
+  INE, `createRequest` bloquea `kycStatus === 'rejected'` con **`422 KYC_REJECTED`** (código NUEVO, distinto de éste).
+  Bloquea **SOLO `rejected`**, **NO exige `'verified'`** (esto NO reinstaura `KYC_NOT_VERIFIED`) y **NO reabre la
+  pregunta 40** (gatea sobre el veredicto del admin, no sobre el nombre del titular).
   **La lista de términos de `pay-spei` NO se enumera aquí: vive en [`§M5-V.0`](#M5-V), y solo allí.**
   > **⚠️⚠️ RETRO-EDICIÓN v1.61.1 (regla de la cita, ARCHITECTURE §0-B.3 regla 7; forma nueva: regla 8). LA NORMA NO
   > CAMBIA — LA CUENTA QUE ESTA LÍNEA HACÍA SE VOLVIÓ FALSA.** Decía: *«`pay-spei` conserva sus **TRES** términos de
@@ -15482,17 +15490,24 @@ AHORA:  { kycStatus, clabeMasked?, clabeOnFile, ineOnFile, ineThresholdCents,  c
 
 **K.0 — ⛔ LA NORMA, EN UNA LÍNEA, PORQUE ES LO ÚNICO EXIGIBLE DE ESTA SECCIÓN.**
 ```
-pay-spei :  ⛔ NINGÚN término de KYC.  ⛔ kycStatus NO se lee en ningún camino de dinero.
+pay-spei :  ⛔ NINGÚN término de KYC.  ⛔ kycStatus NO se lee en el pago ni en la emisión.
+creación :  ⚠️ kycStatus se lee SOLO al/por encima del umbral INE: rejected ⇒ 422 KYC_REJECTED (K.6, v1.71).
 ```
 > **⚠️ RETRO-EDICIÓN v1.61 (regla de la cita, §0-B.3 regla 7) — la norma NO cambia; la FORMA en que estaba escrita
 > se volvió falsa.** Esta línea decía *«**TRES** términos… ⛔ **NO hay cuarto término**»*. **v1.61 añade términos a
 > `pay-spei`** ([`§M5-V`](#M5-V): `approvedTotalCents IS NOT NULL` y, dentro del ciclo, «ninguna línea sin
 > veredicto») **que no tienen NADA que ver con KYC**. Dejar la frase como estaba haría que QA leyera V como una
 > regresión de D51 y la rechazara — *la aritmética de términos nunca fue la norma*. **Lo exigible de esta sección,
-> intacto y sin una coma menos: `kycStatus` no gatea la creación, ni la emisión, ni el pago, y
-> `422 KYC_NOT_VERIFIED` no existe.** Los términos de `pay-spei` los enumeran §M5-P y §M5-V, no ésta.
+> intacto y sin una coma menos: `422 KYC_NOT_VERIFIED` no existe, y `kycStatus` no gatea la emisión ni el pago.**
+> ⚠️ **v1.71 (D-INE-UMBRAL) enmienda SOLO la creación:** `kycStatus === 'rejected'` **al/por encima del umbral INE**
+> bloquea `createRequest` con `422 KYC_REJECTED` (K.6); por debajo del umbral, y para `verified`/`none`/`pending`, la
+> creación sigue sin leer `kycStatus`. Los términos de `pay-spei` los enumeran §M5-P y §M5-V, no ésta.
 - ⛔ **`422 KYC_NOT_VERIFIED` no existe.** No se implementa, no se emite, no se testea, no se documenta como vigente.
-- ⛔ **Ninguna precondición de dinero —creación, emisión o pago— lee `kycStatus`.** Ni `'verified'`, ni `'rejected'`.
+- ⚠️ **Precondiciones de dinero que leen `kycStatus`: UNA, ACOTADA (v1.71, D-INE-UMBRAL — ver K.6).** **Emisión y
+  pago NO leen `kycStatus`** (ni `'verified'` ni `'rejected'`), **ni la creación por DEBAJO del umbral INE.** La
+  ÚNICA lectura es en **creación AL/POR ENCIMA del umbral**: `rejected` ⇒ `422 KYC_REJECTED`. **`'verified'` no gatea
+  nada, en ningún camino** — la excepción mira el **veredicto de rechazo**, no la verificación (D51 sigue prohibiendo
+  exigir «verificada»).
 - ✅ **`422 INE_REQUIRED` sigue INTACTO en sus dos puertas** (§M5-I creación, §M5-A emisión). **Esto no es «se retira el
   KYC»:** se retira **comparar el nombre**, no **identificar a quien nos vende**.
 - ⛔ **El conteo pre-merge de K.4 queda SIN OBJETO y no se corre.**
@@ -15804,6 +15819,58 @@ cola**, y con `INE_REQUIRED` adelantado a la creación (D46) **la población afe
 > párrafo para que se entienda qué comprueba, normalmente no comprueba nada.***
 
 </details>
+
+**K.6 — ⚠️⚠️ LA EXCEPCIÓN ACOTADA A D51 (v1.71, `D-INE-UMBRAL` — decisión del dueño 2026-09-15 «umbral, luego bloqueo»). NORMATIVA.**
+
+> **Esto NO reabre `BL-41` ni el cotejo INE↔titular.** Todo lo de arriba (K.0–K.5) sigue vigente: el **cotejo del
+> nombre** sigue retirado y **no vuelve**. K.6 añade un control **distinto**, que **sí es ejecutable** donde aquél no
+> lo era, y **pasa por el arquitecto (regla 9)** como exige la norma de la tabla E.
+
+**K.6.0 — La regla, en una línea.**
+```
+createRequest :  ineRequired && kycStatus === 'rejected'  ⇒  422 KYC_REJECTED
+                 (ineRequired = quotedTotalCents >= INE_THRESHOLD_CENTS  ||  hasPendingLine)
+```
+
+| `total` vs `INE_THRESHOLD_CENTS` | `kycStatus === 'rejected'` | `kycStatus ∈ {none, pending, verified}` |
+|---|---|---|
+| **por debajo** | **se crea** (sin cambio — montos chicos se dejan vender aunque la INE esté rechazada) | se crea (sin cambio) |
+| **al/por encima** (borde `>=`, o `hasPendingLine`) | **`422 KYC_REJECTED`** | se crea (sin cambio — el caso «sin que nadie marcó nada» del criterio 183(a) sigue vivo) |
+
+**K.6.1 — Por qué ESTE control SÍ es implementable y `KYC_NOT_VERIFIED` no lo era.**
+`KYC_NOT_VERIFIED` exigía comparar el **nombre del titular de la CLABE** contra el INE, y **no existe fuente de ese
+nombre** (pregunta 40, cerrada). K.6 gatea sobre el **veredicto del admin (`kycStatus === 'rejected'`)**, que **ya
+existe y ya se escribe** (`PATCH /admin/users/:id/kyc`). **No necesita el nombre del titular**, así que **NO reabre la
+pregunta 40**: son controles distintos aunque suenen parecidos. Y **no exige `'verified'`** (eso reinstauraría D48 y
+chocaría con la advertencia de que `'verified'` no significa que se verificó nada): **bloquea SOLO el rechazo explícito**.
+
+**K.6.2 — El borde y el gate: el MISMO `ineRequired`, no `>= threshold` a secas.**
+La guarda cuelga del **mismo `ineRequired`** que la puerta `INE_REQUIRED` de §M5-I, que es `quotedTotalCents >=
+INE_THRESHOLD_CENTS || hasPendingLine`. ⛔ **No se cuelga de `quotedTotalCents >= INE_THRESHOLD_CENTS` a secas**: una
+línea `precio_pendiente` suma **0** al total, y sin `|| hasPendingLine` un vendedor rechazado colaría una carta cara
+«sin referencia» (total 0 ⇒ por debajo del umbral) — el mismo bypass que **C15** cerró para `INE_REQUIRED`.
+
+**K.6.3 — Código, `details` y PII.**
+- **`422 KYC_REJECTED`** (familia validación). Código **nuevo** — no se reutiliza `INE_REQUIRED` (que significa «no hay
+  imágenes», no «la revisión salió mal»): métrica y semántica limpias.
+- **`details: {}` VACÍO.** Misma doctrina que `INE_REQUIRED` tras v1.69 (§M6-K.5): **el umbral NO viaja al vendedor**
+  (ni `thresholdCents` ni «te faltan $X») y **NUNCA `rejectionReason` ni ninguna PII**. Una frase, no un dial (D43).
+- **El motivo tiene UN SOLO emisor:** el propio vendedor lo lee por `GET /users/me/kyc` (que devuelve `rejectionReason`
+  sii `kycStatus === 'rejected'`). El copy final lo redacta **ux-ui** en `DESIGN_SYSTEM`.
+- **Legacy sin motivo:** filas `rejected` anteriores a M-54 no tienen `rejectionReason`. **Se bloquean igual** (la
+  identidad está rechazada); el portal muestra un mensaje **genérico**. **Sin migración** — mismo caso que ya tolera
+  `GET /users/me/kyc`.
+
+**K.6.4 — Dónde vive y qué NO toca.**
+- **Un solo sitio:** `buylist.service.ts` `createRequest`, **contiguo a `INE_REQUIRED`** y **después** de él (mensaje
+  más accionable primero). **Reusa el `kyc` ya leído** por el `userId` autenticado (**cero queries nuevas, cero PII de
+  otro usuario, sin IDOR**). Va **antes** del `upsert` de KYC y **antes** de la tx serializable: si va a fallar, falla
+  antes de escribir nada y antes de abrir la transacción de dinero.
+- **Solo endurece:** no toca `INE_REQUIRED`, ni los topes AML, ni el cierre C15, ni `pay-spei`, ni la emisión.
+- **Canario:** `backend/test/buylist.ine-pending.spec.ts` — casos (a) al/por encima + `rejected` ⇒ `KYC_REJECTED` y 0
+  filas; (b) por debajo + `rejected` ⇒ se crea; (c) al/por encima + `verified` ⇒ se crea.
+
+> ⚠️ **Pendiente de 3 veredictos (QA + techlead + seguridad) antes de fusionar** — toca **dinero/identidad**.
 
 ---
 

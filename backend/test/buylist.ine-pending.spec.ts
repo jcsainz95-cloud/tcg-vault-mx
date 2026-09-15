@@ -258,3 +258,128 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
     expect(res.items[0].itemStatus).toBe('cotizada');
   });
 });
+
+/**
+ * ⭐⭐ **v1.71 — «umbral, luego bloqueo» (decisión del dueño 2026-09-15 · API_CONTRACT §M5-K, D51
+ * reescrita).** Excepción ACOTADA a D51: al/por encima del umbral INE, una identidad **rechazada**
+ * (`kycStatus === 'rejected'`) NO puede crear la solicitud (`422 KYC_REJECTED`); por DEBAJO del
+ * umbral el comportamiento actual queda intacto. Bloquea SOLO `rejected` (no `none`/`pending`), y se
+ * gatea sobre el MISMO `ineRequired` que `INE_REQUIRED` (que incluye `|| hasPendingLine`, cierre
+ * C15), no sobre `quotedTotalCents >= ineThreshold` a secas.
+ *
+ * Un rechazado tiene sus imágenes de INE en archivo (el rechazo NO borra las keys — medido en
+ * `admin.service.ts`), así que `ineProvided=true` y `INE_REQUIRED` NO se dispara: la puerta que
+ * muerde aquí es `KYC_REJECTED`.
+ */
+function buildSettingsThreshold(thresholdCents: number, rules: Record<string, unknown> = {}): SettingsService {
+  return {
+    getRaw: jest.fn(async () => rules),
+    getNumber: jest.fn(async (key: string) => {
+      if (key === 'buylist_cap_per_month_cents') return 100_000_000;
+      if (key === 'buylist_cap_per_request_cents') return 100_000_000;
+      if (key === 'ine_threshold_cents') return thresholdCents;
+      if (key === 'buylist_price_fallback_pct') return 40;
+      return 0;
+    }),
+  } as unknown as SettingsService;
+}
+
+describe('BuylistService.createRequest — v1.71: INE rechazada bloquea SOLO al/por encima del umbral', () => {
+  const COMMON_FIXED = { Common: { mode: 'fixed', value: 50 } };
+
+  it('(a) AL/POR ENCIMA del umbral con kycStatus:rejected (INE en archivo) → 422 KYC_REJECTED y NO crea', async () => {
+    const prisma = buildPrisma('Common');
+    // Rechazado CON imágenes en archivo ⇒ ineProvided=true ⇒ INE_REQUIRED no muerde; la que muerde
+    // es la guarda nueva. `rejectionReason` presente para dejar claro que NO viaja en `details`.
+    prisma.kycProfile.findUnique = jest.fn().mockResolvedValue({
+      userId: 'user-1',
+      kycStatus: 'rejected',
+      rejectionReason: 'documento ilegible',
+      ineFrontKey: 'kyc_ine/2026-09-01/aaaa.png',
+      ineBackKey: 'kyc_ine/2026-09-01/bbbb.png',
+    });
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      buildPricing(12500), // referencia priced → cotiza (no pendiente); total > 0
+      buildSettingsThreshold(1, COMMON_FIXED), // umbral 1 ⇒ cualquier total positivo está al/por encima
+      usersServiceDouble(),
+      pii,
+    );
+
+    const err = await svc
+      .createRequest(
+        'user-1',
+        [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any }],
+        VALID_CLABE,
+        undefined,
+        GATE_ADDRESS_ID,
+      )
+      .then(
+        () => null,
+        (e: { code: string; details: Record<string, unknown> }) => e,
+      );
+
+    expect(err).not.toBeNull();
+    expect(err!.code).toBe('KYC_REJECTED');
+    // `details` VACÍO: ni umbral ni PII (jamás `rejectionReason`).
+    expect(err!.details).toEqual({});
+    expect(JSON.stringify(err!.details)).not.toMatch(/documento|ilegible|\d/);
+    // NO se creó ninguna fila.
+    expect((prisma as any).sellRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('(b) DEBAJO del umbral con kycStatus:rejected → se crea igual (sin cambio)', async () => {
+    const prisma = buildPrisma('Common');
+    prisma.kycProfile.findUnique = jest.fn().mockResolvedValue({
+      userId: 'user-1',
+      kycStatus: 'rejected',
+      rejectionReason: 'documento ilegible',
+    });
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      buildPricing(12500),
+      buildSettingsThreshold(100_000_000, COMMON_FIXED), // umbral altísimo ⇒ total por DEBAJO
+      usersServiceDouble(),
+      pii,
+    );
+
+    const res = await svc.createRequest(
+      'user-1',
+      [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any }],
+      VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
+    );
+    expect(res.ineRequired).toBe(false);
+    expect(res.items[0].itemStatus).toBe('cotizada');
+    expect((prisma as any).sellRequest.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('(c) AL/POR ENCIMA del umbral con kycStatus:verified → se crea (no bloquea a los no-rechazados)', async () => {
+    const prisma = buildPrisma('Common');
+    prisma.kycProfile.findUnique = jest.fn().mockResolvedValue({
+      userId: 'user-1',
+      kycStatus: 'verified',
+      ineFrontKey: 'kyc_ine/2026-09-01/cccc.png',
+      ineBackKey: 'kyc_ine/2026-09-01/dddd.png',
+    });
+    const svc = new BuylistService(
+      prisma as PrismaService,
+      buildPricing(12500),
+      buildSettingsThreshold(1, COMMON_FIXED), // al/por encima del umbral
+      usersServiceDouble(),
+      pii,
+    );
+
+    const res = await svc.createRequest(
+      'user-1',
+      [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any }],
+      VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
+    );
+    expect(res.ineRequired).toBe(true);
+    expect(res.items[0].itemStatus).toBe('cotizada');
+    expect((prisma as any).sellRequest.create).toHaveBeenCalledTimes(1);
+  });
+});
