@@ -12970,11 +12970,12 @@ ese frente:**
 
 ## Pedidos a preparar (rediseño de la cola de envíos/picking, M4)
 
-> **BORRADOR — pendiente de aprobación del dueño (2026-09-15).**
-> Sección NUEVA, escrita por product-owner a nivel de PRODUCTO (qué debe hacer y por qué, desde la
-> óptica del operador). **No** define contrato de datos (arquitecto) ni diseño visual (ux-ui). Los
-> **requisitos del dueño** van marcados como tales; los **aportes del equipo** van marcados como
-> **(PROPUESTA — validar con el dueño)** para que no se lean como decididos.
+> **Aprobado por el dueño (2026-09-15), decisiones incorporadas — listo para handoff a arquitecto.**
+> El dueño revisó el borrador y contestó las 6 preguntas abiertas; sus respuestas quedan incorporadas
+> como decididas en la subsección **«Decisiones del dueño (2026-09-15)»** (§6) y las propuestas del
+> equipo quedan promovidas a requisito firme. Sigue **sujeto a ajustes si el dueño cambia de opinión**.
+> Sección escrita por product-owner a nivel de PRODUCTO (qué debe hacer y por qué, desde la óptica del
+> operador). **No** define contrato de datos (arquitecto) ni diseño visual (ux-ui).
 
 ### 1. Problema y objetivo (lenguaje llano)
 
@@ -13013,7 +13014,10 @@ preparar»** en toda la interfaz de operador (el dueño prefiere ese nombre; «p
 - **No** se cambia la **política de envíos** ni la tarifa (§D): sigue nacional, manual, MX$175, solo
   cartas `settled`. Este rediseño es de **operación y visibilidad**, no de reglas de negocio de envío.
 - **No** se introduce impresión automática de guías con paquetería (la guía sigue capturándose a mano,
-  §D/§M5). Reimpresión de etiquetas queda como **PREGUNTA ABIERTA** (ver §6).
+  §D/§M5).
+- **El sistema NO genera ni imprime NINGUNA etiqueta** (DECISIÓN DEL DUEÑO, 2026-09-15 #4): ni etiqueta
+  de dirección, ni packing slip, ni etiqueta de bóveda. La guía se sigue capturando a mano. No hay
+  impresión ni reimpresión de etiquetas dentro de este flujo.
 - **No** se rediseña M5 (buylist) ni el pipeline de compra a vendedores; solo la salida hacia
   cliente (envío/bóveda).
 - **No** se define aquí el **contrato de datos** ni la **maquetación**: eso es handoff a arquitecto y
@@ -13024,30 +13028,40 @@ preparar»** en toda la interfaz de operador (el dueño prefiere ese nombre; «p
 1. **Entra un pedido a preparar.** Cuando un pedido queda listo para trabajarse, aparece en la lista
    **«Pedidos a preparar»**. Cada renglón/tarjeta deja claro, de un vistazo, **su destino**:
    **«Para bóveda»** o **«Para enviar»** (REQUISITO DEL DUEÑO #1: destino clarísimo, sin ambigüedad).
-   *(PROPUESTA — validar: dos cubetas/filtro visibles, «Para enviar» vs «Para bóveda», para que el
-   operador trabaje una tanda de cada tipo sin mezclar.)*
-2. **El operador elige qué atender.** *(PROPUESTA — validar: mostrar la **antigüedad del pedido** y
-   sugerir atender **lo más viejo primero**.)*
+   Un pedido es **de un solo destino**: o todas sus cartas van a bóveda o todas van a envío, nunca
+   mezcla (DECISIÓN DEL DUEÑO #1). La cola se organiza en **dos cubetas/filtro visibles**, «Para
+   enviar» vs «Para bóveda», para que el operador trabaje una tanda de cada tipo sin mezclar.
+2. **El operador elige qué atender.** La cola muestra la **antigüedad del pedido** y sugiere atender
+   **lo más viejo primero**.
 3. **Va a juntar las cartas.** Para cada carta, la cola le dice **qué es** (nombre + set + acabado, tal
    como se muestran en la tienda — REQUISITO DEL DUEÑO #2) y **de dónde sacarla**:
-   - si es **inventario propio** → el **SET** bien visible, porque mapea a su **carpeta por set**
-     *(PROPUESTA — validar);*
+   - si es **inventario propio** → el **SET** bien visible, porque mapea a su **carpeta por set**;
    - si sale de una **bóveda de cliente** → el **APELLIDO** bien visible (+ nombre completo), porque
-     mapea a su **archivero alfabético** *(PROPUESTA — validar);*
+     mapea a su **archivero alfabético**;
    - la **ubicación actual** cuando aplique, resolviendo el caso en que la carta aún no tiene ubicación
-     asignada (hoy aparece como «UNASSIGNED») con un texto que el operador entienda *(PROPUESTA —
-     validar).*
+     asignada (hoy aparece como «UNASSIGNED») con un texto que el operador entienda.
 4. **Palomea lo que ya juntó.** En pedidos de varias cartas, **una casilla por carta** para ir
    marcando conforme las toma; el pedido no se puede dar por preparado hasta que todas estén palomeadas
-   *(PROPUESTA — validar).*
+   (o marcadas como faltantes, ver paso 4b).
+4b. **Si una carta NO se encuentra al preparar** (💰 **TOCA DINERO** — DECISIÓN DEL DUEÑO #2): el
+   operador **marca esa carta como faltante**. Al hacerlo:
+   - **(a)** se **ajusta el total a pagar** del pedido, restando el importe de la carta faltante;
+   - **(b)** se **dispara un aviso al cliente** informándole de la carta faltante y del ajuste;
+   - **(c)** como el cobro pudo ya haber ocurrido, esto genera un **REEMBOLSO PARCIAL**, y el admin
+     debe ver **en un lugar claro cuánto se tiene que reembolsar** (monto exacto). Este reembolso se
+     conecta con el **reembolso admin existente** (`POST /admin/orders/:id/refund`). El resto del
+     pedido se puede seguir preparando con las cartas sí encontradas.
+   > ⚠️ Por tocar dinero, este subflujo requiere los **tres veredictos** (QA + techlead + seguridad).
 5. **Marca «preparado» + firma.** El operador confirma que **ya movió / ya preparó** el pedido
-   (REQUISITO DEL DUEÑO #3) y queda registrado **quién lo preparó** (REQUISITO DEL DUEÑO #4) y
-   **cuándo**, en la **bitácora/auditoría** *(PROPUESTA — validar el registro en bitácora).*
+   (REQUISITO DEL DUEÑO #3) y queda registrado **quién lo preparó** —tomado **automáticamente del
+   usuario con la sesión abierta** (DECISIÓN DEL DUEÑO #3), no capturado a mano— y **cuándo**, en la
+   **bitácora/auditoría**.
 6. **Avanza al siguiente paso según el destino** (REQUISITO DEL DUEÑO #3):
    - **Envío a domicilio** → el siguiente paso es **conseguir/capturar la GUÍA** (se conecta con la
      captura de guía que ya existe en M4).
    - **Bóveda de cliente** → el único siguiente paso es el **CAMBIO DE UBICACIÓN** (a la bóveda/archivero
-     del cliente); **no** hay guía.
+     del cliente); **no** hay guía. Aquí el **sistema PROPONE automáticamente la bóveda de ese cliente**
+     (según el archivero alfabético por apellido) y el operador **solo confirma** (DECISIÓN DEL DUEÑO #5).
 
 ### 4. Datos que la cola debe desplegar (lista de operador)
 
@@ -13057,75 +13071,116 @@ Por cada pedido y por cada carta dentro del pedido, el operador debe poder ver:
   DUEÑO #1).
 - **Qué carta**: **nombre + set + acabado**, con la misma nomenclatura de la tienda (REQUISITO DEL
   DUEÑO #2).
-- **(PROPUESTA — validar)** **Condición/grado** junto al acabado (p. ej. NM, PSA 9).
-- **(PROPUESTA — validar)** **Miniatura de la imagen** de la carta.
-- **(PROPUESTA — validar)** **Cantidad**.
-- **(PROPUESTA — validar)** Para destino **BÓVEDA**: **apellido** del cliente bien visible **+ nombre
-  completo** (mapea al archivero alfabético).
-- **(PROPUESTA — validar)** Para destino **ENVÍO**: **SET** bien visible (mapea a su carpeta por set) y
-  el **destino de envío completo, incluida la calle** (hoy la tarjeta omite la calle).
-- **(PROPUESTA — validar)** **Ubicación actual** en bóveda cuando aplique, con caso resuelto para las
-  cartas sin ubicación asignada («UNASSIGNED»).
-- **(PROPUESTA — validar)** **Antigüedad del pedido** (para atender lo más viejo primero).
-- **(PROPUESTA — validar)** **Quién preparó + cuándo**, una vez marcado.
+- **Condición/grado** junto al acabado (p. ej. NM, PSA 9).
+- **Miniatura de la imagen** de la carta.
+- **Cantidad**.
+- Para destino **BÓVEDA**: **apellido** del cliente bien visible **+ nombre completo** (mapea al
+  archivero alfabético).
+- Para destino **ENVÍO**: **SET** bien visible (mapea a su carpeta por set) y el **destino de envío
+  completo, incluida la calle** (hoy la tarjeta omite la calle).
+- **Ubicación actual** en bóveda cuando aplique, con caso resuelto para las cartas sin ubicación
+  asignada («UNASSIGNED»).
+- **Antigüedad del pedido** (para atender lo más viejo primero).
+- **Quién preparó + cuándo**, una vez marcado (tomado del usuario con sesión abierta).
+- Para el subflujo de **carta faltante** (💰 toca dinero): estado **faltante** por carta y, a nivel de
+  pedido/admin, el **monto exacto a reembolsar**.
 - **Referencia del pedido/envío** (folio/identificador) para trazar.
 
 ### 5. Criterios de aceptación (verificables)
 
-*(Los que dependen de una PROPUESTA aún no aprobada se marcan; el resto son firmes por venir de
-requisito literal del dueño.)*
+*(Todos son firmes: los que venían de requisito literal del dueño y los que eran propuestas del equipo,
+aprobadas por el dueño el 2026-09-15.)*
 
 1. La sección antes llamada «Lista de picking» aparece en la interfaz de operador con el título
    **«Pedidos a preparar»** (REQUISITO DEL DUEÑO). No queda ninguna etiqueta visible «picking» de cara
    al operador.
 2. Cada pedido en la cola muestra su **destino** de forma inequívoca: **«Para bóveda»** o **«Para
-   enviar»**, distinguible **sin abrir el detalle**.
+   enviar»**, distinguible **sin abrir el detalle**. Ningún pedido mezcla cartas a bóveda con cartas a
+   envío (es uno u otro destino — DECISIÓN DEL DUEÑO #1).
 3. Para cada carta a mover, el operador ve **nombre + set + acabado** (misma nomenclatura que la
    tienda). Ninguna carta aparece solo como folio/id sin identidad legible.
 4. El operador puede **marcar un pedido como «preparado»**, y al hacerlo **queda registrado quién lo
-   preparó y cuándo** (consultable en bitácora/auditoría).
+   preparó y cuándo** (consultable en bitácora/auditoría). El «quién preparó» se toma **automáticamente
+   del usuario con la sesión abierta**; no hay captura manual del preparador.
 5. Al marcar «preparado», el sistema ofrece el **siguiente paso correcto según destino**: para
    **envío**, la captura de **guía**; para **bóveda**, el **cambio de ubicación**. No se ofrece guía a
    un movimiento de bóveda ni cambio de ubicación a bóveda a un envío a domicilio.
 6. En un envío a domicilio, el operador ve el **destino completo, incluida la calle**.
-7. **(PROPUESTA — validar)** En un pedido de varias cartas, cada carta tiene su **casilla** para
-   palomear, y el pedido no se puede dar por «preparado» hasta que todas estén palomeadas.
-8. **(PROPUESTA — validar)** La cola puede **filtrarse/separarse** en «Para enviar» vs «Para bóveda».
-9. **(PROPUESTA — validar)** Cada pedido muestra su **antigüedad**, y la lista permite atender **lo más
-   viejo primero**.
-10. **(PROPUESTA — validar)** Para destino bóveda se ve el **apellido** (+ nombre completo); para
-    destino envío se ve el **SET** de forma prominente.
-11. **(PROPUESTA — validar)** Las cartas sin ubicación asignada se muestran con un estado entendible
-    (no un código críptico tipo «UNASSIGNED») que le dice al operador qué hacer.
+7. En un pedido de varias cartas, cada carta tiene su **casilla** para palomear, y el pedido no se
+   puede dar por «preparado» hasta que todas estén palomeadas **o marcadas como faltantes**.
+8. La cola puede **filtrarse/separarse** en «Para enviar» vs «Para bóveda» (dos cubetas).
+9. Cada pedido muestra su **antigüedad**, y la lista permite atender **lo más viejo primero**.
+10. Para destino bóveda se ve el **apellido** (+ nombre completo); para destino envío se ve el **SET**
+    de forma prominente. La cola muestra además **miniatura de imagen**, **condición/grado** y
+    **cantidad** por carta.
+11. Las cartas sin ubicación asignada se muestran con un estado entendible (no un código críptico tipo
+    «UNASSIGNED») que le dice al operador qué hacer.
+12. Para destino **bóveda**, al llegar al **cambio de ubicación** el sistema **propone automáticamente
+    la bóveda de ese cliente** (según el archivero por apellido) y el operador **solo confirma** (no la
+    teclea desde cero) — DECISIÓN DEL DUEÑO #5.
 
-### 6. Preguntas abiertas para el dueño
+**Criterios del subflujo «carta no encontrada» (💰 TOCA DINERO — requiere QA + techlead + seguridad):**
 
-1. **¿Un mismo pedido puede mezclar cartas que van a BÓVEDA con cartas que se PREPARAN PARA ENVÍO?**
-   Si puede pasar, ¿se trabaja como **un pedido con dos destinos** (y el operador ejecuta los dos
-   siguientes pasos) o se **parte en dos** al entrar a la cola? Esto define si «destino» es del pedido o
-   de cada carta.
-2. **¿Qué pasa si, al preparar, una carta NO se encuentra** (no está en su ubicación, falta, o no está
-   en NM)? ¿Se marca la carta como faltante y el pedido queda **parcial/bloqueado**? ¿Avisa a alguien?
-   ¿Se puede preparar el resto del pedido?
-3. **El «quién preparó», ¿se toma automáticamente del usuario logueado, o se captura a mano?**
-   (afecta si dos operadores comparten una sesión física, y qué tan fuerte es la accountability).
-4. **¿Se necesita imprimir/reimprimir alguna etiqueta** (de la carta, del paquete o de la ubicación de
-   bóveda) como parte de este flujo, o basta con la captura de guía que ya existe?
-5. **Para bóveda: ¿el «cambio de ubicación» lo teclea el operador** (elige/escribe la nueva ubicación
-   dentro del archivero del cliente) **o el sistema propone** la ubicación de la bóveda de ese cliente?
-6. **De la lista de PROPUESTAS del §4/§5** (miniatura, condición/grado, cantidad, apellido/SET
-   prominentes, antigüedad, dos cubetas, casillas por carta): **¿cuáles quiere sí y cuáles no?** Menos
-   elementos en pantalla suele ser mejor para trabajar rápido.
+13. El operador puede **marcar una carta del pedido como faltante** al no encontrarla, y el resto del
+    pedido sigue preparándose con las cartas sí encontradas.
+14. Al marcar una carta como faltante, el **total a pagar del pedido se ajusta** restando el importe de
+    esa carta (verificable: el nuevo total = total anterior − importe de la carta faltante).
+15. Al marcar una carta como faltante, se **dispara un aviso al cliente** con la carta faltante y el
+    ajuste (verificable: el aviso queda registrado/enviado).
+16. Tras marcar faltante(s), el admin ve **en un lugar claro el monto exacto a reembolsar** del pedido,
+    y desde ahí se puede ejecutar el **reembolso parcial** conectado con `POST /admin/orders/:id/refund`.
+
+### 6. Decisiones del dueño (2026-09-15)
+
+El dueño revisó el borrador y contestó las 6 preguntas que estaban abiertas. Quedan **decididas** así:
+
+1. **Un pedido NO mezcla destinos: es una u otra cosa.** Un pedido lleva **todas** sus cartas a bóveda
+   **o** todas a envío, nunca las dos (por ahora). El **destino es del PEDIDO completo**, no por-carta.
+   *(Resuelve la antigua pregunta 1.)*
+2. **Si una carta NO se encuentra al preparar** (💰 **TOCA DINERO**): **(a)** se **notifica al
+   cliente**; **(b)** se **ajusta el total a pagar** (baja el importe de la carta faltante); **(c)** el
+   admin necesita **un lugar que le diga claramente cuánto se tiene que reembolsar**. Esto es un
+   **REEMBOLSO PARCIAL**, así que pasa por los **tres veredictos** (QA + techlead + seguridad) y se
+   **conecta con el reembolso admin existente** (`POST /admin/orders/:id/refund`, que hoy solo reembolsa
+   órdenes `settled`). El detalle de arquitectura lo resuelve el arquitecto. *(Resuelve la antigua
+   pregunta 2.)*
+3. **«Quién preparó» = el usuario con la sesión abierta**, tomado **automáticamente** (no hay captura
+   manual del preparador). *(Resuelve la antigua pregunta 3.)*
+4. **El sistema NO imprime NADA.** No se genera etiqueta de dirección, ni packing slip, ni etiqueta de
+   bóveda; la guía se sigue capturando a mano. Esto va a **NO-alcance** (ver §2). *(Resuelve la antigua
+   pregunta 4.)*
+5. **Bóveda — cambio de ubicación: el SISTEMA PROPONE automáticamente la bóveda de ese cliente**
+   (según el archivero alfabético por apellido) y el **operador solo confirma**. *(Resuelve la antigua
+   pregunta 5.)*
+6. **TODAS las propuestas del equipo quedan APROBADAS por el dueño** y promovidas a requisito firme:
+   miniatura de imagen, condición/grado, cantidad, apellido+nombre para bóveda, SET prominente para
+   envío, ubicación actual (resolviendo «UNASSIGNED»), antigüedad del pedido, dos cubetas «Para
+   enviar»/«Para bóveda», y casilla por carta para palomear. *(Resuelve la antigua pregunta 6.)*
+
+> Estas decisiones quedan incorporadas al Problema/Objetivo, al Flujo (§3), a los Datos (§4) y a los
+> Criterios de aceptación (§5). Siguen **sujetas a ajuste si el dueño cambia de opinión**.
 
 ### 7. Handoff sugerido
 
-En este orden, una vez el dueño apruebe (o ajuste) este borrador:
+El dueño ya aprobó (2026-09-15); procede el handoff. En este orden:
 
 1. **arquitecto** — el contrato de la cola necesita crecer: hoy el renglón de «Pedidos a preparar»
    (la fila de picking en M4) solo lleva ubicación, folio e id de envío. Para cumplir estos requisitos
-   necesitará, como mínimo: **identidad de la carta** (nombre + set + acabado, y condición/grado e
-   imagen si el dueño los aprueba), **destino** (bóveda vs envío), **cliente/apellido**, **ubicación
-   actual**, y **preparó-por** (+ cuándo). El arquitecto decide la forma exacta y la ruta.
+   necesitará, como mínimo: **identidad de la carta** (nombre + set + acabado, condición/grado e
+   imagen — todos aprobados), **destino** (bóveda vs envío, **a nivel de pedido**, no por-carta —
+   DECISIÓN #1), **cliente/apellido**, **ubicación actual**, **cantidad**, y **preparó-por** (+ cuándo,
+   tomado del usuario con sesión abierta — DECISIÓN #3). Además, dos puntos que el arquitecto debe
+   resolver expresamente:
+   - **💰 Carta no encontrada ⇒ reembolso parcial (TOCA DINERO)** — DECISIÓN #2. El arquitecto define
+     cómo marcar una carta faltante, cómo **ajustar el total**, cómo **avisar al cliente** y **dónde ve
+     el admin el monto exacto a reembolsar**, **conectándolo con el reembolso admin existente**
+     (`POST /admin/orders/:id/refund`, que hoy solo reembolsa órdenes `settled`). Por tocar dinero,
+     este trabajo va por los **tres veredictos** (QA + techlead + seguridad).
+   - **Bóveda: el sistema PROPONE la ubicación** de la bóveda del cliente (por apellido) y el operador
+     solo confirma — DECISIÓN #5. El arquitecto define de dónde sale esa propuesta.
+   El arquitecto decide la forma exacta y la ruta.
 2. **ux-ui** — diseña cómo se ve y se opera (jerarquía visual del destino, las dos cubetas, las
-   casillas, dónde caen apellido/SET/miniatura), sobre el contrato ya definido.
+   casillas, dónde caen apellido/SET/miniatura, y la vista del monto a reembolsar del admin), sobre el
+   contrato ya definido. Recordar: **el sistema no imprime etiquetas** (DECISIÓN #4), así que no hay
+   pantallas ni botones de impresión de etiquetas.
 3. **backend + frontend** — implementan en paralelo sobre contrato y sistema de diseño.
