@@ -1,5 +1,5 @@
 import { TcgcsvGroupRef } from '../pricing.types';
-import { setNameCandidates } from '../ppt-set-mapper.service';
+import { normalizeSetName, setNameCandidates } from '../ppt-set-mapper.service';
 
 /**
  * Match `CardSet` local ↔ **grupo de TCGCSV** por NOMBRE (paso 2 de S-D3 / ARCHITECTURE §4.27d).
@@ -45,10 +45,17 @@ import { setNameCandidates } from '../ppt-set-mapper.service';
  *  1. **`exact`** — igualdad del nombre normalizado COMPLETO en ambos lados. Idéntico al peldaño 1 de
  *     antes.
  *  2. **`exact_unprefixed`** — igualdad tolerando el prefijo de código **en UNO de los dos lados**
- *     (vía `setNameCandidates`: `"SV08: Pitch Black"` ⇒ `['sv08pitchblack','pitchblack']`). **Es el
- *     peldaño nuevo.**
- *  3. **`contains`** — contención bidireccional del nombre completo. Idéntico al peldaño 2 de antes;
- *     se conserva como red para nombres que difieren por más que el prefijo.
+ *     (vía `setNameCandidates`: `"SV08: Pitch Black"` ⇒ `['sv08pitchblack','pitchblack']`). (P-47.)
+ *  3. **`exact_debased`** — igualdad del nombre local COMPLETO contra el grupo remoto tras pelarle el
+ *     prefijo **y** el sufijo descriptivo `Base Set` (`"SV01: Scarlet & Violet Base Set"` ⇒
+ *     `"scarletviolet"` == local `"Scarlet & Violet"`). **Es el peldaño nuevo (P-46-bis).** Cierra la
+ *     clase ENTERA de bases de era que quedaba sin precio: nombres cortos de era (`Scarlet & Violet`,
+ *     `Sword & Shield`, `XY`) que eran subcadena de VARIOS grupos de su era (la base + los promos) y por
+ *     eso caían al peldaño `contains` AMBIGUO ⇒ `null`. Compara contra el local COMPLETO y sólo pela el
+ *     lado remoto, así que es una RESTRICCIÓN de `contains` (todo lo que empata aquí, `contains` lo
+ *     incluía) ⇒ la monotonía se conserva: sólo `null → groupId`, jamás `groupId → OTRO`.
+ *  4. **`contains`** — contención bidireccional del nombre completo. Idéntico al peldaño 2 de antes;
+ *     se conserva como red para nombres que difieren por más que el prefijo/sufijo.
  *
  * ⚠️ **«En UNO de los dos lados» es una restricción DELIBERADA, y la propiedad de monotonía la
  * obligó** (la primera versión de este archivo no la tenía y el test la cazó). Si se pelan los dos
@@ -59,14 +66,16 @@ import { setNameCandidates } from '../ppt-set-mapper.service';
  *
  * ⭐ **La escalera NO puede resolver MENOS que la versión anterior**, y se prueba como PROPIEDAD por
  * fuerza bruta en `test/tcgcsv-group-match.spec.ts` contra una reimplementación literal del
- * algoritmo viejo. Los peldaños quedan **anidados** (`1 ⊆ 2 ⊆ 3`) —el peldaño 1 es el de antes, y
- * empatar módulo un prefijo de un solo lado implica contención— así que sólo puede pasar
- * `null → groupId` (un set congelado vuelve a repreciarse). ⛔ Nunca `groupId → null` (perder un set
- * que funcionaba) ni `groupId → OTRO groupId` (repreciar un set con los precios de otro).
+ * algoritmo viejo. Los peldaños quedan **anidados** (`1 ⊆ 2 ⊆ 3 ⊆ 4`) —el peldaño 1 es el de antes,
+ * empatar módulo un prefijo de un solo lado implica contención, y empatar el local COMPLETO contra el
+ * grupo pelado de su sufijo `Base Set` TAMBIÉN implica contención (el núcleo vive dentro del grupo)—
+ * así que sólo puede pasar `null → groupId` (un set congelado vuelve a repreciarse). ⛔ Nunca
+ * `groupId → null` (perder un set que funcionaba) ni `groupId → OTRO groupId` (repreciar con precios
+ * de otro).
  */
 
 /** Peldaño de la escalera por el que se resolvió el match (observabilidad; no gobierna dinero). */
-export type TcgcsvGroupMatchTier = 'exact' | 'exact_unprefixed' | 'contains';
+export type TcgcsvGroupMatchTier = 'exact' | 'exact_unprefixed' | 'exact_debased' | 'contains';
 
 /** Por qué NO se resolvió un `groupId` ÚNICO. Viaja a la señal visible (AuditLog), no solo al log. */
 export type TcgcsvGroupMatchFailure =
@@ -107,6 +116,14 @@ export function matchTcgcsvGroupByName(
     {
       tier: 'exact_unprefixed',
       matches: groups.filter((g) => namesMatchModuloOnePrefix(targets, g.name)),
+    },
+    {
+      // P-46-bis — pela ADEMÁS el sufijo descriptivo `Base Set` del GRUPO remoto (TCGplayer nombra las
+      // bases de era `"SV01: Scarlet & Violet Base Set"`, `"XY Base Set"`), y empata contra el nombre
+      // LOCAL COMPLETO (`target`). Sólo dispara para grupos que terminan en `Base Set`; para el resto es
+      // inerte, por lo que McDonald's/EX Trainer Kit (sin ese sufijo) no ven ningún cambio.
+      tier: 'exact_debased',
+      matches: groups.filter((g) => debasedGroupMatchesFullLocal(target, g.name)),
     },
     {
       tier: 'contains',
@@ -154,7 +171,38 @@ function namesMatchModuloOnePrefix(localCandidates: string[], groupName: string)
   return localKey === remoteKey;
 }
 
-/** Normaliza un nombre de grupo/set para el match S-D3: minúsculas, solo alfanuméricos. */
+/**
+ * ¿El grupo remoto, tras pelarle el prefijo de código Y el sufijo `Base Set`, es EXACTAMENTE el nombre
+ * local COMPLETO? (peldaño `exact_debased`, P-46-bis).
+ *
+ * Se compara SIEMPRE contra `localFull` (el nombre local completo normalizado), NUNCA contra un local
+ * "pelado", y ADEMÁS `localFull` es SIEMPRE subcadena del grupo normalizado completo (el núcleo vive
+ * dentro del nombre del grupo). Esa doble restricción es la que preserva la MONOTONÍA money-safe: si
+ * este peldaño empata un grupo `G`, entonces `contains` también lo habría incluido, así que sólo puede
+ * convertir `null → groupId` (rescatar un set congelado), nunca `groupId → OTRO groupId`.
+ *
+ * Ejemplos: `"SV01: Scarlet & Violet Base Set"` ⇒ núcleo `"scarletviolet"` == local `"Scarlet &
+ * Violet"`; `"XY Base Set"` ⇒ `"xy"` == local `"XY"`. En cambio `"Scarlet & Violet Black Star Promos"`
+ * NO termina en `Base Set` ⇒ su núcleo es `"scarletvioletblackstarpromos"` ≠ `"scarletviolet"` ⇒ jamás
+ * cruza (money-safe: la base nunca roba los precios de los promos).
+ */
+function debasedGroupMatchesFullLocal(localFull: string, groupName: string): boolean {
+  if (localFull === '') return false;
+  // Candidatos del grupo (completo y —si trae prefijo de código— sin él), a cada uno se le quita el
+  // sufijo `baseset`. Sólo cuenta si el sufijo REALMENTE estaba (si no, este peldaño no aporta nada
+  // que `exact`/`exact_unprefixed` no cubrieran ya).
+  for (const cand of setNameCandidates(groupName)) {
+    const debased = cand.replace(/baseset$/, '');
+    if (debased !== '' && debased !== cand && debased === localFull) return true;
+  }
+  return false;
+}
+
+/**
+ * Normaliza un nombre de grupo/set para el match S-D3. Delega en `normalizeSetName` (fuente ÚNICA) para
+ * heredar el plegado de diacríticos (P-46-ter, `é`→`e`): minúsculas, sin marcas de acento, solo
+ * alfanuméricos.
+ */
 function normalizeGroupName(raw: string | null | undefined): string {
-  return (raw ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalizeSetName(raw);
 }

@@ -7,7 +7,7 @@
  *   reset por admin → la sesión vieja cae en 401 (y su refresh también)
  *   → login con la temporal responde 200 con `user.mustChangePassword: true`
  *   → cualquier ruta autenticada (bóveda, PATCH /users/me, resend) ⇒ 403 PASSWORD_CHANGE_REQUIRED
- *   → logout (allowlist) ⇒ 204 · refresh (@Public) sigue funcionando
+ *   → logout (allowlist) ⇒ 204 y REVOCA (SEC-CR-1, v1.71): el refresh de esa sesión cae en 401
  *   → change-password: 422 CURRENT_PASSWORD_INCORRECT (no 401) · 422 PASSWORD_SAME_AS_CURRENT · 400 nueva corta
  *   → change-password correcta ⇒ 200 con par NUEVO
  *   → la misma ruta con el par nuevo ⇒ 200 · con la temporal ⇒ 401 · refresh viejo ⇒ 401, nuevo ⇒ 200
@@ -93,14 +93,12 @@ describe('E2E — contraseña temporal OBLIGATORIA y POST /auth/change-password 
       expect(res.body.error.details).toEqual({});
     }
 
-    // 5) Allowlist: GET /users/me ⇒ 200 (hidratación de sesión + pantalla de cambio); logout ⇒ 204.
-    //    refresh es @Public ⇒ sigue funcionando (el front lo necesita).
+    // 5) Allowlist: GET /users/me ⇒ 200 (hidratación de sesión + pantalla de cambio).
+    //    (logout también está en la allowlist, pero desde v1.71 REVOCA la sesión — ver paso 11 y
+    //    auth-logout.e2e-spec.ts —; no se ejerce aquí para no matar `tempAccess` a mitad del ciclo.)
     const me = await h.api('GET', '/users/me', { token: tempAccess });
     expect(me.status).toBe(200);
     expect(me.body).toMatchObject({ mustChangePassword: true, hasPassword: true });
-    expect((await h.api('POST', '/auth/logout', { token: tempAccess })).status).toBe(204);
-    const refreshDuring = await h.api('POST', '/auth/refresh', { json: { refreshToken: tempRefresh } });
-    expect(refreshDuring.status).toBe(200);
 
     // 6) change-password: errores en el orden normativo, sin tocar la BD.
     const wrong = await h.api('POST', '/auth/change-password', {
@@ -178,6 +176,15 @@ describe('E2E — contraseña temporal OBLIGATORIA y POST /auth/change-password 
     expect(audit!.actorRole).toBe('customer');
     expect(JSON.stringify(audit)).not.toContain(NEW);
     expect(JSON.stringify(audit)).not.toContain(temp);
+
+    // 11) SEC-CR-1 (v1.71): logout DEJÓ de ser no-op. Antes de este fix, aquí se aseveraba que tras
+    //     `POST /auth/logout` el refresh seguía en 200 («refresh @Public sigue funcionando») — ese era
+    //     EXACTAMENTE el hueco: un testigo copiado sobrevivía al cierre de sesión. Se invierte: sobre
+    //     la sesión viva actual (el par nuevo del cambio), logout ⇒ 204 y su access y su refresh caen
+    //     en 401. La revocación GLOBAL por-cuenta (todos los dispositivos) la detalla auth-logout.e2e-spec.ts.
+    expect((await h.api('POST', '/auth/logout', { token: ok.body.accessToken })).status).toBe(204);
+    expect((await h.api('GET', ROUTE, { token: ok.body.accessToken })).status).toBe(401);
+    expect((await h.api('POST', '/auth/refresh', { json: { refreshToken: ok.body.refreshToken } })).status).toBe(401);
   });
 
   it('el operador (staff) recorre el mismo ciclo: reset → temporal → 403 en /admin/* → cambio → 200', async () => {

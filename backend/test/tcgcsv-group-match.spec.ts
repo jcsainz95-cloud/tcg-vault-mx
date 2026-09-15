@@ -139,8 +139,13 @@ describe('matchTcgcsvGroupByName — escalera de match S-D3 (fuente única)', ()
       g(5, 'Pitch Black Elite Trainer Box'),
       g(6, 'Surging Sparks'),
       g(7, 'SV08: Surging Sparks'),
+      // P-46-bis: grupos con sufijo `Base Set` (el peldaño nuevo) — ejercitan la monotonía del
+      // `exact_debased`, incluida la trampa `local prefijado + grupo pelado+baseset`.
+      g(8, 'SV01: Pitch Black Base Set'),
+      g(9, 'Pitch Black Base Set'),
+      g(10, 'ME05: Pitch Black Base Set'),
     ];
-    const localNames = ['Pitch Black', 'SV08: Pitch Black', 'Surging Sparks', 'Black'];
+    const localNames = ['Pitch Black', 'SV08: Pitch Black', 'Surging Sparks', 'Black', 'Pitch Black Base Set'];
 
     let upgrades = 0;
     for (let mask = 0; mask < 1 << universe.length; mask += 1) {
@@ -163,5 +168,132 @@ describe('matchTcgcsvGroupByName — escalera de match S-D3 (fuente única)', ()
     // Ancla explícita contra la regresión de la que nace todo esto: la regla del prefijo vive en UN
     // sitio. Si `setNameCandidates` deja de pelar prefijos, el caso del hallazgo vuelve a romperse.
     expect(setNameCandidates('SV08: Pitch Black')).toEqual(['sv08pitchblack', 'pitchblack']);
+  });
+});
+
+/**
+ * ⭐⭐⭐ P-46-bis — LA CLASE ENTERA DE SETS SIN PRECIO (datos de producción del dueño, 2026-09-14).
+ *
+ * El matcher de P-47 sólo pelaba el **prefijo** de código (`"SV08:"`). Los nombres "base" de una era
+ * en TCGplayer llevan ADEMÁS un **sufijo descriptivo** (`"… Base Set"`) que el matcher nunca quitaba,
+ * así que:
+ *  - `exact` no empata (`scarletviolet` ≠ `sv01scarletvioletbaseset`),
+ *  - `exact_unprefixed` tampoco (pelar el prefijo deja `scarletvioletbaseset`, no `scarletviolet`),
+ *  - y cae al peldaño `contains`, donde el nombre corto de la era (`scarletviolet`) es **subcadena de
+ *    VARIOS grupos** de esa era (la base + los "Black Star Promos") ⇒ **≥2 candidatos ⇒ null** ⇒ el set
+ *    entero jamás resuelve groupId ⇒ 0 `CardProduct` ⇒ todo `PRICE_PENDING`.
+ *
+ * Es EXACTAMENTE el mismo patrón que P-47 (contención ambigua), un peldaño más abajo: allí lo abría el
+ * prefijo, aquí lo abre el sufijo `Base Set`.
+ *
+ * ⚠️ Nombres de grupo TCGCSV **derivados de la CONVENCIÓN** confirmada por el fixture
+ * (`test/fixtures/tcgcsv/groups.json`: `"SV08: Surging Sparks"`, `"SV: Prismatic Evolutions"`,
+ * `"SWSH12: Silver Tempest"`) + el sufijo `Base Set` estándar de TCGplayer para las bases de era. NO
+ * son un fetch en vivo: el egress a `tcgcsv.com` está BLOQUEADO por el proxy de este entorno (403). La
+ * cadena EXACTA de cada base queda por confirmar contra `GET /tcgplayer/3/groups` — ver el informe.
+ */
+describe('P-46-bis — bases de era que HOY no cruzan (contención ambigua por sufijo `Base Set`)', () => {
+  // Cada bloque = universo realista de UNA era: la base (prefijo + sufijo `Base Set`) + su grupo de
+  // promos + algún hermano, para forzar la ambigüedad de `contains` que hoy devuelve null.
+  const svEra = [
+    g(22873, 'SV01: Scarlet & Violet Base Set'),
+    g(23001, 'Scarlet & Violet Black Star Promos'),
+    g(23874, 'SV: Prismatic Evolutions'),
+  ];
+  const swshEra = [
+    g(2991, 'SWSH01: Sword & Shield Base Set'),
+    g(2992, 'Sword & Shield Black Star Promos'),
+    g(17688, 'SWSH12: Silver Tempest'),
+  ];
+  const xyEra = [
+    g(9008, 'XY Base Set'),
+    g(9100, 'XY - Evolutions'),
+    g(9200, 'XY Black Star Promos'),
+  ];
+
+  it('«Scarlet & Violet» — legacy y matcher ACTUAL devuelven null (congelado); tras el fix cruza a SU base', () => {
+    expect(legacyMatch('Scarlet & Violet', svEra)).toBeNull();
+    expect(matchTcgcsvGroupByName('Scarlet & Violet', svEra)).toMatchObject({ groupId: 22873 });
+  });
+
+  it('«Sword & Shield» — mismo patrón ⇒ cruza a SWSH01 base, NO a los promos', () => {
+    expect(legacyMatch('Sword & Shield', swshEra)).toBeNull();
+    expect(matchTcgcsvGroupByName('Sword & Shield', swshEra)).toMatchObject({ groupId: 2991 });
+  });
+
+  it('«XY» (nombre cortísimo, subcadena de MEDIA era) ⇒ cruza SOLO a «XY Base Set»', () => {
+    expect(legacyMatch('XY', xyEra)).toBeNull();
+    expect(matchTcgcsvGroupByName('XY', xyEra)).toMatchObject({ groupId: 9008 });
+  });
+
+  // NOTA (medido 2026-09-14): un universo `["Diamond & Pearl Base Set", "DP Black Star Promos"]` NO
+  // reproduce el fallo — «DP Black Star Promos» no contiene «diamondpearl», así que legacy YA resuelve
+  // la base por `contains` único. `Diamond & Pearl`, `Sun & Moon`, `Team Rocket Returns`, `Pokémon GO`,
+  // los `Black Star Promos` y las colecciones especiales dependen de la CADENA REMOTA EXACTA, que no
+  // se pudo medir (egress bloqueado). No se afirman aquí: ver el informe (sección «Alcance / NO MEDIDO»).
+
+  it('⛔ MONEY-SAFE: ninguna base cruza a su grupo de PROMOS (falso positivo = precios de otra carta)', () => {
+    expect(matchTcgcsvGroupByName('Scarlet & Violet', svEra).groupId).not.toBe(23001);
+    expect(matchTcgcsvGroupByName('Sword & Shield', swshEra).groupId).not.toBe(2992);
+    expect(matchTcgcsvGroupByName('XY', xyEra).groupId).not.toBe(9200);
+  });
+});
+
+/**
+ * `Evolutions` es un caso DISTINTO y NO se "arregla" con el sufijo: es una ambigüedad REAL. El nombre
+ * corto `evolutions` es subcadena de DOS colecciones legítimamente distintas (`XY - Evolutions` y
+ * `SV: Prismatic Evolutions`, esta última CONFIRMADA en el fixture). Adivinar cuál sería money-unsafe;
+ * lo correcto es que quede null (PRICE_PENDING) y se resuelva por `pptSetId` numérico (groupId directo)
+ * o por un alias explícito con desempate de año — NUNCA por contención difusa.
+ */
+describe('P-46-bis — `Evolutions` DEBE seguir en null (ambigüedad real, money-safe)', () => {
+  const groups = [g(9100, 'XY - Evolutions'), g(23874, 'SV: Prismatic Evolutions')];
+  it('no se adivina entre XY-Evolutions y Prismatic Evolutions', () => {
+    expect(matchTcgcsvGroupByName('Evolutions', groups).groupId).toBeNull();
+  });
+});
+
+/**
+ * P-46-ter — el ACENTO de «Pokémon». `normalizeSetName`/`normalizeGroupName` quitaban TODO no-`[a-z0-9]`,
+ * así que la `é` desaparecía: `"Pokémon GO"` → `"pokmongo"`, que JAMÁS empata con el `"pokemongo"` de
+ * TCGplayer (ASCII). Es un fallo de normalización MEDIBLE en aislamiento (ver spec de ppt-set-mapper).
+ * El fix pliega diacríticos (é→e) antes de filtrar. Money-safe: sólo AÑADE la letra caída; no colapsa
+ * dos sets distintos (ninguno difiere sólo por un acento en este catálogo).
+ */
+describe('P-46-ter — acento de «Pokémon» (é) rompía la normalización', () => {
+  it('«Pokémon GO» cruza a «Pokemon GO» tras plegar el acento', () => {
+    expect(matchTcgcsvGroupByName('Pokémon GO', [g(2999, 'Pokemon GO')])).toMatchObject({ groupId: 2999 });
+  });
+});
+
+/**
+ * ⛔⛔ TRAMPAS DE FAMILIA (money-safety pura, material de prueba del dueño). Familias donde varios sets
+ * comparten casi todo el nombre y difieren por AÑO (McDonald's) o por LEGENDARIO (EX Trainer Kit). El
+ * fix NO debe cruzar un hermano con otro: cada uno a SU grupo o a ninguno, jamás al del hermano. El
+ * peldaño `exact_debased` sólo dispara con sufijo `Base Set` (estas familias no lo tienen) y el plegado
+ * de acento no colapsa años ⇒ los hermanos nunca se funden.
+ */
+describe('P-46-bis — trampas de familia: NUNCA cruzar a un hermano', () => {
+  const mcd = [
+    g(3011, "McDonald's Collection 2011"),
+    g(3012, "McDonald's Collection 2012"),
+    g(3021, "McDonald's Collection 2021"),
+  ];
+  it("McDonald's por AÑO: cada año a SU grupo, jamás al de otro año", () => {
+    expect(matchTcgcsvGroupByName("McDonald's Collection 2011", mcd)).toMatchObject({ groupId: 3011 });
+    expect(matchTcgcsvGroupByName("McDonald's Collection 2012", mcd)).toMatchObject({ groupId: 3012 });
+    expect(matchTcgcsvGroupByName("McDonald's Collection 2011", mcd).groupId).not.toBe(3012);
+    expect(matchTcgcsvGroupByName("McDonald's Collection 2011", mcd).groupId).not.toBe(3021);
+  });
+
+  const kits = [
+    g(4001, 'EX Trainer Kit Latias'),
+    g(4002, 'EX Trainer Kit Latios'),
+    g(4003, 'EX Trainer Kit 2 Minun'),
+  ];
+  it('EX Trainer Kit: Latias no cruza a Latios (difieren en UNA letra)', () => {
+    expect(matchTcgcsvGroupByName('EX Trainer Kit Latias', kits)).toMatchObject({ groupId: 4001 });
+    expect(matchTcgcsvGroupByName('EX Trainer Kit Latios', kits)).toMatchObject({ groupId: 4002 });
+    expect(matchTcgcsvGroupByName('EX Trainer Kit Latias', kits).groupId).not.toBe(4002);
   });
 });

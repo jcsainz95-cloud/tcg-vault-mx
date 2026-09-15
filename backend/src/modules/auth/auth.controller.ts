@@ -60,12 +60,14 @@ export class AuthController {
   }
 
   // v1.67: en la allowlist de PASSWORD_CHANGE_REQUIRED (rendirse siempre se permite).
+  // v1.71 (SEC-CR-1): DEJA de ser no-op. Revoca TODAS las sesiones de la cuenta vía
+  // `tokenVersion +1` (decisión del dueño 2026-09-14). El actor viene de una sesión válida
+  // (sin @Public ⇒ el guard ya lo autenticó), así que `id` siempre está disponible.
   @AllowPasswordChangeRequired()
   @Post('logout')
   @HttpCode(204)
-  logout() {
-    // JWT stateless: el cliente descarta los tokens. (Blacklist = fase 2.)
-    return;
+  logout(@CurrentUser('id') userId: string) {
+    return this.auth.logout(userId);
   }
 
   // v1.67 (Stream A · P-75, contrato §1 «Cambiar la propia contraseña»): AUTENTICADO, cualquier rol.
