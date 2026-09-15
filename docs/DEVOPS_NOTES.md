@@ -12108,3 +12108,52 @@ Lo que queda abierto **no es una petición, es trabajo nuestro**: enrutar el roj
 dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-gate` en la ruta de
 publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
 cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.
+
+## 66. `ignoreCommand` salta el build de `main`/`production` cuando el commit es SOLO docs (`*.md`) (2026-09-15)
+
+**El desperdicio medido.** El dueño avisó de que Vercel «genera demasiadas versiones» y de que están **cerca
+del límite de 10 GB de almacenamiento**. El `vercel.json` de la raíz ya saltaba las ramas de trabajo, pero
+`main` y `production` **construían siempre** — incluso cuando el commit tocaba **solo documentación** (`*.md`).
+Cada push de docs a `main` era un build (y una versión) que no cambiaba nada servible.
+
+**El cambio.** El `ignoreCommand` de `vercel.json` (raíz) ahora, en `main`/`production`, clasifica los ficheros
+tocados respecto al commit previo y **salta el build solo si TODOS terminan en `.md`**. Contenido exacto:
+
+```sh
+case "${VERCEL_GIT_COMMIT_REF:-main}" in main|production) files=$(git diff --name-only HEAD^ HEAD 2>/dev/null) || exit 1; [ -z "$files" ] && exit 1; for f in $files; do case "$f" in *.md) ;; *) exit 1 ;; esac; done; exit 0 ;; *) exit 0 ;; esac
+```
+
+Semántica de Vercel: **`exit 0` = SALTAR** el build, **`exit 1` = CONSTRUIR**.
+
+**La regla de seguridad que gobierna las dudas: ante cualquier incertidumbre, CONSTRUIR.** Nunca se salta un
+build de código por una duda. Por eso:
+- `git diff ... || exit 1`: si git falla (clon **shallow** sin padre, no es repo, etc.), **construye**.
+- `[ -z "$files" ] && exit 1`: diff vacío (commit vacío, merge no-op) = incierto ⇒ **construye**.
+- El bucle: **un solo** fichero que no sea `*.md` ⇒ **construye**. «Solo-docs» exige que TODOS sean `.md`.
+- Se ciñe a la extensión `.md`; docs sin `.md` cuentan como código ⇒ construye (la decisión conservadora).
+
+**Comportamiento de ramas conservado:** cualquier ref que no sea `main`/`production` sigue saltando (`exit 0`).
+
+**Medido con git real (4 escenarios, mandando el comando extraído del `vercel.json` ya escrito, no un literal
+de prueba):**
+
+| # | Escenario | ref | Resultado | Esperado |
+|---|---|---|---|---|
+| 1 | Rama de trabajo | `feature/x` | **SKIP** (exit 0) | salta ✅ |
+| 2 | Commit toca solo `README.md` + `docs/N.md` | `main` / `production` | **SKIP** (exit 0) | salta ✅ |
+| 3a | Commit toca solo código (`code.js`) | `main` | **BUILD** (exit 1) | construye ✅ |
+| 3b | Commit mixto (`code.js` + `README.md`) | `main` | **BUILD** (exit 1) | construye ✅ |
+| 4 | Clon **shallow** `--depth 1` sin padre (`HEAD^` falla) | `main` | **BUILD** (exit 1) | construye ✅ |
+
+Extra medido: no-es-repo ⇒ BUILD; commit vacío ⇒ BUILD. El comando extraído del fichero es **byte-idéntico**
+al probado, y `require('./vercel.json')` valida como JSON.
+
+**Caveat que NO cierro yo — dónde vive el `vercel.json` que Vercel realmente lee (§40.4).** Está documentado
+que si el Root Directory del proyecto en Vercel es `frontend/`, Vercel lee **`frontend/vercel.json`** e
+**ignora el de la raíz**. Este cambio toca el `vercel.json` **de la raíz** (mi ruta y lo que el encargo pidió).
+Si en el dashboard el Root Directory es `frontend`, este `ignoreCommand` es inerte hasta que el mismo criterio
+se replique en `frontend/vercel.json` — y esa ruta es del **rol frontend**, no mía (CLAUDE.md). Lo dejo
+**medido y señalado**, no asumido: no confirmé contra el dashboard cuál de las dos ubicaciones manda hoy.
+
+**Nota de despliegue:** cambiar `vercel.json` en la rama de trabajo **no afecta a Vercel todavía**; solo surte
+efecto al publicarse a `main`/`production`, y eso lo decide el orquestador.
