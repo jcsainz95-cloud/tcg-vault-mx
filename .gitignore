@@ -57,3 +57,6 @@ tmp/
 
 # Volcado de Redis local (lo deja `redis-server` al correr el stack nativo desde la raíz)
 dump.rdb
+
+# Worktrees temporales de agentes (aislamiento del Agent tool; nunca se versionan)
+.claude/worktrees/
