@@ -241,6 +241,48 @@ mío**. O lo mido, o lo relayo diciendo **de quién es y con qué N**.
 **Comprobación:** toda proporción en un mensaje mío lleva su **N** y su autor. `5/5` sin N es una afirmación sin
 medición, y se trata como **NO MEDIDO**.
 
+### O-16 · Limpio el scratchpad del agente que entregó; el disco no decide por mí
+En cuanto un agente entrega y su trabajo está **verificado y commiteado**, borro su scratchpad. Y antes de lanzar
+una copia de verificación, `df -h`.
+
+> *De dónde viene:* el disco llegó al **100 %** en una sesión por ~20 GB de scratchpads de agentes **ya
+> entregados** que nunca limpié; se paró toda la sesión (`No space left on device`) justo antes de una fusión.
+> Borrar sí funciona cuando escribir ya no — liberé 19 GB borrando lo de agentes muertos y seguí. El coste no fue
+> el disco: fue que no lo vi venir teniendo la señal (`df`) a un comando de distancia.
+
+**Comprobación:** tras cada informe verificado y commiteado, borro su scratchpad nombrado (O-8). `df -h` antes de
+cada `git archive | tar -x`. Un `Avail` en 0 con `Used` bajo es la cuota agotada, no la máquina rota.
+
+### O-17 · Antes de encargar trabajo que depende de una red externa, mido que la red esté abierta
+Si un encargo necesita alcanzar un host externo (un proveedor, una API, un CDN), **pruebo el alcance yo primero**
+(`curl -m 10 <host>` o el estado del proxy) y se lo digo al agente. Un egress bloqueado convierte una medición en
+una corazonada.
+
+> *De dónde viene:* encargué a un agente arreglar el cruce de precios con TCGplayer **midiendo contra la lista real
+> de grupos**; el proxy del entorno **bloquea `tcgcsv.com`** (403 `connect_rejected`, política de organización). El
+> agente hizo un trabajo honesto pero **no pudo cerrar 22 de 28 casos** por falta de esa lista — y yo lo habría
+> sabido con un `curl` de 5 segundos **antes** de lanzarlo, y habría planteado la medición en producción desde el
+> principio en vez de descubrir el muro a mitad.
+
+**Comprobación:** todo encargo que dependa de un host externo cita, al lado, si medí el egress a ese host y con qué
+resultado. Si está cerrado, el plan de medición no descansa en él.
+
+### O-18 · En `main` con un PR `main→production` abierto, cada push es una versión: agrupo, no goteo
+Cada push a `main` dispara un deployment (Vercel construye `main` y `production`). No empujo a `main` mientras hay
+un PR `main→production` abierto salvo para **consolidar a propósito**; agrupo el trabajo de una tanda y fusiono una
+vez. Y los **docs de gestión** (`TRASPASO.md`, `PENDIENTES.md`, `HECHOS.md`, este manual) viven en mi **rama de
+trabajo**, no en `main`: así no generan builds ni se cuelan en el PR de producción bajo los pies del dueño.
+
+> *De dónde viene:* el dueño avisó de que «se generan demasiadas versiones» en Vercel. Medido: `vercel.json` ya
+> evita construir ramas de trabajo (solo `main`/`production` construyen), así que la acumulación viene de empujar a
+> `main` varias veces por tanda. Además, fusioné logout+precios a `main` creyendo que se sumarían a un PR que el
+> dueño **ya había fusionado** — mi ref local de `production` estaba vieja porque no hice `git fetch`; el trabajo
+> quedó bien, pero descubrí tarde que hacía falta un PR nuevo. Dos caras de lo mismo: `main` no es un borrador.
+
+**Comprobación:** antes de tocar `main`, `git fetch origin` y confirmo `origin/production` con mis ojos. Un PR
+`main→production` fusionado no se reutiliza: el trabajo siguiente va en un PR nuevo. Los docs de gestión se
+commitean a la rama de trabajo, no a `main`.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles:** `HECHOS.md` (lo que el dueño estableció y lo medido de infraestructura; no
   se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y **comprobación**, y sus

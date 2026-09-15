@@ -3,7 +3,24 @@
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
-> Última limpieza: **2026-09-11 ~08:30 UTC** (orquestador, sesión 2, tras fusionar Stream A + andamiaje de CI a `main`). Cuerpos de los ítems: **verbatim**, sin reescribir.
+> Última limpieza: **2026-09-15** (orquestador, sesión 2, cierre; ver sección nueva abajo). Cuerpos de los ítems históricos: **verbatim**, sin reescribir.
+
+## Sesión 2 (2026-09-14/15) — pendientes vivos al traspasar
+
+> Medidos por el orquestador de la sesión 2. Estado del árbol al cerrar: `origin/production` = `a108abf`
+> (avisos + IVA **publicados**, PR #36 fusionado por el dueño); `origin/main` = `bb239c0` (+ logout + fix de
+> precios, **sin publicar**; requieren **PR #37** nuevo porque el #36 ya se cerró); rama de trabajo
+> `claude/tcg-hunt-orchestration-4` (docs actualizados). Detalle completo en `TRASPASO.md`.
+
+| ID | Qué | Dueño | Medido el | Comprobación |
+|---|---|---|---|---|
+| **S2-VERCEL** | «Se generan demasiadas versiones». Cada push a `main`/`production` = un deployment; se acumulan (no rompen nada). `vercel.json` ya salta las ramas de trabajo. Vías: purgar deployments viejos (dueño, en Vercel) + `ignoreCommand` que no construya en cambios solo-`*.md`. Egress a Vercel bloqueado desde el entorno. **Primer encargo de la sesión 3.** | devops · dueño | 2026-09-15 | `vercel.json` (`ignoreCommand`); dashboard de Vercel |
+| **S2-PUBLICAR** | Logout (SEC-CR-1) + fix de precios están en `main` sin publicar. Abrir **PR #37** `main→production` (el #36 ya se fusionó). | orquestador · dueño (botón) | 2026-09-15 | `git log origin/production..origin/main` = `bb239c0 e4439fd 05ca459` |
+| **S2-PRUEBAS** | Las 15 pruebas del dueño en su tienda (dinero, IVA, correos, campana, logout, precios). En curso. Acompañarlo; las 5 que mandan primero. | orquestador · dueño | 2026-09-15 | historial sesión 2 (lista de 15) |
+| **S2-BOTON** | 🔴 Botón de pago **gris** (dinero). Causas: `paymentInProgress` (sesión) o `payBlockedReason` (invitado: bóveda/upsell/email). Falta el **texto bajo el botón** (§15.9) que el dueño debe copiar. | frontend | 2026-09-15 (esperando dato del dueño) | `CheckoutView.tsx:381`; `GuestCheckoutView.tsx:183,439` |
+| **S2-COMISION** | (a) **Desglosar** la comisión de Stripe en la pantalla del dial (hoy «Total que paga el comprador» mezcla IVA + comisión; el 124.69 está medido y es correcto: 116 + 8.69). (b) **Decisión del dueño SIN cerrar:** trasladar la comisión (paga 124.69) vs absorberla (paga 116). | ux-ui → frontend · dueño (decisión) | 2026-09-15 | `IvaTransferSection.tsx`; `iva-transfer.ts` (`grossUpTotal`) |
+| **S2-RL1** | 🔒 **P-RL-1** (Alta, heredada, abierta). Login se rodea rotando `X-Forwarded-For`. Ya publicado. Se cierra con 6 peticiones a producción **en ventana autorizada** — el dueño dijo **«no la midas aún»**. Tracker = entrada **más a la derecha**. Corrección a devops: `edge-xff-probe.sh` dice «penúltima», es la última. | seguridad · dueño (ventana) | 2026-09-15 | `actor-throttler.guard.ts`; `main.ts` (`trust proxy`) |
+| **S2-PRECIOS22** | 🃏 Fix rescata con certeza S&V, Sword & Shield, XY, Pokémon GO, Pokémon Futsal. **Evolutions** sigue pending a propósito (ambiguo). **22 sin medir** (egress a `tcgcsv.com` bloqueado, 403): se miden en prod con **`POST /admin/catalog/refresh-variants-all`** + re-correr la consulta SQL. Los que sigan sin precio → **mapeo explícito por id** (arquitecto→backend), no ensanchar el matcher. | dueño (re-precia) → arquitecto → backend | 2026-09-15 | `card-product-resolver.service.ts`; `tcgcsv-group-match.ts` |
 
 ## Índice de abiertos (re-medido 2026-09-11 ~03:20 UTC sobre `17ce9a9`; **actualizado 2026-09-11 ~08:30 UTC tras fusionar Stream A + andamiaje de CI a `main`**; «—» = el cuerpo no lo dice)
 

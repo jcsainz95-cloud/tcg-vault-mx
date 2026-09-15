@@ -84,3 +84,27 @@ correcto es una pregunta abierta, no una conclusión — y es exactamente lo que
 la escriben y **los siete** ponen `IVA_EXCLUSIVE`; **cero** escriben `IVA_INCLUSIVE`; no existe dial en
 `settings` que la cambie; y el frontend **no conoce** ni `ivaIncluded` ni `priceConvention`
 (`grep` ⇒ 0 fuera de pruebas).
+
+---
+
+## Infraestructura medida en la sesión 2 (2026-09-14/15)
+
+**Egress de red del entorno (medido por el orquestador, 2026-09-15).** La política de red bloquea salidas
+a varios hosts externos con `403 connect_rejected` (política de organización): **`tcgcsv.com`** (proveedor de
+precios TCGplayer), y ya antes **`www.tcghunt.mx`** y la API de Railway. Consecuencia práctica: cualquier
+medición que dependa de esos hosts **se hace en producción, por el dueño**, no desde el contenedor. Antes de
+encargar trabajo que dependa de un host externo, medir el egress primero (regla O-17).
+
+**Vercel — cómo se despliega y por qué se acumulan versiones (medido 2026-09-15).** `vercel.json` trae
+`ignoreCommand` que **solo construye `main` y `production`** (las demás ramas se saltan: `exit 0`). Por eso las
+ramas de trabajo `claude/tcg-hunt-orchestration-*` **no** generan deployments. Cada push a `main` genera un
+*Preview*; cada push/merge a `production` genera un *Production*. Se **acumulan** en el dashboard (no afectan al
+sitio vivo, que sirve solo el último de `production`). El `ignoreCommand` **no** distingua cambios solo-docs, así
+que un commit de `*.md` a `main` también construye — motivo para tener los docs de gestión en la rama de trabajo
+(regla O-18).
+
+**Revocación de sesión (confirmado por código y prueba, 2026-09-15).** Incrementar `User.tokenVersion` invalida
+tanto el access como el refresh: el guard compara `payload.tv !== user.tokenVersion` (`jwt-auth.guard.ts:70`) y el
+refresh en `auth.service.ts:456`. Es el mismo mecanismo del reset de contraseña del admin. `POST /auth/logout`
+ahora lo usa (revoca **todas** las sesiones de la cuenta — decisión del dueño 2026-09-15: todos los dispositivos,
+no hay tabla de sesiones por-dispositivo).
