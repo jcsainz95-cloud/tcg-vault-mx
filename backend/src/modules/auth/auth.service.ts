@@ -97,6 +97,32 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * POST /auth/logout (autenticado; en la allowlist de PASSWORD_CHANGE_REQUIRED) — v1.71 (SEC-CR-1).
+   * Cerrar sesión **revoca TODAS las sesiones de la cuenta** (todos los dispositivos), decisión de
+   * producto del dueño (2026-09-14). Único mecanismo: `tokenVersion +1`, la MISMA palanca por-persona
+   * que ya usan el reset del admin (admin.service.ts:1331) y change-password (§5). Al incrementarla,
+   * todo access con el `tv` previo cae en su siguiente petición (guard: jwt-auth.guard.ts:70) y todo
+   * refresh con el `tv` previo cae en `/auth/refresh` (auth.service.ts:456). NO emite tokens nuevos:
+   * cerrar sesión no re-loguea; el usuario vuelve a entrar por /login (su par nuevo llevará el `tv` ya
+   * incrementado). Antes (SEC-CR-1) el cuerpo era `return;`: el navegador tiraba su copia pero un
+   * testigo copiado antes seguía vivo hasta caducar. NO hay mecanismo por-dispositivo (no hay tabla de
+   * sesiones y el dueño no lo pidió). Auditoría `auth.logout` sin secretos, hermana de las de contraseña.
+   */
+  async logout(userId: string): Promise<void> {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+    await this.audit.log({
+      actorUserId: userId,
+      actorRole: user.role,
+      action: 'auth.logout',
+      entityType: 'User',
+      entityId: userId,
+    });
+  }
+
   async register(dto: RegisterDto) {
     const passwordHash = await argon2.hash(dto.password);
     let user: User;

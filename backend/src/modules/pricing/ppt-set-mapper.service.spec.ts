@@ -26,6 +26,13 @@ describe('pure helpers', () => {
     expect(normalizeSetName(null)).toBe('');
   });
 
+  it('P-46-ter: normalizeSetName PLIEGA el acento (é→e) — antes «Pokémon GO» caía a «pokmongo»', () => {
+    // Sin el plegado la `é` se perdía por no ser [a-z0-9] ⇒ "pokmongo", que jamás empata con el
+    // "pokemongo" (ASCII) de TCGplayer ⇒ set sin groupId ⇒ todo PRICE_PENDING.
+    expect(normalizeSetName('Pokémon GO')).toBe('pokemongo');
+    expect(normalizeSetName('Pokémon Futsal Collection')).toBe('pokemonfutsalcollection');
+  });
+
   it('pptSetIdOf prefiere GroupId numérico → slug → mongo id', () => {
     expect(pptSetIdOf({ tcgPlayerNumericId: 1407, tcgPlayerId: 'sv-pe', id: 'abc' })).toBe('1407');
     expect(pptSetIdOf({ tcgPlayerNumericId: '1408', tcgPlayerId: 'sv-pe' })).toBe('1408');
