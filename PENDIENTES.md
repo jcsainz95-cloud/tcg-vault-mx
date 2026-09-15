@@ -55,6 +55,10 @@
 - 🔴💰 **S3-OVERRIDE-ZERO (NUEVO):** el override de precio en emisión acepta **$0** (`backend/src/modules/buylist/dto/buylist.dto.ts:207`, `@Min(0)`) ⇒ se podría emitir una oferta a $0.00, saltándose la regla >0. Endurecer a >0 con prueba RED. Backend + 3 veredictos.
 - ⚪ **P-92:** intermitente **NO reproducido 10/10** con el binario local de vitest. Salvedad: el `npm ci` de frontend fue frágil (a veces dejó devDeps incompletas) — eso podría ser el verdadero «intermitente» y **conecta con P-87** (arnés de pruebas).
 
+**Decisiones del dueño (2026-09-15 AM):**
+- **S3-BOUNTY-PRECIO → NO es bug (el dueño tecleó el 0.01).** Cambio pedido: el campo «Precio ofertado» de la mesa (M5) debe **pre-llenarse con el precio de mercado con que se cotizó** (derivado/bounty), para que el operador CONFIRME en vez de teclear en blanco (así no se cuela un 0.01). ⚠️ Diseño: el pre-llenado NO debe contar como override manual salvo que se cambie (respetar `decision-desk.ts:48` `amount !== derivedPriceCents`). Ruta: ux-ui/arquitecto → frontend. En construcción (rama `claude/fix-bounty-prefill`).
+- **S3-BUYLIST-INE (backend/AML) → decisión: «umbral, luego bloqueo».** Montos chicos: dejar vender aunque la INE esté rechazada. **Al/por encima de `INE_THRESHOLD_CENTS`** (`buylist.service.ts:1588`): exigir identidad VÁLIDA (no rechazada) — hoy la puerta (`INE_REQUIRED`) solo mira presencia de imágenes, no el veredicto. Ruta: **arquitecto** (regla/contrato) → backend + 3 veredictos (identidad/dinero). En especificación (rama `claude/arch-ine-threshold`).
+
 ## Índice de abiertos (re-medido 2026-09-11 ~03:20 UTC sobre `17ce9a9`; **actualizado 2026-09-11 ~08:30 UTC tras fusionar Stream A + andamiaje de CI a `main`**; «—» = el cuerpo no lo dice)
 
 > Sesión 2, 2026-09-11: se re-midió **cada fila** contra el árbol (O-5). Punteros a línea corregidos donde envejecieron.
