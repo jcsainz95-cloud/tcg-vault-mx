@@ -2,7 +2,24 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-14 (rev **v1.76**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-16 (rev **v1.77**).
+>
+> **Changelog v1.77 — ⭐ SE FINALIZAN LAS DOS DECISIONES DE `§0-Q` QUE `EQ-D1` DEJÓ AL ARQUITECTO, Y ENTRAN AL
+> REGISTRO CUATRO EJES NO-DINERO (2026-09-16, arquitecto; base v1.76, vigente entera). Origen: borrador
+> `docs/specs/EQ_D1_FILTER_CLASS_DRAFT.md` + deuda `EQ-D1` (`docs/TECH_DEBT.md`). ⛔ CERO DDL. ⛔ Cero endpoints
+> nuevos — sólo se NORMA la conducta de ejes que ya existían.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **DECISIÓN A: `§0-Q` declara el dominio de los `?sort=` como clase L/ORDEN.** Su lista cerrada, que vivía en la prosa del endpoint (§2 / §2-S), pasa a **dominio declarado** del registro (punto 4). En este pase entran los `?sort=` de los **dos catálogos públicos**; los demás `?sort=`/`?range=` siguen su mismo criterio y quedan pendientes de migración (no de decisión) | §0-Q punto 4 · punto 6 · §2 · §2-S | **Sí, backend** (ya migrado en este pase) |
+> | **2** | ⭐ **DECISIÓN B: `?kind=` (§M4) y `?scope=` (§M6) son clase R con `allowed` LITERAL** — subconjuntos semánticos fijados por el contrato, ⛔ NO enums de Prisma 1:1. `kind = {guest_direct_ship, vault_withdrawal}`; `scope = {target, actor, both}`. Antes: `kind` se ignoraba en silencio, `scope` clampaba a `target`; ahora fuera de dominio ⇒ `400` | §0-Q punto 4 · §M4 · §M6 | **Sí, backend** (ya migrado) |
+> | **3** | **`C-EQ-1`: el trinquete `SIN_CLASE_DECLARADA` baja 16 → 12** (los cuatro de arriba salen de la cola y entran al `REGISTRO`, medidos por HTTP con sus siete propiedades verdes) | `enum-query-axes.e2e-spec.ts` | **No** (es la suite) |
+>
+> **Lo que NO cambia:** **(a)** ⛔ Los `?report=` de finanzas (§M9, `EQ-D0b`) **NO se tocan** — son DINERO y tienen
+> ficha propia. **(b)** ⛔ El `?reason=` de `graded-estimates/review` (pricing, DINERO) queda pendiente. **(c)** Los
+> `?range=` ×4 y los `?sort=` de master-sets/`/admin/vaults` siguen la MISMA regla y quedan pendientes de
+> **migración** (la decisión ya está tomada aquí). **(d)** ⛔ `?sealedSubtype=` de `/catalog/cards` sigue su cura
+> propia: **retirar el parámetro** (`EQ-D3`), no validarlo.
 >
 > **Changelog v1.76 — ⭐⭐ DOS CONTROLES QUE NO CONTROLABAN: EL ANTI-DUPLICADO DE `AV-5`/`AV-6` Y EL ACUSE DEL DIAL
 > DE IVA (2026-09-14, arquitecto; base v1.75, vigente entera salvo las filas que esta rev corrige). Origen:
@@ -5147,10 +5164,22 @@
   | `GET /catalog/cards` (§2) | `productType` | `ProductType` **menos `sealed`** — cláusula en **§2** (`/catalog/cards` es la rejilla de **SINGLES**; el sellado se sirve por §2-S) | **R** |
   | `GET /catalog/cards` (§2) | `finish` | `Finish` | **E** |
   | `GET /catalog/cards` (§2) | `condition` | `ACCEPTED_RAW_CONDITIONS` — cláusula `PROJECT §H` | **R** |
+  | `GET /catalog/cards` (§2) | `sort` **(ORDEN, v1.77)** | `newest \| price_asc \| price_desc \| grading_showcase` — canónico en **§2**; default `newest` (punto 6) | **L** |
   | `GET /catalog/sealed` (§2-S) | `sealedSubtype` | `SealedSubtype` | **E** |
   | `GET /catalog/sealed` (§2-S) | `condition` | `SealedCondition` | **E** |
+  | `GET /catalog/sealed` (§2-S) | `sort` **(ORDEN, v1.77)** | `newest \| price_asc \| price_desc` — canónico en **§2-S**; default `newest` (punto 6) | **L** |
+  | `GET /admin/shipments` (§M4) | `kind` **(v1.77)** | `guest_direct_ship \| vault_withdrawal` — subconjunto semántico, cláusula en **§M4** | **R** |
+  | `GET /admin/users/:id/audit` (§M6) | `scope` **(v1.77)** | `target \| actor \| both` — subconjunto semántico, cláusula en **§M6**; default `target` | **R** |
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
+  >
+  > **⭐ v1.77 (`EQ-D1`) — los CUATRO ejes de arriba marcados «v1.77» entran al registro con su clase decidida
+  > (DECISIONES A y B del changelog).** ⚠️ **Lo que este registro sigue SIN incluir, y es a propósito:** los otros
+  > `?sort=` (master-sets ×3, `/admin/vaults`) y los `?range=` ×4 **comparten la MISMA regla ya decidida** (clase
+  > L/ORDEN, dominio en la línea del endpoint), pero su **migración** está pendiente — y el registro es una
+  > **decisión transcrita cuando el eje ya conforma**, no una promesa. Su estado, como siempre, lo dice `C-EQ-1`:
+  > siguen en `SIN_CLASE_DECLARADA` hasta que su código pase a `parseEnumFilter`. Igual el `?reason=` de pricing
+  > (DINERO, cuya cura es corregir la **forma** del `details`) y los `?report=` de finanzas (`EQ-D0b`, DINERO).
 
   **⭐ `C-EQ-1` — EL CANDADO QUE SUSTITUYE A LA DISCIPLINA (NORMATIVO; lo escribe BACKEND, no el arquitecto).**
   El estado de conformidad vive en **una sola suite del backend**, que es su **única autoridad**. La suite tiene que hacer **dos** cosas, y la segunda es la que impide que el problema vuelva:
@@ -7192,6 +7221,7 @@ Storefront **"Compra"**: lista **SOLO inventario publicado CON precio de venta f
 > **Cambio semántico v1.1:** en v1 podían mostrarse pendientes no comprables; en **v1.1 NO se listan**. La ruta **se mantiene** `/catalog/cards` (el rótulo de UI "Compra" lo controla el front); no se renombra para no romper el contrato (decisión en ARCHITECTURE §4.9).
 Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPriceCents=&page=&pageSize=&sort=`
 - **Los ejes de dominio cerrado de este endpoint (`productType`, `condition`, `finish`) los norma [§0-Q](#enum-query-filter)** (conducta, forma del `400`, y el `details.value` que esta superficie pública emite). Registro de clases: §0-Q punto 4.
+- **`sort` (ORDEN, `EQ-D1` v1.77) — CLASE L, y ESTA línea es su declaración canónica.** Dominio: `newest | price_asc | price_desc | grading_showcase`. **Default `newest`** (vacío/ausente/solo espacios ⇒ `newest`, ⛔ nunca `400`); token fuera de dominio ⇒ **`400 VALIDATION_ERROR`** con `field: 'sort'` + `allowed` (§0-Q punto 6). ⛔ **Prohibido el clamp silencioso** (antes un valor inválido caía a `newest` sin decirlo). ⚠️ `grading_showcase` **es del dominio** pero exige `gradingHighlight=true`; sin él ⇒ **`400 GRADING_SORT_REQUIRES_FILTER`** (§4.38f), un `400` distinto y previo que ya existía. ⛔ **Sin `details.value`**: es un eje NUEVO, no de los seis públicos legados (§0-Q punto 2).
 - `rarity`: valor **tal cual pokemontcg.io** (taxonomía abierta; usar los valores de `GET /catalog/facets`).
 - **⛔⛔ `productType`: `raw | graded`. CLASE R (§0-Q punto 3) — `sealed` SALE DEL DOMINIO en v1.73, y esta línea es su cláusula citable.**
   **`GET /catalog/cards` es la rejilla de SINGLES**; el sellado publicado se sirve por **`GET /catalog/sealed` (§2-S)**, que tiene su propia agrupación, su propia condición (`SealedCondition`) y su propio `?sealedSubtype=`.

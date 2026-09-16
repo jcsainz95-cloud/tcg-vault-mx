@@ -83,6 +83,18 @@ const FINISHES: readonly Finish[] = FINISH_VALUES;
 const RAW_CONDITIONS: readonly RawCondition[] = ACCEPTED_RAW_CONDITIONS;
 
 /**
+ * `EQ-D1` — dominio del ORDEN de `GET /catalog/cards` (§0-Q punto 6, clase **L**: no hay enum de
+ * orden en `schema.prisma`; el dominio lo declara la línea del endpoint del contrato, §2).
+ * Antes: un `?sort=` fuera de dominio caía al `else` y devolvía `newest` **sin decirlo** (clamp
+ * silencioso, prohibido por §0-Q punto 6). Ahora ⇒ `400` con `field`+`allowed`. `grading_showcase`
+ * es un token del dominio, con su requisito propio (`gradingHighlight=true`) que `validateGradingQuery`
+ * sigue exigiendo por separado (`400 GRADING_SORT_REQUIRES_FILTER`).
+ */
+export const CATALOG_CARDS_SORT_VALUES = ['newest', 'price_asc', 'price_desc', 'grading_showcase'] as const;
+export type CatalogCardsSort = (typeof CATALOG_CARDS_SORT_VALUES)[number];
+const CATALOG_CARDS_SORT_DEFAULT: CatalogCardsSort = 'newest';
+
+/**
  * `CardDTO` del contrato (§DTOs), **declarado como INTERFAZ que espeja el CONTRATO** (v2.1.9, T-2).
  *
  * ### Por qué no `ReturnType<typeof toCardDTO>`
@@ -1270,6 +1282,10 @@ export class CatalogService {
   }) {
     // v1.44: se valida ANTES de la query (un sort inválido no debe costar una lectura).
     const onlyHighlighted = this.validateGradingQuery(q);
+    // `EQ-D1` (§0-Q punto 6): el ORDEN se valida contra su dominio declarado. Vacío/ausente ⇒ el
+    // default `newest`; token fuera de dominio ⇒ `400` (antes clampaba a `newest` en silencio).
+    // `grading_showcase` es del dominio; su requisito de filtro ya lo cribó `validateGradingQuery`.
+    const sort = parseEnumFilter('sort', q.sort, CATALOG_CARDS_SORT_VALUES) ?? CATALOG_CARDS_SORT_DEFAULT;
     // Endpoint PÚBLICO: los filtros enum se validan contra la taxonomía real ANTES de
     // llegar a Prisma. Un valor inválido (p. ej. ?condition=LP, ?productType=foo) hoy
     // rompía con PrismaClientValidationError (500); ahora responde 400 VALIDATION_ERROR.
@@ -1328,9 +1344,9 @@ export class CatalogService {
     if (q.minPriceCents != null) groups = groups.filter((g) => g.displayPriceCents >= q.minPriceCents!);
     if (q.maxPriceCents != null) groups = groups.filter((g) => g.displayPriceCents <= q.maxPriceCents!);
 
-    if (q.sort === 'price_asc') groups.sort((a, b) => a.listPriceCents - b.listPriceCents);
-    else if (q.sort === 'price_desc') groups.sort((a, b) => b.listPriceCents - a.listPriceCents);
-    else if (q.sort === 'grading_showcase') {
+    if (sort === 'price_asc') groups.sort((a, b) => a.listPriceCents - b.listPriceCents);
+    else if (sort === 'price_desc') groups.sort((a, b) => b.listPriceCents - a.listPriceCents);
+    else if (sort === 'grading_showcase') {
       // v1.44 (§4.38f) — nombre deliberadamente NEUTRO: no nombra el criterio, así que ajustar la
       // política comercial es un cambio server-side con CERO impacto en contrato y cliente. Criterio
       // vigente: mayor GANANCIA NETA SOBRE PSA 9 (el escenario realista, no el optimista), con desempate

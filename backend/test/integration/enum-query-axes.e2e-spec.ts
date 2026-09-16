@@ -103,6 +103,11 @@ import { ADMIN_BOUNTY_SORT_VALUES } from '../../src/modules/pricing/admin-bounti
 import { PENDING_PUBLISH_MISSING_VALUES } from '../../src/modules/inventory/inventory.controller';
 import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.controller';
 import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
+// ⭐ `EQ-D1` — dominios de los ejes migrados en este pase (kind/scope/sort de catálogo).
+import { SHIPMENT_KIND_VALUES } from '../../src/modules/shipments/shipments.service';
+import { USER_AUDIT_SCOPE_VALUES } from '../../src/modules/audit/audit.service';
+import { SEALED_LIST_SORT_VALUES } from '../../src/modules/catalog/sealed-catalog.service';
+import { CATALOG_CARDS_SORT_VALUES } from '../../src/modules/catalog/catalog.service';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -309,12 +314,14 @@ interface Ctx {
 }
 
 /**
- * ⭐ **EL REGISTRO — 32 filas: las 26 que transcriben §0-Q punto 4 + las 6 de la bóveda.**
+ * ⭐ **EL REGISTRO — 36 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1`.**
  *
  * Las **26 transcritas** son las 24 de la tabla de §0-Q punto 4, el `?sort=` que esa tabla registra
  * en su última columna como «no es filtro: es ORDEN — punto 6», y el `?origin=` de `sealed-products`.
- * Las **6 restantes** (`EQ-D0`, la bóveda) son conducta YA conforme cuya **fila de §0-Q todavía no
- * existe**: van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'` y las fija un test propio.
+ * Las **6** de `EQ-D0` (la bóveda) son conducta YA conforme cuya **fila de §0-Q todavía no existe**:
+ * van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`. Las **4** de `EQ-D1` (este pase: `?kind=`,
+ * `?scope=`, `?sort=` de los dos catálogos públicos) SÍ tienen fila de §0-Q (el arquitecto la escribió
+ * en este pase) ⇒ van `transcrita`.
  *
  * ⚠️ **`R3`: el conteo va fijado con un literal en el trinquete**, no escrito aquí y ya. Este
  * docstring decía «25 filas» cuando había 32 — y el pase entero defiende que *un número sí falla y
@@ -493,6 +500,28 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/vaults/:userId/sealed', path: (c) => `/admin/vaults/${c.userId}/sealed`, param: 'sealedSubtype', clazz: 'E', allowed: Object.values(SealedSubtype), valid: 'box', alterno: 'etb', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/vaults/:userId/sealed', path: (c) => `/admin/vaults/${c.userId}/sealed`, param: 'condition', clazz: 'E', allowed: Object.values(SealedCondition), valid: 'mint', alterno: 'minor_box_damage', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/vaults/:userId/sealed', path: (c) => `/admin/vaults/${c.userId}/sealed`, param: 'sort', clazz: 'ORDEN', allowed: VAULT_SEALED_SORT_VALUES, valid: 'count_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+
+  // ==========================================================================================
+  // ⭐⭐ `EQ-D1` (este pase) — LOTE no-dinero migrado a `parseEnumFilter`. Su fila de §0-Q punto 4
+  // SÍ existe (el arquitecto la escribió en este mismo pase: `?sort=`/`?range=` declarados y
+  // `?kind=`/`?scope=` con su `allowed` literal), así que van `transcrita` (el default), NO
+  // `PENDIENTE-ARQUITECTO`. Salen de `SIN_CLASE_DECLARADA` (16 → 12).
+  //
+  //  - `?kind=` (envíos) y `?scope=` (auditoría): clase **R** — subconjunto semántico fijado por el
+  //    contrato (§M4 / §M6), NO un enum de Prisma. Antes: `kind` se ignoraba en silencio y `scope`
+  //    se clampaba a `target`.
+  //  - `?sort=` de los DOS catálogos públicos: **ORDEN** (§0-Q punto 6) con dominio clase L declarado
+  //    en la línea del endpoint (§2 / §2-S). Antes caían a su default ante basura (clamp silencioso).
+  //    ⛔ Ninguno lleva `echoValue`: son ejes NUEVOS, no de los seis públicos legados (§0-Q punto 2).
+  // ==========================================================================================
+  { route: 'GET /admin/shipments', param: 'kind', clazz: 'R', allowed: SHIPMENT_KIND_VALUES, valid: 'vault_withdrawal', alterno: 'guest_direct_ship', auth: 'admin', echoValue: false },
+  { route: 'GET /admin/users/:id/audit', path: (c) => `/admin/users/${c.userId}/audit`, param: 'scope', clazz: 'R', allowed: USER_AUDIT_SCOPE_VALUES, valid: 'actor', alterno: 'both', auth: 'admin', echoValue: false },
+  // ⚠️ `valid: 'price_desc'` y no `'price_asc'`: los dos sellados del fixture comparten `createdAt`
+  // (mismo `createMany`), así que `newest` (default) = orden de inserción = price ASC ⇒ `price_asc`
+  // salía **idéntico** a no ordenar y la fila no distinguía «ordena» de «no hace nada». `price_desc`
+  // es el reverso y sí cambia el resultado; `alterno: 'price_asc'` discrimina del reverso.
+  { route: 'GET /catalog/sealed', param: 'sort', clazz: 'ORDEN', allowed: SEALED_LIST_SORT_VALUES, valid: 'price_desc', alterno: 'price_asc', auth: 'public', echoValue: false },
+  { route: 'GET /catalog/cards', param: 'sort', clazz: 'ORDEN', allowed: CATALOG_CARDS_SORT_VALUES, valid: 'price_asc', alterno: 'price_desc', auth: 'public', echoValue: false },
 ];
 
 /**
@@ -547,7 +576,12 @@ const CEQ1_BOUNTY_PRICES = [50_000, 900_000];
 
 async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.dispute.deleteMany({ where: { description: { startsWith: 'CEQ1-' } } });
+  // ⚠️ El envío `guest_direct_ship` (`EQ-D1` · `?kind=`) cuelga de un Order con `onDelete: Restrict`,
+  //    así que el envío se borra ANTES que su orden.
   await h.prisma.shipmentRequest.deleteMany({ where: { carrier: { startsWith: 'CEQ1-' } } });
+  await h.prisma.order.deleteMany({ where: { orderNumber: { startsWith: 'CEQ1-' } } });
+  // ⭐ `EQ-D1` · `?scope=` — filas de auditoría sembradas para medir `target` vs `actor`.
+  await h.prisma.auditLog.deleteMany({ where: { action: { startsWith: 'CEQ1-' } } });
   await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: 'CEQ1-' } } });
   await h.prisma.sealedProduct.deleteMany({ where: { tcgplayerProductId: { in: CEQ1_SEALED_PRODUCT_IDS } } });
   await h.prisma.cardSet.deleteMany({ where: { externalId: CEQ1_SET_EXTERNAL_ID } });
@@ -623,6 +657,48 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       { folio: 'CEQ1-BOVEDA-1', cardId: card.id, productType: 'sealed', sealedSubtype: 'box', sealedCondition: 'mint', sealedProductName: 'ZZZ Caja CEQ1', tcgplayerProductId: 970001, status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
       { folio: 'CEQ1-BOVEDA-2', cardId: card.id, productType: 'sealed', sealedSubtype: 'box', sealedCondition: 'mint', sealedProductName: 'ZZZ Caja CEQ1', tcgplayerProductId: 970001, status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
       { folio: 'CEQ1-BOVEDA-3', cardId: card.id, productType: 'sealed', sealedSubtype: 'etb', sealedCondition: 'minor_box_damage', sealedProductName: 'AAA ETB CEQ1', tcgplayerProductId: 970002, status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+    ],
+  });
+
+  // (g) ⭐ `EQ-D1` · `GET /admin/shipments?kind=` — el filtro parte por naturaleza del envío:
+  //     `vault_withdrawal` = SIN orden (los dos de (e)); `guest_direct_ship` = CON orden. Sin al
+  //     menos uno de cada, `?kind=` no discrimina. Se siembra UN pedido mínimo + su envío.
+  const order = await h.prisma.order.create({
+    data: {
+      guestEmail: 'ceq1-guest@example.com',
+      orderNumber: 'CEQ1-ORD-1',
+      fulfillmentMode: 'direct_ship',
+      // CHECK `Order_direct_ship_has_address_chk`: un pedido directo EXIGE dirección capturada.
+      shippingAddressSnapshot: direccion,
+      status: 'settled',
+      subtotalCents: 100_000,
+      processingFeeCents: 0,
+      ivaCents: 16_000,
+      totalCents: 116_000,
+      priceConvention: 'IVA_EXCLUSIVE',
+    },
+  });
+  await h.prisma.shipmentRequest.create({
+    data: {
+      userId: cliente.id,
+      orderId: order.id, // ⇒ `guest_direct_ship` (el filtro parte por `orderId != null`)
+      addressSnapshot: direccion,
+      status: 'solicitado',
+      shippingFeeCents: 9_900,
+      priceConvention: 'IVA_EXCLUSIVE',
+      carrier: 'CEQ1-fixture-c',
+    },
+  });
+
+  // (h) ⭐ `EQ-D1` · `GET /admin/users/:id/audit?scope=` — `target` (acciones SOBRE el cliente) y
+  //     `actor` (acciones POR el cliente) tienen que devolver conjuntos DISTINTOS para que `?scope=`
+  //     sea observable. Una fila de cada clase, con `createdAt` distinto (huella estable).
+  await h.prisma.auditLog.createMany({
+    data: [
+      // target-only: acción SOBRE el cliente (entityType User, entityId = cliente), por otro actor.
+      { action: 'CEQ1-target', entityType: 'User', entityId: cliente.id, actorUserId: null, createdAt: new Date(Date.now() - 60_000) },
+      // actor-only: acción POR el cliente sobre otra entidad ⇒ NO aparece en scope `target`.
+      { action: 'CEQ1-actor', entityType: 'Order', entityId: order.id, actorUserId: cliente.id, createdAt: new Date(Date.now() - 30_000) },
     ],
   });
 
@@ -935,8 +1011,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Es la clase que §4.37.1-a declara mortal, dentro del fichero que se declara «la ÚNICA
     // autoridad», y ya van tres veces aquí (`QA-M3`, `C2`, ésta). *Ya que el pase entero defiende
     // que un número sí falla y una fecha no*, el conteo se fija donde falla.
-    // 26 transcritas de §0-Q punto 4 + 6 de la bóveda (`EQ-D0`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'`).
-    expect(REGISTRO.length).toBe(32);
+    // 26 transcritas de §0-Q punto 4 + 6 de la bóveda (`EQ-D0`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'`)
+    // + 4 de `EQ-D1` (este pase: `?kind=`, `?scope=`, `?sort=` de los dos catálogos públicos) ⇒ 36.
+    // Las 4 de `EQ-D1` van `transcrita`: su fila de §0-Q la escribió el arquitecto EN ESTE pase, así
+    // que el conteo de `PENDIENTE-ARQUITECTO` NO sube (sigue en 6, las de la bóveda).
+    expect(REGISTRO.length).toBe(36);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(6);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
@@ -944,7 +1023,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // se paga.* Las seis salieron porque su CONDUCTA ya cumple §0-Q (`vault.service.ts`), no porque
     // alguien decidiera que ya no molestan — y la fila del contrato que les falta se sigue diciendo,
     // ahora dentro del registro (`filaEn0Q: 'PENDIENTE-ARQUITECTO'`), que es donde se ve.
-    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(16);
+    // ⭐ 16 → **12**: `EQ-D1` (este pase) paga CUATRO — `?kind=` (envíos), `?scope=` (auditoría) y
+    // `?sort=` de los dos catálogos públicos. Migrados a `parseEnumFilter` (clamp/ignorar ⇒ `400`) y
+    // con su fila de §0-Q ya escrita ⇒ salen de la cola y entran al `REGISTRO`. El tope baja a mano.
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(12);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
     // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,
