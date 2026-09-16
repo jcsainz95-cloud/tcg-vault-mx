@@ -38,6 +38,9 @@ interface ItemOpts {
   createdAt?: Date;
   /** `true` ⇒ la variante tiene referencia de mercado (precio derivable). */
   priced?: boolean;
+  productType?: string;
+  /** v1.69.1 (P-79c) — snapshot del nombre del sellado (columna `InventoryItem.sealedProductName`). */
+  sealedProductName?: string | null;
 }
 
 function item(o: ItemOpts) {
@@ -55,7 +58,7 @@ function item(o: ItemOpts) {
       availableFinishes: ['normal'],
       set: { id: 's1', name: 'Base' },
     },
-    productType: 'raw',
+    productType: o.productType ?? 'raw',
     rawCondition: 'NM',
     finish: 'normal',
     ownerType: 'platform',
@@ -64,6 +67,7 @@ function item(o: ItemOpts) {
     listPriceCents: o.listPriceCents ?? null,
     cardProductId: null,
     sealedProductId: null,
+    sealedProductName: o.sealedProductName ?? null,
     sealedSubtype: null,
     tcgplayerProductId: null,
     acquisitionType: o.acquisitionType ?? 'buylist',
@@ -191,6 +195,37 @@ describe('⚠️ (1) la cola dice QUÉ LE FALTA', () => {
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
     expect(res.data[0].acquisitionType).toBe('buylist');
     expect(res.data[0].sourceSellRequestItemId).toBe('sri-a');
+  });
+});
+
+// =============================================================================================
+describe('⚠️ (1b) P-79c — la proyección lleva el NOMBRE del sellado, no solo la carta ancla', () => {
+  /**
+   * El defecto medido en producción: un SELLADO dado de alta salía en la cola como el single ANCLA
+   * («Weedle — CHAOS RISING · 1 · NORMAL»). La pantalla no tenía con qué pintar la caja porque el DTO
+   * de esta cola **no llevaba** `sealedProductName`. Passthrough directo de la columna M-37 (como
+   * `toHoldingDTO`); `listPriceCents` manual evita la derivación de precio del sellado (no relevante).
+   */
+  it('sellado con snapshot ⇒ `sealedProductName` viaja en el DTO', async () => {
+    const { svc } = build([
+      item({
+        id: 'a',
+        productType: 'sealed',
+        sealedProductName: 'Charizard ex Super-Premium Collection',
+        listPriceCents: 99900, // override manual: la fila entra por `missing: ["location"]`
+      }),
+    ]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('sealed');
+    expect(res.data[0].sealedProductName).toBe('Charizard ex Super-Premium Collection');
+    expect(res.data[0].missing).toEqual(['location']);
+  });
+
+  it('single (raw) ⇒ `sealedProductName` null (no se inventa nombre de sellado)', async () => {
+    const { svc } = build([item({ id: 'a' })]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('raw');
+    expect(res.data[0].sealedProductName ?? null).toBeNull();
   });
 });
 

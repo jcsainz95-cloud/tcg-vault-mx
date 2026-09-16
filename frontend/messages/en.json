@@ -1442,6 +1442,8 @@
         "salePrice": "Sale price",
         "noSalePrice": "No resolvable price",
         "pendingPriceLink": "See in the pending price queue",
+        "sealedMark": "SEALED",
+        "sealedUnidentified": "Unidentified sealed product",
         "note": "This queue only shows: no sale prices are captured here, nor inherited from the purchase cost."
       }
     },

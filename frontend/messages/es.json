@@ -1442,6 +1442,8 @@
         "salePrice": "Precio de venta",
         "noSalePrice": "Sin precio resoluble",
         "pendingPriceLink": "Ver en la cola de precio pendiente",
+        "sealedMark": "SELLADO",
+        "sealedUnidentified": "Sellado sin identificar",
         "note": "Esta cola solo mira: no se capturan precios de venta aquí ni se heredan del costo de compra."
       }
     },

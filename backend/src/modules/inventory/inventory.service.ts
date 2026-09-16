@@ -1852,6 +1852,12 @@ export class InventoryService {
         productType: item.productType,
         finish: item.finish,
         cardProductId: item.cardProductId,
+        // v1.69.1 (P-79c, §M1) — NOMBRE del sellado (snapshot por-pieza M-37, columna
+        // `InventoryItem.sealedProductName`; ya viene en `rows`, sin join nuevo). Passthrough directo
+        // como en `toHoldingDTO` (:529): `null` en raw/graded y en sellado legado sin nombre. El front
+        // discrimina por `productType` y, sin nombre resoluble, pinta «sellado sin identificar» — ⛔
+        // NUNCA `card.name` (el ancla es el defecto reportado). Display-only, money-safe.
+        sealedProductName: item.sealedProductName,
         locationId: item.locationId,
         listPriceCents: item.listPriceCents,
         resolvedSalePriceCents: state.resolvedSalePriceCents,
