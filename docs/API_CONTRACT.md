@@ -1097,6 +1097,11 @@
 > dinero en ningún endpoint** y ✅ **`422 KYC_NOT_VERIFIED` NO existe** —eso era **lo exigible** de las frases y **se
 > conserva sin una coma menos**—. ✅ **`422 INE_REQUIRED` intacto en sus dos puertas.** ✅ **§M5-P, §M5-V y §M5-K
 > siguen enteras**: lo único que se retira es **la pretensión de que la lista de términos estaba en varias a la vez**.
+> ⚠️ **ÚNICA excepción, acotada (v1.71, `D-INE-UMBRAL` — regla 9, ver [`§M5-K.6`](#M5-K)):** al/por encima del umbral
+> INE, `createRequest` rechaza `kycStatus === 'rejected'` con **`422 KYC_REJECTED`** (código NUEVO). **SOLO `rejected`,
+> SOLO `createRequest`, SOLO sobre el umbral.** Por debajo del umbral, y para `verified`/`none`/`pending`, **SIN
+> cambio**; **emisión y pago no leen `kycStatus`**, así que el «en ningún endpoint» sigue valiendo salvo por este único
+> borde de creación, que **NO** reinstaura `KYC_NOT_VERIFIED` ni exige `'verified'`.
 >
 > ---
 >
@@ -18042,6 +18047,12 @@ Err `403`, `400 VALIDATION_ERROR`.
   > **`kycStatus` NO es precondición de nada**: no gatea la creación, ni la emisión, ni el pago. **`422
   > KYC_NOT_VERIFIED` no existe.** ⇒ **`kycStatus` sigue siendo exactamente lo que era: un campo de ficha de
   > back-office, SIN CONSECUENCIA** (norma completa en [`§M5-K.5(b)`](#M5-K)).
+  > ⚠️ **ÚNICA excepción, acotada (v1.71, `D-INE-UMBRAL` — regla 9, ver [`§M5-K.6`](#M5-K)):** al/por encima del
+  > umbral INE, `createRequest` rechaza `kycStatus === 'rejected'` con **`422 KYC_REJECTED`** (código NUEVO). **SOLO
+  > `rejected`, SOLO `createRequest`, SOLO sobre el umbral.** Por debajo del umbral, y para `verified`/`none`/`pending`,
+  > **SIN cambio** — la frase «no gatea ni la creación, ni la emisión, ni el pago» sigue valiendo salvo por este único
+  > borde, que **NO** exige `'verified'` (no reinstaura `KYC_NOT_VERIFIED`) ni convierte `kycStatus` en precondición
+  > general. **Emisión y pago no leen `kycStatus`.**
   > ⚠️⚠️ **Y la advertencia que hay que leer antes de tocar este selector: `'verified'` NO significa que se haya
   > verificado nada.** Tras D51 **no existe ningún acto de verificación en el sistema** — el valor registra, como
   > mucho, **que un `super_admin` movió un selector**. ⛔ **Nadie puede tratarlo como evidencia de identidad, y
@@ -18099,6 +18110,11 @@ Err `403`, `400 VALIDATION_ERROR`.
 5. ⛔ **Ningún dial de política (umbral de INE, topes AML, acumulado) viaja al cliente** (K.5).
 6. ⛔ **Esta sección NO convierte `kycStatus` en precondición de dinero.** [`§M5-K.1–K.3`](#M5-K) quedan **intactos**:
    ni crear, ni ofertar, ni pagar leen `kycStatus`. **`422 KYC_NOT_VERIFIED` sigue sin existir.**
+   ⚠️ **ÚNICA excepción, acotada (v1.71, `D-INE-UMBRAL` — regla 9, ver [`§M5-K.6`](#M5-K)):** el «ni crear» de arriba
+   deja de ser absoluto — al/por encima del umbral INE, `createRequest` rechaza `kycStatus === 'rejected'` con **`422
+   KYC_REJECTED`** (código NUEVO, distinto de `KYC_NOT_VERIFIED`). **SOLO `rejected`, SOLO `createRequest`, SOLO sobre
+   el umbral**; por debajo, y para `verified`/`none`/`pending`, **SIN cambio**. **Ofertar y pagar siguen sin leer
+   `kycStatus`** — este borde vive fuera de esta sección y no la altera.
 
 ---
 
@@ -18492,6 +18508,11 @@ GET»***. **Se RETIRAN de la declaración.** Dos razones, y la segunda es la que
 2. ⛔ **`kycStatus` no gana consecuencia.** Filtrar por él **no** lo convierte en precondición de nada:
    [`§M5-K.1–K.3`](#M5-K) y el invariante **K.1.6** siguen enteros — ni crear, ni ofertar, ni pagar leen `kycStatus`,
    y `422 KYC_NOT_VERIFIED` sigue sin existir. **Aquí se lee para ORDENAR TRABAJO HUMANO, no para gatear dinero.**
+   ⚠️ **ÚNICA excepción, acotada (v1.71, `D-INE-UMBRAL` — regla 9, ver [`§M5-K.6`](#M5-K)):** el «ni crear» de esa
+   paráfrasis deja de ser absoluto — al/por encima del umbral INE, `createRequest` rechaza `kycStatus === 'rejected'`
+   con **`422 KYC_REJECTED`** (código NUEVO, distinto de `KYC_NOT_VERIFIED`). **SOLO `rejected`, SOLO `createRequest`,
+   SOLO sobre el umbral**; por debajo, y para `verified`/`none`/`pending`, **SIN cambio**. **Ofertar y pagar siguen
+   sin leer `kycStatus`**, y este filtro **sigue** sin gatear dinero: el borde vive en `createRequest`, no aquí.
 3. ⛔ **Un filtro no reconocido NUNCA se ignora en esta lista.** O filtra, o `400`. *Ignorar en silencio es la única
    conducta que produce el daño que la ficha viene a evitar: una lista sin filtrar que el operador lee como su cola.*
 4. ⛔ **El filtro es SERVER-SIDE, siempre.** Nadie filtra en cliente una página ya paginada (L.5).
