@@ -1,3 +1,47 @@
+# VEREDICTO BLUE TEAM — cambio **`KYC_REJECTED`** (INE rechazada bloquea `createRequest` al/por encima del umbral) · SHA **`85069923`** (rama `claude/fix-ine-threshold-block`) · 2026-09-16
+
+> ## ⭐ VEREDICTO — **APROBADO**, sin hallazgos críticos/altos abiertos, sobre `85069923827df2137296111714d77a286c3f7e63`
+>
+> Cambio de dinero/identidad. Es un **endurecimiento acotado** (añade una guarda; no afloja ninguna
+> puerta existente). Lo revisé en fuente y lo medí en vivo. No abre ningún hallazgo crítico ni alto.
+> **Basta blue-team: no amerita un pase de pentester** (ver §Alcance).
+
+## Procedencia
+`[código]` = leído en fuente sobre `85069923` · `[MEDIDO]` = lo ejecuté yo hoy con su N.
+
+- **Diff del cambio** `[código]`: `git show 85069923` — solo **adiciones** contiguas a `INE_REQUIRED`
+  en `buylist.service.ts` (líneas ~1649-1669) + código `KYC_REJECTED` en `error-codes.ts` + contrato
+  + PROJECT.md + test. Ninguna línea existente modificada en la ruta de dinero.
+- **Suite del cambio** `[MEDIDO]`: `npx jest test/buylist.ine-pending.spec.ts` ⇒ **8/8 verde** (N=1;
+  pruebas deterministas, sin carrera/temporizador/orden — N=1 es la medición correcta). Instalé deps
+  con `npm ci` sobre el worktree anclado en `85069923`.
+
+## Los cinco controles del encargo, verificados
+
+| # | Control | Veredicto | Evidencia |
+|---|---|---|---|
+| 1 | **No filtra PII** | ✔ CONFIRMADO | `buylist.service.ts:1663-1668` lanza `KYC_REJECTED` con `details: {}` **literal vacío** y mensaje estático `'Identity was rejected; cannot sell at/above threshold'` — nunca `rejectionReason`, nombre ni motivo. `business.exception.ts:19` pasa `details` **sin enriquecer**. El test (a) (`spec:290-329`) pone `rejectionReason:'documento ilegible'` en el KYC y asserta `details` `toEqual({})` **y** `not.toMatch(/documento\|ilegible\|\d/)` — mide la CLASE, no solo la clave. `[código]`+`[MEDIDO 1/1]` |
+| 2 | **No enumeración del umbral** | ✔ CONFIRMADO | `details:{}` vacío y el mensaje dice «at/above threshold» **sin número**. Nunca imprime `INE_THRESHOLD_CENTS` ni el monto disparador. Test (a) asserta `not.toMatch(/\d/)` en `details`. `[código]`+`[MEDIDO]` |
+| 3 | **No IDOR** | ✔ CONFIRMADO | El `kyc` se lee en `:1372` por `where:{ userId }` (el `userId` **autenticado** del argumento, no un id del body) y se **reusa** en `:1663` — cero queries nuevas, cero PII de otro usuario. `[código]` |
+| 4 | **Solo endurece** | ✔ CONFIRMADO | La guarda es `if (ineRequired && kyc?.kycStatus === 'rejected')`. (a) **Por debajo del umbral** `ineRequired=false` ⇒ sin efecto (test (b) `spec:331`: rechazado bajo umbral **se crea igual**). (b) Bloquea **solo `rejected`** (test (c) `spec:358`: `verified` al/por encima **se crea**; `none`/`pending` no tocados). (c) **No reabre el bypass de precio_pendiente**: gatea sobre el **mismo `ineRequired`** que ya incluye `\|\| hasPendingLine` (`:1632-1633`, cierre C15), **no** sobre `quotedTotalCents >= ineThreshold` a secas. `[código]`+`[MEDIDO]` |
+| 5 | **Falla-cerrado antes de escribir/dinero** | ✔ (bonus) | La guarda va **antes** del `upsert` de KYC y de la tx serializable: en rechazo no se escribe nada. Test (a) asserta `sellRequest.create` `not.toHaveBeenCalled()` — **0 filas**. `[código]`+`[MEDIDO]` |
+
+## Alcance — ¿amerita pentester (red team)?
+
+**No.** El endurecimiento es acotado y la superficie nueva es nula desde una lente ofensiva:
+- **No introduce entrada nueva** que atacar: reusa el `kyc` ya leído por `userId` autenticado; cero
+  parámetros del body nuevos, cero queries nuevas, ningún `$queryRaw`.
+- **No añade oráculo**: `details:{}` vacío + mensaje estático — no hay canal de exfiltración (PII ni
+  umbral) que un atacante pueda sondear; ya está cubierto por el candado de clase del test.
+- **Solo añade un `throw`**: no relaja autorización, no toca firma de webhook, idempotencia, ni la
+  reserva atómica. La ruta por debajo del umbral es **byte-idéntica** a la de hoy.
+
+El vector que un red team probaría aquí (¿puedo evadir la exigencia con `precio_pendiente`?) **ya está
+cerrado por diseño** al gatear sobre `ineRequired` (no sobre el monto crudo), y verificado por el test.
+Basta el blue-team sobre este cambio; el pentest completo sigue siendo el del **cierre de release**.
+
+---
+
 # VEREDICTO BLUE TEAM — **CIERRE DE RELEASE** · SHA **`da6a237`** (rama `claude/tcg-hunt-orchestration-2`) · `origin/production`=`efe65f5` · informe del red team sobre `e0892e6` · 2026-09-14
 
 > ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `da6a237`
