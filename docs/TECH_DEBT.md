@@ -7228,11 +7228,16 @@ tacharlas) y dueño, porque una deuda sin comprobación es una nota que nadie pu
 - **Comprobación de cierre:** las dos salen de `SIN_CLASE_DECLARADA`; un `?report=` fuera de dominio
   devuelve `400` con `field`+`allowed` y **no** un fichero.
 
-### EQ-D1 · Los 22 ejes de query de DOMINIO CERRADO que §0-Q no registra — ⭐ **16 abiertos** (backend · descubierto por `C-EQ-1`, 2026-09-13)
+### EQ-D1 · Los 22 ejes de query de DOMINIO CERRADO que §0-Q no registra — ⭐ **12 abiertos** (backend · descubierto por `C-EQ-1`, 2026-09-13)
 
 > ⭐ **22 → 16 el 2026-09-13**: `EQ-D0` (la bóveda) pagó **seis** — `?sealedSubtype=`, `?condition=` y
-> `?sort=` en `GET /vault/sealed` **y** en `GET /admin/vaults/:userId/sealed`. El trinquete de
-> `C-EQ-1` está en **16**. *Un número que solo puede bajar es una deuda que se paga.*
+> `?sort=` en `GET /vault/sealed` **y** en `GET /admin/vaults/:userId/sealed`.
+> ⭐ **16 → 12 el 2026-09-16 (`EQ-D1`, este pase)**: se migraron a `parseEnumFilter` **cuatro ejes
+> no-dinero** con su fila de §0-Q escrita por el arquitecto (`API_CONTRACT` v1.77) — `?kind=` (envíos,
+> clase R), `?scope=` (auditoría, clase R) y los `?sort=` de los **dos catálogos públicos**
+> (`/catalog/cards`, `/catalog/sealed`; ORDEN/L). Salieron de `SIN_CLASE_DECLARADA` y entraron al
+> `REGISTRO` de `enum-query-axes.e2e-spec.ts` con sus **siete propiedades verdes** (medido 303/303,
+> N=3). El trinquete de `C-EQ-1` está en **12**. *Un número que solo puede bajar es una deuda que se paga.*
 
 - **Dueño:** **backend**, repartido por stream en la tabla. **Severidad:** **Media** para el conjunto —
   ⚠️ **salvo las filas promovidas a `EQ-D0` (bóveda, Alta) y `EQ-D0b` (`?report=`, Media-export)**, que
@@ -7266,20 +7271,23 @@ obliga a **subir el número a mano** y eso se ve en la revisión.
 |---|---|---|---|
 | ✅ ~~`GET /vault/sealed?sealedSubtype=` · `?condition=` · `?sort=`~~ | **CERRADO 2026-09-13** (`EQ-D0`): `parseEnumFilter` + `switch` exhaustivo. Fuera de dominio ⇒ `400`; el orden ya no clampa | — | backend · Inventario y vault |
 | ✅ ~~`GET /admin/vaults/:userId/sealed?sealedSubtype=` · `?condition=` · `?sort=`~~ | **CERRADO 2026-09-13** (mismo servicio) | — | backend · Inventario y vault |
-| `GET /admin/shipments?kind=` | `if (kind === 'guest_direct_ship')… if (kind === 'vault_withdrawal')…` ⇒ lo desconocido se **ignora en silencio** | punto 1 fila 3: debería ser `400` | backend · Órdenes y dinero |
-| `GET /admin/users/:id/audit?scope=` | cae al default `target` ante basura ⇒ **clamp silencioso** | punto 6 ⛔ *«prohibido el clamp silencioso»*: devuelve una lista distinta de la pedida | backend · Admin y auditoría |
+| ✅ ~~`GET /admin/shipments?kind=`~~ | **CERRADO 2026-09-16 (`EQ-D1`)**: `parseEnumFilter('kind', …, SHIPMENT_KIND_VALUES)` — clase R `{guest_direct_ship, vault_withdrawal}` (§M4). Fuera de dominio ⇒ `400` | — | backend · Órdenes y dinero |
+| ✅ ~~`GET /admin/users/:id/audit?scope=`~~ | **CERRADO 2026-09-16 (`EQ-D1`)**: `parseEnumFilter('scope', …, USER_AUDIT_SCOPE_VALUES) ?? 'target'` — clase R `{target, actor, both}` (§M6). El clamp ⇒ `400` | — | backend · Admin y auditoría |
 | `GET /admin/pricing/graded-estimates/review?reason=` | `400` con `details.{field, invalid, allowed}` | **CUARTA forma de `details`** (`invalid` no es `invalidStatus` del punto 5 ni está declarada) | backend · Catálogo y precios |
 | `GET /admin/finance/export.csv?report=` · `GET /admin/reports/export.csv?report=` | `if(report==='pnl')… if(report==='iva')…` ⇒ **cualquier otra cosa cae a `inventory`** | punto 1 fila 3 con el signo peor: devuelve **otro informe** del pedido, sin avisar | backend · Admin y auditoría |
 | `?range=` ×4 (`/catalog/featured-set/value-history`, `/catalog/sealed/:id/value-history`, `/catalog/sets/:id/value-history`, `/vault/portfolio/history`) | `normalizeRange` ⇒ **clamp silencioso a `'1m'`** sobre un dominio de 8 literales | punto 6 ⛔ clamp silencioso | backend · Catálogo y precios + Inventario y vault |
-| `?sort=` ×**6** (`/catalog/cards`, `/catalog/sealed`, `/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/vault/master-sets`) — ✅ los de **bóveda sellada** salieron con `EQ-D0` | todos caen a su default ante basura | punto 6 ⛔ clamp silencioso; y §0-Q **no declara su dominio** (solo registra el de `bounties`) | backend · varios |
+| `?sort=` ×**4 restantes** (`/admin/inventory/master-sets`, `/admin/vaults`, `/admin/vaults/:id/master-sets`, `/vault/master-sets`) — ✅ **`/catalog/cards` y `/catalog/sealed` cerrados 2026-09-16 (`EQ-D1`)**: ORDEN/L, `parseEnumFilter ?? default`, fuera de dominio ⇒ `400`; los de **bóveda sellada** salieron con `EQ-D0` | los 4 restantes caen a su default ante basura | punto 6 ⛔ clamp silencioso; su dominio ya está DECIDIDO (§0-Q v1.77) pero falta migrar el código — los 3 de master-sets comparten `sortSummaries`, `/admin/vaults` va aparte | backend · varios |
 | `GET /catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 · §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo | **backend** · Catálogo y precios — ⚠️ ver `EQ-D3`: la precondición YA se cumplió |
 
 - **Impacto:** el peor era el de la bóveda —un filtro que miente en una pantalla del **cliente**—, y ya
   está **cerrado** (`EQ-D0`). De lo que queda, el peor son los `?report=` de finanzas: devuelven **un
-  informe distinto** del pedido. Los ocho `?sort=` y los cuatro `?range=` son clamp silencioso: molesto, no
+  informe distinto** del pedido. Los `?sort=` restantes y los cuatro `?range=` son clamp silencioso: molesto, no
   peligroso.
 - **Disparador:** el arquitecto decide su clase (o los declara no-enum con su motivo); entonces cada
-  stream migra los suyos al helper único y **los borra de `SIN_CLASE_DECLARADA`**.
+  stream migra los suyos al helper único y **los borra de `SIN_CLASE_DECLARADA`**. ⭐ **Decisión de clase YA
+  tomada para TODOS los `?sort=`/`?range=`** (§0-Q v1.77, clase L/ORDEN): lo pendiente de los 12 restantes es
+  **migrar código**, no decidir. Los DINERO (`?report=` ×2, `graded-estimates/review?reason=`) requieren los
+  **tres veredictos** al migrarse.
 - **Comprobación de cierre:** cada eje pasa de `SIN_CLASE_DECLARADA` al `REGISTRO` de
   `enum-query-axes.e2e-spec.ts` y **sus siete propiedades de §0-Q salen verdes sin excepción**.
 

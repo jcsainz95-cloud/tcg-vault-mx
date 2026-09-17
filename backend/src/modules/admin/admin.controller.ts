@@ -23,7 +23,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
 import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { AuditService } from '../audit/audit.service';
-import { UserAuditScope } from '../audit/audit.service';
+import { UserAuditScope, USER_AUDIT_SCOPE_VALUES } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
 
@@ -216,11 +216,10 @@ export class AdminUsersController {
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
-    const normalizedScope: UserAuditScope = (['target', 'actor', 'both'] as const).includes(
-      scope as UserAuditScope,
-    )
-      ? (scope as UserAuditScope)
-      : 'target';
+    // `EQ-D1` · clase **R** (§0-Q): ausente/vacío ⇒ el default declarado `target`; token del dominio
+    // ⇒ filtra; fuera de dominio ⇒ `400` (antes se **clampaba** en silencio a `target`).
+    const normalizedScope: UserAuditScope =
+      parseEnumFilter('scope', scope, USER_AUDIT_SCOPE_VALUES) ?? 'target';
     return this.audit.listForUser({
       userId: id,
       scope: normalizedScope,

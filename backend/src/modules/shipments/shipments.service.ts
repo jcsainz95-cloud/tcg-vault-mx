@@ -35,6 +35,16 @@ import {
 /** `P-84` · clase **E** (§4.37): estados de envío filtrables, DERIVADOS del schema. */
 const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(ShipmentStatus);
 
+/**
+ * `EQ-D1` — dominio de `?kind=` de `GET /admin/shipments` (§M4). Clase **R**: NO es un enum de
+ * Prisma 1:1 sino un **subconjunto semántico** que parte los envíos por naturaleza
+ * (`guest_direct_ship` = tiene orden; `vault_withdrawal` = retiro de bóveda, sin orden), fijado por
+ * `API_CONTRACT §M4`. Antes: `if (kind === 'guest_direct_ship')…` ⇒ un valor desconocido se
+ * **ignoraba en silencio** (§0-Q punto 1 lo prohíbe). Ahora fuera de dominio ⇒ `400`.
+ */
+export const SHIPMENT_KIND_VALUES = ['guest_direct_ship', 'vault_withdrawal'] as const;
+export type ShipmentKind = (typeof SHIPMENT_KIND_VALUES)[number];
+
 /** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
 type EnrichedShipmentItem = ShipmentItem & {
   inventoryItem: InventoryItem & { card: Card & { set: CardSet | null } };
@@ -413,8 +423,11 @@ export class ShipmentsService {
     // simplemente no lo devuelve (comportamiento correcto para la ficha 360° de un usuario).
     if (userId) where.userId = userId;
     // v1.21-guest-checkout (§M4): filtro opcional por naturaleza del envío.
-    if (kind === 'guest_direct_ship') where.orderId = { not: null };
-    if (kind === 'vault_withdrawal') where.orderId = null;
+    // `EQ-D1` · clase **R**: ausente/vacío ⇒ no filtra; token del dominio ⇒ filtra; fuera de dominio
+    // ⇒ `400` (antes se ignoraba en silencio). El `switch` es exhaustivo sobre el dominio ya validado.
+    const kindFilter = parseEnumFilter('kind', kind, SHIPMENT_KIND_VALUES);
+    if (kindFilter === 'guest_direct_ship') where.orderId = { not: null };
+    else if (kindFilter === 'vault_withdrawal') where.orderId = null;
     const [data, total] = await Promise.all([
       this.prisma.shipmentRequest.findMany({
         where,
