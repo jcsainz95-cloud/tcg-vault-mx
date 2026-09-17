@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { PendingPublishQueue } from './PendingPublishQueue';
 import * as api from '@/lib/api';
@@ -221,5 +221,21 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     // La fila llega por red: se espera al contenido, no al encabezado estático.
     expect(await screen.findByText('Location')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/admin\.m1\.publishQueue/);
+  });
+
+  it('§diseño §iii: con productType propaga el filtro al endpoint (M11 la monta filtrada a sellado)', async () => {
+    const spy = vi
+      .spyOn(api, 'getPendingPublish')
+      .mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
+    renderWithProviders(<PendingPublishQueue productType="sealed" />, 'es');
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ productType: 'sealed' }));
+  });
+
+  it('sin productType pide la cola entera (comportamiento de M1, sin cambios)', async () => {
+    const spy = vi
+      .spyOn(api, 'getPendingPublish')
+      .mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ productType: undefined }));
   });
 });

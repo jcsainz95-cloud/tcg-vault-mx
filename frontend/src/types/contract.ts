@@ -2160,6 +2160,74 @@ export interface SealedSetGroupLinkRequest {
   kind: SealedGroupKind;
 }
 
+// ===== M11 (§diseño §§9-11): traer precios de sellado, estado por set y mapeo manual =====
+
+/**
+ * §9 — Respuesta de `POST /admin/jobs/sealed-price-ingest` (`super_admin`, `202`). El job es AWAITED:
+ * cuando la promesa resuelve, la corrida ya terminó. La respuesta NO trae conteos (`priced`/
+ * `unmatched`); ésos se leen refrescando `GET /admin/inventory/sealed-price-status` (§10).
+ *  - `enqueued:true` ⇒ la corrida se ejecutó.
+ *  - `enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'` ⇒ el dial maestro está apagado (fail-closed,
+ *    I-2); NO es error, es la puerta money-safe: no se escribió ni una `PriceReference`.
+ *  - `enqueued:false` SIN `reason` ⇒ ya hay una ingesta en curso (single-flight).
+ */
+export interface SealedPriceIngestResponse {
+  job: string;
+  enqueued: boolean;
+  jobId?: string;
+  reason?: 'SEALED_PRICE_SOURCE_OFF';
+  scope?: string;
+  groupId?: number;
+}
+
+/** §10 — Estado ROLLUP del precio/mapeo de un set de sellado. */
+export type SealedPriceState = 'priced' | 'mapped_unpriced' | 'unmapped';
+
+/**
+ * §10 — Por qué un set NO trae precio (para el humano, sin abrir logs):
+ *  - `no_group` ⇒ el set no tiene grupo TCGCSV resuelto (arréglalo con el mapeo manual §11).
+ *  - `dial_off` ⇒ está mapeado pero el dial maestro `sealed_price_source` está apagado (I-2).
+ *  - `no_source_price` ⇒ mapeado y dial `on`, pero la fuente no trajo precio (dispara §9 o revisa).
+ */
+export type SealedPriceStatusReason = 'no_group' | 'dial_off' | 'no_source_price';
+
+/**
+ * §10 — Estado de precio/mapeo del sellado POR SET, desde estado PERSISTIDO (sin TCGCSV, O-17 safe).
+ * `priced`/`mappedUnpriced`/`unmapped` son el desglose a nivel de producto sellado del set; `state`
+ * es el rollup (el peor no-vacío). Reusa el mismo gate (`gateSealedMarketCents`) que el alta: la
+ * vista REFLEJA la verdad del motor, no la inventa (I-2/I-6).
+ */
+export interface SealedPriceStatusRowDTO {
+  set: SetRefDTO;
+  setMainGroupId: number | null;
+  linkedGroupIds: number[];
+  productCount: number;
+  priced: number;
+  mappedUnpriced: number;
+  unmapped: number;
+  state: SealedPriceState;
+  reason?: SealedPriceStatusReason;
+}
+
+export interface SealedPriceStatusResponse {
+  /** El dial maestro (para el copy: con `off`, lo mapeado cuenta como `mapped_unpriced` por gate). */
+  sealedPriceSource: SealedPriceSource;
+  data: SealedPriceStatusRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/**
+ * §11 — Req de `PUT /admin/inventory/sealed-sets/:setId/set-main-group` (`super_admin`). Fija/
+ * REEMPLAZA el grupo `set_main` del set aunque ya haya uno (a diferencia de `linkGroup`, que solo
+ * escribe si `CardSet.tcgcsvGroupId` es null). Auditado con `before/after`.
+ */
+export interface SealedSetMainGroupRequest {
+  tcgplayerGroupId: number;
+  reason?: string;
+}
+
 // ===== v1.28 Stream B (P-20): pestaña «Gradeadas» =====
 // GET /admin/inventory/graded — agregado por (cardId, gradingCompany, gradeValue).
 // `marketReferenceMxnCents` = PriceReference de (cardId,'graded','graded:<company>:<grade>',
@@ -2752,6 +2820,13 @@ export interface PendingPublishRowDTO {
   // resoluble el front pinta «sellado sin identificar», nunca `card.name`. El front pinta la CAJA
   // sellada, no el single ancla. Mismo estilo que HoldingDTO/BatchInventoryItemInput.
   sealedProductName?: string;
+  /**
+   * v1.xx (M11 · §diseño §2.C) — PRESENTACIÓN del sellado, presente SOLO cuando
+   * `productType==='sealed'` (ausente en raw/graded). RESUELTA server-side desde
+   * `InventoryItem.sealedSubtype`. Mismo patrón opcional que `sealedProductName`. La cola de M11
+   * la pinta (Bundle/Booster Box/…); consumidores viejos la ignoran (aditivo, retrocompatible).
+   */
+  sealedSubtype?: SealedSubtype;
   locationId: string | null;
   listPriceCents: number | null;
   resolvedSalePriceCents: number | null;
@@ -4003,6 +4078,31 @@ export interface SettingsDTO {
    * producción) y el deploy siguiente habría empezado a gastar solo.
    */
   gradingHookEnabled?: OnOff;
+  /**
+   * v1.xx (M11 · §diseño §1.iv/§3): interruptor MAESTRO de la fuente automática de mercado del
+   * sellado (`sealed_price_source`, enum `tcgcsv | off`, **seed `off` fail-closed**). Ya viaja en
+   * `GET /admin/settings` y se acepta en `PUT /admin/settings` (DTO map `settings.constants.ts`),
+   * pero hasta M11 **no tenía UI** — su único mando era `curl`/runbook. Encenderlo (`off→tcgcsv`) es
+   * un ACTO DE DINERO GLOBAL (§3): autoriza a la ingesta a resolver mercado y hace que el mercado
+   * automático cuente como efectivo (gate I-2). ⚠️ NO gatea el override manual (I-7): un precio
+   * `source='manual'` sobrevive con el dial `off`. Opcional en el tipo porque un backend anterior a
+   * M11 podría omitirlo; la UI trata la ausencia como `off`.
+   */
+  sealedPriceSource?: SealedPriceSource;
+  /**
+   * v1.xx (M11 · §diseño §1.iv): tendencia de valor del sellado (`sealed_value_trend`, enum
+   * `on | off`, **seed `off` fail-closed**). Ya vive en el `SETTING_DTO_MAP` del backend
+   * (`settings.constants.ts`), pero hasta M11 **no tenía UI** — su único mando era `curl`. Opcional
+   * en el tipo porque un backend anterior a M11 la omite; la UI trata la ausencia como `off`.
+   * Se edita por `PUT /admin/settings` (body parcial), misma validación/auditoría que el resto.
+   */
+  sealedValueTrend?: OnOff;
+  /**
+   * v1.xx (M11 · §diseño §1.iv): alertas de reposición de sellado (`sealed_restock_alerts`, enum
+   * `on | off`, **seed `off` fail-closed**). Igual que `sealedValueTrend`: en el DTO map del
+   * backend desde antes, sin UI hasta M11. Ausente ⇒ `off`. `PUT /admin/settings` parcial.
+   */
+  sealedRestockAlerts?: OnOff;
 }
 
 /**

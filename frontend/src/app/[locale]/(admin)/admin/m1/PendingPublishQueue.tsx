@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { getPendingPublish } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
-import type { PendingPublishRowDTO } from '@/types/contract';
+import type { PendingPublishRowDTO, ProductType } from '@/types/contract';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
@@ -101,10 +101,19 @@ function PieceCell({ row }: { row: PendingPublishRowDTO }) {
  * hereda del costo de compra**. La pieza **sale sola** en cuanto no le falta nada —**sin botón**—,
  * *sin depender de que alguien se acuerde de apretarlo.*
  */
-export function PendingPublishQueue() {
+/**
+ * `productType` (opcional, §diseño §iii) — filtra la cola a un tipo de producto reusando el
+ * `?productType=` que el endpoint ya acepta (contrato §M1). M1 la monta SIN filtro (cola entera);
+ * M11 la monta con `productType="sealed"`. El `queryKey` incluye el filtro para no colisionar el
+ * caché entre la vista completa y la filtrada.
+ */
+export function PendingPublishQueue({ productType }: { productType?: ProductType } = {}) {
   const t = useTranslations('admin.m1.publishQueue');
   const locale = useLocale() as AppLocale;
-  const query = useQuery({ queryKey: ['pending-publish'], queryFn: getPendingPublish });
+  const query = useQuery({
+    queryKey: ['pending-publish', productType ?? 'all'],
+    queryFn: () => getPendingPublish({ productType }),
+  });
 
   /**
    * **EL TAMAÑO DEL TRABAJO PENDIENTE** (deuda D5 del techlead).

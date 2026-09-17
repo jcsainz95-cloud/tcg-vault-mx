@@ -14,7 +14,10 @@ import { Input } from '@/components/ui/Input';
 import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { isSaveableRuleValue, sanitizeDecimalInput } from './shared';
+// §diseño §4.2 — el editor de spreads se MUEVE de M2 a M11 (superficie única de edición). Los
+// helpers de saneo de decimales siguen viviendo en el `shared` de M2 (los reusan otras secciones de
+// catálogo); se importan por ruta relativa para no duplicar la lógica de dinero.
+import { isSaveableRuleValue, sanitizeDecimalInput } from '../../m2/sections/shared';
 
 /**
  * Sección 5b — spreads de VENTA del SELLADO por PRESENTACIÓN (v1.23-sealed-sales). El pct es MARKUP
