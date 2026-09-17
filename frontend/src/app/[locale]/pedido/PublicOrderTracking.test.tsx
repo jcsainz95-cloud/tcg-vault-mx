@@ -56,7 +56,13 @@ const DTO: GuestOrderTrackingDTO = {
   // derivara o hardcodeara el buzón, este test lo cazaría en vez de taparlo (y de paso no deja
   // vivo un dominio retirado dentro de la suite).
   support: { evidenceContact: 'evidencias@ejemplo.test', disputeWindowDays: 7 },
-  tokenExpiresAt: '2026-11-14T18:20:00.000Z',
+  // Enlace de correo de 90 días (§4-G.7a): dura MUCHO más que la ventana de 120 min del token de
+  // checkout, y por eso NO debe pintar el aviso «enlace temporal». Va RELATIVO a `now` a propósito:
+  // un literal fijo (antes `2026-11-14`) es una bomba de reloj — en cuanto la suite corre pasada esa
+  // fecha, `isShortLivedCheckoutToken` ve un token ya CADUCADO (`minutesLeft` negativo ≤ 130) y lo
+  // clasifica como el token corto, así que el caso «sin aviso» se cae solo un día cualquiera. Con la
+  // fecha relativa el enlace de correo siempre queda lejísimos del margen y el test mide lo que dice.
+  tokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60_000).toISOString(),
 };
 
 function renderTracking(data: GuestOrderTrackingDTO = DTO) {
