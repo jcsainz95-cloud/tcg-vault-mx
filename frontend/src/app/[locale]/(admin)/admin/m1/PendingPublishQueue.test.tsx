@@ -159,6 +159,55 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(screen.queryByTestId('publish-queue-total')).not.toBeInTheDocument();
   });
 
+  /**
+   * ⚠️ **P-79c — el sellado pinta la CAJA, no el single ancla.** El defecto medido en producción: un
+   * sellado dado de alta salía como `Weedle — CHAOS RISING · 1 · NORMAL` (nombre y número del ANCLA).
+   * Aquí `sealedProductName` viaja SOLO en `productType='sealed'`; la fila lo pinta y ⛔ NO pinta ni
+   * `card.name` ni `card.number` del ancla.
+   */
+  it('sellado CON nombre pinta la caja (sealedProductName), no el single ancla', async () => {
+    stub([
+      row({
+        productType: 'sealed',
+        finish: 'normal',
+        sealedProductName: 'Charizard ex Super-Premium Collection',
+      }),
+    ]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+
+    expect(
+      await screen.findByText('Charizard ex Super-Premium Collection'),
+    ).toBeInTheDocument();
+    // ⛔ Ni el nombre ni el número de la carta ANCLA aparecen para una pieza sellada.
+    expect(screen.queryByText('Charizard VMAX')).not.toBeInTheDocument();
+    expect(screen.queryByText(/020\/189/)).not.toBeInTheDocument();
+    // Marca «SELLADO» presente; el set del ancla sí acompaña (pertenencia).
+    expect(screen.getByText('SELLADO')).toBeInTheDocument();
+  });
+
+  /**
+   * ⚠️ Sellado LEGADO sin `sealedProductName`: JAMÁS cae a `card.name` (eso reintroduciría el defecto).
+   * Se pinta «Sellado sin identificar»; el `folio` deja la fila accionable.
+   */
+  it('sellado SIN nombre (legado) pinta «sellado sin identificar», nunca card.name', async () => {
+    const { sealedProductName: _drop, ...noName } = row({ productType: 'sealed', finish: 'normal' });
+    stub([noName as PendingPublishRowDTO]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+
+    expect(await screen.findByText('Sellado sin identificar')).toBeInTheDocument();
+    expect(screen.queryByText('Charizard VMAX')).not.toBeInTheDocument();
+    expect(screen.getByText('SELLADO')).toBeInTheDocument();
+  });
+
+  it('raw/graded (single) sigue pintando card.name y su número — sin regresión', async () => {
+    stub([row({ productType: 'raw', finish: 'holofoil' })]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+
+    expect(await screen.findByText('Charizard VMAX')).toBeInTheDocument();
+    expect(screen.getByText(/020\/189/)).toBeInTheDocument();
+    expect(screen.queryByText('SELLADO')).not.toBeInTheDocument();
+  });
+
   it('vacío: mensaje propio, no una tabla en blanco', async () => {
     stub([]);
     renderWithProviders(<PendingPublishQueue />, 'es');

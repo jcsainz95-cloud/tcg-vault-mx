@@ -48,6 +48,47 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
 }
 
 /**
+ * **QUÉ PIEZA es esta fila.** ⚠️ **El sellado pinta la CAJA, no el single ancla** (P-79c, contrato §M1).
+ *
+ * El defecto reportado era pintar `card.name` / `card.number` del **ancla** —que el propio diseño declaró
+ * que «deja de ser identidad» (`resolveAnchorCardId`, ARCHITECTURE §4.34a)— para una pieza
+ * `productType='sealed'`. `productType` es el discriminante (ya viaja en el DTO desde v1.51). Por eso:
+ *   - `sealed` **con** `sealedProductName` ⇒ nombre del sellado + marca «SELLADO»; ⛔ NUNCA número ni acabado.
+ *   - `sealed` **sin** nombre (legado) ⇒ «Sellado sin identificar» en tinta de atención; ⛔ **JAMÁS `card.name`**
+ *     —caer al ancla es *exactamente* el defecto—. Misma doctrina que `MissingCell` y que `total` ausente:
+ *     *ante un «no sé» no se pinta un valor que parezca bueno.*
+ *   - `raw` / `graded` ⇒ single: `card.name` + `setName · number · finish` (sin cambios).
+ *
+ * El `folio` (columna 1) identifica la fila de forma única en los tres casos, así que el sellado legado
+ * **sigue siendo accionable**: el operador va al folio, no al nombre.
+ */
+function PieceCell({ row }: { row: PendingPublishRowDTO }) {
+  const t = useTranslations('admin.m1.publishQueue');
+  if (row.productType === 'sealed') {
+    return (
+      <span className="flex flex-col">
+        {row.sealedProductName ? (
+          <span lang="en">{row.sealedProductName}</span>
+        ) : (
+          <span className="text-accent">{t('sealedUnidentified')}</span>
+        )}
+        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+          {row.card.setName} · <span className="text-accent">{t('sealedMark')}</span>
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-col">
+      <span lang="en">{row.card.name}</span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+        {row.card.setName} · {row.card.number} · {row.finish}
+      </span>
+    </span>
+  );
+}
+
+/**
  * **COLA «LISTAS PARA PUBLICAR»** (contrato §M1 · `GET /admin/inventory/pending-publish`, fase 8).
  *
  * > *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
@@ -134,12 +175,7 @@ export function PendingPublishQueue() {
                     {row.folio}
                   </td>
                   <td className="px-3 py-3 align-top text-sm text-text">
-                    <span className="flex flex-col">
-                      <span lang="en">{row.card.name}</span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
-                        {row.card.setName} · {row.card.number} · {row.finish}
-                      </span>
-                    </span>
+                    <PieceCell row={row} />
                   </td>
                   <td className="px-3 py-3 align-top">
                     <MissingCell row={row} />

@@ -217,20 +217,32 @@ export const SIN_CLASE_DECLARADA: readonly string[] = [
   'GET /admin/finance/export.csv::report',
   'GET /admin/pricing/graded-estimates/review::reason',
   'GET /admin/reports/export.csv::report',
-  'GET /admin/shipments::kind',
-  'GET /admin/users/:id/audit::scope',
   'GET /admin/inventory/master-sets::sort',
   'GET /admin/vaults::sort',
   'GET /admin/vaults/:userId/master-sets::sort',
   'GET /catalog/cards::sealedSubtype',
-  'GET /catalog/cards::sort',
   'GET /catalog/featured-set/value-history::range',
-  'GET /catalog/sealed::sort',
   'GET /catalog/sealed/:inventoryItemId/value-history::range',
   'GET /catalog/sets/:id/value-history::range',
   'GET /vault/master-sets::sort',
   'GET /vault/portfolio/history::range',
 ];
+
+/**
+ * ⭐ **`EQ-D1` (este pase) — CUATRO ejes salieron de la cola (16 → 12) al migrarse a
+ * `parseEnumFilter` y ganar su fila de §0-Q punto 4:**
+ *  - `GET /admin/shipments::kind` — clase R `{guest_direct_ship, vault_withdrawal}` (§M4). Antes se
+ *    ignoraba en silencio; ahora fuera de dominio ⇒ `400`.
+ *  - `GET /admin/users/:id/audit::scope` — clase R `{target, actor, both}` (§M6). Antes clampaba a
+ *    `target`; ahora fuera de dominio ⇒ `400`.
+ *  - `GET /catalog/sealed::sort` — ORDEN `{newest, price_asc, price_desc}` (§2-S). Antes clamp al
+ *    default; ahora ⇒ `400`.
+ *  - `GET /catalog/cards::sort` — ORDEN `{newest, price_asc, price_desc, grading_showcase}` (§2).
+ *    Ídem.
+ * Los 12 que quedan son DINERO (`?report=` ×2 finanzas → `EQ-D0b`; `graded-estimates/review?reason=`
+ * pricing), `?range=` ×4 (value-history con feature-flag + serie temporal), los `?sort=` de
+ * master-sets ×3 y `/admin/vaults`, y `?sealedSubtype=` de `/catalog/cards` (retirar el param, `EQ-D3`).
+ */
 
 /**
  * Los `@Query()` **sin nombre** (la query entera). El escáner no puede ver sus llaves, así que el

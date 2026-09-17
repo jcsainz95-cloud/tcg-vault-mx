@@ -28,6 +28,17 @@ const SEALED_CONDITIONS: readonly SealedCondition[] = SEALED_CONDITION_VALUES;
 const SEALED_SUBTYPES: readonly SealedSubtype[] = SEALED_SUBTYPE_VALUES;
 const RANGES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
+/**
+ * `EQ-D1` — dominio del ORDEN de `GET /catalog/sealed` (§0-Q punto 6, clase **L**: no hay enum de
+ * orden en `schema.prisma`; el dominio lo declara la línea del endpoint del contrato, §2-S).
+ * Antes: `?sort=zzz` caía al `else` y devolvía `newest` **sin decirlo** (clamp silencioso, prohibido
+ * por §0-Q punto 6). Ahora un token fuera de dominio ⇒ `400` con `field`+`allowed`.
+ */
+export const SEALED_LIST_SORT_VALUES = ['newest', 'price_asc', 'price_desc'] as const;
+export type SealedListSort = (typeof SEALED_LIST_SORT_VALUES)[number];
+/** El default declarado por el contrato (§2-S): vacío/ausente ⇒ `newest`, nunca `400`. */
+const SEALED_LIST_SORT_DEFAULT: SealedListSort = 'newest';
+
 type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
 
 /**
@@ -266,6 +277,9 @@ export class SealedCatalogService {
     pageSize: number;
     sort?: string;
   }) {
+    // `EQ-D1` — el ORDEN se valida ANTES de la lectura: un `400` por `?sort=` no debe costar una
+    // consulta. Vacío/ausente ⇒ el default declarado; token fuera de dominio ⇒ `400` (§0-Q punto 6).
+    const sort = parseEnumFilter('sort', q.sort, SEALED_LIST_SORT_VALUES) ?? SEALED_LIST_SORT_DEFAULT;
     const where: Prisma.InventoryItemWhereInput = {
       productType: 'sealed',
       status: 'listed',
@@ -303,8 +317,8 @@ export class SealedCatalogService {
       newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
     }));
 
-    if (q.sort === 'price_asc') cards.sort((a, b) => a.dto.fromPriceCents - b.dto.fromPriceCents);
-    else if (q.sort === 'price_desc') cards.sort((a, b) => b.dto.fromPriceCents - a.dto.fromPriceCents);
+    if (sort === 'price_asc') cards.sort((a, b) => a.dto.fromPriceCents - b.dto.fromPriceCents);
+    else if (sort === 'price_desc') cards.sort((a, b) => b.dto.fromPriceCents - a.dto.fromPriceCents);
     else cards.sort((a, b) => b.newestAt - a.newestAt); // 'newest' (default)
 
     const total = cards.length;

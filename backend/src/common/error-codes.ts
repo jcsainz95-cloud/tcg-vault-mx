@@ -295,6 +295,23 @@ export const ErrorCode = {
   // diría al cliente CUÁL falló, que es un oráculo gratis sobre qué keys existen y de quién son.
   // `details: { field }` dice QUÉ CAMPO, no por qué.
   INE_UPLOAD_KEY_INVALID: 'INE_UPLOAD_KEY_INVALID',
+  // ⭐⭐ v1.71 (D-INE-UMBRAL, decisión del dueño 2026-09-15 «umbral, luego bloqueo» · API_CONTRACT
+  // §M5-K, D51 reescrita) — 422. `POST /buylist/requests` cuando la solicitud cae AL/POR ENCIMA del
+  // umbral INE (mismo `ineRequired` que la puerta `INE_REQUIRED`, o sea `>= INE_THRESHOLD_CENTS` **o**
+  // `hasPendingLine` — no `>= threshold` a secas, para no reabrir el bypass de «precio pendiente» de
+  // C15) Y el vendedor tiene la identidad **rechazada** (`kycStatus === 'rejected'`).
+  //
+  // ⛔ EXCEPCIÓN ACOTADA A D51: `kycStatus` NO gatea dinero en ningún OTRO endpoint (ni ofertar, ni
+  // pagar) ni por DEBAJO del umbral — ahí el comportamiento actual queda intacto (montos chicos se
+  // dejan crear aunque la INE esté rechazada). Bloquea SOLO `rejected` (NO `none`/`pending`: no toca a
+  // quien apenas se verifica). No reabre la pregunta 40 (cotejo INE↔titular de la CLABE, cerrada por
+  // «no existe fuente»): gatea sobre el VEREDICTO del admin, que ya existe, no sobre el nombre.
+  //
+  // `details: {}` VACÍO — misma doctrina que `INE_REQUIRED` (§M6-K.5 / v1.69): NI el umbral NI PII
+  // (jamás `rejectionReason`) viajan al vendedor. El motivo lo lee solo el propio usuario por
+  // `GET /users/me/kyc`. Filas legacy `rejected` sin `rejectionReason` (pre-M-54) se bloquean igual,
+  // con mensaje genérico.
+  KYC_REJECTED: 'KYC_REJECTED',
   // ⭐ v1.70 (C20 / SEC-PII-7) — 500. `DELETE /admin/users/:id` en modo HARD cuando la imagen de INE
   // **no se pudo borrar del bucket**. La cascada borraría la fila `KycProfile` con sus keys dentro,
   // así que el ÚNICO puntero a esa imagen desaparecería y la purga de retención **nunca** la
