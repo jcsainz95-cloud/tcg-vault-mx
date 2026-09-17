@@ -15,16 +15,49 @@ no puede empujar a `main`; se hace en un PR `production→main` o el dueño lo h
 **Verificar en tienda (post-publicación):** (1) rechazar INE ⇒ buylist bloqueado hasta re-subir; (2) «Precio ofertado»
 muestra el cotizado; (3) sellado en cola M1 muestra su nombre; (4) pedido muestra la calle.
 
-## 🔴 S3-INE-PII — `/admin/users` puede exponer la RUTA de la imagen de INE (backend/seguridad, medido 2026-09-17)
+## 🔴 S3-SELLADO-M1 — racimo de problemas del SELLADO en M1 (dueño en su tienda, 2026-09-17; parcial medido por el orquestador)
 
-**Medido:** el check `backend-e2e` está en rojo **en `main` y en `production`** (no lo introdujo #38 — mismos 3 tests
-fallando antes y después; #38 solo **añadió** 32 tests, todos verdes). Los 3 rojos viven en
-`backend/test/integration/kyc-ine-links.e2e-spec.ts` (§M6-K). El nombrado: **K-2** — «`GET /admin/users` y
-`GET /admin/users/:id` con `super_admin` **no** deben matchear `/kyc_ine\//`». Que esté rojo sugiere que la respuesta
-**sí** trae la object-key de la INE (identificación oficial mexicana) — **PII en vivo hoy**. ⛔ **NO MEDIDO si es leak
-real o test obsoleto**: cierra corriendo la suite contra Postgres y leyendo el cuerpo de la respuesta. Dueño: backend
-(diagnóstico+fix) → **3 veredictos** (PII/seguridad). Arreglarlo probablemente pone `backend-e2e` en verde.
-**Comprobación:** `kyc-ine-links.e2e-spec.ts` §M6-K K-1/K-2/K-3 en verde; respuesta de `/admin/users` sin `kyc_ine/`.
+El dueño, probando M1 → pestaña **Sellado** en producción, reportó (con capturas) cuatro cosas del sellado. Stream *Inventario y vault* (módulo `inventory`, frontend `(admin)/admin/m1`). Es zona de dinero ⇒ el arreglo de código va con los **3 veredictos**.
+
+- **(A) «Agregué un booster bundle y no sale».** Tras "DAR DE ALTA AL INVENTARIO" el sellado no aparece. ⛔ **NO MEDIDO** — hipótesis a reproducir: (a) el alta de **Comprar** sin «precio pagado» falla con 422 y el error **no se muestra**; (b) se crea como `in_stock`/PRICE_PENDING y la lista agrupada por set no lo refleja/refresca. Cierra: reproducir `POST /admin/inventory/items` con sellado+compra sin precio y ver estado + dónde aparece. Contexto: `inventory.service.ts:576` (422 PRICE_PENDING), `:663` (SEALED_PRODUCT_NOT_FOUND), `:734-763` (validaciones aportación/compra).
+- **(B) No hay dónde EDITAR / QUITAR DE PUBLICADO el sellado.** ✅ **Medido: el mecanismo EXISTE** — `PATCH /admin/inventory/items/:id` (`inventory.controller.ts:549`), `ItemDetailModal.tsx` («Publicar / retirar de venta»), `VariantDrawer.tsx:419` (`unpublish`). ⛔ **NO MEDIDO: por qué no se alcanza desde la pestaña Sellado** (probable: las filas de sellado no abren el modal de detalle como las sueltas). El dueño pide **agregarlo** para sellado. Cierra: cablear el detalle/editar/despublicar en la vista de sellado.
+- **(C) Tras el alta se pierde el desglose de FORMATO (subtipo: Bundle/Booster Box/…).** Dueño-reportado. ⛔ **NO MEDIDO**. El alta captura `SUBTIPO` (Bundle) — falta que la vista de inventario lo muestre después. Relacionado con el arreglo M1 de nombre de sellado (P-79c, ya publicado en #38, que pinta el NOMBRE pero quizá no el subtipo). Cierra: la fila de sellado en inventario muestra su subtipo.
+- **(D) Sellado SIN PRECIO DE MERCADO** («Chaos Rising Booster Bundle» → «SIN PRECIO», ref última conocida MX$601.72 que no fija precio; lista marca «1 SIN PRECIO»). ✅ **Medido**: el sellado saca precio solo si está **mapeado** (`sealedProductId`/fuente de precio); sin mapeo, queda sin precio de mercado. **Es la familia de P-83** (guarda de alta de sellado sin `tcgplayerProductId`/mapeo). El override manual existe en el alta pero requiere capturar el precio. Cierra: ver P-83 + el ingest de precio de sellado (`sealed-price-ingest.service.ts`).
+
+- **(E) Dirección propuesta por el dueño (2026-09-17):** «un **apartado propio para subir y editar el sellado**, con su propia sección». En vez de meter el sellado en la vista de sueltas, darle una pantalla de gestión dedicada (alta + edición + despublicar + ver formato/precio). Es decisión de producto (product-owner → arquitecto): pesar «sección dedicada» vs «cablear editar/despublicar en la pestaña Sellado actual» (B). El racimo A-D es evidencia de que la gestión de sellado hoy está incompleta.
+
+**Dueño:** backend (A, B-back, D) · frontend (B-ui, C) · **product-owner → arquitecto (E, la sección dedicada)**. **Comprobación:** reproducir el alta y las vistas contra el arnés. | 2026-09-17 (dueño lo vivió; A/C no medidos, B/D parcial medido por el orquestador) | capturas del dueño; `inventory.controller.ts:549`; `ItemDetailModal.tsx`; `VariantDrawer.tsx:419`; `inventory.service.ts:576,663,734`
+
+## ✅/🔧 S3-INE-PII — NO hay fuga; la X roja del CI es un hueco de SIEMBRA/ALMACENAMIENTO (devops). Corregido 2026-09-17
+
+⚠️ **Falsa alarma del orquestador, corregida (O-2).** Yo inferí una posible fuga de la ruta de INE en `/admin/users`
+leyendo **una anotación del CI** («K-2 rojo»), sin correr la prueba. Un agente backend levantó el **stack sembrado**
+y midió sobre `origin/production` (`187b1d40`): **NO hay fuga.** `/admin/users` y `/admin/users/:id` devuelven
+`ineOnFile: boolean` (sí/no), **nunca** la object-key; hay 3 listas blancas que lo impiden
+(`admin.service.ts:841-849`, `:96-120`+`:410-440`, `:500-607`). Candado K-2 ya puesto en producción (commits
+`c80bc267`, `bec269b6`, ancestros de prod). Medido: `kyc-ine-links.e2e-spec.ts` §M6-K **23/23 verde, K-2 verde 3/3**.
+- **Lo que SÍ está roto (otra cosa, dueño devops):** en la 1ª corrida SIN sembrar el bucket, falla **1** test —**G-3**,
+  no K-2— porque la **imagen del fixture no estaba en el object storage** (`kyc-ine-links…:515`; el seed la sube en
+  `seed-e2e.ts:1070-1122` pero ante `S3_ENDPOINT` ausente/`PutObject` fallido deja filas sin objetos). Es
+  entorno/siembra bajo `STRICT`, **no** una fuga. ⛔ **NO MEDIDO: por qué el runner del CI no siembra el bucket.**
+  Cierra: devops hace que el runner suba las imágenes de fixture (o re-siembra) ⇒ `backend-e2e` en verde.
+- **Consecuencia #38:** la X roja que vimos al fusionar **no era un defecto de código** ni lo introdujo #38. Publicar
+  estuvo bien. Dueño ahora: **devops** (siembra/almacenamiento del CI).
+
+## 🟡 P-53 · cura — DISEÑO listo (arquitecto, 2026-09-17), pendiente implementar + 3 gates
+
+Borrador en `docs/specs/P53_CURE_DRAFT.md` (rama `claude/arch-p53-cure`, SHA `62d83c7f`, basada en `origin/production`).
+Diseño: escribir fila de precio **solo cuando `priceUsdCents` cambia** (no MXN — el MXN deriva de la FX diaria); días
+sin cambio solo avanzan `evidenceDate`; `stale() := evidenceDate ?? capturedDate` (seguro: hoy `evidenceDate=null` ⇒
+cero cambio de conducta al desplegar; cierra deuda M43-D2). Series de valor: intactas (snapshots dedicados con
+forward-fill, «no se fabrican puntos»); un arreglo de 1 línea para que el snapshot de set use FX viva (§4.1); y
+`hasRecentIngest` debe pasar a leer `evidenceDate` o re-dispara el barrido en cada boot (§4.3). Incluye poda/dedup
+SEGURA del mes acumulado (§6, con ventana+respaldo, sus propios 3 gates). CA-1..10 + pruebas T-1..10.
+**Decisiones para el dueño (§13):** (1) confirmar que la gráfica de valor de set siga con FX diaria (recom. sí, queda
+idéntica); (2) autorizar ventana+respaldo para la poda; (3) ¿cerrar frescura graded «al pie de la letra» ahora o
+después (no urge). **Siguiente:** backend implementa (protocolo plano+prueba) → 3 veredictos. Dueño: backend
+(`catalog`+`pricing`, zona compartida serializada) → qa+techlead+seguridad. | 2026-09-17 (diseño medido sobre prod) |
+`docs/specs/P53_CURE_DRAFT.md`; `card-product-resolver.service.ts:217`; `pricing.service.ts:719-725`
 
 
 
