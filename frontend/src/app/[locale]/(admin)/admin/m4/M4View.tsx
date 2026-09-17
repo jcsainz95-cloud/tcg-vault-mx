@@ -56,6 +56,18 @@ function recipientOf(row: AdminShipmentDTO): string | undefined {
 }
 
 /**
+ * Calle completa del destino (contrato §5 v1.67 · AddressSnapshotDTO): `line1` es obligatorio;
+ * `line2` y `neighborhood` son opcionales. Se leen con el MISMO helper `snap` (S3-ENVIO-DIR: el
+ * operador no puede enviar sin ver calle/número). Ausente/vacío ⇒ `undefined` (pinta «—»).
+ */
+function streetOf(row: AdminShipmentDTO): string | undefined {
+  const parts = [snap(row, 'line1'), snap(row, 'line2'), snap(row, 'neighborhood')].filter(
+    (p): p is string => Boolean(p),
+  );
+  return parts.length ? parts.join(', ') : undefined;
+}
+
+/**
  * Cliente de la fila (R5 de §33.16, PROYECTADO): `customer { id, name, email }` NO está en el contrato
  * §M4 (medido en v1.67.1) — se lee de forma defensiva y se pinta «—» cuando falta.
  * // MOCK: pendiente de contrato — petición al arquitecto en FRONTEND_NOTES §68.
@@ -292,6 +304,10 @@ export function M4View() {
                     {t('postalCode')} <span className="tabular">{snap(s, 'postalCode') ?? DASH}</span>
                     {' · '}
                     {t('phone')} <span className="tabular">{snap(s, 'phone') ?? DASH}</span>
+                  </p>
+                  <p>
+                    <span className="font-medium text-text">{t('street')}</span>{' '}
+                    <span className="text-text">{streetOf(s) ?? DASH}</span>
                   </p>
                   <p>
                     <span className="font-medium text-text">{t('customer')}</span>{' '}

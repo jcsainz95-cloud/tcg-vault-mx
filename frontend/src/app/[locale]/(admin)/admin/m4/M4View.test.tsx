@@ -196,6 +196,8 @@ describe('M4View · destinatario y dirección (F9)', () => {
 
     const parties = await screen.findByTestId('shipment-parties-shp-9001');
     expect(parties).toHaveTextContent('Para Misty Waterflower · Guadalajara, JAL · CP 44100 · Tel 3331234567');
+    // S3-ENVIO-DIR: la calle/número del destino SÍ se pinta (el operador no puede enviar sin verla).
+    expect(parties).toHaveTextContent('Calle Calle Falsa 123');
     // Sin `customer` en el DTO: «—» (nunca omitido en silencio), y el enlace a la ficha por id.
     expect(parties).toHaveTextContent('Cliente — · —');
     expect(within(parties).getByRole('link', { name: 'Ver ficha' })).toHaveAttribute(
@@ -284,6 +286,38 @@ describe('M4View · destinatario y dirección (F9)', () => {
     const parties = await screen.findByTestId('shipment-parties-shp-7001');
     expect(parties).toHaveTextContent('SIN DESTINATARIO');
     expect(parties).toHaveTextContent('—, — · CP — · Tel —');
+    // S3-ENVIO-DIR: sin snapshot la calle también es «—», nunca omitida en silencio.
+    expect(parties).toHaveTextContent('Calle —');
     expect(screen.queryByText('u-777')).not.toBeInTheDocument();
+  });
+
+  it('S3-ENVIO-DIR: pinta calle+número, línea 2 y colonia (line1, line2, neighborhood) unidas', async () => {
+    vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
+      data: [
+        {
+          id: 'shp-9010',
+          userId: 'u-800',
+          ...base,
+          addressSnapshot: {
+            recipientName: 'Ash Ketchum',
+            line1: 'Av. Insurgentes Sur 1234',
+            line2: 'Depto 5B',
+            neighborhood: 'Del Valle',
+            city: 'Ciudad de México',
+            state: 'CDMX',
+            postalCode: '03100',
+            country: 'MX',
+            phone: '5551239876',
+          },
+        } as never,
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    renderWithProviders(<M4View />, 'es');
+
+    const parties = await screen.findByTestId('shipment-parties-shp-9010');
+    expect(parties).toHaveTextContent('Calle Av. Insurgentes Sur 1234, Depto 5B, Del Valle');
   });
 });
