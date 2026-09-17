@@ -1,6 +1,7 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { Prisma, SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { Prisma, Role, SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
 import { usdToMxnCents } from '../../common/money';
@@ -198,6 +199,11 @@ export class SealedProductService {
     // v1.41 (IMP-1): resolver H-1 gateado (getReferencesBatch + gateSealedMarketCents + loadSealedSpreads)
     // — la MISMA función que decide PRICE_PENDING en el alta, para que `effectiveMarketCents` no diverja.
     private readonly pricing: PricingService,
+    // SEC-M11-1/-2: bitácora del remap set→grupo, escrita DENTRO de la misma `$transaction` que las
+    // escrituras (atomicidad total, precedente `InventoryService.applySealedManualOverride`). `@Optional`
+    // para que los tests unitarios que instancian el servicio a mano sin auditoría sigan compilando; en
+    // producción `AuditModule` es `@Global`, así que siempre se inyecta.
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   // ============================ LISTADO (vault_operator+) ============================
@@ -872,51 +878,77 @@ export class SealedProductService {
    * precio (lo trae el job §9, gateado). El `set_main` anterior se DEGRADA a `promo_collection` (DO-5:
    * conserva el enlace por si tenía productos válidos; el super-admin lo borra aparte con el DELETE).
    *
-   * Devuelve el `SealedSetGroupDTO` del `set_main` resultante y el `before/after` para la auditoría
-   * (`inventory.sealed_set_main_group_set`, la escribe el controller — I-4).
+   * Devuelve el `SealedSetGroupDTO` del `set_main` resultante y el `before/after` (para el eco del
+   * controller). La bitácora `inventory.sealed_set_main_group_set` la escribe ESTE método DENTRO de la
+   * `$transaction` cuando el controller pasa `actor` (SEC-M11-2, I-4).
+   *
+   * ### SEC-M11-1/-2 — atomicidad del remap
+   * El remap toca **tres** filas (degradar el/los set_main anterior(es), promover/crear el nuevo,
+   * reescribir el espejo `CardSet.tcgcsvGroupId`) **más** la bitácora. Antes iban sueltas: un fallo a
+   * mitad dejaba un **mapeo parcial** (p. ej. el viejo degradado pero el nuevo sin crear) o una
+   * bitácora huérfana. Ahora COMMITEAN JUNTAS en una `$transaction` — o entra todo, o no entra nada.
+   * La lectura del `label` (red a TCGCSV, best-effort) se resuelve **ANTES** de abrir la transacción:
+   * ⛔ no se sostiene una transacción de BD abierta durante una llamada de red (O-17). Money-safe (I-2):
+   * fija de qué grupo saldrá el precio; NO fabrica precio.
    */
   async setMainGroup(
     setId: string,
     body: { tcgplayerGroupId: number; reason?: string },
+    actor?: { userId: string; role: Role },
   ): Promise<{ group: SealedSetGroupDTO; before: number | null; after: number }> {
     const set = await this.prisma.cardSet.findUnique({ where: { id: setId } });
     if (!set) throw BusinessException.notFound('NOT_FOUND', 'CardSet not found');
     const before = set.tcgcsvGroupId ?? null;
     const newGroupId = body.tcgplayerGroupId;
 
-    // Degrada el/los set_main anterior(es) distinto(s) del nuevo a promo_collection (DO-5: no se borra;
-    // conserva el enlace y sus productos, y el DELETE lo retira aparte si estorba).
     const existingGroups = await this.prisma.sealedSetGroup.findMany({ where: { setId } });
-    for (const g of existingGroups) {
-      if (g.kind === 'set_main' && g.tcgplayerGroupId !== newGroupId) {
-        await this.prisma.sealedSetGroup.update({ where: { id: g.id }, data: { kind: 'promo_collection' } });
-      }
-    }
-
-    // Upsert de la fila del NUEVO set_main: si ya existía (p. ej. como promo_collection) se PROMUEVE a
-    // set_main; si no, se crea. Label best-effort desde TCGCSV (observabilidad; jamás bloquea, O-17-safe).
+    // Si ya existía la fila del NUEVO set_main (p. ej. como promo_collection) se PROMUEVE; si no, se crea.
     const dup = existingGroups.find((g) => g.tcgplayerGroupId === newGroupId);
-    let row;
-    if (dup) {
-      row = await this.prisma.sealedSetGroup.update({
-        where: { id: dup.id },
-        data: { kind: 'set_main' },
-      });
-    } else {
-      let label: string | null = null;
+
+    // Label best-effort desde TCGCSV (observabilidad/curación), FUERA de la transacción (red bloqueable,
+    // O-17; jamás bloquea el remap). Solo hace falta cuando se crea una fila nueva.
+    let label: string | null = null;
+    if (!dup) {
       try {
         const groups = await this.provider.listGroups();
         label = groups.find((g) => g.groupId === newGroupId)?.name ?? null;
       } catch {
         /* money-safe: el mapeo no depende del label (egress a tcgcsv.com puede estar bloqueado, O-17). */
       }
-      row = await this.prisma.sealedSetGroup.create({
-        data: { setId, tcgplayerGroupId: newGroupId, kind: 'set_main', label },
-      });
     }
 
-    // REESCRIBE `CardSet.tcgcsvGroupId` (aunque ya hubiera uno) — la diferencia clave con `linkGroup`.
-    await this.prisma.cardSet.update({ where: { id: setId }, data: { tcgcsvGroupId: newGroupId } });
+    const row = await this.prisma.$transaction(async (tx) => {
+      // Degrada el/los set_main anterior(es) distinto(s) del nuevo a promo_collection (DO-5: no se borra;
+      // conserva el enlace y sus productos, y el DELETE lo retira aparte si estorba).
+      for (const g of existingGroups) {
+        if (g.kind === 'set_main' && g.tcgplayerGroupId !== newGroupId) {
+          await tx.sealedSetGroup.update({ where: { id: g.id }, data: { kind: 'promo_collection' } });
+        }
+      }
+      const r = dup
+        ? await tx.sealedSetGroup.update({ where: { id: dup.id }, data: { kind: 'set_main' } })
+        : await tx.sealedSetGroup.create({
+            data: { setId, tcgplayerGroupId: newGroupId, kind: 'set_main', label },
+          });
+      // REESCRIBE `CardSet.tcgcsvGroupId` (aunque ya hubiera uno) — la diferencia clave con `linkGroup`.
+      await tx.cardSet.update({ where: { id: setId }, data: { tcgcsvGroupId: newGroupId } });
+      // SEC-M11-2: la bitácora participa del MISMO commit/rollback que el remap que audita.
+      if (this.audit && actor) {
+        await this.audit.log(
+          {
+            actorUserId: actor.userId,
+            actorRole: actor.role,
+            action: 'inventory.sealed_set_main_group_set',
+            entityType: 'CardSet',
+            entityId: setId,
+            before: { tcgcsvGroupId: before },
+            after: { tcgcsvGroupId: newGroupId, reason: body.reason },
+          },
+          tx,
+        );
+      }
+      return r;
+    });
 
     return {
       group: {

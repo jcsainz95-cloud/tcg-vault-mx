@@ -5179,6 +5179,7 @@
   | `GET /catalog/sealed` (§2-S) | `sort` **(ORDEN, v1.77)** | `newest \| price_asc \| price_desc` — canónico en **§2-S**; default `newest` (punto 6) | **L** |
   | `GET /admin/shipments` (§M4) | `kind` **(v1.77)** | `guest_direct_ship \| vault_withdrawal` — subconjunto semántico, cláusula en **§M4** | **R** |
   | `GET /admin/users/:id/audit` (§M6) | `scope` **(v1.77)** | `target \| actor \| both` — subconjunto semántico, cláusula en **§M6**; default `target` | **R** |
+  | `GET /admin/inventory/sealed-price-status` (§10) | `state` **(M11)** | `SealedPriceState` (`priced \| mapped_unpriced \| unmapped`) — canónico en **§Enums** (unión pura, ⛔ sin columna en `schema.prisma`) | **L** |
 
   > **⛔ `GET /catalog/cards?sealedSubtype=` — RETIRADO del contrato en v1.73.** Ver §2 y el punto 7.
   >

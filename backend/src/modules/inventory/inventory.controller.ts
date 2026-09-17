@@ -305,6 +305,10 @@ export class InventoryController {
    * `set_main` del set aunque ya exista (escape de P-46; `linkGroup` sólo puebla si es null). `super_admin`.
    * AUDITADO (`inventory.sealed_set_main_group_set`, con `before/after` del `tcgcsvGroupId` — I-4). Money-safe:
    * fija de qué grupo saldrá el precio; NO fabrica precio (lo trae el job §9, gateado por el dial).
+   *
+   * SEC-M11-1/-2: el remap (degradar/promover/crear grupos + reescribir el espejo) y su bitácora
+   * COMMITEAN JUNTOS en una `$transaction` DENTRO del servicio (que recibe el `actor` para auditar en la
+   * misma tx). Un fallo a mitad ya no deja mapeo parcial ni bitácora huérfana.
    */
   @Put('inventory/sealed-sets/:setId/set-main-group')
   @Roles(Role.super_admin)
@@ -313,16 +317,7 @@ export class InventoryController {
     @Body() dto: SetMainGroupRequestDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.sealedProduct!.setMainGroup(setId, dto);
-    await this.audit.log({
-      actorUserId: user.id,
-      actorRole: user.role,
-      action: 'inventory.sealed_set_main_group_set',
-      entityType: 'CardSet',
-      entityId: setId,
-      before: { tcgcsvGroupId: res.before },
-      after: { tcgcsvGroupId: res.after, reason: dto.reason },
-    });
+    const res = await this.sealedProduct!.setMainGroup(setId, dto, { userId: user.id, role: user.role });
     return res.group;
   }
 
