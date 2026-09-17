@@ -46,10 +46,13 @@
 name: E2E
 
 on:
+  # S-MAIL-1 (2026-09-17): E2E solo en main/production y en PRs — NO en cada push de rama de
+  # trabajo (evitaba una lluvia de correos "E2E failed" de GitHub Actions al dueño).
   push:
-    branches: ["**"]
+    branches: [main, production]
   pull_request:
-    branches: ["**"]
+    branches: [main, production]
+  workflow_dispatch: {}
 
 concurrency:
   group: e2e-${{ github.ref }}
