@@ -1,5 +1,26 @@
 # PENDIENTES — TCG HUNT
 
+## 🎯 PRÓXIMO + VERIFICACIÓN (actualizado 2026-09-17, cierre de la tanda M11)
+
+### ✅ Listo para publicar
+`claude/entrega-final` (`d6a0ca3d`) = **M11 · Sellado** (3 filtros) + **devops disco** (alarma + WAL) + **arreglo CI** (llave PII → `backend-e2e` VERDE). Cero migraciones. Compare `production...claude/entrega-final`. (frontend-e2e cerrando, 0 fallos.)
+
+### 🔎 Tareas de VERIFICACIÓN DEL DUEÑO (solo él puede)
+- **V1 · Publicar** `entrega-final` (1 click) cuando frontend-e2e cierre verde.
+- **V2 · Probar M11 en tienda** tras publicar: (a) alta de sellado con **precio pagado**; (b) encender el **interruptor maestro** + **«Traer precios»** (jalón real solo corre en prod); (c) **mapear a mano** un set «sin emparejar» y ver que trae precio; (d) editar/publicar/**despublicar** desde M11; (e) la vista de **estado por set**.
+- **V3 · Aplicar el WAL** en ventana corta de bajo tráfico (runbook `DEVOPS_NOTES §61.1a`) — recupera ~100 MB. Opcional, no urge (volumen ya ampliado).
+- **V4 · S2-PRECIOS22:** correr `POST /admin/catalog/refresh-variants-all` + re-medir sets sin precio (egress a tcgcsv bloqueado aquí ⇒ lo mides tú en prod).
+- **V5 · Decisiones pendientes:** P-94/P-95 (aviso de INE rechazada — 2 decisiones, borrador `docs/specs/P94_P95_KYC_AVISO_DRAFT.md`); **P-53 cura §13** (3 decisiones: FX diaria en gráfica, ventana+respaldo para la poda, frescura graded); y las viejas: S2-COMISION, razón social, S2-RL1, DO-D2, S3-NOOFFER-OFF.
+
+### 🔨 QUÉ ATACAMOS (orquestador, por prioridad)
+1. **P-53 · la CURA del disco** (escribir fila solo cuando el precio cambia) — diseño LISTO (`docs/specs/P53_CURE_DRAFT.md`); espera las 3 decisiones §13 → backend + **3 gates**. Es la que corta el crecimiento de raíz.
+2. **P-94/P-95 · aviso de INE rechazada** — tras tus 2 decisiones → arquitecto → backend+frontend.
+3. **EQ-D1 lote 2** — 12 ejes sort/range sin dinero (los money: `?report=`×2, `reason=` van con 3 gates).
+4. **Deuda de M11** (no bloquea, anotada): SB-YEAR1 (arquitecto §8 — empate por año), N+1 de `sealed-price-status` (backend), SEC-M11-3/4/5 (backend), y **robustez: `/admin/users/:id` y `/users/me/kyc` deben degradar, no dar 500, ante PII que no descifra** (backend).
+5. **P-83** · guarda de alta de sellado sin mapeo (money) + **P-46** (que los sets emparejen solos en vivo, se mide en prod).
+6. **p92** · roja intermitente del frontend (corriendo; es solo un test).
+
+
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
