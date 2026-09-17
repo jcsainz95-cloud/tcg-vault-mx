@@ -191,7 +191,7 @@ import type {
   SealedPriceIngestResponse,
   SealedPriceStatusResponse,
   SealedPriceState,
-  SealedSetMainGroupRequest,
+  SetMainGroupRequest,
   GradedInventoryResponse,
   PublicBountiesResponse,
   AdminBountyListResponse,
@@ -3183,7 +3183,7 @@ export async function getSealedPriceStatus(
  */
 export async function setSealedSetMainGroup(
   setId: string,
-  req: SealedSetMainGroupRequest,
+  req: SetMainGroupRequest,
 ): Promise<SealedSetGroupDTO> {
   if (!config.useMocks) {
     return apiRequest<SealedSetGroupDTO>(
