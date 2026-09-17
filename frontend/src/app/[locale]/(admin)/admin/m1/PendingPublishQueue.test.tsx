@@ -223,6 +223,28 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(document.body.textContent).not.toMatch(/admin\.m1\.publishQueue/);
   });
 
+  it('M11-pending-subtype (CA-5): la fila de sellado pinta el subtipo cuando el server lo proyecta', async () => {
+    stub([
+      row({
+        productType: 'sealed',
+        sealedProductName: 'Chaos Rising Booster Bundle',
+        sealedSubtype: 'bundle',
+        finish: 'normal',
+      }),
+    ]);
+    renderWithProviders(<PendingPublishQueue productType="sealed" />, 'es');
+    expect(await screen.findByText('Chaos Rising Booster Bundle')).toBeInTheDocument();
+    // El subtipo (Bundle) aparece junto a la marca SELLADO; ⛔ nunca en raw/graded.
+    expect(screen.getByText(/BUNDLE/)).toBeInTheDocument();
+  });
+
+  it('la fila raw NO pinta subtipo aunque llegue el campo (aditivo, solo sellado)', async () => {
+    stub([row({ productType: 'raw', sealedSubtype: 'bundle' })]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    await screen.findByText('Charizard VMAX');
+    expect(screen.queryByText(/BUNDLE/)).not.toBeInTheDocument();
+  });
+
   it('§diseño §iii: con productType propaga el filtro al endpoint (M11 la monta filtrada a sellado)', async () => {
     const spy = vi
       .spyOn(api, 'getPendingPublish')

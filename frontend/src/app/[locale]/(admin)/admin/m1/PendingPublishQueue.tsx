@@ -64,6 +64,7 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
  */
 function PieceCell({ row }: { row: PendingPublishRowDTO }) {
   const t = useTranslations('admin.m1.publishQueue');
+  const tSub = useTranslations('status.sealedSubtype');
   if (row.productType === 'sealed') {
     return (
       <span className="flex flex-col">
@@ -74,6 +75,9 @@ function PieceCell({ row }: { row: PendingPublishRowDTO }) {
         )}
         <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
           {row.card.setName} · <span className="text-accent">{t('sealedMark')}</span>
+          {/* §diseño §2.C/CA-5 · el SUBTIPO (Bundle/Booster Box/…) se pinta cuando el server lo
+              proyecta; ausente (backend anterior) ⇒ no se pinta nada (aditivo, retrocompatible). */}
+          {row.sealedSubtype ? ` · ${tSub(row.sealedSubtype).toUpperCase()}` : ''}
         </span>
       </span>
     );
