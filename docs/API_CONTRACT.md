@@ -5160,6 +5160,7 @@
   | `GET /admin/inventory/items` (§M1) | `finish` · `productType` | `Finish` · `ProductType` | **E** |
   | `GET /admin/inventory/pending-publish` (§M1) | `acquisitionType` | `AcquisitionType` | **E** |
   | `GET /admin/inventory/pending-publish` (§M1) | `missing` | `location \| price` — canónico en **§M1** | **L** |
+  | `GET /admin/inventory/pending-publish` (§M1) | `productType` **(M11)** | `ProductType` | **E** |
   | `GET /admin/inventory/export.xlsx` (§M1) | `productType` | `ProductType` | **E** |
   | `GET /admin/inventory/sealed-products` (§M1) | `origin` | `SealedGroupKind` | **E** |
   | `GET /admin/users` (§M6) | `status` · `kycStatus` | `UserStatus` · `KycStatus` | **E** |
@@ -10341,14 +10342,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > §6, sin vocabulario nuevo).
 - **`GET /api/v1/admin/inventory/pending-publish` (v1.51 — NUEVO, `vault_operator+`)** — **cola «listas para
   publicar»** (fase 8, D10, criterio 125). *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
-  Query: `?missing=location|price&acquisitionType=&setId=&page=&pageSize=` (todos opcionales; `pageSize` ≤ 100).
+  Query: `?missing=location|price&acquisitionType=&productType=&setId=&page=&pageSize=` (todos opcionales; `pageSize` ≤ 100).
   Res `200`: `{ data: PendingPublishRowDTO[], page, pageSize, total }` (§11).
-  > **⚠️ v1.73 — `?missing=` y `?acquisitionType=` los norma [§0-Q](#enum-query-filter)** (conducta ante vacío,
-  > `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
+  > **⚠️ v1.73 — `?missing=`, `?acquisitionType=` y `?productType=` los norma [§0-Q](#enum-query-filter)** (conducta ante
+  > vacío, `400 VALIDATION_ERROR` con `details.field` + `details.allowed`). **`?missing=` es CLASE L** (§0-Q punto 3): su
   > dominio **`location | price`** no existe en el schema —no nombra un estado persistido, nombra **qué le falta a la
   > fila**, que es una pregunta sobre la consulta— y por tanto **ESTA LÍNEA es su declaración canónica**; el backend la
   > declara literal junto a su único call-site, con paridad **contrato ↔ literal** (dos bandas; no hay tercera porque no
   > hay enum que espejar). `?acquisitionType=` es **clase E** (`AcquisitionType`, §Enums, derivado).
+  > **⚠️ M11 (ADITIVO) — `?productType=` es CLASE E** (`ProductType`, §Enums, derivado; ausente ⇒ cola entera, sin
+  > cambios). Lo monta la cola de «Listas para publicar» de M11 con `productType=sealed` para no mezclar sellado y
+  > sueltas: sin este eje, una carta SUELTA (`raw`) se colaba en la cola «filtrada a sellado» porque el query
+  > desconocido se ignoraba en silencio. Mismo patrón y mismo `details.{field,allowed}` que el `?productType=` del
+  > drill-down de `GET /admin/inventory/items` y el del `export.xlsx`. Es LECTURA: no toca dinero.
   > **Predicado de la cola:** `ownerType='platform'` ∧ `status='in_stock'` ∧ ( `locationId IS NULL` **∨** precio de
   > venta **no resoluble** ). Cada fila dice **QUÉ LE FALTA** (`missing: ("location" | "price")[]`) y, si falta
   > precio, trae `pendingPriceEntryId` para el **deep-link a la cola de precio pendiente de M2**.

@@ -593,6 +593,12 @@ export class InventoryController {
   pendingPublish(
     @Query('missing') missing?: string,
     @Query('acquisitionType') acquisitionType?: string,
+    // M11 (§M1) — eje ADITIVO `?productType=`: la cola de «Listas para publicar» de M11 se monta
+    // filtrada a `sealed`. Antes NO existía este parámetro, así que NestJS ignoraba el query
+    // desconocido y la cola devolvía TODO (una carta SUELTA aparecía en la cola «filtrada a
+    // sellado»). Misma CLASE de filtro de lectura ya establecida (como `finish`/`productType` del
+    // drill-down `:560` y el `productType` del export `:516`): validado contra el enum derivado.
+    @Query('productType') productType?: string,
     @Query('setId') setId?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
@@ -611,9 +617,13 @@ export class InventoryController {
       acquisitionType,
       ACQUISITION_TYPE_FILTER_VALUES,
     );
+    // Mismo helper y mismo `details.field` que el drill-down (`:569`) y el export (`:521`): basura ⇒
+    // 400 con `details.{field,allowed}`. Ausente ⇒ cola entera (como hoy); `sealed` ⇒ solo sellado.
+    const productTypeFilter = parseEnumFilter('productType', productType, PRODUCT_TYPE_FILTER_VALUES);
     return this.inventory.pendingPublish({
       missing: missingFilter,
       acquisitionType: acquisitionTypeFilter,
+      productType: productTypeFilter,
       setId,
       page: Math.max(1, parseInt(page, 10) || 1),
       // `pageSize` ≤ 100 (contrato §M1), como el resto de los listados de back-office.

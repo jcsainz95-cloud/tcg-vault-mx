@@ -316,14 +316,15 @@ interface Ctx {
 }
 
 /**
- * ⭐ **EL REGISTRO — 37 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` + 1 de `EQ-D2`.**
+ * ⭐ **EL REGISTRO — 38 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` + 1 de `EQ-D2` + 1 de `EQ-D3`.**
  *
  * Las **26 transcritas** son las 24 de la tabla de §0-Q punto 4, el `?sort=` que esa tabla registra
  * en su última columna como «no es filtro: es ORDEN — punto 6», y el `?origin=` de `sealed-products`.
  * Las **6** de `EQ-D0` (la bóveda) son conducta YA conforme cuya **fila de §0-Q todavía no existe**:
  * van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`. Las **4** de `EQ-D1` (`?kind=`, `?scope=`, `?sort=`
- * de los dos catálogos públicos) y la **1** de `EQ-D2` (este pase: `?state=` de `sealed-price-status`,
- * M11 §10) SÍ tienen fila de §0-Q (el arquitecto la escribió) ⇒ van `transcrita`.
+ * de los dos catálogos públicos), la **1** de `EQ-D2` (`?state=` de `sealed-price-status`, M11 §10) y
+ * la **1** de `EQ-D3` (este pase: `?productType=` de `pending-publish`, M11) SÍ tienen fila de §0-Q
+ * (el arquitecto la escribió) ⇒ van `transcrita`.
  *
  * ⚠️ **`R3`: el conteo va fijado con un literal en el trinquete**, no escrito aquí y ya. Este
  * docstring decía «25 filas» cuando había 32 — y el pase entero defiende que *un número sí falla y
@@ -349,6 +350,17 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/inventory/pending-publish', param: 'acquisitionType', clazz: 'E', allowed: Object.values(AcquisitionType), valid: 'compra', alterno: 'buylist', auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE L: `location | price` no existe en el schema — nombra QUÉ LE FALTA a la fila.
   { route: 'GET /admin/inventory/pending-publish', param: 'missing', clazz: 'L', allowed: PENDING_PUBLISH_MISSING_VALUES, valid: 'price', alterno: 'location', auth: 'admin', echoValue: false },
+  // ⭐ **`EQ-D3` (este pase, M11) — `?productType=`: el eje que la cola de «Listas para publicar» de
+  // M11 monta con `productType=sealed` y que HASTA HOY el endpoint NO tenía**, así que NestJS lo
+  // ignoraba y la cola devolvía TODO — una carta SUELTA (`raw`) se colaba en la cola «filtrada a
+  // sellado». Clase **E** derivada de `enum ProductType` (⛔ no se transcribe el dominio; se deriva),
+  // exactamente como el `?productType=` del drill-down de items y el del export.xlsx (dos y una filas
+  // más arriba). ⚠️ `valid: 'sealed'` y no `'raw'`: la única pieza pendiente del fixture (`E2E-STK-0001`)
+  // es `raw`, así que `?productType=raw` devolvería la cola ENTERA (verde con y sin filtro, el agujero de
+  // `QA-M3`). `sealed` la EXCLUYE ⇒ el resultado cambia respecto de no filtrar; `alterno: 'raw'` recupera
+  // la discriminación. Es el mismo perfil que la fila hermana `acquisitionType` (`valid` selecciona el
+  // subconjunto que NO trae la suelta). ⛔ sin `echoValue`: eje NUEVO, no de los seis públicos legados.
+  { route: 'GET /admin/inventory/pending-publish', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'sealed', alterno: 'raw', auth: 'admin', echoValue: false },
   // El cuerpo es un XLSX binario: no hay `data` que contar ⇒ se observa su TAMAÑO (`OBS_XLSX`).
   { route: 'GET /admin/inventory/export.xlsx', param: 'productType', clazz: 'E', allowed: Object.values(ProductType), valid: 'raw', alterno: 'graded', obs: OBS_XLSX, auth: 'admin', echoValue: false },
   // ⭐ `D-EQ-2` · CLASE E derivada: `enum SealedGroupKind` existe en el schema ⇒ ⛔ no se transcribe.
@@ -1060,10 +1072,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // que un número sí falla y una fecha no*, el conteo se fija donde falla.
     // 26 transcritas de §0-Q punto 4 + 6 de la bóveda (`EQ-D0`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'`)
     // + 4 de `EQ-D1` (`?kind=`, `?scope=`, `?sort=` de los dos catálogos públicos) + 1 de `EQ-D2`
-    // (este pase: `?state=` de `sealed-price-status`, M11 §10) ⇒ 37.
-    // Las de `EQ-D1`/`EQ-D2` van `transcrita`: su fila de §0-Q la escribió el arquitecto EN SU pase, así
-    // que el conteo de `PENDIENTE-ARQUITECTO` NO sube (sigue en 6, las de la bóveda).
-    expect(REGISTRO.length).toBe(37);
+    // (`?state=` de `sealed-price-status`, M11 §10) + 1 de `EQ-D3` (este pase: `?productType=` de
+    // `pending-publish`, M11) ⇒ 38.
+    // Las de `EQ-D1`/`EQ-D2`/`EQ-D3` van `transcrita`: su fila de §0-Q la escribió el arquitecto EN SU
+    // pase, así que el conteo de `PENDIENTE-ARQUITECTO` NO sube (sigue en 6, las de la bóveda).
+    expect(REGISTRO.length).toBe(38);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(6);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
