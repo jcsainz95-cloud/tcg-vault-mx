@@ -41,6 +41,8 @@ interface ItemOpts {
   productType?: string;
   /** v1.69.1 (P-79c) — snapshot del nombre del sellado (columna `InventoryItem.sealedProductName`). */
   sealedProductName?: string | null;
+  /** M11 (§2.C) — subtipo del sellado (columna `InventoryItem.sealedSubtype`). */
+  sealedSubtype?: string | null;
 }
 
 function item(o: ItemOpts) {
@@ -68,7 +70,7 @@ function item(o: ItemOpts) {
     cardProductId: null,
     sealedProductId: null,
     sealedProductName: o.sealedProductName ?? null,
-    sealedSubtype: null,
+    sealedSubtype: o.sealedSubtype ?? null,
     tcgplayerProductId: null,
     acquisitionType: o.acquisitionType ?? 'buylist',
     acquisitionCostCents: 40000,
@@ -226,6 +228,34 @@ describe('⚠️ (1b) P-79c — la proyección lleva el NOMBRE del sellado, no s
     const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
     expect(res.data[0].productType).toBe('raw');
     expect(res.data[0].sealedProductName ?? null).toBeNull();
+  });
+
+  /**
+   * M11 (§2.C, hallazgo C) — la fila de sellado gana `sealedSubtype` (ADITIVO, display-only) para que
+   * la cola de M11 pinte «Bundle/Box/ETB…». Presente SOLO para `productType='sealed'`; ausente en
+   * raw/graded (no es «#4 · NORMAL» de la carta ancla). Proyección server-side desde
+   * `InventoryItem.sealedSubtype`; no toca dinero (alcance D10 «solo visibilidad»).
+   */
+  it('M11 §2.C — sellado ⇒ `sealedSubtype` viaja en el DTO (solo productType=sealed)', async () => {
+    const { svc } = build([
+      item({
+        id: 'a',
+        productType: 'sealed',
+        sealedProductName: 'PRE Elite Trainer Box',
+        sealedSubtype: 'etb',
+        listPriceCents: 99900, // override manual ⇒ entra por `missing: ["location"]`
+      }),
+    ]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('sealed');
+    expect(res.data[0].sealedSubtype).toBe('etb');
+  });
+
+  it('M11 §2.C — single (raw) ⇒ `sealedSubtype` AUSENTE (no la clave de la carta ancla)', async () => {
+    const { svc } = build([item({ id: 'a' })]);
+    const res: any = await svc.pendingPublish({ page: 1, pageSize: 20 });
+    expect(res.data[0].productType).toBe('raw');
+    expect('sealedSubtype' in res.data[0]).toBe(false);
   });
 });
 

@@ -5795,6 +5795,18 @@ SealedGroupKind     = set_main | promo_collection
                     // §4.37 prohíbe: «el enum se enumera en su LÍNEA CANÓNICA y en ningún otro sitio». Allí queda una
                     // REFERENCIA con la semántica de cada valor; el DOMINIO es esta línea.
                     // CLASE E — dominio del filtro `?origin=` de `GET /admin/inventory/sealed-products` (§M1, §0-Q).
+SealedPriceState        = priced | mapped_unpriced | unmapped
+                    // ⚠️ CLASE L (M11 §10) — NO tiene columna en `schema.prisma` (no describe un dato persistido,
+                    // nombra el ESTADO derivado del precio/mapeo de un set). Por eso NO se deriva de Prisma: se DERIVA
+                    // de esta línea canónica (fuente única), y el filtro `?state=` de `GET /admin/inventory/sealed-price-status`
+                    // valida contra ella. Paridad a DOS bandas (contrato ↔ literal del call-site), no tres — no hay schema
+                    // que espejar. `priced` = ≥1 producto con `effectiveMarketCents` gateado (gate H-1); `mapped_unpriced`
+                    // = grupo resuelto pero sin precio gateado (dial off o fuente sin precio); `unmapped` = sin grupo TCGCSV.
+SealedPriceStatusReason = no_group | dial_off | no_source_price
+                    // ⚠️ CLASE L (M11 §10) — POR QUÉ un set no trae precio (para el humano, sin abrir logs). Sin columna
+                    // en BD (fuente única, como `SealedPriceState`). `no_group` (state `unmapped`) · `dial_off` (state
+                    // `mapped_unpriced` con `sealed_price_source=off`, fail-closed I-2) · `no_source_price` (mapeado, dial
+                    // ON, sin `PriceReference` gateada — falta ingesta/mapeo).
 BuylistRuleMode     = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): desaparece la distinción fixed/pct como modos excluyentes. Solo retención de filas históricas (SellRequestItem.ruleMode legacy).
 SalesRuleMode       = fixed | pct                       // ⛔ RETIRADO v2.0 (P-48): ídem. El `fixed` de venta era la causa raíz (documentado como PISO, implementado como precio absoluto).
 BuylistCategory     = comun | reverse_holo | ex_plus    // DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode). Retención legacy; nada nuevo lo usa.
@@ -6925,6 +6937,20 @@ SealedSyncResultDTO = { setsSynced: number, groupsPopulated: number, productsUps
                         productsDeactivated: number, pricedCount: number, pendingPriceCount: number }
 // Req de POST /admin/inventory/sealed-sets/:setId/groups — enlaza un grupo extra (promo/colección) al set.
 SealedSetGroupLinkRequest = { tcgplayerGroupId: number, kind: SealedGroupKind }
+// M11 (§11.1) — Req de PUT /admin/inventory/sealed-sets/:setId/set-main-group. Fija/REEMPLAZA el set_main aunque ya
+// exista (a diferencia de linkGroup). `reason?` = nota libre del super-admin que viaja al AuditLog.after. `super_admin`.
+SetMainGroupRequest = { tcgplayerGroupId: number, reason?: string }
+// M11 (§10) — estado de precio/mapeo del sellado POR SET, desde estado PERSISTIDO (read-only, SIN TCGCSV — O-17).
+// Los conteos son de ESTADO, no de dinero; no se muestra ningún precio derivado aquí. `state` = ROLLUP (el PEOR estado
+// no-vacío: unmapped > mapped_unpriced > priced), clasificado con el MISMO gate H-1 que el alta (gateSealedMarketCents).
+// `setMainGroupId` = CardSet.tcgcsvGroupId (espejo del set_main; null ⇒ SIN emparejar). `reason` presente si state != priced.
+SealedPriceStatusRowDTO = { set: SetRefDTO, setMainGroupId: number | null, linkedGroupIds: number[],
+                            productCount: number, priced: number, mappedUnpriced: number, unmapped: number,
+                            state: SealedPriceState, reason?: SealedPriceStatusReason }
+// M11 (§10) — respuesta de GET /admin/inventory/sealed-price-status. `sealedPriceSource` = el dial (§M10) una vez por
+// respuesta (con `off` todo lo mapeado es `mapped_unpriced` por el gate, para el copy del front). Paginada.
+SealedPriceStatusResponse = { sealedPriceSource: SealedPriceSource, data: SealedPriceStatusRowDTO[],
+                              page: number, pageSize: number, total: number }
 ```
 
 ---
@@ -10236,7 +10262,7 @@ Eventos manejados:
 
 ---
 
-## 10. Back-office / Admin (M1–M10)
+## 10. Back-office / Admin (M1–M11)
 
 Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acciones de **dinero saliente** exigen `super_admin`; los demás reciben `403 MONEY_OUT_FORBIDDEN` (auditado). Todo cambio se registra en `AuditLog`.
 
@@ -10344,6 +10370,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > una ETB no tiene «#1» ni acabado— y sin `sealedProductName` pinta «sellado sin identificar», **jamás** el nombre
   > del ancla. La fila **no se oculta** en ningún caso: el `folio` la deja accionable. Tabla completa de los tres casos
   > (single / sellado con nombre / sellado legado) en el **Changelog v1.69.1** (cabecera).
+  > **⚠️ M11 (§2.C, hallazgo C, ADITIVO) — la fila gana `sealedSubtype?: SealedSubtype`**, presente **SOLO si
+  > `productType='sealed'`** (AUSENTE en raw/graded), proyectado server-side de `InventoryItem.sealedSubtype`, para que
+  > la cola de M11 pinte «Bundle/Box/ETB…» junto al `sealedProductName`. **Display-only** (alcance D10 «solo
+  > visibilidad» intacto: no toca dinero, no captura ni sugiere precio). Consumidores viejos lo ignoran (es opcional).
   Err: `403`, `400 VALIDATION_ERROR`.
 
 - **`PATCH /api/v1/admin/inventory/items/:id` — campo aditivo de v1.53** *(va aquí, sobre el mismo endpoint del que
@@ -10786,6 +10816,44 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   (promo/colección) al set (**1 set → N grupos**, §4.34b). **`super_admin`**.
   Req (`SealedSetGroupLinkRequest`): `{ tcgplayerGroupId, kind }`. Res `201` (`SealedSetGroupDTO`).
   Err `404 NOT_FOUND` (set), `409` (grupo ya enlazado), `400 VALIDATION_ERROR`.
+- `GET /api/v1/admin/inventory/sealed-price-status` — **(NUEVO, M11 §10, `vault_operator+`)** — por **SET de
+  sellado**, en cuál de **tres estados** está su precio: **`priced` · `mapped_unpriced` · `unmapped`** (+ `reason`).
+  Separa lo que `GET /admin/inventory/sealed-sets.unmappedCount` **funde** («no mapeado» O «mapeado sin precio»)
+  para decidir si hace falta **corregir el mapeo** (§11) o sólo **disparar la ingesta** (§M10-ops
+  `sealed-price-ingest`). Query: `?q?=` (filtro por nombre de set) `&state?=priced|mapped_unpriced|unmapped`
+  `&page?=&pageSize?=` (todos opcionales; `pageSize` ≤ 100).
+  Res `200` (`SealedPriceStatusResponse`): `{ sealedPriceSource, data: SealedPriceStatusRowDTO[], page, pageSize, total }`.
+  > **⛔ READ-ONLY, SIN RED EXTERNA (O-17).** Lee SÓLO estado **persistido** (`SealedProduct` + `SealedSetGroup` +
+  > `CardSet.tcgcsvGroupId`) y clasifica cada producto con el **MISMO gate H-1** que el alta (`getReferencesBatch` +
+  > `gateSealedMarketCents`) — **NO reimplementa el gate** (I-2/I-6) y **NUNCA** llama a TCGCSV
+  > (`fetchSealedPricesForGroup`/`listGroups`), a diferencia de `sealed-products`/`sync/candidates`. Por eso responde
+  > `200` con el egress bloqueado (no hay `502`). Money-safe: clasifica, **no fija precio**; los conteos son de ESTADO.
+  > **Universo de sets:** ≥1 `SealedProduct` active ∪ ≥1 `SealedSetGroup` ∪ `CardSet.tcgcsvGroupId != null` — incluye
+  > sets del catálogo **sin inventario** (que `sealed-sets` omite), para poder mapearlos.
+  > **`reason`:** `no_group` (state `unmapped`) · `dial_off` (state `mapped_unpriced` con `sealed_price_source=off`,
+  > fail-closed I-2) · `no_source_price` (mapeado, dial ON, sin `PriceReference` gateada). **Es una LECTURA y NO se
+  > audita** (misma doctrina que `pending-publish`). `?state=` es **clase L** (§0-Q punto 3): se DERIVA del enum
+  > `SealedPriceState` (fuente única), no de dos literales a mano. Err `400 VALIDATION_ERROR` (`state` fuera del dominio).
+- `PUT /api/v1/admin/inventory/sealed-sets/:setId/set-main-group` — **(NUEVO, M11 §11.1, `super_admin`, AUDITADO)** —
+  fija/**REEMPLAZA** el grupo `set_main` del set **aunque ya exista** (a diferencia de `linkGroup`, que sólo escribe
+  `CardSet.tcgcsvGroupId` si es `null`). Es el **escape de P-46** cuando el matcher automático escribió un grupo
+  equivocado. Req (`SetMainGroupRequest`): `{ tcgplayerGroupId, reason? }`. Res `200` (`SealedSetGroupDTO` del
+  `set_main` resultante).
+  > **Semántica:** el `set_main` anterior se **DEGRADA a `promo_collection`** (DO-5: conserva el enlace y sus
+  > productos; el super-admin lo retira aparte con el `DELETE` si estorba); el grupo dado se **PROMUEVE** a `set_main`
+  > (si ya estaba enlazado) o se crea; y **REESCRIBE `CardSet.tcgcsvGroupId`** al nuevo grupo. **Money-safe (I-2):**
+  > fija de qué grupo saldrá el precio; **NO fabrica precio** (lo trae el job de ingesta, gateado por el dial).
+  > **AUDITADO (I-4):** `AuditLog action='inventory.sealed_set_main_group_set'`, `entityType='CardSet'`,
+  > `before={tcgcsvGroupId}`, `after={tcgcsvGroupId, reason}`. Err `404 NOT_FOUND` (set), `400 VALIDATION_ERROR`
+  > (`tcgplayerGroupId` no entero positivo).
+- `DELETE /api/v1/admin/inventory/sealed-sets/:setId/groups/:groupId` — **(NUEVO, M11 §11.2, `super_admin`, AUDITADO)** —
+  desenlaza un grupo mal asignado. Res `200` (`{ setId, tcgplayerGroupId, kind }` del enlace borrado).
+  > **Semántica:** borra la fila `SealedSetGroup`; si era el `set_main` (por `kind` o por el espejo denormalizado),
+  > pone `CardSet.tcgcsvGroupId=null` (el set vuelve a «SIN emparejar» en §10, honesto). **Money-safe:** **NO borra
+  > `PriceReference`** ya escritas (quedan stale/inocuas, §4.19c); sólo cambia de dónde saldrá el precio en la próxima
+  > ingesta. **AUDITADO (I-4):** `AuditLog action='inventory.sealed_set_group_unlink'`, `entityType='SealedSetGroup'`,
+  > `before={setId, tcgplayerGroupId, kind}`. Err `404 NOT_FOUND` (set o enlace inexistente), `400 VALIDATION_ERROR`
+  > (`groupId` no entero positivo).
 - **Alta de inventario SELLADO (P-38) — SIN endpoint nuevo:** el front reusa **`POST /admin/inventory/items/batch`** con
   **`sealedProductId`** (identidad; el backend deriva `cardId` ancla + mapeo + imagen/nombre/subtipo del `SealedProduct` y
   congela el snapshot ⇒ nace «ETB …», no Tropius). Precio **en vivo** al alta (TCGCSV → caché → null). **Fallback manual
@@ -20197,6 +20265,49 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 
 ---
 
+### M11 — Sellado (pantalla consolidada) — `vault_operator+` a nivel de ruta; diales `super_admin`
+
+> **M11 (`/admin/m11`) REUBICA y EXPONE superficie ya existente; NO reimplementa lógica de dinero** (regla de oro
+> del diseño). El precio del sellado lo sigue trayendo el job `sealed-price-ingest`; M11 sólo **dispara**, **muestra
+> por qué** un set no trae precio, y **corrige el mapeo** cuando el matcher automático falla. Las invariantes
+> money-safe I-1…I-7 (precedencia de venta de 4 escalones, el maestro NO gatea el override manual, nunca $0, toda
+> escritura de mapeo/dial AUDITADA) **no se tocan**: M11 llama a las MISMAS puertas del backend.
+
+**Composición (cero endpoints nuevos salvo los tres de §M1 abajo):**
+- **(i) Alta de sellado** (`vault_operator+`): reusa `POST /admin/inventory/items/batch` con `sealedProductId`.
+- **(ii) Inventario / ventana de publicación** (`vault_operator+`): reusa `PATCH /admin/inventory/items/:id`
+  (`listPriceCents`/`status`/`sealedSubtype`) y `GET /admin/inventory/sealed-products`.
+- **(iii) Cola «Listas para publicar»** filtrada a sellado (`vault_operator+`): reusa
+  `GET /admin/inventory/pending-publish?productType=sealed`; la fila lleva `sealedSubtype?` (§2.C, ADITIVO).
+- **(iv) Panel de diales** (`super_admin`): los 6 diales del sellado se **editan aquí y sólo aquí** (D-2) por sus vías
+  ya existentes y AUDITADAS — `PUT /admin/settings` (`sealedPriceSource`, `pricingProviderSealed`, `sealedValueTrend`,
+  `sealedRestockAlerts`) y `GET/PUT /admin/pricing/sealed-spreads` (los 2 spreads). El **maestro
+  `sealed_price_source`** (encenderlo es acto de dinero global, I-4/I-7: apagarlo **NO** apaga los overrides manuales)
+  gana su control aquí. El botón **«Traer precios ahora»** dispara `POST /admin/jobs/sealed-price-ingest` (§M10-ops,
+  fail-closed con dial `off`).
+
+**Los TRES endpoints NUEVOS de M11 (definidos arriba en §M1, listados aquí para trazabilidad):**
+- `GET /admin/inventory/sealed-price-status` (`vault_operator+`, read-only, **sin red externa** — O-17) — estado
+  `priced | mapped_unpriced | unmapped` por set (§10). Separa lo que `sealed-sets.unmappedCount` funde.
+- `PUT /admin/inventory/sealed-sets/:setId/set-main-group` (`super_admin`, AUDITADO) — fija/**reemplaza** el `set_main`
+  (escape de P-46; §11.1).
+- `DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId` (`super_admin`, AUDITADO) — desenlaza un grupo (§11.2).
+
+> **Traslado de la superficie de edición de los 6 diales a M11 (D-2):** es **reubicación de frontend**, NO cambio de
+> contrato. `SETTING_DTO_MAP` es una sola lista lectura+escritura de `PUT /admin/settings` (candado `IVA-8(f)`): las
+> claves **se quedan** en el map, los validadores y la auditoría **intactos**; sólo cambia **qué pantalla dibuja el
+> editor**. M2 (`SealedSpreadsSection`) y M10 (`pricingProviderSealed`) dejan de exponer el editor del sellado. **Sin
+> segunda ruta de escritura ⇒ sin divergencia posible.**
+
+**Matcher del sellado (P-46-bis, backend, money):** la resolución del `set_main` del sellado **reusa
+`matchTcgcsvGroupByName`** (la fuente ÚNICA de match S-D3 de sueltas, con el peldaño `exact_debased` para las bases de
+era «SV01: … Base Set»), en vez del `matchScore`/`bestSetMainMatch` duplicado que carecía de ese peldaño. Conserva la
+política money-safe MÁS ESTRICTA del sellado (rechaza el peldaño `contains`; guarda de año) ⇒ sólo `null → groupId`,
+jamás `groupId → OTRO`. Prueba de propiedad de monotonía en `test/tcgcsv-group-match.spec.ts`; canario del sellado en
+`test/sealed-product.service.spec.ts`.
+
+---
+
 ## 11. DTOs de administración (referencia)
 ```ts
 OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, settledAt?,
@@ -20474,11 +20585,16 @@ LiveSellerRowDTO = { seller: { id: string, name: string, email: string, phone: s
 // puede permitirse el fallback al ancla—, aquí la columna «pieza» es lo único que hay.
 // NORMA DE RENDER: con productType='sealed' la vista NO pinta `card.number` ni `finish`; sin `sealedProductName`
 // pinta «sellado sin identificar», JAMÁS `card.name`. La fila NUNCA se oculta (el `folio` la deja accionable).
-// NO viajan aquí (deliberado): sealedProductId, sealedImageUrl, sealedSubtype, sealedCondition, tcgplayerProductId/
+// NO viajan aquí (deliberado): sealedProductId, sealedImageUrl, sealedCondition, tcgplayerProductId/
 // GroupId ni precio nuevo alguno — el alcance D10 «SOLO VISIBILIDAD» de esta cola no se toca.
+// ⚠️ M11 (§2.C, hallazgo C) — `sealedSubtype?: SealedSubtype`: subtipo del sellado (Bundle/Box/ETB…), presente SOLO
+// cuando productType='sealed' (AUSENTE en raw/graded: una carta suelta no tiene subtipo de sellado). Proyección
+// server-side directa de `InventoryItem.sealedSubtype`; el front lo pinta junto a `sealedProductName`. Es display-only
+// (no toca dinero, el alcance D10 «solo visibilidad» se conserva); mismo patrón OPCIONAL condicional que sealedProductName.
 PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, productType: ProductType,
                          finish: Finish, cardProductId: number | null,
                          sealedProductName?: string,        // v1.69.1 — SOLO productType='sealed'
+                         sealedSubtype?: SealedSubtype,      // M11 §2.C — SOLO productType='sealed' (ausente en raw/graded)
                          locationId: string | null, listPriceCents: number | null,
                          resolvedSalePriceCents: number | null, priceBasis: PriceBasis | null,
                          pendingPriceEntryId: string | null,
