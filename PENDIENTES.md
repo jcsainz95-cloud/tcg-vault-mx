@@ -31,6 +31,10 @@ El dueño, probando M1 → pestaña **Sellado** en producción, reportó (con ca
 
 **Dueño:** backend (A, B-back, D) · frontend (B-ui, C) · **product-owner → arquitecto (E, la sección dedicada)**. **Comprobación:** reproducir el alta y las vistas contra el arnés. | 2026-09-17 (dueño lo vivió; A/C no medidos, B/D parcial medido por el orquestador) | capturas del dueño; `inventory.controller.ts:549`; `ItemDetailModal.tsx`; `VariantDrawer.tsx:419`; `inventory.service.ts:576,663,734`
 
+## 🎁 ENTREGA ÚNICA — `claude/entrega-final` (2026-09-17): un solo click
+
+El dueño pidió «mete todo al merge para que solo dé click». Rama única `claude/entrega-final` = **M11** (`claude/m11-final`) **+ devops del disco** (`claude/devops-p53-wal-monitor`: alarma + script WAL). Merge limpio, disjuntos, **cero migraciones**, base `origin/production`. 41 ficheros, +3571/−40. Compare: `production...claude/entrega-final`. **Excluido a propósito:** `claude/fix-p92-flaky` (aún corriendo, es solo un test; entra después). P-53 *cura* sigue en diseño (no construida). Publicar = 1 PR.
+
 ## ✅ M11 · Sellado — LISTA PARA PUBLICAR (2026-09-17) — rama `claude/m11-final`
 
 **ENTREGADO `claude/m11-final` (`d42c0c6d`, base `origin/production`, 36 ficheros +2784/−40, CERO migraciones).** Los 3 filtros satisfechos: techlead APROBADO-c/deuda, seguridad APROBADO-CON-CONDICIONES (0 crít/0 alto), QA — su ÚNICO bloqueante (`C-EQ-1`/eje `state`) CERRADO y verde (backend agente 311/311; árbol final byte-idéntico a esa rama). **O-9 del orquestador sobre el árbol final:** tsc limpio, M11 vitest 28/28, candado de rol MUERDE (mutación `if(false)` ⇒ 1/3 falla), composición verificada (backend==fix-be, frontend==fix-fe). Compare: `production...claude/m11-final`. Deuda diferida (no bloquea): SB-YEAR1 (arquitecto §8), N+1 sealed-price-status, SEC-M11-3/4/5, y el S3-local del CI (devops, ambiental, NO de M11). ⚠️ Jalón real de precios = prod (tcgcsv bloqueado aquí). 
