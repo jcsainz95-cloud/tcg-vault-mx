@@ -1646,6 +1646,28 @@ export class BuylistService implements OnModuleInit {
       throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {});
     }
 
+    // ⭐⭐ v1.71 (D-INE-UMBRAL, decisión del dueño 2026-09-15 «umbral, luego bloqueo» · API_CONTRACT
+    // §M5-K, D51 reescrita) — EXCEPCIÓN ACOTADA A D51. Contigua a `INE_REQUIRED` y sobre el MISMO
+    // `ineRequired` (que ya incluye `|| hasPendingLine`, cierre C15): al/por encima del umbral INE,
+    // una identidad **rechazada** no puede crear la solicitud. Por DEBAJO del umbral, sin efecto
+    // (comportamiento actual intacto). Bloquea SOLO `rejected` (NO `none`/`pending`).
+    // · Reusa el `kyc` ya leído (arriba, por el `userId` autenticado): CERO queries nuevas, CERO PII de
+    //   otro usuario, y se gatea sobre `ineRequired` —no sobre `quotedTotalCents >= ineThreshold` a
+    //   secas— para no reabrir el bypass de «precio pendiente» que C15 cerró.
+    // · Va DESPUÉS de `INE_REQUIRED` (mensaje más accionable para el 99%: «sube tu INE») y ANTES del
+    //   `upsert` de KYC y de la tx serializable: si va a fallar, que falle antes de escribir nada y
+    //   antes de abrir la transacción de dinero. En la práctica excluyentes: un rechazado tiene keys
+    //   en archivo ⇒ `ineProvided=true` ⇒ no dispara `INE_REQUIRED`.
+    // · `details: {}` VACÍO: ni umbral ni PII (jamás `rejectionReason`). El motivo lo lee el propio
+    //   usuario por `GET /users/me/kyc`. Filas legacy `rejected` sin motivo se bloquean igual.
+    if (ineRequired && kyc?.kycStatus === 'rejected') {
+      throw BusinessException.validation(
+        'KYC_REJECTED',
+        'Identity was rejected; cannot sell at/above threshold',
+        {},
+      );
+    }
+
     // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE
     // vigente al crear la solicitud aunque el usuario cambie luego su KYC. NUNCA en claro/logueada.
     const clabeEnc = this.pii.encrypt(effectiveClabe);

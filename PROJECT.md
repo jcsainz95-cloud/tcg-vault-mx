@@ -8841,10 +8841,26 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
 183. **D51 — NO QUEDA NI EL CONTROL NI LA PROMESA: EL COTEJO INE ↔ TITULAR DE LA CLABE SE VERIFICA POR
     AUSENCIA (13ª ronda; retira los criterios 180 y 181)**: verificable en **seis** puntos, y **todos son
     comprobaciones de que algo NO está**:
-    **(a)** **ninguna precondición de dinero exige un estado de KYC verificado**: una solicitud **sobre el
-    umbral**, con **INE en archivo** y **sin que nadie haya marcado nada**, **se oferta y se paga**. *(Es el
-    punto que atrapa el término de D48 si sobrevivió al retiro — mismo patrón con que el criterio 179(g)
-    atrapaba la implementación vieja de BL-38.)*;
+    **(a)** **ninguna precondición de dinero exige un estado de KYC *verificado*** —bloquear por «no
+    verificada» sigue prohibido (D51)—: una solicitud **sobre el umbral**, con **INE en archivo** y **sin que
+    nadie haya marcado nada** (`kycStatus ∈ {none, pending}`), **se oferta y se paga**. *(Es el punto que
+    atrapa el término de D48 si sobrevivió al retiro — mismo patrón con que el criterio 179(g) atrapaba la
+    implementación vieja de BL-38.)*;
+    > ⚠️ **ENMIENDA v1.71 — D-INE-UMBRAL (decisión del dueño 2026-09-15, «umbral, luego bloqueo»). EXCEPCIÓN
+    > ACOTADA A D51, SE LEE JUNTO CON (a) — cambia CÓMO se verifica (a), no la doctrina de D51.** Hasta hoy (a)
+    > se verificaba **por ausencia** de todo bloqueo por `kycStatus`, `rejected` incluido. Ahora la ausencia
+    > vale **solo POR DEBAJO del umbral INE**: por debajo, una solicitud con `kycStatus === 'rejected'` **se
+    > crea igual** (montos chicos se dejan vender aunque la INE esté rechazada — se sigue verificando por
+    > ausencia de bloqueo). **AL/POR ENCIMA del umbral**, en cambio, `POST /buylist/requests` **RECHAZA
+    > `kycStatus === 'rejected'` con `422 KYC_REJECTED`** (contrato §M5-K, tabla E). El gate es el MISMO
+    > `ineRequired` que la puerta INE (`>= INE_THRESHOLD_CENTS` **o** `hasPendingLine`, cierre C15), no
+    > `>= threshold` a secas. ⛔ **Esto NO reintroduce `KYC_NOT_VERIFIED`:** bloquea **SOLO `rejected`** (nunca
+    > `none`/`pending` — el caso «sin que nadie marcó nada» de (a) **sigue creándose sobre el umbral**), gatea
+    > sobre el **veredicto del admin que YA existe** (no sobre el nombre del titular de la CLABE) y **por eso NO
+    > reabre la pregunta 40** (cotejo INE ↔ titular, cerrada con «no existe fuente»): son controles distintos
+    > aunque suenen parecidos. El resto de D51 queda **intacto** — `kycStatus` sigue **sin** gatear ofertar ni
+    > pagar, ni crear por debajo del umbral. QA: canario en `backend/test/buylist.ine-pending.spec.ts` (casos
+    > a/b/c). **Pendiente de 3 veredictos (QA + techlead + seguridad) antes de fusionar (toca dinero/identidad).**
     **(b)** **no existe el mensaje de «el nombre no coincide»** ni ninguna variante suya, **ni en pantalla ni
     en correo**;
     **(c)** **ninguna superficie de cara al vendedor afirma que cotejamos su INE contra el titular de la
