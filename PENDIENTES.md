@@ -5,6 +5,31 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-15** (orquestador, sesión 2, cierre; ver sección nueva abajo). Cuerpos de los ítems históricos: **verbatim**, sin reescribir.
 
+## 🚚 Cola de publicación #38 — LISTA para el botón del dueño (2026-09-17)
+
+**Rama consolidada:** `claude/orq4-integracion-verificada` (SHA `051e50cd`, árbol `4c85d57f`). Base = `origin/main`
+(cuyo árbol es **idéntico** al de `production` — medido 2026-09-16). Integra **6 arreglos**, merge limpio, **sin
+conflicto**, **sin cambios de BD** (cero migraciones). Verificado por el orquestador: paridad i18n es/en 2980=2980,
+JSON válido, árbol del push idéntico al de la integración medida. Solo 3 ficheros compartidos entre ramas (contrato
++ i18n), todos coherentes.
+
+| Rama | Qué cambia (llano) | Dinero | Verificación |
+|---|---|---|---|
+| `fix-ine-threshold-block` | Al rechazar una INE, el buylist queda **bloqueado** hasta re-subir (revierte D51) | **SÍ (lógica)** | **3 veredictos** (qa+techlead+seguridad) |
+| `fix-bounty-prefill` | El campo «Precio ofertado» **muestra** el precio de mercado cotizado (display; no siembra override) | módulo buylist (display) | orquestador; test-guarda: sin tocar ⇒ emite derivado sin override |
+| `fix-sealed-m1-display` | La cola de publicación pinta el **nombre del sellado**, no la carta ancla (P-79c) | módulo inventory (display) | orquestador; passthrough, test-guarda |
+| `fix-envio-dir` | M4 muestra la **calle** del pedido | admin (display) | orquestador 1844/1844 |
+| `ux-pulido` | Acento de estado «aceptada», badge INE, nota post-pago en checkout | frontend | orquestador |
+| `fix-eqd1` | 4 filtros de query no-dinero a `parseEnumFilter` (400 fuera de dominio) | no-dinero | orquestador; ver ficha EQ-D1 |
+
+**Publicar (2 fusiones en GitHub, mismo despliegue final):** (1) PR `claude/orq4-integracion-verificada → main`
+(genera Preview de Vercel); (2) PR `main → production` (#38) → **publica**. Rollback: revertir la fusión #38 (sin BD
+que deshacer). Seguimiento no bloqueante: E2E de concurrencia de INE cierra por CI; copy de `KYC_REJECTED` en
+DESIGN_SYSTEM (ux-ui, menor).
+
+⛔ **El orquestador NO puede empujar a `main`/`production`** (candado «Production Deploy» del entorno). El botón es
+del dueño.
+
 ## Sesión 2 (2026-09-14/15) — pendientes vivos al traspasar
 
 > Medidos por el orquestador de la sesión 2. Estado del árbol al cerrar: `origin/production` = `a108abf`
