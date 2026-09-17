@@ -154,6 +154,11 @@ function buildPrisma(seed: {
         return { count: affected.length };
       }),
     },
+    // SEC-M11-1/-2: `setMainGroup` ahora envuelve sus escrituras en `$transaction`. El doble en memoria
+    // muta los mismos `_stores`, así que ejecutar el callback con el propio `prisma` como `tx` reproduce
+    // la semántica (commit al terminar sin lanzar). Es el mismo patrón de doble que usan las demás specs.
+    $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    auditLog: { create: jest.fn(async () => ({})) },
     _stores: { sets, cards, sealedProducts, sealedSetGroups, inventoryItems },
   };
   return prisma;
@@ -562,6 +567,58 @@ describe('SealedProductService.matchScore — tolerante al prefijo de código de
     expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
     expect(prisma._stores.sealedSetGroups.find((g: any) => g.kind === 'set_main')).toBeUndefined();
     expect(res.groupsPopulated).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // ⭐⭐ IMPORTANTE-3 (QA, P-46-bis) — DOS grupos MISMO-NOMBRE / AÑO-DISTINTO: el resolver único
+  // devuelve `null` DONDE EL VIEJO `matchScore` HABRÍA ELEGIDO EL DEL AÑO. Esta prueba FIJA esa
+  // conducta intencionada (antes no había canario que la sostuviera).
+  //
+  // El caso: el set local «Base Set» (2016) coincide EN AÑO con uno solo de dos grupos homónimos
+  // (uno 1999, otro 2016). El histórico `matchScore` puntuaba 1.0 al del año que empata y 0.7 al
+  // otro, así que `bestSetMainMatch` (viejo) desempataba POR AÑO y adoptaba el de 2016. El resolver
+  // único (`matchTcgcsvGroupByName`) NO desempata por año: los dos nombres normalizan igual ⇒ el
+  // peldaño `exact` tiene DOS candidatos ⇒ `ambiguous` ⇒ `null`, y `bestSetMainMatch` NO baja al
+  // desempate de año (money-safe: match ÚNICO o nada). Es dirección SEGURA — sólo se pierde una
+  // AUTO-adopción que antes ocurría; JAMÁS puede pasar `groupId → OTRO grupo`. La cura sigue viva:
+  // el humano cura a mano (`linkGroup`/`set-main-group`) y ENTONCES sí baja.
+  //
+  // ⚠️ El arquitecto debe ratificar/documentar esta pérdida de desempate-por-año en el diseño §8
+  // (anotado en `docs/TECH_DEBT.md`). Este canario fija la conducta de HOY para que el cambio, si
+  // se decide otro, sea VISIBLE (esta prueba se pondría roja) y no silencioso.
+  // -------------------------------------------------------------------------
+  it('IMPORTANTE-3: dos grupos mismo-nombre/año-distinto → resolver único devuelve null (NO desempata por año como el viejo matchScore)', async () => {
+    const setRow = { id: 'set-1', name: 'Base Set', series: 'BASE', releaseDate: '2016-02-27', tcgcsvGroupId: null };
+    const groups = [
+      { groupId: 100, name: 'Base Set', publishedOn: '1999-01-09' }, // homónimo de otra era
+      { groupId: 200, name: 'Base Set', publishedOn: '2016-02-27' }, // el que EMPATA en año con el local
+    ];
+
+    // 1) La UI de candidatos sí SURFACEA ambos con su score histórico (1.0 el del año, 0.7 el otro):
+    //    el desempate por año sigue INFORMANDO al humano, sólo que ya no AUTO-adopta.
+    const candPrisma = buildPrisma({ sets: [{ ...setRow }] });
+    const cand = await svcOf(candPrisma, buildProvider({ groups })).syncCandidates('set-1');
+    const byId = Object.fromEntries(cand.candidates.map((c) => [c.tcgplayerGroupId, c]));
+    expect(byId[200].matchScore).toBeCloseTo(1.0); // el del año que empata (lo que el viejo elegía)
+    expect(byId[100].matchScore).toBeCloseTo(0.7); // el homónimo de otra era
+
+    // 2) …pero el sync NO adopta NINGUNO: `exact` es ambiguo ⇒ null. `null → groupId` jamás ocurre.
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(
+      prisma,
+      buildProvider({ groups, productsByGroup: { 200: [{ productId: 20, name: 'Base Set Booster Box' }] }, pricesByGroup: {} }),
+    ).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.kind === 'set_main')).toBeUndefined();
+    expect(res.groupsPopulated).toBe(0);
+
+    // 3) La salida manual sigue viva: curado por el humano, ENTONCES sí baja (curado > name-match).
+    const svc = svcOf(
+      prisma,
+      buildProvider({ groups, productsByGroup: { 200: [{ productId: 20, name: 'Base Set Booster Box' }] }, pricesByGroup: {} }),
+    );
+    await svc.linkGroup('set-1', { tcgplayerGroupId: 200, kind: 'set_main' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(200);
   });
 
   // -------------------------------------------------------------------------

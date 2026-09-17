@@ -101,6 +101,8 @@ import { ACCEPTED_RAW_CONDITIONS } from '../../src/common/business-rules';
 import { BOUNTY_STATE_VALUES } from '../../src/modules/pricing/bounty-state';
 import { ADMIN_BOUNTY_SORT_VALUES } from '../../src/modules/pricing/admin-bounties.service';
 import { PENDING_PUBLISH_MISSING_VALUES } from '../../src/modules/inventory/inventory.controller';
+// ⭐ `EQ-D2` — dominio del eje `?state=` de `GET /admin/inventory/sealed-price-status` (M11 §10, clase L).
+import { SEALED_PRICE_STATE_VALUES } from '../../src/modules/inventory/sealed-product.service';
 import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.controller';
 import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
 // ⭐ `EQ-D1` — dominios de los ejes migrados en este pase (kind/scope/sort de catálogo).
@@ -314,14 +316,14 @@ interface Ctx {
 }
 
 /**
- * ⭐ **EL REGISTRO — 36 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1`.**
+ * ⭐ **EL REGISTRO — 37 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` + 1 de `EQ-D2`.**
  *
  * Las **26 transcritas** son las 24 de la tabla de §0-Q punto 4, el `?sort=` que esa tabla registra
  * en su última columna como «no es filtro: es ORDEN — punto 6», y el `?origin=` de `sealed-products`.
  * Las **6** de `EQ-D0` (la bóveda) son conducta YA conforme cuya **fila de §0-Q todavía no existe**:
- * van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`. Las **4** de `EQ-D1` (este pase: `?kind=`,
- * `?scope=`, `?sort=` de los dos catálogos públicos) SÍ tienen fila de §0-Q (el arquitecto la escribió
- * en este pase) ⇒ van `transcrita`.
+ * van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`. Las **4** de `EQ-D1` (`?kind=`, `?scope=`, `?sort=`
+ * de los dos catálogos públicos) y la **1** de `EQ-D2` (este pase: `?state=` de `sealed-price-status`,
+ * M11 §10) SÍ tienen fila de §0-Q (el arquitecto la escribió) ⇒ van `transcrita`.
  *
  * ⚠️ **`R3`: el conteo va fijado con un literal en el trinquete**, no escrito aquí y ya. Este
  * docstring decía «25 filas» cuando había 32 — y el pase entero defiende que *un número sí falla y
@@ -522,6 +524,18 @@ const REGISTRO: readonly AxisRow[] = [
   // es el reverso y sí cambia el resultado; `alterno: 'price_asc'` discrimina del reverso.
   { route: 'GET /catalog/sealed', param: 'sort', clazz: 'ORDEN', allowed: SEALED_LIST_SORT_VALUES, valid: 'price_desc', alterno: 'price_asc', auth: 'public', echoValue: false },
   { route: 'GET /catalog/cards', param: 'sort', clazz: 'ORDEN', allowed: CATALOG_CARDS_SORT_VALUES, valid: 'price_asc', alterno: 'price_desc', auth: 'public', echoValue: false },
+
+  // ==========================================================================================
+  // ⭐⭐ `EQ-D2` (este pase) — el eje `?state=` de `GET /admin/inventory/sealed-price-status` (M11 §10),
+  // que QA rechazó por NO estar registrado (huérfano de `C-EQ-1`). Clase **L**: `SealedPriceState` es
+  // una UNIÓN PURA (⛔ sin columna en `schema.prisma`, `rg 'enum .*SealedPriceState' ⇒ 0`), fuente única
+  // en §Enums; su fila de §0-Q punto 4 la escribió el arquitecto en este pase (clase L ya establecida,
+  // como `?missing=`/`?axis=`) ⇒ va `transcrita`. Ya cableado con `parseEnumFilter('state', …)` en
+  // `inventory.controller.ts` ⇒ ausente ⇒ `200`, fuera de dominio ⇒ `400` con `details.{field,allowed}`,
+  // ⛔ sin `echoValue` (eje NUEVO, no de los seis públicos legados). `valid`/`alterno` discriminan dos
+  // sets sembrados en estados distintos (bloque (i) del fixture).
+  // ==========================================================================================
+  { route: 'GET /admin/inventory/sealed-price-status', param: 'state', clazz: 'L', allowed: SEALED_PRICE_STATE_VALUES, valid: 'unmapped', alterno: 'mapped_unpriced', auth: 'admin', echoValue: false },
 ];
 
 /**
@@ -573,6 +587,14 @@ const BASURA = 'no_soy_un_token_valido';
 const CEQ1_SET_EXTERNAL_ID = 'ceq1-fixture-set';
 const CEQ1_SEALED_PRODUCT_IDS = [990001, 990002];
 const CEQ1_BOUNTY_PRICES = [50_000, 900_000];
+// ⭐ `EQ-D2` — DOS sets propios para `GET /admin/inventory/sealed-price-status?state=`: uno `unmapped`
+//    (producto con grupo NO enlazado) y otro `mapped_unpriced` (grupo enlazado vía `SealedSetGroup`
+//    pero sin precio gateado — sets sintéticos sin cartas ⇒ sin ancla ⇒ sin precio, §10 money-safe).
+//    `releaseDate` en el futuro lejano para que dominen la página 1 (orden `releaseDate desc`) y la
+//    huella de `?state=` sea observable con independencia de cuántos sets tenga el seed.
+const CEQ1_PRICE_SET_EXTERNAL_IDS = ['ceq1-price-unmapped', 'ceq1-price-mapped'];
+const CEQ1_PRICE_PRODUCT_IDS = [990201, 990202];
+const CEQ1_PRICE_MAPPED_GROUP_ID = 990302;
 
 async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.dispute.deleteMany({ where: { description: { startsWith: 'CEQ1-' } } });
@@ -583,8 +605,10 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   // ⭐ `EQ-D1` · `?scope=` — filas de auditoría sembradas para medir `target` vs `actor`.
   await h.prisma.auditLog.deleteMany({ where: { action: { startsWith: 'CEQ1-' } } });
   await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: 'CEQ1-' } } });
-  await h.prisma.sealedProduct.deleteMany({ where: { tcgplayerProductId: { in: CEQ1_SEALED_PRODUCT_IDS } } });
-  await h.prisma.cardSet.deleteMany({ where: { externalId: CEQ1_SET_EXTERNAL_ID } });
+  // ⭐ `EQ-D2` — los dos sets de precio: borrar el `SealedProduct` (y el `SealedSetGroup` cae por
+  //    `onDelete: Cascade` al borrar el `CardSet`) antes del set. Barrido por id/externalId, sin adivinar.
+  await h.prisma.sealedProduct.deleteMany({ where: { tcgplayerProductId: { in: [...CEQ1_SEALED_PRODUCT_IDS, ...CEQ1_PRICE_PRODUCT_IDS] } } });
+  await h.prisma.cardSet.deleteMany({ where: { externalId: { in: [CEQ1_SET_EXTERNAL_ID, ...CEQ1_PRICE_SET_EXTERNAL_IDS] } } });
   await h.prisma.variantPriceOverride.deleteMany({ where: { bountyPriceCents: { in: CEQ1_BOUNTY_PRICES } } });
 }
 
@@ -700,6 +724,29 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       // actor-only: acción POR el cliente sobre otra entidad ⇒ NO aparece en scope `target`.
       { action: 'CEQ1-actor', entityType: 'Order', entityId: order.id, actorUserId: cliente.id, createdAt: new Date(Date.now() - 30_000) },
     ],
+  });
+
+  // (i) ⭐ `EQ-D2` · `GET /admin/inventory/sealed-price-status?state=` — DOS sets propios en estados
+  //     DISTINTOS para que `?state=` sea observable (`unmapped` vs `mapped_unpriced`). El servicio hace
+  //     rollup del PEOR estado por set (`sealed-product.service.ts`); `releaseDate` futuro los pone en la
+  //     cabeza del orden `releaseDate desc` ⇒ su presencia/ausencia CAMBIA la huella con y sin filtro y
+  //     entre tokens, sin depender de cuántos sets traiga el seed. Sin cartas ⇒ sin ancla ⇒ sin precio.
+  const unmappedSet = await h.prisma.cardSet.create({
+    data: { externalId: CEQ1_PRICE_SET_EXTERNAL_IDS[0], name: 'CEQ1 sin mapear', series: 'CEQ1', releaseDate: '2999-12-01' },
+  });
+  const mappedSet = await h.prisma.cardSet.create({
+    data: { externalId: CEQ1_PRICE_SET_EXTERNAL_IDS[1], name: 'CEQ1 mapeado sin precio', series: 'CEQ1', releaseDate: '2999-11-01' },
+  });
+  await h.prisma.sealedProduct.createMany({
+    data: [
+      // `unmapped`: su grupo NO está enlazado (sin `SealedSetGroup`, `tcgcsvGroupId` null) ⇒ SIN emparejar.
+      { setId: unmappedSet.id, tcgplayerProductId: CEQ1_PRICE_PRODUCT_IDS[0], tcgplayerGroupId: 990301, name: 'CEQ1 caja sin mapear', subtype: 'box', origin: 'set_main', active: true },
+      // `mapped_unpriced`: su grupo SÍ está enlazado (abajo), pero sin ancla no hay precio gateado.
+      { setId: mappedSet.id, tcgplayerProductId: CEQ1_PRICE_PRODUCT_IDS[1], tcgplayerGroupId: CEQ1_PRICE_MAPPED_GROUP_ID, name: 'CEQ1 caja mapeada', subtype: 'box', origin: 'set_main', active: true },
+    ],
+  });
+  await h.prisma.sealedSetGroup.create({
+    data: { setId: mappedSet.id, tcgplayerGroupId: CEQ1_PRICE_MAPPED_GROUP_ID, kind: 'set_main', label: 'CEQ1-fixture-mapped' },
   });
 
   return { setId: set.id, userId: cliente.id };
@@ -1012,10 +1059,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // autoridad», y ya van tres veces aquí (`QA-M3`, `C2`, ésta). *Ya que el pase entero defiende
     // que un número sí falla y una fecha no*, el conteo se fija donde falla.
     // 26 transcritas de §0-Q punto 4 + 6 de la bóveda (`EQ-D0`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'`)
-    // + 4 de `EQ-D1` (este pase: `?kind=`, `?scope=`, `?sort=` de los dos catálogos públicos) ⇒ 36.
-    // Las 4 de `EQ-D1` van `transcrita`: su fila de §0-Q la escribió el arquitecto EN ESTE pase, así
+    // + 4 de `EQ-D1` (`?kind=`, `?scope=`, `?sort=` de los dos catálogos públicos) + 1 de `EQ-D2`
+    // (este pase: `?state=` de `sealed-price-status`, M11 §10) ⇒ 37.
+    // Las de `EQ-D1`/`EQ-D2` van `transcrita`: su fila de §0-Q la escribió el arquitecto EN SU pase, así
     // que el conteo de `PENDIENTE-ARQUITECTO` NO sube (sigue en 6, las de la bóveda).
-    expect(REGISTRO.length).toBe(36);
+    expect(REGISTRO.length).toBe(37);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(6);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
