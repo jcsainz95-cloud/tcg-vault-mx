@@ -12108,3 +12108,75 @@ Lo que queda abierto **no es una petición, es trabajo nuestro**: enrutar el roj
 dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-gate` en la ruta de
 publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
 cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.
+
+## §61 · `backend-e2e` rojo en `production`: NO era el S3, era la clave PII que faltaba en el job (S-PII-CI, 2026-09-17)
+
+**El defecto, medido, no el que me pasaron.** Me llegó como «el S3-local rechaza el PUT presignado (SigV4
+403) y/o el seed no sube las imágenes de INE». **Lo medí y es FALSO.** Gana la medición (O-2):
+
+- Contra el `scripts/s3-local/server.js` REAL, con el firmante REAL (`UploadsService`, mismo `@aws-sdk`
+  3.1109.0, mismo `PutObjectCommand`/`GetObjectCommand`) y credenciales que cuadran: **PUT presignado
+  200, GET presignado 200**, bytes correctos, `Content-Disposition: attachment` y `Cache-Control:
+  no-store` honrados. El bloque `G-3` de `kyc-ine-links` (subir → enlazar → DESCARGAR) pasa entero.
+- El `seed:synthetic` sube las 4 imágenes de INE al bucket sin error (`✓ seed-e2e: 4 imágenes de INE
+  sembradas en tcg-photos`).
+- El «PUT presignado devolvió 403» que reportó un agente en local era un **desajuste de secreto** entre
+  el proceso firmante y el `s3-local` (dos `S3_SECRET_ACCESS_KEY` distintas), no un defecto del stand-in.
+
+**La causa raíz REAL** (medida con la API de check-runs de GitHub sobre `production` 187b1d40, más
+reproducción local contra app + Postgres + `s3-local` reales): `backend-e2e` = **`Tests: 3 failed, 973
+passed`**, las tres en `backend/test/integration/kyc-ine-links.e2e-spec.ts`:
+
+| test | ruta que golpea | resultado |
+|---|---|---|
+| K-2 (`:226`) | `GET /admin/users/:id` (customer2) | **HTTP 500** |
+| K-6 (`:305`) | `GET /users/me/kyc` (customer2) | **HTTP 500** |
+| §M6-K.5 (`:325`) | `GET /users/me/kyc?quotedTotalCents=N` (customer2) | **HTTP 500** |
+
+El 500 es, literal en el log de la app: `Error: Unsupported state or unable to authenticate data`, y su
+causa la nombra `UsersService` sola: *«rfcEnc does not decrypt with this process's PII key … Likely
+`PII_ENCRYPTION_KEY` differs from the one that encrypted it (**ephemeral per-process key in a local
+harness**)»*.
+
+**Por qué pasa, en una frase:** el job `backend-e2e` de `.github/workflows/e2e.yml` **nunca fijaba
+`PII_ENCRYPTION_KEY` / `PII_HMAC_KEY`**, y este job tiene **dos procesos que se pasan PII cifrada por la
+BD**: el `seed:synthetic` (proceso `ts-node` aparte) **cifra** el RFC/CLABE del fixture, y la suite jest
+los **descifra** al servir el 360º de admin y el `/users/me/kyc`. Sin la clave en el entorno,
+`PiiCryptoService` cae a una **clave efímera POR PROCESO** (y, peor, POR instancia de app: cada
+`E2EHarness.create()` genera otra). Con claves distintas, el descifrado revienta ⇒ 500.
+
+**Por qué era order-dependent (y por eso «ambiental»):** cada suite crea su propia app con su propia clave
+efímera; quien escribió de último el `billingProfile` del customer2 manda. En el orden de un runner
+LIMPIO (jest ordena por tamaño de fichero, `buylist-cycle` corre PRIMERO y le escribe el `billingProfile`
+al customer2), `kyc-ine-links` (#10) lo lee con OTRA clave ⇒ 500 determinista. En una corrida con caché
+de jest el orden cambia y tapa el fallo — por eso salía verde en algunas máquinas y rojo en CI. El
+arnés nativo (`scripts/stack-native.sh`) ya fija estas dos claves desde 2026-09-11; este job se quedó sin
+ellas, y `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY` **están en el catálogo de secretos exigidos**
+(`security/secretos-exigidos-contenedor.txt`), así que la omisión era un hueco, no una decisión.
+
+**El arreglo (mis rutas, sin tocar código de app ni debilitar prueba alguna):** añadir
+`PII_ENCRYPTION_KEY PII_HMAC_KEY` a la lista de `scripts/secrets-preflight.sh github-env` del paso
+«Resolver secretos» de `e2e.yml`. Se generan por corrida (base64 de 32 bytes, enmascaradas en el log) y
+viven en `$GITHUB_ENV`, así que **el paso de seed y el de test heredan la MISMA clave**: la PII que cifra
+el seed la descifra la app. No se fija ninguna imagen nueva (el arreglo es puro cableado de entorno).
+
+**Medición del arreglo** (app + Postgres + `s3-local` reales, orden de runner limpio = caché de jest
+borrada, BD virgen):
+
+- SIN las dos claves: `Tests: 3 failed, 973 passed` — las MISMAS tres (K-2, K-6, §M6-K.5), reproducido
+  **2/2**, idéntico a lo que reporta CI en `production`.
+- CON las dos claves: **`Tests: 976 passed, 976 total`**, `45 passed` suites. Determinista: la clave
+  estable elimina la dependencia del orden.
+
+**`e2e-real.yml` no está afectado:** resuelve el catálogo COMPLETO (`secrets-preflight.sh github-env` sin
+argumentos), que ya incluye las dos claves. El hueco era exclusivo de la lista acotada de `e2e.yml`.
+
+**Cómo se confirma en CI:** el próximo run de `e2e.yml` sobre esta rama debe dar `backend-e2e` verde
+(`Tests: 976 passed`); si algún día vuelve el 500 en esas rutas, mira primero el aviso
+«PII_ENCRYPTION_KEY not set — using an EPHEMERAL random key» en el log de la app: significa que la clave
+dejó de llegar al proceso.
+
+**Ownership de lo que queda:** que `GET /admin/users/:id` y `GET /users/me/kyc` respondan **500** (y no un
+degradado limpio) ante una fila de PII que no descifra es un comportamiento de **backend** —hoy queda
+tapado por la clave estable, pero un enmascarado/omisión de la fila ilegible sería más robusto que un 500.
+Es hallazgo para **backend**, no arreglo de devops; lo dejo anotado, no tocado.
