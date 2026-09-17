@@ -1,5 +1,12 @@
 # PENDIENTES — TCG HUNT
 
+## 🧪 Tanda M11-2 en QA (2026-09-17) + incidente forense LOCAL
+`claude/tanda-m11-2` (`e691ce0b`, base production, 11 ficheros, cero BD): (a) filtro `?productType=` real en `pending-publish` (backend money; el Salamende ya no se cuela; C-EQ-1 verde, regresión muerde; frontend ya mandaba el query), (b) estado de sellado honesto (frontend, «22 de 23 con precio»), (c) preconnect a `images.scrydex.com` (frontend, perf parcial). **En QA sobre `e691ce0b`.** Luego mi O-9 → un solo link.
+- ⚠️ **INCIDENTE (LOCAL, no prod):** el agente de (a) destruyó sin querer la evidencia forense `SPEI-EJE2-REMEDIADA` (y marcas `SPEI-*/QA-BL35/PENTEST-/POC-/REDTEAM-`) en la **BD de PRUEBAS nativa** al correr un spec con `seedE2E` (patrón `-t` mal citado ⇒ corrió el describe con `beforeAll seedE2E`). **Producción intacta** (egress bloqueado, ni se toca). Dueño: **pentester/seguridad** recrean la evidencia (no la crea el seed determinista; recuperable solo de un snapshot de la BD nativa). No bloquea publicación.
+
+## 🖼️ PERF-IMÁGENES (dueño: ~20s en home + comprar/vender, URGENTE 2026-09-17)
+Medido (agente, O-2 refutó mi teoría): la app **NO usa el optimizador de Next** (0 `next/image`; todo `<img>` crudo desde CDN externa vía `CardImage`). Grids ya lazy + `imageSmallUrl` + paginados. **Hueco real hallado y arreglado:** el `<head>` solo precalentaba `images.pokemontcg.io`, no `images.scrydex.com` (CDN de sets NUEVOS) → añadido preconnect (en la tanda). ⚠️ **Eso NO baja 20s por sí solo** (ahorra el handshake, no el ancho de banda). Egress bloqueado ⇒ no pude cronometrar. **Causa probable de los 20s: la CDN externa lenta.** Decisión del dueño para la cura real: (1) él mide en Network tab (qué imagen/cuánto pesa) o (2) **CDN propia de imágenes** (Cloudflare Images) delante — servicio nuevo, decisión suya. PENDIENTE su respuesta.
+
 ## 🎯 PRÓXIMO + VERIFICACIÓN (actualizado 2026-09-17, cierre de la tanda M11)
 
 ### ✅ Listo para publicar
