@@ -13,7 +13,7 @@
 - **V5 · Decisiones pendientes:** P-94/P-95 (aviso de INE rechazada — 2 decisiones, borrador `docs/specs/P94_P95_KYC_AVISO_DRAFT.md`); **P-53 cura §13** (3 decisiones: FX diaria en gráfica, ventana+respaldo para la poda, frescura graded); y las viejas: S2-COMISION, razón social, S2-RL1, DO-D2, S3-NOOFFER-OFF.
 
 ### 🔨 QUÉ ATACAMOS (orquestador, por prioridad)
-1. **P-53 · la CURA del disco** (escribir fila solo cuando el precio cambia) — diseño LISTO (`docs/specs/P53_CURE_DRAFT.md`); espera las 3 decisiones §13 → backend + **3 gates**. Es la que corta el crecimiento de raíz.
+1. **P-53 · la CURA del disco** — ✅ **APROBADO defaults del dueño (2026-09-17): FX diaria sí · ventana+respaldo sí · frescura graded después.** EN CONSTRUCCIÓN (`claude/be-p53-cura`, base production; write-on-change + stale=evidenceDate??capturedDate + snapshot FX viva + hasRecentIngest + backfill + poda segura). Sigue: 3 gates.  ⟨orig:⟩ (escribir fila solo cuando el precio cambia) — diseño LISTO (`docs/specs/P53_CURE_DRAFT.md`); espera las 3 decisiones §13 → backend + **3 gates**. Es la que corta el crecimiento de raíz.
 2. **P-94/P-95 · aviso de INE rechazada** — tras tus 2 decisiones → arquitecto → backend+frontend.
 3. **EQ-D1 lote 2** — 12 ejes sort/range sin dinero (los money: `?report=`×2, `reason=` van con 3 gates).
 4. **Deuda de M11** (no bloquea, anotada): SB-YEAR1 (arquitecto §8 — empate por año), N+1 de `sealed-price-status` (backend), SEC-M11-3/4/5 (backend), y **robustez: `/admin/users/:id` y `/users/me/kyc` deben degradar, no dar 500, ante PII que no descifra** (backend).
