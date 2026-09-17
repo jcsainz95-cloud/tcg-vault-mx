@@ -349,3 +349,360 @@ ya no exponen editor.
   sola lista lectura+escritura (`API_CONTRACT.md:18988`); por eso las claves **se quedan** y sólo
   cambia la pantalla que las dibuja. Esto hace la migración money-safe y reversible (revertir el PR de
   frontend).
+
+---
+
+# AMPLIACIÓN M11 · TRAER PRECIOS DE SELLADO (rama `claude/arch-m11-precios`)
+
+- **Rama:** `claude/arch-m11-precios`, basada en `origin/claude/arch-m11-sellado` (`ea8fb20a`), que a
+  su vez se basa en `origin/production` (`187b1d40`). **Amplía** este mismo documento (§§1-8 arriba,
+  intactas); añade §§9-13.
+- **Redactado por:** arquitecto, 2026-09-17. Aprobación del dueño: **construir M11 funcional y que
+  TRAIGA precios de sellado** (2026-09-17).
+- **Base medida:** todo `fichero:línea` de §§9-13 se **leyó sobre el árbol de trabajo, que es
+  idéntico a `origin/production` (`187b1d40`)** — verificado `git diff --stat origin/production HEAD`
+  = **sólo este `.md`** (cero código divergente). Salvo donde diga **NO MEDIDO**.
+- **Restricción de entorno (O-17):** el egress a `tcgcsv.com` está **BLOQUEADO** aquí; el fetch real
+  sólo corre en prod. Todo el diseño de §§9-13 se construye/prueba **con fixtures**; el jalón en vivo
+  lo dispara el dueño. Por eso la vista de estado (§10) se diseña **sin depender de TCGCSV** (lee
+  estado persistido), a diferencia del endpoint de candidatos que sí lo necesita.
+- **Regla de oro (heredada):** M11 **reubica y expone** superficie existente; **no reimplementa
+  lógica de dinero**. Las tres adiciones respetan I-1…I-7 (§3). El precio de sellado lo sigue
+  trayendo el job `sealed-price-ingest`; M11 sólo **dispara**, **muestra por qué** y **corrige el
+  mapeo** cuando el matcher automático falla.
+
+## 9. Adición 1 — Botón «Traer precios de sellado ahora» (§iv, `super_admin`)
+
+### Qué es
+Un CTA en la sección (iv) de M11 (panel de diales, `super_admin`) que **dispara el job de ingesta de
+la referencia de mercado del sellado**. No fija precio: sólo pide al backend que consulte TCGCSV y
+upsertee `PriceReference` para los sellados mapeados. Complementa al cron diario con un disparo a
+demanda tras encender el dial o tras corregir un mapeo (§11).
+
+### Reuso citado (cero endpoint nuevo)
+- **Endpoint:** `POST /api/v1/admin/jobs/sealed-price-ingest` — **ya existe**
+  (`backend/src/jobs/admin-jobs.controller.ts:217`), clase `@Roles(Role.super_admin)`
+  (`admin-jobs.controller.ts:42`), `@HttpCode(202)` (`:218`).
+- **Body opcional:** `SealedPriceIngestDto` (`admin-jobs.controller.ts:27-32`) acepta `groupId?`
+  (entero `≥1`, `@IsOptional @IsInt @Min(1)`) para acotar a UN grupo (verificación de esquema en
+  staging). El botón «traer todo» **no envía body**; el disparo acotado (§11.iv) envía `{groupId}`.
+- **Fail-closed por dial:** con `sealed_price_source=off` el disparo cortocircuita y devuelve
+  `{ enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF' }` (`backend/src/jobs/sealed-price-ingest.service.ts:55-60`;
+  `isEnabled` lee el dial `SEALED_PRICE_SOURCE`, `backend/src/modules/pricing/sealed-price-ingest.service.ts:52-55`).
+- **Single-flight:** flag en memoria; un segundo disparo concurrente devuelve `enqueued:false` sin
+  `reason` (`sealed-price-ingest.service.ts:62-66`).
+- **AWAITED:** el job hace `await this.ingest.run(fx, groupId)` **antes** de responder
+  (`sealed-price-ingest.service.ts:68-74`) — el `202` llega **cuando la corrida ya terminó** (alcance
+  minúsculo, decenas de requests). Distinto del `price-ingest` de singles, que es fire-and-forget con
+  polling (`admin-jobs.controller.ts:196-197`).
+- **Auditoría:** `jobs.sealed_price_ingest.run` con `{ job, groupId, enqueued, reason? }`
+  (`admin-jobs.controller.ts:224-236`). El botón **no** añade auditoría nueva: usa la del endpoint.
+
+### Delta de contrato
+**Ninguno de endpoint.** El endpoint, su rol, su DTO y su `202` ya están en el contrato (§M10-ops).
+Delta **documental** en `API_CONTRACT.md` §M11: anotar que la **superficie de disparo** del job es el
+botón de M11 (antes: sólo `curl`/runbook), y en `ARCHITECTURE.md` §4.19d que M11 es su superficie de
+ops. Ver §13 para el matiz del cuerpo de respuesta.
+
+### Estados de UI (los tres que el usuario ve)
+El shape de respuesta es `{ job, enqueued, jobId?, reason?, scope?, groupId? }`
+(`sealed-price-ingest.service.ts:9-18`). El botón mapea:
+1. **Dial `off` → `SEALED_PRICE_SOURCE_OFF`:** `enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'`. El
+   botón muestra un aviso inline «La fuente automática de mercado del sellado está **apagada**.
+   Enciéndela arriba (dial `sealed_price_source`) para traer precios» con deep-link al toggle de §3.
+   **No es error**: es la puerta money-safe (I-2). El botón queda **deshabilitado** cuando el dial
+   está `off` (leído de `sealedPriceSource` que ya viaja en las respuestas de sellado,
+   `sealed-product.service.ts:225,252`), y el aviso explica por qué.
+2. **Encolado/hecho:** `enqueued:true`. Como es AWAITED, al resolver la promesa la corrida terminó;
+   el botón muestra «Ingesta completada» y **refresca la vista de estado (§10)** para que el usuario
+   vea el resultado real (cuántos sets pasaron a «con precio»). Ver §13: el `202` **no** trae los
+   conteos (`priced`/`unmatched`); ésos se leen de §10, que es justo lo que ata las adiciones 1 y 2.
+3. **Ya en curso:** `enqueued:false` sin `reason` (single-flight). El botón muestra «Ya hay una
+   ingesta en curso; espera a que termine» y no reintenta.
+
+### Permiso
+`super_admin` (heredado de la clase `@Roles(Role.super_admin)` del controller de jobs,
+`admin-jobs.controller.ts:42`). El CTA vive **dentro** de la sección (iv), ya envuelta en
+`SuperAdminOnly` (§1, guarda de pantalla). Defensa en profundidad: el backend rechaza 403 a
+`vault_operator`.
+
+### Invariantes money-safe
+- **I-2 preservada:** el botón **no fabrica precio**. Con el dial `off` no ingiere nada; con `on`,
+  sólo pide al backend consultar la fuente y upsertear `PriceReference` (informativo, §4.19a). Si un
+  sellado no tiene mapeo o la fuente no trae precio, queda *SIN PRECIO DE MERCADO* — el botón no lo
+  cambia.
+- **I-4 preservada:** todo disparo queda en `AuditLog` a nombre del super-admin
+  (`admin-jobs.controller.ts:224-236`).
+- **R-3 (heredada):** encender el dial + darle al botón **no cura el mapeo**. Si el set no tiene grupo
+  resuelto (P-46), seguirá sin precio aunque el dial esté `on` y el job corra. El copy del botón
+  **no** debe prometer «esto trae todos los precios»; debe decir «dispara la ingesta de los sellados
+  **ya mapeados**» y remitir a §10/§11 para los que no traen.
+
+### Criterios de aceptación + pruebas canario
+- **CA-7:** con dial `off`, el botón está deshabilitado y el disparo (si se fuerza vía API) devuelve
+  `SEALED_PRICE_SOURCE_OFF`; **no** se escribe ninguna `PriceReference`.
+- **CA-8:** con dial `on` y ≥1 sellado mapeado con precio en la fuente (fixture), el botón dispara,
+  la corrida upsertea `PriceReference`, y al refrescar §10 el set pasa a «con precio».
+- **CA-9:** un `vault_operator` no ve el botón (sección iv con candado) y el endpoint le da 403.
+- **Prueba `M11-ingest-button-off`** (integración, DINERO): `POST /admin/jobs/sealed-price-ingest`
+  con dial `off` → `{enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'}` y **cero** filas
+  `PriceReference` nuevas. **Falla si** el botón/endpoint ingiere con el dial apagado.
+- **Prueba `M11-ingest-button-role`** (integración): mismo `POST` con token `vault_operator` → `403`.
+- **Prueba `M11-ingest-button-fixture`** (integración, DINERO, O-17 con fixture): con el provider
+  TCGCSV **mockeado** (egress bloqueado aquí), dial `on`, un grupo mapeado → la corrida upsertea la
+  `PriceReference` esperada y el `202` trae `enqueued:true`. **Falla si** el cableado del botón al job
+  se rompe. *(El jalón en vivo lo hace el dueño en prod; aquí se prueba contra fixture.)*
+
+## 10. Adición 2 — Vista de estado por set de sellado (§ii/§iii, `vault_operator+`)
+
+### Qué es
+Una vista que, **por set de sellado**, dice en cuál de **tres estados** está su precio:
+**«con precio» · «emparejado sin precio» · «SIN emparejar»**. Es lo que deja ver **por qué** un set no
+trae precio, para decidir si hace falta corregir el mapeo (§11) o sólo disparar la ingesta (§9).
+
+### Medición: ¿existe ya un endpoint de lectura que dé este estado? — **NO** (medido)
+Medí las tres lecturas de sellado en `origin/production`:
+- **`GET /admin/inventory/sealed-sets`** (`inventory.controller.ts:123`, `vault_operator+` por la
+  clase `:84`; svc `sealed-graded.service.ts:121`): da por set `pieceCount`, `listedCount`,
+  `unmappedCount`, `marketValueMxnCents`. **Pero `unmappedCount` CONFLA los dos estados que nos
+  importan**: cuenta junto lo «no mapeado» y lo «mapeado sin precio»
+  (`sealed-graded.service.ts:196-198`, comentario y código: *«Sin mercado = no mapeada O mapeada sin
+  ingest»*). Además **sólo lista sets con ≥1 pieza sellada de plataforma** (`sealedScope()`
+  `:106-112`), así que un set del catálogo (`SealedProduct`) sin inventario **no aparece**, y no dice
+  nada del mapeo a nivel de **grupo** del set.
+- **`GET /admin/inventory/sealed-products?setId=`** (`inventory.controller.ts:188`, `vault_operator+`;
+  svc `sealed-product.service.ts:158-253`): da, **por producto de UN set**, `marketRef`,
+  `effectiveMarketCents`, `sealedPriceSource`, los `groups` (`SealedSetGroup` con `kind`/`label`) y
+  `needsSync`. Es la lectura per-producto correcta, pero **requiere `setId`** y **no agrega** el
+  estado por set ni lista todos los sets.
+- **`GET /admin/inventory/sealed-products/sync/candidates?setId=`** (`inventory.controller.ts:241`,
+  `super_admin`; svc `sealed-product.service.ts:582-601`): da candidatos por name-match, pero
+  **DEPENDE de TCGCSV vivo** (`listGroupsOr502` → `502`; `sealed-product.service.ts:585,749-759`) — en
+  este entorno el egress está bloqueado (O-17), así que **no** sirve como vista de estado offline.
+
+**Conclusión (gana lo medido):** no hay un endpoint que dé los tres estados agregados **por set**
+desde estado **persistido**. `sealed-sets` está cerca pero (a) funde «emparejado sin precio» con «SIN
+emparejar», (b) ignora el catálogo sin inventario y (c) no expone el mapeo por grupo. ⇒ **Se
+especifica un endpoint de lectura nuevo (regla 9).**
+
+### Delta de contrato — endpoint de lectura NUEVO (regla 9)
+`GET /api/v1/admin/inventory/sealed-price-status` — `vault_operator+` (misma clase que el resto de
+lecturas de sellado). **Read-only, sin escritura, sin red externa** (lee sólo estado persistido →
+O-17 safe; es exactamente el diseño que se puede construir y probar aquí con fixtures de BD).
+
+- **Query:** `?q?=` (filtro por nombre de set), `?state?=` (`priced | mapped_unpriced | unmapped`,
+  para filtrar a un estado), `?page?=`, `?pageSize?=`. `?state?` **se DERIVA** del enum de estados de
+  abajo (clase E, no dos literales a mano — misma doctrina que `origin` en `sealed-products`,
+  `inventory.controller.ts:198-204`).
+- **Respuesta (borrador de DTO, ADITIVO):**
+  ```ts
+  /** v1.xx (M11) — estado de precio/mapeo del sellado POR SET, desde estado persistido (sin TCGCSV). */
+  interface SealedPriceStatusRowDTO {
+    set: SetRefDTO;                         // reusa SetRefDTO existente
+    setMainGroupId: number | null;          // CardSet.tcgcsvGroupId (denormalizado del set_main)
+    linkedGroupIds: number[];               // SealedSetGroup.tcgplayerGroupId del set
+    productCount: number;                    // SealedProduct active del set
+    /** Desglose de los tres estados a nivel de PRODUCTO sellado del set: */
+    priced: number;                          // con PriceReference gateada != null (effectiveMarketCents)
+    mappedUnpriced: number;                  // tcgplayerProductId != null pero sin PriceReference gateada
+    unmapped: number;                        // sin grupo/productId resuelto
+    /** Estado ROLLUP del set (el peor no-vacío): 'unmapped' | 'mapped_unpriced' | 'priced'. */
+    state: SealedPriceState;
+    /** Por qué NO trae precio, para el humano (sin abrir logs): 'no_group' | 'dial_off' | 'no_source_price'. */
+    reason?: SealedPriceStatusReason;
+  }
+  interface SealedPriceStatusResponse {
+    sealedPriceSource: 'tcgcsv' | 'off';    // el dial (para el copy: si off, todo es 'mapped_unpriced' por gate)
+    data: SealedPriceStatusRowDTO[];
+    page: number; pageSize: number; total: number;
+  }
+  ```
+- **Enums nuevos (§Enums del contrato, sin columna en BD → clase L documentada, no derivada de
+  schema):** `SealedPriceState = priced | mapped_unpriced | unmapped`;
+  `SealedPriceStatusReason = no_group | dial_off | no_source_price`.
+- **Proyección backend (sin red):** join en memoria de `SealedProduct` (active) + `SealedSetGroup` +
+  `CardSet.tcgcsvGroupId` + el resolver gateado que ya usa `listSealedProducts`
+  (`getReferencesBatch` + `gateSealedMarketCents`, `sealed-product.service.ts:224-241`) para clasificar
+  cada producto. **Reusa el resolver H-1 existente** — no reimplementa el gate (I-2/I-6). Money-safe:
+  clasifica, no fija precio. **Cero llamadas a `fetchSealedPricesForGroup`/`listGroups`** (a
+  diferencia de `listSealedProducts` y `syncCandidates`), por lo que **no** toca `tcgcsv.com`.
+
+### Dónde se muestra en M11
+En la sección (ii)/(iii): una tabla o badges por set con los tres estados y el `reason`. «SIN
+emparejar» abre el flujo de mapeo manual (§11); «emparejado sin precio» con dial `on` ofrece el botón
+de §9 (disparar ingesta); «emparejado sin precio» con dial `off` explica que falta encender el dial.
+
+### Invariantes money-safe
+- **I-2/I-6 preservadas:** el estado `priced` se decide con **el mismo gate** que el alta
+  (`gateSealedMarketCents`, `sealed-product.service.ts:239`), no con un cálculo nuevo. `effectiveMarketCents == null` ⟺
+  el backend valuaría `PRICE_PENDING` — la vista **refleja** esa verdad, no la inventa.
+- **Nunca $0:** los conteos son de estado, no de dinero; no se muestra ningún precio derivado aquí.
+
+### Criterios de aceptación + pruebas canario
+- **CA-10:** un set con `SealedProduct` mapeados y `PriceReference` gateada → `state:'priced'`; un set
+  mapeado sin `PriceReference` (o con dial `off`) → `state:'mapped_unpriced'` con `reason:'dial_off'`
+  o `'no_source_price'`; un set sin grupo resuelto → `state:'unmapped'` con `reason:'no_group'`.
+- **CA-11 (O-17):** la vista se puebla **sin** llamar a TCGCSV (medible: el endpoint responde con el
+  egress bloqueado; no hay `502`).
+- **Prueba `M11-status-three-states`** (integración): tres sets fixture (mapeado+preciado,
+  mapeado-sin-precio, sin-mapear) → el endpoint los clasifica en los tres estados y sus conteos
+  cuadran. **Falla si** funde estados (el defecto de `unmappedCount` que este endpoint corrige).
+- **Prueba `M11-status-no-egress`** (integración, O-17): con el provider TCGCSV que **lanza** al ser
+  llamado, el endpoint responde `200` igual → prueba que **no** lo llama. **Falla si** el endpoint
+  depende de la red.
+- **Prueba `M11-status-gate-parity`** (unit, DINERO): un producto con `PriceReference` y dial `off`
+  cuenta como `mapped_unpriced` (no `priced`), igual que el alta lo trataría `PRICE_PENDING`. **Falla
+  si** la clasificación diverge del gate (I-2).
+
+## 11. Adición 3 — Mapeo manual set→grupo TCGCSV (§iv, `super_admin`) — escape de P-46
+
+### Qué es
+Cuando el matcher automático **no** resuelve el grupo TCGCSV de un set (P-46: prefijo «SV08: Pitch
+Black» vs «Pitch Black», o ambigüedad), el super-admin **fija a mano** el `tcgplayerGroupId` del set.
+**Con esto M11 trae precios aunque el matcher automático no cuadre** — es lo que hace M11 funcional
+sin esperar a que se cierre P-46 en backend (§12).
+
+### Medición: ¿existe ya campo/endpoint para persistir el mapeo? — **PARCIAL** (medido)
+- **Persistir un grupo ya se puede:** `POST /admin/inventory/sealed-sets/:setId/groups`
+  (`inventory.controller.ts:254`, `super_admin`, `201`, auditado `inventory.sealed_set_group_link`
+  `:263-270`; svc `linkGroup` `sealed-product.service.ts:608-655`). Enlaza un grupo con su `kind`; si
+  `kind='set_main'` y `CardSet.tcgcsvGroupId` es **null**, lo puebla (`:642-647`).
+- **El sync acepta grupos explícitos:** `POST /admin/inventory/sealed-products/sync {setId, groupIds}`
+  (`inventory.controller.ts:218`); los `groupIds` se enlazan como `promo_collection`
+  (`sealed-product.service.ts:380-382`).
+- **El ingest acota con `{groupId}`** pero **eso NO persiste un mapeo** — sólo limita qué grupo barre
+  esa corrida (`sealed-price-ingest.service.ts:51-53,86-87`).
+- **Schema:** `CardSet.tcgcsvGroupId Int?` (`schema.prisma:604`); `SealedSetGroup` con
+  `@@unique([setId, tcgplayerGroupId])`, `onDelete: Cascade`, **sin marca de override**;
+  `SealedGroupKind = set_main | promo_collection`.
+
+**GAP medido (gana lo medido):** hay cómo **añadir** un grupo, pero **no** cómo **corregir** uno
+equivocado, que es justo el escape de P-46 que hace falta:
+1. `linkGroup` puebla `CardSet.tcgcsvGroupId` **sólo si es null** (`:642`). Si el matcher ya escribió
+   un `set_main` **equivocado**, no hay forma de reemplazarlo por API.
+2. Re-enlazar el mismo `(setId, groupId)` da **409** (`:617,637-639`); no permite cambiar el `kind`.
+3. **No existe `DELETE`/unlink** de un `SealedSetGroup` (medido: sólo `@Get`/`@Post` en el controller
+   para `sealed-sets`, `inventory.controller.ts:123,136,254`).
+
+### Delta de contrato — endpoints NUEVOS (regla 9), con auditoría
+Dos endpoints nuevos, `super_admin`, auditados, para **corregir** el mapeo (el `linkGroup` existente
+se conserva para el caso «añadir cuando está vacío»):
+
+1. **`PUT /api/v1/admin/inventory/sealed-sets/:setId/set-main-group`** — fija/**reemplaza** el grupo
+   `set_main` del set aunque ya haya uno.
+   - **Body:** `{ tcgplayerGroupId: number (int ≥1), reason?: string }`.
+   - **Semántica:** upsertea la fila `SealedSetGroup` de `kind='set_main'` del set al `groupId` dado
+     (degradando el `set_main` anterior a `promo_collection` **o** desenlazándolo, ver DO-5) y
+     **reescribe `CardSet.tcgcsvGroupId`** (a diferencia de `linkGroup`, que sólo escribe si es null).
+   - **Auditoría (I-4):** `action:'inventory.sealed_set_main_group_set'`,
+     `entityType:'CardSet'`, `entityId:setId`, `before:{ tcgcsvGroupId }`, `after:{ tcgcsvGroupId,
+     reason }`. Deja `before/after` para que quede el grupo anterior (auditoría de un acto que mueve de
+     dónde saldrá el precio del set).
+   - **Respuesta:** el `SealedSetGroupDTO` del `set_main` resultante (reusa el DTO existente,
+     `sealed-product.service.ts:51-57`).
+   - **Errores:** `404` (set), `422 VALIDATION_ERROR` (`groupId` no entero positivo).
+2. **`DELETE /api/v1/admin/inventory/sealed-sets/:setId/groups/:groupId`** — desenlaza un grupo mal
+   asignado.
+   - **Semántica:** borra la fila `SealedSetGroup`; si era el `set_main`, pone `CardSet.tcgcsvGroupId`
+     a `null` (vuelve al estado «SIN emparejar» de §10, honesto).
+   - **Auditoría (I-4):** `action:'inventory.sealed_set_group_unlink'`,
+     `entityType:'SealedSetGroup'`, `before:{ setId, tcgplayerGroupId, kind }`.
+   - **Errores:** `404` (set o enlace inexistente).
+   - **Nota money-safe:** desenlazar **no borra `PriceReference`** ya escritas (quedan stale/inocuas,
+     §4.19c); sólo cambia de dónde saldrá el precio en la próxima ingesta.
+
+### El ciclo completo (O-4) — cómo M11 trae precio pese a P-46
+1. §10 muestra el set en «SIN emparejar» (`reason:'no_group'`).
+2. El super-admin abre candidatos (`GET .../sync/candidates`, **requiere prod/TCGCSV** — O-17: aquí
+   con fixture; en prod real) **o** teclea el `groupId` a mano si lo conoce.
+3. `PUT .../set-main-group {tcgplayerGroupId}` fija el mapeo (auditado).
+4. `POST .../sealed-products/sync {setId}` puebla los `SealedProduct` del grupo (persiste
+   `tcgplayerProductId`/`tcgplayerGroupId`, `sealed-product.service.ts:419-431`).
+5. Botón §9 (`POST /admin/jobs/sealed-price-ingest`) trae `PriceReference`.
+6. §10 muestra el set en «con precio». **Ciclo cerrado sin tocar el matcher automático.**
+
+### Permiso
+`super_admin`, en la sección (iv) (envuelta en `SuperAdminOnly`). Los dos endpoints nuevos llevan
+`@Roles(Role.super_admin)` a nivel de método (como `sealed-products/sync`,
+`inventory.controller.ts:220`), no sólo la clase.
+
+### Invariantes money-safe
+- **I-2/I-4:** fijar el mapeo **no fabrica precio** (sólo dice de qué grupo saldrá); el precio lo trae
+  el job §9, gateado por el dial. Todo cambio de mapeo queda en `AuditLog` con `before/after`.
+- **Anti-adivinación (heredada de `bestSetMainMatch`, `sealed-product.service.ts:812`):** el mapeo
+  manual es **explícito** (un humano fija el `groupId`); no relaja el criterio automático. El matcher
+  sigue devolviendo `null` ante ambigüedad; la corrección la pone una persona, auditada.
+
+### Criterios de aceptación + pruebas canario
+- **CA-12 (corrige un mapeo equivocado):** un set con `CardSet.tcgcsvGroupId` **ya poblado con el
+  grupo equivocado** → `PUT .../set-main-group` lo reemplaza y `CardSet.tcgcsvGroupId` cambia (lo que
+  `linkGroup` **no** puede, medido `:642`).
+- **CA-13 (desenlaza):** `DELETE .../groups/:groupId` de un `set_main` → el set vuelve a «SIN
+  emparejar» en §10 y `CardSet.tcgcsvGroupId` queda `null`.
+- **CA-14 (permiso):** `vault_operator` → `403` en ambos endpoints.
+- **CA-15 (funcional pese a P-46):** un set que el matcher automático deja `null` (fixture con nombre
+  prefijado ambiguo) → tras `PUT .../set-main-group` + `sync` + botón §9, el set pasa a «con precio»
+  en §10. **Es la prueba de que M11 trae precios aunque P-46 no se cierre.**
+- **Prueba `M11-remap-overwrites`** (integración): `PUT` sobre un set con `set_main` existente
+  reescribe `CardSet.tcgcsvGroupId` y degrada/borra el anterior; el `AuditLog` trae `before/after`.
+  **Falla si** conserva el grupo viejo (el bug de `linkGroup`).
+- **Prueba `M11-remap-audit`** (integración, I-4): cada `PUT`/`DELETE` escribe su `AuditLog` con
+  actor super-admin. **Falla si** salta la auditoría.
+- **Prueba `M11-remap-role`** (integración): `vault_operator` → `403` en `PUT` y `DELETE`.
+- **Prueba `M11-remap-no-price-fabrication`** (unit, DINERO): fijar el mapeo **no** crea ni cambia
+  ninguna `PriceReference` por sí solo. **Falla si** el remap toca dinero.
+
+## 12. Nota para backend — P-46 (money, NO lo diseño a fondo: es su módulo)
+
+**Trabajo backend money, con 3 gates (QA + techlead + seguridad).** Diagnóstico medido, no diseño de
+solución:
+
+- **La escalera anti-P-46 ya existe para SINGLES:** `matchTcgcsvGroupByName`
+  (`backend/src/modules/pricing/providers/tcgcsv-group-match.ts:101`) tiene los peldaños `exact` /
+  `exact_unprefixed` (P-46) / `exact_debased` (P-46-bis, sufijo «Base Set») / `contains`, con
+  desambiguación money-safe (match único o `null`, nunca adivina). La consumen la ruta de **precio**
+  de singles (`TcgcsvSinglesBulkPriceProvider`) y la de **estructura**
+  (`CardProductResolverService`) — comentario `tcgcsv-group-match.ts:18-26`.
+- **La ruta del SELLADO usa OTRO matcher, MENOS completo:** `SealedProductService.matchScore`
+  (`sealed-product.service.ts:782-800`) + `bestSetMainMatch` (`:803-814`). `matchScore` **sí** tolera
+  el prefijo (`setNameCandidates`, `:786-796`) — o sea, el P-46 «puro» está cubierto — **pero no tiene
+  el peldaño `exact_debased`** (bases de era «SV01: … Base Set») ni la escalera de desambiguación de
+  `tcgcsv-group-match.ts`. `bestSetMainMatch` exige `score≥0.9` y **único en el tope** (`:809-812`):
+  los nombres cortos de era que son subcadena de varios grupos caen a `null`. **⇒ La clase
+  P-46-bis NO está cerrada en la ruta del sellado** (medido).
+- **El arreglo (para backend):** hacer que la resolución de `set_main` del sellado **reuse
+  `matchTcgcsvGroupByName`** (la fuente única ya existente) en lugar de `matchScore`/`bestSetMainMatch`,
+  o extienda `matchScore` con el peldaño `exact_debased`. Debe conservar la monotonía money-safe
+  (`null → groupId`, nunca `groupId → OTRO`) y su prueba de propiedad
+  (`test/tcgcsv-group-match.spec.ts`, citada `tcgcsv-group-match.ts:69`). ⚠️ El comentario de ese
+  fichero **ya advierte** que copiar el match es cómo P-46 llegó a tres sitios y nunca al que movía
+  dinero (`:26`): la tercera ruta (sellado) es exactamente esa advertencia.
+- **Gates:** toca `pricing`/`inventory` (dinero) → los tres veredictos. El modelo fuerte escribe la
+  prueba que **debe fallar** (un set de era ambiguo que hoy queda `null` y debería resolver) antes de
+  arreglar.
+- **Independencia (lo importante para el dueño):** **el mapeo manual (§11) hace M11 funcional aunque
+  P-46 no se cierre.** El arreglo del matcher es «que emparejen solos»; §11 es «que emparejen aunque
+  no». Se pueden entregar por separado; M11 no depende de P-46.
+- **O-17:** medir el matcher en vivo necesita la lista real de grupos de `tcgcsv.com` (bloqueada
+  aquí). Backend prueba con **fixtures** de nombres de grupo (como ya hace `tcgcsv-group-match.spec.ts`);
+  el jalón real lo confirma el dueño en prod.
+
+## 13. Riesgos y decisiones abiertas de la ampliación
+
+- **R-5 · El `202` del botón no trae los conteos de la corrida.** Medido: el shape es
+  `{job, enqueued, jobId?, reason?, scope?, groupId?}` (`sealed-price-ingest.service.ts:9-18`); los
+  `priced`/`unmatched`/`groups` viven en `SealedIngestRunResult`
+  (`modules/pricing/sealed-price-ingest.service.ts:9-21`) y **no** se exponen. Por eso el botón
+  **refresca §10** para mostrar el resultado real, en vez de inventar un conteo. *(Opción para el
+  dueño, DO-6: si se quiere el conteo en la respuesta del botón, es un delta ADITIVO al `202` — no lo
+  incluyo por defecto para no ampliar el contrato sin pedirlo.)*
+- **R-6 · Los candidatos (`sync/candidates`) necesitan TCGCSV vivo.** La vista de estado §10 **no**;
+  el mapeo manual §11 **sí** para *sugerir* candidatos, pero **no** para *fijar* el `groupId` (se
+  puede teclear a mano). Aquí (O-17) los candidatos se prueban con fixture; en prod el dueño ve la
+  lista real.
+- **DO-5 · ¿Qué pasa con el `set_main` viejo al reemplazarlo (§11.1)?** Recomiendo **degradarlo a
+  `promo_collection`** (conserva el enlace por si tenía productos válidos) en vez de borrarlo; el
+  super-admin lo borra aparte con el `DELETE` si estorba. El dueño decide.
+- **DO-6 · ¿Conteos en la respuesta del botón?** Ver R-5. Recomiendo **no** por ahora (§10 lo cubre).
+- **Zona de dinero:** las tres adiciones tocan `inventory`+`pricing`+`jobs` y los dos endpoints
+  nuevos + los enums pasan por arquitecto (regla 9, ya en este doc) y por los tres veredictos.
