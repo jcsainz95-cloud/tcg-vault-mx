@@ -786,86 +786,169 @@ export class SealedProductService {
       groupsBySet.set(g.setId, arr);
     }
 
-    const rows: SealedPriceStatusRowDTO[] = [];
-    for (const set of sets) {
-      const setProducts = productsBySet.get(set.id) ?? [];
-      const setGroups = groupsBySet.get(set.id) ?? [];
-      const linkedGroupIds = [...new Set(setGroups.map((g) => g.tcgplayerGroupId))].sort((a, b) => a - b);
-      const setMainGroupId =
-        set.tcgcsvGroupId ?? setGroups.find((g) => g.kind === 'set_main')?.tcgplayerGroupId ?? null;
-      const linkedSet = new Set<number>(linkedGroupIds);
-      if (setMainGroupId != null) linkedSet.add(setMainGroupId);
+    // SEC-M11-5 (perf): el orden de salida es lanzamiento desc (convención de pestaña), y depende SÓLO
+    // del `CardSet` (no del estado gateado), así que se calcula ANTES de gatear para poder ACOTAR el
+    // trabajo. `sort` estable ⇒ los empates conservan el orden de `findMany` (idéntico al de antes, que
+    // ordenaba las filas ya construidas por el mismo campo).
+    const sortedSets = [...sets].sort((a, b) => (b.releaseDate ?? '').localeCompare(a.releaseDate ?? ''));
 
-      // Referencias gateadas de los productos del set — la MISMA cadena H-1 que `listSealedProducts`
-      // (ancla del set + getReferencesBatch + gateSealedMarketCents). Sin ancla ⇒ sin clave ⇒ null.
-      const anchorCardId = await this.resolveAnchorCardId(set.id);
-      const effectiveByProductId = new Map<number, number | null>();
-      if (anchorCardId && setProducts.length > 0) {
-        const refs = await this.pricing.getReferencesBatch(
-          setProducts.map((p) => ({
-            cardId: anchorCardId,
-            productType: 'sealed' as const,
-            gradeKey: sealedMarketGradeKey(p.tcgplayerProductId),
-            finish: 'normal' as const,
-          })),
-        );
-        for (const p of setProducts) {
-          const ref = refs.get(`${anchorCardId}|sealed|${sealedMarketGradeKey(p.tcgplayerProductId)}|normal`);
-          effectiveByProductId.set(p.tcgplayerProductId, this.pricing.gateSealedMarketCents(ref, sourceOn));
-        }
-      }
+    // SEC-M11-5 (perf): SIN filtro de estado la página se decide sólo por ese orden, así que se gatea
+    // ÚNICAMENTE la página — no todo el universo. CON filtro de estado hay que conocer el estado de cada
+    // set (⇒ gatear todos), pero el gate va EN LOTE (una consulta de anclas + un `getReferencesBatch`),
+    // nunca N+1 por set. En ambos casos la conducta observable es idéntica (mismos estados/orden/total).
+    const targetSets = params.state
+      ? sortedSets
+      : sortedSets.slice((params.page - 1) * params.pageSize, params.page * params.pageSize);
 
-      let priced = 0;
-      let mappedUnpriced = 0;
-      let unmapped = 0;
-      for (const p of setProducts) {
-        // «Mapeado» = su grupo está resuelto/enlazado en el set. Un producto huérfano (su grupo se
-        // desenlazó, o el set perdió su set_main) cuenta como SIN emparejar (honesto, §11).
-        const isMapped = linkedSet.has(p.tcgplayerGroupId);
-        if (!isMapped) {
-          unmapped += 1;
-          continue;
-        }
-        if ((effectiveByProductId.get(p.tcgplayerProductId) ?? null) != null) priced += 1;
-        else mappedUnpriced += 1;
-      }
+    const { refsMap, anchorBySet } = await this.gateSealedSetsBatch(targetSets, productsBySet);
+    const rows = targetSets.map((set) =>
+      this.buildSealedPriceStatusRow(set, productsBySet, groupsBySet, refsMap, anchorBySet, sourceOn),
+    );
 
-      // ROLLUP: el PEOR estado no-vacío. Set sin productos: `unmapped` si no hay grupo resuelto (honesto
-      // «SIN emparejar»), si no `mapped_unpriced` (tiene grupo pero aún nada preciado).
-      let state: SealedPriceState;
-      if (unmapped > 0) state = 'unmapped';
-      else if (mappedUnpriced > 0) state = 'mapped_unpriced';
-      else if (priced > 0) state = 'priced';
-      else state = setMainGroupId == null && linkedGroupIds.length === 0 ? 'unmapped' : 'mapped_unpriced';
-
-      const reason: SealedPriceStatusReason | undefined =
-        state === 'unmapped'
-          ? 'no_group'
-          : state === 'mapped_unpriced'
-            ? sourceOn
-              ? 'no_source_price'
-              : 'dial_off'
-            : undefined;
-
-      rows.push({
-        set: toSetRef(set),
-        setMainGroupId,
-        linkedGroupIds,
-        productCount: setProducts.length,
-        priced,
-        mappedUnpriced,
-        unmapped,
-        state,
-        ...(reason ? { reason } : {}),
-      });
+    if (!params.state) {
+      // `rows` YA es la página (acotada arriba) y YA viene en orden; el total es el universo (tras `q`).
+      return {
+        sealedPriceSource,
+        data: rows,
+        page: params.page,
+        pageSize: params.pageSize,
+        total: sortedSets.length,
+      };
     }
-
-    // Filtro por estado (derivado del enum; §0-Q) y orden por lanzamiento desc (convención de pestaña).
-    const filtered = params.state ? rows.filter((r) => r.state === params.state) : rows;
-    filtered.sort((a, b) => (b.set.releaseDate ?? '').localeCompare(a.set.releaseDate ?? ''));
+    // Filtro por estado (derivado del enum; §0-Q); `rows` ya viene ordenado por lanzamiento desc.
+    const filtered = rows.filter((r) => r.state === params.state);
     const total = filtered.length;
     const data = filtered.slice((params.page - 1) * params.pageSize, params.page * params.pageSize);
     return { sealedPriceSource, data, page: params.page, pageSize: params.pageSize, total };
+  }
+
+  /**
+   * SEC-M11-5 (perf) — gate H-1 EN LOTE para varios sets: resuelve las anclas de los sets con productos en
+   * UNA consulta (`resolveAnchorCardIds`) y trae TODAS sus referencias de mercado en UN `getReferencesBatch`,
+   * en vez de una consulta de ancla + una de refs POR SET (N+1). La clave del `Map` incluye el `cardId`
+   * (ancla, única por set) ⇒ no hay colisión entre sets y el `.get()` por producto cae en la misma entrada
+   * que antes. Money-safe: sólo agrupa lecturas; NO cambia la valuación (el gate se aplica igual en la fila).
+   */
+  private async gateSealedSetsBatch(
+    targetSets: { id: string }[],
+    productsBySet: Map<string, { tcgplayerProductId: number; tcgplayerGroupId: number }[]>,
+  ): Promise<{ refsMap: Map<string, PriceInfo>; anchorBySet: Map<string, string> }> {
+    const setsWithProducts = targetSets.filter((s) => (productsBySet.get(s.id) ?? []).length > 0);
+    const anchorBySet = await this.resolveAnchorCardIds(setsWithProducts.map((s) => s.id));
+    const items: { cardId: string; productType: 'sealed'; gradeKey: string; finish: 'normal' }[] = [];
+    for (const s of setsWithProducts) {
+      const anchor = anchorBySet.get(s.id);
+      if (!anchor) continue; // sin ancla ⇒ sin clave de mercado ⇒ effectiveMarketCents null (money-safe)
+      for (const p of productsBySet.get(s.id) ?? []) {
+        items.push({
+          cardId: anchor,
+          productType: 'sealed',
+          gradeKey: sealedMarketGradeKey(p.tcgplayerProductId),
+          finish: 'normal',
+        });
+      }
+    }
+    const refsMap =
+      items.length > 0 ? await this.pricing.getReferencesBatch(items) : new Map<string, PriceInfo>();
+    return { refsMap, anchorBySet };
+  }
+
+  /**
+   * SEC-M11-5 — construye una fila de estado a partir del estado persistido + el gate H-1 ya batcheado
+   * (mismo cálculo que el bucle anterior, sólo factorizado). Sin red externa (O-17).
+   */
+  private buildSealedPriceStatusRow(
+    set: {
+      id: string;
+      name: string;
+      series: string | null;
+      releaseDate: string | null;
+      tcgcsvGroupId: number | null;
+    },
+    productsBySet: Map<string, { tcgplayerProductId: number; tcgplayerGroupId: number }[]>,
+    groupsBySet: Map<string, { tcgplayerGroupId: number; kind: SealedGroupKind }[]>,
+    refsMap: Map<string, PriceInfo>,
+    anchorBySet: Map<string, string>,
+    sourceOn: boolean,
+  ): SealedPriceStatusRowDTO {
+    const setProducts = productsBySet.get(set.id) ?? [];
+    const setGroups = groupsBySet.get(set.id) ?? [];
+    const linkedGroupIds = [...new Set(setGroups.map((g) => g.tcgplayerGroupId))].sort((a, b) => a - b);
+    const setMainGroupId =
+      set.tcgcsvGroupId ?? setGroups.find((g) => g.kind === 'set_main')?.tcgplayerGroupId ?? null;
+    const linkedSet = new Set<number>(linkedGroupIds);
+    if (setMainGroupId != null) linkedSet.add(setMainGroupId);
+
+    const anchorCardId = anchorBySet.get(set.id) ?? null;
+
+    let priced = 0;
+    let mappedUnpriced = 0;
+    let unmapped = 0;
+    for (const p of setProducts) {
+      // «Mapeado» = su grupo está resuelto/enlazado en el set. Un producto huérfano (su grupo se
+      // desenlazó, o el set perdió su set_main) cuenta como SIN emparejar (honesto, §11).
+      const isMapped = linkedSet.has(p.tcgplayerGroupId);
+      if (!isMapped) {
+        unmapped += 1;
+        continue;
+      }
+      // MISMA cadena H-1 que el alta/`listSealedProducts`: ref por ancla+gradeKey, gateada por el dial.
+      // Sin ancla ⇒ sin clave ⇒ ref undefined ⇒ gate null (idéntico al comportamiento previo).
+      const effective = anchorCardId
+        ? this.pricing.gateSealedMarketCents(
+            refsMap.get(`${anchorCardId}|sealed|${sealedMarketGradeKey(p.tcgplayerProductId)}|normal`),
+            sourceOn,
+          )
+        : null;
+      if (effective != null) priced += 1;
+      else mappedUnpriced += 1;
+    }
+
+    // ROLLUP: el PEOR estado no-vacío. Set sin productos: `unmapped` si no hay grupo resuelto (honesto
+    // «SIN emparejar»), si no `mapped_unpriced` (tiene grupo pero aún nada preciado).
+    let state: SealedPriceState;
+    if (unmapped > 0) state = 'unmapped';
+    else if (mappedUnpriced > 0) state = 'mapped_unpriced';
+    else if (priced > 0) state = 'priced';
+    else state = setMainGroupId == null && linkedGroupIds.length === 0 ? 'unmapped' : 'mapped_unpriced';
+
+    const reason: SealedPriceStatusReason | undefined =
+      state === 'unmapped'
+        ? 'no_group'
+        : state === 'mapped_unpriced'
+          ? sourceOn
+            ? 'no_source_price'
+            : 'dial_off'
+          : undefined;
+
+    return {
+      set: toSetRef(set),
+      setMainGroupId,
+      linkedGroupIds,
+      productCount: setProducts.length,
+      priced,
+      mappedUnpriced,
+      unmapped,
+      state,
+      ...(reason ? { reason } : {}),
+    };
+  }
+
+  /**
+   * SEC-M11-5 — hermana EN LOTE de `resolveAnchorCardId`: el ancla (menor `numberPrefix`/`numberSort`) de
+   * VARIOS sets en UNA consulta. `orderBy` idéntico al `findFirst` por-set ⇒ la primera carta por set es
+   * su ancla, así que el mapeo coincide exactamente con resolver cada una por separado.
+   */
+  private async resolveAnchorCardIds(setIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (setIds.length === 0) return map;
+    const cards = await this.prisma.card.findMany({
+      where: { setId: { in: [...new Set(setIds)] } },
+      orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }],
+      select: { id: true, setId: true },
+    });
+    for (const c of cards) if (!map.has(c.setId)) map.set(c.setId, c.id);
+    return map;
   }
 
   // ============================ M11 §11 — CORRECCIÓN DEL MAPEO set→grupo (super_admin, AUDITADO) ===
@@ -904,6 +987,9 @@ export class SealedProductService {
     const existingGroups = await this.prisma.sealedSetGroup.findMany({ where: { setId } });
     // Si ya existía la fila del NUEVO set_main (p. ej. como promo_collection) se PROMUEVE; si no, se crea.
     const dup = existingGroups.find((g) => g.tcgplayerGroupId === newGroupId);
+    // SEC-M11-3: kind PREVIO del nuevo set_main, capturado ANTES de mutar (para el rastro `from`); `null`
+    // si la fila no existía. Se lee aquí y no tras el update: el update reescribe el objeto in situ.
+    const newGroupPrevKind: SealedGroupKind | null = dup ? dup.kind : null;
 
     // Label best-effort desde TCGCSV (observabilidad/curación), FUERA de la transacción (red bloqueable,
     // O-17; jamás bloquea el remap). Solo hace falta cuando se crea una fila nueva.
@@ -917,12 +1003,19 @@ export class SealedProductService {
       }
     }
 
+    // SEC-M11-3: desglose de la reestructuración de `SealedSetGroup` para el rastro de auditoría — el
+    // cambio de `kind` de cada grupo DEGRADADO (set_main→promo_collection) y la promoción/creación del
+    // nuevo set_main (`from=null` cuando la fila no existía). Sin esto, sólo el `tcgcsvGroupId` quedaba
+    // explícito y el resto de la reestructura había que inferirlo.
+    const groupKindChanges: { tcgplayerGroupId: number; from: SealedGroupKind | null; to: SealedGroupKind }[] = [];
+
     const row = await this.prisma.$transaction(async (tx) => {
       // Degrada el/los set_main anterior(es) distinto(s) del nuevo a promo_collection (DO-5: no se borra;
       // conserva el enlace y sus productos, y el DELETE lo retira aparte si estorba).
       for (const g of existingGroups) {
         if (g.kind === 'set_main' && g.tcgplayerGroupId !== newGroupId) {
           await tx.sealedSetGroup.update({ where: { id: g.id }, data: { kind: 'promo_collection' } });
+          groupKindChanges.push({ tcgplayerGroupId: g.tcgplayerGroupId, from: 'set_main', to: 'promo_collection' });
         }
       }
       const r = dup
@@ -930,6 +1023,12 @@ export class SealedProductService {
         : await tx.sealedSetGroup.create({
             data: { setId, tcgplayerGroupId: newGroupId, kind: 'set_main', label },
           });
+      // Promoción del nuevo set_main: `from` = su kind previo (capturado antes de mutar) o `null` si la
+      // fila es nueva. Sólo cuenta como cambio si el kind efectivamente cambió (una fila ya set_main no
+      // aporta ruido: es un remap al MISMO grupo).
+      if (newGroupPrevKind !== 'set_main') {
+        groupKindChanges.push({ tcgplayerGroupId: newGroupId, from: newGroupPrevKind, to: 'set_main' });
+      }
       // REESCRIBE `CardSet.tcgcsvGroupId` (aunque ya hubiera uno) — la diferencia clave con `linkGroup`.
       await tx.cardSet.update({ where: { id: setId }, data: { tcgcsvGroupId: newGroupId } });
       // SEC-M11-2: la bitácora participa del MISMO commit/rollback que el remap que audita.
@@ -942,7 +1041,8 @@ export class SealedProductService {
             entityType: 'CardSet',
             entityId: setId,
             before: { tcgcsvGroupId: before },
-            after: { tcgcsvGroupId: newGroupId, reason: body.reason },
+            // SEC-M11-3: incluye el desglose de grupos afectados (cambio de kind), no sólo el groupId.
+            after: { tcgcsvGroupId: newGroupId, reason: body.reason, groupKindChanges },
           },
           tx,
         );

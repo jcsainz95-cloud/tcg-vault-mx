@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -373,8 +374,13 @@ export class SealedSetGroupLinkRequestDto {
  * M11 (§11.1) — `PUT /admin/inventory/sealed-sets/:setId/set-main-group`. Fija/REEMPLAZA el grupo
  * `set_main` del set aunque ya exista (a diferencia de `linkGroup`). `super_admin`, AUDITADO. `reason?`
  * = nota libre del super-admin que viaja al `AuditLog.after` (por qué se mueve de dónde sale el precio).
+ *
+ * SEC-M11-4 (higiene): `reason` viaja al `AuditLog.after` (JSON), así que se acota con `@MaxLength(500)`
+ * — el límite canónico del proyecto para un motivo INTERNO de bitácora (buylist `DeclineDto`,
+ * `OfferCancelDto`, `RejectRequestDto`). Fuera de rango ⇒ 400/422 vía el `ValidationPipe` global, como el
+ * resto. No PII (motivo interno del operador, nunca se expone en la UI de auditoría).
  */
 export class SetMainGroupRequestDto {
   @IsInt() @Min(1) tcgplayerGroupId!: number;
-  @IsOptional() @IsString() reason?: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }

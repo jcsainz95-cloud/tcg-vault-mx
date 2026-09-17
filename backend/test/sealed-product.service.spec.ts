@@ -83,6 +83,16 @@ function buildPrisma(seed: {
         );
         return inSet[0] ?? null;
       }),
+      // SEC-M11-5: resolución de anclas EN LOTE (una consulta para varios sets), ordenada como el
+      // `findFirst` por-set (numberPrefix asc, numberSort asc) para que el primero por set sea el ancla.
+      findMany: jest.fn(async ({ where }: any = {}) => {
+        const ids: string[] | null = where?.setId?.in ?? null;
+        const rows = cards.filter((c) => (ids ? ids.includes(c.setId) : true));
+        rows.sort(
+          (a, b) => (a.numberPrefix ?? '').localeCompare(b.numberPrefix ?? '') || (a.numberSort ?? 0) - (b.numberSort ?? 0),
+        );
+        return rows.map((c) => ({ id: c.id, setId: c.setId }));
+      }),
     },
     sealedSetGroup: {
       findMany: jest.fn(async ({ where }: any = {}) =>
@@ -859,6 +869,63 @@ describe('M11 §10 — SealedProductService.sealedPriceStatus (tres estados, gat
     expect(res.data.map((r) => r.set.id)).toEqual(['set-c']);
     expect(res.total).toBe(1);
   });
+
+  // SEC-M11-5 (PERF): resolvía el ancla + `getReferencesBatch` POR SET en bucle (N+1) y clasificaba TODO
+  // el universo antes de paginar. El fix batchea anclas/refs entre sets y acota antes de gatear cuando no
+  // hay filtro de estado. Conducta observable IDÉNTICA (mismos estados / orden / total): sólo menos trabajo.
+  describe('SEC-M11-5 — sin N+1 y acota antes de gatear (conducta idéntica)', () => {
+    it('resultado idéntico al canario de tres estados, con UNA consulta de anclas + UN lote de refs (no N+1)', async () => {
+      const prisma = buildPrisma(seed());
+      const pricing = pricingMock({ sourceOn: true, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+      const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ page: 1, pageSize: 20 });
+      // Mismos estados/conteos que el canario de tres estados (dial ON).
+      const byId = Object.fromEntries(res.data.map((r) => [r.set.id, r]));
+      expect(byId['set-a']).toMatchObject({ state: 'priced', priced: 1, mappedUnpriced: 0, unmapped: 0 });
+      expect(byId['set-b']).toMatchObject({ state: 'mapped_unpriced', priced: 0, mappedUnpriced: 1, reason: 'no_source_price' });
+      expect(byId['set-c']).toMatchObject({ state: 'unmapped', unmapped: 1, setMainGroupId: null, reason: 'no_group' });
+      // Orden por lanzamiento desc (convención de pestaña), preservado.
+      expect(res.data.map((r) => r.set.id)).toEqual(['set-a', 'set-b', 'set-c']);
+      expect(res.total).toBe(3);
+      // SIN N+1: refs en UN solo lote (antes: una llamada por set con productos+ancla).
+      expect((pricing.getReferencesBatch as jest.Mock).mock.calls.length).toBe(1);
+      // Anclas EN LOTE (findMany), NO un findFirst por set.
+      expect((prisma.card.findMany as jest.Mock).mock.calls.length).toBe(1);
+      expect((prisma.card.findFirst as jest.Mock).mock.calls.length).toBe(0);
+    });
+
+    it('ACOTA antes de gatear: pageSize=1 sin filtro ⇒ gatea SOLO la página (1 set), total sigue completo', async () => {
+      const prisma = buildPrisma(seed());
+      const pricing = pricingMock({ sourceOn: true, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+      const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ page: 1, pageSize: 1 });
+      // La página trae SOLO el lanzamiento más reciente; el total refleja el universo entero.
+      expect(res.data.map((r) => r.set.id)).toEqual(['set-a']);
+      expect(res.data[0]).toMatchObject({ state: 'priced', priced: 1 });
+      expect(res.total).toBe(3);
+      // Sólo se resolvió el ancla del set de la página (set-a), no de los tres.
+      const findManyArgs = (prisma.card.findMany as jest.Mock).mock.calls[0][0];
+      expect(findManyArgs.where.setId.in).toEqual(['set-a']);
+    });
+
+    it('segunda página sin filtro: gatea SOLO esa página y conserva orden/total', async () => {
+      const prisma = buildPrisma(seed());
+      const pricing = pricingMock({ sourceOn: true, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+      const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ page: 2, pageSize: 1 });
+      expect(res.data.map((r) => r.set.id)).toEqual(['set-b']); // segundo por lanzamiento desc
+      expect(res.total).toBe(3);
+      const findManyArgs = (prisma.card.findMany as jest.Mock).mock.calls[0][0];
+      expect(findManyArgs.where.setId.in).toEqual(['set-b']);
+    });
+
+    it('con filtro de estado batchea refs en UN lote (gatea el universo, pero sin N+1)', async () => {
+      const prisma = buildPrisma(seed());
+      const pricing = pricingMock({ sourceOn: true, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+      const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ state: 'priced', page: 1, pageSize: 20 });
+      expect(res.data.map((r) => r.set.id)).toEqual(['set-a']);
+      expect(res.total).toBe(1);
+      expect((pricing.getReferencesBatch as jest.Mock).mock.calls.length).toBe(1);
+      expect((prisma.card.findFirst as jest.Mock).mock.calls.length).toBe(0);
+    });
+  });
 });
 
 // ===========================================================================
@@ -895,6 +962,56 @@ describe('M11 §11 — SealedProductService.setMainGroup / unlinkGroup (escape d
   it('setMainGroup con set inexistente → 404', async () => {
     const prisma = buildPrisma({ sets: [] });
     await expect(svcOf(prisma, buildProvider()).setMainGroup('nope', { tcgplayerGroupId: 1 })).rejects.toMatchObject({ code: 'NOT_FOUND', status: 404 });
+  });
+
+  // SEC-M11-3 (BAJA): el `before/after` del audit debe registrar el cambio de `kind` de los grupos que se
+  // DEGRADAN (set_main→promo_collection) y la promoción/creación del nuevo set_main, no sólo el
+  // `tcgcsvGroupId`. El grupo anterior se infería del `before.tcgcsvGroupId`, pero la reestructuración de
+  // `SealedSetGroup` no quedaba explícita en el rastro.
+  it('SEC-M11-3: audita el cambio de kind de los grupos degradados y la promoción del nuevo set_main', async () => {
+    const prisma = buildPrisma({
+      sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 700 }],
+      sealedSetGroups: [
+        { id: 'g-old', setId: 'set-1', tcgplayerGroupId: 700, kind: 'set_main', label: 'wrong' },
+        { id: 'g-promo', setId: 'set-1', tcgplayerGroupId: 800, kind: 'promo_collection', label: 'promo' },
+      ],
+    });
+    const log = jest.fn(async () => {});
+    const audit = { log } as any;
+    const svc = new SealedProductService(prisma as any, buildProvider(), fxMock(), pricingMock(), audit);
+    await svc.setMainGroup('set-1', { tcgplayerGroupId: 800, reason: 'fix' }, { userId: 'u1', role: 'super_admin' as any });
+
+    expect(log).toHaveBeenCalledTimes(1);
+    const entry = (log.mock.calls[0] as any[])[0];
+    expect(entry.after).toMatchObject({ tcgcsvGroupId: 800, reason: 'fix' });
+    // El grupo 700 (set_main viejo) se DEGRADA; el 800 (promo) se PROMUEVE a set_main.
+    expect(entry.after.groupKindChanges).toEqual(
+      expect.arrayContaining([
+        { tcgplayerGroupId: 700, from: 'set_main', to: 'promo_collection' },
+        { tcgplayerGroupId: 800, from: 'promo_collection', to: 'set_main' },
+      ]),
+    );
+    // Sólo esos dos grupos cambiaron de kind (no ruido).
+    expect(entry.after.groupKindChanges).toHaveLength(2);
+  });
+
+  it('SEC-M11-3: cuando el nuevo set_main es un grupo NUEVO (no existía fila), el audit lo registra con from=null', async () => {
+    const prisma = buildPrisma({
+      sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 700 }],
+      sealedSetGroups: [{ id: 'g-old', setId: 'set-1', tcgplayerGroupId: 700, kind: 'set_main', label: 'wrong' }],
+    });
+    const log = jest.fn(async () => {});
+    const svc = new SealedProductService(prisma as any, buildProvider(), fxMock(), pricingMock(), { log } as any);
+    await svc.setMainGroup('set-1', { tcgplayerGroupId: 900 }, { userId: 'u1', role: 'super_admin' as any });
+
+    const entry = (log.mock.calls[0] as any[])[0];
+    expect(entry.after.groupKindChanges).toEqual(
+      expect.arrayContaining([
+        { tcgplayerGroupId: 700, from: 'set_main', to: 'promo_collection' },
+        { tcgplayerGroupId: 900, from: null, to: 'set_main' },
+      ]),
+    );
+    expect(entry.after.groupKindChanges).toHaveLength(2);
   });
 
   it('CA-13: unlinkGroup de un set_main → borra la fila y CardSet.tcgcsvGroupId vuelve a null (SIN emparejar)', async () => {
