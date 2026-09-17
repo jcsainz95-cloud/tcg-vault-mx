@@ -2745,6 +2745,13 @@ export interface PendingPublishRowDTO {
   productType: ProductType;
   finish: Finish;
   cardProductId: number | null;
+  // v1.69.1 (P-79c, contrato §M1) — NOMBRE del producto sellado, presente SOLO cuando
+  // productType='sealed' (ausente en raw/graded). RESUELTO server-side: SealedProduct.name (vivo, vía
+  // sealedProductId) → snapshot InventoryItem.sealedProductName (M-37). ⛔ En ESTA cola el último
+  // escalón NO cae a Card.name (el nombre del ancla es justo el defecto reportado): sin nombre
+  // resoluble el front pinta «sellado sin identificar», nunca `card.name`. El front pinta la CAJA
+  // sellada, no el single ancla. Mismo estilo que HoldingDTO/BatchInventoryItemInput.
+  sealedProductName?: string;
   locationId: string | null;
   listPriceCents: number | null;
   resolvedSalePriceCents: number | null;
