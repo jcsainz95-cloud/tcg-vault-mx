@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
+import { mockSettings } from '@/lib/mock/fixtures';
 import type { SealedPriceStatusResponse } from '@/types/contract';
 import { SealedPriceStatusSection } from './SealedPriceStatusSection';
 
@@ -44,7 +45,7 @@ const RESPONSE: SealedPriceStatusResponse = {
       mappedUnpriced: 3,
       unmapped: 0,
       state: 'mapped_unpriced',
-      reason: 'dial_off',
+      reason: 'no_source_price',
     },
     {
       set: ref('s-unmapped', 'Silver Tempest'),
@@ -60,34 +61,97 @@ const RESPONSE: SealedPriceStatusResponse = {
   ],
 };
 
+function withSource(source: 'off' | 'tcgcsv') {
+  vi.spyOn(api, 'getSettings').mockResolvedValue({ ...mockSettings, sealedPriceSource: source });
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   roleState.role = 'super_admin';
   vi.spyOn(api, 'getSealedPriceStatus').mockResolvedValue(RESPONSE);
 });
 
-describe('SealedPriceStatusSection · estado por set (§diseño §10)', () => {
-  it('M11-status-three-states: pinta los tres estados y sus motivos', async () => {
+describe('SealedPriceStatusSection · Precios de mercado de la colección (§diseño §2/§3)', () => {
+  it('M11-collection-photo: pinta la foto en llano (con precio / sin precio), no un delta', async () => {
+    withSource('tcgcsv');
     renderWithProviders(<SealedPriceStatusSection />, 'es');
-    expect(await screen.findByText('Con precio')).toBeInTheDocument();
-    expect(screen.getByText('Emparejado sin precio')).toBeInTheDocument();
-    expect(screen.getByText('SIN emparejar')).toBeInTheDocument();
-    // El motivo del set mapeado sin precio se lee (dial apagado).
-    expect(screen.getByText(/la fuente automática está apagada/i)).toBeInTheDocument();
+    // 1 priced · 2 sin precio (mapped_unpriced + unmapped).
+    expect(await screen.findByText(/1 set con precio · 2 sets sin precio/)).toBeInTheDocument();
   });
 
-  it('super_admin puede abrir el mapeo manual desde una fila', async () => {
+  it('M11-refresh-source-on: con la fuente encendida el botón dispara la ingesta SIN confirmar ni tocar settings', async () => {
+    withSource('tcgcsv');
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    const ingest = vi
+      .spyOn(api, 'triggerSealedPriceIngest')
+      .mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true, jobId: 'j1' });
     renderWithProviders(<SealedPriceStatusSection />, 'es');
-    // El set SIN emparejar ofrece «Emparejar grupo».
-    fireEvent.click(await screen.findByRole('button', { name: /Emparejar grupo/ }));
-    expect(await screen.findByRole('dialog', { name: /Mapeo manual del grupo TCGCSV/ })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar precios de la colección/ }));
+    await waitFor(() => expect(ingest).toHaveBeenCalled());
+    // No pregunta nada y NO reescribe el interruptor (ya está encendido).
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
+    // Foto de resultado en llano tras la corrida.
+    expect(await screen.findByText('Listo')).toBeInTheDocument();
   });
 
-  it('vault_operator NO ve el botón de mapeo (dinero/curación es super_admin)', async () => {
+  it('M11-refresh-source-off: con la fuente apagada, el botón pide UNA confirmación de dinero y al aceptar la enciende y actualiza', async () => {
+    withSource('off');
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    const ingest = vi
+      .spyOn(api, 'triggerSealedPriceIngest')
+      .mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true, jobId: 'j1' });
+    renderWithProviders(<SealedPriceStatusSection />, 'es');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar precios de la colección/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/Es una decisión de dinero/)).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Activar y actualizar/ }));
+    // Enciende la fuente (acto de dinero) y ACTO SEGUIDO trae precios.
+    await waitFor(() => expect(put).toHaveBeenCalledWith({ sealedPriceSource: 'tcgcsv' }));
+    await waitFor(() => expect(ingest).toHaveBeenCalled());
+  });
+
+  it('estado en curso (single-flight): enqueued=false sin reason muestra el aviso, no un error', async () => {
+    withSource('tcgcsv');
+    vi.spyOn(api, 'triggerSealedPriceIngest').mockResolvedValue({
+      job: 'sealed-price-ingest',
+      enqueued: false,
+    });
+    renderWithProviders(<SealedPriceStatusSection />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar precios de la colección/ }));
+    expect(await screen.findByText(/Ya hay una actualización en marcha/)).toBeInTheDocument();
+  });
+
+  it('M11-fix-list-only-unpriced: la lista de «arreglar» muestra SOLO los sets sin precio, no los preciados', async () => {
+    withSource('tcgcsv');
+    renderWithProviders(<SealedPriceStatusSection />, 'es');
+    // Los dos sin precio ofrecen «Arreglar este set»; el preciado no aparece en la lista corta.
+    const fixButtons = await screen.findAllByRole('button', { name: /Arreglar este set/ });
+    // 2 sin precio, cada uno con su botón (+ los del desglose plegado, que también son 2).
+    expect(fixButtons.length).toBeGreaterThanOrEqual(2);
+    // El motivo en llano del set sin conectar se lee (en la lista corta y en el desglose).
+    expect(screen.getAllByText(/aún no está conectado a la fuente de precios/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('«Arreglar este set» abre el modal re-rotulado «Arreglar el precio de: {set}»', async () => {
+    withSource('tcgcsv');
+    renderWithProviders(<SealedPriceStatusSection />, 'es');
+    const fixButtons = await screen.findAllByRole('button', { name: /Arreglar este set/ });
+    fireEvent.click(fixButtons[0]);
+    expect(await screen.findByRole('dialog', { name: /Arreglar el precio de/ })).toBeInTheDocument();
+  });
+
+  it('M11-collection-operator: un vault_operator ve la foto pero NO el botón ni «Arreglar este set»', async () => {
     roleState.role = 'vault_operator';
+    withSource('tcgcsv');
     renderWithProviders(<SealedPriceStatusSection />, 'es');
-    await screen.findByText('Con precio');
-    expect(screen.queryByRole('button', { name: /Emparejar grupo/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Corregir grupo/ })).not.toBeInTheDocument();
+    await screen.findByText(/1 set con precio · 2 sets sin precio/);
+    expect(
+      screen.queryByRole('button', { name: /Actualizar precios de la colección/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Arreglar este set/ })).not.toBeInTheDocument();
   });
 });

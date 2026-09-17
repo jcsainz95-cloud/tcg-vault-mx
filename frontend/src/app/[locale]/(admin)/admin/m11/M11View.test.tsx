@@ -7,8 +7,8 @@ import { mockSettings } from '@/lib/mock/fixtures';
 import es from '../../../../../../messages/es.json';
 import { M11View } from './M11View';
 
-// El rol es controlable por test (patrón M2View.test). La ruta de M11 es `vault_operator+`; el
-// panel de diales (iv) se gatea DENTRO de la vista con SuperAdminOnly.
+// El rol es controlable por test (patrón M2View.test). La ruta de M11 es `vault_operator+`; los
+// «Ajustes avanzados» (capa 3) se gatean DENTRO de la vista con SuperAdminOnly.
 const roleState = vi.hoisted(() => ({ role: 'super_admin' }));
 vi.mock('@/lib/role', () => ({
   useRole: () => ({
@@ -27,8 +27,9 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
-// Los hijos pesados (inventario y estado) se stubean: aquí se prueba el ARMADO de M11 y el gate de
-// rol de la sección (iv), no la lógica interna de SealedTab (que tiene sus propios tests).
+// Los hijos pesados (inventario y la capa 2 de precios) se stubean: aquí se prueba el ARMADO de las
+// TRES capas y el gate de rol de la capa 3, no su lógica interna (que tiene sus propios tests). El
+// gate del botón de la capa 2 se prueba en SealedPriceStatusSection.test.
 vi.mock('../m1/SealedTab', () => ({ SealedTab: () => <div data-testid="sealed-tab" /> }));
 vi.mock('../m1/PendingPublishQueue', () => ({
   PendingPublishQueue: ({ productType }: { productType?: string }) => (
@@ -36,7 +37,7 @@ vi.mock('../m1/PendingPublishQueue', () => ({
   ),
 }));
 vi.mock('./sections/SealedPriceStatusSection', () => ({
-  SealedPriceStatusSection: () => <div data-testid="status-section" />,
+  SealedPriceStatusSection: () => <div data-testid="collection-section" />,
 }));
 
 beforeEach(() => {
@@ -50,40 +51,51 @@ beforeEach(() => {
   vi.spyOn(api, 'getLocations').mockResolvedValue([]);
 });
 
-describe('M11View · Sellado (§diseño §1)', () => {
-  it('arma las 4 secciones y filtra la cola a sellado', async () => {
+describe('M11View · Sellado (§diseño §1/§2 · tres capas)', () => {
+  it('el título es «Sellado» en llano (D-6: sin el código «M11»)', async () => {
     renderWithProviders(<M11View />, 'es');
-    expect(await screen.findByRole('heading', { level: 1, name: /M11 · Sellado/ })).toBeInTheDocument();
-    expect(screen.getByTestId('sealed-tab')).toBeInTheDocument();
-    expect(screen.getByTestId('status-section')).toBeInTheDocument();
-    // (iii) la cola se monta con productType="sealed".
-    expect(screen.getByTestId('pending-queue')).toHaveAttribute('data-product-type', 'sealed');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /^Sellado$/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: /M11/ })).not.toBeInTheDocument();
   });
 
-  it('M11-role-operator-no-dials: un vault_operator NO ve inputs de dial; la sección (iv) muestra el candado', async () => {
+  it('arma las tres capas y filtra la cola a sellado', async () => {
+    renderWithProviders(<M11View />, 'es');
+    await screen.findByRole('heading', { level: 1, name: /^Sellado$/ });
+    // Capa 1: inventario + cola (con productType="sealed").
+    expect(screen.getByTestId('sealed-tab')).toBeInTheDocument();
+    expect(screen.getByTestId('pending-queue')).toHaveAttribute('data-product-type', 'sealed');
+    // Capa 2: precios de la colección.
+    expect(screen.getByTestId('collection-section')).toBeInTheDocument();
+    // Capa 3: acordeón «Ajustes avanzados», plegado por defecto.
+    const advanced = screen.getByText('Ajustes avanzados (precios de mercado)');
+    expect(advanced).toBeInTheDocument();
+    expect(advanced.closest('details')).not.toHaveAttribute('open');
+  });
+
+  it('M11-role-operator-no-advanced: un vault_operator ve la capa 3 con el candado, no los diales', async () => {
     roleState.role = 'vault_operator';
     renderWithProviders(<M11View />, 'es');
-    await screen.findByRole('heading', { level: 1, name: /M11 · Sellado/ });
-    // MARCADOR DETERMINISTA del gate (canario que MUERDE): con `SuperAdminOnly` puesto, el operador ve
-    // el candado de `EmptyState` (patrón BountiesView.test). Es una aserción POSITIVA y esperada, no un
-    // `queryByText` síncrono: si se quita el `<SuperAdminOnly>`, el candado desaparece (monta el panel
-    // async en su lugar) y este `findByText` agota el tiempo → la prueba FALLA. Va antes de los
-    // negativos para asegurar que el render ya se asentó cuando se comprueba la ausencia de diales.
+    await screen.findByRole('heading', { level: 1, name: /^Sellado$/ });
+    // MARCADOR DETERMINISTA del gate (canario que MUERDE): con `SuperAdminOnly` puesto, el operador
+    // ve el candado de `EmptyState`. Si se quita el `<SuperAdminOnly>`, el candado desaparece (monta
+    // el panel async en su lugar) y este `findByText` agota el tiempo → la prueba FALLA.
     expect(await screen.findByText(es.admin.superAdminGateTitle)).toBeInTheDocument();
     // El panel super_admin no monta: no hay control del interruptor maestro ni selects de dial.
-    expect(screen.queryByText('Encender la fuente automática')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Encender la fuente automática/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Tendencia de valor del sellado/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Traer precios ahora/ })).not.toBeInTheDocument();
-    // Pero sí ve el inventario (i/ii) y la cola (iii).
+    // Pero sí ve el inventario (capa 1) y la cola.
     expect(screen.getByTestId('sealed-tab')).toBeInTheDocument();
     expect(screen.getByTestId('pending-queue')).toBeInTheDocument();
   });
 
-  it('un super_admin SÍ ve el panel de diales (interruptor maestro y «Traer precios ahora»)', async () => {
+  it('un super_admin SÍ ve los diales avanzados (interruptor maestro)', async () => {
     renderWithProviders(<M11View />, 'es');
     expect(
       await screen.findByRole('button', { name: /Encender la fuente automática/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Traer precios ahora/ })).toBeInTheDocument();
+    // El botón «Traer precios ahora» ya NO vive en los diales: subió a la capa 2.
+    expect(screen.queryByRole('button', { name: /Traer precios ahora/ })).not.toBeInTheDocument();
   });
 });

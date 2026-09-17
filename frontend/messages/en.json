@@ -2729,18 +2729,54 @@
       }
     },
     "m11": {
-      "title": "M11 · Sealed",
-      "subtitle": "The full sealed lifecycle on one screen: intake, inventory, publishing, the ready-to-publish queue and — for super-admins — the pricing dials, the ingest trigger and manual group mapping.",
+      "title": "Sealed",
+      "subtitle": "Add stock, price it and publish it. This is also where you refresh the whole collection's market prices.",
       "inventory": {
-        "title": "Sealed intake & inventory",
+        "title": "Sealed inventory",
         "subtitle": "Add sealed product, edit price and format per piece, and publish or unpublish from each presentation's detail."
       },
       "queue": {
         "title": "Ready to publish (sealed)",
         "subtitle": "Sealed pieces already acquired but not yet for sale, and what they're missing. Filtered to sealed."
       },
-      "dials": {
-        "title": "Sealed pricing dials"
+      "collection": {
+        "title": "Collection market prices",
+        "subtitle": "Fetches the market prices for every sealed set and tells you how many ended up with a price and how many didn't.",
+        "photo": "{priced, plural, one {# set priced} other {# sets priced}} · {unpriced, plural, one {# set without a price} other {# sets without a price}}",
+        "refreshCta": "Refresh collection prices",
+        "refreshing": "Refreshing prices…",
+        "doneLabel": "Done",
+        "inFlight": "A refresh is already running; wait for it to finish.",
+        "errorRetry": "Retry",
+        "confirm": {
+          "title": "We're about to turn on automatic market prices",
+          "body": "From now on, sealed products with a resolved reference will take a market price (× your margin). It's a money decision and it's recorded under your name.",
+          "cta": "Turn on and refresh"
+        },
+        "fixTitle": "{count, plural, one {# set has no price:} other {# sets have no price:}}",
+        "fixCta": "Fix this set",
+        "reason": {
+          "no_group": "This set isn't connected to the price source yet.",
+          "dial_off": "The automatic source is off.",
+          "no_source_price": "Connected, but the source returned no price this time."
+        },
+        "breakdownToggle": "See per-set breakdown"
+      },
+      "advanced": {
+        "title": "Advanced settings (market prices)",
+        "subtitle": "Super-admin plumbing. You normally don't need to open this: the button above already does the day-to-day work.",
+        "source": {
+          "title": "Automatic market source",
+          "purpose": "Turn the market price source on or off. You rarely touch this: the “Refresh collection prices” button already turns it on when needed."
+        },
+        "calc": {
+          "title": "How prices are calculated",
+          "purpose": "Which provider the per-card reference comes from, whether the value trend is shown, and whether restocks are flagged."
+        },
+        "margins": {
+          "title": "Sale margins",
+          "purpose": "How much you add on top of the market price to sell each presentation. A 0% margin sells with no profit (you're warned)."
+        }
       },
       "dialsPanel": {
         "master": {
@@ -2757,15 +2793,8 @@
           "confirmOffPreserved": "Manual prices and overrides already set are NOT turned off: turning off the source only stops the automatic market (the TCGCSV ingest); it never erases the prices you set by hand.",
           "audit": "Super-admin only · recorded in the audit log."
         },
-        "ingest": {
-          "cta": "Fetch prices now",
-          "offHint": "The automatic source is off: turn it on above to fetch prices (it won't ingest with the dial off).",
-          "done": "Ingest complete. Check the per-set status view for the result.",
-          "offReason": "The sealed automatic market source is off (SEALED_PRICE_SOURCE_OFF). No price was fetched.",
-          "inFlight": "An ingest is already running; wait for it to finish."
-        },
         "settings": {
-          "title": "Sealed settings dials",
+          "title": "How prices are calculated",
           "subtitle": "Edited without redeploy (partial PUT). Only modified keys are saved. Same validation and audit as M10.",
           "pricingProviderSealed": "Per-card reference provider (sealed)",
           "sealedValueTrend": "Sealed value trend",
@@ -2779,39 +2808,30 @@
         }
       },
       "status": {
-        "title": "Per-set price status",
-        "subtitle": "Per sealed set: whether its price is resolved, mapped but unpriced, or not yet mapped to a TCGCSV group. Reads persisted state (does not query TCGCSV).",
-        "search": "Search set",
-        "searchPlaceholder": "Set name…",
         "empty": "No sealed sets to show.",
         "colSet": "Set",
         "colState": "State",
-        "colBreakdown": "Priced / unpriced / unmapped",
+        "colBreakdown": "Priced / unpriced / not connected",
         "colWhy": "Why",
         "breakdown": "{priced} · {mapped} · {unmapped}",
-        "mapCta": "Map group",
-        "remapCta": "Fix group",
         "state": {
           "priced": "Priced",
-          "mapped_unpriced": "Mapped, no price",
-          "unmapped": "NOT mapped"
-        },
-        "reason": {
-          "no_group": "No resolved TCGCSV group: map the group by hand.",
-          "dial_off": "Mapped, but the automatic source is off.",
-          "no_source_price": "Mapped and source on, but the source returned no price; trigger \"Fetch prices now\"."
+          "mapped_unpriced": "Connected, no price",
+          "unmapped": "Not connected to the source"
         }
       },
       "mapping": {
-        "title": "Manual TCGCSV group mapping",
-        "setName": "Set: {name}",
-        "groupIdLabel": "TCGCSV group ID (set_main)",
-        "groupIdHint": "Positive integer (== TCGplayer groupId). Replaces the current group if one exists.",
+        "title": "Fix the price for: {set}",
+        "intro": "This set isn't connected to the price source (TCGplayer). Paste the set's TCGplayer code to connect it.",
+        "groupIdLabel": "Set's TCGplayer code",
+        "groupIdHint": "The number that identifies the set on TCGplayer. Replaces the current one if there already was one.",
+        "helpLabel": "Where do I find the code?",
+        "helpBody": "It's the set's group number on TCGplayer (it appears in the set's URL on tcgplayer.com). If you don't have it handy, ask whoever manages the catalog.",
         "reasonLabel": "Reason (optional, recorded in the audit log)",
-        "note": "Setting the group doesn't fetch a price by itself: it only says which group the price will come from. Then sync and trigger \"Fetch prices now\".",
-        "currentGroup": "Current group: {groupId}",
-        "setMainCta": "Set main group",
-        "unlinkCta": "Unlink current group"
+        "note": "Connecting the set kicks off its price refresh right away. If it comes back with no price, the source just didn't have one this time.",
+        "currentGroup": "Connected now to: {groupId}",
+        "setMainCta": "Connect and refresh",
+        "unlinkCta": "Disconnect"
       }
     },
     "m10": {
