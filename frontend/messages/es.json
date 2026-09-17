@@ -2729,18 +2729,54 @@
       }
     },
     "m11": {
-      "title": "M11 · Sellado",
-      "subtitle": "Todo el ciclo del sellado en una pantalla: alta, inventario, publicación, la cola de piezas listas y —para súper-admin— los diales de precio, el disparo de ingesta y el mapeo manual de grupos.",
+      "title": "Sellado",
+      "subtitle": "Sube producto, ponle precio y publícalo. Aquí también actualizas los precios de mercado de toda la colección.",
       "inventory": {
-        "title": "Alta e inventario de sellado",
+        "title": "Inventario de sellado",
         "subtitle": "Da de alta producto sellado, edita precio y formato por pieza, y publica o despublica desde el detalle de cada presentación."
       },
       "queue": {
         "title": "Listas para publicar (sellado)",
         "subtitle": "Piezas de sellado ya adquiridas que todavía no están a la venta, y qué les falta. Filtrada a sellado."
       },
-      "dials": {
-        "title": "Diales de precio del sellado"
+      "collection": {
+        "title": "Precios de mercado de la colección",
+        "subtitle": "Trae los precios de mercado de todos los sets de sellado y te dice cuántos quedaron con precio y cuántos no.",
+        "photo": "{priced, plural, one {# set con precio} other {# sets con precio}} · {unpriced, plural, one {# set sin precio} other {# sets sin precio}}",
+        "refreshCta": "Actualizar precios de la colección",
+        "refreshing": "Actualizando precios…",
+        "doneLabel": "Listo",
+        "inFlight": "Ya hay una actualización en marcha; espera a que termine.",
+        "errorRetry": "Reintentar",
+        "confirm": {
+          "title": "Vamos a activar los precios automáticos de mercado",
+          "body": "A partir de ahora los sellados con referencia resuelta tomarán precio de mercado (× tu margen). Es una decisión de dinero y queda registrada a tu nombre.",
+          "cta": "Activar y actualizar"
+        },
+        "fixTitle": "{count, plural, one {# set no trae precio:} other {# sets no traen precio:}}",
+        "fixCta": "Arreglar este set",
+        "reason": {
+          "no_group": "Este set aún no está conectado a la fuente de precios.",
+          "dial_off": "La fuente automática está apagada.",
+          "no_source_price": "Conectado, pero la fuente no trajo precio esta vez."
+        },
+        "breakdownToggle": "Ver desglose por set"
+      },
+      "advanced": {
+        "title": "Ajustes avanzados (precios de mercado)",
+        "subtitle": "Plomería de súper-admin. Normalmente no necesitas abrir esto: el botón de arriba ya hace lo del día a día.",
+        "source": {
+          "title": "Fuente automática de mercado",
+          "purpose": "Enciende o apaga de dónde salen los precios de mercado. Normalmente no lo tocas: el botón «Actualizar precios de la colección» ya la enciende cuando hace falta."
+        },
+        "calc": {
+          "title": "Cómo se calculan los precios",
+          "purpose": "De qué proveedor sale la referencia por carta, si se muestra la tendencia de valor y si se avisan las reposiciones."
+        },
+        "margins": {
+          "title": "Márgenes de venta",
+          "purpose": "Cuánto le sumas al precio de mercado para vender cada presentación. Un margen 0 % vende sin ganancia (se avisa)."
+        }
       },
       "dialsPanel": {
         "master": {
@@ -2757,15 +2793,8 @@
           "confirmOffPreserved": "Los precios manuales y los overrides ya fijados NO se apagan: apagar la fuente solo detiene el mercado automático (la ingesta de TCGCSV), nunca borra los precios que fijaste a mano.",
           "audit": "Solo súper-admin · queda en bitácora."
         },
-        "ingest": {
-          "cta": "Traer precios ahora",
-          "offHint": "La fuente automática está apagada: enciéndela arriba para poder traer precios (no ingiere con el dial apagado).",
-          "done": "Ingesta completada. Revisa la vista de estado por set para ver el resultado.",
-          "offReason": "La fuente automática de mercado del sellado está apagada (SEALED_PRICE_SOURCE_OFF). No se trajo ningún precio.",
-          "inFlight": "Ya hay una ingesta en curso; espera a que termine."
-        },
         "settings": {
-          "title": "Diales de settings del sellado",
+          "title": "Cómo se calculan los precios",
           "subtitle": "Se editan sin redeploy (PUT parcial). Solo se guardan las claves modificadas. Misma validación y auditoría que M10.",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
           "sealedValueTrend": "Tendencia de valor del sellado",
@@ -2779,39 +2808,30 @@
         }
       },
       "status": {
-        "title": "Estado de precio por set",
-        "subtitle": "Por set de sellado: si su precio está resuelto, si está emparejado pero sin precio, o si aún no tiene grupo TCGCSV. Lee estado persistido (no consulta TCGCSV).",
-        "search": "Buscar set",
-        "searchPlaceholder": "Nombre del set…",
         "empty": "No hay sets de sellado que mostrar.",
         "colSet": "Set",
         "colState": "Estado",
-        "colBreakdown": "Con / sin precio / sin mapear",
+        "colBreakdown": "Con / sin precio / sin conectar",
         "colWhy": "Por qué",
         "breakdown": "{priced} · {mapped} · {unmapped}",
-        "mapCta": "Emparejar grupo",
-        "remapCta": "Corregir grupo",
         "state": {
           "priced": "Con precio",
-          "mapped_unpriced": "Emparejado sin precio",
-          "unmapped": "SIN emparejar"
-        },
-        "reason": {
-          "no_group": "Sin grupo TCGCSV resuelto: empareja el grupo a mano.",
-          "dial_off": "Emparejado, pero la fuente automática está apagada.",
-          "no_source_price": "Emparejado y fuente encendida, pero la fuente no trajo precio; dispara «Traer precios ahora»."
+          "mapped_unpriced": "Conectado, sin precio",
+          "unmapped": "Sin conectar a la fuente"
         }
       },
       "mapping": {
-        "title": "Mapeo manual del grupo TCGCSV",
-        "setName": "Set: {name}",
-        "groupIdLabel": "ID de grupo TCGCSV (set_main)",
-        "groupIdHint": "Entero positivo (== groupId de TCGplayer). Reemplaza el grupo actual si ya hay uno.",
+        "title": "Arreglar el precio de: {set}",
+        "intro": "Este set no está conectado con la fuente de precios (TCGplayer). Pega el código del set en TCGplayer para conectarlo.",
+        "groupIdLabel": "Código del set en TCGplayer",
+        "groupIdHint": "El número que identifica el set en TCGplayer. Reemplaza el actual si ya había uno.",
+        "helpLabel": "¿Dónde encuentro el código?",
+        "helpBody": "Es el número de grupo del set en TCGplayer (aparece en la URL del set en tcgplayer.com). Si no lo tienes a mano, pídeselo a quien lleve el catálogo.",
         "reasonLabel": "Motivo (opcional, queda en bitácora)",
-        "note": "Fijar el grupo no trae precio por sí solo: solo dice de qué grupo saldrá. Luego sincroniza y dispara «Traer precios ahora».",
-        "currentGroup": "Grupo actual: {groupId}",
-        "setMainCta": "Fijar grupo principal",
-        "unlinkCta": "Desenlazar grupo actual"
+        "note": "Conectar el set dispara la actualización de su precio de una vez. Si no trae precio, la fuente aún no lo tenía esta vez.",
+        "currentGroup": "Conectado ahora a: {groupId}",
+        "setMainCta": "Conectar y actualizar",
+        "unlinkCta": "Desconectar"
       }
     },
     "m10": {

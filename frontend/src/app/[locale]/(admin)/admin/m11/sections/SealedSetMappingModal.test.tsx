@@ -23,48 +23,63 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('SealedSetMappingModal · mapeo manual (§diseño §11)', () => {
-  it('M11-remap-overwrites: fijar el grupo llama a set-main-group con el groupId y el motivo', async () => {
+describe('SealedSetMappingModal · «Arreglar el precio de» (§diseño §4)', () => {
+  it('el título y los rótulos están en llano (sin jerga TCGCSV/set_main)', async () => {
+    renderWithProviders(<SealedSetMappingModal row={rowWith()} onClose={() => {}} />, 'es');
+    expect(
+      await screen.findByRole('dialog', { name: /Arreglar el precio de: Pitch Black/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/Código del set en TCGplayer/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Conectar y actualizar/ })).toBeInTheDocument();
+  });
+
+  it('M11-connect-then-refresh (D-3): conectar fija el grupo y ACTO SEGUIDO dispara la actualización de ESE set', async () => {
     const put = vi
       .spyOn(api, 'setSealedSetMainGroup')
       .mockResolvedValue({ id: 'g', setId: 's-1', tcgplayerGroupId: 999, kind: 'set_main' });
+    const ingest = vi
+      .spyOn(api, 'triggerSealedPriceIngest')
+      .mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true, jobId: 'j1', groupId: 999 });
     renderWithProviders(<SealedSetMappingModal row={rowWith()} onClose={() => {}} />, 'es');
 
-    // Sin groupId válido el CTA está deshabilitado.
-    const cta = screen.getByRole('button', { name: /Fijar grupo principal/ });
+    // Sin código válido el CTA está deshabilitado.
+    const cta = screen.getByRole('button', { name: /Conectar y actualizar/ });
     expect(cta).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/ID de grupo TCGCSV/), { target: { value: '999' } });
+    fireEvent.change(screen.getByLabelText(/Código del set en TCGplayer/), { target: { value: '999' } });
     fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'SV08 prefijo' } });
     expect(cta).toBeEnabled();
     fireEvent.click(cta);
+
     await waitFor(() =>
       expect(put).toHaveBeenCalledWith('s-1', { tcgplayerGroupId: 999, reason: 'SV08 prefijo' }),
     );
+    // D-3: la ingesta se dispara ACOTADA al grupo recién conectado (menos pasos para el usuario).
+    await waitFor(() => expect(ingest).toHaveBeenCalledWith(999));
   });
 
-  it('rechaza un groupId no entero positivo (CTA deshabilitado, no dispara PUT)', async () => {
+  it('rechaza un código no entero positivo (CTA deshabilitado, no conecta)', async () => {
     const put = vi.spyOn(api, 'setSealedSetMainGroup');
     renderWithProviders(<SealedSetMappingModal row={rowWith()} onClose={() => {}} />, 'es');
-    fireEvent.change(screen.getByLabelText(/ID de grupo TCGCSV/), { target: { value: '0' } });
-    expect(screen.getByRole('button', { name: /Fijar grupo principal/ })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/ID de grupo TCGCSV/), { target: { value: 'abc' } });
-    expect(screen.getByRole('button', { name: /Fijar grupo principal/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Código del set en TCGplayer/), { target: { value: '0' } });
+    expect(screen.getByRole('button', { name: /Conectar y actualizar/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Código del set en TCGplayer/), { target: { value: 'abc' } });
+    expect(screen.getByRole('button', { name: /Conectar y actualizar/ })).toBeDisabled();
     expect(put).not.toHaveBeenCalled();
   });
 
-  it('desenlazar el set_main actual llama a DELETE groups con el groupId actual', async () => {
+  it('«Desconectar» el grupo actual llama a DELETE groups con el groupId actual', async () => {
     const del = vi.spyOn(api, 'deleteSealedSetGroup').mockResolvedValue(undefined);
     renderWithProviders(<SealedSetMappingModal row={rowWith({ setMainGroupId: 200 })} onClose={() => {}} />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: /Desenlazar grupo actual/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Desconectar/ }));
     await waitFor(() => expect(del).toHaveBeenCalledWith('s-1', 200));
   });
 
-  it('sin grupo actual no se ofrece desenlazar', async () => {
+  it('sin grupo actual no se ofrece «Desconectar»', async () => {
     renderWithProviders(
       <SealedSetMappingModal row={rowWith({ setMainGroupId: null, state: 'unmapped' })} onClose={() => {}} />,
       'es',
     );
-    expect(screen.queryByRole('button', { name: /Desenlazar grupo actual/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Desconectar/ })).not.toBeInTheDocument();
   });
 });

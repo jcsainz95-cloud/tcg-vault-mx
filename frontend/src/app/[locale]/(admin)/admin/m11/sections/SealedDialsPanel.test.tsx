@@ -14,7 +14,27 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('SealedDialsPanel · diales de precio del sellado (§diseño §1.iv/§3/§9)', () => {
+describe('SealedDialsPanel · Ajustes avanzados (§diseño §5)', () => {
+  it('presenta las tres subsecciones rotuladas con su línea de para-qué-sirve', async () => {
+    withSource('off');
+    renderWithProviders(<SealedDialsPanel />, 'es');
+    expect(await screen.findByText('Fuente automática de mercado')).toBeInTheDocument();
+    expect(screen.getByText('Cómo se calculan los precios')).toBeInTheDocument();
+    expect(screen.getByText('Márgenes de venta')).toBeInTheDocument();
+    // La línea de propósito (canario del rediseño): sin ella, la subsección vuelve a ser un dial mudo.
+    expect(screen.getByText(/Normalmente no lo tocas/)).toBeInTheDocument();
+  });
+
+  it('el botón «Traer precios ahora» YA NO vive aquí (subió a la capa 2)', async () => {
+    withSource('tcgcsv');
+    renderWithProviders(<SealedDialsPanel />, 'es');
+    await screen.findByText('Fuente automática de mercado');
+    expect(screen.queryByRole('button', { name: /Traer precios ahora/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Actualizar precios de la colección/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it('el interruptor maestro pide CONFIRMACIÓN antes de encender, y encender manda sealedPriceSource:tcgcsv', async () => {
     withSource('off');
     const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
@@ -42,53 +62,6 @@ describe('SealedDialsPanel · diales de precio del sellado (§diseño §1.iv/§3
 
     fireEvent.click(within(dialog).getByRole('button', { name: /Apagar la fuente automática/ }));
     await waitFor(() => expect(put).toHaveBeenCalledWith({ sealedPriceSource: 'off' }));
-  });
-
-  it('M11-ingest-button-off: con el dial off el botón «Traer precios ahora» está DESHABILITADO y dice por qué', async () => {
-    withSource('off');
-    const ingest = vi.spyOn(api, 'triggerSealedPriceIngest');
-    renderWithProviders(<SealedDialsPanel />, 'es');
-
-    const btn = await screen.findByRole('button', { name: /Traer precios ahora/ });
-    expect(btn).toBeDisabled();
-    expect(screen.getByText(/La fuente automática está apagada/)).toBeInTheDocument();
-    fireEvent.click(btn);
-    expect(ingest).not.toHaveBeenCalled();
-  });
-
-  it('con el dial on, «Traer precios ahora» dispara la ingesta y al encolar muestra «Ingesta completada»', async () => {
-    withSource('tcgcsv');
-    const ingest = vi
-      .spyOn(api, 'triggerSealedPriceIngest')
-      .mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true, jobId: 'j1' });
-    renderWithProviders(<SealedDialsPanel />, 'es');
-
-    fireEvent.click(await screen.findByRole('button', { name: /Traer precios ahora/ }));
-    await waitFor(() => expect(ingest).toHaveBeenCalled());
-    expect(await screen.findByText(/Ingesta completada/)).toBeInTheDocument();
-  });
-
-  it('estado SEALED_PRICE_SOURCE_OFF de la respuesta: muestra el aviso money-safe (no error)', async () => {
-    withSource('tcgcsv');
-    vi.spyOn(api, 'triggerSealedPriceIngest').mockResolvedValue({
-      job: 'sealed-price-ingest',
-      enqueued: false,
-      reason: 'SEALED_PRICE_SOURCE_OFF',
-    });
-    renderWithProviders(<SealedDialsPanel />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Traer precios ahora/ }));
-    expect(await screen.findByText(/SEALED_PRICE_SOURCE_OFF/)).toBeInTheDocument();
-  });
-
-  it('estado en curso (single-flight): enqueued=false sin reason muestra «ya hay una ingesta en curso»', async () => {
-    withSource('tcgcsv');
-    vi.spyOn(api, 'triggerSealedPriceIngest').mockResolvedValue({
-      job: 'sealed-price-ingest',
-      enqueued: false,
-    });
-    renderWithProviders(<SealedDialsPanel />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Traer precios ahora/ }));
-    expect(await screen.findByText(/Ya hay una ingesta en curso/)).toBeInTheDocument();
   });
 
   it('guarda un dial de settings por PUT parcial (solo la clave tocada)', async () => {

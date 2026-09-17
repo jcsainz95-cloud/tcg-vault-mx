@@ -20,17 +20,18 @@ import { SealedPriceStatusSection } from './sections/SealedPriceStatusSection';
 import { SealedDialsPanel } from './sections/SealedDialsPanel';
 
 /**
- * M11 · Sellado (§diseño §1) — pantalla CONSOLIDADA de 4 secciones. Regla de oro: **reubica y expone
- * superficie existente; no reimplementa lógica de dinero.**
+ * §diseño §1/§2 — pantalla «Sellado» reordenada en TRES CAPAS por cómo se USA, no por cómo se
+ * construyó. Regla de oro: **reubica y re-rotula superficie existente; no reimplementa lógica de
+ * dinero ni toca endpoints/permisos.**
  *
- *  - (i) Alta de sellado + (ii) Inventario/ventana de publicación: `vault_operator+`, reusando
- *    `SealedTab` TAL CUAL (que ya monta `SealedAddFlow`/`QuickAdd` para el alta y agrupa por
- *    presentación) y `VariantDrawer` con `productType:'sealed'` para editar/publicar/despublicar.
- *  - (iii) Cola «Listas para publicar» filtrada a `sealed`: reusa `PendingPublishQueue` con el
- *    `?productType=` que el endpoint ya acepta.
- *  - (iv) Panel de los 6 diales de precio del sellado + botón «Traer precios ahora» + mapeo manual:
- *    `super_admin`, gateado DENTRO de la vista con `SuperAdminOnly` (el operador ve el candado ahí,
- *    y sigue usando i/ii/iii). La vista de estado por set (§10) es `vault_operator+`.
+ *  - **Capa 1 · Inventario de sellado (primario, arriba):** alta + inventario (`SealedTab` +
+ *    `VariantDrawer`) y la cola «Listas para publicar» (`PendingPublishQueue?productType=sealed`).
+ *    `vault_operator+` — el trabajo diario del operario, sin candado.
+ *  - **Capa 2 · Precios de mercado de la colección (un botón):** `SealedPriceStatusSection`, que
+ *    trae precios en un clic, pinta la foto en llano y lista los sets a arreglar. El botón es
+ *    `super_admin` (acto de dinero, D-2); la foto la ve el operario.
+ *  - **Capa 3 · Ajustes avanzados (plegado, `super_admin`):** la plomería (`SealedDialsPanel`:
+ *    fuente automática, cómo se calculan los precios, márgenes) en UN acordeón cerrado por defecto.
  */
 interface SealedDrawerState {
   cardId: string;
@@ -81,7 +82,7 @@ export function M11View() {
         <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
       </div>
 
-      {/* Secciones (i) + (ii): alta e inventario de sellado (reusa SealedTab + VariantDrawer). */}
+      {/* ── Capa 1 · Inventario de sellado (alta + inventario) ──────────────────────────── */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('inventory.title')}</h2>
         <p className="text-sm text-muted">{t('inventory.subtitle')}</p>
@@ -91,23 +92,26 @@ export function M11View() {
         />
       </section>
 
-      {/* Sección de estado por set (§10) — `vault_operator+`, lee estado persistido (sin TCGCSV). */}
-      <SealedPriceStatusSection />
-
-      {/* Sección (iii): cola «Listas para publicar» FILTRADA a sellado. */}
+      {/* ── Capa 1 · Cola «Listas para publicar» FILTRADA a sellado (junto al inventario). ── */}
       <section className="flex flex-col gap-1">
         <h2 className="text-h2 font-semibold">{t('queue.title')}</h2>
         <p className="text-sm text-muted">{t('queue.subtitle')}</p>
         <PendingPublishQueue productType="sealed" />
       </section>
 
-      {/* Sección (iv): diales de precio del sellado + traer precios + mapeo manual. `super_admin`. */}
-      <section className="flex flex-col gap-3" aria-label={t('dials.title')}>
-        <h2 className="text-h2 font-semibold">{t('dials.title')}</h2>
-        <SuperAdminOnly>
-          <SealedDialsPanel onChanged={invalidateAggregates} />
-        </SuperAdminOnly>
-      </section>
+      {/* ── Capa 2 · Precios de mercado de la colección (el botón único + la foto). ──────── */}
+      <SealedPriceStatusSection onChanged={invalidateAggregates} />
+
+      {/* ── Capa 3 · Ajustes avanzados — acordeón PLEGADO por defecto, `super_admin`. ────── */}
+      <details className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+        <summary className="cursor-pointer text-h2 font-semibold">{t('advanced.title')}</summary>
+        <p className="mt-1 max-w-[70ch] text-sm text-muted">{t('advanced.subtitle')}</p>
+        <div className="mt-4">
+          <SuperAdminOnly>
+            <SealedDialsPanel onChanged={invalidateAggregates} />
+          </SuperAdminOnly>
+        </div>
+      </details>
 
       {/* Drill-down por variante (editar/publicar/despublicar/formato/precio por pieza de sellado). */}
       {drawer && (

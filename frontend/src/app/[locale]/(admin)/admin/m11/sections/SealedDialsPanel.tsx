@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { Save, DownloadCloud } from 'lucide-react';
-import { getSettings, updateSettings, triggerSealedPriceIngest } from '@/lib/api';
+import { Save } from 'lucide-react';
+import { getSettings, updateSettings } from '@/lib/api';
 import type { EditableSettingsPatch, SealedPriceSource, SettingsDTO } from '@/types/contract';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
@@ -22,20 +22,44 @@ function onOff(value: string | undefined): 'on' | 'off' {
   return value === 'on' ? 'on' : 'off';
 }
 
+/** Una subsección de «Ajustes avanzados» con rótulo llano y una línea de «para qué sirve». */
+function AdvancedSubsection({
+  title,
+  purpose,
+  children,
+}: {
+  title: string;
+  purpose: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-semibold text-text">{title}</h3>
+        <p className="text-xs text-muted">{purpose}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 /**
- * §diseño §1.iv/§3/§9 — panel `super_admin` de los diales de precio del SELLADO, superficie ÚNICA de
- * edición (D-2). Reúne, sin reimplementar lógica de dinero:
- *  - El **interruptor maestro** `sealed_price_source` (`off | tcgcsv`) con **confirmación money-global**
- *    (I-7: apagarlo NO borra los precios manuales/overrides ya fijados).
- *  - El botón **«Traer precios ahora»** (`POST /admin/jobs/sealed-price-ingest`) con sus 3 estados.
- *  - Los diales de settings del sellado (`pricingProviderSealed`, `sealedValueTrend`,
- *    `sealedRestockAlerts`) por `PUT /admin/settings` (body parcial, misma validación/auditoría).
- *  - El editor de **spreads** (`SealedSpreadsSection`), movido de M2.
+ * §diseño §5 — contenido de «Ajustes avanzados (precios de mercado)» (`super_admin`, plegado por
+ * defecto en la vista). TRES subsecciones, cada una con rótulo llano y una línea de propósito —
+ * resuelve «hay dos apartados de diales y no sé qué hace cada uno»:
  *
- * ⛔ No introduce una segunda ruta de escritura: llama exactamente a las mismas puertas auditadas.
+ *  - **5.1 Fuente automática de mercado:** el interruptor `sealed_price_source` (encender/APAGAR)
+ *    con su confirmación money-global (I-7: apagar NO borra los precios manuales/overrides). El
+ *    botón «Traer precios» ya NO vive aquí: subió a la capa 2 («Actualizar precios de la colección»).
+ *  - **5.2 Cómo se calculan los precios:** los tres selects de settings (`pricingProviderSealed`,
+ *    `sealedValueTrend`, `sealedRestockAlerts`) por `PUT /admin/settings` parcial.
+ *  - **5.3 Márgenes de venta:** `SealedSpreadsSection` tal cual (su lógica money-safe no se toca).
+ *
+ * ⛔ No introduce una segunda ruta de escritura: llama a las mismas puertas auditadas de siempre.
  */
 export function SealedDialsPanel({ onChanged }: { onChanged?: () => void }) {
   const t = useTranslations('admin.m11.dialsPanel');
+  const tAdvanced = useTranslations('admin.m11.advanced');
   const tc = useTranslations('common');
   const qc = useQueryClient();
   const getError = useErrorMessage('operator');
@@ -69,25 +93,6 @@ export function SealedDialsPanel({ onChanged }: { onChanged?: () => void }) {
     },
   });
 
-  // --- Botón «Traer precios ahora» (§9). Deshabilitado con el dial `off` (fail-closed, I-2). ---
-  const [ingestState, setIngestState] = useState<'done' | 'off' | 'inFlight' | null>(null);
-  const ingestMutation = useMutation({
-    mutationFn: () => triggerSealedPriceIngest(),
-    onSuccess: (res) => {
-      if (res.enqueued) {
-        setIngestState('done');
-        // La respuesta (202) NO trae conteos; se refresca la vista de estado (§10) para ver el
-        // resultado real (cuántos sets pasaron a «con precio»).
-        qc.invalidateQueries({ queryKey: ['sealed-price-status'] });
-        onChanged?.();
-      } else if (res.reason === 'SEALED_PRICE_SOURCE_OFF') {
-        setIngestState('off');
-      } else {
-        setIngestState('inFlight');
-      }
-    },
-  });
-
   function currentOnOff(key: 'sealedValueTrend' | 'sealedRestockAlerts'): 'on' | 'off' {
     if (key in draft) return onOff(draft[key]);
     return onOff(settings.data?.[key]);
@@ -112,65 +117,29 @@ export function SealedDialsPanel({ onChanged }: { onChanged?: () => void }) {
       >
         {settings.data && (
           <>
-            {/* ── Interruptor maestro + traer precios ──────────────────────────────────────── */}
-            <div className="flex flex-col gap-4 rounded-lg border border-primary/40 bg-surface p-4">
-              <div className="flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-text">{t('master.title')}</h3>
-                <p className="text-xs text-muted">{t('master.subtitle')}</p>
-              </div>
-
+            {/* ── 5.1 Fuente automática de mercado (encender/apagar) ───────────────────────── */}
+            <AdvancedSubsection
+              title={tAdvanced('source.title')}
+              purpose={tAdvanced('source.purpose')}
+            >
               <Banner variant={masterOn ? 'success' : 'info'} role="status">
                 {masterOn ? t('master.stateOn') : t('master.stateOff')}
               </Banner>
-
-              <div className="flex flex-wrap items-center gap-3">
+              <div>
                 <Button
                   variant={masterOn ? 'secondary' : 'primary'}
                   onClick={() => setConfirming(masterOn ? 'off' : 'on')}
                 >
                   {masterOn ? t('master.turnOff') : t('master.turnOn')}
                 </Button>
-
-                {/* «Traer precios ahora» (§9): deshabilitado con el dial off; el aviso explica por qué. */}
-                <Button
-                  variant="secondary"
-                  disabled={!masterOn || ingestMutation.isPending}
-                  loading={ingestMutation.isPending}
-                  onClick={() => {
-                    setIngestState(null);
-                    ingestMutation.mutate();
-                  }}
-                >
-                  <DownloadCloud size={16} /> {t('ingest.cta')}
-                </Button>
               </div>
+            </AdvancedSubsection>
 
-              {/* Con el dial off, el botón no ingiere (I-2): se dice por qué, no se queda mudo. */}
-              {!masterOn && (
-                <p className="text-xs text-muted">{t('ingest.offHint')}</p>
-              )}
-              {ingestState === 'done' && (
-                <Banner variant="success" role="status">{t('ingest.done')}</Banner>
-              )}
-              {ingestState === 'off' && (
-                <Banner variant="info" role="status">{t('ingest.offReason')}</Banner>
-              )}
-              {ingestState === 'inFlight' && (
-                <Banner variant="info" role="status">{t('ingest.inFlight')}</Banner>
-              )}
-              {ingestMutation.isError && (
-                <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-                  {getError(ingestMutation.error)}
-                </Banner>
-              )}
-            </div>
-
-            {/* ── Diales de settings del sellado (PUT /admin/settings parcial) ─────────────── */}
-            <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
-              <div className="flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-text">{t('settings.title')}</h3>
-                <p className="text-xs text-muted">{t('settings.subtitle')}</p>
-              </div>
+            {/* ── 5.2 Cómo se calculan los precios (diales de settings, PUT parcial) ───────── */}
+            <AdvancedSubsection
+              title={tAdvanced('calc.title')}
+              purpose={tAdvanced('calc.purpose')}
+            >
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Select
                   label={t('settings.pricingProviderSealed')}
@@ -219,13 +188,18 @@ export function SealedDialsPanel({ onChanged }: { onChanged?: () => void }) {
                   {getError(saveMutation.error)}
                 </Banner>
               )}
-            </div>
+            </AdvancedSubsection>
           </>
         )}
       </QueryState>
 
-      {/* ── Spreads de venta del sellado (editor MOVIDO de M2) ───────────────────────────── */}
-      <SealedSpreadsSection />
+      {/* ── 5.3 Márgenes de venta del sellado (spreads, lógica intacta) ──────────────────── */}
+      <AdvancedSubsection
+        title={tAdvanced('margins.title')}
+        purpose={tAdvanced('margins.purpose')}
+      >
+        <SealedSpreadsSection />
+      </AdvancedSubsection>
 
       {/* ── Confirmación money-global del interruptor maestro (§3, I-7) ──────────────────── */}
       <Modal

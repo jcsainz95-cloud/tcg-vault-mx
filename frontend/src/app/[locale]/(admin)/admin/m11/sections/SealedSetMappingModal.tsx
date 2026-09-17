@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { setSealedSetMainGroup, deleteSealedSetGroup } from '@/lib/api';
+import {
+  setSealedSetMainGroup,
+  deleteSealedSetGroup,
+  triggerSealedPriceIngest,
+} from '@/lib/api';
 import type { SealedPriceStatusRowDTO } from '@/types/contract';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -12,14 +16,18 @@ import { Banner } from '@/components/ui/Banner';
 import { useErrorMessage } from '@/components/ui/QueryState';
 
 /**
- * §diseño §11 — mapeo manual set → grupo TCGCSV (`super_admin`), escape de P-46. Permite:
- *  - **Fijar/corregir** el grupo `set_main` (`PUT .../sealed-sets/:setId/set-main-group`), que
- *    REESCRIBE `CardSet.tcgcsvGroupId` aunque ya haya uno (lo que `linkGroup` no puede).
- *  - **Desenlazar** un grupo mal asignado (`DELETE .../sealed-sets/:setId/groups/:groupId`), que
- *    deja el set en «SIN emparejar» (honesto).
+ * §diseño §4 — «Arreglar el precio de: {set}» (antes «Mapeo manual del grupo TCGCSV»). Es el MISMO
+ * mapeo `super_admin` de siempre, solo re-rotulado a lenguaje llano: fijar/corregir el grupo
+ * `set_main` (`PUT .../sealed-sets/:setId/set-main-group`, que REESCRIBE `CardSet.tcgcsvGroupId`
+ * aunque ya haya uno) y desenlazar un grupo equivocado (`DELETE .../sealed-sets/:setId/groups/:id`).
  *
- * NO fabrica precio (I-2): solo dice de qué grupo saldrá; el precio lo trae el job §9, gateado por
- * el dial. Todo cambio queda en `AuditLog` con `before/after` (lo escribe el backend).
+ * §diseño §3 / §6 D-3 (default aprobado 2026-09-17) — tras **Conectar** se dispara la actualización
+ * de ESE set de inmediato: `triggerSealedPriceIngest(groupId)` acotado al grupo recién conectado
+ * (el DTO del job ya acepta `groupId`). Así el usuario no tiene que volver a pulsar el botón grande.
+ *
+ * ⛔ No fabrica precio (I-2): conectar solo dice de qué grupo saldrá; el precio lo trae el job. Todo
+ * cambio queda en `AuditLog` con `before/after` (lo escribe el backend). Sigue siendo `super_admin`
+ * (el backend 403ea igualmente).
  */
 export function SealedSetMappingModal({
   row,
@@ -43,12 +51,17 @@ export function SealedSetMappingModal({
     qc.invalidateQueries({ queryKey: ['sealed-sets'] });
   }
 
-  const setMain = useMutation({
-    mutationFn: () =>
-      setSealedSetMainGroup(row.set.id, {
+  // «Conectar y actualizar»: fija el grupo y, de una vez, dispara la ingesta acotada a ESE grupo
+  // (§diseño §3/D-3). El precio real se lee al refrescar el estado por set.
+  const connect = useMutation({
+    mutationFn: async () => {
+      const dto = await setSealedSetMainGroup(row.set.id, {
         tcgplayerGroupId: parsed,
         reason: reason.trim() || undefined,
-      }),
+      });
+      await triggerSealedPriceIngest(dto.tcgplayerGroupId);
+      return dto;
+    },
     onSuccess: () => {
       refresh();
       onClose();
@@ -67,16 +80,16 @@ export function SealedSetMappingModal({
     <Modal
       open
       onClose={onClose}
-      title={t('title')}
+      title={t('title', { set: row.set.name })}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
             {tc('cancel')}
           </Button>
           <Button
-            disabled={!groupValid || setMain.isPending}
-            loading={setMain.isPending}
-            onClick={() => setMain.mutate()}
+            disabled={!groupValid || connect.isPending}
+            loading={connect.isPending}
+            onClick={() => connect.mutate()}
           >
             {t('setMainCta')}
           </Button>
@@ -84,9 +97,7 @@ export function SealedSetMappingModal({
       }
     >
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-muted">
-          {t('setName', { name: row.set.name })}
-        </p>
+        <p className="text-sm text-muted">{t('intro')}</p>
         <Input
           label={t('groupIdLabel')}
           hint={t('groupIdHint')}
@@ -95,6 +106,10 @@ export function SealedSetMappingModal({
           value={groupId}
           onChange={(e) => setGroupId(e.target.value)}
         />
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted">{t('helpLabel')}</summary>
+          <p className="mt-1 text-muted">{t('helpBody')}</p>
+        </details>
         <Input
           label={t('reasonLabel')}
           type="text"
@@ -103,7 +118,7 @@ export function SealedSetMappingModal({
         />
         <p className="text-xs text-muted">{t('note')}</p>
 
-        {/* Desenlazar el `set_main` actual — vuelve a «SIN emparejar» (honesto). */}
+        {/* Desconectar el grupo actual — el set vuelve a «Sin conectar a la fuente» (honesto). */}
         {row.setMainGroupId != null && (
           <div className="flex flex-col gap-2 border-t border-border pt-4">
             <p className="text-xs text-muted">
@@ -121,9 +136,9 @@ export function SealedSetMappingModal({
           </div>
         )}
 
-        {setMain.isError && (
+        {connect.isError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-            {getError(setMain.error)}
+            {getError(connect.error)}
           </Banner>
         )}
         {unlink.isError && (
