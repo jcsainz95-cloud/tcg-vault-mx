@@ -1,3 +1,220 @@
+# VEREDICTO BLUE TEAM — **M11 · SELLADO (money + admin)** · SHA **`fafe7461`** (rama `origin/claude/m11-integracion`) · base `origin/production`=`187b1d40` · rama de seguridad `claude/sec-m11` · 2026-09-17
+
+> ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `fafe7461`
+>
+> **No queda ningún hallazgo crítico ni alto abierto sobre M11 → puede publicar.** Hice el pase
+> **red-team + blue-team en un solo agente** (no había pase del `pentester` para M11 en
+> `PENTEST_NOTES.md`, medido) sobre el **árbol anclado en `fafe7461`** (`git checkout -b
+> claude/sec-m11 origin/claude/m11-integracion`; `git rev-parse HEAD` = `fafe7461`).
+>
+> **La superficie nueva de M11 respeta la frontera de dinero y de rol.** Los tres endpoints nuevos
+> están gateados donde deben, el motor de precios **no se toca**, el remap **no puede re-apuntar un
+> `PriceReference` a otro grupo** (verificado en código y prueba), la ingesta es **fail-closed por el
+> dial**, y toda escritura queda **auditada con actor**. Las condiciones abiertas (`SEC-M11-1..5`) son
+> **medias/bajas de robustez y deuda**, ninguna bloqueante; se enrutan a **backend**.
+>
+> ### Verificación en vivo (O-9), sobre copia anclada a `fafe7461`
+> - `backend/test/sealed-product.service.spec.ts` → **62/62 verde** (incluye: tres-estados de
+>   `sealed-price-status`; **gate-parity con dial OFF** → un set con `PriceReference` cuenta
+>   `mapped_unpriced`, no `priced`; **remap reemplaza** `CardSet.tcgcsvGroupId`; **unlink** vuelve a
+>   `null`; **no-egress** el endpoint responde aunque el provider TCGCSV lance; base de era **NUNCA
+>   cruza al grupo de promos**).
+> - `backend/test/inventory.pending-publish.spec.ts` → **35/35 verde** (passthrough `sealedSubtype`
+>   display-only, presente solo para `productType='sealed'`).
+
+---
+
+## 0. Alcance y procedencia
+
+- **Blanco:** integración M11 (sellado) — 3 endpoints nuevos + 1 passthrough de DTO, sobre `inventory`
+  (dinero/mapeo). Diff: `git diff origin/production origin/claude/m11-integracion` (33 ficheros; el
+  núcleo money+admin está en 4 ficheros backend).
+- **Diseño de referencia:** `git show origin/claude/arch-m11-precios:docs/specs/M11_SELLADO_DESIGN_DRAFT.md`.
+- **Entorno (O-17):** egress a `tcgcsv.com`/prod **BLOQUEADO**; toda medición es local con mocks/unit.
+- **Convención:** `[MEDIDO]` = ejecutado hoy por mí con su N · `[código]` = leído en fuente sobre
+  `fafe7461` · `NO MEDIDO` = no ejercité, digo qué lo cerraría.
+
+Endpoints bajo revisión:
+| Endpoint | Rol exigido | Escribe | Audita |
+|---|---|---|---|
+| `GET /admin/inventory/sealed-price-status` | `vault_operator+` (clase) | no (read-only) | no (lectura, correcto) |
+| `PUT /admin/inventory/sealed-sets/:setId/set-main-group` | `super_admin` (método) | mapeo | sí (`inventory.sealed_set_main_group_set`, before/after) |
+| `DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId` | `super_admin` (método) | mapeo | sí (`inventory.sealed_set_group_unlink`, before) |
+| `POST /admin/jobs/sealed-price-ingest` (preexistente, en alcance) | `super_admin` (clase) | `PriceReference` | sí (`jobs.sealed_price_ingest.run`) |
+
+---
+
+## 1. Permisos / control de acceso — **VERIFICADO OK (sin bypass)**
+
+**El bypass de `vault_operator` a los endpoints de dinero está cerrado por el guard, no por adorno.**
+
+- **Mecanismo `[código]`:** `RolesGuard` usa `reflector.getAllAndOverride(ROLES_KEY, [getHandler(),
+  getClass()])` (`backend/src/common/guards/roles.guard.ts:17-20`). El **método pisa la clase**: en
+  `setMainGroup` y `unlinkSealedSetGroup` el `@Roles(Role.super_admin)` **anula** el
+  `@Roles(vault_operator, super_admin)` de la clase (`inventory.controller.ts:84`). Resultado:
+  `required=[super_admin]` → un `vault_operator` **no está incluido** → `403 FORBIDDEN`
+  (`roles.guard.ts:26`). Mismo patrón ya probado en vivo para finanzas M7
+  (`test/integration/auth-authz.e2e-spec.ts:98-105`, operador→403).
+- **Guards globales `[código]`:** `APP_GUARD` registra `JwtAuthGuard` → `RolesGuard`
+  (`app.module.ts:81,83`) — no dependen de que el controller los declare.
+- **`sealed-price-status` es `vault_operator+` read-only** (hereda la clase; sin `@Roles` de método):
+  correcto por diseño (D-4). **No filtra nada sensible:** la respuesta es `SetRefDTO`
+  (`id/name/series/releaseDate`, `master-set.service.ts:151-156`, catálogo público) + IDs de grupo
+  TCGCSV (identificadores externos públicos) + `sealedPriceSource` (el dial, que `vault_operator` ya ve
+  en otras lecturas de sellado) + **conteos de estado, sin ningún MXN**. Sin PII (INE/CLABE), sin
+  object-keys, sin precios internos. `[código]` `sealed-product.service.ts` (bloque §10).
+- **Frontend (defensa en profundidad, no la frontera):** panel de diales + botón «Traer precios» en
+  `<SuperAdminOnly>` (`M11View.tsx:107-109`); el CTA de mapeo bajo `{isSuperAdmin && …}`
+  (`SealedPriceStatusSection.tsx`); la ruta es `vault_operator+` sin wrapper (`m11/page.tsx`). El
+  backend 403ea igual — la frontera real es el guard.
+- **Ingesta:** `AdminJobsController` es `@Roles(Role.super_admin)` a nivel de clase
+  (`admin-jobs.controller.ts:42`) → `vault_operator`→403.
+
+**Conclusión:** ningún endpoint de escritura money/mapeo es alcanzable por `vault_operator` o menor.
+
+---
+
+## 2. Money-safety bajo ataque — **VERIFICADO OK**
+
+- **El diff NO toca el motor de precios.** `money.ts`, `pricing.service.ts` (gate, precedencia, I-7) no
+  aparecen en `git diff --stat`. La precedencia **override>0 > mercado×spread(subtipo) >
+  mercado×spread(global) > PRICE_PENDING** y el que **el maestro apagado NO gatea el override manual**
+  (I-7) quedan **intactos** — no hay ruta nueva para saltarlos.
+- **Fabricar precio / publicar en $0:** no hay vector nuevo. `sealed-price-status` es lectura de
+  conteos (no fija ni muestra MXN); `set-main-group`/`unlink` cambian **mapeo**, no precio; la ingesta
+  es fail-closed. El «nunca $0» vive en `money.ts` (no tocado).
+- **Remap re-apuntando un `PriceReference` a OTRO grupo (debe ser imposible) → ES IMPOSIBLE por este
+  código.** `[código]` `setMainGroup`/`unlinkGroup` sólo escriben `CardSet` y `SealedSetGroup`; **cero
+  llamadas a `prisma.priceReference.*`** (`git grep queryRaw/priceReference` en el bloque nuevo = 0).
+  `PriceReference` se llavea por `(cardId, sealed, sealedMarketGradeKey(tcgplayerProductId), finish)`
+  — el remap no altera ningún `tcgplayerProductId` ni ninguna fila `PriceReference`; sólo cambia **de
+  qué grupo saldrá el precio en la próxima ingesta**. Verificado por la prueba
+  `M11-remap-no-price-fabrication` (verde).
+- **Interruptor maestro apagado deja intactos los overrides manuales:** `[MEDIDO]` prueba
+  `M11-status-gate-parity` — con `sealed_price_source=off`, un producto con `PriceReference` clasifica
+  `mapped_unpriced` (no `priced`), reflejando exactamente lo que `gateSealedMarketCents(ref,false)`
+  devuelve (I-2). El status usa **el MISMO gate** que el alta, no un cálculo nuevo. El override manual
+  vive en el `InventoryItem`, fuera del alcance del dial (I-7, no tocado).
+- **Dial + botón no cura el mapeo:** la ingesta con dial `off` → `enqueued:false,
+  reason:'SEALED_PRICE_SOURCE_OFF'` y **cero** `PriceReference`
+  (`backend/src/jobs/sealed-price-ingest.service.ts:57-60`), y con `on` sólo pide a la fuente y
+  upsertea referencia (informativa) — **no fija precio de venta**. Single-flight en memoria
+  (`:62-66`).
+
+---
+
+## 3. Auditoría — **VERIFICADO OK (toda escritura deja rastro con actor)**
+
+- `set-main-group` → `audit.log({action:'inventory.sealed_set_main_group_set', entityType:'CardSet',
+  entityId:setId, before:{tcgcsvGroupId}, after:{tcgcsvGroupId,reason}})`
+  (`inventory.controller.ts:322-330`).
+- `unlink` → `audit.log({action:'inventory.sealed_set_group_unlink', before:{setId,tcgplayerGroupId,
+  kind}})` (`inventory.controller.ts:352-360`).
+- `sealed-price-ingest` → `audit.log({action:'jobs.sealed_price_ingest.run', after:{job,groupId,
+  enqueued,reason?}})` (`admin-jobs.controller.ts:224-236`).
+- `sealed-price-status` → **lectura, no se audita** (correcto; misma doctrina que `pending-publish`).
+
+Ver `SEC-M11-2/3` (bajas) para los matices de atomicidad/cobertura del `before/after`.
+
+---
+
+## 4. Inyección / validación en los params nuevos — **VERIFICADO OK (400/404/422, nunca 500 ni fuga)**
+
+- **Sin SQL cruda:** `git grep queryRaw|executeRaw|$queryRawUnsafe` en `sealed-product.service.ts` +
+  `inventory.controller.ts` (rama `fafe7461`) = **0**. Todo es Prisma parametrizado.
+- **`:setId` fuera de dominio** → `findUnique` null → `NOT_FOUND` **404** (probado:
+  «setMainGroup con set inexistente → 404», verde).
+- **`:groupId` no numérico / ≤0** → regex `/^\d+$/` + `<=0` en el controller → **400 VALIDATION_ERROR**
+  (`inventory.controller.ts:339-342`), antes de tocar Prisma.
+- **`?state=` fuera de dominio** → `parseEnumFilter('state', …, SEALED_PRICE_STATE_VALUES)` →
+  **400 VALIDATION_ERROR** con `details.field` + `details.allowed`; vacío/omitido → sin filtro
+  (`enum-filter.ts:254-272`). Sin 500 (el `if` crudo que era `500` en P-84 ya está cerrado).
+- **`tcgplayerGroupId` no int / <1** → `@IsInt() @Min(1)` (`inventory.dto.ts` `SetMainGroupRequestDto`)
+  → **422** vía `ValidationPipe` global (`main.ts:56`).
+- **Mass-assignment:** `whitelist:true` (`main.ts:56`) descarta props no declaradas → sólo
+  `tcgplayerGroupId`/`reason` entran al body.
+- **Paginación acotada:** `pageSize` capado a **100**, `page`≥1 (`inventory.controller.ts:296-298`).
+
+---
+
+## 5. Disparo «traer precios» — no abusa de la fuente ni corre sin dial — **VERIFICADO OK**
+
+- **No corre sin dial:** fail-closed (`sealed-price-ingest.service.ts:57-60`) — dial `off` = no-op,
+  cero `PriceReference`.
+- **No martillea la fuente:** single-flight en memoria; `super_admin`-only; AWAITED (alcance de
+  decenas de requests). El jalón real a `tcgcsv.com` lo dispara el dueño en prod (O-17). El fetch de
+  `listGroups()` que `setMainGroup` hace **para el label** va envuelto en `try/catch` → egress cerrado
+  no bloquea el mapeo (ver `SEC-M11-nota`).
+
+---
+
+## 6. Hallazgos priorizados
+
+**Críticos:** ninguno. **Altos:** ninguno.
+
+### MEDIA
+
+- **`SEC-M11-1` (MEDIA-BAJA) — `setMainGroup` no es atómico. Owner: BACKEND.**
+  `sealed-product.service.ts` (método `setMainGroup`, ~`:757-810`) ejecuta **varias escrituras Prisma
+  secuenciales sin `$transaction`**: degradar el/los `set_main` previos a `promo_collection` (bucle),
+  crear/promover la fila del nuevo grupo, y **reescribir `CardSet.tcgcsvGroupId`**. Un fallo a mitad
+  (p. ej. agotamiento de conexiones) deja el mapeo **money-relevante parcialmente aplicado** (grupo
+  degradado pero `CardSet` sin actualizar, o viceversa). **Recuperable** (super_admin re-ejecuta; §10
+  muestra el estado honesto) y de bajo riesgo (mismo DB). **Fix sugerido:** envolver las escrituras en
+  `prisma.$transaction` y pasar el `tx` a `audit.log` (que ya lo soporta, `audit.service.ts:50`) para
+  que mapeo + auditoría committeen o rollbackeen juntos. **No bloqueante.**
+
+### BAJA
+
+- **`SEC-M11-2` (BAJA) — auditoría escrita fuera de transacción (mutación → luego `audit.log` sin
+  `tx`). Owner: BACKEND.** En `setMainGroup`/`unlink`, si `audit.log` fallara tras committear la
+  mutación, quedaría un **cambio de mapeo sin rastro**. **No es regresión de M11**: es el patrón
+  preexistente del módulo (`linkGroup` en `origin/production:inventory.controller.ts:263-270` audita
+  igual) → **deuda de módulo aceptada**. Se cierra junto con `SEC-M11-1` usando el `tx`.
+- **`SEC-M11-3` (BAJA) — cobertura del `before/after` en `setMainGroup`. Owner: BACKEND.** El audit
+  registra `tcgcsvGroupId` before/after + `reason`, pero **no** el cambio de `kind` de los grupos
+  degradados (`set_main`→`promo_collection`) ni la promoción del nuevo. El grupo anterior se infiere
+  del `before.tcgcsvGroupId`, pero la reestructuración completa de `SealedSetGroup` no queda explícita
+  en el rastro. Recomendación: incluir el desglose de grupos afectados en `after`.
+- **`SEC-M11-4` (BAJA/INFO) — `reason` sin límite de longitud. Owner: BACKEND.**
+  `SetMainGroupRequestDto.reason` es `@IsString()` sin `@MaxLength`, y viaja a `AuditLog.after` (JSON).
+  `before/after` **NUNCA** se expone en la UI de auditoría (`audit.service.ts` docstring: «NUNCA expone
+  before/after») → **sin XSS almacenado explotable**. Queda como higiene: añadir `@MaxLength` para
+  evitar filas de bitácora desmesuradas.
+- **`SEC-M11-5` (BAJA/PERF — no seguridad estricta). Owner: BACKEND/TECHLEAD.** `sealedPriceStatus`
+  carga **todos** los `SealedProduct` active + `SealedSetGroup` + `CardSet` (con `tcgcsvGroupId`) en
+  memoria y **pagina después**; además resuelve el ancla + `getReferencesBatch` **por set en bucle**
+  (N+ consultas). Es lectura `vault_operator+`, acotada por el tamaño del catálogo de sets y con
+  `pageSize` capado a 100, así que el riesgo de DoS es bajo; conviene paginar en BD y batch-ear las
+  referencias si el catálogo de sellado crece.
+
+### Nota (INFO, verificado)
+- **`SEC-M11-nota` — `setMainGroup` hace un `provider.listGroups()` (egress a `tcgcsv.com`) sólo para
+  poblar el `label` de un grupo NUEVO.** Va en `try/catch` que traga el fallo (label=null) → money-safe
+  bajo O-17. Restringido a `super_admin`, una llamada por remap de grupo nuevo. Sin SSRF (URL fija, el
+  `groupId` sólo se usa en un `.find()` sobre la lista devuelta). Aceptable.
+
+---
+
+## 7. Banderas para el humano
+
+- **La ingesta real de precios de sellado no se ha ejercitado contra `tcgcsv.com`** (egress bloqueado,
+  O-17): el cableado botón→job→`PriceReference` se probó con **fixtures/mocks**. El primer jalón en
+  vivo lo confirma el dueño en prod (ya previsto en el diseño §9/§12).
+- **Antes de operar con dinero real** sigue vigente la bandera de releases previos: pentest de tercero
+  + bug bounty. M11 no la mueve.
+
+---
+
+## 8. Enrutado por rol (resumen para el orquestador)
+
+- **BACKEND:** `SEC-M11-1` (atomicidad `$transaction`), `SEC-M11-2` (auditoría con `tx`), `SEC-M11-3`
+  (before/after completo), `SEC-M11-4` (`@MaxLength` en `reason`), `SEC-M11-5` (paginación en BD /
+  batch). **Todas medias/bajas, ninguna bloquea la publicación.**
+- **FRONTEND:** sin hallazgos (gating correcto; defensa en profundidad presente).
+- **Condiciones de la aprobación:** cerrar `SEC-M11-1`/`SEC-M11-2` en la siguiente iteración de
+  `inventory` (idealmente en un solo `$transaction` + `tx` de auditoría). No detienen `fafe7461`.
+
 # VEREDICTO BLUE TEAM — **CIERRE DE RELEASE** · SHA **`da6a237`** (rama `claude/tcg-hunt-orchestration-2`) · `origin/production`=`efe65f5` · informe del red team sobre `e0892e6` · 2026-09-14
 
 > ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `da6a237`
