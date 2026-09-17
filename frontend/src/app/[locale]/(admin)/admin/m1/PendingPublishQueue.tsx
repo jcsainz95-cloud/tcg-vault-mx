@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { getPendingPublish } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
-import type { PendingPublishRowDTO } from '@/types/contract';
+import type { PendingPublishRowDTO, ProductType } from '@/types/contract';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
@@ -64,6 +64,7 @@ function MissingCell({ row }: { row: PendingPublishRowDTO }) {
  */
 function PieceCell({ row }: { row: PendingPublishRowDTO }) {
   const t = useTranslations('admin.m1.publishQueue');
+  const tSub = useTranslations('status.sealedSubtype');
   if (row.productType === 'sealed') {
     return (
       <span className="flex flex-col">
@@ -74,6 +75,9 @@ function PieceCell({ row }: { row: PendingPublishRowDTO }) {
         )}
         <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
           {row.card.setName} · <span className="text-accent">{t('sealedMark')}</span>
+          {/* §diseño §2.C/CA-5 · el SUBTIPO (Bundle/Booster Box/…) se pinta cuando el server lo
+              proyecta; ausente (backend anterior) ⇒ no se pinta nada (aditivo, retrocompatible). */}
+          {row.sealedSubtype ? ` · ${tSub(row.sealedSubtype).toUpperCase()}` : ''}
         </span>
       </span>
     );
@@ -101,10 +105,19 @@ function PieceCell({ row }: { row: PendingPublishRowDTO }) {
  * hereda del costo de compra**. La pieza **sale sola** en cuanto no le falta nada —**sin botón**—,
  * *sin depender de que alguien se acuerde de apretarlo.*
  */
-export function PendingPublishQueue() {
+/**
+ * `productType` (opcional, §diseño §iii) — filtra la cola a un tipo de producto reusando el
+ * `?productType=` que el endpoint ya acepta (contrato §M1). M1 la monta SIN filtro (cola entera);
+ * M11 la monta con `productType="sealed"`. El `queryKey` incluye el filtro para no colisionar el
+ * caché entre la vista completa y la filtrada.
+ */
+export function PendingPublishQueue({ productType }: { productType?: ProductType } = {}) {
   const t = useTranslations('admin.m1.publishQueue');
   const locale = useLocale() as AppLocale;
-  const query = useQuery({ queryKey: ['pending-publish'], queryFn: getPendingPublish });
+  const query = useQuery({
+    queryKey: ['pending-publish', productType ?? 'all'],
+    queryFn: () => getPendingPublish({ productType }),
+  });
 
   /**
    * **EL TAMAÑO DEL TRABAJO PENDIENTE** (deuda D5 del techlead).

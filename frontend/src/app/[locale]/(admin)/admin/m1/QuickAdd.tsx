@@ -353,6 +353,15 @@ export function QuickAddSection({
       >
         {submit.isPending ? t('loading') : t('cta')}
       </Button>
+      {/* SELLADO-M1(A): el CTA deshabilitado NO se queda mudo. Cuando el único camino es «Comprar»
+          (aportación bloqueada por falta de mercado) y el precio pagado está vacío/invalido, el botón
+          quedaba gris SIN explicación y el alta «no salía» en silencio. Display-only: no cambia la
+          validación ni el payload — solo hace legible por qué no se puede dar de alta todavía. */}
+      {path === 'compra' && priceInvalid && (
+        <p className="text-xs text-accent" role="status">
+          {t('buy.priceRequired')}
+        </p>
+      )}
     </section>
   );
 }
