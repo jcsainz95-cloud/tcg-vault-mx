@@ -2742,7 +2742,7 @@
       "collection": {
         "title": "Collection market prices",
         "subtitle": "Fetches the market prices for every sealed set and tells you how many ended up with a price and how many didn't.",
-        "photo": "{priced, plural, one {# set priced} other {# sets priced}} · {unpriced, plural, one {# set without a price} other {# sets without a price}}",
+        "photo": "{priced, plural, one {# product priced} other {# products priced}} · {pending, plural, one {# pending} other {# pending}}",
         "refreshCta": "Refresh collection prices",
         "refreshing": "Refreshing prices…",
         "doneLabel": "Done",
@@ -2753,8 +2753,11 @@
           "body": "From now on, sealed products with a resolved reference will take a market price (× your margin). It's a money decision and it's recorded under your name.",
           "cta": "Turn on and refresh"
         },
-        "fixTitle": "{count, plural, one {# set has no price:} other {# sets have no price:}}",
+        "fixTitle": "{count, plural, one {# set to finish:} other {# sets to finish:}}",
         "fixCta": "Fix this set",
+        "completeCta": "Complete this set",
+        "setProgress": "{priced} of {total} priced",
+        "missingNote": "{count, plural, one {# product left} other {# products left}}",
         "reason": {
           "no_group": "This set isn't connected to the price source yet.",
           "dial_off": "The automatic source is off.",
