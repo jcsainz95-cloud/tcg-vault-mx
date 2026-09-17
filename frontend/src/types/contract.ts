@@ -2223,7 +2223,7 @@ export interface SealedPriceStatusResponse {
  * REEMPLAZA el grupo `set_main` del set aunque ya haya uno (a diferencia de `linkGroup`, que solo
  * escribe si `CardSet.tcgcsvGroupId` es null). Auditado con `before/after`.
  */
-export interface SealedSetMainGroupRequest {
+export interface SetMainGroupRequest {
   tcgplayerGroupId: number;
   reason?: string;
 }

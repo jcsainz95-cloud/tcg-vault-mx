@@ -4,6 +4,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { mockSettings } from '@/lib/mock/fixtures';
+import es from '../../../../../../messages/es.json';
 import { M11View } from './M11View';
 
 // El rol es controlable por test (patrón M2View.test). La ruta de M11 es `vault_operator+`; el
@@ -63,6 +64,12 @@ describe('M11View · Sellado (§diseño §1)', () => {
     roleState.role = 'vault_operator';
     renderWithProviders(<M11View />, 'es');
     await screen.findByRole('heading', { level: 1, name: /M11 · Sellado/ });
+    // MARCADOR DETERMINISTA del gate (canario que MUERDE): con `SuperAdminOnly` puesto, el operador ve
+    // el candado de `EmptyState` (patrón BountiesView.test). Es una aserción POSITIVA y esperada, no un
+    // `queryByText` síncrono: si se quita el `<SuperAdminOnly>`, el candado desaparece (monta el panel
+    // async en su lugar) y este `findByText` agota el tiempo → la prueba FALLA. Va antes de los
+    // negativos para asegurar que el render ya se asentó cuando se comprueba la ausencia de diales.
+    expect(await screen.findByText(es.admin.superAdminGateTitle)).toBeInTheDocument();
     // El panel super_admin no monta: no hay control del interruptor maestro ni selects de dial.
     expect(screen.queryByText('Encender la fuente automática')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Tendencia de valor del sellado/)).not.toBeInTheDocument();
