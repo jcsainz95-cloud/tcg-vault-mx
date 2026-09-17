@@ -31,6 +31,13 @@ El dueño, probando M1 → pestaña **Sellado** en producción, reportó (con ca
 
 **Dueño:** backend (A, B-back, D) · frontend (B-ui, C) · **product-owner → arquitecto (E, la sección dedicada)**. **Comprobación:** reproducir el alta y las vistas contra el arnés. | 2026-09-17 (dueño lo vivió; A/C no medidos, B/D parcial medido por el orquestador) | capturas del dueño; `inventory.controller.ts:549`; `ItemDetailModal.tsx`; `VariantDrawer.tsx:419`; `inventory.service.ts:576,663,734`
 
+## 🏗️ M11 · Sellado — CONSTRUIDO, en los 3 filtros (2026-09-17)
+
+Diseño (arquitecto): `docs/specs/M11_SELLADO_DESIGN_DRAFT.md` (rama `claude/arch-m11-precios`). **Construido:** backend `claude/be-m11-sellado` (`c059c4e9`, unit 5337/5337, canarios muerden; integración la corre QA) + frontend `claude/fe-m11-sellado` (`185a4ddc`, vitest 1877/1877, paridad es/en 3043=3043, incluye los display fixes de sellado). **Integración:** `claude/m11-integracion` = `fafe7461` (be+fe disjuntos, merge limpio; 33 ficheros, +2402/−29). **En los 3 filtros AHORA** sobre `fafe7461`: qa (`claude/…` corre integración+E2E+403 por rol), techlead, seguridad (`claude/sec-m11`). Money ⇒ triple veredicto obligatorio antes de que el dueño publique.
+- **Endpoints nuevos:** `GET /admin/inventory/sealed-price-status`, `PUT .../sealed-sets/:setId/set-main-group` (reemplaza), `DELETE .../groups/:groupId` (unlink). + `sealedSubtype` en `PendingPublishRowDTO`. + P-46-bis (matcher del sellado reusa `matchTcgcsvGroupByName` con política estricta).
+- **A vigilar en los gates:** cambio de conducta sin prueba (mismo nombre+año distinto ⇒ `null`); 403 por rol ejercitados por HTTP; contrato mirror (`sealedPriceSource`/`sealedValueTrend`/`sealedRestockAlerts` + enums nuevos) coherente entre `API_CONTRACT.md` y `contract.ts`.
+- ⚠️ **Jalón real de precios = solo prod** (tcgcsv bloqueado aquí); el dueño enciende el maestro + «traer precios» tras publicar.
+
 ## ✅/🔧 S3-INE-PII — NO hay fuga; la X roja del CI es un hueco de SIEMBRA/ALMACENAMIENTO (devops). Corregido 2026-09-17
 
 ⚠️ **Falsa alarma del orquestador, corregida (O-2).** Yo inferí una posible fuga de la ruta de INE en `/admin/users`
