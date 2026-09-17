@@ -368,3 +368,13 @@ export class SealedSetGroupLinkRequestDto {
    */
   @IsIn(SEALED_GROUP_KIND_VALUES) kind!: SealedGroupKind;
 }
+
+/**
+ * M11 (§11.1) — `PUT /admin/inventory/sealed-sets/:setId/set-main-group`. Fija/REEMPLAZA el grupo
+ * `set_main` del set aunque ya exista (a diferencia de `linkGroup`). `super_admin`, AUDITADO. `reason?`
+ * = nota libre del super-admin que viaja al `AuditLog.after` (por qué se mueve de dónde sale el precio).
+ */
+export class SetMainGroupRequestDto {
+  @IsInt() @Min(1) tcgplayerGroupId!: number;
+  @IsOptional() @IsString() reason?: string;
+}

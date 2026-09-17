@@ -1858,6 +1858,13 @@ export class InventoryService {
         // discrimina por `productType` y, sin nombre resoluble, pinta «sellado sin identificar» — ⛔
         // NUNCA `card.name` (el ancla es el defecto reportado). Display-only, money-safe.
         sealedProductName: item.sealedProductName,
+        // M11 (§2.C, hallazgo C) — subtipo del sellado (Bundle/Box/ETB…) para la cola de M11. ADITIVO,
+        // display-only (alcance D10 «solo visibilidad», no toca dinero). Passthrough directo de
+        // `InventoryItem.sealedSubtype`, presente SOLO para `productType='sealed'` (ausente en raw/graded:
+        // una carta suelta no tiene subtipo de sellado) — mismo patrón condicional que el resto del DTO.
+        ...(item.productType === 'sealed' && item.sealedSubtype
+          ? { sealedSubtype: item.sealedSubtype }
+          : {}),
         locationId: item.locationId,
         listPriceCents: item.listPriceCents,
         resolvedSalePriceCents: state.resolvedSalePriceCents,

@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
@@ -35,8 +37,10 @@ import {
   PublishAllRequestDto,
   SealedSetGroupLinkRequestDto,
   SealedSyncRequestDto,
+  SetMainGroupRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
+import { SEALED_PRICE_STATE_VALUES } from './sealed-product.service';
 import { AcquisitionType, Finish, ProductType } from '@prisma/client';
 
 /**
@@ -269,6 +273,87 @@ export class InventoryController {
       after: { setId, tcgplayerGroupId: dto.tcgplayerGroupId, kind: dto.kind },
     });
     return res;
+  }
+
+  /**
+   * M11 (§10) — GET /admin/inventory/sealed-price-status?q?=&state?=&page=&pageSize= — por SET de
+   * sellado, su estado de precio: `priced | mapped_unpriced | unmapped` (+ `reason`). `vault_operator+`
+   * (hereda el rol de la clase). **Read-only, sin red externa (O-17)**: lee estado persistido y clasifica
+   * con el gate H-1; NO llama a TCGCSV. NO se audita (es una LECTURA, misma doctrina que `pending-publish`).
+   * Separa lo que `sealed-sets.unmappedCount` funde («no mapeado» vs «mapeado sin precio»).
+   */
+  @Get('inventory/sealed-price-status')
+  sealedPriceStatus(
+    @Query('q') q?: string,
+    @Query('state') state?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    // `?state=` DERIVADO del enum de estados (§0-Q / clase L, fuente única): valor fuera del dominio ⇒
+    // 400 VALIDATION_ERROR con `details.field` + `details.allowed`; omitido/vacío ⇒ sin filtro de estado.
+    const stateFilter = parseEnumFilter('state', state, SEALED_PRICE_STATE_VALUES);
+    return this.sealedProduct!.sealedPriceStatus({
+      q,
+      state: stateFilter,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
+  }
+
+  /**
+   * M11 (§11.1) — PUT /admin/inventory/sealed-sets/:setId/set-main-group — fija/REEMPLAZA el grupo
+   * `set_main` del set aunque ya exista (escape de P-46; `linkGroup` sólo puebla si es null). `super_admin`.
+   * AUDITADO (`inventory.sealed_set_main_group_set`, con `before/after` del `tcgcsvGroupId` — I-4). Money-safe:
+   * fija de qué grupo saldrá el precio; NO fabrica precio (lo trae el job §9, gateado por el dial).
+   */
+  @Put('inventory/sealed-sets/:setId/set-main-group')
+  @Roles(Role.super_admin)
+  async setMainGroup(
+    @Param('setId') setId: string,
+    @Body() dto: SetMainGroupRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.sealedProduct!.setMainGroup(setId, dto);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.sealed_set_main_group_set',
+      entityType: 'CardSet',
+      entityId: setId,
+      before: { tcgcsvGroupId: res.before },
+      after: { tcgcsvGroupId: res.after, reason: dto.reason },
+    });
+    return res.group;
+  }
+
+  /**
+   * M11 (§11.2) — DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId — desenlaza un grupo mal
+   * asignado; si era el `set_main`, el set vuelve a «SIN emparejar» (`CardSet.tcgcsvGroupId=null`).
+   * `super_admin`. AUDITADO (`inventory.sealed_set_group_unlink`, con el `before` — I-4). Money-safe: NO
+   * borra `PriceReference` ya escritas (quedan stale/inocuas); sólo cambia de dónde saldrá el precio.
+   */
+  @Delete('inventory/sealed-sets/:setId/groups/:groupId')
+  @HttpCode(200)
+  @Roles(Role.super_admin)
+  async unlinkSealedSetGroup(
+    @Param('setId') setId: string,
+    @Param('groupId') groupIdRaw: string,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    if (!/^\d+$/.test(groupIdRaw) || parseInt(groupIdRaw, 10) <= 0) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'groupId must be a positive integer');
+    }
+    const groupId = parseInt(groupIdRaw, 10);
+    const before = await this.sealedProduct!.unlinkGroup(setId, groupId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.sealed_set_group_unlink',
+      entityType: 'SealedSetGroup',
+      entityId: `${setId}:${groupId}`,
+      before,
+    });
+    return before;
   }
 
   @Post('inventory/items/batch')
