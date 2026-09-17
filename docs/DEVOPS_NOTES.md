@@ -12108,3 +12108,166 @@ Lo que queda abierto **no es una petición, es trabajo nuestro**: enrutar el roj
 dueño (§60.3) y decidir si el gate de dinero debe dejar de colgar de `secrets-gate` en la ruta de
 publicación (§60.4b). Lo segundo es **cambio de mis rutas**, y lo dejo **propuesto, no hecho**: mueve
 cuándo se publica, y eso se decide con el orquestador y el dueño, no en un commit mío a mitad de release.
+
+# =============================================================================
+# §61 · P-53 — Acotar el WAL de Postgres + Vigilancia propia del disco (devops)
+# =============================================================================
+> **Dueño: devops.** Fecha de medición de esta sección: **2026-09-17**.
+> Entregado en la rama `claude/devops-p53-wal-monitor` (base `origin/production`).
+>
+> **Contexto (verdad medida por el orquestador):** el volumen de Postgres de prod
+> (Railway, 1 GB) estaba al **86%** subiendo **~20 MB/día**. El dueño ya amplió el
+> volumen como red de seguridad ⇒ el reloj de saturación se detuvo. Esta sección
+> entrega las **dos cosas de competencia devops** que P-53 dejó pendientes: (1)
+> acotar el WAL, y (2) una vigilancia propia. La cura de fondo —escribir menos
+> filas/día en `PriceReference`— la diseña el **arquitecto → backend** (money-
+> critical, triple veredicto); **no es devops** y no entra aquí.
+>
+> **⚠️ Lo que NO pude medir (O-1):** este entorno tiene el **egress a Railway
+> bloqueado**, así que **NO medí contra la prod**. Todo lo de abajo lo verifiqué
+> contra un **Postgres 16.13 de usar y tirar** (mismo motor que prod), no contra
+> el volumen real. Los tamaños reales de prod los mide el dueño con la herramienta
+> de §61.2, en su base.
+
+## 61.1 · Acotar el WAL — configuración + runbook (lo aplica el DUEÑO en su ventana)
+
+**El diagnóstico de P-53 (sep):** `pgdata/pg_wal` ≈ **145 MB (46% de lo usado)**
+con **cero replication slots** (verificado: `pg_replication_slots` → 0 filas ⇒
+**no hay fuga**). Es Postgres con `max_wal_size = 1GB` **de fábrica**, dimensionado
+para un disco mucho mayor. Acotarlo recupera **del orden de ~100 MB**.
+
+**La configuración exacta** vive en **`scripts/db-wal-tuning.sql`** (idempotente,
+solo-lectura salvo el `ALTER SYSTEM`; no toca datos). Baja:
+
+| Parámetro | Fábrica | Nuevo | Por qué |
+|---|---|---|---|
+| `max_wal_size` | 1GB | **128MB** | techo del WAL entre checkpoints; el ingest diario (~13-20 MB datos ⇒ ~30-60 MB WAL) cabe holgado ⇒ checkpoints por TIEMPO, no por tamaño |
+| `min_wal_size` | 80MB | **32MB** | deja que Postgres recicle hacia abajo el pool de segmentos ⇒ el WAL **encoge** de verdad |
+| `checkpoint_completion_target` | 0.9 | 0.9 | ya es el default de PG16; se fija explícito para dejarlo auditable |
+| `wal_keep_size` | 0 | 0 | correcto: no hay slots ni réplicas |
+
+**Dato de parámetros (documentado, NO medido contra prod):** `max_wal_size` y
+`min_wal_size` son de contexto **`sighup`** (postgresql.org / `pg_settings.context`)
+⇒ **cambian con un RELOAD, sin reinicio**. Corregí aquí la premisa de P-53 («requiere
+reinicio»): el **cambio de parámetro** no lo exige. Lo que reclama el espacio es que
+ocurran checkpoints; por eso el script termina con `pg_reload_conf()` **y** un
+`CHECKPOINT` manual que fuerza el reciclado del WAL sobrante de inmediato. Aun así el
+runbook mantiene **respaldo + ventana**, porque es prudente en una BD de dinero y
+porque el mecanismo concreto de Railway (§61.1c) puede exigir redeploy.
+
+### 61.1a · Runbook — pasos EXACTOS para el dueño
+1. **Respaldo primero.** En Railway → servicio Postgres → pestaña **Backups**:
+   dispara un backup manual y espera a que termine (o confirma que el backup
+   automático de hoy ya corrió). Es la red por si algo se ve raro.
+2. **Ventana.** No hace falta parar la tienda: el cambio es un `reload`. Elige un
+   momento de bajo tráfico igualmente (el `CHECKPOINT` genera un pico breve de I/O).
+3. **Conéctate a la prod** (una de dos):
+   - Railway → servicio Postgres → **Data / Query** (consola web), pega el contenido
+     de `scripts/db-wal-tuning.sql`; **o**
+   - desde tu máquina con el `DATABASE_URL` del servicio Postgres (entorno
+     `production`):
+     ```bash
+     export DATABASE_URL='postgresql://…'      # NO se pega en ningún fichero del repo
+     psql "$DATABASE_URL" -f scripts/db-wal-tuning.sql
+     unset DATABASE_URL
+     ```
+4. **Verifica que aplicó.** El propio script imprime el bloque **DESPUÉS**; confirma:
+   - `max_wal_size = 128`, `min_wal_size = 32` (unit `MB`), y **`source = configuration file`**.
+   - **⚠️ Si `max_wal_size` sigue en 1024 con `source = command line`:** entonces
+     Railway está fijando el parámetro por un **flag de arranque** (o una variable de
+     servicio), y el `ALTER SYSTEM` **no lo puede pisar** (medido: en mi PG de prueba,
+     arrancar con `-c max_wal_size=1GB` mantuvo 1024 pese al `ALTER SYSTEM`; al
+     reiniciar SIN ese flag, quedó en 128 con `source = configuration file`). En ese
+     caso, cámbialo en la **config del servicio de Railway**, no por SQL. En una
+     instalación de fábrica (que es lo que P-53 midió, `source = default`) el
+     `ALTER SYSTEM` + reload **sí** basta.
+5. **Verifica el ahorro.** A los ~15-30 min (deja que corra ≥1 checkpoint), corre la
+   herramienta de §61.2 o directamente:
+   ```sql
+   SELECT count(*) AS wal_files, pg_size_pretty(sum(size)) AS wal_total FROM pg_ls_waldir();
+   ```
+   El WAL debe bajar de ~145 MB hacia ~min_wal_size (decenas de MB). El número de
+   volumen autoritativo lo ves en el panel de Railway.
+
+### 61.1b · Cómo revertir
+En el pie de `scripts/db-wal-tuning.sql` está el bloque `ALTER SYSTEM RESET …` +
+`pg_reload_conf()`. Vuelve a fábrica (`max_wal_size = 1GB`). **No se pierde ni un
+dato**; el disco simplemente vuelve a crecer como antes.
+
+### 61.1c · Verificación que SÍ hice (2026-09-17, PG 16.13 de usar y tirar)
+Apliqué `scripts/db-wal-tuning.sql` contra un cluster PG16 local: `ALTER SYSTEM` ×4,
+`pg_reload_conf()=t`, `CHECKPOINT` ok. Tras reiniciar sin overrides de línea de
+comandos: `max_wal_size=128 MB`, `min_wal_size=32 MB`, `source=configuration file`
+(confirmado con `pg_settings`). No es una medición de prod (egress bloqueado): prueba
+que **el SQL es válido y hace lo que dice** en el mismo motor.
+
+## 61.2 · Vigilancia propia del disco y del ritmo de filas/día
+
+**Herramienta: `scripts/db-disk-watch.sh`** — todo **solo lectura** (abre
+`BEGIN TRANSACTION READ ONLY`), por **SQL** (no necesita shell en el contenedor de
+Railway), y **no imprime la credencial** (del `DATABASE_URL` solo saca el nombre de
+la base y una huella sha256 del host; repo público). Mide:
+- **uso estimado** del volumen = suma de tamaños de todas las bases + WAL
+  (`pg_ls_waldir()`). El total del VOLUMEN no lo da ningún SQL en Postgres gestionado
+  ⇒ se pasa con `--volume-bytes` (default **1 GiB**, el de prod). El número
+  autoritativo del volumen es el del panel de Railway; esto es la **señal temprana**.
+- **WAL** (ficheros y bytes) — dice si el parche de §61.1 ya surtió efecto.
+- **replication slots** — P-53 esperaba 0; **>0 ⇒ FUGA ⇒ ROJO**.
+- **`max_wal_size`/`min_wal_size` efectivos** — avisa si el WAL sigue **de fábrica**.
+- **`PriceReference`**: filas, bytes/fila, y **filas/día** (prom. 7 días, vía
+  `GROUP BY "capturedDate"`) ⇒ el **ritmo real** de crecimiento.
+- **Proyección**: días hasta llenar el volumen al ritmo medido.
+
+**Veredicto y umbrales** (configurables por bandera):
+- **ROJO** (rc=1, un cron lo NOTIFICA): uso ≥ `--crit-pct` (90) · **o** días-al-tope
+  ≤ `--min-days` (21) · **o** ≥1 replication slot.
+- **AVISO** (rc=0, `::warning::` visible): uso ≥ `--warn-pct` (80). Aún hay margen.
+- **OK** (rc=0). · **rc=2 = NO CONCLUYENTE** (sin URL/psql/target/SQL) — nunca sale
+  0 con una cifra que no leyó.
+
+**Cómo lo corre el dueño a mano** (o en un cron de Railway, red interna):
+```bash
+export DATABASE_URL='postgresql://…'          # idealmente el USUARIO DE SOLO LECTURA de abajo
+./scripts/db-disk-watch.sh --target prod --volume-bytes 1073741824
+unset DATABASE_URL
+./scripts/db-disk-watch.sh --print-queries     # las 4 consultas de P-53, para pegar a mano
+```
+
+**Usuario de solo lectura (vía correcta si se quiere en CI, CLAUDE.md «Secretos»):**
+```sql
+CREATE ROLE disk_watch LOGIN PASSWORD '<generada, no en el repo>';
+GRANT pg_monitor TO disk_watch;   -- da pg_ls_waldir(), pg_replication_slots, tamaños
+GRANT CONNECT ON DATABASE tcg_marketplace TO disk_watch;
+GRANT USAGE ON SCHEMA public TO disk_watch;
+GRANT SELECT ON "PriceReference" TO disk_watch;
+```
+`pg_monitor` es lo que habilita `pg_ls_waldir()` y `pg_replication_slots` a un no-super.
+
+**Cableado en CI: `.github/workflows/db-disk-watch.yml`** (lunes 06:00 UTC + manual,
+y el canario también en cada PR/push que toque la herramienta). **Dos trabajos, y la
+distinción es la lección P-77:**
+- `autoprueba` — **siempre** corre `scripts/check-db-disk-watch-canary.sh` (7 casos,
+  sin base ni red): prueba que la alarma **sabe ponerse roja**. Es el «blanco» real
+  del workflow aunque nadie cablee la prod.
+- `vigilancia` — corre la medición viva **solo si existe el secret `DB_READONLY_URL`**.
+  Si no existe, **no finge verde vigilando**: emite un `::notice::` diciendo que no
+  está cableada y a dónde ir. En ROJO abre/actualiza un **issue** con label `disco`
+  (patrón `deps-audit`) y pone el run en rojo. Tamaño del volumen: variable de repo
+  `DB_VOLUME_BYTES` (vacío ⇒ 1 GiB).
+
+> **Por qué el secret y no el `DATABASE_URL` normal:** la base solo se alcanza donde
+> vive la credencial; el egress a Railway está bloqueado aquí y **no medí** que un
+> runner de GitHub llegue a la prod. Vías sin exponer credencial en GitHub: un **cron
+> de Railway** (red interna) o **correrlo a mano**. Si el dueño quiere el aviso en CI,
+> el usuario de solo lectura de arriba en `DB_READONLY_URL` es la vía correcta.
+
+**⛔ No convertir `db-disk-watch.yml` en required check:** es `schedule`/manual, no
+gatea deploy. Su trabajo es **avisar con semanas de antelación**, no bloquear.
+
+## 61.3 · Qué necesito del dueño
+1. **Una ventana** (unos minutos, bajo tráfico) para aplicar `scripts/db-wal-tuning.sql`
+   con respaldo, siguiendo §61.1a. Es un `reload`, no un corte de servicio.
+2. **Opcional** (para el aviso automático en CI): crear el usuario de solo lectura de
+   §61.2 y ponerlo en el secret `DB_READONLY_URL`; y si su volumen ya no es 1 GB,
+   fijar la variable de repo `DB_VOLUME_BYTES`. Sin esto, la vigilancia sigue
+   disponible corriéndola a mano o desde un cron de Railway.
