@@ -5,7 +5,28 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-15** (orquestador, sesión 2, cierre; ver sección nueva abajo). Cuerpos de los ítems históricos: **verbatim**, sin reescribir.
 
-## 🚚 Cola de publicación #38 — LISTA para el botón del dueño (2026-09-17)
+## ✅ PUBLICADO #38 (2026-09-17) — producción `187b1d40`
+
+El dueño fusionó `claude/orq4-integracion-verificada → production` (camino de un botón). **Producción contiene los
+6 arreglos** (medido: la rama consolidada es ancestro de `origin/production`). ⚠️ **`main` quedó atrás en contenido**
+(esperado): las ramas nuevas se basan en `origin/production`. Sincronizar `main` es higiene pendiente (el orquestador
+no puede empujar a `main`; se hace en un PR `production→main` o el dueño lo hace).
+
+**Verificar en tienda (post-publicación):** (1) rechazar INE ⇒ buylist bloqueado hasta re-subir; (2) «Precio ofertado»
+muestra el cotizado; (3) sellado en cola M1 muestra su nombre; (4) pedido muestra la calle.
+
+## 🔴 S3-INE-PII — `/admin/users` puede exponer la RUTA de la imagen de INE (backend/seguridad, medido 2026-09-17)
+
+**Medido:** el check `backend-e2e` está en rojo **en `main` y en `production`** (no lo introdujo #38 — mismos 3 tests
+fallando antes y después; #38 solo **añadió** 32 tests, todos verdes). Los 3 rojos viven en
+`backend/test/integration/kyc-ine-links.e2e-spec.ts` (§M6-K). El nombrado: **K-2** — «`GET /admin/users` y
+`GET /admin/users/:id` con `super_admin` **no** deben matchear `/kyc_ine\//`». Que esté rojo sugiere que la respuesta
+**sí** trae la object-key de la INE (identificación oficial mexicana) — **PII en vivo hoy**. ⛔ **NO MEDIDO si es leak
+real o test obsoleto**: cierra corriendo la suite contra Postgres y leyendo el cuerpo de la respuesta. Dueño: backend
+(diagnóstico+fix) → **3 veredictos** (PII/seguridad). Arreglarlo probablemente pone `backend-e2e` en verde.
+**Comprobación:** `kyc-ine-links.e2e-spec.ts` §M6-K K-1/K-2/K-3 en verde; respuesta de `/admin/users` sin `kyc_ine/`.
+
+
 
 **Rama consolidada:** `claude/orq4-integracion-verificada` (SHA `051e50cd`, árbol `4c85d57f`). Base = `origin/main`
 (cuyo árbol es **idéntico** al de `production` — medido 2026-09-16). Integra **6 arreglos**, merge limpio, **sin
