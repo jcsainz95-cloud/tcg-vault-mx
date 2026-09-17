@@ -94,6 +94,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
   } = props;
   const t = useTranslations('admin.drawer');
   const tSpec = useTranslations('finish');
+  const tSub = useTranslations('status.sealedSubtype');
   const { isSuperAdmin } = useRole();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -160,7 +161,12 @@ export function VariantDrawer(props: VariantDrawerProps) {
       ? 'RAW · NM'
       : productType === 'graded'
         ? `GRADED · ${props.gradeInfo ? `${props.gradeInfo.gradingCompany} ${props.gradeInfo.gradeValue}` : ''}`
-        : 'SELLADO',
+        : // SELLADO-M1(C): el desglose de FORMATO (Bundle/Booster Box/ETB…) YA viaja como prop
+          // `sealedSubtype`; se pintaba «SELLADO» a secas y el subtipo se perdía en el drill-down.
+          // Display-only passthrough del campo que el drawer ya recibe.
+          props.sealedSubtype
+          ? `SELLADO · ${tSub(props.sealedSubtype).toUpperCase()}`
+          : 'SELLADO',
     productType === 'raw' ? tSpec(finish).toUpperCase() : null,
   ].filter(Boolean);
 

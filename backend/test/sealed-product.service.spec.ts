@@ -60,7 +60,15 @@ function buildPrisma(seed: {
   const prisma: any = {
     cardSet: {
       findUnique: jest.fn(async ({ where }: any) => sets.find((s) => s.id === where.id) ?? null),
-      findMany: jest.fn(async () => sets),
+      findMany: jest.fn(async ({ where }: any = {}) =>
+        sets.filter((s) => {
+          if (where?.id?.in != null && !where.id.in.includes(s.id)) return false;
+          if (where?.tcgcsvGroupId?.not === null && s.tcgcsvGroupId == null) return false;
+          if (where?.name?.contains != null)
+            return String(s.name).toLowerCase().includes(String(where.name.contains).toLowerCase());
+          return true;
+        }),
+      ),
       update: jest.fn(async ({ where, data }: any) => {
         const s = sets.find((x) => x.id === where.id);
         Object.assign(s, data);
@@ -77,8 +85,8 @@ function buildPrisma(seed: {
       }),
     },
     sealedSetGroup: {
-      findMany: jest.fn(async ({ where }: any) =>
-        sealedSetGroups.filter((g) => g.setId === where.setId),
+      findMany: jest.fn(async ({ where }: any = {}) =>
+        sealedSetGroups.filter((g) => (where?.setId != null ? g.setId === where.setId : true)),
       ),
       findUnique: jest.fn(async ({ where }: any) => {
         const k = where.setId_tcgplayerGroupId;
@@ -93,6 +101,11 @@ function buildPrisma(seed: {
         const g = sealedSetGroups.find((x) => x.id === where.id);
         Object.assign(g, data);
         return g;
+      }),
+      delete: jest.fn(async ({ where }: any) => {
+        const idx = sealedSetGroups.findIndex((x) => x.id === where.id);
+        const [removed] = idx >= 0 ? sealedSetGroups.splice(idx, 1) : [null];
+        return removed;
       }),
     },
     sealedProduct: {
@@ -141,6 +154,11 @@ function buildPrisma(seed: {
         return { count: affected.length };
       }),
     },
+    // SEC-M11-1/-2: `setMainGroup` ahora envuelve sus escrituras en `$transaction`. El doble en memoria
+    // muta los mismos `_stores`, así que ejecutar el callback con el propio `prisma` como `tx` reproduce
+    // la semántica (commit al terminar sin lanzar). Es el mismo patrón de doble que usan las demás specs.
+    $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    auditLog: { create: jest.fn(async () => ({})) },
     _stores: { sets, cards, sealedProducts, sealedSetGroups, inventoryItems },
   };
   return prisma;
@@ -552,6 +570,58 @@ describe('SealedProductService.matchScore — tolerante al prefijo de código de
   });
 
   // -------------------------------------------------------------------------
+  // ⭐⭐ IMPORTANTE-3 (QA, P-46-bis) — DOS grupos MISMO-NOMBRE / AÑO-DISTINTO: el resolver único
+  // devuelve `null` DONDE EL VIEJO `matchScore` HABRÍA ELEGIDO EL DEL AÑO. Esta prueba FIJA esa
+  // conducta intencionada (antes no había canario que la sostuviera).
+  //
+  // El caso: el set local «Base Set» (2016) coincide EN AÑO con uno solo de dos grupos homónimos
+  // (uno 1999, otro 2016). El histórico `matchScore` puntuaba 1.0 al del año que empata y 0.7 al
+  // otro, así que `bestSetMainMatch` (viejo) desempataba POR AÑO y adoptaba el de 2016. El resolver
+  // único (`matchTcgcsvGroupByName`) NO desempata por año: los dos nombres normalizan igual ⇒ el
+  // peldaño `exact` tiene DOS candidatos ⇒ `ambiguous` ⇒ `null`, y `bestSetMainMatch` NO baja al
+  // desempate de año (money-safe: match ÚNICO o nada). Es dirección SEGURA — sólo se pierde una
+  // AUTO-adopción que antes ocurría; JAMÁS puede pasar `groupId → OTRO grupo`. La cura sigue viva:
+  // el humano cura a mano (`linkGroup`/`set-main-group`) y ENTONCES sí baja.
+  //
+  // ⚠️ El arquitecto debe ratificar/documentar esta pérdida de desempate-por-año en el diseño §8
+  // (anotado en `docs/TECH_DEBT.md`). Este canario fija la conducta de HOY para que el cambio, si
+  // se decide otro, sea VISIBLE (esta prueba se pondría roja) y no silencioso.
+  // -------------------------------------------------------------------------
+  it('IMPORTANTE-3: dos grupos mismo-nombre/año-distinto → resolver único devuelve null (NO desempata por año como el viejo matchScore)', async () => {
+    const setRow = { id: 'set-1', name: 'Base Set', series: 'BASE', releaseDate: '2016-02-27', tcgcsvGroupId: null };
+    const groups = [
+      { groupId: 100, name: 'Base Set', publishedOn: '1999-01-09' }, // homónimo de otra era
+      { groupId: 200, name: 'Base Set', publishedOn: '2016-02-27' }, // el que EMPATA en año con el local
+    ];
+
+    // 1) La UI de candidatos sí SURFACEA ambos con su score histórico (1.0 el del año, 0.7 el otro):
+    //    el desempate por año sigue INFORMANDO al humano, sólo que ya no AUTO-adopta.
+    const candPrisma = buildPrisma({ sets: [{ ...setRow }] });
+    const cand = await svcOf(candPrisma, buildProvider({ groups })).syncCandidates('set-1');
+    const byId = Object.fromEntries(cand.candidates.map((c) => [c.tcgplayerGroupId, c]));
+    expect(byId[200].matchScore).toBeCloseTo(1.0); // el del año que empata (lo que el viejo elegía)
+    expect(byId[100].matchScore).toBeCloseTo(0.7); // el homónimo de otra era
+
+    // 2) …pero el sync NO adopta NINGUNO: `exact` es ambiguo ⇒ null. `null → groupId` jamás ocurre.
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(
+      prisma,
+      buildProvider({ groups, productsByGroup: { 200: [{ productId: 20, name: 'Base Set Booster Box' }] }, pricesByGroup: {} }),
+    ).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.kind === 'set_main')).toBeUndefined();
+    expect(res.groupsPopulated).toBe(0);
+
+    // 3) La salida manual sigue viva: curado por el humano, ENTONCES sí baja (curado > name-match).
+    const svc = svcOf(
+      prisma,
+      buildProvider({ groups, productsByGroup: { 200: [{ productId: 20, name: 'Base Set Booster Box' }] }, pricesByGroup: {} }),
+    );
+    await svc.linkGroup('set-1', { tcgplayerGroupId: 200, kind: 'set_main' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
   // P-46 (verificación 2026-09-08): el arreglo es GENÉRICO, no caso-por-caso. Cualquier forma de
   // prefijo de código que TCGCSV use ("ME05:", "SV08:", "SWSH07:", "SV:") tiene que auto-resolver
   // cuando el nombre restante es EL MISMO set y el año coincide. Medido: sin la tolerancia estos
@@ -647,6 +717,234 @@ describe('SealedProductService.matchScore — tolerante al prefijo de código de
     const res = await svcOf(prisma, buildProvider({ groups })).sync({ setId: 'set-1' });
     expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
     expect(res.groupsPopulated).toBe(0);
+  });
+});
+
+// ===========================================================================
+// P-46-bis (2026-09-17) — la resolución del set_main del SELLADO REUSA `matchTcgcsvGroupByName`
+// (la fuente ÚNICA de match S-D3 de sueltas), en vez del `matchScore`/`bestSetMainMatch` duplicado
+// que NO tenía el peldaño `exact_debased`. Antes, las bases de era («SV01: Scarlet & Violet Base
+// Set») caían al `contains` AMBIGUO (subcadena de la base + los promos) ⇒ el sellado del set quedaba
+// «sin grupo resoluble» y nunca bajaba presentaciones/precios. Tras el fix el sellado gana ese
+// peldaño y cruza a SU base, PERO conserva su política money-safe MÁS ESTRICTA que la de sueltas:
+//   - RECHAZA el peldaño `contains` (contención pura = kit de prerelease/promo → curación a mano);
+//   - guarda de AÑO (ambos años conocidos y distintos ⇒ no adopta).
+// Egress a tcgcsv.com BLOQUEADO (O-17): todo con fixtures de nombres de grupo (convención confirmada
+// en `tcgcsv-group-match.spec.ts`), NUNCA red viva.
+// ===========================================================================
+describe('SealedProductService — set_main REUSA matchTcgcsvGroupByName (P-46-bis, exact_debased)', () => {
+  // Universo realista de la era SV: la base (prefijo + sufijo `Base Set`) + su grupo de promos + un
+  // hermano de la era. Es el caso que HOY (matchScore/bestSetMainMatch) deja en null por contención
+  // ambigua y que el peldaño `exact_debased` de la fuente única resuelve.
+  const svEra = [
+    { groupId: 22873, name: 'SV01: Scarlet & Violet Base Set', publishedOn: '2025-01-17' },
+    { groupId: 23001, name: 'Scarlet & Violet Black Star Promos', publishedOn: '2025-01-17' },
+    { groupId: 23874, name: 'SV: Prismatic Evolutions', publishedOn: '2025-01-17' },
+  ];
+
+  it('CANARIO P-46-bis: «Scarlet & Violet» (base de era) auto-resuelve a SU base y BAJA presentaciones', async () => {
+    const setRow = { id: 'set-1', name: 'Scarlet & Violet', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: null };
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const provider = buildProvider({
+      groups: svEra,
+      productsByGroup: { 22873: [{ productId: 100, name: 'Scarlet & Violet Booster Box' }] },
+      pricesByGroup: {},
+    });
+    const res = await svcOf(prisma, provider).sync({ setId: 'set-1' });
+    // Cruza a la BASE (22873), NUNCA a los promos (23001) — money-safe.
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(22873);
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.kind === 'set_main')).toMatchObject({ tcgplayerGroupId: 22873 });
+    expect(res.productsUpserted).toBe(1);
+  });
+
+  it('⛔ MONEY-SAFE: la base NUNCA cruza al grupo de PROMOS (falso positivo = precios de otra carta)', async () => {
+    const setRow = { id: 'set-1', name: 'Scarlet & Violet', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: null };
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    await svcOf(prisma, buildProvider({ groups: svEra, productsByGroup: { 22873: [] }, pricesByGroup: {} })).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).not.toBe(23001);
+  });
+
+  it('MONEY-SAFE conservado: contención pura («… Prerelease Kit») NO auto-resuelve (tier contains rechazado)', async () => {
+    // Con matchTcgcsvGroupByName crudo esto sería un `contains` ÚNICO ⇒ groupId; el sellado lo RECHAZA
+    // (conserva el umbral 0.9 histórico de bestSetMainMatch). La salida sigue siendo curación a mano.
+    const setRow = { id: 'set-1', name: 'Pitch Black', series: 'SV', releaseDate: '2026-07-17', tcgcsvGroupId: null };
+    const groups = [{ groupId: 850, name: 'ME05: Pitch Black Prerelease Kit', publishedOn: '2026-07-17' }];
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(prisma, buildProvider({ groups, productsByGroup: { 850: [{ productId: 85, name: 'x' }] }, pricesByGroup: {} })).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(res.groupsPopulated).toBe(0);
+  });
+
+  it('MONEY-SAFE conservado: guarda de AÑO — «Chaos Rising» 2026 vs grupo 2019 → NO auto-resuelve', async () => {
+    const setRow = { id: 'set-1', name: 'Chaos Rising', series: 'ME', releaseDate: '2026-05-01', tcgcsvGroupId: null };
+    const groups = [{ groupId: 640, name: 'ME04: Chaos Rising', publishedOn: '2019-03-01' }];
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(prisma, buildProvider({ groups, productsByGroup: { 640: [{ productId: 64, name: 'x' }] }, pricesByGroup: {} })).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(res.groupsPopulated).toBe(0);
+  });
+});
+
+// ===========================================================================
+// M11 §10 — GET sealed-price-status: TRES estados por set desde estado persistido, con el gate H-1.
+// Read-only, SIN red externa (O-17): el endpoint no puede depender de tcgcsv.com.
+// ===========================================================================
+describe('M11 §10 — SealedProductService.sealedPriceStatus (tres estados, gate H-1, sin egress)', () => {
+  // Tres sets fixture, uno por estado. anchor-* = ancla del set (menor numberPrefix/numberSort).
+  const seed = () => ({
+    sets: [
+      { id: 'set-a', name: 'Alpha', series: 'SV', releaseDate: '2025-03-01', tcgcsvGroupId: 100 },
+      { id: 'set-b', name: 'Bravo', series: 'SV', releaseDate: '2025-02-01', tcgcsvGroupId: 200 },
+      { id: 'set-c', name: 'Charlie', series: 'SV', releaseDate: '2025-01-01', tcgcsvGroupId: null },
+    ],
+    cards: [
+      { id: 'anchor-a', setId: 'set-a', numberPrefix: '', numberSort: 1 },
+      { id: 'anchor-b', setId: 'set-b', numberPrefix: '', numberSort: 1 },
+    ],
+    sealedSetGroups: [
+      { id: 'ga', setId: 'set-a', tcgplayerGroupId: 100, kind: 'set_main', label: null },
+      { id: 'gb', setId: 'set-b', tcgplayerGroupId: 200, kind: 'set_main', label: null },
+    ],
+    sealedProducts: [
+      { id: 'pa', setId: 'set-a', tcgplayerProductId: 1, tcgplayerGroupId: 100, name: 'A Box', subtype: 'box', subtypeInferred: true, isPrincipal: true, origin: 'set_main', imageUrl: null, marketUsdCents: null, active: true },
+      { id: 'pb', setId: 'set-b', tcgplayerProductId: 2, tcgplayerGroupId: 200, name: 'B Box', subtype: 'box', subtypeInferred: true, isPrincipal: true, origin: 'set_main', imageUrl: null, marketUsdCents: null, active: true },
+      // set-c: producto HUÉRFANO (su grupo 999 no está enlazado, y el set no tiene set_main) → unmapped.
+      { id: 'pc', setId: 'set-c', tcgplayerProductId: 3, tcgplayerGroupId: 999, name: 'C Box', subtype: 'box', subtypeInferred: true, isPrincipal: true, origin: 'set_main', imageUrl: null, marketUsdCents: null, active: true },
+    ],
+  });
+
+  it('CANARIO tres estados: priced / mapped_unpriced / unmapped, con su reason (dial ON)', async () => {
+    const prisma = buildPrisma(seed());
+    // Dial ON; SOLO set-a tiene PriceReference gateada → priced. set-b mapeado sin ref → no_source_price.
+    const pricing = pricingMock({ sourceOn: true, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+    const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ page: 1, pageSize: 20 });
+    expect(res.sealedPriceSource).toBe('tcgcsv');
+    const byId = Object.fromEntries(res.data.map((r) => [r.set.id, r]));
+    expect(byId['set-a']).toMatchObject({ state: 'priced', priced: 1, mappedUnpriced: 0, unmapped: 0 });
+    expect(byId['set-a'].reason).toBeUndefined();
+    expect(byId['set-b']).toMatchObject({ state: 'mapped_unpriced', priced: 0, mappedUnpriced: 1, reason: 'no_source_price' });
+    expect(byId['set-c']).toMatchObject({ state: 'unmapped', unmapped: 1, setMainGroupId: null, reason: 'no_group' });
+    expect(res.total).toBe(3);
+  });
+
+  it('M11-status-gate-parity (DINERO): dial OFF ⇒ un set con PriceReference cuenta como mapped_unpriced (no priced), reason dial_off', async () => {
+    const prisma = buildPrisma(seed());
+    // MISMA ref que arriba, pero dial OFF: el gate H-1 la anula (fail-closed) ⇒ el alta lo valuaría
+    // PRICE_PENDING ⇒ la vista debe reflejar `mapped_unpriced`, no `priced` (I-2, sin divergir del gate).
+    const pricing = pricingMock({ sourceOn: false, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+    const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ page: 1, pageSize: 20 });
+    expect(res.sealedPriceSource).toBe('off');
+    const a = res.data.find((r) => r.set.id === 'set-a')!;
+    expect(a).toMatchObject({ state: 'mapped_unpriced', priced: 0, mappedUnpriced: 1, reason: 'dial_off' });
+  });
+
+  it('M11-status-no-egress (O-17): responde aunque el provider TCGCSV LANCE al ser llamado (prueba que NO lo llama)', async () => {
+    const prisma = buildPrisma(seed());
+    const throwingProvider = {
+      listGroups: jest.fn(async () => { throw new Error('tcgcsv egress BLOCKED'); }),
+      listSealedProducts: jest.fn(async () => { throw new Error('tcgcsv egress BLOCKED'); }),
+      fetchSealedPricesForGroup: jest.fn(async () => { throw new Error('tcgcsv egress BLOCKED'); }),
+    } as any;
+    const pricing = pricingMock({ sourceOn: true, refsByKey: {} });
+    const res = await svcOf(prisma, throwingProvider, fxMock(), pricing).sealedPriceStatus({ page: 1, pageSize: 20 });
+    expect(res.data).toHaveLength(3);
+    expect(throwingProvider.listGroups).not.toHaveBeenCalled();
+    expect(throwingProvider.fetchSealedPricesForGroup).not.toHaveBeenCalled();
+  });
+
+  it('?state= filtra a un solo estado (derivado del enum, §0-Q)', async () => {
+    const prisma = buildPrisma(seed());
+    const pricing = pricingMock({ sourceOn: true, refsByKey: { 'anchor-a|sealed|sealed:tcg:1|normal': 500000 } });
+    const res = await svcOf(prisma, buildProvider(), fxMock(), pricing).sealedPriceStatus({ state: 'unmapped', page: 1, pageSize: 20 });
+    expect(res.data.map((r) => r.set.id)).toEqual(['set-c']);
+    expect(res.total).toBe(1);
+  });
+});
+
+// ===========================================================================
+// M11 §11 — set-main-group (REEMPLAZA aunque exista) + unlink. super_admin, money-safe.
+// ===========================================================================
+describe('M11 §11 — SealedProductService.setMainGroup / unlinkGroup (escape de P-46)', () => {
+  it('CA-12: setMainGroup REEMPLAZA CardSet.tcgcsvGroupId aunque ya esté poblado (lo que linkGroup NO puede)', async () => {
+    const prisma = buildPrisma({
+      sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 700 }],
+      sealedSetGroups: [{ id: 'g-old', setId: 'set-1', tcgplayerGroupId: 700, kind: 'set_main', label: 'wrong' }],
+    });
+    const res = await svcOf(prisma, buildProvider({ groups: [{ groupId: 800, name: 'Right Group' }] }))
+      .setMainGroup('set-1', { tcgplayerGroupId: 800, reason: 'matcher escribió el grupo equivocado' });
+    // CardSet.tcgcsvGroupId REESCRITO a 800 (linkGroup lo habría dejado en 700 por no ser null).
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(800);
+    expect(res).toMatchObject({ group: { tcgplayerGroupId: 800, kind: 'set_main' }, before: 700, after: 800 });
+    // El set_main anterior se DEGRADA a promo_collection (DO-5: no se borra).
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.tcgplayerGroupId === 700)).toMatchObject({ kind: 'promo_collection' });
+    // El nuevo grupo queda como set_main.
+    expect(prisma._stores.sealedSetGroups.find((g: any) => g.tcgplayerGroupId === 800)).toMatchObject({ kind: 'set_main' });
+  });
+
+  it('setMainGroup PROMUEVE un grupo ya enlazado como promo_collection a set_main (sin duplicar fila)', async () => {
+    const prisma = buildPrisma({
+      sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: null }],
+      sealedSetGroups: [{ id: 'g1', setId: 'set-1', tcgplayerGroupId: 300, kind: 'promo_collection', label: 'Promos' }],
+    });
+    await svcOf(prisma, buildProvider()).setMainGroup('set-1', { tcgplayerGroupId: 300 });
+    expect(prisma._stores.sealedSetGroups).toHaveLength(1);
+    expect(prisma._stores.sealedSetGroups[0]).toMatchObject({ tcgplayerGroupId: 300, kind: 'set_main' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(300);
+  });
+
+  it('setMainGroup con set inexistente → 404', async () => {
+    const prisma = buildPrisma({ sets: [] });
+    await expect(svcOf(prisma, buildProvider()).setMainGroup('nope', { tcgplayerGroupId: 1 })).rejects.toMatchObject({ code: 'NOT_FOUND', status: 404 });
+  });
+
+  it('CA-13: unlinkGroup de un set_main → borra la fila y CardSet.tcgcsvGroupId vuelve a null (SIN emparejar)', async () => {
+    const prisma = buildPrisma({
+      sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 500 }],
+      sealedSetGroups: [{ id: 'g1', setId: 'set-1', tcgplayerGroupId: 500, kind: 'set_main', label: null }],
+    });
+    const before = await svcOf(prisma, buildProvider()).unlinkGroup('set-1', 500);
+    expect(before).toMatchObject({ setId: 'set-1', tcgplayerGroupId: 500, kind: 'set_main' });
+    expect(prisma._stores.sealedSetGroups).toHaveLength(0);
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+  });
+
+  it('unlinkGroup de un promo_collection NO toca CardSet.tcgcsvGroupId (solo borra ese enlace)', async () => {
+    const prisma = buildPrisma({
+      sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: 100 }],
+      sealedSetGroups: [
+        { id: 'g1', setId: 'set-1', tcgplayerGroupId: 100, kind: 'set_main', label: null },
+        { id: 'g2', setId: 'set-1', tcgplayerGroupId: 200, kind: 'promo_collection', label: null },
+      ],
+    });
+    await svcOf(prisma, buildProvider()).unlinkGroup('set-1', 200);
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(100); // intacto
+    expect(prisma._stores.sealedSetGroups.map((g: any) => g.tcgplayerGroupId)).toEqual([100]);
+  });
+
+  it('unlinkGroup de un enlace inexistente → 404', async () => {
+    const prisma = buildPrisma({ sets: [{ id: 'set-1', name: 'PRE', series: 'SV', releaseDate: '2025-01-17', tcgcsvGroupId: null }], sealedSetGroups: [] });
+    await expect(svcOf(prisma, buildProvider()).unlinkGroup('set-1', 999)).rejects.toMatchObject({ code: 'NOT_FOUND', status: 404 });
+  });
+
+  it('CA-15 (funcional pese a P-46): mapear a mano + sync BAJA presentaciones aunque el matcher deje null', async () => {
+    // Set con nombre ambiguo que el matcher automático deja null (dos grupos empatan módulo prefijo).
+    const setRow = { id: 'set-1', name: 'Pitch Black', series: 'SV', releaseDate: '2025-06-13', tcgcsvGroupId: null };
+    const groups = [
+      { groupId: 800, name: 'SV08: Pitch Black', publishedOn: '2025-06-13' },
+      { groupId: 900, name: 'ME05: Pitch Black', publishedOn: '2025-06-13' },
+    ];
+    const productsByGroup = { 800: [{ productId: 81, name: 'Pitch Black Booster Box' }] };
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    // 1) sync automático NO resuelve (ambiguo) → sin grupo, 0 presentaciones.
+    const auto = await svcOf(prisma, buildProvider({ groups, productsByGroup, pricesByGroup: {} })).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(auto.productsUpserted).toBe(0);
+    // 2) el super-admin fija el grupo a mano (§11) …
+    await svcOf(prisma, buildProvider({ groups })).setMainGroup('set-1', { tcgplayerGroupId: 800 });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(800);
+    // 3) … y ENTONCES el sync baja las presentaciones (M11 trae precio pese a P-46).
+    const after = await svcOf(prisma, buildProvider({ groups, productsByGroup, pricesByGroup: {} })).sync({ setId: 'set-1' });
+    expect(after.productsUpserted).toBe(1);
   });
 });
 

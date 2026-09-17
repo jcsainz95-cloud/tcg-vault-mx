@@ -13,6 +13,20 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+## Backend · 2026-09-17 · M11 sellado (fix de QA)
+
+### SB-YEAR1 · El resolver único de `set_main` NO desempata por año — pierde la AUTO-adopción que el viejo `matchScore` hacía en homónimos de años distintos (backend · QA IMPORTANTE-3, P-46-bis, 2026-09-17)
+- **Dueño del código:** **backend** (`src/modules/inventory/sealed-product.service.ts` `bestSetMainMatch`, que delega en `src/modules/pricing/providers/tcgcsv-group-match.ts`).
+- **Dueño de la DECISIÓN de diseño:** **arquitecto** — debe **ratificar/documentar** esta conducta en el diseño **§8** (matcher de sellado / escalera S-D3). Hoy vive fijada solo en un canario de backend; falta la línea en el diseño que diga que es la conducta querida.
+- **Severidad:** Baja. **No bloqueante.** Es dirección **money-safe** (ver abajo); se anota porque cambia una conducta observable respecto del histórico y nadie la había escrito.
+- **Qué es (medido 2026-09-17):** al unificar el match en `matchTcgcsvGroupByName` (P-46-bis), el sellado dejó de tener el desempate **por año** que el viejo `SealedProductService.matchScore` aplicaba dentro de `bestSetMainMatch`. El caso concreto: **dos grupos TCGCSV con el MISMO nombre y AÑO distinto** (p. ej. `Base Set` 1999 y `Base Set` 2016) donde el set LOCAL coincide en año con uno de ellos.
+  - **Antes:** `matchScore` daba **1.0** al grupo cuyo año empata y **0.7** al otro; `bestSetMainMatch` elegía el de 1.0 ⇒ **auto-adoptaba el del año**.
+  - **Ahora:** los dos nombres normalizan igual ⇒ el peldaño `exact` de `matchTcgcsvGroupByName` tiene **DOS candidatos** ⇒ `ambiguous` ⇒ `null`; `bestSetMainMatch` **no baja** a un desempate de año (money-safe: match ÚNICO o nada) ⇒ **no auto-adopta ninguno**.
+- **Por qué es dirección SEGURA:** lo único que se pierde es una **auto-adopción** que antes ocurría (`null → groupId`); ⛔ **jamás** puede pasar `groupId → OTRO grupo` (el peor caso, repreciar con precios ajenos). El desempate por año **sigue informando** al humano: `syncCandidates` surfacea ambos con su score (1.0 / 0.7) para que cure a mano (`linkGroup` / `set-main-group`), y el curado sí baja.
+- **Canario que la fija (para que el cambio, si se decide otro, sea VISIBLE y no silencioso):** `backend/test/sealed-product.service.spec.ts` — *«IMPORTANTE-3: dos grupos mismo-nombre/año-distinto → resolver único devuelve null (NO desempata por año como el viejo matchScore)»*. Verifica: candidatos surfaceados con 1.0/0.7, `sync` deja `tcgcsvGroupId=null` y sin `set_main`, y la cura manual sí baja.
+- **Texto sugerido para el arquitecto (§8):** *«El match automático de `set_main` del sellado usa la escalera S-D3 (`matchTcgcsvGroupByName`), que exige match ÚNICO por peldaño y NO desempata por año. Ante dos grupos homónimos de años distintos NO auto-adopta (devuelve `null`); la desambiguación por año queda como señal de curación (score en `syncCandidates`), no como criterio de auto-adopción. Money-safe: solo `null → groupId`, nunca `groupId → OTRO`.»*
+- **Disparador:** cuando el arquitecto revise §8 del diseño de sellado, o si el negocio pide que los homónimos-de-año-distinto vuelvan a auto-adoptarse por año (en cuyo caso el desempate se reintroduce **en la fuente única**, no en una copia, y este canario se actualiza a la nueva conducta).
+
 ## Backend · 2026-09-11 · gates Stream B
 
 ### RSV-L1 · La rama LEGADA `reservedByOrderId IS NULL` está en **TRES** sitios, no en uno (backend · techlead I4 / H-5, 2026-09-11)

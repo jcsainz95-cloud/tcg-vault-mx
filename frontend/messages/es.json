@@ -1228,6 +1228,7 @@
       "m8": "M8 · Disputas",
       "m9": "M9 · Reportes",
       "m10": "M10 · Config",
+      "m11": "M11 · Sellado",
       "vaults": "Bóvedas de clientes",
       "m2Bounties": "M2 · Bounties"
     },
@@ -2072,7 +2073,8 @@
         "zeroWarning": "Sin margen",
         "zeroBanner": "Un spread de 0% vende al costo de mercado, sin margen. Verifica antes de guardar.",
         "prereqHint": "El spread solo produce precio si el producto está mapeado a TCGCSV y la fuente de precio del sellado está activa.",
-        "saved": "Spreads guardados."
+        "saved": "Spreads guardados.",
+        "movedToM11": "Los controles de precio del sellado (spreads y diales) viven ahora en M11 · Sellado."
       },
       "gradedEstimates": {
         "title": "Valor estimado si se gradea · costos y curaduría",
@@ -2726,6 +2728,92 @@
         "user_kyc_update": "Decidió sobre la identidad"
       }
     },
+    "m11": {
+      "title": "M11 · Sellado",
+      "subtitle": "Todo el ciclo del sellado en una pantalla: alta, inventario, publicación, la cola de piezas listas y —para súper-admin— los diales de precio, el disparo de ingesta y el mapeo manual de grupos.",
+      "inventory": {
+        "title": "Alta e inventario de sellado",
+        "subtitle": "Da de alta producto sellado, edita precio y formato por pieza, y publica o despublica desde el detalle de cada presentación."
+      },
+      "queue": {
+        "title": "Listas para publicar (sellado)",
+        "subtitle": "Piezas de sellado ya adquiridas que todavía no están a la venta, y qué les falta. Filtrada a sellado."
+      },
+      "dials": {
+        "title": "Diales de precio del sellado"
+      },
+      "dialsPanel": {
+        "master": {
+          "title": "Fuente automática de mercado del sellado",
+          "subtitle": "El interruptor maestro sealed_price_source. Con él encendido, la ingesta puede resolver el mercado del sellado y las aportaciones pueden valuarse contra ese mercado.",
+          "stateOn": "Encendida: los sellados mapeados con referencia resuelta cuentan con precio automático (mercado × spread).",
+          "stateOff": "Apagada: los sellados sin override manual quedan SIN PRECIO DE MERCADO y no se autoprecian.",
+          "turnOn": "Encender la fuente automática",
+          "turnOff": "Apagar la fuente automática",
+          "confirmOnTitle": "Encender la fuente automática de mercado del sellado",
+          "confirmOnBody": "A partir de ahora los sellados con referencia resuelta contarán con precio automático (mercado × spread) y las aportaciones podrán valuarse contra ese mercado. Es una decisión de dinero, auditada a tu nombre.",
+          "confirmOffTitle": "Apagar la fuente automática de mercado del sellado",
+          "confirmOffBody": "Los sellados sin override manual quedarán SIN PRECIO DE MERCADO y no se autopreciarán.",
+          "confirmOffPreserved": "Los precios manuales y los overrides ya fijados NO se apagan: apagar la fuente solo detiene el mercado automático (la ingesta de TCGCSV), nunca borra los precios que fijaste a mano.",
+          "audit": "Solo súper-admin · queda en bitácora."
+        },
+        "ingest": {
+          "cta": "Traer precios ahora",
+          "offHint": "La fuente automática está apagada: enciéndela arriba para poder traer precios (no ingiere con el dial apagado).",
+          "done": "Ingesta completada. Revisa la vista de estado por set para ver el resultado.",
+          "offReason": "La fuente automática de mercado del sellado está apagada (SEALED_PRICE_SOURCE_OFF). No se trajo ningún precio.",
+          "inFlight": "Ya hay una ingesta en curso; espera a que termine."
+        },
+        "settings": {
+          "title": "Diales de settings del sellado",
+          "subtitle": "Se editan sin redeploy (PUT parcial). Solo se guardan las claves modificadas. Misma validación y auditoría que M10.",
+          "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
+          "sealedValueTrend": "Tendencia de valor del sellado",
+          "sealedRestockAlerts": "Alertas de reposición de sellado",
+          "save": "Guardar {count} cambio(s)",
+          "saved": "Diales guardados."
+        },
+        "onOff": {
+          "on": "Encendido",
+          "off": "Apagado"
+        }
+      },
+      "status": {
+        "title": "Estado de precio por set",
+        "subtitle": "Por set de sellado: si su precio está resuelto, si está emparejado pero sin precio, o si aún no tiene grupo TCGCSV. Lee estado persistido (no consulta TCGCSV).",
+        "search": "Buscar set",
+        "searchPlaceholder": "Nombre del set…",
+        "empty": "No hay sets de sellado que mostrar.",
+        "colSet": "Set",
+        "colState": "Estado",
+        "colBreakdown": "Con / sin precio / sin mapear",
+        "colWhy": "Por qué",
+        "breakdown": "{priced} · {mapped} · {unmapped}",
+        "mapCta": "Emparejar grupo",
+        "remapCta": "Corregir grupo",
+        "state": {
+          "priced": "Con precio",
+          "mapped_unpriced": "Emparejado sin precio",
+          "unmapped": "SIN emparejar"
+        },
+        "reason": {
+          "no_group": "Sin grupo TCGCSV resuelto: empareja el grupo a mano.",
+          "dial_off": "Emparejado, pero la fuente automática está apagada.",
+          "no_source_price": "Emparejado y fuente encendida, pero la fuente no trajo precio; dispara «Traer precios ahora»."
+        }
+      },
+      "mapping": {
+        "title": "Mapeo manual del grupo TCGCSV",
+        "setName": "Set: {name}",
+        "groupIdLabel": "ID de grupo TCGCSV (set_main)",
+        "groupIdHint": "Entero positivo (== groupId de TCGplayer). Reemplaza el grupo actual si ya hay uno.",
+        "reasonLabel": "Motivo (opcional, queda en bitácora)",
+        "note": "Fijar el grupo no trae precio por sí solo: solo dice de qué grupo saldrá. Luego sincroniza y dispara «Traer precios ahora».",
+        "currentGroup": "Grupo actual: {groupId}",
+        "setMainCta": "Fijar grupo principal",
+        "unlinkCta": "Desenlazar grupo actual"
+      }
+    },
     "m10": {
       "title": "M10 · Config y bitácora",
       "dials": {
@@ -2733,6 +2821,7 @@
         "subtitle": "Se editan sin redeploy. Solo se guardan las claves modificadas.",
         "save": "Guardar {count} cambio(s)",
         "saved": "Configuración guardada.",
+        "sealedMovedToM11": "Los diales de precio del sellado (proveedor, fuente de mercado, tendencia, alertas y spreads) se editan ahora en M11 · Sellado.",
         "labels": {
           "shippingFeeCents": "Tarifa de envío",
           "aportacionPct": "% aportación en especie",

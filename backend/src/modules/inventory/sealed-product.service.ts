@@ -1,6 +1,7 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { Prisma, SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { Prisma, Role, SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
 import { usdToMxnCents } from '../../common/money';
@@ -9,6 +10,7 @@ import { FxService } from '../pricing/fx.service';
 import { TcgcsvSealedBulkProvider } from '../pricing/providers/tcgcsv-sealed.provider';
 import { TcgcsvGroupRef, sealedMarketGradeKey } from '../pricing/pricing.types';
 import { normalizeSetName, setNameCandidates } from '../pricing/ppt-set-mapper.service';
+import { matchTcgcsvGroupByName } from '../pricing/providers/tcgcsv-group-match';
 import { releaseYear } from '../pricing/ppt-sync-scope';
 import { SetRefDTO } from './master-set.service';
 import { inferSealedSubtype, SEALED_SUBTYPE_META, SEALED_SORT_ORDER_FALLBACK } from './sealed-subtype';
@@ -54,6 +56,57 @@ export interface SealedSetGroupDTO {
   tcgplayerGroupId: number;
   kind: SealedGroupKind;
   label?: string;
+}
+
+/**
+ * M11 (§10) — estado de precio/mapeo del sellado POR SET, desde estado PERSISTIDO (sin TCGCSV, O-17).
+ * CLASE L (contrato §Enums, sin columna en BD): la unión ES la regla, se DERIVA de este literal (fuente
+ * única) — el filtro `?state=` valida contra `SEALED_PRICE_STATE_VALUES`, no contra dos literales a mano.
+ *   - `priced`          = ≥1 producto con `effectiveMarketCents` gateado != null (el gate H-1, no un cálculo nuevo).
+ *   - `mapped_unpriced` = mapeado (grupo resuelto) pero sin precio gateado (dial off, o la fuente no trajo precio).
+ *   - `unmapped`        = sin grupo TCGCSV resuelto (el matcher no cuadró / se desenlazó): §11 lo cura a mano.
+ */
+export const SEALED_PRICE_STATE_VALUES = ['priced', 'mapped_unpriced', 'unmapped'] as const;
+export type SealedPriceState = (typeof SEALED_PRICE_STATE_VALUES)[number];
+
+/**
+ * M11 (§10) — POR QUÉ un set NO trae precio, para el humano (sin abrir logs). CLASE L (fuente única).
+ *   - `no_group`         = estado `unmapped`: no hay `set_main`/grupo resuelto.
+ *   - `dial_off`         = estado `mapped_unpriced` con `sealed_price_source=off` (fail-closed, I-2).
+ *   - `no_source_price`  = estado `mapped_unpriced` con el dial ON pero sin `PriceReference` gateada (falta ingesta/mapeo).
+ */
+export const SEALED_PRICE_STATUS_REASON_VALUES = ['no_group', 'dial_off', 'no_source_price'] as const;
+export type SealedPriceStatusReason = (typeof SEALED_PRICE_STATUS_REASON_VALUES)[number];
+
+/**
+ * M11 (§10) — una fila del estado de precio/mapeo del sellado por set (read-only, sin red externa).
+ * Reusa `SetRefDTO`. Los conteos son de ESTADO (no de dinero): no se muestra ningún precio derivado aquí.
+ */
+export interface SealedPriceStatusRowDTO {
+  set: SetRefDTO;
+  /** `CardSet.tcgcsvGroupId` (espejo denormalizado del `set_main`); `null` ⇒ SIN emparejar. */
+  setMainGroupId: number | null;
+  /** `SealedSetGroup.tcgplayerGroupId` enlazados al set (set_main + promo_collection). */
+  linkedGroupIds: number[];
+  /** `SealedProduct` active del set. */
+  productCount: number;
+  /** Desglose de los tres estados a nivel de PRODUCTO sellado del set. */
+  priced: number;
+  mappedUnpriced: number;
+  unmapped: number;
+  /** ROLLUP del set (el PEOR estado no-vacío): `unmapped` > `mapped_unpriced` > `priced`. */
+  state: SealedPriceState;
+  /** Presente cuando `state != 'priced'` (por qué no trae precio). */
+  reason?: SealedPriceStatusReason;
+}
+
+export interface SealedPriceStatusResponse {
+  /** El dial (§M10): con `off`, todo lo mapeado es `mapped_unpriced` por el gate (para el copy del front). */
+  sealedPriceSource: SealedPriceSource;
+  data: SealedPriceStatusRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export interface SealedProductListResponse {
@@ -146,6 +199,11 @@ export class SealedProductService {
     // v1.41 (IMP-1): resolver H-1 gateado (getReferencesBatch + gateSealedMarketCents + loadSealedSpreads)
     // — la MISMA función que decide PRICE_PENDING en el alta, para que `effectiveMarketCents` no diverja.
     private readonly pricing: PricingService,
+    // SEC-M11-1/-2: bitácora del remap set→grupo, escrita DENTRO de la misma `$transaction` que las
+    // escrituras (atomicidad total, precedente `InventoryService.applySealedManualOverride`). `@Optional`
+    // para que los tests unitarios que instancian el servicio a mano sin auditoría sigan compilando; en
+    // producción `AuditModule` es `@Global`, así que siempre se inyecta.
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   // ============================ LISTADO (vault_operator+) ============================
@@ -654,6 +712,283 @@ export class SealedProductService {
     };
   }
 
+  // ============================ M11 §10 — ESTADO DE PRECIO POR SET (vault_operator+, read-only) ===
+
+  /**
+   * `GET /admin/inventory/sealed-price-status` (M11 §10) — por SET de sellado, en cuál de TRES estados
+   * está su precio: **`priced` / `mapped_unpriced` / `unmapped`** (+ `reason`). Lo que hoy funde
+   * `sealed-sets.unmappedCount` («no mapeado» O «mapeado sin precio») aquí queda SEPARADO, para decidir
+   * si hace falta corregir el mapeo (§11) o sólo disparar la ingesta (§9).
+   *
+   * ⛔ **Read-only, sin red externa (O-17):** lee SÓLO estado persistido (`SealedProduct` + `SealedSetGroup`
+   * + `CardSet.tcgcsvGroupId`) y clasifica con el **MISMO gate H-1** que el alta (`getReferencesBatch` +
+   * `gateSealedMarketCents`) — NO reimplementa el gate (I-2/I-6) y **NUNCA** llama a `fetchSealedPricesForGroup`/
+   * `listGroups` (a diferencia de `listSealedProducts`/`syncCandidates`), por lo que no toca `tcgcsv.com`.
+   * Money-safe: clasifica, no fija precio; los conteos son de ESTADO, no de dinero.
+   *
+   * Incluye sets del CATÁLOGO sin inventario (que `sealed-sets` omite): universo = sets con ≥1
+   * `SealedProduct` active ∪ ≥1 `SealedSetGroup` ∪ `CardSet.tcgcsvGroupId != null`.
+   */
+  async sealedPriceStatus(params: {
+    q?: string;
+    state?: SealedPriceState;
+    page: number;
+    pageSize: number;
+  }): Promise<SealedPriceStatusResponse> {
+    const { sourceOn } = await this.pricing.loadSealedSpreads();
+    const sealedPriceSource: SealedPriceSource = sourceOn ? 'tcgcsv' : 'off';
+
+    // Estado persistido en tres lecturas (sin red): productos active, grupos enlazados, y los sets con
+    // set_main denormalizado. El universo de sets es la unión — así un set del catálogo sin inventario
+    // (que `sealed-sets` no ve) también aparece para poder mapearse.
+    const [products, groupRows, mainSets] = await Promise.all([
+      this.prisma.sealedProduct.findMany({
+        where: { active: true },
+        select: { setId: true, tcgplayerProductId: true, tcgplayerGroupId: true },
+      }),
+      this.prisma.sealedSetGroup.findMany({
+        select: { setId: true, tcgplayerGroupId: true, kind: true },
+      }),
+      this.prisma.cardSet.findMany({
+        where: { tcgcsvGroupId: { not: null } },
+        select: { id: true },
+      }),
+    ]);
+
+    const setIdUniverse = new Set<string>([
+      ...products.map((p) => p.setId),
+      ...groupRows.map((g) => g.setId),
+      ...mainSets.map((s) => s.id),
+    ]);
+    if (setIdUniverse.size === 0) {
+      return { sealedPriceSource, data: [], page: params.page, pageSize: params.pageSize, total: 0 };
+    }
+
+    const needle = params.q?.trim().toLowerCase();
+    const sets = await this.prisma.cardSet.findMany({
+      where: {
+        id: { in: [...setIdUniverse] },
+        ...(needle ? { name: { contains: needle, mode: 'insensitive' } } : {}),
+      },
+    });
+
+    // Índices por set (join en memoria, sin N+1 de datos).
+    const productsBySet = new Map<string, { tcgplayerProductId: number; tcgplayerGroupId: number }[]>();
+    for (const p of products) {
+      const arr = productsBySet.get(p.setId) ?? [];
+      arr.push({ tcgplayerProductId: p.tcgplayerProductId, tcgplayerGroupId: p.tcgplayerGroupId });
+      productsBySet.set(p.setId, arr);
+    }
+    const groupsBySet = new Map<string, { tcgplayerGroupId: number; kind: SealedGroupKind }[]>();
+    for (const g of groupRows) {
+      const arr = groupsBySet.get(g.setId) ?? [];
+      arr.push({ tcgplayerGroupId: g.tcgplayerGroupId, kind: g.kind });
+      groupsBySet.set(g.setId, arr);
+    }
+
+    const rows: SealedPriceStatusRowDTO[] = [];
+    for (const set of sets) {
+      const setProducts = productsBySet.get(set.id) ?? [];
+      const setGroups = groupsBySet.get(set.id) ?? [];
+      const linkedGroupIds = [...new Set(setGroups.map((g) => g.tcgplayerGroupId))].sort((a, b) => a - b);
+      const setMainGroupId =
+        set.tcgcsvGroupId ?? setGroups.find((g) => g.kind === 'set_main')?.tcgplayerGroupId ?? null;
+      const linkedSet = new Set<number>(linkedGroupIds);
+      if (setMainGroupId != null) linkedSet.add(setMainGroupId);
+
+      // Referencias gateadas de los productos del set — la MISMA cadena H-1 que `listSealedProducts`
+      // (ancla del set + getReferencesBatch + gateSealedMarketCents). Sin ancla ⇒ sin clave ⇒ null.
+      const anchorCardId = await this.resolveAnchorCardId(set.id);
+      const effectiveByProductId = new Map<number, number | null>();
+      if (anchorCardId && setProducts.length > 0) {
+        const refs = await this.pricing.getReferencesBatch(
+          setProducts.map((p) => ({
+            cardId: anchorCardId,
+            productType: 'sealed' as const,
+            gradeKey: sealedMarketGradeKey(p.tcgplayerProductId),
+            finish: 'normal' as const,
+          })),
+        );
+        for (const p of setProducts) {
+          const ref = refs.get(`${anchorCardId}|sealed|${sealedMarketGradeKey(p.tcgplayerProductId)}|normal`);
+          effectiveByProductId.set(p.tcgplayerProductId, this.pricing.gateSealedMarketCents(ref, sourceOn));
+        }
+      }
+
+      let priced = 0;
+      let mappedUnpriced = 0;
+      let unmapped = 0;
+      for (const p of setProducts) {
+        // «Mapeado» = su grupo está resuelto/enlazado en el set. Un producto huérfano (su grupo se
+        // desenlazó, o el set perdió su set_main) cuenta como SIN emparejar (honesto, §11).
+        const isMapped = linkedSet.has(p.tcgplayerGroupId);
+        if (!isMapped) {
+          unmapped += 1;
+          continue;
+        }
+        if ((effectiveByProductId.get(p.tcgplayerProductId) ?? null) != null) priced += 1;
+        else mappedUnpriced += 1;
+      }
+
+      // ROLLUP: el PEOR estado no-vacío. Set sin productos: `unmapped` si no hay grupo resuelto (honesto
+      // «SIN emparejar»), si no `mapped_unpriced` (tiene grupo pero aún nada preciado).
+      let state: SealedPriceState;
+      if (unmapped > 0) state = 'unmapped';
+      else if (mappedUnpriced > 0) state = 'mapped_unpriced';
+      else if (priced > 0) state = 'priced';
+      else state = setMainGroupId == null && linkedGroupIds.length === 0 ? 'unmapped' : 'mapped_unpriced';
+
+      const reason: SealedPriceStatusReason | undefined =
+        state === 'unmapped'
+          ? 'no_group'
+          : state === 'mapped_unpriced'
+            ? sourceOn
+              ? 'no_source_price'
+              : 'dial_off'
+            : undefined;
+
+      rows.push({
+        set: toSetRef(set),
+        setMainGroupId,
+        linkedGroupIds,
+        productCount: setProducts.length,
+        priced,
+        mappedUnpriced,
+        unmapped,
+        state,
+        ...(reason ? { reason } : {}),
+      });
+    }
+
+    // Filtro por estado (derivado del enum; §0-Q) y orden por lanzamiento desc (convención de pestaña).
+    const filtered = params.state ? rows.filter((r) => r.state === params.state) : rows;
+    filtered.sort((a, b) => (b.set.releaseDate ?? '').localeCompare(a.set.releaseDate ?? ''));
+    const total = filtered.length;
+    const data = filtered.slice((params.page - 1) * params.pageSize, params.page * params.pageSize);
+    return { sealedPriceSource, data, page: params.page, pageSize: params.pageSize, total };
+  }
+
+  // ============================ M11 §11 — CORRECCIÓN DEL MAPEO set→grupo (super_admin, AUDITADO) ===
+
+  /**
+   * `PUT /admin/inventory/sealed-sets/:setId/set-main-group` (M11 §11.1) — fija/**REEMPLAZA** el grupo
+   * `set_main` del set **aunque ya exista** (a diferencia de `linkGroup`, que sólo escribe
+   * `CardSet.tcgcsvGroupId` si es null, `:642`). Es el escape de P-46 cuando el matcher automático
+   * escribió un grupo equivocado. Money-safe (I-2): fija de qué grupo saldrá el precio; **no** fabrica
+   * precio (lo trae el job §9, gateado). El `set_main` anterior se DEGRADA a `promo_collection` (DO-5:
+   * conserva el enlace por si tenía productos válidos; el super-admin lo borra aparte con el DELETE).
+   *
+   * Devuelve el `SealedSetGroupDTO` del `set_main` resultante y el `before/after` (para el eco del
+   * controller). La bitácora `inventory.sealed_set_main_group_set` la escribe ESTE método DENTRO de la
+   * `$transaction` cuando el controller pasa `actor` (SEC-M11-2, I-4).
+   *
+   * ### SEC-M11-1/-2 — atomicidad del remap
+   * El remap toca **tres** filas (degradar el/los set_main anterior(es), promover/crear el nuevo,
+   * reescribir el espejo `CardSet.tcgcsvGroupId`) **más** la bitácora. Antes iban sueltas: un fallo a
+   * mitad dejaba un **mapeo parcial** (p. ej. el viejo degradado pero el nuevo sin crear) o una
+   * bitácora huérfana. Ahora COMMITEAN JUNTAS en una `$transaction` — o entra todo, o no entra nada.
+   * La lectura del `label` (red a TCGCSV, best-effort) se resuelve **ANTES** de abrir la transacción:
+   * ⛔ no se sostiene una transacción de BD abierta durante una llamada de red (O-17). Money-safe (I-2):
+   * fija de qué grupo saldrá el precio; NO fabrica precio.
+   */
+  async setMainGroup(
+    setId: string,
+    body: { tcgplayerGroupId: number; reason?: string },
+    actor?: { userId: string; role: Role },
+  ): Promise<{ group: SealedSetGroupDTO; before: number | null; after: number }> {
+    const set = await this.prisma.cardSet.findUnique({ where: { id: setId } });
+    if (!set) throw BusinessException.notFound('NOT_FOUND', 'CardSet not found');
+    const before = set.tcgcsvGroupId ?? null;
+    const newGroupId = body.tcgplayerGroupId;
+
+    const existingGroups = await this.prisma.sealedSetGroup.findMany({ where: { setId } });
+    // Si ya existía la fila del NUEVO set_main (p. ej. como promo_collection) se PROMUEVE; si no, se crea.
+    const dup = existingGroups.find((g) => g.tcgplayerGroupId === newGroupId);
+
+    // Label best-effort desde TCGCSV (observabilidad/curación), FUERA de la transacción (red bloqueable,
+    // O-17; jamás bloquea el remap). Solo hace falta cuando se crea una fila nueva.
+    let label: string | null = null;
+    if (!dup) {
+      try {
+        const groups = await this.provider.listGroups();
+        label = groups.find((g) => g.groupId === newGroupId)?.name ?? null;
+      } catch {
+        /* money-safe: el mapeo no depende del label (egress a tcgcsv.com puede estar bloqueado, O-17). */
+      }
+    }
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      // Degrada el/los set_main anterior(es) distinto(s) del nuevo a promo_collection (DO-5: no se borra;
+      // conserva el enlace y sus productos, y el DELETE lo retira aparte si estorba).
+      for (const g of existingGroups) {
+        if (g.kind === 'set_main' && g.tcgplayerGroupId !== newGroupId) {
+          await tx.sealedSetGroup.update({ where: { id: g.id }, data: { kind: 'promo_collection' } });
+        }
+      }
+      const r = dup
+        ? await tx.sealedSetGroup.update({ where: { id: dup.id }, data: { kind: 'set_main' } })
+        : await tx.sealedSetGroup.create({
+            data: { setId, tcgplayerGroupId: newGroupId, kind: 'set_main', label },
+          });
+      // REESCRIBE `CardSet.tcgcsvGroupId` (aunque ya hubiera uno) — la diferencia clave con `linkGroup`.
+      await tx.cardSet.update({ where: { id: setId }, data: { tcgcsvGroupId: newGroupId } });
+      // SEC-M11-2: la bitácora participa del MISMO commit/rollback que el remap que audita.
+      if (this.audit && actor) {
+        await this.audit.log(
+          {
+            actorUserId: actor.userId,
+            actorRole: actor.role,
+            action: 'inventory.sealed_set_main_group_set',
+            entityType: 'CardSet',
+            entityId: setId,
+            before: { tcgcsvGroupId: before },
+            after: { tcgcsvGroupId: newGroupId, reason: body.reason },
+          },
+          tx,
+        );
+      }
+      return r;
+    });
+
+    return {
+      group: {
+        id: row.id,
+        setId: row.setId,
+        tcgplayerGroupId: row.tcgplayerGroupId,
+        kind: row.kind,
+        ...(row.label ? { label: row.label } : {}),
+      },
+      before,
+      after: newGroupId,
+    };
+  }
+
+  /**
+   * `DELETE /admin/inventory/sealed-sets/:setId/groups/:groupId` (M11 §11.2) — desenlaza un grupo mal
+   * asignado. Si era el `set_main`, pone `CardSet.tcgcsvGroupId=null` (el set vuelve a «SIN emparejar»
+   * en §10, honesto). Money-safe: **NO borra `PriceReference`** ya escritas (quedan stale/inocuas,
+   * §4.19c); sólo cambia de dónde saldrá el precio en la próxima ingesta. AUDITADO por el controller
+   * (`inventory.sealed_set_group_unlink`, I-4) con el `before` que aquí se devuelve.
+   */
+  async unlinkGroup(
+    setId: string,
+    groupId: number,
+  ): Promise<{ setId: string; tcgplayerGroupId: number; kind: SealedGroupKind }> {
+    const set = await this.prisma.cardSet.findUnique({ where: { id: setId } });
+    if (!set) throw BusinessException.notFound('NOT_FOUND', 'CardSet not found');
+    const row = await this.prisma.sealedSetGroup.findUnique({
+      where: { setId_tcgplayerGroupId: { setId, tcgplayerGroupId: groupId } },
+    });
+    if (!row) throw BusinessException.notFound('NOT_FOUND', 'group link not found for this set');
+
+    await this.prisma.sealedSetGroup.delete({ where: { id: row.id } });
+    // Si desenlazamos el set_main (por kind o por el espejo denormalizado), el set vuelve a SIN emparejar.
+    if (row.kind === 'set_main' || set.tcgcsvGroupId === groupId) {
+      await this.prisma.cardSet.update({ where: { id: setId }, data: { tcgcsvGroupId: null } });
+    }
+    return { setId, tcgplayerGroupId: row.tcgplayerGroupId, kind: row.kind };
+  }
+
   // ============================ BACKFILL M-39 (pasos §4.34e 7-8) ============================
 
   /**
@@ -799,17 +1134,41 @@ export class SealedProductService {
     return 0;
   }
 
-  /** Mejor candidato a set_main: score máximo ≥ 0.9 y ÚNICO en el tope (money-safe: sin empate no adivina). */
+  /**
+   * Mejor candidato a set_main. **REUSA `matchTcgcsvGroupByName`** (P-46-bis, 2026-09-17): la escalera
+   * de match S-D3 vive en UN solo sitio (`providers/tcgcsv-group-match.ts`) — `exact` / `exact_unprefixed`
+   * (P-47) / `exact_debased` (bases de era «SV01: … Base Set») / `contains`, con desambiguación money-safe
+   * (match ÚNICO o `null`, nunca adivina). Antes el sellado duplicaba la lógica con `matchScore`, que **no
+   * tenía el peldaño `exact_debased`** ⇒ las bases de era caían al `contains` ambiguo y quedaban sin grupo.
+   * ⚠️ El comentario de `tcgcsv-group-match.ts:26` ya advertía que copiar el match es cómo P-46 llegó a
+   * tres sitios y nunca al que movía dinero: el sellado era esa tercera ruta; ahora llama a la fuente única.
+   *
+   * Sobre el resultado de la fuente única el sellado aplica su política PROPIA, **más estricta** que la de
+   * sueltas (que se conserva idéntica a la del histórico `bestSetMainMatch`, ≥0.9 y con desempate de año):
+   *  - **RECHAZA el peldaño `contains`** — la contención pura (kit de prerelease, promos) puntuaba 0.5 en
+   *    `matchScore`, por debajo del umbral 0.9; sigue siendo curación a mano, no auto-adopción.
+   *  - **Guarda de AÑO** — si el set local y el grupo tienen año y **DIFIEREN**, no adopta (reimpresión /
+   *    homónimo de otra era); espeja el 0.7 < 0.9 del histórico. Año desconocido en cualquier lado ⇒ acepta
+   *    (espeja el 0.9 «exacto sin poder confirmar año»).
+   *
+   * Money-safe respecto de HOY: sólo puede pasar `null → groupId` (rescatar bases de era congeladas), jamás
+   * `groupId → OTRO grupo`. La contención ambigua de varios grupos ya la corta `matchTcgcsvGroupByName`
+   * devolviendo `null` (no baja al siguiente peldaño). `matchScore` se conserva para la UI de candidatos.
+   */
   private bestSetMainMatch(
     set: { name: string; releaseDate: string | null },
     groups: TcgcsvGroupRef[],
   ): TcgcsvGroupRef | null {
-    const scored = groups
-      .map((g) => ({ g, score: this.matchScore(set, g) }))
-      .filter((x) => x.score >= 0.9)
-      .sort((a, b) => b.score - a.score);
-    if (scored.length === 0) return null;
-    if (scored.length > 1 && scored[0].score === scored[1].score) return null; // empate → no adivina
-    return scored[0].g;
+    const match = matchTcgcsvGroupByName(set.name, groups);
+    if (match.groupId == null) return null;
+    // El sellado NO auto-adopta contención pura (needs human curation): conserva el umbral histórico.
+    if (match.tier === 'contains') return null;
+    const g = groups.find((x) => x.groupId === match.groupId);
+    if (!g) return null;
+    // Guarda de año money-safe: ambos conocidos y distintos ⇒ no adopta (misma regla que el 0.7 histórico).
+    const localYear = releaseYear({ releaseDate: set.releaseDate });
+    const groupYear = releaseYear({ releaseDate: g.publishedOn ?? null });
+    if (localYear != null && groupYear != null && localYear !== groupYear) return null;
+    return g;
   }
 }

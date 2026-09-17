@@ -188,6 +188,10 @@ import type {
   SealedSetGroupLinkRequest,
   SealedSetGroupDTO,
   SealedGroupKind,
+  SealedPriceIngestResponse,
+  SealedPriceStatusResponse,
+  SealedPriceState,
+  SetMainGroupRequest,
   GradedInventoryResponse,
   PublicBountiesResponse,
   AdminBountyListResponse,
@@ -3126,6 +3130,95 @@ export async function linkSealedSetGroup(
 }
 
 /**
+ * M11 §9 — Dispara la ingesta de la referencia de mercado del sellado (contrato §M10-ops ·
+ * `POST /admin/jobs/sealed-price-ingest`, `super_admin`, `202`). NO fija precio: pide al backend
+ * consultar TCGCSV y upsertear `PriceReference` para los sellados MAPEADOS. `groupId?` acota a un
+ * grupo (§11.iv); sin body = «traer todo». Fail-closed por el dial maestro (`SEALED_PRICE_SOURCE_OFF`)
+ * y single-flight (`enqueued:false` sin `reason`). El endpoint es AWAITED: al resolver, la corrida
+ * ya terminó. Auditado a nombre del super-admin por el propio endpoint (no añade auditoría nueva).
+ */
+export async function triggerSealedPriceIngest(
+  groupId?: number,
+): Promise<SealedPriceIngestResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedPriceIngestResponse>('/admin/jobs/sealed-price-ingest', {
+      method: 'POST',
+      body: groupId != null ? { groupId } : {},
+    });
+  }
+  // MOCK: la ingesta real solo corre en prod (egress a tcgcsv.com bloqueado aquí, O-17). El demo
+  // devuelve un `202 enqueued` benigno; los tests espían esta función directamente.
+  return delay({ job: 'sealed-price-ingest', enqueued: true, jobId: 'mock-job', groupId });
+}
+
+/**
+ * M11 §10 — Estado de precio/mapeo del sellado POR SET (contrato §M11 · `GET
+ * /admin/inventory/sealed-price-status`, `vault_operator+`). READ-ONLY, sin red externa (lee estado
+ * persistido → O-17 safe). Clasifica cada set en `priced | mapped_unpriced | unmapped` con el MISMO
+ * gate que el alta (I-2/I-6): no fabrica precio, solo refleja lo que el motor valuaría.
+ */
+export async function getSealedPriceStatus(
+  params: { q?: string; state?: SealedPriceState; page?: number; pageSize?: number } = {},
+): Promise<SealedPriceStatusResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedPriceStatusResponse>('/admin/inventory/sealed-price-status', {
+      query: {
+        q: params.q,
+        state: params.state,
+        page: params.page,
+        pageSize: params.pageSize,
+      },
+    });
+  }
+  // MOCK: sin fixtures reales de estado persistido; los tests espían esta función. Demo → vacío.
+  return delay({ sealedPriceSource: 'off', data: [], page: 1, pageSize: 20, total: 0 });
+}
+
+/**
+ * M11 §11 — Fija/REEMPLAZA el grupo `set_main` de un set (contrato §M11 · `PUT
+ * /admin/inventory/sealed-sets/:setId/set-main-group`, `super_admin`). A diferencia de `linkGroup`
+ * (que solo escribe `CardSet.tcgcsvGroupId` si es null), ESTE lo reescribe aunque ya haya uno —es el
+ * escape de P-46: corregir un mapeo equivocado sin esperar al matcher automático. Auditado con
+ * `before/after`. NO fabrica precio (solo dice de qué grupo saldrá; el precio lo trae §9).
+ */
+export async function setSealedSetMainGroup(
+  setId: string,
+  req: SetMainGroupRequest,
+): Promise<SealedSetGroupDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSetGroupDTO>(
+      `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/set-main-group`,
+      { method: 'PUT', body: req },
+    );
+  }
+  // MOCK: los tests espían esta función. Demo → devuelve el enlace resultante.
+  return delay({
+    id: 'mock-group',
+    setId,
+    tcgplayerGroupId: req.tcgplayerGroupId,
+    kind: 'set_main',
+  });
+}
+
+/**
+ * M11 §11 — Desenlaza un grupo mal asignado de un set (contrato §M11 · `DELETE
+ * /admin/inventory/sealed-sets/:setId/groups/:groupId`, `super_admin`). Si era el `set_main`, deja
+ * `CardSet.tcgcsvGroupId` en null (el set vuelve a «SIN emparejar», honesto). NO borra las
+ * `PriceReference` ya escritas (quedan stale/inocuas); solo cambia de dónde saldrá el próximo precio.
+ */
+export async function deleteSealedSetGroup(setId: string, groupId: number): Promise<void> {
+  if (!config.useMocks) {
+    await apiRequest<void>(
+      `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/groups/${groupId}`,
+      { method: 'DELETE' },
+    );
+    return;
+  }
+  // MOCK: los tests espían esta función. Demo → no-op.
+  await delay(undefined as unknown as void);
+}
+
+/**
  * Pestaña «Gradeadas» (contrato §M1 v1.28 · GET /admin/inventory/graded, `vault_operator+`):
  * inventario PSA/CGC agregado por (carta, empresa, grado) con valor de mercado por grado
  * (típicamente MANUAL, fijado con POST /admin/pricing/override productType="graded").
@@ -3743,11 +3836,23 @@ export async function getLiveSellers(): Promise<Paginated<LiveSellerRowDTO>> {
  * momentos, y **un disparo perdido deja la pieza EN ESTA COLA** en vez de invisible. Por eso la
  * cola no se estrecha ni se «optimiza».
  */
-export async function getPendingPublish(): Promise<Paginated<PendingPublishRowDTO>> {
+export async function getPendingPublish(
+  params: { productType?: ProductType } = {},
+): Promise<Paginated<PendingPublishRowDTO>> {
   if (!config.useMocks) {
-    return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish');
+    return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish', {
+      // §diseño §iii · el endpoint ya acepta `?productType=` (contrato §M1): M11 filtra a `sealed`.
+      // Omitido ⇒ la cola entera (comportamiento de M1, sin cambios).
+      query: { productType: params.productType },
+    });
   }
-  return delay(fx.mockPendingPublish());
+  const all = fx.mockPendingPublish();
+  if (!params.productType) return delay(all);
+  return delay({
+    ...all,
+    data: all.data.filter((r) => r.productType === params.productType),
+    total: all.data.filter((r) => r.productType === params.productType).length,
+  });
 }
 
 /**

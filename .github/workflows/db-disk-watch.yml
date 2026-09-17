@@ -1,0 +1,161 @@
+# =============================================================================
+# db-disk-watch.yml — vigilancia PROPIA del disco de Postgres (P-53)   ·  devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# DOS trabajos, y la distinción importa (lección P-77, security-scheduled.yml):
+#
+#   1) `autoprueba` — SIEMPRE corre el canario de la lógica de veredicto
+#      (scripts/check-db-disk-watch-canary.sh). No necesita base, ni secret, ni
+#      red. Es el «blanco» real del workflow: aunque nadie cablee la prod, este
+#      job PRUEBA que la alarma sabe ponerse roja. Un cron sin blanco que sale
+#      verde y no hace nada es peor que ningún cron (P-77) — por eso esto va aquí.
+#
+#   2) `vigilancia` — corre db-disk-watch.sh contra la PROD, pero SOLO si existe
+#      el secret `DB_READONLY_URL`. Si no existe, NO finge verde vigilando: emite
+#      un ::notice:: diciendo que la vigilancia viva NO está cableada y a dónde ir
+#      (DEVOPS_NOTES §"P-53 · Vigilancia"). El canario del job 1 igual corrió.
+#
+# POR QUÉ UN SECRET DE SOLO LECTURA, Y NO EL DATABASE_URL NORMAL
+#   La base solo se alcanza donde vive la credencial. Este entorno tiene el egress
+#   a Railway BLOQUEADO; que un runner de GitHub alcance la prod NO lo he medido.
+#   Si el dueño quiere la vigilancia en CI, la vía correcta (CLAUDE.md, «Secretos»)
+#   es un USUARIO DE SOLO LECTURA miembro de `pg_monitor`, puesto en el secret
+#   `DB_READONLY_URL`. Alternativas SIN exponer credencial en GitHub, en
+#   DEVOPS_NOTES: un cron de Railway (red interna) o correrlo a mano.
+#
+# ⛔ NO convertir esto en un required check: es `schedule`/`workflow_dispatch`, no
+#    gatea ningún deploy. Su trabajo es AVISAR con semanas de antelación.
+# =============================================================================
+
+name: DB Disk Watch (P-53)
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"     # lunes 06:00 UTC (semanal, como el resto de crons)
+  workflow_dispatch:
+  # En PR/push que toquen la herramienta o su canario, corre SOLO la autoprueba
+  # (el canario), para que un cambio que afloje el veredicto salga rojo en el PR.
+  pull_request:
+    paths:
+      - "scripts/db-disk-watch.sh"
+      - "scripts/check-db-disk-watch-canary.sh"
+      - ".github/workflows/db-disk-watch.yml"
+  push:
+    paths:
+      - "scripts/db-disk-watch.sh"
+      - "scripts/check-db-disk-watch-canary.sh"
+      - ".github/workflows/db-disk-watch.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Autoprueba: el canario del veredicto. SIEMPRE. Sin base, sin secret.
+  # ---------------------------------------------------------------------------
+  autoprueba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Canario de db-disk-watch (¿el veredicto muerde?)
+        run: ./scripts/check-db-disk-watch-canary.sh
+
+  # ---------------------------------------------------------------------------
+  # 2) Vigilancia viva: solo con DB_READONLY_URL. Sin él, aviso honesto (no verde
+  #    fingido). El rojo abre/actualiza un issue con dueño (patrón deps-audit).
+  # ---------------------------------------------------------------------------
+  vigilancia:
+    runs-on: ubuntu-latest
+    needs: autoprueba
+    # En PR/push solo interesa el canario (job de arriba); la medición viva es del
+    # cron y del disparo manual.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+    env:
+      DB_READONLY_URL: ${{ secrets.DB_READONLY_URL }}
+      DB_VOLUME_BYTES: ${{ vars.DB_VOLUME_BYTES }}   # tamaño del volumen; vacío ⇒ 1 GiB
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: ¿Está cableada la vigilancia viva?
+        id: cableada
+        run: |
+          if [ -n "${DB_READONLY_URL}" ]; then
+            echo "activa=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "activa=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Vigilancia viva NO cableada::No hay secret DB_READONLY_URL. El canario de la lógica SÍ corrió (job autoprueba). Para vigilar la prod: crea un usuario de SOLO LECTURA (GRANT pg_monitor) y ponlo en el secret DB_READONLY_URL — o usa un cron de Railway / córrelo a mano. Ver docs/DEVOPS_NOTES.md §'P-53 · Vigilancia'."
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.cableada.outputs.activa == 'true'
+        with:
+          node-version: 24
+
+      - name: Instalar cliente de Postgres
+        if: steps.cableada.outputs.activa == 'true'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Medir disco y ritmo (solo lectura)
+        id: medir
+        if: steps.cableada.outputs.activa == 'true'
+        continue-on-error: true      # el rojo se decide al final, tras publicar
+        run: |
+          set -o pipefail
+          export DATABASE_URL="${DB_READONLY_URL}"
+          VOL="${DB_VOLUME_BYTES:-1073741824}"
+          ./scripts/db-disk-watch.sh --target prod --volume-bytes "$VOL" | tee watch-out.txt
+        # el rc de db-disk-watch queda en steps.medir.outcome (1 = ROJO)
+
+      - name: Publicar resumen en el run
+        if: steps.cableada.outputs.activa == 'true' && always()
+        run: |
+          {
+            echo '### db-disk-watch (P-53)'
+            echo ''
+            echo '```'
+            sed -E 's/\x1b\[[0-9;]*m//g' watch-out.txt 2>/dev/null || echo '(sin salida — ver el log del paso «Medir»)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Abrir o actualizar issue si el veredicto es ROJO
+        if: steps.cableada.outputs.activa == 'true' && steps.medir.outcome == 'failure'
+        continue-on-error: true      # si Issues está deshabilitado, no tapa el rojo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: "[disco] db-disk-watch (P-53): el volumen de Postgres se acerca al tope"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create disco --color B60205 --description "Capacidad / disco" 2>/dev/null || true
+          {
+            echo "El barrido de disco encontró un veredicto **ROJO** (P-53)."
+            echo ""
+            echo '```'
+            sed -E 's/\x1b\[[0-9;]*m//g' watch-out.txt 2>/dev/null || echo '(sin salida)'
+            echo '```'
+            echo ""
+            echo "---"
+            echo "- Run: ${RUN_URL}"
+            echo ""
+            echo "**Qué hacer, por orden de barato a caro:**"
+            echo "1. Si el WAL sigue de FÁBRICA (max_wal_size ≥ 512 MB): aplica \`scripts/db-wal-tuning.sql\` en ventana (recupera ~100 MB). Runbook: docs/DEVOPS_NOTES.md §'P-53 · Acotar el WAL'."
+            echo "2. Si hay replication slots > 0: hay una FUGA de WAL — un slot huérfano fija el WAL y llena el disco. Investígalo (dueño: devops)."
+            echo "3. Si el ritmo de PriceReference es el que empuja: la cura de fondo (escribir menos filas/día) la diseña el **arquitecto** → **backend** (money-critical, triple veredicto). No es parche de disco."
+            echo "4. Red de seguridad inmediata: ampliar el volumen en Railway."
+          } > issue-body.md
+          EXISTING="$(gh issue list --state open --limit 50 --json number,title \
+            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --body-file issue-body.md
+          else
+            gh issue create --title "${TITLE}" --body-file issue-body.md --label disco
+          fi
+
+      - name: Marcar el run en rojo si el veredicto fue ROJO
+        if: steps.cableada.outputs.activa == 'true' && steps.medir.outcome == 'failure'
+        run: |
+          echo "::error::db-disk-watch (P-53) dio ROJO: el volumen de Postgres se acerca al tope, o hay una fuga de WAL. Ver el resumen del run y el issue con label 'disco'."
+          exit 1

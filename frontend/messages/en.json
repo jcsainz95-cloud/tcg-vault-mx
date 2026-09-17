@@ -1228,6 +1228,7 @@
       "m8": "M8 · Disputes",
       "m9": "M9 · Reports",
       "m10": "M10 · Config",
+      "m11": "M11 · Sealed",
       "vaults": "Customer vaults",
       "m2Bounties": "M2 · Bounties"
     },
@@ -2072,7 +2073,8 @@
         "zeroWarning": "No margin",
         "zeroBanner": "A 0% spread sells at market cost, with no margin. Double-check before saving.",
         "prereqHint": "The spread only produces a price if the product is mapped to TCGCSV and the sealed price source is on.",
-        "saved": "Spreads saved."
+        "saved": "Spreads saved.",
+        "movedToM11": "Sealed pricing controls (spreads and dials) now live in M11 · Sealed."
       },
       "gradedEstimates": {
         "title": "Estimated value if graded · costs and curation",
@@ -2726,6 +2728,92 @@
         "user_kyc_update": "Decided on the identity"
       }
     },
+    "m11": {
+      "title": "M11 · Sealed",
+      "subtitle": "The full sealed lifecycle on one screen: intake, inventory, publishing, the ready-to-publish queue and — for super-admins — the pricing dials, the ingest trigger and manual group mapping.",
+      "inventory": {
+        "title": "Sealed intake & inventory",
+        "subtitle": "Add sealed product, edit price and format per piece, and publish or unpublish from each presentation's detail."
+      },
+      "queue": {
+        "title": "Ready to publish (sealed)",
+        "subtitle": "Sealed pieces already acquired but not yet for sale, and what they're missing. Filtered to sealed."
+      },
+      "dials": {
+        "title": "Sealed pricing dials"
+      },
+      "dialsPanel": {
+        "master": {
+          "title": "Sealed automatic market source",
+          "subtitle": "The sealed_price_source master switch. With it on, ingest can resolve the sealed market and contributions can be valued against that market.",
+          "stateOn": "On: mapped sealed with a resolved reference get an automatic price (market × spread).",
+          "stateOff": "Off: sealed without a manual override are left WITH NO MARKET PRICE and are not auto-priced.",
+          "turnOn": "Turn on the automatic source",
+          "turnOff": "Turn off the automatic source",
+          "confirmOnTitle": "Turn on the sealed automatic market source",
+          "confirmOnBody": "From now on, sealed with a resolved reference will get an automatic price (market × spread) and contributions may be valued against that market. It's a money decision, audited under your name.",
+          "confirmOffTitle": "Turn off the sealed automatic market source",
+          "confirmOffBody": "Sealed without a manual override will be left WITH NO MARKET PRICE and won't be auto-priced.",
+          "confirmOffPreserved": "Manual prices and overrides already set are NOT turned off: turning off the source only stops the automatic market (the TCGCSV ingest); it never erases the prices you set by hand.",
+          "audit": "Super-admin only · recorded in the audit log."
+        },
+        "ingest": {
+          "cta": "Fetch prices now",
+          "offHint": "The automatic source is off: turn it on above to fetch prices (it won't ingest with the dial off).",
+          "done": "Ingest complete. Check the per-set status view for the result.",
+          "offReason": "The sealed automatic market source is off (SEALED_PRICE_SOURCE_OFF). No price was fetched.",
+          "inFlight": "An ingest is already running; wait for it to finish."
+        },
+        "settings": {
+          "title": "Sealed settings dials",
+          "subtitle": "Edited without redeploy (partial PUT). Only modified keys are saved. Same validation and audit as M10.",
+          "pricingProviderSealed": "Per-card reference provider (sealed)",
+          "sealedValueTrend": "Sealed value trend",
+          "sealedRestockAlerts": "Sealed restock alerts",
+          "save": "Save {count} change(s)",
+          "saved": "Dials saved."
+        },
+        "onOff": {
+          "on": "On",
+          "off": "Off"
+        }
+      },
+      "status": {
+        "title": "Per-set price status",
+        "subtitle": "Per sealed set: whether its price is resolved, mapped but unpriced, or not yet mapped to a TCGCSV group. Reads persisted state (does not query TCGCSV).",
+        "search": "Search set",
+        "searchPlaceholder": "Set name…",
+        "empty": "No sealed sets to show.",
+        "colSet": "Set",
+        "colState": "State",
+        "colBreakdown": "Priced / unpriced / unmapped",
+        "colWhy": "Why",
+        "breakdown": "{priced} · {mapped} · {unmapped}",
+        "mapCta": "Map group",
+        "remapCta": "Fix group",
+        "state": {
+          "priced": "Priced",
+          "mapped_unpriced": "Mapped, no price",
+          "unmapped": "NOT mapped"
+        },
+        "reason": {
+          "no_group": "No resolved TCGCSV group: map the group by hand.",
+          "dial_off": "Mapped, but the automatic source is off.",
+          "no_source_price": "Mapped and source on, but the source returned no price; trigger \"Fetch prices now\"."
+        }
+      },
+      "mapping": {
+        "title": "Manual TCGCSV group mapping",
+        "setName": "Set: {name}",
+        "groupIdLabel": "TCGCSV group ID (set_main)",
+        "groupIdHint": "Positive integer (== TCGplayer groupId). Replaces the current group if one exists.",
+        "reasonLabel": "Reason (optional, recorded in the audit log)",
+        "note": "Setting the group doesn't fetch a price by itself: it only says which group the price will come from. Then sync and trigger \"Fetch prices now\".",
+        "currentGroup": "Current group: {groupId}",
+        "setMainCta": "Set main group",
+        "unlinkCta": "Unlink current group"
+      }
+    },
     "m10": {
       "title": "M10 · Config & audit log",
       "dials": {
@@ -2733,6 +2821,7 @@
         "subtitle": "Edited without redeploy. Only modified keys are saved.",
         "save": "Save {count} change(s)",
         "saved": "Settings saved.",
+        "sealedMovedToM11": "Sealed pricing dials (provider, market source, trend, alerts and spreads) are now edited in M11 · Sealed.",
         "labels": {
           "shippingFeeCents": "Shipping fee",
           "aportacionPct": "In-kind contribution %",
