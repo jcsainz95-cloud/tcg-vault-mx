@@ -7526,3 +7526,89 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   `PrismaClientUnknownRequestError` / `PrismaClientRustPanicError`); quien no es error del motor **no
   llega a la regex**. Regresión en `test/serializable-retry.spec.ts` («un error de NEGOCIO cuyo mensaje
   contiene `40001` NO se reintenta»), que sale **roja** con el respaldo viejo.
+
+## Backend · 2026-09-18 · H-PERF-1 aterrizado (poda del histórico en la BD) + solicitudes al arquitecto
+
+> Anotado por **backend** a petición del **techlead**, tras aprobar **H-PERF-1** (poda del histórico de
+> `PriceReference` movida a la BD, commit `12927edd`; veredicto blue-team **APROBADO** en
+> `docs/SECURITY_NOTES.md`). Aquí SOLO queda lo que NO cierra con este pase: el remanente de escalado
+> (índice de cobertura, decisión de **arquitecto**) y el diferido **H-PERF-3**. La implementación cerrada
+> está en `src/modules/pricing/pricing.service.ts` (`getReferencesBatch`) y en `docs/BACKEND_NOTES.md`.
+> Continúa la numeración `BE-*` (tras BE-87). Cada ficha lleva «Comprobación de cierre».
+
+### BE-88 · H-PERF-1 **ATERRIZADO** (`12927edd`): la poda del histórico de `PriceReference` se resuelve en la BD, no en Node
+- **Dueño:** **backend**. **Severidad:** Media a futuro → **la parte de escalado por histórico queda
+  CUBIERTA** (ver cierre parcial de BE-49/BE-20 abajo). **No bloqueante.** Enrutada por el techlead al
+  aprobar el pase.
+- **Qué se hizo (medido, `12927edd`):** `getReferencesBatch` (`src/modules/pricing/pricing.service.ts`)
+  dejó de **releer el histórico completo** de `PriceReference` y desempatar «la más reciente» en memoria
+  de Node. Ahora la poda ocurre en la BD con `$queryRaw`: por cada clave `(cardId, productType,
+  gradeKey, finish)` se calcula la **ventana** `max_auto_date` (la captura automática más reciente) **∪**
+  las filas manuales, y un `SELECT DISTINCT` acota los `finish` a considerar. Solo las filas dentro de esa
+  ventana viajan a Node; el histórico dominado ya no cruza la frontera BD↔proceso.
+- **Invariante money-safe (lo que NO cambia):** solo se **descartan filas dominadas** bajo `isBetterRef`
+  — el **argmax se conserva** siempre. La referencia elegida por combinación es **byte-idéntica** a la del
+  camino viejo; lo único que se retira del resultado son filas que jamás habrían ganado el desempate. ⛔
+  En ningún caso una combinación pierde su referencia ni adopta la de otra clave/finish.
+- **Anclado por dos pruebas (que muerden si se rompe el invariante):**
+  - **Canario unit:** `backend/test/pricing.references-batch-history-prune.spec.ts` — fija que, ante un
+    histórico con filas dominadas, `getReferencesBatch` devuelve el mismo argmax que el camino previo y
+    que las filas dominadas no alteran el resultado (emula el `$queryRaw` con
+    `test/helpers/refs-raw-emulate.ts`).
+  - **Oráculo de integración:** `backend/test/integration/references-batch-history-prune.e2e-spec.ts` —
+    contrasta el resultado de la poda en BD contra **Postgres real**, de modo que la semántica del
+    `$queryRaw` (ventana + `DISTINCT`) queda verificada contra el motor, no contra un mock.
+- **Comprobación de cierre (ya verde en `12927edd`):** ambas pruebas pasan; y el resultado de
+  `getReferencesBatch` para un lote con histórico dominado coincide con el argmax por `isBetterRef` (el
+  oráculo e2e lo confirma contra Postgres).
+- **Cruce con BE-49 y BE-20 (actualización de estado):**
+  - **BE-20** (`PriceReference` crece sin poda): la parte de **coste de consulta por histórico** en el
+    camino de valuación queda cubierta — `getReferencesBatch` ya no paga el histórico completo. ⚠️ **Lo
+    que NO cierra BE-20:** la tabla **sigue creciendo sin job de retención/particionado** por
+    `capturedDate` (crecimiento monotónico de storage). BE-20 permanece abierta por esa mitad, con su
+    disparador (retención/particionado, dependencia **devops**/DEV-1) intacto.
+  - **BE-49** (`GET /admin/vaults` valúa TODAS las bóvedas por request): la sub-causa «`getReferencesBatch`
+    escala con el histórico» queda **resuelta** por H-PERF-1. ⚠️ **Lo que NO cierra BE-49:** sigue en pie
+    (a) valuar+ordenar TODAS las piezas ANTES de paginar y (b) el `gradeKeyFor` calculado **dos veces**
+    por pieza. BE-49 permanece abierta por esas dos, con su disparador (miles de piezas / histórico real)
+    intacto.
+
+### BE-89 · **Solicitud al ARQUITECTO (regla 9): índice de cobertura de `PriceReference`** — cambio de SCHEMA, NO implementado por backend
+- **Dueño de la DECISIÓN:** **arquitecto** (cambio de schema / zona compartida `backend/prisma/`). **Dueño
+  del código si se aprueba:** backend. **Severidad:** Media a futuro. **No bloqueante.**
+- **⛔ Backend NO lo añade solo:** un índice nuevo sobre `PriceReference` es cambio de `schema.prisma`
+  (migración), y por **regla 9** pasa por el **arquitecto** antes. Esta ficha es la **solicitud**, no la
+  implementación.
+- **Qué se pide:** un **índice de cobertura** que sirva la query de poda de H-PERF-1 sin **Seq Scan**,
+  p. ej. `@@index([cardId, productType, gradeKey, finish, capturedDate])` en `PriceReference` (el
+  orden/columnas exactos los ratifica el arquitecto contra la forma real del `$queryRaw`).
+- **Por qué (medido a escala local, 2026-09-18):** tras mover la poda a la BD queda un **suelo de
+  ~170 ms** en la query (window **seq-scan + sort**). El índice de cobertura es lo que quita ese
+  seq-scan+sort; sin él, el suelo se mantiene y crece con la tabla (que sigue sin poda física, BE-20).
+  **NO MEDIDO:** el suelo a escala de producción (histórico real) — solo se midió local; la medición que
+  lo cerraría es el `EXPLAIN (ANALYZE)` de la query de poda con y sin el índice sobre un histórico a
+  escala.
+- **Disparador:** antes de operar a escala con histórico real de precios; o si el listado admin (BE-49)
+  se siente lento por este suelo. Dirección: el arquitecto ratifica el índice en el contrato/schema y
+  backend lo aterriza en una migración con su canario de `EXPLAIN`.
+- **Comprobación de cierre:** existe la migración con el índice aprobado por el arquitecto; un
+  `EXPLAIN (ANALYZE)` de la query de poda muestra uso de índice (sin Seq Scan sobre `PriceReference`) y el
+  suelo de ~170 ms baja de forma medible a escala local.
+
+### BE-90 · H-PERF-3 (**DIFERIDO**): materializar `displayPrice` en la fila — cambio de SCHEMA, pendiente de decisión del arquitecto
+- **Dueño de la DECISIÓN:** **arquitecto** (cambio de schema). **Dueño del código si se aprueba:**
+  backend. **Severidad:** Media a futuro. **No bloqueante. DIFERIDO en este pase.**
+- **Qué es:** **materializar `displayPrice`** en la propia fila (persistir el precio de exhibición ya
+  calculado) para **no recalcularlo por cada carga**. Hoy `displayPrice` se computa por-request en el
+  camino de valuación; materializarlo lo convierte en una lectura directa.
+- **Por qué se difiere:** es **cambio de schema** (columna nueva + su invalidación/recomputo cuando cambie
+  la referencia o el FX), y por **regla 9** la decisión es del **arquitecto**. Backend NO lo implementa
+  hasta que el arquitecto decida la forma (columna, disparadores de recomputo, consistencia con overrides
+  y FX). **NO MEDIDO:** el ahorro real por carga de materializar `displayPrice` — se anota como diferido,
+  no como ganancia medida.
+- **Disparador:** cuando el arquitecto revise la capa de valuación/materialización (familia
+  `InventoryStockSummary`/BE-4/D3), o si el recálculo por-request de `displayPrice` aparece como cuello a
+  escala.
+- **Comprobación de cierre:** el arquitecto decide por escrito (contrato/§ de valuación) si `displayPrice`
+  se materializa; si se aprueba, existe la columna, su recomputo ante cambio de referencia/FX y un canario
+  que fija que el valor materializado coincide con el calculado en vivo.
