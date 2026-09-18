@@ -6,6 +6,7 @@ import { FxService } from '../src/modules/pricing/fx.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { DEFAULT_PRICING_CURVE, PricingCurve } from '../src/common/pricing-curve';
 import { ivaDialsStub } from './helpers/iva-dials';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 
 /**
  * INV-1 — Prueba de propagación END-TO-END (backend, sin DB real):
@@ -26,6 +27,19 @@ import { ivaDialsStub } from './helpers/iva-dials';
 // ---- Store en memoria de ConfigSetting + PrismaService mock ----
 function makePrisma(item: any) {
   const configStore = new Map<string, unknown>();
+  const priceRefRows = [
+    {
+      priceMxnCents: 10000,
+      priceUsdCents: null,
+      fxRate: null,
+      fxBufferPct: null,
+      source: 'tcgcsv_singles',
+      isManualOverride: false,
+      cardProductId: null,
+      capturedDate: new Date('2026-08-24'),
+      id: 'pr1',
+    },
+  ];
   const prisma = {
     configSetting: {
       findUnique: jest.fn(async ({ where: { key } }: any) =>
@@ -47,20 +61,11 @@ function makePrisma(item: any) {
     // v2.0: el precio SALE del mercado, así que el item necesita su `PriceReference` ($100 de mercado).
     priceReference: {
       findFirst: jest.fn(async () => null),
-      findMany: jest.fn(async () => [
-        {
-          priceMxnCents: 10000,
-          priceUsdCents: null,
-          fxRate: null,
-          fxBufferPct: null,
-          source: 'tcgcsv_singles',
-          isManualOverride: false,
-          cardProductId: null,
-          capturedDate: new Date('2026-08-24'),
-          id: 'pr1',
-        },
-      ]),
+      findMany: jest.fn(async () => priceRefRows),
     },
+    // H-PERF-1: getReferencesBatch poda vía $queryRaw. La fila sin cardId no casa la clave del lote
+    // (igual que antes), así que fetchSellable cae al `getReference` por-pieza (que sí la resuelve).
+    $queryRaw: makeRefsRawQuery(priceRefRows),
     // v1.28 (P-18): sin filas M-30 por default (comportamiento previo).
     variantPriceOverride: { findMany: jest.fn(async () => []) },
     inventoryItem: { findMany: jest.fn(async () => [item]) },

@@ -1,4 +1,5 @@
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { FxService } from '../src/modules/pricing/fx.service';
@@ -31,6 +32,8 @@ function build(ref: Ref | null, fx: { rate: number; bufferPct: number } | Error)
   const findMany = jest.fn(async () => (ref ? [ref] : []));
   const prisma = {
     priceReference: { findFirst, findMany },
+    // H-PERF-1: getReferencesBatch poda vía $queryRaw; el emulador entrega la misma fila `ref`.
+    $queryRaw: makeRefsRawQuery(ref ? [ref] : []),
   } as unknown as PrismaService;
   const getCurrent = jest.fn(async () => {
     if (fx instanceof Error) throw fx;
