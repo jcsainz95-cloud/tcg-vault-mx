@@ -2551,6 +2551,34 @@ export class BuylistService implements OnModuleInit {
       },
     });
     if (!req) throw BusinessException.notFound();
+    // ⭐ Robustez PII (deuda M11 · MISMA clase que PR #43 en `getUser`/`getKyc`, pero en el DETALLE de
+    // solicitud que aquel commit no tocó): `clabeSnapshotEnc` es el blob AES-256-GCM de la CLABE del
+    // vendedor; se descifra SOLO para ENMASCARARLO (`****4567`) en la vista admin. Si el snapshot
+    // EXISTE y NO descifra —`PII_ENCRYPTION_KEY` rotada, clave efímera de un proceso anterior, o fila
+    // corrupta que el GCM no autentica— `decryptOptional` LANZA, y ese throw subiría sin capturar
+    // hasta el filtro global ⇒ **500 que tumba TODO el detalle**. Aquí es robustez de PRESENTACIÓN,
+    // NO de dinero: se DEGRADA SOLO esta casilla (`clabeMasked: undefined` + `piiUnavailable: true`,
+    // AMBOS ADITIVOS y SOLO en el estado degradado) y el resto del detalle se sirve intacto (200). El
+    // motivo se registra SIN el texto cifrado. ⛔ El reveal para pagar SPEI (`revealClabe`) NO se
+    // toca: ahí la CLABE es OBLIGATORIA para la operación y un fallo debe seguir siendo RUIDOSO.
+    // `piiUnavailable` solo aparece degradado, así que el candado de conjunto de claves sigue verde en
+    // el camino feliz. (Se resuelve local a `buylist` para no tocar la zona compartida
+    // `common/crypto/`; cuando #43 aporte `PiiCryptoService.tryDecryptOptional` a `production`, este
+    // try/catch puede reemplazarse por esa llamada sin cambiar el contrato de respuesta.)
+    let clabeMasked: string | undefined;
+    let clabeUnavailable = false;
+    try {
+      clabeMasked = maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc));
+    } catch (e) {
+      clabeUnavailable = true;
+      const cause = e instanceof Error ? e.message : String(e);
+      this.logger.error(
+        `adminGet(${id}): CLABE snapshot decrypt failed — degrading clabeMasked to unavailable ` +
+          `(${cause}). Likely PII_ENCRYPTION_KEY was rotated (or an ephemeral per-process key from a ` +
+          'previous run) or the row is corrupt. NOT throwing: the rest of the sell-request detail is ' +
+          'served and piiUnavailable is flagged. Ciphertext is never logged.',
+      );
+    }
     // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
     // El join de User tampoco se propaga crudo: se proyecta SOLO el AdminSellerRef.
     // S49-M1: la cabecera pasa por la MISMA lista blanca que `receive`/`verify`/`pay-spei` — antes
@@ -2568,7 +2596,9 @@ export class BuylistService implements OnModuleInit {
       pickupAddress: req.pickupAddressSnapshot ?? null,
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
       items: (req.items ?? []).map((i) => this.itemDTO(i)),
-      clabeMasked: maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc)),
+      clabeMasked,
+      // ADITIVO y SOLO en el estado degradado (§ robustez PII de arriba).
+      ...(clabeUnavailable ? { piiUnavailable: true } : {}),
     };
   }
 

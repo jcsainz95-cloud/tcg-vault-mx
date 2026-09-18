@@ -1,3 +1,62 @@
+# VEREDICTO BLUE TEAM — **GATE PII · DEGRADAR `clabeSnapshotEnc` EN `adminGet` (buylist)** · SHA **`b884e827`** · base `origin/production`=`4a3caa64` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `b884e827`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** El try/catch acotado en
+> `BuylistService.adminGet` (`backend/src/modules/buylist/buylist.service.ts:2568-2602`) degrada la
+> vista de detalle cuando `clabeSnapshotEnc` no descifra —`clabeMasked` queda `undefined` +
+> `piiUnavailable:true`, ambos **aditivos y solo en el estado degradado**, y 200 en vez de 500— sin
+> filtrar cripto ni contaminar el camino del dinero. Reviso los cuatro focos del gate PII de #43.
+>
+> ### Foco 1 — No fuga de PII/cripto al degradar: **LIMPIO**
+> - **Log (`buylist.service.ts:2575-2580`):** registra SOLO `id` (id de la solicitud, no PII) y
+>   `cause = e.message`. Los mensajes que puede lanzar `decrypt` son genéricos: `'Malformed PII
+>   ciphertext'` (`common/crypto/pii-crypto.service.ts:198` y `:207`) o el error de Node en `.final()`
+>   (`:213`, «unable to authenticate data»). **Ninguno contiene ciphertext ni claro.** El blob cifrado
+>   (`req.clabeSnapshotEnc`) **no se interpola** en el log — solo `cause`.
+> - **Respuesta:** `adminSellRequestDTO` (`:2434-…`) es una proyección por **lista blanca**
+>   (`toSellRequestBaseDTO(r)` + campos nombrados), **no** un `...r` crudo ⇒ `clabeSnapshotEnc` nunca
+>   se propaga. `adminGet` solo añade `clabeMasked` (undefined en degradado) y opcional
+>   `piiUnavailable`. Las pruebas aseveran `res.clabeSnapshotEnc` undefined y
+>   `JSON.stringify(res)).not.toContain(UNDECRYPTABLE_CLABE)` (unit `buylist.clabe-pii.spec.ts` +
+>   e2e `buylist-cycle.e2e-spec.ts`).
+>
+> ### Foco 2 — No enmascarar lo que debe ser ruidoso (camino del dinero): **LIMPIO**
+> - `revealClabe` (`buylist.service.ts:5637-5648`) sigue llamando `this.pii.decryptOptional(...)` **SIN
+>   try/catch**: un snapshot indescifrable **LANZA** y sube al filtro global ⇒ **sigue siendo ruidoso**.
+>   Es `@Roles(super_admin)` + `@MoneyOut()` + **auditado** en `AuditLog`
+>   (`admin-buylist.controller.ts:219-232`). El degradado NO se cuela ahí.
+> - El degradado no puede volver pagable una solicitud sin CLABE: `isPayable` se **deriva de las
+>   decisiones de ítems** (`isPayableSellRequestWithItems`, `:2458`), no de `clabeMasked`. Pagar exige
+>   `revealClabe`, que lanza si no hay CLABE. El try/catch es estrictamente de PRESENTACIÓN.
+>
+> ### Foco 3 — `piiUnavailable` aditivo, sin oráculo cross-tenant: **LIMPIO**
+> - La bandera **solo aparece en el estado degradado**; `adminGet` está tras `JwtAuthGuard` +
+>   `RolesGuard` globales (`app.module.ts:81-83`, `APP_GUARD`) y `@Roles(vault_operator, super_admin)`
+>   a nivel de clase (`admin-buylist.controller.ts:42`) ⇒ **solo back-office autenticado**. El vendedor
+>   no alcanza la ruta.
+> - No es oráculo sobre el valor de la CLABE: es un booleano sobre el **estado de clave/cripto**.
+>   Distingue «presente-pero-corrupto/rotado» de «ausente» —ausente ⇒ `decryptOptional(null)` devuelve
+>   `undefined` **sin lanzar** ⇒ sin bandera y sin falso positivo (`pii-crypto.service.ts:218`)— lo que
+>   es diagnóstico legítimo para un operador auditado, no una filtración cross-tenant (panel de un solo
+>   inquilino; el vendedor no llega). El candado de conjunto de claves sigue verde en el camino feliz.
+>
+> ### Foco 4 — Duplicación del patrón, mismo contrato que #43, sin variante que filtre o enmascare de más: **LIMPIO**
+> - PR #43 (`PiiCryptoService.tryDecryptOptional`) **NO está en este sha**: confirmado que `getKyc`
+>   (`users.service.ts:331`) y `admin.service.ts:912` aún llaman `decryptOptional` crudo sin try/catch.
+>   El try/catch local es una reproducción fiel y autocontenida del contrato descrito: degradado ⇒
+>   `clabeMasked` undefined + `piiUnavailable:true` + 200; camino feliz sin bandera. Sin variante que
+>   filtre ni que enmascare de más. Cuando #43 aterrice, reemplazable por `tryDecryptOptional` sin
+>   cambiar el contrato de respuesta.
+> - **Alcance correcto del catch:** solo muerde cuando un blob **no nulo** falla el descifrado; un
+>   snapshot ausente no dispara `piiUnavailable` (no hay throw). No hay ruido falso.
+>
+> **Deuda registrada (aceptada, no bloqueante):** el patrón queda duplicado a propósito respecto de #43
+> para no tocar `common/crypto/`. Consolidar a `tryDecryptOptional` cuando #43 aterrice; no es
+> condición de este gate.
+
+---
+
 # VEREDICTO BLUE TEAM — **H-PERF-1 · PODA DEL HISTÓRICO DE `PriceReference` (ZONA MONEY)** · SHA **`12927edd`** (rama `claude/perf-catalog-2`) · base `origin/production`=`4a3caa64` · 2026-09-18
 
 > ## ⭐ VEREDICTO — **APROBADO** para `12927edd`
