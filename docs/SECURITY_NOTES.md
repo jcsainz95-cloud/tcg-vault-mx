@@ -11264,3 +11264,106 @@ y que nadie estaba mirando.
 
 — SEGURIDAD (blue team / AppSec), 2026-09-09 · candidato `97f3bcf` · §M2-F v1.63.1 ·
 **APROBADO-CON-CONDICIONES**
+
+---
+
+# Revisión de robustez PII — «degradar en vez de 500» · sha `1d43a19e` (2026-09-18)
+
+**Alcance:** el commit `1d43a19e` («fix(pii): degradar en vez de 500 cuando un campo PII no
+descifra», deuda M11). Cuatro ficheros: `common/crypto/pii-crypto.service.ts` (nuevo
+`tryDecryptOptional`), `modules/admin/admin.service.ts` (`getUser`), `modules/users/users.service.ts`
+(`getKyc`) y la prueba `test/pii-degrade.spec.ts`. Revisión de **código a sha fijado** (worktree
+detached sobre `1d43a19e`); no medí en vivo (no hacía falta para este delta: la superficie es una
+rama `catch` pura y dos proyecciones de solo-lectura).
+
+## Qué hace el cambio
+`tryDecryptOptional(payload)` es `decryptOptional` con la excepción capturada: `null/undefined` →
+`{value: undefined, unavailable: false}`; payload que existe y **no** descifra → `{value: undefined,
+unavailable: true}` + `logger.error(motivo)` **sin lanzar**. Se usa en exactamente dos vistas de
+solo-lectura que enmascaran PII: `GET /admin/users/:id` (super_admin: kyc.clabe, kyc.rfc,
+billing.rfc; vault_operator: solo clabe) y `GET /users/me/kyc` (clabe propia). Un campo ilegible
+DEGRADA su casilla (enmascarado `undefined`) y el DTO afectado gana `piiUnavailable: true`; el resto
+de la respuesta viaja intacto y el código sale 200.
+
+## Hallazgos por foco
+
+**1 · Fuga de PII / material cripto — LIMPIO.**
+- El log de `tryDecryptOptional` registra **solo el motivo**: un mensaje fijo + `e.message`.
+  `decrypt()` solo lanza `'Malformed PII ciphertext'` (literal) o el error genérico del GCM
+  (`'Unsupported state or unable to authenticate data'`) — ninguno contiene el texto cifrado ni
+  descifrado. No hay `${payload}` ni valor parcial en el log. (De hecho `tryDecryptOptional` es más
+  parco que `toBillingProfileDTO`, que sí loguea `id`/`userId`; aquí no hay ni identificadores.)
+- La respuesta al cliente/admin **no expone el payload cifrado**. Los tres mapeadores
+  (`toAdminKycDetailDTO`, `toAdminKycOperatorDTO`, `toAdminBillingDTO`) **enumeran** sus claves
+  (allowlist, no spread-de-resto): `clabeEnc`/`rfcEnc` nunca se leen a la salida. El cambio solo
+  añade el booleano `piiUnavailable` sobre un DTO ya enumerado. La prueba lo blinda:
+  `JSON.stringify(res)` no contiene ni la CLABE en claro ni el ciphertext (`pii-degrade.spec.ts`).
+
+**2 · No enmascarar un fallo que debe ser ruidoso — CORRECTO.**
+- `git grep tryDecryptOptional` sobre `1d43a19e`: los tres únicos llamadores de producción son las
+  dos vistas de solo-lectura declaradas (`admin.service.ts:916,920,921` y `users.service.ts:329`).
+  **No se coló en ningún camino obligatorio.**
+- Los caminos de dinero siguen usando `decrypt`/`decryptOptional` y **siguen lanzando**:
+  `buylist.revealClabe` (reveal de CLABE completa para el pago SPEI, `buylist.service.ts:5610,5613`)
+  y el fallback «usar mi CLABE en archivo» al crear la solicitud (`buylist.service.ts:1433`) fallan
+  ruidosos si el dato no descifra — correcto, no se paga a una CLABE que no se puede leer.
+- **Verificado el claim del backend:** `toBillingProfileDTO` (`users.service.ts:239`) mantiene su
+  `decrypt` con re-throw intencional (500 fail-closed, con diagnóstico `id`/`userId`/causa al log,
+  nunca al cliente). Es el P-BILL-DoS ya documentado en `PENTEST_NOTES.md`, autoinfligido y no
+  explotable por atacante. El cambio NO lo tocó. Nota deliberada y defendible: el mismo `rfcEnc`
+  corrupto degrada (200) en la ficha 360° de admin pero sigue lanzando (500) en
+  `GET /users/me/billing-profile` — la vista de resumen no debe tumbarse por una casilla; el recurso
+  dedicado prefiere fallar-cerrado. Ambos caminos no filtran PII.
+
+**3 · `clabeOnFile: true` sigue reflejando existencia — CORRECTO, no engañoso.**
+- `clabeOnFile: Boolean(kyc?.clabeEnc)` se deriva de la existencia de la columna cifrada, no del
+  éxito del descifrado. Estado degradado: `clabeMasked: undefined` + `piiUnavailable: true` +
+  `clabeOnFile: true`. Al operador/cliente le dice exactamente la verdad: «hay una CLABE en archivo,
+  pero ahora mismo no se puede leer», que es lo correcto (no poder leer ≠ no existir).
+
+**4 · Superficie de autorización — la degradación NO amplía lo que cada rol ve.**
+- Rama super_admin: computa `kycRfc` y `billingRfc` (que ya veía enmascarados). Rama
+  vault_operator: computa **solo** `clabe`; `kycRfc`/`billingRfc` viven dentro de la rama super_admin
+  y no se calculan para el operador, así que su `piiUnavailable` refleja **únicamente** la clabe. El
+  operador no gana visibilidad de la degradación del RFC. La proyección sigue siendo la
+  allowlist enumerada por rol (SEC-A4). Rutas self-scoped/role-guarded (`@CurrentUser('id')` en
+  getKyc; guard de clase + `@CurrentUser('role')` en admin): la degradación no cambia guardas.
+
+**5 · ¿Oráculo aditivo? — RESIDUAL ACEPTADO (Info), no explotable.**
+- `piiUnavailable` distingue «existe pero no descifra» de «no existe» (`clabeOnFile`) y de «existe y
+  descifra». Pero esa distinción solo la ven principales **autenticados**: el usuario sobre **su
+  propio** dato (no hay oráculo cross-tenant) o roles de back-office **auditados** (super_admin /
+  vault_operator). El bit no revela material de clave ni el texto claro; a un rol que ya puede ver
+  `clabeOnFile` y el enmascarado solo le añade el hecho operativo «esta fila no descifra con la clave
+  del proceso», que es justo lo que necesita para diagnosticar una rotación de `PII_ENCRYPTION_KEY`.
+  Sin exposición no autenticada ni entre usuarios. **Aceptable.**
+
+## Observaciones menores (no bloquean, enrutadas a su dueño)
+
+- **[Info · backend] Vista de admin residual de la misma clase, fuera del alcance de este commit:**
+  `adminSellRequestDTO` (`buylist.service.ts:2571`) enmascara `clabeSnapshotEnc` con
+  `decryptOptional`, así que un snapshot indescifrable **aún tumbaría con 500** el detalle de la
+  solicitud en el panel. Es el mismo patrón que M11 arregló en `getUser`/`getKyc`, pero en otra
+  vista de solo-lectura que este commit no tocó. Robustez, no fuga de PII. Dueño: **backend** (si se
+  decide extender la degradación a esa vista).
+- **[Info · backend] Trazabilidad del log:** `tryDecryptOptional` no incluye qué fila degradó
+  (a diferencia de `toBillingProfileDTO`, que sí logea `id`/`userId`). Es más seguro (menos PII en
+  logs) pero deja al operador sin saber **qué** perfil degradó. Si se quisiera correlacionar, el
+  `id`/`userId` podría pasarse como contexto **desde el llamador** (nunca el valor). Cosmético.
+
+## VEREDICTO
+
+### **APROBADO** sobre `1d43a19e`
+
+El delta no tiene hallazgos **críticos ni altos** abiertos. La rama de degradación no filtra ni el
+texto cifrado ni el descifrado (log de motivo genérico; DTOs de allowlist enumerada; prueba que
+verifica la ausencia de CLABE y ciphertext en el JSON). `tryDecryptOptional` está contenido en las
+dos vistas de solo-lectura declaradas y **no se coló en ningún camino obligatorio** — reveal SPEI,
+fallback de CLABE al crear solicitud y `toBillingProfileDTO` siguen fallando ruidosos. `clabeOnFile`
+sigue reflejando existencia sin engañar. La degradación no amplía la superficie por rol. El único
+oráculo aditivo es visible solo a principales autenticados/auditados sobre datos que ya podían ver, y
+es residual aceptado (Info). Quedan dos observaciones **Info** enrutadas a **backend** (vista residual
+de `adminSellRequestDTO` y trazabilidad del log), ninguna bloqueante.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `1d43a19e` · robustez PII / deuda M11 ·
+**APROBADO**
