@@ -110,6 +110,10 @@ import { SHIPMENT_KIND_VALUES } from '../../src/modules/shipments/shipments.serv
 import { USER_AUDIT_SCOPE_VALUES } from '../../src/modules/audit/audit.service';
 import { SEALED_LIST_SORT_VALUES } from '../../src/modules/catalog/sealed-catalog.service';
 import { CATALOG_CARDS_SORT_VALUES } from '../../src/modules/catalog/catalog.service';
+// ⭐ `EQ-D1` lote 2 — dominios de los ejes de ORDEN/RANGO sin dinero migrados en este pase.
+import { MASTER_SET_SORT_VALUES } from '../../src/modules/inventory/master-set.service';
+import { ADMIN_VAULTS_SORT_VALUES } from '../../src/modules/vault/admin-vaults.service';
+import { PORTFOLIO_HISTORY_RANGE_VALUES } from '../../src/modules/vault/vault.service';
 
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
@@ -306,6 +310,18 @@ const OBS_BRACKETS: Obs = {
   },
 };
 
+/**
+ * ⭐ `EQ-D1` lote 2 — `GET /vault/portfolio/history?range=` responde `{range, points, change}`: ⛔ sin
+ * `data` ni `total`, así que `OBS_LISTA` daría `n=-1|null` para TODO rango (huella constante ⇒ `filtra`
+ * no observable, verde por omisión). Se observa la **serie de puntos**, que es lo que el `?range=`
+ * cambia (una ventana más ancha trae más puntos). Determinista (orden `asOfDate asc`, sin `now()` en el
+ * cuerpo) ⇒ ruido `0`.
+ */
+const OBS_HISTORY: Obs = {
+  huella: (res) => JSON.stringify((res.body as unknown as { points?: unknown[] })?.points ?? null),
+  hayDatos: (res) => ((res.body as unknown as { points?: unknown[] })?.points?.length ?? 0) > 0,
+};
+
 /** Las respuestas extra que la propiedad `filtra` necesita (no filtrar, y el token alterno). */
 type Extra = { base?: ApiRes; alterno?: ApiRes };
 
@@ -316,15 +332,17 @@ interface Ctx {
 }
 
 /**
- * ⭐ **EL REGISTRO — 38 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` + 1 de `EQ-D2` + 1 de `EQ-D3`.**
+ * ⭐ **EL REGISTRO — 43 filas: 26 que transcriben §0-Q punto 4 + 6 de la bóveda + 4 de `EQ-D1` lote 1 + 1 de `EQ-D2` + 1 de `EQ-D3` + 5 de `EQ-D1` LOTE 2.**
  *
  * Las **26 transcritas** son las 24 de la tabla de §0-Q punto 4, el `?sort=` que esa tabla registra
  * en su última columna como «no es filtro: es ORDEN — punto 6», y el `?origin=` de `sealed-products`.
- * Las **6** de `EQ-D0` (la bóveda) son conducta YA conforme cuya **fila de §0-Q todavía no existe**:
- * van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`. Las **4** de `EQ-D1` (`?kind=`, `?scope=`, `?sort=`
- * de los dos catálogos públicos), la **1** de `EQ-D2` (`?state=` de `sealed-price-status`, M11 §10) y
- * la **1** de `EQ-D3` (este pase: `?productType=` de `pending-publish`, M11) SÍ tienen fila de §0-Q
- * (el arquitecto la escribió) ⇒ van `transcrita`.
+ * Las **6** de `EQ-D0` (la bóveda) y las **5** de `EQ-D1` LOTE 2 (este pase: `?sort=` del índice
+ * master set ×3, `?sort=` de `/admin/vaults`, `?range=` de `/vault/portfolio/history`) son conducta
+ * YA conforme cuya **fila de §0-Q todavía no existe**: van marcadas `filaEn0Q: 'PENDIENTE-ARQUITECTO'`
+ * (11 en total). Las **4** de `EQ-D1` lote 1 (`?kind=`, `?scope=`, `?sort=` de los dos catálogos
+ * públicos), la **1** de `EQ-D2` (`?state=` de `sealed-price-status`, M11 §10) y la **1** de `EQ-D3`
+ * (`?productType=` de `pending-publish`, M11) SÍ tienen fila de §0-Q (el arquitecto la escribió) ⇒
+ * van `transcrita`.
  *
  * ⚠️ **`R3`: el conteo va fijado con un literal en el trinquete**, no escrito aquí y ya. Este
  * docstring decía «25 filas» cuando había 32 — y el pase entero defiende que *un número sí falla y
@@ -548,6 +566,35 @@ const REGISTRO: readonly AxisRow[] = [
   // sets sembrados en estados distintos (bloque (i) del fixture).
   // ==========================================================================================
   { route: 'GET /admin/inventory/sealed-price-status', param: 'state', clazz: 'L', allowed: SEALED_PRICE_STATE_VALUES, valid: 'unmapped', alterno: 'mapped_unpriced', auth: 'admin', echoValue: false },
+
+  // ==========================================================================================
+  // ⭐⭐ `EQ-D1` LOTE 2 (este pase) — CINCO ejes de ORDEN/RANGO SIN DINERO que hoy CLAMPABAN en
+  // silencio al default (§0-Q punto 6/1 lo prohíbe). Migrados a `parseEnumFilter`: fuera de dominio
+  // ⇒ `400` con `details.{field,allowed}`, ausente/vacío ⇒ el default (`200`), ⛔ sin `echoValue`.
+  //
+  // ⛔ **Van `PENDIENTE-ARQUITECTO`, NO `transcrita`** — al revés que las 4 de EQ-D1 lote 1: aquí el
+  // arquitecto **todavía NO ha escrito** su fila de §0-Q punto 4 (son MODOS de la consulta sin enum
+  // homónimo en el schema, clase L/ORDEN, y el contrato es del arquitecto por regla 9). El registro
+  // dice **lo que son**: conducta YA conforme (medida aquí por HTTP), fila de §0-Q pendiente. Es el
+  // mismo patrón que las 6 de la bóveda (`EQ-D0`).
+  //
+  //  - `?sort=` del índice master set — MISMO dominio (`MASTER_SET_SORT_VALUES`) en sus TRES
+  //    consumidores: `/admin/inventory/master-sets`, `/admin/vaults/:userId/master-sets` y
+  //    `/vault/master-sets`. Un solo validador (`master-set.service.ts` `sortSummaries`).
+  //  - `?sort=` de `/admin/vaults` — dominio propio (`ADMIN_VAULTS_SORT_VALUES`).
+  //  - `?range=` de `/vault/portfolio/history` — clase L (unión de literales, `normalizeRange`). Su
+  //    respuesta es `{range, points, change}` (⛔ sin `data`/`total`) ⇒ se observa `points`
+  //    (`OBS_HISTORY`), igual que el XLSX y `pricing-brackets` declaran su propia observación.
+  // ⚠️ Los otros 7 de `SIN_CLASE_DECLARADA` quedan fuera de este lote a propósito: `?report=` ×2 y
+  // `graded-estimates/review?reason=` TOCAN DINERO (3 gates aparte), `?sealedSubtype=` de
+  // `/catalog/cards` es `D-EQ-3` (frontend primero), y los 3 `?range=` de `value-history` viven en
+  // `catalog` (otro work stream — este pase no lo toca).
+  // ==========================================================================================
+  { route: 'GET /admin/inventory/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/vaults/:userId/master-sets', path: (c) => `/admin/vaults/${c.userId}/master-sets`, param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /vault/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/vaults', param: 'sort', clazz: 'ORDEN', allowed: ADMIN_VAULTS_SORT_VALUES, valid: 'pieces_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /vault/portfolio/history', param: 'range', clazz: 'L', allowed: PORTFOLIO_HISTORY_RANGE_VALUES, valid: 'all', alterno: '5d', obs: OBS_HISTORY, auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
 ];
 
 /**
@@ -607,6 +654,20 @@ const CEQ1_BOUNTY_PRICES = [50_000, 900_000];
 const CEQ1_PRICE_SET_EXTERNAL_IDS = ['ceq1-price-unmapped', 'ceq1-price-mapped'];
 const CEQ1_PRICE_PRODUCT_IDS = [990201, 990202];
 const CEQ1_PRICE_MAPPED_GROUP_ID = 990302;
+// ⭐ `EQ-D1` LOTE 2 — DOS sets propios con cartas para que el índice master set del CLIENTE reordene:
+//    A (viejo, 1 carta, 3 piezas ⇒ pieces=3/completion=100%) y B (nuevo, 3 cartas, 1 pieza ⇒
+//    pieces=1/completion=33%). `release_desc`=[B,A], `pieces_desc`=[A,B] (⇒ `valid` cambia el orden),
+//    `completion_asc`=[B,A] (⇒ discrimina de `pieces_desc`). Cartas con `externalId` prefijo `CEQ1-`.
+const CEQ1_MS_SET_EXTERNAL_IDS = ['ceq1-ms-antiguo', 'ceq1-ms-nuevo'];
+// ⭐ `EQ-D1` LOTE 2 — `GET /admin/vaults?sort=`: DOS clientes propios SIN precio (valor 0) para que el
+//    orden reordene entre `value_desc` (empata por nombre), `pieces_desc` y `name_asc`. `AAA` (1 pieza)
+//    y `ZZZ` (5 piezas): value_desc/name_asc=[AAA,ZZZ], pieces_desc=[ZZZ,AAA]. Al ser propios y de valor
+//    0, su reordenamiento es observable con independencia de qué clientes traiga el seed.
+const CEQ1_VAULT_CUSTOMER_EMAILS = ['ceq1-vault-aaa@ceq1.local', 'ceq1-vault-zzz@ceq1.local'];
+// ⭐ `EQ-D1` LOTE 2 — `GET /vault/portfolio/history?range=`: TRES snapshots del cliente a −100/−10/−2
+//    días ⇒ `all`=3 puntos, `1m`=2, `5d`=1. Valores sentinela para barrer sin adivinar (⛔ el modelo
+//    no tiene campo de texto que marcar).
+const CEQ1_SNAPSHOT_CENTS = [990_010, 990_020, 990_030];
 
 async function limpiarFixture(h: E2EHarness): Promise<void> {
   await h.prisma.dispute.deleteMany({ where: { description: { startsWith: 'CEQ1-' } } });
@@ -617,10 +678,19 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   // ⭐ `EQ-D1` · `?scope=` — filas de auditoría sembradas para medir `target` vs `actor`.
   await h.prisma.auditLog.deleteMany({ where: { action: { startsWith: 'CEQ1-' } } });
   await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: 'CEQ1-' } } });
+  // ⭐ `EQ-D1` LOTE 2 — cartas del índice master set: DESPUÉS de sus piezas (FK `cardId`), ANTES de sus
+  //    sets (FK `setId`). Barrido por `externalId` prefijo `CEQ1-`.
+  await h.prisma.card.deleteMany({ where: { externalId: { startsWith: 'CEQ1-' } } });
+  // ⭐ `EQ-D1` LOTE 2 — los dos clientes propios de `?sort=` de `/admin/vaults`: sus piezas ya cayeron
+  //    arriba (folio `CEQ1-`); ahora los usuarios. Sus snapshots caen por `onDelete: Cascade`.
+  await h.prisma.user.deleteMany({ where: { email: { in: CEQ1_VAULT_CUSTOMER_EMAILS } } });
+  // ⭐ `EQ-D1` LOTE 2 — snapshots del portafolio del cliente por valor sentinela (el modelo no tiene
+  //    campo de texto que marcar; los cents sentinela no coinciden con nada del seed).
+  await h.prisma.portfolioSnapshot.deleteMany({ where: { totalValueMxnCents: { in: CEQ1_SNAPSHOT_CENTS } } });
   // ⭐ `EQ-D2` — los dos sets de precio: borrar el `SealedProduct` (y el `SealedSetGroup` cae por
   //    `onDelete: Cascade` al borrar el `CardSet`) antes del set. Barrido por id/externalId, sin adivinar.
   await h.prisma.sealedProduct.deleteMany({ where: { tcgplayerProductId: { in: [...CEQ1_SEALED_PRODUCT_IDS, ...CEQ1_PRICE_PRODUCT_IDS] } } });
-  await h.prisma.cardSet.deleteMany({ where: { externalId: { in: [CEQ1_SET_EXTERNAL_ID, ...CEQ1_PRICE_SET_EXTERNAL_IDS] } } });
+  await h.prisma.cardSet.deleteMany({ where: { externalId: { in: [CEQ1_SET_EXTERNAL_ID, ...CEQ1_PRICE_SET_EXTERNAL_IDS, ...CEQ1_MS_SET_EXTERNAL_IDS] } } });
   await h.prisma.variantPriceOverride.deleteMany({ where: { bountyPriceCents: { in: CEQ1_BOUNTY_PRICES } } });
 }
 
@@ -759,6 +829,79 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   });
   await h.prisma.sealedSetGroup.create({
     data: { setId: mappedSet.id, tcgplayerGroupId: CEQ1_PRICE_MAPPED_GROUP_ID, kind: 'set_main', label: 'CEQ1-fixture-mapped' },
+  });
+
+  // (j) ⭐ `EQ-D1` LOTE 2 · `?sort=` del índice master set (`/admin/inventory/master-sets`,
+  //     `/admin/vaults/:userId/master-sets`, `/vault/master-sets`) — el CLIENTE necesita piezas
+  //     (SINGLES, ⛔ no sellado: la agregación excluye `productType='sealed'`) en DOS sets que
+  //     reordenen. Set A (viejo, 1 carta, 3 piezas) y set B (nuevo, 3 cartas, 1 pieza): `release_desc`
+  //     y `completion_asc` dan [B,A]; `pieces_desc` da [A,B] ⇒ `valid=pieces_desc` cambia el orden y
+  //     discrimina de `alterno=completion_asc`. (El seed solo le da singles en UN set ⇒ 1 fila ⇒ el
+  //     orden no era observable; con estos dos, hay ≥3 filas que reordenan.)
+  const msSetA = await h.prisma.cardSet.create({
+    data: { externalId: CEQ1_MS_SET_EXTERNAL_IDS[0], name: 'CEQ1 MS antiguo', series: 'CEQ1', releaseDate: '2001-01-01' },
+  });
+  const msSetB = await h.prisma.cardSet.create({
+    data: { externalId: CEQ1_MS_SET_EXTERNAL_IDS[1], name: 'CEQ1 MS nuevo', series: 'CEQ1', releaseDate: '2099-01-01' },
+  });
+  const msCardA = await h.prisma.card.create({
+    data: { externalId: 'CEQ1-MS-A1', setId: msSetA.id, name: 'CEQ1 MS A1', number: '1' },
+  });
+  const msCardB = await h.prisma.card.create({
+    data: { externalId: 'CEQ1-MS-B1', setId: msSetB.id, name: 'CEQ1 MS B1', number: '1' },
+  });
+  await h.prisma.card.createMany({
+    data: [
+      { externalId: 'CEQ1-MS-B2', setId: msSetB.id, name: 'CEQ1 MS B2', number: '2' },
+      { externalId: 'CEQ1-MS-B3', setId: msSetB.id, name: 'CEQ1 MS B3', number: '3' },
+    ],
+  });
+  await h.prisma.inventoryItem.createMany({
+    data: [
+      { folio: 'CEQ1-MS-A-1', cardId: msCardA.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-MS-A-2', cardId: msCardA.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-MS-A-3', cardId: msCardA.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-MS-B-1', cardId: msCardB.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: cliente.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+    ],
+  });
+
+  // (k) ⭐ `EQ-D1` LOTE 2 · `GET /admin/vaults?sort=` — DOS clientes propios SIN precio (valor 0) para
+  //     que el orden reordene entre value/pieces/name. `AAA` (1 pieza) y `ZZZ` (5 piezas): sin valor,
+  //     `value_desc` empata por nombre ⇒ [AAA,ZZZ] = `name_asc`; `pieces_desc` ⇒ [ZZZ,AAA]. Así
+  //     `valid=pieces_desc` cambia respecto de `value_desc` y discrimina de `alterno=name_asc`. Propios
+  //     y de valor 0 ⇒ su reordenamiento es observable con independencia de qué clientes traiga el seed.
+  const custAaa = await h.prisma.user.create({
+    data: { email: CEQ1_VAULT_CUSTOMER_EMAILS[0], name: 'AAA CEQ1 Vault', role: 'customer', locale: 'es' },
+  });
+  const custZzz = await h.prisma.user.create({
+    data: { email: CEQ1_VAULT_CUSTOMER_EMAILS[1], name: 'ZZZ CEQ1 Vault', role: 'customer', locale: 'es' },
+  });
+  await h.prisma.inventoryItem.createMany({
+    data: [
+      { folio: 'CEQ1-VAULT-AAA-1', cardId: card.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: custAaa.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      ...[1, 2, 3, 4, 5].map((n) => ({
+        folio: `CEQ1-VAULT-ZZZ-${n}`, cardId: card.id, productType: 'raw' as const, rawCondition: 'NM' as const, finish: 'normal' as const,
+        status: 'in_custody' as const, ownerType: 'customer' as const, ownerUserId: custZzz.id, ownershipStatus: 'settled' as const, acquisitionType: 'aportacion_en_especie' as const,
+      })),
+    ],
+  });
+
+  // (l) ⭐ `EQ-D1` LOTE 2 · `GET /vault/portfolio/history?range=` — TRES snapshots del cliente a
+  //     −100/−10/−2 días ⇒ `all`=3 puntos, `1m`(base)=2, `5d`=1. Con eso `valid=all` trae MÁS puntos
+  //     que el default y `alterno=5d` MENOS ⇒ los tres rangos difieren. `@db.Date` ⇒ solo la fecha
+  //     cuenta; valores sentinela (`CEQ1_SNAPSHOT_CENTS`) para el barrido.
+  const diaMs = 86_400_000;
+  const soloFecha = (offsetDias: number) => {
+    const d = new Date(Date.now() - offsetDias * diaMs);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  };
+  await h.prisma.portfolioSnapshot.createMany({
+    data: [
+      { userId: cliente.id, asOfDate: soloFecha(100), totalValueMxnCents: CEQ1_SNAPSHOT_CENTS[0] },
+      { userId: cliente.id, asOfDate: soloFecha(10), totalValueMxnCents: CEQ1_SNAPSHOT_CENTS[1] },
+      { userId: cliente.id, asOfDate: soloFecha(2), totalValueMxnCents: CEQ1_SNAPSHOT_CENTS[2] },
+    ],
+    skipDuplicates: true,
   });
 
   return { setId: set.id, userId: cliente.id };
@@ -954,9 +1097,16 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   it('⭐ las filas SIN fila en §0-Q punto 4 están NOMBRADAS (⇒ arquitecto, regla 9)', () => {
     const pendientes = REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO').map(idOf).sort();
     expect(pendientes).toEqual([
+      // ⭐ `EQ-D1` lote 2 (este pase): 5 ejes de ORDEN/RANGO cuya CONDUCTA ya conforma pero cuya fila
+      // de §0-Q punto 4 sigue pendiente del arquitecto (regla 9).
+      'GET /admin/inventory/master-sets?sort=',
+      'GET /admin/vaults/:userId/master-sets?sort=',
       'GET /admin/vaults/:userId/sealed?condition=',
       'GET /admin/vaults/:userId/sealed?sealedSubtype=',
       'GET /admin/vaults/:userId/sealed?sort=',
+      'GET /admin/vaults?sort=',
+      'GET /vault/master-sets?sort=',
+      'GET /vault/portfolio/history?range=',
       'GET /vault/sealed?condition=',
       'GET /vault/sealed?sealedSubtype=',
       'GET /vault/sealed?sort=',
@@ -1072,22 +1222,32 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // que un número sí falla y una fecha no*, el conteo se fija donde falla.
     // 26 transcritas de §0-Q punto 4 + 6 de la bóveda (`EQ-D0`, `filaEn0Q: 'PENDIENTE-ARQUITECTO'`)
     // + 4 de `EQ-D1` (`?kind=`, `?scope=`, `?sort=` de los dos catálogos públicos) + 1 de `EQ-D2`
-    // (`?state=` de `sealed-price-status`, M11 §10) + 1 de `EQ-D3` (este pase: `?productType=` de
-    // `pending-publish`, M11) ⇒ 38.
-    // Las de `EQ-D1`/`EQ-D2`/`EQ-D3` van `transcrita`: su fila de §0-Q la escribió el arquitecto EN SU
-    // pase, así que el conteo de `PENDIENTE-ARQUITECTO` NO sube (sigue en 6, las de la bóveda).
-    expect(REGISTRO.length).toBe(38);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(6);
+    // (`?state=` de `sealed-price-status`, M11 §10) + 1 de `EQ-D3` (`?productType=` de
+    // `pending-publish`, M11) + 5 de `EQ-D1` LOTE 2 (este pase: `?sort=` de los 3 índices master set,
+    // `?sort=` de `/admin/vaults`, `?range=` de `/vault/portfolio/history`) ⇒ 43.
+    // Las 5 del lote 2 van `PENDIENTE-ARQUITECTO` (su fila de §0-Q NO existe todavía) ⇒ el conteo de
+    // pendientes SUBE de 6 a 11. Las de `EQ-D1` lote 1/`EQ-D2`/`EQ-D3` fueron `transcrita` (su fila la
+    // escribió el arquitecto en aquel pase) y por eso NO subían el conteo de pendientes.
+    expect(REGISTRO.length).toBe(43);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(11);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
     // se paga.* Las seis salieron porque su CONDUCTA ya cumple §0-Q (`vault.service.ts`), no porque
     // alguien decidiera que ya no molestan — y la fila del contrato que les falta se sigue diciendo,
     // ahora dentro del registro (`filaEn0Q: 'PENDIENTE-ARQUITECTO'`), que es donde se ve.
-    // ⭐ 16 → **12**: `EQ-D1` (este pase) paga CUATRO — `?kind=` (envíos), `?scope=` (auditoría) y
-    // `?sort=` de los dos catálogos públicos. Migrados a `parseEnumFilter` (clamp/ignorar ⇒ `400`) y
-    // con su fila de §0-Q ya escrita ⇒ salen de la cola y entran al `REGISTRO`. El tope baja a mano.
-    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(12);
+    // ⭐ 16 → **12**: `EQ-D1` lote 1 paga CUATRO — `?kind=` (envíos), `?scope=` (auditoría) y `?sort=`
+    // de los dos catálogos públicos. Migrados a `parseEnumFilter` (clamp/ignorar ⇒ `400`) y con su
+    // fila de §0-Q ya escrita ⇒ salen de la cola y entran al `REGISTRO`.
+    // ⭐ 12 → **7**: `EQ-D1` LOTE 2 (este pase) paga CINCO — `?sort=` del índice master set (un
+    // dominio, tres rutas: inventario + bóveda admin + bóveda cliente), `?sort=` de `/admin/vaults` y
+    // `?range=` de `/vault/portfolio/history`. Migrados a `parseEnumFilter` (clamp silencioso ⇒
+    // `400`). Su fila de §0-Q NO existe todavía ⇒ entran al `REGISTRO` como `PENDIENTE-ARQUITECTO`
+    // (igual que la bóveda), no como `transcrita`. Los 7 que quedan en la cola son los 3 de DINERO
+    // (`?report=` ×2, `graded-estimates/review?reason=`), `?sealedSubtype=` de `/catalog/cards`
+    // (`D-EQ-3`, frontend primero) y los 3 `?range=` de `value-history` (stream `catalog`). El tope
+    // baja a mano.
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(7);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
     // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,
