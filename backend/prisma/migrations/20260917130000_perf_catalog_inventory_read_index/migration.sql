@@ -1,0 +1,28 @@
+-- PERF-CATALOG — índice de RENDIMIENTO para la lectura compartida de "Compra".
+-- DDL 100% ADITIVO: crea UN índice. No toca columnas, no cambia tipos, no mueve ni borra
+-- datos, no hace backfill. Un índice NUNCA altera el resultado de una consulta (mismos
+-- ítems, mismo orden, mismos precios); solo cambia el PLAN de ejecución. Money-safe por
+-- construcción — por eso entra por la ruta de VELOCIDAD que autoriza el encargo perf-catalog.
+--
+-- QUÉ ACELERA: `GET /catalog/cards` (todos los `sort`: newest/price_asc/price_desc/
+-- grading_showcase) y `GET /catalog/facets` comparten `CatalogService.fetchSellable`, que
+-- ejecuta:
+--   SELECT ... FROM "InventoryItem"
+--    WHERE "ownerType"='platform' AND "status"='listed' [AND "productType" <> 'sealed']
+--    ORDER BY "createdAt" DESC   -- (sin LIMIT: la paginación es en memoria tras agrupar)
+-- Sin este índice el plan es Seq Scan sobre TODA la tabla + Sort. La tabla crece sin cota
+-- (withdrawn/shipped/sold se acumulan), mientras el catálogo VIVO es una fracción pequeña,
+-- así que el coste de la lectura crece con el histórico, no con lo publicado.
+--
+-- CON el índice: Index Scan que toca solo las filas `platform+listed` y ya en el orden
+-- `createdAt DESC` pedido (Sort eliminado). El prefijo `(ownerType,status)` sirve también a
+-- `facets` (que no filtra por productType). El filtro `productType <> 'sealed'` queda como
+-- filtro barato sobre el conjunto ya reducido.
+--
+-- MEDIDO (modelo a escala en tablas scratch — fixture intacto): 120k filas, 880 publicadas;
+-- esa lectura pasó de 12.95 ms (Seq Scan, 2104 buffers, quicksort de 880) a 0.29 ms
+-- (Index Scan, 48 buffers, sin Sort). El delta crece con el tamaño real de la tabla en prod.
+--
+-- ROLLBACK: `DROP INDEX "InventoryItem_ownerType_status_createdAt_idx";` — instantáneo,
+-- sin efectos sobre datos.
+CREATE INDEX "InventoryItem_ownerType_status_createdAt_idx" ON "InventoryItem"("ownerType", "status", "createdAt" DESC);

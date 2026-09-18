@@ -23538,3 +23538,107 @@ comió) · idempotencia sin acuse · criterio 209 · `priceConvention` `NOT NULL
   `lockIvaTransferGate`, que no toqué, y su orden sigue medido por el gate spec.
 - **NO MEDIDO:** que `iva_pct = 0` sea alcanzable por la puerta de `iva_pct` en vivo; el caso «dial no
   encerrado» se mide con la tasa sembrada en `0` en el doble.
+
+---
+
+# PERF-CATALOG (2026-09-17) — por qué el home y comprar/vender tardan ~20s, y qué aceleré
+
+**Rama:** `claude/perf-catalog` (base `origin/production`). **Zona money-adjacent (catálogo/precios): cambié VELOCIDAD, no resultados** (mismos ítems, mismo orden, mismos precios, mismas facetas).
+
+## La causa MEDIDA de las tres llamadas de ~10s
+
+Las tres rutas que el dueño cronometró comparten UN camino: `CatalogService.fetchSellable`
+(`backend/src/modules/catalog/catalog.service.ts:642-705`). Medido con un probe que arranca el
+contexto Nest real y cronometra cada query (Prisma `$use`), contra la BD nativa local:
+
+- **`GET /catalog/cards?sort=grading_showcase&pageSize=8`** y **`?sort=price_desc&pageSize=8`** →
+  `listCards` (`catalog.service.ts:1267`) llama a `fetchSellable(singlesPublishedWhere(...))`.
+- **`GET /catalog/facets`** → `facets` (`catalog.service.ts:1377`) llama a `fetchSellable(publishedWhere())`.
+
+**Por eso las tres tardan lo mismo (~10s): ejecutan el MISMO trabajo caro.** Medido: **16 queries por
+request** (15 en facets), dominadas por dos lecturas y por 9 round-trips de config.
+
+### Causa 1 — la lectura del catálogo IGNORA `pageSize` (la más importante)
+El SQL que emite `fetchSellable` (capturado con logging de Prisma) es:
+```
+SELECT ... FROM "InventoryItem"
+ WHERE "ownerType"='platform' AND "status"='listed' [AND "productType" <> 'sealed']
+ ORDER BY "createdAt" DESC OFFSET 0        -- ⚠️ SIN LIMIT
+```
+No hay `LIMIT`: se lee y se **enriquece de precio TODO el inventario publicado**, se agrupa, se ordena
+por precio/grading (claves CALCULADAS, no en BD) y **solo entonces** se rebana a `pageSize=8`
+(`catalog.service.ts:1366-1370`). Por eso `pageSize=8` cuesta lo mismo que `pageSize=todo`: el dueño lo
+leyó como «no es volumen», y es correcto en el sentido de que el `pageSize` no lo explica — lo explica
+que la consulta lee el catálogo entero. **Plan (EXPLAIN ANALYZE): `Seq Scan` sobre `InventoryItem` +
+`Sort`.** No había índice que empezara por `ownerType`.
+
+### Causa 2 — el enriquecimiento de precio lee TODO el histórico por carta
+`PricingService.getReferencesBatch` / `getPricedRawFinishesBatch` (`pricing.service.ts:877`, `:992`)
+leen `PriceReference` con `orderBy capturedDate desc` y **sin cota de fecha ni LIMIT**. `PriceReference`
+guarda un snapshot POR DÍA (unique `[cardId,productType,gradeKey,finish,capturedDate,cardProductId]`),
+así que en prod esto trae **el histórico completo** (meses de días × todas las cartas publicadas) y
+lo ordena para que el JS elija la mejor fila por clave con `isBetterRef`.
+
+### Causa 3 — 9 round-trips a `ConfigSetting` por request
+`loadPricingCurve` + `loadSealedSpreads` (3) + `ivaDialsOf` + `loadGradingContext` leen las claves de
+config una a una: **7 `findUnique` + 2 `findMany` por request** (medido). A latencia de red de prod se
+serializan.
+
+## Lo que optimicé (money-safe, medido)
+
+**Índice aditivo `@@index([ownerType, status, createdAt(sort: Desc)])` en `InventoryItem`**
+(`backend/prisma/schema.prisma`; migración `20260917130000_perf_catalog_inventory_read_index`). Un
+índice **jamás cambia el resultado**, solo el plan — por eso es la palanca money-safe. Sirve la lectura
+compartida de las TRES rutas: filtra a solo lo publicado (prefijo `ownerType,status`, que también sirve
+a `facets`) y entrega ya en `createdAt DESC` (elimina el `Sort`).
+
+### ms antes → después (medido sobre modelo a escala — tablas scratch `_perf_*`, fixture INTACTO)
+Local tiene 180 publicados de 426, así que no reproduce los ~10s de prod. Para medir honesto construí
+un modelo a escala prod-realista (120k filas de inventario, 880 publicadas; 720k filas de histórico de
+precio) en tablas scratch que NO tocan el fixture (borradas al terminar; `InventoryItem` sigue en 426):
+
+- **Lectura del catálogo (Causa 1):** `12.95 ms → 0.29 ms` (~45×). `Seq Scan` 2104 buffers + quicksort
+  → `Index Scan` 48 buffers, **Sort eliminado**. El delta crece con el tamaño real de la tabla (en prod
+  `withdrawn/shipped/sold` se acumulan y lo publicado es una fracción pequeña, así que el índice vale
+  MÁS con el tiempo).
+- **Lectura de histórico de precio (Causa 2):** `93.7 ms` con `external merge` a disco. **Un índice NO
+  ayuda** y lo comprobé: forzándolo (`enable_seqscan=off`) subió a `156 ms` porque la consulta devuelve
+  ~toda la historia de mercado de las cartas publicadas (leer una fracción grande ⇒ el seq scan es lo
+  correcto). Por eso **NO añadí índice ahí** (sería coste de escritura en una tabla de dinero sin
+  beneficio de lectura).
+
+## Migración de índice (para la ventana del dueño)
+- `backend/prisma/migrations/20260917130000_perf_catalog_inventory_read_index/migration.sql`: **un solo
+  `CREATE INDEX`**, no `UNIQUE`, sin `UPDATE/INSERT/DELETE/DROP/ALTER`. Aditiva, no bloquea escrituras de
+  forma destructiva, sin backfill. **Rollback:** `DROP INDEX "InventoryItem_ownerType_status_createdAt_idx";`
+  (instantáneo, sin efecto sobre datos). Aplicada y verificada en la BD local (`migrate status` limpio).
+- La construcción del índice en prod toma un momento proporcional al tamaño de `InventoryItem`; es
+  `CREATE INDEX` normal (no `CONCURRENTLY`, coherente con las demás migraciones del repo) — bloquea
+  escrituras de esa tabla durante el build. En un catálogo del tamaño de esta tienda es breve.
+
+## Prueba (candado + canario)
+`backend/test/migration.perf-catalog-index.spec.ts` (6 verdes): fija que la migración es **SOLO** el
+`CREATE INDEX` esperado (⇒ no puede cambiar ítems/orden/precios — la garantía de resultado idéntico), que
+el schema DECLARA el índice con el orden de columnas medido (paridad), y que ninguna otra migración lo
+toca. **Canario verificado:** inyecté `UPDATE "InventoryItem" SET "listPriceCents"=0;` en la migración y
+2/6 pruebas se pusieron rojas; revertido, 6/6 verdes.
+
+## Enrutado al arquitecto / dueño de `pricing` (NO lo cambié yo — cambia lógica de dinero)
+Las Causas 2 y 3 no se arreglan con índice y tocarían la ruta de dinero (candidatos de `isBetterRef`,
+lectura de config). Requieren diseño + prueba que falle primero:
+1. **Causa 2:** acotar `getReferencesBatch`/`getPricedRawFinishesBatch` a la fila vigente por clave
+   (p.ej. `DISTINCT ON` la última `capturedDate` por `(cardId,gradeKey,finish,source)`) SIN cambiar qué
+   fila gana. ⚠️ Bounding por ventana de fecha NO es seguro: una fuente STALE (ingest caído, que ocurre
+   con egress bloqueado) tiene su última fila meses atrás y recortarla cambiaría el precio.
+2. **Causa 3:** leer las 9 claves de `ConfigSetting` en un `findMany(key IN [...])` por request
+   (mismos valores, menos round-trips).
+3. **Causa 1 (arquitectura):** la lectura no paginable en BD es intrínseca al orden por precio/grading
+   calculado. Materializar `displayPriceCents`/clave de orden permitiría paginar en BD, pero es cambio
+   de esquema+escritura de dinero — decisión del arquitecto.
+
+## Qué debe cronometrar el dueño en prod (Network tab), antes y después del deploy
+- `GET /catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8`
+- `GET /catalog/cards?sort=price_desc&pageSize=8`
+- `GET /catalog/facets`
+El índice debe recortar la parte de la lectura de `InventoryItem`. Si tras el deploy siguen ~10s, la
+cola restante es la Causa 2 (histórico de precio) — que necesita el arreglo enrutado arriba.
