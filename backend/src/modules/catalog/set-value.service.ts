@@ -329,7 +329,15 @@ export class SetValueService {
       return { setId: null, totalValueMxnCents: 0, pricedCardCount: 0, totalCardCount: 0 };
     }
     const asOfDate = today();
-    const agg = await this.computeSetValue(set.id, asOfDate);
+    // P-53 §4.1 (money-critical): el punto de HOY es un valor VIVO, no histórico ⇒ se computa con FX
+    // VIVA (`computeSetValue` SIN `asOf` ⇒ rama `liveMxnCents`, recompone MXN desde `priceUsdCents × FX`
+    // vigente). Hasta P-53 se pasaba `asOf = today` y la rama `asOf` leía `priceMxnCents` CONGELADO en la
+    // fila; eso equivalía a la FX del día SOLO porque el ingest reescribía la fila cada día con la FX de
+    // hoy. Con el escritor write-on-change (§2) un día-sin-cambio NO reescribe la fila ⇒ el snapshot
+    // leería el MXN congelado en la FX del último cambio de USD y la serie de valor dejaría de seguir la
+    // FX diaria. Computar sin `asOf` deja el punto del día IDÉNTICO al comportamiento actual (CA-8). El
+    // set está fijado al mismo id ⇒ no hay ventana de cambio de destacado entre resolver y computar.
+    const agg = await this.computeSetValue(set.id);
     await this.prisma.setValueSnapshot.upsert({
       where: { setId_asOfDate: { setId: set.id, asOfDate } },
       create: { setId: set.id, asOfDate, ...agg },

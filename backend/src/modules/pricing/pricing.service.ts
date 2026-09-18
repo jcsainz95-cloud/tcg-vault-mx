@@ -281,6 +281,9 @@ const PRICE_REF_SELECT = {
   capturedDate: true,
   cardProductId: true,
   refKind: true,
+  // P-53 §3: fecha de última confirmación del barrido. Se lee para medir la frescura contra
+  // `evidenceDate ?? capturedDate`; `null` (filas graded/legadas) cae a `capturedDate` ⇒ sin cambio.
+  evidenceDate: true,
 } as const;
 
 /**
@@ -1660,7 +1663,17 @@ export class PricingService {
       // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
       // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
       // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
-      const target = isStaleByOrigin(r.capturedDate.toISOString().slice(0, 10), isManual, today, cfg)
+      // P-53 §3: la frescura mide contra `evidenceDate ?? capturedDate`. Hoy las filas graded tienen
+      // `evidenceDate = null` ⇒ cae a `capturedDate` ⇒ IDÉNTICO al comportamiento previo (CA-10). El
+      // comportamiento nuevo solo emerge si en el futuro se cablea la evidencia del parser graded.
+      const evidenceDate = r.evidenceDate ? r.evidenceDate.toISOString().slice(0, 10) : null;
+      const target = isStaleByOrigin(
+        r.capturedDate.toISOString().slice(0, 10),
+        isManual,
+        today,
+        cfg,
+        evidenceDate,
+      )
         ? bestStaleByKey
         : bestFreshByKey;
       // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).
@@ -2218,14 +2231,6 @@ export class PricingService {
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
-    // v1.29 (M-31): `cardProductId` es `null` en este fallback (PPT/graded). Prisma no tipa `null` en
-    // la clave compuesta ⇒ findFirst + update-by-id/create (invariante de un renglón/día por app).
-    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (mercado raw). Ver arriba.
-    const existing = await this.prisma.priceReference.findFirst({
-      where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId },
-    });
-    // No clobbea el override manual del admin (§4.1): si hay override de hoy, se respeta.
-    if (existing?.isManualOverride) return;
     const isUsd = market.currency === 'USD';
     const priceMxnCents = isUsd
       ? usdToMxnCents(market.marketCents, fx.rate, fx.bufferPct)
@@ -2233,6 +2238,73 @@ export class PricingService {
     const priceUsdCents = isUsd ? market.marketCents : null;
     const fxRate = isUsd ? fx.rate : null;
     const fxBufferPct = isUsd ? fx.bufferPct : null;
+
+    // ⚠️ P-53 §2 — **ESTE es el ESCRITOR DIARIO (`ingestSinglesForSet` → cron `price-ingest-1/2`), y su
+    // ritmo de escritura cambió: WRITE-ON-CHANGE.** Hasta P-53 la CLAVE de lectura incluía
+    // `capturedDate = today()`, así que cada barrido materializaba UNA fila POR (carta, producto,
+    // acabado) POR DÍA aunque el precio no se moviera (~28,559 filas/día que el disco no sostiene). Ahora
+    // se escribe **solo cuando el VALOR cambia**:
+    //  - **El VALOR es `priceUsdCents` (+ `fxBufferPct`), NO `priceMxnCents`.** El MXN se deriva de
+    //    `priceUsdCents × FX del día` y la FX Banxico se mueve a diario aunque el USD no ⇒ medir el
+    //    cambio sobre el MXN casi no colapsaría nada. La deriva de FX es una conversión derivada, no un
+    //    cambio de precio; se recompone en cada lectura viva (`liveMxnCents`). `fxBufferPct` SÍ entra al
+    //    predicado (dial de negocio). Con currency MXN (el proveedor ya da MXN, sin FX que amortiguar) el
+    //    valor ES `priceMxnCents`.
+    //  - **Día sin cambio:** 0 filas nuevas; se avanza `evidenceDate` de la vigente (nunca retrocede) ⇒
+    //    money-safe (la valuación viva recompone el MISMO MXN) y `hasRecentIngest` (§4.3) ve la
+    //    confirmación (cierra ALTO-2: la evidencia AHORA sí se escribe).
+    //  - **Día de cambio (USD/colchón distinto, sin fila, o la vigente es un estimado):** fila NUEVA del
+    //    día con `capturedDate = evidenceDate = today`. Cada punto de cambio sobrevive ⇒ la serie de
+    //    valor por fecha (`computeSetValue` forward-fill) es idéntica.
+    //  - **Override manual vigente (§4.1/§4.27f):** el escritor de mercado NO lo pisa ni le bump-ea
+    //    `evidenceDate`.
+    //
+    // Clave de la SERIE (SIN `capturedDate`): la fila VIGENTE es la más reciente. `cardProductId` puede
+    // ser `null` (fallback PPT/graded) o un id (primario `tcgcsv_singles`) ⇒ findFirst (Prisma no tipa
+    // `null` en la @@unique compuesta; invariante de un renglón/día por app).
+    // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (mercado raw), no de candidatas.
+    const current = await this.prisma.priceReference.findFirst({
+      where: { cardId, productType, gradeKey, finish, cardProductId },
+      orderBy: { capturedDate: 'desc' },
+      select: {
+        id: true,
+        capturedDate: true,
+        evidenceDate: true,
+        isManualOverride: true,
+        refKind: true,
+        priceUsdCents: true,
+        priceMxnCents: true,
+        fxBufferPct: true,
+      },
+    });
+    // No pisa el override manual del admin (§4.1/§4.27f) — ni le avanza la evidencia.
+    if (current?.isManualOverride) return;
+
+    // ¿El VALOR es el MISMO que la fila vigente de MERCADO? → confirmar (avanzar evidencia), NO insertar.
+    const sameValue =
+      current != null &&
+      current.refKind === PriceRefKind.market &&
+      (isUsd
+        ? current.priceUsdCents === priceUsdCents &&
+          current.fxBufferPct != null &&
+          Number(current.fxBufferPct) === fxBufferPct
+        : current.priceUsdCents === null && current.priceMxnCents === priceMxnCents);
+
+    if (sameValue) {
+      // Día sin cambio: 0 filas nuevas. Solo avanza `evidenceDate` (invariante: nunca retrocede).
+      // `capturedDate`/`priceMxnCents`/`fxRate` de la vigente NO se tocan (congelarlos es inocuo: toda
+      // lectura viva recompone MXN desde el USD vigente; el único lector del MXN congelado —la rama
+      // `asOf` de `computeSetValue`— se corrige en el job del snapshot, §4.1).
+      if (current!.evidenceDate == null || current!.evidenceDate < capturedDate) {
+        await this.prisma.priceReference.update({
+          where: { id: current!.id },
+          data: { evidenceDate: capturedDate },
+        });
+      }
+      return;
+    }
+
+    // Cambió el valor (o no había fila, o la vigente es un estimado): fila del día (write-on-change).
     const data = {
       source: market.source,
       priceUsdCents,
@@ -2245,9 +2317,13 @@ export class PricingService {
       // esta fila nunca puede ser la del estimado; se fija igual porque la regla de (l.4.3) es del
       // ESCRITOR y no admite excepciones «porque en este call-site no puede pasar».
       refKind: PriceRefKind.market,
+      // P-53 §1: el día del cambio la evidencia coincide con la captura.
+      evidenceDate: capturedDate,
     };
-    if (existing) {
-      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+    // Idempotencia intra-día: si la vigente ES la fila de HOY (re-run del mismo día con valor nuevo), se
+    // corrige en su sitio (sin colisión con la @@unique de 6 campos). Si no, fila NUEVA del día.
+    if (current != null && current.capturedDate.getTime() === capturedDate.getTime()) {
+      await this.prisma.priceReference.update({ where: { id: current.id }, data });
     } else {
       await this.prisma.priceReference.create({
         data: {
