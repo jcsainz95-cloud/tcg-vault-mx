@@ -214,18 +214,16 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
  * | `/catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 y §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo ⇒ `D-EQ-3`, **frontend primero** | Catálogo y precios |
  */
 export const SIN_CLASE_DECLARADA: readonly string[] = [
+  // DINERO (`?report=` ×2, `?reason=`): 3 gates aparte, NO en este lote.
   'GET /admin/finance/export.csv::report',
   'GET /admin/pricing/graded-estimates/review::reason',
   'GET /admin/reports/export.csv::report',
-  'GET /admin/inventory/master-sets::sort',
-  'GET /admin/vaults::sort',
-  'GET /admin/vaults/:userId/master-sets::sort',
+  // `D-EQ-3` — frontend primero (retirar el parámetro, no arreglarlo).
   'GET /catalog/cards::sealedSubtype',
+  // `?range=` de `value-history` ×3 — stream `catalog` (otro work stream; este pase no lo toca).
   'GET /catalog/featured-set/value-history::range',
   'GET /catalog/sealed/:inventoryItemId/value-history::range',
   'GET /catalog/sets/:id/value-history::range',
-  'GET /vault/master-sets::sort',
-  'GET /vault/portfolio/history::range',
 ];
 
 /**
@@ -239,9 +237,20 @@ export const SIN_CLASE_DECLARADA: readonly string[] = [
  *    default; ahora ⇒ `400`.
  *  - `GET /catalog/cards::sort` — ORDEN `{newest, price_asc, price_desc, grading_showcase}` (§2).
  *    Ídem.
- * Los 12 que quedan son DINERO (`?report=` ×2 finanzas → `EQ-D0b`; `graded-estimates/review?reason=`
- * pricing), `?range=` ×4 (value-history con feature-flag + serie temporal), los `?sort=` de
- * master-sets ×3 y `/admin/vaults`, y `?sealedSubtype=` de `/catalog/cards` (retirar el param, `EQ-D3`).
+ * ⭐ **`EQ-D1` LOTE 2 (este pase) — CINCO ejes MÁS salieron de la cola (12 → 7) al migrarse a
+ * `parseEnumFilter`. A diferencia de lote 1, su fila de §0-Q punto 4 NO existe todavía (son MODOS de
+ * la consulta, clase L/ORDEN sin enum en el schema), así que entran al `REGISTRO` como
+ * `PENDIENTE-ARQUITECTO` (regla 9), igual que la bóveda de `EQ-D0`:**
+ *  - `GET /admin/inventory/master-sets::sort` · `GET /admin/vaults/:userId/master-sets::sort` ·
+ *    `GET /vault/master-sets::sort` — un solo dominio `{release_desc, completion_asc, pieces_desc}`
+ *    (`master-set.service.ts` `sortSummaries`). Antes: clamp silencioso al default `release_desc`.
+ *  - `GET /admin/vaults::sort` — dominio `{value_desc, pieces_desc, name_asc}`
+ *    (`admin-vaults.service.ts` `sortRows`). Antes: clamp silencioso al default `value_desc`.
+ *  - `GET /vault/portfolio/history::range` — clase L `{5d,15d,1m,3m,6m,1y,ytd,all}`
+ *    (`vault.service.ts` `normalizeRange`). Antes: clamp silencioso al default `1m`.
+ * Los 7 que quedan son DINERO (`?report=` ×2 finanzas; `graded-estimates/review?reason=` pricing),
+ * `?sealedSubtype=` de `/catalog/cards` (retirar el param, `EQ-D3`) y `?range=` ×3 de `value-history`
+ * (stream `catalog` — otro work stream).
  */
 
 /**

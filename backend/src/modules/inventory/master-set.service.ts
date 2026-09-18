@@ -3,6 +3,7 @@ import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
+import { parseEnumFilter } from '../../common/enum-filter';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
 import { hasManualPrice } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
@@ -47,6 +48,24 @@ export const NOT_ON_HAND: InventoryStatus[] = [
   'lost',
   'damaged',
 ];
+
+/**
+ * ⭐ **`EQ-D1` lote 2 — dominio del eje `?sort=` del índice master set (CLASE ORDEN, §0-Q punto 6).**
+ *
+ * Los TRES consumidores de `index()` comparten este orden: `GET /admin/inventory/master-sets`,
+ * `GET /admin/vaults/:userId/master-sets` y `GET /vault/master-sets`. Un solo dominio, un solo
+ * validador (`sortSummaries`), así que la conducta que §0-Q punto 6 prohíbe —el **clamp silencioso**
+ * de `?sort=zzz` al default `release_desc`— se cierra en un sitio para los tres.
+ *
+ * ⛔ **La fila FORMAL de §0-Q punto 4 la escribe el ARQUITECTO** (regla 9): es un MODO de la consulta
+ * (`rg 'enum .*Sort' schema.prisma` ⇒ 0), clase L/ORDEN sin columna. Lo que se arregla aquí es la
+ * conducta (fuera de dominio ⇒ `400` con `details.{field,allowed}`), no el contrato. `C-EQ-1` importa
+ * este literal REAL (no una copia) para vigilar la paridad, y su fila va `PENDIENTE-ARQUITECTO`.
+ */
+export const MASTER_SET_SORT_VALUES = ['release_desc', 'completion_asc', 'pieces_desc'] as const;
+export type MasterSetSort = (typeof MASTER_SET_SORT_VALUES)[number];
+/** Default declarado por el índice (fila del controller: `@Query('sort') sort = 'release_desc'`). */
+const MASTER_SET_SORT_DEFAULT: MasterSetSort = 'release_desc';
 
 /**
  * v1.22 — el ORDEN CANONICO (de acabados y de numeros) vive en `common/card-order.ts`: UN solo
@@ -491,8 +510,17 @@ export class MasterSetService implements OnModuleInit {
     };
   }
 
-  /** Ordena el índice según `sort` (release_desc default | completion_asc | pieces_desc). */
-  private sortSummaries(rows: MasterSetSummaryDTO[], sort: string): MasterSetSummaryDTO[] {
+  /**
+   * Ordena el índice según `sort` (release_desc default | completion_asc | pieces_desc).
+   *
+   * ⭐ `EQ-D1` lote 2 — el eje `?sort=` pasa por `parseEnumFilter` (§0-Q): ausente/vacío ⇒ el default
+   * `release_desc`; un token fuera de dominio ⇒ `400` con `details.{field,allowed}` (antes caía al
+   * `else` y devolvía `release_desc` **sin decirlo** — el clamp silencioso que §0-Q punto 6 prohíbe).
+   * Un solo validador para los TRES consumidores de `index()`. `C-EQ-1` lo vigila por HTTP.
+   */
+  private sortSummaries(rows: MasterSetSummaryDTO[], sortRaw: string): MasterSetSummaryDTO[] {
+    const sort =
+      parseEnumFilter('sort', sortRaw, MASTER_SET_SORT_VALUES) ?? MASTER_SET_SORT_DEFAULT;
     const byRelease = (a: MasterSetSummaryDTO, b: MasterSetSummaryDTO) =>
       (b.releaseDate ?? '').localeCompare(a.releaseDate ?? '');
     if (sort === 'completion_asc') {
