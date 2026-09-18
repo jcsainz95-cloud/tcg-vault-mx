@@ -2,6 +2,7 @@ import { PortfolioSnapshotJobService } from '../src/jobs/portfolio-snapshot.serv
 import { VaultService } from '../src/modules/vault/vault.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { BusinessException } from '../src/common/business.exception';
 
 /**
  * v1.1 — Gráfica de tendencia del portafolio (PortfolioSnapshot, ARCHITECTURE §3/§5):
@@ -73,9 +74,27 @@ describe('VaultService.portfolioHistory — cálculo de change', () => {
     expect(res.change.direction).toBe('up');
   });
 
-  it('rango inválido cae al default 1m', async () => {
+  // ⭐ `EQ-D1` lote 2 — antes esto «caía al default 1m» (clamp SILENCIOSO que §0-Q punto 6/1 prohíbe:
+  //    devolver una ventana distinta de la pedida con cara de la pedida). Ahora `?range=` pasa por
+  //    `parseEnumFilter` ⇒ un token fuera de dominio es `400 VALIDATION_ERROR` con `details.{field,
+  //    allowed}`. Lo vigila por HTTP `C-EQ-1` (`GET /vault/portfolio/history?range=`).
+  it('rango inválido ⇒ 400 VALIDATION_ERROR (§0-Q: ⛔ NO clamp silencioso)', async () => {
     const svc = withSnapshots([]);
-    const res = await svc.portfolioHistory('u1', 'bogus');
-    expect(res.range).toBe('1m');
+    const err = await svc.portfolioHistory('u1', 'bogus').then(
+      () => null,
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(BusinessException);
+    expect(err.getStatus()).toBe(400);
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect(err.details).toEqual({
+      field: 'range',
+      allowed: ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'],
+    });
+  });
+
+  it('rango ausente/vacío ⇒ el default 1m (§0-Q punto 1: vacío no filtra, `200`)', async () => {
+    const svc = withSnapshots([]);
+    expect((await svc.portfolioHistory('u1', '')).range).toBe('1m');
   });
 });
