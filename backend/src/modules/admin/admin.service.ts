@@ -909,9 +909,16 @@ export class AdminService {
     };
     // La CLABE vive CIFRADA en reposo: se descifra SOLO para enmascararla, y sale `****1234` también
     // para el `super_admin`. En claro únicamente por `GET /admin/buylist/:id/reveal-clabe`.
-    const clabeMasked = maskClabe(this.pii.decryptOptional(user.kycProfile?.clabeEnc));
+    // ⭐ Robustez PII (deuda M11): un campo que NO descifra (clave rotada / fila corrupta) DEGRADA su
+    // casilla (enmascarado a `undefined` + `piiUnavailable: true` en su DTO) en vez de tumbar la ficha
+    // entera con un 500. `piiUnavailable` es ADITIVO y SOLO viaja en el estado degradado, así que el
+    // candado de conjunto de claves (R-1) sigue verde en el camino feliz.
+    const clabe = this.pii.tryDecryptOptional(user.kycProfile?.clabeEnc);
+    const clabeMasked = maskClabe(clabe.value);
 
     if (role === Role.super_admin) {
+      const kycRfc = this.pii.tryDecryptOptional(user.kycProfile?.rfcEnc);
+      const billingRfc = this.pii.tryDecryptOptional(user.billingProfile?.rfcEnc);
       return {
         ...toAdminUserHeaderSuper(user),
         ...comunes,
@@ -919,16 +926,19 @@ export class AdminService {
         // de movimientos POR PERSONA no es de su rol.
         recentShipmentRecipients: user.shipmentRequests.map(toAdminShipmentRecipientRef),
         kycProfile: user.kycProfile
-          ? toAdminKycDetailDTO(user.kycProfile, {
-              clabeMasked,
-              rfcMasked: maskRfc(this.pii.decryptOptional(user.kycProfile.rfcEnc)),
-            })
+          ? {
+              ...toAdminKycDetailDTO(user.kycProfile, {
+                clabeMasked,
+                rfcMasked: maskRfc(kycRfc.value),
+              }),
+              ...(clabe.unavailable || kycRfc.unavailable ? { piiUnavailable: true } : {}),
+            }
           : null,
         billingProfile: user.billingProfile
-          ? toAdminBillingDTO(
-              user.billingProfile,
-              maskRfc(this.pii.decryptOptional(user.billingProfile.rfcEnc)),
-            )
+          ? {
+              ...toAdminBillingDTO(user.billingProfile, maskRfc(billingRfc.value)),
+              ...(billingRfc.unavailable ? { piiUnavailable: true } : {}),
+            }
           : null,
       };
     }
@@ -937,7 +947,13 @@ export class AdminService {
     return {
       ...toAdminUserHeader(user),
       ...comunes,
-      kycProfile: user.kycProfile ? toAdminKycOperatorDTO(user.kycProfile, clabeMasked) : null,
+      kycProfile: user.kycProfile
+        ? {
+            ...toAdminKycOperatorDTO(user.kycProfile, clabeMasked),
+            // El operador solo ve la CLABE: su degradación es la única que puede marcarse aquí.
+            ...(clabe.unavailable ? { piiUnavailable: true } : {}),
+          }
+        : null,
       // SIEMPRE `null`, nunca «omitido»: el front pinta «sin acceso», no «sin datos» (§11).
       billingProfile: null,
     };

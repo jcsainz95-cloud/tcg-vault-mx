@@ -4,6 +4,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { VaultService } from './vault.service';
 import { BusinessException } from '../../common/business.exception';
+import { parseEnumFilter } from '../../common/enum-filter';
 
 /**
  * AdminVaultsService (v1.20-master-set-everywhere, §4.20c) — GET /admin/vaults: lista de clientes
@@ -14,6 +15,19 @@ import { BusinessException } from '../../common/business.exception';
  * `pendingPriceCount`. SIN N+1: 3 queries fijas (piezas en bóveda + usuarios de esas piezas +
  * lote de referencias); el sort global (value_desc default) se hace en memoria sobre el agregado.
  */
+
+/**
+ * ⭐ **`EQ-D1` lote 2 — dominio del eje `?sort=` de `GET /admin/vaults` (CLASE ORDEN, §0-Q punto 6).**
+ *
+ * Antes, `?sort=zzz` caía al `else` de `sortRows` y devolvía el orden por valor **sin decirlo** — el
+ * clamp silencioso que §0-Q punto 6 prohíbe. Ahora fuera de dominio ⇒ `400` con `details.{field,
+ * allowed}`. ⛔ La fila FORMAL de §0-Q punto 4 la escribe el ARQUITECTO (regla 9): es un MODO de la
+ * consulta (sin columna/enum en el schema). `C-EQ-1` importa este literal REAL para la paridad.
+ */
+export const ADMIN_VAULTS_SORT_VALUES = ['value_desc', 'pieces_desc', 'name_asc'] as const;
+export type AdminVaultsSort = (typeof ADMIN_VAULTS_SORT_VALUES)[number];
+/** Default declarado por el controller (`@Query('sort') sort = 'value_desc'`). */
+const ADMIN_VAULTS_SORT_DEFAULT: AdminVaultsSort = 'value_desc';
 
 export interface AdminVaultSummaryDTO {
   userId: string;
@@ -139,8 +153,16 @@ export class AdminVaultsService {
     return { data: rows.slice(start, start + q.pageSize), page: q.page, pageSize: q.pageSize, total };
   }
 
-  /** Orden normado: value_desc (default) | pieces_desc | name_asc. */
-  private sortRows(rows: AdminVaultSummaryDTO[], sort: string): AdminVaultSummaryDTO[] {
+  /**
+   * Orden normado: value_desc (default) | pieces_desc | name_asc.
+   *
+   * ⭐ `EQ-D1` lote 2 — `?sort=` pasa por `parseEnumFilter` (§0-Q): ausente/vacío ⇒ el default
+   * `value_desc`; fuera de dominio ⇒ `400` con `details.{field,allowed}` (antes caía al `else` y
+   * devolvía `value_desc` **sin decirlo** — el clamp silencioso que §0-Q punto 6 prohíbe).
+   */
+  private sortRows(rows: AdminVaultSummaryDTO[], sortRaw: string): AdminVaultSummaryDTO[] {
+    const sort =
+      parseEnumFilter('sort', sortRaw, ADMIN_VAULTS_SORT_VALUES) ?? ADMIN_VAULTS_SORT_DEFAULT;
     const byName = (a: AdminVaultSummaryDTO, b: AdminVaultSummaryDTO) =>
       a.name.localeCompare(b.name);
     if (sort === 'pieces_desc') {

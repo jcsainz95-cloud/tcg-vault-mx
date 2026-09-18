@@ -54,6 +54,20 @@ export type VaultSealedSort = (typeof VAULT_SEALED_SORT_VALUES)[number];
 const VAULT_SEALED_SORT_DEFAULT: VaultSealedSort = 'value_desc';
 
 /**
+ * ⭐ **`EQ-D1` lote 2 — dominio del eje `?range=` de `GET /vault/portfolio/history` (CLASE L, §0-Q).**
+ *
+ * Antes, `normalizeRange` hacía **clamp silencioso a `'1m'`** ante cualquier basura — punto 6/1 lo
+ * prohíbe: devolver una ventana distinta de la pedida con cara de la pedida. Ahora fuera de dominio
+ * ⇒ `400` con `details.{field,allowed}`; ausente/vacío ⇒ el default `'1m'` (`200`). Es un MODO de la
+ * consulta (unión pura de literales, ⛔ sin enum homónimo en el schema). ⛔ La fila FORMAL de §0-Q
+ * punto 4 la escribe el ARQUITECTO (regla 9); `C-EQ-1` importa este literal REAL para la paridad.
+ */
+export const PORTFOLIO_HISTORY_RANGE_VALUES = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'] as const;
+export type PortfolioHistoryRange = (typeof PORTFOLIO_HISTORY_RANGE_VALUES)[number];
+/** Default declarado (`@Query('range') range = '1m'` + API_CONTRACT §3). */
+const PORTFOLIO_HISTORY_RANGE_DEFAULT: PortfolioHistoryRange = '1m';
+
+/**
  * `HoldingDTO` del contrato (§3 `GET /vault/holdings`), **declarado** (v2.1.9, T-2).
  *
  * ### Por qué importa aquí más que en otros DTOs
@@ -288,9 +302,16 @@ export class VaultService {
     return { range: normalizedRange, points, change: { absMxnCents, pct, direction } };
   }
 
-  private normalizeRange(range: string): string {
-    const allowed = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
-    return allowed.includes(range) ? range : '1m';
+  /**
+   * ⭐ `EQ-D1` lote 2 — `?range=` pasa por `parseEnumFilter` (§0-Q): ausente/vacío ⇒ el default `1m`;
+   * fuera de dominio ⇒ `400` con `details.{field,allowed}` (antes hacía **clamp silencioso a `1m`** —
+   * devolvía una ventana distinta de la pedida con cara de la pedida, que §0-Q punto 6/1 prohíbe).
+   */
+  private normalizeRange(range: string): PortfolioHistoryRange {
+    return (
+      parseEnumFilter('range', range, PORTFOLIO_HISTORY_RANGE_VALUES) ??
+      PORTFOLIO_HISTORY_RANGE_DEFAULT
+    );
   }
 
   /** Fecha de inicio (00:00 UTC) del rango, o null para `all`. */
