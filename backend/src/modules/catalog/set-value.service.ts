@@ -202,6 +202,10 @@ export class SetValueService {
       orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
       // v1.x-fx-live: priceUsdCents + isManualOverride para recalcular el MXN vigente (solo valor "hoy").
       // source + capturedDate + cardProductId: insumos del desempate determinista `isBetterRef` (M-31).
+      // P-53 ALTO-3 (§3): + `evidenceDate` para que la frescura del desempate use `evidenceDate ??
+      // capturedDate` (mismo predicado que el escritor diario). Con `evidenceDate=null` cae a
+      // `capturedDate` ⇒ selección IDÉNTICA a hoy (CA-10). Sin él, `isBetterRef` recibiría `undefined`
+      // y volvería a rankear por `capturedDate` a secas — reintroduciendo la inversión del ALTO-3.
       select: {
         cardId: true,
         priceMxnCents: true,
@@ -210,6 +214,7 @@ export class SetValueService {
         source: true,
         capturedDate: true,
         cardProductId: true,
+        evidenceDate: true,
       },
     });
 

@@ -323,6 +323,14 @@ export type RefRow = {
   source: string;
   capturedDate: Date;
   cardProductId: string | null;
+  // P-53 ALTO-3 (§3): la frescura de la SELECCIÓN de mercado se mide con `evidenceDate ?? capturedDate`
+  // — EL MISMO predicado que ya usan el escritor diario (`persistMarketReference`) y el camino graded
+  // (`getGradedEstimatesBatch`). OPCIONAL a propósito: una fila sin este campo o con `null` (filas
+  // legadas y graded de HOY) cae a `capturedDate` ⇒ selección IDÉNTICA a producción hoy (CA-10). Sin
+  // esto, `isBetterRef` congelaba la frescura en `capturedDate` mientras el escritor solo avanza
+  // `evidenceDate`, y un fallback de menor precedencia con `capturedDate=hoy` DESCARTABA a la primaria
+  // buena con `capturedDate` viejo pero evidencia fresca (inversión de la precedencia §4.27f).
+  evidenceDate?: Date | null;
 };
 
 /**
@@ -351,7 +359,9 @@ function sourceRank(source: string, isManualOverride: boolean): number {
  *      manual gana SIEMPRE sobre una automática, sin mirar `capturedDate` — no solo el mismo día. Es
  *      una decisión humana explícita que persiste hasta que el admin la cambie; nunca la supersede una
  *      referencia automática por ser «más fresca».
- *   2. DENTRO del mismo tier (ambas manuales o ambas automáticas): `capturedDate` más reciente gana.
+ *   2. DENTRO del mismo tier (ambas manuales o ambas automáticas): la de FRESCURA EFECTIVA más
+ *      reciente gana, medida como `evidenceDate ?? capturedDate` (P-53 ALTO-3 §3). Con
+ *      `evidenceDate = null` (filas legadas/graded) es `capturedDate` a secas ⇒ IDÉNTICO a hoy (CA-10).
  *   3. A igual tier y día, mejor precedencia de FUENTE (`sourceRank`): entre manuales rank 0; entre
  *      automáticas tcgcsv_singles > tcgcsv > PPT/PokeTrace > pokemontcg.io. NO se iza `sourceRank`
  *      por encima de `capturedDate` dentro del tier: una `tcgcsv_singles` STALE no debe ganarle a un
@@ -367,9 +377,13 @@ export function isBetterRef(a: RefRow, b: RefRow): boolean {
   const am = a.isManualOverride || a.source === 'manual';
   const bm = b.isManualOverride || b.source === 'manual';
   if (am !== bm) return am;
-  const at = a.capturedDate.getTime();
-  const bt = b.capturedDate.getTime();
-  if (at !== bt) return at > bt; // dentro del mismo tier: gana la más fresca.
+  // P-53 ALTO-3 (§3): la frescura EFECTIVA es `evidenceDate ?? capturedDate` — el MISMO predicado del
+  // escritor diario y del camino graded. Con `evidenceDate = null|undefined` (filas legadas/graded)
+  // cae a `capturedDate` ⇒ orden IDÉNTICO a hoy (CA-10). El único cambio de conducta: una fila con
+  // evidencia fresca pero `capturedDate` viejo ahora cuenta como fresca (que es justo el arreglo).
+  const at = (a.evidenceDate ?? a.capturedDate).getTime();
+  const bt = (b.evidenceDate ?? b.capturedDate).getTime();
+  if (at !== bt) return at > bt; // dentro del mismo tier: gana la más fresca (frescura efectiva).
   const ar = sourceRank(a.source, a.isManualOverride);
   const br = sourceRank(b.source, b.isManualOverride);
   if (ar !== br) return ar < br; // mismo día: precedencia de fuente (determinismo).
@@ -927,12 +941,13 @@ export class PricingService {
         source: string;
         capturedDate: Date;
         cardProductId: string | null;
+        evidenceDate: Date | null;
       }[]
     >(Prisma.sql`
       WITH filtered AS (
         SELECT pr."cardId", pr."productType", pr."gradeKey", pr."finish",
                pr."priceMxnCents", pr."priceUsdCents", pr."isManualOverride",
-               pr."source", pr."capturedDate", pr."cardProductId",
+               pr."source", pr."capturedDate", pr."cardProductId", pr."evidenceDate",
                (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual
         FROM "PriceReference" pr
         LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
@@ -945,16 +960,22 @@ export class PricingService {
                OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
       ),
       ranked AS (
+        -- P-53 ALTO-3 (§3): la ventana de frescura del TIER AUTOMATICO se mide por FRESCURA EFECTIVA
+        -- COALESCE(evidenceDate, capturedDate) -- el MISMO predicado del escritor diario. Sin esto, un
+        -- fallback de menor precedencia con capturedDate=HOY fijaba max_auto_date=HOY y EXCLUIA la
+        -- primaria buena (capturedDate viejo + evidenceDate=HOY, que el escritor congela), invirtiendo
+        -- la precedencia 4.27f. Con evidenceDate=null (filas legadas) COALESCE = capturedDate => ventana
+        -- IDENTICA a hoy (CA-10).
         SELECT filtered.*,
-               MAX(CASE WHEN NOT is_manual THEN "capturedDate" END)
+               MAX(CASE WHEN NOT is_manual THEN COALESCE("evidenceDate", "capturedDate") END)
                  OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date
         FROM filtered
       )
       SELECT "cardId", "productType", "gradeKey", "finish",
              "priceMxnCents", "priceUsdCents", "isManualOverride",
-             "source", "capturedDate", "cardProductId"
+             "source", "capturedDate", "cardProductId", "evidenceDate"
       FROM ranked
-      WHERE is_manual OR "capturedDate" = max_auto_date
+      WHERE is_manual OR COALESCE("evidenceDate", "capturedDate") = max_auto_date
     `);
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
     const fx = await this.fxSnapshotSafe();

@@ -29,7 +29,9 @@ describe('E2E — getReferencesBatch/getPricedRawFinishesBatch podan histórico 
   let pricing: PricingService;
 
   const setId = `hp-set-${randomUUID()}`;
-  const N = 6;
+  // i=6 (P-53 ALTO-3 §3): primaria tcgcsv_singles con capturedDate viejo + evidenceDate=HOY vs fallback
+  // pokemontcg_io capturedDate=HOY. Sin frescura efectiva la primaria caería fuera de max_auto_date.
+  const N = 7;
   const H = 200; // historia PROFUNDA: sin poda serían N*H filas leídas
   const cardIds: string[] = Array.from({ length: N }, (_, i) => `hp-card-${i}-${randomUUID()}`);
   const cpIds = new Map<number, string>();
@@ -51,8 +53,12 @@ describe('E2E — getReferencesBatch/getPricedRawFinishesBatch podan histórico 
         data: { id: cardId, externalId: `hp-cext-${randomUUID()}`, setId, name: `HP${i}`, number: String(i), availableFinishes: ['normal'] },
       });
       const refs: any[] = [];
-      for (let d = 0; d < H; d++) {
-        refs.push({ id: `${cardId}-r-${d}`, cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgcsv_singles', cardProductId: null, priceUsdCents: null, priceMxnCents: 100000 + i * 1000 + d, capturedDate: day(d), isManualOverride: false, refKind: 'market' });
+      // i<6: historia PROFUNDA (una automática fresca por día). i=6 arma a mano SOLO las dos filas del
+      // caso ALTO-3 (sin este loop, para que no haya una tcgcsv_singles fresca que tape el escenario).
+      if (i < 6) {
+        for (let d = 0; d < H; d++) {
+          refs.push({ id: `${cardId}-r-${d}`, cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgcsv_singles', cardProductId: null, priceUsdCents: null, priceMxnCents: 100000 + i * 1000 + d, capturedDate: day(d), isManualOverride: false, refKind: 'market' });
+        }
       }
       if (i === 1) {
         // manual override VIEJO (día -3): debe ganar por tier a toda automática fresca.
@@ -72,6 +78,12 @@ describe('E2E — getReferencesBatch/getPricedRawFinishesBatch podan histórico 
       } else if (i === 4) {
         // graded_estimate FRESCO: MONEY_REF_WHERE lo excluye ⇒ no debe ganar (ni aparecer).
         refs.push({ id: `${cardId}-ge`, cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'manual', cardProductId: null, priceUsdCents: null, priceMxnCents: 999999, capturedDate: day(H + 10), isManualOverride: true, refKind: 'graded_estimate' });
+      } else if (i === 6) {
+        // P-53 ALTO-3 (§3): la primaria «buena» — USD estable, el escritor diario CONGELA capturedDate
+        // (día -5, viejo) y solo avanza evidenceDate a HOY (día H-1). El fallback de MENOR precedencia
+        // (pokemontcg_io, cardProductId=null) lo escribe refreshCardPrices con capturedDate=HOY.
+        refs.push({ id: `${cardId}-primary`, cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgcsv_singles', cardProductId: null, priceUsdCents: null, priceMxnCents: 123456, capturedDate: day(-5), evidenceDate: day(H - 1), isManualOverride: false, refKind: 'market' });
+        refs.push({ id: `${cardId}-fallback`, cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'pokemontcg_io', cardProductId: null, priceUsdCents: null, priceMxnCents: 654321, capturedDate: day(H - 1), isManualOverride: false, refKind: 'market' });
       }
       // i===5: deck_exclusive fresco en otro cardProduct: BASE_CARD_REF_WHERE lo excluye.
       if (i === 5) {
@@ -131,6 +143,12 @@ describe('E2E — getReferencesBatch/getPricedRawFinishesBatch podan histórico 
     expect(gotObj[variantKey({ cardId: cardIds[3], productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' })].referenceMxnCents).toBe(444444); // NULLS LAST: gana el set_base
     expect(gotObj[variantKey({ cardId: cardIds[4], productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' })].referenceMxnCents).toBe(100000 + 4 * 1000 + (H - 1)); // graded_estimate excluido
     expect(gotObj[variantKey({ cardId: cardIds[5], productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' })].referenceMxnCents).toBe(100000 + 5 * 1000 + (H - 1)); // deck_exclusive excluido
+    // P-53 ALTO-3 (§3): la primaria (capturedDate viejo + evidenceDate=HOY) GANA al fallback fresco de
+    // menor precedencia. Sin frescura efectiva en la ventana `max_auto_date`, la primaria caería fuera y
+    // se serviría el fallback (654321) — la inversión de §4.27f que este canario cierra en SQL REAL.
+    const c6 = gotObj[variantKey({ cardId: cardIds[6], productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' })];
+    expect(c6.referenceMxnCents).toBe(123456);
+    expect(c6.source).toBe('tcgcsv_singles');
   });
 
   it('getPricedRawFinishesBatch == oráculo (conjunto de pares (cardId,finish) con market>0)', async () => {
