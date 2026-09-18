@@ -303,7 +303,8 @@ export class InventoryController {
   /**
    * M11 (§11.1) — PUT /admin/inventory/sealed-sets/:setId/set-main-group — fija/REEMPLAZA el grupo
    * `set_main` del set aunque ya exista (escape de P-46; `linkGroup` sólo puebla si es null). `super_admin`.
-   * AUDITADO (`inventory.sealed_set_main_group_set`, con `before/after` del `tcgcsvGroupId` — I-4). Money-safe:
+   * AUDITADO (`inventory.sealed_set_main_group_set`, con `before/after` del `tcgcsvGroupId` + el snapshot
+   * completo de `kind` de los grupos del set, SEC-M11-3 — I-4). Money-safe:
    * fija de qué grupo saldrá el precio; NO fabrica precio (lo trae el job §9, gateado por el dial).
    *
    * SEC-M11-1/-2: el remap (degradar/promover/crear grupos + reescribir el espejo) y su bitácora
