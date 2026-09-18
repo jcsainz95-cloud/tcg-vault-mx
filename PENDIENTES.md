@@ -2,6 +2,7 @@
 
 ## 🌙 TANDA NOCTURNA (2026-09-18) — estado
 Publicado antes: **#41** (índice) y **#42** (poda del histórico) YA en producción (`cd0bf02c`).
+- **PII robustez 3a pantalla (detalle solicitud de venta):** ✅ **PR #45** esperando click. `be-pii-sellrequest` (`edf7d317` = código `b884e827` + SECURITY_NOTES). QA ✅ + seguridad ✅ + O-9 mío (canario 7/7; mutación→rojo). Autónomo (no depende de #43); try/catch local en `buylist.adminGet`, SPEI sigue ruidoso. No BD.
 - **PII robustez (no 500):** ✅ **PR #43** esperando click. `be-pii-degrade` (`629e42fe` = código `1d43a19e` + SECURITY_NOTES). QA ✅ + seguridad ✅ + O-9 mío (canario 6/6; mutación → 4 rojas). No BD. **Follow-up backend:** `adminSellRequestDTO` (buylist.service.ts:2571) aún da 500 con snapshot ilegible (misma clase, otra pantalla; nota Info de seguridad).
 - **EQ-D1 lote 2:** ✅ **PR #44** esperando click. `be-eqd1-lote2` (`e31c5d71`). QA ✅ + techlead ✅ (con deuda) + O-9 mío (mutación del clamp → 400 en rojo). Endurece 5 ejes (medido: solo 5 accionables, no 12). **Follow-up arquitecto (regla 9):** escribir 5 filas §0-Q punto 4 (clase ORDEN/L) → retira `PENDIENTE-ARQUITECTO` y baja trinquete C-EQ-1 11→6.
 - **P-53 cura de disco:** ⏸️ **APARCADO — espera decisión A/B del dueño (2026-09-18).** Reveló ser un cambio SISTÉMICO, no una cura contenida: el write-on-change congela `capturedDate` de la fila vigente, y **múltiples lectores de dinero rankean la frescura por `capturedDate`** ⇒ cada arreglo destapó otro sitio acoplado. Historial:
