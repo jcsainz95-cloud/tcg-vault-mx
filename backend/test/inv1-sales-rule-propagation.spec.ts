@@ -29,6 +29,16 @@ function makePrisma(item: any) {
   const configStore = new Map<string, unknown>();
   const priceRefRows = [
     {
+      // P-53 ALTO-4 (§3): la fila lleva la CLAVE completa (`cardId|productType|gradeKey|finish`) para que
+      // la resuelvan por igual el lote (`getReferencesBatch`) y `getReference` (que ahora DELEGA en él).
+      // Antes la fila iba sin clave y solo la resolvía el `getReference` por-pieza porque su `findMany`
+      // mock ignoraba el `where`; con la delegación ambos caminos casan por clave, como en la BD real.
+      cardId: 'c1',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'normal',
+      refKind: 'market',
+      evidenceDate: null,
       priceMxnCents: 10000,
       priceUsdCents: null,
       fxRate: null,
@@ -63,8 +73,8 @@ function makePrisma(item: any) {
       findFirst: jest.fn(async () => null),
       findMany: jest.fn(async () => priceRefRows),
     },
-    // H-PERF-1: getReferencesBatch poda vía $queryRaw. La fila sin cardId no casa la clave del lote
-    // (igual que antes), así que fetchSellable cae al `getReference` por-pieza (que sí la resuelve).
+    // H-PERF-1 / P-53 ALTO-4: la selección de mercado (lote y `getReference` delegado) se resuelve por
+    // la poda `$queryRaw`; la fila con clave completa casa `c1|raw|raw:NM|normal` y vale $100 de mercado.
     $queryRaw: makeRefsRawQuery(priceRefRows),
     // v1.28 (P-18): sin filas M-30 por default (comportamiento previo).
     variantPriceOverride: { findMany: jest.fn(async () => []) },
