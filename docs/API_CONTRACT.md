@@ -21806,3 +21806,105 @@ su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el
 - **Uploads solo `kyc_ine`:** `POST /uploads/presign` rechaza cualquier `purpose` distinto de `kyc_ine` (`422 VALIDATION_ERROR`); `inventory_photo`/`dispute_claim` eliminados. Bucket INE **privado + cifrado + retención** (`INE_RETENTION_DAYS`), set `S3_*` conservado.
 - **Disputa por correo:** `POST /disputes` sin `claimPhotoUploadKeys`; evidencia por correo a soporte (`evidenceContact`), sin comparador de fotos en §M8. Se conserva `type` (`condition_raw | condition_sealed`) y VENTAS FINALES; resolución por grado/`certNumber` (gradeadas) o estándar NM (raw).
 - **INE (KYC) intacto:** almacenamiento del INE en R2 cifrado con retención, `reveal-clabe`, CLABE/RFC cifrados y enmascarados — **sin cambios** respecto a v1.1.
+
+## 13. Decks Meta (diseño — 2026-09-18, arquitecto)
+
+> Diseño/razones: **`docs/specs/DECKS_META_ARCH.md`**. Schema/módulos: **`ARCHITECTURE.md §12`**. **Estado:
+> DISEÑO, no construido.** Base `origin/production cd0bf02c`. El carrito sigue siendo **de cliente** (array de
+> `inventoryItemId`, §4-G): estos endpoints devuelven los `inventoryItemId` a agregar; **no** hay carrito
+> servidor nuevo. Precio y piezas se **reusan** de §2 (ficha/`units`, `getReferencesBatch`) — no se reinventan.
+
+### Convenciones de esta sección
+- **Legalidad:** una línea se ofrece como **jugable** solo si su carta casada es `isLegalStandardNow`
+  (ARCHITECTURE §12.1): `regulationMark ∈ ConfigSetting['standard.active_regulation_marks'] ∧ legalStandardRaw ≠
+  'Banned' ∧ externalId ∉ banlist`. `regulationMark == null` ⇒ **no legal**.
+- **Nunca se inventa** carta ni precio: una línea que no casa por `ptcgoCode`+`number` sale con
+  `matchStatus ≠ matched` y sin `card`/precio.
+- **§0-Q:** los endpoints de lectura no exponen ejes de query de dominio cerrado. Si se añade `?sort=`
+  (`rank|share`) es **CLASE L** con la forma de §0-Q punto 6 (default explícito; fuera de dominio ⇒ `400`
+  `field`+`allowed`, sin clamp). Todo `@Query` nuevo se registra en el censo `C-EQ-1`. El `text` de `paste` es
+  **cuerpo**, no query.
+- **Códigos nuevos** (a `common/error-codes.ts`): `422 DECK_LIST_UNPARSEABLE` (texto de pegar-lista vacío / sin
+  ninguna línea válida), `404 DECK_NOT_FOUND`. Reusa `400 VALIDATION_ERROR`, `429 RATE_LIMITED`, `503
+  BUSY_TRY_AGAIN`, `502 UPSTREAM_ERROR` (fetch Limitless en el job de prod).
+
+### GET /api/v1/decks-meta — `public`
+Top-10 del meta publicado (`MetaDeck.published=true`), ordenado por `rank` asc. Cita de fuente obligatoria.
+Res `200`:
+```jsonc
+{
+  "data": [{
+    "slug": "dragapult-ex",
+    "name": "Dragapult ex",
+    "rank": 1,
+    "sharePct": 12.4,            // opcional (si la fuente lo da)
+    "trend": 1,                  // opcional: share_actual − anterior (▲=+, ▼=−, 0)
+    "fromPriceMxnCents": 184500, // "desde": suma de disponibles+legales con precio; opcional
+    "availableCount": 52,        // Σ availableQty de líneas legales
+    "totalCount": 60,
+    "imageUrl": "https://…"      // arte de Card representativa (nunca arte externo)
+  }],
+  "updatedAt": "2026-09-14T12:00:00Z",   // fetchedAt de la lista más reciente aplicada
+  "source": "Datos de Limitless TCG"
+}
+```
+
+### GET /api/v1/decks-meta/:slug — `public`
+Deck + disponibilidad por línea. `slug` desconocido ⇒ `404 DECK_NOT_FOUND`. El deck **siempre se muestra**
+tenga 60/40/5 disponibles (nunca se oculta por incompleto). Res `200`:
+```jsonc
+{
+  "slug": "dragapult-ex",
+  "name": "Dragapult ex",
+  "rank": 1, "sharePct": 12.4, "trend": 1,
+  "source": "Datos de Limitless TCG",
+  "sourceUrl": "https://limitlesstcg.com/…",   // opcional
+  "sourceTournament": "…",                       // opcional
+  "legalityVerifiedAt": "2026-09-14T12:00:00Z",  // "Legal en Standard · verificado {fecha}"
+  "groups": {
+    "pokemon":  [ /* MetaDeckLineDTO */ ],
+    "trainer":  [ /* … */ ],
+    "energy":   [ /* … */ ]
+  }
+}
+```
+`MetaDeckLineDTO`:
+```jsonc
+{
+  "rawName": "Dragapult ex", "setCode": "TWM", "number": "130", "quantity": 4,
+  "group": "pokemon",
+  "matchStatus": "matched",   // matched | ambiguous | unmatched_set | unmatched_number | unmatched_basic_energy
+  "card": { "cardId": "…", "name": "Dragapult ex", "imageUrl": "https://…" }, // null si no casó
+  "legal": true,              // isLegalStandardNow(card); false ⇒ rotada/no probable
+  "availableQty": 3,          // min(quantity, stockNM); 0 si falta
+  "unitPriceMxnCents": 61500, // "desde" de la carta (salePriceCents); null si pending/faltante
+  "unitInventoryItemIds": ["…","…","…"],  // hasta availableQty, cheapest-first — el add-to-cart de jalón
+  "substitute": {             // opcional (Fase 3): otra impresión LEGAL de la misma carta en stock
+    "cardId": "…", "name": "Dragapult ex", "setCode": "SVI", "number": "…",
+    "availableQty": 2, "unitPriceMxnCents": 58000, "unitInventoryItemIds": ["…","…"]
+  }
+}
+```
+Una línea **no jugable** (`legal:false`) o **no identificada** (`matchStatus≠matched`) **no** aporta
+`unitInventoryItemIds` propios (no se vende como jugable); puede traer `substitute` (Fase 3).
+
+### POST /api/v1/decks-meta/paste — `public`  (el motor, H3)  ·  rate-limited (`429`)
+Body: `{ "text": "4 Dragapult ex TWM 130\n3 …" }` (≤ N chars — cerrar N con el dueño). Parsea+empareja+valora
+**en memoria** (no persiste) y devuelve la **misma forma** que `groups` de `GET /decks-meta/:slug`. Texto vacío
+/ sin ninguna línea válida ⇒ `422 DECK_LIST_UNPARSEABLE`. Líneas no casadas ⇒ `matchStatus` no-mapeado, sin
+inventar.
+
+### POST /api/v1/decks-meta/:slug/cart-selection — `public`  *(OPCIONAL — confirmar con el dueño)*
+Conveniencia: devuelve la unión ya computada de piezas disponibles+legales del deck.
+Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `useCart().add`. Redundante con los
+`unitInventoryItemIds` por línea; se incluye solo si el front prefiere la unión server-side.
+
+### Admin (rol `vault_operator+`)
+- `GET /api/v1/admin/decks-meta` — lista con estado (`published`, `pausedByOperator`, `source`, `rank`,
+  `currentList.fetchedAt`, líneas no mapeadas). `POST` / `PUT /:id` — **curaduría/fallback:** pegar un top-10
+  **manual** (mismo formato/motor, `source=manual`), fijar `rank`, `published`, `pausedByOperator`.
+- `GET /api/v1/admin/decks-meta/unmatched` — reporte de líneas `matchStatus≠matched` de listas publicadas, para
+  curar (set+número crudos, en cuántos decks, cantidad).
+- `PUT /api/v1/admin/config/standard-legality` — editar `ConfigSetting['standard.active_regulation_marks']` y
+  `['standard.banlist_card_ids']`. **Es el mecanismo de ROTACIÓN** (ARCHITECTURE §12.1): editar la ventana
+  recalcula la legalidad derivada sin re-sync. Cuerpo money-safe; a la fase de seguridad por release.

@@ -28853,3 +28853,71 @@ re-sync; hasta entonces todo se comporta como `normal`). El re-sync es idempoten
 | M-11 | `Card.rarity` | **Sin cambio** — permanece `String` libre (taxonomía abierta pokemontcg.io) | — | Se documenta explícitamente para que no se convierta en enum. |
 
 Ninguna otra tabla cambia. Los índices existentes se conservan.
+
+## 12. Decks Meta (diseño — 2026-09-18, arquitecto)
+
+> Diseño completo y razones: **`docs/specs/DECKS_META_ARCH.md`**. Contrato de endpoints:
+> **`API_CONTRACT.md §13`**. Origen: borrador PO `docs/specs/DECKS_META_DRAFT.md`. **Estado: DISEÑO, no
+> construido.** Base `origin/production cd0bf02c`.
+
+### 12.1 Prerequisito — legalidad en `Card` (zona compartida)
+
+**Medido (2026-09-18):** `Card` no tiene legalidad ni regulation mark, y `pokemontcg-io.client.ts` no los
+mapea (grep `regulationmark|legalit` sobre `backend/src` = 0). El endpoint `GET /v2/cards` no usa `select=`, así
+que el doc **ya se descarga entero** (precedente `cardmarket`) ⇒ mapear cuesta **cero requests**. Confirmar el
+payload en vivo es **NO MEDIDO** (egress a `api.pokemontcg.io` = 403 en dev).
+
+Dos columnas nullable en `Card` (procedencia cruda), + índice:
+- `regulationMark String?` — `RemoteCard.regulationMark` ("F"/"G"/"H"/"I"…); scrydex equivalente (NO MEDIDO).
+- `legalStandardRaw String?` — `RemoteCard.legalities.standard` ("Legal"|"Banned"); ausente ⇒ null.
+- `@@index([regulationMark])`.
+
+Escritor único: `catalog-sync.upsertCards`, con **NO-DEGRADACIÓN** (ausente ⇒ clave no viaja ⇒ columna intacta),
+igual que `logoUrl`/imágenes (§4.39). Relación inversa aditiva `Card.metaDeckCards`.
+
+**"Legal en Standard hoy" es DERIVADO, no persistido** (`common/standard-legality.ts`, puro):
+`regulationMark ≠ null ∧ regulationMark ∈ activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`.
+`activeMarks`/`banlist` viven en `ConfigSetting` (`standard.active_regulation_marks`,
+`standard.banlist_card_ids`). **La rotación = editar `active_regulation_marks`** (no re-sync, no backfill;
+paralelo a `rarity`→`rarityCanonical`). `regulationMark == null` ⇒ **no legal** (money-safe conservador).
+
+**Migración aditiva** (`ADD COLUMN` nullable, no reescribe, no bloquea) + seed idempotente de config. **Rollback
+limpio:** drop de 2 columnas + índice + config; como la legalidad es derivada y nada de precio/órdenes depende
+de ellas, revertir + apagar el flag no deja rastro. **Backfill:** progresivo vía `catalog-metadata-sync`
+(idempotente por `externalId`); verificación de payload en **prod**; en dev/CI, **fixture**.
+
+### 12.2 Módulo `decks-meta` (backend nuevo, disjunto) + `(storefront)/decks-meta` (frontend)
+
+Modelos Prisma (separación deck persistente / lista inmutable): `MetaDeck`, `MetaDeckList`, `MetaDeckCard`
+(guarda el crudo `rawSetCode`+`rawNumber`+`quantity`+`group`+`matchStatus`+`matchedCardId?`), `MetaFetchRun`
+(provenance+canario). Enums `MetaDeckSource`, `MetaCardGroup`, `MetaMatchStatus`. **Sin** tablas de precio
+(se calcula al render), alertas (reusa §R) ni compras. Detalle en el spec §3.1.
+
+**Matcher (el corazón, R3):** un solo motor parser+emparejado sirve pegar-lista (H3), traído semanal (H2) y
+curaduría manual. Identificador fiable = **`CardSet.ptcgoCode` + `Card.number`** (NO el nombre). Lo que no casa
+se **persiste como no-mapeado y se registra para curar**, nunca se inventa carta/precio. Detalle spec §3.2.
+
+**Disponibilidad + precio: se REUSA, no se reinventa.** `where` de `fetchSellable`
+(`ownerType='platform' ∧ status='listed' ∧ productType<>'sealed'`, NM) para el stock; `getReferencesBatch` +
+el `salePriceCents`/`units` de la ficha para precio y piezas concretas. `availableQty = min(qty, stockNM)`;
+compuerta `isLegalStandardNow`. Spec §3.4.
+
+**Carrito de jalón:** el carrito es de **cliente** (`frontend/src/lib/cart.ts`, array de `inventoryItemId`); el
+servidor devuelve los `inventoryItemId` disponibles+legales por línea y el front hace `useCart().add` en batch.
+Checkout/quote intactos (el re-quote v1.21.3 ya revalida y poda). Spec §6.
+
+**Job semanal `decks-meta-refresh`** (BullMQ, cron env `DECKS_META_REFRESH_CRON`, patrón `scheduler.service.ts`):
+fetch (adaptador Limitless fijado+versionado) → parse → **validación ≥8 arquetipos / canario de formato** (si
+falla: no aplica, conserva lo último bueno, `MetaFetchRun{applied:false}`, email ops) → aplica creando
+`MetaDeckList` nueva inmutable. **Solo verificable en prod** (egress bloqueado). **Fallback:** curaduría manual
+desde admin (`source=manual`), disponible desde Fase 1. Spec §3.3/§8.
+
+**Limitless API vs scraping = NO MEDIDO** (403 en dev). Adaptador tras formato fijado+canario; tests contra
+fixture, jamás red. Spec §8.
+
+### 12.3 Fases y zona compartida
+
+Serializa el arquitecto (zona compartida): `prisma/schema`, `common/` (legalidad+error-codes), `catalog`
+(mapeo), `API_CONTRACT.md`. Disjunto/paralelizable: `modules/decks-meta` (backend) + `(storefront)/decks-meta`
+(frontend). Fase 0 (legalidad) bloquea; Fase 1 (motor+disponibilidad+carrito+top-10 curado) BE+FE en paralelo;
+Fase 2 (auto Limitless) BE-solo; Fase 3 (sustitución legal + "avísame" vía §R). Spec §9.
