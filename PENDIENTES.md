@@ -1,5 +1,13 @@
 # PENDIENTES — TCG HUNT
 
+## 🌙 TANDA NOCTURNA (2026-09-18) — estado
+Publicado antes: **#41** (índice) y **#42** (poda del histórico) YA en producción (`cd0bf02c`).
+- **PII robustez (no 500):** ✅ **PR #43** esperando click. `be-pii-degrade` (`629e42fe` = código `1d43a19e` + SECURITY_NOTES). QA ✅ + seguridad ✅ + O-9 mío (canario 6/6; mutación → 4 rojas). No BD. **Follow-up backend:** `adminSellRequestDTO` (buylist.service.ts:2571) aún da 500 con snapshot ilegible (misma clase, otra pantalla; nota Info de seguridad).
+- **EQ-D1 lote 2:** ✅ **PR #44** esperando click. `be-eqd1-lote2` (`e31c5d71`). QA ✅ + techlead ✅ (con deuda) + O-9 mío (mutación del clamp → 400 en rojo). Endurece 5 ejes (medido: solo 5 accionables, no 12). **Follow-up arquitecto (regla 9):** escribir 5 filas §0-Q punto 4 (clase ORDEN/L) → retira `PENDIENTE-ARQUITECTO` y baja trinquete C-EQ-1 11→6.
+- **P-53 cura de disco:** ❌ intento `ad26e1ab` (`be-p53-cura`) **RECHAZADO por seguridad** (2 ALTOS, confirmados por orquestador): write-on-change al escritor EQUIVOCADO (`upsertVariantPrice` = import/refresh, NO diario; el diario es `persistMarketReference` vía `ingestSinglesForSet`, cron price-ingest 1/2), y regresión: `hasRecentIngest` sobre `evidenceDate` (que el diario NO escribe) ⇒ re-dispara barrido cada boot. **Re-construyéndose** en `claude/be-p53-cura2` apuntando al escritor diario. QA ✅ money-safe y techlead ✅ sobre el intento viejo, pero NO SALE hasta pasar los 3 de nuevo.
+- **BE-89 índice de precios:** ❌ descartado por medición (EXPLAIN: índice redundante e inerte; el suelo es `work_mem` sort-a-disco = config, no índice). Devuelto al **arquitecto/devops** (INCLUDE-covering o work_mem).
+- **Nota infra (local, no prod):** un agente QA cambió el password del superusuario `postgres` de la BD LOCAL de pruebas a `qapw53` (no pudo restaurar el previo); los roles dedicados (`tcg`, etc.) no se afectan. Futuros agentes: usar rol dedicado, no `postgres`.
+
 ## 🚀 PAQUETE-FINAL — PR #41 esperando el click del dueño (2026-09-18)
 `claude/paquete-final` (`79591fe7`, base production `0c9b1072`, ancestro limpio; 15 ficheros +615/-115) = **tanda-m11-2 + perf-catalog** unidos en un solo merge. **PR #41** abierto `claude/paquete-final → production`: https://github.com/jcsainz95-cloud/tcg-vault-mx/pull/41
 - Contenido: (a) índice aditivo `InventoryItem_ownerType_status_createdAt_idx` (perf catálogo, **1 de 3 causas** de los 20s; migración = 1 CREATE INDEX, bloqueo de escritura breve → ventana de bajo tráfico; rollback = DROP INDEX); (b) filtro `?productType=` real en `pending-publish` (money; Salamence ya no se cuela); (c) estado de sellado honesto; (d) preconnect a `images.scrydex.com`.
