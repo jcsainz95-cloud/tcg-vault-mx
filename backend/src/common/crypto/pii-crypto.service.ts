@@ -220,6 +220,32 @@ export class PiiCryptoService {
   }
 
   /**
+   * Descifra-y-DEGRADA. Como `decryptOptional`, pero si el payload EXISTE y NO descifra
+   * (clave rotada, clave efímera de un proceso anterior, o fila corrupta que el GCM no autentica)
+   * **NO lanza**: devuelve `{ value: undefined, unavailable: true }` y registra el motivo (nunca el
+   * texto cifrado). Un `null/undefined` de entrada no es un fallo: `{ value: undefined, unavailable: false }`.
+   *
+   * Existe para las vistas de solo-lectura que enmascaran PII (`GET /users/me/kyc`,
+   * `GET /admin/users/:id`): un único campo ilegible debe DEGRADAR su casilla —el llamador la marca
+   * con `piiUnavailable`— en vez de tumbar toda la pantalla con un `500`. ⛔ NO se usa donde el dato
+   * es obligatorio para la operación (p. ej. pagar SPEI): ahí un fallo debe seguir siendo ruidoso.
+   */
+  tryDecryptOptional(payload?: string | null): { value: string | undefined; unavailable: boolean } {
+    if (!payload) return { value: undefined, unavailable: false };
+    try {
+      return { value: this.decrypt(payload), unavailable: false };
+    } catch (e) {
+      const cause = e instanceof Error ? e.message : String(e);
+      this.logger.error(
+        `PII decrypt failed — degrading this field to unavailable (${cause}). Likely PII_ENCRYPTION_KEY ` +
+          'was rotated (or an ephemeral per-process key from a previous run) or the row is corrupt. ' +
+          'NOT throwing: the rest of the response is served and the field is flagged piiUnavailable.',
+      );
+      return { value: undefined, unavailable: true };
+    }
+  }
+
+  /**
    * Blind index determinista (HMAC-SHA256, hex) sobre el valor NORMALIZADO.
    * Para CLABE la normalización elimina cualquier no-dígito (defensa ante espacios).
    * Igual entrada ⇒ igual índice ⇒ permite comparar/buscar sin descifrar.
