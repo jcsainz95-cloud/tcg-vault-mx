@@ -2742,7 +2742,7 @@
       "collection": {
         "title": "Precios de mercado de la colección",
         "subtitle": "Trae los precios de mercado de todos los sets de sellado y te dice cuántos quedaron con precio y cuántos no.",
-        "photo": "{priced, plural, one {# set con precio} other {# sets con precio}} · {unpriced, plural, one {# set sin precio} other {# sets sin precio}}",
+        "photo": "{priced, plural, one {# producto con precio} other {# productos con precio}} · {pending, plural, one {# pendiente} other {# pendientes}}",
         "refreshCta": "Actualizar precios de la colección",
         "refreshing": "Actualizando precios…",
         "doneLabel": "Listo",
@@ -2753,8 +2753,11 @@
           "body": "A partir de ahora los sellados con referencia resuelta tomarán precio de mercado (× tu margen). Es una decisión de dinero y queda registrada a tu nombre.",
           "cta": "Activar y actualizar"
         },
-        "fixTitle": "{count, plural, one {# set no trae precio:} other {# sets no traen precio:}}",
+        "fixTitle": "{count, plural, one {# set por completar:} other {# sets por completar:}}",
         "fixCta": "Arreglar este set",
+        "completeCta": "Completar este set",
+        "setProgress": "{priced} de {total} con precio",
+        "missingNote": "{count, plural, one {le falta # producto} other {le faltan # productos}}",
         "reason": {
           "no_group": "Este set aún no está conectado a la fuente de precios.",
           "dial_off": "La fuente automática está apagada.",

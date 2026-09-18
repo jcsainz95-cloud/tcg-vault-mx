@@ -24,8 +24,9 @@ const RESPONSE: SealedPriceStatusResponse = {
   sealedPriceSource: 'off',
   page: 1,
   pageSize: 20,
-  total: 3,
+  total: 4,
   data: [
+    // Todo el set con precio ⇒ verde, no aparece en la lista de «por completar».
     {
       set: ref('s-priced', 'Chaos Rising'),
       setMainGroupId: 100,
@@ -36,17 +37,20 @@ const RESPONSE: SealedPriceStatusResponse = {
       unmapped: 0,
       state: 'priced',
     },
+    // EL CASO DEL DUEÑO (2026-09-17): 22 de 23 con precio. El rollup lo marcaba `mapped_unpriced`
+    // ⇒ rojo «CONECTADO, SIN PRECIO». Debe verse verde/neutro con «22 de 23 con precio», NO rojo.
     {
-      set: ref('s-mapped', 'Pitch Black'),
+      set: ref('s-partial', 'Pitch Black'),
       setMainGroupId: 200,
       linkedGroupIds: [200],
-      productCount: 3,
-      priced: 0,
-      mappedUnpriced: 3,
+      productCount: 23,
+      priced: 22,
+      mappedUnpriced: 1,
       unmapped: 0,
       state: 'mapped_unpriced',
       reason: 'no_source_price',
     },
+    // 0 de 2 con precio y sin conectar ⇒ alarma legítima (sí necesita arreglo).
     {
       set: ref('s-unmapped', 'Silver Tempest'),
       setMainGroupId: null,
@@ -57,6 +61,18 @@ const RESPONSE: SealedPriceStatusResponse = {
       unmapped: 2,
       state: 'unmapped',
       reason: 'no_group',
+    },
+    // 0 de 3 con precio pero conectado ⇒ alarma legítima (la fuente no trajo nada).
+    {
+      set: ref('s-none', 'Ancient Guardians'),
+      setMainGroupId: 300,
+      linkedGroupIds: [300],
+      productCount: 3,
+      priced: 0,
+      mappedUnpriced: 3,
+      unmapped: 0,
+      state: 'mapped_unpriced',
+      reason: 'no_source_price',
     },
   ],
 };
@@ -72,11 +88,26 @@ beforeEach(() => {
 });
 
 describe('SealedPriceStatusSection · Precios de mercado de la colección (§diseño §2/§3)', () => {
-  it('M11-collection-photo: pinta la foto en llano (con precio / sin precio), no un delta', async () => {
+  it('M11-collection-photo: pinta la foto en llano contando PRODUCTOS (con precio / pendientes), no sets', async () => {
     withSource('tcgcsv');
     renderWithProviders(<SealedPriceStatusSection />, 'es');
-    // 1 priced · 2 sin precio (mapped_unpriced + unmapped).
-    expect(await screen.findByText(/1 set con precio · 2 sets sin precio/)).toBeInTheDocument();
+    // 4 + 22 + 0 + 0 = 26 con precio; (0) + (1) + (2) + (3) = 6 pendientes.
+    // NO cuenta sets: el defecto era decir «5 sets sin precio» cuando 22 de 23 SÍ tenían precio.
+    expect(await screen.findByText(/26 productos con precio · 6 pendientes/)).toBeInTheDocument();
+  });
+
+  it('M11-status-honesto: un set 22/23 NO se pinta como «sin precio» rojo; muestra «22 de 23 con precio» y «Completar»', async () => {
+    withSource('tcgcsv');
+    renderWithProviders(<SealedPriceStatusSection />, 'es');
+    // El progreso honesto se lee (lista de «por completar» y desglose).
+    expect((await screen.findAllByText(/22 de 23 con precio/)).length).toBeGreaterThanOrEqual(1);
+    // Nota suave, no alarma.
+    expect(screen.getAllByText(/le falta 1 producto/).length).toBeGreaterThanOrEqual(1);
+    // El encuadre es «completar los que faltan», no «Arreglar/roto».
+    expect(screen.getAllByRole('button', { name: /Completar este set/ }).length).toBeGreaterThanOrEqual(1);
+    // El rótulo rojo del rollup («Conectado, sin precio») NO aparece para el set 22/23: solo lo
+    // lleva el set 0/N conectado (Ancient Guardians), y solo en el desglose ⇒ 1 sola aparición.
+    expect(screen.getAllByText('Conectado, sin precio').length).toBe(1);
   });
 
   it('M11-refresh-source-on: con la fuente encendida el botón dispara la ingesta SIN confirmar ni tocar settings', async () => {
@@ -125,14 +156,18 @@ describe('SealedPriceStatusSection · Precios de mercado de la colección (§dis
     expect(await screen.findByText(/Ya hay una actualización en marcha/)).toBeInTheDocument();
   });
 
-  it('M11-fix-list-only-unpriced: la lista de «arreglar» muestra SOLO los sets sin precio, no los preciados', async () => {
+  it('M11-fix-list-por-completar: la lista muestra los sets NO completos (partial + 0/N), no los 100% preciados', async () => {
     withSource('tcgcsv');
     renderWithProviders(<SealedPriceStatusSection />, 'es');
-    // Los dos sin precio ofrecen «Arreglar este set»; el preciado no aparece en la lista corta.
+    // 3 sets por completar (Pitch Black 22/23 + Silver Tempest 0/2 + Ancient Guardians 0/3).
+    expect(await screen.findByText(/3 sets por completar:/)).toBeInTheDocument();
+    // El 100% preciado (Chaos Rising) NO aparece con ningún botón de acción.
+    expect(screen.queryByText('Chaos Rising')).toBeInTheDocument(); // sí en el desglose
+    // Los 0/N ofrecen «Arreglar este set»; el 22/23 ofrece «Completar este set» (no «Arreglar»).
     const fixButtons = await screen.findAllByRole('button', { name: /Arreglar este set/ });
-    // 2 sin precio, cada uno con su botón (+ los del desglose plegado, que también son 2).
     expect(fixButtons.length).toBeGreaterThanOrEqual(2);
-    // El motivo en llano del set sin conectar se lee (en la lista corta y en el desglose).
+    expect(screen.getAllByRole('button', { name: /Completar este set/ }).length).toBeGreaterThanOrEqual(1);
+    // El motivo en llano del set sin conectar se lee.
     expect(screen.getAllByText(/aún no está conectado a la fuente de precios/i).length).toBeGreaterThanOrEqual(1);
   });
 
@@ -148,10 +183,11 @@ describe('SealedPriceStatusSection · Precios de mercado de la colección (§dis
     roleState.role = 'vault_operator';
     withSource('tcgcsv');
     renderWithProviders(<SealedPriceStatusSection />, 'es');
-    await screen.findByText(/1 set con precio · 2 sets sin precio/);
+    await screen.findByText(/26 productos con precio · 6 pendientes/);
     expect(
       screen.queryByRole('button', { name: /Actualizar precios de la colección/ }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Arreglar este set/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Completar este set/ })).not.toBeInTheDocument();
   });
 });

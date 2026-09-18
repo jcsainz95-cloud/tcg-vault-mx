@@ -85,20 +85,32 @@ export default async function LocaleLayout({
     >
       <head>
         {/* PERF — TODAS las imágenes de carta (catálogo, carrusel, carritos, bóveda, admin)
-            vienen de un TERCERO: images.pokemontcg.io. Sin esto, el navegador solo empieza el
-            DNS + TCP + TLS cuando descubre el primer <img> del HTML, y paga ese handshake
-            completo antes del primer byte de píxel. El `preconnect` lo adelanta al parseo del
-            <head>; el `dns-prefetch` es el respaldo para navegadores que ignoran el primero.
-            Van los DOS y en este orden — es el patrón canónico, no una redundancia.
-            Solo este dominio: `preconnect` a dominios que quizá no se usen desperdicia
-            conexiones. El CDN de sellado (tcgplayer-cdn.tcgplayer.com) NO entra: en la home
-            vive en SealedShelf, por DEBAJO del carrusel (bajo el pliegue), y ahí `lazy` +
-            conexión tardía es el comportamiento correcto.
+            vienen de un TERCERO. Sin esto, el navegador solo empieza el DNS + TCP + TLS cuando
+            descubre el primer <img> del HTML, y paga ese handshake completo antes del primer
+            byte de píxel. El `preconnect` lo adelanta al parseo del <head>; el `dns-prefetch`
+            es el respaldo para navegadores que ignoran el primero. Van los DOS por host y en
+            este orden — es el patrón canónico, no una redundancia.
+
+            SON DOS HOSTS, no uno — el mismo conjunto cerrado que gobierna `next.config.mjs`
+            (`images.remotePatterns`) y `SET_IMAGE_HOSTS` en el backend:
+              · images.pokemontcg.io — CDN histórico (arte de todos los sets hasta 2026-08).
+              · images.scrydex.com   — CDN vigente desde 2026-09; sirve el arte de los sets
+                NUEVOS (me2pt5/me3/me4/me5…), 661 cartas ya en producción. Omitirlo dejaba SIN
+                calentar la conexión justo para las cartas más recientes —las que más se ven en
+                el carrusel del home y en las primeras páginas del catálogo—, que pagaban el
+                handshake frío entero al aparecer su primer <img>. Este era el hueco medido de
+                perf de imágenes: el preconnect existía solo para el CDN viejo.
+
+            El CDN de sellado (tcgplayer-cdn.tcgplayer.com) NO entra: en la home vive en
+            SealedShelf, por DEBAJO del carrusel (bajo el pliegue), y ahí `lazy` + conexión
+            tardía es el comportamiento correcto.
             SIN `crossOrigin`: un `<img>` normal no se pide en modo CORS, y un preconnect
             `anonymous` abre una conexión de OTRA piscina que esas imágenes no reutilizarían
             (sería trabajo de más y ahorro cero). El `crossorigin` es para fuentes/fetch CORS. */}
         <link rel="preconnect" href="https://images.pokemontcg.io" />
         <link rel="dns-prefetch" href="https://images.pokemontcg.io" />
+        <link rel="preconnect" href="https://images.scrydex.com" />
+        <link rel="dns-prefetch" href="https://images.scrydex.com" />
       </head>
       <body className="min-h-dvh bg-bg font-sans text-text antialiased">
         <NextIntlClientProvider messages={messages}>

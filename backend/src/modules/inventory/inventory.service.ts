@@ -1780,6 +1780,7 @@ export class InventoryService {
   async pendingPublish(q: {
     missing?: PendingPublishMissing;
     acquisitionType?: AcquisitionType;
+    productType?: ProductType;
     setId?: string;
     page: number;
     pageSize: number;
@@ -1788,6 +1789,10 @@ export class InventoryService {
       ownerType: 'platform',
       status: 'in_stock',
       ...(q.acquisitionType ? { acquisitionType: q.acquisitionType } : {}),
+      // M11 (§M1) — eje ADITIVO `productType`: empuja el filtro a la BD (predicado SQL sobre la
+      // columna, como `acquisitionType`). Ausente ⇒ cola entera; `sealed` ⇒ solo sellado. Sin esto
+      // la cola de M11 (que pide `productType=sealed`) devolvía TODO y una carta suelta se colaba.
+      ...(q.productType ? { productType: q.productType } : {}),
       ...(q.setId ? { card: { setId: q.setId } } : {}),
       // Cuando se filtra por `missing=location` el predicado SÍ es SQL: se empuja a la BD para no
       // barrer de más. `missing=price` no puede empujarse — ver el bloque de arriba.

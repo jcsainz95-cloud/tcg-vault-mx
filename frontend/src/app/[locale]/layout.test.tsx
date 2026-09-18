@@ -38,9 +38,15 @@ import LocaleLayout from './layout';
  * ponía un solo test en rojo, y una mejora invisible para la suite es una mejora que el
  * siguiente refactor deshace sin enterarse.
  *
- * Qué protege: TODAS las imágenes de carta vienen de un TERCERO (images.pokemontcg.io). Sin
- * `preconnect`, el navegador solo empieza DNS + TCP + TLS al descubrir el primer `<img>`, y
- * paga ese handshake completo antes del primer byte de píxel.
+ * Qué protege: TODAS las imágenes de carta vienen de un TERCERO. Sin `preconnect`, el
+ * navegador solo empieza DNS + TCP + TLS al descubrir el primer `<img>`, y paga ese handshake
+ * completo antes del primer byte de píxel.
+ *
+ * SON DOS HOSTS (el conjunto cerrado de `next.config.mjs`/`SET_IMAGE_HOSTS`): el histórico
+ * `images.pokemontcg.io` y el vigente `images.scrydex.com` (arte de los sets nuevos desde
+ * 2026-09). El segundo se añadió al cerrar el hueco de perf de imágenes: preconectar solo el
+ * CDN viejo dejaba frío el handshake justo para las cartas más recientes. Si alguien quita uno
+ * de los dos, este candado se pone rojo.
  * ─────────────────────────────────────────────────────────────────────────────────────────
  */
 async function head(locale = 'es') {
@@ -49,21 +55,32 @@ async function head(locale = 'es') {
 }
 
 describe('LocaleLayout · <head> (PERF, candado)', () => {
-  it('adelanta la conexión al CDN de imágenes: preconnect + dns-prefetch de respaldo', async () => {
+  it('adelanta la conexión al CDN histórico: preconnect + dns-prefetch de respaldo', async () => {
     const html = await head();
     expect(html).toContain('<link rel="preconnect" href="https://images.pokemontcg.io"/>');
     expect(html).toContain('<link rel="dns-prefetch" href="https://images.pokemontcg.io"/>');
   });
 
-  it('SIN `crossorigin`: un <img> normal no se pide en modo CORS y abriría otra conexión', async () => {
+  it('adelanta la conexión al CDN vigente (scrydex): las cartas nuevas también se calientan', async () => {
     const html = await head();
-    const link = html.slice(html.indexOf('<link rel="preconnect"'));
-    expect(link.slice(0, link.indexOf('>'))).not.toContain('crossorigin');
+    // Hueco de perf cerrado: el arte de los sets nuevos vive en images.scrydex.com y antes
+    // pagaba el handshake frío entero al aparecer su primer <img>.
+    expect(html).toContain('<link rel="preconnect" href="https://images.scrydex.com"/>');
+    expect(html).toContain('<link rel="dns-prefetch" href="https://images.scrydex.com"/>');
   });
 
-  it('solo ESE dominio: preconectar a hosts que quizá no se usen desperdicia conexiones', async () => {
+  it('SIN `crossorigin`: un <img> normal no se pide en modo CORS y abriría otra conexión', async () => {
     const html = await head();
-    expect(html.match(/rel="preconnect"/g)).toHaveLength(1);
+    // NINGÚN preconnect lleva crossorigin, no solo el primero.
+    for (const tag of html.match(/<link rel="preconnect"[^>]*>/g) ?? []) {
+      expect(tag).not.toContain('crossorigin');
+    }
+  });
+
+  it('solo ESOS dominios: preconectar a hosts que quizá no se usen desperdicia conexiones', async () => {
+    const html = await head();
+    // Exactamente los dos hosts del conjunto cerrado (next.config/SET_IMAGE_HOSTS): ni uno más.
+    expect(html.match(/rel="preconnect"/g)).toHaveLength(2);
     // El CDN de sellado vive bajo el pliegue (SealedShelf): ahí `lazy` + conexión tardía es
     // el comportamiento correcto, no una omisión.
     expect(html).not.toContain('tcgplayer-cdn.tcgplayer.com');
