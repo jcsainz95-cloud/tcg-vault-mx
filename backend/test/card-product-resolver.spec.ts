@@ -57,7 +57,10 @@ function prismaMock(
       }),
     },
     priceReference: {
-      findUnique: jest.fn(async () => null), // sin fila previa
+      // P-53 §2: el escritor lee la fila VIGENTE con `findFirst` (no `findUnique` por día). Sin fila
+      // previa ⇒ rama de CAMBIO ⇒ `upsert` de la fila del día (lo que estos tests asertan).
+      findFirst: jest.fn(async () => null),
+      update: jest.fn(async () => ({ id: 'pr-updated' })),
       upsert: jest.fn(async (args: any) => {
         priceUpserts.push(args);
         return { id: `pr-${seq++}` };

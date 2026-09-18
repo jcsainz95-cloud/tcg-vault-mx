@@ -446,9 +446,19 @@ export class PriceIngestService {
 
   /**
    * ¿Hubo ingesta de MERCADO reciente? (catch-up al boot, auditoría 2026-08-17).
-   * "Reciente" = existe ≥1 `PriceReference` NO-manual con `capturedDate` de hoy o ayer (UTC).
+   * "Reciente" = el barrido de mercado CONFIRMÓ ≥1 fila (no-manual) hoy o ayer (UTC).
    * Los overrides manuales del admin NO cuentan: un admin poniendo un precio a mano no
    * significa que el ingest masivo haya corrido.
+   *
+   * ⚠️ **P-53 §4.3 (arreglo obligatorio): se mide contra `evidenceDate`, NO `capturedDate`.** Con el
+   * escritor write-on-change (§2), un barrido que confirma precios SIN cambios NO escribe ninguna fila
+   * con `capturedDate` de hoy — solo avanza `evidenceDate` de la fila vigente. Si esta pregunta siguiera
+   * mirando `capturedDate`, un día sin cambios devolvería `false` y el catch-up del boot **re-dispararía
+   * el barrido creyendo que nunca corrió** (trabajo inútil, o doble escritura). La pregunta correcta es
+   * «¿el barrido CONFIRMÓ algo?», que es exactamente `evidenceDate`. Las filas manuales tienen
+   * `evidenceDate = null` (y ya se excluyen por `isManualOverride:false`); las legadas pre-P-53 también
+   * tienen `evidenceDate = null`, pero `since` es hoy/ayer, así que solo cuentan filas recién
+   * confirmadas por un barrido.
    */
   async hasRecentIngest(): Promise<boolean> {
     const since = new Date();
@@ -459,7 +469,7 @@ export class PriceIngestService {
       // fila de ESTIMADO no la contesta. Sin el predicado, una corrida del ingest de fase 2 (que
       // escribe `graded_estimate` sobre cartas raw publicadas) haría creer al catch-up del boot que el
       // mercado ya se ingirió y **saltaría el barrido** — un fail-open operativo por la puerta de atrás.
-      where: { capturedDate: { gte: since }, isManualOverride: false, ...MONEY_REF_WHERE },
+      where: { evidenceDate: { gte: since }, isManualOverride: false, ...MONEY_REF_WHERE },
       select: { id: true },
     });
     return row !== null;

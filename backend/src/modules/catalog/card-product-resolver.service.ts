@@ -186,8 +186,35 @@ export class CardProductResolverService {
   }
 
   /**
-   * Upsert de la `PriceReference` POR (carta, producto, acabado) del día, `source=tcgcsv_singles`.
-   * Respeta el override manual del admin (no clobbea). Money-safe: solo se llama con market > 0.
+   * Escritor WRITE-ON-CHANGE de la `PriceReference` POR (carta, producto, acabado),
+   * `source=tcgcsv_singles` (P-53 §2). Money-safe: solo se llama con market > 0.
+   *
+   * ⚠️ **P-53 — el ritmo de escritura cambió y el porqué manda sobre la intuición.** Hasta P-53 este
+   * método hacía un `upsert` cuya CLAVE incluía `capturedDate = today()`: eso escribía (o reescribía)
+   * UNA fila POR DÍA por (carta, producto, acabado), se moviera o no el precio ⇒ ~28,559 filas/día que
+   * el disco no podía sostener. Ahora se escribe **solo cuando el VALOR cambia**:
+   *
+   *  - **El VALOR es `priceUsdCents` (+ `fxBufferPct`), NO `priceMxnCents`.** El MXN se deriva de
+   *    `priceUsdCents × FX del día` (`usdToMxnCents`), y la FX Banxico se mueve a diario aunque el USD
+   *    no ⇒ medir el cambio sobre `priceMxnCents` NO colapsaría casi nada (P-53 §0.1). La deriva de FX
+   *    es una conversión derivada, no un cambio de precio de mercado de la carta. `fxBufferPct` SÍ entra
+   *    al predicado (es un dial de negocio: moverlo cambia el MXN cotizado ⇒ es un cambio real);
+   *    `fxRate` NO (se recompone en cada lectura viva, `PricingService.liveMxnCents`, P-53 §0.2).
+   *  - **Día sin cambio (mismo USD + mismo buffer):** NO se crea fila; se avanza `evidenceDate` de la
+   *    fila vigente a hoy («visto por última vez»). `capturedDate`/`priceMxnCents`/`fxRate` de esa fila
+   *    NO se tocan — congelarlos es inocuo porque toda lectura viva recompone MXN desde el USD vigente
+   *    (P-53 §0.2); el único lector del `priceMxnCents` congelado (rama `asOf` de `computeSetValue`) se
+   *    corrige en el job del snapshot (P-53 §4.1).
+   *  - **Día de cambio (USD/buffer distinto, o no había fila, o la vigente es un estimado):** fila NUEVA
+   *    del día con `capturedDate = evidenceDate = today`. Cada punto de cambio de USD sobrevive como su
+   *    propia fila ⇒ la serie de valor por fecha (`computeSetValue` forward-fill) es idéntica.
+   *  - **Override manual vigente (§4.27f):** el escritor de mercado NO lo pisa ni le bump-ea
+   *    `evidenceDate` — idéntico a antes.
+   *
+   * **Idempotencia intra-día:** el `create` del día de cambio se hace vía `upsert` sobre la clave
+   * completa (que incluye `capturedDate = today`). Si el barrido corre dos veces el mismo día y el valor
+   * volvió a cambiar, se corrige la fila de HOY en su sitio en vez de chocar contra la `@@unique`
+   * (P-53 §2 nota a). Concurrencia: el barrido es secuencial por set (P-53 §2 nota d).
    */
   private async upsertVariantPrice(
     cardId: string,
@@ -199,6 +226,60 @@ export class CardProductResolverService {
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
+    // Clave SIN `capturedDate`: identifica la SERIE de esa (carta, producto, acabado), no una fila del
+    // día. La fila VIGENTE es la más reciente de esa serie.
+    const key0 = { cardId, productType, gradeKey, finish, cardProductId };
+    // MONEY-REF-EXEMPT: lectura de la CLAVE del escritor (tcgcsv_singles por producto), no de
+    // candidatas de precio. Se lee la fila vigente (más reciente) para decidir si el valor cambió.
+    const current = await this.prisma.priceReference.findFirst({
+      where: key0,
+      orderBy: { capturedDate: 'desc' },
+      select: {
+        id: true,
+        capturedDate: true,
+        evidenceDate: true,
+        isManualOverride: true,
+        refKind: true,
+        priceUsdCents: true,
+        fxBufferPct: true,
+      },
+    });
+    if (current?.isManualOverride) return; // §4.27f: el override de MERCADO manda; no se toca evidencia.
+
+    // ¿El VALOR (USD + buffer) es el MISMO que la fila vigente de mercado? → confirmar, NO insertar.
+    const sameValue =
+      current != null &&
+      current.refKind === PriceRefKind.market &&
+      current.priceUsdCents === marketUsdCents &&
+      current.fxBufferPct != null &&
+      Number(current.fxBufferPct) === fx.bufferPct;
+
+    if (sameValue) {
+      // Día sin cambio: 0 filas nuevas. Solo avanza `evidenceDate` (invariante: nunca retrocede).
+      if (current!.evidenceDate == null || current!.evidenceDate < capturedDate) {
+        await this.prisma.priceReference.update({
+          where: { id: current!.id },
+          data: { evidenceDate: capturedDate },
+        });
+      }
+      return;
+    }
+
+    // Cambió (o no había fila, o la vigente es estimado): fila del día (write-on-change).
+    const priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct);
+    const data = {
+      source: 'tcgcsv_singles' as const,
+      priceUsdCents: marketUsdCents,
+      fxRate: fx.rate,
+      fxBufferPct: fx.bufferPct,
+      priceMxnCents,
+      isManualOverride: false,
+      // v1.50.3-f (M-43, §4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO, en el `create` **y** en
+      // el `update` (aquí `data` sirve a los dos, que es justo lo que la regla pide).
+      refKind: PriceRefKind.market,
+      // P-53 §1: el día del cambio, la evidencia coincide con la captura.
+      evidenceDate: capturedDate,
+    };
     const key = {
       cardId_productType_gradeKey_finish_capturedDate_cardProductId: {
         cardId,
@@ -209,26 +290,12 @@ export class CardProductResolverService {
         cardProductId,
       },
     };
-    // MONEY-REF-EXEMPT: lectura de la CLAVE del upsert de un ESCRITOR (tcgcsv_singles por producto),
-    // no de candidatas de precio. Filtrar por naturaleza dejaría de ver la fila del día y el `create`
-    // colisionaría con la `@@unique` (que no incluye `refKind`).
-    const existing = await this.prisma.priceReference.findUnique({ where: key });
-    if (existing?.isManualOverride) return; // §4.27f: el override de MERCADO manda
-    const priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct);
-    const data = {
-      source: 'tcgcsv_singles' as const,
-      priceUsdCents: marketUsdCents,
-      fxRate: fx.rate,
-      fxBufferPct: fx.bufferPct,
-      priceMxnCents,
-      isManualOverride: false,
-      // v1.50.3-f (M-43, §4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO, en el `create` **y** en
-      // el `update` del upsert (aquí `data` sirve a los dos, que es justo lo que la regla pide).
-      refKind: PriceRefKind.market,
-    };
     await this.prisma.priceReference.upsert({
       where: key,
       create: { cardId, productType, gradeKey, finish, capturedDate, cardProductId, ...data },
+      // Re-run del MISMO día con valor nuevo: corrige la fila de hoy en su sitio (idempotente, sin
+      // colisión con la `@@unique` de 6 campos). NO es la reescritura diaria vieja: solo dispara en un
+      // día de CAMBIO, no en un día de confirmación.
       update: data,
     });
   }

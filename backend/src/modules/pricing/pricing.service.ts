@@ -281,6 +281,9 @@ const PRICE_REF_SELECT = {
   capturedDate: true,
   cardProductId: true,
   refKind: true,
+  // P-53 §3: fecha de última confirmación del barrido. Se lee para medir la frescura contra
+  // `evidenceDate ?? capturedDate`; `null` (todas las filas hoy) cae a `capturedDate` ⇒ sin cambio.
+  evidenceDate: true,
 } as const;
 
 /**
@@ -1660,7 +1663,17 @@ export class PricingService {
       // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
       // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
       // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
-      const target = isStaleByOrigin(r.capturedDate.toISOString().slice(0, 10), isManual, today, cfg)
+      // P-53 §3: la frescura mide contra `evidenceDate ?? capturedDate`. Hoy las filas graded tienen
+      // `evidenceDate = null` ⇒ cae a `capturedDate` ⇒ IDÉNTICO al comportamiento previo (CA-10). El
+      // comportamiento nuevo solo emerge si en el futuro se cablea la evidencia del parser graded (§8).
+      const evidenceDate = r.evidenceDate ? r.evidenceDate.toISOString().slice(0, 10) : null;
+      const target = isStaleByOrigin(
+        r.capturedDate.toISOString().slice(0, 10),
+        isManual,
+        today,
+        cfg,
+        evidenceDate,
+      )
         ? bestStaleByKey
         : bestFreshByKey;
       // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).

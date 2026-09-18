@@ -217,6 +217,13 @@ export interface GradedEstimateInput {
   /** `YYYY-MM-DD` (date-only, misma convención que `PriceReference.capturedDate @db.Date`). */
   capturedDate: string;
   /**
+   * P-53 §3 (M43-D2) — fecha de la ÚLTIMA CONFIRMACIÓN del valor por el barrido (`YYYY-MM-DD`), o
+   * `null`/ausente para filas legadas pre-P-53 y para la vía manual. La frescura (`isStaleRef`) mide
+   * contra `evidenceDate ?? capturedDate`: `null` cae a `capturedDate` ⇒ comportamiento idéntico al
+   * previo, así que este campo es aditivo y no cambia ninguna lectura existente que no lo pueble.
+   */
+  evidenceDate?: string | null;
+  /**
    * v1.50.2 (§4.38m) — ¿es un OVERRIDE MANUAL? Decide **SI** el elemento se emite (la frescura de feed
    * no se le aplica), **NUNCA QUÉ** se emite: ni el monto, ni el shape, ni el render dependen de él, y
    * **no viaja al DTO**. La garantía (g) —fase 1 y fase 2 indistinguibles para el cliente— queda
@@ -820,7 +827,9 @@ export function isStaleRef(
   today: string,
   cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
 ): boolean {
-  return isStaleByOrigin(e.capturedDate, e.isManual === true, today, cfg);
+  // P-53 §3: la frescura se mide contra la EVIDENCIA (`evidenceDate ?? capturedDate`). Una fila
+  // confirmada a diario por el barrido (aunque su valor no cambie desde hace semanas) NO es rancia.
+  return isStaleByOrigin(e.capturedDate, e.isManual === true, today, cfg, e.evidenceDate);
 }
 
 /**
@@ -841,14 +850,22 @@ export function isStaleByOrigin(
   isManual: boolean,
   today: string,
   cfg: Pick<GradedEstimateConfig, 'freshnessDays' | 'manualFreshnessDays'>,
+  evidenceDate?: string | null,
 ): boolean {
+  // P-53 §3 (M43-D2): la fecha que gobierna la frescura es la EVIDENCIA (`evidenceDate ?? capturedDate`),
+  // no la captura sola. La cota (`freshnessDays`/`manualFreshnessDays`, decisión 61) NO cambia: cambia
+  // QUÉ FECHA se mide. Es SEGURO en el día del despliegue porque toda fila con `evidenceDate = null`
+  // cae a `capturedDate` (comportamiento idéntico al de hoy). La vía MANUAL tiene `evidenceDate = null`
+  // por construcción ⇒ mide contra `capturedDate`, que es EXACTAMENTE lo que el criterio 109 pide para
+  // el override manual (su captura ES su evidencia).
+  const effective = evidenceDate ?? capturedDate;
   if (isManual) {
     // `null` NO es el seed (lo fue hasta v1.50.3, GU-A15 derogada): es una elección explícita del
     // operador que desactiva el criterio 109 para la vía manual, y se izó con `warn` (I8-bis).
     if (cfg.manualFreshnessDays == null) return false;
-    return isStaleEstimate(capturedDate, today, cfg.manualFreshnessDays);
+    return isStaleEstimate(effective, today, cfg.manualFreshnessDays);
   }
-  return isStaleEstimate(capturedDate, today, cfg.freshnessDays);
+  return isStaleEstimate(effective, today, cfg.freshnessDays);
 }
 
 /**

@@ -400,8 +400,14 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
 
 /**
  * Auditoría de precios (2026-08-17) — `hasRecentIngest` alimenta el catch-up al boot:
- * "reciente" = ≥1 PriceReference NO-manual con capturedDate ≥ ayer 00:00 UTC. Los overrides
- * manuales del admin NO cuentan como ingesta.
+ * "reciente" = el barrido CONFIRMÓ ≥1 PriceReference NO-manual hoy/ayer. Los overrides manuales del
+ * admin NO cuentan como ingesta.
+ *
+ * ⚠️ **P-53 §4.3 (T-6/CA-6):** la señal se mide contra `evidenceDate`, NO `capturedDate`. Con el
+ * escritor write-on-change, un barrido que confirma precios SIN cambios no escribe fila nueva (no hay
+ * `capturedDate` de hoy) — solo avanza `evidenceDate`. Medir `capturedDate` haría que un día sin cambios
+ * devolviera `false` y el boot re-disparara el barrido. Este canario cae en rojo si alguien revierte a
+ * `capturedDate` (§10 T-10).
  */
 describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', () => {
   function buildWithRef(row: unknown) {
@@ -424,13 +430,15 @@ describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', (
     await expect(svc.hasRecentIngest()).resolves.toBe(true);
   });
 
-  it('sin referencias recientes → false, y el filtro excluye manuales y acota a ayer 00:00 UTC', async () => {
+  it('T-6/CA-6 · un barrido que solo CONFIRMA (0 inserts) cuenta: la señal mira evidenceDate, no capturedDate', async () => {
     const { svc, prisma } = buildWithRef(null);
     await expect(svc.hasRecentIngest()).resolves.toBe(false);
 
     const where = prisma.priceReference.findFirst.mock.calls[0][0].where;
     expect(where.isManualOverride).toBe(false);
-    const since: Date = where.capturedDate.gte;
+    // P-53 §4.3: se mide contra evidenceDate (no capturedDate) y acota a ayer 00:00 UTC.
+    expect(where.capturedDate).toBeUndefined();
+    const since: Date = where.evidenceDate.gte;
     const expected = new Date();
     expected.setUTCHours(0, 0, 0, 0);
     expected.setUTCDate(expected.getUTCDate() - 1);

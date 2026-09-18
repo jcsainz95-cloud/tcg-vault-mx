@@ -6,7 +6,9 @@ import {
   businessDateCdmx,
   evaluateGradingHighlight,
   findGradingCostTier,
+  isStaleByOrigin,
   isStaleEstimate,
+  isStaleRef,
   selectGradedEstimates,
   validateGradingCostTiers,
   DISABLED_GRADED_ESTIMATE_CONFIG,
@@ -200,6 +202,47 @@ describe('isStaleEstimate — frescura date-only', () => {
     expect(isStaleEstimate('2026-12-31', TODAY, 30)).toBe(false);
     expect(isStaleEstimate('no-es-fecha', TODAY, 30)).toBe(true);
     expect(isStaleEstimate('', TODAY, 30)).toBe(true);
+  });
+});
+
+describe('P-53 §3 · frescura mide contra `evidenceDate ?? capturedDate`', () => {
+  const cfg30 = { freshnessDays: 30, manualFreshnessDays: 30 };
+
+  it('T-5 · capturedDate hace 40d pero evidenceDate = hoy ⇒ NO rancio (freshnessDays=30)', () => {
+    // El trap del arranque: un precio confirmado a diario cuyo VALOR no cambia hace 40 días. Con la
+    // cura, su fila vigente tiene capturedDate viejo pero evidenceDate = hoy ⇒ fresco.
+    expect(isStaleByOrigin('2026-07-14', false, TODAY, cfg30, TODAY)).toBe(false);
+    // Sin la evidencia (fila legada pre-P-53) caería contra capturedDate ⇒ RANCIO (comportamiento viejo).
+    expect(isStaleByOrigin('2026-07-14', false, TODAY, cfg30, null)).toBe(true);
+    expect(isStaleByOrigin('2026-07-14', false, TODAY, cfg30)).toBe(true); // arg ausente == null
+  });
+
+  it('CA-10 · evidenceDate=null (día del despliegue) ⇒ IDÉNTICO a medir capturedDate', () => {
+    // Toda fila hoy tiene evidenceDate=null ⇒ cero cambio de comportamiento el día del deploy.
+    for (const captured of ['2026-08-23', '2026-07-24', '2026-07-23']) {
+      expect(isStaleByOrigin(captured, false, TODAY, cfg30, null)).toBe(
+        isStaleEstimate(captured, TODAY, 30),
+      );
+    }
+  });
+
+  it('manual · evidenceDate se ignora por construcción (su captura ES su evidencia, criterio 109)', () => {
+    // La vía manual pasa evidenceDate=null; mide contra capturedDate con manualFreshnessDays.
+    expect(isStaleByOrigin('2026-07-14', true, TODAY, cfg30, null)).toBe(true); // 40d > 30
+    expect(isStaleByOrigin('2026-08-10', true, TODAY, cfg30, null)).toBe(false); // 13d <= 30
+  });
+
+  it('isStaleRef · lee `evidenceDate` del input y cae a capturedDate cuando falta', () => {
+    const base: GradedEstimateInput = {
+      gradeValue: '10',
+      mxnCents: 500_000,
+      capturedDate: '2026-07-14',
+      isManual: false,
+      refKind: 'market',
+    };
+    expect(isStaleRef({ ...base, evidenceDate: TODAY }, TODAY, cfg30)).toBe(false); // confirmado hoy
+    expect(isStaleRef({ ...base, evidenceDate: null }, TODAY, cfg30)).toBe(true); // legada ⇒ captura
+    expect(isStaleRef(base, TODAY, cfg30)).toBe(true); // sin campo ⇒ captura (aditivo)
   });
 });
 
