@@ -1,3 +1,113 @@
+# VEREDICTO BLUE TEAM — **P-53 CIERRE · ALTO-4 (F4/F5 delegan al lote) · FRESCURA EFECTIVA EN TODA RUTA DE DINERO** · SHA **`81b9e241`** (rama `claude/be-p53-cura4`) · base `origin/production`=`cd0bf02c` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `81b9e241`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** Este es el cierre del ciclo P-53 (los cuatro
+> ALTOS que rechacé en los pases previos). Medí el árbol en un worktree detached sobre el sha fijo
+> `81b9e241` (no toqué `/home/user/tcg-vault-mx`). Resumen: **ALTO-1, ALTO-2, ALTO-3 y ALTO-4
+> CERRADOS; no hay ALTO-5; CA-10 se mantiene; money-safe.**
+>
+> ### Estado de los cuatro ALTOS (cada uno con dónde lo medí)
+>
+> **ALTO-1 — Escritor diario write-on-change: CERRADO** (`0e76a37f`, `persistMarketReference`,
+> `backend/src/modules/pricing/pricing.service.ts:~2185-2298`). En un día sin cambio de valor NO
+> inserta fila; solo **avanza `evidenceDate` de la fila vigente a `today()`** (monotónico: línea 2256
+> `evidenceDate == null || evidenceDate < capturedDate`, nunca retrocede, tope en hoy). El valor que
+> gobierna el cambio es `priceUsdCents`+`fxBufferPct` (o `priceMxnCents` en MXN), no el MXN derivado.
+> **No pisa el override manual** (línea `if (current?.isManualOverride) return`). El día de cambio
+> escribe `capturedDate = evidenceDate = today()`.
+>
+> **ALTO-2 — `hasRecentIngest`: CERRADO** (`price-ingest.service.ts:469-489`). Mide recencia por
+> **frescura efectiva**: `OR [{evidenceDate ≥ ayer}, {evidenceDate=null AND capturedDate ≥ ayer}]`,
+> con `isManualOverride:false` + `MONEY_REF_WHERE`. El avance diario de `evidenceDate` del escritor
+> ahora **sí lo ve**, así que un día sin cambio ya no dispara un fail-open del catch-up. Excluye
+> estimados (evita el fail-open «fase 2 hace creer que corrió el mercado») y manuales.
+>
+> **ALTO-3 — Selección en lote: CERRADO** (`b9c856bd`). `getReferencesBatch` (F1,
+> `pricing.service.ts:~830-935`): ventana `$queryRaw` con
+> `MAX(COALESCE(evidenceDate,capturedDate)) OVER (PARTITION BY clave)` y
+> `WHERE is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date`. `isBetterRef`
+> (`:361-384`): tier manual absoluto → **frescura efectiva `evidenceDate ?? capturedDate`** →
+> `sourceRank` → NULLS-LAST → cuid. `computeSetValue` (F3, `set-value.service.ts:202-217`) selecciona
+> `evidenceDate` y reduce con `isBetterRef`.
+>
+> **ALTO-4 — F4/F5 single-item sin `take:32`: CERRADO** (ESTE sha, `81b9e241`). `getReference`
+> (`:749-767`) delega en `getReferencesBatch([item])` y devuelve `.get(variantKey(item)) ?? pending`.
+> `getReferenceByCardProduct` (`:802-819`) delega en `getReferencesByCardProductBatch([item])` (F6,
+> lee **sin cota** y reduce con `isBetterRef`) y devuelve `.get(cardProductRefKey(item)) ?? pending`.
+> **`SAME_DAY_REF_CANDIDATES` y `MANUAL_REF_PREDICATE` retirados** (solo quedan en comentarios;
+> `git grep` no halla `const … =` ni un `take:` con el símbolo). Las claves hacen round-trip
+> (`getReferencesBatch` indexa por `variantKey`; F6 por `cardProductRefKey`). Misma `WHERE`
+> (`MONEY_REF_WHERE` + `BASE_CARD_REF_WHERE`), mismo `isBetterRef`, misma FX viva (`liveMxnCents`,
+> izada 1×), mismo `PriceInfo`. **Firmas sin cambio** ⇒ los llamadores
+> (`orders.service.ts:316`, `buylist.service.ts:1097/1108`, vault, inventory, admin) no se tocan.
+>
+> **La inversión primaria↔fallback ya NO ocurre en NINGÚN lector de mercado.** Barrí todos los
+> consumidores de dinero (`git grep` de `getReference`/`getReferencesBatch`/`getReferenceByCardProduct`/
+> `computeSetValue`/`ownedItemRefs` en `backend/src/modules`): todos resuelven por frescura efectiva
+> (ventana `COALESCE` o `isBetterRef`), ninguno recorta candidatas por `capturedDate` crudo con `take`.
+>
+> ### ¿ALTO-5? — **NO.** No encontré ningún sitio nuevo ni ninguno que el arquitecto dejara fuera.
+>
+> 1. **Barrido propio de lectores de `capturedDate` en rutas de dinero** (pricing/orders/buylist/
+>    vault/inventory/admin/catalog/set-value + payments/shipments/disputes). Todo sitio que RANKEA
+>    frescura o bien usa la ventana `COALESCE` (F1) o bien reduce con `isBetterRef` **sin `take`**
+>    (F6 `:967`, F7 `getSeparateProductsByCard :1063`, F8 `ownedItemRefs admin.service.ts:979`,
+>    F9 `getGradedEstimatesBatch :1604` con `isStaleByOrigin(...evidenceDate)`). Sin cota, el
+>    `orderBy capturedDate desc` no descarta filas: la primaria congelada sigue entre las candidatas
+>    y `isBetterRef` la elige. Los sitios `capturedDate`-crudo restantes son **IDENTIDAD/AUDITORÍA/
+>    DISPLAY** (I1 cabeza de serie del escritor, I2 `priceHistory`, I3 serie sellada, I4 snapshot
+>    `asOf`, I5 archivo de undo, I6 orden de cola de revisión) — no eligen qué precio se cobra.
+> 2. **La delegación no abre superficie ni permisos nuevos.** Son llamadas servicio→servicio
+>    internas: sin endpoint nuevo, sin cambio de DTO, sin cambio de firma. Ningún camino donde una
+>    fila mala gane: la protección **GE-1** se conserva —un estimado (`refKind='graded_estimate'`)
+>    queda fuera del CTE `filtered` (que exige `refKind='market'`) **antes** del `is_manual`, así que
+>    no se cuela por la puerta de la candidata manual perenne— y la manual perenne se preserva vía
+>    `is_manual` (F1) / lectura sin cota (F6).
+> 3. **`evidenceDate` sigue siendo NO manipulable.** `git grep evidenceDate` en `**/dto` y
+>    `*.controller.ts` da **0**: no está expuesta en ninguna entrada de request. El **único** escritor
+>    de la columna en producción es `persistMarketReference` (server-side), y siempre a
+>    `capturedDate = today()` (`today()` = `new Date()` a medianoche UTC, sin input). El `evidenceDate`
+>    del feed externo (`pokemonpricetracker-bulk.provider.ts:234`) **NO se persiste** a la columna
+>    (comentario del propio provider: «sigue sin persistirse»; se usa solo como gate de rancidez en
+>    ingesta y para el `AuditLog`). El override manual (`:2614`) **no escribe `evidenceDate`** (queda
+>    `null`; gana por tier, no por frescura). ⇒ Nadie externo puede fijar `evidenceDate` para ganar el
+>    ranking de frescura.
+>
+> ### CA-10 (`evidenceDate=null` ⇒ idéntico a hoy): **SE MANTIENE. Money-safe.**
+> Con `evidenceDate=null` (filas legadas el día del deploy y todo graded hoy),
+> `COALESCE(evidenceDate,capturedDate)=capturedDate` en TODOS los predicados: `isBetterRef` (`:379-380`),
+> la ventana `$queryRaw` de F1 (`:906/:914`), `hasRecentIngest` y `isStaleByOrigin`
+> (`common/graded-estimate.ts:861`). Los gemelos CA-10 del canario nuevo
+> (`test/pricing.getreference-p53-freshness.spec.ts`) asertan que con evidencia nula gana el fallback
+> fresco (`toBe(50039)`) y **`.not.toBe(100000)`** ⇒ conducta idéntica a producción el día del deploy.
+>
+> ### Pruebas (revisadas, no solo relayadas)
+> - **C1/C2 muerden** la inversión: primaria `tcgcsv_singles` (`capturedDate` VIEJO + `evidenceDate=HOY`,
+>   100000) gana a 40 fallbacks `pokemontcg_io` frescos (50000+); el emulador modela la vía capada vieja
+>   (rojo-primero). Cada uno con su gemelo CA-10. **Candados de no-regresión F6/F7/F8** presentes.
+> - **Sin tests apagados:** `git grep` de `.skip/.todo/xit/.only` **añadidos** en el diff = 0. Delta de
+>   `expect()` en specs = **+9** (13 retirados de patrón viejo, 22 añadidos). El spec
+>   `pricing.manual-override-durable-cross-day` NO se debilitó: sustituye `expect(take).toBe(32)` por
+>   la aserción de que la ventana de lote **conserva la candidata manual perenne** sin caparla.
+>
+> ### Caveat (NO bloqueante, sin cambio respecto a los pases previos)
+> Los canarios corren contra el **emulador en memoria** (`test/helpers/refs-raw-emulate.ts`), no contra
+> Postgres real — la misma limitación que aceptó el gate de ALTO-3 (`b9c856bd`). El predicado SQL
+> `is_manual OR COALESCE(evidenceDate,capturedDate)=max_auto_date` es simple y ya pasó los gates en
+> `b9c856bd`; la delegación de este sha no introduce SQL nuevo. Se anota, no es un ALTO.
+>
+> ### Ruteo por rol
+> Ninguno pendiente para este delta: **0 hallazgos de seguridad abiertos**. Las banderas de largo plazo
+> (pentest de tercero antes de dinero real; validación legal PII/custodia; `BANXICO_SIE_TOKEN` en
+> secret manager) siguen vivas como en pases anteriores y **no las reabre este delta** (no toca PII, no
+> añade endpoint, no añade secreto).
+>
+> — SEGURIDAD (blue team / AppSec), 2026-09-18 · candidato `81b9e241` · P-53 cierre ·
+> **APROBADO** (ALTO-1..4 CERRADOS · sin ALTO-5 · sin críticos/altos abiertos · CA-10 mantenido · money-safe)
+
+---
+
 # VEREDICTO BLUE TEAM — **H-PERF-1 · PODA DEL HISTÓRICO DE `PriceReference` (ZONA MONEY)** · SHA **`12927edd`** (rama `claude/perf-catalog-2`) · base `origin/production`=`4a3caa64` · 2026-09-18
 
 > ## ⭐ VEREDICTO — **APROBADO** para `12927edd`
