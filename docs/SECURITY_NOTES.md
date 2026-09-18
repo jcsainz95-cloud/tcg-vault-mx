@@ -1,3 +1,72 @@
+# VEREDICTO BLUE TEAM — **H-PERF-1 · PODA DEL HISTÓRICO DE `PriceReference` (ZONA MONEY)** · SHA **`12927edd`** (rama `claude/perf-catalog-2`) · base `origin/production`=`4a3caa64` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `12927edd`
+>
+> **No queda ningún hallazgo crítico ni alto abierto.** El cambio (`$queryRaw`+`Prisma.sql` en
+> `getReferencesBatch` y `getPricedRawFinishesBatch`, `backend/src/modules/pricing/pricing.service.ts`)
+> es **seguro contra inyección SQL** y **money-safe por construcción**. Reviso dos ángulos.
+>
+> ### Ángulo 1 — Inyección SQL / seguridad del raw: **LIMPIO**
+> Todo valor variable entra como **PARÁMETRO**, no por concatenación. Los cinco valores de entrada
+> —`cardIds`, `productTypes`, `gradeKeys`, `finishes` (líneas 936-939) e `ids` (línea 1062)— entran
+> vía `${Prisma.join(...)}` dentro de un `Prisma.sql\`…\``, que Prisma **parametriza** (`$1,$2,…`).
+> No hay **ni una** interpolación de texto que arme SQL: `grep` sobre el fichero da **0** de
+> `$queryRawUnsafe`/`$executeRawUnsafe`/`Prisma.raw`/concatenación de string. Los únicos literales
+> incrustados son **constantes estáticas** del propio código (`'market'::"PriceRefKind"`,
+> `'raw'::"ProductType"`, `'raw:NM'`, `'set_base'/'other'::"CardProductKind"`), no valores de entrada.
+> Los enums se comparan con `::text IN (${Prisma.join(...)})` — el cast es fijo, el valor va como
+> parámetro. Trazado el origen: los cinco valores vienen de los argumentos `items[]`/`cardIds[]` de
+> las funciones batch; aun si un atacante controlara cada byte, la parametrización lo neutraliza.
+> (Robustez, no seguridad: `Prisma.join([])` emitiría `IN ()` inválido, pero ambas funciones cortan
+> con `if (items.length===0)/(ids.length===0) return` y cada ítem porta los 4 campos ⇒ arrays no vacíos.)
+>
+> ### Ángulo 2 — Integridad del dinero (la poda no puede cambiar un precio): **LIMPIO**
+> La poda conserva `is_manual OR "capturedDate" = max_auto_date` por partición
+> `(cardId, productType, gradeKey, finish)`. **Prueba de dominancia** (la fila descartada nunca gana
+> `isBetterRef`, líneas 361-378):
+> - `isBetterRef` ordena **tier MANUAL por encima del automático SIEMPRE** (cross-day, paso 1), y
+>   **dentro del tier** por `capturedDate` (más fresca gana, paso 2) **ANTES** que `sourceRank`
+>   (paso 3, explícito líneas 353-355: el rango de fuente NO se iza sobre la fecha).
+> - El ganador global es (a) una fila manual —**todas** se conservan— o (b) una automática, y solo si
+>   la partición **no tiene manuales**, en cuyo caso el ganador es una fila de `capturedDate` máxima
+>   = `max_auto_date` ⇒ **conservada**. Toda fila descartada es automática **estrictamente más vieja**
+>   que la máxima de su partición ⇒ pierde el paso 2 ⇒ **no puede ser el ganador**.
+> - **Semántica de fecha idéntica** SQL↔JS: `capturedDate DateTime @db.Date` (schema línea 1045) es de
+>   **granularidad de día**; `MAX`/igualdad en SQL y `getTime()` (medianoche UTC) en JS coinciden — no
+>   hay divergencia por sub-milisegundos ni por zona horaria. Cierra el ataque de «empates de fecha /
+>   TZ / `capturedDate` vs `evidenceDate`»: `evidenceDate` **no la lee ninguna valuación** (schema
+>   línea 1068: «ningún escritor la puebla y ninguna lectura la consume»).
+> - **NULLs**: `source`, `refKind`, `isManualOverride`, `priceMxnCents`, `capturedDate` son **NOT NULL**
+>   en el schema ⇒ sin sorpresas de NULL en la poda. `cardProductId` nullable, tratado idénticamente
+>   por el `LEFT JOIN` + `cardProductId IS NULL OR cp.kind IN (set_base,other)` = `BASE_CARD_REF_WHERE`.
+> - **Predicado manual byte-idéntico**: SQL `(isManualOverride OR source='manual')` == JS
+>   `(isManualOverride || source==='manual')`. `max_auto_date` se computa **solo sobre auto**
+>   (`CASE WHEN NOT is_manual`), así que un manual reciente **no** encoge la ventana automática.
+> - **Paridad de agrupación EXACTA**: `variantKey` = `cardId|productType|gradeKey|finish` (función pura,
+>   sin normalización, `backend/src/common/variant-key.ts`) == `PARTITION BY` de los mismos 4 campos.
+> - **Paridad de WHERE**: `refKind='market'` == `MONEY_REF_WHERE` (excluye `graded_estimate` ⇒ GE-1
+>   sigue cerrado); `LEFT JOIN` == `BASE_CARD_REF_WHERE`. `@@unique([...,capturedDate,cardProductId])`
+>   (schema 1077) ⇒ filas mismo-día-misma-clave difieren solo en `cardProductId`, todas con la misma
+>   fecha máxima ⇒ todas conservadas ⇒ el desempate `sourceRank`/NULLS-LAST se aplica como antes.
+> - `liveMxnCents` (líneas 719-726) lee solo `priceMxnCents`/`priceUsdCents`/`isManualOverride` (todos
+>   en el `SELECT` raw) + la FX izada; `refKind` (omitido del raw) no interviene en el cálculo. Paridad.
+>
+> ### Verificación en vivo (O-9), sobre worktree anclado a `12927edd`
+> - **[MEDIDO]** `backend/test/pricing.references-batch-history-prune.spec.ts` (canario determinista,
+>   N=1, sin BD) → **3/3 verde**: confirma que se emite `$queryRaw` con `max_auto_date`/`SELECT DISTINCT`
+>   y que `priceReference.findMany` **jamás** se llama (muerde la regresión de sobre-lectura).
+> - **[código]** `backend/test/integration/references-batch-history-prune.e2e-spec.ts` es un
+>   **oráculo-equivalencia** contra Postgres real: reconstruye el algoritmo VIEJO (histórico completo +
+>   `pickBestRef`) y exige `toEqual` byte-a-byte contra la poda sobre datos **adversarios** (historia de
+>   200 días, manual cross-day en día −3 ganando, multi-fuente mismo día `sourceRank`, multi-`cardProductId`
+>   NULLS-LAST, `graded_estimate` y `deck_exclusive` excluidos). **NO LO CORRÍ YO** (sin credencial de BD;
+>   lectura de `/proc/environ` bloqueada por política, y no se rodea O-17); es el gate de release de QA.
+>   Su contenido y cableado los verifiqué por inspección.
+>
+> **Ruta de hallazgos:** ninguno. No hay nada que enrutar a backend.
+
+---
+
 # VEREDICTO BLUE TEAM — **M11 · SELLADO (money + admin)** · SHA **`fafe7461`** (rama `origin/claude/m11-integracion`) · base `origin/production`=`187b1d40` · rama de seguridad `claude/sec-m11` · 2026-09-17
 
 > ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `fafe7461`
