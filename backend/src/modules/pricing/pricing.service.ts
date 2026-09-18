@@ -884,21 +884,75 @@ export class PricingService {
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
       variantKey(i);
     const wanted = new Set(items.map(keyOf));
-    const rows = await this.prisma.priceReference.findMany({
-      where: {
-        cardId: { in: [...new Set(items.map((i) => i.cardId))] },
-        productType: { in: [...new Set(items.map((i) => i.productType))] },
-        gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
-        finish: { in: [...new Set(items.map((i) => i.finish))] },
-        // v1.29 (M-31, §4.27f): excluye filas de deck_exclusive/promo del precio de la carta de set.
-        // v1.50.3-f (M-43, §4.38l.4.4A): + la naturaleza. Éste es el seam que alimenta bulk-publish,
-        // bóveda, binder, buylist y los reportes de dinero de admin: un estimado que se colara aquí
-        // pricearía a la vez decenas de piezas.
-        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
-      },
-      orderBy: { capturedDate: 'desc' },
-      select: PRICE_REF_SELECT,
-    });
+    // ⭐⭐ H-PERF-1 (perf-catalog-2, MONEY-SAFE) — **PODA DEL HISTÓRICO EN LA BD, NO EN NODE.**
+    //
+    // El `findMany` anterior traía `orderBy capturedDate desc` **SIN cota de fecha**: para cada carta
+    // del catálogo materializaba TODA su historia de precios (una fila por día por acabado) y luego
+    // `isBetterRef` elegía la vigente en memoria. Medido a escala local (3.000 publicadas × 60 días =
+    // 180.000 filas de `PriceReference`): `getReferencesBatch` tardaba **~2.300 ms** (BD ~590 ms de
+    // Seq Scan + external-merge Sort a disco, y ~1.700 ms de Node iterando 180.000 objetos) para
+    // devolver **3.000** entradas — un sobre-lectura de **60×** (= nº de días de historia).
+    //
+    // ⛔ Money-safe por CONSTRUCCIÓN, no por confianza. La decisión sigue siendo `isBetterRef` INTACTA:
+    // esta query NO elige la vigente, solo **descarta filas que NO PUEDEN ganar** y deja que el mismo
+    // reduce de siempre desempate el resto. Prueba de que el resultado no cambia: toda fila excluida
+    // está DOMINADA por una incluida bajo `isBetterRef`, así que el máximo no se mueve —
+    //   · TIER MANUAL (`isManualOverride ∨ source='manual'`): se incluyen TODAS (candidata perenne
+    //     cross-day de §4.27f-2; el reduce elige la más reciente entre ellas).
+    //   · TIER AUTOMÁTICO: solo las del `capturedDate` MÁXIMO por clave. Una automática de un día
+    //     anterior SIEMPRE pierde contra la del día máximo de su clave (mismo tier ⇒ gana la más
+    //     fresca, isBetterRef paso 2), y esa fila máxima SÍ está incluida ⇒ descartarla no cambia nada.
+    //   Los empates del mismo día (que por el `@@unique(…,capturedDate,cardProductId)` solo difieren en
+    //   `cardProductId`) llegan TODOS al reduce, que aplica sourceRank/NULLS-LAST como hasta hoy.
+    // El WHERE es idéntico al anterior (MONEY_REF_WHERE + BASE_CARD_REF_WHERE, aquí en SQL con el mismo
+    // LEFT JOIN a CardProduct que expresa el `OR cardProductId IS NULL`). Verificado byte-a-byte contra
+    // el algoritmo previo sobre datos adversarios (manual cross-day, multi-fuente y multi-cardProduct el
+    // mismo día, `graded_estimate` excluido): `test/pricing.references-batch-history-prune.*`.
+    const cardIds = [...new Set(items.map((i) => i.cardId))];
+    const productTypes = [...new Set(items.map((i) => i.productType as string))];
+    const gradeKeys = [...new Set(items.map((i) => i.gradeKey))];
+    const finishes = [...new Set(items.map((i) => i.finish as string))];
+    const rows = await this.prisma.$queryRaw<
+      {
+        cardId: string;
+        productType: ProductType;
+        gradeKey: string;
+        finish: Finish;
+        priceMxnCents: number;
+        priceUsdCents: number | null;
+        isManualOverride: boolean;
+        source: string;
+        capturedDate: Date;
+        cardProductId: string | null;
+      }[]
+    >(Prisma.sql`
+      WITH filtered AS (
+        SELECT pr."cardId", pr."productType", pr."gradeKey", pr."finish",
+               pr."priceMxnCents", pr."priceUsdCents", pr."isManualOverride",
+               pr."source", pr."capturedDate", pr."cardProductId",
+               (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual
+        FROM "PriceReference" pr
+        LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
+        WHERE pr."cardId" IN (${Prisma.join(cardIds)})
+          AND pr."productType"::text IN (${Prisma.join(productTypes)})
+          AND pr."gradeKey" IN (${Prisma.join(gradeKeys)})
+          AND pr."finish"::text IN (${Prisma.join(finishes)})
+          AND pr."refKind" = 'market'::"PriceRefKind"
+          AND (pr."cardProductId" IS NULL
+               OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+      ),
+      ranked AS (
+        SELECT filtered.*,
+               MAX(CASE WHEN NOT is_manual THEN "capturedDate" END)
+                 OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date
+        FROM filtered
+      )
+      SELECT "cardId", "productType", "gradeKey", "finish",
+             "priceMxnCents", "priceUsdCents", "isManualOverride",
+             "source", "capturedDate", "cardProductId"
+      FROM ranked
+      WHERE is_manual OR "capturedDate" = max_auto_date
+    `);
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
     const fx = await this.fxSnapshotSafe();
     // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
@@ -993,21 +1047,26 @@ export class PricingService {
     const map = new Map<string, Set<Finish>>();
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return map;
-    const rows = await this.prisma.priceReference.findMany({
-      where: {
-        cardId: { in: ids },
-        productType: 'raw',
-        gradeKey: 'raw:NM',
-        priceMxnCents: { gt: 0 },
-        // v1.29 (M-31): un precio de deck_exclusive/promo NO cuenta como precio de la carta de set.
-        // M-43: y un estimado tampoco «tiene precio» a efectos de display. Redundante hoy (esta query
-        // es `raw:NM` y el estimado es `graded:PSA:*`), presente por la regla del lector: el default de
-        // toda lectura de `PriceReference` es EXCLUIR lo que no es `market` (§4.38l.4.4A).
-        AND: [MONEY_REF_WHERE, BASE_CARD_REF_WHERE],
-      },
-      select: { cardId: true, finish: true },
-      distinct: ['cardId', 'finish'],
-    });
+    // ⭐ H-PERF-1 (perf-catalog-2, MONEY-SAFE) — `DISTINCT` en la BD, no en Node. El `findMany({distinct})`
+    // de Prisma (sin `orderBy`) DEDUPLICA EN MEMORIA: transfiere TODAS las filas `raw:NM` (todo el
+    // histórico por día) al engine para devolver ~un par (cardId,finish) por carta. Medido a escala
+    // (180.000 filas): ~316 ms. Aquí es una pregunta de EXISTENCIA (`priceMxnCents > 0`), no de valuación
+    // ni de orden, así que un `SELECT DISTINCT` que resuelve la BD devuelve el MISMO CONJUNTO de pares
+    // sin materializar el histórico. WHERE idéntico (MONEY_REF_WHERE + BASE_CARD_REF_WHERE, con el mismo
+    // LEFT JOIN que expresa `cardProductId IS NULL OR kind IN (set_base,other)`). El `Map<cardId,Set>`
+    // resultante es idéntico byte-a-byte (mismo conjunto) — verificado con el snapshot de `displayFinishes`.
+    const rows = await this.prisma.$queryRaw<{ cardId: string; finish: Finish }[]>(Prisma.sql`
+      SELECT DISTINCT pr."cardId", pr."finish"
+      FROM "PriceReference" pr
+      LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
+      WHERE pr."cardId" IN (${Prisma.join(ids)})
+        AND pr."productType" = 'raw'::"ProductType"
+        AND pr."gradeKey" = 'raw:NM'
+        AND pr."priceMxnCents" > 0
+        AND pr."refKind" = 'market'::"PriceRefKind"
+        AND (pr."cardProductId" IS NULL
+             OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+    `);
     for (const r of rows) {
       let s = map.get(r.cardId);
       if (!s) {

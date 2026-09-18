@@ -2,6 +2,7 @@ import { AdminBountiesService } from '../src/modules/pricing/admin-bounties.serv
 import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { VariantControlsService } from '../src/modules/pricing/variant-controls.service';
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { FxService } from '../src/modules/pricing/fx.service';
 import { AuditService } from '../src/modules/audit/audit.service';
@@ -323,7 +324,10 @@ describe('⭐ B-14 — `pricing.market`: el mercado de ESA variante, del MISMO c
         refKind: 'market',
       },
     ];
-    const prisma = { priceReference: { findMany: jest.fn(async () => rows) } } as unknown as PrismaService;
+    const prisma = {
+      priceReference: { findMany: jest.fn(async () => rows) },
+      $queryRaw: makeRefsRawQuery(rows), // H-PERF-1: getReferencesBatch poda vía $queryRaw
+    } as unknown as PrismaService;
     const svc = new PricingService(
       prisma,
       {} as SettingsService,

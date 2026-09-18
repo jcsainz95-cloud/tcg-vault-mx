@@ -24,6 +24,7 @@
  * del pentester, en centavos, para que la prueba hable el mismo idioma que el hallazgo.
  */
 import { PricingService, MONEY_REF_WHERE } from '../src/modules/pricing/pricing.service';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { FxService } from '../src/modules/pricing/fx.service';
@@ -143,6 +144,9 @@ function build(rows: Row[]) {
       }),
     },
     pendingPriceEntry: { updateMany: jest.fn(async () => ({ count: 0 })) },
+    // H-PERF-1: getReferencesBatch poda el histórico vía $queryRaw; el emulador aplica el mismo filtro
+    // (refKind='market' + base-card) sobre `rows` que antes aplicaba el findMany mockeado.
+    $queryRaw: makeRefsRawQuery(rows),
   };
   const fx = { getCurrent: jest.fn(async () => null) }; // fx null ⇒ liveMxnCents = priceMxnCents.
   const svc = new PricingService(
