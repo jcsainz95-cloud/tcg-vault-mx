@@ -917,6 +917,19 @@ model InventoryItem {
   // por orden); el segundo, el barrido `order-reservation-sweep` (`status='reserved' ∧ reservedUntil < now()`).
   @@index([reservedByOrderId])
   @@index([status, reservedUntil])
+  // PERF-CATALOG (perf, aditivo, money-safe): sirve la lectura COMPARTIDA de "Compra" —
+  // `GET /catalog/cards` (todos los `sort`) y `GET /catalog/facets` la ejecutan vía
+  // `CatalogService.fetchSellable` con `WHERE ownerType='platform' AND status='listed'
+  // [AND productType<>'sealed'] ORDER BY createdAt DESC`. Sin este índice el plan es
+  // Seq Scan + Sort sobre TODA la tabla (que crece sin cota: withdrawn/shipped/sold se
+  // acumulan mientras el catálogo vivo es una fracción pequeña). Con él, Index Scan de
+  // solo las filas publicadas y en el orden ya pedido (Sort eliminado). Medido sobre un
+  // modelo a escala (120k filas, 880 publicadas, tablas scratch, fixture intacto):
+  // 12.95 ms → 0.29 ms en esa lectura (Seq Scan 2104 buffers → Index Scan 48 buffers).
+  // El `createdAt DESC` sirve el ORDER BY del listado; el prefijo `(ownerType,status)`
+  // sirve también a `facets` (sin el filtro de productType). NO cambia datos ni resultados
+  // (un índice jamás altera la salida, solo el plan). ⚠️ Zona compartida (schema): a gates.
+  @@index([ownerType, status, createdAt(sort: Desc)])
 }
 
 model InventoryMovement {
