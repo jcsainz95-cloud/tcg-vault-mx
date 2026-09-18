@@ -1,5 +1,16 @@
 # PENDIENTES — TCG HUNT
 
+## 📌 ESTADO 2026-09-18 (pm) — sesión orquestador
+**Publicado y EN VIVO:** #41 (índice), #42 (poda histórico lectura), **#46** (robustez PII kyc/admin + PII detalle-venta + EQ-D1 lote 2) → production `3cfa9fa1`.
+**PRs listos para el click del dueño (reconciliados sobre `3cfa9fa1`, mergeables):**
+- **#47** `fe-p92-fix2` — 2 pruebas bomba-de-tiempo (una permanente ~14-nov). Solo test. QA ✅ + O-9.
+- **#48** `be-m11-debt2` — deuda M11 sellado (bitácora completa, cota reason, fin del N+1 en estado de precios). QA+seguridad+techlead ✅ + O-9. Reconciliado (merge de production, solo conflicto de SECURITY_NOTES).
+- **#49** `be-p53-cura4` — **P-53 cura de disco COMPLETA** (write-on-change en el escritor diario + frescura efectiva `evidenceDate ?? capturedDate` en los 5 sitios de selección F1–F5). QA+techlead+seguridad ✅ (4 rondas; el filtro de dinero cazó ALTO-1..4) + O-9. NO toca schema; el **script de poda** recupera disco ya acumulado = operación de datos aparte (ventana+respaldo, devops/dueño). Reconciliado.
+**Cerrado sin construir:** INE aviso (P-94 correo YA existe en prod `admin/mail/kyc-notice.templates.ts`; P-95 bloqueo NO conviene — re-rechazo es corrección-de-motivo deliberada, con canario `avisos.kyc-cycle.spec.ts`). Único gap menor: fila de auditoría duplicada en 2º rechazo (decisión del dueño, no urge). BE-89 índice descartado por medición (inútil).
+**Diseño listo, ESPERA aprobación del dueño:** **Decks Meta** (`claude/arch-decks-meta` `2491d795`: `docs/specs/DECKS_META_ARCH.md` + ARCHITECTURE §12 + API_CONTRACT §13). Standard, Limitless automático semanal, marcar+sustituto legal. Fase 0 = legalidad (2 columnas nullable en `Card` + índice, aditivo; el dato ya se descarga, coste red 0; rotación = editar 1 config). Fase 1 = feature (BE+FE, con fallback curado manual). Fase 2 = jalón Limitless (solo prod). Fase 3 = sustituto legal + avísame. Matcher por set+número. Descuento bundle = stream aparte (toca checkout). **No arrancar build hasta OK del dueño.**
+**Follow-ups (no bloquean):** D1 N+1 pre-existente en checkout `orders.service.ts:389 buildLines` (batchear, backend); D2 drift documental de P-53 (TECH_DEBT BE-80 apunta a código retirado `MANUAL_REF_PREDICATE`/`SAME_DAY_REF_CANDIDATES` → cerrar; ARCHITECTURE describe diseño capado viejo → arquitecto sync); filas §0-Q de EQ-D1 (arquitecto, ya candadas PENDIENTE-ARQUITECTO); nota postgres superusuario local password (`qapw53`, futuros agentes usan rol propio).
+
+
 ## 🌙 TANDA NOCTURNA (2026-09-18) — estado
 Publicado antes: **#41** (índice) y **#42** (poda del histórico) YA en producción (`cd0bf02c`).
 - **PII robustez 3a pantalla (detalle solicitud de venta):** ✅ **PR #45** esperando click. `be-pii-sellrequest` (`edf7d317` = código `b884e827` + SECURITY_NOTES). QA ✅ + seguridad ✅ + O-9 mío (canario 7/7; mutación→rojo). Autónomo (no depende de #43); try/catch local en `buylist.adminGet`, SPEI sigue ruidoso. No BD.
