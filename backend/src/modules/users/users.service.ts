@@ -323,12 +323,16 @@ export class UsersService {
       quotedTotalCents === undefined
         ? undefined
         : quotedTotalCents >= (await this.settings.getNumber(SettingKey.INE_THRESHOLD_CENTS));
+    // ⭐ Robustez PII (deuda M11): una `clabeEnc` que NO descifra (clave rotada / fila corrupta) NO
+    // puede tumbar esta pantalla con un 500. `tryDecryptOptional` DEGRADA: `clabeMasked` queda
+    // `undefined` y la respuesta gana `piiUnavailable: true` — aditivo y SOLO en ese estado.
+    const clabe = this.pii.tryDecryptOptional(kyc?.clabeEnc);
     return {
       kycStatus,
       // CLABE cifrada en reposo → se devuelve ENMASCARADA (`****1234`), nunca en claro.
       // Contrato GET /users/me/kyc: la clave es `clabeMasked` (el resto del sistema —
       // contrato, admin.service, frontend— usa ese nombre; `clabe` rompía clabeOnFile).
-      clabeMasked: maskClabe(this.pii.decryptOptional(kyc?.clabeEnc)),
+      clabeMasked: maskClabe(clabe.value),
       // v1.15 (§4.16c): booleano LIMPIO y simétrico a `ineOnFile`. Habilita el atajo del cotizador
       // "usar mi CLABE ****1234" (= omitir `clabe` en POST /buylist/requests, resuelto server-side).
       // Sin PII nueva (la CLABE sigue enmascarada en `clabeMasked`).
@@ -343,6 +347,10 @@ export class UsersService {
         : {}),
       // ⭐ v1.69 (P-78, §M6-K.5): el VEREDICTO, presente solo si preguntaron por un total.
       ...(ineRequiredForTotal === undefined ? {} : { ineRequiredForTotal }),
+      // ⭐ Robustez PII (deuda M11): SOLO si la CLABE existe pero no descifró. Aditivo — en el camino
+      // feliz esta clave NO viaja, así que la forma cerrada de §M6-K.5 no cambia. `clabeOnFile` sigue
+      // `true` (el dato EXISTE en la fila; no poder leerlo no lo borra).
+      ...(clabe.unavailable ? { piiUnavailable: true } : {}),
     };
   }
 
