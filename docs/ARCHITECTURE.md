@@ -4,6 +4,27 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.77 — ⭐⭐ BOUNTIES (ZONA DE DINERO): EL PISO DEJA DE FORZAR «ARRIBA DE MERCADO» (Q1) Y NACE ELIMINAR (Q2)**
+> (2026-09-19, arquitecto. Base: **v1.76, vigente entera**. Dos arreglos del dueño en `pricing`, medidos con
+> `archivo:línea` antes de diseñar (O-1). `API_CONTRACT` sube a **v1.77**.)
+>
+> | # | Qué cambia | Dónde | ¿Toca código? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Q1 — `isBountyEffective` gana `marketMxnCents` y un TOPE DE MERCADO.** Piso efectivo = **`min(curva, mercado)`**: empate-con-curva **rechazado** (tramo normal, sin cambio), empate-con-mercado **aceptado** (borde de cartas baratas, `bin ≥ mercado`). El gate `BOUNTY_BELOW_RULE` llama a la **misma** función ⇒ coherencia alta↔runtime **por construcción** (la lección de v1.62.2). Fórmula + tabla de 12 casos + criterios de prueba | §4.36.6 (predicado + tabla) · `API_CONTRACT §M2-B.8` | **Sí, backend** (`pricing-curve.ts`, `money.ts`, `variant-controls.service.ts`, los 4 call-sites) |
+> | **2** | ⭐⭐ **Q2 — nace `DELETE …/variant-controls/:cardId/:finish/bounty`** (`super_admin`, auditado). El servidor **ramifica por historia**: sin compra (`acquiredQty=0 ∧ completedAt=null`) ⇒ **borra**; con compra ⇒ **despublica** (nuevo estado `despublicada`, conserva el registro y sale de la vitrina + tablero por defecto). Verbo dedicado, **no** `remove:true` en el `PUT` | §4.36.6b (nueva) · `API_CONTRACT §M2-B.9` | **Sí, backend + schema + frontend** |
+> | **3** | **DDL mínimo `M-58`: UNA columna** `VariantPriceOverride.bountyUnpublishedAt DateTime?`, aditiva, nullable, **sin backfill**. Espejo de `bountyCompletedAt`; es lo que distingue `despublicada` (eliminado con historia) de `apagada` (hold reversible). `BountyState` **no** es enum de Prisma (clase L, derivado) | §4.36.6b · §11 | **Sí, backend** (migración aditiva) |
+> | **4** | **Invariante `INV-BOUNTY-COST` (Q2-C):** eliminar/despublicar un bounty **NO** modifica `acquisitionCostCents` ni crea asiento de P/L (el costo vive **una sola vez** en `InventoryItem`, `buylist.service.ts:7143`). **Ya se cumple estructuralmente** (tablas separadas) ⇒ candado de **no-regresión** | §4.36.6c (nueva) · `API_CONTRACT §M2-B.10` | **No** (solo prueba nueva) |
+> | **5** | **Bloque `PARA BACKEND` (§4.36.6d):** archivos/funciones exactas y las **pruebas-que-fallan** que el modelo fuerte escribe primero (protocolo de reparto de modelos, CLAUDE.md) | §4.36.6d (nueva) | — (guía de implementación) |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **el tramo NORMAL de Q1 es idéntico a
+> v2.0** — solo el borde `curva ≥ mercado` se ablanda. **(b)** ⛔ **`bounty:null` en el `PUT` sigue siendo APAGAR**
+> (hold reversible); eliminar es otro verbo. **(c)** ⛔ **el `DELETE` no toca `sellOverrideCents`/`buyOverrideCents`**
+> ni abre una segunda puerta de `upsert`. **(d)** ⛔ re-publicar **no reinicia** los contadores de historia (M-46).
+> **Desviación enrutada:** **`D-PROC-Q1`** — Q1 relaja **criterio 91 en el borde** (la vitrina puede pagar por debajo
+> del bin inflado, nunca por debajo del mercado); si `PROJECT.md` lo fija LOCKED sin este matiz, la frase se enruta a
+> **product-owner** (regla de conflicto). Ver §4.36.6 y §9.
+>
+> ---
 > **Rev v1.76 — ⭐⭐ ESTE DOCUMENTO PROMETÍA UNA GARANTÍA QUE EL CÓDIGO NO DA (§4.54.4), Y UN ACUSE QUE SE FIRMA
 > CON MX$0.00 NO ES UN ACUSE**
 > (2026-09-14, arquitecto. Base: **v1.73 + §4.54/§4.55, vigentes enteras salvo la fila que esta rev corrige**.
@@ -13982,28 +14003,244 @@ compara contra el mercado** — solo **contra la curva de compra**. El hueco: ho
 crear** (`variant-controls.service.ts:301-315`); si después sube el mercado y la curva rebasa al bounty, la «oferta»
 publicada **paga menos que la tarifa normal** y aun así sigue publicada y ganando la precedencia #1.
 
-**Predicado único (puro, en `common/pricing-curve.ts`; prohibido duplicar):**
+**Predicado único (puro, en `common/pricing-curve.ts`; prohibido duplicar). ⚠️ AMENDADO por §4.36.6b-piso
+(decisión del dueño Q1, 2026-09-19): gana el argumento `marketMxnCents` y el TOPE DE MERCADO.**
 
 ```ts
-export function isBountyEffective(bountyPriceCents: number | null, curveQuoteCents: number | null): boolean {
+export function isBountyEffective(
+  bountyPriceCents: number | null,
+  curveQuoteCents: number | null,
+  marketMxnCents: number | null,        // ⭐ v2.2 (Q1): el mercado que ENTRÓ al cálculo de la curva de compra
+): boolean {
   if (bountyPriceCents == null || bountyPriceCents <= 0) return false;
-  if (curveQuoteCents == null) return true;              // curva sin resolver ⇒ el bounty explícito manda
-  return bountyPriceCents > curveQuoteCents;             // ESTRICTAMENTE mayor (criterio 91)
+  if (curveQuoteCents == null) return true;              // curva sin resolver (⇒ mercado null) ⇒ el bounty explícito manda
+  // El candado exige BATIR la tarifa normal (curva)… PERO nunca obliga a pagar por ENCIMA del mercado:
+  // en el borde de cartas baratas (bin/piso ≥ mercado) basta con IGUALAR el mercado (empate CON EL MERCADO aceptado).
+  return (
+    bountyPriceCents > curveQuoteCents ||
+    (marketMxnCents != null && bountyPriceCents >= marketMxnCents)
+  );
 }
 ```
 
-**Tres seams (las tres, no solo la primera):**
+> **Por qué el mercado entra al predicado (Q1, el problema real del dueño).** `curveQuoteCents =
+> max(bin, mercado × pct(mercado))` (`resolveBuyFromCurve`). Para cartas **baratas** el término `bin/piso` puede quedar
+> **pegado o por encima del mercado**, así que `curveQuoteCents ≥ mercado`; exigir `bounty > curveQuoteCents` obligaba a
+> poner el bounty **estrictamente por encima del mercado** (*«a fuerza pagamos arriba de mercado»*). La decisión del
+> dueño: **mantener el mínimo = su precio de compra normal, pero que el candado NUNCA obligue a un precio estrictamente
+> por encima de la referencia de mercado**. En una fórmula: el piso efectivo del bounty es **`min(curveQuoteCents,
+> marketMxnCents)`**, con una asimetría de empate que la forma `OR` de arriba captura exactamente:
+> - **empate CON LA CURVA se RECHAZA** (`> curveQuoteCents`, estricto — sin cambio, criterio 91 en su tramo normal);
+> - **empate CON EL MERCADO se ACEPTA** (`>= marketMxnCents`) — es lo único que impide forzar un precio > mercado.
 
-| Seam | Dónde | Comportamiento |
+**Tabla de casos NORMATIVA** (`mercado` = `marketMxnCents`; `curva` = `curveQuoteCents = max(bin, mercado·pct)`; el
+resultado es el mismo en las CUATRO seams porque las cuatro llaman a `isBountyEffective`):
+
+| mercado | curva | bounty | ¿efectivo? / alta | basis en runtime | código en el alta |
+|---|---|---|---|---|---|
+| `null` (pending) | `null` | cualquiera `> 0` | **SÍ** (bounty explícito manda) | `bounty` | 200 (acepta) |
+| `null` (pending) | `null` | `≤ 0` | NO | — | `422 BOUNTY_PRICE_REQUIRED` |
+| 1000 (cara) | 400 (`curva < mercado`) | 401 | **SÍ** (`> curva`) | `bounty` | 200 |
+| 1000 | 400 | **400** (empate curva) | **NO** | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+| 1000 | 400 | 399 | NO | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+| 1000 | 400 | 1000 | SÍ | `bounty` | 200 |
+| 500 (barata) | 700 (`curva ≥ mercado`, bin domina) | 701 | SÍ (`> curva` y `≥ mercado`) | `bounty` (paga 701) | 200 |
+| 500 | 700 | 650 | **SÍ** (`≥ mercado`, aunque `< bin`) | `bounty` (paga 650) | 200 |
+| 500 | 700 | **500** (empate MERCADO) | **SÍ** (empate con mercado aceptado) | `bounty` (paga 500 = mercado) | **200** |
+| 500 | 700 | 499 | **NO** (`< mercado` **y** `< curva`) | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+| 500 | 500 (bin == mercado) | 500 | SÍ (`≥ mercado`) | `bounty` | 200 |
+| 500 | 500 | 499 | NO | (curva/override) | **`422 BOUNTY_BELOW_RULE`** |
+
+Condición de RECHAZO equivalente (la que implementa el `422 BOUNTY_BELOW_RULE`): un bounty es «below-rule» **iff**
+`bountyPriceCents ≤ curveQuoteCents ∧ (marketMxnCents == null? false : bountyPriceCents < marketMxnCents)` — es decir,
+está por debajo de la curva **y** además no alcanza el mercado. Nótese la asimetría `≤` (curva) vs `<` (mercado).
+
+**Coherencia alta↔runtime — POR CONSTRUCCIÓN, no por convención (la lección de v1.62.2).** El gate de creación
+**llama a `isBountyEffective`**, la misma función que gobierna la cotización, la vitrina y la pantalla de estado; el
+`422 BOUNTY_BELOW_RULE` dispara **exactamente cuando `isBountyEffective(...) === false`**. Así, un bounty que el alta
+ACEPTA es necesariamente **efectivo** al cotizar y **visible** en `/buylist/bounties`, y uno que el alta rechaza jamás
+podría colarse como inefectivo en runtime. ⛔ **Prohibido re-derivar el gate con un `<`/`<=` a mano**: repetir el
+predicado es cómo se llegó a la divergencia que §4.36.6 existe para cerrar (mutación **B-2**/**B-16**).
+
+**Las CUATRO seams (la cuarta se añadió en §M2-B.0):**
+
+| Seam | Dónde | Cómo pasa `marketMxnCents` |
 |---|---|---|
-| **CREAR/EDITAR** | `PUT /admin/pricing/variant-controls/:cardId/:finish` | `enabled:true` con `priceCents ≤` cotización de curva vigente ⇒ **`422 BOUNTY_BELOW_RULE`** (con `curveQuoteCents` en el detalle). Curva `pending` ⇒ se **acepta** (el bounty es precio explícito; es el caso donde más se necesita) |
-| **COTIZAR** | `quoteAcquisitionFromCurve` (núcleo único de compra) | bounty **no efectivo** ⇒ se **salta el peldaño 1** y cae a `override`/curva/pendiente. El `basis` resultante **nunca** es `bounty` |
-| **PUBLICAR** | `GET /buylist/bounties` (vitrina Home + Vender) | se resuelve la efectividad **por bounty** y se **filtran los no efectivos ANTES** de aplicar el cap 50 (seleccionar candidatos → filtrar → ordenar por `bountyPriceCents desc` → top 50). Filtrar después del cap dejaría huecos silenciosos |
+| **CREAR/EDITAR** | `PUT /admin/pricing/variant-controls/:cardId/:finish` | de `quoteAcquisitionFromCurve(referenceMxnCents, curve)` — devuelve `curveQuoteCents` **y** `marketMxnCents` en una sola llamada. `enabled:true` con `!isBountyEffective(priceCents, curveQuoteCents, marketMxnCents)` ⇒ **`422 BOUNTY_BELOW_RULE`** (con `curveQuoteCents` **y** `marketMxnCents` en el detalle). Curva `pending` ⇒ se **acepta** |
+| **COTIZAR** | `quoteAcquisitionFromCurve` (núcleo único de compra) | ya tiene `marketMxnCents` y `curveQuoteCents` en mano (`money.ts:258-266`). bounty **no efectivo** ⇒ se **salta el peldaño 1** y cae a `override`/curva/pendiente; el `basis` **nunca** es `bounty` |
+| **PUBLICAR** | `GET /buylist/bounties` (vitrina Home + Vender) | `marketMxnCents` sale de la misma `PriceReference` batch que ya alimenta a la curva; se filtran los no efectivos **ANTES** del cap 50 |
+| **ESTADO (binder/consola)** | `composeVariantPricing` → `state` de §M2-B.0 | `pricing.market.referenceMxnCents` (v1.62.2) es ese mismo mercado; la pantalla NO re-implementa el predicado |
 
-> **Cambio explícito de semántica en el 422 (bandera para QA/PO):** el gate de creación pasa de `<` (rechaza solo si es
-> **menor**) a `≤` (rechaza también el **empate**). Sin este ajuste, un bounty exactamente igual a la curva **pasaría el
-> alta** y sería **invisible en runtime** (el predicado exige `>` estricto por criterio 91) — una incoherencia entre
-> alta y ejecución. Es un endurecimiento money-safe, reversible en dato (subir el bounty $0.01).
+> **Cambio explícito de semántica (bandera para QA/PO), v2.2 (Q1):** el gate de creación pasa a comparar contra el
+> **piso efectivo `min(curva, mercado)`**. En el tramo NORMAL (`curva < mercado`, cartas caras) **no cambia nada**:
+> sigue exigiendo `> curva` (empate con la curva rechazado — el endurecimiento de v2.0 se conserva). En el **borde**
+> (`curva ≥ mercado`, cartas baratas con piso dominante) el candado deja de rechazar un bounty `∈ [mercado, curva]`:
+> ahora esos bounties se **aceptan y son efectivos** (pagan su propio monto, que puede quedar por **debajo del bin**
+> pero **nunca por debajo del mercado**). Es un **ablandamiento money-safe deliberado del dueño**, no un bug.
+>
+> **⚠️ Enmienda a criterio 91 en el borde — dicho entero, no escondido.** Criterio 91 rezaba *«todo lo de la vitrina es
+> mejor que la tarifa estándar»*. En el borde, la tarifa estándar (el bin) está **por encima del mercado**, y las dos
+> metas —*«batir la tarifa estándar»* y *«nunca forzar por encima del mercado»*— son **lógicamente incompatibles**: no
+> existe un bounty que sea a la vez `> bin` y `≤ mercado` cuando `bin > mercado`. La decisión Q1 del dueño **reancla la
+> garantía de la vitrina al MERCADO** cuando el bin lo rebasa: en ese borde la vitrina promete *«pago al menos el
+> mercado, nunca te obligo a pagar por encima»*, no *«pago más que mi propia tarifa inflada»*. Esta enmienda es del
+> dueño (autoridad de negocio) y **prevalece sobre criterio 91 en su tramo de borde**; el tramo normal de criterio 91
+> queda intacto. *(Regla de conflicto: si `PROJECT.md` transcribe criterio 91 como LOCKED sin este matiz, la frase de
+> `PROJECT.md` debe enmendarse — se enruta a product-owner; el contrato NO puede contradecir `PROJECT.md`, así que
+> hasta que se enmiende esta relajación queda **normada pero marcada como bloqueada por D-PROC**, igual que en
+> §4.36.6.)*
+
+#### 4.36.6b ELIMINAR un bounty — borrar-si-sin-historia / despublicar-si-con-historia (decisión Q2, v2.2)
+
+**El hueco medido.** Hoy `variant-controls.service.ts:294-296` trata `bounty:null` como **APAGAR** (`bountyEnabled=false`,
+un *hold* reversible) y **conserva la fila** con su historial. La fila `VariantPriceOverride` solo se BORRA físicamente
+si TODO queda vacío **y** no hay historia de bounty (`:147-164`: `bountyAcquiredQty===0 ∧ bountyCompletedAt==null`). En
+consecuencia, **un bounty que ya compró ≥1 pieza nunca se puede eliminar, solo apagar.** No existe operación de
+«eliminar». El dueño la pidió.
+
+**Decisión del dueño (Q2), ramificada por historia de compra:**
+
+| Rama | Condición (server-side) | Qué hace | Estado resultante |
+|---|---|---|---|
+| **A · BORRAR de verdad** | `bountyAcquiredQty === 0 ∧ bountyCompletedAt == null` (nunca se compró nada bajo el bounty) | **limpia** todos los campos de bounty (`bountyEnabled=false`, `bountyPriceCents=null`, `bountyTargetQty=null`, `bountyUnpublishedAt=null`); si la fila queda **sin** `sellOverrideCents`/`buyOverrideCents`, se **borra físicamente** (comportamiento ya existente de `:147-164`) | **no existe bounty** (fila fuera de `enScope`, o borrada) |
+| **B · DESPUBLICAR** | `bountyAcquiredQty > 0 ∨ bountyCompletedAt != null` (ya se compró algo) | **conserva el registro/historial** (`bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`, `bountyCompletedAt` **intactos**), pone `bountyEnabled=false` y **marca `bountyUnpublishedAt = now()`** | **`despublicada`** (nuevo estado, §M2-B.0) — fuera de la vitrina pública **y** del tablero admin por defecto, pero **queryable como registro** |
+
+Palabras del dueño: *«solo se despublica el bounty si se llegó a comprar algo»*. La rama la decide el **servidor** por la
+historia, **no** el cliente: el cliente pide *eliminar*, el servidor elige *borrar* o *despublicar*.
+
+**Verbo y forma — `DELETE` dedicado, NO un `bounty:{remove:true}` en el `PUT`.**
+
+```
+DELETE /api/v1/admin/pricing/variant-controls/:cardId/:finish/bounty      (super_admin, AUDITADO)
+```
+
+Por qué un `DELETE` y no reusar el `PUT` (que la doctrina de §M2-B.2 pide reusar para la CONSOLA):
+1. **La doctrina «cero superficie nueva» prohíbe una segunda puerta de *upsert*** — porque un segundo `PUT` reintroduce
+   el riesgo de pisar overrides por la semántica de omisión (§M2-B.3). Un `DELETE` **no es un upsert**: está acotado al
+   **sub-recurso `bounty`** de esa variante y **no toca** `sellOverrideCents`/`buyOverrideCents`, así que no reabre ese
+   riesgo. Es otro verbo, no otra puerta de escritura de controles.
+2. **`bounty:null` en el `PUT` ya significa APAGAR (hold), y ese significado NO cambia.** Meter «eliminar» como
+   `bounty:{remove:true}` obligaría a un caso mágico dentro de la tabla omitir/`null`/valor (el `remove` ignoraría
+   `priceCents`/`targetQty`), ensuciando la única semántica de merge del endpoint. Apagar y eliminar son **lifecycle
+   distintos**: apagar es reversible y sigue en el tablero; eliminar es terminal.
+3. **Precedente del propio proyecto:** `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` ya existe — el
+   proyecto **sí** usa `DELETE` dedicado para sub-entidades de pricing.
+4. **Auditoría money-adjacent (pedido de seguridad):** un verbo propio lleva su **evento de auditoría propio**
+   (`bounty.deleted` vs `bounty.unpublished`), con la pre-imagen para reconstruir qué se borró.
+
+**El estado `despublicada` necesita una columna, y es la única DDL.** «Apagada» (hold) y «despublicada» comparten
+`bountyEnabled=false ∧ bountyCompletedAt` posiblemente `null`: **no son distinguibles con las columnas de hoy**. Se
+añade **`bountyUnpublishedAt DateTime?`** a `VariantPriceOverride` (migración **M-58** — el número libre: **M-57** es el
+más alto en `backend/prisma/migrations/`, backend confirma antes de crear; aditiva, `NULL`able, **sin
+backfill** — toda fila existente = `null` = «nunca despublicada»). Es el espejo exacto de `bountyCompletedAt`: un sello
+temporal nullable que marca una transición de ciclo de vida y alimenta un estado **derivado** (`state` sigue sin
+persistirse; §M2-B.0). ⛔ **`BountyState` NO es un enum de Prisma** (es unión de literales, clase L §M2-B.0): añadir
+`despublicada` **no** toca `schema.prisma` salvo por la columna `bountyUnpublishedAt`.
+
+**Re-publicar tras despublicar / recrear tras borrar (semántica de retorno).** Un `PUT … bounty:{enabled:true,…}`
+posterior **limpia `bountyUnpublishedAt=null`** (vuelve a la vitrina y al tablero) y pasa por el gate `BOUNTY_BELOW_RULE`
+como cualquier alta. ⚠️ **Los contadores de historia (`bountyAcquiredQty`, `bountyCompletedAt`) NO se reinician al
+re-publicar** — misma doctrina que M-46 (*copiar sí, adivinar no*; no se borra historia de dinero). *Si el dueño quiere
+un bounty «desde cero» con el contador en 0, eso es una decisión de negocio distinta y va a `PROJECT.md` (regla de
+conflicto: no lo asumo aquí).* Contrato: §M2-B.9.
+
+**Criterios de prueba que deben FALLAR si se implementa mal** (el modelo fuerte los escribe primero):
+- **Rama A borra:** alta de bounty sin compra (`acquiredQty=0`, no completado) → `DELETE` → la variante ya no trae
+  bounty (`GET /admin/pricing/bounties` sin la fila; `pricing.bounty` ausente/limpio) y, si no había otros overrides,
+  la fila `VariantPriceOverride` **no existe** en BD. Rojo si queda una fila apagada con `bountyPriceCents` persistido.
+- **Rama B despublica y CONSERVA:** alta + simular `acquiredQty > 0` → `DELETE` → `state:"despublicada"`,
+  `bountyPriceCents`/`bountyTargetQty`/`bountyAcquiredQty` **iguales** a antes; **ausente** de `GET /buylist/bounties`
+  **y** del `GET /admin/pricing/bounties` por defecto; **presente** con `?state=despublicada`. Rojo si borra la
+  historia o si sigue apareciendo en la vitrina/tablero por defecto.
+- **La rama la decide la historia, no el cliente:** el mismo `DELETE` sobre dos fixtures idénticos salvo `acquiredQty`
+  produce borrado en uno y `despublicada` en el otro.
+- **Auditoría:** ambas ramas escriben un `AuditLog` (`bounty.deleted` / `bounty.unpublished`) con actor + pre-imagen.
+
+#### 4.36.6c Invariante contable — eliminar/despublicar un bounty NO toca el costo ni el P/L (Q2-C, NORMATIVO)
+
+**Estado medido: YA se cumple estructuralmente. Esto es un candado de NO-REGRESIÓN, no una reparación.**
+
+`buylist.service.ts:7143`: al convertir una compra en inventario,
+`InventoryItem.acquisitionCostCents = offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0` — el **bruto
+pagado** (bajo bounty, ese bruto **ES** el precio del bounty). Es la **fuente ÚNICA** del costo; el P&L por carta (M7)
+lo lee de ahí. El bounty vive en `VariantPriceOverride`, **tabla separada** de las piezas (`InventoryItem`). Por
+construcción, borrar/despublicar un bounty **solo toca `VariantPriceOverride`** (y `AuditLog`) y **jamás**
+`InventoryItem`. Palabras del dueño: *«ya debería de estar el costo en inventario, no en el P/L también»* — medido: así
+es.
+
+> **INV-BOUNTY-COST (invariante normativo).** Eliminar o despublicar un bounty **NO modifica** `acquisitionCostCents`
+> de ninguna pieza ya adquirida, **NO** crea ni altera ningún asiento de P/L, y **NO** genera gasto. El costo de una
+> pieza vive **una sola vez**, en `InventoryItem.acquisitionCostCents`, sellado en el momento de la conversión a
+> inventario. El bounty es la **regla de precio** que fijó ese bruto; una vez capturado el costo, la regla y la pieza
+> son independientes. *(Es la doctrina §0-B.1: dos fuentes para un mismo número divergen; el costo tiene una.)*
+
+**Criterio de prueba (candado de no-regresión):**
+- **Inmutabilidad del costo:** crear bounty → adquirir ≥1 pieza bajo el bounty (`acquisitionCostCents == bountyPrice`)
+  → `DELETE` (rama B, despublicar) → el `acquisitionCostCents` de esa pieza es **idéntico** al de antes del `DELETE`.
+  Rojo si cambia un centavo.
+- **Cero asiento de P/L:** el reporte M7 de esa carta **antes y después** del `DELETE` reporta el **mismo** costo y el
+  **mismo** P&L (delta = 0). Rojo si aparece un gasto o se recomputa el costo.
+- **Aislamiento de tablas (canario estructural):** durante la transacción del `DELETE`, **cero** `UPDATE`/`INSERT`
+  sobre `InventoryItem`; las únicas escrituras son a `VariantPriceOverride` y `AuditLog`. Rojo si alguien alguna vez
+  cablea el borrado del bounty a tocar el inventario. *Este candado convierte «hoy se cumple por diseño» en «no se
+  puede romper sin que un test lo grite».*
+
+#### 4.36.6d PARA BACKEND — archivos, funciones y las pruebas-que-FALLAN (protocolo modelo-fuerte-primero)
+
+**Reparto de modelos (CLAUDE.md).** Todo esto toca `pricing`/`buylist`/`inventory` — **dinero** ⇒ el **modelo fuerte
+escribe el plano y las pruebas que fallan**; el barato solo las hace pasar sobre código de producción, **jamás** toca
+pruebas ni candados. La prueba es el contrato entre ambos. **Escribir primero las pruebas rojas de abajo** y verlas
+fallar antes de tocar producción.
+
+**Q1 — el piso del bounty con tope de mercado (§M2-B.8 / §4.36.6):**
+- `backend/src/common/pricing-curve.ts` — `isBountyEffective` (`:609`): **cambia la firma** a
+  `(bountyPriceCents, curveQuoteCents, marketMxnCents)` y el cuerpo a `bounty>0 ∧ (curve==null ∨ bounty>curve ∨
+  (market!=null ∧ bounty>=market))`. Es el **único cuerpo** (cuatro seams). Actualiza el JSDoc.
+- `backend/src/common/money.ts` — `quoteAcquisitionFromCurve` (`:260`): pasa `marketMxnCents` a `isBountyEffective`
+  (ya lo tiene en mano; `:258-266` devuelve ambos). Sin otro cambio de precedencia.
+- `backend/src/modules/pricing/variant-controls.service.ts` — el gate `BOUNTY_BELOW_RULE` (`:365-386`): reemplaza el
+  predicado `curveQuoteCents != null ∧ next.bountyPriceCents <= curveQuoteCents` por
+  `!isBountyEffective(next.bountyPriceCents, curveQuoteCents, marketMxnCents)`; toma `marketMxnCents` del **mismo**
+  `quoteAcquisitionFromCurve(referenceMxnCents, curve)` que ya llama; incluye `curveQuoteCents` **y** `marketMxnCents`
+  en el `details` del `422`.
+- **Los otros dos seams** (`buylist.service.ts` vitrina, y `admin-bounties.service.ts`/`composeVariantPricing` estado)
+  ya llaman a `isBountyEffective`: **actualiza cada call-site** para pasar el mercado (vitrina: de la `PriceReference`
+  batch; consola/binder: `pricing.market.referenceMxnCents`). ⛔ Un call-site que no pase mercado no compila (la firma
+  cambió) — es el candado de que nadie se quede en la versión de dos argumentos.
+- **Pruebas rojas primero:** unitarios de `isBountyEffective` con la tabla de casos de §M2-B.8 (los 12 renglones), el
+  **canario del dueño** (para todo `curva≥mercado` existe aceptado `≤mercado`) y **B-16** (dos superficies: el `PUT`
+  acepta `bounty=mercado` en el borde ⇒ la vitrina lo trae; `bounty=mercado−1` ⇒ `422` y ausente).
+
+**Q2 — eliminar/despublicar (§M2-B.9 / §4.36.6b):**
+- `backend/prisma/schema.prisma` — `VariantPriceOverride`: **+`bountyUnpublishedAt DateTime?`** (M-58, número libre —
+  confirmar contra `backend/prisma/migrations/`). `BountyState` **no** es enum de Prisma; no se toca ningún enum.
+- `backend/src/modules/pricing/variant-controls.service.ts`:
+  - **nuevo** `deleteBounty(cardId, finish, actor)`: computa `hasHistory = bountyAcquiredQty>0 ∨ bountyCompletedAt!=null`;
+    **rama A** limpia campos de bounty y reusa la limpieza de fila vacía (`:147-164`); **rama B** setea
+    `bountyEnabled=false` + `bountyUnpublishedAt=now()` conservando el resto; escribe `AuditLog`
+    (`bounty.deleted`/`bounty.unpublished`) con pre-imagen; `404 BOUNTY_NOT_FOUND` si no hay bounty en alcance;
+    idempotente si ya `despublicada`.
+  - `mergeBounty` + persistencia: al `enabled:true` **limpia `bountyUnpublishedAt=null`** (re-publicar); **no** reinicia
+    `bountyAcquiredQty`/`bountyCompletedAt`.
+  - la limpieza de fila vacía (`:147-164`): añade `bountyUnpublishedAt == null` al predicado de «fila vacía» (una
+    `despublicada` **no** califica como vacía — pero como siempre tiene historia, ya no calificaba; el guard es explícito).
+- `backend/src/modules/pricing/*.controller.ts` (el controller de `variant-controls`, **no** el de `admin/pricing/bounties`
+  que es solo `@Get`): **nueva** ruta `@Delete(':cardId/:finish/bounty')`, `@Roles(super_admin)`, auditada.
+- `backend/src/modules/pricing/admin-bounties.service.ts` (handler de `GET /admin/pricing/bounties`): deriva el estado
+  `despublicada` (discrimina **primero**, §M2-B.0); `data` **excluye** `despublicada` salvo `?state=despublicada`;
+  `counts` gana la sexta cubeta y la reporta **siempre** (regla 2, es selector); el orden `attention_first` la pone al
+  final.
+- `backend/src/modules/buylist/buylist.service.ts` (vitrina `/buylist/bounties`, ~`:715`): excluye
+  `bountyUnpublishedAt IS NOT NULL` del conjunto de candidatos **antes** del cap 50 (defensa; ya está fuera por
+  `enabled=false`).
+- **Pruebas rojas primero:** **B-17** (rama por historia), **B-18** (fuera de vitrina+tablero por defecto, dentro con
+  `?state=despublicada`), **B-19** (no colapsa con `apagada`/`completada`), **B-20** (verbo `DELETE`, no `remove:true`;
+  no toca overrides sell/buy).
+
+**Q2-C — invariante contable (§M2-B.10 / §4.36.6c):**
+- **Ningún archivo de producción cambia por C** (ya se cumple estructuralmente). Solo **prueba de no-regresión B-21**:
+  adquirir pieza bajo bounty (`buylist.service.ts:7143` sella `acquisitionCostCents`) → `DELETE` → costo idéntico, M7
+  delta 0, cero escrituras a `InventoryItem` en la tx del `DELETE`.
 
 #### 4.36.0b Deuda D10 — ocho respuestas sin forma declarada: la declara el ARQUITECTO (v2.1.8)
 
@@ -26130,6 +26367,30 @@ Riesgos técnicos:
     diseña panel de bounties** — el humano lo dejó como proyecto aparte. La exigencia vive **solo** aquí»*. **Esa
     frase es mía y está en mi documento**, así que **la corrijo yo** (§M2-B la sustituye). Las cinco de `PROJECT.md`
     **no las toco**: son de otro dueño (regla 5).
+
+- **⚠️ v1.77 (Q2) — la operación ELIMINAR bounty (`DELETE …/bounty`, §4.36.6b) cae bajo el paraguas de `D-PROC-7`.**
+  Eliminar/despublicar es una **acción de gestión de bounties**; la misma enmienda de las cinco frases que `D-PROC-7`
+  pide para la consola de ver+editar **debe incluir explícitamente** el borrado. **No** abre una desviación nueva —es el
+  mismo `PROJECT.md` y el mismo dueño (product-owner)—; se anota para que la enmienda no se quede corta.
+
+- **⛔ NUEVA (v1.77) — `D-PROC-Q1`: Q1 RELAJA CRITERIO 91 EN EL BORDE, y criterio 91 puede vivir LOCKED en `PROJECT.md`.**
+  **Dueño del arreglo: product-owner** (yo no escribo `PROJECT.md`). **Estado: ⚠️ ABIERTA — bloquea la implementación de
+  §4.36.6 / `API_CONTRACT §M2-B.8` SI criterio 91 está LOCKED sin este matiz.**
+  - **Qué decide el dueño (Q1, 2026-09-19):** el candado del bounty **nunca debe forzar un precio estrictamente por
+    encima del mercado**. En el borde (`curva = max(bin, mercado·pct) ≥ mercado`, cartas baratas) eso obliga a **aceptar
+    un bounty que puede quedar por debajo del bin** (su tarifa de compra normal inflada), aunque **nunca por debajo del
+    mercado**. Fórmula y tabla en §4.36.6.
+  - **Por qué es una desviación y no una nota:** criterio 91 reza *«todo lo de la vitrina es mejor que la tarifa
+    estándar»*. En el borde, *«batir la tarifa estándar (bin)»* y *«nunca forzar arriba de mercado»* son **lógicamente
+    incompatibles** (no hay bounty a la vez `> bin` y `≤ mercado` cuando `bin > mercado`). Q1 **reancla la garantía al
+    MERCADO** en ese borde. Como **`PROJECT.md` manda sobre el contrato**, si criterio 91 está LOCKED sin este matiz, QA
+    leyendo `PROJECT.md` **debería rechazar** un bounty de borde por debajo del bin — *implementar Q1 haría fallar el
+    gate por hacer lo que el dueño pidió* (mismo patrón que D-PROC-7).
+  - **Qué hace falta (solo product-owner, con aprobación del humano):** enmendar criterio 91 para que su tramo de borde
+    diga *«al menos el mercado, nunca por encima»*. **NO MEDIDO** si criterio 91 está hoy LOCKED en `PROJECT.md` ni con
+    qué palabras — no lo tengo a la vista en este pase; **la medición que lo cierra** es `rg "criterio 91" PROJECT.md` y
+    leer si está en la lista LOCKED. Hasta entonces, la relajación de §4.36.6 queda **normada pero marcada como
+    bloqueada por D-PROC-Q1**.
 
 - **⚠️ NUEVA (v1.62.1) — `D-UX-1`: `DESIGN_SYSTEM §28` contradice el contrato en CUATRO puntos, y uno pinta
   «está pagando» sobre un bounty que no puede pagar.**
