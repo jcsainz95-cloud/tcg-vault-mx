@@ -4781,3 +4781,132 @@ export interface IvaTransferUpdateResponse {
   ivaTransferPct: number;
   preview: IvaTransferPreviewDTO;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// §13 — DECKS META (2026-09-18, arquitecto). Espejo de docs/API_CONTRACT.md §13. El carrito sigue
+// siendo de cliente (array de inventoryItemId, §4-G): estos DTOs devuelven los `inventoryItemId`
+// a agregar; NO hay carrito servidor nuevo. Precio y piezas se REUSAN de §2 (no se reinventan).
+//
+// LEGALIDAD (§13 «Convenciones»): una línea se ofrece como jugable SOLO si `legal:true`
+// (isLegalStandardNow). `legal:false` ⇒ rotada/no vigente y NO puede agregarse a jugar.
+// `matchStatus ≠ 'matched'` ⇒ no identificada, sin `card`/precio (nunca se inventa carta ni precio).
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/** §13 — el grupo de la sección de deck (Pokémon / Entrenador / Energía). */
+export type MetaCardGroup = 'pokemon' | 'trainer' | 'energy';
+
+/**
+ * §13 — resultado del emparejado set+número ↔ nuestra `Card`. Solo `matched` trae `card` y precio;
+ * el resto se muestra «no identificada» sin inventar nada (regla dura del dueño).
+ */
+export type MetaMatchStatus =
+  | 'matched'
+  | 'ambiguous'
+  | 'unmatched_set'
+  | 'unmatched_number'
+  | 'unmatched_basic_energy';
+
+/** §13 — la `Card` casada de una línea (solo cuando `matchStatus === 'matched'`). */
+export interface MetaDeckCardRefDTO {
+  cardId: string;
+  name: string;
+  imageUrl: string;
+}
+
+/**
+ * §13 (Fase 3, opcional) — otra impresión LEGAL de la misma carta en stock, sugerida cuando la
+ * línea original está agotada o rotada. Pasa por la MISMA compuerta de legalidad; nunca se sugiere
+ * una impresión rotada.
+ */
+export interface MetaDeckLineSubstituteDTO {
+  cardId: string;
+  name: string;
+  setCode: string;
+  number: string;
+  availableQty: number;
+  unitPriceMxnCents: number | null;
+  unitInventoryItemIds: string[];
+}
+
+/**
+ * §13 `MetaDeckLineDTO` — una línea del deck con su disponibilidad.
+ *
+ * `unitInventoryItemIds`: hasta `availableQty`, cheapest-first — es el add-to-cart «de jalón».
+ * Una línea NO jugable (`legal:false`) o NO identificada (`matchStatus≠matched`) NO aporta
+ * `unitInventoryItemIds` propios (no se vende como jugable); puede traer `substitute` (Fase 3).
+ */
+export interface MetaDeckLineDTO {
+  rawName: string;
+  setCode: string;
+  number: string;
+  quantity: number;
+  group: MetaCardGroup;
+  matchStatus: MetaMatchStatus;
+  /** `null` si la línea no casó a una `Card` (nunca se inventa). */
+  card: MetaDeckCardRefDTO | null;
+  /** `false` ⇒ rotada / no vigente para jugar (isLegalStandardNow). */
+  legal: boolean;
+  /** `min(quantity, stockNM)`; 0 si falta. */
+  availableQty: number;
+  /** «desde» de la carta (salePriceCents); `null` si pending/faltante. */
+  unitPriceMxnCents: number | null;
+  /** Hasta `availableQty`, cheapest-first — las piezas del «de jalón». */
+  unitInventoryItemIds: string[];
+  substitute?: MetaDeckLineSubstituteDTO;
+}
+
+/** §13 — las líneas del deck agrupadas por sección. Misma forma en el detalle y en `paste`. */
+export interface MetaDeckGroupsDTO {
+  pokemon: MetaDeckLineDTO[];
+  trainer: MetaDeckLineDTO[];
+  energy: MetaDeckLineDTO[];
+}
+
+/** §13 `GET /decks-meta` — teja del top-10 del meta. */
+export interface MetaDeckSummaryDTO {
+  slug: string;
+  name: string;
+  rank: number;
+  /** % del meta, si la fuente lo da. */
+  sharePct?: number;
+  /** share_actual − anterior (▲=+, ▼=−, 0). */
+  trend?: number;
+  /** «desde»: suma de disponibles+legales con precio; opcional. */
+  fromPriceMxnCents?: number;
+  /** Σ availableQty de líneas legales. */
+  availableCount: number;
+  totalCount: number;
+  /** arte de una Card representativa (nunca arte externo). */
+  imageUrl?: string;
+}
+
+/** §13 `GET /decks-meta` — top-10 publicado, ordenado por `rank` asc, con cita de fuente. */
+export interface DecksMetaListResponse {
+  data: MetaDeckSummaryDTO[];
+  /** fetchedAt de la lista más reciente aplicada. */
+  updatedAt: string;
+  source: string;
+}
+
+/** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. */
+export interface DeckMetaDetailResponse {
+  slug: string;
+  name: string;
+  rank: number;
+  sharePct?: number;
+  trend?: number;
+  source: string;
+  sourceUrl?: string;
+  sourceTournament?: string;
+  /** «Legal en Standard · verificado {fecha}». */
+  legalityVerifiedAt: string;
+  groups: MetaDeckGroupsDTO;
+}
+
+/**
+ * §13 `POST /decks-meta/paste` — misma forma que `groups` del detalle (parsea+empareja+valora en
+ * memoria, no persiste). Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`.
+ */
+export interface DeckMetaPasteResponse {
+  groups: MetaDeckGroupsDTO;
+}

@@ -78,7 +78,8 @@
           "action": "Ir a mi cuenta"
         }
       }
-    }
+    },
+    "decksMeta": "Decks del meta"
   },
   "account": {
     "eyebrow": "CUENTA",
@@ -3601,7 +3602,9 @@
     "INE_NOT_ON_FILE": "Este usuario no tiene INE en el expediente.",
     "KYC_REJECTION_REASON_REQUIRED": "Sin motivo no se puede rechazar: el cliente tiene que saber qué corregir.",
     "IVA_TRANSFER_ACK_REQUIRED": "Hay que ver el costo en pesos antes de guardar esta fracción. Vuelve a calcularlo y guarda desde ahí.",
-    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar."
+    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar.",
+    "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-10.",
+    "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo."
   },
   "payment": {
     "title": "Pago",
@@ -3786,5 +3789,70 @@
     "requoteFailed": "No pudimos actualizar los precios. Reintenta.",
     "retry": "Reintentar",
     "requoting": "Actualizando los precios de tu lista"
+  },
+  "decksMeta": {
+    "metaTitle": "Decks del meta",
+    "metaSubtitle": "El top-10 del formato Standard, cruzado con nuestro inventario: qué tienes, a qué precio, y solo lo vigente para jugar.",
+    "pasteLink": "Pegar mi lista",
+    "list": {
+      "sourceLine": "{source} · actualizado {date}",
+      "rank": "#{rank}",
+      "share": "{share}% del meta",
+      "availability": "{available} de {total} disponibles",
+      "fromPrice": "Desde {price}",
+      "trendUp": "Sube en el meta",
+      "trendDown": "Baja en el meta",
+      "trendFlat": "Sin cambio",
+      "view": "Ver deck",
+      "emptyTitle": "Aún no hay decks publicados",
+      "emptyBody": "En cuanto publiquemos el top-10 del meta, aparecerá aquí."
+    },
+    "detail": {
+      "back": "Volver a decks del meta",
+      "legalityVerified": "Legal en Standard · verificado {date}",
+      "source": "Fuente: {source}",
+      "sourceTournament": "Torneo: {tournament}",
+      "viewSource": "Ver la lista original",
+      "groups": {
+        "pokemon": "Pokémon",
+        "trainer": "Entrenador",
+        "energy": "Energía"
+      },
+      "quantity": "×{qty}",
+      "cardCode": "{set} · {number}"
+    },
+    "line": {
+      "legal": "Legal para jugar",
+      "rotated": "Rotada · no vigente",
+      "rotatedNote": "Salió del formato Standard: no se puede agregar para jugar.",
+      "soldOut": "Agotado",
+      "unidentified": "No identificada",
+      "unidentifiedNote": "No encontramos esta carta en nuestro catálogo.",
+      "basicEnergy": "Energía básica · siempre legal",
+      "availableOf": "{available} de {qty}",
+      "add": "Agregar",
+      "inCart": "En el carrito"
+    },
+    "substitute": {
+      "label": "Sustituto legal disponible",
+      "use": "Usar {name} ({set} {number}) · {price}",
+      "usePending": "Usar {name} ({set} {number})"
+    },
+    "addAll": {
+      "button": "Agregar de jalón",
+      "hint": "{count, plural, one {# pieza disponible} other {# piezas disponibles}}",
+      "none": "Nada disponible para agregar",
+      "done": "{count, plural, one {# pieza agregada} other {# piezas agregadas}}"
+    },
+    "paste": {
+      "title": "Pega tu lista",
+      "subtitle": "Pega tu lista en formato Limitless / TCG Live y te decimos qué tenemos, a qué precio, y qué está vigente para jugar.",
+      "label": "Tu lista",
+      "placeholder": "4 Dragapult ex TWM 130\n3 Drakloak TWM 129\n2 Boss’s Orders PAL 172",
+      "submit": "Ver disponibilidad",
+      "clear": "Limpiar",
+      "emptyTitle": "Pega una lista para empezar",
+      "emptyBody": "Aún no has pegado nada. Copia tu lista y pégala arriba."
+    }
   }
 }

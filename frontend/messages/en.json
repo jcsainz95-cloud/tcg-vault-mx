@@ -78,7 +78,8 @@
           "action": "Go to my account"
         }
       }
-    }
+    },
+    "decksMeta": "Meta decks"
   },
   "account": {
     "eyebrow": "ACCOUNT",
@@ -3601,7 +3602,9 @@
     "INE_NOT_ON_FILE": "This user has no ID on file.",
     "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix.",
     "IVA_TRANSFER_ACK_REQUIRED": "You have to see the peso cost before saving this fraction. Recompute it and save from there.",
-    "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again."
+    "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again.",
+    "DECK_NOT_FOUND": "We couldn't find that deck. It may have dropped out of the top 10.",
+    "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again."
   },
   "payment": {
     "title": "Payment",
@@ -3786,5 +3789,70 @@
     "requoteFailed": "We couldn't refresh the prices. Try again.",
     "retry": "Try again",
     "requoting": "Refreshing the prices of your list"
+  },
+  "decksMeta": {
+    "metaTitle": "Meta decks",
+    "metaSubtitle": "The Standard-format top 10, matched against our inventory: what we have, at what price, and only what's currently legal to play.",
+    "pasteLink": "Paste my list",
+    "list": {
+      "sourceLine": "{source} · updated {date}",
+      "rank": "#{rank}",
+      "share": "{share}% of the meta",
+      "availability": "{available} of {total} available",
+      "fromPrice": "From {price}",
+      "trendUp": "Rising in the meta",
+      "trendDown": "Falling in the meta",
+      "trendFlat": "No change",
+      "view": "View deck",
+      "emptyTitle": "No decks published yet",
+      "emptyBody": "As soon as we publish the meta top 10, it'll show up here."
+    },
+    "detail": {
+      "back": "Back to meta decks",
+      "legalityVerified": "Standard-legal · verified {date}",
+      "source": "Source: {source}",
+      "sourceTournament": "Tournament: {tournament}",
+      "viewSource": "View the original list",
+      "groups": {
+        "pokemon": "Pokémon",
+        "trainer": "Trainer",
+        "energy": "Energy"
+      },
+      "quantity": "×{qty}",
+      "cardCode": "{set} · {number}"
+    },
+    "line": {
+      "legal": "Legal to play",
+      "rotated": "Rotated · not current",
+      "rotatedNote": "It left the Standard format: it can't be added to play.",
+      "soldOut": "Sold out",
+      "unidentified": "Not identified",
+      "unidentifiedNote": "We couldn't find this card in our catalog.",
+      "basicEnergy": "Basic energy · always legal",
+      "availableOf": "{available} of {qty}",
+      "add": "Add",
+      "inCart": "In cart"
+    },
+    "substitute": {
+      "label": "Legal substitute available",
+      "use": "Use {name} ({set} {number}) · {price}",
+      "usePending": "Use {name} ({set} {number})"
+    },
+    "addAll": {
+      "button": "Add the whole deck",
+      "hint": "{count, plural, one {# piece available} other {# pieces available}}",
+      "none": "Nothing available to add",
+      "done": "{count, plural, one {# piece added} other {# pieces added}}"
+    },
+    "paste": {
+      "title": "Paste your list",
+      "subtitle": "Paste your list in Limitless / TCG Live format and we'll tell you what we have, at what price, and what's currently legal to play.",
+      "label": "Your list",
+      "placeholder": "4 Dragapult ex TWM 130\n3 Drakloak TWM 129\n2 Boss’s Orders PAL 172",
+      "submit": "Check availability",
+      "clear": "Clear",
+      "emptyTitle": "Paste a list to get started",
+      "emptyBody": "You haven't pasted anything yet. Copy your list and paste it above."
+    }
   }
 }
