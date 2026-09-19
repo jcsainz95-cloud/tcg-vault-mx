@@ -10,14 +10,19 @@ import {
   resolveFetchConfig,
 } from './limitless.config';
 
+/** Cota dura de saltos de redirect por request (los canónicos de Limitless no redirigen). */
+const MAX_REDIRECT_HOPS = 3;
+
 /**
  * DECKS-META Fase 2 — cliente HTTP de Limitless. Norma: spec §1, §9. Superficie que SEGURIDAD revisa.
  *
  * Seguridad (§9):
  *  - **Host FIJO** (`limitlesstcg.com`): las URLs las construyen `build*Url()` SÓLO desde IDs
  *    numéricos validados (`^\d+$`). Cero parte de la URL viene de entrada de usuario.
- *  - **Sin seguir redirects fuera del allowlist:** tras la respuesta se comprueba que el `origin`
- *    final sigue siendo `LIMITLESS_HOST`; si no, se rechaza (no se parsea contenido de otro host).
+ *  - **Redirects NO se siguen a ciegas (anti-SSRF):** `redirect:'manual'`. Ante un 3xx se lee el
+ *    `Location`, se resuelve contra la URL actual y se valida que su `origin` sea `LIMITLESS_HOST`
+ *    **ANTES** de seguirlo; un redirect fuera del allowlist se RECHAZA sin traerlo (jamás se hace
+ *    fetch de un `Location` no validado). Cota dura de saltos (`MAX_REDIRECT_HOPS`).
  *  - **Cap de bytes** (`META_FETCH_MAX_BYTES`, 3 MB): se lee el cuerpo por chunks y se aborta al
  *    superarlo (DoS de memoria). Fast-path por `content-length` cuando viene.
  *  - **Timeout** (`AbortController`, 10 s) + **reintentos** (2, backoff, respeta `Retry-After`).
@@ -57,10 +62,10 @@ export class LimitlessFetchClient {
   }
 
   /**
-   * GET con timeout + reintentos + cap de bytes. Lanza si agota reintentos, si el host final no es
-   * el allowlist, o si la respuesta supera el cap. El llamante (orquestador) captura por deck.
+   * GET con timeout + reintentos + cap de bytes. Lanza si agota reintentos, si un redirect apunta
+   * fuera del allowlist, o si la respuesta supera el cap. El llamante (orquestador) captura por deck.
    */
-  private async getText(url: string, attempt = 0): Promise<string> {
+  private async getText(url: string, attempt = 0, hops = 0): Promise<string> {
     const { timeoutMs, maxBytes, retries } = this.cfg();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -68,7 +73,8 @@ export class LimitlessFetchClient {
     try {
       const res = await fetch(url, {
         signal: controller.signal,
-        redirect: 'follow',
+        // `manual`: un 3xx llega SIN seguirse. Lo validamos y seguimos a mano (anti-SSRF, §9).
+        redirect: 'manual',
         headers: { 'User-Agent': LIMITLESS_USER_AGENT, Accept: 'text/html' },
       });
 
@@ -78,17 +84,37 @@ export class LimitlessFetchClient {
         this.logger.warn(`limitless ${url} -> HTTP ${res.status}; retry ${attempt + 1}/${retries} en ${waitMs}ms`);
         await this.drain(res);
         await this.sleep(waitMs);
-        return this.getText(url, attempt + 1);
+        return this.getText(url, attempt + 1, hops);
       }
+
+      // Anti-SSRF: un 3xx NO se sigue a ciegas. Se lee `Location`, se resuelve contra la URL actual y
+      // se valida su `origin` contra el allowlist ANTES de seguirlo. Off-host ⇒ se RECHAZA sin traerlo.
+      if (res.status >= 300 && res.status < 400) {
+        await this.drain(res);
+        if (hops >= MAX_REDIRECT_HOPS) {
+          throw new Error(`limitless ${url} -> demasiados redirects (> ${MAX_REDIRECT_HOPS})`);
+        }
+        const location = res.headers.get('location');
+        if (!location) {
+          throw new Error(`limitless ${url} -> HTTP ${res.status} sin Location`);
+        }
+        const next = this.resolveRedirect(location, url);
+        if (!next || !this.isAllowlistedUrl(next)) {
+          throw new Error(`limitless ${url} -> redirect fuera del allowlist (${location})`);
+        }
+        return this.getText(next, 0, hops + 1);
+      }
+
       if (!res.ok) {
         await this.drain(res);
         throw new Error(`limitless ${url} -> HTTP ${res.status}`);
       }
 
-      // Anti-SSRF: el host FINAL (tras cualquier redirect) debe ser el allowlist. Si no, no se parsea.
+      // Defensa en profundidad: con `redirect:'manual'` `res.url` es siempre la URL pedida (ya
+      // allowlisted por `build*Url()` y por la validación del salto), pero se re-comprueba.
       if (!this.isAllowlistedUrl(res.url || url)) {
         await this.drain(res);
-        throw new Error(`limitless ${url} -> redirect fuera del allowlist (${res.url})`);
+        throw new Error(`limitless ${url} -> respuesta fuera del allowlist (${res.url})`);
       }
 
       // Fast-path: content-length declarado por encima del cap ⇒ aborta sin leer el cuerpo.
@@ -116,6 +142,15 @@ export class LimitlessFetchClient {
       return new URL(u).origin === LIMITLESS_HOST;
     } catch {
       return false;
+    }
+  }
+
+  /** Resuelve un `Location` (absoluto o relativo) contra la URL actual; `null` si no es una URL válida. */
+  private resolveRedirect(location: string, base: string): string | null {
+    try {
+      return new URL(location, base).toString();
+    } catch {
+      return null;
     }
   }
 

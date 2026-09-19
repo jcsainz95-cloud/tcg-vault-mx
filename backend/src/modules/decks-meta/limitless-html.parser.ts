@@ -12,10 +12,14 @@
  * Seguridad (§9): cheerio es tree-based — NO ejecuta scripts, NO hace red, NO `eval`. El HTML crudo
  * jamás se persiste; sólo salen campos tipados y acotados.
  */
+import { Logger } from '@nestjs/common';
 import { load, type CheerioAPI } from 'cheerio';
 import type { AnyNode, Element } from 'domhandler';
 import type { ParsedLine, ParseResult, ParsedGroup } from './deck-list.parser';
 import { isValidLimitlessId, isValidFormatCode } from './limitless.config';
+
+/** Sólo para avisos de procedencia (p. ej. discrepancia de formato h2/href, §2.1). Sin I/O de red. */
+const logger = new Logger('LimitlessHtmlParser');
 
 // ── Home index (§2.1) ─────────────────────────────────────────────────────────────────────────────
 
@@ -45,18 +49,25 @@ const FORMAT_IN_HREF = /[?&]format=([A-Za-z-]+)/;
 export function parseHomeIndex(html: string): HomeIndexResult {
   const $ = load(html);
 
-  // formatCode: primero el <h2>Top Decks (CODE)</h2>; si no, el enlace «Complete deck ranking».
-  let formatCode: string | null = null;
+  // formatCode: la FUENTE DE VERDAD es el <h2>Top Decks (CODE)</h2> (§2.1); el enlace de ranking
+  // («/decks?format=CODE») es sólo RESPALDO. Se derivan ambos por separado para poder avisar si
+  // difieren (posible cambio de markup del tercero): gana el <h2>, pero la discrepancia se loguea.
+  let h2Format: string | null = null;
   $('h2').each((_i, el) => {
-    if (formatCode) return;
+    if (h2Format) return;
     const m = FORMAT_IN_H2.exec($(el).text());
-    if (m && isValidFormatCode(m[1])) formatCode = m[1];
+    if (m && isValidFormatCode(m[1])) h2Format = m[1];
   });
-  if (!formatCode) {
-    const href = $('a[href*="/decks?format="]').first().attr('href') ?? '';
-    const m = FORMAT_IN_HREF.exec(href);
-    if (m && isValidFormatCode(m[1])) formatCode = m[1];
+
+  let hrefFormat: string | null = null;
+  const rankingHref = $('a[href*="/decks?format="]').first().attr('href') ?? '';
+  const hm = FORMAT_IN_HREF.exec(rankingHref);
+  if (hm && isValidFormatCode(hm[1])) hrefFormat = hm[1];
+
+  if (h2Format && hrefFormat && h2Format !== hrefFormat) {
+    logger.warn(`formatCode discrepancia: <h2>=${h2Format} vs href=${hrefFormat}; gana el <h2> (§2.1).`);
   }
+  const formatCode: string | null = h2Format ?? hrefFormat;
 
   // Bloques: `div.top-leaders > div.leader` (§2.1). Descendiente (superset tolerante); respaldo `.leader`.
   let blocks = $('.top-leaders .leader');

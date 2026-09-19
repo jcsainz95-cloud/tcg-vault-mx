@@ -173,6 +173,7 @@ export class DecksMetaRefreshService {
       verdict: canary.verdict,
       wouldPublish: canary.verdict === 'PUBLISH',
       applied: false,
+      persistedCount: 0,
       publishedSlugs: [],
       supersededListIds: [],
       manualConflicts: [],
@@ -202,6 +203,9 @@ export class DecksMetaRefreshService {
         if (outcome.skippedReason === 'paused') base.pausedSkipped.push(outcome.slug);
         else if (outcome.skippedReason === 'manual') base.manualConflicts.push(outcome.slug);
         else {
+          // Deck efectivamente persistido este run (MetaDeckList nueva creada), esté publicado o no
+          // y tenga o no lista previa que superseder. Es el conteo de «arquetipos aplicados» (§4).
+          base.persistedCount += 1;
           if (outcome.supersededListId) base.supersededListIds.push(outcome.supersededListId);
           if (outcome.published) base.publishedSlugs.push(outcome.slug);
         }
@@ -300,29 +304,16 @@ export class DecksMetaRefreshService {
 
   /** Registra la corrida (provenance + canary) serializando el detalle como JSON en `note` (§4). */
   private async recordRun(report: RefreshReport, applied: boolean): Promise<void> {
-    const note = JSON.stringify({
-      mode: report.mode,
-      canaryVerdict: report.canary.verdict,
-      canaryReason: report.canary.reason,
-      checks: report.canary.checks.map((c) => ({ id: c.id, ok: c.ok, measured: c.measured, threshold: c.threshold })),
-      perDeckCounts: report.decks.map((d) => ({ archetypeId: d.archetypeId, name: d.name, sumQuantity: d.sumQuantity, matched: d.matched, total: d.total })),
-      urlsFetched: report.urlsFetched,
-      publishedSlugs: report.publishedSlugs,
-      supersededListIds: report.supersededListIds,
-      manualConflicts: report.manualConflicts,
-      pausedSkipped: report.pausedSkipped,
-      errors: report.errors,
-      startedAt: report.startedAt,
-      finishedAt: report.finishedAt,
-    }).slice(0, 8000); // acotado: `note` es String?; nunca guarda HTML crudo (§9).
-
     await this.prisma.metaFetchRun.create({
       data: {
         source: MetaDeckSource.limitless,
         formatVersion: report.formatCode ?? 'unknown',
-        deckCount: applied ? report.publishedSlugs.length + report.supersededListIds.length : 0,
+        // `deckCount` = arquetipos EFECTIVAMENTE persistidos este run (§4), no una suma de listas
+        // publicadas + supersedidas (que ni cuenta los decks nuevos sin publicar ni distingue el
+        // deck publicado que además supersedió).
+        deckCount: applied ? report.persistedCount : 0,
         applied,
-        note,
+        note: buildRunNote(report),
       },
     });
   }
@@ -338,6 +329,56 @@ export class DecksMetaRefreshService {
 }
 
 // ── Tipos internos + helpers puros ────────────────────────────────────────────────────────────────
+
+/** Cap del campo `note` (String? en BD). Se acota la ENTRADA para que el JSON quede SIEMPRE válido. */
+const NOTE_MAX_LEN = 8000;
+/** Tope de elementos por arreglo antes de serializar (evita cortar el JSON a mitad de cadena). */
+const NOTE_MAX_ITEMS = 60;
+
+/** Acota un arreglo a los primeros `n` elementos (copia sólo si hace falta). */
+function capArray<T>(arr: T[], n: number): T[] {
+  return arr.length > n ? arr.slice(0, n) : arr;
+}
+
+/**
+ * Serializa el detalle de la corrida como JSON VÁLIDO acotado a `NOTE_MAX_LEN` (§4, §9). Se acotan
+ * las ENTRADAS (arreglos) ANTES de serializar; si aun así excede el cap, se guarda un marcador
+ * truncado VÁLIDO (nunca una cadena JSON cortada a mitad, que sería JSON inválido). Jamás HTML crudo.
+ */
+export function buildRunNote(report: RefreshReport): string {
+  const detail = {
+    mode: report.mode,
+    canaryVerdict: report.canary.verdict,
+    canaryReason: report.canary.reason,
+    persistedCount: report.persistedCount,
+    checks: report.canary.checks.map((c) => ({ id: c.id, ok: c.ok, measured: c.measured, threshold: c.threshold })),
+    perDeckCounts: capArray(report.decks, NOTE_MAX_ITEMS).map((d) => ({ archetypeId: d.archetypeId, name: d.name, sumQuantity: d.sumQuantity, matched: d.matched, total: d.total })),
+    urlsFetched: capArray(report.urlsFetched, NOTE_MAX_ITEMS),
+    publishedSlugs: capArray(report.publishedSlugs, NOTE_MAX_ITEMS),
+    supersededListIds: capArray(report.supersededListIds, NOTE_MAX_ITEMS),
+    manualConflicts: capArray(report.manualConflicts, NOTE_MAX_ITEMS),
+    pausedSkipped: capArray(report.pausedSkipped, NOTE_MAX_ITEMS),
+    errors: capArray(report.errors, NOTE_MAX_ITEMS),
+    startedAt: report.startedAt,
+    finishedAt: report.finishedAt,
+  };
+  const note = JSON.stringify(detail);
+  if (note.length <= NOTE_MAX_LEN) return note;
+
+  // Sigue por encima del cap (p. ej. muchos errores largos): marcador truncado VÁLIDO y compacto.
+  return JSON.stringify({
+    truncated: true,
+    mode: report.mode,
+    canaryVerdict: report.canary.verdict,
+    canaryReason: report.canary.reason,
+    persistedCount: report.persistedCount,
+    deckCount: report.decks.length,
+    urlsFetchedCount: report.urlsFetched.length,
+    errorsCount: report.errors.length,
+    startedAt: report.startedAt,
+    finishedAt: report.finishedAt,
+  });
+}
 
 type RefreshMode = 'live' | 'dryrun';
 
@@ -383,6 +424,8 @@ export interface RefreshReport {
   verdict: 'PUBLISH' | 'NO_PUBLISH';
   wouldPublish: boolean;
   applied: boolean;
+  /** Arquetipos EFECTIVAMENTE persistidos este run (lista nueva creada), ni pausados ni manual-gana. */
+  persistedCount: number;
   publishedSlugs: string[];
   supersededListIds: string[];
   manualConflicts: string[];
