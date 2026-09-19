@@ -79,7 +79,7 @@
         }
       }
     },
-    "decksMeta": "Decks del meta"
+    "decksMeta": "Meta Battle Decks"
   },
   "account": {
     "eyebrow": "CUENTA",
@@ -3804,7 +3804,7 @@
     "requoting": "Actualizando los precios de tu lista"
   },
   "decksMeta": {
-    "metaTitle": "Decks del meta",
+    "metaTitle": "Meta Battle Decks",
     "metaSubtitle": "El top-10 del formato Standard, cruzado con nuestro inventario: qué tienes, a qué precio, y solo lo vigente para jugar.",
     "pasteLink": "Pegar mi lista",
     "list": {
@@ -3821,7 +3821,7 @@
       "emptyBody": "En cuanto publiquemos el top-10 del meta, aparecerá aquí."
     },
     "detail": {
-      "back": "Volver a decks del meta",
+      "back": "Volver a Meta Battle Decks",
       "legalityVerified": "Legal en Standard · verificado {date}",
       "source": "Fuente: {source}",
       "sourceTournament": "Torneo: {tournament}",
