@@ -12,8 +12,19 @@ import { VariantPricingDTO } from './variant-pricing';
  * es su **cuarta seam**, no una quinta copia).
  */
 
-/** Los CINCO valores del enum del contrato. No existe el vocabulario `outbid`/`active`/`off`. */
-export const BOUNTY_STATE_VALUES = ['activa', 'rebasada', 'invalida', 'completada', 'apagada'] as const;
+/**
+ * Los SEIS valores del enum del contrato (v2.2: +`despublicada`, Q2 §M2-B.0). No existe el
+ * vocabulario `outbid`/`active`/`off`. El orden es el normativo de §M2-B.0 (`despublicada` discrimina
+ * primero, pero se lista al final del enum porque sale del tablero por defecto).
+ */
+export const BOUNTY_STATE_VALUES = [
+  'activa',
+  'rebasada',
+  'invalida',
+  'completada',
+  'apagada',
+  'despublicada',
+] as const;
 export type BountyState = (typeof BOUNTY_STATE_VALUES)[number];
 
 /**
@@ -29,6 +40,8 @@ export const BOUNTY_SCOPE_WHERE: Prisma.VariantPriceOverrideWhereInput = {
     { bountyPriceCents: { not: null } },
     { bountyCompletedAt: { not: null } },
     { bountyAcquiredQty: { gt: 0 } },
+    // v2.2 (Q2, §M2-B.0): una fila DESPUBLICADA sigue en alcance — es un registro archivado.
+    { bountyUnpublishedAt: { not: null } },
   ],
 };
 
@@ -52,8 +65,18 @@ type ComposedBounty = NonNullable<VariantPricingDTO['bounty']>;
  *
  * ⛔ **`invalida` no se cuela dentro de `activa`**: pintar *«está pagando»* sobre un bounty encendido
  * **sin precio utilizable** es exactamente la ceguera que este estado nació para evitar.
+ *
+ * ⭐ **`despublicada` (v2.2, Q2) DISCRIMINA PRIMERO** (§M2-B.0): `bountyUnpublishedAt != null` gana a
+ * cualquier otra suerte. Es el registro de un bounty **eliminado con historia**; la fila conserva
+ * `completedAt`/`acquiredQty`, así que el *porqué* dejó de pagarse no se pierde — solo se archiva. Se
+ * pasa `unpublishedAt` aparte (no viaja en el `ComposedBounty` del DTO, que es la misma proyección que
+ * lee el binder y no necesita el sello) para no fundir `despublicada` con `apagada` (mutación B-19).
  */
-export function deriveBountyState(bounty: ComposedBounty): BountyState {
+export function deriveBountyState(
+  bounty: ComposedBounty,
+  unpublishedAt: Date | string | null,
+): BountyState {
+  if (unpublishedAt != null) return 'despublicada';
   if (!bounty.enabled) return bounty.completedAt != null ? 'completada' : 'apagada';
   if (!(bounty.priceCents != null && bounty.priceCents > 0)) return 'invalida';
   // `effective` ya ES `enabled ∧ isBountyEffective(priceCents, curveQuoteCents)` (composer). Aquí NO
