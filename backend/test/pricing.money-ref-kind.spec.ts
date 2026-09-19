@@ -179,17 +179,13 @@ describe('M-43 — `MONEY_REF_WHERE`: el estimado NO ES CANDIDATA de la ruta de 
 
   it('GE-1 variante RANCIA (−400 días) — tampoco se cuela por la lectura de candidatas PERENNES', async () => {
     // El PoC retrasó `capturedDate` 400 días y el slab **siguió** a MX$460, porque la fila manual entra
-    // SIN cota de fecha por `MANUAL_REF_PREDICATE` (§4.27f-2). Si `MONEY_REF_WHERE` faltara en ESA
-    // segunda query —el olvido natural— el hallazgo seguiría vivo justo en su variante más difícil de
-    // ver. Por eso este caso existe además del anterior.
-    const { svc, findManyArgs } = build([refRow({ capturedDate: HACE_400_DIAS })]);
+    // SIN cota de fecha (candidata perenne). El estimado NO puede colarse por la ruta de dinero.
+    // P-53 ALTO-4 (§3): `getReference` DELEGA en `getReferencesBatch`, cuya poda `$queryRaw` filtra
+    // `refKind='market'` en la propia query (el emulador `makeRefsRawQuery` lo refleja: excluye el
+    // `graded_estimate`). Ya no hay dos `findMany`; el predicado money-ref vive en la ventana de lote.
+    const { svc } = build([refRow({ capturedDate: HACE_400_DIAS })]);
     const info = await svc.getReference('card-fourth-raw', 'graded', 'graded:PSA:10', 'normal');
     expect(info).toEqual({ status: 'pending' });
-    // Y se comprueba estructuralmente: LAS DOS queries llevan el predicado.
-    expect(findManyArgs).toHaveLength(2);
-    for (const { where } of findManyArgs) {
-      expect(JSON.stringify(where)).toContain('"refKind":"market"');
-    }
   });
 
   it('la fila de MERCADO del mismo grado SÍ pricea: M-43 no rompe el flujo legítimo del slab', async () => {
@@ -223,13 +219,14 @@ describe('M-43 — `MONEY_REF_WHERE`: el estimado NO ES CANDIDATA de la ruta de 
     expect(map.get('card-fourth-raw|raw|raw:NM|normal')).toMatchObject({ referenceMxnCents: 35_000 });
   });
 
-  it('`getReferenceByCardProduct` — el predicado va en SUS DOS queries también', async () => {
+  it('`getReferenceByCardProduct` — el predicado money-ref va en la lectura de lote (delegación P-53 ALTO-4)', async () => {
+    // Antes eran DOS `findMany` (bloque capado ⊕ manuales) y el predicado tenía que ir en ambos. Ahora
+    // DELEGA en `getReferencesByCardProductBatch`, que lee SIN cota en UNA query con `MONEY_REF_WHERE`:
+    // el estimado no puede colarse a la oferta de un producto separado.
     const { svc, findManyArgs } = build([]);
     await svc.getReferenceByCardProduct('cp-1', 'raw', 'raw:NM', 'normal');
-    expect(findManyArgs).toHaveLength(2);
-    for (const { where } of findManyArgs) {
-      expect(JSON.stringify(where)).toContain('"refKind":"market"');
-    }
+    expect(findManyArgs).toHaveLength(1);
+    expect(JSON.stringify(findManyArgs[0].where)).toContain('"refKind":"market"');
   });
 
   it('la ruta del GANCHO es INCLUSIVA: `getGradedEstimatesBatch` ve las DOS naturalezas (§4.38l.4.4B)', async () => {

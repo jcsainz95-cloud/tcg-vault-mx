@@ -446,9 +446,25 @@ export class PriceIngestService {
 
   /**
    * ¿Hubo ingesta de MERCADO reciente? (catch-up al boot, auditoría 2026-08-17).
-   * "Reciente" = existe ≥1 `PriceReference` NO-manual con `capturedDate` de hoy o ayer (UTC).
+   * "Reciente" = el barrido de mercado CONFIRMÓ ≥1 fila (no-manual) hoy o ayer (UTC).
    * Los overrides manuales del admin NO cuentan: un admin poniendo un precio a mano no
    * significa que el ingest masivo haya corrido.
+   *
+   * ⚠️ **P-53 §4.3 (arreglo de ALTO-2): se mide contra la EVIDENCIA (`evidenceDate ?? capturedDate`).**
+   * Con el escritor DIARIO write-on-change (§2), un barrido que CONFIRMA precios SIN cambios NO escribe
+   * ninguna fila con `capturedDate` de hoy — solo avanza `evidenceDate` de la fila vigente. Si esta
+   * pregunta siguiera mirando SOLO `capturedDate`, un día sin cambios devolvería `false` y el catch-up
+   * del boot **re-dispararía el barrido creyendo que nunca corrió** (trabajo inútil que puede quemar la
+   * cuota del proveedor de PAGA). La pregunta correcta es «¿el barrido CONFIRMÓ algo?», que es
+   * `evidenceDate`. Ahora el escritor diario SÍ puebla `evidenceDate` (§2), así que el barrido normal la
+   * contesta `true`.
+   *
+   * **Fallback a `capturedDate` mientras `evidenceDate` sea `null`** (primer boot tras deploy con filas
+   * LEGADAS): las filas pre-P-53 tienen `evidenceDate = null` pero su `capturedDate` es reciente (el
+   * barrido viejo reescribía a diario). Sin el fallback, el primer boot vería todo `evidenceDate = null`
+   * ⇒ `false` ⇒ re-dispararía el barrido una vez de más. Con el `OR` de abajo, una fila legada con
+   * `capturedDate >= ayer` cuenta como reciente ⇒ NO se re-dispara. (Las filas manuales se excluyen por
+   * `isManualOverride:false`; una legada de `capturedDate` viejo no cuenta, que es lo correcto.)
    */
   async hasRecentIngest(): Promise<boolean> {
     const since = new Date();
@@ -459,7 +475,15 @@ export class PriceIngestService {
       // fila de ESTIMADO no la contesta. Sin el predicado, una corrida del ingest de fase 2 (que
       // escribe `graded_estimate` sobre cartas raw publicadas) haría creer al catch-up del boot que el
       // mercado ya se ingirió y **saltaría el barrido** — un fail-open operativo por la puerta de atrás.
-      where: { capturedDate: { gte: since }, isManualOverride: false, ...MONEY_REF_WHERE },
+      where: {
+        isManualOverride: false,
+        ...MONEY_REF_WHERE,
+        // EVIDENCIA reciente (escritor P-53) O, para filas legadas sin evidencia, captura reciente.
+        OR: [
+          { evidenceDate: { gte: since } },
+          { evidenceDate: null, capturedDate: { gte: since } },
+        ],
+      },
       select: { id: true },
     });
     return row !== null;

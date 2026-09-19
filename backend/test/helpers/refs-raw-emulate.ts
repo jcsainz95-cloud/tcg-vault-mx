@@ -4,8 +4,9 @@
  *
  * `PricingService.getReferencesBatch` y `getPricedRawFinishesBatch` dejaron de leer el histórico entero
  * con `priceReference.findMany` y ahora PODAN en la BD con `$queryRaw`:
- *   · getReferencesBatch  → `WITH … max_auto_date …` (manuales perennes ∪ automáticas del día máximo por
- *                            clave), con WHERE `refKind='market'` + base-card (cardProductId IS NULL o
+ *   · getReferencesBatch  → `WITH … max_auto_date …` (manuales perennes ∪ automáticas de la FRESCURA
+ *                            EFECTIVA máxima `COALESCE(evidenceDate,capturedDate)` por clave — P-53
+ *                            ALTO-3 §3), con WHERE `refKind='market'` + base-card (cardProductId IS NULL o
  *                            kind∈{set_base,other}). El desempate fino lo sigue haciendo `isBetterRef` en Node.
  *   · getPricedRawFinishesBatch → `SELECT DISTINCT (cardId,finish)` con `raw` + `raw:NM` + `priceMxnCents>0`
  *                            + market + base-card.
@@ -51,7 +52,11 @@ export function makeRefsRawQuery(rows: any[]) {
       }
       return out;
     }
-    // getReferencesBatch: market + base-card, ventana (manual ∪ máximo capturedDate automático por clave).
+    // getReferencesBatch: market + base-card, ventana (manual ∪ máximo automático por clave).
+    // P-53 ALTO-3 (§3): la ventana se mide por FRESCURA EFECTIVA `COALESCE(evidenceDate, capturedDate)`
+    // — EL MISMO `COALESCE("evidenceDate","capturedDate")` del `$queryRaw` real (max_auto_date + WHERE).
+    // Con `evidenceDate` ausente/null cae a `capturedDate` ⇒ ventana idéntica a la previa (CA-10).
+    const effTime = (r: any) => new Date(r.evidenceDate ?? r.capturedDate).getTime();
     const filt = rows.filter((r) => isMarket(r) && isBaseCard(r));
     const byKey = new Map<string, any[]>();
     for (const r of filt) {
@@ -62,10 +67,10 @@ export function makeRefsRawQuery(rows: any[]) {
     }
     const out: any[] = [];
     for (const rs of byKey.values()) {
-      const autoTimes = rs.filter((r) => !isManual(r)).map((r) => new Date(r.capturedDate).getTime());
+      const autoTimes = rs.filter((r) => !isManual(r)).map(effTime);
       const maxAuto = autoTimes.length ? Math.max(...autoTimes) : null;
       for (const r of rs) {
-        if (isManual(r) || (maxAuto != null && new Date(r.capturedDate).getTime() === maxAuto)) out.push(r);
+        if (isManual(r) || (maxAuto != null && effTime(r) === maxAuto)) out.push(r);
       }
     }
     return out;
