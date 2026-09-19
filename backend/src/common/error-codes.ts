@@ -99,6 +99,10 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v2.2 (Q2, §M2-B.9): `DELETE …/variant-controls/:cardId/:finish/bounty` sobre una variante que NO
+  // tiene bounty en alcance (§M2-B.0). La variante/carta existe, pero no hay nada de bounty que
+  // eliminar. 404.
+  BOUNTY_NOT_FOUND: 'BOUNTY_NOT_FOUND',
   // v2.0 (P-48, §4.36.3 / API_CONTRACT §Errores) — códigos de la CURVA. Todos son 422, todos se
   // validan AL GUARDAR (no solo en runtime), todos se evalúan sobre el OBJETO COMPLETO y todos
   // indican QUÉ PUNTO lo rompe en `details: { axis, index, marketCents, … }` (criterio 87).

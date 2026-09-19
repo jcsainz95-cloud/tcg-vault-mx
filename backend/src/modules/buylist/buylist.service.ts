@@ -1258,7 +1258,10 @@ export class BuylistService implements OnModuleInit {
     // Efecto garantizado: para TODO bounty visible aquí, `/buylist/quote` cotiza EXACTAMENTE ese monto
     // y es ESTRICTAMENTE mayor que la tarifa estándar de esa variante.
     const candidates = await this.prisma.variantPriceOverride.findMany({
-      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
+      // Q2 (§M2-B.9): una fila DESPUBLICADA (`bountyUnpublishedAt != null`) queda FUERA de la vitrina.
+      // Defensa en profundidad: ya está fuera por `bountyEnabled=false`, pero el filtro lo hace
+      // explícito e imposible de re-colar si algún día una fila quedara `enabled` con sello.
+      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null },
       // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
       orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
       // Cap de CANDIDATOS (no de la vitrina): el endpoint es público/anónimo y una lectura sin cota
@@ -1291,7 +1294,8 @@ export class BuylistService implements OnModuleInit {
       const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
       // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
       const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
-      return isBountyEffective(r.bountyPriceCents, curveQuoteCents);
+      // Q1 (§M2-B.8): el piso efectivo es `min(curva, mercado)`; `referenceMxnCents` es ese mercado.
+      return isBountyEffective(r.bountyPriceCents, curveQuoteCents, referenceMxnCents);
     })
       // Re-orden explícito tras el filtro (el `orderBy` del query ya lo daba; se conserva por claridad
       // de que el ORDEN es parte del contrato de la vitrina) y CAP de la vitrina.
@@ -3339,7 +3343,12 @@ export class BuylistService implements OnModuleInit {
     const bountyActive =
       override?.bountyEnabled === true &&
       override.bountyCompletedAt == null &&
-      isBountyEffective(override.bountyPriceCents ?? null, decision?.quote.curveQuoteCents ?? null);
+      isBountyEffective(
+        override.bountyPriceCents ?? null,
+        decision?.quote.curveQuoteCents ?? null,
+        // Q1 (§M2-B.8): el mercado que entró a la curva viaja en la misma decisión de cotización.
+        decision?.quote.marketMxnCents ?? null,
+      );
 
     const bucket = positionKey == null ? null : (position?.get(positionKey) ?? null);
     if (position == null || bucket == null) {
