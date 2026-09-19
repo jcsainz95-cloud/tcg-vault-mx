@@ -11,6 +11,9 @@ import { UploadsModule } from '../modules/uploads/uploads.module';
 import { VaultModule } from '../modules/vault/vault.module';
 import { CatalogModule } from '../modules/catalog/catalog.module';
 import { OrdersModule } from '../modules/orders/orders.module';
+// DECKS-META Fase 2 (§7): el scheduler programa `decks-meta-refresh` semanal y el disparo manual
+// admin delega en `DecksMetaRefreshService`, exportado por DecksMetaModule.
+import { DecksMetaModule } from '../modules/decks-meta/decks-meta.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -24,7 +27,7 @@ import { OrdersModule } from '../modules/orders/orders.module';
   // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
   // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
   // importa JobsModule.
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,

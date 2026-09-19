@@ -13,6 +13,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { DecksMetaService } from './decks-meta.service';
+import { DecksMetaRefreshService } from './decks-meta-refresh.service';
 
 /**
  * DECKS-META §13 (Fase 1) — endpoints ADMIN (rol `vault_operator+`). Curaduría manual (fallback que
@@ -52,12 +53,26 @@ class StandardLegalityDto {
 @Controller('admin/decks-meta')
 @Roles(Role.vault_operator, Role.super_admin)
 export class AdminDecksMetaController {
-  constructor(private readonly service: DecksMetaService) {}
+  constructor(
+    private readonly service: DecksMetaService,
+    private readonly refresh: DecksMetaRefreshService,
+  ) {}
 
   /** Lista con estado (published, pausedByOperator, source, rank, fetchedAt, no-mapeadas). */
   @Get()
   list() {
     return this.service.adminList();
+  }
+
+  /**
+   * DECKS-META Fase 2 (§8) — DRY-RUN / preview: corre el pipeline REAL (home → listas → parse →
+   * match → legalidad → canary) y devuelve el reporte INLINE **sin escribir NADA publicado**. Es la
+   * vía de verificación en prod (el sandbox bloquea el egress a Limitless). Operador (vault_operator+).
+   */
+  @Get('preview')
+  async preview() {
+    const result = await this.refresh.run({ dryRun: true });
+    return result;
   }
 
   /** Reporte de líneas no mapeadas de listas publicadas, para curar (set+número crudos). */
