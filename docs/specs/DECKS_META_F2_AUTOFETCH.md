@@ -375,6 +375,54 @@ API que el frontend muestre, sí.
 
 ---
 
+## 12. Endurecimiento post-gates (fix pass) — decisiones de operación y seguridad
+
+Consolidado tras QA/techlead/seguridad (tres veredictos aprobados, sin bloqueantes). Registra las
+desviaciones deliberadas respecto a esta spec y los residuales aceptados. Rama `claude/be-decksmeta-f2`.
+
+**(a) Disparo manual endurecido a `super_admin` (desviación de «`vault_operator`+» de §7/§8).**
+`POST /admin/jobs/decks-meta-refresh` vive bajo `AdminJobsController`, que es **`@Roles(super_admin)`**
+para TODA la familia de disparos de jobs. Se dejó ahí a propósito (decisión del orquestador, más
+seguro): el disparo del refresh comparte la superficie de ops con los demás jobs. **La vía del
+operador (`vault_operator`+) es el preview de solo-lectura en dry-run**: `GET /admin/decks-meta/preview`
+(bajo `AdminDecksMetaController`, `@Roles(vault_operator, super_admin)`), que corre el pipeline real
+sin escribir nada publicado. Así el operador verifica sin poder disparar una publicación.
+
+**(b) Single-flight en memoria, suficiente a `numReplicas:1`.** El candado contra corridas solapadas
+(worker BullMQ + disparo HTTP admin) es un **flag en memoria** reclamado síncronamente antes del primer
+`await` (`DecksMetaRefreshService.running`). Es correcto **porque el worker BullMQ corre in-process y
+`railway.json` fija `numReplicas:1`** (ver `DEVOPS_NOTES §20.3`: 1 réplica mientras el worker viva en
+el mismo proceso HTTP). Un **lock de advisory en BD para multi-instancia queda DIFERIDO**, gateado
+detrás de separar el worker a su propio proceso/deploy (§20.3). Mientras haya 1 réplica, un lock de BD
+sería complejidad sin beneficio medible.
+
+**(c) DNS-rebinding: residual ACEPTADO.** El host es **fijo** (`https://limitlesstcg.com`, no viene de
+entrada de usuario) y la validación anti-SSRF es sobre el `origin` de un host constante. Un rebinding
+apuntaría el nombre fijo a otra IP, pero no cambia que el destino sea el mismo nombre de un tercero
+público sin secretos ni red interna alcanzable. No se añade pin de IP (frágil y sin beneficio real aquí).
+
+**Nota anti-SSRF (refuerzo sobre §9):** los redirects ya **no se siguen a ciegas**. El cliente usa
+`redirect:'manual'`: ante un 3xx lee `Location`, lo resuelve contra la URL actual y valida que su
+`origin` sea el allowlist **ANTES** de seguirlo; un `Location` off-host se **rechaza sin traerlo**
+(jamás se hace `fetch` de una URL no validada), con cota dura de saltos. Antes se validaba `res.url`
+*después* de que `fetch` ya hubiera seguido el redirect (hueco de blind-SSRF). Cubierto por
+`limitless-fetch.client.spec.ts`.
+
+**(d) `nth-check@2.1.1` — versión PARCHEADA.** El aviso de ReDoS de `nth-check` afecta a `<2.0.1`; la
+transitiva (vía `cheerio`) es **2.1.1**, ya parcheada. Además los selectores CSS usados son **estáticos**
+(literales en el código, no derivados de la entrada del tercero) ⇒ la ruta vulnerable **no es
+alcanzable** aunque la versión fuera vieja.
+
+**Notas de corrección incluidas en este fix pass:** `MetaFetchRun.deckCount` = arquetipos
+**efectivamente persistidos** este run (no `publishedSlugs + supersededListIds`, que subcontaba los
+decks nuevos sin publicar y doblaba el publicado que además supersedió); `note` se serializa acotando
+las **entradas** antes de `JSON.stringify` y, si aun así excede el cap, guarda un **marcador truncado
+válido** (nunca una cadena JSON cortada a mitad); `GET /admin/decks-meta/preview` ahora **audita**
+(`jobs.decks_meta_preview.run`) porque dispara egress real a un tercero; el parser **loguea la
+discrepancia** de `formatCode` entre el `<h2>` (fuente de verdad, §2.1) y el href de respaldo.
+
+---
+
 ## Apéndice — Hechos medidos (ground truth de esta especificación)
 
 - **Fixtures leídos:** `home-index.html` (6 bloques `.leader` verificados: archetypeIds
