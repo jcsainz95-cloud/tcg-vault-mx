@@ -160,9 +160,14 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
  * ⭐⭐⭐ **EL CANARIO DEL CANDADO DE ARRIBA — «un candado sin canario no está demostrado».**
  *
  * No se inventa un caso: se usa **el fichero real** y **la ventana real** que el limpiador v1
- * borraba (`StorefrontHeader.tsx:96-107`, cegada por el `/*` que lleva el comentario de `:95`), se
+ * borraba (`StorefrontHeader.tsx:96-110`, cegada por el `/*` que lleva el comentario de `:95`), se
  * le mete dentro **el defecto que esta regla prohíbe** —multiplicar por 1.16— y se exige que el
  * candado lo vea.
+ *
+ * ⚠️ La ventana se re-apuntó de `95-109` a `95-110` (2026-09-19) al entrar la 6ª entrada de nav
+ * («Decks del meta», decisión del dueño), que desplazó la tabla +2 líneas. Sigue arrancando en el
+ * `/*` de `:95` y cubre la misma región —entradas del arreglo `links` hasta el `<header>`/`<div>`
+ * del render—, medida con la herramienta: 13 líneas con código, 12 borradas por el v1.
  *
  * La comparación contra el v1 es la mitad que enseña: con el limpiador viejo **ese mismo defecto,
  * en ese mismo fichero, pasaba en VERDE**.
@@ -193,17 +198,17 @@ describe('§M10-IVA.3 · canario: el candado VE el código que el limpiador v1 b
     return l.join('\n');
   }
 
-  it('⭐ el v1 NO veía la ventana 95-109: 12 líneas de código real fuera del alcance', () => {
+  it('⭐ el v1 NO veía la ventana 95-110: 12 líneas de código real fuera del alcance', () => {
     const limpio = v1(fuente);
     const { lineasConCodigo } = analizarFuente(fuente, CABECERA);
-    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 109);
+    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 110);
     /*
-     * ⚠️ El v1 **no conserva la numeración** (220 líneas → 184), así que la pérdida no se puede
+     * ⚠️ El v1 **no conserva la numeración** (222 líneas → 184), así que la pérdida no se puede
      * medir por índice: se mide por CONTENIDO, comprobando que la línea ya no existe como línea
      * en su salida.
      *
      * ⭐ **El número exacto, y por qué NO es 13:** en la ventana hay **13** líneas con código y el
-     * v1 se las come **todas**; pero una de ellas (`:106`, `return (`) es texto que aparece
+     * v1 se las come **todas**; pero una de ellas (`:108`, `return (`) es texto que aparece
      * **igual en otro sitio** del fichero, así que por contenido solo se pueden DEMOSTRAR 12.
      * Se afirma lo demostrable.
      */
@@ -219,7 +224,7 @@ describe('§M10-IVA.3 · canario: el candado VE el código que el limpiador v1 b
 
   it('⭐⭐ el limpiador nuevo SÍ ve esa ventana entera — la demostración del arreglo', () => {
     const { limpio, lineasConCodigo } = analizarFuente(fuente, CABECERA);
-    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 109);
+    const enLaVentana = lineasConCodigo.filter((n) => n >= 95 && n <= 110);
     expect(enLaVentana.length).toBe(13);
     for (const n of enLaVentana) {
       expect(limpio.split('\n')[n - 1].trim(), `${CABECERA}:${n}`).not.toBe('');
