@@ -33,8 +33,8 @@ function line(over: Partial<MetaDeckLineDTO> & Pick<MetaDeckLineDTO, 'rawName' |
   };
 }
 
-const legalLine = line({ rawName: 'Dragapult ex', unitInventoryItemIds: ['inv-legal-1', 'inv-legal-2'], quantity: 2, availableQty: 2 });
-const soldOutLine = line({ rawName: 'Drakloak', number: '129', quantity: 2, availableQty: 0, unitPriceMxnCents: null, unitInventoryItemIds: [] });
+const legalLine = line({ rawName: 'Dragapult ex', group: 'pokemon', unitInventoryItemIds: ['inv-legal-1', 'inv-legal-2'], quantity: 2, availableQty: 2 });
+const soldOutLine = line({ rawName: 'Drakloak', group: 'pokemon', number: '129', quantity: 2, availableQty: 0, unitPriceMxnCents: null, unitInventoryItemIds: [] });
 const rotatedLine: MetaDeckLineDTO = {
   rawName: 'Comfey',
   setCode: 'LOR',
@@ -198,7 +198,7 @@ describe('DeckDetailView · «agregar de jalón»', () => {
   it('la CTA por línea agrega una pieza y, al completar el stock, cambia a «En el carrito» (→ /checkout)', async () => {
     mockDetail({
       ...detail(),
-      groups: { pokemon: [{ ...line({ rawName: 'Dragapult ex', quantity: 1, availableQty: 1, unitInventoryItemIds: ['inv-1'] }), group: 'pokemon' }], trainer: [], energy: [] },
+      groups: { pokemon: [{ ...line({ rawName: 'Dragapult ex', group: 'pokemon', quantity: 1, availableQty: 1, unitInventoryItemIds: ['inv-1'] }), group: 'pokemon' }], trainer: [], energy: [] },
     });
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
 
