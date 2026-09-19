@@ -4,7 +4,18 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.2.1** — **§34 corregida** (2026-09-11): **la premisa A1 de v4.2 era falsa** —
+> Estado: **v4.3** — **§33.1 + §33.16 R10: el header del storefront gana una 6ª entrada, «Decks del meta»**
+> (2026-09-19). Decisión del **dueño**, tomada hoy (funcionalidad **Decks Meta Fase 1**, `ARCHITECTURE §12`,
+> ruta pública `/decks-meta`): se suma **una entrada de navegación más** —texto, mismo patrón que las otras cinco,
+> **sin** sub-menús, íconos especiales ni tablero—, **pública** (visible **con y sin** sesión), colocada
+> **justo después de «Vender»**. Orden con sesión: **Comprar · Vender · Decks del meta · Mi bóveda · Compras y
+> ventas · Mi cuenta** (§33.1); sin sesión: **Comprar · Vender · Decks del meta · Mi cuenta** (→ `/login`). El
+> drawer `< lg` refleja las **mismas seis** en el mismo orden. El candado **CA-1** (§33.16 R10) pasa de **cinco a
+> seis** entradas. Ya implementado en `StorefrontHeader.tsx` (arreglo base `links`, clave `nav.decksMeta`, `match`
+> `['/decks-meta']`), y el test CA-1 ya fija estas seis. **Supuesto** (medición fuera de mi ruta, a confirmar por
+> frontend): la clave i18n `nav.decksMeta` existe en `es.json`/`en.json`. El candado histórico «cinco entradas» de
+> la nota **v4.1** (fechada 2026-09-11) **no se reescribe**: es registro de una decisión pasada.
+> Antes: **v4.2.1** — **§34 corregida** (2026-09-11): **la premisa A1 de v4.2 era falsa** —
 > `Content-Disposition: attachment` **no** impide pintar la INE en un `<img>` (medición del orquestador en
 > Chromium real, **3/3**: la cabecera solo manda en navegaciones de primer nivel) ⇒ **se retira la
 > recomendación de endpoint proxy** y se conserva el `attachment` — y **§34 queda alineada al contrato v1.69**
@@ -15996,25 +16007,32 @@ tracking `0.14em`, activo con regla bermellón):
 |---|---|---|---|---|---|
 | 1 | Comprar | Shop | `nav.buy` *(existe)* | `/catalog` | `/catalog`, `/sellado`, `/compra` *(sin cambio)* |
 | 2 | Vender | Sell | `nav.buylist` *(existe)* | `/buylist` | `/buylist` **excepto** `/buylist/requests/*` |
-| 3 | Mi bóveda | My vault | `nav.vault` *(existe)* | `/vault` | `/vault`, `/shipments` |
-| 4 | Compras y ventas | Purchases & sales | `nav.ordersAndSales` **(nueva)** | `/orders` | `/orders`, `/buylist/requests` |
-| 5 | Mi cuenta | My account | `nav.myAccount` *(existe)* | `/account` | `/account` |
+| 3 | Decks del meta | Meta decks | `nav.decksMeta` **(nueva, v4.3)** | `/decks-meta` | `/decks-meta` *(entrada **pública**: con y sin sesión)* |
+| 4 | Mi bóveda | My vault | `nav.vault` *(existe)* | `/vault` | `/vault`, `/shipments` |
+| 5 | Compras y ventas | Purchases & sales | `nav.ordersAndSales` *(existe)* | `/orders` | `/orders`, `/buylist/requests` |
+| 6 | Mi cuenta | My account | `nav.myAccount` *(existe)* | `/account` | `/account` |
 
 A la derecha, sin cambio: `ES / EN` (§20.1.3) y **Carrito** (oculto en `/buylist`, P-28).
 
 **Qué sale del header con sesión:** el **nombre** (`StorefrontHeader.tsx:153-158`) y el botón **«Cerrar sesión»**
 (`:159-165`). El nombre deja de ser rótulo de navegación —era la superficie más visible del nombre inventado
 (regla 2)— y «Cerrar sesión» pasa a ser la última sección de «Mi cuenta» (§33.6i). El header con sesión queda en
-**cinco entradas, ni una más**.
+**seis entradas, ni una más** (la 6ª, **«Decks del meta»**, es pública y se sumó en v4.3, 2026-09-19).
 
-**Sin sesión:** sin cambio — Comprar · Vender · **Mi cuenta** (→ `/login`). ⭐ La entrada «Mi cuenta» ocupa **el
+**«Decks del meta» (fila 3) es entrada pública**, visible **con y sin** sesión, colocada **justo después de
+«Vender»**. Es una entrada de texto más —mismo patrón, misma piel, sin sub-menús ni íconos especiales—; su
+funcionalidad es **Decks Meta Fase 1** (`ARCHITECTURE §12`, ruta `/decks-meta`). Decisión del dueño (2026-09-19).
+
+**Sin sesión:** Comprar · Vender · **Decks del meta** · **Mi cuenta** (→ `/login`). «Decks del meta» es pública,
+así que aparece también aquí, en el mismo hueco (fila 3) que con sesión. ⭐ La entrada «Mi cuenta» ocupa **el
 mismo hueco con el mismo rótulo** en los dos estados; solo cambia el destino (`/login` ↔ `/account`). Así el
 usuario aprende un solo sitio.
 
 **«Envíos» desaparece del menú.** No se pierde nada: la lista de retiros vive en la pestaña «Retiros» de la
 bóveda (§33.4) y el flujo de solicitar retiro sigue en `/shipments`, al que se llega desde la bóveda.
 
-**Móvil `< lg` (drawer de §20.1):** las mismas cinco entradas en el mismo orden, luego **Carrito** (con contador)
+**Móvil `< lg` (drawer de §20.1):** las mismas seis entradas en el mismo orden (incluida «Decks del meta», fila 3,
+pública), luego **Carrito** (con contador)
 y el toggle `ES / EN`. Se retiran del drawer el nombre (`:219`) y «Cerrar sesión» (`:220-226`): viven en «Mi
 cuenta», a un toque. Filas de 44px, `border-b` de regla, como hoy.
 
@@ -16847,7 +16865,7 @@ debajo de los mínimos de §20.11 (mono 11px, cuerpo 16px en móvil).
 | **R7** | **product-owner** | Dos decisiones menores, con recomendación: (a) confirmar el rótulo **«Compras y ventas»** (alternativas descartadas: «Mis pedidos» —se lee como compra—, «Mis operaciones» —nadie lo teclea—); (b) si los campos «clave SAT» de facturación deben ser `Select` con catálogo (hoy `Input` + hint: el diseño no inventa el catálogo). *(La caducidad del carrito de venta ya la fijó el arquitecto en 30 días, §4.47.6.)* |
 | **R8** | **backend** | Mientras el nombre sea el derivado, **los 10 correos** que lo usan (`mail.templates.ts:70-99`, `buylist*.service.ts`) siguen diciéndole «Hola jcsainz95». No es de esta sección; queda anotado para que se decida si el saludo cae al correo o se omite hasta que el usuario lo corrija. |
 | **R9** | **frontend** | Implementa §33 entero contra el contrato v1.67 y el reparto **F1–F11 de `ARCHITECTURE §4.47.8`** (mocks hasta que backend publique); **`components/`, `lib/`, `hooks/` son zona compartida** (un solo stream a la vez). El orden de entrega de v4.1 queda **superseded por F1–F11**. |
-| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente cinco entradas y ninguna es el nombre; **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, **total «—» y las dos líneas sin cifra («—» en subtotal y «Estimado c/u»)** hasta que `batchQuote` responde (llamado una vez); si `batchQuote` falla, **sigue sin haber cifra** en total ni líneas y aparece «Reintentar» (v4.1.2, §33.11.2); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
+| **R10** | **QA** | Candados que ponen un test en rojo: **CA-1** header con sesión = exactamente **seis** entradas, en orden **Comprar · Vender · Decks del meta · Mi bóveda · Compras y ventas · Mi cuenta**, y ninguna es el nombre (la 6ª, «Decks del meta», es pública y también aparece **sin** sesión; «Cerrar sesión» **no** está en el header); **CA-2** `/account` sin sesión → `/login?next=/account`; **CA-3** con `mustChangePassword=true`, `/`, `/vault` acaban en `/account/password` y `/admin`, `/admin/m4` en `/admin/account/password`, **con `?next=` de la ruta original** y el banner, y la página **no tiene** ningún botón «Continuar» ni enlace «← Mi cuenta»; tras el `200`, «Listo» aterriza en el `next`; **CA-3b** `hasPassword=false` ⇒ la página **no** contiene ningún `input[type=password]` y el botón dispara `forgot-password`; **CA-4** `GET /orders/claimable` → `[]` ⇒ **cero nodos** del aviso; **CA-5** ídem con 500; **CA-6** M4 nunca contiene el `userId` en texto; **CA-7** dirección sin `recipientName` ⇒ CTA de retiro `disabled` con `aria-describedby` resuelto, y un `422 RECIPIENT_NAME_REQUIRED` abre la captura inline y reintenta; **CA-8** carrito de venta con 2 líneas → `/login?next=/buylist` → vuelve con 2 líneas, **total «—» y las dos líneas sin cifra («—» en subtotal y «Estimado c/u»)** hasta que `batchQuote` responde (llamado una vez); si `batchQuote` falla, **sigue sin haber cifra** en total ni líneas y aparece «Reintentar» (v4.1.2, §33.11.2); **CA-9** `nameSource='derived'` ⇒ aviso presente; tras `PATCH` (respuesta con `nameSource='user'`) ⇒ ausente **sin segunda llamada a `GET /users/me`**; **CA-10** `vault_operator` en `/admin/account` ve a, b, f, g y **no** c, d, e. Medir en 390×844 y 1280×800 (P-66 B2). |
 
 ---
 
