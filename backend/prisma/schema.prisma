@@ -1026,6 +1026,10 @@ model VariantPriceOverride {
   bountyTargetQty   Int? // "necesito N"; null = sin objetivo (no se auto-apaga)
   bountyAcquiredQty Int         @default(0) // piezas compradas vía buylist PAGADA bajo bounty (§4.26e)
   bountyCompletedAt DateTime?
+  // v2.2 (Q2, M-58 · §M2-B.9): sello de DESPUBLICACIÓN. Espejo de `bountyCompletedAt`. Distingue el
+  // estado derivado `despublicada` (eliminado CON historia) de `apagada` (hold reversible). Aditiva,
+  // nullable, sin backfill: null = «nunca despublicada». `BountyState` NO es enum de Prisma (clase L).
+  bountyUnpublishedAt DateTime?
   updatedBy         String? // actorUserId (patrón AuditLog, sin FK dura)
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt

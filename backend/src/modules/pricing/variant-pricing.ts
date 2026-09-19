@@ -202,9 +202,11 @@ export function composeVariantPricing(
             targetQty: override.bountyTargetQty,
             acquiredQty: override.bountyAcquiredQty,
             completedAt: override.bountyCompletedAt ? override.bountyCompletedAt.toISOString() : null,
-            // MISMO predicado que el runtime y que la vitrina (prohibido duplicarlo, §4.36.6).
+            // MISMO predicado que el runtime y que la vitrina (prohibido duplicarlo, §4.36.6). El
+            // mercado que entró al cálculo es `buy.marketMxnCents` (= `market.referenceMxnCents`, Q1).
             effective:
-              override.bountyEnabled && isBountyEffective(override.bountyPriceCents, buy.curveQuoteCents),
+              override.bountyEnabled &&
+              isBountyEffective(override.bountyPriceCents, buy.curveQuoteCents, buy.marketMxnCents),
             curveQuoteCents: buy.curveQuoteCents,
           },
         }
