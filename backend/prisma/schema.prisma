@@ -528,10 +528,10 @@ model KycProfile {
 // Hacen falta los dos — quien pide un presign y no sube nada tiene permiso sobre un objeto vacío.
 //
 model KycUploadGrant {
-  id String @id @default(uuid())
+  id          String   @id @default(uuid())
   // `Cascade`: si la cuenta se borra, sus permisos de subida se van con ella.
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// La key EXACTA que emitió el presign. `@unique`: una llave pertenece a UNA persona, y punto.
   objectKey   String   @unique
   contentType String
@@ -556,25 +556,25 @@ model BillingProfile {
 }
 
 model Address {
-  id           String   @id @default(uuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // v1.67 (M-52a, ARCHITECTURE §4.47.4): quien recibe en ESTA dirección (dato de etiqueta). Nullable
   // SOLO por las filas anteriores a M-52: sin backfill (no hay de dónde sacarlo sin inventar) y
   // ⛔ sin fallback a `User.name` en el servidor. Obligatorio al crear (contrato §1 Direcciones);
   // un retiro con `NULL` responde 422 RECIPIENT_NAME_REQUIRED y el front pide el dato.
   recipientName String?
-  line1        String
-  line2        String?
-  neighborhood String?
-  city         String
-  state        String
-  postalCode   String
-  country      String   @default("MX")
-  phone        String
-  isDefault    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  line1         String
+  line2         String?
+  neighborhood  String?
+  city          String
+  state         String
+  postalCode    String
+  country       String   @default("MX")
+  phone         String
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([userId])
 }
@@ -746,8 +746,8 @@ model Card {
   // se DERIVA en lectura por `common/standard-legality.ts` contra la ventana de `ConfigSetting`
   // (`standard.active_regulation_marks`, `standard.banlist_card_ids`) ⇒ la rotación es una edición
   // de config, no un backfill. `regulationMark == null` ⇒ NO legal (money-safe conservador).
-  regulationMark   String?   // pokemontcg.io RemoteCard.regulationMark ("F","G","H","I"…). scrydex: equivalente (NO MEDIDO).
-  legalStandardRaw String?   // pokemontcg.io RemoteCard.legalities.standard ("Legal"|"Banned"); ausente ⇒ null. Banda para bans explícitos.
+  regulationMark         String? // pokemontcg.io RemoteCard.regulationMark ("F","G","H","I"…). scrydex: equivalente (NO MEDIDO).
+  legalStandardRaw       String? // pokemontcg.io RemoteCard.legalities.standard ("Legal"|"Banned"); ausente ⇒ null. Banda para bans explícitos.
   createdAt              DateTime @default(now())
 
   inventoryItems             InventoryItem[]
@@ -760,6 +760,10 @@ model Card {
   variantPriceOverrides      VariantPriceOverride[]
   // v1.29 (M-31, §4.27b): productos TCGplayer bajo esta carta (uno por productId). Navegación Prisma.
   cardProducts               CardProduct[]
+  // DECKS-META §3.1 (Fase 1) — relación inversa de `MetaDeckCard.matchedCard`. ADITIVA: una carta que
+  // sale del catálogo NO borra la línea del deck (la línea guarda el crudo set+número, procedencia).
+  // Es LECTURA; el matcher escribe `matchedCardId` sólo al emparejar por `ptcgoCode`+`number`.
+  metaDeckCards              MetaDeckCard[]
 
   @@index([setId])
   @@index([name])
@@ -1255,25 +1259,25 @@ model OrderItem {
 // ============================= SHIPMENTS =============================
 
 model ShipmentRequest {
-  id                    String         @id @default(uuid())
+  id                    String          @id @default(uuid())
   // v1.21-guest-checkout (M-25): NULLABLE. `null` SOLO en el envío directo de un pedido de
   // invitado (creado por el servidor al liquidar). GET /shipments[...] debe filtrar por
   // `userId = :sessionUser` de forma POSITIVA para que un envío `userId=null` no aparezca nunca.
   // `onDelete: Restrict` explícito (ver la misma nota en `Order.userId`).
   userId                String?
-  user                  User?          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user                  User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
   // v1.21 (M-25): DISCRIMINADOR. `null` = retiro de bóveda (todo lo existente); poblado = envío
   // directo que fulfilla ese pedido. NO @unique: deja abierta la re-expedición sin migrar.
   // Invariante de aplicación: a lo más UN envío activo por orden.
   orderId               String?
-  order                 Order?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  order                 Order?          @relation(fields: [orderId], references: [id], onDelete: Restrict)
   addressSnapshot       Json
-  status                ShipmentStatus @default(solicitado)
+  status                ShipmentStatus  @default(solicitado)
   shippingFeeCents      Int
   // v1.64(4) (§4.44.f-ter, D55(c), decisión del dueño 2026-09-10): `shippingCostCents` es **BRUTO**
   // — el importe TOTAL de la factura de la paquetería, IVA INCLUIDO. Hasta v1.64(3) su semántica no
   // estaba declarada en ninguna parte (`§9 · D-IVA-9`) y se podía capturar de las dos formas.
-  shippingCostCents     Int            @default(0)
+  shippingCostCents     Int             @default(0)
   // v1.64(4) (M-50 punto 3-bis, §4.44.f-ter): el **IVA ACREDITABLE de esa factura, CONGELADO al
   // capturar**, para que el neto sea una RESTA (`shippingCostCents − shippingCostIvaCents`).
   // ⛔ NUNCA una división por `(1+r)`: esta tabla NO tiene `ivaRatePct` (solo `Order`), así que
@@ -1288,16 +1292,16 @@ model ShipmentRequest {
   // crédito fiscal que nadie verificó.
   // ⚠️ **D-1 NO LA LEE.** La escribe la columna (default) desde el día uno y el primer lector es el
   // P&L del D-2 (`API_CONTRACT §M10-IVA.8`). Candado: `shipments.cost-iva-column-inert.spec.ts`.
-  shippingCostIvaCents  Int            @default(0)
-  ivaCents              Int            @default(0)
-  processingFeeCents    Int            @default(0)
-  totalCents            Int            @default(0)
+  shippingCostIvaCents  Int             @default(0)
+  ivaCents              Int             @default(0)
+  processingFeeCents    Int             @default(0)
+  totalCents            Int             @default(0)
   // v1.64-iva-inclusive (M-50, §4.44.e/§4.44.f) — mismas dos columnas y MISMAS reglas que `Order`:
   // ⛔ NOT NULL y ⛔ SIN @default en `priceConvention`; `ivaTransferPct` nullable y sin backfill.
   // El envío entra en la convención porque el criterio 189 lo obliga (§4.44.f).
   priceConvention       PriceConvention
   ivaTransferPct        Int?
-  stripePaymentIntentId String?        @unique
+  stripePaymentIntentId String?         @unique
   carrier               String?
   trackingNumber        String?
   // ⭐ v1.74 (§R.6, M-57) — EL SELLO DE `AV-4` (la guía al COMPRADOR). `setTracking` es el único
@@ -1310,7 +1314,7 @@ model ShipmentRequest {
   // `toAdminShipmentRow` ya impide que se auto-publique, y ése es justo el caso para el que se
   // escribió. Candado: `test/avisos.seals-out-of-dto.spec.ts`.
   trackingNoticeSentAt  DateTime?
-  requestedAt           DateTime       @default(now())
+  requestedAt           DateTime        @default(now())
   pickingAt             DateTime?
   shippedAt             DateTime?
   deliveredAt           DateTime?
@@ -1758,4 +1762,103 @@ model SealedRestockSubscription {
   @@index([tcgplayerProductId, sealedCondition, notifiedAt])
   @@index([email])
   @@index([cardId])
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// DECKS-META §3.1 (Fase 1) — DECKS META «para jugar». Diseño: docs/specs/DECKS_META_ARCH.md §3.1 /
+// docs/ARCHITECTURE.md §12.2. Contrato: docs/API_CONTRACT.md §13.
+//
+// Separación clave: DECK (arquetipo persistente, con su slug/rank/publicación) vs LISTA (inmutable,
+// con su fecha y fuente). Una rotación del meta NO edita listas viejas: crea una `MetaDeckList` nueva.
+// NO hay tabla de precios (se calcula al render reusando pricing/catalog) ni de alertas (reusa §R).
+// La legalidad NO se persiste aquí: se DERIVA en lectura (`common/standard-legality.ts`).
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+enum MetaDeckSource {
+  limitless // traído automático (Fase 2)
+  manual // curado a mano por operación (fallback, disponible desde Fase 1)
+}
+
+enum MetaCardGroup {
+  pokemon
+  trainer
+  energy
+}
+
+// Resultado del emparejado por `CardSet.ptcgoCode` + `Card.number` (NUNCA por nombre, §3.2).
+enum MetaMatchStatus {
+  matched // casó a una `Card` única
+  ambiguous // varias candidatas (colisión de ptcgoCode) ⇒ NO se auto-resuelve
+  unmatched_set // el código de set no existe en `CardSet.ptcgoCode`
+  unmatched_number // el set existe pero el número no casa
+  unmatched_basic_energy // energía básica sin set/número (siempre legal; se marca, no se inventa)
+}
+
+model MetaDeck {
+  id               String         @id @default(uuid())
+  slug             String         @unique // /decks-meta/{slug}
+  name             String
+  source           MetaDeckSource @default(manual) // manual = curado (fallback); limitless = auto (Fase 2)
+  sourceRef        String? // id/url del arquetipo en Limitless
+  rank             Int? // posición en el meta (1..10)
+  sharePct         Float? // % del meta, si la fuente lo da
+  trend            Int? // share_actual − share_anterior (▲▼=)
+  published        Boolean        @default(false)
+  pausedByOperator Boolean        @default(false) // el operador congela publicación sin borrar
+  currentListId    String?        @unique
+  currentList      MetaDeckList?  @relation("CurrentList", fields: [currentListId], references: [id])
+  imageCardId      String? // Card cuyo arte representa el deck en la teja
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  lists            MetaDeckList[] @relation("DeckLists")
+
+  @@index([published, rank])
+}
+
+// INMUTABLE: una lista concreta con su fecha y fuente. Una lista nueva NO muta la anterior.
+model MetaDeckList {
+  id                  String         @id @default(uuid())
+  deckId              String
+  deck                MetaDeck       @relation("DeckLists", fields: [deckId], references: [id])
+  formatLabel         String // "Standard 2026-27"
+  activeMarksSnapshot Json // ventana vigente al capturar (procedencia)
+  sourceUrl           String?
+  sourceTournament    String?
+  fetchedAt           DateTime       @default(now())
+  supersededById      String? // apunta a la lista que la reemplazó
+  cards               MetaDeckCard[]
+  currentOf           MetaDeck?      @relation("CurrentList")
+
+  @@index([deckId, fetchedAt])
+}
+
+// Una línea de la lista. Guarda el CRUDO (set+número+cantidad); si no casa, `matchedCardId` = null
+// (NUNCA se inventa carta ni precio). Alimenta el reporte de curaduría (`@@index([matchStatus])`).
+model MetaDeckCard {
+  id            String          @id @default(uuid())
+  listId        String
+  list          MetaDeckList    @relation(fields: [listId], references: [id])
+  rawName       String
+  rawSetCode    String // "TWM"
+  rawNumber     String // "130"
+  quantity      Int
+  group         MetaCardGroup
+  matchStatus   MetaMatchStatus @default(unmatched_set)
+  matchedCardId String? // FK lógica a Card; null si no casó
+  matchedCard   Card?           @relation(fields: [matchedCardId], references: [id])
+  createdAt     DateTime        @default(now())
+
+  @@index([listId])
+  @@index([matchStatus])
+}
+
+// Provenance + canario del job semanal (Fase 2). En Fase 1 lo escribe la curaduría manual.
+model MetaFetchRun {
+  id            String         @id @default(uuid())
+  runAt         DateTime       @default(now())
+  source        MetaDeckSource
+  formatVersion String // versión FIJADA del formato Limitless (candado, Fase 2)
+  deckCount     Int
+  applied       Boolean // false = no pasó validación; se conservó lo último bueno
+  note          String?
 }

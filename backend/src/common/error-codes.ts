@@ -632,6 +632,14 @@ export const ErrorCode = {
   // ⛔ Es 500 y no 422 a propósito (doctrina de `BusinessException.internal`): el actor no hizo nada
   // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
   AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
+
+  // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
+  // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
+  DECK_NOT_FOUND: 'DECK_NOT_FOUND',
+  // 422 — `POST /decks-meta/paste` con texto vacío o sin NINGUNA línea de carta válida (el parser no
+  // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
+  // pero su contenido no es una lista parseable. API_CONTRACT §13.
+  DECK_LIST_UNPARSEABLE: 'DECK_LIST_UNPARSEABLE',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];
