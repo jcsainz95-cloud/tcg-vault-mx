@@ -51,10 +51,11 @@ describe('StorefrontHeader — sesión', () => {
 
   /**
    * v1.67 — DESIGN_SYSTEM §33.1 (candado CA-1 de §33.16 R10): con sesión el header pinta
-   * EXACTAMENTE cinco entradas y NINGUNA es el nombre; «Cerrar sesión» sale del header (vive en
-   * «Mi cuenta», regla 8) y «Mi cuenta» ocupa el mismo hueco con el mismo rótulo (→ /account).
+   * EXACTAMENTE seis entradas (la 6ª, «Decks del meta», entra por decisión del dueño) y NINGUNA
+   * es el nombre; «Cerrar sesión» sale del header (vive en «Mi cuenta», regla 8) y «Mi cuenta»
+   * ocupa el mismo hueco con el mismo rótulo (→ /account).
    */
-  it('CA-1: con sesión el nav tiene exactamente cinco entradas, sin nombre ni «Cerrar sesión»', async () => {
+  it('CA-1: con sesión el nav tiene exactamente seis entradas, sin nombre ni «Cerrar sesión»', async () => {
     setStoredUser(user);
     renderWithProviders(<StorefrontHeader />, 'es');
 
@@ -62,7 +63,8 @@ describe('StorefrontHeader — sesión', () => {
     expect(account).toHaveAttribute('href', '/account');
     const nav = account.closest('nav') as HTMLElement;
     const labels = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent?.trim());
-    expect(labels).toEqual(['Comprar', 'Vender', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
+    expect(labels).toEqual(['Comprar', 'Vender', 'Decks del meta', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
+    expect(screen.getByRole('link', { name: 'Decks del meta' })).toHaveAttribute('href', '/decks-meta');
     expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Cerrar sesión/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();
@@ -98,7 +100,7 @@ describe('StorefrontHeader — sesión', () => {
     expect(screen.getByRole('link', { name: 'Vender' })).not.toHaveAttribute('aria-current');
   });
 
-  it('el drawer móvil lleva las mismas cinco entradas y ningún «Cerrar sesión»', async () => {
+  it('el drawer móvil lleva las mismas seis entradas y ningún «Cerrar sesión»', async () => {
     setStoredUser(user);
     renderWithProviders(<StorefrontHeader />, 'es');
     await screen.findByRole('link', { name: 'Mi cuenta' });
