@@ -22,6 +22,58 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
+> **ESTADO AL 2026-09-19 (18ª ronda — DECISIÓN DE PRODUCTO DEL DUEÑO — ⚠ BORRADOR DE product-owner PARA
+> APROBACIÓN DEL HUMANO; ESTA ES LA MÁS RECIENTE. NO toca D55 ni D56 (§R, §Q) ni ninguna anterior: es OTRO
+> FRENTE —**bounties, zona de dinero**—. Son DOS cosas que el dueño decidió el **2026-09-19**, y ambas ya las
+> normó el arquitecto en el contrato, **rev v1.77**):**
+> **D57 — EL BOUNTY NUNCA OBLIGA A PAGAR ARRIBA DE MERCADO (Q1), Y LOS BOUNTIES SE PUEDEN ELIMINAR DE VERDAD,
+> NO SOLO APAGAR (Q2).**
+> **Por qué esta entrada existe y por qué la redacta product-owner**: el arquitecto ya normó el diseño en
+> `API_CONTRACT §M2-B.8/B.9/B.10` y `ARCHITECTURE §4.36.6/6b/6c/6d` (rev v1.77), pero por la **regla de
+> conflicto** de `CLAUDE.md` **el contrato no puede contradecir este documento**, y ese diseño **contradice el
+> texto vigente de PROJECT.md en dos puntos** (el **criterio 91** y **D52 / la consola**). Esta ronda
+> **enmienda PROJECT.md** para que **este documento vuelva a ser la fuente de verdad de negocio** y el contrato
+> quede **alineado, no por encima**. *(La contradicción es como la de D53: una instrucción de mayor autoridad
+> que, leída al pie, mandaba lo contrario de lo que el dueño quiere.)*
+> **⚠ Q1 — EL PISO DEL BOUNTY NO PUEDE QUEDAR ARRIBA DE MERCADO.** Palabras del dueño: el mínimo de un bounty
+> es **su precio de compra normal (la tarifa estándar)**, **pero nunca debe forzarlo a pagar por encima del
+> MERCADO**. Hoy, para cartas baratas la tarifa de compra por curva es `max(BIN/piso, mercado×pct)` y **ese
+> piso puede quedar ARRIBA del mercado**; el **criterio 91** literal (*«estrictamente mayor que la tarifa
+> estándar»*) entonces **lo obliga a pagar arriba de mercado** para poder publicar el bounty. **La solución del
+> arquitecto** (`§M2-B.8`): **piso efectivo `min(tarifa_estándar, mercado)`**. En el **tramo normal** (cartas
+> caras, tarifa estándar < mercado) **no cambia nada** —hay que **batir** la tarifa, **empate rechazado**—; en
+> el **borde** (piso ≥ mercado) **basta IGUALAR el mercado** —**empate aceptado**— y **nunca se exige por
+> encima**. **Efecto en este documento**: se reescribe el **criterio 91** (abajo) y se hace coherente **§N.6 /
+> criterio 90** (el «rebasado» se mide contra el **piso efectivo**, no contra la tarifa estándar pelada).
+> **⚠ Q2 — ELIMINAR BOUNTY, NO SOLO PRENDER/APAGAR.** Hoy la consola (D52) solo permite **prender/apagar**
+> (hold): apagar **conserva la fila**; **no existe «eliminar»**. El dueño quiere **eliminar de verdad**, y el
+> arquitecto lo normó como `DELETE …/bounty` con **ramificación en el servidor** (`§M2-B.9`, `§4.36.6b`):
+> **(a)** si **NO se compró nada** bajo el bounty ⇒ **se borra por completo** (la fila desaparece);
+> **(b)** si **YA se compró algo** ⇒ **NO se borra**: pasa al **nuevo estado `despublicada`** —sale de la
+> vitrina pública y del tablero admin por defecto— y **se conserva el registro**. Palabras del dueño: *«solo se
+> despublica el bounty si se llegó a comprar algo, ya debería de estar el costo en inventario, no en el P/L
+> también»*. **El invariante contable `INV-BOUNTY-COST`** (`§M2-B.10`) blinda que **eliminar/despublicar NO
+> toca el costo ni el P/L**: el costo ya vive en **inventario** y no se duplica, ni se borra, ni reaparece.
+> **QUÉ ENTRA, y NADA MÁS — DOS COSAS**: **(1)** el **borde de Q1** en el precio del bounty (nunca por encima
+> de mercado); **(2)** la capacidad de **eliminar** desde la consola, con su ramificación borrar/despublicar y
+> el estado `despublicada`. **⛔ QUÉ SIGUE FUERA, igual que en D52**: **tablero**, **reportes de avance**,
+> **acciones masivas**, **alta desde la consola** y **avisos proactivos**. **Eliminar es una acción POR FILA**:
+> eliminar varios de un clic **es acción masiva y sigue FUERA**.
+> **Efecto en criterios y secciones** (todos abajo, enmendados): **criterio 91** (Q1, reescrito), **§N.6 /
+> criterio 90** (piso efectivo), **D52 / «Fuera de alcance» / criterio 184** (se añade **eliminar** +
+> `despublicada` + `INV-BOUNTY-COST`, y se **corrige el «no relaja ninguna guarda»**, porque Q1 **SÍ** relaja
+> el criterio 91 en el borde), **criterios 164 y 168(e)** (una línea: eliminar/despublicar **no** relaja el
+> objetivo obligatorio ni el default 2/backfill, y **no** es un alta) y la **descripción de la consola en M2**.
+> Ver `API_CONTRACT §M2-B.8/B.9/B.10` y `ARCHITECTURE §4.36.6/6b/6c/6d` (rev v1.77).
+> **Preguntas abiertas de esta ronda —ninguna bloquea, todas con supuesto y lado seguro**: **(88, SUPUESTO)**
+> una fila **`despublicada`** **no se reactiva** desde la consola —para volver a tener ese bounty se **da de
+> alta uno nuevo**, que es donde vive el alta—; a reconfirmar. **(89, SUPUESTO)** las **`despublicada`** se
+> pueden ver en la consola **a demanda** (**apagadas por defecto** en la vista) y **NO** cuentan como
+> «rebasadas» ni entran en el conteo de rebasados (es un desenlace elegido, no una ceguera); a reconfirmar.
+> **Nota de precedencia para los otros roles**: este documento manda sobre el contrato. Con **D57 aprobado**,
+> el diseño del arquitecto (rev v1.77) queda **respaldado** por PROJECT.md; **si algo en `docs/` contradice lo
+> de arriba, se corrige allá**.
+>
 > **ESTADO AL 2026-09-14 (17ª ronda — ✅ DECISIÓN DEL DUEÑO, **APROBADA Y VIGENTE** — LEER PRIMERO; ESTA ES
 > LA MÁS RECIENTE. NO toca D54, ni D53, ni ninguna anterior. Son DOS frentes: **(1)** un requisito NUEVO
 > —**el centro de avisos, §R**, que queda como **D55**— y **(2)** una RE-LECTURA de §Q a la luz de un hecho
@@ -296,8 +348,23 @@
 > «rebasado» es la información más importante de la lista**: es la ceguera que se cura, y por eso **la lista
 > se ordena y se cuenta alrededor de él**, no como una columna más.
 > **(b) EDITAR FILA A FILA**: cambiar **precio**, **objetivo** y **encendido/apagado** de **un** bounty, desde
-> su propia fila. **Reusa la escritura que ya existe** y **no relaja ninguna guarda**: un bounty que quede por
+> su propia fila. **Reusa la escritura que ya existe** y ~~**no relaja ninguna guarda**~~: un bounty que quede por
 > debajo (o igual) de la tarifa **se sigue RECHAZANDO al guardar**, igual que hoy.
+> **⚠⚠ 18ª RONDA (D57, 2026-09-19 — BORRADOR PARA APROBACIÓN DEL HUMANO) — DOS ENMIENDAS AQUÍ:**
+> **(Q1) «no relaja ninguna guarda» queda TACHADO, no borrado, porque ya NO es del todo cierto.** Q1 **SÍ
+> relaja el criterio 91 en el borde**: donde la tarifa estándar queda **por encima del mercado**, un bounty que
+> **iguala el mercado** ahora es **válido** —antes se rechazaba—. **La guarda no desaparece, se corrige**: lo
+> que se rechaza al guardar es un precio **por debajo del piso efectivo `min(tarifa_estándar, mercado)`** (y, en
+> el tramo normal, el **empate con la tarifa estándar sigue rechazándose**). Ver criterio **91** y
+> `API_CONTRACT §M2-B.8`. **El objetivo obligatorio (D32) y el resto de guardas NO se relajan.**
+> **(Q2) SE AÑADE UNA TERCERA CAPACIDAD POR FILA: ELIMINAR — de verdad, no solo apagar.** Hoy apagar
+> **conserva la fila**; el dueño pidió **eliminar**. El arquitecto lo normó como `DELETE …/bounty` con
+> **ramificación en el servidor** (`API_CONTRACT §M2-B.9`, `ARCHITECTURE §4.36.6b`): **si NO se compró nada**
+> bajo el bounty ⇒ **se borra por completo**; **si YA se compró algo** ⇒ **NO se borra**, pasa al **nuevo
+> estado `despublicada`** —sale de la vitrina pública y del tablero admin por defecto— y **se conserva el
+> registro** (el costo ya vive en inventario). El invariante **`INV-BOUNTY-COST`** (`§M2-B.10`) blinda que
+> **eliminar/despublicar NO toca el costo ni el P/L**. **Sigue siendo una acción POR FILA**: eliminar varios de
+> un clic es **acción masiva** y **sigue FUERA** (ver «QUÉ SIGUE FUERA» abajo). Ver criterio **184**.
 > **⛔ QUÉ SIGUE FUERA, y se dice explícitamente porque eran las otras dos piezas del «proyecto aparte» y el
 > humano NO las pidió**: **(i)** el **TABLERO de bounties** —métricas, tarjetas de resumen, KPIs, cualquier
 > superficie de dashboard—; **(ii)** los **REPORTES de avance contra objetivo** —serie histórica, ritmo de
@@ -1186,6 +1253,11 @@
 > objetivo.** **El objetivo obligatorio no cambia en nada** — se sigue exigiendo donde hoy se configuran los
 > bounties, y ahora **también** desde la consola, que reusa esa misma escritura. Ver **D52**, §N.6, criterios
 > **164** y **184**.
+> **⚠ D57 (18ª ronda, 2026-09-19 — BORRADOR PARA APROBACIÓN DEL HUMANO) — la consola gana ELIMINAR (Q2) y Q1
+> corrige su guarda de precio**: eliminar es **por fila** (sin compras ⇒ se borra; con compras ⇒ se
+> **despublica**, estado `despublicada`, sin tocar costo ni P/L — `INV-BOUNTY-COST`); y el precio del bounty
+> **nunca se exige por encima del mercado** (criterio 91, piso efectivo `min(tarifa_estándar, mercado)`). Ver
+> **D57**, criterios **91** y **184**, y `API_CONTRACT §M2-B.8/B.9/B.10`.
 > **(D33) La solicitud que nadie oferta CADUCA a los 7 días hábiles.** Al re-anclar el barrido de 30 días
 > —correcto: **`cotizada` ahora significa «esperando que NOSOTROS ofertemos»**, y cerrarla por **inacción
 > nuestra** sería culpar al cliente— **quedó un hueco: nada cerraba ya una `cotizada`**, y un cliente podía
@@ -1932,6 +2004,13 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       propósito. **⛔ NO es un tablero y NO trae reportes de avance contra objetivo** —siguen **fuera de
       alcance**—; **no** da de alta bounties, **no** tiene acciones masivas y **no** sustituye el **badge del
       binder**, que **se queda**.
+      **⚠ D57 (18ª ronda, 2026-09-19 — BORRADOR PARA APROBACIÓN DEL HUMANO)**: la consola además **elimina**
+      bounties **por fila** (**sin compras ⇒ se borra**; **con compras ⇒ se despublica**, nuevo estado
+      **`despublicada`**, sin tocar costo ni P/L — invariante **`INV-BOUNTY-COST`**), y la **guarda de precio se
+      corrige** por Q1: lo que se rechaza al guardar es un precio **por debajo del piso efectivo
+      `min(tarifa_estándar, mercado)`**, y **nunca se exige por encima del mercado** (criterio **91**). **Sigue
+      sin acciones masivas** —eliminar es por fila—. Ver criterios **184**, **91** y
+      `API_CONTRACT §M2-B.8/B.9/B.10`.
 - [ ] **M3 — Ventas / órdenes**: estados `pending / settled / fallida / reembolsada / contracargo`,
       **desglose con línea de Stripe**, **reembolso**.
 - [ ] **M4 — Retiros / envíos**: cola `solicitado → picking → guía → enviado → entregado`,
@@ -3084,6 +3163,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       existía.)*
 - [ ] **Efecto buscado**: **el número publicado es exactamente lo que se paga**, y **todo lo que aparece en la
       vitrina es por definición mejor que la tarifa estándar**.
+      *(**⚠ 18ª ronda, D57 — Q1, 2026-09-19, BORRADOR PARA APROBACIÓN DEL HUMANO**: se matiza el borde. La
+      revalidación de «rebasado» se mide contra el **piso efectivo `min(tarifa_estándar, mercado)`**, no contra
+      la tarifa estándar pelada, **porque un bounty nunca debe obligar a pagar por encima del mercado**. En el
+      **tramo normal** (tarifa estándar < mercado) nada cambia: el publicado **bate** la tarifa. En el **borde**
+      (piso ≥ mercado) **igualar el mercado basta** —empate aceptado—, así que ahí «mejor que la tarifa
+      estándar» se lee como **«mejor o igual, sin pasarse del mercado»**. La regla de que **un bounty rebasado
+      deja de ser bounty NO cambia**; cambia el listón contra el que se mide. Ver criterio **91** y
+      `API_CONTRACT §M2-B.8`.)*
 - [ ] **El OBJETIVO del bounty es OBLIGATORIO** *(NUEVO 5ª ronda v2.1, **D32**; ver §P.2 y criterio 164)*:
       **no se puede dar de alta un bounty sin capturar su objetivo** (`bountyTargetQty` — *«hasta tener N en
       inventario»*). **Sin objetivo, no hay bounty**: el alta **no se guarda**.
@@ -6459,6 +6546,13 @@ umbrales** — son política interna (`HECHOS.md`, 2026-09-11 (c)). Es el criter
     alta** bounties desde la consola y **cualquier acción masiva** (multi-selección, «+10 % a los rebasados»,
     apagar los rebasados de un clic). El humano pidió **ver** y **editar fila a fila**; eso es lo que se
     escribe.
+  - **⚠ AÑADE D57 (18ª ronda, 2026-09-19 — BORRADOR PARA APROBACIÓN DEL HUMANO)**: **ENTRA además ELIMINAR un
+    bounty desde su fila** —de verdad, no solo apagar—, con **ramificación en el servidor**: **sin compras ⇒ se
+    borra**; **con compras ⇒ se despublica** (nuevo estado **`despublicada`**, fuera de vitrina y del tablero
+    por defecto, registro conservado; invariante **`INV-BOUNTY-COST`**: no toca costo ni P/L). **Es acción POR
+    FILA**: **eliminar en masa SIGUE FUERA**, igual que el resto de acciones masivas, y el **alta** sigue fuera
+    de la consola. Y **Q1** corrige la guarda de precio (**nunca por encima de mercado**, criterio 91). Ver
+    criterios **184**, **91** y `API_CONTRACT §M2-B.8/B.9/B.10`.
 - **Integración con paquetería en el buylist** *(2ª ronda v2.1, D19)*: la guía se **compra a mano y fuera del
   sistema**, y el operador **captura el número**. **No** hay compra automática de etiquetas, **ni** cotización
   de tarifas, **ni** rastreo en vivo, **ni** validación del número contra el transportista, **ni** cancelación
@@ -7330,8 +7424,33 @@ nuevo, no como parte de §R**:
     vitrina** (ni Home ni Vender) y **genera alerta en el binder**. Se valida **al crear, al cotizar y al
     publicar** (hoy solo al crear). Verificable: crear un bounty válido, **subir el mercado** hasta que la
     regla lo rebase ⇒ desaparece de la vitrina, la cotización paga **la regla** y aparece **la alerta**.
-91. **El número publicado es el que se paga**: para **todo** bounty visible en la vitrina, la cotización del
-    cotizador es **exactamente ese monto** y es **estrictamente mayor** que la tarifa estándar de esa variante.
+    *(**⚠ 18ª ronda, D57 — Q1, 2026-09-19, BORRADOR PARA APROBACIÓN DEL HUMANO**: «la regla de compra vigente»
+    para esta revalidación es el **piso efectivo `min(tarifa_estándar, mercado)`**, no la tarifa estándar
+    cuando esta queda **por encima del mercado**. En el borde (piso ≥ mercado), un bounty que **iguala el
+    mercado NO está rebasado** —empate aceptado—; en el tramo normal se sigue exigiendo **batir** la tarifa
+    —empate rechazado—. Ver criterio **91** y `API_CONTRACT §M2-B.8`.)*
+91. **El número publicado es el que se paga — bate la tarifa estándar en el caso normal, pero NUNCA se exige
+    por encima del mercado**: para **todo** bounty visible en la vitrina, la cotización del cotizador es
+    **exactamente ese monto** ~~y es **estrictamente mayor** que la tarifa estándar de esa variante~~.
+    **⚠⚠ ENMENDADO EL 2026-09-19 (product-owner — Q1 de D57; BORRADOR PARA APROBACIÓN DEL HUMANO). El predicado
+    «estrictamente mayor que la tarifa estándar» queda TACHADO, no borrado: era falso en un borde que el pase
+    original no había medido.** El dueño decidió que **un bounty NUNCA debe obligarlo a pagar por encima del
+    MERCADO**. La tarifa de compra por curva para cartas baratas es `max(BIN/piso, mercado×pct)`, y **ese piso
+    puede quedar ARRIBA del mercado**; leído al pie, *«estrictamente mayor que la tarifa estándar»* **lo forzaba
+    a pagar arriba de mercado** para poder publicar el bounty. **Predicado vigente** —el arquitecto lo normó con
+    **piso efectivo `min(tarifa_estándar, mercado)`** en `API_CONTRACT §M2-B.8` (rev v1.77)—:
+    **(a) CASO NORMAL (tarifa estándar < mercado — típicamente cartas caras)**: **SIN CAMBIO**. El número
+    publicado **sigue siendo estrictamente mayor que la tarifa estándar** (hay que **batirla**; **el empate se
+    RECHAZA**), y sigue por debajo del mercado por definición del bounty (§N.6);
+    **(b) BORDE (piso ≥ mercado, es decir tarifa estándar ≥ mercado — cartas baratas)**: **basta IGUALAR el
+    mercado** —**el empate se ACEPTA**— y **nunca se exige por encima de él**.
+    En una frase: **el número publicado bate el piso efectivo `min(tarifa_estándar, mercado)`, y el empate se
+    acepta SOLO cuando ese mínimo es el mercado**. **Lo que NO cambia**: el número publicado **sigue siendo
+    exactamente lo que se paga**, y **un bounty rebasado por la regla sigue dejando de ser bounty** (§N.6,
+    criterio 90) — lo único que se movió es **dónde cae el listón en el borde**. **Verificable**: en una
+    variante barata con **piso > mercado**, un bounty que **iguala el mercado** es **válido y se publica** (hoy
+    se rechazaría); en una variante cara con **tarifa estándar < mercado**, un bounty que **iguala la tarifa
+    estándar** se **sigue rechazando**. Cita `API_CONTRACT §M2-B.8`.
 92. **`priceBasis` — qué determinó el precio**: el backend **registra y expone** por variante qué determinó el
     precio publicado: **`mercado` / `piso` / `override` / `bounty` / `pendiente`**. La UI y el back-office lo
     **consumen**; **no** se infiere en el cliente comparando cifras. Verificable en el contrato y en la
@@ -8291,6 +8410,11 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     tiene `force`, no admite `targetQty` vacío y **no crea bounties** (el alta sigue donde estaba).
     **Lo que sigue verificándose por ausencia, porque eso NO se reabrió**: **no hay tablero de bounties** y
     **no hay reportes de avance contra objetivo** (ver «Fuera de alcance»).
+    **⚠ 18ª ronda, D57 (2026-09-19 — Q2, BORRADOR PARA APROBACIÓN DEL HUMANO) — una línea más por el borrado**:
+    **(f)** la consola ahora **elimina** bounties (criterio 184 (i)/(j)), y **eso tampoco relaja este
+    criterio**: **eliminar NO es un alta** —no crea un bounty, y menos uno sin objetivo—; y una fila que en vez
+    de borrarse queda **`despublicada`** **conserva su objetivo capturado** (no se limpia). **No hay ninguna vía
+    —crear, editar, apagar ni eliminar— por la que exista un bounty sin objetivo.** Ver `API_CONTRACT §M2-B.9`.
     ~~*(**SUPUESTO** — bounties **preexistentes** sin objetivo: se les exige el dato **al editarlos** y,
     mientras no lo tengan, la mesa los trata como **«sin bounty» para la sugerencia** (aplica el tope de 10);
     **el precio no cambia**. Ver **pregunta abierta 26**.)*~~ **⚠ SUPUESTO SUPERADO por D35 (6ª ronda)** —
@@ -8429,6 +8553,12 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     que D35 dejó abierto ahora es verificable**: las filas que el backfill dejó **vivas y ya por encima de su
     objetivo** —las que se documentaron *«para triage manual desde M2»*— **aparecen en la consola** y **se
     pueden arreglar desde su fila** (subir la meta o apagar). **Hasta D52 no había dónde hacer ese triage.**
+    **⚠ 18ª ronda, D57 (2026-09-19 — Q2, BORRADOR PARA APROBACIÓN DEL HUMANO) — una línea más por el borrado**:
+    **eliminar o despublicar un bounty NO toca el default 2 ni el backfill de D35**. Un bounty **borrado por
+    completo** simplemente deja de existir; uno que queda **`despublicada`** **conserva su objetivo** (el 2 que
+    puso el backfill, o el que el dueño haya editado) — **no se recalcula ni se re-llena nada**. El default 2
+    sigue ocurriendo **solo al dar de alta**, en la escritura de siempre. Ver criterio **184** y
+    `API_CONTRACT §M2-B.9`.
 169. **La caducidad es un MOTIVO de `expirada`, no un quinto estado — y los dos desenlaces se distinguen
     igual (resolución de la pregunta 27 por el arquitecto)**: los **estados terminales son CUATRO**
     (`pagada`, `rechazada`, `expirada`, `abandonada`) y **`expirada` lleva un motivo persistido en columna
@@ -8881,9 +9011,10 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
 > no de una corrección: la pantalla que D32/D35 habían dejado como «proyecto aparte» entra, acotada a
 > VER + EDITAR FILA A FILA.**
 184. **D52 — TODOS LOS BOUNTIES EN UN SOLO LUGAR, Y EL «REBASADO» ES LO PRIMERO QUE SE VE (14ª ronda;
-    enmienda los criterios 164 y 168(e))**: existe **una pantalla en M2** que **lista TODOS los bounties**
-    —**activos, rebasados, apagados y completados**— y permite **editarlos fila a fila**. Verificable en
-    **ocho** puntos:
+    enmienda los criterios 164 y 168(e); **⚠ ampliado por D57, 18ª ronda, 2026-09-19 — Q1 corrige (e), Q2 añade
+    (i) y (j); BORRADOR PARA APROBACIÓN DEL HUMANO**)**: existe **una pantalla en M2** que **lista TODOS los
+    bounties** —**activos, rebasados, apagados y completados**— y permite **editarlos fila a fila** y, por
+    **D57**, **eliminarlos fila a fila**. Verificable en **ocho** puntos, **más (i) y (j) que añade D57**:
     **(a)** **⭐ EL PUNTO QUE JUSTIFICA LA PANTALLA — el rebasado se ve, y se ve PRIMERO**: se crea un bounty
     válido, **se sube el mercado** hasta que la regla lo rebase (criterio 90) ⇒ **desaparece de la vitrina y
     de la cotización, como manda §N.6**, **y aparece en esta lista, marcado como rebasado y por delante de los
@@ -8893,15 +9024,23 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     orden o paginación puestos, **la cifra no cambia**. *(Un conteo que cuenta la página convierte «hay 7
     rebasados» en «hay 2» sin avisar — y eso es exactamente la ceguera otra vez, con otra ropa.)*;
     **(c)** **la lista incluye lo que las demás superficies filtran**: los **cuatro** grupos están
-    representados —se comprueba con un bounty de cada suerte— y **ninguno se cae por estar «no efectivo»**;
+    representados —se comprueba con un bounty de cada suerte— y **ninguno se cae por estar «no efectivo»**.
+    *(**⚠ D57, 2026-09-19, BORRADOR**: se suma un **quinto** grupo, las **`despublicada`** (inciso (i)),
+    **visibles a demanda y apagadas por defecto** en la vista — **SUPUESTO**, pregunta **89**)*;
     **(d)** **cero rebasados se DICE, no se calla**: cuando no hay ninguno, la pantalla **lo enuncia**. *(Al
     revés que la vitrina, que por diseño desaparece cuando no hay nada; aquí **una sección ausente y una
     vacía se leerían igual**, y esta pantalla existe para que no se confundan.)*;
-    **(e)** **se edita FILA A FILA, y la guarda no se relaja**: cambiar **precio**, **objetivo** o
-    **encendido/apagado** de **un** bounty desde su fila **funciona**; y **guardar un precio por debajo —o
-    igual— de la tarifa vigente SE RECHAZA aquí igual que se rechaza hoy** (§N.6), **sin `force` y sin
-    «guardar de todas formas»**. **El objetivo sigue siendo obligatorio** (criterio 164): **borrarlo y
-    guardar ⇒ no se guarda**;
+    **(e)** **se edita FILA A FILA, y la guarda ~~no se relaja~~ SE CORRIGE (no se relaja de gratis)**: cambiar
+    **precio**, **objetivo** o **encendido/apagado** de **un** bounty desde su fila **funciona**; y **guardar un
+    precio por debajo ~~—o igual—~~ de la tarifa vigente SE RECHAZA aquí igual que se rechaza hoy** (§N.6), **sin
+    `force` y sin «guardar de todas formas»**. **El objetivo sigue siendo obligatorio** (criterio 164):
+    **borrarlo y guardar ⇒ no se guarda**.
+    *(**⚠ 18ª ronda, D57 — Q1, 2026-09-19, BORRADOR PARA APROBACIÓN DEL HUMANO**: el listón de esa guarda es el
+    **piso efectivo `min(tarifa_estándar, mercado)`**, no la tarifa estándar cuando esta queda **por encima del
+    mercado**. En el **borde** (tarifa estándar ≥ mercado), guardar un precio que **iguala el mercado** **SÍ se
+    acepta** —el «—o igual—» tachado ya no aplica en ese borde—; en el **tramo normal**, el empate con la tarifa
+    estándar **se sigue rechazando**. La guarda **no se relaja de gratis: se corrige** para no exigir por encima
+    de mercado. Ver criterio **91** y `API_CONTRACT §M2-B.8`.)*;
     **(f)** **verificable POR AUSENCIA — lo que esta pantalla NO es**: **no** hay **tablero** (ni tarjetas de
     métricas, ni KPIs, ni gráficas), **no** hay **reportes de avance contra objetivo** (ni serie histórica, ni
     ritmo de captura, ni informe en M9), **no** se **da de alta** un bounty desde aquí y **no** existe
@@ -8915,10 +9054,33 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     **vivas y ya por encima de su objetivo** —documentadas *«para triage manual desde M2»*— **se ven en esta
     lista** y **se resuelven desde su propia fila** (subir la meta o apagar), **sin ninguna herramienta
     aparte**.
-    *(**Nota de alcance para quien implemente**: **no hace falta ningún dato nuevo ni ningún cambio de base de
-    datos** para cumplir esto — todo lo que la pantalla enseña **ya se guarda o ya se deriva**. Si alguien
-    concluye que hace falta un campo o una columna, **eso es una pregunta para el arquitecto**, no una licencia
-    de este criterio.)*
+    **⚠⚠ AÑADIDO POR D57 (18ª ronda, 2026-09-19 — Q2, BORRADOR PARA APROBACIÓN DEL HUMANO):**
+    **(i)** **ELIMINAR desde la fila — de verdad, no solo apagar**: la consola tiene una **tercera acción por
+    fila**, `ELIMINAR` (`DELETE …/bounty`; `API_CONTRACT §M2-B.9`, `ARCHITECTURE §4.36.6b`), con
+    **ramificación en el SERVIDOR** (no la decide el cliente): **(i.1)** eliminar un bounty **bajo el que NO se
+    compró nada** ⇒ la fila **desaparece por completo**; **(i.2)** eliminar un bounty **bajo el que YA se
+    compró algo** ⇒ **NO se borra**: queda en el **nuevo estado `despublicada`** —**fuera de la vitrina pública
+    y fuera del tablero admin por defecto**— y **el registro se conserva**. Verificable forzando cada rama con
+    el **mismo** botón y comprobando que **el desenlace lo decide el servidor**;
+    **(j)** **eliminar/despublicar NO toca el dinero (invariante `INV-BOUNTY-COST`, `API_CONTRACT §M2-B.10`)**:
+    tras eliminar un bounty con compras, **el costo de lo comprado sigue EXACTAMENTE igual en inventario** y
+    **el P/L no cambia ni un centavo** —no se duplica, no se borra, no reaparece—. Verificable comparando
+    inventario y P/L **antes y después** de la eliminación: **cero diferencia**. *(Palabras del dueño: «ya
+    debería de estar el costo en inventario, no en el P/L también».)*
+    **⚠ Lo que (i)/(j) NO abren, dicho para que no se cuele**: **eliminar sigue siendo una acción POR FILA** —
+    **ninguna acción masiva** (ni «eliminar todos los rebasados») entra: sigue FUERA (inciso (f))—; y una fila
+    **`despublicada` NO se reactiva desde la consola** *(**SUPUESTO**, pregunta **88**: para volver a tener ese
+    bounty se **da de alta uno nuevo**, que es donde vive el alta; lado seguro)*. La lista **puede mostrar las
+    `despublicada`** —quinto grupo, inciso (c)— **a demanda** *(**SUPUESTO**, pregunta **89**: **apagadas por
+    defecto** en la vista, y **NO** cuentan como «rebasadas» ni entran en el conteo de rebasados del inciso (b);
+    lado seguro)*.
+    *(**Nota de alcance para quien implemente**: **para la parte de D52 (ver/editar, incisos (a)–(h)) no hace
+    falta ningún dato nuevo ni ningún cambio de base de datos** — todo lo que la pantalla enseña **ya se guarda
+    o ya se deriva**. Si alguien concluye que hace falta un campo o una columna, **eso es una pregunta para el
+    arquitecto**, no una licencia de este criterio. **⚠ Matiz de D57 (Q2)**: la parte de **eliminar** (incisos
+    (i)/(j)) **SÍ estrena el estado `despublicada`** y el endpoint `DELETE …/bounty`; **eso ya lo normó el
+    arquitecto** (`API_CONTRACT §M2-B.9`, `ARCHITECTURE §4.36.6b`, rev v1.77), así que **no es una decisión que
+    invente este criterio**, es la que este documento **ratifica**.)*
 
 **IVA dentro del precio exhibido — ✅ CRITERIOS VIGENTES (§Q / D54, 16ª ronda, 2026-09-09, APROBADA)**
 
@@ -10757,7 +10919,10 @@ promesa:**
    **TABLERO de bounties** y los **REPORTES de avance contra objetivo**. **No los pidió y siguen fuera.**
    **Las dos razones que reabren la decisión — y son hechos que en su momento NO se podían conocer**:
    **(1) ⭐ CEGUERA SOBRE DINERO.** Por §N.6 un bounty **por debajo o igual de la tarifa vigente deja de ser
-   bounty** y **la vitrina lo filtra** —correcto, criterio 91—, y **las dos superficies de vitrina son
+   bounty** y **la vitrina lo filtra** —correcto, criterio 91 *(**⚠ matizado por D57/Q1, 2026-09-19, BORRADOR**:
+   ese «igual» se mide contra el **piso efectivo `min(tarifa_estándar, mercado)`**; en el **borde** donde la
+   tarifa estándar queda **por encima del mercado**, un bounty que **iguala el mercado NO queda rebasado**)*—,
+   y **las dos superficies de vitrina son
    condicionales**: sin bounties efectivos **la sección desaparece**. Resultado: **un bounty encendido puede ser
    invisible en todas partes menos en un badge del binder**, y **el dueño cree que paga premium por una carta
    que no paga**. **§N.6 decidió que ese aviso viviera SOLO en el binder cuando esta pantalla no existía** —la
