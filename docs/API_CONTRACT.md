@@ -11864,8 +11864,13 @@ DELETE /api/v1/admin/pricing/variant-controls/:cardId/:finish/bounty      (super
   `GET /admin/pricing/bounties` **por defecto**; reaparece **solo** con `?state=despublicada` (es un registro
   archivado). El filtro `state` de §M2-B.1 gana el valor `despublicada` (repetible).
 - **Re-publicar:** un `PUT …/variant-controls` posterior con `bounty:{enabled:true,…}` **limpia `bountyUnpublishedAt`**
-  y pasa por el gate de §M2-B.8; ⚠️ **NO reinicia** `bountyAcquiredQty`/`bountyCompletedAt` (no se borra historia de
-  dinero — doctrina M-46). *Reiniciar el contador «desde cero» es decisión de negocio y va a `PROJECT.md` (no se asume).*
+  y pasa por el gate de §M2-B.8; ⚠️ **NO reinicia `bountyAcquiredQty`** (la historia de DINERO se conserva — doctrina
+  M-46). **⚠️ Enmienda 2026-09-19 (reconcilia el re-armado P-22 §4.36.6 criterios 90-91 con §M2-B.9):**
+  `bountyCompletedAt` **SÍ se limpia** al re-publicar, por el re-armado P-22 — un bounty re-encendido está `activa`,
+  **no** `completada`, y conservar el sello de «objetivo alcanzado» sobre un bounty que vuelve a pagar sería incoherente.
+  El *«por qué dejó de pagarse»* **no se pierde**: queda en el `AuditLog` (`bounty.unpublished`, con pre-imagen), **no**
+  en el sello de estado. *Reiniciar el contador `bountyAcquiredQty` «desde cero» es decisión de negocio y va a
+  `PROJECT.md` (no se asume).*
 - **DDL:** **M-58** (número libre; M-57 es el más alto en disco — backend confirma) añade `bountyUnpublishedAt
   DateTime?` a `VariantPriceOverride` (aditiva, `NULL`able, **sin backfill**). `BountyState` **no es enum de Prisma**
   (clase L, derivado): añadir `despublicada` **no** toca el schema salvo por esa columna.
