@@ -17,14 +17,7 @@ import { VariantPricingDTO } from './variant-pricing';
  * vocabulario `outbid`/`active`/`off`. El orden es el normativo de §M2-B.0 (`despublicada` discrimina
  * primero, pero se lista al final del enum porque sale del tablero por defecto).
  */
-export const BOUNTY_STATE_VALUES = [
-  'activa',
-  'rebasada',
-  'invalida',
-  'completada',
-  'apagada',
-  'despublicada',
-] as const;
+export const BOUNTY_STATE_VALUES = ['activa', 'rebasada', 'invalida', 'completada', 'apagada', 'despublicada'] as const;
 export type BountyState = (typeof BOUNTY_STATE_VALUES)[number];
 
 /**
