@@ -1,3 +1,77 @@
+# VEREDICTO BLUE TEAM — **BOUNTIES Q1+Q2** · SHA **`74d77aa9`** (rama `claude/be-bounties-q1q2`) · foco: `DELETE …/variant-controls/:cardId/:finish/bounty` (Q2) + piso `min(curva,mercado)` (Q1) · contrato §M2-B.8/.9/.10 · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `74d77aa9`
+>
+> **0 críticos, 0 altos.** El delta Q1+Q2 llegó money-safe, bien autorizado y auditado de forma
+> **atómica**. Reviso los seis puntos del encargo (§M2-B.8/.9/.10) y **los seis pasan**. Lo único que
+> queda abierto es **deuda Baja/Media heredada** (no introducida por este delta) y **una bandera de
+> proceso**: el red team **no** ha atacado ESTE delta en vivo (su pase de bounties `v1.62` fue sobre
+> `7472395`, ANTERIOR a Q1+Q2, y describe el gate `<=` **ya superado**). Mi aprobación descansa en
+> revisión estática + **la suite corrida por mí sobre `74d77aa9`**, no en un pase ofensivo sobre este SHA.
+>
+> ### Procedencia de mis mediciones (todas `[MEDIDO]` sobre `74d77aa9`)
+> - `git worktree --detach 74d77aa9`, HEAD verificado = `74d77aa9f5b1…`. `node_modules` enlazado del árbol principal (solo lectura; no toqué código).
+> - `test/pricing.delete-bounty.spec.ts` ⇒ **13/13 verde** (ramas A/B, B-17/B-20/B-21, idempotencia, códigos, verbo dedicado).
+> - `test/pricing.variant-controls.spec.ts` + `test/pricing.bounty-market-floor.spec.ts` + `test/buylist.bounty-revalidation.spec.ts` ⇒ **64/64 verde** (gate Q1 `min(curva,mercado)`, revalidación en cotización/vitrina).
+> - Lectura estática de `variant-controls.service.ts`, `pricing.controller.ts`, `admin-bounties.*`, `bounty-state.ts`, `common/pricing-curve.ts`, `common/money.ts`, `audit.service.ts`, `buylist.service.ts::publicBounties`, `app.module.ts` (cadena de guards).
+
+## 0. Los seis puntos del encargo, uno a uno (§M2-B.8/.9/.10)
+
+**Convención:** `[MEDIDO]` = ejecutado por mí sobre `74d77aa9` con su N · `[código]` = leído en fuente sobre `74d77aa9`.
+
+### 1. Autorización del `DELETE …/bounty` — **CUMPLE** `[código]`
+- El handler `deleteBounty` cuelga de `PricingController` (`pricing.controller.ts:600`), y la clase lleva `@Controller('admin/pricing')` **+ `@Roles(Role.super_admin)`** a nivel de clase (`:195-196`). El DELETE **hereda** ese rol.
+- Cadena de guards **global** vía `APP_GUARD` (`app.module.ts:80-85`, en orden): `AppThrottlerGuard → JwtAuthGuard → PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`. `RolesGuard` corre para TODA ruta ⇒ el `@Roles(super_admin)` de clase se impone al DELETE. Un cliente (`customer`) o incluso un `vault_operator` reciben **403**; sin token, **401**.
+- ⚠️ **Matiz de contrato (no es hallazgo de seguridad):** el encargo pedía «roles admin (vault_operator/super_admin)». La implementación es **más estricta**: solo `super_admin`. Esto es lo que **manda el contrato** (§M2-B.9: *«`super_admin`, AUDITADO»*; código `403` explícito «no `super_admin`») y coincide con la consola de lectura. Más estricto ⇒ **safe**; no despublica/borra quien no debe. Sin acción.
+- El red team ya validó `PricingController` como `super_admin`-only por seis vías (B62-4, pase v1.62) y R-4 (pase v1.28); el DELETE usa **el mismo guard de clase**, no una excepción.
+
+### 2. AuditLog OBLIGATORIO y completo — **CUMPLE, y en la forma más fuerte (atómica)** `[MEDIDO 13/13]` `[código]`
+- Ambas ramas escriben `AuditLog` **DENTRO del `$transaction`** pasando el cliente transaccional `tx` a `audit.log(entry, tx)` (`variant-controls.service.ts:281-291` rama A `bounty.deleted`; `:298-308` rama B `bounty.unpublished`).
+- `AuditService.log` usa `await (tx ?? this.prisma).auditLog.create(...)` (`audit.service.ts:42-58`): al pasarle el `tx`, la fila de bitácora **participa del mismo commit/rollback** que la escritura. **Si la auditoría falla, la transacción entera hace rollback** ⇒ **no existe borrado/despublicación sin auditoría**. Es el diseño correcto para un control money-adjacent (más fuerte que el `PUT`, cuya auditoría va fuera de tx — pero el `PUT` no está en este encargo).
+- Completitud: `before`/`after` usan `snapshot()` (`:66-80`), que incluye `sellOverrideCents`, `buyOverrideCents`, `bountyEnabled`, `bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`, `bountyCompletedAt` y **`bountyUnpublishedAt`** (el sello que distingue `despublicada`). Actor = `actorUserId` (id del JWT vía `@CurrentUser('id')`), timestamp = `createdAt` (default de BD). **No es solo `updatedBy` sobrescrito**: es pre/post-imagen completa reconstruible. Verificado en el spec (`before.controls` con `bountyPriceCents:7500`; `after.controls` = `null` al borrar).
+
+### 3. `INV-BOUNTY-COST` — **CUMPLE** `[MEDIDO 2/2 canario]` `[código]`
+- La `$transaction` del DELETE escribe **SOLO** `variantPriceOverride` (update **o** delete) **+ `auditLog`**. **Cero** referencias a `inventoryItem`, `acquisitionCostCents` o asiento de P/L en `deleteBounty` (grep + lectura línea a línea de `:261-310`).
+- El canario del spec (`inventorySpy`, B-21) falla si CUALQUIER método de `InventoryItem` se llamara: **rama A 0 llamadas, rama B 0 llamadas** (`test/pricing.delete-bounty.spec.ts:158-173`). El costo vive una sola vez en `InventoryItem` (sellado al adquirir en buylist), y despublicar/borrar no lo toca. Sin doble conteo.
+
+### 4. Sin fuga de costo/PII/owner; vitrina pública excluye `despublicada` — **CUMPLE** `[código]`
+- `deriveBountyState` (`bounty-state.ts`) hace que `bountyUnpublishedAt != null` **discrimine primero** ⇒ estado `despublicada`, que en la consola admin sale del tablero por defecto (`data` excluye `despublicada` salvo `?state=despublicada`; `admin-bounties.service.ts:173-175`).
+- **Vitrina pública** `GET /buylist/bounties` → `publicBounties()` filtra `where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null }` (`buylist.service.ts:1264`). Una fila `despublicada` (`enabled=false` **y** `bountyUnpublishedAt != null`) queda **doblemente excluida** (defensa en profundidad). No hay fuga del estado archivado ni de su precio/contador a superficie pública.
+- La respuesta del DELETE es el `VariantPricingDTO` compuesto **campo por campo** (sin `...row`), lectura `super_admin`; el red team ya descartó la fuga clase-`legalName` (B62-6). Sin PII/CLABE/INE en este módulo.
+
+### 5. Validación de input y del predicado; sin inyección; DoS acotado — **CUMPLE** `[código]` `[MEDIDO parcial]`
+- El DELETE **no lleva cuerpo**: solo params de ruta. `:finish` se valida contra `FINISH_VALUES` (enum de Prisma) + `resolveGradeKey` impone `raw:NM` y `FINISH_NOT_AVAILABLE` (SEC-A1). `:cardId` va a `prisma.card.findUnique({ where: { id } })` (parametrizado) ⇒ `404 NOT_FOUND` si no existe. Sin superficie de mass-assignment en el DELETE (no hay body que colar).
+- Predicado de alcance / consola: `q` va a `contains` de Prisma (parametrizado); **no existe `$queryRaw`/`$queryRawUnsafe` en `modules/pricing/`** (confirmado por B62-7 y grep). DoS acotado: la consola clasifica ≤ `ADMIN_BOUNTY_SERVER_CAP=1000` filas + 2 lecturas en lote, independiente de los parámetros; DELETE es op de una fila por clave única. Todo tras `super_admin` + throttler.
+
+### 6. Q1 money-safe: el ablandamiento del piso NUNCA paga arriba de mercado ni activa un rebasado fuera del borde — **CUMPLE** `[MEDIDO 64/64]` `[código]`
+- `isBountyEffective(price, curveQuoteCents, marketMxnCents)` (`pricing-curve.ts:617-625`): `price>0 ∧ (price > curve  ∨  (market != null ∧ price >= market))`. Piso efectivo = `min(curva, mercado)`.
+- **Nunca activa por debajo del piso:** si `price < min(curva, mercado)` entonces `price ≤ curva` y `price < mercado` ⇒ ambos disyuntos falsos ⇒ `false` (rebasada). No se paga un bounty por debajo del piso.
+- **Fuera del borde (curva < mercado):** el 2º disyunto exige `price >= mercado > curva`, subconjunto de `price > curva` ⇒ el gate efectivo es `> curva` **estricto** (empate-con-curva rechazado, criterio 91). Un `price ≤ curva` (< mercado) queda `rebasada`, **no** se cuela a `activa` por el tope de mercado. Sin activación espuria.
+- **En el borde (curva ≥ mercado):** basta `price >= mercado` (empate-con-mercado aceptado). El ablandamiento **BAJA** el piso hasta el mercado; **no** introduce ninguna vía que fuerce pagar por ENCIMA del mercado — al contrario, evita obligar a pagar `> curva > mercado`.
+- **Linchpin verificado:** el claim «curva `null` ⇒ mercado `null` por construcción» se sostiene: `explainBuyFromCurve` devuelve `priceCents: null` **IFF** `marketMxnCents == null ∨ ≤ 0` (`pricing-curve.ts:516-530`). Por tanto cuando `curveQuoteCents == null` (⇒ `isBountyEffective` acepta el bounty explícito, decisión LOCKED §4.36.0), el mercado también es nulo/no-positivo ⇒ no hay «mercado real» que se pueda rebasar. Sin agujero.
+- **Coherencia alta↔runtime por construcción:** el gate del alta (`BOUNTY_BELOW_RULE`, `variant-controls.service.ts:509`), la cotización (`quoteAcquisitionFromCurve`, `money.ts:258`), la vitrina y el `state` de la consola llaman **la misma** `isBountyEffective` — no hay `<`/`<=` re-derivado a mano (prohibición mutación B-16). El `422 BOUNTY_BELOW_RULE` dispara IFF `!isBountyEffective(...)`.
+
+## 1. Hallazgos (severidad · ubicación · dueño)
+
+Ninguno **crítico** ni **alto** en el delta Q1+Q2. Los abiertos son heredados / defensa en profundidad:
+
+- **`SEC-BQ-1` [BAJA · carryover de B62-3] · Mass-assignment latente en el objeto `bounty` anidado del PUT** — `pricing.controller.ts` (`class VariantControlsDto { @Allow() bounty?: unknown }`) + `mergeBounty`. El `ValidationPipe({whitelist:true})` no recurre dentro de `bounty` (tipado `unknown`), pero `mergeBounty` **enumera a mano** solo `enabled/priceCents/targetQty`; `acquiredQty`/`completedAt` se toman SIEMPRE de la fila en BD y el dinero se re-deriva server-side ⇒ **campos extra inertes hoy**. **No aplica al DELETE** (no tiene cuerpo). Impacto hoy: ninguno. Riesgo futuro: si alguien «simplifica» a `{ ...next, ...input.bounty }`, el cliente podría fijar el contador antilavado. **Dueño: backend** (DTO anidado tipado o `forbidNonWhitelisted`). **Aceptable dejarlo documentado** (no bloquea).
+- **`SEC-BQ-2` [MEDIA · carryover de B62-1] · Deps runtime backend con CVE moderado (`qs`/`body-parser`/`express`)** — no introducido por este delta; viaja a prod igual. **Dueño: devops** (bump en ventana ordinaria).
+- **`SEC-BQ-3` [BAJA · carryover de B62-2] · Deps dev frontend (vitest/vite) fuera del bundle de prod** — riesgo de dev/CI, no de runtime. **Dueño: devops/frontend.**
+- **Nota de higiene (no hallazgo):** la observación B62-8 del red team describe el gate `next.bountyPriceCents <= curveQuoteCents` — ese cuerpo **ya no existe**; fue reemplazado por el gate Q1 `isBountyEffective(min(curva,mercado))`. Al consolidar, esa línea de PENTEST_NOTES está **superada**, no abierta.
+
+## 2. Bandera para el humano (proceso)
+
+- **El red team no ha atacado en vivo el delta Q1+Q2 sobre `74d77aa9`.** El pase de bounties de `PENTEST_NOTES.md` (`v1.62`) fue sobre `7472395` (consola de LECTURA + gate `<=` antiguo), ANTERIOR a los commits `207ae50f` (Q1 piso + Q2 DELETE) y `74d77aa9` (tests). Mi APROBADO se apoya en **revisión estática + suite corrida por mí** (verde), no en un pase ofensivo sobre este SHA. Recomendación consistente con la bandera permanente del proyecto («pentest de tercero + bug bounty antes del primer peso real»): **un pase ofensivo del `pentester` sobre este delta exacto** (escalada de rol al DELETE en vivo, forja de rama borra↔despublica, intento de tocar `InventoryItem`, borde Q1 con mercado hipotético) **antes de contar este corte hacia un release de dinero real**. No bloquea el merge del stream (mis seis puntos pasan), pero cierra el ciclo pentester→seguridad que exige `CLAUDE.md` §7.
+
+## 3. Mínimo para mantener APROBADO
+- No hay condición **bloqueante** de este delta. `SEC-BQ-1` queda **aceptada como deuda** (Baja, con disparador: cualquier refactor de `mergeBounty` la reabre). `SEC-BQ-2/3` son de devops y no específicas de bounties.
+- Para el **cierre de fase de seguridad del release** (no del stream): cerrar la bandera de proceso (pase ofensivo del red team sobre `74d77aa9`).
+
+— SEGURIDAD (blue team / AppSec), 2026-09-19 · SHA **`74d77aa9`** · **APROBADO** (Q1+Q2 money-safe, authz sólido, auditoría atómica, INV-BOUNTY-COST limpio, sin fuga) · deuda Baja/Media heredada + bandera de proceso (red team sobre este SHA)
+
+---
+
 # VEREDICTO BLUE TEAM — **CIERRE DE RELEASE** · SHA **`da6a237`** (rama `claude/tcg-hunt-orchestration-2`) · `origin/production`=`efe65f5` · informe del red team sobre `e0892e6` · 2026-09-14
 
 > ## ⭐ VEREDICTO — **APROBADO CON CONDICIONES** para publicar `da6a237`
