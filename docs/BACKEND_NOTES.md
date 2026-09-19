@@ -28,6 +28,68 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.54 — ⭐⭐ **P-53 ALTO-4: F4/F5 dejan de capar la ventana por `capturedDate` crudo (frescura efectiva en TODA ruta de dinero)** (2026-09-18)
+
+> Propiedad: **backend**. Cierra los dos últimos lectores de dinero que el barrido del arquitecto
+> (`docs/specs/P53_FRESHNESS_DESIGN.md`) dejó ABIERTOS: `getReference` (**F4**) y
+> `getReferenceByCardProduct` (**F5**). Base: `claude/be-p53-cura3` (`b9c856bd`), que ya arregló F1
+> (`getReferencesBatch`), F2 (`isBetterRef`) y F3 (`computeSetValue`). **Sin schema, sin contrato**
+> (`evidenceDate` ya existe, M-43; es un fix de precedencia de LECTURA, igual naturaleza que §0.1.b).
+
+### 0.54.1 — El defecto (medido)
+
+Bajo **write-on-change** (P-53, §0 de cura3), el escritor diario CONGELA el `capturedDate` de la fila
+primaria buena y solo avanza su `evidenceDate`. `getReference` (F4) y `getReferenceByCardProduct` (F5)
+todavía cortaban su ventana de candidatas del **tier automático** con
+`take: SAME_DAY_REF_CANDIDATES(=32)` ordenado por `capturedDate` **CRUDO**. Consecuencia money-losing:
+una primaria con `capturedDate` viejo (congelado) + `evidenceDate=HOY` caía **fuera del top-32** y una
+automática de MENOR precedencia (§4.27f) con `capturedDate` reciente la vencía — **inversión de
+precedencia**. Es el camino de **checkout single-item** (`orders.service.ts:316`) y **buylist
+single-line/producto separado** (`buylist.service.ts:1097/1108`): money-crítico, no un borde.
+
+### 0.54.2 — El arreglo: DELEGAR (patrón recomendado del diseño)
+
+- **F4 `getReference`** ⇒ delega en **`getReferencesBatch([item])`** y devuelve `.get(variantKey(item))`
+  (o `{status:'pending'}`). `getReferencesBatch` mide la ventana por **FRESCURA EFECTIVA**
+  `COALESCE(evidenceDate, capturedDate)` (`$queryRaw` de F1, ya en gates), conserva la candidata
+  **manual perenne** (`is_manual OR …`) y cierra con el MISMO `isBetterRef`/`liveMxnCents`/FX viva.
+- **F5 `getReferenceByCardProduct`** ⇒ delega en **`getReferencesByCardProductBatch([item])`** (F6, que
+  **ya** lee SIN cota y reduce con `isBetterRef` ⇒ ya durable) y devuelve `.get(cardProductRefKey(item))`.
+
+**Por qué delegar y no replicar el `$queryRaw`:** una sola fuente de verdad para la selección de mercado
+⇒ single-item y lote **no pueden volver a divergir** (mismo espíritu con que §0.1.b cerró la asimetría de
+los manuales). No medí regresión de perf que lo desaconseje: para N=1 el lote es UNA query (`$queryRaw`
+con ventana) en lugar de las dos `findMany` previas — no hay sobre-lectura. Con esto **no queda ningún
+lector de dinero que cape por `capturedDate` crudo** (F6/F7/F8 ya leían sin cota; F9 usa `isStaleByOrigin`).
+
+**Constantes retiradas** (`pricing.service.ts`): `SAME_DAY_REF_CANDIDATES` (la cota `take:32`, vector del
+bug) y `MANUAL_REF_PREDICATE` (la candidata perenne ahora la garantizan los métodos de lote sin cota). Sus
+docblocks afirmaban, **falsamente bajo write-on-change**, que la cota por `capturedDate` era money-safe;
+se sustituyeron por la nota de retiro con la explicación del defecto.
+
+### 0.54.3 — Invariante CA-10 y pruebas
+
+**CA-10:** con `evidenceDate=null` en todas las filas (legadas del deploy y todas las graded de hoy),
+`COALESCE = capturedDate` ⇒ la selección es **IDÉNTICA a producción hoy**. El comportamiento nuevo solo
+emerge cuando el escritor write-on-change empieza a avanzar `evidenceDate`.
+
+Canarios (`test/pricing.getreference-p53-freshness.spec.ts`): **C1** (F4) y **C2** (F5) muerden la
+inversión (primaria `tcgcsv_singles` `capturedDate` viejo + `evidenceDate=HOY` vs fallback
+`pokemontcg_io` `capturedDate=HOY` ⇒ debe ganar la primaria), **cada uno con su gemelo CA-10**
+(`evidenceDate=null` ⇒ gana el fallback, idéntico a hoy) = **4 casos**. **Rojo-primero verificado**:
+revertí F4/F5 al patrón capado sobre una COPIA del árbol y C1+C2 quedaron **rojos** (devolvían el fallback
+peor), los gemelos CA-10 y los candados **verdes**; con la delegación, **6/6 verde**. Candados de
+no-regresión (§4 del diseño): **F6** y **F7** en el mismo spec y **F8** en
+`admin.owned-item-refs.manual-override.spec.ts` (frescura efectiva, «no capar por `capturedDate` crudo»).
+
+**Especificaciones actualizadas por la delegación** (el patrón de lectura cambió de dos `findMany`
+capados a `$queryRaw`/lote): `pricing.getreference-determinism`, `pricing.manual-override-durable-cross-day`,
+`pricing.money-ref-kind`, `fx.mode-switch` (añaden `$queryRaw: makeRefsRawQuery(...)` a su mock y dejan de
+asertar el `take:32`) y, por lectores indirectos que construyen el `PricingService` real,
+`inv1-sales-rule-propagation` (fila con clave completa) + las tres de sellado
+(`inventory.sealed-alta/-aportacion/-product-alta`, añaden `$queryRaw` al mock; **NO** se tocó el código
+de sellado). Suite completa: **325/325 suites, 5376/5376 pruebas** (medido 2026-09-18).
+
 ## 0.53 — ⭐⭐ **D56: EL BLOQUE INDIVISIBLE DEL IVA, COMPLETO** (2026-09-14)
 
 > Propiedad: **backend**. Implementa `API_CONTRACT §M10-IVA` entera (v1.75) y `ARCHITECTURE §4.44` +
@@ -8349,7 +8411,16 @@ vuelve a pisar el precio humano **en silencio**. El comparador estaba bien; la *
 **Approach elegido — lectura DIRIGIDA de manuales unida al bloque reciente (opción a del dictamen).** En `getReference`
 y `getReferenceByCardProduct` la lectura ahora hace **DOS queries en paralelo** (`Promise.all`):
 1. **bloque reciente CAPADO** (`take: 32`, `orderBy capturedDate desc`) — cubre el **tier automático** sin traer el
-   histórico entero (la cota sigue siendo money-safe para automáticas: solo las recientes pueden ganar entre sí);
+   histórico entero.
+   > ⚠️ **CORREGIDO por P-53 ALTO-4 (§0.54, 2026-09-18).** Este punto afirmaba «la cota sigue siendo
+   > money-safe para automáticas: solo las recientes pueden ganar entre sí». **Esa afirmación es FALSA
+   > bajo write-on-change (P-53):** «las recientes» se medía por `capturedDate` CRUDO, pero el escritor
+   > CONGELA el `capturedDate` de la primaria buena (solo avanza `evidenceDate`), así que una primaria con
+   > `capturedDate` viejo + `evidenceDate=HOY` caía fuera del top-32 y una automática PEOR con
+   > `capturedDate` reciente la vencía (inversión §4.27f). La cota **NO** era money-safe para automáticas.
+   > `getReference`/`getReferenceByCardProduct` ya **NO** capan por `capturedDate` crudo: delegan en los
+   > métodos de lote, que miden la ventana por `COALESCE(evidenceDate, capturedDate)`. El `take:32`
+   > (`SAME_DAY_REF_CANDIDATES`) se retiró. Lo de abajo describe el diseño VIEJO (histórico, ya superado).
 2. **lectura DIRIGIDA de manuales** (`MANUAL_REF_PREDICATE = { OR: [isManualOverride:true, source:'manual'] }`),
    **SIN cota de fecha ni `take`**, misma clave. Garantiza que **TODA** fila manual de la clave esté siempre entre
    las candidatas, sin importar cuántos barridos automáticos se acumulen.
@@ -8365,6 +8436,10 @@ código** («el manual es candidata perenne», f-2) de forma auto-documentada. E
 tocaron. La asimetría que reportó seguridad (batch durable, single-item no) queda cerrada: ahora los cuatro coinciden.
 Nuevo export `MANUAL_REF_PREDICATE` en `pricing.service.ts`. Comentario de `SAME_DAY_REF_CANDIDATES` reescrito para f-2
 (la cota gobierna SOLO el tier automático; el manual es perenne).
+> ⚠️ **SUPERADO por P-53 ALTO-4 (§0.54, 2026-09-18).** `getReference`/`getReferenceByCardProduct` ya no
+> hacen las dos `findMany` (capada ⊕ dirigida): DELEGAN en los métodos de lote, que ya son durables sin
+> cota. Las constantes `SAME_DAY_REF_CANDIDATES` **y** `MANUAL_REF_PREDICATE` se **retiraron** (la durabilidad
+> cross-day del manual la garantiza que el lote no capa por `capturedDate`, no un predicado aparte).
 
 ### 0.1.c — Ficha 360° admin `ownedItemRefs` usa `pickBestRef` (blocker #2, consistencia) — 2026-08-24
 
