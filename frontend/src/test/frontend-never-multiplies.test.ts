@@ -165,7 +165,7 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
  * candado lo vea.
  *
  * ⚠️ La ventana se re-apuntó de `95-109` a `95-110` (2026-09-19) al entrar la 6ª entrada de nav
- * («Decks del meta», decisión del dueño), que desplazó la tabla +2 líneas. Sigue arrancando en el
+ * («Meta Battle Decks», decisión del dueño), que desplazó la tabla +2 líneas. Sigue arrancando en el
  * `/*` de `:95` y cubre la misma región —entradas del arreglo `links` hasta el `<header>`/`<div>`
  * del render—, medida con la herramienta: 13 líneas con código, 12 borradas por el v1.
  *
