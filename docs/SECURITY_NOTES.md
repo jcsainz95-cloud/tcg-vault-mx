@@ -1,3 +1,139 @@
+# VEREDICTO BLUE TEAM — **DECKS-META FASE 1 · BACKEND (disponibilidad/legalidad + endpoints público+admin)** · SHA **`d77eb699`** (rama `feat/decks-meta`, no-ancestro de `main`) · base `origin/production` no medida · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** para `d77eb699`
+>
+> **No queda ningún hallazgo CRÍTICO ni ALTO abierto.** Las cuatro superficies de riesgo del encargo
+> (fuga de inventario/dinero, autorización, inyección/DoS, no-fabricación) están cerradas por
+> construcción. Quedan **dos hallazgos MEDIOS/BAJOS** en la ROTACIÓN de legalidad —accountability y
+> atomicidad—, ambos **no explotables** (siguen tras `@Roles`) y **no bloqueantes**; se registran y se
+> enrutan a **backend**. Revisado sobre worktree detached anclado a `d77eb699`.
+>
+> ### Eje 1 — Fuga de inventario / dinero en `unitInventoryItemIds`: **LIMPIO**
+> Una pieza solo llega a `unitInventoryItemIds` si pasa **cuatro compuertas encadenadas**, todas
+> medidas en código:
+> - **Casada** (`decks-meta.service.ts` `buildLine`): `matchStatus === 'matched' && matchedCard`. Lo
+>   no casado, la energía básica y lo ambiguo devuelven `card:null, legal:false, unitInventoryItemIds:[]`.
+> - **Legal en Standard HOY** (`isLegalStandardNow`, `common/standard-legality.ts`): `regulationMark ∈
+>   activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`; **fail-closed** si
+>   `regulationMark == null`. Una carta ROTADA se marca `legal:false` y **no aporta piezas ni precio**
+>   (`buildLine` y `listPublished` — `if (!legal) continue`). La legalidad es **derivada en lectura**
+>   contra la config vigente, no un booleano persistido ⇒ la rotación aplica en vivo sin backfill.
+> - **Vendible/publicada** (`CatalogService.getSellableRawUnitsByCardIds` → `fetchSellable` →
+>   `singlesPublishedWhere`): `ownerType='platform' AND status='listed' AND productType<>'sealed'`,
+>   y solo filas con `dto.sellable && listPriceCents != null`. Esto **excluye inventario de otro dueño**
+>   (`OwnerType.customer`, consignación) y todo lo no disponible (`reserved/in_custody/sold/…`).
+> - **Raw NM** (`RAW_CONDITIONS = ACCEPTED_RAW_CONDITIONS`, `common/business-rules.ts`): solo
+>   `productType==='raw'` con `rawCondition ∈ {NM}` (decisión de `PROJECT §H`, vigilada por
+>   `enum-values-parity.spec.ts` — no derivada del enum, así un futuro `LP/MP` no se cuela solo).
+>
+> **Precio:** `availableQty = min(quantity, units.length)`; `unitPriceMxnCents` = precio de la pieza
+> más barata ofrecida (`offered[0].priceMxnCents`) o `null` si no hay stock. El monto es `P` (con IVA,
+> el mismo que exhibe la ficha), copiado bajo la **proyección NEUTRA `DeckMetaUnitDTO
+> {inventoryItemId, priceMxnCents}`**: ⛔ **no** viaja el token `displayPriceCents` ni `referenceValue`
+> ni `source/isManualOverride/priceBasis`. El censo money-safe `iva-derivacion-cableada` sigue acotado
+> a `catalog.service.ts`. **No hay fuga de costo/margen ni de metadata interna de precio** — esto
+> evita, en esta superficie, el vector P48-M1 de PENTEST_NOTES (metadata de `referenceValue` en ruta
+> anónima). No se ofrece precio de nada rotado, no vendible, no NM ni de otro dueño.
+>
+> **`paste`/`:slug` no exponen datos internos:** `GET /decks-meta` y `GET /decks-meta/:slug` filtran
+> `published:true, pausedByOperator:false` (un borrador o un deck pausado **no** es alcanzable por slug
+> público); `slug` es `@unique`. Los campos expuestos son de presentación (nombre, rank, share, trend,
+> imagen, fuente, `matchStatus`, `cardId`, `inventoryItemId`, precio `P`). Sin PII, sin owner, sin
+> costo. `decks-meta` **no reserva ni compromete dinero** — solo devuelve ids disponibles+legales; el
+> carrito/checkout re-valida en `orders` (confirmado en el docstring del módulo).
+>
+> ### Eje 2 — Autorización: **LIMPIO**
+> Cadena global de guards (`app.module.ts`, `APP_GUARD` en orden): `AppThrottlerGuard → JwtAuthGuard →
+> PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`.
+> - **`JwtAuthGuard` default-deny**: toda ruta sin `@Public()` exige Bearer válido (HS256 fijo,
+>   anti-algorithm-confusion), re-valida cuenta activa y `tokenVersion` contra BD (revocación viva).
+> - **Los tres controllers admin llevan `@Roles(vault_operator, super_admin)` a NIVEL DE CLASE**;
+>   `RolesGuard` lee `getAllAndOverride([handler, class])` ⇒ aplica a **todos** los métodos. Un cliente
+>   (`role=customer`) recibe `403 FORBIDDEN`; sin token, `401`.
+> - **`PUT /admin/config/standard-legality` (la ROTACIÓN, el control más sensible)** vive en
+>   `AdminStandardLegalityController`, también `@Roles(vault_operator, super_admin)` a nivel de clase.
+>   **Un cliente NO puede tocarla.** (Nota de diseño, no defecto: el contrato la abre a `vault_operator`
+>   además de `super_admin`; coincide con `admin-decks-meta.controller.ts` y `ARCHITECTURE §7`.)
+> - El controller público marca `@Public()` por método (`list`, `bySlug`, `paste`); ninguna ruta admin
+>   es pública. Sin rutas huérfanas (una ruta sin `@Public` y sin `@Roles` quedaría autenticada por
+>   `JwtAuthGuard`; `RolesGuard` no es default-deny pero `JwtAuthGuard`, que corre antes, sí).
+>
+> ### Eje 3 — Inyección / DoS: **LIMPIO**
+> - **Tamaño + rate-limit:** `PasteDeckDto.text` `@MaxLength(20_000)`; `POST /decks-meta/paste`
+>   `@Throttle({default:{ttl:60_000, limit:20}})` (20/min, `429`). `ValidationPipe` global con
+>   `whitelist:true` (campos extra se descartan). El curador (`CurateDeckDto.listText`) también
+>   `@MaxLength(20_000)`.
+> - **ReDoS: descartado por MEDICIÓN.** Las tres regex del parser (`CARD_LINE`, `BASIC_ENERGY_LINE`,
+>   `SECTION_HEADER`) medidas con entradas adversarias de 20 000 chars (todo-letras sin cierre,
+>   espacios alternados, casi-match, colas letra-dígito, `.*\bEnergy` casi-cierre) y con un texto de
+>   2000 líneas de caída total: **todos < 0.12 ms por línea; texto completo ≈ 1.2 ms** (N=1,
+>   `redos.js`, node standalone). El `.+?` lazy no backtrackea catastróficamente porque las clases de
+>   anclaje (`[A-Za-z]{2,4}`, `\d` en la cola) podan de inmediato.
+> - **Sin SQL crudo:** `grep` de `queryRaw/executeRaw/Prisma.raw/$query` en `decks-meta.service.ts` y
+>   `deck-matcher.service.ts` ⇒ **0**. El matcher usa solo `prisma.cardSet.findMany` /
+>   `prisma.card.findMany` con `where` **parametrizado** (`ptcgoCode:{not:null}`, `setId:{in:[...]}`);
+>   la normalización de número y el emparejado tolerante son **en memoria**, sin interpolar entrada del
+>   cliente en la query. Lecturas en LOTE (sin N+1). Universo de sets/cartas acotado al catálogo ⇒ sin
+>   amplificación de DoS por entrada.
+>
+> ### Eje 4 — No fabricar carta/precio: **CONFIRMADO**
+> Regla dura del dueño respetada de punta a punta. El matcher (`deck-matcher.service.ts`) empareja SOLO
+> por `ptcgoCode + número` (nunca por nombre); lo no resuelto sale con `matchStatus ∈
+> {unmatched_set, unmatched_number, ambiguous, unmatched_basic_energy}` y `matchedCard:null` —
+> **jamás inventa una `Card`**. En persistencia (`adminCreateOrCurate`) las líneas se crean con
+> `matchedCardId: m.matchedCard?.id ?? null`; lo no casado se guarda crudo (`rawName/rawSetCode/
+> rawNumber`) sin carta. En lectura (`buildLine`) lo no casado o no legal devuelve `card:null,
+> unitPriceMxnCents:null, unitInventoryItemIds:[]`. Un múltiple hit ⇒ `ambiguous`, **no** auto-resuelto.
+>
+> ---
+> ### Hallazgos abiertos (registrados, NO bloqueantes) — rol dueño: **backend**
+>
+> **SEG-DMF1-1 · MEDIO — La rotación de legalidad (money-adjacent) NO deja bitácora de auditoría.**
+> `adminUpdateStandardLegality` (`decks-meta.service.ts`) escribe `ConfigSetting` con `upsert` y solo
+> fija `updatedBy` (que se **sobrescribe**, sin histórico). El proyecto YA tiene convención para config
+> money-adjacent: `settings.service.ts` escribe el dial FX **dentro de una transacción CON entrada de
+> `AuditLog`** («la ESCRITURA del dial: la única, con acuse, transaccional y auditada»). La rotación
+> —que el propio encargo señala como el control más sensible («gobierna qué es jugable/comprable»)—
+> se aparta de ese patrón: no hay entrada en `AuditLog` ni historial de quién cambió la ventana y
+> cuándo. **No explotable** (sigue tras `@Roles(vault_operator, super_admin)`; captura el último
+> `updatedBy`); es una brecha de **accountability/forense**, no de acceso. **MEDIO**, no bloquea.
+> *Comprobación de cierre:* la rotación escribe un `AuditLog` con actor, valores previo/nuevo y timestamp.
+>
+> **SEG-DMF1-2 · BAJO — Escritura de rotación NO atómica.** `activeMarks` y `banlistCardIds` se
+> escriben como **dos `upsert` independientes** vía `Promise.all` (no una transacción). Un fallo
+> parcial deja la config a medias. Mitigado por que `isLegalStandardNow` es **fail-closed** (una
+> ventana no aplicada tiende a NO-legal, conservador) y por que cada clave es idempotente
+> (reemplazo total del array); además no hay lock optimista, así que dos operadores concurrentes es
+> last-writer-wins (aceptable para reemplazo total). **BAJO.** *Cierre:* envolver ambos upserts en
+> `$transaction`, alineado con el patrón del dial FX.
+>
+> **Informativo (no-seguridad, para techlead):** `matchLines` hace `cardSet.findMany({where:{ptcgoCode:
+> {not:null}}})` (scan completo de `CardSet`, universo pequeño) en cada `paste`; y
+> `StandardLegalityDto.activeMarks/banlistCardIds` no acotan tamaño de array ni longitud de cada string
+> (solo admin). Ninguno es un vector de atacante.
+>
+> ### Consolidación de PENTEST_NOTES
+> El `docs/PENTEST_NOTES.md` en `d77eb699` **no contiene hallazgos específicos de decks-meta** (el red
+> team no cubrió esta feature en esta fase). Este veredicto es una revisión de código blue-team directa.
+> El vector genérico más cercano (P48-M1: metadata de `referenceValue`/`priceBasis` en superficie
+> anónima) **no aplica a decks-meta**: su DTO neutro (`DeckMetaUnitDTO`) expone solo `inventoryItemId`
+> + `priceMxnCents` (=`P`), sin `referenceValue` ni metadata de basis.
+>
+> ### Verificación (O-9), sobre worktree detached anclado a `d77eb699`
+> - **[MEDIDO]** ReDoS: `redos.js` (node standalone) — 9 entradas adversarias de 20 000 chars + texto
+>   de 2000 líneas de caída total, **todas < 0.12 ms/línea, total ≈ 1.2 ms** (N=1).
+> - **[código]** Cadena de guards y `@Roles` de clase — `app.module.ts:82-87`, `roles.guard.ts`,
+>   `jwt-auth.guard.ts`, `admin-decks-meta.controller.ts`.
+> - **[código]** Compuertas de disponibilidad — `catalog.service.ts:639-720,1522-1540`
+>   (`singlesPublishedWhere`, `fetchSellable`, `getSellableRawUnitsByCardIds`), `business-rules.ts`,
+>   `schema.prisma` (`OwnerType`, `InventoryStatus`, `RawCondition`).
+> - **[código]** No-fabricación — `deck-matcher.service.ts` (match por `ptcgoCode+número`),
+>   `decks-meta.service.ts` (`buildLine`, `adminCreateOrCurate`).
+> - **[código]** `grep` de SQL crudo en el módulo decks-meta ⇒ **0**.
+
+
+---
+
 # VEREDICTO BLUE TEAM — **M11 · CIERRE DE DEUDA DEL SELLADO (SEC-M11-3/-4/-5)** · SHA **`604f7622`** · base `cd0bf02c` · 2026-09-18
 
 > ## ⭐ VEREDICTO — **APROBADO** para `604f7622`
