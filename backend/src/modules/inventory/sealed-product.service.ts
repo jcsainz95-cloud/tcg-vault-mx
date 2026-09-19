@@ -324,6 +324,25 @@ export class SealedProductService {
     return anchor?.id ?? null;
   }
 
+  /**
+   * SEC-M11-5 (perf) — hermana EN LOTE de `resolveAnchorCardId`: el ancla (menor `numberPrefix`/
+   * `numberSort`) de VARIOS sets en UNA consulta, en vez de un `findFirst` POR SET (N+1). El `orderBy` es
+   * idéntico al del `findFirst`, así que la PRIMERA carta que aparece por set es su ancla — el mismo
+   * `cardId` que resolvería cada una por separado. Devuelve sólo los sets que tienen carta (el resto no
+   * entra al mapa ⇒ sin ancla ⇒ `effectiveMarketCents` null, money-safe, igual que antes).
+   */
+  private async resolveAnchorCardIds(setIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (setIds.length === 0) return map;
+    const cards = await this.prisma.card.findMany({
+      where: { setId: { in: [...new Set(setIds)] } },
+      orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }],
+      select: { id: true, setId: true },
+    });
+    for (const c of cards) if (!map.has(c.setId)) map.set(c.setId, c.id);
+    return map;
+  }
+
   private toProductDTO(
     p: SealedProduct,
     liveUsdByProductId: Map<number, number>,
@@ -786,6 +805,30 @@ export class SealedProductService {
       groupsBySet.set(g.setId, arr);
     }
 
+    // SEC-M11-5 (perf, MONEY-SAFE): el gate H-1 (ancla + referencias de mercado) se resuelve EN LOTE para
+    // TODOS los sets ANTES del bucle — antes iba una consulta de ancla + un `getReferencesBatch` POR SET
+    // (N+1). Ahora: UNA consulta de anclas (`resolveAnchorCardIds`) + UN `getReferencesBatch` con todas las
+    // claves. La clave del Map incluye el `cardId` (ancla, única por set) ⇒ no hay colisión entre sets y el
+    // `.get()` por producto cae en la MISMA entrada que antes. Sólo cambia el patrón de LECTURA: el gate se
+    // aplica igual, producto a producto; misma valuación, mismos números, menos queries.
+    const setsWithProducts = sets.filter((s) => (productsBySet.get(s.id) ?? []).length > 0);
+    const anchorBySet = await this.resolveAnchorCardIds(setsWithProducts.map((s) => s.id));
+    const refItems: { cardId: string; productType: 'sealed'; gradeKey: string; finish: 'normal' }[] = [];
+    for (const s of setsWithProducts) {
+      const anchor = anchorBySet.get(s.id);
+      if (!anchor) continue; // sin ancla ⇒ sin clave de mercado ⇒ effectiveMarketCents null (money-safe)
+      for (const p of productsBySet.get(s.id) ?? []) {
+        refItems.push({
+          cardId: anchor,
+          productType: 'sealed',
+          gradeKey: sealedMarketGradeKey(p.tcgplayerProductId),
+          finish: 'normal',
+        });
+      }
+    }
+    const refsMap =
+      refItems.length > 0 ? await this.pricing.getReferencesBatch(refItems) : new Map<string, PriceInfo>();
+
     const rows: SealedPriceStatusRowDTO[] = [];
     for (const set of sets) {
       const setProducts = productsBySet.get(set.id) ?? [];
@@ -797,20 +840,13 @@ export class SealedProductService {
       if (setMainGroupId != null) linkedSet.add(setMainGroupId);
 
       // Referencias gateadas de los productos del set — la MISMA cadena H-1 que `listSealedProducts`
-      // (ancla del set + getReferencesBatch + gateSealedMarketCents). Sin ancla ⇒ sin clave ⇒ null.
-      const anchorCardId = await this.resolveAnchorCardId(set.id);
+      // (ancla del set + getReferencesBatch + gateSealedMarketCents), pero LEÍDA del lote de arriba.
+      // Sin ancla ⇒ sin clave ⇒ ref undefined ⇒ gate null (idéntico al comportamiento previo).
+      const anchorCardId = anchorBySet.get(set.id) ?? null;
       const effectiveByProductId = new Map<number, number | null>();
       if (anchorCardId && setProducts.length > 0) {
-        const refs = await this.pricing.getReferencesBatch(
-          setProducts.map((p) => ({
-            cardId: anchorCardId,
-            productType: 'sealed' as const,
-            gradeKey: sealedMarketGradeKey(p.tcgplayerProductId),
-            finish: 'normal' as const,
-          })),
-        );
         for (const p of setProducts) {
-          const ref = refs.get(`${anchorCardId}|sealed|${sealedMarketGradeKey(p.tcgplayerProductId)}|normal`);
+          const ref = refsMap.get(`${anchorCardId}|sealed|${sealedMarketGradeKey(p.tcgplayerProductId)}|normal`);
           effectiveByProductId.set(p.tcgplayerProductId, this.pricing.gateSealedMarketCents(ref, sourceOn));
         }
       }
@@ -905,6 +941,22 @@ export class SealedProductService {
     // Si ya existía la fila del NUEVO set_main (p. ej. como promo_collection) se PROMUEVE; si no, se crea.
     const dup = existingGroups.find((g) => g.tcgplayerGroupId === newGroupId);
 
+    // SEC-M11-3: rastro COMPLETO del estado de grupos, no sólo el espejo `tcgcsvGroupId`. `beforeGroups`
+    // es el kind de cada grupo ANTES del remap; `afterGroups` el kind RESULTANTE (set_main viejo→
+    // promo_collection, grupo nuevo→set_main, fila nueva si no existía). Se derivan del estado ya leído
+    // (sin queries extra); reflejan exactamente lo que hará la transacción de abajo.
+    const beforeGroups = existingGroups.map((g) => ({ tcgplayerGroupId: g.tcgplayerGroupId, kind: g.kind }));
+    const afterGroups = existingGroups.map((g) => ({
+      tcgplayerGroupId: g.tcgplayerGroupId,
+      kind:
+        g.tcgplayerGroupId === newGroupId
+          ? ('set_main' as SealedGroupKind)
+          : g.kind === 'set_main'
+            ? ('promo_collection' as SealedGroupKind)
+            : g.kind,
+    }));
+    if (!dup) afterGroups.push({ tcgplayerGroupId: newGroupId, kind: 'set_main' as SealedGroupKind });
+
     // Label best-effort desde TCGCSV (observabilidad/curación), FUERA de la transacción (red bloqueable,
     // O-17; jamás bloquea el remap). Solo hace falta cuando se crea una fila nueva.
     let label: string | null = null;
@@ -941,8 +993,9 @@ export class SealedProductService {
             action: 'inventory.sealed_set_main_group_set',
             entityType: 'CardSet',
             entityId: setId,
-            before: { tcgcsvGroupId: before },
-            after: { tcgcsvGroupId: newGroupId, reason: body.reason },
+            // SEC-M11-3: estado PREVIO y NUEVO completos (espejo + kind de cada grupo del set).
+            before: { tcgcsvGroupId: before, groups: beforeGroups },
+            after: { tcgcsvGroupId: newGroupId, reason: body.reason, groups: afterGroups },
           },
           tx,
         );

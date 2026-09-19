@@ -1,3 +1,67 @@
+# VEREDICTO BLUE TEAM — **M11 · CIERRE DE DEUDA DEL SELLADO (SEC-M11-3/-4/-5)** · SHA **`604f7622`** · base `cd0bf02c` · 2026-09-18
+
+> ## ⭐ VEREDICTO — **APROBADO** para `604f7622`
+>
+> **No queda ningún hallazgo crítico ni alto abierto sobre M11.** Las tres condiciones que este commit
+> se propuso cerrar (`SEC-M11-3`, `SEC-M11-4`, `SEC-M11-5`) están **cerradas y verificadas por mí en vivo**
+> (no recibidas), y las dos que ya estaban cerradas (`SEC-M11-1` atomicidad, `SEC-M11-2` auditoría en `tx`)
+> **NO regresaron**. Todo money-safe: el motor de precios y el gate de sellado no cambian de números.
+>
+> **Estado de las cinco condiciones sobre `604f7622`:**
+> - **`SEC-M11-1` (atomicidad) — CERRADA, no regresa.** El remap (degradar set_main previo(s) → promover/
+>   crear el nuevo → reescribir el espejo `CardSet.tcgcsvGroupId`) sigue COMPLETO dentro de un solo
+>   `prisma.$transaction` (`sealed-product.service.ts:972-1004`). El `listGroups()` de red (label) queda
+>   FUERA de la transacción (O-17), antes de abrirla (`:960-970`). O entra todo o no entra nada.
+> - **`SEC-M11-2` (auditoría en la misma tx) — CERRADA, no regresa.** `audit.log(..., tx)` se llama DENTRO
+>   del `$transaction`, con el `tx` como segundo argumento (`:988-1002`) ⇒ mapeo + bitácora committean o
+>   rollbackean juntos. La prueba `inventory.m11-debt.spec.ts` asserta que `audit.log` recibe el `tx`.
+> - **`SEC-M11-3` (before/after COMPLETO) — CERRADA.** El rastro ya no lleva sólo el espejo `tcgcsvGroupId`:
+>   `before.groups` es el `kind` de CADA grupo del set ANTES, y `after.groups` el `kind` RESULTANTE
+>   (set_main viejo→promo_collection, grupo nuevo→set_main, fila nueva si no existía) más `reason`
+>   (`:944-958`, `:996-998`). La derivación de `afterGroups` coincide EXACTAMENTE con lo que escribe la
+>   transacción (comparé rama a rama). **Cobertura suficiente para reconstruir el remap:** el auditor tiene
+>   estado previo y resultante de todos los grupos + el espejo + el motivo. Sin queries extra (se deriva del
+>   estado ya leído). No queda cambio money-relevante sin auditar (el `label` del grupo nuevo es
+>   observabilidad/curación, no dinero; los `id` de fila son internos de BD).
+> - **`SEC-M11-4` (`reason` acotado 3–500 tras trim) — CERRADA.** `SetMainGroupRequestDto.reason` es
+>   `@IsOptional() @Transform(trim) @IsString() @Length(3, 500)` (`inventory.dto.ts:389`). El `ValidationPipe`
+>   global corre con `transform: true` (`main.ts:56`) ⇒ el `trim` ejecuta ANTES de validar ⇒ la cota se
+>   aplica TRAS trim (verificado: `'  a  '` con <3 tras trim ⇒ 400; 500 chars rodeados de espacios ⇒ pasa).
+>   **La cota cierra el vector de tamaño:** un super_admin ya no puede escribir filas de bitácora
+>   desmesuradas (501+ ⇒ 400). **Sin inyección/escape al serializar:** `reason` viaja a `AuditLog.after`
+>   como valor JSON vía Prisma parametrizado (JSON.stringify escapa comillas/backslashes); `before/after`
+>   NUNCA se expone en la UI de auditoría ⇒ sin XSS almacenado explotable. Fuera de rango ⇒ 400, nunca 500.
+> - **`SEC-M11-5` (N+1 en lote) — CERRADA, MISMOS NÚMEROS.** `sealedPriceStatus` resolvía el ancla
+>   (`findFirst`) + `getReferencesBatch` UNA VEZ POR SET (N+1). Ahora: UNA consulta de anclas
+>   (`resolveAnchorCardIds`, `findMany` con el MISMO `orderBy` que el `findFirst`) + UN `getReferencesBatch`
+>   con todas las claves, antes del bucle (`:809-829`). **El gate `gateSealedMarketCents` sigue aplicándose
+>   producto a producto, con la misma clave** `${anchorCardId}|sealed|${gradeKey}|normal`; el ancla es única
+>   por set ⇒ sin colisión, y `getReferencesBatch` descarta cualquier clave no pedida (`!wanted.has(k)`) ⇒
+>   el resultado por clave es idéntico batch-por-set o todo-junto. **No cambia números** (verificado: dial ON
+>   ⇒ `priced`, dial OFF ⇒ `mapped_unpriced`, igual que antes).
+>
+> ### Verificación en vivo (O-9), sobre worktree detached anclado a `604f7622` literal
+> Corrí las tres suites en mi worktree (`git worktree add --detach … 604f7622`; egress bloqueado, O-17;
+> `node_modules` reusado del repo por symlink, sólo lectura — el código bajo prueba es el del sha):
+> - `backend/test/inventory.set-main-group-reason.spec.ts` → **7/7 verde** (SEC-M11-4: 501/5000 ⇒ error,
+>   `<3` ⇒ error, `<3` tras trim ⇒ error, 500 exactos y rodeados de espacios ⇒ pasa, ausente ⇒ pasa).
+> - `backend/test/inventory.m11-debt.spec.ts` → **4/4 verde** (SEC-M11-3: before/after con `groups` kind
+>   previo y resultante; audit recibe `tx` — SEC-M11-2 no regresa. SEC-M11-5: censo de queries
+>   `findFirst=0`, `findMany≤1`, `getReferencesBatch≤1`; dial OFF ⇒ mapped_unpriced).
+> - `backend/test/sealed-product.service.spec.ts` → **63/63 verde** (62→63 con el caso del lote; gate-parity
+>   con dial OFF, no-egress, base de era NUNCA cruza al grupo de promos — todo sigue verde bajo el lote).
+>
+> ### Nota (INFO, no bloqueante — no es hallazgo)
+> `resolveAnchorCardIds` toma la primera carta por set de un orden global `(numberPrefix, numberSort)`, sin
+> desempate adicional; `resolveAnchorCardId` (el que sustituye) usaba `findFirst` con el mismo `orderBy`.
+> Si dos cartas de un mismo set empataran EXACTO en `(numberPrefix, numberSort)`, cuál queda de ancla podría
+> teóricamente diferir. En la práctica el número de carta es único por set ⇒ no hay empate; y la
+> no-determinación ya existía en la versión single. Money-safe; sólo se anota para que el owner lo tenga
+> presente si algún día el modelo permitiera colisión de número dentro de un set.
+>
+> ### Ruta de hallazgos
+> Ninguno. Nada que enrutar a backend. Las cinco condiciones `SEC-M11-1..5` quedan **cerradas** sobre
+> `604f7622`; el bloque histórico de abajo (verdicto sobre `fafe7461`) queda superado por este cierre.
 # VEREDICTO BLUE TEAM — **GATE PII · DEGRADAR `clabeSnapshotEnc` EN `adminGet` (buylist)** · SHA **`b884e827`** · base `origin/production`=`4a3caa64` · 2026-09-18
 
 > ## ⭐ VEREDICTO — **APROBADO** para `b884e827`

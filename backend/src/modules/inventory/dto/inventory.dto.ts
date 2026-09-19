@@ -8,11 +8,15 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Length,
   Max,
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+/** Recorta espacios ANTES de validar, para que la cota de longitud se aplique TRAS trim. */
+const trim = () => Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
 import {
   AcquisitionType,
   Finish,
@@ -373,8 +377,13 @@ export class SealedSetGroupLinkRequestDto {
  * M11 (§11.1) — `PUT /admin/inventory/sealed-sets/:setId/set-main-group`. Fija/REEMPLAZA el grupo
  * `set_main` del set aunque ya exista (a diferencia de `linkGroup`). `super_admin`, AUDITADO. `reason?`
  * = nota libre del super-admin que viaja al `AuditLog.after` (por qué se mueve de dónde sale el precio).
+ *
+ * SEC-M11-4 (BAJA/INFO): `reason` viaja al `AuditLog.after` (JSON) y no tenía cota. Es una nota «por qué»
+ * del operador ⇒ se acota con el precedente canónico del proyecto para ese tipo de motivo: `@Length(3, 500)`
+ * TRAS `trim` (buylist `overrideReason`, `ItemDecisionDto.reason`). Fuera de rango ⇒ 400 vía el
+ * `ValidationPipe` global. Sigue OPCIONAL (ausente pasa); NO PII (motivo interno, nunca se expone en UI).
  */
 export class SetMainGroupRequestDto {
   @IsInt() @Min(1) tcgplayerGroupId!: number;
-  @IsOptional() @IsString() reason?: string;
+  @IsOptional() @trim() @IsString() @Length(3, 500) reason?: string;
 }

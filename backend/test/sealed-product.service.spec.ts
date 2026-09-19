@@ -83,6 +83,16 @@ function buildPrisma(seed: {
         );
         return inSet[0] ?? null;
       }),
+      // SEC-M11-5: resolución de anclas EN LOTE (`resolveAnchorCardIds`). Mismo orden que `findFirst` para
+      // que la primera carta por set coincida con el ancla que resolvería cada una por separado.
+      findMany: jest.fn(async ({ where }: any = {}) => {
+        const ids: string[] | null = where?.setId?.in ?? null;
+        return cards
+          .filter((c) => (ids ? ids.includes(c.setId) : true))
+          .sort(
+            (a, b) => (a.numberPrefix ?? '').localeCompare(b.numberPrefix ?? '') || (a.numberSort ?? 0) - (b.numberSort ?? 0),
+          );
+      }),
     },
     sealedSetGroup: {
       findMany: jest.fn(async ({ where }: any = {}) =>
