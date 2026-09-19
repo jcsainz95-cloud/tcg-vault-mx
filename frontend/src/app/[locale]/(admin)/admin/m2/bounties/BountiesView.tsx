@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { getAdminBounties, putVariantControls } from '@/lib/api';
+import { deleteBounty, getAdminBounties, putVariantControls } from '@/lib/api';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { cn } from '@/lib/cn';
@@ -30,6 +30,7 @@ import { BountyRowEditor } from './BountyRowEditor';
 import {
   BOUNTY_CHIP_ORDER,
   BOUNTY_SORTS,
+  bountyDeleteOutcome,
   bountyPremium,
   bountyRowKey,
   hasAttentionRows,
@@ -111,6 +112,15 @@ export function BountiesView() {
   const [mutatingKey, setMutatingKey] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ key: string; error: unknown } | null>(null);
   const editButtons = useRef(new Map<string, HTMLButtonElement | null>());
+
+  /**
+   * ⭐ La fila cuyo bounty se va a ELIMINAR (§M2-B.9). Es una acción **DESTRUCTIVA**, así que **no se
+   * dispara de un clic**: abre la confirmación (§7.6, mismo patrón que el descarte de arriba) y solo
+   * el `Confirmar` de esa ventana llama al `DELETE`. `deleteError` ancla el error del servidor DENTRO
+   * de la ventana, no en un toast (misma doctrina que §28.6e para el editor).
+   */
+  const [deletingAsk, setDeletingAsk] = useState<AdminBountyRowDTO | null>(null);
+  const [deleteError, setDeleteError] = useState<unknown>(null);
 
   const query = useQuery<AdminBountyListResponse>({
     queryKey: ['admin-bounties', states, sort, q, page],
@@ -275,6 +285,51 @@ export function BountiesView() {
       const key = bountyRowKey(vars.row);
       transitionTo({ key, turnOnIntent: false }, { force: true, error });
       void query.refetch();
+    },
+  });
+
+  /**
+   * ⭐ ELIMINAR el bounty de UNA fila (§M2-B.9 · `DELETE …/bounty`). **La rama —borrar o
+   * despublicar— la decide el SERVIDOR por la historia de compra; esta pantalla solo LEE el
+   * resultado del DTO** (`bountyDeleteOutcome`) para elegir el toast. Como todo lo que muta dinero
+   * aquí, tras el write se **RE-LEE la lista**: una fila borrada desaparece, una despublicada sale
+   * del tablero por defecto (reaparece solo con el chip `DESPUBLICADOS`).
+   *
+   * ⛔ Es un gesto sobre UNA fila (§M2-B.2): un `DELETE` por confirmación explícita, jamás un lote.
+   */
+  const del = useMutation({
+    mutationFn: async (row: AdminBountyRowDTO) => {
+      const res = await deleteBounty(row.cardId, row.finish);
+      const fresh = await query.refetch();
+      return { res, fresh: fresh.data ?? null, row };
+    },
+    onMutate: (row) => {
+      setMutatingKey(bountyRowKey(row));
+      setDeleteError(null);
+    },
+    onSettled: () => setMutatingKey(null),
+    onSuccess: ({ res, row }) => {
+      const key = bountyRowKey(row);
+      // ⚠️ El toast se elige por lo que el SERVIDOR devolvió (borrado vs despublicado), no por lo que
+      // el operador quiso: la rama es del servidor.
+      const outcome = bountyDeleteOutcome(res.pricing.bounty);
+      pushToast({
+        variant: 'info',
+        message:
+          outcome === 'unpublished'
+            ? t('row.unpublishedToast', { card: row.name })
+            : t('row.deletedToast', { card: row.name }),
+      });
+      setDeletingAsk(null);
+      setDeleteError(null);
+      // Si la fila borrada estaba ABIERTA en edición, se cierra (ya no existe / salió del tablero).
+      // El borrador de OTRA fila no se toca (mismo cuidado que en `save`: no es nuestro para tirarlo).
+      if (editing?.key === key) transitionTo(null, { force: true });
+    },
+    onError: (error) => {
+      // El error se ancla DENTRO de la ventana de confirmación, que queda abierta; el resto de la
+      // tabla no se toca (§28.8/§28.6e). ⛔ Nunca en un toast efímero.
+      setDeleteError(error);
     },
   });
 
@@ -529,6 +584,11 @@ export function BountiesView() {
                       intent: 'turnOff',
                     })
                   }
+                  // ⛔ NO borra al clic: abre la confirmación destructiva (§7.6) y la ventana confirma.
+                  onDelete={() => {
+                    setDeleteError(null);
+                    setDeletingAsk(row);
+                  }}
                 />
                 {isEditing && (
                   <tr role="row" className="max-md:block">
@@ -594,6 +654,59 @@ export function BountiesView() {
         }
       >
         {t('edit.discardConfirm', { card: discardAsk?.card ?? '' })}
+      </Modal>
+
+      {/* ⭐ Confirmación destructiva de ELIMINAR (§7.6 · §M2-B.9). El copy explica en llano la
+          RAMIFICACIÓN que decide el servidor —borra si no se compró nada, despublica y conserva el
+          registro si ya se compró— para que el operador sepa qué va a pasar ANTES de confirmar. El
+          botón que ejecuta es `destructive`; el error del servidor se ancla aquí dentro. */}
+      <Modal
+        open={deletingAsk !== null}
+        onClose={() => {
+          if (mutatingKey && deletingAsk && mutatingKey === bountyRowKey(deletingAsk)) return;
+          setDeletingAsk(null);
+          setDeleteError(null);
+        }}
+        title={t('delete.title')}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDeletingAsk(null);
+                setDeleteError(null);
+              }}
+              disabled={deletingAsk != null && mutatingKey === bountyRowKey(deletingAsk)}
+            >
+              {tRoot('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (deletingAsk) del.mutate(deletingAsk);
+              }}
+              loading={deletingAsk != null && mutatingKey === bountyRowKey(deletingAsk)}
+              disabled={deletingAsk != null && mutatingKey === bountyRowKey(deletingAsk)}
+            >
+              {t('delete.cta')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3 text-sm text-text">
+          <p>
+            <span lang="en">{deletingAsk?.name}</span>
+            {deletingAsk ? ` · ${deletingAsk.setName} #${deletingAsk.number}` : ''}
+          </p>
+          <p>{t('delete.body')}</p>
+          {deleteError != null && (
+            <Banner variant="danger" role="alert">
+              {getError(deleteError)}
+            </Banner>
+          )}
+        </div>
       </Modal>
 
       <Toaster toasts={toasts} onDismiss={dismissToast} />
@@ -689,6 +802,7 @@ function BountyTableRow({
   onEdit,
   onTurnOn,
   onTurnOff,
+  onDelete,
 }: {
   row: AdminBountyRowDTO;
   editing: boolean;
@@ -697,6 +811,7 @@ function BountyTableRow({
   onEdit: () => void;
   onTurnOn: () => void;
   onTurnOff: () => void;
+  onDelete: () => void;
 }) {
   const t = useTranslations('admin.m2.bounties');
   const locale = useLocale() as AppLocale;
@@ -729,7 +844,7 @@ function BountyTableRow({
         // de los campos a lo ancho, cada uno con su rótulo. Prioridad de §28.9 respetada: no cae
         // ninguno —ni la tarifa ni el avance—, se apilan.
         attention && 'border-l-2 border-l-accent',
-        row.state === 'apagada' && 'text-muted',
+        (row.state === 'apagada' || row.state === 'despublicada') && 'text-muted',
       )}
     >
       <td role="cell" className={cn('py-3 pr-3 max-md:py-1 max-md:pr-0', attention && 'pl-3')}>
@@ -750,7 +865,7 @@ function BountyTableRow({
           className={cn(
             'font-mono text-[11px] uppercase tracking-[0.06em]',
             attention ? 'text-accent' : known ? 'text-text' : 'text-muted',
-            row.state === 'apagada' && 'text-muted',
+            (row.state === 'apagada' || row.state === 'despublicada') && 'text-muted',
           )}
         >
           {stateLabel}
@@ -851,10 +966,13 @@ function BountyTableRow({
               estado, así que no sabemos qué hace apagarlo* — y el botón de apagar manda un `PUT` que
               mueve dinero. Es el mismo fallback neutro que ya rige su rótulo y su premium: cuando
               falta el dato, **no se afirma de más y tampoco se actúa de más**. */}
-          {!known ? null : row.state === 'apagada' || row.state === 'completada' ? (
+          {!known ? null : row.state === 'apagada' ||
+            row.state === 'completada' ||
+            row.state === 'despublicada' ? (
             // ⛔ `Encender` NO se hace de un clic: abre la fila en edición con el interruptor puesto
             // y el aviso de revisar el precio. Encender a ciegas un precio de hace tres meses es
-            // exactamente cómo nace un rebasado (§28.6c).
+            // exactamente cómo nace un rebasado (§28.6c). Una `despublicada` se RE-PUBLICA por la
+            // misma puerta (§M2-B.9: un `PUT enabled:true` limpia `bountyUnpublishedAt`).
             <Button size="sm" variant="ghost" onClick={onTurnOn} disabled={busy}>
               {t('row.turnOn')}
             </Button>
@@ -869,6 +987,23 @@ function BountyTableRow({
               loading={busy}
             >
               {t('row.turnOff')}
+            </Button>
+          )}
+
+          {/* ⭐ ELIMINAR (§M2-B.9). Se ofrece en todo estado conocido MENOS `despublicada` (ya está
+              archivada: re-borrarla es no-op). El disparador es `ghost` para no gritar en una tabla
+              densa; el peso `destructive` va en el botón que CONFIRMA. ⛔ No borra al clic: abre la
+              ventana. ⛔ Un `state` DESCONOCIDO no lo recibe: no se actúa de más sobre lo que no se
+              sabe leer (mismo fallback que `Apagar`/`Encender`, §28.3). */}
+          {known && row.state !== 'despublicada' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onDelete}
+              aria-label={t('row.deleteAria', { card: row.name })}
+              disabled={busy}
+            >
+              {t('row.delete')}
             </Button>
           )}
         </div>

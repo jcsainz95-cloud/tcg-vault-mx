@@ -4502,6 +4502,12 @@ export interface MockVariantControlsRow {
   bountyAcquiredQty: number;
   bountyCompletedAt: string | null;
   /**
+   * ⭐ v2.2 (Q2, M-58): espejo de `VariantPriceOverride.bountyUnpublishedAt`. `!= null` ⇒ el bounty
+   * se ELIMINÓ teniendo historia y está `despublicada` (§M2-B.0). Distingue `despublicada` de
+   * `apagada`; sin esta columna las dos serían indistinguibles.
+   */
+  bountyUnpublishedAt: string | null;
+  /**
    * `VariantPriceOverride.updatedAt` de la BD real: **por fila y distinto por fila**, porque es lo
    * que ordena `sort=updated_desc` y lo que desempata los otros dos órdenes de §M2-B.1. Una
    * constante compartida no es «un dato de menos»: hace que **una de las tres opciones del `<Select>`
@@ -4530,6 +4536,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 3,
       bountyAcquiredQty: 1,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-29T14:00:00.000Z',
     },
   ],
@@ -4563,6 +4570,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: null,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-30T08:45:00.000Z',
     },
   ],
@@ -4580,6 +4588,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-25T09:00:00.000Z',
     },
   ],
@@ -4595,6 +4604,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-27T09:00:00.000Z',
     },
   ],
@@ -4609,6 +4619,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 2,
       bountyCompletedAt: '2026-08-30T18:00:00.000Z',
+      bountyUnpublishedAt: null,
       updatedAt: '2026-09-04T11:00:00.000Z',
     },
   ],
@@ -4624,6 +4635,7 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 2,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      bountyUnpublishedAt: null,
       updatedAt: '2026-08-31T16:30:00.000Z',
     },
   ],
@@ -4762,6 +4774,7 @@ export function mockUpsertVariantControls(
     bountyTargetQty: null,
     bountyAcquiredQty: 0,
     bountyCompletedAt: null,
+    bountyUnpublishedAt: null,
     updatedAt: new Date().toISOString(),
   };
   // Campos omitidos NO se tocan; `null` explícito LIMPIA (contrato v1.28).
@@ -4774,6 +4787,14 @@ export function mockUpsertVariantControls(
       row.bountyEnabled = req.bounty.enabled;
       if (req.bounty.priceCents !== undefined) row.bountyPriceCents = req.bounty.priceCents;
       if (req.bounty.targetQty !== undefined) row.bountyTargetQty = req.bounty.targetQty;
+      // ⭐ v2.2 (§M2-B.9): RE-PUBLICAR (encender) limpia `bountyUnpublishedAt` —un bounty re-encendido
+      // ya no está `despublicada`— y, por el re-armado P-22, también `bountyCompletedAt`: vuelve a
+      // pagar, así que conservar el sello de «objetivo alcanzado» sería incoherente. ⚠️ NO reinicia
+      // `bountyAcquiredQty` (la historia de dinero se conserva, doctrina M-46).
+      if (req.bounty.enabled) {
+        row.bountyUnpublishedAt = null;
+        row.bountyCompletedAt = null;
+      }
     }
   }
   // `@updatedAt` de Prisma: toda escritura lo mueve. Es lo que hace que `sort=updated_desc` tenga
@@ -4855,7 +4876,9 @@ function mockBountyInScope(row: MockVariantControlsRow): boolean {
     row.bountyEnabled ||
     row.bountyPriceCents != null ||
     row.bountyCompletedAt != null ||
-    row.bountyAcquiredQty > 0
+    row.bountyAcquiredQty > 0 ||
+    // ⭐ v2.2: una fila DESPUBLICADA sigue en alcance (es un registro archivado, §M2-B.0).
+    row.bountyUnpublishedAt != null
   );
 }
 
@@ -4875,6 +4898,8 @@ const MOCK_ATTENTION_RANK: Record<import('@/types/contract').BountyState, number
   activa: 1,
   completada: 2,
   apagada: 3,
+  // ⭐ `despublicada` AL FINAL (§M2-B.1): solo aparece si se pide `?state=despublicada`.
+  despublicada: 4,
 };
 
 export function mockAdminBounties(
@@ -4913,22 +4938,33 @@ export function mockAdminBounties(
     const card = mockCards.find((c) => c.id === cardId)!;
     const pricing = mockVariantPricing(cardId, finish);
     if (!pricing.bounty) return [];
-    return [{ card, finish, row, pricing, state: mockDeriveBountyState(pricing.bounty) }];
+    // ⭐ `despublicada` DISCRIMINA PRIMERO (§M2-B.0), y sale de la COLUMNA `bountyUnpublishedAt`, no
+    // del DTO de precio (que no la lleva). El resto lo deriva el composer, igual que el binder.
+    const state: import('@/types/contract').BountyState =
+      row.bountyUnpublishedAt != null ? 'despublicada' : mockDeriveBountyState(pricing.bounty);
+    return [{ card, finish, row, pricing, state }];
   });
 
   // (3) CONTAR — sobre el conjunto clasificado ENTERO: ignora el filtro `state`, respeta identidad.
+  // ⚠️ Las SEIS cubetas, `despublicada` incluida: `counts` es el SELECTOR y la reporta SIEMPRE,
+  // aunque `data` la excluya por defecto (§M2-B.1).
   const counts: import('@/types/contract').AdminBountyCountsDTO = {
     activa: 0,
     rebasada: 0,
     invalida: 0,
     completada: 0,
     apagada: 0,
+    despublicada: 0,
   };
   for (const c of classified) counts[c.state] += 1;
 
   // (4) FILTRAR por `state` → (5) ORDENAR → (6) PAGINAR.
+  // ⭐ v2.2: sin filtro `state`, `data` excluye `despublicada` (registros archivados fuera del
+  // tablero de trabajo); solo aparecen si se piden EXPLÍCITAMENTE con `?state=despublicada` (§M2-B.1).
   const states = filters.states && filters.states.length > 0 ? filters.states : null;
-  const filtered = states ? classified.filter((c) => states.includes(c.state)) : classified;
+  const filtered = states
+    ? classified.filter((c) => states.includes(c.state))
+    : classified.filter((c) => c.state !== 'despublicada');
   // ⚠️ Los TRES órdenes de §M2-B.1 están implementados, con los mismos desempates que el servidor:
   //   · `attention_first` (default) → rango de atención, precio desc, `updatedAt` desc, id asc
   //   · `price_desc`                → precio desc, `updatedAt` desc, id asc
@@ -4979,6 +5015,60 @@ export function mockAdminBounties(
     total,
     counts,
     truncated,
+  };
+}
+
+/**
+ * ⭐ ELIMINAR un bounty (DELETE …/variant-controls/:cardId/:finish/bounty, §M2-B.9). **El SERVIDOR
+ * falso ramifica por la historia de compra**, igual que el de verdad — la pantalla no decide la rama:
+ *
+ * - **Rama A · BORRAR** (`bountyAcquiredQty === 0 ∧ bountyCompletedAt == null`): limpia TODOS los
+ *   campos de bounty; si a la fila no le quedan otros overrides (`sell`/`buy`), se **borra entera**
+ *   del store. Devuelve el DTO con el bounty ausente/limpio.
+ * - **Rama B · DESPUBLICAR** (`acquiredQty > 0 ∨ completedAt != null`): CONSERVA
+ *   `priceCents`/`targetQty`/`acquiredQty`/`completedAt`, pone `enabled=false` y
+ *   `bountyUnpublishedAt = now()`. Devuelve el DTO con la historia conservada ⇒ `state:"despublicada"`.
+ *
+ * ⛔ **No toca** `sellOverrideCents`/`buyOverrideCents` (§M2-B.9 / B-20). **Idempotente en la rama B**:
+ * un `DELETE` sobre una fila ya `despublicada` es no-op. `BOUNTY_NOT_FOUND` si la variante no tiene
+ * bounty en alcance.
+ */
+export function mockDeleteBounty(
+  cardId: string,
+  finish: Finish,
+): import('@/types/contract').VariantControlsResponse {
+  const key = variantControlsKey(cardId, 'raw', 'raw:NM', finish);
+  const row = mockVariantControlsStore.get(key);
+  if (!row || !mockBountyInScope(row)) {
+    throw new ApiFixtureError(404, 'BOUNTY_NOT_FOUND', 'variant has no bounty in scope');
+  }
+
+  const hasHistory = row.bountyAcquiredQty > 0 || row.bountyCompletedAt != null;
+  if (hasHistory) {
+    // Rama B · DESPUBLICAR. Idempotente: si ya estaba despublicada, no se re-sella la fecha.
+    row.bountyEnabled = false;
+    if (row.bountyUnpublishedAt == null) row.bountyUnpublishedAt = new Date().toISOString();
+    row.updatedAt = new Date().toISOString();
+    mockVariantControlsStore.set(key, row);
+  } else {
+    // Rama A · BORRAR. Limpia el bounty; si no quedan otros overrides, la fila desaparece entera.
+    row.bountyEnabled = false;
+    row.bountyPriceCents = null;
+    row.bountyTargetQty = null;
+    row.bountyUnpublishedAt = null;
+    row.updatedAt = new Date().toISOString();
+    if (row.sellOverrideCents == null && row.buyOverrideCents == null) {
+      mockVariantControlsStore.delete(key);
+    } else {
+      mockVariantControlsStore.set(key, row);
+    }
+  }
+  return {
+    cardId,
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    finish,
+    pricing: mockVariantPricing(cardId, finish, 'raw', 'raw:NM'),
   };
 }
 

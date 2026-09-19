@@ -12,6 +12,7 @@ import {
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
+import * as mockDecksMeta from './mock/decks-meta';
 import type {
   Paginated,
   ListingDTO,
@@ -207,6 +208,10 @@ import type {
   GuestResendLinkResponse,
   ClaimableOrderDTO,
   ClaimOrdersResponse,
+  // §13 Decks Meta
+  DecksMetaListResponse,
+  DeckMetaDetailResponse,
+  DeckMetaPasteResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -433,6 +438,40 @@ export async function getCardDetail(cardId: string): Promise<GroupedListingDetai
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+// ---------- Decks Meta (§13) ----------
+// El carrito sigue siendo de cliente (useCart, array de inventoryItemId): estas lecturas
+// devuelven los `inventoryItemId` a agregar «de jalón»; no hay carrito servidor nuevo.
+
+/** §13 `GET /decks-meta` — top-10 del meta publicado, ordenado por rank, con cita de fuente. */
+export async function getDecksMeta(): Promise<DecksMetaListResponse> {
+  if (!config.useMocks) return apiRequest<DecksMetaListResponse>('/decks-meta');
+  return delay(mockDecksMeta.mockDecksMetaList);
+}
+
+/** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. `slug` desconocido ⇒ 404 DECK_NOT_FOUND. */
+export async function getDeckMeta(slug: string): Promise<DeckMetaDetailResponse> {
+  if (!config.useMocks) return apiRequest<DeckMetaDetailResponse>(`/decks-meta/${slug}`);
+  return delay(mockDecksMeta.mockDeckMetaDetail(slug));
+}
+
+/**
+ * §13 `POST /decks-meta/paste` — texto (formato Limitless) → misma vista de disponibilidad que el
+ * detalle. Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`. Rate-limited (`429`).
+ */
+export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DeckMetaPasteResponse>('/decks-meta/paste', { method: 'POST', body: { text } });
+  }
+  // MOCK: reproduce el candado del contrato — texto vacío ⇒ 422 (mismo shape que el backend real).
+  if (!text.trim()) {
+    throw new ApiClientError(422, {
+      code: 'DECK_LIST_UNPARSEABLE',
+      message: 'El texto está vacío o no tiene ninguna línea válida.',
+    });
+  }
+  return delay(mockDecksMeta.mockDeckMetaPaste(text));
 }
 
 // ---------- Bóveda / portafolio ----------
@@ -3249,7 +3288,11 @@ export async function getPublicBounties(): Promise<PublicBountiesResponse> {
 // ---------- v1.62/v1.62.1 · CONSOLA DE BOUNTIES (M2 › Bounties, §M2-B / §28) ----------
 
 export interface AdminBountyFilters {
-  /** Repetible. Omitido/vacío ⇒ **todos** (no se manda el parámetro). */
+  /**
+   * Repetible. Omitido/vacío ⇒ **todos MENOS `despublicada`** (§M2-B.1, v2.2): los registros
+   * archivados no ensucian el tablero de trabajo. Para verlos se piden **explícitamente**
+   * (`states: ['despublicada']`, combinable). Es la única asimetría del filtro y es deliberada.
+   */
   states?: BountyState[];
   setId?: string;
   finish?: Finish;
@@ -3273,7 +3316,8 @@ export async function getAdminBounties(
   filters: AdminBountyFilters = {},
 ): Promise<AdminBountyListResponse> {
   const query = {
-    // `[]` no emite nada: «sin filtro» ⇒ los cinco estados, que es el default del contrato.
+    // `[]` no emite nada: «sin filtro» ⇒ el default del contrato (todos menos `despublicada`, que
+    // hay que pedir explícitamente con `states: ['despublicada']`).
     ...(filters.states && filters.states.length > 0 ? { state: filters.states } : {}),
     setId: filters.setId,
     finish: filters.finish,
@@ -3286,6 +3330,49 @@ export async function getAdminBounties(
     return apiRequest<AdminBountyListResponse>('/admin/pricing/bounties', { query });
   }
   return delay(fx.mockAdminBounties(filters));
+}
+
+/**
+ * ⭐ ELIMINAR el bounty de una variante (contrato §M2-B.9 · `DELETE
+ * /admin/pricing/variant-controls/:cardId/:finish/bounty`, `super_admin`, AUDITADO).
+ *
+ * **La rama la decide el SERVIDOR por la historia de compra, no el cliente:**
+ * - **sin compras** (`bountyAcquiredQty === 0 ∧ bountyCompletedAt == null`) ⇒ **BORRA** los campos
+ *   de bounty (la fila puede desaparecer entera si no le quedan otros overrides);
+ * - **con compras** (`acquiredQty > 0 ∨ completedAt != null`) ⇒ **DESPUBLICA** (estado
+ *   `despublicada`, §M2-B.0): conserva `priceCents`/`targetQty`/`acquiredQty`/`completedAt` y solo
+ *   pone `enabled=false` + `bountyUnpublishedAt`.
+ *
+ * ⛔ **Es un verbo dedicado, NO `remove:true` en el `PUT`** (§M2-B.9 / B-20). ⛔ **No toca**
+ * `sellOverrideCents`/`buyOverrideCents` de la variante. La respuesta es el `VariantControlsResponse`
+ * resultante (mismo DTO que el `PUT`), para que la UI refleje «borrado» vs «despublicado» **sin una
+ * segunda lectura**: rama A devuelve el bounty limpio/ausente, rama B lo devuelve conservado.
+ * Idempotente en la rama B (un `DELETE` sobre una fila ya `despublicada` es no-op y responde `200`).
+ */
+export async function deleteBounty(
+  cardId: string,
+  finish: Finish,
+): Promise<VariantControlsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<VariantControlsResponse>(
+      `/admin/pricing/variant-controls/${cardId}/${finish}/bounty`,
+      { method: 'DELETE' },
+    );
+  }
+  // MOCK: replica las guardas de identidad del contrato antes de ramificar en el store.
+  const card = fx.mockCards.find((c) => c.id === cardId);
+  if (!card) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'card not found' });
+  if (!card.availableFinishes.includes(finish)) {
+    throw new ApiClientError(422, {
+      code: 'FINISH_NOT_AVAILABLE',
+      message: 'finish not in availableFinishes',
+    });
+  }
+  try {
+    return await delay(fx.mockDeleteBounty(cardId, finish));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 // ---------- Master set en todas partes (v1.20) · admin vaults + ajustes ----------

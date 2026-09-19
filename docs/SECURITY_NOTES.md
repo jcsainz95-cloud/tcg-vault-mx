@@ -1,3 +1,215 @@
+# VEREDICTO BLUE TEAM — **DECKS-META FASE 1 · BACKEND (disponibilidad/legalidad + endpoints público+admin)** · SHA **`d77eb699`** (rama `feat/decks-meta`, no-ancestro de `main`) · base `origin/production` no medida · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** para `d77eb699`
+>
+> **No queda ningún hallazgo CRÍTICO ni ALTO abierto.** Las cuatro superficies de riesgo del encargo
+> (fuga de inventario/dinero, autorización, inyección/DoS, no-fabricación) están cerradas por
+> construcción. Quedan **dos hallazgos MEDIOS/BAJOS** en la ROTACIÓN de legalidad —accountability y
+> atomicidad—, ambos **no explotables** (siguen tras `@Roles`) y **no bloqueantes**; se registran y se
+> enrutan a **backend**. Revisado sobre worktree detached anclado a `d77eb699`.
+>
+> ### Eje 1 — Fuga de inventario / dinero en `unitInventoryItemIds`: **LIMPIO**
+> Una pieza solo llega a `unitInventoryItemIds` si pasa **cuatro compuertas encadenadas**, todas
+> medidas en código:
+> - **Casada** (`decks-meta.service.ts` `buildLine`): `matchStatus === 'matched' && matchedCard`. Lo
+>   no casado, la energía básica y lo ambiguo devuelven `card:null, legal:false, unitInventoryItemIds:[]`.
+> - **Legal en Standard HOY** (`isLegalStandardNow`, `common/standard-legality.ts`): `regulationMark ∈
+>   activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`; **fail-closed** si
+>   `regulationMark == null`. Una carta ROTADA se marca `legal:false` y **no aporta piezas ni precio**
+>   (`buildLine` y `listPublished` — `if (!legal) continue`). La legalidad es **derivada en lectura**
+>   contra la config vigente, no un booleano persistido ⇒ la rotación aplica en vivo sin backfill.
+> - **Vendible/publicada** (`CatalogService.getSellableRawUnitsByCardIds` → `fetchSellable` →
+>   `singlesPublishedWhere`): `ownerType='platform' AND status='listed' AND productType<>'sealed'`,
+>   y solo filas con `dto.sellable && listPriceCents != null`. Esto **excluye inventario de otro dueño**
+>   (`OwnerType.customer`, consignación) y todo lo no disponible (`reserved/in_custody/sold/…`).
+> - **Raw NM** (`RAW_CONDITIONS = ACCEPTED_RAW_CONDITIONS`, `common/business-rules.ts`): solo
+>   `productType==='raw'` con `rawCondition ∈ {NM}` (decisión de `PROJECT §H`, vigilada por
+>   `enum-values-parity.spec.ts` — no derivada del enum, así un futuro `LP/MP` no se cuela solo).
+>
+> **Precio:** `availableQty = min(quantity, units.length)`; `unitPriceMxnCents` = precio de la pieza
+> más barata ofrecida (`offered[0].priceMxnCents`) o `null` si no hay stock. El monto es `P` (con IVA,
+> el mismo que exhibe la ficha), copiado bajo la **proyección NEUTRA `DeckMetaUnitDTO
+> {inventoryItemId, priceMxnCents}`**: ⛔ **no** viaja el token `displayPriceCents` ni `referenceValue`
+> ni `source/isManualOverride/priceBasis`. El censo money-safe `iva-derivacion-cableada` sigue acotado
+> a `catalog.service.ts`. **No hay fuga de costo/margen ni de metadata interna de precio** — esto
+> evita, en esta superficie, el vector P48-M1 de PENTEST_NOTES (metadata de `referenceValue` en ruta
+> anónima). No se ofrece precio de nada rotado, no vendible, no NM ni de otro dueño.
+>
+> **`paste`/`:slug` no exponen datos internos:** `GET /decks-meta` y `GET /decks-meta/:slug` filtran
+> `published:true, pausedByOperator:false` (un borrador o un deck pausado **no** es alcanzable por slug
+> público); `slug` es `@unique`. Los campos expuestos son de presentación (nombre, rank, share, trend,
+> imagen, fuente, `matchStatus`, `cardId`, `inventoryItemId`, precio `P`). Sin PII, sin owner, sin
+> costo. `decks-meta` **no reserva ni compromete dinero** — solo devuelve ids disponibles+legales; el
+> carrito/checkout re-valida en `orders` (confirmado en el docstring del módulo).
+>
+> ### Eje 2 — Autorización: **LIMPIO**
+> Cadena global de guards (`app.module.ts`, `APP_GUARD` en orden): `AppThrottlerGuard → JwtAuthGuard →
+> PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`.
+> - **`JwtAuthGuard` default-deny**: toda ruta sin `@Public()` exige Bearer válido (HS256 fijo,
+>   anti-algorithm-confusion), re-valida cuenta activa y `tokenVersion` contra BD (revocación viva).
+> - **Los tres controllers admin llevan `@Roles(vault_operator, super_admin)` a NIVEL DE CLASE**;
+>   `RolesGuard` lee `getAllAndOverride([handler, class])` ⇒ aplica a **todos** los métodos. Un cliente
+>   (`role=customer`) recibe `403 FORBIDDEN`; sin token, `401`.
+> - **`PUT /admin/config/standard-legality` (la ROTACIÓN, el control más sensible)** vive en
+>   `AdminStandardLegalityController`, también `@Roles(vault_operator, super_admin)` a nivel de clase.
+>   **Un cliente NO puede tocarla.** (Nota de diseño, no defecto: el contrato la abre a `vault_operator`
+>   además de `super_admin`; coincide con `admin-decks-meta.controller.ts` y `ARCHITECTURE §7`.)
+> - El controller público marca `@Public()` por método (`list`, `bySlug`, `paste`); ninguna ruta admin
+>   es pública. Sin rutas huérfanas (una ruta sin `@Public` y sin `@Roles` quedaría autenticada por
+>   `JwtAuthGuard`; `RolesGuard` no es default-deny pero `JwtAuthGuard`, que corre antes, sí).
+>
+> ### Eje 3 — Inyección / DoS: **LIMPIO**
+> - **Tamaño + rate-limit:** `PasteDeckDto.text` `@MaxLength(20_000)`; `POST /decks-meta/paste`
+>   `@Throttle({default:{ttl:60_000, limit:20}})` (20/min, `429`). `ValidationPipe` global con
+>   `whitelist:true` (campos extra se descartan). El curador (`CurateDeckDto.listText`) también
+>   `@MaxLength(20_000)`.
+> - **ReDoS: descartado por MEDICIÓN.** Las tres regex del parser (`CARD_LINE`, `BASIC_ENERGY_LINE`,
+>   `SECTION_HEADER`) medidas con entradas adversarias de 20 000 chars (todo-letras sin cierre,
+>   espacios alternados, casi-match, colas letra-dígito, `.*\bEnergy` casi-cierre) y con un texto de
+>   2000 líneas de caída total: **todos < 0.12 ms por línea; texto completo ≈ 1.2 ms** (N=1,
+>   `redos.js`, node standalone). El `.+?` lazy no backtrackea catastróficamente porque las clases de
+>   anclaje (`[A-Za-z]{2,4}`, `\d` en la cola) podan de inmediato.
+> - **Sin SQL crudo:** `grep` de `queryRaw/executeRaw/Prisma.raw/$query` en `decks-meta.service.ts` y
+>   `deck-matcher.service.ts` ⇒ **0**. El matcher usa solo `prisma.cardSet.findMany` /
+>   `prisma.card.findMany` con `where` **parametrizado** (`ptcgoCode:{not:null}`, `setId:{in:[...]}`);
+>   la normalización de número y el emparejado tolerante son **en memoria**, sin interpolar entrada del
+>   cliente en la query. Lecturas en LOTE (sin N+1). Universo de sets/cartas acotado al catálogo ⇒ sin
+>   amplificación de DoS por entrada.
+>
+> ### Eje 4 — No fabricar carta/precio: **CONFIRMADO**
+> Regla dura del dueño respetada de punta a punta. El matcher (`deck-matcher.service.ts`) empareja SOLO
+> por `ptcgoCode + número` (nunca por nombre); lo no resuelto sale con `matchStatus ∈
+> {unmatched_set, unmatched_number, ambiguous, unmatched_basic_energy}` y `matchedCard:null` —
+> **jamás inventa una `Card`**. En persistencia (`adminCreateOrCurate`) las líneas se crean con
+> `matchedCardId: m.matchedCard?.id ?? null`; lo no casado se guarda crudo (`rawName/rawSetCode/
+> rawNumber`) sin carta. En lectura (`buildLine`) lo no casado o no legal devuelve `card:null,
+> unitPriceMxnCents:null, unitInventoryItemIds:[]`. Un múltiple hit ⇒ `ambiguous`, **no** auto-resuelto.
+>
+> ---
+> ### Hallazgos abiertos (registrados, NO bloqueantes) — rol dueño: **backend**
+>
+> **SEG-DMF1-1 · MEDIO — La rotación de legalidad (money-adjacent) NO deja bitácora de auditoría.**
+> `adminUpdateStandardLegality` (`decks-meta.service.ts`) escribe `ConfigSetting` con `upsert` y solo
+> fija `updatedBy` (que se **sobrescribe**, sin histórico). El proyecto YA tiene convención para config
+> money-adjacent: `settings.service.ts` escribe el dial FX **dentro de una transacción CON entrada de
+> `AuditLog`** («la ESCRITURA del dial: la única, con acuse, transaccional y auditada»). La rotación
+> —que el propio encargo señala como el control más sensible («gobierna qué es jugable/comprable»)—
+> se aparta de ese patrón: no hay entrada en `AuditLog` ni historial de quién cambió la ventana y
+> cuándo. **No explotable** (sigue tras `@Roles(vault_operator, super_admin)`; captura el último
+> `updatedBy`); es una brecha de **accountability/forense**, no de acceso. **MEDIO**, no bloquea.
+> *Comprobación de cierre:* la rotación escribe un `AuditLog` con actor, valores previo/nuevo y timestamp.
+>
+> **SEG-DMF1-2 · BAJO — Escritura de rotación NO atómica.** `activeMarks` y `banlistCardIds` se
+> escriben como **dos `upsert` independientes** vía `Promise.all` (no una transacción). Un fallo
+> parcial deja la config a medias. Mitigado por que `isLegalStandardNow` es **fail-closed** (una
+> ventana no aplicada tiende a NO-legal, conservador) y por que cada clave es idempotente
+> (reemplazo total del array); además no hay lock optimista, así que dos operadores concurrentes es
+> last-writer-wins (aceptable para reemplazo total). **BAJO.** *Cierre:* envolver ambos upserts en
+> `$transaction`, alineado con el patrón del dial FX.
+>
+> **Informativo (no-seguridad, para techlead):** `matchLines` hace `cardSet.findMany({where:{ptcgoCode:
+> {not:null}}})` (scan completo de `CardSet`, universo pequeño) en cada `paste`; y
+> `StandardLegalityDto.activeMarks/banlistCardIds` no acotan tamaño de array ni longitud de cada string
+> (solo admin). Ninguno es un vector de atacante.
+>
+> ### Consolidación de PENTEST_NOTES
+> El `docs/PENTEST_NOTES.md` en `d77eb699` **no contiene hallazgos específicos de decks-meta** (el red
+> team no cubrió esta feature en esta fase). Este veredicto es una revisión de código blue-team directa.
+> El vector genérico más cercano (P48-M1: metadata de `referenceValue`/`priceBasis` en superficie
+> anónima) **no aplica a decks-meta**: su DTO neutro (`DeckMetaUnitDTO`) expone solo `inventoryItemId`
+> + `priceMxnCents` (=`P`), sin `referenceValue` ni metadata de basis.
+>
+> ### Verificación (O-9), sobre worktree detached anclado a `d77eb699`
+> - **[MEDIDO]** ReDoS: `redos.js` (node standalone) — 9 entradas adversarias de 20 000 chars + texto
+>   de 2000 líneas de caída total, **todas < 0.12 ms/línea, total ≈ 1.2 ms** (N=1).
+> - **[código]** Cadena de guards y `@Roles` de clase — `app.module.ts:82-87`, `roles.guard.ts`,
+>   `jwt-auth.guard.ts`, `admin-decks-meta.controller.ts`.
+> - **[código]** Compuertas de disponibilidad — `catalog.service.ts:639-720,1522-1540`
+>   (`singlesPublishedWhere`, `fetchSellable`, `getSellableRawUnitsByCardIds`), `business-rules.ts`,
+>   `schema.prisma` (`OwnerType`, `InventoryStatus`, `RawCondition`).
+> - **[código]** No-fabricación — `deck-matcher.service.ts` (match por `ptcgoCode+número`),
+>   `decks-meta.service.ts` (`buildLine`, `adminCreateOrCurate`).
+> - **[código]** `grep` de SQL crudo en el módulo decks-meta ⇒ **0**.
+
+---
+
+# VEREDICTO BLUE TEAM — **BOUNTIES Q1+Q2** · SHA **`74d77aa9`** (rama `claude/be-bounties-q1q2`) · foco: `DELETE …/variant-controls/:cardId/:finish/bounty` (Q2) + piso `min(curva,mercado)` (Q1) · contrato §M2-B.8/.9/.10 · 2026-09-19
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `74d77aa9`
+>
+> **0 críticos, 0 altos.** El delta Q1+Q2 llegó money-safe, bien autorizado y auditado de forma
+> **atómica**. Reviso los seis puntos del encargo (§M2-B.8/.9/.10) y **los seis pasan**. Lo único que
+> queda abierto es **deuda Baja/Media heredada** (no introducida por este delta) y **una bandera de
+> proceso**: el red team **no** ha atacado ESTE delta en vivo (su pase de bounties `v1.62` fue sobre
+> `7472395`, ANTERIOR a Q1+Q2, y describe el gate `<=` **ya superado**). Mi aprobación descansa en
+> revisión estática + **la suite corrida por mí sobre `74d77aa9`**, no en un pase ofensivo sobre este SHA.
+>
+> ### Procedencia de mis mediciones (todas `[MEDIDO]` sobre `74d77aa9`)
+> - `git worktree --detach 74d77aa9`, HEAD verificado = `74d77aa9f5b1…`. `node_modules` enlazado del árbol principal (solo lectura; no toqué código).
+> - `test/pricing.delete-bounty.spec.ts` ⇒ **13/13 verde** (ramas A/B, B-17/B-20/B-21, idempotencia, códigos, verbo dedicado).
+> - `test/pricing.variant-controls.spec.ts` + `test/pricing.bounty-market-floor.spec.ts` + `test/buylist.bounty-revalidation.spec.ts` ⇒ **64/64 verde** (gate Q1 `min(curva,mercado)`, revalidación en cotización/vitrina).
+> - Lectura estática de `variant-controls.service.ts`, `pricing.controller.ts`, `admin-bounties.*`, `bounty-state.ts`, `common/pricing-curve.ts`, `common/money.ts`, `audit.service.ts`, `buylist.service.ts::publicBounties`, `app.module.ts` (cadena de guards).
+
+## 0. Los seis puntos del encargo, uno a uno (§M2-B.8/.9/.10)
+
+**Convención:** `[MEDIDO]` = ejecutado por mí sobre `74d77aa9` con su N · `[código]` = leído en fuente sobre `74d77aa9`.
+
+### 1. Autorización del `DELETE …/bounty` — **CUMPLE** `[código]`
+- El handler `deleteBounty` cuelga de `PricingController` (`pricing.controller.ts:600`), y la clase lleva `@Controller('admin/pricing')` **+ `@Roles(Role.super_admin)`** a nivel de clase (`:195-196`). El DELETE **hereda** ese rol.
+- Cadena de guards **global** vía `APP_GUARD` (`app.module.ts:80-85`, en orden): `AppThrottlerGuard → JwtAuthGuard → PasswordChangeRequiredGuard → RolesGuard → EmailVerifiedGuard → MoneyOutGuard`. `RolesGuard` corre para TODA ruta ⇒ el `@Roles(super_admin)` de clase se impone al DELETE. Un cliente (`customer`) o incluso un `vault_operator` reciben **403**; sin token, **401**.
+- ⚠️ **Matiz de contrato (no es hallazgo de seguridad):** el encargo pedía «roles admin (vault_operator/super_admin)». La implementación es **más estricta**: solo `super_admin`. Esto es lo que **manda el contrato** (§M2-B.9: *«`super_admin`, AUDITADO»*; código `403` explícito «no `super_admin`») y coincide con la consola de lectura. Más estricto ⇒ **safe**; no despublica/borra quien no debe. Sin acción.
+- El red team ya validó `PricingController` como `super_admin`-only por seis vías (B62-4, pase v1.62) y R-4 (pase v1.28); el DELETE usa **el mismo guard de clase**, no una excepción.
+
+### 2. AuditLog OBLIGATORIO y completo — **CUMPLE, y en la forma más fuerte (atómica)** `[MEDIDO 13/13]` `[código]`
+- Ambas ramas escriben `AuditLog` **DENTRO del `$transaction`** pasando el cliente transaccional `tx` a `audit.log(entry, tx)` (`variant-controls.service.ts:281-291` rama A `bounty.deleted`; `:298-308` rama B `bounty.unpublished`).
+- `AuditService.log` usa `await (tx ?? this.prisma).auditLog.create(...)` (`audit.service.ts:42-58`): al pasarle el `tx`, la fila de bitácora **participa del mismo commit/rollback** que la escritura. **Si la auditoría falla, la transacción entera hace rollback** ⇒ **no existe borrado/despublicación sin auditoría**. Es el diseño correcto para un control money-adjacent (más fuerte que el `PUT`, cuya auditoría va fuera de tx — pero el `PUT` no está en este encargo).
+- Completitud: `before`/`after` usan `snapshot()` (`:66-80`), que incluye `sellOverrideCents`, `buyOverrideCents`, `bountyEnabled`, `bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`, `bountyCompletedAt` y **`bountyUnpublishedAt`** (el sello que distingue `despublicada`). Actor = `actorUserId` (id del JWT vía `@CurrentUser('id')`), timestamp = `createdAt` (default de BD). **No es solo `updatedBy` sobrescrito**: es pre/post-imagen completa reconstruible. Verificado en el spec (`before.controls` con `bountyPriceCents:7500`; `after.controls` = `null` al borrar).
+
+### 3. `INV-BOUNTY-COST` — **CUMPLE** `[MEDIDO 2/2 canario]` `[código]`
+- La `$transaction` del DELETE escribe **SOLO** `variantPriceOverride` (update **o** delete) **+ `auditLog`**. **Cero** referencias a `inventoryItem`, `acquisitionCostCents` o asiento de P/L en `deleteBounty` (grep + lectura línea a línea de `:261-310`).
+- El canario del spec (`inventorySpy`, B-21) falla si CUALQUIER método de `InventoryItem` se llamara: **rama A 0 llamadas, rama B 0 llamadas** (`test/pricing.delete-bounty.spec.ts:158-173`). El costo vive una sola vez en `InventoryItem` (sellado al adquirir en buylist), y despublicar/borrar no lo toca. Sin doble conteo.
+
+### 4. Sin fuga de costo/PII/owner; vitrina pública excluye `despublicada` — **CUMPLE** `[código]`
+- `deriveBountyState` (`bounty-state.ts`) hace que `bountyUnpublishedAt != null` **discrimine primero** ⇒ estado `despublicada`, que en la consola admin sale del tablero por defecto (`data` excluye `despublicada` salvo `?state=despublicada`; `admin-bounties.service.ts:173-175`).
+- **Vitrina pública** `GET /buylist/bounties` → `publicBounties()` filtra `where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw', bountyUnpublishedAt: null }` (`buylist.service.ts:1264`). Una fila `despublicada` (`enabled=false` **y** `bountyUnpublishedAt != null`) queda **doblemente excluida** (defensa en profundidad). No hay fuga del estado archivado ni de su precio/contador a superficie pública.
+- La respuesta del DELETE es el `VariantPricingDTO` compuesto **campo por campo** (sin `...row`), lectura `super_admin`; el red team ya descartó la fuga clase-`legalName` (B62-6). Sin PII/CLABE/INE en este módulo.
+
+### 5. Validación de input y del predicado; sin inyección; DoS acotado — **CUMPLE** `[código]` `[MEDIDO parcial]`
+- El DELETE **no lleva cuerpo**: solo params de ruta. `:finish` se valida contra `FINISH_VALUES` (enum de Prisma) + `resolveGradeKey` impone `raw:NM` y `FINISH_NOT_AVAILABLE` (SEC-A1). `:cardId` va a `prisma.card.findUnique({ where: { id } })` (parametrizado) ⇒ `404 NOT_FOUND` si no existe. Sin superficie de mass-assignment en el DELETE (no hay body que colar).
+- Predicado de alcance / consola: `q` va a `contains` de Prisma (parametrizado); **no existe `$queryRaw`/`$queryRawUnsafe` en `modules/pricing/`** (confirmado por B62-7 y grep). DoS acotado: la consola clasifica ≤ `ADMIN_BOUNTY_SERVER_CAP=1000` filas + 2 lecturas en lote, independiente de los parámetros; DELETE es op de una fila por clave única. Todo tras `super_admin` + throttler.
+
+### 6. Q1 money-safe: el ablandamiento del piso NUNCA paga arriba de mercado ni activa un rebasado fuera del borde — **CUMPLE** `[MEDIDO 64/64]` `[código]`
+- `isBountyEffective(price, curveQuoteCents, marketMxnCents)` (`pricing-curve.ts:617-625`): `price>0 ∧ (price > curve  ∨  (market != null ∧ price >= market))`. Piso efectivo = `min(curva, mercado)`.
+- **Nunca activa por debajo del piso:** si `price < min(curva, mercado)` entonces `price ≤ curva` y `price < mercado` ⇒ ambos disyuntos falsos ⇒ `false` (rebasada). No se paga un bounty por debajo del piso.
+- **Fuera del borde (curva < mercado):** el 2º disyunto exige `price >= mercado > curva`, subconjunto de `price > curva` ⇒ el gate efectivo es `> curva` **estricto** (empate-con-curva rechazado, criterio 91). Un `price ≤ curva` (< mercado) queda `rebasada`, **no** se cuela a `activa` por el tope de mercado. Sin activación espuria.
+- **En el borde (curva ≥ mercado):** basta `price >= mercado` (empate-con-mercado aceptado). El ablandamiento **BAJA** el piso hasta el mercado; **no** introduce ninguna vía que fuerce pagar por ENCIMA del mercado — al contrario, evita obligar a pagar `> curva > mercado`.
+- **Linchpin verificado:** el claim «curva `null` ⇒ mercado `null` por construcción» se sostiene: `explainBuyFromCurve` devuelve `priceCents: null` **IFF** `marketMxnCents == null ∨ ≤ 0` (`pricing-curve.ts:516-530`). Por tanto cuando `curveQuoteCents == null` (⇒ `isBountyEffective` acepta el bounty explícito, decisión LOCKED §4.36.0), el mercado también es nulo/no-positivo ⇒ no hay «mercado real» que se pueda rebasar. Sin agujero.
+- **Coherencia alta↔runtime por construcción:** el gate del alta (`BOUNTY_BELOW_RULE`, `variant-controls.service.ts:509`), la cotización (`quoteAcquisitionFromCurve`, `money.ts:258`), la vitrina y el `state` de la consola llaman **la misma** `isBountyEffective` — no hay `<`/`<=` re-derivado a mano (prohibición mutación B-16). El `422 BOUNTY_BELOW_RULE` dispara IFF `!isBountyEffective(...)`.
+
+## 1. Hallazgos (severidad · ubicación · dueño)
+
+Ninguno **crítico** ni **alto** en el delta Q1+Q2. Los abiertos son heredados / defensa en profundidad:
+
+- **`SEC-BQ-1` [BAJA · carryover de B62-3] · Mass-assignment latente en el objeto `bounty` anidado del PUT** — `pricing.controller.ts` (`class VariantControlsDto { @Allow() bounty?: unknown }`) + `mergeBounty`. El `ValidationPipe({whitelist:true})` no recurre dentro de `bounty` (tipado `unknown`), pero `mergeBounty` **enumera a mano** solo `enabled/priceCents/targetQty`; `acquiredQty`/`completedAt` se toman SIEMPRE de la fila en BD y el dinero se re-deriva server-side ⇒ **campos extra inertes hoy**. **No aplica al DELETE** (no tiene cuerpo). Impacto hoy: ninguno. Riesgo futuro: si alguien «simplifica» a `{ ...next, ...input.bounty }`, el cliente podría fijar el contador antilavado. **Dueño: backend** (DTO anidado tipado o `forbidNonWhitelisted`). **Aceptable dejarlo documentado** (no bloquea).
+- **`SEC-BQ-2` [MEDIA · carryover de B62-1] · Deps runtime backend con CVE moderado (`qs`/`body-parser`/`express`)** — no introducido por este delta; viaja a prod igual. **Dueño: devops** (bump en ventana ordinaria).
+- **`SEC-BQ-3` [BAJA · carryover de B62-2] · Deps dev frontend (vitest/vite) fuera del bundle de prod** — riesgo de dev/CI, no de runtime. **Dueño: devops/frontend.**
+- **Nota de higiene (no hallazgo):** la observación B62-8 del red team describe el gate `next.bountyPriceCents <= curveQuoteCents` — ese cuerpo **ya no existe**; fue reemplazado por el gate Q1 `isBountyEffective(min(curva,mercado))`. Al consolidar, esa línea de PENTEST_NOTES está **superada**, no abierta.
+
+## 2. Bandera para el humano (proceso)
+
+- **El red team no ha atacado en vivo el delta Q1+Q2 sobre `74d77aa9`.** El pase de bounties de `PENTEST_NOTES.md` (`v1.62`) fue sobre `7472395` (consola de LECTURA + gate `<=` antiguo), ANTERIOR a los commits `207ae50f` (Q1 piso + Q2 DELETE) y `74d77aa9` (tests). Mi APROBADO se apoya en **revisión estática + suite corrida por mí** (verde), no en un pase ofensivo sobre este SHA. Recomendación consistente con la bandera permanente del proyecto («pentest de tercero + bug bounty antes del primer peso real»): **un pase ofensivo del `pentester` sobre este delta exacto** (escalada de rol al DELETE en vivo, forja de rama borra↔despublica, intento de tocar `InventoryItem`, borde Q1 con mercado hipotético) **antes de contar este corte hacia un release de dinero real**. No bloquea el merge del stream (mis seis puntos pasan), pero cierra el ciclo pentester→seguridad que exige `CLAUDE.md` §7.
+
+## 3. Mínimo para mantener APROBADO
+- No hay condición **bloqueante** de este delta. `SEC-BQ-1` queda **aceptada como deuda** (Baja, con disparador: cualquier refactor de `mergeBounty` la reabre). `SEC-BQ-2/3` son de devops y no específicas de bounties.
+- Para el **cierre de fase de seguridad del release** (no del stream): cerrar la bandera de proceso (pase ofensivo del red team sobre `74d77aa9`).
+
+— SEGURIDAD (blue team / AppSec), 2026-09-19 · SHA **`74d77aa9`** · **APROBADO** (Q1+Q2 money-safe, authz sólido, auditoría atómica, INV-BOUNTY-COST limpio, sin fuga) · deuda Baja/Media heredada + bandera de proceso (red team sobre este SHA)
+
+---
+
+
+---
+
 # VEREDICTO BLUE TEAM — **M11 · CIERRE DE DEUDA DEL SELLADO (SEC-M11-3/-4/-5)** · SHA **`604f7622`** · base `cd0bf02c` · 2026-09-18
 
 > ## ⭐ VEREDICTO — **APROBADO** para `604f7622`

@@ -27,6 +27,7 @@ import { DisputesModule } from './modules/disputes/disputes.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './modules/health/health.module';
+import { DecksMetaModule } from './modules/decks-meta/decks-meta.module';
 import { JobsModule } from './jobs/jobs.module';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -63,6 +64,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     UploadsModule,
     AdminModule,
     HealthModule,
+    DecksMetaModule,
     JobsModule,
   ],
   providers: [

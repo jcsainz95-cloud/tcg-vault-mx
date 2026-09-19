@@ -173,6 +173,18 @@ interface ListingCtx {
  * **inferido**: la misma clase que B-1 cerró en `GroupedListingDTO` seguía abierta en el DTO
  * por-pieza, que es el que alimenta `units[]`, `GET /catalog/listings/:id` y la ficha de sellado.
  */
+/**
+ * DECKS-META §3.4 (Fase 1) — proyección NEUTRA de una pieza vendible para `decks-meta`: sólo la
+ * identidad de la pieza y su precio exhibido (`P`, con IVA) bajo un nombre neutral. ⛔ NO lleva el
+ * token `displayPriceCents`, así la derivación de `P` no se extiende fuera de este módulo (el censo
+ * `iva-derivacion-cableada` sigue acotado a `catalog.service.ts`). `priceMxnCents` puede ser `null`
+ * (pieza sin precio resoluble no llega aquí, pero el tipo es honesto).
+ */
+export interface DeckMetaUnitDTO {
+  inventoryItemId: string;
+  priceMxnCents: number | null;
+}
+
 export interface ListingDTO {
   inventoryItemId: string;
   card: CardDTO;
@@ -1488,6 +1500,48 @@ export class CatalogService {
       // contenedor, ni skeleton, ni «—», ni $0, ni «pendiente» (criterio 102).
       ...(gradedEstimates.length > 0 ? { gradedEstimates } : {}),
     };
+  }
+
+  /**
+   * DECKS-META §3.4 (Fase 1) — **piezas RAW NM vendibles por carta, EN LOTE, cheapest-first.**
+   *
+   * REUSA `fetchSellable` (mismo `where` de publicación, mismo precio con IVA `P`, misma resolución
+   * de comprabilidad) — NO reinventa ni el precio ni la disponibilidad (regla dura del dueño / §3.4).
+   * Es el eje que consume `decks-meta` para armar la disponibilidad por línea (`availableQty`,
+   * `unitPriceMxnCents`, `unitInventoryItemIds`) SIN abrir la ficha carta por carta (sin N+1).
+   *
+   * ⛔ **Devuelve una PROYECCIÓN NEUTRA `DeckMetaUnitDTO { inventoryItemId, priceMxnCents }`, no el
+   * `ListingDTO`.** Así el token `displayPriceCents` (la derivación de `P`) NO sale de este módulo:
+   * `decks-meta` CONSUME el precio ya hecho bajo un nombre neutral y jamás lo deriva — el censo
+   * money-safe `iva-derivacion-cableada` (§M10-IVA.9.f) sigue acotado a este fichero.
+   *
+   * Sólo **raw NM**: una carta de deck jugable es una pieza suelta Near Mint (M8 / `PROJECT.md §H`);
+   * las graduadas y el sellado NO son «un ejemplar jugable». Ordenado por `L` ascendente (cheapest-
+   * first, mismo orden que `units[]` de la ficha); una carta sin stock no aparece en el `Map`.
+   */
+  async getSellableRawUnitsByCardIds(cardIds: string[]): Promise<Map<string, DeckMetaUnitDTO[]>> {
+    const out = new Map<string, DeckMetaUnitDTO[]>();
+    const ids = [...new Set(cardIds)].filter((id): id is string => !!id);
+    if (ids.length === 0) return out;
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: ids } }));
+    // raw NM únicamente (la condición de compra/venta es siempre NM, ACCEPTED_RAW_CONDITIONS).
+    // Orden por `L` (cheapest-first, igual que `units[]`): `SellableRow` ya trae `listPriceCents`.
+    const rawNm = rows
+      .filter(
+        (r) =>
+          r.item.productType === 'raw' &&
+          r.item.rawCondition != null &&
+          RAW_CONDITIONS.includes(r.item.rawCondition),
+      )
+      .sort((a, b) => a.listPriceCents - b.listPriceCents);
+    for (const r of rawNm) {
+      const arr = out.get(r.item.cardId) ?? [];
+      // `priceMxnCents` = `P` (con IVA), la MISMA cifra que la ficha exhibe. Se copia bajo nombre
+      // neutral; la derivación vive sólo en `toListingRow` (arriba), no aquí ni en `decks-meta`.
+      arr.push({ inventoryItemId: r.dto.inventoryItemId, priceMxnCents: r.dto.displayPriceCents ?? null });
+      out.set(r.item.cardId, arr);
+    }
+    return out;
   }
 
   /**

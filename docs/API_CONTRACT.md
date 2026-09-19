@@ -2,7 +2,31 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-16 (rev **v1.77**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-19 (rev **v1.78**).
+>
+> **Changelog v1.78 — ⭐⭐ BOUNTIES: EL PISO CON TOPE DE MERCADO (Q1) Y LA OPERACIÓN ELIMINAR (Q2) (2026-09-19,
+> arquitecto; base v1.77, vigente entera salvo las filas que esta rev toca). Dos arreglos pedidos por el dueño en la
+> zona de dinero (`pricing`), medidos con `archivo:línea` antes de diseñar.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐⭐ **Q1 — el candado del bounty deja de forzar «arriba de mercado».** `isBountyEffective` gana el argumento `marketMxnCents`; el piso efectivo pasa a **`min(curva, mercado)`** (empate-con-curva rechazado, empate-con-mercado aceptado). `BOUNTY_BELOW_RULE` dispara **iff `!isBountyEffective(...)`** — coherencia alta↔runtime **por construcción**. Fórmula + tabla de 12 casos + criterios de prueba | [§M2-B.8](#M2-B8) · bloque `variant-controls` · [§M2-B.0](#M2-B0) · ARCH §4.36.6 | **Sí, backend** (`pricing-curve.ts`, `money.ts`, `variant-controls.service.ts`, los 4 call-sites) |
+> | **2** | ⭐⭐ **Q2 — nace ELIMINAR bounty:** `DELETE …/variant-controls/:cardId/:finish/bounty` (`super_admin`, auditado). El servidor ramifica por historia: **sin compra ⇒ borra**; **con compra ⇒ despublica** (nuevo estado `despublicada`, se conserva el registro). Verbo dedicado, **no** `remove:true` en el `PUT` | [§M2-B.9](#M2-B9) · [§M2-B.0](#M2-B0) · ARCH §4.36.6b | **Sí, backend + schema (M-58) + frontend** |
+> | **3** | **Nuevo estado `despublicada`** en `BountyState` (sexto; clase L, derivado — **no** enum de Prisma). `data` de `GET /admin/pricing/bounties` lo **excluye por defecto** (solo con `?state=despublicada`); `counts` gana su sexta cubeta y la reporta **siempre** (selector). Fuera de la vitrina pública | [§M2-B.0](#M2-B0) · [§M2-B.1](#M2-B1) | **Sí, backend**; luego frontend |
+> | **4** | **DDL mínimo (M-58): UNA columna** `VariantPriceOverride.bountyUnpublishedAt DateTime?`, aditiva, nullable, **sin backfill**. Espejo de `bountyCompletedAt`; distingue `despublicada` de `apagada` | ARCH §4.36.6b / §11 | **Sí, backend** (migración aditiva) |
+> | **5** | **Invariante contable `INV-BOUNTY-COST` (Q2-C):** eliminar/despublicar un bounty **NO** toca `acquisitionCostCents` ni crea asiento de P/L (el costo vive **una sola vez** en `InventoryItem`). **Ya se cumple estructuralmente** ⇒ candado de **no-regresión**, no reparación | [§M2-B.10](#M2-B10) · ARCH §4.36.6c | **No** (solo prueba nueva) |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **el tramo NORMAL de Q1 (cartas caras,
+> `curva < mercado`) es idéntico a v2.0**: sigue exigiendo `> curva` y rechazando el empate. Solo el **borde**
+> (`curva ≥ mercado`) se ablanda. **(b)** ⛔ **`bounty:null` en el `PUT` sigue significando APAGAR (hold)** — eliminar
+> es otro verbo. **(c)** ⛔ **la consola de §M2-B.2 sigue sin abrir una segunda puerta de *upsert***: el `DELETE` está
+> acotado al sub-recurso `bounty` y no toca los overrides sell/buy. **(d)** ⛔ re-publicar tras despublicar **no
+> reinicia** los contadores de historia (doctrina M-46).
+> **Enmienda enrutada a product-owner:** **`D-PROC-Q1`** — Q1 **relaja criterio 91 en el borde** (la vitrina puede
+> pagar por debajo del bin inflado, nunca por debajo del mercado); si `PROJECT.md` fija criterio 91 como LOCKED sin
+> este matiz, la frase debe enmendarse (regla de conflicto: el contrato no puede contradecir `PROJECT.md`). Detalle en
+> ARCHITECTURE §4.36.6 y §9.
+>
 >
 > **Changelog v1.77 — ⭐ SE FINALIZAN LAS DOS DECISIONES DE `§0-Q` QUE `EQ-D1` DEJÓ AL ARQUITECTO, Y ENTRAN AL
 > REGISTRO CUATRO EJES NO-DINERO (2026-09-16, arquitecto; base v1.76, vigente entera). Origen: borrador
@@ -11259,9 +11283,12 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `productType="sealed"` ⇒ `422 VALIDATION_ERROR` (el sellado conserva su cadena H-1). Bounty: **solo
     `productType="raw"`** (`422 VALIDATION_ERROR` en graded — la vitrina pública es de sueltas y un bounty
     invisible sería incoherente; los overrides sell/buy en graded SÍ aplican);
-    `enabled:true` sin `priceCents>0` ⇒ **`422 BOUNTY_PRICE_REQUIRED`**; `priceCents <` sugerido de compra por
-    regla del momento (cuando el sugerido resuelve) ⇒ **`422 BOUNTY_BELOW_RULE`** (si el sugerido está `pending`
-    se acepta: el bounty es SIEMPRE precio explícito, jamás calculado); `targetQty ≥ 1`.
+    `enabled:true` sin `priceCents>0` ⇒ **`422 BOUNTY_PRICE_REQUIRED`**; `enabled:true` con
+    `!isBountyEffective(priceCents, curveQuoteCents, marketMxnCents)` ⇒ **`422 BOUNTY_BELOW_RULE`** (con
+    `curveQuoteCents` **y** `marketMxnCents` en el `details`). ⚠️ **v2.2 (Q1): el piso ya NO es `priceCents < curva`
+    a secas — es el PISO EFECTIVO `min(curva, mercado)` con tope de mercado; la fórmula, la tabla de casos y la
+    coherencia alta↔runtime viven en [`§M2-B.8`](#M2-B8).** Curva `pending` (⇒ mercado también `null`) ⇒ **se acepta**
+    (el bounty es SIEMPRE precio explícito, jamás calculado); `targetQty ≥ 1`.
   - **⚠️ v1.51.1 (D32) — EL OBJETIVO DEL BOUNTY PASA A SER OBLIGATORIO. NUEVO `422 BOUNTY_TARGET_REQUIRED`.**
     `bounty.enabled = true` **sin** `targetQty` (o con `targetQty` no entero / `< 1`) ⇒
     **`422 BOUNTY_TARGET_REQUIRED`** con `details: { field: "bounty.targetQty" }`.
@@ -11458,21 +11485,27 @@ historia de bounty; una fila que solo lleva `sellOverrideCents`/`buyOverrideCent
 <!-- CANON: estado-de-bounty · estado: VIGENTE · única fuente · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 ```
 enScope  ⇔  bountyEnabled = true
-          ∨ bountyPriceCents  IS NOT NULL
-          ∨ bountyCompletedAt IS NOT NULL
-          ∨ bountyAcquiredQty > 0
+          ∨ bountyPriceCents    IS NOT NULL
+          ∨ bountyCompletedAt   IS NOT NULL
+          ∨ bountyAcquiredQty   > 0
+          ∨ bountyUnpublishedAt IS NOT NULL      // ⭐ v2.2 (Q2): una fila DESPUBLICADA sigue en alcance (es un registro)
 ```
 
 `state` se **deriva server-side** de la fila M-30 **y de la curva vigente**; **jamás se persiste** (persistirlo sería
-una copia que caduca sola cada vez que el barrido mueve el mercado — §0-B.2 clase B):
+una copia que caduca sola cada vez que el barrido mueve el mercado — §0-B.2 clase B). ⚠️ **v2.2: `isBountyEffective`
+gana un tercer argumento `marketMxnCents`** (el tope de mercado de Q1, §M2-B.8 / ARCHITECTURE §4.36.6). El mercado es
+`pricing.market.referenceMxnCents` (v1.62.2), que el composer ya tiene — **esta pantalla NO lo resuelve por su cuenta**.
 
-| `state` | Predicado | Qué significa **en dinero** |
-|---|---|---|
-| `activa` | `bountyEnabled ∧ isBountyEffective(bountyPriceCents, curveQuoteCents)` | gana el peldaño 1 de la precedencia de compra **y** sale en la vitrina pública |
-| `rebasada` | `bountyEnabled ∧ bountyPriceCents > 0 ∧ ¬isBountyEffective(bountyPriceCents, curveQuoteCents)` | ⚠️ **NO se paga** (se paga la curva) y **NO se publica**. **Es la fila por la que existe la pantalla.** |
-| `invalida` | `bountyEnabled ∧ ¬(bountyPriceCents > 0)` | *fail-safe*: encendido sin precio explícito utilizable. **No debería existir ninguna** (`BOUNTY_PRICE_REQUIRED` lo impide al escribir); es representable en la BD (restore, fixture, bug) y **tiene que verse**, no colarse dentro de otro estado |
-| `completada` | `¬bountyEnabled ∧ bountyCompletedAt IS NOT NULL` | se **auto-apagó** al alcanzar su objetivo (transacción del SPEI) |
-| `apagada` | `¬bountyEnabled ∧ bountyCompletedAt IS NULL` | lo apagó **una persona** |
+**ORDEN DE DERIVACIÓN (primer predicado que casa gana; el orden es normativo):**
+
+| # | `state` | Predicado | Qué significa **en dinero** |
+|---|---|---|---|
+| 1 | `despublicada` | `bountyUnpublishedAt IS NOT NULL` | ⭐ v2.2 (Q2): el bounty se **eliminó** teniendo historia (`acquiredQty>0` ∨ `completedAt`); se **conserva el registro** pero sale de la vitrina pública **y** del tablero admin por defecto. Terminal salvo re-publicación. **Discrimina primero** — pero la fila **conserva** `completedAt`/`acquiredQty`, así que el *por qué* dejó de pagarse **no se pierde** (§0-B.1) |
+| 2 | `activa` | `bountyEnabled ∧ isBountyEffective(bountyPriceCents, curveQuoteCents, marketMxnCents)` | gana el peldaño 1 de la precedencia de compra **y** sale en la vitrina pública |
+| 3 | `rebasada` | `bountyEnabled ∧ bountyPriceCents > 0 ∧ ¬isBountyEffective(bountyPriceCents, curveQuoteCents, marketMxnCents)` | ⚠️ **NO se paga** (se paga la curva) y **NO se publica**. **Es la fila por la que existe la pantalla.** *(v2.2: un bounty en el borde `∈[mercado, curva]` ya NO cae aquí — el tope de mercado lo hace `activa`, §M2-B.8.)* |
+| 4 | `invalida` | `bountyEnabled ∧ ¬(bountyPriceCents > 0)` | *fail-safe*: encendido sin precio explícito utilizable. **No debería existir ninguna** (`BOUNTY_PRICE_REQUIRED` lo impide al escribir); es representable en la BD (restore, fixture, bug) y **tiene que verse**, no colarse dentro de otro estado |
+| 5 | `completada` | `¬bountyEnabled ∧ bountyCompletedAt IS NOT NULL` | se **auto-apagó** al alcanzar su objetivo (transacción del SPEI) |
+| 6 | `apagada` | `¬bountyEnabled ∧ bountyCompletedAt IS NULL` | lo apagó **una persona** (*hold* reversible; sigue en el tablero) |
 
 - ⛔ **`isBountyEffective` NO se re-implementa aquí.** Es el **mismo cuerpo** que usan el alta, la cotización y la
   vitrina (§4.36.6: *«PROHIBIDO duplicar: mismo cuerpo en las TRES seams»*); esta pantalla es la **cuarta seam** y
@@ -11484,6 +11517,14 @@ una copia que caduca sola cada vez que el barrido mueve el mercado — §0-B.2 c
   *(Mismo criterio que distinguir `no_market` de `premium_at_floor`: separarlos es lo que hace **triable** la cola.)*
 - ⛔ **`rebasada` NO se auto-apaga, ni aquí ni en ningún barrido.** *Apagar un bounty vivo es una decisión de negocio,
   no el efecto de un `UPDATE`* (misma doctrina que el backfill de M-46). La pantalla lo **muestra**; el dueño decide.
+- ⭐ **`despublicada` (v2.2, Q2) discrimina PRIMERO y NO colapsa la historia.** Es terminal y sale del tablero por
+  defecto, pero la fila **conserva** `bountyCompletedAt`/`bountyAcquiredQty`: el rótulo pasa a `despublicada`, pero *si
+  se completó o si se apagó a medio llenar* **sigue en los datos** y es queryable (`?state=despublicada`). No se funde
+  el *por qué* — solo se **archiva** del tablero (misma finalidad que separar `completada` de `apagada`, un nivel
+  arriba). ⛔ **`despublicada` NO es lo mismo que `apagada`:** `apagada` es un *hold* reversible que **sigue en el
+  tablero** para que el dueño lo re-encienda; `despublicada` se **eliminó** (con historia) y se archiva. La diferencia
+  la porta la columna `bountyUnpublishedAt` (M-58); sin ella, las dos serían indistinguibles. La transición a
+  `despublicada` es **solo** por `DELETE …/bounty` (§M2-B.9), **nunca** por un barrido.
 <!-- /CANON: estado-de-bounty -->
 
 <a id="M2-B1"></a>
@@ -11502,13 +11543,17 @@ Query: `?state=&setId=&finish=&q=&page=&pageSize=&sort=`
   **derivado**, no una columna) y **`finish` es clase E** (`Finish`, §Enums). **`sort` no es un filtro: es un orden**,
   y lo norma **§0-Q punto 6** — vacío/solo espacios ⇒ **el default**, token malo ⇒ **`400`** con `field` + `allowed`,
   ⛔ nunca *clamp* silencioso al default.
-- `state` — **repetible** (`?state=rebasada&state=invalida`), valores del enum de §M2-B.0. Omitido ⇒ **todos**.
+- `state` — **repetible** (`?state=rebasada&state=invalida`), valores del enum de §M2-B.0. ⚠️ **v2.2: omitido ⇒
+  **todos MENOS `despublicada`** (los registros archivados no ensucian el tablero de trabajo). Para verlos hace falta
+  pedirlos **explícitamente** (`?state=despublicada`, combinable con otros). Es la única asimetría del filtro y es
+  deliberada — un `despublicada` es un registro, no un bounty en gestión.
 - `setId`, `finish` — filtros de identidad. `q` — nombre o número de carta.
 - `page`/`pageSize` — paginación estándar de §0 (`pageSize ≤ 100`, default 20).
 - `sort` — `attention_first` (**default**) | `price_desc` | `updated_desc`. **Ésta es su línea canónica (clase L).**
   **`attention_first` es el default a propósito, y es la decisión de producto de este endpoint:** ordena
   `rebasada`/`invalida` **primero** (las que están costando dinero silenciosamente), luego `activa`, luego
-  `completada`, luego `apagada`; dentro de cada grupo `bountyPriceCents` **desc** (espejo de la vitrina), desempate
+  `completada`, luego `apagada`, y `despublicada` **al final** (solo aparecen si se pidieron con `?state=despublicada`);
+  dentro de cada grupo `bountyPriceCents` **desc** (espejo de la vitrina), desempate
   `updatedAt` desc y, para que el orden sea **total** y la paginación estable, `id` asc como último criterio.
   `price_desc` es el espejo exacto del orden de `GET /buylist/bounties`.
 
@@ -11516,13 +11561,18 @@ Res `200` (`AdminBountyListResponse`):
 ```
 { data: AdminBountyRowDTO[], page, pageSize, total, counts: AdminBountyCountsDTO, truncated: boolean }
 ```
-`AdminBountyCountsDTO` — **(NUEVO v1.62.1)** `{ activa, rebasada, invalida, completada, apagada }`, enteros ≥ 0.
+`AdminBountyCountsDTO` — **(NUEVO v1.62.1; +`despublicada` en v2.2)** `{ activa, rebasada, invalida, completada,
+apagada, despublicada }`, enteros ≥ 0. ⚠️ **`counts` SIEMPRE reporta las seis cubetas** (regla 2 de abajo: `counts`
+ignora el filtro `state` y es el **selector**) — así el dueño **ve** *«hay 3 despublicadas»* aunque el tablero por
+defecto no las liste, y puede pedirlas. Es **`data`** quien excluye `despublicada` por defecto, **no** `counts`. El
+invariante de total (B-10) se reexpresa: **sin filtro `state`, `total` == suma de las cinco cubetas de trabajo**
+(`activa+rebasada+invalida+completada+apagada`), y `counts.despublicada` viaja **aparte** como selector.
 `AdminBountyRowDTO`:
 ```
 {
   cardId, setId, setName, name, number, imageSmallUrl?, rarity?,
   productType: "raw", gradeKey: "raw:NM", finish: Finish,
-  state: "activa" | "rebasada" | "invalida" | "completada" | "apagada",
+  state: "activa" | "rebasada" | "invalida" | "completada" | "apagada" | "despublicada",
   progress: { targetQty: number | null, acquiredQty: number, remainingQty: number | null },
   updatedAt: string, updatedBy?: string,
   pricing: VariantPricingDTO
@@ -11577,11 +11627,12 @@ Res `200` (`AdminBountyListResponse`):
   `rebasada` en la página 3 diría «cero» **exactamente donde la pantalla existe para no decirlo**. `total` NO lo
   sustituye: `total` es **una** cifra del conjunto ya filtrado; `counts` es la **distribución**. Reglas, y las tres
   primeras son las que hacen que el número signifique algo:
-  1. **CINCO claves — las mismas del enum `state` de [`§M2-B.0`](#M2-B0), con sus mismos nombres.** ⛔ No se
-     renombran a un vocabulario de UI (`outbid`/`active`/`off`) ni se colapsan a cuatro: **`invalida` tiene su
-     propia clave**. Fundirla dentro de `activa` pintaría *«está pagando»* sobre un bounty encendido **sin precio
-     utilizable**, que es la fila que §M2-B.0 creó ese estado para no perder. *Un conteo con menos cubetas que su
-     enum es una traducción, y las traducciones de dinero divergen.*
+  1. **SEIS claves (v2.2; eran cinco) — las mismas del enum `state` de [`§M2-B.0`](#M2-B0), con sus mismos nombres**
+     (`activa`, `rebasada`, `invalida`, `completada`, `apagada`, **`despublicada`**). ⛔ No se
+     renombran a un vocabulario de UI (`outbid`/`active`/`off`) ni se colapsan: **`invalida` tiene su
+     propia clave**, y **`despublicada` también** (es el registro archivado — un conteo sin ella escondería cuánto se
+     eliminó con historia). Fundir cualquiera dentro de otra pintaría un estado sobre otro. *Un conteo con menos
+     cubetas que su enum es una traducción, y las traducciones de dinero divergen.*
   2. **`counts` IGNORA el filtro `state` y RESPETA los de identidad** (`setId`, `finish`, `q`). Es lo que hace que
      los conteos sirvan de **selector** —si contaran también el `state`, pedir `state=rebasada` dejaría los otros
      cuatro en `0` y el usuario perdería el mapa justo al usarlo— y a la vez que **no contradigan lo que se ve**:
@@ -11789,12 +11840,18 @@ Cada línea es **una** mutación y **el** test que la mata:
 | **B-7** | añadir una ruta mutadora al controller nuevo | el controller de §M2-B.1 expone **solo** `@Get`: inventario de rutas del módulo, rojo ante cualquier verbo de escritura bajo `admin/pricing/bounties` |
 | **B-8** | colapsar `completada` con `apagada` | fila con `bountyCompletedAt != null` ⇒ `state:"completada"`; fila apagada a mano ⇒ `"apagada"` |
 | **B-9** ⭐ *(v1.62.1)* | calcular `counts` **sobre la página** (o derivarlos de `data`) | **El candado del eje.** Fixture con **más de una página** y un `rebasada` **fuera de la página 1**: `counts.rebasada` **debe** ser ≥ 1 en la respuesta de `page=1`. Rojo si vale `0` o si iguala el conteo de `data` |
-| **B-10** *(v1.62.1)* | hacer que `counts` obedezca al filtro `state` (o colapsar `invalida`) | con `?state=rebasada`: `data` trae **solo** rebasadas **y** `counts.activa` sigue siendo > 0. Segundo caso: fila `bountyEnabled ∧ ¬(priceCents > 0)` ⇒ `counts.invalida == 1` **y** `counts.activa == 0`. Tercero (invariante): sin filtro `state`, `total` == suma de las **cinco** claves |
+| **B-10** *(v1.62.1; +v2.2)* | hacer que `counts` obedezca al filtro `state` (o colapsar `invalida`) | con `?state=rebasada`: `data` trae **solo** rebasadas **y** `counts.activa` sigue siendo > 0. Segundo caso: fila `bountyEnabled ∧ ¬(priceCents > 0)` ⇒ `counts.invalida == 1` **y** `counts.activa == 0`. Tercero (invariante): sin filtro `state`, `total` == suma de las **cinco** cubetas de trabajo (⭐ v2.2: **NO** incluye `despublicada`, que sale de `data` por defecto pero **sí** viaja en `counts` como selector — rojo si `counts.despublicada` desaparece sin filtro, o si `data` la trae sin `?state=despublicada`) |
 | **B-11** ⭐ *(v1.62.1)* | que la consola de bounties **reenvíe** los overrides que leyó | **Test de FRONTEND** (§M2-B.3): editar **solo** el precio del bounty de una fila ⇒ el body del `PUT` **no contiene** las claves `sellOverrideCents` ni `buyOverrideCents`. *(La mitad de servidor —omitido conserva— **ya está cerrada** en `backend/test/pricing.variant-controls.spec.ts` y **no se re-asierta aquí**: dos candados sobre la misma regla se tapan entre sí.)* |
 | **B-12** *(v1.62.1)* | dejar de resolver `curveQuoteCents` en filas **apagadas** | fila con `bountyEnabled=false` y mercado resoluble ⇒ `pricing.bounty.curveQuoteCents != null`. Rojo si solo se resuelve para bounties vivos |
 | **B-13** *(v1.62.1)* | añadir una acción de alcance de conjunto | **Dos superficies:** (a) inventario de rutas — ningún verbo de escritura bajo `admin/pricing/bounties` (ya es **B-7**); (b) **frontend** — la pantalla **no expone** ningún control cuyo rótulo lleve un contador (`Apagar los {n}…`) ni multi-select con acción |
 | **B-14** ⭐ *(v1.62.2)* | resolver `pricing.market` **por su cuenta** (segunda consulta / otra precedencia), **copiar el precio de OTRO acabado**, o emitir **`0`** donde no hay referencia | **EL candado del número nuevo, y mide la COSA, no el nombre del campo.** **Un** fixture, **una** carta, **dos** acabados: `normal` **con** `PriceReference` (p. ej. MX$1,000) y `reverse_holo` **sin ninguna fila** de referencia, **ambos** con bounty en alcance. En la respuesta de `GET /admin/pricing/bounties`: **(a)** la fila `normal` trae `market.status:"priced"` y `market.referenceMxnCents == 1000_00`; **(b)** la fila `reverse_holo` trae `market.status:"pending"`, `referenceMxnCents:null`, `capturedDate:null`, `source:null` — **rojo si trae el 1000_00 del otro acabado, si trae `0`, o si omite el bloque `market`**; **(c)** ⭐ **el amarre que hace imposible taparlo cambiando un solo lado**: en **esa misma fila** `buy.suggestedCents`, `sell.suggestedCents` y `bounty.curveQuoteCents` son **los tres `null`**, y en la fila `normal` los tres son **no nulos**. *Emitir un mercado que la curva no vio rompe (c) aunque (a) y (b) pasen.* **(d)** El **mismo** fixture, leído por `GET /admin/master-set/:setId` (scope `platform`) y por la respuesta del `PUT …/variant-controls/...`, da **el mismo `market`** — es el mismo composer, y aquí se comprueba que lo sigue siendo; **(e)** tercera variante con una `PriceReference` de `priceMxnCents = 0` (fila degenerada, representable) ⇒ `market.status:"pending"` y `referenceMxnCents:null`, **no** `priced: 0` — la regla del emisor, que es la que mantiene viva la equivalencia de (c) |
 | **B-15** *(v1.62.2)* | sellar `capturedDate` con `today()`, o dejar de emitirla cuando hay precio | **El candado de «el número puede ser viejo».** Fixture: la **única** `PriceReference` de la variante tiene `capturedDate` de **hace 40 días** (el proveedor no volvió a responder) ⇒ la fila trae `market.capturedDate` **igual a esa fecha**, en `YYYY-MM-DD`. **Rojo si vale la fecha de hoy, si viene `null` con `status:"priced"`, o si la clave no viaja.** *(⛔ **No** se asierta `evidenceDate`: no la escribe nadie —deuda GU-9— y afirmarla aquí sería inventarla.)* |
+| **B-16** ⭐ *(v2.2, Q1)* | dejar el piso del bounty en `> curva` (sin tope de mercado), o re-derivar el gate a mano con `<`/`<=` | **EL candado del tope de mercado, dos superficies.** Fixture de **borde**: `market=500, curve=700`. **(a)** `PUT …/variant-controls` con `bounty.priceCents=500` ⇒ **`200`** (acepta), **no** `422`; **(b)** `quoteAcquisitionFromCurve` de esa variante ⇒ `basis:"bounty"`, `priceCents=500`; **(c)** la fila sale en `GET /buylist/bounties`. **Y el amarre inverso:** `bounty.priceCents=499` ⇒ `422 BOUNTY_BELOW_RULE` **y** ausente de la vitrina. *Rojo si el borde fuerza `> mercado`, o si alta y runtime discrepan (uno acepta y el otro lo esconde).* Hermano de **B-2**/**B-5** |
+| **B-17** ⭐ *(v2.2, Q2)* | que `DELETE …/bounty` **borre** una fila **con** historia (o **despublique** una **sin** historia) | **El candado de la rama.** Dos fixtures idénticos salvo `bountyAcquiredQty`: con `acquiredQty=0` ⇒ `DELETE` **borra** (fila fuera de `enScope`/inexistente); con `acquiredQty=1` ⇒ `DELETE` ⇒ `state:"despublicada"` con `bountyPriceCents` **conservado**. Rojo si borra la historia o si deja la fila con precio persistido |
+| **B-18** *(v2.2, Q2)* | dejar una fila `despublicada` en la vitrina o en el tablero por defecto | fila `bountyUnpublishedAt != null` ⇒ **ausente** de `GET /buylist/bounties` **y** de `GET /admin/pricing/bounties` sin filtro; **presente** con `?state=despublicada`. Rojo si aparece por defecto en cualquiera de los dos |
+| **B-19** *(v2.2, Q2)* | colapsar `despublicada` con `apagada`/`completada`, o no discriminarla primero | fila con `acquiredQty>0 ∧ ¬enabled ∧ unpublishedAt=null` ⇒ `"apagada"`; la **misma** fila tras `DELETE` (`unpublishedAt != null`) ⇒ `"despublicada"`. Rojo si las dos dan el mismo `state` |
+| **B-20** *(v2.2, Q2)* | añadir un `bounty:{remove:true}` al `PUT`, o que el `DELETE` toque los overrides sell/buy | **(a)** inventario de rutas: el verbo de borrado del bounty vive en `DELETE …/:cardId/:finish/bounty`, no como caso mágico del `PUT`; **(b)** `DELETE` sobre una variante con `sellOverrideCents`/`buyOverrideCents` ⇒ esos overrides **intactos** tras el borrado del bounty |
+| **B-21** ⭐ *(v2.2, Q2-C)* | cablear el borrado/despublicado del bounty a tocar el inventario o el P/L | **INV-BOUNTY-COST.** Adquirir pieza bajo bounty (`acquisitionCostCents == bountyPrice`) → `DELETE` ⇒ **(a)** `acquisitionCostCents` **idéntico**; **(b)** M7 de esa carta con **delta 0**; **(c)** cero escrituras a `InventoryItem` en la tx del `DELETE`. Rojo si el costo cambia, si aparece gasto en P/L, o si la tx toca `InventoryItem` |
 
 ⛔ **Lo que NO se vuelve a testear aquí, a propósito:** `BOUNTY_TARGET_REQUIRED`, el default 2,
 `BOUNTY_PRICE_REQUIRED` y el `raw`-only **ya están cerrados** en `backend/test/pricing.variant-controls.spec.ts`, y
@@ -11811,13 +11868,155 @@ vuelve a pedir dentro de dos semanas.*
 | Petición (ux-ui §28.15) | Veredicto | Dónde vive / por qué |
 |---|---|---|
 | **3 · `curveQuoteCents` también en filas APAGADAS** | ✅ **YA ESTABA — cerrado, y verificado en el código** | `composeVariantPricing` resuelve `bounty.curveQuoteCents` desde la **curva + referencia de mercado**, **sin mirar `bountyEnabled`** ⇒ una fila apagada trae su tarifa vigente igual que una viva. ⚠️ **`null` significa una cosa y solo una: la curva NO resuelve** — es el caso `SIN TARIFA`, **no** «está apagado». *La columna nunca sale en `—` por estar apagada.* Candado: **B-12**. ⚠️ **Precisión de v1.62.2, y corrige una imprecisión mía:** aquí decía *«(mercado pendiente / guardarraíl)»*, y **el guardarraíl NO anula `curveQuoteCents`** — `premiumAtFloor` anula `effectiveCents`/`source` de su eje, pero `suggestedCents` y `curveQuoteCents` **siguen viajando a propósito**, que es lo que hace visible el piso mal calibrado. **La ÚNICA causa de `curveQuoteCents: null` es que no haya valor de mercado para esa variante**, es decir `market.status === "pending"` (§DTOs, `<!-- CANON: mercado-de-la-variante -->`). Esa equivalencia es ahora **verificable en la respuesta** y es la parte (c) del candado **B-14** |
-| **4 · Filtro y orden server-side** | ✅ **YA ESTABA** | [`§M2-B.1`](#M2-B1): `state` (repetible), `setId`, `finish`, `q`, `sort`. ⚠️ **Los valores del enum son los de [`§M2-B.0`](#M2-B0)** —`activa`, `rebasada`, `invalida`, `completada`, `apagada`— y **son cinco**: no existe el vocabulario `outbid`/`active`/`off`/`completed` en la API. Traducir a rótulos de UI es **trabajo de i18n del frontend**, no un enum paralelo del contrato |
+| **4 · Filtro y orden server-side** | ✅ **YA ESTABA** | [`§M2-B.1`](#M2-B1): `state` (repetible), `setId`, `finish`, `q`, `sort`. ⚠️ **Los valores del enum son los de [`§M2-B.0`](#M2-B0)** —`activa`, `rebasada`, `invalida`, `completada`, `apagada` y **`despublicada`** (v2.2)— y **son seis**: no existe el vocabulario `outbid`/`active`/`off`/`completed` en la API. Traducir a rótulos de UI es **trabajo de i18n del frontend**, no un enum paralelo del contrato |
 | **5 · `state` derivado en el servidor** | ✅ **YA ESTABA — y NO es opcional** | [`§M2-B.1`](#M2-B1) lo declara **normativo**: el servidor lo deriva y **la UI lo obedece, no lo infiere** cruzando `enabled`/`effective`/`completedAt` en pantalla (misma doctrina que `priceBasis`, §N.7). Derivarlo en cliente sería la **quinta** implementación del predicado, y la única que nadie puede probar contra la curva |
 | **9 · «Exposición máxima»** (`Σ priceCents × remainingQty`) | ⏸️ **DIFERIDA — es pregunta al humano, no decisión técnica** | ux-ui tiene razón en lo técnico: **o la calcula el servidor sobre el conjunto, o no existe** (sumar una página es una cifra de dinero falsa). Pero **qué significa** es negocio: ¿solo `activa`, o todo lo encendido? ¿y una fila con `targetQty: null`, que hace la exposición **no acotada**? Abierta como **Q-B4** (ARCHITECTURE §10). **Si entra:** viene del servidor, sobre el mismo conjunto clasificado, y es **`null` —jamás `0`, jamás una suma parcial—** cuando `truncated: true` o cuando alguna fila viva no tiene objetivo. *Una proyección de dinero incompleta que se pinta como número es peor que no pintarla* |
 | **7 · `outbidSince`** («lleva 12 días rebasado») | ⛔ **NO ENTRA — y el dato NO SE INVENTA** | **No existe ninguna columna así**, y **no es derivable de lo que hay**: `updatedAt` dice *cuándo tocó alguien la fila*, no *cuándo el mercado la rebasó* — usarlo como aproximación pondría una antigüedad **falsa** junto a una decisión de dinero. Tenerlo de verdad exige **dos cosas nuevas**: una **columna** (rompe el **CERO DDL** de este pase) y **un observador que la escriba** al detectar el cruce en cada barrido, es decir **estado derivado persistido** —§0-B.2 clase B, lo que este diseño evita a propósito con `state`—. **Decisión del humano**, y si la quiere es **otro pase** con su propio diseño (regla 9). Mientras tanto: **la pantalla no muestra ninguna antigüedad, ni exacta ni aproximada** |
 | **8 · Apagado en lote** | ⛔ **RECHAZADO** | Las tres refutaciones, con la medida que decide, en [`§M2-B.2`](#M2-B2) |
 | **1 y 2 · Listado admin + `counts`** | ✅ **NORMADOS** | [`§M2-B.1`](#M2-B1) (`counts` es de v1.62.1) |
 | **6 · Semántica de omisión del `PUT`** | ✅ **CONTESTADA Y MEDIDA; el parche de cliente, PROHIBIDO** | [`§M2-B.3`](#M2-B3) + la marca `<!-- CANON: semantica-de-omision -->` del bloque de `variant-controls` |
+
+<a id="M2-B8"></a>
+##### M2-B.8 — EL PISO DEL BOUNTY con TOPE DE MERCADO (decisión del dueño Q1, v2.2)
+
+**El problema, con `archivo:línea`.** `variant-controls.service.ts:365-386` rechaza el alta con `BOUNTY_BELOW_RULE`
+cuando `curveQuoteCents != null ∧ next.bountyPriceCents <= curveQuoteCents`, donde
+`curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents` (`money.ts:252-278`) y la curva
+de COMPRA es `resolveBuyFromCurve = max(bin/piso, mercado × pct(mercado))`, `pct ∈ [30%, 50%]` (`money.ts:239-246`). El
+predicado de runtime es `isBountyEffective = bountyPriceCents > curveQuoteCents` (`pricing-curve.ts:609`). Para cartas
+**baratas**, el término `bin/piso` puede quedar **≥ mercado**, y entonces exigir `bounty > curveQuoteCents` obliga a un
+bounty **estrictamente por encima del mercado**: *«a fuerza pagamos arriba de mercado»*.
+
+**Decisión del dueño (Q1):** mantener el mínimo = su precio de compra normal, **pero que el candado nunca obligue a un
+precio estrictamente por encima de la referencia de MERCADO**. El piso efectivo pasa a ser **`min(curveQuoteCents,
+marketMxnCents)`**, con empate-con-curva **rechazado** y empate-con-mercado **aceptado**.
+
+**La fórmula (una sola, sin ambigüedad). `isBountyEffective` gana un tercer argumento `marketMxnCents`:**
+
+```ts
+isBountyEffective(bounty, curve, market):
+  if (bounty == null || bounty <= 0) return false;
+  if (curve == null) return true;                       // curva pending (⇒ market null) ⇒ el bounty explícito manda
+  return bounty > curve || (market != null && bounty >= market);
+```
+
+Equivalente (condición de RECHAZO que dispara `422 BOUNTY_BELOW_RULE`):
+`bounty ≤ curve ∧ (market == null ? false : bounty < market)` — *below-rule* iff está por debajo de la curva **y**
+además no alcanza el mercado. Asimetría deliberada: **`≤` contra la curva, `<` contra el mercado**.
+
+**Tabla de casos NORMATIVA** (`mercado`=`marketMxnCents`; `curva`=`max(bin, mercado·pct)`; idéntico resultado en las
+CUATRO seams — alta, cotización, vitrina, estado de la consola):
+
+| mercado | curva | bounty | ¿acepta el alta? | basis runtime | código |
+|---|---|---|---|---|---|
+| `null` | `null` | `> 0` | **acepta** | `bounty` | `200` |
+| `null` | `null` | `≤ 0` | rechaza | — | `422 BOUNTY_PRICE_REQUIRED` |
+| 1000 | 400 (`curva<mercado`) | 401 | acepta | `bounty` | `200` |
+| 1000 | 400 | **400** (empate curva) | **rechaza** | curva | **`422 BOUNTY_BELOW_RULE`** |
+| 1000 | 400 | 399 | rechaza | curva | **`422 BOUNTY_BELOW_RULE`** |
+| 500 | 700 (`curva≥mercado`) | 701 | acepta | `bounty` (701) | `200` |
+| 500 | 700 | 650 | **acepta** (`≥mercado`, `<bin`) | `bounty` (650) | `200` |
+| 500 | 700 | **500** (empate mercado) | **acepta** | `bounty` (500) | `200` |
+| 500 | 700 | 499 | **rechaza** (`<mercado` y `<curva`) | curva | **`422 BOUNTY_BELOW_RULE`** |
+| 500 | 500 (bin==mercado) | 500 | acepta | `bounty` | `200` |
+| 500 | 500 | 499 | rechaza | curva | **`422 BOUNTY_BELOW_RULE`** |
+
+**Coherencia alta↔runtime — por construcción (la lección de v1.62.2).** El gate de creación **llama a la misma
+`isBountyEffective`** que la cotización, la vitrina y el `state` de §M2-B.0: el `422` dispara **iff**
+`isBountyEffective(...) === false`. Un bounty que el alta acepta es, por tanto, **efectivo al cotizar y visible en la
+vitrina**; uno que rechaza no puede colarse inefectivo. ⛔ **Prohibido re-derivar el gate con un `<`/`<=` a mano** — es
+la mutación **B-16**. Las cuatro seams ya tienen el mercado en mano: el alta y la cotización lo reciben de
+`quoteAcquisitionFromCurve` (`money.ts:258-266`, que devuelve `marketMxnCents` **y** `curveQuoteCents`); la vitrina, de
+la `PriceReference` batch; la consola/binder, de `pricing.market.referenceMxnCents` (v1.62.2).
+
+**El caso `mercado == null` (pending) — se mantiene ACEPTAR.** Cuando no hay mercado, `resolveBuyFromCurve` devuelve
+`pending` ⇒ `curveQuoteCents == null` ⇒ el predicado retorna `true` (rama 2). Es decir: **`mercado == null ⟺ curva ==
+null`** por construcción, así que la rama de mercado nunca se evalúa con `curve` no nulo y `market` nulo. Se conserva la
+conducta de hoy (aceptar) porque el bounty es precio explícito y es justo el caso donde más se necesita.
+
+**⚠️ Enmienda a criterio 91 en el borde (bandera para PO/QA).** En el borde (`curva ≥ mercado`), *«batir la tarifa
+estándar (bin)»* y *«nunca forzar por encima del mercado»* son **incompatibles** (no hay bounty a la vez `> bin` y `≤
+mercado` cuando `bin > mercado`). Q1 **reancla la garantía de la vitrina al mercado** en ese borde: el bounty puede
+quedar **por debajo del bin** (su precio de compra normal inflado) pero **nunca por debajo del mercado**. Es decisión
+del dueño y **prevalece sobre criterio 91 en su tramo de borde**; el tramo normal (cartas caras) queda intacto. *(Regla
+de conflicto: si `PROJECT.md` fija criterio 91 como LOCKED sin este matiz, la frase se enruta a **product-owner** para
+enmienda; el contrato no puede contradecir `PROJECT.md`. Ver ARCHITECTURE §4.36.6.)*
+
+**Criterios de prueba que deben FALLAR si se implementa mal** (unitarios de `isBountyEffective` + dos superficies):
+- **empate-mercado aceptado (killer):** `market=500, curve=700, bounty=500` ⇒ el `PUT` **acepta** (sin `422`), la
+  cotización paga **500** con `basis:"bounty"`, y la fila sale en `GET /buylist/bounties`. Rojo si da `422` o queda
+  invisible (alguien dejó un `>` estricto en el borde).
+- **below-market rechazado:** `market=500, curve=700, bounty=499` ⇒ `422 BOUNTY_BELOW_RULE`. Rojo si acepta (alguien
+  quitó el piso de mercado por completo).
+- **empate-curva rechazado (tramo normal, sin cambio):** `market=1000, curve=400, bounty=400` ⇒ `422`.
+- **canario del requisito del dueño:** para **todo** fixture con `curva ≥ mercado`, **existe** un bounty aceptado `≤
+  mercado` (en concreto `bounty = mercado`). Rojo si el candado vuelve a forzar `> mercado`.
+- **coherencia de dos superficies:** un bounty que el `PUT` acepta debe salir de `GET /buylist/bounties`; uno que
+  rechaza (o rebasado) debe estar **ausente**. *No se puede tapar cambiando un solo lado* (hermano de **B-2**).
+
+<a id="M2-B9"></a>
+##### M2-B.9 — ELIMINAR un bounty: `DELETE …/bounty` (decisión del dueño Q2, v2.2)
+
+**Diseño y justificación completos en ARCHITECTURE §4.36.6b.** Aquí, la forma del endpoint.
+
+```
+DELETE /api/v1/admin/pricing/variant-controls/:cardId/:finish/bounty      (super_admin, AUDITADO)
+```
+
+- **Acotado al sub-recurso `bounty`.** ⛔ **NO toca** `sellOverrideCents`/`buyOverrideCents` de la variante (por eso NO
+  reabre el riesgo de omisión de §M2-B.3, y por eso es un `DELETE` y no una segunda puerta de `upsert`). `bounty` es
+  **solo `raw`**; `:finish ∉ Card.availableFinishes` ⇒ `422 FINISH_NOT_AVAILABLE`.
+- **La rama la decide el SERVIDOR por la historia de compra, no el cliente:**
+
+  | Rama | Condición | Efecto | `state` resultante | Auditoría |
+  |---|---|---|---|---|
+  | **A · BORRAR** | `bountyAcquiredQty === 0 ∧ bountyCompletedAt == null` | limpia todos los campos de bounty (`enabled=false`, `priceCents=null`, `targetQty=null`, `unpublishedAt=null`); si la fila queda sin otros overrides, se **borra físicamente** (`:147-164`) | **sin bounty** (fila fuera de `enScope` o borrada) | `bounty.deleted` |
+  | **B · DESPUBLICAR** | `bountyAcquiredQty > 0 ∨ bountyCompletedAt != null` | **conserva** `priceCents`/`targetQty`/`acquiredQty`/`completedAt`; pone `enabled=false` y **`bountyUnpublishedAt = now()`** | **`despublicada`** (§M2-B.0) | `bounty.unpublished` |
+
+- **Respuesta `200`:** el `VariantPricingDTO` resultante (rama A: `bounty` limpio/ausente; rama B: fila con
+  `state:"despublicada"`). *(Se devuelve el DTO, no `204`, para que la UI refleje «borrado» vs «despublicado» sin una
+  segunda lectura.)*
+- **Códigos:** `403` (no `super_admin`) · `404` (carta/variante inexistente) · `404 BOUNTY_NOT_FOUND` (la variante **no
+  tiene** bounty en alcance) · `422 FINISH_NOT_AVAILABLE` (`:finish` inválido). **Idempotente en la rama B:** un
+  `DELETE` sobre una fila **ya** `despublicada` es **no-op** y responde `200` (sigue `despublicada`).
+- **Efecto en los listados:** una fila `despublicada` queda **fuera** de `GET /buylist/bounties` (público) **y** de
+  `GET /admin/pricing/bounties` **por defecto**; reaparece **solo** con `?state=despublicada` (es un registro
+  archivado). El filtro `state` de §M2-B.1 gana el valor `despublicada` (repetible).
+- **Re-publicar:** un `PUT …/variant-controls` posterior con `bounty:{enabled:true,…}` **limpia `bountyUnpublishedAt`**
+  y pasa por el gate de §M2-B.8; ⚠️ **NO reinicia `bountyAcquiredQty`** (la historia de DINERO se conserva — doctrina
+  M-46). **⚠️ Enmienda 2026-09-19 (reconcilia el re-armado P-22 §4.36.6 criterios 90-91 con §M2-B.9):**
+  `bountyCompletedAt` **SÍ se limpia** al re-publicar, por el re-armado P-22 — un bounty re-encendido está `activa`,
+  **no** `completada`, y conservar el sello de «objetivo alcanzado» sobre un bounty que vuelve a pagar sería incoherente.
+  El *«por qué dejó de pagarse»* **no se pierde**: queda en el `AuditLog` (`bounty.unpublished`, con pre-imagen), **no**
+  en el sello de estado. *Reiniciar el contador `bountyAcquiredQty` «desde cero» es decisión de negocio y va a
+  `PROJECT.md` (no se asume).*
+- **DDL:** **M-58** (número libre; M-57 es el más alto en disco — backend confirma) añade `bountyUnpublishedAt
+  DateTime?` a `VariantPriceOverride` (aditiva, `NULL`able, **sin backfill**). `BountyState` **no es enum de Prisma**
+  (clase L, derivado): añadir `despublicada` **no** toca el schema salvo por esa columna.
+
+**Criterios de prueba que deben FALLAR si se implementa mal:** rama A borra (fila inexistente si no había otros
+overrides); rama B despublica **conservando** `priceCents`/`acquiredQty` y sale de vitrina+tablero pero es queryable
+con `?state=despublicada`; la rama la decide `acquiredQty` (dos fixtures idénticos salvo ese campo → borra uno,
+despublica el otro); ambas ramas escriben `AuditLog` con actor + pre-imagen. Ver ARCHITECTURE §4.36.6b y las mutaciones
+**B-17…B-20**.
+
+<a id="M2-B10"></a>
+##### M2-B.10 — Invariante contable: eliminar/despublicar un bounty NO toca el costo ni el P/L (Q2-C, NORMATIVO)
+
+**Ya se cumple estructuralmente; esto es un candado de NO-REGRESIÓN, no una reparación.** `buylist.service.ts:7143`
+sella `InventoryItem.acquisitionCostCents = offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0` (el bruto
+pagado; bajo bounty, ese bruto **ES** el precio del bounty) — **fuente ÚNICA** del costo, que M7 lee. El bounty vive en
+`VariantPriceOverride`, **tabla separada** de `InventoryItem`.
+
+> **INV-BOUNTY-COST.** Eliminar o despublicar un bounty **NO modifica** `acquisitionCostCents` de ninguna pieza ya
+> adquirida, **NO** crea ni altera asiento de P/L, y **NO** genera gasto. El costo vive **una sola vez**, en
+> `InventoryItem.acquisitionCostCents`, sellado al convertir a inventario. *(Palabras del dueño: «ya debería de estar el
+> costo en inventario, no en el P/L también» — medido: así es.)*
+
+**Criterio de prueba:** (1) **inmutabilidad** — adquirir ≥1 pieza bajo bounty (`acquisitionCostCents == bountyPrice`) →
+`DELETE` → el costo es **idéntico**; (2) **cero P/L** — el reporte M7 de esa carta antes/después tiene **delta 0**; (3)
+**aislamiento de tablas** — durante la tx del `DELETE`, **cero** escrituras a `InventoryItem` (solo `VariantPriceOverride`
++ `AuditLog`). Ver ARCHITECTURE §4.36.6c, mutación **B-21**.
 
 ---
 
@@ -21806,3 +22005,105 @@ su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el
 - **Uploads solo `kyc_ine`:** `POST /uploads/presign` rechaza cualquier `purpose` distinto de `kyc_ine` (`422 VALIDATION_ERROR`); `inventory_photo`/`dispute_claim` eliminados. Bucket INE **privado + cifrado + retención** (`INE_RETENTION_DAYS`), set `S3_*` conservado.
 - **Disputa por correo:** `POST /disputes` sin `claimPhotoUploadKeys`; evidencia por correo a soporte (`evidenceContact`), sin comparador de fotos en §M8. Se conserva `type` (`condition_raw | condition_sealed`) y VENTAS FINALES; resolución por grado/`certNumber` (gradeadas) o estándar NM (raw).
 - **INE (KYC) intacto:** almacenamiento del INE en R2 cifrado con retención, `reveal-clabe`, CLABE/RFC cifrados y enmascarados — **sin cambios** respecto a v1.1.
+
+## 13. Decks Meta (diseño — 2026-09-18, arquitecto)
+
+> Diseño/razones: **`docs/specs/DECKS_META_ARCH.md`**. Schema/módulos: **`ARCHITECTURE.md §12`**. **Estado:
+> DISEÑO, no construido.** Base `origin/production cd0bf02c`. El carrito sigue siendo **de cliente** (array de
+> `inventoryItemId`, §4-G): estos endpoints devuelven los `inventoryItemId` a agregar; **no** hay carrito
+> servidor nuevo. Precio y piezas se **reusan** de §2 (ficha/`units`, `getReferencesBatch`) — no se reinventan.
+
+### Convenciones de esta sección
+- **Legalidad:** una línea se ofrece como **jugable** solo si su carta casada es `isLegalStandardNow`
+  (ARCHITECTURE §12.1): `regulationMark ∈ ConfigSetting['standard.active_regulation_marks'] ∧ legalStandardRaw ≠
+  'Banned' ∧ externalId ∉ banlist`. `regulationMark == null` ⇒ **no legal**.
+- **Nunca se inventa** carta ni precio: una línea que no casa por `ptcgoCode`+`number` sale con
+  `matchStatus ≠ matched` y sin `card`/precio.
+- **§0-Q:** los endpoints de lectura no exponen ejes de query de dominio cerrado. Si se añade `?sort=`
+  (`rank|share`) es **CLASE L** con la forma de §0-Q punto 6 (default explícito; fuera de dominio ⇒ `400`
+  `field`+`allowed`, sin clamp). Todo `@Query` nuevo se registra en el censo `C-EQ-1`. El `text` de `paste` es
+  **cuerpo**, no query.
+- **Códigos nuevos** (a `common/error-codes.ts`): `422 DECK_LIST_UNPARSEABLE` (texto de pegar-lista vacío / sin
+  ninguna línea válida), `404 DECK_NOT_FOUND`. Reusa `400 VALIDATION_ERROR`, `429 RATE_LIMITED`, `503
+  BUSY_TRY_AGAIN`, `502 UPSTREAM_ERROR` (fetch Limitless en el job de prod).
+
+### GET /api/v1/decks-meta — `public`
+Top-10 del meta publicado (`MetaDeck.published=true`), ordenado por `rank` asc. Cita de fuente obligatoria.
+Res `200`:
+```jsonc
+{
+  "data": [{
+    "slug": "dragapult-ex",
+    "name": "Dragapult ex",
+    "rank": 1,
+    "sharePct": 12.4,            // opcional (si la fuente lo da)
+    "trend": 1,                  // opcional: share_actual − anterior (▲=+, ▼=−, 0)
+    "fromPriceMxnCents": 184500, // "desde": suma de disponibles+legales con precio; opcional
+    "availableCount": 52,        // Σ availableQty de líneas legales
+    "totalCount": 60,
+    "imageUrl": "https://…"      // arte de Card representativa (nunca arte externo)
+  }],
+  "updatedAt": "2026-09-14T12:00:00Z",   // fetchedAt de la lista más reciente aplicada
+  "source": "Datos de Limitless TCG"
+}
+```
+
+### GET /api/v1/decks-meta/:slug — `public`
+Deck + disponibilidad por línea. `slug` desconocido ⇒ `404 DECK_NOT_FOUND`. El deck **siempre se muestra**
+tenga 60/40/5 disponibles (nunca se oculta por incompleto). Res `200`:
+```jsonc
+{
+  "slug": "dragapult-ex",
+  "name": "Dragapult ex",
+  "rank": 1, "sharePct": 12.4, "trend": 1,
+  "source": "Datos de Limitless TCG",
+  "sourceUrl": "https://limitlesstcg.com/…",   // opcional
+  "sourceTournament": "…",                       // opcional
+  "legalityVerifiedAt": "2026-09-14T12:00:00Z",  // "Legal en Standard · verificado {fecha}"
+  "groups": {
+    "pokemon":  [ /* MetaDeckLineDTO */ ],
+    "trainer":  [ /* … */ ],
+    "energy":   [ /* … */ ]
+  }
+}
+```
+`MetaDeckLineDTO`:
+```jsonc
+{
+  "rawName": "Dragapult ex", "setCode": "TWM", "number": "130", "quantity": 4,
+  "group": "pokemon",
+  "matchStatus": "matched",   // matched | ambiguous | unmatched_set | unmatched_number | unmatched_basic_energy
+  "card": { "cardId": "…", "name": "Dragapult ex", "imageUrl": "https://…" }, // null si no casó
+  "legal": true,              // isLegalStandardNow(card); false ⇒ rotada/no probable
+  "availableQty": 3,          // min(quantity, stockNM); 0 si falta
+  "unitPriceMxnCents": 61500, // "desde" de la carta (salePriceCents); null si pending/faltante
+  "unitInventoryItemIds": ["…","…","…"],  // hasta availableQty, cheapest-first — el add-to-cart de jalón
+  "substitute": {             // opcional (Fase 3): otra impresión LEGAL de la misma carta en stock
+    "cardId": "…", "name": "Dragapult ex", "setCode": "SVI", "number": "…",
+    "availableQty": 2, "unitPriceMxnCents": 58000, "unitInventoryItemIds": ["…","…"]
+  }
+}
+```
+Una línea **no jugable** (`legal:false`) o **no identificada** (`matchStatus≠matched`) **no** aporta
+`unitInventoryItemIds` propios (no se vende como jugable); puede traer `substitute` (Fase 3).
+
+### POST /api/v1/decks-meta/paste — `public`  (el motor, H3)  ·  rate-limited (`429`)
+Body: `{ "text": "4 Dragapult ex TWM 130\n3 …" }` (≤ N chars — cerrar N con el dueño). Parsea+empareja+valora
+**en memoria** (no persiste) y devuelve la **misma forma** que `groups` de `GET /decks-meta/:slug`. Texto vacío
+/ sin ninguna línea válida ⇒ `422 DECK_LIST_UNPARSEABLE`. Líneas no casadas ⇒ `matchStatus` no-mapeado, sin
+inventar.
+
+### POST /api/v1/decks-meta/:slug/cart-selection — `public`  *(OPCIONAL — confirmar con el dueño)*
+Conveniencia: devuelve la unión ya computada de piezas disponibles+legales del deck.
+Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `useCart().add`. Redundante con los
+`unitInventoryItemIds` por línea; se incluye solo si el front prefiere la unión server-side.
+
+### Admin (rol `vault_operator+`)
+- `GET /api/v1/admin/decks-meta` — lista con estado (`published`, `pausedByOperator`, `source`, `rank`,
+  `currentList.fetchedAt`, líneas no mapeadas). `POST` / `PUT /:id` — **curaduría/fallback:** pegar un top-10
+  **manual** (mismo formato/motor, `source=manual`), fijar `rank`, `published`, `pausedByOperator`.
+- `GET /api/v1/admin/decks-meta/unmatched` — reporte de líneas `matchStatus≠matched` de listas publicadas, para
+  curar (set+número crudos, en cuántos decks, cantidad).
+- `PUT /api/v1/admin/config/standard-legality` — editar `ConfigSetting['standard.active_regulation_marks']` y
+  `['standard.banlist_card_ids']`. **Es el mecanismo de ROTACIÓN** (ARCHITECTURE §12.1): editar la ventana
+  recalcula la legalidad derivada sin re-sync. Cuerpo money-safe; a la fase de seguridad por release.

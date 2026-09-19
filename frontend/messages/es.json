@@ -78,7 +78,8 @@
           "action": "Ir a mi cuenta"
         }
       }
-    }
+    },
+    "decksMeta": "Decks del meta"
   },
   "account": {
     "eyebrow": "CUENTA",
@@ -2387,6 +2388,7 @@
           "activa": "ACTIVOS {count}",
           "completada": "COMPLETADOS {count}",
           "apagada": "APAGADOS {count}",
+          "despublicada": "DESPUBLICADOS {count}",
           "atLeast": "{label} ≥ {count}",
           "atLeastAria": "Al menos {count}; la lista está incompleta.",
           "loadingAria": "Contando bounties"
@@ -2406,7 +2408,8 @@
           "attentionHint": "Están encendidos y no pagan premium. Cada uno pide una decisión.",
           "activa": "ACTIVOS · {count}",
           "completada": "COMPLETADOS · {count}",
-          "apagada": "APAGADOS · {count}"
+          "apagada": "APAGADOS · {count}",
+          "despublicada": "DESPUBLICADOS · {count}"
         },
         "list": {
           "truncated": "Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por estado o busca una carta para verlos todos."
@@ -2429,12 +2432,14 @@
           "invalida": "SIN PRECIO",
           "completada": "COMPLETADO",
           "apagada": "APAGADO",
+          "despublicada": "DESPUBLICADO",
           "unknown": "SIN CLASIFICAR",
           "activaAria": "Activo: paga por encima de la tarifa vigente y aparece en Top Bounties.",
           "rebasadaAria": "Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no aparece en Top Bounties.",
           "invalidaAria": "Sin precio: este bounty está encendido, pero no tiene un precio con el que pagar. No paga nada y no aparece en Top Bounties. Ponle un precio o apágalo.",
           "completadaAria": "Completado el {date}: se apagó solo al llegar al objetivo.",
           "apagadaAria": "Apagado: lo apagó una persona. No se publica ni se paga premium. El contador se conserva.",
+          "despublicadaAria": "Despublicado: este bounty se eliminó cuando ya tenía compras, así que se conserva el registro pero sale del tablero y de la vitrina. No paga ni se publica; puedes volver a publicarlo con Encender.",
           "unknownAria": "Estado no reconocido por esta pantalla. No se puede afirmar si está pagando; ábrelo en el binder."
         },
         "premium": {
@@ -2458,7 +2463,11 @@
           "turnOn": "Encender",
           "turnOnHint": "Revisa el precio antes de encenderlo: la tarifa vigente pudo cambiar desde que lo apagaste.",
           "setPrice": "Poner precio",
-          "setPriceAria": "Poner precio al bounty de {card}"
+          "setPriceAria": "Poner precio al bounty de {card}",
+          "delete": "Eliminar",
+          "deleteAria": "Eliminar el bounty de {card}",
+          "deletedToast": "Bounty eliminado · {card}. No se había comprado nada bajo él, así que se borró.",
+          "unpublishedToast": "Bounty despublicado · {card}. Ya se había comprado bajo él, así que se conserva el registro y sale del tablero."
         },
         "progress": {
           "value": "{acquired} de {target}",
@@ -2487,6 +2496,11 @@
           "price": "Antes {before} · ahora {after} · {delta} más por carta.",
           "target": "Objetivo: antes hasta {before} · ahora hasta {after}.",
           "cta": "Sí, pagar {amount}"
+        },
+        "delete": {
+          "title": "Eliminar este bounty",
+          "body": "Si no se ha comprado nada bajo este bounty, se elimina. Si ya se compró, solo se despublica (sale del tablero) y se conserva el registro. El servidor decide cuál según la historia de compra.",
+          "cta": "Eliminar"
         },
         "saved": "Bounty guardado.",
         "savedNowActive": "Guardado: ya paga por encima de la tarifa y vuelve a Top Bounties.",
@@ -3601,7 +3615,9 @@
     "INE_NOT_ON_FILE": "Este usuario no tiene INE en el expediente.",
     "KYC_REJECTION_REASON_REQUIRED": "Sin motivo no se puede rechazar: el cliente tiene que saber qué corregir.",
     "IVA_TRANSFER_ACK_REQUIRED": "Hay que ver el costo en pesos antes de guardar esta fracción. Vuelve a calcularlo y guarda desde ahí.",
-    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar."
+    "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar.",
+    "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-10.",
+    "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo."
   },
   "payment": {
     "title": "Pago",
@@ -3786,5 +3802,70 @@
     "requoteFailed": "No pudimos actualizar los precios. Reintenta.",
     "retry": "Reintentar",
     "requoting": "Actualizando los precios de tu lista"
+  },
+  "decksMeta": {
+    "metaTitle": "Decks del meta",
+    "metaSubtitle": "El top-10 del formato Standard, cruzado con nuestro inventario: qué tienes, a qué precio, y solo lo vigente para jugar.",
+    "pasteLink": "Pegar mi lista",
+    "list": {
+      "sourceLine": "{source} · actualizado {date}",
+      "rank": "#{rank}",
+      "share": "{share}% del meta",
+      "availability": "{available} de {total} disponibles",
+      "fromPrice": "Desde {price}",
+      "trendUp": "Sube en el meta",
+      "trendDown": "Baja en el meta",
+      "trendFlat": "Sin cambio",
+      "view": "Ver deck",
+      "emptyTitle": "Aún no hay decks publicados",
+      "emptyBody": "En cuanto publiquemos el top-10 del meta, aparecerá aquí."
+    },
+    "detail": {
+      "back": "Volver a decks del meta",
+      "legalityVerified": "Legal en Standard · verificado {date}",
+      "source": "Fuente: {source}",
+      "sourceTournament": "Torneo: {tournament}",
+      "viewSource": "Ver la lista original",
+      "groups": {
+        "pokemon": "Pokémon",
+        "trainer": "Entrenador",
+        "energy": "Energía"
+      },
+      "quantity": "×{qty}",
+      "cardCode": "{set} · {number}"
+    },
+    "line": {
+      "legal": "Legal para jugar",
+      "rotated": "Rotada · no vigente",
+      "rotatedNote": "Salió del formato Standard: no se puede agregar para jugar.",
+      "soldOut": "Agotado",
+      "unidentified": "No identificada",
+      "unidentifiedNote": "No encontramos esta carta en nuestro catálogo.",
+      "basicEnergy": "Energía básica · siempre legal",
+      "availableOf": "{available} de {qty}",
+      "add": "Agregar",
+      "inCart": "En el carrito"
+    },
+    "substitute": {
+      "label": "Sustituto legal disponible",
+      "use": "Usar {name} ({set} {number}) · {price}",
+      "usePending": "Usar {name} ({set} {number})"
+    },
+    "addAll": {
+      "button": "Agregar de jalón",
+      "hint": "{count, plural, one {# pieza disponible} other {# piezas disponibles}}",
+      "none": "Nada disponible para agregar",
+      "done": "{count, plural, one {# pieza agregada} other {# piezas agregadas}}"
+    },
+    "paste": {
+      "title": "Pega tu lista",
+      "subtitle": "Pega tu lista en formato Limitless / TCG Live y te decimos qué tenemos, a qué precio, y qué está vigente para jugar.",
+      "label": "Tu lista",
+      "placeholder": "4 Dragapult ex TWM 130\n3 Drakloak TWM 129\n2 Boss’s Orders PAL 172",
+      "submit": "Ver disponibilidad",
+      "clear": "Limpiar",
+      "emptyTitle": "Pega una lista para empezar",
+      "emptyBody": "Aún no has pegado nada. Copia tu lista y pégala arriba."
+    }
   }
 }

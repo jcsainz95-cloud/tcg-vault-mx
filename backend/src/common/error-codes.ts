@@ -99,6 +99,10 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v2.2 (Q2, §M2-B.9): `DELETE …/variant-controls/:cardId/:finish/bounty` sobre una variante que NO
+  // tiene bounty en alcance (§M2-B.0). La variante/carta existe, pero no hay nada de bounty que
+  // eliminar. 404.
+  BOUNTY_NOT_FOUND: 'BOUNTY_NOT_FOUND',
   // v2.0 (P-48, §4.36.3 / API_CONTRACT §Errores) — códigos de la CURVA. Todos son 422, todos se
   // validan AL GUARDAR (no solo en runtime), todos se evalúan sobre el OBJETO COMPLETO y todos
   // indican QUÉ PUNTO lo rompe en `details: { axis, index, marketCents, … }` (criterio 87).
@@ -632,6 +636,14 @@ export const ErrorCode = {
   // ⛔ Es 500 y no 422 a propósito (doctrina de `BusinessException.internal`): el actor no hizo nada
   // mal y **no hay nada que pueda corregir** — si dispara, se arregla la BD, no la petición.
   AUDIT_WRITE_FAILED: 'AUDIT_WRITE_FAILED',
+
+  // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
+  // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
+  DECK_NOT_FOUND: 'DECK_NOT_FOUND',
+  // 422 — `POST /decks-meta/paste` con texto vacío o sin NINGUNA línea de carta válida (el parser no
+  // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
+  // pero su contenido no es una lista parseable. API_CONTRACT §13.
+  DECK_LIST_UNPARSEABLE: 'DECK_LIST_UNPARSEABLE',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -80,9 +80,9 @@ export function StorefrontHeader() {
 
   /**
    * Nav por sesión (P-13), tabla de DESIGN_SYSTEM §33.1 (v1.67, supersede §7.15/§20.1):
-   * - Sin sesión: Comprar · Vender · Mi cuenta (→ /login).
-   * - Con sesión: Comprar · Vender · Mi bóveda · Compras y ventas · Mi cuenta (→ /account).
-   *   **Cinco entradas, ni una más**: salen el nombre (vitrina del nombre inventado, regla 2) y
+   * - Sin sesión: Comprar · Vender · Decks del meta · Mi cuenta (→ /login).
+   * - Con sesión: Comprar · Vender · Decks del meta · Mi bóveda · Compras y ventas · Mi cuenta (→ /account).
+   *   **Seis entradas, ni una más**: salen el nombre (vitrina del nombre inventado, regla 2) y
    *   «Cerrar sesión» (vive en «Mi cuenta», regla 8). «Envíos» sale del menú: los retiros viven en
    *   la pestaña «Retiros» de la bóveda (§33.4) y `nav.vault` se activa también en `/shipments*`.
    * ⭐ «Mi cuenta» ocupa el MISMO hueco con el MISMO rótulo en los dos estados; solo cambia el destino.
@@ -94,6 +94,8 @@ export function StorefrontHeader() {
     { href: '/catalog', label: t('buy'), match: ['/catalog', '/sellado', '/compra'] },
     // Vender: activa en /buylist EXCEPTO el portal de una solicitud (/buylist/requests/*), que es «ventas».
     { href: '/buylist', label: t('buylist'), exclude: ['/buylist/requests'] },
+    // Decks del meta (público): entrada pública, visible con y sin sesión (6ª entrada, decisión del dueño).
+    { href: '/decks-meta', label: t('decksMeta'), match: ['/decks-meta'] },
     ...(authed
       ? [
           { href: '/vault', label: t('vault'), match: ['/vault', '/shipments'] },

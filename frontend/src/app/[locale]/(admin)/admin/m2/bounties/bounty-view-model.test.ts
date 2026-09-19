@@ -5,6 +5,7 @@ import {
   BOUNTY_SORTS,
   BOUNTY_STATES,
   blockOfState,
+  bountyDeleteOutcome,
   bountyPremium,
   buildBountyControlsRequest,
   hasAttentionRows,
@@ -16,6 +17,7 @@ import {
   zeroStatement,
   hasIdentityFilter,
 } from './bounty-view-model';
+import type { VariantBountyDTO } from '@/types/contract';
 
 /**
  * # bounty-view-model.test.ts — la mitad de FRONTEND de la tabla `API_CONTRACT §M2-B.6`
@@ -39,6 +41,7 @@ const counts = (over: Partial<Record<BountyState, number>> = {}): Record<BountyS
   invalida: 0,
   completada: 0,
   apagada: 0,
+  despublicada: 0,
   ...over,
 });
 
@@ -71,20 +74,29 @@ function row(state: string): AdminBountyRowDTO {
   };
 }
 
-describe('§M2-B.0 — el enum del contrato, con sus CINCO valores y sin vocabulario paralelo', () => {
-  it('conoce exactamente los cinco `state` del contrato, y ninguno más', () => {
+describe('§M2-B.0 — el enum del contrato, con sus SEIS valores y sin vocabulario paralelo', () => {
+  it('conoce exactamente los seis `state` del contrato, y ninguno más (⭐ v2.2: +`despublicada`)', () => {
     expect([...BOUNTY_STATES].sort()).toEqual(
-      ['activa', 'apagada', 'completada', 'invalida', 'rebasada'].sort(),
+      ['activa', 'apagada', 'completada', 'despublicada', 'invalida', 'rebasada'].sort(),
     );
+    // ⭐ El sexto es reconocido como estado propio (§M2-B.0/.9), no como un desconocido.
+    expect(isKnownBountyState('despublicada')).toBe(true);
     // ⛔ El vocabulario `outbid`/`active`/`off` NO existe en la API: traducir a rótulos es trabajo
     // de i18n, jamás un enum paralelo (§M2-B.7, petición 4).
-    for (const alien of ['outbid', 'active', 'off', 'completed']) {
+    for (const alien of ['outbid', 'active', 'off', 'completed', 'unpublished']) {
       expect(isKnownBountyState(alien)).toBe(false);
     }
   });
 
-  it('los CINCO chips van en el orden de la ATENCIÓN, no en el del enum (§28.2a)', () => {
-    expect(BOUNTY_CHIP_ORDER).toEqual(['rebasada', 'invalida', 'activa', 'completada', 'apagada']);
+  it('los SEIS chips van en el orden de la ATENCIÓN, con `despublicada` AL FINAL (§28.2a/§M2-B.1)', () => {
+    expect(BOUNTY_CHIP_ORDER).toEqual([
+      'rebasada',
+      'invalida',
+      'activa',
+      'completada',
+      'apagada',
+      'despublicada',
+    ]);
     // Ninguno se funde con otro: tantas cubetas como valores tiene el enum.
     expect(new Set(BOUNTY_CHIP_ORDER).size).toBe(BOUNTY_STATES.length);
   });
@@ -331,5 +343,100 @@ describe('§28.6b/c — sin cambios no se guarda, y la fricción va en la direcc
     expect(raisesSpend(stored, { ...stored, priceCents: 80000 })).toBe(false);
     expect(raisesSpend(stored, { ...stored, targetQty: 1 })).toBe(false);
     expect(raisesSpend(stored, { ...stored, enabled: false })).toBe(false);
+  });
+});
+
+// ===========================================================================
+// ⭐ v2.2 (Q2) — el sexto estado `despublicada` (§M2-B.0/.1/.9)
+// ===========================================================================
+describe('⭐ `despublicada`: el sexto estado ordena y rotula bien, y NO se funde con `apagada`', () => {
+  it('tiene su PROPIO bloque, al final, y no comparte el de `apagada` (§M2-B.0)', () => {
+    expect(blockOfState('despublicada')).toBe('despublicada');
+    // `apagada` es un *hold* reversible que sigue en el tablero; `despublicada` es un archivo.
+    // Fundirlos borraría el porqué dejó de pagarse, igual que fundir `completada` con `apagada`.
+    expect(blockOfState('despublicada')).not.toBe(blockOfState('apagada'));
+    expect(blockOfState('despublicada')).not.toBe(blockOfState('completada'));
+  });
+
+  it('el orden `attention_first` lo deja AL FINAL (fuera del grupo de atención)', () => {
+    // La partición respeta el orden del servidor: `despublicada` cierra la lista, detrás de todo.
+    const rows = ['rebasada', 'activa', 'completada', 'apagada', 'despublicada'].map(row);
+    const marked = withBlockHeaders(rows, true);
+    expect(marked.map((m) => m.startsBlock)).toEqual([
+      'attention',
+      'activa',
+      'completada',
+      'apagada',
+      'despublicada',
+    ]);
+    // No entra en el bloque ① de ATENCIÓN: no es una decisión pendiente, es un registro.
+    expect(hasAttentionRows(['despublicada'].map(row))).toBe(false);
+  });
+
+  it('es un estado CONOCIDO (se pinta con su rótulo, no como `SIN CLASIFICAR`)', () => {
+    expect(isKnownBountyState('despublicada')).toBe(true);
+    expect(BOUNTY_STATES).toContain('despublicada');
+  });
+
+  it('no paga: su PREMIUM es `off`, igual que `apagada`/`completada` (§28.4)', () => {
+    expect(bountyPremium('despublicada', 90000, 95000)).toEqual({ kind: 'off' });
+    expect(bountyPremium('despublicada', null, null)).toEqual({ kind: 'off' });
+  });
+});
+
+describe('⭐ los `counts` traen las SEIS cubetas, `despublicada` incluida (§M2-B.1)', () => {
+  it('el enum y el conteo cubren exactamente las seis, ni una de menos', () => {
+    expect(BOUNTY_STATES).toHaveLength(6);
+    // `counts()` es un `Record<BountyState, number>`: si al enum le faltara una cubeta, o si el
+    // conteo colapsara `despublicada` en otra, esto se cae.
+    const c = counts({ despublicada: 3 });
+    for (const s of BOUNTY_STATES) {
+      expect(c, `counts sin la cubeta «${s}»`).toHaveProperty(s);
+    }
+    expect(c.despublicada).toBe(3);
+    // ⚠️ El invariante de trabajo NO incluye `despublicada` (§M2-B.1: `total` == suma de las CINCO
+    // cubetas de trabajo; `despublicada` viaja aparte como selector).
+    const trabajo = (['activa', 'rebasada', 'invalida', 'completada', 'apagada'] as const).reduce(
+      (n, s) => n + c[s],
+      0,
+    );
+    expect(trabajo).toBe(0);
+  });
+});
+
+// ===========================================================================
+// ⭐ v2.2 (Q2) — ELIMINAR: la rama la LEE del DTO, no la recalcula (§M2-B.9)
+// ===========================================================================
+describe('⭐ `bountyDeleteOutcome`: borrado vs despublicado se LEE del DTO que devolvió el servidor', () => {
+  const bounty = (over: Partial<VariantBountyDTO>): VariantBountyDTO => ({
+    enabled: false,
+    priceCents: 90000,
+    targetQty: 2,
+    acquiredQty: 0,
+    completedAt: null,
+    effective: false,
+    curveQuoteCents: 95000,
+    ...over,
+  });
+
+  it('con historia de compra CONSERVADA (acquiredQty > 0) ⇒ `unpublished` (rama B)', () => {
+    expect(bountyDeleteOutcome(bounty({ acquiredQty: 1 }))).toBe('unpublished');
+  });
+
+  it('con `completedAt` conservado ⇒ `unpublished` (la otra mitad de la condición de rama B)', () => {
+    expect(bountyDeleteOutcome(bounty({ acquiredQty: 0, completedAt: '2026-08-01T00:00:00.000Z' }))).toBe(
+      'unpublished',
+    );
+  });
+
+  it('sin historia (bounty limpio) ⇒ `deleted` (rama A)', () => {
+    expect(bountyDeleteOutcome(bounty({ acquiredQty: 0, completedAt: null, priceCents: null }))).toBe(
+      'deleted',
+    );
+  });
+
+  it('bounty AUSENTE del DTO (rama A borró la fila entera) ⇒ `deleted`', () => {
+    expect(bountyDeleteOutcome(null)).toBe('deleted');
+    expect(bountyDeleteOutcome(undefined)).toBe('deleted');
   });
 });

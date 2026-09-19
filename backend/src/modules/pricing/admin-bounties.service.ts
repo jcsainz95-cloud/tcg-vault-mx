@@ -54,7 +54,7 @@ export type AdminBountySort = (typeof ADMIN_BOUNTY_SORT_VALUES)[number];
  */
 export const ADMIN_BOUNTY_SERVER_CAP = 1000;
 
-/** `AdminBountyCountsDTO` — las CINCO claves del enum `state`, enteros ≥ 0 (§M2-B.1). */
+/** `AdminBountyCountsDTO` — las SEIS claves del enum `state` (v2.2: +`despublicada`), enteros ≥ 0 (§M2-B.1). */
 export type AdminBountyCountsDTO = Record<BountyState, number>;
 
 /** `AdminBountyRowDTO` (§M2-B.1). `pricing` es el `VariantPricingDTO` COMPLETO y sin recortar. */
@@ -120,6 +120,8 @@ const ATTENTION_RANK: Record<BountyState, number> = {
   activa: 1,
   completada: 2,
   apagada: 3,
+  // v2.2 (Q2): los registros archivados van AL FINAL (solo aparecen si se piden con `?state=despublicada`).
+  despublicada: 4,
 };
 
 @Injectable()
@@ -165,9 +167,12 @@ export class AdminBountiesService {
     const counts = this.countByState(classified);
 
     // ---- 4. FILTRAR POR `state` (después de contar: los conteos IGNORAN este filtro, regla 2) ---
+    // v2.2 (Q2, §M2-B.1): asimetría deliberada del filtro. Omitido ⇒ TODOS MENOS `despublicada` (los
+    // registros archivados no ensucian el tablero de trabajo); para verlos hay que pedirlos
+    // EXPLÍCITAMENTE (`?state=despublicada`, combinable). Es `data` quien la excluye, NO `counts`.
     const filtered = params.states
       ? classified.filter((c) => params.states!.includes(c.state))
-      : classified;
+      : classified.filter((c) => c.state !== 'despublicada');
 
     // ---- 5. ORDENAR + 6. PAGINAR ----------------------------------------------------------------
     const ordered = [...filtered].sort(this.comparator(params.sort));
@@ -179,8 +184,9 @@ export class AdminBountiesService {
       page: params.page,
       pageSize: params.pageSize,
       // `total` obedece a TODOS los filtros (es el tamaño del conjunto que se está paginando);
-      // `counts` NO obedece a `state`. Invariante verificable con `state` omitido:
-      // `total == counts.activa + counts.rebasada + counts.invalida + counts.completada + counts.apagada`.
+      // `counts` NO obedece a `state`. Invariante verificable con `state` omitido (v2.2: son las
+      // CINCO cubetas de TRABAJO — `despublicada` sale de `data` por defecto y viaja aparte en
+      // `counts` como selector): `total == activa + rebasada + invalida + completada + apagada`.
       total: filtered.length,
       counts,
       // Gobierna `data`, `total` Y `counts`: con `truncated: true` los conteos **también** están
@@ -257,7 +263,9 @@ export class AdminBountiesService {
       // (el predicado de alcance selecciona filas M-30). Si algún día dejara de cumplirlo, esto
       // revienta ruidosamente en vez de clasificar en silencio por el valor equivocado.
       const bounty = pricing.bounty as NonNullable<VariantPricingDTO['bounty']>;
-      return { row, pricing, state: deriveBountyState(bounty) };
+      // v2.2 (Q2, §M2-B.0): `despublicada` discrimina PRIMERO por el sello `bountyUnpublishedAt`, que
+      // no viaja en el DTO (misma proyección que el binder). Se pasa aparte a la derivación.
+      return { row, pricing, state: deriveBountyState(bounty, row.bountyUnpublishedAt) };
     });
   }
 
@@ -266,10 +274,11 @@ export class AdminBountiesService {
    * pasada: un `groupBy` de SQL sería **otro predicado con otro resultado** —el estado no es
    * calculable en SQL—, es decir dos proyecciones del mismo dinero.
    *
-   * Las cinco claves se inicializan en `0` **siempre**: el panel **enuncia el cero** (inversión
-   * deliberada de la vitrina, que calla cuando no hay nada), así que una clave ausente no es una
-   * opción. Y **`invalida` tiene la suya**: fundirla dentro de `activa` pintaría *«está pagando»*
-   * sobre un bounty encendido sin precio utilizable.
+   * Las seis claves se inicializan en `0` **siempre** (v2.2: +`despublicada`): el panel **enuncia el
+   * cero** (inversión deliberada de la vitrina, que calla cuando no hay nada), así que una clave
+   * ausente no es una opción. Y **`invalida` tiene la suya**: fundirla dentro de `activa` pintaría
+   * *«está pagando»* sobre un bounty encendido sin precio utilizable. **`despublicada` también tiene
+   * la suya**: un conteo sin ella escondería cuánto se eliminó con historia.
    */
   private countByState(classified: ClassifiedRow[]): AdminBountyCountsDTO {
     const counts: AdminBountyCountsDTO = {
@@ -278,6 +287,9 @@ export class AdminBountiesService {
       invalida: 0,
       completada: 0,
       apagada: 0,
+      // v2.2 (Q2, §M2-B.1): la SEXTA cubeta. `counts` la reporta SIEMPRE (es el selector) aunque
+      // `data` la excluya por defecto — así el dueño VE cuántas se eliminaron con historia.
+      despublicada: 0,
     };
     for (const c of classified) counts[c.state] += 1;
     return counts;

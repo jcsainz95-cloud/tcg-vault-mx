@@ -17372,3 +17372,63 @@ pruebas, que son exactamente los canarios). `tsc --noEmit` limpio, `next lint` l
 | `F-N15` | **Si los otros 8 sitios con el v1 que el techlead censó fuera de `frontend/` siguen vivos.** Son ruta de backend/devops, no los toqué ni los conté | que el rol dueño corra el mismo barrido en su ruta |
 | `F-N16` | **Si el escáner de TypeScript cuesta tiempo de CI apreciable.** Medido en local: ~2 s para los 462 ficheros de `src/`, una sola vez gracias a la memoización de `codigoDe`; la suite completa pasó de no-medido a **151 s** | comparar la duración del job de vitest en CI antes/después |
 | `F-N17` | **Los 31 candados del repo, uno a uno.** Barrí **el patrón** en mi ruta, no audité cada candado buscando otras formas de ceguera | una auditoría por candado, que es trabajo de techlead/QA |
+
+## §78 · **DECKS META Fase 1 (storefront)** — top-10, detalle con legalidad, pegar-lista y «agregar de jalón» (2026-09-19, rama `claude/fe-decksmeta-f1`)
+
+> Construido contra el **CONTRATO `API_CONTRACT.md §13`** (no contra un backend corriendo; el
+> backend Fase 1 va en paralelo). Base `origin/claude/be-decksmeta-f0` (Fase 0: legalidad en `Card`).
+> Los tests mockean las respuestas del contrato (`vi.spyOn(@/lib/api)`), no la red.
+
+### Pantallas y rutas (todas bajo `(storefront)/decks-meta/`)
+| Ruta | Vista | Qué |
+|---|---|---|
+| `/decks-meta` | `DecksMetaListView` | Top-10 del meta: tejas con rank, share+tendencia (▲▼), disponibilidad (`{available} de {total}`), «desde», cita de fuente obligatoria (§13), y acceso a pegar-lista |
+| `/decks-meta/[slug]` | `DeckDetailView` | Deck + disponibilidad por línea. `404 DECK_NOT_FOUND` → error del contrato con reintento |
+| `/decks-meta/pegar` | `PasteListView` | Textarea (formato Limitless) → `POST /decks-meta/paste`; misma vista de disponibilidad. `422 DECK_LIST_UNPARSEABLE` → error del contrato |
+
+`DeckAvailability.tsx` es el renderizador **compartido** por el detalle y por pegar-lista (§13:
+`paste` devuelve la MISMA forma que `groups`). Piezas reusadas: `useCart`, `CartAddedToast`
+(catálogo), `StockBadge`, `PendingPriceLabel`, `Badge`, `Button`, `CardImage`, `QueryState`,
+`EmptyState`, `Skeleton`.
+
+### Legalidad VISIBLE (el punto del feature — «solo lo vigente para jugar»)
+`lineState()` resuelve UN estado por línea y de ahí salen badge + comportamiento:
+- **`legal_available`** — `Badge success` «Legal para jugar» + precio + `StockBadge` + CTA «Agregar».
+- **`legal_soldout`** — «Legal para jugar» + `Badge neutral` «Agotado»; **sin CTA de compra propio**.
+- **`rotated`** (`legal:false`) — `Badge danger outline` «Rotada · no vigente» + nota; **NO puede
+  agregarse a jugar** (ni por línea ni «de jalón»); puede ofrecer **sustituto legal** (Fase 3).
+- **`unidentified`** (`matchStatus≠matched`) — `Badge neutral` «No identificada» + nota; sin
+  carta/precio (nunca se inventa).
+- **`basic_energy`** (`unmatched_basic_energy`) — «Energía básica · siempre legal», sin pieza.
+
+### «Agregar de jalón» y pegar-lista
+- `pullableItemIds(groups)` = unión de `unitInventoryItemIds` de las líneas **legales** (dedupe). El
+  contrato solo pone piezas propias en líneas `legal:true` con stock, así que la unión ya es «lo
+  vigente que tenemos». **No entran** sustitutos (opt-in Fase 3), rotadas ni no identificadas.
+- El botón hace `useCart().add(id)` en lote sobre lo que **aún no** está en el carrito (idempotente)
+  y confirma con `CartAddedToast`. El re-quote existente (v1.21.3) revalida/poda; sin reserva nueva.
+- CTA por línea = mismo patrón que `InstanceCta` del catálogo: agrega la más barata no-en-carrito;
+  al completar el stock cambia a «En el carrito» (→ `/checkout`).
+
+### i18n (paridad es/en)
+Namespace `decksMeta` (49 claves, paridad verificada), `nav.decksMeta`, y en `error`:
+`DECK_NOT_FOUND`, `DECK_LIST_UNPARSEABLE` (los dos catálogos). `i18n-parity.test.ts` verde.
+
+### Pruebas (`vitest`, 18 nuevas, todas verdes; suite completa 1901/1901)
+`DecksMetaListView.test`, `DeckDetailView.test`, `PasteListView.test` — render + estados
+(cargando/vacío/error/agotado/no-legal/no-identificada) + «de jalón» + paridad es/en. Canario
+verificado: quitar el gate de `rotated` en `lineState` pone en rojo el test de línea rotada.
+
+### ⚠️ Solicitud a **ux-ui** (patrón nuevo, no lo invento) — punto de entrada en el nav
+El header del storefront está **cerrado a CINCO entradas** por `DESIGN_SYSTEM §33.1` / candado
+**CA-1 (§33.16 R10)** (`StorefrontHeader.test` lo verifica carácter por carácter). **No añadí una
+sexta entrada** para no debilitar ese candado: *dónde* vive el acceso a «Decks del meta» (nav,
+home, u otro) es **decisión de ux-ui**. La clave i18n `nav.decksMeta` ya existe (es/en) para cuando
+se cablee. Hoy las tres rutas son alcanzables por URL directa y enlazadas entre sí (lista↔detalle,
+lista↔pegar); **falta el enlace de entrada desde la tienda**. O-4 abierto en ese único punto.
+
+### NO MEDIDO
+| # | NO MEDIDO | Qué lo cerraría |
+|---|---|---|
+| `F-DM1` | **Que la forma real del backend Fase 1 coincida con el espejo `§13`.** Construí contra el contrato y mocks; el backend va en paralelo | contrato E2E de QA contra el stack levantado |
+| `F-DM2` | **El `substitute` (Fase 3) end-to-end.** La UI ya lo pinta y lo agrega si viene; el backend Fase 1 aún no lo emite | cuando Fase 3 lo cablee, medir contra el detalle real |
