@@ -28873,7 +28873,7 @@ Dos columnas nullable en `Card` (procedencia cruda), + índice:
 - `@@index([regulationMark])`.
 
 Escritor único: `catalog-sync.upsertCards`, con **NO-DEGRADACIÓN** (ausente ⇒ clave no viaja ⇒ columna intacta),
-igual que `logoUrl`/imágenes (§4.39). Relación inversa aditiva `Card.metaDeckCards`.
+igual que `logoUrl`/imágenes (§4.39). **La relación inversa `Card.metaDeckCards` NO es de esta fase:** llega en **Fase 1** con el modelo `MetaDeckCard` (§12.2/§12.3). Fase 0 solo añade las dos columnas nullable + el índice en `Card`.
 
 **"Legal en Standard hoy" es DERIVADO, no persistido** (`common/standard-legality.ts`, puro):
 `regulationMark ≠ null ∧ regulationMark ∈ activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`.
@@ -28899,7 +28899,7 @@ se **persiste como no-mapeado y se registra para curar**, nunca se inventa carta
 
 **Disponibilidad + precio: se REUSA, no se reinventa.** `where` de `fetchSellable`
 (`ownerType='platform' ∧ status='listed' ∧ productType<>'sealed'`, NM) para el stock; `getReferencesBatch` +
-el `salePriceCents`/`units` de la ficha para precio y piezas concretas. `availableQty = min(qty, stockNM)`;
+el `displayPriceCents` (P, con IVA) / `units` de la ficha para precio y piezas concretas (el servicio proyecta el token neutro `priceMxnCents` = P; **nunca** viaja `salePriceCents`/`L`). `availableQty = min(qty, stockNM)`;
 compuerta `isLegalStandardNow`. Spec §3.4.
 
 **Carrito de jalón:** el carrito es de **cliente** (`frontend/src/lib/cart.ts`, array de `inventoryItemId`); el
