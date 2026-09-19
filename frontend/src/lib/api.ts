@@ -12,6 +12,7 @@ import {
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
+import * as mockDecksMeta from './mock/decks-meta';
 import type {
   Paginated,
   ListingDTO,
@@ -207,6 +208,10 @@ import type {
   GuestResendLinkResponse,
   ClaimableOrderDTO,
   ClaimOrdersResponse,
+  // §13 Decks Meta
+  DecksMetaListResponse,
+  DeckMetaDetailResponse,
+  DeckMetaPasteResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -433,6 +438,40 @@ export async function getCardDetail(cardId: string): Promise<GroupedListingDetai
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+// ---------- Decks Meta (§13) ----------
+// El carrito sigue siendo de cliente (useCart, array de inventoryItemId): estas lecturas
+// devuelven los `inventoryItemId` a agregar «de jalón»; no hay carrito servidor nuevo.
+
+/** §13 `GET /decks-meta` — top-10 del meta publicado, ordenado por rank, con cita de fuente. */
+export async function getDecksMeta(): Promise<DecksMetaListResponse> {
+  if (!config.useMocks) return apiRequest<DecksMetaListResponse>('/decks-meta');
+  return delay(mockDecksMeta.mockDecksMetaList);
+}
+
+/** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. `slug` desconocido ⇒ 404 DECK_NOT_FOUND. */
+export async function getDeckMeta(slug: string): Promise<DeckMetaDetailResponse> {
+  if (!config.useMocks) return apiRequest<DeckMetaDetailResponse>(`/decks-meta/${slug}`);
+  return delay(mockDecksMeta.mockDeckMetaDetail(slug));
+}
+
+/**
+ * §13 `POST /decks-meta/paste` — texto (formato Limitless) → misma vista de disponibilidad que el
+ * detalle. Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`. Rate-limited (`429`).
+ */
+export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DeckMetaPasteResponse>('/decks-meta/paste', { method: 'POST', body: { text } });
+  }
+  // MOCK: reproduce el candado del contrato — texto vacío ⇒ 422 (mismo shape que el backend real).
+  if (!text.trim()) {
+    throw new ApiClientError(422, {
+      code: 'DECK_LIST_UNPARSEABLE',
+      message: 'El texto está vacío o no tiene ninguna línea válida.',
+    });
+  }
+  return delay(mockDecksMeta.mockDeckMetaPaste(text));
 }
 
 // ---------- Bóveda / portafolio ----------
