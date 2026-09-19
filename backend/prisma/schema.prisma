@@ -739,6 +739,15 @@ model Card {
   // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
   numberSort             Int      @default(1000000)
   numberPrefix           String   @default("")
+  // DECKS-META §2 (Fase 0, DECKS_META_ARCH.md §2 / ARCHITECTURE §12.1) — LEGALIDAD. Crudo del
+  // proveedor, PROCEDENCIA. Nullable: promos/sets viejos sin marca, o carta aún no re-sincronizada.
+  // La escribe SOLO `catalog-sync.upsertCards` con NO-DEGRADACIÓN (ausente ⇒ la clave no viaja ⇒
+  // columna intacta), igual que `imageLargeUrl`/`logoUrl`. «Legal en Standard hoy» NO se persiste:
+  // se DERIVA en lectura por `common/standard-legality.ts` contra la ventana de `ConfigSetting`
+  // (`standard.active_regulation_marks`, `standard.banlist_card_ids`) ⇒ la rotación es una edición
+  // de config, no un backfill. `regulationMark == null` ⇒ NO legal (money-safe conservador).
+  regulationMark   String?   // pokemontcg.io RemoteCard.regulationMark ("F","G","H","I"…). scrydex: equivalente (NO MEDIDO).
+  legalStandardRaw String?   // pokemontcg.io RemoteCard.legalities.standard ("Legal"|"Banned"); ausente ⇒ null. Banda para bans explícitos.
   createdAt              DateTime @default(now())
 
   inventoryItems             InventoryItem[]
@@ -757,6 +766,8 @@ model Card {
   @@index([rarity])
   // M-26: sirve el ORDER BY del binder y de `GET /buylist/cards` con `setId` (§4.22b).
   @@index([setId, numberPrefix, numberSort])
+  // DECKS-META §2 (Fase 0): sirve la sustitución legal y la evaluación de legalidad por lote (§2.1).
+  @@index([regulationMark])
 }
 
 // v1.29 (M-31, ARCHITECTURE §4.27b) — UN producto TCGplayer (== un `productId`) bajo una carta de
