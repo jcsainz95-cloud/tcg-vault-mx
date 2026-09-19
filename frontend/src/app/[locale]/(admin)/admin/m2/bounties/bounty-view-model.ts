@@ -1,4 +1,4 @@
-import type { AdminBountyRowDTO, BountyState } from '@/types/contract';
+import type { AdminBountyRowDTO, BountyState, VariantBountyDTO } from '@/types/contract';
 
 /**
  * bounty-view-model.ts — M2 › Bounties (§28, contrato §M2-B).
@@ -16,19 +16,27 @@ import type { AdminBountyRowDTO, BountyState } from '@/types/contract';
  * y sirve para leer, no para clasificar: ⛔ está prohibido deducir el estado de su signo (§28.4).
  */
 
-/** El enum del contrato, en el orden en que lo escribe §M2-B.0. */
+/** El enum del contrato, en el orden en que lo escribe `AdminBountyRowDTO` (§M2-B.1). */
 export const BOUNTY_STATES: readonly BountyState[] = [
   'activa',
   'rebasada',
   'invalida',
   'completada',
   'apagada',
+  // ⭐ v2.2 (Q2): el sexto. Es un REGISTRO archivado, no un bounty en gestión (§M2-B.0/.9).
+  'despublicada',
 ];
 
 /**
- * Los CINCO chips, **en el orden de la ATENCIÓN, no en el del enum** (§28.2a). Ninguno se funde con
+ * Los SEIS chips, **en el orden de la ATENCIÓN, no en el del enum** (§28.2a). Ninguno se funde con
  * otro y ninguno se esconde al llegar a cero: un chip que se esfuma convierte «no hay» en «no se
  * está mirando», que es el defecto que esta pantalla vino a corregir.
+ *
+ * ⭐ `despublicada` va **al final**, fuera del grupo de atención: es un archivo, no una decisión
+ * pendiente. Es además la palanca con la que se PIDEN las despublicadas —`data` las excluye por
+ * defecto y solo aparecen con `?state=despublicada` (§M2-B.1)—; su número sale del `counts`, que las
+ * reporta SIEMPRE como selector, así que el chip enseña «hay N archivadas» aunque el tablero no las
+ * liste. ⛔ No se esconde ni cuando su conteo es 0 (mismo trato que los otros cinco).
  */
 export const BOUNTY_CHIP_ORDER: readonly BountyState[] = [
   'rebasada',
@@ -36,6 +44,7 @@ export const BOUNTY_CHIP_ORDER: readonly BountyState[] = [
   'activa',
   'completada',
   'apagada',
+  'despublicada',
 ];
 
 /** Las tres opciones de orden del endpoint. ⛔ No se ofrece ninguna que el servidor no tenga. */
@@ -48,7 +57,7 @@ export const BOUNTY_SORTS = ['attention_first', 'price_desc', 'updated_desc'] as
  * `completada` y `apagada` NO lo comparten: «ya conseguí lo que quería» y «alguien decidió dejar de
  * ofrecer» no son lo mismo, y fundirlas borra el porqué dejó de pagarse.
  */
-export type BountyBlock = 'attention' | 'activa' | 'completada' | 'apagada';
+export type BountyBlock = 'attention' | 'activa' | 'completada' | 'apagada' | 'despublicada';
 
 const BLOCK_OF: Record<BountyState, BountyBlock> = {
   rebasada: 'attention',
@@ -56,6 +65,10 @@ const BLOCK_OF: Record<BountyState, BountyBlock> = {
   activa: 'activa',
   completada: 'completada',
   apagada: 'apagada',
+  // ⭐ `despublicada` tiene su PROPIO bloque, al final: no se funde con `apagada` (un *hold*
+  // reversible que sigue en el tablero) porque un archivo no es un bounty en pausa (§M2-B.0). Solo
+  // aparece cuando se pide `?state=despublicada`.
+  despublicada: 'despublicada',
 };
 
 /**
@@ -184,7 +197,8 @@ export function bountyPremium(
   curveQuoteCents: number | null,
 ): BountyPremium {
   if (!isKnownBountyState(state)) return { kind: 'unknown' };
-  if (state === 'completada' || state === 'apagada') return { kind: 'off' };
+  // `despublicada` tampoco paga: es un archivo (§M2-B.0). Mismo trato que `completada`/`apagada`.
+  if (state === 'completada' || state === 'apagada' || state === 'despublicada') return { kind: 'off' };
   if (priceCents == null || priceCents <= 0) return { kind: 'noPrice' };
   if (curveQuoteCents == null || curveQuoteCents <= 0) return { kind: 'noRate' };
   const diff = priceCents - curveQuoteCents;
@@ -309,4 +323,30 @@ export function raisesSpend(stored: BountyDraft, draft: BountyDraft): boolean {
   if (draft.priceCents != null && (stored.priceCents == null || draft.priceCents > stored.priceCents)) return true;
   if (draft.targetQty != null && (stored.targetQty == null || draft.targetQty > stored.targetQty)) return true;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// ⭐ ELIMINAR un bounty — la RAMA la decide el SERVIDOR (§M2-B.9), aquí solo se LEE el resultado
+// ---------------------------------------------------------------------------
+
+/**
+ * Qué pasó tras un `DELETE …/bounty`, **leído del DTO que devolvió el servidor** (§M2-B.9). El
+ * contrato devuelve el `VariantPricingDTO` resultante —en vez de un `204`— precisamente *«para que
+ * la UI refleje «borrado» vs «despublicado» sin una segunda lectura»*, y esto es esa lectura:
+ *
+ * - **`unpublished`** — el bounty se **despublicó** (rama B): el servidor lo hace **iff** había
+ *   historia de compra (`acquiredQty > 0 ∨ completedAt != null`), y en ese caso **conserva** esos
+ *   dos campos en la respuesta. Es exactamente la condición con la que ramifica el servidor, así que
+ *   leerla del DTO conservado no es re-derivar el estado: es leer lo que el servidor ya decidió.
+ * - **`deleted`** — el bounty se **borró** (rama A): la respuesta trae el `bounty` ausente o limpio
+ *   (sin historia que conservar).
+ *
+ * ⛔ No se recalcula la rama comparando importes ni cruzando banderas: se mira SOLO si la historia
+ * sobrevivió en el DTO, que es la huella que la rama B deja y la A no.
+ */
+export type BountyDeleteOutcome = 'deleted' | 'unpublished';
+
+export function bountyDeleteOutcome(bounty: VariantBountyDTO | null | undefined): BountyDeleteOutcome {
+  if (bounty && (bounty.acquiredQty > 0 || bounty.completedAt != null)) return 'unpublished';
+  return 'deleted';
 }

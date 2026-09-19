@@ -2388,6 +2388,7 @@
           "activa": "ACTIVE {count}",
           "completada": "COMPLETED {count}",
           "apagada": "OFF {count}",
+          "despublicada": "UNPUBLISHED {count}",
           "atLeast": "{label} ≥ {count}",
           "atLeastAria": "At least {count}; the list is incomplete.",
           "loadingAria": "Counting bounties"
@@ -2407,7 +2408,8 @@
           "attentionHint": "These are on and paying no premium. Each one needs a decision.",
           "activa": "ACTIVE · {count}",
           "completada": "COMPLETED · {count}",
-          "apagada": "OFF · {count}"
+          "apagada": "OFF · {count}",
+          "despublicada": "UNPUBLISHED · {count}"
         },
         "list": {
           "truncated": "This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by status or search for a card to see them all."
@@ -2430,12 +2432,14 @@
           "invalida": "NO PRICE",
           "completada": "COMPLETED",
           "apagada": "OFF",
+          "despublicada": "UNPUBLISHED",
           "unknown": "UNCLASSIFIED",
           "activaAria": "Active: it pays above the current rate and appears in Top Bounties.",
           "rebasadaAria": "Outbid: the current rate pays more than your offer, so we pay the rate and the card doesn't appear in Top Bounties.",
           "invalidaAria": "No price: this bounty is on, but it has no price to pay with. It pays nothing and doesn't appear in Top Bounties. Give it a price or turn it off.",
           "completadaAria": "Completed on {date}: it turned itself off when it hit the target.",
           "apagadaAria": "Off: someone turned it off. Not published and no premium paid. The counter is kept.",
+          "despublicadaAria": "Unpublished: this bounty was deleted once it already had purchases, so the record is kept but it leaves the board and the showcase. It pays nothing and isn't published; you can publish it again with Turn on.",
           "unknownAria": "Status not recognised by this screen. We can't say whether it's paying; open it in the binder."
         },
         "premium": {
@@ -2459,7 +2463,11 @@
           "turnOn": "Turn on",
           "turnOnHint": "Check the price before turning it on: the current rate may have moved since you turned it off.",
           "setPrice": "Set a price",
-          "setPriceAria": "Set a price for the bounty on {card}"
+          "setPriceAria": "Set a price for the bounty on {card}",
+          "delete": "Delete",
+          "deleteAria": "Delete the bounty for {card}",
+          "deletedToast": "Bounty deleted · {card}. Nothing had been bought under it, so it was removed.",
+          "unpublishedToast": "Bounty unpublished · {card}. It already had purchases under it, so the record is kept and it leaves the board."
         },
         "progress": {
           "value": "{acquired} of {target}",
@@ -2488,6 +2496,11 @@
           "price": "Before {before} · now {after} · {delta} more per card.",
           "target": "Target: before up to {before} · now up to {after}.",
           "cta": "Yes, pay {amount}"
+        },
+        "delete": {
+          "title": "Delete this bounty",
+          "body": "If nothing has been bought under this bounty, it's deleted. If something was already bought, it's only unpublished (it leaves the board) and the record is kept. The server decides which one based on the purchase history.",
+          "cta": "Delete"
         },
         "saved": "Bounty saved.",
         "savedNowActive": "Saved: it now pays above the rate and is back in Top Bounties.",

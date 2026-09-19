@@ -2276,9 +2276,14 @@ export interface PublicBountiesResponse {
 //
 // ⛔ `state` LO DERIVA EL SERVIDOR y la UI lo OBEDECE: no se recalcula cruzando
 // `enabled`/`effective`/`completedAt` ni comparando importes en pantalla (§M2-B.1, §28.0 regla
-// «el estado lo dice el servidor»). Son CINCO valores del enum del contrato —en español, no
+// «el estado lo dice el servidor»). Son SEIS valores del enum del contrato —en español, no
 // `outbid`/`active`/`off`—; traducirlos a rótulos es trabajo de i18n, jamás un enum paralelo.
-export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada';
+//
+// ⭐ v2.2 (Q2, §M2-B.0/.9): el sexto, `despublicada`, es el bounty que se ELIMINÓ teniendo historia
+// (`DELETE …/bounty` rama B). Se conserva el registro pero sale de la vitrina pública Y del tablero
+// admin por defecto (§M2-B.1: `data` lo excluye salvo con `?state=despublicada`; `counts` lo trae
+// SIEMPRE como selector). Va AL FINAL del enum, en el mismo orden en que lo escribe el `AdminBountyRowDTO`.
+export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada' | 'despublicada';
 
 /** `sort` del endpoint. `attention_first` es el DEFAULT (decisión de producto de §M2-B.1). */
 export type AdminBountySort = 'attention_first' | 'price_desc' | 'updated_desc';
@@ -2292,8 +2297,13 @@ export interface AdminBountyProgressDTO {
 
 /**
  * `AdminBountyCountsDTO` — el conteo por estado SOBRE EL CONJUNTO CLASIFICADO, jamás sobre la
- * página. **Cinco claves, las mismas del enum**: `invalida` tiene la suya y no se funde en
- * `activa`. Ignora el filtro `state` y respeta los de identidad (`setId`, `finish`, `q`).
+ * página. **Seis claves, las mismas del enum** (⭐ v2.2: `despublicada` entró como sexta): `invalida`
+ * tiene la suya y no se funde en `activa`. Ignora el filtro `state` y respeta los de identidad
+ * (`setId`, `finish`, `q`).
+ *
+ * ⚠️ **`counts` reporta SIEMPRE las seis cubetas, `despublicada` incluida** (§M2-B.1): es el
+ * **selector** con el que el dueño VE cuántas hay archivadas aunque el tablero por defecto no las
+ * liste, y puede pedirlas. Es **`data`** quien excluye `despublicada` por defecto, **no** `counts`.
  */
 export type AdminBountyCountsDTO = Record<BountyState, number>;
 
