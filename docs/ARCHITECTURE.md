@@ -14139,10 +14139,14 @@ persistirse; §M2-B.0). ⛔ **`BountyState` NO es un enum de Prisma** (es unión
 
 **Re-publicar tras despublicar / recrear tras borrar (semántica de retorno).** Un `PUT … bounty:{enabled:true,…}`
 posterior **limpia `bountyUnpublishedAt=null`** (vuelve a la vitrina y al tablero) y pasa por el gate `BOUNTY_BELOW_RULE`
-como cualquier alta. ⚠️ **Los contadores de historia (`bountyAcquiredQty`, `bountyCompletedAt`) NO se reinician al
-re-publicar** — misma doctrina que M-46 (*copiar sí, adivinar no*; no se borra historia de dinero). *Si el dueño quiere
-un bounty «desde cero» con el contador en 0, eso es una decisión de negocio distinta y va a `PROJECT.md` (regla de
-conflicto: no lo asumo aquí).* Contrato: §M2-B.9.
+como cualquier alta. ⚠️ **La historia de DINERO (`bountyAcquiredQty`) NO se reinicia al re-publicar** — misma doctrina
+que M-46 (*copiar sí, adivinar no*; no se borra historia de dinero). **⚠️ Enmienda 2026-09-19 (reconcilia el re-armado
+P-22 §4.36.6 criterios 90-91 con §M2-B.9):** `bountyCompletedAt` **SÍ se limpia** al re-publicar
+(`variant-controls.service.ts:516`, re-armado P-22): un bounty re-encendido está `activa`, **no** `completada`, y
+conservar el sello de «objetivo alcanzado» sobre un bounty que vuelve a pagar sería incoherente. El *«por qué dejó de
+pagarse»* **no se pierde**: vive en el `AuditLog` (`bounty.unpublished`, con pre-imagen), no en el sello de estado.
+*Si el dueño quiere un bounty «desde cero» con el contador `bountyAcquiredQty` en 0, eso es una decisión de negocio
+distinta y va a `PROJECT.md` (regla de conflicto: no lo asumo aquí).* Contrato: §M2-B.9.
 
 **Criterios de prueba que deben FALLAR si se implementa mal** (el modelo fuerte los escribe primero):
 - **Rama A borra:** alta de bounty sin compra (`acquiredQty=0`, no completado) → `DELETE` → la variante ya no trae
@@ -14221,7 +14225,8 @@ fallar antes de tocar producción.
     (`bounty.deleted`/`bounty.unpublished`) con pre-imagen; `404 BOUNTY_NOT_FOUND` si no hay bounty en alcance;
     idempotente si ya `despublicada`.
   - `mergeBounty` + persistencia: al `enabled:true` **limpia `bountyUnpublishedAt=null`** (re-publicar); **no** reinicia
-    `bountyAcquiredQty`/`bountyCompletedAt`.
+    `bountyAcquiredQty` (⚠️ enmienda 2026-09-19: `bountyCompletedAt` **sí** se limpia al re-publicar por el re-armado
+    P-22 `:516` — un bounty re-encendido está `activa`, no `completada`; ver §4.36.6b).
   - la limpieza de fila vacía (`:147-164`): añade `bountyUnpublishedAt == null` al predicado de «fila vacía» (una
     `despublicada` **no** califica como vacía — pero como siempre tiene historia, ya no calificaba; el guard es explícito).
 - `backend/src/modules/pricing/*.controller.ts` (el controller de `variant-controls`, **no** el de `admin/pricing/bounties`
