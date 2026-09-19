@@ -12,6 +12,7 @@ import type {
   DecksMetaListResponse,
   DeckMetaDetailResponse,
   DeckMetaPasteResponse,
+  DecksMetaPreviewResponse,
   MetaDeckGroupsDTO,
   MetaDeckLineDTO,
 } from '@/types/contract';
@@ -136,3 +137,48 @@ export function mockDeckMetaDetail(slug: string): DeckMetaDetailResponse {
 export function mockDeckMetaPaste(text: string): DeckMetaPasteResponse {
   return { groups: sampleGroups() };
 }
+
+/**
+ * MOCK del ensayo Fase 2 (`GET /admin/decks-meta/preview`) para demo / smoke E2E sin backend. Un
+ * reporte dry-run que PUBLICARÍA: canary en verde, tres decks en banda (~60). El backend real
+ * tarda ~30-45s (egress a Limitless); aquí es instantáneo.
+ */
+export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
+  skipped: false,
+  mode: 'dryrun',
+  report: {
+    mode: 'dryrun',
+    formatCode: 'H-F',
+    formatLabel: 'Standard (H–F)',
+    autopublish: false,
+    startedAt: '2026-09-19T12:00:00Z',
+    finishedAt: '2026-09-19T12:00:38Z',
+    urlsFetched: ['home', 'list/abc123', 'list/def456', 'list/ghi789'],
+    decks: [
+      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, legalityDrops: 0, inBand: true },
+      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, inBand: true },
+      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, legalityDrops: 0, inBand: true },
+    ],
+    canary: {
+      verdict: 'PUBLISH',
+      inBandDeckCount: 3,
+      reason: null,
+      checks: [
+        { id: 'C1', ok: true, measured: 3, threshold: 3, label: 'arquetipos en banda (3) ≥ 3' },
+        { id: 'C2', ok: true, measured: 0, threshold: 0, label: 'decks fuera de banda (0) = 0' },
+        { id: 'C3', ok: true, measured: 0.97, threshold: 0.9, label: 'ratio de match (0.97) ≥ 0.9' },
+        { id: 'C4', ok: true, measured: 0.03, threshold: 0.1, label: 'ratio unmatched_set (0.03) ≤ 0.1' },
+        { id: 'C5', ok: true, measured: 8, threshold: 3, label: 'home parseable, bloques con listId (8) ≥ 3' },
+      ],
+    },
+    verdict: 'PUBLISH',
+    wouldPublish: true,
+    applied: false,
+    persistedCount: 0,
+    publishedSlugs: [],
+    supersededListIds: [],
+    manualConflicts: ['gardevoir-ex'],
+    pausedSkipped: [],
+    errors: [],
+  },
+};

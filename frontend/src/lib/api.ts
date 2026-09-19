@@ -212,6 +212,7 @@ import type {
   DecksMetaListResponse,
   DeckMetaDetailResponse,
   DeckMetaPasteResponse,
+  DecksMetaPreviewResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -472,6 +473,17 @@ export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse
     });
   }
   return delay(mockDecksMeta.mockDeckMetaPaste(text));
+}
+
+/**
+ * §13 Fase 2 — ADMIN dry-run: `GET /admin/decks-meta/preview` (rol `vault_operator+`). Corre el
+ * pipeline REAL en dry-run y devuelve el reporte INLINE sin escribir nada. ⚠️ Egress real a un
+ * tercero (Limitless) ⇒ tarda ~30-45s y puede fallar por red; el llamador muestra carga y reintento.
+ */
+export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
+  if (!config.useMocks) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
+  // MOCK: el reporte de ejemplo es instantáneo (el backend real dispara el egress lento).
+  return delay(mockDecksMeta.mockDecksMetaPreview, 400);
 }
 
 // ---------- Bóveda / portafolio ----------

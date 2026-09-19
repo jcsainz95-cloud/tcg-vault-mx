@@ -4920,3 +4920,79 @@ export interface DeckMetaDetailResponse {
 export interface DeckMetaPasteResponse {
   groups: MetaDeckGroupsDTO;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────
+ * §13 Fase 2 (auto-fetch) — ADMIN dry-run. `GET /admin/decks-meta/preview` (rol `vault_operator+`)
+ * corre el pipeline REAL (home → listas → parse → match → legalidad → canary) en dry-run y
+ * devuelve el reporte INLINE **sin escribir NADA**. Es la vía de verificación en prod: superficie
+ * de OPERADOR, no de cliente, por eso vive aquí y no en la superficie pública §13.
+ *
+ * Los tipos ESPEJAN `RefreshReport`/`RefreshRunResult` del backend
+ * (`backend/src/modules/decks-meta/decks-meta-refresh.service.ts` + `canary.ts`). No se inventan
+ * campos: si el backend cambia el shape, se actualiza aquí a mano (no hay generación de tipos).
+ * ────────────────────────────────────────────────────────────────────────────────────────── */
+
+export interface DecksMetaCanaryCheck {
+  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5';
+  ok: boolean;
+  measured: number;
+  threshold: number;
+  /** Etiqueta de procedencia del backend (NO es i18n de UI: la pantalla la rotula por `id`). */
+  label?: string;
+}
+
+export interface DecksMetaCanaryResult {
+  verdict: 'PUBLISH' | 'NO_PUBLISH';
+  checks: DecksMetaCanaryCheck[];
+  reason: string | null;
+  inBandDeckCount: number;
+}
+
+export interface DecksMetaDeckReport {
+  archetypeId: string;
+  name: string | null;
+  rank: number | null;
+  sharePct: number | null;
+  listId: string;
+  /** Nº de líneas parseadas de la lista. */
+  cardsParsed: number;
+  /** Σ de cantidades (un deck estándar = 60). */
+  sumQuantity: number;
+  matched: number;
+  total: number;
+  matchStatusBreakdown: Record<string, number>;
+  legalityDrops: number;
+  /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
+  inBand: boolean;
+  error?: string;
+}
+
+export interface DecksMetaRefreshReport {
+  mode: 'live' | 'dryrun';
+  formatCode: string | null;
+  formatLabel: string;
+  autopublish: boolean;
+  startedAt: string;
+  finishedAt: string;
+  urlsFetched: string[];
+  decks: DecksMetaDeckReport[];
+  canary: DecksMetaCanaryResult;
+  verdict: 'PUBLISH' | 'NO_PUBLISH';
+  wouldPublish: boolean;
+  applied: boolean;
+  persistedCount: number;
+  publishedSlugs: string[];
+  supersededListIds: string[];
+  manualConflicts: string[];
+  pausedSkipped: string[];
+  errors: string[];
+}
+
+/**
+ * La respuesta del endpoint es el `RefreshRunResult`: o bien corrió (`skipped:false` + `report`),
+ * o bien se saltó por single-flight (`ALREADY_RUNNING`). En dry-run el dial `off` NO aplica (el
+ * dry-run se fuerza), así que en la práctica sólo llega `ALREADY_RUNNING`, pero se tipa completo.
+ */
+export type DecksMetaPreviewResponse =
+  | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
+  | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };
