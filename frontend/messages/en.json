@@ -1230,6 +1230,7 @@
       "m9": "M9 · Reports",
       "m10": "M10 · Config",
       "m11": "M11 · Sealed",
+      "m12": "M12 · Meta dry-run",
       "vaults": "Customer vaults",
       "m2Bounties": "M2 · Bounties"
     },
@@ -2849,6 +2850,73 @@
         "currentGroup": "Connected now to: {groupId}",
         "setMainCta": "Connect and refresh",
         "unlinkCta": "Disconnect"
+      }
+    },
+    "decksMetaRefresh": {
+      "title": "Dry-run — meta decks",
+      "subtitle": "Runs the automatic meta-deck fetch in test mode: pulls everything from Limitless, checks it, and tells you whether it would publish — without touching anything already live.",
+      "runButton": "Run dry-run",
+      "running": "Pulling from Limitless… (~30-45s)",
+      "runningNote": "It takes a while because it downloads the lists for real, one by one. Don't close the tab.",
+      "error": "The dry-run couldn't run. It's usually a network issue with Limitless; please try again.",
+      "retry": "Retry",
+      "alreadyRunning": "A dry-run is already in progress. Wait for it to finish and try again.",
+      "empty": "You haven't run the dry-run yet. Press «Run dry-run» to see what would happen, without publishing anything.",
+      "verdict": {
+        "publish": "WOULD PUBLISH",
+        "noPublish": "WOULD NOT PUBLISH",
+        "publishBody": "All checks passed. With automatic fetching turned on, this would be published.",
+        "noPublishBody": "A check didn't pass. Nothing would be published; the last good list would be kept."
+      },
+      "mode": {
+        "label": "Mode",
+        "dryrun": "dry-run — publishes nothing",
+        "live": "live — publishes",
+        "off": "off"
+      },
+      "format": "Format",
+      "autopublish": {
+        "label": "Auto-publish",
+        "on": "on",
+        "off": "off"
+      },
+      "ranAt": "Ran {date}",
+      "urlsFetched": "{count, plural, one {# page pulled} other {# pages pulled}}",
+      "notLivePrompt": "Automatic fetching is in test mode; it gets turned on after the dry-run is validated in production.",
+      "decks": {
+        "title": "Per deck",
+        "empty": "The dry-run returned no decks."
+      },
+      "columns": {
+        "deck": "Deck",
+        "rank": "#",
+        "share": "% of meta",
+        "cardsParsed": "Cards read",
+        "sumQuantity": "Total summed",
+        "matched": "Matched",
+        "legalityDrops": "Legality drops"
+      },
+      "deckError": "This deck couldn't be read: {error}",
+      "sumOk": "≈ 60 cards",
+      "canary": {
+        "title": "Checks",
+        "measured": "measured {measured} · threshold {threshold}",
+        "ok": "pass",
+        "fail": "fail"
+      },
+      "checks": {
+        "C1": "archetypes found",
+        "C2": "60 cards per deck",
+        "C3": "cards recognized",
+        "C4": "cards without edition",
+        "C5": "home page readable"
+      },
+      "notes": {
+        "title": "Notes",
+        "manualConflicts": "Manual decks left untouched",
+        "pausedSkipped": "Paused decks (skipped)",
+        "errors": "Errors",
+        "none": "No notes or errors."
       }
     },
     "m10": {
