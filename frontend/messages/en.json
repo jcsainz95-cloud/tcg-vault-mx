@@ -79,7 +79,7 @@
         }
       }
     },
-    "decksMeta": "Meta decks"
+    "decksMeta": "Meta Battle Decks"
   },
   "account": {
     "eyebrow": "ACCOUNT",
@@ -3804,7 +3804,7 @@
     "requoting": "Refreshing the prices of your list"
   },
   "decksMeta": {
-    "metaTitle": "Meta decks",
+    "metaTitle": "Meta Battle Decks",
     "metaSubtitle": "The Standard-format top 10, matched against our inventory: what we have, at what price, and only what's currently legal to play.",
     "pasteLink": "Paste my list",
     "list": {
@@ -3821,7 +3821,7 @@
       "emptyBody": "As soon as we publish the meta top 10, it'll show up here."
     },
     "detail": {
-      "back": "Back to meta decks",
+      "back": "Back to Meta Battle Decks",
       "legalityVerified": "Standard-legal · verified {date}",
       "source": "Source: {source}",
       "sourceTournament": "Tournament: {tournament}",
