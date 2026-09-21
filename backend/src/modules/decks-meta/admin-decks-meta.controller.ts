@@ -12,7 +12,9 @@ import {
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuditService } from '../audit/audit.service';
 import { DecksMetaService } from './decks-meta.service';
+import { DecksMetaRefreshService } from './decks-meta-refresh.service';
 
 /**
  * DECKS-META §13 (Fase 1) — endpoints ADMIN (rol `vault_operator+`). Curaduría manual (fallback que
@@ -52,12 +54,44 @@ class StandardLegalityDto {
 @Controller('admin/decks-meta')
 @Roles(Role.vault_operator, Role.super_admin)
 export class AdminDecksMetaController {
-  constructor(private readonly service: DecksMetaService) {}
+  constructor(
+    private readonly service: DecksMetaService,
+    private readonly refresh: DecksMetaRefreshService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Lista con estado (published, pausedByOperator, source, rank, fetchedAt, no-mapeadas). */
   @Get()
   list() {
     return this.service.adminList();
+  }
+
+  /**
+   * DECKS-META Fase 2 (§8) — DRY-RUN / preview: corre el pipeline REAL (home → listas → parse →
+   * match → legalidad → canary) y devuelve el reporte INLINE **sin escribir NADA publicado**. Es la
+   * vía de verificación en prod (el sandbox bloquea el egress a Limitless). Operador (vault_operator+).
+   *
+   * Dispara egress real a un tercero (Limitless) ⇒ se AUDITA como el disparo POST (traza de quién
+   * verificó y cuándo), aunque en dry-run no escriba nada publicado.
+   */
+  @Get('preview')
+  async preview(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.refresh.run({ dryRun: true });
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.decks_meta_preview.run',
+      entityType: 'Job',
+      entityId: 'decks-meta-preview',
+      after: {
+        skipped: result.skipped,
+        mode: result.mode,
+        ...(result.skipped
+          ? { reason: result.reason }
+          : { verdict: result.report.verdict, applied: result.report.applied, deckCount: result.report.decks.length }),
+      },
+    });
+    return result;
   }
 
   /** Reporte de líneas no mapeadas de listas publicadas, para curar (set+número crudos). */

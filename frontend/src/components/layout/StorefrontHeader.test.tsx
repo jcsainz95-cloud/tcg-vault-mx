@@ -51,7 +51,7 @@ describe('StorefrontHeader — sesión', () => {
 
   /**
    * v1.67 — DESIGN_SYSTEM §33.1 (candado CA-1 de §33.16 R10): con sesión el header pinta
-   * EXACTAMENTE seis entradas (la 6ª, «Decks del meta», entra por decisión del dueño) y NINGUNA
+   * EXACTAMENTE seis entradas (la 6ª, «Meta Battle Decks», entra por decisión del dueño) y NINGUNA
    * es el nombre; «Cerrar sesión» sale del header (vive en «Mi cuenta», regla 8) y «Mi cuenta»
    * ocupa el mismo hueco con el mismo rótulo (→ /account).
    */
@@ -63,8 +63,8 @@ describe('StorefrontHeader — sesión', () => {
     expect(account).toHaveAttribute('href', '/account');
     const nav = account.closest('nav') as HTMLElement;
     const labels = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent?.trim());
-    expect(labels).toEqual(['Comprar', 'Vender', 'Decks del meta', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
-    expect(screen.getByRole('link', { name: 'Decks del meta' })).toHaveAttribute('href', '/decks-meta');
+    expect(labels).toEqual(['Comprar', 'Vender', 'Meta Battle Decks', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
+    expect(screen.getByRole('link', { name: 'Meta Battle Decks' })).toHaveAttribute('href', '/decks-meta');
     expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Cerrar sesión/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Cerrar sesión')).not.toBeInTheDocument();

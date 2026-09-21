@@ -1,3 +1,29 @@
+# NOTA DE RESIDUALES ACEPTADOS — **DECKS-META FASE 2 · AUTO-FETCH (fix pass)** · rama `claude/be-decksmeta-f2` · 2026-09-19
+
+> **Autoría:** escrita por **backend** por indicación del orquestador (el detalle vive en
+> `docs/specs/DECKS_META_F2_AUTOFETCH.md §12`); **seguridad** conserva el veredicto formal del release.
+> Fase 2 pasó los tres gates (QA/techlead/seguridad) sin bloqueantes; este fix pass endurece hallazgos
+> MEDIA/nits y deja registrados los residuales aceptados.
+>
+> - **[CORREGIDO · anti-SSRF]** El cliente de fetch pasó de `redirect:'follow'` (validaba `res.url`
+>   *después* de seguir el 3xx — hueco de blind-SSRF sobre una superficie de egress nueva) a
+>   `redirect:'manual'`: ante un 3xx valida el `origin` del `Location` contra el allowlist **antes** de
+>   seguirlo y **rechaza off-host sin traerlo**, con cota de saltos. Cubierto por
+>   `backend/src/modules/decks-meta/limitless-fetch.client.spec.ts`.
+> - **[ACEPTADO · DNS-rebinding]** Host FIJO (`https://limitlesstcg.com`, no controlado por entrada);
+>   sin secretos ni red interna alcanzable ⇒ residual aceptado, sin pin de IP.
+> - **[ACEPTADO · single-flight en memoria]** Suficiente a **`numReplicas:1`** (`railway.json` /
+>   `DEVOPS_NOTES §20.3`, worker BullMQ in-process). El lock de advisory en BD para multi-instancia
+>   queda **DIFERIDO**, gateado detrás de separar el worker por §20.3.
+> - **[NO ALCANZABLE · `nth-check@2.1.1`]** Aviso de ReDoS es `<2.0.1`; la transitiva es **2.1.1**
+>   (parcheada) y los selectores CSS son **estáticos** ⇒ ruta no alcanzable.
+>
+> Correcciones de correctitud del mismo pase (no de seguridad): `MetaFetchRun.deckCount` = arquetipos
+> persistidos reales; `note` siempre JSON válido dentro del cap; `GET /admin/decks-meta/preview`
+> ahora auditado (egress a un tercero); log de discrepancia de `formatCode` (gana el `<h2>`, §2.1).
+
+---
+
 # VEREDICTO BLUE TEAM — **DECKS-META FASE 1 · BACKEND (disponibilidad/legalidad + endpoints público+admin)** · SHA **`d77eb699`** (rama `feat/decks-meta`, no-ancestro de `main`) · base `origin/production` no medida · 2026-09-19
 
 > ## ⭐ VEREDICTO — **APROBADO** para `d77eb699`
