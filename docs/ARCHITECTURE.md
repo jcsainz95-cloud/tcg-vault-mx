@@ -29126,31 +29126,51 @@ Ninguna otra tabla cambia. Los índices existentes se conservan.
 > **`API_CONTRACT.md §13`**. Origen: borrador PO `docs/specs/DECKS_META_DRAFT.md`. **Estado: DISEÑO, no
 > construido.** Base `origin/production cd0bf02c`.
 
-### 12.1 Prerequisito — legalidad en `Card` (zona compartida)
+### 12.1 Legalidad — CONFÍA EN LA FUENTE (SUP-LEG, 2026-09-21, decisión del dueño)
 
-**Medido (2026-09-18):** `Card` no tiene legalidad ni regulation mark, y `pokemontcg-io.client.ts` no los
-mapea (grep `regulationmark|legalit` sobre `backend/src` = 0). El endpoint `GET /v2/cards` no usa `select=`, así
-que el doc **ya se descarga entero** (precedente `cardmarket`) ⇒ mapear cuesta **cero requests**. Confirmar el
-payload en vivo es **NO MEDIDO** (egress a `api.pokemontcg.io` = 403 en dev).
+> **⚠️ SUPERSEDIDO (2026-09-21).** El modelo original de esta sección —legalidad DERIVADA en lectura contra una
+> ventana de marcas de regulación (`standard.active_regulation_marks`) + banlist en `ConfigSetting`, editable por
+> el operador— **se retira para Meta Battle Decks**. Razón, del dueño y medida: **Limitless solo publica decks
+> legales en el Standard vigente** —no lista un meta-deck ilegal—, así que re-filtrar por NUESTRA propia ventana
+> era (a) redundante, (b) carga de mantenimiento (rotación anual a mano) y (c) la **causa real** del bug
+> «casi todo sale como rotada»: nuestras marcas de ventana/catálogo no cuadraban y tiraban cartas legales.
+> Cierra **P-LEG-CAUSE** y **P-LEG-AUTODERIVE**.
 
-Dos columnas nullable en `Card` (procedencia cruda), + índice:
-- `regulationMark String?` — `RemoteCard.regulationMark` ("F"/"G"/"H"/"I"…); scrydex equivalente (NO MEDIDO).
+**El nuevo modelo (trust-source):** una carta que aparece en una decklist de Limitless en Standard es **legal por
+definición de la fuente**. La casamos por set+número (`ptcgoCode`+`number`, la impresión exacta) y la **ofrecemos**
+(precio + «Agregar» / incluir en «agregar de jalón») **si y solo si tenemos esa impresión en stock**. Sin chequeo
+de marca de regulación, sin banlist, sin ventana.
+
+**La legalidad deja de ser un estado que computamos para los meta-decks.** Una línea de un meta-deck es exactamente
+uno de:
+- **disponible** — casada + en stock, con precio y piezas (`unitInventoryItemIds`).
+- **no la tenemos** — casada pero sin stock (o no está en catálogo). No aporta piezas; no es un error, no se oculta.
+- **no identificada** — no casó por set+número (`matchStatus ≠ matched`); sin carta/precio (nunca se inventa).
+
+El concepto **«rotada / no vigente» desaparece** de los meta-decks. No hay `isLegalStandardNow`, ni
+`loadLegalityConfig`, ni `legalityVerifiedAt`, ni el bloque «Diagnóstico de legalidad» / «Caídas por legalidad» del
+ensayo (F2), ni la «Ventana de legalidad» del operador (M12).
+
+**Edge — ban explícito del proveedor:** pokemontcg.io expone `legalStandardRaw` (`'Banned'`) por carta, gratis y
+automático (el sync ya lo guarda). **Decisión: NO se conserva ningún chequeo de `'Banned'` para meta-decks —
+confianza pura en la fuente.** Razón: la premisa (Limitless solo publica decks legales) ya garantiza que no hay
+cartas prohibidas en el origen; la única forma realista de que `'Banned'` dispare es un **desajuste de datos del
+proveedor por impresión** —exactamente la clase de caída-sorpresa que este cambio elimina— y es la preferencia
+declarada del dueño («confío en Limitless, sin excepciones que yo tenga que pensar»). `legalStandardRaw` **queda
+como columna cruda** (abajo); solo se deja de GATEAR con ella.
+
+**Columnas de `Card` — SE QUEDAN COMO ESTÁN** (hechos crudos del proveedor, inofensivos; el catálogo general puede
+usarlos luego). Escritor único intacto: `catalog-sync.upsertCards`, con **NO-DEGRADACIÓN**, igual que
+`logoUrl`/imágenes (§4.39).
+- `regulationMark String?` — `RemoteCard.regulationMark` ("F"/"G"/"H"/"I"…).
 - `legalStandardRaw String?` — `RemoteCard.legalities.standard` ("Legal"|"Banned"); ausente ⇒ null.
 - `@@index([regulationMark])`.
 
-Escritor único: `catalog-sync.upsertCards`, con **NO-DEGRADACIÓN** (ausente ⇒ clave no viaja ⇒ columna intacta),
-igual que `logoUrl`/imágenes (§4.39). **La relación inversa `Card.metaDeckCards` NO es de esta fase:** llega en **Fase 1** con el modelo `MetaDeckCard` (§12.2/§12.3). Fase 0 solo añade las dos columnas nullable + el índice en `Card`.
-
-**"Legal en Standard hoy" es DERIVADO, no persistido** (`common/standard-legality.ts`, puro):
-`regulationMark ≠ null ∧ regulationMark ∈ activeMarks ∧ legalStandardRaw ≠ 'Banned' ∧ externalId ∉ banlist`.
-`activeMarks`/`banlist` viven en `ConfigSetting` (`standard.active_regulation_marks`,
-`standard.banlist_card_ids`). **La rotación = editar `active_regulation_marks`** (no re-sync, no backfill;
-paralelo a `rarity`→`rarityCanonical`). `regulationMark == null` ⇒ **no legal** (money-safe conservador).
-
-**Migración aditiva** (`ADD COLUMN` nullable, no reescribe, no bloquea) + seed idempotente de config. **Rollback
-limpio:** drop de 2 columnas + índice + config; como la legalidad es derivada y nada de precio/órdenes depende
-de ellas, revertir + apagar el flag no deja rastro. **Backfill:** progresivo vía `catalog-metadata-sync`
-(idempotente por `externalId`); verificación de payload en **prod**; en dev/CI, **fixture**.
+**Disposición de config/migración (aditiva / no-op, sin migración destructiva):** la migración F0
+(`20260919120000_decks_meta_f0_legality`) y sus columnas **se dejan tal cual**. Las filas
+`ConfigSetting['standard.active_regulation_marks']` y `['standard.banlist_card_ids']` quedan **inertes** (ya sin
+lector) — no se borran (borrar es riesgo sin beneficio). La columna `MetaDeckList.activeMarksSnapshot` (NOT NULL)
+se conserva; a partir de ahora se escribe `[]` (procedencia: «sin ventana aplicada»). No hace falta migración nueva.
 
 ### 12.2 Módulo `decks-meta` (backend nuevo, disjunto) + `(storefront)/decks-meta` (frontend)
 
@@ -29165,11 +29185,11 @@ se **persiste como no-mapeado y se registra para curar**, nunca se inventa carta
 
 **Disponibilidad + precio: se REUSA, no se reinventa.** `where` de `fetchSellable`
 (`ownerType='platform' ∧ status='listed' ∧ productType<>'sealed'`, NM) para el stock; `getReferencesBatch` +
-el `displayPriceCents` (P, con IVA) / `units` de la ficha para precio y piezas concretas (el servicio proyecta el token neutro `priceMxnCents` = P; **nunca** viaja `salePriceCents`/`L`). `availableQty = min(qty, stockNM)`;
-compuerta `isLegalStandardNow`. Spec §3.4.
+el `displayPriceCents` (P, con IVA) / `units` de la ficha para precio y piezas concretas (el servicio proyecta el token neutro `priceMxnCents` = P; **nunca** viaja `salePriceCents`/`L`). `availableQty = min(qty, stockNM)`.
+**Sin compuerta de legalidad** (SUP-LEG §12.1): se ofrece toda línea CASADA con stock. Spec §3.4.
 
 **Carrito de jalón:** el carrito es de **cliente** (`frontend/src/lib/cart.ts`, array de `inventoryItemId`); el
-servidor devuelve los `inventoryItemId` disponibles+legales por línea y el front hace `useCart().add` en batch.
+servidor devuelve los `inventoryItemId` disponibles (casados + en stock) por línea y el front hace `useCart().add` en batch.
 Checkout/quote intactos (el re-quote v1.21.3 ya revalida y poda). Spec §6.
 
 **Job semanal `decks-meta-refresh`** (BullMQ, cron env `DECKS_META_REFRESH_CRON`, patrón `scheduler.service.ts`):

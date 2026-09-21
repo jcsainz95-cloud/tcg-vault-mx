@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DecksMetaDialControl } from './DecksMetaDialControl';
-import { StandardLegalityControl } from './StandardLegalityControl';
 
 /**
  * §13 Fase 2 — pantalla de OPERADOR para el ENSAYO (dry-run) del auto-fetch de decks del meta.
@@ -51,12 +50,7 @@ export function M12View() {
 
       <hr className="border-border" />
 
-      {/* B · Ventana de legalidad (marcas vigentes + banlist). Operador+. */}
-      <StandardLegalityControl />
-
-      <hr className="border-border" />
-
-      {/* C · Ensayo (dry-run). Sección de verificación; no publica nada. */}
+      {/* B · Ensayo (dry-run). Sección de verificación; no publica nada. */}
       <section className="flex flex-col gap-8" aria-labelledby="dmr-section-title">
       <div className="flex flex-col gap-1">
         <h2 id="dmr-section-title" className="text-h2 font-semibold">{t('title')}</h2>
@@ -183,9 +177,6 @@ function Report({ report, locale }: { report: DecksMetaRefreshReport; locale: Ap
         </ul>
       </section>
 
-      {/* ── Diagnóstico de legalidad (por qué caen las cartas) ─────────────────────────────── */}
-      <LegalityDiagnostic report={report} />
-
       {/* ── Notas (conflictos manuales, pausados, errores) ─────────────────────────────────── */}
       <Notes report={report} />
     </div>
@@ -250,14 +241,6 @@ function deckColumns(t: ReturnType<typeof useTranslations>): Column<DecksMetaDec
       align: 'right',
       render: (d) => <span className="tabular">{d.matched}/{d.total}</span>,
     },
-    {
-      key: 'legalityDrops',
-      header: t('columns.legalityDrops'),
-      align: 'right',
-      render: (d) => (
-        <span className={`tabular ${d.legalityDrops > 0 ? 'text-accent' : ''}`}>{d.legalityDrops}</span>
-      ),
-    },
   ];
 }
 
@@ -278,112 +261,6 @@ function CheckRow({ check }: { check: DecksMetaCanaryCheck }) {
         {t('canary.measured', { measured: check.measured, threshold: check.threshold })}
       </span>
     </li>
-  );
-}
-
-/**
- * Diagnóstico de legalidad: por qué caen las cartas por «no vigente», en llano para un dueño no
- * técnico. Junta la ventana que usó el run, las marcas que vio en los decks y el desglose agregado
- * de caídas, y deriva una CAUSA PROBABLE cuando el patrón es claro:
- *  - marcas vistas VACÍAS + caídas casi todas «sin marca» ⇒ el catálogo no trae marca ⇒ re-sincronizar.
- *  - ventana VACÍA + marcas vistas presentes ⇒ falta fijar la ventana (arriba).
- */
-function LegalityDiagnostic({ report }: { report: DecksMetaRefreshReport }) {
-  const t = useTranslations('admin.decksMetaRefresh');
-  const activeMarks = report.legalityConfig.activeMarks;
-  const banlistSize = report.legalityConfig.banlistCardIds.length;
-
-  // Unión de las marcas vistas en todos los decks (orden estable, sin repetidos).
-  const marksSeen = Array.from(new Set(report.decks.flatMap((d) => d.marksSeen)));
-
-  const drops = report.decks.reduce(
-    (acc, d) => ({
-      noMark: acc.noMark + d.legalityBreakdown.noMark,
-      outOfWindow: acc.outOfWindow + d.legalityBreakdown.outOfWindow,
-      banned: acc.banned + d.legalityBreakdown.banned,
-    }),
-    { noMark: 0, outOfWindow: 0, banned: 0 },
-  );
-  const totalDrops = drops.noMark + drops.outOfWindow + drops.banned;
-
-  // Causa probable (una línea derivada). Las dos condiciones son excluyentes por la vacuidad de
-  // `marksSeen`; si ninguna aplica (caídas bajas o repartidas), no se alarma.
-  const cause: 'resync' | 'emptyWindow' | null =
-    marksSeen.length === 0 && totalDrops > 0 && drops.noMark >= drops.outOfWindow + drops.banned
-      ? 'resync'
-      : activeMarks.length === 0 && marksSeen.length > 0
-        ? 'emptyWindow'
-        : null;
-
-  return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-h2 font-semibold">{t('legalityDiag.title')}</h2>
-
-      <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
-        {/* 1 · Ventana usada. */}
-        <div className="flex flex-col gap-1.5">
-          <span className="eyebrow">{t('legalityDiag.windowLabel')}</span>
-          {activeMarks.length > 0 ? (
-            <span className="flex flex-wrap gap-1.5">
-              {activeMarks.map((m) => (
-                <Chip key={m} label={m} />
-              ))}
-            </span>
-          ) : (
-            <span className="font-medium text-accent">{t('legalityDiag.windowEmpty')}</span>
-          )}
-          <span className="text-xs text-muted">{t('legalityDiag.banlistNote', { count: banlistSize })}</span>
-        </div>
-
-        {/* 2 · Marcas vistas en los decks. */}
-        <div className="flex flex-col gap-1.5">
-          <span className="eyebrow">{t('legalityDiag.marksSeenLabel')}</span>
-          {marksSeen.length > 0 ? (
-            <span className="flex flex-wrap gap-1.5">
-              {marksSeen.map((m) => (
-                <Chip key={m} label={m} />
-              ))}
-            </span>
-          ) : (
-            <span className="text-sm text-muted">{t('legalityDiag.marksSeenEmpty')}</span>
-          )}
-        </div>
-
-        {/* 3 · Caídas agregadas. */}
-        <div className="flex flex-col gap-1.5">
-          <span className="eyebrow">{t('legalityDiag.dropsLabel')}</span>
-          <dl className="flex flex-wrap gap-x-8 gap-y-1 text-sm">
-            <DropStat label={t('legalityDiag.noMark')} value={drops.noMark} />
-            <DropStat label={t('legalityDiag.outOfWindow')} value={drops.outOfWindow} />
-            <DropStat label={t('legalityDiag.banned')} value={drops.banned} />
-          </dl>
-        </div>
-
-        {/* 4 · Causa probable (solo si el patrón es claro). */}
-        {cause && (
-          <Banner variant="warning" role="status" title={t('legalityDiag.causeLabel')}>
-            {cause === 'resync' ? t('legalityDiag.causeResync') : t('legalityDiag.causeEmptyWindow')}
-          </Banner>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function Chip({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center border border-border-strong px-2 py-0.5 font-mono text-sm text-text">
-      {label}
-    </span>
-  );
-}
-
-function DropStat({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <dt className="text-muted">{label}:</dt>
-      <dd className={`tabular font-medium ${value > 0 ? 'text-accent' : 'text-text'}`}>{value}</dd>
-    </span>
   );
 }
 

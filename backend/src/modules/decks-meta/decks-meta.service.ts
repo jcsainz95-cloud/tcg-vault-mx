@@ -10,10 +10,6 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogService, DeckMetaUnitDTO } from '../catalog/catalog.service';
 import { BusinessException } from '../../common/business.exception';
-import {
-  isLegalStandardNow,
-  StandardLegalityConfig,
-} from '../../common/standard-legality';
 import { parseDeckList } from './deck-list.parser';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import {
@@ -36,9 +32,6 @@ import {
 /** Cita de fuente del meta. El ranking del meta procede de Limitless aunque la lista sea curada. */
 const META_SOURCE_LABEL = 'Datos de Limitless TCG';
 const MANUAL_SOURCE_LABEL = 'Curado por el equipo TCG HUNT';
-
-const LEGALITY_KEY_ACTIVE = 'standard.active_regulation_marks';
-const LEGALITY_KEY_BANLIST = 'standard.banlist_card_ids';
 
 /** Estado del dial de auto-fetch (leído fail-closed desde `ConfigSetting`). */
 export type DialState = { autofetch: AutofetchDial; autopublish: boolean };
@@ -63,33 +56,19 @@ export class DecksMetaService {
   ) {}
 
   // ────────────────────────────────────────────────────────────────────────────────────────────
-  // Legalidad: la ventana vigente de `ConfigSetting`, leída UNA vez por request (§2.3).
-  // ────────────────────────────────────────────────────────────────────────────────────────────
-
-  async loadLegalityConfig(): Promise<StandardLegalityConfig> {
-    const rows = await this.prisma.configSetting.findMany({
-      where: { key: { in: [LEGALITY_KEY_ACTIVE, LEGALITY_KEY_BANLIST] } },
-    });
-    const byKey = new Map(rows.map((r) => [r.key, r.valueJson]));
-    return {
-      activeMarks: asStringArray(byKey.get(LEGALITY_KEY_ACTIVE)),
-      banlistCardIds: asStringArray(byKey.get(LEGALITY_KEY_BANLIST)),
-    };
-  }
-
-  // ────────────────────────────────────────────────────────────────────────────────────────────
-  // El constructor de disponibilidad por línea — REUSA precio/disponibilidad y la compuerta de
-  // legalidad. NO reinventa precio (regla dura del dueño). Money-adjacent.
+  // El constructor de disponibilidad por línea — REUSA precio/disponibilidad. NO reinventa precio
+  // (regla dura del dueño). Money-adjacent. FUENTE-CONFIABLE (SUP-LEG): NO re-filtra por legalidad
+  // (Limitless ya publica solo listas Standard-legal); toda carta casada con stock se ofrece.
   // ────────────────────────────────────────────────────────────────────────────────────────────
 
   /**
    * Construye las líneas agrupadas (pokemon/trainer/energy) a partir de líneas ya casadas.
-   * - `legal` = `isLegalStandardNow(card, cfg)`; sólo lo LEGAL + en stock se ofrece (`unitInventoryItemIds`).
+   * - Una carta casada SIEMPRE ofrece su stock (`unitInventoryItemIds`); no hay compuerta de legalidad.
    * - `availableQty = min(quantity, stockNM)`; sin stock ⇒ 0 y sin piezas.
    * - `unitPriceMxnCents` = «desde» (displayPriceCents de la pieza más barata); `null` si faltante/pending.
-   * - Lo NO casado o NO legal NO aporta `unitInventoryItemIds` propios (§13).
+   * - Lo NO casado NO aporta `unitInventoryItemIds` propios (§13).
    */
-  async buildGroups(lines: StoredLine[], cfg: StandardLegalityConfig): Promise<MetaDeckGroupsDTO> {
+  async buildGroups(lines: StoredLine[]): Promise<MetaDeckGroupsDTO> {
     // Piezas RAW NM vendibles de todas las cartas casadas, EN LOTE (una lectura, sin N+1).
     const cardIds = lines
       .filter((l) => l.matchStatus === MetaMatchStatus.matched && l.matchedCard)
@@ -98,7 +77,7 @@ export class DecksMetaService {
 
     const groups: MetaDeckGroupsDTO = { pokemon: [], trainer: [], energy: [] };
     for (const line of lines) {
-      const dto = this.buildLine(line, cfg, unitsByCard);
+      const dto = this.buildLine(line, unitsByCard);
       groups[groupKey(line.group)].push(dto);
     }
     return groups;
@@ -106,7 +85,6 @@ export class DecksMetaService {
 
   private buildLine(
     line: StoredLine,
-    cfg: StandardLegalityConfig,
     unitsByCard: Map<string, DeckMetaUnitDTO[]>,
   ): MetaDeckLineDTO {
     const base = {
@@ -124,43 +102,25 @@ export class DecksMetaService {
       return {
         ...base,
         card: null,
-        legal: false,
         availableQty: 0,
         unitPriceMxnCents: null,
         unitInventoryItemIds: [],
       };
     }
 
-    const legal = isLegalStandardNow(
-      { regulationMark: card.regulationMark, legalStandardRaw: card.legalStandardRaw, externalId: card.externalId },
-      cfg,
-    );
     const cardDto = {
       cardId: card.id,
       name: card.name,
       imageUrl: card.imageLargeUrl ?? card.imageSmallUrl ?? null,
     };
 
-    // Compuerta de legalidad: sólo lo LEGAL se ofrece. Lo rotado se MARCA (legal:false) sin piezas.
-    if (!legal) {
-      return {
-        ...base,
-        card: cardDto,
-        legal: false,
-        availableQty: 0,
-        unitPriceMxnCents: null,
-        unitInventoryItemIds: [],
-        // substitute (Fase 3) se OMITE en Fase 1.
-      };
-    }
-
+    // FUENTE-CONFIABLE (SUP-LEG): sin compuerta de legalidad. Una carta casada ofrece su stock.
     const units = unitsByCard.get(card.id) ?? [];
     const availableQty = Math.min(line.quantity, units.length);
     const offered = units.slice(0, availableQty);
     return {
       ...base,
       card: cardDto,
-      legal: true,
       availableQty,
       // «desde» = la pieza más barata ofrecida; null si no hay stock (faltante).
       unitPriceMxnCents: offered.length > 0 ? offered[0].priceMxnCents : null,
@@ -179,7 +139,6 @@ export class DecksMetaService {
       orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
       include: { currentList: { include: { cards: { include: { matchedCard: { include: { set: true } } } } } } },
     });
-    const cfg = await this.loadLegalityConfig();
 
     // Piezas de TODAS las cartas casadas de TODOS los decks, en UN lote (sin N+1 por deck).
     const allCardIds = decks.flatMap((d) =>
@@ -201,15 +160,6 @@ export class DecksMetaService {
       for (const c of cards) {
         totalCount += c.quantity;
         if (c.matchStatus !== MetaMatchStatus.matched || !c.matchedCard) continue;
-        const legal = isLegalStandardNow(
-          {
-            regulationMark: c.matchedCard.regulationMark,
-            legalStandardRaw: c.matchedCard.legalStandardRaw,
-            externalId: c.matchedCard.externalId,
-          },
-          cfg,
-        );
-        if (!legal) continue;
         const units = unitsByCard.get(c.matchedCard.id) ?? [];
         const availableQty = Math.min(c.quantity, units.length);
         availableCount += availableQty;
@@ -244,9 +194,8 @@ export class DecksMetaService {
     if (!deck || !deck.currentList) {
       throw BusinessException.notFound('DECK_NOT_FOUND', `deck '${slug}' no encontrado`);
     }
-    const cfg = await this.loadLegalityConfig();
     const stored = deck.currentList.cards.map(toStoredLine);
-    const groups = await this.buildGroups(stored, cfg);
+    const groups = await this.buildGroups(stored);
     return {
       slug: deck.slug,
       name: deck.name,
@@ -256,8 +205,6 @@ export class DecksMetaService {
       source: deck.source === MetaDeckSource.manual ? MANUAL_SOURCE_LABEL : META_SOURCE_LABEL,
       ...(deck.currentList.sourceUrl ? { sourceUrl: deck.currentList.sourceUrl } : {}),
       ...(deck.currentList.sourceTournament ? { sourceTournament: deck.currentList.sourceTournament } : {}),
-      // La legalidad es DERIVADA en lectura: «verificado» = el instante de esta evaluación.
-      legalityVerifiedAt: new Date().toISOString(),
       groups,
     };
   }
@@ -269,14 +216,13 @@ export class DecksMetaService {
       throw BusinessException.validation('DECK_LIST_UNPARSEABLE', 'la lista no tiene ninguna línea de carta válida');
     }
     const matched = await this.matcher.matchLines(lines);
-    const cfg = await this.loadLegalityConfig();
     const stored: StoredLine[] = matched.map(fromMatchedLine);
-    const groups = await this.buildGroups(stored, cfg);
+    const groups = await this.buildGroups(stored);
     return { groups };
   }
 
   // ────────────────────────────────────────────────────────────────────────────────────────────
-  // Admin — curaduría manual (fallback), reporte de no-mapeadas, rotación de legalidad
+  // Admin — curaduría manual (fallback), reporte de no-mapeadas
   // ────────────────────────────────────────────────────────────────────────────────────────────
 
   /** `GET /admin/decks-meta` — lista con estado (para curaduría). */
@@ -326,7 +272,6 @@ export class DecksMetaService {
       throw BusinessException.validation('DECK_LIST_UNPARSEABLE', 'la lista pegada no tiene líneas válidas');
     }
     const matched = await this.matcher.matchLines(lines);
-    const cfg = await this.loadLegalityConfig();
     const deckId = await this.prisma.$transaction(async (tx) => {
       const deck = await tx.metaDeck.upsert({
         where: { slug: input.slug },
@@ -353,7 +298,8 @@ export class DecksMetaService {
         data: {
           deckId: deck.id,
           formatLabel: input.formatLabel ?? 'Standard',
-          activeMarksSnapshot: cfg.activeMarks as unknown as Prisma.InputJsonValue,
+          // FUENTE-CONFIABLE (SUP-LEG): ya no hay ventana de marcas; se persiste vacío (columna inerte).
+          activeMarksSnapshot: [] as unknown as Prisma.InputJsonValue,
           sourceUrl: input.sourceUrl ?? null,
           sourceTournament: input.sourceTournament ?? null,
           cards: {
@@ -450,39 +396,6 @@ export class DecksMetaService {
     };
   }
 
-  /**
-   * `PUT /admin/config/standard-legality` — EDITA la ventana (`active_regulation_marks`) y la banlist.
-   * Es el mecanismo de ROTACIÓN (§12.1): editar la ventana recalcula la legalidad DERIVADA sin re-sync.
-   * Money-adjacent: gobierna qué se ofrece como jugable. Escribe `ConfigSetting` directamente (upsert).
-   */
-  async adminUpdateStandardLegality(
-    patch: { activeMarks?: string[]; banlistCardIds?: string[] },
-    actor: string,
-  ) {
-    // SEG-DMF1-1: ATÓMICO. Los dos upserts (ventana + banlist) van en UNA transacción para que una
-    // falla parcial NO deje las marcas actualizadas con la banlist vieja (o viceversa) — un estado
-    // que ofrecería como jugable algo que el operador ya rotó/baneó. Money-adjacent.
-    await this.prisma.$transaction(async (tx) => {
-      if (patch.activeMarks !== undefined) {
-        const value = patch.activeMarks as unknown as Prisma.InputJsonValue;
-        await tx.configSetting.upsert({
-          where: { key: LEGALITY_KEY_ACTIVE },
-          create: { key: LEGALITY_KEY_ACTIVE, valueJson: value, updatedBy: actor },
-          update: { valueJson: value, updatedBy: actor },
-        });
-      }
-      if (patch.banlistCardIds !== undefined) {
-        const value = patch.banlistCardIds as unknown as Prisma.InputJsonValue;
-        await tx.configSetting.upsert({
-          where: { key: LEGALITY_KEY_BANLIST },
-          create: { key: LEGALITY_KEY_BANLIST, valueJson: value, updatedBy: actor },
-          update: { valueJson: value, updatedBy: actor },
-        });
-      }
-    });
-    return this.loadLegalityConfig();
-  }
-
   // ────────────────────────────────────────────────────────────────────────────────────────────
   // DECKS-META Fase 2 — CONTROL DEL DIAL (auto-fetch). Los diales viven en `ConfigSetting` y se leen
   // fail-closed (off/false) vía los normalizadores de `limitless.config`. Encenderlos causa egress
@@ -541,11 +454,6 @@ export class DecksMetaService {
 }
 
 // ── helpers puros ──────────────────────────────────────────────────────────────────────────────
-
-function asStringArray(v: unknown): string[] {
-  if (!Array.isArray(v)) return [];
-  return v.filter((x): x is string => typeof x === 'string');
-}
 
 function groupKey(g: MetaCardGroup): 'pokemon' | 'trainer' | 'energy' {
   return g; // MetaCardGroup es exactamente ese dominio

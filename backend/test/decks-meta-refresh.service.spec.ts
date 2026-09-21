@@ -2,7 +2,6 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { DecksMetaService } from '../src/modules/decks-meta/decks-meta.service';
 import { DeckMatcherService } from '../src/modules/decks-meta/deck-matcher.service';
 import { LimitlessFetchClient } from '../src/modules/decks-meta/limitless-fetch.client';
 import { DecksMetaRefreshService } from '../src/modules/decks-meta/decks-meta-refresh.service';
@@ -46,12 +45,6 @@ function fakeClient(): LimitlessFetchClient {
     fetchDeckList: jest.fn(async () => decklistHtml),
     fetchArchetype: jest.fn(async () => ''),
   } as unknown as LimitlessFetchClient;
-}
-
-function fakeDeckMeta(): DecksMetaService {
-  return {
-    loadLegalityConfig: jest.fn(async () => ({ activeMarks: ['G', 'H', 'I'], banlistCardIds: [] })),
-  } as unknown as DecksMetaService;
 }
 
 /** Prisma en memoria: diales + store de MetaDeck por slug + registro de escrituras. */
@@ -126,14 +119,14 @@ function stripUndefined(o: Record<string, unknown>) {
 
 function build(prisma: PrismaService, envOver: Record<string, string> = {}) {
   const config = new ConfigService({ META_FETCH_DELAY_MS: '0', ...envOver });
-  return new DecksMetaRefreshService(prisma, config, fakeDeckMeta(), fakeMatcher(), fakeClient());
+  return new DecksMetaRefreshService(prisma, config, fakeMatcher(), fakeClient());
 }
 
 describe('DecksMetaRefreshService (§4/§5/§6/§8)', () => {
   it('dial=off + sin dryRun ⇒ NO-OP: no fetch, no escritura, no MetaFetchRun', async () => {
     const { prisma, calls } = fakePrisma({ dial: 'off' });
     const client = fakeClient();
-    const svc = new DecksMetaRefreshService(prisma, new ConfigService({ META_FETCH_DELAY_MS: '0' }), fakeDeckMeta(), fakeMatcher(), client);
+    const svc = new DecksMetaRefreshService(prisma, new ConfigService({ META_FETCH_DELAY_MS: '0' }), fakeMatcher(), client);
     const r = await svc.run({});
     expect(r).toMatchObject({ skipped: true, reason: 'DIAL_OFF' });
     expect(client.fetchHome).not.toHaveBeenCalled();

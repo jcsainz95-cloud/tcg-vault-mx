@@ -215,8 +215,6 @@ import type {
   DecksMetaPreviewResponse,
   DecksMetaDialDTO,
   DecksMetaDialUpdateRequest,
-  StandardLegalityDTO,
-  StandardLegalityUpdateRequest,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -513,34 +511,6 @@ export async function setDecksMetaDial(
     return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial', { method: 'PUT', body: patch });
   }
   return delay(mockDecksMeta.setMockDial(patch));
-}
-
-/**
- * §13 Fase 2 — ADMIN: LEE la ventana vigente de legalidad de Standard (`GET
- * /admin/config/standard-legality`, `vault_operator+`, sólo lectura, **NO auditado**). Devuelve
- * `{ activeMarks, banlistCardIds }`. El editor la precarga con esto al montar.
- */
-export async function getStandardLegality(): Promise<StandardLegalityDTO> {
-  if (!config.useMocks) return apiRequest<StandardLegalityDTO>('/admin/config/standard-legality');
-  return delay(mockDecksMeta.getMockLegality());
-}
-
-/**
- * §13 Fase 2 — ADMIN: EDITA la ventana de legalidad de Standard (`PUT
- * /admin/config/standard-legality`, `vault_operator+`, AUDITADO, ATÓMICO). Patch parcial: el arreglo
- * enviado **reemplaza** por completo el guardado (upsert). Devuelve la config resultante
- * (`{ activeMarks, banlistCardIds }`).
- */
-export async function updateStandardLegality(
-  patch: StandardLegalityUpdateRequest,
-): Promise<StandardLegalityDTO> {
-  if (!config.useMocks) {
-    return apiRequest<StandardLegalityDTO>('/admin/config/standard-legality', {
-      method: 'PUT',
-      body: patch,
-    });
-  }
-  return delay(mockDecksMeta.setMockLegality(patch));
 }
 
 // ---------- Bóveda / portafolio ----------

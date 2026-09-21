@@ -24,15 +24,14 @@ function flatLines(groups: MetaDeckGroupsDTO): MetaDeckLineDTO[] {
 }
 
 /**
- * Unión de piezas del «de jalón»: los `unitInventoryItemIds` de las líneas DISPONIBLES y LEGALES.
- * El contrato solo pone piezas propias en líneas `legal:true` casadas con stock, así que esta
- * unión ya es «lo vigente para jugar que tenemos» — no se agregan sustitutos (Fase 3, opt-in) ni
- * rotadas ni no identificadas. Se deduplica por si una carta aparece en dos secciones.
+ * Unión de piezas del «de jalón»: los `unitInventoryItemIds` de las líneas DISPONIBLES. El contrato
+ * solo pone piezas propias en líneas casadas con stock, así que esta unión ya es «lo que tenemos» —
+ * no se agregan sustitutos (Fase 3, opt-in) ni no identificadas. Se deduplica por si una carta
+ * aparece en dos secciones.
  */
 export function pullableItemIds(groups: MetaDeckGroupsDTO): string[] {
   const seen = new Set<string>();
   for (const line of flatLines(groups)) {
-    if (!line.legal) continue;
     for (const id of line.unitInventoryItemIds) seen.add(id);
   }
   return [...seen];
@@ -40,8 +39,8 @@ export function pullableItemIds(groups: MetaDeckGroupsDTO): string[] {
 
 /**
  * Vista de disponibilidad compartida por el detalle de un deck del top-10 y por «pegar lista»
- * (§13: `paste` devuelve la MISMA forma que `groups`). Deja CLARO qué es legal para jugar, qué
- * está agotado y qué está rotado/no identificado, y ofrece «agregar de jalón» lo disponible+legal.
+ * (§13: `paste` devuelve la MISMA forma que `groups`). Deja CLARO qué tenemos disponible, qué está
+ * agotado y qué no se identificó, y ofrece «agregar de jalón» lo disponible.
  */
 export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
   const t = useTranslations('decksMeta');
@@ -69,7 +68,7 @@ export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
 
   return (
     <div>
-      {/* «Agregar de jalón»: mete al carrito lo disponible+legal. El re-quote existente revalida. */}
+      {/* «Agregar de jalón»: mete al carrito lo disponible. El re-quote existente revalida. */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-y border-border py-5">
         <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
           {pullable.length > 0 ? t('addAll.hint', { count: pullable.length }) : t('addAll.none')}
@@ -101,14 +100,13 @@ export function DeckAvailability({ groups }: { groups: MetaDeckGroupsDTO }) {
   );
 }
 
-/** El estado de legalidad de una línea, resuelto una vez y usado para badge + comportamiento. */
-type LineState = 'legal_available' | 'legal_soldout' | 'rotated' | 'unidentified' | 'basic_energy';
+/** El estado de disponibilidad de una línea, resuelto una vez y usado para badge + comportamiento. */
+type LineState = 'available' | 'soldout' | 'unidentified' | 'basic_energy';
 
 function lineState(line: MetaDeckLineDTO): LineState {
   if (line.matchStatus === 'unmatched_basic_energy') return 'basic_energy';
   if (line.matchStatus !== 'matched') return 'unidentified';
-  if (!line.legal) return 'rotated';
-  return line.availableQty > 0 ? 'legal_available' : 'legal_soldout';
+  return line.availableQty > 0 ? 'available' : 'soldout';
 }
 
 function DeckLineRow({
@@ -150,10 +148,10 @@ function DeckLineRow({
           )}
         </div>
 
-        {/* LEGALIDAD VISIBLE: el punto del feature — qué es vigente para jugar y qué no. */}
+        {/* DISPONIBILIDAD: qué tenemos, qué está agotado y qué no se identificó. */}
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
-          <LegalityBadge state={state} />
-          {state === 'legal_available' && (
+          <AvailabilityBadge state={state} />
+          {state === 'available' && (
             <>
               {line.unitPriceMxnCents != null ? (
                 <span className="tabular text-[15px] font-medium leading-none text-text">
@@ -173,45 +171,30 @@ function DeckLineRow({
           )}
         </div>
 
-        {/* Nota explicativa según el estado (por qué no se puede jugar / no se identificó). */}
-        {state === 'rotated' && (
-          <p className="mt-1.5 text-[13px] leading-snug text-muted">{t('line.rotatedNote')}</p>
-        )}
+        {/* Nota explicativa cuando la línea no se identificó. */}
         {state === 'unidentified' && (
           <p className="mt-1.5 text-[13px] leading-snug text-muted">{t('line.unidentifiedNote')}</p>
         )}
 
-        {/* Sustituto legal (Fase 3): otra impresión legal en stock. Nunca una rotada. */}
+        {/* Sustituto (Fase 3): otra impresión de la misma carta en stock. */}
         {line.substitute && (
           <Substitute sub={line.substitute} cartIds={cartIds} onAdd={onAdd} />
         )}
       </div>
 
-      {/* CTA de compra SOLO para líneas legales con stock (no jugables ⇒ sin CTA). */}
-      {state === 'legal_available' && (
+      {/* CTA de compra SOLO para líneas con stock (agotada / no identificada ⇒ sin CTA). */}
+      {state === 'available' && (
         <LineCta line={line} cartIds={cartIds} onAdd={onAdd} />
       )}
     </div>
   );
 }
 
-function LegalityBadge({ state }: { state: LineState }) {
+function AvailabilityBadge({ state }: { state: LineState }) {
   const t = useTranslations('decksMeta');
-  if (state === 'legal_available' || state === 'legal_soldout') {
-    return (
-      <span className="inline-flex items-center gap-3">
-        <Badge tone="success">{t('line.legal')}</Badge>
-        {state === 'legal_soldout' && <Badge tone="neutral">{t('line.soldOut')}</Badge>}
-      </span>
-    );
-  }
+  if (state === 'available') return <Badge tone="success">{t('line.available')}</Badge>;
+  if (state === 'soldout') return <Badge tone="neutral">{t('line.soldOut')}</Badge>;
   if (state === 'basic_energy') return <Badge tone="success">{t('line.basicEnergy')}</Badge>;
-  if (state === 'rotated')
-    return (
-      <Badge tone="danger" shape="outline">
-        {t('line.rotated')}
-      </Badge>
-    );
   return <Badge tone="neutral">{t('line.unidentified')}</Badge>;
 }
 

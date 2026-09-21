@@ -2854,7 +2854,7 @@
     },
     "decksMetaRefresh": {
       "moduleTitle": "Meta Battle Decks",
-      "moduleSubtitle": "Operate the automatic Meta Battle Decks fetch: turn it on or off, choose which editions count as current, and run a dry-run before publishing.",
+      "moduleSubtitle": "Operate the automatic Meta Battle Decks fetch: turn it on or off, and run a dry-run before publishing.",
       "title": "Dry-run (test mode)",
       "subtitle": "Runs the automatic Meta Battle Decks fetch in test mode: pulls everything from Limitless, checks it, and tells you whether it would publish — without touching anything already live.",
       "runButton": "Run dry-run",
@@ -2895,8 +2895,7 @@
         "share": "% of meta",
         "cardsParsed": "Cards read",
         "sumQuantity": "Total summed",
-        "matched": "Matched",
-        "legalityDrops": "Legality drops"
+        "matched": "Matched"
       },
       "deckError": "This deck couldn't be read: {error}",
       "sumOk": "≈ 60 cards",
@@ -2919,21 +2918,6 @@
         "pausedSkipped": "Paused decks (skipped)",
         "errors": "Errors",
         "none": "No notes or errors."
-      },
-      "legalityDiag": {
-        "title": "Legality diagnostics",
-        "windowLabel": "Window used",
-        "windowEmpty": "empty",
-        "banlistNote": "{count, plural, =0 {Banlist: no cards} one {Banlist: # card} other {Banlist: # cards}}",
-        "marksSeenLabel": "Marks seen in the decks",
-        "marksSeenEmpty": "None: the cards carry no regulation mark.",
-        "dropsLabel": "Legality drops",
-        "noMark": "no mark",
-        "outOfWindow": "out of window",
-        "banned": "banned",
-        "causeLabel": "Probable cause",
-        "causeResync": "The catalog cards carry no regulation mark → the catalog must be RE-SYNCED (setting the window won't be enough).",
-        "causeEmptyWindow": "The legality window is empty → set it in the control above."
       }
     },
     "decksMetaDial": {
@@ -2974,29 +2958,6 @@
         "confirmCta": "Yes, turn it on",
         "cancel": "Cancel"
       }
-    },
-    "standardLegality": {
-      "title": "Legality window",
-      "subtitle": "Here you choose which editions count as current in Standard. If it's empty, almost everything will be marked as «rotated».",
-      "loading": "Loading the current window…",
-      "loadError": "The legality window couldn't be read.",
-      "retry": "Retry",
-      "marks": {
-        "label": "Current marks",
-        "help": "The regulation marks that count as Standard today (for example: G, H). Type each one and press Enter or comma.",
-        "placeholder": "Add a mark…",
-        "empty": "No marks: almost everything would fall as «rotated»."
-      },
-      "banlist": {
-        "label": "Banned cards",
-        "help": "Ids of cards banned individually (rare). Type each id and press Enter or comma.",
-        "placeholder": "Add a card id…",
-        "empty": "No banned cards."
-      },
-      "remove": "Remove {value}",
-      "save": "Save window",
-      "saved": "Legality window saved.",
-      "saveError": "The window couldn't be saved. Please try again."
     },
     "m10": {
       "title": "M10 · Config & audit log",
@@ -3952,7 +3913,7 @@
   },
   "decksMeta": {
     "metaTitle": "Meta Battle Decks",
-    "metaSubtitle": "The Standard-format top 10, matched against our inventory: what we have, at what price, and only what's currently legal to play.",
+    "metaSubtitle": "The Standard-format top 10, matched against our inventory: what we have and at what price.",
     "pasteLink": "Paste my list",
     "list": {
       "sourceLine": "{source} · updated {date}",
@@ -3969,7 +3930,6 @@
     },
     "detail": {
       "back": "Back to Meta Battle Decks",
-      "legalityVerified": "Standard-legal · verified {date}",
       "source": "Source: {source}",
       "sourceTournament": "Tournament: {tournament}",
       "viewSource": "View the original list",
@@ -3982,19 +3942,17 @@
       "cardCode": "{set} · {number}"
     },
     "line": {
-      "legal": "Legal to play",
-      "rotated": "Rotated · not current",
-      "rotatedNote": "It left the Standard format: it can't be added to play.",
-      "soldOut": "Sold out",
+      "available": "Available",
+      "soldOut": "We don't have it",
       "unidentified": "Not identified",
       "unidentifiedNote": "We couldn't find this card in our catalog.",
-      "basicEnergy": "Basic energy · always legal",
+      "basicEnergy": "Basic energy",
       "availableOf": "{available} of {qty}",
       "add": "Add",
       "inCart": "In cart"
     },
     "substitute": {
-      "label": "Legal substitute available",
+      "label": "Substitute available",
       "use": "Use {name} ({set} {number}) · {price}",
       "usePending": "Use {name} ({set} {number})"
     },
@@ -4006,7 +3964,7 @@
     },
     "paste": {
       "title": "Paste your list",
-      "subtitle": "Paste your list in Limitless / TCG Live format and we'll tell you what we have, at what price, and what's currently legal to play.",
+      "subtitle": "Paste your list in Limitless / TCG Live format and we'll tell you what we have and at what price.",
       "label": "Your list",
       "placeholder": "4 Dragapult ex TWM 130\n3 Drakloak TWM 129\n2 Boss’s Orders PAL 172",
       "submit": "Check availability",

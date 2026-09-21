@@ -25,7 +25,6 @@ function line(over: Partial<MetaDeckLineDTO> & Pick<MetaDeckLineDTO, 'rawName' |
     quantity: 1,
     matchStatus: 'matched',
     card: { cardId: `c-${over.rawName}`, name: over.rawName, imageUrl: 'https://img/x.png' },
-    legal: true,
     availableQty: 1,
     unitPriceMxnCents: 61500,
     unitInventoryItemIds: ['inv-1'],
@@ -33,30 +32,27 @@ function line(over: Partial<MetaDeckLineDTO> & Pick<MetaDeckLineDTO, 'rawName' |
   };
 }
 
-const legalLine = line({ rawName: 'Dragapult ex', group: 'pokemon', unitInventoryItemIds: ['inv-legal-1', 'inv-legal-2'], quantity: 2, availableQty: 2 });
-const soldOutLine = line({ rawName: 'Drakloak', group: 'pokemon', number: '129', quantity: 2, availableQty: 0, unitPriceMxnCents: null, unitInventoryItemIds: [] });
-const rotatedLine: MetaDeckLineDTO = {
-  rawName: 'Comfey',
-  setCode: 'LOR',
-  number: '79',
-  quantity: 1,
+// SUP-LEG (trust-source): ya NO hay legalidad. Una línea es DISPONIBLE (casada+stock), «no la
+// tenemos» (casada sin stock) o «no identificada» (matchStatus≠matched). No existe «rotada».
+const availableLine = line({ rawName: 'Dragapult ex', group: 'pokemon', unitInventoryItemIds: ['inv-legal-1', 'inv-legal-2'], quantity: 2, availableQty: 2 });
+const soldOutLine = line({
+  rawName: 'Drakloak',
   group: 'pokemon',
-  matchStatus: 'matched',
-  card: { cardId: 'c-comfey', name: 'Comfey', imageUrl: 'https://img/c.png' },
-  legal: false,
+  number: '129',
+  quantity: 2,
   availableQty: 0,
   unitPriceMxnCents: null,
   unitInventoryItemIds: [],
   substitute: {
-    cardId: 'c-comfey-svi',
-    name: 'Comfey',
+    cardId: 'c-drakloak-svi',
+    name: 'Drakloak',
     setCode: 'SVI',
     number: '99',
     availableQty: 1,
     unitPriceMxnCents: 4200,
     unitInventoryItemIds: ['inv-sub-1'],
   },
-};
+});
 const unidentifiedLine: MetaDeckLineDTO = {
   rawName: 'Iono',
   setCode: 'ZZZ',
@@ -65,7 +61,6 @@ const unidentifiedLine: MetaDeckLineDTO = {
   group: 'trainer',
   matchStatus: 'unmatched_set',
   card: null,
-  legal: false,
   availableQty: 0,
   unitPriceMxnCents: null,
   unitInventoryItemIds: [],
@@ -78,7 +73,6 @@ const basicEnergyLine: MetaDeckLineDTO = {
   group: 'energy',
   matchStatus: 'unmatched_basic_energy',
   card: null,
-  legal: true,
   availableQty: 0,
   unitPriceMxnCents: null,
   unitInventoryItemIds: [],
@@ -91,9 +85,8 @@ function detail(over: Partial<DeckMetaDetailResponse> = {}): DeckMetaDetailRespo
     rank: 1,
     sharePct: 12.4,
     source: 'Datos de Limitless TCG',
-    legalityVerifiedAt: '2026-09-14T12:00:00Z',
     groups: {
-      pokemon: [{ ...legalLine, group: 'pokemon' }, { ...soldOutLine, group: 'pokemon' }, rotatedLine],
+      pokemon: [{ ...availableLine, group: 'pokemon' }, { ...soldOutLine, group: 'pokemon' }],
       trainer: [unidentifiedLine],
       energy: [basicEnergyLine],
     },
@@ -111,43 +104,33 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('DeckDetailView · legalidad visible (legal vs rotado vs agotado vs no identificada)', () => {
-  it('marca la verificación de legalidad en Standard con su fecha', async () => {
+describe('DeckDetailView · disponibilidad (disponible vs no la tenemos vs no identificada)', () => {
+  it('NO pinta ningún sello de legalidad (SUP-LEG: se confía en la fuente)', async () => {
     mockDetail(detail());
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
-    expect(await screen.findByText(/Legal en Standard · verificado/)).toBeInTheDocument();
+    // Espera a que cargue.
+    await screen.findByText('MX$615.00');
+    expect(screen.queryByText(/Legal en Standard/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Rotada/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Legal para jugar/)).not.toBeInTheDocument();
   });
 
-  it('la línea legal disponible muestra «Legal para jugar», precio y CTA «Agregar»', async () => {
+  it('la línea casada con stock se ofrece «Disponible» con precio y CTA «Agregar», sin importar marca', async () => {
     mockDetail(detail());
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
-    expect((await screen.findAllByText('Legal para jugar')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Disponible')).length).toBeGreaterThan(0);
     expect(screen.getByText('MX$615.00')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Agregar' }).length).toBeGreaterThan(0);
   });
 
-  it('la línea agotada muestra «Agotado» y NO ofrece CTA de compra propio', async () => {
+  it('la línea sin stock muestra «No la tenemos» y NO ofrece CTA de compra propio', async () => {
     mockDetail({
       ...detail(),
-      groups: { pokemon: [{ ...soldOutLine, group: 'pokemon' }], trainer: [], energy: [] },
+      groups: { pokemon: [{ ...soldOutLine, substitute: undefined, group: 'pokemon' }], trainer: [], energy: [] },
     });
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
-    expect(await screen.findByText('Agotado')).toBeInTheDocument();
+    expect(await screen.findByText('No la tenemos')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Agregar' })).not.toBeInTheDocument();
-  });
-
-  it('la línea rotada muestra «Rotada · no vigente», su nota y NO puede agregarse a jugar', async () => {
-    mockDetail({
-      ...detail(),
-      groups: { pokemon: [rotatedLine], trainer: [], energy: [] },
-    });
-    renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
-    expect(await screen.findByText('Rotada · no vigente')).toBeInTheDocument();
-    expect(screen.getByText(/no se puede agregar para jugar/)).toBeInTheDocument();
-    // Sin CTA de compra propio para la rotada (solo el del sustituto legal).
-    expect(screen.queryByRole('button', { name: 'Agregar' })).not.toBeInTheDocument();
-    // Pero SÍ ofrece el sustituto legal (Fase 3).
-    expect(screen.getByText('Sustituto legal disponible')).toBeInTheDocument();
   });
 
   it('la línea no identificada muestra «No identificada» y su nota (sin inventar carta/precio)', async () => {
@@ -160,34 +143,33 @@ describe('DeckDetailView · legalidad visible (legal vs rotado vs agotado vs no 
     expect(screen.getByText(/No encontramos esta carta/)).toBeInTheDocument();
   });
 
-  it('la energía básica se marca «siempre legal» sin inventar pieza', async () => {
+  it('la energía básica se marca «Energía básica» sin inventar pieza', async () => {
     mockDetail({
       ...detail(),
       groups: { pokemon: [], trainer: [], energy: [basicEnergyLine] },
     });
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
-    expect(await screen.findByText(/Energía básica · siempre legal/)).toBeInTheDocument();
+    expect(await screen.findByText('Energía básica')).toBeInTheDocument();
   });
 });
 
 describe('DeckDetailView · «agregar de jalón»', () => {
-  it('agrega SOLO las piezas disponibles+legales al carrito (ni rotada, ni agotada, ni no identificada)', async () => {
+  it('agrega SOLO las piezas disponibles al carrito (ni sin stock, ni no identificada, ni sustituto)', async () => {
     mockDetail(detail());
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
 
     const addAll = await screen.findByRole('button', { name: 'Agregar de jalón' });
     fireEvent.click(addAll);
 
-    // Solo las dos piezas de la única línea legal-con-stock; el sustituto NO entra (opt-in).
+    // Solo las dos piezas de la única línea casada-con-stock; el sustituto NO entra (opt-in).
     expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-legal-1', 'inv-legal-2']);
-    // Confirmación por toast.
     expect(screen.getByRole('status')).toHaveTextContent('Agregado al carrito');
   });
 
   it('sin nada disponible, el botón «de jalón» se deshabilita y muestra el conteo cero', async () => {
     mockDetail({
       ...detail(),
-      groups: { pokemon: [{ ...soldOutLine, group: 'pokemon' }, rotatedLine], trainer: [unidentifiedLine], energy: [] },
+      groups: { pokemon: [{ ...soldOutLine, substitute: undefined, group: 'pokemon' }], trainer: [unidentifiedLine], energy: [] },
     });
     renderWithProviders(<DeckDetailView slug="dragapult-ex" />, 'es');
     const addAll = await screen.findByRole('button', { name: 'Agregar de jalón' });

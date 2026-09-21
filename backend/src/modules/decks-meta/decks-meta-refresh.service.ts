@@ -2,8 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { isLegalStandardNow, StandardLegalityConfig } from '../../common/standard-legality';
-import { DecksMetaService } from './decks-meta.service';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { LimitlessFetchClient } from './limitless-fetch.client';
 import { parseHomeIndex, parseDeckListHtml, HomeLeader } from './limitless-html.parser';
@@ -27,7 +25,7 @@ import {
  * delay) → parsear las ~60 → matchear (Fase 1, REUSADO) → CANARY (gate duro) → si pasa Y modo vivo:
  * persistir `MetaDeckList` nueva e inmutable + supersede. Dry-run corre TODO pero NO escribe nada.
  *
- * Diales (ConfigSetting, leídos directo como la ventana de legalidad de Fase 1):
+ * Diales (ConfigSetting, leídos directo, fail-closed):
  *  - `decks_meta_autofetch`: off (default, fail-closed, no-op) | dryrun | on.
  *  - `decks_meta_autofetch_autopublish`: bool (default false). En `on`+canary: la lista se guarda;
  *    `published` sólo se enciende si este dial es true (conservador: si no, el operador lo flipa).
@@ -42,7 +40,6 @@ export class DecksMetaRefreshService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly deckMeta: DecksMetaService,
     private readonly matcher: DeckMatcherService,
     private readonly client: LimitlessFetchClient,
   ) {}
@@ -113,7 +110,6 @@ export class DecksMetaRefreshService {
 
     const formatCode = home?.formatCode ?? null;
     const formatLabel = buildFormatLabel(formatCode);
-    const cfg = await this.deckMeta.loadLegalityConfig();
 
     // Candidatos: bloques con archetypeId + listId válidos, en orden de rank; tope N (§1).
     const candidates = (home?.leaders ?? [])
@@ -140,7 +136,7 @@ export class DecksMetaRefreshService {
         const { lines } = parseDeckListHtml(html);
         const matched = await this.matcher.matchLines(lines);
         const summary = summarize(c, matched);
-        const report = toDeckReport(c, matched, cfg, thresholds.cardsMin, thresholds.cardsMax);
+        const report = toDeckReport(c, matched, thresholds.cardsMin, thresholds.cardsMax);
         parsedDecks.push({ leader: c, matched, summary });
         deckReports.push(report);
       } catch (e) {
@@ -170,7 +166,6 @@ export class DecksMetaRefreshService {
       urlsFetched,
       decks: deckReports,
       canary,
-      legalityConfig: { activeMarks: cfg.activeMarks, banlistCardIds: cfg.banlistCardIds },
       verdict: canary.verdict,
       wouldPublish: canary.verdict === 'PUBLISH',
       applied: false,
@@ -200,7 +195,7 @@ export class DecksMetaRefreshService {
     // Canary pasa: persistir por deck (supersede-based), respetando pausa y manual-gana.
     for (const p of parsedDecks) {
       try {
-        const outcome = await this.persistDeck(p, { formatLabel, activeMarks: cfg.activeMarks, sourceTournament: p.leader.sourceTournament }, autopublish);
+        const outcome = await this.persistDeck(p, { formatLabel, sourceTournament: p.leader.sourceTournament }, autopublish);
         if (outcome.skippedReason === 'paused') base.pausedSkipped.push(outcome.slug);
         else if (outcome.skippedReason === 'manual') base.manualConflicts.push(outcome.slug);
         else {
@@ -228,7 +223,7 @@ export class DecksMetaRefreshService {
    */
   private async persistDeck(
     p: ParsedDeck,
-    meta: { formatLabel: string; activeMarks: string[]; sourceTournament: string | null },
+    meta: { formatLabel: string; sourceTournament: string | null },
     autopublish: boolean,
   ): Promise<PersistOutcome> {
     const slug = slugifyDeckName(p.leader.name ?? `deck-${p.leader.archetypeId}`);
@@ -275,7 +270,8 @@ export class DecksMetaRefreshService {
         data: {
           deckId: deck.id,
           formatLabel: meta.formatLabel,
-          activeMarksSnapshot: meta.activeMarks as unknown as Prisma.InputJsonValue,
+          // FUENTE-CONFIABLE (SUP-LEG): sin ventana de marcas; se persiste vacío (columna inerte).
+          activeMarksSnapshot: [] as unknown as Prisma.InputJsonValue,
           sourceUrl: `https://limitlesstcg.com/decks/list/${p.leader.listId}`,
           sourceTournament: meta.sourceTournament ?? null,
           cards: {
@@ -353,11 +349,7 @@ export function buildRunNote(report: RefreshReport): string {
     canaryReason: report.canary.reason,
     persistedCount: report.persistedCount,
     checks: report.canary.checks.map((c) => ({ id: c.id, ok: c.ok, measured: c.measured, threshold: c.threshold })),
-    // DIAGNÓSTICO de legalidad (§2.3): la ventana usada y, por deck, el desglose y las marcas vistas.
-    legalityConfig: report.legalityConfig
-      ? { activeMarks: capArray(report.legalityConfig.activeMarks, NOTE_MAX_ITEMS), banlistCardIds: capArray(report.legalityConfig.banlistCardIds, NOTE_MAX_ITEMS) }
-      : undefined,
-    perDeckCounts: capArray(report.decks, NOTE_MAX_ITEMS).map((d) => ({ archetypeId: d.archetypeId, name: d.name, sumQuantity: d.sumQuantity, matched: d.matched, total: d.total, legalityDrops: d.legalityDrops, legalityBreakdown: d.legalityBreakdown, marksSeen: d.marksSeen })),
+    perDeckCounts: capArray(report.decks, NOTE_MAX_ITEMS).map((d) => ({ archetypeId: d.archetypeId, name: d.name, sumQuantity: d.sumQuantity, matched: d.matched, total: d.total })),
     urlsFetched: capArray(report.urlsFetched, NOTE_MAX_ITEMS),
     publishedSlugs: capArray(report.publishedSlugs, NOTE_MAX_ITEMS),
     supersededListIds: capArray(report.supersededListIds, NOTE_MAX_ITEMS),
@@ -411,21 +403,6 @@ export interface DeckReport {
   matched: number;
   total: number;
   matchStatusBreakdown: Record<string, number>;
-  legalityDrops: number;
-  /**
-   * DIAGNÓSTICO de legalidad (§2.3): categoriza CADA carta casada que falló `isLegalStandardNow`
-   * por la PRIMERA razón aplicable (orden determinista `noMark → outOfWindow → banned`). Los tres
-   * suman EXACTAMENTE `legalityDrops`. Sirve para distinguir la CAUSA de las caídas:
-   *  - `noMark`      : `regulationMark` null/vacío (carta nunca poblada por el sync ⇒ CAUSA B).
-   *  - `outOfWindow` : la marca existe pero no está en `activeMarks` (rotó, o la ventana está vacía).
-   *  - `banned`      : `legalStandardRaw === 'Banned'` o `externalId` en la banlist de operación.
-   */
-  legalityBreakdown: { noMark: number; outOfWindow: number; banned: number };
-  /**
-   * Las marcas de regulación NO nulas DISTINTAS entre las cartas casadas de este deck. Array VACÍO
-   * ⇒ las cartas no tienen marca alguna ⇒ CAUSA B (el sync nunca pobló `regulationMark`).
-   */
-  marksSeen: string[];
   inBand: boolean;
   error?: string;
 }
@@ -440,12 +417,6 @@ export interface RefreshReport {
   urlsFetched: string[];
   decks: DeckReport[];
   canary: CanaryResult;
-  /**
-   * DIAGNÓSTICO de legalidad (§2.3): la VENTANA que este run usó al derivar la legalidad, tal cual
-   * salió de `ConfigSetting`. Responde por sí sola la CAUSA A: si `activeMarks` viene VACÍO, TODA
-   * carta con marca cae como `outOfWindow` y ninguna puede ser legal — la ventana está sin configurar.
-   */
-  legalityConfig: { activeMarks: string[]; banlistCardIds: string[] };
   verdict: 'PUBLISH' | 'NO_PUBLISH';
   wouldPublish: boolean;
   applied: boolean;
@@ -478,33 +449,11 @@ function summarize(leader: HomeLeader & { archetypeId: string; listId: string },
 function toDeckReport(
   leader: HomeLeader & { archetypeId: string; listId: string },
   matched: MatchedLine[],
-  cfg: StandardLegalityConfig,
   cardsMin: number,
   cardsMax: number,
 ): DeckReport {
   const breakdown: Record<string, number> = {};
   for (const m of matched) breakdown[m.matchStatus] = (breakdown[m.matchStatus] ?? 0) + 1;
-  let legalityDrops = 0;
-  // DIAGNÓSTICO (§2.3): categoriza cada caída y anota las marcas VISTAS, en la MISMA pasada (sin queries extra).
-  const legalityBreakdown = { noMark: 0, outOfWindow: 0, banned: 0 };
-  const marksSeenSet = new Set<string>();
-  for (const m of matched) {
-    if (m.matchStatus === MetaMatchStatus.matched && m.matchedCard) {
-      const mark = m.matchedCard.regulationMark;
-      if (mark) marksSeenSet.add(mark);
-      const legal = isLegalStandardNow(
-        { regulationMark: m.matchedCard.regulationMark, legalStandardRaw: m.matchedCard.legalStandardRaw, externalId: m.matchedCard.externalId },
-        cfg,
-      );
-      if (!legal) {
-        legalityDrops += 1;
-        // PRIMERA razón aplicable, orden determinista noMark → outOfWindow → banned (los tres suman legalityDrops).
-        if (!mark) legalityBreakdown.noMark += 1;
-        else if (!cfg.activeMarks.includes(mark)) legalityBreakdown.outOfWindow += 1;
-        else legalityBreakdown.banned += 1;
-      }
-    }
-  }
   const sumQuantity = matched.reduce((s, m) => s + m.quantity, 0);
   return {
     archetypeId: leader.archetypeId,
@@ -517,9 +466,6 @@ function toDeckReport(
     matched: matched.filter((m) => m.matchStatus === MetaMatchStatus.matched).length,
     total: matched.length,
     matchStatusBreakdown: breakdown,
-    legalityDrops,
-    legalityBreakdown,
-    marksSeen: [...marksSeenSet],
     inBand: sumQuantity >= cardsMin && sumQuantity <= cardsMax,
   };
 }
@@ -536,9 +482,6 @@ function errorDeckReport(leader: HomeLeader & { archetypeId: string; listId: str
     matched: 0,
     total: 0,
     matchStatusBreakdown: {},
-    legalityDrops: 0,
-    legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 },
-    marksSeen: [],
     inBand: false,
     error,
   };

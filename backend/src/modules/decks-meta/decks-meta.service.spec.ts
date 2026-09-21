@@ -4,13 +4,12 @@ import { DeckMatcherService } from './deck-matcher.service';
 import { DecksMetaService } from './decks-meta.service';
 
 /**
- * DECKS-META §3.4/§13 (Fase 1) — la lógica MONEY-ADJACENT: la compuerta de legalidad y la
- * disponibilidad. Regla dura del dueño: sólo lo LEGAL + en stock se ofrece; lo rotado se MARCA; sin
- * stock se marca; lo no casado no aporta piezas. Precio/disponibilidad se REUSAN (nunca se inventan).
+ * DECKS-META §3.4/§13 (Fase 1) — la lógica MONEY-ADJACENT: la disponibilidad. FUENTE-CONFIABLE
+ * (SUP-LEG): ya NO hay compuerta de legalidad — Limitless publica sólo listas Standard-legal, así
+ * que NO re-filtramos por marca/banlist/`legalStandardRaw`. Regla: toda carta CASADA con stock se
+ * ofrece; sin stock se marca; lo no casado no aporta piezas. Precio/disponibilidad se REUSAN.
  */
-describe('DecksMetaService (DECKS-META §3.4/§13) — legalidad + disponibilidad', () => {
-  const cfg = { activeMarks: ['G', 'H', 'I'], banlistCardIds: ['ban-me'] };
-
+describe('DecksMetaService (DECKS-META §3.4/§13) — disponibilidad (sin gate de legalidad)', () => {
   function card(over: Partial<any> = {}) {
     return {
       id: 'c1',
@@ -33,21 +32,11 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — legalidad + disponibilida
 
   function makeService(over: {
     unitsByCard?: Map<string, DeckMetaUnitDTO[]>;
-    configRows?: { key: string; valueJson: unknown }[];
   } = {}) {
     const catalog = {
       getSellableRawUnitsByCardIds: jest.fn(async () => over.unitsByCard ?? new Map()),
     } as unknown as CatalogService;
-    const prisma = {
-      configSetting: {
-        findMany: jest.fn(async () =>
-          over.configRows ?? [
-            { key: 'standard.active_regulation_marks', valueJson: ['G', 'H', 'I'] },
-            { key: 'standard.banlist_card_ids', valueJson: ['ban-me'] },
-          ],
-        ),
-      },
-    } as unknown as PrismaService;
+    const prisma = {} as unknown as PrismaService;
     const matcher = {} as unknown as DeckMatcherService;
     return new DecksMetaService(prisma, catalog, matcher);
   }
@@ -63,12 +52,12 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — legalidad + disponibilida
     ...over,
   });
 
-  it('matched + legal + stock ⇒ OFRECIBLE: availableQty=min(qty,stock), ids cheapest-first, precio "desde"', async () => {
+  it('matched + stock ⇒ OFRECIBLE: availableQty=min(qty,stock), ids cheapest-first, precio "desde"', async () => {
     const units = new Map([['c1', [unit('inv-a', 5000), unit('inv-b', 6000)]]]);
     const svc = makeService({ unitsByCard: units });
-    const groups = await svc.buildGroups([matchedLine({ quantity: 4 })], cfg);
+    const groups = await svc.buildGroups([matchedLine({ quantity: 4 })]);
     const line = groups.pokemon[0];
-    expect(line.legal).toBe(true);
+    expect(line).not.toHaveProperty('legal'); // ya no existe el campo `legal`
     expect(line.availableQty).toBe(2); // min(4, 2)
     expect(line.unitInventoryItemIds).toEqual(['inv-a', 'inv-b']);
     expect(line.unitPriceMxnCents).toBe(5000); // más barata
@@ -78,73 +67,63 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — legalidad + disponibilida
   it('availableQty topea en quantity: qty=1 con 3 en stock ⇒ 1 pieza ofrecida', async () => {
     const units = new Map([['c1', [unit('inv-a', 5000), unit('inv-b', 6000), unit('inv-c', 7000)]]]);
     const svc = makeService({ unitsByCard: units });
-    const groups = await svc.buildGroups([matchedLine({ quantity: 1 })], cfg);
+    const groups = await svc.buildGroups([matchedLine({ quantity: 1 })]);
     expect(groups.pokemon[0].availableQty).toBe(1);
     expect(groups.pokemon[0].unitInventoryItemIds).toEqual(['inv-a']);
   });
 
-  it('matched + legal SIN stock ⇒ se MARCA: availableQty 0, sin piezas, precio null', async () => {
+  it('matched SIN stock ⇒ se MARCA: availableQty 0, sin piezas, precio null', async () => {
     const svc = makeService({ unitsByCard: new Map() });
-    const groups = await svc.buildGroups([matchedLine()], cfg);
+    const groups = await svc.buildGroups([matchedLine()]);
     const line = groups.pokemon[0];
-    expect(line.legal).toBe(true);
     expect(line.availableQty).toBe(0);
     expect(line.unitInventoryItemIds).toEqual([]);
     expect(line.unitPriceMxnCents).toBeNull();
+    expect(line.card).not.toBeNull();
   });
 
-  it('matched pero ROTADA (marca fuera de la ventana) ⇒ legal:false, NO se ofrece aunque haya stock', async () => {
+  it('FUENTE-CONFIABLE: una marca de regulación cualquiera NO impide ofrecer (sin gate)', async () => {
     const units = new Map([['c1', [unit('inv-a', 5000)]]]);
     const svc = makeService({ unitsByCard: units });
-    const rotated = matchedLine({ matchedCard: card({ regulationMark: 'F' }) });
-    const groups = await svc.buildGroups([rotated], cfg);
-    const line = groups.pokemon[0];
-    expect(line.legal).toBe(false);
-    expect(line.availableQty).toBe(0);
-    expect(line.unitInventoryItemIds).toEqual([]);
-    expect(line.card).not.toBeNull(); // la carta SÍ se muestra, sólo que marcada como no jugable
+    // Antes esta carta (marca "F") caía como rotada; ahora, casada y con stock, se ofrece.
+    const line = matchedLine({ matchedCard: card({ regulationMark: 'F' }) });
+    const groups = await svc.buildGroups([line]);
+    expect(groups.pokemon[0].availableQty).toBe(1);
+    expect(groups.pokemon[0].unitInventoryItemIds).toEqual(['inv-a']);
+    expect(groups.pokemon[0]).not.toHaveProperty('legal');
   });
 
-  it('matched pero en BANLIST de operación ⇒ legal:false aunque marca activa y con stock', async () => {
+  it('FUENTE-CONFIABLE: `legalStandardRaw==="Banned"` NO impide ofrecer (dato crudo inerte, sin check)', async () => {
     const units = new Map([['c1', [unit('inv-a', 5000)]]]);
     const svc = makeService({ unitsByCard: units });
-    const banned = matchedLine({ matchedCard: card({ externalId: 'ban-me' }) });
-    const groups = await svc.buildGroups([banned], cfg);
-    expect(groups.pokemon[0].legal).toBe(false);
-    expect(groups.pokemon[0].unitInventoryItemIds).toEqual([]);
+    const line = matchedLine({ matchedCard: card({ legalStandardRaw: 'Banned' }) });
+    const groups = await svc.buildGroups([line]);
+    expect(groups.pokemon[0].availableQty).toBe(1);
+    expect(groups.pokemon[0].unitInventoryItemIds).toEqual(['inv-a']);
   });
 
-  it('NO casada (unmatched_set) ⇒ card null, legal false, sin piezas (NO se inventa)', async () => {
+  it('NO casada (unmatched_set) ⇒ card null, sin piezas (NO se inventa)', async () => {
     const svc = makeService();
     const unmatched = matchedLine({ matchStatus: 'unmatched_set', matchedCard: null, group: 'pokemon' });
-    const groups = await svc.buildGroups([unmatched], cfg);
+    const groups = await svc.buildGroups([unmatched]);
     const line = groups.pokemon[0];
     expect(line.card).toBeNull();
-    expect(line.legal).toBe(false);
+    expect(line).not.toHaveProperty('legal');
     expect(line.unitInventoryItemIds).toEqual([]);
     expect(line.matchStatus).toBe('unmatched_set');
   });
 
   it('las líneas se reparten por group (pokemon/trainer/energy)', async () => {
     const svc = makeService();
-    const groups = await svc.buildGroups(
-      [
-        matchedLine({ group: 'pokemon', matchStatus: 'unmatched_number', matchedCard: null }),
-        matchedLine({ group: 'trainer', matchStatus: 'unmatched_number', matchedCard: null }),
-        matchedLine({ group: 'energy', matchStatus: 'unmatched_basic_energy', matchedCard: null, rawSetCode: '', rawNumber: '' }),
-      ],
-      cfg,
-    );
+    const groups = await svc.buildGroups([
+      matchedLine({ group: 'pokemon', matchStatus: 'unmatched_number', matchedCard: null }),
+      matchedLine({ group: 'trainer', matchStatus: 'unmatched_number', matchedCard: null }),
+      matchedLine({ group: 'energy', matchStatus: 'unmatched_basic_energy', matchedCard: null, rawSetCode: '', rawNumber: '' }),
+    ]);
     expect(groups.pokemon).toHaveLength(1);
     expect(groups.trainer).toHaveLength(1);
     expect(groups.energy).toHaveLength(1);
     expect(groups.energy[0].setCode).toBeNull();
-  });
-
-  it('loadLegalityConfig lee la ventana de ConfigSetting; ausente ⇒ arrays vacíos (nada legal)', async () => {
-    const svc = makeService({ configRows: [] });
-    const loaded = await svc.loadLegalityConfig();
-    expect(loaded).toEqual({ activeMarks: [], banlistCardIds: [] });
   });
 
   describe('paste', () => {
@@ -152,9 +131,7 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — legalidad + disponibilida
       const catalog = {
         getSellableRawUnitsByCardIds: jest.fn(async () => new Map()),
       } as unknown as CatalogService;
-      const prisma = {
-        configSetting: { findMany: jest.fn(async () => []) },
-      } as unknown as PrismaService;
+      const prisma = {} as unknown as PrismaService;
       const matcher = { matchLines: jest.fn(async () => matchReturn) } as unknown as DeckMatcherService;
       return new DecksMetaService(prisma, catalog, matcher);
     }
@@ -184,88 +161,36 @@ describe('DecksMetaService (DECKS-META §3.4/§13) — legalidad + disponibilida
       const catalog = { getSellableRawUnitsByCardIds: jest.fn(async () => new Map()) } as unknown as CatalogService;
       const prisma = {
         metaDeck: { findFirst: jest.fn(async () => null) },
-        configSetting: { findMany: jest.fn(async () => []) },
       } as unknown as PrismaService;
       const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
       await expect(svc.getBySlug('no-existe')).rejects.toMatchObject({ code: 'DECK_NOT_FOUND' });
     });
-  });
 
-  /**
-   * SEG-DMF1-1 — la rotación de legalidad (`adminUpdateStandardLegality`) es money-adjacent: gobierna
-   * qué se ofrece como jugable. DEBE ser ATÓMICA: los dos upserts (ventana + banlist) van en UNA
-   * transacción para que una falla parcial no deje marcas nuevas con banlist vieja (o viceversa).
-   */
-  describe('adminUpdateStandardLegality (SEG-DMF1-1: atómico)', () => {
-    function makeTxService() {
-      const upsert = jest.fn(async () => undefined);
-      const tx = { configSetting: { upsert } };
-      const $transaction = jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx));
-      const findMany = jest.fn(async () => [
-        { key: 'standard.active_regulation_marks', valueJson: ['H', 'I'] },
-        { key: 'standard.banlist_card_ids', valueJson: [] },
-      ]);
+    it('detalle NO expone `legalityVerifiedAt` (SUP-LEG: campo retirado)', async () => {
+      const catalog = { getSellableRawUnitsByCardIds: jest.fn(async () => new Map()) } as unknown as CatalogService;
       const prisma = {
-        $transaction,
-        configSetting: { findMany, upsert: jest.fn() },
+        metaDeck: {
+          findFirst: jest.fn(async () => ({
+            slug: 'dragapult',
+            name: 'Dragapult ex',
+            rank: 1,
+            sharePct: 10,
+            trend: 0,
+            source: 'limitless',
+            currentList: { sourceUrl: null, sourceTournament: null, cards: [] },
+          })),
+        },
       } as unknown as PrismaService;
-      const svc = new DecksMetaService(
-        prisma,
-        { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService,
-        {} as unknown as DeckMatcherService,
-      );
-      return { svc, $transaction, upsert, prisma };
-    }
-
-    it('los dos upserts corren DENTRO de $transaction (mismo tx), no con el cliente base', async () => {
-      const { svc, $transaction, upsert, prisma } = makeTxService();
-      await svc.adminUpdateStandardLegality({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] }, 'op-1');
-      expect($transaction).toHaveBeenCalledTimes(1);
-      expect(upsert).toHaveBeenCalledTimes(2); // ventana + banlist, ambos por el tx
-      // El cliente base NUNCA escribe directo (todo pasa por el tx).
-      expect((prisma.configSetting.upsert as jest.Mock)).not.toHaveBeenCalled();
-      const keys = upsert.mock.calls.map((c: any[]) => c[0].where.key).sort();
-      expect(keys).toEqual(['standard.active_regulation_marks', 'standard.banlist_card_ids']);
-    });
-
-    it('sólo escribe las keys presentes en el patch (parcial)', async () => {
-      const { svc, upsert } = makeTxService();
-      await svc.adminUpdateStandardLegality({ activeMarks: ['H'] }, 'op-1');
-      expect(upsert).toHaveBeenCalledTimes(1);
-      expect((upsert.mock.calls[0] as any[])[0].where.key).toBe('standard.active_regulation_marks');
-    });
-
-    it('devuelve loadLegalityConfig() tras el commit', async () => {
-      const { svc } = makeTxService();
-      const res = await svc.adminUpdateStandardLegality({ activeMarks: ['H', 'I'] }, 'op-1');
-      expect(res).toEqual({ activeMarks: ['H', 'I'], banlistCardIds: [] });
-    });
-
-    it('falla parcial ⇒ NO hay medio-write: el error propaga y NO se llega a loadLegalityConfig (rollback)', async () => {
-      const upsert = jest
-        .fn()
-        .mockResolvedValueOnce(undefined) // ventana OK
-        .mockRejectedValueOnce(new Error('db down')); // banlist falla ⇒ aborta la tx
-      const tx = { configSetting: { upsert } };
-      const $transaction = jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx));
-      const findMany = jest.fn(async () => []);
-      const prisma = { $transaction, configSetting: { findMany } } as unknown as PrismaService;
-      const svc = new DecksMetaService(
-        prisma,
-        { getSellableRawUnitsByCardIds: jest.fn() } as unknown as CatalogService,
-        {} as unknown as DeckMatcherService,
-      );
-      await expect(
-        svc.adminUpdateStandardLegality({ activeMarks: ['H'], banlistCardIds: ['ban-x'] }, 'op-1'),
-      ).rejects.toThrow('db down');
-      // El read post-commit (loadLegalityConfig) jamás corre: no se devolvió un estado "a medias".
-      expect(findMany).not.toHaveBeenCalled();
+      const svc = new DecksMetaService(prisma, catalog, {} as unknown as DeckMatcherService);
+      const detail = await svc.getBySlug('dragapult');
+      expect(detail).not.toHaveProperty('legalityVerifiedAt');
+      expect(detail).toHaveProperty('groups');
     });
   });
 
   /**
    * DECKS-META Fase 2 — dial de auto-fetch. Se lee fail-closed y se escribe validado/atómico. Encender
-   * el dial causa egress real + publicación ⇒ money-adjacent.
+   * el dial causa egress real + publicación ⇒ money-adjacent. NO es legalidad: sigue INTACTO (SUP-LEG).
    */
   describe('loadDialState (fail-closed)', () => {
     function svcWithRows(rows: { key: string; valueJson: unknown }[]) {
