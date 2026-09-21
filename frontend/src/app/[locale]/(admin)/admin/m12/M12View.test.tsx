@@ -20,8 +20,8 @@ function report(over: Partial<DecksMetaRefreshReport> = {}): DecksMetaRefreshRep
     finishedAt: '2026-09-19T12:00:38Z',
     urlsFetched: ['home', 'list/a', 'list/b'],
     decks: [
-      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'a', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17 }, legalityDrops: 0, inBand: true },
-      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'b', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, inBand: true },
+      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'a', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
+      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'b', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, legalityBreakdown: { noMark: 0, outOfWindow: 1, banned: 0 }, marksSeen: ['H'], inBand: true },
     ],
     canary: {
       verdict: 'PUBLISH',
@@ -35,6 +35,7 @@ function report(over: Partial<DecksMetaRefreshReport> = {}): DecksMetaRefreshRep
         { id: 'C5', ok: true, measured: 8, threshold: 3, label: 'x' },
       ],
     },
+    legalityConfig: { activeMarks: ['G', 'H'], banlistCardIds: [] },
     verdict: 'PUBLISH',
     wouldPublish: true,
     applied: false,
@@ -106,5 +107,51 @@ describe('M12View · Ensayo decks meta (dry-run)', () => {
     renderWithProviders(<M12View />, 'en');
     fireEvent.click(screen.getByRole('button', { name: 'Run dry-run' }));
     expect(await screen.findByText('WOULD PUBLISH')).toBeInTheDocument();
+  });
+
+  // ── Diagnóstico de legalidad ──────────────────────────────────────────────────────────────
+  it('CAUSA A · sin marcas vistas y caídas «sin marca» ⇒ sugiere re-sincronizar el catálogo', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockResolvedValue({
+      skipped: false,
+      mode: 'dryrun',
+      report: report({
+        legalityConfig: { activeMarks: ['H'], banlistCardIds: [] },
+        decks: [
+          { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'a', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17 }, legalityDrops: 17, legalityBreakdown: { noMark: 17, outOfWindow: 0, banned: 0 }, marksSeen: [], inBand: true },
+        ],
+      }),
+    });
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+
+    expect(await screen.findByText('Diagnóstico de legalidad')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Las cartas del catálogo no traen marca de regulación → hay que RE-SINCRONIZAR el catálogo (fijar la ventana no bastará).',
+      ),
+    ).toBeInTheDocument();
+    // La lista de marcas vistas se declara vacía en llano.
+    expect(screen.getByText('Ninguna: las cartas no traen marca de regulación.')).toBeInTheDocument();
+  });
+
+  it('CAUSA B · ventana vacía pero las cartas SÍ traen marca ⇒ sugiere fijar la ventana', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockResolvedValue({
+      skipped: false,
+      mode: 'dryrun',
+      report: report({
+        legalityConfig: { activeMarks: [], banlistCardIds: [] },
+        decks: [
+          { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'a', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17 }, legalityDrops: 17, legalityBreakdown: { noMark: 0, outOfWindow: 17, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
+        ],
+      }),
+    });
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+
+    expect(
+      await screen.findByText('La ventana de legalidad está vacía → fíjala en el control de arriba.'),
+    ).toBeInTheDocument();
+    // La ventana usada se marca como «vacía».
+    expect(screen.getByText('vacía')).toBeInTheDocument();
   });
 });

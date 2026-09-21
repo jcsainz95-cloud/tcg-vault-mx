@@ -159,9 +159,9 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     finishedAt: '2026-09-19T12:00:38Z',
     urlsFetched: ['home', 'list/abc123', 'list/def456', 'list/ghi789'],
     decks: [
-      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, legalityDrops: 0, inBand: true },
-      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, inBand: true },
-      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, legalityDrops: 0, inBand: true },
+      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
+      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, legalityBreakdown: { noMark: 0, outOfWindow: 1, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
+      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['H'], inBand: true },
     ],
     canary: {
       verdict: 'PUBLISH',
@@ -175,6 +175,7 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
         { id: 'C5', ok: true, measured: 8, threshold: 3, label: 'home parseable, bloques con listId (8) ≥ 3' },
       ],
     },
+    legalityConfig: { activeMarks: ['G', 'H'], banlistCardIds: [] },
     verdict: 'PUBLISH',
     wouldPublish: true,
     applied: false,

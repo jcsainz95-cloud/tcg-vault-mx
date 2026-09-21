@@ -4962,6 +4962,15 @@ export interface DecksMetaDeckReport {
   total: number;
   matchStatusBreakdown: Record<string, number>;
   legalityDrops: number;
+  /**
+   * DIAGNÓSTICO de legalidad (§2.3): por qué cayó CADA carta casada que falló la legalidad, por la
+   * PRIMERA razón aplicable (orden `noMark → outOfWindow → banned`). Los tres suman `legalityDrops`.
+   * `noMark` = la carta no trae marca de regulación (el sync nunca la pobló); `outOfWindow` = tiene
+   * marca pero no está en la ventana vigente (rotó, o la ventana está vacía); `banned` = baneada.
+   */
+  legalityBreakdown: { noMark: number; outOfWindow: number; banned: number };
+  /** Marcas de regulación DISTINTAS vistas en las cartas casadas del deck. Vacío ⇒ el sync no pobló marca. */
+  marksSeen: string[];
   /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
   inBand: boolean;
   error?: string;
@@ -4977,6 +4986,12 @@ export interface DecksMetaRefreshReport {
   urlsFetched: string[];
   decks: DecksMetaDeckReport[];
   canary: DecksMetaCanaryResult;
+  /**
+   * DIAGNÓSTICO de legalidad (§2.3): la VENTANA que este run usó al derivar la legalidad, tal cual
+   * salió de `ConfigSetting`. Si `activeMarks` viene VACÍO, ninguna carta puede ser legal (la ventana
+   * está sin configurar) — es la CAUSA A del «casi todo rotado».
+   */
+  legalityConfig: { activeMarks: string[]; banlistCardIds: string[] };
   verdict: 'PUBLISH' | 'NO_PUBLISH';
   wouldPublish: boolean;
   applied: boolean;

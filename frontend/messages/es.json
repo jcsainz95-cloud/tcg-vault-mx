@@ -2919,6 +2919,21 @@
         "pausedSkipped": "Decks en pausa (saltados)",
         "errors": "Errores",
         "none": "Sin notas ni errores."
+      },
+      "legalityDiag": {
+        "title": "Diagnóstico de legalidad",
+        "windowLabel": "Ventana usada",
+        "windowEmpty": "vacía",
+        "banlistNote": "{count, plural, =0 {Banlist: sin cartas} one {Banlist: # carta} other {Banlist: # cartas}}",
+        "marksSeenLabel": "Marcas vistas en los decks",
+        "marksSeenEmpty": "Ninguna: las cartas no traen marca de regulación.",
+        "dropsLabel": "Caídas por legalidad",
+        "noMark": "sin marca",
+        "outOfWindow": "fuera de ventana",
+        "banned": "baneadas",
+        "causeLabel": "Causa probable",
+        "causeResync": "Las cartas del catálogo no traen marca de regulación → hay que RE-SINCRONIZAR el catálogo (fijar la ventana no bastará).",
+        "causeEmptyWindow": "La ventana de legalidad está vacía → fíjala en el control de arriba."
       }
     },
     "decksMetaDial": {

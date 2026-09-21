@@ -2919,6 +2919,21 @@
         "pausedSkipped": "Paused decks (skipped)",
         "errors": "Errors",
         "none": "No notes or errors."
+      },
+      "legalityDiag": {
+        "title": "Legality diagnostics",
+        "windowLabel": "Window used",
+        "windowEmpty": "empty",
+        "banlistNote": "{count, plural, =0 {Banlist: no cards} one {Banlist: # card} other {Banlist: # cards}}",
+        "marksSeenLabel": "Marks seen in the decks",
+        "marksSeenEmpty": "None: the cards carry no regulation mark.",
+        "dropsLabel": "Legality drops",
+        "noMark": "no mark",
+        "outOfWindow": "out of window",
+        "banned": "banned",
+        "causeLabel": "Probable cause",
+        "causeResync": "The catalog cards carry no regulation mark → the catalog must be RE-SYNCED (setting the window won't be enough).",
+        "causeEmptyWindow": "The legality window is empty → set it in the control above."
       }
     },
     "decksMetaDial": {
