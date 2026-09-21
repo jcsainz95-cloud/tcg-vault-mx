@@ -62,6 +62,18 @@ fixture con adaptador fijado+canario.
 
 ## 2. PREREQUISITO — Legalidad en el catálogo
 
+> **⚠️ SUPERSEDIDO en su parte de GATEO (SUP-LEG, 2026-09-21 — ver `ARCHITECTURE.md §12.1` y `API_CONTRACT.md §13`).**
+> Decisión del dueño: Meta Battle Decks **confía en la fuente**. Limitless solo publica decks legales en el
+> Standard vigente, así que **no** re-filtramos por ventana de marcas ni banlist. Todo lo de esta §2 que
+> **computa o gatea** legalidad para meta-decks queda retirado: `isLegalStandardNow`, `loadLegalityConfig`, la
+> ventana `standard.active_regulation_marks` / `standard.banlist_card_ids`, los endpoints
+> `GET`/`PUT /admin/config/standard-legality` (§2.3, §3.4 «compuerta de legalidad», §5), el editor «Ventana de
+> legalidad» (M12) y el «Diagnóstico de legalidad» del ensayo (F2). Una línea de meta-deck es **disponible**
+> (casada + stock), **no la tenemos** (casada, sin stock) o **no identificada**; el estado «rotada» desaparece.
+> **Se conservan** como hechos crudos las columnas `Card.regulationMark` / `Card.legalStandardRaw` y su mapeo en
+> `catalog-sync` (el catálogo general puede usarlas); solo se deja de gatear con ellas. Cierra **P-LEG-CAUSE** /
+> **P-LEG-AUTODERIVE**. El resto de esta sección se conserva como historia de diseño.
+
 **Sin esto, ningún criterio del dueño se cumple** (no podemos afirmar "legal en Standard"). Es **zona
 compartida** (`schema` + `catalog` + `API_CONTRACT`): lo serializa el arquitecto/orquestador **antes** de
 abrir el módulo `decks-meta`.

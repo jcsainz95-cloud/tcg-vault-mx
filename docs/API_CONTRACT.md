@@ -22014,9 +22014,12 @@ su bóveda?* **Es política de negocio sobre dinero en disputa, y la contesta el
 > servidor nuevo. Precio y piezas se **reusan** de §2 (ficha/`units`, `getReferencesBatch`) — no se reinventan.
 
 ### Convenciones de esta sección
-- **Legalidad:** una línea se ofrece como **jugable** solo si su carta casada es `isLegalStandardNow`
-  (ARCHITECTURE §12.1): `regulationMark ∈ ConfigSetting['standard.active_regulation_marks'] ∧ legalStandardRaw ≠
-  'Banned' ∧ externalId ∉ banlist`. `regulationMark == null` ⇒ **no legal**.
+- **CONFÍA EN LA FUENTE (SUP-LEG, 2026-09-21, ARCHITECTURE §12.1):** una carta en una decklist de Limitless en
+  Standard es **legal por definición de la fuente**. Se ofrece **iff** tenemos la impresión casada en stock. **No
+  hay chequeo de legalidad** (`isLegalStandardNow`, ventana de marcas, banlist ni `'Banned'` del proveedor). La
+  disponibilidad es **solo-stock**: una línea es **disponible** (casada + stock), **no la tenemos** (casada, sin
+  stock / no en catálogo) o **no identificada** (`matchStatus ≠ matched`). Ya **no** existe estado «rotada». Cierra
+  **P-LEG-CAUSE** / **P-LEG-AUTODERIVE**.
 - **Nunca se inventa** carta ni precio: una línea que no casa por `ptcgoCode`+`number` sale con
   `matchStatus ≠ matched` y sin `card`/precio.
 - **§0-Q:** los endpoints de lectura no exponen ejes de query de dominio cerrado. Si se añade `?sort=`
@@ -22038,8 +22041,8 @@ Res `200`:
     "rank": 1,
     "sharePct": 12.4,            // opcional (si la fuente lo da)
     "trend": 1,                  // opcional: share_actual − anterior (▲=+, ▼=−, 0)
-    "fromPriceMxnCents": 184500, // "desde": suma de disponibles+legales con precio; opcional
-    "availableCount": 52,        // Σ availableQty de líneas legales
+    "fromPriceMxnCents": 184500, // "desde": suma de disponibles (casadas + stock) con precio; opcional
+    "availableCount": 52,        // Σ availableQty de líneas casadas con stock
     "totalCount": 60,
     "imageUrl": "https://…"      // arte de Card representativa (nunca arte externo)
   }],
@@ -22059,7 +22062,7 @@ tenga 60/40/5 disponibles (nunca se oculta por incompleto). Res `200`:
   "source": "Datos de Limitless TCG",
   "sourceUrl": "https://limitlesstcg.com/…",   // opcional
   "sourceTournament": "…",                       // opcional
-  "legalityVerifiedAt": "2026-09-14T12:00:00Z",  // "Legal en Standard · verificado {fecha}"
+  // (SUP-LEG) `legalityVerifiedAt` ELIMINADO: ya no computamos legalidad; se confía en la fuente.
   "groups": {
     "pokemon":  [ /* MetaDeckLineDTO */ ],
     "trainer":  [ /* … */ ],
@@ -22074,18 +22077,18 @@ tenga 60/40/5 disponibles (nunca se oculta por incompleto). Res `200`:
   "group": "pokemon",
   "matchStatus": "matched",   // matched | ambiguous | unmatched_set | unmatched_number | unmatched_basic_energy
   "card": { "cardId": "…", "name": "Dragapult ex", "imageUrl": "https://…" }, // null si no casó
-  "legal": true,              // isLegalStandardNow(card); false ⇒ rotada/no probable
-  "availableQty": 3,          // min(quantity, stockNM); 0 si falta
+  // (SUP-LEG) campo `legal` ELIMINADO: la disponibilidad es solo-stock (casada + availableQty>0).
+  "availableQty": 3,          // min(quantity, stockNM); 0 ⇒ "no la tenemos"
   "unitPriceMxnCents": 61500, // "desde" de la carta (salePriceCents); null si pending/faltante
   "unitInventoryItemIds": ["…","…","…"],  // hasta availableQty, cheapest-first — el add-to-cart de jalón
-  "substitute": {             // opcional (Fase 3): otra impresión LEGAL de la misma carta en stock
+  "substitute": {             // opcional (Fase 3): otra impresión de la misma carta en stock
     "cardId": "…", "name": "Dragapult ex", "setCode": "SVI", "number": "…",
     "availableQty": 2, "unitPriceMxnCents": 58000, "unitInventoryItemIds": ["…","…"]
   }
 }
 ```
-Una línea **no jugable** (`legal:false`) o **no identificada** (`matchStatus≠matched`) **no** aporta
-`unitInventoryItemIds` propios (no se vende como jugable); puede traer `substitute` (Fase 3).
+Una línea **sin stock** (`availableQty:0`) o **no identificada** (`matchStatus≠matched`) **no** aporta
+`unitInventoryItemIds` propios; puede traer `substitute` (Fase 3).
 
 ### POST /api/v1/decks-meta/paste — `public`  (el motor, H3)  ·  rate-limited (`429`)
 Body: `{ "text": "4 Dragapult ex TWM 130\n3 …" }` (≤ N chars — cerrar N con el dueño). Parsea+empareja+valora
@@ -22094,7 +22097,7 @@ Body: `{ "text": "4 Dragapult ex TWM 130\n3 …" }` (≤ N chars — cerrar N co
 inventar.
 
 ### POST /api/v1/decks-meta/:slug/cart-selection — `public`  *(OPCIONAL — confirmar con el dueño)*
-Conveniencia: devuelve la unión ya computada de piezas disponibles+legales del deck.
+Conveniencia: devuelve la unión ya computada de piezas disponibles (casadas + en stock) del deck.
 Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `useCart().add`. Redundante con los
 `unitInventoryItemIds` por línea; se incluye solo si el front prefiere la unión server-side.
 
@@ -22104,6 +22107,10 @@ Res `200`: `{ "inventoryItemIds": ["…", "…"] }`. El front las agrega con `us
   **manual** (mismo formato/motor, `source=manual`), fijar `rank`, `published`, `pausedByOperator`.
 - `GET /api/v1/admin/decks-meta/unmatched` — reporte de líneas `matchStatus≠matched` de listas publicadas, para
   curar (set+número crudos, en cuántos decks, cantidad).
-- `PUT /api/v1/admin/config/standard-legality` — editar `ConfigSetting['standard.active_regulation_marks']` y
-  `['standard.banlist_card_ids']`. **Es el mecanismo de ROTACIÓN** (ARCHITECTURE §12.1): editar la ventana
-  recalcula la legalidad derivada sin re-sync. Cuerpo money-safe; a la fase de seguridad por release.
+- **~~`GET` + `PUT /api/v1/admin/config/standard-legality`~~ — ELIMINADOS (SUP-LEG, 2026-09-21).** Eran la lectura
+  (pre-carga del editor) y la edición de la ventana de legalidad + banlist (mecanismo de rotación). Con «confía en
+  la fuente» ya no hay ventana ni banlist que leer/editar, así que ambos endpoints y su `AdminStandardLegalityController`
+  se retiran. La auditoría before→after y la escritura atómica añadidas a este `PUT` (**SEG-DMF1-1** atomicidad,
+  **SEG-DMF1-2** bitácora) se van **con** el endpoint: quedan **moot**, no se pierde ninguna garantía money (ya no
+  hay rotación que auditar). **Se conservan** el **dial** (`GET`/`PUT /api/v1/admin/decks-meta/dial`, super_admin,
+  auditado + atómico) y `GET /api/v1/admin/decks-meta/preview` — no tienen que ver con legalidad.
