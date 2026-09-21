@@ -1230,7 +1230,7 @@
       "m9": "M9 · Reportes",
       "m10": "M10 · Config",
       "m11": "M11 · Sellado",
-      "m12": "M12 · Ensayo meta",
+      "m12": "M12 · Meta Battle Decks",
       "vaults": "Bóvedas de clientes",
       "m2Bounties": "M2 · Bounties"
     },
@@ -2853,8 +2853,10 @@
       }
     },
     "decksMetaRefresh": {
-      "title": "Ensayo — decks del meta",
-      "subtitle": "Corre el jalado automático de decks del meta en modo prueba: trae todo de Limitless, lo revisa y te dice si publicaría, sin tocar nada de lo que ya está en línea.",
+      "moduleTitle": "Meta Battle Decks",
+      "moduleSubtitle": "Opera el jalado automático de Meta Battle Decks: enciéndelo o apágalo, define qué ediciones cuentan como vigentes y haz un ensayo antes de publicar.",
+      "title": "Ensayo (modo prueba)",
+      "subtitle": "Corre el jalado automático de Meta Battle Decks en modo prueba: trae todo de Limitless, lo revisa y te dice si publicaría, sin tocar nada de lo que ya está en línea.",
       "runButton": "Correr ensayo",
       "running": "Jalando de Limitless… (~30-45s)",
       "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
@@ -2917,7 +2919,84 @@
         "pausedSkipped": "Decks en pausa (saltados)",
         "errors": "Errores",
         "none": "Sin notas ni errores."
+      },
+      "legalityDiag": {
+        "title": "Diagnóstico de legalidad",
+        "windowLabel": "Ventana usada",
+        "windowEmpty": "vacía",
+        "banlistNote": "{count, plural, =0 {Banlist: sin cartas} one {Banlist: # carta} other {Banlist: # cartas}}",
+        "marksSeenLabel": "Marcas vistas en los decks",
+        "marksSeenEmpty": "Ninguna: las cartas no traen marca de regulación.",
+        "dropsLabel": "Caídas por legalidad",
+        "noMark": "sin marca",
+        "outOfWindow": "fuera de ventana",
+        "banned": "baneadas",
+        "causeLabel": "Causa probable",
+        "causeResync": "Las cartas del catálogo no traen marca de regulación → hay que RE-SINCRONIZAR el catálogo (fijar la ventana no bastará).",
+        "causeEmptyWindow": "La ventana de legalidad está vacía → fíjala en el control de arriba."
       }
+    },
+    "decksMetaDial": {
+      "title": "Interruptor del jalado automático",
+      "subtitle": "Decide si el jalado de Meta Battle Decks corre solo cada semana y si publica sin que nadie apriete nada. Cambiarlo es solo para súper-admin.",
+      "loading": "Cargando el interruptor…",
+      "loadError": "No se pudo leer el estado del interruptor.",
+      "retry": "Reintentar",
+      "state": {
+        "autofetch": "Estado ahora",
+        "autopublish": "Publicar solo"
+      },
+      "autofetch": {
+        "label": "Jalado automático",
+        "off": "Apagado",
+        "dryrun": "Ensayo",
+        "on": "Encendido",
+        "help": {
+          "off": "No corre solo. Solo puedes hacer el ensayo de aquí abajo a mano.",
+          "dryrun": "Corre solo cada semana, revisa todo, pero NO publica nada. Sirve para vigilar sin riesgo.",
+          "on": "Corre solo cada semana y, si «publicar solo» está activo, publica lo que pase los chequeos."
+        }
+      },
+      "autopublish": {
+        "label": "Publicar solo",
+        "on": "Encendida",
+        "off": "Apagada",
+        "help": "Con esto activo, los decks que pasan los chequeos se publican sin que nadie los apruebe. Sin esto, solo se preparan y tú decides."
+      },
+      "save": "Guardar interruptor",
+      "saved": "Interruptor guardado.",
+      "saveError": "No se pudo guardar el interruptor. Vuelve a intentarlo.",
+      "forbidden": "No tienes permiso para cambiar el interruptor. Solo un súper-admin puede.",
+      "readOnly": "Estás viendo el estado en solo-lectura. Cambiar el interruptor es solo para súper-admin.",
+      "confirm": {
+        "title": "¿Encender el jalado automático?",
+        "body": "Esto hará que el jalado corra solo cada semana y, si «publicar solo» está activo, publique sin que aprietes nada. ¿Seguro?",
+        "confirmCta": "Sí, encender",
+        "cancel": "Cancelar"
+      }
+    },
+    "standardLegality": {
+      "title": "Ventana de legalidad",
+      "subtitle": "Aquí eliges qué ediciones cuentan como vigentes en Standard. Si está vacío, casi todo se marcará como «rotada».",
+      "loading": "Cargando la ventana vigente…",
+      "loadError": "No se pudo leer la ventana de legalidad.",
+      "retry": "Reintentar",
+      "marks": {
+        "label": "Marcas vigentes",
+        "help": "Las marcas de regulación que hoy cuentan como Standard (por ejemplo: G, H). Escribe cada una y aprieta Enter o coma.",
+        "placeholder": "Agrega una marca…",
+        "empty": "Sin marcas: casi todo caería como «rotada»."
+      },
+      "banlist": {
+        "label": "Cartas baneadas",
+        "help": "Ids de cartas prohibidas puntualmente (raro). Escribe cada id y aprieta Enter o coma.",
+        "placeholder": "Agrega un id de carta…",
+        "empty": "Sin cartas baneadas."
+      },
+      "remove": "Quitar {value}",
+      "save": "Guardar ventana",
+      "saved": "Ventana de legalidad guardada.",
+      "saveError": "No se pudo guardar la ventana. Vuelve a intentarlo."
     },
     "m10": {
       "title": "M10 · Config y bitácora",

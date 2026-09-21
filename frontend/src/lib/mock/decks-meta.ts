@@ -13,6 +13,10 @@ import type {
   DeckMetaDetailResponse,
   DeckMetaPasteResponse,
   DecksMetaPreviewResponse,
+  DecksMetaDialDTO,
+  DecksMetaDialUpdateRequest,
+  StandardLegalityDTO,
+  StandardLegalityUpdateRequest,
   MetaDeckGroupsDTO,
   MetaDeckLineDTO,
 } from '@/types/contract';
@@ -155,9 +159,9 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     finishedAt: '2026-09-19T12:00:38Z',
     urlsFetched: ['home', 'list/abc123', 'list/def456', 'list/ghi789'],
     decks: [
-      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, legalityDrops: 0, inBand: true },
-      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, inBand: true },
-      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, legalityDrops: 0, inBand: true },
+      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
+      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, legalityBreakdown: { noMark: 0, outOfWindow: 1, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
+      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['H'], inBand: true },
     ],
     canary: {
       verdict: 'PUBLISH',
@@ -171,6 +175,7 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
         { id: 'C5', ok: true, measured: 8, threshold: 3, label: 'home parseable, bloques con listId (8) ≥ 3' },
       ],
     },
+    legalityConfig: { activeMarks: ['G', 'H'], banlistCardIds: [] },
     verdict: 'PUBLISH',
     wouldPublish: true,
     applied: false,
@@ -182,3 +187,41 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     errors: [],
   },
 };
+
+/**
+ * MOCK del DIAL (§13 Fase 2) para el modo demo. Seed FAIL-CLOSED (`off` / `autopublish:false`),
+ * igual que el backend cuando la key no existe. Estado mutable de módulo para que el editor demo
+ * refleje sus propios cambios sin backend.
+ */
+let mockDial: DecksMetaDialDTO = { autofetch: 'off', autopublish: false };
+
+export function getMockDial(): DecksMetaDialDTO {
+  return { ...mockDial };
+}
+
+export function setMockDial(patch: DecksMetaDialUpdateRequest): DecksMetaDialDTO {
+  mockDial = {
+    autofetch: patch.autofetch ?? mockDial.autofetch,
+    autopublish: patch.autopublish ?? mockDial.autopublish,
+  };
+  return { ...mockDial };
+}
+
+/**
+ * MOCK de la VENTANA de legalidad (§12.1). Seed VACÍO a propósito: es justo el estado que provocó el
+ * «casi todo rotado» del ensayo en prod, para que el editor demo ejercite el arreglo. Cada key
+ * enviada REEMPLAZA el arreglo guardado (como el upsert del backend).
+ */
+let mockLegality: StandardLegalityDTO = { activeMarks: [], banlistCardIds: [] };
+
+export function getMockLegality(): StandardLegalityDTO {
+  return { activeMarks: [...mockLegality.activeMarks], banlistCardIds: [...mockLegality.banlistCardIds] };
+}
+
+export function setMockLegality(patch: StandardLegalityUpdateRequest): StandardLegalityDTO {
+  mockLegality = {
+    activeMarks: patch.activeMarks ?? mockLegality.activeMarks,
+    banlistCardIds: patch.banlistCardIds ?? mockLegality.banlistCardIds,
+  };
+  return { ...mockLegality };
+}

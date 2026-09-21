@@ -5,6 +5,27 @@
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
 > Última limpieza: **2026-09-11 ~08:30 UTC** (orquestador, sesión 2, tras fusionar Stream A + andamiaje de CI a `main`). Cuerpos de los ítems: **verbatim**, sin reescribir.
 
+## Actualización 2026-09-21 (orquestador, sesión 3) — Meta Battle Decks + bounties
+
+> ⚠️ El índice de abiertos de abajo es del **2026-09-11** y NO se ha re-medido entero. **Re-conteo completo del backlog: agendado** (aprobado por el dueño 2026-09-21) para justo después de fusionar el botón de operación de Meta Battle Decks. Hasta entonces, las filas viejas se tratan como **NO medidas** (O-5).
+
+**Cerrado y en producción desde el 2026-09-11 (medido 2026-09-21):**
+- Bounties Q1 (piso = mín(compra, mercado)) + Q2 (eliminar/despublicar) — PR #53 (`d3c03c69`).
+- Meta Battle Decks: renombre + jalado automático Fase 2 (apagado) + pantalla de ensayo M12 — PR #56 (`cde54a83`). Cierra **P-70**; empieza a consumir el `ptcgoCode` de **P-71** (matcher decks-meta).
+
+**En vuelo (rama `claude/decksmeta-dial-and-audit`, gates APROBADO en `22e68df0`; HEAD `19afbd82`; PENDIENTE de fusionar):**
+- **SEG-DMF1-1/2** (rotación de legalidad atómica + auditada before→after) — CERRADO en esta rama.
+- Interruptor del jalado (off/dryrun/on + autopublish, super_admin) + ventana de legalidad (editor con GET de pre-carga) + diagnóstico de legalidad en el ensayo (ventana usada + desglose noMark/outOfWindow/banned + marcas vistas + causa probable). M12.
+
+**Abiertos nuevos (medido 2026-09-21):**
+- **P-BOUNTY-CEIL** (money) — bloqueo/techo para NO pagar arriba de mercado en un bounty (hoy el bounty no se topa contra el mercado; `money.ts` lo compara solo contra la curva). Dueño: arquitecto → backend. Pedido por el dueño 2026-09-21. Comprobación: `grep -n "NUNCA se compara" backend/src/common/money.ts`.
+- **P-LEG-CAUSE** (money-adjacent) — el ensayo marca casi todas las cartas de decks del meta actual como «fuera de rotación», lo cual es implausible. El diagnóstico del ensayo (ya construido) dirá la causa: **A** = `activeMarks` vacío en prod (fijar la ventana en M12) vs **B** = catálogo con `regulationMark = null` (re-sincronizar el catálogo; fijar la ventana NO basta). Dueño corre el ensayo → según la causa se actúa. Comprobación: `report.legalityConfig.activeMarks` y `deck.marksSeen` en el reporte de `GET /admin/decks-meta/preview`.
+- **P-LEG-AUTODERIVE** (idea, no aterrizada) — derivar la ventana de legalidad del formato que ya jala Limitless (p. ej. TEF-PBL) para no mantener las marcas a mano. Proponer con arquitecto.
+- **P-API-DOC** — documentar en `docs/API_CONTRACT.md` los 3 endpoints nuevos: `GET /admin/config/standard-legality`, `GET /admin/decks-meta/dial`, `PUT /admin/decks-meta/dial` (regla 9, arquitecto). Sin candado de paridad que lo exija hoy (medido: specs de contrato/rutas verdes), es higiene de DoD.
+- **P-TARIFA** — renombrar «tarifa vigente» → «tu tarifa de compra» + mostrar el mercado al lado (frontend). Espera OK del dueño sobre el texto.
+
+**Decisiones del dueño pendientes:** (1) cómo publica el automático (solo vs. tú aprietas) tras validar el ensayo; (2) OK al texto de P-TARIFA; (3) DMARC en el DNS (P-60, viejo).
+
 ## Índice de abiertos (re-medido 2026-09-11 ~03:20 UTC sobre `17ce9a9`; **actualizado 2026-09-11 ~08:30 UTC tras fusionar Stream A + andamiaje de CI a `main`**; «—» = el cuerpo no lo dice)
 
 > Sesión 2, 2026-09-11: se re-midió **cada fila** contra el árbol (O-5). Punteros a línea corregidos donde envejecieron.

@@ -4962,6 +4962,15 @@ export interface DecksMetaDeckReport {
   total: number;
   matchStatusBreakdown: Record<string, number>;
   legalityDrops: number;
+  /**
+   * DIAGNÓSTICO de legalidad (§2.3): por qué cayó CADA carta casada que falló la legalidad, por la
+   * PRIMERA razón aplicable (orden `noMark → outOfWindow → banned`). Los tres suman `legalityDrops`.
+   * `noMark` = la carta no trae marca de regulación (el sync nunca la pobló); `outOfWindow` = tiene
+   * marca pero no está en la ventana vigente (rotó, o la ventana está vacía); `banned` = baneada.
+   */
+  legalityBreakdown: { noMark: number; outOfWindow: number; banned: number };
+  /** Marcas de regulación DISTINTAS vistas en las cartas casadas del deck. Vacío ⇒ el sync no pobló marca. */
+  marksSeen: string[];
   /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
   inBand: boolean;
   error?: string;
@@ -4977,6 +4986,12 @@ export interface DecksMetaRefreshReport {
   urlsFetched: string[];
   decks: DecksMetaDeckReport[];
   canary: DecksMetaCanaryResult;
+  /**
+   * DIAGNÓSTICO de legalidad (§2.3): la VENTANA que este run usó al derivar la legalidad, tal cual
+   * salió de `ConfigSetting`. Si `activeMarks` viene VACÍO, ninguna carta puede ser legal (la ventana
+   * está sin configurar) — es la CAUSA A del «casi todo rotado».
+   */
+  legalityConfig: { activeMarks: string[]; banlistCardIds: string[] };
   verdict: 'PUBLISH' | 'NO_PUBLISH';
   wouldPublish: boolean;
   applied: boolean;
@@ -4996,3 +5011,42 @@ export interface DecksMetaRefreshReport {
 export type DecksMetaPreviewResponse =
   | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
   | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };
+
+// ── §13 Fase 2 · DIAL del jalado automático + VENTANA de legalidad (operación admin) ─────────────
+// Espeja los endpoints ya construidos en `admin-decks-meta.controller.ts` /
+// `AdminStandardLegalityController`. No cambia el contrato: mirror de shapes existentes.
+
+/** El interruptor de 3 estados del auto-fetch. `on` dispara egress real + publicación (super_admin). */
+export type DecksMetaAutofetch = 'off' | 'dryrun' | 'on';
+
+/**
+ * Estado del dial (`GET /admin/decks-meta/dial`, vault_operator+; `PUT` super_admin). Fail-closed:
+ * ausente ⇒ `{ autofetch:'off', autopublish:false }`.
+ */
+export interface DecksMetaDialDTO {
+  autofetch: DecksMetaAutofetch;
+  autopublish: boolean;
+}
+
+/** Patch parcial del dial (`PUT /admin/decks-meta/dial`). Sólo las llaves que el dueño tocó. */
+export interface DecksMetaDialUpdateRequest {
+  autofetch?: DecksMetaAutofetch;
+  autopublish?: boolean;
+}
+
+/**
+ * La ventana de legalidad de Standard (`ConfigSetting`): qué marcas de regulación cuentan como
+ * vigentes ahora y qué cartas están baneadas por `externalId`. La devuelve el `PUT
+ * /admin/config/standard-legality` (vault_operator+). ⚠️ Hoy NO hay `GET` para leerla — ver
+ * `updateStandardLegality` en `lib/api.ts` (hueco de backend anotado).
+ */
+export interface StandardLegalityDTO {
+  activeMarks: string[];
+  banlistCardIds: string[];
+}
+
+/** Patch parcial de la ventana (`PUT /admin/config/standard-legality`). Reemplaza el arreglo enviado. */
+export interface StandardLegalityUpdateRequest {
+  activeMarks?: string[];
+  banlistCardIds?: string[];
+}

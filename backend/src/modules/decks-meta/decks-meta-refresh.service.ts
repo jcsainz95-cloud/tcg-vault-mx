@@ -170,6 +170,7 @@ export class DecksMetaRefreshService {
       urlsFetched,
       decks: deckReports,
       canary,
+      legalityConfig: { activeMarks: cfg.activeMarks, banlistCardIds: cfg.banlistCardIds },
       verdict: canary.verdict,
       wouldPublish: canary.verdict === 'PUBLISH',
       applied: false,
@@ -352,7 +353,11 @@ export function buildRunNote(report: RefreshReport): string {
     canaryReason: report.canary.reason,
     persistedCount: report.persistedCount,
     checks: report.canary.checks.map((c) => ({ id: c.id, ok: c.ok, measured: c.measured, threshold: c.threshold })),
-    perDeckCounts: capArray(report.decks, NOTE_MAX_ITEMS).map((d) => ({ archetypeId: d.archetypeId, name: d.name, sumQuantity: d.sumQuantity, matched: d.matched, total: d.total })),
+    // DIAGNÓSTICO de legalidad (§2.3): la ventana usada y, por deck, el desglose y las marcas vistas.
+    legalityConfig: report.legalityConfig
+      ? { activeMarks: capArray(report.legalityConfig.activeMarks, NOTE_MAX_ITEMS), banlistCardIds: capArray(report.legalityConfig.banlistCardIds, NOTE_MAX_ITEMS) }
+      : undefined,
+    perDeckCounts: capArray(report.decks, NOTE_MAX_ITEMS).map((d) => ({ archetypeId: d.archetypeId, name: d.name, sumQuantity: d.sumQuantity, matched: d.matched, total: d.total, legalityDrops: d.legalityDrops, legalityBreakdown: d.legalityBreakdown, marksSeen: d.marksSeen })),
     urlsFetched: capArray(report.urlsFetched, NOTE_MAX_ITEMS),
     publishedSlugs: capArray(report.publishedSlugs, NOTE_MAX_ITEMS),
     supersededListIds: capArray(report.supersededListIds, NOTE_MAX_ITEMS),
@@ -407,6 +412,20 @@ export interface DeckReport {
   total: number;
   matchStatusBreakdown: Record<string, number>;
   legalityDrops: number;
+  /**
+   * DIAGNÓSTICO de legalidad (§2.3): categoriza CADA carta casada que falló `isLegalStandardNow`
+   * por la PRIMERA razón aplicable (orden determinista `noMark → outOfWindow → banned`). Los tres
+   * suman EXACTAMENTE `legalityDrops`. Sirve para distinguir la CAUSA de las caídas:
+   *  - `noMark`      : `regulationMark` null/vacío (carta nunca poblada por el sync ⇒ CAUSA B).
+   *  - `outOfWindow` : la marca existe pero no está en `activeMarks` (rotó, o la ventana está vacía).
+   *  - `banned`      : `legalStandardRaw === 'Banned'` o `externalId` en la banlist de operación.
+   */
+  legalityBreakdown: { noMark: number; outOfWindow: number; banned: number };
+  /**
+   * Las marcas de regulación NO nulas DISTINTAS entre las cartas casadas de este deck. Array VACÍO
+   * ⇒ las cartas no tienen marca alguna ⇒ CAUSA B (el sync nunca pobló `regulationMark`).
+   */
+  marksSeen: string[];
   inBand: boolean;
   error?: string;
 }
@@ -421,6 +440,12 @@ export interface RefreshReport {
   urlsFetched: string[];
   decks: DeckReport[];
   canary: CanaryResult;
+  /**
+   * DIAGNÓSTICO de legalidad (§2.3): la VENTANA que este run usó al derivar la legalidad, tal cual
+   * salió de `ConfigSetting`. Responde por sí sola la CAUSA A: si `activeMarks` viene VACÍO, TODA
+   * carta con marca cae como `outOfWindow` y ninguna puede ser legal — la ventana está sin configurar.
+   */
+  legalityConfig: { activeMarks: string[]; banlistCardIds: string[] };
   verdict: 'PUBLISH' | 'NO_PUBLISH';
   wouldPublish: boolean;
   applied: boolean;
@@ -460,13 +485,24 @@ function toDeckReport(
   const breakdown: Record<string, number> = {};
   for (const m of matched) breakdown[m.matchStatus] = (breakdown[m.matchStatus] ?? 0) + 1;
   let legalityDrops = 0;
+  // DIAGNÓSTICO (§2.3): categoriza cada caída y anota las marcas VISTAS, en la MISMA pasada (sin queries extra).
+  const legalityBreakdown = { noMark: 0, outOfWindow: 0, banned: 0 };
+  const marksSeenSet = new Set<string>();
   for (const m of matched) {
     if (m.matchStatus === MetaMatchStatus.matched && m.matchedCard) {
+      const mark = m.matchedCard.regulationMark;
+      if (mark) marksSeenSet.add(mark);
       const legal = isLegalStandardNow(
         { regulationMark: m.matchedCard.regulationMark, legalStandardRaw: m.matchedCard.legalStandardRaw, externalId: m.matchedCard.externalId },
         cfg,
       );
-      if (!legal) legalityDrops += 1;
+      if (!legal) {
+        legalityDrops += 1;
+        // PRIMERA razón aplicable, orden determinista noMark → outOfWindow → banned (los tres suman legalityDrops).
+        if (!mark) legalityBreakdown.noMark += 1;
+        else if (!cfg.activeMarks.includes(mark)) legalityBreakdown.outOfWindow += 1;
+        else legalityBreakdown.banned += 1;
+      }
     }
   }
   const sumQuantity = matched.reduce((s, m) => s + m.quantity, 0);
@@ -482,6 +518,8 @@ function toDeckReport(
     total: matched.length,
     matchStatusBreakdown: breakdown,
     legalityDrops,
+    legalityBreakdown,
+    marksSeen: [...marksSeenSet],
     inBand: sumQuantity >= cardsMin && sumQuantity <= cardsMax,
   };
 }
@@ -499,6 +537,8 @@ function errorDeckReport(leader: HomeLeader & { archetypeId: string; listId: str
     total: 0,
     matchStatusBreakdown: {},
     legalityDrops: 0,
+    legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 },
+    marksSeen: [],
     inBand: false,
     error,
   };

@@ -186,3 +186,98 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
     expect(parsed.perDeckCounts).toHaveLength(1);
   });
 });
+
+/**
+ * DECKS-META §2.3 — DIAGNÓSTICO de legalidad del ensayo. En prod cayó CASI TODA carta casada por
+ * legalidad, y no se puede ver la data. El reporte debe decir POR QUÉ:
+ *   CAUSA A → la ventana `activeMarks` está VACÍA (todo cae `outOfWindow`/`noMark`).
+ *   CAUSA B → las cartas del catálogo no tienen `regulationMark` (todo cae `noMark`, `marksSeen` vacío).
+ * Se corre en dry-run (fuerza `mode='dryrun'`, sin persistencia) porque el diagnóstico se computa en
+ * la MISMA pasada que `legalityDrops`, antes de cualquier escritura.
+ */
+describe('DecksMetaRefreshService (§2.3) — diagnóstico de legalidad (legalityBreakdown / marksSeen / legalityConfig)', () => {
+  const HOME_HTML = [
+    '<h2>Top Decks (STD)</h2>',
+    '<div class="top-leaders">',
+    '  <div class="leader"><a class="leader-details" href="/decks/101"><div class="text-lg font-bold">1. Alpha</div></a><a class="leader-decklist" href="/decks/list/201"></a></div>',
+    '</div>',
+  ].join('\n');
+
+  const configMap: Record<string, string> = { META_FETCH_DELAY_MS: '0' };
+  const config = { get: (k: string) => configMap[k] } as unknown as ConfigService;
+
+  // Carta casada con marca/legalidad/id concretos (cast: en el test sólo importan esos tres campos).
+  const card = (regulationMark: string | null, legalStandardRaw: string | null, externalId: string): MatchedLine['matchedCard'] =>
+    ({ regulationMark, legalStandardRaw, externalId }) as unknown as MatchedLine['matchedCard'];
+  const line = (matchedCard: MatchedLine['matchedCard']): MatchedLine => ({
+    quantity: 1,
+    rawName: 'Card',
+    rawSetCode: 'STD',
+    rawNumber: '1',
+    group: 'pokemon',
+    matchStatus: 'matched' as MatchedLine['matchStatus'],
+    matchedCard,
+  });
+
+  // Mezcla: sin marca / marca fuera de ventana ('F') / legal ('G') / baneada ('G' + Banned).
+  const MIXED = [
+    line(card(null, null, 'x-null')),
+    line(card('F', null, 'x-outofwindow')),
+    line(card('G', null, 'x-legal')),
+    line(card('G', 'Banned', 'x-banned')),
+  ];
+
+  function makeHarness(activeMarks: string[], banlistCardIds: string[] = []) {
+    const client = {
+      fetchHome: jest.fn(async () => HOME_HTML),
+      fetchDeckList: jest.fn(async () => '<div></div>'),
+    } as unknown as LimitlessFetchClient;
+    const matcher = { matchLines: jest.fn(async () => MIXED) } as unknown as DeckMatcherService;
+    const deckMeta = {
+      loadLegalityConfig: jest.fn(async () => ({ activeMarks, banlistCardIds })),
+    } as unknown as DecksMetaService;
+    const prisma = {
+      configSetting: { findMany: jest.fn(async () => []) },
+    } as unknown as PrismaService;
+    const service = new DecksMetaRefreshService(prisma, config, deckMeta, matcher, client);
+    return { service };
+  }
+
+  it('ventana normal: cada caída se categoriza (noMark/outOfWindow/banned), marksSeen lista las marcas y todo suma legalityDrops', async () => {
+    const { service } = makeHarness(['G', 'H', 'I']);
+    const result = await service.run({ dryRun: true });
+
+    expect(result.skipped).toBe(false);
+    if (result.skipped) return;
+    // La ventana usada se refleja tal cual (responde CAUSA A: aquí NO está vacía).
+    expect(result.report.legalityConfig).toEqual({ activeMarks: ['G', 'H', 'I'], banlistCardIds: [] });
+
+    const deck = result.report.decks[0];
+    // 3 caídas: sin-marca, fuera-de-ventana, baneada; la 'G' legal NO cae.
+    expect(deck.legalityDrops).toBe(3);
+    expect(deck.legalityBreakdown).toEqual({ noMark: 1, outOfWindow: 1, banned: 1 });
+    // Los tres suman EXACTAMENTE legalityDrops (invariante del diagnóstico).
+    const b = deck.legalityBreakdown;
+    expect(b.noMark + b.outOfWindow + b.banned).toBe(deck.legalityDrops);
+    // marksSeen: marcas NO nulas DISTINTAS (F y G; la carta sin marca no aporta). Cartas SÍ tienen marca ⇒ NO es CAUSA B.
+    expect([...deck.marksSeen].sort()).toEqual(['F', 'G']);
+  });
+
+  it('CAUSA A — activeMarks vacío: toda carta con marca cae outOfWindow (y la sin marca, noMark)', async () => {
+    const { service } = makeHarness([]);
+    const result = await service.run({ dryRun: true });
+
+    expect(result.skipped).toBe(false);
+    if (result.skipped) return;
+    // La ventana VACÍA es la firma de la CAUSA A.
+    expect(result.report.legalityConfig.activeMarks).toEqual([]);
+
+    const deck = result.report.decks[0];
+    // Las 4 cartas caen: la sin marca por noMark; las 3 con marca por outOfWindow (mark ∉ []).
+    expect(deck.legalityDrops).toBe(4);
+    expect(deck.legalityBreakdown).toEqual({ noMark: 1, outOfWindow: 3, banned: 0 });
+    expect(deck.legalityBreakdown.noMark + deck.legalityBreakdown.outOfWindow + deck.legalityBreakdown.banned).toBe(deck.legalityDrops);
+    // Las cartas SÍ traen marca (F, G): marksSeen NO vacío ⇒ NO es CAUSA B, es CAUSA A (ventana vacía).
+    expect([...deck.marksSeen].sort()).toEqual(['F', 'G']);
+  });
+});

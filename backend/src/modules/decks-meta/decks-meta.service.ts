@@ -17,6 +17,14 @@ import {
 import { parseDeckList } from './deck-list.parser';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import {
+  AUTOFETCH_DIAL_VALUES,
+  AutofetchDial,
+  DIAL_AUTOFETCH,
+  DIAL_AUTOPUBLISH,
+  normalizeAutofetchDial,
+  normalizeAutopublishDial,
+} from './limitless.config';
+import {
   MetaDeckDetailDTO,
   MetaDeckGroupsDTO,
   MetaDeckLineDTO,
@@ -31,6 +39,9 @@ const MANUAL_SOURCE_LABEL = 'Curado por el equipo TCG HUNT';
 
 const LEGALITY_KEY_ACTIVE = 'standard.active_regulation_marks';
 const LEGALITY_KEY_BANLIST = 'standard.banlist_card_ids';
+
+/** Estado del dial de auto-fetch (leído fail-closed desde `ConfigSetting`). */
+export type DialState = { autofetch: AutofetchDial; autopublish: boolean };
 
 /** Una línea persistida de una lista, con la carta casada (o null) para valorar. */
 type StoredLine = {
@@ -448,29 +459,84 @@ export class DecksMetaService {
     patch: { activeMarks?: string[]; banlistCardIds?: string[] },
     actor: string,
   ) {
-    const writes: Promise<unknown>[] = [];
-    if (patch.activeMarks !== undefined) {
-      const value = patch.activeMarks as unknown as Prisma.InputJsonValue;
-      writes.push(
-        this.prisma.configSetting.upsert({
+    // SEG-DMF1-1: ATÓMICO. Los dos upserts (ventana + banlist) van en UNA transacción para que una
+    // falla parcial NO deje las marcas actualizadas con la banlist vieja (o viceversa) — un estado
+    // que ofrecería como jugable algo que el operador ya rotó/baneó. Money-adjacent.
+    await this.prisma.$transaction(async (tx) => {
+      if (patch.activeMarks !== undefined) {
+        const value = patch.activeMarks as unknown as Prisma.InputJsonValue;
+        await tx.configSetting.upsert({
           where: { key: LEGALITY_KEY_ACTIVE },
           create: { key: LEGALITY_KEY_ACTIVE, valueJson: value, updatedBy: actor },
           update: { valueJson: value, updatedBy: actor },
-        }),
-      );
-    }
-    if (patch.banlistCardIds !== undefined) {
-      const value = patch.banlistCardIds as unknown as Prisma.InputJsonValue;
-      writes.push(
-        this.prisma.configSetting.upsert({
+        });
+      }
+      if (patch.banlistCardIds !== undefined) {
+        const value = patch.banlistCardIds as unknown as Prisma.InputJsonValue;
+        await tx.configSetting.upsert({
           where: { key: LEGALITY_KEY_BANLIST },
           create: { key: LEGALITY_KEY_BANLIST, valueJson: value, updatedBy: actor },
           update: { valueJson: value, updatedBy: actor },
-        }),
-      );
-    }
-    await Promise.all(writes);
+        });
+      }
+    });
     return this.loadLegalityConfig();
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // DECKS-META Fase 2 — CONTROL DEL DIAL (auto-fetch). Los diales viven en `ConfigSetting` y se leen
+  // fail-closed (off/false) vía los normalizadores de `limitless.config`. Encenderlos causa egress
+  // real a un tercero + publicación ⇒ el PUT es super_admin + auditado. Money-adjacent.
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+
+  /** Lee el estado actual del dial (fail-closed: ausente ⇒ `off`/`false`). */
+  async loadDialState(): Promise<DialState> {
+    const rows = await this.prisma.configSetting.findMany({
+      where: { key: { in: [DIAL_AUTOFETCH, DIAL_AUTOPUBLISH] } },
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r.valueJson]));
+    return {
+      autofetch: normalizeAutofetchDial(byKey.get(DIAL_AUTOFETCH)),
+      autopublish: normalizeAutopublishDial(byKey.get(DIAL_AUTOPUBLISH)),
+    };
+  }
+
+  /**
+   * Escribe el dial (parcial permitido). VALIDA estricto (autofetch ∈ off/dryrun/on; autopublish
+   * boolean; cualquier otra cosa ⇒ 400), es ATÓMICO (una transacción si escribe ambas keys) y
+   * devuelve `{ before, after }` para que el caller AUDITE el old→new.
+   */
+  async adminSetDial(
+    patch: { autofetch?: unknown; autopublish?: unknown },
+    actor: string,
+  ): Promise<{ before: DialState; after: DialState }> {
+    if (patch.autofetch !== undefined && !AUTOFETCH_DIAL_VALUES.includes(patch.autofetch as AutofetchDial)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `autofetch inválido: ${String(patch.autofetch)} (esperado off/dryrun/on)`);
+    }
+    if (patch.autopublish !== undefined && typeof patch.autopublish !== 'boolean') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `autopublish inválido: ${String(patch.autopublish)} (esperado boolean)`);
+    }
+    const before = await this.loadDialState();
+    await this.prisma.$transaction(async (tx) => {
+      if (patch.autofetch !== undefined) {
+        const value = patch.autofetch as unknown as Prisma.InputJsonValue;
+        await tx.configSetting.upsert({
+          where: { key: DIAL_AUTOFETCH },
+          create: { key: DIAL_AUTOFETCH, valueJson: value, updatedBy: actor },
+          update: { valueJson: value, updatedBy: actor },
+        });
+      }
+      if (patch.autopublish !== undefined) {
+        const value = patch.autopublish as unknown as Prisma.InputJsonValue;
+        await tx.configSetting.upsert({
+          where: { key: DIAL_AUTOPUBLISH },
+          create: { key: DIAL_AUTOPUBLISH, valueJson: value, updatedBy: actor },
+          update: { valueJson: value, updatedBy: actor },
+        });
+      }
+    });
+    const after = await this.loadDialState();
+    return { before, after };
   }
 }
 

@@ -1230,7 +1230,7 @@
       "m9": "M9 · Reports",
       "m10": "M10 · Config",
       "m11": "M11 · Sealed",
-      "m12": "M12 · Meta dry-run",
+      "m12": "M12 · Meta Battle Decks",
       "vaults": "Customer vaults",
       "m2Bounties": "M2 · Bounties"
     },
@@ -2853,8 +2853,10 @@
       }
     },
     "decksMetaRefresh": {
-      "title": "Dry-run — meta decks",
-      "subtitle": "Runs the automatic meta-deck fetch in test mode: pulls everything from Limitless, checks it, and tells you whether it would publish — without touching anything already live.",
+      "moduleTitle": "Meta Battle Decks",
+      "moduleSubtitle": "Operate the automatic Meta Battle Decks fetch: turn it on or off, choose which editions count as current, and run a dry-run before publishing.",
+      "title": "Dry-run (test mode)",
+      "subtitle": "Runs the automatic Meta Battle Decks fetch in test mode: pulls everything from Limitless, checks it, and tells you whether it would publish — without touching anything already live.",
       "runButton": "Run dry-run",
       "running": "Pulling from Limitless… (~30-45s)",
       "runningNote": "It takes a while because it downloads the lists for real, one by one. Don't close the tab.",
@@ -2917,7 +2919,84 @@
         "pausedSkipped": "Paused decks (skipped)",
         "errors": "Errors",
         "none": "No notes or errors."
+      },
+      "legalityDiag": {
+        "title": "Legality diagnostics",
+        "windowLabel": "Window used",
+        "windowEmpty": "empty",
+        "banlistNote": "{count, plural, =0 {Banlist: no cards} one {Banlist: # card} other {Banlist: # cards}}",
+        "marksSeenLabel": "Marks seen in the decks",
+        "marksSeenEmpty": "None: the cards carry no regulation mark.",
+        "dropsLabel": "Legality drops",
+        "noMark": "no mark",
+        "outOfWindow": "out of window",
+        "banned": "banned",
+        "causeLabel": "Probable cause",
+        "causeResync": "The catalog cards carry no regulation mark → the catalog must be RE-SYNCED (setting the window won't be enough).",
+        "causeEmptyWindow": "The legality window is empty → set it in the control above."
       }
+    },
+    "decksMetaDial": {
+      "title": "Automatic-fetch switch",
+      "subtitle": "Decide whether the Meta Battle Decks fetch runs on its own every week and whether it publishes without anyone pressing anything. Changing it is super-admin only.",
+      "loading": "Loading the switch…",
+      "loadError": "The switch state couldn't be read.",
+      "retry": "Retry",
+      "state": {
+        "autofetch": "State now",
+        "autopublish": "Publish on its own"
+      },
+      "autofetch": {
+        "label": "Automatic fetch",
+        "off": "Off",
+        "dryrun": "Dry-run",
+        "on": "On",
+        "help": {
+          "off": "Doesn't run on its own. You can only run the dry-run below by hand.",
+          "dryrun": "Runs on its own every week, checks everything, but publishes NOTHING. Good for watching without risk.",
+          "on": "Runs on its own every week and, if «publish on its own» is enabled, publishes whatever passes the checks."
+        }
+      },
+      "autopublish": {
+        "label": "Publish on its own",
+        "on": "On",
+        "off": "Off",
+        "help": "With this on, decks that pass the checks are published without anyone approving them. Without it, they're only prepared and you decide."
+      },
+      "save": "Save switch",
+      "saved": "Switch saved.",
+      "saveError": "The switch couldn't be saved. Please try again.",
+      "forbidden": "You don't have permission to change the switch. Only a super-admin can.",
+      "readOnly": "You're viewing the state read-only. Changing the switch is super-admin only.",
+      "confirm": {
+        "title": "Turn on the automatic fetch?",
+        "body": "This will make the fetch run on its own every week and, if «publish on its own» is enabled, publish without you pressing anything. Are you sure?",
+        "confirmCta": "Yes, turn it on",
+        "cancel": "Cancel"
+      }
+    },
+    "standardLegality": {
+      "title": "Legality window",
+      "subtitle": "Here you choose which editions count as current in Standard. If it's empty, almost everything will be marked as «rotated».",
+      "loading": "Loading the current window…",
+      "loadError": "The legality window couldn't be read.",
+      "retry": "Retry",
+      "marks": {
+        "label": "Current marks",
+        "help": "The regulation marks that count as Standard today (for example: G, H). Type each one and press Enter or comma.",
+        "placeholder": "Add a mark…",
+        "empty": "No marks: almost everything would fall as «rotated»."
+      },
+      "banlist": {
+        "label": "Banned cards",
+        "help": "Ids of cards banned individually (rare). Type each id and press Enter or comma.",
+        "placeholder": "Add a card id…",
+        "empty": "No banned cards."
+      },
+      "remove": "Remove {value}",
+      "save": "Save window",
+      "saved": "Legality window saved.",
+      "saveError": "The window couldn't be saved. Please try again."
     },
     "m10": {
       "title": "M10 · Config & audit log",
