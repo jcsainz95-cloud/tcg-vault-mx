@@ -739,13 +739,12 @@ model Card {
   // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
   numberSort             Int      @default(1000000)
   numberPrefix           String   @default("")
-  // DECKS-META §2 (Fase 0, DECKS_META_ARCH.md §2 / ARCHITECTURE §12.1) — LEGALIDAD. Crudo del
-  // proveedor, PROCEDENCIA. Nullable: promos/sets viejos sin marca, o carta aún no re-sincronizada.
-  // La escribe SOLO `catalog-sync.upsertCards` con NO-DEGRADACIÓN (ausente ⇒ la clave no viaja ⇒
-  // columna intacta), igual que `imageLargeUrl`/`logoUrl`. «Legal en Standard hoy» NO se persiste:
-  // se DERIVA en lectura por `common/standard-legality.ts` contra la ventana de `ConfigSetting`
-  // (`standard.active_regulation_marks`, `standard.banlist_card_ids`) ⇒ la rotación es una edición
-  // de config, no un backfill. `regulationMark == null` ⇒ NO legal (money-safe conservador).
+  // DECKS-META §2 (Fase 0, ARCHITECTURE §12.1) — CRUDO del proveedor, PROCEDENCIA. Se conserva como
+  // hecho crudo del proveedor por si se usa a futuro; Meta Battle Decks YA NO lo usa para GATEAR
+  // legalidad (confía-en-la-fuente, SUP-LEG, ver ARCHITECTURE §12.1). Nullable: promos/sets viejos sin
+  // marca, o carta aún no re-sincronizada. La escribe SOLO `catalog-sync.upsertCards` con NO-DEGRADACIÓN
+  // (ausente ⇒ la clave no viaja ⇒ columna intacta), igual que `imageLargeUrl`/`logoUrl`. Ya NO se
+  // deriva «legal en Standard hoy» de una ventana de marcas (`common/standard-legality.ts` eliminado).
   regulationMark         String? // pokemontcg.io RemoteCard.regulationMark ("F","G","H","I"…). scrydex: equivalente (NO MEDIDO).
   legalStandardRaw       String? // pokemontcg.io RemoteCard.legalities.standard ("Legal"|"Banned"); ausente ⇒ null. Banda para bans explícitos.
   createdAt              DateTime @default(now())
@@ -1775,7 +1774,9 @@ model SealedRestockSubscription {
 // Separación clave: DECK (arquetipo persistente, con su slug/rank/publicación) vs LISTA (inmutable,
 // con su fecha y fuente). Una rotación del meta NO edita listas viejas: crea una `MetaDeckList` nueva.
 // NO hay tabla de precios (se calcula al render reusando pricing/catalog) ni de alertas (reusa §R).
-// La legalidad NO se persiste aquí: se DERIVA en lectura (`common/standard-legality.ts`).
+// La legalidad NO se persiste aquí y Meta Battle Decks YA NO gatea por marca/legalidad: confía en la
+// fuente (SUP-LEG, ARCHITECTURE §12.1). `regulationMark`/`legalStandardRaw` quedan como crudo del
+// proveedor por si se usan a futuro.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
 enum MetaDeckSource {

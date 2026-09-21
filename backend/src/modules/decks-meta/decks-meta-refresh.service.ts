@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DecksMetaService } from './decks-meta.service';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { LimitlessFetchClient } from './limitless-fetch.client';
 import { parseHomeIndex, parseDeckListHtml, HomeLeader } from './limitless-html.parser';
@@ -41,7 +40,6 @@ export class DecksMetaRefreshService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-    private readonly deckMeta: DecksMetaService,
     private readonly matcher: DeckMatcherService,
     private readonly client: LimitlessFetchClient,
   ) {}

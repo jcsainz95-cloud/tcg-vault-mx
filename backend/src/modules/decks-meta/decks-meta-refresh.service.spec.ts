@@ -1,7 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import { MetaDeckSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DecksMetaService } from './decks-meta.service';
 import { DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { LimitlessFetchClient } from './limitless-fetch.client';
 import { DecksMetaRefreshService, RefreshReport, buildRunNote } from './decks-meta-refresh.service';
@@ -68,9 +67,6 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
       matchLines: jest.fn(async () => [matchedLine()]),
     } as unknown as DeckMatcherService;
 
-    // SUP-LEG: el refresh ya no consulta al servicio por legalidad; se inyecta vacío.
-    const deckMeta = {} as unknown as DecksMetaService;
-
     // Estado previo por slug: Beta existe (publicado, con lista) y Charlie es manual.
     const existingBySlug: Record<string, { id: string; published: boolean; source: MetaDeckSource; currentListId: string | null; pausedByOperator: boolean; sharePct: number | null }> = {
       beta: { id: 'deck-beta', published: true, source: MetaDeckSource.limitless, currentListId: 'list-old-beta', pausedByOperator: false, sharePct: null },
@@ -105,7 +101,7 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
       metaFetchRun: { create: jest.fn(async (args: (typeof created)[number]) => { created.push(args); return {}; }) },
     } as unknown as PrismaService;
 
-    const service = new DecksMetaRefreshService(prisma, config, deckMeta, matcher, client);
+    const service = new DecksMetaRefreshService(prisma, config, matcher, client);
     return { service, created, tx };
   }
 
