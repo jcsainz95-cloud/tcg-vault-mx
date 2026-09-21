@@ -213,6 +213,10 @@ import type {
   DeckMetaDetailResponse,
   DeckMetaPasteResponse,
   DecksMetaPreviewResponse,
+  DecksMetaDialDTO,
+  DecksMetaDialUpdateRequest,
+  StandardLegalityDTO,
+  StandardLegalityUpdateRequest,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -484,6 +488,55 @@ export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
   if (!config.useMocks) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
   // MOCK: el reporte de ejemplo es instantáneo (el backend real dispara el egress lento).
   return delay(mockDecksMeta.mockDecksMetaPreview, 400);
+}
+
+/**
+ * §13 Fase 2 — ADMIN: estado ACTUAL del dial de auto-fetch (`GET /admin/decks-meta/dial`,
+ * `vault_operator+`, sólo lectura). Fail-closed: keys ausentes ⇒ `{ autofetch:'off',
+ * autopublish:false }`. El PUT es super_admin (encenderlo dispara egress real + publicación).
+ */
+export async function getDecksMetaDial(): Promise<DecksMetaDialDTO> {
+  if (!config.useMocks) return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial');
+  return delay(mockDecksMeta.getMockDial());
+}
+
+/**
+ * §13 Fase 2 — ADMIN: escribe el dial (`PUT /admin/decks-meta/dial`, **super_admin sólo**). Patch
+ * parcial; devuelve el `{ autofetch, autopublish }` nuevo. Un `vault_operator` recibe `403 FORBIDDEN`
+ * (el front esconde la edición; el backend es la autoridad). `400 VALIDATION_ERROR` en enum/boolean
+ * inválidos. AUDITADO server-side (old→new).
+ */
+export async function setDecksMetaDial(
+  patch: DecksMetaDialUpdateRequest,
+): Promise<DecksMetaDialDTO> {
+  if (!config.useMocks) {
+    return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial', { method: 'PUT', body: patch });
+  }
+  return delay(mockDecksMeta.setMockDial(patch));
+}
+
+/**
+ * §13 Fase 2 — ADMIN: EDITA la ventana de legalidad de Standard (`PUT
+ * /admin/config/standard-legality`, `vault_operator+`, AUDITADO, ATÓMICO). Patch parcial: el arreglo
+ * enviado **reemplaza** por completo el guardado (upsert). Devuelve la config resultante
+ * (`{ activeMarks, banlistCardIds }`), que es la única forma en que el front conoce el estado real.
+ *
+ * ⚠️ **HUECO DE BACKEND**: hoy NO existe un `GET /admin/config/standard-legality`. `loadLegalityConfig()`
+ * está en el servicio pero no hay ruta de lectura; el reporte del preview tampoco expone `activeMarks`.
+ * Por eso el editor no puede pre-cargar la ventana vigente: la muestra tras el primer guardado (la
+ * respuesta del PUT). No se inventa un GET (constraint del encargo) — se anota como hueco a enrutar
+ * a backend. No se dispara un PUT vacío «para leer» porque el controller lo AUDITA como rotación.
+ */
+export async function updateStandardLegality(
+  patch: StandardLegalityUpdateRequest,
+): Promise<StandardLegalityDTO> {
+  if (!config.useMocks) {
+    return apiRequest<StandardLegalityDTO>('/admin/config/standard-legality', {
+      method: 'PUT',
+      body: patch,
+    });
+  }
+  return delay(mockDecksMeta.setMockLegality(patch));
 }
 
 // ---------- Bóveda / portafolio ----------

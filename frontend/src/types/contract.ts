@@ -4996,3 +4996,42 @@ export interface DecksMetaRefreshReport {
 export type DecksMetaPreviewResponse =
   | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
   | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };
+
+// ── §13 Fase 2 · DIAL del jalado automático + VENTANA de legalidad (operación admin) ─────────────
+// Espeja los endpoints ya construidos en `admin-decks-meta.controller.ts` /
+// `AdminStandardLegalityController`. No cambia el contrato: mirror de shapes existentes.
+
+/** El interruptor de 3 estados del auto-fetch. `on` dispara egress real + publicación (super_admin). */
+export type DecksMetaAutofetch = 'off' | 'dryrun' | 'on';
+
+/**
+ * Estado del dial (`GET /admin/decks-meta/dial`, vault_operator+; `PUT` super_admin). Fail-closed:
+ * ausente ⇒ `{ autofetch:'off', autopublish:false }`.
+ */
+export interface DecksMetaDialDTO {
+  autofetch: DecksMetaAutofetch;
+  autopublish: boolean;
+}
+
+/** Patch parcial del dial (`PUT /admin/decks-meta/dial`). Sólo las llaves que el dueño tocó. */
+export interface DecksMetaDialUpdateRequest {
+  autofetch?: DecksMetaAutofetch;
+  autopublish?: boolean;
+}
+
+/**
+ * La ventana de legalidad de Standard (`ConfigSetting`): qué marcas de regulación cuentan como
+ * vigentes ahora y qué cartas están baneadas por `externalId`. La devuelve el `PUT
+ * /admin/config/standard-legality` (vault_operator+). ⚠️ Hoy NO hay `GET` para leerla — ver
+ * `updateStandardLegality` en `lib/api.ts` (hueco de backend anotado).
+ */
+export interface StandardLegalityDTO {
+  activeMarks: string[];
+  banlistCardIds: string[];
+}
+
+/** Patch parcial de la ventana (`PUT /admin/config/standard-legality`). Reemplaza el arreglo enviado. */
+export interface StandardLegalityUpdateRequest {
+  activeMarks?: string[];
+  banlistCardIds?: string[];
+}

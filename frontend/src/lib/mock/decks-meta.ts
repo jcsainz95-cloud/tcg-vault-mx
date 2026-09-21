@@ -13,6 +13,10 @@ import type {
   DeckMetaDetailResponse,
   DeckMetaPasteResponse,
   DecksMetaPreviewResponse,
+  DecksMetaDialDTO,
+  DecksMetaDialUpdateRequest,
+  StandardLegalityDTO,
+  StandardLegalityUpdateRequest,
   MetaDeckGroupsDTO,
   MetaDeckLineDTO,
 } from '@/types/contract';
@@ -182,3 +186,37 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     errors: [],
   },
 };
+
+/**
+ * MOCK del DIAL (§13 Fase 2) para el modo demo. Seed FAIL-CLOSED (`off` / `autopublish:false`),
+ * igual que el backend cuando la key no existe. Estado mutable de módulo para que el editor demo
+ * refleje sus propios cambios sin backend.
+ */
+let mockDial: DecksMetaDialDTO = { autofetch: 'off', autopublish: false };
+
+export function getMockDial(): DecksMetaDialDTO {
+  return { ...mockDial };
+}
+
+export function setMockDial(patch: DecksMetaDialUpdateRequest): DecksMetaDialDTO {
+  mockDial = {
+    autofetch: patch.autofetch ?? mockDial.autofetch,
+    autopublish: patch.autopublish ?? mockDial.autopublish,
+  };
+  return { ...mockDial };
+}
+
+/**
+ * MOCK de la VENTANA de legalidad (§12.1). Seed VACÍO a propósito: es justo el estado que provocó el
+ * «casi todo rotado» del ensayo en prod, para que el editor demo ejercite el arreglo. Cada key
+ * enviada REEMPLAZA el arreglo guardado (como el upsert del backend).
+ */
+let mockLegality: StandardLegalityDTO = { activeMarks: [], banlistCardIds: [] };
+
+export function setMockLegality(patch: StandardLegalityUpdateRequest): StandardLegalityDTO {
+  mockLegality = {
+    activeMarks: patch.activeMarks ?? mockLegality.activeMarks,
+    banlistCardIds: patch.banlistCardIds ?? mockLegality.banlistCardIds,
+  };
+  return { ...mockLegality };
+}

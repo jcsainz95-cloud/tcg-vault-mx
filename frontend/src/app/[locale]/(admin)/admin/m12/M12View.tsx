@@ -14,6 +14,8 @@ import { formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DecksMetaDialControl } from './DecksMetaDialControl';
+import { StandardLegalityControl } from './StandardLegalityControl';
 
 /**
  * §13 Fase 2 — pantalla de OPERADOR para el ENSAYO (dry-run) del auto-fetch de decks del meta.
@@ -38,9 +40,26 @@ export function M12View() {
   const skipped = result && result.skipped ? result : null;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <div className="flex flex-col gap-1">
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
+        <h1 className="text-h1 font-bold">{t('moduleTitle')}</h1>
+        <p className="max-w-[70ch] text-sm text-muted">{t('moduleSubtitle')}</p>
+      </div>
+
+      {/* A · Interruptor del jalado automático (super_admin edita; operador ve el estado). */}
+      <DecksMetaDialControl />
+
+      <hr className="border-border" />
+
+      {/* B · Ventana de legalidad (marcas vigentes + banlist). Operador+. */}
+      <StandardLegalityControl />
+
+      <hr className="border-border" />
+
+      {/* C · Ensayo (dry-run). Sección de verificación; no publica nada. */}
+      <section className="flex flex-col gap-8" aria-labelledby="dmr-section-title">
+      <div className="flex flex-col gap-1">
+        <h2 id="dmr-section-title" className="text-h2 font-semibold">{t('title')}</h2>
         <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
       </div>
 
@@ -101,6 +120,7 @@ export function M12View() {
       )}
 
       {report && <Report report={report} locale={locale} />}
+      </section>
     </div>
   );
 }
