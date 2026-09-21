@@ -141,9 +141,16 @@ describe('AdminDecksMetaController · dial', () => {
 describe('AdminStandardLegalityController · rotación auditada', () => {
   const user = { id: 'op-1', role: Role.vault_operator };
 
+  // La ventana PREVIA a la rotación (lo que `loadLegalityConfig` devuelve ANTES del write) y la
+  // ventana RESULTANTE (lo que `adminUpdateStandardLegality` devuelve = `loadLegalityConfig` tras el
+  // write). Distintas a propósito para probar before≠after.
+  const beforeCfg = { activeMarks: ['E', 'F'], banlistCardIds: ['ban-old'] };
+  const afterCfg = { activeMarks: ['H', 'I'], banlistCardIds: [] };
+
   function makeController() {
     const service = {
-      adminUpdateStandardLegality: jest.fn(async () => ({ activeMarks: ['H', 'I'], banlistCardIds: [] })),
+      loadLegalityConfig: jest.fn(async () => beforeCfg),
+      adminUpdateStandardLegality: jest.fn(async () => afterCfg),
     } as unknown as DecksMetaService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     const controller = new AdminStandardLegalityController(service, audit);
@@ -156,23 +163,37 @@ describe('AdminStandardLegalityController · rotación auditada', () => {
     expect(service.adminUpdateStandardLegality).toHaveBeenCalledWith({ activeMarks: ['H', 'I'] }, 'op-1');
   });
 
-  it('AUDITA `decks_meta.legality.rotate` con el patch (sólo las keys presentes)', async () => {
+  it('lee la ventana PREVIA (before) ANTES de rotar, para poder reconstruir desde qué ventana se rotó', async () => {
+    const { controller, service } = makeController();
+    await controller.update({ activeMarks: ['H', 'I'] }, user);
+    expect(service.loadLegalityConfig).toHaveBeenCalledTimes(1);
+    // el before se captura antes del write atómico
+    const loadOrder = (service.loadLegalityConfig as jest.Mock).mock.invocationCallOrder[0];
+    const writeOrder = (service.adminUpdateStandardLegality as jest.Mock).mock.invocationCallOrder[0];
+    expect(loadOrder).toBeLessThan(writeOrder);
+  });
+
+  it('AUDITA `decks_meta.legality.rotate` con la ventana ANTES→DESPUÉS (config completa, no el patch)', async () => {
     const { controller, audit } = makeController();
-    await controller.update({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] }, user);
+    await controller.update({ activeMarks: ['H', 'I'], banlistCardIds: [] }, user);
     expect(audit.log).toHaveBeenCalledTimes(1);
     const entry = (audit.log as jest.Mock).mock.calls[0][0];
     expect(entry.action).toBe('decks_meta.legality.rotate');
     expect(entry.actorUserId).toBe('op-1');
     expect(entry.actorRole).toBe(Role.vault_operator);
-    expect(entry.after).toEqual({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] });
+    // before = ventana pre-rotación; after = config RESULTANTE completa (lo que devuelve el servicio)
+    expect(entry.before).toEqual(beforeCfg);
+    expect(entry.after).toEqual(afterCfg);
   });
 
-  it('patch parcial ⇒ el audit sólo trae la key cambiada', async () => {
+  it('el after es la config resultante completa aun con patch parcial (no sólo la key cambiada)', async () => {
     const { controller, audit } = makeController();
     await controller.update({ banlistCardIds: ['ban-x'] }, user);
     const entry = (audit.log as jest.Mock).mock.calls[0][0];
-    expect(entry.after).toEqual({ banlistCardIds: ['ban-x'] });
-    expect(entry.after).not.toHaveProperty('activeMarks');
+    // el after trae la ventana ENTERA (activeMarks + banlistCardIds), no el patch
+    expect(entry.after).toEqual(afterCfg);
+    expect(entry.after).toHaveProperty('activeMarks');
+    expect(entry.before).toEqual(beforeCfg);
   });
 });
 

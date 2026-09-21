@@ -178,24 +178,24 @@ export class AdminStandardLegalityController {
 
   /**
    * SEG-DMF1-2: la rotación de legalidad es money-adjacent (gobierna qué se ofrece como jugable) ⇒
-   * se AUDITA (actor + el patch que cambió). El write en sí es atómico dentro del servicio
-   * (SEG-DMF1-1); la bitácora se escribe tras el éxito, igual que el preview de Fase 2.
+   * se AUDITA (actor + la ventana ANTES→DESPUÉS, igual que el dial). El write en sí es atómico dentro
+   * del servicio (SEG-DMF1-1); la bitácora se escribe tras el éxito, igual que el preview de Fase 2.
+   * El `before` (config previa a la rotación) deja reconstruir DESDE qué ventana se rotó — sin él la
+   * traza no permite saber qué era jugable antes del cambio, que es justo el punto de SEG-DMF1.
    */
   @Put('standard-legality')
   async update(@Body() dto: StandardLegalityDto, @CurrentUser() user: { id: string; role: Role }) {
-    const actorId = user?.id ?? 'admin';
-    const result = await this.service.adminUpdateStandardLegality(dto, actorId);
+    const before = await this.service.loadLegalityConfig();
+    const after = await this.service.adminUpdateStandardLegality(dto, user.id);
     await this.audit.log({
-      actorUserId: user?.id ?? null,
-      actorRole: user?.role ?? null,
+      actorUserId: user.id,
+      actorRole: user.role,
       action: 'decks_meta.legality.rotate',
       entityType: 'ConfigSetting',
       entityId: 'standard.legality',
-      after: {
-        ...(dto.activeMarks !== undefined ? { activeMarks: dto.activeMarks } : {}),
-        ...(dto.banlistCardIds !== undefined ? { banlistCardIds: dto.banlistCardIds } : {}),
-      },
+      before,
+      after,
     });
-    return result;
+    return after;
   }
 }
