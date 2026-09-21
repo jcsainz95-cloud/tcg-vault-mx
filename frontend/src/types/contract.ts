@@ -4797,9 +4797,10 @@ export interface IvaTransferUpdateResponse {
 // siendo de cliente (array de inventoryItemId, §4-G): estos DTOs devuelven los `inventoryItemId`
 // a agregar; NO hay carrito servidor nuevo. Precio y piezas se REUSAN de §2 (no se reinventan).
 //
-// LEGALIDAD (§13 «Convenciones»): una línea se ofrece como jugable SOLO si `legal:true`
-// (isLegalStandardNow). `legal:false` ⇒ rotada/no vigente y NO puede agregarse a jugar.
-// `matchStatus ≠ 'matched'` ⇒ no identificada, sin `card`/precio (nunca se inventa carta ni precio).
+// DISPONIBILIDAD (§13 «Convenciones», trust-source SUP-LEG): la fuente (Limitless) ya sólo publica
+// decks legales, así que NO re-filtramos por legalidad. Una línea es OFRECIBLE si casó
+// (`matchStatus === 'matched'`) y tiene stock; `matchStatus ≠ 'matched'` ⇒ no identificada, sin
+// `card`/precio (nunca se inventa carta ni precio).
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 /** §13 — el grupo de la sección de deck (Pokémon / Entrenador / Energía). */
@@ -4824,9 +4825,8 @@ export interface MetaDeckCardRefDTO {
 }
 
 /**
- * §13 (Fase 3, opcional) — otra impresión LEGAL de la misma carta en stock, sugerida cuando la
- * línea original está agotada o rotada. Pasa por la MISMA compuerta de legalidad; nunca se sugiere
- * una impresión rotada.
+ * §13 (Fase 3, opcional) — otra impresión de la misma carta en stock, sugerida cuando la línea
+ * original está agotada. Ausente en Fase 1.
  */
 export interface MetaDeckLineSubstituteDTO {
   cardId: string;
@@ -4842,8 +4842,8 @@ export interface MetaDeckLineSubstituteDTO {
  * §13 `MetaDeckLineDTO` — una línea del deck con su disponibilidad.
  *
  * `unitInventoryItemIds`: hasta `availableQty`, cheapest-first — es el add-to-cart «de jalón».
- * Una línea NO jugable (`legal:false`) o NO identificada (`matchStatus≠matched`) NO aporta
- * `unitInventoryItemIds` propios (no se vende como jugable); puede traer `substitute` (Fase 3).
+ * Una línea NO identificada (`matchStatus≠matched`) o sin stock NO aporta `unitInventoryItemIds`
+ * propios; puede traer `substitute` (Fase 3).
  */
 export interface MetaDeckLineDTO {
   rawName: string;
@@ -4854,8 +4854,6 @@ export interface MetaDeckLineDTO {
   matchStatus: MetaMatchStatus;
   /** `null` si la línea no casó a una `Card` (nunca se inventa). */
   card: MetaDeckCardRefDTO | null;
-  /** `false` ⇒ rotada / no vigente para jugar (isLegalStandardNow). */
-  legal: boolean;
   /** `min(quantity, stockNM)`; 0 si falta. */
   availableQty: number;
   /** «desde» de la carta (salePriceCents); `null` si pending/faltante. */
@@ -4881,9 +4879,9 @@ export interface MetaDeckSummaryDTO {
   sharePct?: number;
   /** share_actual − anterior (▲=+, ▼=−, 0). */
   trend?: number;
-  /** «desde»: suma de disponibles+legales con precio; opcional. */
+  /** «desde»: suma de disponibles con precio; opcional. */
   fromPriceMxnCents?: number;
-  /** Σ availableQty de líneas legales. */
+  /** Σ availableQty de líneas casadas con stock. */
   availableCount: number;
   totalCount: number;
   /** arte de una Card representativa (nunca arte externo). */
@@ -4908,8 +4906,6 @@ export interface DeckMetaDetailResponse {
   source: string;
   sourceUrl?: string;
   sourceTournament?: string;
-  /** «Legal en Standard · verificado {fecha}». */
-  legalityVerifiedAt: string;
   groups: MetaDeckGroupsDTO;
 }
 
@@ -4961,16 +4957,6 @@ export interface DecksMetaDeckReport {
   matched: number;
   total: number;
   matchStatusBreakdown: Record<string, number>;
-  legalityDrops: number;
-  /**
-   * DIAGNÓSTICO de legalidad (§2.3): por qué cayó CADA carta casada que falló la legalidad, por la
-   * PRIMERA razón aplicable (orden `noMark → outOfWindow → banned`). Los tres suman `legalityDrops`.
-   * `noMark` = la carta no trae marca de regulación (el sync nunca la pobló); `outOfWindow` = tiene
-   * marca pero no está en la ventana vigente (rotó, o la ventana está vacía); `banned` = baneada.
-   */
-  legalityBreakdown: { noMark: number; outOfWindow: number; banned: number };
-  /** Marcas de regulación DISTINTAS vistas en las cartas casadas del deck. Vacío ⇒ el sync no pobló marca. */
-  marksSeen: string[];
   /** `sumQuantity` dentro de la banda de «las 60» (lo calcula el backend con sus umbrales). */
   inBand: boolean;
   error?: string;
@@ -4986,12 +4972,6 @@ export interface DecksMetaRefreshReport {
   urlsFetched: string[];
   decks: DecksMetaDeckReport[];
   canary: DecksMetaCanaryResult;
-  /**
-   * DIAGNÓSTICO de legalidad (§2.3): la VENTANA que este run usó al derivar la legalidad, tal cual
-   * salió de `ConfigSetting`. Si `activeMarks` viene VACÍO, ninguna carta puede ser legal (la ventana
-   * está sin configurar) — es la CAUSA A del «casi todo rotado».
-   */
-  legalityConfig: { activeMarks: string[]; banlistCardIds: string[] };
   verdict: 'PUBLISH' | 'NO_PUBLISH';
   wouldPublish: boolean;
   applied: boolean;
@@ -5012,9 +4992,9 @@ export type DecksMetaPreviewResponse =
   | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
   | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };
 
-// ── §13 Fase 2 · DIAL del jalado automático + VENTANA de legalidad (operación admin) ─────────────
-// Espeja los endpoints ya construidos en `admin-decks-meta.controller.ts` /
-// `AdminStandardLegalityController`. No cambia el contrato: mirror de shapes existentes.
+// ── §13 Fase 2 · DIAL del jalado automático (operación admin) ────────────────────────────────────
+// Espeja el endpoint ya construido en `admin-decks-meta.controller.ts`. No cambia el contrato:
+// mirror de shapes existentes.
 
 /** El interruptor de 3 estados del auto-fetch. `on` dispara egress real + publicación (super_admin). */
 export type DecksMetaAutofetch = 'off' | 'dryrun' | 'on';
@@ -5032,21 +5012,4 @@ export interface DecksMetaDialDTO {
 export interface DecksMetaDialUpdateRequest {
   autofetch?: DecksMetaAutofetch;
   autopublish?: boolean;
-}
-
-/**
- * La ventana de legalidad de Standard (`ConfigSetting`): qué marcas de regulación cuentan como
- * vigentes ahora y qué cartas están baneadas por `externalId`. La devuelve el `PUT
- * /admin/config/standard-legality` (vault_operator+). ⚠️ Hoy NO hay `GET` para leerla — ver
- * `updateStandardLegality` en `lib/api.ts` (hueco de backend anotado).
- */
-export interface StandardLegalityDTO {
-  activeMarks: string[];
-  banlistCardIds: string[];
-}
-
-/** Patch parcial de la ventana (`PUT /admin/config/standard-legality`). Reemplaza el arreglo enviado. */
-export interface StandardLegalityUpdateRequest {
-  activeMarks?: string[];
-  banlistCardIds?: string[];
 }

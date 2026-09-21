@@ -16,7 +16,7 @@ vi.mock('@/i18n/navigation', () => ({
   ),
 }));
 
-const legal: MetaDeckLineDTO = {
+const available: MetaDeckLineDTO = {
   rawName: 'Dragapult ex',
   setCode: 'TWM',
   number: '130',
@@ -24,14 +24,13 @@ const legal: MetaDeckLineDTO = {
   group: 'pokemon',
   matchStatus: 'matched',
   card: { cardId: 'c-1', name: 'Dragapult ex', imageUrl: 'https://img/x.png' },
-  legal: true,
   availableQty: 2,
   unitPriceMxnCents: 61500,
   unitInventoryItemIds: ['inv-1', 'inv-2'],
 };
 
 const pasteResult: DeckMetaPasteResponse = {
-  groups: { pokemon: [legal], trainer: [], energy: [] },
+  groups: { pokemon: [available], trainer: [], energy: [] },
 };
 
 beforeEach(() => {
@@ -45,14 +44,14 @@ describe('PasteListView · pegar lista (§13 POST /decks-meta/paste)', () => {
     expect(screen.getByText('Pega una lista para empezar')).toBeInTheDocument();
   });
 
-  it('al pegar y enviar, muestra la MISMA vista de disponibilidad (legalidad + «de jalón»)', async () => {
+  it('al pegar y enviar, muestra la MISMA vista de disponibilidad («de jalón»)', async () => {
     const spy = vi.spyOn(api, 'pasteDeckList').mockResolvedValue(pasteResult);
     renderWithProviders(<PasteListView />, 'es');
 
     fireEvent.change(screen.getByLabelText('Tu lista'), { target: { value: '2 Dragapult ex TWM 130' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ver disponibilidad' }));
 
-    expect(await screen.findByText('Legal para jugar')).toBeInTheDocument();
+    expect(await screen.findByText('Disponible')).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith('2 Dragapult ex TWM 130');
     expect(screen.getByRole('button', { name: 'Agregar de jalón' })).toBeEnabled();
   });
@@ -75,7 +74,7 @@ describe('PasteListView · pegar lista (§13 POST /decks-meta/paste)', () => {
 
     fireEvent.change(screen.getByLabelText('Tu lista'), { target: { value: '2 Dragapult ex TWM 130' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ver disponibilidad' }));
-    await screen.findByText('Legal para jugar');
+    await screen.findByText('Disponible');
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }));
     await waitFor(() => expect(screen.getByText('Pega una lista para empezar')).toBeInTheDocument());

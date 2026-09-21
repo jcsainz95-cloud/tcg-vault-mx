@@ -3,10 +3,13 @@
  *
  * ⚠️ La suite UNITARIA no usa esto: espía las funciones de `@/lib/api` directamente (patrón de
  * `CardDetailView.test`). Estas fixtures existen para que el modo mock (config.useMocks) sirva una
- * vista completa —legal, agotada, rotada y no identificada— sin backend, y para el smoke E2E.
+ * vista completa —disponible, agotada y no identificada— sin backend, y para el smoke E2E.
  *
  * Construido contra el CONTRATO §13, no contra un backend corriendo (el backend de Fase 1 va en
  * paralelo). Cero dinero derivado en cliente: los precios son cifras planas de fixture.
+ *
+ * SUP-LEG (confía-en-la-fuente): ya NO hay legalidad — la fuente sólo publica decks legales, así que
+ * una línea es disponible / no la tenemos / no identificada, nunca «rotada».
  */
 import type {
   DecksMetaListResponse,
@@ -15,20 +18,17 @@ import type {
   DecksMetaPreviewResponse,
   DecksMetaDialDTO,
   DecksMetaDialUpdateRequest,
-  StandardLegalityDTO,
-  StandardLegalityUpdateRequest,
   MetaDeckGroupsDTO,
   MetaDeckLineDTO,
 } from '@/types/contract';
 
 const IMG = 'https://images.pokemontcg.io/sv1/1_hires.png';
 
-/** Línea CASADA, LEGAL y disponible (trae piezas para el «de jalón»). */
-function legalLine(over: Partial<MetaDeckLineDTO> & Pick<MetaDeckLineDTO, 'rawName' | 'setCode' | 'number' | 'quantity' | 'group'>): MetaDeckLineDTO {
+/** Línea CASADA y disponible (trae piezas para el «de jalón»). */
+function matchedLine(over: Partial<MetaDeckLineDTO> & Pick<MetaDeckLineDTO, 'rawName' | 'setCode' | 'number' | 'quantity' | 'group'>): MetaDeckLineDTO {
   return {
     matchStatus: 'matched',
     card: { cardId: `card-${over.setCode}-${over.number}`, name: over.rawName, imageUrl: IMG },
-    legal: true,
     availableQty: over.quantity,
     unitPriceMxnCents: 61500,
     unitInventoryItemIds: Array.from({ length: over.availableQty ?? over.quantity }, (_, i) => `inv-${over.setCode}-${over.number}-${i}`),
@@ -36,13 +36,13 @@ function legalLine(over: Partial<MetaDeckLineDTO> & Pick<MetaDeckLineDTO, 'rawNa
   };
 }
 
-/** Grupos de un deck de ejemplo: una de cada estado (legal, agotada, rotada, no identificada). */
+/** Grupos de un deck de ejemplo: una de cada estado (disponible, agotada, no identificada). */
 function sampleGroups(): MetaDeckGroupsDTO {
   return {
     pokemon: [
-      legalLine({ rawName: 'Dragapult ex', setCode: 'TWM', number: '130', quantity: 3, group: 'pokemon' }),
-      // AGOTADA: legal pero sin stock (availableQty 0, sin piezas, sin precio).
-      legalLine({
+      matchedLine({ rawName: 'Dragapult ex', setCode: 'TWM', number: '130', quantity: 3, group: 'pokemon' }),
+      // AGOTADA: casada pero sin stock (availableQty 0, sin piezas, sin precio) ⇒ «No la tenemos».
+      matchedLine({
         rawName: 'Drakloak',
         setCode: 'TWM',
         number: '129',
@@ -52,32 +52,9 @@ function sampleGroups(): MetaDeckGroupsDTO {
         unitPriceMxnCents: null,
         unitInventoryItemIds: [],
       }),
-      // ROTADA / no legal: no puede agregarse a jugar (con sustituto legal, Fase 3).
-      {
-        rawName: 'Comfey',
-        setCode: 'LOR',
-        number: '79',
-        quantity: 1,
-        group: 'pokemon',
-        matchStatus: 'matched',
-        card: { cardId: 'card-LOR-79', name: 'Comfey', imageUrl: IMG },
-        legal: false,
-        availableQty: 0,
-        unitPriceMxnCents: null,
-        unitInventoryItemIds: [],
-        substitute: {
-          cardId: 'card-SVI-99',
-          name: 'Comfey',
-          setCode: 'SVI',
-          number: '99',
-          availableQty: 1,
-          unitPriceMxnCents: 4200,
-          unitInventoryItemIds: ['inv-SVI-99-0'],
-        },
-      },
     ],
     trainer: [
-      legalLine({ rawName: "Boss's Orders", setCode: 'PAL', number: '172', quantity: 2, group: 'trainer' }),
+      matchedLine({ rawName: "Boss's Orders", setCode: 'PAL', number: '172', quantity: 2, group: 'trainer' }),
       // NO IDENTIFICADA: no casó por set (sin card, sin precio, sin piezas).
       {
         rawName: 'Iono',
@@ -87,14 +64,13 @@ function sampleGroups(): MetaDeckGroupsDTO {
         group: 'trainer',
         matchStatus: 'unmatched_set',
         card: null,
-        legal: false,
         availableQty: 0,
         unitPriceMxnCents: null,
         unitInventoryItemIds: [],
       },
     ],
     energy: [
-      // Energía básica: siempre legal, se marca (no se inventa pieza).
+      // Energía básica: se marca aparte (no se inventa pieza).
       {
         rawName: 'Basic Fire Energy',
         setCode: '',
@@ -103,7 +79,6 @@ function sampleGroups(): MetaDeckGroupsDTO {
         group: 'energy',
         matchStatus: 'unmatched_basic_energy',
         card: null,
-        legal: true,
         availableQty: 0,
         unitPriceMxnCents: null,
         unitInventoryItemIds: [],
@@ -133,7 +108,6 @@ export function mockDeckMetaDetail(slug: string): DeckMetaDetailResponse {
     source: 'Datos de Limitless TCG',
     sourceUrl: 'https://limitlesstcg.com/decks',
     sourceTournament: 'Regional Championship',
-    legalityVerifiedAt: '2026-09-14T12:00:00Z',
     groups: sampleGroups(),
   };
 }
@@ -159,9 +133,9 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
     finishedAt: '2026-09-19T12:00:38Z',
     urlsFetched: ['home', 'list/abc123', 'list/def456', 'list/ghi789'],
     decks: [
-      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
-      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, legalityDrops: 1, legalityBreakdown: { noMark: 0, outOfWindow: 1, banned: 0 }, marksSeen: ['G', 'H'], inBand: true },
-      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, legalityDrops: 0, legalityBreakdown: { noMark: 0, outOfWindow: 0, banned: 0 }, marksSeen: ['H'], inBand: true },
+      { archetypeId: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, listId: 'abc123', cardsParsed: 18, sumQuantity: 60, matched: 17, total: 18, matchStatusBreakdown: { matched: 17, unmatched_set: 1 }, inBand: true },
+      { archetypeId: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, listId: 'def456', cardsParsed: 20, sumQuantity: 60, matched: 20, total: 20, matchStatusBreakdown: { matched: 20 }, inBand: true },
+      { archetypeId: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, listId: 'ghi789', cardsParsed: 19, sumQuantity: 60, matched: 18, total: 19, matchStatusBreakdown: { matched: 18, unmatched_set: 1 }, inBand: true },
     ],
     canary: {
       verdict: 'PUBLISH',
@@ -175,7 +149,6 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
         { id: 'C5', ok: true, measured: 8, threshold: 3, label: 'home parseable, bloques con listId (8) ≥ 3' },
       ],
     },
-    legalityConfig: { activeMarks: ['G', 'H'], banlistCardIds: [] },
     verdict: 'PUBLISH',
     wouldPublish: true,
     applied: false,
@@ -205,23 +178,4 @@ export function setMockDial(patch: DecksMetaDialUpdateRequest): DecksMetaDialDTO
     autopublish: patch.autopublish ?? mockDial.autopublish,
   };
   return { ...mockDial };
-}
-
-/**
- * MOCK de la VENTANA de legalidad (§12.1). Seed VACÍO a propósito: es justo el estado que provocó el
- * «casi todo rotado» del ensayo en prod, para que el editor demo ejercite el arreglo. Cada key
- * enviada REEMPLAZA el arreglo guardado (como el upsert del backend).
- */
-let mockLegality: StandardLegalityDTO = { activeMarks: [], banlistCardIds: [] };
-
-export function getMockLegality(): StandardLegalityDTO {
-  return { activeMarks: [...mockLegality.activeMarks], banlistCardIds: [...mockLegality.banlistCardIds] };
-}
-
-export function setMockLegality(patch: StandardLegalityUpdateRequest): StandardLegalityDTO {
-  mockLegality = {
-    activeMarks: patch.activeMarks ?? mockLegality.activeMarks,
-    banlistCardIds: patch.banlistCardIds ?? mockLegality.banlistCardIds,
-  };
-  return { ...mockLegality };
 }
