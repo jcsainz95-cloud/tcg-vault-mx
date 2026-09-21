@@ -175,3 +175,40 @@ describe('AdminStandardLegalityController · rotación auditada', () => {
     expect(entry.after).not.toHaveProperty('activeMarks');
   });
 });
+
+/**
+ * `GET /admin/config/standard-legality` — lectura de la ventana vigente para precargar el editor.
+ * Sólo lectura (`vault_operator+`): devuelve lo que da `loadLegalityConfig()` y NO escribe auditoría
+ * (un PUT vacío para leer registraría por error una "rotación").
+ */
+describe('AdminStandardLegalityController · lectura de la ventana', () => {
+  function makeController() {
+    const service = {
+      loadLegalityConfig: jest.fn(async () => ({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] })),
+      adminUpdateStandardLegality: jest.fn(),
+    } as unknown as DecksMetaService;
+    const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
+    const controller = new AdminStandardLegalityController(service, audit);
+    return { controller, service, audit };
+  }
+
+  it('GET devuelve lo que provee loadLegalityConfig() (mismo shape, sin reformar)', async () => {
+    const { controller, service } = makeController();
+    const res = await controller.read();
+    expect(res).toEqual({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] });
+    expect(service.loadLegalityConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('NO escribe auditoría (lectura pura, sin efectos)', async () => {
+    const { controller, audit } = makeController();
+    await controller.read();
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('está gateado a `vault_operator+` (vault_operator y super_admin) a nivel de controller', () => {
+    expect(Reflect.getMetadata(ROLES_KEY, AdminStandardLegalityController)).toEqual([
+      Role.vault_operator,
+      Role.super_admin,
+    ]);
+  });
+});

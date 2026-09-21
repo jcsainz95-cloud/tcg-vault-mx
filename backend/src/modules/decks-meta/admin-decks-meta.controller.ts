@@ -166,6 +166,17 @@ export class AdminStandardLegalityController {
   ) {}
 
   /**
+   * `GET /admin/config/standard-legality` — lee la ventana vigente de legalidad (`vault_operator+`,
+   * sólo lectura). El editor de legalidad la precarga con esto; NO se audita (no muta nada — un PUT
+   * vacío para leerla escribiría por error una entrada de "rotación"). Devuelve el mismo shape que
+   * consume el pipeline: `{ activeMarks, banlistCardIds }`.
+   */
+  @Get('standard-legality')
+  read() {
+    return this.service.loadLegalityConfig();
+  }
+
+  /**
    * SEG-DMF1-2: la rotación de legalidad es money-adjacent (gobierna qué se ofrece como jugable) ⇒
    * se AUDITA (actor + el patch que cambió). El write en sí es atómico dentro del servicio
    * (SEG-DMF1-1); la bitácora se escribe tras el éxito, igual que el preview de Fase 2.
