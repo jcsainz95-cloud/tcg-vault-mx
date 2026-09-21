@@ -7,14 +7,15 @@ import { parseDeckList } from '../../src/modules/decks-meta/deck-list.parser';
 
 /**
  * DECKS-META §3.2/§3.4/§13 (Fase 1) — INTEGRACIÓN contra Postgres REAL: prueba las queries Prisma de
- * verdad (matcher por `ptcgoCode`+`número`, relaciones `currentList`/`cards`/`matchedCard`, lectura
- * de la ventana de legalidad, PERSISTENCIA de líneas no mapeadas). El eje de disponibilidad
- * (`CatalogService`, que reusa `getReferencesBatch`) se stubea aquí; su lógica de reuso está cubierta
- * en la suite unitaria y por typecheck. No arranca la app completa (sin Redis/S3).
+ * verdad (matcher por `ptcgoCode`+`número`, relaciones `currentList`/`cards`/`matchedCard`,
+ * PERSISTENCIA de líneas no mapeadas). FUENTE-CONFIABLE (SUP-LEG): ya NO hay ventana de legalidad ni
+ * gate — toda carta CASADA con stock se ofrece; `regulationMark`/`legalStandardRaw` quedan como datos
+ * crudos inertes. El eje de disponibilidad (`CatalogService`, que reusa `getReferencesBatch`) se
+ * stubea aquí; su lógica de reuso está cubierta en la suite unitaria. No arranca la app (sin Redis/S3).
  */
 describe('DecksMeta persistence (integración, Postgres real)', () => {
   const prisma = new PrismaService();
-  // Stub del catálogo: devuelve piezas RAW NM «desde» para la carta legal con stock.
+  // Stub del catálogo: devuelve piezas RAW NM «desde» para las cartas con stock.
   const unitsByCard = new Map<string, DeckMetaUnitDTO[]>();
   const catalog = {
     getSellableRawUnitsByCardIds: jest.fn(async (ids: string[]) => {
@@ -29,7 +30,9 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
   const tag = randomUUID().slice(0, 8);
   const setId = `set-${tag}`;
   const legalCardId = `card-legal-${tag}`;
-  const rotatedCardId = `card-rot-${tag}`;
+  // Antes esta carta caía como "rotada" (marca E, fuera de la ventana). Bajo SUP-LEG ya no hay gate:
+  // si está casada y con stock, se ofrece. Se conserva la marca cruda 'E' para probar justamente eso.
+  const markECardId = `card-marke-${tag}`;
   const slug = `dragapult-${tag}`;
   // ptcgoCode SÓLO-LETRAS (el parser exige 2–4 letras): mapea los dígitos del tag hex a letras a–j,
   // así el código de set es único por corrida y siempre parseable. 4 letras.
@@ -40,17 +43,6 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
 
   beforeAll(async () => {
     await prisma.$connect();
-    // Ventana de legalidad vigente (por si el seed de la migración no está en esta BD).
-    await prisma.configSetting.upsert({
-      where: { key: 'standard.active_regulation_marks' },
-      create: { key: 'standard.active_regulation_marks', valueJson: ['G', 'H', 'I'] },
-      update: { valueJson: ['G', 'H', 'I'] },
-    });
-    await prisma.configSetting.upsert({
-      where: { key: 'standard.banlist_card_ids' },
-      create: { key: 'standard.banlist_card_ids', valueJson: [] },
-      update: { valueJson: [] },
-    });
 
     await prisma.cardSet.create({
       data: { id: setId, externalId: `ext-${tag}`, name: `Twilight ${tag}`, ptcgoCode: code },
@@ -64,14 +56,17 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
     });
     await prisma.card.create({
       data: {
-        id: rotatedCardId, externalId: `${tag}-131`, setId, name: 'Old Card', number: '131',
+        id: markECardId, externalId: `${tag}-131`, setId, name: 'Old Card', number: '131',
         supertype: 'Pokémon', regulationMark: 'E', legalStandardRaw: 'Legal',
       },
     });
-    // La carta legal tiene 2 piezas RAW NM «desde» 5000/6000.
+    // Ambas cartas casadas tienen 2 piezas RAW NM «desde» 5000/6000: bajo SUP-LEG ambas se ofrecen.
     unitsByCard.set(legalCardId, [
       { inventoryItemId: `inv-a-${tag}`, priceMxnCents: 5000 },
       { inventoryItemId: `inv-b-${tag}`, priceMxnCents: 6000 },
+    ]);
+    unitsByCard.set(markECardId, [
+      { inventoryItemId: `inv-e-${tag}`, priceMxnCents: 3000 },
     ]);
   });
 
@@ -102,11 +97,11 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
     expect(out[2].matchStatus).toBe('unmatched_set');
   });
 
-  it('adminCreateOrCurate persiste lista inmutable + líneas (incluidas las NO mapeadas) y fija currentList', async () => {
+  it('adminCreateOrCurate persiste lista inmutable + líneas (incluidas las NO mapeadas), fija currentList y guarda activeMarksSnapshot vacío', async () => {
     const listText = [
       'Pokémon: 3',
-      `4 Dragapult ex ${code} 130`, // matched + legal
-      `2 Old Card ${code} 131`, // matched pero ROTADA (marca E)
+      `4 Dragapult ex ${code} 130`, // matched (marca H)
+      `2 Old Card ${code} 131`, // matched (marca E) — bajo SUP-LEG igual se ofrece
       `1 Ghost ${code} 999`, // unmatched_number (persiste)
     ].join('\n');
     const { id } = await service.adminCreateOrCurate({
@@ -116,36 +111,39 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
     const deck = await prisma.metaDeck.findUnique({ where: { id }, include: { currentList: { include: { cards: true } } } });
     expect(deck?.currentListId).toBeTruthy();
     expect(deck?.currentList?.cards).toHaveLength(3);
+    // SUP-LEG: la instantánea de marcas se persiste VACÍA (columna inerte, ya no hay ventana).
+    expect(deck?.currentList?.activeMarksSnapshot).toEqual([]);
     // La línea no mapeada quedó PERSISTIDA con su matchStatus y sin matchedCardId.
     const ghost = deck!.currentList!.cards.find((c) => c.rawNumber === '999');
     expect(ghost?.matchStatus).toBe('unmatched_number');
     expect(ghost?.matchedCardId).toBeNull();
   });
 
-  it('getBySlug: legal+stock⇒ofrecible, rotada⇒marcada (legal:false), no-mapeada⇒card null', async () => {
+  it('getBySlug: toda carta casada con stock se ofrece (sin gate de legalidad); no-mapeada⇒card null', async () => {
     const detail = await service.getBySlug(slug);
     const pk = detail.groups.pokemon;
     const legal = pk.find((l) => l.number === '130')!;
-    const rotated = pk.find((l) => l.number === '131')!;
+    const markE = pk.find((l) => l.number === '131')!;
     const ghost = pk.find((l) => l.number === '999')!;
 
-    // legal + stock ⇒ ofrecible con piezas cheapest-first y precio «desde»
-    expect(legal.legal).toBe(true);
+    // matched (marca H) + stock ⇒ ofrecible con piezas cheapest-first y precio «desde»
+    expect(legal).not.toHaveProperty('legal');
     expect(legal.availableQty).toBe(2);
     expect(legal.unitInventoryItemIds).toEqual([`inv-a-${tag}`, `inv-b-${tag}`]);
     expect(legal.unitPriceMxnCents).toBe(5000);
 
-    // rotada (marca E fuera de la ventana) ⇒ marcada, sin piezas
-    expect(rotated.legal).toBe(false);
-    expect(rotated.availableQty).toBe(0);
-    expect(rotated.unitInventoryItemIds).toEqual([]);
-    expect(rotated.card).not.toBeNull();
+    // marca 'E' (antes "rotada") + stock ⇒ AHORA se ofrece igual (SUP-LEG: sin gate)
+    expect(markE).not.toHaveProperty('legal');
+    expect(markE.availableQty).toBe(1);
+    expect(markE.unitInventoryItemIds).toEqual([`inv-e-${tag}`]);
+    expect(markE.card).not.toBeNull();
 
     // no mapeada ⇒ card null, sin piezas
     expect(ghost.card).toBeNull();
     expect(ghost.unitInventoryItemIds).toEqual([]);
 
-    expect(detail.legalityVerifiedAt).toBeTruthy();
+    // El detalle YA no expone `legalityVerifiedAt` (SUP-LEG).
+    expect(detail).not.toHaveProperty('legalityVerifiedAt');
     expect(detail.source).toContain('Curado');
   });
 
@@ -155,15 +153,5 @@ describe('DecksMeta persistence (integración, Postgres real)', () => {
     expect(found).toBeTruthy();
     expect(found?.matchStatus).toBe('unmatched_number');
     expect(found?.totalQuantity).toBeGreaterThanOrEqual(1);
-  });
-
-  it('adminUpdateStandardLegality: editar la ventana recalcula la legalidad DERIVADA (rotación)', async () => {
-    // Meter 'E' en la ventana ⇒ la carta antes rotada pasa a legal.
-    await service.adminUpdateStandardLegality({ activeMarks: ['E', 'G', 'H', 'I'] }, 'test-actor');
-    const detail = await service.getBySlug(slug);
-    const rotated = detail.groups.pokemon.find((l) => l.number === '131')!;
-    expect(rotated.legal).toBe(true);
-    // restaurar la ventana para no contaminar otras corridas
-    await service.adminUpdateStandardLegality({ activeMarks: ['G', 'H', 'I'] }, 'test-actor');
   });
 });

@@ -34,8 +34,6 @@ export interface MetaDeckLineDTO {
   matchStatus: MetaMatchStatus;
   /** `null` si no casó (NUNCA se inventa). */
   card: MetaLineCardDTO | null;
-  /** `isLegalStandardNow(card)`; `false` ⇒ rotada / no probable / no casada. */
-  legal: boolean;
   /** `min(quantity, stockNM)`; `0` si falta o no es ofrecible. */
   availableQty: number;
   /** «desde» de la carta (`displayPriceCents`, con IVA); `null` si pending/faltante/no ofrecible. */
@@ -62,7 +60,6 @@ export interface MetaDeckDetailDTO {
   source: string;
   sourceUrl?: string;
   sourceTournament?: string;
-  legalityVerifiedAt: string;
   groups: MetaDeckGroupsDTO;
 }
 

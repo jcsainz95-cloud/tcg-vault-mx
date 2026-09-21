@@ -3,10 +3,8 @@ import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { AuditService } from '../audit/audit.service';
 import { DecksMetaService } from './decks-meta.service';
 import { DecksMetaRefreshService } from './decks-meta-refresh.service';
-import {
-  AdminDecksMetaController,
-  AdminStandardLegalityController,
-} from './admin-decks-meta.controller';
+import { AdminDecksMetaController } from './admin-decks-meta.controller';
+import * as adminControllerModule from './admin-decks-meta.controller';
 
 /**
  * `GET /admin/decks-meta/preview` (DECKS-META Fase 2, §8) — QA §10 lo marcó SIN cubrir. Es la vía de
@@ -135,101 +133,12 @@ describe('AdminDecksMetaController · dial', () => {
 });
 
 /**
- * SEG-DMF1-2 — la rotación de legalidad se AUDITA (money-adjacent). El write atómico vive en el
- * servicio (SEG-DMF1-1); la bitácora la escribe el controller tras el éxito, con el patch que cambió.
+ * FUENTE-CONFIABLE (SUP-LEG): la rotación de legalidad desapareció. El controller
+ * `AdminStandardLegalityController` y las rutas `GET/PUT /admin/config/standard-legality` YA NO
+ * existen — Limitless publica sólo listas Standard-legal, así que no re-filtramos por marca/banlist.
  */
-describe('AdminStandardLegalityController · rotación auditada', () => {
-  const user = { id: 'op-1', role: Role.vault_operator };
-
-  // La ventana PREVIA a la rotación (lo que `loadLegalityConfig` devuelve ANTES del write) y la
-  // ventana RESULTANTE (lo que `adminUpdateStandardLegality` devuelve = `loadLegalityConfig` tras el
-  // write). Distintas a propósito para probar before≠after.
-  const beforeCfg = { activeMarks: ['E', 'F'], banlistCardIds: ['ban-old'] };
-  const afterCfg = { activeMarks: ['H', 'I'], banlistCardIds: [] };
-
-  function makeController() {
-    const service = {
-      loadLegalityConfig: jest.fn(async () => beforeCfg),
-      adminUpdateStandardLegality: jest.fn(async () => afterCfg),
-    } as unknown as DecksMetaService;
-    const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
-    const controller = new AdminStandardLegalityController(service, audit);
-    return { controller, service, audit };
-  }
-
-  it('llama al servicio (write atómico) con el patch y el actor', async () => {
-    const { controller, service } = makeController();
-    await controller.update({ activeMarks: ['H', 'I'] }, user);
-    expect(service.adminUpdateStandardLegality).toHaveBeenCalledWith({ activeMarks: ['H', 'I'] }, 'op-1');
-  });
-
-  it('lee la ventana PREVIA (before) ANTES de rotar, para poder reconstruir desde qué ventana se rotó', async () => {
-    const { controller, service } = makeController();
-    await controller.update({ activeMarks: ['H', 'I'] }, user);
-    expect(service.loadLegalityConfig).toHaveBeenCalledTimes(1);
-    // el before se captura antes del write atómico
-    const loadOrder = (service.loadLegalityConfig as jest.Mock).mock.invocationCallOrder[0];
-    const writeOrder = (service.adminUpdateStandardLegality as jest.Mock).mock.invocationCallOrder[0];
-    expect(loadOrder).toBeLessThan(writeOrder);
-  });
-
-  it('AUDITA `decks_meta.legality.rotate` con la ventana ANTES→DESPUÉS (config completa, no el patch)', async () => {
-    const { controller, audit } = makeController();
-    await controller.update({ activeMarks: ['H', 'I'], banlistCardIds: [] }, user);
-    expect(audit.log).toHaveBeenCalledTimes(1);
-    const entry = (audit.log as jest.Mock).mock.calls[0][0];
-    expect(entry.action).toBe('decks_meta.legality.rotate');
-    expect(entry.actorUserId).toBe('op-1');
-    expect(entry.actorRole).toBe(Role.vault_operator);
-    // before = ventana pre-rotación; after = config RESULTANTE completa (lo que devuelve el servicio)
-    expect(entry.before).toEqual(beforeCfg);
-    expect(entry.after).toEqual(afterCfg);
-  });
-
-  it('el after es la config resultante completa aun con patch parcial (no sólo la key cambiada)', async () => {
-    const { controller, audit } = makeController();
-    await controller.update({ banlistCardIds: ['ban-x'] }, user);
-    const entry = (audit.log as jest.Mock).mock.calls[0][0];
-    // el after trae la ventana ENTERA (activeMarks + banlistCardIds), no el patch
-    expect(entry.after).toEqual(afterCfg);
-    expect(entry.after).toHaveProperty('activeMarks');
-    expect(entry.before).toEqual(beforeCfg);
-  });
-});
-
-/**
- * `GET /admin/config/standard-legality` — lectura de la ventana vigente para precargar el editor.
- * Sólo lectura (`vault_operator+`): devuelve lo que da `loadLegalityConfig()` y NO escribe auditoría
- * (un PUT vacío para leer registraría por error una "rotación").
- */
-describe('AdminStandardLegalityController · lectura de la ventana', () => {
-  function makeController() {
-    const service = {
-      loadLegalityConfig: jest.fn(async () => ({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] })),
-      adminUpdateStandardLegality: jest.fn(),
-    } as unknown as DecksMetaService;
-    const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
-    const controller = new AdminStandardLegalityController(service, audit);
-    return { controller, service, audit };
-  }
-
-  it('GET devuelve lo que provee loadLegalityConfig() (mismo shape, sin reformar)', async () => {
-    const { controller, service } = makeController();
-    const res = await controller.read();
-    expect(res).toEqual({ activeMarks: ['H', 'I'], banlistCardIds: ['ban-x'] });
-    expect(service.loadLegalityConfig).toHaveBeenCalledTimes(1);
-  });
-
-  it('NO escribe auditoría (lectura pura, sin efectos)', async () => {
-    const { controller, audit } = makeController();
-    await controller.read();
-    expect(audit.log).not.toHaveBeenCalled();
-  });
-
-  it('está gateado a `vault_operator+` (vault_operator y super_admin) a nivel de controller', () => {
-    expect(Reflect.getMetadata(ROLES_KEY, AdminStandardLegalityController)).toEqual([
-      Role.vault_operator,
-      Role.super_admin,
-    ]);
+describe('AdminStandardLegalityController · retirado (SUP-LEG)', () => {
+  it('el controller de rotación de legalidad ya NO se exporta', () => {
+    expect((adminControllerModule as Record<string, unknown>).AdminStandardLegalityController).toBeUndefined();
   });
 });

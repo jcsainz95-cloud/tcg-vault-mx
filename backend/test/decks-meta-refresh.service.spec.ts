@@ -49,9 +49,8 @@ function fakeClient(): LimitlessFetchClient {
 }
 
 function fakeDeckMeta(): DecksMetaService {
-  return {
-    loadLegalityConfig: jest.fn(async () => ({ activeMarks: ['G', 'H', 'I'], banlistCardIds: [] })),
-  } as unknown as DecksMetaService;
+  // SUP-LEG: el refresh ya no consulta legalidad al servicio; se inyecta vacío.
+  return {} as unknown as DecksMetaService;
 }
 
 /** Prisma en memoria: diales + store de MetaDeck por slug + registro de escrituras. */

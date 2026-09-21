@@ -1,7 +1,5 @@
 import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
 import {
-  ArrayUnique,
-  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -20,8 +18,8 @@ import { AUTOFETCH_DIAL_VALUES, AutofetchDial } from './limitless.config';
 
 /**
  * DECKS-META §13 (Fase 1) — endpoints ADMIN (rol `vault_operator+`). Curaduría manual (fallback que
- * NO depende de Limitless en vivo), reporte de no-mapeadas y ROTACIÓN de legalidad. Money-adjacent
- * (la rotación gobierna qué se ofrece como jugable) ⇒ va a la fase de seguridad por release.
+ * NO depende de Limitless en vivo) y reporte de no-mapeadas. FUENTE-CONFIABLE (SUP-LEG): ya NO existe
+ * la rotación de legalidad — Limitless publica sólo listas Standard-legal, así que no re-filtramos.
  */
 
 class CurateDeckDto {
@@ -51,13 +49,6 @@ class SetDialDto {
   @IsOptional() @IsIn(AUTOFETCH_DIAL_VALUES as unknown as string[]) autofetch?: AutofetchDial;
   // Auto-publicar los decks que pasan canary. Sólo boolean.
   @IsOptional() @IsBoolean() autopublish?: boolean;
-}
-
-class StandardLegalityDto {
-  // La ventana de marcas vigentes (rotación). Editar recalcula la legalidad DERIVADA sin re-sync.
-  @IsOptional() @IsArray() @ArrayUnique() @IsString({ each: true }) activeMarks?: string[];
-  // Override de operación por `externalId` (raro; bans puntuales sobre lo que el proveedor no marcó).
-  @IsOptional() @IsArray() @ArrayUnique() @IsString({ each: true }) banlistCardIds?: string[];
 }
 
 @Controller('admin/decks-meta')
@@ -150,52 +141,5 @@ export class AdminDecksMetaController {
   @Put(':id')
   update(@Param('id') id: string, @Body() dto: UpdateDeckDto) {
     return this.service.adminUpdate(id, dto);
-  }
-}
-
-/**
- * `PUT /admin/config/standard-legality` — el mecanismo de ROTACIÓN (§12.1). Va en su propio
- * controller de ruta (`admin/config`) porque edita `ConfigSetting`, no un `MetaDeck`.
- */
-@Controller('admin/config')
-@Roles(Role.vault_operator, Role.super_admin)
-export class AdminStandardLegalityController {
-  constructor(
-    private readonly service: DecksMetaService,
-    private readonly audit: AuditService,
-  ) {}
-
-  /**
-   * `GET /admin/config/standard-legality` — lee la ventana vigente de legalidad (`vault_operator+`,
-   * sólo lectura). El editor de legalidad la precarga con esto; NO se audita (no muta nada — un PUT
-   * vacío para leerla escribiría por error una entrada de "rotación"). Devuelve el mismo shape que
-   * consume el pipeline: `{ activeMarks, banlistCardIds }`.
-   */
-  @Get('standard-legality')
-  read() {
-    return this.service.loadLegalityConfig();
-  }
-
-  /**
-   * SEG-DMF1-2: la rotación de legalidad es money-adjacent (gobierna qué se ofrece como jugable) ⇒
-   * se AUDITA (actor + la ventana ANTES→DESPUÉS, igual que el dial). El write en sí es atómico dentro
-   * del servicio (SEG-DMF1-1); la bitácora se escribe tras el éxito, igual que el preview de Fase 2.
-   * El `before` (config previa a la rotación) deja reconstruir DESDE qué ventana se rotó — sin él la
-   * traza no permite saber qué era jugable antes del cambio, que es justo el punto de SEG-DMF1.
-   */
-  @Put('standard-legality')
-  async update(@Body() dto: StandardLegalityDto, @CurrentUser() user: { id: string; role: Role }) {
-    const before = await this.service.loadLegalityConfig();
-    const after = await this.service.adminUpdateStandardLegality(dto, user.id);
-    await this.audit.log({
-      actorUserId: user.id,
-      actorRole: user.role,
-      action: 'decks_meta.legality.rotate',
-      entityType: 'ConfigSetting',
-      entityId: 'standard.legality',
-      before,
-      after,
-    });
-    return after;
   }
 }
