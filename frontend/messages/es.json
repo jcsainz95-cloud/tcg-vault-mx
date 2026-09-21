@@ -2854,7 +2854,7 @@
     },
     "decksMetaRefresh": {
       "moduleTitle": "Meta Battle Decks",
-      "moduleSubtitle": "Opera el jalado automático de Meta Battle Decks: enciéndelo o apágalo, define qué ediciones cuentan como vigentes y haz un ensayo antes de publicar.",
+      "moduleSubtitle": "Opera el jalado automático de Meta Battle Decks: enciéndelo o apágalo y haz un ensayo antes de publicar.",
       "title": "Ensayo (modo prueba)",
       "subtitle": "Corre el jalado automático de Meta Battle Decks en modo prueba: trae todo de Limitless, lo revisa y te dice si publicaría, sin tocar nada de lo que ya está en línea.",
       "runButton": "Correr ensayo",

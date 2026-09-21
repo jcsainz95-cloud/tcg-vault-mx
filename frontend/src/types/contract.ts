@@ -4919,7 +4919,7 @@ export interface DeckMetaPasteResponse {
 
 /* ──────────────────────────────────────────────────────────────────────────────────────────
  * §13 Fase 2 (auto-fetch) — ADMIN dry-run. `GET /admin/decks-meta/preview` (rol `vault_operator+`)
- * corre el pipeline REAL (home → listas → parse → match → legalidad → canary) en dry-run y
+ * corre el pipeline REAL (home → listas → parse → match → canary) en dry-run y
  * devuelve el reporte INLINE **sin escribir NADA**. Es la vía de verificación en prod: superficie
  * de OPERADOR, no de cliente, por eso vive aquí y no en la superficie pública §13.
  *

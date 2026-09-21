@@ -2854,7 +2854,7 @@
     },
     "decksMetaRefresh": {
       "moduleTitle": "Meta Battle Decks",
-      "moduleSubtitle": "Operate the automatic Meta Battle Decks fetch: turn it on or off, choose which editions count as current, and run a dry-run before publishing.",
+      "moduleSubtitle": "Operate the automatic Meta Battle Decks fetch: turn it on or off, and run a dry-run before publishing.",
       "title": "Dry-run (test mode)",
       "subtitle": "Runs the automatic Meta Battle Decks fetch in test mode: pulls everything from Limitless, checks it, and tells you whether it would publish — without touching anything already live.",
       "runButton": "Run dry-run",
