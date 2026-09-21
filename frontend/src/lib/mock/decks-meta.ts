@@ -213,6 +213,10 @@ export function setMockDial(patch: DecksMetaDialUpdateRequest): DecksMetaDialDTO
  */
 let mockLegality: StandardLegalityDTO = { activeMarks: [], banlistCardIds: [] };
 
+export function getMockLegality(): StandardLegalityDTO {
+  return { activeMarks: [...mockLegality.activeMarks], banlistCardIds: [...mockLegality.banlistCardIds] };
+}
+
 export function setMockLegality(patch: StandardLegalityUpdateRequest): StandardLegalityDTO {
   mockLegality = {
     activeMarks: patch.activeMarks ?? mockLegality.activeMarks,

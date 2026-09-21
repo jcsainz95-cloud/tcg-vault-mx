@@ -516,16 +516,20 @@ export async function setDecksMetaDial(
 }
 
 /**
+ * §13 Fase 2 — ADMIN: LEE la ventana vigente de legalidad de Standard (`GET
+ * /admin/config/standard-legality`, `vault_operator+`, sólo lectura, **NO auditado**). Devuelve
+ * `{ activeMarks, banlistCardIds }`. El editor la precarga con esto al montar.
+ */
+export async function getStandardLegality(): Promise<StandardLegalityDTO> {
+  if (!config.useMocks) return apiRequest<StandardLegalityDTO>('/admin/config/standard-legality');
+  return delay(mockDecksMeta.getMockLegality());
+}
+
+/**
  * §13 Fase 2 — ADMIN: EDITA la ventana de legalidad de Standard (`PUT
  * /admin/config/standard-legality`, `vault_operator+`, AUDITADO, ATÓMICO). Patch parcial: el arreglo
  * enviado **reemplaza** por completo el guardado (upsert). Devuelve la config resultante
- * (`{ activeMarks, banlistCardIds }`), que es la única forma en que el front conoce el estado real.
- *
- * ⚠️ **HUECO DE BACKEND**: hoy NO existe un `GET /admin/config/standard-legality`. `loadLegalityConfig()`
- * está en el servicio pero no hay ruta de lectura; el reporte del preview tampoco expone `activeMarks`.
- * Por eso el editor no puede pre-cargar la ventana vigente: la muestra tras el primer guardado (la
- * respuesta del PUT). No se inventa un GET (constraint del encargo) — se anota como hueco a enrutar
- * a backend. No se dispara un PUT vacío «para leer» porque el controller lo AUDITA como rotación.
+ * (`{ activeMarks, banlistCardIds }`).
  */
 export async function updateStandardLegality(
   patch: StandardLegalityUpdateRequest,

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
-import { updateStandardLegality } from '@/lib/api';
-import type { StandardLegalityDTO, StandardLegalityUpdateRequest } from '@/types/contract';
+import { getStandardLegality, updateStandardLegality } from '@/lib/api';
+import type { StandardLegalityUpdateRequest } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 
@@ -18,25 +18,31 @@ import { Button } from '@/components/ui/Button';
  * vigente» — que es lo que se vio en el ensayo de producción. Poner aquí las marcas vigentes lo
  * corrige.
  *
- * ⚠️ **Hueco de backend, anotado**: hoy sólo existe `PUT /admin/config/standard-legality` (no un
- * `GET`), y el reporte del preview no expone `activeMarks`. Por eso el editor no puede PRE-CARGAR la
- * ventana vigente: la muestra tras el primer guardado (la respuesta del `PUT` es la única fuente que
- * el front tiene). No se inventa un `GET` ni se dispara un `PUT` vacío «para leer» (el backend lo
- * auditaría como una rotación). Cada guardado REEMPLAZA por completo el arreglo enviado.
+ * La ventana vigente se PRE-CARGA con `GET /admin/config/standard-legality` (sólo lectura, no
+ * auditado). Guardar (`PUT`) REEMPLAZA por completo el arreglo enviado.
  */
+const LEGALITY_KEY = ['admin', 'standard-legality'] as const;
+
 export function StandardLegalityControl() {
   const t = useTranslations('admin.standardLegality');
 
-  // Sin GET, el estado arranca "desconocido" (null) y pasa a conocido tras el primer guardado.
-  const [saved, setSaved] = useState<StandardLegalityDTO | null>(null);
+  const legalityQuery = useQuery({ queryKey: LEGALITY_KEY, queryFn: getStandardLegality });
+  const current = legalityQuery.data;
+
   const [marks, setMarks] = useState<string[]>([]);
   const [banlist, setBanlist] = useState<string[]>([]);
   const [okMsg, setOkMsg] = useState(false);
 
+  // Siembra los chips con la ventana vigente al montar (y re-siembra si la lectura cambia).
+  useEffect(() => {
+    if (!current) return;
+    setMarks(current.activeMarks);
+    setBanlist(current.banlistCardIds);
+  }, [current]);
+
   const save = useMutation({
     mutationFn: (patch: StandardLegalityUpdateRequest) => updateStandardLegality(patch),
     onSuccess: (res) => {
-      setSaved(res);
       setMarks(res.activeMarks);
       setBanlist(res.banlistCardIds);
       setOkMsg(true);
@@ -48,6 +54,43 @@ export function StandardLegalityControl() {
     save.mutate({ activeMarks: marks, banlistCardIds: banlist });
   }
 
+  if (legalityQuery.isLoading) {
+    return (
+      <section className="flex flex-col gap-4" aria-labelledby="dml-title">
+        <div className="flex flex-col gap-1">
+          <h2 id="dml-title" className="text-h2 font-semibold">
+            {t('title')}
+          </h2>
+          <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
+        </div>
+        <p className="text-sm text-muted">{t('loading')}</p>
+      </section>
+    );
+  }
+  if (legalityQuery.isError || !current) {
+    return (
+      <section className="flex flex-col gap-4" aria-labelledby="dml-title">
+        <div className="flex flex-col gap-1">
+          <h2 id="dml-title" className="text-h2 font-semibold">
+            {t('title')}
+          </h2>
+          <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
+        </div>
+        <Banner
+          variant="danger"
+          role="alert"
+          action={
+            <Button size="sm" variant="secondary" onClick={() => legalityQuery.refetch()}>
+              {t('retry')}
+            </Button>
+          }
+        >
+          {t('loadError')}
+        </Banner>
+      </section>
+    );
+  }
+
   return (
     <section className="flex flex-col gap-4" aria-labelledby="dml-title">
       <div className="flex flex-col gap-1">
@@ -56,13 +99,6 @@ export function StandardLegalityControl() {
         </h2>
         <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
       </div>
-
-      {/* El hueco de lectura, dicho en llano: lo que se ve refleja el último guardado de esta sesión. */}
-      {saved == null && (
-        <Banner variant="info" role="status">
-          {t('noReadNote')}
-        </Banner>
-      )}
 
       {save.isError && (
         <Banner variant="danger" role="alert">

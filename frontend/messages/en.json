@@ -2963,7 +2963,9 @@
     "standardLegality": {
       "title": "Legality window",
       "subtitle": "Here you choose which editions count as current in Standard. If it's empty, almost everything will be marked as «rotated».",
-      "noReadNote": "For now the saved window can't be read from here; what you see reflects the last save in this session. When you save, you define the whole window.",
+      "loading": "Loading the current window…",
+      "loadError": "The legality window couldn't be read.",
+      "retry": "Retry",
       "marks": {
         "label": "Current marks",
         "help": "The regulation marks that count as Standard today (for example: G, H). Type each one and press Enter or comma.",

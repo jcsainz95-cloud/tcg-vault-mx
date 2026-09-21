@@ -2963,7 +2963,9 @@
     "standardLegality": {
       "title": "Ventana de legalidad",
       "subtitle": "Aquí eliges qué ediciones cuentan como vigentes en Standard. Si está vacío, casi todo se marcará como «rotada».",
-      "noReadNote": "Por ahora no se puede leer la ventana guardada desde aquí; lo que ves refleja el último guardado de esta sesión. Al guardar, defines la ventana completa.",
+      "loading": "Cargando la ventana vigente…",
+      "loadError": "No se pudo leer la ventana de legalidad.",
+      "retry": "Reintentar",
       "marks": {
         "label": "Marcas vigentes",
         "help": "Las marcas de regulación que hoy cuentan como Standard (por ejemplo: G, H). Escribe cada una y aprieta Enter o coma.",

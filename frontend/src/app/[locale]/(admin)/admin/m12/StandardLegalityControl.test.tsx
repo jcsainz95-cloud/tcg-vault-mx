@@ -3,38 +3,60 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { StandardLegalityControl } from './StandardLegalityControl';
 import * as api from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 
 beforeEach(() => {
   vi.restoreAllMocks();
 });
 
 describe('StandardLegalityControl · ventana de legalidad', () => {
-  it('renderiza el editor con la nota del hueco de lectura y los campos vacíos', () => {
+  it('PRE-CARGA la ventana vigente con el GET y llena los chips', async () => {
+    vi.spyOn(api, 'getStandardLegality').mockResolvedValue({
+      activeMarks: ['G', 'H'],
+      banlistCardIds: ['sv1-1'],
+    });
     renderWithProviders(<StandardLegalityControl />, 'es');
 
-    expect(screen.getByText('Ventana de legalidad')).toBeInTheDocument();
-    // El estado arranca «desconocido» (no hay GET): nota explícita en llano.
+    // Los chips salen sembrados por la lectura, sin necesidad de guardar.
+    expect(await screen.findByText('G')).toBeInTheDocument();
+    expect(screen.getByText('H')).toBeInTheDocument();
+    expect(screen.getByText('sv1-1')).toBeInTheDocument();
+  });
+
+  it('con la ventana vacía muestra los estados vacíos de ambos campos', async () => {
+    vi.spyOn(api, 'getStandardLegality').mockResolvedValue({ activeMarks: [], banlistCardIds: [] });
+    renderWithProviders(<StandardLegalityControl />, 'es');
+
     expect(
-      screen.getByText(
-        'Por ahora no se puede leer la ventana guardada desde aquí; lo que ves refleja el último guardado de esta sesión. Al guardar, defines la ventana completa.',
-      ),
+      await screen.findByText('Sin marcas: casi todo caería como «rotada».'),
     ).toBeInTheDocument();
-    // Los dos campos, vacíos.
-    expect(screen.getByText('Sin marcas: casi todo caería como «rotada».')).toBeInTheDocument();
     expect(screen.getByText('Sin cartas baneadas.')).toBeInTheDocument();
   });
 
+  it('un fallo del GET muestra el aviso de lectura con reintento', async () => {
+    vi.spyOn(api, 'getStandardLegality').mockRejectedValue(
+      new ApiClientError(502, { code: 'INTERNAL', message: 'boom' }),
+    );
+    renderWithProviders(<StandardLegalityControl />, 'es');
+
+    expect(await screen.findByText('No se pudo leer la ventana de legalidad.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+  });
+
   it('agrega una marca como ficha y la guarda con el PUT (patch completo)', async () => {
+    vi.spyOn(api, 'getStandardLegality').mockResolvedValue({ activeMarks: [], banlistCardIds: [] });
     const put = vi
       .spyOn(api, 'updateStandardLegality')
       .mockResolvedValue({ activeMarks: ['H'], banlistCardIds: [] });
     renderWithProviders(<StandardLegalityControl />, 'es');
 
+    // Espera a que la lectura resuelva antes de editar.
+    await screen.findByText('Sin marcas: casi todo caería como «rotada».');
+
     const marksInput = screen.getByLabelText('Marcas vigentes');
     fireEvent.change(marksInput, { target: { value: 'H' } });
     fireEvent.keyDown(marksInput, { key: 'Enter' });
 
-    // La ficha aparece.
     expect(screen.getByText('H')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Guardar ventana' }));
@@ -45,17 +67,17 @@ describe('StandardLegalityControl · ventana de legalidad', () => {
     expect(await screen.findByText('Ventana de legalidad guardada.')).toBeInTheDocument();
   });
 
-  it('deduplica y quita fichas', () => {
+  it('deduplica y quita fichas', async () => {
+    vi.spyOn(api, 'getStandardLegality').mockResolvedValue({ activeMarks: [], banlistCardIds: [] });
     renderWithProviders(<StandardLegalityControl />, 'es');
-    const marksInput = screen.getByLabelText('Marcas vigentes');
+    await screen.findByText('Sin marcas: casi todo caería como «rotada».');
 
-    // Coma agrega varias de una; el duplicado no entra dos veces.
+    const marksInput = screen.getByLabelText('Marcas vigentes');
     fireEvent.change(marksInput, { target: { value: 'G, H, G' } });
     fireEvent.keyDown(marksInput, { key: 'Enter' });
     expect(screen.getAllByText('G')).toHaveLength(1);
     expect(screen.getByText('H')).toBeInTheDocument();
 
-    // Quitar la ficha «H».
     fireEvent.click(screen.getByRole('button', { name: 'Quitar H' }));
     expect(screen.queryByText('H')).not.toBeInTheDocument();
   });
