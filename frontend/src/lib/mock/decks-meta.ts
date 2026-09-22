@@ -162,6 +162,29 @@ export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
 };
 
 /**
+ * MOCK de «Publicar ahora» (`POST /admin/jobs/decks-meta-refresh`) para demo / smoke E2E sin
+ * backend. Reutiliza el reporte del ensayo pero como corrida EN VIVO ya publicada: canary en
+ * verde, `applied:true` y `publishedSlugs` con los decks del mock de arriba.
+ */
+export const mockDecksMetaPublishNow: DecksMetaPreviewResponse = {
+  skipped: false,
+  mode: 'live',
+  report: {
+    ...(mockDecksMetaPreview as Extract<DecksMetaPreviewResponse, { skipped: false }>).report,
+    mode: 'live',
+    verdict: 'PUBLISH',
+    wouldPublish: true,
+    applied: true,
+    persistedCount: 3,
+    publishedSlugs: ['dragapult-ex', 'charizard-ex', 'raging-bolt-ex'],
+    canary: {
+      ...(mockDecksMetaPreview as Extract<DecksMetaPreviewResponse, { skipped: false }>).report.canary,
+      verdict: 'PUBLISH',
+    },
+  },
+};
+
+/**
  * MOCK del DIAL (§13 Fase 2) para el modo demo. Seed FAIL-CLOSED (`off` / `autopublish:false`),
  * igual que el backend cuando la key no existe. Estado mutable de módulo para que el editor demo
  * refleje sus propios cambios sin backend.

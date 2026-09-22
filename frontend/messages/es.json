@@ -2918,6 +2918,25 @@
         "pausedSkipped": "Decks en pausa (saltados)",
         "errors": "Errores",
         "none": "Sin notas ni errores."
+      },
+      "publishNow": {
+        "title": "Publicar ahora",
+        "subtitle": "Jala los decks de Limitless y los publica en tu tienda en este momento, sin esperar al barrido automático del lunes. Respeta el interruptor de arriba.",
+        "button": "Publicar ahora",
+        "running": "Publicando… (~30-45s)",
+        "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
+        "error": "No se pudo publicar. Suele ser un problema de red con Limitless; vuelve a intentarlo.",
+        "retry": "Reintentar",
+        "dialOff": "El interruptor está apagado, así que no se publicó nada. Enciéndelo arriba para poder publicar.",
+        "alreadyRunning": "Ya hay una corrida en curso. Espera a que termine y vuelve a intentarlo.",
+        "published": "Listo: se publicó en la tienda ({count, plural, one {# deck} other {# decks}}).",
+        "nothingPublished": "No se publicó nada: algún chequeo no pasó. Se conservó la última lista buena.",
+        "confirm": {
+          "title": "¿Publicar ahora?",
+          "body": "Esto trae los decks de Limitless y los publica en tu tienda en este momento. Respeta el interruptor: si está apagado, no hará nada. ¿Seguro?",
+          "cancel": "Cancelar",
+          "confirmCta": "Sí, publicar ahora"
+        }
       }
     },
     "decksMetaDial": {

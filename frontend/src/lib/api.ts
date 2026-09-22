@@ -489,6 +489,19 @@ export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
 }
 
 /**
+ * §13 Fase 2 — ADMIN super_admin: dispara la publicación REAL inmediata del refresh de decks meta
+ * (`POST /admin/jobs/decks-meta-refresh`, 202). Corre el pipeline en vivo RESPETANDO el dial:
+ * `off` ⇒ no publica ({skipped:'DIAL_OFF'}); `on` ⇒ jala de Limitless y publica si el canary pasa.
+ * Egress real a un tercero ⇒ tarda ~30-45s. Mismo shape que el preview (`DecksMetaPreviewResponse`).
+ */
+export async function runDecksMetaPublishNow(): Promise<DecksMetaPreviewResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DecksMetaPreviewResponse>('/admin/jobs/decks-meta-refresh', { method: 'POST', body: {} });
+  }
+  return delay(mockDecksMeta.mockDecksMetaPublishNow, 500);
+}
+
+/**
  * §13 Fase 2 — ADMIN: estado ACTUAL del dial de auto-fetch (`GET /admin/decks-meta/dial`,
  * `vault_operator+`, sólo lectura). Fail-closed: keys ausentes ⇒ `{ autofetch:'off',
  * autopublish:false }`. El PUT es super_admin (encenderlo dispara egress real + publicación).

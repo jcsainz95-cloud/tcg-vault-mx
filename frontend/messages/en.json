@@ -2918,6 +2918,25 @@
         "pausedSkipped": "Paused decks (skipped)",
         "errors": "Errors",
         "none": "No notes or errors."
+      },
+      "publishNow": {
+        "title": "Publish now",
+        "subtitle": "Pulls the meta decks from Limitless and publishes them to your store right now, without waiting for Monday's automatic sweep. Respects the switch above.",
+        "button": "Publish now",
+        "running": "Publishing… (~30-45s)",
+        "runningNote": "It takes a while because it downloads the real lists, one by one. Don't close the tab.",
+        "error": "Couldn't publish. It's usually a network issue with Limitless; try again.",
+        "retry": "Retry",
+        "dialOff": "The switch is off, so nothing was published. Turn it on above to publish.",
+        "alreadyRunning": "A run is already in progress. Wait for it to finish and try again.",
+        "published": "Done: published to the store ({count, plural, one {# deck} other {# decks}}).",
+        "nothingPublished": "Nothing was published: a check didn't pass. The last good list was kept.",
+        "confirm": {
+          "title": "Publish now?",
+          "body": "This pulls the meta decks from Limitless and publishes them to your store right now. It respects the switch: if it's off, nothing happens. Are you sure?",
+          "cancel": "Cancel",
+          "confirmCta": "Yes, publish now"
+        }
       }
     },
     "decksMetaDial": {
