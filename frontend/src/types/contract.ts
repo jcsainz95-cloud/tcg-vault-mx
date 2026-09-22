@@ -1206,13 +1206,70 @@ export interface AdminShipmentDTO {
   items?: { id?: string; inventoryItemId: string; folio?: string; card?: CardDTO }[];
 }
 
-// Fila de la lista de picking (contrato §M4 · GET /admin/shipments/picking-list),
-// ordenada por ubicación; `location` = label plano ("C03-F02-S15" | "UNASSIGNED").
-export interface PickingListEntryDTO {
-  shipmentId: string;
-  inventoryItemId: string;
-  folio: string;
-  location: string;
+// ---- «Pedidos a preparar» (contrato §M4-PREP v1.78 · GET /admin/shipments/picking-list) ----
+//
+// ⚠️ La RUTA sigue diciendo `picking-list` (decisión del arquitecto en §M4-PREP: se conserva la ruta
+// y solo cambia el DTO, para no mover guard ni ruteo). El renombrado «picking → Pedidos a preparar»
+// es de cara al OPERADOR (copy/etiquetas), no de la ruta interna.
+//
+// Reemplaza a `PickingListEntryDTO` (lista PLANA de piezas ordenada por ubicación). Un elemento =
+// UN pedido/envío a preparar, con sus cartas anidadas.
+//
+// ⛔ `PreparationDestination` es un TIPO DE DTO, **NO un enum de dominio**: se DERIVA de
+// `Order.fulfillmentMode` y sus valores (`ship`/`vault`) NO coinciden con los de `FulfillmentMode`
+// (`direct_ship`/`vault`). Por eso NO va al bloque «Enums (fuente de verdad)» ni a ningún control de
+// paridad de enums (§M4-PREP, nota explícita).
+export type PreparationDestination = 'vault' | 'ship';
+
+export interface PreparationOrderDTO {
+  // --- identidad y traza ---
+  shipmentId: string; // SIEMPRE presente — la referencia estable del renglón (ShipmentRequest.id)
+  orderId: string | null; // null en un RETIRO DE BÓVEDA (no tiene orden); poblado en envío directo
+  orderNumber: string | null; // folio legible "TCG-000123"; null cuando orderId es null (retiro)
+  // --- destino (a nivel de PEDIDO — DECISIÓN #1) ---
+  destination: PreparationDestination; // deriva de Order.fulfillmentMode; retiro (orderId null) ⇒ 'ship'
+  // --- antigüedad (CA #9: atender lo más viejo primero) ---
+  requestedAt: string; // ISO; la cola ordena asc por defecto
+  // --- cliente ---
+  customer: {
+    lastName: string | null; // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — §6.A; NO bloquea
+    fullName: string; // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
+  };
+  // --- solo destino ENVÍO ('ship'): dirección COMPLETA, CON la calle que la fila omite hoy (CA #6) ---
+  shipTo?: {
+    recipientName: string | null; // ausente en snapshots de 8 campos anteriores a v1.67 ⇒ null
+    line1: string; // la CALLE
+    line2?: string | null;
+    neighborhood?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone: string;
+  };
+  // --- las cartas del pedido ---
+  items: PreparationItemDTO[];
+}
+
+export interface PreparationItemDTO {
+  shipmentItemId: string; // ShipmentItem.id — el nodo por carta (será lo que se palomee en la rebanada siguiente)
+  inventoryItemId: string; // InventoryItem.id
+  folio: string; // InventoryItem.folio
+  quantity: number; // SIEMPRE 1 bajo el modelo actual (un ShipmentItem = una pieza física; no hay columna cantidad)
+  card: {
+    name: string; // Card.name (nomenclatura de tienda)
+    setName: string | null; // Card.set.name — SET prominente para ENVÍO (mapea a carpeta por set)
+    finish: Finish; // InventoryItem.finish
+    conditionLabel: string; // COMPUESTA EN EL BACK: graded → "PSA 9" | raw → "NM" | sealed → "Mint"
+    imageSmallUrl: string | null; // Card.imageSmallUrl (nullable en catálogo)
+  };
+  currentLocation: LocationView; // resuelve "UNASSIGNED" (§6.B) — el código deja de viajar como string
+}
+
+// CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
+export interface LocationView {
+  kind: 'assigned' | 'unassigned';
+  label?: string; // "C03-F02-S15" cuando kind='assigned'; ausente cuando 'unassigned'
 }
 
 // Captura de guía en M4 (contrato §M4 · POST /admin/shipments/:id/tracking).

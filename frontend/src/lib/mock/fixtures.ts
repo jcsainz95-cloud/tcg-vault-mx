@@ -48,7 +48,7 @@ import type {
   AdminBuylistDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
-  PickingListEntryDTO,
+  PreparationOrderDTO,
   DisputeDTO,
   ClientDisputeDTO,
   ShipmentDTO,
@@ -1919,6 +1919,17 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
     items: [{ inventoryItemId: 'inv-1001' }, { inventoryItemId: 'inv-1008' }],
   },
   {
+    // Envío DIRECTO de una orden (`fulfillmentMode='direct_ship'`): nace en `picking`, ya cobrado.
+    // Es el compañero de `shp-7004` en `mockPreparationQueue` (la hoja de «Pedidos a preparar»).
+    id: 'shp-7004',
+    userId: 'u-780',
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-13T16:45:00Z',
+    items: [{ inventoryItemId: 'inv-1012' }],
+  },
+  {
     id: 'shp-7003',
     userId: 'u-779',
     status: 'solicitado',
@@ -1929,10 +1940,110 @@ export const mockAdminShipments: AdminShipmentDTO[] = [
   },
 ];
 
-/** MOCK: lista de picking por ubicación (contrato §M4 · GET /admin/shipments/picking-list). */
-export const mockPickingList: PickingListEntryDTO[] = [
-  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1001', folio: 'INV-000101', location: 'C03-F02-S15' },
-  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1008', folio: 'INV-000108', location: 'C03-F02-S16' },
+/**
+ * MOCK: **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** ·
+ * `GET /admin/shipments/picking-list`). Un elemento = UN pedido/envío a preparar.
+ *
+ * ⚠️ **Las dos filas son `destination: 'ship'`, y eso NO es un descuido del fixture.** Medido por el
+ * arquitecto (§M4-PREP, 2026-09-22): bajo el modelo actual **todo** `ShipmentRequest` es físicamente
+ * un envío a domicilio —retiro de bóveda **o** envío directo— y las órdenes con
+ * `fulfillmentMode='vault'` **no generan** `ShipmentRequest`. ⛔ Una fila `destination:'vault'` aquí
+ * sería un dato que el backend **no puede producir**: enseñaría a leer verde una cubeta vacía.
+ *
+ * El orden del array es DELIBERADAMENTE el contrario al normativo (`requestedAt` asc, CA #9): el
+ * mock hace de servidor y ordena en `getAdminPreparationQueue`, y la vista lo vuelve a garantizar.
+ */
+export const mockPreparationQueue: PreparationOrderDTO[] = [
+  {
+    // ENVÍO DIRECTO — tiene orden, así que tiene folio.
+    shipmentId: 'shp-7004',
+    orderId: 'ord-5001',
+    orderNumber: 'TCG-000123',
+    destination: 'ship',
+    requestedAt: '2026-08-13T16:45:00Z',
+    customer: { lastName: 'Ketchum', fullName: 'Ash Ketchum' },
+    shipTo: {
+      recipientName: 'Ash Ketchum',
+      line1: 'Av. Insurgentes Sur 1234',
+      line2: 'Depto 5B',
+      neighborhood: 'Del Valle',
+      city: 'Ciudad de México',
+      state: 'CDMX',
+      postalCode: '03100',
+      country: 'MX',
+      phone: '5551239876',
+    },
+    items: [
+      {
+        shipmentItemId: 'sit-9004-1',
+        inventoryItemId: 'inv-1012',
+        folio: 'INV-000112',
+        quantity: 1,
+        card: {
+          name: 'Charizard',
+          setName: 'Base Set',
+          finish: 'holofoil',
+          conditionLabel: 'PSA 9',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
+        },
+        currentLocation: { kind: 'assigned', label: 'C01-F01-S02' },
+      },
+    ],
+  },
+  {
+    // RETIRO DE BÓVEDA — `orderId` null ⇒ `orderNumber` null. NO es un hueco: es un retiro.
+    // `lastName` null: `fullName` de un solo token, el apellido no se puede derivar (§6.A).
+    shipmentId: 'shp-7002',
+    orderId: null,
+    orderNumber: null,
+    destination: 'ship',
+    requestedAt: '2026-08-13T09:30:00Z',
+    customer: { lastName: null, fullName: 'Misty' },
+    shipTo: {
+      // Snapshot legado de ocho campos (anterior a v1.67): sin `recipientName`.
+      recipientName: null,
+      line1: 'Calle Falsa 123',
+      line2: null,
+      neighborhood: null,
+      city: 'Guadalajara',
+      state: 'JAL',
+      postalCode: '44100',
+      country: 'MX',
+      phone: '3331234567',
+    },
+    items: [
+      {
+        shipmentItemId: 'sit-9002-1',
+        inventoryItemId: 'inv-1001',
+        folio: 'INV-000101',
+        quantity: 1,
+        card: {
+          name: 'Zapdos',
+          setName: 'Base Set',
+          finish: 'normal',
+          conditionLabel: 'NM',
+          imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
+        },
+        currentLocation: { kind: 'assigned', label: 'C03-F02-S15' },
+      },
+      {
+        shipmentItemId: 'sit-9002-2',
+        inventoryItemId: 'inv-1008',
+        folio: 'INV-000108',
+        quantity: 1,
+        card: {
+          // Catálogo sin miniatura (`imageSmallUrl` es nullable por contrato) ⇒ pozo de papel.
+          name: 'Machamp',
+          setName: 'Base Set',
+          finish: 'reverse_holo',
+          conditionLabel: 'LP',
+          imageSmallUrl: null,
+        },
+        // Pieza SIN ubicación asignada: el front pinta copy legible, ⛔ nunca "UNASSIGNED".
+        currentLocation: { kind: 'unassigned' },
+      },
+    ],
+  },
 ];
 
 export const mockDashboard: DashboardDTO = {

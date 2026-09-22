@@ -62,7 +62,8 @@ import type {
   RejectedSellItemDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
-  PickingListEntryDTO,
+  PreparationOrderDTO,
+  PreparationDestination,
   RefundOrderResponse,
   RevealClabeResponse,
   BuylistItemDecisionInput,
@@ -1406,17 +1407,36 @@ export async function getAdminShipments(
 }
 
 /**
- * Lista de picking ordenada por ubicación (contrato §M4 · GET /admin/shipments/picking-list).
- * Solo envíos en `picking`; `?date=` opcional (día de solicitud).
+ * **«Pedidos a preparar»** — hoja de trabajo AGRUPADA por pedido (contrato **§M4-PREP** v1.78 ·
+ * `GET /admin/shipments/picking-list`). Solo envíos en `picking`.
+ *
+ * ⚠️ **La RUTA sigue diciendo `picking-list` a propósito** (decisión del arquitecto en §M4-PREP: se
+ * conserva la ruta y solo cambia el DTO, para no mover el guard ni el ruteo). El renombrado es de
+ * cara al operador. ⛔ No se acuña `…/preparation-queue`.
+ *
+ * `?destination=vault|ship` (CA #8, las dos cubetas): ausente ⇒ ambas. `?date=` se conserva.
+ * Envelope `{ data }`, sin paginar. Orden normativo: `requestedAt` **asc** (CA #9).
+ *
+ * ⚠️ **Medido por el arquitecto (2026-09-22, §M4-PREP):** bajo el modelo actual la cubeta
+ * `vault` viene **VACÍA** — todo `ShipmentRequest` es físicamente un envío y las órdenes
+ * `fulfillmentMode='vault'` **no generan** `ShipmentRequest`. No es un defecto del cliente ni del
+ * mock: es el estado del modelo. Los fixtures lo reflejan (⛔ ninguna fila `vault` inventada).
  */
-export async function getAdminPickingList(date?: string): Promise<PickingListEntryDTO[]> {
+export async function getAdminPreparationQueue(
+  filters: { destination?: PreparationDestination; date?: string } = {},
+): Promise<PreparationOrderDTO[]> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PickingListEntryDTO[] }>('/admin/shipments/picking-list', {
-      query: { date },
+    const res = await apiRequest<{ data: PreparationOrderDTO[] }>('/admin/shipments/picking-list', {
+      query: { date: filters.date, destination: filters.destination },
     });
     return res.data;
   }
-  return delay([...fx.mockPickingList]);
+  // El mock hace de SERVIDOR: filtra la cubeta y devuelve el orden normativo (asc por requestedAt).
+  const data = fx.mockPreparationQueue
+    .filter((o) => !filters.destination || o.destination === filters.destination)
+    .slice()
+    .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
+  return delay(data);
 }
 
 /**
@@ -1488,7 +1508,7 @@ export const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
  * Cambio de estado MANUAL de un envío (contrato §M4 · PATCH /admin/shipments/:id/status,
  * `vault_operator+`). Body `{ to }`. El backend solo acepta una transición LEGAL de la tabla
  * TRANSITIONS (una ilegal → `409 CONFLICT`). Al éxito, M4 invalida `['admin-shipments']` y
- * `['admin-picking-list']`.
+ * `['admin-preparation-queue']`.
  */
 export async function updateAdminShipmentStatus(
   id: string,

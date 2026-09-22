@@ -1480,7 +1480,6 @@
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
-      "pickingList": "Lista de picking (por ubicación)",
       "tracking": {
         "capture": "Capturar guía",
         "title": "Captura de guía",
@@ -1503,13 +1502,6 @@
       "customer": "Cliente",
       "postalCode": "CP",
       "phone": "Tel",
-      "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
-      "pickingEmpty": "Nada que preparar por ahora.",
-      "picking": {
-        "location": "Ubicación",
-        "folio": "Folio",
-        "shipment": "Envío"
-      },
       "statusActions": {
         "enviado": "Marcar enviado",
         "entregado": "Marcar entregado",
@@ -1518,6 +1510,40 @@
         "cancelTitle": "Cancelar envío",
         "cancelConfirm": "Cancelar envío",
         "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
+      },
+      "prep": {
+        "title": "Pedidos a preparar",
+        "hint": "Pedidos ya cobrados, listos para armar. Se atiende primero el más viejo.",
+        "filterLabel": "Cubeta",
+        "filterAll": "Ambas",
+        "filterShip": "Solo envío",
+        "filterVault": "Solo bóveda",
+        "destination": {
+          "ship": "Para enviar",
+          "vault": "Para bóveda"
+        },
+        "withdrawal": "Retiro de bóveda",
+        "shipmentRef": "Envío",
+        "requestedAt": "Solicitado",
+        "lastNameUnknown": "Apellido no identificado",
+        "unassigned": "Sin ubicar",
+        "folio": "Folio",
+        "location": "Ubicación",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# carta} other {# cartas}}",
+        "orderCount": "{count, plural, one {# pedido} other {# pedidos}}",
+        "empty": {
+          "title": "Nada que preparar por ahora.",
+          "body": "Cuando entre un pedido cobrado aparecerá aquí, con el más viejo arriba."
+        },
+        "emptyShip": {
+          "title": "Nada que enviar por ahora.",
+          "body": "No hay pedidos cobrados esperando envío. Los nuevos aparecen aquí solos."
+        },
+        "emptyVault": {
+          "title": "Nada que preparar para bóveda.",
+          "body": "Las compras que el cliente deja en su bóveda no pasan por esta cola: al liquidarse el pago la carta ya queda a su nombre sin salir de la tienda. Esta cubeta empezará a llenarse cuando el sistema lleve el registro de colocación en el archivero. No hay nada pendiente ni nada roto."
+        }
       }
     },
     "m5": {

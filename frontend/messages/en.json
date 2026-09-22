@@ -1480,7 +1480,6 @@
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
-      "pickingList": "Picking list (by location)",
       "tracking": {
         "capture": "Capture tracking",
         "title": "Tracking capture",
@@ -1503,13 +1502,6 @@
       "customer": "Customer",
       "postalCode": "ZIP",
       "phone": "Phone",
-      "pickingHint": "Shipments in picking, sorted by vault location.",
-      "pickingEmpty": "Nothing to pick right now.",
-      "picking": {
-        "location": "Location",
-        "folio": "Folio",
-        "shipment": "Shipment"
-      },
       "statusActions": {
         "enviado": "Mark shipped",
         "entregado": "Mark delivered",
@@ -1518,6 +1510,40 @@
         "cancelTitle": "Cancel shipment",
         "cancelConfirm": "Cancel shipment",
         "cancelBody": "Cancel shipment {id}? This action cannot be undone."
+      },
+      "prep": {
+        "title": "Orders to prepare",
+        "hint": "Paid orders, ready to pull. Oldest goes first.",
+        "filterLabel": "Bucket",
+        "filterAll": "Both",
+        "filterShip": "Shipping only",
+        "filterVault": "Vault only",
+        "destination": {
+          "ship": "To ship",
+          "vault": "To vault"
+        },
+        "withdrawal": "Vault withdrawal",
+        "shipmentRef": "Shipment",
+        "requestedAt": "Requested",
+        "lastNameUnknown": "Last name not identified",
+        "unassigned": "No location yet",
+        "folio": "Folio",
+        "location": "Location",
+        "set": "Set",
+        "itemCount": "{count, plural, one {# card} other {# cards}}",
+        "orderCount": "{count, plural, one {# order} other {# orders}}",
+        "empty": {
+          "title": "Nothing to prepare right now.",
+          "body": "Paid orders show up here as they come in, oldest first."
+        },
+        "emptyShip": {
+          "title": "Nothing to ship right now.",
+          "body": "No paid orders are waiting to be shipped. New ones appear here on their own."
+        },
+        "emptyVault": {
+          "title": "Nothing to prepare for the vault.",
+          "body": "Purchases a customer leaves in their vault do not go through this queue: once the payment settles the card is already theirs without leaving the store. This bucket will start filling once the system tracks filing into the binder. Nothing is pending and nothing is broken."
+        }
       }
     },
     "m5": {
@@ -3510,7 +3536,7 @@
     },
     "shipment": {
       "solicitado": "Requested",
-      "picking": "Picking",
+      "picking": "In preparation",
       "guia": "Label created",
       "enviado": "In transit",
       "entregado": "Delivered",
