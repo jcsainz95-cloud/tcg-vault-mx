@@ -4,6 +4,167 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §63 · **M4 deja de ser una lista de piezas y pasa a ser «Pedidos a preparar»** — tarjeta por PEDIDO y dos cubetas (2026-09-22, contrato `§M4-PREP` v1.78, rama `claude/m4-pedidos-preparar`, commit `5026692`)
+
+> El dueño aprobó el rediseño el 2026-09-15 y el arquitecto lo aterrizó en el contrato vivo
+> (`API_CONTRACT.md §M4-PREP`). Esta es la **rebanada de SOLO LECTURA**: cambia **qué ve** el
+> operador, y **no añade ni un verbo de escritura**.
+
+### 1. Lo que cambió, en una frase
+
+La segunda sección de `/admin/m4` **era** una lista PLANA de piezas ordenada por ubicación
+(`PickingListEntryDTO`: envío + folio + `location` como string). **Hoy es una hoja de trabajo
+agrupada: una tarjeta = UN pedido**, con sus cartas dentro. **La ruta del API no se movió** —sigue
+siendo `GET /admin/shipments/picking-list`—: el renombrado «picking → Pedidos a preparar» es **de
+cara al operador**, y la decisión de conservar la ruta es del arquitecto (menor radio de estallido:
+no toca guard ni ruteo).
+
+### 2. Estado VIVO de M4 en el frontend (lo que hay que leer, no lo que hubo)
+
+| Pieza | Dónde | Qué es hoy |
+|---|---|---|
+| Tipos del contrato | `src/types/contract.ts` | `PreparationDestination`, `PreparationOrderDTO`, `PreparationItemDTO`, `LocationView` — **copiados 1:1 de §M4-PREP**. ⛔ `PickingListEntryDTO` **retirado** |
+| Cliente del API | `src/lib/api.ts` | `getAdminPreparationQueue({ destination?, date? })` → `GET /admin/shipments/picking-list`. ⛔ `getAdminPickingList` **retirado** |
+| Pantalla | `src/app/[locale]/(admin)/admin/m4/PreparationQueue.tsx` (**nuevo**) | tarjeta por pedido; `M4View.tsx` solo la monta |
+| Clave de query | `M4View.tsx` / `PreparationQueue.tsx` | `['admin-preparation-queue', bucket]`. ⛔ `['admin-picking-list']` **retirado** (las mutaciones de guía y de estado invalidan la nueva) |
+| Fixtures | `src/lib/mock/fixtures.ts` | `mockPreparationQueue` (+ `shp-7004` en `mockAdminShipments`). ⛔ `mockPickingList` **retirado** |
+| Antigüedad | `src/lib/format.ts` | `formatAge(iso, locale, now?)` — **trunca, no redondea**; escalona segundos→minutos→horas→días |
+| i18n | `messages/{es,en}.json` | **`admin.m4.prep.*`**. ⛔ `admin.m4.{pickingHint,pickingEmpty,picking.*}` **retiradas** |
+| Pruebas | `m4/M4View.test.tsx` (**28** casos en total, **16** en el `describe` de «Pedidos a preparar») · `lib/format.test.ts` (**+4**, `formatAge`) | agrupación, retiro sin folio, `lastName` null, miniatura null, ubicación en ambos `kind`, dirección con calle, dos cubetas, cubeta bóveda vacía, orden asc |
+
+**Claves i18n nuevas (paridad ES/EN verde):** `admin.m4.prep.{title,hint,filterLabel,filterAll,
+filterShip,filterVault,destination.{ship,vault},withdrawal,shipmentRef,requestedAt,lastNameUnknown,
+unassigned,folio,location,set,itemCount,orderCount,empty.{title,body},emptyShip.{title,body},
+emptyVault.{title,body}}`. Además, EN `status.shipment.picking` pasa de «Picking» a
+«In preparation» (ES ya decía «En preparación»): era la palabra retirada apareciendo en esta misma
+pantalla. ⛔ **No se tocó `status.inventory.picking`** — vive en M1, que es de otro stream.
+
+### 3. Los sitios donde un dato ausente NO puede leerse como un error
+
+El DTO trae varios campos nullable, y **cada uno significa algo distinto** de «falta un dato». ⛔ La
+tabla no lleva cuenta a propósito: un numeral aquí es exactamente la familia de afirmaciones
+caducadas que este documento ya tuvo que barrer dos veces.
+
+| Campo | Qué significa `null` | Qué pinta la pantalla |
+|---|---|---|
+| `orderNumber` | es un **RETIRO DE BÓVEDA** (no tiene orden) | **«Retiro de bóveda»**, no un hueco. `shipmentId` es la referencia que **siempre** está |
+| `customer.lastName` | el apellido es **derivado** del nombre y no se pudo derivar (§6.A: no hay apellido estructurado en el modelo) | «Apellido no identificado» + el nombre completo. ⛔ jamás el literal `null` |
+| `shipTo.recipientName` | snapshot de 8 campos **anterior a v1.67** | la línea **no se pinta**; el bloque de cliente ya nombra a la persona |
+| `shipTo.line2` / `neighborhood` | la dirección no los tiene | se **filtran** antes de unir: ⛔ nada de comas colgando |
+| `orderId` | lo mismo que `orderNumber`: es un retiro | no se pinta; la traza es `shipmentId` |
+| `card.setName` | el catálogo no tiene set | «—» (§32.4): el set es dato de trabajo, si falta **se ve que falta** |
+| `card.imageSmallUrl` | el catálogo no tiene miniatura | el **pozo de papel** de `CardImage` (que ya no pulsa sin `src`) |
+| `currentLocation.kind='unassigned'` | la pieza no está ubicada | **«Sin ubicar»**. ⛔ **NUNCA** el crudo `UNASSIGNED` (CA #11) |
+
+⚠️ Y un caso **defensivo** que no es nullable sino opcional: `LocationView` declara `label?` **incluso con
+`kind:'assigned'`**. Sin etiqueta no hay ubicación que caminar ⇒ se trata **igual que `unassigned`**
+(copy legible y al final del orden), en vez de colarse arriba de la lista con una cadena vacía.
+
+### 4. Tres decisiones que el contrato no cerraba, dichas para que sean discutibles
+
+1. **⭐ El orden se repite en la vista, además del back.** El contrato dice que el endpoint ordena
+   `requestedAt` asc (CA #9) y las piezas por ubicación; `sortPreparationOrders`/`sortPreparationItems`
+   lo vuelven a garantizar en pantalla. **No es «dos fuentes para un hecho»**: el orden de la cola es
+   un **criterio de aceptación de producto**, y anclarlo donde el operador lo ve es lo que lo hace
+   verificable — si el servidor cambiara de orden, la pantalla seguiría cumpliendo en vez de heredar
+   el defecto en silencio. **Coste de retirada si el techlead prefiere lo contrario:** dos funciones,
+   y la prueba de CA #9 pasaría a medir el mock en vez de la vista. *(Enrutado al techlead; aquí no se
+   deshace por adelantado.)*
+2. **⛔ La condición NO se recompone en el front.** `card.conditionLabel` viene ya compuesta del back
+   (graded → `"PSA 9"` | raw → `"NM"` | sealed → `"Mint"`) y se pinta **tal cual**. Repetir esa
+   precedencia aquí sería la segunda fuente de verdad que §M4-PREP vino a evitar.
+3. **⛔ `PreparationDestination` NO es un enum de dominio.** Es un tipo de DTO derivado de
+   `Order.fulfillmentMode`, y sus valores (`ship`/`vault`) **no coinciden** con los de
+   `FulfillmentMode` (`direct_ship`/`vault`). **No entra en ningún control de paridad de enums** — lo
+   dice el contrato y aquí se repite porque es justo el tipo de cosa que alguien «arregla» metiéndolo
+   en la tabla equivocada.
+
+### 5. ⚠️⚠️ La cubeta de BÓVEDA está vacía hoy, y el copy lo dice sin alarmar
+
+**Hecho medido por el arquitecto (§M4-PREP, 2026-09-22):** todo `ShipmentRequest` es físicamente un
+envío a domicilio —retiro de bóveda **o** envío directo—, y las órdenes con `fulfillmentMode='vault'`
+**no generan `ShipmentRequest`**. ⇒ **la cubeta `?destination=vault` devuelve vacío** hasta que una
+versión posterior la alimente (y esa versión probablemente pide schema).
+
+Consecuencias que se tomaron aquí, y el porqué de cada una:
+
+- **El vacío de esa cubeta tiene copy PROPIO** (`prep.emptyVault`), distinto del genérico: explica que
+  esas compras **no pasan por esta cola** y cierra con *«No hay nada pendiente ni nada roto»*. Un
+  «nada pendiente» genérico deja al operador sin saber si la cola está al día o si la pantalla se
+  rompió, **y no es ninguna de las dos**.
+- **⛔ Los fixtures NO traen ninguna fila `destination:'vault'`.** El backend **no puede producirla**
+  hoy; inventarla en el mock enseñaría a leer verde una cubeta vacía — exactamente el modo de fallo
+  que este proyecto ya conoce (un mock que hace de servidor tiene que poder equivocarse igual que el
+  servidor, no mejor).
+
+### 6. Verificación (números reales, medidos en este pase)
+
+- `npx tsc --noEmit` **exit 0** · `npm run lint` **0 warnings / 0 errores** · `npm run build` **OK**.
+- `npx vitest run`: **171/171 ficheros · 1949/1949 pruebas**. Paridad i18n (`i18n-parity.test.ts`):
+  **43/43**. `M4View.test.tsx`: **28/28**.
+- ⚠️ `node_modules` **no estaba instalado** en el contenedor: hubo que correr `npm ci` (561 paquetes)
+  **antes** de medir nada. Quien re-mida en limpio necesita ese paso.
+- **Canarios de mutación sobre una COPIA del árbol** (nunca sobre el vivo), **10 mutantes en
+  `PreparationQueue.tsx` → 10/10 muertos**: no ordenar la cola, pintar el código crudo de ubicación,
+  volcar `lastName` como `"null"`, no filtrar los nullable de la dirección, dejar el retiro sin
+  nombrarlo, perder `?destination`, caer en el vacío genérico en la cubeta bóveda, inventar
+  miniatura, sustituir `conditionLabel`, e invertir el orden de las piezas sin ubicar.
+  > ⚠️ **El décimo sobrevivió en su PRIMERA forma, y se dice.** Invertir **una** rama del comparador
+  > de ubicación no lo mató: con dos elementos V8 llama al comparador una sola vez y la **rama gemela
+  > sin mutar** tapaba el efecto — mutante **enmascarado**, no hueco de la prueba. Al invertir la
+  > regla **entera**, muere (`1 failed | 27 passed`). *Un «10/10» sin esta nota sería una proporción
+  > mejor que la medida.*
+
+### 7. Lo que NO se construyó (y no es olvido)
+
+Fuera de esta rebanada por el propio §M4-PREP: **palomear/des-palomear** una carta, **«pedido
+preparado» + firma** (pide columnas nuevas ⇒ schema), **sugerencia de ubicación de bóveda** (depende
+de que la cubeta `vault` tenga datos) y el 💰 **reembolso parcial por carta faltante** (toca dinero ⇒
+exige los **tres veredictos** antes de tocar código).
+
+### 8. Lo que NO medí, dicho aquí para que nadie lo lea como verde
+
+- **Playwright/E2E**: no se corrió (pide el stack levantado; es de QA). Sí se midió que **ningún**
+  spec de `frontend/e2e/` referencia la lista de picking ni sus textos.
+- **Contra el backend real**: todo se midió con `NEXT_PUBLIC_USE_MOCKS=true`. Que el backend sirva la
+  forma idéntica **no lo medí yo**; lo cierra un smoke de QA con el stack arriba.
+- **Contraste WCAG (§10)** del par `text-accent` sobre `bg-surface` en «Sin ubicar»: reutiliza el par
+  ya aprobado en M4 («SIN DESTINATARIO»), pero **no se re-verificó con instrumento**.
+
+### 9. Solicitudes / enrutado
+
+- **ux-ui:** cuando esta pantalla se construyó, `DESIGN_SYSTEM.md` **no tenía sección para ella**
+  (medido al empezar el pase, **2026-09-22**: `grep -c -i 'preparar\|archivero'` → **0**, última
+  sección **§34**). ⚠️ **Al cerrar el pase esa afirmación ya estaba caducando**: una segunda medición
+  minutos después dio **3** coincidencias de «preparar» y **§34 seguía siendo la última sección** ⇒
+  **ux-ui estaba escribiendo la suya en ese mismo momento**. Se dice así, con las dos mediciones y su
+  hora, en vez de dejar escrito «no tiene sección» — que es la clase de frase que manda a alguien a
+  rehacer lo que ya está hecho. ⛔ **Su documento manda sobre esta pantalla:** si su sección pide otra
+  jerarquía visual, **se mueve sin tocar datos** (el DTO, el trato de los nulos y el orden no dependen
+  del aspecto). Mientras tanto se diseñó con los tokens y componentes existentes (§4, §6/§7,
+  §8.1/§8.2, §9.2/§9.3) reutilizando `Badge`, `CardImage`, `FinishMark`, `EmptyState`, `QueryState`
+  y `Skeleton`. *(La línea 2211 de `DESIGN_SYSTEM.md` —«M4 … picking-list por ubicación»— también
+  quedó caducada; ⛔ no la toco yo: ese documento es de ux-ui.)*
+- **arquitecto (no bloquea):** `customer.fullName` está declarado `string` no nulo, pero su fuente
+  para un invitado es `addressSnapshot.recipientName`, que **sí puede faltar** en snapshots de 8
+  campos anteriores a v1.67. La pantalla degrada a «—» (§32.4); el contrato quizá quiera declararlo
+  `string | null`.
+- **dueño:** el `<h1>` de la página **sigue diciendo** «M4 · Retiros / envíos». Se renombró la
+  **sección**, que es la que se llamaba picking. Si el renombrado era de la pantalla entera, es una
+  sola clave (`admin.m4.title`) y la decisión no es del frontend.
+
+### 10. Nota de método — por qué las entradas viejas se marcaron en vez de reescribirse
+
+Siete líneas de entradas **fechadas** de este documento (2026-08-14 y 2026-08-17) describían la M4 de
+entonces: `getAdminPickingList`, `PickingListEntryDTO`, `['admin-picking-list']`, «lista de picking
+ordenada por ubicación» y la lista de claves `admin.m4.picking*`. **Eran ciertas el día que se
+escribieron.** Reescribirlas para que digan `prep.*` habría hecho que el registro mintiera sobre el
+pasado **y** seguiría sin describir el presente. Se aplicó la doctrina que este mismo documento ya
+fijó (§«la prosa histórica se conserva, marcada `SUPERSEDED` y en pasado»): **cada una lleva ahora un
+marcador de una línea que apunta a §63**, y el estado vivo se lee **aquí**, en §2.
+
+---
+
 ## §62 · **El respaldo se publica y el smoke deja de medir fixtures** — `fallbackRate` (v1.63.4) + `I-QA-6` (2026-09-09, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Dos cosas, y las dos vienen de fuera: el arquitecto **concedió** el campo que §61.6 pidió, y QA
@@ -3457,6 +3618,9 @@ Gates verdes: **lint** (0), **tsc** (0), **test 285** (37 files; +18 nuevos), **
   Transiciones hacia adelante = botón directo con banner de éxito; `cancelado` = **modal de
   confirmación** (destructivo). Al éxito invalida `['admin-shipments']` + `['admin-picking-list']`
   (mismo patrón que la mutación de guía). Error real vía `useErrorMessage`.
+  > ⚠️ **SUPERADO en la clave de query — ver §63.** La segunda clave **se llamó**
+  > `['admin-picking-list']` hasta el 2026-09-22; hoy es `['admin-preparation-queue']`. El resto del
+  > bullet (qué transiciones se ofrecen y cuáles no) **sigue vigente**.
 
 ### F5 · Responder ajuste de venta (`BuylistView.tsx` + `api.ts`)
 - `api.ts`: `respondSellRequest(id, decision)` → `POST /buylist/requests/:id/respond` body
@@ -3921,6 +4085,9 @@ paridad i18n) · `next build` ✓.
 - **M4:** `getAdminShipments({ status?, page?, pageSize? })` → `GET /admin/shipments` (cola de
   CLIENTES; antes la vista usaba `getShipments()` = envíos del propio admin) y
   `getAdminPickingList(date?)` → `GET /admin/shipments/picking-list`.
+  > ⚠️ **SUPERADO — ver §63.** `getAdminPickingList` **se llamó así** hasta el 2026-09-22 y **ya no
+  > existe**: hoy es `getAdminPreparationQueue({ destination?, date? })`. **La RUTA no cambió**
+  > (`/admin/shipments/picking-list`): lo que cambió es el DTO que proyecta.
 - **M2:** `overridePrice` gana `finish?` (la cola de pendientes es POR ACABADO, M-19: sin `finish`
   el backend defaultea `normal` y el pendiente real quedaba abierto).
 
@@ -3930,6 +4097,10 @@ paridad i18n) · `next build` ✓.
 `requestedAt`/`userId`; items sin carta/folio en el listado), `PickingListEntryDTO`,
 `RefundOrderResponse`, `RevealClabeResponse`, `BuylistItemDecisionInput`,
 `ConvertToInventoryResponse`, `ResolveDisputeInput`.
+
+> ⚠️ **SUPERADO en un tipo — ver §63.** `PickingListEntryDTO` **existió** entre esta fecha y el
+> 2026-09-22; hoy **está retirado** y en su lugar viven `PreparationOrderDTO`, `PreparationItemDTO`,
+> `LocationView` y `PreparationDestination` (contrato §M4-PREP). Los demás tipos de la lista siguen.
 
 ### Por pantalla
 - **M5 (`M5View`)** — end-to-end: Recibir (visible en `cotizada`), Verificar (en `recibida`),
@@ -3950,6 +4121,10 @@ paridad i18n) · `next build` ✓.
   la "lista de picking" dejó de derivarse del inventario local y consume el endpoint real
   `GET /admin/shipments/picking-list` (ubicación + folio + envío). Captura de guía igual, con banner
   de éxito e invalidación de ambas queries.
+  > ⚠️ **SUPERADO en su segunda mitad — ver §63.** La segunda sección **fue** una lista PLANA de
+  > piezas (ubicación + folio + envío) hasta el 2026-09-22. Hoy es **«Pedidos a preparar»**: una
+  > **tarjeta por PEDIDO**, contra la **misma ruta**. La cola de envíos y la captura de guía que
+  > describe la primera mitad **no cambiaron**.
 - **M1 (`M1View`)** — (a) **paginación real** del picker (`useInfiniteQuery` con `page/pageSize=20`
   + "Cargar más" + contador "X de Y") — raíz del "solo veo ~20 cartas"; (b) resultados y carta
   seleccionada con **miniatura + #número + rareza + badges de acabados**; (c) **P-4**: el alta usa el
@@ -3969,6 +4144,8 @@ cuando el `code` no tiene copy i18n, en vez del genérico. Códigos nuevos con c
 Nuevas: `admin.m1.{resultCount,loadMore,finishFixedSingle,createSuccess}` ·
 `admin.m2.pending.finish` · `admin.m3.{refundDone,refundReasonLabel,refundReasonHint}` ·
 `admin.m4.{queueTitle,statusFilter,statusAll,queueEmpty,itemCount,pickingHint,pickingEmpty,picking.*,tracking.saved}` ·
+<!-- ⚠️ SUPERADO — ver §63: de esa lista, `pickingHint`, `pickingEmpty` y `picking.*` se RETIRARON el
+     2026-09-22 y las sustituye `admin.m4.prep.*`. El resto de las claves de la línea sigue vivo. -->
 `admin.m5.{approvedLabel,convertNeedsApproval,revealClabe,hideClabe,clabeLabel,clabeNotice,adjustTitle,adjustPriceLabel,adjustConfirm,adjustHint,paySpeiTitle,speiReferenceLabel,paySpeiConfirm,feedback.*}` ·
 `admin.m8.{resolveConfirm,repurchaseQuestion,rejectQuestion,noteLabel,noteHint,resolvedRepurchase,resolvedReject}` ·
 `error.{APPROVED_PRICE_CAP_EXCEEDED,ITEM_NOT_APPROVED,CLABE_UNAVAILABLE}`.
@@ -3977,6 +4154,8 @@ Nuevas: `admin.m1.{resultCount,loadMore,finishFixedSingle,createSuccess}` ·
 `M5View.test.tsx` (9: decisión approve/adjust/reject con tope AML, reveal/ocultar CLABE, pago SPEI con
 referencia + error real), `M3View.test.tsx` (3), `M8View.test.tsx` (4), `M4View.test.tsx` (4: cola
 admin —y que NO llama `getShipments`—, filtro `?status=`, picking real, captura de guía),
+<!-- ⚠️ SUPERADO — ver §63: el tercer caso («picking real») se reescribió el 2026-09-22 y hoy
+     `M4View.test.tsx` trae 28 casos, 16 de ellos en el describe de «Pedidos a preparar». -->
 `M1View.test.tsx` (5: metadatos del picker, paginación page=2, acabado único fijo, folio en éxito,
 error real), `M2View.test.tsx` (+1: override reenvía `finish`).
 
@@ -5541,6 +5720,8 @@ Variables (raíz `.env.example`, `NEXT_PUBLIC_*`):
 - **M3 Órdenes**: tabla + **reembolso** destructivo (solo super_admin; operador ve banner
   `MONEY_OUT_FORBIDDEN`).
 - **M4 Retiros**: cola de envíos con PipelineStepper + **lista de picking ordenada por ubicación**.
+  (⚠️ **SUPERADO — ver §63**: esa segunda pieza **fue** una lista plana por ubicación hasta el
+  2026-09-22; hoy es **«Pedidos a preparar»**, una tarjeta por pedido con dos cubetas.)
 - **M5 Buylist**: PipelineStepper, **cherry-pick por item** (aprobar/ajustar/rechazar/convertir),
   **pago SPEI** solo super_admin.
 - **M8 Disputas**: **disputa por correo** (v1.2.1: `DisputeEvidenceContact` con el `evidenceContact` del
