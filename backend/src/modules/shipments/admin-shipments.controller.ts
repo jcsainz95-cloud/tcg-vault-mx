@@ -35,9 +35,16 @@ export class AdminShipmentsController {
     );
   }
 
+  /**
+   * «Pedidos a preparar» (API_CONTRACT §M4-PREP, v1.78). **Misma ruta, mismo guard**: lo único que
+   * cambió es el DTO proyectado (lista plana de piezas → hoja de trabajo agrupada por pedido).
+   *
+   * `?date=` se conserva tal cual. `?destination=vault|ship` es nuevo y OPCIONAL: ausente ⇒ ambas
+   * cubetas; fuera de dominio ⇒ `400` (§0-Q, lo impone `parseEnumFilter` en el servicio).
+   */
   @Get('picking-list')
-  pickingList(@Query('date') date?: string) {
-    return this.shipments.pickingList(date);
+  pickingList(@Query('date') date?: string, @Query('destination') destination?: string) {
+    return this.shipments.pickingList(date, destination);
   }
 
   @Get(':id')

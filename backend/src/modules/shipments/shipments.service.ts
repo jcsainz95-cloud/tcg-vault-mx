@@ -3,13 +3,16 @@ import {
   Address,
   Card,
   CardSet,
+  Finish,
   FulfillmentMode,
   InventoryItem,
   MovementReason,
   Prisma,
+  SealedCondition,
   ShipmentItem,
   ShipmentRequest,
   ShipmentStatus,
+  VaultLocation,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -44,6 +47,99 @@ const SHIPMENT_STATUS_FILTER_VALUES: readonly ShipmentStatus[] = Object.values(S
  */
 export const SHIPMENT_KIND_VALUES = ['guest_direct_ship', 'vault_withdrawal'] as const;
 export type ShipmentKind = (typeof SHIPMENT_KIND_VALUES)[number];
+
+/**
+ * §M4-PREP — dominio de `?destination=` de `GET /admin/shipments/picking-list`.
+ *
+ * ⛔ **NO es un enum de dominio.** `PreparationDestination` es un **tipo de DTO**: se DERIVA de
+ * `Order.fulfillmentMode` y sus valores (`vault`/`ship`) **no coinciden** con los del enum de Prisma
+ * (`vault`/`direct_ship`), así que ⛔ no se declara en el bloque «Enums (fuente de verdad)» ni entra
+ * en la paridad de enums (`enum-values-parity.spec.ts`). El mapeo es explícito y vive en
+ * `destinationOf`, abajo.
+ *
+ * El ORDEN de los tokens es normativo: el contrato fija `details.allowed = ['vault','ship']` para el
+ * `400` de §0-Q, y ese array sale literalmente de aquí (`parseEnumFilter`).
+ */
+export const PREPARATION_DESTINATION_VALUES = ['vault', 'ship'] as const;
+export type PreparationDestination = (typeof PREPARATION_DESTINATION_VALUES)[number];
+
+/**
+ * §M4-PREP / CA #11 — el código `"UNASSIGNED"` **deja de viajar por el cable**. El back manda el
+ * ESTADO (`kind`) y, cuando lo hay, el DATO (`label`), para que el front no compare strings.
+ */
+export interface LocationView {
+  kind: 'assigned' | 'unassigned';
+  label?: string;
+}
+
+/** §M4-PREP — una CARTA dentro de un pedido a preparar. */
+export interface PreparationItemDTO {
+  shipmentItemId: string;
+  inventoryItemId: string;
+  folio: string;
+  /** SIEMPRE 1: un `ShipmentItem` **es** una pieza física y no hay columna de cantidad. */
+  quantity: number;
+  card: {
+    name: string;
+    setName: string | null;
+    finish: Finish;
+    /** Compuesta EN EL BACK por precedencia (ver `conditionLabelOf`). */
+    conditionLabel: string;
+    imageSmallUrl: string | null;
+  };
+  currentLocation: LocationView;
+}
+
+/** §M4-PREP — un elemento = UN envío/pedido a preparar (⛔ NO una pieza). */
+export interface PreparationOrderDTO {
+  shipmentId: string;
+  orderId: string | null;
+  orderNumber: string | null;
+  destination: PreparationDestination;
+  requestedAt: string;
+  customer: { lastName: string | null; fullName: string };
+  shipTo?: {
+    recipientName: string | null;
+    line1: string;
+    line2?: string | null;
+    neighborhood?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone: string;
+  };
+  items: PreparationItemDTO[];
+}
+
+/**
+ * §M4-PREP — etiqueta del SELLADO. `Record<SealedCondition, string>` y no un `switch` con `default`:
+ * un valor nuevo en el enum **rompe la compilación aquí**, en el punto exacto donde falta decidir
+ * cómo se le habla al operador. (⛔ No es una lista literal de enum: las llaves son del `Record`
+ * tipado, no un array a mano — §4.37.)
+ */
+const SEALED_CONDITION_LABELS: Record<SealedCondition, string> = {
+  mint: 'Mint',
+  minor_box_damage: 'Minor box damage',
+};
+
+/** El join a `Order` que §M4-PREP necesita: el folio legible y el discriminador de destino. */
+type PreparationOrderJoin = { orderNumber: string | null; fulfillmentMode: FulfillmentMode } | null;
+
+/** `ShipmentItem` con la pieza, su carta (+set) y su ubicación resueltas (§M4-PREP). */
+type PreparationShipmentItem = ShipmentItem & {
+  inventoryItem: InventoryItem & {
+    card: Card & { set: CardSet | null };
+    location: VaultLocation | null;
+  };
+};
+
+/** La fila de `ShipmentRequest` tal como la trae el `include` de `pickingList`. */
+type PreparationShipmentRow = ShipmentRequest & {
+  items: PreparationShipmentItem[];
+  order?: PreparationOrderJoin;
+  user?: { name: string } | null;
+};
 
 /** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
 type EnrichedShipmentItem = ShipmentItem & {
@@ -535,12 +631,48 @@ export class ShipmentsService {
   }
 
   /**
-   * Lista de picking ordenada por ubicación (API_CONTRACT §M4).
-   * Fix QA #3: SOLO envíos ya liquidados (status `picking`). Un envío `solicitado`
-   * aún no está pagado (solo avanza a `picking` tras `payment_intent.succeeded`), así
-   * que NO debe aparecer en la lista de picking (evita preparar retiros no cobrados).
+   * ⭐⭐ **«Pedidos a preparar» — la cola del operador (API_CONTRACT §M4-PREP, v1.78).**
+   *
+   * **Qué cambió y qué NO.** La ruta (`GET /admin/shipments/picking-list`) y su guard
+   * (`@Roles(vault_operator, super_admin)`) son los de siempre; lo único que cambia es el **DTO
+   * proyectado**: deja de ser una lista PLANA de piezas ordenada por ubicación
+   * (`{shipmentId, inventoryItemId, folio, location}`) y pasa a ser una **hoja de trabajo AGRUPADA
+   * por pedido** (`PreparationOrderDTO[]`, **un elemento = UN envío/pedido**). Es el cambio de menor
+   * radio de estallido: no toca ruteo, ni permisos, ni la máquina de estados.
+   *
+   * ⛔ **CERO schema.** Todo lo que despliega esta cola es proyección de columnas que YA existen
+   * (`Card`+`CardSet`, `InventoryItem`, `VaultLocation`, `Order.fulfillmentMode`/`orderNumber`,
+   * `ShipmentRequest.addressSnapshot`, `User.name`). Ni una migración, ni una columna, ni una cola.
+   *
+   * **Fix QA #3, intacto:** SOLO envíos ya liquidados (`status='picking'`). Un envío `solicitado` no
+   * está pagado (solo avanza a `picking` tras `payment_intent.succeeded`) y preparar un retiro no
+   * cobrado es justo lo que ese filtro existe para impedir.
+   *
+   * **Orden (CA #9):** pedidos por `requestedAt` **asc** — lo más viejo primero, lo pone el motor.
+   * Las cartas DENTRO del pedido van por ubicación (asignadas ordenadas, `unassigned` al final), que
+   * conserva el beneficio de «caminar por ubicación» que daba la lista plana de hoy.
+   *
+   * ### ⚠️ La cubeta `?destination=vault` devuelve VACÍO hoy, y es correcto que lo haga
+   * Medido (arquitecto, 2026-09-22, y re-medido aquí): **todo** `ShipmentRequest` es físicamente un
+   * ENVÍO a domicilio — un retiro de bóveda (`orderId == null`) o un envío directo (`orderId != null`
+   * con `fulfillmentMode='direct_ship'`) ⇒ **toda fila de esta cola es `destination='ship'`**. Las
+   * órdenes `fulfillmentMode='vault'` **no generan `ShipmentRequest`**: al liquidar, sus piezas pasan
+   * `reserved → in_custody, settled` (`payments.service.ts`) y se quedan sin cola de colocación. El
+   * filtro queda **declarado y listo**; alimentarlo exige decidir qué órdenes vault están pendientes
+   * de colocar y cómo se marcan como colocadas — y eso pide schema. ⛔ Aquí NO se propone: se reporta.
+   *
+   * @param date filtro de día sobre `requestedAt` (se conserva tal cual de la versión anterior).
+   * @param destination §0-Q (misma doctrina que `?kind=`): ausente/vacío ⇒ ambas cubetas; token del
+   *   dominio ⇒ filtra; cualquier otra cosa ⇒ `400 VALIDATION_ERROR` con
+   *   `details:{field:'destination', allowed:['vault','ship']}` **antes de tocar Prisma**.
    */
-  async pickingList(date?: string) {
+  async pickingList(date?: string, destination?: string) {
+    // §0-Q PRIMERO: un token fuera de dominio muere aquí, antes de cualquier consulta.
+    const destinationFilter = parseEnumFilter(
+      'destination',
+      destination,
+      PREPARATION_DESTINATION_VALUES,
+    );
     const where: Prisma.ShipmentRequestWhereInput = { status: 'picking' };
     if (date) {
       const d = new Date(date);
@@ -549,18 +681,187 @@ export class ShipmentsService {
     }
     const shipments = await this.prisma.shipmentRequest.findMany({
       where,
-      include: { items: { include: { inventoryItem: { include: { location: true } } } } },
+      // CA #9 — lo más viejo primero. Lo ordena el motor, no el proceso.
+      orderBy: { requestedAt: 'asc' },
+      include: {
+        items: {
+          include: {
+            inventoryItem: { include: { card: { include: { set: true } }, location: true } },
+          },
+        },
+        order: { select: { orderNumber: true, fulfillmentMode: true } },
+        user: { select: { name: true } },
+      },
     });
-    const rows = shipments.flatMap((s) =>
-      s.items.map((si) => ({
-        shipmentId: s.id,
-        inventoryItemId: si.inventoryItemId,
-        folio: si.inventoryItem.folio,
-        location: si.inventoryItem.location?.label ?? 'UNASSIGNED',
-      })),
-    );
-    rows.sort((a, b) => a.location.localeCompare(b.location));
-    return { data: rows };
+    const rows = shipments.map((s) => this.toPreparationOrder(s));
+    // ⚠️ El filtro se aplica DESPUÉS de derivar, no en el `where`: `destination` no es una columna,
+    // es una lectura de `Order.fulfillmentMode`, y la derivación es también el sitio donde la
+    // combinación imposible `vault` + `orderId` se detecta y se denuncia (invariante). Filtrar en
+    // SQL por el modo escondería esa corrupción justo en la cubeta donde importa.
+    const data = destinationFilter ? rows.filter((r) => r.destination === destinationFilter) : rows;
+    return { data };
+  }
+
+  /** §M4-PREP — proyecta UN `ShipmentRequest` en `picking` a su renglón de «Pedidos a preparar». */
+  private toPreparationOrder(s: PreparationShipmentRow): PreparationOrderDTO {
+    const destination = this.destinationOf(s);
+    const snapshot = ShipmentsService.addressSnapshotOf(s.addressSnapshot);
+    // Con cuenta ⇒ `User.name` (NOT NULL en schema); invitado ⇒ el nombre CONGELADO en el snapshot.
+    // ⚠️ El invitado con snapshot legado de 8 campos no tiene `recipientName` ⇒ cadena vacía, porque
+    // el contrato declara `fullName: string` (y `lastName` cae a `null`, que es su caso «no se puede
+    // derivar»). No se inventa un nombre ni se rompe la cola por un snapshot viejo.
+    const fullName = s.user?.name ?? snapshot.recipientName ?? '';
+    const items = s.items.map((si) => ShipmentsService.toPreparationItem(si));
+    items.sort(ShipmentsService.byLocation);
+    return {
+      shipmentId: s.id,
+      orderId: s.orderId,
+      // Un RETIRO DE BÓVEDA vive en esta cola y no tiene orden: `orderNumber` es `null`, y la
+      // referencia SIEMPRE presente para trazar el renglón es `shipmentId`.
+      orderNumber: s.order?.orderNumber ?? null,
+      destination,
+      requestedAt: s.requestedAt.toISOString(),
+      customer: { lastName: ShipmentsService.lastNameOf(fullName), fullName },
+      // CA #6 — la dirección COMPLETA, CON la calle que la fila plana omitía. Solo para 'ship'.
+      ...(destination === 'ship' ? { shipTo: snapshot } : {}),
+      items,
+    };
+  }
+
+  /**
+   * §M4-PREP — `destination` **DERIVADO** del discriminador canónico `Order.fulfillmentMode`
+   * (§4.21d); ⛔ no se inventa un campo. Que el modo sea del PEDIDO garantiza **por construcción**
+   * que un pedido no mezcla destinos (DECISIÓN #1).
+   *
+   * - `orderId == null` ⇒ **retiro de bóveda**, que sale físicamente por la puerta ⇒ `'ship'`.
+   * - `direct_ship` ⇒ `'ship'`.
+   * - `vault` **con** `orderId` presente ⇒ combinación IMPOSIBLE por invariante. Se delega en
+   *   `kindForFulfillment`, que es el precedente: **loguea y lanza**, exactamente igual que en la
+   *   cola de `/admin/shipments`. ⛔ No se "arregla" en silencio ni se inventa un destino: es
+   *   corrupción de datos (o un modo de fulfillment nuevo sin destino decidido) y tiene que verse.
+   */
+  private destinationOf(s: { id: string; orderId: string | null; order?: PreparationOrderJoin }) {
+    if (s.orderId == null) return 'ship' as const;
+    // Lanza ante `vault` / modo desconocido / orden inexistente. Su único retorno es directo.
+    this.kindForFulfillment(s.order?.fulfillmentMode, s.id);
+    return 'ship' as const;
+  }
+
+  /**
+   * §M4-PREP — `shipTo` desde `ShipmentRequest.addressSnapshot` (`AddressSnapshotDTO`, 9 campos).
+   *
+   * ⚠️ **Los snapshots legados de 8 campos (anteriores a v1.67) NO tienen `recipientName`** —y un
+   * snapshot ⛔ no se reescribe (§5.2)—, así que las tres claves que el contrato declara nullables
+   * (`recipientName`, `line2`, `neighborhood`) caen a `null` sin reventar. Las seis restantes caen a
+   * cadena vacía por el mismo motivo: el contrato las declara `string` y una cola de trabajo que
+   * explota por un snapshot viejo es peor que una que muestra un hueco.
+   */
+  private static addressSnapshotOf(
+    raw: Prisma.JsonValue,
+  ): NonNullable<PreparationOrderDTO['shipTo']> {
+    const s =
+      raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    const str = (k: string): string => (typeof s[k] === 'string' ? (s[k] as string) : '');
+    const opt = (k: string): string | null => (typeof s[k] === 'string' ? (s[k] as string) : null);
+    return {
+      recipientName: opt('recipientName'),
+      line1: str('line1'),
+      line2: opt('line2'),
+      neighborhood: opt('neighborhood'),
+      city: str('city'),
+      state: str('state'),
+      postalCode: str('postalCode'),
+      country: str('country'),
+      phone: str('phone'),
+    };
+  }
+
+  /**
+   * §M4-PREP / §6.A — apellido **DERIVADO** (último token del nombre), para el archivero alfabético.
+   *
+   * ⚠️ **FRÁGIL A PROPÓSITO y NO BLOQUEA NADA.** No existe apellido estructurado en el modelo
+   * (`User.name` y `addressSnapshot.recipientName` son **un solo string**), y derivarlo falla con
+   * apellidos compuestos o con otro orden de nombre. Es la **etiqueta de ordenación visual**, no un
+   * dato de negocio: ningún flujo depende de él. La alternativa —columna nueva + captura nueva— es
+   * cambio de modelo, fuera del alcance de una rebanada de solo lectura.
+   *
+   * `null` cuando el nombre viene **vacío o en blanco** (el invitado con snapshot legado): ahí no hay
+   * nada que derivar. Un nombre de UN solo token SÍ devuelve ese token — un mononombre se archiva
+   * bajo su propia letra, y devolver `null` tiraría información de archivo que sí tenemos.
+   */
+  private static lastNameOf(fullName: string): string | null {
+    const tokens = fullName
+      .trim()
+      .split(/\s+/)
+      .filter((t) => t.length > 0);
+    return tokens.length === 0 ? null : tokens[tokens.length - 1];
+  }
+
+  /** §M4-PREP — una carta del pedido, con su identidad de catálogo y su ubicación. */
+  private static toPreparationItem(si: PreparationShipmentItem): PreparationItemDTO {
+    const item = si.inventoryItem;
+    return {
+      shipmentItemId: si.id,
+      inventoryItemId: si.inventoryItemId,
+      folio: item.folio,
+      // Constante 1: un `ShipmentItem` ES una pieza física. ⛔ No hay columna de cantidad y esta
+      // rebanada no estrena ninguna.
+      quantity: 1,
+      card: {
+        name: item.card.name,
+        // El SET, prominente para ENVÍO: mapea a la carpeta por set del archivero.
+        setName: item.card.set?.name ?? null,
+        finish: item.finish,
+        conditionLabel: ShipmentsService.conditionLabelOf(item),
+        imageSmallUrl: item.card.imageSmallUrl,
+      },
+      currentLocation: ShipmentsService.locationViewOf(item.location),
+    };
+  }
+
+  /**
+   * §M4-PREP — `conditionLabel` se compone **EN EL BACK** (⛔ no en el front) para no repetir la
+   * lógica `graded/raw/sealed` en cada cliente. Precedencia, en este orden:
+   *
+   * 1. `gradingCompany` + `gradeValue` ⇒ `"PSA 9"` — hacen falta **los dos**: una gradeada a medio
+   *    capturar no dice «PSA» a secas, cae al siguiente escalón.
+   * 2. `rawCondition` ⇒ `"NM"`.
+   * 3. `sealedCondition` ⇒ etiqueta legible (`SEALED_CONDITION_LABELS`).
+   *
+   * Cadena vacía si la pieza no tiene ninguna de las tres (fila incompleta): el contrato declara
+   * `conditionLabel: string` y esta cola no es el sitio donde se descubre una captura a medias.
+   */
+  private static conditionLabelOf(item: {
+    gradingCompany: InventoryItem['gradingCompany'];
+    gradeValue: string | null;
+    rawCondition: InventoryItem['rawCondition'];
+    sealedCondition: SealedCondition | null;
+  }): string {
+    if (item.gradingCompany && item.gradeValue) return `${item.gradingCompany} ${item.gradeValue}`;
+    if (item.rawCondition) return item.rawCondition;
+    if (item.sealedCondition) return SEALED_CONDITION_LABELS[item.sealedCondition];
+    return '';
+  }
+
+  /** §M4-PREP / CA #11 — estado + (opcional) etiqueta. ⛔ `"UNASSIGNED"` ya no viaja por el cable. */
+  private static locationViewOf(location: VaultLocation | null): LocationView {
+    return location ? { kind: 'assigned', label: location.label } : { kind: 'unassigned' };
+  }
+
+  /**
+   * §M4-PREP — orden de las cartas DENTRO del pedido: por etiqueta de ubicación, **asignadas primero
+   * y ordenadas**, las `unassigned` al final. El operador camina el archivero en orden y las que no
+   * tienen sitio quedan juntas al cierre, que es donde hay que decidir algo sobre ellas.
+   */
+  private static byLocation(a: PreparationItemDTO, b: PreparationItemDTO): number {
+    const la = a.currentLocation.label;
+    const lb = b.currentLocation.label;
+    if (la === undefined && lb === undefined) return 0;
+    if (la === undefined) return 1;
+    if (lb === undefined) return -1;
+    return la.localeCompare(lb);
   }
 
   private static TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {

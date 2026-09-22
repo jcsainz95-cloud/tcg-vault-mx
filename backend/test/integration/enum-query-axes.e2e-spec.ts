@@ -107,6 +107,8 @@ import { PRICING_BRACKETS_AXIS_VALUES } from '../../src/modules/admin/admin.cont
 import { VAULT_SEALED_SORT_VALUES } from '../../src/modules/vault/vault.service';
 // ⭐ `EQ-D1` — dominios de los ejes migrados en este pase (kind/scope/sort de catálogo).
 import { SHIPMENT_KIND_VALUES } from '../../src/modules/shipments/shipments.service';
+// ⭐ §M4-PREP (v1.78) — dominio de `?destination=` de «Pedidos a preparar».
+import { PREPARATION_DESTINATION_VALUES } from '../../src/modules/shipments/shipments.service';
 import { USER_AUDIT_SCOPE_VALUES } from '../../src/modules/audit/audit.service';
 import { SEALED_LIST_SORT_VALUES } from '../../src/modules/catalog/sealed-catalog.service';
 import { CATALOG_CARDS_SORT_VALUES } from '../../src/modules/catalog/catalog.service';
@@ -547,6 +549,26 @@ const REGISTRO: readonly AxisRow[] = [
   //    ⛔ Ninguno lleva `echoValue`: son ejes NUEVOS, no de los seis públicos legados (§0-Q punto 2).
   // ==========================================================================================
   { route: 'GET /admin/shipments', param: 'kind', clazz: 'R', allowed: SHIPMENT_KIND_VALUES, valid: 'vault_withdrawal', alterno: 'guest_direct_ship', auth: 'admin', echoValue: false },
+  // ⭐ **§M4-PREP (v1.78) — `?destination=` de «Pedidos a preparar»** (`GET …/picking-list`).
+  //
+  // Clase **L** y ⛔ no **R**: `PreparationDestination` es un **TIPO DE DTO**, no un subconjunto de
+  // ningún enum de Prisma — sus tokens (`vault`/`ship`) **no coinciden** con los de `FulfillmentMode`
+  // (`vault`/`direct_ship`), del que se DERIVA por un mapeo explícito del backend. Por eso ⛔ no entra
+  // en la paridad de enums y su dominio se toma de la constante del servicio, no del schema.
+  //
+  // `filaEn0Q: 'PENDIENTE-ARQUITECTO'` — medido el 2026-09-22: el contrato declara el eje y su `400`
+  // en **§M4-PREP** («misma doctrina §0-Q que `?kind=`»), pero la **tabla del registro de §0-Q punto
+  // 4 NO tiene su fila**. Escribirla es cambiar §0-Q ⇒ arquitecto (regla 9). La CONDUCTA sí se mide
+  // aquí, por HTTP, como en las demás.
+  //
+  // ⚠️ **`valid: 'vault'` y NO `'ship'`, y el motivo es una medición, no una preferencia:** bajo el
+  // modelo actual **toda** fila de esta cola es `destination='ship'` (las órdenes
+  // `fulfillmentMode='vault'` no generan `ShipmentRequest`), así que `?destination=ship` devuelve la
+  // cola ENTERA y la fila saldría **verde con y sin filtro** — el agujero exacto de `QA-M3`. Con
+  // `vault` el resultado **cambia** respecto de no filtrar (cubeta vacía a propósito) y
+  // `alterno: 'ship'` recupera la discriminación. El fixture siembra el envío en `picking` del
+  // bloque (g-bis) para que «hay datos SIN filtrar» sea cierto.
+  { route: 'GET /admin/shipments/picking-list', param: 'destination', clazz: 'L', allowed: PREPARATION_DESTINATION_VALUES, valid: 'vault', alterno: 'ship', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/users/:id/audit', path: (c) => `/admin/users/${c.userId}/audit`, param: 'scope', clazz: 'R', allowed: USER_AUDIT_SCOPE_VALUES, valid: 'actor', alterno: 'both', auth: 'admin', echoValue: false },
   // ⚠️ `valid: 'price_desc'` y no `'price_asc'`: los dos sellados del fixture comparten `createdAt`
   // (mismo `createMany`), así que `newest` (default) = orden de inserción = price ASC ⇒ `price_asc`
@@ -793,6 +815,23 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       shippingFeeCents: 9_900,
       priceConvention: 'IVA_EXCLUSIVE',
       carrier: 'CEQ1-fixture-c',
+    },
+  });
+
+  // (g-bis) ⭐ §M4-PREP — `GET /admin/shipments/picking-list?destination=`. La cola proyecta SOLO
+  //     `status='picking'` (fix QA #3) y los envíos de (e)/(g) están en `solicitado`/`entregado` ⇒
+  //     sin esta fila la cola sale VACÍA y la propiedad `filtra` no es observable (verde por
+  //     omisión). Es un RETIRO DE BÓVEDA (`orderId` null) ⇒ `destination='ship'`, que es lo que hace
+  //     que `?destination=vault` devuelva vacío y discrimine. Marca `CEQ1-` en `carrier` para que
+  //     `limpiarFixture` lo barra sin adivinar.
+  await h.prisma.shipmentRequest.create({
+    data: {
+      userId: cliente.id,
+      addressSnapshot: direccion,
+      status: 'picking',
+      shippingFeeCents: 9_900,
+      priceConvention: 'IVA_EXCLUSIVE',
+      carrier: 'CEQ1-fixture-picking',
     },
   });
 
@@ -1100,6 +1139,9 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       // ⭐ `EQ-D1` lote 2 (este pase): 5 ejes de ORDEN/RANGO cuya CONDUCTA ya conforma pero cuya fila
       // de §0-Q punto 4 sigue pendiente del arquitecto (regla 9).
       'GET /admin/inventory/master-sets?sort=',
+      // ⭐ §M4-PREP (v1.78): el contrato declara el eje y su `400` en §M4-PREP, pero la TABLA del
+      // registro de §0-Q punto 4 no tiene su fila. Escribirla es cambiar §0-Q ⇒ arquitecto (regla 9).
+      'GET /admin/shipments/picking-list?destination=',
       'GET /admin/vaults/:userId/master-sets?sort=',
       'GET /admin/vaults/:userId/sealed?condition=',
       'GET /admin/vaults/:userId/sealed?sealedSubtype=',
@@ -1228,8 +1270,13 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Las 5 del lote 2 van `PENDIENTE-ARQUITECTO` (su fila de §0-Q NO existe todavía) ⇒ el conteo de
     // pendientes SUBE de 6 a 11. Las de `EQ-D1` lote 1/`EQ-D2`/`EQ-D3` fueron `transcrita` (su fila la
     // escribió el arquitecto en aquel pase) y por eso NO subían el conteo de pendientes.
-    expect(REGISTRO.length).toBe(43);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(11);
+    // ⭐ **43 → 44 (§M4-PREP, v1.78):** `?destination=` de `GET /admin/shipments/picking-list`, el eje
+    // nuevo de «Pedidos a preparar». Entra `PENDIENTE-ARQUITECTO` (11 → 12): su CONDUCTA conforma
+    // —se mide aquí, por HTTP— pero su fila en la **tabla** de §0-Q punto 4 **no existe**; el
+    // contrato la declara en §M4-PREP y escribirla en el registro es del arquitecto (regla 9).
+    // ⛔ Subir este literal sin una fila nueva justificada arriba es exactamente lo que impide.
+    expect(REGISTRO.length).toBe(44);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(12);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que
