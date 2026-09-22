@@ -1547,6 +1547,13 @@
         "nameMissing": {
           "tag": "Sin nombre registrado",
           "body": "La dirección de este pedido se guardó sin el nombre de quien recibe: es un hueco del registro, no un cliente anónimo. Identifica el paquete por su folio."
+        },
+        "conflict": {
+          "title": "La cola no se puede mostrar, y no está vacía.",
+          "impact": "Hay pedidos ya cobrados esperando y desde aquí no se ven.",
+          "body": "Un pedido de esta cola no permite saber a dónde va: los datos que deciden su destino no cuadran. Por eso no se muestra ninguna cubeta, ni envío ni bóveda — dejar fuera esa sola fila haría que un pedido cobrado desapareciera de la pantalla sin que nadie lo notara.",
+          "action": "Avisa al súper-admin: esto se corrige en los datos, no desde esta pantalla. Cuando esté corregido, vuelve a cargar.",
+          "technicalDetail": "Detalle técnico"
         }
       }
     },
@@ -1598,7 +1605,7 @@
         "rejectedAtLabel": "Rechazada el",
         "returnUntil": "Devolución hasta {date} (a costo del vendedor)",
         "abandonAt": "Abandono a partir de {date}",
-        "noDeadlines": "Sin plazos registrados (rechazo previo a v1.18).",
+        "noDeadlines": "Sin fecha de rechazo registrada: los plazos se cuentan desde ella, así que esta carta no tiene ninguno.",
         "viewRequest": "Ver solicitud {id}",
         "phase": {
           "return": "En plazo de devolución",

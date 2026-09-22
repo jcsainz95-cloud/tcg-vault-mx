@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { Button } from '@/components/ui/Button';
+import { Banner } from '@/components/ui/Banner';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { formatAge, formatDate } from '@/lib/format';
 // El orden vive en `lib/` para que la vista y el servidor falso usen LA MISMA regla
@@ -64,7 +64,6 @@ const BUCKETS: { value: Bucket; labelKey: 'filterAll' | 'filterVault' | 'filterS
 export function PreparationQueue() {
   const t = useTranslations('admin.m4.prep');
   const tm4 = useTranslations('admin.m4');
-  const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const [bucket, setBucket] = useState<Bucket>('');
 
@@ -116,7 +115,29 @@ export function PreparationQueue() {
    * con el operador convencido de que terminó. Por eso tiene que ser **distinguible de
    * `200 {data:[]}`** — que es, literalmente, lo que el contrato fija que el consumidor garantice.
    */
-  const corruptRow = queue.error instanceof ApiClientError && queue.error.status === 409;
+  /**
+   * §35.15.8 punto 1: **los DOS términos**, `status` **y** `code`. El código `CONFLICT` es **compartido
+   * entre endpoints** (`§M4-PREP v1.78.2`: *un cuerpo, muchos lectores*) — el mismo gobierna el `409`
+   * de §M5-T—, así que lo que nombra ESTE hecho es **código + endpoint**, y el endpoint lo sabe el
+   * cliente. ⛔ Cualquier otro error sigue cayendo en `QueryState`, con su «Reintentar» intacto.
+   */
+  const corruptRow =
+    queue.error instanceof ApiClientError &&
+    queue.error.status === 409 &&
+    queue.error.code === 'CONFLICT';
+
+  /**
+   * Evidencia del `<details>` (§35.15.5(c)), por orden de preferencia: `details.shipmentId` →
+   * `message` verbatim → **nada** (y entonces el cajón ⛔ no se pinta: nunca un cajón vacío ni un «—»).
+   * ⚠️ **Hoy es siempre la segunda rama**: el contrato declara que el cuerpo del `409` es
+   * `{error:{code,message}}` y que `details:{shipmentId, fulfillmentMode}` es deuda no bloqueante.
+   * Por eso la frase de acción ⛔ **no** dice «con la referencia de abajo» — es la única redacción que
+   * se rompería si el cajón faltara.
+   */
+  const conflictError = corruptRow ? (queue.error as ApiClientError) : null;
+  const conflictShipmentId =
+    typeof conflictError?.details?.shipmentId === 'string' ? conflictError.details.shipmentId : null;
+  const conflictMessage = conflictError?.message?.trim() || null;
 
   /**
    * Un copy de vacío por cubeta: las tres situaciones son distintas (§35.8).
@@ -211,37 +232,65 @@ export function PreparationQueue() {
       >
         {corruptRow ? (
           /*
-           * ⚠️⚠️ **PENDIENTE-UX — la COSTURA está hecha, la REDACCIÓN no es mía.**
-           * §M4-PREP v1.78.2 dice, con todas las letras, que **la redacción la decide ux-ui** y que
-           * su sitio es `DESIGN_SYSTEM §35.8` («Carga, error y vacío»), que ya separa el vacío del
-           * error. Lo que el contrato **sí** fija —y es lo que queda cableado aquí— es que este
-           * estado sea **distinguible de una cola vacía** y que el operador **no se quede creyendo
-           * que terminó su trabajo**.
+           * ⭐⭐ **§35.15 — LA COLA BLOQUEADA, que ⛔ NO es una cola vacía.** Copy normativo de
+           * §35.15.1/.2, copiado del documento **carácter por carácter** (con un extractor, ⛔ no
+           * transcrito). Sustituye a la costura `PENDIENTE-UX` que este sitio llevaba.
            *
-           * Mientras llega el copy se pinta **el mensaje del servidor**, que ⛔ no es copy inventada:
-           * es el dato, y el contrato dice que **`shipmentId` viaja en él y es la pista** para
-           * soporte. Es la misma costura que funcionó con el «—» de `fullName` (§35.6a): rama
-           * aislada, `data-testid`, marca `PENDIENTE-UX` y ⛔ **ningún candado que fije un
-           * provisional** — los de abajo asertan lo que es cierto con CUALQUIER redacción.
+           * **P-13, y era un defecto VIVO:** hasta ahora esto caía en `QueryState`, que ante
+           * cualquier error pinta «Algo salió mal» + «Hubo un conflicto con el estado actual» +
+           * «Reintentar» — **literalmente lo que el contrato prohíbe**: un error genérico de red
+           * delante de un envío ya cobrado que nadie va a preparar.
+           *
+           * ⛔ **El copy NO vive en `error.CONFLICT_OPERATOR`**, y la trampa está medida (§35.15.3):
+           * `M5View.tsx` llama `useErrorMessage('operator')` y `_OPERATOR` tiene **precedencia** sobre
+           * la base ⇒ esta redacción aterrizaría en la **mesa de buylist**, diciéndole al operador que
+           * «hay pedidos cobrados esperando» cuando lo único que pasó es que una solicitud estaba
+           * cerrada. *El copy va en `error.<CODE>` cuando el CÓDIGO nombra el hecho; va en la pantalla
+           * cuando lo nombra código + endpoint.*
            */
-          <div
-            data-testid="prep-corrupt-row"
-            role="alert"
-            className="flex flex-col gap-3 border border-accent bg-surface p-4"
-          >
-            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-              {/* PENDIENTE-UX: marca provisional tomada del código del contrato, ⛔ no redactada. */}
-              {queue.error instanceof ApiClientError ? queue.error.code : 'CONFLICT'}
-            </p>
-            <p className="text-sm text-text">
-              {queue.error instanceof ApiClientError ? queue.error.message : ''}
-            </p>
-            <div>
-              <Button size="sm" variant="secondary" onClick={() => queue.refetch()}>
-                {tc('retry')}
-              </Button>
+          <Banner variant="danger" role="alert" title={t('conflict.title')}>
+            <div data-testid="prep-conflict" className="flex flex-col gap-2">
+              {/*
+                * ⚠️ **`text-text` EXPLÍCITO, y no es capricho.** `Banner` envuelve a todos sus hijos
+                * en `text-muted` y solo el `title` va en tinta (`Banner.tsx:56-58`, re-medido en este
+                * pase). Dejar en tono **secundario** la frase que impide que el operador se vaya a su
+                * casa es el mismo defecto que P-4, P-4b y PR-10 cerraron en esta pantalla.
+                * ⛔ NO se modifica `Banner`: es compartido y su convención sirve al resto del sistema.
+                * Candado: **PR-15**.
+                */}
+              <p className="text-sm font-medium text-text">{t('conflict.impact')}</p>
+              <p>{t('conflict.body')}</p>
+              <p>{t('conflict.action')}</p>
+              {/*
+                * §32.4c / §35.15.5(c): el identificador ⛔ no va en la frase que lee el operador —para
+                * él un UUID es ruido y no lo puede buscar en ninguna pantalla—, pero es **lo único que
+                * identifica el renglón** para quien repara. Mismo mueble, mismo rótulo y mismo sitio
+                * que M2: `<details>` **cerrado** al pie. Si no hay ni campo ni mensaje, ⛔ no se pinta
+                * el cajón. Candado: **PR-14**.
+                */}
+              {(conflictShipmentId || conflictMessage) && (
+                <details data-testid="prep-conflict-detail">
+                  <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+                    {t('conflict.technicalDetail')}
+                  </summary>
+                  {conflictShipmentId ? (
+                    <p className="mt-1 text-xs">
+                      <span className={LABEL}>{t('shipmentRef')}</span>{' '}
+                      {/* Un identificador ⛔ no lleva `lang`: no es idioma, es un código (§35.10). */}
+                      <span className="tabular">{conflictShipmentId}</span>
+                    </p>
+                  ) : (
+                    /* Inglés de desarrollador ⇒ `lang="en"` (§9.2), y por eso va PLEGADO y rotulado
+                       como técnico: la prohibición de §26.6(7) es sobre **la frase**, no sobre el
+                       cajón de la evidencia. */
+                    <p className="mt-1 font-mono text-xs" lang="en">
+                      {conflictMessage}
+                    </p>
+                  )}
+                </details>
+              )}
             </div>
-          </div>
+          </Banner>
         ) : orders.length === 0 ? (
           // P-6: ⛔ sin `tone`. `EmptyState` lo acepta por compatibilidad y **no lo pinta** — la
           // dirección 5a retiró los rellenos de color (§2.1) y §35.8 corrige el «verde suave» de

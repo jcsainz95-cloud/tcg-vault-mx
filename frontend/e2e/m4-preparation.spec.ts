@@ -22,6 +22,39 @@ import { loginAs, mockOnly, needsSeed } from './utils/auth';
  * anchos y comprueban, además de la conducta, que **nada desborda en horizontal**.
  */
 
+/**
+ * ⚠️⚠️ **LO QUE ESTE FICHERO NO PUEDE MEDIR, Y POR QUÉ — para QA, y dicho con el dato.**
+ *
+ * §35.14 A-4 pide **PR-11..PR-16** (el `409` de fila corrupta, §35.15) también en los dos viewports.
+ * **Aquí no se pueden escribir**, y no por pereza: cuando Playwright levanta el servidor él mismo lo
+ * hornea con `NEXT_PUBLIC_USE_MOCKS=true`, y en esa rama `getAdminPreparationQueue` **devuelve el
+ * fixture sin hacer ninguna petición HTTP** (`lib/api.ts`: el `apiRequest` vive detrás de
+ * `if (!config.useMocks)`). ⇒ **no hay red que interceptar**, y por tanto **no hay forma de provocar
+ * un `409`** desde esta corrida. Un `page.route()` aquí no casaría nunca y el caso fallaría por la
+ * razón equivocada.
+ *
+ * ⛔ **Por eso NO se deja aquí un caso que solo sepa saltarse:** una prueba que nadie ha visto pasar
+ * no es cobertura, es una promesa. Los `PR-11..PR-16` viven hoy en `M4View.test.tsx` (jsdom), donde
+ * **sí** se pueden ejercer, con **8 casos** y canarios de mutación.
+ *
+ * **Cómo ejercerlos en navegador cuando haya stack real** (`E2E_BASE_URL=… npm run test:e2e`), que es
+ * el camino que QA ya usó para PR-1..PR-10:
+ *
+ * ```ts
+ * await page.route('**\/admin/shipments/picking-list*', (route) =>
+ *   route.fulfill({
+ *     status: 409,
+ *     contentType: 'application/json',
+ *     body: JSON.stringify({ error: { code: 'CONFLICT', message: 'shipmentId: shp-roto' } }),
+ *   }),
+ * );
+ * ```
+ * …y después asertar lo de §35.14 A-4: el título del `409` y **ninguno** de los otros tres (PR-11),
+ * cero botones dentro del aviso (PR-12), `role="alert"` único con la región viva vacía (PR-13), el
+ * `<details>` cerrado (PR-14), la frase de impacto en tinta **computada** (PR-15 — esto es lo que
+ * jsdom no puede) y el filtro habilitado que no cambia el estado (PR-16).
+ */
+
 /** Ancho de trabajo del operador (de pie) y el de escritorio. §35.14 A-4 pide los dos. */
 const VIEWPORTS = [
   { name: '390×844 (de pie)', size: { width: 390, height: 844 } },

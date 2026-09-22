@@ -1060,43 +1060,171 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * lo único que el contrato pone a cargo del consumidor y que es cierto con **cualquier** copy —
    * **que sea distinguible de `200 {data:[]}`**.
    */
-  it('v1.78.2 · `409` de fila corrupta: estado CON NOMBRE, ⛔ nunca el vacío de la cola', async () => {
-    vi.spyOn(api, 'getAdminPreparationQueue').mockRejectedValue(
-      new ApiClientError(409, {
-        code: 'CONFLICT',
-        message: 'Fila corrupta en la cola de preparación (shipmentId: shp-roto).',
-      }),
-    );
-    renderWithProviders(<M4View />, 'es');
+  /** Sirve el `409` de fila corrupta tal y como lo declara §M4-PREP v1.78.2: `{error:{code,message}}`. */
+  function serveConflict(message = 'Corrupt row in preparation queue (shipmentId: shp-roto).') {
+    return vi
+      .spyOn(api, 'getAdminPreparationQueue')
+      .mockRejectedValue(new ApiClientError(409, { code: 'CONFLICT', message }));
+  }
 
-    const block = await screen.findByTestId('prep-corrupt-row');
-    // Distinguible de una cola vacía: ni el título del vacío, ni el de la cubeta de bóveda.
-    expect(screen.queryByText('Nada que preparar por ahora.')).not.toBeInTheDocument();
-    expect(screen.queryByText('Esta cubeta todavía no se alimenta.')).not.toBeInTheDocument();
-    // Y con nombre: se anuncia, y trae la pista que el contrato dice que viaja en el mensaje.
-    expect(block).toHaveAttribute('role', 'alert');
-    expect(block).toHaveTextContent('shp-roto');
-    expect(within(block).getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+  /**
+   * ⭐⭐ **PR-11 (§35.14 A-4) — EL CANDADO DE LA OBLIGACIÓN DEL CONTRATO.** El `409` tiene que ser
+   * distinguible de `200 {data:[]}` **y** del error de red. Se mide por **la palabra del título**,
+   * que es el eje que no depende del color (§2.4): el HTML no contiene **ninguno** de los otros tres
+   * títulos, y sí el suyo.
+   *
+   * **P-13 era un defecto VIVO:** antes esto caía en `QueryState` y el operador leía «Algo salió mal ·
+   * Hubo un conflicto con el estado actual · Reintentar» delante de una cola con envíos ya cobrados.
+   */
+  it('PR-11 · `409`: se lee su título y ⛔ NINGUNO de los tres vacíos ni el genérico de red', async () => {
+    serveConflict();
+    const { container } = renderWithProviders(<M4View />, 'es');
+
+    expect(await screen.findByText('La cola no se puede mostrar, y no está vacía.')).toBeInTheDocument();
+    for (const ajeno of [
+      'Nada que preparar por ahora.',
+      'Nada que enviar por ahora.',
+      'Esta cubeta todavía no se alimenta.',
+      'Algo salió mal',
+    ]) {
+      expect(container.textContent, `el ${ajeno} no puede aparecer con un 409`).not.toContain(ajeno);
+    }
+    // La frase que no se puede recortar: hay trabajo, y desde aquí no se ve.
+    expect(container.textContent).toContain('Hay pedidos ya cobrados esperando y desde aquí no se ven.');
   });
 
-  it('v1.78.2 · un error que NO es 409 sigue siendo el banner genérico (⛔ no se secuestra todo)', async () => {
-    // El estado con nombre es para la fila corrupta; un fallo de red NO puede disfrazarse de él.
+  it('PR-11 (EN) · el mismo candado en inglés', async () => {
+    serveConflict();
+    const { container } = renderWithProviders(<M4View />, 'en');
+
+    expect(await screen.findByText("This queue can't be shown, and it isn't empty.")).toBeInTheDocument();
+    expect(container.textContent).not.toContain('Something went wrong');
+    expect(container.textContent).not.toContain('Nothing to prepare right now.');
+  });
+
+  /**
+   * **PR-12** — ⛔ nada que pulsar que no arregle nada. Reintentar un `409` por datos corruptos
+   * devuelve **el mismo `409`**: ofrecerlo enseña a pulsar algo inútil **y** sugiere que la culpa es
+   * de la red. Y ⛔ sin cierre: un aviso bloqueante con cruz deja detrás **una pantalla vacía**, que es
+   * justo el estado que el contrato prohíbe confundir.
+   */
+  it('PR-12 · `409`: ni «Reintentar» ni control de cierre', async () => {
+    serveConflict();
+    renderWithProviders(<M4View />, 'es');
+
+    await screen.findByTestId('prep-conflict');
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+    // Los únicos botones que quedan son los tres de cubeta (PR-16).
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Ambas',
+      'Solo envío',
+      'Solo bóveda',
+    ]);
+  });
+
+  /**
+   * **PR-13 · un hecho, un anuncio.** El `Banner` lleva `role="alert"` y se anuncia al montarse; la
+   * región viva **queda vacía**. Dos regiones narrando el mismo hecho es la versión sonora de las dos
+   * líneas de ausencia apiladas que §35.6a-e prohíbe.
+   */
+  it('PR-13 · `409`: EXACTAMENTE una región que anuncia, y la región viva queda vacía', async () => {
+    serveConflict();
+    renderWithProviders(<M4View />, 'es');
+
+    await screen.findByTestId('prep-conflict');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByTestId('prep-live-region')).toHaveTextContent('');
+  });
+
+  /**
+   * **PR-14 · §32.4c hecho verificable.** Para el operador un identificador es **ruido** —no lo puede
+   * buscar en ninguna pantalla de esta cola—; para quien repara es **lo único que identifica el
+   * renglón**. Va al `<details>` **cerrado**, ⛔ nunca en el título ni en la primera frase.
+   */
+  it('PR-14 · `409`: la referencia va en un <details> CERRADO, ⛔ no en el título ni en el impacto', async () => {
+    serveConflict();
+    renderWithProviders(<M4View />, 'es');
+
+    const cajon = await screen.findByTestId('prep-conflict-detail');
+    expect(cajon.tagName).toBe('DETAILS');
+    expect(cajon).not.toHaveAttribute('open');
+    expect(within(cajon).getByText('Detalle técnico')).toBeInTheDocument();
+    expect(cajon).toHaveTextContent('shp-roto');
+
+    // Ni el título ni la frase de impacto contienen la referencia.
+    expect(screen.getByText('La cola no se puede mostrar, y no está vacía.')).not.toHaveTextContent('shp-roto');
+    expect(
+      screen.getByText('Hay pedidos ya cobrados esperando y desde aquí no se ven.'),
+    ).not.toHaveTextContent('shp-roto');
+  });
+
+  it('PR-14 (b) · sin nada que poner, el cajón ⛔ NO se pinta (nunca un cajón vacío, nunca un «—»)', async () => {
+    serveConflict('   ');
+    renderWithProviders(<M4View />, 'es');
+
+    await screen.findByTestId('prep-conflict');
+    expect(screen.queryByTestId('prep-conflict-detail')).not.toBeInTheDocument();
+    // Y el copy no se apoya en él: la frase de acción sigue completa y sin referencias colgando.
+    expect(screen.getByText(/Avisa al súper-admin/)).toBeInTheDocument();
+  });
+
+  /**
+   * **PR-15** — misma doctrina que PR-10/P-4/P-4b: *lo que se usa para decidir no se pinta como
+   * secundario*. `Banner` tiñe a **todos** sus hijos de `text-muted` y solo el `title` va en tinta, así
+   * que la frase de impacto **sobreescribe el tono a mano**. ⛔ `Banner` no se modifica: es compartido.
+   */
+  it('PR-15 · `409`: la frase de impacto va en TINTA, no en el `muted` que hereda del Banner', async () => {
+    serveConflict();
+    renderWithProviders(<M4View />, 'es');
+
+    const impacto = await screen.findByText('Hay pedidos ya cobrados esperando y desde aquí no se ven.');
+    expect(impacto.className).toContain('text-text');
+    expect(impacto.className).not.toContain('text-muted');
+    // La explicación SÍ hereda el muted del Banner: la escalada de tono es información.
+    expect(screen.getByText(/Un pedido de esta cola no permite saber/).className).not.toContain('text-text');
+  });
+
+  /**
+   * **PR-16** — el fallo es de **la cola**, no de la cubeta. Apagar los botones sería una afordancia
+   * muerta y, peor, escondería el hecho: el operador que pulsa «Solo envío» y recibe el mismo aviso
+   * **aprende que no es su cubeta**. Un filtro apagado le deja la duda de si en la otra habría algo.
+   */
+  it('PR-16 · `409`: cambiar de cubeta NO cambia el estado, y los tres botones siguen habilitados', async () => {
+    serveConflict();
+    renderWithProviders(<M4View />, 'es');
+
+    await screen.findByTestId('prep-conflict');
+    for (const nombre of ['Ambas', 'Solo envío', 'Solo bóveda']) {
+      expect(screen.getByRole('button', { name: nombre })).toBeEnabled();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Solo envío' }));
+
+    // Mismo aviso: ⛔ ni lista ni vacío. Y la cabecera sigue ahí.
+    expect(await screen.findByTestId('prep-conflict')).toBeInTheDocument();
+    expect(screen.queryByText('Nada que enviar por ahora.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Pedidos a preparar' })).toBeInTheDocument();
+  });
+
+  it('v1.78.2 · un error que NO es 409 sigue siendo el banner genérico con su «Reintentar» intacto', async () => {
+    // El estado con nombre es para la fila corrupta; un fallo de red ⛔ no puede disfrazarse de él.
     vi.spyOn(api, 'getAdminPreparationQueue').mockRejectedValue(new Error('boom'));
     renderWithProviders(<M4View />, 'es');
 
     await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0));
-    expect(screen.queryByTestId('prep-corrupt-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('prep-conflict')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Reintentar' }).length).toBeGreaterThan(0);
   });
 
-  it('v1.78.2 · la región viva NO anuncia «cero pedidos» cuando lo que hubo fue un 409', async () => {
+  it('v1.78.2 · un `409` con OTRO código no secuestra la rama (los DOS términos, §35.15.8 punto 1)', async () => {
+    // `CONFLICT` es el cuerpo compartido del contrato; la condición exige status Y code.
     vi.spyOn(api, 'getAdminPreparationQueue').mockRejectedValue(
-      new ApiClientError(409, { code: 'CONFLICT', message: 'corrupta (shipmentId: shp-roto)' }),
+      new ApiClientError(409, { code: 'NO_LIVE_ADJUSTMENT', message: 'otra cosa' }),
     );
     renderWithProviders(<M4View />, 'es');
 
-    await screen.findByTestId('prep-corrupt-row');
-    // Anunciar un vacío aquí sería el mismo engaño por el canal del lector de pantalla.
-    expect(screen.getByTestId('prep-live-region')).toHaveTextContent('');
+    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0));
+    expect(screen.queryByTestId('prep-conflict')).not.toBeInTheDocument();
   });
 
   it('P-10 · «Pedidos a preparar» se monta ARRIBA de la cola de envíos', async () => {

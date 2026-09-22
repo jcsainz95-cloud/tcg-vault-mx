@@ -1547,6 +1547,13 @@
         "nameMissing": {
           "tag": "No name on file",
           "body": "This order's address was saved without a recipient name: it's a gap in our records, not an anonymous customer. Identify the package by its folio."
+        },
+        "conflict": {
+          "title": "This queue can't be shown, and it isn't empty.",
+          "impact": "There are already-paid orders waiting, and they can't be seen from here.",
+          "body": "One order in this queue gives no way to tell where it goes: the data that decides its destination doesn't add up. That's why no bucket is shown, neither shipping nor vault — leaving that one row out would drop a paid order off the screen with nobody noticing.",
+          "action": "Tell the super-admin: this gets fixed in the data, not from this screen. Once it's fixed, reload.",
+          "technicalDetail": "Technical detail"
         }
       }
     },
@@ -1598,7 +1605,7 @@
         "rejectedAtLabel": "Rejected on",
         "returnUntil": "Return until {date} (at the seller's cost)",
         "abandonAt": "Abandonment from {date}",
-        "noDeadlines": "No deadlines recorded (rejection prior to v1.18).",
+        "noDeadlines": "No rejection date on file: the deadlines are counted from it, so this card has none.",
         "viewRequest": "View request {id}",
         "phase": {
           "return": "In return window",
