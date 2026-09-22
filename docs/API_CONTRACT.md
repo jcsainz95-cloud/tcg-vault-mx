@@ -2,7 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-22 (rev **v1.78.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-22 (rev **v1.78.2**).
+>
+> **Changelog v1.78.2 — ⭐ §M4-PREP: SE DECLARAN LAS DOS CONDUCTAS QUE EL CONTRATO CALLABA (`?date=` MALFORMADO Y
+> EL `409` DE LA FILA CORRUPTA) Y `LocationView` PASA A UNIÓN DISCRIMINADA (2026-09-22, arquitecto; base v1.78.1,
+> vigente entera salvo las filas que esta rev toca). ⛔ CERO DDL. ⛔ Cero endpoints nuevos. ⛔ La rebanada sigue
+> siendo de SOLO LECTURA. Las tres entradas nacen de mediciones ajenas (QA y techlead) que el arquitecto re-midió.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **`GET /admin/shipments/picking-list::date` gana conducta declarada, y el dominio se ESTRECHA a date-only `YYYY-MM-DD`.** QA midió por HTTP que `?date=banana`, `?date=2026-13-45` y `?destination=ship&date=banana` daban **`500 INTERNAL`** (`Invalid Date` crudo al `where` de Prisma) — el defecto **textual** que el comentario de `P-84` describe para `?status=`, vivo en el eje de al lado. §M4-PREP decía «`?date=` se conserva» y **no declaraba nada más**. Ahora: ausente/vacío/solo espacios ⇒ **no filtra**; `YYYY-MM-DD` de día **existente** ⇒ ventana **`[T00:00:00.000Z, +24h)`**; **cualquier otra cosa —incluido un datetime ISO completo— ⇒ `400 VALIDATION_ERROR`** con `details:{field:'date'}`, ⛔ **sin eco del valor** | [§M4-PREP](#M4-PREP) · línea del endpoint en §M4 | **Sí, backend** (el `400` ya lo implementó como `I-1`; falta **solo** estrechar la gramática a date-only) |
+> | **2** | ⭐ **El `409 CONFLICT` de la fila corrupta se ESCRIBE, con su radio de estallido asumido a sabiendas.** Una fila con `orderId` presente cuyo `Order.fulfillmentMode` no es `direct_ship` hace que **toda** la cola responda `409` — no solo su cubeta. Existía, estaba candada (`shipments.picking-list.spec.ts`) y **no estaba en el contrato**; lo levantó QA (M-1) y el techlead lo ratificó. Se declara **rechazar entero** y ⛔ se **prohíbe** degradar por fila | [§M4-PREP](#M4-PREP) | **No** (es la conducta que el código ya sirve; la forma objetivo de `details` queda como deuda nombrada) |
+> | **3** | ⭐ **`LocationView` pasa de `{kind; label?}` a UNIÓN DISCRIMINADA** `{kind:'assigned'; label: string} \| {kind:'unassigned'}`. El invariante vivía en un comentario y el tipo **permitía el estado ilegal**; el techlead midió lo que costaba: **cuatro ramas defensivas** y una **divergencia de orden** back↔front *representable*. Es la doctrina de v1.78.1 (`fullName`) aplicada al campo de al lado: **una grafía por hecho**. Un `VaultLocation.label` en blanco (⛔ **inalcanzable** por todos los escritores medidos) se sirve **`{kind:'unassigned'}`** | [§M4-PREP](#M4-PREP) | **Sí, backend** (una línea en `locationViewOf` + `byLocation`) **y frontend** (tipo espejo + borrar dos ramas) |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **cero schema y cero migración** —
+> ninguna de las tres entradas propone columna. **(b)** ⛔ **la cubeta `?destination=vault` sigue devolviendo vacío**
+> (hallazgo de medición de v1.78; es pendiente de **fuente de datos**, no del eje). **(c)** ⛔ **el eje `?destination=`
+> no se toca**: su dominio, su clase **L** y su `details:{field,allowed}` siguen exactamente como los dejó v1.78.1.
+> **(d)** ⛔ **`?date=` NO entra a §0-Q** ni a su registro de ejes: no es un dominio cerrado de tokens, su `allowed`
+> **no se puede enumerar**, y el punto 7 de §0-Q ya lo dice por su clase (*«filtros que no son de dominio cerrado…
+> los gobierna la línea anterior de §0»*). Su censo en `C-EQ-1` **ya existe** y no cambia
+> (`'GET /admin/shipments/picking-list::date'` en `NO_ENUM_POR_RUTA`, medido 2026-09-22).
 >
 > **Changelog v1.78.1 — ⭐ §M4-PREP: SE REGISTRA EL EJE `?destination=` Y SE CIERRA UNA CONTRADICCIÓN DEL DTO
 > (2026-09-22, arquitecto; base v1.78, vigente entera salvo las dos filas que esta rev toca). ⛔ CERO DDL. ⛔ Cero
@@ -14753,7 +14773,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     *Estado medido 2026-09-13: `shipments/shipments.service.ts:373`, token **crudo** al `where` ⇒ `500 INTERNAL`.*
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `ShipmentRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/shipments/:id`
-- `GET /api/v1/admin/shipments/picking-list` — **REPROYECTADA a «Pedidos a preparar»** (v1.78, rebanada de SOLO LECTURA): deja de ser una lista PLANA de piezas ordenada por ubicación y pasa a ser una **hoja de trabajo AGRUPADA por pedido** (`PreparationOrderDTO[]`, un elemento = UN envío/pedido a preparar). **Se conserva la ruta y solo cambia el DTO** (ver decisión abajo). Filtro nuevo opcional `?destination=vault|ship` (las dos cubetas, CA #8; **clase L** de [§0-Q](#enum-query-filter), registrada en su punto 4 — el **dominio canónico** lo declara §M4-PREP, ⛔ no esta línea); `?date=` se conserva. Orden: `requestedAt` **asc** (lo más viejo primero, CA #9). Rol: **operador+** (sin cambio). ⛔ **Solo lectura, sin efectos.** Forma completa y decisiones en **[§M4-PREP](#M4-PREP)**.
+- `GET /api/v1/admin/shipments/picking-list` — **REPROYECTADA a «Pedidos a preparar»** (v1.78, rebanada de SOLO LECTURA): deja de ser una lista PLANA de piezas ordenada por ubicación y pasa a ser una **hoja de trabajo AGRUPADA por pedido** (`PreparationOrderDTO[]`, un elemento = UN envío/pedido a preparar). **Se conserva la ruta y solo cambia el DTO** (ver decisión abajo). Filtro nuevo opcional `?destination=vault|ship` (las dos cubetas, CA #8; **clase L** de [§0-Q](#enum-query-filter), registrada en su punto 4 — el **dominio canónico** lo declara §M4-PREP, ⛔ no esta línea); `?date=` **se conserva y desde v1.78.2 tiene conducta DECLARADA** (date-only `YYYY-MM-DD`, ventana de día UTC; malformado ⇒ `400`, ⛔ ya no `500` — la declara §M4-PREP, ⛔ no esta línea). Orden: `requestedAt` **asc** (lo más viejo primero, CA #9). Rol: **operador+** (sin cambio). ⛔ **Solo lectura, sin efectos** — ⚠️ **salvo el `409 CONFLICT` de fila corrupta** que §M4-PREP declara (es un rechazo de LECTURA: no escribe nada). Forma completa y decisiones en **[§M4-PREP](#M4-PREP)**.
 - `PATCH /api/v1/admin/shipments/:id/status` — Req `{ to: ShipmentStatus }` (transiciones `solicitado→picking→guia→enviado→entregado`).
   - **v1.21 — RAMIFICACIÓN OBLIGATORIA por tipo de envío (`orderId == null`?):**
     - **Retiro de bóveda (`orderId == null`)** → comportamiento v1.17 **sin cambio alguno**: los pasos
@@ -14804,7 +14824,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 > **Fuente de producto:** `PROJECT.md` §«Pedidos a preparar» (aprobado por el dueño 2026-09-15, con las 6
 > decisiones incorporadas). **Estado del código medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`, 2026-09-22**
-> (arquitecto). Esta sección aterriza **solo la visibilidad** (qué ve el operador). **El palomear/firmar, la sugerencia
+> (arquitecto). ⚠️ **v1.78.2: las mediciones de esta rev se tomaron sobre el árbol VIVO de esa rama el 2026-09-22
+> con backend y frontend escribiendo a la vez**, así que los artefactos se citan **por símbolo y fichero**, ⛔ nunca
+> por número de línea (corolario de redacción de §0-Q). *Un número de línea es una afirmación de estado que caduca
+> en el primer commit que inserta una línea encima.* Esta sección aterriza **solo la visibilidad** (qué ve el operador). **El palomear/firmar, la sugerencia
 > de bóveda y el reembolso parcial 💰 quedan PLANEADOS — fuera de esta versión** (ver el recuadro al final).
 >
 > ⛔ **CERO cambio de schema (Prisma).** Todo lo que despliega esta cola es **proyección de datos que ya existen**
@@ -14883,11 +14906,13 @@ export interface PreparationItemDTO {
   currentLocation: LocationView;      // resuelve "UNASSIGNED" (§6.B) — el código deja de viajar como string
 }
 
-// CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
-export interface LocationView {
-  kind: 'assigned' | 'unassigned';
-  label?: string;                     // "C03-F02-S15" cuando kind='assigned'; ausente cuando 'unassigned'
-}
+// CA #11: "UNASSIGNED" deja de viajar como código; el back manda ESTADO y, con él, su etiqueta.
+// ⭐ v1.78.2 — UNIÓN DISCRIMINADA, ⛔ ya NO `{kind; label?}`: con `label` opcional el estado ilegal
+// `{kind:'assigned'}` (sin etiqueta a la que caminar) era REPRESENTABLE, y cada consumidor lo
+// re-derivaba con su propio predicado. Aquí `assigned` ⇒ **hay etiqueta**, por el tipo.
+export type LocationView =
+  | { kind: 'assigned'; label: string }  // "C03-F02-S15" — NO en blanco (ver la nota de §M4-PREP)
+  | { kind: 'unassigned' };              // ⛔ sin `label`: la llave no existe en este brazo
 ```
 
 **Fuente de datos por campo (de dónde saca el backend cada cosa):**
@@ -14896,7 +14921,7 @@ export interface LocationView {
 |---|---|
 | `shipmentId` | `ShipmentRequest.id` |
 | `orderId` / `orderNumber` | `ShipmentRequest.orderId` / `Order.orderNumber` (join). **null** en retiro de bóveda |
-| `destination` | **DERIVADO** de `Order.fulfillmentMode`: `direct_ship`→`'ship'`; `vault`+`orderId` = imposible por invariante (lanza/loguea, igual que `kindForFulfillment`, `shipments.service.ts:513`). `orderId == null` (retiro) ⇒ `'ship'` |
+| `destination` | **DERIVADO** de `Order.fulfillmentMode`: `direct_ship`→`'ship'`; `vault`+`orderId` = imposible por invariante ⇒ **`409 CONFLICT` de toda la cola** (lanza/loguea, mismo cuerpo `kindForFulfillment` de `shipments/shipments.service.ts`; v1.78.2 lo declara abajo). `orderId == null` (retiro) ⇒ `'ship'` |
 | `requestedAt` | `ShipmentRequest.requestedAt` |
 | `customer.fullName` | con `userId`: `User.name` (NOT NULL en schema); invitado (`userId==null`): `addressSnapshot.recipientName`, **que puede faltar** ⇒ **`null`** (v1.78.1) |
 | `customer.lastName` | **DERIVADO** de `fullName` (último token). ⚠️ FRÁGIL (§6.A): nombres/apellidos compuestos fallan; `null` si no se puede derivar — **y `fullName === null` ⇒ `lastName === null`** por construcción. **No bloquea nada** en esta rebanada |
@@ -14907,8 +14932,9 @@ export interface LocationView {
 | `items[].card.{name,setName,imageSmallUrl}` | `Card.name` / `Card.set.name` / `Card.imageSmallUrl` |
 | `items[].card.finish` | `InventoryItem.finish` |
 | `items[].card.conditionLabel` | COMPUESTA en el back por precedencia: `gradingCompany`+`gradeValue` (p.ej. `"PSA 9"`) → `rawCondition` (`"NM"`) → `sealedCondition` (`mint`→`"Mint"`, `minor_box_damage`→`"Minor box damage"`) |
-| `items[].currentLocation` | `InventoryItem.location` (`VaultLocation.label`): `null`⇒`{kind:'unassigned'}`; poblado⇒`{kind:'assigned', label}` |
+| `items[].currentLocation` | `InventoryItem.location` (`VaultLocation.label`): sin fila ⇒ `{kind:'unassigned'}`; fila con etiqueta ⇒ `{kind:'assigned', label}`; **fila con etiqueta en blanco ⇒ `{kind:'unassigned'}`** (v1.78.2 — inalcanzable por construcción; ver la nota `LocationView` abajo) |
 | filtro `?destination=vault\|ship` | derivado de `fulfillmentMode` (ver ⚠️ de la cubeta `vault`). **Clase L** de §0-Q; dominio declarado en la línea «DOMINIO CANÓNICO» de abajo |
+| filtro `?date=YYYY-MM-DD` | ventana **`[T00:00:00.000Z, +24h)`** sobre `ShipmentRequest.requestedAt`. ⛔ **NO es §0-Q** (no es dominio cerrado de tokens): conducta completa en la nota «`?date=`» de abajo |
 
 **Notas de diseño / decisiones aterrizadas:**
 - `destination` **deriva** del discriminador canónico `Order.fulfillmentMode` (ARCHITECTURE §4.21d); no se inventa un
@@ -14963,6 +14989,189 @@ export interface LocationView {
   ⚠️ **La frase de v1.78 *«misma doctrina §0-Q que `?kind=`»* queda PRECISADA, no borrada:** era cierta sobre la
   **conducta** y falsa sobre la **clase** (`?kind=` está registrado como **R** — ver la nota `D-EQ-R1` de §0-Q
   punto 4, que es del arquitecto y no de este endpoint).
+
+- ### ⭐⭐ v1.78.2 — `?date=`: CONDUCTA DECLARADA, Y EL DOMINIO SE ESTRECHA A **date-only**. *(NORMATIVA. Lo levantó **QA** midiendo por HTTP; ⛔ no es §0-Q.)*
+
+  **El hueco, dicho sin adornos:** v1.78 escribió *«`?date=` se conserva»* y **eso no es una declaración de conducta**.
+  Conservar un parámetro es conservar también lo que hace ante entrada mal formada — y lo que hacía, medido por QA
+  contra el backend real: `?date=banana` ⇒ **`500`**, `?date=2026-13-45` ⇒ **`500`**, `?destination=ship&date=banana`
+  ⇒ **`500`**. `new Date('banana')` es un `Invalid Date` que llegaba **crudo al `where` de Prisma**. Es **textualmente**
+  el defecto que el comentario de `P-84` describe *resuelto* para `?status=` en este mismo servicio, vivo en el eje de
+  al lado. **Preexistente** a la reproyección (QA lo comprobó con `git log`), pero *«preexistente» explica de quién es
+  la culpa, no qué debe pasar* — y qué debe pasar es lo que el contrato tenía que decir y no decía.
+
+  **⛔ Por qué NO le aplica [§0-Q](#enum-query-filter), y por qué su `details` NO lleva `allowed`.** §0-Q gobierna
+  **dominios cerrados de tokens**, y su punto 7 ya excluye por clase a *«filtros que no son de dominio cerrado
+  (`q`, `from`/`to`, `minCents`/`maxCents`, paginación…): los gobierna la línea anterior de §0»*. El criterio operable
+  es el que v1.75 dejó escrito y **se aplica aquí sin cambiarle una coma**: *¿`details.allowed` se puede **enumerar**
+  en la respuesta?* Para un día del calendario, **no** — enumerarlo es tan absurdo como `allowed:[0,1,…,100]` para un
+  rango. ⇒ **el error lo explica la GRAMÁTICA en el `message`**, igual que un rango la explica nombrando sus dos
+  extremos. *Meter una fecha en el registro del punto 4 obligaría a inventar una segunda forma de `details`, que es
+  exactamente lo que §0-Q nació para impedir.* **Su censo en `C-EQ-1` no cambia y sigue siendo obligatorio:**
+  `'GET /admin/shipments/picking-list::date'` ya está en `NO_ENUM_POR_RUTA` (medido 2026-09-22) — *«no aplica» no es
+  lo mismo que «nadie lo mira»*.
+
+  **CONDUCTA NORMATIVA — cuatro filas, y la validación ocurre ANTES de tocar Prisma:**
+
+  | Entrada | Conducta |
+  |---|---|
+  | Ausente, cadena **vacía**, o **solo espacios** (tras `trim()`) | ⭐ **No filtra** — `200` con la cola entera. ⛔ **Nunca `400`**: un `<input type=date>` que el operador tocó y dejó en blanco manda cadena vacía. Hacen falta **las dos mitades**: `if (x)` deja pasar `' '` (un espacio es *truthy*) y `x === ''` no atrapa el espacio |
+  | `YYYY-MM-DD` de un día que **existe** (tras `trim()` de los espacios que rodean al token) | Filtra la ventana **`[fechaT00:00:00.000Z, +24h)`** sobre `requestedAt` |
+  | `YYYY-MM-DD` **sintáctico pero de un día inexistente** (`2026-13-45`, `2026-02-30`) | ⛔ **`400 VALIDATION_ERROR`**. ⛔ **Jamás `200` con lista vacía:** una lista vacía afirma *«ese día no hay nada que preparar»*, y eso es responder con un hecho a una pregunta que no se pudo leer |
+  | **Cualquier otra cosa** — texto libre, `?date=a&date=b` (llega como `'a,b'`, §0-Q punto 1 fila 3), **y también un datetime ISO completo** (`2026-09-20T14:30:00Z`) | ⛔ **`400 VALIDATION_ERROR`** |
+
+  **Forma del `400`, literal:** `{ error: { code: 'VALIDATION_ERROR', message, details: { field: 'date' } } }`.
+  - **`details.field` y NADA MÁS.** ⛔ **Sin `allowed`** (no enumerable, arriba) y ⛔ **sin eco del valor del cliente**
+    — §0-Q punto 2 lo prohíbe en todo eje nuevo **y ya norma la cota del eco** justamente porque devolver la entrada
+    del cliente sin tope es amplificación *(backend cita una medición de `P-89` con esa forma; ⛔ **no re-medida por el
+    arquitecto**, y la decisión no depende de ella: la prohibición del punto 2 basta)*. *La llave que el cliente no
+    tiene ya es `field`; el valor lo mandó él.*
+  - ⚠️ **Divergencia con `from`/`to` de §0, declarada en vez de escondida.** El helper transversal
+    (`common/admin-list-filters.ts`) emite `{ [field]: raw }`. **Ésa es la grafía LEGADA y se congela donde está**
+    — mismo trato que §0-Q dio a `details.value` de los dos catálogos públicos: *ya estaba publicada, no se retro-edita;
+    lo que NO puede es heredarla un eje que se declara hoy.* ⇒ **`?date=` nace con `field`**. ⛔ Unificar las dos formas
+    **es cambio de §0-Q** y no se hace aquí.
+
+  **⭐ POR QUÉ SOLO date-only, y por qué esto es MÁS ESTRECHO que lo que el código acepta hoy** *(es la única parte
+  de esta declaración que pide código nuevo, y el motivo importa)*: `?date=` **no recibe una ventana, recibe un día**
+  — el otro extremo **lo inventa el endpoint** (`+24h`). Con un datetime completo eso produce una **ventana deslizante
+  que cruza dos días del calendario** (`2026-09-20T14:30Z` ⇒ hasta el **21** a las 14:30): el operador **no puede
+  nombrar** lo que le contestaron, y la cola responde en silencio **una pregunta distinta de la que se hizo** — misma
+  familia que el *clamp* silencioso que §0-Q punto 6 prohíbe. En `from`/`to` el datetime **sí** tiene semántica (el
+  cliente da los dos extremos, §Convenciones v1.25.1); **en un eje de un solo valor, no la tiene.**
+  - **Coste del estrechamiento: CERO, medido (2026-09-22, arquitecto).** El único llamador es nuestro propio
+    back-office (`getAdminPreparationQueue` en `frontend/src/lib/api.ts`), y **la pantalla no manda `date`**
+    (`PreparationQueue.tsx` llama con `{ destination }`). El endpoint es `@Roles(vault_operator, super_admin)` ⇒ **no
+    hay clientes de terceros**. *Estrechar ahora cuesta un `RegExp`; estrenar después la ventana deslizante como si
+    fuera una función cuesta una sección.*
+  - **La gramática es UNA en el repositorio:** el backend **reusa la noción de date-only que ya existe**
+    (`DATE_ONLY_RE` en `common/admin-list-filters.ts`), ⛔ no escribe una tercera. **Lo que NO hereda de ese helper es
+    la forma del `details`** (arriba).
+  - **Día existente ⇒ gramática Y calendario.** `2026-13-45` **pasa** el `RegExp` y **falla** el calendario: hacen
+    falta las dos comprobaciones (`Number.isNaN(d.getTime())` sobre el `Date` construido cierra la segunda).
+
+  **Anclaje temporal: UTC, y se escribe para que nadie lo «arregle» en un solo endpoint.** `YYYY-MM-DD` se ancla al
+  borde del día **en UTC** — la misma convención que §0 fija para `from`/`to` (v1.25.1). ⚠️ **Consecuencia conocida y
+  aceptada:** para el operador en CDMX (UTC−6) ese «día» corre de 18:00 a 18:00 locales. **Cambiar eso es cambiar la
+  convención TRANSVERSAL de §0**, no este endpoint: ⛔ prohibido que `?date=` estrene una zona horaria propia — sería
+  la segunda semántica de «día» del back-office, y la peor clase de segunda: invisible.
+  **Ventana medio abierta `[d, d+24h)`, ⛔ no `lte 23:59:59.999`:** ningún instante cae en dos días, y la corrección
+  **no depende de la precisión del almacenamiento**.
+
+  **Precedencia entre los dos ejes, para que sea determinista y aserta­ble:** si `?destination=` **y** `?date=` vienen
+  mal a la vez, gana el **primero**: se valida `destination` (§0-Q) y después `date`. **Las dos validaciones ocurren
+  antes de cualquier consulta**, así que un `400` de este endpoint **no leyó nada**.
+
+- ### ⭐⭐ v1.78.2 — EL `409 CONFLICT` DE LA FILA CORRUPTA: SE DECLARA, Y SE ASUME QUE **ENSANCHA** EL RADIO DE ESTALLIDO. *(NORMATIVA. Lo levantó **QA** (M-1); el **techlead** lo ratificó con el matiz que aquí se posee.)*
+
+  **La conducta existía, estaba candada (`shipments.picking-list.spec.ts`) y NO estaba escrita.** Se escribe ahora, y
+  ⛔ **no cambia**: una conducta candada pero no declarada es una conducta que el primer refactor puede «arreglar»
+  sin que nadie pueda citar en contra.
+
+  **Regla:** si **alguna** fila de la cola tiene `orderId` presente y su `Order.fulfillmentMode` **no es
+  `direct_ship`** —es decir `vault`, un modo de fulfillment nuevo sin destino decidido, o **una orden inexistente**—
+  el endpoint responde **`409 CONFLICT` para la petición ENTERA**, con el `shipmentId` y el modo observado en el
+  `message`, y deja el hecho en el log (nivel `error`). **⛔ No se sirve una lista parcial, no se omite la fila, no se
+  inventa un destino.**
+
+  | Cuándo | Respuesta |
+  |---|---|
+  | Toda fila deriva su destino | **`200`** `{ data }` |
+  | **Una sola** fila viola el invariante | ⛔ **`409 CONFLICT`** — la cola entera, **independientemente de `?destination=`** y de en qué cubeta cayera la fila corrupta |
+
+  **Las cuatro razones, y la tercera es la que el techlead pidió que se poseyera a sabiendas:**
+  1. **No es un fallo de lectura: es el discriminador canónico de la ruta de fulfillment contradiciéndose**
+     (`Order.fulfillmentMode`, ARCHITECTURE §4.21d) — el mismo que decide a dónde va físicamente la mercancía y qué
+     transición terminal escribe inventario. *Servir una cola que sabemos mentirosa es pedirle al operador que
+     prepare mercancía sobre un modelo roto.*
+  2. **Cero vocabulario nuevo: es el cuerpo que ya gobierna `/admin/shipments` y `/admin/shipments/:id`**
+     (`kindForFulfillment` en `shipments/shipments.service.ts`, que **loguea y lanza**). Un cuerpo, muchos lectores
+     (§4.39c). Declarar aquí otra cosa sería una segunda respuesta para el mismo hecho.
+  3. ⚠️ **Sí: esto ENSANCHA el radio de estallido en vez de estrecharlo, y es la dirección correcta AQUÍ.** Filtrando
+     por `fulfillmentMode` en SQL, la corrupción solo habría reventado **su** cubeta — y su cubeta es
+     **`vault`, que hoy devuelve VACÍO** (hallazgo de v1.78): una fila corrupta habría quedado **invisible en la única
+     cubeta que alguien mira**. Junto al dinero y al inventario, *denunciar en todas partes > esconder en una*. El
+     código ya lo dice donde se decide (el filtro se aplica **después** de derivar, ⛔ no en el `where`) y esta línea
+     es lo que lo convierte en decisión en vez de en herencia.
+  4. **⛔ Degradar por fila queda PROHIBIDO, y se nombra para que nadie lo «mejore».** Saltarse la fila convierte una
+     violación de invariante en **una lista más corta** — y en una cola de preparación una lista más corta se lee
+     exactamente igual que *«no hay nada que preparar»*: un envío **ya cobrado** que nunca sale por la puerta. *El
+     modo de fallo más caro de esta pantalla es el silencioso, no el ruidoso.*
+
+  **Cuerpo del `409` — hoy y objetivo, con la diferencia dicha:** hoy es `{ error: { code: 'CONFLICT', message } }`,
+  con `shipmentId` y modo observado **en el `message`**. La **forma objetivo** es
+  `details: { shipmentId: string, fulfillmentMode: FulfillmentMode | null }` (`null` = la orden referida no existe —
+  ⛔ **jamás un centinela de texto**: `null` es la única marca de ausencia de este DTO, v1.78.1), para que el renglón
+  a reparar sea **identificable por máquina** y no por *substring* del mensaje. ⛔ **No se abre un pase por esto**: el
+  cuerpo es **compartido** con dos endpoints ya con gates aprobados, y es **precedente literal de §M5-T** — *«no se
+  abre un pase para uniformar un `details`»*. **Se cierra con la rebanada interactiva.** *(Deuda **no bloqueante**,
+  dueño **backend**.)*
+
+  **Obligación del consumidor (frontend), porque un `409` en un `GET` es raro y se puede leer mal:** ⛔ **no se
+  renderiza como «cola vacía»** ni como un error genérico de red. Es un estado con nombre: *los datos de un pedido
+  están corruptos y hay que avisar a soporte*, y el `shipmentId` del mensaje es la pista. **La redacción la decide
+  ux-ui** (su sitio es `DESIGN_SYSTEM §35.8`, «Carga, error y vacío», que ya distingue el **vacío** del **error**);
+  lo que el contrato fija es que **este `409` es distinguible de `200 {data:[]}`** y que el operador no se quede
+  creyendo que terminó su trabajo. ⛔ **Y no escribe nada**: el endpoint sigue siendo de solo lectura.
+
+- ### ⭐⭐ v1.78.2 — `LocationView` PASA A UNIÓN DISCRIMINADA. *(Lo propuso el **techlead**, midiendo; el arquitecto re-midió la alcanzabilidad y decide. ⛔ Cero schema.)*
+
+  **El defecto, que es el mismo de v1.78.1 en el campo de al lado:** `{ kind: 'assigned' | 'unassigned'; label?: string }`
+  ponía el invariante **en el comentario** y dejaba el estado ilegal **representable** — `{kind:'assigned'}` sin
+  etiqueta a la que caminar. **Lo que eso costaba ya estaba pagado, medido por el techlead:** **cuatro** ramas
+  defensivas (el comparador `byLocation` del backend, dos sitios de `PreparationQueue.tsx` y el tipo espejo de
+  `contract.ts`) y **una divergencia de orden real entre back y front** —el back ordena por `label === undefined`, el
+  front re-deriva «sin ubicar» con **otro predicado** (*falsy*)—: ante `{kind:'assigned', label:''}` el back la pone
+  **primera** y el front **última**. Hoy es inalcanzable **por cómo se compone la etiqueta** (punto 3 de abajo), ⛔ no
+  porque el tipo lo impida — y **el tipo es el único sitio donde eso deja de ser suerte**. *Cuando cuatro sitios
+  re-derivan el mismo invariante con tres predicados distintos, el invariante no está en ninguno.*
+
+  **NORMA:**
+  ```ts
+  type LocationView = { kind: 'assigned'; label: string } | { kind: 'unassigned' };
+  ```
+  - **`assigned` ⇒ hay etiqueta, por el TIPO.** El consumidor narra con `kind` y ⛔ **no vuelve a preguntar por
+    `label`**: `if (loc.kind === 'assigned')` es la única prueba admitida. ⛔ **Prohibido `if (loc.label)`.**
+  - **`label` NO viene en blanco** (⛔ ni `''` ni solo espacios): es la misma decisión que `fullName` en v1.78.1 —
+    *un hecho, una grafía*. La marca de ausencia de este campo es **`{kind:'unassigned'}`**, y es **una sola**.
+  - **Una `VaultLocation` cuya `label` esté en blanco se sirve `{kind:'unassigned'}`.** El colapso vive en **UN**
+    sitio (`locationViewOf`), ⛔ nunca en el consumidor.
+
+  **⚠️ Esto RESUELVE, en contra, la tercera cara de `B-1` que backend razonó en `locationViewOf` — y el porqué, entero,
+  porque su argumento no era malo:** backend distingue *«`kind` describe la FILA, `label` describe el TEXTO, son dos
+  hechos»* y por eso servía `{kind:'assigned'}` **sin** llave. Tres respuestas, en orden de peso:
+  1. **La distinción es cierta en la tabla y ociosa en esta hoja.** El DTO no es el espejo de `VaultLocation`: es la
+     **hoja de trabajo del operador**, y su única pregunta es *«¿hay un sitio al que caminar?»*. **Los tres consumidores
+     ya colapsan los dos hechos en uno** — y el propio comentario de backend lo concede donde importa: *«esa carta
+     ordena al final, junto a las `unassigned` — correcto, porque es exactamente igual de no-caminable»*.
+     `DESIGN_SYSTEM §35.3`/`§35.4` dice lo mismo desde la pantalla: **«Sin ubicar», al final de su pedido** (y ⛔ *«ni
+     una cadena vacía que la cuele arriba en el orden»*). *Un hecho que todos
+     los consumidores colapsan no es un hecho que el DTO deba transportar: es un estado ilegal representable con
+     coartada.*
+  2. **«Mandaría a la cubeta equivocada» no aplica: `kind` no encubeta nada.** Las cubetas de esta cola las decide
+     **`?destination=`**. `kind` decide **el chip y la posición en el orden**, y en los dos la pieza sin etiqueta
+     pertenece con las «Sin ubicar».
+  3. **El estado que se defendía es INALCANZABLE, medido hoy (2026-09-22, arquitecto), no supuesto:** el único
+     creador de ubicaciones compone la etiqueta como `"<box>-<row>-<slot>"` (`inventory.service.ts`, `createLocation`)
+     ⇒ **siempre contiene los dos guiones**, aunque los tres componentes vinieran vacíos (`"--"`); los otros tres
+     escritores son *seeds* con etiqueta literal (`prisma/seed.ts`, `prisma/seed-e2e.ts`). **Ningún escritor puede
+     producir `label` en blanco.** *Pagar un estado ilegal permanente en un DTO compartido para defender un fantasma
+     es el intercambio equivocado.* ⛔ **Y NO se acuña un tercer `kind`** (`assigned_unlabeled`): sería vocabulario
+     nuevo, en todos los consumidores, para ese mismo fantasma.
+  - **Lo que backend NO pierde:** su helper de blancos y su censo **siguen intactos y siguen siendo necesarios** —
+    lo único que cambia es **a dónde enruta** el blanco: a `{kind:'unassigned'}` en vez de a un `assigned` sin llave.
+
+  **⛔ `LocationView` es de PRESENTACIÓN, y esto se escribe ANTES de la rebanada interactiva:** ninguna escritura
+  futura —palomear, firmar, sugerir ubicación— decide **a partir de este campo**. La fuente para asignar o mover una
+  pieza es **`InventoryItem.locationId`**, leída del motor. *`{kind:'unassigned'}` responde «no hay a dónde caminar»,
+  ⛔ no «esta pieza no tiene fila de ubicación».*
+
+  **Por qué AHORA y no como deuda** *(el techlead dijo que no bloquea esta fusión, y tiene razón — la conducta
+  observable es idéntica)*: **(a)** el tipo es **compartido** y la rebanada interactiva consume el mismo DTO ⇒ añadiría
+  una **quinta** rama; **(b)** el cambio lo **verifica el compilador**: la unión obliga a estrechar en cada lectura, que
+  es la clase de cambio más segura que existe; **(c)** es **un pase de contrato en vez de dos** sobre la misma zona
+  compartida; **(d)** el `label?` es literalmente el campo de al lado del `fullName` de v1.78.1, y *aplicar la
+  disciplina solo cuando es cómoda no es disciplina*.
 
 > ### ⚠️⚠️ HALLAZGO DE MEDICIÓN (arquitecto, 2026-09-22) — la cubeta `vault` **NO tiene datos** bajo el modelo actual
 > La cola de hoy proyecta **solo `ShipmentRequest{status:'picking'}`**, y **todo** `ShipmentRequest` es físicamente un

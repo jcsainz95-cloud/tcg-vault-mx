@@ -6747,6 +6747,51 @@ nombre vacío legítimo y obliga a todo consumidor a `if (!x)` en lugar de `x ==
 en la práctica** (medición de backend: los snapshots de 8 campos son de retiros, que tienen `User.name`) **no cambia la
 decisión**: el contrato declara la forma de la fuente, no su suerte.
 
+#### ⭐ v1.78.2 — las dos conductas que el contrato CALLABA, y el tipo que permitía el estado ilegal
+
+> **De dónde viene:** los dos gates de la rebanada. **QA** midió por HTTP el `500` de `?date=` y levantó el `409` que
+> nadie había escrito; el **techlead** midió lo que costaba el `label?`. **Ninguno de los tres es un defecto nuevo:
+> los tres son huecos de DECLARACIÓN.** Contrato: `API_CONTRACT §M4-PREP` (conducta normativa entera).
+
+**(1) `?date=` — «se conserva» no es una declaración de conducta.** v1.78 escribió esa frase y con ella heredó, sin
+decidirlo, que `?date=banana` devolviera **`500`** (`Invalid Date` crudo al `where` de Prisma) — el defecto que el
+comentario de `P-84` describe *resuelto* para `?status=` en el mismo servicio. La decisión tiene **dos** mitades y la
+segunda es la que importa: **(a)** malformado ⇒ `400 VALIDATION_ERROR` con `details:{field:'date'}` — ⛔ **sin
+`allowed`**, porque §0-Q **no aplica** (un día del calendario no es un dominio cerrado de tokens y su `allowed` **no se
+puede enumerar**: criterio literal de §4.37/§0-Q punto 7) y ⛔ **sin eco del valor** (§0-Q punto 2 ya lo prohíbe en todo
+eje nuevo y norma la cota del eco; la medición de amplificación que backend cita de `P-89` ⛔ **no la re-midió el
+arquitecto** y la decisión no depende de ella);
+**(b)** ⭐ el dominio se **estrecha a date-only `YYYY-MM-DD`**, porque este eje **no recibe una ventana sino un día** y
+el otro extremo lo **inventa el endpoint** (`+24h`): admitir un datetime produce una **ventana deslizante que cruza dos
+días del calendario**, que el operador no puede nombrar. *Una cola que contesta en silencio una pregunta distinta de la
+que se hizo es la misma familia que el clamp silencioso.* **Coste del estrechamiento: cero, medido** — ningún llamador
+manda `date` hoy (`frontend/src/lib/api.ts` lo admite, la pantalla no lo envía) y el endpoint es admin-only, sin
+clientes de terceros. El anclaje sigue siendo **UTC**, igual que `from`/`to` (§0 v1.25.1): ⛔ un endpoint **no** estrena
+zona horaria propia.
+
+**(2) El `409` de la fila corrupta: el radio de estallido ENSANCHA, y se posee.** `destinationOf` deriva dentro del
+`map`, así que **una sola** fila con `orderId` y `fulfillmentMode ≠ direct_ship` rechaza la cola **entera**, no solo su
+cubeta. Estaba candado y **no estaba escrito**. Se ratifica **rechazar entero** y se **prohíbe** degradar por fila:
+filtrando en SQL la corrupción solo habría reventado **su** cubeta — y esa cubeta es **`vault`, que hoy devuelve vacío**
+(hallazgo de abajo) ⇒ la fila corrupta habría quedado **invisible en la única cubeta que alguien mira**. Junto al dinero
+y al inventario, *denunciar en todas partes > esconder en una*; y una lista más corta en una cola de preparación **se
+lee igual que «no hay nada que preparar»** — un envío ya cobrado que nunca sale por la puerta. Cuerpo: el que ya
+gobierna `/admin/shipments` (`kindForFulfillment`), **un cuerpo, muchos lectores** (§4.39c).
+
+**(3) `LocationView`: unión discriminada, y por qué se decide EN CONTRA de la tercera cara de `B-1`.** `{kind; label?}`
+dejaba representable `{kind:'assigned'}` sin etiqueta y obligaba a **cuatro** re-derivaciones con **tres** predicados
+distintos (`label === undefined` en el back, *falsy* en el front), con una **divergencia de orden** back↔front
+representable. Pasa a `{kind:'assigned'; label: string} | {kind:'unassigned'}`. Backend razonaba que *«`kind` describe
+la fila y `label` el texto, son dos hechos»* — **cierto en la tabla, ocioso en esta hoja**: el DTO no espeja
+`VaultLocation`, es la hoja de trabajo del operador, cuya única pregunta es *«¿hay sitio al que caminar?»*, y los tres
+consumidores **ya** colapsan los dos hechos (el propio comentario de backend lo concede al ordenar el blanco junto a las
+`unassigned`). Y el estado defendido es **inalcanzable, medido 2026-09-22**: el único creador compone
+`label = box-row-slot` (`inventory.service.ts`, `createLocation`) ⇒ **siempre trae los dos guiones**, y los otros
+escritores son *seeds* con etiqueta literal. *Pagar un estado ilegal permanente en un DTO compartido para defender un
+fantasma es el intercambio equivocado* — y ⛔ un tercer `kind` lo sería aún más. Se cierra **ahora** y no como deuda
+porque la rebanada interactiva consume el mismo DTO (sería la quinta rama) y porque **el compilador verifica el cambio**:
+la unión obliga a estrechar en cada lectura.
+
 #### ⚠️⚠️ Hallazgo de medición (arquitecto, 2026-09-22) — la cubeta `vault` no tiene datos bajo el modelo actual
 
 Medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`:
