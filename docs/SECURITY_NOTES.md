@@ -1,3 +1,530 @@
+# VEREDICTO BLUE TEAM — **M4-PREP «Pedidos a preparar»** (reproyección de SOLO LECTURA de `GET /admin/shipments/picking-list`) · SHA **`5e6f2ee`** (rama `claude/m4-pedidos-preparar`) · 2026-09-22
+
+> ## ⭐ VEREDICTO — **APROBADO** sobre `5e6f2ee`
+>
+> **0 críticos · 0 altos abiertos** ⇒ el DoD («sin hallazgos críticos/altos abiertos») se cumple.
+> Quedan registrados abajo **1 Media** y **3 Bajas** como deuda de seguridad aceptada, cada una con
+> su disparador. **Nada de esto bloquea la fusión de este stream.**
+>
+> **Conclusión sobre el corte, con las palabras que el encargo pide:** *este stream **no introduce
+> riesgo nuevo de autorización, de inyección, de dinero ni de secretos**.* Lo que sí ensancha —y es lo
+> único que ensancha— es la **concentración de PII en una sola pantalla**, y eso está **decidido por
+> producto** (CA #6 de §S), **acotado por candados que muerden** y **no otorga ninguna capacidad nueva
+> a ningún rol**. Lo medido que sostiene cada mitad de esa frase está abajo.
+
+> ### Sobre qué sha emito el veredicto, y cómo medí
+> **`5e6f2ee`**, árbol **limpio** (`git status --porcelain` vacío, verificado antes y después de cada
+> mutación). ⚠️ **El red team midió `f835f19`**, que es **4 commits anterior**: `975a307` (sus propias
+> notas), `7b45d69` (contrato v1.78.3), `6018ee5` y `5e6f2ee` (§M4P-ORDER). **Ese delta NO lo atacó
+> nadie del red team y lo audito yo aquí** (§5 de «lo que revisé yo»).
+>
+> **Instrumento:** copia del árbol **ENTERO** (`git archive 5e6f2ee`, ⛔ no un subárbol — las suites
+> leen `docs/`) en scratchpad propio; BD y rol **propios** (`seg_m4`/`tcg_seg_m4`), creados y
+> **destruidos** al terminar. ⛔ Nunca toqué `tcg_marketplace`, `tcg_qa_*`, `tcg_m4prep*`,
+> `tcg_pentest_*` ni `tcg_orq_o9`; comprobé `pg_stat_activity` antes y después y la sesión viva de QA
+> (`qa_m4c`/`tcg_qa_m4c`, 2 conexiones) **sobrevivió intacta**. ⛔ No escribí una sola línea de código:
+> las mutaciones corrieron **sobre la copia** y se restauraron.
+>
+> **`[medido]`** = lo corrí yo sobre `5e6f2ee`. **`[código]`** = lectura del árbol. **`NO MEDIDO`** =
+> dicho así, con la medición que lo cerraría. Toda proporción lleva su **N** (O-3).
+
+---
+
+## Resumen: qué entra, con qué severidad, y quién lo corrige
+
+| ID | Hallazgo | Severidad **mía** | Sev. red team | Rol dueño | ¿Bloquea? |
+|---|---|---|---|---|---|
+| `S-M4P-A` | **NUEVO (mío)** · El guard de rol del endpoint que este stream volvió PII-denso **no tiene candado de regresión**, y `RolesGuard` **falla ABIERTO** | **Media** | — (no lo buscó) | **backend** | **No** |
+| `S-M4P-B` | **NUEVO (mío)** · La cola de PII se sirve **sin `Cache-Control: no-store`**, contra el precedente del propio proyecto | **Baja** | — (no lo buscó) | **backend** | **No** |
+| `M4P-1` | El `409` de una fila corrupta niega la cola entera (y `GET /admin/shipments`) | **Baja** (confirmo) | Baja | backend (vía arquitecto) | **No** |
+| `M4P-2` | La cola se sirve completa, sin paginar, con `include` de 4 niveles | **Baja** (confirmo) | Baja | backend / devops | **No** |
+| `M4P-3` | `?destination=` refleja el valor del cliente en `message` (tope 64) | **Info** (confirmo) | Info | n/a — conducta ratificada | **No** |
+| `M4P-4` | La expansión de PII no es exposición de authz nueva | **Info** (confirmo el fondo, **corrijo un matiz**) | Info | n/a | **No** |
+| `M4P-5` | Nombre/destinatario en blanco aceptado por los DTO | **Info** (confirmo) | Info | backend (otro stream) | **No** |
+| `S-M4P-C` | **NUEVO (mío)** · La postura de dependencias `REL-D` está **CADUCA**; re-medida | **Info** | «NO RE-MEDIDO» | devops | **No** |
+
+---
+
+# PARTE 1 — Consolidación de los cinco hallazgos del red team (`M4P-1`..`M4P-5`)
+
+## `M4P-1` · El `409` de una fila corrupta niega la cola entera — **CONFIRMO Baja**, y **amplío el censo**
+
+**El red team dice:** el estado corrupto (`ShipmentRequest{status:'picking', orderId→Order.fulfillmentMode='vault'}`) **no es alcanzable por la API**; tuvo que sembrarlo con SQL directo. Censó los caminos de **creación** de `ShipmentRequest`.
+
+**Coincido — y cierro el eje que él NO censó.** Su censo mira cómo *nace* el envío; falta preguntar si la orden puede **cambiar de modo DESPUÉS** de que el envío exista. Es el camino obvio a la corrupción y no estaba medido. Lo medí `[código]`:
+
+- **Creación** (confirmo su censo): solo dos sitios crean `ShipmentRequest` con `orderId` —
+  `payments.service.ts:412` (dentro de `settleDirectShipOrder`, alcanzable **solo** por la rama
+  `direct_ship`) y `orders.service.ts:1554` (`reexpedir`, guardada en `:1499` con
+  `fulfillmentMode !== 'direct_ship' ⇒ 400`).
+- **⭐ Mutación posterior (eje nuevo):** censé **todos** los `order.update` / `order.updateMany` /
+  `upsert` del backend (17 sitios) y **NINGUNO escribe `fulfillmentMode`**. Comprobación:
+  `grep -rn -A6 "\.update(\|\.updateMany(\|\.upsert(" backend/src | grep fulfillmentMode` ⇒ **0
+  aciertos en código**. `fulfillmentMode` se fija **en la creación de la orden y nunca se reescribe**.
+
+⇒ **El estado corrupto es inalcanzable por las DOS puertas**, no solo por la que él miró. **Confirmo Baja** y confirmo que **no es condición de release**.
+
+**Candado verificado [medido]:** muté `kindForFulfillment` para que `vault` devolviera
+`'guest_direct_ship'` en silencio (tragarse la corrupción) ⇒ `shipments.picking-list.spec.ts` **1 roja
+de 102** (N=1; determinista, sin carrera ni temporizador). **La denuncia del invariante está
+guardada.**
+
+---
+
+## `M4P-2` · Cola sin paginar — **CONFIRMO Baja**
+
+Verificado `[código]`: `pickingList` hace `findMany` sin `skip`/`take`; el throttler es el global
+`default` (`app.module.ts:46`: `ttl 60_000, limit 300`) y **no hay `@Throttle` propio** en
+`backend/src/modules/shipments/` (grep ⇒ 0). Requiere credencial de operador válida y la cardinalidad
+la acota el nº de envíos pagados-sin-preparar. La lista plana anterior tampoco paginaba.
+
+**Matiz que añado:** la deuda `M4P-SORT` (`docs/TECH_DEBT.md`) ata una cosa a la otra — el cliente
+**re-ordena la lista completa**, y eso solo es correcto **mientras la cola no pagine**. Así que
+paginar no es solo una mejora de recurso: **arrastra la retirada de `sortPreparationOrders` /
+`sortPreparationItems` del cliente**. Quien tome `M4P-2` tiene que tomar las dos. **No bloquea.**
+
+---
+
+## `M4P-3` · Eco de `?destination=` — **CONFIRMO Info**, y respondo si la asimetría es defendible (pregunta 3 del encargo)
+
+**La asimetría es DEFENDIBLE, y no es deuda.** No es una omisión: es la postura estricta aplicada
+donde se estrena y la laxa congelada donde ya estaba publicada. Lo sostengo con cuatro mediciones:
+
+1. **No es vector de amplificación.** `ENUM_FILTER_ECHO_MAX = 64` acota el eco y **declara** lo
+   omitido (`…(+N)`). Una petición grande produce una respuesta **más pequeña** ⇒ **de-amplificación**.
+   **Candado verificado [medido]:** muté `echoSafe` para devolver el valor sin tope ⇒
+   `test/enum-filter.spec.ts` **4 rojas de 23** (N=1, función pura). El tope muerde.
+2. **No es XSS.** `Content-Type: application/json` + `helmet()` (`nosniff`), y en el cliente
+   **`grep -rn dangerouslySetInnerHTML frontend/src/` ⇒ 0 aciertos**: React escapa. El `<script>` viaja
+   como dato.
+3. **⭐ No es inyección de bitácora, y esto no lo había mirado nadie.** El valor del cliente **nunca
+   llega a un log**: `AllExceptionsFilter` **retorna en la línea 33** para toda `BusinessException`,
+   **antes** de cualquier `logger.*`; y no hay middleware de petición que registre la query
+   (`morgan`/interceptor ⇒ **0 aciertos** en `backend/src`). Sin sumidero, un `\r\n` en el valor no
+   forja nada.
+4. **Endpoint autenticado y con guard de rol** — a diferencia del caso que originó el tope (`P-89`,
+   catálogo `@Public()`).
+
+Y el eje `?date=` **no ecoa nada** por una razón de fondo, no por descuido: un enum tiene dominio
+cerrado y el eco ayuda a reconocer el *near-miss* del propio token (`holofil`→`holofoil`); **un día
+del calendario no es near-miss de nada enumerable**. §0-Q punto 2 prohíbe el eco a los ejes que nacen
+hoy, y `?date=` lo cumple. **La dirección de viaje es la correcta.** ⛔ Ninguna acción.
+
+---
+
+## `M4P-4` · La PII — **CONFIRMO el fondo**, pero **corrijo un matiz que el red team afirmó de más**
+
+**Lo que confirmo, y lo confirmo por código (él lo midió por HTTP; son dos fuentes, no una):** la
+reproyección **no otorga ninguna capacidad nueva a ningún rol**.
+
+- `toAdminShipmentRow` (`shipments.service.ts:231`) devuelve **`addressSnapshot` crudo**, y lo usan
+  **`adminList`** y **`adminGet`** (vía `withAdminKind`, `:641`). El operador **ya leía la dirección
+  completa** por `GET /admin/shipments` y `GET /admin/shipments/:id`, **mismo controlador, mismo
+  guard de clase**.
+- El guard **no cambió** en este stream: el diff de `admin-shipments.controller.ts` es **la firma del
+  handler y un docblock**; `@Roles(Role.vault_operator, Role.super_admin)` sigue a **nivel de clase**
+  (`:13`). **0 rutas nuevas, 0 cambios de guard** — verificado por mí sobre el diff, coincide con lo
+  que el orquestador midió.
+- **La cola es incluso MÁS ESTRECHA en un eje:** `withAdminKind` expone **`guestEmail`** al operador;
+  **`PreparationOrderDTO` NO lo lleva.** La reproyección **quitó** un campo de contacto.
+
+**⛔ El matiz que corrijo (afirmación de más del red team):** dice *«el `shipTo` solo se sirve para
+`destination='ship'`»*, y lo presenta como acotación. **Es cierto y es vacuo.** `destinationOf`
+(`:907`) devuelve `'ship'` en **las dos** ramas — `orderId == null` ⇒ `'ship'`, y con `orderId` la
+única salida no-lanzante es `'ship'`. El propio código lo declara (`:723`) y el E2E lo confirma
+(`?destination=vault` ⇒ **vacío**). ⇒ **el 100 % de las filas de esta cola llevan la dirección postal
+completa.** No es un defecto, pero **presentarlo como acotación es tranquilizar con una condición que
+siempre se cumple**, y la acotación real es otra: los candados de forma (abajo).
+
+**⭐ Y aquí está la mitad que el red team no pesó: la autorización no cambia, pero la EXPOSICIÓN
+INCIDENTAL sí.** Antes de este corte, la pantalla diaria del operador mostraba `{folio, ubicación}` —
+**cero PII**. Ahora esa misma pantalla, la que está abierta toda la jornada en una estación de
+almacén, muestra **nombre + calle + colonia + CP + teléfono de cada pedido pagado**. Los otros dos
+endpoints existían, pero son **otra pantalla y otro gesto**. Que la *capacidad* no crezca no
+significa que el *riesgo* no crezca: cambia la superficie de hombro, de captura de pantalla y de
+caché de disco (⇒ `S-M4P-B`). Esto **no es un defecto** —está decidido, ver abajo— pero **es el hecho
+central de este stream** y merecía nombrarse entero.
+
+### ¿Es coherente con la política de PII del dueño? (pregunta del encargo) — **SÍ, y está DECIDIDO**
+
+La política es: *las imágenes de INE las ve **solo** el súper-administrador, nunca el operador de
+bóveda.* Verificado que se sostiene `[código]`: `GET /admin/:id/kyc/ine-links` lleva
+`@Roles(Role.super_admin)` + `ActorThrottlerGuard` + `@Throttle(10/min)` + `Cache-Control: no-store` +
+`X-Robots-Tag` + auditoría **fallo-cerrado** (`admin.controller.ts:313-318`).
+
+**No es una asimetría que nadie decidió.** Son **dos clases de dato distintas** y la distinción es
+coherente:
+
+| | INE | Dirección de envío |
+|---|---|---|
+| Qué es | **documento de identidad** (KYC del vendedor) | **dato operativo del encargo** |
+| Para qué lo necesita el operador | **para nada** | **para meter la carta en la caja y rotular la guía** |
+| Quién la ve | solo `super_admin` | `vault_operator` + `super_admin` |
+
+Negarle la dirección a quien escribe la etiqueta del paquete no sería minimización, sería impedirle
+el trabajo. **Y está escrito como requisito de producto:** **CA #6 de §S** en `PROJECT.md:6607` —
+*«En destino envío, la cola muestra la dirección COMPLETA, con la calle»*, prioridad **ALTA**, estado
+*«construido y con prueba»*. ⇒ **decisión trazable, no deriva.**
+
+⚠️ **Pero con una salvedad que va a la bandera del humano:** §S está marcada
+**«RECONSTRUIDA v2.3 · ⚠️ PENDIENTE DE RE-APROBACIÓN DEL DUEÑO»** (`PROJECT.md:6413`). La decisión
+existe por escrito, pero **el documento que la registra es una reconstrucción que el dueño aún no ha
+re-aprobado**. Ver **BANDERA H-1**.
+
+---
+
+## `M4P-5` · Nombre/destinatario en blanco — **CONFIRMO Info**, pre-existente y fuera de alcance
+
+Verificado `[código]`: `guest-checkout.dto.ts:45` (`@IsString() @MaxLength(120)`, sin `@IsNotEmpty()`)
+y `auth.dto.ts:12-14` (`@MinLength(1)` sin `trim`). Confirmo su conclusión de que **no hay nada peor
+detrás**: la proyección normaliza el blanco a `null` (`nullIfBlank`) y la salida es JSON. Toca el
+checkout (más ancho que este stream). **backend, en su propio stream. No bloquea.**
+
+---
+
+# PARTE 2 — Lo que revisé yo (lo que el red team no buscó)
+
+## ⭐ `S-M4P-A` — **Media** · El guard del endpoint PII-denso **no tiene candado de regresión**, y `RolesGuard` **falla ABIERTO**
+
+**Categoría:** defensa en profundidad / ausencia de candado sobre un control fallo-abierto.
+**Ubicación:** `backend/src/common/guards/roles.guard.ts:20` · `backend/src/modules/shipments/admin-shipments.controller.ts:13` · `backend/test/integration/preparation-queue.e2e-spec.ts:466-468`.
+
+**⛔ Esto NO es una vulnerabilidad abierta.** La conducta **hoy es correcta** y está medida por las dos
+partes: el red team la midió en vivo (cliente ⇒ `403`, anónimo ⇒ `401`) y yo verifiqué el decorador en
+código. **Lo que reporto es que nada lo sostiene mañana.**
+
+**El mecanismo, medido `[código]`:** `RolesGuard` **falla abierto** —
+
+```ts
+// roles.guard.ts:20
+if (!required || required.length === 0) return true;
+```
+
+Sin metadatos `@Roles`, **toda sesión autenticada pasa**. Lo único que separa a un `customer` de la
+dirección postal de todos los clientes es **un decorador de clase**.
+
+**El defecto real, MEDIDO por mí (y es el hallazgo):** retiré `@Roles(Role.vault_operator,
+Role.super_admin)` de `AdminShipmentsController` **sobre la copia** y corrí las suites:
+
+| suite | resultado con el guard RETIRADO | N |
+|---|---|---|
+| `test/integration/preparation-queue.e2e-spec.ts` (la del stream, contra Postgres real) | **14/14 VERDE** | 1 |
+| Suite unitaria **completa** del backend | **344/344 suites · 5666/5666 pruebas VERDE** | 1 |
+
+**Ni una sola prueba de las 5666 se entera de que el back-office quedó abierto a cualquier cliente
+autenticado.** (Deterministas: sin carrera ni temporizador ⇒ N=1 basta.)
+
+⚠️ **Honestidad sobre una roja intermedia:** en la primera corrida vi `pii-crypto.spec.ts` en rojo
+(8/24). **No era el mutante ni un defecto: era mi arnés** — las `PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`
+aleatorias que yo inyecté. Con el guard **restaurado** seguía roja, y sin esas dos variables da
+**24/24 verde**. Re-corrí la suite entera con el entorno limpio y el mutante puesto ⇒ **5666/5666**.
+*Un falso rojo antes de un veredicto cuesta lo mismo que un falso verde.*
+
+**Por qué el candado que existe no cubre:** la única aserción de authz del stream es
+
+```ts
+// preparation-queue.e2e-spec.ts:466-468
+it('el guard sigue siendo el de siempre: sin sesión ⇒ 401', async () => {
+  const res: any = await h.api('GET', '/admin/shipments/picking-list');
+  expect([401, 403]).toContain(res.status);
+});
+```
+
+Mide **el caso anónimo**, que lo cierra `JwtAuthGuard` (ése **sí** es default-deny) — o sea, **mide el
+guard equivocado**: sigue verde aunque `@Roles` desaparezca. Además la aserción es **floja**
+(`[401,403]`, acepta cualquiera de los dos). Y no hay censo global que cubra: el fichero
+`auth-authz.e2e-spec.ts` solo toca `/admin/orders` y `/admin/finance/pnl` — **`/admin/shipments` no
+aparece**. El `clienteId` del spec se usa solo para **sembrar** filas, nunca para **pedir** con sesión
+de cliente.
+
+**Por qué Media y no Baja:** porque el reparto de modelos de `CLAUDE.md` dice que *«el modelo barato
+no toca pruebas ni candados, **solo código de producción**»* y que *«la prueba es el contrato entre
+los dos»*. Un decorador de clase **es código de producción**. En el punto exacto donde el proceso
+confía en que la prueba muerda, **la prueba no existe** — y el endpoint que protege es, desde este
+stream, **el más denso en PII del back-office**. La severidad no la da la explotabilidad de hoy (cero)
+sino el fallo-abierto sin red.
+
+**Nota de continuidad:** `SECURITY_NOTES.md:85` (pase anterior) ya observó que *«`RolesGuard` no es
+default-deny pero `JwtAuthGuard`, que corre antes, sí»*. **Esa tranquilidad solo cubre al anónimo.**
+Este hallazgo la refina: no cubre al **cliente autenticado**, que es el escenario que ahora vale PII.
+
+**Rol dueño: `backend`.** Mínimo para cerrar: una aserción de **`403` con sesión de `customer`** contra
+`GET /admin/shipments/picking-list` (y preferiblemente un censo que recorra los controladores `admin/`
+exigiendo `@Roles` presente). ⛔ **No bloquea este release** — la conducta está verificada correcta en
+`5e6f2ee` por dos partes independientes.
+
+---
+
+## `S-M4P-B` — **Baja** · La cola de PII se sirve **sin `Cache-Control: no-store`**
+
+**Ubicación:** `backend/src/modules/shipments/admin-shipments.controller.ts:45-48` (sin `@Header`).
+
+**El precedente es del propio proyecto, y es de este rol.** `admin.controller.ts:288` dice, textual:
+*«**`Cache-Control: no-store`** (hallazgo de `seguridad`): esta respuesta transporta […] así que no
+puede quedarse en una caché intermedia, en un proxy corporativo ni en el disco del navegador. El
+contrato ya exige `no-store` para `orders/guest/track`, que transporta **menos** que esto.»*
+
+`GET /admin/shipments/picking-list` transporta ahora **nombre + calle + colonia + CP + teléfono de
+cada pedido pagado, en una sola respuesta** — y **no lleva la cabecera**. `grep` sobre
+`backend/src/modules/shipments/` ⇒ **0 aciertos** de `Cache-Control`. Con el criterio que este
+proyecto ya aplicó a respuestas **menos** densas, ésta la merece.
+
+**Por qué Baja y no más:**
+- **Cachés compartidas quedan excluidas por transporte:** la autenticación es **Bearer** en
+  `Authorization` (`jwt-auth.guard.ts:36`), y RFC 9111 §3.5 prohíbe a una caché compartida almacenar
+  respuestas a peticiones con `Authorization` salvo permiso explícito (que aquí no se da).
+- El residual es la **caché privada del navegador** en disco. Express trae `etag` por defecto (no se
+  desactiva: el único `app.set` es `trust proxy`) y **sin `Cache-Control` el navegador puede aplicar
+  caché heurística** ⇒ PII en reposo en la estación del almacén, sin política de retención.
+- Explotarlo exige **acceso local al equipo del operador**.
+
+⚠️ **`NO MEDIDO`:** no he comprobado **en vivo** que un navegador concreto escriba esta respuesta a
+disco; el razonamiento es de código + RFC. **Medición que lo cerraría:** pedir la cola desde el
+navegador del operador y buscar el cuerpo en la caché de disco del perfil.
+
+**Es clase pre-existente** (`GET /admin/shipments` y `/:id` tampoco la llevan y ya exponían el
+snapshot), **pero este stream la agrava**: mueve el dato a la pantalla que está abierta toda la
+jornada. **Rol dueño: `backend`** (un `@Header('Cache-Control','no-store')` en el controlador; la
+decisión de extenderlo a los endpoints hermanos es la misma línea). **No bloquea.**
+
+---
+
+## `S-M4P-C` — **Info** · La postura de dependencias `REL-D` estaba **CADUCA**. Re-medida
+
+**Respondo a la pregunta 5 del encargo: el red team declaró las dependencias «NO RE-MEDIDO» y dijo que
+valía `REL-D` «porque el corte no la mueve». Su conclusión acierta; su razonamiento NO, y había que
+mirarlo.** `npm audit` no cambia cuando cambia el *lockfile*: cambia cuando se publican **avisos
+nuevos**. El lockfile está congelado; **la base de avisos no lo está**. Verifiqué primero que los
+manifiestos no se tocan (`git diff --name-only` sobre `package.json`/`package-lock.json` en
+`c7c58aa..5e6f2ee` ⇒ **vacío**) y **re-corrí igualmente**.
+
+**Medido por mí `[medido]` sobre `5e6f2ee` (`npm audit --package-lock-only --omit=dev`):**
+
+- **frontend: `found 0 vulnerabilities`** — limpio, como decía `REL-D`.
+- **backend: 5 `moderate`, 0 `high`, 0 `critical`** — **el mismo número que `REL-D`**…
+
+…**y ahí está la trampa: el número coincide pero el contenido NO.** `REL-D` afirma que *«las cinco
+cuelgan de **`qs`**»* y presenta a `@nestjs/core` como mera **vía de propagación**. Hoy son **tres
+avisos distintos en dos racimos**:
+
+| Aviso | Paquete | ¿Estaba en `REL-D`? | ¿Aplica a esta app? |
+|---|---|---|---|
+| `GHSA-x5fp-wj9c-mxmx` (array-limit bypass) | `qs` 6.15.3 | sí | ver abajo |
+| **`GHSA-4mjr-xmp4-gh2g`** — *DoS vía `isBuffer` controlado* (CVE-2026-82417) | `qs` 6.15.3 | **NO** | **NO alcanzable** |
+| **`GHSA-36xv-jgw5-4q75`** — ***Injection*** en `@nestjs/core` (CVE-2026-35515) | `@nestjs/core` 10.4.22 | **NO** (no como aviso propio) | **NO aplica** |
+
+**Y las dos nuevas son inocuas AQUÍ — medido, no supuesto:**
+
+- **`@nestjs/core` (CVE-2026-35515)** es **inyección en SSE**: `SseStream._transform()` no sanea `\r`/`\n`
+  en `message.type`/`id`. **Requiere que la app exponga un `@Sse()`.** Medido:
+  `grep -rniE "@Sse\(|text/event-stream|EventSource" backend/src frontend/src` ⇒ **0 aciertos en
+  ambos**. **La app no tiene ni un endpoint SSE** ⇒ la ruta vulnerable **nunca se instancia**.
+- **`qs` (CVE-2026-82417)** exige `plainObjects:true` o `allowPrototypes:true` en el parseo **y** un
+  ida-y-vuelta `parse`→`stringify`. Medido: `grep -rniE "allowPrototypes|plainObjects|query parser|qs\.(parse|stringify)" backend/src`
+  ⇒ **0 aciertos**, y **no hay importación directa de `qs`**. Express va con sus opciones por defecto
+  (ninguna de las dos activada) ⇒ **no alcanzable**.
+
+⇒ **La POSTURA de `REL-D` (no bloqueante) sigue siendo válida; su DESCRIPCIÓN está caduca.** El gate
+de CI no se mueve: `security-sast.yml:187` corre con `AUDIT_LEVEL: high` sobre runtime, y estos tres
+son `moderate`. **Rol dueño: `devops`** — refrescar la ficha de `REL-D` con los tres avisos y su
+alcance real, y anotar que **`@nestjs/core` 10.x no recibe el parche** (el aviso se corrige en
+`11.1.18`; `npm` propone `12.0.4`, cambio **rompedor**) ⇒ el salto de mayor de NestJS es decisión de
+ventana ordinaria, **no de este release**.
+
+> **Lección, dicha entera:** si me hubiera quedado en «5 moderate, igual que antes ⇒ vale `REL-D`»,
+> habría ratificado una ficha falsa con un número que coincidía **por casualidad**. El conteo agregado
+> de `npm audit` **no es una huella**: dos avisos entraron y la suma no se movió.
+
+---
+
+## Lo demás que revisé de este stream, y que **RESISTIÓ** (control positivo)
+
+Nombro lo que miré aunque no produjera hallazgo — un informe que solo lista defectos no dice qué
+quedó sin mirar.
+
+- **⭐⭐ Los candados de FORMA de la PII muerden — y esto es lo que de verdad acota el ensanche.**
+  Tres mutaciones mías sobre la copia (N=1 cada una, deterministas):
+
+  | Mutación | Resultado |
+  |---|---|
+  | Añadir `guestEmail` a `order.select` **y** `email` a `user.select` de la cola | **1 roja / 102** (`:324-325` congela las columnas cargadas) |
+  | Añadir un **décimo campo** (`taxId`) a `shipTo` | **4 rojas / 102** (el `toEqual` del `shipTo` + el censo de blancos) |
+  | Tragarse la corrupción en `kindForFulfillment` | **1 roja / 102** |
+
+  ⇒ **Ensanchar la PII de esta cola no se puede hacer en silencio**: ni cargando una columna nueva de
+  `Order`/`User`, ni añadiendo una clave nueva al `shipTo`. Es la mejor noticia del pase y equilibra
+  el hecho central de `M4P-4`: la concentración creció, **pero está encerrada**.
+- **`?date=`** — confirmo el control que el red team midió: gramática `DATE_ONLY_RE` **importada**
+  (⛔ no una tercera copia) + comprobación **ida y vuelta** que cierra el desbordamiento de calendario
+  (`2026-02-30` ⇒ `400`, ⛔ no `200` del 2-mar). `details:{field:'date'}` **sin eco**. Sólido.
+- **Inyección:** `pickingList` usa Prisma con `where` tipado; **0 `$queryRaw`** en el módulo. El único
+  valor de cliente que toca la consulta es `date`, ya validado contra `RegExp` + calendario;
+  `destination` muere contra la whitelist **antes** de tocar Prisma.
+- **§M4P-ORDER (pregunta 4 del encargo) — miré, y NO hay nada de seguridad.** El comparador es
+  `A.label < B.label ? -1 : A.label > B.label ? 1 : 0` (`:1088`) sobre `Array.prototype.sort`: sin
+  `RegExp` (⇒ **sin ReDoS**), sin recursión, sin acceso indexado por clave de usuario (⇒ **sin
+  contaminación de prototipo**), y es un **orden total y consistente** (`unassigned` siempre al final)
+  ⇒ no hay entrada que lo haga divergir ni lanzar. Sobre el `label` sin `MaxLength` que el encargo
+  señala: **`@IsString()` está en `box`/`row`/`slot` (`inventory.dto.ts:165-167`), no en `label`** —
+  `label` **no es escribible directamente**, se **deriva** (`inventory.service.ts:3331`:
+  `` `${dto.box}-${dto.row}-${dto.slot}` ``). Sin cota, un `label` largo es un amplificador de la
+  cola… **pero solo lo escribe `@Roles(vault_operator, super_admin)`** (`inventory.controller.ts:88`),
+  **exactamente el mismo rol que lee la cola** ⇒ no hay cruce de privilegio, y el cuerpo va acotado por
+  el límite por defecto de `express.json()` (~100 kB). **Higiene de entrada, no seguridad**; cae bajo
+  `M4P-2`. **Cambiar el comparador no movió ninguna superficie.**
+- **Sin PII en bitácoras:** los únicos `logger.*` de `shipments.service.ts` registran **identificadores
+  y el modo** (`:685`) o *«no recipient email»* (`:1578`) — **ningún valor de dirección, nombre o
+  teléfono** viaja a un log (grep de `logger.*` cruzado con `address|phone|recipient|fullName|postal`
+  en todo `backend/src` ⇒ solo mensajes de *ausencia*, sin el dato).
+- **Sin secretos en el diff** (el repositorio es **PÚBLICO**): `git diff c7c58aa..5e6f2ee` filtrado por
+  `sk_live|sk_test|pk_live|whsec_|AKIA|BEGIN .* PRIVATE KEY|password=|secret=|api_key=` ⇒ **0
+  aciertos**. Las fixtures del mock son sintéticas y evidentes (`Ash Ketchum`).
+- **Transporte y cabeceras, sin cambios y correctos:** `helmet()` activo; **CORS por allow-list** desde
+  `APP_BASE_URL`, ⛔ nunca `origin:true` (`main.ts:16-23,62`); `ValidationPipe` global con
+  `whitelist:true`.
+- **Cliente:** `grep` de `localStorage|sessionStorage|persistQueryClient|indexedDB` sobre el camino de
+  esta cola ⇒ **la PII vive solo en la caché en memoria de React Query**, no se persiste. La cubeta y
+  la fecha **no viajan en la URL** ⇒ sin fuga por `Referer`. `AdminShell` re-comprueba el rol en el
+  cliente (`ADMIN_ROLES`) como defensa en profundidad, reconociendo que **el servidor es la
+  autoridad**.
+- **Suites del stream, verdes sobre `5e6f2ee` [medido]:** unitaria backend **344/344 suites ·
+  5666/5666**; integración `preparation-queue.e2e-spec.ts` **14/14** (Postgres real, BD propia);
+  frontend M4 + `preparation-order` **76/76**.
+
+### Pregunta 2 del encargo — ¿el `shipmentId` del `409` en pantalla es aceptable? **SÍ**
+
+Tres cosas, medidas:
+
+1. **¿Enumerable?** **No.** `ShipmentRequest.id` es `@default(uuid())` (`schema.prisma:1265`) —
+   **v4, generado por el servidor**, no adivinable ni secuencial. Y el atacante **no elige cuál se le
+   revela**: sale el de la fila corrupta, un estado que (ver `M4P-1`) **él no puede provocar**. No hay
+   oráculo: sin fila corrupta no hay `409`, y la fila corrupta no es inducible por la API.
+2. **¿Registra ese identificador en un log que salga de la máquina?** `this.logger.error` (`:685`)
+   escribe el `shipmentId` a **stdout**. En el repositorio **no hay ningún sumidero externo**:
+   `grep -rniE "sentry|datadog|logtail|newrelic|opentelemetry|winston|pino|splunk|elastic"` sobre
+   `backend/src` y `backend/package.json` ⇒ **0 aciertos**; tampoco hay *log drain* configurado en
+   `railway.json`, `vercel.json`, `docker-compose.yml` ni en los workflows. ⇒ **no sale a un tercero.**
+   Queda en el recolector de la plataforma (Railway captura stdout), que es **bitácora operativa
+   interna** y contiene un **identificador**, ⛔ no PII. ⚠️ `NO MEDIDO`: si Railway reenvía a algún
+   destino configurado **fuera del repositorio** — lo cerraría **devops** revisando los ajustes del
+   proyecto en Railway.
+3. **¿Aceptable en pantalla?** **Sí.** Va en un `<details>` **cerrado**, tras el guard de rol, y lo ve
+   **quien ya puede leer ese envío entero** por `GET /admin/shipments/:id`: **no revela nada que el
+   lector no pudiera pedir**. Se pinta con interpolación JSX ⇒ **React escapa** (0
+   `dangerouslySetInnerHTML` en todo `frontend/src`). El único extra es el **nombre del enum**
+   (`vault`), información de esquema interno para un rol interno. El candado `PR-14` fija que vaya al
+   cajón y ⛔ no al título. **Ninguna acción.**
+
+---
+
+# Deuda de seguridad ACEPTADA (registro que el DoD exige)
+
+Ninguna bloquea. Cada una con **impacto** y **disparador** — una deuda sin disparador es una intención.
+
+| ID | Impacto si no se toca | Disparador: cuándo deja de ser aceptable | Dueño |
+|---|---|---|---|
+| **`S-M4P-A`** (Media) | Un cambio futuro en `admin-shipments.controller.ts` puede abrir el back-office a cualquier cliente autenticado **sin que ninguna prueba lo note** | **El PRIMERO de:** (a) el próximo cambio que toque ese controlador o sus guards; (b) que se encargue trabajo de este módulo al **modelo barato** (el reparto de `CLAUDE.md` presupone que la prueba muerde, y aquí **no existe**); (c) el próximo release | **backend** |
+| **`S-M4P-B`** (Baja) | PII (nombre+dirección+teléfono) puede quedar en la caché de disco de la estación del operador, sin retención | **El PRIMERO de:** (a) que la cola se use en un equipo compartido o no gestionado; (b) que se añada cualquier campo nuevo de PII a la cola; (c) el próximo toque del controlador — es una línea | **backend** |
+| **`M4P-1`** (Baja) | Una fila corrupta (hoy **inalcanzable por la API**, por las dos puertas) tumbaría la cola y `GET /admin/shipments` hasta limpieza manual | Que aparezca **cualquier** camino de escritura que fije `Order.fulfillmentMode` **después** de crear la orden, o un `FulfillmentMode` nuevo. Degradar por fila cambia conducta fijada ⇒ **pasa por arquitecto** (regla 9) | backend (vía **arquitecto**) |
+| **`M4P-2`** (Baja) | Amplificación autenticada; techo 300 req/min heredado | Que la cola crezca a un tamaño que moleste, **o** que se pagine — y si se pagina, **hay que retirar el orden de cliente a la vez** (`M4P-SORT`) | backend / devops |
+| **`M4P-5`** (Info) | Dato de baja calidad (nombre en blanco); ya normalizado a `null` en la salida | Cuando se toque el checkout o el registro | backend (otro stream) |
+| **`S-M4P-C`** (Info) | Ficha de dependencias que **describe mal** la exposición real | **devops** refresca `REL-D`; el salto `@nestjs/core` 10→11/12 se decide en ventana ordinaria (⛔ no en este release) | devops |
+| **`M4P-3`** (Info) | Ninguno — conducta ratificada, tope con candado | ⛔ Ninguno. Si alguien enciende `echoValue` en un eje nuevo, `test/enum-filter.spec.ts` se pone rojo y la salida es **arquitecto**, no apagar el test | n/a |
+
+---
+
+# Banderas para el humano
+
+**H-1 · Confirma CA #6 cuando re-apruebes §S, y hazlo a sabiendas.**
+La dirección postal **completa** (calle, colonia, CP, teléfono) en la cola diaria del operador de
+bóveda está **decidida por escrito** — CA #6 de §S, `PROJECT.md:6607`. Pero §S está marcada
+**«RECONSTRUIDA v2.3 · PENDIENTE DE RE-APROBACIÓN DEL DUEÑO»** (`PROJECT.md:6413`). De los 12 CA de
+§S, **CA #6 es el único que ensancha la exposición de datos personales a un rol menos privilegiado**.
+Mi juicio técnico es que **es coherente** con tu política de INE (documento de identidad ⇒ solo
+súper-administrador; dato de envío ⇒ quien rotula la caja), y **no** es una asimetría accidental.
+**Lo que te pido no es que cambies nada, sino que esa línea la confirmes tú explícitamente**, porque
+hoy se apoya en una reconstrucción y no en una frase tuya.
+*Si quisieras minimizar sin perder la operación, la opción existe y es de producto, no de seguridad:*
+*el **recoger** las cartas del archivero no necesita la dirección — la necesita el **rotular**. Mostrar*
+*nombre+ciudad al recoger y la dirección completa al generar la guía daría el mismo trabajo con menos*
+*PII en pantalla. ⛔ No lo propongo como defecto ni como condición: es tuyo y de producto.*
+
+**H-2 · Antes de operar con dinero real: pentest de tercero + bug bounty.**
+Se mantiene la bandera de pases anteriores y **no la levanta este stream**. Todo lo medido aquí lo
+hizo el equipo (rojo y azul) **sobre local**, y `HECHOS.md` registra que **no hay staging: solo
+producción**, y que la tienda sigue **en modo prueba de Stripe sin ninguna venta real**. Este stream
+**no toca dinero** (cero Stripe, cero escritura, cero schema — verificado por mí), así que **no mueve
+esa bandera en ninguna dirección**; solo dejo constancia de que sigue abierta.
+
+**H-3 · Custodia y PII: validación legal pendiente (no técnica).**
+El producto custodia bienes de terceros y trata **INE y CLABE**. Un aviso de privacidad, la base
+legal del tratamiento, la **retención** (cuánto tiempo vive un `addressSnapshot`) y los derechos ARCO
+**no son cuestiones que este rol pueda cerrar**: son de asesoría legal. Lo señalo porque `S-M4P-B`
+roza justo eso — PII sin política de retención en la caché de un equipo — y porque el snapshot de
+dirección, por diseño (§5.2), **no se reescribe nunca**.
+
+**H-4 · Un apunte de proceso, porque afecta a lo que puedes confiar de estos informes.**
+El red team midió **`f835f19`**; el árbol que apruebo es **`5e6f2ee`**, cuatro commits después.
+Esta vez el delta era pequeño y lo audité yo (§M4P-ORDER: sin superficie de seguridad). **Pero el
+patrón —el pentester mide un sha y el release sale con otro— ya apareció en un pase anterior** (el de
+bounties Q1+Q2 dice textualmente que el blue team aprobó un delta que *«el red team NO había
+atacado»*). Vale la pena que la fase de seguridad se corra **sobre el sha que se publica**, o que el
+delta se declare explícitamente como aquí. No es un hallazgo del producto; es del proceso.
+
+---
+
+# VEREDICTO
+
+## ✅ **APROBADO** — `5e6f2ee` (rama `claude/m4-pedidos-preparar`)
+
+**Por qué:** el DoD exige **«sin hallazgos críticos/altos abiertos»**. Hay **0 críticos y 0 altos**,
+medidos por las dos mitades de la fase (red team sobre `f835f19` + este pase sobre `5e6f2ee`, con el
+delta auditado). Lo abierto —**1 Media (`S-M4P-A`)** y **3 Bajas (`S-M4P-B`, `M4P-1`, `M4P-2`)**—
+queda **registrado y aceptado arriba con su disparador**, que es exactamente lo que el DoD pide para
+lo aceptado.
+
+**Y lo digo con las palabras que el encargo pide:** *este stream **no introduce riesgo nuevo**.*
+Lo que mediste tú y re-medí yo lo sostiene: **0 ficheros de `prisma/migrations` y 0 de
+`schema.prisma`** (`git diff --name-only c7c58aa..5e6f2ee -- backend/prisma/` ⇒ **vacío**), **0 rutas
+nuevas** (el diff del controlador es la firma de un handler y un docblock), **0 cambios de guard**,
+**0 escritura**, **0 Stripe**, **0 dependencias**. La superficie de autorización, de inyección, de
+transporte y de secretos queda **idéntica**. La única superficie que ensancha de verdad es **la
+densidad de PII en una pantalla**, y ésa (a) **no otorga capacidad nueva a ningún rol** —el operador
+ya leía ese mismo `addressSnapshot` por dos endpoints hermanos del mismo controlador y guard—,
+(b) está **decidida por producto** (CA #6 de §S) y (c) está **encerrada por candados que verifiqué que
+muerden** (1, 4 y 1 rojas en tres mutaciones).
+
+⛔ **Ninguna de las dos aportaciones mías (`S-M4P-A`, `S-M4P-B`) es condición para fusionar.** Las dos
+son **ausencias de red**, no agujeros: la conducta que protegen está **verificada correcta en este
+sha** por dos partes independientes. Reportarlas como bloqueantes sería inventar un bloqueo para
+justificar el pase.
+
+### Mínimo necesario si alguna vez se RECHAZARA (no es el caso hoy)
+Solo pasaría a **RECHAZADO** si apareciera **un crítico o un alto abierto**. Hoy no hay ninguno.
+Lo más cercano a un bloqueo futuro es **`S-M4P-A`**, y su cierre es barato y concreto:
+
+1. Una prueba que pida `GET /admin/shipments/picking-list` con **sesión de `customer`** y exija
+   **`403`** (⛔ no `[401,403]`). Canario: retirar `@Roles` del controlador **debe** ponerla roja.
+2. *(Recomendado, no exigido)* un censo que recorra los controladores bajo `admin/` y exija `@Roles`
+   presente — cierra la **clase**, no el caso. `RolesGuard` **falla abierto** y hoy nada vigila esa
+   puerta a nivel de repositorio.
+
+### Ruteo de lo abierto
+- **backend:** `S-M4P-A` (candado de authz — el más valioso), `S-M4P-B` (`no-store`), `M4P-5` (en su
+  propio stream).
+- **backend vía arquitecto (regla 9):** `M4P-1`, si alguna vez se quiere degradar por fila en vez de
+  rechazar entera — el contrato **prohíbe** hoy degradar (§M4-PREP v1.78.2 punto 2).
+- **devops:** `S-M4P-C` (refrescar la ficha `REL-D` con los tres avisos y su alcance real; decidir el
+  salto de mayor de NestJS en **ventana ordinaria**), y cerrar el `NO MEDIDO` de los reenvíos de
+  bitácora de Railway.
+- **arquitecto (informativo, ⛔ no de este stream):** el desbordamiento de calendario **sigue vivo** en
+  `common/admin-list-filters.ts` (`?from=`/`?to=` de `/admin/buylist` y `/admin/orders`):
+  `from=2026-02-30` filtra por el **2 de marzo** con `200`. `shipments.service.ts` lo cerró con la
+  comprobación ida-y-vuelta; **sus hermanos no**. Lo reporta ya el propio código (`:816`) y lo ratifico:
+  **misma clase, otros endpoints, fuera del alcance de este corte.**
+- **⛔ Nada para `frontend`** en este pase.
+
+---
 # NOTA DE RESIDUALES ACEPTADOS — **DECKS-META FASE 2 · AUTO-FETCH (fix pass)** · rama `claude/be-decksmeta-f2` · 2026-09-19
 
 > **Autoría:** escrita por **backend** por indicación del orquestador (el detalle vive en
