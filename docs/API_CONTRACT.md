@@ -2,7 +2,26 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-22 (rev **v1.78.2**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-22 (rev **v1.78.3**).
+>
+> **Changelog v1.78.3 — 🔴 §M4-PREP: SE CORRIGE UN MECANISMO FALSO QUE EL PROPIO CONTRATO PRESCRIBÍA, Y EL ORDEN POR
+> UBICACIÓN GANA SU REGLA DE COMPARACIÓN (2026-09-22, arquitecto; base v1.78.2, vigente entera salvo las dos líneas que
+> esta rev toca). ⛔ CERO DDL. ⛔ Cero endpoints. ⛔ Cero cambios de DTO. La rebanada sigue siendo de SOLO LECTURA.
+> Las dos entradas nacen de mediciones ajenas (backend, techlead, orquestador). **La 1 ⛔ NO fue re-corrida por el
+> arquitecto** (hecho determinista del lenguaje, ya medido por tres roles); de la **2** el arquitecto **sí midió** y
+> **precisa DOS puntos del diagnóstico** — ver §M4P-ORDER.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | 🔴 **`Number.isNaN` NO cierra el desbordamiento de calendario — el contrato se contradecía a sí mismo en dos líneas.** La **NORMA** de §M4-PREP exige `400` para *«`YYYY-MM-DD` de un día inexistente (`2026-13-45`, **`2026-02-30`**)»* y el **MECANISMO** que la misma sección prescribía (`Number.isNaN(d.getTime())`) **no cubre `2026-02-30`**: construye un `Date` **válido** (2 de marzo) ⇒ `200` con la cola de **otro día**. Lo levantó **backend** (cumplió la NORMA, desobedeció el MECANISMO e **implementó la IDA Y VUELTA**), el **techlead** lo declaró **bloqueante** (el contrato manda sobre el código ⇒ el documento autoritativo afirmaba que la implementación estaba mal) y el **pentester** lo confirmó en vivo. Ahora la comprobación normativa es **`d.toISOString().slice(0,10) === token`**, con el **orden del `||`** y la **dependencia del `RegExp` de 4 dígitos** escritos, y el **bisiesto real (`2024-02-29`) que DEBE aceptarse** | [§M4-PREP · Día existente](#M4P-DIA-EXISTENTE) | **No** (es la conducta que el código ya sirve; lo que estaba mal era el texto). ⚠️ **Sí gobierna** a `M4P-DATEOVF`, que sigue **fuera** de esta rebanada |
+> | **2** | ⭐ **El orden de las cartas dentro del pedido gana regla de comparación ejecutable: unidades de código UTF-16**, ⛔ no `localeCompare` (los dos lados lo eligieron sin locale ⇒ coincidían **por coincidencia**, no por norma, y la forma sin argumentos usa *la locale del host*: Node del servidor vs navegador del operador). Con **tabla de 7 casos dentro de §M4-PREP** para que cada suite asevere **contra el contrato** (precedente: `enum-values-parity.spec.ts:134`), ⛔ **sin fichero de casos compartido** (lo consumirían los dos sobre Node y no tendría dueño posible) | [§M4-PREP · §M4P-ORDER](#M4P-ORDER) | **Sí, backend y frontend** (un comparador cada uno + la aserción contra la tabla). ⚠️ `frontend/src/lib/` es **zona compartida**: lo serializa el orquestador |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** la conducta HTTP de `?date=` es **exactamente
+> la de v1.78.2** — las cuatro filas de su tabla siguen igual; solo se corrige **cómo se comprueba** la tercera.
+> **(b)** ⛔ **`M4P-DATEOVF` (`?from=`/`?to=` de `/admin/buylist` y `/admin/orders`) NO entra**: otros endpoints con gates
+> aprobados, conducta observable que cambiaría, y `common/admin-list-filters.ts` es zona compartida de otro work stream.
+> **(c)** ⛔ **el orden de los PEDIDOS no se toca** (`requestedAt` asc, CA #9); la regla nueva es **solo** la de las cartas
+> **dentro** de un pedido. **(d)** ⛔ **cero schema, cero columnas, cero enums** — ninguna de las dos entradas propone dato nuevo.
 >
 > **Changelog v1.78.2 — ⭐ §M4-PREP: SE DECLARAN LAS DOS CONDUCTAS QUE EL CONTRATO CALLABA (`?date=` MALFORMADO Y
 > EL `409` DE LA FILA CORRUPTA) Y `LocationView` PASA A UNIÓN DISCRIMINADA (2026-09-22, arquitecto; base v1.78.1,
@@ -14844,6 +14863,9 @@ la ruta interna puede seguir diciendo `picking-list` sin que el operador lo vea.
 que la cola actual). **Orden de los pedidos:** `requestedAt` **asc** (CA #9). **Orden de las cartas dentro de un
 pedido:** por `currentLocation.label` (asignadas primero, ordenadas; las `unassigned` al final) — conserva el beneficio
 de «caminar por ubicación» que daba la lista plana de hoy.
+⭐ **v1.78.3 — «ordenadas» ya NO es la norma entera: la REGLA DE COMPARACIÓN se declara, y es ejecutable ⇒
+[§M4P-ORDER](#M4P-ORDER)** (orden por **unidades de código UTF-16**, ⛔ no `localeCompare`, con su tabla de casos
+límite para que cada lado asevere **contra el contrato** y no contra el otro lado).
 
 **Fuente de la cola (medido — LÉASE ANTES DE IMPLEMENTAR):** hoy `pickingList` (`shipments.service.ts:543`) proyecta
 **exclusivamente** `ShipmentRequest{status:'picking'}`. Un `ShipmentRequest` en `picking` es un envío **ya cobrado**
@@ -14990,6 +15012,121 @@ export type LocationView =
   **conducta** y falsa sobre la **clase** (`?kind=` está registrado como **R** — ver la nota `D-EQ-R1` de §0-Q
   punto 4, que es del arquitecto y no de este endpoint).
 
+- ### <a id="M4P-ORDER"></a>⭐⭐ v1.78.3 — LA REGLA DE COMPARACIÓN DEL ORDEN POR UBICACIÓN: «ORDENADAS» NO ERA UNA NORMA. *(NORMATIVA. Lo levantó el **techlead** con medición; el arquitecto lo re-midió y **precisa dos puntos de su diagnóstico**. ⛔ Cero DTO, cero schema, cero endpoints.)*
+
+  **El hueco:** el cuerpo de §M4-PREP dice *«por `currentLocation.label` (asignadas primero, **ordenadas**…)»* y
+  **«ordenadas» no nombra ninguna regla de comparación**. Dos implementaciones independientes sirven ese mismo orden
+  —el servidor (`shipments.service.ts` · `byLocation`) y el cliente, que **vuelve a ordenar**
+  (`frontend/src/lib/preparation-order.ts` · `sortPreparationItems`, ratificado en `DESIGN_SYSTEM §35.13`)— y las dos
+  escogieron `localeCompare()` **sin locale ni opciones**. **Coinciden por coincidencia de elección, no por norma**, y
+  la forma sin argumentos está definida por ECMA-402 como *«la locale por defecto del host»*: el servidor es **Node**
+  y la vista es **el navegador del operador**. *Dos fuentes para un hecho, de acuerdo por un silencio.*
+
+  **Por qué esto se declara y no se deja en nota — el criterio, dicho entero (arquitecto):** el argumento que lo
+  carga **no es el susto de la locale**, que es de riesgo bajo hoy. Es que **la deriva de esta regla exacta ya
+  ocurrió y está medida**: el techlead contó **TRES** comparadores para este mismo orden (servidor, vista, y un
+  tercero a mano en la rama mock), y el remedio fue bajarlos a dos — *dos que hoy no tienen nada que citar si
+  discrepan*. Una regla con dos implementaciones y **ningún texto normativo** es la forma exacta de que una se quede
+  atrás sin que nadie lo note; es el mismo argumento con el que v1.78.2 escribió el `409` de la fila corrupta
+  (*«una conducta candada pero no declarada es una conducta que el primer refactor puede “arreglar” sin que nadie
+  pueda citar en contra»*), y aquí ni siquiera está candada.
+
+  **⚠️ DOS PRECISIONES al diagnóstico, medidas por el arquitecto el 2026-09-22:**
+  1. *«Ningún candado existente puede verlo porque las dos suites corren sobre Node»* — **cierto de los candados
+     existentes, e incompleto sobre el instrumento.** `frontend/playwright.config.ts:126` **fija
+     `locale: 'es-MX'`** (y `timezoneId: 'America/Mexico_City'`) para todo el contexto del navegador. ⇒ el harness de
+     frontend **sí corre en un navegador**, pero mide **UNA** locale elegida por nosotros — o sea **no es que no pueda
+     ver la divergencia: es que la esconde**. Y por el mismo mecanismo (`locale` es opción de contexto de Playwright,
+     fijable por proyecto o con `test.use`) **una segunda locale es un canario barato y real**. La app es bilingüe
+     (`[locale]` es/en): el navegador del operador **no tiene por qué ser `es-MX`**.
+  2. *«El riesgo es bajo porque las etiquetas son tipo `C03-F02-S15`»* — **eso es una convención de los seeds, ⛔ NO
+     un invariante.** `VaultLocation.label` lo **deriva el backend** como `` `${box}-${row}-${slot}` ``
+     (`inventory.service.ts` · `createLocation`) a partir de `CreateLocationDto`, cuyos `box`/`row`/`slot` son
+     **`@IsString()` a secas** (`inventory/dto/inventory.dto.ts`): ⛔ sin charset, sin longitud, sin mayúsculas. Un
+     acento, una `ñ`, una minúscula o un espacio **son alcanzables por la ruta de alta soportada**. *El riesgo bajo
+     descansa en una costumbre, no en un candado.*
+
+  **⭐ NORMA — la comparación es por UNIDADES DE CÓDIGO UTF-16 (`a < b`), ⛔ NO `localeCompare`, ⛔ NO `Intl.Collator`.**
+
+  | # | Regla | ⛔ Prohibido |
+  |---|---|---|
+  | 1 | Las `assigned` van **antes** que las `unassigned` *(sin cambio)* | ⛔ intercalarlas |
+  | 2 | Entre dos `assigned`, se comparan sus `label` por **unidad de código** (`a < b ? -1 : a > b ? 1 : 0`) | ⛔ `localeCompare`, ⛔ `Intl.Collator`, ⛔ cualquier comparador que dependa de la locale del host |
+  | 3 | Se compara el `label` **tal como viaja por el cable** | ⛔ `trim()`, ⛔ `toUpperCase()`/`toLowerCase()`, ⛔ `normalize()` (NFC/NFD) |
+  | 4 | ⛔ **Sin orden numérico natural**: `…S10` va **antes** que `…S9` | ⛔ `{ numeric: true }` |
+  | 5 | **Empate** (dos `label` idénticos, o dos `unassigned`) ⇒ el comparador devuelve `0` y el orden **es el de llegada**: `Array.prototype.sort` es **estable** (ES2019) en ambos runtimes | ⛔ desempatar por `folio`, `id` u otro campo |
+
+  **Por qué unidades de código y no una locale fijada** *(es la parte que decide, y va con su contraargumento)*:
+  fijar la locale (`localeCompare(x, 'es-MX')`) quita la variable *locale* pero **no** quita la variable **versión de
+  ICU/CLDR** que cada runtime empaqueta — Node trae la suya y cada navegador la suya, y **ese dato no se puede fijar
+  desde este documento**. `CLAUDE.md` ya tiene la regla que aplica: *«toda dependencia externa va fijada»*; una
+  dependencia que **no podemos** fijar no se mete en el camino de una regla que exige que dos runtimes coincidan. La
+  comparación por unidades de código es **la única que fija ECMA-262 en el lenguaje mismo** ⇒ idéntica en Node y en
+  todo navegador, sin ICU de por medio, y **aseverable literalmente**. *El coste es estético y acotado* (una `Ñ`
+  ordena tras la `Z`, una minúscula tras las mayúsculas) *y solo se paga en etiquetas que hoy no existen*: sobre la
+  etiqueta que el sistema produce —`CAJA-FILA-SLOT` en mayúsculas y con ceros a la izquierda— **el recorrido que
+  camina el operador sale idéntico con cualquiera de los dos comparadores**, que es justo lo que hace barata esta
+  decisión.
+
+  **⚠️ ¿Cambia lo que el operador ve hoy? — NO MEDIDO, y así se enruta.** Sobre el alfabeto de los seeds
+  (`[A-Z0-9-]` con ceros a la izquierda) los dos comparadores ordenan igual *(razonamiento, ⛔ no medición)*, y sobre
+  cualquier etiqueta donde difieran **la conducta de hoy es dependiente de la locale del host, es decir
+  INDEFINIDA por contrato** ⇒ esta cláusula **define lo indefinido, no cambia lo definido** (misma maniobra que el
+  `409` de v1.78.2), y por eso **cabe en esta rebanada de solo lectura**. **La medición que lo cierra, y la debe
+  reportar quien cablee:** buscar en `VaultLocation.label` cualquier etiqueta **fuera de `^[A-Z0-9-]+$`**. Si sale
+  vacío ⇒ cambio **no observable**, confirmado. Si no sale vacío ⇒ **sigue entrando** (el orden de esas filas hoy no
+  está definido), pero se dice en el informe.
+
+  <a id="M4P-ORDER-CASOS"></a>
+  **⭐ TABLA DE CASOS — ÉSTA es la fuente, y cada lado asevera CONTRA ELLA, ⛔ nunca contra el otro lado.**
+  *Precedente del repo para este patrón exacto: `backend/test/enum-values-parity.spec.ts:134` y
+  `backend/test/sell-request-states.spec.ts:194` leen `docs/API_CONTRACT.md` y asertan contra él.* ⛔ **No se acuña un
+  fichero de casos compartido**: las dos suites lo consumirían sobre Node, medirían la misma collation y la única
+  divergencia real seguiría invisible — y además ese fichero **no tendría dueño posible** bajo la regla de oro de
+  `CLAUDE.md`.
+
+  Formato de cada línea: `M4P-ORDER-CASE <n> | IN: <tok>,… | OUT: <tok>,…`, donde `<tok>` es `id=label`,
+  **`∅`** significa `{kind:'unassigned'}` y **`␣`** es un espacio literal dentro del `label`.
+
+  ```text
+  M4P-ORDER-CASE 1 | IN: a=C01-F02-S03,b=C01-F01-S09,c=C02-F01-S01 | OUT: b,a,c
+  M4P-ORDER-CASE 2 | IN: a=∅,b=C01-F01-S01,c=∅ | OUT: b,a,c
+  M4P-ORDER-CASE 3 | IN: a=c01-F01-S01,b=C01-F01-S01 | OUT: b,a
+  M4P-ORDER-CASE 4 | IN: a=CÑ-F01-S01,b=CZ-F01-S01 | OUT: b,a
+  M4P-ORDER-CASE 5 | IN: a=C01-F01-S9,b=C01-F01-S10 | OUT: b,a
+  M4P-ORDER-CASE 6 | IN: a=C01-F01-S01,b=C01-F01-S01 | OUT: a,b
+  M4P-ORDER-CASE 7 | IN: a=C01-F01-S02,b=␣C01-F01-S03 | OUT: b,a
+  ```
+
+  **Qué muerde cada caso, para que nadie los «simplifique»:** **1** el orden feliz; **2** las `unassigned` al final
+  **y estables entre sí**; **3** y **4** son los **discriminantes** del comparador —se espera que con
+  `localeCompare` bajo una locale latina den `a,b`, el orden **contrario**, porque la minúscula precede a la
+  mayúscula y la `Ñ` va tras la `N`—; **5** muerde a quien «mejore» el orden con `{numeric:true}`; **6** muerde a
+  quien pierda la estabilidad o invente un desempate; **7** muerde a quien meta un `trim()`.
+  ⚠️ **Quitar 3 y 4 es dejar la tabla sin dientes.**
+  ⚠️ **Que 3 y 4 discriminen es EXPECTATIVA, ⛔ NO MEDIDA por el arquitecto** *(razonada sobre el nivel terciario de
+  la collation ICU, no corrida)*. **La comprobación la debe el que cablee, y es el canario de esta tabla:** correr
+  esos dos casos con `localeCompare` y exigir que **fallen**. Si alguno **pasa**, ese caso no discrimina nada y
+  **se sustituye por uno que sí** — un caso que no puede fallar es peor que no tenerlo.
+
+  **Lo que el contrato exige que sea DEMOSTRABLE** *(el cómo es de cada dueño; ⛔ el arquitecto no escribe pruebas)*:
+  1. **Cada lado** asevera los 7 casos **leyendo este bloque** de `docs/API_CONTRACT.md` (backend sobre `byLocation`
+     / el DTO servido; frontend sobre `sortPreparationItems`). Una suite que transcriba la tabla a mano **es una
+     tercera fuente** y reintroduce el defecto que esta cláusula cierra.
+  2. **Guarda de residuo** —patrón `sell-request-states.spec.ts:209`— que `localeCompare` / `Intl.Collator` **no
+     reaparezcan** en esos dos símbolos. *Es el candado barato que sí muerde, porque la regresión aquí es alguien
+     escribiendo la línea «obvia».*
+  3. **Canario de locale, OPCIONAL pero es el único que ve la divergencia de verdad:** frontend puede repetir el caso
+     4 en un contexto de Playwright con una locale distinta de la fijada en `playwright.config.ts:126` (p. ej.
+     `sv-SE`) y exigir **el mismo `OUT`**; backend, el equivalente en un proceso hijo con `LC_ALL` distinto. ⛔ No
+     bloquea esta rebanada.
+
+  **⚠️ Fuera de alcance, dicho para que no se cuele:** `GET /admin/inventory/locations` ordena **en Postgres**
+  (`orderBy: { label: 'asc' }`, `inventory.service.ts` · `listLocations`) ⇒ una **tercera** autoridad de orden sobre
+  el mismo campo, la del motor. ⛔ **No se toca aquí** (otro endpoint, otro work stream, conducta observable que
+  cambiaría). Se deja **nombrado** porque el día que alguien quiera «un solo orden de ubicaciones en todo el
+  back-office», ésta es la línea que tiene que leer primero.
+
 - ### ⭐⭐ v1.78.2 — `?date=`: CONDUCTA DECLARADA, Y EL DOMINIO SE ESTRECHA A **date-only**. *(NORMATIVA. Lo levantó **QA** midiendo por HTTP; ⛔ no es §0-Q.)*
 
   **El hueco, dicho sin adornos:** v1.78 escribió *«`?date=` se conserva»* y **eso no es una declaración de conducta**.
@@ -15047,8 +15184,63 @@ export type LocationView =
   - **La gramática es UNA en el repositorio:** el backend **reusa la noción de date-only que ya existe**
     (`DATE_ONLY_RE` en `common/admin-list-filters.ts`), ⛔ no escribe una tercera. **Lo que NO hereda de ese helper es
     la forma del `details`** (arriba).
-  - **Día existente ⇒ gramática Y calendario.** `2026-13-45` **pasa** el `RegExp` y **falla** el calendario: hacen
-    falta las dos comprobaciones (`Number.isNaN(d.getTime())` sobre el `Date` construido cierra la segunda).
+  - <a id="M4P-DIA-EXISTENTE"></a>**⭐⭐ v1.78.3 — DÍA EXISTENTE ⇒ GRAMÁTICA Y CALENDARIO, Y LA SEGUNDA NO LA CIERRA
+    `Number.isNaN`.** *(CORRECCIÓN NORMATIVA. La rev anterior prescribía aquí un mecanismo **falso**; lo levantó
+    **backend** —que cumplió la NORMA de la fila 3, desobedeció este MECANISMO y lo dejó escrito en su docstring—, el
+    **techlead** lo auditó y lo declaró **bloqueante**, y el **pentester** lo confirmó en vivo. ⛔ **No cambia
+    conducta: describe la que el código ya sirve.**)*
+
+    **Lo que decía v1.78.2, literal:** *«`Number.isNaN(d.getTime())` sobre el `Date` construido cierra la segunda»*.
+    **No cierra `2026-02-30`, que es uno de los dos ejemplos que da la fila 3 de esta misma sección.** Medido con
+    `node` el **2026-09-22** por el **orquestador**, y reproducido por **backend** y por el **techlead**
+    *(⛔ no re-corrida por el arquitecto — es un hecho determinista del lenguaje medido por tres roles
+    independientes, y la decisión no depende de una cuarta tirada)*:
+
+    | token | `new Date(token + 'T00:00:00.000Z')` | `Number.isNaN` | conducta con **SOLO** `isNaN` |
+    |---|---|---|---|
+    | `banana` (ni llega: falla el `RegExp`) | `Invalid Date` | `true` | `400` ✅ |
+    | `2026-13-45` | `Invalid Date` | `true` | `400` ✅ |
+    | **`2026-02-30`** | **`2026-03-02`** | **`false`** | ⛔ **`200` con la cola del 2 de MARZO** |
+    | `2026-04-31` | `2026-05-01` | `false` | ⛔ `200` por otro día |
+    | `2026-02-29` (2026 **no** es bisiesto) | `2026-03-01` | `false` | ⛔ `200` por otro día |
+    | `2024-02-29` (bisiesto **real**) | `2024-02-29` | `false` | `200` correcto ✅ — **día real, DEBE aceptarse** |
+
+    *Con solo `isNaN` la cola contesta **por un día distinto del que se preguntó y no lo dice** — que es exactamente la
+    ventana deslizante que el punto anterior acaba de prohibir, entrando por la otra puerta.*
+
+    **⭐ LA COMPROBACIÓN NORMATIVA ES LA IDA Y VUELTA:** se construye el `Date` y se exige que **vuelva a serializar el
+    MISMO token** (`d.toISOString().slice(0, 10) === token`). Acepta los bisiestos **reales** y rechaza **todo**
+    desbordamiento de calendario. **Siguen haciendo falta las dos comprobaciones** —gramática (`DATE_ONLY_RE`) y
+    calendario—; lo que cambia es que la segunda es **la ida y vuelta**, ⛔ no `isNaN` a secas.
+
+    - **⚠️ El ORDEN del `||` es PORTANTE, no estilo** *(techlead)*: `Number.isNaN(d.getTime())` va **PRIMERO**.
+      `toISOString()` sobre un `Invalid Date` **lanza `RangeError: Invalid time value`** ⇒ invertir los dos términos
+      **reintroduce el `500`** que esta misma versión acaba de cerrar, y lo reintroduce justo en `?date=banana`, que es
+      el caso que lo originó. *No es alcanzable hoy —está candado—; se escribe porque es de la clase que se
+      re-descubre.*
+    - **⚠️ La ida y vuelta DEPENDE del `RegExp` de CUATRO dígitos de año** *(techlead)*: fuera de `[0000, 9999]`
+      `toISOString()` emite **año expandido** (`+010000-…`) y la comparación se rompería. Que `DATE_ONLY_RE` sea
+      `^\d{4}-\d{2}-\d{2}$` es lo que lo hace **imposible** ⇒ ⛔ **relajar el año de ese `RegExp` invalida esta
+      cláusula**, y quien lo toque reabre esta línea.
+    - **Dominio cubierto, ENUMERADO** *(techlead, sobre todo lo que el `RegExp` deja pasar)*: **(1)** no casa el
+      `RegExp` ⇒ `Invalid Date` por construcción ⇒ lo caza `isNaN`; **(2)** casa y algún campo sale del rango ISO
+      (`2026-13-45`, `2026-00-10`, `2026-02-32`) ⇒ `Invalid Date` ⇒ lo caza `isNaN`; **(3)** casa, campos en rango,
+      pero el día **no existe en ese mes** (`2026-02-30`, `2026-04-31`, `2026-02-29`) ⇒ `Date` **válido que
+      desborda** ⇒ **solo** lo caza la ida y vuelta; **(4)** día real, **incluido el bisiesto real** ⇒ pasa. **Las
+      cuatro clases quedan cerradas.**
+    - **🔴 ÉSTA ES LA ÚNICA DEFINICIÓN DE «DÍA EXISTENTE» DEL CONTRATO — se CITA, ⛔ no se re-deduce.**
+      `M4P-DATEOVF` (`docs/TECH_DEBT.md`) manda llevar esta comprobación a `?from=`/`?to=` de `/admin/buylist` y
+      `/admin/orders` (`common/admin-list-filters.ts`, donde hoy `from=2026-02-30` filtra por el **2 de marzo** con
+      `200`). ⛔ **Quien abra esa deuda implementa la IDA Y VUELTA de esta cláusula**, con su orden de `||` y su
+      `RegExp` de 4 dígitos — ⛔ **jamás `isNaN` a secas**. *El contrato manda sobre el código: la rev anterior era el
+      defecto listo para reintroducirse por el camino que el propio contrato documentaba.* ⛔ **Ese arreglo NO entra en
+      esta rebanada** (otros endpoints, con gates ya aprobados, conducta observable que cambia, y
+      `common/admin-list-filters.ts` es **zona compartida de otro work stream**).
+      ⚠️ **Precisión medida (arquitecto, 2026-09-22):** la ficha `M4P-DATEOVF` **ya prescribe la ida y vuelta** y
+      **ya nombra a `isNaN` como el guard que no ve el desbordamiento** (`docs/TECH_DEBT.md` · *«Cómo se cierra (ya
+      probado en `?date=`)»*) ⇒ el riesgo de que alguien abriera esa deuda y copiara el mecanismo falso **era menor
+      de lo estimado**. **Eso NO desactiva la corrección**: lo que la obliga es lo primero —el documento autoritativo
+      afirmaba que la implementación estaba mal—, y ahora las dos fuentes dicen lo mismo en vez de contradecirse.
 
   **Anclaje temporal: UTC, y se escribe para que nadie lo «arregle» en un solo endpoint.** `YYYY-MM-DD` se ancla al
   borde del día **en UTC** — la misma convención que §0 fija para `from`/`to` (v1.25.1). ⚠️ **Consecuencia conocida y
