@@ -1,4 +1,5 @@
 import { config } from './config';
+import { sortPreparationOrders } from './preparation-order';
 import {
   apiRequest,
   requestBlob,
@@ -1432,11 +1433,17 @@ export async function getAdminPreparationQueue(
     return res.data;
   }
   // El mock hace de SERVIDOR: filtra la cubeta y devuelve el orden normativo (asc por requestedAt).
-  const data = fx.mockPreparationQueue
-    .filter((o) => !filters.destination || o.destination === filters.destination)
-    .slice()
-    .sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
-  return delay(data);
+  // ⭐ Usa **el mismo comparador que la vista** (`lib/preparation-order`) en vez del suyo propio: el
+  // techlead midió que había TRES fuentes para un mismo orden (servidor, vista y este `sort` escrito
+  // a mano) y tres copias de una regla es la forma exacta de que dos se queden atrás sin que nadie
+  // lo note. ⛔ Un servidor falso que ordena «a su manera» no puede equivocarse igual que el real.
+  return delay(
+    sortPreparationOrders(
+      fx.mockPreparationQueue.filter(
+        (o) => !filters.destination || o.destination === filters.destination,
+      ),
+    ),
+  );
 }
 
 /**

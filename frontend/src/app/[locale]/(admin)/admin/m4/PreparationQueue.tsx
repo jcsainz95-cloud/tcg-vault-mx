@@ -4,17 +4,22 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getAdminPreparationQueue } from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Button } from '@/components/ui/Button';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { formatAge, formatDate } from '@/lib/format';
+// El orden vive en `lib/` para que la vista y el servidor falso usen LA MISMA regla
+// (tres fuentes → dos). Su condición de validez —la cola no pagina— está allí y en
+// `docs/TECH_DEBT.md` (`M4P-SORT`).
+import { sortPreparationItems, sortPreparationOrders } from '@/lib/preparation-order';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type {
-  LocationView,
   PreparationDestination,
   PreparationItemDTO,
   PreparationOrderDTO,
@@ -56,49 +61,10 @@ const BUCKETS: { value: Bucket; labelKey: 'filterAll' | 'filterVault' | 'filterS
   { value: 'vault', labelKey: 'filterVault' },
 ];
 
-/**
- * Clave de orden de una ubicación. `null` = la pieza **no tiene** ubicación utilizable, y eso
- * incluye el caso defensivo `kind:'assigned'` **sin** `label` (el contrato declara `label?`
- * opcional): sin etiqueta no se puede caminar hacia ella, así que se trata igual que `unassigned`
- * — al final de la lista — en vez de colarse arriba con una cadena vacía.
- */
-function locationSortKey(location: LocationView): string | null {
-  return location.kind === 'assigned' && location.label ? location.label : null;
-}
-
-/**
- * Orden NORMATIVO de los pedidos: `requestedAt` **asc** — lo más viejo primero (CA #9).
- *
- * El backend ya lo sirve así (§M4-PREP). Se repite aquí **a propósito** y no es «dos fuentes para
- * un hecho»: el orden de la cola es el criterio de aceptación #9, y anclarlo en la pantalla es lo
- * que lo hace verificable *donde el operador lo ve*. Si el servidor cambiara de orden, la pantalla
- * seguiría cumpliendo el criterio en vez de heredar el defecto en silencio.
- *
- * Una `requestedAt` inválida va **al final**: una fecha que no se puede leer no es «la más vieja».
- */
-export function sortPreparationOrders(orders: PreparationOrderDTO[]): PreparationOrderDTO[] {
-  const at = (o: PreparationOrderDTO) => {
-    const ms = Date.parse(o.requestedAt);
-    return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
-  };
-  return orders.slice().sort((a, b) => at(a) - at(b));
-}
-
-/** Cartas del pedido por ubicación (asignadas primero y ordenadas; las sin ubicar, al final). */
-export function sortPreparationItems(items: PreparationItemDTO[]): PreparationItemDTO[] {
-  return items.slice().sort((a, b) => {
-    const ka = locationSortKey(a.currentLocation);
-    const kb = locationSortKey(b.currentLocation);
-    if (ka === null && kb === null) return 0;
-    if (ka === null) return 1;
-    if (kb === null) return -1;
-    return ka.localeCompare(kb);
-  });
-}
-
 export function PreparationQueue() {
   const t = useTranslations('admin.m4.prep');
   const tm4 = useTranslations('admin.m4');
+  const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const [bucket, setBucket] = useState<Bucket>('');
 
@@ -136,6 +102,21 @@ export function PreparationQueue() {
   });
 
   const orders = sortPreparationOrders(queue.data ?? []);
+
+  /**
+   * ⭐⭐ **§M4-PREP v1.78.2 — el `409` de FILA CORRUPTA, que ⛔ NO se pinta como «cola vacía».**
+   *
+   * Una fila con `orderId` cuyo `Order.fulfillmentMode` no es `direct_ship` viola un invariante, y
+   * el endpoint rechaza **la petición ENTERA** —no solo esa cubeta—. El contrato **prohíbe
+   * expresamente** degradar: ni pintar vacío, ni tratarlo como un error de red genérico.
+   *
+   * **Y el motivo no es de pulcritud.** Degradar convierte una violación de invariante en **una
+   * lista más corta**, y en una cola de preparación una lista más corta se lee **igual** que «no hay
+   * nada que preparar». El resultado sería **un envío ya cobrado que nunca sale por la puerta**,
+   * con el operador convencido de que terminó. Por eso tiene que ser **distinguible de
+   * `200 {data:[]}`** — que es, literalmente, lo que el contrato fija que el consumidor garantice.
+   */
+  const corruptRow = queue.error instanceof ApiClientError && queue.error.status === 409;
 
   /**
    * Un copy de vacío por cubeta: las tres situaciones son distintas (§35.8).
@@ -203,7 +184,8 @@ export function PreparationQueue() {
         data-testid="prep-live-region"
       >
         {queue.isLoading || queue.isError
-          ? ''
+          ? '' /* ⛔ ni el conteo ni un título de vacío mientras carga o si hubo error: un `409` de
+                  fila corrupta NO es «cero pedidos», y anunciarlo así sería el mismo engaño. */
           : orders.length === 0
             ? t(`${emptyKey}.title`)
             : t('orderCount', { count: orders.length })}
@@ -211,7 +193,7 @@ export function PreparationQueue() {
 
       <QueryState
         isLoading={queue.isLoading}
-        isError={queue.isError}
+        isError={queue.isError && !corruptRow}
         error={queue.error}
         onRetry={() => queue.refetch()}
         loading={
@@ -227,7 +209,40 @@ export function PreparationQueue() {
           </div>
         }
       >
-        {orders.length === 0 ? (
+        {corruptRow ? (
+          /*
+           * ⚠️⚠️ **PENDIENTE-UX — la COSTURA está hecha, la REDACCIÓN no es mía.**
+           * §M4-PREP v1.78.2 dice, con todas las letras, que **la redacción la decide ux-ui** y que
+           * su sitio es `DESIGN_SYSTEM §35.8` («Carga, error y vacío»), que ya separa el vacío del
+           * error. Lo que el contrato **sí** fija —y es lo que queda cableado aquí— es que este
+           * estado sea **distinguible de una cola vacía** y que el operador **no se quede creyendo
+           * que terminó su trabajo**.
+           *
+           * Mientras llega el copy se pinta **el mensaje del servidor**, que ⛔ no es copy inventada:
+           * es el dato, y el contrato dice que **`shipmentId` viaja en él y es la pista** para
+           * soporte. Es la misma costura que funcionó con el «—» de `fullName` (§35.6a): rama
+           * aislada, `data-testid`, marca `PENDIENTE-UX` y ⛔ **ningún candado que fije un
+           * provisional** — los de abajo asertan lo que es cierto con CUALQUIER redacción.
+           */
+          <div
+            data-testid="prep-corrupt-row"
+            role="alert"
+            className="flex flex-col gap-3 border border-accent bg-surface p-4"
+          >
+            <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
+              {/* PENDIENTE-UX: marca provisional tomada del código del contrato, ⛔ no redactada. */}
+              {queue.error instanceof ApiClientError ? queue.error.code : 'CONFLICT'}
+            </p>
+            <p className="text-sm text-text">
+              {queue.error instanceof ApiClientError ? queue.error.message : ''}
+            </p>
+            <div>
+              <Button size="sm" variant="secondary" onClick={() => queue.refetch()}>
+                {tc('retry')}
+              </Button>
+            </div>
+          </div>
+        ) : orders.length === 0 ? (
           // P-6: ⛔ sin `tone`. `EmptyState` lo acepta por compatibilidad y **no lo pinta** — la
           // dirección 5a retiró los rellenos de color (§2.1) y §35.8 corrige el «verde suave» de
           // §8.1: el vacío positivo se comunica con el texto y el aire, no con color.
@@ -472,9 +487,11 @@ function PreparationCard({
 
 function PreparationItem({ item, t }: { item: PreparationItemDTO; t: Translator }) {
   const { card, currentLocation } = item;
-  // CA #11: «UNASSIGNED» ya no viaja como código — y tampoco se pinta. `kind:'assigned'` sin
-  // `label` (declarado opcional) se lee como sin ubicar: no hay etiqueta que seguir.
-  const located = currentLocation.kind === 'assigned' && Boolean(currentLocation.label);
+  // CA #11: «UNASSIGNED» ya no viaja como código — y tampoco se pinta.
+  // ⭐ v1.78.2: `LocationView` es unión discriminada ⇒ `kind === 'assigned'` **basta** (ahí `label`
+  // es `string` obligatorio). ⛔ Se retira el `&& Boolean(currentLocation.label)` que había aquí:
+  // era la segunda de las ramas defensivas que el tipo flojo obligaba a escribir.
+  const located = currentLocation.kind === 'assigned';
 
   return (
     <li

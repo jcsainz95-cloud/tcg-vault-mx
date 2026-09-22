@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M4View } from './M4View';
 import * as api from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import type { PreparationItemDTO, PreparationOrderDTO } from '@/types/contract';
 // Los catálogos se leen directos para el candado de §35.6a-f (la versalita la pone el CSS, no la
 // cadena): medir el texto RENDERIZADO no distinguiría una cosa de la otra, porque `uppercase` las
@@ -1048,6 +1049,56 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
    * paginar) y una de **ejecución física** (esta, que se usa de pie). Manda la que se usa de pie: el
    * operador que entra a preparar no puede tener que hacer scroll por una lista que no es la suya.
    */
+  /**
+   * ⭐⭐ **§M4-PREP v1.78.2 — el `409` de FILA CORRUPTA.** El contrato ⛔ **prohíbe** pintarlo como
+   * «cola vacía» o como error genérico de red: degradar convierte una violación de invariante en
+   * **una lista más corta**, y una lista más corta en esta cola se lee **igual** que «no hay nada que
+   * preparar» ⇒ **un envío ya cobrado que nunca sale por la puerta**, con el operador convencido de
+   * que terminó.
+   *
+   * ⛔ **Estos candados NO fijan la redacción** (que es de ux-ui, §35.8, y todavía no llegó): asertan
+   * lo único que el contrato pone a cargo del consumidor y que es cierto con **cualquier** copy —
+   * **que sea distinguible de `200 {data:[]}`**.
+   */
+  it('v1.78.2 · `409` de fila corrupta: estado CON NOMBRE, ⛔ nunca el vacío de la cola', async () => {
+    vi.spyOn(api, 'getAdminPreparationQueue').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'CONFLICT',
+        message: 'Fila corrupta en la cola de preparación (shipmentId: shp-roto).',
+      }),
+    );
+    renderWithProviders(<M4View />, 'es');
+
+    const block = await screen.findByTestId('prep-corrupt-row');
+    // Distinguible de una cola vacía: ni el título del vacío, ni el de la cubeta de bóveda.
+    expect(screen.queryByText('Nada que preparar por ahora.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Esta cubeta todavía no se alimenta.')).not.toBeInTheDocument();
+    // Y con nombre: se anuncia, y trae la pista que el contrato dice que viaja en el mensaje.
+    expect(block).toHaveAttribute('role', 'alert');
+    expect(block).toHaveTextContent('shp-roto');
+    expect(within(block).getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+  });
+
+  it('v1.78.2 · un error que NO es 409 sigue siendo el banner genérico (⛔ no se secuestra todo)', async () => {
+    // El estado con nombre es para la fila corrupta; un fallo de red NO puede disfrazarse de él.
+    vi.spyOn(api, 'getAdminPreparationQueue').mockRejectedValue(new Error('boom'));
+    renderWithProviders(<M4View />, 'es');
+
+    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0));
+    expect(screen.queryByTestId('prep-corrupt-row')).not.toBeInTheDocument();
+  });
+
+  it('v1.78.2 · la región viva NO anuncia «cero pedidos» cuando lo que hubo fue un 409', async () => {
+    vi.spyOn(api, 'getAdminPreparationQueue').mockRejectedValue(
+      new ApiClientError(409, { code: 'CONFLICT', message: 'corrupta (shipmentId: shp-roto)' }),
+    );
+    renderWithProviders(<M4View />, 'es');
+
+    await screen.findByTestId('prep-corrupt-row');
+    // Anunciar un vacío aquí sería el mismo engaño por el canal del lector de pantalla.
+    expect(screen.getByTestId('prep-live-region')).toHaveTextContent('');
+  });
+
   it('P-10 · «Pedidos a preparar» se monta ARRIBA de la cola de envíos', async () => {
     renderWithProviders(<M4View />, 'es');
 

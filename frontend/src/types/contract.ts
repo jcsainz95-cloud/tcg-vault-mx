@@ -1269,10 +1269,21 @@ export interface PreparationItemDTO {
 }
 
 // CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
-export interface LocationView {
-  kind: 'assigned' | 'unassigned';
-  label?: string; // "C03-F02-S15" cuando kind='assigned'; ausente cuando 'unassigned'
-}
+//
+// ⭐⭐ **v1.78.2 — UNIÓN DISCRIMINADA, y el tipo deja de permitir el estado ilegal.**
+// Antes era `{ kind: 'assigned' | 'unassigned'; label?: string }`: el invariante vivía en el
+// comentario y `{kind:'assigned'}` **sin etiqueta a la que caminar** era REPRESENTABLE — así que
+// cada consumidor lo re-derivaba con **su propio predicado** (el techlead contó CUATRO ramas
+// defensivas y una divergencia de orden back↔front sobre `label: ''`). Es la doctrina de v1.78.1
+// (`fullName`) aplicada al campo de al lado: **una grafía por hecho**.
+//
+// ⇒ Con la unión, preguntar `kind === 'assigned'` **basta y es total**: en ese brazo `label` es
+// `string` obligatorio, y en el otro **la llave no existe**. ⛔ Prohibido `if (loc.label)`: un
+// predicado sobre el campo vuelve a admitir el estado que el tipo acaba de borrar.
+// Una `VaultLocation.label` en blanco (⛔ inalcanzable por construcción) se sirve `{kind:'unassigned'}`.
+export type LocationView =
+  | { kind: 'assigned'; label: string } // "C03-F02-S15" — NO en blanco (§M4-PREP)
+  | { kind: 'unassigned' }; // ⛔ sin `label`: la llave no existe en este brazo
 
 // ⭐ §M4-PREP v1.78.1 — LA NOTA DE `customer.fullName`, porque el tipo solo dice la mitad.
 // `null` es la ÚNICA marca de «no hay nombre» en este DTO — igual que en `lastName`,
