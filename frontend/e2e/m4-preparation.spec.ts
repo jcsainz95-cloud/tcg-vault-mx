@@ -210,8 +210,16 @@ for (const vp of VIEWPORTS) {
 
       // ── PR-12 · ⛔ nada que pulsar que no arregle nada: reintentar un 409 por datos corruptos
       //    devuelve el mismo 409. Y ⛔ sin cierre: cerrarlo dejaría detrás la pantalla vacía.
-      const banner = page.locator('[role="alert"]');
-      await expect(banner.getByRole('button')).toHaveCount(0);
+      /*
+       * ⚠️ **Se acota a ESTE aviso (`aviso`), ⛔ no a `[role="alert"]` de toda la página.** La primera
+       * versión afirmaba «ningún alert de la página contiene un botón» — y yo mismo medí que aquí hay
+       * **dos** alertas, porque `/admin/m4` hospeda también la cola de envíos. El día que su
+       * `QueryState` estrene un «Reintentar» —lo natural en un `QueryState`— esto se pondría **rojo
+       * por algo que PR-12 no gobierna**. Es riesgo de **rojo falso**, no de verde falso, y es la
+       * misma sobre-especificación que ya retiré del conteo de botones: el locator correcto (`aviso`)
+       * estaba dos líneas más arriba.
+       */
+      await expect(aviso.getByRole('button')).toHaveCount(0);
       /*
        * ⚠️ **Aquí NO se cuentan los botones de toda la pantalla, y la primera versión sí lo hacía.**
        * `/admin/m4` hospeda TAMBIÉN la cola de envíos, que trae los suyos («Capturar guía»,

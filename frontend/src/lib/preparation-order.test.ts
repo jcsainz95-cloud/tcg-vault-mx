@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { codigoDe } from '@/test/strip-comments';
 import { sortPreparationItems } from './preparation-order';
 import type { LocationView, PreparationItemDTO } from '@/types/contract';
 
@@ -33,8 +34,17 @@ function parseCasos(texto: string): Caso[] {
     casos.push({
       n: Number(m[1]),
       entrada: m[2].split(',').map((tok) => {
-        const [id, raw] = tok.split('=');
-        return { id: id.trim(), label: raw === '∅' ? null : raw.replace(/␣/g, ' ') };
+        /*
+         * ⚠️ **`indexOf` y ⛔ no `split('=')` desestructurado** (M-QA2, QA): con `split` una etiqueta
+         * que contuviera `=` se truncaría en el primer signo — y **solo en este lado**, porque el
+         * parser de backend ya usa `indexOf`. Dos lectores del mismo bloque que lo leen distinto es
+         * la clase de divergencia que §M4P-ORDER existe para cerrar. Hoy ninguna etiqueta lleva `=`;
+         * el arreglo es una línea y quita la asimetría antes de que importe.
+         */
+        const corte = tok.indexOf('=');
+        const id = tok.slice(0, corte).trim();
+        const raw = tok.slice(corte + 1);
+        return { id, label: raw === '∅' ? null : raw.replace(/␣/g, ' ') };
       }),
       salida: m[3].split(',').map((s) => s.trim()),
     });
@@ -66,6 +76,20 @@ describe('§M4P-ORDER · orden por ubicación, aseverado contra el CONTRATO', ()
   it('el bloque del contrato se encuentra y trae los 7 casos (⛔ sin él, esta suite no mide nada)', () => {
     expect(CASOS).toHaveLength(7);
     expect(CASOS.map((c) => c.n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+
+    /*
+     * ⭐ **M-QA3 (QA) — la anti-vacuidad tiene que cubrir el DATO, no solo la CUENTA.** El caso 7
+     * existe para morder a quien meta un `trim()`, y todo su poder está en el **espacio literal**
+     * (`␣` en el contrato). Contar siete casos no lo protege: si un re-formato del documento se
+     * comiera ese carácter, el caso 7 **seguiría estando** y **dejaría de morder, en verde**. El
+     * parser de backend ya lo exige; aquí faltaba. *Una anti-vacuidad que solo cuenta filas no ve
+     * una fila vaciada.*
+     */
+    const caso7 = CASOS.find((c) => c.n === 7)!;
+    expect(
+      caso7.entrada.some((e) => e.label?.startsWith(' ')),
+      'el caso 7 perdió su espacio literal y ya no puede morder a un `trim()`',
+    ).toBe(true);
   });
 
   it.each(CASOS.map((c) => [c.n, c] as const))('caso %i', (_n, caso) => {
@@ -102,9 +126,39 @@ describe('§M4P-ORDER · orden por ubicación, aseverado contra el CONTRATO', ()
    * despojados, para que la prosa que explica la prohibición no dispare el candado.
    */
   it('guarda de residuo · `localeCompare`/`Intl.Collator` no reaparecen en el comparador', () => {
-    const fuente = readFileSync(join(process.cwd(), 'src', 'lib', 'preparation-order.ts'), 'utf8');
-    const sinComentarios = fuente.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    expect(sinComentarios).toContain('sortPreparationItems');
-    expect(sinComentarios).not.toMatch(/localeCompare|Intl\.Collator/);
+    /*
+     * ⚠️⚠️ **Aquí había una reimplementación A MANO del limpiador v1, y es una clase que este repo
+     * ya erradicó** (§77 de mis propias notas: **107 ficheros y ≥413 líneas** que un candado no
+     * miraba). `strip-comments.ts:11` cita ese literal **verbatim** como el defecto que existe para
+     * reemplazar — y mi copia era **peor que la v1 canónica**, porque le faltaba el guard
+     * `(^|[^:])` y se comía todo lo que siguiera a un `//` dentro de una cadena.
+     *
+     * **El modo de fallo no es rojo, es CEGUERA PARCIAL CON VERDE:** un `not.toMatch` pasa **por
+     * vacuidad** si el limpiador se come la región, y mi único control era un ancla **de fichero**
+     * (`toContain('sortPreparationItems')`, que es la firma exportada y sobrevive a que se borre
+     * todo el cuerpo). *(QA intentó cegarla con un bloque fantasma y **no lo consiguió** —siguió
+     * mordiendo, 3 rojas—, así que no era un hueco demostrado. Se cambia igual: la clase está
+     * cerrada y yo abrí una instancia nueva.)*
+     *
+     * Ahora: el limpiador **canónico** —que le pregunta al escáner de TypeScript qué es trivia, ⛔ no
+     * una heurística nuestra, y que trae su propio control de no-ceguera— y un ancla **DENTRO del
+     * cuerpo**, ⛔ no la firma.
+     */
+    const codigo = codigoDe(join(process.cwd(), 'src', 'lib', 'preparation-order.ts'));
+
+    // Ancla de REGIÓN: estas tres líneas viven dentro del comparador. Si el limpiador se comiera el
+    // cuerpo, esto se pone rojo en vez de pasar en vacío.
+    expect(codigo).toContain('locationSortKey(a.currentLocation)');
+    expect(codigo).toContain('if (ka < kb) return -1;');
+    expect(codigo).toContain('if (kb === null) return -1;');
+
+    /*
+     * **M-QA1 (QA) — simetría con la guarda de backend: cota de líneas VIVAS.** `codigoDe` ya trae su
+     * propio control de no-ceguera, así que esto es cinturón sobre tirantes; entra igual porque es
+     * una línea y porque la asimetría entre las dos guardas era justo lo que QA no podía explicar.
+     */
+    expect(codigo.split('\n').filter((l) => l.trim() !== '').length).toBeGreaterThan(20);
+
+    expect(codigo).not.toMatch(/localeCompare|Intl\.Collator/);
   });
 });

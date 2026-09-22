@@ -4,6 +4,68 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §66 · **§M4P-ORDER: por qué el «canario de locale» que el contrato ofrece NO se escribió** (2026-09-22, `API_CONTRACT §M4P-ORDER` v1.78.3)
+
+> **Esta entrada existe porque la decisión vivía solo en una conversación.** El contrato deja el
+> canario de locale **declarado como OPCIONAL** y lo llama *«el único que ve la divergencia de
+> verdad»*. Quien lo lea en seis meses **lo buscará, no lo encontrará y lo escribirá** — que es el
+> **17 % de retrabajo** que `CLAUDE.md` tiene medido, por dos líneas que nadie anotó. Lo levantó el
+> techlead y tiene razón: *una decisión de no-hacer que no se escribe es una decisión que se vuelve a
+> tomar.*
+
+### 1. Qué era el canario y por qué el contrato lo ofrecía
+
+`sortPreparationItems` ordenaba con `localeCompare()` **sin locale**, igual que el backend — y los dos
+lo habíamos elegido **por separado**. Coincidíamos **por coincidencia, no por norma**, y esa forma usa
+**la locale del host**: el Node del servidor por un lado, **el navegador del operador** por el otro.
+El contrato (v1.78.3) lo cerró declarando **comparación por unidades de código UTF-16**.
+
+El canario propuesto: repetir el **caso 4** en un contexto de Playwright con una locale distinta de la
+que `playwright.config.ts` fija (`es-MX`), para que la divergencia se vea de verdad. *(El arquitecto
+nos corrigió de paso a mí y al techlead con una medición que a los dos nos faltaba: el harness **sí**
+corre en navegador, pero con **una** locale elegida por nosotros — **no es que no pueda ver la
+divergencia, es que la esconde**.)*
+
+### 2. Por qué NO se escribió — los argumentos, **en el orden correcto**
+
+⚠️ **Mi primera versión de este argumento puso el peso en el sitio equivocado**, y el techlead lo
+corrigió. Lo escribo ya corregido, porque el orden **es** el argumento:
+
+1. **⭐ El peso lo cargan los CASOS 3 y 4, que miden CONDUCTA.** Al comparador no le importa cómo se
+   escribió la regresión: si alguien reintroduce cualquier orden dependiente de collation, esos dos
+   casos salen al revés. **Medido en este pase** (Node del repo, ICU `en-US`):
+
+   | Locale | caso 3 (`c01…` vs `C01…`) | caso 4 (`CÑ…` vs `CZ…`) |
+   |---|---|---|
+   | `es-MX` | unidades `b,a` · `localeCompare` `a,b` ⇒ **discrimina** | ídem ⇒ **discrimina** |
+   | `sv-SE` | ⇒ **discrimina** | ⇒ **discrimina** |
+   | `en-US` | ⇒ **discrimina** | ⇒ **discrimina** |
+   | sin locale (host) | ⇒ **discrimina** | ⇒ **discrimina** |
+
+   *(El contrato marcaba esta expectativa como **razonada y NO MEDIDA**, y dejaba la comprobación a
+   deber a quien cableara. Queda pagada aquí y en `preparation-order.test.ts`.)*
+2. **La guarda de residuo es el argumento DÉBIL, y por eso va segunda.** Es una **lista negra por
+   símbolo** (`localeCompare`, `Intl.Collator`): ⛔ **no caza una grafía que no conoce** —un
+   `new Intl.Collator` guardado en una variable, un helper propio, un `sort` de otra biblioteca—. Es
+   barata y muerde el caso obvio, que es el probable; **no es la que sostiene la decisión**.
+3. **Y el remate, del techlead:** con el comparador ya por unidades de código, el canario aseveraría
+   un invariante que **ECMA-262 hace verdadero por construcción** — el orden de `<` sobre cadenas
+   **no consulta ICU ni locale por ningún camino**. Una prueba de ~40 s que verifica lo que la
+   especificación del lenguaje garantiza no añade cobertura: añade mantenimiento.
+
+### 3. ⚠️ Cuándo SÍ habría que escribirlo (el disparador, para que la decisión no se hereda a ciegas)
+
+**El día que este comparador —o cualquier orden de esta pantalla— vuelva a depender de collation.**
+En ese momento el argumento 3 se cae entero (ya no hay garantía del lenguaje), el 2 sigue siendo
+débil, y el 1 deja de bastar porque los casos 3 y 4 se medirían **solo bajo la locale que el harness
+fija**. Señales concretas: que alguien pida orden «natural» (`{numeric:true}`), acentos insensibles, o
+que el orden pase a depender de un campo escrito por humanos en vez de `CAJA-FILA-SLOT`.
+
+*(Y si el techlead o QA lo quieren igualmente hoy, son ~30 min: un `test.use({ locale: 'sv-SE' })`
+sobre el caso 4. ⛔ No lo meto por simetría con el contrato, que es la única razón que quedaba.)*
+
+---
+
 ## §65 · **La ausencia se nombra** — se cierra la no conformidad de `fullName: null` (P-11) y se saca un número de versión del copy del operador (P-12) (2026-09-22, `DESIGN_SYSTEM §35.6a` v4.5, commit de este pase)
 
 > §64 dejó **una no conformidad abierta y señalizada**: con `fullName === null` la tarjeta pintaba un

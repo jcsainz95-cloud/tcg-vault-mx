@@ -1138,7 +1138,16 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     renderWithProviders(<M4View />, 'es');
 
     await screen.findByTestId('prep-conflict');
-    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    /*
+     * ⚠️ **Se cuenta DENTRO de la sección de la cola, ⛔ no en todo el render.** La versión anterior
+     * afirmaba «exactamente 1 alerta en toda la pantalla», y `M4View` monta **hasta cuatro**
+     * `Banner role="alert"` (los de las mutaciones de guía y de estado). Hoy pasaba **porque con
+     * este mock los otros tres no se pintan** — exactamente la misma condicionalidad que acabo de
+     * retirar de PR-12 a dos líneas de aquí. La regla dice «el aviso anuncia y la región viva
+     * calla», ⛔ no «esta pantalla tiene un solo aviso».
+     */
+    const seccion = screen.getByTestId('prep-live-region').closest('section')!;
+    expect(within(seccion).getAllByRole('alert')).toHaveLength(1);
     expect(screen.getByTestId('prep-live-region')).toHaveTextContent('');
   });
 
