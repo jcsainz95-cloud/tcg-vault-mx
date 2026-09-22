@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { HttpStatus } from '@nestjs/common';
 import { PreparationOrderDTO, ShipmentsService } from '../src/modules/shipments/shipments.service';
 import { BusinessException } from '../src/common/business.exception';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+// `H3-d`: un candado de código mira CÓDIGO, no prosa.
+import { stripComments } from './helpers/strip-comments';
 
 /**
  * `GET /admin/shipments/picking-list` — **«Pedidos a preparar»** (API_CONTRACT §M4-PREP, v1.78).
@@ -160,6 +164,138 @@ describe('pickingList — lo que la reproyección NO cambió (fix QA #3 y `?date
     const { prisma, service } = makeService();
     await service.pickingList();
     expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where.requestedAt).toBeUndefined();
+  });
+});
+
+// ------------------------------------------------- `I-1` · `?date=` malformado ⇒ 400, no 500
+
+describe('pickingList — `?date=` (`I-1` + v1.78.2: era `500`, y ahora es date-only)', () => {
+  it.each([
+    ['texto libre', 'banana'],
+    ['día inexistente ⇒ Invalid Date', '2026-13-45'],
+    ['⚠️ 30 de febrero — `isNaN` NO lo atrapa: DESBORDA al 2 de marzo', '2026-02-30'],
+    ['⚠️ 31 de abril — desborda al 1 de mayo', '2026-04-31'],
+    ['⚠️ 29 de febrero de un año NO bisiesto — desborda al 1 de marzo', '2026-02-29'],
+    ['mes 00', '2026-00-10'],
+    ['día 32', '2026-01-32'],
+    ['sin guiones', '20260920'],
+    ['literal null', 'null'],
+    ['repetido ⇒ llega como CSV', '2026-09-20,2026-09-21'],
+    ['⭐ v1.78.2 — datetime ISO COMPLETO (ventana deslizante)', '2026-09-20T14:30:00Z'],
+    ['⭐ v1.78.2 — datetime con offset', '2026-09-20T00:00:00-06:00'],
+  ])(
+    '`?date=` %s ⇒ 400 VALIDATION_ERROR con `details.field`, ⛔ NO 500 ni `200` vacío',
+    async (_n, malo) => {
+      const { prisma, service } = makeService();
+      await expect(service.pickingList(malo)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        status: HttpStatus.BAD_REQUEST,
+        details: { field: 'date' },
+      });
+      // ⛔ Y muere ANTES de tocar Prisma: un `Invalid Date` en el `where` es el `500` de `P-84`.
+      expect(prisma.shipmentRequest.findMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('⛔ `details` es `{field}` y NADA MÁS: sin `allowed` y sin eco del valor', async () => {
+    const { service } = makeService();
+    const largo = 'A'.repeat(5000);
+    const err = await service.pickingList(largo).catch((e) => e);
+    expect(err).toBeInstanceOf(BusinessException);
+    // ⛔ Sin `allowed`: un día del calendario no se enumera — la gramática la explica el `message`.
+    // ⛔ Sin eco: §0-Q punto 2 lo prohíbe en todo eje nuevo (amplificación de la respuesta).
+    expect(err.details).toEqual({ field: 'date' });
+    expect(JSON.stringify(err.details)).not.toContain('AAAA');
+  });
+
+  it('⭐ v1.78.2 — un día VÁLIDO ancla en UTC: `[díaT00:00Z, +24h)`, ventana medio abierta', async () => {
+    const { prisma, service } = makeService();
+    await service.pickingList('2026-09-20');
+    const { requestedAt } = prisma.shipmentRequest.findMany.mock.calls[0][0].where;
+    expect(requestedAt.gte).toEqual(new Date('2026-09-20T00:00:00.000Z'));
+    expect(requestedAt.lt).toEqual(new Date('2026-09-21T00:00:00.000Z'));
+    // ⛔ Medio abierta, NO `lte 23:59:59.999`: ningún instante cae en dos días y la corrección no
+    // depende de la precisión del almacenamiento.
+    expect(requestedAt.lte).toBeUndefined();
+  });
+
+  it('⭐ un 29 de febrero REAL (año bisiesto) SÍ se acepta: la ida y vuelta no es un rechazo ciego', async () => {
+    // El candado que cierra el desbordamiento no puede cobrarse los días que sí existen.
+    const { prisma, service } = makeService();
+    await service.pickingList('2024-02-29');
+    const { requestedAt } = prisma.shipmentRequest.findMany.mock.calls[0][0].where;
+    expect(requestedAt.gte).toEqual(new Date('2024-02-29T00:00:00.000Z'));
+    expect(requestedAt.lt).toEqual(new Date('2024-03-01T00:00:00.000Z'));
+  });
+
+  it('los espacios que RODEAN al token se recortan (el token sigue siendo date-only)', async () => {
+    const { prisma, service } = makeService();
+    await service.pickingList('  2026-09-20  ');
+    const { requestedAt } = prisma.shipmentRequest.findMany.mock.calls[0][0].where;
+    expect(requestedAt.gte).toEqual(new Date('2026-09-20T00:00:00.000Z'));
+  });
+
+  it('⭐ PRECEDENCIA — con los DOS ejes mal, gana `?destination=` (§0-Q primero)', async () => {
+    const { prisma, service } = makeService();
+    await expect(service.pickingList('banana', 'basura')).rejects.toMatchObject({
+      details: { field: 'destination' },
+    });
+    // Y ninguna de las dos validaciones leyó nada.
+    expect(prisma.shipmentRequest.findMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['cadena vacía', ''],
+    ['solo espacios', '   '],
+  ])('`?date=` %s ≡ ausente: `200` sin filtro, ⛔ nunca 400', async (_n, valor) => {
+    const { prisma, service } = makeService();
+    await expect(service.pickingList(valor)).resolves.toEqual({ data: [] });
+    expect(prisma.shipmentRequest.findMany.mock.calls[0][0].where.requestedAt).toBeUndefined();
+  });
+
+  /**
+   * ⭐⭐ **PROCEDENCIA — la gramática de «date-only» es UNA en el repositorio, y esto lo vigila.**
+   *
+   * ### Por qué hace falta un candado de ORIGEN y no basta uno de conducta (medido)
+   * Mutación `N-DATE2`: sustituir `DATE_ONLY_RE.test(token) ? … : new Date(NaN)` por
+   * `new Date(token)` a secas. Resultado medido el 2026-09-22: **82/82 unitarias y 14/14 de
+   * integración en VERDE**. No es que el candado sea flojo: es que la comprobación de **ida y
+   * vuelta** (`toISOString().slice(0,10) !== token`) **ya rechaza** por su cuenta el datetime, el
+   * texto libre y el desbordamiento ⇒ el mutante es **equivalente en conducta**.
+   *
+   * Pero §M4-PREP v1.78.2 no pide solo una conducta: pide que el backend **reuse** la noción de
+   * date-only que ya existe y **⛔ no escriba una tercera**. Eso es una afirmación sobre **de dónde
+   * viene la regla**, y ninguna aserción de conducta la puede sostener — *si mañana alguien copia
+   * `/^\d{4}-\d{2}-\d{2}$/` aquí, el comportamiento no cambia y la segunda gramática nace en verde,
+   * que es exactamente cómo nacen las divergencias que este repo lleva tres pases pagando*.
+   *
+   * ⚠️ Mira **código**, no texto (`stripComments`): si mirara el fichero entero, el propio docstring
+   * de `parseDayFilter` —que cita el patrón para explicarlo— dispararía el candado, y la salida
+   * barata sería una lista blanca por nombre de fichero. Es la lección de `H3-d`, aplicada de
+   * entrada.
+   */
+  it('⭐ PROCEDENCIA — reusa `DATE_ONLY_RE` del helper común y ⛔ no declara una segunda gramática', () => {
+    const ruta = join(__dirname, '..', 'src', 'modules', 'shipments', 'shipments.service.ts');
+    const codigo = stripComments(readFileSync(ruta, 'utf8'));
+    // (a) la importa del ÚNICO sitio donde vive.
+    expect(codigo).toMatch(
+      /import\s*\{[^}]*\bDATE_ONLY_RE\b[^}]*\}\s*from\s*'\.\.\/\.\.\/common\/admin-list-filters'/,
+    );
+    // (b) y la USA para decidir (no la importa de adorno).
+    expect(codigo).toMatch(/DATE_ONLY_RE\.test\(/);
+    // (c) ⛔ y no hay ninguna gramática de fecha declarada aquí dentro.
+    expect(codigo).not.toMatch(/\\d\{4\}-\\d\{2\}-\\d\{2\}/);
+  });
+
+  it('⛔ y NO existe la ventana DESLIZANTE que el datetime producía (v1.78.2)', async () => {
+    // Antes: `2026-09-20T14:30Z` ⇒ `200` con una ventana hasta el **21 a las 14:30** — dos días del
+    // calendario, y el operador sin poder nombrar lo que le contestaron.
+    const { prisma, service } = makeService();
+    await expect(service.pickingList('2026-09-20T14:30:00Z')).rejects.toMatchObject({
+      status: HttpStatus.BAD_REQUEST,
+      details: { field: 'date' },
+    });
+    expect(prisma.shipmentRequest.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -563,6 +699,216 @@ describe('pickingList — `?destination=` (§0-Q: o filtra, o 400)', () => {
 
 // ---------------------------------------------------------------- forma del DTO
 
+// ---------------------------------------------- `B-1` · la ausencia se escribe `null`, y SOLO `null`
+
+/**
+ * ⭐⭐ **`B-1` (bloqueante de QA) — la fuente que EXISTE VACÍA.**
+ *
+ * v1.78.1 prohíbe `""` como marca de ausencia, y el backend cerró solo la mitad: `?? null` cae ante
+ * `null`/`undefined` **pero no ante `""` ni `"   "`**. En la cola viva salieron las **tres grafías
+ * del mismo hecho una debajo de otra**.
+ *
+ * ⚠️ **Y el candado que parecía cubrirlo no lo cubría:** la prueba de «`lastName` NULL cuando no hay
+ * nada que derivar» servía `'   '` **y solo asertaba `lastName`, nunca `fullName`** — así que el
+ * defecto convivía con ella en verde. *Una prueba que no mira el campo del defecto no es cobertura
+ * de ese campo, por mucho que sirva su entrada.* De ahí que aquí se asserte **el campo**, y que el
+ * censo de más abajo mire **todos** los campos a la vez en vez de fiarse de esta lista.
+ */
+describe('`B-1` — ningún campo nullable sirve `""` ni `"   "` (v1.78.1)', () => {
+  it.each([
+    ['cadena vacía', ''],
+    ['solo espacios', '   '],
+    ['tabulador y salto', '\t\n '],
+  ])('`User.name` %s ⇒ `fullName` NULL (y `lastName` NULL)', async (_n, blanco) => {
+    const o = await onlyOrder([shipment({ orderId: null, userName: blanco })]);
+    expect(o.customer.fullName).toBeNull();
+    expect(o.customer.lastName).toBeNull();
+  });
+
+  it.each([
+    ['cadena vacía', ''],
+    ['solo espacios', '   '],
+  ])('`addressSnapshot.recipientName` %s ⇒ `fullName` y `shipTo.recipientName` NULL', async (_n, blanco) => {
+    const o = await onlyOrder([
+      shipment({ addressSnapshot: { ...SNAPSHOT_9, recipientName: blanco } }),
+    ]);
+    expect(o.customer.fullName).toBeNull();
+    expect(o.shipTo?.recipientName).toBeNull();
+  });
+
+  it('⛔ un `User.name` en blanco NO se rellena con el `recipientName` del snapshot', async () => {
+    // El destinatario PUEDE SER OTRA PERSONA: rellenar con él inventaría una atribución en la
+    // pantalla del operador. Se prefiere la ausencia declarada a un nombre plausible.
+    const o = await onlyOrder([shipment({ userName: '  ', addressSnapshot: SNAPSHOT_9 })]);
+    expect(o.customer.fullName).toBeNull();
+    expect(o.shipTo?.recipientName).toBe(SNAPSHOT_9.recipientName);
+  });
+
+  it('`line2` y `neighborhood` en blanco ⇒ NULL (misma grafía que la llave ausente)', async () => {
+    const o = await onlyOrder([
+      shipment({ addressSnapshot: { ...SNAPSHOT_9, line2: '', neighborhood: '   ' } }),
+    ]);
+    expect(o.shipTo?.line2).toBeNull();
+    expect(o.shipTo?.neighborhood).toBeNull();
+  });
+
+  it('`orderNumber` en blanco ⇒ NULL (un folio vacío es la misma ausencia que ninguna orden)', async () => {
+    const o = await onlyOrder([shipment({ orderNumber: '   ' })]);
+    expect(o.orderNumber).toBeNull();
+  });
+
+  it('⭐ `setName` en blanco ⇒ NULL — el campo donde la mutación `?? ""` SOBREVIVÍA a 5611 pruebas', async () => {
+    const o = await onlyOrder([shipment({ items: [item({ setName: '' })] })]);
+    expect(o.items[0].card.setName).toBeNull();
+  });
+
+  it('`imageSmallUrl` en blanco ⇒ NULL (una URL vacía es una imagen que no existe)', async () => {
+    const o = await onlyOrder([shipment({ items: [item({ imageSmallUrl: '   ' })] })]);
+    expect(o.items[0].card.imageSmallUrl).toBeNull();
+  });
+
+  it('⭐ v1.78.2 — `VaultLocation.label` en blanco ⇒ `{kind:"unassigned"}` (⛔ no un `assigned` mudo)', async () => {
+    // La hoja de trabajo contesta UNA pregunta: «¿hay sitio al que caminar?». Una etiqueta en blanco
+    // responde que no, igual que la ausencia de fila ⇒ es el MISMO estado y lleva el mismo nombre.
+    // ⛔ Y `label: ""` sería la cuarta grafía de la ausencia, que es `B-1` otra vez.
+    const o = await onlyOrder([shipment({ items: [item({ location: { label: '  ' } })] })]);
+    expect(o.items[0].currentLocation).toEqual({ kind: 'unassigned' });
+    expect('label' in o.items[0].currentLocation).toBe(false);
+  });
+
+  it('⛔ el tipo hace IRREPRESENTABLE el `assigned` sin etiqueta: ningún `kind` fuera de los dos', async () => {
+    const { service } = makeService([
+      shipment({
+        items: [
+          item({ id: 'a', location: { label: 'C01-F01-S01' } }),
+          item({ id: 'b', location: { label: '   ' } }),
+          item({ id: 'c', location: null }),
+        ],
+      }),
+    ]);
+    const res = await service.pickingList();
+    for (const i of res.data[0].items) {
+      expect(['assigned', 'unassigned']).toContain(i.currentLocation.kind);
+      // `assigned` ⇒ hay etiqueta NO vacía. `unassigned` ⇒ la llave no existe.
+      if (i.currentLocation.kind === 'assigned') {
+        expect(i.currentLocation.label.trim()).not.toBe('');
+      } else {
+        expect('label' in i.currentLocation).toBe(false);
+      }
+    }
+  });
+
+  it('⛔ el blanco decide la AUSENCIA; ⛔ NO recorta el dato que sí existe', async () => {
+    // Misma doctrina que §0-Q: el `trim()` decide si viene vacío, no «arregla» el token.
+    const o = await onlyOrder([shipment({ orderId: null, userName: '  Ana López  ' })]);
+    expect(o.customer.fullName).toBe('  Ana López  ');
+    expect(o.customer.lastName).toBe('López');
+  });
+});
+
+/**
+ * ⭐⭐ **EL CENSO DE BLANCOS — la mitad que NO se fía de la lista de arriba.**
+ *
+ * La lista de casos de `B-1` cubre los campos que **hoy** sabemos que existen. Un campo nullable
+ * NUEVO que alguien añada mañana sin `nullIfBlank` **no aparece en ninguno de esos `it`** y entra en
+ * verde — que es exactamente cómo llegó `B-1`. Este censo mira la respuesta **entera**: se sirve un
+ * pedido con **todas las fuentes de texto en blanco** y se congela, con `toEqual`, el conjunto de
+ * rutas que aún devuelven blanco.
+ *
+ * **La lista blanca NO es una excepción cómoda: es el inventario de los campos que el CONTRATO
+ * declara `string` (no nullables)**, donde devolver `null` sería salirse del tipo publicado. Su cura
+ * es del contrato, ⛔ no de este servicio. Si aparece una ruta nueva aquí, la salida ⛔ no es añadirla
+ * a la lista: es pasar el campo por `nullIfBlank` — y si de verdad es un `string` del contrato,
+ * escribirlo aquí **a mano y con su motivo**, que es lo que hace que la decisión se vea en revisión.
+ *
+ * ⛔ Los identificadores (`shipmentId`, `folio`, `inventoryItemId`, `shipmentItemId`, `requestedAt`)
+ * NO se ponen en blanco en el fixture: son llaves primarias y su blanco no dice nada sobre el
+ * contrato. Lo que se blanquea es **todo lo que el operador lee**.
+ */
+describe('`B-1` — CENSO: qué rutas del DTO pueden servir blanco (congelado)', () => {
+  /** Rutas de la respuesta cuyo valor es un string en blanco. */
+  function blancos(v: unknown, ruta = ''): string[] {
+    if (typeof v === 'string') return v.trim() === '' ? [ruta] : [];
+    if (Array.isArray(v)) return v.flatMap((x, i) => blancos(x, `${ruta}[${i}]`));
+    if (v && typeof v === 'object') {
+      return Object.entries(v).flatMap(([k, x]) => blancos(x, ruta ? `${ruta}.${k}` : k));
+    }
+    return [];
+  }
+
+  /** Un pedido con TODA fuente de texto en blanco. Si algo puede salir vacío, sale aquí. */
+  const todoEnBlanco = () =>
+    shipment({
+      orderNumber: '  ',
+      userName: '',
+      addressSnapshot: {
+        recipientName: '',
+        line1: '  ',
+        line2: '',
+        neighborhood: '   ',
+        city: '',
+        state: '  ',
+        postalCode: '',
+        country: '  ',
+        phone: '',
+      },
+      items: [
+        item({
+          cardName: '  ',
+          setName: '',
+          imageSmallUrl: '  ',
+          // Sin ninguna de las tres fuentes ⇒ `conditionLabel` vacía (declarada `string`).
+          rawCondition: null,
+          sealedCondition: null,
+          gradingCompany: null,
+          gradeValue: null,
+          location: { label: '   ' },
+        }),
+      ],
+    });
+
+  it('⭐ el conjunto de rutas en blanco es EXACTAMENTE el de los `string` del contrato', async () => {
+    const { service } = makeService([todoEnBlanco()]);
+    const res = await service.pickingList();
+    expect(blancos(res).sort()).toEqual([
+      // ⚠️ LOS SEIS CAMPOS OBLIGATORIOS DE `shipTo`: el contrato los declara `string`, no
+      // `string | null`. Devolver `null` aquí sería salirse del tipo publicado, y reventar por un
+      // snapshot viejo es peor que mostrar un hueco. Cura: del CONTRATO (arquitecto), no de aquí.
+      'data[0].shipTo.city',
+      'data[0].shipTo.country',
+      'data[0].shipTo.line1',
+      'data[0].shipTo.phone',
+      'data[0].shipTo.postalCode',
+      'data[0].shipTo.state',
+      // `Card.name` es NOT NULL en el schema y `string` en el DTO: un nombre de carta en blanco es
+      // un dato roto del catálogo, no una ausencia que este DTO pueda nombrar.
+      'data[0].items[0].card.name',
+      // `conditionLabel` es COMPUESTA y `string`: vacía = la pieza no tiene ninguna de las tres
+      // fuentes (captura a medias). Es el único blanco que este servicio produce a propósito.
+      'data[0].items[0].card.conditionLabel',
+    ].sort());
+  });
+
+  it('⛔ y NINGUNA de esas rutas es un campo nullable del DTO', async () => {
+    const { service } = makeService([todoEnBlanco()]);
+    const res = await service.pickingList();
+    const enBlanco = new Set(blancos(res));
+    for (const nullable of [
+      'data[0].orderNumber',
+      'data[0].customer.fullName',
+      'data[0].customer.lastName',
+      'data[0].shipTo.recipientName',
+      'data[0].shipTo.line2',
+      'data[0].shipTo.neighborhood',
+      'data[0].items[0].card.setName',
+      'data[0].items[0].card.imageSmallUrl',
+      'data[0].items[0].currentLocation.label',
+    ]) {
+      expect([nullable, enBlanco.has(nullable)]).toEqual([nullable, false]);
+    }
+  });
+});
+
 describe('pickingList — la forma vieja ya no viaja', () => {
   it('el renglón es un PEDIDO: ⛔ sin `location` plano ni `folio` a nivel de pedido', async () => {
     const o = await onlyOrder([shipment()]);
@@ -571,7 +917,7 @@ describe('pickingList — la forma vieja ya no viaja', () => {
     expect(o).not.toHaveProperty('inventoryItemId');
     // El folio y la ubicación viven ahora DENTRO de cada carta.
     expect(o.items[0].folio).toBe('INV-000001');
-    expect(o.items[0].currentLocation.label).toBe('C01-F01-S01');
+    expect(o.items[0].currentLocation).toEqual({ kind: 'assigned', label: 'C01-F01-S01' });
   });
 
   it('cola vacía ⇒ `{ data: [] }`', async () => {
