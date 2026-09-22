@@ -4,6 +4,187 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §64 · **«Pedidos a preparar», segunda pasada: `fullName` nullable y los once hallazgos de `DESIGN_SYSTEM §35`** (2026-09-22, contrato `§M4-PREP` **v1.78.1**, `DESIGN_SYSTEM` **§35** v4.4, commit `102d57d`)
+
+> §63 construyó la pantalla. Esta entrada es lo que le hicieron **dos gates de diseño el mismo día**:
+> el **arquitecto** cerró una contradicción del DTO (`013e106`) y **ux-ui** escribió §35 con **11
+> hallazgos** sobre el código ya escrito (`af4c01c`). Entran **los cinco bloqueantes y los seis no
+> bloqueantes**. ⛔ Sigue siendo la rebanada de SOLO LECTURA: cero verbos nuevos.
+>
+> **Lo primero, porque es lo que más se olvida: §35 RATIFICÓ el patrón central.** La tarjeta por
+> pedido con cartas anidadas, el **apellido 24px serif dominando** (⛔ su tamaño **no se toca**),
+> «Retiro de bóveda» en el lugar del folio, «Apellido no identificado» en vez de `null`, «Sin ubicar»
+> sin código y al final, el esqueleto con la forma final, el re-orden en cliente, `lang="en"`, el
+> `conditionLabel` del servidor, `role="group"`+`aria-pressed`+44px y `<time dateTime>`. **Nada de
+> esto se rediseña**; se enumera para que una revisión futura no lo «arregle».
+
+### 1. Lo que cambió en el contrato — `customer.fullName: string | null` (v1.78.1)
+
+El campo se declaraba `string` mientras su fuente para un **invitado** (`addressSnapshot.recipientName`)
+**puede faltar** en snapshots de ocho campos anteriores a v1.67 — cosa que el propio §M4-PREP decía dos
+filas más abajo. **El contrato se contradecía consigo mismo y cada rol elegía su relleno** (backend `''`,
+este frontend «—»). Ahora: **`null` es la única marca de ausencia** y ⛔ **`""` queda PROHIBIDA**.
+
+- `types/contract.ts`: espejo 1:1 **con la nota** de por qué `""` no vale (renderiza como hueco
+  invisible, no se distingue de un nombre vacío legítimo, y obliga a todo consumidor a `if (!x)`).
+- `mock/fixtures.ts`: **`shp-7005`** recorre el caso — invitado (`userId: null`) con snapshot legado ⇒
+  `fullName: null`, y `lastName: null` **por construcción** (se deriva del nombre). *Un tipo nullable
+  sin fixture que lo recorra es un tipo que nadie probó.* Se insertó **antes** de `shp-7003` en
+  `mockAdminShipments` a propósito: las pruebas de captura de guía y de cancelación asertan por
+  **índice**, y añadirlo al final las habría roto sin que el defecto fuera suyo.
+- **La clase L de `?destination=`** que traía el mismo commit del arquitecto **no obliga a nada aquí**:
+  la conducta que fija (ausente / vacío / espacios ⇒ no filtra) ya la cumplía `destination: bucket ||
+  undefined`, y la paridad de dos bandas es contrato↔literal. Se revisó el diff entero, no solo la
+  parte asignada.
+
+### 2. Estado VIVO de M4 en el frontend — **lo que hay que leer hoy** *(sustituye a §63.2)*
+
+| Pieza | Dónde | Qué es hoy |
+|---|---|---|
+| Tipos | `src/types/contract.ts` | `PreparationDestination`, `PreparationOrderDTO` (**`customer.fullName: string \| null`**, v1.78.1), `PreparationItemDTO`, `LocationView` — 1:1 de §M4-PREP |
+| Cliente del API | `src/lib/api.ts` | `getAdminPreparationQueue({ destination?, date? })` → `GET /admin/shipments/picking-list` (la ruta **no** se movió) |
+| Pantalla | `m4/PreparationQueue.tsx` (**493** líneas) | tarjeta por pedido; **se monta ENCIMA** de la cola de envíos en `M4View.tsx` (P-10) |
+| Frescura | `PreparationQueue.tsx` | **`refetchOnWindowFocus: true`** (precedente `hooks/usePendings.ts:38`); ⛔ sin `refetchInterval`; `staleTime` global de 30 s |
+| Región viva | `PreparationQueue.tsx` | `role="status"` **fuera de `QueryState`**, siempre montada; conteo **o** título del vacío; **calla mientras carga** |
+| Clave de query | `M4View.tsx` / `PreparationQueue.tsx` | `['admin-preparation-queue', bucket]` |
+| Fixtures | `src/lib/mock/fixtures.ts` | `mockPreparationQueue` (`shp-7004` envío directo · `shp-7002` retiro sin folio · **`shp-7005`** `fullName` null). ⛔ **ninguna fila `destination:'vault'`** |
+| Antigüedad | `src/lib/format.ts` | `formatAge(iso, locale, now?)` — trunca, no redondea; `|| DASH` en la vista (P-7) |
+| i18n | `messages/{es,en}.json` | `admin.m4.prep.*` — **los nombres de clave no cambiaron**; cambiaron **tres valores** y solo tres (medido sobre `git show 102d57d -- frontend/messages/es.json`): `emptyShip.body` y `emptyVault.{title,body}`. ⛔ `empty.body` **no** cambió: su promesa («aparecerá aquí, con el más viejo arriba») pasó a ser cierta **por la conducta**, no por el copy |
+| Pruebas | `m4/M4View.test.tsx` (**42** casos, **30** en el `describe` de «Pedidos a preparar») · `lib/format.test.ts` (**+4**) | incluye `PR-1..PR-6` de §35.14 A-4 |
+
+### 3. Los cinco BLOQUEANTES de §35.13, y qué significa cada uno
+
+| # | Qué decía la pantalla | Qué dice ahora |
+|---|---|---|
+| **P-1** | el vacío de bóveda afirmaba «no hay nada pendiente» | dice **qué no se sabe** — ver §4 abajo |
+| **P-2** | los vacíos prometían «los nuevos aparecen aquí solos» **sin refrescar** | la consulta **se re-pide al recuperar el foco**; y aun así **cae la frase** |
+| **P-3** | la **ubicación** —criterio de orden— era el dato **menos visible**: último renglón, mono 11px, `muted`, detrás del folio | **primero, en columna**, `text-sm text-text`; el folio detrás. ⚠️ **No era contraste** (4.8:1, cumple AA): era **jerarquía** |
+| **P-4** | los **valores** de la dirección heredaban `text-muted` | valores en `text-text`; los **rótulos** en mono 11px muted. *Esta dirección se **transcribe a mano**: no hay impresión de etiquetas, y la diferencia entre los dos tonos es la probabilidad de equivocar un CP* |
+| **P-4b** | el **nombre completo** en `text-muted` | `text-text`: es el **único** dato con el que el operador caza un apellido derivado mal — y en México «último token» entrega el apellido **materno** cuando el archivero se ordena por el **paterno** |
+
+**Los seis no bloqueantes también entraron**, y P-10 con argumento: **P-5** los dos destinos en
+`tone="primary"` (el verde es el único color positivo del sistema y no se gasta en un destino, que no
+es un estado) · **P-6** fuera el prop `tone` muerto · **P-7** antigüedad ilegible ⇒ «—» · **P-8**
+región viva siempre montada · **P-9** `aria-labelledby` por tarjeta · **P-10** «Pedidos a preparar»
+**encima** de la cola de envíos: la ruta hospeda una pantalla de **administración** (la cola, que se
+consulta sentado y **no está paginada**, y cuya longitud crece con el negocio) y una de **ejecución
+física** (ésta, de pie, con las manos ocupadas). *Manda la que se usa de pie.*
+
+**Constante nueva `LABEL`** (mono 11px muted) para los rótulos: existe **para que ningún bloque vuelva
+a invertir la relación por descuido** (§35.3 regla 1 — *el valor pesa más que su etiqueta*).
+
+### 4. ⚠️⚠️ El copy del vacío de bóveda — **yo lo escribí creyendo que era el honesto, y afirmaba de más**
+
+§63.5 cerraba ese vacío con *«No hay nada pendiente ni nada roto»*. **Acierta en «nada roto» y afirma
+sin base en «nada pendiente».** Lo medido (`API_CONTRACT §M4-PREP`) no es que no haya trabajo: es que
+**no existe artefacto** que diga si una compra a bóveda está pendiente de colocar ⇒ **el sistema no
+sabe** si hay trabajo físico esperando.
+
+> **La regla que sale de aquí, y vale para todo estado vacío de operación:** *un estado vacío afirma
+> solo lo que el sistema sabe.* Puede decir «esta lista no tiene nada»; ⛔ **no puede decir «no hay
+> trabajo»** si nadie mide el trabajo. La diferencia entre las dos frases es **dejar trabajo físico sin
+> hacer con el operador tranquilo**.
+
+El copy vivo (normativo, §35.8) dice que **la cubeta no se alimenta todavía** y que *vacío aquí no
+significa «todo colocado»*. También **se cayó** la frase «empezará a llenarse cuando…»: era un
+**compromiso de versión futura hecho en una pantalla de operación**, y las versiones futuras se mueven.
+Candado: **PR-1**, que mide **la ausencia de la afirmación** (ES y EN) y no la presencia de una
+redacción — así sigue mordiendo si alguien reescribe el copy y vuelve a colar la promesa.
+
+### 5. 🔴 NO CONFORMIDAD ABIERTA — el «—» mudo de `fullName: null` (la costura está hecha; falta el copy)
+
+**§M4-PREP v1.78.1 obliga al consumidor** a pintar, con `fullName === null`, una **AUSENCIA CON
+NOMBRE** —el patrón de «SIN DESTINATARIO (retiro anterior a v1.67)» de §M4— y ⛔ **prohíbe el «—»
+mudo**: `DESIGN_SYSTEM §32.4-H4` pide «—» **más la frase que diga que no se pudo saber**, y §16.3a
+advierte que el em dash **ya carga semántica de dinero** («precio pendiente») y **se lee como cero**.
+
+**Hoy la pantalla pinta «—». Eso NO cumple el contrato.** No se cerró aquí porque **la redacción es de
+ux-ui por decisión del propio contrato**, y §35 no la cubre (§35.3 solo trata el apellido no derivable).
+Lo que sí quedó hecho es **la costura**:
+
+- rama de ausencia **aislada** (`fullNameMissing`), con `data-testid="prep-fullname-missing-<shipmentId>"`;
+- marcada `PENDIENTE-UX` en `PreparationQueue.tsx` con la cláusula que la obliga;
+- ⇒ **ponerle el copy es una clave i18n y una línea.**
+
+⛔ **Y los candados NO fijan el «—»**, a propósito: un test que lo fijara **protegería en CI justo lo
+que el contrato prohíbe**. Asertan lo que es cierto con **cualquier** redacción — que no se imprime
+`null`/`undefined` y que **la ausencia es distinguible**. *(Atenuante, no excusa: la tarjeta ya no queda
+muda del todo, porque `fullName === null ⇒ lastName === null` y el plano de arriba dice «Apellido no
+identificado». Lo que falta es la frase en el hueco del nombre.)*
+
+### 6. Dos defectos que aparecieron al ESCRIBIR los candados, no al leer §35
+
+1. **La región `role="status"` se desmontaba al cambiar de cubeta.** Vivía dentro de `QueryState`; al
+   cambiar de cubeta cambia la clave de la consulta ⇒ `isLoading` ⇒ `QueryState` sustituye **todos** sus
+   hijos por el esqueleto ⇒ la región **se remonta con su contenido**, que es **exactamente el defecto
+   que P-8 venía a cerrar**. Lo destapó `PR-2` al exigir que fuera **el MISMO nodo** antes y después, y
+   no «una región con el texto nuevo». Ahora vive **fuera** de `QueryState` y **calla mientras carga**:
+   anunciar «esta cubeta no se alimenta» antes de que llegue la respuesta sería afirmar lo que aún no se
+   sabe.
+2. **`gap` de flex entre rótulo y valor daba «ParaAsh Ketchum»** en el texto accesible. *El aire visual
+   puede venir del CSS; **la separación de palabras, no.*** Restaurado el `{' '}` real.
+
+### 7. Verificación (números reales de este pase)
+
+- `tsc --noEmit` **exit 0** · `next lint` **0/0** · `next build` **OK**.
+- `vitest run`: **171/171 ficheros · 1963/1963 pruebas** (antes del pase, 1949). Paridad i18n **43/43**.
+  `M4View.test.tsx` **42/42**.
+- **Canarios sobre una COPIA del árbol: 13 mutantes, 12 muertos a la primera.**
+
+> ### ⭐⭐ El mutante que sobrevivió, porque es el hallazgo del pase
+> **`PR-3` dejó pasar un `order-last` de Tailwind.** La regla de §35.4 es que la ubicación se lea
+> **primero**; el candado, fiel a la letra de PR-3 («se renderiza **antes que el folio en el DOM**»),
+> asertaba `compareDocumentPosition`. Pero `order-last` **reordena en pantalla sin tocar el DOM** ⇒ el
+> defecto entraba y **el candado seguía verde**.
+>
+> **La lección, que no es sobre Tailwind:** *un candado puede cumplir la norma al pie de la letra y aun
+> así no proteger lo que la norma quiere proteger.* La norma hablaba del DOM porque el DOM es lo
+> verificable; lo que le importaba era **el orden que ve el operador**.
+>
+> Reforzado a **«primer hijo de la fila + ninguna utilidad `order-*`»** (con `data-testid` propio en la
+> columna de ubicación). Los dos re-intentos —`order-last`, y un hermano insertado delante— **mueren**
+> ⇒ **13/13**.
+
+### 8. Dos correcciones propias, con la medición delante
+
+1. **Casi meto una desviación de §35.9 justificada con una medición defectuosa.** Puse
+   `refetchOnWindowFocus: 'always'` y **escribí en el código que `true` no cumplía `PR-6`, «medido»**.
+   Era **falso**: el `1 llamada` venía de que mi prueba despachaba `visibilitychange` en **`document`**,
+   y `@tanstack/query-core@5.101.4` lo escucha en **`window`** (`focusManager.js:12`). Con el evento en
+   su sitio **`true` pasa igual** ⇒ retirada la desviación, respetada la letra de §35.9 y el precedente
+   `usePendings.ts:38`. **Queda escrito en el código** para que nadie lo «arregle» de vuelta.
+   **Y el matiz que sí es verdad:** el cliente de pruebas no fija `staleTime`, así que **`PR-6` mide el
+   CABLEADO, no la ventana de frescura de producción** (donde los 30 s globales hacen que volver dentro
+   de esa ventana **no** re-pida — que es lo que §35.9 quiere).
+2. **La fuente de producto que se me citó no existe, lo medí el primer día y me lo callé.** El encargo
+   apuntaba a `PROJECT.md §«Pedidos a preparar»` con **CA #1..#11**; mi primer `grep` no devolvió esa
+   sección **ni** los criterios, y lo leí como «los CA viven en el borrador del arquitecto» y seguí. Lo
+   destapó **ux-ui** días-hombre después (nota `A-1` de §35.14). **No hay nada que rehacer** —construí
+   contra §M4-PREP y el borrador, que es lo que cité en cada comentario— pero **el dato estaba y se
+   perdió**, que es más caro de detectar que no haberlo tenido. *Medir y no decir produce el mismo
+   resultado que no medir.* Enrutado a **product-owner**.
+
+### 9. Enrutado — lo que sigue abierto
+
+| Para | Qué |
+|---|---|
+| **ux-ui** | 🔴 el **copy de la ausencia con nombre** de `fullName: null` (§5 de arriba). Es lo único que falta para conformar con §M4-PREP v1.78.1 |
+| **techlead** | la decisión de **repetir el orden en la vista** además del back (§63.4 punto 1) sigue **esperando veredicto**, con el coste de retirada escrito. ⭐ Dato nuevo a favor que no existía cuando se planteó: **§35.13 la lista entre lo RATIFICADO** («el re-orden en cliente con la fecha ilegible al final») |
+| **arquitecto / product-owner** | `lastName` derivado como «último token» va a la **letra equivocada** en el caso mexicano normal (nota `A-2` de §35.14). **Hoy no bloquea** —nada se archiva desde una pantalla de solo lectura— pero **bloquea antes** de que el apellido gobierne la sugerencia de ubicación de bóveda o cualquier orden alfabético |
+| **product-owner** | bajar al repo la sección de `PROJECT.md` con los **CA #1..#11**, o decir que no se aprobó: hoy **nadie puede verificar esos criterios contra nada versionado** |
+| **arquitecto** | si algún día la cubeta **bóveda** se alimenta, el copy de su vacío **deja de ser cierto** y hay que retirarlo (nota `A-3` de §35.14) |
+
+### 10. Lo que NO medí
+
+- **Playwright/E2E**: no se corrió (pide el stack levantado; es de QA). Sí se midió que ningún spec de
+  `frontend/e2e/` toca esta pantalla.
+- **Contra el backend real**: todo con `NEXT_PUBLIC_USE_MOCKS=true`. Que el backend sirva `fullName:
+  null` (y ⛔ no `''`) **no lo medí yo**; lo cierra un smoke de QA con el stack arriba.
+- **390×844 y 1280×800**, que §35.14 A-4 pide para los candados: las pruebas corren en jsdom, que **no
+  tiene viewport real**. La medición en esos dos anchos **es de QA**, y no está hecha.
+
+---
+
 ## §63 · **M4 deja de ser una lista de piezas y pasa a ser «Pedidos a preparar»** — tarjeta por PEDIDO y dos cubetas (2026-09-22, contrato `§M4-PREP` v1.78, rama `claude/m4-pedidos-preparar`, commit `5026692`)
 
 > El dueño aprobó el rediseño el 2026-09-15 y el arquitecto lo aterrizó en el contrato vivo
@@ -20,6 +201,18 @@ cara al operador**, y la decisión de conservar la ruta es del arquitecto (menor
 no toca guard ni ruteo).
 
 ### 2. Estado VIVO de M4 en el frontend (lo que hay que leer, no lo que hubo)
+
+> ⚠️⚠️ **SUPERADA — el estado vivo se lee en [§64.2](#64), no aquí.** Y la lección no es que esta
+> tabla se quedara vieja: es que **una tabla de «estado VIVO» dentro de un registro FECHADO caduca
+> por construcción**. Ésta duró **horas** — el mismo día, dos commits después (`102d57d`). Lo que
+> sigue era cierto en `5026692` y se conserva en pasado. *Si vuelves a escribir una tabla así aquí,
+> ponle delante el puntero a la siguiente desde el primer día.*
+>
+> **Lo que de esta tabla ya NO es cierto:** las **cuentas de pruebas** (hoy `M4View.test.tsx` tiene
+> **42** casos, **30** en el `describe` de «Pedidos a preparar»; `PreparationQueue.tsx` pasó de 343 a
+> **493** líneas); y la fila de la **pantalla**, que ahora se monta **encima** de la cola de envíos y
+> **se re-pide al recuperar el foco**. El resto de las filas (tipos, cliente del API, clave de query,
+> fixtures, `formatAge`, claves i18n) **sigue vigente** — ⛔ no las tires por arrastre.
 
 | Pieza | Dónde | Qué es hoy |
 |---|---|---|
@@ -92,6 +285,12 @@ Consecuencias que se tomaron aquí, y el porqué de cada una:
   esas compras **no pasan por esta cola** y cierra con *«No hay nada pendiente ni nada roto»*. Un
   «nada pendiente» genérico deja al operador sin saber si la cola está al día o si la pantalla se
   rompió, **y no es ninguna de las dos**.
+  > ⚠️⚠️ **SUPERADO, y por el motivo más incómodo: esa frase afirmaba de más — ver [§64.4](#64).**
+  > *«No hay nada pendiente ni nada roto»* acertaba en **nada roto** y **afirmaba sin base** en
+  > **nada pendiente**: lo medido es que el sistema **no lleva** el registro de colocación, así que
+  > **no sabe** si hay trabajo físico esperando. Yo escribí ese copy creyendo que era el honesto, y
+  > lo era a medias — **tranquilizaba sobre trabajo que nadie cuenta**. Lo cazó **ux-ui** (`P-1`,
+  > `DESIGN_SYSTEM §35.8`). El copy vivo está en `admin.m4.prep.emptyVault` y el candado es `PR-1`.
 - **⛔ Los fixtures NO traen ninguna fila `destination:'vault'`.** El backend **no puede producirla**
   hoy; inventarla en el mock enseñaría a leer verde una cubeta vacía — exactamente el modo de fallo
   que este proyecto ya conoce (un mock que hace de servidor tiene que poder equivocarse igual que el
@@ -143,12 +342,24 @@ exige los **tres veredictos** antes de tocar código).
   jerarquía visual, **se mueve sin tocar datos** (el DTO, el trato de los nulos y el orden no dependen
   del aspecto). Mientras tanto se diseñó con los tokens y componentes existentes (§4, §6/§7,
   §8.1/§8.2, §9.2/§9.3) reutilizando `Badge`, `CardImage`, `FinishMark`, `EmptyState`, `QueryState`
-  y `Skeleton`. *(La línea 2211 de `DESIGN_SYSTEM.md` —«M4 … picking-list por ubicación»— también
+  y `Skeleton`.
+  > ✅ **CERRADO el mismo día — `DESIGN_SYSTEM §35` ya existe** (v4.4, commit `af4c01c`; medido:
+  > `grep -c '^## 35\.' docs/DESIGN_SYSTEM.md` ⇒ **1**). Trajo **11 hallazgos** sobre esta pantalla y
+  > **ratificó el patrón central**. Todos aplicados en `102d57d` — ver **[§64](#64)**. ✅ Y la deriva
+  > que se enrutaba abajo —«M4 … picking-list por ubicación» en el mapa de §12— **también quedó
+  > cerrada por ux-ui** en ese mismo commit (hoy `DESIGN_SYSTEM.md:2219` describe la tarjeta por
+  > pedido y tacha la lista plana).
+  *(La línea de `DESIGN_SYSTEM.md` —«M4 … picking-list por ubicación»— también
   quedó caducada; ⛔ no la toco yo: ese documento es de ux-ui.)*
 - **arquitecto (no bloquea):** `customer.fullName` está declarado `string` no nulo, pero su fuente
   para un invitado es `addressSnapshot.recipientName`, que **sí puede faltar** en snapshots de 8
   campos anteriores a v1.67. La pantalla degrada a «—» (§32.4); el contrato quizá quiera declararlo
   `string | null`.
+  > ✅ **CONCEDIDO el mismo día — `§M4-PREP` v1.78.1** (`013e106`): `fullName` pasa a `string | null` y
+  > la **cadena vacía queda PROHIBIDA** como marca de ausencia. El espejo del tipo está en `102d57d`.
+  > ⚠️ Pero la petición trajo **una obligación de vuelta** que **todavía no se cumple**: con `null` hay
+  > que pintar una **ausencia con nombre**, ⛔ no el «—» que esta misma línea daba por bueno. Ver la
+  > **no conformidad abierta de [§64.5](#64)**.
 - **dueño:** el `<h1>` de la página **sigue diciendo** «M4 · Retiros / envíos». Se renombró la
   **sección**, que es la que se llamaba picking. Si el renombrado era de la pantalla entera, es una
   sola clave (`admin.m4.title`) y la decisión no es del frontend.
