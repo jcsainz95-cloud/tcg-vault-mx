@@ -663,7 +663,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 📊 CENSO DE SALVAGUARDAS DE SALTO EN LA SUITE E2E (techlead N7, 2026-09-11).
-  # Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing` es un test que
+  # Desde 2026-09-22 son CINCO claves: entra `realOnly`, que es el inverso — no se
+  # salta en el pase real, se salta en la CORRIDA DE MOCKS, que es justo la que
+  # gatea cada PR (M-QA4, DEVOPS_NOTES §66).
+  # Cada `mockOnly`/`needsSeed`/`harnessLimit`/`skipIfSeedMissing`/`realOnly` es un test que
   # en algún entorno NO mide. Esto no los juzga uno a uno: impide que el número
   # SUBA en silencio. Baseline commiteado en scripts/e2e-skip-census.baseline;
   # subirlo exige `--update --motivo "…"` en el mismo diff. Canario: +1 mockOnly
@@ -696,6 +699,22 @@ jobs:
         run: ./scripts/check-secret-absence-wording.sh
 
   # ---------------------------------------------------------------------------
+  # 🔪 EL APAGADO DEL STACK MATA SOLO LO SUYO (I-QA2, 2026-09-22).
+  # Medido dos veces el mismo día y las dos con daño: el pentester hizo
+  # `pkill -f "src/main.ts"` y mató el backend de QA a mitad de su gate; QA corrió
+  # `down` con FRONTEND_PORT=3200 y mató el `next-server` de :3000 de otro clon.
+  # Los patrones describían el PROGRAMA, no la INSTANCIA. El canario levanta dos
+  # stacks de verdad en dos puertos y exige que apagar uno no toque el otro.
+  # Ver DEVOPS_NOTES §67.
+  # ---------------------------------------------------------------------------
+  stack-kill-scope:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Apagar mi stack no mata el de otra sesión (procesos y puertos reales)
+        run: ./scripts/check-stack-kill-scope.sh 5
+
+  # ---------------------------------------------------------------------------
   # Gate final. DEFAULT INVERTIDO (techlead N3, 2026-09-11): antes eran ocho
   # bloques copiados a mano con dos criterios, y un gate nuevo añadido a `needs`
   # SIN su bloque quedaba skipped = verde. Ahora `scripts/check-ci-ok.sh` lee
@@ -706,7 +725,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census, secret-absence-wording]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording]
     if: always()
     runs-on: ubuntu-latest
     steps:
