@@ -12484,7 +12484,7 @@ es código, es doctrina — y su sitio es el encargo, no este script.
 
 ---
 
-## §68 · `REL-D` refrescada: mismo número, contenido distinto — y una dependencia nueva que nadie contó (2026-09-22, `S-M4P-C`)
+## §68 · `REL-D` refrescada: mismo número, contenido distinto (2026-09-22, `S-M4P-C`) — y una retractación mía sobre el rango del diff (§68.1)
 
 **De dónde viene.** El pentester declaró las dependencias «NO RE-MEDIDO» porque *«el corte no las
 mueve»*, y **seguridad lo refutó con el argumento correcto**: `npm audit` no cambia con el *lockfile*,
@@ -12522,33 +12522,72 @@ seguridad):
 `12.0.4`, **cambio rompedor**) ⇒ **el salto de mayor de NestJS es de ventana ordinaria, no de este
 release** — así lo dejó seguridad y así lo dejo yo. ⛔ No lo toqué en este pase.
 
-### §68.1 · Lo que encontré al medirlo, y que las dos fichas no vieron: `cheerio` entra a producción
+### §68.1 · RETRACTADO y corregido: `cheerio` **ya estaba en producción**. Lo que queda es la trampa del rango (2026-09-22)
 
-Tanto el pentester («este stream no tocó `package.json`») como seguridad (que lo verificó sobre
-`c7c58aa..5e6f2ee` ⇒ vacío) midieron el diff de manifiestos en un **rango más estrecho que la rama**.
-Medido por mí contra `origin/main`:
+**Lo que escribí primero, y era falso:** que esta rama mete `cheerio 1.0.0` como dependencia nueva de
+producción. **Me refutó el orquestador con medición y tenía razón** (O-2). Lo comprobé yo antes de
+corregir, y el dato lo confirma entero:
 
 ```
-git diff --stat origin/main...HEAD -- '*package.json' '*package-lock.json'
- backend/package-lock.json | 225 +++++++++++++++++++++++++++++
- backend/package.json      |   1 +
+cheerio en origin/production (c7c58aa): 1      ← YA DESPLEGADO
+cheerio en origin/main       (bb239c09): 0
+cheerio en HEAD              (0cdab08):  1      ← heredado, no añadido
+
+git merge-base --is-ancestor 097d422 origin/production          ⇒ SÍ
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'  ⇒ VACÍO
 ```
 
-Es **`cheerio 1.0.0` como dependencia de PRODUCCIÓN** (no `devDependencies`), **+17 paquetes** en el
-árbol, y la importa `backend/src/modules/decks-meta/limitless-html.parser.ts:16`. Llega por `097d422`
-(*decks-meta*, otro frente), no por M4 — pero **viaja en esta rama**, así que **fusionar esto mete una
-dependencia nueva en producción**.
+⇒ **Esta fusión NO mete ninguna dependencia nueva en producción.** `cheerio` entró por `097d422`
+(*decks-meta* Fase 2), que es **ancestro de `production`**; esta rama sale de `production`, así que lo
+**arrastra por herencia**. El pentester y seguridad midieron `c7c58aa..5e6f2ee` —**el rango correcto
+para esta PR**— y por eso les salió vacío. **En este punto ellos acertaron y yo no.**
 
-**Lo que eso cambia y lo que no** — y lo digo con el dato para no alarmar de más: **hoy `cheerio`
-aporta CERO avisos**. El árbol de la rama y el de `main` dan **exactamente los mismos 5 `moderate` en
-los mismos 5 paquetes**. La postura no se mueve. Lo que sí cambia es la **superficie**: un parser de
-HTML de terceros en runtime es de las que conviene que alguien haya mirado **a propósito**, y lo
-correcto es que la ficha lo diga en vez de que aparezca sola en el siguiente release.
+**Y mi error es exactamente la clase que yo mismo estaba enunciando, aplicada a mí:** medí contra la
+referencia equivocada. Pero la conclusión operativa se **invierte**, y así es como hay que escribirla:
 
-- **Es hallazgo, no arreglo mío.** No toco `backend/`. Queda enrutado a **seguridad** (¿entra
-  `cheerio` a la ficha de dependencias y al inventario de terceros en runtime?) y a **backend** (dueño
-  del módulo `decks-meta`).
-- **La clase, que es lo reutilizable:** *un diff de manifiestos medido sobre un rango de commits no
-  dice qué dependencias mete un MERGE*. Para eso el rango es `origin/main...HEAD`, no el corte del
-  stream. Los dos roles llegaron a la conclusión correcta desde una medición que no cubría la
-  pregunta.
+> **El rango de un diff de dependencias es el de la BASE DE LA FUSIÓN, no `main` por costumbre.**
+> En este proyecto la fusión que publica es **`main` → `production`**, y la base contra la que se
+> pregunta «¿qué entra en producción?» es **`production`**.
+
+**Por qué aquí eso es una trampa y no una sutileza — medido hoy:**
+
+| Rango | Commits que incluye | Qué son |
+|---|---|---|
+| `origin/main...HEAD` (el que usé) | **432** | …de los cuales **404 YA ESTÁN DESPLEGADOS** |
+| `origin/production...HEAD` (el correcto) | **28** | lo que de verdad entra |
+
+`main` **es ancestro de `production`** y va **404 commits por detrás** (`0` en sentido contrario). No
+es que «diverjan»: es que `main` está **estrictamente atrasado**, y por eso `origin/main...HEAD`
+arrastra 404 commits de trabajo **ya publicado** y los presenta como novedad. Con esa base, **cualquier
+release parece meter dependencias nuevas**. A mí me salió una; el mecanismo produce tantas como haya
+acumulado `production` desde el último toque de `main`.
+
+**Lo peor de este fallo es CUÁNDO ocurre:** el diff de dependencias se mira justo al redactar la
+solicitud de fusión, es decir **en el momento de firmar un despliegue**. Un hallazgo fantasma ahí no es
+ruido: es una alarma que puede frenar una publicación correcta, o —al revés— gastar la credibilidad
+que hace falta cuando la alarma sea de verdad.
+
+**Los comandos, para copiarlos en el momento en que hacen falta** (redacción de la solicitud
+`main → production`):
+
+```bash
+git fetch origin production
+# ¿qué dependencias entran DE VERDAD en producción con esta fusión?
+git diff --stat origin/production...HEAD -- '*package.json' '*package-lock.json'
+git diff        origin/production...HEAD -- '*/package.json' | grep -E '^[-+] {4}"'
+# cordura: ¿cuánto de lo que vería contra main ya está publicado?
+git rev-list --count origin/main..origin/production
+```
+
+**Lo que NO hice y por qué:** no cableé un candado para esto. Hoy **ningún job de CI consume ese
+diff** — el gate de dependencias es `npm audit` sobre el árbol, que no depende del rango — así que un
+check nuevo vigilaría una entrada que nadie usa. El sitio correcto es la **lista de comprobación de la
+solicitud de fusión**, que es de quien la redacta. Queda dicho aquí para que se copie de un sitio con
+los números al lado. **NO MEDIDO:** si alguna plantilla de PR del repo sugiere hoy el rango contra
+`main` (no la revisé).
+
+**Lo que sí queda abierto, y no es fantasma:** `cheerio` **está en runtime de producción** —lo importa
+`backend/src/modules/decks-meta/limitless-html.parser.ts:16`, un parser de HTML de terceros que corre
+sobre HTML remoto— y **nadie lo ha inventariado**. No es de esta PR ni la bloquea. Dueños: **seguridad**
+(inventario de terceros en runtime) y **backend** (dueño de `decks-meta`). Lo registra el orquestador
+como pendiente; yo no toco esas rutas.
