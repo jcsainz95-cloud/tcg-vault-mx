@@ -6,7 +6,11 @@
 > `PreparationDestination`, endpoint reproyectado con `?destination`) y `ARCHITECTURE.md` **§4.21p**.
 > **Correcciones vs este borrador:** (1) `orderId`/`orderNumber` son **`| null`** (un retiro de bóveda no tiene orden);
 > (2) **`quantity` es constante 1** (un `ShipmentItem` = una pieza; no hay columna cantidad); (3) `setName`/`imageSmallUrl`
-> son **nullable**. **`PreparationItemStatus` y `PreparationState` NO se declararon** (son de la rebanada interactiva).
+> son **nullable**; (4) **v1.78.1 — `customer.fullName` es `string | null`** (la fuente del invitado,
+> `addressSnapshot.recipientName`, puede faltar en snapshots de 8 campos anteriores a v1.67), y ⛔ **la cadena vacía
+> queda prohibida** como marca de ausencia. La línea `fullName: string` de §1 de este borrador está **SUPERADA**.
+> (5) **v1.78.1 — el eje `?destination=` es clase L** de §0-Q y tiene su fila en el REGISTRO DE EJES (punto 4); su
+> **dominio canónico** es la línea «DOMINIO CANÓNICO» de §M4-PREP, ⛔ no este borrador. **`PreparationItemStatus` y `PreparationState` NO se declararon** (son de la rebanada interactiva).
 > **⚠️ HALLAZGO:** bajo el modelo actual la cola solo contiene `destination='ship'` — las órdenes `fulfillmentMode='vault'`
 > **no generan `ShipmentRequest`**, así que la cubeta `vault` queda **vacía** hasta una versión posterior que la alimente
 > (y esa versión **probablemente pide schema**; por eso se detuvo aquí, cero migración). Detalle en §M4-PREP.

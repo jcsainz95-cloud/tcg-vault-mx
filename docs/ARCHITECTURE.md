@@ -6728,6 +6728,25 @@ garantiza por construcción que un pedido no mezcla destinos (DECISIÓN #1). `Pr
 **tipo de DTO, no un enum de dominio**: sus valores no coinciden con los de `FulfillmentMode` (`direct_ship`/`vault`), así
 que no entra en la paridad de enums (`enum-values-parity.spec.ts`).
 
+**⭐ v1.78.1 — el eje `?destination=` es clase L, y su fila estaba SIN ESCRIBIR.** La v1.78 declaró el filtro y su `400`
+en §M4-PREP pero **no puso su fila en el REGISTRO DE EJES de `§0-Q` punto 4** ⇒ `C-EQ-1` lo marcó **huérfano** (medido por
+backend: 1 roja de 359; cerrado provisionalmente con `filaEn0Q: 'PENDIENTE-ARQUITECTO'`, que es el pagaré que el propio
+spec provee, ⛔ no una decisión). **La decisión, tomada con §4.37 y no por analogía:** clase **L** — `ship` no existe en
+`FulfillmentMode` y un retiro de bóveda no tiene `Order`, luego el dominio **se computa**; no hay cláusula que citar y la
+prueba de subconjunto que exige la clase R sería **roja por construcción**. *Una clase cuya prueba obligatoria no puede
+pasar es la clase equivocada.* Fila y razón entera: API_CONTRACT §0-Q punto 4 y §M4-PREP.
+
+**⭐ v1.78.1 — `customer.fullName: string | null`: el contrato no puede pedir un `string` a una fuente nullable.** La
+v1.78 lo declaraba `string` mientras su fuente para el **invitado** (`addressSnapshot.recipientName`) puede faltar en
+snapshots de 8 campos anteriores a v1.67 — que el mismo bloque ya declaraba nullable dos filas más abajo. **Lo trajeron
+frontend y backend por separado, con medición**, y mientras tanto cada uno eligió su relleno (`''` en el back, «—» en el
+front): **dos grafías de un hecho que el contrato no decidió**, que es la clase de §0-B que este documento persigue.
+Decisión: **`null` es la única marca de ausencia** (como `lastName`, `shipTo.recipientName`, `orderId`, `orderNumber` en
+el mismo DTO) y ⛔ **la cadena vacía queda prohibida** — `""` **renderiza como un hueco invisible**, no se distingue de un
+nombre vacío legítimo y obliga a todo consumidor a `if (!x)` en lugar de `x === null`. Que el caso sea **hoy inalcanzable
+en la práctica** (medición de backend: los snapshots de 8 campos son de retiros, que tienen `User.name`) **no cambia la
+decisión**: el contrato declara la forma de la fuente, no su suerte.
+
 #### ⚠️⚠️ Hallazgo de medición (arquitecto, 2026-09-22) — la cubeta `vault` no tiene datos bajo el modelo actual
 
 Medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`:
@@ -14849,6 +14868,15 @@ API_CONTRACT §Enums.
 | `location \| price` en `?missing=` de `GET /admin/inventory/pending-publish` | **L** (v1.73) | No nombra estados: nombra **qué le falta a la fila**. `rg 'enum .*Missing' schema.prisma` ⇒ 0 |
 | `sale \| buy` en `?axis=` de `GET /admin/reports/pricing-brackets` | **L** (v1.73) | `rg 'enum .*[Aa]xis' schema.prisma` ⇒ **0** (medido). Es un modo de agregación, no un dato |
 | `BountyState` en `?state=` · `AdminBountySort` en `?sort=` de `GET /admin/pricing/bounties` | **L** (v1.73) | `BountyState` es un estado **derivado** (§M2-B.0), no una columna; `sort` es un **orden con default** (API_CONTRACT §0-Q punto 6), no un filtro |
+| **`PreparationDestination`** (`vault \| ship`) en `?destination=` de `GET /admin/shipments/picking-list` | **L** (v1.78.1) | `rg 'enum FulfillmentMode' backend/prisma/schema.prisma` ⇒ `vault \| direct_ship`: **`ship` NO existe** en el schema. Y en un **retiro de bóveda** (`orderId == null`) **no hay `Order`**, luego no hay `fulfillmentMode` que recortar ⇒ el eje **computa** una partición, no recorta un dominio persistido. ⇒ ⛔ nada que citar (no es R) y la prueba de **subconjunto del enum** que R exige sería **roja por construcción**. Canónico: la línea del propio endpoint (API_CONTRACT §M4-PREP, «DOMINIO CANÓNICO»); paridad a **dos** bandas |
+
+> **⚠️ `D-EQ-R1` (v1.78.1) — dos filas del registro de `§0-Q` punto 4 que NO están en este inventario y que, por la
+> letra de §4.37, serían L y no R:** `?kind=` (§M4) y `?scope=` (§M6), clasificados **R** en v1.77 como *«subconjunto
+> semántico»* — término que §4.37 **no define**. Medido 2026-09-22 (censo completo `rg '^enum ' backend/prisma/schema.prisma`
+> ⇒ **45 enums, ninguno `ShipmentKind` ni `*Scope`**); sus tokens no viven en ninguna columna. ⛔ **No se re-clasifican aquí:** su **conducta observable es idéntica**
+> bajo R y bajo L, y el cambio toca código ya fusionado en **dos** streams. Lo que sí queda fijado: **ningún eje nuevo
+> se clasifica R si su prueba de subconjunto del enum no puede existir.** Cuerpo entero de la cuestión abierta:
+> API_CONTRACT §0-Q punto 4, nota `D-EQ-R1`.
 
 **El caso `RawCondition`, explicado — es el que enseña la diferencia.** La lista pasó de `@IsIn(['NM'])` a la lista
 derivada. **Hoy no ensanchó nada** y el resultado es idéntico. Pero «raw = solo NM» **no es un hecho del schema**: es

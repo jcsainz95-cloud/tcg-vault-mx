@@ -2,7 +2,32 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-19 (rev **v1.78**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-22 (rev **v1.78.1**).
+>
+> **Changelog v1.78.1 — ⭐ §M4-PREP: SE REGISTRA EL EJE `?destination=` Y SE CIERRA UNA CONTRADICCIÓN DEL DTO
+> (2026-09-22, arquitecto; base v1.78, vigente entera salvo las dos filas que esta rev toca). ⛔ CERO DDL. ⛔ Cero
+> endpoints nuevos. Las dos entradas nacen de MEDICIONES que trajeron backend y frontend, no de una relectura.**
+>
+> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
+> |---|---|---|---|
+> | **1** | ⭐ **`GET /admin/shipments/picking-list::destination` entra al REGISTRO DE EJES con clase L (LITERAL).** La v1.78 declaró el eje y su `400` en §M4-PREP pero **no escribió su fila** en §0-Q punto 4 ⇒ `C-EQ-1` lo marcaba **huérfano** (medido por backend: 1 roja de 359). La clase se decide con §0-Q punto 3, **no por analogía con `?kind=`**: `ship` **no existe en ningún enum de Prisma** y en un retiro de bóveda no hay `Order` que recortar ⇒ el dominio se **computa**, no se persiste. La línea del propio endpoint pasa a ser **canónica** | [§0-Q](#enum-query-filter) punto 4 · [§M4-PREP](#M4-PREP) | **Sí, backend** (solo la transcripción del registro en `C-EQ-1`; la conducta ya conforma) |
+> | **2** | ⭐ **`PreparationOrderDTO.customer.fullName` pasa a `string \| null`.** La v1.78 lo declaraba `string` mientras su fuente para un invitado (`addressSnapshot.recipientName`) **puede faltar** en snapshots de 8 campos anteriores a v1.67 — el propio §M4-PREP lo dice dos filas más abajo. El contrato se contradecía consigo mismo y cada rol eligió su relleno (backend `''`, frontend «—»). ⛔ **La cadena vacía queda PROHIBIDA como marca de ausencia** | [§M4-PREP](#M4-PREP) | **Sí, backend** (`?? ''` ⇒ `?? null`) **y frontend** (tipo espejo; su render ya degrada) |
+>
+> **Lo que NO cambia, y se dice porque es donde alguien aflojaría:** **(a)** ⛔ **la rebanada sigue siendo de SOLO
+> LECTURA y CERO migración** — ninguna de las dos entradas propone columna alguna. **(b)** ⛔ **la cubeta
+> `?destination=vault` sigue devolviendo vacío** por el hallazgo de medición de v1.78 (las órdenes
+> `fulfillmentMode='vault'` no generan `ShipmentRequest`); eso es un pendiente de **fuente de datos**, no del eje.
+> **(c)** ⛔ **el palomear/firmar, la sugerencia de bóveda y el reembolso parcial 💰 siguen PLANEADOS** y fuera de
+> esta rev. **(d)** ⛔ `PreparationDestination` **sigue sin entrar** al bloque «Enums (fuente de verdad)» ni a la
+> paridad de enums: la clase L tiene **dos** bandas, no tres.
+> **Cuestión ABIERTA que esta rev NO cierra (se nombra para que no se pierda): `D-EQ-R1`** — `?kind=` (§M4) y
+> `?scope=` (§M6), clasificados **R** en v1.77, **tampoco son subconjuntos de ningún enum de Prisma**
+> (censo completo `rg '^enum ' backend/prisma/schema.prisma` ⇒ **45 enums, ninguno `ShipmentKind` ni `*Scope`**,
+> medido 2026-09-22), así que la prueba
+> de **subconjunto del enum** que §0-Q punto 3 exige a la clase R **es imposible** para ellos. Por la letra del punto 3
+> son **L**. ⛔ **No se re-clasifican en esta rev** —tocan dos streams y su **conducta observable es idéntica** bajo R
+> y bajo L (mismo `400`, mismo `details`)—, pero la incoherencia **es del contrato, no del código**, y la deja
+> anotada quien la creó. Detalle y criterio en §0-Q punto 4, nota `D-EQ-R1`.
 >
 > **Changelog v1.78 — ⭐⭐ BOUNTIES: EL PISO CON TOPE DE MERCADO (Q1) Y LA OPERACIÓN ELIMINAR (Q2) (2026-09-19,
 > arquitecto; base v1.77, vigente entera salvo las filas que esta rev toca). Dos arreglos pedidos por el dueño en la
@@ -5158,7 +5183,7 @@
   |---|---|---|---|
   | **E — ESPEJO** | El dominio **es** un enum de Prisma completo | La línea del enum en **§Enums** | **Derivado** en una sola declaración (`common/enum-values.ts`), ⛔ nunca transcrito. Paridad a **tres bandas**: `schema.prisma` ↔ `enum-values.ts` ↔ §Enums |
   | **R — REGLA** | El dominio es un **subconjunto** de un enum de Prisma | La línea del enum en **§Enums** + la **cláusula citada** que lo recorta | Lista **literal** con la cláusula de `PROJECT.md` (o de este contrato) **al lado**, + prueba de lista exacta **y** de subconjunto del enum |
-  | **L — LITERAL** *(NUEVA, v1.73)* | El dominio **no existe en el schema**: no describe un dato persistido sino un **modo de la consulta** | **La línea del propio endpoint en este contrato** (que pasa a ser canónica) | Lista **literal** junto a su único call-site, + paridad a **dos** bandas: contrato ↔ literal. ⛔ No hay tercera banda porque no hay schema que espejar |
+  | **L — LITERAL** *(NUEVA, v1.73)* | El dominio **no existe en el schema**: no describe un dato persistido sino un **modo de la consulta** — *o (precisión v1.78.1) una **partición COMPUTADA** sobre datos persistidos cuyos **tokens no son valores de ninguna columna**, como `?destination=vault/ship`, que se deriva de `FulfillmentMode` y de «¿hay orden?» pero ⛔ no espeja ni recorta ningún enum* | **La línea del propio endpoint en este contrato** (que pasa a ser canónica) | Lista **literal** junto a su único call-site, + paridad a **dos** bandas: contrato ↔ literal. ⛔ No hay tercera banda porque no hay schema que espejar |
 
   **La pregunta que separa R de L, y es la que backend planteó bien (`H3-b`):** *¿el dominio nombra valores que la base de datos guarda?*
   - **Sí, y los recorta ⇒ R.** Exige cláusula citable, porque está **quitando** algo que el sistema sí sabe representar. ⛔ **Un subconjunto sin cláusula citable no es clase R: es una restricción inventada**, y la regla de conflicto de `CLAUDE.md` la prohíbe. *(Ejemplares: `ACCEPTED_RAW_CONDITIONS` —`common/business-rules.ts`— en el `?condition=` público, por `PROJECT §H`; `UserStatus` en `PATCH /admin/users/:id/status`.)*
@@ -5202,7 +5227,8 @@
   | `GET /catalog/sealed` (§2-S) | `sealedSubtype` | `SealedSubtype` | **E** |
   | `GET /catalog/sealed` (§2-S) | `condition` | `SealedCondition` | **E** |
   | `GET /catalog/sealed` (§2-S) | `sort` **(ORDEN, v1.77)** | `newest \| price_asc \| price_desc` — canónico en **§2-S**; default `newest` (punto 6) | **L** |
-  | `GET /admin/shipments` (§M4) | `kind` **(v1.77)** | `guest_direct_ship \| vault_withdrawal` — subconjunto semántico, cláusula en **§M4** | **R** |
+  | `GET /admin/shipments` (§M4) | `kind` **(v1.77)** | `guest_direct_ship \| vault_withdrawal` — subconjunto semántico, cláusula en **§M4** (⚠️ clase bajo revisión: nota `D-EQ-R1` abajo) | **R** |
+  | `GET /admin/shipments/picking-list` (§M4-PREP) | `destination` **(v1.78.1)** | `vault \| ship` — canónico en **la línea del propio endpoint** (§M4-PREP, «DOMINIO CANÓNICO»). Unión pura: ⛔ **sin enum en `schema.prisma`** — `ship` **no existe** en `FulfillmentMode` (`vault \| direct_ship`), del que se DERIVA por mapeo explícito | **L** |
   | `GET /admin/users/:id/audit` (§M6) | `scope` **(v1.77)** | `target \| actor \| both` — subconjunto semántico, cláusula en **§M6**; default `target` | **R** |
   | `GET /admin/inventory/sealed-price-status` (§10) | `state` **(M11)** | `SealedPriceState` (`priced \| mapped_unpriced \| unmapped`) — canónico en **§Enums** (unión pura, ⛔ sin columna en `schema.prisma`) | **L** |
 
@@ -5215,6 +5241,37 @@
   > **decisión transcrita cuando el eje ya conforma**, no una promesa. Su estado, como siempre, lo dice `C-EQ-1`:
   > siguen en `SIN_CLASE_DECLARADA` hasta que su código pase a `parseEnumFilter`. Igual el `?reason=` de pricing
   > (DINERO, cuya cura es corregir la **forma** del `details`) y los `?report=` de finanzas (`EQ-D0b`, DINERO).
+  >
+  > **⭐ v1.78.1 — `?destination=` de «Pedidos a preparar» entra con clase L, y se dice POR QUÉ aquí porque su
+  > vecino de tabla invita al error.** La v1.78 escribió en §M4-PREP *«misma doctrina §0-Q que `?kind=`»* y esa frase
+  > es verdad sobre la **conducta** (vacío ⇒ no filtra, basura ⇒ `400` con `field`+`allowed`) y ⛔ **falsa sobre la
+  > clase**. Se decide con la pregunta del punto 3 —*¿el dominio nombra valores que la base de datos guarda?*—, y la
+  > respuesta es **no**: `ship` **no existe** en `FulfillmentMode` (`vault | direct_ship`), y en un **retiro de
+  > bóveda** (`orderId == null`) no hay `Order` ninguna, luego no hay `fulfillmentMode` que recortar. `destination`
+  > **no recorta un dominio persistido: lo COMPUTA** a partir de dos hechos (¿hay orden?, ¿qué modo tiene). Por eso
+  > ⛔ **no hay cláusula que citar** —y un subconjunto sin cláusula citable no es R (punto 3)— y la prueba de
+  > **subconjunto del enum** que R exige saldría **roja por construcción**. *Una clase cuya prueba obligatoria no
+  > puede pasar es la clase equivocada.* Mismo criterio, mismo resultado y mismo precedente que
+  > `SealedPriceState` (`?state=`, §10): unión pura ⇒ **L**, con paridad a **dos** bandas.
+  >
+  > **⚠️ `D-EQ-R1` — INCOHERENCIA DECLARADA DEL PROPIO REGISTRO, y la anota quien la creó (v1.78.1, arquitecto).**
+  > Aplicando el párrafo de arriba hacia atrás: `?kind=` (§M4) y `?scope=` (§M6), clasificados **R** por la
+  > `DECISIÓN B` de v1.77, **tampoco son subconjuntos de ningún enum de Prisma** — `{guest_direct_ship,
+  > vault_withdrawal}` y `{target, actor, both}` no aparecen en `schema.prisma`
+  > (`rg 'enum ShipmentKind' backend/prisma/schema.prisma` ⇒ **0**, medido 2026-09-22), y su «cláusula citada» es
+  > este mismo contrato describiendo una partición **computada** (`orderId == null`). Por la letra del punto 3 son
+  > **L**, y la v1.77 los llamó *«subconjunto semántico»*, que es un término que el punto 3 **no define**.
+  > - ⛔ **NO se re-clasifican en esta rev, y el motivo no es comodidad:** la **conducta observable es idéntica** bajo
+  >   R y bajo L (mismo `200` sin filtrar, mismo `400`, mismo `details`), así que re-clasificar **no arregla ningún
+  >   defecto de cara al cliente**; lo que cambia es **qué pruebas de paridad se exigen** — y eso toca código ya
+  >   fusionado con gates aprobados en **dos** streams (`shipments` y `audit`). Un cambio así se decide a propósito
+  >   y se enruta, no se cuela en el pase de otro eje.
+  > - ✅ **Lo que sí queda fijado hoy:** ⛔ **ningún eje nuevo se clasifica R sin cláusula citable y sin que su prueba
+  >   de subconjunto del enum pueda existir.** Si el dominio no vive en `schema.prisma`, es **L**. `?destination=` es
+  >   el primer eje que aplica la regla en su forma estricta.
+  > - **Qué la cerraría:** una rev que decida (a) re-clasificar `?kind=`/`?scope=` a **L** con su canónico en la línea
+  >   del endpoint y su paridad a dos bandas, o (b) definir en el punto 3 una **cuarta** clase para la partición
+  >   computada sobre un dato persistido. *Se escribe la pregunta, no se finge que no existe.*
 
   **⭐ `C-EQ-1` — EL CANDADO QUE SUSTITUYE A LA DISCIPLINA (NORMATIVO; lo escribe BACKEND, no el arquitecto).**
   El estado de conformidad vive en **una sola suite del backend**, que es su **única autoridad**. La suite tiene que hacer **dos** cosas, y la segunda es la que impide que el problema vuelva:
@@ -14696,7 +14753,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     *Estado medido 2026-09-13: `shipments/shipments.service.ts:373`, token **crudo** al `where` ⇒ `500 INTERNAL`.*
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `ShipmentRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/shipments/:id`
-- `GET /api/v1/admin/shipments/picking-list` — **REPROYECTADA a «Pedidos a preparar»** (v1.78, rebanada de SOLO LECTURA): deja de ser una lista PLANA de piezas ordenada por ubicación y pasa a ser una **hoja de trabajo AGRUPADA por pedido** (`PreparationOrderDTO[]`, un elemento = UN envío/pedido a preparar). **Se conserva la ruta y solo cambia el DTO** (ver decisión abajo). Filtro nuevo opcional `?destination=vault|ship` (las dos cubetas, CA #8); `?date=` se conserva. Orden: `requestedAt` **asc** (lo más viejo primero, CA #9). Rol: **operador+** (sin cambio). ⛔ **Solo lectura, sin efectos.** Forma completa y decisiones en **[§M4-PREP](#M4-PREP)**.
+- `GET /api/v1/admin/shipments/picking-list` — **REPROYECTADA a «Pedidos a preparar»** (v1.78, rebanada de SOLO LECTURA): deja de ser una lista PLANA de piezas ordenada por ubicación y pasa a ser una **hoja de trabajo AGRUPADA por pedido** (`PreparationOrderDTO[]`, un elemento = UN envío/pedido a preparar). **Se conserva la ruta y solo cambia el DTO** (ver decisión abajo). Filtro nuevo opcional `?destination=vault|ship` (las dos cubetas, CA #8; **clase L** de [§0-Q](#enum-query-filter), registrada en su punto 4 — el **dominio canónico** lo declara §M4-PREP, ⛔ no esta línea); `?date=` se conserva. Orden: `requestedAt` **asc** (lo más viejo primero, CA #9). Rol: **operador+** (sin cambio). ⛔ **Solo lectura, sin efectos.** Forma completa y decisiones en **[§M4-PREP](#M4-PREP)**.
 - `PATCH /api/v1/admin/shipments/:id/status` — Req `{ to: ShipmentStatus }` (transiciones `solicitado→picking→guia→enviado→entregado`).
   - **v1.21 — RAMIFICACIÓN OBLIGATORIA por tipo de envío (`orderId == null`?):**
     - **Retiro de bóveda (`orderId == null`)** → comportamiento v1.17 **sin cambio alguno**: los pasos
@@ -14791,7 +14848,9 @@ export interface PreparationOrderDTO {
   // --- cliente ---
   customer: {
     lastName: string | null;          // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — ver §6.A; NO bloquea
-    fullName: string;                 // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
+    // v1.78.1 — `| null`: la fuente del INVITADO puede faltar (snapshot de 8 campos anterior a v1.67).
+    // ⛔ `""` PROHIBIDA como marca de ausencia: un hecho, una grafía (ver la nota de abajo).
+    fullName: string | null;          // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
   };
   // --- solo destino ENVÍO ('ship'): dirección COMPLETA, CON la calle que la fila omite hoy (CA #6) ---
   shipTo?: {
@@ -14839,8 +14898,8 @@ export interface LocationView {
 | `orderId` / `orderNumber` | `ShipmentRequest.orderId` / `Order.orderNumber` (join). **null** en retiro de bóveda |
 | `destination` | **DERIVADO** de `Order.fulfillmentMode`: `direct_ship`→`'ship'`; `vault`+`orderId` = imposible por invariante (lanza/loguea, igual que `kindForFulfillment`, `shipments.service.ts:513`). `orderId == null` (retiro) ⇒ `'ship'` |
 | `requestedAt` | `ShipmentRequest.requestedAt` |
-| `customer.fullName` | con `userId`: `User.name`; invitado (`userId==null`): `addressSnapshot.recipientName` |
-| `customer.lastName` | **DERIVADO** de `fullName` (último token). ⚠️ FRÁGIL (§6.A): nombres/apellidos compuestos fallan; `null` si no se puede derivar. **No bloquea nada** en esta rebanada |
+| `customer.fullName` | con `userId`: `User.name` (NOT NULL en schema); invitado (`userId==null`): `addressSnapshot.recipientName`, **que puede faltar** ⇒ **`null`** (v1.78.1) |
+| `customer.lastName` | **DERIVADO** de `fullName` (último token). ⚠️ FRÁGIL (§6.A): nombres/apellidos compuestos fallan; `null` si no se puede derivar — **y `fullName === null` ⇒ `lastName === null`** por construcción. **No bloquea nada** en esta rebanada |
 | `shipTo.*` | `ShipmentRequest.addressSnapshot` (9 campos, `AddressSnapshotDTO`). Solo cuando `destination='ship'`. `recipientName`/`line2`/`neighborhood` pueden ser `null` (snapshots legados de 8 campos) |
 | `items[].shipmentItemId` | `ShipmentItem.id` |
 | `items[].inventoryItemId` / `folio` | `ShipmentItem.inventoryItemId` / `InventoryItem.folio` |
@@ -14849,7 +14908,7 @@ export interface LocationView {
 | `items[].card.finish` | `InventoryItem.finish` |
 | `items[].card.conditionLabel` | COMPUESTA en el back por precedencia: `gradingCompany`+`gradeValue` (p.ej. `"PSA 9"`) → `rawCondition` (`"NM"`) → `sealedCondition` (`mint`→`"Mint"`, `minor_box_damage`→`"Minor box damage"`) |
 | `items[].currentLocation` | `InventoryItem.location` (`VaultLocation.label`): `null`⇒`{kind:'unassigned'}`; poblado⇒`{kind:'assigned', label}` |
-| filtro `?destination=vault\|ship` | derivado de `fulfillmentMode` (ver ⚠️ de la cubeta `vault`) |
+| filtro `?destination=vault\|ship` | derivado de `fulfillmentMode` (ver ⚠️ de la cubeta `vault`). **Clase L** de §0-Q; dominio declarado en la línea «DOMINIO CANÓNICO» de abajo |
 
 **Notas de diseño / decisiones aterrizadas:**
 - `destination` **deriva** del discriminador canónico `Order.fulfillmentMode` (ARCHITECTURE §4.21d); no se inventa un
@@ -14857,12 +14916,53 @@ export interface LocationView {
   pedido. **`PreparationDestination` es un TIPO DE DTO, no un enum de dominio** — sus valores (`ship`/`vault`) **no**
   coinciden con los de `FulfillmentMode` (`direct_ship`/`vault`), así que **⛔ NO se declara en el bloque
   «Enums (fuente de verdad)»** ni entra en el test de paridad de enums. El backend hace el mapeo explícito.
+  *(v1.78.1: eso es exactamente lo que significa **clase L** en §0-Q punto 3 — dos bandas de paridad, no tres. La
+  fila del eje vive en el **REGISTRO DE EJES de §0-Q punto 4**; el dominio, en la línea «DOMINIO CANÓNICO» de abajo.)*
 - `conditionLabel` se compone en el **back** (no en el front) para no repetir la lógica `raw/graded/sealed`.
 - `orderId`/`orderNumber` son **`| null`** (no `string` a secas): un **retiro de bóveda** vive en esta cola y **no tiene
   orden**. La referencia siempre presente para trazar es `shipmentId`. *(Corrige el borrador, que los declaraba
   obligatorios; medido: `ShipmentRequest.orderId` es nullable y la cola incluye retiros.)*
-- **`?destination=vault|ship`**: `ausente` ⇒ ambas cubetas; token del dominio ⇒ filtra; fuera de dominio ⇒
-  **`400 VALIDATION_ERROR`** `details:{field:'destination', allowed:['vault','ship']}` (misma doctrina §0-Q que `?kind=`).
+- **⭐ v1.78.1 — `customer.fullName` es `string | null`, y ⛔ la CADENA VACÍA queda PROHIBIDA como marca de ausencia.**
+  *La v1.78 se contradecía consigo misma y lo trajeron, por separado y con medición, **frontend** y **backend**: el
+  campo se declaraba `string` mientras su fuente para un invitado —`addressSnapshot.recipientName`— **puede faltar**
+  en los snapshots de 8 campos anteriores a v1.67, cosa que este mismo bloque ya declaraba dos filas más abajo al
+  poner `shipTo.recipientName: string | null`.* **El contrato no puede pedir un `string` a una fuente que declara
+  nullable**, y cuando no lo dice cada rol elige su relleno: backend devolvía `''` y frontend pintaba «—». **Dos
+  grafías del mismo hecho, y ninguna de las dos decidida aquí.** La decisión:
+  - **`null` es la ÚNICA marca de «no hay nombre»**, igual que en `lastName`, `shipTo.recipientName`, `orderId` y
+    `orderNumber` de este mismo DTO. ⛔ **Prohibido `""`** (y prohibido omitir la llave): `""` es un valor que
+    **renderiza como un hueco invisible**, no se distingue de un nombre vacío legítimo, y obliga a **todo** consumidor
+    a escribir `if (!x)` en vez de `x === null`. *Un hecho, una grafía.*
+  - **Obligación del consumidor (frontend):** con `null` se pinta una **ausencia con nombre** —el patrón que §M4 ya
+    exige para el destinatario («Sin destinatario (retiro anterior a v1.67)»)—, ⛔ **nunca un «—» mudo sin causa**.
+    Esto **no es una regla nueva ni contradice al sistema de diseño**: `DESIGN_SYSTEM §32.4-H4` ya pide «—» **más
+    una frase que diga que no se pudo saber**, y el propio sistema advierte que el em dash **ya carga semántica de
+    dinero** («precio pendiente», §16.3a) y solo **se lee como cero**. *Cómo se redacta la frase lo decide **ux-ui**,
+    no este contrato; lo que el contrato fija es que el dato llega **distinguible**.*
+  - **Reconciliación con la medición de backend:** backend midió que el caso es **hoy inalcanzable en la práctica**
+    (los snapshots de 8 campos son de **retiros**, que tienen `User.name`) — *medición suya, no re-medida por el
+    arquitecto*. **No cambia la decisión, y el motivo importa:** el contrato declara la **forma** de la fuente, no su
+    suerte. Un campo que solo es no-nulo **mientras una coincidencia se sostenga** es un tipo que miente en cuanto
+    la coincidencia se rompa —y no avisa: sale un hueco pintado en la pantalla del operador—. Si la ausencia es
+    inalcanzable, `null` **no cuesta nada**; si deja de serlo, es lo único que evita inventar un nombre.
+- **⭐ `?destination=` — DOMINIO CANÓNICO (clase L, §0-Q punto 3): `vault|ship`.** *(v1.78.1 — esta línea **es** la
+  declaración canónica del dominio. En la clase **L** el canónico es la **línea del propio endpoint**, ⛔ no §Enums,
+  porque no hay enum que espejar; la paridad es a **dos** bandas: **esta línea ↔ el literal del call-site**.)*
+  **Conducta, por [§0-Q](#enum-query-filter) punto 1:** `ausente` / cadena vacía / solo espacios ⇒ **no filtra**
+  (las dos cubetas, `200`); token del dominio ⇒ filtra; **cualquier otra cosa** ⇒ **`400 VALIDATION_ERROR`** con
+  `details:{ field:'destination', allowed:['vault','ship'] }` — ⛔ **sin `details.value`** (punto 2: prohibido en
+  todo eje nuevo) y **antes de tocar Prisma**. El **orden** de `allowed` es `['vault','ship']`. Registrado en
+  **§0-Q punto 4**.
+  **Por qué L y ⛔ NO R, con el criterio del punto 3 y no por analogía con `?kind=`:** la pregunta que separa las dos
+  clases es *¿el dominio nombra valores que la base de datos guarda?* — y aquí es **no**. `ship` **no existe en
+  ningún enum de Prisma** (`FulfillmentMode = vault | direct_ship`; `rg 'enum FulfillmentMode'
+  backend/prisma/schema.prisma`, medido 2026-09-22), y en un **retiro de bóveda** (`orderId == null`) **no hay
+  `Order`**, luego no hay `fulfillmentMode` que recortar: el eje **computa** una partición, no recorta un dominio
+  persistido. ⇒ ⛔ no hay cláusula que citar (y un subconjunto sin cláusula citable no es R) y la prueba de
+  **subconjunto del enum** que R exige sería **roja por construcción**.
+  ⚠️ **La frase de v1.78 *«misma doctrina §0-Q que `?kind=`»* queda PRECISADA, no borrada:** era cierta sobre la
+  **conducta** y falsa sobre la **clase** (`?kind=` está registrado como **R** — ver la nota `D-EQ-R1` de §0-Q
+  punto 4, que es del arquitecto y no de este endpoint).
 
 > ### ⚠️⚠️ HALLAZGO DE MEDICIÓN (arquitecto, 2026-09-22) — la cubeta `vault` **NO tiene datos** bajo el modelo actual
 > La cola de hoy proyecta **solo `ShipmentRequest{status:'picking'}`**, y **todo** `ShipmentRequest` es físicamente un
