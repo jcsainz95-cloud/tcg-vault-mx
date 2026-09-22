@@ -1115,12 +1115,17 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     await screen.findByTestId('prep-conflict');
     expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
-    // Los únicos botones que quedan son los tres de cubeta (PR-16).
-    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual([
-      'Ambas',
-      'Solo envío',
-      'Solo bóveda',
-    ]);
+    /*
+     * ⚠️ **Aquí había un conteo de TODOS los botones de la pantalla, y lo retiro con su motivo.**
+     * Afirmaba «los únicos botones son los tres de cubeta», que PR-12/PR-16 **no piden** y que en
+     * esta ruta **no es cierto**: `/admin/m4` hospeda también la cola de envíos con los suyos. Pasaba
+     * en verde **por temporización** —la otra consulta aún no había resuelto cuando corría la
+     * aserción—. Lo destapó la versión en navegador de este mismo candado, donde el tiempo es real.
+     * *Un verde que depende de qué consulta llega antes no es un candado: es una carrera.*
+     * Lo que se aserta es lo que la regla dice: **nada que pulsar dentro del aviso**.
+     */
+    const aviso = screen.getByTestId('prep-conflict');
+    expect(within(aviso).queryAllByRole('button')).toHaveLength(0);
   });
 
   /**

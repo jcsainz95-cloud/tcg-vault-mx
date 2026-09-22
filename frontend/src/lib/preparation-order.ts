@@ -50,7 +50,27 @@ export function sortPreparationOrders(orders: PreparationOrderDTO[]): Preparatio
   return orders.slice().sort((a, b) => at(a) - at(b));
 }
 
-/** Cartas del pedido por ubicación (asignadas primero y ordenadas; las sin ubicar, al final). */
+/**
+ * Cartas del pedido por ubicación (asignadas primero y ordenadas; las sin ubicar, al final).
+ *
+ * ⭐⭐ **§M4P-ORDER (contrato v1.78.3) — la comparación es por UNIDADES DE CÓDIGO UTF-16 (`a < b`),
+ * ⛔ NO `localeCompare` y ⛔ NO `Intl.Collator`.**
+ *
+ * **El defecto que cierra:** el contrato decía «ordenadas» y **no decía con qué regla**. Este lado y
+ * el backend elegimos `localeCompare()` **sin locale** por separado ⇒ coincidíamos **por coincidencia
+ * de elección, no por norma** — y esa forma usa *la locale del host*: el Node del servidor por un
+ * lado, **el navegador del operador** por el otro.
+ *
+ * **Por qué unidades de código y no una locale fijada:** fijar la locale quita la variable *locale*
+ * pero **no** la **versión de ICU/CLDR** que cada runtime empaqueta, y eso ⛔ no se puede fijar desde
+ * un contrato. La comparación por unidades de código es **la única que fija ECMA-262 en el lenguaje
+ * mismo** ⇒ idéntica en Node y en cualquier navegador, sin ICU de por medio, y **aseverable
+ * literalmente**. El coste es estético y acotado —la `Ñ` ordena tras la `Z`, la minúscula tras las
+ * mayúsculas— y **solo se paga en etiquetas que hoy no existen**: sobre `CAJA-FILA-SLOT` en
+ * mayúsculas con ceros a la izquierda, el recorrido que camina el operador **sale idéntico**.
+ *
+ * ⛔ **`sortPreparationOrders` NO cambia**: compara marcas de tiempo numéricas, no texto.
+ */
 export function sortPreparationItems(items: PreparationItemDTO[]): PreparationItemDTO[] {
   return items.slice().sort((a, b) => {
     const ka = locationSortKey(a.currentLocation);
@@ -58,6 +78,10 @@ export function sortPreparationItems(items: PreparationItemDTO[]): PreparationIt
     if (ka === null && kb === null) return 0;
     if (ka === null) return 1;
     if (kb === null) return -1;
-    return ka.localeCompare(kb);
+    // ⛔ NO `ka.localeCompare(kb)`: ver §M4P-ORDER. `<`/`>` sobre strings ES la comparación por
+    // unidades de código UTF-16 que ECMA-262 define, sin ICU y sin locale de por medio.
+    if (ka < kb) return -1;
+    if (ka > kb) return 1;
+    return 0;
   });
 }

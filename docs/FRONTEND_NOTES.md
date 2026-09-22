@@ -411,6 +411,17 @@ caducadas que este documento ya tuvo que barrer dos veces.
 `kind:'assigned'`**. Sin etiqueta no hay ubicación que caminar ⇒ se trata **igual que `unassigned`**
 (copy legible y al final del orden), en vez de colarse arriba de la lista con una cadena vacía.
 
+> ⚠️⚠️ **SUPERADO por el contrato v1.78.2 — esto describe el tipo de v1.78.1, que YA NO EXISTE.** Lo
+> levantó el techlead (`NB-3`) y tiene razón: es **documentación con forma de código describiendo un
+> mundo que no existe**, y choca con el DoD (*«`docs/` al día reflejan lo implementado»*). Hoy
+> `LocationView` es una **unión discriminada** (`{kind:'assigned'; label: string} | {kind:'unassigned'}`):
+> el estado que este párrafo describe **no es representable**, y las dos ramas defensivas que
+> justificaba **se retiraron** —`preparation-order.ts` documenta el retiro—. ⇒ **preguntar
+> `kind === 'assigned'` basta y es total**, y ⛔ un `if (loc.label)` vuelve a admitir lo que el tipo
+> borró. Se conserva el párrafo en pasado porque **fue la lectura correcta mientras el tipo era
+> flojo**, y porque es el ejemplo de lo que cuesta un invariante que vive en un comentario: cuatro
+> ramas defensivas repartidas entre dos repos. Estado vivo: **[§65.2](#65)** y §M4-PREP.
+
 ### 4. Tres decisiones que el contrato no cerraba, dichas para que sean discutibles
 
 1. **⭐ El orden se repite en la vista, además del back.** El contrato dice que el endpoint ordena

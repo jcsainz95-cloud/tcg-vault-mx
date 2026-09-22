@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, mockOnly, needsSeed } from './utils/auth';
+import { loginAs, mockOnly, needsSeed, realOnly } from './utils/auth';
 
 /**
  * **«Pedidos a preparar» (M4) en un NAVEGADOR DE VERDAD** — `DESIGN_SYSTEM §35`, contrato §M4-PREP.
@@ -23,36 +23,24 @@ import { loginAs, mockOnly, needsSeed } from './utils/auth';
  */
 
 /**
- * ⚠️⚠️ **LO QUE ESTE FICHERO NO PUEDE MEDIR, Y POR QUÉ — para QA, y dicho con el dato.**
+ * ⚠️ **Los `PR-11..PR-16` (el `409` de §35.15) van bajo `realOnly`, y aquí está el porqué.**
  *
- * §35.14 A-4 pide **PR-11..PR-16** (el `409` de fila corrupta, §35.15) también en los dos viewports.
- * **Aquí no se pueden escribir**, y no por pereza: cuando Playwright levanta el servidor él mismo lo
- * hornea con `NEXT_PUBLIC_USE_MOCKS=true`, y en esa rama `getAdminPreparationQueue` **devuelve el
- * fixture sin hacer ninguna petición HTTP** (`lib/api.ts`: el `apiRequest` vive detrás de
- * `if (!config.useMocks)`). ⇒ **no hay red que interceptar**, y por tanto **no hay forma de provocar
- * un `409`** desde esta corrida. Un `page.route()` aquí no casaría nunca y el caso fallaría por la
- * razón equivocada.
+ * Cuando Playwright levanta el servidor él mismo lo hornea con `NEXT_PUBLIC_USE_MOCKS=true`, y en esa
+ * rama `getAdminPreparationQueue` **devuelve el fixture sin hacer ninguna petición HTTP**
+ * (`lib/api.ts`: el `apiRequest` vive detrás de `if (!config.useMocks)`). ⇒ **no hay red que
+ * interceptar** y **no hay forma de provocar un `409`** en la corrida de mocks.
  *
- * ⛔ **Por eso NO se deja aquí un caso que solo sepa saltarse:** una prueba que nadie ha visto pasar
- * no es cobertura, es una promesa. Los `PR-11..PR-16` viven hoy en `M4View.test.tsx` (jsdom), donde
- * **sí** se pueden ejercer, con **8 casos** y canarios de mutación.
+ * ⚠️ **Mi primera lectura de eso fue que no se podían escribir aquí. Era incorrecta**, y me la
+ * corrigió el techlead con el dato: el arnés ya tiene la gaveta para exactamente este caso —
+ * **`realOnly()`** (`e2e/utils/auth.ts`), cuyo docstring nombra *«p. ej. un 409 del contrato»*—, y
+ * hay precedente de la **misma causa** en esta suite: `catalog.spec.ts` salta a real porque *«afirma
+ * PETICIONES HTTP y en mock el cliente resuelve en proceso (cero red)»*.
  *
- * **Cómo ejercerlos en navegador cuando haya stack real** (`E2E_BASE_URL=… npm run test:e2e`), que es
- * el camino que QA ya usó para PR-1..PR-10:
- *
- * ```ts
- * await page.route('**\/admin/shipments/picking-list*', (route) =>
- *   route.fulfill({
- *     status: 409,
- *     contentType: 'application/json',
- *     body: JSON.stringify({ error: { code: 'CONFLICT', message: 'shipmentId: shp-roto' } }),
- *   }),
- * );
- * ```
- * …y después asertar lo de §35.14 A-4: el título del `409` y **ninguno** de los otros tres (PR-11),
- * cero botones dentro del aviso (PR-12), `role="alert"` único con la región viva vacía (PR-13), el
- * `<details>` cerrado (PR-14), la frase de impacto en tinta **computada** (PR-15 — esto es lo que
- * jsdom no puede) y el filtro habilitado que no cambia el estado (PR-16).
+ * *Su argumento, que es el que importa:* dejar la receta en un comentario es **una quinta gaveta** en
+ * una taxonomía que tiene **cuatro construidas a propósito** (`mockOnly`, `needsSeed`,
+ * `harnessLimit`, `realOnly`) para que un hueco no se disfrace — **y ningún runner enumera la
+ * quinta**. Bajo `realOnly` corren solos en el pase real de QA y, en mocks, aparecen en el **censo de
+ * saltados con su razón impresa**. Lo que QA midió a mano deja de ser un acto humano irrepetible.
  */
 
 /** Ancho de trabajo del operador (de pie) y el de escritorio. §35.14 A-4 pide los dos. */
@@ -175,6 +163,111 @@ for (const vp of VIEWPORTS) {
      * (hallazgo medido del arquitecto, §M4-PREP). Es el único candado de esta pantalla que el
      * backend real puede satisfacer hoy sin sembrar nada.
      */
+    /**
+     * ⭐⭐ **PR-11..PR-16 (§35.14 A-4 · §35.15) — EL `409` DE FILA CORRUPTA, EN NAVEGADOR.**
+     *
+     * `realOnly` porque la corrida de mocks **no emite red** y aquí se intercepta la respuesta del
+     * endpoint para forzar el `409` que declara §M4-PREP v1.78.2 (`{error:{code,message}}`).
+     *
+     * ⭐ **Y lo que SOLO se puede medir aquí: `PR-15` con el color COMPUTADO.** En jsdom la aserción
+     * mira la *clase* (`text-text`), que es una cadena; el motor de verdad resuelve la cascada, así
+     * que aquí se compara la tinta **efectiva** de la frase de impacto contra la del título (tinta) y
+     * contra la de la explicación (`muted`). Un `text-text` que la cascada no aplicara pasaría el
+     * unitario y moriría aquí.
+     */
+    test('@real PR-11..PR-16 · el `409` se lee como cola BLOQUEADA, ⛔ nunca como vacía ni como error de red', async ({
+      page,
+    }) => {
+      realOnly('intercepta la respuesta del endpoint; en mock el cliente resuelve en proceso (cero red)');
+
+      await page.route('**/admin/shipments/picking-list*', (route) =>
+        route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'CONFLICT', message: 'Corrupt preparation row (shipmentId: shp-roto).' },
+          }),
+        }),
+      );
+      await page.goto('/es/admin/m4');
+
+      const aviso = page.getByTestId('prep-conflict');
+      await expect(aviso).toBeVisible();
+
+      // ── PR-11 · distinguible de `200 {data:[]}` Y del error de red. Se mide por LA PALABRA del
+      //    título, que es el eje que no depende del color (§2.4).
+      const main = await page.locator('main').innerText();
+      expect(main).toContain(P('conflict.title'));
+      for (const ajeno of [
+        P('empty.title'),
+        P('emptyShip.title'),
+        P('emptyVault.title'),
+        t('es', 'common.errorTitle'),
+      ]) {
+        expect(main, `«${ajeno}» no puede aparecer con un 409`).not.toContain(ajeno);
+      }
+      expect(main).toContain(P('conflict.impact'));
+
+      // ── PR-12 · ⛔ nada que pulsar que no arregle nada: reintentar un 409 por datos corruptos
+      //    devuelve el mismo 409. Y ⛔ sin cierre: cerrarlo dejaría detrás la pantalla vacía.
+      const banner = page.locator('[role="alert"]');
+      await expect(banner.getByRole('button')).toHaveCount(0);
+      /*
+       * ⚠️ **Aquí NO se cuentan los botones de toda la pantalla, y la primera versión sí lo hacía.**
+       * `/admin/m4` hospeda TAMBIÉN la cola de envíos, que trae los suyos («Capturar guía»,
+       * «Cancelar»…). Contar sobre `main` afirmaba algo que PR-12 y PR-16 no piden y que además
+       * **solo era cierto mientras la otra consulta no hubiera resuelto**. Lo destapó esta misma
+       * prueba al correr en navegador — y el mismo exceso estaba en el unitario, donde pasaba en
+       * verde por temporización. Lo que se aserta es lo que las reglas dicen: **cero botones dentro
+       * del aviso**, y los **tres de cubeta habilitados** (abajo, PR-16).
+       */
+
+      // ── PR-13 · un hecho, un anuncio. ⚠️ Se cuenta **dentro de la sección de la cola**, ⛔ no en
+      //    toda la página: `/admin/m4` hospeda además la cola de envíos, que tiene sus propios
+      //    avisos (una mutación fallida, su `QueryState`). Medido: contar sobre el documento dio
+      //    `2` de forma reproducible en esta corrida. Es la MISMA sobre-especificación que acabo de
+      //    retirar dos líneas más arriba con los botones — la regla dice «el aviso anuncia y la
+      //    región viva calla», no «esta pantalla tiene un solo aviso».
+      const seccion = page.locator('section', { has: page.getByTestId('prep-live-region') });
+      await expect(seccion.locator('[role="alert"]')).toHaveCount(1);
+      await expect(page.getByTestId('prep-live-region')).toHaveText('');
+
+      // ── PR-14 · la referencia va plegada, ⛔ no en el título ni en el impacto (§32.4c).
+      const cajon = page.getByTestId('prep-conflict-detail');
+      await expect(cajon).toBeVisible();
+      expect(await cajon.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
+      await expect(cajon).toContainText(P('conflict.technicalDetail'));
+      expect(P('conflict.title')).not.toContain('shp-roto');
+      expect(P('conflict.impact')).not.toContain('shp-roto');
+      // Plegado ⇒ el identificador no se LEE hasta que alguien lo abre.
+      expect(await page.locator('main').innerText()).not.toContain('shp-roto');
+      await cajon.locator('summary').click();
+      await expect(cajon).toContainText('shp-roto');
+
+      // ── PR-15 · ⭐ el color COMPUTADO: la frase de impacto va en tinta, no en el `muted` que
+      //    `Banner` hereda a todos sus hijos. Se compara contra los dos vecinos, sin hex a mano.
+      const colorDe = (texto: string) =>
+        page.getByText(texto, { exact: false }).first().evaluate((el) => getComputedStyle(el).color);
+      const tintaTitulo = await colorDe(P('conflict.title'));
+      const colorImpacto = await colorDe(P('conflict.impact'));
+      const colorExplicacion = await colorDe(P('conflict.body'));
+      expect(colorImpacto, 'la frase de impacto no está en tinta').toBe(tintaTitulo);
+      expect(colorImpacto, 'la frase de impacto heredó el muted del Banner').not.toBe(colorExplicacion);
+
+      // ── PR-16 · el fallo es de la COLA, no de la cubeta: los tres botones siguen habilitados y
+      //    cambiar de cubeta no cambia el estado (⛔ ni lista ni vacío).
+      for (const clave of ['filterAll', 'filterShip', 'filterVault'] as const) {
+        await expect(page.getByRole('button', { name: P(clave) })).toBeEnabled();
+      }
+      await page.getByRole('button', { name: P('filterShip') }).click();
+      await expect(page.getByTestId('prep-conflict')).toBeVisible();
+      expect(await page.locator('main').innerText()).not.toContain(P('emptyShip.title'));
+      // La cabecera no desaparece: el operador sigue sabiendo en qué pantalla está.
+      await expect(page.getByRole('heading', { name: P('title') })).toBeVisible();
+
+      await expectNoHorizontalOverflow(page);
+    });
+
     test('PR-1 · la cubeta de bóveda vacía explica la ausencia y ⛔ NO afirma «nada pendiente»', async ({ page }) => {
       await page.goto('/es/admin/m4');
       await page.getByRole('button', { name: P('filterVault') }).click();
