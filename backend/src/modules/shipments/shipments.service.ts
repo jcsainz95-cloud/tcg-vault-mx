@@ -806,10 +806,21 @@ export class ShipmentsService {
    *    **jamás `200` con lista vacía**: una lista vacía afirma *«ese día no hay nada que preparar»*,
    *    que es responder con un hecho a una pregunta ilegible.
    *
-   * ### ⚠️⚠️ `Number.isNaN` NO cierra la segunda — MEDIDO, y por eso aquí hay un IDA Y VUELTA
-   * §M4-PREP v1.78.2 prescribe *«`Number.isNaN(d.getTime())` sobre el `Date` construido cierra la
-   * segunda»* y **eso es falso para uno de los dos ejemplos que la propia cláusula da.** Medido con
-   * `node` el 2026-09-22:
+   * ### ⚠️⚠️ Por qué la segunda es un IDA Y VUELTA y no un `isNaN` — la historia, EN PASADO
+   *
+   * ⭐ **Estado de HOY (v1.78.3, `7b45d69`): el contrato y este método DICEN LO MISMO.** §M4-PREP
+   * declara la comprobación normativa como **`d.toISOString().slice(0,10) === token`**, con el orden
+   * del `||` y la dependencia del `RegExp` de 4 dígitos escritos. ⛔ **Este método NO desobedece
+   * nada**; lo que sigue explica **por qué la norma dice eso**, y se conserva porque la lección es la
+   * tabla, no la anécdota.
+   *
+   * **Lo que pasó (cerrado, `B-TL1`):** la v1.78.2 **prescribía** *«`Number.isNaN(d.getTime())` sobre
+   * el `Date` construido cierra la segunda»*, y **aquello era falso para uno de los dos ejemplos que
+   * la propia cláusula daba**. Backend cumplió la NORMA (día inexistente ⇒ `400`) desobedeciendo el
+   * MECANISMO, el techlead lo declaró bloqueante —*el contrato manda sobre el código, así que el
+   * documento autoritativo estaba afirmando que la implementación estaba mal*— y v1.78.3 corrigió el
+   * texto. **La medición que lo decidió, que sigue siendo cierta y es lo que hay que recordar**
+   * (`node`, 2026-09-22):
    *
    * | entrada | `new Date(\`${t}T00:00:00.000Z\`)` |
    * |---|---|
@@ -820,18 +831,18 @@ export class ShipmentsService {
    * | `2024-02-29` (sí bisiesto) | `2024-02-29` ✅ — un día real que **debe** aceptarse |
    *
    * Con solo `isNaN`, `?date=2026-02-30` devolvería **`200` con la cola del 2 de marzo**: la cola
-   * contesta **por otro día** sin decirlo — que es **exactamente** el defecto de la ventana
-   * deslizante que esta misma versión acaba de cerrar, entrando por la otra puerta.
+   * contestaría **por otro día** sin decirlo — que es **exactamente** el defecto de la ventana
+   * deslizante que v1.78.2 acababa de cerrar, entrando por la otra puerta.
    *
-   * ⇒ La comprobación es **ida y vuelta**: se construye el `Date` y se exige que **vuelva a
-   * serializar el mismo token**. Acepta los bisiestos reales y rechaza todo desbordamiento. **La
-   * NORMA del contrato (fila 3: día inexistente ⇒ `400`) se cumple; lo que no se sigue es el
-   * MECANISMO sugerido, porque medido no la cumple.**
+   * ⇒ Por eso la comprobación es **ida y vuelta**: se construye el `Date` y se exige que **vuelva a
+   * serializar el mismo token**. Acepta los bisiestos reales (`2024-02-29` ✅) y rechaza todo
+   * desbordamiento. **Hoy eso ES la norma**, ⛔ ya no una desviación de ella.
    *
-   * ⚠️ **El mismo desbordamiento vive en `common/admin-list-filters.ts` (`?from=`/`?to=` de
-   * `/admin/buylist` y `/admin/orders`): `from=2026-02-30` filtra por el 2 de marzo con `200`.**
-   * ⛔ NO se arregla aquí —son otros endpoints con gates aprobados y cambiaría su conducta—: queda
-   * reportado para el arquitecto.
+   * ⚠️ **Lo que SIGUE ABIERTO, y es la otra mitad de la lección:** el mismo desbordamiento vive en
+   * `common/admin-list-filters.ts` (`?from=`/`?to=` de `/admin/buylist` y `/admin/orders`):
+   * `from=2026-02-30` filtra por el 2 de marzo con `200`. ⛔ NO se arregla aquí —son otros endpoints
+   * con gates aprobados y cambiaría su conducta—: está registrado como **`M4P-DATEOVF`** en
+   * `docs/TECH_DEBT.md`, pendiente del arquitecto.
    *
    * **Anclaje UTC y ventana medio abierta `[d, d+24h)`** — la misma convención transversal que §0 fija
    * para `from`/`to` (v1.25.1). ⚠️ Consecuencia aceptada: para el operador en CDMX (UTC−6) ese «día»

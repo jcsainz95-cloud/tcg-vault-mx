@@ -7770,3 +7770,106 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   finanzas cuyo periodo no cuadre con lo que el operador pidió.
 - **Comprobación de cierre:** `GET /admin/buylist?from=2026-02-30` ⇒ **`400 VALIDATION_ERROR`**, y
   `?from=2024-02-29` (bisiesto real) sigue devolviendo `200` filtrando por ese día.
+
+## Backend · 2026-09-22 · cierre de gates de «Pedidos a preparar» (seguridad + techlead)
+
+### M4P-ORD3 · `GET /admin/inventory/locations` es una TERCERA autoridad de orden sobre `VaultLocation.label`, y la única que no sigue §M4P-ORDER (backend · Inventario y vault, 2026-09-22)
+- **Dueño del código:** **backend** (`src/modules/inventory/inventory.service.ts` · `listLocations`).
+- **Dueño de la DECISIÓN:** **arquitecto** — §M4P-ORDER lo deja nombrado y **fuera de alcance** a
+  propósito; cambiarlo es conducta observable de otro endpoint y de otro work stream.
+- **Severidad:** Baja. **No bloqueante.** ⛔ Sin dinero, sin PII, sin schema.
+- **Qué es:** §M4P-ORDER bajó de **tres** comparadores a **dos** (servidor y vista) y les dio norma
+  —unidades de código UTF-16—. El tercero **no bajó**: `listLocations` ordena **en Postgres**
+  (`orderBy: { label: 'asc' }`), que no es unidades de código sino **la collation de la base**.
+- **⭐ El dato que a la ficha del techlead le faltaba (él marcó NO MEDIDO por no tener BD; medido por
+  backend el 2026-09-22 con las etiquetas discriminantes de los casos 3 y 4 del contrato):**
+
+  | Autoridad | Orden | ¿= §M4P-ORDER? |
+  |---|---|---|
+  | Unidades de código (la norma) | `C01 < CZ < CÑ < c01` | — |
+  | Postgres collation **`C`** | `C01 < CZ < CÑ < c01` | ✅ idéntico |
+  | Postgres collation **`und-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario** |
+  | Postgres collation **`en-US-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario** |
+
+  ⇒ **La divergencia no depende de los datos: depende de la CONFIGURACIÓN de la base.** Con `C`/`C.UTF-8`
+  coincide; con ICU o `en_US.UTF-8` **discrepa exactamente en los dos casos que el contrato usa como
+  discriminantes** — el mismo desacuerdo que `localeCompare`. *El «riesgo bajo» del orden en SQL
+  descansa en un ajuste de infraestructura que nadie declaró.* Detalle en `docs/BACKEND_NOTES.md` §M4P-ORDER.
+- **⚠️ Lo que sigue NO MEDIDO y quién puede cerrarlo:** la collation de **producción**. Backend no tiene
+  acceso; la consulta es de **solo lectura** y la corre el dueño:
+  `SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();`
+- **Por qué no se nota aunque discrepe:** las dos autoridades ordenan **listas distintas** (la cola de
+  preparación vs. el catálogo de ubicaciones), así que no hay dos columnas que comparar de un vistazo.
+  Se manifiesta como *«el archivero y la hoja de trabajo no van en el mismo orden»* — que un operador
+  atribuye a la pantalla, ⛔ no a una collation.
+- **Disparador:** que el dueño mida una collation distinta de `C`; o que entre una etiqueta fuera de
+  `^[A-Z0-9-]+$`; o cuando el arquitecto abra el stream de «Inventario y vault».
+- **Comprobación de cierre:** o §M4P-ORDER declara que esa lista **no** entra en su norma (y se escribe
+  por qué), o `listLocations` ordena en el proceso con el mismo comparador y un canario lo fija.
+
+### M4P-ORDCH · La medición de charset que el contrato deja a deber ya no vive solo en un informe (backend, 2026-09-22) — **CERRADA en este pase**
+- **Dueño:** **backend**. **Severidad:** Baja. **No bloqueante.**
+- **Qué era:** §M4P-ORDER declara **NO MEDIDO** si el cambio de comparador altera lo que el operador ve,
+  y encarga la medición a *«quien cablee»*. La hice y la reporté, pero **no estaba en ninguna
+  `*_NOTES.md`**: vivía en un informe de agente. *Una medición que no está en `docs/` se evapora, y
+  dentro de seis meses alguien la vuelve a medir o —peor— la supone.* Es la misma clase que `O-5`.
+- **Cierre:** escrita en **`docs/BACKEND_NOTES.md` § «§M4P-ORDER — la medición de charset…»**, con su
+  **fecha**, su **consulta**, su **alcance declarado** (bases de desarrollo, ⛔ no producción) y el
+  matiz de que el alfabeto seguro es **una costumbre, no un invariante** (`CreateLocationDto` valida
+  `box`/`row`/`slot` con `@IsString()` a secas).
+- **Comprobación de cierre:** `grep -n "M4P-ORDER" docs/BACKEND_NOTES.md` devuelve la sección con su
+  tabla fechada. **Se deja la ficha en vez de borrarla** para que el enlace informe→documento quede
+  trazable.
+
+### M4P-DOCV · Un docstring afirmaba EN PRESENTE que el contrato prescribe algo falso (backend, 2026-09-22) — **CERRADA en este pase**
+- **Dueño:** **backend** (`src/modules/shipments/shipments.service.ts` · `parseDayFilter`).
+- **Severidad:** Baja. **No bloqueante.** ⛔ Cero conducta.
+- **Qué era:** el docstring decía, en presente, que §M4-PREP *«prescribe `Number.isNaN` y eso es falso»*
+  y que este método **desobedece el MECANISMO** del contrato. Era cierto cuando se escribió (v1.78.2) y
+  **dejó de serlo con v1.78.3**, que corrigió el texto normativo (`B-TL1`). Un lector dentro de seis
+  meses habría concluido que este método **desobedece deliberadamente al contrato** — exactamente lo
+  contrario de la verdad. Es la clase que `ARCHITECTURE §4.37.1-a` llama mortal: **una afirmación de
+  estado que envejece con autoridad**, aquí dentro del código que la sostiene.
+- **Cierre:** reescrito **en pasado** (patrón `FRONTEND_NOTES.md` para lo superado), con un
+  **«Estado de HOY»** al principio que dice que contrato y método **coinciden**. ⛔ **La tabla de
+  desbordamiento se CONSERVA íntegra**: sigue siendo cierta, es el porqué de la norma y es la lección
+  que el método tiene que llevar encima. También se enlaza `M4P-DATEOVF` como lo que **sigue abierto**.
+- **Comprobación de cierre:** el docstring no afirma en presente ninguna discrepancia con el contrato,
+  conserva las cinco filas de la tabla (`2026-13-45`, `2026-02-30`, `2026-04-31`, `2026-02-29`,
+  `2024-02-29`) y nombra `M4P-DATEOVF`.
+
+### M4P-FLK1 · `buylist-intake-concurrency` es INTERMITENTE en la corrida completa: 2/10 en `main`, 3/10 con este delta — el cupo AML de `customer2` se comparte con 9 specs (backend · Catálogo y precios, 2026-09-22)
+- **Dueño del código:** **backend**, stream **«Catálogo y precios»** (`test/integration/buylist-intake-concurrency.e2e-spec.ts`).
+  ⛔ **NO es de «Órdenes y dinero»**: lo descubrió este stream midiendo, pero el fichero y la causa son de otro.
+- **Severidad:** Media **como instrumento**, Baja como producto. **No bloqueante.** ⛔ **Cero defecto de
+  producción**: lo que falla es la prueba, y falla **cerrándose** (avisa de que no midió), ⛔ no abriéndose.
+- **Qué es (medido el 2026-09-22, suite de integración completa, BD **recreada** en cada tirada):**
+
+  | Árbol | Tiradas | Rojas |
+  |---|---|---|
+  | `HEAD` sin este delta | **10** | **2** |
+  | Con el delta de este pase | **10** | **3** |
+
+  ⇒ **Indistinguibles: el intermitente PREEXISTE.** *(Se midió con N=10 a cada lado justamente porque
+  con N=4 la diferencia 0/4 vs 2/7 parecía atribuible a este pase, y no lo era — O-3.)*
+- **El fallo, textual:** `expect(creadas.length).toBeGreaterThan(0)` ⇒ `Received: 0`. Ninguna de las
+  48 altas simultáneas prosperó, así que **no hubo concurrencia que medir** y el control de
+  no-vacuidad de la propia suite reventó — *haciendo exactamente su trabajo*.
+- **La causa está escrita en el docstring de esa misma suite**, que documenta este modo de fallo como
+  ya visto: *«otras suites ya habían consumido el tope mensual AML de `customer2`, así que las 48
+  altas contestaron `422 BUYLIST_LIMIT_EXCEEDED`, ninguna creó nada»*. El remedio que se aplicó
+  —**prestarse el tope** en el `beforeAll` (`CAP_SUITE_CENTS = 100_000_000`) y devolverlo en el
+  `afterAll`— **redujo la frecuencia pero no cerró la clase**: medido, **nueve** specs más crean
+  `SellRequest` de `customer2` (`avisos`, `avisos-sellos`, `buylist`, `buylist-closed-total`,
+  `buylist-cycle`, `buylist-pay-verdicts`, `buylist-raw-only`, `buylist-step-guard`,
+  `kyc-ine-links`), así que el cupo sigue siendo un **recurso compartido sin dueño** y el resultado
+  depende de cuánto consumieron las anteriores. *Un candado de concurrencia que comparte cupo con el
+  resto de la suite mide el orden de los ficheros, no el código* — lo dice su propio docstring, y
+  sigue siendo verdad.
+- **Dirección de cura (⛔ no implementada aquí: otro stream, y tocar fixtures compartidos en mitad de
+  un gate es justo lo que O-14 prohíbe):** darle a esta suite un **usuario propio y efímero** en vez
+  de compartir `customer2` — el cupo deja de ser un recurso disputado y el préstamo/devolución del
+  tope sobra. Es el mismo patrón que `C-EQ-1` ya usa (`CEQ1-` crea lo suyo y lo barre).
+- **Disparador:** el próximo rojo de gate que resulte no ser un defecto; o cuando se toque esa suite.
+- **Comprobación de cierre:** 20 corridas de la suite completa con BD recreada ⇒ **0 rojas**, y
+  `grep -c "customer2" test/integration/buylist-intake-concurrency.e2e-spec.ts` ⇒ **0**.

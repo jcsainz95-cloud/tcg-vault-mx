@@ -463,8 +463,70 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
 
   // ------------------------------------------------------------------ el guard, de verdad
 
-  it('el guard sigue siendo el de siempre: sin sesión ⇒ 401', async () => {
-    const res: any = await h.api('GET', '/admin/shipments/picking-list');
-    expect([401, 403]).toContain(res.status);
+  // ------------------------------------------------------------------ `S-M4P-A` · AUTORIZACIÓN
+
+  /**
+   * ⭐⭐ **`S-M4P-A` (seguridad, MEDIA) — el candado que faltaba, y lo que había MEDÍA OTRO GUARD.**
+   *
+   * ### El hueco, medido por seguridad sobre una copia
+   * `RolesGuard` **falla ABIERTO**: `if (!required || required.length === 0) return true`. Si alguien
+   * borra o desplaza el `@Roles(...)` del controlador, el endpoint **no pierde autenticación pero sí
+   * autorización** ⇒ queda abierto a **cualquier cliente con sesión**. Retirando `@Roles` sobre una
+   * copia, seguridad midió: **14/14 de esta suite en VERDE** y **344/344 suites · 5666/5666
+   * unitarias en VERDE**. *Ninguna de 5666 pruebas se entera de que el back-office queda abierto* —
+   * y esta pantalla es justo donde este stream **ensanchó la PII** (nombre + domicilio completo).
+   *
+   * ### Y la prueba que había aquí medía el guard EQUIVOCADO
+   * Decía «sin sesión ⇒ 401» con `expect([401, 403]).toContain(...)`. Dos defectos en una línea:
+   *  1. el caso **anónimo** lo cierra `JwtAuthGuard`, ⛔ **no** `@Roles` ⇒ pasaba igual con el
+   *     `@Roles` retirado. **Medía la autenticación creyendo medir la autorización.**
+   *  2. la aserción **floja**: *un candado que no distingue `401` de `403` no mide el guard que dice
+   *     medir* — con `[401,403]` un endpoint que degradara de «no autorizado» a «no autenticado»
+   *     (o al revés) pasaría sin que nadie lo viera.
+   *
+   * ⛔ **No es una vulnerabilidad abierta:** la conducta de HOY es correcta y se mide viva abajo. Lo
+   * que faltaba era la **red**, que es lo que convierte «hoy está bien» en «mañana seguirá estándolo».
+   *
+   * **El canario de este bloque es exactamente el experimento de seguridad:** retirar `@Roles` del
+   * controlador ⇒ el caso del CLIENTE pasa de `403` a `200` ⇒ **rojo**.
+   */
+  describe('`S-M4P-A` — autorización: la cola de PII es de operador+', () => {
+    it('sin sesión ⇒ **401** exacto (lo cierra `JwtAuthGuard`, ⛔ no `@Roles`)', async () => {
+      const res: any = await h.api('GET', '/admin/shipments/picking-list');
+      // ⛔ Exacto, ⛔ no `[401,403]`: son dos guards distintos y esta fila mide UNO.
+      expect(res.status).toBe(401);
+    });
+
+    it('⭐ CLIENTE autenticado ⇒ **403** exacto — el candado que `@Roles` tiene que sostener', async () => {
+      const clienteToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+      const res: any = await h.api('GET', '/admin/shipments/picking-list', {
+        token: clienteToken,
+      });
+      // ⭐ ÉSTA es la fila que se pone roja si alguien retira `@Roles`: sin él, el cliente recibe
+      // `200` **con el nombre y el domicilio completo de otros clientes**.
+      expect(res.status).toBe(403);
+      expect(res.body?.error?.code).toBe('FORBIDDEN');
+      // ⛔ Y no se filtra nada en el cuerpo del rechazo.
+      expect(res.text).not.toContain(SNAPSHOT_9.line1);
+      expect(res.text).not.toContain(SNAPSHOT_9.recipientName);
+    });
+
+    it('el OPERADOR de bóveda sí entra (el candado no puede cerrarle la puerta a quien trabaja)', async () => {
+      const opToken = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
+      const res: any = await h.api('GET', '/admin/shipments/picking-list', { token: opToken });
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+  });
+
+  // ------------------------------------------------------------------ `S-M4P-B` · caché
+
+  it('⭐ `S-M4P-B` — la cola de PII se sirve con `Cache-Control: no-store`', async () => {
+    const res: any = await h.api('GET', '/admin/shipments/picking-list', { token: adminToken });
+    expect(res.status).toBe(200);
+    // El precedente lo fijó el propio rol seguridad para respuestas MENOS densas que ésta
+    // (`admin.controller.ts`, textual: «ni en el disco del navegador»). Aquí viaja el nombre y el
+    // domicilio COMPLETO de cada cliente con envío en preparación.
+    expect(String(res.headers?.['cache-control'] ?? '')).toContain('no-store');
   });
 });

@@ -23717,3 +23717,72 @@ lectura de config). Requieren diseño + prueba que falle primero:
 - `GET /catalog/facets`
 El índice debe recortar la parte de la lectura de `InventoryItem`. Si tras el deploy siguen ~10s, la
 cola restante es la Causa 2 (histórico de precio) — que necesita el arreglo enrutado arriba.
+
+---
+
+# §M4P-ORDER — la medición de charset que el contrato deja a deber (backend, 2026-09-22)
+
+> **Por qué está aquí y no solo en un informe (`M4P-ORDCH`, techlead):** §M4P-ORDER declara el orden de
+> las cartas por **unidades de código UTF-16** y dice, textual, que **si cambia lo que el operador ve
+> hoy está NO MEDIDO**, dejando la medición a *«quien cablee»*. La hice, pero vivía **solo en mi
+> informe** — y un informe no es un documento que alguien vaya a releer. *Una medición que no está en
+> `docs/` se evapora, y dentro de seis meses alguien vuelve a medirla o, peor, la supone.*
+
+## 1 · La medición pedida: etiquetas fuera del alfabeto seguro
+
+**Consulta (solo lectura):**
+```sql
+SELECT count(*) FROM "VaultLocation" WHERE label !~ '^[A-Z0-9-]+$';
+```
+
+| Fecha | Dónde | Filas totales | Fuera de `^[A-Z0-9-]+$` |
+|---|---|---|---|
+| 2026-09-22 | `tcg_m4prep` (desarrollo, backend) | 4 | **0** |
+| 2026-09-22 | `tcg_m4prep2` (desarrollo, backend) | 4 | **0** |
+
+Las etiquetas existentes son `C01-F01-S01` ×2 y `E2E-F01-S01` ×2. Ordenadas con **los dos**
+comparadores (unidades de código y `localeCompare`) dan **la misma salida** ⇒ sobre lo que hay, el
+cambio de §M4P-ORDER **no es observable**.
+
+> ⚠️ **ALCANCE, dicho sin adornos: son bases de DESARROLLO sembradas por el seed, ⛔ NO la de
+> producción.** La de producción **no la he medido** y no tengo acceso. La consulta de arriba es de
+> solo lectura y la puede correr el dueño en Railway. ⚠️ Y aunque saliera distinto de cero, **el
+> cambio entra igual**: el orden de esas filas hoy depende de la locale del host, es decir
+> **indefinido por contrato** — §M4P-ORDER *define lo indefinido*, no cambia lo definido.
+>
+> ⚠️ **Y no es un invariante, es una costumbre.** `VaultLocation.label` lo compone el backend como
+> `` `${box}-${row}-${slot}` `` desde `CreateLocationDto`, cuyos tres campos son `@IsString()` **a
+> secas**: sin charset, sin longitud, sin mayúsculas. Un acento, una `ñ`, una minúscula o un espacio
+> son **alcanzables por la ruta de alta soportada**.
+
+## 2 · ⭐ El dato que faltaba para `M4P-ORD3`: Postgres coincide, o no, **según la collation**
+
+`GET /admin/inventory/locations` ordena **en Postgres** (`orderBy: { label: 'asc' }`) ⇒ es una
+**tercera autoridad de orden** sobre el mismo campo, y la única que no sigue §M4P-ORDER. El techlead
+marcó **NO MEDIDO** si difiere de verdad. **Medido el 2026-09-22**, con las etiquetas discriminantes de
+los casos 3 y 4 del contrato:
+
+| Autoridad | Orden resultante | ¿= unidades de código? |
+|---|---|---|
+| Unidades de código (§M4P-ORDER) | `C01 < CZ < CÑ < c01` | — (es la norma) |
+| Postgres, collation **`C`** | `C01 < CZ < CÑ < c01` | ✅ **idéntico** |
+| Postgres, collation **`und-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario en 3 y 4** |
+| Postgres, collation **`en-US-x-icu`** | `c01 < C01 < CÑ < CZ` | ⛔ **contrario en 3 y 4** |
+
+**La conclusión operable:** la divergencia **no es hipotética ni depende de los datos — depende de la
+configuración de la base**. Una base creada con collation `C`/`C.UTF-8` coincide; una creada con ICU o
+`en_US.UTF-8` **discrepa exactamente en los dos casos que el contrato usa como discriminantes**, que es
+el mismo desacuerdo que tiene `localeCompare`. *El «riesgo bajo» del orden en SQL descansa en un ajuste
+de infraestructura que nadie declaró.*
+
+**Mi base de desarrollo es `C.UTF-8`** (`SELECT datcollate FROM pg_database WHERE datname=current_database()`)
+⇒ por eso coincide, y por eso **medir aquí no responde por producción**. La consulta que lo cierra, de
+solo lectura:
+```sql
+SELECT datcollate, datctype FROM pg_database WHERE datname = current_database();
+```
+
+**Por qué importa aunque hoy no se note:** las dos autoridades ordenan **listas distintas** (la cola de
+preparación vs. el catálogo de ubicaciones), así que la discrepancia **no salta a la vista**: se ve como
+*«el archivero y la hoja de trabajo no van en el mismo orden»*, que un operador atribuye a la pantalla,
+no a una collation. Ficha: **`M4P-ORD3`** en `docs/TECH_DEBT.md`.
