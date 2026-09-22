@@ -1,5 +1,19 @@
 # BORRADOR — Contrato de datos «Pedidos a preparar» (rediseño de la cola de picking, M4)
 
+> ✅ **ATERRIZADO PARCIALMENTE (2026-09-22, arquitecto, rama `claude/m4-pedidos-preparar`).** La **rebanada de SOLO
+> LECTURA** de este borrador (§1 sin estado interactivo, §4 checklist, §7 fila «DTO cola» + «Endpoint cola», §6.A/§6.B)
+> quedó en el CONTRATO VIVO: `API_CONTRACT.md` **§M4-PREP** (`PreparationOrderDTO`/`PreparationItemDTO`/`LocationView`/
+> `PreparationDestination`, endpoint reproyectado con `?destination`) y `ARCHITECTURE.md` **§4.21p**.
+> **Correcciones vs este borrador:** (1) `orderId`/`orderNumber` son **`| null`** (un retiro de bóveda no tiene orden);
+> (2) **`quantity` es constante 1** (un `ShipmentItem` = una pieza; no hay columna cantidad); (3) `setName`/`imageSmallUrl`
+> son **nullable**. **`PreparationItemStatus` y `PreparationState` NO se declararon** (son de la rebanada interactiva).
+> **⚠️ HALLAZGO:** bajo el modelo actual la cola solo contiene `destination='ship'` — las órdenes `fulfillmentMode='vault'`
+> **no generan `ShipmentRequest`**, así que la cubeta `vault` queda **vacía** hasta una versión posterior que la alimente
+> (y esa versión **probablemente pide schema**; por eso se detuvo aquí, cero migración). Detalle en §M4-PREP.
+> **PLANEADO — fuera de la versión aterrizada:** §2 (palomear/firmar + columnas `preparedAt`/`preparedByUserId`),
+> §3 (sugerencia de bóveda), §5 (💰 reembolso parcial — requiere los 3 veredictos).
+
+
 **Proyecto:** TCG HUNT · tcghunt.mx
 **Stream:** M4 · rediseño de la cola de envíos/picking → «Pedidos a preparar»
 **Rol que escribe:** arquitecto

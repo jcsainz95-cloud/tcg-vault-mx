@@ -14696,7 +14696,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     *Estado medido 2026-09-13: `shipments/shipments.service.ts:373`, token **crudo** al `where` ⇒ `500 INTERNAL`.*
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `ShipmentRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/shipments/:id`
-- `GET /api/v1/admin/shipments/picking-list` — **lista de picking ordenada por ubicación** (`?date=` opcional) → items con `folio` + `location.label`.
+- `GET /api/v1/admin/shipments/picking-list` — **REPROYECTADA a «Pedidos a preparar»** (v1.78, rebanada de SOLO LECTURA): deja de ser una lista PLANA de piezas ordenada por ubicación y pasa a ser una **hoja de trabajo AGRUPADA por pedido** (`PreparationOrderDTO[]`, un elemento = UN envío/pedido a preparar). **Se conserva la ruta y solo cambia el DTO** (ver decisión abajo). Filtro nuevo opcional `?destination=vault|ship` (las dos cubetas, CA #8); `?date=` se conserva. Orden: `requestedAt` **asc** (lo más viejo primero, CA #9). Rol: **operador+** (sin cambio). ⛔ **Solo lectura, sin efectos.** Forma completa y decisiones en **[§M4-PREP](#M4-PREP)**.
 - `PATCH /api/v1/admin/shipments/:id/status` — Req `{ to: ShipmentStatus }` (transiciones `solicitado→picking→guia→enviado→entregado`).
   - **v1.21 — RAMIFICACIÓN OBLIGATORIA por tipo de envío (`orderId == null`?):**
     - **Retiro de bóveda (`orderId == null`)** → comportamiento v1.17 **sin cambio alguno**: los pasos
@@ -14742,6 +14742,156 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     > habilitado. **Se declara aquí para que no se lea como un defecto nuevo.** ⛔ Y el doble clic **no** produce
     > `409`: produce `200` sin segundo correo, que es lo que el operador quería. Regla completa: **[§R.4.c](#seccion-R)**.
     > ⛔ **CERO columnas nuevas** (`shippedAt` ya es el sello; `cancelado` es terminal) ⇒ **§R.6 no cambia**.
+
+#### <a id="M4-PREP"></a>§M4-PREP — «Pedidos a preparar» (rediseño de la cola de picking, M4) · **rebanada de SOLO LECTURA (v1.78)**
+
+> **Fuente de producto:** `PROJECT.md` §«Pedidos a preparar» (aprobado por el dueño 2026-09-15, con las 6
+> decisiones incorporadas). **Estado del código medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`, 2026-09-22**
+> (arquitecto). Esta sección aterriza **solo la visibilidad** (qué ve el operador). **El palomear/firmar, la sugerencia
+> de bóveda y el reembolso parcial 💰 quedan PLANEADOS — fuera de esta versión** (ver el recuadro al final).
+>
+> ⛔ **CERO cambio de schema (Prisma).** Todo lo que despliega esta cola es **proyección de datos que ya existen**
+> (identidad de carta, destino por orden, cliente, dirección, ubicación). No se añade ninguna columna ni enum de dominio.
+
+**Decisión de endpoint (justificada): se CONSERVA la ruta `GET /admin/shipments/picking-list` y solo cambia el DTO.**
+No se acuña un alias `…/preparation-queue`. Motivo: la ruta ya está cableada de punta a punta (controller
+`admin-shipments.controller.ts:38`, `@Roles(vault_operator, super_admin)`, y la pantalla `M4View.tsx`); cambiar el
+**shape proyectado** sin mover la ruta es el cambio de menor radio de estallido y no rompe el guard ni el ruteo. El
+renombrado «picking → Pedidos a preparar» del dueño es **de cara al operador** (etiqueta de UI, la pone ux-ui/frontend);
+la ruta interna puede seguir diciendo `picking-list` sin que el operador lo vea.
+
+**Envelope de respuesta:** `{ data: PreparationOrderDTO[] }` (mismo envelope `{ data }` de hoy; **no** paginado, igual
+que la cola actual). **Orden de los pedidos:** `requestedAt` **asc** (CA #9). **Orden de las cartas dentro de un
+pedido:** por `currentLocation.label` (asignadas primero, ordenadas; las `unassigned` al final) — conserva el beneficio
+de «caminar por ubicación» que daba la lista plana de hoy.
+
+**Fuente de la cola (medido — LÉASE ANTES DE IMPLEMENTAR):** hoy `pickingList` (`shipments.service.ts:543`) proyecta
+**exclusivamente** `ShipmentRequest{status:'picking'}`. Un `ShipmentRequest` en `picking` es un envío **ya cobrado**
+que **sale por la puerta** — sea un **retiro de bóveda** (`orderId == null`, se envía a domicilio) o un **envío directo**
+(`orderId != null`, `Order.fulfillmentMode='direct_ship'`). **Ambos son físicamente ENVÍO.** Ver el ⚠️ de la cubeta
+`vault` más abajo: bajo el modelo actual esta cola **no contiene** pedidos de destino `vault`.
+
+```ts
+// docs/API_CONTRACT.md §M4-PREP — reflejar 1:1 en frontend/src/types/contract.ts (lo hará frontend).
+// Reemplaza a PickingListEntryDTO de cara al operador. Un elemento = UN pedido/envío a preparar.
+
+// Tipo de DTO (NO es enum de dominio: se DERIVA de Order.fulfillmentMode; ⛔ NO va al bloque
+// «Enums (fuente de verdad)» ni al test de paridad de enums — no existe como enum de Prisma).
+export type PreparationDestination = 'vault' | 'ship';
+
+export interface PreparationOrderDTO {
+  // --- identidad y traza ---
+  shipmentId: string;                 // SIEMPRE presente — la referencia estable del renglón (ShipmentRequest.id)
+  orderId: string | null;             // null en un RETIRO DE BÓVEDA (no tiene orden); poblado en envío directo
+  orderNumber: string | null;         // folio legible "TCG-000123"; null cuando orderId es null (retiro)
+  // --- destino (a nivel de PEDIDO — DECISIÓN #1) ---
+  destination: PreparationDestination; // deriva de Order.fulfillmentMode; retiro (orderId null) ⇒ 'ship'
+  // --- antigüedad (CA #9: atender lo más viejo primero) ---
+  requestedAt: string;                // ISO; la cola ordena asc por defecto
+  // --- cliente ---
+  customer: {
+    lastName: string | null;          // apellido DERIVADO del nombre (archivero alfabético). FRÁGIL — ver §6.A; NO bloquea
+    fullName: string;                 // nombre completo: User.name (con userId) | addressSnapshot.recipientName (invitado)
+  };
+  // --- solo destino ENVÍO ('ship'): dirección COMPLETA, CON la calle que la fila omite hoy (CA #6) ---
+  shipTo?: {
+    recipientName: string | null;     // ausente en snapshots de 8 campos anteriores a v1.67 ⇒ null
+    line1: string;                    // la CALLE
+    line2?: string | null;
+    neighborhood?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone: string;
+  };
+  // --- las cartas del pedido ---
+  items: PreparationItemDTO[];
+}
+
+export interface PreparationItemDTO {
+  shipmentItemId: string;             // ShipmentItem.id — el nodo por carta (será lo que se palomee en la rebanada siguiente)
+  inventoryItemId: string;            // InventoryItem.id
+  folio: string;                      // InventoryItem.folio
+  quantity: number;                   // SIEMPRE 1 bajo el modelo actual (un ShipmentItem = una pieza física; no hay columna cantidad)
+  card: {
+    name: string;                     // Card.name (nomenclatura de tienda)
+    setName: string | null;           // Card.set.name — SET prominente para ENVÍO (mapea a carpeta por set)
+    finish: Finish;                   // InventoryItem.finish
+    conditionLabel: string;           // COMPUESTA EN EL BACK: graded → "PSA 9" | raw → "NM" | sealed → "Mint"
+    imageSmallUrl: string | null;     // Card.imageSmallUrl (nullable en catálogo)
+  };
+  currentLocation: LocationView;      // resuelve "UNASSIGNED" (§6.B) — el código deja de viajar como string
+}
+
+// CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
+export interface LocationView {
+  kind: 'assigned' | 'unassigned';
+  label?: string;                     // "C03-F02-S15" cuando kind='assigned'; ausente cuando 'unassigned'
+}
+```
+
+**Fuente de datos por campo (de dónde saca el backend cada cosa):**
+
+| Campo del DTO | Fuente medida |
+|---|---|
+| `shipmentId` | `ShipmentRequest.id` |
+| `orderId` / `orderNumber` | `ShipmentRequest.orderId` / `Order.orderNumber` (join). **null** en retiro de bóveda |
+| `destination` | **DERIVADO** de `Order.fulfillmentMode`: `direct_ship`→`'ship'`; `vault`+`orderId` = imposible por invariante (lanza/loguea, igual que `kindForFulfillment`, `shipments.service.ts:513`). `orderId == null` (retiro) ⇒ `'ship'` |
+| `requestedAt` | `ShipmentRequest.requestedAt` |
+| `customer.fullName` | con `userId`: `User.name`; invitado (`userId==null`): `addressSnapshot.recipientName` |
+| `customer.lastName` | **DERIVADO** de `fullName` (último token). ⚠️ FRÁGIL (§6.A): nombres/apellidos compuestos fallan; `null` si no se puede derivar. **No bloquea nada** en esta rebanada |
+| `shipTo.*` | `ShipmentRequest.addressSnapshot` (9 campos, `AddressSnapshotDTO`). Solo cuando `destination='ship'`. `recipientName`/`line2`/`neighborhood` pueden ser `null` (snapshots legados de 8 campos) |
+| `items[].shipmentItemId` | `ShipmentItem.id` |
+| `items[].inventoryItemId` / `folio` | `ShipmentItem.inventoryItemId` / `InventoryItem.folio` |
+| `items[].quantity` | constante **1** (un `ShipmentItem` = una pieza; **no hay** columna de cantidad — sin migración) |
+| `items[].card.{name,setName,imageSmallUrl}` | `Card.name` / `Card.set.name` / `Card.imageSmallUrl` |
+| `items[].card.finish` | `InventoryItem.finish` |
+| `items[].card.conditionLabel` | COMPUESTA en el back por precedencia: `gradingCompany`+`gradeValue` (p.ej. `"PSA 9"`) → `rawCondition` (`"NM"`) → `sealedCondition` (`mint`→`"Mint"`, `minor_box_damage`→`"Minor box damage"`) |
+| `items[].currentLocation` | `InventoryItem.location` (`VaultLocation.label`): `null`⇒`{kind:'unassigned'}`; poblado⇒`{kind:'assigned', label}` |
+| filtro `?destination=vault\|ship` | derivado de `fulfillmentMode` (ver ⚠️ de la cubeta `vault`) |
+
+**Notas de diseño / decisiones aterrizadas:**
+- `destination` **deriva** del discriminador canónico `Order.fulfillmentMode` (ARCHITECTURE §4.21d); no se inventa un
+  campo nuevo. Esto **garantiza por construcción** que un pedido no mezcla destinos (DECISIÓN #1), porque el modo es del
+  pedido. **`PreparationDestination` es un TIPO DE DTO, no un enum de dominio** — sus valores (`ship`/`vault`) **no**
+  coinciden con los de `FulfillmentMode` (`direct_ship`/`vault`), así que **⛔ NO se declara en el bloque
+  «Enums (fuente de verdad)»** ni entra en el test de paridad de enums. El backend hace el mapeo explícito.
+- `conditionLabel` se compone en el **back** (no en el front) para no repetir la lógica `raw/graded/sealed`.
+- `orderId`/`orderNumber` son **`| null`** (no `string` a secas): un **retiro de bóveda** vive en esta cola y **no tiene
+  orden**. La referencia siempre presente para trazar es `shipmentId`. *(Corrige el borrador, que los declaraba
+  obligatorios; medido: `ShipmentRequest.orderId` es nullable y la cola incluye retiros.)*
+- **`?destination=vault|ship`**: `ausente` ⇒ ambas cubetas; token del dominio ⇒ filtra; fuera de dominio ⇒
+  **`400 VALIDATION_ERROR`** `details:{field:'destination', allowed:['vault','ship']}` (misma doctrina §0-Q que `?kind=`).
+
+> ### ⚠️⚠️ HALLAZGO DE MEDICIÓN (arquitecto, 2026-09-22) — la cubeta `vault` **NO tiene datos** bajo el modelo actual
+> La cola de hoy proyecta **solo `ShipmentRequest{status:'picking'}`**, y **todo** `ShipmentRequest` es físicamente un
+> ENVÍO a domicilio (retiro de bóveda **o** envío directo) ⇒ **todas las filas actuales son `destination='ship'`.**
+> El «Para bóveda» del producto (§3.6: mover una compra AL archivero del cliente, sin guía, con cambio de ubicación)
+> corresponde a **órdenes con `fulfillmentMode='vault'`**, y **esas órdenes NO generan `ShipmentRequest`**: medido en
+> `payments.service.ts:237-275`, al liquidar una orden `vault` sus piezas pasan `reserved → in_custody, settled` y
+> **se quedan en la tienda sin ninguna cola de preparación ni de colocación**. No existe hoy artefacto que diga «esta
+> compra a bóveda está pendiente de colocar» ni «ya se colocó».
+>
+> **Consecuencia para esta rebanada:** el tipo `PreparationDestination` y el filtro `?destination` quedan **declarados y
+> listos** (contrato completo), pero **la cubeta `?destination=vault` devuelve vacío** hasta que una versión posterior
+> **alimente la cola con las órdenes `fulfillmentMode='vault'`**. Eso **NO es una reproyección** de la cola actual: hay
+> que decidir *qué órdenes vault están pendientes de colocar* y *cómo se marca una como colocada/preparada* — y eso
+> **muy probablemente pide schema** (un sello de preparación/colocación en la ruta vault, que hoy no existe).
+> **⛔ Por la regla dura de cero-migración, NO se propone aquí ninguna columna: se DETIENE y se reporta.** La cubeta
+> `ship` (retiros + envíos directos) se sirve **completa y fielmente** con esta rebanada, sin migración.
+
+**PLANEADO — FUERA DE ESTA VERSIÓN (no implementar en la rebanada de solo lectura; se aterriza en versiones posteriores):**
+
+| Pieza planeada | Forma prevista (borrador) | Toca dinero | Prerrequisito |
+|---|---|---|---|
+| Palomear / des-palomear una carta | `PATCH /admin/shipments/:id/prep-items/:shipmentItemId { status:'picked'\|'pending' }` (operador+) | no | — |
+| Marcar pedido preparado + firma | `POST /admin/shipments/:id/prepared {}` (operador+); `preparedBy` del JWT, nunca del body; exige toda carta `picked`/`missing` o `409`. Requiere columnas nuevas `preparedAt`/`preparedByUserId` en `ShipmentRequest` (**cambio de schema** — versión posterior) | no | decisión de schema |
+| Estado interactivo por carta/pedido | enum `PreparationItemStatus = 'pending'\|'picked'\|'missing'` + `PreparationState` agregado. **⛔ NO se declara en esta versión** | no | rebanada interactiva |
+| Bóveda: sistema propone ubicación | `GET /admin/shipments/:id/vault-location-suggestion` (DECISIÓN #5); depende de que la cubeta `vault` tenga datos (ver ⚠️ arriba) | no | fuente de la cubeta vault |
+| 💰 Carta no encontrada ⇒ **reembolso parcial** | EXTENDER `POST /admin/orders/:id/refund` con `amountCents?/refundItemIds?`, `GET /admin/orders/:id/refund-preview`, columna `partialRefundedCents` | 💰 **sí** | **los 3 veredictos (QA + techlead + seguridad) ANTES de tocar código** |
+
+Detalle completo de estas piezas planeadas: borrador `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md` §2, §3, §5, §6.
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 

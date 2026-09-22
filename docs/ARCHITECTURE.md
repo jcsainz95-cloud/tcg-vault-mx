@@ -6709,6 +6709,47 @@ Decisiones de arquitectura:
 
 ---
 
+### 4.21p WS «Órdenes y dinero» — «Pedidos a preparar» (rediseño de la cola de picking, M4) · rebanada de SOLO LECTURA (v1.78)
+
+> **Producto:** `PROJECT.md` §«Pedidos a preparar» (aprobado 2026-09-15, 6 decisiones incorporadas). **Contrato:**
+> `API_CONTRACT.md` §M4-PREP. Aquí vive el **por qué** de la forma y el **hallazgo de medición** que acota la rebanada.
+> Borrador de trabajo del arquitecto: `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md`.
+
+**Qué cambia (solo visibilidad):** la cola `GET /admin/shipments/picking-list` deja de ser una **lista plana de piezas
+ordenada por ubicación** (`PickingListEntryDTO`: `shipmentId·inventoryItemId·folio·location`) y pasa a ser una **hoja de
+trabajo agrupada por pedido** (`PreparationOrderDTO`: destino, cliente+apellido, dirección con calle, y por carta
+nombre/set/acabado/condición/miniatura/ubicación). **Se conserva la ruta y solo cambia el DTO** — menor radio de estallido,
+no toca el guard ni el ruteo ni la máquina de estados (`REL-B`/`REL-C` intactas). **⛔ CERO cambio de schema:** todo es
+proyección de datos que ya existen (`Card`, `InventoryItem`, `VaultLocation`, `Order.fulfillmentMode`, `addressSnapshot`,
+`User.name`).
+
+**`destination` se DERIVA del discriminador canónico `Order.fulfillmentMode` (§4.21d), no se inventa un campo.** Eso
+garantiza por construcción que un pedido no mezcla destinos (DECISIÓN #1). `PreparationDestination = 'vault'|'ship'` es un
+**tipo de DTO, no un enum de dominio**: sus valores no coinciden con los de `FulfillmentMode` (`direct_ship`/`vault`), así
+que no entra en la paridad de enums (`enum-values-parity.spec.ts`).
+
+#### ⚠️⚠️ Hallazgo de medición (arquitecto, 2026-09-22) — la cubeta `vault` no tiene datos bajo el modelo actual
+
+Medido sobre `claude/m4-pedidos-preparar` @ `b5b38d47`:
+
+- `pickingList` (`shipments.service.ts:543`) proyecta **solo `ShipmentRequest{status:'picking'}`**. **Todo**
+  `ShipmentRequest` es físicamente un **ENVÍO a domicilio** — un retiro de bóveda (`orderId==null`) o un envío directo
+  (`orderId!=null`, `fulfillmentMode='direct_ship'`) ⇒ **todas las filas de la cola son `destination='ship'`**.
+- El «Para bóveda» del producto (mover una compra AL archivero del cliente, sin guía, con cambio de ubicación)
+  corresponde a órdenes **`fulfillmentMode='vault'`**, y **esas órdenes no generan `ShipmentRequest`**: al liquidar
+  (`payments.service.ts:237-275`) las piezas pasan `reserved → in_custody, settled` y **se quedan sin ninguna cola de
+  preparación ni de colocación**. No hay hoy artefacto que diga «pendiente de colocar» ni «ya colocado».
+
+**Decisión de alcance:** el tipo y el filtro `?destination` quedan **declarados y listos** en el contrato, pero la cubeta
+`?destination=vault` **devuelve vacío** hasta que una versión posterior alimente la cola con las órdenes vault. Eso **no es
+una reproyección** de la cola actual: exige decidir *qué órdenes vault están pendientes de colocar* y *cómo se marca una
+como colocada* — y eso **muy probablemente pide schema** (un sello de preparación/colocación en la ruta vault, inexistente
+hoy). **⛔ Por la regla de cero-migración, aquí NO se propone columna: se DETIENE y se reporta.** La cubeta `ship`
+(retiros + envíos directos) se sirve **completa** sin migración. Las piezas interactivas (palomear/firmar, sugerencia de
+bóveda) y el 💰 reembolso parcial quedan **planeadas, fuera de esta versión** (API_CONTRACT §M4-PREP, recuadro final).
+
+---
+
 ### 4.22 WS «Catálogo y precios» + «Inventario y vault» — Variantes reales y orden natural del master set (v1.22-variantes-orden)
 
 > **Requisito del PO, textual:** «Ve cómo en el master set son dos cartas de cada una: la común a la izquierda y la
