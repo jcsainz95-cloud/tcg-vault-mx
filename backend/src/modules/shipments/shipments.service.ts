@@ -1054,13 +1054,39 @@ export class ShipmentsService {
    * *un estado ilegal que el tipo ya no puede representar es un `if` que nadie tiene que acordarse de
    * escribir*— y aquí se nota: antes había que saber que `label === undefined` significaba «no
    * caminable»; ahora lo dice la palabra.
+   *
+   * ### ⭐⭐ v1.78.3 (§M4P-ORDER) — la comparación es por UNIDADES DE CÓDIGO UTF-16
+   * ⛔ **`localeCompare`** y ⛔ **`Intl.Collator`** quedan PROHIBIDOS aquí. No es estilo: la forma sin
+   * argumentos está definida por ECMA-402 como *«la locale por defecto del host»*, y este orden lo
+   * sirven **dos** implementaciones —este método y `sortPreparationItems` del cliente— que corren en
+   * **hosts distintos** (Node del servidor · navegador del operador). Las dos habían elegido
+   * `localeCompare` sin locale: **coincidían por coincidencia de elección, no por norma**.
+   *
+   * **Y fijar la locale no arregla el problema, solo lo mueve:** `localeCompare(x, 'es-MX')` quita la
+   * variable *locale* pero ⛔ **no** la versión de **ICU/CLDR** que cada runtime empaqueta, y ese dato
+   * no se puede fijar desde el contrato. `CLAUDE.md`: *«toda dependencia externa va fijada»* — una que
+   * **no podemos** fijar no se mete en el camino de una regla que exige que dos runtimes coincidan.
+   * La comparación por unidades de código es **la única que fija ECMA-262 en el lenguaje mismo**:
+   * idéntica en Node y en todo navegador, sin ICU de por medio, y **aseverable literalmente**.
+   *
+   * **Consecuencias declaradas, ⛔ ninguna es un defecto que «arreglar»:** una `Ñ` ordena **tras** la
+   * `Z`; una minúscula, **tras** todas las mayúsculas; `…S10` va **antes** que `…S9` (⛔ sin orden
+   * numérico natural, ⛔ sin `{numeric:true}`); el `label` se compara **tal como viaja por el cable**
+   * (⛔ sin `trim()`, ⛔ sin `toUpperCase()`, ⛔ sin `normalize()`); y el empate devuelve `0` para que
+   * mande la **estabilidad** de `Array.prototype.sort` (ES2019) — ⛔ jamás se desempata por `folio`
+   * ni por `id`. Los 7 casos de §M4P-ORDER los asevera `shipments.picking-list.spec.ts` **leyendo el
+   * contrato**, ⛔ no transcribiéndolo.
+   *
+   * *Coste medido (2026-09-22): sobre las etiquetas que el sistema produce hoy —`CAJA-FILA-SLOT` en
+   * mayúsculas con ceros a la izquierda— los dos comparadores dan el MISMO recorrido.*
    */
   private static byLocation(a: PreparationItemDTO, b: PreparationItemDTO): number {
     const A = a.currentLocation;
     const B = b.currentLocation;
     if (A.kind === 'unassigned') return B.kind === 'unassigned' ? 0 : 1;
     if (B.kind === 'unassigned') return -1;
-    return A.label.localeCompare(B.label);
+    // §M4P-ORDER regla 2: unidades de código UTF-16. ⛔ NO `localeCompare`, ⛔ NO `Intl.Collator`.
+    return A.label < B.label ? -1 : A.label > B.label ? 1 : 0;
   }
 
   private static TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {

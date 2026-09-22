@@ -6,8 +6,9 @@ import { BusinessException } from '../src/common/business.exception';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-// `H3-d`: un candado de código mira CÓDIGO, no prosa.
-import { stripComments } from './helpers/strip-comments';
+// `B-TL2` (techlead): la ÚNICA puerta para leer código en un candado, con su control de
+// no-vacuidad por CONTENIDO (anclas) — la mitad que detecta la ceguera PARCIAL del limpiador.
+import { codigoDeFichero } from './helpers/codigo-de-fichero';
 
 /**
  * `GET /admin/shipments/picking-list` — **«Pedidos a preparar»** (API_CONTRACT §M4-PREP, v1.78).
@@ -274,16 +275,27 @@ describe('pickingList — `?date=` (`I-1` + v1.78.2: era `500`, y ahora es date-
    * barata sería una lista blanca por nombre de fichero. Es la lección de `H3-d`, aplicada de
    * entrada.
    */
-  it('⭐ PROCEDENCIA — reusa `DATE_ONLY_RE` del helper común y ⛔ no declara una segunda gramática', () => {
+  it('⭐ PROCEDENCIA — reusa `DATE_ONLY_RE` del helper común y ⛔ no declara esa segunda gramática', () => {
+    // ⭐ `B-TL2` (techlead): se lee con `codigoDeFichero`, ⛔ no con `readFileSync` + `stripComments`
+    // a mano. Ese helper existe porque el algoritmo estaba «copiado a mano en once sitios», y sobre
+    // todo porque la aserción (c) es un `not.toMatch`: **la forma exacta que pasa por VACUIDAD si el
+    // limpiador se come la región**. Las ANCLAS son la única mitad que detecta esa ceguera PARCIAL.
     const ruta = join(__dirname, '..', 'src', 'modules', 'shipments', 'shipments.service.ts');
-    const codigo = stripComments(readFileSync(ruta, 'utf8'));
+    const codigo = codigoDeFichero(ruta, ['private static parseDayFilter', 'DATE_ONLY_RE.test(']);
     // (a) la importa del ÚNICO sitio donde vive.
     expect(codigo).toMatch(
       /import\s*\{[^}]*\bDATE_ONLY_RE\b[^}]*\}\s*from\s*'\.\.\/\.\.\/common\/admin-list-filters'/,
     );
     // (b) y la USA para decidir (no la importa de adorno).
     expect(codigo).toMatch(/DATE_ONLY_RE\.test\(/);
-    // (c) ⛔ y no hay ninguna gramática de fecha declarada aquí dentro.
+    // (c) ⛔ y no hay una segunda gramática declarada aquí dentro.
+    //
+    // ⚠️ **Lo que esta línea prohíbe y lo que NO, dicho sin prometer de más** (matiz del techlead):
+    // caza la grafía literal `\d{4}-\d{2}-\d{2}`, que es la que alguien copiaría del helper. ⛔ NO
+    // caza `/^\d\d\d\d-\d\d-\d\d$/` ni un `new RegExp('…')` compuesto. Falla en la dirección
+    // SEGURA (deja pasar variantes raras, ⛔ nunca rompe por una legítima), y el candado que sí cubre
+    // el caso general es (b): si `DATE_ONLY_RE` deja de ser quien DECIDE, esto se pone rojo aunque la
+    // gramática copiada tenga otra forma.
     expect(codigo).not.toMatch(/\\d\{4\}-\\d\{2\}-\\d\{2\}/);
   });
 
@@ -923,5 +935,216 @@ describe('pickingList — la forma vieja ya no viaja', () => {
   it('cola vacía ⇒ `{ data: [] }`', async () => {
     const { service } = makeService();
     await expect(service.pickingList()).resolves.toEqual({ data: [] });
+  });
+});
+
+// ============================================================================================
+// §M4P-ORDER (v1.78.3) — la regla de comparación del orden por ubicación
+// ============================================================================================
+
+/**
+ * ⭐⭐ **§M4P-ORDER — los 7 casos se leen DEL CONTRATO, ⛔ no se transcriben aquí.**
+ *
+ * ### Por qué leer y no copiar
+ * El defecto que esta cláusula cierra es que **dos implementaciones servían el mismo orden sin
+ * ninguna norma que citar**: `byLocation` (servidor, Node) y `sortPreparationItems` (cliente,
+ * navegador del operador), las dos con `localeCompare()` **sin locale** — cuya forma sin argumentos
+ * está definida por ECMA-402 como *«la locale por defecto del host»*. Coincidían **por coincidencia
+ * de elección**. Una suite que **transcriba** la tabla a mano sería una **tercera fuente** y
+ * reintroduciría exactamente ese defecto dentro del candado que lo cierra.
+ *
+ * Precedente del repo para este patrón: `enum-values-parity.spec.ts` y `sell-request-states.spec.ts`
+ * leen `docs/API_CONTRACT.md` y asertan contra él. ⛔ Y §M4P-ORDER prohíbe explícitamente un fichero
+ * de casos compartido con frontend: lo consumirían **los dos sobre Node**, medirían la misma
+ * collation, y la única divergencia real seguiría invisible.
+ *
+ * Formato: `M4P-ORDER-CASE <n> | IN: <id>=<label>,… | OUT: <id>,…`, con `∅` = `{kind:'unassigned'}`
+ * y `␣` = un espacio literal dentro del `label`.
+ */
+type Caso = { n: number; entrada: { id: string; label: string | null }[]; salida: string[] };
+
+/** Lee y parsea el bloque `M4P-ORDER-CASE` de `docs/API_CONTRACT.md`. UNA sola puerta al contrato. */
+function casosDelContrato(): Caso[] {
+  const contrato = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const re = /^\s*M4P-ORDER-CASE\s+(\d+)\s*\|\s*IN:\s*(.+?)\s*\|\s*OUT:\s*(.+?)\s*$/gm;
+  const casos: Caso[] = [];
+  for (let m = re.exec(contrato); m !== null; m = re.exec(contrato)) {
+    casos.push({
+      n: Number(m[1]),
+      entrada: m[2].split(',').map((tok) => {
+        const i = tok.indexOf('=');
+        const id = tok.slice(0, i).trim();
+        const bruto = tok.slice(i + 1);
+        // `∅` = sin ubicación. `␣` es un espacio LITERAL dentro de la etiqueta (caso 7).
+        return { id, label: bruto === '∅' ? null : bruto.replace(/␣/g, ' ') };
+      }),
+      salida: m[3].split(',').map((s) => s.trim()),
+    });
+  }
+  return casos;
+}
+
+const CASOS = casosDelContrato();
+
+describe('§M4P-ORDER — orden por unidades de código UTF-16, aseverado CONTRA el contrato', () => {
+
+  /** Ordena una entrada del contrato pasándola por el proyector REAL (`pickingList`). */
+  async function ordenar(caso: Caso): Promise<string[]> {
+    const { service } = makeService([
+      shipment({
+        items: caso.entrada.map((e) =>
+          item({ id: e.id, location: e.label === null ? null : { label: e.label } }),
+        ),
+      }),
+    ]);
+    const res = await service.pickingList();
+    return res.data[0].items.map((i) => i.shipmentItemId);
+  }
+
+  /**
+   * ⛔ **Control de no-vacuidad: si el contrato se re-formatea y el `RegExp` deja de casar, este
+   * fichero pasaría en VERDE sin aseverar NADA.** Un `it.each([])` no falla: no corre. Por eso el
+   * número de casos va fijado con un literal — es el mismo fallo silencioso que el repo ya cazó en
+   * los censos, y aquí entraría por la puerta del parser.
+   */
+  it('⛔ el bloque del contrato se PARSEA (si no, todo lo de abajo pasaría por vacuidad)', () => {
+    expect(CASOS).toHaveLength(7);
+    expect(CASOS.map((c) => c.n)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    for (const c of CASOS) {
+      expect(c.entrada.length).toBeGreaterThanOrEqual(2);
+      // ⚠️ COPIA antes de ordenar: `Array.prototype.sort` ordena **en sitio**, y `c.salida` ES el
+      // orden esperado que usan las aserciones de abajo. Sin el `[...]`, este control de vacuidad
+      // **destruía la expectativa que venía a proteger** — medido: 6 de 7 casos en rojo con el
+      // comparador correcto. *Un control que corrompe lo que vigila es peor que no tenerlo.*
+      expect([...c.salida].sort()).toEqual(c.entrada.map((e) => e.id).sort());
+    }
+    // El caso 7 tiene que traer el espacio LITERAL, o no muerde al `trim()` que vigila.
+    expect(CASOS.find((c) => c.n === 7)!.entrada.some((e) => e.label?.startsWith(' '))).toBe(true);
+  });
+
+  it.each(CASOS.map((c) => [c.n, c] as const))(
+    'M4P-ORDER-CASE %i — el DTO servido sale en el orden que declara el contrato',
+    async (_n, caso) => {
+      expect(await ordenar(caso)).toEqual(caso.salida);
+    },
+  );
+});
+
+/**
+ * ⭐⭐ **EL CANARIO DE LA TABLA — «que 3 y 4 discriminen» el arquitecto lo marcó NO MEDIDO, y lo
+ * debe quien cablea.**
+ *
+ * §M4P-ORDER razona (sobre el nivel terciario de la collation ICU, ⛔ sin correrlo) que los casos 3 y
+ * 4 deberían salir **al revés** con `localeCompare`. Si esa expectativa fuera falsa, esos dos casos
+ * **no distinguirían nada** y la tabla entera pasaría en verde con el comparador prohibido puesto —
+ * *un caso que no puede fallar es peor que no tenerlo*.
+ *
+ * Aquí cada caso se corre con **el comparador que dice morder** y se exige que produzca un orden
+ * **distinto** del que declara el contrato. Medido el 2026-09-22 (Node v22, ICU 78.2) y confirmado
+ * también bajo `es-MX` y `sv-SE` en los casos 3 y 4: la expectativa del arquitecto era correcta.
+ *
+ * ⛔ Esto ⛔ NO sustituye a las aserciones de arriba: aquéllas prueban que **cumplimos** la norma;
+ * ésta prueba que la tabla **puede detectar** que dejemos de cumplirla. Las dos mitades.
+ */
+describe('§M4P-ORDER — canario: cada caso DISCRIMINA contra el comparador que dice morder', () => {
+  const unidades = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
+
+  /** Los comparadores PROHIBIDOS, cada uno con el caso que existe para cazarlo. */
+  const PROHIBIDOS: { caso: number; nombre: string; cmp: (x: string, y: string) => number }[] = [
+    { caso: 3, nombre: '`localeCompare()` sin locale (minúscula antes que MAYÚSCULA)', cmp: (x, y) => x.localeCompare(y) },
+    { caso: 3, nombre: "`localeCompare(x, 'es-MX')` — fijar la locale NO salva", cmp: (x, y) => x.localeCompare(y, 'es-MX') },
+    { caso: 3, nombre: '`toUpperCase()` previo (regla 3: se compara tal como viaja)', cmp: (x, y) => unidades(x.toUpperCase(), y.toUpperCase()) },
+    { caso: 4, nombre: '`localeCompare()` sin locale (la `Ñ` va tras la `N`, no tras la `Z`)', cmp: (x, y) => x.localeCompare(y) },
+    { caso: 4, nombre: "`localeCompare(x, 'sv-SE')` — otra locale, misma trampa", cmp: (x, y) => x.localeCompare(y, 'sv-SE') },
+    { caso: 5, nombre: '`{ numeric: true }` (regla 4: ⛔ sin orden numérico natural)', cmp: (x, y) => x.localeCompare(y, undefined, { numeric: true }) },
+    { caso: 7, nombre: '`trim()` previo (regla 3: ⛔ sin recortar)', cmp: (x, y) => unidades(x.trim(), y.trim()) },
+  ];
+
+  const casos = CASOS;
+
+  it.each(PROHIBIDOS.map((p) => [p.caso, p.nombre, p] as const))(
+    'CASE %i muerde a %s',
+    (n, _nombre, prohibido) => {
+      const caso = casos.find((c) => c.n === n)!;
+      expect(caso).toBeDefined();
+      const conProhibido = [...caso.entrada]
+        // Solo casos sin `∅`: estos comparadores solo se aplican entre dos `assigned`.
+        .sort((x, y) => prohibido.cmp(x.label as string, y.label as string))
+        .map((e) => e.id);
+      // ⛔ DISTINTO del contrato ⇒ el caso sirve para detectar la regresión.
+      expect(conProhibido).not.toEqual(caso.salida);
+    },
+  );
+
+  it('⛔ y el caso 6 (empate) exige que el comparador devuelva 0, no un desempate inventado', () => {
+    const caso = casos.find((c) => c.n === 6)!;
+    const [a, b] = caso.entrada;
+    expect(a.label).toBe(b.label);
+    expect(unidades(a.label as string, b.label as string)).toBe(0);
+    // El orden lo da la ESTABILIDAD de `Array.prototype.sort` (ES2019), ⛔ no `folio` ni `id`.
+    expect(caso.salida).toEqual(caso.entrada.map((e) => e.id));
+  });
+});
+
+/**
+ * ⭐⭐ **GUARDA DE RESIDUO — el candado barato que de verdad muerde** (patrón
+ * `sell-request-states.spec.ts` · «los NUEVE sitios»).
+ *
+ * Las aserciones de la tabla prueban la **conducta de hoy**. Lo que no pueden evitar es la forma en
+ * que esta regresión llega de verdad: **alguien escribiendo la línea «obvia»**. `localeCompare` es
+ * lo que los dos lados escribieron por su cuenta la primera vez, sin mala fe y sin nada que citar en
+ * contra; volverá a serlo en el primer refactor que toque este comparador. Por eso el residuo se
+ * vigila **por símbolo**, no por fichero: el servicio entero puede usar lo que necesite, pero
+ * `byLocation` ⛔ no.
+ *
+ * ⭐ **`B-TL2` — y se lee con `codigoDeFichero`, ⛔ no con `readFileSync` + `stripComments` a mano.**
+ * Ese helper existe desde un veredicto del 2026-09-14 **precisamente** porque el algoritmo estaba
+ * *«copiado a mano en once sitios»*; había 10 llamantes y el mío iba a ser el 11.º por fuera. Y el
+ * motivo de peso es el modo de fallo: mis aserciones son `not.toMatch`, **la forma exacta que pasa
+ * por VACUIDAD si el limpiador se come la región** que vigila. Las **anclas** de `codigoDeFichero`
+ * son la única mitad que detecta esa ceguera **parcial** — si la región de `byLocation` desapareciera
+ * del texto limpio, el ancla revienta señalando cuál, en vez de dar un verde que no midió nada.
+ */
+describe('§M4P-ORDER — guarda de RESIDUO: `localeCompare` / `Intl.Collator` no vuelven a `byLocation`', () => {
+  const RUTA = join(__dirname, '..', 'src', 'modules', 'shipments', 'shipments.service.ts');
+  // Anclas: fragmentos de CÓDIGO que el texto limpio tiene que seguir conteniendo. Si el limpiador
+  // se come la región de `byLocation`, esto revienta en vez de pasar por vacuidad (`B-TL2`).
+  const CODIGO = codigoDeFichero(RUTA, [
+    'private static byLocation',
+    "if (A.kind === 'unassigned')",
+  ]);
+
+  /** El cuerpo de `byLocation`, acotado: de su firma al cierre del método. */
+  function cuerpoDeByLocation(): string {
+    const i = CODIGO.indexOf('private static byLocation');
+    expect(i).toBeGreaterThanOrEqual(0);
+    const j = CODIGO.indexOf('\n  }', i);
+    expect(j).toBeGreaterThan(i);
+    return CODIGO.slice(i, j);
+  }
+
+  it('⛔ `byLocation` NO menciona `localeCompare` ni `Intl.Collator` ni `{numeric`', () => {
+    const cuerpo = cuerpoDeByLocation();
+    // Control de no-vacuidad por CONTENIDO: el cuerpo acotado trae lo que decimos que trae. Sin
+    // esto, un recorte mal hecho dejaría los tres `not.toMatch` pasando sobre una cadena vacía.
+    expect(cuerpo).toContain('A.label');
+    expect(cuerpo).toContain('B.label');
+    expect(cuerpo.length).toBeGreaterThan(80);
+    expect(cuerpo).not.toMatch(/localeCompare/);
+    expect(cuerpo).not.toMatch(/Intl\s*\.\s*Collator/);
+    expect(cuerpo).not.toMatch(/numeric\s*:/);
+  });
+
+  it('⛔ tampoco normaliza el `label` antes de comparar (regla 3: tal como viaja por el cable)', () => {
+    const cuerpo = cuerpoDeByLocation();
+    expect(cuerpo).not.toMatch(/\.trim\(\)/);
+    expect(cuerpo).not.toMatch(/\.toUpperCase\(\)|\.toLowerCase\(\)/);
+    expect(cuerpo).not.toMatch(/\.normalize\(/);
+  });
+
+  it('✅ y SÍ compara por unidades de código (la guarda no vale si no dice qué debe haber)', () => {
+    // ⚠️ Un residuo es «esto no está». Sin su contraparte positiva, borrar el comparador ENTERO
+    // dejaría los `not.toMatch` en verde — el vacío pasa todas las prohibiciones.
+    expect(cuerpoDeByLocation()).toMatch(/A\.label\s*<\s*B\.label/);
   });
 });
