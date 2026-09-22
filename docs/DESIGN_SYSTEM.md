@@ -4,7 +4,15 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v4.3** — **§33.1 + §33.16 R10: el header del storefront gana una 6ª entrada, «Meta Battle Decks»**
+> Estado: **v4.4** — **§35 NUEVA: «Pedidos a preparar», la hoja de trabajo del operador de pie** (2026-09-22,
+> `API_CONTRACT §M4-PREP`). **Esta sección se escribe DESPUÉS de la pantalla, no antes** (§35.0): documenta el
+> patrón que ya existe —**tarjeta por PEDIDO** con las cartas anidadas y ordenadas por ubicación, dos cubetas
+> envío/bóveda— y **lo juzga**, con **4 correcciones bloqueantes** y **6 no bloqueantes** enrutadas a frontend
+> (§35.13). **Cero tokens nuevos.** Dos derivas cerradas en el mismo pase: **§12 ya no describe M4 como
+> «picking-list por ubicación»** y **§33.10d ya no afirma que «la lista de picking no cambia»** — ambas
+> describían la pantalla anterior. **Corrección a §8.1:** el vacío de una cola admin **no es «verde suave»**
+> (`EmptyState` perdió el relleno de color en la dirección 5a y **ignora** su prop `tone`) — §35.8.
+> Antes: **v4.3** — **§33.1 + §33.16 R10: el header del storefront gana una 6ª entrada, «Meta Battle Decks»**
 > (2026-09-19). Decisión del **dueño**, tomada hoy (funcionalidad **Decks Meta Fase 1**, `ARCHITECTURE §12`,
 > ruta pública `/decks-meta`): se suma **una entrada de navegación más** —texto, mismo patrón que las otras cinco,
 > **sin** sub-menús, íconos especiales ni tablero—, **pública** (visible **con y sin** sesión), colocada
@@ -2208,7 +2216,7 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/fx/mode`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, curva de precio (§21), **consola de bounties (§28)**, **tarjeta de tipo de cambio con interruptor auto/manual (§30)**, colchón, rareza→categoría, sync/backfill de sets (super_admin) |
 | **M2 › Bounties** (v3.4) | `GET /admin/pricing/bounties` (lectura, `super_admin`); escribe en `PUT /admin/pricing/variant-controls/:cardId/:finish` **fila a fila** | `DataTable` agrupada **atención (rebasados + sin precio) → activos → completados → apagados**, con **`counts` de los cinco estados sobre el total**, edición **de una fila a la vez** y confirmación solo cuando **sube** el dinero — **§28** |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
-| M4 Retiros | `/admin/shipments/*` | Cola, picking-list por ubicación, captura de guía, PipelineStepper |
+| M4 Retiros | `/admin/shipments/*` | Cola de envíos (StatusBadge, captura de guía, PipelineStepper) + **«Pedidos a preparar» (§35)**: **una tarjeta por PEDIDO** con las cartas anidadas y ordenadas por ubicación, y dos cubetas (envío / bóveda). ~~picking-list por ubicación~~ — **la lista PLANA de piezas ya no existe** (v4.4); la palabra «picking» **no aparece de cara al operador** (sigue solo en la ruta interna `…/picking-list` y en el enum `ShipmentStatus`, `API_CONTRACT §M4-PREP`) |
 | M5 Buylist | `/admin/buylist/*` | Pipeline, cherry-pick por item, convertir a inventario, pago SPEI (super_admin) |
 | M6 Usuarios/KYC | `/admin/users/*` | Ficha 360° (Tabs), KYC, bloquear (destructivo) |
 | M7 Finanzas | `/admin/finance/*` | StatCards financieros, tablas, export CSV (solo super_admin) |
@@ -16544,7 +16552,11 @@ estado (sin marcar nada al cliente: no puede arreglar un envío ya creado).
     **M5 ya usa** (P-66 B3). Requiere que `GET /admin/shipments` traiga `addressSnapshot` y `customer` (R5): hasta
     entonces, **se pinta «—»** en cada dato ausente (§32.4: lo desconocido es «—», nunca omitido en silencio) y
     **nunca** el `userId`.
-- La **lista de picking** no cambia (es por ubicación, no por persona).
+- ~~La **lista de picking** no cambia (es por ubicación, no por persona).~~ **⛔ DEJÓ DE SER CIERTO EN v4.4.**
+  La lista plana de piezas fue **sustituida** por «Pedidos a preparar» (**§35**): la unidad pasó a ser el
+  **pedido** —con su persona, su dirección y su antigüedad— y la ubicación sigue ordenando, pero **dentro** de
+  cada pedido. *Se deja tachada y no borrada porque esta frase es justo la que hacía creer que la persona no
+  entraba en esa lista: hoy la persona es el encabezado de la tarjeta.*
 
 ---
 
@@ -17721,3 +17733,410 @@ auth y del sidebar del panel, ya verificado en §10 y §17.2. **Cero tokens nuev
 | **D1** | **product-owner** | ¿Correo de **identidad verificada**? Recomendación: **no** (buena noticia sin acción, visible en la cuenta). Por defecto no se diseña. |
 | **D2** | **product-owner / dueño** | ¿Hay **plazo** que prometerle al cliente en «En revisión»? Recomendación: **empezar sin plazo** — la copy de §34.8 funciona entera sin él y prometer un plazo que no se cumple es peor que no darlo. Si el dueño fija uno, es **una sola clave** (`account.kyc.pending.sla`) y entra sin tocar el diseño. |
 | **E1** | **QA** | Candados **de interfaz** que ponen un test en rojo (los de servidor son K-1…K-10 del contrato, §M6-K.9; éstos no los repiten, los complementan): **KY-1** el HTML de `/admin/m6` (lista **y** ficha) **no contiene ninguna URL firmada** ni llama a `ine-links`: el enlace se pide **solo** al abrir la pantalla de revisión; **KY-2** un `vault_operator` que teclea `/admin/m6/kyc/{id}` **no ve el documento** (y el `403` del servidor se mide aparte, K-1); **KY-3** con `kycStatus='rejected'`, «Mi cuenta» muestra el `rejectionReason` **y** los dos uploaders (hoy, con `ineOnFile=true`, no muestra ninguno); **KY-4** con `kycStatus='pending'` la sección contiene «No tienes que hacer nada más» y **cero** controles de subida; **KY-4b** con `verified`, **sí** existe «Actualizar mi identificación» y al usarlo el estado vuelve a `pending`; **KY-5** la superficie de cliente renderizada **no contiene** «tope»/«Tope»/«cap» ni ninguna cifra de política, y `GET /users/me/kyc` **no trae** `threshold`/`cap`/`monthUsed` en ninguna clave; **KY-6** rechazar con motivo de 2 caracteres ⇒ botón deshabilitado y **cero** peticiones; con 501 ⇒ error en el campo; **KY-7** *(solo si A8 se aprueba)* el correo lleva el motivo **literal** y **ninguna** imagen ni enlace al documento; **KY-8** con el enlace caducado, «Volver a pedir el enlace» **conserva zoom, rotación y cara**, y **no hay ninguna re-petición automática** en 3 minutos de pantalla abierta *(mídelo con el contador de llamadas a `ine-links`: debe ser **1**)*; **KY-9** la ficha 360° **no** contiene ningún control que fije `kycStatus`. Medir en 390×844 y 1280×800. |
+
+---
+
+## 35. «Pedidos a preparar» — la hoja de trabajo del operador **de pie** (v4.4, 2026-09-22 · `API_CONTRACT §M4-PREP`)
+
+### 35.0 De dónde sale esta sección, y por qué llega tarde
+
+**El flujo del proyecto pone a ux-ui antes que a frontend. En esta rebanada no ocurrió: la pantalla ya estaba
+construida cuando me llamaron.** Se dice aquí en vez de disimularse, porque cambia la naturaleza del documento:
+**§35 no es un encargo, es un acta** — describe el patrón que existe, lo ratifica donde acierta y lo corrige
+donde falla (§35.13).
+
+**Lo que medí antes de escribir (2026-09-22, rama `claude/m4-pedidos-preparar`):**
+
+| Medición | Resultado |
+|---|---|
+| `grep -n -i 'preparar\|archivero' docs/DESIGN_SYSTEM.md` | **0 resultados** — la pantalla no estaba documentada; la última sección era §34 |
+| `grep -n -i 'preparar' PROJECT.md` | **ninguna sección «Pedidos a preparar»** (los aciertos son de M5 y del rastreo público). ⚠️ Ver **nota A-1** de §35.14 |
+| Fuente de producto **que sí existe en el árbol** | `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md` (arquitecto, 2026-09-15) + `API_CONTRACT §M4-PREP` (`:14746`) |
+| Lo construido | `frontend/src/app/[locale]/(admin)/admin/m4/PreparationQueue.tsx` (343 líneas) montado en `M4View.tsx:331` |
+| Tokens/componentes usados | **ninguno nuevo**: §4 layout, §6/§7 componentes, §8.1/§8.2 estados y accesibilidad, §9.2/§9.3 i18n, con `Badge`, `CardImage`, `FinishMark`, `EmptyState`, `QueryState`, `Skeleton` |
+
+**Cero tokens nuevos en §35.** Nada de lo que pido aquí necesita una tinta, un tamaño ni un componente que el
+sistema no tenga ya: todas las correcciones son **de jerarquía, de copy y de frescura**, que es exactamente lo
+que una revisión de diseño tardía puede arreglar sin obligar a reconstruir.
+
+---
+
+### 35.1 El trabajo que esta pantalla sirve — **y es un trabajo físico**
+
+Quien la usa **no está sentado**. Está de pie frente a un archivero, con las manos ocupadas (cartas, funda,
+caja), caminando entre ubicaciones y volviendo a la pantalla entre viaje y viaje. **Esa postura es la
+especificación**: no es una tabla de back-office que se lee con el ratón, es una **hoja de trabajo** que se
+consulta a metro y medio, de un vistazo, muchas veces seguidas.
+
+De ahí salen las cinco preguntas que la tarjeta contesta, **en este orden**, y toda la jerarquía de §35.3 es la
+consecuencia de ese orden:
+
+1. **¿De quién es este paquete?** → el apellido (archivero alfabético) y, debajo, el nombre completo.
+2. **¿Dónde están las cartas?** → la **ubicación** de cada pieza: es el dato por el que camina.
+3. **¿Qué carta es exactamente?** → nombre + set + acabado + condición + miniatura (una `Charizard` no es *una*
+   carta: es una familia de variantes, y equivocarse cuesta un envío mal armado).
+4. **¿A dónde va cuando esté armado?** → destino (envío / bóveda) y, si es envío, la **dirección completa con
+   la calle**.
+5. **¿Qué tan tarde voy?** → la antigüedad («hace 3 días»), porque la cola se atiende por lo más viejo.
+
+> **Regla derivada, y es la que gobierna esta sección entera:** *un dato que el operador usa **caminando** pesa
+> más que un dato que usa **mirando**.* La ubicación y la dirección se usan **fuera** de la pantalla —una para
+> andar, otra para rotular el paquete—; el resto se usa delante de ella. Por eso las dos correcciones
+> bloqueantes de jerarquía (§35.4, §35.5) caen precisamente sobre esas dos.
+
+**Lo que esta pantalla NO es:** no es la cola de envíos (esa vive arriba, con el `StatusBadge`, la captura de
+guía y el `PipelineStepper`, §12). **Son dos superficies sobre los mismos envíos y contestan preguntas
+distintas:** la cola de arriba es *administración del envío* (¿en qué estado está? ¿ya tiene guía?); ésta es
+*ejecución física* (¿qué saco, de dónde y para quién?). Se permiten en la misma ruta, pero el orden de lectura
+importa — ver hallazgo **P-10**.
+
+---
+
+### 35.2 La unidad de la lista es el **PEDIDO**, no la pieza (patrón de lista agrupada)
+
+**Antes:** una fila por pieza, toda la cola ordenada por ubicación. **Ahora:** una **tarjeta por pedido**, con
+sus cartas anidadas y **ordenadas por ubicación dentro de la tarjeta**.
+
+- **Por qué cambia:** el operador no entrega piezas, **entrega paquetes**. Una lista plana ordenada por
+  ubicación optimiza el recorrido y **rompe la unidad de trabajo**: obliga a reconstruir de memoria a qué
+  paquete pertenece cada carta, y ese trabajo mental no deja rastro — cuando falla, falla en silencio (una
+  carta en la caja equivocada).
+- **Lo que NO se pierde:** el recorrido. El orden por ubicación **sobrevive dentro de la tarjeta**, así que
+  «caminar la bóveda en orden» sigue valiendo dentro de un pedido. Se cambia un óptimo global (toda la cola en
+  una pasada) por un óptimo local **con la unidad de trabajo intacta**. Es la decisión correcta: el error que
+  evita es **irreversible** (paquete mal armado, cliente equivocado); el que introduce es **caminar un poco
+  más**.
+- **Estructura:** `<ol>` de pedidos → `<article>` por pedido → `<ul>` de cartas. La lista ordenada **es
+  semántica, no estilo**: el orden (más viejo primero) es información, y un lector de pantalla debe poder
+  decir «1 de 7».
+- **Orden de los pedidos:** `requestedAt` **ascendente** — lo más viejo arriba. El servidor ya lo sirve así y
+  **la pantalla lo vuelve a aplicar a propósito** (`sortPreparationOrders`): el orden de la cola es un criterio
+  de aceptación, y anclarlo donde el operador lo ve lo hace verificable ahí. Una fecha ilegible va **al final**
+  — *una fecha que no se puede leer no es «la más vieja»*.
+- **Sin paginación y sin scroll infinito.** Es una cola de trabajo, no un catálogo: si crece tanto que no cabe,
+  el problema es la cola, no la pantalla, y paginarla escondería precisamente eso.
+- **⛔ Sin umbral de urgencia.** No se pinta «lleva demasiado» en acento **hasta que el dueño fije un plazo**:
+  el sistema no tiene SLA de preparación y **una alarma inventada por el diseño enseña a ignorar las alarmas**.
+  El orden ya dice quién va primero.
+
+---
+
+### 35.3 Jerarquía de la tarjeta — **cuatro planos de lectura**
+
+Una tarjeta es papel (`bg-surface`) con una regla de 1px (`border-border`), `p-4`, `gap-4` (§4.1, §4.2: radio 0,
+sin sombra). Dentro, **cuatro planos** y nada entre ellos:
+
+| Plano | Qué lleva | Tipografía / token | Por qué ese peso |
+|---|---|---|---|
+| **1 · Quién** | **Apellido** | `font-serif text-2xl leading-tight text-text` | Es la llave del archivero y la del paquete. Es lo único de la tarjeta que se busca **alfabéticamente**, y la serif a 24px se distingue del resto a metro y medio |
+| | Nombre completo | `text-sm text-text` *(hoy `text-muted` — corrección **P-4b**, §35.6)* | Es el dato **fiable**; el apellido de arriba es derivado y puede estar mal (§35.6) |
+| **2 · Qué saco** | Ubicación por carta | mono `tabular`, **`text-sm text-text`** *(corrección **P-3**, §35.4)* | Es por donde **camina** |
+| | Nombre de la carta | `font-serif text-lg text-text` + `lang="en"` | Identidad principal de la pieza |
+| | Set | `text-sm font-semibold text-text` + `lang="en"` | Con el set se llega a la carpeta correcta; sin él, dos cartas del mismo nombre son la misma |
+| | Acabado + condición | `FinishMark` sin banda (mono 10px, doble canal §2.4, §16.6) + `text-sm text-text` | Distinguen variantes; el `conditionLabel` viene **compuesto del servidor** (⛔ no se recompone aquí) |
+| | Miniatura | `CardImage w-16` (5:7, §5) | **Cotejo visual**, no decoración: confirma de un golpe que la carta en la mano es la de la línea |
+| | Folio | mono 11px `text-muted` | Desempate final; se lee **de cerca**, ya con la carta en la mano |
+| **3 · A dónde va** | Destino | versalita mono 11px (`Badge`, §2.4) | Decide la **forma** de la tarjeta (con dirección o sin ella) |
+| | Dirección completa | `text-sm` **`text-text`** *(corrección **P-4**, §35.5)* | Se **transcribe** al paquete |
+| **4 · Traza y tiempo** | Antigüedad + fecha | `text-sm font-medium text-text` + `time` `text-xs text-muted` | El «hace 3 días» **nunca sustituye** a la fecha: acompaña |
+| | Folio del pedido · referencia de envío | `tabular text-lg font-semibold` · mono 11px `text-muted` | El folio es lo que se dice por teléfono; la referencia de envío es traza interna |
+
+**Dos reglas normativas que salen de esta tabla:**
+
+1. **El valor pesa más que su etiqueta.** «CP», «Tel», «Folio», «Ubicación» son **rótulos**: van en mono 11px
+   `text-muted`. El número que sigue va en `text-text` con `tabular`. *La etiqueta se lee una vez en la vida;
+   el valor, cada vez.* (Hoy, en dos bloques, está al revés — **P-4**.)
+2. **Lo que ordena una lista tiene que formar columna.** Si las cartas se ordenan por ubicación, las
+   ubicaciones **se leen en vertical, alineadas**; enterradas al final de un párrafo, el orden existe pero no
+   se ve, y el operador vuelve a recorrer la tarjeta entera por cada carta. Ver §35.4.
+
+**Lo que la tarjeta dice cuando un dato no existe** (§32.4 — *lo desconocido es «—», nunca omitido en silencio*):
+
+| Caso | Qué se pinta | ⛔ Nunca |
+|---|---|---|
+| Pedido **sin folio** (retiro de bóveda: no tiene orden) | **«Retiro de bóveda»** en serif, **en el lugar del folio** | Un hueco, ni un `null`, ni un id crudo |
+| **Apellido** no derivable | versalita `text-muted` **«Apellido no identificado»** + el nombre completo | «null», ni el nombre completo ascendido a apellido en silencio |
+| Carta **sin ubicación** | **«Sin ubicar»** en `text-accent`, **al final de su pedido** | El código `UNASSIGNED` (§6.B del borrador), ni una cadena vacía que la cuele arriba en el orden |
+| `recipientName` ausente (snapshots previos a v1.67) | la línea **no se pinta**; el plano 1 ya nombra a la persona | Una línea «Destinatario: —» que parece una avería |
+| Miniatura ausente | el **pozo de papel** (`surface-2`, §5) | Una imagen rota, ni un esqueleto eterno |
+| `requestedAt` ilegible | **«—»** en las **dos** líneas (antigüedad **y** fecha) — **P-7** | Una línea de antigüedad **en blanco** |
+
+---
+
+### 35.4 La **ubicación** es la clave de recorrido — y se lee en columna *(corrección normativa)*
+
+La ubicación (`C03-F02-S15`) es lo único de esta pantalla que el operador usa **mientras camina**. Hoy es el
+dato **menos visible** de la tarjeta: último renglón, mono **11px**, `text-muted`, y **detrás del folio**.
+
+**No es un problema de contraste** —`#6E695E` sobre papel da ~4.8:1 y cumple AA (§10)— **es un problema de
+jerarquía**: el tono `muted` es, por definición de este sistema, el de lo **secundario** (§10: *«el texto
+subtle/placeholder no se usa para información esencial»*), y la ubicación no es secundaria: **es el criterio de
+orden de la lista**.
+
+**Regla normativa:**
+
+- La ubicación va **primero** en el renglón de la carta, **en columna a la izquierda** (o en su propia línea
+  superior en `< sm`), **mono `tabular`, `text-sm` (14px), `text-text`**, con el rótulo «Ubicación» en mono 11px
+  `text-muted` **encima o delante**, no compartiendo peso con el valor.
+- **«Sin ubicar»** conserva `text-accent` (bermellón = *esto te va a costar trabajo*) **al mismo tamaño** que
+  una ubicación real: es una excepción que se atiende, no una nota al pie. Su carta va **al final** del pedido,
+  que es donde el recorrido la encuentra: cuando ya no queda nada que caminar.
+- El **folio de la pieza** baja detrás de la ubicación. Es el dato de **cotejo en mano**, no de recorrido.
+- ⛔ **La ubicación no se trunca nunca.** Es corta y es una llave; un `truncate` en una llave la vuelve inútil.
+
+---
+
+### 35.5 La dirección se lee **para copiarla** — y por eso no puede ir en `muted` *(corrección normativa)*
+
+**No hay impresión de etiquetas en este sistema** (`PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md §7`: *impresión de
+etiquetas (cero)*). Eso significa que la dirección de la pantalla **se transcribe a mano** al paquete o a la
+ventanilla del transportista. Un dato que se transcribe es **un dato que se lee dígito a dígito**, y ahí la
+diferencia entre `text-muted` y `text-text` no es estética: es la probabilidad de equivocar un CP.
+
+**Regla normativa del bloque de dirección (solo destino `ship`):**
+
+- **Valores en `text-text`, `text-sm`** (calle y número, colonia, ciudad, estado, país, **CP** y **teléfono**
+  con `tabular`). **Rótulos** («CP», «Tel», «Destinatario») en mono 11px `text-muted`.
+- **La calle va completa y en su propia línea**, primera del bloque: es el dato que la pantalla anterior omitía
+  y el que hace la dirección utilizable.
+- `line2` y `neighborhood` son opcionales: **se filtran**, nunca dejan comas colgando.
+- El bloque **no usa `<address>`**: ese elemento es para los datos de contacto del documento, no para la
+  dirección postal de un tercero.
+- **Destino `vault` ⇒ no hay bloque de dirección.** No se pinta vacío ni «—»: en un pedido a bóveda la
+  dirección **no existe**, y un «—» afirmaría que falta.
+
+---
+
+### 35.6 El apellido: por qué domina la tarjeta, y por qué **no se puede confiar en él**
+
+**La jerarquía está bien y se ratifica:** apellido en serif 24px sobre nombre completo en 14px. Con un archivero
+alfabético, el apellido es la llave de búsqueda y **debe ganar** — la proporción actual (24 vs 14) es
+suficiente y no necesita tocarse.
+
+**Lo que está mal es la confianza.** El apellido **no es un dato capturado: es derivado** —el último token del
+nombre completo (`API_CONTRACT.md:14843`, marcado ahí mismo como **FRÁGIL**)— y la tarjeta lo presenta como el
+hecho más grande de la pantalla, sin ninguna reserva.
+
+> ⚠️ **Y el modo de fallo no es el caso raro: es el más común en México.** El orden habitual es *nombre(s) +
+> apellido **paterno** + apellido **materno***, y un archivero alfabético mexicano se ordena por el **paterno**.
+> «Último token» devuelve el **materno**. Con «Juan Carlos Sainz Ortega», el sistema propone archivar en
+> **O**, y el archivero lo espera en **S**. No falla en los nombres compuestos: falla en los normales.
+
+**Consecuencias de diseño, en dos tiempos:**
+
+- **Hoy, en esta rebanada de solo lectura, no bloquea** — la pantalla no archiva nada, no propone ubicación, y
+  la cubeta bóveda está vacía (§35.8). Lo que sí exige hoy es que **el nombre completo deje de ser `muted`**
+  (`text-sm text-text`): es el único elemento con el que el operador puede **corregir a ojo** la letra
+  equivocada, y un dato que existe para corregir a otro no puede pintarse como secundario (**P-4b**).
+- **Antes de que el apellido gobierne algo** —la sugerencia de ubicación de bóveda (`source='alpha_by_lastname'`,
+  §3 del borrador) o cualquier orden alfabético— **bloquea**: hay que decidir si se captura apellido
+  estructurado o si esa función no usa el apellido jamás. **Es petición al arquitecto / product-owner, no al
+  frontend** (nota **A-2**, §35.14).
+
+---
+
+### 35.7 El filtro de **cubetas** (envío / bóveda)
+
+Tres botones —**Ambas · Solo envío · Solo bóveda**— bajo un rótulo mono 11px en versalitas, con
+`role="group"` + `aria-labelledby`, `aria-pressed` en cada botón, `min-h-[44px]` (§8.2) y el activo en tinta
+sólida (`bg-text` / `text-primary-fg`), el resto con regla `border-border-strong`.
+
+**Se ratifica tal cual, y con precedente:** este sistema usa **`role="group"` + `aria-pressed`** para los
+filtros segmentados (`LocaleToggle` §6.5, `RangeToggle` §7.17 punto 2) y reserva **`role="radiogroup"`** para las
+elecciones que **cambian qué gobierna el dinero** (el interruptor de FX, §30). Un filtro de vista no es de esa
+familia: no cambia nada del mundo, solo qué se mira. **⛔ No se migra a `radiogroup`.**
+
+- **«Ambas» es el estado por defecto** y equivale a no mandar el parámetro. Es la lectura correcta para un
+  operador que va a vaciar la cola entera: **el filtro sirve para concentrarse, no para encontrar**.
+- **Ancho por segmento suficiente para el español** (§9.4); las etiquetas no se abrevian.
+- El filtro **no se recuerda entre visitas**: es una decisión del momento («ahora voy a hacer los envíos»), no
+  una preferencia. Persistirlo haría que el operador volviera a una pantalla que le esconde trabajo.
+- ⚠️ **Hoy, «Ambas» y «Solo envío» devuelven lo mismo y «Solo bóveda» siempre vacío** (§35.8). El filtro **se
+  conserva igual**: está en el contrato, y quitarlo haría invisible una parte del producto que ya se decidió.
+  Lo que no se vale es que la cubeta vacía **mienta** — que es justo el hallazgo **P-1**.
+
+---
+
+### 35.8 Carga, error y **vacío** — y el vacío de bóveda, que es el copy delicado
+
+**Carga.** Esqueleto **con la forma final** (§8.1): dos tarjetas de pedido con sus tres bloques, no un spinner.
+El operador de pie tiene que poder anticipar «viene una lista de tarjetas», no «pasa algo».
+
+**Error.** `Banner danger` + **«Reintentar»**, con el copy resuelto desde el `errorCode` y **audiencia
+`operator`** (§26): a quien lee esta pantalla se le habla de la cola, nunca de «tu documento» ni de «tu pago».
+
+**Vacío.** `EmptyState` (§8.1): dos reglas, mucho aire, título en serif y **una** frase.
+
+> **⚠️ Corrección a §8.1 (v4.4).** §8.1 dice *«Cola admin vacía: "Nada pendiente aquí" (estado positivo, verde
+> suave)»*. **El «verde suave» ya no existe**: la dirección 5a retiró los rellenos de color (§2.1, los `*-bg`
+> semánticos son `transparent`) y `EmptyState` **ignora** su prop `tone` (lo acepta por compatibilidad y no lo
+> pinta). El vacío positivo de una cola admin se comunica **con el texto y el aire**, no con color. ⇒ dejar de
+> pasar `tone` (hallazgo **P-6**).
+
+**Un copy por cubeta, porque las tres situaciones son distintas** — y aquí está la regla que las gobierna:
+
+> **Un estado vacío afirma solo lo que el sistema sabe.** Puede decir «esta lista no tiene nada»; **no puede
+> decir «no hay trabajo»** si el sistema no mide el trabajo. La diferencia entre las dos frases es la
+> diferencia entre una pantalla honesta y una pantalla que **deja trabajo físico sin hacer con el operador
+> tranquilo**.
+
+| Cubeta | Qué es verdad | Copy normativo |
+|---|---|---|
+| **Ambas** | No hay ningún pedido cobrado esperando | **«Nada que preparar por ahora.»** / *«Cuando entre un pedido cobrado aparecerá aquí, con el más viejo arriba.»* ✅ correcto **si** la lista se refresca sola (§35.9) |
+| **Solo envío** | No hay envíos esperando | **«Nada que enviar por ahora.»** / *«No hay pedidos cobrados esperando envío.»* ✅ (la segunda frase, «Los nuevos aparecen aquí solos», **solo es cierta con §35.9** — **P-2**) |
+| **Solo bóveda** | **La cola no se alimenta de ahí todavía** | ⛔ **el copy de hoy afirma de más — ver abajo** |
+
+**El vacío de bóveda, dicho con precisión.** El hecho medido (`API_CONTRACT §M4-PREP`, recuadro del arquitecto)
+es: las órdenes `fulfillmentMode='vault'` **no generan cola**, y *«no existe hoy artefacto que diga “esta compra
+a bóveda está pendiente de colocar” ni “ya se colocó”»*. Es decir: **el sistema no sabe si hay trabajo de
+colocación pendiente.** Por eso la frase actual **«No hay nada pendiente ni nada roto»** es media verdad: acierta
+en *nada roto* y **afirma sin base** en *nada pendiente*. Es el error más caro que puede cometer un estado vacío
+en una superficie de operación: **tranquiliza sobre algo que no midió.**
+
+**Copy normativo (ES):**
+
+- **Título:** «Esta cubeta todavía no se alimenta.»
+- **Cuerpo:** «Una compra que el cliente deja en su bóveda no genera cola: al liquidarse el pago la carta ya es
+  suya sin salir de la tienda. Vacío aquí **no significa “todo colocado”** — significa que esta pantalla
+  todavía no lleva ese registro.»
+
+**Copy normativo (EN):**
+
+- **Título:** «This bucket isn't fed yet.»
+- **Cuerpo:** «A purchase the customer leaves in their vault doesn't create a queue: once the payment settles
+  the card is already theirs without leaving the store. Empty here **doesn't mean "everything is filed"** — it
+  means this screen doesn't track that yet.»
+
+**Por qué así, punto por punto:** (a) **no alarma** — no hay rojo, ni «error», ni «pendiente»; (b) **no
+tranquiliza de más** — retira la afirmación que el sistema no puede sostener; (c) **no promete software** — se
+cae la frase *«empezará a llenarse cuando el sistema lleve el registro…»*, que es un compromiso de versión
+futura hecho en una pantalla de operación, y las versiones futuras se mueven; (d) **cabe de pie** — dos frases
+en vez de cuatro (§8.1 pide título + una frase; éste es el único vacío del sistema al que le concedo dos, y
+**solo** porque tiene que explicar una ausencia estructural).
+
+---
+
+### 35.9 Frescura: **una cola de mostrador se re-pide sola, o no promete que lo hace**
+
+Medido: el cliente de datos global fija `refetchOnWindowFocus: false` y `staleTime: 30_000`
+(`frontend/src/components/Providers.tsx:12`), y la consulta de esta cola **no lo sobrescribe ni pone
+`refetchInterval`** (`PreparationQueue.tsx:98-101`). **Consecuencia:** la lista solo cambia al montar la
+pantalla o cuando otra acción de M4 la invalida. Un operador que deja la pestaña abierta en el mostrador **puede
+mirar una lista muerta toda la tarde** — mientras el copy del vacío le dice que los nuevos «aparecen aquí
+solos».
+
+**Regla normativa:** *una superficie que promete actualizarse sola tiene que actualizarse sola.* Para esta cola:
+
+- **`refetchOnWindowFocus: true`**, contra el default global — exactamente el precedente de `usePendings.ts:38`,
+  que ya hace esta excepción para las pendientes del back-office y por el mismo motivo. Volver a la ventana
+  **es** el gesto de «¿hay algo nuevo?».
+- **`staleTime` corto** (≈30 s, el global sirve). ⛔ **Sin `refetchInterval` de fondo**: un sondeo permanente
+  gasta en una pantalla que pasa horas abierta sin nadie delante, y el foco ya cubre el caso real.
+- **La actualización nunca reordena bajo el dedo sin decirlo:** el conteo de pedidos vive en una región
+  `role="status"` **siempre montada** (§35.10), así que un pedido nuevo se **anuncia** en vez de aparecer en
+  silencio.
+- Si se decidiera **no** refrescar, entonces el copy de los vacíos **pierde** «Los nuevos aparecen aquí solos» y
+  gana una línea con el gesto real. **Lo que no puede quedarse es el par actual: no refresca y lo promete.**
+
+---
+
+### 35.10 Accesibilidad y orden de lectura
+
+- **Orden del DOM = orden de lectura de §35.1**: destino → folio/«Retiro de bóveda» → referencia de envío →
+  antigüedad → persona → dirección → cartas. Un lector de pantalla recorre la tarjeta como el operador recorre
+  el trabajo.
+- **Cada tarjeta lleva nombre accesible:** `<article aria-labelledby>` apuntando al folio (o a «Retiro de
+  bóveda»). Un `article` sin nombre se anuncia como «artículo» N veces seguidas (**P-9**).
+- **La región de conteo (`role="status"`) está SIEMPRE montada**, aunque la lista esté vacía: una región viva
+  que se monta junto con su contenido **no se anuncia de forma fiable**. Al cambiar de cubeta, el operador debe
+  oír «7 pedidos» **o** el título del vacío (**P-8**).
+- **Objetivos táctiles ≥ 44×44px** en los tres botones de cubeta — **ya se cumple** (`min-h-[44px]`), y es lo
+  correcto para dedos que acaban de soltar una carta.
+- **Foco visible** bermellón de 2px (§4.3, §8.2) en los botones de cubeta y en «Reintentar»; son los únicos
+  elementos enfocables de la pantalla (es una superficie de **solo lectura**).
+- **`lang="en"` en nombre de carta y set** (§9.2: los datos de catálogo no se traducen) — **ya se cumple**.
+  ⛔ No se marca `lang` en la ubicación ni en el folio: no son idioma, son códigos.
+- **`<time dateTime>`** en la fecha del pedido — ya se cumple; la antigüedad relativa la acompaña, **no la
+  sustituye** (§9.3: *«hace 3 días»* no sirve para hablar por teléfono con el cliente).
+- **El acabado lleva doble canal** (`FinishMark`: banda decorativa `aria-hidden` + etiqueta mono siempre
+  visible, §2.4) — ya se cumple.
+- **Zoom y reflow:** la tarjeta es una columna de bloques; a 200 % y en 390×844 los bloques apilan sin
+  scroll horizontal. ⛔ Ninguna tabla de columnas fijas en esta pantalla.
+
+---
+
+### 35.11 Lo que esta pantalla **no** hace — y que no se insinúa
+
+Es una rebanada de **solo lectura**: no hay palomear cartas, ni firmar el pedido como preparado, ni sugerencia
+de ubicación de bóveda, ni reembolso por carta faltante (`§M4-PREP`, recuadro PLANEADO).
+
+**Regla:** ⛔ **no se pintan afordancias apagadas** — ni checkboxes deshabilitados, ni un botón «Marcar
+preparado» en gris, ni una barra de progreso «0 de 7». *Un control deshabilitado es una promesa con fecha*, y
+las fechas de esa tabla no están decididas. Cuando la rebanada interactiva llegue, la tarjeta **ya tiene el
+sitio**: la casilla vive a la izquierda de la miniatura y el botón de firma al pie de la tarjeta. Se dice aquí
+para que quien la construya no reorganice la jerarquía de §35.3 al añadirla.
+
+---
+
+### 35.12 Contraste — verificado, sin tokens nuevos
+
+Todos los pares de esta pantalla ya están verificados en §10 y **ninguno es nuevo**:
+
+| Par | Ratio (§10) | Uso aquí |
+|---|---|---|
+| Tinta `#1A1A18` sobre papel `#F4F1EA` | ~15.5:1 | apellido, nombre de carta, set, valores de dirección, ubicación |
+| Muted `#6E695E` sobre papel | ~4.8:1 | rótulos, folio, fecha, referencia de envío |
+| Bermellón `#B44B3A` sobre papel | ~4.65:1 | «Sin ubicar», anillo de foco |
+| Papel sobre tinta (botón de cubeta activo) | ~15.5:1 | segmento activo del filtro |
+
+**Y la advertencia que importa:** las correcciones **P-3** y **P-4** **no son de contraste** —los tonos actuales
+cumplen AA— **son de jerarquía**. Se dice explícito porque un lector apurado podría «cerrarlas» subiendo el
+contraste y dejando el problema intacto: el fallo no es que no se lea, es que **no se lee primero**.
+
+---
+
+### 35.13 Hallazgos sobre lo construido (`PreparationQueue.tsx`, 343 líneas · `M4View.tsx`)
+
+**Dueño de todos los hallazgos de esta tabla: `frontend`.** ux-ui no toca código (regla 8 de `CLAUDE.md`).
+
+**BLOQUEANTES** — *lo que le hace decir a la pantalla algo que no es verdad, o le esconde al operador el dato
+por el que camina.*
+
+| # | Hallazgo | Dónde | Qué pido |
+|---|---|---|---|
+| **P-1** | **El vacío de bóveda afirma «No hay nada pendiente», y eso no está medido.** Lo medido es que el sistema **no lleva** el registro de colocación (`API_CONTRACT.md:14867-14874`). Tranquiliza sobre trabajo físico que nadie está contando | `frontend/messages/es.json:1545` · `en.json:1545` (`admin.m4.prep.emptyVault.body`) | Sustituir por el copy normativo de **§35.8** (ES y EN). Dos claves, cero código |
+| **P-2** | **Los vacíos prometen que la lista se actualiza sola, y no se actualiza.** «Los nuevos aparecen aquí solos» / «New ones appear here on their own» con `refetchOnWindowFocus:false` global (`Providers.tsx:12`) y sin override ni `refetchInterval` en la consulta | `es.json:1537,1541` · `PreparationQueue.tsx:98-101` | **`refetchOnWindowFocus: true`** en esta consulta (precedente exacto: `hooks/usePendings.ts:38`) ⇒ el copy pasa a ser cierto. Si se decide no refrescar, **cae el copy** (§35.9) |
+| **P-3** | **La ubicación —criterio de orden de las cartas (`:81-90`)— es el dato menos visible de la tarjeta:** último renglón, mono 11px, `text-muted`, **detrás del folio**. Lo que ordena la lista no forma columna | `PreparationQueue.tsx:330-338` | Ubicación **primero y en columna**, mono `tabular` **`text-sm text-text`**; rótulo en mono 11px muted; folio detrás. «Sin ubicar» en `text-accent` **al mismo tamaño** (§35.4) |
+| **P-4** | **La dirección completa va en `text-muted`** (el `div` padre fija el tono y los valores lo heredan: ciudad, estado, **CP**, país, **teléfono**). Es el dato que se **transcribe** al paquete, y **no hay impresión de etiquetas** | `PreparationQueue.tsx:255-282` (tono en `:257`; valores en `:269-281`) | **Valores en `text-text`**, rótulos («CP», «Tel», «Destinatario») en mono 11px muted. Es invertir la relación actual (§35.5) |
+| **P-4b** | **El nombre completo va en `text-muted`** siendo el **único** dato con el que el operador puede detectar un apellido derivado mal (y en México la derivación «último token» entrega el apellido **materno** — §35.6) | `PreparationQueue.tsx:249` | `text-sm` **`text-text`**. ⛔ No tocar el tamaño del apellido: esa jerarquía está bien |
+
+**NO BLOQUEANTES** — *deudas de consistencia y de detalle; ninguna miente ni esconde trabajo.*
+
+| # | Hallazgo | Dónde | Qué pido |
+|---|---|---|---|
+| **P-5** | **`Badge tone="success"` para «Para bóveda»** gasta el **único color positivo del sistema** (§2.1: verde = *confirmado/liquidado*) en un **destino**, que no es un estado. Diluye la señal que sostiene la confianza en las pantallas de dinero | `PreparationQueue.tsx:214` | **`tone="primary"` en los dos destinos**; los distingue **la palabra** en versalitas, que es la regla §2.4 (el color nunca es el portador) |
+| **P-6** | **`tone="positive"` es un prop muerto:** `EmptyState` lo acepta y **no lo desestructura** — no pinta nada | `PreparationQueue.tsx:168` · `components/ui/EmptyState.tsx:6,15` | Dejar de pasarlo (§8.1 corregida en §35.8). Si alguien lo quiere vivo, es otra conversación: hoy contradice §2.1 |
+| **P-7** | **Antigüedad en blanco con fecha ilegible:** `formatAge` devuelve `''` (`lib/format.ts:94-96`) y se pinta sin respaldo, mientras la fecha de al lado **sí** cae a «—». Y ese pedido es justo el que el orden manda **al final** (`:73-77`): el más sospechoso queda con la línea vacía | `PreparationQueue.tsx:231` | `formatAge(...) || DASH`, como ya hace `:233` (§32.4) |
+| **P-8** | **La región `role="status"` del conteo solo existe cuando hay pedidos:** al cambiar a una cubeta vacía **no se anuncia nada** (la región y su contenido se montan juntos) | `PreparationQueue.tsx:167-172` | Región **siempre montada**; dentro, el conteo **o** el título del vacío (§35.10) |
+| **P-9** | **`<article>` sin nombre accesible:** siete tarjetas se anuncian como «artículo» | `PreparationQueue.tsx:206-209` | `aria-labelledby` al folio / «Retiro de bóveda» (`:219-223`) |
+| **P-10** | **La hoja de trabajo queda debajo de la cola de envíos completa y sin paginar.** El operador que va a preparar entra a `/admin/m4` y **hace scroll por una lista que no es la suya** | `M4View.tsx:331` (`<PreparationQueue/>` tras la sección de `:193-327`) | Subir «Pedidos a preparar» **encima** de la cola de envíos. Es una pantalla de **ejecución física** compartiendo ruta con una de **administración**: manda la que se usa de pie (§35.1) |
+
+**RATIFICADO — lo que está bien y ⛔ no se toca** *(se enumera para que una revisión futura no lo «arregle»)*:
+la **tarjeta por pedido** con cartas anidadas (§35.2); el **apellido 24px serif** dominando (§35.6); **«Retiro de
+bóveda»** en el lugar del folio en vez de un hueco; **«Apellido no identificado»** en vez de `null`; **«Sin
+ubicar»** sin código `UNASSIGNED` y al final del pedido; el **esqueleto con la forma final** (`:155-165`); el
+**re-orden en cliente** con la fecha ilegible al final (`:72-90`); **`lang="en"`** en nombre y set; el
+**`conditionLabel` compuesto en el servidor** y no recompuesto aquí; **`role="group"` + `aria-pressed` +
+`min-h-[44px]`** en las cubetas (§35.7); **`<time dateTime>`** con la fecha absoluta junto al «hace N días»; y
+que la pantalla **no pinte ni una afordancia apagada** de la rebanada interactiva (§35.11).
+
+---
+
+### 35.14 Notas a otros roles — lo que este diseño **no** decide
+
+| Ref | Para | Qué |
+|---|---|---|
+| **A-1** | **product-owner / orquestador** | **La fuente de producto que se me citó no está en el árbol.** El encargo apuntaba a `PROJECT.md §«Pedidos a preparar»` (aprobada por el dueño **2026-09-15**, con 6 decisiones y CA #1..#11); medido hoy: `grep -n -i 'preparar' PROJECT.md` **no devuelve esa sección**. Lo que sí existe es `docs/specs/PEDIDOS_A_PREPARAR_CONTRACT_DRAFT.md` (borrador del **arquitecto**) y `API_CONTRACT §M4-PREP`, y **contra esos dos + el código** se escribió §35. **`PROJECT.md` es del product-owner**, no mío: si la sección se aprobó, **falta bajarla al repo**; si no se aprobó, hay una rebanada construida sin fuente de producto versionada. **Esto no bloquea §35** (el contrato y el borrador cubren los datos), pero sí bloquea que alguien pueda verificar CA #1..#11 contra algo |
+| **A-2** | **arquitecto / product-owner** | **`customer.lastName` derivado como «último token» va a la letra equivocada en el caso mexicano normal** (*nombre(s) + apellido paterno + apellido **materno***; el archivero se ordena por el **paterno**) — `API_CONTRACT.md:14843`, ya marcado FRÁGIL ahí. **Hoy no bloquea** (nada se archiva desde una pantalla de solo lectura y la cubeta bóveda está vacía). **Bloquea antes** de que el apellido gobierne la **sugerencia de ubicación de bóveda** (`source='alpha_by_lastname'`, §3 del borrador) o cualquier orden alfabético. Decidir entre: **(a)** apellido estructurado en captura, **(b)** que la sugerencia **no** use el apellido nunca (la bóveda existente del cliente ya es mejor fuente), o **(c)** derivar el **penúltimo** token y asumir su error. ⛔ Mientras no se decida, **ninguna pantalla debe ordenar ni archivar por `lastName`** |
+| **A-3** | **arquitecto** *(pequeña)* | Si algún día la cubeta **bóveda** se alimenta, el copy de su vacío (§35.8) **deja de ser cierto** y hay que retirarlo. Queda anotado aquí para que no sobreviva a su causa |
+| **A-4** | **QA** | Candados de interfaz que esta sección hace verificables: **PR-1** el HTML de la cubeta `vault` vacía **no contiene** la cadena «nada pendiente» / «nothing is pending»; **PR-2** cambiar de cubeta con resultado vacío **produce un anuncio** en una región viva ya montada; **PR-3** la **ubicación** de cada carta se renderiza **antes** que su folio en el DOM; **PR-4** ningún valor del bloque de dirección hereda `text-muted`; **PR-5** con `requestedAt` inválida, la tarjeta pinta «—» en **las dos** líneas de tiempo y el pedido queda **al final**; **PR-6** con la pestaña recuperando el foco, la cola **se vuelve a pedir** (contador de llamadas ≥ 2). Medir en **390×844** y **1280×800** |
