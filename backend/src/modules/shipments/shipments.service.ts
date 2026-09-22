@@ -97,7 +97,15 @@ export interface PreparationOrderDTO {
   orderNumber: string | null;
   destination: PreparationDestination;
   requestedAt: string;
-  customer: { lastName: string | null; fullName: string };
+  /**
+   * ⭐ **v1.78.1 — `fullName` es `string | null`, y ⛔ `''` queda PROHIBIDA como marca de ausencia.**
+   * La fuente del INVITADO (`addressSnapshot.recipientName`) **puede faltar** en los snapshots de 8
+   * campos anteriores a v1.67, igual que `shipTo.recipientName`, que el contrato ya declaraba
+   * nullable. `null` es la **única** grafía de «no hay nombre» en todo este DTO (`lastName`,
+   * `orderId`, `orderNumber`, `shipTo.recipientName`): `""` renderiza como un hueco invisible, no se
+   * distingue de un nombre vacío legítimo y obliga a cada consumidor a escribir `if (!x)`.
+   */
+  customer: { lastName: string | null; fullName: string | null };
   shipTo?: {
     recipientName: string | null;
     line1: string;
@@ -707,10 +715,13 @@ export class ShipmentsService {
     const destination = this.destinationOf(s);
     const snapshot = ShipmentsService.addressSnapshotOf(s.addressSnapshot);
     // Con cuenta ⇒ `User.name` (NOT NULL en schema); invitado ⇒ el nombre CONGELADO en el snapshot.
-    // ⚠️ El invitado con snapshot legado de 8 campos no tiene `recipientName` ⇒ cadena vacía, porque
-    // el contrato declara `fullName: string` (y `lastName` cae a `null`, que es su caso «no se puede
-    // derivar»). No se inventa un nombre ni se rompe la cola por un snapshot viejo.
-    const fullName = s.user?.name ?? snapshot.recipientName ?? '';
+    // ⚠️ **v1.78.1: el invitado con snapshot legado de 8 campos no tiene `recipientName` ⇒ `null`,
+    // ⛔ NUNCA `''`.** `addressSnapshotOf` ya devuelve `null` ahí, así que este `??` solo cubre la
+    // ausencia de las DOS fuentes. `null` es la única marca de ausencia del DTO y se propaga sola a
+    // `lastName` (ver `lastNameOf`). ⛔ No se inventa un nombre ni se rompe la cola por un snapshot
+    // viejo. *La medición de que hoy es inalcanzable (los snapshots de 8 campos son de RETIROS, que
+    // tienen `User.name`) no cambia el tipo: el contrato declara la FORMA de la fuente, no su suerte.*
+    const fullName = s.user?.name ?? snapshot.recipientName ?? null;
     const items = s.items.map((si) => ShipmentsService.toPreparationItem(si));
     items.sort(ShipmentsService.byLocation);
     return {
@@ -787,11 +798,13 @@ export class ShipmentsService {
    * dato de negocio: ningún flujo depende de él. La alternativa —columna nueva + captura nueva— es
    * cambio de modelo, fuera del alcance de una rebanada de solo lectura.
    *
-   * `null` cuando el nombre viene **vacío o en blanco** (el invitado con snapshot legado): ahí no hay
-   * nada que derivar. Un nombre de UN solo token SÍ devuelve ese token — un mononombre se archiva
-   * bajo su propia letra, y devolver `null` tiraría información de archivo que sí tenemos.
+   * **v1.78.1 — `fullName === null ⇒ lastName === null` POR CONSTRUCCIÓN**, no por coincidencia: la
+   * ausencia se propaga, no se traduce. También `null` si el nombre viene en blanco. Un nombre de UN
+   * solo token SÍ devuelve ese token — un mononombre se archiva bajo su propia letra, y devolver
+   * `null` tiraría información de archivo que sí tenemos.
    */
-  private static lastNameOf(fullName: string): string | null {
+  private static lastNameOf(fullName: string | null): string | null {
+    if (fullName === null) return null;
     const tokens = fullName
       .trim()
       .split(/\s+/)

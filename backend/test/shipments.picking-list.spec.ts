@@ -301,10 +301,35 @@ describe('pickingList — cliente: `fullName` y el apellido DERIVADO (§6.A)', (
     expect(o.customer.lastName).toBeNull();
   });
 
-  it('invitado con snapshot LEGADO de 8 campos ⇒ `fullName` vacío y `lastName` null, sin reventar', async () => {
+  it('⭐ v1.78.1 — invitado con snapshot LEGADO de 8 campos ⇒ `fullName` NULL (⛔ nunca `""`)', async () => {
     const o = await onlyOrder([shipment({ addressSnapshot: SNAPSHOT_8 })]);
-    expect(o.customer.fullName).toBe('');
+    expect(o.customer.fullName).toBeNull();
+    // ⛔ La cadena vacía queda PROHIBIDA como marca de ausencia: `""` renderiza como un hueco
+    // invisible y no se distingue de un nombre vacío legítimo. Un hecho, una grafía.
+    expect(o.customer.fullName).not.toBe('');
+  });
+
+  it('⭐ v1.78.1 — `fullName === null` ⇒ `lastName === null` POR CONSTRUCCIÓN (la ausencia se propaga)', async () => {
+    const o = await onlyOrder([shipment({ addressSnapshot: SNAPSHOT_8 })]);
+    expect(o.customer.fullName).toBeNull();
     expect(o.customer.lastName).toBeNull();
+  });
+
+  it('⭐ v1.78.1 — snapshot ausente por completo ⇒ `fullName` y `lastName` NULL, sin reventar', async () => {
+    const o = await onlyOrder([shipment({ addressSnapshot: null })]);
+    expect(o.customer).toEqual({ fullName: null, lastName: null });
+  });
+
+  it('⛔ la cadena vacía NO viaja en `customer`: `null` es la ÚNICA marca de ausencia', async () => {
+    const { service } = makeService([
+      shipment({ addressSnapshot: SNAPSHOT_8 }),
+      shipment({ id: 'ship-2', orderId: null, userName: 'Ana López' }),
+    ]);
+    const res = await service.pickingList();
+    for (const o of res.data) {
+      expect(o.customer.fullName).not.toBe('');
+      expect(o.customer.lastName).not.toBe('');
+    }
   });
 });
 
